@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS card_deps (
   PRIMARY KEY (dep, session, card)
 );
 CREATE INDEX IF NOT EXISTS card_deps_card ON card_deps (session, card);
+CREATE TABLE IF NOT EXISTS slack_threads (
+  ts TEXT PRIMARY KEY, reply TEXT NOT NULL, card TEXT NOT NULL, lane TEXT NOT NULL,
+  ledger_row TEXT NOT NULL, question TEXT NOT NULL, options TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS review_rows (
   repo TEXT NOT NULL, number INTEGER NOT NULL, title TEXT NOT NULL, lane TEXT NOT NULL, branch TEXT NOT NULL,
   base TEXT NOT NULL, parent TEXT NOT NULL, parent_state TEXT NOT NULL, head TEXT NOT NULL,

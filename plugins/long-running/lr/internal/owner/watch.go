@@ -1,7 +1,6 @@
 package owner
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +25,7 @@ const (
 type slackEvent struct {
 	Type       string `json:"type"`
 	Channel    string `json:"channel_id"`
+	Thread     string `json:"thread_ts"`
 	TS         string `json:"ts"`
 	User       string `json:"user"`
 	FromClaude bool   `json:"from_claude"`
@@ -36,18 +36,23 @@ func (e slackEvent) fromBot() bool {
 	return e.Type == slackMessage && (e.FromClaude || strings.HasPrefix(e.Text, fallbackPost))
 }
 
-func watchCommand(a *app.App) *cobra.Command {
+func watchCommand(a *app.App, driveName *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "watch",
-		Short: "Stream this window's Slack events under its standing Monitor, reacting :eyes: on each of his messages as it arrives; a bot's message wakes nothing",
+		Short: "Stream this window's Slack events under its standing Monitor, reacting :eyes: on each of his messages as it arrives and printing what his thread answers and what a bare link names; a bot's message wakes nothing",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return watch(cmd.Context(), a.Runner, cmd.OutOrStdout())
+			threads, closed, err := openThreads(*driveName)
+			if err != nil {
+				return err
+			}
+			defer closed()
+			return watch(cmd.Context(), a.Runner, threads, cmd.OutOrStdout())
 		},
 	}
 }
 
-func watch(ctx context.Context, runner shell.Runner, out io.Writer) error {
+func watch(ctx context.Context, runner shell.Runner, threads threadsAt, out io.Writer) error {
 	shown, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "whoami"}, Timeout: slackCall})
 	if err != nil {
 		return err
@@ -61,29 +66,25 @@ func watch(ctx context.Context, runner shell.Runner, out io.Writer) error {
 	if _, err := fmt.Fprintf(out, watching+"\n", me.User); err != nil {
 		return err
 	}
-	read, write := io.Pipe()
-	go func() {
-		_, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "watch"}, Stdout: write})
-		_ = write.CloseWithError(err)
-	}()
-	events := bufio.NewScanner(read)
-	events.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), maxSlackEvent)
-	for events.Scan() {
+	return streamLines(ctx, runner, []string{"cc-slack", "watch"}, func(line []byte) error {
 		var event slackEvent
-		if err := json.Unmarshal(events.Bytes(), &event); err != nil {
-			return fmt.Errorf("cc-slack watch printed %q: %w", events.Text(), err)
+		if err := json.Unmarshal(line, &event); err != nil {
+			return fmt.Errorf("cc-slack watch printed %q: %w", line, err)
 		}
 		if event.fromBot() {
-			continue
+			return nil
 		}
 		if event.Type == slackMessage && event.User == me.User {
 			if _, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "react", "--channel", event.Channel, "--ts", event.TS, "--name", lookingAt}, Timeout: slackCall}); err != nil {
 				fmt.Fprintf(out, "%s did not land on his message %s: %v\n", lookingAt, event.TS, err)
 			}
+			var missed []string
+			line, missed = joined(ctx, runner, threads, line, event)
+			for _, miss := range missed {
+				fmt.Fprintln(out, miss)
+			}
 		}
-		if _, err := fmt.Fprintln(out, events.Text()); err != nil {
-			return err
-		}
-	}
-	return events.Err()
+		_, err := fmt.Fprintln(out, string(line))
+		return err
+	})
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/profile"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/replay"
@@ -257,6 +258,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			a.Log.Warn("the talk follower has no drive entry and stays off", "drive", env.Config.Drive, "err", err)
 		} else {
 			deps.Followers = append(deps.Followers, (&talk.Follower{Runner: a.Runner, Entry: entry, Writers: env.Config.TalkWriterNames(), Now: a.Now, Log: a.Log}).Run)
+			deps.Followers = append(deps.Followers, (&owner.CardThreads{Runner: a.Runner, Entry: entry, Log: a.Log}).Run)
 		}
 	}
 	if !slices.Contains(env.Config.Movers, config.MoverLanding) {

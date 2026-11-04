@@ -350,7 +350,7 @@ func Command(a *app.App) *cobra.Command {
 			return err
 		},
 	}
-	owner.AddCommand(mark, add, list, start, ruleCommand(a, &driveName), watchCommand(a), threadWordCommand(a, &driveName), awayCommand(a, &driveName), wordCommand(&driveName))
+	owner.AddCommand(mark, add, list, start, ruleCommand(a, &driveName), watchCommand(a, &driveName), threadWordCommand(a, &driveName), awayCommand(a, &driveName), wordCommand(&driveName))
 	owner.AddCommand(questionCommands(a, &driveName)...)
 	return owner
 }

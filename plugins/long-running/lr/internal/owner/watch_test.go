@@ -12,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -39,6 +40,10 @@ func (s streamed) Run(ctx context.Context, c shell.Command) (shell.Result, error
 	return shell.Result{}, s.ended
 }
 
+func noThreads(string) (store.SlackThread, bool, error) {
+	return store.SlackThread{}, false, nil
+}
+
 func watched(lines ...string) streamed {
 	fake := &shelltest.Fake{}
 	fake.Reply(`{"user_id":"U1"}`, "cc-slack", "whoami")
@@ -60,7 +65,7 @@ func TestHisMessageGetsEyesBeforeItWakesTheWindow(t *testing.T) {
 	runner := watched(hisEvent)
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), runner, &out); err != nil {
+	if err := watch(context.Background(), runner, noThreads, &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,7 +82,7 @@ func TestOnlyHisOwnWordsGetEyesAndABotsPostWakesNothing(t *testing.T) {
 	runner := watched(bot, asClaude, someone, tapped)
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), runner, &out); err != nil {
+	if err := watch(context.Background(), runner, noThreads, &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,7 +100,7 @@ func TestAFailedReactionStillDeliversHisMessage(t *testing.T) {
 	fake.Fail(1, "channel_not_found", "cc-slack", "react")
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{hisEvent}}, &out); err != nil {
+	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{hisEvent}}, noThreads, &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,7 +113,7 @@ func TestAWatchThatDiesEndsTheMonitorWithItsCause(t *testing.T) {
 	runner := watched(hisEvent)
 	runner.ended = errors.New("daemon gone")
 
-	err := watch(context.Background(), runner, io.Discard)
+	err := watch(context.Background(), runner, noThreads, io.Discard)
 
 	if err == nil || !strings.Contains(fmt.Sprint(err), "daemon gone") {
 		t.Fatalf("err = %v, want the watch's cause", err)
