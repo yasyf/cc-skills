@@ -2,7 +2,6 @@ package owner
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,11 +30,8 @@ const (
 	header    = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
 	rowTime   = "Jan 2 3:04 PM"
 
-	compactWindow   = 280000
 	subscribeWait   = time.Minute
 	communicator    = "owner-relay"
-	settingsWindow  = "autoCompactWindow"
-	localSettings   = ".claude/settings.local.json"
 	broadcastsHeard = "incident"
 )
 
@@ -153,31 +149,8 @@ func Rows(path string, all bool) ([]string, error) {
 	return rows, nil
 }
 
-func lowerCompactWindow(project string) error {
-	path := filepath.Join(project, localSettings)
-	settings := map[string]any{}
-	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	if err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-	}
-	settings[settingsWindow] = compactWindow
-	written, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
-	}
-	return os.WriteFile(path, append(written, '\n'), 0o600)
-}
-
 func Command(a *app.App) *cobra.Command {
-	var driveName, addState, project string
+	var driveName, addState string
 	var routed, addRouted int
 	var listAll bool
 	owner := &cobra.Command{Use: "owner", Short: "The communicator's ledger of every owner message"}
@@ -251,12 +224,9 @@ func Command(a *app.App) *cobra.Command {
 	list.Flags().BoolVar(&listAll, "all", false, "print addressed and no-order rows too")
 	start := &cobra.Command{
 		Use:   "start",
-		Short: "Subscribe this window as the communicator, with routine records batched, and lower its compaction ceiling",
+		Short: "Subscribe this window as the communicator, with routine records batched",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := lowerCompactWindow(project); err != nil {
-				return err
-			}
 			result, err := a.Runner.Run(cmd.Context(), shell.Command{
 				Argv:    []string{"cci", "subscribe", "--drive", driveName, "--reader", communicator, "--kind", broadcastsHeard, "--batch-kinds", strings.Join(batchedKinds, ",")},
 				Timeout: subscribeWait,
@@ -268,8 +238,6 @@ func Command(a *app.App) *cobra.Command {
 			return err
 		},
 	}
-	start.Flags().StringVar(&project, "project", "", "the communicator's own worktree, where its settings live")
-	_ = start.MarkFlagRequired("project")
 	owner.AddCommand(mark, add, list, start)
 	return owner
 }

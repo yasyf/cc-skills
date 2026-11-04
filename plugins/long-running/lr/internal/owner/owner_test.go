@@ -259,18 +259,10 @@ func (r *subscribeRunner) Run(_ context.Context, c shell.Command) (shell.Result,
 }
 
 func TestStartBatchesRoutineRecordsAndNeverWhatTheOwnerSentOrTapped(t *testing.T) {
-	project := t.TempDir()
-	settings := filepath.Join(project, ".claude", "settings.local.json")
-	if err := os.MkdirAll(filepath.Dir(settings), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(settings, []byte(`{"permissions":{"allow":["Bash"]}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	runner := &subscribeRunner{}
 	cmd := Command(&app.App{Runner: runner})
 	cmd.SetOut(io.Discard)
-	cmd.SetArgs([]string{"start", "--drive", "dar", "--project", project})
+	cmd.SetArgs([]string{"start", "--drive", "dar"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -285,13 +277,6 @@ func TestStartBatchesRoutineRecordsAndNeverWhatTheOwnerSentOrTapped(t *testing.T
 		if slices.Contains(batched, urgent) {
 			t.Errorf("%s is batched, so it could wait five minutes", urgent)
 		}
-	}
-	var written map[string]any
-	if err := json.Unmarshal([]byte(read(t, settings)), &written); err != nil {
-		t.Fatal(err)
-	}
-	if written["autoCompactWindow"] != float64(280000) || written["permissions"] == nil {
-		t.Fatalf("settings = %v, want the window set and the rest kept", written)
 	}
 }
 
