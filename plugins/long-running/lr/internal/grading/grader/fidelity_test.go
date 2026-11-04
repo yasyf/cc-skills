@@ -341,6 +341,21 @@ func TestARestackWhoseCommitsRangeDiffEqualCarriesASettledMissingBesideADeskOk(t
 	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" carried from "+shaOld[:7]+" (cci #170006), patch-identical by git range-diff over its own commits, settled by coordinator #170007.")
 }
 
+func TestAFidelityJobTheRunnerCancelledAsksCodexNothingAndFails(t *testing.T) {
+	directory := fidelityDir(t, nil)
+	if err := os.WriteFile(filepath.Join(directory, CancelledFile), []byte("its deadline\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shell, _ := newFidelityFake(t, otherPatch)
+	if err := Fidelity(context.Background(), directory, shell.deps()); err == nil {
+		t.Fatal("a cancelled pass settled as if it had graded")
+	}
+	equal(t, len(shell.asks()), 0)
+	if said := resultOf(t, directory)["error"].(string); !strings.Contains(said, "was cancelled by its deadline before codex read it") {
+		t.Errorf("error = %q", said)
+	}
+}
+
 func TestANewHeadsMissingPointThatRepeatsASettledOneWordForWordIsDropped(t *testing.T) {
 	settledGrade := gradeOf(170006, FidelityLane, "fidelity: missing "+shaOld+" plan:811 "+settledPt)
 	cases := []struct {

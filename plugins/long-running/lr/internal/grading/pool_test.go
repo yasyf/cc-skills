@@ -833,6 +833,13 @@ func TestAJobWithNoResultPastItsTimeoutFailsAndFreesItsSlot(t *testing.T) {
 	if !strings.Contains(string(result), "no result 31 min after it started") {
 		t.Fatalf("result = %s", result)
 	}
+	said, err := os.ReadFile(filepath.Join(directory, grader.CancelledFile))
+	if err != nil {
+		t.Fatalf("a job past its timeout kept running: %v", err)
+	}
+	if strings.TrimSpace(string(said)) != deadlineCancel {
+		t.Fatalf("cancelled = %q", said)
+	}
 }
 
 func TestSettleKeepsARunningJobAndPostsASettledJobsRecordsAgain(t *testing.T) {

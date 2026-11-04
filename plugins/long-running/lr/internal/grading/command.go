@@ -37,6 +37,15 @@ func gradeVerb(a *app.App, name, short string, grade func(context.Context, strin
 			if err := os.Setenv("CCX_CALLER", name); err != nil {
 				return err
 			}
+			spec, err := jobNames(args[0])
+			if err != nil {
+				return err
+			}
+			if spec.Sprite != "" {
+				if err := onLocalDisk(spec.Checkout, spriteLocalDisk); err != nil {
+					return err
+				}
+			}
 			deps, err := liveDeps(a)
 			if err != nil {
 				return err

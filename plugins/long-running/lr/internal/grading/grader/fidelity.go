@@ -913,6 +913,9 @@ func (s *fidelityPassState) askFidelity(question string, attempt int) (fidelityR
 		return fidelityReply{}, err
 	}
 	out, err := s.rateLimited(func(retry int) (string, error) {
+		if said, err := os.ReadFile(filepath.Join(s.dir, CancelledFile)); err == nil {
+			return "", fmt.Errorf("%s at %s was cancelled by %s before codex read it", s.job.pull(), short(s.job.Head, 12), strings.TrimSpace(string(said)))
+		}
 		session := fmt.Sprintf("codex-%d", attempt)
 		if retry > 0 {
 			session = fmt.Sprintf("%s-r%d", session, retry)

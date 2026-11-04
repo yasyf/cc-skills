@@ -12,7 +12,8 @@ the same there. The Sprite mirrors this machine's home at its own path, has
 codex, codex-ask, ccx, ccn and cci installed, is joined to the drive's cci relay,
 and holds a clone at the job's checkout whose remotes fetch the branches and
 cc-notes refs the job reads, cc-notes from an unfiltered remote when the clone
-is partial.
+is partial. `lr grade` moves that clone's .git to the Sprite's local disk on the
+first pass that finds it on the network disk home lives on.
 
 SPRITE_JOB_KEYS, a JSON object of environment names to the commands that print
 their values, such as {"GH_TOKEN": ["gh", "auth", "token"]}, is run here at
