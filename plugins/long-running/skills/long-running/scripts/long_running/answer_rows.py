@@ -15,7 +15,7 @@ ROW = "board-answer"
 OWNER = "from:owner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 PERMISSION_CARD = re.compile(r"slack:([A-Z0-9]+):(\d+\.\d+)?:[0-9a-f]{12}")
-APPROVED = ["yes"]
+SLACK_LABELS = {"Yes": "slack-grant:", "No": "slack-revoke:"}
 
 Run = Callable[[list[str]], str]
 
@@ -34,12 +34,16 @@ def answered(event: dict) -> bool:
     return False
 
 
-def grants(card: str, event: dict) -> tuple[str, ...]:
-    """The `slack-grant:` label an approving pick on a Slack permission card records: the card's channel, and its thread when the card named one."""
-    if (place := PERMISSION_CARD.fullmatch(card)) is None or event.get("optionIds") != APPROVED or event.get("other"):
+def slack_labels(card: dict, event: dict) -> tuple[str, ...]:
+    """The label a pick on a Slack permission card records, read from the label the board showed on the tapped option: `slack-grant:` for Yes and `slack-revoke:` for No, naming the card's channel, and its thread when the card named one."""
+    if (place := PERMISSION_CARD.fullmatch(card.get("id", ""))) is None or event.get("other"):
+        return ()
+    choice = next((child for child in card.get("children", []) if child.get("id") == event.get("blockId")), {})
+    shown = [option.get("label") for option in choice.get("options", []) if option.get("id") in (event.get("optionIds") or [])]
+    if len(shown) != 1 or (prefix := SLACK_LABELS.get(shown[0])) is None:
         return ()
     channel, thread = place.groups()
-    return (f"slack-grant:{channel}/{thread}" if thread else f"slack-grant:{channel}",)
+    return (f"{prefix}{channel}/{thread}" if thread else f"{prefix}{channel}",)
 
 
 def add_argv(program: str, session: str, card: str, block: str, title: str, words: str, moment: datetime, proof: str, anchors: list[str], granted: tuple[str, ...]) -> list[str]:

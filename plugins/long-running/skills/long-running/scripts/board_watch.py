@@ -55,8 +55,9 @@ question, and as the body the owner's words verbatim, the card and block ids, th
 Pacific time, labelled `from:owner`, `board-answer`, `program:<program>`, `board-session:<session>`,
 `board-card:<card>`, `board-block:<block>` and a `proof:board-watch:<key>` that keeps it to one row
 per record. A Yes on a Slack permission card, whose id is `slack:<channel>:<thread>:<digest>`, also
-carries `slack-grant:<channel>/<thread>`, or `slack-grant:<channel>` when the card named no thread, so
-the Slack permission hook reads it as his grant from any session. A card whose answer has no row stays on the board: the long-running hooks refuse a
+carries `slack-grant:<channel>/<thread>`, or `slack-grant:<channel>` when the card named no thread, and
+a No carries the matching `slack-revoke:`, each read from the label the board showed on the tapped
+option, so the Slack permission hook reads his newest tap as his grant or revocation from any session. A card whose answer has no row stays on the board: the long-running hooks refuse a
 remove-block, push or update-block that takes it off, and `lr board cards sweep` leaves it up.
 
 A pick, write-in or pack pick that no `decide` or `claim` names by block id or by its owner record's
@@ -483,7 +484,7 @@ def register(event: dict, key: str, session: str, doc: dict | None, shell: Shell
     words = CREDENTIAL.sub(REDACTED, told(event, doc))
     topics = answer_search.vocabulary(lambda argv: shell.ccn(entry["checkout"], argv).stdout, drive.program_of(entry))
     card = top.get("id") or block
-    argv = answer_rows.add_argv(drive.program_of(entry), session, card, block, title, words, moment or shell.now(), proof, answer_search.anchors(topics, f"{title}\n{words}"), answer_rows.grants(card, event))
+    argv = answer_rows.add_argv(drive.program_of(entry), session, card, block, title, words, moment or shell.now(), proof, answer_search.anchors(topics, f"{title}\n{words}"), answer_rows.slack_labels(top, event))
     if (done := shell.ccn(entry["checkout"], argv)).returncode:
         print(f"board-watch {session}: the ccn answer row for {block} did not write: {done.stderr.strip()}", flush=True)
 
