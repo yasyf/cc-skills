@@ -28,7 +28,7 @@ var (
 	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", TapRefusedKind}
 	goKinds        = []string{"go", "decide", "decision"}
 	finderDesk     = []string{"finder-desk"}
-	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk", "fidelity-sweep"}
+	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk", "fidelity-sweep", "fidelity-shard", "fidelity-shard-1"}
 	laneNumber     = regexp.MustCompile(`^(.+?)(?:-(\d+))?$`)
 	shortSHA       = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 	finderSays     = regexp.MustCompile(`(?i)\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b`)
