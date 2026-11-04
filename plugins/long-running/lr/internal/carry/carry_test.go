@@ -187,3 +187,81 @@ func TestACcnEntityThatDoesNotRenderRefusesNamingIt(t *testing.T) {
 		t.Fatalf("refusal %q", fault)
 	}
 }
+
+func TestAHelperNamedThroughAVariableTravelsAndItsReferenceReadsTheCopy(t *testing.T) {
+	c, _ := carrier(t)
+	drive := filepath.Join(c.Home, ".claude/scratch/drive")
+	c.Vars = map[string]string{DriveDir: drive}
+	put(t, drive+"/go-desk-2/carry.py", "print('carried')")
+	put(t, drive+"/fg/bin.zsh", "echo fg")
+	put(t, c.Home+"/notes.md", "notes")
+
+	rewritten, err := c.Carry(context.Background(), `python3 "$DRIVE_DIR/go-desk-2/carry.py" --post; ${DRIVE_DIR}/fg/bin.zsh; cat $HOME/notes.md`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := `python3 "` + box + drive + `/go-desk-2/carry.py" --post; ` + box + drive + `/fg/bin.zsh; cat ` + box + c.Home + `/notes.md`
+	if rewritten != want {
+		t.Fatalf("rewritten %q, want %q", rewritten, want)
+	}
+	if got := landed(t, c, box+drive+"/go-desk-2/carry.py"); got != "print('carried')" {
+		t.Fatalf("carried %q", got)
+	}
+}
+
+func TestAVariableTheBriefAssignsItselfExpands(t *testing.T) {
+	c, _ := carrier(t)
+	root := filepath.Join(c.Home, "lane")
+	put(t, root+"/items.md", "items")
+
+	rewritten, err := c.Carry(context.Background(), "Read `$B/items.md` once.\nexport B="+root+"/\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(rewritten, box+root+"//items.md") && !strings.Contains(rewritten, box+root+"/items.md") {
+		t.Fatalf("rewritten %q does not read the copy", rewritten)
+	}
+}
+
+func TestAVariablePathThatDoesNotExistYetIsRewrittenAndNeverRefused(t *testing.T) {
+	c, _ := carrier(t)
+	drive := filepath.Join(c.Home, "drive")
+	c.Vars = map[string]string{DriveDir: drive}
+
+	rewritten, err := c.Carry(context.Background(), "Write $DRIVE_DIR/lane/NOTES.md as you go.")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rewritten != "Write "+box+drive+"/lane/NOTES.md as you go." {
+		t.Fatalf("rewritten %q", rewritten)
+	}
+}
+
+func TestAVariableNoOneDefinedOrATemplateUnderOnePassesThrough(t *testing.T) {
+	c, _ := carrier(t)
+	c.Vars = map[string]string{DriveDir: filepath.Join(c.Home, "drive")}
+	text := "cd $DESK_WT/plugins; run $DRIVE_DIR/<lane>/carry.py; ls $DRIVE_DIR"
+
+	rewritten, err := c.Carry(context.Background(), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rewritten != text {
+		t.Fatalf("rewritten %q, want it unchanged", rewritten)
+	}
+}
+
+func TestACredentialNamedThroughAVariableNeverLeavesTheMac(t *testing.T) {
+	c, _ := carrier(t)
+	put(t, c.Home+"/.ssh/id", "secret")
+
+	fault := refused(t, c, "cat $HOME/.ssh/id")
+
+	if !strings.Contains(fault, "credential path") {
+		t.Fatalf("refusal %q does not name the credential", fault)
+	}
+}

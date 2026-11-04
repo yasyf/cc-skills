@@ -129,7 +129,7 @@ func (p Poster) Faults(ctx context.Context, order Order) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout)
+	return order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout, filepath.Dir(entry.Config()))
 }
 
 func (p Poster) Numbered(ctx context.Context, lane string) (string, error) {
@@ -166,7 +166,7 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	if err != nil {
 		return "", err
 	}
-	faults, err := order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout)
+	faults, err := order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout, filepath.Dir(entry.Config()))
 	if err != nil {
 		return "", err
 	}

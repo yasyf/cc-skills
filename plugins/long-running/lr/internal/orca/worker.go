@@ -37,6 +37,7 @@ const (
 	idleWarning       = "so the prepared worker stays idle and unattached"
 	sponsorEnv        = "WORKER_RELAY_SPONSOR"
 	joinReceipt       = "relay-join.log"
+	workerDriveDir    = "WORKER_DRIVE_DIR"
 	lrPlatform        = "linux-x86_64"
 	toolsMissing      = 3
 	beforeWorker      = "before-worker.sh"
@@ -385,7 +386,7 @@ func (w *workerLaunch) carryBrief() error {
 	if notes == "" {
 		notes = w.checkout
 	}
-	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox}
+	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox, Vars: map[string]string{carry.DriveDir: w.Env(workerDriveDir)}}
 	rewritten, err := carrier.Carry(w.ctx, string(raw))
 	if err != nil {
 		return refuse("brief %s names what no Sprite can receive: %v; nothing was prepared", w.brief, err)

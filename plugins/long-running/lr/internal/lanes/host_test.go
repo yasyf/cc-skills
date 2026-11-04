@@ -278,3 +278,103 @@ func TestASpriteReadsByTheSpritesListAndItsWorkerProbeAnswer(t *testing.T) {
 		t.Fatal("a failed Sprites list read returned no error")
 	}
 }
+
+func spriteDesk(t *testing.T, s *store.Store, host Host) *fake {
+	t.Helper()
+	f := newFake(t, []Record{spawned(1, "go-desk-1", standingBrief(t, "go-desk-1"), t0.Add(-2*time.Hour), map[string]string{"placement": placedOnSprite}), rec(2, "go-desk-1", "report", t0.Add(-time.Hour), "swept")}, []Row{who("go-desk-1", true, t0.Add(-time.Hour))})
+	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
+	tick(t, s, f, t0.Add(-time.Hour))
+	f.posts = nil
+	f.peers = []Row{who("meta-desk-3", true, t0)}
+	f.sprites = map[string]Sprite{"go-desk-1": {Name: "sprite-go-desk-1", Status: spriteRunning, LastRunning: t0}}
+	f.hosts = map[string]Host{"go-desk-1": host}
+	return f
+}
+
+func TestAQuietStandingDeskWhoseSpriteRunsItsWorkerRaisesNothingAndIsNeverReplaced(t *testing.T) {
+	s := memory(t)
+	f := spriteDesk(t, s, HostRunning)
+
+	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(40)))
+
+	equal(t, []any{len(f.launches), len(f.ofKind("blocker")), row(t, s, "go-desk-1").State}, []any{0, 0, store.LaneDesired})
+}
+
+func TestAStandingDeskWhoseSpriteHasNoWorkerRelaunchesAndLogsOneRecordToTheMetaDesk(t *testing.T) {
+	s := memory(t)
+	f := spriteDesk(t, s, HostEmpty)
+
+	out := tick(t, s, f, t0)
+
+	equal(t, []any{f.launches, len(out.Relaunched), len(f.ofKind("blocker"))}, []any{[]string{"go-desk-2"}, 1, 0})
+	equal(t, relaunchReports(f)[0].To, []string{"meta-desk-3"})
+}
+
+func TestAStandingDeskGoneTenMinutesRelaunchesWithoutWaitingOutTheFifteenAPlainLaneGets(t *testing.T) {
+	s := memory(t)
+	f := spriteDesk(t, s, HostEmpty)
+	f.feed = append(f.feed, rec(3, "go-desk-1", "report", t0.Add(-mins(11)), "swept"))
+
+	tick(t, s, f, t0)
+
+	equal(t, f.launches, []string{"go-desk-2"})
+}
+
+func TestAStandingDeskRelaunchedAndDeadThreeTimesInAnHourStopsWithOneBlockerNamingTheCause(t *testing.T) {
+	s := memory(t)
+	f := spriteDesk(t, s, HostEmpty)
+	at := t0
+	tick(t, s, f, at)
+	var out Outcome
+	for n := 2; n <= 4; n++ {
+		name := fmt.Sprintf("go-desk-%d", n)
+		at = at.Add(mins(1))
+		f.feed = append(f.feed, rec(int64(10+n), name, "report", at, "up"))
+		f.peers = []Row{who("meta-desk-3", true, at), who(name, true, at)}
+		tick(t, s, f, at)
+		at = at.Add(StaleAfter + mins(1))
+		f.peers = []Row{who("meta-desk-3", true, at)}
+		f.sprites[name] = Sprite{Name: "sprite-" + name, Status: spriteRunning, LastRunning: at}
+		f.hosts[name] = HostEmpty
+		out = tick(t, s, f, at)
+	}
+	tick(t, s, f, at.Add(mins(30)))
+
+	equal(t, []any{f.launches, out.Held, row(t, s, "go-desk-4").State}, []any{[]string{"go-desk-2", "go-desk-3", "go-desk-4"}, []string{"go-desk-4"}, store.LaneHeld})
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	equal(t, blockers[0].To, []string{"meta-desk-3"})
+	contains(t, blockers[0].Text, "died 3 times within 60 min")
+}
+
+func TestAStandingLaneRetiredByItsFinishedWorkerRelaunchesAfterTenMinutesAndItsSuccessorsDoneEndsIt(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	f.feed = append(f.feed, ask(2, "done", refresher, t0, nil, runner, nil))
+	f.peers = nil
+
+	tick(t, s, f, t0.Add(mins(1)))
+	equal(t, len(f.launches), 0)
+	tick(t, s, f, t0.Add(mins(12)))
+	equal(t, f.launches, []string{"board-refresher-7"})
+
+	f.feed = append(f.feed, ask(3, "done", "board-refresher-7", t0.Add(mins(13)), nil, runner, nil))
+	tick(t, s, f, t0.Add(mins(13)))
+	tick(t, s, f, t0.Add(mins(30)))
+
+	equal(t, f.launches, []string{"board-refresher-7"})
+	contains(t, f.ofKind("blocker")[0].Text, "read its duty as finished")
+}
+
+func TestARetiredLaneWhoseBriefHasNoStandingLineIsNotADutyEvenAfterAStandingPredecessor(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	registered(t, s, store.Lane{Name: Root, Brief: writeBrief(t), State: store.LaneRetired, RetiredBy: "done"})
+	do(s.SetLaneState(refresher, store.LaneRetired, t0, Root, ""))
+	f.peers = nil
+
+	tick(t, s, f, t0.Add(mins(30)))
+
+	equal(t, []any{len(f.launches), len(f.ofKind("blocker"))}, []any{0, 0})
+}

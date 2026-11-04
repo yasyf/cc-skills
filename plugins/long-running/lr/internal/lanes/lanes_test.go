@@ -2157,7 +2157,7 @@ func TestARecordFromThisNodeNamesNoNode(t *testing.T) {
 	}
 }
 
-func TestAStandingLaneDeadWhileItWaitsOnRootReachesRootWithItsBrief(t *testing.T) {
+func TestAStandingLaneDeadWhileItWaitsOnRootIsRelaunchedFromItsBrief(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
 	f.feed = append(f.feed, rec(2, refresher, "ask", t0.Add(-mins(30)), "which card first?", Root))
@@ -2165,10 +2165,8 @@ func TestAStandingLaneDeadWhileItWaitsOnRootReachesRootWithItsBrief(t *testing.T
 
 	tick(t, s, f, t0)
 
-	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, "has had no live owner for over 10 min: it is neither live nor heard since its record #2.")
-	equal(t, len(f.launches), 0)
+	equal(t, len(f.ofKind("blocker")), 0)
+	equal(t, f.launches, []string{"board-refresher-7"})
 }
 
 func TestABriefWithoutAStandingLineIsNeverADuty(t *testing.T) {
