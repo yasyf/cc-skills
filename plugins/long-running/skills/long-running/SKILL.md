@@ -237,8 +237,8 @@ spawns the Slack lane and the doing lane that turn in one batch, and one `report
 communicator names both. Nobody reads Slack or writes Slack copy outside the Slack lane.
 
 **R21.** Whoever drafts for the owner answers, in the same message, the first question he will ask. A change
-names its concrete things: which fields and where, which chats or users, before and after. What waits on him is the
-cards themselves, re-posted with picks, and anything named is a link, never a bare number. [Terms](reference/communicator-brief.md).
+names its concrete things: which fields and where, which chats or users, before and after. Anything named is a link.
+From every lane on every surface, a line saying something waits on his yes or no carries that card with its buttons; no card, no such line. [Terms](reference/communicator-brief.md).
 
 **R22.** Every brief quotes the owner's design verbatim with the entry point at `file:line`; the lane
 posts a `contract` before `READY-FOR-SHIP`; the design ships whole or holds, never split. A ruling

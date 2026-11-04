@@ -115,8 +115,8 @@ CC_SLACK = CommandSchema(
     "cc-slack",
     operands=(Operand("words", count="*"),),
     options=(
-        *(Option(name, (f"--{name}",)) for name in ("agent", "blocks", "card", "cwd", "file", "session", "thread")),
-        *(Option(name, (f"--{name}",), bool) for name in ("rebuild", "root-only")),
+        *(Option(name, (f"--{name}",)) for name in ("about", "agent", "blocks", "card", "cwd", "file", "session", "tap-pr", "text", "thread")),
+        *(Option(name, (f"--{name}",), bool) for name in ("mirrored", "rebuild", "root-only")),
     ),
 )
 RULINGS = f"{sys.executable} {script('rulings.py')}"
@@ -680,6 +680,15 @@ def slack_card(evt: BaseHookEvent) -> dict | None:
             found = located(evt, call, card[1:]).read_text() if card.startswith("@") else card
             return json.loads(found)
     return None
+
+
+def status_words(evt: BaseHookEvent) -> list[str]:
+    if evt.tool_name != "Bash":
+        given = evt._tool_input
+        return [str(given["text"])] if evt.tool_name == SLACK_CARD and given.get("text") and not given.get("about") and not given.get("blocks") else []
+    posts = (CC_SLACK.bind(call).values for call in evt.command.calls("cc-slack"))
+    said = ["\n".join([*map(str, values.get("text", ())), *map(str, values["words"][1:])]) for values in posts if values.get("words", ())[:1] == ("dm-status",) and not values.get("about") and not values.get("blocks")]
+    return [words for words in said if words]
 
 
 def started_boards(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:

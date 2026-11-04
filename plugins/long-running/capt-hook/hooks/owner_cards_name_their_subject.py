@@ -14,11 +14,13 @@ from .board_text_gate import calls
 from .call_dir import located
 from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, LR, Bound, CompactionState, script_module
 from .judge_metrics import judge_call
-from .owner_facing import SLACK_CARD, STDIN, Reads, as_read, board_bytes, fenced, readable, shown, slack_card
-from .owner_replies_carry_news import dm_posts
+from .owner_facing import CC_SLACK, SLACK_CARD, STDIN, Reads, as_read, board_bytes, fenced, readable, shown, slack_card, status_words
+from .owner_lines_skip_refused_topics import reaches_him
+from .owner_replies_carry_news import HIS_DM, PEER, dm_posts
 from .owner_returns import REPLY
 from .register_injection import drive_args
 from .tests.board_fixtures import board, judged
+from .tests.register_fixtures import DRIVE_CONFIG
 from .urgent_lines_name_the_harm import DM_TOOLS, owner_lines, sentences
 
 BOUND = [CompactionState(active=True, coordinator=True)]
@@ -31,7 +33,7 @@ UNNAMED = 'Name the feature: a card\'s title and first sentence say what it is a
 BARE_PR = "A pick card about a PR passes it in `prs`, which gives him its link, CI, description and four lines: edit the reply to add the PR's url to `prs`."
 HOLD = "A post to the owner links what it names, carries the cards it asks him to tap, names the concrete things it changes and answers his first question. Fix each line below, or send the same post again unchanged and it goes through."
 BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
-TAP_WORDS = re.compile(r"(?i)\b(?:tap|taps|tapping|waiting on you|waits on you)\b|(?<!release )\bcards?\b")
+TAP_WORDS = re.compile(r"(?i)\b(?:tap|taps|tapping|(?:wait|waits|waiting|blocked) (?:on|for) (?:you|your|a yes or no|yes or no)|needs? a yes or no|yes or no from you|your (?:yes|no|picks?|answers?|word))\b|\byes or no\?|(?<!release )\bcards?\b")
 HIDDEN_CITE = re.compile(r"<!--.*?-->", re.DOTALL)
 SHORT_WORDS = 12
 HELD_CHARS = 400
@@ -48,6 +50,8 @@ ASK_OWNER = CommandSchema(
 ASK = "lr ask-owner --title 'Add the setting?' --background 'It adds one new setting for big chats.' --option 'Add it :: Big chats load faster.' --option 'Hold :: Nothing changes.' --nothing-to-build process"
 HOOK_SCRATCH = str(Path(tempfile.gettempdir()) / "long-running-first-question")
 HOOK_ENV = {"CLAUDE_CONFIG_DIR": HOOK_SCRATCH, "LONG_RUNNING_SCRATCH_ROOT": HOOK_SCRATCH, "CLAUDE_LONG_RUNNING_DRIVE": "first-question"}
+LANE_ENV = HOOK_ENV | {"CLAUDE_LONG_RUNNING_LANE": "bugs-comms"}
+LANE_DM_ENV = LANE_ENV | {"CLAUDE_CONFIG_DIR": DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]}
 VAGUE_POST = "It adds one new setting for big chats, and the sidebar stays as it is."
 ABSTRACT = "It adds one new setting"
 HIS_QUESTION = "Which fields, on which table, and only for old chats?"
@@ -56,6 +60,9 @@ CONCRETE = {"title": "Big chats open on their newest turns", "md": "A chat over 
 LANDED = "Landed, live at 12:20 PM."
 STATUS = "The nightly build is still running on the staging cluster, and it should finish within the hour."
 REMINDER = "Six things still wait on your tap, so please open your board and go through them today."
+WAITS_ON_HIM = "The support reply is separate and waits on your Yes or No."
+THIRD_PARTY = "The new prompt asks the user yes or no before it deletes a chat, and the sidebar shows the result."
+STATUS_POST = f"/plugins/cc-slack/bin/cc-slack dm-status --thread 1793829658.340949 --agent claude '{WAITS_ON_HIM}' 2>&1 | head -5"
 SENTRY_LINK = "https://poetic.sentry.io/issues/4821"
 
 
@@ -159,18 +166,30 @@ def post_text(evt: BaseHookEvent, reads: Reads) -> str:
     return "\n\n".join(HIDDEN_CITE.sub(" ", line) for line in lines if line.strip())
 
 
+def draws_tap_cards(evt: BaseHookEvent) -> bool:
+    if evt.tool_name != "Bash":
+        return bool(evt._tool_input.get("tap_prs"))
+    return any(CC_SLACK.bind(call).values.get("tap-pr") for call in evt.command.calls("cc-slack"))
+
+
 def carries_cards(evt: BaseHookEvent, reads: Reads) -> bool:
     if evt.tool_name == REPLY:
         return bool(evt._tool_input.get("picks") or evt._tool_input.get("prs"))
+    if draws_tap_cards(evt):
+        return True
     if card := reads.read("the status card", lambda: slack_card(evt)):
         return bool(card.get("options"))
-    return not dm_posts(evt)
+    return not (dm_posts(evt) or status_words(evt))
 
 
-def unlinked_or_cardless(evt: BaseHookEvent, text: str, reads: Reads) -> list[str]:
-    bare = [f"bare number: {hit}: make it a link, and name no cci record number at all" for hit in dict.fromkeys(found[0] for found in BARE_ID.finditer(text))]
-    named = TAP_WORDS.search(text)
-    return [*bare, *([f'no cards: "{named[0]}": re-post each thing that waits on him as its card, in `picks` or `prs`'] if named and not carries_cards(evt, reads) else [])]
+def lane_dm_words(evt: BaseHookEvent, reads: Reads) -> str:
+    return "\n\n".join(text for channel, text in dm_posts(evt) if TAP_WORDS.search(readable(text)) and reaches_him(reads, channel))
+
+
+def unlinked_or_cardless(evt: BaseHookEvent, posted: str, said: str, reads: Reads) -> list[str]:
+    bare = [f"bare number: {hit}: make it a link, and name no cci record number at all" for hit in dict.fromkeys(found[0] for found in BARE_ID.finditer(posted))]
+    named = TAP_WORDS.search(said)
+    return [*bare, *([f'no cards: "{named[0]}": put the yes or no itself in this post, as `picks` or `prs` on a reply, `options` on a dm-status card, or `--tap-pr`; a link to a card only where the post cannot carry one; and if you removed the card, say so here with its replacement'] if named and not carries_cards(evt, reads) else [])]
 
 
 def hold(evt: BaseHookEvent, drive: str, key: str, lines: list[str]) -> HookResult:
@@ -268,7 +287,7 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         reply("Big chats", VAGUE_POST, commands={**HOLDS, "claude -p": (1, "claude: overloaded")}): Allow(),
         Input(command="cci post --kind note --to meta-desk --text 'It adds one new setting for big chats, and the sidebar stays as it is.'", env=HOOK_ENV, commands=HOLDS): Allow(),
         Input(command="ls -la", env=HOOK_ENV, commands=HOLDS): Allow(),
-        reply("Your list", REMINDER): Block(pattern=r"no cards: \"tap\""),
+        reply("Your list", REMINDER): Block(pattern=r'no cards: "wait on your"'),
         reply("Your list", REMINDER, given={"prs": [LAND_PR]}, commands=judged()): Allow(),
         reply("Your list", REMINDER, given={"picks": ["Land", "Hold"], "recommended": "Land"}, commands=judged()): Allow(),
         reply("Your list", REMINDER, state=resent("Your list", REMINDER)): Allow(),
@@ -283,6 +302,26 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         reply("Why", "It dropped because both chats shared a replica. <!-- cci #384714 -->", commands=judged()): Allow(),
         Input(command="cc-slack reply --channel D0B6Z --text 'Sentry 4821 fired again.'", env=HOOK_ENV): Allow(),
         Input(tool=REPLY, tool_input={"title": "Big chats", "md": VAGUE_POST}, commands=HOLDS): Allow(),
+        reply("Support reply", WAITS_ON_HIM): Block(pattern=r'no cards: "waits on your"'),
+        reply("Support reply", "It needs your yes before it posts."): Block(pattern=r'no cards: "your yes"'),
+        reply("Support reply", "This is blocked on you."): Block(pattern=r'no cards: "blocked on you"'),
+        reply("Support reply", "Your pick decides the wording."): Block(pattern=r'no cards: "Your pick"'),
+        reply("Support reply", "It holds for your answer."): Block(pattern=r'no cards: "your answer"'),
+        reply("Support reply", "Say your word and it goes."): Block(pattern=r'no cards: "your word"'),
+        reply("Support reply", "The reply waits on yes or no."): Block(pattern=r'no cards: "waits on yes or no"'),
+        reply("Support reply", "Send the reply, yes or no?"): Block(pattern=r'no cards: "yes or no\?"'),
+        reply("Support reply", WAITS_ON_HIM, given=PICKS, commands=judged()): Allow(),
+        reply("Support reply", WAITS_ON_HIM, given={"prs": [LAND_PR]}, commands=judged()): Allow(),
+        reply("Delete prompt", THIRD_PARTY, commands=judged()): Allow(),
+        reply("Support reply", WAITS_ON_HIM, state=resent("Support reply", WAITS_ON_HIM)): Allow(),
+        Input(command=STATUS_POST, env=LANE_ENV): Block(pattern=r'no cards: "waits on your"'),
+        Input(command=f"cc-slack dm-status --tap-pr {LAND_PR} '{WAITS_ON_HIM}'", env=LANE_ENV, commands=judged()): Allow(),
+        Input(command=f"cc-slack dm-status --about ask-1 '{WAITS_ON_HIM}'", env=LANE_ENV): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM}, env=LANE_ENV): Block(pattern=r"no cards"),
+        Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM, "tap_prs": [LAND_PR]}, env=LANE_ENV, commands=judged()): Allow(),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: HIS_DM}): Block(pattern=r"no cards"),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: json.dumps({"channel_id": "D0B6Z", "peer": "U0SOMEONE", "peer_name": "Sam"})}): Allow(),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "C0RELEASES1", "text": WAITS_ON_HIM}, env=LANE_DM_ENV): Allow(),
     },
 )
 def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
@@ -290,11 +329,12 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
         return None
     reads = Reads(evt, which)
     posted = post_text(evt, reads)
-    text = as_read(posted)
-    if not text or (key := post_key(text)) in HeldPosts.load(evt).held:
+    said = posted or lane_dm_words(evt, reads)
+    if not said or (key := post_key(as_read(said))) in HeldPosts.load(evt).held:
         return None
-    if lines := unlinked_or_cardless(evt, readable(posted), reads):
+    if lines := unlinked_or_cardless(evt, readable(posted), readable(said), reads):
         return hold(evt, which[1], key, lines)
+    text = as_read(posted)
     if plain_answer(text):
         return None
     env = reqenv.env_map()
