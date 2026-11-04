@@ -251,7 +251,7 @@ func TestTheCardReadsNothingButTheStoreAtOneAndAThousandPRs(t *testing.T) {
 	}
 }
 
-func TestASlackMergeCardTapPostsTheLandOrderTheBoardRecorderPosts(t *testing.T) {
+func TestASlackMergeCardTapIsAnOwnerRecordThatReachesTheLandingHost(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	ctx := context.Background()
 
@@ -259,11 +259,14 @@ func TestASlackMergeCardTapPostsTheLandOrderTheBoardRecorderPosts(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	written, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"lr.tap"}})
+	written, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"owner"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(written) != 1 || !strings.HasPrefix(written[0].Text, fmt.Sprintf("tap #%d ", number)) {
-		t.Fatalf("orders = %+v", written)
+	if len(written) != 1 {
+		t.Fatalf("records = %+v", written)
+	}
+	if tap, ordered := bus.OrderOf(written[0], repo); !ordered || tap.PR != number || tap.Head != head || tap.Value != string(machine.TapTapped) {
+		t.Fatalf("order = %+v, %v", tap, ordered)
 	}
 }

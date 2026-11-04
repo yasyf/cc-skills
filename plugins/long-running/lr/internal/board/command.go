@@ -205,8 +205,7 @@ func postHooks(ctx context.Context, busName, lane, repository string) Hooks {
 	posts := bus.Bus{Drive: busName, Lane: lane}
 	return Hooks{
 		Tap: func(tap TapRecord) error {
-			_, err := posts.Post(ctx, nil, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)})
-			return err
+			return posts.PostCardTap(ctx, repository, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)})
 		},
 		Refuse: func(tap TapRecord, reason string) error {
 			return posts.PostRefusal(ctx, repository, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)}, reason)
