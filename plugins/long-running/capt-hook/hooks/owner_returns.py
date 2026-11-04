@@ -94,13 +94,8 @@ SYSTEM_RAISED = Binary(
     " No for a bug report, a complaint, a screenshot of something broken, an order to fix or build something, status, a pick, an approval, thanks, or a topic a listed page covers."
 )
 RAISED = "He asked how a system works or is meant to work. Before replying, run `lr explain <topic> --from <markdown with a mermaid diagram>` and put the link it prints in the reply."
-MECHANISM = Binary(
-    "The assistant's reply to the owner is below."
-    " Yes when it explains a mechanism, an incident or a design change to him: how something works, why something failed, or what a design now does differently."
-    " No for a status line, a list of what landed or comes next, a question, an acknowledgement, a pick, or an answer that explains no mechanism."
-)
 UNEXPLAINED = (
-    "A reply that explains a mechanism, incident or design change to the owner carries a hosted one-pager, unasked."
+    "He asked how a system works, so the reply carries a hosted one-pager."
     " Run `lr explain <topic> --from <markdown file or cci record>` and put its link in this reply; if the verb fails it files a defect, and the reply says the page is not up."
 )
 NO = BinaryAnswer(p_yes=0.02, confidence=0.95)
@@ -108,7 +103,7 @@ YES = BinaryAnswer(p_yes=0.97, confidence=0.94)
 SIGNAL = "how does the signal server decide which replica a chat talks to"
 WHY = "The relay dropped your message because both chats shared one replica, so the second chat's write replaced the first."
 PAGE = "https://mac.tail1.ts.net:8665/one-pagers/relay-replicas/"
-CALM = {"reminder": NO, "status_question": NO, "mechanism": NO}
+CALM = {"reminder": NO, "status_question": NO}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
 ASKED = CALM | {"status_question": BinaryAnswer(p_yes=0.96, confidence=0.93)}
 HOW_FAR = "you told me what the relay fix lane is for already, I asked how far along it is"
@@ -244,12 +239,12 @@ def hosted_titles() -> list[str]:
     return sorted(html.unescape(found.group(1).strip()) for page in pages.glob("*/index.html") if (found := TITLE.search(page.read_text())))
 
 
-def explained(reply: str, mechanism: object = YES, due: bool = False) -> Input:
-    return Input(transcript=[T.user("why did my message vanish"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True), OwnerReturns(explain_due=due)], decide=CALM | {"mechanism": mechanism})
+def explained(reply: str, due: bool = False) -> Input:
+    return Input(transcript=[T.user("why did my message vanish"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True), OwnerReturns(explain_due=due)], decide=CALM)
 
 
 def explain_defect(*calls: dict, defects: str | tuple) -> Input:
-    return Input(transcript=[T.user("why did my message vanish"), *calls, T.assistant(WHY)], state=[CompactionState(active=True, communicator=True), OwnerReturns(explain_due=True)], env=DRIVE_CONFIG, commands={EXPLAIN_DEFECTS: defects}, decide=CALM | {"mechanism": YES})
+    return Input(transcript=[T.user("why did my message vanish"), *calls, T.assistant(WHY)], state=[CompactionState(active=True, communicator=True), OwnerReturns(explain_due=True)], env=DRIVE_CONFIG, commands={EXPLAIN_DEFECTS: defects}, decide=CALM)
 
 
 def picked(*calls: dict) -> Input:
@@ -332,12 +327,9 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         pathed("The rows are in `progress-desk/steps.json`."): Block(pattern=r"never opens a file"),
         pathed("The relay row is on http://dash.brook.ts.net:8840/progress-desk/#relay."): Allow(),
         pathed("The fix is in `owner_returns.py`, in `communicator_reply_follows_the_owner_rules`."): Allow(),
-        explained(WHY): Block(pattern=r"^A reply that explains a mechanism, incident or design change to the owner carries a hosted one-pager.*`lr explain <topic>"),
-        explained(f"{WHY}\n\nThe whole mechanism, with its diagram: {PAGE}"): Allow(),
-        explained("Three PRs merged and step 2 is green.", mechanism=NO): Allow(),
-        explained(WHY, mechanism=Refused()): Allow(),
-        explained("Looking into the signal server now.", mechanism=NO, due=True): Block(pattern=r"carries a hosted one-pager"),
-        explained(f"The signal server picks the replica by chat id: {PAGE}", mechanism=NO, due=True): Allow(),
+        explained(WHY): Allow(),
+        explained("Looking into the signal server now.", due=True): Block(pattern=r"^He asked how a system works, so the reply carries a hosted one-pager.*`lr explain <topic>"),
+        explained(f"The signal server picks the replica by chat id: {PAGE}", due=True): Allow(),
         explain_defect(*TRIED_EXPLAIN, defects=FILED_DEFECT): Allow(),
         explain_defect(*TRIED_EXPLAIN, defects=(1, "bus down")): Allow(),
         explain_defect(*TRIED_EXPLAIN, defects=""): Block(pattern=r"carries a hosted one-pager"),
@@ -601,14 +593,9 @@ def file_path(evt: BaseHookEvent, reply: str) -> str | None:
 
 
 def unexplained(evt: BaseHookEvent, reply: str) -> str | None:
-    if not reply or EXPLAINER.search(reply) or explain_failed(evt):
+    if not reply or not OwnerReturns.load(evt).explain_due or EXPLAINER.search(reply) or explain_failed(evt):
         return None
-    if OwnerReturns.load(evt).explain_due:
-        return UNEXPLAINED
-    match (decision := evt.decide(reply, {"mechanism": MECHANISM})) and decision.answers["mechanism"]:
-        case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
-            return UNEXPLAINED
-    return None
+    return UNEXPLAINED
 
 
 def turn_started(evt: BaseHookEvent) -> str:

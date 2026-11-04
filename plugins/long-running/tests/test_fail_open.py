@@ -64,6 +64,8 @@ KEPT_REFUSALS = KEPT | {
     "owner_lines_skip_refused_topics.owner_lines_skip_refused_topics": "the owner ordered the refusal: this class never reaches him, and a warning lands after it has",
     "owner_lines_skip_refused_topics.owner_replies_skip_refused_topics": STOP.format(what="the owner would read a class he ruled is never reported"),
     "owner_replies_carry_news.owner_replies_carry_news": "his notification fires the moment the reply posts, so a warning comes too late",
+    "owner_replies_stay_short.owner_writes_stay_short": "the owner ordered the refusal: his notification fires the moment a chatty reply posts, so a warning comes too late",
+    "owner_replies_stay_short.owner_replies_stay_short": STOP.format(what="the owner would read the chatty reply as sent"),
     "owner_returns.communicator_reply_follows_the_owner_rules": STOP.format(what="the owner would read the reply as sent"),
     "owner_returns.The communicator reads only the Slack thre": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
     "owner_slack_links.owner_slack_links_get_routed": STOP.format(what="a thread the owner linked would go unanswered"),

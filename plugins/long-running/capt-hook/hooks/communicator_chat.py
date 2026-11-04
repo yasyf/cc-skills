@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import re
+import subprocess
 from pathlib import Path
 
 from cc_transcript.models import AssistantEvent, AttachmentEvent, UserEvent
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, hook, HookResult, Input, llm_gate, on, T, Tool, Warn
+from captain_hook.util import reqenv
 
-from .compaction_handoff import Communicator, communicator_tests, CompactionState
+from .compaction_handoff import bus_name, CCN_TIMEOUT_SECONDS, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry
 from .root_replies import owner_text, read_call
+from .tests.register_fixtures import DRIVE_CONFIG
 
 PROMPT = """Judge only the message in <assistant_message>, the reply that ends the assistant's turn in the owner's chat.
 Block when nothing in it tells the owner, in second person, what changed for him or what he must decide: a message that is only ledger rows or ledger marks, hook or tooling mechanics, acknowledgements of lanes, workers or records, or a "nothing new" or "no change" line.
@@ -19,6 +23,11 @@ MONITOR = [{"id": "m1", "type": "monitor", "status": "running", "description": "
 WAKE = f'{CCI_CHANNEL} seq="359771">#359771 board-watch owner: the owner picked “Land” on merge-prs</channel>'
 REFUSED = {"type": "attachment", "timestamp": "2026-01-15T20:19:00Z", "attachment": {"type": "hook_blocking_error", "hookName": "Stop", "blockingError": {"blockingError": REPLY, "command": "capt-hook"}}}
 NOOP = "A do-nothing Bash call ends no turn, and the owner sees every one. A wake with nothing for him ends here: no text and no tool call, even when Claude Code says he has not heard from you in a while."
+CHORE_DESK = "meta-desk-3"
+CHORE_RUNS, CHORE_ASKS = "chore-runs", "chore-asks"
+CHORE_VERBS = frozenset({"lr", "cci"})
+TAIL = "cci tail --lane relay-fix-2 -n 1"
+TAIL_SHAPE = "cci tail --lane -n"
 READS = "Two Bash reads in a row with no subagent between them. Hand the rest of this read to `Agent` with `Explore` and `model: sonnet`, and keep only its answer."
 
 ACTIVE = [CompactionState(active=True, communicator=True)]
@@ -144,3 +153,41 @@ hook(
         Input(command="true", agent_id="a1b2c3", state=ACTIVE, transcript=turn()): Allow(),
     }),
 )
+
+
+def chores(evt: BaseHookEvent) -> list[str]:
+    return [
+        " ".join([call.name, *[arg for arg in call.args if not arg.startswith("-")][:1], *sorted({arg.split("=", 1)[0] for arg in call.args if arg.startswith("-")})])
+        for call in evt.command.calls()
+        if call.name in CHORE_VERBS
+    ]
+
+
+def ask_for_a_verb(evt: BaseHookEvent, shape: str) -> None:
+    if not (entry := drive_entry(evt)):
+        return
+    topic = "chore:" + re.sub(r"\W+", "-", shape).strip("-")
+    text = f"The communicator ran `{shape}` twice this session; give it one verb for this chore."
+    argv = ["cci", "post", "--drive", bus_name(entry), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--to", CHORE_DESK, "--topic", topic, "--text", text]
+    try:
+        subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()), check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Communicator(), Tool("Bash")],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(command=TAIL, state=ACTIVE, env=DRIVE_CONFIG, commands={"cci post": ""}): Allow(),
+        Input(command=TAIL, state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: [TAIL_SHAPE]}, commands={"cci post": ""}): Allow(),
+        Input(command=TAIL, state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: [TAIL_SHAPE]}, commands={"cci post": (1, "bus down")}): Allow(),
+        Input(command=f"{TAIL} && cci tail --lane fix-3 -n 1", state=ACTIVE, env=DRIVE_CONFIG, commands={"cci post": ""}): Allow(),
+        Input(command="ls /drive", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+    }),
+)
+def repeated_chores_ask_for_a_verb(evt: BaseHookEvent) -> None:
+    for shape in chores(evt):
+        if not evt.ctx.s.once(shape, scope=CHORE_RUNS) and evt.ctx.s.once(shape, scope=CHORE_ASKS):
+            ask_for_a_verb(evt, shape)
