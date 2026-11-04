@@ -385,7 +385,7 @@ func (d *Desk) laneRecordsSince(ctx context.Context, lane string, since time.Tim
 	if err != nil {
 		return nil, err
 	}
-	return d.tail(ctx, client.Query{Lanes: names, Kinds: kinds, Since: since})
+	return d.passTail(ctx, client.Query{Lanes: names, Kinds: kinds, Since: since})
 }
 
 func prNamed(record client.Record, pr string) bool {
