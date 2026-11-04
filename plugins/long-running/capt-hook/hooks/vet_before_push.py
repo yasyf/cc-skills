@@ -19,7 +19,6 @@ TYPECHECK = "typecheck"
 TYPECHECKERS = frozenset({"tsc", "tsgo"})
 RUNNERS = frozenset({"yarn", "npm", "pnpm", "bun"})
 LAUNCHERS = frozenset({"npx", "bunx"})
-BUN_LOCKS = ("bun.lock", "bun.lockb")
 GO_VALUE_FLAGS = frozenset({"-o", "-tags", "-p", "-mod", "-modfile", "-overlay", "-pkgdir", "-gcflags", "-ldflags", "-asmflags", "-toolexec", "-exec", "-vettool"})
 PROJECT_FLAGS = frozenset({"-p", "--project"})
 REMOTE_VET = "remote-vet.py"
@@ -215,13 +214,9 @@ def go_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]
 def typecheck_command(top: Path, project: Path) -> str:
     runner = "yarn" if (top / "yarn.lock").is_file() else "npm run"
     root, scripts = scripts_at(top)
-    name = next((name for name, line in scripts.items() if not name.startswith("watch:") and project in projects(root, {}, line.split())), None)
+    name = next((name for name, line in scripts.items() if name.startswith("tsc:") and name != "tsc:all" and project in projects(root, {}, line.split())), None)
     if name:
         return f"{runner} {name}"
-    own, own_scripts = scripts_at(project)
-    name = next((name for name, line in own_scripts.items() if own == project and not name.startswith("watch:") and project in projects(own, {}, line.split())), None)
-    if name:
-        return f"cd {project} && {'bun run' if any((project / lock).is_file() for lock in BUN_LOCKS) else 'npm run'} {name}"
     return f"npx tsc --noEmit -p {project}"
 
 
@@ -256,7 +251,7 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command="git push origin HEAD", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("vet", root="go/sand")]): Block(pattern=r"cd \S+ && go build \./internal/vm\n```$"),
         Input(command="gt submit --stack", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand", at=0.0)]): Block(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF): Block(pattern=r"\nyarn tsc:api\n"),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF): Block(pattern=r"\ncd \S+/tools/own && bun run typecheck\n"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF): Block(pattern=r"\nnpx tsc --noEmit -p \S+/tools/own\n"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF, state=[fresh(TYPECHECK, root="tools/own", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand")]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand/internal/vm", recursive=False)]): Allow(),
