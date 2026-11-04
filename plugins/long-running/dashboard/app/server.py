@@ -776,18 +776,18 @@ def awaiting_reply(rows, asks):
     return [{**row, "awaiting": open_ask(row["number"])} for row in rows]
 
 
-def review_rows(stored, shown, verdicts):
-    words = {row["number"]: row for row in shown}
+def review_rows(stored, verdicts):
     rows = []
     for row in stored:
-        said = words.get(row["number"], {})
-        same = said if said.get("head", "")[:7] == row["head"][:7] else {}
         alias = LANE_NUMBER.sub("", row["lane"])
         rows.append({
-            **same,
             "number": row["number"],
             "head": row["head"],
             "title": row["title"],
+            "change": row["for_users"],
+            "plan": row["plan"],
+            "risk": row["risk"],
+            "review": row["review"],
             "blocker": "your approval" if row["ready"] else row["waits"],
             "group": alias,
             "group_id": alias,
@@ -1523,7 +1523,7 @@ class Drive:
         store_path = Path(self.config["steps"]).parents[1] / LR_STORE
         with sqlite3.connect(f"file:{store_path}?mode=ro", uri=True) as store:
             store.row_factory = sqlite3.Row
-            return [dict(row) for row in store.execute("SELECT number, head, lane, title, waits, ready, tapped, drawn_at FROM review_rows WHERE repo = ? ORDER BY ready DESC, number", (self.config["repo"],))]
+            return [dict(row) for row in store.execute("SELECT number, head, lane, title, for_users, plan, risk, review, waits, ready, tapped, drawn_at FROM review_rows WHERE repo = ? ORDER BY ready DESC, number", (self.config["repo"],))]
 
     def follow_rows(self):
         seen = None
@@ -1576,7 +1576,7 @@ class Drive:
             self.board_seq = seq
         read = self.read_board(self.board_doc)
         stored = self.stored_rows()
-        read["rows"] = review_rows(stored, read["rows"], {MERGE_BLOCK: {**self.board_doc["interactions"]["triage"].get(MERGE_BLOCK, {}), **self.tapped}})
+        read["rows"] = review_rows(stored, {MERGE_BLOCK: {**self.board_doc["interactions"]["triage"].get(MERGE_BLOCK, {}), **self.tapped}})
         read["rows_at"] = stored[0]["drawn_at"] if stored else None
         answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
         return {**read, "answered": answered, "seq": seq}

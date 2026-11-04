@@ -85,23 +85,23 @@ def test_parse_plan_skips_a_doc_without_the_section():
 
 
 def stored_row(number, head, **change):
-    return {"number": number, "head": head, "lane": "lane-7", "title": "T", "waits": "Only your approval.", "ready": 1, "tapped": 0, "drawn_at": "2026-11-04T09:40:00Z", **change}
+    return {"number": number, "head": head, "lane": "lane-7", "title": "T", "for_users": "Chats open faster.", "plan": "Plan step 7.", "risk": "Low.", "review": "CI green; approved", "waits": "Only your approval.", "ready": 1, "tapped": 0, "drawn_at": "2026-11-04T09:40:00Z", **change}
 
 
-def test_the_tab_lists_each_stored_pr_once_whatever_the_board_copy_holds():
-    shown = [{"number": 1, "head": "aaaaaaa", "title": "copy", "change": "C.", "group": "G", "group_id": "g", "group_summary": "S."}, {"number": 9, "head": "ccccccc", "title": "gone"}, {"number": 2, "head": "old1234", "title": "moved", "change": "stale"}]
+def test_the_tab_lists_each_stored_pr_with_its_fields_from_the_store():
     stored = [stored_row(1, "aaaaaaabbbb"), stored_row(2, "bbbbbbbcccc", ready=0, waits="CI is not green; held by root"), stored_row(3, "ddddddd", lane="old-chat-convert-5", tapped=1)]
-    rows = server.review_rows(stored, shown, {"merge-prs": {"1": {"verdict": "approved", "head": "aaaaaaa"}}})
+    rows = server.review_rows(stored, {"merge-prs": {"1": {"verdict": "approved", "head": "aaaaaaa"}}})
 
     assert [row["number"] for row in rows] == [1, 2, 3]
-    assert rows[0]["change"] == "C." and rows[0]["group"] == "lane" and rows[0]["verdict"] == {"verdict": "approved", "head": "aaaaaaa"} and rows[0]["blocker"] == "your approval"
-    assert "change" not in rows[1] and rows[1]["head"] == "bbbbbbbcccc" and rows[1]["blocker"] == "CI is not green; held by root"
+    assert rows[0]["change"] == "Chats open faster." and rows[0]["plan"] == "Plan step 7." and rows[0]["risk"] == "Low." and rows[0]["review"] == "CI green; approved"
+    assert rows[0]["group"] == "lane" and rows[0]["verdict"] == {"verdict": "approved", "head": "aaaaaaa"} and rows[0]["blocker"] == "your approval"
+    assert rows[1]["head"] == "bbbbbbbcccc" and rows[1]["blocker"] == "CI is not green; held by root"
     assert rows[2]["group"] == "old-chat-convert" and rows[2]["tapped"] is True
 
 
 def test_a_stored_tap_reads_approved_without_a_board_verdict():
     drive = Drive({"board_url": "http://board/p/x"}, None)
-    rows = server.review_rows([stored_row(3, "ddddddd", tapped=1), stored_row(4, "eeeeeee"), stored_row(5, "fffffff", ready=0, waits="CI is not green")], [], {})
+    rows = server.review_rows([stored_row(3, "ddddddd", tapped=1), stored_row(4, "eeeeeee"), stored_row(5, "fffffff", ready=0, waits="CI is not green")], {})
     drive.check_gos(rows)
 
     assert [row["state"] for row in rows] == ["approved", "you", "not-ready"]
