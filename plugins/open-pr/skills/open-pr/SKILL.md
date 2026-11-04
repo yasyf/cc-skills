@@ -112,6 +112,15 @@ still in flight goes at the tip, so the finished branches below it never
 get re-rebased under its churn. Mechanics in
 [reference/stack.md](reference/stack.md).
 
+A PR is a feature-sized unit of work. Follow-ups, fixes, and review
+responses are commits on the open PR, never a stacked child. Ship them with
+`ccx vcs ship`, adding `--amend` to fold into its commit or `--tip-only`
+when only a stack's tip changed. Stack only when a parent must land before
+other work can proceed, or when review needs the split. Push at coherent
+checkpoints, never per edit, because each push supersedes the running
+build and reruns CI and the review bots. Still push within the hour,
+since origin is the backup.
+
 ## Ship
 
 The flag combination is load-bearing:

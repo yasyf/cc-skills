@@ -213,7 +213,9 @@ The failure determines the fix — apply it, no message needed:
 - a review comment carrying a fenced `suggestion` block
 - a bot nit naming the exact replacement
 
-Apply it, re-run the check's local equivalent where one exists, ship with
+Apply it and re-run the check's local equivalent where one exists. Batch
+every fix the current poll round determines into one ship, since each push
+supersedes the running build and reruns CI and the review bots. Ship with
 `ccx vcs ship -m "<subject matching the repo's convention>" --no-watch` —
 the convention is in `<cache>/style.md` when the scout has run, recent
 `git log` subjects otherwise — record the attempt in the state file, and

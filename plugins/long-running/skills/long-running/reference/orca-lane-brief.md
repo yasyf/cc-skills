@@ -190,10 +190,14 @@ Standing: <only for a duty the drive keeps for good, such as a desk, a sweep, or
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
-Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
+Stack shape, under D19: a deliverable is one feature-sized PR. Fixes, follow-ups and
+  review responses are commits on it through `ccx vcs ship`, with `--amend` to fold into
+  its commit or `--tip-only` when only the tip changed, never a stacked child. Stack only
+  when a parent must land before other lanes can proceed, or when review needs the
+  split. Put each shared-file edit in the smallest additive first PR of
   your stack, in the file's declared order. When a file you change is in another open
-  PR, stack on that PR instead of racing it. Open your PR as soon as its parent's PR
-  exists, never once it lands: ship on the parent branch, then restack after the parent
+  PR, stack on that PR instead of racing it. When you stack, open your PR as soon as its
+  parent's PR exists, never once it lands: ship on the parent branch, then restack after the parent
   lands with `lr landing restack --runner <runner config> --lane <lane> <top PR>`, which
   replays the stack on a Sprite, pushes, and posts each new head. No rebase runs here.
   Resolve by hand only a conflict it reports, on the branch and commit it names. Never commit a generated output; the build
@@ -362,8 +366,13 @@ Worktree and VCS:
   Rust you changed, applies the formatting back into your worktree, then builds and vets only
   the packages and crates you touched. Never a local `cargo check`, `gofmt` or `cargo fmt`, and
   tests run only in CI. Exit 3 means every build machine is busy: push and let CI grade.
-- Commit and push every coherent checkpoint. Open a non-draft PR with a body for
+- Commit every coherent checkpoint and push at checkpoints, never per edit, because each
+  push supersedes the running build and reruns CI and both review bots. Still push within
+  the hour, since origin is the backup. Open a non-draft PR with a body for
   finished changes in the same turn. Drive it through landing under D1.
+- Fixes, follow-ups and review responses are commits on your open PR, never a stacked
+  child. Stack only when a parent must land before other lanes can proceed, or when
+  review needs the split.
 - When a PR's title no longer says what its diff does, rewrite it yourself with the
   ship command's `--pr-title`, without asking.
 - When your stack depends on another lane's unlanded branch, stack on top of it and
@@ -478,7 +487,7 @@ Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <relevant register rules, their linked answer ids, and the entry point (symbol at file:line) each requires; or "none">. A contract quotes the owner's words for each pick. A narrower reading the build needs, such as per key for per Mac, is an ask to the coordinator, never a choice. Its failing-first test asserts the owner's invariant, such as process count flat in chat count, not the narrowed case.
 Design check: before READY-FOR-SHIP, post `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>` as a `contract` record on the bus and keep building; never wait for a confirm. The coordinator withdraws it only on a mismatch; a change that leaves out part of a ruling holds.
 Design questions: settle each from this spec, the register, and the base branch yourself and post the choice as a `contract` record. Ask the coordinator only when the choice changes owner-visible behaviour, and keep building the rest meanwhile.
-Stacking: open your PR as soon as its parent's PR exists, never once it lands; restack with `ccx vcs stack submit` after the parent lands.
+Stacking: one feature-sized PR per deliverable, with fixes and review responses as commits on it; stack only when a parent must land first or review needs the split. A stacked PR opens as soon as its parent's PR exists, never once it lands; restack with `ccx vcs stack submit` after the parent lands.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   Carry the owner-approved register's at most 35 rules, never full-answer quotes.
   Claude workers carrying CLAUDE_LONG_RUNNING_DRIVE receive it once at SessionStart.
