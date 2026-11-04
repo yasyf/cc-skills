@@ -183,7 +183,7 @@ def test_captain_hook_plugin_stays_enabled():
 
 
 def test_guides_pull_request_paths_cover_every_ci_owned_file():
-    block = re.search(r"^  pull_request:\n    paths:\n((?:      - .+\n)+)", GUIDES_WORKFLOW.read_text(), re.M)
+    block = re.search(r"^  pull_request:\n(?:    branches: .+\n)?    paths:\n((?:      - .+\n)+)", GUIDES_WORKFLOW.read_text(), re.M)
     assert block, "guides.yml must filter pull_request by the CI-owned paths"
     paths = re.findall(r'- "(.+)"', block[1])
     owned = [*tomllib.loads(LOCK.read_text())["artifacts"], str(LOCK.relative_to(REPO_ROOT))]

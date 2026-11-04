@@ -6,10 +6,12 @@ version change, and tag the bump commit `<name>--v<version>`. The installed-plug
 cache only re-pulls on a version move, so content shipped without a bump goes
 stale on every consumer. The bump commit also pins the plugin's marketplace
 entry to that tag, so Claude Code installs the tagged tree rather than whatever
-the default branch holds when it copies. Guarded plugins (binary-pinned) get a
-drift warning instead of a bump. A plugin in lockstep with a binary it builds and
-pins waits, unbumped, while a commit newer than the pinned build changes both the
-binary's source and the rest of the plugin; the run its pin commit starts bumps it.
+the default branch holds when it copies. A version bumped by hand has no drift
+but no tag either, so it gets the same tag and pin with no bump. Guarded plugins
+(binary-pinned) get a drift warning instead of a bump. A plugin in lockstep with
+a binary it builds and pins waits, unbumped, while a commit newer than the pinned
+build changes both the binary's source and the rest of the plugin; the run its
+pin commit starts bumps it.
 A newer pin since the last bump still ships when AUTOBUMP_LOCKSTEP_CHECK passes on
 the tree at HEAD, so a steady stream of such commits cannot starve the pin.
 
@@ -159,10 +161,14 @@ class Result:
     manifest: str
     version: str | None
     baseline: str | None
-    verdict: str  # clean | exempt | bump | guarded | waiting | error
+    verdict: str  # clean | exempt | bump | publish | guarded | waiting | error
     new_version: str | None = None
     message: str | None = None
     new_text: str | None = None
+
+
+def has_version_tag(repo: Path, name: str, version: str) -> bool:
+    return bool(_git_out(repo, "tag", "--list", f"{name}--v{version}").strip())
 
 
 def _nested_roots(root: str, roots: list[str]) -> list[str]:
@@ -221,12 +227,14 @@ def analyze(repo: Path, guard: set[str], excludes: list[str], lockstep: tuple[tu
         drifted = tree_drift(repo, baseline, root, excludes, _nested_roots(root, roots)) or structural_drift(
             repo, baseline, manifest, head
         )
-        if not drifted:
+        if not drifted and (name in guard or has_version_tag(repo, name, version)):
             results.append(Result(name, root, manifest, version, baseline, "clean"))
         elif name in guard:
             results.append(Result(name, root, manifest, version, baseline, "guarded"))
         elif reason := wait_reason(repo, root, lockstep, baseline):
             results.append(Result(name, root, manifest, version, baseline, "waiting", message=reason))
+        elif not drifted:
+            results.append(Result(name, root, manifest, version, baseline, "publish", new_version=version, new_text=head_raw))
         else:
             try:
                 new = bump_patch(version)
@@ -245,6 +253,7 @@ def _verdict_cell(r: Result) -> str:
         "guarded": "guarded drift",
         "waiting": f"waits: {r.message}",
         "bump": f"bump → {r.new_version}",
+        "publish": f"tag and pin {r.new_version}",
         "error": f"ERROR: {r.message}",
     }[r.verdict]
 
@@ -283,15 +292,19 @@ def pin_marketplace(repo: Path, bumps: list[Result]) -> list[str]:
     return [str(MARKETPLACE)]
 
 
+def _version_move(r: Result) -> str:
+    return r.version if r.verdict == "publish" else f"{r.version}→{r.new_version}"
+
+
 def commit_and_push(repo: Path, bumps: list[Result], branch: str, lockstep: tuple[tuple[str, str], ...] = ()) -> bool:
     for r in bumps:
         (repo / r.manifest).write_text(r.new_text, encoding="utf-8")  # precomputed + validated in analyze
     _git_out(repo, "add", *(r.manifest for r in bumps), *pin_marketplace(repo, bumps))
     if len(bumps) == 1:
         r = bumps[0]
-        message = [f"chore(plugins): autobump {r.name} {r.version}→{r.new_version} [skip ci]"]
+        message = [f"chore(plugins): autobump {r.name} {_version_move(r)} [skip ci]"]
     else:
-        body = "\n".join(f"{r.name} {r.version}→{r.new_version}" for r in bumps)
+        body = "\n".join(f"{r.name} {_version_move(r)}" for r in bumps)
         message = [f"chore(plugins): autobump {len(bumps)} plugins [skip ci]", body]
     env = {
         **os.environ,
@@ -303,7 +316,8 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str, lockstep: tupl
     args = ["commit"]
     for m in message:
         args += ["-m", m]
-    subprocess.run(["git", *args], cwd=repo, env=env, check=True)
+    if _git(repo, "diff", "--cached", "--quiet").returncode:
+        subprocess.run(["git", *args], cwd=repo, env=env, check=True)
     for _ in range(3):
         # env carries the bot identity: rebase creates commits too, and a bare
         # runner has none — without it every retry dies on "empty ident name".
@@ -366,14 +380,14 @@ def main() -> int:
             if strict:
                 print(f"::error::guarded plugin {r.name} drifted (strict)")
         elif r.verdict == "waiting":
-            print(f"::notice::plugin {r.name} drifted but waits for its pin: {r.message}")
+            print(f"::notice::plugin {r.name} waits for its pin: {r.message}")
         elif r.verdict == "error":
             print(f"::error::plugin {r.name}: {r.message}")
 
     # A stray non-dry local run must never mutate a shared branch: mutation needs
     # CI, or a deliberate AUTOBUMP_FORCE=1. Otherwise a non-dry run reports only.
     report_only = not dry_run and not (in_ci or forced)
-    bumps = [r for r in results if r.verdict == "bump"]
+    bumps = [r for r in results if r.verdict in ("bump", "publish")]
     push_failed = False
     if bumps and not dry_run and not report_only:
         push_failed = not commit_and_push(repo, bumps, branch, lockstep)

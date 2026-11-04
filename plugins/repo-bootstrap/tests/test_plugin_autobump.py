@@ -106,7 +106,7 @@ def test_clean_when_last_change_is_bump(repo):
     _write(repo, "plugins/a/src.py", "print('x')\n")
     _commit(repo, "create a")
     _write(repo, m, _manifest_text("a", "0.2.0"))
-    _commit(repo, "bump a")
+    _run(repo, "tag", "a--v0.2.0", _commit(repo, "bump a"))
 
     assert _by_name(autobump.analyze(repo, set(), []), "a").verdict == "clean"
 
@@ -154,7 +154,7 @@ def test_infra_paths_do_not_count_as_drift(repo):
     _write(repo, m, _manifest_text("a", "0.1.0"))
     _commit(repo, "create a")
     _write(repo, m, _manifest_text("a", "0.2.0"))
-    _commit(repo, "bump a")
+    _run(repo, "tag", "a--v0.2.0", _commit(repo, "bump a"))
     _write(repo, "plugins/a/.github/ci.yml", "on: push\n")
     _write(repo, "plugins/a/.claude/settings.json", "{}\n")
     _write(repo, "plugins/a/.gitignore", "dist/\n")
@@ -329,7 +329,7 @@ def test_a_bump_pins_its_marketplace_entry_to_the_tag_it_publishes(repo, tmp_pat
     _write(repo, _manifest_path("plugins/b"), _manifest_text("b", "0.3.0"))
     marketplace = {"name": "m", "plugins": [{"name": "a", "source": "./plugins/a", "description": "é"}, {"name": "b", "source": "./plugins/b"}]}
     _write(repo, ".claude-plugin/marketplace.json", json.dumps(marketplace, indent=2, ensure_ascii=False) + "\n")
-    _commit(repo, "create a + b")
+    _run(repo, "tag", "b--v0.3.0", _commit(repo, "create a + b"))
     _write(repo, "plugins/a/src.py", "print('x')\n")
     _commit(repo, "add a content")
     remote = tmp_path / "remote.git"
@@ -353,11 +353,111 @@ def test_a_root_plugin_pins_the_whole_repository_at_its_tag():
     assert autobump.tagged_source("https://github.com/o/r", ".", "r--v1.0.1") == {"source": "url", "url": "https://github.com/o/r", "ref": "r--v1.0.1"}
 
 
+def _hand_bumped(repo: Path) -> str:
+    _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.1.0"))
+    _write(repo, "plugins/a/src.py", "print('x')\n")
+    _write(repo, ".claude-plugin/marketplace.json", json.dumps({"name": "m", "plugins": [{"name": "a", "source": "./plugins/a", "version": "0.1.0"}]}, indent=2) + "\n")
+    _commit(repo, "create a")
+    _write(repo, "plugins/a/src.py", "print('y')\n")
+    _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.2.0"))
+    return _commit(repo, "hand-bump a with its change")
+
+
+def _published(repo: Path, tmp_path: Path) -> Path:
+    remote = tmp_path / "remote.git"
+    _run(tmp_path, "init", "--bare", str(remote))
+    _run(repo, "remote", "add", "origin", str(remote))
+    _run(repo, "push", "-u", "origin", "main", "--tags")
+    return remote
+
+
+@pytest.mark.parametrize(
+    ("tagged", "dirty", "verdict", "new_version"),
+    [(False, False, "publish", "0.2.0"), (True, False, "clean", None), (False, True, "bump", "0.2.1"), (True, True, "bump", "0.2.1")],
+)
+def test_a_version_tag_decides_only_a_clean_plugin(repo, tagged, dirty, verdict, new_version):
+    sha = _hand_bumped(repo)
+    if tagged:
+        _run(repo, "tag", "a--v0.2.0", sha)
+    if dirty:
+        _write(repo, "plugins/a/src.py", "print('z')\n")
+        _commit(repo, "content after the version")
+
+    r = _by_name(autobump.analyze(repo, set(), []), "a")
+    assert (r.verdict, r.new_version) == (verdict, new_version)
+
+
+def test_a_hand_bumped_version_is_tagged_at_its_commit_and_pinned_once(repo, tmp_path, monkeypatch):
+    sha = _hand_bumped(repo)
+    remote = _published(repo, tmp_path)
+
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    assert autobump.main() == 0
+
+    assert _out(remote, "rev-parse", "a--v0.2.0^{commit}") == sha
+    assert _out(remote, "log", "-1", "--format=%s", "main") == "chore(plugins): autobump a 0.2.0 [skip ci]"
+    assert _out(remote, "diff", "--name-only", sha, "main") == ".claude-plugin/marketplace.json"
+    (entry,) = json.loads(_out(remote, "show", "main:.claude-plugin/marketplace.json"))["plugins"]
+    assert entry == {"name": "a", "source": {"source": "git-subdir", "url": str(remote), "path": "plugins/a", "ref": "a--v0.2.0"}, "version": "0.2.0"}
+
+    pinned = _out(remote, "rev-parse", "main")
+    assert autobump.main() == 0
+    assert _out(remote, "rev-parse", "main") == pinned
+    assert _by_name(autobump.analyze(repo, set(), []), "a").verdict == "clean"
+
+
+def test_a_clean_version_with_its_tag_changes_nothing(repo, tmp_path, monkeypatch):
+    sha = _hand_bumped(repo)
+    _run(repo, "tag", "a--v0.2.0", sha)
+    remote = _published(repo, tmp_path)
+
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    assert autobump.main() == 0
+
+    assert _out(remote, "rev-parse", "main") == sha
+    assert json.loads((repo / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["source"] == "./plugins/a"
+
+
+def test_a_pin_already_on_main_still_gets_the_tag_a_failed_run_never_pushed(repo, tmp_path, monkeypatch):
+    sha = _hand_bumped(repo)
+    remote = _published(repo, tmp_path)
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    assert autobump.main() == 0
+    pinned = _out(remote, "rev-parse", "main")
+    _run(repo, "tag", "-d", "a--v0.2.0")
+    _run(repo, "push", "origin", ":refs/tags/a--v0.2.0")
+
+    assert autobump.main() == 0
+
+    assert _out(remote, "rev-parse", "main") == pinned
+    assert _out(remote, "rev-parse", "a--v0.2.0^{commit}") == sha
+
+
+def test_a_version_published_in_a_commit_its_pin_does_not_carry_waits(repo):
+    _pinned_plugin(repo)
+    _write(repo, "plugins/a/x/main.go", "package main // verb\n")
+    _write(repo, "plugins/a/hook.py", "VERB = 'x verb'\n")
+    _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.2.0"))
+    spanning = _commit(repo, "hand-bump a with a verb and the hook naming it")
+
+    waiting = _by_name(autobump.analyze(repo, set(), [], LOCKSTEP), "a")
+    assert waiting.verdict == "waiting"
+    assert spanning[:7] in waiting.message
+
+
+def test_a_guarded_plugin_without_a_version_tag_stays_clean(repo, monkeypatch):
+    _hand_bumped(repo)
+
+    assert _by_name(autobump.analyze(repo, {"a"}, []), "a").verdict == "clean"
+    _set_env(monkeypatch, repo, guard="a", strict="true")
+    assert autobump.main() == 0
+
+
 # 13 — a nested plugin's drift never leaks up to a parent plugin's root
 def test_nested_plugin_drift_does_not_leak_to_parent(repo):
     _write(repo, _manifest_path("."), _manifest_text("root", "0.1.0"))
     _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.1.0"))
-    _commit(repo, "create root + a")
+    _run(repo, "tag", "root--v0.1.0", _commit(repo, "create root + a"))
     _write(repo, "plugins/a/src.py", "print('x')\n")
     _commit(repo, "edit only plugins/a content")
 
