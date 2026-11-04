@@ -7,7 +7,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import Bound, bus_name, drive_entry
+from .compaction_handoff import ALIAS_RULE, Bound, bus_name, drive_entry
 from .session_tree import ROOT_NAMES, drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -68,4 +68,4 @@ def lane_reads_its_handoff_after_compacting(evt: BaseHookEvent) -> HookResult | 
     if evt._raw.get("source") != "compact" or not (lane := lane_of(evt)):
         return None
     doc = latest_handoff(evt, lane)
-    return evt.context(f"You are {lane} and just compacted. Read `ccn doc show {doc}`, your handoff, then your brief, and continue the work it names.") if doc else None
+    return evt.context(f"You are {lane} and just compacted. Read `ccn doc show {doc}`, your handoff, then your brief, and continue the work it names. {ALIAS_RULE}") if doc else None

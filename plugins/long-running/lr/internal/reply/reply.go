@@ -21,8 +21,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talkboard"
 )
 
@@ -131,6 +133,7 @@ type Fanout struct {
 }
 
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
+	r = f.aliased(r)
 	seen := r
 	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
 	steps := []step{{f.board, seen}, {f.thread, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
@@ -145,6 +148,33 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 		sent = append(sent, s.surface(ctx, s.reply, sent)...)
 	}
 	return sent
+}
+
+func (f Fanout) aliased(r Reply) Reply {
+	s, err := store.Open(f.Entry.Store())
+	if err != nil {
+		return r
+	}
+	defer func() { _ = s.Close() }()
+	names, err := s.Names()
+	if err != nil {
+		return r
+	}
+	aliases := lanes.AliasesOf(names)
+	r.Title, r.MD, r.Action = aliases.In(r.Title), aliases.In(r.MD), aliases.In(r.Action)
+	picks := aliases.AllIn(r.Picks)
+	if len(slices.Compact(slices.Sorted(slices.Values(picks)))) == len(picks) {
+		r.Picks, r.Recommended = picks, aliases.In(r.Recommended)
+	}
+	r.PRCards = slices.Clone(r.PRCards)
+	for n, card := range r.PRCards {
+		r.PRCards[n].Lines = Lines{aliases.In(card.Change), aliases.In(card.Plan), aliases.In(card.Risk), aliases.In(card.Blocks)}
+	}
+	r.Blocks = slices.Clone(r.Blocks)
+	for n, block := range r.Blocks {
+		r.Blocks[n] = json.RawMessage(aliases.In(string(block)))
+	}
+	return r
 }
 
 func (r Reply) quiet() bool {

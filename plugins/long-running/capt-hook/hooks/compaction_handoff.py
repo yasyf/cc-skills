@@ -94,6 +94,7 @@ REGISTER_FENCE = "~" * 12
 SWEEP_FIRST = "Run `rulings.py sweep --drive {drive}` before the first plan or card edit."
 ROOT_LANE = "root"
 COMMUNICATOR_LANE = "owner-relay"
+ALIAS_RULE = "Name other lanes by alias, such as tap-rows, never a numbered name such as tap-rows-1, in records, replies and this summary; a relaunched lane keeps its alias. Your own lane's binding stays numbered where a tool needs it."
 LR = Path(__file__).parents[2] / "bin" / "lr"
 ROOT_SLICE_BLOCKERS = "root-slice-blockers"
 DOC_ADD_TOOL = "mcp__plugin_cc-notes_cc-notes__doc_add"
@@ -357,7 +358,7 @@ def resume_restore(state: CompactionState, cwd: str) -> str:
     head = (
         f"Resumed long-running drive `{state.slug}`. Before acting, read the progress record {pointer} "
         f"(it supersedes the conversation so far), then `{state.plan_path}`. "
-        "Reload Skill `long-running` if its rules are gone."
+        f"Reload Skill `long-running` if its rules are gone. {ALIAS_RULE}"
     )
     room = RESTORE_BUDGET - len(head.encode()) - 1
     return f"{head}\n{body.encode()[:room].decode(errors='ignore')}".rstrip()
@@ -374,13 +375,13 @@ def compact_instructions(state: CompactionState) -> str:
             else f"active progress doc: {doc}; the id in this summary wins"
         )
         return (
-            f"Resume from `{state.plan_path}`{reads}, then `ccn doc show {doc}`; keep only in-flight details they lack. "
+            f"Resume from `{state.plan_path}`{reads}, then `ccn doc show {doc}`; keep only in-flight details they lack. {ALIAS_RULE} "
             f"Quote: {quote} over any id captured earlier in the conversation."
         )
     failed = f"The generated handoff failed: {state.failure}. " if state.failure else ""
     return (
         f"{failed}Resume the drive from `{state.plan_path}` and its progress record: read the plan, "
-        f"{resume_steps(state)}. Keep only in-flight details they lack."
+        f"{resume_steps(state)}. Keep only in-flight details they lack. {ALIAS_RULE}"
     )
 
 
@@ -986,11 +987,11 @@ def record_model(evt: BaseHookEvent) -> HookResult | None:
         Input(
             source="compact",
             state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", digest="Compacted long-running drive `brook`.")],
-        ): Warn(pattern=r"^Compacted long-running drive `brook`\.$"),
+        ): Warn(pattern=r"^Compacted long-running drive `brook`\. Name other lanes by alias"),
         Input(
             source="compact",
             state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", failure="ccn: timed out")],
-        ): Warn(pattern=r"The generated handoff failed; write the progress record now\.$"),
+        ): Warn(pattern=r"The generated handoff failed; write the progress record now\. Name other lanes by alias"),
     },
 )
 def reground(evt: BaseHookEvent) -> HookResult | None:
@@ -1019,7 +1020,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             queue_register(state, reader)
             queue_root_slice(state, evt, reader)
     if digest:
-        return evt.context(digest + pending)
+        return evt.context(f"{digest}{pending} {ALIAS_RULE}")
     follow_up = (
         " The generated handoff failed; write the progress record now."
         if failure
@@ -1028,6 +1029,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
     return evt.context(
         f"Read `{state.plan_path}` before anything else, {resume_steps(state)}; they supersede the compaction summary."
         + follow_up
+        + f" {ALIAS_RULE}"
     )
 
 
@@ -1145,7 +1147,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             state=[CompactionState(active=True, coordinator=True, plan_path="~/brook.md", slug="brook")],
             commands={f"{LR} handoff generate": GENERATED_STUB},
         ): Warn(
-            pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. "
+            pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. Name other lanes by alias, [^\n]*\. "
             r"Quote: active progress doc: dddddddd; "
             r"the id in this summary wins over any id captured earlier in the conversation\.$"
         ),
@@ -1156,7 +1158,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             commands={f"{LR} handoff generate": READ_FIRST_STUB},
         ): Warn(
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show bbbbbbb`, then `ccn doc show cccccccc`; "
-            r"keep only in-flight details they lack\. Quote: hand-written handoff bbbbbbb, then active progress doc: cccccccc; "
+            r"keep only in-flight details they lack\. Name other lanes by alias, [^\n]*\. Quote: hand-written handoff bbbbbbb, then active progress doc: cccccccc; "
             r"the ids in this summary win over any id captured earlier in the conversation\.$"
         ),
         Input(transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]): Allow(),

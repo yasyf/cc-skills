@@ -92,6 +92,36 @@ func TestACompactionHandoffCarriesEveryPROpenAskAndRecordAndSetsTheRow(t *testin
 	equal(t, []any{lane.Handoff, lane.State}, []any{"abc1234", store.LaneDesired})
 }
 
+func TestAHandoffNamesOtherLanesByAliasAndKeepsItsOwnBinding(t *testing.T) {
+	s := memory(t)
+	parkedLane(t, s)
+	if _, err := s.WantLane(store.Lane{Name: "meta-desk-3", Brief: "/briefs/meta.md", Role: "lane", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	bus := &fakeBus{
+		tail: []client.Record{{Seq: 7, Lane: lane2, Kind: "report", At: t0, Text: "asked meta-desk-3 about it"}},
+		open: []client.Record{{Seq: 9, Lane: "meta-desk-3", Kind: "ask", To: []string{lane2}, Text: "does meta-desk-3 own it?"}},
+	}
+
+	run := &handoffRun{}
+	if _, err := handoffEnv(bus, run).WriteHandoff(context.Background(), s, lane2, "/work/lane", "/projects/x.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+
+	var doc shell.Command
+	for _, c := range run.commands {
+		if c.Argv[0] == "ccn" {
+			doc = c
+		}
+	}
+	for _, want := range []string{"# conflicts-2 handoff", "#9 ASK from meta-desk: does meta-desk own it?", "asked meta-desk about it"} {
+		contains(t, doc.Stdin, want)
+	}
+	if strings.Contains(doc.Stdin, "meta-desk-3") {
+		t.Fatal(doc.Stdin)
+	}
+}
+
 func TestACompactionWhoseHandoffCannotBeWrittenLeavesABlocker(t *testing.T) {
 	for _, tool := range []string{"ccn", "cci", "git"} {
 		t.Run(tool, func(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -427,6 +428,11 @@ func (d *deps) readOwnerUpdate(ctx context.Context, doc *progressDoc, entry *dri
 		doc.laneRegistry = []string{"- registry unread: " + err.Error()}
 		return
 	}
+	names := make([]string, len(rows))
+	for n, row := range rows {
+		names[n] = row.Lane
+	}
+	doc.aliases = lanes.AliasesOf(names)
 	doc.ownerUpdate = strings.Join(withinBudget(splitLines(rendered), updateBudget, "lr update --drive "+entry.cciName()+" --render"), "\n")
 	for _, row := range rows {
 		if (row.State != retiredState && row.State != unregisteredState) || row.Standing != "" {

@@ -1355,10 +1355,10 @@ func TestTheHandoffCarriesTheLaneRegistryAndTheOwnerUpdateRenderedFromSources(t 
 	body := f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)]
 
 	contains(t, body,
-		"## Lane registry\n- tooling-codify-1 desired, heard an unrecorded time, step tooling, PRs #1904\n- board-refresher-7 retired, heard an unrecorded time, step -, standing: refresh the board\n",
+		"## Lane registry\n- tooling-codify desired, heard an unrecorded time, step tooling, PRs #1904\n- board-refresher retired, heard an unrecorded time, step -, standing: refresh the board\n",
 		"## Owner update\n\n### Standing duties\n- refresh the board: NO LIVE OWNER\n",
 	)
-	lacks(t, body, "old-lane-1")
+	lacks(t, body, "old-lane")
 }
 
 func TestACoordinatorOutsideTheSessionListReadsItsDriveByName(t *testing.T) {
@@ -1370,12 +1370,12 @@ func TestACoordinatorOutsideTheSessionListReadsItsDriveByName(t *testing.T) {
 `
 	f.ownerReport = "# Owner update: d1, 6:00 PM\n\n## Standing duties\n- none\n"
 
-	lacks(t, f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)], "tooling-codify-1")
+	lacks(t, f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)], "tooling-codify")
 
 	t.Setenv(driveEnv, "d1")
 	body := f.docs[str(runGenerate(t, depsFor(f), home.options()).ID)]
 
-	contains(t, body, "## Lane registry\n- tooling-codify-1 desired", "### Standing duties\n- none")
+	contains(t, body, "## Lane registry\n- tooling-codify desired", "### Standing duties\n- none")
 	called := false
 	for _, call := range f.calls {
 		called = called || slices.Equal(call, []string{"cci", "tail", "bus-1"})

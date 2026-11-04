@@ -92,9 +92,9 @@ func (r Row) Line() string {
 	case Late:
 		return fmt.Sprintf("%s %s: %s [PAST %s]", r.ID, r.At, text, strings.ToUpper(r.State))
 	case Parked:
-		return fmt.Sprintf("%s %s: %s [parked: %s; last lane %s]", r.ID, r.At, text, r.Hold, r.Lane)
+		return fmt.Sprintf("%s %s: %s [parked: %s; last lane %s]", r.ID, r.At, text, r.Hold, client.Stem(r.Lane))
 	case InProgress:
-		return fmt.Sprintf("%s %s: %s [in progress, last lane %s, no delivered proof]", r.ID, r.At, text, r.Lane)
+		return fmt.Sprintf("%s %s: %s [in progress, last lane %s, no delivered proof]", r.ID, r.At, text, client.Stem(r.Lane))
 	}
 	return fmt.Sprintf("%s %s: %s", r.ID, r.At, text)
 }

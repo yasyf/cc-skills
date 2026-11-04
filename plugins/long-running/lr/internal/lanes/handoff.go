@@ -111,6 +111,7 @@ func (e Env) writeHandoff(ctx context.Context, s *store.Store, lane, cwd, transc
 func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcript string) (body string, err error) {
 	defer recovered(&err)
 	row, _ := laneOf(s, lane)
+	aliases := AliasesOf(slices.DeleteFunc(must(s.Names()), func(name string) bool { return name == lane }))
 	records, err := e.Bus.Tail(ctx, client.Query{Drive: e.Config.Drive, Lanes: []string{lane}, Since: e.Now().Add(-handoffWindow)})
 	if err != nil {
 		return "", fmt.Errorf("cci tail: %w", err)
@@ -144,14 +145,14 @@ func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcr
 		out.WriteString("None open.\n")
 	}
 	for _, r := range addressed {
-		fmt.Fprintf(&out, "- #%d %s from %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), r.Lane, truncated(r.Text, handoffChars))
+		fmt.Fprintf(&out, "- #%d %s from %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), aliases.In(r.Lane), aliases.In(truncated(r.Text, handoffChars)))
 	}
 	out.WriteString("\n## Its last records, oldest first\n\n")
 	if len(records) == 0 {
 		out.WriteString("None in the last 12 hours.\n")
 	}
 	for _, r := range records[max(0, len(records)-handoffRecords):] {
-		fmt.Fprintf(&out, "- #%d %s %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), pacific(r.At), truncated(r.Text, handoffChars))
+		fmt.Fprintf(&out, "- #%d %s %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), pacific(r.At), aliases.In(truncated(r.Text, handoffChars)))
 	}
 	if transcript != "" {
 		out.WriteString(liveTasksSection(transcript, e.Now()))
