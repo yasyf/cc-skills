@@ -887,6 +887,11 @@ def test_chat_opens_at_its_newest_message_when_he_comes_from_another_tab(page):
     now(page)
 
 
+def test_a_reply_never_shows_the_comments_the_communicator_left_for_its_tools(page):
+    now(page)
+    assert page.evaluate("plain('It ran. <!-- Slack C0C5SEUJK5L/1793776460.701879; cci --> Done.')") == "It ran. Done."
+
+
 def test_a_thread_reply_names_its_parent_and_shows_under_it(page):
     """Owner 10:07 PM Nov 3: any message threads, and Claude gets the line knowing what it hangs on."""
     open_chat(page)
