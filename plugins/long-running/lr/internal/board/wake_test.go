@@ -255,6 +255,25 @@ func TestAWakeUnacknowledgedTenMinutesEscalatesOnceToMetaDeskAndTheCommunicator(
 	}
 }
 
+func TestEveryWakeRecordAddressesItsLaneAsNamedSinceCciRefusesAStemItCannotResolve(t *testing.T) {
+	f := newWaker(t)
+	f.drawnFor(t, "card-chat", "owner-apps")
+	if err := f.Wake(context.Background(), pick); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Wake(context.Background(), CardAnswer{Card: "card-none", Block: "b", Key: "k", Unclaimed: true}); err != nil {
+		t.Fatal(err)
+	}
+	f.bus = []client.Record{wakeRecord(800, "owner-apps", 11*time.Minute)}
+	if err := f.Late(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 3 || slices.ContainsFunc(f.posts, func(d client.Draft) bool { return !d.Force }) {
+		t.Fatalf("posts = %+v", f.posts)
+	}
+}
+
 func TestAWakeUnderTenMinutesOldOrOnAnotherBoardWaits(t *testing.T) {
 	f := newWaker(t)
 	other := wakeRecord(801, "owner-apps", time.Hour)

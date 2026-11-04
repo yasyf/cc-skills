@@ -100,6 +100,8 @@ else:
             return None
         def cci(self, argv):
             return subprocess.CompletedProcess(argv, 0, '', '')
+        def lr(self, argv, stdin):
+            return subprocess.CompletedProcess(argv, 0, '', '')
     if mode == 'unchanged':
         shell = Shell()
         threads = [threading.Thread(target=lambda: list(shell.watch('probe'))), threading.Thread(target=lambda: list(shell.writes('probe', 'cursor')))]

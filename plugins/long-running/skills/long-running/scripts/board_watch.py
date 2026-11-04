@@ -61,16 +61,15 @@ option, so the Slack permission hook reads his newest tap as his grant or revoca
 remove-block, push or update-block that takes it off, and `lr board cards sweep` leaves it up.
 
 A pick, write-in or pack pick that no `decide` or `claim` names by block id or by its owner record's
-seq 30 minutes after that record is posted again as an `ask` to the coordinator on topic `uncited:<block>`, and at 60 minutes as a
-`blocker` to the coordinator, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
+seq 30 minutes after that record is posted again as an `ask` to `meta-desk` on topic `uncited:<block>`, and at 60 minutes as a
+`blocker` to `meta-desk`, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
 
-Each structured pick on the drive coordinator's newest board, a choice.selected with option ids and no
-`other` or a pack pick, also asks the coordinator for a lane at once, unless it answers an
-open ask a lane other than the coordinator posted, since that lane already waits on it: one `ccn task add`
-on the backlog of the drive's checkout, labelled `program:<program>` and `needs-lane`, and one
-`cci post --kind ask --to root` from `board-watch` on topic `needs-lane:<block>`, keyed by the
-owner record's key, naming the card, the block, the owner's words and the task. The stall watch
-raises such an ask no spawn or claim names at 15 minutes.
+Each answer also runs `lr board wake`, which addresses a wake to the lane whose ask drew the card, the
+lane on the card's row or else the newest ask naming the card from a lane that is not a desk, and relays
+it to a lane placed on Orca. A stopped lane with no live heir draws one `NEEDS-LANE` ask to `meta-desk` with
+the card, the answer and its brief path, as does a structured pick on the drive coordinator's newest board
+that no lane asked for. Every minute `lr board wake late` tells `meta-desk` and `owner-relay`, once, of each
+wake its lane has not acknowledged in ten minutes; nothing blocks.
 
 While the board is open, the watch of the drive coordinator's newest session, read from the drive
 registry, posts the board's document as one `note` record from `board-watch` on topic
@@ -152,9 +151,8 @@ SNAPSHOT_FRESH = timedelta(hours=6)
 CLOSED_ROUND = re.compile(r"belongs to closed round")
 UNKNOWN_BLOCK = re.compile(r'\bunknown block "')
 WATCH_BYTES = 10_000_000
-LANE_TOPIC = "needs-lane"
-ROOT_LANES = frozenset({"root", "main", BUS_LANE, RUNNER})
 RELAY_LANE = "owner-relay"
+META_DESK = "meta-desk"
 LR = Path(__file__).resolve().parents[3] / "bin" / "lr"
 STRUCTURED = "structured"
 NOTED = "noted"
@@ -162,7 +160,6 @@ FREE_TEXT = "free-text"
 NO_ANSWER = "none"
 LANE_PICKS = frozenset({"choice.selected", "pack.interaction"})
 ANSWER_TO = {STRUCTURED: "root", NOTED: f"root,{RELAY_LANE}", FREE_TEXT: RELAY_LANE, NO_ANSWER: "root"}
-WORDS_CHARS = 300
 TAPS_PER_LINE = 10
 TAP_TOPIC = "tap-batch"
 CCN_SECONDS = 60
@@ -183,7 +180,8 @@ class Shell:
         self._closing = False
 
     def stale(self) -> bool:
-        return drive.behind(drive.plugin_manifest()["version"], drive.installed_version())
+        held = drive.release.held()
+        return held is not None and drive.behind(drive.plugin_manifest()["version"], held.name)
 
     def reexec(self) -> None:
         os.environ.pop(drive.CALLER_VERSION_ENV, None)
@@ -433,13 +431,15 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
     if event["type"] == "choice.selected":
         fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else "", "heads": ",".join(f"{pr}={head}" for pr, head in sorted((event.get("heads") or {}).items()))}
     answer = answer_of(event, session, shell)
-    answered = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields, answer)
+    seq = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields, answer)
     register(event, key, session, doc, shell, bus.drive)
-    if answer_rows.answered(event) and (card := (card_of(doc, block) or {}).get("id")):
-        if (done := shell.lr(["board", "cards", "recheck", "--drive", bus.drive, "--session", session, "--lane", BUS_LANE, "--pick", card, "--said", CREDENTIAL.sub(REDACTED, told(event, doc))], "")).returncode:
+    if answer_rows.answered(event):
+        card = (card_of(doc, block) or {}).get("id")
+        words = CREDENTIAL.sub(REDACTED, told(event, doc))
+        if card and (done := shell.lr(["board", "cards", "recheck", "--drive", bus.drive, "--session", session, "--lane", BUS_LANE, "--pick", card, "--said", words], "")).returncode:
             print(f"board-watch {session}: the cards resting on {card} were not re-checked: {done.stderr.strip()}", flush=True)
-    if answer == STRUCTURED and event["type"] in LANE_PICKS and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
-        ask_lane(event, key, session, doc, shell, bus)
+        unclaimed = answer == STRUCTURED and event["type"] in LANE_PICKS and shell.root_session(bus.drive) in (None, session)
+        wake_lane(card or block, block, words, key, seq, unclaimed, session, shell, bus)
     return [f"{place(doc, block)}: {told(event, doc)}"] if answer == STRUCTURED else []
 
 
@@ -489,34 +489,22 @@ def register(event: dict, key: str, session: str, doc: dict | None, shell: Shell
         print(f"board-watch {session}: the ccn answer row for {block} did not write: {done.stderr.strip()}", flush=True)
 
 
-def ask_lane(event: dict, key: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> None:
-    block = event.get("blockId", "")
-    where = place(doc, block)
-    words = told(event, doc)
-    clipped = words if len(words) <= WORDS_CHARS else f"{words[: WORDS_CHARS - 1]}\u2026"
-    task = add_task(shell, bus.drive, f"Give the owner's pick on {where} a lane", f"The owner {words} on {where}, board {session}. Spawn a lane whose brief names {block}, or have a lane post a `claim` naming it.")
-    text = f"NEEDS-LANE {where} on board {session[:8]}: the owner {clipped}. Spawn a lane whose brief names {block}, or have a lane post a claim naming it" + (f"; task {task[:7]}" if task else "")
-    argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "ask", "--to", "root", "--id", f"{LANE_TOPIC}:{key}", "--topic", f"{LANE_TOPIC}:{block}", *attr_args({"session": session, "block": block, "task": task or ""}), "--text", CREDENTIAL.sub(REDACTED, text)]
-    if (done := shell.cci(argv)).returncode:
-        print(f"board-watch {session}: the needs-lane ask for {block} did not post: {done.stderr.strip()}", flush=True)
+def wake_lane(card: str, block: str, words: str, key: str, seq: str, unclaimed: bool, session: str, shell: Shell, bus: Bus) -> None:
+    argv = ["board", "wake", card, "--drive", bus.drive, "--session", session, "--lane", BUS_LANE, "--block", block, "--said", words, "--key", key, *(["--owner-seq", seq] if seq.isdigit() else []), *(["--unclaimed"] if unclaimed else [])]
+    if (done := shell.lr(argv, "")).returncode:
+        print(f"board-watch {session}: the lane that asked for {card} was not woken: {done.stderr.strip()}", flush=True)
 
 
-def add_task(shell: Shell, drive_name: str, title: str, body: str) -> str | None:
-    if (entry := shell.entry(drive_name)) is None:
-        print(f"board-watch: no drive registry entry names {drive_name}, so the pick gets no task", flush=True)
-        return None
-    done = shell.ccn(entry["checkout"], ["task", "add", title, "--body", CREDENTIAL.sub(REDACTED, body), "--backlog", "--label", f"program:{drive.program_of(entry)}", "--label", LANE_TOPIC, "--json"])
-    if done.returncode:
-        print(f"board-watch: ccn task add for {title} did not run: {done.stderr.strip()}", flush=True)
-        return None
-    return json.loads(done.stdout)["id"]
+def wake_late(shell: Shell, bus: Bus, session: str) -> None:
+    if (done := shell.lr(["board", "wake", "late", "--drive", bus.drive, "--session", session, "--lane", BUS_LANE], "")).returncode:
+        print(f"board-watch {session}: the unacknowledged wakes were not read: {done.stderr.strip()}", flush=True)
 
 
 def attr_args(fields: dict[str, str]) -> list[str]:
     return [arg for name, value in fields.items() if value for arg in ("--attr", f"{name}={value}")]
 
 
-def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: list[str], prs: list[str], fields: dict[str, str], answer: str) -> list[dict]:
+def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: list[str], prs: list[str], fields: dict[str, str], answer: str) -> str:
     resolves = [] if answer == FREE_TEXT else open_asks(shell, bus, names)
     argv = [
         "post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "owner", "--to", ANSWER_TO[answer], "--id", key, "--text", text,
@@ -530,7 +518,7 @@ def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: l
         print(f"board-watch {fields['session']}: cci post {key} failed: {done.stderr.strip()}", flush=True)
     if answer != NO_ANSWER:
         add_ledger_row(shell, bus, fields["session"], text, answer, done.stdout)
-    return resolves
+    return done.stdout.strip().removeprefix("#")
 
 
 def add_ledger_row(shell: Shell, bus: Bus, session: str, text: str, answer: str, posted: str) -> None:
@@ -580,6 +568,7 @@ def keep_snapshot(shell: Shell, bus: Bus, session: str, stop: threading.Event) -
             shell.reexec()
         post_snapshot(shell, bus, session, posted)
         repost_uncited(shell, bus, session, reposted)
+        wake_late(shell, bus, session)
         if stop.wait(SNAPSHOT_SECONDS):
             return
 
@@ -599,7 +588,7 @@ def repost_uncited(shell: Shell, bus: Bus, session: str, reposted: set[str]) -> 
             continue
         minutes = int(age.total_seconds() // 60)
         text = f"UNCITED owner pick #{record['seq']} on board {session[:8]}: no decide or claim names {fields['block']} {minutes} minutes after it. {record['text']}"
-        argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", kind, "--to", "root", "--id", key, "--topic", f"{UNCITED}:{fields['block']}", "--re-seq", str(record["seq"]), *attr_args({"session": session, "block": fields["block"]}), "--text", CREDENTIAL.sub(REDACTED, text)]
+        argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", kind, "--to", META_DESK, "--id", key, "--topic", f"{UNCITED}:{fields['block']}", "--re-seq", str(record["seq"]), *attr_args({"session": session, "block": fields["block"]}), "--text", CREDENTIAL.sub(REDACTED, text)]
         if (done := shell.cci(argv)).returncode:
             print(f"board-watch {session}: the uncited re-post of #{record['seq']} did not post: {done.stderr.strip()}", flush=True)
             continue

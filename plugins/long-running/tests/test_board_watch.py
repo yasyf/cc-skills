@@ -50,6 +50,7 @@ class RecordedShell(board_watch.Shell):
         self.seq = ""
         self.ledger: list[tuple[list[str], str]] = []
         self.rechecks: list[list[str]] = []
+        self.wakes: list[list[str]] = []
         self.classifies = True
 
     def lr(self, argv: list[str], stdin: str) -> subprocess.CompletedProcess:
@@ -57,6 +58,9 @@ class RecordedShell(board_watch.Shell):
             return subprocess.CompletedProcess(argv, 0 if self.classifies else 1, answer_kind(json.loads(stdin)) + "\n", "" if self.classifies else "unknown command")
         if argv[:3] == ["board", "cards", "recheck"]:
             self.rechecks.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[:2] == ["board", "wake"]:
+            self.wakes.append(argv)
             return subprocess.CompletedProcess(argv, 0, "", "")
         self.ledger.append((argv, stdin))
         return subprocess.CompletedProcess(argv, 0, "m1\n", "")
@@ -354,37 +358,70 @@ def test_a_tap_resolves_open_asks_naming_its_block_or_card_but_not_a_longer_id(t
     assert shell.posted("--resolves-seq") == ["21,22"] * 2
 
 
-def test_each_structured_pick_on_the_roots_board_asks_root_for_a_lane_and_files_a_task(tmp_path: Path) -> None:
-    """Coordinator #225532: three owner picks sat two hours with no lane, so each pick asks the coordinator for one the moment it lands; a write-in goes to the communicator first."""
+def flag(argv: list[str], name: str) -> str:
+    return argv[argv.index(name) + 1]
+
+
+def test_each_answer_wakes_the_lane_that_asked_and_never_posts_a_needs_lane_to_root(tmp_path: Path) -> None:
+    """Owner order 408821: a lane parked on his pick sat 50 minutes because the pick reached only the coordinator."""
     shell = RecordedShell()
+    shell.seq = "#77"
     run(tmp_path, shell)
 
-    assert shell.posted("--topic", "ask") == ["needs-lane:share-open-pick", "needs-lane:share-open-pick"]
-    assert shell.posted("--to", "ask") == ["root"] * 2
-    assert shell.posted("--id", "ask") == [f"needs-lane:{key}" for key in shell.posted("--id") if key.split(":")[2] in ("3", "8")]
-    assert shell.posted("--text", "ask")[0].startswith("NEEDS-LANE Should a shared note open in the browser? (share-open-pick) on board board-1: the owner picked \u201cYes, read-only\u201d.")
-    assert [attrs(post) for post in shell.posts if post[post.index("--kind") + 1] == "ask"][1] == {"session": SESSION, "block": "share-open-pick", "task": "task2abcdef"}
-    checkout, argv = shell.tasks[0]
-    assert (checkout, argv[:3]) == ("/checkouts/brook", ["task", "add", "Give the owner's pick on Should a shared note open in the browser? (share-open-pick) a lane"])
-    assert (argv[3], argv[5:]) == ("--body", ["--backlog", "--label", "program:brook", "--label", "needs-lane", "--json"])
-    assert len(shell.tasks) == 2
+    assert shell.posted("--to", "ask") == []
+    assert shell.tasks == []
+    picks = [argv for argv in shell.wakes if argv[2] != "late" and flag(argv, "--block") == "share-open-pick"]
+    assert len(picks) >= 2
+    assert (flag(picks[0], "--drive"), flag(picks[0], "--session"), flag(picks[0], "--lane"), flag(picks[0], "--owner-seq")) == ("brook", SESSION, "board-watch", "77")
+    assert any("\u201cYes, read-only\u201d" in flag(argv, "--said") for argv in picks)
+    assert flag(picks[0], "--key").startswith(f"board:{SESSION}:")
 
 
-@pytest.mark.parametrize(
-    ("bus", "root", "topics"),
-    [
-        ([ask(21, "parked on share-open-pick", lane="api-lane")], SESSION, []),
-        ([ask(21, "share-open-pick needs a lane", lane="root")], SESSION, ["needs-lane:share-open-pick", "needs-lane:share-open-pick"]),
-        ([], "lane-board", []),
-    ],
-)
-def test_a_pick_that_answers_a_lanes_own_ask_or_lands_on_a_lanes_board_already_has_its_lane(tmp_path: Path, bus: list[dict], root: str, topics: list[str]) -> None:
-    shell = RecordedShell(bus)
-    shell.root = root
+@pytest.mark.parametrize(("root", "unclaimed"), [(SESSION, True), ("lane-board", False)])
+def test_only_a_structured_pick_on_the_roots_board_may_ask_meta_desk_for_a_lane(tmp_path: Path, root: str, unclaimed: bool) -> None:
+    shell = streamed(tmp_path, TAP, root=root)
+
+    assert ["--unclaimed" in argv for argv in shell.wakes] == [unclaimed]
+
+
+def test_a_write_in_wakes_the_asking_lane_but_never_asks_for_a_new_one(tmp_path: Path) -> None:
+    shell = streamed(tmp_path, WRITE_IN)
+
+    assert ["--unclaimed" in argv for argv in shell.wakes] == [False]
+    assert "only for the team" in flag(shell.wakes[0], "--said")
+
+
+def test_a_submit_answers_nothing_so_it_wakes_nobody(tmp_path: Path) -> None:
+    assert streamed(tmp_path, SUBMIT).wakes == []
+
+
+def test_a_wake_that_fails_leaves_the_answer_recorded(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    class Refused(RecordedShell):
+        def lr(self, argv: list[str], stdin: str) -> subprocess.CompletedProcess:
+            return subprocess.CompletedProcess(argv, 1, "", "no such verb") if argv[:2] == ["board", "wake"] else super().lr(argv, stdin)
+
+    shell = Refused()
+    shell.watch = lambda session: iter([TAP])
     run(tmp_path, shell)
 
-    assert shell.posted("--topic", "ask") == topics
-    assert len(shell.tasks) == len(topics)
+    assert shell.posted("--kind") == ["owner"]
+    assert "was not woken: no such verb" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("held", "stale"), [(None, False), (Path("/cache/long-running/0.7.1"), False), (Path("/cache/long-running/0.7.9"), True)])
+def test_the_snapshot_pass_reads_the_installed_version_from_the_install_link(monkeypatch: pytest.MonkeyPatch, held: Path | None, stale: bool) -> None:
+    """Deleting drive.installed_version left this one caller, whose AttributeError ended the snapshot thread on its first pass."""
+    monkeypatch.setattr(board_watch.drive.release, "held", lambda: held)
+    monkeypatch.setattr(board_watch.drive, "plugin_manifest", lambda: {"version": "0.7.1"})
+
+    assert board_watch.Shell().stale() is stale
+
+
+def test_each_snapshot_pass_escalates_late_wakes_through_lr(tmp_path: Path) -> None:
+    shell = RecordedShell()
+    board_watch.wake_late(shell, board_watch.Bus("brook", 0), SESSION)
+
+    assert shell.wakes == [["board", "wake", "late", "--drive", "brook", "--session", SESSION, "--lane", "board-watch"]]
 
 
 TAP = '{"blockId":"share-open-pick","optionIds":["yes"],"schemaVersion":1,"type":"choice.selected"}\n'
@@ -723,7 +760,7 @@ def test_a_pack_pick_reaches_the_bus_and_gets_a_row(tmp_path: Path) -> None:
     run(tmp_path, shell)
 
     assert shell.posted("--text") == ['Owner on board board-1, doc-fork: picked \u201c{"fork":"b"}\u201d']
-    assert shell.posted("--topic", "ask") == ["needs-lane:doc-fork"]
+    assert [argv[2] for argv in shell.wakes] == ["doc-fork"]
     assert [row["body"].splitlines()[0] for row in shell.rows] == ['picked \u201c{"fork":"b"}\u201d']
 
 
@@ -760,9 +797,9 @@ def test_an_owner_pick_no_decide_or_claim_cites_is_reposted_at_30_minutes_and_es
     board_watch.repost_uncited(shell, bus, SESSION, reposted)
 
     assert [(post[post.index("--kind") + 1], post[post.index("--to") + 1], post[post.index("--id") + 1], post[post.index("--re-seq") + 1]) for post in shell.posts] == [
-        ("ask", "root", "uncited:5", "5"),
-        ("blocker", "root", "uncited-blocker:6", "6"),
-        ("ask", "root", "uncited:10", "10"),
+        ("ask", "meta-desk", "uncited:5", "5"),
+        ("blocker", "meta-desk", "uncited-blocker:6", "6"),
+        ("ask", "meta-desk", "uncited:10", "10"),
     ]
     assert shell.posts[1][shell.posts[1].index("--text") + 1].startswith("UNCITED owner pick #6 on board board-1: no decide or claim names q-sixty 65 minutes after it.")
 
