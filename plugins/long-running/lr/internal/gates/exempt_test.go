@@ -259,3 +259,47 @@ func TestANewerHeadRecordSayingItInteractsOutranksAnOlderCleanOne(t *testing.T) 
 		t.Fatalf("got %+v, claimed %v; want the newest record's interacting claim on #49000", claim, claimed)
 	}
 }
+
+func TestAFlakeFixLandsWithNoTapOnlyWhenItsWholeChangeIsTestCodeWithNoTimeoutBump(t *testing.T) {
+	const named = `,"flake-fix":"TestChatStream"`
+	patch := func(text string) *string { return &text }
+	next := "go/sand/next/internal/vm/run_test.go"
+	cases := map[string]struct {
+		grade   string
+		attrs   string
+		files   []string
+		patches map[string]*string
+		want    string
+	}{
+		"test code alone lands past the tap rule":       {"class test-only", named, []string{next, "dashboard/src/iris/testing/chatHarness.tsx"}, map[string]*string{next: patch("+retry()"), "dashboard/src/iris/testing/chatHarness.tsx": patch("+props")}, ""},
+		"a grade naming no class still counts":          {"reads right", named, []string{next}, map[string]*string{next: patch("+retry()")}, ""},
+		"a test-only PR with no flake record needs him": {"class test-only", "", []string{next}, map[string]*string{next: patch("+retry()")}, "tap rule rule/82317b0 names " + next},
+		"product code is not covered":                   {"class test-only", named, []string{next, "go/sand/next/internal/vm/run.go"}, map[string]*string{next: patch("+retry()"), "go/sand/next/internal/vm/run.go": patch("+x")}, "go/sand/next/internal/vm/run.go is not test or fixture code"},
+		"CI config is not test code":                    {"class test-only", named, []string{"infra/ci/x.ts"}, map[string]*string{"infra/ci/x.ts": patch("+x")}, "infra/ci/x.ts is not test or fixture code"},
+		"a timeout bump is not covered":                 {"class test-only", named, []string{next}, map[string]*string{next: patch(" keep\n+\tctx, cancel := context.WithTimeout(ctx, time.Minute)")}, "adds a timeout line"},
+		"a removed timeout is fine":                     {"class test-only", named, []string{next}, map[string]*string{next: patch("-\tWithTimeout(ctx, time.Minute)\n+\tretry()")}, ""},
+		"a patch GitHub withheld cannot be cleared":     {"class test-only", named, []string{next}, map[string]*string{next: nil}, "GitHub returned no patch"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			records := graded(t, c.grade)
+			if c.attrs != "" {
+				records = append(records, headRecord(t, portHead, c.attrs))
+			}
+			text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: c.files, Patches: c.patches})
+			if c.want != "" {
+				refusedWith(t, text, refusals, c.want)
+				return
+			}
+			if len(refusals) > 0 || !strings.Contains(text, "[exempt: flake-fix]") {
+				t.Fatalf("got go %q and refusals %q, want a flake-fix go", text, refusals)
+			}
+		})
+	}
+}
+
+func TestAFlakeRecordDoesNotExcuseAMissingFidelityGrade(t *testing.T) {
+	records := []client.Record{graded(t, "class test-only")[0], headRecord(t, portHead, `,"flake-fix":"TestChatStream"`)}
+	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses})
+	refusedWith(t, text, refusals, "fidelity: no ok grade at abc1234 names an exempt class")
+}

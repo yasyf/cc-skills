@@ -238,6 +238,13 @@ func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, hea
 		if err := f.putDelta(t, row.Number, record, head, replaced); err != nil {
 			return row, err
 		}
+		for _, attr := range []string{gates.PortOfAttr, gates.PortInteractsAttr, gates.FlakeFixAttr} {
+			if value := record.Fields.Attrs[attr]; value != "" {
+				if err := t.PutFact(f.Repo, row.Number, head, attr, value, record.At); err != nil {
+					return row, err
+				}
+			}
+		}
 	}
 	if at < row.HeadAt {
 		return row, nil
@@ -410,11 +417,30 @@ func Materialize(row store.ReviewRow, facts map[string]string, hold string, bran
 		row.TappedAt, row.TappedBy = orElse(facts[FactTapAt], unstated), orElse(facts[FactTapBy], unstated)
 	}
 	row.State = stateOf(row, facts)
-	row = Decide(row)
+	row = withStandingWord(Decide(row), facts)
 	if tappedHere || row.SupersededBy != None {
 		return row
 	}
 	return withCarry(row, facts)
+}
+
+func withStandingWord(row store.ReviewRow, facts map[string]string) store.ReviewRow {
+	lands := ""
+	switch {
+	case facts[gates.FlakeFixAttr] != "":
+		lands = flakeLands
+	case facts[gates.PortOfAttr] != "" && facts[gates.PortInteractsAttr] == gates.PortCleanWord:
+		lands = portLands
+	}
+	if lands == "" || !row.ReadyForTap || row.Tapped {
+		return row
+	}
+	if refused := facts[gates.StandingRefused]; refused != "" {
+		row.WaitsOn = strings.TrimSuffix(row.WaitsOn, ".") + "; the gate refused it: " + clip(refused, fieldChars)
+		return row
+	}
+	row.ReadyForTap, row.WaitsOn = false, lands
+	return row
 }
 
 func withCarry(row store.ReviewRow, facts map[string]string) store.ReviewRow {

@@ -41,6 +41,8 @@ const (
 	tappedWaits = "You approved it; the landing desk lands it next."
 	fieldChars  = 700
 	planChecked = "Checked against the plan by the fidelity review at this version."
+	portLands   = "Nothing from you: a clean old-tree port lands on your standing word that ports need no tap, and its go comes next."
+	flakeLands  = "Nothing from you: a test-flake fix lands on your standing word that flake fixes need no tap, and its go comes next."
 )
 
 var (

@@ -57,6 +57,10 @@ func SectionLine(body string) bool {
 	return tomlSection.MatchString(body) || jsonSection.MatchString(body) || jsonClose.MatchString(body)
 }
 
+func testCode(name string) bool {
+	return testFile.MatchString(name) || strings.Contains("/"+name, "/__tests__/")
+}
+
 func testOrCIFile(name string) bool {
 	return isTestOrCI(name) || slices.Contains(lintConfigs, path.Base(name))
 }
