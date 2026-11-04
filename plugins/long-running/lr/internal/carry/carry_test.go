@@ -265,3 +265,59 @@ func TestACredentialNamedThroughAVariableNeverLeavesTheMac(t *testing.T) {
 		t.Fatalf("refusal %q does not name the credential", fault)
 	}
 }
+
+func TestACarriedBriefBringsItsDirectoryAndWhatItNamesAndWhatItCannotCarryStaysBehind(t *testing.T) {
+	c, _ := carrier(t)
+	c.Vars = map[string]string{DriveDir: c.Home + "/drive"}
+	desk := c.Home + "/drive/desk-24"
+	put(t, desk+"/bin/fg.zsh", "grade\n")
+	put(t, desk+"/env.sh", "export DRIVE_DIR\n")
+	put(t, desk+"/state/handoff.md", "next head\n")
+	put(t, c.Home+"/drive/lr.json", "{}\n")
+	put(t, c.Home+"/.ssh/id_ed25519", "secret\n")
+	put(t, desk+"/brief.md", "Start with `. "+desk+"/env.sh "+c.Home+"/drive/lr.json`, then `zsh \"$DRIVE_DIR/desk-24/bin/fg.zsh\"`. Key "+c.Home+"/.ssh/id_ed25519. Old notes "+c.Home+"/drive/gone/notes.txt. Read its state/handoff.md.\n")
+
+	out := carried(t, c, "Read "+desk+"/brief.md and do the same.\n")
+
+	onBox := box + desk + "/brief.md"
+	if !strings.Contains(out, onBox) {
+		t.Fatalf("brief reads %q", out)
+	}
+	nested := landed(t, c, onBox)
+	for _, want := range []string{box + desk + "/env.sh", box + c.Home + "/drive/lr.json", box + c.Home + "/drive/desk-24/bin/fg.zsh", c.Home + "/.ssh/id_ed25519", c.Home + "/drive/gone/notes.txt", "its state/handoff.md"} {
+		if !strings.Contains(nested, want) {
+			t.Errorf("nested brief lacks %q: %s", want, nested)
+		}
+	}
+	for _, want := range []string{"/bin/fg.zsh", "/env.sh", "/state/handoff.md"} {
+		if got := landed(t, c, box+desk+want); got == "" {
+			t.Errorf("%s did not travel", want)
+		}
+	}
+	if _, err := os.Stat(c.Into + c.Home + "/.ssh/id_ed25519"); err == nil {
+		t.Error("a credential travelled")
+	}
+}
+
+func TestBriefsNamingEachOtherCarryOnceAndEnd(t *testing.T) {
+	c, _ := carrier(t)
+	one, two := c.Home+"/a/one.brief.md", c.Home+"/b/two.brief.md"
+	put(t, one, "then "+two+"\n")
+	put(t, two, "back to "+one+"\n")
+
+	out := carried(t, c, "Read "+one+"\n")
+
+	if !strings.Contains(landed(t, c, box+two), box+one) || !strings.Contains(out, box+one) {
+		t.Fatalf("out %q", out)
+	}
+}
+
+func TestAMissingPathInTheBriefItselfStillRefusesWhileANestedOneDoesNot(t *testing.T) {
+	c, _ := carrier(t)
+	put(t, c.Home+"/a/one.brief.md", "old "+c.Home+"/gone.txt\n")
+
+	carried(t, c, "Read "+c.Home+"/a/one.brief.md\n")
+	if got := refused(t, c, "Read "+c.Home+"/gone.txt\n"); !strings.Contains(got, "does not exist") {
+		t.Fatal(got)
+	}
+}
