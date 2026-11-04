@@ -16,6 +16,10 @@ Drive facts:
 {facts}
 
 Standing orders, fixed in this template:
+  - First, read what is failing. If every failure is a customer's edge or proxy answering
+    403 or another 4xx in front of our service, stand down: no fix, no evidence, no report
+    and no line to the owner. Tell `{slug}-evidence` and `{slug}-comms` to stop, then post
+    `--kind stopped` naming the class. Otherwise carry on below.
   - You own what is said. `{slug}-comms` posts it, because a codex lane cannot post to
     Slack; hand it what people need to hear with
     `cci post --drive {drive} --lane {lane} --kind report --to {slug}-comms --text '...'`.
