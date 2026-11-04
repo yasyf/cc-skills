@@ -101,6 +101,9 @@ while [ "$1" != -- ]; do
     current="$HOME/.claude/${name%@*}/current"
     if [ -L "$current" ]; then
       ln -sfn "$dir" "$current"
+      if [ -e "$current/bin/lr" ]; then
+        printf '#!/bin/sh\nexec "%s/bin/lr" "$@"\n' "$current" > "$bin/lr"
+      fi
     fi
     ;;
   esac

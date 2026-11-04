@@ -1086,6 +1086,42 @@ func TestAPackInstallMovesAnExistingCurrentLinkAndCreatesNone(t *testing.T) {
 	}
 }
 
+func TestThePathLRRunsThePackTheCurrentLinkNamesAcrossPackMoves(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 0.1.1\n"})
+	home := t.TempDir()
+	plugins := filepath.Join(home, ".claude", "plugins")
+	if err := os.MkdirAll(plugins, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	baked := `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}`
+	if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(baked), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "long-running"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/payload/long-running/0.7.692", filepath.Join(home, ".claude", "long-running", "current")); err != nil {
+		t.Fatal(err)
+	}
+	for _, pack := range []string{"0.7.1199", "0.7.1200"} {
+		packURL, packSHA := tarball(t, dir, "pack-"+pack+".tgz", map[string]string{
+			".claude-plugin/plugin.json": `{"version":"` + pack + `"}`,
+			"bin/lr":                     "#!/bin/sh\necho lr version " + pack + "\n",
+		})
+		run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "plugin", "long-running@skills", packURL, packSHA, pack, "--")
+		run.Env = append(os.Environ(), "HOME="+home)
+		if out, err := run.CombinedOutput(); err != nil {
+			t.Fatal(string(out), err)
+		}
+		said, err := exec.Command(filepath.Join(home, ".local", "bin", "lr"), "--version").Output()
+		if err != nil || strings.TrimSpace(string(said)) != "lr version "+pack {
+			t.Fatalf("the PATH lr said %q after moving to %s: %v", said, pack, err)
+		}
+	}
+}
+
 func TestAToolPinInstallsOnlyTheArchiveWithItsDigestAndVersion(t *testing.T) {
 	dir := t.TempDir()
 	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
