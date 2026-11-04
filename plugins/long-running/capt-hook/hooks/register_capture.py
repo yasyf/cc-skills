@@ -10,7 +10,7 @@ from itertools import dropwhile, takewhile
 from pathlib import Path
 
 from cc_transcript import AttachmentEvent, UserEvent
-from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, on, workflow_state
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, WorkflowState, on, workflow_state
 from captain_hook.util import reqenv
 
 from .compaction_handoff import bus_name, ccn, CCN_TIMEOUT_SECONDS, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, rulings
@@ -62,10 +62,13 @@ DIGEST_CHARS = 16
 ASKED_KEEP = {"questions": [{"question": "Keep it?", "options": [{"label": "Keep"}]}]}
 PICKED_KEEP = json.dumps({"answers": {"Keep it?": "Keep"}})
 NO_BOARD = "no cc-present artifact"
+SUBMITTED_BOARD = {
+    "cc-present outcomes": json.dumps({"since": "last-submit", "interactions": []}),
+    "cc-present outcomes --all": json.dumps({"interactions": {"closed": {"value": False}}, "doc": {"blocks": []}}),
+}
 MARKED = (
-    'The owner asked "{text}". Blocks marked revising: {blocks}. Until its reply is posted, a reply or writer brief quotes'
-    " his words, the sentence under question and the rows bearing on it ({rows}), and says from those rulings whether the"
-    " thing exists at all before any code read."
+    "Until this question's reply is posted, a reply or writer brief quotes the question, the sentence under it and the rows"
+    " bearing on it ({rows}), and says from those rows whether the thing exists before any code read. Blocks marked revising: {blocks}."
 )
 
 
@@ -370,7 +373,7 @@ def sentence_with(text: str, needle: str) -> str:
 
 
 def board(evt: BaseHookEvent) -> list[dict]:
-    done = subprocess.run(["cc-present", "outcomes", "--session", evt.session_id], capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
+    done = subprocess.run(["cc-present", "outcomes", "--all", "--session", evt.session_id], capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
     if done.returncode and NO_BOARD in done.stderr:
         return []
     done.check_returncode()
@@ -403,6 +406,7 @@ def revise(evt: BaseHookEvent, blocks: list[str]) -> None:
         Input(prompt="waht is a relay slot? why is this here?", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
         Input(prompt="what is a relay slot?", state=[CompactionState(active=True, coordinator=True)], cwd=CWD): Allow(),
         Input(prompt="what is a relay slot?", cwd=CWD, commands=readings("quiet")): Allow(),
+        Input(prompt="what is a bananagram?", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("question-marked") | SUBMITTED_BOARD): Warn(pattern=r"^Until this question's reply is posted.*Blocks marked revising: none"),
     })),
 )
 def mark_owner_question(evt: BaseHookEvent) -> HookResult | None:
@@ -427,5 +431,5 @@ def mark_owner_question(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "mark_owner_question", error)
         return None
-    summary = MARKED.format(text=question["text"], blocks=", ".join(blocks) or "none", rows=", ".join(rows) or "none in the register")
+    summary = MARKED.format(blocks=", ".join(blocks) or "none", rows=", ".join(rows) or "none in the register")
     return evt.context(summary, *(hit.strip() for hit in hits if hit.strip()))
