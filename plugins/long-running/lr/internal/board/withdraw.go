@@ -88,15 +88,7 @@ func WithdrawCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			pulled, err := CardsOf(a, entry, session, s).Pull(c.Context(), lane, args[0], why, c.OutOrStdout())
-			if err != nil || !pulled {
-				return err
-			}
-			repository, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
-			if err != nil {
-				return err
-			}
-			_, err = Pass{s, repository, a.Runner, a.CCX, session, postHooks(c.Context(), entry.Bus(), lane, repository), a.Now}.Run(c.Context(), snapshot)
+			_, err = CardsOf(a, entry, session, s).Pull(c.Context(), lane, args[0], why, c.OutOrStdout())
 			return err
 		},
 	}

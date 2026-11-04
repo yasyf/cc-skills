@@ -129,7 +129,7 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return CardsOf(a, entry, board, s), func() { _ = s.Close() }, nil
 	}
-	cmd.AddCommand(wakeCommand(a, cards), waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, PackJudge(a.Runner)), passCommand(a, opened), rowsCommand(opened), backfillCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened), drawCommand(a, opened, PackJudge(a.Runner)))
+	cmd.AddCommand(wakeCommand(a, cards), waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, PackJudge(a.Runner)), rowsCommand(opened), backfillCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened), drawCommand(a, opened, PackJudge(a.Runner)))
 	return cmd
 }
 
@@ -232,46 +232,6 @@ func postHooks(ctx context.Context, busName, lane, repository string) Hooks {
 			return err
 		},
 	}
-}
-
-func passCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {
-	var lane string
-	pass := &cobra.Command{
-		Use:   "pass",
-		Short: "Apply each answered merge row, redraw what still asks him and tell each lane that owes words",
-		Args:  cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			entry, session, err := opened()
-			if err != nil {
-				return err
-			}
-			s, err := store.Open(entry.Store())
-			if err != nil {
-				return err
-			}
-			defer func() { _ = s.Close() }()
-			repository, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
-			if err != nil {
-				return err
-			}
-			hooks := postHooks(c.Context(), entry.Bus(), lane, repository)
-			block, err := Pass{s, repository, a.Runner, a.CCX, session, hooks, a.Now}.Run(c.Context(), snapshot)
-			if err != nil {
-				return err
-			}
-			asked := 0
-			for _, group := range block.Groups {
-				asked += len(group.PRs)
-			}
-			fmt.Fprintf(c.OutOrStdout(), "%d rows ask the owner\n", asked)
-			return nil
-		},
-	}
-	pass.Flags().StringVar(&lane, "lane", "", "the lane the tap and note records post as")
-	if err := pass.MarkFlagRequired("lane"); err != nil {
-		panic(err)
-	}
-	return pass
 }
 
 func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {

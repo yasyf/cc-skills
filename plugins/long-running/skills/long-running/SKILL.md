@@ -478,7 +478,7 @@ the card without them ("A design lane's part" in
 tap as an `owner` record and a cc-notes answer. Every `gh` write posts under his
 GitHub login, so an approval or a tap verdict a drive posts cites
 `board verdict #<seq>`, the `owner` record of his verdict on that PR's row at its
-current head, or the `owner_login_verdicts` hook refuses it. A PR waits on him only when its row in `lr board rows --json` says `ready_for_tap`, and a line saying otherwise is refused;
+current head, or the `owner_login_verdicts` hook refuses it. A PR waits on him only when its row in `lr board rows --json` says `ready_for_tap`, and a line saying otherwise is refused. That row is the only list of drive PRs: no lane keeps its own, `lr board waits --pr <n>` reads what one waits on, and a PR's state changes by posting its record, never by asking for a hand entry;
 anything else waiting on him is what `cci owner-waits` prints, never a runner note. The drive writes one automated Slack
 message, the merge card, posted at the root of his DM with its own thread; everything else is a
 post he named. Every update he gets is `lr update render`, sent by the communicator

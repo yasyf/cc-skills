@@ -3,7 +3,6 @@
   ".github/lr-controls/compat/capt-hook-pack.sh": 13.0,
   ".github/lr-controls/compat/installed-package.sh": 1.0,
   ".github/lr-controls/compat/register-oracle.sh": 7.0,
-  ".github/lr-controls/negative/board-ruling.sh": 12.0,
   ".github/lr-controls/negative/reader-validation.sh": 2.0,
   ".github/lr-controls/negative/register-orphan.sh": 23.0,
   ".github/lr-controls/negative/remote-bootstrap.sh": 3.0,

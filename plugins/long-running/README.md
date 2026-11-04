@@ -58,7 +58,7 @@ The resumed the coordinator runs `drive.py start --drive <id> --ledger <id>` to 
 | `ledger.py`, `rulings.py` | CLI | Landing desk and merge queue tools over `cc-notes` for queueing reports, grading heads, guarding the merge label, managing holds, and inspecting queue state |
 | `lr supervisor`, `lr relay run`, `lr launch`, `sprite-job.sh`, `lr launch start`, `orca-check.sh`, `lr watch prompts`, `inboxes.py`, `inbox-digest.py`, `inbox-rotate.py` | CLI | The supervisor and its relay, finder and fidelity passes on a remote Sprite box, Orca worker launchers, and inbox management tools |
 | `lr incident`, `actions.py`, `monitor-watch.py` | CLI | Production incident lifecycle, lane helpers, and monitor transition watchers |
-| `board_rows.py`, `board_watch.py`, `plan-table.py`, `dashboard/app/server.py` | CLI | Owner board helpers and the drive web dashboard app |
+| `board_watch.py`, `plan-table.py`, `dashboard/app/server.py` | CLI | Owner board helpers and the drive web dashboard app |
 | `sprite-cargo.sh`, `lr landing restack`, `remote-vet.py` | CLI | Lane helpers that build a ref on a remote Sprite box, restack a PR and the open PRs below it on a Sprite, or build and vet a lane's uncommitted change on a Sprite |
 
 Part of [cc-skills](../../README.md).

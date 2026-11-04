@@ -585,7 +585,6 @@ def test_the_root_boards_watch_posts_what_the_board_shows_once_until_it_changes(
     [post] = shell.posts
     assert (post[post.index("--kind") + 1], post[post.index("--topic") + 1], attrs(post)["session"]) == ("note", "board-rows", SESSION)
     assert json.loads(attrs(post)["board"]) == {"blocks": ["merge-prs"], "rows": [["202", "413b38e", "2026-10-30T06:00:00Z"]], "merges": [["303", "abcdef1"]], "cards": [["merge:303:abcdef1", [], []], ["card-eviction", ["eviction-route-choice"], ["401"]]]}
-    assert board_watch.board_rows.snapshot_of_records(shell.records) == json.loads(attrs(post)["board"]) | {"session": SESSION}
 
 
 class Reexecuted(Exception):
@@ -691,20 +690,30 @@ def test_backfill_exits_1_naming_each_verdict_the_records_still_lack(tmp_path: P
     assert capsys.readouterr().out.splitlines() == ["UNRECORDED merge-prs 202 approved at 413b38e", "UNRECORDED merge-prs 303 approved at 9999999", "UNRECORDED merge-prs 404 rejected at 7777777", "UNRECORDED eviction-route-choice pick"]
 
 
-def test_blanket_approves_the_rows_the_board_showed_at_the_owners_word_and_leaves_later_rows_for_his_tap(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_blanket_approves_the_rows_ready_at_the_owners_word_and_leaves_the_rest_for_his_tap(capsys: pytest.CaptureFixture[str]) -> None:
     shell = BoardShell(SNAPSHOT_DOC)
-    def shown(seq: int, at: str, rows: list[list[str]]) -> dict:
-        board = json.dumps({"blocks": ["merge-prs"], "rows": rows, "merges": [], "cards": []})
-        return {"seq": seq, "drive": "brook", "lane": "board-watch", "kind": "note", "topic": "board-rows", "at": at, "text": "snapshot", "refs": {}, "fields": {"attrs": {"session": SESSION, "board": board}}}
-    shell.records += [shown(1, "2026-10-30T06:00:00Z", [["202", "413b38e", ""]]), shown(2, "2026-10-30T07:30:00Z", [["202", "413b38e", ""], ["505", "5050505", ""]])]
+    def row(number: int, head: str, head_at: str, ready: bool = True, tapped: bool = False) -> dict:
+        return {"number": number, "head": head, "head_at": head_at, "ready_for_tap": ready, "tapped": tapped}
+    rows = [row(202, "413b38e", "2026-10-30T06:00:00Z"), row(505, "5050505", "2026-10-30T07:30:00Z"), row(606, "6060606", "2026-10-30T06:00:00Z", ready=False), row(707, "7070707", "2026-10-30T06:00:00Z", tapped=True)]
+    shell.lr = lambda argv, stdin=None: subprocess.CompletedProcess(argv, 0, json.dumps(rows), "")
 
     for _ in range(2):
         assert board_watch.main(["blanket", "--session", SESSION, "--word", "312144", "--at", "2026-10-30T07:00:00Z", "--program", "brook"], shell) == 0
 
     verdicts = board_watch.board_rows.verdicts_of_records(shell.records)["merge-prs"]
-    assert {row: (entry["verdict"], entry["head"], entry["at"]) for row, entry in verdicts.items()} == {"202": ("approved", "413b38e", "2026-10-30T07:00:00Z")}
+    assert {pr: (entry["verdict"], entry["head"], entry["at"]) for pr, entry in verdicts.items()} == {"202": ("approved", "413b38e", "2026-10-30T07:00:00Z")}
     assert [attrs(post)["word"] for post in shell.posts] == ["312144"]
-    assert capsys.readouterr().out.splitlines() == ["blanket 312144: approved #202 at 413b38e, the rows board board-1 showed by 2026-10-30T07:00:00Z"] * 2
+    assert capsys.readouterr().out.splitlines() == ["blanket 312144: approved #202 at 413b38e, the rows ready for his tap with a head from by 2026-10-30T07:00:00Z"] * 2
+
+
+def test_blanket_stops_when_the_rows_cannot_be_read(capsys: pytest.CaptureFixture[str]) -> None:
+    shell = BoardShell(SNAPSHOT_DOC)
+    shell.lr = lambda argv, stdin=None: subprocess.CompletedProcess(argv, 1, "", "no store")
+
+    assert board_watch.main(["blanket", "--session", SESSION, "--word", "312144", "--at", "2026-10-30T07:00:00Z", "--program", "brook"], shell) == 1
+
+    assert shell.posts == []
+    assert "lr board rows failed: no store" in capsys.readouterr().err
 
 
 def test_each_owner_answer_gets_a_ccn_answer_row_with_his_words_card_and_time(tmp_path: Path) -> None:

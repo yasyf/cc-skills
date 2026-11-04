@@ -2,8 +2,6 @@
   "files": {
     "test_asks.py": [0.9, 0.0],
     "test_bin_shim.py": [0.5, 0.0],
-    "test_board_provider.py": [0.2, 0.6],
-    "test_board_rows.py": [0.9, 4.1],
     "test_board_text_gate.py": [0.1, 0.0],
     "test_board_watch.py": [0.6, 0.0],
     "test_bus.py": [0.0, 0.0],
@@ -90,7 +88,6 @@
     "test_watch.py": [0.1, 0.0]
   },
   "slow": {
-    "tests/test_board_provider.py::test_retained845_population_parity_and_fixture_call_counts[100000]": 17.3,
     "tests/test_build_cache.py::test_actual_landing_changed_and_unchanged_persistence_is_bounded[10000]": 6.8,
     "tests/test_build_cache.py::test_actual_landing_selected_cached_build_read_connections[10000]": 6.1,
     "tests/test_cut_release_read_proof.py::test_warm_release_poll_uses_bounded_unchanged_proof[every-poll-10000]": 15.6,

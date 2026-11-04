@@ -1,4 +1,4 @@
-"""Fidelity grades and finder reviews on a drive's bus, read the one way for board_rows.py's merge-row gate."""
+"""Fidelity grades and finder reviews on a drive's bus, read the one way for the ledger and the rulings."""
 
 from __future__ import annotations
 
