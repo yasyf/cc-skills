@@ -127,6 +127,25 @@ def test_a_stored_tap_reads_approved_without_a_board_verdict():
     assert [item["prs"][0]["number"] for item in server.merge_needs(rows, "http://board") if item["prs"]] == [4]
 
 
+def test_a_refused_tap_says_why_and_drops_his_click_so_the_row_asks_again():
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    clicked = {"merge-prs": {str(number): {"verdict": "approved", "head": head} for number, head in ((1, "aaaaaaa"), (2, "bbbbbbb"), (3, "ccccccc"))}}
+    rows = server.review_rows(
+        [
+            stored_row(1, "aaaaaaa", ready_for_tap=0, waits_on="held by root", tap_refused="held by root"),
+            stored_row(2, "bbbbbbb", ready_for_tap=0, waits_on="CI is not green", tap_refused="held by root"),
+            stored_row(3, "ccccccc", tap_refused="held by root"),
+        ],
+        clicked,
+    )
+    drive.check_gos(rows)
+
+    assert rows[0]["blocker"] == "Your tap was refused: held by root"
+    assert rows[1]["blocker"] == "Your tap was refused: held by root. It now waits on: CI is not green"
+    assert rows[2]["blocker"] == "your approval"
+    assert [row["state"] for row in rows] == ["not-ready", "not-ready", "you"]
+
+
 def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():
     row = {"number": 43211, "head": "8242887", "title": "T", "change": "C.", "plan": "P.", "risk": "R.", "review": "V.", "blocker": "B."}
     board = {
