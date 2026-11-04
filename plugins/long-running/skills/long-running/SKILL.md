@@ -59,9 +59,8 @@ single-lane investigation is one subagent in direct mode, not a drive.
   the hand path; it is never an excuse and never a question for the owner.
 - A change to how the drive works, such as a ruling on routing, waits, cards,
   reactions, guards or who answers what, goes into this skill, a brief template, a
-  capt-hook hook or a cc-notes doc the turn it is made. A session memory is a
-  pointer at most.
-- Hooks warn. They block only on trust: a merge without the owner's approval, a
+  capt-hook hook or a cc-notes doc the turn it is made. A session memory is a pointer at most.
+- Hooks warn. They block a shell wait, which he ordered, and otherwise only on trust: a merge without the owner's approval, a
   change to who approves landings, a revert without his word, a runner or desk
   started from the communicator, hook-file edits and the session-protection guards. A failed read only warns; `tests/test_fail_open.py` enforces it and lists the exceptions.
 
@@ -311,8 +310,8 @@ read in one batched `ccx vcs pr status` call.
 investigation, PR or merge mechanics, an enumeration. One bounded read of one named
 file, up to 150 lines, is allowed.
 
-**R3.** One lane per wait-then-do chain, and no lane parks: a lane waits with one
-`lr wait` call to a terminal state and reports once. Never a Monitor per build.
+**R3.** One lane per wait-then-do chain, and no lane parks: a lane waits on a `Monitor`, an Agent notification, `CronCreate` for a clock,
+or one `lr wait` call, to a terminal state, and reports once. `shell_waits` blocks a shell loop or sleeper.
 
 **R4.** Never re-brief a lane, never answer a duplicate. A `SendMessage` to a
 finished agent re-runs its brief. `lr wait` marks printed mail read.
@@ -323,9 +322,7 @@ under `~/.claude/scratch`.
 
 **R6.** Every owner request is in flight the turn it arrives, one lane per ask,
 never appended to a busy lane's queue. A lane owns one PR per deliverable and
-lands its fixes as commits on it. It stacks on another open PR where files
-overlap. It stacks on its own PR only when a parent must land before other
-lanes can proceed, or when review needs the split.
+lands its fixes as commits on it; `reference/orca-lane-brief.md` says when it stacks.
 
 **R7.** A PR's state is read before it is reported: `ccx vcs status` or the squash
 commit on fetched trunk, never a message or memory.
@@ -344,8 +341,7 @@ keeps all but incidents off its tool calls; the communicator subscribes as
 `owner-relay` for `report`, `ask` and `blocked`. A seq already handled is skipped.
 
 **R9a.** An urgent hold gets a decision owner and a clock; the coordinator
-resolves the runner's `DECIDE hold:` line ahead of any open owner card on another
-subject.
+resolves the runner's `DECIDE hold:` line ahead of any open owner card on another subject.
 
 **R10.** Landed is the only progress: landed, queued, live, or the exact blocker
 naming the PR, its head and the gate. A red gets a structural fix with a test,

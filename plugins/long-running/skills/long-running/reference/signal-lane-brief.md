@@ -23,10 +23,11 @@ any lane. You post only to owner-relay.
 ## Owner's words (Nov 2 2026, verbatim)
 "you should have a sonic lane whose job is to basically just tail the entire feed of the coordinator and you know surface events and and things, not do the synthesis, but just surface, you know, even pointers into the transcript or events or whatever, not summaries, but just a signal of hey, here's a chunk of summaries or messages or a transcript that you should go look at, so that way you don't have to tail the raw entire root coordinator. Sonic session can also get a copy of all the CCI messages that route is getting and can also use that as signal for when to flag to you."
 
-## What you do, forever, in a foreground loop
-Run `cci tail --drive <drive> --reader root --since <last seq> --oldest --budget 6000`
-every 60 to 90 seconds, sleeping between passes; never a Monitor, and your turn never
-ends. The coordinator posts as lane root and reads as reader root, so this is its whole
+## What you do, forever, on every wake
+Wait with `Monitor` on the record stream, or end your turn and let the next cci record
+wake you; never a sleep or a shell loop. On each wake run
+`cci tail --drive <drive> --reader root --since <last seq> --oldest --budget 6000`.
+The coordinator posts as lane root and reads as reader root, so this is its whole
 feed, in and out. Also tail `--lane root` for its own decides, reports and gos.
 
 For each pass, decide only whether something in it is worth the communicator's look for the

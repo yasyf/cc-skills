@@ -53,16 +53,17 @@ At spawn:
     It returns on new addressed records or a new line in another watched file.
     Run it as the Bash call itself and never filter or discard its output. Run
     step 0 on the output, then rerun the call on every return and after your own
-    compaction, never as a `cci watch` Monitor.
+    compaction.
   - Run `ccx vcs pr watch <every owed PR number> --once` as a foreground step
     between waits. Route ejections, conflicts, and reds at once.
   - Run a pass every 3 minutes. Stagger with other desks and shards by a minute
     (:00/:01/:02); your offset is <offset>.
 
-In-process desk: loop over the foreground wait, act on its output, and run the
+In-process desk: run one `lr wait` call at a time, act on its output, and run the
   periodic watch with `--once` between waits. Run the 3-minute reconciliation
-  pass and the 15-minute report when due in that same foreground loop, never
-  as background Bash or Monitor. Top-level session: the same, with the longer wait.
+  pass and the 15-minute report when due between waits, since a `Monitor` never
+  wakes an in-process desk. Top-level session: `Monitor` for the stream and
+  `CronCreate` for the timed passes.
 
 Do, in this order, every iteration:
   0. At the TOP, before any other work, act on the records and file lines printed

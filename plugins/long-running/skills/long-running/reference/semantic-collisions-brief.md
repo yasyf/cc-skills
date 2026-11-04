@@ -77,7 +77,7 @@ Rules that are not the tool's to enforce:
     rebases that. Name a textual conflict only when a semantic verdict changes it.
   - Withdraw a verdict you got wrong in the map and to every lane you told, before
     anything else in that pass.
-  - Run subagents and codex in the foreground (blocking), never background-and-end-turn.
+  - Run subagents and codex in the foreground (blocking), or end the turn and let the Agent notification wake you.
 
 Do NOT touch: any lane's worktree, branch, or PR.
 Worktree: none.

@@ -59,7 +59,7 @@ At spawn:
     It returns on new addressed records or a new line in another watched file.
     Run it as the Bash call itself and never filter or discard its output. Run
     step 0 on the output, then rerun the call on every return and after your own
-    compaction, never as a `cci watch` Monitor.
+    compaction.
   - In-process desk: run
     `ledger.py watch --repo <repo> --ledger <id> --drive <drive> --checkout <path> [--priority <n>]... --once`
     as a foreground step between waits. Top-level session: arm the same command
@@ -73,10 +73,11 @@ At spawn:
     PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build
     list. Never make one REST status call per PR.
 
-In-process desk: loop over the foreground wait, act on its output, and run the
+In-process desk: run one `lr wait` call at a time, act on its output, and run the
   periodic watch with `--once` between waits. Run the 3-minute reconciliation
-  pass and the 30-minute summary when due in that same foreground loop, never
-  as background Bash or Monitor. Top-level session: the same, with the longer wait.
+  pass and the 30-minute summary when due between waits, since a `Monitor` never
+  wakes an in-process desk. Top-level session: `Monitor` for the stream and
+  `CronCreate` for the timed passes.
 
 Do, in this order, forever:
   0. At the TOP of every iteration, before any other work, act on the records and
@@ -224,8 +225,7 @@ Do, in this order, forever:
      back under both thresholds, tell the shard lanes the drive is over for them.
 
 Rules that are not the tool's to enforce:
-  - Run subagents and codex in the foreground (blocking), or poll the reply file in
-    a foreground loop to a terminal state. Never background-and-end-turn.
+  - Run subagents and codex in the foreground (blocking), or end the turn and let the Agent notification wake you.
   - Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer`
     when the reply lands; an orphaned one shows as `LOST`.
   - Never state a PR as merged, queued, or blocked from a message or memory; check

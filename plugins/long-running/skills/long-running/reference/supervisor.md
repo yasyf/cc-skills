@@ -19,7 +19,7 @@ This section maps to rev 7's supervisor section (Forge-AI/design-docs#265).
 
 A lane refused twice with nothing new posted gets a `blocker` written for it, with its last words, and then stops. So the bad state "the turn ended and no record says why" has no path: the model either posts the record or `cci hook stop` posts it.
 
-Three kinds of lane stop freely, because each one's wake already exists: the coordinator's thread, a session with a cci channel subscription, and a lane whose brief has a `Standing:` line. A thread with no `spawn` record is not a launched lane.
+Four kinds of lane stop freely, because each one's wake already exists: the coordinator's thread, a session with a cci channel subscription, a lane whose brief has a `Standing:` line, and a lane's root thread whose Stop payload lists a live `background_tasks` or `session_crons` entry: its Agent, `Monitor` or `CronCreate` notification wakes it. A thread with no `spawn` record is not a launched lane.
 
 ## One row per mechanism
 
@@ -27,7 +27,7 @@ The first ten come from the brief and coordinator record #348144. Row 25 is driv
 
 | # | Mechanism | Structural fix: why the state is unreachable | Where | Test |
 | --- | --- | --- | --- | --- |
-| 1 | A lane ends its turn with open work, on a background wait or a promise | The one rule above. A background wait is a `blocked` record that names its gate | `cci hook stop` and `cci hook subagent-stop` | `internal/hook`: a lane with a `report` as its newest record cannot stop; a second stop writes the blocker; `done`, an open `blocked` and a subscribed session stop |
+| 1 | A lane ends its turn with open work on a promise | The one rule above. A wait on a gate is a `blocked` record that names it; a live harness wait wakes the thread itself | `cci hook stop` and `cci hook subagent-stop` | `internal/hook`: a lane with a `report` as its newest record cannot stop; a second stop writes the blocker; `done`, an open `blocked`, a subscribed session and a Stop payload with a live background task or session cron stop |
 | 1a | The turn dies on an API error, so no Stop hook runs | A `StopFailure` hook writes the blocker for it, and the supervisor resumes the same lane from that record | `cci hook stop-failure`, `lanes.foldRecord` | `internal/hook`: the failure leaves a blocker. `internal/lanes`: that blocker pages its own lane |
 | 2 | A lane posts without a registry row, so nothing supervises it | A new lane name's first post needs a `spawn` record naming it, or the launcher's `CLAUDE_LONG_RUNNING_LANE` naming it. Otherwise the post is refused with the command that registers it | `cci post` | `internal/cli`: first post refused and it names the fix; passes after a spawn record; a drive with no spawn records is unaffected |
 | 3 | Compaction without a handoff | `PreCompact` runs `lr lanes handoff`, which writes the doc from the lane's brief, records, PRs and worktree with no model call, and posts `handoff --ccn`. A failure posts a blocker. After compaction, `SessionStart` names the doc and the brief | `lr lanes handoff`, pack hook `lane_handoff` | `internal/lanes`: the doc carries every owned PR and open ask, a desk's or the communicator's doc also carries the open owner orders from `lr owner audit`, and the record sets the row's handoff. A failed `ccn` leaves a blocker |

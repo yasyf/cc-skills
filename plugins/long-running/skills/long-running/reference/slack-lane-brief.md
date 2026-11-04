@@ -160,8 +160,8 @@ Do:
      An owner link always asks the coordinator to act, whoever wrote the message.
      The owner's "Looking", "on it", or "checking" hands it to the drive.
      Never ask "what, if anything, it asks of the coordinator".
-  5. Wait for <doing lane name>'s result (cause, PR, ETA) by polling <named disk file
-     or bus entry> in a foreground loop. Never end the turn waiting.
+  5. Wait for <doing lane name>'s result (cause, PR, ETA) with `Monitor` on <named disk file
+     or bus entry>, or end the turn on `blocked --lane-ref <doing lane name>` so the supervisor wakes you.
   6. For a PR post, re-read its current state with `ccx vcs pr status <n>`
      immediately before the copy is written. Have gemini-4-argon write the copy from the facts, the cc-slack skill's brief lines and ~/.wlm/profiles/<user>/style-card.md, with every PR and issue as <url|#N> and
      every person as <@U…> from the first draft. Follow "Write a post" in full: plain words for the thread's reader, with every

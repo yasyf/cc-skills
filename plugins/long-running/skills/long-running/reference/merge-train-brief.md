@@ -90,7 +90,7 @@ Rules that are not the tool's to enforce:
     landing below.
   - Wrap every stack write that shares a Git directory in the shared stack lock:
     lockf -k "$(git rev-parse --path-format=absolute --git-common-dir)/ccx-agent-stack.lock" <command>
-  - Run subagents and codex in the foreground (blocking), never background-and-end-turn.
+  - Run subagents and codex in the foreground (blocking), or end the turn and let the Agent notification wake you.
 
 Do NOT touch: another train's PRs; a PR outside the hot set; any lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.
