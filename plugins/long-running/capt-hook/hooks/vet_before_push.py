@@ -214,7 +214,7 @@ def go_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]
 def typecheck_command(top: Path, project: Path) -> str:
     runner = "yarn" if (top / "yarn.lock").is_file() else "npm run"
     root, scripts = scripts_at(top)
-    name = next((name for name, line in scripts.items() if name.startswith("tsc:") and project in projects(root, {}, line.split())), None)
+    name = next((name for name, line in scripts.items() if name.startswith("tsc:") and name != "tsc:all" and project in projects(root, {}, line.split())), None)
     if name:
         return f"{runner} {name}"
     return f"npx tsc --noEmit -p {project}"
