@@ -78,5 +78,6 @@ A Codex lane waits this way, since nothing else wakes an idle Codex terminal.`,
 		},
 	}
 	cmd.Flags().StringVar(&output, "wake", "", "run detached with output in this file, and wake the arming terminal when the wait ends")
+	cmd.AddCommand(releaseCommand(a))
 	return cmd
 }
