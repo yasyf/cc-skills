@@ -244,19 +244,24 @@ func (p *pass) dropBrokenRefs() error {
 	if err != nil {
 		return err
 	}
-	return filepath.WalkDir(filepath.Join(common, "refs"), func(path string, entry fs.DirEntry, err error) error {
+	refs, err := os.OpenRoot(filepath.Join(common, "refs"))
+	if err != nil {
+		return err
+	}
+	defer refs.Close()
+	return fs.WalkDir(refs.FS(), ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || strings.HasSuffix(path, ".lock") {
 			return err
 		}
-		content, err := os.ReadFile(path)
+		content, err := refs.ReadFile(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		if err != nil || looseRef.Match(content) {
 			return err
 		}
-		p.Log.Warn("dropping a loose ref that holds no ref", "ref", path)
-		return os.Remove(path)
+		p.Log.Warn("dropping a loose ref that holds no ref", "ref", "refs/"+path)
+		return refs.Remove(path)
 	})
 }
 
