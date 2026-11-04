@@ -15,7 +15,7 @@ const parityAttempts = 3
 
 var errParityDiffers = errors.New("orcarpc parity: output differs")
 
-func Parity(ctx context.Context, client *Client, real shell.Runner) error {
+func Parity(ctx context.Context, client *Client, runner shell.Runner) error {
 	probe := *client
 	probe.Gate = nil
 	forms, err := parityForms(ctx, &probe)
@@ -23,7 +23,7 @@ func Parity(ctx context.Context, client *Client, real shell.Runner) error {
 		return err
 	}
 	for _, form := range forms {
-		if err := probe.parityOf(ctx, real, form); err != nil {
+		if err := probe.parityOf(ctx, runner, form); err != nil {
 			return err
 		}
 	}
@@ -94,14 +94,14 @@ func parityForms(ctx context.Context, client *Client) ([][]string, error) {
 	return forms, nil
 }
 
-func (c *Client) parityOf(ctx context.Context, real shell.Runner, form []string) error {
+func (c *Client) parityOf(ctx context.Context, runner shell.Runner, form []string) error {
 	var difference error
 	for range parityAttempts {
 		served, ok := c.Serve(ctx, form)
 		if !ok {
 			return nil
 		}
-		said, err := real.Run(ctx, shell.Command{Argv: append([]string{"orca"}, form...), Timeout: statusRequestTimeout * 60})
+		said, err := runner.Run(ctx, shell.Command{Argv: append([]string{"orca"}, form...), Timeout: statusRequestTimeout * 60})
 		if err != nil {
 			return fmt.Errorf("orcarpc parity: orca %s: %w", strings.Join(form, " "), err)
 		}

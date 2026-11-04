@@ -187,7 +187,7 @@ func parityOf(version string) parityState {
 	return parityUnknown
 }
 
-func RecordParity(ctx context.Context, client *Client, real shell.Runner) error {
+func RecordParity(ctx context.Context, client *Client, runner shell.Runner) error {
 	state, err := StateDir()
 	if err != nil {
 		return err
@@ -218,7 +218,7 @@ func RecordParity(ctx context.Context, client *Client, real shell.Runner) error 
 	if err := json.Unmarshal(reply.Result, &status); err != nil {
 		return err
 	}
-	if err := Parity(ctx, client, real); err != nil {
+	if err := Parity(ctx, client, runner); err != nil {
 		if errors.Is(err, errParityDiffers) {
 			_ = os.WriteFile(filepath.Join(state, status.AppVersion+failedSuffix), []byte(err.Error()+"\n"), 0o600)
 		}
