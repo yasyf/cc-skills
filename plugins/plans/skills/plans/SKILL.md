@@ -24,7 +24,7 @@ A plan has five sections.
   effort per the Model Routing table; Blocks on is the upstream phase or `—`;
   Verification is the one gating check. Each row names the worker's
   deliverable and completion condition. Speculative lanes get their own rows
-  marked `(speculative)`, worktree-isolated, with the landing verdict in the
+  marked `(speculative)` with `Blocks on —`, worktree-isolated, with the landing verdict in the
   Verification cell. When nothing fans out, one line saying so replaces the
   table.
 - **Verification**: exact commands, tests and observable behavior.
@@ -40,7 +40,7 @@ interphase adapters.
 
 ## A code review re-enters plan mode
 
-When the user reviews your code and re-enters plan mode:
+When the user reviews your code (inline diff comments, a numbered list, review-shaped feedback) and re-enters plan mode:
 
 0. Delegate context-gathering to one `Explore` subagent carrying every cite. It
    greps ±5 lines per cite, reads a whole file only when that is not enough,

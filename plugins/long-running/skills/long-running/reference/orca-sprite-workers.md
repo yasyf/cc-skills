@@ -573,7 +573,7 @@ Local Orca lane worktrees use `~/.orca/workspaces/monorepo/monorepo/<name>`. The
 **Routing detail behind the global table.**
 
 - Spawn convenience is not a routing input. Backgrounding, a "quick look", and `Agent(general-purpose)` being one call while a codex lane takes a skill invocation describe how a lane runs, not what work it is. Reach codex with `Skill(codex)` inline, `codex:codex-wrapper` where a stage must route by agent type, or `codex-ask --dispatch` with an owner for parallel lanes.
-- Routine coordination runs on a short Sonnet `low` worker even inside a larger Opus or Fable assignment: routine status, an established bar, PR mechanics and reconciling through the submit skill. `ship-pr` opens a finished branch with a prepared title and body.
+- Routine coordination runs on a short Sonnet `low` worker even inside a larger Opus or Fable assignment: routine status, an established bar, and PR mechanics. `ship-pr` opens a finished branch with a prepared title and body.
 - Sweep audit and land stages run at the lane's tier; up-tier a gate only where it judges something the bar does not settle. A lenient lane is a prompt defect to sharpen, not a lane to up-route.
 - For a page redesign, a Fable pass and a codex pass both run, then one combined design with codex's taste weighted higher, a sidebar over a top bar where they disagree. Implementation stays on the implementation row.
 - Sol verify lanes count as same-tier. Reading a saved verdict or checking CI state is coordination and does not reopen the review.

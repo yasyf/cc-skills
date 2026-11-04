@@ -91,12 +91,12 @@ worktree as soon as a parent lands. It already fetches trunk, so no separate
 fetch, rebase or per-branch `ship --no-commit` comes first. For one changed tip
 whose parent is published, use `ship --tip-only`. `ccx vcs reviews --stack`, or
 `ship --reviews`, streams review comments. Follow-ups ship with
-`ship -m "<message>" --no-push`. `ccx vcs push` is the plain push.
+`ship -m "<message>" --no-push`. Inside the `conflict-<branch>` workspace the hooks rewrite `git rebase --continue` to `ccx vcs stack continue`.
 
-The captain-hook graphite pack rewrites `gt submit`, bare `gt restack`,
-`git rebase --continue` (to `ccx vcs stack continue`) and a bare
-current-branch `git push --force-with-lease` to their ccx verbs. It only adds a
-note on `gt sync`, `gt create`, `gt modify`, `git rebase`, and a plain
+With ccx on PATH the captain-hook graphite pack rewrites `gt submit` to
+`ccx vcs stack submit`, bare `gt restack` to `ccx vcs stack restack`, and a
+bare current-branch `git push --force-with-lease` to `ccx vcs push`. It only
+adds a note on `gt sync`, `gt create`, `gt modify`, `git rebase`, and a plain
 force-push. `# ccx:raw` on the command, or `CAPT_HOOK_CCX_RAW=1`, runs it as
 written. When ccx refuses, is broken or cannot do the job, run the raw gt, git
 or gh fallback marked `# ccx:raw` and report the refusal verbatim to the
