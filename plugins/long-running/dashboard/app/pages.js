@@ -540,6 +540,63 @@ document.addEventListener('click', (e) => {
   if (row) decide(row, 'rejected', '', false);
 });
 
+const TAP_WORD = { land: 'Land it', pick: 'Your pick', slack: 'Slack post' };
+const OTHERS_INLINE = 2;
+function tapWords(text) {
+  return plain(text).replace(/\s*\(?#\d{4,5}\)?,?/g, '');
+}
+function tapCard(t) {
+  return t.subject ? t : state.model.board.cards.find((c) => c.id === t.card);
+}
+function tapOpen(t) {
+  if (t.kind === 'land') return verdictState(boardRow(t.number) ?? {}) === 'you';
+  const c = tapCard(t);
+  return Boolean(c) && !ov.sent.get(c.choice)?.recorded;
+}
+function openTaps() {
+  return (state.model?.taps ?? []).filter(tapOpen);
+}
+function tapButtons(t) {
+  if (t.kind === 'land') {
+    const failed = pending.number === t.number && pending.error ? `<em class="nsent bad">Not recorded: ${esc(pending.error)}. Try again.</em>` : '';
+    return `${rowActs(boardRow(t.number))}<a class="btn ghost" href="#/review/${t.number}">Details</a>${failed}`;
+  }
+  const c = tapCard(t);
+  const question = `#/question/${encodeURIComponent(c.id)}`;
+  if (!c.choice) return `<a class="btn pri" href="${question}">Answer it</a>`;
+  const busy = sending(c.choice) ? ' disabled' : '';
+  const subject = t.subject ? ` data-subject="${esc(t.subject)}"` : '';
+  const button = (o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(c.choice)}"${subject}${busy}>${esc(tapWords(o.label.replace(/\s*\(Recommended\)\s*$/i, '')))}</button>`;
+  const lead = c.options.filter((o) => o.recommended);
+  const others = c.options.filter((o) => !o.recommended);
+  const openId = `tap-more-${c.id}`;
+  const rest = lead.length && others.length > OTHERS_INLINE
+    ? `<details class="bq-more" data-id="${esc(openId)}"${state.open.has(openId) ? ' open' : ''}><summary>Other answers</summary><div class="fm-acts">${others.map(button).join('')}</div></details>`
+    : others.map(button).join('');
+  return `${lead.map(button).join('')}${rest}${t.subject ? '' : `<a class="btn ghost" href="${question}">Details</a>`}${sentNote(c.choice)}`;
+}
+function tapRow(t, at) {
+  const textId = `tap-text-${t.id}`;
+  return `<article class="fm${t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${at + 1}</span><div class="fm-main">
+    <header><b>${TAP_WORD[t.kind]}</b>${t.frees ? `<span class="fm-frees">Frees ${t.frees}</span>` : ''}</header>
+    <p class="fm-lead">${esc(tapWords(t.title))}</p>
+    <p class="fm-why">${esc(tapWords(t.line))}</p>
+    <div class="fm-acts">${tapButtons(t)}</div>
+    ${t.text ? `<details class="fm-thread" data-id="${esc(textId)}"${state.open.has(textId) ? ' open' : ''}><summary>Read the post</summary><div class="fm-open fm-post">${esc(t.text)}</div></details>` : ''}</div></article>`;
+}
+function feedDivider(word) {
+  return `<h2 class="fd-div"><span>${word}</span></h2>`;
+}
+function needsScreen() {
+  const taps = openTaps();
+  const freeing = taps.filter((t) => t.frees);
+  const rest = taps.filter((t) => !t.frees);
+  const lead = taps.length ? `${plural(taps.length, 'tap')} wait on you, the most downstream work first.` : 'Nothing waits on your tap.';
+  return `<div class="pg fd"><header class="fd-h"><h1>${lead}</h1></header>
+    ${freeing.length ? `${feedDivider('These free other work')}${freeing.map(tapRow).join('')}` : ''}
+    ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + freeing.length)).join('')}` : ''}</div>`;
+}
+
 const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_you: ['Needs you', 'you'], incident: ['Incident', 'bad'], done: ['Done', 'ok'] };
 const SURFACE_WORD = { board: 'Board', slack: 'Slack', record: 'Record' };
 const REPLIES_AT_REST = 12;

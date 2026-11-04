@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-ru
 import drive
 import holds
 import milestones
+import taps
 
 HERE = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -59,6 +60,8 @@ PR_NAMED = re.compile(r"#(\d{5})(?!\d)")
 SLOW_REFRESH = 300
 OWED_KINDS = ("ask", "owner", "defect", "done", "report", "answer")
 OWED_WINDOW = dt.timedelta(days=7)
+BLOCKS_WINDOW = dt.timedelta(hours=24)
+QUESTION_BOARDS = "questions-for-you--%"
 PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 GO = re.compile(r"^go #(\d+) at (\w+)")
@@ -895,6 +898,7 @@ class Drive:
         self.carried = {}
         self.ci_fixes = set()
         self.board_doc = None
+        self.question_boards = {}
         self.curator = Curator(config, self.curator_model, self.bump)
         self.status_now = None
         self.status_rejected = None
@@ -968,7 +972,7 @@ class Drive:
 
     def answer(self, body):
         if body["kind"] == "choice":
-            return self.interact({"type": "choice.selected", "blockId": body["block"], "optionIds": body.get("options", []), **({"other": body["other"]} if body.get("other") else {})})
+            return self.interact({"type": "choice.selected", "blockId": body["block"], "optionIds": body.get("options", []), **({"other": body["other"]} if body.get("other") else {})}, body.get("subject"))
         if body["kind"] == "approval":
             return self.interact({"type": "decision.created", "blockId": body["block"], "verdict": body["verdict"], **({"note": body["text"]} if body.get("text") else {})})
         if body["kind"] == "input":
@@ -993,9 +997,9 @@ class Drive:
         seq = run(["cci", "post", "--drive", self.config["drive"], "--lane", "owner-board", "--kind", "ask", "--to", "root", "--pr", str(number), "--attr", f"head={head}", "--text", text]).strip().splitlines()[-1].lstrip("#")
         return 200, {"seq": int(seq)}
 
-    def interact(self, interaction):
-        origin, _, subject = self.config["board_url"].partition("/p/")
-        request = urllib.request.Request(f"{origin}/api/interactions", method="POST", headers={"Content-Type": "application/json"}, data=json.dumps({"subject": subject, "nonce": str(uuid.uuid4()), "interaction": interaction}).encode())
+    def interact(self, interaction, subject=None):
+        origin, _, main = self.config["board_url"].partition("/p/")
+        request = urllib.request.Request(f"{origin}/api/interactions", method="POST", headers={"Content-Type": "application/json"}, data=json.dumps({"subject": subject or main, "nonce": str(uuid.uuid4()), "interaction": interaction}).encode())
         try:
             with urllib.request.urlopen(request, timeout=15):
                 pass
@@ -1378,6 +1382,20 @@ class Drive:
             found = store.execute(f"SELECT json_extract(payload, '$.blockId'), max(events.created_at) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ? AND events.type IN ({', '.join('?' * len(ANSWER_EVENTS))}) GROUP BY 1", (subject, *ANSWER_EVENTS)).fetchall()
         return {block: dt.datetime.fromtimestamp(stamp, dt.timezone.utc).isoformat() for block, stamp in found}
 
+    def slack_cards(self):
+        with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
+            boards = store.execute("SELECT subjects.slug, subjects.session_id, max(events.seq) FROM subjects JOIN events ON events.subject_id = subjects.id WHERE subjects.slug LIKE ? AND subjects.status = 'open' GROUP BY subjects.id", (QUESTION_BOARDS,)).fetchall()
+        for slug, session, seq in boards:
+            if self.question_boards.get(slug, (None,))[0] != seq:
+                self.question_boards[slug] = (seq, taps.slack_cards(json.loads(run(["cc-present", "outcomes", "--all", "--session", session])), slug))
+        return [card for slug, _, _ in boards for card in self.question_boards[slug][1]]
+
+    def tap_queue(self, board, model, drive, now):
+        titles = {row["number"]: row["title"] for row in board["rows"]}
+        urgent = {f"card-{entry['reply']['id']}" for entry in self.replies if entry["reply"].get("status") == "incident"}
+        blocks = taps.open_blocks(self.fetch(("blocked",), now - BLOCKS_WINDOW), model["lanes"])
+        return taps.tap_queue(board["rows"], board["cards"], self.slack_cards(), drive["prs"], blocks, lambda number: titles.get(number) or taps.plain_title(model["prs"][str(number)].get("title", "")), urgent)
+
     def board(self):
         seq = self.store_seq()
         if seq != self.board_seq:
@@ -1405,6 +1423,9 @@ class Drive:
         releases = release_path(progress.get("now", {}).get("releases", []))
         milestone_rows = self.milestone_state(drive["prs"], now, board["answered"])
         self.flag_stale(milestone_rows, progress["steps"], board["answered"], now)
+        queue = self.tap_queue(board, model, drive, now)
+        board["rows"] = taps.in_queue_order(queue, board["rows"], lambda row: f"land-{row['number']}")
+        board["cards"] = taps.in_queue_order(queue, board["cards"], lambda card: card["id"])
         need_items = needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"})
         return {
             **model,
@@ -1421,6 +1442,7 @@ class Drive:
             "pr_state": progress.get("pr_state", {}),
             "live": LIVE_SOURCES,
             "needs": need_items,
+            "taps": queue,
             "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),
             "brief": self.curator.brief,
             "brief_error": self.curator.error,
@@ -1589,7 +1611,7 @@ class Drive:
             recommended = next((option["label"] for option in options if option["recommended"]), None)
             embed = any(child["type"] not in NATIVE or child.get("multi") for child in children)
             cards.append({
-                "id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [],
+                "id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [], "prs": sorted({int(number) for number in taps.PR_NUMBER.findall(json.dumps(block))}),
                 "recommended": recommended, "choice": choice and choice["id"], "options": options, "decides": decides,
                 "parts": [] if embed else [card_part(child, answers.get(child["id"])) for child in children],
                 "embed": f"{self.config['board_url']}?{urllib.parse.urlencode({'block': block['id'], 'theme': 'dark'})}" if embed else None,
