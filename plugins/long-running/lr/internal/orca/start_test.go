@@ -2296,6 +2296,8 @@ func TestAMacBriefNamesWhyOrTheLaneGoesToASprite(t *testing.T) {
 		"ccx: role=build place=local incident=none\n":                    false,
 		"ccx: role=build place=local why=orca-terminals incident=none\n": true,
 		"ccx: role=build place=remote\n":                                 false,
+		"ccx: role=read place=local incident=none\n":                     true,
+		"ccx: role=read place=remote\n":                                  false,
 		"Scale: one PR\n":                                                false,
 	}
 	for brief, pinned := range cases {
