@@ -19,7 +19,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from collections import deque
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -829,9 +829,11 @@ def stored_replies(read, store):
     return sorted((read(str(path)) for path in store.glob("*.json")), key=lambda entry: at(entry["at"]), reverse=True)
 
 
-def reply_alerts(replies):
-    wanted = (entry["reply"] for entry in replies if entry["reply"].get("status") in ("needs_you", "incident") or entry["reply"].get("picks"))
-    return [{"id": reply["id"], "title": reply["title"], "incident": reply.get("status") == "incident", "picks": reply.get("picks", [])} for reply in wanted][:ALERTS_SENT]
+def drive_alerts(replies, cards):
+    newest = [entry["reply"] for entry in replies[:ALERTS_SENT]]
+    alerts = [{"id": reply["id"], "title": reply["title"], "body": " · ".join(reply.get("picks", [])) or reply["md"].strip().partition("\n")[0].strip("*_# "), "incident": reply.get("status") == "incident"} for reply in newest]
+    sent = {reply["id"] for reply in newest}
+    return alerts + [{"id": own, "title": card["title"], "body": card["summary"], "incident": False, "card": card["id"]} for card in cards if (own := card["id"].removeprefix("card-")) not in sent]
 
 
 def open_findings(rows):
@@ -868,7 +870,11 @@ class Drive:
         self.model = {}
         self.serving = threading.Condition()
         self.alerting = threading.Condition()
-        self.alerts = []
+        self.alerts = None
+        self.cards = []
+        self.board_moved = threading.Event()
+        self.browsers = {}
+        self.listening = Counter()
         self.secure_url = None
         self.served = None
         self.live_model = None
@@ -1108,10 +1114,37 @@ class Drive:
             self.watch = subprocess.Popen(["cc-present", "watch", "--session", self.config["board_session"]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
             for _ in self.watch.stdout:
                 self.touch()
+                self.board_moved.set()
                 for curator in self.curators:
                     curator.poke()
             self.watch.wait()
             time.sleep(5)
+
+    def read_cards(self):
+        try:
+            self.cards = self.read_board(json.loads(run(["cc-present", "outcomes", "--all", "--session", self.config["board_session"]])))["cards"]
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            self.errors["cards"] = f"{type(error).__name__}: {error}"
+            return
+        self.errors.pop("cards", None)
+        self.publish_alerts()
+
+    def follow_cards(self):
+        while True:
+            self.board_moved.clear()
+            self.read_cards()
+            self.board_moved.wait()
+
+    def publish_alerts(self):
+        with self.alerting:
+            alerts = drive_alerts(self.replies, self.cards)
+            if alerts != self.alerts:
+                self.alerts = alerts
+                self.alerting.notify_all()
+
+    def browser_report(self, client, agent, report):
+        self.browsers[client, agent] = {**report, "client": client, "agent": agent, "at": dt.datetime.now(PACIFIC).isoformat()}
+        return 200, {}
 
     def follow_steps(self):
         steps = Path(self.config["steps"])
@@ -1154,9 +1187,7 @@ class Drive:
             if stamp != seen:
                 seen = stamp
                 self.replies = stored_replies(self.read, store) if stamp else []
-                with self.alerting:
-                    self.alerts = reply_alerts(self.replies)
-                    self.alerting.notify_all()
+                self.publish_alerts()
                 self.touch()
             time.sleep(1)
 
@@ -1657,7 +1688,7 @@ def handler(drive, tailnet_owner, names):
                 if name == "index.html":
                     for asset, _ in STATIC.values():
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
-                    body = body.replace("</body>", ASSIST.read_text() + "</body>").replace("<head>", f'<head>\n<meta name="build" content="{BUILD}">', 1)
+                    body = body.replace("</body>", ASSIST.read_text() + "</body>").replace("<head>", f'<head>\n<meta name="build" content="{BUILD}">\n<meta name="secure-url" content="{drive.secure_url or ""}">', 1)
                     if "CEREBRAS_API_KEY" in os.environ and self.owner_calling():
                         body = body.replace("<html", '<html class="ai-on"', 1)
                 return self.send(200, kind, body.encode())
@@ -1675,6 +1706,8 @@ def handler(drive, tailnet_owner, names):
                 return self.stream()
             if path == "/api/alerts":
                 return self.alerts()
+            if path == "/api/browser":
+                return self.send(200, "application/json", json.dumps({"browsers": list(drive.browsers.values()), "listening": drive.listening}).encode())
             if found := STORY_ROUTE.fullmatch(path):
                 return self.story(found[1])
             if found := TRANSCRIPT_ROUTE.fullmatch(path):
@@ -1710,7 +1743,7 @@ def handler(drive, tailnet_owner, names):
 
         def do_POST(self):
             review = REVIEW_ROUTE.fullmatch(self.path)
-            if not review and self.path not in (MODEL_ROUTE, "/api/verdict", "/api/answer", "/api/asked", "/api/reply", "/api/change"):
+            if not review and self.path not in (MODEL_ROUTE, "/api/verdict", "/api/answer", "/api/asked", "/api/reply", "/api/change", "/api/browser"):
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
@@ -1731,6 +1764,8 @@ def handler(drive, tailnet_owner, names):
                 status, out = drive.answer(body)
             elif self.path == "/api/asked":
                 status, out = drive.asked(body["text"])
+            elif self.path == "/api/browser":
+                status, out = drive.browser_report(self.client_address[0], self.headers.get("User-Agent", ""), body)
             elif self.path == "/api/reply":
                 try:
                     status, out = drive.reply_back(body["text"].strip(), body.get("reply"))
@@ -1826,8 +1861,11 @@ def handler(drive, tailnet_owner, names):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            sent = None
+            client, sent = self.client_address[0], None
+            with drive.alerting:
+                drive.listening[client] += 1
             try:
+                self.wfile.write(f"event: build\ndata: {BUILD}\n\n".encode())
                 while True:
                     with drive.alerting:
                         drive.alerting.wait_for(lambda: drive.alerts is not sent, timeout=15)
@@ -1840,6 +1878,9 @@ def handler(drive, tailnet_owner, names):
                     self.wfile.flush()
             except OSError:
                 return
+            finally:
+                with drive.alerting:
+                    drive.listening[client] -= 1
 
         def stream(self):
             self.send_response(200)
@@ -1919,7 +1960,7 @@ def main():
     after = drive.load_records()
     drive.load_gos()
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
-    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_replies, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_cards, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_replies, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     app = handler(drive, config["tailnet_owner"], own_names(config["host"]))
     if "tls_port" in config:
