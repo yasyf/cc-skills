@@ -262,7 +262,7 @@ func (d *Desk) holdClock(ctx context.Context, lane string, launch incident.Actio
 	if err != nil {
 		return err
 	}
-	holds, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane}, Kinds: []string{kindHold}})
+	holds, err := d.passTail(ctx, client.Query{Lanes: []string{coordinatorLane}, Kinds: []string{kindHold}})
 	if err != nil {
 		return err
 	}

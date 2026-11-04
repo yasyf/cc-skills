@@ -121,6 +121,25 @@ func (d *Desk) names(lane string) ([]string, error) {
 }
 
 func (d *Desk) fixLaunch(container string) (*incident.Action, error) {
+	d.reads.mu.Lock()
+	kept, found := d.reads.fixes[container]
+	d.reads.mu.Unlock()
+	if found {
+		return kept, nil
+	}
+	launch, err := d.readFixLaunch(container)
+	if err != nil {
+		return nil, err
+	}
+	d.reads.mu.Lock()
+	defer d.reads.mu.Unlock()
+	if d.reads.passing {
+		d.reads.fixes[container] = launch
+	}
+	return launch, nil
+}
+
+func (d *Desk) readFixLaunch(container string) (*incident.Action, error) {
 	launches, err := d.laneActions(container, kindLaunch, incident.ActionVerified)
 	if err != nil || len(launches) == 0 {
 		return nil, err
@@ -443,32 +462,44 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 	return "", nil
 }
 
-type standDownReads struct {
+type passReads struct {
 	mu      sync.Mutex
 	passing bool
-	kept    bool
-	records []client.Record
-}
-
-func (d *Desk) readStandDowns(ctx context.Context) ([]client.Record, error) {
-	d.standDowns.mu.Lock()
-	defer d.standDowns.mu.Unlock()
-	if d.standDowns.kept {
-		return d.standDowns.records, nil
-	}
-	records, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane, supervisorLane}, Kinds: []string{kindStandDown, kindStopped}})
-	if err != nil {
-		return nil, err
-	}
-	d.standDowns.records, d.standDowns.kept = records, d.standDowns.passing
-	return records, nil
+	records map[string][]client.Record
+	fixes   map[string]*incident.Action
 }
 
 func (d *Desk) startPass() {
 	d.store.StartPass()
-	d.standDowns.mu.Lock()
-	defer d.standDowns.mu.Unlock()
-	d.standDowns.passing, d.standDowns.kept = true, false
+	d.reads.mu.Lock()
+	defer d.reads.mu.Unlock()
+	d.reads.passing = true
+	d.reads.records = map[string][]client.Record{}
+	d.reads.fixes = map[string]*incident.Action{}
+}
+
+func (d *Desk) passTail(ctx context.Context, query client.Query) ([]client.Record, error) {
+	key := fmt.Sprint(query.Lanes, query.Kinds, query.Since)
+	d.reads.mu.Lock()
+	kept, found := d.reads.records[key]
+	d.reads.mu.Unlock()
+	if found {
+		return slices.Clone(kept), nil
+	}
+	records, err := d.tail(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	d.reads.mu.Lock()
+	defer d.reads.mu.Unlock()
+	if d.reads.passing {
+		d.reads.records[key] = records
+	}
+	return slices.Clone(records), nil
+}
+
+func (d *Desk) readStandDowns(ctx context.Context) ([]client.Record, error) {
+	return d.passTail(ctx, client.Query{Lanes: []string{coordinatorLane, supervisorLane}, Kinds: []string{kindStandDown, kindStopped}})
 }
 
 func standsDown(record client.Record, names []string) bool {

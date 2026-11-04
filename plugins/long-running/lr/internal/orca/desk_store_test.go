@@ -83,3 +83,27 @@ func TestALaneStoodDownAsksTheInboxOnceAPassAndEveryTimeOutsideOne(t *testing.T)
 	w.desk.startPass()
 	stoodDown("")
 }
+
+func TestALanesRecordsAreAskedForOnceAPass(t *testing.T) {
+	w := newDeskWorld(t)
+	ctx := context.Background()
+	asks := func(want int) {
+		t.Helper()
+		before := w.tails
+		for range 3 {
+			if _, err := w.desk.laneRecords(ctx, testLane, "head"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := w.tails - before; got != want {
+			t.Fatalf("asked the inbox %d times, want %d", got, want)
+		}
+	}
+
+	asks(3)
+	w.desk.startPass()
+	asks(1)
+	asks(0)
+	w.desk.startPass()
+	asks(1)
+}
