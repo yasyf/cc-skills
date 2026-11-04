@@ -594,7 +594,7 @@ def owner_words(evt: BaseHookEvent) -> str:
 
 def forwarded(evt: BaseHookEvent) -> bool:
     since = turn_started(evt)
-    out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--lane", ROOT_LANE, "--kind", "ask", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
+    out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--lane", ROOT_LANE, "--kind", "ask", "--kind", "owner", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
     return out is None or any(to.startswith("meta") for line in out.splitlines() if line.strip() for to in json.loads(line).get("to") or ())
 
 
