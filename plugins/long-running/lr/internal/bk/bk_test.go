@@ -249,6 +249,9 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk log test 12 job extra",
 		"bk build test",
 		"bk build test twelve",
+		"bk jobs test twelve",
+		"bk grep test 12 job",
+		"bk grep test 12 job (unclosed",
 	} {
 		t.Run(text, func(t *testing.T) {
 			runner := &fakeRunner{}
@@ -446,5 +449,45 @@ func TestSettingsNameTheClientCheckoutAndTokenCommand(t *testing.T) {
 	settings, err := LoadSettings(path)
 	if err != nil || settings.CLI != "tools/ci bk" || settings.Checkout != "/c" {
 		t.Fatalf("settings = %+v, %v", settings, err)
+	}
+}
+
+func TestAGrepReadsTheWholeLogNotItsTail(t *testing.T) {
+	needle := "--- PASS: TestTheNewTest (0.01s)\n"
+	runner := &fakeRunner{reply: shell.Result{Stdout: needle + strings.Repeat("noise\n", replyLimit) + "\x1b[32m--- PASS: TestTheOtherTest (0.02s)\n"}}
+	desk, _ := newDesk(t, runner)
+	ask(t, "bk grep test 12 job-1 --- PASS: Test")
+
+	firstPass(t, desk)
+
+	found := answers(t)
+	if len(found) != 1 {
+		t.Fatalf("answers = %d, want 1", len(found))
+	}
+	if want := []string{"tools/ci", "bk", "log", "test", "12", "job-1"}; !slices.Equal(runner.calls[0].Argv, want) {
+		t.Fatalf("ran %v, want %v", runner.calls[0].Argv, want)
+	}
+	if body := bodyOf(t, found[0]); body != needle+"--- PASS: TestTheOtherTest (0.02s)\n" {
+		t.Fatalf("body = %q", body)
+	}
+	if !strings.Contains(found[0].Text, "2 matching lines") {
+		t.Fatalf("line = %q", found[0].Text)
+	}
+}
+
+func TestJobsListsPassedJobsTooSoAPassCanBeProven(t *testing.T) {
+	build := `{"number":12,"state":"passed","jobs":[{"id":"job-1","type":"script","name":"go tests","state":"passed"},{"id":"wait","type":"waiter","state":"passed"},{"id":"job-2","type":"script","name":"lint","state":"failed"}]}`
+	runner := &fakeRunner{reply: shell.Result{Stdout: build}}
+	desk, _ := newDesk(t, runner)
+	ask(t, "bk jobs test 12")
+
+	firstPass(t, desk)
+
+	found := answers(t)
+	if len(found) != 1 {
+		t.Fatalf("answers = %d, want 1", len(found))
+	}
+	if body := bodyOf(t, found[0]); body != "passed job=job-1 go tests\nfailed job=job-2 lint\n" {
+		t.Fatalf("body = %q", body)
 	}
 }
