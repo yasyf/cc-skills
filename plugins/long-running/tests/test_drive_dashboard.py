@@ -1608,3 +1608,19 @@ def test_a_lanes_confirmation_clears_his_order_and_only_a_reply_to_him_keeps_it(
     assert (asks["9"][0]["answered"], asks["9"][0]["action"], asks["9"][0]["reply"]) == (True, "Pick where it stores on your board", "r1")
     assert (asks["10"][0]["answered"], asks["10"][0]["action"]) == (True, None)
     assert asks["11"][0]["answered"] is True
+
+
+def test_a_thread_line_names_its_parent_to_the_communicator_and_reads_back_clean(monkeypatch):
+    posted = []
+    monkeypatch.setattr(server, "run", lambda argv: posted.append(argv) or "#7\n")
+    drive = Drive({"board_url": "http://board/p/x", "drive": "d"}, None)
+    assert drive.reply_back("yes do that", "reply:abc", 'reply abc "Title"') == (200, {"seq": 7})
+    argv = posted[0]
+    assert argv[argv.index("--topic") + 1] == "reply:abc"
+    said = argv[argv.index("--text") + 1]
+    assert 'reply abc "Title"' in said and said.endswith("yes do that")
+    record = {"seq": 7, "at": "t", "kind": "owner", "lane": "dashboard", "to": ["owner-relay"], "topic": "reply:abc", "text": said}
+    assert server.typed_in_chat(record)
+    assert server.chat_line(record) == {"seq": 7, "at": "t", "on": "reply:abc", "text": "yes do that"}
+    assert not server.typed_in_chat({**record, "to": ["root"]})
+

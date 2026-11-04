@@ -43,13 +43,15 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 CCI = "http://127.0.0.1:7377/v1"
 TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer", "done", "stopped", "stand-down", "handoff", "evidence"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
+CHAT_WINDOW = dt.timedelta(days=30)
+THREAD_HEAD = re.compile(r"^\[thread: .*\]\n")
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows", "findings ledger in cc-notes: open sweep findings and owner picks, re-read every 5 minutes", "retro table in cc-notes through retro.py: what failed and what stops it, re-read every 5 minutes"]
 REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
 SNAPSHOT_EVERY = 60.0
 DELTAS_KEPT = 30
-LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes", "owner_asks", "status_tables", "step_records", "replies")
+LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes", "owner_asks", "status_tables", "step_records", "replies", "chat_lines")
 NOW_DRAWS = ("needs", "board", "brief", "milestone_state", "pages", "workers", "now", "status_now")
 NOW_EVENTS = 5
 NOW_RECORDS = 300
@@ -834,6 +836,14 @@ def needs(rows, cards, asks, board_url, landed):
     return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards if card["decides"]), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
 
 
+def typed_in_chat(record):
+    return record["kind"] == "owner" and record["lane"] == "dashboard" and COMMUNICATOR in (record.get("to") or ())
+
+
+def chat_line(record):
+    return {"seq": record["seq"], "at": record["at"], "on": record.get("topic") or "", "text": THREAD_HEAD.sub("", record["text"], count=1)}
+
+
 def stored_replies(read, store):
     return sorted((read(str(path)) for path in store.glob("*.json")), key=lambda entry: at(entry["at"]), reverse=True)
 
@@ -920,6 +930,7 @@ class Drive:
         self.owed = {"owner_asks": {"messages": [], "taps": [], "store": []}, "coordinator_overdue": []}
         self.replies = []
         self.told_asks = {}
+        self.chat_lines = []
         self.pages = {page.name: Curator(config, self.curator_model, self.bump, page) for page in PAGES}
         self.curators = (self.curator, *self.pages.values())
         self.stories = Stories(config, self.lane_names, self.worker_reports)
@@ -1000,11 +1011,12 @@ class Drive:
         run(["cci", "post", "--drive", self.config["drive"], "--lane", lane, "--kind", kind, "--to", "root", "--text", f"Asked on the dashboard: {text}"])
         return 200, {}
 
-    def reply_back(self, text, reply):
+    def reply_back(self, text, on, about):
         if "mirror" in self.config:
             return 409, {"error": "a test copy sends nothing to the communicator"}
-        about = ["--topic", f"reply:{reply}"] if reply else []
-        seq = run(["cci", "post", "--drive", self.config["drive"], "--lane", "dashboard", "--kind", "owner", "--to", COMMUNICATOR, *about, "--text", text]).strip().splitlines()[-1].lstrip("#")
+        thread = ["--topic", on] if on else []
+        said = f"[thread: {about}]\n{text}" if on else text
+        seq = run(["cci", "post", "--drive", self.config["drive"], "--lane", "dashboard", "--kind", "owner", "--to", COMMUNICATOR, *thread, "--text", said]).strip().splitlines()[-1].lstrip("#")
         return 200, {"seq": int(seq)}
 
     def change_request(self, number, head, text):
@@ -1091,6 +1103,7 @@ class Drive:
 
     def load_records(self):
         self.records.extend(self.read_records(TIMELINE_KINDS, dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW))
+        self.chat_lines = [chat_line(record) for record in self.read_records(["owner"], dt.datetime.now(dt.timezone.utc) - CHAT_WINDOW) if typed_in_chat(record)]
         for record in self.records:
             self.note_word(record)
             self.note_evidence(record)
@@ -1108,6 +1121,8 @@ class Drive:
                             after = record["seq"]
                             self.note_go(record)
                             self.note_word(record)
+                            if typed_in_chat(record):
+                                self.chat_lines.append(chat_line(record))
                             self.note_evidence(record)
                             with self.lock:
                                 self.records.append(record)
@@ -1497,6 +1512,7 @@ class Drive:
             "step_records": {step["id"]: {"wrong": step.get("went_wrong", ""), "lanes": step.get("lanes", []), "prs": step.get("prs", [])} for step in progress["steps"]},
             **self.owed,
             "replies": self.replies,
+            "chat_lines": self.chat_lines,
             "register_log": "register" in self.config,
             "latest_words": self.words(),
             "evidence": live_evidence(self.evidences(), model["prs"], progress.get("pr_state", {}), pushes),
@@ -1780,7 +1796,7 @@ def handler(drive, tailnet_owner, names):
                 status, out = drive.browser_report(self.client_address[0], self.headers.get("User-Agent", ""), body)
             elif self.path == "/api/reply":
                 try:
-                    status, out = drive.reply_back(body["text"].strip(), body.get("reply"))
+                    status, out = drive.reply_back(body["text"].strip(), body["on"], body["about"])
                 except (OSError, subprocess.SubprocessError) as failure:
                     status, out = 502, {"error": f"the drive's records could not take it ({getattr(failure, 'stderr', None) or failure})"}
             elif self.path == "/api/change":
