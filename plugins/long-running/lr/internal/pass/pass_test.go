@@ -492,7 +492,7 @@ func TestAnOverdueRedOrRestackGoesToThePRsLaneNeverRoot(t *testing.T) {
 			run(t, s, r, t0, all, pr)
 			run(t, s, r, t0.Add(20*time.Minute), all, pr)
 
-			got := r.of("note")
+			got := r.of("ask")
 			if len(got) != 1 || !reflect.DeepEqual(got[0].to, []string{pr.Lane}) {
 				t.Fatalf("escalations = %+v", got)
 			}

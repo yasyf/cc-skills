@@ -3,6 +3,8 @@ package lanes
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,7 +131,11 @@ func TestALaneWhoseNewestRecordSettlesItIsNeverWokenForAnOrder(t *testing.T) {
 	equal(t, len(out.Woken), 0)
 }
 
-func TestOrdersUnreadForTenMinutesReachRootInOneBlockerOnce(t *testing.T) {
+func relays(f *fake) []Post {
+	return slices.DeleteFunc(f.ofKind("go"), func(p Post) bool { return !strings.HasPrefix(p.Text, "orca-desk: relay to ") })
+}
+
+func TestOrdersUnreadForTenMinutesAreRelayedThroughTheDeskOncePerLane(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	f := adopted(t, s, brief, "")
 	other := "other-1"
@@ -143,14 +149,16 @@ func TestOrdersUnreadForTenMinutesReachRootInOneBlockerOnce(t *testing.T) {
 	f.peers = []Row{who(lane2, true, idle), who(other, true, idle)}
 
 	tick(t, s, f, t0.Add(mins(10)-time.Second))
-	equal(t, len(f.ofKind("blocker")), 0)
+	equal(t, len(relays(f)), 0)
 	tick(t, s, f, t0.Add(mins(10)))
 	tick(t, s, f, t0.Add(mins(11)))
 
-	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 1)
-	equal(t, blockers[0].To, []string{Root})
-	contains(t, blockers[0].Text, "conflicts-2 holds root's ask #3, relay-join-1's decide #4, the oldest for 10 min; other-1 holds root's ask #5, the oldest for 10 min")
+	sent := relays(f)
+	equal(t, len(sent), 2)
+	equal(t, sent[0].To, []string{orcaDesk})
+	contains(t, sent[0].Text, "relay to conflicts-2: Orders addressed to you are unread: root's ask #3, relay-join-1's decide #4, the oldest for 10 min")
+	contains(t, sent[1].Text, "relay to other-1: Orders addressed to you are unread: root's ask #5, the oldest for 10 min")
+	equal(t, len(f.ofKind("blocker")), 0)
 	equal(t, len(f.wakes), 0)
 }
 
@@ -162,9 +170,9 @@ func TestAnOrderAddressedToAStemIsUnreadForTheLaneHoldingIt(t *testing.T) {
 
 	tick(t, s, f, t0.Add(mins(10)))
 
-	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, lane2+" holds root's ask #2, the oldest for 10 min")
+	sent := relays(f)
+	equal(t, len(sent), 1)
+	contains(t, sent[0].Text, "relay to "+lane2+": Orders addressed to you are unread: root's ask #2, the oldest for 10 min")
 }
 
 func TestAnOrderAfterALaneReadsStartsItsOwnTenMinutes(t *testing.T) {
@@ -178,15 +186,15 @@ func TestAnOrderAfterALaneReadsStartsItsOwnTenMinutes(t *testing.T) {
 	tick(t, s, f, t0.Add(mins(11)))
 	f.feed = append(f.feed, rec(3, Root, "ask", t0.Add(mins(12)), "second", lane2))
 	tick(t, s, f, t0.Add(mins(21)))
-	equal(t, len(f.ofKind("blocker")), 1)
+	equal(t, len(relays(f)), 1)
 	tick(t, s, f, t0.Add(mins(22)))
 
-	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 2)
-	contains(t, blockers[1].Text, "root's ask #3, the oldest for 10 min")
+	sent := relays(f)
+	equal(t, len(sent), 2)
+	contains(t, sent[1].Text, "root's ask #3, the oldest for 10 min")
 }
 
-func TestAMetaLanesUnreadOrderNeverGoesToRoot(t *testing.T) {
+func TestAMetaLanesUnreadOrderIsRelayedAndRaisesNothingToRoot(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
 	if err := s.SetLaneRole(lane2, RoleMeta); err != nil {
@@ -197,9 +205,8 @@ func TestAMetaLanesUnreadOrderNeverGoesToRoot(t *testing.T) {
 
 	tick(t, s, f, t0.Add(mins(10)))
 
-	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 1)
-	equal(t, blockers[0].To, []string{OwnerRelay})
+	equal(t, len(relays(f)), 1)
+	equal(t, len(f.ofKind("blocker")), 0)
 }
 
 func TestAResolvedOrderARetiredLaneAndAnOrderToItselfOrRootRaiseNothing(t *testing.T) {
@@ -214,12 +221,12 @@ func TestAResolvedOrderARetiredLaneAndAnOrderToItselfOrRootRaiseNothing(t *testi
 	)
 	f.peers = []Row{who(lane2, true, t0.Add(-mins(5)))}
 	tick(t, s, f, t0.Add(mins(10)))
-	equal(t, len(f.ofKind("blocker")), 0)
+	equal(t, len(relays(f)), 0)
 
 	f.feed = append(f.feed, rec(5, Root, "ask", t0.Add(mins(10)), "second", lane2), ask(6, "done", lane2, t0.Add(mins(10)), nil, "", nil))
 	tick(t, s, f, t0.Add(mins(21)))
 
-	equal(t, len(f.ofKind("blocker")), 0)
+	equal(t, len(relays(f)), 0)
 	equal(t, len(unreadOrders(t, s)), 0)
 }
 
@@ -235,22 +242,22 @@ func TestAReadThatFailsRaisesNothingAndTheNextTickStillRaises(t *testing.T) {
 	if _, err := Tick(s, f.deps, t0.Add(mins(10)), 1); !errors.Is(err, ErrUnread) {
 		t.Fatalf("err %v", err)
 	}
-	equal(t, len(f.ofKind("blocker")), 0)
+	equal(t, len(relays(f)), 0)
 
 	f.deps.Who = answered
 	tick(t, s, f, t0.Add(mins(11)))
 
-	equal(t, len(f.ofKind("blocker")), 1)
+	equal(t, len(relays(f)), 1)
 }
 
-func TestABlockerThatFailsToPostLeavesTheTickRunningAndPostsOnceLater(t *testing.T) {
+func TestARelayThatFailsToPostLeavesTheTickRunningAndPostsOnceLater(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
 	f.feed = append(f.feed, rec(2, Root, "ask", t0, "first", lane2))
 	f.peers = []Row{who(lane2, true, t0.Add(-mins(5)))}
 	delivered := f.deps.Post
 	f.deps.Post = func(p Post) error {
-		if p.Kind == "blocker" {
+		if p.Kind == "go" {
 			return fmt.Errorf("%w: cci post", ErrUnread)
 		}
 		return delivered(p)
@@ -263,10 +270,10 @@ func TestABlockerThatFailsToPostLeavesTheTickRunningAndPostsOnceLater(t *testing
 	tick(t, s, f, t0.Add(mins(11)))
 	tick(t, s, f, t0.Add(mins(12)))
 
-	equal(t, len(f.ofKind("blocker")), 1)
+	equal(t, len(relays(f)), 1)
 }
 
-func TestManyOrdersToOneLaneCostOneWakeAndOneBlocker(t *testing.T) {
+func TestManyOrdersToOneLaneCostOneWakeAndOneRelay(t *testing.T) {
 	counts := map[int][2]int{}
 	for _, orders := range []int{1, 1000} {
 		s := memory(t)
@@ -279,7 +286,7 @@ func TestManyOrdersToOneLaneCostOneWakeAndOneBlocker(t *testing.T) {
 		tick(t, s, f, t0.Add(mins(10)))
 		tick(t, s, f, t0.Add(mins(11)))
 
-		counts[orders] = [2]int{len(f.wakes), len(f.ofKind("blocker"))}
+		counts[orders] = [2]int{len(f.wakes), len(relays(f))}
 	}
 	equal(t, counts[1000], counts[1])
 	equal(t, counts[1], [2]int{1, 1})
