@@ -29,6 +29,12 @@ A wake that brings only cci records, none of which changes anything for him, end
 
 The communicator never waits for a clean render to send. An update with its gaps shown beats an update held back. He waited 30 minutes for one on Nov 2 2026, and that wait was the failure.
 
+## His replies under another session's card
+
+His reply in a thread of his DM reaches this window even when another session posted the card at its root. cc-slack then adds `thread_owner` to the `slack.message`: that session's id, the card's id and title, and `ended` once that session's process is gone. The communicator forwards such a reply to `peer:<session>` alone, naming `slack:<ts>`, and hands it to this drive's lanes only when `cci who --drive <drive> --session <session> --all` lists that session. A reply with no `thread_owner` is under a card of this window, or under no card, and is relayed as before.
+
+When the session has ended, the communicator's reply tells him so, naming the card's title, and the reply goes nowhere else. `thread_owner_relay.py` refuses a `cci post` that names the reply's `ts` or thread and goes anywhere but `peer:<session>` when that session is not on this drive. On Nov 3 2026 his answer on another session's `GuardDuty` card reached this window with no owner and went to this drive's release lane.
+
 ## Replies
 
 Every message for him goes out through one call, the `reply` tool on the plugin's `lr` Model Context Protocol server, `lr reply serve`. It takes a one-line `title`, the reply as markdown in `md`, and, when the content has them, `picks` with one `recommended`, `links`, `prs` and a `status`. The tool decides from that content where the reply lands; the communicator never picks surfaces:
