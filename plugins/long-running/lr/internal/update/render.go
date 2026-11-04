@@ -67,6 +67,7 @@ type Inputs struct {
 	Board     []string
 	Cards     []board.Wait
 	Unboarded error
+	TapQueue  string
 	Before    Snapshot
 	Retro     []Retro
 	Owed      []deletions.Owed
@@ -554,10 +555,6 @@ func (v view) listSections(in Inputs, lanes []Lane, doneLines []string) []listSe
 			late = append(late, "- "+row.String())
 		}
 	}
-	board := make([]string, len(in.Board))
-	for i, line := range in.Board {
-		board[i] = "- " + line
-	}
 	newest := map[string]Record{}
 	var delivered []string
 	for _, record := range v.records {
@@ -581,10 +578,22 @@ func (v view) listSections(in Inputs, lanes []Lane, doneLines []string) []listSe
 		{"Waiting on the coordinator", waiting, waitCounts(in.Waits)},
 		{"Owed deletions with no live owner", orphaned, orphanedShort},
 		{"Owed deletions past due", late, nil},
-		{"Board picks", board, nil},
+		{"Your taps", yourTaps(in), nil},
 		{fmt.Sprintf("Delivered in the last %d h", int(heardWithin.Hours())), deliveredLines, deliveredShort},
 		{"Done plan steps", doneLines, nil},
 	}
+}
+
+func yourTaps(in Inputs) []string {
+	switch {
+	case in.Unboarded != nil:
+		return []string{fmt.Sprintf("- board unread: %v", in.Unboarded)}
+	case len(in.Cards) == 0:
+		return nil
+	case in.TapQueue == "":
+		return []string{fmt.Sprintf("- %d open, in order on the dashboard's Needs me tab", len(in.Cards))}
+	}
+	return []string{fmt.Sprintf("- [%d open, in the order they free work](%s)", len(in.Cards), in.TapQueue)}
 }
 
 func waitCounts(waits []Record) []string {

@@ -38,6 +38,7 @@ type Config struct {
 	BuildkiteCLI          string
 	Parent                string
 	BuildRecommendedOrder string
+	TapQueueURL           string
 	RetireSilent          time.Duration
 }
 
@@ -73,7 +74,7 @@ func Load(path string, warn io.Writer) (Config, error) {
 		"orca_run": &loaded.OrcaRun, "remote_box": &loaded.RemoteBox, "go_lanes": &loaded.GoLanes,
 		"trunk": &loaded.Trunk, "queue_script": &loaded.QueueScript, "queue_key": &loaded.QueueKey,
 		"alert_channels": &loaded.AlertChannels, "release_pipelines": &loaded.ReleasePipelines,
-		"buildkite_cli": &loaded.BuildkiteCLI, "parent": &loaded.Parent, "build_recommended_order": &loaded.BuildRecommendedOrder,
+		"buildkite_cli": &loaded.BuildkiteCLI, "parent": &loaded.Parent, "build_recommended_order": &loaded.BuildRecommendedOrder, "tap_queue_url": &loaded.TapQueueURL,
 	}
 	var unknown []string
 	for _, name := range slices.Sorted(maps.Keys(raw)) {

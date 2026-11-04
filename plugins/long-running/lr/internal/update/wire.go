@@ -89,6 +89,10 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			return lanes.OpenOrders(ctx, lanes.CCI{}, s, entry.Bus(), entry.Repo, entry.StateDir)
 		},
 		Pins: entry.Pinned,
+		TapQueue: func() (string, error) {
+			cfg, err := config.Load(filepath.Join(entry.StateDir, "lr.json"), a.Stderr)
+			return cfg.TapQueueURL, err
+		},
 		Where: func(ctx context.Context, shas map[int]string) map[int]string {
 			read, err := lanes.NewReleaseRead(a, entry)
 			if err != nil {

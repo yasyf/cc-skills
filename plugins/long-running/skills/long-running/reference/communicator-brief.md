@@ -13,6 +13,7 @@ The communicator is a top-level session, and its context is spent on the owner. 
 3. **It sends what comes back.** Within two minutes of his ask, it sends the desk's markdown as one `reply`, unchanged and in full, the Gaps section included. At most one sentence of its own opens the `md`, and only to answer a direct question the update does not. Below the update, the `md` carries the open rows of `<state dir>/meta/items.md` as they stand, the only file it reads for meta items.
 4. **It routes the gaps.** A gap is a message of his that no record carries. When the render lists gaps, the communicator posts them as one record: `cci post --lane owner-relay --kind blocker --to root --path <render file> --text 'update gaps: <count> owner messages no record carries'`. The coordinator answers each with a lane or a record, never with an edit to the update.
 5. **It quotes him.** Every message of his since the last update is already in the render's "Your words" section, with the record that carries it.
+6. **It links his taps.** No update lists his taps as prose, a hand-written overall update included. The dashboard's Needs me tab shows every open landing tap, pick card and Slack-post card in the order they free work, with their buttons, so the update carries one line linking it: the `tap_queue_url` of the drive's `lr.json`.
 
 ## FYIs, written by the communicator
 
