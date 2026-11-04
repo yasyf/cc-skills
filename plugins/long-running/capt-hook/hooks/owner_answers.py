@@ -137,12 +137,12 @@ def unanswered_notes(state: dict, notes: list[dict], now: datetime) -> list[str]
         attrs = (record.get("fields") or {}).get("attrs") or {}
         if attrs.get("event") != FEEDBACK or (block := attrs.get("block", "")) in retired or not due(at(record["at"]), now):
             continue
-        lines += [
-            f"{block} at {clock(at(record['at']))}: “{note['text'][:NOTE_CHARS]}”"
-            for note in feedback.get(block, [])
-            if note.get("text") and note["text"][:NOTE_CHARS] in record["text"] and not note.get("replies")
-        ]
+        lines += [f"{block} at {clock(at(record['at']))}: “{note['text'][:NOTE_CHARS]}”" for note in after_newest_reply(feedback.get(block, [])) if note.get("text") and note["text"][:NOTE_CHARS] in record["text"]]
     return lines
+
+
+def after_newest_reply(thread: list[dict]) -> list[dict]:
+    return thread[max((i + 1 for i, note in enumerate(thread) if note.get("replies")), default=0) :]
 
 
 def row_notes(state: dict, now: datetime) -> list[tuple[str, str, dict]]:
@@ -172,6 +172,8 @@ def answered(pr: str, since: datetime, roots: list[dict]) -> bool:
     tests=communicator_tests({
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(30), ROOTS: ""}): Block(pattern=r"card-relay at \d{1,2}:\d{2} [AP]M: “why is the relay slot here at all\?”"),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE, "replies": [{"id": "r1", "md": "It carries the session."}]}]}), NOTES: noted(30), ROOTS: ""}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}, {"id": "f2", "text": "and the slot under it?", "replies": [{"id": "r1", "md": "Both carry the session."}]}]}), NOTES: noted(30), ROOTS: ""}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f0", "text": "and the slot under it?", "replies": [{"id": "r1", "md": "It carries the session."}]}, {"id": "f1", "text": NOTE}]}), NOTES: noted(30), ROOTS: ""}): Block(pattern=r"card-relay at .*: “why is the relay slot here at all\?”"),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}), NOTES: noted(5), ROOTS: ""}): Allow(),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board({"card-relay": [{"id": "f1", "text": NOTE}]}, retired=("card-relay",)), NOTES: noted(30), ROOTS: ""}): Allow(),
         Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={BOARD: board(triage=row_note(30)), NOTES: "", ROOTS: ""}): Block(pattern=r"merge-prs #47326 at .*: “no one said to get rid of this”"),
@@ -182,7 +184,7 @@ def answered(pr: str, since: datetime, roots: list[dict]) -> bool:
     }),
 )
 def owner_notes_get_answers(evt: BaseHookEvent) -> HookResult | None:
-    """The coordinator stops only once every owner note on its board from the last day that is over 10 minutes old has an answer: a board note gets a reply in its thread, and a merge-row note a board reply or a coordinator record naming its PR. A board or bus that does not read blocks nothing."""
+    """The communicator stops only once every owner note on its board from the last day that is over 10 minutes old has an answer: a board note is answered by any reply on its block to it or a later note, and a merge-row note a board reply or a coordinator record naming its PR. A board or bus that does not read blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
     drive = bus_name(entry)
