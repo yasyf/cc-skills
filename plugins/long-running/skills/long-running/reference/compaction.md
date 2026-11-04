@@ -132,7 +132,7 @@ Owner-gate lines in the plan without live answer ids appear under `## Lint findi
 `Quote: active progress doc: <id8>; the id in this summary wins over any id captured earlier in the conversation.`
 When `Read first` records exist, the quote opens `hand-written handoff <id7>, ..., then` and those ids win.
 
-**Carry the open owner orders through every desk and communicator compaction.** A desk's `lr lanes handoff` doc, and the communicator's when it runs as `owner-relay`, opens an `## Open owner orders` section from `lr owner audit`. The communicator's window runs no lane handoff, so its `PreCompact` hook in `owner_ledger.py` puts the same list in the compaction instructions, and its `SessionStart` after a compaction has it run `lr owner audit` before any other search. An order leaves the list only when a live lane, an open PR, a landed record or a `delivered` report carries it, never because a summary dropped it.
+**Carry the open owner orders through every desk and communicator compaction.** A desk's `lr lanes handoff` doc, and the communicator's when it runs as `owner-relay`, opens an `## Open owner orders` section from `lr owner audit`. The communicator's window runs no lane handoff, so its `PreCompact` hook in `owner_ledger.py` puts the same list in the compaction instructions, and its `SessionStart` after a compaction has it run `lr owner audit` before any other search. An order leaves the list only when a live lane or an open PR carries it or a record's `delivered` attr names it, never because a summary dropped it.
 
 ## Restore context after compaction or resume
 

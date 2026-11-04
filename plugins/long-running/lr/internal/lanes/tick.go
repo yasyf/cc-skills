@@ -926,8 +926,19 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 	}
 	if orders, err := d.Orders(s); !errors.Is(err, ErrUnread) {
 		do(err)
-		if len(orders) > 0 {
-			do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, Text: fmt.Sprintf("%d owner asks are open, orders with no live lane, no open PR and no landed or done record and questions nobody answered: %s. Answer each question and mark its row, restart each order, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.", len(orders), owner.Tokens(orders))}))
+		open, progressing := owner.Only(orders, owner.Open), owner.Only(orders, owner.InProgress)
+		var said []string
+		if len(open) > 0 {
+			said = append(said, fmt.Sprintf("%d owner asks are open, orders with no live lane, no open PR and no landed or carried record and questions nobody answered: %s. Answer each question and mark its row, restart each order, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.", len(open), owner.Tokens(open)))
+		}
+		if len(progressing) > 0 {
+			said = append(said, fmt.Sprintf("%d owner orders are in progress, landed or carried with no live lane and no delivered proof: %s. Post `cci post --kind report --attr delivered=owner:<row>` once he has what the row asked for, or restart the order.", len(progressing), owner.Tokens(progressing)))
+		}
+		if len(said) > 0 {
+			do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, Text: strings.Join(said, " ")}))
+		}
+		if parked := owner.Only(orders, owner.Parked); hour%2 == 0 && len(parked) > 0 {
+			parkedNote(s, d, parked)
 		}
 	}
 	records, err := d.OpenWork()
@@ -937,6 +948,20 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 	do(err)
 	if depth := queueDepth(records); depth != "" {
 		do(d.Post(Post{Kind: "report", To: []string{Root}, Text: fmt.Sprintf("Open work by lane, so no queue grows unseen (retro row 133): %s.", depth)}))
+	}
+}
+
+func parkedNote(s *store.Store, d Deps, parked []owner.Row) {
+	for _, lane := range must(s.Lanes(live...)) {
+		if base, _ := family(lane.Name); base != progressDesk {
+			continue
+		}
+		lines := make([]string, len(parked))
+		for i, row := range parked {
+			lines[i] = row.Line()
+		}
+		do(d.Post(Post{Kind: "note", To: []string{lane.Name}, Text: fmt.Sprintf("%d owner orders are parked behind a hold or a part left open, with no live lane and no open PR, for your update: %s", len(parked), strings.Join(lines, "; "))}))
+		return
 	}
 }
 

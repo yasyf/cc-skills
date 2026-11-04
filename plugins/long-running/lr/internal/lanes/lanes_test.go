@@ -2690,14 +2690,36 @@ func TestTheHourlyReportNamesEachLanesOpenWorkDeepestFirst(t *testing.T) {
 func TestTheHourlyTickNamesEveryUndeliveredOwnerOrderToTheCommunicator(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
-	f.orders = []owner.Row{{ID: "m2"}, {ID: "m85"}}
+	f.orders = []owner.Row{{ID: "m2", Status: owner.Open}, {ID: "m85", Status: owner.Open}, {ID: "m38", Status: owner.InProgress, Lane: "rich-reply-1"}}
 	at := t0.Add(mins(61))
 	f.peers = []Row{who(lane2, true, at)}
 
 	tick(t, s, f, at)
 
 	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
-	equal(t, f.posts[0].Text, "2 owner asks are open, orders with no live lane, no open PR and no landed or done record and questions nobody answered: owner:m2, owner:m85. Answer each question and mark its row, restart each order, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.")
+	equal(t, f.posts[0].Text, "2 owner asks are open, orders with no live lane, no open PR and no landed or carried record and questions nobody answered: owner:m2, owner:m85. Answer each question and mark its row, restart each order, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief. 1 owner orders are in progress, landed or carried with no live lane and no delivered proof: owner:m38. Post `cci post --kind report --attr delivered=owner:<row>` once he has what the row asked for, or restart the order.")
+}
+
+func TestEveryOtherHourTheParkedOrdersGoToTheProgressDeskAsOneNoteAndPageNobody(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	registered(t, s, store.Lane{Name: "progress-desk-2"})
+	f.orders = []owner.Row{{ID: "m38", At: "Nov 3 4:34 PM", Text: "build the dashboard page for the reply tool", Status: owner.Parked, Lane: "rich-reply-1", Hold: "Left open: the dashboard page"}}
+
+	for _, at := range []int{61, 121} {
+		f.peers = []Row{who(lane2, true, t0.Add(mins(at))), who("progress-desk-2", true, t0.Add(mins(at)))}
+		tick(t, s, f, t0.Add(mins(at)))
+	}
+
+	notes := f.ofKind("note")
+	equal(t, len(notes), 1)
+	equal(t, notes[0].To, []string{"progress-desk-2"})
+	equal(t, notes[0].Text, "1 owner orders are parked behind a hold or a part left open, with no live lane and no open PR, for your update: m38 Nov 3 4:34 PM: build the dashboard page for the reply tool [parked: Left open: the dashboard page; last lane rich-reply-1]")
+	for _, post := range f.posts {
+		if post.Kind != "note" && strings.Contains(post.Text, "m38") {
+			t.Fatalf("a parked order reached %v: %s", post.To, post.Text)
+		}
+	}
 }
 
 func TestAnUnreadOpenWorkQueryLeavesTheHourlyTickRunning(t *testing.T) {
