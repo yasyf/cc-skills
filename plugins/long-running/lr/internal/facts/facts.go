@@ -32,7 +32,7 @@ const (
 	trunkCancelled = "trunk-cancelled"
 	trunkMerged    = "trunk-merged"
 	memberBatch    = 25
-	memberFields   = `number state title isDraft headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestOpinionatedReviews(first: 20) { nodes { state author { login } commit { oid } } }`
+	memberFields   = `number state title isDraft headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
 var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
@@ -508,14 +508,20 @@ type pullRequest struct {
 				OID string `json:"oid"`
 			} `json:"commit"`
 		} `json:"nodes"`
-	} `json:"latestOpinionatedReviews"`
+	} `json:"reviews"`
 }
 
 func (pr pullRequest) approversAt(head string) []string {
-	var approvers []string
+	verdicts := map[string]string{}
 	for _, review := range pr.Reviews.Nodes {
-		if review.State == "APPROVED" && review.Commit.OID == head {
-			approvers = append(approvers, review.Author.Login)
+		if review.Commit.OID == head {
+			verdicts[review.Author.Login] = review.State
+		}
+	}
+	var approvers []string
+	for login, verdict := range verdicts {
+		if verdict == "APPROVED" {
+			approvers = append(approvers, login)
 		}
 	}
 	slices.Sort(approvers)
