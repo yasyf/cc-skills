@@ -78,7 +78,7 @@ func (c *ClassUnowned) raise(ctx context.Context, record client.Record, keys []s
 
 func fixOrdered(records []client.Record, after int64, keys []string) bool {
 	return slices.ContainsFunc(records, func(record client.Record) bool {
-		return record.Lane == Root && record.Seq > after && slices.Contains(orderKinds, string(record.Kind)) && fixOrder.MatchString(record.Text) &&
+		return (record.Lane == Root || record.Lane == Self) && record.Seq > after && slices.Contains(orderKinds, string(record.Kind)) && fixOrder.MatchString(record.Text) &&
 			slices.ContainsFunc(incidentKeys(record.Topic, record.Text), func(key string) bool { return slices.Contains(keys, key) })
 	})
 }

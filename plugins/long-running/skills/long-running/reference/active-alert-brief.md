@@ -41,7 +41,8 @@ An `oncall` or `PAGE` record works like the owner's alert link: the coordinator 
 
 ### Who launches
 
-- An active alert gets its fix lane the same turn, without a coordinator: the supervisor launches the fix and evidence lanes for an alert nobody answered in three minutes.
+- An active alert gets its fix lane the same turn, without a coordinator: the supervisor launches the fix, evidence and comms lanes for an alert nobody answered in three minutes.
+- A red dev build launches the same way: the landing pass posts its `orca-desk: incident dev-red-<commit>` line beside `DEV-RED` or `POST-MERGE-RED`, unless a record on topic `dev-red` already names the fix PR.
 - When an alert reaches the coordinator first (a link the communicator relayed, an `#outage` report, a page, a runner `PAGE`, a failing release check, an `ALERT-UNOPENED` blocker), the coordinator runs `lr incident run <slug> --fix-brief <file>` before anything else.
 
 ### The incident and its records
@@ -75,9 +76,9 @@ A monitor transition from `monitor-watch.py --alert-drive` posts `orca-desk: ale
 
 For an `incident` line the runner fills `reference/alert-fix-brief.md` with drive facts from `alert.facts`, attaches it to the briefs log as `<slug>-fix.full.md`, launches `<slug>-fix` on `incident` `xhigh` at once, and relays a repeat to the live lane. When the runner's `INCIDENT` line arrives, the coordinator ratifies it in that turn:
 
-1. Start or adopt the evidence lane, and spawn an incident-doc lane beside it as `long-running:lane` on opus named `incident-<id>-retro`.
+1. Adopt the evidence lane the launch started, and spawn an incident-doc lane beside it as `long-running:lane` on opus named `incident-<id>-retro`.
 2. Claim, fence, freeze, and hold nothing (`tools/ci release claim`, a fence, a freeze, or a hold) unless the owner asks for that exact one; other people's releases keep flowing while the fix lands. Never freeze a target because a PR waits on review, a person's or a bot's, and never freeze everyone over a dependency your own change created; a change that must ship with another target waits in its own stack.
-3. Start the comms lane (`#incident-comms`); the coordinator writes nothing to Slack. The comms lane posts first in the affected account channels before the mechanism is known, and open in `#outage` for a platform-wide incident.
+3. Adopt the comms lane the launch started; the coordinator writes nothing to Slack. It posts where [Incident comms](#incident-comms) says, before the mechanism is known.
 
 ### Record the Slack grants
 
@@ -108,7 +109,8 @@ Each incident has one actor. When `tools/ci oncall incidents` shows an open ai-o
 
 **The supervisor and the coordinator launch incident lanes with `lr launch incident`.**
 
-- The fix, evidence and comms lanes all run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`.
+- The fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`.
+- The comms lane runs as Claude on `incident-opus`, because a codex lane cannot post to Slack: no hook runs there to mint the ticket every `cc-slack` write spends. The fix lane still owns the incident and what is said, so an incident has two agents only for this reason.
 - Only the `incident` alias runs fast; plain `sol` is the standard tier and never an incident route.
 - Claude never takes the fix or evidence role. Fable and astra never run.
 
@@ -119,8 +121,8 @@ lr launch incident <name> <fix-brief> [<evidence-brief> [<comms-brief>]] [--aler
 ### What `lr launch` does
 
 - With `--alert`, it fills each brief template itself: it drops the template's `Root:` lines, writes the lane's name for every `<lane>` and the text for the `Alert:` line, and saves `<state dir>/<lane>/brief.md`. The coordinator never edits a template by hand. A brief still holding `<lane>`, `<state>`, `<...>`, or a placeholder on its `Alert:` line is refused.
-- It posts `<name>-fix`, `<name>-evidence` and `<name>-comms` to `orca-desk` on cci as `NOW incident xhigh` launch lines with `role=fix`, `role=evidence` and `role=comms`, so the runner's incident clock holds only the fix lane. Each launch's key is `R` and the number cci gives its record.
-- The comms lane reads and drafts only: until the owner answers card-unreported-exposure-notice it posts nothing outside cci and sends each draft to the coordinator.
+- It posts `<name>-fix`, `<name>-evidence` and `<name>-comms` to `orca-desk` on cci as `NOW` launch lines at `xhigh`, on `incident` with `role=fix` and `role=evidence` and on `incident-opus` with `role=comms`, so the runner's incident clock holds only the fix lane. Each launch's key is `R` and the number cci gives its record.
+- The comms lane posts under its grant with no draft round trip. Exposure nobody has reported never goes out from it: each finding reaches the owner as one card with the facts, and he picks who tells whom.
 - It then waits for `LAUNCHED` or `LAUNCH-FAILED` and prints each lane's dispatch and terminal. It exits 0 when both launched, or when a lane has no verdict yet while the relay's `orca alive` record is fresh, since that verdict arrives as a record. It exits 2 only when the relay's `orca alive` record is over five minutes old.
 
 ### Answer, withdraw, and write
@@ -295,9 +297,11 @@ The coordinator posts one `decision` addressed to the owning drive's coordinator
 
 ## Incident comms
 
-Slack grant mechanics, `gemini-4-argon` copy generation, and `cc-slack` posting rules belong to `reference/slack-lane-brief.md`. For an incident comms lane:
+Slack grant mechanics, `gemini-4-argon` copy generation, and `cc-slack` posting rules belong to `reference/slack-lane-brief.md`. An incident comms lane:
 
-- Post proactively in affected account channels before the mechanism is known. Acknowledge the page and say investigation has started, with no per-post owner ask. Resolve the channel and forward-deployed engineers through the ai-oncall skill mapping; on a miss, search Slack channels by customer name, report which path found them, and never guess a forward-deployed engineer mention.
+- Posts on what the fix lane hands it and on the fix lane's `SCOPE`, `MECHANISM` and `FIX-LIVE` records, and answers people's questions in those threads from the same records.
+- Replies in the page thread and in `#outage` under standing answer ea25bad. Any other channel needs a `slack-grant` the coordinator recorded for it, and the alerts channel has none: when an alert needs a reply there, report it to `owner-relay` so he can be asked.
+- Post proactively in affected account channels with a recorded grant before the mechanism is known. Acknowledge the page and say investigation has started, with no per-post owner ask. Resolve the channel and forward-deployed engineers through the ai-oncall skill mapping; on a miss, search Slack channels by customer name, report which path found them, and never guess a forward-deployed engineer mention.
 - Follow up at mechanism and fix-live. Use plain words and Pacific times, and @-mention the account's forward-deployed engineers. Every account-channel post, including the first acknowledgement, states what we are doing to prevent recurrence without claiming an unverified fix.
 - Open platform-wide incidents in `#outage`. When an incident affects more than one customer or a core service, post in `#outage` with impact, timeline, status, and prevention, and update at mechanism, fix-live, and resolution. Add the live incident-doc link in `#outage` and the account channels as soon as the doc lane hands it over; never hold the first acknowledgement for the doc link.
 - Follow the fix and evidence lanes on the bus with `cci tail --drive <drive> --lane <slug>-fix` and `--lane <slug>-evidence`, and post at each `MECHANISM` and `FIX-LIVE` record.
@@ -396,6 +400,9 @@ Verified facts, do not re-derive:
     (cc-notes, on the drive checkout)
 
 Standing orders, fixed in this template:
+  - You own what is said. <comms lane name> posts it, because a codex lane cannot post
+    to Slack; hand it what people need to hear with
+    `cci post --drive <bus id> --lane <fix lane name> --kind report --to <comms lane name> --text "..."`.
   - Reported <report time> PT. The bar is fixed and live within 20 minutes of the
     report, by <due time> PT; the desk's limits below run from your launch, inside it.
   - Never ask a reporter or anyone else for evidence; read telemetry and Sentry

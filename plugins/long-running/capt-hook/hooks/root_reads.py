@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from captain_hook import Allow, BaseHookEvent, Input, Or, RanCommand, Runs, T, Tool, UsedTool, Warn
+from captain_hook import Allow, And, BaseHookEvent, Input, Not, Or, RanCommand, Runs, T, Tool, ToolInput, UsedTool, Warn
 
 from .root_context import root_warning
 from .tests.root_fixtures import ACTIVE
 
 READ_TOOLS = "Read|Grep|WebFetch|mcp__plugin_cc-slack_cc-slack__slack_thread|mcp__slack__slack_get_thread"
-READ_COMMANDS = (("cci", "tail"), ("cci", "show"), ("cci", "grep"), ("gh", "pr", "view"), ("gh", "pr", "checks"), ("ccx", "vcs", "reviews"))
+READ_COMMANDS = (("cci", "tail"), ("cci", "grep"), ("gh", "pr", "view"), ("gh", "pr", "checks"), ("ccx", "vcs", "reviews"))
 FILE_READERS = frozenset({"cat", "head", "sed"})
 LIVENESS_FILTERS = frozenset({"tail", "head", "grep", "rg"})
 STATUS = "/drive/progress/owner/update-1733.md"
+PLANS = r"plan[^/]*$|/plans/"
 
 
 class TailsALane:
@@ -30,7 +31,7 @@ def earlier(*calls) -> list:
 
 root_warning(
     message="Warning, nothing was blocked: The drive coordinator reads one source per owner ask. Relay the progress desk's newest update path unchanged, and hand any further read to a lane with `Agent`.",
-    only_if=[Or(Tool(READ_TOOLS), ReadsAFile(), *(Runs(*argv) for argv in READ_COMMANDS)), Or(UsedTool(READ_TOOLS, subagents=False), *(RanCommand(*argv) for argv in READ_COMMANDS))],
+    only_if=[Or(And(Tool(READ_TOOLS), Not(ToolInput(file_path=PLANS))), ReadsAFile(), *(Runs(*argv) for argv in READ_COMMANDS)), Or(UsedTool(READ_TOOLS, subagents=False), *(RanCommand(*argv) for argv in READ_COMMANDS))],
     tests={
         Input(tool="Read", tool_input={"file_path": STATUS}, state=ACTIVE, transcript=earlier(T.tool("Bash", command="cci tail --drive d --since 342000"))): Warn(pattern=r"one source per owner ask"),
         Input(command="gh pr view 48401", state=ACTIVE, transcript=earlier(T.tool("Read", file_path=STATUS))): Warn(),
@@ -39,6 +40,8 @@ root_warning(
         Input(command="cat > /tmp/coord.zsh <<'EOS'\ntrue\nEOS\nzsh /tmp/coord.zsh", state=ACTIVE, transcript=earlier(T.tool("Read", file_path=STATUS))): Allow(),
         Input(command="cat > /tmp/coord.zsh <<'EOS'\ntrue\nEOS\nzsh /tmp/coord.zsh", state=ACTIVE, transcript=earlier(T.tool("Bash", command="cat > /tmp/coord.zsh <<'EOS'\ntrue\nEOS"))): Allow(),
         Input(tool="Read", tool_input={"file_path": STATUS}, state=ACTIVE, transcript=earlier()): Allow(),
+        Input(command="cci show 1234", state=ACTIVE, transcript=earlier(T.tool("Read", file_path=STATUS))): Allow(),
+        Input(tool="Read", tool_input={"file_path": "/drive/lane-a/plan.md"}, state=ACTIVE, transcript=earlier(T.tool("Read", file_path=STATUS))): Allow(),
         Input(command="gh pr view 48401", state=ACTIVE, transcript=earlier(T.tool("Agent", name="pr-reader", prompt="Read PR 48401."))): Allow(),
         Input(command="gh pr view 48401", transcript=earlier(T.tool("Read", file_path=STATUS))): Allow(),
         Input(command="gh pr view 48401", agent_id="a1b2c3", state=ACTIVE, transcript=earlier(T.tool("Read", file_path=STATUS))): Allow(),

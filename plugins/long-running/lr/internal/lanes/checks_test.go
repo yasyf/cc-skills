@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -806,7 +807,7 @@ func TestACcRemoteOlderThanOrcaStopStopsNothingAndPostsNothingUntilItsPinReaches
 	equal(t, len(bus.posted), 0)
 }
 
-func TestAnAlertLaunchStartsNoCommsLane(t *testing.T) {
+func TestAnAlertLaunchStartsItsEvidenceLaneAndItsSlackWriter(t *testing.T) {
 	plugin, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -828,7 +829,19 @@ func TestAnAlertLaunchStartsNoCommsLane(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, slices.Contains(argv, "--comms-brief"), false)
+	for _, brief := range []string{"--fix-brief", "--evidence-brief", "--comms-brief"} {
+		at := slices.Index(argv, brief)
+		if at < 0 {
+			t.Fatalf("argv %v has no %s", argv, brief)
+		}
+		text, err := os.ReadFile(argv[at+1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if unfilled := regexp.MustCompile(`\{(?:lane|slug|what|link|onset|facts|drive)\}`).FindString(string(text)); unfilled != "" {
+			t.Fatalf("%s still holds %s", brief, unfilled)
+		}
+	}
 }
 
 func TestTwoFiringsOfOneMonitorInAPassLaunchOnce(t *testing.T) {

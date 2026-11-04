@@ -434,3 +434,47 @@ func TestAnOpenFlakeWhoseLaneIsGoneGetsANewLaneFromTheSupervisor(t *testing.T) {
 		t.Fatalf("notes = %+v, want %s handed to %s", handed, flake.Name(), lane)
 	}
 }
+
+func TestARedTrunkAsksTheDeskForItsFixLaneOncePerRedAndNotOnceAFixIsNamed(t *testing.T) {
+	cases := map[string]struct {
+		read      string
+		wantKind  string
+		wantLines int
+		named     bool
+	}{
+		"a job PR builds run":       {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"go-test"}]}]`, wantKind: "incident", wantLines: 1},
+		"a job only trunk runs":     {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"lint"}]}]`, wantKind: "report", wantLines: 1},
+		"a fix PR is already named": {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"go-test"}]}]`, wantKind: "incident", named: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newTrunkWatch(t)
+			if tc.named {
+				if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "fixer", Kind: "report", Topic: "dev-red", PRs: []string{"48001"}, Text: "the fix"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			read := func(fake *shelltest.Fake) {
+				bkReply(fake, buildPath+"105354", failedRead)
+				bkReply(fake, "/pipelines/test/builds?per_page=30", tc.read)
+			}
+			f.pass(t, trunkHistory(trunkCommit(trunkOID, "FAILURE", redBuild)), read)
+			f.pass(t, trunkHistory(trunkCommit(trunkOID, "FAILURE", redBuild)), read)
+
+			if said := trunkRecords(t, tc.wantKind); len(said) != 1 {
+				t.Fatalf("%s records = %+v", tc.wantKind, said)
+			}
+			lines := trunkRecords(t, "go")
+			if len(lines) != tc.wantLines {
+				t.Fatalf("lines = %+v, want %d", lines, tc.wantLines)
+			}
+			if tc.wantLines == 0 {
+				return
+			}
+			want := "orca-desk: incident dev-red-" + trunkOID[:10] + " " + redBuild + " :: "
+			if line := lines[0]; !strings.HasPrefix(line.Text, want) || line.To[0] != "orca-desk" || line.Topic != "dev-red" || line.Lane != "supervisor" {
+				t.Fatalf("line = %+v, want %q", line, want)
+			}
+		})
+	}
+}

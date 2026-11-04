@@ -130,15 +130,16 @@ func (e Env) IncidentLaunch(ctx context.Context, fired Fired) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	argv := []string{e.tool("lr"), "incident", "run", fired.Slug, "--fix-brief", fix, "--timeout-seconds", strconv.Itoa(int((launchWait - launchMargin).Seconds()))}
 	evidence, err := e.incidentBrief(fired.Slug+"-evidence", "alert-evidence-brief.md", fired)
-	switch {
-	case err == nil:
-		argv = append(argv, "--evidence-brief", evidence)
-	case !errors.Is(err, fs.ErrNotExist):
+	if err != nil {
 		return "", err
 	}
-	_, err = e.Runner.Run(ctx, shell.Command{Argv: append(argv, "--drive", e.Config.Drive, "--lane", Self), Timeout: launchWait})
+	comms, err := e.incidentBrief(fired.Slug+"-comms", "alert-comms-brief.md", fired)
+	if err != nil {
+		return "", err
+	}
+	argv := []string{e.tool("lr"), "incident", "run", fired.Slug, "--fix-brief", fix, "--evidence-brief", evidence, "--comms-brief", comms, "--timeout-seconds", strconv.Itoa(int((launchWait - launchMargin).Seconds())), "--drive", e.Config.Drive, "--lane", Self}
+	_, err = e.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: launchWait})
 	return fix, err
 }
 

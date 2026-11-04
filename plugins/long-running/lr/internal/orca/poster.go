@@ -240,7 +240,7 @@ func incidentOrders(name, fixBrief, evidenceBrief, commsBrief string) []Order {
 		orders = append(orders, Order{Lane: stem + "-evidence", Model: agentIncident, Effort: "xhigh", Role: "evidence", Brief: evidenceBrief, Now: true})
 	}
 	if commsBrief != "" {
-		orders = append(orders, Order{Lane: stem + "-comms", Model: agentIncident, Effort: "xhigh", Role: "comms", Brief: commsBrief, Now: true})
+		orders = append(orders, Order{Lane: stem + "-comms", Model: modelIncidentOpus, Effort: "xhigh", Role: "comms", Brief: commsBrief, Now: true})
 	}
 	return orders
 }

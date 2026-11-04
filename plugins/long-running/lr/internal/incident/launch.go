@@ -24,6 +24,7 @@ const (
 	RoleEvidence    = "evidence"
 	RoleComms       = "comms"
 	routeIncident   = "incident"
+	routeWriter     = "incident-opus"
 	effortXHigh     = "xhigh"
 	deskLane        = "orca-desk"
 	deskRunner      = "desk-runner"
@@ -223,7 +224,11 @@ func (d DeskLaunch) requireRunner(ctx context.Context, drive string, planned []p
 }
 
 func launchDirective(lane plannedLane, brief string) string {
-	return fmt.Sprintf("launch %s NOW %s %s role=%s brief=%s", lane.lane, routeIncident, effortXHigh, lane.role, brief)
+	route := routeIncident
+	if lane.role == RoleComms {
+		route = routeWriter
+	}
+	return fmt.Sprintf("launch %s NOW %s %s role=%s brief=%s", lane.lane, route, effortXHigh, lane.role, brief)
 }
 
 func (d DeskLaunch) post(ctx context.Context, drive, topic, directive string) (client.Record, error) {
