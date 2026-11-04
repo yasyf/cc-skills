@@ -338,7 +338,9 @@ cci post --kind ask --to bk-desk "bk build <pipeline> <number>"
 | Read | Answer body |
 |---|---|
 | `bk build <pipeline> <number>` | The build's state, branch, commit and URL, then one line per job not passed with its state, exit status and job id |
+| `bk jobs <pipeline> <number>` | One line per script job, passed ones included, with its state, job id and name |
 | `bk log <pipeline> <number> <job>` | The last 16 KiB of the job's log, with terminal escapes removed |
+| `bk grep <pipeline> <number> <job> <regex>` | The lines of the whole log that match, up to 16 KiB |
 | `bk api <path>` | The first 16 KiB of a GET inside the organization |
 
 The answer is a record addressed to the lane that closes the ask, usually within

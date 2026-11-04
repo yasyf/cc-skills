@@ -34,7 +34,7 @@ const (
 	tokenWait   = time.Minute
 	replyLimit  = 16 << 10
 	bodiesDir   = "bk-desk"
-	usage       = "name one read: bk build <pipeline> <number>, bk log <pipeline> <number> <job>, or bk api <path>"
+	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk log <pipeline> <number> <job>, bk grep <pipeline> <number> <job> <regex>, or bk api <path>"
 )
 
 var (
@@ -176,6 +176,22 @@ func parse(text string) ([]string, string) {
 			}
 		}
 		return nil, "build takes <pipeline> <number>"
+	case "jobs":
+		if len(rest) == 2 {
+			if _, err := strconv.Atoi(rest[1]); err == nil {
+				return append([]string{"jobs"}, rest...), ""
+			}
+		}
+		return nil, "jobs takes <pipeline> <number>"
+	case "grep":
+		if len(rest) < 4 {
+			return nil, "grep takes <pipeline> <number> <job> <regex>"
+		}
+		pattern := strings.Join(rest[3:], " ")
+		if _, err := regexp.Compile(pattern); err != nil {
+			return nil, fmt.Sprintf("grep's regex does not compile: %v", err)
+		}
+		return []string{"grep", rest[0], rest[1], rest[2], pattern}, ""
 	case "log":
 		if len(rest) == 3 {
 			return append([]string{"log"}, rest...), ""
@@ -201,6 +217,18 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 			return *failure
 		}
 		return summary(said)
+	case "jobs":
+		said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+args[1]+"/builds/"+args[2])
+		if failure != nil {
+			return *failure
+		}
+		return everyJob(said)
+	case "grep":
+		said, failure := d.run(ctx, "log", args[1], args[2], args[3])
+		if failure != nil {
+			return *failure
+		}
+		return matching(logEscapes.ReplaceAllString(said, ""), regexp.MustCompile(args[4]))
 	case "log":
 		said, failure := d.run(ctx, args...)
 		if failure != nil {
@@ -287,6 +315,34 @@ func summary(said string) reply {
 		body: firstBytes(lines.String(), replyLimit),
 		url:  read.WebURL,
 	}
+}
+
+func everyJob(said string) reply {
+	var read build
+	if err := json.Unmarshal([]byte(said), &read); err != nil {
+		return reply{head: "the build did not parse", body: firstBytes(said, replyLimit)}
+	}
+	var lines strings.Builder
+	scripts := 0
+	for _, step := range read.Jobs {
+		if step.Type == "script" {
+			scripts++
+			fmt.Fprintf(&lines, "%s job=%s %s\n", step.State, step.ID, step.Name)
+		}
+	}
+	return reply{head: fmt.Sprintf("%s, %d jobs", read.State, scripts), body: firstBytes(lines.String(), replyLimit), url: read.WebURL}
+}
+
+func matching(log string, pattern *regexp.Regexp) reply {
+	var lines strings.Builder
+	found := 0
+	for line := range strings.Lines(log) {
+		if pattern.MatchString(line) {
+			found++
+			lines.WriteString(line)
+		}
+	}
+	return reply{head: fmt.Sprintf("%d matching lines of a %d byte log", found, len(log)), body: firstBytes(lines.String(), replyLimit)}
 }
 
 func firstBytes(text string, limit int) string {
