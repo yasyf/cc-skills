@@ -670,7 +670,7 @@ function openNotice(a) {
     location.hash = `#/needs~question/${encodeURIComponent(a.card)}`;
     return;
   }
-  cw.focus = a.id;
+  chatAim(a.id);
   location.hash = '#/replies';
   render();
 }

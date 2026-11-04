@@ -27,7 +27,7 @@ const cw = {
   filter: 'all',
   query: '',
   limit: CHAT_SHOWN,
-  more: false,
+  lead: ATTENTION_SHOWN,
   open: new Set(),
   read: new Set(),
   replying: new Set(Object.keys(localStorage).flatMap((key) => /^draft:chat:(.+):$/.exec(key)?.[1] ?? [])),
@@ -37,12 +37,12 @@ const cw = {
   seen: new Set(),
 };
 
-function cardAnswered(card) {
-  return state.model.board.answered[card.id]?.picked ?? keptWords(card.id);
+function cardAnswered(id) {
+  return state.model.board.answered[id]?.picked ?? keptWords(id);
 }
 function questionOpen(r) {
   const card = replyCard(r);
-  return Boolean(card?.decides && !cardAnswered(card));
+  return Boolean(card?.decides && !cardAnswered(card.id));
 }
 function bareAskOpen(entry, answeredInThread) {
   return entry.reply.status === 'needs_you' && !DONE_LEAD.test(entry.reply.title) && !entry.reply.picks?.length && !answeredInThread && minutesSince(entry.at) < BARE_ASK_MINUTES;
@@ -60,12 +60,25 @@ function typedRow(at, text) {
 function chatThreads() {
   const m = state.model;
   const threads = new Map();
+  const askKey = (row) => `line:m${String(row.m).split('.')[0]}`;
   for (const row of m.owner_asks.messages) {
-    const key = `line:m${String(row.m).split('.')[0]}`;
+    const key = askKey(row);
     if (threads.has(key)) threads.get(key).rows.push(row);
     else threads.set(key, { key, at: row.iso, rows: [row], replies: [], said: [] });
   }
   const home = new Map();
+  for (const line of m.chat_lines.filter((row) => !row.on)) {
+    const key = `seq:${line.seq}`;
+    const row = m.owner_asks.messages.find((candidate) => candidate.text.includes(line.text.trim()));
+    if (row) {
+      const ask = threads.get(askKey(row));
+      if (!ask.key.startsWith('seq:')) ask.key = key;
+      home.set(key, askKey(row));
+    } else {
+      threads.set(key, { key, at: line.at, rows: [typedRow(line.at, line.text)], replies: [], said: [] });
+      home.set(key, key);
+    }
+  }
   for (const entry of [...m.replies].reverse()) {
     const r = entry.reply;
     const key = `reply:${r.id}`;
@@ -84,9 +97,7 @@ function chatThreads() {
     else threads.set(key, { key, at, rows: [typedRow(at, text)], replies: [], said: [], sending });
   };
   const landed = new Set(m.chat_lines.map((line) => line.seq));
-  for (const line of m.chat_lines) {
-    if (line.on || !m.owner_asks.messages.some((row) => row.text.includes(line.text.trim()))) place(line.at, line.text, line.on, `seq:${line.seq}`, false);
-  }
+  for (const line of m.chat_lines.filter((row) => row.on)) place(line.at, line.text, line.on, `seq:${line.seq}`, false);
   for (const sent of rp.sent.filter((row) => !landed.has(row.seq))) place(sent.at, sent.text, sent.on, `sent:${sent.at}`, true);
   const replied = new Set(m.replies.map((entry) => `card-${entry.reply.id}`));
   for (const card of m.board.cards.filter((c) => c.decides && !replied.has(c.id))) {
@@ -143,8 +154,9 @@ function chatRows() {
   const attention = shown.filter(({ stage }) => stage === 'you').sort((a, b) => threadFrees(b.t) - threadFrees(a.t) || newest(a, b));
   const rest = shown.filter(({ stage }) => stage !== 'you').sort(newest);
   const focused = cw.focus && shown.find(({ t }) => t.replies.some((entry) => entry.reply.id === cw.focus));
-  if (focused) cw.limit = Math.max(cw.limit, [...attention, ...rest].indexOf(focused) + 1);
-  const leading = cw.filter === 'needs' || cw.query ? attention : attention.slice(0, ATTENTION_SHOWN);
+  cw.lead = Math.max(cw.lead, attention.indexOf(focused) + 1);
+  const leading = cw.filter === 'needs' || cw.query ? attention : attention.slice(0, cw.lead);
+  if (focused) cw.limit = Math.max(cw.limit, [...leading, ...rest].indexOf(focused) + 1);
   const lines = [...leading, ...rest].slice(0, cw.limit);
   return { all, lines, count: shown.length, hidden: attention.length - leading.length, attention: leading.length };
 }
@@ -255,8 +267,8 @@ function replyObject(entry, t) {
   const about = `reply ${r.id} "${r.title}"`;
   const card = replyCard(r);
   const links = `${replyLinks(r)}${replyOthers(r)}${prObjects(prNumbers(r))}`;
-  if (card?.decides && !cardAnswered(card)) return `${questionObject(card, r.id)}${links}`;
-  const picked = card && cardAnswered(card);
+  const picked = cardAnswered(`card-${r.id}`);
+  if (card?.decides && !picked) return `${questionObject(card, r.id)}${links}`;
   const kind = REPLY_KIND[r.status] ?? REPLY_KIND.info;
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<p class="ct-failed">${esc(SURFACE_WORD[s.surface])} failed: ${esc(s.error)}</p>`).join('');
   if (t.rows.length && r.order && !r.picks?.length && r.status === 'progress') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
@@ -290,7 +302,8 @@ function threadBody({ t, stage }) {
   if (!t.rows.length) return `<div class="responses loose">${objects}${said}</div>`;
   const row = t.rows.find((part) => part.due) ?? t.rows[0];
   const title = threadTitle(t);
-  const about = `his line m${String(t.rows[0].m).split('.')[0]} "${title.replaceAll('"', "'")}"`;
+  const number = String(t.rows[0].m).split('.')[0];
+  const about = `his line ${number ? `m${number} ` : ''}"${title.replaceAll('"', "'")}"`;
   const answer = !t.replies.length && t.rows.map((part) => part.answer).find(Boolean);
   const answered = answer ? `<div class="artifact decision-card"><div class="artifact-top">${chatIcon('doc')} Answer</div>${chatBody(t.key, answer)}</div>` : '';
   const named = prObjects(t.rows.flatMap((part) => part.prs).map(Number));
@@ -323,9 +336,16 @@ function repliesScreen() {
 }
 function chatSet(el, html) {
   if (chatSigs.get(el) === html) return;
-  if ([...el.querySelectorAll('input, textarea')].some((box) => box === document.activeElement || box.value)) return;
+  const held = [...el.querySelectorAll('textarea[data-draft]')].filter((box) => box === document.activeElement || box.value);
+  const active = document.activeElement;
+  const caret = held.includes(active) && [active.selectionStart, active.selectionEnd];
   el.innerHTML = html;
   chatSigs.set(el, html);
+  for (const box of held) el.querySelector(`textarea[name="${box.name}"][data-draft="${CSS.escape(box.dataset.draft)}"]`)?.closest('form').replaceWith(box.closest('form'));
+  if (caret && el.contains(active)) {
+    active.focus();
+    active.setSelectionRange(...caret);
+  }
 }
 function chatReapply(el) {
   el.classList.toggle('open', cw.open.has(el.dataset.k));
@@ -389,15 +409,24 @@ function patchChat() {
   $('#cw-failed').hidden = !failed;
   $('#cw-failed').textContent = failed ? `Not sent: ${failed}. Try again.` : '';
   restoreBoxes();
-  if (cw.focus) {
-    const spot = document.getElementById(`rp-${cw.focus}`);
+}
+function chatScroll(arrived) {
+  const spot = cw.focus && document.getElementById(`rp-${cw.focus}`);
+  if (spot) {
     cw.focus = null;
-    spot?.scrollIntoView({ block: 'center' });
+    spot.scrollIntoView({ block: 'center' });
+  } else if (arrived) {
+    window.scrollTo(0, history.state?.y ?? 0);
   }
+}
+function chatAim(id) {
+  Object.assign(cw, { focus: id, filter: 'all', query: '' });
+  if ($('#cw-search')) $('#cw-search').value = '';
 }
 function chatInPlace(p, stack) {
   if (p.screen !== 'replies' || stack.length || !$('#main > .cw') || state.depth) return false;
   patchChat();
+  chatScroll(false);
   syncChatModal();
   syncReviewEmbed(route());
   placeEmbed();

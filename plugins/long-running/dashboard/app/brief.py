@@ -472,6 +472,8 @@ class Curator:
         brief["at"] = now.isoformat()
         brief["violations"] = problems
         self.write(brief)
+        if facts.get("more"):
+            self.dirty.set()
 
     def keep_passing(self, brief, problems, lanes):
         if not problems:

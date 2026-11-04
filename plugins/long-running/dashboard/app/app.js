@@ -511,8 +511,9 @@ function render() {
   decorate(p);
   composeLinks(stack);
   holdPeek();
+  const arrived = baseOf(state.shown ?? '') !== baseOf();
   if (state.shown !== location.hash) {
-    if (baseOf(state.shown ?? '') !== baseOf()) {
+    if (arrived) {
       $('#main').classList.add('enter');
       setTimeout(() => $('#main').classList.remove('enter'), 220);
     }
@@ -523,6 +524,7 @@ function render() {
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   if (spot) refocus(spot, spotRoot);
   window.scrollTo(0, y);
+  if (p.screen === 'replies') chatScroll(arrived);
   syncChatModal();
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(route());

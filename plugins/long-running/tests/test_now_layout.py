@@ -1182,9 +1182,82 @@ def test_a_reply_box_with_text_survives_a_change_to_its_own_thread(page):
     line = page.locator('[data-k="line:m7"]')
     line.locator(".thread-foot [data-chat-thread]").click()
     line.locator(".reply-editor textarea").fill("half a reply")
-    page.evaluate("document.activeElement.blur(); state.model.owner_asks.messages[0].ack = 'done'; state.model.owner_asks.messages[0].state = 'answered'; render()")
+    assert page.evaluate("""() => {
+      const box = document.querySelector('[data-k="line:m7"] .reply-editor textarea');
+      box.setSelectionRange(2, 4);
+      state.model.replies = [{ reply: { id: 'arrived', title: 'Arrived', md: 'New answer', status: 'done', order: 'm7' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
+      render();
+      return document.querySelector('[data-k="line:m7"] .reply-editor textarea') === box && document.activeElement === box && box.selectionStart === 2 && box.selectionEnd === 4;
+    }""")
     assert line.locator(".reply-editor textarea").input_value() == "half a reply"
+    assert line.locator(".ask-head .pill").inner_text() == "Completed"
+    assert line.locator("#rp-arrived").count() == 1
     page.evaluate("localStorage.removeItem('draft:chat:line:m7:'); cw.replying.clear(); document.querySelector('[data-k=\"line:m7\"] form').remove()")
+    now(page)
+
+
+def test_a_pick_keeps_its_receipt_after_the_board_drops_the_card(page):
+    open_chat(page)
+    page.evaluate("state.model.board.cards = state.model.board.cards.filter((c) => c.id !== 'card-open2'); state.model.board.answered['card-open2'] = { picked: 'No' }; render()")
+    assert "You picked No" in page.locator("#rp-open2 .obj-picked").inner_text()
+    assert page.locator("#rp-open2 .ct-closed").count() == 0
+    now(page)
+
+
+def test_an_ask_typed_here_keeps_its_thread_replies_and_draft_when_its_ledger_row_arrives(page):
+    open_chat(page)
+    page.evaluate("""() => {
+      state.model.chat_lines = [{ seq: 42, at: new Date().toISOString(), on: '', text: 'typed just now' }];
+      state.model.replies = [{ reply: { id: 'typed-answer', title: 'Typed answer', md: 'Here', status: 'info', on: 'seq:42' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
+      render();
+    }""")
+    thread = page.locator('[data-k="seq:42"]')
+    assert thread.locator("#rp-typed-answer").count() == 1
+    thread.locator(".thread-foot [data-chat-thread]").click()
+    thread.locator(".reply-editor textarea").fill("a draft")
+    assert page.evaluate("""() => {
+      const before = document.querySelector('[data-k="seq:42"]');
+      state.model.owner_asks.messages.push({ m: 8, iso: new Date().toISOString(), title: 'Typed ask', text: 'typed just now', state: 'answered', ack: 'done', lanes: [], prs: [] });
+      render();
+      return document.querySelector('[data-k="seq:42"]') === before;
+    }""")
+    assert thread.locator(".ask-title").inner_text() == "Typed ask"
+    assert thread.locator(".reply-editor textarea").input_value() == "a draft"
+    assert page.locator('[data-k="line:m8"]').count() == 0
+    page.evaluate("localStorage.removeItem('draft:chat:seq:42:'); cw.replying.clear(); document.querySelector('[data-k=\"seq:42\"] form').remove(); state.model.chat_lines = []; render()")
+    now(page)
+
+
+def test_a_notification_shows_its_reply_past_any_filter_or_attention_cap(page):
+    open_chat(page)
+    page.evaluate("""() => {
+      const late = Array.from({ length: 8 }, (_, i) => ({ reply: { id: `ask${i}`, title: `Ask ${i}`, md: 'x', status: 'needs_you' }, at: new Date(Date.now() - i * 60000).toISOString(), surfaces: [] }));
+      state.model.replies = [...late, ...state.model.replies];
+      cw.filter = 'completed';
+      cw.query = 'nothing matches this';
+      render();
+      chatAim('ask7');
+      render();
+    }""")
+    assert page.locator("#rp-ask7").is_visible()
+    assert page.evaluate("cw.focus") is None
+    assert page.evaluate("cw.filter") == "all"
+    page.evaluate("render()")
+    assert page.locator("#rp-ask7").is_visible()
+    page.evaluate("cw.limit = 30; cw.lead = 5")
+    now(page)
+
+
+def test_arriving_from_another_page_lands_on_the_notified_reply_not_the_old_scroll(page):
+    open_chat(page, 100)
+    page.evaluate("location.hash = '#/plan'")
+    page.wait_for_function("pageRoute().screen === 'plan'")
+    page.evaluate("chatAim('r60'); location.hash = '#/replies'")
+    page.wait_for_selector("#rp-r60")
+    page.wait_for_function("cw.focus === null")
+    box = page.evaluate("document.querySelector('#rp-r60').getBoundingClientRect().top")
+    assert 0 <= box <= page.viewport_size["height"]
+    page.evaluate("cw.limit = 30")
     now(page)
 
 

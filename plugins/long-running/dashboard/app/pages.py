@@ -331,12 +331,16 @@ def asks_digest(model, config, previous, now):
     said = {}
     for row in model["owner_asks"]["messages"]:
         said.setdefault(ask_key(row), []).append(row["text"])
-    fresh = [{"key": key, "said": clip(" ".join(parts), ASK_WORDS)} for key, parts in said.items() if key not in known][-ASK_BATCH:]
-    return {"asks": fresh, "worker_names": worker_names(model)} if fresh else None
+    fresh = [{"key": key, "said": clip(" ".join(parts), ASK_WORDS)} for key, parts in said.items() if key not in known]
+    return {"asks": fresh[-ASK_BATCH:], "more": len(fresh) > ASK_BATCH, "worker_names": worker_names(model)} if fresh else None
 
 
 def asks_carry(brief, previous):
     return {**brief, "titles": [*(previous or {}).get("titles", []), *(entry for entry in brief["titles"] if entry["title"])]}
+
+
+def asks_brief(asks):
+    return {"titles": [{"key": ask_key(row), "title": row["title"]} for row in asks["messages"] if row.get("title")]}
 
 
 def titled_asks(asks, brief):
