@@ -17,10 +17,14 @@ MECHANISM = re.compile(
     r"\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|root[- ]cause|the flaw|which means|is why|led to|skew|so\b[^.;]*?\b(?:fail|crash|break|error)\w*|likely|probably|presumably)\b",
     re.IGNORECASE,
 )
-CITATION = re.compile(
-    r"#\d{3,}\b|/pull/\d+|\bPR \d+\b|\bbuilds?\s+#?\d{3,}\b|/builds/\d+|[\w./-]+\.\w+:\d+\b|\bmonitors?\s+#?\d+\b|/monitors/\d+|\bnotebooks?\s+#?\d+\b|/notebook/\d+|\b(?:ccn|answer|ruling|note|grant|log|investigation) [0-9a-f]{7,}\b",
+PR_CITATION = r"#\d{3,}\b|/pull/\d+|\bPR \d+\b"
+RECORD_CITATION = re.compile(
+    r"\bbuilds?\s+#?\d{3,}\b|/builds/\d+|[\w./-]+\.\w+:\d+\b|\bmonitors?\s+#?\d+\b|/monitors/\d+|\bnotebooks?\s+#?\d+\b|/notebook/\d+|\bcci #?\d+\b|\b(?:ccn|answer|ruling|note|grant|log|investigation) [0-9a-f]{7,}\b",
     re.IGNORECASE,
 )
+CITATION = re.compile(f"{PR_CITATION}|{RECORD_CITATION.pattern}", re.IGNORECASE)
+PR_NAMED = re.compile(rf"{PR_CITATION}|\bPRs?\b", re.IGNORECASE)
+BROKE = re.compile(r"\b(?:broke|breaks|redden\w*|(?:went|turned|goes|turns) red)\b", re.IGNORECASE)
 UNPROVEN = "Unproven:"
 UNCITED_REFUSAL = (
     "A sentence to the owner that says why something happened cites, in it or the sentence before, the record, PR, build, file:line, monitor, notebook or ccn id that proves it,"
@@ -51,7 +55,8 @@ def uncited(texts: list[str]) -> list[str]:
     for text in texts:
         previous = ""
         for sentence, said in sentences(text):
-            if MECHANISM.search(said) and not said.startswith(UNPROVEN) and not CITATION.search(f"{previous} {sentence}"):
+            blames = bool(PR_NAMED.search(sentence) and BROKE.search(said))
+            if (blames or MECHANISM.search(said)) and not said.startswith(UNPROVEN) and not (RECORD_CITATION if blames else CITATION).search(f"{previous} {sentence}"):
                 found.append(sentence)
             previous = sentence
     return found
@@ -81,6 +86,8 @@ def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
         card(title="Why did the FDE run crash?", body=LABELLED): Block(pattern=r"^A line to the owner calling a question unanswered[\s\S]*Unproven: a release skew"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Why did the FDE run crash?", "body": LABELLED}}, env=DRIVE_CONFIG, transcript=[T.user("why"), *GREPPED]): Allow(),
         card(title="Which Mac wrote it?", body="Nobody knows which Mac wrote the chat."): Block(pattern=r"Nobody knows which Mac"),
+        card(title="Why is dev red?", body="#49475 broke dev's sand-next vet job."): Block(pattern=r"#49475 broke dev's sand-next vet job\."),
+        card(title="Why is dev red?", body="#49475 broke dev's sand-next vet job: build 12290 logs its missing import."): Allow(),
         card(title="Did the lane retract it?", body='It withdrew "a release skew caused it" and reads the chat rows now.'): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Why?", "body": SKEW}}): Allow(),
         Input(command=updated({"type": "card", "id": "skew", "title": "Why did the FDE run crash?", "summary": SKEW}), env=DRIVE_CONFIG): Block(pattern=r"That is a release skew"),

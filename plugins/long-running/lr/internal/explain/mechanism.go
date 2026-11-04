@@ -13,12 +13,17 @@ const (
 )
 
 var (
-	fenced    = regexp.MustCompile("(?s)```.*?```")
-	unsaid    = regexp.MustCompile("`[^`\n]+`|\"[^\"\n]*\"|“[^”\n]*”|https?://\\S+")
-	breaks    = regexp.MustCompile(`([.!?])\s+|\n+`)
-	lead      = regexp.MustCompile(`^[\s>*_#-]*(?:\d+\.\s*)?`)
-	mechanism = regexp.MustCompile(`(?i)\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|root[- ]cause|the flaw|which means|is why|led to|skew|so\b[^.;]*?\b(?:fail|crash|break|error)\w*|likely|probably|presumably)\b`)
-	citation  = regexp.MustCompile(`(?i)#\d{3,}\b|/pull/\d+|\bPR \d+\b|\bbuilds?\s+#?\d{3,}\b|/builds/\d+|[\w./-]+\.\w+:\d+\b|\bmonitors?\s+#?\d+\b|/monitors/\d+|\bnotebooks?\s+#?\d+\b|/notebook/\d+|\b(?:ccn|answer|ruling|note|grant|log|investigation) [0-9a-f]{7,}\b`)
+	fenced     = regexp.MustCompile("(?s)```.*?```")
+	unsaid     = regexp.MustCompile("`[^`\n]+`|\"[^\"\n]*\"|“[^”\n]*”|https?://\\S+")
+	breaks     = regexp.MustCompile(`([.!?])\s+|\n+`)
+	lead       = regexp.MustCompile(`^[\s>*_#-]*(?:\d+\.\s*)?`)
+	mechanism  = regexp.MustCompile(`(?i)\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|root[- ]cause|the flaw|which means|is why|led to|skew|so\b[^.;]*?\b(?:fail|crash|break|error)\w*|likely|probably|presumably)\b`)
+	prCite     = `#\d{3,}\b|/pull/\d+|\bPR \d+\b`
+	recordCite = `\bbuilds?\s+#?\d{3,}\b|/builds/\d+|[\w./-]+\.\w+:\d+\b|\bmonitors?\s+#?\d+\b|/monitors/\d+|\bnotebooks?\s+#?\d+\b|/notebook/\d+|\bcci #?\d+\b|\b(?:ccn|answer|ruling|note|grant|log|investigation) [0-9a-f]{7,}\b`
+	citation   = regexp.MustCompile(`(?i)` + prCite + `|` + recordCite)
+	recorded   = regexp.MustCompile(`(?i)` + recordCite)
+	prNamed    = regexp.MustCompile(`(?i)` + prCite + `|\bPRs?\b`)
+	broke      = regexp.MustCompile(`(?i)\b(?:broke|breaks|redden\w*|(?:went|turned|goes|turns) red)\b`)
 )
 
 func Uncited(source []byte) []string {
@@ -30,7 +35,12 @@ func Uncited(source []byte) []string {
 			continue
 		}
 		said := lead.ReplaceAllString(unsaid.ReplaceAllString(sentence, " "), "")
-		if mechanism.MatchString(said) && !strings.HasPrefix(said, unproven) && !citation.MatchString(previous+" "+sentence) {
+		blames := prNamed.MatchString(sentence) && broke.MatchString(said)
+		proof := citation
+		if blames {
+			proof = recorded
+		}
+		if (blames || mechanism.MatchString(said)) && !strings.HasPrefix(said, unproven) && !proof.MatchString(previous+" "+sentence) {
 			found = append(found, sentence)
 		}
 		previous = sentence
