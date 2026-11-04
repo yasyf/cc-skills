@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
@@ -19,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -79,55 +81,115 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 		return err
 	}
 	defer func() { _ = s.Close() }()
+	gate := goGate{a: a, cfg: cfg, s: s, inputs: inputs, stdout: stdout}
 	for _, number := range numbers {
 		head, open := heads[number]
 		if !open {
 			fmt.Fprintf(stdout, "REFUSED #%d: it is not an open pull request\n", number)
 			continue
 		}
-		records, err := client.Tail(ctx, client.Query{Drive: cfg.Drive, PR: fmt.Sprintf("%s#%d", cfg.Repo, number)})
+		if _, err := gate.one(ctx, number, head, flags); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type goGate struct {
+	a      *app.App
+	cfg    config.Config
+	s      *store.Store
+	inputs gateInputs
+	stdout io.Writer
+}
+
+func (g goGate) one(ctx context.Context, number int, head string, flags goFlags) (refused bool, err error) {
+	a, cfg, s, inputs, stdout := g.a, g.cfg, g.s, g.inputs, g.stdout
+	records, err := client.Tail(ctx, client.Query{Drive: cfg.Drive, PR: fmt.Sprintf("%s#%d", cfg.Repo, number)})
+	if err != nil {
+		return false, err
+	}
+	if flags.before != 0 {
+		records = slices.DeleteFunc(records, func(record client.Record) bool { return record.Seq >= flags.before })
+	}
+	files, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", cfg.Repo, number), "--jq", filesJQ)
+	if err != nil {
+		return false, err
+	}
+	body, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body")
+	if err != nil {
+		fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
+	}
+	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, cfg.Drive, seqs) })
+	if err != nil {
+		fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
+	}
+	claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
+	text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Files: strings.Fields(files), Cards: inputs.Cards, TapRows: inputs.Taps, Body: body})
+	if flags.before == 0 {
+		row, found, err := s.ReviewRow(cfg.Repo, number)
+		if err != nil {
+			return false, err
+		}
+		if unread := gates.RowRead(row, found, head); unread != "" {
+			refusals = append(refusals, unread)
+		}
+	}
+	if len(refusals) > 0 {
+		fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
+		return true, nil
+	}
+	if flags.lane == "" {
+		fmt.Fprintf(stdout, "GO #%d at %s (dry): %s\n", number, head[:7], text)
+		return false, nil
+	}
+	posted, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: flags.lane, Kind: kindGo, To: []string{goReader}, PRs: []string{strconv.Itoa(number)}, Text: text})
+	if err != nil {
+		return false, err
+	}
+	fmt.Fprintf(stdout, "GO #%d at %s: posted %s: %s\n", number, head[:7], posted.Name(), text)
+	return false, nil
+}
+
+const goRegate = 10 * time.Minute
+
+func goReady(f machine.Facts) bool {
+	return f.Green() && f.Approved && f.Graded() && !f.Exempt && f.Hold == "" && !f.Draft && !f.Closed && !f.Merged && f.Tap == ""
+}
+
+func goProbe(number int) string {
+	return fmt.Sprintf("go-refused:%d", number)
+}
+
+func sweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store, snapshot []machine.Facts, now time.Time, stdout io.Writer) error {
+	probes, err := s.Probes()
+	if err != nil {
+		return err
+	}
+	ready := slices.DeleteFunc(slices.Clone(snapshot), func(f machine.Facts) bool {
+		refused, seen := probes[goProbe(f.Number)]
+		return !goReady(f) || seen && now.Sub(refused.Asked) < goRegate
+	})
+	if len(ready) == 0 {
+		return nil
+	}
+	inputs, err := readGateInputs(ctx, cfg.Drive, now)
+	if err != nil {
+		return err
+	}
+	gate := goGate{a: a, cfg: cfg, s: s, inputs: inputs, stdout: stdout}
+	for _, f := range ready {
+		refused, err := gate.one(ctx, f.Number, f.Head, goFlags{lane: bus.SweepLane})
 		if err != nil {
 			return err
 		}
-		if flags.before != 0 {
-			records = slices.DeleteFunc(records, func(record client.Record) bool { return record.Seq >= flags.before })
+		mark := s.Unprobe(goProbe(f.Number))
+		if refused {
+			mark = s.Probe(goProbe(f.Number), now)
 		}
-		files, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", cfg.Repo, number), "--jq", filesJQ)
-		if err != nil {
-			return err
+		if mark != nil {
+			return mark
 		}
-		body, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body")
-		if err != nil {
-			fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
-		}
-		lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, cfg.Drive, seqs) })
-		if err != nil {
-			fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
-		}
-		claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-		text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Files: strings.Fields(files), Cards: inputs.Cards, TapRows: inputs.Taps, Body: body})
-		if flags.before == 0 {
-			row, found, err := s.ReviewRow(cfg.Repo, number)
-			if err != nil {
-				return err
-			}
-			if unread := gates.RowRead(row, found, head); unread != "" {
-				refusals = append(refusals, unread)
-			}
-		}
-		if len(refusals) > 0 {
-			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
-			continue
-		}
-		if flags.lane == "" {
-			fmt.Fprintf(stdout, "GO #%d at %s (dry): %s\n", number, head[:7], text)
-			continue
-		}
-		posted, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: flags.lane, Kind: kindGo, To: []string{goReader}, PRs: []string{strconv.Itoa(number)}, Text: text})
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "GO #%d at %s: posted %s: %s\n", number, head[:7], posted.Name(), text)
 	}
 	return nil
 }

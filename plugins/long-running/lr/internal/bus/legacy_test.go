@@ -115,6 +115,18 @@ func TestAGoLaneTheConfigNamesMayNameAnExemptClass(t *testing.T) {
 	}
 }
 
+func TestTheLandingPassesSweepGoCountsWhatEverTheConfigNamesAndAStrangersDoesNot(t *testing.T) {
+	swept := legacyRecord(t, "go", bus.SweepLane, "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, nil)
+	stranger := legacyRecord(t, "go", "pr-unblock-3", "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, nil)
+
+	if want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "exempt", Value: "owner-pick"}}; !reflect.DeepEqual(bus.LegacyFacts(swept, repo, nil), want) {
+		t.Fatalf("LegacyFacts = %+v, want %+v", bus.LegacyFacts(swept, repo, nil), want)
+	}
+	if got := bus.LegacyFacts(stranger, repo, nil); len(got) != 0 {
+		t.Fatalf("a lane no config names counted: %+v", got)
+	}
+}
+
 func TestAnOverrideCitesItsGradeWithOrWithoutTheGraderNamed(t *testing.T) {
 	for _, text := range []string{
 		"finder-override #9 at e718a74: 79447@637eacf4 reads a deleted file",
