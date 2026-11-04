@@ -460,6 +460,19 @@ def test_an_edited_body_on_a_known_row_posts_head_with_the_new_body(tmp_path, to
     assert carried == {"body": "from github"}
 
 
+def test_an_edited_body_posts_githubs_head_and_not_a_local_branch_left_behind(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, answers = tools
+    answers["cci", "grep"] = ROW + "\n"
+    answers["git", "rev-parse"] = "187ae7708209c68dc58c1cf1d8cec1049739b89e"
+
+    assert pr_ledger.record_edited_bodies(shipped(tmp_path, "https://github.com/Forge-AI/monorepo/pull/28534", "gh pr edit 28534 --body-file body.md")) is None
+
+    [(flags, _)] = posted(calls)
+    assert flags["--head"] == [f"{GT_REF}={SHA}"]
+
+
 def test_an_edited_body_on_a_pr_with_no_row_posts_nothing(tmp_path, tools):
     from hooks import pr_ledger
 
