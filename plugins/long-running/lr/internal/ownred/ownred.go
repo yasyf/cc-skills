@@ -20,7 +20,10 @@ const (
 	InheritedLine = "INHERITED"
 	UnreadLine    = "UNREAD"
 	MailLine      = "MAIL"
+	baseUnread    = " (base branch state unread)"
 	closed        = "closed"
+	failed        = "FAILURE"
+	passed        = "SUCCESS"
 	wholeBudget   = "2147483647"
 	mailShown     = 20
 	mailCut       = "%s %d more after %s not shown; read them with cci tail --drive %s --reader %s --since %s --oldest"
@@ -31,10 +34,15 @@ const (
 	allowEscapes  = "--allow-escape-sequences"
 	checksFields  = `fragment checks on PullRequest {
   files(first: 100) { nodes { path } }
-  commits(last: 1) { nodes { commit { checkSuites(first: 50) { nodes {
+  commits(last: 1) { nodes { commit { checkSuites(first: 30) { nodes {
     app { slug }
-    checkRuns(first: 50) { nodes { name status conclusion databaseId annotations(first: 50) { nodes { path location { start { line } } message } } } }
+    checkRuns(first: 50) { nodes { name status conclusion databaseId annotations(first: 30) { nodes { path location { start { line column } } message } } } }
   } } } } }
+}`
+	baseFields = `fragment base on PullRequest {
+  commits(first: 1) { nodes { commit { parents(first: 1) { nodes { history(first: 30) { nodes { checkSuites(first: 30) { nodes {
+    checkRuns(first: 50) { nodes { name conclusion } }
+  } } } } } } } } }
 }`
 )
 
@@ -49,7 +57,9 @@ const (
 var (
 	pullURL  = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/\d+$`)
 	stackURL = regexp.MustCompile(`/repos/([\w.-]+/[\w.-]+)/stacks/\d+$`)
-	location = regexp.MustCompile(`([\w.@+-]+(?:/[\w.@+-]+)*\.\w+):(\d+)`)
+	location = regexp.MustCompile(`([\w.@+-]+(?:/[\w.@+-]+)*\.\w+)[:(](\d+)`)
+	compiler = regexp.MustCompile(`^(?:vet: )?[^\s:]+\.go:\d+:\d+: |^[^\s:]+:\d+:\d+: (?:fatal )?error: |^[^\s(:]+(?:\(\d+,\d+\):|:\d+:\d+ -) error TS\d+`)
+	linter   = regexp.MustCompile(`\(([a-z0-9]+)\)$`)
 	logStamp = regexp.MustCompile(`^\S+Z (?:##\[\w+\])?`)
 	ansi     = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 )
@@ -84,12 +94,33 @@ type checkRun struct {
 			Path     string `json:"path"`
 			Location struct {
 				Start struct {
-					Line int `json:"line"`
+					Line   int `json:"line"`
+					Column int `json:"column"`
 				} `json:"start"`
 			} `json:"location"`
 			Message string `json:"message"`
 		} `json:"nodes"`
 	} `json:"annotations"`
+}
+
+type commit struct {
+	CheckSuites struct {
+		Nodes []struct {
+			App struct {
+				Slug string `json:"slug"`
+			} `json:"app"`
+			CheckRuns struct {
+				Nodes []checkRun `json:"nodes"`
+			} `json:"checkRuns"`
+		} `json:"nodes"`
+	} `json:"checkSuites"`
+	Parents struct {
+		Nodes []struct {
+			History struct {
+				Nodes []commit `json:"nodes"`
+			} `json:"history"`
+		} `json:"nodes"`
+	} `json:"parents"`
 }
 
 type pull struct {
@@ -100,20 +131,32 @@ type pull struct {
 	} `json:"files"`
 	Commits struct {
 		Nodes []struct {
-			Commit struct {
-				CheckSuites struct {
-					Nodes []struct {
-						App struct {
-							Slug string `json:"slug"`
-						} `json:"app"`
-						CheckRuns struct {
-							Nodes []checkRun `json:"nodes"`
-						} `json:"checkRuns"`
-					} `json:"nodes"`
-				} `json:"checkSuites"`
-			} `json:"commit"`
+			Commit commit `json:"commit"`
 		} `json:"nodes"`
 	} `json:"commits"`
+}
+
+func (p pull) baseConclusion(check string) string {
+	for _, first := range p.Commits.Nodes {
+		for _, parent := range first.Commit.Parents.Nodes {
+			for _, ancestor := range parent.History.Nodes {
+				var conclusions []string
+				for _, suite := range ancestor.CheckSuites.Nodes {
+					for _, run := range suite.CheckRuns.Nodes {
+						if run.Name == check {
+							conclusions = append(conclusions, run.Conclusion)
+						}
+					}
+				}
+				for _, settled := range []string{failed, passed} {
+					if slices.Contains(conclusions, settled) {
+						return settled
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 type record struct {
@@ -134,9 +177,42 @@ func (r record) line(kind string) string {
 }
 
 type finding struct {
-	path string
-	line int
-	text string
+	path     string
+	line     int
+	text     string
+	compiled bool
+}
+
+type red struct {
+	number  int
+	check   string
+	own     []string
+	outside []finding
+}
+
+func (r red) lines(base pull) []string {
+	if len(r.own) > 0 {
+		return r.own
+	}
+	inherited := fmt.Sprintf("%s #%d %s", InheritedLine, r.number, r.check)
+	if len(r.outside) == 0 {
+		return []string{inherited}
+	}
+	switch base.baseConclusion(r.check) {
+	case failed:
+		return []string{inherited}
+	case passed:
+		lines := make([]string, 0, len(r.outside))
+		for _, f := range r.outside {
+			lines = append(lines, r.ownLine(f.path, f))
+		}
+		return lines
+	}
+	return []string{inherited + baseUnread}
+}
+
+func (r red) ownLine(file string, f finding) string {
+	return fmt.Sprintf("%s #%d %s %s:%d %s", OwnLine, r.number, r.check, file, f.line, f.text)
 }
 
 func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
@@ -148,19 +224,13 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	pulls, err := g.checks(ctx, repo, numbers)
+	pulls, err := g.pulls(ctx, repo, numbers, "checks", checksFields)
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	add := func(line string) {
-		if !seen[line] {
-			seen[line] = true
-			lines = append(lines, line)
-		}
-	}
+	var reds []red
 	for _, number := range numbers {
-		p := pulls["p"+strconv.Itoa(number)]
+		p := pulls[alias(number)]
 		files := make([]string, 0, len(p.Files.Nodes))
 		for _, node := range p.Files.Nodes {
 			files = append(files, node.Path)
@@ -168,7 +238,7 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 		slices.Sort(files)
 		for _, suite := range p.Commits.Nodes[0].Commit.CheckSuites.Nodes {
 			for _, run := range suite.CheckRuns.Nodes {
-				if run.Status != "COMPLETED" || run.Conclusion != "FAILURE" {
+				if run.Status != "COMPLETED" || run.Conclusion != failed {
 					continue
 				}
 				found := annotated(run)
@@ -177,20 +247,35 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 						return nil, err
 					}
 				}
-				own := false
+				r := red{number: number, check: run.Name}
 				for _, f := range found {
 					if file := changed(f.path, files); file != "" {
-						own = true
-						add(fmt.Sprintf("%s #%d %s %s:%d %s", OwnLine, number, run.Name, file, f.line, f.text))
+						r.own = append(r.own, r.ownLine(file, f))
+						continue
+					}
+					if f.compiled {
+						r.outside = append(r.outside, f)
 					}
 				}
-				if !own {
-					add(fmt.Sprintf("%s #%d %s", InheritedLine, number, run.Name))
-				}
+				reds = append(reds, r)
+			}
+		}
+	}
+	bases := g.bases(ctx, repo, reds)
+	seen := map[string]bool{}
+	for _, r := range reds {
+		for _, line := range r.lines(bases[alias(r.number)]) {
+			if !seen[line] {
+				seen[line] = true
+				lines = append(lines, line)
 			}
 		}
 	}
 	return lines, nil
+}
+
+func alias(number int) string {
+	return "p" + strconv.Itoa(number)
 }
 
 var statusKinds = []string{"evidence", "peer", "state"}
@@ -315,13 +400,30 @@ func (s stack) open(through int) []int {
 	return numbers
 }
 
-func (g Guard) checks(ctx context.Context, repo string, numbers []int) (map[string]pull, error) {
+func (g Guard) bases(ctx context.Context, repo string, reds []red) map[string]pull {
+	var numbers []int
+	for _, r := range reds {
+		if len(r.own) == 0 && len(r.outside) > 0 && !slices.Contains(numbers, r.number) {
+			numbers = append(numbers, r.number)
+		}
+	}
+	if len(numbers) == 0 {
+		return nil
+	}
+	bases, err := g.pulls(ctx, repo, numbers, "base", baseFields)
+	if err != nil {
+		return nil
+	}
+	return bases
+}
+
+func (g Guard) pulls(ctx context.Context, repo string, numbers []int, fragment, fragmentFields string) (map[string]pull, error) {
 	owner, name, _ := strings.Cut(repo, "/")
 	var fields strings.Builder
 	for _, number := range numbers {
-		fmt.Fprintf(&fields, "p%d: pullRequest(number: %d) { ...checks } ", number, number)
+		fmt.Fprintf(&fields, "%s: pullRequest(number: %d) { ...%s } ", alias(number), number, fragment)
 	}
-	query := fmt.Sprintf("query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { %s} }\n%s", fields.String(), checksFields)
+	query := fmt.Sprintf("query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { %s} }\n%s", fields.String(), fragmentFields)
 	var reply struct {
 		Data struct {
 			Repository map[string]pull `json:"repository"`
@@ -333,12 +435,24 @@ func (g Guard) checks(ctx context.Context, repo string, numbers []int) (map[stri
 	return reply.Data.Repository, nil
 }
 
+func compileClass(text string) bool {
+	if lint := linter.FindStringSubmatch(text); lint != nil {
+		return lint[1] == "typecheck" || lint[1] == "govet"
+	}
+	return compiler.MatchString(text)
+}
+
 func annotated(run checkRun) []finding {
 	found := make([]finding, 0, len(run.Annotations.Nodes))
 	for _, note := range run.Annotations.Nodes {
 		if note.Path != workflowPath {
 			text, _, _ := strings.Cut(note.Message, "\n")
-			found = append(found, finding{note.Path, note.Location.Start.Line, text})
+			start := note.Location.Start
+			at := fmt.Sprintf("%s:%d", note.Path, start.Line)
+			if start.Column > 0 {
+				at += fmt.Sprintf(":%d", start.Column)
+			}
+			found = append(found, finding{note.Path, start.Line, text, compileClass(at + ": " + text)})
 		}
 	}
 	return found
@@ -362,7 +476,7 @@ func (g Guard) logged(ctx context.Context, repo string, job int64) ([]finding, e
 		text := strings.TrimSpace(logStamp.ReplaceAllString(line, ""))
 		for _, match := range location.FindAllStringSubmatch(line, -1) {
 			number, _ := strconv.Atoi(match[2])
-			found = append(found, finding{match[1], number, text})
+			found = append(found, finding{match[1], number, text, compileClass(text)})
 		}
 	}
 	return found, nil

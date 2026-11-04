@@ -8,7 +8,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, CompactionState, bus_name, drive_entry
 from .lane_landing import DRIVE_ENV, landing_verb, lane_name, merge_target, repo_flag
-from .tests.merge_fixtures import BROADCAST, INHERITED, OWN, PENDING, UNREAD, own_red
+from .tests.merge_fixtures import BASE_UNREAD, BROADCAST, INHERITED, OWN, PENDING, UNREAD, own_red
 
 BOUND = [CompactionState(active=True, coordinator=True)]
 
@@ -32,6 +32,7 @@ OWN_RED = (
 INHERITED_RED = "{checks} fail only on files outside their PR's diff, so they are inherited from the base branch and the merge goes ahead."
 OWN_FINDING = r"own change turned red.*\n```\n#5 lr-go lr/internal/lanes/sources\.go:336 Consider preallocating"
 INHERITED_NOTE = r"^`#5 lr-go` fail only on files outside their PR's diff, so they are inherited"
+BASE_UNREAD_NOTE = r"^`#5 lr-go \(base branch state unread\)` fail only on files outside"
 UNREAD_RELAY = r"reached `fix-lane-1` unread.*\n```\n#360037 meta-desk-2 relay: hold #2188, do not merge\n#360040 root note: dev is green"
 BROADCAST_NOTE = r"^The merge read these records for `fix-lane-1` on its way:\n```\n#360040 root note: dev is green"
 
@@ -50,6 +51,7 @@ BROADCAST_NOTE = r"^The merge read these records for `fix-lane-1` on its way:\n`
         Input(command="gh pr merge 5 --squash", commands=own_red("5", said=INHERITED), state=BOUND): Warn(pattern=INHERITED_NOTE),
         Input(command="gh stack merge 5 --yes --squash", commands=own_red("--stack", "5", said=INHERITED), state=BOUND): Warn(pattern=INHERITED_NOTE),
         Input(command="ccx vcs merge 5", commands=own_red("--below", "5", said=INHERITED), state=BOUND): Warn(pattern=INHERITED_NOTE),
+        Input(command="gh pr merge 5 --squash --admin", commands=own_red("5", said=BASE_UNREAD), state=BOUND): Warn(pattern=BASE_UNREAD_NOTE),
         Input(command="gh pr merge 5 --squash --admin", commands=own_red("5", said=PENDING), state=BOUND): Allow(),
         Input(command="gh pr merge --squash", commands=own_red(said=PENDING), state=BOUND): Allow(),
         Input(command="gh stack merge --yes --squash", commands=own_red("--stack", said=PENDING), state=BOUND): Allow(),
