@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, on
 
-from .compaction_handoff import Communicator, CompactionState, communicator_tests
+from .compaction_handoff import Communicator, CompactionState, communicator_tests, drive_entry
 from .owner_facing import REPLY_WINDOW, last_reply
 from .owner_replies_carry_news import dm_posts
 from .owner_returns import EXPLAINER, REPLY, OwnerReturns
@@ -60,7 +62,7 @@ def breaches(evt: BaseHookEvent, text: str, card: bool) -> list[str]:
     found = [ACKED] if parts and all(ACK.match(part) or (PROMISE.search(part) and not LIVE.search(part)) for part in parts) else []
     if len(parts) > 2 and not (card or UPDATE.search(text) or OwnerReturns.load(evt).returned):
         found.append(LONG)
-    if not OwnerReturns.load(evt).explain_due and (EXPLAINER.search(text) or DIAGRAM.search(text) or explains(evt, text)):
+    if not card and not OwnerReturns.load(evt).explain_due and (EXPLAINER.search(text) or DIAGRAM.search(text) or explains(evt, text)):
         found.append(UNASKED)
     return found
 
@@ -70,6 +72,18 @@ def explains(evt: BaseHookEvent, text: str) -> bool:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
             return True
     return False
+
+
+def is_pick_card(evt: BaseHookEvent) -> bool:
+    given = evt._tool_input
+    if given.get("picks"):
+        return True
+    entry = given.get("id") and drive_entry(evt)
+    return bool(entry) and has_picks(Path(entry["state_dir"]) / "replies" / f"{given['id']}.json")
+
+
+def has_picks(stored: Path) -> bool:
+    return stored.exists() and bool(json.loads(stored.read_text()).get("picks"))
 
 
 def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookResult | None:
@@ -92,6 +106,8 @@ def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookRes
         replied(WORDY, state=[*ACTIVE, OwnerReturns(returned=True)]): Allow(),
         replied(WHY, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
         replied(WHY, decide=EXPLAINS, state=[*ACTIVE, OwnerReturns(explain_due=True)]): Allow(),
+        replied(WHY, picks=("Build it", "Hold it"), decide=EXPLAINS): Allow(),
+        Input(tool=REPLY, tool_input={"id": "r1", "title": "Typing box", "md": WHY}, state=ACTIVE, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
         replied(WHY, decide={"mechanism": Refused()}): Allow(),
         replied(PAGE): Block(pattern=r"no mechanism, diagram or explainer link"),
         replied("Fixed and live.\n```mermaid\ngraph LR; a-->b\n```"): Block(pattern=r"no mechanism, diagram"),
@@ -109,7 +125,7 @@ def owner_writes_stay_short(evt: BaseHookEvent) -> HookResult | None:
     if evt.tool_name == REPLY:
         if evt._tool_input.get("order") and evt._tool_input.get("status") in QUIET and not evt._tool_input.get("picks"):
             return None
-        return refused(evt, [str(evt._tool_input.get("md") or "")], card=bool(evt._tool_input.get("picks")))
+        return refused(evt, [str(evt._tool_input.get("md") or "")], card=is_pick_card(evt))
     return refused(evt, [text for _, text in dm_posts(evt)])
 
 
