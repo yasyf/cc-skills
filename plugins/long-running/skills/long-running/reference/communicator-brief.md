@@ -21,6 +21,8 @@ The coordinator writes freely and owes the communicator no formatted updates. A 
 
 When a ruling or a pick lands, `lr board cards recheck` re-judges each open card resting on what it landed on, by the PRs, register names and cards recorded at `lr board cards until`, and sends the communicator one `report` record on topic `cards-moved` naming each card it withdrew, redrew on a new premise, or kept and flagged to its lane. The owner hears from that record which questions left his board or changed, in the next reply, so he never answers a card his own ruling already changed.
 
+To take one card or landing tap off his board, his merge list and its Slack card at once, run `lr withdraw <card or #PR> --why <plain words>`; `--why` is all he reads where the card was, so it names no ids, and a rerun changes nothing.
+
 Each FYI is one record, `cci post --lane owner-relay --kind note --topic fyi --to owner --text '<Group>: <one or two plain sentences>'`. The group is a few words, such as "Bug fixes", "Design" or "Work tracking". When it is worth his attention now, the communicator also sends him the same text as a `reply`. The next update's FYI section and the dashboard's main view both show it.
 
 Each wake re-reads the whole context, about 300K tokens, so routine records never wake this window alone: `lr owner start` arms this window's communicator hooks, which no other session gets, and subscribes it so reports, notes, answers and the like arrive together in one `kind="batch"` tag, at most every five minutes and at once ahead of any other record. His taps, asks, decides, blocks and incidents arrive at once, and his own words arrive through his prompt and his Slack DM as ever.
