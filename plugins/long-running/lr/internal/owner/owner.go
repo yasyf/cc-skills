@@ -166,9 +166,20 @@ func carried(path, replies, row, reply string) error {
 	if reply == "" {
 		return errors.New(refusal)
 	}
-	sent, err := os.ReadFile(filepath.Join(replies, reply+".json"))
+	md, err := replyMD(replies, reply)
 	if err != nil {
 		return fmt.Errorf("%s: %w", refusal, err)
+	}
+	if len(md) < carriedChars {
+		return fmt.Errorf("%s; reply %s is %d characters, a promise rather than the content", refusal, reply, len(md))
+	}
+	return nil
+}
+
+func replyMD(replies, reply string) (string, error) {
+	sent, err := os.ReadFile(filepath.Join(replies, reply+".json"))
+	if err != nil {
+		return "", err
 	}
 	var body struct {
 		Reply struct {
@@ -176,12 +187,9 @@ func carried(path, replies, row, reply string) error {
 		} `json:"reply"`
 	}
 	if err := json.Unmarshal(sent, &body); err != nil {
-		return err
+		return "", err
 	}
-	if len(body.Reply.MD) < carriedChars {
-		return fmt.Errorf("%s; reply %s is %d characters, a promise rather than the content", refusal, reply, len(body.Reply.MD))
-	}
-	return nil
+	return body.Reply.MD, nil
 }
 
 func hisWords(text string) string {
@@ -326,7 +334,7 @@ func Command(a *app.App) *cobra.Command {
 			return err
 		},
 	}
-	owner.AddCommand(mark, add, list, start)
+	owner.AddCommand(mark, add, list, start, ruleCommand(a, &driveName))
 	owner.AddCommand(questionCommands(a, &driveName)...)
 	return owner
 }

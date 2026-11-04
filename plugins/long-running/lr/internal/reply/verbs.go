@@ -28,6 +28,7 @@ type verb struct {
 var verbs = []verb{
 	{tool: "owner_add", path: []string{"owner", "add"}, stdin: &arg{"text", "The owner's message, verbatim."}},
 	{tool: "owner_mark", path: []string{"owner", "mark"}, args: []arg{{"row", "The ledger row, such as m47 or m47.2."}, {"state", "responded, addressed, no-order or due."}}},
+	{tool: "owner_rule", path: []string{"owner", "rule"}, args: []arg{{"row", "The ledger row the ruling came in on, such as m47."}}},
 	{tool: "explain", path: []string{"explain"}, args: []arg{{"topic", "The page's topic, a few words."}}},
 	{tool: "ask_lane", path: []string{"ask-lane"}, args: []arg{{"question", "The question the search lane answers."}}},
 	{tool: "asks", path: []string{"asks"}},
