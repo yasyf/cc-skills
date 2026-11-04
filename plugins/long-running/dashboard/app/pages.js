@@ -545,6 +545,26 @@ const SURFACE_WORD = { board: 'Board', slack: 'Slack', record: 'Record' };
 const REPLIES_AT_REST = 12;
 const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
 const rp = { sent: new Map(), sort: new Map() };
+const NOISE = [
+  [/\s*\([^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
+  [/\brecords?\s+#*\d[\dx]*\b/gi, ''],
+  [/\bowner table\s+[0-9a-f]{6,}\b/gi, ''],
+  [/\bcard-[a-z0-9-]+\b/g, 'the card'],
+  [/#+\d{6}\b|#\d{3}xxx\b/g, ''],
+  [/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g, ''],
+  [/\b[\w.-]+(?:\/[\w.-]+)?#\d+\b/g, 'a tooling change'],
+];
+function plain(text) {
+  const workers = (state.model.lanes ?? []).map((row) => row.lane).filter((lane) => lane && /-/.test(lane) && /\d/.test(lane));
+  const scrubbed = NOISE.reduce((out, [pattern, word]) => out.replace(pattern, word), text);
+  return workers.reduce((out, lane) => out.replaceAll(lane, 'a worker'), scrubbed).replace(/ +([,.;:])/g, '$1').replace(/ {2,}/g, ' ');
+}
+function changeWords(n) {
+  return state.model.prs[n] || boardRow(n) ? plainTitle(n).replace(/[[\]|]/g, '') : 'this change';
+}
+function namedChanges(md) {
+  return md.replace(/#(\d{5})\b/g, (_, n) => `[${changeWords(n)}](https://github.com/${state.model.repo}/pull/${n})`);
+}
 function replyCard(r) {
   return state.model.board.cards.find((c) => c.id === `card-${r.id}`);
 }
@@ -606,31 +626,26 @@ function replyPicks(r) {
 }
 function replyPR(url) {
   const [, repo, n] = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)$/.exec(url);
-  return repo === state.model.repo ? prLink(n) : `<a class="prc" href="${esc(url)}" target="_blank" rel="noopener">${esc(repo)}#${n} ↗</a>`;
-}
-function replySurface(s) {
-  if (s.error) return `<li class="bad">${SURFACE_WORD[s.surface]} failed: ${esc(s.error)}</li>`;
-  const href = { board: `${state.model.board.url}?block=${encodeURIComponent(s.ref)}`, slack: s.ref, record: `/record/${s.ref}` }[s.surface];
-  const label = { board: 'On your board', slack: 'In your Slack DM', record: `Record #${s.ref}` }[s.surface];
-  return `<li><a href="${esc(href)}" target="_blank" rel="noopener">${esc(label)} ↗</a></li>`;
+  return `<a class="prc" href="${esc(url)}" target="_blank" rel="noopener">${repo === state.model.repo ? esc(changeWords(n)) : 'A tooling change'} ↗</a>`;
 }
 function replyBox(id) {
   const sent = rp.sent.get(id);
   const waiting = sent && !sent.seq && !sent.error;
-  const note = !sent ? '' : sent.error ? `<em class="nsent bad">Not sent: ${esc(sent.error)}. Try again.</em>` : sent.seq ? `<em class="nsent">✓ Sent to the communicator as <a href="/record/${sent.seq}" target="_blank" rel="noopener">#${sent.seq}</a></em>` : '<em class="nsent">Sending…</em>';
+  const note = !sent ? '' : sent.error ? `<em class="nsent bad">Not sent: ${esc(sent.error)}. Try again.</em>` : sent.seq ? '<em class="nsent">✓ Sent to the communicator</em>' : '<em class="nsent">Sending…</em>';
   return `<form class="ask rp-ask" data-reply-back="${esc(id)}"><textarea name="reply" data-draft="${esc(id)}" rows="2" placeholder="${id ? 'Answer this reply' : 'Message the communicator'}"${waiting ? ' disabled' : ''}>${sent?.error ? esc(sent.text) : ''}</textarea><button class="btn pri"${waiting ? ' disabled' : ''}>Send</button></form>${note}`;
 }
 function replyMore(entry) {
   const r = entry.reply;
-  return `<div class="rp-md prose">${replyMarkdown(r.id, r.md)}</div>${r.picks ? replyPicks(r) : ''}
-    ${r.links?.length ? `<ul class="rp-links">${r.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a></li>`).join('')}</ul>` : ''}
+  const failed = entry.surfaces.filter((s) => s.error).map((s) => `<li class="bad">${SURFACE_WORD[s.surface]} failed: ${esc(s.error)}</li>`).join('');
+  return `<div class="rp-md prose">${replyMarkdown(r.id, plain(namedChanges(r.md)))}</div>${r.picks ? replyPicks(r) : ''}
+    ${r.links?.length ? `<ul class="rp-links">${r.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(plain(l.label).replace(/^#(\d{5})$/, (_, n) => changeWords(n)))} ↗</a></li>`).join('')}</ul>` : ''}
     ${r.prs?.length ? `<p class="rp-prs">${r.prs.map(replyPR).join(' ')}</p>` : ''}
-    <ul class="rp-went">${entry.surfaces.map(replySurface).join('')}</ul>${replyBox(r.id)}`;
+    ${failed ? `<ul class="rp-went">${failed}</ul>` : ''}${replyBox(r.id)}`;
 }
 function replyRow(entry) {
   const [word, tone] = replyState(entry.reply);
   const failed = entry.surfaces.filter((s) => s.error).map((s) => SURFACE_WORD[s.surface]);
-  return { id: `rp-${entry.reply.id}`, iso: entry.at, at: clock(entry.at), word, tone, title: entry.reply.title, why: failed.length ? `${failed.join(' and ')} failed` : '', side: entry.surfaces.filter((s) => !s.error).map((s) => SURFACE_WORD[s.surface]).join(', '), more: replyMore(entry) };
+  return { id: `rp-${entry.reply.id}`, iso: entry.at, at: clock(entry.at), word, tone, title: plain(entry.reply.title).replace(/#\d{4,5}\b,? ?/g, ''), why: failed.length ? `${failed.join(' and ')} failed` : '', more: replyMore(entry) };
 }
 function repliesScreen() {
   const rows = state.model.replies.map(replyRow);
@@ -668,7 +683,7 @@ function noticeReplies(alerts) {
   localStorage.setItem('replies-noticed', JSON.stringify(alerts.map((a) => a.id)));
   if (!seen || Notification.permission !== 'granted') return;
   for (const a of alerts.filter((alert) => !seen.includes(alert.id)).reverse()) {
-    const notice = new Notification(a.incident && !/^incident/i.test(a.title) ? `Incident: ${a.title}` : a.title, { body: a.picks.join(' · '), tag: a.id, requireInteraction: a.incident });
+    const notice = new Notification(a.incident && !/^incident/i.test(a.title) ? `Incident: ${plain(a.title)}` : plain(a.title), { body: a.picks.join(' · '), tag: a.id, requireInteraction: a.incident });
     notice.onclick = () => {
       window.focus();
       state.open.add(`rp-${a.id}`);
