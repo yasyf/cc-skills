@@ -43,7 +43,7 @@ added, removed or changed since the Sprite's copy. The job's checkout drops the
 loose refs a Sprite restart leaves empty or filled with NULs, which every fetch
 reads as the zero object, and fetches every remote unless a fetch that began after this job asked for one already
 did, and the job runs there. <dir> is then copied
-back, job.json and pid left as this machine wrote them and result.json last,
+back, job.json, pid and job.log left as this machine wrote them and result.json last,
 adopted through long_running/desk_result.py only when it parses, so the runner
 settles the pass from this process and its files as it does a local one. Every
 exit of this script leaves exactly one whole result.json: a job that ends with none, as
@@ -68,6 +68,12 @@ no_result() {
   python3 "$results" lost "$dir" "the job on Sprite $sprite ended with status $1 and no result, as when the Sprite restarts mid-pass or cannot be reached"
 }
 trap 'no_result $?' EXIT
+mark=$(date +%s)
+took() {
+  now=$(date +%s)
+  echo "sprite-job: $1 took $((now - mark)) s" >&2
+  mark=$now
+}
 refresh_gh_token() {
   stamp=$state/gh-token-$sprite
   [ -z "$(find "$stamp" -mmin -4 2>/dev/null)" ] || return 0
@@ -88,6 +94,7 @@ registry=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/long-running/drives/$drive.json
 state=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["state_dir"])' "$registry")
 program=$(python3 -c 'import json, sys; from pathlib import Path; entry = json.load(open(sys.argv[1])); print(entry.get("program") or Path(entry["state_dir"]).name)' "$registry")
 plan=$(python3 "$here/rulings.py" plan --repo "$checkout" --drive "$drive")
+took "reading the plan"
 
 digest() {
   python3 -c '
@@ -124,7 +131,9 @@ ship() {
 }
 
 ship "$plugin"
+took "the plugin copy"
 tar --no-xattrs -C "$dir" -cz . | sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" && tar -xz -m -C "$1"' sh "$dir"
+took "the job copy"
 python3 -c 'import json, sys; entry = json.load(open(sys.argv[1])); entry["checkout"] = sys.argv[2]; print(json.dumps(entry))' "$registry" "$checkout" |
   sprite exec -s "$sprite" -- sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$registry"
 python3 -c '
@@ -141,9 +150,11 @@ for name, kept in json.load(sys.stdin).items():
     staged = state / f".{name}.{os.getpid()}"
     staged.write_text(json.dumps(kept, ensure_ascii=False))
     staged.replace(state / name)' "$state"
+took "the registry and register copy"
 if [ -n "$plan" ]; then
   ship "$(dirname "$(dirname "$plan")")"
 fi
+took "the plan copy"
 
 keys=$(python3 -c '
 import json, os, subprocess, sys
@@ -157,6 +168,7 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
         sys.exit(f"sprite-job: {error}")
     print(f"{name}={value}")
 ' "$dir" "$here/long_running") || exit 1
+took "reading the keys"
 sprite exec -s "$sprite" --no-stdin -- sh -c '
   rm -f "$2.keys" && mkfifo -m 600 "$2.keys"
   vars=$(timeout 120 cat "$2.keys") || exit 1
@@ -170,13 +182,17 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper "GIT_CONFIG_VALUE_1=!gh auth git-credential"
   [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
     git credential-cache --timeout=3900 store
+  started=$(date +%s)
   find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f ! -name "*.lock" -exec grep -LE "^([0-9a-f]{40}|ref: .+)$" {} + | xargs rm -f
+  echo "sprite-job: the ref cleanup took $(($(date +%s) - started)) s" >&2
   asked=$(date +%s%N)
   exec 9>"$3.fetch.lock"
   flock 9
+  echo "sprite-job: waiting on the fetch lock took $((($(date +%s%N) - asked) / 1000000000)) s" >&2
   if [ "$(cat "$3.fetched" 2>/dev/null || echo 0)" -lt "$asked" ]; then
     began=$(date +%s%N)
     git -C "$3" fetch --quiet --all
+    echo "sprite-job: git fetch --all took $((($(date +%s%N) - began) / 1000000000)) s" >&2
     printf %s "$began" >"$3.fetched"
   fi
   exec 9>&-
@@ -214,7 +230,7 @@ tender=$!
 status=0
 wait "$job" || status=$?
 kill "$tender" 2>/dev/null || true
-sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./result.json | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir" || true
+sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./job.log ! -path ./result.json | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir" || true
 sprite exec -s "$sprite" --no-stdin -- cat "$dir/result.json" | python3 "$results" adopt "$dir"
 no_result "$status"
 for pause in 2 5 10 20 ""; do
