@@ -220,15 +220,17 @@ func answerID(key string) (string, bool) {
 }
 
 type Answer struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Body      string `json:"body"`
-	UpdatedAt string `json:"updated_at"`
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	UpdatedAt string   `json:"updated_at"`
+	LiveHead  []string `json:"live_head,omitempty"`
 }
 
 func (r *Reader) Answers(ctx context.Context, ids []string, scope string) ([]Answer, error) {
 	found := []Answer{}
-	for _, id := range ids {
+	for pending := slices.Clone(ids); len(pending) > 0; pending = pending[1:] {
+		id := pending[0]
 		out, err := r.ccn(ctx, "answer", "show", id, "--json")
 		var exit *shell.ExitError
 		if errors.As(err, &exit) && exit.Code == noSuchNote {
@@ -242,6 +244,7 @@ func (r *Reader) Answers(ctx context.Context, ids []string, scope string) ([]Ans
 			return nil, fmt.Errorf("answer %s: %w", id, err)
 		}
 		found = append(found, answer)
+		pending = append(pending, answer.LiveHead...)
 	}
 	if scope == "" {
 		return found, nil

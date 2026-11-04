@@ -209,3 +209,16 @@ func TestAnswersWithNoIDAndNoScopeRunsNoCommandAndPrintsAnEmptyList(t *testing.T
 		t.Fatalf("encoded %s after %d calls", encoded, len(fake.Calls()))
 	}
 }
+
+func TestAnswersFollowsASupersededAnswerToItsLiveHead(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(`{"id":"9134c5400","title":"how long","body":"his first tap","updated_at":"2026-11-04","superseded_by":["bbadca200"],"live_head":["bbadca200"]}`, "ccn", "-R", "/repo", "answer", "show", "9134c54", "--json")
+	fake.Reply(`{"id":"bbadca200","title":"how long, in full","body":"his full answer","updated_at":"2026-11-04"}`, "ccn", "-R", "/repo", "answer", "show", "bbadca200", "--json")
+	found, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).Answers(context.Background(), []string{"9134c54"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 2 || found[0].Body != "his first tap" || found[1].Body != "his full answer" {
+		t.Fatalf("Answers = %+v", found)
+	}
+}
