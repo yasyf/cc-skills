@@ -53,7 +53,7 @@ func carrier(t *testing.T, s *store.Store, name, orders string, state store.Lane
 	}
 }
 
-func TestOpenOrdersListsOnlyOrdersNoLaneOpenPROrRecordDelivers(t *testing.T) {
+func TestOpenOrdersListsEveryOrderNoLaneOrOpenPRCarriesAndADoneRecordLeavesItInProgress(t *testing.T) {
 	s := memory(t)
 	state := ownerLedger(t, 5)
 	carrier(t, s, "live-1", "owner:m1", store.LaneDesired)
@@ -71,7 +71,8 @@ func TestOpenOrdersListsOnlyOrdersNoLaneOpenPROrRecordDelivers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, owner.Tokens(orders), "owner:m3, owner:m4")
+	equal(t, owner.Tokens(orders), "owner:m3, owner:m4, owner:m5")
+	equal(t, []string{orders[0].Status, orders[1].Status, orders[2].Status}, []string{owner.Open, owner.Open, owner.InProgress})
 	equal(t, bus.query, client.Query{Drive: testDrive, Kinds: []string{"landed", "done", "report"}})
 }
 

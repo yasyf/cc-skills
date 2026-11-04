@@ -151,13 +151,13 @@ const splitLedger = `| id | time | message | routed | state |
 | m204 | Nov 3 2:05 PM | why does it need Touch ID? |  | responded |
 `
 
-func TestEachAskOfOneMessageStaysOpenUntilItsOwnRowIsAnswered(t *testing.T) {
+func TestEachAskOfOneMessageMovesOnlyByItsOwnRowsToken(t *testing.T) {
 	proofs := []client.Record{{Lane: "recap-1", Kind: "landed", Text: "owner:m203.2 recapped and shipped"}, {Lane: "other-1", Kind: "landed", Text: "owner:m203 named whole"}}
 
-	got := ids(Undelivered(Parse([]byte(splitLedger)), nil, proofs))
+	got := standing(Undelivered(Parse([]byte(splitLedger)), nil, proofs))
 
-	if want := []string{"m203.1", "m203.3"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
+	if want := []string{"m203.1 open ", "m203.2 in progress recap-1", "m203.3 open "}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
