@@ -31,7 +31,7 @@ const (
 
 	unreadSubject    = "STATUS-READ-FAILED"
 	unwrittenSubject = "REVIEW-ROWS-UNWRITTEN"
-	rowsDesk         = "meta-desk"
+	rowsDesk         = pass.RowsDesk
 )
 
 var (

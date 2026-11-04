@@ -198,6 +198,9 @@ func postHooks(ctx context.Context, busName, lane, repository string) Hooks {
 			_, err := posts.Post(ctx, nil, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)})
 			return err
 		},
+		Refuse: func(tap TapRecord, reason string) error {
+			return posts.PostRefusal(ctx, repository, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)}, reason)
+		},
 		Hold: func(pr int, sha string) error {
 			_, err := client.Post(ctx, client.Draft{Drive: busName, Lane: byOwner, Kind: "hold", PRs: []string{fmt.Sprintf("%s#%d", repository, pr)}, Text: fmt.Sprintf("hold #%d at %s: the owner rejected this head on the board", pr, short(sha))})
 			return err

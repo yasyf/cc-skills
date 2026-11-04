@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -29,16 +30,18 @@ var (
 )
 
 type recorded struct {
-	taps  []TapRecord
-	holds []Key
-	notes []string
+	taps    []TapRecord
+	refused []string
+	holds   []Key
+	notes   []string
 }
 
 func (r *recorded) hooks() Hooks {
 	return Hooks{
-		Tap:  func(tap TapRecord) error { r.taps = append(r.taps, tap); return nil },
-		Hold: func(pr int, head string) error { r.holds = append(r.holds, Key{pr, head}); return nil },
-		Note: func(lane, text string) error { r.notes = append(r.notes, lane+": "+text); return nil },
+		Tap:    func(tap TapRecord) error { r.taps = append(r.taps, tap); return nil },
+		Refuse: func(_ TapRecord, reason string) error { r.refused = append(r.refused, reason); return nil },
+		Hold:   func(pr int, head string) error { r.holds = append(r.holds, Key{pr, head}); return nil },
+		Note:   func(lane, text string) error { r.notes = append(r.notes, lane+": "+text); return nil },
 	}
 }
 
@@ -73,6 +76,16 @@ func withWords(t *testing.T) *store.Store {
 func openTap(t *testing.T, s *store.Store, on string, at time.Time) {
 	t.Helper()
 	if _, err := s.OpenItem(store.NewItem{Kind: "tap", Repo: repo, Number: number, Head: on, Mover: machine.MoverOwner, Deadline: 12 * time.Hour}, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: on, ReadyForTap: true}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func rowWaits(t *testing.T, s *store.Store, waits string) {
+	t.Helper()
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: head, WaitsOn: waits}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -165,6 +178,39 @@ func TestApprovedBecomesATapFactAndATapRecord(t *testing.T) {
 	}
 	if found := rows(t, s, facts(func(f *machine.Facts) { f.Tap = machine.TapTapped })); len(found) != 0 {
 		t.Fatalf("a tapped head keeps its row: %+v", found)
+	}
+}
+
+func TestApprovedOnARowNotReadyIsRefusedWithItsReasonAndTapsNothing(t *testing.T) {
+	s, hooks := withItem(t), &recorded{}
+	rowWaits(t, s, "held by root")
+	if err := Answer(s, repo, hooks.hooks(), rows(t, s, facts(nil))[0], verdictApproved, t0); err != nil {
+		t.Fatal(err)
+	}
+	if len(hooks.taps) != 0 || stored(t, s)["tap"] != "" {
+		t.Fatalf("taps = %+v, facts = %v", hooks.taps, stored(t, s))
+	}
+	if want := []string{"held by root"}; !reflect.DeepEqual(hooks.refused, want) || stored(t, s)[bus.TapRefusedFact] != "held by root" {
+		t.Fatalf("refused = %+v, facts = %v", hooks.refused, stored(t, s))
+	}
+}
+
+func TestAPassDoesNotLandAVerdictRefusedWhileItsRowWasNotReady(t *testing.T) {
+	s, hooks := withWords(t), &recorded{}
+	rowWaits(t, s, "held by root")
+	on := &passShell{outcomes: fmt.Sprintf(`{"doc":{},"interactions":{"triage":{%q:{"%d":{"verdict":"approved","head":"%s","at":"2026-10-30T21:00:00Z"}}}}}`, MergeBlock, number, head[:7])}
+	pass := Pass{Store: s, Repo: repo, Runner: on, CCX: &prStatus{}, Session: "s1", Hooks: hooks.hooks(), Now: func() time.Time { return t0 }}
+	if _, err := pass.Run(context.Background(), facts(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: head, ReadyForTap: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pass.Run(context.Background(), facts(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if len(hooks.taps) != 0 || len(hooks.refused) != 1 {
+		t.Fatalf("taps = %+v, refused = %+v", hooks.taps, hooks.refused)
 	}
 }
 

@@ -3,7 +3,10 @@ package bus
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
@@ -18,6 +21,12 @@ const (
 	OwnerBy     = "owner"
 	tappedValue = "tapped"
 	heldValue   = "withdrawn"
+
+	TapRefusedKind = "tap.refused"
+	TapRefusedFact = "tap-refused"
+	refusalAttr    = "reason"
+	refusedHead    = "head"
+	keyedReason    = 8
 )
 
 var (
@@ -44,6 +53,18 @@ func (b Bus) PostOrder(ctx context.Context, tap Tap, from client.Record) (Record
 		return Record{}, err
 	}
 	return b.postKeyed(ctx, tap.Kind(), raw, nil, "", namespace+"."+tap.Kind()+"/"+cmp.Or(from.ID, from.Name()))
+}
+
+func (b Bus) PostRefusal(ctx context.Context, repo string, tap Tap, reason string) error {
+	sum := sha256.Sum256([]byte(reason))
+	_, err := client.Post(ctx, client.Draft{
+		Drive: b.Drive, Lane: b.Lane, Kind: TapRefusedKind,
+		ID:    fmt.Sprintf("%s/%d/%s/%s", TapRefusedKind, tap.PR, tap.Head, hex.EncodeToString(sum[:keyedReason])),
+		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
+		Attrs: map[string]string{refusedHead: tap.Head, refusalAttr: reason},
+		Text:  fmt.Sprintf("tap on #%d at %s refused: %s", tap.PR, tap.Head[:min(12, len(tap.Head))], reason),
+	})
+	return err
 }
 
 // OrderOf reads the land order one owner record carries. An empty Head means the record names no head, so the order lands at the PR's head when it is written.

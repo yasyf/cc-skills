@@ -15,6 +15,7 @@ const (
 	StateRed          State = "red"
 	StateAwaitingTap  State = "awaiting-tap"
 	StateHeld         State = "held"
+	StateNotReady     State = "not-ready"
 	StateReady        State = "ready"
 	StateQueued       State = "queued"
 	StateEvicted      State = "evicted"
@@ -24,7 +25,7 @@ const (
 
 var States = []State{
 	StatePushed, StateGrading, StateNeedsVerdict, StateNeedsRestack, StateRed, StateAwaitingTap,
-	StateHeld, StateReady, StateQueued, StateEvicted, StateLanded, StateClosed,
+	StateHeld, StateNotReady, StateReady, StateQueued, StateEvicted, StateLanded, StateClosed,
 }
 
 func (s State) Terminal() bool {
@@ -151,6 +152,8 @@ type Facts struct {
 	Condition     string
 	UnsafeWait    string
 	GradeStopped  string
+	RowWait       string
+	TapRefused    string
 }
 
 func (f Facts) Green() bool {
@@ -181,6 +184,10 @@ func (f Facts) Tapped() bool {
 	return f.Tap == TapTapped || f.Exempt
 }
 
+func (f Facts) RowClear() bool {
+	return f.Exempt || f.RowWait == ""
+}
+
 func (f Facts) Restackable() bool {
 	return slices.Contains([]Mergeable{MergeableConflict, MergeableBehind}, f.Mergeable) || len(f.Carries) > 0
 }
@@ -194,7 +201,7 @@ func (f Facts) ClearsAbove() bool {
 }
 
 func (f Facts) Landable() bool {
-	return f.Green() && f.Mergeable == MergeableClean && len(f.Carries) == 0 && f.Cleared() && f.Approved && f.Tapped() && f.Hold == "" && f.UnsafeWait == ""
+	return f.Green() && f.Mergeable == MergeableClean && len(f.Carries) == 0 && f.Cleared() && f.Approved && f.Tapped() && f.Hold == "" && f.UnsafeWait == "" && f.RowClear()
 }
 
 type Verdict struct {
@@ -269,6 +276,9 @@ func Classify(f Facts) Verdict {
 	}
 	if f.Hold != "" {
 		return Verdict{StateAwaitingTap, f.Hold, ActionLift, OwnerClock}
+	}
+	if !f.RowClear() {
+		return Verdict{StateNotReady, MoverNobody, ActionNone, 0}
 	}
 	if !f.Tapped() {
 		return Verdict{StateAwaitingTap, MoverOwner, ActionTap, OwnerClock}

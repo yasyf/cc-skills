@@ -78,6 +78,11 @@ var cases = []struct {
 	{"another person's red PR a lane carries is no lane's to fix", facts(func(f *Facts) { f.ForeignAuthor, f.Tap, f.CI = "teammate", "", CIFailure }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
 	{"another person's PR the owner tapped lands like the drive's own", facts(func(f *Facts) { f.ForeignAuthor = "teammate" }), Verdict{StateReady, MoverSupervisor, ActionEnqueue, 10 * time.Minute}},
 	{"a draft is nobody's whatever its lane and tap", facts(func(f *Facts) { f.Draft, f.Tap = true, TapTapped }), Verdict{StatePushed, MoverNobody, ActionNone, 0}},
+	{"a tapped PR whose row lost readiness holds and asks nobody", facts(func(f *Facts) { f.RowWait = "not graded" }), Verdict{StateNotReady, MoverNobody, ActionNone, 0}},
+	{"an untapped PR whose row is not ready is not put to the owner", facts(func(f *Facts) { f.RowWait, f.Tap = "its PR body has no Summary", "" }), Verdict{StateNotReady, MoverNobody, ActionNone, 0}},
+	{"an exempt PR lands under its own rule whatever its row says", facts(func(f *Facts) { f.RowWait, f.Tap, f.Exempt = "its PR body has no Summary", "", true }), Verdict{StateReady, MoverSupervisor, ActionEnqueue, 10 * time.Minute}},
+	{"a hold wins over a row not ready", facts(func(f *Facts) { f.RowWait, f.Hold = "held by root", MoverRoot }), Verdict{StateHeld, MoverRoot, ActionLift, RootClock}},
+	{"a queued PR with its tap at its head stays in the queue while its row flaps", facts(func(f *Facts) { f.Queue, f.QueuedHead, f.RowWait = QueueQueued, head, "CI is not green" }), Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, 30 * time.Minute}},
 	{"merged is landed and nobody's", facts(func(f *Facts) { f.Merged, f.Closed = true, true }), Verdict{StateLanded, MoverNobody, ActionNone, 0}},
 	{"closed without a merge is closed and nobody's", facts(func(f *Facts) { f.Closed = true }), Verdict{StateClosed, MoverNobody, ActionNone, 0}},
 }
@@ -164,6 +169,7 @@ func TestLandableReadsEveryGate(t *testing.T) {
 		"hold":     func(f *Facts) { f.Hold = MoverOwner },
 		"carries":  func(f *Facts) { f.Carries = []int{1} },
 		"approval": func(f *Facts) { f.Approved = false },
+		"row":      func(f *Facts) { f.RowWait = "not graded" },
 	}
 	for name, change := range broken {
 		if facts(change).Landable() {

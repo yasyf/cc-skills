@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -72,6 +74,11 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 	if err != nil {
 		return err
 	}
+	s, err := store.Open(filepath.Join(filepath.Dir(a.ConfigPath), storeFile))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.Close() }()
 	for _, number := range numbers {
 		head, open := heads[number]
 		if !open {
@@ -99,6 +106,15 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 		}
 		claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
 		text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Files: strings.Fields(files), Cards: inputs.Cards, TapRows: inputs.Taps, Body: body})
+		if flags.before == 0 {
+			row, found, err := s.ReviewRow(cfg.Repo, number)
+			if err != nil {
+				return err
+			}
+			if unread := gates.RowRead(row, found, head); unread != "" {
+				refusals = append(refusals, unread)
+			}
+		}
 		if len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
 			continue

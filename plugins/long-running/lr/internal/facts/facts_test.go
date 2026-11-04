@@ -905,6 +905,7 @@ func TestRetroRow47ContentPushedOnto45744AfterHisTapGoesBackToHimInsteadOfLandin
 	review(t, "fidelity-pipeline", "fidelity: ok "+landed45744+" stays in scope", 45744)
 	review(t, "fidelity-pipeline", "behavior: changed "+landed45744+" since "+tapped45744[:12]+": drops the racy-tick re-read and finds an evicted chat's team another way", 45744)
 
+	drawLandable(t, s, 45744, landed45744)
 	row := h.snapshot(t)[45744]
 
 	if row.Tapped() || row.TapFrom != tapped45744[:12] {
@@ -938,6 +939,9 @@ func TestRetroRow98ThreeNewHeadsWithNoVerdictAtTheirVersionWaitOnHimWhileTheSame
 			putFact(t, s, number, moved(number), kind, value, tappedAt.Add(time.Hour))
 		}
 		after = append(after, recordedPR{number: number, head: moved(number), login: "drive-bot", diff: diff})
+	}
+	for _, number := range prs {
+		drawLandable(t, s, number, moved(number))
 	}
 
 	rows := onAll(t, s, after).snapshot(t)

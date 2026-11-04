@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -105,9 +106,10 @@ type TapRecord struct {
 }
 
 type Hooks struct {
-	Tap  func(TapRecord) error
-	Hold func(pr int, head string) error
-	Note func(lane, text string) error
+	Tap    func(TapRecord) error
+	Refuse func(tap TapRecord, reason string) error
+	Hold   func(pr int, head string) error
+	Note   func(lane, text string) error
 }
 
 func short(head string) string {
@@ -184,10 +186,21 @@ func review(row Row) string {
 func Answer(s *store.Store, repo string, hooks Hooks, row Row, verdict string, at time.Time) error {
 	switch verdict {
 	case verdictApproved:
+		tap := TapRecord{row.PR, row.Head, byOwner, machine.TapTapped}
+		_, refusal, err := gates.TapAt(s, repo, bus.Tap{PR: row.PR, Head: row.Head})
+		if err != nil {
+			return err
+		}
+		if refusal != "" {
+			if _, err := s.PutFact(repo, row.PR, row.Head, bus.TapRefusedFact, refusal, at); err != nil {
+				return err
+			}
+			return hooks.Refuse(tap, refusal)
+		}
 		if _, err := s.PutFact(repo, row.PR, row.Head, tapFact, string(machine.TapTapped), at); err != nil {
 			return err
 		}
-		return hooks.Tap(TapRecord{row.PR, row.Head, byOwner, machine.TapTapped})
+		return hooks.Tap(tap)
 	case verdictRejected:
 		return hooks.Hold(row.PR, row.Head)
 	}
@@ -220,7 +233,7 @@ func (p Pass) Run(ctx context.Context, snapshot map[int]machine.Facts) (Block, e
 	live := Live{Taps: newestByPR(outcomes.Interactions.Triage)}
 	for _, row := range rows {
 		verdict := live.Decided(MergeRow{PR: fmt.Sprint(row.PR), Head: row.Head})
-		if verdict == "" {
+		if verdict == "" || verdict == verdictApproved && row.Words[bus.TapRefusedFact] != "" {
 			continue
 		}
 		if err := Answer(p.Store, p.Repo, p.Hooks, row, verdict, p.Now()); err != nil {

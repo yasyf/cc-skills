@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -337,5 +338,25 @@ func TestAPlanRowIsTheBodysLineOrTheFidelityPass(t *testing.T) {
 	}
 	if got := planRow("plan step 1", ""); got != "plan step 1" {
 		t.Fatalf("line ungraded = %q", got)
+	}
+}
+
+func TestARefusedTapShowsOnItsRowUntilALaterTapStands(t *testing.T) {
+	const reason = "held, root:waits on the cutover"
+	refused := Materialize(store.ReviewRow{Number: 1, Head: headA}, map[string]string{bus.TapRefusedFact: reason}, "", nil, "dev")
+	if refused.TapRefused != reason || refused.Tapped {
+		t.Fatalf("row = %+v", refused)
+	}
+	tapped := Materialize(store.ReviewRow{Number: 1, Head: headA}, map[string]string{bus.TapRefusedFact: reason, "tap": "tapped"}, "", nil, "dev")
+	if tapped.TapRefused != "" || !tapped.Tapped {
+		t.Fatalf("row = %+v", tapped)
+	}
+}
+
+func TestATappedRowIsStillReadySoLandingCanRequireBoth(t *testing.T) {
+	row := readyRow()
+	row.State, row.Tapped = StateTapped, true
+	if row = Decide(row); !row.ReadyForTap {
+		t.Fatalf("row = %+v", row)
 	}
 }
