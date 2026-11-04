@@ -392,7 +392,7 @@ type mcpServer struct {
 	Enabled bool   `json:"enabled"`
 }
 
-const mcpListTimeout = 15 * time.Second
+const mcpListTimeout = 45 * time.Second
 
 var telemetryMCP = []string{"datadog", "sentry"}
 
