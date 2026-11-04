@@ -522,7 +522,7 @@ func (g *GC) stop(ctx context.Context, dispatch string) (stopOutcome, error) {
 	}
 	verb := "worker-stop"
 	state, detail, err := g.Orca.Stop(ctx, dispatch)
-	if err == nil && state == "" && detail == CodeFenced {
+	if err == nil && state == "" && (detail == CodeFenced || detail == CodeRuntimeDown) {
 		verb = "worker-abandon"
 		state, detail, err = g.Orca.Abandon(ctx, dispatch)
 	}
@@ -1042,9 +1042,12 @@ func (g *GC) proveStale(ctx context.Context, run string, stale []string) ([]stri
 		return nil, err
 	}
 	candidates := slices.DeleteFunc(workers, func(worker Worker) bool {
-		return !slices.Contains(stale, worker.Dispatch) || worker.Settled() || worker.Environment != ""
+		return !slices.Contains(stale, worker.Dispatch) || worker.Settled() || (worker.Environment != "" && !worker.HostGone)
 	})
 	proofs, err := parallel(candidates, func(worker Worker) (string, error) {
+		if worker.HostGone {
+			return worker.Dispatch, nil
+		}
 		held, err := g.staleHeld(ctx, worker, sessions)
 		if err != nil {
 			return "", err
