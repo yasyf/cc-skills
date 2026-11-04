@@ -29,7 +29,8 @@ const (
 	foldWindow  = 72 * time.Hour
 	readKind    = "github"
 	readRecord  = "pr.read"
-	readLane    = "supervisor"
+	readLane    = "pr-read"
+	readReader  = "supervisor"
 	stateMerged = "merged"
 
 	factCI        = "read-ci"
@@ -412,7 +413,7 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 			continue
 		}
 		_, err = client.Post(ctx, client.Draft{
-			Drive: f.Drive, Lane: readLane, Kind: readKind, Text: titleOr(pr),
+			Drive: f.Drive, Lane: readLane, Kind: readKind, Text: titleOr(pr), To: []string{readReader}, Force: true,
 			ID:    fmt.Sprintf("%s/%d/%d", readRecord, pr.Number, f.Now().UnixNano()),
 			PRs:   []string{fmt.Sprintf("%s#%d", f.Repo, pr.Number)},
 			Attrs: attrs,

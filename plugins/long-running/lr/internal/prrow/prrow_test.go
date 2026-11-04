@@ -247,6 +247,13 @@ func TestAReadPostsOnlyWhenAValueChanged(t *testing.T) {
 	if got := reads(); got != 1 {
 		t.Fatalf("%d reads for one value, want 1", got)
 	}
+	found, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{readKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := found[0].To; len(got) != 1 || got[0] != readReader {
+		t.Fatalf("a read's address = %v, want only %s, because an unaddressed record reaches every lane's reader", got, readReader)
+	}
 	red := cleanRead(1, headA)
 	red.CI, red.Failing = machine.CIFailure, []string{"lint"}
 	pass(red)
