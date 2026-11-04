@@ -30,3 +30,4 @@ jobs:
       strict: ${{ github.event_name == 'workflow_dispatch' && inputs.strict || false }}
       guard-plugins: "codex slop-cop"
       lockstep: "plugins/long-running/bin/lr.binrun plugins/long-running/lr"
+      lockstep-check: "uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_lr_verbs.py"

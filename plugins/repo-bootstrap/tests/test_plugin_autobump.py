@@ -574,6 +574,32 @@ def test_a_commit_changing_a_pinned_binary_and_its_plugin_waits_for_the_pin_that
     assert _by_name(autobump.analyze(repo, set(), [], LOCKSTEP), "a").verdict == "bump"
 
 
+@pytest.mark.parametrize(("check", "verdict"), [("true", "bump"), ("false", "waiting")])
+def test_a_newer_pin_ships_past_a_spanning_commit_only_when_the_check_passes(repo, monkeypatch, check, verdict):
+    _pinned_plugin(repo)
+    _write(repo, "plugins/a/x/main.go", "package main // built\n")
+    built = _commit(repo, "built")
+    _run(repo, "tag", "x--v2", built)
+    _write(repo, "plugins/a/bin/x.binrun", _descriptor("x--v2"))
+    _commit(repo, "pin x--v2")
+    _write(repo, "plugins/a/x/main.go", "package main // verb\n")
+    _write(repo, "plugins/a/hook.py", "VERB = 'x verb'\n")
+    _commit(repo, "a verb and the hook naming it")
+
+    monkeypatch.setenv("AUTOBUMP_LOCKSTEP_CHECK", check)
+    assert _by_name(autobump.analyze(repo, set(), [], LOCKSTEP), "a").verdict == verdict
+
+
+def test_a_spanning_commit_without_a_newer_pin_waits_whatever_the_check_says(repo, monkeypatch):
+    _pinned_plugin(repo)
+    _write(repo, "plugins/a/x/main.go", "package main // verb\n")
+    _write(repo, "plugins/a/hook.py", "VERB = 'x verb'\n")
+    _commit(repo, "a verb and the hook naming it")
+
+    monkeypatch.setenv("AUTOBUMP_LOCKSTEP_CHECK", "true")
+    assert _by_name(autobump.analyze(repo, set(), [], LOCKSTEP), "a").verdict == "waiting"
+
+
 @pytest.mark.parametrize("path", ["plugins/a/x/main.go", "plugins/a/hook.py"])
 def test_a_commit_on_one_side_of_a_pinned_binary_bumps_on_the_pin_it_has(repo, path):
     _pinned_plugin(repo)

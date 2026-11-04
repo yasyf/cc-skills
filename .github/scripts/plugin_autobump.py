@@ -10,6 +10,8 @@ the default branch holds when it copies. Guarded plugins (binary-pinned) get a
 drift warning instead of a bump. A plugin in lockstep with a binary it builds and
 pins waits, unbumped, while a commit newer than the pinned build changes both the
 binary's source and the rest of the plugin; the run its pin commit starts bumps it.
+A newer pin since the last bump still ships when AUTOBUMP_LOCKSTEP_CHECK passes on
+the tree at HEAD, so a steady stream of such commits cannot starve the pin.
 
 Env contract:
   AUTOBUMP_DRY_RUN   "true"/"false" — plan only, never write/commit/push
@@ -19,6 +21,8 @@ Env contract:
   AUTOBUMP_LOCKSTEP  newline-separated `<descriptor> <source dir>` pairs: a binrun
                      descriptor whose release tag names the commit it was built
                      from, and the directory that binary is built from
+  AUTOBUMP_LOCKSTEP_CHECK  command that exits 0 when the plugin at HEAD asks nothing
+                     the pinned binary lacks; run only when a newer pin would wait
   AUTOBUMP_FORCE     "1" to allow mutation outside CI (deliberate local use)
   GITHUB_ACTIONS     "true" in CI; mutation needs this or AUTOBUMP_FORCE
   GITHUB_STEP_SUMMARY  optional path to append the summary table
@@ -30,6 +34,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -170,7 +175,14 @@ def release_commit(repo: Path, descriptor: str) -> str:
     return _git_out(repo, "rev-list", "-n", "1", tag).strip()
 
 
-def wait_reason(repo: Path, root: str, lockstep: tuple[tuple[str, str], ...]) -> str | None:
+def pin_serves_head(repo: Path, descriptor: str, baseline: str) -> bool:
+    check = os.environ.get("AUTOBUMP_LOCKSTEP_CHECK", "")
+    if not check or not _git_out(repo, "log", "--format=%H", f"{baseline}..HEAD", "--", descriptor).strip():
+        return False
+    return subprocess.run(shlex.split(check), cwd=repo).returncode == 0
+
+
+def wait_reason(repo: Path, root: str, lockstep: tuple[tuple[str, str], ...], baseline: str) -> str | None:
     prefix = "" if root == "." else f"{root}/"
     for descriptor, source in lockstep:
         if not descriptor.startswith(prefix):
@@ -179,6 +191,8 @@ def wait_reason(repo: Path, root: str, lockstep: tuple[tuple[str, str], ...]) ->
         for sha in _git_out(repo, "log", "--format=%H", f"{built}..HEAD", "--", source).split():
             changed = _git_out(repo, "show", "--format=", "--name-only", sha, "--", root).split()
             if any(not path.startswith(f"{source}/") for path in changed):
+                if pin_serves_head(repo, descriptor, baseline):
+                    break
                 return f"{sha[:7]} changes {source} and the rest of the plugin after {built[:7]}, the build {descriptor} pins"
     return None
 
@@ -210,7 +224,7 @@ def analyze(repo: Path, guard: set[str], excludes: list[str], lockstep: tuple[tu
             results.append(Result(name, root, manifest, version, baseline, "clean"))
         elif name in guard:
             results.append(Result(name, root, manifest, version, baseline, "guarded"))
-        elif reason := wait_reason(repo, root, lockstep):
+        elif reason := wait_reason(repo, root, lockstep, baseline):
             results.append(Result(name, root, manifest, version, baseline, "waiting", message=reason))
         else:
             try:
@@ -294,7 +308,7 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str, lockstep: tupl
         # runner has none — without it every retry dies on "empty ident name".
         pull = subprocess.run(["git", "pull", "--rebase", "--tags", "origin", branch], cwd=repo, env=env)
         if pull.returncode == 0:
-            if waits := [f"{r.name}: {reason}" for r in bumps if (reason := wait_reason(repo, r.root, lockstep))]:
+            if waits := [f"{r.name}: {reason}" for r in bumps if (reason := wait_reason(repo, r.root, lockstep, r.baseline))]:
                 print(f"::error::a commit its pin does not carry yet landed under this run, so nothing is pushed; that commit's own run bumps: {'; '.join(waits)}")
                 return False
             push = subprocess.run(["git", "push", "origin", f"HEAD:{branch}"], cwd=repo, env=env)
