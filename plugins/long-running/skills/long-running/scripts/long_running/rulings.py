@@ -85,8 +85,9 @@ through the registry entry and uses ``--repo`` for the PR's own checkout. ``slic
 through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
 ``slice --required`` adds every live row the PR body or its author's comments cite by key or by an answer id the row
-carries, a superseded row's key standing for the rows superseding it, and names each cited id no live row carries as
-unknown to the register.
+carries, a superseded row's key standing for the rows superseding it. It adds the answers no live row carries through
+``lr rules answers``, which reads each cited id as ``lr rules row`` does and his top-ranked durable answers on the scope of
+the PR's title, and names each cited id nothing holds as unknown to the register.
 ``slice --required --words`` prints each row as `lr grade fidelity` reads it: the owner's words and repeats verbatim,
 oldest first, each board tap with the card it answered as ``cc-present block show`` prints it, a design row's or
 exception's plan text labelled as the coordinator's, and none of the register's implications or summaries.
@@ -156,6 +157,7 @@ BUDGET = 8000
 QUERY_CHARS = 2000
 QUOTE = "  >"
 CITED = re.compile(r"\b[0-9a-f]{7,40}\b")
+PR_SCOPE = re.compile(r"(?P<scope>[\w./-]+):")
 KEY_TOKEN = re.compile(r"\b[a-z]+/[\w.-]*\w")
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -1074,7 +1076,7 @@ def required_rows(loaded: Register, diff: Diff) -> list[tuple[str, dict[str, str
 
 
 def cited_rows(loaded: Register, text: str, required: list[tuple[str, dict[str, str]]]) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
-    """The live rows outside `required` that `text` cites by key or by an answer id they carry, and the lines naming each cited id no live row carries as unknown."""
+    """The live rows outside `required` that `text` cites by key or by an answer id they carry, and each cited id no live row carries."""
     rows = loaded.rulings()
     carriers: dict[str, list[str]] = {}
     for key, fields in rows.items():
@@ -1090,24 +1092,30 @@ def cited_rows(loaded: Register, text: str, required: list[tuple[str, dict[str, 
         else:
             unknown.append(token)
     have = {key for key, _ in required}
-    return [(key, rows[key]) for key in cited if key not in have], ["", f"Cited by id in the PR, unknown to the register: {', '.join(unknown)}"] if unknown else []
+    return [(key, rows[key]) for key in cited if key not in have], unknown
 
 
-def pr_answers(loaded: Register, diff: Diff, text: str) -> list[str]:
+def pr_answers(loaded: Register, diff: Diff, text: str, title: str, unknown: list[str]) -> list[str]:
     ccn = partial(ccn_text, loaded.shell, loaded.repo)
     topics = answer_search.named(answer_search.vocabulary(ccn, loaded.program), text, diff.files)
     found = answer_search.hits(ccn, [topic.slug for topic in topics], [], "")
-    lines = ["", f"## His answers on the topics this PR's text names or its files touch ({len(found)})"]
+    ids = [token for token in unknown if CITED.fullmatch(token)]
+    scope = match["scope"] if (match := PR_SCOPE.match(title)) else ""
+    read = json.loads(loaded.shell.run([str(ledger.LR), "rules", "answers", "--repo", loaded.repo, "--scope", scope, *ids])) if ids or scope else []
+    found = sorted({answer["id"]: answer for answer in [*found, *read]}.values(), key=lambda answer: answer["updated_at"], reverse=True)
+    lines = ["", f"## His answers on the topics this PR's text names or its files touch, those it cites, and his top-ranked on its title's scope ({len(found)})"]
     for answer in found:
         lines += ["", f"### answer/{answer['id'][:SHORT]} | answer | {answer['updated_at'][:10]}", f"Asked: {answer['title']}", *(f"> {line}" for line in answer["body"].splitlines())]
-    return lines
+    held = [answer["id"] for answer in found]
+    nowhere = [token for token in unknown if not any(identity.startswith(token) for identity in held)]
+    return lines + (["", f"Cited by id in the PR, unknown to the register: {', '.join(nowhere)}"] if nowhere else [])
 
 
-def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) -> str:
+def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str) -> str:
     rows = required_rows(loaded, diff)
     cited, unknown = cited_rows(loaded, text, rows)
     lines = [f"Required rows for {pr} at {head}", f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
-    return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + pr_answers(loaded, diff, text) + unknown)
+    return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + pr_answers(loaded, diff, text, title, unknown))
 
 
 def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]]) -> list[list[str]]:
@@ -1115,7 +1123,7 @@ def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]]) -> lis
         return list(pool.map(lambda item: worded_row(*item, loaded.state), rows))
 
 
-def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) -> str:
+def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str) -> str:
     rows = required_rows(loaded, diff)
     cited, unknown = cited_rows(loaded, text, rows)
     worded = worded_rows(loaded, [*rows, *cited])
@@ -1127,7 +1135,7 @@ def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str) ->
         lines += ["", f"## {title}"]
         for row in part:
             lines += ["", *row]
-    return hashed(lines + pr_answers(loaded, diff, text) + unknown)
+    return hashed(lines + pr_answers(loaded, diff, text, title, unknown))
 
 
 def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
@@ -1871,10 +1879,10 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if not (args.pr and args.head):
             raise SystemExit("slice --required needs --pr and --head")
         repo, number = pull(args, shell)
-        view = json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "author,baseRefName,body,comments", max_age=ghread.FRESH)))
+        view = json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "author,baseRefName,body,comments,title", max_age=ghread.FRESH)))
         text = "\n".join([view["body"], *(comment["body"] for comment in view["comments"] if comment["author"]["login"] == view["author"]["login"])])
         diff = pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)
-        args.stdout.write((worded_slice if args.words else required_slice)(loaded, diff, f"{repo}#{number}", args.head, text))
+        args.stdout.write((worded_slice if args.words else required_slice)(loaded, diff, f"{repo}#{number}", args.head, text, view["title"]))
     elif args.root:
         args.stdout.write(root_slice(loaded))
     elif args.refresh:
