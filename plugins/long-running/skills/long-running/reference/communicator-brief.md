@@ -39,7 +39,7 @@ When the session has ended, the communicator's reply tells him so, naming the ca
 
 ## Replies
 
-Every message for him goes out through one call, the `reply` tool on the plugin's `lr` Model Context Protocol server, `lr reply serve`. It takes a one-line `title`, the reply as markdown in `md`, and, when the content has them, `picks` with one `recommended`, `links`, `prs`, a `status` and up to 8 live cc-present `blocks`, such as a table he can filter and open. The tool decides from that content where the reply lands; the communicator never picks surfaces:
+Every message for him goes out through one call, the `reply` tool on the plugin's `lr` Model Context Protocol server, `lr reply serve`. A running server moves itself to the installed lr at the next frame it receives once nothing is in flight, on the same stdio, so a fix to this tool reaches a live session with no restart. It takes a one-line `title`, the reply as markdown in `md`, and, when the content has them, `picks` with one `recommended`, `links`, `prs`, a `status` and up to 8 live cc-present `blocks`, such as a table he can filter and open. The tool decides from that content where the reply lands; the communicator never picks surfaces:
 
 | The reply carries | Where it lands |
 |---|---|
