@@ -1043,7 +1043,7 @@ func TestAWorkerStartsOnlyTheMCPServersItsLaunchNames(t *testing.T) {
 	h.healthyClaude()
 	h.env["ORCA_LAUNCH_MCP_CONFIG"] = "/briefs/slack-mcp.json"
 	h.launched()
-	if command := flag(h.orcaCalls("terminal create")[0], "--command"); !strings.Contains(command, " --strict-mcp-config --mcp-config /briefs/slack-mcp.json ") {
+	if command := flag(h.orcaCalls("terminal create")[0], "--command"); !strings.Contains(command, " --strict-mcp-config --no-chrome --mcp-config /briefs/slack-mcp.json ") {
 		t.Fatal(command)
 	}
 }
