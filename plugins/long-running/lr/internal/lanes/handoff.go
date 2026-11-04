@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -148,6 +149,9 @@ func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcr
 	for _, r := range records[max(0, len(records)-handoffRecords):] {
 		fmt.Fprintf(&out, "- #%d %s %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), pacific(r.At), truncated(r.Text, handoffChars))
 	}
+	if transcript != "" {
+		out.WriteString(liveTasksSection(transcript, e.Now()))
+	}
 	if cwd != "" {
 		status, err := e.Run(ctx, "git", "-C", cwd, "status", "--short", "--branch")
 		if err != nil {
@@ -160,4 +164,12 @@ func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcr
 		fmt.Fprintf(&out, "\n## Worktree %s\n\n```text\n%s\n%s```\n", cwd, status, log)
 	}
 	return out.String(), nil
+}
+
+func liveTasksSection(transcript string, now time.Time) string {
+	tasks, err := livetasks.Read(transcript, now)
+	if err != nil {
+		return "\n## Background tasks\n\nCould not read them: " + err.Error() + "\n"
+	}
+	return "\n" + livetasks.Section("## Background tasks live now, each with the call that starts it again\n", tasks)
 }

@@ -540,8 +540,8 @@ and incidents wake it on arrival, and reports, notes, answers and other routine 
 reach it together, at most every five minutes and at once ahead of any other record.
 It also sets the window's `autoCompactWindow` to 280K, the coordinator's ceiling.
 
-A resumed communicator joins with `drive.py start --drive <id> --ledger <id>`, runs
-`lr owner start` again, and checks the standing sessions with `lr lanes root meta signal`. A resumed or
+A resumed communicator joins with `drive.py start --drive <id> --ledger <id>` and checks the standing sessions with `lr lanes root meta signal`; SessionStart brings back any lane's
+own subscription and watches, says so, and lists its other live tasks ([compaction.md](reference/compaction.md)). A resumed or
 relaunched coordinator catches up with `cci digest`, `cci tail --cursor root` and
 `lr lanes`, runs `lr desks start`, which takes the Run and starts only what is
 down, and after a compaction answers every unresolved record from
