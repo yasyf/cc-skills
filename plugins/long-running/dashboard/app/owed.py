@@ -46,7 +46,7 @@ def named_prs(records):
     return sorted(numbers)
 
 
-def owner_ask_rows(ledger, records, prs, store, known_lanes, year):
+def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers):
     lines = ledger.splitlines()
     done = [r for r in worker_records(records) if r["kind"] == "done"]
     by_message = collections.defaultdict(list)
@@ -78,15 +78,17 @@ def owner_ask_rows(ledger, records, prs, store, known_lanes, year):
         words = " ".join(r["text"] for r in mine) + " " + follow_up
         holders = list(dict.fromkeys([*[lane for lane, _ in collections.Counter(r["lane"] for r in workers).most_common(3)], *[r["lane"] for r in finished], *sorted(set(LANE.findall(words)) & known_lanes)]))[:3]
         latest = (finished or mine or [{"text": "", "seq": None}])[-1]
+        answer = answers.get(f"m{number}", "")
         asks.append({
             "m": number,
             "iso": iso,
             "text": text,
-            "state": message_state(mark, finished, mine, named, prs),
+            "state": message_state(mark, finished, mine, named, prs, answer),
             "lanes": holders,
             "prs": named,
             "latest": latest["text"][:300],
             "latest_seq": latest["seq"],
+            "answer": answer,
         })
     return {"messages": asks, "taps": taps, "store": store}
 
@@ -106,10 +108,10 @@ def tap_row(number, iso, text, prs):
     }
 
 
-def message_state(mark, finished, records, named, prs):
+def message_state(mark, finished, records, named, prs, answer):
     if finished or any((prs.get(number) or {}).get("state") == "landed" for number in named):
         return "applied"
-    if mark == "responded" or any(r["kind"] in {"answer", "report"} for r in records):
+    if answer or mark == "responded" or any(r["kind"] in {"answer", "report"} for r in records):
         return "answered"
     return "asked"
 

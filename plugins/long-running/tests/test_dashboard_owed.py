@@ -20,8 +20,8 @@ def record(seq, lane, kind, text):
     return {"seq": seq, "lane": lane, "kind": kind, "at": "2026-11-03T12:00:00Z", "text": text, "refs": None}
 
 
-def rows(records, prs=None):
-    return owner_ask_rows(LEDGER, records, prs or {}, [], set(), 2026)
+def rows(records, prs=None, answers=None):
+    return owner_ask_rows(LEDGER, records, prs or {}, [], set(), 2026, answers or {})
 
 
 def by_message(found):
@@ -41,6 +41,18 @@ def test_a_relay_saying_done_applies_nothing():
 
 def test_a_responded_mark_is_answered_never_applied():
     assert by_message(rows([]))[8]["state"] == "answered"
+
+
+def test_a_captured_chat_answer_answers_the_message_and_carries_its_text():
+    found = by_message(rows([], answers={"m7": "| bug | cause |\n|---|---|\n| stale row | no capture |"}))
+    assert found[7]["state"] == "answered"
+    assert found[7]["answer"] == "| bug | cause |\n|---|---|\n| stale row | no capture |"
+
+
+def test_a_message_with_no_answer_carries_none():
+    found = by_message(rows([]))
+    assert found[7]["state"] == "asked"
+    assert found[7]["answer"] == ""
 
 
 def test_a_landed_pull_request_a_worker_names_applies_the_message():
