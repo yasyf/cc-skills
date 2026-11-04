@@ -16,6 +16,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -68,19 +69,16 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 		}
 		return w.needsLane(ctx, a, "", communicator, "No lane asked for this card, so route his answer, or launch a lane whose brief carries it")
 	}
-	lane, known, err := w.Cards.Store.Lane(asker)
+	asker, err = lanes.Holder(w.Cards.Store, "", asker)
 	if err != nil {
 		return err
 	}
-	if known && ended(lane) {
-		heir, found, err := w.Cards.Store.Lane(lane.RetiredBy)
-		if err != nil {
-			return err
-		}
-		if !found || ended(heir) {
-			return w.needsLane(ctx, a, asker, metaDesk, fmt.Sprintf("%s asked for it and has stopped, so launch its successor with this answer in its brief; the stopped lane's brief is %s", asker, lane.Brief))
-		}
-		asker, lane = heir.Name, heir
+	lane, _, err := w.Cards.Store.Lane(asker)
+	if err != nil {
+		return err
+	}
+	if lane.State == store.LaneRetired {
+		return w.needsLane(ctx, a, asker, metaDesk, fmt.Sprintf("%s asked for it and is retired with no live heir, so launch its successor with this answer in its brief; the retired lane's brief is %s", asker, lane.Brief))
 	}
 	text := fmt.Sprintf("WAKE %s: the owner answered your card: %s. Act on it now; any record of yours naming %s acknowledges it.", a.Card, a.Said[:min(len(a.Said), saidLimit)], a.Card)
 	if _, err := w.Post(ctx, client.Draft{
@@ -96,10 +94,6 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 		fmt.Fprintf(w.Warn, "WARNING the wake record for %s stands but its relay to %s did not post: %s\n", a.Card, asker, err)
 	}
 	return nil
-}
-
-func ended(lane store.Lane) bool {
-	return lane.State == store.LaneRetired || lane.StoppedOn > 0
 }
 
 func (w Waker) asker(ctx context.Context, a CardAnswer) (string, error) {
@@ -228,7 +222,7 @@ func wakeCommand(a *app.App, cards func() (Cards, func(), error)) *cobra.Command
 	}
 	cmd := &cobra.Command{
 		Use:   "wake CARD",
-		Short: "Wake the lane whose ask drew a card with the owner's answer, or ask meta-desk for a lane when it has stopped",
+		Short: "Wake the lane whose ask drew a card with the owner's answer, or ask meta-desk for a lane when it is retired with no live heir",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if answer.Key == "" {

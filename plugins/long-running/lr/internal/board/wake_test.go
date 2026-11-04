@@ -166,9 +166,9 @@ func TestARetiredLaneDrawsOneNeedsLaneToMetaDeskWithItsBriefAndNeverRoot(t *test
 	}
 }
 
-func TestAStoppedLaneDrawsNeedsLaneToo(t *testing.T) {
+func TestALiveLaneWithAnUnansweredRootOrderGetsTheWakeAndNoNeedsLane(t *testing.T) {
 	f := newWaker(t)
-	f.want(t, store.Lane{Name: "owner-apps", State: store.LaneDesired, Brief: "/b.md"})
+	f.want(t, store.Lane{Name: "owner-apps", State: store.LaneDesired, Placement: orcaPlacement, Brief: "/b.md"})
 	if err := f.Cards.Store.SetLaneStoppedOn("owner-apps", 44); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,24 @@ func TestAStoppedLaneDrawsNeedsLaneToo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"meta-desk"}) {
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"owner-apps"}) || f.posts[0].Kind != wakeKind {
+		t.Fatalf("posts = %+v", f.posts)
+	}
+	if len(f.relayed) != 1 || !strings.HasPrefix(f.relayed[0], "owner-apps: WAKE card-chat") {
+		t.Fatalf("relayed = %q", f.relayed)
+	}
+}
+
+func TestAHeldLaneGetsTheWakeSinceOnlyRetirementEndsALane(t *testing.T) {
+	f := newWaker(t)
+	f.want(t, store.Lane{Name: "owner-apps", State: store.LaneHeld, Brief: "/b.md"})
+	f.drawnFor(t, "card-chat", "owner-apps")
+
+	if err := f.Wake(context.Background(), pick); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"owner-apps"}) || f.posts[0].Kind != wakeKind {
 		t.Fatalf("posts = %+v", f.posts)
 	}
 }
@@ -197,6 +214,45 @@ func TestARetiredLaneWithALiveHeirWakesTheHeir(t *testing.T) {
 	}
 
 	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"owner-apps-2"}) {
+		t.Fatalf("posts = %+v", f.posts)
+	}
+}
+
+func TestAChainOfRetirementsWakesTheLiveLaneAtItsEnd(t *testing.T) {
+	f := newWaker(t)
+	f.want(t, store.Lane{Name: "owner-apps", State: store.LaneDesired, Brief: "/b.md"})
+	f.want(t, store.Lane{Name: "owner-apps-2", State: store.LaneDesired, Brief: "/b.md"})
+	f.want(t, store.Lane{Name: "owner-apps-3", State: store.LaneDesired, Brief: "/b.md"})
+	for retired, heir := range map[string]string{"owner-apps": "owner-apps-2", "owner-apps-2": "owner-apps-3"} {
+		if err := f.Cards.Store.SetLaneState(retired, store.LaneRetired, cardsNow, heir, "replaced"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.drawnFor(t, "card-chat", "owner-apps")
+
+	if err := f.Wake(context.Background(), pick); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"owner-apps-3"}) {
+		t.Fatalf("posts = %+v", f.posts)
+	}
+}
+
+func TestALaneRetiredWithNoRecordedHeirWakesTheLiveLaneNumberedAfterIt(t *testing.T) {
+	f := newWaker(t)
+	f.want(t, store.Lane{Name: "owner-apps-1", State: store.LaneDesired, Brief: "/b.md"})
+	f.want(t, store.Lane{Name: "owner-apps-2", State: store.LaneDesired, Brief: "/b.md"})
+	if err := f.Cards.Store.SetLaneState("owner-apps-1", store.LaneRetired, cardsNow, "stand-down", "finished"); err != nil {
+		t.Fatal(err)
+	}
+	f.drawnFor(t, "card-chat", "owner-apps-1")
+
+	if err := f.Wake(context.Background(), pick); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"owner-apps-2"}) || f.posts[0].Kind != wakeKind {
 		t.Fatalf("posts = %+v", f.posts)
 	}
 }
