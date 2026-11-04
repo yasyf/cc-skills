@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -156,6 +157,50 @@ def test_a_stand_down_to_a_retired_lane_is_warned_and_never_forwarded_to_its_suc
     registry(monkeypatch, {"rulings-hygiene": "rulings-hygiene-2"})
 
     assert send(tree, "rulings-hygiene", message, sender=None).action == "warn"
+
+
+def post(tree: Tree, to: str, kind: str = "decide") -> list:
+    return tool_use(tree, "Bash", {"command": f"cci post --lane root --kind {kind} --to {to} --text x"})
+
+
+def test_an_alias_a_live_lane_holds_gets_no_warning_on_an_urgent_post(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry(monkeypatch, {"desks-move": "desks-move-1"})
+
+    assert post(tree, "desks-move") == []
+
+
+@pytest.mark.parametrize("kind", ["decide", "report"])
+def test_a_numbered_post_warns_once_naming_the_alias(tree: Tree, monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
+    registry(monkeypatch, {"desks-move": "desks-move-2", "desks-move-1": "desks-move-2"})
+
+    [warned] = post(tree, "desks-move-1", kind)
+
+    assert warned.action == "warn" and "`--to desks-move`" in warned.message and "desks-move-2" not in warned.message
+    assert len(warned.message) < 300
+
+
+def test_a_stood_down_lanes_warning_names_its_successors_alias(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry(monkeypatch, {"s3-errors": "restack-desk-4"})
+
+    [warned] = post(tree, "s3-errors")
+
+    assert "Post it to its successor `restack-desk`" in warned.message and "restack-desk-4" not in warned.message
+
+
+def test_a_numbered_name_no_live_lane_answers_for_passes(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry(monkeypatch, {})
+
+    assert post(tree, "phase-2", "report") == []
+
+
+def test_a_failed_route_read_passes_silently(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    def failing(*args, **kwargs):
+        raise subprocess.TimeoutExpired("lr", 10)
+
+    monkeypatch.setattr(lane_rotation, "drive_entry", lambda evt: {"state_dir": str(tree.claude)})
+    monkeypatch.setattr(lane_rotation.subprocess, "run", failing)
+
+    assert post(tree, "desks-move-1") == []
 
 
 def test_a_numbered_spawn_reroutes_nothing_the_registry_does_not_link(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:

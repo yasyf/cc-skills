@@ -899,3 +899,72 @@ func TestOnlyTheCommunicatorPinsTheToolsItCallsEveryTurn(t *testing.T) {
 		t.Fatal("a session in no drive pinned reply")
 	}
 }
+
+func TestAReplyNamesARegisteredNumberedLaneByItsAliasOnEverySurface(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	s, err := store.Open(f.Entry.Store())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WantLane(store.Lane{Name: "tap-rows-1", Brief: "/b/tap.md", Role: "lane", State: store.LaneDesired}, sentAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	sent := f.Send(context.Background(), Reply{
+		ID: "r9", Title: "tap-rows-1 is done", MD: "Ask tap-rows-1. See <https://example.com/tap-rows-1> and tap-rows-9.", Status: info,
+		Picks: []string{"Keep tap-rows-1", "Stop tap-rows-1 now"}, Recommended: "Keep tap-rows-1",
+	})
+
+	reply, _ := stored(t, f, "r9")
+	if reply.Title != "tap-rows is done" || reply.MD != "Ask tap-rows. See <https://example.com/tap-rows-1> and tap-rows-9." {
+		t.Fatalf("title %q, md %q", reply.Title, reply.MD)
+	}
+	if !slices.Equal(reply.Picks, []string{"Keep tap-rows", "Stop tap-rows now"}) || reply.Recommended != "Keep tap-rows" {
+		t.Fatalf("picks %q, recommended %q", reply.Picks, reply.Recommended)
+	}
+	for _, o := range sent {
+		if o.Error != "" {
+			t.Fatalf("%s: %s", o.Surface, o.Error)
+		}
+	}
+	if post := calls(fake, "cci"); len(post) != 1 || strings.Contains(post[0].Stdin, "Ask tap-rows-1") {
+		t.Fatalf("record %v", post)
+	}
+}
+
+func TestPicksTheAliasWouldMakeIdenticalKeepTheirNumberedNames(t *testing.T) {
+	f := fanout(t, scripted())
+	s, err := store.Open(f.Entry.Store())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutLanes([]store.Lane{{Name: "desk-1", Brief: "/b/1.md", State: store.LaneRetired}, {Name: "desk-2", Brief: "/b/2.md", State: store.LaneDesired}}, sentAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	f.Send(context.Background(), Reply{ID: "r10", Title: "Which?", MD: "Which?", Picks: []string{"Keep desk-1", "Keep desk-2"}, Recommended: "Keep desk-2"})
+
+	if reply, _ := stored(t, f, "r10"); !slices.Equal(reply.Picks, []string{"Keep desk-1", "Keep desk-2"}) || reply.Recommended != "Keep desk-2" {
+		t.Fatalf("picks %q, recommended %q", reply.Picks, reply.Recommended)
+	}
+}
+
+func TestAStoreThatDoesNotOpenPostsTheReplyAsWritten(t *testing.T) {
+	f := fanout(t, scripted())
+	if err := os.Mkdir(f.Entry.Store(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	f.Send(context.Background(), Reply{ID: "r11", Title: "tap-rows-1", MD: "tap-rows-1"})
+
+	if reply, _ := stored(t, f, "r11"); reply.MD != "tap-rows-1" {
+		t.Fatalf("md %q", reply.MD)
+	}
+}

@@ -2772,7 +2772,7 @@ func TestEveryOtherHourTheParkedOrdersGoToTheProgressDeskAsOneNoteAndPageNobody(
 	notes := f.ofKind("note")
 	equal(t, len(notes), 1)
 	equal(t, notes[0].To, []string{"progress-desk-2"})
-	equal(t, notes[0].Text, "1 owner orders are parked behind a hold or a part left open, with no live lane and no open PR, for your update: m38 Nov 3 4:34 PM: build the dashboard page for the reply tool [parked: Left open: the dashboard page; last lane rich-reply-1]")
+	equal(t, notes[0].Text, "1 owner orders are parked behind a hold or a part left open, with no live lane and no open PR, for your update: m38 Nov 3 4:34 PM: build the dashboard page for the reply tool [parked: Left open: the dashboard page; last lane rich-reply]")
 	for _, post := range f.posts {
 		if post.Kind != "note" && strings.Contains(post.Text, "m38") {
 			t.Fatalf("a parked order reached %v: %s", post.To, post.Text)

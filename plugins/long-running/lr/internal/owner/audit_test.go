@@ -102,7 +102,7 @@ func TestAnOrderWhoseLastLaneLeftAPartOpenIsParkedWithThatHoldAndLane(t *testing
 	if got[0].Hold != "Left open: the dashboard page it reports to" || got[1].Hold != "wire-1: the new format is held behind the SandSQL release freeze" {
 		t.Fatalf("holds %q, %q", got[0].Hold, got[1].Hold)
 	}
-	if want := "m1 Nov 3 4:50 AM: build the phone app for approvals [parked: Left open: the dashboard page it reports to; last lane phone-app-1]"; got[0].Line() != want {
+	if want := "m1 Nov 3 4:50 AM: build the phone app for approvals [parked: Left open: the dashboard page it reports to; last lane phone-app]"; got[0].Line() != want {
 		t.Fatalf("line %q, want %q", got[0].Line(), want)
 	}
 }

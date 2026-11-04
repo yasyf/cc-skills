@@ -97,6 +97,7 @@ he would want from it, never forwarding the coordinator's text as written. Only 
 communicator owes him his own terms (R21): plain words, Pacific times, the thing's
 name never a codename or id, the fix and when it is live rather than how it broke, the human
 layer before the agent layer ([communicator-brief.md](reference/communicator-brief.md)).
+Every cci `--to`, record, reply card, status line and chat message names a lane by its alias, such as tap-rows, never tap-rows-1: a numbered `--to` warns, and `lr reply` rewrites one.
 It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
 ([owner-report-table.md](reference/owner-report-table.md)). A dashboard restart is

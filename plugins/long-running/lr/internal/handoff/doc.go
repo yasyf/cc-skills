@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
 
@@ -142,6 +143,7 @@ type progressDoc struct {
 	monitors      []backgroundTask
 	incidentLanes []string
 	laneRegistry  []string
+	aliases       lanes.Aliases
 	registered    int
 	ownerUpdate   string
 	delivered     []string
@@ -363,17 +365,17 @@ func (d *progressDoc) render() string {
 	out = append(out, "", "## Open owner asks")
 	out = append(out, withinBudget(noneIfEmpty(bullets(d.asks)), asksBudget, "ledger.py show --drive "+d.busName()+" --asks")...)
 	out = append(out, "", "## Open tasks")
-	out = append(out, d.taskLines()...)
+	out = append(out, d.aliases.AllIn(d.taskLines())...)
 	out = append(out, "", deliveredHeading)
-	out = append(out, noneIfEmpty(bullets(d.delivered))...)
+	out = append(out, d.aliases.AllIn(noneIfEmpty(bullets(d.delivered)))...)
 	out = append(out, "", "## Lanes and monitors")
-	out = append(out, d.runningLines()...)
+	out = append(out, d.aliases.AllIn(d.runningLines())...)
 	out = append(out, "", "## Lane registry")
-	out = append(out, orDefault(d.laneRegistry, "- no lane registry")...)
+	out = append(out, d.aliases.AllIn(orDefault(d.laneRegistry, "- no lane registry"))...)
 	out = append(out, "", "## Owner update")
-	out = append(out, d.ownerUpdateLines()...)
+	out = append(out, d.aliases.AllIn(d.ownerUpdateLines())...)
 	out = append(out, "", "## Incident lanes")
-	out = append(out, orDefault(d.incidentLanes, fmt.Sprintf("- none posted in the last %d h", int(incidentWindow.Hours())))...)
+	out = append(out, d.aliases.AllIn(orDefault(d.incidentLanes, fmt.Sprintf("- none posted in the last %d h", int(incidentWindow.Hours()))))...)
 	out = append(out, "", "## Inboxes", "")
 	out = append(out, d.inboxLines()...)
 	out = append(out, "", findingsHeading)
