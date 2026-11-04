@@ -10,15 +10,15 @@ LR = Path(__file__).parents[2] / "bin" / "lr"
 LIST_SECONDS = 20
 LIST = f"{LR} handoff live-tasks"
 LINE = "- Monitor \"ci log\" (task aaa): `Monitor` with `{}`\n"
-RESTARTED = "This session restarted, and these background tasks died with it. Start each one again with the call it names, unless its work is done:\n{tasks}"
-COMPACTED = "These background tasks were live when this session compacted and are still running. Their notifications still arrive here:\n{tasks}"
+RESTARTED = "This session restarted and these background tasks died with it, so start each one again with the call it names unless its work is done:\n{tasks}"
+COMPACTED = "These background tasks were live when this session compacted and still run, so their notifications still arrive here:\n{tasks}"
 HEADS = {"resume": RESTARTED, "compact": COMPACTED}
 
 
 @on(
     Event.SessionStart,
     tests={
-        Input(source="resume", commands={LIST: LINE}): Warn(pattern=r"^This session restarted, .*\n- Monitor \"ci log\" \(task aaa\)"),
+        Input(source="resume", commands={LIST: LINE}): Warn(pattern=r"^This session restarted and .*\n- Monitor \"ci log\" \(task aaa\)"),
         Input(source="compact", commands={LIST: LINE}): Warn(pattern=r"^These background tasks were live when this session compacted"),
         Input(source="resume", commands={LIST: ""}): Allow(),
         Input(source="resume", commands={LIST: (1, "open transcript: no such file")}): Warn(pattern=r"^Could not list this session's background tasks"),

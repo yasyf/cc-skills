@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -124,5 +126,20 @@ func TestADeskHandoffCarriesTheOpenOwnerOrdersAndAWorkerHandoffDoesNot(t *testin
 			equal(t, doc.Argv[0], "ccn")
 			equal(t, strings.Contains(doc.Stdin, "## Open owner orders\n\nNo live lane, open PR or landed record delivers these yet (`lr owner audit`). Carry each until one does.\n\n- m1 Nov 3 4:50 AM: build order 1\n"), role == "desk")
 		})
+	}
+}
+
+func TestAHandoffNamesItsLiveTasksAndSurvivesAMissingTranscript(t *testing.T) {
+	now := time.Date(2026, 11, 3, 23, 0, 0, 0, time.UTC)
+	line := `{"type":"assistant","session_id":"p","timestamp":"2026-11-03T22:59:00Z","message":{"content":[{"type":"tool_use","id":"m1","name":"Monitor","input":{"command":"tail -f ci.log","description":"ci log","timeout_ms":1800000}}]}}`
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := liveTasksSection(path, now); !strings.Contains(got, "tail -f ci.log") {
+		t.Fatalf("section = %q, want the Monitor's command", got)
+	}
+	if got := liveTasksSection(path+".gone", now); !strings.Contains(got, "Could not read them") {
+		t.Fatalf("section = %q, want the handoff to say it could not read the transcript", got)
 	}
 }

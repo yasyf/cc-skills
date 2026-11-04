@@ -1,6 +1,7 @@
 package livetasks
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -47,11 +48,13 @@ func ended(t *testing.T, id, task, state string) string {
 		content += "<tool-use-id>" + id + "</tool-use-id>\n"
 	}
 	content += "<status>" + state + "</status>\n</task-notification>"
-	line, err := json.Marshal(map[string]any{"type": "queue-operation", "operation": "enqueue", "content": content})
-	if err != nil {
+	var line bytes.Buffer
+	encoder := json.NewEncoder(&line)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(map[string]any{"type": "queue-operation", "operation": "enqueue", "content": content}); err != nil {
 		t.Fatal(err)
 	}
-	return string(line)
+	return strings.TrimSpace(line.String())
 }
 
 func read(t *testing.T, lines ...string) []Task {
