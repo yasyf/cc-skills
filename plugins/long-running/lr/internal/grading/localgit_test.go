@@ -88,7 +88,7 @@ func TestACopyOfAStoreThatGainedAPackTakesItOnTheSecondWalk(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != 0o444 {
+		if info.Mode().Perm() != 0o400 {
 			t.Fatalf("%s copied as %v", pack, info.Mode())
 		}
 	}
