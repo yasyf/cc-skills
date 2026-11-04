@@ -7,7 +7,6 @@ from .compaction_handoff import CompactionState
 
 COMMANDS = frozenset({"tsc", "pytest", "jest", "vitest", "eslint", "mypy", "pyright", "golangci-lint", "xcodebuild"})
 VERBS = {
-    "go": frozenset({"build", "vet", "test"}),
     "cargo": frozenset({"build", "check", "test", "clippy", "nextest", "bench"}),
     "just": frozenset({"vet", "build", "test", "lint", "check", "typecheck"}),
     "buck2": frozenset({"build", "test"}),
@@ -38,8 +37,8 @@ VERBOSE_V = frozenset({"pytest"})
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-b", "CLAUDE_LONG_RUNNING_DRIVE": "leftovers-oct-18"}
 ROOT = [CompactionState(active=True, coordinator=True)]
 REFUSAL = (
-    "No local compile, test, vet, typecheck or lint runs in a drive, and a Go golden's single `go test -update` is the one exception."
-    " Commit and run `ccx vcs ship`, then read the failing step's log, since CI grades."
+    "No local test, whole-module compile or lint runs in a drive, though a Go golden's `go test -update` may."
+    " Build and vet the packages you touched or run one `yarn tsc:<pkg>`, then `ccx vcs ship`, since CI grades."
 )
 
 
@@ -61,14 +60,22 @@ def after(args: tuple[str, ...], tool: str) -> tuple[str, ...]:
     return args[args.index(tool) + 1 :]
 
 
+def script_runs(script: str) -> bool:
+    return script == "tsc:all" if script.startswith("tsc:") else script.split(":")[0] in SCRIPTS
+
+
 def runs(name: str, args: tuple[str, ...]) -> bool:
     match name, words(name, args):
         case "make", targets:
             return not informational(name, args) and (not targets or targets[0] in MAKE_TARGETS)
+        case "tsc", _:
+            return not informational(name, args) and not {"-p", "--project"} & set(args)
         case tool, _ if tool in COMMANDS:
             return not informational(name, args)
         case "go", ["test", *_]:
             return not golden(args)
+        case "go", ["build" | "vet", *packages]:
+            return "./..." in packages
         case tool, [verb, *_] if verb in VERBS.get(tool, ()):
             return True
         case launcher, [tool, *_] if launcher in LAUNCHERS:
@@ -78,9 +85,9 @@ def runs(name: str, args: tuple[str, ...]) -> bool:
         case ("python" | "python3"), _ if len(args) > 1 and args[0] == "-m":
             return runs(args[1], args[2:])
         case "yarn", ["workspace", _, script, *_]:
-            return script.split(":")[0] in SCRIPTS
+            return script_runs(script)
         case ("yarn" | "npm" | "pnpm" | "bun"), ["run", script, *_] | [script, *_]:
-            return script.split(":")[0] in SCRIPTS
+            return script_runs(script)
     return False
 
 
@@ -92,13 +99,15 @@ def in_drive(evt: BaseHookEvent) -> bool:
     return bool(reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) or CompactionState.load(evt).active
 
 
-@on(  # capt-hook: no-escape the owner bans local builds and tests in every drive session
+@on(  # capt-hook: no-escape the owner bans local tests and whole-module builds in every drive session
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command="go build ./...", env=LANE_ENV): Block(pattern=r"^No local compile, test, vet, typecheck or lint runs in a drive[\s\S]*ccx vcs ship"),
+        Input(command="go build ./...", env=LANE_ENV): Block(pattern=r"^No local test, whole-module compile or lint runs in a drive[\s\S]*ccx vcs ship"),
         Input(command="go build ./...", state=ROOT): Block(),
-        Input(command="go vet ./internal/sandsql/...", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Block(),
+        Input(command="go vet ./...", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Block(),
+        Input(command="go vet ./internal/sandsql/...", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Allow(),
+        Input(command="cd go/sand && go build ./internal/vm", env=LANE_ENV): Allow(),
         Input(command="cd go/sand && go test ./internal/vm/...", env=LANE_ENV): Block(),
         Input(command="go -C go/sand test ./...", env=LANE_ENV): Block(),
         Input(command="cargo nextest run -p sandsql-api", env=LANE_ENV): Block(),
@@ -106,9 +115,9 @@ def in_drive(evt: BaseHookEvent) -> bool:
         Input(command="cargo --locked check", env=LANE_ENV): Block(),
         Input(command="cargo --manifest-path rust/Cargo.toml test", env=LANE_ENV): Block(),
         Input(command="bash -c 'cargo build --release'", env=LANE_ENV): Block(),
-        Input(command="tsc --noEmit -p api", env=LANE_ENV): Block(),
+        Input(command="tsc --noEmit -p api", env=LANE_ENV): Allow(),
         Input(command="yarn tsc:all", env=LANE_ENV): Block(),
-        Input(command="yarn tsc:common", env=LANE_ENV): Block(),
+        Input(command="yarn tsc:common", env=LANE_ENV): Allow(),
         Input(command="npm run build", env=LANE_ENV): Block(),
         Input(command="npm run lint", env=LANE_ENV): Block(),
         Input(command="pnpm -r test", env=LANE_ENV): Block(),
