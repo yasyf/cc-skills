@@ -139,7 +139,7 @@ def clock(iso):
 
 def ask_row(key, title, state, where, said="", records=()):
     status, word = ASK_STATUS[state]
-    short = re.sub(r"^(.{96}\S*)\s.+$", r"\1…", title, flags=re.S)
+    short = re.sub(r"^(.{96}\S*)\s.+$", r"\1…", title.lstrip("> "), flags=re.S)
     return row(key, short, status, f"{word}, {said}" if said else word, f"#/asks?row={key}", {"state": state, "where": where}, records)
 
 

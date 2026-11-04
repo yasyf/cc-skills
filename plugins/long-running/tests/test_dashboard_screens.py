@@ -9,7 +9,7 @@ from screens import SCREENS, changed_screens, screen_kind, screen_view
 
 OWNER_ASKS = {
     "messages": [
-        {"m": 1, "iso": "2026-11-03T03:01:00-08:00", "text": "first order", "state": "applied", "lanes": ["gateway-fix-1"], "prs": ["48019"], "latest": "Done.", "latest_seq": 1},
+        {"m": 1, "iso": "2026-11-03T03:01:00-08:00", "text": "> first order", "state": "applied", "lanes": ["gateway-fix-1"], "prs": ["48019"], "latest": "Done.", "latest_seq": 1},
         {"m": 2, "iso": "2026-11-03T05:17:00-08:00", "text": "keep going and build", "state": "asked", "lanes": [], "prs": [], "latest": "", "latest_seq": None},
     ],
     "taps": [
@@ -80,6 +80,7 @@ def test_asks_put_what_is_live_first_then_the_newest_and_say_where_each_lives():
     assert rows["ask-ask/000025"]["status"] == "waiting" and rows["ask-ask/000025"]["subtitle"] == "Asked, no progress recorded"
     assert rows["ask-m1"]["status"] == "done" and rows["ask-m1"]["subtitle"] == "Applied, Nov 3 3:01 AM" and rows["ask-m1"]["facets"]["where"] == "PR 48019"
     assert rows["ask-m1"]["records"][0]["text"] == "Pool limits hold."
+    assert rows["ask-m1"]["title"] == "first order"
     assert rows["ask-m2"]["facets"] == {"state": "asked", "where": "Chat"}
     assert rows["ask-approved-applied"]["title"] == "1 approved, landed"
 
