@@ -233,6 +233,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		Post:      post,
 		Log:       a.Log,
 	}
+	deps.Checks = append(deps.Checks, (&background{name: "review-rows", every: TickEvery, run: prfacts.New(a, env.Config, s).FoldRows, store: s, post: post, log: a.Log}).Check)
 	deps.Checks = append(deps.Checks, (&background{name: "tap-orders", every: TickEvery, run: prfacts.New(a, env.Config, s).WriteOrders, store: s, post: post, log: a.Log}).Check)
 	if slices.Contains(env.Config.Movers, config.MoverGrading) {
 		pool, err := grading.NewLivePool(a, filepath.Join(env.State, runnerFile), s)

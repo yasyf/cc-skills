@@ -141,9 +141,6 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Rec
 		var err error
 		switch string(record.Kind) {
 		case "opened":
-			if attrs["head"] == "" {
-				continue
-			}
 			if !known {
 				row = newRow(f.Repo, number)
 			}

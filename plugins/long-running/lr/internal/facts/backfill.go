@@ -51,7 +51,9 @@ func (s Source) Backfill(ctx context.Context) (int, error) {
 		}
 		if _, err := client.Post(ctx, client.Draft{
 			Drive: s.Drive, Lane: lanes[number], Kind: "opened", Text: fmt.Sprintf("backfill #%d", number),
-			ID:    fmt.Sprintf("row-backfill:%s#%d", s.Repo, number),
+			ID:    fmt.Sprintf("row-body:%s#%d@%s", s.Repo, number, pr.HeadRefOid),
+			To:    []string{"supervisor"},
+			Force: true,
 			PRs:   []string{fmt.Sprintf("%s#%d", s.Repo, number)},
 			Body:  body,
 			Attrs: map[string]string{"repo": s.Repo, "branch": pr.HeadRefName, "base": pr.BaseRefName, "head": pr.HeadRefOid},

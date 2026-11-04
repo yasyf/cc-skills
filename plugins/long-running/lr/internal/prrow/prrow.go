@@ -38,7 +38,6 @@ const (
 	onlyHim     = "Only your approval."
 	tappedWaits = "You approved it; the landing desk lands it next."
 	fieldChars  = 700
-	briefChars  = 400
 	planChecked = "Checked against the plan by the fidelity review at this version."
 )
 
@@ -115,7 +114,7 @@ func ApplyBody(row *store.ReviewRow, body string) {
 	row.ForUsers = section(body, "Summary")
 	row.Risk = section(body, "Risk profile")
 	row.PlanLine = clip(strings.TrimSpace(planLine.FindString(withoutSection(body, "Risk profile"))), fieldChars)
-	row.Description = clip(strings.TrimSpace(body), briefChars)
+	row.Description = strings.TrimSpace(body)
 	row.UnsafeWait = gates.UnsafeWait(body)
 }
 
@@ -124,7 +123,7 @@ func section(body, name string) string {
 	if opens < 0 {
 		return ""
 	}
-	return clip(strings.TrimSpace(body[starts:ends]), fieldChars)
+	return strings.TrimSpace(body[starts:ends])
 }
 
 func withoutSection(body, name string) string {
