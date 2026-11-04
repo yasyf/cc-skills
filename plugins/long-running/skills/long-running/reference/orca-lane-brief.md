@@ -92,8 +92,8 @@ Paste and fill this template for an Agent-tool subagent:
 ccx: role=<role> [cpu=high] [place=remote|local] [paths=<dir>,<dir>] [pr=none] [monitor=<Datadog monitor id>] tooling-lane=<key, for a tooling lane only>
 Standing: <the duty the drive keeps for good, such as "devbox perf and bug hunting"; only
   on a lane whose work never ends. The supervisor relaunches a standing lane it proves
-  gone after ten quiet minutes, and raises one blocker for one stood down on an order or
-  dead three times in an hour. Omit the line on a one-shot lane.>
+  gone after ten quiet minutes, and raises one blocker for one ended by a done or stopped
+  record or dead three times in an hour. Omit the line on a one-shot lane.>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted

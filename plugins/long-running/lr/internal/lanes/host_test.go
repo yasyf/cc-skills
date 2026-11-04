@@ -348,23 +348,31 @@ func TestAStandingDeskRelaunchedAndDeadThreeTimesInAnHourStopsWithOneBlockerNami
 	contains(t, blockers[0].Text, "died 3 times within 60 min")
 }
 
-func TestAStandingLaneRetiredByItsFinishedWorkerRelaunchesAfterTenMinutesAndItsSuccessorsDoneEndsIt(t *testing.T) {
+func TestAStandingLaneEndedByADoneRecordNeverRelaunchesAndItsBlockerNamesTheBrief(t *testing.T) {
 	s := memory(t)
-	f, _ := standingLane(t, s)
-	f.feed = append(f.feed, ask(2, "done", refresher, t0, nil, runner, nil))
+	f, path := standingLane(t, s)
+	f.feed = append(f.feed, ask(2, "done", refresher, t0, nil, Root, nil))
 	f.peers = nil
 
 	tick(t, s, f, t0.Add(mins(1)))
-	equal(t, len(f.launches), 0)
 	tick(t, s, f, t0.Add(mins(12)))
-	equal(t, f.launches, []string{"board-refresher-7"})
+	tick(t, s, f, t0.Add(mins(40)))
 
-	f.feed = append(f.feed, ask(3, "done", "board-refresher-7", t0.Add(mins(13)), nil, runner, nil))
-	tick(t, s, f, t0.Add(mins(13)))
-	tick(t, s, f, t0.Add(mins(30)))
+	equal(t, []any{len(f.launches), len(f.ofKind("blocker"))}, []any{0, 1})
+	contains(t, f.ofKind("blocker")[0].Text, path)
+}
 
-	equal(t, f.launches, []string{"board-refresher-7"})
-	contains(t, f.ofKind("blocker")[0].Text, "read its duty as finished")
+func TestAStandingLaneWhoseWorkerEndedWithItsDutyOpenRelaunchesAfterTenMinutes(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	do(s.SetLaneState(refresher, store.LaneRetired, t0, retiredWorkerDone, ""))
+	f.peers = nil
+
+	tick(t, s, f, t0.Add(mins(9)))
+	equal(t, len(f.launches), 0)
+	tick(t, s, f, t0.Add(mins(11)))
+
+	equal(t, []any{f.launches, len(f.ofKind("blocker"))}, []any{[]string{"board-refresher-7"}, 0})
 }
 
 func TestARetiredLaneWhoseBriefHasNoStandingLineIsNotADutyEvenAfterAStandingPredecessor(t *testing.T) {

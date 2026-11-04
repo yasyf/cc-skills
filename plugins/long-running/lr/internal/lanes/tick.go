@@ -927,8 +927,8 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 			continue
 		}
 		why := fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
-		if head.RetiredBy == "stand-down" || head.Reason != "" && head.RetiredBy == "done" {
-			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has had no live owner for over %d min: it %s, on an order or as a relaunched lane that read its duty as finished, so the supervisor does not relaunch it. Launch its successor from %s, or delete the brief's `Standing:` line to end the duty.", name, must(BriefOf(head.Brief)).Standing, int(unownedAfter.Minutes()), why, head.Brief), now)
+		if head.RetiredBy == "stand-down" || head.RetiredBy == "done" {
+			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. Launch its successor from %s if the duty is still open, or delete the brief's `Standing:` line to end it.", name, must(BriefOf(head.Brief)).Standing, why, head.Brief), now)
 			continue
 		}
 		relaunch(s, d, head, found, why, "", taken, now, out)
