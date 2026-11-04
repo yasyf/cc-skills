@@ -189,19 +189,18 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 			}
 		}
 	}
-	prose := strings.TrimSpace(r.MD)
+	lede, prose, _ := strings.Cut(strings.TrimSpace(r.MD), "\n\n")
 	for _, link := range r.Links {
 		prose += "\n- [" + link.Label + "](" + link.URL + ")"
 	}
-	children := []map[string]any{
-		{"id": r.ID + "-md", "type": "markdown", "md": prose},
-		{"id": r.ID + "-choice", "type": "choice", "options": options},
+	children := []map[string]any{{"id": r.ID + "-choice", "type": "choice", "options": options}}
+	if prose = strings.TrimSpace(prose); prose != "" {
+		children = slices.Insert(children, 0, map[string]any{"id": r.ID + "-md", "type": "markdown", "md": prose})
 	}
 	for _, pr := range r.PRs {
 		named := pullURL.FindStringSubmatch(pr)
 		children = append(children, map[string]any{"id": r.ID + "-pr-" + named[2], "type": "pr", "repo": named[1], "number": json.Number(named[2])})
 	}
-	lede, _, _ := strings.Cut(strings.TrimSpace(r.MD), "\n\n")
 	block, err := json.Marshal(map[string]any{"id": id, "type": "card", "title": r.Title, "summary": strings.Join(strings.Fields(lede), " "), "children": children})
 	if err != nil {
 		return []Outcome{{Surface: "board", Error: err.Error()}}

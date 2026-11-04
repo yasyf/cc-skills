@@ -67,6 +67,7 @@ type child struct {
 type boardCard struct {
 	ID       string  `json:"id"`
 	Title    string  `json:"title"`
+	Summary  string  `json:"summary"`
 	Children []child `json:"children"`
 }
 
@@ -277,7 +278,7 @@ func TestAnEditUpdatesEachSurfaceInPlace(t *testing.T) {
 			f.Send(context.Background(), edit(first, "Checks passed."))
 
 			for _, c := range calls(fake, "cc-present") {
-				if card := board(t, c); card.ID != "card-r3" || !strings.Contains(card.Children[0].MD, "Checks") {
+				if card := board(t, c); card.ID != "card-r3" || !strings.Contains(card.Summary, "Checks") {
 					t.Errorf("board write %+v is not card-r3", card)
 				}
 			}
@@ -450,5 +451,22 @@ func TestAPlainAnswerToHisThreadStillReachesTheThread(t *testing.T) {
 	fanout(t, fake).Send(context.Background(), Reply{ID: "r8", Title: "Yes, it reached the board", MD: "It is the third card."})
 	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
 		t.Fatalf("cc-slack calls = %+v, want an answer to a chat ask kept off Slack", posted)
+	}
+}
+
+func TestACardCarriesItsLeadParagraphOnce(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+
+	f.Send(context.Background(), Reply{ID: "r8", Title: "Land it?", MD: "Checks passed.\n\nIt ships tonight.", Picks: []string{"Land it", "Hold it"}, Recommended: "Land it"})
+	f.Send(context.Background(), Reply{ID: "r9", Title: "Hold it?", MD: "Checks passed.", Picks: []string{"Land it", "Hold it"}, Recommended: "Land it"})
+
+	sent := calls(fake, "cc-present")
+	card := board(t, sent[0])
+	if card.Summary != "Checks passed." || card.Children[0].Type != "markdown" || card.Children[0].MD != "It ships tonight." {
+		t.Fatalf("card %+v, want the lead in the summary and the rest in the markdown", card)
+	}
+	if card := board(t, sent[1]); card.Summary != "Checks passed." || card.Children[0].Type != "choice" {
+		t.Fatalf("card %+v, want a one-paragraph reply in the summary with no markdown child", card)
 	}
 }
