@@ -94,6 +94,7 @@ Under O16 in `reference/orca-desk-brief.md`:
 - An `Agent` subagent ends with the window that spawned it, so the coordinator and the communicator both spawn desks with `lr`, never with `Agent`. The communicator spawns only short read lanes, under an hour and with no `Standing:` line.
 - A lane never spawns with `Agent`: even a background spawn blocks the lane's turn and hides release reds. It posts its state and an ETA, then writes the brief and posts `cci post --kind ask --to root --text 'spawn <name> brief=<path> model=<model>'`. It never sends `SendMessage` to a subagent.
 - The meta lane launches its own implementers with `lr launch lane <name> opus xhigh <brief> --lane meta`.
+- A hook that blocks a session is the one fix that session launches itself ([SKILL.md](../SKILL.md#hooks-and-refusals)): `lr launch lane hook-fix-<hook> opus xhigh <brief> --drive <drive> --lane <you>`, unless `lr lanes hook-fix-<hook>` shows one live. The brief carries the usual `Register slice:`, `Scale:` and `ccx:` lines, `place=local` when the blocked session runs on the Mac, the refusal verbatim and the call it refused. The fix lane edits the hook through `captain-hook:authoring-hooks`, writes a regression test that fails on the old hook, merges under the repo's standing rule once CI is green, and installs: the pack with `claude plugin marketplace update skills` then `claude plugin update long-running@skills --scope user` once the autobump has landed, a builtin pack through a captain-hook release. It reads the fixed line in the installed text, then posts `--kind done --attr installed=<version> --attr proof=<the refused call going through>` to the blocked session. A fix that changes what a safety rule allows, rather than a misfire, stops and asks the owner through the meta lane.
 - A question that needs a search goes to `lr ask-lane '<question>'`, with `--mac` when it needs Slack or a session transcript, which no Sprite has. A Sonnet lane answers the asker in one `answer` record naming the seqs and paths it read, then ends; the asker's turn never waits on it.
 - A question that takes more than a few reads of transcripts, records or logs goes through `lr bulk read` (the `bulk-read` skill), so no window reads the corpus itself.
 - A brief whose duty the drive keeps for good carries `Standing:` and a duty. The lane supervisor relaunches the lane from that brief once the newest lane on the duty is proved gone after 10 quiet minutes, logs one record to the meta desk, and raises one blocker for a lane ended by a `done` or `stopped` record or dead three times in an hour; a lane so ended never relaunches. Stand such a lane down only with a successor (a hook warns on a stand-down that names none); deleting the line ends the duty. A helper the brief names by path or through a variable such as `$DRIVE_DIR/<lane>/tool.py` travels to a Sprite.
@@ -238,14 +239,17 @@ Read your whole brief, including its tail and any correction the coordinator app
 your first edit and again before you ship. Read your own lane's records, not a successor hook's
 view of the old lane, before a ruling-level edit, and read records whole before acting on them.
 Queued teammate mail can predate a bus decision: check cci for a newer `DECIDE` before building
-on mail that reverses it. A hook refusal is never a cue for `cc-sudo`: stop and ask rather than
-rerun a refused command through it.
+on mail that reverses it. A hook that blocks your work gets a fix lane you launch that turn,
+`lr launch lane hook-fix-<hook> opus xhigh <brief>`, and you keep working on what it does not
+block; while the refusal stands, never run the refused thing through a wrapper, `cc-sudo` or a
+script. A hook that blocks nothing and could be better is one `cci post --kind note --to meta-desk`.
 Call `Skill(codex)` or `codex:codex-wrapper`; send a one-off question to `codex-ask`. Run codex
 in the foreground (blocking), or end the turn and let the Agent notification wake you;
 never a shell loop on its reply file. Record each sub-dispatch with `ledger.py ask` before
 dispatch and `ledger.py answer` when its reply lands.
-`# ccx:raw` at the end of a Bash command runs it past the hooks as written. Use it only where
-a hook misreads the command, and name that hook in your report.
+`# ccx:raw` at the end of a Bash command runs it past the rewriting hooks as written. Use it only
+for raw VCS mechanics a hook misreads, name that hook in your report, and never put it on a
+command a guard refused.
 Shell text: Claude Code holds any Bash command holding `$$(`, `$${` or `$$[` on a
 "Dangerous rm operation not ruled out" dialog, even inside a quoted heredoc. Write such a
 file with the Write tool and run it with a Bash command free of them.

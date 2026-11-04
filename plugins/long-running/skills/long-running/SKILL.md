@@ -32,6 +32,7 @@ investigation is one subagent in direct mode, not a drive.
 
 - [Read the file for your job](#read-the-file-for-your-job)
 - [Judgment first](#judgment-first)
+- [Hooks and refusals](#hooks-and-refusals)
 - [Meta changes land in the skill](#meta-changes-land-in-the-skill)
 - [Before every tool call](#before-every-tool-call)
 - [Ask the verb, never read](#ask-the-verb-never-read)
@@ -80,12 +81,14 @@ Read only the row you are doing. Each file states its rules in full.
   reading, never a redesign of something he ruled on earlier; read the register's rows on
   that subject before acting. A repeat is a defect report about the first reading: fix every
   place it survived, that turn.
-- A tooling refusal goes to the meta lane the same turn and the work proceeds on the hand
-  path; it is never an excuse and never a question for the owner.
-- Hooks warn. They block only on trust: a merge without the owner's approval, a change to who
-  approves landings, a revert without his word, a runner or desk started from the
-  communicator, hook-file edits and the session-protection guards. A failed read only warns;
-  `tests/test_fail_open.py` enforces it and lists the exceptions.
+
+## Hooks and refusals
+
+- Hooks warn. They block only on trust: a merge without the owner's approval, a change to who approves landings, a revert without his word, a runner or desk started from the communicator, edits to the installed hook files and the session-protection guards. A failed read only warns; `tests/test_fail_open.py` enforces it and lists the exceptions, and the Slack permission hook fails open ([slack-lane-brief.md](reference/slack-lane-brief.md)).
+- A hook that blocks your work gets a fix lane the turn it blocks you, and you keep working on what it does not block. The blocked session launches it, whether lane, desk, coordinator or communicator, with no ask to `root` and no meta lane: `lr launch lane hook-fix-<hook> opus xhigh <brief> --drive <drive> --lane <you>`, unless `lr lanes hook-fix-<hook>` shows one live.
+- Hooks live in `plugins/long-running/capt-hook/hooks/` in yasyf/cc-skills and in `captain_hook/builtin_packs/` in yasyf/captain-hook, and every change follows `captain-hook:authoring-hooks`, whose lint and test run in that repo's CI. The fix lane fixes the hook's real defect with a regression test, ships it, installs it where the blocked session runs, and its proof is the refused call going through ([orca-lane-brief.md](reference/orca-lane-brief.md#who-spawns-asks-and-reads)).
+- Fixing is not routing around: while a refusal stands nobody runs the blocked thing through a wrapper, `cc-sudo` or a script. The owner's safety rules stay as written: merge, Slack, load tests and the process guard. A hook guarding one of them that misfires gets its misfire fixed with a regression test, and the rule itself changes only on his word. The one hook disabled before its fix is one that blocks the communicator's every stop: comment it out in the pack source with a TODO naming its fix lane, in a PR merged at once, since an edit to the installed cache lasts only until the next install, which this Mac runs within minutes.
+- A hook that blocks nothing and could be better goes to the meta lane as one `cci post --kind note --to meta-desk`. Any other tool's refusal goes to the meta lane the same turn and the work proceeds on its hand path. No refusal is an excuse or a question for the owner.
 
 ## Meta changes land in the skill
 
@@ -105,7 +108,7 @@ record is a pointer and never counts as done.
 | Status | The communicator sends the update desk's render; the coordinator sends nothing. |
 | An owner message | The communicator spawns one subagent for it, which answers on the surface it came from; the coordinator applies the ruling everywhere; a ruling on how the drive works goes to the meta lane that turn, which makes it a skill update. |
 | An alert the supervisor has not answered | `lr incident run <slug>` now. |
-| A tool refusal, or something that went wrong twice | Send it to the meta lane this turn, where the fix is a Go verb, and proceed. |
+| A tool refusal, or something that went wrong twice | A hook blocking your work gets the fix lane you launch this turn ([Hooks and refusals](#hooks-and-refusals)); anything else goes to the meta lane this turn, where the fix is a Go verb. Proceed either way. |
 | An approval, hold, start or cancel | The owner's order carries it or a lane owns it. |
 
 Finished agents stopped, production operations logged, nothing called done that is not live and checked.
@@ -189,27 +192,25 @@ emergency runs only when the regular path is too slow for a live customer impact
 canceled once its apply has started. The full rule is in
 [release-lanes.md](reference/release-lanes.md).
 
-**R12.** Every red goes to its owning lane the same turn with a 15-minute deadline; a red with no
-live owner gets a lane.
+**R12.** Every red goes to its owning lane the same turn with a 15-minute deadline; a red with no live owner gets a lane.
 
-**R13.** Every owed item is dispatched the same turn, one lane each. A fix or review response owed
-on an open PR goes to the lane that owns it, as a commit on that PR, never a new lane or a stacked
-child.
+**R13.** Every owed item is dispatched the same turn, one lane each. A fix or review response owed on an open PR goes to
+the lane that owns it, as a commit on that PR, never a new lane or a stacked child.
 
 **R14.** A process fix is a PR the turn it is adopted, driven to merge, release and install by its
-lane, proven on the record that reported the defect. A tooling defect, refusal or repeated chore
-goes to the meta lane that turn, which gives it an implementer; the coordinator never spawns one.
-One lane installs per night. An install interrupts nothing: the supervisor takes a release between
-ticks and the relay between passes. A fix for drive tooling that is actively causing harm ships as its
-own PR off main, never stacked, merged and installed before any other tooling change. No new Python
-enters the pack; a fix to a Python script is a Go verb.
+lane, proven on the record that reported the defect. A hook that blocks a session is fixed by the lane
+that session launches, which installs its own fix at merge ([Hooks and refusals](#hooks-and-refusals)).
+Every other tooling defect, refusal or repeated chore goes to the meta lane that turn, which gives it an
+implementer; the coordinator never spawns one. One lane installs those per night. An install interrupts
+nothing: the supervisor takes a release between ticks and the relay between passes. A fix for drive tooling
+that is actively causing harm ships as its own PR off main, never stacked, merged and installed before any
+other tooling change. No new Python enters the pack apart from capt-hook hooks; a fix to a Python script is a Go verb.
 
-**R15.** CI is the verifier and runs every test. Before it pushes, a lane runs `go build` and
-`go vet` over the Go packages it touched and the typecheck over the TypeScript it touched, which
-the `vet_before_push` hook enforces; the `local_builds` hook refuses every other local test, build
-and lint. Batch jobs run on in-region compute. Machine load never holds a remote build or an
-owner-directed apply. A wrapper that runs a build or check remotely fails with a clear error when no
-remote builder answers, and never falls back to the local toolchain.
+**R15.** CI is the verifier and runs every test. Before it pushes, a lane runs `go build` and `go vet` over the Go packages
+it touched and the typecheck over the TypeScript it touched, which the `vet_before_push` hook enforces; the `local_builds`
+hook refuses every other local test, build and lint. Batch jobs run on in-region compute. Machine load never holds a remote
+build or an owner-directed apply. A wrapper that runs a build or check remotely fails with a clear error when no remote
+builder answers, and never falls back to the local toolchain.
 
 **R16.** An active alert gets its fix lane the same turn, without a coordinator: the supervisor
 launches the fix and evidence lanes for an alert nobody answered in three minutes. An alert that
@@ -288,12 +289,11 @@ never with `Agent`, binds the Run and starts every desk (`lr desks start`). It n
 the board and never speaks to the owner; everything he must see is a `report` to `owner-relay`. It
 owns drive work only and decides five things: a new ask gets a lane, an owner ruling is applied everywhere, an escalation
 gets one answer, a conflict between two owner rules is settled in one `report`, and a desk's output is relayed unchanged. A
-tooling defect it or a lane hits goes out as
-`cci post --lane root --kind report --to owner-relay --text 'for meta: <the defect, any refusal verbatim>'`
-and the work proceeds on the hand path.
+hook that blocks it gets a fix lane like any session's. Any other tooling defect it hits goes out as
+`cci post --lane root --kind report --to owner-relay --text 'for meta: <the defect, any refusal verbatim>'` and the work proceeds on the hand path.
 
 **The meta lane** is a standing session bound to lane `meta`. It owns every skill, tooling, prompt, hook
-and process change, and every meta order the owner sends. It reports only to the
+and process change but the fix of a hook blocking a session, and every meta order the owner sends. It reports only to the
 communicator; the coordinator hears from it only one `decide` line, when it must act on a drive lane
 (`meta_records`). Each item ends in a merged PR with tests, which the meta lane installs itself (R14),
 and it is done only when installed where it runs and seen working.
