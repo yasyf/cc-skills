@@ -69,6 +69,7 @@ var (
 	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
 	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
 	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
+	slackStamp = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\?|$)`)
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 )
 
@@ -113,6 +114,7 @@ type Reply struct {
 	Links       []Link   `json:"links,omitempty"`
 	PRs         []string `json:"prs,omitempty"`
 	PRCards     []prCard `json:"pr_cards,omitempty"`
+	OpenPicks   []string `json:"-"`
 	Thread      string   `json:"thread,omitempty"`
 	Order       string   `json:"order,omitempty"`
 	Unprompted  bool     `json:"unprompted,omitempty"`
@@ -157,10 +159,10 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	seen := r
 	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
 	told := seen.diagramNoted()
-	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
 	case r.quiet():
-		steps = []step{{f.board, told}, {f.slack, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+		steps = []step{{f.board, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	case r.Order == "" || r.Status != info || len(r.Picks) > 0:
 		steps = steps[:len(steps)-1]
 	}
@@ -215,6 +217,7 @@ func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 			continue
 		}
 		r.MD = linkedCard(r.MD, card)
+		r.OpenPicks = append(r.OpenPicks, card.URL)
 	}
 	return r, strings.Join(warned, "; ")
 }
@@ -769,7 +772,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
-	return f.dmStatus(ctx, "--card", card)
+	return f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)
 }
 
 func (d delivery) ownMessage(r Reply) Outcome {
@@ -818,11 +821,55 @@ func (f Fanout) inThread(ctx context.Context, r Reply, drawn Outcome) []Outcome 
 	for _, link := range r.Links {
 		body += "\n<" + link.URL + "|" + link.Label + ">"
 	}
-	posted := f.dmStatus(ctx, "--thread", r.Thread, "*"+r.Title+"*\n"+r.withPickLink(body, drawn))
+	posted := f.dmStatus(ctx, slices.Concat([]string{"--thread", r.Thread}, r.tapFlags(), []string{"*" + r.Title + "*\n" + body})...)
 	if drawn.Surface != "" {
 		posted[0].Surface = "slack thread"
 	}
 	return posted
+}
+
+func (r Reply) tapFlags() []string {
+	if len(r.Picks) > 0 {
+		return nil
+	}
+	flags := make([]string, 0, 2*len(r.PRs))
+	for _, pr := range r.PRs {
+		flags = append(flags, "--tap-pr", pr)
+	}
+	return flags
+}
+
+func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outcome {
+	drawn := surface(sent, "slack")
+	cards := r.OpenPicks
+	if len(r.Picks) > 0 && r.Thread != "" && drawn.Ref != "" {
+		cards = append([]string{drawn.Ref}, cards...)
+	}
+	thread := r.Thread
+	if found := slackStamp.FindStringSubmatch(drawn.Ref); thread == "" && found != nil {
+		thread = found[1] + "." + found[2]
+	}
+	was, err := f.delivered(r.ID)
+	if err != nil || was.Reply.ID != "" || thread == "" {
+		return nil
+	}
+	copies := make([]Outcome, 0, len(cards))
+	for _, card := range cards {
+		done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "card-copy", "--url", card, "--thread", thread}, Timeout: postTimeout})
+		if err != nil {
+			copies = append(copies, failed("card copy", err))
+			continue
+		}
+		var posted struct {
+			Permalink string `json:"permalink"`
+		}
+		if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
+			copies = append(copies, Outcome{Surface: "card copy", Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
+			continue
+		}
+		copies = append(copies, Outcome{Surface: "card copy", Ref: posted.Permalink})
+	}
+	return copies
 }
 
 func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
