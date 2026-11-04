@@ -155,10 +155,8 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	told := seen.diagramNoted()
 	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
-	case r.quiet() && r.Thread != "":
-		steps = []step{{f.board, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	case r.quiet():
-		steps = []step{{f.board, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+		steps = []step{{f.board, told}, {f.slack, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	case r.Order == "" || r.Status != info || len(r.Picks) > 0:
 		steps = steps[:len(steps)-1]
 	}
@@ -583,13 +581,21 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		Timeout: postTimeout,
 	})
 	if err != nil {
-		return []Outcome{failed("board", err), {Surface: "slack", Error: "the board card did not post, so cc-present sent no Slack card"}}
+		return []Outcome{failed("board", err), {Surface: "slack", Ref: f.postedRef(r.ID), Error: "the board card did not post, so cc-present sent no Slack card"}}
 	}
 	posted := slackSent.FindStringSubmatch(done.Stdout)
 	if posted == nil {
-		return []Outcome{{Surface: "board", Ref: id}, {Surface: "slack", Error: "cc-present put " + id + " on the board and sent no Slack card"}}
+		return []Outcome{{Surface: "board", Ref: id}, f.leftOnTheBoard(r.ID, id)}
 	}
 	return []Outcome{{Surface: "board", Ref: id}, {Surface: "slack", Ref: posted[1]}}
+}
+
+func (f Fanout) leftOnTheBoard(replyID, cardID string) Outcome {
+	ref := f.postedRef(replyID)
+	if ref == "" {
+		return Outcome{Surface: "slack", Error: "cc-present put " + cardID + " on the board and sent no Slack card"}
+	}
+	return Outcome{Surface: "slack", Ref: ref, Error: "cc-present updated " + cardID + " on the board and left " + ref + " as posted: he already answered that card, or it already says this"}
 }
 
 func (f Fanout) withdraw(ctx context.Context, r Reply) []Outcome {
@@ -615,14 +621,9 @@ func (f Fanout) withdraw(ctx context.Context, r Reply) []Outcome {
 	}
 	gone := Outcome{Surface: "board", Ref: id + withdrawn}
 	if copied.Ref == "" {
-		copied.Error = id + " never reached Slack, so there is no Slack card to edit"
-		return []Outcome{gone, copied}
+		return []Outcome{gone}
 	}
-	card, err := f.statusCard(r, r.MD, copied.Ref)
-	if err != nil {
-		return []Outcome{gone, {Surface: "slack", Ref: copied.Ref, Error: err.Error()}}
-	}
-	return append([]Outcome{gone}, f.dmStatus(ctx, "--card", card)...)
+	return []Outcome{gone, f.edit(ctx, r, copied, r.MD)}
 }
 
 func leftTheBoard(err error) bool {
@@ -697,10 +698,17 @@ func (f Fanout) anchor(id string) string {
 
 func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	drawn := surface(sent, "slack")
+	was, err := f.delivered(r.ID)
+	if err != nil {
+		return []Outcome{{Surface: "slack", Error: "the earlier reply did not read, so nothing was posted or edited: " + err.Error()}}
+	}
+	if own := was.ownMessage(r); own.Ref != "" {
+		return []Outcome{f.edit(ctx, r, own, r.withPickLink(r.MD, drawn))}
+	}
 	if r.Thread != "" && (drawn.Surface == "" || len(r.Picks) > 0) {
 		return f.inThread(ctx, r, drawn)
 	}
-	if drawn.Surface != "" || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
+	if drawn.Surface != "" || r.quiet() || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
 	}
 	card, err := f.statusCard(r, r.MD, "")
@@ -708,6 +716,44 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
 	return f.dmStatus(ctx, "--card", card)
+}
+
+func (d delivery) ownMessage(r Reply) Outcome {
+	if beside := surface(d.Surfaces, "slack thread"); beside.Ref != "" {
+		return beside
+	}
+	if surface(d.Surfaces, "board").Surface != "" {
+		return Outcome{}
+	}
+	message := surface(d.Surfaces, "slack")
+	if len(r.Picks) > 0 {
+		message.Surface = "slack thread"
+	}
+	return message
+}
+
+func (f Fanout) edit(ctx context.Context, r Reply, message Outcome, body string) Outcome {
+	edited := Outcome{Surface: message.Surface, Ref: message.Ref}
+	card, err := f.statusCard(r, body, message.Ref)
+	if err != nil {
+		edited.Error = editFailed(message.Ref, err.Error())
+		return edited
+	}
+	if done := f.dmStatus(ctx, "--card", card)[0]; done.Error != "" {
+		edited.Error = editFailed(message.Ref, done.Error)
+	}
+	return edited
+}
+
+func editFailed(ref, why string) string {
+	return "did not edit " + ref + " and posted nothing new: " + why
+}
+
+func (r Reply) withPickLink(body string, drawn Outcome) string {
+	if drawn.Ref == "" || len(r.Picks) == 0 {
+		return body
+	}
+	return body + "\n<" + drawn.Ref + "|" + pickLead + ">"
 }
 
 func (f Fanout) inThread(ctx context.Context, r Reply, drawn Outcome) []Outcome {
@@ -718,10 +764,7 @@ func (f Fanout) inThread(ctx context.Context, r Reply, drawn Outcome) []Outcome 
 	for _, link := range r.Links {
 		body += "\n<" + link.URL + "|" + link.Label + ">"
 	}
-	if drawn.Ref != "" {
-		body += "\n<" + drawn.Ref + "|" + pickLead + ">"
-	}
-	posted := f.dmStatus(ctx, "--thread", r.Thread, "*"+r.Title+"*\n"+body)
+	posted := f.dmStatus(ctx, "--thread", r.Thread, "*"+r.Title+"*\n"+r.withPickLink(body, drawn))
 	if drawn.Surface != "" {
 		posted[0].Surface = "slack thread"
 	}
@@ -832,6 +875,14 @@ func (f Fanout) delivered(id string) (delivery, error) {
 		return was, err
 	}
 	return was, json.Unmarshal(data, &was)
+}
+
+func (f Fanout) postedRef(id string) string {
+	was, err := f.delivered(id)
+	if err != nil {
+		return ""
+	}
+	return surface(was.Surfaces, "slack").Ref
 }
 
 func (f Fanout) stored(id string) string {
