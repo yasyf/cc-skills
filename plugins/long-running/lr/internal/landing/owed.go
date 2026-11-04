@@ -434,7 +434,14 @@ func (r *ReleaseOwed) press(ctx context.Context, landing owedLanding, records []
 	}
 	number := strconv.Itoa(pr.Number)
 	kind, text := r.pressWords(pr.Number, owed, minutes, whole)
-	posted, err := client.Post(ctx, client.Draft{Drive: r.Drive, Lane: self, Kind: kind, To: []string{r.holder, rootLane}, ID: "release:" + number + ":" + step, Topic: number, PRs: []string{r.Repo + "#" + number}, Text: text})
+	running, err := lanes.Running(r.Store, r.Drive, r.holder)
+	if err != nil {
+		return err
+	}
+	if running == rootLane {
+		text = "UNOWNED, " + r.holder + " is not running: " + text
+	}
+	posted, err := client.Post(ctx, client.Draft{Drive: r.Drive, Lane: self, Kind: kind, To: slices.Compact([]string{running, rootLane}), ID: "release:" + number + ":" + step, Topic: number, PRs: []string{r.Repo + "#" + number}, Text: text})
 	if err != nil {
 		return err
 	}

@@ -44,7 +44,7 @@ func TestTheNov3LandingsReachEachOwnerOnceAndSkipOneAlreadySaid(t *testing.T) {
 		{Facts: machine.Facts{Repo: monorepo, Number: 48347, Head: "50db257", Lane: ""}, LastOpen: said.At.AddDate(0, 0, -1)},
 	}
 
-	if err := landing.Announce(ctx, newStore(t), "d", "dev", landings, route); err != nil {
+	if err := landing.Announce(ctx, storeWith(t, "test-fix-ssql-supervisor-3"), "d", "dev", landings, route); err != nil {
 		t.Fatal(err)
 	}
 
@@ -71,7 +71,7 @@ func TestALandedRecordSkipsABoardDeskWithNoLiveLaneInsteadOfTellingRootEachTime(
 	ctx := context.Background()
 	landings := []pass.Landing{{Facts: machine.Facts{Repo: monorepo, Number: 7, Head: "e718a7434f", Lane: "lane-7"}, LastOpen: t0}}
 
-	if err := landing.Announce(ctx, newStore(t), "d", "dev", landings, func(string) string { return "root" }); err != nil {
+	if err := landing.Announce(ctx, storeWith(t, "lane-7"), "d", "dev", landings, func(string) string { return "root" }); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,6 +104,50 @@ func TestALandedRecordForARetiredLaneReachesTheLaneThatSucceededIt(t *testing.T)
 	}
 }
 
+func storeWith(t *testing.T, running ...string) *store.Store {
+	t.Helper()
+	s := newStore(t)
+	for _, lane := range running {
+		if _, err := s.WantLane(store.Lane{Name: lane, State: store.LaneDesired}, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
+}
+
+func TestAQueueAnswerForAStoppedLaneReachesRootAndARefusalSaysUnowned(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s := storeWith(t, "ssql-4")
+	if err := s.SetLaneState("ssql-4", store.LaneRetired, t0, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	f := machine.Facts{Repo: monorepo, Number: 48476, Head: "9b837a86bbcc", Lane: "ssql-4"}
+
+	if err := landing.Settle(ctx, s, "d", []landing.Said{
+		{f, "QUEUED", "REFUSED", "exit 1: enqueued nothing: no approved green bottom prefix", false},
+		{f, "QUEUED", "REFUSED", "exit 0: #48476 QUEUED 9b837a86bb native stack covers #48476", false},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	posted, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"report"}, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := make([]string, 0, len(posted))
+	for _, record := range posted {
+		said = append(said, record.To[0]+": "+record.Text)
+	}
+	want := []string{
+		"root: UNOWNED, ssql-4 is not running: REFUSED #48476 at 9b837a86bb: exit 1: enqueued nothing: no approved green bottom prefix",
+		"root: QUEUED #48476 at 9b837a86bb: exit 0: #48476 QUEUED 9b837a86bb native stack covers #48476",
+	}
+	if !slices.Equal(said, want) {
+		t.Fatalf("got %q, want %q", said, want)
+	}
+}
+
 func retire(t *testing.T, s *store.Store, name, successor string) {
 	t.Helper()
 	for _, lane := range []string{name, successor} {
@@ -130,7 +174,7 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 	}
 
 	for range 2 {
-		if err := landing.Settle(ctx, newStore(t), "d", answers); err != nil {
+		if err := landing.Settle(ctx, storeWith(t, "ssql-3", "ssql-4"), "d", answers); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -157,10 +201,7 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 func TestAnUntappedDequeueIsABlockerToItsLaneAndTheMetaDesk(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	ctx := context.Background()
-	s := newStore(t)
-	if _, err := s.WantLane(store.Lane{Name: "meta-desk-3", State: store.LaneDesired}, t0); err != nil {
-		t.Fatal(err)
-	}
+	s := storeWith(t, "meta-desk-3", "ssql-5")
 	if err := s.SetLaneRole("meta-desk-3", "meta"); err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package pass_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
@@ -375,7 +376,7 @@ func TestAMoverNotYetCutOverKeepsItsItemsInTheStoreAndSilent(t *testing.T) {
 }
 
 func running(s *store.Store) pass.Owner {
-	return func(lane string) (string, error) { return lanes.Running(s, "d", lane) }
+	return func(lane string, pr int) (string, error) { return lanes.ChangeOwner(s, "d", lane, pr) }
 }
 
 func TestAnOverdueRedReachesOnlyARunningOwnerOrItsNamedSuccessorElseRootAsUnowned(t *testing.T) {
@@ -399,6 +400,51 @@ func TestAnOverdueRedReachesOnlyARunningOwnerOrItsNamedSuccessorElseRootAsUnowne
 				t.Fatal(err)
 			}
 			given := facts(45470, func(f *machine.Facts) { f.CI, f.Lane = machine.CIFailure, "lane-7" })
+
+			run(t, s, r, t0, all, given)
+			r.posts = nil
+			run(t, s, r, t0.Add(20*time.Minute), all, given)
+
+			if !reflect.DeepEqual(r.posts, []posted{tt.want}) {
+				t.Fatalf("posts = %+v", r.posts)
+			}
+		})
+	}
+}
+
+func TestTheOct31StallAlertsReachTheLastPusherThenTheCoordinatorsNaming(t *testing.T) {
+	const opener, later, carrier, chain, stoppedPusher, namedByRoot = "data-client-layer-3", "data-client-layer-4", "conflicts-5", "n-enumeration-11", "placement-build-3", "placement-build-4"
+	ask := func(to string, pr int) posted {
+		return posted{[]string{to}, bus.Ask{Text: fmt.Sprintf("org/repo#%d fix-red overdue", pr)}}
+	}
+	for _, tt := range []struct {
+		name          string
+		pr            int
+		pusher, named string
+		stopped       []string
+		want          posted
+	}{
+		{"#46052, sent to a later lane of its opener's stem in cci 255356", 46052, carrier, opener, []string{opener}, ask(carrier, 46052)},
+		{"#46071, sent to a lane root never named for it in cci 255357", 46071, chain, carrier, nil, ask(chain, 46071)},
+		{"#45813, whose pusher stopped and whose new owner root named in cci 255401", 45813, stoppedPusher, namedByRoot, []string{stoppedPusher}, ask(namedByRoot, 45813)},
+		{"a stopped pusher and a stopped naming never fall to a later lane of the stem", 46052, carrier, opener, []string{carrier, opener}, posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#46052", Cause: "UNOWNED, conflicts-5 is not running: fix-red overdue"}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			for _, lane := range []string{opener, later, carrier, chain, stoppedPusher, namedByRoot} {
+				if _, err := s.WantLane(store.Lane{Name: lane, State: store.LaneDesired}, t0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, lane := range tt.stopped {
+				if err := s.SetLaneState(lane, store.LaneRetired, t0, "", ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Own(tt.named, []int{tt.pr}); err != nil {
+				t.Fatal(err)
+			}
+			given := facts(tt.pr, func(f *machine.Facts) { f.CI, f.Lane = machine.CIFailure, tt.pusher })
 
 			run(t, s, r, t0, all, given)
 			r.posts = nil
@@ -676,6 +722,30 @@ func TestThreePRsTheQueueRefusesAlikeForHalfAnHourReachRootOnceAsOneCause(t *tes
 	}
 }
 
+func TestThreePRsAGateRefusesAlikeForHalfAnHourReachRootOnceNamingTheGate(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	ready := []machine.Facts{facts(48001, nil), facts(48002, nil), facts(48003, nil)}
+
+	run(t, s, r, t0, all, ready...)
+	for _, f := range ready {
+		if _, err := s.PutFact(repo, f.Number, head, gates.RefusedFact, "unsafe-on-dev", t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	early := run(t, s, r, t0.Add(29*time.Minute), all, ready...)
+	late := run(t, s, r, t0.Add(30*time.Minute), all, ready...)
+	later := run(t, s, r, t0.Add(33*time.Minute), all, ready...)
+
+	want := []pass.Escalated{{
+		Subject: "org/repo: the unsafe-on-dev gate refused for 30 minutes",
+		Cause:   "on 3 or more open PRs, first #48001: #48001, #48002, #48003",
+		To:      "root",
+	}}
+	if len(clustered(early)) != 0 || !reflect.DeepEqual(clustered(late), want) || len(clustered(later)) != 0 {
+		t.Fatalf("early = %+v, late = %+v, later = %+v", clustered(early), clustered(late), clustered(later))
+	}
+}
+
 func TestTwoPRsTheQueueRefusesAlikeRaiseNoCluster(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	ready := []machine.Facts{facts(48001, nil), facts(48002, nil)}
@@ -686,6 +756,32 @@ func TestTwoPRsTheQueueRefusesAlikeRaiseNoCluster(t *testing.T) {
 
 	if got := clustered(out); len(got) != 0 {
 		t.Fatalf("clustered = %+v", got)
+	}
+}
+
+func TestAGreenHeadOfAStoppedLaneTellsTheGraderDeskAndRootInRecordsTheBusAccepts(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	given := facts(48967, func(f *machine.Facts) { f.Finder = "" })
+
+	run(t, s, r, t0, all, given)
+	run(t, s, r, t0.Add(time.Hour), all, given)
+
+	got := ungradedPosts(r)
+	want := []posted{
+		{[]string{"grader-appeals-3"}, bus.Note{Text: "org/repo#48967 at e718a7434f green and ungraded for 60 minutes: no finder grade"}},
+		{[]string{"root"}, bus.Escalation{Subject: "org/repo#48967 at e718a7434f", Cause: "UNOWNED, lane-7 is not running: green and ungraded for 60 minutes: no finder grade"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("posts = %+v", got)
+	}
+	for _, p := range got {
+		raw, err := json.Marshal(p.body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := bus.Check(p.body.Kind(), raw, p.to); err != nil {
+			t.Fatalf("the bus refuses %+v: %v", p, err)
+		}
 	}
 }
 

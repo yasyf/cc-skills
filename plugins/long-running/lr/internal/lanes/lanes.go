@@ -197,6 +197,18 @@ func Running(s *store.Store, drive, name string) (holder string, err error) {
 	return Root, nil
 }
 
+func ChangeOwner(s *store.Store, drive, pusher string, pr int) (string, error) {
+	owner, err := Running(s, drive, pusher)
+	if err != nil || owner != Root {
+		return owner, err
+	}
+	named, err := s.OwnerOf([]int{pr})
+	if err != nil {
+		return "", err
+	}
+	return Running(s, drive, named[pr])
+}
+
 func family(name string) (string, int) {
 	if found := numbered.FindStringSubmatch(name); found != nil {
 		n, _ := strconv.Atoi(found[2])

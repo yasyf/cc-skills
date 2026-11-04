@@ -31,7 +31,7 @@ type Escalated struct {
 
 type Route func(desk string) string
 
-type Owner func(lane string) (string, error)
+type Owner func(lane string, pr int) (string, error)
 
 type Landing struct {
 	Facts    machine.Facts
@@ -286,7 +286,7 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 			to = route(desk)
 		case rootOwned, lane == root:
 		default:
-			if to, err = owner(lane); err != nil {
+			if to, err = owner(lane, item.Number); err != nil {
 				return err
 			}
 			if to == root {
@@ -355,6 +355,9 @@ func clusterCause(s *store.Store, item store.Item) (string, time.Duration, error
 		if said := facts[EnqueuedFact]; said != "" {
 			own := regexp.MustCompile(`\b` + strconv.Itoa(item.Number) + `\b`)
 			return fmt.Sprintf("the queue said %q for %d minutes", own.ReplaceAllString(said, "<pr>"), int(refusalCluster.Minutes())), refusalCluster, nil
+		}
+		if gate := facts[gates.RefusedFact]; gate != "" {
+			return fmt.Sprintf("the %s gate refused for %d minutes", gate, int(refusalCluster.Minutes())), refusalCluster, nil
 		}
 	}
 	switch {
@@ -484,13 +487,20 @@ func tellUngraded(s *store.Store, f machine.Facts, waited time.Duration, now tim
 	case waited >= ungradedRoot:
 		return escalate(s, subject, fmt.Sprintf("green and ungraded for %d minutes", int(ungradedRoot.Minutes())), detail, root, now, post, out)
 	case waited >= ungradedLane:
-		lane, err := owner(f.Lane)
+		lane, err := owner(f.Lane, f.Number)
 		if err != nil {
 			return err
 		}
 		desk := route(GraderDesk)
-		both := func(_ []string, body bus.Body) error { return post(slices.Compact([]string{desk, lane}), body) }
-		return escalate(s, subject, fmt.Sprintf("green and ungraded for %d minutes", int(ungradedLane.Minutes())), detail, desk, now, both, out)
+		cause := fmt.Sprintf("green and ungraded for %d minutes", int(ungradedLane.Minutes()))
+		if lane != root {
+			both := func(_ []string, body bus.Body) error { return post(slices.Compact([]string{desk, lane}), body) }
+			return escalate(s, subject, cause, detail, desk, now, both, out)
+		}
+		if err := escalate(s, subject, cause, detail, desk, now, post, out); err != nil || desk == root {
+			return err
+		}
+		return escalate(s, subject, "UNOWNED, "+f.Lane+" is not running: "+cause, detail, root, now, post, out)
 	}
 	return nil
 }

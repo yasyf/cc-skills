@@ -71,6 +71,9 @@ func newLandings(t *testing.T) landings {
 		if err := s.PutPR(store.PR{Repo: "o/r", Number: number, Head: "h", Lane: lane}); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := s.WantLane(store.Lane{Name: lane, State: store.LaneDesired}, t0); err != nil {
+			t.Fatal(err)
+		}
 	}
 	logged := &bytes.Buffer{}
 	return landings{work, checkout, &landing.Clobbers{
@@ -181,6 +184,30 @@ func TestASquashWhoseMergeFromTrunkKeptAStaleTreeTellsBothLanesAndRootWhatItUndi
 	tr.pass(t)
 	if again := clobbered(t); len(again) != 1 {
 		t.Fatalf("a second pass over the same trunk posted again: %+v", again)
+	}
+}
+
+func TestAClobberNeverNamesALaneThatStopped(t *testing.T) {
+	tr := newLandings(t)
+	if err := tr.clobbers.Store.SetLaneState("staffteam-1", store.LaneRetired, t0, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	tr.openConnect(t)
+	tr.landRegion(t)
+	tr.landStaff(t)
+	tr.pass(t)
+	tr.mergeDev(t, false)
+	tr.squashConnect(t, true, connected)
+
+	tr.pass(t)
+
+	records := clobbered(t)
+	if len(records) != 1 {
+		t.Fatalf("records = %+v", records)
+	}
+	slices.Sort(records[0].To)
+	if !slices.Equal(records[0].To, []string{"port-connect-app-1", "root"}) {
+		t.Fatalf("to = %v", records[0].To)
 	}
 }
 
