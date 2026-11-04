@@ -47,6 +47,7 @@ type judgeCalls struct {
 	evidence []string
 	verdict  string
 	confirms string
+	options  string
 	err      error
 }
 
@@ -55,6 +56,9 @@ func (j *judgeCalls) judge(_ context.Context, kind, evidence, _ string) (*Judgme
 	defer j.mu.Unlock()
 	if kind == confirmKind {
 		return &Judgment{Verdict: cmp.Or(j.confirms, "no"), Sentence: "Act on your reading of his words and say what you did."}, j.err
+	}
+	if kind == optionsKind {
+		return &Judgment{Verdict: cmp.Or(j.options, "no"), Sentence: "It offers only a retry or a skip; add the option that fixes the cause."}, j.err
 	}
 	j.evidence = append(j.evidence, evidence)
 	if j.err != nil {
@@ -603,5 +607,14 @@ func TestAReportBodyReadsAtMostTheHeadOfItsFile(t *testing.T) {
 
 	if body := reportBody("first line", filepath.Join(t.TempDir(), "gone.txt")); body != "first line" {
 		t.Fatalf("body = %q with no file", body)
+	}
+}
+
+func TestACardOfferingOnlyWaysToLiveWithAFailureIsRefusedSayingWhatToAdd(t *testing.T) {
+	cards, _, _ := settledBoard(t, nil)
+	block := json.RawMessage(`{"id":"card-lost-batch","type":"card","title":"Lost the nightly batch: resend it or skip the night?","summary":"The connection dropped before the batch id came back.","children":[{"id":"pick","type":"choice","options":[{"id":"a","label":"Resend once"},{"id":"b","label":"Skip the night"}]}]}`)
+	refused, err := cards.Check(context.Background(), (&judgeCalls{options: "yes"}).judge, block)
+	if err != nil || refused == nil || !strings.Contains(refused.Error(), "add the option that fixes the cause") {
+		t.Fatalf("Check = %v, %v; want a refusal saying what to add", refused, err)
 	}
 }

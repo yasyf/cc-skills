@@ -1,0 +1,350 @@
+package board
+
+import (
+	"cmp"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+)
+
+const (
+	partSplit     = "::"
+	slugWords     = 6
+	fewestOptions = 2
+	mostOptions   = 4
+	noPlanFrom    = "New, not in the plan."
+	keyBytes      = 8
+	linkWait      = 3 * time.Minute
+	remoteImage   = "https://"
+)
+
+var (
+	numberedChange  = regexp.MustCompile(`(?:^|[^\w&])(#\d+)\b`)
+	prNamed         = regexp.MustCompile(`github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+/[\w.-]+)#(\d+)|\bPR (\d+)\b`)
+	slugWord        = regexp.MustCompile(`[a-z0-9]+`)
+	errLinkAnswered = errors.New("the board link answered")
+)
+
+type Ask struct {
+	ID, Title, Background, From, Branch, NothingToBuild string
+	Options, Shots                                      []string
+}
+
+type askOption struct {
+	ID          string         `json:"id"`
+	Label       string         `json:"label"`
+	Md          string         `json:"md"`
+	Recommended bool           `json:"recommended,omitempty"`
+	Build       map[string]any `json:"build,omitempty"`
+}
+
+func (a Ask) Block(repo string) (json.RawMessage, error) {
+	if !strings.HasSuffix(strings.TrimSpace(a.Title), "?") {
+		return nil, fmt.Errorf("refused: --title %q is not a question; end it with what he decides and a question mark", a.Title)
+	}
+	if count := len(a.Options); count < fewestOptions || count > mostOptions {
+		return nil, fmt.Errorf("refused: a card offers %d to %d options and this has %d; pass each as --option 'LABEL :: what picking it does', the recommended one first", fewestOptions, mostOptions, count)
+	}
+	build, err := a.build()
+	if err != nil {
+		return nil, err
+	}
+	slug := cmp.Or(a.ID, strings.Join(firstWords(a.Title), "-"))
+	options := make([]askOption, len(a.Options))
+	for i, option := range a.Options {
+		label, does, _ := strings.Cut(option, partSplit)
+		label, does = strings.TrimSpace(label), strings.TrimSpace(does)
+		if label == "" || does == "" {
+			return nil, fmt.Errorf("refused: --option %q does not say what picking it does; write it as 'LABEL :: what picking it does'", option)
+		}
+		options[i] = askOption{ID: fmt.Sprintf("%s-%d", slug, i+1), Label: label, Md: does}
+	}
+	options[0].Recommended, options[0].Build = true, build
+	said := append([]string{a.Title, a.Background}, a.Options...)
+	if found := numbered(said); len(found) > 0 {
+		return nil, fmt.Errorf("refused: the card names %s; say what each is in plain words", strings.Join(found, ", "))
+	}
+	children := []map[string]any{{"id": slug + "-from", "type": "markdown", "md": "**From:** " + cmp.Or(a.From, noPlanFrom)}}
+	shots, err := a.shots(slug)
+	if err != nil {
+		return nil, err
+	}
+	children = append(children, shots...)
+	children = append(children, map[string]any{"id": slug + "-choice", "type": "choice", "options": options})
+	for _, pr := range namedPRs(said, repo) {
+		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%d", slug, pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
+	}
+	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": a.Title, "summary": a.Background, "children": children})
+}
+
+func (a Ask) build() (map[string]any, error) {
+	switch {
+	case (a.Branch == "") == (a.NothingToBuild == ""):
+		return nil, errors.New("refused: pass --branch OWNER/NAME:BRANCH, where the recommended option is built so he can try it, or --nothing-to-build REASON, why a pick such as a process choice has nothing to build")
+	case a.NothingToBuild != "":
+		return map[string]any{"none": a.NothingToBuild}, nil
+	}
+	repo, branch, _ := strings.Cut(a.Branch, ":")
+	if strings.Count(repo, "/") != 1 || branch == "" {
+		return nil, fmt.Errorf("refused: --branch %q is not OWNER/NAME:BRANCH", a.Branch)
+	}
+	return map[string]any{"repo": repo, "branch": branch}, nil
+}
+
+func (a Ask) shots(slug string) ([]map[string]any, error) {
+	shots := make([]map[string]any, len(a.Shots))
+	for i, shot := range a.Shots {
+		src, shows, _ := strings.Cut(shot, partSplit)
+		src, shows = strings.TrimSpace(src), strings.TrimSpace(shows)
+		if src == "" || shows == "" {
+			return nil, fmt.Errorf("refused: --shot %q does not say what it shows; write it as 'PATH or https URL :: what it shows'", shot)
+		}
+		if !strings.HasPrefix(src, remoteImage) {
+			absolute, err := filepath.Abs(src)
+			if err != nil {
+				return nil, err
+			}
+			src = absolute
+		}
+		shots[i] = map[string]any{"id": fmt.Sprintf("%s-shot-%d", slug, i+1), "type": "image", "src": src, "alt": shows}
+	}
+	return shots, nil
+}
+
+func firstWords(title string) []string {
+	words := slugWord.FindAllString(strings.ToLower(title), -1)
+	return words[:min(len(words), slugWords)]
+}
+
+func numbered(said []string) []string {
+	var found []string
+	for _, text := range said {
+		for _, hit := range numberedChange.FindAllStringSubmatch(text, -1) {
+			found = append(found, hit[1])
+		}
+	}
+	return found
+}
+
+func namedPRs(said []string, repo string) []SlackPR {
+	var prs []SlackPR
+	for _, text := range said {
+		for _, hit := range prNamed.FindAllStringSubmatch(text, -1) {
+			number, err := strconv.Atoi(cmp.Or(hit[2], hit[4], hit[5]))
+			if err != nil {
+				continue
+			}
+			if pr := (SlackPR{cmp.Or(hit[1], hit[3], repo), number}); !slices.Contains(prs, pr) {
+				prs = append(prs, pr)
+			}
+		}
+	}
+	return prs
+}
+
+func lacksBackground(card json.RawMessage) bool {
+	var block struct {
+		Summary  string `json:"summary"`
+		Children []struct {
+			Type string `json:"type"`
+			Md   string `json:"md"`
+		} `json:"children"`
+	}
+	if _, _, asks := asksTitle(card); !asks || json.Unmarshal(card, &block) != nil {
+		return false
+	}
+	told := block.Summary
+	for _, child := range block.Children {
+		if child.Type == "diagram" || strings.HasPrefix(child.Type, "display.") {
+			return false
+		}
+		if child.Type == "markdown" && !strings.HasPrefix(strings.TrimSpace(child.Md), "**From:**") {
+			told += child.Md
+		}
+	}
+	return strings.TrimSpace(told) == ""
+}
+
+func changeKey(parts ...[]byte) string {
+	sum := sha256.New()
+	for _, part := range parts {
+		sum.Write(part)
+		sum.Write([]byte{0})
+	}
+	return hex.EncodeToString(sum.Sum(nil))[:keyBytes*2]
+}
+
+func awaitLink(ctx context.Context, bus, lane, change string, after int64) (string, error) {
+	wait, stop := context.WithTimeout(ctx, linkWait)
+	defer stop()
+	var said string
+	var answered bool
+	var refused error
+	err := client.Follow(wait, client.Watch{Drive: bus, Reader: lane, After: after, Kinds: []string{linkAnswerKind, linkRefusalKind}}, func(record client.Record) error {
+		if record.Lane != LinkLane || record.Fields.Attrs[changeAttr] != change {
+			return nil
+		}
+		var told linkSaid
+		if err := json.Unmarshal(record.Body, &told); err != nil {
+			return err
+		}
+		said, answered = told.Said, true
+		if string(record.Kind) == linkRefusalKind {
+			refused = errors.New(said)
+		}
+		return errLinkAnswered
+	})
+	if err != nil && !errors.Is(err, errLinkAnswered) {
+		return "", err
+	}
+	if !answered {
+		return "", fmt.Errorf("no board link answered in %s: this stays owed and goes up when the link runs, and `lr board link install` on the board's Mac starts it", linkWait)
+	}
+	return said, refused
+}
+
+func AskCommand(a *app.App) *cobra.Command {
+	var ask Ask
+	var driveName, session, lane, until, file, withdraw, reason string
+	var forAsk int64
+	cmd := &cobra.Command{
+		Use:   "ask-owner",
+		Short: "Put your question on the owner's main board and in his Slack DM with you as its owner, and wake you when he answers",
+		Long: `Put one question card on the owner's main board and at the root of his Slack DM, owned by the calling lane, from any host. His answer wakes that lane with a decide record, and a lane on Orca also through the relay.
+
+The card goes over the bus to the board link on the Mac, which checks it and answers on the bus. This command waits for that answer, prints it, and exits 1 on a refusal, which says what to change. Refused: no background; a link where the background should be; a question a card on his board already asks; a question he answered on this card or in his ccn answers; a request to grade a reading of his words; a failure offered only ways to live with it and no option fixing its cause; a loss with no plan beside it.
+
+  lr ask-owner --title 'How do AIG runs recover?' \
+    --background 'Nine runs were refused a model call today and stopped; the account has room for twice its limit.' \
+    --option 'Wait durably :: A refused call waits and resumes, so no run stops on it. Built on the branch.' \
+    --option 'Raise the limit :: Fewer refusals at the same cost, and a run still stops on the next one.' \
+    --branch Forge-AI/monorepo:durable-wait --until at:3d
+
+--card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records. --withdraw ID takes your own card down when its question has gone away.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			if lane == "" {
+				return errors.New("refused: no lane; pass --lane with your lane's name, since his answer wakes it")
+			}
+			entry, err := drive.Named(driveName)
+			if err != nil {
+				return err
+			}
+			block, remove := json.RawMessage(nil), withdraw
+			if withdraw == "" {
+				if block, err = askedCard(c.InOrStdin(), ask, file, entry.Repo); err != nil {
+					return err
+				}
+				if why := Refusal(until, a.Now()); why != "" {
+					return fmt.Errorf("refused: --until: %s; name the event after which his answer no longer matters", why)
+				}
+			}
+			key := changeKey(block, []byte(remove), []byte(until), []byte(session), []byte(strconv.FormatInt(forAsk, 10)))
+			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, cardBody{Session: session, Block: block, Remove: remove, Reason: reason, Until: until, Ask: forAsk})
+			if err != nil {
+				return err
+			}
+			said, err := awaitLink(c.Context(), entry.Bus(), lane, key, record.Seq-1)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(c.OutOrStdout(), said)
+			return nil
+		},
+	}
+	flags := cmd.Flags()
+	flags.StringVar(&ask.Title, "title", "", "the question, in plain words, ending in a question mark")
+	flags.StringVar(&ask.Background, "background", "", "what he needs to decide it: what happened, what it costs, what each way forward rests on")
+	flags.StringArrayVar(&ask.Options, "option", nil, "'LABEL :: what picking it does', 2 to 4, the recommended one first; a failure offers the fix for its cause, and a loss names its fix")
+	flags.StringVar(&ask.Branch, "branch", "", "OWNER/NAME:BRANCH, where the recommended option is built")
+	flags.StringVar(&ask.NothingToBuild, "nothing-to-build", "", "why the recommended option has no branch")
+	flags.StringArrayVar(&ask.Shots, "shot", nil, "'PATH or https URL :: what it shows', a real screenshot, repeatable; a path is read on the board's Mac")
+	flags.StringVar(&ask.From, "from", "", "the plan step and date, his ruling id, or whose PR it ports; default "+noPlanFrom)
+	flags.StringVar(&ask.ID, "id", "", "the card's id after card-; default the title's first words")
+	flags.StringVar(&until, "until", "", "the event after which his answer no longer matters: at:TIME or a span such as at:3d, pr:N, release:STACK@ENV:COMMIT or record:SEQ")
+	flags.StringVar(&file, "card", "", "a whole cc-present card as JSON, FILE or -, in place of the question flags")
+	flags.StringVar(&withdraw, "withdraw", "", "take this card of yours down instead of drawing one")
+	flags.StringVar(&reason, "reason", "its question has gone away", "with --withdraw, why")
+	flags.StringVar(&lane, "lane", os.Getenv("CLAUDE_LONG_RUNNING_LANE"), "the lane that owns the card and is woken by his answer")
+	flags.StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
+	flags.Int64Var(&forAsk, "for-ask", 0, "the seq of the lane's ask you are drawing this for: that lane owns the card, and the ask gets one card")
+	flags.StringVar(&session, "session", "", "the board's session, for a scratch board; default the drive's coordinator")
+	return cmd
+}
+
+func askedCard(stdin io.Reader, ask Ask, file, repo string) (json.RawMessage, error) {
+	var block json.RawMessage
+	var err error
+	switch file {
+	case "":
+		block, err = ask.Block(repo)
+	case "-":
+		block, err = io.ReadAll(stdin)
+	default:
+		block, err = os.ReadFile(file)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if lacksBackground(block) {
+		return nil, errors.New("refused: this card carries no background, and he decides from the card alone; pass --background with what happened, what it costs and what each way forward rests on, in plain words")
+	}
+	return block, nil
+}
+
+func drawCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
+	var lane, key, remove string
+	cmd := &cobra.Command{
+		Use:   "draw [FILE|-]",
+		Short: "From any host, post one card change on the bus for the board link, a block as JSON or --remove ID; a lane asking the owner uses lr ask-owner",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			entry, session, err := opened()
+			if err != nil {
+				return err
+			}
+			var block []byte
+			switch {
+			case len(args) == 0:
+			case args[0] == "-":
+				block, err = io.ReadAll(c.InOrStdin())
+			default:
+				block, err = os.ReadFile(args[0])
+			}
+			if err != nil {
+				return err
+			}
+			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, cardBody{Session: session, Block: block, Remove: remove, Reason: "the lane took it down"})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(c.OutOrStdout(), "#%d\n", record.Seq)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&lane, "lane", "", "the lane the record posts as")
+	cmd.Flags().StringVar(&key, "key", "", "what makes a repeat of this change harmless, such as the desk's owed row")
+	cmd.Flags().StringVar(&remove, "remove", "", "remove this block rather than draw one")
+	for _, name := range []string{"lane", "key"} {
+		if err := cmd.MarkFlagRequired(name); err != nil {
+			panic(err)
+		}
+	}
+	return cmd
+}

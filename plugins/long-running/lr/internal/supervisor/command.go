@@ -223,6 +223,9 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			if err := agents.Install(ctx, agentOf(env).RelayJob(orcaRunner.Orca.DeskInbox)); err != nil {
 				a.Log.Warn("the relay's launchd job is not installed", "err", err)
 			}
+			if err := installLink(ctx, agents, env); err != nil {
+				a.Log.Warn("the board link's launchd job is not installed, so no lane's card reaches his board", "err", err)
+			}
 			checks = append(checks, NewRelayKeeper(env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log).Check)
 		}
 	}
@@ -364,8 +367,19 @@ func Install(cmd *cobra.Command, a *app.App) error {
 		if err := agents.Install(cmd.Context(), agent.RelayJob(runner.Orca.DeskInbox)); err != nil {
 			return err
 		}
+		if err := installLink(cmd.Context(), agents, env); err != nil {
+			return err
+		}
 	}
 	return agents.Install(cmd.Context(), agent.Job())
+}
+
+func installLink(ctx context.Context, agents launchd.Launchd, env lanes.Env) error {
+	if err := board.SeedCursor(ctx, env.Config.Drive, env.State); err != nil {
+		return err
+	}
+	agent := agentOf(env)
+	return agents.Install(ctx, board.LinkJob(env.Config.Drive, agent.Binary, agent.Path, env.State))
 }
 
 func agentOf(env lanes.Env) Agent {
@@ -388,6 +402,9 @@ func Uninstall(cmd *cobra.Command, a *app.App) error {
 		return err
 	}
 	if err := agents.Uninstall(cmd.Context(), RelayLabel(cfg.Drive)); err != nil {
+		return err
+	}
+	if err := agents.Uninstall(cmd.Context(), board.LinkLabel(cfg.Drive)); err != nil {
 		return err
 	}
 	return agents.Uninstall(cmd.Context(), Label(cfg.Drive))

@@ -292,7 +292,7 @@ func (c Cards) facts(ctx context.Context, waiting map[string]End) (EndFacts, err
 	return facts, nil
 }
 
-func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
+func (c Cards) answeredBlocks(ctx context.Context, card string) ([]string, error) {
 	shown, err := c.present(ctx, "outcomes", "--block", card)
 	if err != nil {
 		return nil, err
@@ -314,18 +314,25 @@ func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
 	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
 		return nil, fmt.Errorf("cc-present outcomes --block %s: %w", card, err)
 	}
-	answered := map[string]bool{}
 	var blocks []string
 	for _, answer := range outcomes.Answers {
 		payload := answer.Payload
 		said := len(payload.OptionIDs) > 0 || payload.Other != "" || payload.Text != "" || payload.Verdict != "" || len(payload.Payload) > 0
-		if answer.Origin == "human" && said && !answered[payload.BlockID] {
-			answered[payload.BlockID] = true
+		if answer.Origin == "human" && said && !slices.Contains(blocks, payload.BlockID) {
 			blocks = append(blocks, payload.BlockID)
 		}
 	}
-	if len(blocks) == 0 {
-		return nil, nil
+	return blocks, nil
+}
+
+func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
+	blocks, err := c.answeredBlocks(ctx, card)
+	if err != nil || len(blocks) == 0 {
+		return nil, err
+	}
+	answered := make(map[string]bool, len(blocks))
+	for _, block := range blocks {
+		answered[block] = true
 	}
 	listed, err := c.ccn(ctx, "answer", "list", "--label", answerRow, "--label", "board-session:"+c.Session, "--label", boardCardLabel+card, "--limit", "0", "--full", "--json")
 	if err != nil {
