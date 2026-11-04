@@ -379,7 +379,7 @@ func (f *workerFixture) prepareCall(extra ...string) []string {
 }
 
 func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra ...string) []string {
-	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md"), "--before-worker-file", filepath.Join(f.attempt, "before-worker.sh")}, extra)
+	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md"), "--before-worker-file", filepath.Join(f.attempt, "before-worker.sh"), "--env", "CLAUDE_LONG_RUNNING_LANE=" + lane}, extra)
 }
 
 func notesCall(workspace string) []string {
@@ -1248,6 +1248,14 @@ func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 			t.Fatal(c.reason, kept)
 		}
 	}
+}
+
+func TestASpriteWorkerInsideADriveCarriesTheLaneAndTheDriveToItsAgent(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), `{"drive":"brook","orca_run":"`+workerRun+`"}`, 0o600)
+	f.sprite()
+	f.launched()
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook")}, f.startCalls(prepared()), [][]string{holdCall(workerWorkspace)})...)
 }
 
 func TestAnEmptyPoolCreatesTheRequestedLaneOnce(t *testing.T) {

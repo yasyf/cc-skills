@@ -87,3 +87,16 @@ func driveOfRun(env func(string) string, run string) *drive.Entry {
 	}
 	return nil
 }
+
+func driveName(env func(string) string, run string) string {
+	if name := env(driveEnv); name != "" {
+		return name
+	}
+	if entry := currentDriveEntry(env); entry != nil {
+		return entry.Drive
+	}
+	if entry := driveOfRun(env, run); entry != nil {
+		return entry.Drive
+	}
+	return ""
+}
