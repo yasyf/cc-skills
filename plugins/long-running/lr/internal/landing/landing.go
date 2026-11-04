@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -15,15 +16,20 @@ import (
 
 const (
 	ResubmittedFact = "resubmitted"
+	FreeRetriesFact = "free-retries"
 	RestackedFact   = "restacked"
 	conflictValue   = "conflict"
 	restacksPerPass = 2
+	freeRetries     = 3
 )
+
+var notItsOwnFailures = []string{"GITHUB_API_MERGE_PR_FAILED", "START_TEST_RUN_RETRY_EXHAUSTED", "TEST_RUN_FAILED_BY_OPTIMIZATION"}
 
 type Queue interface {
 	Enqueue(ctx context.Context, number int, head string) (string, error)
 	Reenter(ctx context.Context, number int) (string, error)
 	Dequeue(ctx context.Context, number int) (string, error)
+	LastFailure(ctx context.Context, number int) string
 }
 
 type Restacker interface {
@@ -147,28 +153,56 @@ func dequeued(f machine.Facts, said string) Said {
 }
 
 func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, now time.Time, done *Done) error {
-	enter := func() (string, error) { return queue.Enqueue(ctx, f.Number, f.Head) }
 	if f.Queue == machine.QueueEvicted {
-		enter = func() (string, error) { return queue.Reenter(ctx, f.Number) }
+		return reenter(ctx, s, queue, f, now, done)
 	}
-	said, err := enter()
+	said, err := queue.Enqueue(ctx, f.Number, f.Head)
 	if err != nil {
 		return err
 	}
-	if said != "" {
-		if _, err := s.PutFact(f.Repo, f.Number, f.Head, pass.EnqueuedFact, said, now); err != nil {
-			return err
-		}
-		done.Said = append(done.Said, Said{Facts: f, Accepted: "QUEUED", Refused: "REFUSED", Text: said})
+	if err := recordSaid(s, f, said, now, done); err != nil {
+		return err
 	}
-	if f.Queue != machine.QueueEvicted {
-		done.Enqueued = append(done.Enqueued, Head{f.Number, f.Head})
-		return nil
+	done.Enqueued = append(done.Enqueued, Head{f.Number, f.Head})
+	return nil
+}
+
+func reenter(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, now time.Time, done *Done) error {
+	failure := queue.LastFailure(ctx, f.Number)
+	said, err := queue.Reenter(ctx, f.Number)
+	if err != nil {
+		return err
 	}
-	if _, err := s.PutFact(f.Repo, f.Number, f.Head, ResubmittedFact, strconv.Itoa(f.Resubmitted+1), now); err != nil {
+	if err := recordSaid(s, f, said, now, done); err != nil {
+		return err
+	}
+	facts, err := s.Facts(f.Repo, f.Number, f.Head)
+	if err != nil {
+		return err
+	}
+	free, err := strconv.Atoi(cmp.Or(facts[FreeRetriesFact], "0"))
+	if err != nil {
+		return fmt.Errorf("#%d %s: %w", f.Number, FreeRetriesFact, err)
+	}
+	fact, value := ResubmittedFact, strconv.Itoa(f.Resubmitted+1)
+	if free < freeRetries && (slices.Contains(notItsOwnFailures, failure) || !strings.HasPrefix(said, "exit 0")) {
+		fact, value = FreeRetriesFact, strconv.Itoa(free+1)
+	}
+	if _, err := s.PutFact(f.Repo, f.Number, f.Head, fact, value, now); err != nil {
 		return err
 	}
 	done.Resubmitted = append(done.Resubmitted, Head{f.Number, f.Head})
+	return nil
+}
+
+func recordSaid(s *store.Store, f machine.Facts, said string, now time.Time, done *Done) error {
+	if said == "" {
+		return nil
+	}
+	if _, err := s.PutFact(f.Repo, f.Number, f.Head, pass.EnqueuedFact, said, now); err != nil {
+		return err
+	}
+	done.Said = append(done.Said, Said{Facts: f, Accepted: "QUEUED", Refused: "REFUSED", Text: said})
 	return nil
 }
 

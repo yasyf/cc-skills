@@ -101,6 +101,24 @@ func TestDequeuePassesTheFlag(t *testing.T) {
 	}
 }
 
+func TestLastFailureIsTheNewestFailedEntrysReason(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(`[{"state":"failed","reason":"TEST_RUN_REQUIRED_STATUS_FAILED"},{"state":"testsPassed","reason":"TEST_RUN_PASSED"},{"state":"failed","reason":"GITHUB_API_MERGE_PR_FAILED"},{"state":"notReady","reason":"API_REQUESTED"}]`, checkout+"/tools/ci")
+
+	if got := trunk(fake).LastFailure(context.Background(), 7); got != "GITHUB_API_MERGE_PR_FAILED" {
+		t.Fatalf("failure = %q", got)
+	}
+}
+
+func TestAnUnreadHistoryNamesNoFailure(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "429 Too Many Requests", checkout+"/tools/ci")
+
+	if got := trunk(fake).LastFailure(context.Background(), 7); got != "" {
+		t.Fatalf("failure = %q", got)
+	}
+}
+
 func TestAFailedFetchStopsTheMoversAndNeverRunsTheScript(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Fail(128, "could not read from remote", "git")

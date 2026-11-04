@@ -2,9 +2,11 @@ package landing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +38,35 @@ func (t Trunk) Reenter(ctx context.Context, number int) (string, error) {
 
 func (t Trunk) Dequeue(ctx context.Context, number int) (string, error) {
 	return t.call(ctx, strconv.Itoa(number), "--dequeue")
+}
+
+func (t Trunk) LastFailure(ctx context.Context, number int) string {
+	env, err := t.env(ctx)
+	if err != nil {
+		return ""
+	}
+	done, err := t.Runner.Run(ctx, shell.Command{
+		Argv:    []string{filepath.Join(t.Checkout, "tools/ci"), "trunk", "history", strconv.Itoa(number)},
+		Dir:     t.Checkout,
+		Env:     env,
+		Timeout: readTimeout,
+	})
+	if err != nil {
+		return ""
+	}
+	var history []struct {
+		State  string `json:"state"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(done.Stdout), &history); err != nil {
+		return ""
+	}
+	for _, entry := range slices.Backward(history) {
+		if entry.State == "failed" {
+			return entry.Reason
+		}
+	}
+	return ""
 }
 
 func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
