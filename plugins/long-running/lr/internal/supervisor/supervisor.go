@@ -242,16 +242,27 @@ func Run(ctx context.Context, s *store.Store, drive, version string, pid int, d 
 			done = done[:0]
 		}
 		done = append(done, report)
-		if d.Stale != nil {
-			stale, err := d.Stale(ctx)
-			if err != nil {
-				return done, "", err
-			}
-			if stale {
-				return done, EndedRelease, nil
-			}
+		if stale, err := d.stale(ctx); err != nil || stale {
+			return done, endedBy(stale), err
 		}
 		d.Sleep(TickEvery)
+		if stale, err := d.stale(ctx); err != nil || stale {
+			return done, endedBy(stale), err
+		}
 	}
 	return done, EndedTicks, nil
+}
+
+func (d Deps) stale(ctx context.Context) (bool, error) {
+	if d.Stale == nil {
+		return false, nil
+	}
+	return d.Stale(ctx)
+}
+
+func endedBy(stale bool) Ended {
+	if stale {
+		return EndedRelease
+	}
+	return ""
 }

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	Handoff  = 3 * time.Minute
+	Handoff  = 15 * time.Minute
 	poll     = 5 * time.Second
 	lane     = "install"
 	rootLane = "root"
@@ -60,7 +60,7 @@ func Run(ctx context.Context, s *store.Store, drive, version string, steps Steps
 		serving = lease.Generation
 		steps.Sleep(poll)
 	}
-	return 0, steps.escalate(ctx, s, version, "no successor within 3 minutes", fmt.Sprintf("the successor did not take the lease within 3 minutes; generation %d still serves", serving))
+	return 0, steps.escalate(ctx, s, version, "no successor within 15 minutes", fmt.Sprintf("the successor did not take the lease within 15 minutes; generation %d still serves", serving))
 }
 
 func (st Steps) announce(ctx context.Context, text string) error {
