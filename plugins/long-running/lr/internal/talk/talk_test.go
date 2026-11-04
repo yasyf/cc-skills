@@ -1,10 +1,13 @@
 package talk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -41,6 +44,26 @@ func noted(id, block, text string) []byte {
 
 func posts(fake *shelltest.Fake) []shell.Command {
 	return slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return c.Argv[0] != "cci" })
+}
+
+type noBoardDaemon struct{}
+
+func (noBoardDaemon) Run(context.Context, shell.Command) (shell.Result, error) {
+	return shell.Result{Code: shell.CodeMissingBinary}, fmt.Errorf("cc-present is not on PATH: %w", exec.ErrNotFound)
+}
+
+func TestABoardDaemonNotOnThisHostLogsOnceAndTheFollowerStaysOff(t *testing.T) {
+	var logged bytes.Buffer
+	f := follower(t, noBoardDaemon{})
+	f.Log = slog.New(slog.NewTextHandler(&logged, nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*rewatchAfter)
+	defer cancel()
+
+	f.Run(ctx)
+
+	if ctx.Err() != nil || strings.Count(logged.String(), "\n") != 1 {
+		t.Fatalf("ctx %v, logged %q; want one line and an early return", ctx.Err(), logged.String())
+	}
 }
 
 func TestANoteBecomesAnOpenRowAndARecordThatWakesTheCommunicator(t *testing.T) {

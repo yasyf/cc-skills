@@ -45,7 +45,12 @@ type Follower struct {
 
 func (f *Follower) Run(ctx context.Context) {
 	for ctx.Err() == nil {
-		if err := f.follow(ctx); err != nil && ctx.Err() == nil {
+		err := f.follow(ctx)
+		if errors.Is(err, exec.ErrNotFound) {
+			f.Log.Warn("no board daemon on this host, so the talk follower stays off", "drive", f.Entry.Drive, "err", err)
+			return
+		}
+		if err != nil && ctx.Err() == nil {
 			f.Log.Warn("the talk follower stopped and starts again", "drive", f.Entry.Drive, "err", err)
 		}
 		select {

@@ -56,7 +56,7 @@ func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path str
 	if err != nil {
 		return err
 	}
-	roll := SpriteRoll{Runner: runner, Store: s, Now: now, Out: out}
+	roll := SpriteRoll{Runner: runner, Store: s, Host: file.Host.Sprite, Now: now, Out: out}
 	pins, err := roll.pins(env)
 	if err != nil {
 		return err
@@ -120,6 +120,7 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 
 func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string, probe string) error {
 	var unreached []string
+	var hostStayed error
 	for done, box := range boxes {
 		result, err := r.Runner.Run(ctx, shell.Command{Argv: pins.installArgv(box, nil), Timeout: spriteInstallTimeout})
 		installed := installedTools(result.Stdout)
@@ -134,6 +135,10 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 			unreached = append(unreached, box)
 			continue
 		}
+		if err != nil && box == r.Host {
+			hostStayed = refuse("lr sprites roll: the desk host %s keeps what it runs, and no pin is marked bad: %s", box, lastSaid(result))
+			continue
+		}
 		if err != nil {
 			return r.failed(box, pins, installed, result, len(boxes)-done-1)
 		}
@@ -142,7 +147,7 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 	if len(unreached) > 0 {
 		fmt.Fprintf(r.Out, "lr sprites roll: never reached: %s\n", strings.Join(unreached, " "))
 	}
-	return nil
+	return hostStayed
 }
 
 func spriteUnreached(result shell.Result) bool {

@@ -1021,6 +1021,31 @@ func TestAPluginNewToAMarketplaceThePayloadHoldsJoinsAWritableCopyOfIt(t *testin
 	}
 }
 
+func TestAPluginPinInstallsOnABoxWithNoPluginStateYet(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 9.9.9\n"})
+	packURL, packSHA := tarball(t, dir, "pack.tgz", map[string]string{".claude-plugin/plugin.json": `{"version":"0.7.1199"}`})
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "plugin", "long-running@skills", packURL, packSHA, "0.7.1199", "--")
+	run.Env = append(os.Environ(), "HOME="+home)
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"))
+	if err != nil || !strings.Contains(string(raw), `"version": "0.7.1199"`) {
+		t.Fatal(string(raw), err)
+	}
+}
+
 func TestAPackInstallMovesAnExistingCurrentLinkAndCreatesNone(t *testing.T) {
 	dir := t.TempDir()
 	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})

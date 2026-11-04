@@ -139,6 +139,26 @@ func TestARollInstallsOnTheDeskHostThoughItHostsNoWorker(t *testing.T) {
 	}
 }
 
+func TestAFailureOnTheDeskHostMarksNoPinBadAndTheRollGoesOn(t *testing.T) {
+	w := newRollWorld(t)
+	w.host = "desk-host"
+	w.replies["desk-host"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: "jq: error: Could not open file known_marketplaces.json\n"}
+
+	refused := w.roll("")
+
+	if want := "lr sprites roll: the desk host desk-host keeps what it runs, and no pin is marked bad: jq: error: Could not open file known_marketplaces.json"; refused != want {
+		t.Fatalf("refused\n%s\nwant\n%s", refused, want)
+	}
+	if !slices.Equal(w.boxes, []string{"desk-host", "pool-a", "pool-b", "pool-c"}) {
+		t.Fatal("the host's failure stopped the roll", w.boxes)
+	}
+	for tool, version := range map[string]string{"ccx": rollCCX, "long-running@skills": rollPack} {
+		if why, err := w.store.BadTool(tool, version); err != nil || why != "" {
+			t.Fatalf("%s is marked bad: %q, %v", tool, why, err)
+		}
+	}
+}
+
 func TestRollHostInstallsOnlyOnTheDeskHost(t *testing.T) {
 	w := newRollWorld(t)
 	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])

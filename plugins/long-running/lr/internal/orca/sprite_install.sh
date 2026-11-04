@@ -1,7 +1,9 @@
 set -eu
 bin="$HOME/.local/bin"
 plugins="$HOME/.claude/plugins"
-mkdir -p "$bin"
+mkdir -p "$bin" "$plugins"
+[ -f "$plugins/installed_plugins.json" ] || echo '{"version":2,"plugins":{}}' > "$plugins/installed_plugins.json"
+[ -f "$plugins/known_marketplaces.json" ] || echo '{}' > "$plugins/known_marketplaces.json"
 said() {
   "$1" --version 2>&1 | awk 'END { for (i = 1; i <= NF; i++) if ($i ~ /^v?[0-9]+\.[0-9]/) word = $i; sub(/^v/, "", word); print word }'
 }
