@@ -180,9 +180,22 @@ func explainPRs(c *cobra.Command, a *app.App, entry drive.Entry, live Live, prs 
 		return err
 	}
 	defer func() { _ = s.Close() }()
-	_, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
+	repo, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
 	if err != nil {
 		return err
+	}
+	record, err := store.Open(entry.Store())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = record.Close() }()
+	stored, err := record.ReviewRows(repo)
+	if err != nil {
+		return err
+	}
+	rows := make(map[int]store.ReviewRow, len(stored))
+	for _, row := range stored {
+		rows[row.Number] = row
 	}
 	found := make([]PRWait, len(prs))
 	for i, named := range prs {
@@ -190,7 +203,7 @@ func explainPRs(c *cobra.Command, a *app.App, entry drive.Entry, live Live, prs 
 		if err != nil {
 			return fmt.Errorf("--pr %q: %w", named, err)
 		}
-		found[i] = live.Explain(pr, snapshot)
+		found[i] = live.Explain(pr, snapshot, rows)
 	}
 	if asJSON {
 		return json.NewEncoder(c.OutOrStdout()).Encode(found)

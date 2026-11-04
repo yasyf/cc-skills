@@ -55,7 +55,7 @@ type Deps struct {
 	Orders                func(s *store.Store) ([]owner.Row, error)
 	RotateAt              int
 	RetireAfter           time.Duration
-	OpenBranches          func() (map[string][]int, error)
+	OpenBranches          func(s *store.Store) (map[string][]int, error)
 	Sprites               func(lanes []string) (map[string]Sprite, error)
 	Hosts                 func(lanes []string, sprites map[string]Sprite) map[string]Host
 	BuildRecommendedOrder string
@@ -374,10 +374,7 @@ func claimBranches(s *store.Store, d Deps, now time.Time) {
 	if len(unchecked) == 0 {
 		return
 	}
-	branches, err := d.OpenBranches()
-	if errors.Is(err, ErrUnread) {
-		return
-	}
+	branches, err := d.OpenBranches(s)
 	do(err)
 	owned := map[int]bool{}
 	for _, prs := range must(s.Owners()) {

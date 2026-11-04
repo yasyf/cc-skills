@@ -156,7 +156,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		Orders:       func(*store.Store) ([]owner.Row, error) { return f.orders, nil },
 		RotateAt:     600_000,
 		RetireAfter:  time.Hour,
-		OpenBranches: func() (map[string][]int, error) { f.branchReads++; return f.branches, nil },
+		OpenBranches: func(*store.Store) (map[string][]int, error) { f.branchReads++; return f.branches, nil },
 		Sprites: func(names []string) (map[string]Sprite, error) {
 			f.spriteReads++
 			out := map[string]Sprite{}

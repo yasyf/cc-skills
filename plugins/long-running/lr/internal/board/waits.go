@@ -9,11 +9,13 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
 	noOpenPR       = "it is no open PR of this drive's landing ledger"
-	noBoardRow     = "the board holds no row for it"
+	noRecordRow    = "it has no row in lr board rows"
+	recordWaits    = "its row in lr board rows waits on: "
 	unrecordedTime = "an unrecorded time"
 )
 
@@ -36,16 +38,7 @@ func pacificStamp(stamp string) string {
 	return pacific(at)
 }
 
-func (l Live) tapAt(pr, sha string) (Wait, bool) {
-	taps := l.OpenTaps()
-	at := slices.IndexFunc(taps, func(wait Wait) bool { return wait.PR == pr && namesHead(wait.Head, sha) })
-	if at < 0 {
-		return Wait{}, false
-	}
-	return taps[at], true
-}
-
-func (l Live) boardFact(pr, sha string) string {
+func (l Live) tapFact(pr, sha string, row store.ReviewRow, recorded bool) string {
 	entry := l.Taps[pr]
 	if decided := l.Decided(MergeRow{PR: pr, Head: sha}); decided != "" {
 		fact := fmt.Sprintf("you %s it at %s", decided, abbreviate(sha))
@@ -54,11 +47,9 @@ func (l Live) boardFact(pr, sha string) string {
 		}
 		return fact
 	}
-	shown := noBoardRow
-	for _, row := range l.Rows {
-		if row.PR == pr && row.Head != "" {
-			shown = fmt.Sprintf("its board row names %s, not its head", abbreviate(row.Head))
-		}
+	shown := noRecordRow
+	if recorded {
+		shown = recordWaits + row.WaitsOn
 	}
 	if entry.Verdict == "" || entry.Head == "" {
 		return shown
@@ -66,17 +57,19 @@ func (l Live) boardFact(pr, sha string) string {
 	return fmt.Sprintf("%s; you %s it at %s, an older head", shown, entry.Verdict, abbreviate(entry.Head))
 }
 
-func (l Live) Explain(pr int, snapshot map[int]machine.Facts) PRWait {
+func (l Live) Explain(pr int, snapshot map[int]machine.Facts, rows map[int]store.ReviewRow) PRWait {
 	f, open := snapshot[pr]
 	if !open {
 		return PRWait{PR: pr, Line: fmt.Sprintf("#%d: not waiting on you: %s", pr, noOpenPR)}
 	}
 	subject := fmt.Sprintf("#%d at %s", pr, abbreviate(f.Head))
-	if wait, found := l.tapAt(strconv.Itoa(pr), f.Head); found && !f.Tapped() {
-		return PRWait{pr, f.Head, true, fmt.Sprintf("%s: waits on your tap on %s, up since %s", subject, wait.Block, wait.Since)}
+	row, recorded := rows[pr]
+	tapped := f.Tapped() || recorded && row.Tapped
+	if recorded && row.ReadyForTap && !tapped {
+		return PRWait{pr, f.Head, true, fmt.Sprintf("%s: waits on your tap on the review tab", subject)}
 	}
-	fact := l.boardFact(strconv.Itoa(pr), f.Head)
-	if f.Tapped() && l.Decided(MergeRow{PR: strconv.Itoa(pr), Head: f.Head}) == "" {
+	fact := l.tapFact(strconv.Itoa(pr), f.Head, row, recorded)
+	if tapped && l.Decided(MergeRow{PR: strconv.Itoa(pr), Head: f.Head}) == "" {
 		fact = "a land order stands at " + abbreviate(f.Head)
 	}
 	held := slices.Insert(withoutTap(gates.Missing(f)), 0, fact)
