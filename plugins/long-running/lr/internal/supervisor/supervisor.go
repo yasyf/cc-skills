@@ -50,6 +50,7 @@ type Deps struct {
 	Restacker landing.Restacker
 	Trunk     string
 	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
+	DropStale func(ctx context.Context, snapshot []machine.Facts) error
 	Pool      grading.Pool
 	Stale     func(ctx context.Context) (bool, error)
 	Log       *slog.Logger
@@ -135,6 +136,11 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		}
 		if err := landing.CarryTaps(ctx, drive, out.Carried); err != nil {
 			d.Log.Warn("a tap did not carry", "err", err)
+		}
+		if d.DropStale != nil {
+			if err := d.DropStale(ctx, snapshot); err != nil {
+				d.Log.Warn("a stale tap stayed on the board", "err", err)
+			}
 		}
 		acts := landing.Clear(out.Acts, snapshot, d.Trunk)
 		if d.Admit != nil {

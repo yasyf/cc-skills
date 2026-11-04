@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/choices"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
@@ -121,6 +122,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return err
 	}
 	var checks []lanes.Check
+	var dropStale func(context.Context, []machine.Facts) error
 	var laneDeps lanes.Deps
 	if slices.Contains(env.Config.Movers, moverLanes) {
 		monitorLane, err := orca.MonitorLane(a)
@@ -182,6 +184,9 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 				return Deps{}, err
 			}
 			inputs := &landing.InputsPublisher{Runner: a.Runner, Store: s, FixLane: fixLanes, LiveClocks: liveClocks, Session: entry.Root(), Config: a.ConfigPath, Now: a.Now}
+			dropStale = board.StaleTaps{Runner: a.Runner, Session: entry.Root(), Say: func(ctx context.Context, tap board.DroppedTap) error {
+				return sayDropped(ctx, env.Config.Drive, env.Config.Repo, tap)
+			}}.Pass
 			checks = append(checks,
 				(&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "landing-gate-inputs", every: landing.InputsEvery, run: inputs.Pass, store: s, post: post, log: a.Log}).Check,
@@ -284,6 +289,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return gates.Admit(ctx, squash.Admit(ctx, acts, snapshot), snapshot)
 	}
 	deps.Trunk = env.Config.Trunk
+	deps.DropStale = dropStale
 	return deps, nil
 }
 
@@ -339,4 +345,21 @@ func Uninstall(cmd *cobra.Command, a *app.App) error {
 		return err
 	}
 	return agents.Uninstall(cmd.Context(), Label(cfg.Drive))
+}
+
+func sayDropped(ctx context.Context, name, repo string, tap board.DroppedTap) error {
+	to := []string{pass.BoardDesk}
+	if tap.Lane != "" {
+		to = append(to, tap.Lane)
+	}
+	_, err := client.Post(ctx, client.Draft{
+		Drive: name,
+		Lane:  lanes.Self,
+		Kind:  "note",
+		To:    to,
+		ID:    fmt.Sprintf("tap-dropped:%s:%d:%s", tap.Block, tap.PR, tap.Head),
+		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
+		Text:  fmt.Sprintf("Took #%d off the owner's board: %s. It returns only on a new head with its gates green; keep it off any hand-written list until then.", tap.PR, tap.Why),
+	})
+	return err
 }
