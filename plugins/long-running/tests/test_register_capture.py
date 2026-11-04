@@ -214,6 +214,17 @@ def test_an_owner_reply_in_any_dm_thread_posts_one_record_with_its_ts_and_thread
     assert posts[0][posts[0].index("--quoted") + 1] == "Meant to approve 43807"
 
 
+def test_an_owner_message_from_both_the_channel_and_the_watch_lands_once(root):
+    payload = {"type": "slack.message", "watch_id": 18, "kind": "dm", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": register_capture.OPERATOR, "from_claude": False, "text": "Meant to approve 43807"}
+    root.queued(slack_message(), "2026-10-28T03:53:25.695Z")
+    root.queued(f'<task-notification>\n<summary>Monitor event: "owner Slack watch"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>', "2026-10-28T03:53:26.695Z")
+
+    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+    root.fire(StopEvent)
+
+    assert [entry["digest"] for entry in root.captures()] == [digest("1793159602.693499")]
+
+
 def test_a_message_that_is_not_the_owners_posts_no_record(root):
     root.queued(slack_message(from_claude=True), "2026-10-28T03:53:25.695Z")
 
