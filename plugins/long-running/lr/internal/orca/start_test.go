@@ -24,7 +24,7 @@ const (
 	testBranch   = "yasyf/v3-lane-a-1-1"
 	nodeLine     = " node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile."
 	sparseLine   = " This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it."
-	deskContract = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
+	deskContract = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc. Mail reaches you only between tool calls, so no foreground command runs over five minutes: run a long read in the background and report it by record."
 	pluginBin    = "/plugin/bin"
 	agentScreen  = "⏵⏵ bypass permissions on (shift+tab to cycle)"
 )
