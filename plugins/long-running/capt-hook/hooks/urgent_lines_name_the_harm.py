@@ -24,6 +24,7 @@ NUMBER = re.compile(r"^\W*(?:#\d{3,}|\d{5,}|0\d{3})(?:'s)?\W*$")
 PLAIN = re.compile(r"^[A-Za-z][a-z'-]{2,}$")
 FILLER = frozenset("the and for with its his her this that was are has had have been now not but from into about then than also just still yet all any our you your".split())
 PR_REF = re.compile(r"(?i)(?:#|\bpr ?#?|\bcard-)(\d{5})\b")
+PORT_SOURCE = re.compile(r"(?i)\bport[- ]of[= ]+#?(\d{5})\b")
 OTHER_REPO_REF = re.compile(r"(?i)(?<![\w./-])(?:(?!forge-ai/)[\w.-]+/[\w.-]+|cc-[\w-]+)(?:#| #| pr ?#?)\d+|(?<![\w./-])(?!monorepo#)[\w.-]+#\d+")
 ESCALATES = re.compile(r"(?i)\b(?:releases?|deploy(?:s|ed|ing)?|rollouts?|resum\w*)\b")
 RELAY = "owner-relay"
@@ -125,7 +126,7 @@ def whose(reads: Reads, numbers: list[int]) -> dict[int, dict]:
 
 def theirs(reads: Reads, texts: list[str]) -> list[tuple[str, dict]]:
     found = whose(reads, prs_named(texts))
-    return [(text, row) for text in texts for number in prs_named([text]) if (row := found.get(number)) and row.get("foreign")]
+    return [(text, row) for text in texts for number in prs_named([text]) if (row := found.get(number)) and row.get("foreign") and str(number) not in PORT_SOURCE.findall(text)]
 
 
 def person(row: dict) -> str:
