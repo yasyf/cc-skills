@@ -225,7 +225,11 @@ func UnreadOverrides(record client.Record) []string {
 	text := quotedSpan.ReplaceAllString(quotedBlock.ReplaceAllString(fullText(record), ""), "")
 	var unread []string
 	for _, span := range overrideNamed.FindAllStringIndex(text, -1) {
-		if clauseStart.MatchString(text[:span[0]]) && !overrideForm.MatchString(text[span[0]:span[1]]) {
+		if !clauseStart.MatchString(text[:span[0]]) {
+			continue
+		}
+		form := overrideForm.FindStringSubmatch(text[span[0]:span[1]])
+		if form == nil || (strings.EqualFold(form[1], "finder") && form[4] == "") {
 			unread = append(unread, strings.TrimSpace(text[span[0]:span[1]]))
 		}
 	}

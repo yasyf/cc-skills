@@ -90,6 +90,21 @@ func TestARecordThatGradesTapsOrExemptsNothingWritesNothing(t *testing.T) {
 	}
 }
 
+func TestAFinderOverrideWithNoCiteIsUnreadAndAFidelityOneIsNot(t *testing.T) {
+	citeless := legacyRecord(t, "decide", "root", "finder-override #9 at e718a74: a memory limit", []int{9}, nil)
+	if unread := bus.UnreadOverrides(citeless); len(unread) != 1 {
+		t.Fatalf("UnreadOverrides = %v, want the citeless finder override", unread)
+	}
+	cited := legacyRecord(t, "decide", "root", "finder-override #9 at e718a74 finder #79447@637eacf4: a memory limit", []int{9}, nil)
+	if unread := bus.UnreadOverrides(cited); unread != nil {
+		t.Fatalf("UnreadOverrides = %v, want none for a cited override", unread)
+	}
+	fidelity := legacyRecord(t, "decide", "root", "fidelity-override #9 at e718a74: plan 44 says so", []int{9}, nil)
+	if unread := bus.UnreadOverrides(fidelity); unread != nil {
+		t.Fatalf("UnreadOverrides = %v, want none for a fidelity override", unread)
+	}
+}
+
 func TestAGoLaneTheConfigNamesMayNameAnExemptClass(t *testing.T) {
 	record := legacyRecord(t, "go", "go-carry-sweep-3", "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, nil)
 
