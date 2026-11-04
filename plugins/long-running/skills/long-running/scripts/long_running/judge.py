@@ -534,7 +534,7 @@ def state_dir(drive: str, env: Mapping[str, str] | None = None) -> Path:
         entry = json.loads(path.read_text())
         if entry.get("drive") == drive and entry.get("state_dir"):
             return Path(entry["state_dir"])
-    return home() / ".claude" / "scratch" / drive
+    return Path(selected.get("LONG_RUNNING_SCRATCH_ROOT") or home() / ".claude" / "scratch") / drive
 
 
 def record(drive: str, kind: str, backend: Backend, verdict: str, summary: dict, subject: str = "", *, env: Mapping[str, str] | None = None, checkpoint: Callable[[], None] = lambda: None) -> None:

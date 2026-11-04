@@ -253,6 +253,9 @@ func (d *deps) newDoc(opts generateOptions, plan string, sess session) (*progres
 }
 
 func defaultInboxDir(program string) (string, error) {
+	if root := os.Getenv("LONG_RUNNING_SCRATCH_ROOT"); root != "" {
+		return filepath.Join(root, program, "inbox"), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

@@ -74,7 +74,7 @@ Each implication line ``classify``, ``confirm --implication`` and ``amend`` writ
 words on its row verbatim; a line it reads as saying other than his words, binding what they only permit, or leaving
 unbound what they demand prints one ``WARN`` line on stderr naming the ``amend`` that rewrites it, and stays written.
 
-``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
+``--program`` uses ``<scratch>/<program>`` as the state directory, with the root ``drive.scratch_dir`` names. ``--drive``
 resolves the program and the state directory from the drive registry. With neither, the drive is the
 session's: the one ``CLAUDE_LONG_RUNNING_DRIVE`` names, else the one whose coordinator sessions hold
 ``CLAUDE_CODE_SESSION_ID``; a session in no drive must name one. The register is read
@@ -3227,5 +3227,5 @@ def dispatch(argv: list[str] | None, shell: ledger.Shell, runtime: Runtime) -> i
 
 
 def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, *, stdin: TextIO, stdout: TextIO) -> int:
-    runtime = Runtime(stdin, stdout, sys.stderr, drive.drives_dir(), Path.home() / ".claude" / "scratch", drive.current_drive, ledger.locked, ledger.held, lambda: None)
+    runtime = Runtime(stdin, stdout, sys.stderr, drive.drives_dir(), drive.scratch_dir(), drive.current_drive, ledger.locked, ledger.held, lambda: None)
     return dispatch(argv, shell or ledger.Shell(), runtime)

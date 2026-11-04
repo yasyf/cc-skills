@@ -117,7 +117,7 @@ func generateCommand(a *app.App) *cobra.Command {
 	flags := cmd.Flags()
 	flags.StringVar(&opts.program, "program", "", "the drive's program slug")
 	flags.StringVar(&opts.plan, "plan", "", "the plan's path")
-	flags.StringVar(&opts.inboxDir, "inbox-dir", "", "the inbox directory (default ~/.claude/scratch/<program>/inbox)")
+	flags.StringVar(&opts.inboxDir, "inbox-dir", "", "the inbox directory (default $LONG_RUNNING_SCRATCH_ROOT or ~/.claude/scratch, then <program>/inbox)")
 	flags.StringVar(&opts.ledger, "ledger", "", "the ledger id (default the drive registry's ledger for the session)")
 	flags.StringVar(&opts.session, "session", "", "the hook's JSON, - for stdin: session_id, tasks, background")
 	flags.BoolVar(&opts.strict, "strict", false, "write nothing when the narrative fails the lint")
