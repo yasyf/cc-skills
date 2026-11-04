@@ -585,7 +585,7 @@ def test_stop_after_the_record_spawns_one_compact_job_and_retries_after_30_minut
         "term-7",
         "/compact Resume the drive from `/p/brook.md` and its progress record: read the plan, "
         "then the progress doc: `ccn doc list --label progress:brook`, then "
-        f"`ccn doc show <id>`. Keep only in-flight details they lack. {handoff.ALIAS_RULE}",
+        "`ccn doc show <id>`. Keep only in-flight details they lack.",
         str(FIXTURES / "usage-460k.jsonl"),
     ]
     assert kw["env"]["ORCA_USER_DATA_PATH"] == "/orca/data"
@@ -916,7 +916,7 @@ def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_i
     assert augmented.count("## Standing owner rules") == 1
     assert augmented.endswith("_From doc 6666666._\n\n## The coordinator's next actions\n1. 12-item plan\n")
     assert instructions == (
-        f"Resume from `{plan}`, then `ccn doc show 66666666`; keep only in-flight details they lack. {handoff.ALIAS_RULE} "
+        f"Resume from `{plan}`, then `ccn doc show 66666666`; keep only in-flight details they lack. "
         "Quote: active progress doc: 66666666; the id in this summary wins over any id captured earlier in the conversation."
     )
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]

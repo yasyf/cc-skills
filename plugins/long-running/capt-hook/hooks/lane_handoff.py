@@ -7,7 +7,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import ALIAS_RULE, Bound, bus_name, drive_entry
+from .compaction_handoff import Bound, bus_name, drive_entry
 from .session_tree import ROOT_NAMES, drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -68,4 +68,33 @@ def lane_reads_its_handoff_after_compacting(evt: BaseHookEvent) -> HookResult | 
     if evt._raw.get("source") != "compact" or not (lane := lane_of(evt)):
         return None
     doc = latest_handoff(evt, lane)
-    return evt.context(f"You are {lane} and just compacted. Read `ccn doc show {doc}`, your handoff, then your brief, and continue the work it names. {ALIAS_RULE}") if doc else None
+    return evt.context(f"You are {lane} and just compacted. Read `ccn doc show {doc}`, your handoff, then your brief, and continue the work it names.") if doc else None
+
+
+@on(
+    Event.PreCompact,
+    only_if=[Bound()],
+    tests={
+        Input(env=LANE_ENV, commands={WRITE: "abc1234\n"}): Warn(pattern=r"^In this summary, name other lanes by alias"),
+        Input(env=ROOT_ENV): Warn(pattern=r"never a numbered name"),
+        Input(): Allow(),
+    },
+)
+def summaries_name_lanes_by_alias(evt: BaseHookEvent) -> HookResult | None:
+    return evt.context("In this summary, name other lanes by alias, such as tap-rows, never a numbered name such as tap-rows-1.")
+
+
+@on(
+    Event.SessionStart,
+    only_if=[Bound()],
+    tests={
+        Input(source="compact", env=ROOT_ENV): Warn(pattern=r"^Lanes go by alias"),
+        Input(source="resume", env=LANE_ENV): Warn(pattern=r"stays numbered where a tool needs it\.$"),
+        Input(source="startup", env=LANE_ENV): Allow(),
+        Input(source="compact"): Allow(),
+    },
+)
+def compacted_sessions_name_lanes_by_alias(evt: BaseHookEvent) -> HookResult | None:
+    if evt._raw.get("source") not in {"compact", "resume"}:
+        return None
+    return evt.context("Lanes go by alias: name other lanes as tap-rows, never tap-rows-1, in every record, reply and status line. Your own lane's binding stays numbered where a tool needs it.")
