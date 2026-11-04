@@ -108,6 +108,10 @@ codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_r
 
 `worker-start --agent codex` takes no launch flags, so it could not carry this list. `codexLaneConfig` in `lr/internal/orca/lane_env.go` turns off plugins, the remote plugin catalog, memories, apps, skill search, analytics, feedback, `notify`, history, and TUI notifications and animations. Every server in `config.toml` is off except `datadog`, `sentry`, and whatever `ORCA_LAUNCH_CODEX_MCP` names.
 
+**This Mac's local values.** Shared code reads them from local config, never from a hard-coded path. `~/.config/vcache/env`, loaded by launchd, zsh and fish, holds `NM_STORE_DIR`, `STACK_ENQUEUE_CACHE`, `STACK_ENQUEUE_WORKTREES`, `ORCA_LAUNCH_SPARSE=1`, `CCX_SEMSEARCH_CACHE`, and captain-hook's `HOOKS_LAYOUT_PROTECTED_ROOTS`, `HOOKS_LAYOUT_SEARCHABLE_UNITS`, `HOOKS_LAYOUT_CHECKOUT_COLLECTIONS` and `HOOKS_LAYOUT_WORKTREE_POOLS`. Global git config holds `ccx.worktreeRoot`, `ccx.sparseLanes=true`, and `ccx.sparseInclude` = `tools`, `infra/ci/hooks`. The monorepo's node_modules farm, sparse worker lanes and never-reused names ship for everyone; in ccx and this plugin the worktree root and sparse lanes stay behind config, and captain-hook's extra search roots and lane-install guard come from its local config.
+
+**Monorepo lane setup.** A monorepo lane gets `node_modules` from `tools/hooks/warm-lane.sh`, which links it to the shared store for its lockfile. A dependency change runs `yarn <verb> --mode=update-lockfile`, then `warm-lane.sh`; a changed lockfile rebuilds the store, never the lane. Monorepo clones here skip LFS smudge, so a checkout holds pointers: `git lfs pull --include <path>` or `tools/ensure-lfs-file.sh` fetches a real file. A buck2 build of flatc or the LLVM packages, and a `zig build` reading `zig/zigjs/vendor/bellard-mquickjs-*.tar.gz`, runs that first.
+
 ## Launch fast-tier incident workers
 
 **Launch incident fix and evidence lanes with `lr launch start <lane> incident xhigh <brief>`.** Because `worker-start` has no service-tier flag, the script creates a top-level (`--no-parent`) worktree and a custom terminal running Codex on the fast tier, then starts the worker on that terminal:
@@ -129,6 +133,12 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
 **Handle Codex readiness timeouts as `unsupervised` launches.** Orca's readiness check does not recognize Codex, so `worker-start` can end with `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` while Codex sits idle at its prompt with the spec undelivered. On that timeout with a live `codex` or `incident` terminal, `lr launch start` types the spec pointer into the terminal itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
 - Count `unsupervised` as launched.
 - The lane reports with `cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"` and reads deliveries with `cci tail --drive <drive> --cursor <lane> --reader <lane>`, without Orca `worker_done` or escalation plumbing.
+
+`orca-launch.sh <lane> incident xhigh <brief>` runs this command, then `orca orchestration worker-start --terminal`:
+
+```
+codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh
+```
 
 ## Send and answer worker messages
 

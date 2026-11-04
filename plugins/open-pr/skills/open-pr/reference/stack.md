@@ -77,3 +77,27 @@ A refusal of "fetched with Git and then tracked with Graphite" can mean the loca
 ## Sequential lanes need a commit boundary
 
 When stacked PRs build on each other and their lanes run sequentially in one worktree, each lane must commit on its own branch before the next starts. "Nobody commits, the orchestrator ships" destroys the boundary: the second lane's edits interleave with the first's in the same files, and no after-the-fact hunk-level split is fast or trustworthy. Stage N runs plain `git commit` on its branch; stage N+1 starts with `git checkout -b <next>`; the orchestrator still owns `ccx vcs stack submit` and the bodies. Genuinely independent lanes get separate worktrees instead.
+
+## The ccx verbs and the hook rewrites
+
+Prefer `ccx vcs stack rebase` from any stack lane (0.65.0 and later; older
+versions alias `restack`), previewing with `--dry-run`. On conflict, resolve in
+the `conflict-<branch>` worktree ccx prints, `git add`, then
+`ccx vcs stack continue`; `ccx vcs stack abort` drops the run.
+`ccx vcs stack new <name>` cuts the next branch into its own worktree, and
+`ccx vcs stack list` names each branch's worktree. `ccx vcs stack submit` is
+the default way to restack, retarget or resubmit: run it from the child's
+worktree as soon as a parent lands. It already fetches trunk, so no separate
+fetch, rebase or per-branch `ship --no-commit` comes first. For one changed tip
+whose parent is published, use `ship --tip-only`. `ccx vcs reviews --stack`, or
+`ship --reviews`, streams review comments. Follow-ups ship with
+`ship -m "<message>" --no-push`. `ccx vcs push` is the plain push.
+
+The captain-hook graphite pack rewrites `gt submit`, bare `gt restack`,
+`git rebase --continue` (to `ccx vcs stack continue`) and a bare
+current-branch `git push --force-with-lease` to their ccx verbs. It only adds a
+note on `gt sync`, `gt create`, `gt modify`, `git rebase`, and a plain
+force-push. `# ccx:raw` on the command, or `CAPT_HOOK_CCX_RAW=1`, runs it as
+written. When ccx refuses, is broken or cannot do the job, run the raw gt, git
+or gh fallback marked `# ccx:raw` and report the refusal verbatim to the
+stack's owner.
