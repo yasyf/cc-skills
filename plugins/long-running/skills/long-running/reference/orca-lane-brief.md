@@ -190,7 +190,8 @@ An owner-question list you write marks, for every item, which authorities you ch
 Every owner ask other than a PR tap is a question card from `drive.py ask-owner` with
 two to four answers and one recommended. Its text answers the first question he will
 ask, and a change it describes names its concrete things: which fields and where they
-live, which chats or users, and what happens before and after (R21). A settled
+live, which chats or users, and what happens before and after. Anything it names, such
+as a Sentry issue, build or PR, is a link, and it never names a cci record (R21). A settled
 question never reaches the board,
 a card he touched stays until he submits the round, and nobody calls `AskUserQuestion`;
 an urgent yes/no is the same card sent to his Slack with `cc-present ask`.
