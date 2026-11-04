@@ -119,7 +119,7 @@ SENTENCE = re.compile(r"(?<=[.!?])(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\bvs\.)(?<!\betc
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
-ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go", "checked_at", "awaiting")
+ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "meta", "md", "block", "state", "ci_fix_go", "checked_at", "awaiting")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
 UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
 RELEASED = re.compile(r"^(released|done|live)", re.I)
@@ -145,6 +145,11 @@ MERGE_ONLY = re.compile(r"^(waits? (for|on)|lands? after|after|stacked on)[\s#\d
 MERGE_CARD = "card-merge-triage"
 MERGE_BLOCK = "merge-prs"
 LR_STORE = "lr.sqlite"
+ROW_META = (
+    ("Waits on", "waits_on"), ("Description", "description"), ("CI", "ci"), ("Approved by", "approvers"), ("Grade", "grade"), ("Findings", "grade_findings"),
+    ("Mergeable", "mergeable"), ("Queue", "queue"), ("Hold", "hold"), ("Superseded by", "superseded_by"), ("Lane", "lane"), ("Branch", "branch"), ("Parent", "parent"),
+    ("Head", "head"), ("Tapped at", "tapped_at"), ("Tapped by", "tapped_by"), ("Tap refused", "tap_refused"), ("Landed at", "landed_at"), ("Written at", "written_at"),
+)
 LANE_NUMBER = re.compile(r"-\d+$")
 ACTIVE = dt.timedelta(minutes=30)
 WORKING = dt.timedelta(minutes=20)
@@ -776,26 +781,33 @@ def awaiting_reply(rows, asks):
     return [{**row, "awaiting": open_ask(row["number"])} for row in rows]
 
 
+def rows_written(stored):
+    return max((row["written_at"] for row in stored), default=None)
+
+
 def review_rows(stored, verdicts):
     rows = []
     for row in stored:
         alias = LANE_NUMBER.sub("", row["lane"])
+        ready = bool(row["ready_for_tap"])
+        tapped = bool(row["tapped"])
         rows.append({
             "number": row["number"],
             "head": row["head"],
             "title": row["title"],
             "change": row["for_users"],
-            "plan": row["plan"],
+            "plan": row["plan_row"],
             "risk": row["risk"],
             "review": row["review"],
-            "blocker": "your approval" if row["ready"] else row["waits"],
+            "blocker": "your approval" if ready and not tapped else row["waits_on"],
+            "meta": [[label, str(row[column])] for label, column in ROW_META],
             "group": alias,
             "group_id": alias,
             "group_summary": "",
             "block": MERGE_BLOCK,
             "verdict": verdicts.get(MERGE_BLOCK, {}).get(str(row["number"])),
-            "tapped": bool(row["tapped"]),
-            "ready": bool(row["ready"]),
+            "tapped": tapped,
+            "ready": ready,
         })
     return rows
 
@@ -1038,11 +1050,14 @@ class Drive:
         return self.assistant.review_url(number, pr.get("head") or row.get("head"), pr.get("state") == "landed")
 
     def decide(self, block, number, verdict, head, note):
-        shown = next((row["head"] for row in self.stored_rows() if row["number"] == int(number)), None)
+        row = next((row for row in self.stored_rows() if row["number"] == int(number)), None)
+        shown = row and row["head"]
         if shown is None:
             return 409, {"error": f"#{number} left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}
         if verdict != "cleared" and shown[:7] != head[:7]:
             return 409, {"error": f"#{number} is now at {shown[:7]}, not the {head[:7]} this page shows, so this tap changed nothing; reload the page to see what changed"}
+        if verdict == "approved" and not row["ready_for_tap"]:
+            return 409, {"error": f"#{number} is not ready for your tap, so this tap changed nothing: {row['waits_on']}"}
         said = f"Owner on the dashboard: {number} {verdict} at {head[:7]}" + (f": {note}" if note else "")
         run(["cci", "post", "--drive", self.config["drive"], "--lane", "board-watch", "--kind", "owner", "--to", "root", "--id", f"dashboard-tap:{number}:{uuid.uuid4().hex}", "--pr", str(number), "--topic", block, "--attr", "event=triage.decided", "--attr", f"block={block}", "--attr", f"row={number}", "--attr", f"verdict={verdict}", "--attr", f"head={head}", "--text", said])
         self.tapped[str(number)] = {"verdict": verdict, "head": head, "at": dt.datetime.now(dt.timezone.utc).isoformat(), **({"note": note} if note else {})}
@@ -1523,13 +1538,12 @@ class Drive:
         store_path = Path(self.config["steps"]).parents[1] / LR_STORE
         with sqlite3.connect(f"file:{store_path}?mode=ro", uri=True) as store:
             store.row_factory = sqlite3.Row
-            return [dict(row) for row in store.execute("SELECT number, head, lane, title, for_users, plan, risk, review, waits, ready, tapped, drawn_at FROM review_rows WHERE repo = ? ORDER BY ready DESC, number", (self.config["repo"],))]
+            return [dict(row) for row in store.execute("SELECT * FROM review_rows WHERE repo = ? AND state NOT IN ('landed', 'closed', 'superseded') ORDER BY ready_for_tap DESC, number", (self.config["repo"],))]
 
     def follow_rows(self):
         seen = None
         while True:
-            stored = self.stored_rows()
-            written = stored[0]["drawn_at"] if stored else None
+            written = rows_written(self.stored_rows())
             if written != seen:
                 seen = written
                 self.touch()
@@ -1577,7 +1591,7 @@ class Drive:
         read = self.read_board(self.board_doc)
         stored = self.stored_rows()
         read["rows"] = review_rows(stored, {MERGE_BLOCK: {**self.board_doc["interactions"]["triage"].get(MERGE_BLOCK, {}), **self.tapped}})
-        read["rows_at"] = stored[0]["drawn_at"] if stored else None
+        read["rows_at"] = rows_written(stored)
         answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
         return {**read, "answered": answered, "seq": seq}
 

@@ -85,23 +85,42 @@ def test_parse_plan_skips_a_doc_without_the_section():
 
 
 def stored_row(number, head, **change):
-    return {"number": number, "head": head, "lane": "lane-7", "title": "T", "for_users": "Chats open faster.", "plan": "Plan step 7.", "risk": "Low.", "review": "CI green; approved", "waits": "Only your approval.", "ready": 1, "tapped": 0, "drawn_at": "2026-11-04T09:40:00Z", **change}
+    return {
+        "number": number, "head": head, "lane": "lane-7", "title": "T", "for_users": "Chats open faster.", "plan_row": "Plan step 7.", "risk": "Low.", "review": "approved by a bot", "waits_on": "Only your approval.",
+        "ready_for_tap": 1, "tapped": 0, "state": "open", "written_at": "2026-11-04T09:40:00Z", "description": "D", "ci": "green", "approvers": "a bot", "grade": "pass", "grade_findings": "none", "mergeable": "clean", "queue": "none",
+        "hold": "none", "superseded_by": "none", "branch": "b", "parent": "none", "tapped_at": "not yet", "tapped_by": "not yet", "tap_refused": "", "landed_at": "not yet",
+        **change,
+    }
 
 
 def test_the_tab_lists_each_stored_pr_with_its_fields_from_the_store():
-    stored = [stored_row(1, "aaaaaaabbbb"), stored_row(2, "bbbbbbbcccc", ready=0, waits="CI is not green; held by root"), stored_row(3, "ddddddd", lane="old-chat-convert-5", tapped=1)]
+    stored = [stored_row(1, "aaaaaaabbbb"), stored_row(2, "bbbbbbbcccc", ready_for_tap=0, waits_on="held, root: cutover"), stored_row(3, "ddddddd", lane="old-chat-convert-5", tapped=1)]
     rows = server.review_rows(stored, {"merge-prs": {"1": {"verdict": "approved", "head": "aaaaaaa"}}})
 
     assert [row["number"] for row in rows] == [1, 2, 3]
-    assert rows[0]["change"] == "Chats open faster." and rows[0]["plan"] == "Plan step 7." and rows[0]["risk"] == "Low." and rows[0]["review"] == "CI green; approved"
+    assert rows[0]["change"] == "Chats open faster." and rows[0]["plan"] == "Plan step 7." and rows[0]["risk"] == "Low." and rows[0]["review"] == "approved by a bot"
     assert rows[0]["group"] == "lane" and rows[0]["verdict"] == {"verdict": "approved", "head": "aaaaaaa"} and rows[0]["blocker"] == "your approval"
-    assert rows[1]["head"] == "bbbbbbbcccc" and rows[1]["blocker"] == "CI is not green; held by root"
+    assert rows[1]["head"] == "bbbbbbbcccc" and rows[1]["blocker"] == "held, root: cutover"
     assert rows[2]["group"] == "old-chat-convert" and rows[2]["tapped"] is True
+    assert ["Hold", "none"] in rows[0]["meta"] and ["Approved by", "a bot"] in rows[0]["meta"] and {label for label, _ in rows[0]["meta"]} >= {"Waits on", "CI", "Grade", "Findings", "Mergeable", "Queue", "Superseded by", "Lane", "Branch", "Parent", "Head", "Tapped at", "Tapped by", "Landed at", "Written at", "Description"}
+
+
+def test_the_tab_query_leaves_out_ended_rows_and_puts_ready_ones_first(tmp_path):
+    (tmp_path / "progress").mkdir()
+    with contextlib.closing(sqlite3.connect(tmp_path / "lr.sqlite")) as db, db:
+        db.execute("CREATE TABLE review_rows (repo TEXT, number INTEGER, state TEXT, ready_for_tap INTEGER, written_at TEXT)")
+        db.executemany("INSERT INTO review_rows VALUES ('o/r', ?, ?, ?, ?)", [(1, "open", 0, "t1"), (2, "open", 1, "t2"), (3, "landed", 0, "t3"), (4, "closed", 0, "t4"), (5, "superseded", 0, "t5"), (6, "tapped", 0, "t6")])
+    drive = Drive({"board_url": "http://board/p/x", "repo": "o/r", "steps": str(tmp_path / "progress" / "steps.json")}, None)
+
+    rows = drive.stored_rows()
+
+    assert [row["number"] for row in rows] == [2, 1, 6]
+    assert server.rows_written(rows) == "t6"
 
 
 def test_a_stored_tap_reads_approved_without_a_board_verdict():
     drive = Drive({"board_url": "http://board/p/x"}, None)
-    rows = server.review_rows([stored_row(3, "ddddddd", tapped=1), stored_row(4, "eeeeeee"), stored_row(5, "fffffff", ready=0, waits="CI is not green")], {})
+    rows = server.review_rows([stored_row(3, "ddddddd", tapped=1), stored_row(4, "eeeeeee"), stored_row(5, "fffffff", ready_for_tap=0, waits_on="CI is red at this head")], {})
     drive.check_gos(rows)
 
     assert [row["state"] for row in rows] == ["approved", "you", "not-ready"]
@@ -724,7 +743,7 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
     out = needs(rows, [], [], "http://board/p/x", set())
 
     assert [(item["group"], item["relation"]) for item in out] == [("Faster tools", "Four tooling changes; none reaches a user."), ("Release 1 waits on this", "The first release cannot start without it.")]
-    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "md": "M", "block": "merge-prs", "state": "you", "key": rows[1]["key"], "ci_fix_go": None, "checked_at": None, "awaiting": None}]
+    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "meta": None, "md": "M", "block": "merge-prs", "state": "you", "key": rows[1]["key"], "ci_fix_go": None, "checked_at": None, "awaiting": None}]
     assert out[0]["key"] != out[1]["key"]
     assert [row["number"] for row in out[0]["others"]] == [43243]
     assert out[1]["source"] == {"label": "Merge board: Release 1 waits on this", "href": "http://board/p/x"}
@@ -1218,6 +1237,7 @@ def test_a_page_that_stops_updating_reports_each_new_failure_to_root_once(monkey
         ([stored_row(45579, "598d220")], 45579, "approved", "598d220", 200, {"seq": 9}, True),
         ([], 45533, "approved", "705ab74", 409, {"error": "#45533 left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}, False),
         ([stored_row(45533, "9e0a1b2")], 45533, "approved", "705ab74", 409, {"error": "#45533 is now at 9e0a1b2, not the 705ab74 this page shows, so this tap changed nothing; reload the page to see what changed"}, False),
+        ([stored_row(45533, "705ab74", ready_for_tap=0, waits_on="held, root: cutover")], 45533, "approved", "705ab74", 409, {"error": "#45533 is not ready for your tap, so this tap changed nothing: held, root: cutover"}, False),
     ],
 )
 def test_a_tap_records_only_on_a_stored_row_at_the_head_the_page_shows(monkeypatch, stored, number, verdict, head, status, out, posted):
