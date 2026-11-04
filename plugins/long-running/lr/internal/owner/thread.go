@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -55,15 +56,20 @@ func threadWordCommand(a *app.App, driveName *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return word.record(cmd.Context(), a.Runner, entry, session)
+			s, err := store.Open(entry.Store())
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+			return word.record(cmd.Context(), a.Runner, s.SlackThreadAt, entry, session)
 		},
 	}
 	cmd.Flags().StringVar(&session, "session", os.Getenv("CLAUDE_CODE_SESSION_ID"), "the session this window runs, whose board holds the cards it posted")
 	return cmd
 }
 
-func (w threadWord) record(ctx context.Context, runner shell.Runner, entry drive.Entry, session string) error {
-	card, found, err := w.card(ctx, runner, session)
+func (w threadWord) record(ctx context.Context, runner shell.Runner, threads threadsAt, entry drive.Entry, session string) error {
+	card, found, err := w.card(ctx, runner, threads, entry, session)
 	if err != nil || !found || w.Text == "" {
 		return err
 	}
@@ -110,9 +116,16 @@ func (w threadWord) body(card wordCard, at time.Time) string {
 	return fmt.Sprintf("%s\nBoard question: %s\nCard %s, %sboard %s, typed in the card's Slack thread %s, %s PT.", w.Text, card.title, card.id, block, card.session, w.Thread, at.In(pacific).Format(rowTime))
 }
 
-func (w threadWord) card(ctx context.Context, runner shell.Runner, session string) (wordCard, bool, error) {
+func (w threadWord) card(ctx context.Context, runner shell.Runner, threads threadsAt, entry drive.Entry, session string) (wordCard, bool, error) {
 	if w.Owner != nil {
 		return wordCard{session: w.Owner.Session, id: w.Owner.Card, title: cmp.Or(w.Owner.Title, w.Owner.Card)}, w.Owner.Card != "", nil
+	}
+	indexed, found, err := threads(w.Thread)
+	if err != nil {
+		return wordCard{}, false, err
+	}
+	if found && indexed.Card != "" {
+		return wordCard{session: entry.Root(), id: indexed.Card, title: cmp.Or(indexed.Question, indexed.Card)}, true, nil
 	}
 	shown, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "outcomes", "--all", "--session", session}, Timeout: rowWait})
 	var failed *shell.ExitError
