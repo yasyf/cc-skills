@@ -161,7 +161,7 @@ func TestARowFromTheRecordsCarriesEveryFieldAndComesReady(t *testing.T) {
 		Repo: testRepo, Number: 1, Title: "the title", Lane: "lane-7", Branch: "branch-1", Base: "dev", Parent: None, ParentState: None, Head: headA,
 		ForUsers: "A user sees it.", PlanLine: "This carries plan step 1.", PlanRow: "This carries plan step 1. " + planChecked, Risk: "Low.",
 		CI: CIGreen, Approvers: "a, b", Review: "approved by a, b", Grade: GradePass, GradeFindings: None, Mergeable: "clean", Queue: "none",
-		Hold: None, SupersededBy: None, WaitsOn: onlyHim, ReadyForTap: true, State: StateOpen, TappedAt: NotYet, TappedBy: NotYet, LandedAt: NotYet,
+		Hold: None, SupersededBy: None, WaitsOn: onlyHim, ReadyForTap: true, State: StateOpen, TapRefused: None, TappedAt: NotYet, TappedBy: NotYet, LandedAt: NotYet,
 	}
 	got := row
 	got.HeadAt, got.ReadHead, got.Description, got.LastRecord, got.WrittenAt = "", "", "", 0, ""
