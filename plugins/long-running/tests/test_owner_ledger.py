@@ -83,6 +83,8 @@ class Notes:
         self.added: list[tuple[str, ...]] = []
 
     def __call__(self, cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
+        if args[:3] == ("answer", "list", "--json"):
+            return subprocess.CompletedProcess(args, 0, "[]", "")
         assert args[:3] == ("answer", "add", "--json")
         self.added.append(args[3:])
         return subprocess.CompletedProcess(args, 0, json.dumps({"id": "4ffc9a5e0d" * 4}), "")
@@ -305,6 +307,19 @@ def test_an_owner_prompt_posts_its_row_as_one_owner_record_and_registers_one_ans
     assert {"--label=from:owner", "--label=program:brook"} <= set(answer)
     assert answer[-2:] == ("--", f"What did the owner say at {at}?")
     assert next(flag for flag in answer if flag.startswith("--body=")).startswith("--body=hook should just do it for you\n\nOwner, ")
+
+
+def test_a_stalled_ccn_never_holds_the_owner_prompt(communicator: Window, bus: Bus, monkeypatch: pytest.MonkeyPatch) -> None:
+    def stalled(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired("ccn", 20)
+
+    monkeypatch.setattr(root_context, "ccn", stalled)
+    evt = communicator.event(UserPromptSubmitEvent, prompt="hook should just do it for you")
+
+    assert owner_ledger.add_owner_message(evt) is not None
+
+    assert len(communicator.rows()) == len(bus.posts()) == 1
+    assert owner_ledger.TurnRows.load(evt).answer_at
 
 
 def test_a_repeat_delivery_of_one_prompt_records_nothing(communicator: Window, bus: Bus, notes: Notes) -> None:

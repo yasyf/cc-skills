@@ -68,6 +68,7 @@ class LedgeredDms(WorkflowState):
 @workflow_state("long_running_owner_turn")
 class TurnRows(WorkflowState):
     rows: list[str] = []
+    answer_at: str | None = None
 
 
 def ledger_of(entry: dict) -> Path:
@@ -167,11 +168,28 @@ def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
         return None
     for row, ask in rows:
         post_owner_row(entry, row, ask)
-    add_answer(evt, at)
     ids = [row for row, _ in rows]
     with TurnRows.mutate(evt) as turn:
         turn.rows = ids
+        turn.answer_at = at.isoformat()
     return evt.context(NEW_ROW.format(rows=", ".join(f"`{row}`" for row in ids), row=ids[0] if len(ids) == 1 else "<row>"))
+
+
+@on(
+    Event.UserPromptSubmit,
+    only_if=[Communicator(), OwnerPrompt()],
+    skip_if=[FromSubagent()],
+    async_=True,
+    tests=communicator_tests({
+        Input(prompt="keep the nightly report", state=ACTIVE, commands={"ccn": "[]"}): Allow(),
+        Input(prompt="keep the nightly report"): Allow(),
+    }),
+)
+def record_owner_answer(evt: BaseHookEvent) -> None:
+    with TurnRows.mutate(evt) as turn:
+        owed, turn.answer_at = turn.answer_at, None
+    if owed and not answers(evt, "list", "--label", message_label(evt), "--limit", "1"):
+        add_answer(evt, datetime.fromisoformat(owed))
 
 
 @on(
