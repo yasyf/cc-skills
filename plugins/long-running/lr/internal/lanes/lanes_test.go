@@ -1390,6 +1390,20 @@ func TestALaneParkedOnAPickIsWokenOnceForItAndNeverWhileItHasAPR(t *testing.T) {
 	}
 }
 
+func TestACardNamedInAnAskToAnotherLaneIsNoWaitOnHisPick(t *testing.T) {
+	s, f, at := recommendedDrive(t, "parked on nothing of his")
+	f.deps.BuildRecommendedOrder = "owner:m104"
+	f.feed = append(f.feed, rec(3, lane2, "ask", t0.Add(mins(31)), "For card-agents-chat-table: replace the dead background link", "board-refresher"))
+
+	tick(t, s, f, at)
+
+	if strings.Contains(row(t, s, lane2).Awaits, "card-agents-chat-table") {
+		t.Fatal(row(t, s, lane2).Awaits)
+	}
+	equal(t, len(reportsTo(f, "meta-desk-3")), 0)
+	equal(t, len(must(s.BranchCards())), 0)
+}
+
 func TestACardWithNoRecommendationOrNoStandingOrderLeavesTheLaneParked(t *testing.T) {
 	for name, c := range map[string]struct{ parked, order string }{
 		"no recommendation": {"card-phone-app-platform recommends none: no-recommendation", "owner:m104"},
