@@ -241,6 +241,12 @@ def test_alerts_keep_the_newest_when_many_wait():
     assert [alert["id"] for alert in drive_alerts(replies, [])] == [f"r{n}" for n in range(ALERTS_SENT)]
 
 
+def test_what_waits_on_him_still_alerts_when_newer_replies_fill_the_newest_while_his_laptop_sleeps():
+    newer = [reply_entry(f"r{n}", status="done") for n in range(ALERTS_SENT)]
+    older = [reply_entry("asked", status="needs_you"), reply_entry("down", status="incident"), reply_entry("chose", status="info", picks=["a"]), reply_entry("finished", status="done")]
+    assert [alert["id"] for alert in drive_alerts(newer + older, [])] == [f"r{n}" for n in range(ALERTS_SENT)] + ["asked", "down", "chose"]
+
+
 @pytest.mark.parametrize("script", sorted(Path(server.__file__).parent.glob("*.js")), ids=lambda path: path.name)
 def test_every_page_script_parses(script):
     subprocess.run(["node", "--check", str(script)], check=True)

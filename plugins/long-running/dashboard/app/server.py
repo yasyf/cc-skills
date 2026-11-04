@@ -913,8 +913,10 @@ def stored_replies(read, store):
 
 def drive_alerts(replies, cards):
     newest = [entry["reply"] for entry in replies[:ALERTS_SENT]]
-    alerts = [{"id": reply["id"], "title": reply["title"], "body": " · ".join(reply.get("picks", [])) or reply["md"].strip().partition("\n")[0].strip("*_# "), "incident": reply.get("status") == "incident"} for reply in newest]
-    sent = {reply["id"] for reply in newest}
+    waiting = [entry["reply"] for entry in replies if entry["reply"].get("status") in ("needs_you", "incident") or entry["reply"].get("picks")][:ALERTS_SENT]
+    kept = newest + [reply for reply in waiting if reply not in newest]
+    alerts = [{"id": reply["id"], "title": reply["title"], "body": " · ".join(reply.get("picks", [])) or reply["md"].strip().partition("\n")[0].strip("*_# "), "incident": reply.get("status") == "incident"} for reply in kept]
+    sent = {reply["id"] for reply in kept}
     return alerts + [{"id": own, "title": card["title"], "body": card["summary"], "incident": False, "card": card["id"]} for card in cards if (own := card["id"].removeprefix("card-")) not in sent]
 
 
