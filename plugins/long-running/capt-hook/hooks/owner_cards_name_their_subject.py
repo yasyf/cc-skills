@@ -200,6 +200,8 @@ def card_about(title: str, body: str, commands: dict[str, object]) -> Input:
         card_about("Land #50333?", "Its checks passed.", {PORTS_READ: "{}"}): Allow(),
         card_about("Land #50254?", "Its checks passed.", {PORTS_READ: (1, "store unreadable")}): Warn(pattern=r"could not read"),
         card_about("Relay fix", "Its checks passed.", {}): Allow(),
+        Input(command="lr ask-owner --title 'Land PR 50254?' --port-of 49412 --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
+        Input(command="lr ask-owner --title 'Land PR 50254?' --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
         Input(command="ls -la", env=HOOK_ENV): Allow(),
     },
 )
