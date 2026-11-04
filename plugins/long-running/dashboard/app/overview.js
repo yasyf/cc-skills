@@ -284,8 +284,10 @@ document.addEventListener('mouseover', (e) => {
   highlight(area ? numbersFor(area) : null);
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.ck, .overlay, .pr-facts, #cardembed, .nw-needs, .pg')) return;
   if (e.metaKey || e.ctrlKey) return;
+  const choose = e.target.closest('[data-choose]');
+  if (choose) return answer({ kind: 'choice', block: choose.dataset.choice, options: [choose.dataset.choose], ...(choose.dataset.subject ? { subject: choose.dataset.subject } : {}) });
+  if (!e.target.closest('.ck, .overlay, .pr-facts, #cardembed, .nw-needs, .pg')) return;
   const light = e.target.closest('.ck .dot[data-n]');
   if (light) { e.preventDefault(); return (location.hash = `#/review/${light.dataset.n}`); }
   const strip = e.target.closest('.ck .route');
@@ -324,8 +326,6 @@ document.addEventListener('click', (e) => {
   const opening = e.target.closest('[data-embed-card]');
   if (opening) { ov.embedCard = opening.dataset.embedCard; return render(); }
   if (e.target.closest('[data-embed-close]')) { ov.embedCard = null; return render(); }
-  const choose = e.target.closest('[data-choose]');
-  if (choose) return answer({ kind: 'choice', block: choose.dataset.choice, options: [choose.dataset.choose], ...(choose.dataset.subject ? { subject: choose.dataset.subject } : {}) });
   const approve = e.target.closest('[data-approve]');
   if (approve) {
     const row = boardRow(approve.dataset.approve);

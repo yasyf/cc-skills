@@ -938,6 +938,22 @@ def test_a_yes_no_answers_inline_and_anything_else_opens_the_task(page):
     now(page)
 
 
+def test_a_pick_tapped_in_chat_posts_its_answer_inline_and_in_the_task_window(page):
+    page.route("**/api/answer", lambda route: route.fulfill(json={"seq": 10**9}))
+    open_chat(page)
+    with page.expect_request("**/api/answer") as inline:
+        page.locator('#rp-open2 .ct-acts [data-choose="open2-2"]').click()
+    assert inline.value.post_data_json == {"kind": "choice", "block": "open2-choice", "options": ["open2-2"]}
+    page.locator("#rp-open3 [data-chat-modal]").click()
+    with page.expect_request("**/api/answer") as windowed:
+        page.locator('#chatmodal [data-choose="open3-1"]').click()
+    assert windowed.value.post_data_json == {"kind": "choice", "block": "open3-choice", "options": ["open3-1"]}
+    page.locator("#chatmodal [data-chat-close]").click()
+    page.evaluate("ov.sent.clear(); state.taps.length = 0")
+    page.unroute("**/api/answer")
+    now(page)
+
+
 @pytest.mark.parametrize("n", [1, 1000])
 def test_the_chat_draws_a_bounded_window_at_any_length(page, n):
     open_chat(page, n)
