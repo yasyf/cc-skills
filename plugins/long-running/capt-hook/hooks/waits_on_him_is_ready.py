@@ -59,6 +59,7 @@ def card_claims(evt: BaseHookEvent) -> list[str]:
         Input(command="cc-present reply --block b --body '#49730 waits on your tap'", env=ENV, commands=READY): Allow(),
         Input(command="cci post --lane a --kind report --text '#49730 does not wait on his tap'", env=ENV, commands=HELD): Allow(),
         Input(command="cci post --lane a --kind report --text '#49730 is waiting on CI'", env=ENV, commands=HELD): Allow(),
+        Input(command="cci post --lane a --kind state --text 'Record #418237 says it waits on his tap'", env=ENV, commands=HELD): Allow(),
         Input(command="cci post --lane a --kind blocked --text '#49730 waits on his tap'  # ccx:raw", env=ENV, commands=HELD): Allow(),
         Input(command="cci post --lane a --kind blocked --text '#49730 waits on his tap'", env=ENV, commands={ROWS: (1, "store unreadable")}): Warn(pattern=r"^Warning, nothing was refused: `lr board rows`"),
     },
