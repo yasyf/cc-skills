@@ -668,6 +668,64 @@ func TestNoLineIsEverTypedIntoATerminalThatWaitsOrForAWorkersPrompt(t *testing.T
 	want(t, len(f.keys), 0)
 }
 
+func shownCount(f *fake, dispatch string) int {
+	count := 0
+	for _, call := range f.calls {
+		if strings.Contains(strings.Join(call, " "), workerKey(dispatch)) {
+			count++
+		}
+	}
+	return count
+}
+
+func TestAnUnchangedClearWorkerIsReadAgainOnlyOnChangeOrAfterTheWindow(t *testing.T) {
+	f := newFake(t)
+	e := workersUp(t, f, "clear")
+	w := f.watch()
+	w.Reshow = reshowEvery
+	check := func(shown int) {
+		t.Helper()
+		if err := w.Check(context.Background(), e); err != nil {
+			t.Fatal(err)
+		}
+		f.clock = f.clock.Add(pollInterval)
+		want(t, shownCount(f, local), shown)
+	}
+
+	check(1)
+	check(1)
+
+	f.orca[workerListKey] = edited(t, "worker-list", func(doc map[string]any) {
+		for _, worker := range doc["result"].(map[string]any)["workers"].([]any) {
+			row := worker.(map[string]any)
+			if row["dispatchId"] == local {
+				row["projection"].(map[string]any)["attention"] = map[string]any{"categories": []string{"input"}, "requiresAction": true}
+			}
+		}
+	})
+	check(2)
+	check(2)
+
+	f.clock = f.clock.Add(reshowEvery)
+	check(3)
+}
+
+func TestAWaitingWorkerIsReadEveryPoll(t *testing.T) {
+	f := newFake(t)
+	e := workersUp(t, f, "waiting")
+	f.orca[readKey(localTerm, "")] = fixture(t, "screen.coordinator.approval")
+	w := f.watch()
+	w.Reshow = reshowEvery
+
+	for shown := range 3 {
+		if err := w.Check(context.Background(), e); err != nil {
+			t.Fatal(err)
+		}
+		f.clock = f.clock.Add(pollInterval)
+		want(t, shownCount(f, local), shown+1)
+	}
+}
+
 func TestAnAnsweredPromptReadsStaleAndResolvesWhatItRaised(t *testing.T) {
 	f := newFake(t)
 	e := supervisedEntry(t)
