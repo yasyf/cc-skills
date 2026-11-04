@@ -221,7 +221,7 @@ func (d *Desk) sendRelays(ctx context.Context, container string, dispatch *laneD
 			}
 			continue
 		}
-		response := map[string]any{"text": "folded into " + unread + ", which the lane has not answered yet", "at": d.stamp()}
+		response := map[string]any{"text": foldedPrefix + unread + foldedSuffix, "at": d.stamp()}
 		if _, err := d.attempt(container, func(tx *incident.Tx) error { return finish(tx, action.ActionID, response, dispatch.ID, d.Now()) }); err != nil {
 			return err
 		}

@@ -3894,6 +3894,19 @@ func TestARelayToASettledWorkerWaitsForItsDeadline(t *testing.T) {
 	}
 }
 
+func TestAStaleRosterDoesNotCloseAWorkerThatResumed(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.sentRelay("R2", "")
+	w.now = w.now.Add(11 * time.Minute)
+	w.desk.settled, w.desk.rosterAt = map[string]string{testDispatch: statusCompleted}, w.now
+	w.step(w.desk.deadlines)
+	w.noEscalation("RELAY-CLOSED ")
+	if status := w.relayStatus("R2"); status != incident.ActionAccepted {
+		t.Fatal(status)
+	}
+}
+
 func TestAnUnreachableWorkersRelayStaysOpen(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
