@@ -84,11 +84,15 @@ func (e Env) writeHandoff(ctx context.Context, s *store.Store, lane, cwd, transc
 		return "", err
 	}
 	stamp := e.Now().UTC().Format("2006-01-02T1504Z")
-	result, err := e.Runner.Run(ctx, shell.Command{
+	add := shell.Command{
 		Argv:    []string{"ccn", "-R", or(cwd, e.Config.Checkout), "doc", "add", fmt.Sprintf("%s: handoff %s", lane, stamp), "--label", "handoff:" + lane, "--when", fmt.Sprintf("Resuming the %s lane of drive %s after a compaction: read before anything else, then its brief", lane, e.Config.Drive), "--body", "-", "--json"},
 		Stdin:   body,
 		Timeout: readTimeout,
-	})
+	}
+	result, err := e.Runner.Run(ctx, add)
+	if err != nil {
+		result, err = e.Runner.Run(ctx, add)
+	}
 	if err != nil {
 		return "", fmt.Errorf("ccn doc add: %w", err)
 	}

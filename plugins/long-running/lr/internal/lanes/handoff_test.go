@@ -17,14 +17,19 @@ import (
 )
 
 type handoffRun struct {
-	commands []shell.Command
-	refuse   string
+	commands   []shell.Command
+	refuse     string
+	failDocAdd int
 }
 
 func (h *handoffRun) Run(_ context.Context, c shell.Command) (shell.Result, error) {
 	h.commands = append(h.commands, c)
 	if h.refuse != "" && c.Argv[0] == h.refuse {
 		return shell.Result{}, errors.New(h.refuse + " refused")
+	}
+	if h.failDocAdd > 0 && c.Argv[0] == "ccn" {
+		h.failDocAdd--
+		return shell.Result{}, errors.New("update refs failed")
 	}
 	switch c.Argv[0] {
 	case "ccn":
@@ -104,6 +109,26 @@ func TestACompactionWhoseHandoffCannotBeWrittenLeavesABlocker(t *testing.T) {
 			equal(t, bus.posted[0].Lane, lane2)
 			contains(t, bus.posted[0].Text, "compacted with no handoff")
 		})
+	}
+}
+
+func TestAHandoffRetriesACcnDocAddThatFailsOnce(t *testing.T) {
+	s := memory(t)
+	parkedLane(t, s)
+	bus := &fakeBus{}
+
+	id, err := handoffEnv(bus, &handoffRun{failDocAdd: 1}).WriteHandoff(context.Background(), s, lane2, "/work/lane", "")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == "" {
+		t.Fatal("no doc id")
+	}
+	for _, posted := range bus.posted {
+		if posted.Kind == "blocker" {
+			t.Fatalf("posted a blocker: %s", posted.Text)
+		}
 	}
 }
 
