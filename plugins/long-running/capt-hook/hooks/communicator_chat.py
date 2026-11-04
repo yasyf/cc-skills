@@ -25,7 +25,7 @@ MONITOR = [{"id": "m1", "type": "monitor", "status": "running", "description": "
 WAKE = f'{CCI_CHANNEL} seq="359771">#359771 board-watch owner: the owner picked “Land” on merge-prs</channel>'
 REFUSED = {"type": "attachment", "timestamp": "2026-01-15T20:19:00Z", "attachment": {"type": "hook_blocking_error", "hookName": "Stop", "blockingError": {"blockingError": REPLY, "command": "capt-hook"}}}
 NOOP = "A do-nothing Bash call ends no turn, and the owner sees every one. A wake with nothing for him ends here: no text and no tool call, even when Claude Code says he has not heard from you in a while."
-CHORE_DESK = "meta-desk-3"
+CHORE_DESK = "meta-desk"
 CHORE_RUNS, CHORE_ASKS = "chore-runs", "chore-asks"
 CHORE_VERBS = frozenset({"lr", "cci"})
 TAIL = "cci tail --lane relay-fix-2 -n 1"
@@ -169,7 +169,7 @@ def chores(evt: BaseHookEvent) -> list[str]:
     return [
         " ".join([call.name, *[arg for arg in call.args if not arg.startswith("-")][:1], *sorted({arg.split("=", 1)[0] for arg in call.args if arg.startswith("-")})])
         for call in evt.command.calls()
-        if call.name in CHORE_VERBS and "owner" not in call.args[:1]
+        if call.name in CHORE_VERBS and not {"owner", "post"} & set(call.args[:1])
     ]
 
 
@@ -196,6 +196,7 @@ def ask_for_a_verb(evt: BaseHookEvent, shape: str) -> None:
         Input(command=f"{TAIL} && cci tail --lane fix-3 -n 1", state=ACTIVE, env=DRIVE_CONFIG, commands={"cci post": ""}): Allow(),
         Input(command="ls /drive", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
         Input(command="lr owner mark m1 addressed", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["lr owner"]}): Allow(),
+        Input(command="cci post --lane owner-relay --kind note --text x", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci post --kind --lane --text"]}): Allow(),
     }),
 )
 def repeated_chores_ask_for_a_verb(evt: BaseHookEvent) -> None:
