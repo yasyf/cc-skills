@@ -1372,13 +1372,10 @@ func (l *launch) screenText() string {
 
 func (l *launch) workerArgs() []string {
 	previous := readReceipt(l.savedFile(".json"))
-	var args []string
 	if task := previous.Result.TaskID; task != "" && l.retryable(task) {
-		args = []string{"--task", task, "--retry-of", previous.Result.DispatchID}
-	} else {
-		args = []string{"--spec", l.spec, "--task-title", l.name}
+		return []string{"--task", task, "--retry-of", previous.Result.DispatchID, "--terminal", l.terminal}
 	}
-	return append(args, "--terminal", l.terminal)
+	return []string{"--spec", l.spec, "--task-title", l.name, "--terminal", l.terminal}
 }
 
 func (l *launch) callWorkerStart(args []string) (string, string, error) {
