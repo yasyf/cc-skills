@@ -1,19 +1,20 @@
 const STOP_TONE = { live: 'ok', progress: 'acc', next: 'acc', paused: 'warn', broken: 'bad', not: '' };
 const PART_TONE = { done: 'ok', doing: 'acc', you: 'warn', stuck: 'bad', waiting: '', later: '' };
 const WORK_TONE = { Stuck: 'bad', 'Ready for you': 'you', 'Ready to merge': 'ok', Landing: 'ok', Finished: 'ok', 'Waiting for release': '' };
-const HISTORY_WORD = { decision: 'Decision', release: 'Released', incident: 'Incident', fixed: 'Fixed', landed: 'Landed', approved: 'Approved', blocked: 'Stuck', unblocked: 'Moving again' };
-const HISTORY_TONE = { decision: 'you', approved: 'you', release: 'ok', fixed: 'ok', landed: 'ok', incident: 'bad', blocked: 'bad', unblocked: 'acc' };
+const HISTORY_WORD = { decision: 'Decision', release: 'Released', incident: 'Incident', fixed: 'Fixed', landed: 'Landed', approved: 'Approved', blocked: 'Stuck', unblocked: 'Moving again', one_pager: 'One-pager' };
+const HISTORY_TONE = { decision: 'you', approved: 'you', release: 'ok', fixed: 'ok', landed: 'ok', incident: 'bad', blocked: 'bad', unblocked: 'acc', one_pager: 'doc' };
 const HISTORY_FILTERS = [
   ['', 'Key events', () => true],
   ['decisions', 'Your decisions', (e) => e.kind === 'decision' || e.kind === 'approved'],
   ['releases', 'Releases and incidents', (e) => ['release', 'incident', 'fixed'].includes(e.kind)],
+  ['one-pagers', 'One-pagers', (e) => e.kind === 'one_pager'],
   ['landed', 'Landed', (e) => e.kind === 'landed'],
   ['stuck', 'Stuck and moving again', (e) => e.kind === 'blocked' || e.kind === 'unblocked'],
 ];
 const ROW_FIELDS = ['title', 'change', 'plan', 'risk', 'review', 'blocker'];
 const SETTLED = /^(nothing\b.*|your (approval|tap)\.?)$/i;
 const EVENTS_AT_REST = 6;
-const KEY_EVENTS = new Set(['decision', 'release', 'incident', 'fixed', 'blocked', 'unblocked']);
+const KEY_EVENTS = new Set(['decision', 'release', 'incident', 'fixed', 'blocked', 'unblocked', 'one_pager']);
 
 function curated(name) {
   return state.model.pages?.[name];
@@ -158,16 +159,16 @@ function planScreen() {
     const stops = milestones.filter((s) => s.state === stateName);
     return stops.length ? rowFold(id, [`<b>${esc(say(stops.length))}</b>`, dotted(label, tone), '<span></span>'], stops.map((s) => s.row)) : '';
   };
-  const clipped = (text, since) => (text ? `<span>${esc(firstClause(text))}${sinceClock(since) ? `<small class="pg-for">${spanFor(sinceClock(since))}</small>` : ''}</span>` : '<span></span>');
+  const clipped = (text, since) => (text ? `<span>${esc(text)}${sinceClock(since) ? `<small class="pg-for">${spanFor(sinceClock(since))}</small>` : ''}</span>` : '<span></span>');
   const partRow = (part) => tableRow(part.id, [`<b>${esc(part.name)}</b>`, dotted(part.label, PART_TONE[part.state]), clipped(part.blocks, part.since), clipped(part.doing)]);
   const open = p.parts.filter((part) => part.state !== 'done' && part.state !== 'later');
   const later = p.parts.filter((part) => part.state === 'later');
   const done = p.parts.filter((part) => part.state === 'done');
-  return `<div class="pg">${pageHead('Plan', p, ring(p.parts.filter((x) => x.state === 'done').length, p.parts.length, 'parts done'))}<p class="pg-lead">${esc(p.summary)}</p>
+  return `<div class="pg pg-flow pg-plan">${pageHead('Plan', p, ring(p.parts.filter((x) => x.state === 'done').length, p.parts.length, 'parts done'))}<p class="pg-lead">${esc(p.summary)}</p>
     <section class="pg-sec"><h2>${esc(state.model.milestones_label)}</h2><div class="pg-table pl-ms">${tableHead('Milestone', 'State', 'What it waits on')}${foldedStops('pl-live', 'live', 'Live', 'ok', (n) => `${n} milestones live`)}${milestones.filter((s) => s.state !== 'live' && s.state !== 'not').map((s) => s.row).join('')}${foldedStops('pl-later', 'not', 'Later', '', (n) => `${n} milestones later`)}</div></section>
-    <section class="pg-sec"><h2>Parts of the plan still open</h2><div class="pg-table pl-parts">${tableHead('Part', 'State', 'What blocks it', 'What we are doing to unblock it')}${open.map(partRow).join('') || '<p class="pg-none">Every part of the plan is done.</p>'}</div>
-    ${later.length ? fold('pl-later', `Not started <span class="pg-n">${later.length}</span>`, `<div class="pg-table pl-parts">${later.map(partRow).join('')}</div>`) : ''}
-    ${done.length ? fold('pl-done', `Done <span class="pg-n">${done.length}</span>`, `<div class="pg-table pl-parts">${done.map(partRow).join('')}</div>`) : ''}</section></div>`;
+    ${p.parts.length ? `<section class="pg-sec">${open.length ? `<h2>Parts of the plan still open</h2><div class="pg-table pl-parts">${tableHead('Part', 'State', 'What blocks it', 'What we are doing to unblock it')}${open.map(partRow).join('')}</div>` : ''}
+    ${later.length ? fold('pl-not-started', `Not started <span class="pg-n">${later.length}</span>`, `<div class="pg-table pl-parts">${later.map(partRow).join('')}</div>`) : ''}
+    ${done.length ? fold('pl-done', `Done <span class="pg-n">${done.length}</span>`, `<div class="pg-table pl-parts">${done.map(partRow).join('')}</div>`) : ''}</section>` : ''}${diagramSlot()}</div>`;
 }
 function detailPage(back, kicker, title, stateLine, facts, extra = '') {
   return `<div class="pg pg-page"><a class="pg-back" href="${back[0]}">‹ ${back[1]}</a><div class="kick muted">${kicker}</div><h1 class="pg-title">${esc(title)}</h1>${stateLine}
@@ -238,13 +239,7 @@ function rowTone(row) {
   return 'acc';
 }
 function statusTables() {
-  const plan = curated('plan');
-  const tone = { done: 'ok', doing: 'acc', you: 'you', stuck: 'bad', waiting: 'acc', later: '' };
-  const parts = (plan?.parts ?? []).map((part) => {
-    const said = state.model.step_records?.[part.id] ?? {};
-    return { step: part.name, delivers: part.delivers, state: part.label, blocks: part.blocks, doing: part.doing, wrong: said.wrong, prs: said.prs, lanes: said.lanes, tone: tone[part.state] };
-  });
-  return [{ id: 'plan', title: 'The plan', as_of: plan ? clock(plan.at) : '', short: plan?.summary, rows: parts }, ...(state.model.status_tables ?? []).map((table) => ({ ...table, rows: table.rows.map((row) => ({ ...row, tone: rowTone(row) })) }))];
+  return (state.model.status_tables ?? []).filter((table) => table.rows.length).map((table) => ({ ...table, rows: table.rows.map((row) => ({ ...row, tone: rowTone(row) })) }));
 }
 function ownerRow(tableId, row, i) {
   const id = `st-${tableId}-${i}`;
@@ -260,31 +255,44 @@ function ownerRow(tableId, row, i) {
 function tableStale(asOf) {
   return Date.now() - new Date(`${new Date().toDateString()} ${asOf}`) > TABLE_STALE_MS;
 }
-function ownerTable(table, tone) {
+function featureName(table) {
+  const asked = /^Your (.+?) questions?(?:: (.+?))?(?:, as of .*)?\.?$/i.exec(table.title);
+  if (!asked) return table.title;
+  return asked[2] ? asked[2].replace(/^./, (c) => c.toUpperCase()) : `Asked ${asked[1]}`;
+}
+function ownerTable(table, tone, selected = false) {
   const rows = table.rows.map((row, i) => ({ row, i })).filter(({ row }) => !tone || row.tone === tone);
   if (!rows.length) return '';
-  const done = tone ? [] : rows.filter(({ row }) => row.tone === 'ok');
-  const open = rows.filter((x) => !done.includes(x));
-  const draw = ({ row, i }) => ownerRow(table.id, row, i);
-  const empty = OWNER_HEAD.slice(2).map(() => '<span></span>').join('');
-  return `<section class="pg-sec" id="status-${esc(table.id)}"><h2><a href="#/status/${esc(table.id)}">${esc(table.title)}</a> <span class="pg-n">${table.rows.length}</span></h2>${table.short ? `<p class="pg-rel">${esc(table.short)}${table.as_of ? ` <span class="pg-at${tableStale(table.as_of) ? ' pg-stale' : ''}">${tableStale(table.as_of) ? 'Not updated since' : 'As of'} ${esc(table.as_of)}.</span>` : ''}</p>` : ''}<div class="pg-table st-six">${tableHead(...OWNER_HEAD)}${open.map(draw).join('')}${done.length ? rowFold(`st-done-${table.id}`, [`<b>${done.length} done</b>`, `<span></span>${empty}`], done.map(draw)) : ''}</div></section>`;
+  const id = `feature-${table.id}`;
+  const chips = STATUS_STATES.slice(1).map(([key, label]) => {
+    const n = table.rows.filter((row) => row.tone === key).length;
+    return n ? `<span class="pg-state-chip ${key}">${n} ${label.toLowerCase()}</span>` : '';
+  }).join('');
+  const stale = table.as_of && tableStale(table.as_of);
+  const sentence = (table.short ?? '').replace(/^./, (c) => c.toUpperCase());
+  return `<details class="pg-feature" data-id="${esc(id)}"${state.open.has(id) || selected ? ' open' : ''}><summary><span class="pg-chevron">›</span><b class="pg-feature-name${sentence ? '' : ' whole'}">${esc(featureName(table))}</b>${sentence ? `<span class="pg-feature-state">${esc(firstClause(sentence))}</span>` : ''}<span class="pg-feature-chips">${chips}</span><time class="${stale ? 'pg-stale' : ''}">${stale ? 'Stale · ' : ''}${esc(table.as_of)}</time></summary><div class="pg-feature-body">${sentence ? `<p class="pg-feature-lede">${esc(sentence)}</p>` : ''}<div class="pg-table st-six">${tableHead(...OWNER_HEAD)}${rows.map(({ row, i }) => ownerRow(table.id, row, i)).join('')}</div></div></details>`;
 }
 function statusScreen(feature = 'all', tone = '') {
   const m = state.model;
   const tables = statusTables();
   const shown = tables.filter((table) => feature === 'all' || table.id === feature);
-  const count = (table) => (tone ? table.rows.filter((row) => row.tone === tone).length : table.rows.length);
-  const features = `<nav class="pg-filters">${[{ id: 'all', title: 'Everything', rows: tables.flatMap((table) => table.rows) }, ...tables].map((table) => `<a href="#/status/${esc(table.id)}${tone ? `/${tone}` : ''}" class="${table.id === feature ? 'on' : ''}">${esc(table.title)} <b>${count(table)}</b></a>`).join('')}</nav>`;
+  const features = shown.filter((table) => !/^Your \d/.test(table.title));
+  const questions = shown.filter((table) => /^Your \d/.test(table.title)).sort((a, b) => new Date(sinceClock(b.as_of)) - new Date(sinceClock(a.as_of)));
   const states = `<nav class="pg-filters st-states">${STATUS_STATES.map(([id, label]) => `<a href="#/status/${esc(feature)}${id ? `/${id}` : ''}" class="${id === tone ? 'on' : ''}">${label}</a>`).join('')}</nav>`;
   const red = Object.entries(m.prs).filter(([, pr]) => pr.state === 'open' && (pr.test_state === 'failure' || pr.mergeable_state === 'dirty')).map(([n, pr]) => ({ n, pr, t: prTruth(n) }));
   const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
-  const prRow = ({ n, pr, t }) => `<a class="pg-row" href="#/review/${n}"><span class="pg-cells"><b>${esc(plainTitle(n))}</b><span>${dotted(problem(pr), 'bad')}</span><span>${esc(firstClause(t.blocks))}</span><span class="st-for">${t.since ? spanFor(t.since) : ''}</span><span>${esc(firstClause(t.next))}</span></span></a>`;
+  const prRow = ({ n, pr, t }) => `<a class="pg-row" href="#/review/${n}"><span class="pg-cells"><b>${esc(plainTitle(n))}</b><span>${dotted(problem(pr), 'bad')}</span><span>${esc(t.blocks)}</span><span class="st-for">${t.since ? spanFor(t.since) : ''}</span><span>${esc(t.next)}</span></span></a>`;
   const unowned = red.filter(({ t }) => /no live worker/i.test(t.next));
   const held = red.filter((x) => !unowned.includes(x) && /\b(hold|holds|held)\b/i.test(`${x.t.blocks} ${x.t.next}`));
   const fixing = red.filter((x) => !unowned.includes(x) && !held.includes(x));
-  const redFold = (id, list, say, tint, word) => (list.length ? rowFold(id, [`<b>${esc(say(list.length))}</b>`, `<span>${dotted(word, tint)}</span>`, '<span></span>', '<span></span>', '<span></span>'], list.map(prRow)) : '');
-  const reds = feature === 'all' && !tone && red.length ? `<section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2><div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${unowned.map(prRow).join('')}${redFold('st-fixing', fixing, (n) => `${n} being fixed by their workers`, 'acc', 'Being fixed')}${redFold('st-held', held, (n) => `${n} held until what they depend on is live`, '', 'Held')}</div></section>` : '';
-  return `<div class="pg">${pageHead('Status')}${features}${states}${shown.map((table) => ownerTable(table, tone)).join('')}${reds}</div>`;
+  const grouped = [[unowned, 'No owner', 'bad'], [fixing, 'Being fixed', 'acc'], [held, 'Held', '']].filter(([list]) => list.length).map(([list, word, tint]) => ({ id: `st-red-${word}`, at: '', word, tone: tint, title: `${list.length} ${word === 'No owner' ? 'changes have no live worker' : word === 'Held' ? 'changes wait on other work' : 'changes are with their workers'}`, side: countPill(list.length), more: `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${list.map(prRow).join('')}</div>` }));
+  const featureRows = features.map((table) => ownerTable(table, tone, feature !== 'all')).join('');
+  const questionRows = questions.map((table) => ownerTable(table, tone, feature !== 'all')).join('');
+  return `<div class="pg pg-flow pg-status">${pageHead('Status')}<p class="pg-lead">Each feature, its blockers and who is moving it forward.</p>${states}
+    ${featureRows ? `<section class="pg-sec"><div class="pg-section-head"><h2>Feature status</h2><span>Expand a feature to see its table</span></div><div class="pg-feature-list">${featureRows}</div></section>` : ''}
+    ${questionRows ? `<section class="pg-sec pg-quiet"><h2>Answers to your questions</h2><div class="pg-feature-list">${questionRows}</div></section>` : ''}
+    ${feature === 'all' && !tone ? preventions() : ''}
+    ${feature === 'all' && !tone && grouped.length ? `<section class="pg-sec"><h2>Failing tests and merge conflicts ${countPill(red.length)}</h2>${eventList(grouped)}</section>` : ''}</div>`;
 }
 function sameWorker(a, b) {
   return Boolean(a && b) && a.replace(/-\d+$/, '') === b.replace(/-\d+$/, '');
@@ -355,8 +363,8 @@ function workScreen() {
   const lead = focusLane();
   const row = (w, line, side) => `<a class="wk-row${w.item === lead ? ' lead' : ''}" href="#/work/${encodeURIComponent(w.item)}"><span class="wk-body"><b>${esc(w.title)}</b><span class="wk-line">${line}</span></span><span class="wk-side">${side}</span></a>`;
   const open = state.model.stack.filter((x) => (state.model.prs[x.pr]?.state ?? 'open') === 'open');
-  const running = p.running.filter((w) => w.item === lead).map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, [sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : '', wordAt(workWord(w.item)).replace(/^l/, 'L')].filter(Boolean).join('<br>')));
-  const byStatus = groupBy(p.running.filter((w) => w.item !== lead), (w) => w.status).map(([status, list]) => {
+  const running = p.running.filter((w) => w.item === lead && w.status !== 'Stuck').map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, [sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : '', wordAt(workWord(w.item)).replace(/^l/, 'L')].filter(Boolean).join('<br>')));
+  const byStatus = groupBy(p.running.filter((w) => w.item !== lead || w.status === 'Stuck'), (w) => w.status).map(([status, list]) => {
     const latest = list.map((w) => ({ w, word: workWord(w.item) })).sort((x, y) => new Date(y.word?.at ?? 0) - new Date(x.word?.at ?? 0))[0];
     return { id: `wk-${status}`, iso: latest.word?.at ?? 0, at: latest.word ? clock(latest.word.at) : '', word: status, tone: WORK_TONE[status] ?? 'acc', title: list.length === 1 ? list[0].title : `${list.length} ${status.toLowerCase()}`, why: list.length === 1 ? '' : `newest is on: ${latest.w.title}`, more: `<div class="pg-list">${list.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, wordAt(workWord(w.item)).replace(/^l/, 'L'))).join('')}</div>` };
   });
@@ -366,13 +374,10 @@ function workScreen() {
     return { id: `wk-pr-${label}`, iso: dated[0].since, at: clock(dated[0].since), word, tone, title: list.length === 1 ? plainTitle(list[0].pr) : `${list.length} ${label}`, side: list.length === 1 ? '' : `oldest ${spanFor(dated.at(-1).since).replace(/^for /, '')}`, more: `<div class="pg-list">${list.map(stackLine).join('')}</div>` };
   });
   const finished = p.finished.map((w) => row(w, `${w.outcome === 'stopped' ? `${dotted('Stopped', 'warn')} ` : ''}${esc(w.result)}`, `${w.outcome === 'stopped' ? 'Stopped' : 'Done'} ${esc(w.at)}`));
-  const m = state.model;
-  const helpers = p.helpers.map((h) => `<li>${h.workers.length ? `<a href="#/worker/${encodeURIComponent(h.workers[0])}"><b>${esc(h.name)}</b></a>` : `<b>${esc(h.name)}</b>`}<span>${esc(h.latest)}</span></li>`).join('');
-  return `<div class="pg">${pageHead('Work', p)}
-    ${p.running.length ? `<section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2>${running.length ? `<div class="pg-list wk-active">${running.join('')}</div>` : ''}${eventList(newestFirst(byStatus))}</section>` : ''}
+  return `<div class="pg pg-flow pg-work">${pageHead('Work', p)}
+    ${p.running.length ? `<section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2>${byStatus.some((e) => e.word === 'Stuck') ? `<div class="pg-stuck">${eventList(byStatus.filter((e) => e.word === 'Stuck'))}</div>` : ''}${running.length ? `<div class="pg-list wk-active">${running.join('')}</div>` : ''}${byStatus.some((e) => e.word !== 'Stuck') ? eventList(newestFirst(byStatus.filter((e) => e.word !== 'Stuck'))) : ''}</section>` : ''}
     ${open.length ? `<section class="pg-sec"><h2>Open pull requests <span class="pg-n">${open.length}</span></h2>${eventList(newestFirst(prRows))}</section>` : ''}
-    ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`)}</section>` : ''}
-    ${helpers ? `<section class="pg-sec">${fold('wk-helpers', `Keeping the drive running <span class="pg-n">${p.helpers.length}</span>`, `<ul class="wk-helpers">${helpers}</ul>`)}</section>` : ''}</div>`;
+    ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`)}</section>` : ''}</div>`;
 }
 
 function rowWords(row) {
@@ -493,7 +498,11 @@ function groupBy(list, key) {
 function rowFold(id, cells, rows) {
   return `<details class="pg-rows" data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary class="pg-row"><span class="pg-cells">${cells.join('')}</span></summary>${rows.join('')}</details>`;
 }
+function onePagerEvents() {
+  return newestFirst((state.model.one_pagers ?? []).map((p) => ({ id: `one-pager-${p.url}`, kind: 'one_pager', iso: p.at, at: clock(p.at), title: p.title, word: 'One-pager', tone: 'doc', more: `<div class="cw pg-doc-preview">${docCard({ label: p.title, url: p.url }, p.lede)}</div>` })));
+}
 function historyEntry(e) {
+  if (e.kind === 'one_pager') return eventRow(e);
   const line = `<time>${esc(e.at)}</time>${dotted(HISTORY_WORD[e.kind], HISTORY_TONE[e.kind])}<b>${esc(e.title)}</b>`;
   return `<li><div class="hs-line">${line}</div>${e.detail.trim() ? `<p>${esc(e.detail)}</p>` : ''}</li>`;
 }
@@ -501,13 +510,13 @@ function historyScreen(filter) {
   const p = curated('history');
   if (!p) return writing('History');
   const f = HISTORY_FILTERS.find(([id]) => id === (filter ?? '')) ?? HISTORY_FILTERS[0];
-  const shown = p.entries.filter(f[2]);
+  const entries = newestFirst([...p.entries.map((e) => ({ ...e, iso: sinceClock(e.at) })), ...onePagerEvents()]);
+  const shown = entries.filter(f[2]);
   const key = (f[0] ? shown : shown.filter((e) => KEY_EVENTS.has(e.kind))).slice(0, EVENTS_AT_REST);
   const rest = shown.filter((e) => !key.includes(e));
-  const since = p.since ? ` since ${esc(p.since)}` : ' today';
-  return `<div class="pg">${pageHead('History', p, p.since ? `<span class="pg-at">Covers today since ${esc(p.since)}</span>` : '')}<div class="pg-lead hs-sum">${p.summary.map((x) => `<p>${esc(x)}</p>`).join('')}</div>
+  return `<div class="pg pg-flow pg-history">${pageHead('History', p, p.since ? `<span class="pg-at">Today since ${esc(p.since)}</span>` : '')}<div class="pg-lead hs-sum">${p.summary.map((x) => `<p>${esc(x)}</p>`).join('')}</div>
     <nav class="pg-filters">${HISTORY_FILTERS.map(([id, label]) => `<a href="#/history${id ? `/${id}` : ''}" class="${id === f[0] ? 'on' : ''}">${label}</a>`).join('')}</nav>
-    <ol class="hs">${key.map(historyEntry).join('') || `<li class="pg-none">Nothing of this kind${since}.</li>`}</ol>
+    ${key.length ? `<ol class="hs">${key.map(historyEntry).join('')}</ol>` : ''}
     ${rest.length ? fold(`hs-rest-${f[0]}`, `${f[0] ? 'Earlier' : 'Other events'} <span class="pg-n">${rest.length}</span>`, `<ol class="hs">${rest.map(historyEntry).join('')}</ol>`) : ''}</div>`;
 }
 
@@ -542,30 +551,27 @@ function shownTaps() {
 }
 function landButtons(t) {
   const failed = pending.number === t.number && pending.error ? `<em class="nsent bad">Not recorded: ${esc(pending.error)}. Try again.</em>` : '';
-  return `${rowActs(boardRow(t.number))}<a class="btn ghost" data-opens href="#/review/${t.number}">Details</a>${failed}`;
+  return `${rowActs(boardRow(t.number))}${failed}`;
 }
-function tapRow(t, at) {
-  if (t.kind === 'land') return tapShell(t, at, esc(tapWords(t.title)), esc(tapWords(t.line)), `${prPreviews(boardRow(t.number))}<div class="fm-acts">${landButtons(t)}</div>`);
+function tapRow(t) {
   const kept = ov.kept.get(t.id);
-  const c = kept?.card ?? tapCard(t);
-  const question = `#/question/${encodeURIComponent(c.id)}`;
-  const said = rewritten('cards', c.key);
-  const title = esc(tapWords(said?.question ?? t.title));
-  const lead = t.subject ? title : `<a class="fm-open-q" href="${question}">${title}</a>`;
+  const c = t.kind === 'land' ? null : kept?.card ?? tapCard(t);
+  const href = t.kind === 'land' ? `#/review/${t.number}` : `#/question/${encodeURIComponent(c.id)}`;
+  const said = c && rewritten('cards', c.key);
+  const options = c && c.choice && !c.embed && !kept ? c.parts?.find((p) => p.id === c.choice)?.options ?? c.options ?? [] : [];
+  const ordered = [...options.filter((o) => o.recommended), ...options.filter((o) => !o.recommended)];
+  const open = !kept && !t.subject && c;
+  const answers = kept ? pickSet(c) : t.kind === 'land' ? landButtons(t) : options.length ? `<div class="pk-set" role="radiogroup">${ordered.map((o) => pickOption(c, o, options.indexOf(o), { said, subject: t.subject })).join('')}${open ? pickOther(c, options.length + 1) : ''}</div>` : `<a class="btn" href="${href}">Answer ›</a>`;
+  const stepped = (c?.parts ?? []).filter((p) => p.kind === 'choice').length > 1;
+  const lead = c && !kept && options.length ? pickLead(c) : '';
   const summary = t.kind === 'pick' ? c.summary || said?.means : null;
-  const why = summary ? inline(tapWords(summary)) : esc(tapWords(t.line));
-  const pick = c.embed || (!c.choice && !kept) ? `<div class="fm-acts"><a class="btn pri" href="${question}">Answer it</a></div>` : pickSet(c, { said, subject: t.subject, other: !t.subject });
-  const textId = `tap-text-${t.id}`;
-  const post = t.text ? `<details class="fm-thread" data-id="${esc(textId)}"${state.open.has(textId) ? ' open' : ''}><summary>Read the post</summary><div class="fm-open fm-post">${esc(t.text)}</div></details>` : '';
-  const more = t.subject || kept ? '' : explainMore(c, cardAsk(c));
+  const why = tapWords(summary || t.line);
   const freed = summary && t.frees && !kept ? `<p class="fm-freed">${esc(tapWords(t.line))}</p>` : '';
-  return tapShell(t, at, lead, why, `${freed}${pick}${post}${more}`, kept);
+  return `<article class="fm pg-tap${kept ? ' done' : t.urgent ? ' urgent' : ''}" data-tap="${esc(t.id)}"${t.kind === 'land' ? ' tabindex="0"' : ''}><span class="pg-tap-type ${t.urgent ? 'bad' : t.kind === 'pick' ? 'you' : ''}">${TAP_WORD[t.kind]}</span><div class="pg-tap-read"><a class="pg-tap-title fm-lead"${t.kind === 'land' ? ' data-opens' : ''} href="${href}">${esc(tapWords(said?.question ?? t.title))}</a>${kept ? '' : `<p class="pg-tap-why">${esc(firstClause(why))}</p>${freed}${t.kind === 'land' ? prPreviews(boardRow(t.number)) : ''}`}${lead ? `<div class="pg-tap-part${stepped ? ' stepped' : ''}">${lead}</div>` : ''}${kept ? '' : `<div class="pg-tap-context">${inline(why)}${t.text ? `<div class="fm-post">${esc(t.text)}</div>` : ''}${open ? explainMore(c, cardAsk(c)) : ''}</div>`}</div><a class="pg-tap-more" href="${href}" aria-label="Open ${esc(tapWords(t.title))}">›</a>
+    <div class="pg-tap-options">${answers}</div>${c?.choice && !kept ? `<div class="pg-tap-note">${sentNote(c.choice)}</div>` : ''}</article>`;
 }
-function tapShell(t, at, lead, why, body, kept) {
-  return `<article class="fm${kept ? ' done' : t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"${t.kind === 'land' ? ' tabindex="0"' : ''}><span class="fm-icon">${kept ? '✓' : at + 1}</span><div class="fm-main">
-    <header><b>${TAP_WORD[t.kind]}</b>${t.frees && !kept ? `<span class="fm-frees" title="${esc(tapWords(t.line))}">Frees ${t.frees}</span>` : ''}</header>
-    <p class="fm-lead">${lead}</p>
-    ${kept ? '' : `<p class="fm-why">${why}</p>`}${body}</div></article>`;
+function tapDetail(t) {
+  return `<div class="pg-tap-detail"><h2>${esc(t.title)}</h2><p>${inline(t.line)}</p>${t.text ? `<div class="fm-post">${esc(t.text)}</div>` : ''}${pickSet(t, { subject: t.subject })}</div>`;
 }
 function feedDivider(word) {
   return `<h2 class="fd-div"><span>${word}</span></h2>`;
@@ -580,10 +586,11 @@ function needsScreen(kind = '') {
   const rest = taps.filter((t) => !t.urgent && !t.frees);
   const lead = waiting ? `${plural(waiting, 'tap')} wait on you, the most downstream work first.` : 'Nothing waits on your tap.';
   const notes = state.model.board.cards.filter((c) => !c.decides);
-  return `<div class="pg fd"><header class="fd-h"><h1>${lead}</h1></header>${strip}
-    ${incidents.length ? `${feedDivider('Live incidents')}${incidents.map(tapRow).join('')}` : ''}
-    ${freeing.length ? `${feedDivider('These free other work')}${freeing.map((t, at) => tapRow(t, at + incidents.length)).join('')}` : ''}
-    ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + incidents.length + freeing.length)).join('')}` : ''}
+  const rows = (list) => `<div class="pg-tap-list">${list.map((t) => tapRow(t)).join('')}</div>`;
+  return `<div class="pg fd pg-flow pg-needs"><header class="fd-h"><h1>${lead}</h1></header>${strip}
+    ${incidents.length ? `${feedDivider(`Live incidents ${countPill(incidents.length)}`)}${rows(incidents)}` : ''}
+    ${freeing.length ? `${feedDivider(`These free other work ${countPill(freeing.length)}`)}${rows(freeing)}` : ''}
+    ${rest.length ? (kind ? `${feedDivider(`Nothing recorded waits on these ${countPill(rest.length)}`)}${rows(rest)}` : fold('needs-rest', `Nothing recorded waits on these ${countPill(rest.length)}`, rows(rest))) : ''}
     ${notes.length ? `${feedDivider('For your information')}<div class="mr-list">${notes.map(noteCard).join('')}</div>` : ''}</div>`;
 }
 const PR_CARD = '.pr-card, .mr[data-peek], .fm[data-tap^="land-"]';

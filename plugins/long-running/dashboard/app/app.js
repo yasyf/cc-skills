@@ -266,12 +266,17 @@ function pickedWords(p) {
   const labels = p.answer.optionIds.map((id) => p.options.find((o) => o.id === id)?.label.replace(RECOMMENDED_LABEL, '') ?? id);
   return [...labels, ...(p.answer.other ? [p.answer.other] : [])].join(', ');
 }
+function pickedParts(c) {
+  return (c.parts ?? []).filter((p) => p.kind === 'choice' && p.answer).map((p) => `<p class="pk-picked"><i>✓</i>You picked <b>${esc(pickedWords(p))}</b></p>`).join('');
+}
+function pickLead(c) {
+  const prompt = c.parts?.find((p) => p.id === c.choice)?.prompt;
+  return `${pickedParts(c)}${prompt ? `<p class="bq-part bq-prompt">${inline(prompt)}</p>` : ''}`;
+}
 function pickSet(c, { said, subject, other } = {}) {
-  const picked = (c.parts ?? []).filter((p) => p.kind === 'choice' && p.answer).map((p) => `<p class="pk-picked"><i>✓</i>You picked <b>${esc(pickedWords(p))}</b></p>`).join('');
-  if (!c.choice || c.embed) return picked;
-  const part = c.parts?.find((p) => p.id === c.choice);
-  const options = part?.options ?? c.options;
-  return `${picked}${part?.prompt ? `<p class="bq-part bq-prompt">${inline(part.prompt)}</p>` : ''}<div class="pk-set${options.some((o) => o.facts?.length || o.note || o.hint) ? '' : ' short'}" role="radiogroup">${options.map((o, at) => pickOption(c, o, at, { said, subject })).join('')}${other ? pickOther(c, options.length + 1) : ''}</div>${sentNote(c.choice)}`;
+  if (!c.choice || c.embed) return pickedParts(c);
+  const options = c.parts?.find((p) => p.id === c.choice)?.options ?? c.options;
+  return `${pickLead(c)}<div class="pk-set${options.some((o) => o.facts?.length || o.note || o.hint) ? '' : ' short'}" role="radiogroup">${options.map((o, at) => pickOption(c, o, at, { said, subject })).join('')}${other ? pickOther(c, options.length + 1) : ''}</div>${sentNote(c.choice)}`;
 }
 function keepPicked(block, given) {
   const taps = state.model.taps ?? [];
@@ -564,9 +569,9 @@ function render() {
   syncReviewEmbed(route());
   placeEmbed();
   syncCardEmbed();
-  if (p.screen === 'overview') mountNow();
+  if (p.screen === 'overview' || p.screen === 'plan') mountNow();
   const top = route();
-  const followed = stack.length && top.screen === 'work' ? decodeURIComponent(top.id) : p.screen === 'overview' ? feed.item : null;
+  const followed = stack.length && top.screen === 'work' ? decodeURIComponent(top.id) : null;
   if (followed) follow(followed);
   else unfollow();
   tickFresh();
@@ -580,7 +585,8 @@ function drawerOf(seg) {
   if (kind === 'worker') return { kick: 'Worker', title: workerName(id), body: () => workerScreen(id) };
   if (kind === 'question') {
     const item = openQuestion(id) ?? (ov.kept.has(id) ? { card: ov.kept.get(id).card } : null);
-    return { kick: 'Needs you', title: 'A question for you', tone: 'you', body: item ? () => boardCard(item) : gone('This question is answered or no longer open.') };
+    const tap = openTaps().find((t) => t.subject && t.id === id);
+    return { kick: 'Needs you', title: tap?.title ?? 'A question for you', tone: 'you', body: item ? () => boardCard(item) : tap ? () => tapDetail(tap) : gone('This question is answered or no longer open.') };
   }
   if (kind === 'blocker') return { kick: 'Blocker', title: blockerById(id)?.node.text ?? id, tone: blockerById(id)?.node.state ?? '', body: () => blockerPage(id) };
   if (kind === 'status') {

@@ -7,7 +7,7 @@ import pytest
 import server
 from brief import Curator
 from pages import ASK_BATCH, PAGES, REVIEW_SCHEMA, asks_brief, asks_carry, asks_digest, open_question, plan_slot, review_digest, review_slot, stamp, titled_asks, waiting_since
-from server import ALERTS_SENT, bot_words, drawable, drive_alerts, stored_replies, unanswered
+from server import ALERTS_SENT, bot_words, drawable, drive_alerts, one_pagers, published_page, stored_replies, unanswered
 
 NOW = dt.datetime(2026, 10, 27, 23, 0, tzinfo=dt.timezone.utc)
 ROW = {
@@ -277,3 +277,15 @@ def test_a_mirror_rebuilds_the_titles_from_the_rows_it_was_served():
 def test_an_ask_with_no_title_yet_stays_untitled_so_the_page_falls_back():
     asks = {"messages": [{"m": 7, "text": "just arrived"}], "taps": []}
     assert "title" not in titled_asks(asks, None)["messages"][0]
+
+
+def test_a_published_one_pager_is_listed_once_with_no_reply_naming_it():
+    published = published_page({"at": "2026-11-04T12:00:00Z", "fields": {"attrs": {"one-pager-url": "https://mac.ts.net:8665/one-pagers/lane-resume/", "one-pager-title": "How a lane resumes", "one-pager-lede": "It picks up from its handoff."}}})
+    linked_later = {"at": "2026-11-04T13:00:00Z", "reply": {"title": "Lane resume answered", "links": [{"label": "Lane resume", "url": "https://docs.example/one-pagers/lane-resume/"}, {"label": "A PR", "url": "https://github.com/a/b/pull/1"}]}}
+    linked_only = {"at": "2026-11-04T11:00:00Z", "reply": {"title": "Why the cap exists", "links": [{"label": "Gateway cap", "url": "https://mac.ts.net:8665/one-pagers/gateway-cap/"}]}}
+
+    assert published_page({"at": "2026-11-04T12:30:00Z", "fields": {"attrs": {"delivered": "owner:m1"}}}) is None
+    assert one_pagers([published], [linked_later, linked_only]) == [
+        published,
+        {"at": "2026-11-04T11:00:00Z", "url": "https://mac.ts.net:8665/one-pagers/gateway-cap/", "title": "Gateway cap", "lede": "Why the cap exists"},
+    ]

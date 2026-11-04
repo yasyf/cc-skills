@@ -72,10 +72,6 @@ def open_first_question(page):
     page.wait_for_selector(".bq")
 
 
-def open_work_row(page, item):
-    page.locator(f'.nw-live details[data-id="wr-{item}"] > summary').click()
-
-
 def test_every_open_blocker_and_the_focused_work_say_how_long_they_have_waited(page):
     now(page)
     rows = page.locator(".nw-slot .pan.focus :is(.chain .hc, .feed .lead)").all_inner_texts()
@@ -194,20 +190,15 @@ def test_a_question_opens_in_a_panel_with_its_answers(page):
     assert page.locator(".pr-drawer.front [data-choose]").count() == len(card["options"])
 
 
-def test_now_reads_milestones_then_the_live_feed_then_the_merge_map(page):
+def test_now_reads_milestones_then_what_changed_and_the_merge_map_moved_to_plan(page):
     now(page)
-    assert page.locator(".nw-spine").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"] < page.locator(".nw-diagram").bounding_box()["y"]
-
-
-def test_tapping_a_worker_swaps_the_live_feed_to_its_story_and_back(page):
+    page.evaluate("() => { state.model.fyi = [{ at: new Date().toISOString(), text: 'Chose the runner', group: 'runner' }]; render(); }")
+    assert page.locator(".nw-spine").bounding_box()["y"] < page.locator(".nw-fyi").bounding_box()["y"]
+    assert page.locator(".nw-live, .nw-diagram, .nw-prevent").count() == 0
+    page.evaluate("() => { state.model.pages = { plan: { at: new Date().toISOString(), summary: 'On track', parts: [], milestones: [] } }; location.hash = '#/plan'; }")
+    page.wait_for_selector(".nw-diagram")
+    page.evaluate("() => { delete state.model.pages; }")
     now(page)
-    item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
-    open_work_row(page, item)
-    page.locator(f'.nw-live [data-feed="{item}"]').click()
-    page.wait_for_selector(".nw-live .nw-storyhead .nw-sub")
-    assert "Three files still use the deleted store" in page.locator(".nw-live .nw-storyhead .now").inner_text()
-    page.locator(".nw-live [data-feed-all]").click()
-    page.wait_for_selector(".nw-live .ev-rows")
 
 
 def test_a_works_panel_shows_the_whole_history(page):
@@ -322,19 +313,6 @@ def test_back_then_tab_keeps_the_reading_position(page):
     assert after > y - 420
 
 
-def test_a_work_row_reads_its_pull_requests_runner_state_over_the_summary(page):
-    now(page)
-    item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
-    page.evaluate("""(item) => {
-        state.model.brief.work.find((w) => w.item === item).changes = [42742];
-        state.model.pr_state = { 42742: { state: 'Landed', since: new Date().toISOString(), line: 'Landed at 6:09 PM' } };
-        render();
-    }""", item)
-    row = page.locator(f'.nw-live details[data-id="wr-{item}"]')
-    assert "Landed" in row.locator("summary").inner_text()
-    assert "Landed at 6:09 PM" in row.text_content()
-
-
 def test_an_incident_never_hides_what_waits_on_him(page):
     now(page)
     page.evaluate("() => { state.model.brief.band = { kind: 'incident', text: 'The Mac app crashes' }; render(); }")
@@ -342,19 +320,29 @@ def test_an_incident_never_hides_what_waits_on_him(page):
     assert page.locator(".nw-band.nw-needs").is_visible()
 
 
-def test_the_feed_puts_stuck_work_first_and_each_line_opens_to_its_detail(page):
-    page.reload()
+def test_work_puts_stuck_work_first_and_each_line_opens_to_its_detail(page):
     now(page)
-    rows = page.locator(".nw-live .ev-rows > li")
+    page.evaluate("""() => {
+      const work = (title, status) => ({ item: title, title, status, latest: 'Latest', workers: [], changes: [] });
+      state.model.pages = { work: { at: new Date().toISOString(), running: [work('Moving one', 'Fixing'), work('Stuck one', 'Stuck')], finished: [], helpers: [{ name: 'Desk', workers: [], latest: 'Swept' }] } };
+      location.hash = '#/work';
+    }""")
+    page.wait_for_selector(".pg-stuck")
+    assert page.locator(".wk-helpers").count() == 0
+    rows = page.locator(".pg-stuck .ev-rows > li")
     assert "Stuck" in rows.first.locator("summary").inner_text()
     assert not rows.first.locator(".ev-more").is_visible()
     rows.first.locator("summary").click()
     assert rows.first.locator(".ev-more").is_visible()
     rows.first.locator("summary").click()
-
-
-def test_what_failed_folds_to_lines_and_a_broken_row_says_what_it_lacks(page):
+    page.evaluate("() => { delete state.model.pages; }")
     now(page)
+
+
+def test_what_failed_on_status_folds_to_lines_and_a_broken_row_says_what_it_lacks(page):
+    now(page)
+    page.evaluate("location.hash = '#/status'")
+    page.wait_for_selector(".nw-prevent")
     rows = page.locator(".nw-prevent .ev-rows > li")
     assert rows.count() == 4
     broken = rows.filter(has_text="Broken row")
@@ -363,6 +351,7 @@ def test_what_failed_folds_to_lines_and_a_broken_row_says_what_it_lacks(page):
     assert "undefined" not in page.locator(".nw-prevent").inner_text().lower()
     assert page.locator(".nw-prevent .nw-h .pg-n").text_content() == "3 not live"
     assert page.locator(".nw-notlive").count() == 0
+    now(page)
 
 
 def test_what_the_coordinator_owes_is_on_chat_folded_by_kind_and_not_on_now(page):
@@ -396,7 +385,7 @@ def test_a_retro_table_that_does_not_read_says_so_above_the_table(page):
     server = ThreadingHTTPServer(("127.0.0.1", 0), type("Unread", (Handler,), {"model": json.dumps(model).encode()}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     unread = page.context.browser.new_page(viewport=LAPTOP)
-    unread.goto(f"http://127.0.0.1:{server.server_port}/#/")
+    unread.goto(f"http://127.0.0.1:{server.server_port}/#/status")
     assert "the retro table did not read" in unread.wait_for_selector(".nw-prevent .pg-fail", timeout=5000).inner_text()
     unread.close()
     server.shutdown()
@@ -596,6 +585,7 @@ def tap_screen(page):
       state.model.taps = taps;
       state.model.board.rows.push(row);
       state.model.board.cards.push(card);
+      state.open.add('needs-rest');
       location.hash = '#/needs';
     }""", [TAP_QUEUE, TAP_ROW, TAP_CARD])
     page.wait_for_selector(".fm")
@@ -608,7 +598,6 @@ def tap_titles(page):
 def test_needs_me_shows_every_tap_in_queue_order_with_its_count_and_no_numbers(page):
     tap_screen(page)
     assert tap_titles(page) == [tap["title"] for tap in TAP_QUEUE]
-    assert page.locator(".fm-icon").all_inner_texts() == ["1", "2", "3"]
     assert page.locator(".tab.on").inner_text().startswith("Needs me")
     assert "#49638" not in page.locator(".fd").inner_text()
     assert page.locator(".fm .pk.rec .pk-t").all_inner_texts() == ["One credential", "Yes"]
@@ -622,8 +611,7 @@ def test_an_incident_tap_leads_needs_me_even_with_nothing_waiting_on_it(page):
       render();
     }""")
     assert tap_titles(page)[0] == "Answer the incident thread"
-    assert page.locator(".fd-div").all_inner_texts()[0] == "Live incidents"
-    assert page.locator(".fm-icon").all_inner_texts()[:2] == ["1", "2"]
+    assert page.locator(".fd-div").all_inner_texts()[0].startswith("Live incidents")
     now(page)
 
 
@@ -914,7 +902,9 @@ def folded_screen(page, answer=None):
       location.hash = '#/needs';
     }""", [FOLDED_TAP, FOLDED_CARD])
     page.wait_for_selector('.fm[data-tap="card-fold"]')
-    return page.locator('.fm[data-tap="card-fold"]')
+    row = page.locator('.fm[data-tap="card-fold"]')
+    row.hover()
+    return row
 
 
 def drop_folded(page):
@@ -959,6 +949,7 @@ def test_a_file_and_line_on_a_card_hovers_the_line_from_github(page):
       state.model.board.cards.find((card) => card.id === 'card-fold').parts[0].md = 'One permission (`api/src/modules/r2.ts:56`).';
       render();
     }""")
+    row.hover()
     row.locator(".pk-more > summary").click()
     cite = row.locator(".ln-src")
     assert cite.inner_text() == "r2.ts:56"
@@ -972,6 +963,84 @@ def test_a_file_and_line_on_a_card_hovers_the_line_from_github(page):
     page.wait_for_function("!document.querySelector('#srctip').matches(':popover-open')")
     page.unroute("**/api/source*")
     drop_folded(page)
+
+
+def test_needs_me_shows_the_summary_and_every_option_without_expanding_and_details_on_hover(page):
+    row = folded_screen(page)
+    page.mouse.move(0, 0)
+    assert row.locator(".pg-tap-why").inner_text() == "One permission per credential"
+    assert row.locator('.pk[data-choose="one"]').is_visible() and row.locator('.pk[data-choose="two"]').is_visible()
+    assert not row.locator('.pk[data-choose="one"] .pk-facts').is_visible()
+    assert not row.locator(".pk-other").is_visible()
+    row.hover()
+    assert row.locator('.pk[data-choose="one"] .pk-facts').is_visible() and row.locator(".pk-other").is_visible()
+    drop_folded(page)
+
+
+def test_a_second_question_on_a_card_says_which_one_and_what_he_already_picked(page):
+    row = folded_screen(page)
+    page.evaluate("""() => {
+      const card = state.model.board.cards.find((c) => c.id === 'card-fold');
+      const first = card.parts.find((p) => p.id === 'fold-pick');
+      card.parts = [{ ...first, id: 'first-pick', answer: { optionIds: ['one'] } }, { ...first, prompt: 'And the running steps?' }];
+      render();
+    }""")
+    page.mouse.move(0, 0)
+    assert "And the running steps?" in row.locator(".pg-tap-part").inner_text()
+    assert "One credential" in row.locator(".pg-tap-part .pk-picked").inner_text()
+    drop_folded(page)
+
+
+def test_a_number_key_answers_from_the_focused_needs_me_row(page):
+    row = folded_screen(page)
+    row.locator('.pk[data-choose="one"]').focus()
+    with page.expect_request("**/api/answer") as picked:
+        page.keyboard.press("2")
+    assert picked.value.post_data_json["options"] == ["two"]
+    drop_folded(page)
+
+
+def test_status_folds_each_feature_and_groups_answers_to_his_questions(page):
+    now(page)
+    page.evaluate("""() => {
+      const table = (id, title, short) => ({ id, title, short, as_of: '9:50 AM', rows: [{ step: 'Parity', delivers: 'Every path', state: 'Waits on your tap', blocks: 'Your tap', doing: 'Nothing', wrong: 'None' }] });
+      state.model.status_tables = [
+        table('gateway', 'Model gateway', 'parity is not finished. It waits on a tap.'),
+        table('answer', 'Your 11:55 AM question: are we ready for testers, as of 12:03 PM.', ''),
+        table('night', 'Your 3:35 to 3:43 AM questions, as of 3:56 AM.', ''),
+      ];
+      location.hash = '#/status';
+    }""")
+    page.wait_for_selector(".pg-feature")
+    assert page.locator(".pg-feature-name").all_inner_texts() == ["Model gateway", "Are we ready for testers", "Asked 3:35 to 3:43 AM"]
+    assert page.locator(".pg-quiet .pg-feature").count() == 2
+    assert page.locator(".pg-feature-state").all_inner_texts() == ["Parity is not finished"]
+    assert "1 needs you" in page.locator(".pg-feature").first.inner_text()
+    gateway = page.locator(".pg-feature").first
+    assert not gateway.locator(".st-six").is_visible()
+    gateway.locator("> summary").click()
+    assert gateway.locator(".st-six").is_visible()
+    page.evaluate("() => { state.model.status_tables = []; state.open.delete('feature-gateway'); }")
+    now(page)
+
+
+def test_a_one_pager_shows_on_now_while_fresh_and_always_on_history(page):
+    now(page)
+    page.evaluate("""() => {
+      const page = (title, hours) => ({ title, lede: 'What it says', url: `https://mac.ts.net:8665/one-pagers/${title}/`, at: new Date(Date.now() - hours * 3600000).toISOString() });
+      state.model.one_pagers = [page('fresh', 1), page('old', 49)];
+      state.model.pages = { history: { at: new Date().toISOString(), since: '', summary: [], entries: [] } };
+      render();
+    }""")
+    page.wait_for_selector(".nw-fyi")
+    feed = page.locator(".nw-fyi").inner_text()
+    assert "fresh" in feed and "old" not in feed
+    page.evaluate("location.hash = '#/history/one-pagers'")
+    page.wait_for_selector(".hs")
+    listed = page.locator(".pg-history").inner_text()
+    assert "fresh" in listed and "old" in listed
+    page.evaluate("() => { delete state.model.pages; state.model.one_pagers = []; }")
+    now(page)
 
 
 def test_a_release_id_becomes_its_name_only_beside_that_name(page):
@@ -1399,9 +1468,8 @@ def test_a_phone_reads_milestones_as_a_list_and_a_laptop_as_the_rail(page):
 def test_a_phone_reads_a_status_row_whole_and_its_tabs_on_one_line(page):
     now(page)
     page.evaluate("""() => {
-      const part = { id: 'a', name: 'New code kept current', delivers: 'What it delivers', label: 'Moving', state: 'doing', blocks: 'What blocks it, in full', doing: 'What we are doing' };
-      state.model.pages = { ...state.model.pages, plan: { at: new Date().toISOString(), summary: 'Short', parts: [part] } };
-      state.model.step_records = {};
+      state.model.status_tables = [{ id: 'kept', title: 'New code', short: 'Short', as_of: '9:50 AM', rows: [{ step: 'New code kept current', delivers: 'What it delivers', state: 'Moving', blocks: 'What blocks it, in full', doing: 'What we are doing', wrong: '' }] }];
+      state.open.add('feature-kept');
       location.hash = '#/status';
     }""")
     page.wait_for_selector(".st-six .pg-cells")

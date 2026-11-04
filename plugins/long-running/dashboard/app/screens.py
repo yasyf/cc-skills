@@ -81,7 +81,7 @@ def status_screen(view):
             part["name"],
             PLAN_STATUS[part["state"]],
             part["label"],
-            f"#/status/plan?row=st-plan-{index}",
+            f"#/plan?row={part['id']}",
             {"feature": "plan"},
             lane_records(lanes, said.get(part["id"], {}).get("lanes", [])),
         )
