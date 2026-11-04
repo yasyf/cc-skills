@@ -28,6 +28,7 @@ const (
 	headerColumns = "incident_id, owner, owner_generation, opened_at, input_revision, status, pending_owner"
 	metaDecisions = "decisions"
 	metaMilestone = "milestones"
+	heldLimit     = 64
 )
 
 type Store struct {
@@ -36,43 +37,182 @@ type Store struct {
 }
 
 type handles struct {
-	mu  sync.Mutex
-	dbs map[string]*sql.DB
+	mu      sync.Mutex
+	dbs     map[string]*heldDB
+	uses    int64
+	passing bool
+	reads   map[string]*heldReads
 }
 
-func (h *handles) get(path, query string) (*sql.DB, error) {
+type heldDB struct {
+	db    *sql.DB
+	used  int64
+	users int
+}
+
+type heldReads struct {
+	version storeVersion
+	values  map[string]any
+}
+
+type fileVersion struct {
+	modified int64
+	size     int64
+}
+
+type storeVersion struct {
+	db  fileVersion
+	wal fileVersion
+}
+
+func versionOf(path string) (storeVersion, error) {
+	db, err := os.Stat(path)
+	if err != nil {
+		return storeVersion{}, err
+	}
+	version := storeVersion{db: fileVersion{db.ModTime().UnixNano(), db.Size()}}
+	wal, err := os.Stat(path + "-wal")
+	switch {
+	case err == nil:
+		version.wal = fileVersion{wal.ModTime().UnixNano(), wal.Size()}
+	case !errors.Is(err, fs.ErrNotExist):
+		return storeVersion{}, err
+	}
+	return version, nil
+}
+
+func (h *handles) get(path, query string) (*sql.DB, func(), error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	key := query + "\x00" + path
-	if db, found := h.dbs[key]; found {
-		return db, nil
+	held, found := h.dbs[key]
+	if !found {
+		db, err := openDB(path, query)
+		if err != nil {
+			return nil, nil, err
+		}
+		held = &heldDB{db: db}
+		h.dbs[key] = held
 	}
-	db, err := openDB(path, query)
-	if err != nil {
-		return nil, err
+	h.uses++
+	held.used = h.uses
+	held.users++
+	h.evict()
+	return held.db, func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		held.users--
+	}, nil
+}
+
+func (h *handles) evict() {
+	for len(h.dbs) > heldLimit {
+		oldest := ""
+		for key, held := range h.dbs {
+			if held.users == 0 && (oldest == "" || held.used < h.dbs[oldest].used) {
+				oldest = key
+			}
+		}
+		if oldest == "" {
+			return
+		}
+		_ = h.dbs[oldest].db.Close()
+		delete(h.dbs, oldest)
 	}
-	h.dbs[key] = db
-	return db, nil
 }
 
 func (h *handles) close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, db := range h.dbs {
-		_ = db.Close()
+	for _, held := range h.dbs {
+		_ = held.db.Close()
 	}
 }
 
+func (h *handles) startPass() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.passing = true
+	for path, kept := range h.reads {
+		if version, err := versionOf(path); err != nil || version != kept.version {
+			delete(h.reads, path)
+		}
+	}
+}
+
+func (h *handles) kept(path, key string) (any, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if kept := h.reads[path]; kept != nil {
+		value, found := kept.values[key]
+		return value, found
+	}
+	return nil, false
+}
+
+func (h *handles) keep(path, key string, version storeVersion, value any) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.passing {
+		return
+	}
+	kept := h.reads[path]
+	if kept == nil || kept.version != version {
+		kept = &heldReads{version: version, values: map[string]any{}}
+		h.reads[path] = kept
+	}
+	kept.values[key] = value
+}
+
+func (h *handles) known(path string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.reads[path] != nil
+}
+
+func (h *handles) forget(path string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.reads, path)
+}
+
+func heldRead[T any](s Store, id, key string, read func() (T, error)) (T, error) {
+	if s.held == nil {
+		return read()
+	}
+	path, err := s.Path(id)
+	if err != nil {
+		return read()
+	}
+	if value, found := s.held.kept(path, key); found {
+		return value.(T), nil
+	}
+	version, err := versionOf(path)
+	if err != nil {
+		return read()
+	}
+	value, err := read()
+	if err == nil {
+		s.held.keep(path, key, version, value)
+	}
+	return value, err
+}
+
 func (s Store) Held() (Store, func()) {
-	held := &handles{dbs: map[string]*sql.DB{}}
+	held := &handles{dbs: map[string]*heldDB{}, reads: map[string]*heldReads{}}
 	s.held = held
 	return s, held.close
 }
 
+func (s Store) StartPass() {
+	if s.held != nil {
+		s.held.startPass()
+	}
+}
+
 func (s Store) connect(path, query string) (*sql.DB, func(), error) {
 	if s.held != nil {
-		db, err := s.held.get(path, query)
-		return db, func() {}, err
+		return s.held.get(path, query)
 	}
 	db, err := openDB(path, query)
 	if err != nil {
@@ -185,6 +325,9 @@ func (s Store) Exists(id string) (bool, error) {
 	path, err := s.Path(id)
 	if err != nil {
 		return false, err
+	}
+	if s.held != nil && s.held.known(path) {
+		return true, nil
 	}
 	_, err = os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -299,12 +442,14 @@ func nullText(text string) sql.NullString {
 }
 
 func (s Store) Header(id string) (Header, error) {
-	var header Header
-	err := s.read(id, func(tx *sql.Tx) (err error) {
-		header, err = readHeader(tx)
-		return err
+	return heldRead(s, id, "header", func() (Header, error) {
+		var header Header
+		err := s.read(id, func(tx *sql.Tx) (err error) {
+			header, err = readHeader(tx)
+			return err
+		})
+		return header, err
 	})
-	return header, err
 }
 
 func readHeader(tx *sql.Tx) (Header, error) {
@@ -393,12 +538,15 @@ func (s Store) Actions(id, kind string, statuses ...ActionStatus) ([]Action, err
 }
 
 func (s Store) queryActions(id, query string, values ...any) ([]Action, error) {
-	var found []Action
-	err := s.read(id, func(tx *sql.Tx) (err error) {
-		found, err = selectActions(tx, query, values...)
-		return err
+	found, err := heldRead(s, id, fmt.Sprint(query, values), func() ([]Action, error) {
+		var found []Action
+		err := s.read(id, func(tx *sql.Tx) (err error) {
+			found, err = selectActions(tx, query, values...)
+			return err
+		})
+		return found, err
 	})
-	return found, err
+	return slices.Clone(found), err
 }
 
 func selectActions(tx *sql.Tx, query string, values ...any) ([]Action, error) {
@@ -512,7 +660,13 @@ func (s Store) transact(id string, fn func(*Tx) error) error {
 		if err := tx.flush(); err != nil {
 			return err
 		}
-		return sqlTx.Commit()
+		if err := sqlTx.Commit(); err != nil {
+			return err
+		}
+		if s.held != nil {
+			s.held.forget(path)
+		}
+		return nil
 	})
 }
 

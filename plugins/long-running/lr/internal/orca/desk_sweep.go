@@ -377,11 +377,15 @@ func (d *Desk) beating(container string, action incident.Action, moment time.Tim
 }
 
 func (d *Desk) laneRecords(ctx context.Context, lane string, kinds ...string) ([]client.Record, error) {
+	return d.laneRecordsSince(ctx, lane, time.Time{}, kinds...)
+}
+
+func (d *Desk) laneRecordsSince(ctx context.Context, lane string, since time.Time, kinds ...string) ([]client.Record, error) {
 	names, err := d.names(lane)
 	if err != nil {
 		return nil, err
 	}
-	return d.tail(ctx, client.Query{Lanes: names, Kinds: kinds})
+	return d.tail(ctx, client.Query{Lanes: names, Kinds: kinds, Since: since})
 }
 
 func prNamed(record client.Record, pr string) bool {

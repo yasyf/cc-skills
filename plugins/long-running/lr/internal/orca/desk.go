@@ -194,6 +194,7 @@ type Desk struct {
 
 	background  sync.WaitGroup
 	store       incident.Store
+	standDowns  standDownReads
 	sender      []string
 	launching   map[string]Process
 	sprites     map[string]bool

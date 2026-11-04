@@ -643,6 +643,68 @@ func TestAHeldStoreSeesAnotherWritersCommitsThroughOneConnection(t *testing.T) {
 	}
 }
 
+func TestAHeldStoreInAPassReadsOnceAndSeesItsOwnAndLaterPassesSeeOtherWriters(t *testing.T) {
+	s := created(t, nil)
+	held, release := s.Held()
+	defer release()
+	held.StartPass()
+	accept := func(store Store, key string) {
+		t.Helper()
+		if err := store.Edit("i1", func(tx *Tx) error {
+			_, err := tx.Accept(key, "send", "t", "a", storeNow)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(want int) {
+		t.Helper()
+		actions, err := held.Actions("i1", "send", ActionAccepted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(actions) != want {
+			t.Fatalf("%d actions, want %d", len(actions), want)
+		}
+	}
+
+	count(0)
+	path, err := held.Path("i1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !held.held.known(path) {
+		t.Fatal("a read in a pass was not kept")
+	}
+	accept(held, "own")
+	count(1)
+	accept(s, "other")
+	count(1)
+	held.StartPass()
+	count(2)
+}
+
+func TestAHeldStoreKeepsOnlyItsLimitOfConnectionsOpen(t *testing.T) {
+	s := created(t, nil)
+	held, release := s.Held()
+	defer release()
+	for i := range heldLimit + 8 {
+		id := fmt.Sprintf("extra-%d", i)
+		if err := s.Create(newIncident(id, nil)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := held.Header(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if opened := len(held.held.dbs); opened != heldLimit {
+		t.Fatalf("%d connections open, want %d", opened, heldLimit)
+	}
+	if _, err := held.Header("extra-0"); err != nil {
+		t.Fatalf("a closed connection should reopen: %v", err)
+	}
+}
+
 func TestAcceptDueAcceptsLikeAcceptWithADeadlineAndKeepsWhatIsHeld(t *testing.T) {
 	s := created(t, nil)
 	deadline := storeNow.Add(time.Hour)

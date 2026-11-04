@@ -57,3 +57,21 @@ func TestRelayReadsReuseSQLiteSharedMemoryAndSeeExternalWrites(t *testing.T) {
 		t.Fatal("relay never reached its idle boundary")
 	}
 }
+
+func TestALaneStoodDownReadsOnlyWhatIsNewAndStillSeesIt(t *testing.T) {
+	w := newDeskWorld(t)
+	w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "retired", "to": []string{"another-lane"}})
+	if down, err := w.desk.laneStoodDown(context.Background(), testLane); err != nil || down != "" {
+		t.Fatalf("stood down %q, err %v", down, err)
+	}
+	stop := w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "retired", "to": []string{testLane}})
+
+	down, err := w.desk.laneStoodDown(context.Background(), testLane)
+
+	if err != nil || down != seqReceipt(stop.Seq) {
+		t.Fatalf("stood down %q, err %v", down, err)
+	}
+	if read := len(w.desk.standDowns.read); read != 2 {
+		t.Fatalf("%d stand-downs kept, want 2", read)
+	}
+}

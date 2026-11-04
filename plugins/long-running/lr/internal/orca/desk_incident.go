@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -48,11 +49,32 @@ var (
 	settlingKinds  = []string{"release", "fix-live"}
 )
 
+type readBriefText struct {
+	modified time.Time
+	size     int64
+	text     string
+}
+
+var (
+	readBriefsMu sync.Mutex
+	readBriefs   = map[string]readBriefText{}
+)
+
 func readBrief(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	readBriefsMu.Lock()
+	defer readBriefsMu.Unlock()
+	if kept, found := readBriefs[path]; found && kept.size == info.Size() && kept.modified.Equal(info.ModTime()) {
+		return kept.text
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
+	readBriefs[path] = readBriefText{info.ModTime(), info.Size(), string(raw)}
 	return string(raw)
 }
 
@@ -409,7 +431,7 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	posted, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane, supervisorLane}, Kinds: []string{kindStandDown, kindStopped}})
+	posted, err := d.readStandDowns(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -419,6 +441,26 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+type standDownReads struct {
+	mu   sync.Mutex
+	read []client.Record
+}
+
+func (d *Desk) readStandDowns(ctx context.Context) ([]client.Record, error) {
+	d.standDowns.mu.Lock()
+	defer d.standDowns.mu.Unlock()
+	var after int64
+	if read := len(d.standDowns.read); read > 0 {
+		after = d.standDowns.read[read-1].Seq
+	}
+	fresh, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane, supervisorLane}, Kinds: []string{kindStandDown, kindStopped}, After: after})
+	if err != nil {
+		return nil, err
+	}
+	d.standDowns.read = append(d.standDowns.read, fresh...)
+	return d.standDowns.read, nil
 }
 
 func standsDown(record client.Record, names []string) bool {
