@@ -38,7 +38,7 @@ LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-b", "CLAUDE_LONG_RUNNING_DRIVE": "
 ROOT = [CompactionState(active=True, coordinator=True)]
 REFUSAL = (
     "No local test, whole-module compile or lint runs in a drive, though a Go golden's `go test -update` may."
-    " Build and vet the packages you touched or run one `yarn tsc:<pkg>`, then `ccx vcs ship`, since CI grades."
+    " Build and vet the packages you touched, `cargo check -p <crate>` for Rust, or run one `yarn tsc:<pkg>`, then `ccx vcs ship`, since CI grades."
 )
 
 
@@ -50,6 +50,11 @@ def words(name: str, args: tuple[str, ...]) -> list[str]:
 def informational(name: str, args: tuple[str, ...]) -> bool:
     flags = INFO_FLAGS - {"-v"} if name in VERBOSE_V else INFO_FLAGS
     return bool(args) and flags.issuperset(args)
+
+
+def one_crate(args: tuple[str, ...]) -> bool:
+    named = {"-p", "--package"} & set(args) or any(arg.startswith("--package=") for arg in args)
+    return bool(named) and not {"--workspace", "--all"} & set(args)
 
 
 def golden(args: tuple[str, ...]) -> bool:
@@ -76,6 +81,8 @@ def runs(name: str, args: tuple[str, ...]) -> bool:
             return not golden(args)
         case "go", ["build" | "vet", *packages]:
             return "./..." in packages
+        case "cargo", ["check", *_]:
+            return not one_crate(args)
         case tool, [verb, *_] if verb in VERBS.get(tool, ()):
             return True
         case launcher, [tool, *_] if launcher in LAUNCHERS:
@@ -109,6 +116,8 @@ def builds(call: Call) -> bool:
         Input(command="cargo nextest run -p sandsql-api", env=LANE_ENV): Block(),
         Input(command="cargo +nightly clippy --all-targets", env=LANE_ENV): Block(),
         Input(command="cargo --locked check", env=LANE_ENV): Block(),
+        Input(command="cargo check --workspace -p sandsql-api", env=LANE_ENV): Block(),
+        Input(command="cargo build -p sandsql-api", env=LANE_ENV): Block(pattern=r"`cargo check -p <crate>` for Rust"),
         Input(command="cargo --manifest-path rust/Cargo.toml test", env=LANE_ENV): Block(),
         Input(command="bash -c 'cargo build --release'", env=LANE_ENV): Block(),
         Input(command="tsc --noEmit -p api", env=LANE_ENV): Allow(),
@@ -152,6 +161,8 @@ def builds(call: Call) -> bool:
         Input(command="go run ./cmd/sand version", env=LANE_ENV): Allow(),
         Input(command="git status", env=LANE_ENV): Allow(),
         Input(command="cargo fmt --check", env=LANE_ENV): Allow(),
+        Input(command="cargo check -p sandsql-api", env=LANE_ENV): Allow(),
+        Input(command="cargo --locked check --package sandsql-api", env=LANE_ENV): Allow(),
         Input(command="ruff format scripts", env=LANE_ENV): Allow(),
         Input(command="biome format --write api/src", env=LANE_ENV): Allow(),
         Input(command="npx prettier --check .", env=LANE_ENV): Allow(),
