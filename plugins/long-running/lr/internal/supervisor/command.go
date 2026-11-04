@@ -173,7 +173,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		if err != nil {
 			a.Log.Warn("the choices check is off", "err", err)
 		} else {
-			checks = append(checks, (&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check)
+			inputs := &landing.InputsPublisher{Runner: a.Runner, Session: entry.Root(), Config: a.ConfigPath, Now: a.Now}
+			checks = append(checks,
+				(&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check,
+				(&background{name: "landing-gate-inputs", every: landing.InputsEvery, run: inputs.Pass, store: s, post: post, log: a.Log}).Check,
+			)
 		}
 	}
 	deps := Deps{
