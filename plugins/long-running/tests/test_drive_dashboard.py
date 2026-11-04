@@ -704,7 +704,7 @@ def test_an_ask_carries_the_lane_and_record_that_raised_it_and_an_unsourced_ask_
 def test_an_answer_on_the_dashboard_is_the_same_board_interaction(body, interaction):
     drive = Drive({"board_url": "http://board/p/x"}, None)
     sent = []
-    drive.interact = lambda posted: sent.append(posted) or (200, "")
+    drive.interact = lambda posted, subject=None: sent.append(posted) or (200, "")
 
     drive.answer(body)
 
