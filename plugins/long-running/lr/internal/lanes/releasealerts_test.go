@@ -21,6 +21,7 @@ var releaseNow = time.Unix(1793742600, 0).UTC()
 
 const (
 	executorSlug = "watch-executor-plat-467149"
+	redSlug      = "red-executor"
 	sandsqlSlug  = "watch-sandsql-sofi-53c9f4"
 	smokeSlug    = "smoke-tenant-smoke-test-aig"
 )
@@ -92,14 +93,30 @@ func TestEachRedWatchAndRedSmokeInTheReleasesChannelLaunchesOnceAcrossTicks(t *t
 	for _, fired := range launched {
 		slugs = append(slugs, fired.Slug)
 	}
-	equal(t, slugs, []string{smokeSlug, sandsqlSlug, executorSlug})
+	equal(t, slugs, []string{smokeSlug, sandsqlSlug, redSlug})
 	equal(t, len(bus.posted), 3)
 	for _, posted := range bus.posted {
 		equal(t, posted.Kind, kindSpawn)
 	}
 	executor := launched[2]
 	equal(t, executor.Link, "https://forge.slack.com/archives/C0B75AL4XEW/p1793740168770509")
-	equal(t, executor.Facts, []string{
+	equal(t, executor.Facts, []string{"component Executor", "env plat", "released by U05FTPXU8PP"})
+	equal(t, launched[0].Facts, []string{"component Tenant smoke test", "env AIG", "monitor Tenant smoke test", "release ultraviolet-wainaina", "released by U05FTPXU8PP"})
+	equal(t, strings.Join(channel.reads, " "), "history thread thread history history")
+}
+
+func TestAWatchPostNamesItsMonitorReleaseAndJob(t *testing.T) {
+	var thread struct {
+		Messages []slackMessage `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(realReleaseChannel(t).threads["https://forge.slack.com/archives/C0B75AL4XEW/p1793740168770509"]), &thread); err != nil {
+		t.Fatal(err)
+	}
+	found, ok := alertOf(thread.Messages[0], thread.Messages[2])
+	equal(t, ok, true)
+	equal(t, found.slug, executorSlug)
+	equal(t, found.red, redSlug)
+	equal(t, found.facts, []string{
 		"component Executor",
 		"env plat",
 		"monitor Runner refusing runs whose journal cannot open on",
@@ -107,11 +124,37 @@ func TestEachRedWatchAndRedSmokeInTheReleasesChannelLaunchesOnceAcrossTicks(t *t
 		"released by U05FTPXU8PP",
 		"job https://buildkite.com/forge/release/builds/12404#01a1a349-af4e-4b67-b4e8-893cbba19b3c",
 	})
-	equal(t, launched[0].Facts, []string{"component Tenant smoke test", "env AIG", "monitor Tenant smoke test", "release ultraviolet-wainaina", "released by U05FTPXU8PP"})
-	equal(t, strings.Join(channel.reads, " "), "history thread thread history history")
 }
 
-func TestASecondRedOnTheSameMonitorComponentAndEnvJoinsItsOpenLane(t *testing.T) {
+func TestTheReleaseBotsRedPostsEachOpenAnAlert(t *testing.T) {
+	for _, c := range []struct{ text, slug, monitor string }{
+		{":rotating_light: API went red after 1 min: its Unstarted Run Claim Count check expected at most 2 but got 4. :rotating_light: Executor went red on plat after 3 min.", "red-api", ""},
+		{":rotating_light: Executor went red on plat after 3 min.", redSlug, ""},
+		{":rotating_light: Restate worker data plane went red on SoFi and AIG after 1 min.", "red-restate-worker-data-plane", ""},
+		{`:x: The Watch failed for Restate worker data plane on SoFi: "Unstarted Run Claim Count", "Unstarted Run Claim Total" crossed its monitor's bound`, "", "monitor Unstarted Run Claim Count, Unstarted Run Claim Total"},
+	} {
+		found, ok := alertOf(slackMessage{}, slackMessage{Text: c.text})
+		if !ok {
+			t.Fatalf("%q opened nothing", c.text)
+		}
+		if c.slug != "" {
+			equal(t, found.slug, c.slug)
+		}
+		if c.monitor != "" && !slices.Contains(found.facts, c.monitor) {
+			t.Fatalf("%q facts = %v, want %q", c.text, found.facts, c.monitor)
+		}
+	}
+	for _, passed := range []string{
+		":white_check_mark: Sand CLI passed its 5-min watch after going live: no monitor fired, nothing rolled back.",
+		":white_check_mark: hushed-carrington is live",
+	} {
+		if found, ok := alertOf(slackMessage{}, slackMessage{Text: passed}); ok {
+			t.Fatalf("%q opened %v", passed, found)
+		}
+	}
+}
+
+func TestEveryWatchFailureAfterARedPostJoinsTheLaneItOpened(t *testing.T) {
 	channel, bus := realReleaseChannel(t), &fakeBus{}
 	var check *Alerts
 	var launched []string
@@ -134,9 +177,11 @@ func TestASecondRedOnTheSameMonitorComponentAndEnvJoinsItsOpenLane(t *testing.T)
 
 	equal(t, len(launched), 3)
 	joined := bus.posted[3:]
-	equal(t, len(joined), 1)
-	equal(t, []any{joined[0].Kind, joined[0].To}, []any{"note", []string{executorSlug + "-fix"}})
-	contains(t, joined[0].Text, "ALERT-AGAIN :x: The Watch failed for Executor on plat")
+	equal(t, len(joined), 2)
+	for _, note := range joined {
+		equal(t, []any{note.Kind, note.To}, []any{"note", []string{redSlug + "-fix"}})
+		contains(t, note.Text, "ALERT-AGAIN :x: The Watch failed for Executor on plat")
+	}
 }
 
 func TestSlackReadsPerTickStayFlatAsTheReleasesChannelGrows(t *testing.T) {
@@ -182,7 +227,7 @@ func TestAFailedLaunchOfAReleaseAlertRaisesALERTUNOPENED(t *testing.T) {
 		}
 	}
 
-	equal(t, len(bus.posted), 3)
+	equal(t, len(bus.posted), 4)
 	equal(t, bus.posted[0].Kind, blockerKind)
 	contains(t, bus.posted[0].Text, "ALERT-UNOPENED :warning: ultraviolet-wainaina is live, but Tenant smoke test on AIG went red")
 	contains(t, bus.posted[0].Text, "launch of "+smokeSlug+"-fix failed: lr incident run exited 2")
