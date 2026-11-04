@@ -199,6 +199,51 @@ func TestOnlyAPROpenedOnTheRecordIsRead(t *testing.T) {
 	}
 }
 
+func TestAnEndedPRCostsNoStatusReadAndLeavesTheRowsWithItsState(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot"},
+		{number: 2, head: head2, login: "drive-bot", state: "MERGED"},
+		{number: 3, head: head3, login: "drive-bot", state: "CLOSED"},
+		{number: 4, head: head, login: "drive-bot", state: "CLOSED", labels: []string{"trunk-merged"}},
+		{number: 5, head: head, login: "drive-bot", state: "MERGED"},
+	}, status(1), status(5, func(row *statusRow) { row.State = "MERGED" }))
+	if _, err := h.store.OpenItem(store.NewItem{Kind: "tap", Repo: repo, Number: 5, Head: head, Mover: machine.MoverOwner, Deadline: time.Hour}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	by := h.snapshot(t)
+
+	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "5"}) {
+		t.Fatalf("status read = %v, want the open PR and the one holding an item", got)
+	}
+	if _, drawn := by[2]; drawn {
+		t.Fatalf("snapshot drew an ended PR, which would announce an old landing: %+v", by[2])
+	}
+	if !by[5].Merged {
+		t.Fatalf("#5 = %+v, want its item's PR read as merged so the item closes", by[5])
+	}
+	snapshot := make([]machine.Facts, 0, len(by))
+	for _, f := range by {
+		snapshot = append(snapshot, f)
+	}
+	if err := h.source.WriteRows(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	for number, want := range map[int]string{1: prrow.StateOpen, 2: prrow.StateLanded, 3: prrow.StateClosed, 4: prrow.StateLanded} {
+		row, known, err := h.store.ReviewRow(repo, number)
+		if err != nil || !known || row.State != want {
+			t.Errorf("#%d = %+v, %v, %v, want state %s", number, row, known, err, want)
+		}
+	}
+	calls := len(h.runner.Calls())
+	h.snapshot(t)
+	if got := h.runner.Calls()[calls:]; !slices.ContainsFunc(got, func(call shell.Command) bool {
+		return slices.Contains(call.Argv, "graphql") && !strings.Contains(call.Argv[len(call.Argv)-1], "r2: pullRequest")
+	}) {
+		t.Fatalf("the next pass still read a landed row: %+v", got)
+	}
+}
+
 func TestAnOpenedRecordMakesTheRow(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 7, head: head, login: "drive-bot", unopened: true}}, status(7))
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "opened", Text: "opened", PRs: []string{repo + "#7"}, Attrs: map[string]string{"repo": repo, "head": head}}); err != nil {

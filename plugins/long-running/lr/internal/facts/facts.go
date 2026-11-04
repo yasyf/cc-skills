@@ -105,15 +105,25 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if !s.Reads {
 		return s.fromRows(rows, held)
 	}
-	numbers, err := s.withOpenItems(liveNumbers(rows))
+	itemed, err := s.itemed()
 	if err != nil {
 		return nil, err
 	}
+	numbers := liveNumbers(rows)
+	for number := range itemed {
+		numbers = append(numbers, number)
+	}
+	slices.Sort(numbers)
+	numbers = slices.Compact(numbers)
 	members, err := s.readMembers(ctx, numbers)
 	if err != nil {
 		return nil, fmt.Errorf("read the drive's pull requests: %w", err)
 	}
-	statuses, err := s.statuses(ctx, numbers)
+	open, ended := s.splitEnded(numbers, members, itemed)
+	if err := s.Rows().PostReads(ctx, ended); err != nil {
+		s.Log.Warn("an ended pull request's read went unposted", "error", err)
+	}
+	statuses, err := s.statuses(ctx, open)
 	if err != nil {
 		return nil, fmt.Errorf("read queue and CI: %w", err)
 	}
@@ -145,6 +155,36 @@ func (s Source) WriteRows(ctx context.Context, snapshot []machine.Facts) error {
 	return posted
 }
 
+func (s Source) splitEnded(numbers []int, members memberRead, itemed map[int]bool) ([]int, []machine.Facts) {
+	open := make([]int, 0, len(numbers))
+	var ended []machine.Facts
+	for _, number := range numbers {
+		pr, read := members.prs[number]
+		if !read || pr.State == "OPEN" || itemed[number] {
+			open = append(open, number)
+			continue
+		}
+		ended = append(ended, machine.Facts{
+			Repo: s.Repo, Number: number, Title: pr.Title, Head: pr.HeadRefOid, Branch: pr.HeadRefName, Base: pr.BaseRefName,
+			Closed: true, Merged: pr.State == "MERGED" || pr.labelled(trunkMerged),
+			CI: machine.CIPending, Mergeable: machine.MergeableUnknown, Queue: machine.QueueNone,
+		})
+	}
+	return open, ended
+}
+
+func (s Source) itemed() (map[int]bool, error) {
+	items, err := s.Store.OpenItems(s.Repo, 0)
+	if err != nil {
+		return nil, err
+	}
+	itemed := make(map[int]bool, len(items))
+	for _, item := range items {
+		itemed[item.Number] = true
+	}
+	return itemed, nil
+}
+
 func liveNumbers(rows []store.ReviewRow) []int {
 	numbers := make([]int, 0, len(rows))
 	for _, row := range rows {
@@ -156,13 +196,9 @@ func liveNumbers(rows []store.ReviewRow) []int {
 }
 
 func (s Source) fromRows(rows []store.ReviewRow, held map[int]hold) ([]machine.Facts, error) {
-	items, err := s.Store.OpenItems(s.Repo, 0)
+	itemed, err := s.itemed()
 	if err != nil {
 		return nil, err
-	}
-	itemed := make(map[int]bool, len(items))
-	for _, item := range items {
-		itemed[item.Number] = true
 	}
 	atHeads, err := s.Store.FactsAtRowHeads(s.Repo)
 	if err != nil {
@@ -543,19 +579,6 @@ func carried(prs []pullRequest) map[int][]int {
 		slices.Sort(carries[pr.Number])
 	}
 	return carries
-}
-
-func (s Source) withOpenItems(open []int) ([]int, error) {
-	items, err := s.Store.OpenItems(s.Repo, 0)
-	if err != nil {
-		return nil, err
-	}
-	all := slices.Clone(open)
-	for _, item := range items {
-		all = append(all, item.Number)
-	}
-	slices.Sort(all)
-	return slices.Compact(all), nil
 }
 
 type hold struct {
