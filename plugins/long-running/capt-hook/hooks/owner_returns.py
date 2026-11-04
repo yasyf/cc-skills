@@ -53,6 +53,8 @@ UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
     " Before stopping, post one ask to meta naming his ledger row, `owner:m<row>` plus your one-line order, or launch the lane with `lr launch`."
 )
+ROUTED_WINDOW = "24h"
+STRAIGHT_QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 WAIT_TOOLS = frozenset({"Agent", "Task", "Monitor"})
 SUBAGENT_TOOLS = frozenset({"Agent", "Task"})
 FILE_PATH = (
@@ -649,12 +651,18 @@ def offers_pick(text: str) -> bool:
 
 
 def route_reminder(evt: BaseHookEvent) -> None:
-    if any(launched(use) for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)):
+    if any(launched(use) for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)) or not reminds(evt, words) or forwarded(evt):
         return
+    if (left := unrouted_words(evt)) and (left == words or reminds(evt, left)):
+        text = f"owner correction the relay did not route; make the behaviour automatic. His words: {left[:600]}"
+        read(["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--to", "meta-desk", "--text", text])
+
+
+def reminds(evt: BaseHookEvent, words: str) -> bool:
     match (decision := evt.decide(words, {"reminder": REMINDER})) and decision.answers["reminder"]:
-        case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5 and not forwarded(evt):
-            text = f"owner correction the relay did not route; make the behaviour automatic. His words: {words[:600]}"
-            read(["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--to", "meta-desk", "--text", text])
+        case BinaryAnswer(p_yes=p_yes):
+            return p_yes > 0.5
+    return False
 
 
 def hands_off(use: object) -> bool:
@@ -695,10 +703,30 @@ def owner_words(evt: BaseHookEvent) -> str:
     return "\n\n".join([*typed, *(dm["text"] for dm in dms if held)])
 
 
-def forwarded(evt: BaseHookEvent) -> bool:
-    since = turn_started(evt)
+def relay_routed(evt: BaseHookEvent, since: str) -> list[dict] | None:
     out = read(["cci", "tail", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--lane", ROOT_LANE, "--kind", "ask", "--kind", "decide", "--kind", "owner", "--since", since, "--budget", str(RECORD_BYTES), "--json"])
-    return out is None or any(to.startswith("meta") for line in out.splitlines() if line.strip() for to in json.loads(line).get("to") or ())
+    if out is None:
+        return None
+    records = [json.loads(line) for line in out.splitlines() if line.strip()]
+    return [record for record in records if any(to.startswith("meta") for to in record.get("to") or ())]
+
+
+def forwarded(evt: BaseHookEvent) -> bool:
+    routed = relay_routed(evt, turn_started(evt))
+    return routed is None or bool(routed)
+
+
+def posted_text(record: dict) -> str:
+    return Path(record["refs"]["path"]).read_text() if record["text"].endswith("…") else record["text"]
+
+
+def spoken(text: str) -> str:
+    return " ".join(text.translate(STRAIGHT_QUOTES).casefold().split())
+
+
+def unrouted_words(evt: BaseHookEvent) -> str:
+    quoted = [spoken(posted_text(record)) for record in relay_routed(evt, ROUTED_WINDOW) or ()]
+    return "\n\n".join(line for line in owner_words(evt).split("\n\n") if not any(spoken(line) in text for text in quoted))
 
 
 def launched(use: object) -> bool:

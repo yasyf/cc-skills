@@ -35,6 +35,7 @@ HEALTHY = LANE_ENV | {LOAD_PER_CORE: "1000000"}
 SHIP = "ccx vcs ship -m 'sand: 🐛 fix the vm'"
 REPO = {"git rev-parse --show-toplevel": f"{FIXTURE}\n", "git config --bool --default false core.sparseCheckout": "false\n", "go env GOROOT": "/usr/local/go\n"}
 GO_DIFF = REPO | {"git diff": "go/sand/internal/vm/vm.go\ndocs/vm.md\n"}
+GO_SET_DIFF = REPO | {"git diff": "go/sand/internal/proxy/proxy.go\ngo/sand/internal/vm/vm.go\n"}
 TS_DIFF = REPO | {"git diff": "api/src/a.ts\n"}
 OWN_TS_DIFF = REPO | {"git diff": "tools/own/src/a.ts\n"}
 REFUSAL = (
@@ -204,14 +205,14 @@ def go_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]
     if not (goroot := run_quietly(["go", "env", "GOROOT"], str(top))) or goroot.returncode:
         return "no Go toolchain answers `go env GOROOT`"
     checks = CompileChecks.load(evt).checks
-    missing: dict[tuple[Path, str], list[str]] = defaultdict(list)
+    modules: dict[Path, list[str]] = defaultdict(list)
+    stale: set[str] = set()
     for package, edited in sorted(packages.items()):
         if (module := ancestor_with("go.mod", package, top)) is None:
             return f"`{package.relative_to(top)}` has no `go.mod` in this checkout"
-        for kind in GO_KINDS:
-            if not covered(checks, kind, package, edited):
-                missing[module, kind].append(f"./{package.relative_to(module)}".removesuffix("/."))
-    return [f"cd {module} && go {kind} {' '.join(names)}" for (module, kind), names in missing.items()]
+        modules[module].append(f"./{package.relative_to(module)}".removesuffix("/."))
+        stale |= {kind for kind in GO_KINDS if not covered(checks, kind, package, edited)}
+    return [" && ".join([f"cd {module}", *(f"go {kind} {' '.join(names)}" for kind in GO_KINDS if kind in stale)]) for module, names in modules.items()] if stale else []
 
 
 def typecheck_command(top: Path, project: Path) -> str:
@@ -260,7 +261,10 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash")],
     tests={
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Block(pattern=r"^A lane runs `go build` and `go vet`[\s\S]*cd \S+/go/sand && go build \./internal/vm\ncd \S+/go/sand && go vet \./internal/vm\n"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Block(pattern=r"^A lane runs `go build` and `go vet`[\s\S]*cd \S+/go/sand && go build \./internal/vm && go vet \./internal/vm\n"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_SET_DIFF, state=[fresh("build", "vet", root="go/sand/internal/vm", recursive=False)]): Block(pattern=r"cd \S+/go/sand && go build \./internal/proxy \./internal/vm && go vet \./internal/proxy \./internal/vm\n```$"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_SET_DIFF, state=[fresh("build", root="go/sand")]): Block(pattern=r"cd \S+/go/sand && go vet \./internal/proxy \./internal/vm\n```$"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_SET_DIFF, state=[fresh("build", "vet", root="go/sand")]): Allow(),
         Input(command="git push origin HEAD", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("vet", root="go/sand")]): Block(pattern=r"cd \S+ && go build \./internal/vm\n```$"),
         Input(command="gt submit --stack", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand", at=0.0)]): Block(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF): Block(pattern=r"\nyarn tsc:api\n"),
