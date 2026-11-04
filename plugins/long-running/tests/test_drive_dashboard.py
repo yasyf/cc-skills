@@ -186,6 +186,30 @@ def test_a_card_read_off_the_board_shows_its_options_once_with_context_only_in_i
     assert [option["id"] for option in out["options"]] == ["one", "two"]
 
 
+def test_a_cited_line_is_served_to_the_owner_from_github_and_refused_to_anyone_else(monkeypatch):
+    login = [TAILNET_OWNER]
+    monkeypatch.setattr(server, "run", lambda argv, **_: json.dumps({"Node": {}, "UserProfile": {"LoginName": login[0]}}))
+    asked = []
+    monkeypatch.setattr(server, "gh", lambda repo, *args: asked.append((repo, *args)) or "one\ntwo\nthree\nfour\nfive")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(Drive({"board_url": "http://board/p/x", "repo": "o/r"}, None), TAILNET_OWNER, {"127.0.0.1"}))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_port}/api/source"
+    try:
+        body = json.loads(urllib.request.urlopen(f"{url}?path=api%2Fsrc%2Fx.ts&line=2&to=2", timeout=5).read())
+        assert body["lines"][1] == {"n": 2, "text": "two"}
+        assert [row["n"] for row in body["lines"]] == [1, 2, 3, 4, 5]
+        assert "repos/o/r/contents/api/src/x.ts" in asked[0]
+        with pytest.raises(urllib.error.HTTPError) as climbed:
+            urllib.request.urlopen(f"{url}?path=api%2F..%2Fx.ts&line=1&to=1", timeout=5)
+        assert climbed.value.code == 400
+        login[0] = "someone@else"
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(f"{url}?path=api%2Fsrc%2Fx.ts&line=2&to=2", timeout=5)
+        assert refused.value.code == 403
+    finally:
+        httpd.shutdown()
+
+
 def test_a_card_keeps_his_earlier_picks_and_offers_the_next_one():
     retro = card("retro", ("record", "why"), ("choice", "p1"), ("choice", "p2"))
     retro["children"][1]["options"] = [{"id": "a", "label": "Check first (Recommended)", "recommended": True}, {"id": "o", "label": "Other"}]
