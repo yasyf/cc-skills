@@ -155,7 +155,7 @@ When it does, answer "yes" if it drops, narrows or contradicts any part of his a
     "ruled": ("a card, or a question, that asks the owner to decide, with every option it offers", RULED),
     "confirm": (
         "a card an agent is about to draw on his board, with every option it offers",
-        """Does the card ask him to confirm or grade an agent's reading of his own words, in any wording, instead of asking him to decide something his words leave open? A card that restates what he said and asks whether it is right, read correctly, what he meant, or offers right, wrong or other on that restatement is a yes. A card whose options are real alternatives his words have not chosen between is a no, even when it quotes him.
+        """Does the card ask him to confirm or grade an agent's reading of his own words, in any wording, instead of asking him to decide something his words leave open? Judge the card by itself: the evidence holds none of his words and needs none, so a card saying what he said is enough, and the evidence phrase stays empty. A card that restates what he said and asks whether it is right, read correctly, what he meant, or offers right, wrong or other on that restatement is a yes. A card whose options are real alternatives his words have not chosen between is a no, even when it quotes him.
 Answer "yes" when the card asks him to grade a reading, and say in your sentence what the agent should do with its reading instead of asking.""",
     ),
     "plain": ("text the owner reads: a card, a board block, a question, a plan or a reply", PLAIN),
