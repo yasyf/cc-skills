@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,21 +28,25 @@ const (
 )
 
 var (
-	namedDeadline     = regexp.MustCompile(`(?i)\b(?:by|before|until|due(?:[ \t]+(?:by|at))?)[ \t]+(` + clockTime + `)\b`)
-	leadingClock      = regexp.MustCompile(`(?i)^(?:` + clockTime + `)\b`)
-	monthDay          = regexp.MustCompile(`(?i)^\.?,?[ \t]+(?:on[ \t]+)?((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*)\.?[ \t]+(\d{1,2})\b`)
-	laterDay          = regexp.MustCompile(`(?i)^\.?,?[ \t]+(?:on[ \t]+)?(?:tomorrow|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b`)
-	clockLayouts      = []string{"3:04PM", "3PM", "15:04"}
-	ownerInWords      = regexp.MustCompile(`\bOwner:[ \t]+\S`)
-	machineLanes      = []string{Lane, "stall-watch", "desk-runner", lanes.Self}
-	ordersOwingNoPlan = []string{"hold", "go", "lift"}
+	namedDeadline    = regexp.MustCompile(`(?i)\b(?:by|before|until|due(?:[ \t]+(?:by|at))?)[ \t]+(` + clockTime + `)\b`)
+	leadingClock     = regexp.MustCompile(`(?i)^(?:` + clockTime + `)\b`)
+	monthDay         = regexp.MustCompile(`(?i)^\.?,?[ \t]+(?:on[ \t]+)?((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*)\.?[ \t]+(\d{1,2})\b`)
+	laterDay         = regexp.MustCompile(`(?i)^\.?,?[ \t]+(?:on[ \t]+)?(?:tomorrow|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b`)
+	clockLayouts     = []string{"3:04PM", "3PM", "15:04"}
+	ownerInWords     = regexp.MustCompile(`\bOwner:[ \t]+\S`)
+	recordNumber     = regexp.MustCompile(`(?:^|[^\d.:@/])#?(\d{3,})\b`)
+	machineLanes     = []string{Lane, "stall-watch", "desk-runner", lanes.Self}
+	kindsOwingNoPlan = []string{"hold", "go", "lift", "owner"}
 )
 
 func Unplanned(records []client.Record, now time.Time) []Wait {
 	var waits []Wait
 	for _, record := range records {
-		deadline := deadlineOf(record, planClocks(records, record))
-		if deadline == "" || slices.Contains(record.To, "owner") || record.Kind == "escalation" || slices.Contains(ordersOwingNoPlan, string(record.Kind)) || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || planned(record) || settled(records, record.Seq) {
+		if record.Fields.Attrs[deadlineAttr] == "" && !namedDeadline.MatchString(record.Text) {
+			continue
+		}
+		deadline := deadlineOf(record, restatedClocks(records, record))
+		if deadline == "" || slices.Contains(record.To, "owner") || record.Kind == "escalation" || slices.Contains(kindsOwingNoPlan, string(record.Kind)) || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || planned(record) || settled(records, record.Seq) {
 			continue
 		}
 		waits = append(waits, Wait{
@@ -102,25 +107,44 @@ func parsedClock(clock string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func planClocks(records []client.Record, reply client.Record) []string {
-	if reply.Re == 0 {
+func restatedClocks(records []client.Record, reply client.Record) []string {
+	cited := citedRecords(reply.Text)
+	if reply.Re == 0 && len(cited) == 0 {
 		return nil
 	}
 	var clocks []string
-	for _, plan := range records {
-		if plan.Seq >= reply.Seq || plan.Seq != reply.Re && plan.Re != reply.Re || !planned(plan) {
+	for _, earlier := range records {
+		if earlier.Seq >= reply.Seq || !restates(reply, earlier, cited) {
 			continue
 		}
-		for _, named := range namedDeadline.FindAllStringSubmatch(plan.Text, -1) {
+		for _, named := range namedDeadline.FindAllStringSubmatch(earlier.Text, -1) {
 			clocks = append(clocks, clockKey(named[1]))
 		}
-		for _, value := range plan.Fields.Attrs {
+		for _, value := range earlier.Fields.Attrs {
 			if key := clockKey(leadingClock.FindString(value)); key != "" {
 				clocks = append(clocks, key)
 			}
 		}
 	}
 	return clocks
+}
+
+func restates(reply, earlier client.Record, cited []int64) bool {
+	cites := earlier.Seq == reply.Re || slices.Contains(cited, earlier.Seq)
+	if planned(earlier) {
+		return cites || reply.Re != 0 && earlier.Re == reply.Re
+	}
+	return cites && !slices.Contains(kindsOwingNoPlan, string(earlier.Kind))
+}
+
+func citedRecords(text string) []int64 {
+	var seqs []int64
+	for _, named := range recordNumber.FindAllStringSubmatch(text, -1) {
+		if seq, err := strconv.ParseInt(named[1], 10, 64); err == nil {
+			seqs = append(seqs, seq)
+		}
+	}
+	return seqs
 }
 
 func clockKey(clock string) string {

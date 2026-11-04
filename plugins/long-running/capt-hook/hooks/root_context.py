@@ -96,7 +96,6 @@ DOC_TOOLS = (
 )
 MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_codex_")
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
-CRON_WAKE = re.compile(r"wake \d{1,2}:\d{2}\b")
 HARNESS_PREFIXES = ("<", "Another Claude session sent a message", "This session is being continued", "[Request interrupted")
 SYSTEM_PREFIXES = (*HARNESS_PREFIXES, "/")
 RULING_LABELS = ("scope:durable", "owner-ruling")
@@ -180,6 +179,11 @@ class RootContextState(WorkflowState):
     oversized: dict[str, int] = {}
 
 
+@workflow_state("long_running_scheduled_prompts")
+class ScheduledPrompts(WorkflowState):
+    prompts: list[str] = []
+
+
 def verb(*prefixes: tuple[str, ...]) -> Callable[[Arguments], bool]:
     def matches(arguments: Arguments) -> bool:
         words = arguments.values.get("words", ())
@@ -210,7 +214,7 @@ class OwnerPrompt:
 
     def check(self, evt: BaseHookEvent) -> bool:
         text = (evt.user_prompt or "").strip()
-        return not text.startswith(self.prefixes) and not CRON_WAKE.match(text) and "<teammate-message" not in text and "<cross-session-message" not in text
+        return not text.startswith(self.prefixes) and "<teammate-message" not in text and "<cross-session-message" not in text and text not in ScheduledPrompts.load(evt).prompts
 
 
 class OversizedTool:
@@ -861,6 +865,22 @@ def record_ruling(evt: BaseHookEvent) -> str:
     topics = search.vocabulary(lambda argv: ccn(str(evt.cwd), *argv).stdout, program)
     flags = [arg for name in (*RULING_LABELS, f"program:{program}", label) for arg in ("--label", name)]
     return answers(evt, "add", *flags, *search.anchors(topics, f"{title}\n{evt.user_prompt}"), f"--body={ruling_body(evt)}", "--", title)["id"]
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[DriveActive(), Tool("CronCreate", "ScheduleWakeup")],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(tool="CronCreate", tool_input={"cron": "37 11 4 11 *", "prompt": "clock check"}, state=ACTIVE): Allow(),
+        Input(tool="ScheduleWakeup", tool_input={"stop": True}, state=ACTIVE): Allow(),
+        Input(tool="CronCreate", tool_input={"cron": "37 11 4 11 *", "prompt": "clock check"}): Allow(),
+    },
+)
+def scheduled_prompts_are_not_his_words(evt: BaseHookEvent) -> None:
+    if prompt := evt.input.raw.get("prompt"):
+        with ScheduledPrompts.mutate(evt) as state:
+            state.prompts = sorted({*state.prompts, prompt.strip()})
 
 
 @on(

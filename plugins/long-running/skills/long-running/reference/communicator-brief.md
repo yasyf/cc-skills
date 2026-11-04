@@ -50,7 +50,7 @@ Style of every message to him:
 - When he asks whether a failure is the drive's own doing, the first sentence says yes or no and what the bug is, before any status or plan.
 - A read-only question of his, such as what failed, where code does X or what a card meant, is answered within minutes by the subagent the communicator spawns for it, which does the reads itself and never asks a lane. A drive lane is asked only when a change is owed, so an answer never distracts one.
 
-To wait for a lane's answer, end the turn or arm Monitor; its notification wakes you. A sleep loop holds his next message until it ends. A timed wake goes through `CronCreate` with a prompt starting `wake <h:mm>`, so the ledger never takes it for his words.
+To wait for a lane's answer, end the turn or arm Monitor; its notification wakes you. A sleep loop holds his next message until it ends. A timed wake goes through `CronCreate`, and the ledger never takes a prompt this session scheduled for his words.
 
 ## Who it talks to, and its window
 

@@ -15,6 +15,7 @@ CLOCK = r"\d{1,2}(?::\d{2})?\s*[AP]\.?M\.?|\d{1,2}:\d{2}"
 DEADLINE = re.compile(rf"(?i)\b(?:by|before|until|due(?:\s+(?:by|at))?)\s+(?:{CLOCK})\b")
 LEADING_CLOCK = re.compile(rf"(?i)^(?:{CLOCK})\b")
 NAMES_LANE = re.compile(r"\blane=[\w.-]+|\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d{1,2}\b")
+NAMES_RECORD = re.compile(r"(?<![.\d])\b\d{6,7}\b")
 STEP = "step:"
 UNCHECKED_KINDS = frozenset({"escalation"})
 POST = "cci post --drive d --lane memoryschema-1 --kind report --text 'schema migration lands by 3:10 AM'"
@@ -34,21 +35,21 @@ def unowned_deadline(text: str) -> bool:
     return bool(DEADLINE.search(text)) and not NAMES_LANE.search(text)
 
 
-def posts(evt: BaseHookEvent) -> Iterator[tuple[str, set[str], dict[str, str]]]:
+def posts(evt: BaseHookEvent) -> Iterator[tuple[str, set[str], dict[str, str], bool]]:
     if evt.tool_name == POST_TOOL:
         given = evt._tool_input
-        yield str(given.get("text") or ""), {str(given.get("kind") or "").lower()}, {str(key): str(value) for key, value in (given.get("attrs") or {}).items()}
+        yield str(given.get("text") or ""), {str(given.get("kind") or "").lower()}, {str(key): str(value) for key, value in (given.get("attrs") or {}).items()}, bool(given.get("re"))
         return
     for call in evt.command.calls("cci"):
         values = CCI_POST.bind(call).values
         if values.get("words", ())[:1] == ("post",):
             pairs = (pair.partition("=") for value in values.get("attr", ()) for pair in str(value).split(","))
-            yield posted_text(values), set(values.get("kind", ())), {key: value for key, _, value in pairs}
+            yield posted_text(values), set(values.get("kind", ())), {key: value for key, _, value in pairs}, bool(values.get("re"))
 
 
 class PostsUnplannedDeadline:
     def check(self, evt: BaseHookEvent) -> bool:
-        return any(not kinds & UNCHECKED_KINDS and names_deadline(text, attrs) and not planned(attrs) for text, kinds, attrs in posts(evt))
+        return any(not kinds & UNCHECKED_KINDS and not answers and not NAMES_RECORD.search(text) and names_deadline(text, attrs) and not planned(attrs) for text, kinds, attrs, answers in posts(evt))
 
 
 def mcp(text: str, **attrs: str) -> Input:
@@ -70,6 +71,10 @@ DEADLINE_PLAN = (
         Input(command=f"{POST} --attr owner=memoryschema-1 --attr 'step:1=2:30 AM open the PR' --attr 'step:2=merge on green'", state=ACTIVE): Warn(),
         Input(command="cci post --drive d --lane lane-a --kind note --attr 'deadline=5:00 AM' --text 'image published'", state=ACTIVE): Warn(),
         mcp("schema migration lands before 4 PM"): Warn(),
+        Input(command="cci post --drive d --lane lane-a --kind state --text '#50107 lands by 3:10 AM'", state=ACTIVE): Warn(),
+        Input(command=f"{POST} --re 423936", state=ACTIVE): Allow(),
+        Input(command="cci post --drive d --lane lane-a --kind state --text 'm630 due 12:15 PM routed 423936'", state=ACTIVE): Allow(),
+        Input(tool=POST_TOOL, tool_input={"kind": "report", "text": "schema migration lands before 4 PM", "re": 423936}, state=ACTIVE): Allow(),
         Input(command=f"{POST} {PLAN}", state=ACTIVE): Allow(),
         mcp("schema migration lands before 4 PM", owner="memoryschema-1", **{"step:1": "2:30 AM open the PR"}): Allow(),
         Input(command="cci post --drive d --lane lane-a --kind state --text 'relaunched at 3:10 AM, quiet since 9:45 PM'", state=ACTIVE): Allow(),
