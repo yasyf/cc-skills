@@ -341,6 +341,9 @@ func (o Owner) dm(ctx context.Context, n Notice) error {
 }
 
 func Explain(ctx context.Context, checkout Checkout, host Host, owner Announcer, topic string, source []byte, now time.Time) (string, error) {
+	if claims := Uncited(source); len(claims) > 0 {
+		return "", refuse(claims)
+	}
 	notice, _, err := publish(ctx, checkout, host, topic, source, now)
 	if err != nil {
 		return "", owner.Failed(ctx, topic, err)
