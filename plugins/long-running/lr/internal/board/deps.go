@@ -51,6 +51,13 @@ func (m Moved) Line() string {
 	return fmt.Sprintf("kept %s and flagged it to %s: %s", m.Card.Card, laneOr(m.Card.Lane), m.Why)
 }
 
+func (m Moved) laneReport(cause string) string {
+	if m.How == "held" {
+		return fmt.Sprintf("Card %s stays on the owner's board for you to redraw or withdraw: %s changes it, and %s.", m.Card.Card, cause, m.Why)
+	}
+	return fmt.Sprintf("Card %s stays on the owner's board for you to redraw or withdraw: %s may change it, and the judge could not settle how (%s).", m.Card.Card, cause, m.Why)
+}
+
 func laneOr(lane string) string {
 	if lane == "" {
 		return "no owner lane, since none registered it"
@@ -357,8 +364,8 @@ func (r Recheck) move(ctx context.Context, refs []store.CardRef, boards map[stri
 		if done == nil {
 			continue
 		}
-		if done.How == "flagged" && one.ref.Lane != "" {
-			if err := r.Cards.Report(ctx, r.Lane, []string{one.ref.Lane}, one.ref.Card, fmt.Sprintf("Card %s stays on the owner's board for you to redraw or withdraw: %s may change it, and the judge could not settle how (%s).", one.ref.Card, cause, done.Why)); err != nil {
+		if done.How != "redrew" && done.How != "withdrew" && one.ref.Lane != "" {
+			if err := r.Cards.Report(ctx, r.Lane, []string{one.ref.Lane}, one.ref.Card, done.laneReport(cause)); err != nil {
 				return nil, err
 			}
 		}
@@ -438,15 +445,16 @@ func sentenceOf(v *Judgment) string {
 }
 
 func (r Recheck) withdraw(ctx context.Context, cards Cards, ref store.CardRef, why string) (*Moved, error) {
+	why = strings.TrimSuffix(why, ".")
 	owed, err := cards.unrowed(ctx, ref.Card)
 	if err != nil {
 		return nil, err
 	}
 	if len(owed) > 0 {
-		return &Moved{ref, "flagged", fmt.Sprintf("%s, but the owner's answer on %s has no ccn answer row yet, so it stays", why, strings.Join(owed, ", "))}, nil
+		return &Moved{ref, "held", fmt.Sprintf("the judge would withdraw it because %s, but the owner's answer on %s has no ccn answer row yet", why, strings.Join(owed, ", "))}, nil
 	}
-	if _, err := cards.present(ctx, "remove-block", ref.Card, "--reason", why); err != nil {
-		return refused(ref, err)
+	if _, err := cards.present(ctx, "remove-block", ref.Card, "--reason", why, "--lane", r.Lane, "--take-over"); err != nil {
+		return refused(ref, "withdraw it because "+why, err)
 	}
 	if err := cards.Withdraw(ctx, r.Lane, ref.Card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", ref.Card, why)); err != nil {
 		return nil, err
@@ -473,16 +481,16 @@ func (r Recheck) redraw(ctx context.Context, cards Cards, ref store.CardRef, sho
 	if err != nil {
 		return nil, err
 	}
-	if _, err := cards.run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", cards.Session, "--rev", strconv.FormatInt(rev, 10)}, Stdin: string(encoded)}); err != nil {
-		return refused(ref, err)
+	if _, err := cards.run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", cards.Session, "--rev", strconv.FormatInt(rev, 10), "--lane", r.Lane, "--take-over"}, Stdin: string(encoded)}); err != nil {
+		return refused(ref, fmt.Sprintf("redraw it to state %q", premise), err)
 	}
 	return &Moved{ref, "redrew", premise}, nil
 }
 
-func refused(ref store.CardRef, err error) (*Moved, error) {
+func refused(ref store.CardRef, wanted string, err error) (*Moved, error) {
 	var exit *shell.ExitError
 	if !errors.As(err, &exit) {
 		return nil, err
 	}
-	return &Moved{ref, "flagged", "cc-present refused the change: " + strings.TrimSpace(exit.Stderr)}, nil
+	return &Moved{ref, "held", fmt.Sprintf("the judge would %s, but cc-present refused: %s", wanted, strings.TrimSpace(exit.Stderr))}, nil
 }

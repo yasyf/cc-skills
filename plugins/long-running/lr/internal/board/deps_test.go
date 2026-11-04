@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -30,12 +31,13 @@ var lookupsDoc = map[string]any{
 }
 
 type depShell struct {
-	mu      sync.Mutex
-	board   map[string]map[string]any
-	calls   []string
-	removed []string
-	redrawn []map[string]any
-	refuse  string
+	mu           sync.Mutex
+	board        map[string]map[string]any
+	calls        []string
+	removed      []string
+	redrawn      []map[string]any
+	refuse       string
+	refuseRedraw string
 }
 
 func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -71,6 +73,9 @@ func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error)
 		delete(f.board, c.Argv[2])
 		return shell.Result{}, nil
 	case strings.Contains(argv, "update-block -"):
+		if f.refuseRedraw != "" {
+			return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: f.refuseRedraw}
+		}
 		var card map[string]any
 		if err := json.Unmarshal([]byte(c.Stdin), &card); err != nil {
 			return shell.Result{}, err
@@ -311,8 +316,55 @@ func TestARefusedWithdrawKeepsTheCardAndFlagsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moved) != 1 || moved[0].How != "flagged" || !strings.Contains(moved[0].Why, "the owner touched it") {
+	if len(moved) != 1 || moved[0].How != "held" || !strings.Contains(moved[0].Why, "the owner touched it") {
 		t.Fatalf("moved = %v", moved)
+	}
+	flag := f.posts[0]
+	if !reflect.DeepEqual(flag.to, []string{"lane-a"}) || !strings.Contains(flag.text, "withdraw it because his ruling decides it") || strings.Contains(flag.text, "could not settle") {
+		t.Fatalf("flag = %+v", flag)
+	}
+}
+
+func TestARecheckWriteNamesItselfAndTakesTheCardOver(t *testing.T) {
+	for verdict, write := range map[string]string{"yes": "remove-block", "no": "update-block"} {
+		f := newDeps(t, lookupsDoc)
+		ctx := context.Background()
+		if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
+			t.Fatal(err)
+		}
+		f.postgresRuling(t)
+		f.says(lookupsCard, premiseKind, "yes", "Lookups now read Postgres.")
+		f.says(lookupsCard, decidedKind, verdict, "whether to merge is settled or open")
+		if _, err := f.Ruling(ctx, []string{postgresRule}); err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(f.shell.calls, func(call string) bool { return strings.Contains(call, write) })
+		if i < 0 || !strings.Contains(f.shell.calls[i], "--lane root --take-over") {
+			t.Fatalf("%s calls = %v, want --lane root --take-over", write, f.shell.calls)
+		}
+	}
+}
+
+func TestARefusedRedrawTellsTheLaneTheSentenceItWanted(t *testing.T) {
+	f := newDeps(t, lookupsDoc)
+	ctx := context.Background()
+	if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.postgresRuling(t)
+	f.shell.refuseRedraw = "refusing to write card-48879: stale rev"
+	f.says(lookupsCard, premiseKind, "yes", "Lookups now read Postgres.")
+	f.says(lookupsCard, decidedKind, "no", "whether to merge is still open")
+	moved, err := f.Ruling(ctx, []string{postgresRule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 1 || moved[0].How != "held" {
+		t.Fatalf("moved = %v", moved)
+	}
+	flag := f.posts[0]
+	if !strings.Contains(flag.text, `redraw it to state "Lookups now read Postgres."`) || !strings.Contains(flag.text, "stale rev") || strings.Contains(flag.text, "could not settle") {
+		t.Fatalf("flag = %+v", flag)
 	}
 }
 
