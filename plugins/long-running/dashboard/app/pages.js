@@ -683,8 +683,8 @@ function fireNotice(a) {
   notice.onclick = () => openNotice(a);
 }
 function noticeAlerts(alerts) {
-  const seen = JSON.parse(localStorage.getItem('alerts-noticed'));
-  localStorage.setItem('alerts-noticed', JSON.stringify([...new Set([...(seen ?? []), ...alerts.map((a) => a.id)])].slice(-NOTICED_KEPT)));
+  const seen = JSON.parse(localStorage.getItem('alerts-noticed-waiting'));
+  localStorage.setItem('alerts-noticed-waiting', JSON.stringify([...new Set([...(seen ?? []), ...alerts.map((a) => a.id)])].slice(-NOTICED_KEPT)));
   if (!seen || Notification.permission !== 'granted') return;
   alerts.filter((a) => !seen.includes(a.id)).reverse().forEach(fireNotice);
 }
