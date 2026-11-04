@@ -41,6 +41,7 @@ type Cards struct {
 	Store    *store.Store
 	Now      func() time.Time
 	Closed   func(ctx context.Context, seqs []string) (map[string]bool, error)
+	Reports  func(ctx context.Context) ([]ownerAnswer, error)
 	Withdraw func(ctx context.Context, lane, card, text string) error
 	Report   func(ctx context.Context, lane string, to []string, topic, text string) error
 }
@@ -349,7 +350,7 @@ func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
 }
 
 func (c Cards) Pass(ctx context.Context, lane string, judge Judge, out io.Writer) error {
-	return errors.Join(c.Sweep(ctx, lane, out), c.Unask(ctx, lane, judge, out))
+	return errors.Join(c.Sweep(ctx, lane, out), c.Unask(ctx, lane, judge, out), c.Finished(ctx, lane, judge, out))
 }
 
 func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
