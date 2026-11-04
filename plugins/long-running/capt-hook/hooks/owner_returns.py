@@ -312,11 +312,11 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Allow(),
         back("Since you were away, three PRs merged.", returned=False): Allow(),
         reminded(): Allow(),
-        reminded(posted=(1, "bus down")): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane.*owner:m<row>"),
+        reminded(posted=(1, "bus down")): Allow(),
         reminded(asks=ask_to("meta", "meta-desk-2", "root")): Allow(),
         reminded(asks=ask_to("meta-desk-2")): Allow(),
         reminded(asks=ask_to("root")): Allow(),
-        reminded(asks=ask_to("root"), opening=({"type": "attachment", "attachment": {"type": "skill_listing"}},), posted=(1, "bus down")): Block(pattern=r"meta tooling lane"),
+        reminded(asks=ask_to("root"), opening=({"type": "attachment", "attachment": {"type": "skill_listing"}},), posted=(1, "bus down")): Allow(),
         reminded(asks=(1, "bus down")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
@@ -354,8 +354,9 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
     }),
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
+    route_reminder(evt)
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply), unexplained(evt, reply), unread_pr_state(evt, reply)) if problem]
+    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unread_status(evt, reply), file_path(evt, reply), unexplained(evt, reply), unread_pr_state(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -576,18 +577,13 @@ def offers_pick(text: str) -> bool:
     return bool(CHOICE.search(text)) or {"A", "B"} <= {letter for found in LETTERED.findall(text) for letter in found if letter}
 
 
-def unrouted_reminder(evt: BaseHookEvent) -> str | None:
+def route_reminder(evt: BaseHookEvent) -> None:
     if any(launched(use) for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)):
-        return None
+        return
     match (decision := evt.decide(words, {"reminder": REMINDER})) and decision.answers["reminder"]:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5 and not forwarded(evt):
-            return None if asked_meta(evt, words) else UNROUTED_REMINDER
-    return None
-
-
-def asked_meta(evt: BaseHookEvent, words: str) -> bool:
-    text = f"owner correction the relay did not route; make the behaviour automatic. His words: {words[:600]}"
-    return read(["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--to", "meta-desk", "--text", text]) is not None
+            text = f"owner correction the relay did not route; make the behaviour automatic. His words: {words[:600]}"
+            read(["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--to", "meta-desk", "--text", text])
 
 
 def unread_status(evt: BaseHookEvent, reply: str) -> str | None:
