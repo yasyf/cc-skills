@@ -91,10 +91,10 @@ type Lines struct {
 
 // prCard is one PR a pick card draws, with its lines read from the PR ledger.
 type prCard struct {
-	URL         string `json:"url"`
-	Head        string `json:"head,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Review      string `json:"review,omitempty"`
+	URL    string `json:"url"`
+	Head   string `json:"head,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Review string `json:"review,omitempty"`
 	Lines
 }
 
