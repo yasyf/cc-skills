@@ -69,10 +69,11 @@ UNANSWERED = (
 ACK_AFTER_SECONDS = 30
 UNACKED = "An owner Slack message has waited over 30 seconds with no thread reply. Answer before any routing with the `reply` tool, or `slack_react` `+1` with `url` {permalink} when it needs nothing back."
 OWNER_WATCH = "owner Slack watch"
-WATCH_CALL = f"`Monitor` with description `{OWNER_WATCH}`, command `lr owner watch` and `timeout_ms` 1800000"
+WATCH_COMMAND = "lr owner watch"
+WATCH_CALL = f"`Monitor` with description `{OWNER_WATCH}`, command `{WATCH_COMMAND}` and `timeout_ms` 1800000"
 ARM_WATCH = f"An idle window hears the owner's Slack messages only through its standing watch. Arm {WATCH_CALL} unless it already runs, and again each time it ends."
 UNWATCHED = f"The owner's Slack watch is not running, so his next message waits until this window moves. Arm {WATCH_CALL}, then stop."
-WATCHING = [{"id": "w1", "type": "monitor", "status": "running", "description": OWNER_WATCH}]
+WATCHING = [{"id": "w1", "type": "shell", "status": "running", "description": OWNER_WATCH, "command": WATCH_COMMAND}]
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
 IN_THREAD = "He asked in a Slack thread, so this reply posts in that thread."
@@ -364,6 +365,7 @@ OWES_THE_ROOT = json.dumps({"replies": [AT_THE_ROOT], "holder_session": HOLDER})
         Input(session_id=HOLDER, transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True, communicator=True), OwnerReturns(marked_replies=[AT_THE_ROOT["ts"]])], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": OWES_THE_ROOT}, background_tasks=WATCHING): Allow(),
         owed(json.dumps({"replies": [], "holder_session": HOLDER}), tasks=[]): Block(pattern=r"^The owner's Slack watch is not running.*`lr owner watch`"),
         owed(json.dumps({"replies": [], "holder_session": HOLDER}), tasks=[{"id": "m1", "type": "monitor", "status": "running", "description": "cci subscribe owner-relay"}]): Block(pattern=r"^The owner's Slack watch is not running"),
+        owed(json.dumps({"replies": [], "holder_session": HOLDER}), tasks=[{"id": "m2", "type": "shell", "status": "running", "description": "slack", "command": WATCH_COMMAND}]): Allow(),
     }),
 )
 def owner_slack_waits_hold_the_stop(evt: BaseHookEvent) -> HookResult | None:
@@ -372,7 +374,7 @@ def owner_slack_waits_hold_the_stop(evt: BaseHookEvent) -> HookResult | None:
 
 
 def unwatched(evt: BaseHookEvent) -> str | None:
-    return None if any(task.type == "monitor" and task.status == "running" and task.description == OWNER_WATCH for task in evt.background_tasks) else UNWATCHED
+    return None if any(task.description == OWNER_WATCH or task.raw.get("command") == WATCH_COMMAND for task in evt.background_tasks) else UNWATCHED
 
 
 def dm(tool: str = DM_CARD, **given: object) -> Input:

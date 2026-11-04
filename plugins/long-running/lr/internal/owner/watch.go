@@ -20,6 +20,7 @@ const (
 	lookingAt     = "eyes"
 	slackCall     = 15 * time.Second
 	maxSlackEvent = 4 << 20
+	watching      = "owner Slack watch running for %s: each of his messages gets :eyes: and wakes this window"
 )
 
 type slackEvent struct {
@@ -56,6 +57,9 @@ func watch(ctx context.Context, runner shell.Runner, out io.Writer) error {
 	}
 	if err := json.Unmarshal([]byte(shown.Stdout), &me); err != nil {
 		return fmt.Errorf("cc-slack whoami printed %q: %w", shown.Stdout, err)
+	}
+	if _, err := fmt.Fprintf(out, watching+"\n", me.User); err != nil {
+		return err
 	}
 	read, write := io.Pipe()
 	go func() {

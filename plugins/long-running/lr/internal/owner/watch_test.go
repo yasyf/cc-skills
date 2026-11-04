@@ -20,6 +20,7 @@ const (
 	asClaude = `{"type":"slack.message","channel_id":"D0B6Z","thread_ts":"1.0","ts":"1.5","user":"U1","from_claude":false,"text":"_(Yasyf's Claude)_ sent through his login"}`
 	someone  = `{"type":"slack.message","channel_id":"C1","thread_ts":"1.0","ts":"1.3","user":"U2","from_claude":false,"text":"a teammate"}`
 	tapped   = `{"type":"slack.action","channel_id":"D0B6Z","ts":"1.4","label":"Land"}`
+	started  = "owner Slack watch running for U1: each of his messages gets :eyes: and wakes this window\n"
 )
 
 type streamed struct {
@@ -67,8 +68,8 @@ func TestHisMessageGetsEyesBeforeItWakesTheWindow(t *testing.T) {
 	if got := reactions(runner.Fake); !slices.EqualFunc(got, want, slices.Equal[[]string]) {
 		t.Fatalf("reactions = %q, want eyes on his message", got)
 	}
-	if out.String() != hisEvent+"\n" {
-		t.Fatalf("printed %q, want his event", out.String())
+	if out.String() != started+hisEvent+"\n" {
+		t.Fatalf("printed %q, want the start line then his event", out.String())
 	}
 }
 
@@ -83,7 +84,7 @@ func TestOnlyHisOwnWordsGetEyesAndABotsPostWakesNothing(t *testing.T) {
 	if got := reactions(runner.Fake); len(got) != 0 {
 		t.Fatalf("reactions = %q, want none", got)
 	}
-	if want := someone + "\n" + tapped + "\n"; out.String() != want {
+	if want := started + someone + "\n" + tapped + "\n"; out.String() != want {
 		t.Fatalf("printed %q, want a person's message and a tap, with neither bot post", out.String())
 	}
 }
