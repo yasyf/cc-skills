@@ -56,8 +56,9 @@ const (
 var (
 	alertURL       = regexp.MustCompile(`app\.datadoghq\.com/monitors/(\d+)|sentry\.io/\S*?issues/(\d+)`)
 	recoveredAlert = regexp.MustCompile(`(?i)^\W*(?:Recovered|Resolved)\b`)
-	redWatch       = regexp.MustCompile(`The Watch failed for (.+?) on (\S+?): "([^"]+)" crossed`)
+	redWatch       = regexp.MustCompile(`The Watch failed for (.+?) on (\S+?): ("[^"]+"(?:, "[^"]+")*) crossed`)
 	redSmoke       = regexp.MustCompile(`(\S+) is live, but (.+?) on (\S+?) went red`)
+	redTarget      = regexp.MustCompile(`:rotating_light: (.+?) went red(?: on (.+?))? after `)
 	watchRelease   = regexp.MustCompile(`Nothing else in (\S+) waits on it`)
 	releaseAuthor  = regexp.MustCompile(`<@(U[A-Z0-9]+)>`)
 	jobLink        = regexp.MustCompile(`<(https://buildkite\.com/[^|>]+)`)
@@ -99,6 +100,7 @@ type alert struct {
 	name  string
 	slug  string
 	facts []string
+	red   string
 }
 
 func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
@@ -219,13 +221,18 @@ func alertOf(card, message slackMessage) (alert, bool) {
 	}
 	author, job := submatch(releaseAuthor, message.Text+"\n"+card.Text), submatch(jobLink, message.Text)
 	if found := redWatch.FindStringSubmatch(message.Text); found != nil {
-		monitor := sha256.Sum256([]byte(found[3]))
+		monitors := strings.ReplaceAll(strings.Trim(found[3], `"`), `", "`, ", ")
+		monitor := sha256.Sum256([]byte(monitors))
 		slug := slugOf("watch", found[1], found[2]) + "-" + hex.EncodeToString(monitor[:3])
-		return alert{slug, slug, factsOf("component", found[1], "env", found[2], "monitor", found[3], "release", submatch(watchRelease, message.Text), "released by", author, "job", job)}, true
+		return alert{slug, slug, factsOf("component", found[1], "env", found[2], "monitor", monitors, "release", submatch(watchRelease, message.Text), "released by", author, "job", job), slugOf("red", found[1])}, true
 	}
 	if found := redSmoke.FindStringSubmatch(message.Text); found != nil {
 		slug := slugOf("smoke", found[2], found[3])
-		return alert{slug, slug, factsOf("component", found[2], "env", found[3], "monitor", found[2], "release", found[1], "released by", author, "job", job)}, true
+		return alert{slug, slug, factsOf("component", found[2], "env", found[3], "monitor", found[2], "release", found[1], "released by", author, "job", job), slugOf("red", found[2])}, true
+	}
+	if found := redTarget.FindStringSubmatch(message.Text); found != nil {
+		slug := slugOf("red", found[1])
+		return alert{slug, slug, factsOf("component", found[1], "env", found[2], "released by", author, "job", job), slug}, true
 	}
 	return alert{}, false
 }
@@ -280,6 +287,9 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 	minutes := int(now.Sub(fired).Minutes())
 	draft := client.Draft{Drive: a.Env.Config.Drive, Lane: Self, To: []string{Root}, URL: card.Permalink}
 	lane, found, err := a.Store.Lane(alert.slug + "-fix")
+	if err == nil && !found {
+		lane, found, err = a.Store.Lane(alert.red + "-fix")
+	}
 	if err != nil || found && (lane.State == store.LaneRetired || now.Sub(lane.Since) >= alertJoin) {
 		return err
 	}
@@ -295,7 +305,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		}
 		return nil
 	}
-	if a.launched[alert.slug] {
+	if a.launched[alert.slug] || a.launched[alert.red] {
 		return nil
 	}
 	if !a.isOpened {
@@ -331,7 +341,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 			a.launched = map[string]bool{}
 		}
 		a.launched[alert.slug] = true
-		draft.Kind, draft.ID = kindSpawn, "alert-launched:"+channel+":"+message.TS
+		draft.Kind, draft.ID, draft.To = kindSpawn, "alert-launched:"+channel+":"+message.TS, []string{Root, OwnerRelay}
 		draft.LaneRefs = []string{alert.slug + "-fix"}
 		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}
 		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence", headline, alert.name, minutes, alert.slug, alert.slug)
