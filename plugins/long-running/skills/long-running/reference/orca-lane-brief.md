@@ -242,7 +242,7 @@ Shell text: Claude Code holds any Bash command holding `$$(`, `$${` or `$$[` on 
   file with the Write tool and run it with a Bash command free of them.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
-Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile, such as one missing generated bindings, never holds a push, and neither does a load-gate refusal: push, and CI compiles it; never generate code just to satisfy the local build.
 PR comments: nobody edits a PR body after it opens, so the evidence goes in two comments
   the lane posts: one opening with `## Rulings`, and one opening with `## Regression tests`
   that lists each test id the change adds or edits and links one CI run where that test
