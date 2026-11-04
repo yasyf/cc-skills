@@ -6,7 +6,6 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, on
 
 from .compaction_handoff import Communicator, communicator_tests
-from .owner_returns import CCI_TOOLS
 from .owner_facing import CODE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, fenced, last_reply
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -60,7 +59,7 @@ def uncited(texts: list[str]) -> list[str]:
 
 def grepped(evt: BaseHookEvent) -> bool:
     return any(
-        use.call.name == f"{CCI_TOOLS}find" or use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "cci" and "grep" in cmd.argv[1:2] for cmd in use.call.command_line if cmd.argv)
+        use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "cci" and "grep" in cmd.argv[1:2] for cmd in use.call.command_line if cmd.argv)
         for use in evt.ctx.turn.tool_calls.items
     )
 

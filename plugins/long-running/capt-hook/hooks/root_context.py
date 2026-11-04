@@ -77,10 +77,11 @@ CCX_MCP_READS = tuple(
 CCX_MCP_CODE_READ = "mcp__plugin_cc-context_cc-context__ccx_code_read"
 CCX_MCP_SEARCHES = tuple(f"mcp__plugin_cc-context_cc-context__ccx_{name}" for name in ("code_search", "code_grep", "code_symbol", "repo_find"))
 SLACK_THREAD_TOOLS = ("mcp__slack__slack_get_thread", "mcp__plugin_cc-slack_cc-slack__slack_thread")
+DRIVE_GREP = re.compile(r"^grep (?!.*--budget)(?=.*--drive[ =]\S)")
 ASK_LANE = (
     "The communicator runs no search inline: ask a lane with `lr ask-lane '<question>'`, `--mac` for Slack or a transcript, "
     "and its answer arrives as a record. "
-    "One bounded read stays yours: `cci show <seq>`, one named file, or your thread's newest message at limit 1."
+    "Bounded reads stay yours: `cci show <seq>`, `cci grep --drive <drive>` at its default budget, one named file, or your thread's newest message."
 )
 SECTION_WINDOW = re.compile(r"(\d+)-(\d+)(?:#\w+)?")
 SED_WINDOW = re.compile(r"(\d+)(?:,(\d+))?p")
@@ -141,7 +142,6 @@ GIT = CommandSchema(
 GH = CommandSchema("gh", operands=WORDS, options=(REPO_OPTION,))
 CCX = CommandSchema("ccx", operands=WORDS, options=(Option("section", ("--section",)),))
 CC_SLACK = CommandSchema("cc-slack", operands=WORDS, options=(Option("url", ("--url",)), Option("limit", ("--limit",))))
-CCI = CommandSchema("cci", operands=WORDS)
 CC_TRANSCRIPT = CommandSchema("cc-transcript", operands=WORDS)
 CCN = CommandSchema("ccn", operands=WORDS, options=(REPO_OPTION,))
 CC_NOTES = CommandSchema("cc-notes", operands=WORDS, options=(REPO_OPTION,))
@@ -698,6 +698,11 @@ def searches_github(arguments: Arguments) -> bool:
     )
 
 
+class WideCciGrep:
+    def check(self, evt: BaseHookEvent) -> bool:
+        return any(call.name == "cci" and (line := " ".join(call.args)).startswith("grep") and not DRIVE_GREP.match(line) for call in evt.command.calls())
+
+
 class ReadsNewestSlackMessage:
     def check(self, evt: BaseHookEvent) -> bool:
         if evt.tool_name in SLACK_THREAD_TOOLS:
@@ -714,7 +719,7 @@ hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator
     only_if=[
         Communicator(),
         Or(
-            runs_verb(CCI, ("grep",)),
+            WideCciGrep(),
             Tool("mcp__plugin_cc-inbox_cci__find"),
             Tool(*SLACK_READ_TOOLS),
             runs_verb(CC_SLACK, ("thread",), ("history",), ("search",)),
@@ -728,7 +733,8 @@ hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator
     ],
     skip_if=[FromSubagent(), ReadsNewestSlackMessage()],
     tests=communicator_tests({
-        Input(command="cci grep dashboard --drive durable-agents-rebuild", state=ACTIVE): Block(pattern=r"^The communicator runs no search inline: ask a lane with `lr ask-lane"),
+        Input(command="cci grep dashboard --drive durable-agents-rebuild --budget 400000", state=ACTIVE): Block(pattern=r"^The communicator runs no search inline: ask a lane with `lr ask-lane"),
+        Input(command="cci grep dashboard --drive durable-agents-rebuild", state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-inbox_cci__find", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
         Input(tool="mcp__slack__slack_search_messages", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
         Input(tool="mcp__slack__slack_conversations_history", tool_input={"channel": "C1"}, state=ACTIVE): Block(),
