@@ -309,13 +309,14 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		return nil
 	}
 	if !a.isOpened {
-		if a.opened, err = a.Env.Bus.Tail(ctx, client.Query{Drive: a.Env.Config.Drive, Since: now.Add(-alertWindow), Kinds: []string{"incident"}}); err != nil {
+		if a.opened, err = a.Env.Bus.Tail(ctx, client.Query{Drive: a.Env.Config.Drive, Since: now.Add(-alertWindow), Kinds: []string{"incident", kindSpawn}}); err != nil {
 			return fmt.Errorf("%w: cci tail incident: %w", ErrUnread, err)
 		}
 		a.isOpened = true
 	}
 	for _, incident := range a.opened {
-		if !incident.At.Before(fired) && strings.Contains(incident.Text, alert.name) {
+		onThread := alert.red != "" && strings.Contains(incident.Text, card.Permalink)
+		if onThread || !incident.At.Before(fired) && strings.Contains(incident.Text, alert.name) {
 			return nil
 		}
 	}
@@ -341,6 +342,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 			a.launched = map[string]bool{}
 		}
 		a.launched[alert.slug] = true
+		a.opened = append(a.opened, client.Record{Kind: kindSpawn, Text: card.Permalink})
 		draft.Kind, draft.ID, draft.To = kindSpawn, "alert-launched:"+channel+":"+message.TS, []string{Root, OwnerRelay}
 		draft.LaneRefs = []string{alert.slug + "-fix"}
 		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}
