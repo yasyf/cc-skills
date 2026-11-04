@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/install"
@@ -21,7 +22,7 @@ func deps(cmd *cobra.Command, a *app.App) (Deps, error) {
 	if err != nil {
 		return Deps{}, err
 	}
-	return Deps{Runner: a.Runner, CCX: a.CCX, Installs: installs, Now: a.Now, Stdout: cmd.OutOrStdout()}, nil
+	return Deps{Runner: a.Runner, CCX: a.CCX, Installs: installs, Now: a.Now, Stdout: cmd.OutOrStdout(), Tail: client.Tail}, nil
 }
 
 func Command(a *app.App) *cobra.Command {

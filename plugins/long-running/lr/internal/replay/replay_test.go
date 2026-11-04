@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx/ccxtest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -405,6 +406,8 @@ func TestRecurrencesAreCountedOnceTheDayAfterAnInstallHasRun(t *testing.T) {
 		line(5, "replay", "state", now.Add(-2*time.Hour), passed+" 0.7.822", map[string]string{"version": "0.7.822", "classes": "supervisor-live-fix-alias"})}
 	var out strings.Builder
 	d := gateDeps(t, runner, &out)
+	var queries []client.Query
+	d.Tail = recurrenceRecords(t, runner.records, &queries)
 	write(t, filepath.Join(d.Installs, "0.7.821", "tests", "fixtures", "replay", "supervisor-finished-lane.json"),
 		`{"defect":283488,"fix":"yasyf/cc-skills#1575","recurs":{"kinds":["stand-down","defect"],"text":"false relaunch|relaunched the finished"}}`)
 

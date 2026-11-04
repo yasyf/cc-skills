@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -46,6 +47,7 @@ type Deps struct {
 	Installs string
 	Now      func() time.Time
 	Stdout   io.Writer
+	Tail     func(context.Context, client.Query) ([]client.Record, error)
 }
 
 type read struct {
@@ -342,39 +344,67 @@ func writeInput(given map[string]any) (string, error) {
 	return file.Name(), nil
 }
 
-func matches(pattern Recurs, compiled *regexp.Regexp, record lanes.Record) bool {
-	return record.Lane != lane && (len(pattern.Kinds) == 0 || slices.Contains(pattern.Kinds, record.Kind)) && compiled.MatchString(record.Text)
+func matches(pattern Recurs, compiled *regexp.Regexp, record client.Record) bool {
+	return record.Lane != lane && (len(pattern.Kinds) == 0 || slices.Contains(pattern.Kinds, string(record.Kind))) && compiled.MatchString(record.Text)
 }
 
 func (d Deps) Recur(ctx context.Context, drive string) error {
-	records, err := d.paged(ctx, drive, history)
+	now := d.Now()
+	installs, err := d.Tail(ctx, client.Query{Drive: drive, Since: now.Add(-3 * day), Lanes: []string{lane}})
 	if err != nil {
 		return err
 	}
-	now := d.Now()
-	for _, install := range records {
-		record := install.record
+	completed := map[string]bool{}
+	for _, record := range installs {
+		if record.Kind == "report" {
+			completed[record.ID] = true
+		}
+	}
+	for _, record := range installs {
 		if record.Lane != lane || !strings.Contains(record.Text, passed) || now.Sub(record.At) < day {
 			continue
 		}
-		version := record.Attr("version")
+		version := record.Fields.Attrs["version"]
+		names := slices.DeleteFunc(strings.Split(record.Fields.Attrs["classes"], ","), func(name string) bool {
+			return name == "" || completed[recurrenceKey(version, name)]
+		})
+		if len(names) == 0 {
+			continue
+		}
 		classes, err := d.classes(version)
 		if err != nil {
 			return err
 		}
-		for name := range strings.SplitSeq(record.Attr("classes"), ",") {
-			if name == "" {
-				continue
+		var kinds []string
+		for _, name := range names {
+			fixture, found := classes[name]
+			if !found {
+				return fmt.Errorf("%s ships no fixture class %s", version, name)
 			}
+			if len(fixture.Recurs.Kinds) == 0 {
+				kinds = nil
+				break
+			}
+			kinds = append(kinds, fixture.Recurs.Kinds...)
+		}
+		slices.Sort(kinds)
+		records, err := d.Tail(ctx, client.Query{Drive: drive, Since: record.At, Kinds: slices.Compact(kinds)})
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
 			if err := d.recurOne(ctx, drive, version, name, classes, records, record.At); err != nil {
 				return err
 			}
+			completed[recurrenceKey(version, name)] = true
 		}
 	}
 	return nil
 }
 
-func (d Deps) recurOne(ctx context.Context, drive, version, name string, classes map[string]Fixture, records []read, start time.Time) error {
+func recurrenceKey(version, name string) string { return "recurrence:" + version + ":" + name }
+
+func (d Deps) recurOne(ctx context.Context, drive, version, name string, classes map[string]Fixture, records []client.Record, start time.Time) error {
 	fixture, found := classes[name]
 	if !found {
 		return fmt.Errorf("%s ships no fixture class %s", version, name)
@@ -385,8 +415,8 @@ func (d Deps) recurOne(ctx context.Context, drive, version, name string, classes
 	}
 	seen := make([]string, 0, len(records))
 	for _, other := range records {
-		if !other.record.At.Before(start) && other.record.At.Before(start.Add(day)) && matches(fixture.Recurs, compiled, other.record) {
-			seen = append(seen, fmt.Sprintf("#%d", other.record.Seq))
+		if !other.At.Before(start) && other.At.Before(start.Add(day)) && matches(fixture.Recurs, compiled, other) {
+			seen = append(seen, fmt.Sprintf("#%d", other.Seq))
 		}
 	}
 	listed := ""
@@ -394,5 +424,5 @@ func (d Deps) recurOne(ctx context.Context, drive, version, name string, classes
 		listed = ": " + strings.Join(seen, " ")
 	}
 	text := fmt.Sprintf("RECURRENCE %s: %d in the 24 hours after %s installed (defect #%d, fix %s)%s", name, len(seen), version, fixture.Defect, fixture.Fix, listed)
-	return d.post(ctx, drive, "report", fmt.Sprintf("recurrence:%s:%s", version, name), text, "--attr", "class="+name, "--count", fmt.Sprintf("recurrences=%d", len(seen)))
+	return d.post(ctx, drive, "report", recurrenceKey(version, name), text, "--attr", "class="+name, "--count", fmt.Sprintf("recurrences=%d", len(seen)))
 }
