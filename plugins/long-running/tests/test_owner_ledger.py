@@ -664,6 +664,40 @@ def test_a_correction_the_relay_routed_to_meta_in_a_decide_is_forwarded(communic
     assert owner_returns.forwarded(communicator.event(StopEvent))
 
 
+def relay_posted(*records: dict) -> Callable[[list[str]], str]:
+    return lambda argv: "\n".join(json.dumps(record) for record in records) if "tail" in argv else ""
+
+
+def test_a_line_the_relay_quoted_to_meta_earlier_is_not_judged_again(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued("rebuild the Cache once\n\nalso land the team’s port")
+    monkeypatch.setattr(owner_returns, "read", relay_posted({"to": ["root", "meta-desk"], "text": 'Owner in the terminal, verbatim: "rebuild the cache  once" and the order'}))
+
+    assert owner_returns.unrouted_words(communicator.event(StopEvent)) == "also land the team’s port"
+
+
+def test_curly_quotes_still_match_what_the_relay_typed_straight(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued("also land the team’s port")
+    monkeypatch.setattr(owner_returns, "read", relay_posted({"to": ["meta-desk"], "text": "verbatim: also land the team's port"}))
+
+    assert owner_returns.unrouted_words(communicator.event(StopEvent)) == ""
+
+
+def test_a_long_record_is_read_from_its_body_file(communicator: Window, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    body = tmp_path / "body.txt"
+    body.write_text("Order first, then verbatim: fix the hook yourself")
+    communicator.queued("fix the hook yourself")
+    monkeypatch.setattr(owner_returns, "read", relay_posted({"to": ["meta-desk"], "text": "Order first…", "refs": {"path": str(body)}}))
+
+    assert owner_returns.unrouted_words(communicator.event(StopEvent)) == ""
+
+
+def test_a_quote_that_reached_no_meta_lane_leaves_the_line_to_the_judge(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued("fix the hook yourself")
+    monkeypatch.setattr(owner_returns, "read", relay_posted({"to": ["root"], "text": "verbatim: fix the hook yourself"}))
+
+    assert owner_returns.unrouted_words(communicator.event(StopEvent)) == "fix the hook yourself"
+
+
 def test_a_decide_that_reached_no_meta_lane_forwards_nothing(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
     communicator.queued("fix the hook yourself")
     monkeypatch.setattr(owner_returns, "read", routed_to("root"))
