@@ -1212,7 +1212,7 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://token@github.com/acme/repo.git\n0\n# branch.oid " + "a" * 40 + "\n# branch.head (detached)\n? scratch.txt\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://token@github.com/acme/repo.git\n0\n0\n# branch.oid " + "a" * 40 + "\n# branch.head (detached)\n? scratch.txt\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.github_trunk.cache_clear()
@@ -1227,7 +1227,7 @@ class OrcaArgvTest(unittest.TestCase):
 
     def test_a_sprite_without_a_github_origin_is_kept_by_name(self):
         original = orca_gc.subprocess.run
-        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, 0, "https://token@gitlab.example/acme/repo\n0\n# branch.oid x\n# branch.head dev\n", "")
+        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, 0, "https://token@gitlab.example/acme/repo\n0\n0\n# branch.oid x\n# branch.head dev\n", "")
         try:
             found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
         finally:
@@ -1260,7 +1260,7 @@ class OrcaArgvTest(unittest.TestCase):
 
         def fake(command, **_):
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n0\n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 1, "", "gh: API rate limit exceeded (HTTP 403)")
 
         orca_gc.subprocess.run = fake
@@ -1271,6 +1271,23 @@ class OrcaArgvTest(unittest.TestCase):
         held = orca_gc.unsaved(checkout(head="a" * 40, off_origin=6), REMOTE)
         self.assertEqual(held, "6 commits off origin on its other branches or stashes")
 
+    def test_uncommitted_work_in_another_worktree_reads_as_dirty(self):
+        original = orca_gc.subprocess.run
+        self.addCleanup(setattr, orca_gc.subprocess, "run", original)
+        orca_gc.github_trunk.cache_clear()
+        argv: list[list[str]] = []
+
+        def fake(command, **_):
+            argv.append(command)
+            if command[0] == "ssh":
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n0\n2\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+            return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
+
+        orca_gc.subprocess.run = fake
+        found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
+        self.assertTrue(found.dirty)
+        self.assertIn("worktree list --porcelain", argv[0][-1])
+
     def test_the_sprite_read_counts_other_branches_and_stashes(self):
         original = orca_gc.subprocess.run
         self.addCleanup(setattr, orca_gc.subprocess, "run", original)
@@ -1280,7 +1297,7 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n6\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n6\n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.subprocess.run = fake

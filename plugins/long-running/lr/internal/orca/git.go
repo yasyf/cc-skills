@@ -26,7 +26,7 @@ const (
 	spriteReadTimeout  = 3 * time.Minute
 )
 
-const spriteCheckout = `git -C "$1" remote get-url origin && git -C "$1" rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && git -C "$1" status --porcelain=v2 --branch`
+const spriteCheckout = `git -C "$1" remote get-url origin && git -C "$1" rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && git -C "$1" worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e "$tree" ] || git -C "$tree" status --porcelain || echo unreadable; done | wc -l && git -C "$1" status --porcelain=v2 --branch`
 
 const spriteHolders = `for p in /proc/[0-9]*; do
   pid=${p#/proc/}
@@ -373,7 +373,8 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, er
 		return CheckoutRead{}, err
 	}
 	origin, rest, _ := strings.Cut(result.Stdout, "\n")
-	offOrigin, status, _ := strings.Cut(rest, "\n")
+	offOrigin, rest, _ := strings.Cut(rest, "\n")
+	worktreeChanges, status, _ := strings.Cut(rest, "\n")
 	hub := githubOrigin.FindStringSubmatch(origin)
 	if hub == nil {
 		return CheckoutRead{Refusal: sprite.Root + " has no GitHub origin to check its HEAD against"}, nil
@@ -382,6 +383,11 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, er
 	if checkout.OffOrigin, err = strconv.Atoi(strings.TrimSpace(offOrigin)); err != nil {
 		return CheckoutRead{}, err
 	}
+	changes, err := strconv.Atoi(strings.TrimSpace(worktreeChanges))
+	if err != nil {
+		return CheckoutRead{}, err
+	}
+	checkout.Dirty = changes > 0
 	for line := range strings.Lines(status) {
 		line = strings.TrimRight(line, "\n")
 		if !strings.HasPrefix(line, "# ") {
