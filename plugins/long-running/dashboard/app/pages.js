@@ -541,21 +541,27 @@ document.addEventListener('click', (e) => {
 });
 
 const REPLIES_AT_REST = 8;
-const TAPS_AT_REST = 6;
 const NOISE = [
   [/\s*\([^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
-  [/\b(?:records?)\s+#?\d[\dx]*\b/gi, ''],
+  [/\brecords?\s+#*\d[\dx]*\b/gi, ''],
   [/\bowner table\s+[0-9a-f]{6,}\b/gi, ''],
   [/\bcard-[a-z0-9-]+\b/g, 'the card'],
-  [/#\d{6}\b|#\d{3}xxx\b/g, ''],
+  [/#+\d{6}\b|#\d{3}xxx\b/g, ''],
   [/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g, ''],
+  [/\b[\w.-]+(?:\/[\w.-]+)?#\d+\b/g, 'a tooling change'],
 ];
 const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
 const rp = { sent: new Map(), sort: new Map() };
 function plain(text) {
-  const named = (state.model?.lanes ?? []).map((lane) => lane.name).filter(Boolean);
+  const workers = (state.model.lanes ?? []).map((row) => row.lane).filter((lane) => lane && /-/.test(lane) && /\d/.test(lane));
   const scrubbed = NOISE.reduce((out, [pattern, word]) => out.replace(pattern, word), text);
-  return named.reduce((out, name) => out.replaceAll(name, 'a worker'), scrubbed).replace(/ +([,.;:])/g, '$1').replace(/ {2,}/g, ' ');
+  return workers.reduce((out, lane) => out.replaceAll(lane, 'a worker'), scrubbed).replace(/ +([,.;:])/g, '$1').replace(/ {2,}/g, ' ');
+}
+function changeWords(n) {
+  return state.model.prs[n] || boardRow(n) ? plainTitle(n).replace(/[[\]|]/g, '') : 'this change';
+}
+function namedChanges(md) {
+  return md.replace(/#(\d{5})\b/g, (_, n) => `[${changeWords(n)}](https://github.com/${state.model.repo}/pull/${n})`);
 }
 function replyCard(r) {
   return state.model.board.cards.find((c) => c.id === `card-${r.id}`);
@@ -566,7 +572,7 @@ function replyLines() {
   for (const entry of state.model.replies) {
     const r = entry.reply;
     const line = said.get(r.id);
-    const row = { entry, id: r.id, topic: line?.topic ?? (/^(?:\d{1,2}:\d{2} [AP]M )?(?:holistic |overall )?update\b/i.test(r.title) ? 'update' : r.id), line: line?.line ?? plain(r.title), needs: line?.needs ?? ({ incident: 'incident', needs_you: 'do' }[r.status] ?? 'none'), earlier: [] };
+    const row = { entry, id: r.id, topic: line?.topic ?? (/^(?:\d{1,2}:\d{2} [AP]M )?(?:holistic |overall )?update\b/i.test(r.title) ? 'update' : r.id), line: line?.line ?? plain(r.title).replace(/#\d{4,5}\b,? ?/g, ''), needs: line?.needs ?? ({ incident: 'incident', needs_you: 'do' }[r.status] ?? 'none'), earlier: [] };
     if (leads.has(row.topic)) leads.get(row.topic).earlier.push(row);
     else leads.set(row.topic, row);
   }
@@ -578,12 +584,12 @@ function replyTaps() {
   const open = new Map(state.model.board.cards.filter((c) => c.decides).map((c) => [c.id, c]));
   const picked = (brief?.taps ?? []).filter((tap) => open.has(tap.card)).map((tap) => ({ ...tap, c: open.get(tap.card) }));
   const named = new Set(picked.map((tap) => tap.card));
-  const written = new Date(brief?.at ?? 0);
-  const asked = state.model.replies.filter((entry) => new Date(entry.at) > written && open.has(`card-${entry.reply.id}`) && !named.has(`card-${entry.reply.id}`)).map((entry) => ({ card: `card-${entry.reply.id}`, c: open.get(`card-${entry.reply.id}`), line: plain(entry.reply.title), frees: '', count: 0, answers: [] }));
-  return { taps: [...picked, ...asked], rest: open.size - picked.length - asked.length };
+  const others = [...open.values()].filter((c) => !named.has(c.id)).map((c) => ({ card: c.id, c, line: plain(c.title), frees: '', count: 0, answers: [], urgent: false }));
+  return { taps: picked, others };
 }
-function openReplies() {
-  return state.model?.replies ? replyTaps().taps.length + replyLines().filter((row) => row.needs === 'incident').length : 0;
+function waitingOnYou() {
+  if (!state.model?.replies) return 0;
+  return replyTaps().taps.length + replyLines().filter((row) => row.needs === 'incident' || row.needs === 'do').length;
 }
 function sortableTable(key, lines) {
   const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
@@ -633,8 +639,8 @@ function replyBox(id) {
 function replyBody(entry) {
   const r = entry.reply;
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<li class="bad">Could not reach your ${esc(s.surface)}: ${esc(s.error)}</li>`).join('');
-  return `<div class="rp-md prose">${replyMarkdown(r.id, plain(r.md))}</div>
-    ${r.links?.length ? `<ul class="rp-links">${r.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(plain(l.label))} ↗</a></li>`).join('')}</ul>` : ''}
+  return `<div class="rp-md prose">${replyMarkdown(r.id, plain(namedChanges(r.md)))}</div>
+    ${r.links?.length ? `<ul class="rp-links">${r.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(plain(l.label).replace(/^#(\d{5})$/, (_, n) => changeWords(n)))} ↗</a></li>`).join('')}</ul>` : ''}
     ${r.prs?.length ? `<p class="rp-prs">${r.prs.map(replyPR).join(' ')}</p>` : ''}${failed ? `<ul class="rp-went">${failed}</ul>` : ''}`;
 }
 function replyRow(row, tone, act = '') {
@@ -650,7 +656,7 @@ function tapRow(tap) {
   const buttons = c.choice ? [...c.options.map((o, i) => [o, i])].sort(([a], [b]) => lead(b) - lead(a)).map(([o, i]) => button(o, i)).join('') : `<a class="btn" href="${esc(state.model.board.url)}?block=${encodeURIComponent(c.id)}" target="_blank" rel="noopener">Answer on your board ↗</a>`;
   const reply = state.model.replies.find((entry) => `card-${entry.reply.id}` === c.id);
   const id = `tap-${c.id}`;
-  return `<li class="rl you rl-tap"><details data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary><span class="rl-t">${esc(tap.line)}</span>${tap.frees ? `<span class="rl-frees">${esc(tap.frees)}</span>` : ''}</summary><div class="rl-more">${reply ? replyBody(reply) : `<div class="rp-md prose">${markdown(plain(c.summary || c.title))}</div>`}</div></details><div class="rl-acts">${buttons}${sentNote(c.choice)}</div></li>`;
+  return `<li class="rl ${tap.urgent ? 'bad' : 'you'} rl-tap"><details data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary><span class="rl-t">${esc(tap.line)}</span>${tap.frees ? `<span class="rl-frees">${esc(tap.frees)}</span>` : ''}</summary><div class="rl-more">${reply ? replyBody(reply) : `<div class="rp-md prose">${markdown(plain(c.summary || c.title))}</div>`}</div></details><div class="rl-acts">${buttons}${sentNote(c.choice)}</div></li>`;
 }
 function updateRow(row) {
   const id = `up-${row.area}`;
@@ -668,21 +674,28 @@ function updateSection(rows) {
 function replySection(title, count, body, note = '') {
   return body ? `<section class="rl-s"><h2>${title}${count ? ` <span class="pg-n">${count}</span>` : ''}${note ? `<small>${note}</small>` : ''}</h2><ol class="rl-list">${body}</ol></section>` : '';
 }
-function repliesScreen() {
+function needsScreen() {
   const brief = curated('replies');
   const rows = replyLines();
-  const { taps, rest } = replyTaps();
+  const { taps, others } = replyTaps();
   const incidents = rows.filter((row) => row.needs === 'incident');
   const words = rows.filter((row) => row.needs === 'do');
-  const changed = rows.filter((row) => row.needs === 'none');
   const lead = brief?.headline ?? (taps.length || incidents.length ? `${incidents.length} incidents and ${taps.length} answers wait on you.` : 'Nothing needs you.');
   const answerIt = (row) => `<div class="rl-acts"><button class="btn" data-open-row="rp-${esc(row.id)}">Answer</button></div>`;
-  const later = taps.slice(TAPS_AT_REST);
+  const approvals = state.model.board.rows.length;
+  const urgent = taps.filter((tap) => tap.urgent);
+  const rest = taps.filter((tap) => !tap.urgent);
   return `<div class="pg rl-pg"><header class="rl-h"><h1>${esc(lead)}</h1>${brief ? `<span class="pg-at">As of ${clock(brief.at)}</span>` : ''}</header>
-    ${replySection('Incidents', incidents.length, incidents.map((row) => replyRow(row, 'bad')).join(''))}
-    ${replySection('Your answers', taps.length + words.length, [...taps.slice(0, TAPS_AT_REST).map(tapRow), ...words.map((row) => replyRow(row, 'you', answerIt(row)))].join(''), taps.some((tap) => tap.count) ? 'most work freed first' : '')}
-    ${later.length || rest > 0 ? `<div class="rl-rest">${later.length ? fold('rl-later', `${later.length} more answers`, `<ol class="rl-list">${later.map(tapRow).join('')}</ol>`) : ''}${rest > 0 ? `<a href="#/asks">${rest} more questions on Your asks</a>` : ''}</div>` : ''}
-    ${brief?.update?.length ? `<section class="rl-s"><h2>Where everything stands</h2>${updateSection(brief.update)}</section>` : ''}
+    ${replySection('Urgent', urgent.length + incidents.length, [...urgent.map(tapRow), ...incidents.map((row) => replyRow(row, 'bad'))].join(''))}
+    ${replySection('Your answers', rest.length + words.length, [...rest.map(tapRow), ...words.map((row) => replyRow(row, 'you', answerIt(row)))].join(''), rest.some((tap) => tap.count) ? 'most work freed first' : '')}
+    <div class="rl-rest">${others.length ? fold('rl-others', `${others.length} more questions, with nothing known waiting on them`, `<ol class="rl-list">${others.map(tapRow).join('')}</ol>`) : ''}${approvals ? `<a href="#/review">${approvals} changes wait for your approval</a>` : ''}</div></div>`;
+}
+function repliesScreen() {
+  const brief = curated('replies');
+  const changed = replyLines().filter((row) => row.needs === 'none');
+  const waiting = waitingOnYou();
+  return `<div class="pg rl-pg"><header class="rl-h"><h1>Where everything stands</h1>${brief ? `<span class="pg-at">As of ${clock(brief.at)}</span>` : ''}${waiting ? `<p class="rl-go"><a href="#/needs">${waiting} things need you now</a></p>` : ''}</header>
+    ${brief?.update?.length ? `<section class="rl-s">${updateSection(brief.update)}</section>` : ''}
     ${replySection('What changed', 0, changed.slice(0, REPLIES_AT_REST).map((row) => replyRow(row, '')).join(''))}
     ${changed.length > REPLIES_AT_REST ? fold('rp-older', `Earlier ${countPill(changed.length - REPLIES_AT_REST)}`, `<ol class="rl-list">${changed.slice(REPLIES_AT_REST).map((row) => replyRow(row, '')).join('')}</ol>`) : ''}
     <div class="rl-send">${replyBox('')}</div></div>`;
@@ -725,8 +738,8 @@ function noticeReplies(alerts) {
     const notice = new Notification(a.incident && !/^incident/i.test(a.title) ? `Incident: ${plain(a.title)}` : plain(a.title), { body: a.picks.join(' · '), tag: a.id, requireInteraction: a.incident });
     notice.onclick = () => {
       window.focus();
-      state.open.add(`rp-${a.id}`);
-      location.hash = '#/replies';
+      state.open.add(`rp-${a.id}`).add(`tap-card-${a.id}`);
+      location.hash = '#/needs';
       render();
     };
   }

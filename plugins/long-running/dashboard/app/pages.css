@@ -298,6 +298,7 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .hs .ev-named time { display: block; color: var(--ink-3); }
 .ev-side{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .alerts-on { margin-left: auto; white-space: nowrap; }
+@media (max-width: 1400px) { .fresh { display: none; } }
 .alerts-on:not([hidden]) + .kbtn { margin-left: 0; }
 .rl-pg { max-width: 860px; margin: 0 auto; }
 .rl-h { margin: 8px 0 26px; }
@@ -339,6 +340,7 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .rl-rest { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin: -20px 0 30px; font-size: 13px; }
 .rl-rest .pg-fold { flex: 1 1 100%; margin: 0; }
 .rl-send { padding: 6px 0 20px; }
+.rl-go { margin: 10px 0 0; font-size: 14px; }
 .rp-ask { position: static; display: flex; gap: 8px; max-width: none; margin: 0; }
 .rp-ask textarea { flex: 1; min-height: 34px; resize: vertical; }
 .rl-more .rp-ask { margin-top: 12px; }

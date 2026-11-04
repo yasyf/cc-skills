@@ -368,6 +368,7 @@ REPLIES_SCHEMA = strict({
     })),
     "taps": listing(strict({
         "card": string("an open card's id, copied"),
+        "urgent": {"type": "boolean"},
         "line": string("at most 20 words: the question"),
         "frees": string("at most 8 words: what this answer frees, with its count, empty when the facts state none"),
         "count": {"type": "integer"},
@@ -384,7 +385,7 @@ REPLIES_SCHEMA = strict({
 })
 REPLIES_PROMPT = PAGE_PROMPT.format(what="the Replies page of a live dashboard, the one page its owner uses to act on the drive. Every line tells the owner what to do or what changed for a user, and nothing else.", fields="""- headline: the first thing to do, from taps and incidents.
 - replies: one entry per reply in replies. line says what to do, or what changed for a user, in plain words; it replaces the reply's title, so never copy a title that carries a number, a hash or a worker's name. needs is incident only for a reply about a customer-facing problem whose newest reply on that topic says it is still open with no fix live; do only when the reply needs the owner's own words and has no card to tap; none otherwise, which is most replies. Replies on one subject share one topic, even with different titles.
-- taps: at most 12 open cards, the ones that free the most work first, except that a card deciding an open customer-facing incident always takes the highest count. Skip a card whose subject the newest replies show is settled. count is how many pull requests, workers or customers the answer frees, read only from waiting and from what the replies and the update state about that card; 0 when they state none. Never guess a count. frees starts with Frees or Unblocks and says what becomes possible for users or which work moves, in words a newcomer follows, never a project nickname. answers shortens each option so it fits a button, keeping what it does.
+- taps: at most 12 open cards, the ones that free the most work first. urgent is true only for a card deciding an open customer-facing incident. Skip a card whose subject the newest replies show is settled. count is how many pull requests, workers or customers the answer frees, read only from waiting and from what the replies and the update state about that card; 0 when they state none. Never guess a count. frees starts with Frees or Unblocks and says what becomes possible for users or which work moves, in words a newcomer follows, never a project nickname. answers shortens each option so it fits a button, keeping what it does.
 - update: the whole holistic update, so the owner never needs another page: every plan step in steps, every area in status_table, the services, signal, chats, releases and apps. One entry per item, grouped under short headings such as Plan, Five services, Signal, Chats, Releases, Apps. line is where it stands for users today, with its count when the facts state one. do is what the owner must do, empty when nothing. changed is what changed for a user since they last looked. blocks is what stands in its way. Leave out the drive's own tooling and desks unless the owner must act on them, and any item whose state is not known.""")
 
 
@@ -446,7 +447,7 @@ def replies_digest(model, config, previous, now):
 
 def replies_settle(brief, facts):
     known = {card["id"] for card in facts["open_cards"]}
-    brief["taps"] = sorted((tap for tap in brief["taps"] if tap["card"] in known), key=lambda tap: -tap["count"])[:REPLIES_TAPS]
+    brief["taps"] = sorted((tap for tap in brief["taps"] if tap["card"] in known), key=lambda tap: (not tap["urgent"], -tap["count"]))[:REPLIES_TAPS]
     brief["source"] = facts["source"]
 
 

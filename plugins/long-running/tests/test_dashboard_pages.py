@@ -223,9 +223,9 @@ def test_alerts_keep_the_newest_when_many_wait():
 
 
 def test_taps_order_by_work_freed_and_drop_a_card_no_longer_open():
-    brief = {"taps": [{"card": "card-a", "count": 1}, {"card": "card-gone", "count": 50}, {"card": "card-b", "count": 9}, {"card": "card-c", "count": 0}]}
+    brief = {"taps": [{"card": "card-a", "count": 1, "urgent": False}, {"card": "card-gone", "count": 50, "urgent": False}, {"card": "card-b", "count": 9, "urgent": False}, {"card": "card-c", "count": 0, "urgent": True}]}
     replies_settle(brief, {"source": "abc", "open_cards": [{"id": "card-a"}, {"id": "card-b"}, {"id": "card-c"}]})
-    assert [tap["card"] for tap in brief["taps"]] == ["card-b", "card-a", "card-c"]
+    assert [tap["card"] for tap in brief["taps"]] == ["card-c", "card-b", "card-a"]
     assert brief["source"] == "abc"
 
 
