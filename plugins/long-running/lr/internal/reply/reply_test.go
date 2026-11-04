@@ -1,6 +1,7 @@
 package reply
 
 import (
+	"fmt"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,9 +15,7 @@ import (
 
 	"github.com/yasyf/cc-interact/channel"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
@@ -826,7 +825,7 @@ func TestADriveWithNoTalkBoardSkipsTheThread(t *testing.T) {
 	}
 }
 
-func headRecords(t *testing.T, f Fanout, facts map[string]string) {
+func ledgerRow(t *testing.T, f Fanout, row store.ReviewRow) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(f.Entry.StateDir, "lr.json"), []byte(`{"repo":"yasyf/cc-skills","drive":"d","checkout":"/repo","author":"a","label":"l","movers":["items"]}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -836,18 +835,13 @@ func headRecords(t *testing.T, f Fanout, facts map[string]string) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	const head = "e718a7434fa01ee9835f992a9a647a825350732c"
-	if _, err := s.OpenItem(store.NewItem{Kind: "tap", Repo: "yasyf/cc-skills", Number: 2196, Head: head, Mover: machine.MoverOwner, Deadline: time.Hour}, sentAt); err != nil {
+	row.Repo, row.Number, row.Head = "yasyf/cc-skills", 2196, "e718a7434fa01ee9835f992a9a647a825350732c"
+	if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
 		t.Fatal(err)
-	}
-	for fact, value := range facts {
-		if _, err := s.PutFact("yasyf/cc-skills", 2196, head, fact, value, sentAt); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 
-func TestAPRCardMissingAHeadRecordLinePostsAndWarnsInOneLine(t *testing.T) {
+func TestAPRCardMissingALedgerFieldPostsAndWarnsInOneLine(t *testing.T) {
 	for name, r := range map[string]Reply{
 		"pick":   {ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}},
 		"status": {ID: "r1", Title: "The relay fix", MD: "Checks passed.", Status: "info", PRs: []string{landPR}},
@@ -855,10 +849,10 @@ func TestAPRCardMissingAHeadRecordLinePostsAndWarnsInOneLine(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fake := scripted()
 			f := fanout(t, fake)
-			headRecords(t, f, map[string]string{board.FactChange: "Chats load"})
+			ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load"})
 			got, warning := f.withPRCards(r)
-			if !strings.Contains(warning, "what differed from the plan, the risk, what blocks it") || strings.Contains(warning, "what it changes") || strings.Contains(warning, "\n") {
-				t.Fatalf("warning = %q, want one line naming the three missing lines", warning)
+			if !strings.Contains(warning, "the plan row, the risk") || strings.Contains(warning, "what it changes") || strings.Contains(warning, "\n") {
+				t.Fatalf("warning = %q, want one line naming the two missing fields", warning)
 			}
 			sent := f.Send(context.Background(), got)
 			if out := surface(sent, "slack"); out.Error != "" || out.Ref != permalink {
@@ -876,7 +870,7 @@ func TestAPRCardMissingAHeadRecordLinePostsAndWarnsInOneLine(t *testing.T) {
 func TestAMissingLineIsLeftOffThePRChild(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
-	headRecords(t, f, map[string]string{board.FactChange: "Chats load"})
+	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load"})
 	r, _ := f.withPRCards(Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
 	f.Send(context.Background(), r)
 	var card struct {
@@ -891,10 +885,10 @@ func TestAMissingLineIsLeftOffThePRChild(t *testing.T) {
 	}
 }
 
-func TestAPRCardCarriesItsHeadRecordLinesToEverySurface(t *testing.T) {
+func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
-	headRecords(t, f, map[string]string{board.FactChange: "Chats load", board.FactPlan: "Nothing differed", board.FactRisk: "Low", board.FactBlocks: "Your tap", board.FactTitle: "Relay fix"})
+	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "Low", WaitsOn: "Your tap", Title: "Relay fix"})
 	r, warning := f.withPRCards(Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
 	if warning != "" {
 		t.Fatalf("warning = %q on a PR with every line", warning)
@@ -907,19 +901,15 @@ func TestAPRCardCarriesItsHeadRecordLinesToEverySurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	pr := card.Children[len(card.Children)-1]
-	if pr["type"] != "pr" || pr["change"] != "Chats load" || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**Risk:** Low") {
+	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(fmt.Sprint(pr["review"]), "CI ") || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**Risk:** Low") {
 		t.Fatalf("pr child = %+v, want its lines for Slack and for the board", pr)
 	}
 }
 
-func TestPassedLinesFillAHeadRecordAndAPRNotWaitingIsOnlyAMention(t *testing.T) {
+func TestAPRNotWaitingIsOnlyAMentionAndANoPRReplyReadsNothing(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
-	lines := &Lines{Change: "Chats load", Plan: "Nothing differed", Risk: "Low", Blocks: "Your tap"}
-	r, warning := f.withPRCards(Reply{ID: "r1", Title: "Land it?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}, Lines: lines})
-	if warning != "" || len(r.PRCards) != 1 || r.PRCards[0].Risk != "Low" {
-		t.Fatalf("withPRCards = %+v, %q, want the passed lines on the card", r.PRCards, warning)
-	}
+	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, Tapped: true, ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "Low"})
 	mention, warning := f.withPRCards(Reply{ID: "r2", Title: "The relay fix landed", MD: "m", Status: "done", PRs: []string{landPR}})
 	if warning != "" || len(mention.PRCards) != 0 {
 		t.Fatalf("withPRCards = %+v, %q, want a PR nothing waits on left a plain mention", mention.PRCards, warning)
@@ -927,9 +917,9 @@ func TestPassedLinesFillAHeadRecordAndAPRNotWaitingIsOnlyAMention(t *testing.T) 
 	if plain, warning := f.withPRCards(Reply{ID: "r3", Title: "t", MD: "m"}); warning != "" || plain.PRCards != nil {
 		t.Fatalf("a reply naming no PR read the store: %+v, %q", plain, warning)
 	}
-	two, warning := f.withPRCards(Reply{ID: "r4", Title: "t", MD: "m", PRs: []string{landPR, landPR + "0"}, Lines: lines})
-	if !strings.Contains(warning, "lines are one PR's") || len(two.PRCards) != 0 {
-		t.Fatalf("withPRCards = %+v, %q, want lines over two PRs warned on and unused", two.PRCards, warning)
+	unrowed, warning := f.withPRCards(Reply{ID: "r4", Title: "Land it?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR + "0"}})
+	if !strings.Contains(warning, "no row in the PR ledger") || len(unrowed.PRCards) != 1 || unrowed.PRCards[0].Change != "" {
+		t.Fatalf("withPRCards = %+v, %q, want a PR with no ledger row warned on and drawn bare", unrowed.PRCards, warning)
 	}
 }
 

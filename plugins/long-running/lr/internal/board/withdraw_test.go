@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -15,10 +14,7 @@ const why = "being redone after review"
 
 func tapCards(t *testing.T) (*cardsFixture, *cardShell, *store.Store) {
 	t.Helper()
-	s := withWords(t)
-	if err := s.PutPR(store.PR{Repo: repo, Number: number, Head: head, Lane: "lane-7"}); err != nil {
-		t.Fatal(err)
-	}
+	s := withLedger(t, readyRow(nil))
 	on := &cardShell{cards: []string{MergeWaits(number, head)}}
 	f := newCards(t, on, nil)
 	f.Store = s
@@ -33,15 +29,8 @@ func TestWithdrawingATapTakesItOffTheMergeListTheBoardAndSlackAndARerunChangesNo
 	if err != nil || !pulled {
 		t.Fatalf("pulled = %v, %v", pulled, err)
 	}
-	if found := rows(t, s, facts(nil)); len(found) != 0 {
-		t.Fatalf("the merge list still asks %+v", found)
-	}
-	if _, ok := Card(repo, rows(t, s, facts(nil)), number); ok {
-		t.Fatal("lr board card still draws the withdrawn tap")
-	}
-	stored, err := StoredRows(s, repo, []int{number})
-	if err != nil || len(stored) != 0 {
-		t.Fatalf("stored rows = %+v, %v", stored, err)
+	if found, err := waitingRows(s, repo, []int{number}); err != nil || len(found) != 0 {
+		t.Fatalf("the ledger still has it waiting on him: %+v, %v", found, err)
 	}
 	if want := []string{MergeWaits(number, head)}; !reflect.DeepEqual(on.removed, want) || !reflect.DeepEqual(on.reasons, []string{why}) {
 		t.Fatalf("removed = %v with %q", on.removed, on.reasons)
@@ -54,18 +43,6 @@ func TestWithdrawingATapTakesItOffTheMergeListTheBoardAndSlackAndARerunChangesNo
 	}
 	if !strings.Contains(out.String(), "UNCHANGED") {
 		t.Fatalf("out = %s", out.String())
-	}
-}
-
-func TestANewHeadAfterAWithdrawnTapAsksAgain(t *testing.T) {
-	f, _, s := tapCards(t)
-	if _, err := f.Pull(context.Background(), "meta-desk", MergeWaits(number, head), why, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
-	}
-	openTap(t, s, moved, t0)
-	found := rows(t, s, facts(func(f *machine.Facts) { f.Head = moved }))
-	if len(found) != 1 || found[0].Head != moved {
-		t.Fatalf("rows = %+v", found)
 	}
 }
 

@@ -27,7 +27,6 @@ import (
 const (
 	BusCursor      = "bus"
 	caller         = "lr-facts"
-	wordsPrefix    = "words-"
 	trunkFailed    = "trunk-failed"
 	trunkCancelled = "trunk-cancelled"
 	trunkMerged    = "trunk-merged"
@@ -366,13 +365,7 @@ func (s Source) ingestRecord(record bus.Record) error {
 }
 
 func headFacts(head bus.Head) []bus.Fact {
-	facts := []bus.Fact{{PR: head.PR, Head: head.Head, Kind: "lane", Value: head.Lane}}
-	for name, words := range head.Words() {
-		if words != "" {
-			facts = append(facts, bus.Fact{PR: head.PR, Head: head.Head, Kind: wordsPrefix + name, Value: words})
-		}
-	}
-	return facts
+	return []bus.Fact{{PR: head.PR, Head: head.Head, Kind: "lane", Value: head.Lane}}
 }
 
 func tapFacts(tap bus.Tap) []bus.Fact {

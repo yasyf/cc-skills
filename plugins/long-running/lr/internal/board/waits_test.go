@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -17,7 +16,6 @@ func TestAPRWaitsOnHisTapOnlyWhenItsRecordSaysReadyElseItNamesWhatHoldsIt(t *tes
 		name    string
 		live    Live
 		rows    map[int]store.ReviewRow
-		change  func(*machine.Facts)
 		waiting bool
 		line    string
 	}{
@@ -40,25 +38,13 @@ func TestAPRWaitsOnHisTapOnlyWhenItsRecordSaysReadyElseItNamesWhatHoldsIt(t *tes
 			line: "#45583 at e718a74: not waiting on you: its row in lr board rows waits on: fidelity grade missing at head; you rejected it at aa11bb2, an older head",
 		},
 		{
-			name:   "a land order from a card on a row that still reads ready",
-			rows:   ready,
-			change: func(f *machine.Facts) { f.Tap = machine.TapTapped },
-			line:   "#45583 at e718a74: not waiting on you: a land order stands at e718a74",
-		},
-		{
-			name:   "no row and a failing gate",
-			change: func(f *machine.Facts) { f.CI = machine.CIFailure },
-			line:   "#45583 at e718a74: not waiting on you: it has no row in lr board rows; CI is not green",
-		},
-		{
-			name:   "a row's words stand alone, with no second read of the gates beside them",
-			rows:   unready,
-			change: func(f *machine.Facts) { f.CI = machine.CIFailure },
-			line:   "#45583 at e718a74: not waiting on you: its row in lr board rows waits on: fidelity grade missing at head",
+			name: "a land order from a card on a row tapped at once",
+			rows: map[int]store.ReviewRow{number: {Number: number, Head: head, ReadyForTap: true, Tapped: true}},
+			line: "#45583 at e718a74: not waiting on you: a land order stands at e718a74",
 		},
 	}
 	for _, c := range cases {
-		got := c.live.Explain(number, facts(c.change), c.rows)
+		got := c.live.Explain(number, c.rows)
 		want := PRWait{number, head, c.waiting, c.line}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s = %+v", c.name, got)
@@ -66,21 +52,14 @@ func TestAPRWaitsOnHisTapOnlyWhenItsRecordSaysReadyElseItNamesWhatHoldsIt(t *tes
 	}
 }
 
-func TestAPRThatIsNotOpenWaitsOnNobody(t *testing.T) {
-	got := Live{}.Explain(7, nil, nil)
-	if want := (PRWait{PR: 7, Line: "#7: not waiting on you: it is no open PR of this drive's landing ledger"}); got != want {
-		t.Fatalf("explain = %+v", got)
-	}
-}
-
-func TestAPRAboveOneThatCannotLandNamesItAndWhy(t *testing.T) {
-	snapshot := facts(func(f *machine.Facts) { f.Branch, f.Base = "top", "bottom" })
-	snapshot[7] = machine.Facts{Number: 7, Head: moved, Branch: "bottom", Base: "dev", CI: machine.CIFailure, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Tap: machine.TapTapped}
-
-	got := Live{}.Explain(number, snapshot, nil)
-
-	want := "#45583 at e718a74: not waiting on you: it has no row in lr board rows; the PR below it, #7, cannot land yet: CI is not green"
-	if got.Line != want {
-		t.Fatalf("line = %q", got.Line)
+func TestAPRWithNoOpenLedgerRowWaitsOnNobody(t *testing.T) {
+	for name, rows := range map[string]map[int]store.ReviewRow{
+		"no row":     nil,
+		"landed row": {7: {Number: 7, Head: head, State: "landed"}},
+	} {
+		got := Live{}.Explain(7, rows)
+		if want := (PRWait{PR: 7, Line: "#7: not waiting on you: it has no open row in the PR ledger, lr board rows"}); got != want {
+			t.Fatalf("%s: explain = %+v", name, got)
+		}
 	}
 }

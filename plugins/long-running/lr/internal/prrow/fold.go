@@ -15,6 +15,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -333,6 +334,9 @@ func Materialize(row store.ReviewRow, facts map[string]string, hold string, bran
 	row.Mergeable = orElse(facts[factMergeable], string(machine.MergeableUnknown))
 	row.Queue = orElse(facts[factQueue], string(machine.QueueNone))
 	row.Grade, row.GradeFindings = gradeOf(facts)
+	if facts[gates.BehaviorFact] == gates.BehaviorChanged {
+		row.Review += fmt.Sprintf("; changed since the head he tapped, %s: %s", facts[gates.SinceFact], facts[gates.ChangedFact])
+	}
 	row.PlanRow = planRow(row.PlanLine, machine.Fidelity(facts["fidelity"]))
 	row.Hold = orElse(hold, None)
 	row.SupersededBy = orElse(facts[FactWithdrawn], None)

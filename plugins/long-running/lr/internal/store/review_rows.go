@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -88,6 +89,19 @@ func (s *Store) ReviewRows(repo string) ([]ReviewRow, error) {
 
 func (t *Tx) ReviewRows(repo string) ([]ReviewRow, error) {
 	return reviewRows(t.tx, repo)
+}
+
+func (s *Store) NumberedReviewRows(numbers []int) ([]ReviewRow, error) {
+	given, err := json.Marshal(numbers)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query("SELECT "+reviewRowColumns+" FROM review_rows WHERE number IN (SELECT value FROM json_each(?)) ORDER BY number, repo", string(given))
+	return collect(rows, err, func(rows *sql.Rows) (ReviewRow, error) {
+		var row ReviewRow
+		err := rows.Scan(row.columns()...)
+		return row, err
+	})
 }
 
 func (s *Store) ReviewRow(repo string, number int) (ReviewRow, bool, error) {

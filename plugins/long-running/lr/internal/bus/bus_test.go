@@ -85,9 +85,9 @@ func TestAPostStoresATypedBodyWithItsIdentityKeyAndSummary(t *testing.T) {
 	}
 }
 
-func TestAHeadCarriesTheBoardsWordsAndSummarizesWithoutThem(t *testing.T) {
+func TestAHeadRecordSummarizesAsItsPRHeadAndLane(t *testing.T) {
 	b := bound(t, "lane-7")
-	body := bus.Head{PR: 1, Head: head, Lane: "lane-7", Title: "the title", Change: "what a user sees", Plan: "as planned", Risk: "none", Blocks: "nothing", Group: "lr-go", Summary: "one line"}
+	body := bus.Head{PR: 1, Head: head, Lane: "lane-7", Title: "the title"}
 
 	record, err := b.Post(context.Background(), []string{"supervisor"}, body)
 	if err != nil {

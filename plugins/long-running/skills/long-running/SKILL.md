@@ -42,6 +42,7 @@ investigation is one subagent in direct mode, not a drive.
 - [Lanes and desks](#lanes-and-desks)
 - [The owner's surfaces](#the-owners-surfaces)
 - [Records and the task list](#records-and-the-task-list)
+- [Sources of truth](#sources-of-truth)
 - [Start and resume](#start-and-resume)
 - [Add a rule to this skill](#add-a-rule-to-this-skill)
 
@@ -342,10 +343,16 @@ The coordinator's brief lists every desk it starts and what each does.
 - Every PR goes to the owner. A PR that is green, approved and graded at its head reaches his tap card
   within one runner pass and lands on his tap. Only the classes he exempted land on a go, and nothing new
   joins them without his word (`landing_approval`). The tap rules are in [landing.md](reference/landing.md).
-- A PR waits on him only when its row in `lr board rows --json` says `ready_for_tap`. A line telling him to tap it is
-  gated on that field; otherwise it reads `Not ready for your tap` with `waits_on`. That row is the only
-  list of drive PRs: `lr board waits --pr <n>` reads what one waits on, and a PR's state changes by posting
-  its record, never by asking for a hand entry. Anything else waiting on him is what `cci owner-waits` prints.
+- The PR ledger is the one source for drive PR state: the `review_rows` table of the drive's landing store,
+  read with `lr board rows --json`. Its writers are records, folded by `lr facts`: `opened` from the ship
+  hook with the PR body, `head` from the lane that pushes, CI, review and grade records from the desks,
+  taps, holds, supersedes and landings. Every surface that shows a PR reads that row and no other store:
+  the review tab, his Slack PR and Approve cards (`lr board slack card`), `lr reply` PR cards, `lr board
+  waits`, the owner update, root's and every lane's PR lists, and the landing gate. A PR waits on him only
+  when its row says `ready_for_tap` and not tapped; otherwise a line reads `Not ready for your tap` with
+  `waits_on`. No lane keeps a PR list, a scratch file of PRs, or card lines of its own; a missing or wrong
+  field is fixed in the PR body or by posting its record, never by a hand entry. Anything else waiting on
+  him is what `cci owner-waits` prints. Every other concept's store is in [Sources of truth](#sources-of-truth).
 - Every other owner ask is a question card from `drive.py ask-owner` with two to four answers and one
   recommended, whose recommended answer is built on a branch as soon as it is asked, with no PR until he
   answers. A settled question never reaches the board. The card rules are in
@@ -375,11 +382,20 @@ other kind of state lives are in [bus-contracts.md](reference/bus-contracts.md).
   `--attr step:<n>=<clock> <what>` per step (`deadline_plans`).
 - Every cci `--to`, record, reply card, status line and chat message names a lane by its alias, such as
   tap-rows, never tap-rows-1: a numbered `--to` warns, and `lr reply` rewrites one.
-- Lane liveness, PRs and standing duties live in the supervisor's registry, which the coordinator changes
-  only through `lr request`. A decide's prose changes no row.
+- Lane liveness and standing duties live in the supervisor's registry, which the coordinator changes
+  only through `lr request`; PRs live in the PR ledger (`lr board rows`). A decide's prose changes no row.
 - The task list is the coordinator's: it runs `TaskCreate` the turn it spawns a lane or an ask arrives,
   completes a task only after consuming the deliverable, and reconciles the list against the registry at
   every handoff.
+
+## Sources of truth
+
+Each concept has one store. Every other place that shows it is a view drawn from that store, and nothing
+writes a view by hand. A surface that cannot read the store is removed, not patched.
+
+| Concept | The one store | Written by | Views drawn from it | Removed |
+|---|---|---|---|---|
+| Drive PRs: title, body fields, head, CI, review, grade, mergeability, hold, tap, state, `ready_for_tap`, `waits_on` | PR ledger: `review_rows` in the drive's landing store, `lr board rows --json` | `lr facts` folding `opened`, `head`, `pr.read`, grade, tap, hold, superseded and landing records | review tab; Slack PR and Approve cards (`lr board slack card`); `lr reply` PR cards; `lr board waits`; the landing gate | per-head `words-*` facts; `lines` passed to `lr reply`; card fields read from GitHub at draw time |
 
 ## Start and resume
 
