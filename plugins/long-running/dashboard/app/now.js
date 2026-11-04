@@ -156,11 +156,11 @@ function picksRow() {
   const picks = rows.map((f) => {
     const [, asked, answer] = /^(.*\?)(?:\s*)?: (.*)$/s.exec(f.text) ?? [0, f.text, ''];
     const [, title, question] = /^(.*?)(?:\?,|,) ([A-Z].*)$/s.exec(asked) ?? [0, asked, ''];
-    return { title, question, answer, at: f.at };
+    return { title, question, answer, at: f.at, owner: f.owner };
   });
   const dated = rows.map((f) => f.at).sort();
-  const items = groupBy(picks, (p) => p.title).map(([title, list]) => `<li><b>${esc(title)}</b>${list.map((p) => `<span>${list.length > 1 ? `${esc(p.question)} ` : ''}${p.answer ? `You said: ${esc(p.answer)}` : ''}</span>`).join('')}</li>`).join('');
-  return [{ id: 'pv-picks', iso: dated.at(-1), at: clock(dated.at(-1)), word: 'Not done', tone: 'bad', title: `${rows.length} of your picks have no record they were carried out`, why: workerName(rows[0].owner) === 'Coordinator' ? 'the coordinator holds them' : '', side: `oldest ${spanFor(dated[0]).replace(/^for /, '')} ${countPill(rows.length)}`, more: `<ul>${items}</ul>` }];
+  const items = groupBy(picks, (p) => p.title).map(([title, list]) => `<li><b>${esc(title)}</b> <small>${esc(workerName(list[0].owner))}</small>${list.map((p) => `<span>${list.length > 1 ? `${esc(p.question)} ` : ''}${p.answer ? `You said: ${esc(p.answer)}` : ''}</span>`).join('')}</li>`).join('');
+  return [{ id: 'pv-picks', iso: dated.at(-1), at: clock(dated.at(-1)), word: 'Not done', tone: 'bad', title: `${rows.length} of your picks have no record they were carried out`, side: `oldest ${spanFor(dated[0]).replace(/^for /, '')} ${countPill(rows.length)}`, more: `<ul>${items}</ul>` }];
 }
 function workOpen() {
   return stackOf().length > 0 && route().screen === 'work';

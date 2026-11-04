@@ -4,9 +4,10 @@ const STAGE_WORD = { you: 'Needs you', received: 'Received', routed: 'Routed', a
 const STAGE_STEP = { received: 0, routed: 1, acked: 1, progress: 2, you: 2, completed: 3 };
 const STEP_WORDS = ['Received', 'ACKed', 'In progress', 'Completed'];
 const REPLY_KIND = {
-  info: { label: 'Explanation', icon: 'doc', tone: '' },
-  progress: { label: 'Update', icon: 'spark', tone: 'acc' },
-  needs_you: { label: 'For you', icon: 'bell', tone: 'you' },
+  explanation: { label: 'Explanation', icon: 'doc', tone: '' },
+  update: { label: 'Update', icon: 'spark', tone: 'acc' },
+  for_you: { label: 'For you', icon: 'bell', tone: 'you' },
+  question: { label: 'Question', icon: 'bell', tone: 'you' },
   incident: { label: 'Incident', icon: 'alert', tone: 'bad' },
   done: { label: 'Done', icon: 'check', tone: 'ok' },
 };
@@ -45,7 +46,7 @@ function questionOpen(r) {
   return Boolean(card?.decides && !cardAnswered(card.id));
 }
 function bareAskOpen(entry, answeredInThread) {
-  return entry.reply.status === 'needs_you' && !DONE_LEAD.test(entry.reply.title) && !entry.reply.picks?.length && !answeredInThread && minutesSince(entry.at) < BARE_ASK_MINUTES;
+  return entry.reply.type === 'for_you' && !DONE_LEAD.test(entry.reply.title) && !entry.reply.picks?.length && !answeredInThread && minutesSince(entry.at) < BARE_ASK_MINUTES;
 }
 function openReplies() {
   return state.model?.replies ? state.model.replies.filter((entry) => questionOpen(entry.reply) || bareAskOpen(entry, false)).length : 0;
@@ -107,11 +108,11 @@ function chatThreads() {
 }
 function askStage(t) {
   if (t.replies.some((entry) => questionOpen(entry.reply) || bareAskOpen(entry, t.said.length > 0))) return 'you';
-  const status = t.replies.at(-1)?.reply.status;
-  if (status === 'done') return 'completed';
-  if (status) return status === 'info' ? 'completed' : 'progress';
+  if (t.rows.some((row) => row.owed)) return 'progress';
   const waiting = t.rows.find((row) => row.state === 'asked' && row.ack !== 'done');
   if (!waiting) return 'completed';
+  const type = t.replies.at(-1)?.reply.type;
+  if (type) return ['done', 'explanation'].includes(type) ? 'completed' : 'progress';
   if (waiting.ack === 'received') return 'received';
   if (waiting.lanes.length) return 'progress';
   return waiting.due ? 'acked' : 'routed';
@@ -121,7 +122,7 @@ function threadStage(t) {
   if (t.rows.length) return askStage(t);
   const entry = t.replies[0];
   if (questionOpen(entry.reply) || bareAskOpen(entry, t.said.length > 0)) return 'you';
-  return { progress: 'progress', done: 'completed' }[entry.reply.status] ?? '';
+  return entry.reply.type === 'done' ? 'completed' : '';
 }
 function threadFrees(t) {
   const ids = new Set([t.card?.id, ...t.replies.map((entry) => `card-${entry.reply.id}`)]);
@@ -179,17 +180,18 @@ function linkTile(l) {
   return `<a class="embedded-ref" href="${esc(l.url)}" target="_blank" rel="noopener">${chatIcon('link')}${esc(label)}</a>`;
 }
 const isOnePager = (url) => /\/one-pagers\//.test(url);
-function docCard(l, deck) {
+function docCard(l, deck, kind = 'One-pager', icon = 'doc') {
   const label = plain(l.label).replace(/\s*\(doc [0-9a-f]+\)/i, '');
   const framed = /\.ts\.net/.test(l.url) ? framedUrl(l.url) : null;
   const preview = framed ? `<div class="diagram-trigger" role="button" tabindex="0" aria-label="Read ${esc(label)}" data-doc-open="${esc(l.url)}" data-doc-title="${esc(label)}"><div class="mini-viewport"><iframe title="${esc(label)}" src="${esc(framed)}" loading="lazy" tabindex="-1"></iframe></div><span class="diagram-label">${chatIcon('expand')} Hover to read</span><div class="diagram-popover"><div class="popover-title">${esc(label)}</div><iframe title="${esc(label)}" data-src="${esc(framed)}"></iframe></div></div>` : '';
-  return `<div class="artifact document-card"><div class="artifact-top">${chatIcon('doc')} One-pager</div><div class="document-body${preview ? '' : ' plain'}"><div><h3 class="document-title">${esc(label)}</h3><p class="document-deck">${esc(deck)}</p></div>${preview}</div><div class="doc-footer"><span></span>${framed ? `<button data-doc-open="${esc(l.url)}" data-doc-title="${esc(label)}">Read it ${chatIcon('arrow')}</button>` : `<a href="${esc(l.url)}" target="_blank" rel="noopener">Read it ${chatIcon('arrow')}</a>`}</div></div>`;
+  return `<div class="artifact document-card"><div class="artifact-top">${chatIcon(icon)} ${kind}</div><div class="document-body${preview ? '' : ' plain'}"><div><h3 class="document-title">${esc(label)}</h3><p class="document-deck">${esc(deck)}</p></div>${preview}</div><div class="doc-footer"><span></span>${framed ? `<button data-doc-open="${esc(l.url)}" data-doc-title="${esc(label)}">Read it ${chatIcon('arrow')}</button>` : `<a href="${esc(l.url)}" target="_blank" rel="noopener">Read it ${chatIcon('arrow')}</a>`}</div></div>`;
 }
 function replyLinks(r) {
   const links = r.links ?? [];
   const deck = firstClause(plain(r.md).replace(DONE_LEAD, '').replace(/[*`#]+/g, ''));
   const chips = links.filter((l) => !isOnePager(l.url)).map(linkTile).join('');
-  return `${links.filter((l) => isOnePager(l.url)).map((l) => docCard(l, deck)).join('')}${chips ? `<div class="decision-tail">${chips}</div>` : ''}`;
+  const diagram = r.diagram ? docCard({ label: r.diagram.title, url: `${location.origin}/diagram/${r.id}` }, deck, 'Diagram', 'diagram') : '';
+  return `${diagram}${links.filter((l) => isOnePager(l.url)).map((l) => docCard(l, deck)).join('')}${chips ? `<div class="decision-tail">${chips}</div>` : ''}`;
 }
 function prNumbers(r) {
   const named = (r.prs ?? []).flatMap((url) => {
@@ -269,19 +271,27 @@ function replyObject(entry, t) {
   const links = `${replyLinks(r)}${replyOthers(r)}${prObjects(prNumbers(r))}`;
   const picked = cardAnswered(`card-${r.id}`);
   if (card?.decides && !picked) return `${questionObject(card, r.id)}${links}`;
-  const kind = REPLY_KIND[r.status] ?? REPLY_KIND.info;
+  const kind = REPLY_KIND[r.type];
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<p class="ct-failed">${esc(SURFACE_WORD[s.surface])} failed: ${esc(s.error)}</p>`).join('');
-  if (t.rows.length && r.order && !r.picks?.length && r.status === 'progress') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
+  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
   const label = picked ? 'Decision' : kind.label;
   const pickLine = picked ? `<p class="obj-picked">${chatIcon('check')}<span>You picked <b>${esc(picked)}</b></span></p>` : r.picks?.length ? '<p class="ct-closed">This pick is no longer open.</p>' : '';
   const done = !picked && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>` : '';
   return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r))}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
 }
+function whoHasIt(t) {
+  const owed = t.rows.map((part) => part.owed).find(Boolean);
+  if (owed?.status === 'working') return `${workerName(owed.lane)} is on it`;
+  if (owed?.status === 'parked') return `Parked with ${workerName(owed.lane)}: ${owed.hold}`;
+  if (owed?.lane) return `Last with ${workerName(owed.lane)}, no proof it reached you`;
+  if (owed) return 'Nobody has it';
+  const workers = new Set(t.rows.flatMap((part) => part.lanes)).size;
+  return workers ? `${plural(workers, 'worker')} on it` : 'The communicator';
+}
 function askDetail(t, stage) {
   const row = t.rows.find((part) => part.due) ?? t.rows[0];
   const step = STAGE_STEP[stage];
-  const workers = new Set(t.rows.flatMap((part) => part.lanes)).size;
-  const facts = [['Received', clock(t.rows[0].iso)], ['Who has it', workers ? `${plural(workers, 'worker')} on it` : 'The communicator'], ...(row.due ? [['Answer due', clock(row.due)]] : [])];
+  const facts = [['Received', clock(t.rows[0].iso)], ['Who has it', whoHasIt(t)], ...(row.due ? [['Answer due', clock(row.due)]] : [])];
   const said = t.rows.map((part) => {
     const shot = part.text.match(SCREENSHOT)?.length;
     return `<p class="original">${esc(part.text.replace(SCREENSHOT, '').trim())}${shot ? ` <span class="embedded-ref">${plural(shot, 'screenshot')}</span>` : ''}</p>`;

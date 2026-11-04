@@ -293,6 +293,7 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .st-states a { padding: 4px 10px; font-weight: 500; font-size: 12.5px; }
 .hs .ev-named li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; padding: 3px 0; border: 0; }
 .hs .ev-named time { display: block; color: var(--ink-3); }
+@media (max-width: 760px) { .hs.ev-rows .ev-more, .hs .ev-named { padding-left: 0; } .ev-more .pg-list, .ev-more .mr { margin-left: 0; } }
 .ev-side{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .alerts-bar:not([hidden]) { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 14px; padding: 10px 22px; background: color-mix(in srgb, var(--amber) 16%, transparent); border-bottom: 1px solid var(--amber); }
 .rp-md { color: var(--ink); font-size: 14px; line-height: 1.55; }

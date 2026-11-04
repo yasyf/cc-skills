@@ -18,12 +18,9 @@ LANE = re.compile(r"\b([a-z][a-z-]+-\d+)\b")
 TAP = re.compile(r"Owner on board \w+, (.*?)(?:, [A-Z][^,]*\?)? \(([\w:-]+)\)(?:: (picked .+?|\d+ approved at \w+))?(?:, at [^,]*)?$")
 RELAY_LANE = re.compile(r"(root|owner-relay|orca-desk|meta|supervisor|board-watch|signal-\d+|.*-desk(-\d+)?|board-refresher(-\d+)?)")
 TAP_LEAD = re.compile(r"^Owner on board \w+, ")
-TAP_ANSWER = re.compile(r" \([\w:-]+\)(?:: .*)?$", re.S)
-OVERDUE_HEAD = re.compile(r"^\d+ overdue:$", re.M)
-OVERDUE_ROW = re.compile(r"^- (?:(unfinished) (\w+)/(\d+)|(ask) #(\d+)|(repeat) (.+?)), due (.+)$")
-SEQ_KINDS = {"pick", "finding"}
 MIN_ASK = 14
 KEPT_TEXT = 600
+ASK_DONE = {"LIVE", "DROPPED", "ANSWERED"}
 
 
 def kept(record):
@@ -51,7 +48,7 @@ def named_prs(records):
     return sorted(numbers)
 
 
-def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers, threads=None):
+def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers, threads=None, owed=None):
     lines = ledger.splitlines()
     done = [r for r in worker_records(records) if r["kind"] == "done"]
     by_message = collections.defaultdict(list)
@@ -101,6 +98,7 @@ def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers, thre
             "lanes": holders,
             "prs": named,
             "answer": answer,
+            "owed": (owed or {}).get(f"m{ident}"),
         })
     return {"messages": asks, "taps": taps, "store": store}
 
@@ -146,19 +144,7 @@ def ack_state(routed, mark, state):
     return "routed" if routed or mark.startswith(DUE) else "received"
 
 
-def overdue_rows(render, records, store):
-    head = OVERDUE_HEAD.search(render)
-    if not head:
-        return []
-    by_seq = {r["seq"]: r for r in records}
-    by_key = {row["key"]: row["text"] for row in store}
-    rows = []
-    for line in render[head.end() :].strip().split("\n\n")[0].splitlines():
-        found = OVERDUE_ROW.match(line)
-        kind = found[2] or found[4] or found[6]
-        key = found[3] or found[5] or ""
-        seq = int(key) if found[4] or kind in SEQ_KINDS else None
-        record = by_seq.get(seq)
-        words = found[7] or by_key.get(f"{kind}/{key}") or (TAP_ANSWER.sub("", TAP_LEAD.sub("", record["text"])) if record else f"{kind} {int(key)}")
-        rows.append({"id": f"{kind}-{key or found[7]}", "group": kind, "seq": seq, "due": found[8], "text": words})
-    return rows
+def overdue_rows(store, retros, now):
+    asks = [{"id": row["key"], "group": "ask", "due": row["state"].replace("-", " ").capitalize(), "text": row["text"], "holder": row["lane"]} for row in store if row["state"] not in ASK_DONE]
+    late = [row for row in retros if row.get("state") != "live" and row.get("due") and dt.datetime.fromisoformat(row["due"]) < now]
+    return asks + [{"id": row["key"], "group": "retro", "due": dt.datetime.fromisoformat(row["due"]).astimezone(PACIFIC).strftime("%b %-d, %-I:%M %p"), "text": row["failure"], "holder": row["owner"]} for row in late]
