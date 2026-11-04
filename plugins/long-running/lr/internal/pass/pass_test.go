@@ -761,7 +761,7 @@ func TestAGreenHeadMissingAGradeTellsTheGraderAndLaneAtAnHourAndRootAtThreeOnce(
 	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
 		t.Fatal(err)
 	}
-	given := facts(48967, func(f *machine.Facts) { f.Finder = "" })
+	given := facts(48967, func(f *machine.Facts) { f.Finder, f.Approved = "", false })
 
 	run(t, s, r, t0, all, given)
 	run(t, s, r, t0.Add(59*time.Minute), all, given)
@@ -781,6 +781,23 @@ func TestAGreenHeadMissingAGradeTellsTheGraderAndLaneAtAnHourAndRootAtThreeOnce(
 	wantRoot := posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#48967 at e718a7434f", Cause: "green and ungraded for 180 minutes: no finder grade"}}
 	if got := ungradedPosts(r); !reflect.DeepEqual(got, []posted{wantHour, wantRoot}) {
 		t.Fatalf("at three hours: %+v", got)
+	}
+}
+
+func TestAnApprovedUngradedHeadLeavesRootToTheRowAlarm(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	given := facts(48967, func(f *machine.Facts) { f.Finder = "" })
+
+	run(t, s, r, t0, all, given)
+	run(t, s, r, t0.Add(3*time.Hour), all, given)
+	run(t, s, r, t0.Add(4*time.Hour), all, given)
+
+	got := ungradedPosts(r)
+	if len(got) != 1 || !slices.Equal(got[0].to, []string{"grader-appeals-3", "lane-7"}) {
+		t.Fatalf("posts = %+v", got)
 	}
 }
 

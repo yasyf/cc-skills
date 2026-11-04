@@ -222,8 +222,19 @@ D24 sits at the end of this section.
 
 **Ungraded heads.**
 - A `blocked` or `ready` record from a live `build` or `fix` lane claims each PR it names that no lane owns, and never takes one from another lane.
-- Each pass stamps a head the first time it reads green with a grade missing, and skips a draft or a head that must restack first. At an hour one note goes to the grader desk and the PR's lane; at three hours one escalation goes to root, once.
+- Each pass stamps a head the first time it reads green with a grade missing, and skips a draft or a head that must restack first. At an hour one note goes to the grader desk and the PR's lane; at three hours one escalation goes to root, once, unless the head is approved, which [Row waits](#row-waits) has already raised.
 - A PR no lane owns is not drive work and tells nobody.
+
+<a id="row-waits"></a>
+**Row waits.** The supervisor reads each review row's `waits_on` and `ready_for_tap` on every tick, with no GitHub read. A wait past its clock posts one blocker to root, once per PR and head, naming who owes it and what the owner is waiting for. A new head starts its clocks over, and a teammate's PR raises none.
+
+| The row | Clock | Who it names |
+|---|---|---|
+| `waits_on` reads `not graded at this head`, so every gate before the grade is clear | 30 minutes | The live `finder-desk` or `fidelity-desk` for each grade missing |
+| Open and not ready for a tap, with no hold and no open parent, its lane gone | 1 hour | Root, with the command that names an owner |
+| `waits_on` reads red, and its newest `red` record at this head reads `class=inherited` | 1 hour | The first other `#<n>` in that record as the PR that broke it, and the class's `owner` |
+
+A red nobody classed raises no row wait, so a lane or `red-sweep` classes it first ([red-sweep-brief.md](red-sweep-brief.md)).
 
 **Clobbered merges.** Each landing pass reads the trunk squashes since the last one it read.
 - For each, it fetches the PR's head and recomputes every merge commit in the head's history with `git merge-tree --write-tree`. Lines the clean merge has and the recorded one lacks, in files the squash touches outside the ones that conflicted, are work the merge dropped.

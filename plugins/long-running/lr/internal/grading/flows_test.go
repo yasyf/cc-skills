@@ -208,9 +208,10 @@ func TestARootsFirstOrderPutsItsPRAheadOfEveryPriority(t *testing.T) {
 	for text, want := range map[string][]string{
 		"#48141 at a04386d is first in every grading queue": {"48141"},
 		"#48141 is second. Grade #48142 first":              {"48142"},
-		"#48141 goes last":                                  nil,
-		"#48141\nfirst":                                     nil,
-		"#48141 " + strings.Repeat("x", 161) + " first":     nil,
+		"Grade these first: #49730, #49912. #2 goes last":   {"49730", "49912"},
+		"#48141 goes last": nil,
+		"#48141\nfirst":    nil,
+		"#48141 " + strings.Repeat("x", 161) + " first": nil,
 	} {
 		if got := namedFirst(text); !slices.Equal(got, want) {
 			t.Errorf("namedFirst(%q) = %v, want %v", text, got, want)
@@ -248,6 +249,39 @@ func TestItemsRankRootFirstThenIncidentThenPriorityThenTappedThenOldest(t *testi
 		got = append(got, item.Number)
 	}
 	if want := []int{1, 4, 6, 5, 3, 2}; !slices.Equal(got, want) {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
+func TestARootAskPutsItsPRsFirstAndAGreenApprovedRowGoesAheadOfTheRest(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"ledger": "L1"}, "finder": map[string]any{}})
+	if err := f.store.PutLedgerRows("L1", map[string]map[string]string{"4": {"priority": "5"}}, t0); err != nil {
+		t.Fatal(err)
+	}
+	post(t, client.Draft{Lane: rootLane, Kind: kindAsk, Text: "Grade these first: #1, #2. His pick makes them the critical path."})
+	snapshot := map[int]machine.Facts{
+		1: {Number: 1},
+		2: {Number: 2},
+		3: {Number: 3, CI: machine.CISuccess, Approved: true},
+		4: {Number: 4, CI: machine.CISuccess},
+		5: {Number: 5, Approved: true},
+	}
+	open := make([]store.Item, 0, len(snapshot))
+	for _, n := range []int{5, 4, 3, 2, 1} {
+		open = append(open, store.Item{ID: int64(n), Kind: ItemKind, Number: n})
+	}
+	f.now = time.Now()
+
+	ranked, err := f.pool.Plan(context.Background(), open, snapshot, 0, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := make([]int, 0, len(ranked))
+	for _, item := range ranked {
+		got = append(got, item.Number)
+	}
+	if want := []int{2, 1, 3, 4, 5}; !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}
 }

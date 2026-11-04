@@ -878,6 +878,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		},
 		RotateAt:              at,
 		RetireAfter:           e.Config.RetireSilent,
+		Repo:                  e.Config.Repo,
 		OpenBranches:          func(s *store.Store) (map[string][]int, error) { return openBranches(s, e.Config.Repo) },
 		Sprites:               func(names []string) (map[string]Sprite, error) { return e.laneSprites(ctx, names) },
 		Hosts:                 func(names []string, sprites map[string]Sprite) map[string]Host { return e.hosts(ctx, names, sprites) },
