@@ -368,6 +368,10 @@ def unsettled(brief, facts):
     pass
 
 
+def uncarried(brief, previous):
+    return brief
+
+
 class Page(NamedTuple):
     name: str
     prompt: str
@@ -378,6 +382,7 @@ class Page(NamedTuple):
     gap: int
     checks: Callable = unchecked
     settle: Callable = unsettled
+    carry: Callable = uncarried
 
 
 NOW = Page("brief", PROMPT, SCHEMA, digest, slot_of, frozenset(CURATOR_KINDS), MIN_GAP, now_checks, now_settle)
@@ -463,6 +468,7 @@ class Curator:
             problems = plainwords.check(brief, self.page.slot_of, lanes)
         brief = self.keep_passing(brief, problems, lanes)
         self.page.settle(brief, facts)
+        brief = self.page.carry(brief, self.brief)
         brief["at"] = now.isoformat()
         brief["violations"] = problems
         self.write(brief)

@@ -267,6 +267,19 @@ def work_digest(model, config, previous, now):
     }
 
 
+ASK_BATCH = 120
+ASK_WORDS = 500
+ASKS_SCHEMA = strict({
+    "titles": listing(strict({
+        "key": string("copy the ask's key"),
+        "title": string(),
+    })),
+})
+
+ASKS_PROMPT = PAGE_PROMPT.format(what="one short title for each message a busy engineering lead sent his assistant. His Chat page shows his messages as a list of titles, so each title has to say at a glance what he asked for.", fields="""- titles: one per entry in asks, with its key copied.
+- title: at most 8 words, in sentence case, naming what he wants done or asked, as he would write it on a to-do list: "Redesign the Chat page from scratch", "Why did the pick not reach the lane?". A question stays a question. Fix his typos. Name the thing, never "he asks" or "the user wants". A message of frustration names what it is about. No trailing period.""")
+
+
 def history_slot(path):
     if path[:1] == ("summary",):
         return "sentence"
@@ -303,6 +316,32 @@ def history_digest(model, config, previous, now):
         "previous": previous_of(previous, HISTORY_SCHEMA),
         "worker_names": worker_names(model),
     }
+
+
+def ask_key(row):
+    return f"m{str(row['m']).split('.')[0]}"
+
+
+def asks_slot(path):
+    return "title" if path[-1] == "title" else None
+
+
+def asks_digest(model, config, previous, now):
+    known = {entry["key"] for entry in (previous or {}).get("titles", [])}
+    said = {}
+    for row in model["owner_asks"]["messages"]:
+        said.setdefault(ask_key(row), []).append(row["text"])
+    fresh = [{"key": key, "said": clip(" ".join(parts), ASK_WORDS)} for key, parts in said.items() if key not in known][-ASK_BATCH:]
+    return {"asks": fresh, "worker_names": worker_names(model)} if fresh else None
+
+
+def asks_carry(brief, previous):
+    return {**brief, "titles": [*(previous or {}).get("titles", []), *(entry for entry in brief["titles"] if entry["title"])]}
+
+
+def titled_asks(asks, brief):
+    titles = {entry["key"]: entry["title"] for entry in (brief or {}).get("titles", [])}
+    return {**asks, "messages": [{**row, "title": titles[ask_key(row)]} if ask_key(row) in titles else row for row in asks["messages"]]}
 
 
 def review_slot(path):
@@ -358,4 +397,5 @@ PAGES = (
     Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go", "decide", "hold", "lift", "answer", "evidence"}), 180, work_checks, work_settle),
     Page("history", HISTORY_PROMPT, HISTORY_SCHEMA, history_digest, history_slot, frozenset({*HISTORY_KINDS, "go", "landed"}), 300),
     Page("review", REVIEW_PROMPT, REVIEW_SCHEMA, review_digest, review_slot, frozenset({"review", "head", "go", "report"}), 60),
+    Page("asks", ASKS_PROMPT, ASKS_SCHEMA, asks_digest, asks_slot, frozenset({"owner"}), 20, carry=asks_carry),
 )
