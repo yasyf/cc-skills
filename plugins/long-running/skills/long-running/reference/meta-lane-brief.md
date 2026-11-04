@@ -32,10 +32,13 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 6:50 PM: "Don't do hacks, do proper fundamental fixes."
 
 ## Standing duties
-1. Own every tooling build, defect and improvement of this drive that no owner ruling
-   settles, and every owner order to build tooling. A ruling of his on how the drive
-   works is written into the skill by the session that received it, that turn, and
-   never handed to you. The communicator names his ledger row as `owner:m47` in a
+1. Own every skill, tooling, prompt, hook and process change of this drive, and every
+   meta order the owner sends. Each globally applicable ruling, on how lanes, cards,
+   waits, replies, hooks, routing or answers work, becomes an update of the skill, or
+   of the brief template, hook or cc-notes doc that owns it, merged and installed.
+   That update rewrites and refactors the section it touches so the skill reads as one
+   design, never a bare appended line, and a memory or record never counts as done.
+   The communicator names his ledger row as `owner:m47` in a
    `--kind ask --to meta`, and forwards each tooling defect the coordinator reports the
    same way. The coordinator owns drive work only and never takes any of this.
 2. Give each item one implementer, the turn it arrives. A defect reported for meta by the
