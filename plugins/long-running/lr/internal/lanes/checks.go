@@ -39,7 +39,7 @@ const (
 	stopTimeout  = 5 * time.Minute
 	stopRelease  = "v0.27.4"
 	stopTries    = 3
-	launchWait   = 5 * time.Minute
+	launchWait   = 45 * time.Second
 	launchMargin = 10 * time.Second
 	incidentBar  = 20 * time.Minute
 	notLiveOwed  = time.Hour
@@ -78,6 +78,8 @@ type Alerts struct {
 	Launch   func(ctx context.Context, fired Fired) (string, error)
 	threads  map[string]string
 	launched map[string]bool
+	opened   []client.Record
+	isOpened bool
 }
 
 type Fired struct {
@@ -134,6 +136,13 @@ func (e Env) IncidentLaunch(ctx context.Context, fired Fired) (string, error) {
 }
 
 func (a *Alerts) Check(ctx context.Context, now time.Time) error {
+	start := time.Now()
+	defer func() {
+		if took := time.Since(start); took >= time.Minute {
+			a.Log.Warn("alert pass slow", "took", took.Round(time.Second))
+		}
+	}()
+	a.isOpened = false
 	threads := map[string]string{}
 	for _, channel := range a.Channels {
 		var history struct {
@@ -280,12 +289,14 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 	if a.launched[alert.slug] {
 		return nil
 	}
-	incidents, err := a.Env.Bus.Tail(ctx, client.Query{Drive: a.Env.Config.Drive, Since: fired, Kinds: []string{"incident"}})
-	if err != nil {
-		return fmt.Errorf("%w: cci tail incident: %w", ErrUnread, err)
+	if !a.isOpened {
+		if a.opened, err = a.Env.Bus.Tail(ctx, client.Query{Drive: a.Env.Config.Drive, Since: now.Add(-alertWindow), Kinds: []string{"incident"}}); err != nil {
+			return fmt.Errorf("%w: cci tail incident: %w", ErrUnread, err)
+		}
+		a.isOpened = true
 	}
-	for _, incident := range incidents {
-		if strings.Contains(incident.Text, alert.name) {
+	for _, incident := range a.opened {
+		if !incident.At.Before(fired) && strings.Contains(incident.Text, alert.name) {
 			return nil
 		}
 	}
@@ -293,6 +304,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 	if err != nil || !first {
 		return err
 	}
+	ctx = context.WithoutCancel(ctx)
 	holder, launchErr := a.Env.MonitorLane(ctx, alert.name, alert.slug+"-fix")
 	if holder != "" {
 		return nil
