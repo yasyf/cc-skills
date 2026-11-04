@@ -50,12 +50,18 @@ func evicted(f *machine.Facts)  { f.Queue = machine.QueueEvicted }
 func conflict(f *machine.Facts) { f.Mergeable = machine.MergeableConflict }
 
 type queue struct {
-	enqueued []landing.Head
-	dequeued []int
+	enqueued  []landing.Head
+	dequeued  []int
+	reentered []int
 }
 
 func (q *queue) Enqueue(_ context.Context, number int, head string) (string, error) {
 	q.enqueued = append(q.enqueued, landing.Head{Number: number, Head: head})
+	return fmt.Sprintf("exit 0: #%d QUEUED", number), nil
+}
+
+func (q *queue) Reenter(_ context.Context, number int) (string, error) {
+	q.reentered = append(q.reentered, number)
 	return fmt.Sprintf("exit 0: #%d QUEUED", number), nil
 }
 
@@ -167,7 +173,7 @@ func TestAnEvictedGreenHeadIsResubmittedAndCounted(t *testing.T) {
 	done := act(t, s, q, &restacker{}, t0, facts(45711, evicted))
 
 	want := []landing.Head{{Number: 45711, Head: head}}
-	if !slices.Equal(q.enqueued, want) || !slices.Equal(done.Resubmitted, want) || len(done.Enqueued) != 0 {
+	if !slices.Equal(q.reentered, []int{45711}) || len(q.enqueued) != 0 || !slices.Equal(done.Resubmitted, want) || len(done.Enqueued) != 0 {
 		t.Fatalf("enqueued = %v, done = %+v", q.enqueued, done)
 	}
 	if got := fact(t, s, 45711, landing.ResubmittedFact); got != "1" {

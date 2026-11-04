@@ -22,6 +22,7 @@ const (
 
 type Queue interface {
 	Enqueue(ctx context.Context, number int, head string) (string, error)
+	Reenter(ctx context.Context, number int) (string, error)
 	Dequeue(ctx context.Context, number int) (string, error)
 }
 
@@ -146,7 +147,11 @@ func dequeued(f machine.Facts, said string) Said {
 }
 
 func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, now time.Time, done *Done) error {
-	said, err := queue.Enqueue(ctx, f.Number, f.Head)
+	enter := func() (string, error) { return queue.Enqueue(ctx, f.Number, f.Head) }
+	if f.Queue == machine.QueueEvicted {
+		enter = func() (string, error) { return queue.Reenter(ctx, f.Number) }
+	}
+	said, err := enter()
 	if err != nil {
 		return err
 	}
