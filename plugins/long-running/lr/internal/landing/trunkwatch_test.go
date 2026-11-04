@@ -3,6 +3,8 @@ package landing_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +53,7 @@ func newTrunkWatch(t *testing.T) trunkFixture {
 		Repo:     monorepo,
 		Trunk:    "dev",
 		Checkout: "/co",
+		State:    t.TempDir(),
 		Config:   landing.TrunkConfig{Check: "buildkite/test", CIBuild: "tools/ci bk api /pipelines/{pipeline}/builds/{number}", TokenCommand: []string{tokenTool}, FlakeLane: "red-sweep-3"},
 		Now:      func() time.Time { return t0 },
 	}}
@@ -112,7 +115,7 @@ func TestATrunkRetryThatPassesPostsOneFlakeNamingTheBuildCommitAndTest(t *testin
 	if len(flakes) != 1 {
 		t.Fatalf("flakes = %+v, want one", flakes)
 	}
-	for _, want := range []string{"[finding:supervisor]", "go/race_test.go", "FLAKE TestRace", redBuild, trunkOID[:10], "#47000 last changed it", "Fix due"} {
+	for _, want := range []string{"[finding:supervisor]", "go/race_test.go", "FLAKE TestRace", redBuild, trunkOID[:10], "#47000 last changed it", "fix it by Oct 30"} {
 		if !strings.Contains(flakes[0].Text, want) {
 			t.Fatalf("flake %q lacks %q", flakes[0].Text, want)
 		}
@@ -312,5 +315,122 @@ func TestAFlakyNoticeInSlackBecomesOneFlake(t *testing.T) {
 	flakes := trunkRecords(t, "defect")
 	if len(flakes) != 1 || !strings.Contains(flakes[0].Text, "FLAKE TestRace") || !strings.Contains(flakes[0].Text, "https://slack/p1") || !strings.Contains(flakes[0].Text, trunkOID[:10]) {
 		t.Fatalf("flakes = %+v", flakes)
+	}
+}
+
+func flakyNotices(stamps ...int64) func(*shelltest.Fake) {
+	messages := make([]string, len(stamps))
+	for i, stamp := range stamps {
+		messages[i] = fmt.Sprintf(`{"ts":"%d.000100","permalink":"https://slack/p%d","text":"> failed `+"`go TestRace`"+` on <%s|test #105354> at <https://github.com/o/r/commit/%s|efe25ce>; it looks flaky and nobody was told"}`, stamp, i, redBuild, trunkOID)
+	}
+	return func(fake *shelltest.Fake) {
+		fake.Reply(`{"messages":[`+strings.Join(messages, ",")+`]}`, "cc-slack", "history")
+		fake.Fail(1, "", "git", "-C", "/co", "grep")
+	}
+}
+
+func TestAFlakeNoLiveLaneHoldsLaunchesTheNextFlakeLaneAndTellsRootInOneLine(t *testing.T) {
+	f := newTrunkWatch(t)
+	f.watch.Config.Channel = "C1"
+
+	f.pass(t, trunkHistory(), flakyNotices(t0.Unix()-5))
+
+	launches := trunkRecords(t, "go")
+	if len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "orca-desk: launch red-sweep-1 opus xhigh role=fix brief="+f.watch.State+"/red-sweep/brief.md") {
+		t.Fatalf("launches = %+v, want red-sweep-1 from the standing brief", launches)
+	}
+	brief, err := os.ReadFile(f.watch.State + "/red-sweep/brief.md")
+	if err != nil || !strings.Contains(string(brief), "A retry, a skip, a quarantine or a longer timeout is not a fix") || !strings.Contains(string(brief), "Register slice: lane=red-sweep") {
+		t.Fatalf("brief = %q, %v", brief, err)
+	}
+	flakes := trunkRecords(t, "defect")
+	if len(flakes) != 1 || len(flakes[0].To) != 1 || flakes[0].To[0] != "red-sweep-1" || !strings.Contains(flakes[0].Text, "fix it by Oct 30 4:00 PM") {
+		t.Fatalf("flakes = %+v, want one addressed to the launched lane, due in two hours", flakes)
+	}
+	notes := trunkRecords(t, "note")
+	if len(notes) != 1 || notes[0].To[0] != "root" || notes[0].Re != flakes[0].Seq || strings.Contains(notes[0].Text, "\n") {
+		t.Fatalf("notes = %+v, want one line to root", notes)
+	}
+}
+
+func TestARepeatFailureOfAnOpenFlakeAttachesToItsRecord(t *testing.T) {
+	f := newTrunkWatch(t)
+	f.watch.Config.Channel = "C1"
+
+	f.pass(t, trunkHistory(), flakyNotices(t0.Unix()-5, t0.Unix()-4))
+
+	flakes := trunkRecords(t, "defect")
+	if len(flakes) != 1 {
+		t.Fatalf("flakes = %+v, want the repeat on the first record", flakes)
+	}
+	attached := slices.DeleteFunc(trunkRecords(t, "note"), func(r client.Record) bool { return r.To[0] == "root" })
+	if len(attached) != 1 || attached[0].Re != flakes[0].Seq || !strings.Contains(attached[0].Text, "FLAKE TestRace again") {
+		t.Fatalf("notes = %+v, want the repeat attached to %s", attached, flakes[0].Name())
+	}
+}
+
+func TestAFlakeClosedWithNoMergedPRReopensAndOneClosedByAMergedPRStaysClosed(t *testing.T) {
+	for name, merged := range map[string]string{"unmerged": "\n", "merged": "2026-10-30T22:00:00Z\n"} {
+		t.Run(name, func(t *testing.T) {
+			f := newTrunkWatch(t)
+			f.watch.Config.Channel = "C1"
+			f.pass(t, trunkHistory(), flakyNotices(t0.Unix()-5))
+			flake := trunkRecords(t, "defect")[0]
+			if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "decide", Resolves: flake.Seq, PRs: []string{"48100"}, Text: "closed: owner named"}); err != nil {
+				t.Fatal(err)
+			}
+
+			f.pass(t, trunkHistory(), func(fake *shelltest.Fake) {
+				flakyNotices(t0.Unix() - 5)(fake)
+				fake.Reply(merged, "ccx", "vcs", "gh", "--max-age", "5m", "--", "pr", "view", "48100")
+			})
+
+			reopened := slices.DeleteFunc(trunkRecords(t, "defect"), func(r client.Record) bool { return r.Seq == flake.Seq })
+			if name == "merged" && len(reopened) != 0 {
+				t.Fatalf("reopened = %+v, want a merged fix to close it", reopened)
+			}
+			if name == "unmerged" && (len(reopened) != 1 || reopened[0].Re != flake.Seq || !strings.HasPrefix(reopened[0].Text, "REOPENED "+flake.Name()) || reopened[0].To[0] != flake.To[0]) {
+				t.Fatalf("reopened = %+v, want %s reopened to its owner", reopened, flake.Name())
+			}
+		})
+	}
+}
+
+func TestAJobThatFailedOnAGitHubQuotaIsNamedInfrastructureNotAFlakyTest(t *testing.T) {
+	f := newTrunkWatch(t)
+	f.pass(t, trunkHistory(trunkCommit(trunkOID, "FAILURE", redBuild)), func(fake *shelltest.Fake) {
+		bkReply(fake, buildPath+"105354", failedRead)
+		bkReply(fake, "/pipelines/test/builds?per_page=30", `[]`)
+	})
+
+	f.pass(t, trunkHistory(trunkCommit(trunkOID, "SUCCESS", greenBuild)), func(fake *shelltest.Fake) {
+		bkReply(fake, buildPath+"105354", failedRead)
+		bkReply(fake, buildPath+"105354/jobs/job-1/log", `{"content":"fetching modules\ngh: HTTP 403: API rate limit exceeded for installation ID 42\n"}`)
+	})
+
+	flakes := trunkRecords(t, "defect")
+	if len(flakes) != 1 || !strings.Contains(flakes[0].Text, "INFRA job go-test failed on infrastructure, not a test (gh: HTTP 403: API rate limit exceeded") || strings.Contains(flakes[0].Text, "FLAKE") {
+		t.Fatalf("flakes = %+v, want the quota failure named as infrastructure", flakes)
+	}
+}
+
+func TestAnOpenFlakeWhoseLaneIsGoneGetsANewLaneFromTheSupervisor(t *testing.T) {
+	f := newTrunkWatch(t)
+	flake, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "supervisor", Kind: "defect", To: []string{"red-sweep-5"}, Topic: "dev-red", Force: true, Attrs: map[string]string{"flake": "TestRace"}, Text: "[finding:supervisor] - - flake owner red-sweep-5: FLAKE TestRace failed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f.pass(t, trunkHistory(), nil)
+	f.pass(t, trunkHistory(), nil)
+
+	launches := trunkRecords(t, "go")
+	if len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "orca-desk: launch red-sweep-") {
+		t.Fatalf("launches = %+v, want one red-sweep lane", launches)
+	}
+	lane := strings.Fields(launches[0].Text)[2]
+	handed := trunkRecords(t, "note")
+	if len(handed) != 1 || handed[0].To[0] != lane || handed[0].Re != flake.Seq {
+		t.Fatalf("notes = %+v, want %s handed to %s", handed, flake.Name(), lane)
 	}
 }
