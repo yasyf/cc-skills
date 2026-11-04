@@ -248,6 +248,10 @@ func (g *Gates) ask(ctx context.Context, f machine.Facts, rows []board.ReservedR
 }
 
 func (g *Gates) drawCard(ctx context.Context, f machine.Facts, rows []board.ReservedRow) error {
+	stored, err := g.Store.Facts(f.Repo, f.Number, f.Head)
+	if err != nil || stored[board.FactWithdrawn] != "" {
+		return err
+	}
 	session, err := g.Session(ctx)
 	if err != nil {
 		return err

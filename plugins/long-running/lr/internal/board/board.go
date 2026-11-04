@@ -19,13 +19,14 @@ import (
 const (
 	MergeBlock = "merge-prs"
 
-	FactTitle   = "words-title"
-	FactChange  = "words-change"
-	FactPlan    = "words-plan"
-	FactRisk    = "words-risk"
-	FactBlocks  = "words-blocks"
-	FactGroup   = "words-group"
-	FactSummary = "words-summary"
+	FactTitle     = "words-title"
+	FactChange    = "words-change"
+	FactPlan      = "words-plan"
+	FactRisk      = "words-risk"
+	FactBlocks    = "words-blocks"
+	FactGroup     = "words-group"
+	FactSummary   = "words-summary"
+	FactWithdrawn = "withdrawn"
 
 	tapFact   = "tap"
 	notedFact = "words-noted"
@@ -133,6 +134,9 @@ func Rows(s *store.Store, repo string, snapshot map[int]machine.Facts) ([]Row, e
 		stored, err := s.Facts(repo, item.Number, item.Head)
 		if err != nil {
 			return nil, err
+		}
+		if stored[FactWithdrawn] != "" {
+			continue
 		}
 		out = append(out, Row{item.Number, item.Head, item.Kind, facts.Lane, gates.Missing(facts), stored})
 	}
