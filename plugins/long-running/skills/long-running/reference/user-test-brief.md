@@ -1,6 +1,11 @@
 # The user-test lane
 
-Any page, board layout, or dashboard screen the owner uses gets a `user-test` lane before he sees a revision of it. Spawn `user-test-<surface>` as `long-running:lane-ship`, model sonnet, effort low, beside the lane that builds the surface. The test lane owns no code and plays the owner against the live page through codex, handing every miss to the builder. The card that shows him the revision waits for at least three rounds and a round with no glance misses, and it carries the rounds' findings and the five-second result.
+Any page, board layout, or dashboard screen the owner uses gets a `user-test` lane before he sees a revision of it.
+
+- Spawn `user-test-<surface>` as `long-running:lane-ship`, model sonnet, effort low, beside the lane that builds the surface.
+- The test lane owns no code. It plays the owner against the live page through codex and hands every miss to the builder.
+- During a walk the builder batches fixes into one READY per build, deploys nothing live, and smoke-loads its records before any server deploy. The test lane's DONE record lists every failing check.
+- The card that shows him the revision waits for at least three rounds and a round with no glance misses, and carries the rounds' findings and the five-second result.
 
 ## Spawn brief
 

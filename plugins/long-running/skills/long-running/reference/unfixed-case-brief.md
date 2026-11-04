@@ -22,8 +22,8 @@ Drive facts:
 Standing orders, fixed in this template:
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
-  - "stop asking people for things you can collect yourself": never ask a reporter
-    or anyone else for evidence; read telemetry and Sentry yourself.
+  - Never ask a reporter or anyone else for evidence; read telemetry and Sentry
+    yourself.
   - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
@@ -106,7 +106,7 @@ Do:
      not cover, one line each, exactly `UNFIXED {lane}: <the case, one line>`, or
      `UNFIXED {lane}: none`. Send the lines to the Run as the body of the status
      messages whose subjects are `ready: <the READY line>` and
-     `fix-live: <the FIX-LIVE line>`. The desk puts each new case to the coordinator.
+     `fix-live: <the FIX-LIVE line>`. The desk puts each new case to the coordinator as a `DECIDE`; no case waits as backlog.
 
 Worktree: your own. No Slack posts.
 Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.

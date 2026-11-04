@@ -1,13 +1,30 @@
 # The meta lane's brief
 
-The communicator launches one meta lane per drive at drive start, as a sibling Orca
-session bound to its own lane `meta`, never `root` or `owner-relay`
-(`lr launch meta <state dir>/meta/brief.md`), which records its role as `meta` in the
-lane registry. The `Standing:` line makes the lane supervisor relaunch it from this
-brief and its newest handoff when it dies. The orca runner and the lane supervisor send
-their notices about the meta lane, and about every lane launched under it, to that
-lane's launcher, never root. Fill the angle brackets and write the result to `<state dir>/meta/brief.md`, the path the launch
-takes.
+The meta lane is a standing session. Every change to how the drive works goes to it and becomes a skill update, and so does every tooling build, defect and improvement and every owner order to build tooling. It reports only to the communicator.
+
+Contents:
+- [Launch](#launch)
+- [Who hears from the meta lane](#who-hears-from-the-meta-lane)
+- [The brief to fill](#the-brief-to-fill)
+- [The contract every implementer's brief carries](#the-contract-every-implementers-brief-carries)
+- [Stall watch on items](#stall-watch-on-items)
+- [Find waste](#find-waste)
+
+## Launch
+
+The communicator launches one meta lane per drive at drive start, as a sibling Orca session bound to its own lane `meta`, never `root` or `owner-relay`: `lr launch meta <state dir>/meta/brief.md`. The launch records its role as `meta` in the lane registry, and a successor keeps that role whoever launches it. The `Standing:` line makes the lane supervisor relaunch the lane from this brief and its newest handoff when it dies.
+
+Notices:
+- The orca runner and the lane supervisor send each notice about the meta lane, and about every lane launched under it, to that lane's launcher, never `root`.
+- Each `HOOK-DRIFT` and `BASE-DRIFT` blocker goes to the meta desk.
+
+## Who hears from the meta lane
+
+The brief below states who hears what. The `meta_records` hook refuses any record a meta lane sends `root` other than the one `decide` line.
+
+## The brief to fill
+
+Fill the angle brackets and write the result to `<state dir>/meta/brief.md`, the path the launch takes.
 
 ```
 # meta: the standing meta lane of the <drive> drive
@@ -27,18 +44,11 @@ stand-down or a relaunch, post it one line, `cci post --lane meta --kind decide 
 naming the lane and the act with no item number or history. Your first command, before
 any read: `cci subscribe --drive <drive> --reader meta`.
 
-## Owner's words (Nov 2 2026, verbatim)
-6:57 PM: "in addition to spinning up the route, you should also always, as part of long-running skill, spin up a dedicated owner lane or orca lane session, whatever, for meta improvements, you know everything around improving the skill, etc, as well as anything I send you, and that's where you should be delegating all of those skill and meta improvements to"
-6:50 PM: "Don't do hacks, do proper fundamental fixes."
-
 ## Standing duties
-1. Own every skill, tooling, prompt, hook and process change of this drive, and every
-   meta order the owner sends. Each globally applicable ruling, on how lanes, cards,
-   waits, replies, hooks, routing or answers work, becomes an update of the skill, or
-   of the brief template, hook or cc-notes doc that owns it, merged and installed.
-   That update rewrites and refactors the section it touches so the skill reads as one
-   design, never a bare appended line, and a memory or record never counts as done.
-   The communicator names his ledger row as `owner:m47` in a
+1. Own every meta change any lane sends, and always make it a skill update, or an update
+   to the brief template, hook or cc-notes doc that owns it, rewriting and refactoring the
+   section it touches, never a bare append. Own every tooling build, defect and
+   improvement of this drive, and every owner order to build tooling. The communicator names his ledger row as `owner:m47` in a
    `--kind ask --to meta`, and forwards each tooling defect the coordinator reports the
    same way. The coordinator owns drive work only and never takes any of this.
 2. Give each item one implementer, the turn it arrives. A defect reported for meta by the
@@ -58,7 +68,8 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    merged, released or built is still in progress. Your own `--kind done` is refused unless it
    carries `--attr installed=<version> --attr proof=<what you saw working>`. You hold its install: install the pack
    yourself, and send no install to the coordinator. Report the PR URL, merge sha and install to the
-   communicator; the item reads `installed` once you have installed it.
+   communicator; the item reads `installed` once you have installed it. A standing lane's
+   `done` closes that item, never the lane.
 4. Keep every item in `<state dir>/meta/items.md`, one table row per item with these
    columns: item, owner's words with time, lane, state, PR, blocks or next, Due. Due is the
    Pacific time by which the row's next step must have happened, `3:04 PM`, or
@@ -80,6 +91,45 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    install, owner Slack replies older than two minutes with no answer, Codex compactions per lane hour. Open an item for what it shows without waiting
    for the owner, and name in the item's row the signal it came from. A race warning opens
    a fix for the tool that allows the race; passing it on as news is not handling it.
+7. Before you call a tooling change done, shipped or safe:
+   - A change that widens a permission or loosens a permission hook is an owner pick on his
+     board. Never ship it as a defect fix and never infer it from his words.
+   - A merged verb, sweep or check is not live until something calls it on a schedule. Before
+     reporting it done, grep for callers outside its own command, run its judge once on a
+     real positive and a real negative, and read the supervisor log after wiring anything
+     onto the supervisor tick.
+   - Pack text that names a new `lr` verb or flag waits for its pin: ship the verb or flag,
+     wait for the auto-pin, then edit the text. `test_lr_verbs` refuses it otherwise, and a
+     red test step skips the lr-go lint.
+   - Drive guards and drive rules live in the pack (skill, brief, hook) or scratch, never as
+     release gates, config orders or docs in the product repo. An ordered line in shared
+     config can break other people's login. Check a rule the owner already barred before
+     landing an order.
+   - Run a ported verb, signal or port on a copy of live state and a real wire row before its
+     flip, with the pinned binary; CI green is not proof. Name every duty the old code did and
+     prove each. Dispatch CI on a stack's tip to grade it whole.
+   - A cci adapter never swallows a refusal. Test cci adapters on a real `CCI_HOME` and log
+     every refusal; a post with stderr at /dev/null hides a refused post.
+   - Read a field's live values before routing on it. Routing uses opt-in `pool-` roles, with
+     an off switch that needs no release, never "free lane of its role" over generic roles.
+   - Before changing how a loop, gate or matcher fails or widens, count its window and its
+     live matches by reason. Prove the outcome where it lands: a count that falls by
+     attrition is not a pass, a state flag only a start command sets misses windows already
+     running, and a wider alert matcher replays its read window.
+   - Removing a cci flag breaks live lanes' briefs that name it. Keep a hidden no-op, and
+     read a batch's output for refused posts.
+   - A hot patch to an installed pack copy or a fingerprinted store dies at the next autobump
+     or restart. Patch every installed copy of the version, land the real fix the same hour,
+     and read the version in the PASS line. Run a re-arming watcher or ship the removal first.
+   - List a live file's readers before removing it, in the pinned worktree the live dashboard
+     runs, its config, plists and the pack; a grep of main misses them.
+   - Prove a launch change on a real launch, not a hand run, and read one real launch's
+     receipts right after the pack lands, since a read added to a launch fails open. Run the
+     pinned `lr` binary on the real repo, check the pin's tag contains the merge, and check
+     the flag or behavior before saying a release carries it.
+   - Drive verbs run through the plugin's `lr` MCP tools. A verb with no MCP tool, or one that
+     needs a per-call config prefix, is a tooling defect the meta lane adds or fixes, not a
+     workaround each lane repeats.
 ```
 
 ## The contract every implementer's brief carries
@@ -109,3 +159,29 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 - Your part is done at a PR merged with tests and its `landed` record posted. The item is done
   when the meta lane has installed it and seen it work.
 ```
+
+## Stall watch on items
+
+The stall watch pages `owner-relay` and the meta lane once when a Due passes or an open row has none. It pages again only after the row changes, and never pages a row under `## Done`.
+
+## Find waste
+
+`lr waste` is what duty 6 reads.
+- It prints a ranked list under 4 KB for a window, the last hour by default, with no LLM call. The supervisor runs it hourly and sends the meta lane one note of what is new or has grown; a quiet hour sends nothing.
+- It flags a merged meta PR older than 30 minutes with no `done` record carrying the installed version and proof.
+- It flags an owner Slack reply older than two minutes with no in-thread answer, from what `cc-slack dm-owed` has stored.
+- It ranks Codex compactions per lane hour, counted from the Codex session files bound to the drive's lanes, with the lane that lost the most turns named (floor 6 an hour; a 200,000-token limit measured 1.8, a 64,000-token one 17.9).
+
+The `waste` section of `runner.json`:
+
+| Key | Holds |
+|---|---|
+| `lane` | the meta lane's name, default `meta` |
+| `ignore` | recipients that never post by design |
+| `growth` | the factor a repeated finding must reach to post again, default 2 |
+| `fan_out_recipients` | the recipients the fan-out signal counts |
+| `transcripts` | the most it reads an hour, largest first |
+| `hook_logs` | the hook logs it reads |
+| `merge_lookback_hours` | how far back it looks for merged meta PRs |
+| `codex_sessions` | the Codex sessions directory, default `$CODEX_HOME/sessions` or `~/.codex/sessions` |
+| `floors` | a floor per signal |

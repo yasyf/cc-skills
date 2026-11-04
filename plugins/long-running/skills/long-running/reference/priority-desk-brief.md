@@ -1,26 +1,39 @@
 # The priority-desk lane
 
-This reference covers [coordinator discipline](#coordinator-discipline), [desk rules](#desk-rules), and the [spawn brief](#spawn-brief).
+## Contents
+
+- [Coordinator discipline](#coordinator-discipline)
+- [Desk rules](#desk-rules)
+- [Spawn brief](#spawn-brief)
 
 ## Coordinator discipline
 
-**P1. Give each owner-named #1 outcome its own desk.** While the outcome is open, the coordinator launches `<outcome>-desk` with `lr launch lane <outcome>-desk opus <effort> <brief>`. It owns only that outcome's lanes. The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Every other desk forwards traffic from those lanes with `cci post --to <outcome>-desk` and stops handling them.
+**P1. Give each owner-named #1 outcome its own desk.** While the outcome is open, the coordinator launches `<outcome>-desk` with `lr launch lane <outcome>-desk opus <effort> <brief>`. The desk owns only that outcome's lanes, and its inbox is the set of cci records addressed to `<outcome>-desk`. Every other desk forwards traffic from those lanes with `cci post --to <outcome>-desk` and stops handling them.
 
-**P2. Open with the owner's owed list and the start state.** The coordinator posts P1 with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --topic owed --text "<owed list summary>" --path <owed list file>`. The body lists one numbered item per PR or proof in the owner's definition of done. It states what is on the base branch, queued, open as a PR, and pushed with no PR, and names the lanes that owe each item.
+**P2. Open with the owed list and the start state, then the root-verified truth.**
 
-The coordinator posts P2 with root-verified truth and a timestamp using the same command with `--topic truth` and its own text and body file. It directs the desk to act on all items in parallel, one dispatch per lane in the same iteration.
+- Post the owed list with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --topic owed --text "<owed list summary>" --path <owed list file>`. The body lists one numbered item per PR or proof in the owner's definition of done, states what is on the base branch, queued, open as a PR, and pushed with no PR, and names the lanes that owe each item.
+- Post the truth with the same command, `--topic truth`, its own text and body file: root-verified state with a timestamp. Direct the desk to act on all items in parallel, one dispatch per lane in the same iteration.
+- Post later rulings with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --text "<ruling>"`. A standing owner rule gets a `scope:durable` cc-notes answer first, then its own `go` record with `--ccn <answer id> --topic standing` under [I6](owner-rulings.md).
 
-The coordinator posts later rulings with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --text "<ruling>"`. A standing owner rule gets a `scope:durable` cc-notes answer first, then its own `go` record with `--ccn <answer id> --topic standing` under [I6](owner-rulings.md).
+**Coordinator duties while the desk runs.**
 
-The coordinator owns holds, which are cci `hold` records. The coordinator reads the desk's 15-minute reports and reads priority PR state directly in one batched `ccx vcs pr status <n1> <n2> ...` call. The coordinator dispatches every owed item with no PR in the same turn under R13 in [SKILL.md](../SKILL.md). Follow [bus-contracts.md](bus-contracts.md) if the cursor stays stale.
+- Own the holds, which are cci `hold` records.
+- Read the desk's 15-minute reports, and read priority PR state directly in one batched `ccx vcs pr status <n1> <n2> ...` call.
+- Dispatch every owed item with no PR in the same turn (R13 in [SKILL.md](../SKILL.md)).
+- Follow [bus-contracts.md](bus-contracts.md) if the desk's cursor stays stale.
 
 ## Desk rules
 
-**P3. Drive every owned lane in the same iteration.** The priority desk acts on all owed items in parallel, one dispatch per lane per iteration. It enqueues each stack's largest green, approved, unheld bottom prefix as soon as it sees it, following D1 and D3 in [landing.md](landing.md). It routes ejections, conflicts, and reds to the owning lane at once.
+**P3. Drive every owned lane in the same iteration.** Act on all owed items in parallel, one dispatch per lane per iteration. Enqueue each stack's largest green, approved, unheld bottom prefix as soon as it appears, following D1 and D3 in [landing.md](landing.md). Route ejections, conflicts, and reds to the owning lane at once.
 
-**P4. Dispatch unclaimed work at the PR deadline.** For pushed heads with no PR after 10 minutes, the desk checks the owning lane's active work before dispatching `<lane>-submit`, sonnet xhigh, in its own worktree. `<lane>-submit` does PR mechanics only and submits those exact heads as one linear stack. For an unbuilt owed item with no PR after 15 minutes, the desk dispatches a separate implementation lane only when no live lane is working on it. The desk keeps the original session and never duplicates its active work.
+**P4. Dispatch unclaimed work at the PR deadline.**
 
-**P5. Report the owed list every 15 minutes and idle when it is done.** The desk sends the coordinator each item as landed, queued, PR + blocker, or no PR + the lane launched for it, and includes `cursor #<seq>` or `cursor R<n>`. When every item is landed or proven, the desk reports once and keeps the session open and idle.
+- Pushed heads with no PR after 10 minutes: check the owning lane's active work, then dispatch `<lane>-submit` (sonnet xhigh, in its own worktree). It does PR mechanics only and submits those exact heads as one linear stack.
+- Unbuilt owed item with no PR after 15 minutes: dispatch a separate implementation lane only when no live lane is working on it.
+- Keep the original session and never duplicate its active work.
+
+**P5. Report the owed list every 15 minutes and idle when it is done.** Send the coordinator each item as landed, queued, PR + blocker, or no PR + the lane launched for it, with `cursor #<seq>` or `cursor R<n>`. When every item is landed or proven, report once and keep the session open and idle.
 
 ## Spawn brief
 
@@ -130,8 +143,8 @@ Do, in this order, every iteration:
      Include `cursor #<seq>`. Do not wait for this report to route a blocker.
 
 Rules:
-  - Run subagents and codex in the foreground only. Never background a subagent
-    and end the turn. The parallel enqueue calls in step 2 are collected before
+  - Run subagents and codex in the foreground (blocking), or end the turn and let
+    the Agent notification wake you. The parallel enqueue calls in step 2 are collected before
     the iteration ends.
   - Apply R7 before stating any PR's state. Read it; never report from memory.
   - Never touch another desk's lanes. Forward traffic for them to their desk.

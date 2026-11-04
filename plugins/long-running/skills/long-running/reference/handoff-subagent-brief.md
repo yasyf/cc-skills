@@ -1,17 +1,20 @@
 # The handoff subagent
 
-**Spawn `<lane>-handoff` as `long-running:lane` (model `sonnet`, effort `xhigh`) when a lane must be swapped.** Spawn it when a lane never answered a `ROTATE` ask, outgrew its context line, or died. It writes the handoff doc in cc-notes and returns its id. Fill the angle brackets and paste the brief.
+Spawn `<lane>-handoff` as `long-running:lane` (model `sonnet`, effort `xhigh`) when a lane must be swapped: it never answered a `ROTATE` ask, outgrew its context line, or died. It writes the handoff doc in cc-notes and returns its id. Fill the angle brackets and paste the brief.
+
+## Contents
+
+- [Stop the old lane and swap to the successor](#stop-the-old-lane-and-swap-to-the-successor)
+- [Successor brief](#successor-brief)
+- [Spawn brief](#spawn-brief)
 
 ## Stop the old lane and swap to the successor
 
-**Stop the old lane before spawning `<lane>-handoff`.** Call `TaskStop` with the lane's name as `task_id`, or for an Orca lane send the desk's `orca-desk: withdraw <lane>` line. Never `SendMessage` the old lane afterwards, including a stand-down, because any message resumes a stopped lane on its stale brief, and the hook pack forwards messages to the successor once it exists (`reference/watchers.md`).
-
-**Pass verified facts and read nothing of the old lane yourself.** Pass the drive checkout and the previous handoff's doc id (or `none`) in the spawn brief. Never read the old lane's transcript, receipts, cci deliveries, or runtime listings in the coordinator session. The subagent's reply is at most two lines:
-`handoff <lane>: doc <id>; successor <lane>-<N+1>` and
-`unverified: <n> items (in the doc)`.
-The doc carries everything else. Then do only the swap.
-
-**Spawn `<lane>-<N+1>` with the successor brief.** Prepend the successor brief below to the lane's unchanged reference brief. Its `Replaces: <lane>` line records the rotation so the hook pack holds sends to the old name even when no `<lane>-handoff` subagent ran.
+- Stop the old lane before spawning `<lane>-handoff`. Call `TaskStop` with the lane's name as `task_id`, or for an Orca lane send the desk's `orca-desk: withdraw <lane>` line.
+- Never `SendMessage` the old lane afterwards, including a stand-down. Any message resumes a stopped lane on its stale brief, and the hook pack forwards messages to the successor once it exists (`reference/watchers.md`).
+- Read nothing of the old lane yourself. Pass the drive checkout and the previous handoff's doc id (or `none`) in the spawn brief. Never read the old lane's transcript, receipts, cci deliveries, or runtime listings in the coordinator session.
+- The subagent's reply is two lines at most, `handoff <lane>: doc <id>; successor <lane>-<N+1>` and `unverified: <n> items (in the doc)`. The doc carries everything else. Then do only the swap.
+- Spawn `<lane>-<N+1>` with the successor brief below prepended to the lane's unchanged reference brief. Its `Replaces: <lane>` line records the rotation, so the hook pack holds sends to the old name even when no `<lane>-handoff` subagent ran.
 
 ## Successor brief
 

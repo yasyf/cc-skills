@@ -1,16 +1,34 @@
 # The merge-train lane
 
-Spawn one `merge-train` lane per hot set as `long-running:lane-ship`, model `opus`, with the landing desk, its own worktree, and a log per train. A hot set is the handful of files that nearly every open PR touches. A train turns the rows touching a hot set into one linear stack at a time and lands it whole instead of leaving each PR to rebase against the others alone. Run one train per hot set, never one for the whole repo, because a train is serial and one red car evicts every car above it. Two trains never share a PR.
+Spawn one `merge-train` lane per hot set as `long-running:lane-ship`, model `opus`, with the landing desk, its own worktree, and a log per train.
+
+A hot set is the handful of files that nearly every open PR touches. A train turns the rows touching a hot set into one linear stack at a time and lands it whole, instead of leaving each PR to rebase against the others alone.
+
+Run one train per hot set, never one for the whole repo, because a train is serial. Two trains never share a PR.
 
 ```sh
 ledger.py train --repo "$REPO" --ledger "$LEDGER" --paths 'infra/ci/src/pipelines/release/**' 'infra/engine.ts'
 ```
 
-`ledger.py train` prints at most six cars, placing green cars before conflicting but approved ones and ordering them by fewest file overlaps with the other cars and then oldest. It also prints the rows past the cap as the next train, the hot rows that are not ready, and the `ccx vcs stack rebase --linearize` line for the cars. It leaves out held rows and rows the queue already holds, and writes nothing. The globs are `fnmatch` globs, where `*` crosses `/`.
+`ledger.py train` writes nothing and lists:
+- at most six cars, green cars before conflicting but approved ones, ordered by fewest file overlaps with the other cars and then oldest;
+- the rows past the cap as the next train, and the hot rows that are not ready;
+- the `ccx vcs stack rebase --linearize` line for the cars.
+
+It leaves out held rows and rows the queue already holds. The globs are `fnmatch` globs, where `*` crosses `/`.
+
+## Contents
+
+- [Coordinator and desk discipline](#coordinator-and-desk-discipline)
+- [Spawn brief](#spawn-brief)
 
 ## Coordinator and desk discipline
 
-The desk routes a hot-set row to the train, not to its lane, under D7 in `reference/landing.md`. Lanes whose PRs touch the hot set report them to the train as `TRAIN #N <sha>` the moment they are green or conflicting, and never rebase or enqueue them again. The owning lane still pushes code fixes for its own PR's red, while the train restacks and enqueues. The coordinator answers the train's `RULING NEEDED` lines and nothing else.
+- The desk routes a hot-set row to the train, not to its lane (D7 in `reference/landing.md`).
+- Lanes whose PRs touch the hot set report them to the train as `TRAIN #N <sha>` the moment they are green or conflicting, and never rebase or enqueue them again.
+- The owning lane still pushes code fixes for its own PR's red, while the train restacks and enqueues.
+- The coordinator answers the train's `RULING NEEDED` lines and nothing else.
+- A stack that has sat conflicting for more than a day is rebased and landed as one batch through the train, not lane by lane.
 
 ## Spawn brief
 
@@ -41,10 +59,7 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
   1. Pick the cars.
      ledger.py refresh --repo <repo> --ledger <id>
      ledger.py train --repo <repo> --ledger <id> --paths <hot-set globs>
-     `train` prints at most six cars, green first, then conflicting but approved,
-     each group by fewest file overlaps with the other cars and then oldest. It
-     leaves out held rows and rows the queue already holds. Take its list; never
-     add a held, red, or queued PR to it.
+     Take its list; never add a held, red, or queued PR to it.
   2. Check the queue before any push. `ccx vcs pr status <n>...` over every car.
      A car that reads `queued` leaves the train untouched: the queue lands the
      snapshot it enqueued, and a push to it is silently left out of what lands.
@@ -82,7 +97,6 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
 
 Rules that are not the tool's to enforce:
   - At most six cars. One red car evicts every car above it from the queue.
-  - One train per hot set, never one for the whole repo: a train is serial.
   - Never push to a queued PR, and never re-queue an evicted one before its head
     changes and passes again.
   - Never restack a car that did not move. A pure restack restarts its CI and its

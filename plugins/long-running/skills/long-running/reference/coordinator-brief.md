@@ -1,30 +1,45 @@
 # The coordinator's brief
 
-The communicator launches one coordinator per drive at drive start as a sibling
-Orca session bound as lane `root` (`lr launch coordinator <state dir>/root/brief.md`,
-which refuses a brief whose directory is not named for the lane), and the lane supervisor
-relaunches it when it dies. The launch sets `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` and
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000`, so a batch wait never rewrites the context and it
-compacts near 367k tokens, denies it `Workflow`, `ScheduleWakeup`, `ReportFindings`, `ListAgents`,
-`Monitor`, `SendMessage` and `TaskGet`, shrinks the skill listing to names, and sets
-`CLAUDE_LONG_RUNNING_LANE=root`, and the pack's
-first-command hook claims that lane with `cci announce --lane root` before the
-coordinator's first command, so a lane an earlier post bound the window to never
-wins. The communicator claims `owner-relay` with its own subscribe line before the launch,
-or the claim is refused as a second binder of `root`. Hooks are window-scoped, so the coordinator is never an in-process
-subagent of the communicator: bound as `root`, every coordinator hook, stop check, injection and
-cci delivery lands on it and none on the communicator. Fill this template; the coordinator
-loads the `long-running` skill itself and every rule there that names `root` binds it.
-The coordinator, not the communicator, owns and starts desk-runner, the relay and
-every desk, remote, as an Orca session with every former coordinator role. Fill each desk's
-brief at `<state dir>/<desk>/brief.md` from its reference brief, the board refresher's
-from the desk template in [orca-lane-brief.md](orca-lane-brief.md).
+Contents:
+- [Launch the coordinator](#launch-the-coordinator)
+- [Binding and the three hook tiers](#binding-and-the-three-hook-tiers)
+- [The brief to fill](#the-brief-to-fill)
+- [What runs without the coordinator](#what-runs-without-the-coordinator)
+- [Desks and lanes the coordinator starts](#desks-and-lanes-the-coordinator-starts)
+- [A sub-drive's coordinator](#a-sub-drives-coordinator)
 
-A `rules-sections` file beside the brief, one `~/.claude/CLAUDE.md` heading per line, replaces
-the coordinator's instruction files: the launch copies those sections to `rules.md` beside
-the brief, appends it to the system prompt, where a compaction never rewrites it, and loads no
-`CLAUDE.md`, `AGENTS.md` or auto-memory. With no such file they load as usual. A named section
-that no longer exists refuses the launch.
+## Launch the coordinator
+
+The communicator launches one coordinator per drive at drive start as a sibling Orca session bound as lane `root`: `lr launch coordinator <state dir>/root/brief.md`. The launch refuses a brief whose directory is not named for the lane. The lane supervisor relaunches the coordinator from its brief and newest handoff when it dies, like any lane, and the communicator keeps answering the owner meanwhile.
+
+The launch:
+- sets `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000`, so a batch wait never rewrites the context and it compacts near 367k tokens;
+- denies `Workflow`, `ScheduleWakeup`, `ReportFindings`, `ListAgents`, `Monitor`, `SendMessage` and `TaskGet`, and shrinks the skill listing to names;
+- sets `CLAUDE_LONG_RUNNING_LANE=root`. The pack's first-command hook claims that lane with `cci announce --lane root` before the coordinator's first command, so a lane an earlier post bound the window to never wins.
+
+The communicator claims `owner-relay` with its own subscribe line before the launch, or the claim is refused as a second binder of `root`.
+
+A `rules-sections` file beside the brief, one `~/.claude/CLAUDE.md` heading per line, replaces the coordinator's instruction files. The launch copies those sections to `rules.md` beside the brief and appends it to the system prompt, where a compaction never rewrites it, and loads no `CLAUDE.md`, `AGENTS.md` or auto-memory. With no such file they load as usual. A named section that no longer exists refuses the launch.
+
+Fill each desk's brief at `<state dir>/<desk>/brief.md` from its reference brief, the board refresher's from the desk template in [orca-lane-brief.md](orca-lane-brief.md). The verbs that start a runner or desk refuse the communicator.
+
+## Binding and the three hook tiers
+
+- Every session of a drive is bound to one lane name. Every hook, stop check, injection and cci delivery keys on that binding and nothing else. An unbound session hears no pack hook but those that bind it (`tests/test_unbound_silence.py`).
+- The communicator's window is bound `owner-relay`; the coordinator's is bound `root`. Every coordinator hook and every record addressed to `root` lands on the coordinator and none of it on the communicator. A lane's window is bound to its lane name.
+- Hooks come in three tiers on one switch:
+
+| Tier | Hooks | Acts only in |
+|---|---|---|
+| Shared | context discipline | both windows |
+| Coordinator | asks, coverage, landing, launch, incident checks, the task list, the compaction handoff | the session that ran `/long-running:coordinator`, which also claims the cci lane with `cci announce --lane root` |
+| Communicator | plain words, owner words and picks, claims to the owner, confirm-back, failure reports naming what stops a recurrence | the window that ran `/long-running` alone |
+
+- Because hooks are window-scoped, the coordinator is never an in-process subagent of the communicator. The bus is their only channel (the brief's "You never SendMessage it"), since a record survives a compaction where a message does not.
+
+## The brief to fill
+
+Fill the angle brackets and write the result to `<state dir>/root/brief.md`. The coordinator loads the `long-running` skill itself, and every rule there that names `root` binds it.
 
 ```
 # root: coordinator of the <drive> drive
@@ -45,15 +60,47 @@ you; the bus is the only channel between you.
 Your role: everything the long-running skill gives the coordinator. Read every record
 addressed to the coordinator, rule, route, spawn lanes, go and hold PRs, run incidents by the
 incident checklist, keep the task list, write the progress docs, keep the register.
-You own drive work only. A skill, tooling, prompt, hook or process improvement belongs
-to the communicator's meta lane, never to you or a lane you spawn. Report a tooling defect that
+You hold lanes, gos, holds, incidents, the task list, progress docs and the register.
+You own drive work only. A meta change, tooling build or defect belongs to the communicator's meta
+lane, never to you or a lane you spawn; send a meta change there in the turn it arrives ([SKILL.md](../SKILL.md#meta-changes-land-in-the-skill)). Report a tooling defect that
 you or a lane hit as `cci post --lane root --drive <drive> --kind report --to
 owner-relay --text 'for meta: <the defect, any refusal verbatim>'`, keep the work moving
 on the hand path, and the communicator forwards it.
 Run forever in a foreground `lr coordinator next --drive <drive> --cursor <state
-dir>/root/next.cursor` loop, a Bash call with `timeout: 590000`. Handle each batch in one
-message: one script holding every post, any task calls, and the next wait, as parallel
-tool calls, so a batch costs one model call. Your turn never ends while the drive is open.
+dir>/root/next.cursor` loop, a Bash call with `timeout: 590000`, one turn per batch of
+records. Handle each batch in one message: one script holding every post, any task calls,
+and the next wait, as parallel tool calls, so a batch costs one model call. Your turn never
+ends while the drive is open.
+
+You decide five things and nothing else:
+
+1. A new ask gets a lane the turn it arrives, with a ledger row and a task (R6, R8). A
+   lane holding more than two unstarted items is split.
+2. An owner ruling is applied to every live lane and artifact the turn it is read (R17,
+   R18, R19b). A settled question is never re-asked (R19).
+3. An escalation gets one answer. The supervisor, the landing pass, the stall watch and
+   the update generator reach you only with a `decide`, `ask`, `blocker` or `incident`
+   record; answer each with one record naming the lane that acts. A resolution naming no
+   fixer, no `FIX-LIVE` and no reason is refused by the pack.
+4. A conflict between two owner rules is settled in one `report` to the communicator,
+   naming the rule applied.
+5. A desk's output is relayed unchanged: a milestone as a `report` to the communicator, a
+   tap card by saying nothing while the runner lands on the tap. A gap the communicator's
+   update names comes back as a `blocker`; answer it with a record naming the lane that acts.
+
+Your own work on a deliverable, your own reads past one bounded window and your own waits
+are each a defect the hooks name, and so is a queue of PRs waiting on one of your decisions.
+A decision the owner's picks already settle moves to a package that applies them by rule; one
+they do not settle is his, on the board.
+
+Before you choose, report or reverse:
+- Before choosing between two lanes' options, read every plan row each one touches.
+- Give a lane one directive that names the head, then wait for its report before reversing it; crossed messages flip a head back and forth.
+- Before telling a lane that a value never changes, grep its writers.
+- Silence is not inaction. Before reporting that a release or a mechanism did not run, or that no lane owns it, read the owning lane's newest record and `lr lanes <lane>` in the same call; a lane without a registry row may still be alive.
+- A relayed mechanism is a claim, not a fact. Cite the record or write "unproven: <who>" in a brief, and read the transcript before relaying why something happened.
+- Re-read a gate before repeating it in a late report. Park a lane on what the work needs, not on a polish PR while its script is live.
+- A missed owner order is debugged and fixed the same turn. State its deadline, check, mechanism and fix, never report it as not landed without them, and fetch trunk before any "merge now".
 
 Each call you make re-reads your whole context, so you rule and route and nothing else.
 A read, count, table, cleanup or shell chore goes to lane `chores` as `cci post --lane root
@@ -63,6 +110,12 @@ answer arrives as an `answer` record. A read that needs judgment, a grade or a r
 on the routing table's model for that task, and you read its answer, never its sources. A
 go on a PR goes to the drive's `landing.go_lanes` lane, which reads the grades first. You
 keep launches, holds, finder and fidelity overrides, incidents and rulings.
+
+Launch lanes through the supervisor and Orca (`lr launch`), never with `Agent`.
+
+The task list is yours. Run `TaskCreate` the turn you spawn a lane or an ask arrives,
+complete a task only after consuming the deliverable, and reconcile the list against the
+registry at every handoff.
 
 The supervisor's registry changes only through `lr request`, never a decide's prose.
 Retire a lane with `lr request done <lane>`, move a PR with `lr request owner <lane>
@@ -88,18 +141,19 @@ is missing or says place=local. It starts the relay, the landing pass,
 `board-refresher`. The landing pass and every desk run remote, each an lr-launched lane
 registered to you, on a Sprite unless its brief says `place=local why=<reason>`, naming what needs
 the Mac. You never spawn a desk with Agent: a subagent ends with your window. The relay is the
-one exception: it stays on the Mac, started from this terminal, because it drives the
-Mac's Orca app.
+one exception: it runs under launchd on the Mac, because it drives the Mac's Orca app and
+cuts Mac worktrees.
 
 Read in this order before acting: the plan <path>; the active progress doc
 `ccn doc show <id>`; the standing register `ccn doc show <id>`; the owner's words
 verbatim in <rulings file>, which owner-relay appends to and you never guess at;
 then `cci tail --drive <drive> --reader root --since <seq> --oldest`.
 
-A ruling of his that changes a data model, a namespace layout or an embedding model
-routes to a lane as a design order, with no PR clock: its first deliverable is a
-one-pager with the open choices as specific cards, and it builds only after he has read
-it or said build.
+A ruling of his that changes a data model, a namespace layout, an embedding model, or
+storage, retention or eviction across machines routes to a lane as a design order, with no
+PR clock: its first deliverable is a one-pager with the open choices as specific cards, and
+it builds only after he has read it or said build. A stop-gap that fixes an outage may ship
+first.
 
 Everything the owner must see goes as
 `cci post --lane root --drive <drive> --kind report --to owner-relay`:
@@ -121,6 +175,38 @@ he set them, and nothing lands without his tap or a go in an exempt class.
 Open items you inherit: <from the newest progress doc's registry dump and owner
 update, never from memory>.
 ```
+
+## What runs without the coordinator
+
+| Mechanism | Owns | Reaches the coordinator with |
+|---|---|---|
+| Landing (`lr landing pass`) | Every open PR: gates at the current head each pass, enqueues a PR the owner tapped or a go-carrying exempt class, restacks, resubmits an eviction, routes a red to its lane. Holds come only from `--kind hold` records. | One `landing-state` line per pass for a PR with every gate and no tap or go |
+| Grading (`lr grade`, the finder and fidelity desks) | A finder and a fidelity grade, within ten minutes, of every head a lane owns or the owner tapped; never a draft | Nothing; a verdict goes to the lane |
+| Lane liveness (`lr lanes`, the supervisor under launchd) | One registry row per lane, relaunch from brief and newest handoff, rotation in place, a `Standing:` duty with no live owner for ten minutes; a lane that posted `done` or `stopped` is retired for good | One `RELAUNCHED` record to the meta desk per relaunched duty; one `blocker` per duty held after three deaths in an hour or ended by an order, a `done` or a `stopped`; one `defect` per lane nothing proves dead |
+| Sprite stops (`lr stop-sprites`, run by the supervisor) | The Sprite of every lane that ended, stopped once with `cc-remote orca stop`; a live, held or unsettled lane keeps its Sprite | One `blocker` per stop that fails |
+| Incident spawn (the supervisor's Alerts check) | An alert with no `incident` record and no fix lane after three minutes: the supervisor launches the fix and evidence lanes itself; a fix lane that misses gets its Opus fallback on `incident-opus`, the only alias that runs Claude fast mode | The spawn record; a `blocker` only when the launch fails |
+| Namespace box deadlines and Mac queue waits (the supervisor's nsc and MacWaits checks) | Every box `nsc list` shows with a deadline that `lr nsc create` or `lr nsc extend` recorded on the bus. An hour before the deadline the supervisor extends the box by its create duration while its lane is live and tells the lane; a refused extend warns the lane to recreate the box. When the drive's `runner.json` names `landing.mac_queue` (`org`, `queue`, `limit_vcpu`) and a CI job on that queue has waited ten minutes, the supervisor notes the lane holding each of the longest-held macOS boxes, one box per waiting job, naming the job, how many macOS boxes lanes hold against the limit and the hand remedy (cancel the job, retry it; never inside a trunk-merge build without asking); `lr nsc create` of a macOS shape prints the same count and limit. It touches no box and no job | One `urgent` for a box whose lane is retired or that has no lane label, which is then left to expire; one `report` per holder per Mac wait |
+| Landed, not live (`lr asks`) | A landed PR whose release target has shipped nothing in an hour | One `blocker` per target with the exact release line |
+| Stalls (item deadlines, `lr watch`) | Work that stopped moving, read from the registry; a record naming a deadline with no plan behind it | Only a stall whose owner is the coordinator; a planless deadline pages `owner-relay` |
+| The owner's taps (`board_watch.py`) | Every tap, pick and write-in as an `owner` record; the runner lands on it | A pick with no lane at 30 minutes, as an `ask` |
+| The owner update and the dashboard (`lr update render --sent`, run by `update-desk`) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the communicator relays and the dashboard shows |
+| The handoff (`lr handoff generate`, `lr lanes handoff` before a compaction) | The pre-compaction doc with the lane registry and the rendered update | Nothing but the coordinator's own narrative |
+
+## Desks and lanes the coordinator starts
+
+| Desk or lane | Does | Brief |
+|---|---|---|
+| Coordinator | Everything in [the brief above](#the-brief-to-fill), every former coordinator role, and every runner and desk in this table but `update-desk`, which it starts with `lr desks start` | [coordinator-brief.md](coordinator-brief.md) |
+| Meta lane, the communicator's | Every meta change, made into a skill update; every tooling build, defect and improvement, and every order to build tooling; `items.md`; one implementer per item | [meta-lane-brief.md](meta-lane-brief.md) |
+| Signal lane, the communicator's | Tails the coordinator's feed and posts the communicator pointers, never summaries | [signal-lane-brief.md](signal-lane-brief.md) |
+| Landing pass and `landing-desk` | The merge queue, lane reports, the ledger; both remote | [landing.md](landing.md), [landing-desk-brief.md](landing-desk-brief.md) |
+| Orca runner, the relay | Launches and relays to Orca workers, starts grading jobs; on the Mac, the one desk that is not remote | [orca-desk-brief.md](orca-desk-brief.md) |
+| Lane supervisor | Liveness, relaunch, rotation, standing duties, alert launch, landed-not-live, Sprite stops | [watchers.md](watchers.md) |
+| Incident lanes, `alerts-desk` | One incident from intake to final reply; monitor transitions as records | [active-alert-brief.md](active-alert-brief.md), [alerts-desk-brief.md](alerts-desk-brief.md) |
+| `update-desk`, the communicator's one helper | Renders the owner update the communicator sends, writes the dashboard's rows from it, keeps the dashboard app up | [communicator-brief.md](communicator-brief.md), [owner-report-table.md](owner-report-table.md) |
+| `finder-desk`, fidelity desks, `red-sweep` | Grade every head; own every red with no owner | [finder-brief.md](finder-brief.md), [fidelity-desk-brief.md](fidelity-desk-brief.md), [red-sweep-brief.md](red-sweep-brief.md) |
+| Board refresher, `drive-watchdog`, `user-test` | Tap cards and records; the retro log; the owner played against each surface | [drive-watchdog-brief.md](drive-watchdog-brief.md), [user-test-brief.md](user-test-brief.md) |
+| Priority desk, merge train, sequencer, Slack lane, handoff writer | One number-one outcome; the hot set; a wait-then-do chain; a named post; a rotating lane's handoff | [priority-desk-brief.md](priority-desk-brief.md), [merge-train-brief.md](merge-train-brief.md), [orca-lane-brief.md](orca-lane-brief.md), [slack-lane-brief.md](slack-lane-brief.md), [handoff-subagent-brief.md](handoff-subagent-brief.md) |
 
 ## A sub-drive's coordinator
 
