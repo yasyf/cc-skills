@@ -37,6 +37,7 @@ const (
 	codeRuntimeUnavailable = "runtime_unavailable"
 	codeRemoteUnavailable  = "remote_runtime_unavailable"
 	codeTimeout            = "timeout"
+	remoteHost             = "remote"
 	codeUnparseable        = "unparseable"
 	inProgress             = "in_progress"
 	terminalEnv            = "ORCA_TERMINAL_HANDLE"
@@ -106,6 +107,7 @@ type subject struct {
 	environment string
 	dispatch    string
 	listed      string
+	host        string
 	failure     *orcaError
 }
 
@@ -119,6 +121,7 @@ type seen struct {
 	title     string
 	countdown string
 	code      string
+	message   string
 	reused    bool
 }
 
@@ -163,7 +166,7 @@ func unseenState(e *orcaError) (State, string) {
 
 func unread(s subject, e *orcaError, since *int64) seen {
 	state, detail := unseenState(e)
-	return seen{subject: s, state: state, detail: detail, since: since, code: e.Code}
+	return seen{subject: s, state: state, detail: detail, since: since, code: e.Code, message: e.Message}
 }
 
 func unreadable(s subject, why error) seen {
@@ -219,6 +222,10 @@ type listedWorker struct {
 		Evidence struct {
 			LiveStatus string `json:"liveStatus"`
 		} `json:"evidence"`
+		Host struct {
+			Kind string `json:"kind"`
+			ID   string `json:"id"`
+		} `json:"host"`
 	} `json:"projection"`
 }
 
@@ -254,6 +261,7 @@ func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]s
 	}
 	var dispatches []string
 	signatures := map[string]string{}
+	hosts := map[string]string{}
 	var cursor []string
 	var run string
 	for {
@@ -274,6 +282,9 @@ func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]s
 			if worker.Projection.Outcome == inProgress {
 				dispatches = append(dispatches, worker.DispatchID)
 				signatures[worker.DispatchID] = worker.signature()
+				if worker.Projection.Host.Kind == remoteHost {
+					hosts[worker.DispatchID] = worker.Projection.Host.ID
+				}
 			}
 		}
 		if !result.Page.HasMore {
@@ -290,6 +301,7 @@ func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]s
 	}
 	for i := range found {
 		found[i].listed = signatures[found[i].dispatch]
+		found[i].host = hosts[found[i].dispatch]
 	}
 	return found, nil
 }
@@ -782,15 +794,24 @@ func (w *Watch) unchanged(s subject, row *Row) bool {
 		len(row.Alerts) == 0 && w.Now().Sub(parseStamp(row.ShownAt)) < w.Reshow
 }
 
-func (w *Watch) observeAll(ctx context.Context, subjects []subject, rows map[string]*Row) []seen {
+func (w *Watch) observeAll(ctx context.Context, subjects []subject, rows map[string]*Row, down map[string]downHost) []seen {
 	found := make([]seen, len(subjects))
 	limit := make(chan struct{}, showWorkers)
 	var group sync.WaitGroup
+	probing := map[string]bool{}
 	for i, s := range subjects {
 		if row := rows[s.key]; w.unchanged(s, row) {
 			s.terminal, s.environment = row.Terminal, row.Environment
 			found[i] = seen{subject: s, state: Clear, reused: true}
 			continue
+		}
+		if host, isDown := down[s.host]; isDown && w.Reshow > 0 {
+			if probing[s.host] || w.Now().Sub(parseStamp(host.At)) < w.Reshow {
+				found[i] = unread(s, &orcaError{host.Code, host.Message}, nil)
+				found[i].reused = true
+				continue
+			}
+			probing[s.host] = true
 		}
 		group.Go(func() {
 			limit <- struct{}{}
@@ -800,6 +821,26 @@ func (w *Watch) observeAll(ctx context.Context, subjects []subject, rows map[str
 	}
 	group.Wait()
 	return found
+}
+
+func hostsDown(found []seen, prior map[string]downHost, at string) map[string]downHost {
+	down := map[string]downHost{}
+	for _, s := range found {
+		if s.reused && s.subject.host != "" && s.code != "" {
+			down[s.subject.host] = prior[s.subject.host]
+		}
+	}
+	for _, s := range found {
+		if !s.reused && s.subject.host != "" && s.code == codeRemoteUnavailable {
+			down[s.subject.host] = downHost{At: at, Code: s.code, Message: s.message}
+		}
+	}
+	for _, s := range found {
+		if !s.reused && s.subject.host != "" && s.code != codeRemoteUnavailable {
+			delete(down, s.subject.host)
+		}
+	}
+	return down
 }
 
 func downCodes(found []seen) []string {
@@ -893,7 +934,7 @@ func (w *Watch) poll(ctx context.Context, e Entry) error {
 	if err != nil {
 		return err
 	}
-	found := w.observeAll(ctx, subjects, rows)
+	found := w.observeAll(ctx, subjects, rows, state.Down)
 	down := downCodes(found)
 	var supervisor, unlisted *seen
 	for i := range found {
@@ -926,7 +967,7 @@ func (w *Watch) poll(ctx context.Context, e Entry) error {
 	if err := w.settleGone(ctx, e, rows, fresh, unlisted, supervisor); err != nil {
 		return err
 	}
-	return writeAtomic(e.statePath(), saved{Drive: e.Drive, At: stamp(w.Now()), PID: os.Getpid(), Subjects: fresh})
+	return writeAtomic(e.statePath(), saved{Drive: e.Drive, At: stamp(w.Now()), PID: os.Getpid(), Subjects: fresh, Down: hostsDown(found, state.Down, stamp(w.Now()))})
 }
 
 func (w *Watch) Check(ctx context.Context, e Entry) error {
