@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import re
+import subprocess
+from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, on, Tool, Warn
+from captain_hook.util import reqenv
 
-from .compaction_handoff import Bound
+from .call_dir import unknown_dir
+from .compaction_handoff import Bound, script_module
 from .pr_ledger import response_text
 
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}
@@ -15,6 +19,8 @@ ON_THE_LINE = "A credential on a command line reaches the transcript and the pro
 INTO_SHELL = "A shell runs what it reads, so a credential piped into one prints in an error. Write it to a 0600 file or send it to `curl --data-binary @-` instead."
 PRINTED = "This output holds a credential, now in your transcript. Post a blocker to meta-desk and owner-relay without the value, naming which credential and where it went; rotating it is the owner's call."
 FAKE = "gho_" + "a" * 36
+GREP_SECONDS = 10
+GREP = ["git", "grep", "-lF", "--untracked", "-f", "-"]
 ENV_HOLDING_KINDS = frozenset(
     {"all", "configmap", "configmaps", "cm", "cronjob", "cronjobs", "cj", "daemonset", "daemonsets", "ds", "deployment", "deployments", "deploy", "job", "jobs", "pod", "pods", "po", "replicaset", "replicasets", "rs", "secret", "secrets", "statefulset", "statefulsets", "sts"}
 )
@@ -53,12 +59,33 @@ def refusal(line: str) -> str | None:
     Event.PostToolUse,
     only_if=[Bound(), Tool("Bash")],
     tests={
-        Input(command="bash script.sh", env=LANE, output=f"bash: line 1: {FAKE}: command not found"): Warn(pattern=r"^This output holds a credential"),
+        Input(command="bash script.sh", env=LANE, output=f"bash: line 1: {FAKE}: command not found", commands={"git grep": (1, "")}): Warn(pattern=r"^This output holds a credential"),
+        Input(command="rg -n gho_ tests", env=LANE, output=f"tests/test_hold.py:176: {FAKE}", commands={"git grep": "tests/test_hold.py\n"}): Allow(),
+        Input(command="cat docs/notes.md", env=LANE, output=FAKE, commands={"git grep": "docs/notes.md\n"}): Warn(pattern=r"^This output holds a credential"),
+        Input(command=". /env.sh; cd $A; rg -n gho_ tests", env=LANE, output=FAKE, commands={"git grep": (1, "")}): Warn(pattern=r"^This output holds a credential"),
         Input(command="git status", env=LANE, output="clean"): Allow(),
     },
 )
 def a_printed_credential_is_reported(evt: BaseHookEvent) -> HookResult | None:
-    return evt.context(PRINTED) if TOKEN.search(response_text(evt.tool_response)) else None
+    return evt.context(PRINTED) if any(not committed_fixture(evt, token) for token in set(TOKEN.findall(response_text(evt.tool_response)))) else None
+
+
+def read_dirs(evt: BaseHookEvent) -> set[str]:
+    calls = evt.command.calls()
+    named = (Path(arg) for call in calls for arg in call.args if arg.startswith("/"))
+    return {str(call.cwd or evt.cwd) for call in calls if not unknown_dir(evt, call)} | {str(path if path.is_dir() else path.parent) for path in named if path.exists()}
+
+
+def committed_fixture(evt: BaseHookEvent, token: str) -> bool:
+    tests = script_module("long_running.testfiles").TEST_FILE
+    return any(tests.search(name) for directory in read_dirs(evt) for name in files_holding(token, directory))
+
+
+def files_holding(token: str, directory: str) -> list[str]:
+    try:
+        return subprocess.run(GREP, input=token, capture_output=True, text=True, cwd=directory, timeout=reqenv.clamp_timeout(GREP_SECONDS)).stdout.splitlines()
+    except (OSError, subprocess.TimeoutExpired):
+        return []
 
 
 @on(  # capt-hook: no-escape the owner ordered a refusal, and a printed credential cannot be taken back
