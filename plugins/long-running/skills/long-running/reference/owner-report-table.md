@@ -32,7 +32,7 @@ Under the table, one line names each live lane no row holds, so a gap shows the 
 8. **The plan.** One heading per plan, in plain words. Under it a step with no changed row since the last update he was sent is one line, and a step with a changed row gets its own table, step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out. An open step no live lane holds names the last lane that worked it and when.
 9. **Lanes by workstream.** One table per other step a brief names in words, then the lanes on no step, which include any lane whose brief names a raw code such as `S5` or a step the plan lacks.
 10. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
-11. Registry lanes quiet over a day, what waits on the coordinator, board picks, and what lanes delivered in the last two hours.
+11. Registry lanes quiet over a day, what waits on the coordinator, one line linking his open taps on the dashboard's Needs me tab, and what lanes delivered in the last two hours.
 12. **Gaps in this update.** Present only when a message of his has no record carrying it, a live lane is in no workstream, the workstream list is missing, empty or unreadable, a tooling program has no blocker, or the meta lane's list has no programs.
 13. **One closing line.** Present only when the render folded or dropped something, and it names each thing it folded or dropped.
 

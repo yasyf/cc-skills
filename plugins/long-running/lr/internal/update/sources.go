@@ -55,6 +55,7 @@ type Sources struct {
 	Overdue  func(now time.Time) ([]store.Item, error)
 	Orders   func(ctx context.Context) ([]owner.Row, error)
 	Pins     []drive.Pin
+	TapQueue func() (string, error)
 	Where    func(ctx context.Context, shas map[int]string) map[int]string
 }
 
@@ -154,6 +155,9 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	}
 	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
 	in.Board, in.Cards, in.Unboarded = boardOf(ctx, src, day)
+	if in.TapQueue, err = src.TapQueue(); err != nil {
+		return Inputs{}, err
+	}
 	in.Streams, in.Unread = src.Streams()
 	in.Leading = leadingAsks(all)
 	if shas := landedSHAs(src.Pins, in.Leading, book); len(shas) > 0 {

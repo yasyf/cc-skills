@@ -42,6 +42,7 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 		Owed:     func(context.Context) ([]deletions.Owed, error) { return nil, nil },
 		Programs: func() ([]Program, error) { return nil, nil },
 		Streams:  func() ([]Workstream, error) { return nil, nil },
+		TapQueue: func() (string, error) { return "", nil },
 		Rulings:  func(context.Context) ([]PlanRuling, error) { return nil, nil },
 		Overdue:  func(time.Time) ([]store.Item, error) { return nil, nil },
 		Orders:   func(context.Context) ([]owner.Row, error) { return nil, nil },
@@ -253,6 +254,20 @@ func TestAHoldHoldsEveryPRItWasPostedWithAndNoneItsTextCites(t *testing.T) {
 	want := map[string]int64{"9": 1, "10": 2, "11": 2}
 	if got := heldPRs([]Record{cites, refs, closed}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("held = %v", got)
+	}
+}
+
+func TestTheUpdateLinksHisTapsAndNeverListsThem(t *testing.T) {
+	in := Inputs{Now: now, TapQueue: "https://dash.example/#/needs", Cards: []board.Wait{{Kind: "tap", PR: "49545"}, {Kind: "pick", Title: "Should the credential write runs?"}}}
+	lines := yourTaps(in)
+	if !reflect.DeepEqual(lines, []string{"- [2 open, in the order they free work](https://dash.example/#/needs)"}) {
+		t.Fatalf("taps = %v", lines)
+	}
+	if in.TapQueue = ""; !strings.Contains(yourTaps(in)[0], "Needs me") {
+		t.Fatalf("with no link configured the line must still name the screen: %v", yourTaps(in))
+	}
+	if in.Cards = nil; yourTaps(in) != nil {
+		t.Fatalf("nothing open prints nothing: %v", yourTaps(in))
 	}
 }
 
