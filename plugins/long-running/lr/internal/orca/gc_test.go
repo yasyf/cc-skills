@@ -1044,6 +1044,100 @@ func TestSpriteVerdicts(t *testing.T) {
 	}
 }
 
+func TestOnlyASettledLanesKeptSpriteLosesItsTunnel(t *testing.T) {
+	dirty := checkout(testSprite.Root, dirtyTree)
+	unreadable := CheckoutRead{Refusal: "sprite exec on pool-abc could not read it"}
+	cases := []struct {
+		name   string
+		rows   []Worker
+		idle   []Idleness
+		read   *CheckoutRead
+		refuse string
+		closes bool
+		said   string
+	}{
+		{name: "unsaved work keeps the box and lets it sleep", read: &CheckoutRead{Found: &dirty}, closes: true, said: "keep pool-abc uncommitted changes; no tunnel holds it"},
+		{name: "an unreadable checkout keeps the box and lets it sleep", read: &unreadable, closes: true, said: "no tunnel holds it"},
+		{name: "a refused destroy keeps the box and lets it sleep", refuse: "machine lacks the workspace label", closes: true, said: "no tunnel holds it"},
+		{name: "a busy terminal keeps its tunnel", idle: []Idleness{IdleBusy}, read: &CheckoutRead{Found: &dirty}, said: "keep pool-abc terminal term_sprite is " + notIdle},
+		{name: "a terminal that wakes before the destroy keeps its tunnel", idle: []Idleness{IdleQuiet, IdleBusy}, said: "keep pool-abc " + changed},
+		{name: "a live dispatch on the box keeps its tunnel", rows: []Worker{spriteRow("ctx_t", status("dispatched"))}, read: &CheckoutRead{Found: &dirty}, said: "keep pool-abc serves an unsettled dispatch"},
+		{name: "a destroyed box needs no close", said: "destroyed pool-abc"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			orca := newOrca(append([]Worker{spriteRow("ctx_s")}, c.rows...)...)
+			if c.idle != nil {
+				orca.idle["term_sprite"] = c.idle
+			}
+			fleet := hostedFleet()
+			fleet.refusal = c.refuse
+			if c.read != nil {
+				fleet.reads["pool-abc"] = *c.read
+			}
+			_, out := runGC(t, orca, newGit(), gcOptions{fleet: fleet})
+			if closed := len(fleet.unheld) == 1; closed != c.closes {
+				t.Fatalf("closed tunnels %v, want closes=%v", fleet.unheld, c.closes)
+			}
+			if !strings.Contains(out, c.said) {
+				t.Fatalf("output %q lacks %q", out, c.said)
+			}
+		})
+	}
+}
+
+func TestADryRunClosesNoTunnelAndARefusedCloseIsSaid(t *testing.T) {
+	dirty := checkout(testSprite.Root, dirtyTree)
+	fleet := hostedFleet()
+	fleet.reads["pool-abc"] = CheckoutRead{Found: &dirty}
+	_, out := runGC(t, newOrca(spriteRow("ctx_s")), newGit(), gcOptions{dryRun: true, fleet: fleet})
+	if len(fleet.unheld) != 0 || !strings.Contains(out, "would close its tunnel") {
+		t.Fatalf("closed %v, output %q", fleet.unheld, out)
+	}
+	fleet.tunnel = "ssh -O exit exited 255"
+	_, out = runGC(t, newOrca(spriteRow("ctx_s")), newGit(), gcOptions{fleet: fleet})
+	if !strings.Contains(out, "its tunnel stays: ssh -O exit exited 255") {
+		t.Fatal(out)
+	}
+}
+
+func TestClosingATunnelUsesThatLanesOwnControlPathAndOnlyWhenOneIsUp(t *testing.T) {
+	state := t.TempDir()
+	if err := os.Mkdir(filepath.Join(state, "orca"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	task := `{"forward":{"host":"pool-abc","config":"/state/ssh/pool-abc.ssh","control":"/tmp/ccr-1/%C"}}`
+	if err := os.WriteFile(filepath.Join(state, "orca", "pool-abc.json"), []byte(task), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	argv := func(operation string) []string {
+		return []string{"ssh", "-F", "/state/ssh/pool-abc.ssh", "-S", "/tmp/ccr-1/%C", "-o", "BatchMode=yes", "-O", operation, "pool-abc"}
+	}
+	up := &scripted{reply: func([]string) (string, string, int) { return "", "", 0 }}
+	if refusal := (CCRemote{Runner: up, State: state}).CloseTunnel(context.Background(), testSprite); refusal != "" {
+		t.Fatal(refusal)
+	}
+	if len(up.calls) != 2 || !slices.Equal(up.calls[0], argv("check")) || !slices.Equal(up.calls[1], argv("exit")) {
+		t.Fatalf("calls %v", up.calls)
+	}
+	down := &scripted{reply: func([]string) (string, string, int) { return "", "Control socket connect: No such file", 255 }}
+	if refusal := (CCRemote{Runner: down, State: state}).CloseTunnel(context.Background(), testSprite); refusal != "" {
+		t.Fatal(refusal)
+	}
+	if len(down.calls) != 1 {
+		t.Fatalf("no master to close, yet calls %v", down.calls)
+	}
+	refused := &scripted{reply: func(argv []string) (string, string, int) {
+		if slices.Contains(argv, "exit") {
+			return "", "mux denied", 255
+		}
+		return "", "", 0
+	}}
+	if refusal := (CCRemote{Runner: refused, State: state}).CloseTunnel(context.Background(), testSprite); !strings.Contains(refusal, "mux denied") {
+		t.Fatalf("refusal %q", refusal)
+	}
+}
+
 func TestASettledLanesCleanLandedSpriteIsDestroyedWithItsEnvironment(t *testing.T) {
 	orca, fleet := newOrca(spriteRow("ctx_s")), hostedFleet()
 	tally, out := runGC(t, orca, newGit(), gcOptions{fleet: fleet})

@@ -291,6 +291,7 @@ type SpriteFleet interface {
 	Remote(checkout Checkout) Remote
 	Holder(ctx context.Context, sprite Sprite) (string, error)
 	Destroy(ctx context.Context, sprite Sprite) (string, error)
+	CloseTunnel(ctx context.Context, sprite Sprite) string
 }
 
 type CCRemote struct {
@@ -307,7 +308,9 @@ type ccRemoteTask struct {
 	Worktree    string `json:"worktreeId"`
 	Terminal    string `json:"terminal"`
 	Forward     *struct {
-		Host string `json:"host"`
+		Host    string `json:"host"`
+		Config  string `json:"config"`
+		Control string `json:"control"`
 	} `json:"forward"`
 }
 
@@ -510,6 +513,34 @@ func (c CCRemote) tool(ctx context.Context) (string, []string, error) {
 		return command, nil, nil
 	}
 	return command, []string{ccRemoteConfigEnv + "=" + config}, nil
+}
+
+func (c CCRemote) CloseTunnel(ctx context.Context, sprite Sprite) string {
+	raw, err := os.ReadFile(filepath.Join(c.State, "orca", sprite.Workspace+".json"))
+	if err != nil {
+		return err.Error()
+	}
+	var task ccRemoteTask
+	if err := json.Unmarshal(raw, &task); err != nil {
+		return err.Error()
+	}
+	control := func(operation string) shell.Command {
+		return shell.Command{Argv: []string{"ssh", "-F", task.Forward.Config, "-S", task.Forward.Control, "-o", "BatchMode=yes", "-O", operation, task.Forward.Host}, Timeout: spriteReadTimeout}
+	}
+	var exit *shell.ExitError
+	if _, err := c.Runner.Run(ctx, control("check")); errors.As(err, &exit) {
+		return ""
+	} else if err != nil {
+		return err.Error()
+	}
+	result, err := c.Runner.Run(ctx, control("exit"))
+	if errors.As(err, &exit) {
+		return describeExit(result.Stderr, "ssh -O exit exited %d", result.Code)
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func (c CCRemote) Destroy(ctx context.Context, sprite Sprite) (string, error) {
