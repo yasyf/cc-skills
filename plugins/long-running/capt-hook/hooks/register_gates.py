@@ -25,7 +25,7 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, ROOT_LANE, Bound, Communicator, CompactionState, Coordinator, bus_name, ccn, communicator_tests, coordinator_tests, drive_entry, post_blocker, rulings, script
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, LOCK_WAIT_ENV, REGISTER_FENCE, ROOT_LANE, Bound, Communicator, CompactionState, Coordinator, bus_name, ccn, communicator_tests, coordinator_tests, drive_entry, post_blocker, rulings, script
 from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
 from .nudges import once_per_hour
@@ -68,6 +68,7 @@ NOT_FOUND = 3
 EXCERPT = 160
 GATE_READ_SECONDS = 5
 LEDGER_SYNC_ENV = "LONG_RUNNING_LEDGER_SYNC"
+GATE_LOCK_WAIT = "2s"
 BLOCKERS = "register-blockers"
 READ_ERRORS = (subprocess.SubprocessError, OSError, ValueError, KeyError)
 UNROWED_ANSWER = (
@@ -160,7 +161,7 @@ ROSTER = "Lane lane-x: drop the roster refresh timer."
 
 
 def read_register(evt: BaseHookEvent, which: list[str]) -> dict:
-    return json.loads(rulings(str(evt.cwd), "rows", *which, "--json", evt=evt, timeout=GATE_READ_SECONDS))
+    return json.loads(rulings(str(evt.cwd), "rows", *which, "--json", evt=evt, timeout=GATE_READ_SECONDS, lock_wait=GATE_LOCK_WAIT))
 
 
 def cause(error: Exception) -> str:
@@ -836,14 +837,14 @@ def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
 
 def has_pr(entry: dict, lane: str) -> bool:
     argv = [sys.executable, str(script("ledger.py")), "-C", entry["checkout"], "list", "--ledger", entry["ledger"], "--repo", entry["repo"], "--lane", lane, "--json"]
-    done = subprocess.run(argv, capture_output=True, text=True, timeout=GATE_READ_SECONDS, env={**reqenv.env_map(), LEDGER_SYNC_ENV: "0"})
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=GATE_READ_SECONDS, env={**reqenv.env_map(), LEDGER_SYNC_ENV: "0", LOCK_WAIT_ENV: GATE_LOCK_WAIT})
     done.check_returncode()
     return bool(json.loads(done.stdout))
 
 
 def acceptance(evt: BaseHookEvent, lane: str, drive: str) -> str:
     try:
-        said = rulings(str(evt.cwd), "accepted", "--lane", lane, "--drive", drive, evt=evt, timeout=GATE_READ_SECONDS)
+        said = rulings(str(evt.cwd), "accepted", "--lane", lane, "--drive", drive, evt=evt, timeout=GATE_READ_SECONDS, lock_wait=GATE_LOCK_WAIT)
     except subprocess.CalledProcessError as refused:
         if not (refused.stdout or "").startswith(CONTRACT_MISSING):
             raise

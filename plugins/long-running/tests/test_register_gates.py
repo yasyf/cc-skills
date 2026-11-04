@@ -270,6 +270,7 @@ def test_the_pr_check_reads_the_ledger_without_a_network_sync_or_a_long_wait(mon
     with mock.patch.object(register_gates.subprocess, "run", return_value=ran) as run:
         assert not register_gates.has_pr({"checkout": "/repo", "ledger": LEDGER, "repo": "o/r"}, "lane-a")
     assert run.call_args.kwargs["env"][register_gates.LEDGER_SYNC_ENV] == "0"
+    assert run.call_args.kwargs["env"][register_gates.LOCK_WAIT_ENV] == register_gates.GATE_LOCK_WAIT
     assert run.call_args.kwargs["timeout"] == register_gates.GATE_READ_SECONDS
 
 
