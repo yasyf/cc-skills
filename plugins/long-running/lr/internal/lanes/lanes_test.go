@@ -2522,6 +2522,20 @@ func TestAMetaDesksSuccessorLaunchedByAnotherLaneStaysTheMetaDeskForItsHelpers(t
 	equal(t, must(MetaDesk(s)), "meta-desk-3")
 }
 
+func TestASpawnThatTakesOverALiveLaneOfItsFamilyStandsItDownOnTheBus(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := adopted(t, s, brief, "")
+	f.feed = append(f.feed, spawned(2, "conflicts-3", brief, t0, nil))
+	f.peers = append(f.peers, who("conflicts-3", true, t0))
+
+	tick(t, s, f, t0.Add(time.Minute))
+
+	downs := f.ofKind("stand-down")
+	equal(t, len(downs), 1)
+	equal(t, []any{downs[0].To, downs[0].Successor}, []any{[]string{lane2}, "conflicts-3"})
+	equal(t, row(t, s, lane2).RetiredBy, "conflicts-3")
+}
+
 func TestASuccessorKeepsTheRoleItsSpawnNames(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	f := newFake(t, []Record{

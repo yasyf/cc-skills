@@ -389,6 +389,34 @@ func TestWhatALaunchOwesFollowsItsLaneItsBriefAndItsModel(t *testing.T) {
 	}
 }
 
+func TestALaunchOfAStemTakesTheNumberPastEveryNameItsStemEverHad(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	f := newPosterFixture(t)
+	for _, d := range []client.Draft{
+		{Drive: "prog", Lane: "supervisor", Kind: "stand-down", Text: "desk-4 stood down", To: []string{"desk-4"}, Successor: "desk-5"},
+		{Drive: "prog", Lane: "owner-relay", Kind: "state", Text: "owner-relay up"},
+	} {
+		if _, err := client.Post(context.Background(), d); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for lane, want := range map[string]string{"desk": "desk-6", "desk-2": "desk-2", "owner-relay": "owner-relay", "fresh": "fresh-1"} {
+		if got, err := f.poster.Numbered(context.Background(), lane); err != nil || got != want {
+			t.Fatalf("Numbered(%s) = %q, %v; want %q", lane, got, err, want)
+		}
+	}
+}
+
+func TestANumberedLaneLaunchesFromItsStemsBriefDirectory(t *testing.T) {
+	if fault := (Order{Lane: "desk-6", Brief: "/s/desk/brief.md"}).wrongLaneFault(); fault != "" {
+		t.Fatal(fault)
+	}
+	if fault := (Order{Lane: "desk-6", Brief: "/s/other/brief.md"}).wrongLaneFault(); fault == "" {
+		t.Fatal("desk-6 launched from other's brief")
+	}
+}
+
 func TestAnIncidentBriefInAnotherLanesDirectoryIsRefusedNamingItsLaunch(t *testing.T) {
 	for _, name := range []string{"inc-x", "inc-x-fix"} {
 		faults, err := wrongLaneFaults(incidentOrders(name, "/s/other/brief.md", "/s/inc-x-evidence/brief.md", "/s/inc-x-comms/brief.md"))

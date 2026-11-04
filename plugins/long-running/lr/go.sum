@@ -67,6 +67,8 @@ github.com/yasyf/cc-inbox v0.49.46-0.20261103190422-61a6b203ae1d h1:0+dJOJLMh4js
 github.com/yasyf/cc-inbox v0.49.46-0.20261103190422-61a6b203ae1d/go.mod h1:KrhpZTrttKdv+ZuNuuUrGoY9P3NGCwm12ZV2+kk2eYk=
 github.com/yasyf/cc-inbox v0.49.49 h1:yZL72eG0g1OVNp9QGnxNfFdzxhhImfw8oQp93+oAIhU=
 github.com/yasyf/cc-inbox v0.49.49/go.mod h1:KrhpZTrttKdv+ZuNuuUrGoY9P3NGCwm12ZV2+kk2eYk=
+github.com/yasyf/cc-inbox v0.49.50 h1:n25rJIilBDN3OdrPejp3ZrIJp58VZMk79HpHLjGTM+g=
+github.com/yasyf/cc-inbox v0.49.50/go.mod h1:KrhpZTrttKdv+ZuNuuUrGoY9P3NGCwm12ZV2+kk2eYk=
 github.com/yasyf/cc-interact v0.40.0 h1:Ld7iQ5PC7smGrcuPMOLcBaxiHG0SNFU2VdU959YpFlM=
 github.com/yasyf/cc-interact v0.40.0/go.mod h1:+zkZi12pmVPfpTnLTzLanAfaj6Ox2QbGIMKS5+/SjAM=
 github.com/yasyf/daemonkit v0.36.0 h1:2SOhdDB/bxNbJDPsYEWRhQ9fqtxFSNgUatngrM0BPkY=
