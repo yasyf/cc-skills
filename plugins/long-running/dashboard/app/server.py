@@ -1132,9 +1132,10 @@ class Drive:
             render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
             store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
             ledger = Path(self.config["owner_ledger"]).read_text()
+            answers = {path.stem: path.read_text() for path in (Path(self.config["owner_ledger"]).parent / "answers").glob("*.md")}
             lanes = set(self.lane_names())
             self.owed = {
-                "owner_asks": owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year),
+                "owner_asks": owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year, answers),
                 "coordinator_overdue": overdue_rows(render, known, store),
             }
             self.touch()
