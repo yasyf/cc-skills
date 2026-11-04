@@ -265,7 +265,7 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 			if err != nil {
 				return true, err
 			}
-			return true, d.relayToLane(ctx, at, at, decide[2], text, &question)
+			return true, d.relayToLane(ctx, at, at, decide[2], text, "", &question)
 		}
 	}
 	dispatch, err := d.show(ctx, closed.Lane, "")
@@ -288,7 +288,7 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 		return false, err
 	}
 	relayed := fmt.Sprintf("The root answered on cci #%d (re #%d), which supersedes this question: %s", record.Seq, closed.Seq, text)
-	return true, d.relayToLane(ctx, at, at, closed.Lane, relayed, &question)
+	return true, d.relayToLane(ctx, at, at, closed.Lane, relayed, "", &question)
 }
 
 func clippedByCCI(kept, written string) bool {
@@ -452,7 +452,7 @@ func (d *Desk) relayLine(ctx context.Context, at, key, rest, sender string) erro
 		if target == "" {
 			continue
 		}
-		if err := d.relayToLane(ctx, at, key, target, found[2], nil); err != nil {
+		if err := d.relayToLane(ctx, at, key, target, found[2], sender, nil); err != nil {
 			return err
 		}
 		if err := d.warnUnheard(ctx, at, key, target, sender); err != nil {
@@ -482,6 +482,7 @@ type relayTarget struct {
 	Text    string `json:"text"`
 	ReplyTo string `json:"reply_to"`
 	PR      string `json:"pr,omitempty"`
+	From    string `json:"from,omitempty"`
 }
 
 func relayOf(action incident.Action) (relayTarget, error) {
@@ -489,12 +490,12 @@ func relayOf(action incident.Action) (relayTarget, error) {
 	return target, json.Unmarshal([]byte(action.Target), &target)
 }
 
-func (d *Desk) acceptRelay(key, lane, text, replyTo string, minutes int) (incident.Action, bool, error) {
+func (d *Desk) acceptRelay(key, lane, text, replyTo, sender string, minutes int) (incident.Action, bool, error) {
 	container, err := d.lane(lane)
 	if err != nil {
 		return incident.Action{}, false, err
 	}
-	target, err := compactJSON(relayTarget{Text: text, ReplyTo: replyTo})
+	target, err := compactJSON(relayTarget{Text: text, ReplyTo: replyTo, From: sender})
 	if err != nil {
 		return incident.Action{}, false, err
 	}
@@ -505,7 +506,7 @@ func (d *Desk) acceptRelay(key, lane, text, replyTo string, minutes int) (incide
 	return d.accept(container, key, kind, target, key, d.Now().Add(time.Duration(minutes)*time.Minute))
 }
 
-func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text string, question *string) error {
+func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text, sender string, question *string) error {
 	log := "escalation:relay:" + at + ":" + lane
 	dispatch, err := d.show(ctx, lane, "")
 	if err != nil {
@@ -523,7 +524,7 @@ func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text string, ques
 			return err
 		}
 	}
-	action, created, err := d.acceptRelay(key, lane, text, replyTo, d.Config.StartMinutes)
+	action, created, err := d.acceptRelay(key, lane, text, replyTo, sender, d.Config.StartMinutes)
 	if err != nil {
 		return err
 	}
@@ -921,7 +922,7 @@ func (d *Desk) unconfirmedStop(ctx context.Context, lane, dispatch string) (stri
 			seen = fmt.Sprintf("no dispatch %s, and terminal %s unchecked", dispatch, or(d.terminal(lane), "unknown"))
 		case !inactive(shown.Status):
 			seen = fmt.Sprintf("dispatch %s still %s on terminal %s", dispatch, shown.Status, shown.Terminal)
-		case shown.Live && !d.atRest(ctx, shown.Terminal):
+		case shown.Live && !d.atRest(ctx, shown.Terminal, shown.Environment):
 			seen = fmt.Sprintf("dispatch %s %s, but terminal %s still at work", dispatch, shown.Status, shown.Terminal)
 		default:
 			return "", nil
@@ -959,7 +960,7 @@ func (d *Desk) alertLine(ctx context.Context, at, key, rest string) error {
 		return err
 	}
 	if dispatch.active() {
-		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), nil)
+		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), "", nil)
 	}
 	return d.record(log, fmt.Sprintf("ALERT %s: %s %s | no lane launched; the alerts desk writes `%s` when it judges one necessary", slug, what, link, incidentGrammar))
 }
@@ -977,7 +978,7 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
 		return err
 	}
 	if dispatch.active() {
-		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), nil)
+		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), "", nil)
 	}
 	monitors := map[string]bool{}
 	for _, found := range monitorID.FindAllStringSubmatch(link+" "+what, -1) {

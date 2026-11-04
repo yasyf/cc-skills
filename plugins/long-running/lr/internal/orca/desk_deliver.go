@@ -514,7 +514,7 @@ func (d *Desk) settleSend(ctx context.Context, container string, dispatch *laneD
 	if answers {
 		return nil
 	}
-	_, err := d.wake(ctx, dispatch.Terminal, fmt.Sprintf("%s: read Orca message on thread %s now", action.AuthorityRef, thread))
+	_, err := d.wake(ctx, dispatch.Terminal, dispatch.Environment, fmt.Sprintf("%s: read Orca message on thread %s now", action.AuthorityRef, thread))
 	return err
 }
 
@@ -603,7 +603,7 @@ func (d *Desk) reconcileSend(ctx context.Context, container, lane string, send i
 	var mailbox []orcaMessage
 	if current != nil {
 		var read bool
-		if mailbox, read = d.mailbox(ctx, current.Terminal); !read {
+		if mailbox, read = d.mailbox(ctx, current.Terminal, current.Environment); !read {
 			return nil
 		}
 	}

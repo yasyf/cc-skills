@@ -31,8 +31,8 @@ type orcaUnreachable struct{ Text string }
 func (e *orcaUnreachable) Error() string { return e.Text }
 
 type laneDispatch struct {
-	Lane, ID, Terminal, Status string
-	Live, Fenced, Missing      bool
+	Lane, ID, Terminal, Status, Environment string
+	Live, Fenced, Missing                   bool
 }
 
 func inactive(status string) bool {
@@ -166,6 +166,9 @@ func (d *Desk) show(ctx context.Context, lane, dispatch string) (*laneDispatch, 
 		Observation *struct {
 			Status string `json:"status"`
 		} `json:"observation"`
+		Server *struct {
+			Environment string `json:"environmentId"`
+		} `json:"server"`
 	}
 	if err := shown.Into(&result); err != nil {
 		return nil, err
@@ -178,7 +181,18 @@ func (d *Desk) show(ctx context.Context, lane, dispatch string) (*laneDispatch, 
 		found.Live = result.Observation.Status == "live"
 		found.Missing = result.Observation.Status == "missing"
 	}
+	if result.Server != nil {
+		found.Environment = result.Server.Environment
+	}
 	return found, nil
+}
+
+func (d *Desk) environmentOf(ctx context.Context, lane string) (string, error) {
+	shown, err := d.show(ctx, lane, "")
+	if err != nil || shown == nil {
+		return "", err
+	}
+	return shown.Environment, nil
 }
 
 func (d *Desk) fence(ctx context.Context, dispatch string) (string, string) {
@@ -208,8 +222,8 @@ func messagesOf(reply Reply) ([]orcaMessage, error) {
 	return result.Messages, nil
 }
 
-func (d *Desk) mailbox(ctx context.Context, terminal string) ([]orcaMessage, bool) {
-	listed := d.call(ctx, orchestration, "check", "--terminal", terminal, "--all")
+func (d *Desk) mailbox(ctx context.Context, terminal, environment string) ([]orcaMessage, bool) {
+	listed := d.call(ctx, append([]string{orchestration, "check", "--terminal", terminal, "--all"}, on(environment)...)...)
 	if !listed.OK {
 		return nil, false
 	}
@@ -221,14 +235,22 @@ func (d *Desk) mailbox(ctx context.Context, terminal string) ([]orcaMessage, boo
 	return messages, true
 }
 
-func (d *Desk) unreadOn(ctx context.Context, terminal string) (map[string]bool, bool) {
-	peeked := d.call(ctx, orchestration, "check", "--terminal", terminal, "--peek")
+func (d *Desk) peek(ctx context.Context, terminal, environment string) ([]orcaMessage, bool) {
+	peeked := d.call(ctx, append([]string{orchestration, "check", "--terminal", terminal, "--peek"}, on(environment)...)...)
 	if !peeked.OK {
 		return nil, false
 	}
 	messages, err := messagesOf(peeked)
 	if err != nil {
 		fmt.Fprintln(d.Stderr, err)
+		return nil, false
+	}
+	return messages, true
+}
+
+func (d *Desk) unreadOn(ctx context.Context, terminal, environment string) (map[string]bool, bool) {
+	messages, read := d.peek(ctx, terminal, environment)
+	if !read {
 		return nil, false
 	}
 	held := map[string]bool{}
@@ -280,8 +302,8 @@ func (d *Desk) requestState(ctx context.Context, request string) string {
 	return result.State
 }
 
-func (d *Desk) readScreen(ctx context.Context, terminal string) (screen.Terminal, bool) {
-	read := d.call(ctx, "terminal", "read", "--terminal", terminal, "--screen")
+func (d *Desk) readScreen(ctx context.Context, terminal, environment string) (screen.Terminal, bool) {
+	read := d.call(ctx, append([]string{"terminal", "read", "--terminal", terminal, "--screen"}, on(environment)...)...)
 	if !read.OK {
 		return screen.Terminal{}, false
 	}
@@ -294,17 +316,17 @@ func (d *Desk) readScreen(ctx context.Context, terminal string) (screen.Terminal
 	return result.Terminal, true
 }
 
-func (d *Desk) atRest(ctx context.Context, terminal string) bool {
-	shown, read := d.readScreen(ctx, terminal)
+func (d *Desk) atRest(ctx context.Context, terminal, environment string) bool {
+	shown, read := d.readScreen(ctx, terminal, environment)
 	return read && screen.InputState(shown) == screen.Idle
 }
 
-func (d *Desk) wake(ctx context.Context, terminal, text string) (bool, error) {
-	shown, read := d.readScreen(ctx, terminal)
+func (d *Desk) wake(ctx context.Context, terminal, environment, text string) (bool, error) {
+	shown, read := d.readScreen(ctx, terminal, environment)
 	if !read || !screen.IdlePrompt(shown) {
 		return false, nil
 	}
-	_, err := d.Runner.Run(ctx, shell.Command{Argv: []string{"orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"}})
+	_, err := d.Runner.Run(ctx, shell.Command{Argv: append([]string{"orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"}, on(environment)...)})
 	var exit *shell.ExitError
 	if err != nil && !errors.As(err, &exit) {
 		return false, err

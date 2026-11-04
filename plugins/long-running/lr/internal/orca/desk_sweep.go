@@ -70,15 +70,23 @@ func (d *Desk) wakeStale(ctx context.Context, item staleItem, statuses map[strin
 	if status := statuses[item.lane]; inactive(status) {
 		return d.escalate("stale:"+item.message, "STALE-MAIL", item.lane, item.message+" unread by a "+status+" dispatch")
 	}
-	held, err := d.known(deskRunner, "wake:"+item.message)
+	environment, err := d.environmentOf(ctx, item.lane)
+	if err != nil {
+		return err
+	}
+	return d.wakeOnce(ctx, item.message, item.lane, d.terminal(item.lane), environment, "unread Orca message "+item.message+"; read it now")
+}
+
+func (d *Desk) wakeOnce(ctx context.Context, message, lane, terminal, environment, text string) error {
+	held, err := d.known(deskRunner, "wake:"+message)
 	if err != nil || held != nil {
 		return err
 	}
-	woke, err := d.wake(ctx, d.terminal(item.lane), "unread Orca message "+item.message+"; read it now")
+	woke, err := d.wake(ctx, terminal, environment, text)
 	if err != nil || !woke {
 		return err
 	}
-	_, _, err = d.accept(deskRunner, "wake:"+item.message, kindWake, item.message, item.lane, zeroTime)
+	_, _, err = d.accept(deskRunner, "wake:"+message, kindWake, message, lane, zeroTime)
 	return err
 }
 
@@ -205,8 +213,12 @@ func (d *Desk) dueMail(ctx context.Context, kept *mailState, terminals, statuses
 		lane, onLane := terminals[terminal]
 		held := map[string]bool{}
 		if onLane {
+			environment, err := d.environmentOf(ctx, lane)
+			if err != nil {
+				return nil, err
+			}
 			var read bool
-			if held, read = d.unreadOn(ctx, terminal); !read {
+			if held, read = d.unreadOn(ctx, terminal, environment); !read {
 				continue
 			}
 		}
@@ -289,6 +301,13 @@ func (d *Desk) overdue(ctx context.Context, container, about string) error {
 		if !late {
 			continue
 		}
+		unread, err := d.reportUnread(ctx, container, about, action)
+		if err != nil {
+			return err
+		}
+		if unread {
+			continue
+		}
 		excused, err := d.deadlineExcused(ctx, container, about, action, moment)
 		if err != nil {
 			return err
@@ -309,6 +328,63 @@ func (d *Desk) overdue(ctx context.Context, container, about string) error {
 		}
 	}
 	return nil
+}
+
+func (d *Desk) reportUnread(ctx context.Context, container, about string, action incident.Action) (bool, error) {
+	dispatch, sent, err := d.sentTo(ctx, container, about, action)
+	if err != nil || !sent {
+		return false, err
+	}
+	rows, read := d.peek(ctx, dispatch.Terminal, dispatch.Environment)
+	if !read {
+		return false, nil
+	}
+	report, err := notDelivered(rows, container, action, dispatch.ID, d.Now())
+	if err != nil || report == "" {
+		return false, err
+	}
+	spec, err := relayOf(action)
+	if err != nil {
+		return false, err
+	}
+	thread := threadOf(container, action.ActionID)
+	if err := d.wakeOnce(ctx, thread, about, dispatch.Terminal, dispatch.Environment, fmt.Sprintf("%s: read Orca message on thread %s now", action.AuthorityRef, thread)); err != nil {
+		return false, err
+	}
+	return true, d.escalateTo(ctx, fmt.Sprintf("undelivered:%s/%s", container, action.ActionID), "NOT-DELIVERED", about, report, verdictTo(spec.From))
+}
+
+func (d *Desk) sentTo(ctx context.Context, container, about string, action incident.Action) (*laneDispatch, bool, error) {
+	if action.Kind != kindRelay || action.Status != incident.ActionAccepted {
+		return nil, false, nil
+	}
+	delivered, err := d.delivered(container, action)
+	if err != nil || !delivered {
+		return nil, false, err
+	}
+	dispatch, err := d.show(ctx, about, "")
+	if err != nil || !dispatch.active() {
+		return nil, false, err
+	}
+	return dispatch, true, nil
+}
+
+func notDelivered(rows []orcaMessage, container string, action incident.Action, dispatch string, now time.Time) (string, error) {
+	for _, row := range rows {
+		found, err := delivers(row, container, action)
+		if err != nil {
+			return "", err
+		}
+		if !found {
+			continue
+		}
+		accepted, err := store.Parse(action.AcceptedAt)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s relay not delivered: %s is still unread in the mailbox of %s; accepted %d min ago", action.AuthorityRef, row.ID, dispatch, int(now.Sub(accepted).Minutes())), nil
+	}
+	return "", nil
 }
 
 func (d *Desk) deadlineExcused(ctx context.Context, container, about string, action incident.Action, moment time.Time) (bool, error) {
@@ -344,7 +420,7 @@ func (d *Desk) missingStep(container string, action incident.Action) (string, er
 		}
 		last := sends[len(sends)-1]
 		if action.Kind == kindRelay && last.Status == incident.ActionCompleted {
-			return "delivered to " + last.Target + ", no started reply", nil
+			return "sent to " + last.Target + ", no started reply", nil
 		}
 		return "send " + string(last.Status), nil
 	case kindLaunch:

@@ -2326,3 +2326,13 @@ func TestAMacBriefNamesWhyOrTheLaneGoesToASprite(t *testing.T) {
 		}
 	}
 }
+
+func TestALaneKeepsTheTerminalTitleOrcaReadsForItsMail(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.launched()
+	command := flag(h.orcaCalls("terminal create")[0], "--command")
+	if strings.Contains(command, "CLAUDE_CODE_DISABLE_TERMINAL_TITLE") {
+		t.Fatal(command)
+	}
+}

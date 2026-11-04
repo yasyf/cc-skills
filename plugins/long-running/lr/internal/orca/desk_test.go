@@ -37,8 +37,8 @@ const (
 var idleTail = object{"terminal": object{"source": "screen", "tail": []string{"────────────────────", "❯", "────────────────────"}}}
 
 type fakeDispatch struct {
-	status, terminal, observation string
-	revoked                       bool
+	status, terminal, observation, environment string
+	revoked                                    bool
 }
 
 type spawned struct {
@@ -361,7 +361,11 @@ func (w *deskWorld) workerShow(argv []string) (shell.Result, error) {
 	if entry.revoked {
 		dispatch["capabilityRevokedAt"] = "2026-11-03T00:00:00Z"
 	}
-	return orcaOK(object{"dispatch": dispatch, "terminal": object{"handle": entry.terminal}, "observation": object{"status": entry.observation}}), nil
+	shown := object{"dispatch": dispatch, "terminal": object{"handle": entry.terminal}, "observation": object{"status": entry.observation}}
+	if entry.environment != "" {
+		shown["server"] = object{"environmentId": entry.environment}
+	}
+	return orcaOK(shown), nil
 }
 
 func (w *deskWorld) checkReply(argv []string) (shell.Result, error) {
@@ -1711,7 +1715,7 @@ func (w *deskWorld) acceptedRelay(key string) string {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	if _, _, err := w.desk.acceptRelay(key, testLane, "go", "", 10); err != nil {
+	if _, _, err := w.desk.acceptRelay(key, testLane, "go", "", "", 10); err != nil {
 		w.t.Fatal(err)
 	}
 	return container
@@ -1743,7 +1747,7 @@ func TestASendFencedAsInactiveFallsBackToCCI(t *testing.T) {
 func TestAReplyWhoseQuestionAlreadyHoldsAnAnswerGoesAsAMessage(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
-	if _, _, err := w.desk.acceptRelay("R2", testLane, "left", "msg_q", 10); err != nil {
+	if _, _, err := w.desk.acceptRelay("R2", testLane, "left", "msg_q", "", 10); err != nil {
 		t.Fatal(err)
 	}
 	w.refusals["orchestration reply"] = object{"code": codeAnswerConflict, "message": "answered"}
@@ -3094,7 +3098,7 @@ func TestAHeartbeatAfterTheRelayExcusesItsDeadline(t *testing.T) {
 
 func TestAHeadOnThePRExcusesARelayedBlockersDeadline(t *testing.T) {
 	w := newDeskWorld(t)
-	if _, _, err := w.desk.acceptRelay("blocker:12:abc", testLane, "#12 red", "", 10); err != nil {
+	if _, _, err := w.desk.acceptRelay("blocker:12:abc", testLane, "#12 red", "", "", 10); err != nil {
 		t.Fatal(err)
 	}
 	w.now = w.now.Add(11 * time.Minute)
@@ -3105,7 +3109,7 @@ func TestAHeadOnThePRExcusesARelayedBlockersDeadline(t *testing.T) {
 
 func TestARedByDesignContractExcusesARelayedBlockersDeadline(t *testing.T) {
 	w := newDeskWorld(t)
-	if _, _, err := w.desk.acceptRelay("blocker:12:abc", testLane, "#12 red", "", 10); err != nil {
+	if _, _, err := w.desk.acceptRelay("blocker:12:abc", testLane, "#12 red", "", "", 10); err != nil {
 		t.Fatal(err)
 	}
 	w.add(object{"lane": testLane, "kind": "contract", "text": "#12 is red by design", "refs": object{"prs": []int{12}}})
@@ -3628,4 +3632,144 @@ func TestARelayDeliveredToAnEarlierDispatchGoesToTheLanesNewOne(t *testing.T) {
 	if len(sends) != 2 || !slices.Contains(sends[1], "dispatch:ctx_relaunched") {
 		t.Fatal(sends)
 	}
+}
+
+func (w *deskWorld) sentRelay(key, sender string) string {
+	w.t.Helper()
+	container, err := w.desk.lane(testLane)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if _, _, err := w.desk.acceptRelay(key, testLane, "go", "", sender, 10); err != nil {
+		w.t.Fatal(err)
+	}
+	w.step(w.desk.deliver)
+	return threadOf(container, key)
+}
+
+func (w *deskWorld) typed() [][]string {
+	var sends [][]string
+	for _, call := range w.calls {
+		if call[0] == "orca" && call[1] == "terminal" && call[2] == "send" {
+			sends = append(sends, call)
+		}
+	}
+	return sends
+}
+
+func TestARelaySentToASpriteWakesItsTerminalOnThatSprite(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.dispatches[testDispatch].environment = "env_sprite"
+	w.sentRelay("R2", "")
+	sends := w.typed()
+	if len(sends) != 1 || flag(sends[0], "--environment") != "env_sprite" || flag(sends[0], "--terminal") != testTerminal {
+		t.Fatal(sends)
+	}
+	for _, call := range w.orcaCalls("terminal read") {
+		if flag(call, "--environment") != "env_sprite" {
+			t.Fatal(call)
+		}
+	}
+}
+
+func TestARelayToAMacLaneNamesNoEnvironment(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.sentRelay("R2", "")
+	sends := w.typed()
+	if len(sends) != 1 || slices.Contains(sends[0], "--environment") {
+		t.Fatal(sends)
+	}
+}
+
+func TestAnOverdueRelayStillUnreadIsReportedToItsSenderAsNotDelivered(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.dispatches[testDispatch].environment = "env_sprite"
+	thread := w.sentRelay("R2", "meta-desk")
+	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	var told []client.Draft
+	for _, post := range w.posts {
+		if strings.HasPrefix(post.Text, "NOT-DELIVERED ") {
+			told = append(told, post)
+		}
+	}
+	if len(told) != 1 || !slices.Equal(told[0].To, []string{"meta-desk"}) {
+		t.Fatal(w.posts)
+	}
+	wantContains(t, told[0].Text, "relay_held is still unread in the mailbox of "+testDispatch)
+	w.noEscalation("DEADLINE ")
+}
+
+func TestAnOverdueUnreadRelayFromTheDeskIsAnEscalation(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	thread := w.sentRelay("R2", "")
+	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	wantContains(t, w.wantEscalation("NOT-DELIVERED "), "relay_held is still unread")
+}
+
+func TestAHeartbeatDoesNotExcuseARelayStillUnread(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	container, thread := laneBook(testLane), w.sentRelay("R2", "")
+	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.now = w.now.Add(11 * time.Minute)
+	if err := w.desk.setFact(container, heartbeatFact, store.Stamp(w.now)); err != nil {
+		t.Fatal(err)
+	}
+	w.step(w.desk.deadlines)
+	w.wantEscalation("NOT-DELIVERED ")
+}
+
+func TestAnOverdueRelayTheWorkerReadIsSentWithNoStartedReply(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.sentRelay("R2", "")
+	w.unread[testTerminal] = []orcaMessage{{ID: "other", ThreadID: "elsewhere"}}
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	wantContains(t, w.wantEscalation("DEADLINE "), "sent to "+testDispatch+", no started reply")
+	w.noEscalation("NOT-DELIVERED ")
+}
+
+func TestAnUnreadRelayWakesAParkedWorkerOnce(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	thread := w.sentRelay("R2", "")
+	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.calls = nil
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	w.step(w.desk.deadlines)
+	sends := w.typed()
+	if len(sends) != 1 {
+		t.Fatal(sends)
+	}
+	wantContains(t, flag(sends[0], "--text"), thread)
+	lines := 0
+	for _, line := range w.escalations() {
+		if strings.HasPrefix(line, "NOT-DELIVERED ") {
+			lines++
+		}
+	}
+	if lines != 1 {
+		t.Fatal(w.escalations())
+	}
+}
+
+func TestAnUnreadableMailboxLeavesTheDeadlineSaying(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.sentRelay("R2", "")
+	w.refusals["orchestration check"] = object{"code": "runtime_unavailable", "message": "down"}
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	wantContains(t, w.wantEscalation("DEADLINE "), "no started reply")
+	w.noEscalation("NOT-DELIVERED ")
 }

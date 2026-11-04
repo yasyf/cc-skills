@@ -53,11 +53,11 @@ const (
 var (
 	escalationKinds = map[string]string{
 		"PREFIX": kindBlocker, "CARRIES": kindBlocker, "DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": kindState, "UNBOUND": kindBlocker,
-		"UNOWNED": kindBlocker, "CLASS-UNOWNED": kindBlocker, "UNACKED": kindBlocker, "INCIDENT-CLOCK": kindBlocker, "LOAD-HIGH": kindBlocker, "CUT-SILENT": kindBlocker,
+		"UNOWNED": kindBlocker, "CLASS-UNOWNED": kindBlocker, "UNACKED": kindBlocker, "NOT-DELIVERED": kindBlocker, "INCIDENT-CLOCK": kindBlocker, "LOAD-HIGH": kindBlocker, "CUT-SILENT": kindBlocker,
 		"RELEASE-HELD-AFTER-LANDING": kindBlocker, "LAUNCH-STALLED": kindBlocker, "LAUNCH-DUPLICATE": kindBlocker, "UNGRADED-30": kindBlocker, "SLICE-UNREAD": kindBlocker,
 		"GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": kindBlocker, "GO-TAP-MISSING": kindBlocker, "HOOK-DRIFT": kindBlocker, "BASE-DRIFT": kindBlocker, "OVERRIDE-REFUSED": kindBlocker, "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident",
 	}
-	deferrable = []string{"DEADLINE", "UNACKED", "STALE-MAIL", "RECLAIM"}
+	deferrable = []string{"DEADLINE", "NOT-DELIVERED", "UNACKED", "STALE-MAIL", "RECLAIM"}
 	noAction   = []string{"RELAYED", "ORCA-BACK", "PARKED"}
 	poster     = regexp.MustCompile("\\bcci post\\b[^`\\n]*?--lane[= ]['\"]?([\\w.-]+)")
 )
