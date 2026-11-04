@@ -84,6 +84,7 @@ HEADROOM_TOKENS = 50_000
 TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
+LOCK_WAIT_ENV = "CCN_LOCK_WAIT"
 DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
 REAP_SECONDS = 5
 COMPACT_RETRY_SECONDS = 33 * 60
@@ -420,14 +421,14 @@ def rulings_module(path: Path) -> ModuleType:
     return importlib.import_module(f"{identity}.rulings")
 
 
-def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
+def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS, lock_wait: str = "") -> str:
     argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
     output, errors = io.StringIO(), io.StringIO()
     try:
         read = HookRead(evt, argv, timeout)
         read.remaining()
         module = rulings_module(script("long_running/__init__.py"))
-        env = {**reqenv.env_map(), DEADLINE_ENV: f"{os.getpid()}:{time.time() + timeout:.3f}"}
+        env = {**reqenv.env_map(), DEADLINE_ENV: f"{os.getpid()}:{time.time() + timeout:.3f}", **({LOCK_WAIT_ENV: lock_wait} if lock_wait else {})}
         home = Path(env["HOME"]) if env.get("HOME") else Path.home()
         drives = Path(env.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "long-running" / "drives"
 
