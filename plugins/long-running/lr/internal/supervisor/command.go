@@ -139,7 +139,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			return Deps{}, err
 		}
 		env.MonitorLane = monitorLane
-		if checks, err = env.Checks(s, a.Log); err != nil {
+		if checks, err = env.Checks(ctx, s, a.Log); err != nil {
 			return Deps{}, err
 		}
 		if laneDeps, err = env.Deps(ctx); err != nil {

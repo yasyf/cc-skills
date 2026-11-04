@@ -651,23 +651,16 @@ func ReadRunnerLanding(state string) (RunnerLanding, error) {
 	return runner.Landing, nil
 }
 
-func ReadRefusedBriefs(state string) ([]config.Refusal, error) {
-	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+func (e Env) dropClasses(ctx context.Context, log *slog.Logger) []config.Refusal {
+	listing, err := e.Run(ctx, "ccn", "-R", e.Config.Checkout, "answer", "list", "--label", config.DropClassLabel, "--limit", "0", "--json")
+	var refusals []config.Refusal
+	if err == nil {
+		refusals, err = config.RefusalsOf(listing)
 	}
 	if err != nil {
-		return nil, err
+		log.Warn("his drop classes did not read, so no alert or page is dropped", "err", err)
 	}
-	var runner struct {
-		Orca struct {
-			RefusedBriefs []config.Refusal `json:"refused_briefs"`
-		} `json:"orca"`
-	}
-	if err := json.Unmarshal(data, &runner); err != nil {
-		return nil, fmt.Errorf("runner.json: %w", err)
-	}
-	return runner.Orca.RefusedBriefs, nil
+	return refusals
 }
 
 func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]landing, error) {
@@ -1078,7 +1071,7 @@ func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
+func (e Env) Checks(ctx context.Context, s *store.Store, log *slog.Logger) ([]Check, error) {
 	checks := []Check{(&ClassUnowned{Env: e, Store: s}).Check}
 	var channels []string
 	for channel := range strings.SplitSeq(e.Config.AlertChannels, ",") {
@@ -1086,10 +1079,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 			channels = append(channels, channel)
 		}
 	}
-	refused, err := ReadRefusedBriefs(e.State)
-	if err != nil {
-		return nil, err
-	}
+	refused := e.dropClasses(ctx, log)
 	if len(channels) > 0 {
 		checks = append(checks, (&Alerts{Env: e, Store: s, Channels: channels, Log: log, Refused: refused, Launch: e.IncidentLaunch}).Check)
 	}

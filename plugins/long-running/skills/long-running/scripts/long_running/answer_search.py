@@ -9,6 +9,11 @@ Run = Callable[[list[str]], str]
 
 GLOB = re.compile(r"[*?\[]")
 TOPICS = "answer-topics"
+MATCHED = 3
+
+
+def matched(ccn: Run, text: str) -> list[dict]:
+    return json.loads(ccn(["answer", "match", "--label", "scope:durable", "--limit", str(MATCHED), "--json", "--", text]) or "[]") if text.strip() else []
 
 
 def roots(paths: Iterable[str]) -> list[str]:

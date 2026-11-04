@@ -203,6 +203,8 @@ INCIDENT_STEP = "incident"
 SLICE_CAP = 40_000
 SLICE_TAIL = 1_000
 ANSWERS_CAP = 16_000
+MATCHED_BODY_CAP = 1_500
+INCIDENT_BOILERPLATE = "Standing orders, fixed in this template:"
 REPEAT_MARKERS = re.compile(
     r"\bi\b\W+(?:\w+\W+){0,2}?t[oi]ld you\b|\bi have said this\b|\bhow many times\b|\bwhy are you ignoring\b|\bwe already said\b",
     re.IGNORECASE,
@@ -932,7 +934,7 @@ class Selection:
         return {key: rank for key, fields in rows.items() if (rank := self.want.rank(fields, self.step_text)) is not None}
 
 
-def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
+def lane_slice(loaded: Register, want: Want, plan: Path | None, brief_text: str = "") -> str:
     rulings = loaded.rulings()
     doc = register(loaded.shell, loaded.repo, loaded.program)
     plan_lines = read_plan(plan)
@@ -945,6 +947,8 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
     ])
     tail = []
     out.add(["", "## Step one: his answers on this lane's topics and paths"])
+    if named := answer_search.matched(partial(ccn_text, loaded.shell, loaded.repo), brief_text):
+        out.add([f"His answers this brief's own words name, the best {answer_search.MATCHED} by match. Where one rules this work out, stop and report that:", *(line for answer in named for line in rendered(answer | {"body": (answer.get("body") or "")[:MATCHED_BODY_CAP]}).splitlines())])
     topics = lane_topics(partial(ccn_text, loaded.shell, loaded.repo), loaded.program, want.topics, want.paths)
     if searches := answer_search.commands(topics, want.paths):
         found = answer_search.hits(partial(ccn_text, loaded.shell, loaded.repo), topics, want.paths, branch_of(loaded.shell, loaded.repo) if want.paths else "")
@@ -1144,11 +1148,11 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
     text = brief.read_text()
     if not (header := SLICE_HEADER.search(text)):
         raise SystemExit(f"{brief} has no `{SLICE_LINE} lane=<name> step=<n>` line")
-    fresh = lane_slice(loaded, Want.parse(header), plan)
     end = header.end()
     old = None
     if (stamp := SLICE_HASH.search(text, header.end())) and not SLICE_HEADER.search(text, header.end(), stamp.start()):
         old, end = stamp["hash"], stamp.end()
+    fresh = lane_slice(loaded, Want.parse(header), plan, text.partition(INCIDENT_BOILERPLATE)[0] if INCIDENT_BOILERPLATE in text else text[: header.start()] + text[end:])
     new = SLICE_HASH.search(fresh)["hash"]
     if old == new and text[header.start() : end] == fresh.rstrip("\n"):
         return f"fresh {brief} slice-hash {new}"

@@ -8,7 +8,7 @@ import (
 )
 
 func refusedEdge() []config.Refusal {
-	return []config.Refusal{{Match: regexp.MustCompile(`(?i)edge-vendor`), Except: regexp.MustCompile(`(?i)never`), Why: "never chased"}}
+	return []config.Refusal{{Match: regexp.MustCompile(`(?i)edge-vendor`), Why: "never chased"}}
 }
 
 func TestAnAlertLineOnARefusedTopicRecordsNothingAndItsNeighbourStillRecords(t *testing.T) {
@@ -23,15 +23,6 @@ func TestAnAlertLineOnARefusedTopicRecordsNothingAndItsNeighbourStillRecords(t *
 	w.lines()
 	w.wantEscalation("ALERT api-500: errors https://dd/2")
 	w.noEscalation("ALERT edge-1")
-}
-
-func TestAnAlertLineARefusalsExceptSparesStillRecords(t *testing.T) {
-	w := newDeskWorld(t)
-	w.desk.Config.RefusedBriefs = refusedEdge()
-	w.lines()
-	w.line("orca-desk: alert edge-1 https://dd/1 :: edge-vendor is never ours")
-	w.lines()
-	w.wantEscalation("ALERT edge-1")
 }
 
 func TestARepeatAlertOnARefusedTopicNeverReachesItsLiveFixLane(t *testing.T) {
@@ -75,5 +66,21 @@ func TestADriveWithNoListRecordsAndFiresAsBefore(t *testing.T) {
 	w.wantEscalation("ALERT edge-1")
 	if len(w.fired) != 1 || w.fired[0].Slug != "edge-2" {
 		t.Fatal(w.fired)
+	}
+}
+
+func TestABriefNamingADropClassLaunchesAndWarnsQuotingTheRuling(t *testing.T) {
+	w := newDeskWorld(t)
+	w.desk.Config.RefusedBriefs = []config.Refusal{{Match: regexp.MustCompile(`(?i)edge-vendor`), Why: "owner ruling ff7fca1: No. Never a lane, a read, a report, a line to him."}}
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\nFind why Edge-Vendor answers 403 at open\n")
+	w.lines()
+	w.line(launchText(testLane, brief))
+	w.lines()
+	warned := w.wantEscalation("BRIEF-NAMES-RULING ")
+	wantContains(t, warned, "No. Never a lane, a read, a report, a line to him.")
+	wantContains(t, warned, "Find why Edge-Vendor answers 403 at open")
+	w.step(w.desk.deliver)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns)
 	}
 }

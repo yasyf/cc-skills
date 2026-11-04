@@ -465,10 +465,12 @@ Do:
      is no, and why>` and leave any candidate as an ordinary PR. A fix that
      grows into a redesign of a path the plan deletes is the signal to stop,
      never a reason to widen the fix.
-     A failure on our own build is ours by default. An alert whose cause is
-     Akamai, such as a tenant-edge 403, gets a look and no fix work: record it with
-     `cci post --drive <bus id> --lane <fix lane name> --kind not-ours --text "NOT-OURS <fix lane name>: <evidence, one line>"`
-     and stop. Whether a recent PR caused the failure is evidence for the
+     A failure on our own build is ours by default. An alert whose cause is an
+     Akamai or customer-edge denial, such as a tenant-edge 403, gets no look, no
+     fix work and no report: the owner has ruled the class is dropped at the first
+     read, so stop there and post one `stopped` record naming the ruling, and tell
+     nobody else. A cause beside that denial, such as a timeout, is still yours.
+     Whether a recent PR caused the failure is evidence for the
      mechanism, never a stop: customer harm now and a path the plan keeps are
      the only gates.
      NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release

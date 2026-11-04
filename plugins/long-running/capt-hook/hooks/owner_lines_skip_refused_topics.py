@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, on
 
@@ -15,26 +14,30 @@ from .register_capture import OPERATOR
 from .register_injection import drive_args
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
-from .urgent_lines_name_the_harm import ACTIVE, DM_TOOLS, card, owner_lines
+from .urgent_lines_name_the_harm import ACTIVE, DM_TOOLS, owner_lines
 
 REFUSED = "The owner ruled this class is never reported to him. Drop each line below and send the rest."
+DROP_CLASS = "drop-class"
+PHRASE = "match:"
+ONLY_DROPS = re.compile(r"\b(?:rul(?:ing|ings|ed)|never|not-ours|stand(?:ing)?[ -]?down|classif\w+|stop chasing|(?:do not|don'?t) chase|dropp?\w*|ignor\w+|no (?:lane|read|look|fix work))\b", re.IGNORECASE)
+NO_CLASSES = {"ccn -R": "[]"}
 
 
-def refusals(reads: Reads) -> list[tuple[re.Pattern[str], re.Pattern[str] | None]]:
-    def load() -> list[tuple[re.Pattern[str], re.Pattern[str] | None]]:
-        if not reads.entry or not (config := Path(reads.entry["state_dir"]) / "runner.json").exists():
-            return []
-        rows = json.loads(config.read_text()).get("orca", {}).get("refused_briefs") or []
-        return [(re.compile(row["match"]), None if row.get("except") is None else re.compile(row["except"])) for row in rows]
+def refusals(reads: Reads) -> list[re.Pattern[str]]:
+    def load() -> list[re.Pattern[str]]:
+        if (listed := read(["ccn", "-R", reads.repo, "answer", "list", "--label", DROP_CLASS, "--limit", "0", "--json"])) is None:
+            raise OSError("`ccn answer list` did not read")
+        phrases = [tag.removeprefix(PHRASE) for answer in json.loads(listed) for tag in answer["tags"] if tag.startswith(PHRASE)]
+        return [re.compile("|".join(map(re.escape, phrases)), re.IGNORECASE)] if phrases else []
 
-    return reads.read("the drive's refused_briefs", load) or []
+    return reads.read("his drop classes", load) or []
 
 
 def refused_lines(reads: Reads, texts: list[str]) -> list[str]:
     if not texts:
         return []
     listed = refusals(reads)
-    return [line for text in texts for line in text.splitlines() if any(match.search(line) and not (spared and spared.search(line)) for match, spared in listed)]
+    return [line for text in texts for line in text.splitlines() if any(match.search(line) for match in listed) and not ONLY_DROPS.search(line)]
 
 
 def reaches_him(reads: Reads, channel: str) -> bool:
@@ -57,9 +60,9 @@ def lane_dm_lines(evt: BaseHookEvent, reads: Reads) -> list[str]:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", SLACK_CARD, *DM_TOOLS)],
     tests={
-        card(title="Why is it failing?", body="An edge-vendor 403 on the tenant host."): Allow(),
-        Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "An edge-vendor 403 on the tenant host."}, state=ACTIVE, env=DRIVE_CONFIG): Allow(),
-        Input(command="cc-present reply --block skew --body 'An edge-vendor 403 on the tenant host.'", env=DRIVE_CONFIG): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Why is it failing?", "body": "An edge-vendor 403 on the tenant host."}}, env=DRIVE_CONFIG, commands=NO_CLASSES): Allow(),
+        Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "An edge-vendor 403 on the tenant host."}, state=ACTIVE, env=DRIVE_CONFIG, commands=NO_CLASSES): Allow(),
+        Input(command="cc-present reply --block skew --body 'An edge-vendor 403 on the tenant host.'", env=DRIVE_CONFIG, commands=NO_CLASSES): Allow(),
         Input(command="ls", env=DRIVE_CONFIG): Allow(),
     },
 )
@@ -78,7 +81,7 @@ def owner_lines_skip_refused_topics(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests=communicator_tests({
-        Input(transcript=reply_transcript("An edge-vendor 403 on the tenant host."), state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+        Input(transcript=reply_transcript("An edge-vendor 403 on the tenant host."), state=ACTIVE, env=DRIVE_CONFIG, commands=NO_CLASSES): Allow(),
     }),
 )
 def owner_replies_skip_refused_topics(evt: BaseHookEvent) -> HookResult | None:
