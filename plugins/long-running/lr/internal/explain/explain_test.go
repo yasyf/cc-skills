@@ -3,6 +3,7 @@ package explain
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -18,7 +19,9 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
 
-const sample = "# How a lane resumes\n\nA lane picks up from its newest handoff.\n\n## The handoff\n\nEach handoff names the **next step**.\n\n```mermaid\nflowchart LR\n  lane --> handoff\n```\n"
+const sampleDiagram = `{"arch":1,"name":"Lane resume","title":"A lane resumes from its handoff","nodes":[{"id":"lane","kind":"worker","name":"Lane","role":"Does the work"},{"id":"handoff","kind":"store","medium":"disk","name":"Handoff","role":"Names the next step"}],"edges":[{"from":"lane","to":"handoff"}]}`
+
+const sample = "# How a lane resumes\n\nA lane picks up from its newest handoff.\n\n## The handoff\n\nEach handoff names the **next step**.\n\n```arch\n" + sampleDiagram + "\n```\n"
 
 type host struct{ dirs []string }
 
@@ -90,7 +93,8 @@ func TestExplainCommitsAKitOnePagerWithItsDiagramOnTheExplainersBranchAndAnnounc
 		`<li><a href="#the-handoff">The handoff</a></li>`,
 		`<section class="op-panel" id="the-handoff">`,
 		"<p>Each handoff names the <strong>next step</strong>.</p>",
-		"<pre class=\"mermaid\">flowchart LR\n  lane --&gt; handoff\n</pre>",
+		`<script type="module" src="../../architecture/kit/arch-doc.js"></script>`,
+		`<arch-doc src="data:application/json;base64,` + base64.StdEncoding.EncodeToString([]byte(sampleDiagram+"\n")) + `" fill></arch-doc>`,
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("page lacks %q:\n%s", want, body)

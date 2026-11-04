@@ -93,10 +93,10 @@ SYSTEM_RAISED = Binary(
     " Yes only when he asks a design question, how a system works or is meant to work, and no listed page already explains it."
     " No for a bug report, a complaint, a screenshot of something broken, an order to fix or build something, status, a pick, an approval, thanks, or a topic a listed page covers."
 )
-RAISED = "He asked how a system works or is meant to work. Before replying, run `lr explain <topic> --from <markdown with a mermaid diagram>` and put the link it prints in the reply."
+RAISED = "He asked how a system works or is meant to work. Before replying, run `lr explain <topic> --from <markdown with a fenced arch block holding its architecture diagram>` and put the link it prints in the reply."
 UNEXPLAINED = (
     "He asked how a system works, so the reply carries a hosted one-pager."
-    " Run `lr explain <topic> --from <markdown file or cci record>` and put its link in this reply; if the verb fails it files a defect, and the reply says the page is not up."
+    " Run `lr explain <topic> --from <markdown file or cci record whose diagram is a fenced arch block>` and put its link in this reply; if the verb fails it files a defect, and the reply says the page is not up."
 )
 NO = BinaryAnswer(p_yes=0.02, confidence=0.95)
 YES = BinaryAnswer(p_yes=0.97, confidence=0.94)
