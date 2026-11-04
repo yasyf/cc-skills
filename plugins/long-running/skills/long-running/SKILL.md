@@ -400,6 +400,9 @@ Slack copy outside the Slack lane.
 **R22.** Every brief quotes the owner's design verbatim with the entry point at
 `file:line`; the lane posts a `contract` before `READY-FOR-SHIP`; the design ships
 whole or holds, never split.
+A ruling that changes a data model, a namespace layout or an embedding model is a
+design order, never a PR order: the lane's first deliverable is a one-pager with the
+open choices as specific cards, and it builds only after he has read it or said build.
 
 **R23.** Every finished agent is stopped the turn its completion arrives, and
 before any spawn; a settled lane's Orca workspace and terminal are reclaimed by

@@ -96,6 +96,11 @@ Read in this order before acting: the plan <path>; the active progress doc
 verbatim in <rulings file>, which owner-relay appends to and you never guess at;
 then `cci tail --drive <drive> --reader root --since <seq> --oldest`.
 
+A ruling of his that changes a data model, a namespace layout or an embedding model
+routes to a lane as a design order, with no PR clock: its first deliverable is a
+one-pager with the open choices as specific cards, and it builds only after he has read
+it or said build.
+
 Everything the owner must see goes as
 `cci post --lane root --drive <drive> --kind report --to owner-relay`:
 the spawn of an incident lane, a mechanism, a fix-live, a release switch, a
