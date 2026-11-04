@@ -59,8 +59,6 @@ Context passed to the judge:
 
 **The judge warns when a card re-asks a settled question or narrows an owner ruling.** It flags any card that asks what the owner already ruled or offers an option narrower or more literal than his words. A found violation of an existing owner ruling is applied directly and never put back to the owner as a card or pick.
 
-**A card his ccn answer settles is never drawn and never stays.** `lr board draw`, `lr board cards check CARD_FILE|-` and every `cc-present` push in a drive, through the `answer_search_first` hook, refuse a card that asks when a card already on his board asks the same question text, when the `confirm` judge reads it as asking him to grade a reading of his own words in any wording, or when the `decided` judge reads one of his ccn answers sharing its subject as deciding everything it asks; that refusal names his answer by its question, in plain words, and its id. A lane that reads his words acts on its reading and says what it did. Every `lr board cards sweep` judges each open card against the answers newer than its last check and takes down one an answer settles, with the line of why he reads where it was. Only a yes, which the judge confirms with a second call, refuses or removes: an unsure or split verdict keeps the card, and a failed call keeps it, prints a `WARNING` and judges it again next pass.
-
 **The hook runs in lanes as well as the coordinator.** This checks pushes from the board refresher lane. A failed judge call adds nothing. Re-issuing the same card passes on retry, so a false positive costs one retry.
 
 ## Record standing rules and board taps (I6)
