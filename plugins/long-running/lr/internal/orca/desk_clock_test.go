@@ -218,3 +218,18 @@ func TestALaneIsNamedOnlyByItsWholeName(t *testing.T) {
 		}
 	}
 }
+
+func TestAStandingLaneOnTheIncidentRouteDrawsNoClock(t *testing.T) {
+	w := clockedWorld(t)
+	w.brief(clockLane, testBrief+"\nStanding: follow up every bug report\n")
+	w.now = w.now.Add(11 * time.Minute)
+
+	w.step(w.desk.clockPass)
+
+	if lines := w.clockLines(); len(lines) != 0 {
+		t.Fatal(lines)
+	}
+	if launches := w.fallbacks(); len(launches) != 0 {
+		t.Fatal(launches)
+	}
+}
