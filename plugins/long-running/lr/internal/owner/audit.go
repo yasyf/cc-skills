@@ -20,6 +20,7 @@ const (
 	Late          = "late"
 	InProgress    = "in progress"
 	Parked        = "parked"
+	Working       = "working"
 )
 
 var (
@@ -33,13 +34,13 @@ var (
 )
 
 type Row struct {
-	ID     string
-	At     string
-	Text   string
-	State  string
-	Status string
-	Lane   string
-	Hold   string
+	ID     string `json:"id"`
+	At     string `json:"at"`
+	Text   string `json:"text"`
+	State  string `json:"state"`
+	Status string `json:"status"`
+	Lane   string `json:"lane"`
+	Hold   string `json:"hold"`
 }
 
 type Lane struct {
@@ -163,6 +164,28 @@ func Undelivered(rows []Row, lanes []Lane, proofs []client.Record) []Row {
 		open = append(open, row)
 	}
 	return open
+}
+
+// Carried is each owed order a live lane or open PR holds, which Undelivered
+// leaves off because someone is on it.
+func Carried(rows []Row, lanes []Lane) []Row {
+	holder := map[string]string{}
+	for _, lane := range lanes {
+		if !lane.Working {
+			continue
+		}
+		for _, id := range lane.Orders {
+			holder[id] = cmp.Or(holder[id], lane.Name)
+		}
+	}
+	var carried []Row
+	for _, row := range rows {
+		if lane := holder[row.ID]; lane != "" && row.Owed() {
+			row.Status, row.Lane = Working, lane
+			carried = append(carried, row)
+		}
+	}
+	return carried
 }
 
 func holdOf(text string) string {

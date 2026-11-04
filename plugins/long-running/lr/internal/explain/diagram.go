@@ -61,7 +61,7 @@ func refuseDiagrams(source []byte) error {
 			refusal = errors.New(mermaidRefusal)
 			return ast.WalkStop, nil
 		case archLanguage:
-			if problems := archProblems(fence(block, source)); len(problems) > 0 {
+			if problems := ArchProblems(fence(block, source)); len(problems) > 0 {
 				refusal = fmt.Errorf("lr explain refuses this page: its arch block does not draw: %s", strings.Join(problems, "; "))
 				return ast.WalkStop, nil
 			}
@@ -80,7 +80,7 @@ func fence(block *ast.FencedCodeBlock, source []byte) []byte {
 	return out.Bytes()
 }
 
-func archProblems(raw []byte) []string {
+func ArchProblems(raw []byte) []string {
 	var doc archDoc
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return []string{"it is not JSON: " + err.Error()}

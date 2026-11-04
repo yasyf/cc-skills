@@ -1018,3 +1018,71 @@ func TestAStoreThatDoesNotOpenPostsTheReplyAsWritten(t *testing.T) {
 		t.Fatalf("md %q", reply.MD)
 	}
 }
+
+func TestEachReplyStoresTheTypeItsContentGivesUnlessItNamesOne(t *testing.T) {
+	cases := []struct {
+		name string
+		in   Reply
+		want string
+	}{
+		{"plain", Reply{}, typeExplanation},
+		{"info", Reply{Status: info}, typeExplanation},
+		{"progress", Reply{Status: progress}, typeUpdate},
+		{"needs him", Reply{Status: needsYou}, typeForYou},
+		{"incident", Reply{Status: incident}, incident},
+		{"done", Reply{Status: done}, done},
+		{"picks win over status", Reply{Status: needsYou, Picks: []string{"Yes", "No"}}, typeQuestion},
+		{"named wins over content", Reply{Status: progress, Type: done}, done},
+	}
+	for _, c := range cases {
+		fake := scripted()
+		f := fanout(t, fake)
+		c.in.ID, c.in.Title, c.in.MD = "typed", "A title", "The words"
+		f.Send(context.Background(), c.in)
+		if got, _ := stored(t, f, "typed"); got.Type != c.want {
+			t.Errorf("%s: stored type %q, want %q", c.name, got.Type, c.want)
+		}
+	}
+}
+
+func TestATypeOutsideTheListIsLeftOffSoTheContentDecides(t *testing.T) {
+	got, warned := Reply{ID: "a", Title: "t", MD: "m", Status: done, Type: "memo"}.mended()
+	if got.Type != "" || len(warned) != 1 || !strings.Contains(warned[0], `type "memo"`) {
+		t.Fatalf("got type %q, warned %v", got.Type, warned)
+	}
+}
+
+const drawnDiagram = `{"arch":1,"name":"relay","title":"The relay","nodes":[{"id":"a","kind":"service","name":"A","role":"sends"},{"id":"b","kind":"service","name":"B","role":"takes"}],"edges":[{"from":"a","to":"b"}]}`
+
+func TestADiagramThatDoesNotDrawIsLeftOffWithItsReason(t *testing.T) {
+	broken := json.RawMessage(`{"arch":1,"name":"relay","title":"The relay","nodes":[{"id":"a","kind":"service","name":"A","role":"sends"}],"edges":[{"from":"a","to":"ghost"}]}`)
+	got, warned := Reply{ID: "a", Title: "t", MD: "m", Diagram: broken}.mended()
+	if got.Diagram != nil || len(warned) != 1 || !strings.Contains(warned[0], `"ghost"`) {
+		t.Fatalf("got diagram %s, warned %v", got.Diagram, warned)
+	}
+	kept, warned := Reply{ID: "a", Title: "t", MD: "m", Diagram: json.RawMessage(drawnDiagram)}.mended()
+	if string(kept.Diagram) != drawnDiagram || len(warned) != 0 {
+		t.Fatalf("a good diagram came back %s, warned %v", kept.Diagram, warned)
+	}
+}
+
+func TestADiagramIsStoredForChatAndTheOtherSurfacesOnlySayItIsThere(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "d1", Title: "How the relay runs", MD: "The relay in one picture.", Status: info, Diagram: json.RawMessage(drawnDiagram)})
+	got, _ := stored(t, f, "d1")
+	if got.MD != "The relay in one picture." {
+		t.Fatalf("the Chat copy of the words changed: %q", got.MD)
+	}
+	var drawn bytes.Buffer
+	if err := json.Compact(&drawn, got.Diagram); err != nil || drawn.String() != drawnDiagram {
+		t.Fatalf("stored diagram %s (%v), want %s", got.Diagram, err, drawnDiagram)
+	}
+	said := ""
+	for _, call := range fake.Calls() {
+		said += strings.Join(call.Argv, " ") + call.Stdin
+	}
+	if !strings.Contains(said, diagramNote) {
+		t.Fatalf("no other surface says the diagram is there:\n%s", said)
+	}
+}

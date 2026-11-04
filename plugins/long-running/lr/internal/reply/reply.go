@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/explain"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -45,10 +46,20 @@ const (
 	needsYou     = "needs_you"
 	progress     = "progress"
 	info         = "info"
+	incident     = "incident"
+	done         = "done"
+
+	typeExplanation = "explanation"
+	typeUpdate      = "update"
+	typeForYou      = "for_you"
+	typeQuestion    = "question"
+
+	diagramNote = "The diagram is on the Chat page of your dashboard."
 )
 
 var (
-	statuses   = []string{info, progress, needsYou, "incident", "done"}
+	statuses   = []string{info, progress, needsYou, incident, done}
+	types      = []string{typeExplanation, typeUpdate, typeForYou, typeQuestion, incident, done}
 	orderRow   = regexp.MustCompile(`^m\d+$`)
 	replyID    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
@@ -89,6 +100,7 @@ type Reply struct {
 	Title       string   `json:"title"`
 	MD          string   `json:"md"`
 	Status      string   `json:"status,omitempty"`
+	Type        string   `json:"type,omitempty"`
 	Picks       []string `json:"picks,omitempty"`
 	Recommended string   `json:"recommended,omitempty"`
 	Build       *Build   `json:"build,omitempty"`
@@ -102,8 +114,9 @@ type Reply struct {
 	By          string   `json:"by,omitempty"`
 	Routed      int      `json:"routed,omitempty"`
 
-	Blocks []json.RawMessage `json:"blocks,omitempty"`
-	On     string            `json:"on,omitempty"`
+	Blocks  []json.RawMessage `json:"blocks,omitempty"`
+	Diagram json.RawMessage   `json:"diagram,omitempty"`
+	On      string            `json:"on,omitempty"`
 }
 
 type Outcome struct {
@@ -133,13 +146,14 @@ type Fanout struct {
 }
 
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
-	r = f.aliased(r)
+	r = f.aliased(r).typed()
 	seen := r
 	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
-	steps := []step{{f.board, seen}, {f.thread, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+	told := seen.diagramNoted()
+	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
 	case r.quiet():
-		steps = []step{{f.board, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+		steps = []step{{f.board, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	case r.Order == "" || r.Status != info || len(r.Picks) > 0:
 		steps = steps[:len(steps)-1]
 	}
@@ -173,6 +187,30 @@ func (f Fanout) aliased(r Reply) Reply {
 	r.Blocks = slices.Clone(r.Blocks)
 	for n, block := range r.Blocks {
 		r.Blocks[n] = json.RawMessage(aliases.In(string(block)))
+	}
+	return r
+}
+
+func (r Reply) typed() Reply {
+	switch {
+	case r.Type != "":
+	case len(r.Picks) > 0:
+		r.Type = typeQuestion
+	case r.Status == needsYou:
+		r.Type = typeForYou
+	case r.Status == progress:
+		r.Type = typeUpdate
+	case r.Status == incident, r.Status == done:
+		r.Type = r.Status
+	default:
+		r.Type = typeExplanation
+	}
+	return r
+}
+
+func (r Reply) diagramNoted() Reply {
+	if len(r.Diagram) > 0 {
+		r.MD += "\n\n" + diagramNote
 	}
 	return r
 }
@@ -234,6 +272,16 @@ func (r Reply) mended() (Reply, []string) {
 	if r.Status != "" && !slices.Contains(statuses, r.Status) {
 		warn("status %q is not one of %s, so it was left off", r.Status, strings.Join(statuses, ", "))
 		r.Status = ""
+	}
+	if r.Type != "" && !slices.Contains(types, r.Type) {
+		warn("type %q is not one of %s, so it was left off", r.Type, strings.Join(types, ", "))
+		r.Type = ""
+	}
+	if len(r.Diagram) > 0 {
+		if problems := explain.ArchProblems(r.Diagram); len(problems) > 0 {
+			warn("the diagram does not draw, so it was left off: %s", strings.Join(problems, "; "))
+			r.Diagram = nil
+		}
 	}
 	r, warned = r.mendedPicks(warned)
 	r.Links = kept(r.Links, maxLinks, "links", &warned, func(link Link) bool {

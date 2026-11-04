@@ -182,3 +182,14 @@ func TestARetractedDeliveryPutsTheOrderBackOnTheAudit(t *testing.T) {
 		t.Fatalf("a retracted order left the audit: %v", got)
 	}
 }
+
+func TestCarriedNamesTheWorkingLaneOnEachOwedOrderItHolds(t *testing.T) {
+	rows := Parse([]byte(auditLedger))
+	lanes := []Lane{{Name: "phone-app-1", Working: true, Orders: []string{"m1"}}, {Name: "wire-1", Orders: []string{"m2"}}}
+
+	got := Carried(rows, lanes)
+
+	if len(got) != 1 || got[0].ID != "m1" || got[0].Status != Working || got[0].Lane != "phone-app-1" {
+		t.Fatalf("got %+v, want m1 held by phone-app-1 and the retired lane's order left off", got)
+	}
+}
