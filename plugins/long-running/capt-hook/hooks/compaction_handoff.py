@@ -736,7 +736,7 @@ def activate_on_command(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Tool("Bash")],
     skip_if=[FromSubagent()],
     tests={
-        Input(command="lr owner start --drive d --project /w"): Allow(),
+        Input(command="lr owner start --drive d"): Allow(),
         Input(command="lr owner list --drive d"): Allow(),
     },
 )

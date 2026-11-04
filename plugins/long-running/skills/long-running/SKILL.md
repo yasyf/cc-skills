@@ -509,7 +509,7 @@ that posted it, and closes that page when the plan arrives.
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" --orca-run <run> [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
-lr owner start --drive <drive> --project <the communicator's worktree>
+lr owner start --drive <drive>
 lr supervisor install --config <state dir>/lr.json
 export LR_CONFIG=<state dir>/lr.json
 lr dashboard install
@@ -538,7 +538,6 @@ runner and no desk. Every lane registers its branch prefix at spawn with
 `lr owner start` subscribes the communicator: the owner's taps, asks, decides, blocks
 and incidents wake it on arrival, and reports, notes, answers and other routine kinds
 reach it together, at most every five minutes and at once ahead of any other record.
-It also sets the window's `autoCompactWindow` to 280K, the coordinator's ceiling.
 
 A resumed communicator joins with `drive.py start --drive <id> --ledger <id>` and checks the standing sessions with `lr lanes root meta signal`; SessionStart brings back any lane's
 own subscription and watches, says so, and lists its other live tasks ([compaction.md](reference/compaction.md)). A resumed or
