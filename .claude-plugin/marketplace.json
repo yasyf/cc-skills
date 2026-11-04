@@ -176,10 +176,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/open-pr",
-        "ref": "open-pr--v0.6.14"
+        "ref": "open-pr--v0.6.15"
       },
       "description": "Open a PR in the repo's own voice — guidelines and template from ccx, house style scouted from recent human-authored merged PRs, an OSS politeness and standards pass, shipped via ccx vcs ship, and a background watcher that clears mechanical CI and bot failures.",
-      "version": "0.6.14"
+      "version": "0.6.15"
     },
     {
       "name": "plans",
