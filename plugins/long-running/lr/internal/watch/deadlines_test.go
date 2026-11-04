@@ -254,7 +254,7 @@ func TestTheNovember2StallClassesEachReachTheirOwnerOrNeverStall(t *testing.T) {
 					}
 					snapshot = append(snapshot, facts)
 				}
-				out, err := pass.Run(s, snapshot, t0.Add(time.Duration(step.Minutes)*time.Minute), r.post, all, route, func(lane string) (string, error) { return lane, nil })
+				out, err := pass.Run(s, snapshot, t0.Add(time.Duration(step.Minutes)*time.Minute), r.post, all, route, func(lane string, _ int) (string, error) { return lane, nil })
 				if err != nil {
 					t.Fatal(err)
 				}

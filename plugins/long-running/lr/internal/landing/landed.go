@@ -1,7 +1,6 @@
 package landing
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -44,7 +43,7 @@ func Announce(ctx context.Context, s *store.Store, drive, trunk string, landings
 		if _, known := said[number]; known {
 			continue
 		}
-		owner, err := laneHolder(s, drive, f.Lane)
+		owner, _, err := reach(s, drive, f)
 		if err != nil {
 			return err
 		}
@@ -66,11 +65,15 @@ func Settle(ctx context.Context, s *store.Store, drive string, answers []Said) e
 	unposted := make([]error, 0, len(answers))
 	for _, answer := range answers {
 		f := answer.Facts
+		holder, unowned, err := reach(s, drive, f)
+		if err != nil {
+			return err
+		}
 		label := answer.Refused
 		if strings.Contains(answer.Text, queueAccepted) {
-			label = answer.Accepted
+			label, unowned = answer.Accepted, ""
 		}
-		to := []string{cmp.Or(f.Lane, rootLane)}
+		to := []string{holder}
 		kind, id := "report", fmt.Sprintf("settled:%d:%s:%s", f.Number, f.Head, label)
 		if answer.Alarm {
 			meta, err := lanes.MetaDesk(s)
@@ -82,14 +85,14 @@ func Settle(ctx context.Context, s *store.Store, drive string, answers []Said) e
 			}
 			kind, id = "blocker", ""
 		}
-		_, err := client.Post(ctx, client.Draft{
+		_, err = client.Post(ctx, client.Draft{
 			Drive: drive,
 			Lane:  self,
 			Kind:  kind,
 			To:    to,
 			ID:    id,
 			PRs:   []string{pullRef(f)},
-			Text:  fmt.Sprintf("%s #%d at %s: %s", label, f.Number, shortHead(f.Head), answer.Text),
+			Text:  fmt.Sprintf("%s%s #%d at %s: %s", unowned, label, f.Number, shortHead(f.Head), answer.Text),
 		})
 		unposted = append(unposted, err)
 	}

@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -262,7 +263,7 @@ func (c *Clobbers) tell(ctx context.Context, found Clobber) error {
 	refs := make([]string, 0, len(numbers))
 	for _, number := range numbers {
 		refs = append(refs, fmt.Sprintf("%s#%d", c.Repo, number))
-		holder, err := laneHolder(c.Store, c.Drive, laneOf[number])
+		holder, err := lanes.ChangeOwner(c.Store, c.Drive, laneOf[number], number)
 		if err != nil {
 			return err
 		}

@@ -36,6 +36,11 @@ func newStuckRig(t *testing.T, s *store.Store) *stuckRig {
 	t.Setenv("CCI_HOME", t.TempDir())
 	runner := &shelltest.Fake{}
 	runner.Reply("{}", "gh", "api", "-X", "PATCH")
+	for _, lane := range []string{"lane-7", "lane-below"} {
+		if _, err := s.WantLane(store.Lane{Name: lane, State: store.LaneDesired}, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return &stuckRig{s: s, runner: runner, now: t0, move: func(number int) (string, error) {
 		return fmt.Sprintf(movedHead, number), nil
 	}}
@@ -316,6 +321,27 @@ func TestAMoveOfAStackTellsEveryLaneInIt(t *testing.T) {
 	}
 	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{"lane-7", "lane-below"}) {
 		t.Fatalf("records = %+v, want both lanes", posted)
+	}
+}
+
+func TestAMoveOfAStoppedLanesPRTellsRootItIsUnowned(t *testing.T) {
+	s := newStore(t)
+	r := newStuckRig(t, s)
+	unknownSince(t, s, t0, 1)
+	threeBumpsDone(t, s, 1)
+	r.now = t0.Add(time.Hour)
+	if err := s.SetLaneState("lane-7", store.LaneRetired, t0, "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	r.pass(t, stuck(1))
+
+	posted, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"report"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{"root"}) || !strings.HasPrefix(posted[0].Text, "UNOWNED, lane-7 is not running: #1 at ") {
+		t.Fatalf("records = %+v", posted)
 	}
 }
 

@@ -189,8 +189,13 @@ func (u Unstick) move(ctx context.Context, f machine.Facts, chain []machine.Fact
 		return err
 	}
 	to := make([]string, 0, len(chain))
+	unowned := ""
 	for _, row := range chain {
-		to = append(to, row.Lane)
+		holder, stopped, err := reach(u.Store, u.Drive, row)
+		if err != nil {
+			return err
+		}
+		to, unowned = append(to, holder), cmp.Or(unowned, stopped)
 	}
 	slices.Sort(to)
 	_, err = client.Post(ctx, client.Draft{
@@ -200,7 +205,7 @@ func (u Unstick) move(ctx context.Context, f machine.Facts, chain []machine.Fact
 		To:    slices.Compact(to),
 		ID:    fmt.Sprintf("%s:%d:%s", BumpMoveFact, f.Number, f.Head),
 		PRs:   []string{pullRef(f)},
-		Text:  fmt.Sprintf("#%d at %s still read mergeable unknown after %d base PATCHes, so the supervisor rebased it on %s: %s", f.Number, shortHead(f.Head), bumpsBeforeMove, f.Base, said),
+		Text:  fmt.Sprintf("%s#%d at %s still read mergeable unknown after %d base PATCHes, so the supervisor rebased it on %s: %s", unowned, f.Number, shortHead(f.Head), bumpsBeforeMove, f.Base, said),
 	})
 	return err
 }

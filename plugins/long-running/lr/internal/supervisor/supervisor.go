@@ -136,7 +136,7 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 	if err != nil {
 		return report, err
 	}
-	out, err := pass.Run(s, snapshot, now, d.Post, pass.Live(d.Movers), route, func(lane string) (string, error) { return lanes.Running(s, drive, lane) })
+	out, err := pass.Run(s, snapshot, now, d.Post, pass.Live(d.Movers), route, func(lane string, pr int) (string, error) { return lanes.ChangeOwner(s, drive, lane, pr) })
 	if err != nil {
 		return report, err
 	}

@@ -71,7 +71,11 @@ func (o *OverrideRefusals) tellOwners(ctx context.Context, record client.Record,
 			continue
 		}
 		key := fmt.Sprintf("override-owner:%d:%d", record.Seq, override.PR)
-		first, err := o.Store.Escalate(key, "override-owner", owner, now)
+		holder, err := Running(o.Store, o.Env.Config.Drive, owner)
+		if err != nil {
+			return err
+		}
+		first, err := o.Store.Escalate(key, "override-owner", holder, now)
 		if err != nil {
 			return err
 		}
@@ -79,7 +83,10 @@ func (o *OverrideRefusals) tellOwners(ctx context.Context, record client.Record,
 			continue
 		}
 		text := fmt.Sprintf("Root overrode a grade on your #%d at %s in cci #%d, so that finding is settled at this head: read the record before pushing a fix for it, since a push loses the override.", override.PR, override.Head, record.Seq)
-		if _, err := o.Env.Bus.Post(ctx, client.Draft{Drive: o.Env.Config.Drive, Lane: Self, Kind: "note", To: []string{owner}, ID: key, Text: text}); err != nil {
+		if holder == Root {
+			text = "UNOWNED, " + owner + " is not running: " + text
+		}
+		if _, err := o.Env.Bus.Post(ctx, client.Draft{Drive: o.Env.Config.Drive, Lane: Self, Kind: "note", To: []string{holder}, ID: key, Text: text}); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
 	}

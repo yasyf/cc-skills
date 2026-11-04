@@ -138,3 +138,19 @@ func TestAGateWithNoClearTouchesNoFactAndReadsEveryPass(t *testing.T) {
 		t.Fatalf("reads = %d, facts = %v", reads, factsOn(t, s, 1, newHead))
 	}
 }
+
+func TestARefusalKeepsItsCauseOnTheHead(t *testing.T) {
+	var said []told
+	var reads int
+	s := withFacts(t, 1, nil)
+
+	keeper(s, &said).Refuses(context.Background(), green, Gate{Name: "first", Kind: "blocker", Check: checking(&reads, Verdict{Cause: "broke", Refusal: "it broke"}, nil)})
+
+	facts, err := s.Facts(green.Repo, green.Number, green.Head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts[RefusedFact] != "broke" {
+		t.Fatalf("facts = %v", facts)
+	}
+}

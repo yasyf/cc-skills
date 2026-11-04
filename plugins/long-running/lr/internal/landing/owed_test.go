@@ -45,6 +45,9 @@ func newOwed(t *testing.T, lane, labels, body string) *owedFixture {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	merged := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	if _, err := s.WantLane(store.Lane{Name: "release-5", State: store.LaneDesired}, merged); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Advance("release-owed", merged.Add(-time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +397,20 @@ func TestANagToARetiredOwnerReachesTheRoleHolder(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestANagWithNoRunningHolderReachesRootAsUnowned(t *testing.T) {
+	f := newOwed(t, "incident-api-fix", "", "no release line")
+	f.clocks = []string{"incident-api-fix"}
+	owedAlert(t)
+	f.register(t, "release-5", store.LaneRetired, "")
+
+	f.at(t, 0)
+
+	nags := owedPosted(t, "release", "blocker")
+	if len(nags) != 1 || !slices.Equal(nags[0].To, []string{"root"}) || !strings.HasPrefix(nags[0].Text, "UNOWNED, release-5 is not running: ") {
+		t.Fatalf("nags = %+v", nags)
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
+const RefusedFact = "gate-refused"
+
 type Gate struct {
 	Name  string
 	Kind  string
@@ -59,6 +61,9 @@ func (k Keeper) refuses(ctx context.Context, f machine.Facts, gate Gate) bool {
 		return true
 	}
 	if verdict.Refusal != "" {
+		if _, err := k.Store.PutFact(f.Repo, f.Number, f.Head, RefusedFact, verdict.Cause, k.Now()); err != nil {
+			k.Log.Warn("a gate did not keep its refusal", "gate", gate.Name, "pr", f.Number, "err", err)
+		}
 		k.Tell(ctx, f, gate.Kind, verdict.Cause+":"+strconv.Itoa(f.Number)+":"+f.Head, verdict.Refusal)
 		return true
 	}

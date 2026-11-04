@@ -12,6 +12,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 func TestAnOverrideRootWroteThatDoesNotParseComesBackOnce(t *testing.T) {
@@ -103,6 +104,9 @@ func TestAnOverrideThatParsesOrIsOnlyQuotedDrawsNoRefusal(t *testing.T) {
 func TestAnOverrideReachesThePRsOwningLaneOnce(t *testing.T) {
 	fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "root", Kind: "decide", At: t0, Text: "finder-override #47755 at abc1234: 174488"}}}
 	s := memory(t)
+	if _, err := s.WantLane(store.Lane{Name: "lane-1", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Own("lane-1", []int{47755}); err != nil {
 		t.Fatal(err)
 	}
@@ -125,4 +129,25 @@ func TestAnOverrideReachesThePRsOwningLaneOnce(t *testing.T) {
 	if len(told) != 1 || !strings.Contains(told[0].Text, "#47755 at abc1234 in cci #9") {
 		t.Fatalf("told = %+v, want one note naming the PR, head and record", told)
 	}
+}
+
+func TestAnOverrideOnAStoppedLanesPRReachesRootAsUnowned(t *testing.T) {
+	fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "root", Kind: "decide", At: t0, Text: "finder-override #47755 at abc1234: 174488"}}}
+	s := memory(t)
+	if err := s.Own("lane-1", []int{47755}); err != nil {
+		t.Fatal(err)
+	}
+	check := &OverrideRefusals{Env: Env{Bus: fake, Runner: &shelltest.Fake{}, Config: config.Config{Drive: testDrive}}, Store: s}
+	registerDrive(t)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, post := range fake.posted {
+		if strings.HasPrefix(post.Text, "UNOWNED, lane-1 is not running: Root overrode a grade on your #47755") && post.To[0] == Root {
+			return
+		}
+	}
+	t.Fatalf("posted = %+v", fake.posted)
 }

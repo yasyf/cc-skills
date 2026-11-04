@@ -138,27 +138,20 @@ func (g *Gates) tell(ctx context.Context, f machine.Facts, kind, id, text string
 }
 
 func postToLane(ctx context.Context, s *store.Store, drive string, f machine.Facts, kind, id, text string) error {
-	to := []string{rootLane}
-	if f.Lane != "" {
-		holder, err := lanes.Running(s, drive, f.Lane)
-		if err != nil {
-			return err
-		}
-		if holder == rootLane {
-			text = "UNOWNED, " + f.Lane + " is not running: " + text
-		} else {
-			to = []string{holder, rootLane}
-		}
+	holder, unowned, err := reach(s, drive, f)
+	if err != nil {
+		return err
 	}
-	_, err := client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: kind, To: to, ID: id, PRs: []string{pullRef(f)}, Text: text})
+	_, err = client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: kind, To: slices.Compact([]string{holder, rootLane}), ID: id, PRs: []string{pullRef(f)}, Text: unowned + text})
 	return err
 }
 
-func laneHolder(s *store.Store, drive, lane string) (string, error) {
-	if lane == "" {
-		return rootLane, nil
+func reach(s *store.Store, drive string, f machine.Facts) (holder, unowned string, err error) {
+	holder, err = lanes.ChangeOwner(s, drive, f.Lane, f.Number)
+	if err != nil || holder != rootLane || f.Lane == "" {
+		return holder, "", err
 	}
-	return lanes.Holder(s, drive, lane)
+	return holder, "UNOWNED, " + f.Lane + " is not running: ", nil
 }
 
 func pullRef(f machine.Facts) string {
