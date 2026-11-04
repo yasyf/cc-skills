@@ -5,6 +5,7 @@ import re
 import subprocess
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
+from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, CompactionState, judged
 from .lane_landing import DRIVE_ENV, drive_entry, lane_name
@@ -53,6 +54,10 @@ def run(argv: list[str]) -> subprocess.CompletedProcess[str] | None:
         return subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=READ_TIMEOUT_SECONDS)
     except (OSError, subprocess.TimeoutExpired):
         return None
+
+
+def drive_session(evt: BaseHookEvent) -> bool:
+    return bool(reqenv.getenv("CLAUDE_LONG_RUNNING_LANE")) or CompactionState.load(evt).active
 
 
 def token(target: str) -> re.Pattern[str]:
@@ -216,7 +221,7 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
     }, all_cases=True),
 )
 def release_undo_cites_its_cause(evt: BaseHookEvent) -> HookResult | None:
-    if not (calls := undos(evt)):
+    if not (calls := undos(evt)) or not drive_session(evt):
         return None
     texts = [str(evt.command)]
     if all(undo_settled(evt, call, texts) for call in calls):
@@ -257,6 +262,6 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
     },
 )
 def no_tooling_change_during_an_incident(evt: BaseHookEvent) -> HookResult | None:
-    if not tooling_change(evt) or not open_incidents(evt):
+    if not tooling_change(evt) or not drive_session(evt) or not open_incidents(evt):
         return None
     return evt.context(FROZEN_TOOLING)

@@ -64,10 +64,8 @@ single-lane investigation is one subagent in direct mode, not a drive.
 ## Phase 0: the standing sessions
 
 **Binding.** Every session of a drive is bound to one lane name, and every hook,
-stop check, injection and cci delivery keys on that binding and nothing else. A
-session with no lane or drive in its environment, and neither the coordinator nor the
-communicator window, hears no hook of the pack; only the hooks that bind a session see
-it, and `tests/test_unbound_silence.py` lists them. The
+stop check, injection and cci delivery keys on that binding and nothing else. An
+unbound session hears no pack hook but those that bind it (`tests/test_unbound_silence.py`). The
 communicator's window is bound `owner-relay`; the coordinator's is bound `root`, so
 every coordinator hook and every record addressed to `root` lands on the coordinator and
 none of it on the communicator. The hooks come in three tiers on one switch:

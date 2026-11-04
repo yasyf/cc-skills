@@ -12,6 +12,7 @@ from captain_hook.events import PreToolUseEvent
 from captain_hook.testing.helpers import build_context
 from fire import fire
 from hooks import lane_rotation
+from hooks.compaction_handoff import CompactionState
 
 ROOT_AT = datetime(2026, 9, 25, 21, 35, tzinfo=UTC)
 TEAM = "session-rot"
@@ -110,7 +111,9 @@ def tool_use(tree: Tree, tool: str, tool_input: dict, agent_id: str | None = Non
     raw = {"session_id": "0123456789abcdef", "transcript_path": str(tree.root), "cwd": str(tree.claude.parent)}
     ctx = build_context(transcript=Session.from_path(tree.root), session_dir=tree.claude / "session")
     raw |= {"tool_name": tool, "tool_input": tool_input} | ({"agent_id": agent_id} if agent_id else {})
-    return fire(lane_rotation, PreToolUseEvent(_raw=raw, ctx=ctx))
+    evt = PreToolUseEvent(_raw=raw, ctx=ctx)
+    CompactionState(active=True, coordinator=True).save(evt)
+    return fire(lane_rotation, evt)
 
 
 def registry(monkeypatch: pytest.MonkeyPatch, routes: dict[str, str]) -> list[str]:

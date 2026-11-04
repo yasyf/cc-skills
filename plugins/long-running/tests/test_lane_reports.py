@@ -18,7 +18,7 @@ ONE_LINER = "done: #30441 landed; report sent to team-lead"
 def drive(home: Path, *, active: bool = True) -> Path:
     state = home / "state"
     seed = PostToolUseEvent(_raw={"session_id": SESSION, "tool_name": "Bash"}, ctx=build_context(session_dir=state))
-    CompactionState(active=active).save(seed)
+    CompactionState(active=active, coordinator=active).save(seed)
     return state
 
 

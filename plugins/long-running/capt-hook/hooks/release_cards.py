@@ -9,6 +9,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, bus_name, drive_entry
 from .gate5_release import LR
+from .incident_commands import drive_session
 from .lane_landing import DRIVE_ENV
 from .owner_facing import INCIDENT_DIGEST, incident_sources, open_incidents, read_incident_source
 from .tests.incident_fixtures import SAND_NOT_MIGRATED
@@ -118,7 +119,7 @@ def gating(stacks: set[str], cards: list[dict]) -> list[tuple[str, dict]]:
 )
 def release_leaves_out_what_his_open_cards_gate(evt: BaseHookEvent) -> HookResult | None:
     calls = [call for call in evt.command.calls("ci") if call.args[:1] == ("release",) and call.args[1:2] and call.args[1] in RELEASE_VERBS and "--dry-run" not in call.args]
-    if not calls:
+    if not calls or not drive_session(evt):
         return None
     try:
         if open_incidents(evt, read_incident_source):
