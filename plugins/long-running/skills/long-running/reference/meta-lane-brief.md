@@ -72,7 +72,7 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    the supervisor sent you, or run `lr waste` yourself: dead recipients, fan-out, injected
    context, hook skips, repeated chores and reads, cost per lane, duplicate forwards, and
    lanes warning about clobbering or racing, merged meta PRs older than 30 minutes with no
-   install, owner Slack replies older than two minutes with no answer. Open an item for what it shows without waiting
+   install, owner Slack replies older than two minutes with no answer, Codex compactions per lane hour. Open an item for what it shows without waiting
    for the owner, and name in the item's row the signal it came from. A race warning opens
    a fix for the tool that allows the race; passing it on as news is not handling it.
 ```
