@@ -32,6 +32,8 @@ A record that says customers are failing, or fail from a change already moving, 
 2. Claim, fence, freeze, and hold nothing (`tools/ci release claim`, a fence, a freeze, or a hold) unless the owner asks for that exact one; other people's releases keep flowing while the fix lands. Never freeze a target because a PR waits on review, a person's or a bot's, and never freeze everyone over a dependency your own change created; a change that must ship with another target waits in its own stack.
 3. Start the comms lane (`#incident-comms`); the coordinator writes nothing to Slack. The comms lane posts first in the affected account channels before the mechanism is known under cc-notes answer `5ad4507`, and open in `#outage` for a platform-wide incident under `52f4863`.
 
+A standing wait or hold order of the owner's never holds an open incident's fix: the fix lane ships and merges it at once and he hears in one line.
+
 **Fix every incident forward.** No lane chooses a rollback or a revert. A rollback or revert runs only when the owner's own word names that act after diagnosis has found the issue. The never-cancel-a-running-apply rule holds.
 
 **Record the Slack grants.** The coordinator records Slack grants for the affected account channels and threads, plus `#outage` for a platform-wide incident, under cc-notes answers `5ad4507` and `52f4863`.

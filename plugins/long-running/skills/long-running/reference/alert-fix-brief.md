@@ -17,7 +17,7 @@ Drive facts:
 
 Standing orders, fixed in this template:
   - A release alert's drive facts name its component, env, monitor, release, who
-    released it and the job. Never fence, freeze or hold anyone's release. A red
+    released it and the job. Never fence, freeze or hold anyone's release. A standing wait or hold order of the owner's never holds this fix: ship and merge it at once and tell him in one line. A red
     Watch rolls its component back by itself once monorepo #49355 is live, so a
     rollback is not this lane's work: fix forward what the alert names, and when
     the monitor is false, fix the monitor. A line to the owner names who released
