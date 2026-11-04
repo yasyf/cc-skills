@@ -32,7 +32,7 @@ LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 SATURATED = LANE_ENV | {LOAD_PER_CORE: "0"}
 HEALTHY = LANE_ENV | {LOAD_PER_CORE: "1000000"}
 SHIP = "ccx vcs ship -m 'sand: 🐛 fix the vm'"
-REPO = {"git rev-parse --show-toplevel": f"{FIXTURE}\n", "git config --bool core.sparseCheckout": (1, ""), "go env GOROOT": "/usr/local/go\n"}
+REPO = {"git rev-parse --show-toplevel": f"{FIXTURE}\n", "git config --bool --default false core.sparseCheckout": "false\n", "go env GOROOT": "/usr/local/go\n"}
 GO_DIFF = REPO | {"git diff": "go/sand/internal/vm/vm.go\ndocs/vm.md\n"}
 TS_DIFF = REPO | {"git diff": "api/src/a.ts\n"}
 REFUSAL = (
@@ -229,8 +229,8 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     if not (shown := run_quietly(["git", "rev-parse", "--show-toplevel"], cwd)) or shown.returncode or not shown.stdout.strip():
         return "the checkout's top level did not read"
     top = Path(shown.stdout.strip())
-    sparse = run_quietly(["git", "config", "--bool", "core.sparseCheckout"], str(top))
-    if sparse and sparse.stdout.strip() == "true":
+    sparse = run_quietly(["git", "config", "--bool", "--default", "false", "core.sparseCheckout"], str(top))
+    if not sparse or sparse.returncode or sparse.stdout.strip() == "true":
         return "a sparse checkout may not compile what it touched"
     diffed = run_quietly(["git", "diff", "--name-only", "--merge-base", "origin/HEAD"], str(top))
     if not diffed or diffed.returncode:
@@ -253,7 +253,7 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n.github/workflows/ci.yml\n"}): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"go env GOROOT": (127, "go: not found")}): Warn(pattern=r"^Warning, nothing was refused: no Go toolchain"),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"git config --bool core.sparseCheckout": "true\n"}): Warn(pattern=r"sparse checkout"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"git config --bool --default false core.sparseCheckout": "true\n"}): Warn(pattern=r"sparse checkout"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": (128, "fatal: bad revision 'origin/HEAD'")}): Warn(pattern=r"`origin/HEAD` did not read"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "tools/loose/main.go\n"}): Warn(pattern=r"has no `go.mod`"),
         Input(command="git push --dry-run", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),
