@@ -321,6 +321,8 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .fm.you .fm-icon { background: var(--ok-soft); color: var(--ok); }
 .fm.bad .fm-icon { background: var(--bad-soft); color: var(--bad); }
 .fm.bad header b { color: var(--bad); }
+.fm:has(a[href*="question/"], a[href*="review/"]) { cursor: pointer; }
+.fm:has(a[href*="question/"], a[href*="review/"]):hover { background: var(--surface); }
 .fm header { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--ink-2); }
 .fm header b { color: var(--ink-2); font-weight: 600; }
 .fm-frees { margin-left: auto; font-size: 12px; color: var(--ok); white-space: nowrap; }
@@ -390,3 +392,24 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 #chatmodal > .ct-acts { padding: 0 16px 16px; }
 #chatmodal > .nsent { display: block; padding: 0 16px 16px; }
 #chatmodal iframe { display: block; width: 100%; min-height: 320px; border: 0; }
+.bq-part { margin: 10px 0 0; }
+.bq-bg { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.bq-bg h4 { margin: 0 0 6px; font: 600 11px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.bq-facts { display: grid; grid-template-columns: minmax(90px, max-content) minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13.5px; }
+.bq-facts dt { color: var(--ink-2); }
+.bq-facts dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.bq-fig { margin-inline: 0; }
+.bq-fig img { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); }
+.bq-fig figcaption { margin-top: 4px; font-size: 12.5px; color: var(--ink-2); }
+.bq-prompt { font-weight: 500; color: var(--ink); }
+.bq-opts { list-style: none; padding: 0; font-size: 14px; line-height: 1.45; }
+.bq-opts li { display: block; padding: 3px 0; border: 0; color: var(--ink-2); }
+.bq-opts b { color: var(--ink); font-weight: 600; }
+.bq-opts small { display: block; font-size: 12.5px; color: var(--ink-3); }
+.bq-thread { list-style: none; margin: 12px 0 0; padding: 0 0 0 12px; border-left: 2px solid var(--line); }
+.bq-thread li { display: block; padding: 4px 0; border: 0; font-size: 14px; line-height: 1.5; color: var(--ink); }
+.bq-thread b { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.bq-thread .answer b { color: var(--ok); }
+.bq-ask { display: flex; gap: 8px; margin-top: 12px; }
+.bq-ask textarea { flex: 1; min-width: 0; min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--sans); resize: vertical; }
+@media (max-width: 640px) { .bq-facts { grid-template-columns: minmax(0, 1fr); } .bq-facts dt { margin-top: 6px; } }

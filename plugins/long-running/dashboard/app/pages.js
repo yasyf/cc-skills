@@ -474,9 +474,8 @@ function holdPeek() {
 }
 function reviewScreen(list) {
   const m = state.model;
-  if (list === 'q') list = '';
   const decided = m.board.rows.filter((r) => ['approved', 'held'].includes(verdictState(r)));
-  const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${needsTotal()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
+  const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${prsWaiting()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
   if (list === 'decided') return `<div class="pg">${pageHead('Review', curated('review'))}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
   const merges = m.needs.filter((item) => item.kind === 'prs').map((g) => {
     const words = rewritten('groups', g.key);
@@ -484,17 +483,12 @@ function reviewScreen(list) {
     const head = g.prs.length > 1 ? `<h3>${esc(words?.title ?? g.group)}</h3>${relation ? `<p class="pg-rel">${esc(relation)}</p>` : ''}` : '';
     return `<section class="pg-sec mr-group">${head}<div class="mr-list">${g.prs.map(mergeRow).join('')}</div></section>`;
   }).join('');
-  const cards = m.needs.filter((item) => item.kind === 'card');
-  const notes = m.board.cards.filter((c) => !c.decides);
   return `<div class="pg">${pageHead('Review', curated('review'))}${chips}
-    ${needsTotal() ? '' : '<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.</p>'}
-    ${needsTotal() && !merges ? '<p class="pg-rel">No change waits on your approval right now.</p>' : ''}
-    ${merges}
-    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions <span class="pg-n">${cards.length}</span></h2>${eventList(cards.map((item) => ({ id: `q-${item.card.id}`, at: '', word: 'Question', tone: 'you', title: rewritten('cards', item.card.key)?.question ?? words(item.card.title), more: boardCard(item) })))}</section>` : ''}
-    ${notes.length ? `<section class="pg-sec" id="review-notes"><h2>For your information</h2><div class="mr-list">${notes.map(noteCard).join('')}</div></section>` : ''}</div>`;
+    ${merges ? '' : '<p class="pg-lead">No change waits on your approval. When one does, it shows here and in the band on Now.</p>'}
+    ${merges}</div>`;
 }
 function noteCard(c) {
-  return `<article class="mr bq note" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(words(c.title))}</span></header>${c.summary ? `<p class="mr-why">${esc(words(c.summary))}</p>` : ''}</article>`;
+  return `<article class="mr bq note" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(words(c.title))}</span></header>${c.summary ? `<p class="mr-why">${esc(words(c.summary))}</p>` : ''}${c.parts.map(cardPart).join('')}${cardAsk(c)}</article>`;
 }
 
 function firstClause(text) {
@@ -607,11 +601,18 @@ function needsScreen() {
   const freeing = taps.filter((t) => !t.urgent && t.frees);
   const rest = taps.filter((t) => !t.urgent && !t.frees);
   const lead = taps.length ? `${plural(taps.length, 'tap')} wait on you, the most downstream work first.` : 'Nothing waits on your tap.';
+  const notes = state.model.board.cards.filter((c) => !c.decides);
   return `<div class="pg fd"><header class="fd-h"><h1>${lead}</h1></header>
     ${incidents.length ? `${feedDivider('Live incidents')}${incidents.map(tapRow).join('')}` : ''}
     ${freeing.length ? `${feedDivider('These free other work')}${freeing.map((t, at) => tapRow(t, at + incidents.length)).join('')}` : ''}
-    ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + incidents.length + freeing.length)).join('')}` : ''}</div>`;
+    ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + incidents.length + freeing.length)).join('')}` : ''}
+    ${notes.length ? `${feedDivider('For your information')}<div class="mr-list">${notes.map(noteCard).join('')}</div>` : ''}</div>`;
 }
+document.addEventListener('click', (e) => {
+  const row = e.target.closest('.fm[data-tap], .nl');
+  if (!row || e.target.closest('a, button, summary, details, form') || String(getSelection())) return;
+  row.querySelector('a[href*="question/"], a[href*="review/"]')?.click();
+});
 
 const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_you: ['Needs you', 'you'], incident: ['Incident', 'bad'], done: ['Done', 'ok'] };
 const SURFACE_WORD = { board: 'Board', talk: 'Talk', slack: 'Slack', record: 'Record' };
@@ -932,7 +933,7 @@ function reportBrowser() {
 function openNotice(a) {
   window.focus();
   if (a.card) {
-    location.hash = `#/review/q/${encodeURIComponent(a.card)}`;
+    location.hash = `#/needs~question/${encodeURIComponent(a.card)}`;
     return;
   }
   rp.focus = a.id;

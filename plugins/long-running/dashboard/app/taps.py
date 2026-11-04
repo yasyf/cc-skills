@@ -72,6 +72,21 @@ def open_blocks(records, lanes):
     return [record for record in records if record["seq"] not in replaced and record["lane"] not in done and not DESK.match(record["lane"]) and record.get("status") != "closed"]
 
 
+def head_moved(row, entry):
+    head = entry.get("head") or ""
+    shown = row["head"]
+    return bool(head) and not (head.startswith(shown) or shown.startswith(head)) and not row.get("carried")
+
+
+def card_threads(events):
+    threads = {}
+    for block, kind, at, text, md in events:
+        said = text if kind == "feedback.created" else md
+        if said and not SETTLED.match(said):
+            threads.setdefault(block, []).append({"who": "you" if kind == "feedback.created" else "answer", "text": said, "at": at})
+    return threads
+
+
 def stacked_above(entries):
     children = {}
     for entry in entries:
@@ -153,7 +168,7 @@ def tap_queue(rows, cards, slack, drive_prs, blocks, title_of, urgent=()):
     entries = {entry["number"]: entry for entry in drive_prs}
     above = stacked_above(drive_prs)
     lanes, named = parked_on(blocks, {card["id"] for card in [*cards, *slack]})
-    waiting = [row for row in rows if row["state"] == "you" and not row.get("awaiting") and not str(row.get("blocker") or "").startswith("Conflicts") and entries.get(row["number"], {}).get("state", "landed") != "landed"]
+    waiting = [row for row in rows if row["state"] == "you" and not row.get("awaiting") and not str(row.get("blocker") or "").startswith("Conflicts") and entries.get(row["number"], {}).get("state", "landed") != "landed" and not head_moved(row, entries[row["number"]])]
     taps = [
         *(land_tap(row, above, lanes, title_of) for row in waiting),
         *(card_tap(card, SLACK if card["id"].startswith("slack-") or SLACK_POST.search(card["title"]) else PICK, above, lanes, named, entries, title_of) for card in cards if card["decides"]),
