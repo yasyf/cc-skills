@@ -14,6 +14,8 @@ Every update the owner gets, whether a status answer, a milestone report or the 
 
 Under its title and before any section, the update opens with how many of the coordinator's own items in the drive's store are past due when it renders. One line per item follows, oldest due first, naming it and its due time. With none past due it prints nothing there.
 
+The first section is **Workstreams**, after only his repeated asks: one row per workstream of the drive with its state, what changed for a user since his last read, what blocks it, and what he must do, in plain words with no lane or card ids unless he must act on one. The rows come only from the progress desk's `<state dir>/progress-desk/workstreams.md`, a table headed `| Workstream | Lanes | State | Changed | Blocker | Owner action |`, one row per workstream; the Lanes cell lists the lane stems the workstream holds, comma-separated, and a stem also holds every longer stem under it, so `durable-agents` holds `durable-agents-fix-2`. The update never prints the Lanes cell. Under the table, one line names each live lane whose stem no row holds, so a gap shows the moment it opens. A missing or empty list renders one line saying so, and an unreadable one renders its error; either way the update still renders.
+
 1. **Since you last looked.** Each row that is new, whose owner, blocker or doneness moved, or that left its table because a PR landed, an ask was answered or an incident closed, since the last update he was sent.
 2. **Decisions made for you (FYI).** The communicator's own FYIs since the last update, grouped. Each is a plain-words synthesis of something the coordinator decided or solved, or of what is going right or wrong. Each is a `note` record from `owner-relay` on topic `fyi`, and the group is the words before its first colon. The render never turns coordinator records into FYIs.
 3. **Your words since the last update.** Each message the communicator queued, quoted whole, with the record that carries it: a later record that answers it with `--re` or resolves it. A record that only names its number does not count, since `#<n>` is also a PR.
@@ -22,10 +24,10 @@ Under its title and before any section, the update opens with how many of the co
 6. **Standing duties.** One row per duty at the newest lane of its successor chain.
 7. **Drive tooling.** One row per meta program (the cci token cut, the coordinator kept minimal for Fable, hook tiers, the dashboard, Sprites, launch latency, the Go loop and any other) with its state, its blocker and what comes next, in plain words. The rows come only from the meta lane's `<state dir>/meta/programs.md`, a table headed `| Program | State | Blocker | Next |`, one row per program; a program nothing blocks says `nothing`.
 8. **The plan.** One heading per plan, in plain words. Under it a step with no changed row since the last update he was sent is one line, and a step with a changed row gets its own table, step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out.
-9. **Workstreams and lanes.** One table per other step a brief names in words, then the lanes on no step, which include any lane whose brief names a raw code such as `S5` or a step the plan lacks.
+9. **Lanes by workstream.** One table per other step a brief names in words, then the lanes on no step, which include any lane whose brief names a raw code such as `S5` or a step the plan lacks.
 10. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
 11. Registry lanes quiet over a day, what waits on the coordinator, board picks, and what lanes delivered in the last two hours.
-12. **Gaps in this update.** Present only when a message of his has no record carrying it, a tooling program has no blocker, or the meta lane's list has no programs.
+12. **Gaps in this update.** Present only when a message of his has no record carrying it, a live lane is in no workstream, the workstream list is missing, empty or unreadable, a tooling program has no blocker, or the meta lane's list has no programs.
 13. **One closing line.** Present only when the render folded or dropped something, and it names each thing it folded or dropped.
 
 ## Detail where it matters
@@ -54,7 +56,7 @@ An update never exits 1 for its size. Over 40 KB, the render folds in this order
 10. Blocked lanes, to their names. What they wait on stays in "Waiting on the coordinator".
 11. The messages quoted from him, to their first 240 characters, keeping what carries each.
 
-If that is still over, the render drops whole lines from the end of the body, keeping the gaps, and the closing line says how many it dropped and after which heading. A dropped item no longer counts as missing. The tooling table never folds.
+If that is still over, the render drops whole lines from the end of the body, keeping the gaps, and the closing line says how many it dropped and after which heading. A dropped item no longer counts as missing. The workstreams and tooling tables never fold.
 
 ## The row
 
@@ -68,7 +70,7 @@ If that is still over, the render drops whole lines from the end of the body, ke
 
 ## The coverage check
 
-The render prints the update and writes `steps.json` before it exits, whatever its code. It exits 0 when nothing is left out. It exits 1 and names, on one `missing: <count>: <name>; <name>` line on stderr, each section, working lane, open ask and open PR it lacks. Its gaps are each message of his that no record carries, each tooling program with an empty Blocker cell as `<program>: no blocker line`, and a missing or empty `meta/programs.md`. When gaps are all that is wrong it exits 3, naming them on one `gaps: <count>: <gap>; <gap>` line, and the update is complete and ready to send. The gaps are the update's last section, so the owner sees them and the coordinator gets them as a `blocker` from the communicator. `lr update check FILE` reads an update someone else wrote and exits 1 naming each section, lane, ask and PR it leaves out, each tooling program it never names, and each program whose blocker is on no line that names it; the coordinator's Stop hook runs it on every long reply to the owner.
+The render prints the update and writes `steps.json` before it exits, whatever its code. It exits 0 when nothing is left out. It exits 1 and names, on one `missing: <count>: <name>; <name>` line on stderr, each section, working lane, open ask and open PR it lacks. Its gaps are each message of his that no record carries, each tooling program with an empty Blocker cell as `<program>: no blocker line`, a missing or empty `meta/programs.md`, the live lanes in no workstream as one `Live lanes in no workstream: <lane>, <lane>` gap, and a missing, empty or unreadable `progress-desk/workstreams.md`. When gaps are all that is wrong it exits 3, naming them on one `gaps: <count>: <gap>; <gap>` line, and the update is complete and ready to send. The gaps are the update's last section, so the owner sees them and the coordinator gets them as a `blocker` from the communicator. `lr update check FILE` reads an update someone else wrote and exits 1 naming each section, workstream, lane, ask and PR it leaves out, each tooling program it never names, and each program whose blocker is on no line that names it; the coordinator's Stop hook runs it on every long reply to the owner.
 
 ## The dashboard reads the same rows
 

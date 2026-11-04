@@ -34,7 +34,7 @@ const (
 	reapTitle      = "Session reap"
 	reapPasses     = 6
 	workstream     = "Workstream "
-	workstreams    = "Workstreams"
+	workstreams    = "Lanes by workstream"
 	firstUpdate    = "- The first update from this generator: every row below is new."
 	closedToday    = "Closed today: "
 	quietNow       = "Quiet over 2 h, nobody on them now: "
@@ -69,6 +69,8 @@ type Inputs struct {
 	Owed      []deletions.Owed
 	Pins      []drive.Pin
 	Programs  []Program
+	Streams   []Workstream
+	Unread    error
 	Rulings   []PlanRuling
 	Overdue   []store.Item
 	Orders    []owner.Row
@@ -369,6 +371,7 @@ type draft struct {
 	tracked    []section
 	before     map[string][]string
 	programs   []Program
+	streams    []string
 	reap       []string
 }
 
@@ -414,6 +417,7 @@ func Render(in Inputs) Report {
 	words, gaps := ownerWords(recordsFrom(in.All, in.Before.At))
 	lists := v.listSections(in, lanes, plan.doneLines)
 	lead := leadRows(in)
+	streams, streamGaps := workstreamLines(in.Streams, in.Unread, lanes)
 	found := draft{
 		header:     fmt.Sprintf("# Owner update: %s, %s", in.Drive, pacific(in.Now)),
 		lead:       lead,
@@ -428,10 +432,14 @@ func Render(in Inputs) Report {
 		tracked:    slices.Concat(sections, plan.folded),
 		before:     in.Before.Rows,
 		programs:   in.Programs,
+		streams:    streams,
 		reap:       reapLines(recordsFrom(in.All, in.Now.Add(-quietAfter))),
 	}
-	needs := make([]Need, 0, 5+len(sections)+len(lists)+len(lanes)+len(open)+len(prs))
-	needs = append(needs, Need{sinceTitle, sinceTitle}, Need{fyiTitle, fyiTitle}, Need{wordsTitle, wordsTitle}, Need{unownedTitle, unownedTitle}, Need{toolingTitle, toolingTitle})
+	needs := make([]Need, 0, 6+len(in.Streams)+len(sections)+len(lists)+len(lanes)+len(open)+len(prs))
+	needs = append(needs, Need{workstreamsTitle, workstreamsTitle}, Need{sinceTitle, sinceTitle}, Need{fyiTitle, fyiTitle}, Need{wordsTitle, wordsTitle}, Need{unownedTitle, unownedTitle}, Need{toolingTitle, toolingTitle})
+	for _, each := range in.Streams {
+		needs = append(needs, Need{each.Name, each.Name})
+	}
 	if len(lead) > 0 {
 		needs = append(needs, Need{leadTitle, leadTitle})
 	}
@@ -457,7 +465,7 @@ func Render(in Inputs) Report {
 		needs = append(needs, Need{"#" + strconv.Itoa(pr.Number), pr.Title})
 	}
 	whole, _ := found.lines(folding{before: found.before, since: found.since})
-	gaps = append(gaps, ToolingLeft(strings.Join(whole, "\n"), in.Programs)...)
+	gaps = slices.Concat(gaps, streamGaps, ToolingLeft(strings.Join(whole, "\n"), in.Programs))
 	text, dropped := found.fit(gaps)
 	if dropped {
 		left := Missing(text, needs)

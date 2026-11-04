@@ -80,6 +80,7 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			return trunk.Present(ctx, listed)
 		},
 		Programs: func() ([]Program, error) { return ReadPrograms(filepath.Join(entry.StateDir, toolingList)) },
+		Streams:  func() ([]Workstream, error) { return ReadWorkstreams(filepath.Join(entry.StateDir, workstreamList)) },
 		Rulings: func(ctx context.Context) ([]PlanRuling, error) {
 			return ReadRulings(ctx, ccn, mirror.Source, entry.Program)
 		},

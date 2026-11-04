@@ -220,7 +220,10 @@ after it when that is not the day the file is written. The stall watch pages
 `owner-relay` and the meta lane once when a Due passes or an open row has none, pages
 again only after the row changes, and never pages a row under `## Done`. Beside it,
 `meta/programs.md` holds one row per meta program with its state and blocker, and
-every owner update carries it as its Drive tooling section. Each item ends in a merged PR with
+every owner update carries it as its Drive tooling section. The progress desk keeps
+`progress-desk/workstreams.md`, one row per workstream of the drive naming the lane stems it
+holds, and every owner update opens with it as its Workstreams section, naming each live
+lane no row holds. Each item ends in a merged PR with
 tests, which the meta lane installs itself (R14).
 
 The meta lane also finds waste itself; a person noticing it first is the failure.

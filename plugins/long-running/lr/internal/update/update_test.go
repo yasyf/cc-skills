@@ -241,6 +241,7 @@ func inputs(t *testing.T) Inputs {
 			{Number: "3", Title: "3. The writers", Tasks: []plans.Task{{Title: "Writers", State: plans.Open}}},
 		}}},
 		Programs: []Program{{"cci token cut", "building", "nothing", "lands tonight"}},
+		Streams:  []Workstream{{"Sealed journal", []string{"ship"}, "building", "readers ported", "nothing", "nothing"}},
 	}
 }
 

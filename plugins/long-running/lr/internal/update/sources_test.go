@@ -41,6 +41,7 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 		Retro:    func(context.Context) ([]Retro, error) { return nil, nil },
 		Owed:     func(context.Context) ([]deletions.Owed, error) { return nil, nil },
 		Programs: func() ([]Program, error) { return nil, nil },
+		Streams:  func() ([]Workstream, error) { return nil, nil },
 		Rulings:  func(context.Context) ([]PlanRuling, error) { return nil, nil },
 		Overdue:  func(time.Time) ([]store.Item, error) { return nil, nil },
 		Orders:   func(context.Context) ([]owner.Row, error) { return nil, nil },

@@ -26,6 +26,18 @@ type Program struct {
 }
 
 func ReadPrograms(path string) ([]Program, error) {
+	rows, err := readTable(path, programColumns)
+	if err != nil {
+		return nil, err
+	}
+	var out []Program
+	for _, cells := range rows {
+		out = append(out, Program{cells[0], cells[1], cells[2], cells[3]})
+	}
+	return out, nil
+}
+
+func readTable(path string, columns []string) ([][]string, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -33,7 +45,7 @@ func ReadPrograms(path string) ([]Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Program
+	var out [][]string
 	headed := false
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -44,12 +56,12 @@ func ReadPrograms(path string) ([]Program, error) {
 		for i, text := range cells {
 			cells[i] = strings.TrimSpace(text)
 		}
-		if len(cells) != len(programColumns) {
-			return nil, fmt.Errorf("%s: %q has %d cells, want | %s |", path, line, len(cells), strings.Join(programColumns, " | "))
+		if len(cells) != len(columns) {
+			return nil, fmt.Errorf("%s: %q has %d cells, want | %s |", path, line, len(cells), strings.Join(columns, " | "))
 		}
 		if !headed {
-			if !slices.Equal(cells, programColumns) {
-				return nil, fmt.Errorf("%s: header %q, want | %s |", path, line, strings.Join(programColumns, " | "))
+			if !slices.Equal(cells, columns) {
+				return nil, fmt.Errorf("%s: header %q, want | %s |", path, line, strings.Join(columns, " | "))
 			}
 			headed = true
 			continue
@@ -57,7 +69,7 @@ func ReadPrograms(path string) ([]Program, error) {
 		if strings.Trim(strings.Join(cells, ""), "-: ") == "" {
 			continue
 		}
-		out = append(out, Program{cells[0], cells[1], cells[2], cells[3]})
+		out = append(out, cells)
 	}
 	return out, nil
 }

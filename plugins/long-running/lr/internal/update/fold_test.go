@@ -39,6 +39,7 @@ func crowded(t *testing.T) Inputs {
 	}
 	rows := map[string]map[string]string{}
 	in.Lanes, in.Records, in.Waits = nil, nil, nil
+	in.Streams = append(in.Streams, Workstream{"The rebuild", []string{"worker"}, "building", "parts moved", "nothing", "nothing"})
 	for i := range laneCount {
 		name := fmt.Sprintf("worker-%d", i)
 		lane := heard(name, "desired", 5)
