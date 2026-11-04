@@ -325,6 +325,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 
 - Every PR goes to the owner. A PR that is green, approved and graded at its head reaches his tap card within one runner pass and lands on his tap. Only the classes he exempted land on a go; nothing new joins them without his word, and the `landing_approval` hook refuses a record or brief that changes it.
 - A stale PR or a draft never reaches his board.
+- A PR he withdraws or rejects is closed on GitHub by its lane in the turn it hears his word, with a comment saying he withdrew it; it never sits open. In a public repo the comment paraphrases him.
 - Every push of PR rows to the owner's board refuses a row for a tap already given at that head, a rejected head, or a stale head, so he is never asked twice for the same tap.
 - When two PRs implement one ruling, he gets one tap card for it, never two competing ones: the coordinator picks which lands or folds one into the other first.
 - When he says he is going to sleep, every lane keeps shipping: the exempt classes land on go records all night, and every other green, graded PR waits as a tap row for his return.
