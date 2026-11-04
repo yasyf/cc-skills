@@ -10,7 +10,7 @@ from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import LR, Bound, Communicator, CompactionState, communicator_tests
 from .lane_slack_status import CC_SLACK
 from .meta_records import posts
-from .owner_facing import CODE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, Reads, fenced, last_reply, shown, slack_card, started_boards
+from .owner_facing import CODE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, Reads, fenced, last_reply, shown, slack_card, started_boards, status_words
 from .owner_replies_carry_news import dm_posts
 from .register_injection import INCIDENT_NAME, drive_args
 from .tests.handoff_fixtures import reply_transcript
@@ -98,10 +98,10 @@ def owner_lines(evt: BaseHookEvent, reads: Reads) -> list[str]:
     if card := reads.read("the status card", lambda: slack_card(evt)):
         return [text for _, text in shown(card)]
     if evt.tool_name != "Bash":
-        return []
+        return status_words(evt)
     posts = [text for _, text in dm_posts(evt)] if Communicator().check(evt) else []
     boards = [text for item in published(evt, reads, []) for _, text in shown(item.doc)]
-    return [*posts, *boards, *(text for _, text in started_boards(evt, reads))]
+    return [*status_words(evt), *posts, *boards, *(text for _, text in started_boards(evt, reads))]
 
 
 def tool_lines(evt: BaseHookEvent) -> list[str]:
