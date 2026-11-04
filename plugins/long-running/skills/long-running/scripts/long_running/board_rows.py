@@ -25,9 +25,10 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
               records no approval for the row at that head, so the row asks a tap he already gave;
               listing his approved head in the row's `carried` list (root #139021), `cc-present verdict
               import` at the head, or dropping the row clears it
-    re-ask    the board records his approval at another head, and the landing runner has posted no
-              `TAP-NOT-CARRIED` note for the PR at this head, its tap judge's finding that the head
-              changes what he approved (root #138721): until then the row sits in Being fixed or checked
+    re-ask    the board records his approval at another head, and the tap judge has not spoken at this
+              head: no fidelity `behavior: changed <head> since <sha>` or `behavior: same <head> since
+              <his head>` line names it, and no root decide names the PR at this head as not a carry
+              (root #138721): until then the row sits in Being fixed or checked
     since     the board records his approval at another head that its `carried` list does not name,
               and the `pr-groups` row's `since` lacks `changed`, what changed since his tap in plain
               words, or `because`, the behavior change it is shown again for (root #194315)
@@ -72,8 +73,8 @@ otherwise. The push form opens each re-asked `pr-groups` row's `change` with `Yo
 tap's Pacific time>. Since then: <changed>. Shown again because: <because>.` and drops every row's
 `since`. Rows of one `pr-groups` block that GitHub chains into one stack, each PR based on the
 branch of the one below it, push as one row at the tip when every one of them passes, asks again
-with its `since`, and moved only by a fix with no new behavior: the landing runner's `TAP-KEPT` ask
-names the PR at its head (root #194387). The row lists the others as cc-present's `stack`, so his one
+with its `since`, and moved only by a fix with no new behavior: the tap judge's newest word at its
+head is a fidelity `behavior: same` line since his tap (root #194387). The row lists the others as cc-present's `stack`, so his one
 tap decides each at its own head; its `change` opens with one line for the stack, then each PR's
 change, and each other fact reads as one line when every PR shares it, else one clause per PR. It runs its command with a copy of the block, `textAt` removed and each failing
 row left out (its triage item, its `pr-groups` entry, or its `- #<pr>:` line, and a triage or `pr-groups` block
@@ -114,7 +115,8 @@ SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
 RULING_KINDS = cci.ROOT_ANSWER_KINDS | {"answer"}
 TAP_GO = re.compile(r"\bTAP-(?:REQUIRED|CARRIED)\b")
-TAP_VERDICT = re.compile(r"^(?P<label>TAP-NOT-CARRIED|TAP-KEPT) #(?P<pr>\d+): the owner's tap at (?P<tapped>[0-9a-f]{7,40}) .*? carry to (?P<head>[0-9a-f]{7,40})\b")
+NOT_A_CARRY = re.compile(r"\bnot a carry\b", re.IGNORECASE)
+JUDGE_RULINGS = frozenset({"decide", "decision"})
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
 PR_REF = re.compile(r"#(\d+)\b")
@@ -463,14 +465,14 @@ def standing_gos(rulings: list[dict], withdrawn: set[int], pr: str, head: str) -
     return [] if newest is None or TAP_GO.search(newest["full"]) else [newest]
 
 
-def tap_reasons(row: Row, entry: dict | None, gos: list[dict], taps: list[dict]) -> list[str]:
+def tap_reasons(row: Row, entry: dict | None, gos: list[dict], judged: str) -> list[str]:
     if at_head(entry, "rejected", row.head):
         return [f"rejected: he rejected it at {row.head[:7]}{' at ' + entry['at'] if entry and entry.get('at') else ''}; it returns only at a new head"]
     carried = entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and any(grades.names_head(sha, entry["head"]) for sha in row.carried)
     if gos and not at_head(entry, "approved", row.head) and not carried:
         return [f"approved: root go cci #{gos[-1]['seq']} names it at {row.head[:7]}, and neither a board approval there nor his approved head in its carried list backs it; add {entry['head'] if entry and entry.get('verdict') == 'approved' and entry.get('head') else 'his approved head'} to carried, import the verdict, or drop the row"]
-    if moved_tap(row, entry) and not tap_verdict(taps, row, entry, "TAP-NOT-CARRIED"):
-        return [f"re-ask: he approved it at {entry['head']}, and the landing runner has not found that {row.head[:7]} changes what he approved; it waits in Being fixed or checked"]
+    if moved_tap(row, entry) and not judged:
+        return [f"re-ask: he approved it at {entry['head']}, and no fidelity `behavior:` line or root decide at {row.head[:7]} says whether it changes what he approved; it waits in Being fixed or checked"]
     return []
 
 
@@ -540,9 +542,11 @@ def since_reasons(row: Row, entry: dict) -> list[str]:
     return []
 
 
-def tap_verdict(taps: list[dict], row: Row, entry: dict, label: str) -> bool:
-    """Whether the landing runner's tap judge posted `label` for `row`'s PR from the head of his tap `entry` to the row's head: `TAP-NOT-CARRIED` when the head changes what the owner approved, so the board asks him again, `TAP-KEPT` when it changes nothing he approved."""
-    return any((found := TAP_VERDICT.match(record["text"])) and found["label"] == label and found["pr"] == row.pr and grades.names_head(found["tapped"], entry["head"]) and grades.names_head(found["head"], row.head) for record in taps)
+def tap_judge(row: Row, entry: dict, reviews: list[dict], rulings: list[dict], lanes: list[str]) -> str:
+    """The tap judge's newest word on `row`'s head against his tap `entry`: a fidelity lane's `behavior: changed` line at the head, or its `behavior: same` line since his tapped head, or root's decide naming the PR at the head as not a carry, which reads `changed`; empty while it has not spoken."""
+    said = [(record["seq"], found["verdict"]) for record in reviews if record["kind"] == "review" and record["lane"] in lanes and (found := grades.BEHAVIOR.match(record["text"])) and grades.names_head(found["head"], row.head) and (found["verdict"] == grades.BEHAVIOR_CHANGED or grades.names_head(found["since"], entry["head"]))]
+    said += [(record["seq"], grades.BEHAVIOR_CHANGED) for record in rulings if record["lane"] == grades.ROOT and record["kind"] in JUDGE_RULINGS and NOT_A_CARRY.search(text := grades.full_text(record)) and any(grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(text))]
+    return max(said, default=(0, ""))[1]
 
 
 def attrs(record: dict) -> dict[str, str]:
@@ -757,7 +761,6 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         ours = None
         warnings.append(f"WARN the drive's ledger did not read ({failed}); no row is checked for a PR the ledger never admitted")
     saved = shell.files(finders)
-    taps = tap_verdicts(shell, drive, [entry["at"] for row in named if verdicts is not None and (entry := verdicts.get(row.block, {}).get(row.id)) and moved_tap(row, entry) and entry.get("at")], warnings)
     for row in rows:
         row.reasons += moved.get(row.id, [])
     for row in named:
@@ -770,10 +773,11 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             row.warnings.append(f"root ruled it superseded or closed on cci #{ruling['seq']}; drop the row unless a later ruling reopened it")
         if verdicts is not None:
             row.entry = verdicts.get(row.block, {}).get(row.id)
-            row.reasons += tap_reasons(row, row.entry, standing_gos(indexed_rulings.get(row.pr, []), withdrawn, row.pr, row.head) if rulings is not None else [], taps or [])
+            judged = tap_judge(row, row.entry, indexed_reviews.get(row.pr, []), indexed_rulings.get(row.pr, []), lanes) if moved_tap(row, row.entry) else ""
+            row.reasons += tap_reasons(row, row.entry, standing_gos(indexed_rulings.get(row.pr, []), withdrawn, row.pr, row.head) if rulings is not None else [], judged)
             if moved_tap(row, row.entry):
                 row.reasons += since_reasons(row, row.entry)
-                row.pure = tap_verdict(taps or [], row, row.entry, "TAP-KEPT")
+                row.pure = judged == grades.BEHAVIOR_SAME
         if reviews is not None:
             gaps = graded_warnings(indexed_reviews.get(row.pr, []), saved, drive, lanes, repo, row)
             row.reasons += [gap for gap in gaps if "fidelity" in gap]
@@ -844,18 +848,6 @@ def approval_gaps(head: str, pr: str, entry: dict | None, rulings: list[dict], w
     approved = standing_gos(rulings, withdrawn, pr, head) or (entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and grades.names_head(entry["head"], head))
     graded = grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, pr), lanes, head)
     return (["no go, approval or carry"] if not approved else []) + (["no fidelity ok"] if not graded else [])
-
-
-def tap_verdicts(shell: Shell, drive: str, tapped: list[str], warnings: list[str]) -> list[dict] | None:
-    """The landing runner's `TAP-NOT-CARRIED` notes and `TAP-KEPT` asks since the oldest of the `tapped` times, the owner's taps at heads the rows have moved past; None when they do not read."""
-    if not tapped:
-        return []
-    try:
-        records = cci.records(tail(shell), drive, "--lane", RUNNER_LANE, "--kind=note", "--kind=ask", since=min(tapped, key=lambda at: parsed(at) or datetime.max.replace(tzinfo=PACIFIC)))
-    except ReadFailed as failed:
-        warnings.append(f"WARN the landing runner's tap verdicts did not read ({failed}); no moved tap clears its re-ask or folds into a stack row")
-        return None
-    return [record for record in records if record["lane"] == RUNNER_LANE and record["drive"] == drive and TAP_VERDICT.match(record["text"])]
 
 
 def withheld(node: object, failing: list[Row]) -> object:
