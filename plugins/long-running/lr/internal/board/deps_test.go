@@ -386,7 +386,65 @@ func TestAPickReadsTheBoardOnceHoweverManyCardsRestOnTheCard(t *testing.T) {
 		}
 		return outcomes
 	}
-	if one, many := reads(1), reads(1000); one != 1 || many != 1 {
-		t.Fatalf("board reads: %d at 1 resting card, %d at 1,000", one, many)
+	if none, one, many := reads(0), reads(1), reads(1000); none != 0 || one != 1 || many != 1 {
+		t.Fatalf("board reads: %d with no resting card, %d at 1, %d at 1,000", none, one, many)
+	}
+}
+
+func TestAPickShowsTheJudgeTheQuestionItAnswered(t *testing.T) {
+	const title, prompt, said = "What should a red Watch do to a rollout?", "Pick the Watch's job", "picked \u201cstay on telemetry only\u201d"
+	answered := map[string]any{"id": "card-watch", "type": "card", "title": title, "children": []any{
+		map[string]any{"id": "card-watch-pick", "type": "choice", "prompt": prompt, "options": []any{map[string]any{"id": "telemetry", "label": "stay on telemetry only"}}},
+	}}
+	related := map[string]any{"id": "card-next", "type": "card", "title": "Accept a Watch rollback's cost on next?", "children": []any{}}
+	unrelated := map[string]any{"id": "card-billing", "type": "card", "title": "Bill per seat?", "children": []any{}}
+	f := newDeps(t, answered, related, unrelated)
+	for _, card := range []string{"card-next", "card-billing"} {
+		if err := f.Cards.Store.PutCardDeps(store.CardRef{Session: "s1", Card: card, Lane: "lane-a"}, []string{cardKey("card-watch")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var seen sync.Map
+	f.Judge = func(_ context.Context, kind, evidence, artifact string) (*Judgment, error) {
+		seen.Store(kind, evidence)
+		if !strings.Contains(evidence, title) || !strings.Contains(evidence, prompt) {
+			return &Judgment{Verdict: "unsure", Sentence: "the question he answered isn't shown"}, nil
+		}
+		if !strings.Contains(artifact, "Watch") {
+			return &Judgment{Verdict: "no"}, nil
+		}
+		if kind == decidedKind {
+			return &Judgment{Verdict: "no", Sentence: "whether to accept the cost is still open"}, nil
+		}
+		return &Judgment{Verdict: "yes", Sentence: "A red Watch no longer rolls back."}, nil
+	}
+	moved, err := f.Pick(context.Background(), "card-watch", said)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 1 || moved[0].Card.Card != "card-next" || moved[0].How != "redrew" {
+		t.Fatalf("moved = %v, want only card-next redrawn and card-billing left alone", moved)
+	}
+	evidence, _ := seen.Load(premiseKind)
+	if !strings.Contains(evidence.(string), said) {
+		t.Fatalf("evidence = %v, want his pick beside its question", evidence)
+	}
+	for _, one := range f.posts {
+		if strings.Contains(one.text, "could not settle") {
+			t.Fatalf("a judge shown the question still flagged: %+v", one)
+		}
+	}
+}
+
+func TestAPickOnACardOffTheBoardSaysSoInsteadOfJudgingWithoutItsQuestion(t *testing.T) {
+	f := newDeps(t, lookupsDoc)
+	if err := f.Cards.Store.PutCardDeps(store.CardRef{Session: "s1", Card: lookupsCard, Lane: "lane-a"}, []string{cardKey("card-gone")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Pick(context.Background(), "card-gone", "picked it"); err == nil || !strings.Contains(err.Error(), "card-gone is not on board s1") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(f.judged) != 0 {
+		t.Fatalf("judged %v without the question", f.judged)
 	}
 }

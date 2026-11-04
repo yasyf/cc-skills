@@ -281,7 +281,7 @@ func (r Recheck) Ruling(ctx context.Context, keys []string) ([]Moved, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.move(ctx, refs, strings.Join(evidence, "\n\n"), "his ruling "+strings.Join(keys, ", "))
+	return r.move(ctx, refs, map[string]boardRead{}, strings.Join(evidence, "\n\n"), "his ruling "+strings.Join(keys, ", "))
 }
 
 func (r Recheck) Pick(ctx context.Context, card, said string) ([]Moved, error) {
@@ -295,11 +295,37 @@ func (r Recheck) Pick(ctx context.Context, card, said string) ([]Moved, error) {
 		return nil, err
 	}
 	refs = slices.DeleteFunc(refs, func(ref store.CardRef) bool { return ref.Session == picked.Session && ref.Card == card })
-	return r.move(ctx, refs, fmt.Sprintf("His pick, just made on another card of his board: %s", said), "his pick on "+card)
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	board, err := r.Cards.wholeBoard(ctx)
+	if err != nil {
+		return nil, err
+	}
+	answered, onBoard := board.blocks[card]
+	if !onBoard {
+		return nil, fmt.Errorf("%s is not on board %s, so the question he answered cannot be read", card, r.Cards.Session)
+	}
+	asked, err := questionOn(answered)
+	if err != nil {
+		return nil, err
+	}
+	return r.move(ctx, refs, map[string]boardRead{r.Cards.Session: board}, fmt.Sprintf("His pick, just made on another card of his board, answering %q: %s", asked, said), "his pick on "+card)
 }
 
-func (r Recheck) move(ctx context.Context, refs []store.CardRef, evidence, cause string) ([]Moved, error) {
-	boards := map[string]boardRead{}
+func questionOn(card json.RawMessage) (string, error) {
+	var shown map[string]any
+	if err := json.Unmarshal(card, &shown); err != nil {
+		return "", err
+	}
+	asked := []string{text(shown, "title")}
+	for _, choice := range typed(shown, "choice") {
+		asked = append(asked, text(choice, "prompt"))
+	}
+	return strings.Join(slices.Compact(slices.DeleteFunc(asked, func(part string) bool { return part == "" })), " / "), nil
+}
+
+func (r Recheck) move(ctx context.Context, refs []store.CardRef, boards map[string]boardRead, evidence, cause string) ([]Moved, error) {
 	for _, ref := range refs {
 		if _, read := boards[ref.Session]; read {
 			continue
