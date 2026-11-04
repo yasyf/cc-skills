@@ -140,5 +140,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Hold the concurrency group so pushes in the next 10 minutes release as one
-        run: sleep 600
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Hold the concurrency group so pushes in the next 10 minutes release as one, until the pack waits on a build
+        run: |
+          for _ in $(seq 30); do
+            git fetch -q origin main
+            for sha in $(git log --format=%H "$GITHUB_SHA..origin/main" -- plugins/long-running/lr); do
+              if git show --format= --name-only "$sha" -- plugins/long-running | grep -qv '^plugins/long-running/lr/'; then
+                exit 0
+              fi
+            done
+            sleep 20
+          done
