@@ -1051,7 +1051,7 @@ func TestAnEarlierHeadsLowerStackCommitTheBaseNowCarriesStaysOutOfTheRangeDiff(t
 	repo.shows[shaBase+":api/parent.go"] = "pending()\n"
 	repo.own[shaBase+".."+shaOld] = []string{shaParentTip, shaOldOwn}
 	repo.commitSubjects = map[string]string{shaParentTip: "sand: delete the old Go tree"}
-	repo.subjects = []string{"sand: delete the old Go tree"}
+	repo.subjects = []string{"api: the parent's commit before its restack", "sand: delete the old Go tree"}
 	mustFinder(t, directory, shell)
 	sameList(t, shell.texts(), []string{"finder: ok " + shaHead[:7] + " carried from #149302"})
 }
