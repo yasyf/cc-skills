@@ -13,7 +13,7 @@ Block when nothing in it tells the owner, in second person, what changed for him
 Do not block a message that tells the owner something that changed for him or puts a decision to him, even when it also carries one of those lines."""
 
 REPLY = "The communicator's chat carries only what changed for the owner or what he must decide, in second person. End the turn with no text, or rewrite the reply to that change or decision."
-RECORDS_ONLY = "This wake carries only cci records. A record that changes nothing for the owner and puts no decision to him ends this turn with no text at all; never tell him that all is in hand or that nothing is new."
+RECORDS_ONLY = "This wake carries only cci records. A record that changes nothing for the owner and puts no decision to him ends this turn with no text at all, even when Claude Code says he has not heard from you in a while; never tell him that all is in hand or that nothing is new."
 CCI_CHANNEL = '<channel source="plugin:cc-inbox:cci"'
 MONITOR = [{"id": "m1", "type": "monitor", "status": "running", "description": "cci subscribe owner-relay"}]
 WAKE = f'{CCI_CHANNEL} seq="359771">#359771 board-watch owner: the owner picked “Land” on merge-prs</channel>'
