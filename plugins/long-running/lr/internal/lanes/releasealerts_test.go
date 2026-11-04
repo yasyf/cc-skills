@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yasyf/cc-inbox/client"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -124,6 +125,29 @@ func TestAWatchPostNamesItsMonitorReleaseAndJob(t *testing.T) {
 		"released by U05FTPXU8PP",
 		"job https://buildkite.com/forge/release/builds/12404#01a1a349-af4e-4b67-b4e8-893cbba19b3c",
 	})
+}
+
+func TestARedPostOnAThreadWithAnIncidentOpensNothing(t *testing.T) {
+	thread := "https://forge.slack.com/archives/C0B75AL4XEW/p1793740168770509"
+	for name, opened := range map[string]client.Record{
+		"launch record on the thread": {Kind: kindSpawn, Text: "ALERT-LAUNCHED something " + thread},
+		"incident naming the thread":  {Kind: "incident", Text: "incident declared, see " + thread},
+	} {
+		t.Run(name, func(t *testing.T) {
+			channel, bus := realReleaseChannel(t), &fakeBus{tail: []client.Record{opened}}
+			var slugs []string
+			check := releaseAlerts(t, channel, bus, func(_ context.Context, fired Fired) (string, error) {
+				slugs = append(slugs, fired.Slug)
+				return "/state/lanes/" + fired.Slug + "-fix.brief.md", nil
+			})
+
+			if err := check.Check(context.Background(), releaseNow); err != nil {
+				t.Fatal(err)
+			}
+
+			equal(t, slugs, []string{smokeSlug, sandsqlSlug})
+		})
+	}
 }
 
 func TestTheReleaseBotsRedPostsEachOpenAnAlert(t *testing.T) {
