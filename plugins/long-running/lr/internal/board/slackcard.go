@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,6 +46,8 @@ type SlackPRRow struct {
 	Plan   string `json:"plan"`
 	Risk   string `json:"risk"`
 	Blocks string `json:"blocks"`
+
+	Description string `json:"description,omitempty"`
 }
 
 type SlackPR struct {
@@ -81,7 +84,7 @@ func Card(repo string, rows []Row, number int) (SlackCard, bool) {
 		Status: "needs_you", Title: fmt.Sprintf("Approve #%d at %s?", number, rows[at].Head[:min(waitsSHA, len(rows[at].Head))]),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number), Title: title, Head: rows[at].Head, Review: row.Review,
-			Change: row.Change, Plan: row.Plan, Risk: row.Risk, Blocks: row.Blocker,
+			Change: row.Change, Plan: row.Plan, Risk: row.Risk, Blocks: row.Blocker, Description: rows[at].Words[factDescription],
 		}},
 		Options: []string{approveLabel, holdLabel}, Recommended: approveLabel, Waits: MergeWaits(number, rows[at].Head),
 	}, true
@@ -113,6 +116,14 @@ func StoredRows(s *store.Store, repo string, numbers []int) ([]Row, error) {
 	if err != nil {
 		return nil, err
 	}
+	ledger, err := s.ReviewRows(repo)
+	if err != nil {
+		return nil, err
+	}
+	recorded := make(map[int]store.ReviewRow, len(ledger))
+	for _, row := range ledger {
+		recorded[row.Number] = row
+	}
 	var out []Row
 	for _, row := range open {
 		_, exempt := row.Facts["exempt"]
@@ -125,9 +136,30 @@ func StoredRows(s *store.Store, repo string, numbers []int) ([]Row, error) {
 				return nil, fmt.Errorf("#%d at %s: the gates its pass stored: %w", row.Number, short(row.Head), err)
 			}
 		}
-		out = append(out, Row{row.Number, row.Head, row.Kind, row.Lane, missing, row.Facts})
+		out = append(out, Row{row.Number, row.Head, row.Kind, row.Lane, missing, withLedger(row.Facts, recorded[row.Number])})
 	}
 	return out, nil
+}
+
+func withLedger(facts map[string]string, row store.ReviewRow) map[string]string {
+	words := make(map[string]string, len(facts)+7)
+	maps.Copy(words, facts)
+	for kind, value := range map[string]string{
+		FactTitle: row.Title, FactChange: row.ForUsers, FactPlan: strings.TrimSpace(row.PlanLine + " " + row.PlanRow), FactRisk: row.Risk,
+		FactBlocks: row.WaitsOn, factDescription: row.Description, factStanding: standing(row),
+	} {
+		if value != "" {
+			words[kind] = value
+		}
+	}
+	return words
+}
+
+func standing(row store.ReviewRow) string {
+	if row.Review == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s; grade %s, findings %s; mergeable %s; lane %s, branch %s, parent %s", row.Review, row.Grade, row.GradeFindings, row.Mergeable, row.Lane, row.Branch, row.Parent)
 }
 
 func Holders(s *store.Store, numbers []int, held []SlackPR) ([]SlackPR, error) {

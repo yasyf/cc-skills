@@ -15,14 +15,17 @@ import (
 const (
 	MergeBlock = "merge-prs"
 
-	FactTitle     = "words-title"
-	FactChange    = "words-change"
-	FactPlan      = "words-plan"
-	FactRisk      = "words-risk"
-	FactBlocks    = "words-blocks"
-	FactGroup     = "words-group"
-	FactSummary   = "words-summary"
-	FactWithdrawn = prrow.FactWithdrawn
+	FactTitle  = "words-title"
+	FactChange = "words-change"
+	FactPlan   = "words-plan"
+	FactRisk   = "words-risk"
+	FactBlocks = "words-blocks"
+
+	factDescription = "ledger-description"
+	factStanding    = "ledger-standing"
+	FactGroup       = "words-group"
+	FactSummary     = "words-summary"
+	FactWithdrawn   = prrow.FactWithdrawn
 
 	tapFact  = "tap"
 	noTap    = gates.NoTap
@@ -98,6 +101,9 @@ func review(row Row) string {
 	words := "every other gate is met"
 	if len(waits) > 0 {
 		words = strings.Join(waits, ", ")
+	}
+	if on := row.Words[factStanding]; on != "" {
+		words += "; " + on
 	}
 	if row.Words[gates.BehaviorFact] == gates.BehaviorChanged {
 		return fmt.Sprintf("%s; changed since the head he tapped, %s: %s", words, short(row.Words[gates.SinceFact]), row.Words[gates.ChangedFact])

@@ -270,3 +270,30 @@ func TestASlackMergeCardTapIsAnOwnerRecordThatReachesTheLandingHost(t *testing.T
 		t.Fatalf("order = %+v, %v", tap, ordered)
 	}
 }
+
+func TestTheApproveCardReadsThePRLedgerWhenNoHeadRecordCarriesWords(t *testing.T) {
+	s := withItem(t)
+	if err := s.PutReviewRows([]store.ReviewRow{{
+		Repo: repo, Number: number, Head: head, ReadyForTap: true, Title: "sand: faster chats", ForUsers: "chats load faster", PlanRow: "checked against the plan",
+		Risk: "one cache key", Description: "## Context", WaitsOn: "Only your approval.", Review: "approved by poetic-svc", Grade: "pass", GradeFindings: "none",
+		Mergeable: "clean", Lane: "lane-7", Branch: "lane-7/fast", Parent: "none",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	found, err := StoredRows(s, repo, []int{number})
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, ok := Card(repo, found, number)
+	if !ok {
+		t.Fatal("drew no card")
+	}
+	want := SlackPRRow{
+		URL: "https://github.com/org/repo/pull/45583", Title: "sand: faster chats", Head: head,
+		Review: "every other gate is met; approved by poetic-svc; grade pass, findings none; mergeable clean; lane lane-7, branch lane-7/fast, parent none",
+		Change: "chats load faster", Plan: "checked against the plan", Risk: "one cache key", Blocks: "Only your approval.", Description: "## Context",
+	}
+	if !reflect.DeepEqual(card.PRs[0], want) {
+		t.Fatalf("row = %+v, want %+v", card.PRs[0], want)
+	}
+}
