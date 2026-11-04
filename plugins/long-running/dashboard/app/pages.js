@@ -331,6 +331,12 @@ const ASKS_AT_REST = 12;
 function askTitle(text) {
   return firstClause(text.replace(/https?:\/\/\S+/g, '').trim() || 'A message with only a link').replace(/^(.{96}\S*)\s.+$/, '$1…');
 }
+function receivedLine(ask) {
+  return new Date(ask.due) <= Date.now() ? `Past due: the answer was due by ${clock(ask.due)}` : `Received, with ${ask.holder}, answer by ${clock(ask.due)}`;
+}
+function receivedTone(ask) {
+  return new Date(ask.due) <= Date.now() ? 'bad' : 'you';
+}
 function askRow(ask, state, where, more) {
   return { ...ask, state, word: ASK_WORD[state], tone: ASK_TONE[state], side: esc(where), more };
 }
@@ -342,7 +348,7 @@ function askMessage(a) {
     a.lanes.length ? `<dt>Who holds it</dt><dd>${a.lanes.map((lane) => `<a href="#/worker/${encodeURIComponent(lane)}">${esc(workerName(lane))}</a>`).join(', ')}</dd>` : '',
     a.prs.length ? `<dt>Pull requests</dt><dd>${a.prs.map((ref) => (ref.includes('#') ? esc(ref) : `<a href="#/review/${esc(ref)}">${esc(plainTitle(ref))}</a>`)).join('<br>')}</dd>` : '',
   ].join('');
-  return askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text) }, a.state, where, `${a.answer ? `<div class="md">${markdown(plain(a.answer))}</div>` : ''}${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`);
+  return askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text), why: a.due ? receivedLine(a) : '' }, a.state, where, `${a.answer ? `<div class="md">${markdown(plain(a.answer))}</div>` : ''}${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`);
 }
 function overdueRows() {
   const clipped = (item) => esc(item.text.replace(/^(.{120}\S*)\s.+$/s, '$1…'));
@@ -370,7 +376,7 @@ function askRows() {
   });
   return [...overdueRows(), ...newestFirst([
     ...data.messages.map(askMessage),
-    ...data.taps.filter((t) => !t.pr).map((t) => askRow({ id: `ask-m${t.m}`, iso: t.iso, at: clock(t.iso), title: t.question.replace(/^(.{96}\S*)\s.+$/, '$1…'), why: t.said.replace(/^picked /, 'You picked ') }, t.state, 'Card', '')),
+    ...data.taps.filter((t) => !t.pr).map((t) => askRow({ id: `ask-m${t.m}`, iso: t.iso, at: clock(t.iso), title: t.question.replace(/^(.{96}\S*)\s.+$/, '$1…'), why: t.due ? receivedLine(t) : t.said.replace(/^picked /, 'You picked ') }, t.state, 'Card', '')),
     ...approvalRow('applied', approvals.filter((t) => t.state === 'applied'), 'changes you approved have landed'),
     ...approvalRow('answered', approvals.filter((t) => t.state !== 'applied'), 'changes you approved have not landed yet'),
     ...store,
@@ -435,7 +441,10 @@ function waitLine(row, w) {
   const since = waitingSince(row.number);
   if (!SETTLED.test(w.blocker.trim())) return `<p class="mr-waits">${dotted('Waits on', 'warn')} ${esc(w.blocker)}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</p>`;
   if (verdictState(row) !== 'you') return '';
-  if (awaitingReply(row.number)) return `<p class="mr-waits">${dotted('Waiting on the reply to your question', 'warn')} It returns to your queue when the answer lands.</p>`;
+  if (awaitingReply(row.number)) {
+    const ask = changeAsks(row.number).at(-1);
+    return `<p class="mr-waits">${ask.due ? dotted(receivedLine(ask), receivedTone(ask)) : dotted('Waiting on the reply to your question', 'warn')} It returns to your queue when the answer lands.</p>`;
+  }
   const checked = row.checked_at && row.head.slice(0, 7) === row.checked_at.slice(0, 7) ? ' Reviewed and checked; it lands on your tap.' : '';
   return since || checked ? `<p class="mr-waits">${dotted('Waiting on you', 'you')}${checked} ${since ? blockedFor(since) : ''}</p>` : '';
 }

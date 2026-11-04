@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "dashboard" / "app"))
 
-from owed import kept, order_replies, overdue_rows, owner_ask_rows, told_asks
+from owed import closed_asks, kept, order_replies, overdue_rows, owner_ask_rows, told_asks
 
 LEDGER = """| m | at | text | record | mark |
 |---|---|---|---|---|
@@ -140,3 +140,37 @@ def test_the_newest_reply_naming_a_row_is_its_answer_and_reaches_the_question_th
     ledger = "| m20 | Nov 3 9:17 PM | why? | 77 | responded |\n| m21 | Nov 3 9:18 PM | how? | 78 | responded |\n"
     assert {row: reply["id"] for row, reply in told.items()} == {"m20": "b"}
     assert {seq: reply["id"] for seq, reply in told_asks(ledger, told).items()} == {77: "b"}
+
+
+DUE_LEDGER = """| m | at | text | record | mark |
+|---|---|---|---|---|
+| m20 | Nov 3 9:17 PM | why? | 77 | due Nov 3 9:32 PM |
+| m21 | Nov 3 9:18 PM | Owner on board d50e, Merge it? (merge-prs): wrote \u201conly for the team\u201d | 78 | due Nov 3 9:33 PM |
+| m22 | Nov 3 9:19 PM | is this the same bug as before? | 79 | responded |
+"""
+
+
+def due_rows(threads=None):
+    return owner_ask_rows(DUE_LEDGER, [], {}, [], set(), 2026, {}, threads)
+
+
+def test_a_due_question_keeps_its_row_with_its_clock_however_short_his_words():
+    found = by_message(due_rows({77: {"answered": False, "holder": "the coordinator"}}))
+    assert found[20]["state"] == "asked"
+    assert found[20]["due"] == "2026-11-03T21:32:00-08:00"
+    assert found[20]["holder"] == "the coordinator"
+
+
+def test_a_due_board_note_is_still_asked_in_the_chats_hands_and_shows_no_card_id():
+    tap = due_rows()["taps"][0]
+    assert (tap["state"], tap["due"], tap["holder"]) == ("asked", "2026-11-03T21:33:00-08:00", "your chat")
+    assert tap["question"] == "Merge it?: wrote \u201conly for the team\u201d"
+
+
+def test_a_settled_thread_answers_a_short_question_and_drops_its_clock():
+    found = by_message(due_rows({77: {"answered": True, "holder": "the coordinator"}}))
+    assert (found[20]["state"], found[20]["due"]) == ("answered", None)
+
+
+def test_a_closed_row_closes_the_question_it_routed_and_a_due_one_does_not():
+    assert closed_asks(DUE_LEDGER) == {79: {"closed": "responded"}}

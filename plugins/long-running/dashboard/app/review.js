@@ -267,7 +267,7 @@ function needsHim(ask) {
 }
 function openAsk(ask) {
   if (needsHim(ask)) return `<div class="fb-said">${dotted(ask.action, 'you')} <a href="#/replies">Read the reply</a></div>`;
-  return `<div class="fb-said">${dotted('You asked; waiting on the reply', 'you')}<span class="fb-words">${esc(ask.text)}</span><small>${clock(ask.at)}</small></div>`;
+  return `<div class="fb-said">${ask.due ? dotted(receivedLine(ask), receivedTone(ask)) : dotted('You asked; waiting on the reply', 'you')}<span class="fb-words">${esc(ask.text)}</span><small>${clock(ask.at)}</small></div>`;
 }
 function changeBox(n, head) {
   const thread = changeAsks(n).filter((ask) => !ask.answered || needsHim(ask)).map(openAsk).join('');

@@ -509,6 +509,18 @@ def test_an_applied_order_leaves_the_review_page_and_a_reply_needing_him_shows_o
     assert "fb-said" not in boxes["tapped"]
 
 
+def test_a_page_question_reads_received_then_past_due_in_plain_words(page):
+    """Owner m311: his question sat with no acknowledgement for a minute and he had to ask in chat."""
+    page.goto(page.url.split("#")[0] + "#/review")
+    lines = page.evaluate("""() => {
+      const ask = (due) => ({ due, holder: 'the coordinator' });
+      const hour = 3600 * 1000;
+      return [receivedLine(ask(new Date(Date.now() + hour).toISOString())), receivedLine(ask(new Date(Date.now() - hour).toISOString()))];
+    }""")
+    assert re.fullmatch(r"Received, with the coordinator, answer by .*\d [AP]M", lines[0])
+    assert re.fullmatch(r"Past due: the answer was due by .*\d [AP]M", lines[1])
+
+
 def test_the_first_load_asks_for_the_now_slice_and_another_tab_fetches_the_whole_model_on_demand(page):
     """Root #306148: every tab's data was parsed on the first load; Now draws from its slice and the other tabs load theirs when opened."""
     model = json.loads(MODEL.read_text())
