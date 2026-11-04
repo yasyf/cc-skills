@@ -192,7 +192,7 @@ func fullText(record client.Record) string {
 		return record.Text
 	}
 	whole := string(spilled)
-	if clipped, isClipped := strings.CutSuffix(record.Text, "…"); isClipped && !strings.HasPrefix(whole, clipped) {
+	if clipped, isClipped := strings.CutSuffix(record.Text, "…"); isClipped && !strings.HasPrefix(strings.Join(strings.Fields(whole), " "), clipped) {
 		return record.Text
 	}
 	return whole

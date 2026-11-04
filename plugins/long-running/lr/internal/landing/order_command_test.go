@@ -3,12 +3,16 @@ package landing
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
@@ -16,20 +20,92 @@ import (
 
 func TestOnlyTheOwnersOwnWordNamingThePROrdersIt(t *testing.T) {
 	for _, tt := range []struct {
-		name, lane, text string
-		want             bool
+		name, kind, lane, text string
+		want                   bool
 	}{
-		{"a relayed thread answer", "owner-relay", "Owner in thread: merge #7", true},
-		{"a later relay", "owner-relay-2", "Owner in thread: merge #7", true},
-		{"a board tap", "board-watch", "Owner on board: Land #7 now", true},
-		{"a lane's own word", "root", "Enqueue #7 now", false},
-		{"his word on another PR", "owner-relay", "Owner in thread: merge #70", false},
+		{"a relayed thread answer", "owner", "owner-relay", "Owner in thread: merge #7", true},
+		{"a later relay", "owner", "owner-relay-2", "Owner in thread: merge #7", true},
+		{"a board tap", "owner", "board-watch", "Owner on board: Land #7 now", true},
+		{"a lane's own word", "owner", "root", "Enqueue #7 now", false},
+		{"his word on another PR", "owner", "owner-relay", "Owner in thread: merge #70", false},
+		{"a relay report naming the PR", "report", "owner-relay", "Applied his tap on #7", false},
+		{"a relay report of taps owed", "report", "owner-relay", "his taps owed on #7 #8 #9", false},
+		{"a relay answer naming the PR", "answer", "owner-relay", "His tap: #7 lands", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := holdsOwnerWord(client.Record{Lane: tt.lane, Text: tt.text}, 7); got != tt.want {
+			raw, err := json.Marshal(map[string]string{"kind": tt.kind, "lane": tt.lane, "text": tt.text})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var record client.Record
+			if err := json.Unmarshal(raw, &record); err != nil {
+				t.Fatal(err)
+			}
+			if got := holdsOwnerWord(record, 7); got != tt.want {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAWordReadsWholePastItsClip(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	long := "Owner in thread, verbatim:\n" + strings.Repeat("the whole stack goes now ", 30) + "\nmerge #7"
+	read := func(kind string) client.Record {
+		t.Helper()
+		posted, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: kind, To: []string{"root"}, Text: long})
+		if err != nil {
+			t.Fatal(err)
+		}
+		records, err := client.Among(ctx, "d", []int64{posted.Seq})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(records) != 1 || strings.Contains(records[0].Text, "#7") {
+			t.Fatalf("records = %+v, want one clipped before #7", records)
+		}
+		return records[0]
+	}
+
+	word := read("owner")
+	report := read("report")
+
+	if !holdsOwnerWord(word, 7) {
+		t.Fatal("his word naming #7 past the clip was refused")
+	}
+	if holdsOwnerWord(word, 8) {
+		t.Fatal("his word on #7 ordered #8")
+	}
+	if holdsOwnerWord(report, 7) {
+		t.Fatal("a relay report naming #7 past the clip ordered it")
+	}
+}
+
+func TestARefusedRecordNamesTheOneToPostAndWritesNothing(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	config := filepath.Join(t.TempDir(), "lr.json")
+	if err := os.WriteFile(config, []byte(`{"repo":"o/r","drive":"d","checkout":"/c","author":"a","label":"l","movers":["lanes"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owed, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "report", To: []string{"root"}, Text: "his taps owed on #7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	err = runOrder(ctx, &app.App{ConfigPath: config}, 7, owed.Seq, &out)
+
+	if want := "cci post --drive d --lane owner-relay --kind owner --pr o/r#7"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %v, want it to name %q", err, want)
+	}
+	written, err := client.Tail(ctx, client.Query{Drive: "d", After: owed.Seq})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 0 {
+		t.Fatalf("written = %+v", written)
 	}
 }
 
