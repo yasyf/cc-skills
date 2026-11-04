@@ -96,6 +96,7 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 		return proven
 	}
 	var asked []string
+	down := map[string]string{}
 	for _, lane := range unproven {
 		if sprite, listed := sprites[lane.Name]; listed && sprite.Status != spriteRunning && !settledLane(lane) {
 			proven[lane.Name] = Verdict{Kind: Ok}
@@ -108,8 +109,13 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 			}
 			continue
 		}
-		if why := abandoned(lane, probes, now); why != "" && !settledLane(lane) {
+		if why := neverHeard(lane, now); why != "" && !settledLane(lane) {
 			proven[lane.Name] = Verdict{Lost, why}
+			continue
+		}
+		if why := orcaLostHost(lane, probes, now); why != "" && !settledLane(lane) {
+			down[lane.Name] = why
+			asked = append(asked, lane.Name)
 			continue
 		}
 		if !needsProof(lane, silence(lane, now), d.RetireAfter) {
@@ -124,7 +130,8 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 	if len(asked) == 0 {
 		return proven
 	}
-	for name, host := range d.Hosts(asked, sprites) {
+	hosts := d.Hosts(asked, sprites)
+	for name, host := range hosts {
 		gone := unreachableProbe(name)
 		switch host {
 		case HostRunning:
@@ -146,13 +153,22 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 			}
 		}
 	}
+	for name, why := range down {
+		if hosts[name] != HostRunning {
+			proven[name] = Verdict{Lost, why}
+		}
+	}
 	return proven
 }
 
-func abandoned(lane store.Lane, probes map[string]store.Probe, now time.Time) string {
+func orcaLostHost(lane store.Lane, probes map[string]store.Probe, now time.Time) string {
 	if gone, tracked := probes[hostGoneProbe(lane.Name)]; tracked && now.Sub(gone.Asked) >= hostGoneAfter {
 		return fmt.Sprintf("has a Sprite host Orca has reported unavailable for %d min", int(now.Sub(gone.Asked).Minutes()))
 	}
+	return ""
+}
+
+func neverHeard(lane store.Lane, now time.Time) string {
 	if lane.Heard.IsZero() && now.Sub(lane.Since) >= StaleAfter {
 		return fmt.Sprintf("has posted no record in the %d min since its launch, and Orca does not report it live", int(now.Sub(lane.Since).Minutes()))
 	}
