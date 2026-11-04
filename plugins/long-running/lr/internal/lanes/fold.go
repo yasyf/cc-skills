@@ -310,11 +310,15 @@ func maxOrder(s *store.Store, r Record) int64 {
 func foldWait(s *store.Store, r Record, row store.Lane) {
 	var ask int64
 	awaits := ""
-	if slices.Contains(waits, r.Kind) && (card.MatchString(r.Text) || slices.Contains(r.To, Root) || must(BriefOf(row.Brief)).Standing == "") {
+	if slices.Contains(waits, r.Kind) && (cardOnOwner(r) || slices.Contains(r.To, Root) || must(BriefOf(row.Brief)).Standing == "") {
 		ask, awaits = r.Seq, strings.Join(gatesOf(r), " ")
 	}
 	do(s.SetLaneWaiting(r.Lane, ask, time.Time{}, awaits))
 	do(s.SetLanePage(r.Lane, nil))
+}
+
+func cardOnOwner(r Record) bool {
+	return card.MatchString(r.Text) && (slices.Contains(r.To, Root) || slices.Contains(r.To, OwnerRelay))
 }
 
 func gatesOf(r Record) []string {
@@ -328,9 +332,11 @@ func gatesOf(r Record) []string {
 	for _, lane := range r.Refs.Lanes {
 		gates = append(gates, "lane:"+lane)
 	}
-	for _, found := range card.FindAllString(r.Text, -1) {
-		if !slices.Contains(gates, found) {
-			gates = append(gates, found)
+	if cardOnOwner(r) {
+		for _, found := range card.FindAllString(r.Text, -1) {
+			if !slices.Contains(gates, found) {
+				gates = append(gates, found)
+			}
 		}
 	}
 	if strings.Contains(r.Text, noRecommendation) {

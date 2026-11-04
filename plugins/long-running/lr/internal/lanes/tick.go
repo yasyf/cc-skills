@@ -983,7 +983,7 @@ func recommendedSweep(s *store.Store, d Deps, now time.Time) {
 		if len(cards) == 0 || len(lane.PRs) > 0 || slices.Contains(strings.Fields(lane.Awaits), noRecommendation) {
 			continue
 		}
-		why := fmt.Sprintf("%s stands, so no lane parks on a pick that recommends an option: build the recommended option of %s as a branch, never a PR, and carry on. If the card recommends none, re-post blocked naming it with %s.", d.BuildRecommendedOrder, strings.Join(cards, ", "), noRecommendation)
+		why := fmt.Sprintf("%s stands, so no lane parks on a pick that recommends an option: build the recommended option of %s as a branch, never a PR, and carry on. If the card recommends none, re-post blocked naming it with %s. If he has answered it or it is off his board, build nothing and carry on.", d.BuildRecommendedOrder, strings.Join(cards, ", "), noRecommendation)
 		do(s.PutBranchCards(lane.Name, cards))
 		do(s.SetLaneWaiting(lane.Name, 0, now, ""))
 		do(s.SetLanePage(lane.Name, map[string]any{"topic": d.BuildRecommendedOrder, "why": why, "text": why, "prs": append([]int{}, lane.PRs...)}))
