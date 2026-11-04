@@ -124,9 +124,18 @@ def test_only_records_a_row_can_use_are_kept():
     assert not kept(record(1, "a", "report", "no message named"))
 
 
-def test_a_row_answered_with_no_reply_to_him_says_so_and_never_shows_the_record_between_lanes():
+def test_a_split_message_keeps_each_part_and_a_relayed_copy_of_a_row_is_skipped():
+    ledger = """| m388.1 | Nov 3 3:00 AM | render the card whole on the dashboard |  | open |
+| m388.2 | Nov 3 3:00 AM | remove the stale cards from my board |  | open |
+| m231 | Nov 3 3:01 AM | m230: "no browser notifs" - dashboard raises none | 55 | open |
+"""
+    messages = owner_ask_rows(ledger, [], {}, [], set(), 2026, {"m388.2": "Removed."})["messages"]
+    assert [(message["m"], message["answer"]) for message in messages] == [("388.1", ""), ("388.2", "Removed.")]
+
+
+def test_a_row_answered_with_no_reply_to_him_carries_no_answer_and_never_shows_the_record_between_lanes():
     found = by_message(rows([record(1, "lane-1", "report", "m8 board-refresher-7: withdraw the card.")]))
-    assert found[8]["answer"] == "Answered, nothing for you."
+    assert found[8]["answer"] == ""
     assert "latest" not in found[8] and "withdraw" not in str(found[8])
 
 
@@ -174,3 +183,14 @@ def test_a_settled_thread_answers_a_short_question_and_drops_its_clock():
 
 def test_a_closed_row_closes_the_question_it_routed_and_a_due_one_does_not():
     assert closed_asks(DUE_LEDGER) == {79: {"closed": "responded"}}
+
+
+def test_a_message_moves_from_received_to_routed_to_done_as_the_ledger_is_marked():
+    ledger = """| m1 | Nov 3 3:00 AM | please fix the typing box now |  | open |
+| m2 | Nov 3 3:01 AM | please fix the other box now | 55 | open |
+| m3 | Nov 3 3:02 AM | promise me a clock on this one |  | due Nov 3 6:40 PM |
+| m4 | Nov 3 3:03 AM | tell me when this one is done | 56 | responded |
+| m5 | Nov 3 3:04 AM | this was only a remark, thanks | 57 | no-order |
+"""
+    messages = owner_ask_rows(ledger, [], {}, [], set(), 2026, {})["messages"]
+    assert [message["ack"] for message in messages] == ["received", "routed", "routed", "done", "done"]

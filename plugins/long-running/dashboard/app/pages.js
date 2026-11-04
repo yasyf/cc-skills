@@ -318,8 +318,7 @@ function prGroup(text) {
   const hit = PR_GROUPS.find(([pattern]) => pattern.test(text));
   return hit ? hit.slice(1) : [ledgerWords(text), 'Moving', 'acc'];
 }
-const ASK_WORD = { overdue: 'Overdue', asked: 'Asked', answered: 'Answered', applied: 'Applied', live: 'Live' };
-const ASK_TONE = { overdue: 'bad', asked: 'bad', answered: 'you', applied: 'acc', live: 'ok' };
+const ACK = { received: ['Received', 'you'], routed: ['Routed', 'acc'], done: ['Done', 'ok'] };
 const OVERDUE_GROUP = {
   pick: (n) => `${n} of your picks not carried out`,
   ask: (n) => `${plural(n, 'ask')} with no answer`,
@@ -327,7 +326,6 @@ const OVERDUE_GROUP = {
   finding: (n) => `${plural(n, 'finding')} not closed`,
   repeat: (n) => plural(n, 'repeating alarm'),
 };
-const ASKS_AT_REST = 12;
 function askTitle(text) {
   return firstClause(text.replace(/https?:\/\/\S+/g, '').trim() || 'A message with only a link').replace(/^(.{96}\S*)\s.+$/, '$1…');
 }
@@ -337,65 +335,14 @@ function receivedLine(ask) {
 function receivedTone(ask) {
   return new Date(ask.due) <= Date.now() ? 'bad' : 'you';
 }
-function askRow(ask, state, where, more) {
-  return { ...ask, state, word: ASK_WORD[state], tone: ASK_TONE[state], side: esc(where), more };
-}
-function askMessage(a) {
-  const slack = /slack\.com\/archives\/\w+\/p(\d{10})(\d{6})/.exec(a.text);
-  const pr = a.prs[0];
-  const where = pr ? `PR ${pr}` : slack ? `Slack ${slack[1]}.${slack[2]}` : a.lanes[0] ? workerName(a.lanes[0]) : 'Chat';
-  const facts = [
-    a.lanes.length ? `<dt>Who holds it</dt><dd>${a.lanes.map((lane) => `<a href="#/worker/${encodeURIComponent(lane)}">${esc(workerName(lane))}</a>`).join(', ')}</dd>` : '',
-    a.prs.length ? `<dt>Pull requests</dt><dd>${a.prs.map((ref) => (ref.includes('#') ? esc(ref) : `<a href="#/review/${esc(ref)}">${esc(plainTitle(ref))}</a>`)).join('<br>')}</dd>` : '',
-  ].join('');
-  return askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text), why: a.due ? receivedLine(a) : '' }, a.state, where, `${a.answer ? `<div class="md">${markdown(plain(a.answer))}</div>` : ''}${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`);
-}
 function overdueRows() {
   const clipped = (item) => esc(item.text.replace(/^(.{120}\S*)\s.+$/s, '$1…'));
   const named = (item) => `<li><time>${esc(item.due)}</time><span>${item.seq ? `<a href="/record/${item.seq}" target="_blank" rel="noopener">${clipped(item)}</a>` : clipped(item)}</span></li>`;
   const groups = new Map(groupBy(state.model.coordinator_overdue ?? [], (item) => item.group));
   return Object.keys(OVERDUE_GROUP).filter((group) => groups.has(group)).map((group) => {
     const list = groups.get(group);
-    return askRow({ id: `overdue-${group}`, at: list[0].due, title: OVERDUE_GROUP[group](list.length) }, 'overdue', '', `<ol class="ev-named">${list.map(named).join('')}</ol>`);
+    return { id: `overdue-${group}`, at: list[0].due, title: OVERDUE_GROUP[group](list.length), word: 'Overdue', tone: 'bad', side: '', more: `<ol class="ev-named">${list.map(named).join('')}</ol>` };
   });
-}
-function askRows() {
-  const data = state.model.owner_asks;
-  const approvals = data.taps.filter((t) => t.pr);
-  const approvalRow = (status, list, title) => {
-    if (!list.length) return [];
-    const iso = list.map((t) => t.iso).sort().at(-1);
-    return [askRow({ id: `ask-approved-${status}`, iso, at: clock(iso), title: `${list.length} ${title}` }, status, `Board, ${list.length} PRs`, `<ul>${list.map((t) => `<li><a href="#/review/${esc(t.pr)}">${esc(plainTitle(t.pr))}</a></li>`).join('')}</ul>`)];
-  };
-  const store = data.store.map((a) => {
-    const [, stamp, words] = /^Owner(?: pick)? (.+?)(?: on card [\w-]+)?: (.*)$/s.exec(a.text) ?? [0, '', a.text];
-    const [, clockTime, day] = /^(\d{1,2}:\d{2} [AP]M) (\w{3} \d+)$/.exec(stamp) ?? /^(\w{3} \d+) (\d{1,2}:\d{2} [AP]M)$/.exec(stamp)?.slice(0).reverse() ?? [];
-    const iso = new Date(`${day ?? 'Nov 3'} 2026 ${clockTime ?? '12:00 AM'} PST`).toISOString();
-    const lost = a.state === 'LOST';
-    return askRow({ id: `ask-${a.key}`, iso, at: clock(iso), title: askTitle(words), why: lost ? 'no progress recorded' : '' }, lost ? 'asked' : 'live', workerName(a.lane), `<p>${esc(a.line)}</p>`);
-  });
-  return [...overdueRows(), ...newestFirst([
-    ...data.messages.map(askMessage),
-    ...data.taps.filter((t) => !t.pr).map((t) => askRow({ id: `ask-m${t.m}`, iso: t.iso, at: clock(t.iso), title: t.question.replace(/^(.{96}\S*)\s.+$/, '$1…'), why: t.due ? receivedLine(t) : t.said.replace(/^picked /, 'You picked ') }, t.state, 'Card', '')),
-    ...approvalRow('applied', approvals.filter((t) => t.state === 'applied'), 'changes you approved have landed'),
-    ...approvalRow('answered', approvals.filter((t) => t.state !== 'applied'), 'changes you approved have not landed yet'),
-    ...store,
-    ...picksRow().map((row) => ({ ...row, state: 'answered', word: 'Answered', tone: 'you' })),
-  ])];
-}
-function openAsks() {
-  return state.model?.owner_asks ? askRows().filter((row) => row.state === 'asked').length + (state.model.coordinator_overdue ?? []).length : 0;
-}
-function asksScreen(filter = '') {
-  if (!state.model.owner_asks) return writing('Your asks');
-  const rows = askRows();
-  const open = rows.filter((row) => row.state !== 'live');
-  const chips = [['', 'Open', open.length], ...Object.entries(ASK_WORD).map(([id, word]) => [id, word, rows.filter((row) => row.state === id).length])];
-  const nav = `<nav class="pg-filters">${chips.map(([id, word, n]) => `<a href="#/asks${id ? `/${id}` : ''}" class="${id === filter ? 'on' : ''}">${word} <b>${n}</b></a>`).join('')}</nav>`;
-  const shown = filter ? rows.filter((row) => row.state === filter) : open;
-  const rest = filter ? [] : shown.slice(ASKS_AT_REST);
-  const first = filter ? shown : shown.slice(0, ASKS_AT_REST);
-  return `<div class="pg">${pageHead('Your asks')}${nav}${first.length ? eventList(first) : ''}${rest.length ? fold('asks-older', `Older ${countPill(rest.length)}`, eventList(rest)) : ''}</div>`;
 }
 function workScreen() {
   const p = curated('work');
@@ -655,7 +602,7 @@ function replyCard(r) {
   return state.model.board.cards.find((c) => c.id === `card-${r.id}`);
 }
 function openReplies() {
-  return state.model?.replies ? state.model.replies.filter((entry) => replyCard(entry.reply)).length : 0;
+  return state.model?.replies ? state.model.replies.filter((entry) => bareAskOpen(entry, false)).length : 0;
 }
 function sortableTable(key, lines) {
   const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
@@ -708,16 +655,18 @@ function chatEntries() {
   const rowOf = (line) => m.owner_asks.messages.find((row) => row.text.includes(line.text.trim()));
   const typedHere = new Set(m.chat_lines.map((line) => rowOf(line)?.m));
   const told = m.replies.map((entry) => entry.reply.md).join('\n');
+  const firstAnswer = new Map(m.replies.filter((entry) => entry.reply.order).map((entry) => [entry.reply.order, entry.at]));
+  const above = (row) => (firstAnswer.has(`m${row?.m}`) ? new Date(new Date(firstAnswer.get(`m${row.m}`)) - 1).toISOString() : undefined);
   const asks = m.owner_asks.messages.filter((row) => !typedHere.has(row.m)).flatMap((row) => [
-    { key: `line:m${row.m}`, on: '', at: row.iso, you: true, text: row.text, row, about: `his line m${row.m} "${row.text.slice(0, 80).replaceAll('\n', ' ')}"` },
+    { key: `line:m${row.m}`, on: '', at: row.iso, sort: above(row), you: true, text: row.text, row, about: `his line m${row.m} "${row.text.slice(0, 80).replaceAll('\n', ' ')}"` },
     ...(row.answer && !told.includes(row.answer.slice(0, 40)) ? [{ key: `answer:m${row.m}`, on: '', at: row.iso, answer: row.answer, about: `your answer to his line m${row.m}` }] : []),
   ]);
   const taps = m.owner_asks.taps.filter((tap) => !tap.pr && !m.board.answered[tap.card]).map((tap) => ({ key: `tap:m${tap.m}:${tap.card}`, on: '', at: tap.iso, tap }));
-  const typed = m.chat_lines.map((line) => ({ key: `seq:${line.seq}`, on: line.on, at: line.at, you: true, text: line.text, row: rowOf(line), about: `his line #${line.seq} "${line.text.slice(0, 80).replaceAll('\n', ' ')}"` }));
+  const typed = m.chat_lines.map((line) => ({ key: `seq:${line.seq}`, on: line.on, at: line.at, sort: above(rowOf(line)), you: true, text: line.text, row: rowOf(line), about: `his line #${line.seq} "${line.text.slice(0, 80).replaceAll('\n', ' ')}"` }));
   const landed = new Set(m.chat_lines.map((line) => line.seq));
   const waiting = rp.sent.filter((sent) => !landed.has(sent.seq)).map((sent) => ({ key: `sent:${sent.at}`, on: sent.on, at: sent.at, you: true, text: sent.text, sending: true }));
   const replies = m.replies.map((entry) => ({ key: `reply:${entry.reply.id}`, on: entry.reply.on ?? '', at: entry.at, entry, about: `reply ${entry.reply.id} "${entry.reply.title}"` }));
-  return [...replies, ...asks, ...taps, ...typed, ...waiting].sort((a, b) => new Date(a.at) - new Date(b.at));
+  return [...replies, ...asks, ...taps, ...typed, ...waiting].sort((a, b) => new Date(a.sort ?? a.at) - new Date(b.sort ?? b.at));
 }
 function bareAskOpen(entry, answeredInThread) {
   return entry.reply.status === 'needs_you' && !entry.reply.picks?.length && !answeredInThread && minutesSince(entry.at) < BARE_ASK_MINUTES;
@@ -758,13 +707,15 @@ function chatTheirs(item, kids) {
     ${failed ? `<ul class="rp-went">${failed}</ul>` : ''}`;
 }
 function lineState(row) {
-  if (!row) return 'Received';
-  if (row.state === 'answered' || row.state === 'applied') return 'Done';
-  return row.lanes.length ? 'Routed' : 'Received';
+  return row?.due ? receivedLine(row) : ACK[row?.ack ?? 'received'][0];
 }
 function chatYours(item) {
-  const text = esc(item.text).replace(/\[Image #\d+\]/g, '<span class="ct-shot">Screenshot</span>');
-  return `<div class="ct-bubble">${text}</div><div class="ct-from"><time>${item.sending ? 'Sending…' : `${clock(item.at)} · ${lineState(item.row)}`}</time></div>`;
+  const words = item.text.replace(/\[Image #\d+\]/g, ' ').trim();
+  const title = item.row?.title ?? askTitle(words);
+  const shot = /\[Image #\d+\]/.test(item.text) ? '<span class="ct-shot">Screenshot</span>' : '';
+  const id = `said-${item.key}`;
+  const whole = title === words ? '' : `<details class="ct-whole" data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary>Whole message</summary>${esc(item.text)}</details>`;
+  return `<div class="ct-bubble">${esc(title)}${shot ? ` ${shot}` : ''}${whole}</div><div class="ct-from"><time>${item.sending ? 'Sending…' : `${clock(item.at)} · ${lineState(item.row)}`}</time></div>`;
 }
 function chatBody(item, kids) {
   if (item.entry) return chatTheirs(item, kids);
@@ -783,7 +734,7 @@ function chatThread(item, kids) {
   return `<div class="ct-tools has">${toggle}</div><div class="ct-thread">${kids.map((kid) => `<article class="ct-turn ${kid.you ? 'ct-you' : 'ct-them'}">${chatBody(kid, [])}</article>`).join('')}${last?.you ? chatWaiting(last) : ''}${chatBox(item.key, item.about, 'Reply in thread')}</div>`;
 }
 function chatTurn(item, kids) {
-  if (item.tap) return `<p class="ct-tap">You answered ${esc(plain(item.tap.question))}: <b>${esc(item.tap.said)}</b> <time>${clock(item.at)}</time></p>`;
+  if (item.tap) return `<p class="ct-tap">You answered ${esc(askTitle(plain(item.tap.question).replace(/^Owner on board,?\s*/, '')))}: <b>${esc(item.tap.said)}</b> <time>${clock(item.at)}</time></p>`;
   const id = item.entry ? ` id="rp-${esc(item.entry.reply.id)}"` : '';
   return `<article class="ct-turn ${item.you ? 'ct-you' : 'ct-them'}"${id}>${chatBody(item, kids)}${item.sending ? '' : chatThread(item, kids)}</article>`;
 }
@@ -797,7 +748,9 @@ function repliesScreen() {
   const shown = flow.slice(-rp.limit);
   const hidden = flow.length - shown.length;
   const last = flow.at(-1);
+  const overdue = overdueRows();
   return `<div class="ct">
+    ${overdue.length ? `<div class="ct-owed">${eventList(overdue)}</div>` : ''}
     ${hidden ? `<button class="ct-link ct-earlier" data-chat-earlier>Show earlier (${hidden})</button>` : ''}
     ${flow.length ? '' : '<div class="ct-empty"><b>Ask the communicator</b><span>It answers here, and you can reply to any message in a thread.</span></div>'}
     <div class="ct-flow">${shown.map((item) => chatTurn(item, kidsOf(item))).join('')}${last?.you ? chatWaiting(last) : ''}</div>
@@ -863,13 +816,13 @@ function syncChatModal() {
     return;
   }
   if (!box.open) box.showModal();
-  if (card.embed && box.dataset.card === card.id) return;
+  if (box.dataset.card === card.id && (card.embed || box.contains(document.activeElement))) return;
   box.dataset.card = card.id;
-  const busy = sending(card.choice) ? ' disabled' : '';
   const body = card.embed
     ? `<iframe title="${esc(card.title)}" src="${esc(framedUrl(card.embed))}"></iframe>`
-    : `<div class="rp-md prose">${markdown(plain(namedChanges(card.summary)))}</div><div class="ct-acts">${card.options.map((o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(card.choice)}"${busy}>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}</div>${sentNote(card.choice)}`;
+    : boardCard({ card });
   box.innerHTML = `<header><b>${inline(plain(card.title))}</b><button class="btn ghost" data-chat-close>Close</button></header>${body}`;
+  restoreBoxes();
 }
 document.addEventListener('close', (e) => {
   if (e.target.id === 'chatmodal') rp.modal = null;

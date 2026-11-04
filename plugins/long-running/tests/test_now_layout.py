@@ -365,7 +365,7 @@ def test_what_failed_folds_to_lines_and_a_broken_row_says_what_it_lacks(page):
     assert page.locator(".nw-notlive").count() == 0
 
 
-def test_what_the_coordinator_owes_is_on_your_asks_folded_by_kind_and_not_on_now(page):
+def test_what_the_coordinator_owes_is_on_chat_folded_by_kind_and_not_on_now(page):
     now(page)
     page.evaluate("""() => {
         state.model.coordinator_overdue = [
@@ -374,15 +374,18 @@ def test_what_the_coordinator_owes_is_on_your_asks_folded_by_kind_and_not_on_now
             { id: 'pick-3', group: 'pick', seq: 3, due: '4:21 AM', text: 'Delete the leftovers?' },
         ];
         state.model.owner_asks = { messages: [], taps: [], store: [] };
+        state.model.replies = [];
+        state.model.chat_lines = [];
+        state.model.board.answered = {};
         render();
     }""")
     assert "overdue item" not in page.locator(".nw").inner_text().lower()
-    page.evaluate("location.hash = '#/asks'")
-    page.wait_for_selector(".ev-rows")
-    rows = page.locator(".ev-rows > li")
+    page.evaluate("location.hash = '#/replies'")
+    page.wait_for_selector(".ct-owed .ev-rows")
+    rows = page.locator(".ct-owed .ev-rows > li")
     assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()][:2] == ["2 of your picks not carried out", "1 ask with no answer"]
     assert "Delete the leftovers?" in rows.first.text_content()
-    assert page.locator(".tab.on .count").inner_text() == "3"
+    assert page.locator(".tab.on .count").count() == 0
     page.evaluate("() => { state.model.coordinator_overdue = []; delete state.model.owner_asks; render(); }")
     now(page)
 
@@ -781,6 +784,37 @@ def test_review_lists_pull_requests_only_and_its_count_leaves_out_questions(page
     page.wait_for_selector(".mr.bq.note")
     assert "A note" in page.locator("#main").inner_text()
     page.evaluate("state.model.needs = window.keptNeeds; state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-note')")
+def test_chat_shows_each_ask_as_its_summary_and_state_with_its_answer_right_under_it(page):
+    now(page)
+    page.evaluate("""() => {
+      state.model.board.answered = {};
+      state.model.chat_lines = [];
+      state.model.coordinator_overdue = [];
+      state.model.replies = [
+        { reply: { id: 'ans', title: 'Fixed', md: 'The box holds now', order: 'm1' }, at: '2026-11-03T14:00:00Z', surfaces: [] },
+        { reply: { id: 'later', title: 'Something else', md: 'Another thing' }, at: '2026-11-03T13:00:00Z', surfaces: [] },
+      ];
+      state.model.owner_asks = { messages: [
+        { m: 1, iso: '2026-11-03T12:00:00Z', text: 'Please fix the typing box. It resets on every refresh and I lose what I typed.', state: 'asked', ack: 'routed', lanes: [], prs: [], answer: '' },
+        { m: 2, iso: '2026-11-03T12:30:00Z', text: 'A second ask that nobody answered with words', state: 'answered', ack: 'done', lanes: [], prs: [], answer: '' },
+      ], taps: [], store: [] };
+      location.hash = '#/replies';
+    }""")
+    page.wait_for_selector(".ct-foot .ct-box")
+    turns = page.locator(".ct-flow > .ct-turn")
+    assert turns.count() == 4
+    assert "A second ask" in turns.nth(0).inner_text() and "Done" in turns.nth(0).locator(".ct-from").first.inner_text()
+    assert "Something else" in turns.nth(1).inner_text()
+    ask = turns.nth(2)
+    assert "Please fix the typing box" in ask.locator(".ct-bubble").inner_text()
+    assert "It resets on every refresh" not in ask.locator(".ct-bubble").inner_text()
+    assert "Routed" in ask.locator(".ct-from").first.inner_text()
+    ask.locator(".ct-whole summary").click()
+    assert "It resets on every refresh" in page.locator(".ct-whole[open]").inner_text()
+    assert "The box holds now" in turns.nth(3).inner_text()
+    assert "nothing for you" not in page.locator(".ct").inner_text()
+    assert page.locator("#tabs a", has_text="Your asks").count() == 0
+    page.evaluate("state.open.delete('said-line:m1')")
     now(page)
 
 
@@ -814,7 +848,7 @@ def test_a_tap_on_needs_me_goes_down_the_boards_path_and_drops_its_row_at_once(p
 
 CHAT_MODEL = """(n) => {
   const reply = (id, extra) => ({ reply: { id, title: `Title ${id}`, md: `Body ${id}`, ...extra }, at: '2026-11-03T20:00:00Z', surfaces: [] });
-  const card = (id, labels) => ({ id: `card-${id}`, title: id, summary: 'Why', chips: [], prs: [], choice: `${id}-choice`, options: labels.map((label, i) => ({ id: `${id}-${i + 1}`, label, recommended: i === 0 })) });
+  const card = (id, labels) => ({ id: `card-${id}`, title: id, summary: 'Why', chips: [], prs: [], parts: [], key: id, decides: true, choice: `${id}-choice`, options: labels.map((label, i) => ({ id: `${id}-${i + 1}`, label, recommended: i === 0 })) });
   state.model.replies = [
     reply('open3', { status: 'needs_you', picks: ['a', 'b', 'c'] }),
     reply('open2', { status: 'needs_you', picks: ['Yes', 'No'] }),
@@ -825,7 +859,7 @@ CHAT_MODEL = """(n) => {
   ];
   state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c'])];
   state.model.board.answered = {};
-  state.model.owner_asks = { messages: [{ m: 7, iso: '2026-11-03T21:00:00-08:00', text: 'my line', state: 'asked', lanes: ['a-1'], prs: [] }], taps: [], store: [] };
+  state.model.owner_asks = { messages: [{ m: 7, iso: '2026-11-03T21:00:00-08:00', text: 'my line', state: 'asked', ack: 'routed', lanes: ['a-1'], prs: [] }], taps: [], store: [] };
   state.model.chat_lines = [];
   render();
 }"""
