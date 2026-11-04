@@ -769,6 +769,35 @@ func TestAFetchGitKilledOnAnotherLanesZeroWorktreeRefIsRetriedOnAShortBackoff(t 
 	holdsAll(t, resultOf(t, again)["error"].(string), "bad object 0000000000000000000000000000000000000000")
 }
 
+func TestAFetchThatReadsARefARestartFilledWithNulsDropsItBeforeItsRetry(t *testing.T) {
+	common := t.TempDir()
+	nulled := filepath.Join(common, "refs", "remotes", "origin", "resume-first-turn-1")
+	kept := filepath.Join(common, "refs", "tags", "v1")
+	locked := filepath.Join(common, "refs", "heads", "dev.lock")
+	for path, content := range map[string]string{nulled: strings.Repeat("\x00", 123), kept: shaBase + "\n", locked: strings.Repeat("\x00", 41)} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	directory := finderJobDir(t, nil)
+	shell, repo := newFinderFake(t, replyOf())
+	repo.resolved["--git-common-dir"] = common
+	repo.races = 1
+	mustFinder(t, directory, shell)
+	if _, err := os.Stat(nulled); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the NUL-filled ref survived: %v", err)
+	}
+	for _, path := range []string{kept, locked} {
+		if _, err := os.Stat(path); err != nil {
+			t.Error(err)
+		}
+	}
+	equal(t, len(shell.gitCalls("fetch")), 2)
+}
+
 func TestAWholePassReadsBothTipsInOneLsRemoteAndRunsTheSliceAndPlanWhileTheHeadFetches(t *testing.T) {
 	started := map[string]chan struct{}{"slice": make(chan struct{}), "plan": make(chan struct{})}
 	overlapped := false

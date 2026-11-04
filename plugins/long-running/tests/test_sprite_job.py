@@ -70,7 +70,7 @@ def test_a_finished_job_returns_without_waiting_out_the_tender_sleep(tmp_path: P
 
 
 @pytest.mark.parametrize("relay", ["#!/bin/sh\n", "#!/bin/sh\necho 'cci: database is locked (5) (SQLITE_BUSY)' >&2\nexit 1\n"], ids=["relay-pushes", "relay-locked"])
-def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite_restart_left(tmp_path: Path, relay: str) -> None:
+def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_or_nul_filled_refs_a_sprite_restart_left(tmp_path: Path, relay: str) -> None:
     """Coordinator #220372, #220831: a Sprite restart emptied its copies of a job's files and three loose refs, the copy back emptied job.json and pid here, and every fetch on the Sprite read the zero object. Coordinator #222905: a relay push that failed on SQLITE_BUSY exited before result.json came back, so the runner never settled the pass."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45682-c051a2816b25", mac / "config"
@@ -87,8 +87,12 @@ def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite
     remote = Path(f"{sprite}{checkout}")
     subprocess.run(["git", "init", "-q", str(remote)], check=True)
     emptied = remote / ".git" / "refs" / "remotes" / "origin" / "resume-first-turn-1"
+    nulled = remote / ".git" / "refs" / "tags" / "v1"
+    kept = remote / ".git" / "refs" / "remotes" / "origin" / "dev"
     emptied.parent.mkdir(parents=True)
     emptied.write_text("")
+    nulled.write_bytes(b"\0" * 123)
+    kept.write_text("0b0e1f2a3c4d5e6f708192a3b4c5d6e7f8091a2b\n")
 
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
     subprocess.run(["sh", str(job_script), "vet4", grader, str(directory)], env=env, check=True, capture_output=True, timeout=60)
@@ -97,6 +101,8 @@ def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite
     assert (directory / "pid").read_text() == "4242\n"
     assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
     assert not emptied.exists()
+    assert not nulled.exists()
+    assert kept.read_text() == "0b0e1f2a3c4d5e6f708192a3b4c5d6e7f8091a2b\n"
 
 
 def test_a_job_named_by_script_path_runs_that_script_for_the_judge(tmp_path: Path) -> None:
