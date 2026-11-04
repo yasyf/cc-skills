@@ -340,14 +340,24 @@ func TestAnAppealIsADecideFromTheAppealsLaneThatNamesAnOverride(t *testing.T) {
 	}
 }
 
-func TestLegacyFactsLeaveAnAppealUncountedUntilItsRowIsRead(t *testing.T) {
+func TestAnAppealWritesNoFactOnAnyHost(t *testing.T) {
 	record := legacyRecord(t, "decide", "grader-appeals-1", "finder-override #9 at e718a74: 434757. Row rule/e20e623 grounds it", []int{9}, nil)
 	if got := bus.LegacyFacts(record, repo, nil); got != nil {
 		t.Fatalf("LegacyFacts = %+v, want none", got)
 	}
-	want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}, {PR: 9, Head: "e718a74", Kind: "override-finder", Value: "434757"}}
-	if got := bus.AppealFacts(record); !reflect.DeepEqual(got, want) {
-		t.Fatalf("AppealFacts = %+v, want %+v", got, want)
+}
+
+func TestAnOverrideLineReadsBackAsTheSameOverride(t *testing.T) {
+	for _, override := range []bus.Override{
+		{Grader: "finder", PR: 9, Head: "e718a74", Cites: "434757"},
+		{Grader: "fidelity", PR: 9, Head: "e718a74", Cites: "113250@ccf1997a"},
+		{Grader: "fidelity", PR: 9, Head: "e718a74"},
+	} {
+		line := override.Line("Counted from grader-appeals-1's cci #7, whose owner rows exist.")
+		got := bus.Overrides(legacyRecord(t, "decide", bus.SweepLane, line, []int{9}, nil))
+		if !slices.Equal(got, []bus.Override{override}) {
+			t.Errorf("%q reads %+v, want %+v", line, got, override)
+		}
 	}
 }
 

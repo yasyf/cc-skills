@@ -56,7 +56,6 @@ type Card struct {
 
 type Read struct {
 	Records  []client.Record
-	Grounded map[int64]bool
 	GoLanes  []string
 	Exempt   []string
 	TapRules map[string][]string
@@ -262,7 +261,7 @@ func fidelityCite(c Claim, r Read, exempt []string, flaked bool) (string, string
 
 func countedOverride(c Claim, r Read, grader string, cited func(string) bool) (client.Record, bool) {
 	for _, record := range slices.Backward(r.Records) {
-		if string(record.Kind) != kindDecide || record.Lane != rootLane && record.Lane != bus.SweepLane && !r.Grounded[record.Seq] {
+		if string(record.Kind) != kindDecide || record.Lane != rootLane && record.Lane != bus.SweepLane {
 			continue
 		}
 		if slices.ContainsFunc(bus.Overrides(record), func(o bus.Override) bool {

@@ -305,7 +305,7 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 	for _, r := range reviews {
 		named = append(named, r.Record)
 	}
-	settled, err := rootSettled(ctx, p.drive, facts.Repo, pr, named, p.grounded)
+	settled, err := rootSettled(ctx, p.drive, facts.Repo, pr, named)
 	if err != nil {
 		return job{}, err
 	}
@@ -331,7 +331,7 @@ func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, a
 	for _, r := range reviews {
 		named = append(named, r.Record)
 	}
-	settled, err := rootSettled(ctx, p.drive, facts.Repo, strconv.Itoa(facts.Number), named, p.grounded)
+	settled, err := rootSettled(ctx, p.drive, facts.Repo, strconv.Itoa(facts.Number), named)
 	if err != nil {
 		return job{}, err
 	}
