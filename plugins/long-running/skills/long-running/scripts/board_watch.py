@@ -682,7 +682,7 @@ def record(line: str, state: Path, session: str, shell: Shell, seen: set[str], b
 
 def cmd_start(args: argparse.Namespace, shell: Shell) -> int:
     os.environ.update(drive.own_lane(BUS_LANE))
-    state = Path(args.state_dir) if args.state_dir else rulings.state_dir(args, drive.drives_dir(), Path.home() / ".claude" / "scratch")
+    state = Path(args.state_dir) if args.state_dir else rulings.state_dir(args, drive.drives_dir(), drive.scratch_dir())
     (state / BOARDS).mkdir(parents=True, exist_ok=True)
     with (state / BOARDS / f"{args.session}.lock").open("a+") as lock:
         if not free(lock):

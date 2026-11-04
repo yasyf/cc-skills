@@ -653,3 +653,10 @@ def test_a_launch_records_its_placement_role_and_the_worker_it_succeeds(repo, tm
     [post] = [call for call in shell.calls if call[:2] == ["cci", "post"]]
     attrs = dict(value.split("=", 1) for flag, value in zip(post, post[1:]) if flag == "--attr")
     assert attrs == {"brief": str(brief), "model": "opus", "placement": "sprite"} | expected
+
+
+def test_the_scratch_root_defaults_under_claude_and_follows_its_variable(monkeypatch, tmp_path):
+    monkeypatch.delenv("LONG_RUNNING_SCRATCH_ROOT", raising=False)
+    assert drive.scratch_dir() == Path.home() / ".claude" / "scratch"
+    monkeypatch.setenv("LONG_RUNNING_SCRATCH_ROOT", str(tmp_path))
+    assert drive.scratch_dir() == tmp_path

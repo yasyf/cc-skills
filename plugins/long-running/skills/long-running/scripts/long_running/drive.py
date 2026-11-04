@@ -20,9 +20,10 @@
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
 the checkout the drive started in, every coordinator session that has run it, its Orca run, and its state
-directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names another, and its ``program``:
+directory, ``<scratch>/<drive>`` unless ``start --state-dir`` names another, and its ``program``:
 the plan slug every worker resolves the register by, set with ``start --program`` and otherwise the
-state directory's name when the entry is first written.
+state directory's name when the entry is first written. ``<scratch>`` is ``$LONG_RUNNING_SCRATCH_ROOT``, default
+``~/.claude/scratch``.
 ``start`` is an upsert: the resumed the coordinator of a handoff runs it again and joins ``sessions``.
 Run inside an Orca terminal, it records that terminal as ``root_terminal``, the coordinator's.
 ``desk`` records a standing desk's Orca terminal under ``desks``, with ``--environment`` for one on a
@@ -158,6 +159,10 @@ INSTALL_MARKERS = frozenset({"__pycache__", ".in_use", ".orphaned_at"})
 
 def drives_dir() -> Path:
     return config_dir() / "long-running" / "drives"
+
+
+def scratch_dir() -> Path:
+    return Path(os.environ.get("LONG_RUNNING_SCRATCH_ROOT") or Path.home() / ".claude" / "scratch")
 
 
 def plugin_manifest() -> dict:
@@ -463,7 +468,7 @@ def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
         raise SystemExit(f"this session already runs drive {joined['drive']}; end it with drive.py end before starting {drive}")
     cwd = Path.cwd()
     entry = find(drive, None) or {"drive": drive, "sessions": [], "orca_run": None, "started_at": stamp()}
-    state = str(args.state_dir or entry.get("state_dir") or Path.home() / ".claude" / "scratch" / drive)
+    state = str(args.state_dir or entry.get("state_dir") or scratch_dir() / drive)
     entry |= {
         "ledger": args.ledger,
         "repo": ledger.origin_repo(ledger.Shell(), cwd),
@@ -775,7 +780,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--ledger", required=True)
     start.add_argument("--drive", help="the drive id; defaults to the drive this session already runs, else its id's first 8 characters")
     start.add_argument("--orca-run", metavar="ID")
-    start.add_argument("--state-dir", type=Path, metavar="DIR", help="the drive's scratch directory; defaults to ~/.claude/scratch/<drive>")
+    start.add_argument("--state-dir", type=Path, metavar="DIR", help="the drive's scratch directory; defaults to $LONG_RUNNING_SCRATCH_ROOT/<drive>, or ~/.claude/scratch/<drive> when unset")
     start.add_argument("--cci-drive", metavar="NAME", help="the cci drive the lanes post to; defaults to the state dir's name")
     start.add_argument("--program", metavar="SLUG", help="the plan slug workers resolve the register by; defaults to the state dir's name on a new entry")
     start.add_argument("--register-lane", metavar="NAME", help="the lane that classifies owner captures; their blockers go to it instead of the coordinator")
