@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -116,6 +118,29 @@ func Rows(entry drive.Entry, numbers []int) (string, []store.ReviewRow, error) {
 	defer func() { _ = s.Close() }()
 	rows, err := ledgerRows(s, cfg.Repo, numbers)
 	return cfg.Repo, rows, err
+}
+
+func Ports(entry drive.Entry, numbers []int) (string, map[int]int, error) {
+	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), io.Discard)
+	if err != nil {
+		return "", nil, err
+	}
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = s.Close() }()
+	ports := map[int]int{}
+	for _, number := range numbers {
+		facts, err := s.PRFacts(cfg.Repo, number)
+		if err != nil {
+			return "", nil, err
+		}
+		if source, err := strconv.Atoi(facts[gates.PortOfAttr]); err == nil {
+			ports[number] = source
+		}
+	}
+	return cfg.Repo, ports, nil
 }
 
 func ledgerRows(s *store.Store, repo string, numbers []int) ([]store.ReviewRow, error) {

@@ -11,7 +11,7 @@ Read the head pinned by sha, never the PR's moving tip:
 {scope}
 Read the code around every changed symbol at that sha, its callers and callees included.
 
-{prior}Do three things and report all three in the findings schema.
+{prior}Do four things and report all four in the findings schema.
 
 1. Find defects in the change: wrong results, broken callers, lost data, races, tests
    that assert less than they claim. Rate each blocker, major, minor, or nit.
@@ -70,6 +70,15 @@ Read the code around every changed symbol at that sha, its callers and callees i
    old-world twin PR it mirrors under the owner's order to fix the same defect in the old
    world too. Cite it as "tests: <test> <- <finding or twin>", check only that it asserts
    what the named source fixed, and raise no "pins unplanned behavior" finding for it.
+
+4. A port lands faithful to its old-tree PR, and a fix past that source is its own follow-up
+   PR. On a PR body that opens `port of #<n>`, read that PR's own lines, pinned by sha as
+   above, before you raise any finding. A defect those lines have too, doing the same wrong
+   thing, starts "follow-up:", cites them as "#<n> <path>:<line>" and names the fix the
+   follow-up makes; the desk lists it on the grade as owed and it holds nothing, whatever
+   its severity. A defect those lines lack stays a finding, and so does one that would break
+   or undo a rebuild change, even when the old PR has the same lines, since our changes
+   supersede a port.
 
 Every blocker or major, row and test findings included, cites at least one `path:line`
 inside a hunk the PR's own commits add or change. These are those hunks, as new-file line

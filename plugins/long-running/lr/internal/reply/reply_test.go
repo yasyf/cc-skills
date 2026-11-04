@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -886,6 +887,39 @@ func ledgerRow(t *testing.T, f Fanout, row store.ReviewRow) {
 	row.Repo, row.Number, row.Head = "yasyf/cc-skills", 2196, "e718a7434fa01ee9835f992a9a647a825350732c"
 	if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAReplyNamingAPortOpensWithItsSource(t *testing.T) {
+	const opening = "port of [#2190](https://github.com/yasyf/cc-skills/pull/2190)\n\n"
+	f := fanout(t, scripted())
+	ledgerRow(t, f, store.ReviewRow{Title: "Relay fix"})
+	s, err := store.Open(f.Entry.Store())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.PutFact("yasyf/cc-skills", 2196, "e718a7434fa01ee9835f992a9a647a825350732c", gates.PortOfAttr, "2190", sentAt); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		reply Reply
+		want  string
+	}{
+		"named in the text":       {Reply{Title: "Relay fix", MD: "#2196 is green."}, opening + "#2196 is green."},
+		"named in prs":            {Reply{Title: "Relay fix", MD: "It is green.", PRs: []string{landPR}}, opening + "It is green."},
+		"named twice opens once":  {Reply{Title: "Relay fix", MD: "#2196 is green. #2196 lands."}, opening + "#2196 is green. #2196 lands."},
+		"its text already opens":  {Reply{Title: "Relay fix", MD: "Port of #2190: #2196 is green."}, "Port of #2190: #2196 is green."},
+		"its title already opens": {Reply{Title: "port of #2190: relay fix", MD: "#2196 is green."}, "#2196 is green."},
+		"no port named":           {Reply{Title: "Relay fix", MD: "#2197 is green."}, "#2197 is green."},
+		"another repo's number":   {Reply{Title: "Relay fix", MD: "Forge-AI/monorepo#2196 is green."}, "Forge-AI/monorepo#2196 is green."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, warning := f.withPortOpening(tc.reply)
+			if warning != "" || got.MD != tc.want {
+				t.Fatalf("md %q, warning %q, want %q", got.MD, warning, tc.want)
+			}
+		})
 	}
 }
 

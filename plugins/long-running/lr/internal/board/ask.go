@@ -44,6 +44,7 @@ var (
 type Ask struct {
 	ID, Title, Background, From, Branch, NothingToBuild string
 	Options, Shots                                      []string
+	PortOf                                              int
 }
 
 type askOption struct {
@@ -78,9 +79,15 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	options[0].Recommended, options[0].Build = true, build
 	said := append([]string{a.Title, a.Background}, a.Options...)
 	if found := numbered(said); len(found) > 0 {
-		return nil, fmt.Errorf("refused: the card names %s; say what each is in plain words", strings.Join(found, ", "))
+		return nil, fmt.Errorf("refused: the card names %s; say what each is in plain words, and name the old-tree PR a port copies with --port-of", strings.Join(found, ", "))
 	}
-	children := []map[string]any{{"id": slug + "-from", "type": "markdown", "md": "**From:** " + cmp.Or(a.From, noPlanFrom)}}
+	title, from := a.Title, cmp.Or(a.From, noPlanFrom)
+	if a.PortOf != 0 {
+		opening := fmt.Sprintf("port of #%d", a.PortOf)
+		title, from = opening+": "+a.Title, cmp.Or(a.From, opening)
+		said = append(said, fmt.Sprintf("PR %d", a.PortOf))
+	}
+	children := []map[string]any{{"id": slug + "-from", "type": "markdown", "md": "**From:** " + from}}
 	shots, err := a.shots(slug)
 	if err != nil {
 		return nil, err
@@ -90,7 +97,7 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	for _, pr := range namedPRs(said, repo) {
 		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%d", slug, pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
 	}
-	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": a.Title, "summary": a.Background, "children": children})
+	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": a.Background, "children": children})
 }
 
 func (a Ask) build() (map[string]any, error) {
@@ -236,7 +243,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
     --option 'Raise the limit :: Fewer refusals at the same cost, and a run still stops on the next one.' \
     --branch Forge-AI/monorepo:durable-wait --until at:3d
 
---card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records. --withdraw ID takes your own card down when its question has gone away.`,
+--port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself. --withdraw ID takes your own card down when its question has gone away.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if lane == "" {
@@ -276,6 +283,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags.StringVar(&ask.NothingToBuild, "nothing-to-build", "", "why the recommended option has no branch")
 	flags.StringArrayVar(&ask.Shots, "shot", nil, "'PATH or https URL :: what it shows', a real screenshot, repeatable; a path is read on the board's Mac")
 	flags.StringVar(&ask.From, "from", "", "the plan step and date, his ruling id, or whose PR it ports; default "+noPlanFrom)
+	flags.IntVar(&ask.PortOf, "port-of", 0, "the old-tree PR this card's port copies: the card's title opens with port of #N")
 	flags.StringVar(&ask.ID, "id", "", "the card's id after card-; default the title's first words")
 	flags.StringVar(&until, "until", "", "the event after which his answer no longer matters: at:TIME or a span such as at:3d, pr:N, release:STACK@ENV:COMMIT or record:SEQ")
 	flags.StringVar(&file, "card", "", "a whole cc-present card as JSON, FILE or -, in place of the question flags")

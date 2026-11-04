@@ -92,6 +92,15 @@ Answer in the schema:
   -q origin <sha>`) and grade the head line for line against it: for a port the old-tree
   commit is the spec, not the plan. Only what differs from its source, or goes past it, is
   graded against the plan and rows.
+- A port lands faithful to its old-tree PR, and a fix past that source is its own follow-up PR.
+  A row or plan line the source's own lines also break is not `missing` on a port: name it in
+  `summary` as a follow-up owed. A line that fixes, adds or cleans up past the source is
+  `missing`, keyed by the nearest plan line, with a line starting "past its source #<n>:" that
+  says what to split into the follow-up. Moving imports and paths and using the next tree's names
+  for the same things is no departure. Two departures stand: one his own answer in the rows
+  ordered for this port, and a line left out or bent so the port does not undo a rebuild change,
+  which the PR body lists and which makes `exempt` `none`. A line the old PR shares that would
+  undo a rebuild change stays `missing` until the port stops doing that.
 - Shared infrastructure is old-tree surface. A head changes it when it edits a row, manifest
   or policy the old tree's production workloads run under or reach through, or points one of
   them at another service, fleet or endpoint: in Forge-AI/monorepo, anything under

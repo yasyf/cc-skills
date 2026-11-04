@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -56,6 +57,33 @@ func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the rows as one JSON array")
 	cmd.Flags().BoolVar(&all, "all", false, "include landed, closed and superseded rows")
 	return cmd
+}
+
+func portsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
+	return &cobra.Command{
+		Use:   "ports PR...",
+		Short: "Print one JSON object from each named drive PR that is a forward port to the old-tree PR it copies, as its head records say",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			numbers := make([]int, len(args))
+			for at, arg := range args {
+				number, err := strconv.Atoi(arg)
+				if err != nil {
+					return err
+				}
+				numbers[at] = number
+			}
+			entry, _, err := opened()
+			if err != nil {
+				return err
+			}
+			_, ports, err := Ports(entry, numbers)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(c.OutOrStdout()).Encode(ports)
+		},
+	}
 }
 
 func backfillCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {

@@ -35,6 +35,8 @@ After the row verdicts, `swept` lists the files the finder read.
 
 **Census findings.** A finding with `defect` starting `census:` rests only on lines the diff leaves as they were (the prompt defines it). The lane appends census findings to `<drive scratch>/finder-desk/census-<YYYY-MM-DD>.md` with the PR, head, cite, and claim, and posts one `finder census:` note to the coordinator, never a major.
 
+**Follow-ups a port owes.** On a PR body that opens `port of #<n>`, a finding with `defect` starting `follow-up:` is one the old-tree PR's own lines share (the prompt defines it). It holds nothing: the lane lists it on the `finder: ok` record as owed, whatever its severity, and the port's lane opens the follow-up PR after the port. On any other body that word gives it no pass.
+
 ## Post the finder record
 
 The finder desk posts the verdict as the pass returned it. Only these records grade a head:
@@ -133,6 +135,13 @@ Do three things and report all three in the findings schema.
    a `Rulings` heading ties to the finder or review-bot finding it pins, or to the
    old-world twin PR it mirrors: cite it as "tests: <test> <- <finding or twin>" and check
    only that it asserts what that source fixed.
+   A port lands faithful to its old-tree PR, and a fix past that source is its own follow-up
+   PR. On a PR body that opens `port of #<n>`, read that PR's own lines, pinned by sha, before
+   you raise any finding. A defect those lines have too, doing the same wrong thing, starts
+   "follow-up:", cites them as "#<n> <path>:<line>" and names the fix the follow-up makes; it
+   holds nothing. A defect those lines lack stays a finding, and so does one that would break
+   or undo a rebuild change, even when the old PR has the same lines, since our changes
+   supersede a port.
 
 Plan: <plan path>; sub-plans: <paths>
 

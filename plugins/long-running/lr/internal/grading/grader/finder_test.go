@@ -572,6 +572,41 @@ func TestAMajorWhoseCitesNameNoChangedLineAndACensusFindingGoToTheCensusFile(t *
 	equal(t, resultOf(t, directory)["census"].(string), "#150001")
 }
 
+func TestAFindingAPortsSourceSharesIsOwedAsAFollowUpAndHoldsNothing(t *testing.T) {
+	shared := "follow-up: #49412 go/client.go:88 drops the marker the same way"
+	cite := "go/sand/internal/replica/follow.go:41"
+	owed := "; follow-ups owed after this port, since its source has them too: " + cite + " #49412 go/client.go:88 drops the marker the same way"
+	for name, tc := range map[string]struct {
+		body     string
+		findings []map[string]any
+		want     string
+	}{
+		"a port's shared blocker grades ok and is named": {
+			"port of #49412\n\n" + summaryBody,
+			[]map[string]any{findingOf("blocker", cite, shared)},
+			"finder: ok " + shaHead + " sol finder " + wholeRecord + ": no majors" + owed,
+		},
+		"a port's own defect still holds it": {
+			"port of #49412\n\n" + summaryBody,
+			[]map[string]any{findingOf("major", cite, "the next tree's wiring drops the marker"), findingOf("blocker", cite, shared)},
+			"finder: major " + shaHead + " 1 open " + wholeRecord + ": " + cite + " the next tree's wiring drops the marker" + owed,
+		},
+		"a body that does not open as a port keeps the major": {
+			summaryBody + "\n\nport of #49412",
+			[]map[string]any{findingOf("blocker", cite, shared)},
+			"finder: major " + shaHead + " 1 open " + wholeRecord + ": " + cite + " " + shared,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := finderJobDir(t, nil)
+			shell, _ := newFinderFake(t, replyOf(tc.findings...))
+			shell.body = tc.body
+			mustFinder(t, directory, shell)
+			equal(t, shell.posted[0]["--text"], tc.want)
+		})
+	}
+}
+
 func TestHunksReadNewSideRangesABareCountAsOneLineAndADeletionAsTheLineItFollows(t *testing.T) {
 	got := hunks("diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -3 +3 @@\n-x\n+y\n@@ -9,2 +8,0 @@\n-p\n-q\n@@ -20,0 +21,4 @@\n+n\n")
 	want := touched{{"a.go", []span{{3, 3}, {8, 8}, {21, 24}}}}
