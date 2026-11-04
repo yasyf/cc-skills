@@ -93,6 +93,8 @@ The runner re-runs the gate immediately before creating the route and suppresses
 
 **D23. A PR that waits to go live names how it is safe on dev.** Its body may say it waits for a card, a later tap, a release, or a hold before it goes live, such as `lands only after #<n> is live`. That body must also name a code gate, a feature flag, or that the change is inert until a named caller lands, as in `nothing calls <verb> yet`. Without one, the landing pass refuses it with `UNSAFE-ON-DEV` to its lane and the coordinator, `lr landing go` and `lr landing gate` print the same reason, and its tap card lists it. The lane adds the gate to the code and names it in the body, or drops a wait that no longer holds.
 
+**D24. A PR GitHub never finishes computing is retried by the supervisor, not by hand.** On the landing host, an open row whose GitHub mergeability has read unknown at one head for 10 minutes gets a no-op base PATCH and one fresh read, at most every 10 minutes per PR, which keeps its head, approvals, and grades. After 3 PATCHes, a row with no tap at that head, no hold, not queued, and the same true of every row below it in its stack is rebased on its base once, and its lane gets one record naming what moved; at most 2 such rebases run per pass. A tapped or held row keeps its PATCHes and never moves. Conflict and behind rows stay on their restack path, and a Trunk read that failed is not this case.
+
 ## Queue adapters and runner passes
 
 `lr landing pass` reaches the repository's Trunk queue through the `stack-enqueue` script `landing.queue_script` names in `lr.json`, and reads queue and CI state with `ccx vcs pr status`.

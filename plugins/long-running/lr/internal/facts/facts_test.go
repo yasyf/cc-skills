@@ -1444,3 +1444,37 @@ func TestAFailedGitHubReadSkipsThePassAndLeavesNoRows(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestOnlyGitHubsOwnUnknownCountsAsUncomputed(t *testing.T) {
+	for verdict, want := range map[string]bool{
+		"blocked:mergeable-unknown":               true,
+		"blocked:queue-unknown":                   false,
+		"blocked:queue-unknown,mergeable-unknown": false,
+		"blocked:conflict,mergeable-unknown":      false,
+		"landable":                                false,
+	} {
+		t.Run(verdict, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", merge: "UNKNOWN"}}, status(1, func(row *statusRow) { row.Verdict = verdict }))
+
+			if got := h.snapshot(t)[1].Uncomputed; got != want {
+				t.Fatalf("Uncomputed = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestReadMergeableSaysEachPRsAnswerFromOneBatchedRead(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", merge: "MERGEABLE"}, {number: 2, head: head2, login: "drive-bot", merge: "UNKNOWN"}})
+
+	read, err := h.source.ReadMergeable(context.Background(), []int{1, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.HasPrefix(read[1], "MERGEABLE ") || !strings.HasSuffix(read[1], head) || !strings.HasPrefix(read[2], "UNKNOWN ") || !strings.HasSuffix(read[2], head2) {
+		t.Fatalf("read = %v", read)
+	}
+	if got := len(h.runner.Calls()); got != 1 {
+		t.Fatalf("%d calls, want one batched read", got)
+	}
+}

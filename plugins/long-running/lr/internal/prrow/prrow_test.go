@@ -176,6 +176,44 @@ func TestAKnownMergeabilitySurvivesGitHubsRecomputeThenGoesUnknown(t *testing.T)
 	}
 }
 
+func TestUnknownSinceDatesAHeadGitHubNeverAnsweredAndAnAnswerEndsTheEpisode(t *testing.T) {
+	f, s := foldFor(t)
+	began := time.Now()
+	now := began
+	f.Now = func() time.Time { return now }
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	read := func(mergeable machine.Mergeable) map[string]string {
+		t.Helper()
+		pr := cleanRead(1, headA)
+		pr.Mergeable = mergeable
+		if err := f.PostReads(context.Background(), []machine.Facts{pr}); err != nil {
+			t.Fatal(err)
+		}
+		folded(t, f, 1)
+		facts, err := s.Facts(testRepo, 1, headA)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return facts
+	}
+
+	want := began.Format(time.RFC3339)
+	if got := read(machine.MergeableUnknown)[FactUnknownSince]; got != want {
+		t.Fatalf("unknown-since = %q, want %q on a head with no known value", got, want)
+	}
+	now = began.Add(time.Hour)
+	if got := read(machine.MergeableUnknown)[FactUnknownSince]; got != want {
+		t.Fatalf("unknown-since = %q, want the first unknown read's %q kept", got, want)
+	}
+	if _, err := s.PutFact(testRepo, 1, headA, FactBumps, "3", now); err != nil {
+		t.Fatal(err)
+	}
+	if facts := read(machine.MergeableClean); facts[FactUnknownSince] != "" || facts[FactBumps] != "" {
+		t.Fatalf("facts = %v, want an answer to clear the date and the count", facts)
+	}
+}
+
 func TestARowFromTheRecordsCarriesEveryFieldAndComesReady(t *testing.T) {
 	f, s := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)

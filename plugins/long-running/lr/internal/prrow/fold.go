@@ -27,6 +27,9 @@ const (
 	FactTapBy     = "tap-by"
 	FactTapAt     = "tap-at"
 
+	FactUnknownSince = "unknown-since"
+	FactBumps        = "mergeable-bumps"
+
 	foldWindow  = 72 * time.Hour
 	readKind    = "github"
 	readRecord  = "pr.read"
@@ -34,14 +37,13 @@ const (
 	readReader  = "supervisor"
 	stateMerged = "merged"
 
-	factCI           = "read-ci"
-	factApprovers    = "read-approvers"
-	factMergeable    = "read-mergeable"
-	factQueue        = "read-queue"
-	factValues       = "read-values"
-	factUnknownSince = "unknown-since"
-	factSeen         = "seen"
-	saidSuffix       = "-said"
+	factCI        = "read-ci"
+	factApprovers = "read-approvers"
+	factMergeable = "read-mergeable"
+	factQueue     = "read-queue"
+	factValues    = "read-values"
+	factSeen      = "seen"
+	saidSuffix    = "-said"
 )
 
 var (
@@ -431,26 +433,27 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 
 // steadyMergeable keeps a head's last known mergeability through the minutes GitHub recomputes it after its base moves, so one landing does not empty his tab. Landing and stack-enqueue keep reading GitHub's own answer.
 func (f Fold) steadyMergeable(attrs map[string]string, pr machine.Facts, facts map[string]string) error {
-	since := facts[factUnknownSince]
+	since := facts[FactUnknownSince]
 	if attrs["mergeable"] != string(machine.MergeableUnknown) {
 		if since == "" {
 			return nil
 		}
-		_, err := f.Store.PutFact(f.Repo, pr.Number, pr.Head, factUnknownSince, "", f.Now())
-		return err
-	}
-	known := facts[factMergeable]
-	if known == "" || known == string(machine.MergeableUnknown) {
+		for _, kind := range []string{FactUnknownSince, FactBumps} {
+			if _, err := f.Store.PutFact(f.Repo, pr.Number, pr.Head, kind, "", f.Now()); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	began, err := time.Parse(time.RFC3339, since)
 	if err != nil {
 		began = f.Now()
-		if _, err := f.Store.PutFact(f.Repo, pr.Number, pr.Head, factUnknownSince, began.Format(time.RFC3339), began); err != nil {
+		if _, err := f.Store.PutFact(f.Repo, pr.Number, pr.Head, FactUnknownSince, began.Format(time.RFC3339), began); err != nil {
 			return err
 		}
 	}
-	if f.Now().Sub(began) < unknownGrace {
+	known := facts[factMergeable]
+	if known != "" && known != string(machine.MergeableUnknown) && f.Now().Sub(began) < unknownGrace {
 		attrs["mergeable"] = known
 	}
 	return nil
