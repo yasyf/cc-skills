@@ -94,8 +94,9 @@ func TestAStandingLanesIncidentRecordWithNoSlugMakesNoRow(t *testing.T) {
 		opened(10, "owner-relay", "7:03 PM OWNER in chat about freezes", 4, root),
 		opened(11, "root", "INCIDENT dd-42 monitor 42", 3, "owner-relay"),
 	)
-	var names []string
-	for _, i := range viewOf(lanes, records, nil).incidents(records, testDrive) {
+	found := viewOf(lanes, records, nil).incidents(records, testDrive)
+	names := make([]string, 0, len(found))
+	for _, i := range found {
 		names = append(names, i.Name)
 	}
 	if want := []string{"api", "creds", "sso", "dd-42"}; !reflect.DeepEqual(names, want) {
