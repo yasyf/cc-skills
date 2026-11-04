@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -475,5 +477,27 @@ func TestAFailedReportReadKeepsEveryCardAndSaysSo(t *testing.T) {
 
 	if removed := removedBlocks(fake); len(removed) != 0 || !strings.Contains(out.String(), "WARNING every card stays up unchecked against the lanes' reports") {
 		t.Fatalf("removed %q, out %q", removed, out.String())
+	}
+}
+
+func TestAReportBodyReadsAtMostTheHeadOfItsFile(t *testing.T) {
+	short := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(short, []byte("all three steps are done"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if body := reportBody("first line", short); body != "all three steps are done" {
+		t.Fatalf("body = %q", body)
+	}
+
+	log := filepath.Join(t.TempDir(), "build.log")
+	if err := os.WriteFile(log, []byte(strings.Repeat("x", 10*reportBytes)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if body := reportBody("first line", log); len(body) != reportBytes {
+		t.Fatalf("read %d bytes of an attached log, want %d", len(body), reportBytes)
+	}
+
+	if body := reportBody("first line", filepath.Join(t.TempDir(), "gone.txt")); body != "first line" {
+		t.Fatalf("body = %q with no file", body)
 	}
 }
