@@ -379,7 +379,10 @@ func installLink(ctx context.Context, agents launchd.Launchd, env lanes.Env) err
 		return err
 	}
 	agent := agentOf(env)
-	return agents.Install(ctx, board.LinkJob(env.Config.Drive, agent.Binary, agent.Path, env.State))
+	if err := agents.Install(ctx, board.LinkJob(env.Config.Drive, agent.Binary, agent.Path, env.State)); err != nil {
+		return err
+	}
+	return agents.Restart(ctx, board.LinkLabel(env.Config.Drive))
 }
 
 func agentOf(env lanes.Env) Agent {
