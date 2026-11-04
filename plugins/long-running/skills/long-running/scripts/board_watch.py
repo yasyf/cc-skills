@@ -60,8 +60,8 @@ a No carries the matching `slack-revoke:`, each read from the label the board sh
 option, so the Slack permission hook reads his newest tap as his grant or revocation from any session. A card whose answer has no row stays on the board: the long-running hooks refuse a
 remove-block, push or update-block that takes it off, and `lr board cards sweep` leaves it up.
 
-A pick, write-in or pack pick that no `decide` or `claim` names by block id or by its owner record's
-seq 30 minutes after that record is posted again as an `ask` to `meta-desk` on topic `uncited:<block>`, and at 60 minutes as a
+A pick, write-in or pack pick that `lr findings cited` finds no record naming, of any kind and from
+anyone but this watcher, by its card, block id or owner record's seq, 30 minutes after that record is posted again as an `ask` to `meta-desk` on topic `uncited:<block>`, and at 60 minutes as a
 `blocker` to `meta-desk`, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
 
 Each answer also runs `lr board wake`, which addresses a wake to the lane whose ask drew the card, the
@@ -139,7 +139,6 @@ REDACTED = "[credential redacted]"
 BOARDS = "boards"
 OWNER_EVENTS = frozenset({"decision.created", "choice.selected", "input.submitted", "feedback.created", "pack.interaction", "triage.decided", "submit"})
 PICKS = frozenset({"choice.selected", "input.submitted", "pack.interaction"})
-CITING = ("decide", "claim")
 REPOST_AFTER = timedelta(minutes=30)
 ESCALATE_AFTER = timedelta(minutes=60)
 PICK_WINDOW = "3h"
@@ -590,6 +589,7 @@ def keep_snapshot(shell: Shell, bus: Bus, session: str, stop: threading.Event) -
 
 def repost_uncited(shell: Shell, bus: Bus, session: str, reposted: set[str]) -> None:
     now = shell.now()
+    due = []
     for record in bus_records(shell, bus.drive, "--lane", BUS_LANE, "--kind=owner", since=PICK_WINDOW):
         fields = board_rows.attrs(record)
         age = now - datetime.fromisoformat(record["at"])
@@ -599,10 +599,14 @@ def repost_uncited(shell: Shell, bus: Bus, session: str, reposted: set[str]) -> 
             continue
         kind, tag = ("blocker", f"{UNCITED}-blocker") if age >= ESCALATE_AFTER else ("ask", UNCITED)
         key = f"{tag}:{record['seq']}"
-        if key in reposted or cited(shell, bus, fields["block"], record["seq"]):
+        if key not in reposted:
+            due.append((record, fields, age, kind, key))
+    named = cited(shell, bus, {record["seq"]: fields["block"] for record, fields, *_ in due})
+    for record, fields, age, kind, key in due:
+        if record["seq"] in named:
             continue
         minutes = int(age.total_seconds() // 60)
-        text = f"UNCITED owner pick #{record['seq']} on board {session[:8]}: no decide or claim names {fields['block']} {minutes} minutes after it. {record['text']}"
+        text = f"UNCITED owner pick #{record['seq']} on board {session[:8]}: no record names {fields['block']} {minutes} minutes after it. {record['text']}"
         argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", kind, "--to", META_DESK, "--id", key, "--topic", f"{UNCITED}:{fields['block']}", "--re-seq", str(record["seq"]), *attr_args({"session": session, "block": fields["block"]}), "--text", CREDENTIAL.sub(REDACTED, text)]
         if (done := shell.cci(argv)).returncode:
             print(f"board-watch {session}: the uncited re-post of #{record['seq']} did not post: {done.stderr.strip()}", flush=True)
@@ -610,15 +614,14 @@ def repost_uncited(shell: Shell, bus: Bus, session: str, reposted: set[str]) -> 
         reposted.add(key)
 
 
-def cited(shell: Shell, bus: Bus, block: str, after: int) -> bool:
-    names = re.compile(rf"(?<![\w-]){re.escape(block)}(?![\w-])|(?<![\w-])#?{after}(?!\d)", re.IGNORECASE)
-    found = []
-    for needle in (block, str(after)):
-        done = shell.cci(["grep", needle, "--fixed-strings", "--drive", bus.drive, "--json", "--budget", str(GREP_BYTES), *(f"--kind={kind}" for kind in CITING)])
-        if done.returncode:
-            return True
-        found += [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
-    return any(record["seq"] > after and record["kind"] in CITING and record["drive"] == bus.drive and names.search(record["text"]) for record in found)
+def cited(shell: Shell, bus: Bus, picks: dict[int, str]) -> set[int]:
+    if not picks:
+        return set()
+    done = shell.lr(["findings", "--drive", bus.drive, "cited", *(f"{seq}={block}" for seq, block in picks.items())], "")
+    if done.returncode:
+        print(f"board-watch: lr findings cited failed, so no pick is re-posted this pass: {done.stderr.strip()}", flush=True)
+        return set(picks)
+    return {int(seq) for seq in done.stdout.split()}
 
 
 def reopened(shell: Shell, session: str, block: str) -> bool:
