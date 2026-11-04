@@ -168,12 +168,30 @@ func TestServeLeavesEverythingElseToTheCLI(t *testing.T) {
 	}
 }
 
-func TestServeHandsRefusalsToTheCLI(t *testing.T) {
-	client, _ := serve(t, nil, func(got frame) []string {
-		return []string{fmt.Sprintf(`{"id":%q,"ok":false,"error":{"code":"dispatch_not_found","message":"no"},"_meta":{"runtimeId":"rt"}}`, got.ID)}
-	})
-	if _, handled := client.Serve(context.Background(), []string{"orchestration", "worker-show", "--dispatch", "d", "--full", "--json"}); handled {
-		t.Fatal("a refusal was served")
+func TestServeRefusals(t *testing.T) {
+	refusing := func(code string) func(frame) []string {
+		return func(got frame) []string {
+			return []string{fmt.Sprintf(`{"id":%q,"ok":false,"error":{"code":%q,"message":"no"},"_meta":{"runtimeId":"rt"}}`, got.ID, code)}
+		}
+	}
+	args := []string{"orchestration", "worker-show", "--dispatch", "d", "--full", "--json"}
+
+	client, _ := serve(t, nil, refusing("invalid_argument"))
+	if _, handled := client.Serve(context.Background(), args); handled {
+		t.Fatal("a refusal the CLI adds to was served")
+	}
+
+	client, _ = serve(t, nil, refusing("remote_runtime_unavailable"))
+	reply := served(t, client, args...)
+	var printed struct {
+		OK    bool     `json:"ok"`
+		Error RPCError `json:"error"`
+	}
+	if err := json.Unmarshal(reply.Stdout, &printed); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != 1 || printed.OK || printed.Error.Code != "remote_runtime_unavailable" {
+		t.Fatalf("code = %d, printed = %+v", reply.Code, printed)
 	}
 }
 
