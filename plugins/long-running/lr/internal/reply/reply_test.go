@@ -17,6 +17,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -1819,6 +1820,25 @@ func TestOnlyAPickFreeReplyAsksForTheTapCardsOfItsPRs(t *testing.T) {
 		if slices.Contains(call.Argv, "--tap-pr") {
 			t.Fatalf("a pick reply asked for a tap card: %q; its pick card is the offer", call.Argv)
 		}
+	}
+}
+
+func TestAPickNamingAPRThatLandsOnHisWordWarns(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reply Reply
+		warns bool
+	}{
+		"a pick naming it":    {Reply{MD: "Land #2196?", Picks: []string{"Land", "Hold"}}, true},
+		"a status mentioning": {Reply{MD: "#2196 lands on your word."}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, store.ReviewRow{WaitsOn: prrow.PortLands})
+			warning := f.tapWarning(tc.reply)
+			if tc.warns != strings.Contains(warning, "standing word") || tc.warns != strings.Contains(warning, landPR) {
+				t.Fatalf("warning = %q, want warns %v", warning, tc.warns)
+			}
+		})
 	}
 }
 

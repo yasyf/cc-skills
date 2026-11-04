@@ -23,6 +23,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/explain"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talkboard"
@@ -236,7 +237,7 @@ func (f Fanout) tapWarning(r Reply) string {
 	if err != nil {
 		return fmt.Sprintf("the PR ledger did not read, so no PR this names was checked for a tap he owes: %v", err)
 	}
-	var missing, tapped []string
+	var missing, tapped, standing []string
 	for n, found := range said {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] })
 		if at < 0 || !strings.HasSuffix(strings.ToLower(repo), strings.ToLower(cmp.Or(found[1], found[3], repo))) {
@@ -247,6 +248,8 @@ func (f Fanout) tapWarning(r Reply) string {
 		switch {
 		case rows[at].Tapped && len(r.Picks) > 0 && !slices.Contains(tapped, url):
 			tapped = append(tapped, url)
+		case prrow.LandsOnHisWord(rows[at]) && len(r.Picks) > 0 && !slices.Contains(standing, url):
+			standing = append(standing, url)
 		case rows[at].ReadyForTap && !rows[at].Tapped && !slices.ContainsFunc(r.PRs, listed) && !slices.Contains(missing, url):
 			missing = append(missing, url)
 		}
@@ -254,6 +257,9 @@ func (f Fanout) tapWarning(r Reply) string {
 	var warned []string
 	if len(tapped) > 0 {
 		warned = append(warned, "this asks him to pick on a PR he already tapped, so take it off the question: "+strings.Join(tapped, ", "))
+	}
+	if len(standing) > 0 {
+		warned = append(warned, "this asks him to pick on a PR that lands on his standing word with no tap, so take it off the question: "+strings.Join(standing, ", "))
 	}
 	if len(missing) > 0 {
 		warned = append(warned, "this names a PR waiting on his tap and does not list it, so it carries no tap card; edit the reply with it in prs: "+strings.Join(missing, ", "))
