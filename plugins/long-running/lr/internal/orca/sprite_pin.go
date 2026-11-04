@@ -42,6 +42,10 @@ func MoveSpritePins(ctx context.Context, s *store.Store, claude, runner string, 
 		return err
 	}
 	tools := slices.Clone(file.Orca.Sprite.Tools)
+	listed := len(tools)
+	if cci, pinned := cciPin(file.Orca.Sprite.Env); pinned {
+		tools = append(tools, cci)
+	}
 	moved := false
 	var failed []string
 	for i, tool := range tools {
@@ -90,7 +94,7 @@ func MoveSpritePins(ctx context.Context, s *store.Store, claude, runner string, 
 		}
 	}
 	if moved {
-		if err := writePins(runner, tools); err != nil {
+		if err := writePins(runner, tools[:listed], tools[listed:]); err != nil {
 			return err
 		}
 	}
@@ -212,7 +216,15 @@ func fetch(ctx context.Context, url string) (*http.Response, error) {
 	return nil, fmt.Errorf("%s: %s", url, response.Status)
 }
 
-func writePins(runner string, tools []spriteTool) error {
+func cciPin(env map[string]string) (spriteTool, bool) {
+	version := cciVersion.FindStringSubmatch(env[cciURLEnv])
+	if version == nil {
+		return spriteTool{}, false
+	}
+	return spriteTool{Kind: "binary", Name: "cci", URL: env[cciURLEnv], SHA256: env[cciSHAEnv], Version: version[1], Follows: "cc-inbox@cc-inbox"}, true
+}
+
+func writePins(runner string, tools, cci []spriteTool) error {
 	raw, err := os.ReadFile(runner)
 	if err != nil {
 		return err
@@ -227,7 +239,12 @@ func writePins(runner string, tools []spriteTool) error {
 	if err := decoder.Decode(&whole); err != nil {
 		return err
 	}
-	whole["orca"].(map[string]any)["sprite"].(map[string]any)["tools"] = tools
+	sprite := whole["orca"].(map[string]any)["sprite"].(map[string]any)
+	sprite["tools"] = tools
+	for _, pin := range cci {
+		env := sprite["env"].(map[string]any)
+		env[cciURLEnv], env[cciSHAEnv] = pin.URL, pin.SHA256
+	}
 	var body bytes.Buffer
 	encoder := json.NewEncoder(&body)
 	encoder.SetEscapeHTML(false)

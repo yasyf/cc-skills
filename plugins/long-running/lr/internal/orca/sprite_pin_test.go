@@ -126,6 +126,37 @@ func (w *pinWorld) pack(version string) spriteTool {
 	return spriteTool{Kind: "plugin", Name: "long-running@skills", URL: w.server.URL + "/pack--v" + version + "/pack_" + version + ".tar.gz", SHA256: digestOf(version), Version: version}
 }
 
+func TestTheCciASpriteInstallsFollowsTheCCInboxPluginAndEveryOtherEnvKeyStays(t *testing.T) {
+	w := newPinWorld(t)
+	w.macRuns(map[string]string{"cc-inbox@cc-inbox": "0.49.64"})
+	w.publish("/v0.49.64/cci_0.49.64_linux_amd64.tar.gz", "cci sixty four", "checksums.txt")
+	raw, err := json.Marshal(map[string]any{"orca": map[string]any{"sprite": map[string]any{"env": map[string]string{
+		cciURLEnv: w.server.URL + "/v0.49.58/cci_0.49.58_linux_amd64.tar.gz", cciSHAEnv: digestOf("old"), "WORKER_REF": "dev",
+	}, "tools": []spriteTool{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.runner, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := w.move(); err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := readRunnerFile(w.runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := file.Orca.Sprite.Env
+	if env[cciURLEnv] != w.server.URL+"/v0.49.64/cci_0.49.64_linux_amd64.tar.gz" || env[cciSHAEnv] != digestOf("cci sixty four") || env["WORKER_REF"] != "dev" {
+		t.Fatalf("env = %v", env)
+	}
+	if len(file.Orca.Sprite.Tools) != 0 {
+		t.Fatalf("cci landed among the tools: %+v", file.Orca.Sprite.Tools)
+	}
+}
+
 func TestAPinMovesToWhatTheMacRunsOnceItsDigestMatchesAndEveryOtherKeyStays(t *testing.T) {
 	w := newPinWorld(t)
 	w.macRuns(map[string]string{"long-running@skills": "0.7.2", "cc-context@cc-context": "0.91.70"})

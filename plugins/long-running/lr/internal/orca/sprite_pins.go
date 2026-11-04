@@ -30,7 +30,13 @@ type spriteTool struct {
 	Follows string `json:"follows,omitempty"`
 }
 
-const graderTool = "codex-ask"
+const (
+	graderTool = "codex-ask"
+	cciURLEnv  = "WORKER_CCI_URL"
+	cciSHAEnv  = "WORKER_CCI_SHA256"
+)
+
+var cciVersion = regexp.MustCompile(`/v(\d+\.\d+\.\d+)/`)
 
 var hostTools = []string{"long-running@skills", "ccx", graderTool}
 
@@ -47,7 +53,7 @@ type binrunRelease struct {
 }
 
 func readPins(env func(string) string) (spritePins, error) {
-	p := spritePins{ccURL: env("WORKER_CCI_URL"), ccSHA: env("WORKER_CCI_SHA256")}
+	p := spritePins{ccURL: env(cciURLEnv), ccSHA: env(cciSHAEnv)}
 	if p.ccURL == "" {
 		return p, refuse("set WORKER_CCI_URL to the cci linux_amd64 release archive a Sprite installs")
 	}
