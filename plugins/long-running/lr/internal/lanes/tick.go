@@ -914,16 +914,16 @@ func unownedDuties(s *store.Store, d Deps, found map[string]Peer, now time.Time)
 		head := heads[name]
 		var since time.Time
 		var why string
+		var peer *Peer
+		last := head.Heard
+		if known, ok := found[name]; ok {
+			peer = &known
+			last = newer(known.Seen, head.Heard)
+		}
 		switch head.State {
 		case store.LaneHeld, store.LaneLaunching:
 			continue
 		case store.LaneDesired:
-			var peer *Peer
-			last := head.Heard
-			if known, ok := found[name]; ok {
-				peer = &known
-				last = newer(known.Seen, head.Heard)
-			}
 			if alive(peer, last, now) {
 				continue
 			}
@@ -935,6 +935,9 @@ func unownedDuties(s *store.Store, d Deps, found map[string]Peer, now time.Time)
 				}
 			}
 		default:
+			if alive(peer, last, now) {
+				continue
+			}
 			if at, ok := heard[head.RetiredBy]; ok && succeeds(head.RetiredBy, name) && now.Sub(at) < StaleAfter {
 				continue
 			}

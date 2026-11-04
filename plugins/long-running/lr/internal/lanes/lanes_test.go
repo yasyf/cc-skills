@@ -1923,6 +1923,19 @@ func standingLane(t *testing.T, s *store.Store) (*fake, string) {
 	return f, path
 }
 
+func TestARetiredStandingLaneStillPostingHasAnOwner(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	f.feed = append(f.feed, rec(2, refresher, "stopped", t0, "retired"))
+	f.peers = nil
+	tick(t, s, f, t0.Add(mins(1)))
+
+	f.feed = append(f.feed, rec(3, refresher, "report", t0.Add(mins(10)), "still working"))
+	tick(t, s, f, t0.Add(mins(11)))
+
+	equal(t, len(f.ofKind("blocker")), 0)
+}
+
 func TestAStandingLaneStoppedWithNoSuccessorReachesRootOnceAfterTenMinutes(t *testing.T) {
 	s := memory(t)
 	f, path := standingLane(t, s)
