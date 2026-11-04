@@ -50,7 +50,7 @@ func statusCommand(a *app.App) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var rows []store.PRState
-			if err := ask(cmd.Context(), socketPath(a), "/status", &rows); err != nil {
+			if err := askDesk(cmd.Context(), a, "/status", &rows); err != nil {
 				return err
 			}
 			for _, row := range rows {
@@ -68,7 +68,7 @@ func whyCommand(a *app.App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var why Why
-			if err := ask(cmd.Context(), socketPath(a), "/why/"+strings.TrimPrefix(args[0], "#"), &why); err != nil {
+			if err := askDesk(cmd.Context(), a, "/why/"+strings.TrimPrefix(args[0], "#"), &why); err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
@@ -86,6 +86,13 @@ func whyCommand(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func askDesk(ctx context.Context, a *app.App, path string, out any) error {
+	if _, err := a.Config(); err != nil {
+		return err
+	}
+	return ask(ctx, socketPath(a), path, out)
 }
 
 func socketPath(a *app.App) string {

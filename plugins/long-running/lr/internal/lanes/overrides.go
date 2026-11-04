@@ -47,7 +47,7 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 			continue
 		}
 		if warnings := reader.Override(ctx, record); len(warnings) > 0 {
-			text := fmt.Sprintf("OVERRIDE-WARNING cci #%d still counts: %s. Read the row whole with `lr rules row <key>` and check its words say what the override says they say", record.Seq, strings.Join(warnings, "; "))
+			text := fmt.Sprintf("OVERRIDE-WARNING cci #%d still counts: %s. Read the row whole with `lr rules row <key>`, where an answer's key is `answer <id>`, and check its words say what the override says they say", record.Seq, strings.Join(warnings, "; "))
 			if err := o.tell(ctx, "override-warning:"+strconv.FormatInt(record.Seq, 10), "note", text, now); err != nil {
 				return err
 			}
