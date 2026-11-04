@@ -14,8 +14,8 @@ func Command(a *app.App) *cobra.Command {
 		Use:   "own-red [PR]",
 		Short: "Print an OWN-RED line for each finished failing check a merge would land that is green on its base, and an INHERITED line for each that is red there too",
 		Long: `Read every PR the merge would land and compare each check that finished red
-with the same check on the base branch, in one call for every PR: the nearest
-finished run at or below the PR's merge base. Green there prints an OWN-RED line
+with the same check of the same workflow on the base branch, in one call for
+every PR: the nearest finished run at or below the PR's merge base. Green there prints an OWN-RED line
 with the failing job's link, whichever files the failure names, since a change
 breaks tests it does not touch. Red there prints INHERITED. No readable run
 prints BASE-UNREAD. A pending check prints nothing.

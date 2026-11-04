@@ -31,11 +31,13 @@ const (
 	notFound      = "HTTP 404"
 	checksFields  = `fragment checks on PullRequest {
   commits(last: 1) { nodes { commit { checkSuites(first: 30) { nodes {
+    workflowRun { workflow { name } }
     checkRuns(first: 50) { nodes { name status conclusion detailsUrl } }
   } } } } }
 }`
 	baseFields = `fragment base on PullRequest {
   commits(first: 1) { nodes { commit { parents(first: 1) { nodes { history(first: 30) { nodes { checkSuites(first: 30) { nodes {
+    workflowRun { workflow { name } }
     checkRuns(first: 50) { nodes { name conclusion } }
   } } } } } } } } }
 }`
@@ -84,6 +86,11 @@ type checkRun struct {
 type commit struct {
 	CheckSuites struct {
 		Nodes []struct {
+			WorkflowRun struct {
+				Workflow struct {
+					Name string `json:"name"`
+				} `json:"workflow"`
+			} `json:"workflowRun"`
 			CheckRuns struct {
 				Nodes []checkRun `json:"nodes"`
 			} `json:"checkRuns"`
@@ -106,12 +113,15 @@ type pull struct {
 	} `json:"commits"`
 }
 
-func (p pull) baseConclusion(check string) string {
+func (p pull) baseConclusion(workflow, check string) string {
 	for _, first := range p.Commits.Nodes {
 		for _, parent := range first.Commit.Parents.Nodes {
 			for _, ancestor := range parent.History.Nodes {
 				var conclusions []string
 				for _, suite := range ancestor.CheckSuites.Nodes {
+					if suite.WorkflowRun.Workflow.Name != workflow {
+						continue
+					}
 					for _, run := range suite.CheckRuns.Nodes {
 						if run.Name == check {
 							conclusions = append(conclusions, run.Conclusion)
@@ -147,13 +157,14 @@ func (r record) line(kind string) string {
 }
 
 type red struct {
-	number int
-	check  string
-	job    string
+	number   int
+	workflow string
+	check    string
+	job      string
 }
 
 func (r red) line(base pull) string {
-	switch base.baseConclusion(r.check) {
+	switch base.baseConclusion(r.workflow, r.check) {
 	case failed:
 		return fmt.Sprintf("%s #%d %s", InheritedLine, r.number, r.check)
 	case passed:
@@ -180,7 +191,7 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 		for _, suite := range pulls[alias(number)].Commits.Nodes[0].Commit.CheckSuites.Nodes {
 			for _, run := range suite.CheckRuns.Nodes {
 				if run.Status == "COMPLETED" && run.Conclusion == failed {
-					reds = append(reds, red{number, run.Name, run.DetailsURL})
+					reds = append(reds, red{number, suite.WorkflowRun.Workflow.Name, run.Name, run.DetailsURL})
 				}
 			}
 		}

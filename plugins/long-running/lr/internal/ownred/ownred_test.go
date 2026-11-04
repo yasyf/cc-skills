@@ -180,6 +180,34 @@ func TestAVetFindingReadsItsBaseWhateverFilesThePRChanged(t *testing.T) {
 	}
 }
 
+func inWorkflow(name string, runs ...map[string]any) map[string]any {
+	return map[string]any{"workflowRun": map[string]any{"workflow": map[string]any{"name": name}}, "checkRuns": map[string]any{"nodes": runs}}
+}
+
+func TestACheckReadsOnlyItsOwnWorkflowOnTheBase(t *testing.T) {
+	const check = "test"
+	red, passing := namedRun(check, "FAILURE"), namedRun(check, "SUCCESS")
+	for name, c := range map[string]struct {
+		base []any
+		want string
+	}{
+		"its workflow is green and another of that name is red": {[]any{inWorkflow("long-running CI", red), inWorkflow("live-dashboard CI", passing)}, "OWN-RED #7 test " + job},
+		"its workflow is red and another of that name is green": {[]any{inWorkflow("long-running CI", passing), inWorkflow("live-dashboard CI", red)}, "INHERITED #7 test"},
+		"only another workflow has that name":                   {[]any{inWorkflow("long-running CI", red)}, "BASE-UNREAD #7 test"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := pull()
+			head := p["commits"].(map[string]any)["nodes"].([]map[string]any)[0]["commit"].(map[string]any)
+			head["checkSuites"] = map[string]any{"nodes": []any{inWorkflow("live-dashboard CI", red)}}
+			withHistory(p, map[string]any{"checkSuites": map[string]any{"nodes": c.base}})
+			got := lines(t, github(t, map[int]map[string]any{7: p}, false), ownred.Merge{Selector: "7"})
+			if !slices.Equal(got, []string{c.want}) {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestAStackedMergeReadsEveryOpenPRBelowItsTargetAndNoneAbove(t *testing.T) {
 	pulls := map[int]map[string]any{5: redOnGreenBase(), 6: redOnGreenBase(), 7: pull(green), 8: redOnGreenBase()}
 	for _, mode := range []ownred.Mode{ownred.Below, ownred.Stack} {
