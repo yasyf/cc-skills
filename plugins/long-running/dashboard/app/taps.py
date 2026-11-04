@@ -137,15 +137,15 @@ def land_tap(row, above, lanes, title_of):
 
 def card_tap(card, kind, above, lanes, named, entries, title_of):
     cited = {*named.get(card["id"], set()), *card.get("prs", [])}
-    numbers = {number for number in cited if number in entries and entries[number]["state"] != "landed"}
+    numbers = {number for number in cited if kind != SLACK and number in entries and entries[number]["state"] != "landed"}
     prs = numbers.union(*(above.get(number, []) for number in numbers))
     waiting = set(lanes.get(card["id"], set())).union(*(lanes.get(pr, set()) for pr in prs))
     words = freed_words(prs, waiting, title_of)
     summary = slack_text(first_sentence(card.get("summary")))
     line = f"{words or 'No worker is waiting on this post.'} {summary}" if kind == SLACK else words or f"No recorded work waits on it. {summary}"
-    tap = {"kind": kind, "id": card["id"], "card": card["id"], "title": card["title"], "frees": len(prs) + len(waiting), "line": line.strip(), "recommended": card.get("recommended")}
+    tap = {"kind": kind, "id": card["id"], "card": card["id"], "title": card["title"], "frees": len(prs) + len(waiting), "line": line.strip(), "recommended": card.get("recommended"), "choice": card.get("choice")}
     if "subject" in card:
-        tap.update({key: card[key] for key in ("text", "choice", "options", "subject")})
+        tap.update({key: card[key] for key in ("text", "options", "subject")})
     return tap
 
 
@@ -159,7 +159,7 @@ def tap_queue(rows, cards, slack, drive_prs, blocks, title_of, urgent=()):
         *(card_tap(card, SLACK if card["id"].startswith("slack-") or SLACK_POST.search(card["title"]) else PICK, above, lanes, named, entries, title_of) for card in cards if card["decides"]),
         *(card_tap(card, SLACK, above, lanes, named, entries, title_of) for card in slack),
     ]
-    return sorted(taps, key=lambda tap: (tap["id"] not in urgent, -tap["frees"], KIND_ORDER[tap["kind"]]))
+    return sorted(({**tap, "urgent": tap["id"] in urgent} for tap in taps), key=lambda tap: (not tap["urgent"], -tap["frees"], KIND_ORDER[tap["kind"]]))
 
 
 def in_queue_order(queue, items, key_of):

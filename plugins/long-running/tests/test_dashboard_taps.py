@@ -124,6 +124,18 @@ def test_an_answered_withdrawn_or_retired_slack_post_is_gone():
     assert [card["id"] for card in taps.slack_cards(board, "s")] == ["slack-open"]
 
 
+def test_a_slack_post_frees_no_change_it_only_mentions():
+    slack = [{"id": "slack-a", "title": "Post this?", "summary": "Why", "text": "t", "choice": "c", "options": [], "recommended": "Yes", "subject": "s", "prs": [48001]}]
+    out = queue(slack=slack, prs=[entry(48001, state="doing")], blocks=[blocked("bugs-2", "Waits on slack-a (#48001 in review).")])
+    assert out[0]["frees"] == 1
+    assert out[0]["line"] == "1 worker stopped until you tap. Why"
+
+
+def test_an_urgent_tap_says_so_and_no_other_does():
+    out = queue(cards=[card("card-now"), card("card-later")], urgent={"card-now"})
+    assert [(tap["id"], tap["urgent"]) for tap in out] == [("card-now", True), ("card-later", False)]
+
+
 def test_a_worker_naming_a_slack_post_ranks_it_above_one_nobody_waits_on():
     slack = [{"id": f"slack-{name}", "title": name, "summary": "Why", "text": "t", "choice": f"slack-{name}-answer", "options": [], "recommended": "Yes", "subject": "s"} for name in ("old", "live")]
     out = queue(slack=slack, blocks=[blocked("bugs-comms-2", "bugs-comms-2 waits on the owner own taps: Tevon follow-up slack-live and more.")])

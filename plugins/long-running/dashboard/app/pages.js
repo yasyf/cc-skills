@@ -318,8 +318,15 @@ function prGroup(text) {
   const hit = PR_GROUPS.find(([pattern]) => pattern.test(text));
   return hit ? hit.slice(1) : [ledgerWords(text), 'Moving', 'acc'];
 }
-const ASK_WORD = { asked: 'Asked', answered: 'Answered', applied: 'Applied', live: 'Live' };
-const ASK_TONE = { asked: 'bad', answered: 'you', applied: 'acc', live: 'ok' };
+const ASK_WORD = { overdue: 'Overdue', asked: 'Asked', answered: 'Answered', applied: 'Applied', live: 'Live' };
+const ASK_TONE = { overdue: 'bad', asked: 'bad', answered: 'you', applied: 'acc', live: 'ok' };
+const OVERDUE_GROUP = {
+  pick: (n) => `${n} of your picks not carried out`,
+  ask: (n) => `${plural(n, 'ask')} with no answer`,
+  retro: (n) => `${plural(n, 'retro action')} not done`,
+  finding: (n) => `${plural(n, 'finding')} not closed`,
+  repeat: (n) => plural(n, 'repeating alarm'),
+};
 const ASKS_AT_REST = 12;
 function askTitle(text) {
   return firstClause(text.replace(/https?:\/\/\S+/g, '').trim() || 'A message with only a link').replace(/^(.{96}\S*)\s.+$/, '$1…');
@@ -338,6 +345,15 @@ function askMessage(a) {
   ].join('');
   return askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text) }, a.state, where, `${a.answer ? `<div class="md">${markdown(a.answer)}</div>` : ''}${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`);
 }
+function overdueRows() {
+  const clipped = (item) => esc(item.text.replace(/^(.{120}\S*)\s.+$/s, '$1…'));
+  const named = (item) => `<li><time>${esc(item.due)}</time><span>${item.seq ? `<a href="/record/${item.seq}" target="_blank" rel="noopener">${clipped(item)}</a>` : clipped(item)}</span></li>`;
+  const groups = new Map(groupBy(state.model.coordinator_overdue ?? [], (item) => item.group));
+  return Object.keys(OVERDUE_GROUP).filter((group) => groups.has(group)).map((group) => {
+    const list = groups.get(group);
+    return askRow({ id: `overdue-${group}`, at: list[0].due, title: OVERDUE_GROUP[group](list.length) }, 'overdue', '', `<ol class="ev-named">${list.map(named).join('')}</ol>`);
+  });
+}
 function askRows() {
   const data = state.model.owner_asks;
   const approvals = data.taps.filter((t) => t.pr);
@@ -353,17 +369,17 @@ function askRows() {
     const lost = a.state === 'LOST';
     return askRow({ id: `ask-${a.key}`, iso, at: clock(iso), title: askTitle(words), why: lost ? 'no progress recorded' : '' }, lost ? 'asked' : 'live', workerName(a.lane), `<p>${esc(a.line)}</p>`);
   });
-  return newestFirst([
+  return [...overdueRows(), ...newestFirst([
     ...data.messages.map(askMessage),
     ...data.taps.filter((t) => !t.pr).map((t) => askRow({ id: `ask-m${t.m}`, iso: t.iso, at: clock(t.iso), title: t.question.replace(/^(.{96}\S*)\s.+$/, '$1…'), why: t.said.replace(/^picked /, 'You picked ') }, t.state, 'Board', `<p><a href="${esc(state.model.board.url)}?block=${encodeURIComponent(t.card)}" target="_blank" rel="noopener">Open the card on your board ↗</a></p>`)),
     ...approvalRow('applied', approvals.filter((t) => t.state === 'applied'), 'changes you approved have landed'),
     ...approvalRow('answered', approvals.filter((t) => t.state !== 'applied'), 'changes you approved have not landed yet'),
     ...store,
     ...picksRow().map((row) => ({ ...row, state: 'answered', word: 'Answered', tone: 'you' })),
-  ]);
+  ])];
 }
 function openAsks() {
-  return state.model?.owner_asks ? askRows().filter((row) => row.state === 'asked').length : 0;
+  return state.model?.owner_asks ? askRows().filter((row) => row.state === 'asked').length + (state.model.coordinator_overdue ?? []).length : 0;
 }
 function asksScreen(filter = '') {
   if (!state.model.owner_asks) return writing('Your asks');
@@ -550,8 +566,7 @@ function tapCard(t) {
 }
 function tapOpen(t) {
   if (t.kind === 'land') return verdictState(boardRow(t.number) ?? {}) === 'you';
-  const c = tapCard(t);
-  return Boolean(c) && !ov.sent.get(c.choice)?.recorded;
+  return Boolean(tapCard(t)) && !ov.sent.get(t.choice)?.recorded;
 }
 function openTaps() {
   return (state.model?.taps ?? []).filter(tapOpen);
@@ -577,7 +592,7 @@ function tapButtons(t) {
 }
 function tapRow(t, at) {
   const textId = `tap-text-${t.id}`;
-  return `<article class="fm${t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${at + 1}</span><div class="fm-main">
+  return `<article class="fm${t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${at + 1}</span><div class="fm-main">
     <header><b>${TAP_WORD[t.kind]}</b>${t.frees ? `<span class="fm-frees">Frees ${t.frees}</span>` : ''}</header>
     <p class="fm-lead">${esc(tapWords(t.title))}</p>
     <p class="fm-why">${esc(tapWords(t.line))}</p>
@@ -589,12 +604,14 @@ function feedDivider(word) {
 }
 function needsScreen() {
   const taps = openTaps();
-  const freeing = taps.filter((t) => t.frees);
-  const rest = taps.filter((t) => !t.frees);
+  const incidents = taps.filter((t) => t.urgent);
+  const freeing = taps.filter((t) => !t.urgent && t.frees);
+  const rest = taps.filter((t) => !t.urgent && !t.frees);
   const lead = taps.length ? `${plural(taps.length, 'tap')} wait on you, the most downstream work first.` : 'Nothing waits on your tap.';
   return `<div class="pg fd"><header class="fd-h"><h1>${lead}</h1></header>
-    ${freeing.length ? `${feedDivider('These free other work')}${freeing.map(tapRow).join('')}` : ''}
-    ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + freeing.length)).join('')}` : ''}</div>`;
+    ${incidents.length ? `${feedDivider('Live incidents')}${incidents.map(tapRow).join('')}` : ''}
+    ${freeing.length ? `${feedDivider('These free other work')}${freeing.map((t, at) => tapRow(t, at + incidents.length)).join('')}` : ''}
+    ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + incidents.length + freeing.length)).join('')}` : ''}</div>`;
 }
 
 const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_you: ['Needs you', 'you'], incident: ['Incident', 'bad'], done: ['Done', 'ok'] };
