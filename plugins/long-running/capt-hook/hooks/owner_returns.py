@@ -119,6 +119,11 @@ NO_OUTPUT = T.user("[Your previous response had no visible output. Please contin
 REMINDER_FEEDBACK = T.user(f"Stop hook feedback:\n{UNROUTED_REMINDER}", isMeta=True)
 
 
+@workflow_state("long_running_row_threads")
+class RowThreads(WorkflowState):
+    threads: dict[str, str] = {}
+
+
 @workflow_state("long_running_owner_returns")
 class OwnerReturns(WorkflowState):
     prompted_at: float | None = None
@@ -194,9 +199,10 @@ def waiting(replies: str | tuple) -> Input:
     return Input(session_id=HOLDER, command="ls", transcript=delivered(), state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
 
 
-def answering(transcript: list, owed: tuple = (), **given: object) -> Input:
+def answering(transcript: list, owed: tuple = (), threads: dict | None = None, **given: object) -> Input:
     replies = json.dumps({"replies": list(owed), "holder_session": HOLDER})
-    return Input(session_id=HOLDER, tool=REPLY, tool_input={"title": "Yes, it is on the board", "md": "It is the third card."} | given, transcript=transcript, state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
+    state = [CompactionState(active=True, communicator=True), RowThreads(threads=threads or {})]
+    return Input(session_id=HOLDER, tool=REPLY, tool_input={"title": "Yes, it is on the board", "md": "It is the third card."} | given, transcript=transcript, state=state, env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
 
 
 def reading(transcript: list, owed: str | tuple, tool: str = f"{CC_SLACK}slack_thread", **given: object) -> Input:
@@ -521,11 +527,20 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
         answering([T.user("where are we")], owed=(OWED_REPLY | {"thread_ts": OWED_REPLY["ts"]},)): Allow(),
         answering(delivered(), thread="1793600000.000001"): Allow(),
         answering([T.user("where are we")]): Allow(),
+        answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, order="m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, on="line:m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, order="m11"): Allow(),
+        answering(delivered(), owed=(OWED_REPLY,), order="m11"): Allow(),
+        answering(delivered(), on="reply:r1"): Allow(),
     }),
 )
 def answers_go_in_his_thread(evt: BaseHookEvent) -> HookResult | None:
     if evt.input.raw.get("thread"):
         return None
+    if named := evt.input.raw.get("order") or evt.input.raw.get("on"):
+        if not (thread := RowThreads.load(evt).threads.get(named.removeprefix("line:"))):
+            return None
+        return evt.rewrite(evt.input.raw | {"thread": thread}, note=IN_THREAD)
     owed = dm_owed(evt)
     held = owed["replies"] if owed and owed["holder_session"] == evt.session_id else []
     threads = [*(reply["thread_ts"] for reply in held if reply["thread_ts"] != reply["ts"]), *(dm["thread"] for dm in slack_dms(evt, evt.ctx.turn.events) if dm["thread"] != dm["ts"])]
