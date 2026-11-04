@@ -17,6 +17,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
+const unknownGrace = 10 * time.Minute
+
 const (
 	FactWithdrawn = "withdrawn"
 	FactFailing   = "read-failing"
@@ -32,13 +34,14 @@ const (
 	readReader  = "supervisor"
 	stateMerged = "merged"
 
-	factCI        = "read-ci"
-	factApprovers = "read-approvers"
-	factMergeable = "read-mergeable"
-	factQueue     = "read-queue"
-	factValues    = "read-values"
-	factSeen      = "seen"
-	saidSuffix    = "-said"
+	factCI           = "read-ci"
+	factApprovers    = "read-approvers"
+	factMergeable    = "read-mergeable"
+	factQueue        = "read-queue"
+	factValues       = "read-values"
+	factUnknownSince = "unknown-since"
+	factSeen         = "seen"
+	saidSuffix       = "-said"
 )
 
 var (
@@ -408,6 +411,10 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 			failed = append(failed, err)
 			continue
 		}
+		if err := f.steadyMergeable(attrs, pr, facts); err != nil {
+			failed = append(failed, err)
+			continue
+		}
 		if facts[factValues] == valuesOf(attrs) {
 			continue
 		}
@@ -420,6 +427,33 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 		failed = append(failed, err)
 	}
 	return errors.Join(failed...)
+}
+
+// steadyMergeable keeps a head's last known mergeability through the minutes GitHub recomputes it after its base moves, so one landing does not empty his tab. Landing and stack-enqueue keep reading GitHub's own answer.
+func (f Fold) steadyMergeable(attrs map[string]string, pr machine.Facts, facts map[string]string) error {
+	since := facts[factUnknownSince]
+	if attrs["mergeable"] != string(machine.MergeableUnknown) {
+		if since == "" {
+			return nil
+		}
+		_, err := f.Store.PutFact(f.Repo, pr.Number, pr.Head, factUnknownSince, "", f.Now())
+		return err
+	}
+	known := facts[factMergeable]
+	if known == "" || known == string(machine.MergeableUnknown) {
+		return nil
+	}
+	began, err := time.Parse(time.RFC3339, since)
+	if err != nil {
+		began = f.Now()
+		if _, err := f.Store.PutFact(f.Repo, pr.Number, pr.Head, factUnknownSince, began.Format(time.RFC3339), began); err != nil {
+			return err
+		}
+	}
+	if f.Now().Sub(began) < unknownGrace {
+		attrs["mergeable"] = known
+	}
+	return nil
 }
 
 func titleOr(pr machine.Facts) string {
