@@ -294,6 +294,9 @@ func (c Cards) facts(ctx context.Context, waiting map[string]End) (EndFacts, err
 
 func (c Cards) answeredBlocks(ctx context.Context, card string) ([]string, error) {
 	shown, err := c.present(ctx, "outcomes", "--block", card)
+	if err != nil && strings.Contains(err.Error(), neverOnBoard) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

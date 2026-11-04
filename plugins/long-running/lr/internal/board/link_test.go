@@ -64,7 +64,7 @@ func (f *linkShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		}
 		block, onBoard := f.drawn[id]
 		if !onBoard {
-			return shell.Result{Stdout: `{"answers":[]}`}, nil
+			return shell.Result{}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: fmt.Sprintf("cc-present: block %q was never on this board", id)}
 		}
 		return shell.Result{Stdout: fmt.Sprintf(`{"answers":[],"onBoard":true,"doc":{"blocks":[%s]}}`, block)}, nil
 	}
@@ -245,6 +245,20 @@ func TestHisAnswerWakesTheLaneThatDrewTheCard(t *testing.T) {
 	wakes := addressedTo(t, wakeKind, asker)
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Text, "Keep 3 minutes") {
 		t.Fatalf("wakes %+v, want one to %s carrying his answer", wakes, asker)
+	}
+}
+
+func TestABrandNewCardDrawsThoughTheBoardHasNeverSeenItsID(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	askCard(t, asker)
+	f.run(t)
+
+	if defects := addressedTo(t, linkRefusalKind, asker); len(defects) != 0 {
+		t.Fatalf("a new card was refused: %+v", defects)
+	}
+	if calls := f.shell.seen(); len(calls) != 1 {
+		t.Fatalf("calls %q, want the new card drawn", calls)
 	}
 }
 
