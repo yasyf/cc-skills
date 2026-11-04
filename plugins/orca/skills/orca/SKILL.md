@@ -366,7 +366,11 @@ orca-reclaim.py --run <run> --done <ctx>
 and closes an Orca-owned agent terminal. When Orca already revoked the
 Dispatch, so worker-stop reads `dispatch_inactive` and the Dispatch would read
 `dispatched` forever, `--done` runs `worker-abandon` instead, which settles it
-as failed. Any terminal still open is closed without waiting for an idle
+as failed. It does the same when worker-stop reads `remote_runtime_unavailable`,
+because Orca cannot reach the host, and prints `abandoned` rather than `stopped`:
+nothing stopped the worker, so it could keep running if the host comes back.
+`--dry-run` predicts that abandon when Orca reads the host as unavailable. Any
+terminal still open is closed without waiting for an idle
 prompt, and then the worktree is removed when it is clean and its HEAD is on
 origin or landed. A worktree with uncommitted or unpushed work stays. Add
 `--dry-run` to print the plan first. A Dispatch that already settled through
