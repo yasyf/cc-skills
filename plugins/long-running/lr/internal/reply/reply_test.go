@@ -116,7 +116,7 @@ func stored(t *testing.T, f Fanout, id string) (Reply, []Outcome) {
 func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
-	t.Setenv(driveEnv, "d")
+	t.Setenv(drive.Env, "d")
 	f := fanout(t, nil)
 	entry, err := json.Marshal(f.Entry)
 	if err != nil {
@@ -137,7 +137,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	server := Command(&app.App{Runner: fake, Now: func() time.Time { return sentAt }})
+	server := Command(&app.App{Runner: fake, Now: func() time.Time { return sentAt }}, verbTree(nil))
 	server.SetArgs([]string{"serve"})
 	server.SetIn(strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n" + string(call) + "\n"))
 	server.SetOut(&out)

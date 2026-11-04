@@ -136,7 +136,7 @@ coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
 ledger as it arrives, one row per ask, and its turn cannot end while a row is not marked responded
-or addressed (`lr owner mark <id> responded|addressed`; a row for what he asked to read takes `--reply <id>`, and a promise takes `due --by <clock>`). The turn's final text in its window lands on each row its owner message opened, as `owner-relay/answers/<row>.md`, never replacing a longer answer, and marks an open row responded through `lr owner mark`. A question he types on the dashboard's review page or his board gets its row with no turn of the communicator's: `lr owner ask` routes a review-page question to the coordinator and the communicator, `lr owner received` takes one the board watch routed, and each writes the row due 15 minutes out and wakes this window with "Received, with <who has it>, answer by <clock>", the same line the page shows on his question. The communicator marks that row like any other, and past its clock it blocks the turn the same way. A coordinator `ask` or
+or addressed (the `owner_mark` tool of the `lr` MCP server; a row for what he asked to read takes `reply`, and a promise takes `due` with `by`). The turn's final text in its window lands on each row its owner message opened, as `owner-relay/answers/<row>.md`, never replacing a longer answer, and marks an open row responded. A question he types on the dashboard's review page or his board gets its row with no turn of the communicator's: `lr owner ask` routes a review-page question to the coordinator and the communicator, `lr owner received` takes one the board watch routed, and each writes the row due 15 minutes out and wakes this window with "Received, with <who has it>, answer by <clock>", the same line the page shows on his question. The communicator marks that row like any other, and past its clock it blocks the turn the same way. A coordinator `ask` or
 `blocked` record that waits on him is a ledger row the moment it posts, delivered by
 the cci channel the communicator subscribed to, never found by a later read: on Nov 3
 the coordinator waited from 10:20 PM to 1:40 AM and he noticed before the
@@ -511,7 +511,6 @@ LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" --orca-run <run> [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
 lr owner start --drive <drive>
 lr supervisor install --config <state dir>/lr.json
-export LR_CONFIG=<state dir>/lr.json
 lr dashboard install
 lr launch coordinator <state dir>/root/brief.md
 lr launch meta <state dir>/meta/brief.md

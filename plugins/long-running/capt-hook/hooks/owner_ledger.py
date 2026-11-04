@@ -47,10 +47,10 @@ LR = Path(__file__).parents[2] / "bin" / "lr"
 AUDIT = f"{LR} owner audit --drive brook-drive"
 AUDIT_SECONDS = 60
 CARRY = "Every order below is still owed, and a reply or a route does not close one. Carry each into the summary by its row id.\n\n```\n{orders}\n```"
-REREAD = "You just compacted as the communicator. Run `{lr} owner audit --drive {drive}` before any other search: every order it prints is still owed."
-MARK = "`{lr} owner mark {row} responded|addressed|due [--routed <seq>] [--reply <id>] [--by <clock>] --drive {drive}`"
-NEW_ROW = f"Owner message {{rows}} is open in the communicator's ledger, one row per ask. Once each ask is answered or routed, run {MARK} for its row."
-OPEN_ROWS = f"A communicator turn ends only when every owner message is marked responded or addressed. Run {MARK} for each row below.\n\n```\n{{rows}}\n```"
+REREAD = "You just compacted as the communicator. Run `lr owner audit --drive {drive}` before any other search: every order it prints is still owed."
+MARK = "`mcp__plugin_long-running_lr__owner_mark` with `row` {row} and `state` responded, addressed or due, plus `routed`, `reply` or `by` when they apply,"
+NEW_ROW = f"Owner message {{rows}} is open in the communicator's ledger, one row per ask. Once each ask is answered or routed, call {MARK} for its row."
+OPEN_ROWS = f"A communicator turn ends only when every owner message is marked responded or addressed. Call {MARK} for each row below.\n\n```\n{{rows}}\n```"
 HAND_RULING = "The `owner_ledger` hook records every owner message in the owner ledger and a cc-notes answer, so nothing writes to `root/rulings/` by hand. Drop this write and post anything else for the coordinator with `cci post`."
 UNMAPPED = "owner row %s: the communicator's chat answer did not land, %s"
 NO_ASK = "The communicator never calls `AskUserQuestion`. Put the question on the owner's board with `cc-present push`, or send an urgent yes/no to the owner's Slack with `cc-present ask <card>`."
@@ -170,7 +170,7 @@ def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
     ids = [row for row, _ in rows]
     with TurnRows.mutate(evt) as turn:
         turn.rows = ids
-    return evt.context(NEW_ROW.format(lr=LR, rows=", ".join(f"`{row}`" for row in ids), row=ids[0] if len(ids) == 1 else "<row>", drive=entry["drive"]))
+    return evt.context(NEW_ROW.format(rows=", ".join(f"`{row}`" for row in ids), row=ids[0] if len(ids) == 1 else "<row>"))
 
 
 @on(
@@ -244,7 +244,7 @@ def chat_answers_land_on_their_rows(evt: BaseHookEvent) -> HookResult | None:
 def owner_messages_close_before_stop(evt: BaseHookEvent) -> HookResult | None:
     if not (entry := drive_entry(evt)) or not (rows := open_rows(ledger_of(entry))):
         return None
-    return evt.block(OPEN_ROWS.format(lr=LR, row="<row>", drive=entry["drive"], rows="\n".join(rows)))
+    return evt.block(OPEN_ROWS.format(row="<row>", rows="\n".join(rows)))
 
 
 def asked(text: str = "Merge #48401 now?", **call: object) -> Input:
@@ -310,11 +310,11 @@ def compaction_carries_the_open_owner_orders(evt: BaseHookEvent) -> HookResult |
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        Input(source="compact", state=ACTIVE, env=DRIVE_CONFIG): Warn(pattern=r"^You just compacted as the communicator\. Run `\S+ owner audit --drive brook-drive` before any other search"),
+        Input(source="compact", state=ACTIVE, env=DRIVE_CONFIG): Warn(pattern=r"^You just compacted as the communicator\. Run `lr owner audit --drive brook-drive` before any other search"),
         Input(source="startup", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
     }),
 )
 def a_compacted_communicator_reads_the_open_orders_first(evt: BaseHookEvent) -> HookResult | None:
     if evt._raw.get("source") != "compact" or not (entry := drive_entry(evt)):
         return None
-    return evt.context(REREAD.format(lr=LR, drive=entry["drive"]))
+    return evt.context(REREAD.format(drive=entry["drive"]))

@@ -144,7 +144,7 @@ def test_a_prompt_on_the_communicator_adds_a_row_with_its_full_text(communicator
 
     [row] = communicator.rows()
     assert re.fullmatch(r"\| m1 \| \w{3} \d{1,2} \d{1,2}:\d{2} [AP]M \| keep the report \\\| the nightly one<br>and the weekly \|  \| open \|", row)
-    assert f"`{owner_ledger.LR} owner mark m1 responded|addressed|due [--routed <seq>] [--reply <id>] [--by <clock>] --drive brook-drive`" in result.message
+    assert "`mcp__plugin_long-running_lr__owner_mark` with `row` m1 and `state` responded, addressed or due" in result.message
 
 
 def test_rows_continue_the_hand_ledger_and_keep_it(communicator: Window) -> None:
@@ -191,7 +191,7 @@ def test_stop_with_an_open_row_refuses_naming_the_row_and_the_verb(communicator:
     [result] = communicator.stop()
 
     assert result.action == Action.block
-    assert f"`{owner_ledger.LR} owner mark <row> responded|addressed|due [--routed <seq>] [--reply <id>] [--by <clock>] --drive brook-drive`" in result.message
+    assert "`mcp__plugin_long-running_lr__owner_mark` with `row` <row> and `state` responded, addressed or due" in result.message
     assert "m1 Nov 2 8:05 PM: keep the nightly report" in result.message
 
 
@@ -375,7 +375,7 @@ def test_a_message_with_several_asks_adds_one_row_and_one_owner_record_per_ask(c
     assert bus.posts()[0] == owner_record("m1.1", "is the old-tree failure the same bug or another one?")
     assert len(notes.added) == 1
     assert "`m1.1`, `m1.2`, `m1.3`" in result.message
-    assert f"`{owner_ledger.LR} owner mark <row> responded|addressed|due [--routed <seq>] [--reply <id>] [--by <clock>] --drive brook-drive`" in result.message
+    assert "`mcp__plugin_long-running_lr__owner_mark` with `row` <row> and `state` responded, addressed or due" in result.message
 
 
 def test_one_answered_ask_leaves_its_siblings_holding_the_stop(communicator: Window) -> None:

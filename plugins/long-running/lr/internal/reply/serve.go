@@ -3,17 +3,13 @@ package reply
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strconv"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-interact/channel"
-	"github.com/yasyf/cc-interact/procs"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
-
-const driveEnv = "CLAUDE_LONG_RUNNING_DRIVE"
 
 var schema = map[string]any{
 	"type": "object",
@@ -34,14 +30,18 @@ var schema = map[string]any{
 	"required": []string{"title", "md"},
 }
 
-func Command(a *app.App) *cobra.Command {
+func Command(a *app.App, commands func() *cobra.Command) *cobra.Command {
 	reply := &cobra.Command{Use: "reply", Short: "The communicator's one write to the owner"}
 	reply.AddCommand(&cobra.Command{
 		Use:   "serve",
-		Short: "Serve the reply tool over MCP on stdio, inside the communicator's session",
+		Short: "Serve the reply tool over MCP on stdio, and in a drive's session the owner ledger, explain, ask-lane and asks verbs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			server := channel.NewServer(channel.ServerInfo{Name: "lr", Version: cmd.Root().Version}, []channel.Tool{Tool(a)})
+			tools := []channel.Tool{Tool(a)}
+			if _, err := drive.Session(); err == nil {
+				tools = append(tools, VerbTools(commands)...)
+			}
+			server := channel.NewServer(channel.ServerInfo{Name: "lr", Version: cmd.Root().Version}, tools)
 			return server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	})
@@ -69,18 +69,11 @@ func Tool(a *app.App) channel.Tool {
 			if err := r.check(); err != nil {
 				return "reply: " + err.Error(), true
 			}
-			entry, err := current()
+			entry, err := drive.Session()
 			if err != nil {
 				return "reply: " + err.Error(), true
 			}
 			return receipt(r, Fanout{Runner: a.Runner, Entry: entry, Now: a.Now}.Send(ctx, r)), false
 		},
 	}
-}
-
-func current() (drive.Entry, error) {
-	if name := os.Getenv(driveEnv); name != "" {
-		return drive.Named(name)
-	}
-	return drive.HoldingWindow(procs.ClaudePID())
 }

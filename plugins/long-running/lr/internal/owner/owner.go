@@ -237,7 +237,7 @@ func Command(a *app.App) *cobra.Command {
 			if state != responded && state != addressed && state != noOrder && state != dueState {
 				return fmt.Errorf("mark %s responded, addressed, no-order or due, not %s", row, state)
 			}
-			entry, err := drive.Named(driveName)
+			entry, err := drive.Find(driveName)
 			if err != nil {
 				return err
 			}
@@ -276,7 +276,7 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			entry, err := drive.Named(driveName)
+			entry, err := drive.Find(driveName)
 			if err != nil {
 				return err
 			}
@@ -295,7 +295,7 @@ func Command(a *app.App) *cobra.Command {
 		Short: "Print the ledger's rows not yet addressed or marked no-order, oldest first, or every row with --all",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			entry, err := drive.Named(driveName)
+			entry, err := drive.Find(driveName)
 			if err != nil {
 				return err
 			}
