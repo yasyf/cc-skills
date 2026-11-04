@@ -4,7 +4,7 @@ import re
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from captain_hook import CONFIRMED, UNCONFIRMED, Allow, BaseHookEvent, Block, Call, Confirm, Event, HookResult, Input, Or, Runs, Tool, on
+from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Or, Runs, Tool, Warn, on
 
 from .board_text_gate import reply_body
 from .compaction_handoff import Bound, shared_tests
@@ -41,20 +41,19 @@ def read(evt: BaseHookEvent, call: Call, paths: Iterable[str | None]) -> Iterato
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash"), Or(Runs("gh"), Runs("ccx", "vcs", "ship")), InDrive()],
     tests=shared_tests({
-        Input(command=f"gh pr create --title 'x: y' --body-file {QUOTE}", env=DRIVE, decide=CONFIRMED): Block(pattern=r"paraphrase"),
-        Input(command=f"gh -R acme/app pr edit 12 -F {QUOTE}", env=DRIVE, decide=CONFIRMED): Block(),
-        Input(command="gh pr edit 12 --body 'Quotes the order verbatim.'", env=DRIVE, decide=CONFIRMED): Block(),
-        Input(command=HEREDOC, env=DRIVE, decide=CONFIRMED): Block(),
-        Input(command=f"ccx vcs ship -m 'x: y' --pr-body-file {QUOTE}", env=DRIVE, decide=CONFIRMED): Block(),
-        Input(command=f"ccx vcs ship --pr-body-file lane/fix={QUOTE}", env=DRIVE, decide=CONFIRMED): Block(),
-        Input(command=f"gh pr create --body-file {QUOTE}", env=DRIVE_CONFIG, state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command=f"gh pr create --body-file {QUOTE}", env=DRIVE, decide=UNCONFIRMED): Allow(),
-        Input(command=f"gh pr create --body-file {BODIES / 'log-line.md'}", env=DRIVE, decide=CONFIRMED): Allow(),
-        Input(command=f"gh pr comment 12 --body-file {BODIES / 'paraphrase.md'}", env=DRIVE, decide=CONFIRMED): Allow(),
-        Input(command="gh pr comment 12 --body 'CI failed at 06:18 with \"exit status 1\"'", env=DRIVE, decide=CONFIRMED): Allow(),
-        Input(command=f"gh pr view 12 --body-file {QUOTE}", env=DRIVE, decide=CONFIRMED): Allow(),
-        Input(command=f"gh pr create --body-file {QUOTE}", decide=CONFIRMED): Allow(),
+        Input(command=f"gh pr create --title 'x: y' --body-file {QUOTE}", env=DRIVE): Warn(pattern=r"paraphrase"),
+        Input(command=f"gh -R acme/app pr edit 12 -F {QUOTE}", env=DRIVE): Warn(),
+        Input(command="gh pr edit 12 --body 'Quotes the order verbatim.'", env=DRIVE): Warn(),
+        Input(command=HEREDOC, env=DRIVE): Warn(),
+        Input(command=f"ccx vcs ship -m 'x: y' --pr-body-file {QUOTE}", env=DRIVE): Warn(),
+        Input(command=f"ccx vcs ship --pr-body-file lane/fix={QUOTE}", env=DRIVE): Warn(),
+        Input(command=f"gh pr create --body-file {QUOTE}", env=DRIVE_CONFIG, state=ACTIVE): Warn(),
+        Input(command=f"gh pr create --body-file {BODIES / 'log-line.md'}", env=DRIVE): Allow(),
+        Input(command=f"gh pr comment 12 --body-file {BODIES / 'paraphrase.md'}", env=DRIVE): Allow(),
+        Input(command="gh pr comment 12 --body 'CI failed at 06:18 with \"exit status 1\"'", env=DRIVE): Allow(),
+        Input(command=f"gh pr view 12 --body-file {QUOTE}", env=DRIVE): Allow(),
+        Input(command=f"gh pr create --body-file {QUOTE}"): Allow(),
     }),
 )
 def pr_text_paraphrases_the_owner(evt: BaseHookEvent) -> HookResult | None:
-    return evt.block("A PR body or comment never quotes the owner word for word. Rewrite that passage as a paraphrase and keep the owner's words in `cci` and `cc-notes`.", confirm=Confirm(rule="Public PR text paraphrases the owner and never quotes him word for word.")) if any(QUOTED.search(body) for body in bodies(evt)) else None
+    return evt.warn("Warning, nothing was refused: this PR text quotes the owner word for word. Rewrite that passage as a paraphrase and keep the owner's words in `cci` and `cc-notes`.") if any(QUOTED.search(body) for body in bodies(evt)) else None
