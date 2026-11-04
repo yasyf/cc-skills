@@ -134,6 +134,8 @@ Write the title to a one-line file beside the body file and pass `--pr-title-fil
 
 `--no-watch` because ship's built-in watch blocks until CI concludes — right when you're waiting, wrong when the watch is about to be handed off. Ship owns PR create-and-update in every lane: a hand-rolled `gh pr create` alongside it produces a PR the gt lane cannot reconcile with its own stack.
 
+On a PR that is already open, ship warns and keeps the title and body it has, so an amendment carries neither flag, and a PR whose text should change takes `--replace-pr-text`.
+
 On the gt lane one submit can create several PRs, and every PR in the submit that has no body yet gets one. `--pr-title-file` and `--pr-body-file` repeat and scope by branch (`--pr-body-file <branch>=<path>`; a bare value applies to the tip); `ccx vcs lane --json` is what tells you which downstack PRs are bodyless.
 
 A refusal is information, not a retry: `nothing to commit` means a prior ship already landed this; ship replays a gt `needs_restack` itself. When ship still refuses because a branch is off its parent or trunk moved, run `ccx vcs stack submit` (or hand the refusal verbatim to the stack's owner when another lane owns it), then re-run ship.
