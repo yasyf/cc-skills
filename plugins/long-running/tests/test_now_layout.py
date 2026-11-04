@@ -1045,6 +1045,21 @@ def test_chat_leads_with_what_needs_him_and_then_the_newest(page):
     now(page)
 
 
+def test_an_open_question_with_no_ask_above_it_takes_a_threaded_reply(page):
+    page.route("**/api/reply", lambda route: route.fulfill(json={"seq": 11}))
+    open_chat(page)
+    thread = page.locator('.cw .thread[data-k="reply:open2"]')
+    thread.locator(".thread-foot button").click()
+    box = thread.locator(".reply-editor textarea")
+    box.fill("what does that mean")
+    with page.expect_request("**/api/reply") as sent:
+        box.press("Enter")
+    assert sent.value.post_data_json["on"] == "reply:open2"
+    page.evaluate("rp.sent.length = 0; rp.failed.clear(); cw.replying.clear()")
+    page.unroute("**/api/reply")
+    now(page)
+
+
 def test_a_reply_never_shows_the_comments_the_communicator_left_for_its_tools(page):
     now(page)
     assert page.evaluate("plain('It ran. <!-- Slack C0C5SEUJK5L/1793776460.701879; cci --> Done.')") == "It ran. Done."
