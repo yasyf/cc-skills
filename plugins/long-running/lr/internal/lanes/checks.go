@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -942,6 +943,12 @@ func reclaimedAny(tally string) bool {
 	return false
 }
 
+var gcPassRunning atomic.Bool
+
+func GCPassRunning() bool {
+	return gcPassRunning.Load()
+}
+
 type SettledGC struct {
 	Env   Env
 	Store *store.Store
@@ -954,6 +961,8 @@ func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	g.read = now
+	gcPassRunning.Store(true)
+	defer gcPassRunning.Store(false)
 	keep, err := g.Env.keepWanted(g.Store)
 	if err != nil {
 		g.Log.Warn("lr gc --new did not read the registry", "err", err)

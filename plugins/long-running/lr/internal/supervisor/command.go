@@ -99,7 +99,7 @@ func run(ctx context.Context, a *app.App) error {
 		defer stop()
 	}
 	version := Installed(env.Claude)
-	upgrade := &Upgrade{Env: env, Running: version, Read: read}
+	upgrade := &Upgrade{Env: env, Running: version, Read: read, Holding: lanes.GCPassRunning}
 	deps.Stale = upgrade.Stale
 	_, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
 	if err != nil {
