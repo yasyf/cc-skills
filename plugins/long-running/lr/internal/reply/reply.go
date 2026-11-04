@@ -578,7 +578,11 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	for _, pr := range r.PRs {
 		children = append(children, r.prChild(r.ID, pr))
 	}
-	block, err := json.Marshal(map[string]any{"id": id, "type": "card", "title": r.Title, "summary": strings.Join(strings.Fields(lede), " "), "children": children})
+	card := map[string]any{"id": id, "type": "card", "title": r.Title, "summary": strings.Join(strings.Fields(lede), " "), "children": children}
+	if posted := f.postedRef(r.ID); posted != "" {
+		card["replaces"] = posted
+	}
+	block, err := json.Marshal(card)
 	if err != nil {
 		return []Outcome{{Surface: "board", Error: err.Error()}}
 	}
@@ -733,14 +737,10 @@ func (d delivery) ownMessage(r Reply) Outcome {
 	if beside := surface(d.Surfaces, "slack thread"); beside.Ref != "" {
 		return beside
 	}
-	if surface(d.Surfaces, "board").Surface != "" {
+	if surface(d.Surfaces, "board").Surface != "" || len(r.Picks) > 0 {
 		return Outcome{}
 	}
-	message := surface(d.Surfaces, "slack")
-	if len(r.Picks) > 0 {
-		message.Surface = "slack thread"
-	}
-	return message
+	return surface(d.Surfaces, "slack")
 }
 
 func (f Fanout) edit(ctx context.Context, r Reply, message Outcome, body string) Outcome {
