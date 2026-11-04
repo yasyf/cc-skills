@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -278,15 +279,105 @@ func (d *Desk) deadlines(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var settled []settledRelay
 	for _, container := range books {
-		if err := d.overdue(ctx, container, strings.TrimPrefix(container, lanePrefix)); err != nil {
+		if err := d.overdue(ctx, container, strings.TrimPrefix(container, lanePrefix), &settled); err != nil {
+			return err
+		}
+	}
+	return d.closeSettled(ctx, settled)
+}
+
+type settledRelay struct {
+	container, lane, worker, status string
+	action                          incident.Action
+}
+
+func (d *Desk) settledWorker(ctx context.Context, container, lane string, action incident.Action) (string, string, error) {
+	if action.Kind != kindRelay || action.Status != incident.ActionAccepted {
+		return "", "", nil
+	}
+	sends, err := d.store.Actions(container, kindSend, incident.ActionCompleted)
+	if err != nil {
+		return "", "", err
+	}
+	receipt, worker := d.receipt(lane), ""
+	for _, send := range sends {
+		if string(send.AuthorityRef) == action.ActionID && (receipt == "" || send.Target == receipt) {
+			worker = send.Target
+		}
+	}
+	if worker == "" {
+		return "", "", nil
+	}
+	status, err := d.settledStatus(ctx, worker)
+	if err != nil || status == "" {
+		return "", "", err
+	}
+	launches, err := d.store.Actions(container, kindLaunch, incident.ActionAccepted, incident.ActionStarted)
+	if err != nil || len(launches) > 0 {
+		return "", "", err
+	}
+	return worker, status, nil
+}
+
+func (d *Desk) closeSettled(ctx context.Context, settled []settledRelay) error {
+	if len(settled) > reclaimNamed {
+		if err := d.nameClosedRelays(settled); err != nil {
+			return err
+		}
+	} else {
+		for _, relay := range settled {
+			spec, err := relayOf(relay.action)
+			if err != nil {
+				return err
+			}
+			text := fmt.Sprintf("%s relay closed: worker %s %s without answering it, and whether it read the relay is unknown. A relaunch of this lane will not receive it.", relay.action.AuthorityRef, relay.worker, relay.status)
+			if err := d.escalateTo(ctx, "relay-closed:"+threadOf(relay.container, relay.action.ActionID), "RELAY-CLOSED", relay.lane, text, verdictTo(spec.From)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, relay := range settled {
+		reason := fmt.Sprintf("worker %s %s without answering", relay.worker, relay.status)
+		if _, err := d.attempt(relay.container, func(tx *incident.Tx) error {
+			_, err := tx.Fail(relay.action.ActionID, reason)
+			return err
+		}); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (d *Desk) overdue(ctx context.Context, container, about string) error {
+func (d *Desk) nameClosedRelays(settled []settledRelay) error {
+	byLane, unreported := map[string][]string{}, 0
+	for _, relay := range settled {
+		thread := threadOf(relay.container, relay.action.ActionID)
+		deadline, err := d.known(deskRunner, escalationPref+"deadline:"+thread+":"+string(relay.action.Status))
+		if err != nil {
+			return err
+		}
+		undelivered, err := d.known(deskRunner, escalationPref+"undelivered:"+thread)
+		if err != nil {
+			return err
+		}
+		name := relay.action.ActionID
+		if deadline == nil && undelivered == nil {
+			name += "*"
+			unreported++
+		}
+		byLane[relay.lane] = append(byLane[relay.lane], name)
+	}
+	named := make([]string, 0, len(byLane))
+	for _, lane := range slices.Sorted(maps.Keys(byLane)) {
+		named = append(named, lane+"="+strings.Join(byLane[lane], ","))
+	}
+	stamp := store.Stamp(d.Now())
+	return d.escalate("relays-closed:"+stamp, "RELAYS-CLOSED", "runner", fmt.Sprintf("closed %d overdue relays whose worker has settled; %d were never reported before, marked *. Whether each worker read its relay is unknown, and a relaunch of these lanes will not receive them. %s", len(settled), unreported, strings.Join(named, " ")))
+}
+
+func (d *Desk) overdue(ctx context.Context, container, about string, settled *[]settledRelay) error {
 	moment := d.Now()
 	pending, err := d.store.Actions(container, "", incident.ActionAccepted, incident.ActionStarted)
 	if err != nil {
@@ -301,6 +392,14 @@ func (d *Desk) overdue(ctx context.Context, container, about string) error {
 			return err
 		}
 		if !late {
+			continue
+		}
+		worker, status, err := d.settledWorker(ctx, container, about, action)
+		if err != nil {
+			return err
+		}
+		if worker != "" {
+			*settled = append(*settled, settledRelay{container: container, lane: about, worker: worker, status: status, action: action})
 			continue
 		}
 		unread, err := d.reportUnread(ctx, container, about, action)
@@ -433,8 +532,8 @@ func (d *Desk) sentTo(ctx context.Context, container, about string, action incid
 	if err != nil || !delivered {
 		return nil, false, err
 	}
-	settled, err := d.dispatchSettled(ctx, d.receipt(about))
-	if err != nil || settled {
+	status, err := d.settledStatus(ctx, d.receipt(about))
+	if err != nil || status != "" {
 		return nil, false, err
 	}
 	dispatch, err := d.show(ctx, about, "")
@@ -444,21 +543,21 @@ func (d *Desk) sentTo(ctx context.Context, container, about string, action incid
 	return dispatch, true, nil
 }
 
-func (d *Desk) dispatchSettled(ctx context.Context, dispatch string) (bool, error) {
+func (d *Desk) settledStatus(ctx context.Context, dispatch string) (string, error) {
 	if d.settled == nil || d.Now().Sub(d.rosterAt) >= sweepEvery {
 		rows, err := d.workers(ctx)
 		var down *orcaUnreachable
 		if errors.As(err, &down) {
-			return false, err
+			return "", err
 		}
 		if err != nil {
 			fmt.Fprintln(d.Stderr, err)
-			return false, nil
+			return "", nil
 		}
-		d.settled, d.rosterAt = map[string]bool{}, d.Now()
+		d.settled, d.rosterAt = map[string]string{}, d.Now()
 		for _, row := range rows {
 			if inactive(row.Status) {
-				d.settled[row.Dispatch] = true
+				d.settled[row.Dispatch] = row.Status
 			}
 		}
 	}

@@ -209,7 +209,7 @@ type Desk struct {
 	refused     []time.Time
 	swept       time.Time
 	rosterAt    time.Time
-	settled     map[string]bool
+	settled     map[string]string
 	unreadSeen  map[string]unreadCheck
 	pass        atomic.Pointer[passMark]
 	stuckPass   int

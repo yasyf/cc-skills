@@ -3828,7 +3828,6 @@ func TestARelaunchedLanesRelayIsCheckedAgainstItsNewDispatch(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	thread := w.sentRelay("R2", "")
-	w.dispatches[testDispatch].status = statusCompleted
 	w.now = w.now.Add(11 * time.Minute)
 	w.step(w.desk.deadlines)
 	w.noEscalation("NOT-DELIVERED ")
@@ -3838,7 +3837,22 @@ func TestARelaunchedLanesRelayIsCheckedAgainstItsNewDispatch(t *testing.T) {
 	w.wantEscalation("NOT-DELIVERED ")
 }
 
-func TestARelayToASettledWorkerIsNamedWithoutReadingTheWorker(t *testing.T) {
+func (w *deskWorld) relayStatus(key string) incident.ActionStatus {
+	w.t.Helper()
+	actions, err := w.desk.store.Actions(laneBook(testLane), kindRelay)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	for _, action := range actions {
+		if action.ActionID == key {
+			return action.Status
+		}
+	}
+	w.t.Fatalf("no relay %s", key)
+	return ""
+}
+
+func TestARelayToASettledWorkerClosesWithOneLine(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	w.sentRelay("R2", "")
@@ -3847,12 +3861,73 @@ func TestARelayToASettledWorkerIsNamedWithoutReadingTheWorker(t *testing.T) {
 	w.now = w.now.Add(11 * time.Minute)
 	w.calls = nil
 	w.step(w.desk.deadlines)
+	w.step(w.desk.deadlines)
 	for _, call := range w.calls {
 		if slices.Contains(call, "worker-show") || slices.Contains(call, "check") {
 			t.Fatalf("read the settled worker: %v", call)
 		}
 	}
-	wantContains(t, w.wantEscalation("DEADLINE "), "no started reply")
+	wantContains(t, w.wantEscalation("RELAY-CLOSED "), "worker "+testDispatch+" completed")
+	w.noEscalation("DEADLINE ")
+	if status := w.relayStatus("R2"); status != incident.ActionFailed {
+		t.Fatal(status)
+	}
+	lines := 0
+	for _, line := range w.escalations() {
+		if strings.HasPrefix(line, "RELAY-CLOSED ") {
+			lines++
+		}
+	}
+	if lines != 1 {
+		t.Fatal(w.escalations())
+	}
+}
+
+func TestARelayToASettledWorkerWaitsForItsDeadline(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.sentRelay("R2", "")
+	w.dispatches[testDispatch].status = statusCompleted
+	w.step(w.desk.deadlines)
+	if status := w.relayStatus("R2"); status != incident.ActionAccepted {
+		t.Fatal(status)
+	}
+}
+
+func TestAnUnreachableWorkersRelayStaysOpen(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.sentRelay("R2", "")
+	w.refusals["orchestration worker-show"] = object{"code": codeRemoteUnreachable, "message": "down"}
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	w.noEscalation("RELAY-CLOSED ")
+	if status := w.relayStatus("R2"); status != incident.ActionAccepted {
+		t.Fatal(status)
+	}
+}
+
+func TestManyRelaysToSettledWorkersCloseInOneRecord(t *testing.T) {
+	w := newDeskWorld(t)
+	count := reclaimNamed + 1
+	for i := range count {
+		w.live(fmt.Sprintf("lane-%d", i), fmt.Sprintf("ctx_%d", i), fmt.Sprintf("term_%d", i))
+		if _, _, err := w.desk.acceptRelay("R2", fmt.Sprintf("lane-%d", i), "go", "", "", 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.step(w.desk.deliver)
+	for i := range count {
+		w.dispatches[fmt.Sprintf("ctx_%d", i)].status = statusFailed
+	}
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	line := w.wantEscalation("RELAYS-CLOSED ")
+	wantContains(t, line, fmt.Sprintf("closed %d overdue relays", count))
+	wantContains(t, line, fmt.Sprintf("%d were never reported", count))
+	wantContains(t, line, "lane-0=R2*")
+	w.noEscalation("RELAY-CLOSED ")
+	w.noEscalation("DEADLINE ")
 }
 
 func TestAnUnreadableMailboxLeavesTheDeadlineSaying(t *testing.T) {
