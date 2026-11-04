@@ -19,3 +19,7 @@ func (s *Store) Update(apply func(*Tx) error) (err error) {
 	}
 	return tx.Commit()
 }
+
+func (t *Tx) Advance(source string, position int64) error {
+	return advance(t.tx, source, position)
+}
