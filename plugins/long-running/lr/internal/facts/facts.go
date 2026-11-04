@@ -745,6 +745,9 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 	if err != nil {
 		return machine.Facts{}, err
 	}
+	if s.queueRunRetries(row, ci, stored) {
+		ci, queue = machine.CISuccess, machine.QueueEvicted
+	}
 	if queue == machine.QueueNone && carriedAbove.MatchString(stored["enqueued"]) {
 		queue = machine.QueueQueued
 	}
@@ -827,6 +830,10 @@ func (s Source) redCounts(failing []string, pr pullRequest, required []string) b
 		required = slices.DeleteFunc(slices.Clone(required), func(check string) bool { return check == s.queueCheck() })
 	}
 	return slices.ContainsFunc(failing, func(check string) bool { return slices.Contains(required, check) })
+}
+
+func (s Source) queueRunRetries(row statusRow, ci machine.CI, stored map[string]string) bool {
+	return ci == machine.CIFailure && row.Queue != "queued" && row.CI.Running == 0 && stored["resubmitted"] == "" && slices.Equal(row.CI.Failing, []string{s.queueCheck()})
 }
 
 func queueOf(row statusRow, pr pullRequest, ci machine.CI) (machine.Queue, error) {

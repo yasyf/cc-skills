@@ -696,23 +696,43 @@ func TestRedCountsOnlyARequiredCheck(t *testing.T) {
 	}
 }
 
-func TestARestackCancelInTheQueueIsNotRedButAFailedQueueRunIs(t *testing.T) {
+func TestARestackCancelInTheQueueIsNotRed(t *testing.T) {
 	queueRed := func(r *statusRow) {
 		r.CI.State, r.CI.Failing, r.Verdict = "red", []string{"Trunk Merge Queue (dev)"}, "blocked:ci-red"
 	}
+	h := newHarness(t, []recordedPR{{number: 48317, head: head, login: "drive-bot", labels: []string{"trunk-cancelled"}}}, status(48317, queueRed))
+
+	if got := h.snapshot(t)[48317].CI; got != machine.CISuccess {
+		t.Errorf("a restack's cancel read %v", got)
+	}
+}
+
+func TestAFailedQueueRunReentersOnceThenGoesToItsLane(t *testing.T) {
+	queueRed := func(r *statusRow) {
+		r.CI.State, r.CI.Failing, r.Verdict = "red", []string{"Trunk Merge Queue (dev)"}, "blocked:ci-red"
+	}
+	alsoRed := func(r *statusRow) {
+		r.CI.State, r.CI.Failing, r.Verdict = "red", []string{"Trunk Merge Queue (dev)", "test"}, "blocked:ci-red"
+	}
 	h := newHarness(t, []recordedPR{
-		{number: 48317, head: head, login: "drive-bot", labels: []string{"trunk-cancelled"}},
+		{number: 1, head: head, login: "drive-bot", labels: []string{"trunk-failed"}},
 		{number: 2, head: head, login: "drive-bot", labels: []string{"trunk-failed"}},
-		{number: 3, head: head, login: "drive-bot", labels: []string{"trunk-cancelled", "trunk-failed"}},
-	}, status(48317, queueRed), status(2, queueRed), status(3, queueRed))
+		{number: 3, head: head, login: "drive-bot", labels: []string{"trunk-failed"}},
+	}, status(1, queueRed), status(2, queueRed), status(3, alsoRed))
+	if _, err := h.store.PutFact(repo, 2, head, "resubmitted", "1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	by := h.snapshot(t)
 
-	if by[48317].CI != machine.CISuccess {
-		t.Errorf("a restack's cancel read %v", by[48317].CI)
+	if by[1].CI != machine.CISuccess || by[1].Queue != machine.QueueEvicted {
+		t.Errorf("a first failed queue run read %v, %v, want it to re-enter", by[1].CI, by[1].Queue)
 	}
-	if by[2].CI != machine.CIFailure || by[3].CI != machine.CIFailure {
-		t.Errorf("a failed queue run read %v, %v", by[2].CI, by[3].CI)
+	if by[2].CI != machine.CIFailure {
+		t.Errorf("a second failed queue run read %v, want red for its lane", by[2].CI)
+	}
+	if by[3].CI != machine.CIFailure {
+		t.Errorf("a failed queue run with its own red check read %v", by[3].CI)
 	}
 }
 
