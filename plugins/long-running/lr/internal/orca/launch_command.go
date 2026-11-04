@@ -53,11 +53,22 @@ type posterFlags struct {
 
 func (f *posterFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.drive, "drive", "", "the cci drive the orca runner reads; default the drive bound to this session")
-	cmd.Flags().StringVar(&f.lane, "lane", coordinatorLane, "the lane posting the lines")
+	cmd.Flags().StringVar(&f.lane, "lane", "", "the lane posting the lines; default the lane bound to this session, then the coordinator")
 }
 
 func (f *posterFlags) poster(cmd *cobra.Command, a *app.App) Poster {
-	return Poster{Bus: CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: cmd.OutOrStdout(), Drive: f.drive, Author: f.lane}
+	return Poster{Bus: CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: cmd.OutOrStdout(), Drive: f.drive, Author: f.author(cmd, a)}
+}
+
+func (f *posterFlags) author(cmd *cobra.Command, a *app.App) string {
+	if f.lane != "" {
+		return f.lane
+	}
+	bound, err := lanes.BoundLane(cmd.Context(), a.Runner)
+	if err != nil || bound == "" {
+		return coordinatorLane
+	}
+	return bound
 }
 
 func (p Poster) LaunchOrExit(ctx context.Context, order Order, timeout time.Duration) error {

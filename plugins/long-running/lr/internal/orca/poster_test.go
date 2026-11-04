@@ -14,8 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
@@ -561,5 +564,18 @@ func TestABriefClaimingNoSlackGrantWarnsUnlessItQuotesAnAnswerSearch(t *testing.
 		if got := strings.Contains(f.out.String(), "WARN brief "+brief+" says no Slack grant covers its work"); got != warns || len(f.bus.posts) != 1 {
 			t.Fatalf("%q: warned %v, posts %d\n%s", text, got, len(f.bus.posts), f.out)
 		}
+	}
+}
+
+func TestAPosterWritesAsTheLaneBoundToItsSession(t *testing.T) {
+	t.Setenv(lanes.LaneEnv, "meta-desk")
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+
+	if got := (&posterFlags{}).author(cmd, &app.App{}); got != "meta-desk" {
+		t.Fatalf("author = %q, want the bound lane", got)
+	}
+	if got := (&posterFlags{lane: "named"}).author(cmd, &app.App{}); got != "named" {
+		t.Fatalf("author = %q, want the named lane", got)
 	}
 }
