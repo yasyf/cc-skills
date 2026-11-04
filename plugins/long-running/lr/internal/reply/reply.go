@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,7 @@ const (
 	maxLinks     = 5
 	maxPRs       = 10
 	maxSlackBody = 2800
+	withdrawn    = " withdrawn"
 )
 
 var (
@@ -69,6 +71,12 @@ type Outcome struct {
 	Surface string `json:"surface"`
 	Ref     string `json:"ref,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+type delivery struct {
+	Reply    Reply     `json:"reply"`
+	At       time.Time `json:"at"`
+	Surfaces []Outcome `json:"surfaces"`
 }
 
 type Surface func(ctx context.Context, r Reply, sent []Outcome) []Outcome
@@ -162,7 +170,7 @@ func (r Reply) markdown() string {
 
 func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	if len(r.Picks) == 0 {
-		return nil
+		return f.withdraw(ctx, r)
 	}
 	id := "card-" + r.ID
 	options := make([]map[string]any, len(r.Picks))
@@ -208,8 +216,35 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	return []Outcome{{Surface: "board", Ref: id}, {Surface: "slack", Ref: posted[1]}}
 }
 
-func (f Fanout) slack(ctx context.Context, r Reply, _ []Outcome) []Outcome {
-	if len(r.Picks) > 0 || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
+func (f Fanout) withdraw(ctx context.Context, r Reply) []Outcome {
+	id := "card-" + r.ID
+	was, err := f.delivered(r.ID)
+	if err != nil {
+		return []Outcome{{Surface: "board", Error: err.Error()}, {Surface: "slack", Error: "the earlier reply did not read, so no Slack card was edited"}}
+	}
+	board := surface(was.Surfaces, "board")
+	if board.Surface == "" {
+		return nil
+	}
+	slack := Outcome{Surface: "slack", Ref: surface(was.Surfaces, "slack").Ref}
+	if board.Ref != id+withdrawn {
+		if _, err := f.Runner.Run(ctx, shell.Command{
+			Argv:    []string{"cc-present", "remove-block", id, "--session", f.Entry.Root(), "--reason", "edited: " + r.Title},
+			Dir:     f.Entry.Checkout,
+			Timeout: postTimeout,
+		}); err != nil {
+			slack.Error = id + " is still on the board, so its Slack card keeps its buttons"
+			return []Outcome{failed("board", err), slack}
+		}
+	}
+	if slack.Ref == "" {
+		slack.Error = id + " never reached Slack, so there is no Slack card to edit"
+	}
+	return []Outcome{{Surface: "board", Ref: id + withdrawn}, slack}
+}
+
+func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
+	if surface(sent, "slack").Surface != "" || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
 	}
 	body := mrkdwn(r.MD)
@@ -275,12 +310,8 @@ func (f Fanout) record(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 }
 
 func (f Fanout) dashboard(_ context.Context, r Reply, sent []Outcome) []Outcome {
-	path := filepath.Join(f.Entry.StateDir, storeDir, r.ID+".json")
-	data, err := json.MarshalIndent(struct {
-		Reply    Reply     `json:"reply"`
-		At       time.Time `json:"at"`
-		Surfaces []Outcome `json:"surfaces"`
-	}{r, f.Now().UTC(), sent}, "", "  ")
+	path := f.stored(r.ID)
+	data, err := json.MarshalIndent(delivery{r, f.Now().UTC(), sent}, "", "  ")
 	if err == nil {
 		err = os.MkdirAll(filepath.Dir(path), 0o750)
 	}
@@ -294,6 +325,31 @@ func (f Fanout) dashboard(_ context.Context, r Reply, sent []Outcome) []Outcome 
 		return []Outcome{{Surface: "dashboard", Error: err.Error()}}
 	}
 	return []Outcome{{Surface: "dashboard", Ref: path}}
+}
+
+func (f Fanout) delivered(id string) (delivery, error) {
+	var was delivery
+	data, err := os.ReadFile(f.stored(id))
+	if errors.Is(err, fs.ErrNotExist) {
+		return was, nil
+	}
+	if err != nil {
+		return was, err
+	}
+	return was, json.Unmarshal(data, &was)
+}
+
+func (f Fanout) stored(id string) string {
+	return filepath.Join(f.Entry.StateDir, storeDir, id+".json")
+}
+
+func surface(sent []Outcome, name string) Outcome {
+	for _, o := range sent {
+		if o.Surface == name {
+			return o
+		}
+	}
+	return Outcome{}
 }
 
 func failed(surface string, err error) Outcome {

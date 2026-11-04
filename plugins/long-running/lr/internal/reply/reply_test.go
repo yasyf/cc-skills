@@ -304,6 +304,56 @@ func TestAnEditUpdatesEachSurfaceInPlace(t *testing.T) {
 	}
 }
 
+func TestAnEditThatDropsItsPicksTakesTheCardOffAndPostsNothingNew(t *testing.T) {
+	fake := scripted()
+	fake.Reply("removed card-r6\nrev: 9\n", "cc-present", "remove-block")
+	f := fanout(t, fake)
+	asked := Reply{ID: "r6", Title: "Land the relay fix tonight?", MD: "Its checks passed.", Picks: []string{"Land it", "Hold it"}, Recommended: "Land it"}
+	landed := Reply{ID: "r6", Title: "The relay fix landed", MD: "It merged.", Status: "done", PRs: []string{landPR}}
+
+	f.Send(context.Background(), asked)
+	for edit := range 2 {
+		sent := f.Send(context.Background(), landed)
+		if sent[0] != (Outcome{Surface: "board", Ref: "card-r6 withdrawn"}) || sent[1] != (Outcome{Surface: "slack", Ref: permalink}) {
+			t.Fatalf("edit %d outcomes = %+v, want card-r6 off the board and its Slack card edited in place", edit, sent)
+		}
+	}
+
+	removed := slices.DeleteFunc(calls(fake, "cc-present"), func(c shell.Command) bool { return c.Argv[1] != "remove-block" })
+	if len(removed) != 1 || removed[0].Argv[2] != "card-r6" || flag(t, removed[0].Argv, "--session") != "board-session" || !strings.Contains(flag(t, removed[0].Argv, "--reason"), "The relay fix landed") {
+		t.Fatalf("removals = %+v, want card-r6 removed once from the drive's board, naming the edit", removed)
+	}
+	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want none: the edit posted a new Slack message beside the picks card", posted)
+	}
+	if reply, surfaces := stored(t, f, "r6"); len(reply.Picks) != 0 || reply.MD != "It merged." || surfaces[0].Ref != "card-r6 withdrawn" {
+		t.Fatalf("dashboard response = %+v %+v, want the edit with no picks", reply, surfaces)
+	}
+	records := calls(fake, "cci")
+	if len(records) != 3 || !strings.HasPrefix(records[2].Stdin, "The relay fix landed\n\nIt merged.") {
+		t.Fatalf("records = %+v, want the edit's body in the last record", records)
+	}
+}
+
+func TestAFailedWithdrawalNamesItselfAndStillRecordsTheEdit(t *testing.T) {
+	fake := scripted()
+	fake.Fail(1, "daemon not running", "cc-present", "remove-block")
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r7", Title: "Land it?", MD: "Checks passed.", Picks: []string{"Land it", "Hold it"}, Recommended: "Land it"})
+
+	sent := f.Send(context.Background(), Reply{ID: "r7", Title: "Landed", MD: "It merged.", Status: "done"})
+
+	if len(sent) != 4 || sent[0].Surface != "board" || !strings.Contains(sent[0].Error, "daemon not running") || sent[1].Surface != "slack" || !strings.Contains(sent[1].Error, "keeps its buttons") {
+		t.Fatalf("outcomes = %+v, want board failed with its reason and slack naming the live buttons", sent)
+	}
+	if sent[2] != (Outcome{Surface: "record", Ref: "#12@2479ec97"}) || sent[3].Surface != "dashboard" || sent[3].Error != "" {
+		t.Fatalf("outcomes = %+v, want the record and dashboard delivered", sent)
+	}
+	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want no new Slack message", posted)
+	}
+}
+
 func TestAStatusReplyNamesItsPRsInTheSlackCardTextForCCSlackToLinkAndCard(t *testing.T) {
 	fake := scripted()
 	fanout(t, fake).Send(context.Background(), Reply{ID: "r5", Title: "The relay fix", MD: "Checks passed.", Status: "done", PRs: []string{landPR}})
