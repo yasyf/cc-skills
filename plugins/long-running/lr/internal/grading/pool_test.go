@@ -651,6 +651,108 @@ func TestAJobThatSettledStartsNoSecondPass(t *testing.T) {
 	}
 }
 
+func TestAHeadRestoredAfterItsPassSkippedGetsANewPass(t *testing.T) {
+	f := newPool(t, map[string]any{"fidelity": map[string]any{}})
+	f.started(t, GraderFidelity)
+	f.shell.exitAll()
+	writeResult(t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir), `{"skipped":"org/repo#45489 moved to aa11bb22cc33"}`, f.now)
+
+	if name := f.started(t, GraderFidelity); refOf(name).base != jobDir+"-2" {
+		t.Fatalf("worker = %q", name)
+	}
+	if len(f.shell.spawns) != 2 {
+		t.Fatalf("spawns = %d", len(f.shell.spawns))
+	}
+}
+
+func TestAWholePassThatSkippedDoesNotRunAgain(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	d := f.pool.desks[GraderFinder]
+	base := "45489" + wholeMark + "key"
+	directory := f.finderDir(base)
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeResult(t, directory, `{"skipped":"org/repo#45489 is closed"}`, f.now)
+
+	plan, err := f.pool.nextAttempt(context.Background(), d, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.done {
+		t.Fatalf("plan = %+v", plan)
+	}
+}
+
+func TestASkippedPassThatKeepsSkippingStopsWithItsReason(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	for _, base := range []string{jobDir, jobDir + "-2", jobDir + "-3"} {
+		f.started(t, GraderFinder)
+		f.shell.exitAll()
+		writeResult(t, f.finderDir(base), `{"skipped":"org/repo#45489 carries no commit dev lacks"}`, f.now)
+	}
+
+	_, err := f.dispatch(t, GraderFinder)
+
+	var stopped *Stopped
+	if !errors.As(err, &stopped) || !strings.Contains(stopped.Why, "carries no commit dev lacks") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestASettledPassWhoseRecordNeverReachedTheStorePostsItThenStops(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	f.started(t, GraderFinder)
+	f.shell.exitAll()
+	directory := f.finderDir(jobDir)
+	line, err := json.Marshal([]string{"cci", "post", "--drive", testDrive, "--lane", grader.FinderLane, "--kind", kindReview, "--pr", pull, "--id", "finder:" + head, "--text", "finder: ok " + head + " no majors", "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, grader.PostsFile), append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeResult(t, directory, `{"verdict":"ok"}`, f.now)
+
+	var stopped *Stopped
+	if _, err := f.dispatch(t, GraderFinder); !errors.Is(err, ErrAnswered) || errors.As(err, &stopped) {
+		t.Fatalf("first pass: err = %v", err)
+	}
+	if got := recordsOf(t, kindReview); len(got) != 1 || got[0].Text != "finder: ok "+head+" no majors" {
+		t.Fatalf("records = %+v", got)
+	}
+	if _, err := f.dispatch(t, GraderFinder); errors.As(err, &stopped) {
+		t.Fatalf("inside the wait: err = %v", err)
+	}
+
+	f.now = f.now.Add(failedHold)
+
+	if _, err := f.dispatch(t, GraderFinder); !errors.As(err, &stopped) || !strings.Contains(stopped.Why, `settled as "ok"`) {
+		t.Fatalf("past the wait: err = %v", err)
+	}
+	if len(f.shell.spawns) != 1 {
+		t.Fatalf("spawns = %d", len(f.shell.spawns))
+	}
+}
+
+func TestAReaderHandoffNoReaderTookStopsNamingTheReader(t *testing.T) {
+	f := newPool(t, map[string]any{"fidelity": map[string]any{}})
+	f.started(t, GraderFidelity)
+	f.shell.exitAll()
+	writeResult(t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir), `{"verdict":"reader","posted":["#1"]}`, f.now)
+	if _, err := f.dispatch(t, GraderFidelity); !errors.Is(err, ErrAnswered) {
+		t.Fatalf("err = %v", err)
+	}
+	f.now = f.now.Add(failedHold)
+
+	_, err := f.dispatch(t, GraderFidelity)
+
+	var stopped *Stopped
+	if !errors.As(err, &stopped) || !strings.Contains(stopped.Why, "no reader has posted a grade") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestAToolingFailureWaitsOutItsHoldAndAWrapperThatDiedRetriesAtOnce(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
 	f.started(t, GraderFinder)

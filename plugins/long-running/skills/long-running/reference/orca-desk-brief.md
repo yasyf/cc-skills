@@ -407,5 +407,6 @@ Landing restack routes sent through cci use `--kind blocker --to <lane> --topic 
 | `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |
 | `ORCA-UNREACHABLE` | None while brief; if no `ORCA-BACK` arrives after 10 minutes, check `orca status` and report to `owner-relay`. Never restart Orca. |
 | `FINDER-FAILED` | Inspect the failed pass's `job.log`, fix the error, or ask `finder-desk` for `finder: whole`. |
+| `GRADE-STOPPED` | No pass is left to run at this head, for the reason it names. Its grade item is closed and a verdict item is open for the lane. Get the grade it needs: a desk's read for a reader handoff, `finder: whole` for a failed finder. |
 
 The relay never edits worker code, mutates production, writes Slack, invents scope, or derives authority from a branch prefix or display name. The coordinator owns decisions and holds; lanes own their worktrees.

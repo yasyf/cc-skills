@@ -106,6 +106,8 @@ const (
 	TapConditional Tap = "conditional"
 )
 
+const GradeStoppedFact = "grade-stopped"
+
 const (
 	SupervisorClock = 10 * time.Minute
 	GradeClock      = 10 * time.Minute
@@ -147,6 +149,7 @@ type Facts struct {
 	Carries       []int
 	Condition     string
 	UnsafeWait    string
+	GradeStopped  string
 }
 
 func (f Facts) Green() bool {
@@ -242,6 +245,9 @@ func Classify(f Facts) Verdict {
 		return Verdict{StatePushed, MoverNobody, ActionNone, 0}
 	}
 	if !f.Graded() {
+		if f.GradeStopped != "" {
+			return Verdict{StateNeedsVerdict, MoverLane, ActionVerdict, LaneClock}
+		}
 		state := StateGrading
 		if f.Finder == "" && f.Fidelity == "" && !f.Green() {
 			state = StatePushed

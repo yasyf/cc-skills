@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -23,6 +24,7 @@ type Pool interface {
 	Plan(ctx context.Context, items []store.Item, snapshot map[int]machine.Facts, queued int, now time.Time) ([]store.Item, error)
 	Dispatch(ctx context.Context, grader string, facts machine.Facts) (string, error)
 	Whole(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
+	TellStopped(ctx context.Context, facts machine.Facts, why string) error
 }
 
 type Dispatched struct {
@@ -70,11 +72,18 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 		if !graded[item.ID] || facts.Head != item.Head || (!gone[item.ID] && item.Worker != "" && item.Deadline.After(now)) {
 			continue
 		}
-		for _, grader := range Missing(facts) {
+		missing := Missing(facts)
+		var stopped []string
+		for _, grader := range missing {
 			if full[grader] {
 				continue
 			}
 			name, err := pool.Dispatch(ctx, grader, facts)
+			var stop *Stopped
+			if errors.As(err, &stop) {
+				stopped = append(stopped, grader+": "+stop.Why)
+				continue
+			}
 			if errors.Is(err, ErrNoCapacity) {
 				full[grader] = true
 				continue
@@ -89,6 +98,15 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 				return dispatched, err
 			}
 			dispatched = append(dispatched, Dispatched{grader, facts.Number, facts.Head})
+		}
+		if len(stopped) > 0 && len(stopped) == len(missing) && !now.Before(item.Deadline) {
+			why := strings.Join(stopped, "; ")
+			if err := pool.TellStopped(ctx, facts, why); err != nil {
+				return dispatched, err
+			}
+			if _, err := s.PutFact(item.Repo, item.Number, item.Head, machine.GradeStoppedFact, why, now); err != nil {
+				return dispatched, err
+			}
 		}
 	}
 	started, err := pool.Whole(ctx, snapshot)

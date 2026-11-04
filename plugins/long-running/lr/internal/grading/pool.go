@@ -31,6 +31,7 @@ const (
 	pidFile               = "pid"
 	sourcesFile           = "sources.md"
 	capacityFile          = "grader-capacity.json"
+	repostedFile          = "reposted"
 	failuresDir           = "sprite-failures"
 	defaultConcurrent     = 8
 	defaultTimeoutMinutes = 60
@@ -48,6 +49,18 @@ var (
 	proofTitle = regexp.MustCompile(`(?i)\bproof:|\b(?:red|green) proof\b|\bproof, do not merge\b`)
 	proofBody  = regexp.MustCompile(`(?im)^proof PR(?: for #\d+\b|\b.*\bnever merge).*$`)
 )
+
+type Stopped struct {
+	Why string
+}
+
+func (s *Stopped) Error() string {
+	return "no pass will grade this head: " + s.Why
+}
+
+func (s *Stopped) Unwrap() error {
+	return ErrAnswered
+}
 
 type names []string
 
@@ -240,8 +253,11 @@ func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Fa
 	if plan.running != "" {
 		return plan.running, nil
 	}
-	if plan.held || plan.done {
+	if plan.held {
 		return "", ErrAnswered
+	}
+	if plan.done {
+		return "", p.answered(ctx, plan)
 	}
 	sprite, err := p.place(d, workers, p.firsts[pr])
 	if err != nil {
@@ -259,10 +275,65 @@ func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Fa
 	case GraderFidelity:
 		built, err = p.fidelityJob(ctx, d, facts, sprite, directory, live)
 	}
+	if errors.Is(err, ErrAnswered) {
+		return "", &Stopped{"a record already names this head and no grade reached the store"}
+	}
 	if err != nil {
 		return "", err
 	}
 	return p.start(ctx, grading, d, sprite, directory, built)
+}
+
+func (p *JobPool) answered(ctx context.Context, plan attemptPlan) error {
+	if plan.settled == "" {
+		return &Stopped{plan.why}
+	}
+	directory := filepath.Join(p.root, plan.settled)
+	if !exists(filepath.Join(directory, repostedFile)) {
+		err := grader.Repost(ctx, directory, client.Post)
+		var down *client.BusDown
+		if errors.As(err, &down) {
+			p.Log.Warn("the store did not take a settled pass's records; the next pass tries again", "job", directory, "error", err)
+			return ErrAnswered
+		}
+		if err != nil {
+			p.Log.Warn("a settled pass's records did not repost", "job", directory, "error", err)
+		}
+		if err := p.stamp(plan.settled, repostedFile); err != nil {
+			return err
+		}
+		return ErrAnswered
+	}
+	waiting, err := p.stampedWithin(plan.settled, repostedFile, failedHold)
+	if err != nil {
+		return err
+	}
+	if waiting {
+		return ErrAnswered
+	}
+	return &Stopped{settledWhy(directory)}
+}
+
+func settledWhy(directory string) string {
+	lane := filepath.Base(filepath.Dir(directory))
+	data, err := os.ReadFile(filepath.Join(directory, grader.ResultFile))
+	if err != nil {
+		return "its " + lane + " pass settled and its result does not read"
+	}
+	var outcome struct {
+		Verdict string `json:"verdict"`
+		Skipped string `json:"skipped"`
+	}
+	if err := json.Unmarshal(data, &outcome); err != nil {
+		return "its " + lane + " pass settled and its result does not parse"
+	}
+	if outcome.Skipped != "" {
+		return "its " + lane + " pass skipped: " + outcome.Skipped
+	}
+	if outcome.Verdict == readerVerdict {
+		return "its " + lane + " pass handed the head to a reader, and no reader has posted a grade"
+	}
+	return fmt.Sprintf("its %s pass settled as %q and no grade reached the store", lane, outcome.Verdict)
 }
 
 func (p *JobPool) start(ctx context.Context, grading string, d desk, sprite, directory string, built job) (string, error) {
@@ -372,6 +443,7 @@ const (
 	jobSettled
 	jobFailed
 	jobLost
+	jobSkipped
 )
 
 func stateOf(directory string, commands map[int]string) jobState {
@@ -384,14 +456,19 @@ func stateOf(directory string, commands map[int]string) jobState {
 		return jobRunning
 	}
 	var outcome struct {
-		Error *string `json:"error"`
-		Lost  bool    `json:"no_result"`
+		Error    *string `json:"error"`
+		Lost     bool    `json:"no_result"`
+		Skipped  string  `json:"skipped"`
+		Ungraded bool    `json:"ungraded"`
 	}
 	if err := json.Unmarshal(data, &outcome); err != nil || outcome.Lost {
 		return jobLost
 	}
 	if outcome.Error != nil {
 		return jobFailed
+	}
+	if outcome.Skipped != "" && !outcome.Ungraded {
+		return jobSkipped
 	}
 	return jobSettled
 }
@@ -426,6 +503,8 @@ type attemptPlan struct {
 	running string
 	held    bool
 	done    bool
+	why     string
+	settled string
 }
 
 func (p *JobPool) nextAttempt(ctx context.Context, d desk, base string) (attemptPlan, error) {
@@ -446,7 +525,11 @@ func (p *JobPool) nextAttempt(ctx context.Context, d desk, base string) (attempt
 		sprite, err := jobSprite(directory)
 		return attemptPlan{running: workerName(sprite, d.lane, filepath.Base(directory))}, err
 	case jobSettled:
-		return attemptPlan{done: true}, nil
+		return attemptPlan{done: true, settled: filepath.Join(d.lane, filepath.Base(directory))}, nil
+	case jobSkipped:
+		if strings.Contains(base, wholeMark) {
+			return attemptPlan{done: true}, nil
+		}
 	case jobFailed:
 		info, err := os.Stat(filepath.Join(directory, grader.ResultFile))
 		if err != nil {
@@ -459,7 +542,8 @@ func (p *JobPool) nextAttempt(ctx context.Context, d desk, base string) (attempt
 	}
 	if tried >= maxAttempts {
 		p.Log.Warn("a grader pass failed on its last attempt", "job", directory, "attempts", tried)
-		return attemptPlan{done: true}, p.exhausted(ctx, d, directory)
+		why := fmt.Sprintf("its pass ended without a grade on all %d attempts: %s", tried, squeezed(failureOf(directory)))
+		return attemptPlan{done: true, why: why}, p.exhausted(ctx, d, directory)
 	}
 	return attemptPlan{number: tried + 1}, nil
 }
