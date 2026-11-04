@@ -49,7 +49,7 @@ function bareAskOpen(entry, answeredInThread) {
   return entry.reply.type === 'for_you' && !DONE_LEAD.test(entry.reply.title) && !entry.reply.picks?.length && !answeredInThread && minutesSince(entry.at) < BARE_ASK_MINUTES;
 }
 function openReplies() {
-  return state.model?.replies ? state.model.replies.filter((entry) => questionOpen(entry.reply) || bareAskOpen(entry, false)).length : 0;
+  return state.model?.owner_asks ? chatThreads().filter((t) => threadStage(t) === 'you').length : 0;
 }
 function askKeyOf(r) {
   const head = /^m(\d+)/.exec(r.order ?? '') ?? /^line:m(\d+)/.exec(r.on ?? '');
@@ -324,7 +324,7 @@ function threadBody({ t, stage }) {
 function chatFilters(all) {
   const count = (stage) => all.filter((row) => row.stage === stage).length;
   const counts = { all: all.filter(({ t }) => !t.card).length, needs: count('you'), progress: count('progress'), completed: count('completed') };
-  return [['all', 'All asks'], ['needs', 'Needs me'], ['progress', 'In progress'], ['completed', 'Completed']].map(([id, label]) => `<button class="filter${cw.filter === id ? ' active' : ''}" aria-pressed="${cw.filter === id}" data-cw-filter="${id}">${label}<small>${counts[id]}</small></button>`).join('');
+  return [['all', 'All asks'], ['needs', 'Questions'], ['progress', 'In progress'], ['completed', 'Completed']].map(([id, label]) => `<button class="filter${cw.filter === id ? ' active' : ''}" aria-pressed="${cw.filter === id}" data-cw-filter="${id}">${label}<small>${counts[id]}</small></button>`).join('');
 }
 function railTap(t) {
   const card = t.kind !== 'land' && !t.subject && tapCard(t);
