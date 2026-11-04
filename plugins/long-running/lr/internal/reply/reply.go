@@ -54,6 +54,8 @@ const (
 	typeForYou      = "for_you"
 	typeQuestion    = "question"
 
+	threadIndex = "thread index"
+
 	diagramNote = "The diagram is on the Chat page of your dashboard."
 )
 
@@ -164,7 +166,25 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	for _, s := range steps {
 		sent = append(sent, s.surface(ctx, s.reply, sent)...)
 	}
-	return sent
+	return append(sent, f.indexThreads(r, sent)...)
+}
+
+func (f Fanout) indexThreads(r Reply, sent []Outcome) []Outcome {
+	s, err := store.Open(f.Entry.Store())
+	if err != nil {
+		return []Outcome{{Surface: threadIndex, Error: err.Error()}}
+	}
+	defer func() { _ = s.Close() }()
+	var missed []Outcome
+	for _, o := range sent {
+		if !strings.HasPrefix(o.Surface, "slack") || owner.ThreadRoot(o.Ref) == "" {
+			continue
+		}
+		if err := s.PutSlackThread(owner.ReplyThread(o.Ref, r.ID, r.Order, r.Title, r.Picks)); err != nil {
+			missed = append(missed, Outcome{Surface: threadIndex, Error: err.Error()})
+		}
+	}
+	return missed
 }
 
 // withCardLinks links each open card the reply names to the Slack message he
