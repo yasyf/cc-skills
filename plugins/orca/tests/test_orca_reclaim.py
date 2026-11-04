@@ -424,6 +424,39 @@ class GcTest(unittest.TestCase):
         self.assertEqual(orca.calls, [("stop", "ctx_a"), ("abandon", "ctx_a"), ("close", "term_ctx_a"), ("remove", WT)])
         self.assertIn("stopped ctx_a abandoned", out)
 
+    def test_done_lane_on_an_unreachable_host_is_abandoned_and_says_so(self):
+        orca = FakeOrca(
+            [row("ctx_a", status="dispatched")],
+            stops={"ctx_a": (None, "remote_runtime_unavailable", {})},
+            abandons={"ctx_a": ("abandoned", "none", {"dispatchStatus": "failed"})},
+        )
+        orca.presence = lambda terminal, environment=None: orca_gc.RUNTIME_DOWN
+        tally, out = run_gc(orca, FakeGit({WT: checkout(head="d" * 40)}), done=frozenset({"ctx_a"}))
+        self.assertEqual((tally, orca.calls), ({"abandoned": 1, "keep": 2}, [("stop", "ctx_a"), ("abandon", "ctx_a")]))
+        self.assertIn("abandoned ctx_a its host is unavailable, so its worker could keep running if the host comes back", out)
+        self.assertIn("keep term_ctx_a its host is unavailable", out)
+        self.assertIn("keep /w/repo/v3-lane-base unpushed commits on v3/lane", out)
+
+    def test_refused_abandon_on_an_unreachable_host_keeps_the_lane(self):
+        orca = FakeOrca(
+            [row("ctx_a", status="dispatched")],
+            stops={"ctx_a": (None, "remote_runtime_unavailable", {})},
+            abandons={"ctx_a": (None, "worker_identity_changed", {})},
+        )
+        tally, out = run_gc(orca, FakeGit({WT: checkout()}), done=frozenset({"ctx_a"}))
+        self.assertEqual((tally, orca.calls), ({"keep": 1}, [("stop", "ctx_a"), ("abandon", "ctx_a")]))
+        self.assertIn("keep ctx_a worker-abandon worker_identity_changed", out)
+
+    def test_done_dry_run_predicts_the_abandon_for_an_unavailable_host(self):
+        gone = row("ctx_a", status="dispatched")
+        gone["projection"] = {**gone["projection"], "liveness": {"verdict": "unverifiable", "reason": "host_unavailable"}}
+        orca = FakeOrca([gone, row("ctx_b", status="dispatched", worktree="/w/repo/v3-other-base")])
+        tally, out = run_gc(orca, FakeGit({}), dry_run=True, done=frozenset({"ctx_a", "ctx_b"}))
+        self.assertEqual(orca.calls, [])
+        self.assertEqual((tally["abandon"], tally["stop"]), (1, 1))
+        self.assertIn("would abandon ctx_a its host is unavailable, so its worker could keep running if the host comes back", out)
+        self.assertIn("would stop ctx_b", out)
+
     def test_done_lane_with_unpushed_work_closes_its_busy_terminal(self):
         orca = FakeOrca(
             [row("ctx_a", status="dispatched")],

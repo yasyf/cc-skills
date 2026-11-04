@@ -25,6 +25,10 @@ EXTERNAL = "external_terminal"
 RELEASED = {"released", "already_released"}
 CLOSED_BY_STOP = "closed_agent_terminal"
 FENCED = "dispatch_inactive"
+RUNTIME_DOWN = "remote_runtime_unavailable"
+HOST_UNAVAILABLE = "host_unavailable"
+HOST_DOWN = "its host is unavailable"
+ABANDONED_DOWN = f"{HOST_DOWN}, so its worker could keep running if the host comes back"
 UNREGISTERED = "selector_not_found"
 STALE = "terminal_handle_stale"
 CONNECTED = "connected"
@@ -69,6 +73,7 @@ class Worker:
     workspace: str | None
     worktree: str | None
     environment: str | None = None
+    host_gone: bool = False
 
     @classmethod
     def of(cls, row: dict) -> Worker:
@@ -85,6 +90,7 @@ class Worker:
             workspace=workspace,
             worktree=(workspace or "").partition("::")[2] or None,
             environment=host["id"] if host.get("kind") == "remote" else None,
+            host_gone=(row["projection"].get("liveness") or {}).get("reason") == HOST_UNAVAILABLE,
         )
 
     @property
@@ -428,6 +434,8 @@ def current(worker: Worker, orca: Orca) -> str | Action | None:
         return None
     if presence == STALE:
         return Action("keep", worker.terminal, STALE_HANDLE)
+    if presence == RUNTIME_DOWN:
+        return Action("keep", worker.terminal, HOST_DOWN)
     return worker.terminal
 
 
@@ -571,18 +579,23 @@ def apply(action: Action, orca: Orca, git: Git, pause: Pause) -> Action:
     return action
 
 
-def stop(dispatch: str, dry_run: bool, orca: Orca, pause: Pause, out) -> tuple[Action, str | None]:
+def stop(dispatch: str, dry_run: bool, down: Container[str], orca: Orca, pause: Pause, out) -> tuple[Action, str | None]:
     if dry_run:
-        print(f"would stop {dispatch}", file=out, flush=True)
-        return Action("stop", dispatch), ""
+        plan = Action("abandon", dispatch, ABANDONED_DOWN) if dispatch in down else Action("stop", dispatch)
+        print(f"would {plan.line()}", file=out, flush=True)
+        return plan, ""
     if pause.held():
         skipped = pause.skip(dispatch, "stop")
         print(skipped.line(), file=out, flush=True)
         return skipped, None
     verb, (state, detail) = "worker-stop", orca.stop(dispatch)
-    if state is None and detail == FENCED:
+    host_down = state is None and detail == RUNTIME_DOWN
+    if state is None and detail in (FENCED, RUNTIME_DOWN):
         verb, (state, detail) = "worker-abandon", orca.abandon(dispatch)
-    done = Action("keep", dispatch, f"{verb} {detail}") if state is None else Action("stopped", dispatch, state)
+    if state is None:
+        done = Action("keep", dispatch, f"{verb} {detail}")
+    else:
+        done = Action("abandoned", dispatch, ABANDONED_DOWN) if host_down else Action("stopped", dispatch, state)
     print(done.line(), file=out, flush=True)
     return done, None if state is None else detail
 
@@ -592,7 +605,8 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
         skipped = pause.skip(run, "gc")
         print(skipped.line(), file=out, flush=True)
         return Counter({skipped.verb: 1})
-    stops = [stop(dispatch, dry_run, orca, pause, out) for dispatch in sorted(ending)]
+    down = {worker.dispatch for worker in orca.workers(run) if worker.host_gone} if dry_run and ending else frozenset()
+    stops = [stop(dispatch, dry_run, down, orca, pause, out) for dispatch in sorted(ending)]
     ended = {action.target: detail for action, detail in stops if detail is not None}
     scope = dispatches | ending
     workers = orca.workers(run)
@@ -656,7 +670,9 @@ def main() -> int:
         "and the idle terminals gc would close, so only terminals in a kept worktree are closed tab by tab through the renderer. A settled dispatch's worktree "
         "whose directory is gone has its Orca registration dropped; one git cannot read is kept and named. A settled dispatch Orca records no "
         "workspace for, such as one that failed before its worktree resolved, is kept and named. --done ends a lane the root has decided is done, settled or not: "
-        "worker-stop fences the dispatch, or worker-abandon settles one Orca already fenced, whose worker-stop reads dispatch_inactive; its terminal is closed "
+        "worker-stop fences the dispatch, or worker-abandon settles one Orca already fenced, whose worker-stop reads dispatch_inactive, or one on a host Orca cannot reach, "
+        "whose worker-stop reads remote_runtime_unavailable and whose worker could keep running if the host comes back; --dry-run predicts that abandon when Orca reads the "
+        "host as unavailable; its terminal is closed "
         "without the idle check before its worktree is reclaimed by the same rules. "
         "A settled dispatch on a paired Orca server, such as a dev box a launch script started it on, gets the same terminal close and worktree "
         "removal through that server's --environment; its tree's HEAD is read from Orca, its cleanliness is left to orca worktree rm, which runs "
