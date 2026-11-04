@@ -65,8 +65,9 @@ assert modules["refusal_kinds_need_owner_answer"].EXEMPT.search("notes.md")
 with patch.object(modules["lane_landing"].subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="")):
     assert modules["lane_landing"].trunk_clause({"cci_drive": "packaging-test"}) == ""
 replies = [SimpleNamespace(stdout="abc123\n"), SimpleNamespace(stdout="tests/test_refusal.py\n"), SimpleNamespace(stdout="+ assert refusal\n")]
-call = SimpleNamespace(name="ccx", args=["vcs", "ship"])
-evt = SimpleNamespace(cwd=root, command=SimpleNamespace(calls=lambda: [call]))
+call = SimpleNamespace(name="ccx", args=["vcs", "ship"], cwd=root)
+line = SimpleNamespace(calls=lambda: [call])
+evt = SimpleNamespace(cwd=root, command=line, cmd=line)
 with patch.object(modules["ruling_misread"].subprocess, "run", side_effect=replies):
     assert modules["ruling_misread"].shipped_tests(evt) == [("test", "+ assert refusal\n")]
 scripts = root.parents[1] / "skills" / "long-running" / "scripts"
