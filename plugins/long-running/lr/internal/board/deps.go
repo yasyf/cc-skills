@@ -190,6 +190,38 @@ func (c Cards) card(ctx context.Context, card string) (json.RawMessage, bool, in
 	return nil, false, 0, nil
 }
 
+type boardRead struct {
+	rev    int64
+	blocks map[string]json.RawMessage
+}
+
+func (c Cards) wholeBoard(ctx context.Context) (boardRead, error) {
+	shown, err := c.present(ctx, "outcomes", "--all")
+	if err != nil {
+		return boardRead{}, err
+	}
+	var outcomes struct {
+		Rev int64 `json:"rev"`
+		Doc struct {
+			Blocks []json.RawMessage `json:"blocks"`
+		} `json:"doc"`
+	}
+	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
+		return boardRead{}, fmt.Errorf("cc-present outcomes --all: %w", err)
+	}
+	read := boardRead{rev: outcomes.Rev, blocks: make(map[string]json.RawMessage, len(outcomes.Doc.Blocks))}
+	for _, block := range outcomes.Doc.Blocks {
+		var top struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(block, &top); err != nil {
+			return boardRead{}, err
+		}
+		read.blocks[top.ID] = block
+	}
+	return read, nil
+}
+
 func (c Cards) Depend(ctx context.Context, card, lane string, explicit []string) ([]string, error) {
 	shown, onBoard, _, err := c.card(ctx, card)
 	if err != nil {
@@ -267,11 +299,24 @@ func (r Recheck) Pick(ctx context.Context, card, said string) ([]Moved, error) {
 }
 
 func (r Recheck) move(ctx context.Context, refs []store.CardRef, evidence, cause string) ([]Moved, error) {
+	boards := map[string]boardRead{}
+	for _, ref := range refs {
+		if _, read := boards[ref.Session]; read {
+			continue
+		}
+		cards := r.Cards
+		cards.Session = ref.Session
+		board, err := cards.wholeBoard(ctx)
+		if err != nil {
+			return nil, err
+		}
+		boards[ref.Session] = board
+	}
 	checked := make([]judged, len(refs))
 	failed := make([]error, len(refs))
 	var wg sync.WaitGroup
 	for i, ref := range refs {
-		wg.Go(func() { checked[i], failed[i] = r.judge(ctx, ref, evidence) })
+		wg.Go(func() { checked[i], failed[i] = r.judge(ctx, ref, boards[ref.Session], evidence) })
 	}
 	wg.Wait()
 	if err := errors.Join(failed...); err != nil {
@@ -313,14 +358,15 @@ type judged struct {
 	decided *Judgment
 }
 
-func (r Recheck) judge(ctx context.Context, ref store.CardRef, evidence string) (judged, error) {
+func (r Recheck) judge(ctx context.Context, ref store.CardRef, board boardRead, evidence string) (judged, error) {
 	cards := r.Cards
 	cards.Session = ref.Session
-	shown, onBoard, rev, err := cards.card(ctx, ref.Card)
-	if err != nil || !onBoard {
-		return judged{ref: ref, cards: cards, gone: true}, err
+	shown, onBoard := board.blocks[ref.Card]
+	if !onBoard {
+		return judged{ref: ref, cards: cards, gone: true}, nil
 	}
-	one := judged{ref: ref, cards: cards, shown: shown, rev: rev}
+	one := judged{ref: ref, cards: cards, shown: shown, rev: board.rev}
+	var err error
 	if one.premise, err = r.Judge(ctx, premiseKind, evidence, string(shown)); err != nil || verdictOf(one.premise) != "yes" {
 		return one, err
 	}

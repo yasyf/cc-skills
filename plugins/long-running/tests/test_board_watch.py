@@ -827,3 +827,25 @@ def test_backfill_writes_a_row_for_each_answered_block_that_lacks_one(tmp_path: 
     assert row["body"].splitlines()[-1] == f"Card card-eviction, block eviction-route-choice, board {SESSION}, Oct 27 2:00 AM PT."
     assert board_watch.main(["backfill", "--session", SESSION, "--program", "brook"], shell) == 0
     assert len(shell.rows) == 1
+
+
+def test_a_thread_that_crashes_restarts_the_whole_recorder_instead_of_dying_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    restarted = threading.Event()
+    argvs: list[list[str]] = []
+
+    def record(argv: list[str]) -> None:
+        argvs.append(argv)
+        restarted.set()
+
+    def crash() -> None:
+        raise AttributeError("module has no such helper")
+
+    monkeypatch.setenv(board_watch.drive.CALLER_VERSION_ENV, "0")
+    monkeypatch.setattr(board_watch.time, "sleep", lambda _: None)
+    monkeypatch.setattr(board_watch.drive, "run_installed", lambda *_, **__: None)
+    monkeypatch.setattr(board_watch.drive, "reexec", record)
+
+    board_watch.Shell().spawn(crash)
+
+    assert restarted.wait(5)
+    assert argvs[0][1:] == board_watch.sys.argv
