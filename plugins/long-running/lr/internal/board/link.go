@@ -171,7 +171,7 @@ func drawCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 	var lane, key, remove string
 	cmd := &cobra.Command{
 		Use:   "draw [FILE|-]",
-		Short: "From any host, post one card change on the bus for the board link: a block as JSON, refused when a card on his board already asks the same, when it asks him to grade a reading of his words, or when one of his ccn answers already settles it; or --remove ID",
+		Short: "From any host, post one card change on the bus for the board link: a block as JSON, refused when its background or Explain more is only a link, when a card on his board already asks the same, when it asks him to grade a reading of his words, or when one of his ccn answers already settles it; or --remove ID",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			entry, session, err := opened()

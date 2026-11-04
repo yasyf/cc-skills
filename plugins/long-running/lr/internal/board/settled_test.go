@@ -249,3 +249,24 @@ func TestARepushOfACardAlreadyOnHisBoardIsLeftToTheSweep(t *testing.T) {
 		t.Fatalf("refused = %v, %v after %d judgments; want the card already up passed unjudged", refused, err, len(judge.evidence))
 	}
 }
+
+func TestACardWhoseExplainMoreIsOnlyALinkIsRefusedBeforeAnyJudgeRuns(t *testing.T) {
+	board, _, _ := settledBoard(t, nil, upgradeOnce)
+	judged := &judgeCalls{verdict: "no"}
+	for name, children := range map[string][]any{
+		"asking":     {map[string]any{"id": "why", "type": "markdown", "md": "**Explain more:** see https://docs.poetic.design/one-pagers/x/"}, map[string]any{"id": "pick", "type": "choice"}},
+		"not asking": {map[string]any{"id": "why", "type": "markdown", "md": "https://docs.poetic.design/one-pagers/x/"}},
+	} {
+		card, err := json.Marshal(map[string]any{"id": "card-x", "type": "card", "title": "Which store holds the topics?", "children": children})
+		if err != nil {
+			t.Fatal(err)
+		}
+		refused, unchecked := board.Check(context.Background(), judged.judge, card)
+		if refused == nil || !strings.HasPrefix(refused.Error(), "refused: ") || unchecked != nil {
+			t.Errorf("%s: refused %v, unchecked %v", name, refused, unchecked)
+		}
+	}
+	if len(judged.evidence) != 0 {
+		t.Fatalf("a bare card reached the judge: %v", judged.evidence)
+	}
+}

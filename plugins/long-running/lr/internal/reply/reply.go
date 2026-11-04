@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -212,6 +213,13 @@ func (r Reply) check() error {
 		if !pullURL.MatchString(pr) {
 			return fmt.Errorf("pr %q is not a https://github.com/<owner>/<repo>/pull/<n> url", pr)
 		}
+	}
+	card, err := json.Marshal(map[string]any{"type": "card", "summary": strings.TrimPrefix(strings.TrimSpace(r.MD), strings.TrimRight(r.Action, ".")+"."), "children": r.Blocks})
+	if err != nil {
+		return err
+	}
+	if name := cardtext.Bare(card); name != "" {
+		return cardtext.Refusal(name)
 	}
 	return nil
 }

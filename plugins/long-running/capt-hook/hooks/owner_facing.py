@@ -164,7 +164,7 @@ PR_REF = re.compile(r"#\d{3,}")
 PR_TAIL = re.compile(r"\d{3,}$")
 ROUTING = re.compile(r"(?i)\brout(?:e|es|ed|ing)\b|\bcluster (?:assignment|move)\b|\bcutover\b")
 BOARD_VERBS = ("push", "start", "update-block", "reply")
-BOARD_DOCS = ("push", "start", "update-block")
+BOARD_DOCS = ("ask", "push", "start", "update-block")
 STDIN = "-"
 AUTHORIZED_BESIDE_A_QUESTION = (
     "Warning, nothing was blocked: A GO, LIFT, or UNBLOCK line or `cci post` record is never written while an owner question on its subject is unanswered."
