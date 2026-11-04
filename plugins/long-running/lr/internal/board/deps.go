@@ -370,6 +370,10 @@ func (r Recheck) judge(ctx context.Context, ref store.CardRef, board boardRead, 
 	if one.premise, err = r.Judge(ctx, premiseKind, evidence, string(shown)); err != nil || verdictOf(one.premise) != "yes" {
 		return one, err
 	}
+	if _, render := renderShown(shown); render {
+		one.decided = &Judgment{Verdict: "no"}
+		return one, nil
+	}
 	one.decided, err = r.Judge(ctx, decidedKind, evidence, string(shown))
 	return one, err
 }

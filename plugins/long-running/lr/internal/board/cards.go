@@ -327,7 +327,7 @@ func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
 	if len(blocks) == 0 {
 		return nil, nil
 	}
-	listed, err := c.ccn(ctx, "answer", "list", "--label", answerRow, "--label", "board-session:"+c.Session, "--label", "board-card:"+card, "--limit", "0", "--full", "--json")
+	listed, err := c.ccn(ctx, "answer", "list", "--label", answerRow, "--label", "board-session:"+c.Session, "--label", boardCardLabel+card, "--limit", "0", "--full", "--json")
 	if err != nil {
 		return nil, err
 	}
