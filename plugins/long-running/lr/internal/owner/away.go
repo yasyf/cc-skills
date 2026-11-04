@@ -86,7 +86,7 @@ func awayCommand(a *app.App, driveName *string) *cobra.Command {
 	}
 }
 
-func wordCommand(a *app.App, driveName *string) *cobra.Command {
+func wordCommand(driveName *string) *cobra.Command {
 	var row, incident string
 	cmd := &cobra.Command{
 		Use:   "word away|here",
@@ -117,7 +117,7 @@ func wordCommand(a *app.App, driveName *string) *cobra.Command {
 			}
 			record, err := client.Post(cmd.Context(), client.Draft{
 				Drive: entry.Bus(), Lane: communicator, Kind: wordKind, Attrs: attrs,
-				Text:  fmt.Sprintf("Owner %s %s: %s", row, word, rows[i].Text),
+				Text: fmt.Sprintf("Owner %s %s: %s", row, word, rows[i].Text),
 			})
 			if err != nil {
 				return err
@@ -196,14 +196,14 @@ func (c *awayCheck) lastSeen(records []client.Record) (time.Time, string, error)
 	}
 	source := "ledger " + newest.ID
 	for _, record := range records {
-		if his(record) && record.At.After(seen) {
+		if fromHim(record) && record.At.After(seen) {
 			seen, source = record.At, fmt.Sprintf("record %s from %s", record.Name(), client.Stem(record.Lane))
 		}
 	}
 	return seen, source, nil
 }
 
-func his(record client.Record) bool {
+func fromHim(record client.Record) bool {
 	return string(record.Kind) == ownerKind && slices.Contains(hisLanes, client.Stem(record.Lane)) && !strings.HasPrefix(record.Text, backfilled)
 }
 
