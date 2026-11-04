@@ -108,3 +108,9 @@ def test_a_source_window_shows_the_cited_lines_with_their_neighbours_and_stops_a
     assert [row["n"] for row in picks.source_window(lines, 5, 5)] == [2, 3, 4, 5, 6, 7, 8]
     assert picks.source_window(lines, 2, 3)[0] == {"n": 1, "text": "line 1"}
     assert picks.source_window(lines, 10, 10)[-1] == {"n": 10, "text": "line 10"}
+
+
+def test_the_slack_tap_instruction_leaves_a_cards_title_and_summary():
+    assert picks.context_title("Tap one below: Sprites have 8 GB usable") == "Sprites have 8 GB usable"
+    assert picks.context_title("Should it land?") == "Should it land?"
+    assert picks.context_summary("Tap one below.", [{"recommended": True}]) == ""

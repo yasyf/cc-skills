@@ -8,6 +8,7 @@ BAD_COLUMN = re.compile(r"\b(?:against|costs?|cons?|downsides?|risks?)\b", re.I)
 BOLD_NAME = re.compile(r"^\*\*(.+?)\*\*")
 RECOMMENDED_MARK = re.compile(r"\s*\(recommended\b[^)]*\)", re.I)
 RECOMMENDED_SENTENCE = re.compile(r"\s*Recommended: .*?\.(?=\s|$)")
+TAP_LEAD = re.compile(r"^Tap one below[.:]?\s*", re.I)
 BULLET = re.compile(r"^\s*(?:[-*]|\d+\.)\s+(.*)$")
 WORD = re.compile(r"[a-z0-9]+")
 MOST_MATCHED_OPTIONS = 6
@@ -128,5 +129,10 @@ def source_window(lines, line, to):
     return [{"n": n, "text": lines[n - 1]} for n in range(first, last + 1)]
 
 
+def context_title(title):
+    return TAP_LEAD.sub("", title)
+
+
 def context_summary(summary, options):
+    summary = TAP_LEAD.sub("", summary)
     return RECOMMENDED_SENTENCE.sub("", summary).strip() if any(option["recommended"] for option in options) else summary
