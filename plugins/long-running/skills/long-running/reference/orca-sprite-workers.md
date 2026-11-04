@@ -178,6 +178,16 @@ directory, and the worker keeps running without a hold. A lane already running
 when this version installs has no holder until it is relaunched; `lr sprites roll`
 does not add one.
 
+The same service appends one JSON line every 10 seconds to
+`~/.cc-remote/samples.log`, fsynced, because a stop reboots the kernel and wipes
+its counters while home survives. Each line has the time, kernel uptime,
+MemAvailable, swap in use, the balloon's net size, the kernel's `oom_kill` count,
+`/proc/loadavg`, the top 3 processes by RSS, each `claude` or `codex` with its
+parent, and `memory.events` when readable. The file keeps about 2 hours. A failed
+read writes no line, warns, and leaves the hold running. To tell which went first,
+compare the last line naming an agent with the last line of the kernel's uptime:
+an agent gone while uptime keeps climbing means the agent died before the box.
+
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
 server's build as `managedServer`, read from the ready event `orca serve --json`
