@@ -168,7 +168,7 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 			continue
 		}
 		switch {
-		case record.Kind == kindIncident, record.Kind == "decide" && closesIncident(record):
+		case incidentRecord(record):
 			in.Incidents = append(in.Incidents, record)
 		case record.Kind == kindRelease:
 			in.Releases = append(in.Releases, record)

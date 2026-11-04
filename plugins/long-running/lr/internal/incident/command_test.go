@@ -145,39 +145,6 @@ func TestGrantAddsANamedAuthorityAndRefusesAnother(t *testing.T) {
 	}
 }
 
-func TestStatusPrintsMilestonesAndOpenDecisionsInPacificTime(t *testing.T) {
-	s := home(t)
-	openAlert(t, "x")
-	at := time.Date(2026, 10, 1, 17, 49, 0, 0, time.UTC)
-	err := s.Owned("x", 1, func(tx *Tx) error {
-		if _, err := tx.Milestone("opened", "alert outage", at); err != nil {
-			return err
-		}
-		if _, err := tx.Decide("grant:sync", "needs the sync grant", at); err != nil {
-			return err
-		}
-		_, err := tx.Decide("resolved", "already settled", at)
-		if err != nil {
-			return err
-		}
-		return tx.Resolve("resolved", at)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "x open owner=incident-x generation=1\n  10:49am opened: alert outage\n  open since 10:49am: needs the sync grant\n"
-	if out := mustVerb(t, "status", "--incident", "x"); out != want {
-		t.Fatalf("printed\n%s\nwant\n%s", out, want)
-	}
-	var dumped map[string]any
-	if err := json.Unmarshal([]byte(mustVerb(t, "status", "--incident", "x", "--json")), &dumped); err != nil {
-		t.Fatal(err)
-	}
-	if dumped["incident_id"] != "x" || dumped["status"] != "open" || dumped["facts"].(map[string]any)["target"] != "api" {
-		t.Fatalf("dumped %v", dumped)
-	}
-}
-
 func TestBriefWritesTheBriefsRunWouldLaunchAndPrintsTheirPaths(t *testing.T) {
 	s := home(t)
 	openAlert(t, "x", "--adopt", "evidence=plat-evidence")

@@ -1,7 +1,6 @@
 package incident
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/update"
 )
 
 var (
@@ -63,7 +63,8 @@ func Command(a *app.App) *cobra.Command {
 		Use:   "incident",
 		Short: "One durable owner for an active incident, from intake to the final reply",
 	}
-	cmd.AddCommand(openCommand(a), noteCommand(), grantCommand(), runCommand(a), statusCommand(), briefCommand())
+	cmd.AddCommand(openCommand(a), noteCommand(), grantCommand(), runCommand(a), briefCommand())
+	cmd.AddCommand(update.IncidentCommands(a)...)
 	return cmd
 }
 
@@ -347,43 +348,6 @@ func liveWorld(a *app.App, header Header, facts Facts) (World, error) {
 		},
 		Records: RecordsCLI{Runner: a.Runner, Repo: facts.Checkout},
 	}, nil
-}
-
-func statusCommand() *cobra.Command {
-	var id string
-	var asJSON bool
-	cmd := &cobra.Command{
-		Use:   "status",
-		Short: "Milestones in Pacific time and open decisions",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			s, err := defaultStore()
-			if err != nil {
-				return err
-			}
-			incident, err := s.Load(id)
-			if err != nil {
-				return err
-			}
-			out := cmd.OutOrStdout()
-			if asJSON {
-				return json.NewEncoder(out).Encode(incident)
-			}
-			fmt.Fprintf(out, "%s %s owner=%s generation=%d\n", incident.ID, incident.Status, incident.Owner, incident.OwnerGeneration)
-			for _, entry := range incident.Milestones {
-				fmt.Fprintf(out, "  %s %s: %s\n", pacific(entry.At), entry.Name, entry.Text)
-			}
-			for _, decision := range incident.OpenDecisions() {
-				fmt.Fprintf(out, "  open since %s: %s\n", pacific(decision.At), decision.Text)
-			}
-			return nil
-		},
-	}
-	flags := cmd.Flags()
-	flags.StringVar(&id, "incident", "", "the incident id")
-	flags.BoolVar(&asJSON, "json", false, "print the whole incident as JSON")
-	required(cmd, "incident")
-	return cmd
 }
 
 func briefCommand() *cobra.Command {
