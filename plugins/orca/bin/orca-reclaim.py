@@ -249,6 +249,7 @@ class Checkout:
     on_trunk: bool
     repository: str
     environment: str | None = None
+    off_origin: int = 0
 
 
 @dataclass(frozen=True)
@@ -454,11 +455,11 @@ class CcRemote:
 
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
-        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {git_c} status --porcelain=v2 --branch"]
+        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {git_c} rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && {git_c} status --porcelain=v2 --branch"]
         done = subprocess.run(argv, capture_output=True, text=True)
         if done.returncode != 0:
             return f"ssh to {sprite.host} could not read {sprite.root}: {(done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[-1]}"
-        origin, *lines = done.stdout.splitlines()
+        origin, off_origin, *lines = done.stdout.splitlines()
         hub = GITHUB_ORIGIN.search(origin)
         if hub is None:
             return f"{sprite.root} has no GitHub origin to check its HEAD against"
@@ -475,6 +476,7 @@ class CcRemote:
             head=head,
             on_trunk=on_trunk,
             repository=hub["slug"],
+            off_origin=int(off_origin),
         )
 
     def remote(self, slug: str) -> Remote:
@@ -530,6 +532,8 @@ def terminal_action(worker: Worker, live: set[str], orca: Orca, ended: dict[str,
 def unsaved(checkout: Checkout, remote: Remote) -> str | None:
     if checkout.dirty:
         return "uncommitted changes"
+    if checkout.off_origin:
+        return f"{checkout.off_origin} commits off origin on its other branches or stashes"
     try:
         if not (checkout.on_trunk or checkout.head in remote.heads or checkout.head in remote.landed):
             return f"unpushed commits on {checkout.branch or checkout.head[:10]}"
@@ -739,7 +743,7 @@ def main() -> int:
         "git worktree remove without --force and so refuses modified or untracked files, and no Mac process scan applies. "
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label, and its Orca environment removed, once no unsettled dispatch "
-        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean with its HEAD on origin "
+        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean, holds no commit off origin on another branch or stash, and has its HEAD on origin "
         "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "

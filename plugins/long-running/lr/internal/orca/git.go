@@ -26,7 +26,7 @@ const (
 	spriteReadTimeout  = 3 * time.Minute
 )
 
-const spriteCheckout = `git -C "$1" remote get-url origin && git -C "$1" status --porcelain=v2 --branch`
+const spriteCheckout = `git -C "$1" remote get-url origin && git -C "$1" rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && git -C "$1" status --porcelain=v2 --branch`
 
 const spriteHolders = `for p in /proc/[0-9]*; do
   pid=${p#/proc/}
@@ -54,6 +54,7 @@ type Checkout struct {
 	OnTrunk     bool
 	Repository  string
 	Environment string
+	OffOrigin   int
 }
 
 type CheckoutRead struct {
@@ -363,12 +364,16 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, er
 	if err != nil {
 		return CheckoutRead{}, err
 	}
-	origin, status, _ := strings.Cut(result.Stdout, "\n")
+	origin, rest, _ := strings.Cut(result.Stdout, "\n")
+	offOrigin, status, _ := strings.Cut(rest, "\n")
 	hub := githubOrigin.FindStringSubmatch(origin)
 	if hub == nil {
 		return CheckoutRead{Refusal: sprite.Root + " has no GitHub origin to check its HEAD against"}, nil
 	}
 	checkout := Checkout{Path: sprite.Root, Repository: hub[1]}
+	if checkout.OffOrigin, err = strconv.Atoi(strings.TrimSpace(offOrigin)); err != nil {
+		return CheckoutRead{}, err
+	}
 	for line := range strings.Lines(status) {
 		line = strings.TrimRight(line, "\n")
 		if !strings.HasPrefix(line, "# ") {
