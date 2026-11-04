@@ -16,6 +16,7 @@ DRIVE = "d1"
 REPO = "Forge-AI/monorepo"
 HEAD = "35aa930c1d2e3f405162738495a6b7c8d9e0f1a2"
 NEW_HEAD = "7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c"
+OTHER_HEAD = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d"
 LEDGER = "1a2b3c4d"
 COMMITTED = "2026-10-26T19:00:00Z"
 WRITTEN = "2026-10-26T20:00:00Z"
@@ -818,32 +819,62 @@ def test_rows_in_different_groups_whose_titles_read_alike_fail(tmp_path: Path, s
 SINCE = {"changed": "the upload now retries twice", "because": "a failed upload retries instead of failing the turn"}
 
 
-def changed(pr: str, head: str = HEAD) -> str:
-    return f"TAP-NOT-CARRIED #{pr}: the owner's tap at {NEW_HEAD[:10]} (1:00 PM Oct 26 Pacific) on board block merge-prs does not carry to {head[:10]}: the judge reads new behavior since his tap: It retries."
+def changed(head: str = HEAD, since: str = NEW_HEAD) -> str:
+    return f"behavior: changed {head[:7]} since {since[:7]}: it retries"
 
 
-def kept(pr: str) -> str:
-    return f"TAP-KEPT #{pr}: the owner's tap at {NEW_HEAD[:10]} (1:00 PM Oct 26 Pacific) on board block merge-prs can carry to {HEAD[:10]}, a fix the judge reads as changing nothing he approved: A nil check."
+def kept(since: str = NEW_HEAD) -> str:
+    return f"behavior: same {HEAD[:7]} since {since[:7]}: a nil check"
 
 
-@pytest.mark.parametrize(("lane", "head"), [("desk-runner", HEAD), ("root", HEAD), ("desk-runner", NEW_HEAD)], ids=["runner-at-head", "root-words", "runner-at-another-head"])
-def test_a_row_at_a_head_he_did_not_approve_waits_until_the_landing_runner_finds_it_changes_what_he_approved(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], lane: str, head: str) -> None:
-    """board-refresher-2 (coordinator #213579): a re-ask rests on the runner's tap judge, never on a phrase in a coordinator record."""
+@pytest.mark.parametrize(
+    ("kind", "lane", "text", "failing"),
+    [
+        ("review", "fidelity-desk", changed(), 0),
+        ("review", "fidelity-desk", changed(since=OTHER_HEAD), 0),
+        ("review", "fidelity-desk", kept(), 0),
+        ("decide", "root", f"#42590 at {HEAD[:7]} changes what he approved at {NEW_HEAD[:7]}. Not a carry.", 0),
+        ("review", "fidelity-desk", kept(OTHER_HEAD), 1),
+        ("review", "fidelity-desk", changed(NEW_HEAD), 1),
+        ("review", "finder-desk", changed(), 1),
+        ("decide", "root", f"#42590 at {NEW_HEAD[:7]} is not a carry", 1),
+    ],
+    ids=["changed", "changed-since-a-later-head", "same-since-his-tap", "root-not-a-carry", "same-since-another-head", "another-head", "not-a-fidelity-lane", "root-at-another-head"],
+)
+def test_a_row_at_a_head_he_did_not_approve_waits_until_the_tap_judge_speaks_at_that_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], kind: str, lane: str, text: str, failing: int) -> None:
+    """board-refresher-2 (coordinator #213579): a re-ask rests on the tap judge, a fidelity `behavior:` line or root's not-a-carry decide, never on another phrase in a coordinator record."""
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
     shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
 
     assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE}), "--check") == 1
-    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} re-ask: he approved it at {NEW_HEAD[:7]}, and the landing runner has not found that {HEAD[:7]} changes what he approved; it waits in Being fixed or checked"
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} re-ask: he approved it at {NEW_HEAD[:7]}, and no fidelity `behavior:` line or root decide at {HEAD[:7]} says whether it changes what he approved; it waits in Being fixed or checked"
 
-    shell.post("note", lane, changed("42590", head), "42590")
-    assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE}), "--check") == (0 if (lane, head) == ("desk-runner", HEAD) else 1)
+    shell.post(kind, lane, text, "42590")
+    assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE}), "--check") == failing
+
+
+def test_48521_moved_past_his_tap_reaches_his_list_as_a_fresh_tap_naming_the_change(tmp_path: Path, shell: FakeShell) -> None:
+    """#48521: he approved 3b191e8, fidelity found behavior changed at df442a5 since 4cdf664 (cci 385814), and root ruled it not a carry (cci 386324)."""
+    tapped, head = "3b191e8c0ffee0000000000000000000000000aa", "df442a5c0ffee0000000000000000000000000bb"
+    since = {"changed": "the old build now also probes subagent threads", "because": "it changes what you approved"}
+    shell.pull("48521", head=head)
+    shell.graded("48521", head)
+    shell.post("review", "fidelity-desk", f"behavior: changed {head[:7]} since 4cdf664: the old build now also probes subagent threads", "48521")
+    shell.post("decide", "root", f"re #386194 #48521 at {head[:7]} changes what he approved at {tapped[:7]}: the old build now also probes subagent threads (fidelity). Not a carry. Put it on his list as a fresh tap with that one sentence.", "48521")
+    shell.verdicts = {"merge-prs": {"48521": approved("48521", tapped, at="2026-11-03T20:00:00Z")}}
+
+    assert gate(tmp_path, shell, groups(pr_row("48521", head) | {"since": since}), "--", "cc-present", "update-block") == 0
+
+    [(_, pushed)] = shell.pushed
+    [*_, row] = next(board_rows.pr_group_rows(pushed))
+    assert row["change"] == "You approved this at 12:00 PM Nov 3. Since then: the old build now also probes subagent threads. Shown again because: it changes what you approved. change in plain words"
 
 
 @pytest.mark.parametrize("since", [None, {"changed": "the upload now retries twice"}, {"changed": " ", "because": "a failed upload retries"}])
 def test_a_re_asked_row_without_what_changed_since_his_tap_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], since: dict | None) -> None:
     """Owner 6:59 PM Oct 29 (coordinator #194315): 'if ur asking for a PR tap that Ive alrady apporiove dyou ned to tell me whats changed / why ur showing it gain'."""
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
-    shell.post("note", "desk-runner", changed("42590"), "42590")
+    shell.post("review", "fidelity-desk", changed(), "42590")
 
     assert gate(tmp_path, shell, groups(pr_row("42590") | ({"since": since} if since else {})), "--", "cc-present", "update-block") == 1
 
@@ -853,7 +884,7 @@ def test_a_re_asked_row_without_what_changed_since_his_tap_fails(tmp_path: Path,
 
 def test_a_re_asked_row_opens_with_his_tap_time_what_changed_and_why_it_is_shown_again(tmp_path: Path, shell: FakeShell) -> None:
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD, at="2026-10-30T01:59:00Z")}}
-    shell.post("note", "desk-runner", changed("42590"), "42590")
+    shell.post("review", "fidelity-desk", changed(), "42590")
 
     assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE | {"because": "a failed upload retries instead of failing the turn."}}), "--", "cc-present", "update-block") == 0
 
@@ -959,9 +990,7 @@ def stacked(shell: FakeShell, grade: str = "fidelity: ok {head} a review fix", b
     for pr in ("42590", "42591"):
         shell.post("review", "fidelity-desk", grade.format(head=HEAD[:7]), pr)
         shell.post("review", "finder-desk", f"finder: ok {HEAD[:7]} no majors", pr)
-        if fix:
-            shell.post("ask", "desk-runner", kept(pr), pr)
-        shell.post("note", "desk-runner", changed(pr), pr)
+        shell.post("review", "fidelity-desk", kept() if fix else changed(), pr)
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD), "42591": approved("42591", NEW_HEAD, at="2026-10-30T01:59:00Z")}}
 
 
