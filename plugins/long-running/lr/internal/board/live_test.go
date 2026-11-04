@@ -3,12 +3,18 @@ package board
 import (
 	"context"
 	"encoding/json"
-	"reflect"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -27,40 +33,36 @@ func outcomesOf(t *testing.T, raw string) Outcomes {
 
 func liveOf(t *testing.T, raw string, snapshots ...Snapshot) Live {
 	t.Helper()
-	live, err := LiveOf(outcomesOf(t, raw), snapshots)
+	live, err := LiveOf(outcomesOf(t, raw), snapshots, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return live
 }
 
-const prGroupsDoc = `{"doc":{"blocks":[{"id":"sec","type":"section","children":[{"id":"merge-prs","type":"pr-groups","groups":[{"id":"g","title":"Fixes","prs":[{"number":47321,"head":"632c4a5","title":"PR"}]}]}]}]},`
-
-func TestABoardRowNamesItsPRHeadAndTheOwnerVerdictAtThatHead(t *testing.T) {
-	live := liveOf(t, prGroupsDoc+`"interactions":{"triage":{"merge-prs":{"47321":{"verdict":"approved","head":"632c4a5","at":"`+tapped+`"}}}}}`)
-	if got, want := live.Lines(), []string{"board #47321 at 632c4a5: approved"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("lines = %v", got)
+func TestAPRWaitsOnHisTapOnlyWhenItsRowIsReadyAndUntapped(t *testing.T) {
+	rows := []store.ReviewRow{
+		{Number: 1, Head: liveHead, HeadAt: "2026-11-03T02:00:00Z", Title: "ready", ReadyForTap: true},
+		{Number: 2, Head: liveHead, Title: "tapped", ReadyForTap: true, Tapped: true},
+		{Number: 3, Head: liveHead, Title: "held", WaitsOn: "held, root"},
 	}
-	if waits := live.Waits(); len(waits) != 0 {
-		t.Fatalf("an answered row still waits: %+v", waits)
+	live, err := LiveOf(Outcomes{}, nil, rows)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestAVerdictAtAnOlderHeadLeavesTheRowWaitingOnTheOwner(t *testing.T) {
-	live := liveOf(t, prGroupsDoc+`"interactions":{"triage":{"merge-prs":{"47321":{"verdict":"approved","head":"aaaaaaa","at":"`+tapped+`"}}}}}`)
 	waits := live.Waits()
-	if len(waits) != 1 || waits[0].Line() != "tap merge-prs #47321 at 632c4a5, up since just now" {
+	if len(waits) != 1 || waits[0].Line() != "tap #1 at 632c4a5, head since 6:00 PM: ready" {
 		t.Fatalf("waits = %+v", waits)
 	}
 }
 
-func TestATriageRowTakesItsHeadFromItsHintAndARowWithNoHeadAwaitsNothing(t *testing.T) {
-	live := liveOf(t, `{"doc":{"blocks":[{"id":"t","type":"triage","items":[{"id":"merge-row-48401","hint":"at commit `+liveHead+` today"},{"id":"merge-row-48402","hint":"no sha"},{"id":"other"}]}]},"interactions":{}}`)
-	if want := []MergeRow{{"t", "48401", liveHead}, {"t", "48402", ""}}; !reflect.DeepEqual(live.Rows, want) {
-		t.Fatalf("rows = %+v", live.Rows)
+func TestAVerdictStandsOnlyAtTheHeadItNames(t *testing.T) {
+	live := liveOf(t, `{"interactions":{"triage":{"merge-prs":{"47321":{"verdict":"approved","head":"632c4a5","at":"`+tapped+`"}}}}}`)
+	if got := live.Decided("47321", liveHead); got != verdictApproved {
+		t.Fatalf("at its head = %q", got)
 	}
-	if waits := live.Waits(); len(waits) != 1 || waits[0].PR != "48401" {
-		t.Fatalf("waits = %+v", waits)
+	if got := live.Decided("47321", "aaaaaaa"); got != "" {
+		t.Fatalf("at a later head = %q", got)
 	}
 }
 
@@ -74,15 +76,15 @@ func TestAPickWaitsUntilTheOwnerPicksOrWritesAnAnswer(t *testing.T) {
 
 func TestAWaitIsDatedByTheFirstOfTheUnbrokenRunOfSnapshotsThatShowIt(t *testing.T) {
 	at := func(hour int) time.Time { return time.Date(2026, 11, 3, hour, 0, 0, 0, time.UTC) }
-	row, card := `{"rows":[[47321,"632c4a5"]]}`, `{"cards":[["card-a",[]]]}`
-	shown, err := firstShown([]Snapshot{{1, at(1), row}, {2, at(2), card}, {3, at(3), row}, {4, at(4), row}})
+	kept, gone := `{"cards":[["card-a",[]]]}`, `{"cards":[["card-b",[]]]}`
+	shown, err := firstShown([]Snapshot{{1, at(1), kept}, {2, at(2), gone}, {3, at(3), kept}, {4, at(4), kept}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !shown["row:47321:632c4a5"].Equal(at(3)) {
+	if !shown["card:card-a"].Equal(at(3)) {
 		t.Fatalf("shown = %v", shown)
 	}
-	if _, kept := shown["card:card-a"]; kept {
+	if _, stayed := shown["card:card-b"]; stayed {
 		t.Fatalf("a card off the newest snapshot stayed: %v", shown)
 	}
 }
@@ -125,5 +127,70 @@ func TestTheMainBoardIsTheArtifactBoundToTheRootSession(t *testing.T) {
 	}
 	if _, err := MainBoard(context.Background(), scripted{shell.Result{Code: 1, Stderr: "no daemon"}}, "root-session"); err == nil {
 		t.Fatal("an unread listing named a main board")
+	}
+}
+
+type countedBoard struct {
+	outcomes string
+	calls    int
+}
+
+func (c *countedBoard) Run(context.Context, shell.Command) (shell.Result, error) {
+	c.calls++
+	return shell.Result{Stdout: c.outcomes}, nil
+}
+
+func TestWaitsPrintsALinePerReadyRowAndPickWithOneBoardReadAtAnyCount(t *testing.T) {
+	const picks = 54
+	blocks := make([]string, picks)
+	for i := range blocks {
+		blocks[i] = fmt.Sprintf(`{"id":"card-%d","type":"card","title":"Which %d?","children":[{"id":"pick-%d","type":"choice"}]}`, i, i, i)
+	}
+	outcomes := `{"doc":{"blocks":[` + strings.Join(blocks, ",") + `]},"interactions":{}}`
+	for _, ready := range []int{47, 1000} {
+		t.Run(strconv.Itoa(ready), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", home)
+			t.Setenv("CCI_HOME", t.TempDir())
+			registry, state := filepath.Join(home, "long-running", "drives"), filepath.Join(home, "running")
+			for _, dir := range []string{registry, state} {
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			entry := fmt.Sprintf(`{"drive":"running","repo":%q,"state_dir":%q,"sessions":["s"]}`, repo, state)
+			if err := os.WriteFile(filepath.Join(registry, "running.json"), []byte(entry), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			s, err := store.Open(filepath.Join(state, "lr.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows := []store.ReviewRow{{Repo: repo, Number: 1, Head: head, ReadyForTap: true, Tapped: true}, {Repo: repo, Number: 2, Head: head, WaitsOn: "held, root"}, {Repo: "other/repo", Number: 3, Head: head, ReadyForTap: true}}
+			for i := range ready {
+				rows = append(rows, store.ReviewRow{Repo: repo, Number: number + i, Head: head, ReadyForTap: true})
+			}
+			if err := s.PutReviewRows(rows); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			board := &countedBoard{outcomes: outcomes}
+			var out strings.Builder
+			cmd := Command(&app.App{Runner: board, Now: func() time.Time { return t0 }})
+			cmd.SetArgs([]string{"waits", "--drive", "running"})
+			cmd.SetOut(&out)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+			if len(lines) != ready+picks || board.calls != 1 {
+				t.Fatalf("%d lines with %d board reads, want %d and 1", len(lines), board.calls, ready+picks)
+			}
+			if want := fmt.Sprintf("tap #%d at e718a74", number); !strings.HasPrefix(lines[0], want) {
+				t.Fatalf("first line = %q, want %q", lines[0], want)
+			}
+		})
 	}
 }

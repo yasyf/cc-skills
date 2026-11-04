@@ -174,22 +174,13 @@ func snapshotOf(ctx context.Context, a *app.App, entry drive.Entry, s *store.Sto
 	return cfg.Repo, byNumber, nil
 }
 
-func explainPRs(c *cobra.Command, a *app.App, entry drive.Entry, live Live, prs []string, asJSON bool) error {
+func explainPRs(c *cobra.Command, a *app.App, entry drive.Entry, live Live, stored []store.ReviewRow, prs []string, asJSON bool) error {
 	s, err := store.Memory()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = s.Close() }()
-	repo, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
-	if err != nil {
-		return err
-	}
-	record, err := store.Open(entry.Store())
-	if err != nil {
-		return err
-	}
-	defer func() { _ = record.Close() }()
-	stored, err := record.ReviewRows(repo)
+	_, snapshot, err := snapshotOf(c.Context(), a, entry, s, c.ErrOrStderr())
 	if err != nil {
 		return err
 	}
@@ -239,7 +230,7 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 	var prs []string
 	waits := &cobra.Command{
 		Use:   "waits",
-		Short: "One line per board row awaiting his tap and each pick he has not answered, or with --pr what each PR waits on",
+		Short: "One line per PR row ready for his tap and each pick he has not answered, or with --pr what each PR waits on",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			entry, session, err := opened()
@@ -254,12 +245,21 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 			if err != nil {
 				return err
 			}
-			live, err := LiveOf(outcomes, snapshots)
+			record, err := store.Open(entry.Store())
+			if err != nil {
+				return err
+			}
+			defer func() { _ = record.Close() }()
+			rows, err := record.ReviewRows(entry.Repo)
+			if err != nil {
+				return err
+			}
+			live, err := LiveOf(outcomes, snapshots, rows)
 			if err != nil {
 				return err
 			}
 			if len(prs) > 0 {
-				return explainPRs(c, a, entry, live, prs, asJSON)
+				return explainPRs(c, a, entry, live, rows, prs, asJSON)
 			}
 			found := live.Waits()
 			if asJSON {

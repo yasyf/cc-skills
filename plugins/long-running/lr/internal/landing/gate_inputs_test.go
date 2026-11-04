@@ -106,7 +106,7 @@ func TestASpriteReadsTheBoardsOpenCardAndTheRunnersRulesFromTheRecordTheMacPoste
 		t.Fatalf("inputs = %+v", inputs)
 	}
 	claim := gates.Claim{Repo: "o/r", PR: 49064, Head: strings.Repeat("a", 40)}
-	if _, refusals := gates.ExemptGo(claim, gates.Read{Cards: inputs.Cards, TapRows: inputs.Taps, TapRules: inputs.TapRules, Exempt: inputs.Exempt, GoLanes: inputs.GoLanes}); !strings.Contains(strings.Join(refusals, "; "), "owner card card-49064 is open") {
+	if _, refusals := gates.ExemptGo(claim, gates.Read{Cards: inputs.Cards, TapRules: inputs.TapRules, Exempt: inputs.Exempt, GoLanes: inputs.GoLanes}); !strings.Contains(strings.Join(refusals, "; "), "owner card card-49064 is open") {
 		t.Fatalf("the gate did not refuse on the published card: %q", refusals)
 	}
 }

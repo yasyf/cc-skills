@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
@@ -118,7 +117,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
 	}
 	claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards, TapRows: inputs.Taps}
+	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards}
 	if flags.sweep {
 		if _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
@@ -221,20 +220,6 @@ func landingSection(path string) (landingConfig, error) {
 	}
 	section.ExemptGrades = gates.Grades(section.ExemptGrades, section.GoClasses, section.PortPhrase)
 	return section, nil
-}
-
-func ownerWaits(live board.Live) ([]gates.Card, []gates.TapRow) {
-	cards := make([]gates.Card, 0, len(live.Picks))
-	for _, pick := range live.Picks {
-		cards = append(cards, gates.Card{ID: pick.Block, Title: pick.Title})
-	}
-	var taps []gates.TapRow
-	for _, wait := range live.OpenTaps() {
-		if number, err := strconv.Atoi(wait.PR); err == nil {
-			taps = append(taps, gates.TapRow{PR: number, Head: wait.Head})
-		}
-	}
-	return cards, taps
 }
 
 func currentHeads(ctx context.Context, c ccx.Client, repo string, numbers []int, head string) (map[int]string, error) {

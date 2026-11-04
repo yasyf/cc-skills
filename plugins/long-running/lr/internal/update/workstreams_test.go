@@ -75,7 +75,7 @@ func TestEachWorkstreamRowIsComputedFromItsLanesRecordsPRsAndBoardAndNamesItsLiv
 	}
 	in.Book = book
 	in.Cards = []board.Wait{
-		{Kind: "tap", Block: "merge", PR: "49509", Head: "abc1234", Since: "10:50 AM"},
+		{Kind: "tap", PR: "49509", Head: "abc1234", Since: "10:50 AM", Title: "stops the crash"},
 		{Kind: "pick", Block: "card-durable-agents-store", Subject: "store", Title: "which store keeps a run", Since: "10:40 AM"},
 		{Kind: "pick", Block: "card-signal-design", Subject: "design", Title: "valkey or postgres", Since: "10:30 AM"},
 		{Kind: "pick", Block: "card-design-signals", Subject: "naming", Title: "what the signals page is called", Since: "10:20 AM"},
@@ -101,7 +101,7 @@ func TestEachWorkstreamRowIsComputedFromItsLanesRecordsPRsAndBoardAndNamesItsLiv
 	if durable[5] != "#49509 red; durable-agents-fix-1: waits on the review of #49509" {
 		t.Errorf("blocks = %q", durable[5])
 	}
-	if !strings.HasPrefix(durable[6], "tap merge #49509 at abc1234, up since 10:50 AM; pick card-durable-agents-store") || strings.Contains(durable[6], "signal") {
+	if !strings.HasPrefix(durable[6], "tap #49509 at abc1234, head since 10:50 AM: stops the crash; pick card-durable-agents-store") || strings.Contains(durable[6], "signal") {
 		t.Errorf("you must = %q", durable[6])
 	}
 

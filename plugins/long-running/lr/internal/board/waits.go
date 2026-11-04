@@ -40,7 +40,7 @@ func pacificStamp(stamp string) string {
 
 func (l Live) tapFact(pr, sha string, row store.ReviewRow, recorded bool) string {
 	entry := l.Taps[pr]
-	if decided := l.Decided(MergeRow{PR: pr, Head: sha}); decided != "" {
+	if decided := l.Decided(pr, sha); decided != "" {
 		fact := fmt.Sprintf("you %s it at %s", decided, abbreviate(sha))
 		if entry.At != "" {
 			fact += " at " + pacificStamp(entry.At)
@@ -69,7 +69,7 @@ func (l Live) Explain(pr int, snapshot map[int]machine.Facts, rows map[int]store
 		return PRWait{pr, f.Head, true, fmt.Sprintf("%s: waits on your tap on the review tab", subject)}
 	}
 	fact := l.tapFact(strconv.Itoa(pr), f.Head, row, recorded)
-	if tapped && l.Decided(MergeRow{PR: strconv.Itoa(pr), Head: f.Head}) == "" {
+	if tapped && l.Decided(strconv.Itoa(pr), f.Head) == "" {
 		fact = "a land order stands at " + abbreviate(f.Head)
 	}
 	if recorded {

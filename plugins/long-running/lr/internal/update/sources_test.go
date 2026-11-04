@@ -12,12 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -304,9 +307,6 @@ func TestABoardThatDoesNotReadIsNamedAndTheRestStillRenders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(in.Board, []string{"board unread: cc-present outcomes exited 1: no board"}) {
-		t.Fatalf("board = %v", in.Board)
-	}
 	if !strings.Contains(Render(in).Text, "- board unread: cc-present outcomes exited 1: no board") {
 		t.Fatal("the render dropped the board's failure")
 	}
@@ -391,5 +391,37 @@ func TestTheBoardsDatesComeFromBoardWatchSnapshotsInTheSameDayOfRecords(t *testi
 	impostor := Record{Seq: 5, Lane: "someone", Topic: boardTopic, Kind: "note", At: ago(5), Board: `{"rows":[]}`}
 	if got := snapshotsOf([]Record{snapshot, other, impostor}); len(got) != 1 || got[0].Seq != 3 {
 		t.Fatalf("snapshots = %+v", got)
+	}
+}
+
+type boardRead struct{ stdout string }
+
+func (b boardRead) Run(context.Context, shell.Command) (shell.Result, error) {
+	return shell.Result{Stdout: b.stdout}, nil
+}
+
+func TestTheUpdateCountsHisReadyRowsWhenTheBoardCarriesNoPRRow(t *testing.T) {
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 1, Head: "abc1234", ReadyForTap: true}, {Repo: "o/r", Number: 2, Head: "abc1234", ReadyForTap: true}, {Repo: "o/r", Number: 3, Head: "abc1234", WaitsOn: "held, root"}}); err != nil {
+		t.Fatal(err)
+	}
+	stdout := `{"doc":{"blocks":[{"id":"card-a","type":"card","title":"Which one?","children":[{"id":"open","type":"choice"}]}]},"interactions":{}}`
+	entry := drive.Entry{Repo: "o/r", Sessions: []string{"root"}, StateDir: t.TempDir()}
+	sources := src(nil, nil, nil, nil)
+	sources.Board = Wire(&app.App{Runner: boardRead{stdout}}, entry, s).Board
+	in, err := Collect(context.Background(), sources, testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := yourTaps(in); !reflect.DeepEqual(lines, []string{"- 3 open, in order on the dashboard's Needs me tab"}) {
+		t.Fatalf("taps = %v", lines)
+	}
+	lines := statusBoard(context.Background(), sources, nil)
+	if len(lines) != 2 || lines[0].PR != "1" || lines[1].PR != "2" {
+		t.Fatalf("status board = %+v", lines)
 	}
 }
