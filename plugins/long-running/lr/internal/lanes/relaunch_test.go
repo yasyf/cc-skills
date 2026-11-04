@@ -169,10 +169,44 @@ func TestAQuietSpriteLaneOrcaReportsLiveIsNeverRelaunchedForPostingNoRecord(t *t
 	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", "has posted no record in the 61 min since its launch, and Orca does not report it live"}})
 }
 
-func TestUnreadOrdersRaiseNoBlockerForASpriteLaneTheSupervisorSeesNoToolCallsFrom(t *testing.T) {
+func TestAnOverdueItemsAskToAParkedLaneIsRelayedThroughTheDesk(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, Self, "lr.ask", t0, "org/repo#1 restack overdue", lane2))
+	f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0.Add(mins(11)), Dispatch: "ctx_1"}}
+
+	tick(t, s, f, t0.Add(mins(11)))
+
+	relays := f.ofKind("go")
+	if len(relays) != 1 || !strings.HasPrefix(relays[0].Text, "orca-desk: relay to "+lane2+": Orders addressed to you are unread: supervisor's lr.ask #2") {
+		t.Fatalf("relays = %+v", relays)
+	}
+}
+
+func TestAFailedGradeIsAnOrderToItsLaneAndAPassIsNot(t *testing.T) {
+	for text, relays := range map[string]int{
+		"finder: major 187ae77 2 open over delta 035bd9e..187ae77": 1,
+		"fidelity: missing 187ae77 the plan row":                   1,
+		"finder: ok 187ae77 no majors":                             0,
+		"fidelity: ok 187ae77 class owner-pick":                    0,
+	} {
+		t.Run(text, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			f.feed = append(f.feed, rec(2, "finder-desk", "review", t0, text, lane2))
+			f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0.Add(mins(11)), Dispatch: "ctx_1"}}
+
+			tick(t, s, f, t0.Add(mins(11)))
+
+			equal(t, len(f.ofKind("go")), relays)
+		})
+	}
+}
+
+func TestUnreadOrdersAreRelayedThroughTheDeskExceptForASpriteLaneTheSupervisorSeesNoToolCallsFrom(t *testing.T) {
 	for name, c := range map[string]struct {
-		setup    func(*testing.T, *store.Store) *fake
-		blockers int
+		setup  func(*testing.T, *store.Store) *fake
+		relays int
 	}{
 		"a Sprite lane": {func(t *testing.T, s *store.Store) *fake { return onSprite(t, s) }, 0},
 		"a Mac lane":    {func(t *testing.T, s *store.Store) *fake { return adopted(t, s, writeBrief(t), "") }, 1},
@@ -185,13 +219,13 @@ func TestUnreadOrdersRaiseNoBlockerForASpriteLaneTheSupervisorSeesNoToolCallsFro
 
 			tick(t, s, f, t0.Add(mins(11)))
 
-			unread := 0
-			for _, p := range f.ofKind("blocker") {
-				if strings.HasPrefix(p.Text, "Addressed orders unread") {
-					unread++
+			relays := 0
+			for _, p := range f.ofKind("go") {
+				if strings.HasPrefix(p.Text, "orca-desk: relay to "+lane2+": Orders addressed to you are unread: ") {
+					relays++
 				}
 			}
-			equal(t, unread, c.blockers)
+			equal(t, relays, c.relays)
 		})
 	}
 }

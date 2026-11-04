@@ -699,7 +699,6 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 	for _, order := range must(s.Unread()) {
 		held[order.Lane] = append(held[order.Lane], order)
 	}
-	late, raised := map[string][]string{}, map[string][]string{}
 	for _, lane := range must(s.Lanes(live...)) {
 		if len(held[lane.Name]) == 0 {
 			continue
@@ -715,15 +714,8 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 		}
 		pastDue := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Raised || now.Sub(order.At) < unreadAfter })
 		if len(pastDue) > 0 && lane.Placement != placedOnSprite {
-			to := noticeTo(s, lane.Name)
-			late[to] = append(late[to], fmt.Sprintf("%s holds %s, the oldest for %d min", lane.Name, orderWords(pastDue), int(now.Sub(pastDue[0].At).Minutes())))
-			raised[to] = append(raised[to], lane.Name)
-		}
-	}
-	for _, to := range slices.Sorted(maps.Keys(late)) {
-		do(d.Post(Post{Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("Addressed orders unread for %d minutes or more, with no tool call or record from the lane since: %s. Relay to the lane through orca-desk, or relaunch it.", int(unreadAfter.Minutes()), strings.Join(late[to], "; "))}))
-		for _, name := range raised[to] {
-			do(s.MarkUnreadRaised(name))
+			do(d.Post(Post{Kind: "go", To: []string{orcaDesk}, Text: fmt.Sprintf("%s: relay to %s: Orders addressed to you are unread: %s, the oldest for %d min. Read them with `cci tail --mail` and act on them.", orcaDesk, lane.Name, orderWords(pastDue), int(now.Sub(pastDue[0].At).Minutes()))}))
+			do(s.MarkUnreadRaised(lane.Name))
 		}
 	}
 	return woken, nil

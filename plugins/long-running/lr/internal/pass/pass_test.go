@@ -383,8 +383,8 @@ func TestAnOverdueRedReachesOnlyARunningOwnerOrItsNamedSuccessorElseRootAsUnowne
 		name, state, retiredBy string
 		want                   posted
 	}{
-		{"the owner runs", string(store.LaneDesired), "", posted{[]string{"lane-7"}, bus.Note{Text: "org/repo#45470 fix-red overdue"}}},
-		{"the owner stood down for a named successor", string(store.LaneRetired), "lane-9", posted{[]string{"lane-9"}, bus.Note{Text: "org/repo#45470 fix-red overdue"}}},
+		{"the owner runs", string(store.LaneDesired), "", posted{[]string{"lane-7"}, bus.Ask{Text: "org/repo#45470 fix-red overdue"}}},
+		{"the owner stood down for a named successor", string(store.LaneRetired), "lane-9", posted{[]string{"lane-9"}, bus.Ask{Text: "org/repo#45470 fix-red overdue"}}},
 		{"the owner stopped while a later lane of its stem runs", string(store.LaneRetired), "", posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470", Cause: "UNOWNED, lane-7 is not running: fix-red overdue"}}},
 		{"the owner is held", string(store.LaneHeld), "", posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470", Cause: "UNOWNED, lane-7 is not running: fix-red overdue"}}},
 	} {

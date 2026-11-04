@@ -22,6 +22,7 @@ const (
 	Self         = "supervisor"
 	Root         = "root"
 	OwnerRelay   = "owner-relay"
+	orcaDesk     = "orca-desk"
 	progressDesk = "progress-desk"
 	RoleMeta     = "meta"
 	roleRelease  = "release"
