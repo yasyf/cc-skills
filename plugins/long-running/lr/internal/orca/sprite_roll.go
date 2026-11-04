@@ -41,23 +41,49 @@ type SpriteRoll struct {
 	Orca   runWorkers
 	Fleet  hostedTasks
 	Store  *store.Store
+	Host   string
 	Now    func() time.Time
 	Out    io.Writer
 }
 
-func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string, probe string, probeOnly bool) error {
-	pins, err := readPins(env)
+func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path string, now func() time.Time, out io.Writer) error {
+	file, err := readRunnerFile(path)
+	if err != nil || file.Host.Sprite == "" {
+		return err
+	}
+	env, err := runnerEnv(path)
 	if err != nil {
 		return err
+	}
+	roll := SpriteRoll{Runner: runner, Store: s, Now: now, Out: out}
+	pins, err := roll.pins(env)
+	if err != nil {
+		return err
+	}
+	return roll.install(ctx, pins, []string{file.Host.Sprite}, file.Host.Sprite)
+}
+
+func (r SpriteRoll) pins(env func(string) string) (spritePins, error) {
+	pins, err := readPins(env)
+	if err != nil {
+		return pins, err
 	}
 	for _, tool := range pins.tools {
 		why, err := r.Store.BadTool(tool.Name, tool.Version)
 		if err != nil {
-			return err
+			return pins, err
 		}
 		if why != "" {
-			return refuse("nothing rolled: %s %s is marked bad, since %s; pin another version", tool.Name, tool.Version, why)
+			return pins, refuse("nothing rolled: %s %s is marked bad, since %s; pin another version", tool.Name, tool.Version, why)
 		}
+	}
+	return pins, nil
+}
+
+func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string, probe string, probeOnly bool) error {
+	pins, err := r.pins(env)
+	if err != nil {
+		return err
 	}
 	workers, err := r.Orca.Workers(ctx, run)
 	if err != nil {
@@ -74,6 +100,9 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			boxes = append(boxes, sprite.Workspace)
 		}
 	}
+	if r.Host != "" && !slices.Contains(boxes, r.Host) {
+		boxes = append(boxes, r.Host)
+	}
 	slices.Sort(boxes)
 	if probe != "" {
 		at := slices.Index(boxes, probe)
@@ -85,6 +114,10 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			boxes = boxes[:1]
 		}
 	}
+	return r.install(ctx, pins, boxes, probe)
+}
+
+func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string, probe string) error {
 	var unreached []string
 	for done, box := range boxes {
 		result, err := r.Runner.Run(ctx, shell.Command{Argv: pins.installArgv(box, nil), Timeout: spriteInstallTimeout})
@@ -221,7 +254,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	var probeOnly bool
 	roll := &cobra.Command{
 		Use:   "roll",
-		Short: "Install runner.json's Sprite pins on every Sprite with a live worker in the drive's Run, the probe Sprite first; a pin that fails is marked bad, stops the roll, and is never rolled again",
+		Short: "Install runner.json's Sprite pins on the desk host and every Sprite with a live worker in the drive's Run, the probe Sprite first; a pin that fails is marked bad, stops the roll, and is never rolled again",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, run, state, err := opened()
@@ -233,11 +266,15 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			file, err := readRunnerFile(filepath.Join(state, "runner.json"))
+			if err != nil {
+				return err
+			}
 			home, err := stateHome()
 			if err != nil {
 				return err
 			}
-			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Now: a.Now, Out: cmd.OutOrStdout()}
+			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Host: file.Host.Sprite, Now: a.Now, Out: cmd.OutOrStdout()}
 			if probeOnly && probe == "" {
 				return errors.New("--probe-only needs --probe, so it names the one Sprite to install on")
 			}
