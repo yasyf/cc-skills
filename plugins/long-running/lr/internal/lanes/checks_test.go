@@ -297,7 +297,7 @@ func (f commanded) Run(_ context.Context, c shell.Command) (shell.Result, error)
 	return f(c)
 }
 
-var releaseComponents = map[string]string{"api/": "api", "common/": "api", "go/sand/": "sand", "go/llm-gateway/": "llm-gateway"}
+var releaseComponents = map[string]string{"api/": "api", "common/": "api", "go/sand/": "sand", "go/llm-gateway/": "llm-gateway", "tools/remote-builder/": "sanddb", "rust/crates/": "sand-next"}
 
 func notLive(t *testing.T, ledger string, files map[string]string, live string, ancestor bool) (*LandedNotLive, *fakeBus) {
 	t.Helper()
@@ -316,6 +316,8 @@ func notLive(t *testing.T, ledger string, files map[string]string, live string, 
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1}
 		case argv[0] == tokenTool:
 			return shell.Result{Stdout: "read-token\n"}, nil
+		case slices.Equal(argv[len(argv)-2:], []string{"status", "--json"}):
+			return shell.Result{Stdout: "[]"}, nil
 		case slices.Equal(argv[len(argv)-2:], []string{"select", "--pr"}):
 			var request struct {
 				Paths []string `json:"paths"`
@@ -392,7 +394,7 @@ func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *
 	state, blocker := bus.posted[0], bus.posted[1]
 	equal(t, []string{state.Kind, state.Topic, state.Text}, []string{"state", notLiveTopic, "LANDED-NOT-LIVE sand: #47799"})
 	equal(t, blocker.Kind, blockerKind)
-	equal(t, blocker.Text, "LANDED-NOT-LIVE sand: #47799. The oldest landed 120 minutes ago, and no live release or running release build carries them; start each release: `tools/ci release start --only sand --manual`")
+	equal(t, blocker.Text, "LANDED-NOT-LIVE sand: #47799. The oldest landed 120 minutes ago, and no live release, running release build or release that found its target unchanged carries them; each ships with the next release that picks its target, and the owner starts that release")
 }
 
 func TestARootHoldOnATargetKeepsItsLandingQuietUntilTheHoldEnds(t *testing.T) {
@@ -450,7 +452,7 @@ func TestALandingOwesTheTargetsItsFilesReachNeverItsTitleScope(t *testing.T) {
 
 	equal(t, len(bus.posted), 2)
 	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE api: #48377")
-	equal(t, bus.posted[1].Text, "LANDED-NOT-LIVE api: #48377. The oldest landed 120 minutes ago, and no live release or running release build carries them; start each release: `tools/ci release start --only api --manual`")
+	equal(t, bus.posted[1].Text, "LANDED-NOT-LIVE api: #48377. The oldest landed 120 minutes ago, and no live release, running release build or release that found its target unchanged carries them; each ships with the next release that picks its target, and the owner starts that release")
 }
 
 func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
@@ -534,13 +536,55 @@ func TestANewLandingOnATargetAddsOneRecordNamingEveryTarget(t *testing.T) {
 	equal(t, second.PRs, []string{"48377", "48400", "47799"})
 	equal(t, second.Resolves, int64(2))
 	contains(t, second.Text, "LANDED-NOT-LIVE api: #48377, #48400; sand: #47799. ")
-	contains(t, second.Text, "start each release: `tools/ci release start --only api --manual`, `tools/ci release start --only sand --manual`")
 
 	posted := len(bus.posted)
 	if err := check.Check(context.Background(), t0.Add(2*notLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, len(bus.posted), posted)
+}
+
+func releasedUnchanged(t *testing.T, releases string) (*LandedNotLive, *fakeBus) {
+	t.Helper()
+	landed := t0.Add(-2 * time.Hour).Format(time.RFC3339)
+	ledger := fmt.Sprintf(`[{"pr":"49101","state":"landed","title":"remote-builder: start sccache first","landed_sha":"abc","landed_at":%q},{"pr":"48324","state":"landed","title":"sandsql-replication: one replicator task","landed_sha":"def","landed_at":%q}]`, landed, landed)
+	files := map[string]string{"abc": "tools/remote-builder/README.md\n", "def": "rust/crates/sandsql-replica/src/subscribe.rs\n"}
+	check, bus := notLive(t, ledger, files, `[{"target":"sanddb","commit":"s0"},{"target":"sand-next","commit":"n0"}]`, false)
+	check.holds = map[[2]string]bool{{"s0", "abc"}: false, {"n0", "def"}: false, {"39ba620", "abc"}: true, {"39ba620", "def"}: true}
+	answers := check.Env.Runner
+	check.Env.Runner = commanded(func(c shell.Command) (shell.Result, error) {
+		if slices.Contains(c.Argv, "status") {
+			return shell.Result{Stdout: releases}, nil
+		}
+		return answers.Run(context.Background(), c)
+	})
+	return check, bus
+}
+
+func TestALandingAReleaseFoundUnchangedOnItsTargetOwesNothingThere(t *testing.T) {
+	check, bus := releasedUnchanged(t, `[{"id":"12597","mode":"release","status":"cancelled","commit":"39ba620","unchanged":[{"component":"sanddb","env":"plat-usw2-prod"}]}]`)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand-next: #48324")
+	equal(t, bus.posted[1].PRs, []string{"48324"})
+	if strings.Contains(bus.posted[1].Text, "tools/ci") {
+		t.Fatalf("the blocker printed a release command: %s", bus.posted[1].Text)
+	}
+}
+
+func TestADryRunThatFoundATargetUnchangedLeavesItsLandingsOwed(t *testing.T) {
+	check, bus := releasedUnchanged(t, `[{"id":"12590","mode":"dry-run","status":"converged","commit":"39ba620","unchanged":[{"component":"sanddb","env":"plat-usw2-prod"},{"component":"sand-next","env":"plat-usw2-prod"}]}]`)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand-next: #48324; sanddb: #49101")
 }
 
 type spriteRun struct {

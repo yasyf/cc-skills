@@ -53,6 +53,9 @@ type Cut struct {
 	Commit     string   `json:"commit"`
 	Components []string `json:"components"`
 	Envs       []string `json:"envs"`
+	Unchanged  []struct {
+		Component string `json:"component"`
+	} `json:"unchanged"`
 	Timestamps struct {
 		Running   time.Time `json:"running"`
 		Converged time.Time `json:"converged"`
@@ -148,12 +151,12 @@ func touchedBy(ctx context.Context, runner shell.Runner, cli []string, checkout 
 func (r *ReleaseRead) View(ctx context.Context) ReleaseView {
 	var view ReleaseView
 	view.Deploys, view.LiveUnread = readDeploys(ctx, r.Runner, &r.Token, r.CLI, r.Checkout)
-	view.Cuts, view.CutsUnread = r.cuts(ctx)
+	view.Cuts, view.CutsUnread = readCuts(ctx, r.Runner, &r.Token, r.CLI, r.Checkout)
 	return view
 }
 
-func (r *ReleaseRead) cuts(ctx context.Context) ([]Cut, error) {
-	result, err := r.Token.Run(ctx, r.Runner, shell.Command{Argv: append(slices.Clone(r.CLI), "status", "--json"), Dir: r.Checkout, Timeout: releaseReadLimit})
+func readCuts(ctx context.Context, runner shell.Runner, token *bkread.Token, cli []string, checkout string) ([]Cut, error) {
+	result, err := token.Run(ctx, runner, shell.Command{Argv: append(slices.Clone(cli), "status", "--json"), Dir: checkout, Timeout: releaseReadLimit})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
 	}
