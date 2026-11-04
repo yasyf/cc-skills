@@ -33,6 +33,7 @@ CHOICE = re.compile(
     r"|(?i:\b(?:reply|respond|answer)) with (?:(?i:the |a )?(?i:letter|number)|[A-H1-9]\b)"
 )
 DM_CARD = "slack_dm_status"
+DM_URL = "/archives/D"
 REPLY = "mcp__plugin_long-running_lr__reply"
 OWNER_MARK = "mcp__plugin_long-running_lr__owner_mark"
 LEDGER_SURFACE = re.compile(r"^- ledger: m\d", re.MULTILINE)
@@ -413,6 +414,8 @@ def dm(tool: str = DM_CARD, **given: object) -> Input:
         dm(text="A) keeps one replica for every chat. B) gives each chat its own, so one slow chat stalls nobody.", about="pick-buttons:relay"): Allow(),
         dm("slack_send", channel_id="D0B6Z", text="The relay fix merged at 3:10 AM, and the dashboard shows it."): Allow(),
         dm("slack_send", channel_id="C0RELEASES1", text=PICK): Allow(),
+        dm("slack_reply", url="https://brook.slack.com/archives/D0B6Z/p1793635190051179", text=PICK): Warn(pattern=r"never plain text"),
+        dm("slack_reply", url="https://brook.slack.com/archives/C0RELEASES1/p1793635190051179", text=PICK): Allow(),
         Input(command="cc-slack dm-status 'Reply with A or B: A) one shared replica, B) one per chat'", state=[CompactionState(active=True, communicator=True)]): Warn(pattern=r"never plain text"),
         Input(command=f"cc-slack send --channel D0B6Z --text '{PICK}'", state=[CompactionState(active=True, communicator=True)]): Warn(pattern=r"never plain text"),
         Input(command=f"cc-slack dm-status --card '{json.dumps(RELAY_CARD)}'", state=[CompactionState(active=True, communicator=True)]): Allow(),
@@ -432,13 +435,13 @@ def owner_asks_post_as_cards(evt: BaseHookEvent) -> HookResult | None:
 def dm_posts(evt: BaseHookEvent) -> list[tuple[str, dict]]:
     if evt.tool_name != "Bash":
         given = evt._tool_input
-        to_dm = evt.tool_name.endswith(DM_CARD) or str(given.get("channel_id", "")).startswith("D")
+        to_dm = evt.tool_name.endswith(DM_CARD) or str(given.get("channel_id", "")).startswith("D") or DM_URL in str(given.get("url") or "")
         return [dm_words(str(given.get("text") or ""), given.get("card") or {})] if to_dm and not given.get("about") else []
     posts = []
     for call in evt.command.calls("cc-slack"):
         values = CLI.bind(call).values
         verb, *words = values.get("words") or ("",)
-        to_dm = verb == "dm-status" or (verb in ("send", "reply", "edit") and any(str(channel).startswith("D") for channel in values.get("channel", ())))
+        to_dm = verb == "dm-status" or (verb in ("send", "reply", "edit") and (any(str(channel).startswith("D") for channel in values.get("channel", ())) or any(DM_URL in str(url) for url in values.get("url", ()))))
         if to_dm and not values.get("about"):
             posts.append(dm_words("\n".join([*map(str, values.get("text", ())), *words]), card(next(iter(values.get("card", ())), ""))))
     return posts
