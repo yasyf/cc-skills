@@ -41,6 +41,7 @@ STOP = "a warning on Stop reaches nobody, and {what}"
 KEPT_REFUSALS = KEPT | {
     "blocking_asks.drive_roots_never_park_on_asks": PARKS,
     "communicator_chat.communicator_chat:llm_gate_communicator_replies_carry_owner_news": STOP.format(what="the owner would read internal bookkeeping as his update"),
+    "communicator_chat.A do-nothing Bash call ends no turn, and t": "the call has already shown in the owner's window when a warning lands",
     "desk_ownership.The coordinator owns the relay and every d": "trust: a runner or desk started from the communicator",
     "incident_accepts_findings.incident_accepts_findings": "a push restarts the incident PR's CI the moment it lands, so a warning comes too late (cci 382428)",
     "incident_commands.release_undo_cites_its_cause": "trust: a rollback without the owner's word",

@@ -18,6 +18,7 @@ CCI_CHANNEL = '<channel source="plugin:cc-inbox:cci"'
 MONITOR = [{"id": "m1", "type": "monitor", "status": "running", "description": "cci subscribe owner-relay"}]
 WAKE = f'{CCI_CHANNEL} seq="359771">#359771 board-watch owner: the owner picked “Land” on merge-prs</channel>'
 REFUSED = {"type": "attachment", "timestamp": "2026-01-15T20:19:00Z", "attachment": {"type": "hook_blocking_error", "hookName": "Stop", "blockingError": {"blockingError": REPLY, "command": "capt-hook"}}}
+NOOP = "A do-nothing Bash call ends no turn, and the owner sees every one. A wake with nothing for him ends here: no text and no tool call, even when Claude Code says he has not heard from you in a while."
 READS = "Two Bash reads in a row with no subagent between them. Hand the rest of this read to `Agent` with `Explore` and `model: sonnet`, and keep only its answer."
 
 ACTIVE = [CompactionState(active=True)]
@@ -61,6 +62,11 @@ class FollowsBashRead:
     def check(self, evt: BaseHookEvent) -> bool:
         calls = [use.call for use in evt.ctx.turn.tool_calls.items if use.ref.tool_use_id != evt.tool_use_id and use.call.name in {"Bash", "Agent", "Task"}]
         return bool(calls) and calls[-1].name == "Bash" and read_call("Bash", [(Path(cmd.argv[0]).name, *cmd.argv[1:]) for cmd in calls[-1].command_line if cmd.argv])
+
+
+class NoOpBash:
+    def check(self, evt: BaseHookEvent) -> bool:
+        return [(call.name, *call.args) for call in evt.command.calls()] in ([("true",)], [(":",)])
 
 
 llm_gate(
@@ -121,5 +127,20 @@ hook(
         Input(command="cat /drive/progress-desk/steps.json", state=ACTIVE, transcript=turn()): Allow(),
         Input(command="cci post --lane owner-relay --kind ask --to root --text x", state=ACTIVE, transcript=turn(T.tool("Bash", command="rg -n url /drive/live-dashboard"))): Allow(),
         Input(command="cat /drive/progress-desk/steps.json", agent_id="a1b2c3", state=ACTIVE, transcript=turn(T.tool("Bash", command="rg -n url /drive/live-dashboard"))): Allow(),
+    }),
+)
+
+hook(
+    Event.PreToolUse,
+    block=True,
+    message=NOOP,
+    only_if=[Communicator(), Tool("Bash"), NoOpBash()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(command="true", state=ACTIVE, transcript=turn()): Block(pattern=r"^A do-nothing Bash call"),
+        Input(command=":", state=ACTIVE, transcript=turn()): Block(),
+        Input(command="true && cci post --lane owner-relay --kind note --text x", state=ACTIVE, transcript=turn()): Allow(),
+        Input(command="cci post --lane owner-relay --kind note --text true", state=ACTIVE, transcript=turn()): Allow(),
+        Input(command="true", agent_id="a1b2c3", state=ACTIVE, transcript=turn()): Allow(),
     }),
 )
