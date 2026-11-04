@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talkboard"
 )
 
 const (
@@ -31,6 +32,7 @@ const (
 	maxPicks     = 4
 	maxLinks     = 5
 	maxPRs       = 10
+	maxBlocks    = 8
 	maxSlackBody = 2800
 	withdrawn    = " withdrawn"
 	doneLead     = "Done, nothing for you"
@@ -78,6 +80,9 @@ type Reply struct {
 	Action      string   `json:"action,omitempty"`
 	By          string   `json:"by,omitempty"`
 	Routed      int      `json:"routed,omitempty"`
+
+	Blocks []json.RawMessage `json:"blocks,omitempty"`
+	On     string            `json:"on,omitempty"`
 }
 
 type Outcome struct {
@@ -89,6 +94,7 @@ type Outcome struct {
 type delivery struct {
 	Reply    Reply     `json:"reply"`
 	At       time.Time `json:"at"`
+	Re       string    `json:"re,omitempty"`
 	Surfaces []Outcome `json:"surfaces"`
 }
 
@@ -108,11 +114,11 @@ type Fanout struct {
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	seen := r
 	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
-	steps := []step{{f.board, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}}
+	steps := []step{{f.board, seen}, {f.thread, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}}
 	if r.quiet() {
 		steps = []step{{f.board, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	}
-	sent := make([]Outcome, 0, 5)
+	sent := make([]Outcome, 0, 6)
 	for _, s := range steps {
 		sent = append(sent, s.surface(ctx, s.reply, sent)...)
 	}
@@ -181,6 +187,16 @@ func (r Reply) check() error {
 		return fmt.Errorf("a reply carries at most %d links", maxLinks)
 	case len(r.PRs) > maxPRs:
 		return fmt.Errorf("a reply carries at most %d PRs", maxPRs)
+	case len(r.Blocks) > maxBlocks:
+		return fmt.Errorf("a reply carries at most %d blocks", maxBlocks)
+	}
+	for n, raw := range r.Blocks {
+		var block struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &block); err != nil || block.Type == "" {
+			return fmt.Errorf("block %d is not a cc-present block with a type", n+1)
+		}
 	}
 	for _, pick := range r.Picks {
 		if pick == "" || utf8.RuneCountInString(pick) > maxPick {
@@ -303,6 +319,72 @@ func (f Fanout) withdraw(ctx context.Context, r Reply) []Outcome {
 	return []Outcome{{Surface: "board", Ref: id + withdrawn}, slack}
 }
 
+func (f Fanout) thread(ctx context.Context, r Reply, _ []Outcome) []Outcome {
+	if !talkboard.Opened(f.Entry) {
+		return nil
+	}
+	id := "reply-" + r.ID
+	prose := strings.TrimSpace(r.MD)
+	for _, link := range r.Links {
+		prose += "\n- [" + link.Label + "](" + link.URL + ")"
+	}
+	if len(r.Picks) > 0 {
+		prose += "\n\nThe question is under Needs me and in Slack."
+	}
+	children := make([]map[string]any, 0, 1+len(r.Blocks)+len(r.PRs))
+	children = append(children, map[string]any{"id": id + "-md", "type": "markdown", "md": prose})
+	for n, raw := range r.Blocks {
+		var block map[string]any
+		if err := json.Unmarshal(raw, &block); err != nil {
+			return []Outcome{{Surface: "talk", Error: err.Error()}}
+		}
+		block["id"] = fmt.Sprintf("%s-b%d", id, n+1)
+		if actions, ok := block["actions"].([]any); ok {
+			for _, action := range actions {
+				if named, ok := action.(map[string]any); ok {
+					named["target"] = talkboard.Section
+				}
+			}
+		}
+		children = append(children, block)
+	}
+	for _, pr := range r.PRs {
+		named := pullURL.FindStringSubmatch(pr)
+		children = append(children, map[string]any{"id": id + "-pr-" + named[2], "type": "pr", "repo": named[1], "number": json.Number(named[2])})
+	}
+	card := map[string]any{"id": id, "type": "card", "title": r.Title, "mirror": false, "children": children}
+	if re := f.anchor(r.ID); re != "" {
+		card["re"] = re
+	}
+	block, err := json.Marshal(card)
+	if err != nil {
+		return []Outcome{{Surface: "talk", Error: err.Error()}}
+	}
+	if _, err := f.Runner.Run(ctx, shell.Command{
+		Argv:    []string{"cc-present", "update-block", "-", "--session", talkboard.Session(f.Entry), "--round", "current"},
+		Stdin:   string(block),
+		Dir:     f.Entry.Checkout,
+		Timeout: postTimeout,
+	}); err != nil {
+		return []Outcome{failed("talk", err)}
+	}
+	return []Outcome{{Surface: "talk", Ref: id}}
+}
+
+func (f Fanout) anchor(id string) string {
+	data, err := os.ReadFile(filepath.Join(f.Entry.StateDir, storeDir, id+".json"))
+	if err != nil {
+		return talkboard.LastNote(f.Entry)
+	}
+	var saved struct {
+		Re string `json:"re"`
+	}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return talkboard.LastNote(f.Entry)
+	}
+	return saved.Re
+}
+
 func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if surface(sent, "slack").Surface != "" || r.Thread == "" && len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
@@ -405,7 +487,7 @@ func (f Fanout) ledger(_ context.Context, r Reply, _ []Outcome) []Outcome {
 
 func (f Fanout) dashboard(_ context.Context, r Reply, sent []Outcome) []Outcome {
 	path := f.stored(r.ID)
-	data, err := json.MarshalIndent(delivery{r, f.Now().UTC(), sent}, "", "  ")
+	data, err := json.MarshalIndent(delivery{r, f.Now().UTC(), f.anchor(r.ID), sent}, "", "  ")
 	if err == nil {
 		err = os.MkdirAll(filepath.Dir(path), 0o750)
 	}

@@ -36,6 +36,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/replay"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/waste"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/prompts"
@@ -234,6 +235,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			return Deps{}, err
 		}
 		deps.Pool = pool
+	}
+	if entry, err := drive.Named(env.Config.Drive); err != nil {
+		a.Log.Warn("the talk follower has no drive entry and stays off", "drive", env.Config.Drive, "err", err)
+	} else {
+		deps.Followers = append(deps.Followers, (&talk.Follower{Runner: a.Runner, Entry: entry, Writers: env.Config.TalkWriterNames(), Now: a.Now, Log: a.Log}).Run)
 	}
 	if !slices.Contains(env.Config.Movers, config.MoverLanding) {
 		return deps, nil

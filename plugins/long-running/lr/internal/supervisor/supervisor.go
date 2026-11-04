@@ -44,6 +44,7 @@ type Deps struct {
 	Lanes     func(now time.Time, generation int64) (lanes.Outcome, error)
 	Checks    []lanes.Check
 	Stagger   time.Duration
+	Followers []func(context.Context)
 	Snapshot  func(ctx context.Context) ([]machine.Facts, error)
 	Post      pass.Post
 	Queue     landing.Queue
@@ -194,6 +195,9 @@ const (
 func startChecks(ctx context.Context, d Deps) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	var running sync.WaitGroup
+	for _, follow := range d.Followers {
+		running.Go(func() { follow(ctx) })
+	}
 	for i, check := range d.Checks {
 		running.Go(func() {
 			select {
