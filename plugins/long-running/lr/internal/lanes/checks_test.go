@@ -47,7 +47,7 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 			s := memory(t)
 			bus := &fakeBus{}
 			if c.incident != "" {
-				bus.tail = []client.Record{{Seq: 7, Text: c.incident}}
+				bus.tail = []client.Record{{Seq: 7, Text: c.incident, At: t0}}
 			}
 			env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
 				return shell.Result{Stdout: slackHistory(t0.Add(-mins(c.minutes)), c.text)}, nil
@@ -742,4 +742,29 @@ func TestTwoFiringsOfOneMonitorInAPassLaunchOnce(t *testing.T) {
 
 	equal(t, launches, 1)
 	equal(t, len(bus.posted), 1)
+}
+
+func TestAPassReadsOpenIncidentsOnceAndARestartDoesNotCutALaunch(t *testing.T) {
+	first, second := "Triggered: a\n"+monitorLink, "Triggered: b\nhttps://app.datadoghq.com/monitors/111"
+	fired := t0.Add(-mins(2)).Unix()
+	history := fmt.Sprintf(`{"messages":[{"ts":"%d.000002","text":%q,"permalink":"https://slack/p2"},{"ts":"%d.000001","text":%q,"permalink":"https://slack/p1"}]}`, fired, second, fired, first)
+	bus := &fakeBus{}
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: history}, nil
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	launches := 0
+	check := Alerts{Env: env, Store: memory(t), Channels: []string{"C1"}, Log: slog.Default(), Launch: func(launch context.Context, _ Fired) (string, error) {
+		launches++
+		cancel()
+		return "/state/lanes/fix.brief.md", launch.Err()
+	}}
+
+	if err := check.Check(ctx, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, launches, 2)
+	equal(t, bus.tails, 1)
+	equal(t, len(bus.posted), 2)
 }
