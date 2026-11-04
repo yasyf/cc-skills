@@ -1005,7 +1005,7 @@ CHAT_MODEL = """(n) => {
   state.model.board.answered = {};
   state.model.prs[77001] = { title: 'dashboard: 🐛 fix the box', test_state: 'passed', ai_review: 'success', changed_files: '3', head: 'abc1234' };
   state.model.board.rows = state.model.board.rows.filter((row) => row.number !== 77001).concat({ number: 77001, head: 'abc1234', title: 'fix the box', change: 'Keeps what he typed', state: 'you', blocker: '', plan: '', risk: '', review: '' });
-  state.model.drive.prs = state.model.drive.prs.filter((pr) => pr.number !== 77001).concat({ number: 77001, state: 'you' });
+  state.drive.set(77001, { number: 77001, state: 'you' });
   state.model.owner_asks = { messages: [{ m: 7, iso: '2026-11-03T21:00:00-08:00', text: 'my line', state: 'asked', ack: 'routed', lanes: ['a-1'], prs: [] }], taps: [], store: [] };
   state.model.chat_lines = [];
   render();
@@ -1112,6 +1112,7 @@ def test_a_pick_tapped_in_chat_posts_its_answer_inline_on_hover_and_in_the_windo
     with page.expect_request("**/api/answer") as written:
         page.locator("#rp-open3 .write-in button").click()
     assert written.value.post_data_json == {"kind": "choice", "block": "open3-choice", "options": [], "other": "neither"}
+    page.wait_for_selector("#rp-open3 .obj-picked")
     page.evaluate("ov.sent.clear(); ov.kept.clear(); state.taps.length = 0; rp.modal = 'card-open3'; render()")
     with page.expect_request("**/api/answer") as windowed:
         page.locator('#chatmodal [data-choose="open3-1"]').click()

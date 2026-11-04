@@ -362,6 +362,7 @@ function chatKeyed(parent, items) {
   for (const el of had.values()) el.remove();
 }
 function patchChat() {
+  if (!state.model.owner_asks) return;
   cw.seen = new Set();
   const { all, lines, count, hidden, attention } = chatRows();
   const list = $('#cw-list');
