@@ -24,3 +24,13 @@ def test_an_edit_counts_as_a_pick_card_only_when_the_stored_reply_has_picks(tmp_
     assert owner_replies_stay_short.has_picks(card)
     assert not owner_replies_stay_short.has_picks(status)
     assert not owner_replies_stay_short.has_picks(tmp_path / "gone.json")
+
+
+@pytest.mark.parametrize(("words", "asked"), [
+    ("what is this, why is it not like the other PR cards", True),
+    ("how come the card has no link", True),
+    ("merge it", False),
+    ("show me how it looks", False),
+])
+def test_his_words_ask_why_when_they_say_so(words: str, asked: bool) -> None:
+    assert bool(owner_returns.ASKED_WHY.search(words)) is asked
