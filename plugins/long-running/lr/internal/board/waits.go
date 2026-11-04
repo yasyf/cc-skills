@@ -72,6 +72,9 @@ func (l Live) Explain(pr int, snapshot map[int]machine.Facts, rows map[int]store
 	if tapped && l.Decided(MergeRow{PR: strconv.Itoa(pr), Head: f.Head}) == "" {
 		fact = "a land order stands at " + abbreviate(f.Head)
 	}
+	if recorded {
+		return PRWait{pr, f.Head, false, fmt.Sprintf("%s: not waiting on you: %s", subject, fact)}
+	}
 	held := slices.Insert(withoutTap(gates.Missing(f)), 0, fact)
 	if below, stuck := stuckBelow(f, snapshot); stuck {
 		held = append(held, fmt.Sprintf("the PR below it, #%d, cannot land yet: %s", below.Number, strings.Join(gates.Missing(below), "; ")))
