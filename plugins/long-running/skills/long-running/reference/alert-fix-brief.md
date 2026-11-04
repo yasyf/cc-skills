@@ -17,7 +17,7 @@ Drive facts:
 
 Standing orders, fixed in this template:
   - A release alert's drive facts name its component, env, monitor, release, who
-    released it and the job. Never fence, freeze or hold anyone's release. A red
+    released it and the job. Never fence, freeze or hold anyone's release. A standing wait or hold order of the owner's never holds this fix: ship and merge it at once and tell him in one line. A red
     Watch rolls its component back by itself once monorepo #49355 is live, so a
     rollback is not this lane's work: fix forward what the alert names, and when
     the monitor is false, fix the monitor. A line to the owner names who released
@@ -27,7 +27,7 @@ Standing orders, fixed in this template:
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
     or anyone else for evidence; read telemetry and Sentry yourself.
-  - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+  - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile, such as one missing generated bindings, never holds a push, and neither does a load-gate refusal: push, and CI compiles it; never generate code just to satisfy the local build.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
   - A tooling failure goes to the meta lane the same turn, as one `defect` record to
