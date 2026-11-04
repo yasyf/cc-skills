@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const ReviewRowsCursor = "review-rows"
+
 const reviewRowColumns = "repo, number, title, lane, branch, base, parent, parent_state, head, head_at, read_head, for_users, plan_line, plan_row, risk, description, unsafe_wait, ci, approvers, review, grade, grade_findings, mergeable, queue, hold, superseded_by, waits_on, ready_for_tap, state, tapped, tap_refused, tapped_at, tapped_by, landed_at, last_record, written_at"
 
 type ReviewRow struct {
@@ -51,15 +53,12 @@ func (r *ReviewRow) columns() []any {
 }
 
 func (r ReviewRow) values() []any {
-	return []any{r.Repo, r.Number, r.Title, r.Lane, r.Branch, r.Base, r.Parent, r.ParentState, r.Head, r.HeadAt, r.ReadHead, r.ForUsers, r.PlanLine, r.PlanRow, r.Risk, r.Description, r.UnsafeWait, r.CI, r.Approvers, r.Review, r.Grade, r.GradeFindings, r.Mergeable, r.Queue, r.Hold, r.SupersededBy, r.WaitsOn, r.ReadyForTap, r.State, r.Tapped, r.TapRefused, r.TappedAt, r.TappedBy, r.LandedAt, r.LastRecord, r.WrittenAt, r.WaitsOn, r.ReadyForTap, r.WrittenAt, r.PlanRow}
+	return []any{r.Repo, r.Number, r.Title, r.Lane, r.Branch, r.Base, r.Parent, r.ParentState, r.Head, r.HeadAt, r.ReadHead, r.ForUsers, r.PlanLine, r.PlanRow, r.Risk, r.Description, r.UnsafeWait, r.CI, r.Approvers, r.Review, r.Grade, r.GradeFindings, r.Mergeable, r.Queue, r.Hold, r.SupersededBy, r.WaitsOn, r.ReadyForTap, r.State, r.Tapped, r.TapRefused, r.TappedAt, r.TappedBy, r.LandedAt, r.LastRecord, r.WrittenAt}
 }
-
-// TODO: drop these copies once the review tab reads the row's own names.
-const tabCopies = ", waits, ready, drawn_at, plan"
 
 func (t *Tx) PutReviewRows(rows []ReviewRow) error {
 	for _, row := range rows {
-		if _, err := t.tx.Exec("INSERT OR REPLACE INTO review_rows ("+reviewRowColumns+tabCopies+") VALUES ("+placeholders(len(row.values()))+")", row.values()...); err != nil {
+		if _, err := t.tx.Exec("INSERT OR REPLACE INTO review_rows ("+reviewRowColumns+") VALUES ("+placeholders(len(row.values()))+")", row.values()...); err != nil {
 			return err
 		}
 	}

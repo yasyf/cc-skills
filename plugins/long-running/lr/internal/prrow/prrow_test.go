@@ -19,7 +19,7 @@ const (
 	testRepo = "o/r"
 	headA    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	headB    = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	fullBody = "## Summary\n\nA user sees it.\n\n## Risk profile\n\nLow.\n\nThis carries plan step 1.\n"
+	fullBody = "## Summary\n\nA user sees it.\n\n## Risk profile\n\nLow.\n\n## Design\n\nThis carries plan step 1.\n"
 )
 
 func readyRow() store.ReviewRow {
@@ -159,7 +159,7 @@ func TestARowFromTheRecordsCarriesEveryFieldAndComesReady(t *testing.T) {
 	}
 	want := store.ReviewRow{
 		Repo: testRepo, Number: 1, Title: "the title", Lane: "lane-7", Branch: "branch-1", Base: "dev", Parent: None, ParentState: None, Head: headA,
-		ForUsers: "A user sees it.", PlanLine: "This carries plan step 1.", PlanRow: "This carries plan step 1. " + planChecked, Risk: "Low.\n\nThis carries plan step 1.",
+		ForUsers: "A user sees it.", PlanLine: "This carries plan step 1.", PlanRow: "This carries plan step 1. " + planChecked, Risk: "Low.",
 		CI: CIGreen, Approvers: "a, b", Review: "approved by a, b", Grade: GradePass, GradeFindings: None, Mergeable: "clean", Queue: "none",
 		Hold: None, SupersededBy: None, WaitsOn: onlyHim, ReadyForTap: true, State: StateOpen, TappedAt: NotYet, TappedBy: NotYet, LandedAt: NotYet,
 	}
@@ -322,6 +322,26 @@ func TestASupersededPRLeavesAndANewHeadBringsItBack(t *testing.T) {
 	postHead(t, 1, headB)
 	if row := folded(t, f, 1); row.State != StateOpen || row.SupersededBy != None {
 		t.Fatalf("row = %+v, want a new head to bring it back", row)
+	}
+}
+
+func TestAClaimWithNoAttrsMakesNoRowSoEveryHostHoldsTheSameRows(t *testing.T) {
+	f, _ := foldFor(t)
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "opened", Text: "opened #o/r#1", PRs: []string{testRepo + "#1"}}); err != nil {
+		t.Fatal(err)
+	}
+	postHead(t, 1, headA)
+	rows, err := f.Pass(context.Background(), nil)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("rows = %+v, %v, want none: a claim says nothing about the PR's head or body", rows, err)
+	}
+}
+
+func TestAPlanLineIsNeverReadFromTheRiskProfile(t *testing.T) {
+	var row store.ReviewRow
+	ApplyBody(&row, "## Summary\n\nFor a user.\n\n## Risk profile\n\n- **Threat model:** plan 12 changes nothing.\n\n## Design\n\nNo reference here.\n")
+	if row.PlanLine != "" || !strings.Contains(row.Risk, "Threat model") {
+		t.Fatalf("row = %+v, want the risk kept and no plan line taken from it", row)
 	}
 }
 

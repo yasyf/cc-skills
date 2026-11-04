@@ -114,24 +114,40 @@ func firstUnmet(row store.ReviewRow) string {
 func ApplyBody(row *store.ReviewRow, body string) {
 	row.ForUsers = section(body, "Summary")
 	row.Risk = section(body, "Risk profile")
-	row.PlanLine = clip(strings.TrimSpace(planLine.FindString(body)), fieldChars)
+	row.PlanLine = clip(strings.TrimSpace(planLine.FindString(withoutSection(body, "Risk profile"))), fieldChars)
 	row.Description = clip(strings.TrimSpace(body), briefChars)
 	row.UnsafeWait = gates.UnsafeWait(body)
 }
 
 func section(body, name string) string {
+	opens, starts, ends := sectionAt(body, name)
+	if opens < 0 {
+		return ""
+	}
+	return clip(strings.TrimSpace(body[starts:ends]), fieldChars)
+}
+
+func withoutSection(body, name string) string {
+	opens, _, ends := sectionAt(body, name)
+	if opens < 0 {
+		return body
+	}
+	return body[:opens] + body[ends:]
+}
+
+func sectionAt(body, name string) (opens, starts, ends int) {
 	found := heading.FindAllStringSubmatchIndex(body, -1)
 	for at, match := range found {
 		if !strings.EqualFold(body[match[2]:match[3]], name) {
 			continue
 		}
-		end := len(body)
+		ends = len(body)
 		if at+1 < len(found) {
-			end = found[at+1][0]
+			ends = found[at+1][0]
 		}
-		return clip(strings.TrimSpace(body[match[1]:end]), fieldChars)
+		return match[0], match[1], ends
 	}
-	return ""
+	return -1, -1, -1
 }
 
 func clip(text string, chars int) string {

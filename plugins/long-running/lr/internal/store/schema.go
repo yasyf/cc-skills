@@ -121,7 +121,6 @@ CREATE TABLE IF NOT EXISTS review_rows (
   superseded_by TEXT NOT NULL, waits_on TEXT NOT NULL, ready_for_tap INTEGER NOT NULL, state TEXT NOT NULL,
   tapped INTEGER NOT NULL, tapped_at TEXT NOT NULL, tapped_by TEXT NOT NULL, landed_at TEXT NOT NULL,
   last_record INTEGER NOT NULL, written_at TEXT NOT NULL,
-  waits TEXT NOT NULL, ready INTEGER NOT NULL, drawn_at TEXT NOT NULL, plan TEXT NOT NULL,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS pr_facts (
