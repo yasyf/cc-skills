@@ -48,6 +48,10 @@ func (q *queue) Enqueue(_ context.Context, number int, _ string) (string, error)
 	return "queued", nil
 }
 
+func (q *queue) Reenter(ctx context.Context, number int) (string, error) {
+	return q.Enqueue(ctx, number, "")
+}
+
 func (q *queue) Dequeue(context.Context, int) (string, error) { return "", nil }
 
 type restacker struct{}

@@ -30,6 +30,10 @@ func (t Trunk) Enqueue(ctx context.Context, number int, _ string) (string, error
 	return t.call(ctx, strconv.Itoa(number))
 }
 
+func (t Trunk) Reenter(ctx context.Context, number int) (string, error) {
+	return t.call(ctx, strconv.Itoa(number), "--flake")
+}
+
 func (t Trunk) Dequeue(ctx context.Context, number int) (string, error) {
 	return t.call(ctx, strconv.Itoa(number), "--dequeue")
 }
