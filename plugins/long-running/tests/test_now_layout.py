@@ -67,10 +67,8 @@ def now(page):
 
 
 def open_first_question(page):
-    page.goto(page.url.split("#")[0] + "#/review")
-    row = page.locator("#review-questions details").first
-    if row.get_attribute("open") is None:
-        row.locator("> summary").click()
+    now(page)
+    page.evaluate("location.hash = `#/needs~question/${state.model.needs.find((item) => item.kind === 'card').card.id}`")
     page.wait_for_selector(".bq")
 
 
@@ -678,6 +676,102 @@ def test_a_failed_chat_line_returns_to_its_box_and_a_sent_one_clears_it(page):
     now(page)
 
 
+WHOLE_CARD = {"id": "card-whole", "title": "Should it write run folders?", "summary": "One credential covers it.", "key": "whole", "choice": "whole-pick", "decides": True, "embed": None, "recommended": "Yes", "options": [{"id": "yes", "label": "Yes", "recommended": True}, {"id": "no", "label": "No", "recommended": False}], "thread": [{"who": "you", "text": "what does it risk?", "at": 1}, {"who": "answer", "text": "A client bug could overwrite a run.", "at": 2}], "parts": [
+    {"kind": "record", "id": "r", "title": "Background", "facts": [{"label": "Your words", "value": "one per team"}]},
+    {"kind": "page", "id": "m", "md": "**Runs** live in the bucket."},
+    {"kind": "table", "id": "t", "columns": [{"key": "a", "label": "Option"}], "rows": [{"a": "One credential"}]},
+    {"kind": "image", "id": "i", "src": "/asset/abc", "alt": "The page today"},
+    {"kind": "choice", "id": "whole-pick", "prompt": "Pick one", "answer": None, "options": [{"id": "yes", "label": "Yes", "hint": "One mint a team", "facts": [], "recommended": True}]},
+]}
+
+
+def whole_card(page):
+    now(page)
+    page.evaluate("""(card) => {
+      state.model.board.cards.push(card);
+      state.model.needs.push({ kind: 'card', card, why: '' });
+      location.hash = '#/~question/card-whole';
+    }""", WHOLE_CARD)
+    page.wait_for_selector("#card-card-whole")
+
+
+def drop_whole_card(page):
+    now(page)
+    page.evaluate("""() => {
+      state.model.needs = state.model.needs.filter((item) => item.card?.id !== 'card-whole');
+      state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-whole');
+    }""")
+
+
+def test_a_card_renders_whole_on_the_dashboard_with_no_link_to_the_board(page):
+    whole_card(page)
+    card = page.locator("#card-card-whole")
+    words = card.inner_text().lower()
+    for said in ("One credential covers it.", "Background", "one per team", "Runs live in the bucket.", "One credential", "One mint a team", "what does it risk?", "A client bug could overwrite a run."):
+        assert said.lower() in words
+    assert card.locator("img").get_attribute("src") == "/asset/abc"
+    assert card.locator('a[href*="block="]').count() == 0
+    assert "on your board" not in words
+    drop_whole_card(page)
+
+
+def test_a_question_on_a_card_goes_down_the_boards_note_path_and_clears_once_sent(page):
+    page.route("**/api/answer", lambda route: route.fulfill(json={"seq": 10**9}))
+    whole_card(page)
+    box = page.locator("#card-card-whole .bq-ask textarea")
+    box.fill("is it reversible?")
+    with page.expect_request("**/api/answer") as asked:
+        box.press("Enter")
+    assert asked.value.post_data_json == {"kind": "note", "block": "card-whole", "text": "is it reversible?"}
+    page.wait_for_function("document.querySelector('#card-card-whole .bq-ask textarea').value === ''")
+    assert page.evaluate("localStorage.getItem('draft:card-note:card-whole:')") is None
+    assert "The answer lands on this card" in page.locator("#card-card-whole").inner_text()
+    page.unroute("**/api/answer")
+    drop_whole_card(page)
+
+
+def test_a_click_anywhere_on_a_tap_row_opens_its_window_and_a_button_stays_a_button(page):
+    tap_screen(page)
+    row = page.locator('.fm[data-tap="card-tq"]')
+    row.locator(".fm-lead").click()
+    page.wait_for_selector(".pr-drawer.front")
+    assert "question/card-tq" in page.evaluate("location.hash")
+    page.evaluate("location.hash = '#/needs'")
+    page.wait_for_selector(".fm")
+    page.evaluate("""([tap, card]) => {
+      state.model.taps = [tap];
+      state.model.board.cards.push(card);
+      render();
+    }""", [{**TAP_QUEUE[1], "id": "card-btn", "card": "card-btn", "choice": "btn-pick"}, {**TAP_CARD, "id": "card-btn", "choice": "btn-pick"}])
+    with page.expect_request("**/api/answer"):
+        page.locator('.fm[data-tap="card-btn"] .fm-acts button').first.click()
+    assert "question" not in page.evaluate("location.hash")
+    page.evaluate("ov.sent.clear(); state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-btn')")
+    page.unroute("**/api/verdict")
+    page.unroute("**/api/answer")
+    now(page)
+
+
+def test_review_lists_pull_requests_only_and_its_count_leaves_out_questions(page):
+    now(page)
+    page.evaluate("""() => {
+      window.keptNeeds = state.model.needs;
+      state.model.needs = [{ kind: 'card', card: { id: 'card-q', title: 'A question', decides: true, parts: [], options: [] }, why: '' }];
+      state.model.board.cards.push({ id: 'card-note', title: 'A note', summary: 'For reading', decides: false, parts: [], options: [] });
+      location.hash = '#/review';
+    }""")
+    page.wait_for_selector(".pg .pg-lead")
+    words = page.locator("#main").inner_text()
+    assert "QUESTIONS" not in words.upper()
+    assert "A note" not in words
+    assert not re.search(r"\d", page.locator("#tabs a", has_text="Review").inner_text())
+    page.evaluate("location.hash = '#/needs'")
+    page.wait_for_selector(".mr.bq.note")
+    assert "A note" in page.locator("#main").inner_text()
+    page.evaluate("state.model.needs = window.keptNeeds; state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-note')")
+    now(page)
+
+
 def test_needs_me_fits_a_phone(page):
     tap_screen(page)
     page.set_viewport_size({"width": 390, "height": 800})
@@ -744,9 +838,10 @@ def test_a_thread_reply_names_its_parent_and_shows_under_it(page):
         line.locator(".ct-thread textarea").press("Enter")
     body = sent.value.post_data_json
     assert body["on"] == "line:m7" and body["text"] == "on that" and "m7" in body["about"]
+    page.wait_for_function("rp.sent.at(-1)?.seq === 42")
     page.evaluate("state.model.chat_lines = [{ seq: 42, at: '2026-11-04T06:00:00Z', on: 'line:m7', text: 'on that' }]; render()")
     assert line.locator(".ct-thread .ct-bubble").inner_text() == "on that"
-    assert page.locator(".ct-flow > .ct-you", has_text="on that").count() == 0
+    assert page.locator(".ct-flow > .ct-you > .ct-bubble", has_text="on that").count() == 0
     page.unroute("**/api/reply")
     now(page)
 

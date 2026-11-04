@@ -106,6 +106,7 @@ def test_the_board_still_reads_after_he_submits_it(monkeypatch):
     monkeypatch.setattr(server, "run", lambda argv: json.dumps(reduced if "--all" in argv else since_submit))
     monkeypatch.setattr(Drive, "store_seq", lambda self: 3240)
     monkeypatch.setattr(Drive, "answer_times", lambda self: {})
+    monkeypatch.setattr(Drive, "read_threads", lambda self: {})
     rows = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board()["rows"]
     assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
 
@@ -145,6 +146,7 @@ def test_a_card_he_answered_reads_as_his_picks_at_the_time_of_his_last_answer(mo
     store = board(release, card("card-open", ("choice", "pick")), choices={"when": {"optionIds": ["now"], "other": "after the smoke run"}}, decisions={"ok": {"verdict": "approved"}}, inputs={"why": {"text": "ship it"}})
     monkeypatch.setattr(server, "run", lambda argv: json.dumps(store))
     monkeypatch.setattr(Drive, "store_seq", lambda self: 7)
+    monkeypatch.setattr(Drive, "read_threads", lambda self: {})
     monkeypatch.setattr(Drive, "answer_times", lambda self: {"when": "2026-10-30T12:53:00+00:00", "ok": "2026-10-30T12:59:00+00:00", "why": "2026-10-30T12:54:00+00:00", "pick": "2026-10-30T11:00:00+00:00"})
 
     out = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board()
@@ -188,7 +190,7 @@ def test_a_card_keeps_his_earlier_picks_and_offers_the_next_one():
 
 @pytest.mark.parametrize("block_id", ["plan", "plan&x#1"])
 def test_a_card_with_a_block_the_dashboard_does_not_draw_embeds_the_board_rendering(block_id):
-    out = Drive({"board_url": "http://board/p/x"}, None).read_board(board(card(block_id, ("table", "rows"), ("choice", "ok"))))["cards"][0]
+    out = Drive({"board_url": "http://board/p/x"}, None).read_board(board(card(block_id, ("pack.poll", "rows"), ("choice", "ok"))))["cards"][0]
 
     assert out["parts"] == []
     assert urllib.parse.parse_qs(out["embed"].split("?", 1)[1]) == {"block": [block_id], "theme": ["dark"]}
@@ -209,6 +211,39 @@ def test_only_an_open_approval_or_a_real_choice_asks_him_to_decide(options, appr
     if options:
         block["children"][1]["options"] = [{"id": label, "label": label} for label in options]
     assert Drive({"board_url": "http://board/p/x"}, None).read_board(board(block))["cards"][0]["decides"] is decides
+
+
+def test_a_card_of_words_a_picture_a_table_and_a_pull_request_draws_on_the_dashboard():
+    block = card("whole", ("markdown", "m"), ("image", "i"), ("table", "t"), ("pr", "p"), ("choice", "c"))
+    block["children"][0]["md"] = "Why it matters"
+    block["children"][1].update(src="asset:" + "a" * 64, alt="the page today")
+    block["children"][2].update(columns=[{"key": "q", "label": "Q"}], rows=[{"q": "one"}])
+    block["children"][3].update(repo="o/r", number=7)
+
+    out = Drive({"board_url": "http://board/p/x"}, None).read_board(board(block))["cards"][0]
+
+    assert out["embed"] is None
+    assert [part["kind"] for part in out["parts"]] == ["page", "image", "table", "pr", "choice"]
+    assert out["parts"][0]["md"] == "Why it matters"
+    assert out["parts"][1] == {"kind": "image", "id": block["children"][1]["id"], "src": "/asset/" + "a" * 64, "alt": "the page today"}
+    assert out["parts"][2]["rows"] == [{"q": "one"}]
+    assert (out["parts"][3]["repo"], out["parts"][3]["number"]) == ("o/r", 7)
+
+
+def test_a_note_on_a_card_also_reaches_the_lanes_parked_on_it_and_a_card_with_none_only_the_board(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x", "drive": "d", "board_session": "s"}, None)
+    drive.interact = lambda posted, subject=None: (200, {"seq": 1})
+    drive.card_lanes = {"card-a": {"lane-2", "lane-1"}}
+    posts = []
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None: posts.append(argv) or "")
+
+    drive.answer({"kind": "note", "block": "card-b", "text": "why?"})
+    assert posts == []
+    drive.answer({"kind": "note", "block": "card-a", "text": "why?"})
+    argv = posts[0]
+    assert argv[argv.index("--to") + 1] == "lane-1,lane-2"
+    assert argv[argv.index("--kind") + 1] == "owner"
+    assert "why?" in argv[argv.index("--text") + 1] and "cc-present reply --block card-a" in argv[argv.index("--text") + 1]
 
 
 def test_a_card_with_a_multiple_choice_pick_embeds_the_board_rendering():

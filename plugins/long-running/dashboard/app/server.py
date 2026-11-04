@@ -87,6 +87,9 @@ BUILD = hashlib.sha1(b"".join(path.read_bytes() for path in sorted([*HERE.iterdi
 CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs", "re")
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
+ASSET_ROUTE = re.compile(r"/asset/([0-9a-f]{64})")
+ASSET_REF = re.compile(r"^asset:([0-9a-f]{64})$")
+THREAD_EVENTS = ("feedback.created", "reply.created")
 CLOCK_OPENING = re.compile(r"^\s*\d{1,2}:\d{2}\s*[AP]M\b[,:]?\s*")
 PR_TAG = re.compile(r"\s*\bpr:\S+")
 FILE_PATH = re.compile(r"\s*(?<![\w.])~?/(?:[\w.@-]+/)+[\w.@-]+")
@@ -134,7 +137,7 @@ SEQUENCE_WORDS = {"actor", "participant", "note", "loop", "alt", "else", "opt", 
 COMPANION_DIAGRAM = re.compile(r"^### (?!ELI5)(.+)\n+```mermaid\n(.*?)\n```", re.S | re.M)
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
-NATIVE = {*ASKS, "record", "display.page"}
+NATIVE = {*ASKS, "record", "display.page", "markdown", "image", "pr", "table"}
 OTHER = re.compile(r"^other$", re.I)
 MERGE_ONLY = re.compile(r"^(waits? (for|on)|lands? after|after|stacked on)[\s#\d,\-–and]+(to (merge|land))?( first)?\.?$", re.I)
 MERGE_CARD = "card-merge-triage"
@@ -819,8 +822,14 @@ def card_part(child, answer):
     kind = child["type"]
     if kind == "record":
         return {"kind": "record", "id": child["id"], "title": child.get("title", ""), "facts": child.get("facts", [])}
-    if kind == "display.page":
+    if kind in ("display.page", "markdown"):
         return {"kind": "page", "id": child["id"], "md": child.get("md", "")}
+    if kind == "image":
+        return {"kind": "image", "id": child["id"], "src": ASSET_REF.sub(r"/asset/\1", child.get("src", "")), "alt": child.get("alt", "")}
+    if kind == "pr":
+        return {"kind": "pr", "id": child["id"], "repo": child.get("repo", ""), "number": child.get("number")}
+    if kind == "table":
+        return {"kind": "table", "id": child["id"], "columns": child.get("columns", []), "rows": child.get("rows", [])}
     if kind == "choice":
         options = [{"id": option["id"], "label": option["label"], "hint": option.get("hint", ""), "facts": option.get("facts", []), "detail": option.get("detail") or {}, "recommended": bool(option.get("recommended"))} for option in child.get("options", []) if not OTHER.match(option["label"])]
         return {"kind": "choice", "id": child["id"], "prompt": child.get("prompt", ""), "options": options, "answer": answer}
@@ -926,6 +935,8 @@ class Drive:
         self.ci_fixes = set()
         self.board_doc = None
         self.question_boards = {}
+        self.board_threads = {}
+        self.card_lanes = {}
         self.curator = Curator(config, self.curator_model, self.bump)
         self.status_now = None
         self.status_rejected = None
@@ -1006,7 +1017,19 @@ class Drive:
             return self.interact({"type": "decision.created", "blockId": body["block"], "verdict": body["verdict"], **({"note": body["text"]} if body.get("text") else {})})
         if body["kind"] == "input":
             return self.interact({"type": "input.submitted", "blockId": body["block"], "text": body["text"]})
-        return self.interact({"type": "feedback.created", "id": str(uuid.uuid4()), "blockId": body["block"], "text": body["text"]})
+        status, out = self.interact({"type": "feedback.created", "id": str(uuid.uuid4()), "blockId": body["block"], "text": body["text"]})
+        if status == 200:
+            try:
+                self.tell_lanes(body["block"], body["text"])
+            except (OSError, subprocess.SubprocessError) as failure:
+                self.flag(f"his question on {body['block']} reached the board but not the lanes parked on it: {failure}", ())
+        return status, out
+
+    def tell_lanes(self, card, text):
+        lanes = self.card_lanes.get(card)
+        if not lanes or "mirror" in self.config:
+            return
+        run(["cci", "post", "--drive", self.config["drive"], "--lane", "dashboard", "--kind", "owner", "--to", ",".join(sorted(lanes)), "--topic", f"card:{card}", "--text", f"Owner, on card {card} from the dashboard: {text}\nAnswer him on that card: cc-present reply --block {card} --body '<answer>' --session {self.config['board_session']}"])
 
     def asked(self, text):
         lane, kind = ("dashboard-ask-test", "note") if text.startswith("[user-test") else ("dashboard", "owner")
@@ -1438,6 +1461,12 @@ class Drive:
         with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
             return store.execute("SELECT max(seq) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ?", (subject,)).fetchone()[0]
 
+    def read_threads(self):
+        subject = self.config["board_url"].rsplit("/p/", 1)[1]
+        with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
+            events = store.execute(f"SELECT json_extract(payload, '$.blockId'), events.type, events.created_at, json_extract(payload, '$.text'), json_extract(payload, '$.md') FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ? AND events.type IN ({', '.join('?' * len(THREAD_EVENTS))}) ORDER BY events.seq", (subject, *THREAD_EVENTS)).fetchall()
+        return taps.card_threads(events)
+
     def answer_times(self):
         subject = self.config["board_url"].rsplit("/p/", 1)[1]
         with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
@@ -1456,6 +1485,7 @@ class Drive:
         titles = {row["number"]: row["title"] for row in board["rows"]}
         urgent = {f"card-{entry['reply']['id']}" for entry in self.replies if entry["reply"].get("status") == "incident"}
         blocks = taps.open_blocks(self.fetch(("blocked",), now - BLOCKS_WINDOW), model["lanes"])
+        self.card_lanes = taps.parked_on(blocks, {card["id"] for card in board["cards"]})[0]
         return taps.tap_queue(board["rows"], board["cards"], self.slack_cards(), drive["prs"], blocks, lambda number: titles.get(number) or taps.plain_title(model["prs"][str(number)].get("title", "")), urgent)
 
     def board(self):
@@ -1463,6 +1493,7 @@ class Drive:
         if seq != self.board_seq:
             self.board_doc = json.loads(run(["cc-present", "outcomes", "--all", "--session", self.config["board_session"]]))
             self.board_times = self.answer_times()
+            self.board_threads = self.read_threads()
             self.board_seq = seq
         read = self.read_board(self.board_doc)
         answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
@@ -1681,6 +1712,7 @@ class Drive:
                 "id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [], "prs": sorted({int(number) for number in taps.PR_NUMBER.findall(json.dumps(block))}),
                 "recommended": recommended, "choice": choice and choice["id"], "options": options, "decides": decides,
                 "parts": [] if embed else [card_part(child, answers.get(child["id"])) for child in children],
+                "thread": self.board_threads.get(block["id"], []),
                 "embed": f"{self.config['board_url']}?{urllib.parse.urlencode({'block': block['id'], 'theme': 'dark'})}" if embed else None,
             })
         return {"rows": rows, "cards": cards, "answered": answered, "merge": merge, "url": self.config["board_url"]}
@@ -1763,6 +1795,13 @@ def handler(drive, tailnet_owner, names):
                 return self.source("The owner request log", drive.register_log())
             if found := LANE_ROUTE.fullmatch(path):
                 return self.send(200, "application/json", json.dumps(drive.posted(found[1])).encode())
+            if found := ASSET_ROUTE.fullmatch(path):
+                origin = drive.config["board_url"].partition("/p/")[0]
+                try:
+                    with urllib.request.urlopen(f"{origin}/assets/{found[1]}", timeout=15) as asset:
+                        return self.send(200, asset.headers.get_content_type(), asset.read())
+                except OSError as error:
+                    return self.send(502, "text/plain", str(error).encode())
             if found := RECORD_ROUTE.fullmatch(path):
                 try:
                     if "raw=1" in self.path.partition("?")[2].split("&"):

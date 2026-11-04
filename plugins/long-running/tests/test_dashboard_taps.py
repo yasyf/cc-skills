@@ -63,6 +63,22 @@ def test_only_a_tap_he_can_make_now_is_a_row():
     assert [tap["number"] for tap in queue(rows, prs=prs)] == [1]
 
 
+def test_a_row_leaves_the_queue_when_its_head_moves_unless_a_carry_covers_it():
+    prs = [{**entry(1), "head": "bbbbbbb"}, {**entry(2), "head": "abc1234"}, {**entry(3), "head": "bbbbbbb"}]
+    rows = [row(1), row(2), row(3, carried=["abc1234"])]
+    assert [tap["number"] for tap in queue(rows, prs=prs)] == [2, 3]
+
+
+def test_a_card_thread_keeps_his_words_and_each_answer_in_order_and_skips_the_boards_own_lines():
+    events = [
+        ("card-a", "feedback.created", 1, "why this?", None),
+        ("card-a", "reply.created", 2, None, "Because of the bucket."),
+        ("card-a", "reply.created", 3, None, "Answered on [Slack](u) at 6:26PM: **Yes**"),
+        ("card-b", "reply.created", 4, None, "Withdrawn on [Slack](u): replaced"),
+    ]
+    assert taps.card_threads(events) == {"card-a": [{"who": "you", "text": "why this?", "at": 1}, {"who": "answer", "text": "Because of the bucket.", "at": 2}]}
+
+
 def test_a_card_with_no_decision_left_is_not_a_row():
     assert queue(cards=[card("card-note", decides=False)]) == []
 

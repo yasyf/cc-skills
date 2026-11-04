@@ -195,8 +195,8 @@ function markdown(md) {
 
 
 
-function needsTotal() {
-  return (state.model?.needs ?? []).reduce((n, item) => n + (item.kind === 'prs' ? item.prs.length : item.kind === 'card' ? 1 : 0), 0);
+function prsWaiting() {
+  return (state.model?.needs ?? []).reduce((n, item) => n + (item.kind === 'prs' ? item.prs.length : 0), 0);
 }
 function openQuestion(card) {
   return state.model.needs.find((item) => item.kind === 'card' && item.card.id === card);
@@ -214,11 +214,52 @@ function boardCard(item) {
     ? `<button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button>`
     : c.choice ? `${lead >= 0 ? button(c.options[lead], lead) : ''}<details class="bq-more" data-id="${esc(id)}"${state.open.has(id) || lead < 0 ? ' open' : ''}><summary>${lead >= 0 ? 'Other answers' : 'Answers'}</summary><div class="bq-acts">${others}</div></details>` : '';
   return `<article class="mr bq" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span></header>
-    ${said ? `<p class="mr-why">${esc(said.means)}</p>` : ''}${answers ? `<div class="bq-acts">${answers}</div>` : ''}${c.choice ? sentNote(c.choice) : ''}</article>`;
+    ${said ? `<p class="mr-why">${esc(said.means)}</p>` : c.summary ? `<p class="mr-why">${inline(c.summary)}</p>` : ''}${c.parts.map(cardPart).join('')}${answers ? `<div class="bq-acts">${answers}</div>` : ''}${c.choice ? sentNote(c.choice) : ''}${cardAsk(c)}</article>`;
 }
-function syncCardEmbed(r) {
+function cardFact(f) {
+  return typeof f === 'string' ? esc(f) : `${esc(f.label)} ${inline(String(f.value))}`;
+}
+function cardPart(p) {
+  if (p.kind === 'page') return `<div class="md bq-part">${markdown(p.md)}</div>`;
+  if (p.kind === 'record') return `<section class="bq-part bq-bg">${p.title ? `<h4>${esc(p.title)}</h4>` : ''}<dl class="bq-facts">${p.facts.map((f) => `<dt>${esc(f.label)}</dt><dd>${inline(String(f.value))}</dd>`).join('')}</dl></section>`;
+  if (p.kind === 'image') return `<figure class="bq-part bq-fig"><img src="${esc(p.src)}" alt="${esc(p.alt)}" loading="lazy">${p.alt ? `<figcaption>${esc(p.alt)}</figcaption>` : ''}</figure>`;
+  if (p.kind === 'pr') return `<p class="bq-part">${p.repo === state.model.repo ? `<a href="#/review/${esc(p.number)}">${esc(plainTitle(p.number))}</a>` : `<a href="https://github.com/${esc(p.repo)}/pull/${esc(p.number)}" target="_blank" rel="noopener">${esc(p.repo)}#${esc(p.number)} ↗</a>`}</p>`;
+  if (p.kind === 'table') return `<div class="tablewrap bq-part"><table><thead><tr>${p.columns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${p.rows.map((row) => `<tr>${p.columns.map((col) => `<td data-h="${esc(col.label)}">${inline(String(row[col.key] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  if (p.kind !== 'choice' || p.answer) return '';
+  const told = p.options.filter((o) => o.hint || o.facts?.length);
+  return `${p.prompt ? `<p class="bq-part bq-prompt">${inline(p.prompt)}</p>` : ''}${told.length ? `<ul class="bq-part bq-opts">${told.map((o) => `<li><b>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</b>${o.hint ? ` ${inline(o.hint)}` : ''}${o.facts?.length ? `<small>${o.facts.map(cardFact).join(' · ')}</small>` : ''}</li>`).join('')}</ul>` : ''}`;
+}
+function cardAsk(c) {
+  const sent = ov.sent.get(c.id);
+  const note = !sent ? '' : sent.error ? `<em class="nsent bad">Not sent: ${esc(sent.error)}. Try again.</em>` : `<em class="nsent">${sent.recorded ? '✓ Sent. The answer lands on this card.' : 'Sending…'}</em>`;
+  const thread = (c.thread ?? []).map((t) => `<li class="${t.who}"><b>${t.who === 'you' ? 'You' : 'Answer'}</b><div class="md">${t.who === 'you' ? esc(t.text) : markdown(t.text)}</div></li>`).join('');
+  return `${thread ? `<ol class="bq-thread">${thread}</ol>` : ''}<form class="bq-ask" data-card-note="${esc(c.id)}"><textarea name="card-note" data-draft="${esc(c.id)}" rows="1" placeholder="Ask about this card"></textarea><button class="btn">Ask</button></form>${note}`;
+}
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-card-note]');
+  if (!form) return;
+  e.preventDefault();
+  const block = form.dataset.cardNote;
+  const text = form.elements['card-note'].value.trim();
+  if (!text || sending(block)) return;
+  answer({ kind: 'note', block, text }).then(() => {
+    if (ov.sent.get(block)?.error) return;
+    localStorage.removeItem(`draft:card-note:${block}:`);
+    const box = $('#main').querySelector(`[name="card-note"][data-draft="${CSS.escape(block)}"]`);
+    if (!box) return;
+    box.value = '';
+    box.blur();
+  });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && e.target.matches('.bq-ask textarea')) {
+    e.preventDefault();
+    e.target.form.requestSubmit();
+  }
+});
+function syncCardEmbed() {
   const host = $('#cardembed');
-  const card = r.screen === 'review' && state.model.board.cards.find((c) => c.id === ov.embedCard && c.embed);
+  const card = state.model.board.cards.find((c) => c.id === ov.embedCard && c.embed);
   host.hidden = !card;
   if (!card) {
     ov.embedCard = null;
@@ -321,7 +362,7 @@ document.addEventListener('focusout', (e) => {
   setTimeout(refresh);
 });
 document.addEventListener('submit', (e) => {
-  if (e.target.matches('.ct-box')) return;
+  if (e.target.matches('.bq-ask, .ct-box')) return;
   for (const el of e.target.elements) if (el.name) localStorage.removeItem(boxKey(el));
 }, true);
 function render() {
@@ -337,7 +378,7 @@ function render() {
   const stack = stackOf();
   document.title = m.title;
   $('.brand').textContent = m.title;
-  const tabs = [['overview', 'Now'], ['needs', 'Needs me', openTaps().length], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['asks', 'Your asks', openAsks()], ['replies', 'Chat', openReplies()], ['history', 'History']];
+  const tabs = [['overview', 'Now'], ['needs', 'Needs me', openTaps().length], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', prsWaiting()], ['asks', 'Your asks', openAsks()], ['replies', 'Chat', openReplies()], ['history', 'History']];
   $('#kbtn').classList.toggle('on', p.screen === 'jump');
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
@@ -380,11 +421,7 @@ function render() {
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(route());
   placeEmbed();
-  syncCardEmbed(p);
-  if (p.screen === 'review' && p.id === 'q' && state.focused !== location.hash) {
-    state.focused = location.hash;
-    (p.tab ? document.getElementById(`card-${decodeURIComponent(p.tab)}`) : document.getElementById('review-questions'))?.scrollIntoView({ block: p.tab ? 'center' : 'start' });
-  }
+  syncCardEmbed();
   if (p.screen === 'overview') mountNow();
   const top = route();
   const followed = stack.length && top.screen === 'work' ? decodeURIComponent(top.id) : p.screen === 'overview' ? feed.item : null;
