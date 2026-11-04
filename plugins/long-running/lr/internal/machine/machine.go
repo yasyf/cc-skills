@@ -119,6 +119,7 @@ const (
 type Facts struct {
 	Repo          string
 	Number        int
+	Title         string
 	Head          string
 	Branch        string
 	Base          string

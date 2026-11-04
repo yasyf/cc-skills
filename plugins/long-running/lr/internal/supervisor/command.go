@@ -228,6 +228,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		},
 		Checks:   checks,
 		Stagger:  checkStagger,
+		Repo:     env.Config.Repo,
 		Snapshot: prfacts.New(a, env.Config, s).Snapshot,
 		Post:     post,
 		Log:      a.Log,
