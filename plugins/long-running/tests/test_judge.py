@@ -101,7 +101,7 @@ def test_stateless_claude_starts_in_an_empty_directory_with_private_plugin_state
 
     def transport(argv, **kwargs):
         calls.append(argv)
-        assert kwargs["env"] == inherited | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(plugins), "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1"}
+        assert kwargs["env"] == inherited | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(plugins), "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1", "DISABLE_AUTOUPDATER": "1"}
         assert kwargs["input"] == "prompt" and kwargs["timeout"] == 7
         assert kwargs["cwd"] == config / "long-running" / "headless-cwd" and not any(kwargs["cwd"].iterdir())
         assert kept.read_text() == "persistent helper state"
