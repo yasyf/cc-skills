@@ -224,8 +224,8 @@ func TestACardOffTheBoardIsStillFoundInTheThreadIndex(t *testing.T) {
 	if !slices.Contains(strings.Split(book.rows[0], "\x00"), "Keep it?") {
 		t.Fatalf("row = %q, want the indexed question as its title", book.rows[0])
 	}
-	if len(book.Fake.Calls()) != 0 {
-		t.Fatalf("calls = %v, want no board read", book.Fake.Calls())
+	if len(book.Calls()) != 0 {
+		t.Fatalf("calls = %v, want no board read", book.Calls())
 	}
 }
 

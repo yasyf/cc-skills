@@ -128,7 +128,7 @@ func TestAMoveOffHomeLeavesEveryPathWorkingBehindALinkOnTheLocalDisk(t *testing.
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+		if err := os.WriteFile(path, []byte(body), 0o700); err != nil { //nolint:gosec
 			t.Fatal(err)
 		}
 	}
