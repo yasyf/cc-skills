@@ -72,7 +72,7 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 				equal(t, []string{launched[0].Slug, launched[0].What, launched[0].Link}, []string{"dd-338724738", "Triggered: runtime-api-next logging errors — plat", "https://slack/p1"})
 				posted := bus.posted[0]
 				equal(t, []any{posted.Kind, posted.To, posted.LaneRefs, posted.Attrs["brief"]}, []any{kindSpawn, []string{Root, OwnerRelay}, []string{"dd-338724738-fix"}, "/state/lanes/dd-338724738-fix.brief.md"})
-				contains(t, posted.Text, "ALERT-LAUNCHED Triggered: runtime-api-next logging errors — plat: no incident record named 338724738 4 min after it fired")
+				contains(t, posted.Text, "ALERT-LAUNCHED Triggered: runtime-api-next logging errors — plat: no incident record named https://app.datadoghq.com/monitors/338724738 4 min after it fired")
 			}
 		})
 	}
@@ -145,7 +145,7 @@ func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
 
 	equal(t, len(bus.posted), 1)
 	equal(t, bus.posted[0].Kind, blockerKind)
-	contains(t, bus.posted[0].Text, "ALERT-UNOPENED Triggered: x: no incident record names 338724738 4 min after it fired, and the supervisor's launch of dd-338724738-fix failed: ")
+	contains(t, bus.posted[0].Text, "ALERT-UNOPENED Triggered: x: no incident record names https://app.datadoghq.com/monitors/338724738 4 min after it fired, and the supervisor's launch of dd-338724738-fix failed: ")
 	contains(t, bus.posted[0].Text, "desk-launch exited 2")
 }
 
@@ -171,7 +171,7 @@ func TestAnAlertWithAFixLaneNamingItJoinsThatLaneAndLaunchesNothing(t *testing.T
 
 	equal(t, len(bus.posted), 1)
 	equal(t, bus.posted[0].To, []string{"dd-338724738-fix"})
-	contains(t, bus.posted[0].Text, "ALERT-AGAIN Triggered: x: 338724738 fired again 4 min ago")
+	contains(t, bus.posted[0].Text, "ALERT-AGAIN Triggered: x: https://app.datadoghq.com/monitors/338724738 fired again 4 min ago")
 }
 
 func storeLane(name string) store.Lane {
@@ -888,4 +888,14 @@ func TestAPassReadsOpenIncidentsOnceAndARestartDoesNotCutALaunch(t *testing.T) {
 	equal(t, launches, 2)
 	equal(t, bus.tails, 1)
 	equal(t, len(bus.posted), 2)
+}
+
+func TestAnAlertIsNamedByItsLinkSoHeNeverReadsABareNumber(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"Triggered: a\n<https://poetic.sentry.io/issues/4821/?project=7|API error>", "https://poetic.sentry.io/issues/4821"},
+		{"Triggered: a\n" + monitorLink, "https://app.datadoghq.com/monitors/338724738"},
+		{"The Watch failed for Executor on plat", "watch-executor-plat"},
+	} {
+		equal(t, namedFor(alert{name: "watch-executor-plat"}, slackMessage{Text: tc.text}), tc.want)
+	}
 }

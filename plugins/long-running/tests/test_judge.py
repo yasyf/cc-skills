@@ -155,6 +155,27 @@ def test_a_yes_stands_only_on_a_quote_the_evidence_holds(tmp_path, monkeypatch, 
     assert verdict.evidence_phrase == (quote if flagged else "")
 
 
+def test_a_kind_judged_by_itself_keeps_a_yes_whatever_evidence_it_quotes_and_the_row_names_each_answer(tmp_path, monkeypatch):
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
+    answer = {"structured_output": {"verdict": "yes", "artifact_phrase": "one new setting", "evidence_phrase": "no record carries this", "sentence": "Which fields?"}, "total_cost_usd": 0.0, "usage": {}}
+    monkeypatch.setattr(judge.subprocess, "run", lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout=json.dumps(answer), stderr=""))
+
+    verdict = judge.judge("first-question", "A pattern picked no vague words out of the post.", "It adds one new setting.", backend="sonnet", drive="d1")
+
+    assert verdict.flagged
+    [row] = judge.calls(tmp_path, datetime.now(timezone.utc) - timedelta(minutes=1))
+    assert (row["verdict"], row["answers"]) == ("yes", ["yes", "yes"])
+
+
+def test_a_split_after_a_classifier_keeps_the_model_answers_quote():
+    sonnet_ask, _ = scripted(judge.Verdict("unsure", "one new setting", "", "Which fields?"))
+    jev_ask, _ = scripted(judge.Verdict("yes", "", "", "classifier"))
+
+    verdict = judge.decide("jev+sonnet", sonnet_ask, jev_ask)
+
+    assert (verdict.verdict, verdict.artifact_phrase, verdict.sentence) == ("unsure", "one new setting", "Which fields?")
+
+
 def test_the_digest_counts_each_kinds_verdicts_errors_and_latency():
     rows = [
         {"kind": "contract", "verdict": "yes", "seconds": 20.0, "cost_usd": 0.02},
