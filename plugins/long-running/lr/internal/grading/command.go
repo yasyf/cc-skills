@@ -17,13 +17,17 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const pluginRootEnv = "BINRUN_PLUGIN_ROOT"
+const (
+	pluginRootEnv   = "BINRUN_PLUGIN_ROOT"
+	moveOffHomeVerb = "move-off-home"
+)
 
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "grade", Short: "Grade one drive head, from the job a desk wrote to DIR"}
 	cmd.AddCommand(
 		gradeVerb(a, GraderFinder, "One codex finder pass over one drive head", grader.Finder),
 		gradeVerb(a, GraderFidelity, "One fidelity grade of one drive head", grader.Fidelity),
+		moveOffHomeCommand(),
 	)
 	return cmd
 }
@@ -45,6 +49,9 @@ func gradeVerb(a *app.App, name, short string, grade func(context.Context, strin
 				if err := onLocalDisk(spec.Checkout, spriteLocalDisk); err != nil {
 					return err
 				}
+				if err := startMoveOffHome(spec.Checkout, spriteLocalDisk); err != nil {
+					return err
+				}
 			}
 			deps, err := liveDeps(a)
 			if err != nil {
@@ -53,6 +60,22 @@ func gradeVerb(a *app.App, name, short string, grade func(context.Context, strin
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
 			defer stop()
 			return grade(ctx, args[0], deps)
+		},
+	}
+}
+
+func moveOffHomeCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:    moveOffHomeVerb + " CHECKOUT",
+		Short:  "Move a Sprite's worktree and the tools a pass reads from its network home to its local disk",
+		Args:   cobra.ExactArgs(1),
+		Hidden: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			return moveOffHome(args[0], home, spriteLocalDisk)
 		},
 	}
 }

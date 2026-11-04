@@ -274,7 +274,7 @@ def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fa
     """remote-desks-5, 9:41 PM Oct 30: dar-fleet-4 restarted at about 9:20 PM mid-pass, sprite-job.sh exited with no result, and the runner counted fidelity #46330 801543b as running for 24 minutes, since a fidelity pass fails only on an error result or its 60-minute deadline."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46330-801543be814f-236200", mac / "config"
-    job_script, grader = plugin_with_job(mac, "import shutil, sys\nshutil.rmtree(sys.argv[1])\nsys.exit(137)\n"), "fidelity"
+    job_script, grader = plugin_with_job(mac, "import os, shutil, sys\nshutil.rmtree(os.path.realpath(sys.argv[1]))\nsys.exit(137)\n"), "fidelity"
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
     executable(mac / "bin" / "sleep", "#!/bin/sh\n")
@@ -555,3 +555,83 @@ def test_every_job_leaves_exactly_one_whole_result_record_however_it_ends(tmp_pa
         else:
             assert record["no_result"] is True and record["error"].startswith("the job on Sprite dar-fleet-4 ended with status"), run.stderr
         assert [path.name for path in directory.iterdir() if path.name.startswith(".result.json")] == []
+
+
+LOCATING_JOB = RESTARTED_JOB + """(job / "where.txt").write_text(str(job.resolve()))
+"""
+
+
+def one_job(tmp_path: Path, job: str):
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "50076-939c7c529e0b", mac / "config"
+    job_script = plugin_with_job(mac, job)
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    return mac, sprite, directory, config, lambda: subprocess.run(["sh", str(job_script), "vet4", "finder", str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+
+def test_a_job_directory_runs_on_the_local_disk_and_goes_once_it_is_copied_back(tmp_path: Path) -> None:
+    """Nov 4: a Sprite's home reads took up to seconds under load, and #50099 spent 16 minutes before its first model output."""
+    _, sprite, directory, _, run = one_job(tmp_path, LOCATING_JOB)
+
+    run()
+
+    where = (directory / "where.txt").read_text()
+    assert where.startswith(os.path.realpath("/tmp/lr-scratch") + "/")
+    assert not os.path.lexists(f"{sprite}{directory}")
+    assert not Path(where).exists()
+
+
+def test_a_job_replaces_the_sprites_registry_whole_so_a_reader_never_sees_it_empty(tmp_path: Path) -> None:
+    """Nov 4 #50177: rulings.py on a Sprite read empty JSON; each job start truncated the registry in place while up to four other passes there read it."""
+    _, sprite, _, config, run = one_job(tmp_path, RESTARTED_JOB)
+    registry = Path(f"{sprite}{config}/long-running/drives/d1.json")
+    registry.parent.mkdir(parents=True)
+    registry.write_text('{"a reader": "still holds this"}')
+    held = registry.with_name("held-by-a-reader.json")
+    os.link(registry, held)
+
+    run()
+
+    assert json.loads(held.read_text()) == {"a reader": "still holds this"}
+    assert "checkout" in json.loads(registry.read_text())
+    assert [path.name for path in registry.parent.iterdir() if path.name.startswith("d1.json.")] == []
+
+
+def test_a_shipped_copy_lands_on_the_local_disk_and_a_version_an_hour_unused_goes_when_no_job_holds_it(tmp_path: Path) -> None:
+    """Nov 4: a pack bump every few minutes leaves about 11 MB a version, which home could hold and the local disk cannot."""
+    mac, sprite, _, _, run = one_job(tmp_path, RESTARTED_JOB)
+    versions = Path(f"{sprite}{mac}")
+    versions.mkdir(parents=True, exist_ok=True)
+
+    def version(name: str, age: int, held: bool = False) -> Path:
+        kept = tmp_path / f"local-{name}"
+        (kept / "abc").mkdir(parents=True)
+        (versions / f"{name}.d").symlink_to(kept)
+        (versions / name).symlink_to(versions / f"{name}.d" / "abc")
+        if held:
+            handle = (kept / "abc.lock").open("w")
+            fcntl.flock(handle, fcntl.LOCK_SH)
+            holds.append(handle)
+        stamp = time.time() - age
+        os.utime(kept, (stamp, stamp))
+        return kept
+
+    holds: list = []
+    idle, recent, running = version("idle", 7200), version("recent", 60), version("running", 7200, held=True)
+
+    run()
+
+    shipped = versions / "plugin.d"
+    assert shipped.is_symlink() and os.readlink(shipped).startswith("/tmp/lr-ship/")
+    assert (versions / "plugin" / "bin" / "lr").is_file()
+    assert not idle.exists() and not os.path.lexists(versions / "idle.d") and not os.path.lexists(versions / "idle")
+    assert recent.exists() and (versions / "recent.d").is_symlink()
+    assert (running / "abc").exists() and (versions / "running.d").is_symlink()
