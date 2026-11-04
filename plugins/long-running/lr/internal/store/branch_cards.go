@@ -45,7 +45,7 @@ func (s *Store) OrderBranch(lane, holder string, held []int, at time.Time) error
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec("UPDATE branch_cards SET lane = ?, ordered = ?, held = ? WHERE lane = ?", holder, Stamp(at), string(encoded), lane)
+	_, err = s.db.Exec("UPDATE OR REPLACE branch_cards SET lane = ?, ordered = ?, held = ? WHERE lane = ?", holder, Stamp(at), string(encoded), lane)
 	return err
 }
 
