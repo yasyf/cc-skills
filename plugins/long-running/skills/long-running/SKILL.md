@@ -51,12 +51,8 @@ single-lane investigation is one subagent in direct mode, not a drive.
 
 - No rule forbids reading the one line a decision turns on.
 - A finding in hand is a fix, never a lane, a re-audit or a workflow.
-- Read each owner sentence as a careful colleague would. A correction names a
-  defect in the reading, never a redesign of something he ruled on earlier; read
-  the register's rows on that subject before acting. A repeat is a defect report
-  about the first reading: fix every place it survived, that turn.
-- A tooling refusal goes to the meta lane the same turn and the work proceeds on
-  the hand path; it is never an excuse and never a question for the owner.
+- Read each owner sentence as a careful colleague would. A correction names a defect in the reading, never a redesign of something he ruled on earlier; read the register's rows on that subject before acting. A repeat is a defect report about the first reading: fix every place it survived, that turn.
+- A tooling refusal goes to the meta lane the same turn and the work proceeds on the hand path; it is never an excuse and never a question for the owner.
 - A change to how the drive works, such as a ruling on routing, waits, cards,
   reactions, guards or who answers what, goes into this skill, a brief template, a
   capt-hook hook or a cc-notes doc the turn it is made. A session memory is a pointer at most.

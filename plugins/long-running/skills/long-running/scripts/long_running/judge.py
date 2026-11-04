@@ -445,12 +445,15 @@ def quoted_row(evidence: str, phrase: str) -> str:
 
 
 def decide(backend: Backend, sonnet_ask: Callable[[], Verdict], jev_ask: Callable[[], Verdict]) -> Verdict:
-    """The verdict each backend reaches from its asks: a yes stands only when a second ask agrees, and a split is unsure."""
+    """The verdict each backend reaches from its asks: a yes stands only when a second ask agrees, Sonnet's no settles Jev's yes, and any other split is unsure."""
     if backend == "jev":
         return jev_ask()
     if backend == "jev+sonnet":
         quick = jev_ask()
-        return quick if not quick.flagged else confirmed(sonnet_ask(), quick)
+        if not quick.flagged:
+            return quick
+        second = sonnet_ask()
+        return second if second.verdict == "no" else confirmed(second, quick)
     first = sonnet_ask()
     if first.flagged:
         return confirmed(sonnet_ask(), first)
