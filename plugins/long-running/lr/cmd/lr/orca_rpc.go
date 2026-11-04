@@ -49,9 +49,9 @@ func runOrca(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	real, err := exec.LookPath("orca")
+	path, err := exec.LookPath("orca")
 	if err != nil {
 		return fmt.Errorf("orca is not on PATH: %w", err)
 	}
-	return orcarpc.Passthrough(real, args)
+	return orcarpc.Passthrough(path, args)
 }
