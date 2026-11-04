@@ -209,7 +209,7 @@ def go_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]
         for kind in GO_KINDS:
             if not covered(checks, kind, package, edited):
                 missing[module, kind].append(f"./{package.relative_to(module)}".removesuffix("/."))
-    return [f"go -C {module} {kind} {' '.join(names)}" for (module, kind), names in missing.items()]
+    return [f"cd {module} && go {kind} {' '.join(names)}" for (module, kind), names in missing.items()]
 
 
 def typecheck_command(top: Path, project: Path) -> str:
@@ -252,8 +252,8 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash")],
     tests={
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Block(pattern=r"^A lane runs `go build` and `go vet`[\s\S]*go -C \S+/go/sand build \./internal/vm\ngo -C \S+/go/sand vet \./internal/vm\n"),
-        Input(command="git push origin HEAD", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("vet", root="go/sand")]): Block(pattern=r"go -C \S+ build \./internal/vm\n```$"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Block(pattern=r"^A lane runs `go build` and `go vet`[\s\S]*cd \S+/go/sand && go build \./internal/vm\ncd \S+/go/sand && go vet \./internal/vm\n"),
+        Input(command="git push origin HEAD", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("vet", root="go/sand")]): Block(pattern=r"cd \S+ && go build \./internal/vm\n```$"),
         Input(command="gt submit --stack", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand", at=0.0)]): Block(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF): Block(pattern=r"\nyarn tsc:api\n"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF): Block(pattern=r"\ncd \S+/tools/own && bun run typecheck\n"),
