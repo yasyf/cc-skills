@@ -68,6 +68,7 @@ var (
 	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
 	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
 	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
+	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
 )
 
 type Link struct {
@@ -354,6 +355,9 @@ func (r Reply) mended() (Reply, []string) {
 		}
 		return json.Unmarshal(raw, &block) == nil && block.Type != ""
 	})
+	if notebook.MatchString(mdLink.ReplaceAllString(r.MD, "$1")) {
+		warn("a notebook link in md shows no title, and Slack draws none, so write it as [its title](url)")
+	}
 	return r, warned
 }
 
