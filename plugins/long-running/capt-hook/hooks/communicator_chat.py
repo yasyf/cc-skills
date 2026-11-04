@@ -169,7 +169,7 @@ def chores(evt: BaseHookEvent) -> list[str]:
     return [
         " ".join([call.name, *[arg for arg in call.args if not arg.startswith("-")][:1], *sorted({arg.split("=", 1)[0] for arg in call.args if arg.startswith("-")})])
         for call in evt.command.calls()
-        if call.name in CHORE_VERBS and not {"owner", "post"} & set(call.args[:1])
+        if call.name in CHORE_VERBS and not {"owner", "post", "show"} & set(call.args[:1])
     ]
 
 
@@ -196,6 +196,7 @@ def ask_for_a_verb(evt: BaseHookEvent, shape: str) -> None:
         Input(command=f"{TAIL} && cci tail --lane fix-3 -n 1", state=ACTIVE, env=DRIVE_CONFIG, commands={"cci post": ""}): Allow(),
         Input(command="ls /drive", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
         Input(command="lr owner mark m1 addressed", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["lr owner"]}): Allow(),
+        Input(command="cci show 412110", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci show"]}): Allow(),
         Input(command="cci post --lane owner-relay --kind note --text x", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci post --kind --lane --text"]}): Allow(),
     }),
 )
