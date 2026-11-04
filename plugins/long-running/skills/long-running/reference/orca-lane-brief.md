@@ -224,8 +224,8 @@ Bus: cci drive <drive>; CLI cci, on PATH by name.
   Subscribe: --topic <each PR, branch prefix, and contract you own or consume> --kind decision.
   First call on every wake, and before every decision, report, or ask:
     `cci tail --drive <drive> --cursor <name> --reader <name> <subscription>`; act on a message only after reading cci.
-  While running: wait in the foreground with `lr wait 540 cci:<drive>:<name>` at
-    `timeout: 570000`, rerun on every return; never a `cci watch` Monitor.
+  While running: wait with `Monitor` on your records, or with `lr wait 540 cci:<drive>:<name>` at
+    `timeout: 570000`, rerun on every return; never a shell loop or sleeper.
   Use `cci post --drive <drive> --lane <name> --kind <kind> --topic <topic> --text "<text>"`:
     a `head` after every push, a `contract` for anything another lane consumes, a
     `decision` another lane could build on, a `blocker` or `ask` addressed `--to` the lane
@@ -242,7 +242,7 @@ Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to 
 Shell text: Claude Code holds any Bash command holding `$$(`, `$${` or `$$[` on a
   "Dangerous rm operation not ruled out" dialog, even inside a quoted heredoc. Write such a
   file with the Write tool and run it with a Bash command free of them.
-Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
+Run subagents and codex in the foreground (blocking), or end the turn and let the Agent notification wake you; never a shell loop on the reply file.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile, such as one missing generated bindings, never holds a push, and neither does a load-gate refusal: push, and CI compiles it; never generate code just to satisfy the local build.
 PR comments: nobody edits a PR body after it opens, so the evidence goes in two comments
@@ -415,7 +415,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `ccx vcs stack submit`.
 - After opening a PR, run
   `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor
-  (re-arm on expiry) or in a foreground loop instead of ad-hoc polling. `ejected` or
+  (re-arm on expiry) instead of ad-hoc polling. `ejected` or
   `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree,
   then report the new head; the landing pass re-enqueues it.
   `red <check>` means fix it. Your watch ends only when your PRs land.

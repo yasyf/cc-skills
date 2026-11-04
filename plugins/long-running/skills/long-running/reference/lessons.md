@@ -68,7 +68,7 @@ Each entry is a time a drive went wrong and the rule that now covers it. The rul
 | Undated | The coordinator ran one Bash watcher per build or PR landing and parsed the returned JSON in the coordinator window. | Fold waits into one sequencer lane and never parse JSON in the coordinator. | SKILL.md R1, R3 |
 | Undated | The coordinator replied to every lane idle notification, including duplicates. | Never answer duplicate or no-news idle notifications. | SKILL.md R4 |
 | Undated | The coordinator restated status to the user after each event instead of waiting for milestones. | Report to the user only on milestones or when they must act. | SKILL.md R5 |
-| Undated | The coordinator waited on a completion push from a lane that had parked at a confirm gate. | Lanes never park; poll in foreground loops to a terminal state. | SKILL.md R3 |
+| Undated | The coordinator waited on a completion push from a lane that had parked at a confirm gate. | Lanes never park: each turn ends on a typed record or a live harness wait. | SKILL.md R3 |
 | Undated | Messaging a finished agent resumed its full brief and collided with a fresh lane. | Never re-brief or message a finished agent. | SKILL.md R4 |
 | Undated | Messaging a running agent spawned a second copy that restarted the lane. | Never send `SendMessage` to a running agent. | SKILL.md R4 |
 | Undated | Several ship lanes shared one worktree, so HEAD moved mid-run, a staged diff landed on the wrong branch, and a build scratch file was swept into a PR as a 63 MB blob. | Isolate lanes in separate worktrees. | SKILL.md R4 |

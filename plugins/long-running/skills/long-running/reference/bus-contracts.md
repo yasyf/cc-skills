@@ -7,7 +7,7 @@
 - [Delivery and cursors](#delivery-and-cursors)
 - [Desk inbox rules (I1-I7)](#desk-inbox-rules-i1-i7)
 - [Lane bus rules (B1-B5)](#lane-bus-rules-b1-b5)
-- [The polling loop](#the-polling-loop)
+- [How a lane waits](#how-a-lane-waits)
 - [Worked examples](#worked-examples)
 - [What stays on SendMessage](#what-stays-on-sendmessage)
 
@@ -55,7 +55,7 @@ The cursor is a cci cursor named for the lane. It survives session compaction an
 
 `--since <seq>` reads after that sequence without reading or advancing the cursor. `--since 0` replays retained records. Omit `--reader` for a drive-wide replay when another lane's thread matters.
 
-Every lane waits with `lr wait 540 cci:<drive>:<lane>` as its foreground Bash call at `timeout: 570000`, and re-runs it when it returns; only an in-process teammate adds its mailbox, under I7. The call follows the cci daemon's stream and any file source, so it polls nothing; its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor. Only a record stamped at or after the wait's start wakes it. An older one, such as a reply's parent that relay sync fetches on a Sprite, prints with the next record that wakes the wait, or before `QUIET` at the deadline. No lane arms a `cci watch` Monitor: the `lane_waits` hook warns on one, since each is a process that polls once a second for the life of the lane.
+A lane waits with `Monitor` on its record stream, by ending its turn on a typed record or an Agent or `Monitor` notification, or with `lr wait 540 cci:<drive>:<lane>` as its Bash call at `timeout: 570000`, re-run when it returns; only an in-process teammate adds its mailbox, under I7. The call follows the cci daemon's stream and any file source, so it polls nothing; its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor. Only a record stamped at or after the wait's start wakes it. An older one, such as a reply's parent that relay sync fetches on a Sprite, prints with the next record that wakes the wait, or before `QUIET` at the deadline.
 
 ## Desk inbox rules (I1-I7)
 
@@ -130,9 +130,9 @@ cci digest --drive "$DRIVE"
 cci tail --drive "$DRIVE" --reader root --since 0
 ```
 
-## The polling loop
+## How a lane waits
 
-Lanes wait in the foreground. The Bash tool caps `timeout` at `600000` ms, so a call budgets about nine minutes and the lane re-runs it until a terminal state. A plain Bash wait never blocks longer than 60 seconds, and a lane never writes a shell loop, backgrounds a process with `&`, `nohup` or `setsid`, wraps a shell in `timeout`, or sleeps a minute or more: the `lane_waits` hook warns on each and `lr wait` ends whatever a guarded command leaves behind, because on Nov 2 2026 one desk's nested `timeout zsh loop.sh` chains reached 513 copies and 3,286 processes and the launch gate refused every lane for an hour. Any longer wait goes through `lr wait` on the lane's own cci source so an addressed record ends the call; `lr wait` is one process that follows its sources and exits.
+A wait goes through the harness: end the turn on an Agent or `Monitor` notification, run an event stream as a `Monitor` command, and use `CronCreate` for a clock. The `shell_waits` hook blocks a Bash call that waits on a shell loop, a sleep of a minute or more, or a sleeper script, foreground or `run_in_background`. A binary that follows its source, `lr wait` and `lr coordinator next`, is no shell script: the Bash tool caps `timeout` at `600000` ms, so such a call budgets about nine minutes and the lane re-runs it until a terminal state. A lane never backgrounds a process with `&`, `nohup` or `setsid` or wraps a shell in `timeout`: the `lane_waits` hook warns on each and `lr wait` ends whatever a guarded command leaves behind, because on Nov 2 2026 one desk's nested `timeout zsh loop.sh` chains reached 513 copies and 3,286 processes and the launch gate refused every lane for an hour. Any longer wait goes through `lr wait` on the lane's own cci source so an addressed record ends the call; `lr wait` is one process that follows its sources and exits.
 
 A blocking watch runs after `--`, and an addressed record ends it the moment it lands. Run it with `timeout: 570000`:
 
@@ -142,7 +142,7 @@ lr wait 540 cci:<drive>:<lane> -- bk build watch <build>
 
 `lr wait` passes the command's output and exit status through, and on a wake or the deadline it ends the command's process group and prints the records that woke it or `QUIET`. Wrap read-only watches only, never a ship, push, or apply. On a wake, act on the records it printed before re-running the watch.
 
-A state with no watch verb is read once per call, never in a loop: query it, then wait, and re-run the call until the state is terminal, covering failure states so a broken build is not re-read until the deadline:
+A state with no watch verb runs as a `Monitor` command that emits on change and exits at a terminal state, or is read once per call: query it, then wait, and re-run the call until the state is terminal, covering failure states so a broken build is not re-read until the deadline:
 
 ```sh
 state=$(<authoritative query>)
