@@ -62,7 +62,7 @@ const (
 var (
 	statuses   = []string{info, progress, needsYou, incident, done}
 	types      = []string{typeExplanation, typeUpdate, typeForYou, typeQuestion, incident, done}
-	orderRow   = regexp.MustCompile(`^m\d+$`)
+	orderRow   = regexp.MustCompile(`^m\d+(?:\.\d+)?$`)
 	replyID    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
 	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)

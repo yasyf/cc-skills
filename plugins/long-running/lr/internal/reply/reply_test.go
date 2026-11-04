@@ -944,6 +944,15 @@ func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 	}
 }
 
+func TestAnOrderNamesARowOrASubRow(t *testing.T) {
+	for order, kept := range map[string]bool{"m703": true, "m703.2": true, "m703.2.1": false, "703": false} {
+		got, _ := Reply{ID: "a", Title: "t", MD: "m", Order: order}.mended()
+		if (got.Order == order) != kept {
+			t.Errorf("order %q mended to %q, kept should be %v", order, got.Order, kept)
+		}
+	}
+}
+
 func TestAPRNotWaitingIsOnlyAMentionAndANoPRReplyReadsNothing(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
