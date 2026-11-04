@@ -139,8 +139,14 @@
     },
     {
       "name": "orca",
-      "source": "./plugins/orca",
-      "description": "Launch Orca workers on a Sprite or a local worktree, reclaim what a settled Dispatch left behind, and diagnose a stuck lane, with a repository's values checked in once as .orca.json."
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/yasyf/cc-skills",
+        "path": "plugins/orca",
+        "ref": "orca--v0.1.1"
+      },
+      "description": "Launch Orca workers on a Sprite or a local worktree, reclaim what a settled Dispatch left behind, and diagnose a stuck lane, with a repository's values checked in once as .orca.json.",
+      "version": "0.1.1"
     },
     {
       "name": "long-running",
