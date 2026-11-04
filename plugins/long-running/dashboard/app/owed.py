@@ -122,8 +122,11 @@ def order_replies(replies):
 
 
 def told_asks(ledger, told):
-    rows = [row for row in map(LEDGER_ROW.match, ledger.splitlines()) if row and row[4].isdigit()]
-    return {int(row[4]): {"closed": row[5]} for row in rows if row[5] in CLOSED_MARKS} | {int(row[4]): told[f"m{row[1]}"] for row in rows if f"m{row[1]}" in told}
+    return {int(row[4]): told[f"m{row[1]}"] for row in map(LEDGER_ROW.match, ledger.splitlines()) if row and row[4].isdigit() and f"m{row[1]}" in told}
+
+
+def closed_asks(ledger):
+    return {int(row[4]): {"closed": row[5]} for row in map(LEDGER_ROW.match, ledger.splitlines()) if row and row[4].isdigit() and row[5] in CLOSED_MARKS}
 
 
 def message_state(mark, finished, records, named, prs, answer):

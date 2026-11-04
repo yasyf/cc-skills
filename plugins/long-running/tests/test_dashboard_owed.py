@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "dashboard" / "app"))
 
-from owed import kept, order_replies, overdue_rows, owner_ask_rows, told_asks
+from owed import closed_asks, kept, order_replies, overdue_rows, owner_ask_rows, told_asks
 
 LEDGER = """| m | at | text | record | mark |
 |---|---|---|---|---|
@@ -173,4 +173,4 @@ def test_a_settled_thread_answers_a_short_question_and_drops_its_clock():
 
 
 def test_a_closed_row_closes_the_question_it_routed_and_a_due_one_does_not():
-    assert told_asks(DUE_LEDGER, {}) == {79: {"closed": "responded"}}
+    assert closed_asks(DUE_LEDGER) == {79: {"closed": "responded"}}

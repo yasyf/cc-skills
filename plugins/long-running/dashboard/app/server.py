@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 import plainwords
 from brief import COORDINATORS, ROOT, Curator
-from owed import CHAT_HOLDER, kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
+from owed import CHAT_HOLDER, closed_asks, kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
 from pages import PAGES, source_key, stamp
 from review_assistant import ReviewAssistant
 from screens import SCREENS, changed_screens, screen_kind, screen_view
@@ -1237,7 +1237,7 @@ class Drive:
             ledger_file = Path(self.config["owner_ledger"])
             ledger = ledger_file.read_text()
             told = order_replies(self.replies)
-            self.told_asks = told_asks(ledger, told)
+            self.told_asks = closed_asks(ledger) | told_asks(ledger, told)
             answers = {path.stem: path.read_text() for path in (ledger_file.parent / "answers").glob("*.md")} | {row: reply["md"] for row, reply in told.items()}
             threads = {ask["seq"]: ask for asks in self.model.get("asks", {}).values() for ask in asks}
             lanes = set(self.lane_names())
