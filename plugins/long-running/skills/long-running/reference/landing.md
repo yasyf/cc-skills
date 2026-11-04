@@ -367,16 +367,31 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 
 ### Tap rules and exemptions
 
-- `landing.tap_rules` maps a register row key to path globs, such as `{"rule/<id>": ["go/sand/next/*", "infra/ci/src/pipelines/test/sand.ts"]}`. In every merge mode, a head whose changed files match a row's globs while `rulings.py rows` lists that row in force waits until an approval on the coordinator's board names some head of the PR. A coordinator `go` never stands in for that tap.
+- `landing.tap_rules` maps a register row key to path globs, such as `{"rule/<id>": ["go/sand/next/*", "infra/ci/src/pipelines/test/sand.ts"]}`. In every merge mode, a head whose changed files match a row's globs while `rulings.py rows` lists that row in force waits until an approval on the coordinator's board names some head of the PR. A coordinator `go` never stands in for that tap. The one class past it is a proven old-tree port, under [Old-tree forward port](#old-tree-forward-port).
 - While waiting, the runner posts one `TAP-REQUIRED` blocker per head naming the row to the PR's lane, the coordinator, and each `landing.board_lane`, or one `TAP-UNREAD` warning to the PR's lane, the coordinator, and each `landing.desk_lane` if changed files, register, or board cannot be read.
-- A head whose newest fidelity grade matches `landing.exempt_grades` needs no tap or `go` in any merge mode. The grades default to `pure port, no interaction` and `test-only or CI-only, no non-test code`; legacy `landing.port_phrase` replaces the first, and a grade saying the port touches rebuild code keeps the tap.
+- A head whose newest fidelity grade matches `landing.exempt_grades` needs no tap or `go` in any merge mode. The grades default to `pure port, no interaction` and `test-only or CI-only, no non-test code`; legacy `landing.port_phrase` replaces the first. A port grade admits nothing by its words alone: the gate also reads the proof under [Old-tree forward port](#old-tree-forward-port).
 - Such a head goes straight to the merge queue once hold, fidelity, finder, build, and CI checks pass, sending one `EXEMPT-ADMITTED` note to the coordinator and each `landing.board_lane` when a tap rule names its files.
 - Both classes and any `go` carrying `[exempt: <class>]` are verified against every file the PR changes against its base.
 - A class is a test or CI class when it names a test, CI, `harness`, or fixture word, so `ci-tooling` is one; any other class is the coordinator's to claim.
 - `fidelity-pipeline` reads both lists too. Its `ok` names a class the changed paths alone decide whenever every file the head changes fits it: `test-only`, `ci-only` and the default test-only grade take test and CI files, and `ci-tooling` adds the remote-builder, cc-remote and mise pins. The model never names those; it names only a class that takes judgment, such as `regression` or `owner-pick`. A head with one product file gets no path class.
 - A test-only or CI-only claim keeps the tap on any file not recognized as a test file by `testfiles.py` or under `__tests__/`, `testdata/`, `fixtures/`, `docs/`, `.buildkite/`, `.github/`, `tools/ci/`, `infra/ci/`, `.agents/skills/*/scripts/`, `.agents/skills/*/tests/`, or buildkite yaml. It opens the `TAP-REQUIRED` blocker with `TEST-ONLY-MISMATCH` naming the first such file.
-- A port claim keeps the tap on any file outside `go/sand/next/`, opening the blocker with `PORT-MISMATCH` naming the file, unless a PR comment under `## Rulings` names the interaction and cites `# owner: <answer id>`.
 - A `go` at an older head carries to a later head whose own diff is the same, and never by a fidelity judgment. The own diff runs from the newest merge-base the head shares with its base or the trunk, so a stack replay after the PR below lands changes nothing even before GitHub retargets the base, and the queued head stays queued.
+
+### Old-tree forward port
+
+Until cutover, every old-tree PR that lands on `dev` and is not the rebuild's own work is copied into `go/sand/next` as a port PR. It runs without being asked. Where a port meets the rebuild's changes, the rebuild wins, and a port never regresses them.
+
+- **Who runs it.** `old-tree-port-desk` walks `dev` and keeps the census: ported, in flight, not ported, superseded, old-only. It gets a lane for each not-ported PR, and root names the lane if the desk cannot. Its brief carries a `Standing:` line, so the supervisor relaunches it when it is lost. Without that line the desk stopped silently and nothing relaunched it.
+- **What proves it runs.** Each walk posts `cci post --kind state --topic port-census "<counts>"`, also when `dev` brought nothing new. The stall watch tells root once when the newest walk is more than 6 hours old. A drive that never posts a census is left alone.
+- **When it ends.** At cutover and no sooner: the desk posts a last census with `--attr ended=cutover`, which stops the alert, then stands down. Plan step 12.0 reads "port census has no gaps" before the promote.
+- **What proves a PR is a port.** A word in its title proves nothing. The lane says so on the `head` record of every push, `--head <pr>=<was>..<sha> --attr port-of=<old PR> --attr port-interacts=no|yes`, and the record at the exact head decides. The newest such record wins. A restack with the same diff keeps its go, as any go does.
+- **A clean port needs no tap.** `lr landing go` posts `[exempt: old-tree-port]` past `landing.tap_rules` when all of these hold at the head:
+  - Fidelity's `ok` names `class old-tree-port` or `pure port, no interaction`.
+  - The head record says `port-of=<n>` and `port-interacts=no`; a record silent on interaction counts as interacting.
+  - `#<n>` is a merged pull request.
+  - Every changed file is under `go/sand/next/`.
+- **A port that interacts goes to him.** Interaction takes judgment, so the lane decides: it writes `port-interacts=yes` when the port changes anything a rebuild change or plan step rewrote, beyond moving imports. It posts one card, recommending that our change supersedes the port, and the PR lands only on his tap.
+- **Everything else stays.** CI, approval, finder, fidelity, holds, open cards and the row's other waits apply to a port like any PR. A port with one file outside the tree lands on his tap.
 
 ### Exempt go gate
 

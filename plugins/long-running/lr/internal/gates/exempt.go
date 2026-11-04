@@ -1,6 +1,7 @@
 package gates
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"regexp"
@@ -25,6 +26,13 @@ const (
 const (
 	PortGrade     = "pure port, no interaction"
 	TestOnlyGrade = "test-only or CI-only, no non-test code"
+
+	OldTreePortClass  = "old-tree-port"
+	PortOfAttr        = "port-of"
+	PortInteractsAttr = "port-interacts"
+	portCleanWord     = "no"
+	portTree          = "go/sand/next/"
+	headKind          = "head"
 )
 
 var DefaultExemptGrades = []string{PortGrade, TestOnlyGrade}
@@ -49,6 +57,8 @@ type Read struct {
 	Cards    []Card
 	Lifts    map[int64]bool
 	Body     string
+
+	PortSourceMerged bool
 }
 
 type standingGrade struct {
@@ -56,14 +66,95 @@ type standingGrade struct {
 	ok     bool
 }
 
+type PortClaim struct {
+	Source    int
+	Interacts bool
+	Record    client.Record
+}
+
 func ExemptGo(c Claim, r Read) (string, []string) {
 	finder, finderRefusal := finderCite(c, r.Records)
-	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, r.Exempt)
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, openHolds(c, r.Records, r.Lifts), openCards(c, r), tapRules(r.TapRules, r.Files), standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
+	port, claimed := PortAt(c, r.Records)
+	exempt := r.Exempt
+	if claimed {
+		exempt = portsFirst(exempt)
+	}
+	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, exempt)
+	rules := tapRules(r.TapRules, r.Files)
+	var portRefused []string
+	if isPortClass(class) {
+		portRefused = portRefusals(c, r, port, claimed)
+		if len(portRefused) == 0 {
+			rules = nil
+		}
+	}
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, portRefused, openHolds(c, r.Records, r.Lifts), openCards(c, r), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", refusals
 	}
 	return fmt.Sprintf("go #%d at %s on green [exempt: %s]: %s, %s", c.PR, short(c.Head), class, fidelity, finder), nil
+}
+
+func PortAt(c Claim, records []client.Record) (PortClaim, bool) {
+	for _, record := range slices.Backward(records) {
+		if string(record.Kind) != headKind || !namesHead(record, c) {
+			continue
+		}
+		source, err := strconv.Atoi(record.Fields.Attrs[PortOfAttr])
+		if err != nil {
+			continue
+		}
+		return PortClaim{source, record.Fields.Attrs[PortInteractsAttr] != portCleanWord, record}, true
+	}
+	return PortClaim{}, false
+}
+
+func namesHead(record client.Record, c Claim) bool {
+	named := cmp.Or(bus.HeadNamed(record, c.Repo, c.PR), record.Fields.Attrs[headKind])
+	if named == "" {
+		return false
+	}
+	sha := strings.Fields(named)[0]
+	if _, moved, found := strings.Cut(sha, ".."); found {
+		sha = moved
+	}
+	return strings.HasPrefix(c.Head, sha)
+}
+
+func portRefusals(c Claim, r Read, port PortClaim, claimed bool) []string {
+	if !claimed {
+		return []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr)}
+	}
+	var out []string
+	if port.Interacts {
+		out = append(out, fmt.Sprintf("port: head record %s does not read %s=%s, so it goes to the owner on one card and lands on his tap", port.Record.Name(), PortInteractsAttr, portCleanWord))
+	}
+	if !r.PortSourceMerged {
+		out = append(out, fmt.Sprintf("port: its source #%d is not a merged pull request", port.Source))
+	}
+	if file := slices.IndexFunc(r.Files, func(file string) bool { return !strings.HasPrefix(file, portTree) }); file >= 0 {
+		out = append(out, fmt.Sprintf("port: %s is outside %s, so it is no pure port and lands on his tap", r.Files[file], portTree))
+	}
+	return out
+}
+
+func isPortClass(class string) bool {
+	return class == OldTreePortClass || class == ClassOf(PortGrade)
+}
+
+func portsFirst(exempt []string) []string {
+	ordered := slices.Clone(exempt)
+	slices.SortStableFunc(ordered, func(a, b string) int {
+		return cmp.Compare(portRank(a), portRank(b))
+	})
+	return ordered
+}
+
+func portRank(phrase string) int {
+	if isPortClass(ClassOf(phrase)) {
+		return 0
+	}
+	return 1
 }
 
 func finderCite(c Claim, records []client.Record) (string, string) {

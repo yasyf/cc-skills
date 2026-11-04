@@ -26,6 +26,7 @@ import (
 const (
 	kindGo   = "go"
 	openPR   = "OPEN"
+	mergedPR = "MERGED"
 	filesJQ  = ".[].filename"
 	goReader = "desk-runner"
 )
@@ -118,6 +119,13 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	}
 	claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
 	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards}
+	if port, claimed := gates.PortAt(claim, records); claimed {
+		sources, err := a.CCX.PRStatus(ctx, cfg.Repo, []int{port.Source})
+		if err != nil {
+			return false, err
+		}
+		read.PortSourceMerged = slices.ContainsFunc(sources, func(source ccx.PRStatus) bool { return source.State == mergedPR })
+	}
 	if flags.sweep {
 		if _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))

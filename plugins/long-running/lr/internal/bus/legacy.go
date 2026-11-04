@@ -1,6 +1,7 @@
 package bus
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"regexp"
@@ -104,6 +105,11 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 		out = append(out, Fact{pair.PR, pair.Head, "exempt", strings.ToLower(exempt[1])})
 	}
 	return out
+}
+
+func HeadNamed(record client.Record, repo string, number int) string {
+	attrs := record.Fields.Attrs
+	return cmp.Or(attrs["head:"+strconv.Itoa(number)], attrs["head:"+repo+"#"+strconv.Itoa(number)])
 }
 
 func behaviorFacts(record client.Record, repo string) []Fact {

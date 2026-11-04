@@ -314,3 +314,48 @@ func TestOneRefusedPostLeavesTheRestOfTheSweepPosting(t *testing.T) {
 	want(t, len(escalated), 2)
 	want(t, len(r.posts), 1)
 }
+
+func TestAPortDeskThatStopsWalkingTellsRootOnceUntilItEndsOrWalksAgain(t *testing.T) {
+	walked := at(t, "2026-11-03T21:54:00Z")
+	census := func(seq int, when time.Time, attrs string) client.Record {
+		t.Helper()
+		var record client.Record
+		line := `{"seq":` + strconv.Itoa(seq) + `,"lane":"old-tree-port-desk-1","kind":"state","topic":"port-census","at":"` + when.Format(time.RFC3339) + `","text":"ledger 793","fields":{"attrs":{` + attrs + `}}}`
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatal(err)
+		}
+		return record
+	}
+	s, r := memory(t), &recorder{}
+	sweep := func(now time.Time, records ...client.Record) []pass.Escalated {
+		t.Helper()
+		escalated, err := Sweep(s, records, nil, nil, now, r.post)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return escalated
+	}
+	if got := sweep(walked.Add(portCensusQuiet-time.Minute), census(1, walked, "")); len(got) != 0 {
+		t.Fatalf("a walk inside its quiet window escalated: %+v", got)
+	}
+	late := sweep(walked.Add(portCensusQuiet), census(1, walked, ""))
+	want(t, len(late), 1)
+	want(t, late[0].To, "root")
+	want(t, late[0].Subject, PortCensusTopic)
+	if got := sweep(walked.Add(portCensusQuiet+time.Hour), census(1, walked, "")); len(got) != 0 {
+		t.Fatalf("the same stop told root twice: %+v", got)
+	}
+	walkedAgain := walked.Add(8 * time.Hour)
+	if got := sweep(walkedAgain.Add(time.Minute), census(1, walked, ""), census(2, walkedAgain, "")); len(got) != 0 {
+		t.Fatalf("a new walk still escalated: %+v", got)
+	}
+	if got := sweep(walkedAgain.Add(portCensusQuiet), census(2, walkedAgain, "")); len(got) != 1 {
+		t.Fatalf("a second stop told root %d times, want once", len(got))
+	}
+	if got := PortCensusWaits([]client.Record{census(3, walked, `"ended":"cutover"`)}, walked.Add(time.Hour*20)); len(got) != 0 {
+		t.Fatalf("a census that says ports have ended still waits: %+v", got)
+	}
+	if got := PortCensusWaits([]client.Record{{Seq: 4, Lane: "lane-a", Kind: "state", At: walked, Text: "port-census"}}, walked.Add(time.Hour*20)); len(got) != 0 {
+		t.Fatalf("a drive with no port census waits: %+v", got)
+	}
+}
