@@ -36,14 +36,6 @@ func (r *recorded) hooks() Hooks {
 	}
 }
 
-func facts(change func(*machine.Facts)) map[int]machine.Facts {
-	f := machine.Facts{Repo: repo, Number: number, Head: head, Base: "dev", Lane: "lane-7", CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
-	if change != nil {
-		change(&f)
-	}
-	return map[int]machine.Facts{number: f}
-}
-
 func withItem(t *testing.T) *store.Store {
 	t.Helper()
 	s, err := store.Memory()
@@ -93,13 +85,6 @@ func openTap(t *testing.T, s *store.Store, on string, at time.Time) {
 func rowWaits(t *testing.T, s *store.Store, waits string) {
 	t.Helper()
 	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: head, WaitsOn: waits}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func put(t *testing.T, s *store.Store, on, kind, value string) {
-	t.Helper()
-	if _, err := s.PutFact(repo, number, on, kind, value, t0); err != nil {
 		t.Fatal(err)
 	}
 }

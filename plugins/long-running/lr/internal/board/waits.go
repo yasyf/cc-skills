@@ -2,7 +2,6 @@ package board
 
 import (
 	"fmt"
-	"slices"
 	"strconv"
 	"time"
 
@@ -21,10 +20,6 @@ type PRWait struct {
 	Head    string `json:"head"`
 	Waiting bool   `json:"waiting"`
 	Line    string `json:"line"`
-}
-
-func withoutTap(missing []string) []string {
-	return slices.DeleteFunc(slices.Clone(missing), func(gate string) bool { return gate == noTap })
 }
 
 func pacificStamp(stamp string) string {

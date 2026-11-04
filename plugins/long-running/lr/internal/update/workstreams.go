@@ -10,9 +10,10 @@ import (
 	"unicode"
 
 	"github.com/yasyf/cc-inbox/client"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -78,11 +79,28 @@ func stamp(at, now time.Time) string {
 	return at.In(pacificZone).Format("Jan 2 3:04 PM")
 }
 
-func prState(pr asks.PR) string {
-	if pr.CarriesLabel() {
+func prWord(row store.ReviewRow) string {
+	switch {
+	case row.State == prrow.StateQueued:
 		return queueLabelled
+	case row.Hold != "" && row.Hold != prrow.None:
+		return "held"
+	case row.CI == prrow.CIRed:
+		return "red"
+	case row.TapRefused != "" && row.TapRefused != prrow.None:
+		return "refused"
+	case row.ReadyForTap && !row.Tapped:
+		return "ready for your tap"
+	case row.Tapped:
+		return "tapped"
 	}
-	return orWord(pr.WaitingReason(), "open")
+	return "open"
+}
+
+func openPRRows(rows []store.ReviewRow) []store.ReviewRow {
+	return slices.DeleteFunc(slices.Clone(rows), func(row store.ReviewRow) bool {
+		return prrow.Terminal(row.State) || row.State == prrow.StateSuperseded
+	})
 }
 
 func (v view) workstreamLines(in Inputs, lanes []Lane) (lines, gaps []string) {
@@ -114,11 +132,11 @@ func (v view) workstreamLines(in Inputs, lanes []Lane) (lines, gaps []string) {
 
 func (v view) workstreamRow(in Inputs, each Workstream, mine []Lane) string {
 	dayStart := in.Now.Add(-quietAfter)
-	prs := v.workstreamPRs(in.Book, each)
-	open := slices.DeleteFunc(slices.Clone(prs), func(pr asks.PR) bool { return !pr.Open() })
+	prs := v.workstreamPRs(in.PRRows, each)
+	open := openPRRows(prs)
 	var state, changed, blocks, actions []string
 	for _, pr := range open {
-		word := prState(pr)
+		word := prWord(pr)
 		state = append(state, fmt.Sprintf("#%d %s", pr.Number, word))
 		if seq, held := in.Held[strconv.Itoa(pr.Number)]; held {
 			blocks = append(blocks, fmt.Sprintf("#%d held by cci #%d", pr.Number, seq))
@@ -158,12 +176,12 @@ func (v view) workstreamRow(in Inputs, each Workstream, mine []Lane) string {
 		state = append(state, each.Note)
 	}
 	for _, pr := range prs {
-		if pr.Landed() && pr.LandedAt.After(in.Before.At) {
-			changed = append(changed, fmt.Sprintf("#%d landed %s", pr.Number, stamp(pr.LandedAt, in.Now)))
+		if landed, err := time.Parse(time.RFC3339, pr.LandedAt); pr.State == prrow.StateLanded && err == nil && landed.After(in.Before.At) {
+			changed = append(changed, fmt.Sprintf("#%d landed %s", pr.Number, stamp(landed, in.Now)))
 		}
 	}
 	for _, release := range slices.Backward(in.Releases) {
-		if release.At.After(in.Before.At) && slices.ContainsFunc(prs, func(pr asks.PR) bool { return slices.Contains(prsOf(release), strconv.Itoa(pr.Number)) }) {
+		if release.At.After(in.Before.At) && slices.ContainsFunc(prs, func(pr store.ReviewRow) bool { return slices.Contains(prsOf(release), strconv.Itoa(pr.Number)) }) {
 			changed = append(changed, fmt.Sprintf("release %s: %s", pacific(release.At), clip(release.Text)))
 			break
 		}
@@ -195,20 +213,20 @@ func (v view) workstreamRow(in Inputs, each Workstream, mine []Lane) string {
 	return "| " + strings.Join(cells, " | ") + " |"
 }
 
-func (v view) workstreamPRs(book asks.Book, each Workstream) []asks.PR {
+func (v view) workstreamPRs(rows []store.ReviewRow, each Workstream) []store.ReviewRow {
 	var numbers []int
 	for _, lane := range v.lanes {
 		if each.holds(lane) {
 			numbers = append(numbers, lane.PRs...)
 		}
 	}
-	var out []asks.PR
-	for _, pr := range book.PRs {
+	var out []store.ReviewRow
+	for _, pr := range rows {
 		if (pr.Lane != "" && each.holds(v.laneNamed(pr.Lane))) || slices.Contains(numbers, pr.Number) {
 			out = append(out, pr)
 		}
 	}
-	slices.SortFunc(out, func(one, other asks.PR) int { return one.Number - other.Number })
+	slices.SortFunc(out, func(one, other store.ReviewRow) int { return one.Number - other.Number })
 	return out
 }
 
@@ -246,9 +264,9 @@ func (v view) workstreamLanes(each Workstream, mine []Lane) string {
 	return fmt.Sprintf("%s; last %s, heard %s", noLiveLane, last, stamp(at, v.now))
 }
 
-func onCard(card board.Wait, each Workstream, open []asks.PR) bool {
+func onCard(card board.Wait, each Workstream, open []store.ReviewRow) bool {
 	if card.PR != "" {
-		return slices.ContainsFunc(open, func(pr asks.PR) bool { return strconv.Itoa(pr.Number) == card.PR })
+		return slices.ContainsFunc(open, func(pr store.ReviewRow) bool { return strconv.Itoa(pr.Number) == card.PR })
 	}
 	words := strings.ToLower(strings.Join([]string{card.Block, card.Subject, card.Title}, " "))
 	return slices.ContainsFunc(each.Stems, func(stem string) bool {

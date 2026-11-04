@@ -42,6 +42,9 @@ func Wire(a *app.App, entry drive.Entry, s *store.Store) Sources {
 			return progress.Plans, nil
 		},
 		Book: mirror.Book,
+		PRRows: func() ([]store.ReviewRow, error) {
+			return s.ReviewRows(entry.Repo)
+		},
 		Board: func(ctx context.Context, snapshots []board.Snapshot) (board.Live, error) {
 			outcomes, err := board.ReadOutcomes(ctx, a.Runner, entry.Root())
 			if err != nil {

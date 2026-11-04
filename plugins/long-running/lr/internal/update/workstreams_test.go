@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 )
@@ -74,6 +76,11 @@ func TestEachWorkstreamRowIsComputedFromItsLanesRecordsPRsAndBoardAndNamesItsLiv
 		t.Fatal(err)
 	}
 	in.Book = book
+	in.PRRows = []store.ReviewRow{
+		{Number: 49509, Lane: "durable-agents-fix-1", Title: "pause meters", Head: "abc", State: "open", CI: "red", WaitsOn: "CI is red at this head"},
+		{Number: 49400, Lane: "durable-agents-3", Title: "resume runs", State: "landed", LandedAt: store.Stamp(ago(30))},
+		{Number: 48401, Lane: "ship-2", Title: "journal readers move to the sealed format", Head: "abc", State: "queued"},
+	}
 	in.Cards = []board.Wait{
 		{Kind: "tap", PR: "49509", Head: "abc1234", Since: "10:50 AM", Title: "stops the crash"},
 		{Kind: "pick", Block: "card-durable-agents-store", Subject: "store", Title: "which store keeps a run", Since: "10:40 AM"},

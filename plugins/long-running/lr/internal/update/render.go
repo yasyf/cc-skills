@@ -63,6 +63,7 @@ type Inputs struct {
 	Waits     []Record
 	Plans     []*plans.Plan
 	Book      asks.Book
+	PRRows    []store.ReviewRow
 	Held      map[string]int64
 	Incidents []Record
 	Releases  []Record
@@ -405,7 +406,7 @@ func Render(in Inputs) Report {
 	for i, ask := range open {
 		askRows[i] = v.askRow(ask)
 	}
-	prs := in.Book.OpenPRs()
+	prs := openPRRows(in.PRRows)
 	prRows := make([]Row, len(prs))
 	for i, pr := range prs {
 		prRows[i] = v.prRow(pr, in.Held)

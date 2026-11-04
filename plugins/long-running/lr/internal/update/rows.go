@@ -554,18 +554,18 @@ func (v view) askRow(ask asks.Graded) Row {
 	return Row{name, clip(rest), string(ask.State), w.who, w.blocks, w.unblock, w.wrong, ask.State == asks.Live}
 }
 
-func (v view) prRow(pr asks.PR, held map[string]int64) Row {
-	state := prState(pr)
-	w := v.workOf(slices.DeleteFunc([]string{v.ownerOfPR(pr.Number), pr.Lane}, func(lane string) bool { return lane == "" }))
-	number := strconv.Itoa(pr.Number)
+func (v view) prRow(row store.ReviewRow, held map[string]int64) Row {
+	state := prWord(row)
+	w := v.workOf(slices.DeleteFunc([]string{v.ownerOfPR(row.Number), row.Lane}, func(lane string) bool { return lane == "" }))
+	number := strconv.Itoa(row.Number)
 	switch seq, isHeld := held[number]; {
 	case isHeld:
 		w.blocks = fmt.Sprintf("held by cci #%d", seq)
-	case state != queueLabelled && state != "open":
-		w.blocks = "waits: " + state
+	case state != queueLabelled:
+		w.blocks = "waits: " + row.WaitsOn
 	}
 	if words, found := prWrong[state]; found {
 		w.wrong = words
 	}
-	return Row{"#" + number, clip(pr.Title), state, w.who, w.blocks, w.unblock, w.wrong, state == queueLabelled}
+	return Row{"#" + number, clip(row.Title), state, w.who, w.blocks, w.unblock, w.wrong, state == queueLabelled}
 }
