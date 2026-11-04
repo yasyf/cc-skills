@@ -456,6 +456,31 @@ func TestANativeStacksRefusedPatchCountsTowardTheRebaseAndCostsNoRead(t *testing
 	}
 }
 
+func TestAHeldStackMemberStopsPatchingAfterItsThirdRefusalAndMovesOnceReleased(t *testing.T) {
+	s := newStore(t)
+	r := newStuckRig(t, s)
+	r.runner = &shelltest.Fake{}
+	r.runner.Fail(1, "gh: Cannot change the base branch because the pull request is part of a stack (HTTP 422)", "gh", "api", "-X", "PATCH")
+	unknownSince(t, s, t0, 1)
+	for minute := 10; minute <= 60; minute += 10 {
+		r.now = t0.Add(time.Duration(minute) * time.Minute)
+		r.pass(t, stuck(1, held))
+	}
+	if got := r.patches(); len(got) != 3 {
+		t.Fatalf("%d PATCHes on a stack that refuses each one, want 3", len(got))
+	}
+	if len(r.moves) != 0 {
+		t.Fatalf("moved a held row: %v", r.moves)
+	}
+
+	r.now = t0.Add(70 * time.Minute)
+	r.pass(t, stuck(1))
+
+	if !slices.Equal(r.moves, []int{1}) {
+		t.Fatalf("moves = %v, want the rebase once the hold lifts", r.moves)
+	}
+}
+
 func TestAFailedPatchDoesNotCountButStillWaitsTenMinutes(t *testing.T) {
 	s := newStore(t)
 	r := newStuckRig(t, s)
