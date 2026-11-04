@@ -139,6 +139,7 @@ class OwnerReturns(WorkflowState):
     returned: bool = False
     explain_due: bool = False
     asked_why: bool = False
+    marked_replies: list[str] = []
 
 
 def away(minutes: float) -> list:
@@ -289,6 +290,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"})): Allow(),
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Block(pattern=r"^The owner wrote in Slack.*p1793705742180139: A, but as buttons.*`slack_reply`"),
         owed(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
+        Input(session_id=HOLDER, transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True, communicator=True), OwnerReturns(marked_replies=[OWED_REPLY["ts"]])], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})}, decide=CALM): Allow(),
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(OWNER_MARK, result="m447 responded", row="m447", state="responded")): Allow(),
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Bash", result="m447 due Nov 3 11:30 PM", command="lr owner mark m447 due --by '11:30 PM' --routed 400803")): Allow(),
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger: m447 due Nov 3 11:30 PM", title="Vector search", md="Designing.", status="progress", order="m447", by="11:30 PM")): Allow(),
@@ -478,12 +480,14 @@ def dm_owed(evt: BaseHookEvent) -> dict | None:
 
 
 def unanswered_reply(evt: BaseHookEvent) -> str | None:
-    if any(marked(use) for use in evt.ctx.turn.tool_calls.items):
-        return None
     owed = dm_owed(evt)
     if owed is None or owed["holder_session"] != evt.session_id or not owed["replies"]:
         return None
-    return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in owed["replies"]))
+    with OwnerReturns.mutate(evt) as state:
+        if any(marked(use) for use in evt.ctx.turn.tool_calls.items):
+            state.marked_replies = sorted({*state.marked_replies, *(reply["ts"] for reply in owed["replies"])})
+        unmarked = [reply for reply in owed["replies"] if reply["ts"] not in state.marked_replies]
+    return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in unmarked)) if unmarked else None
 
 
 @on(

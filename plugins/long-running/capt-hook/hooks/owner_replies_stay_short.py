@@ -11,8 +11,9 @@ from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookR
 from .compaction_handoff import Communicator, CompactionState, communicator_tests, drive_entry
 from .owner_facing import REPLY_WINDOW, last_reply
 from .owner_replies_carry_news import dm_posts
-from .owner_returns import EXPLAINER, REPLY, OwnerReturns
+from .owner_returns import EXPLAINER, REPLY, SHIPPED_CC_SLACK, OwnerReturns, dm_owed
 from .tests.handoff_fixtures import reply_transcript
+from .tests.register_fixtures import DRIVE_CONFIG
 from .urgent_lines_name_the_harm import DM_TOOLS, sentences
 
 ACK = re.compile(
@@ -62,10 +63,15 @@ def breaches(evt: BaseHookEvent, text: str, card: bool) -> list[str]:
     found = [ACKED] if parts and all(ACK.match(part) or (PROMISE.search(part) and not LIVE.search(part)) for part in parts) else []
     if len(parts) > 2 and not (card or UPDATE.search(text) or OwnerReturns.load(evt).returned):
         found.append(LONG)
-    returns = OwnerReturns.load(evt)
-    if not (card or returns.explain_due or returns.asked_why) and (EXPLAINER.search(text) or DIAGRAM.search(text) or explains(evt, text)):
+    if not (card or answering_him(evt)) and (EXPLAINER.search(text) or DIAGRAM.search(text) or explains(evt, text)):
         found.append(UNASKED)
     return found
+
+
+def answering_him(evt: BaseHookEvent) -> bool:
+    returns = OwnerReturns.load(evt)
+    owed = dm_owed(evt)
+    return returns.explain_due or returns.asked_why or bool(owed and owed["replies"])
 
 
 def explains(evt: BaseHookEvent, text: str) -> bool:
@@ -109,6 +115,7 @@ def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookRes
         replied(WHY, decide=EXPLAINS, state=[*ACTIVE, OwnerReturns(explain_due=True)]): Allow(),
         replied(WHY, picks=("Build it", "Hold it"), decide=EXPLAINS): Allow(),
         replied(WHY, decide=EXPLAINS, state=[*ACTIVE, OwnerReturns(asked_why=True)]): Allow(),
+        replied(WHY, decide=EXPLAINS, env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": json.dumps({"replies": [{"ts": "1.2"}], "holder_session": "s"})}): Allow(),
         Input(tool=REPLY, tool_input={"id": "r1", "title": "Typing box", "md": WHY}, state=ACTIVE, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
         replied(WHY, decide={"mechanism": Refused()}): Allow(),
         replied(PAGE): Block(pattern=r"no mechanism, diagram or explainer link"),
