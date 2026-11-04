@@ -145,7 +145,7 @@ func withLedger(facts map[string]string, row store.ReviewRow) map[string]string 
 	words := make(map[string]string, len(facts)+7)
 	maps.Copy(words, facts)
 	for kind, value := range map[string]string{
-		FactTitle: row.Title, FactChange: row.ForUsers, FactPlan: strings.TrimSpace(row.PlanLine + " " + row.PlanRow), FactRisk: row.Risk,
+		FactTitle: row.Title, FactChange: row.ForUsers, FactPlan: planWords(row), FactRisk: row.Risk,
 		FactBlocks: row.WaitsOn, factDescription: row.Description, factStanding: standing(row),
 	} {
 		if value != "" {
@@ -153,6 +153,13 @@ func withLedger(facts map[string]string, row store.ReviewRow) map[string]string 
 		}
 	}
 	return words
+}
+
+func planWords(row store.ReviewRow) string {
+	if row.PlanLine == row.PlanRow {
+		return row.PlanLine
+	}
+	return strings.TrimSpace(row.PlanLine + " " + row.PlanRow)
 }
 
 func standing(row store.ReviewRow) string {
