@@ -66,6 +66,7 @@ type Reply struct {
 	Build       *Build   `json:"build,omitempty"`
 	Links       []Link   `json:"links,omitempty"`
 	PRs         []string `json:"prs,omitempty"`
+	Thread      string   `json:"thread,omitempty"`
 }
 
 type Outcome struct {
@@ -249,12 +250,18 @@ func (f Fanout) withdraw(ctx context.Context, r Reply) []Outcome {
 }
 
 func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
-	if surface(sent, "slack").Surface != "" || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
+	if surface(sent, "slack").Surface != "" || r.Thread == "" && len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
 	}
 	body := mrkdwn(r.MD)
 	for _, pr := range r.PRs {
 		body += "\n" + pr
+	}
+	if r.Thread != "" {
+		for _, link := range r.Links {
+			body += "\n<" + link.URL + "|" + link.Label + ">"
+		}
+		return f.dmStatus(ctx, "--thread", r.Thread, "*"+r.Title+"*\n"+body)
 	}
 	buttons := make([]Link, 0, len(r.Links))
 	for _, link := range r.Links {
@@ -275,7 +282,11 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
-	done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "dm-status", "--card", string(card)}, Timeout: postTimeout})
+	return f.dmStatus(ctx, "--card", string(card))
+}
+
+func (f Fanout) dmStatus(ctx context.Context, args ...string) []Outcome {
+	done, err := f.Runner.Run(ctx, shell.Command{Argv: append([]string{"cc-slack", "dm-status"}, args...), Timeout: postTimeout})
 	if err != nil {
 		return []Outcome{failed("slack", err)}
 	}
@@ -283,7 +294,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		Permalink string `json:"permalink"`
 	}
 	if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
-		return []Outcome{{Surface: "slack", Error: "cc-slack dm-status named no posted card: " + strings.TrimSpace(done.Stdout)}}
+		return []Outcome{{Surface: "slack", Error: "cc-slack dm-status named no posted message: " + strings.TrimSpace(done.Stdout)}}
 	}
 	return []Outcome{{Surface: "slack", Ref: posted.Permalink}}
 }
