@@ -281,7 +281,7 @@ func TestASpriteReadsByTheSpritesListAndItsWorkerProbeAnswer(t *testing.T) {
 
 func spriteDesk(t *testing.T, s *store.Store, host Host) *fake {
 	t.Helper()
-	f := newFake(t, []Record{spawned(1, "go-desk-1", standingBrief(t, "go-desk-1"), t0.Add(-2*time.Hour), map[string]string{"placement": placedOnSprite}), rec(2, "go-desk-1", "report", t0.Add(-time.Hour), "swept")}, []Row{who("go-desk-1", true, t0.Add(-time.Hour))})
+	f := newFake(t, []Record{spawned(1, "go-desk-1", standingBrief(t, "go-desk-1"), t0.Add(-2*time.Hour), map[string]string{"placement": placedOnSprite}), rec(2, "go-desk-1", "report", t0.Add(-time.Hour), "swept")}, []Row{who("go-desk-1", true, t0.Add(-time.Hour)), who("meta-desk-3", true, t0.Add(-time.Hour))})
 	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
 	tick(t, s, f, t0.Add(-time.Hour))
 	f.posts = nil

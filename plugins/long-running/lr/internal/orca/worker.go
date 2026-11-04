@@ -38,6 +38,8 @@ const (
 	sponsorEnv        = "WORKER_RELAY_SPONSOR"
 	joinReceipt       = "relay-join.log"
 	workerDriveDir    = "WORKER_DRIVE_DIR"
+	seedReceipt       = "store-seed.log"
+	seedTimeout       = 10 * time.Minute
 	lrPlatform        = "linux-x86_64"
 	toolsMissing      = 3
 	beforeWorker      = "before-worker.sh"
@@ -49,6 +51,7 @@ const (
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
 	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN; exec git -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f' -C "$1" fetch --quiet origin "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
+	seedStore         = `cci relay export --drive "$1" | sprite exec -s "$2" -- sh -c '"$HOME"/.local/bin/cci relay seed --drive "$1"' sh "$1"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
 
@@ -654,6 +657,19 @@ func (w *workerLaunch) fetchNotes(workspace string) error {
 	return w.receipt(notesReceipt, said)
 }
 
+func (w *workerLaunch) seedDesk(workspace string) error {
+	drive := driveName(w.Env, w.run)
+	if drive == "" {
+		return nil
+	}
+	seeded, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sh", "-c", seedStore, "sh", drive, workspace}, Timeout: seedTimeout})
+	said := seeded.Stdout + seeded.Stderr
+	if err != nil {
+		said += err.Error() + "\n"
+	}
+	return w.receipt(seedReceipt, said)
+}
+
 func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	var log bytes.Buffer
 	status, errs, code := w.capture("cci", "relay", "status", "--json")
@@ -743,6 +759,9 @@ func (w *workerLaunch) startSprite() (string, error) {
 	desk := ""
 	if briefDesk.Match(raw) {
 		desk = standingDesk
+		if err := w.seedDesk(workspace); err != nil {
+			return "", err
+		}
 	}
 	noPR := ""
 	if briefNoPR.Match(raw) {

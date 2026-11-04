@@ -696,6 +696,46 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	}
 }
 
+func seedCalls(f *workerFixture) int {
+	seeds := 0
+	for _, call := range f.calls {
+		if slices.Contains(call, seedStore) {
+			seeds++
+		}
+	}
+	return seeds
+}
+
+func TestADeskSpriteLoadsItsStoreFromACopyBeforeTheWorkerAndAFailedCopyStopsNothing(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env[driveEnv] = "the-drive"
+	text := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
+	f.write(f.brief, text, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+	f.reply("sh "+seedStore, workerReply{code: 1, err: "cci: unknown command seed\n"})
+
+	if line := f.launched(); !strings.Contains(line, `"state":"ready"`) {
+		t.Fatal(line)
+	}
+
+	if seeds := seedCalls(f); seeds != 1 {
+		t.Fatalf("%d seeds, want 1: %v", seeds, f.calls)
+	}
+	if !strings.Contains(f.receiptText(seedReceipt), "unknown command seed") {
+		t.Fatal(f.receiptText(seedReceipt))
+	}
+}
+
+func TestALaneThatIsNoDeskStartsWithoutACopy(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env[driveEnv] = "the-drive"
+	f.sprite()
+	f.launched()
+	if seeds := seedCalls(f); seeds != 0 {
+		t.Fatalf("%d seeds, want 0", seeds)
+	}
+}
+
 func TestABriefThatOrdersNoPRSaysSoInTheSpriteSpec(t *testing.T) {
 	for header, want := range map[string]bool{"ccx: role=build pr=none": true, "ccx: role=build": false} {
 		f := newWorkerFixture(t)
