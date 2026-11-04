@@ -152,3 +152,10 @@ func TestARestartPagesNothingForADeadlineOlderThanThePlanWindow(t *testing.T) {
 	want(t, len(planSweep(t, s, r, said.Add(planWindow+time.Minute), stale)), 0)
 	want(t, len(r.posts), 0)
 }
+
+func TestAReplyToTheOwnerOwesNoPlanForTheDeadlineItRepeats(t *testing.T) {
+	said := at(t, "2026-11-03T10:00:00Z")
+	reply := client.Record{Seq: 42, Lane: "owner-relay", Kind: "note", At: said, To: []string{"owner"}, Text: "the fix lands by 6:00 AM"}
+
+	want(t, len(Unplanned([]client.Record{reply}, said)), 0)
+}
