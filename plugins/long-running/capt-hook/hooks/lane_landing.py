@@ -364,14 +364,14 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
 
 
 def gate_args(call: Call) -> list[str]:
-    """The `lr landing gate` operands for a `stack-enqueue` call: its PRs and any `--partial`, or none for a call that enqueues nothing."""
+    """The `lr landing gate` operands for a `stack-enqueue` call: its PRs with `--partial`, since it lands them and what is below them and never a PR above, or none for a call that enqueues nothing."""
     args = program((call.name, *call.args))[1:]
     prs = [arg for arg in args if arg.isdigit()]
-    return [*prs, *{"--partial"} & set(args)] if prs and not NOT_AN_ENQUEUE & set(args) else []
+    return [*prs, "--partial"] if prs and not NOT_AN_ENQUEUE & set(args) else []
 
 
 def landed_prs(call: Call, verb: str, repo: str, cwd: str) -> list[str] | None:
-    """The `lr landing gate` operands for one hand landing: the PRs it lands, with `--partial` unless a `stack-enqueue` takes whole stacks and `--direct` when it merges outside the queue; None when the PR it lands does not read."""
+    """The `lr landing gate` operands for one hand landing: the PRs it lands, with `--partial` and `--direct` when it merges outside the queue; None when the PR it lands does not read."""
     if verb == "stack-enqueue":
         return gate_args(call)
     if verb in MERGERS or verb == "gh stack merge":
@@ -407,7 +407,8 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
             pattern=r"^A hand landing needs the owner's tap at its head.*: #7 0123456789 TAP-REQUIRED .*\. Ask him for it with a board card at that head, or report the PR"
         ),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(),
-        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7": UNTAPPED}): Block(pattern=r"#7 0123456789 TAP-REQUIRED"),
+        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": ""}): Allow(),
+        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(pattern=r"#7 0123456789 TAP-REQUIRED"),
         Input(command="gh api repos/Forge-AI/monorepo/issues/7/labels -f 'labels[]=merge'", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": ""}): Allow(),
         Input(

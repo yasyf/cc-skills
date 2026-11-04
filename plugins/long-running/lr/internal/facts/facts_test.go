@@ -337,6 +337,39 @@ func TestAHostWithoutTheLandingMoverReadsTheRowsAndNeverGitHub(t *testing.T) {
 	}
 }
 
+func TestAHostWithoutTheLandingMoverReadsATapCarriedToTheRowsHead(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		carried map[string]string
+		want    machine.Tap
+	}{
+		{"the landing host carried it to this head", map[string]string{"carried_by": "same-diff", "tap_from": "1111111111"}, machine.TapTapped},
+		{"the landing host carried nothing", nil, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+			attrs := map[string]string{"record": "pr.read", "repo": repo, "head": head, "state": "open", "base": "dev", "branch": "b", "ci": "green", "approvers": "a, b", "mergeable": "clean", "queue": "none"}
+			maps.Copy(attrs, tt.carried)
+			if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "supervisor", Kind: "github", Text: "the title", PRs: []string{repo + "#1"}, Attrs: attrs}); err != nil {
+				t.Fatal(err)
+			}
+			a := app.New(io.Discard)
+			a.Runner = h.runner
+			away := landingConfig
+			away.Movers = []string{"lanes", "grading"}
+
+			rows, err := facts.New(a, away, h.store).Snapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(rows) != 1 || rows[0].Tap != tt.want {
+				t.Fatalf("rows = %+v, want tap %q", rows, tt.want)
+			}
+		})
+	}
+}
+
 func TestAHostWithoutTheLandingMoverActsOnNoRowTheLandingHostHasNotRead(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}})
 	a := app.New(io.Discard)
