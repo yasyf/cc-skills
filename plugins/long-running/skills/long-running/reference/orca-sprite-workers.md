@@ -178,6 +178,13 @@ directory, and the worker keeps running without a hold. A lane already running
 when this version installs has no holder until it is relaunched; `lr sprites roll`
 does not add one.
 
+The Mac also holds an ssh tunnel to each lane's Sprite, opened when the lane
+starts, and an open tunnel keeps the box running with or without an agent. `lr
+gc` closes it, with `ssh -O exit` on that lane's own control path, when it keeps
+a settled lane's Sprite for unsaved work, an unreadable checkout or a refused
+destroy, so the kept box can sleep. A live dispatch or a busy terminal keeps its
+tunnel.
+
 The same service appends one JSON line every 10 seconds to
 `~/.cc-remote/samples.log`, fsynced, because a stop reboots the kernel and wipes
 its counters while home survives. Each line has the time, kernel uptime,

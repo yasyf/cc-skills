@@ -373,6 +373,15 @@ type fakeFleet struct {
 	holders   []string
 	refusal   string
 	destroyed []string
+	unheld    []string
+	tunnel    string
+}
+
+func (f *fakeFleet) CloseTunnel(_ context.Context, sprite Sprite) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unheld = append(f.unheld, sprite.Workspace)
+	return f.tunnel
 }
 
 func (f *fakeFleet) Sprites() (map[SpriteKey]Sprite, error) {

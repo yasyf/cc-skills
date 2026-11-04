@@ -80,6 +80,7 @@ type Action struct {
 	Tree        tree
 	Session     *Session
 	Unproven    bool
+	Unheld      bool
 }
 
 func (a Action) named() string {
@@ -585,14 +586,14 @@ func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liv
 		return Action{}, err
 	}
 	if read.Found == nil {
-		return keep(read.Refusal)
+		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: read.Refusal, Unheld: true}, nil
 	}
 	held, err := unsaved(ctx, *read.Found, g.Fleet.Remote(*read.Found))
 	if err != nil {
 		return Action{}, err
 	}
 	if held != "" {
-		return keep(held)
+		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: held, Unheld: true}, nil
 	}
 	return Action{Verb: verbDestroy, Target: sprite.Workspace, Reason: "dispatch " + worker.Dispatch}, nil
 }
@@ -621,7 +622,7 @@ func (g *GC) reap(ctx context.Context, action Action, worker Worker, sprite Spri
 		return Action{}, err
 	}
 	if refusal != "" {
-		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: refusal}, nil
+		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: refusal, Unheld: true}, nil
 	}
 	refusal, err = g.Orca.Forget(ctx, sprite.Environment)
 	if err != nil {
@@ -631,6 +632,22 @@ func (g *GC) reap(ctx context.Context, action Action, worker Worker, sprite Spri
 		return Action{Verb: verbGone, Target: sprite.Workspace, Reason: fmt.Sprintf("%s, Orca environment %s kept: %s", action.Reason, sprite.Environment, refusal)}, nil
 	}
 	return Action{Verb: verbGone, Target: sprite.Workspace, Reason: action.Reason}, nil
+}
+
+func (g *GC) release(ctx context.Context, action Action, sprite Sprite) Action {
+	switch {
+	case !action.Unheld:
+	case g.DryRun:
+		action.Reason += "; would close its tunnel"
+	case g.Pause.Held():
+	default:
+		if refusal := g.Fleet.CloseTunnel(ctx, sprite); refusal != "" {
+			action.Reason += "; its tunnel stays: " + refusal
+			break
+		}
+		action.Reason += "; no tunnel holds it"
+	}
+	return action
 }
 
 func (g *GC) act(ctx context.Context, action Action) (Action, error) {
@@ -843,7 +860,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 				return Action{}, err
 			}
 		}
-		return g.report(action), nil
+		return g.report(g.release(ctx, action, pair.sprite)), nil
 	})
 	if err != nil {
 		return nil, err
