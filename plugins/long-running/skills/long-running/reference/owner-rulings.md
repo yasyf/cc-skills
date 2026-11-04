@@ -191,6 +191,8 @@ cci post --kind ask --to board-refresher "CARD: card-<slug>: <question>" --path 
 - **A line to the owner that names something breaking names the plan to fix it beside it, and a card option is never drawn with a loss and no fix.**
 - **A plan gap is never settled by `DECIDE`.** A lane may meet a new column, table, route, field, state, timer or metric missing from both the plan and the owner rows. The coordinator puts a card on the owner's board, and the lane stops on that gap. Before relaying any lane report such as "a worker did X", the coordinator checks what the lane did against the plan.
 
+**A ruling reaches every live lane in its turn.** An owner routing or process instruction applies to the next spawn and to every live lane on that problem in the turn it arrives: stand the lane down, or relaunch it on the named route, and edit the routing table afterwards. Never record it for new lanes only, weigh it against the routing table, keep a lane because it is deep in the code, or defer it to the lane editing the skill. A desk runner gets a cci record addressed to it with the verb it keys on (`orca-desk: launch`), never a policy sentence, an inbox-file line, or a SendMessage alone; a line appended to `inbox/orca-desk.md` is no longer read. A running Agent lane gets a SendMessage and a cci record, and the root confirms the handoff on disk before treating the lane as stood down.
+
 ## Read the owner's words before citing them
 
 Settle a route, grade a timer or state a design count only from the owner's words read in full.

@@ -169,6 +169,8 @@ Start only the Model Context Protocol servers named in the task's allowlist; `cc
 
 **TypeSafe key.** The config hands every worker a TypeSafe key as `TYPESAFE_API_KEY`, read from the Keychain item `spawnllm-jev-api-key`. capt-hook's `evt.decide` reads it on an API actor. `tools/cc-remote/bin/sync-decision-keys` fills that item and `spawnllm-openai-api-key` from SSM through the `plat-prod` and `civ2-bake` profiles; hooks on the Mac read both items at call time. Rerun it after either key rotates.
 
+Inject each dedicated key only into its remote worker process, and keep keys out of images, artifacts, logs and shared configuration. Never share OAuth refresh tokens or authentication caches. Keep the Mac on its interactive authentication; never export these keys globally or replace its sign-in. The remote Claude key does not support Fable, so Fable lanes are assigned to the Mac before launch; automatic rerouting does not exist.
+
 ## Read a launch's receipts
 
 Each brief claims `<brief-stem>.worker` beside the brief. For `/briefs/lane-a.md`, that is `/briefs/lane-a.worker`. The directory records `request.json` with the requested route, model, effort, tier, ref, optional expected base, and local brief hash and bytes.
@@ -567,3 +569,16 @@ Local Orca lane worktrees use `~/.orca/workspaces/monorepo/monorepo/<name>`. The
 | `sonnet` | `claude-sonnet-5-5` | Explicitly selected Claude worker |
 | `fable` | `claude-fable-5-1` | The coordinator, on the Mac; otherwise explicit local, most sensitive implementation only |
 | `gpt-6.1-sol` | `gpt-6.1-sol` | Codex review, diagnosis, sweeps and shell-heavy lanes on the standard tier; incident lanes add the fast tier |
+
+**Routing detail behind the global table.**
+
+- Spawn convenience is not a routing input. Backgrounding, a "quick look", and `Agent(general-purpose)` being one call while a codex lane takes a skill invocation describe how a lane runs, not what work it is. Reach codex with `Skill(codex)` inline, `codex:codex-wrapper` where a stage must route by agent type, or `codex-ask --dispatch` with an owner for parallel lanes.
+- Routine coordination runs on a short Sonnet `low` worker even inside a larger Opus or Fable assignment: routine status, an established bar, PR mechanics and reconciling through the submit skill. `ship-pr` opens a finished branch with a prepared title and body.
+- Sweep audit and land stages run at the lane's tier; up-tier a gate only where it judges something the bar does not settle. A lenient lane is a prompt defect to sharpen, not a lane to up-route.
+- For a page redesign, a Fable pass and a codex pass both run, then one combined design with codex's taste weighted higher, a sidebar over a top bar where they disagree. Implementation stays on the implementation row.
+- Sol verify lanes count as same-tier. Reading a saved verdict or checking CI state is coordination and does not reopen the review.
+- Fable is typed by hand with `model: fable`.
+- Opus `xhigh` covers decision-dense orchestration, design and architecture review, hard planning, synthesis over review findings, and ambiguous, exploratory or large net-new implementation; scoped edits, small features and bug fixes run `high`.
+- Recon and routine chores default to gpt-5.6-luna `xhigh` via codex; exhaustive enumerations need a cross-model verify, and luna `high` drops subsystems. Sonnet itself runs when the surface is Claude-only, coverage must sweep more than 300K tokens in one pass, or a silent miss is unrecoverable. Pass `model: sonnet` to `Explore` when that row applies.
+- gemini-4-argon runs through `gemini -m gemini-4-argon --skip-trust -p`; the lane hands it the facts and rules (voice card, slop-cop rules, length caps) and lands the reply verbatim.
+- gpt-6.1-sol is codex only; Workflow and subagent `model` take Claude models only. Orca codex lanes launch with the `sol` or `codex` alias. It degrades as mid-task decisions pile up, so back it with a finder pass. Astra runs as `codex-ask -m astra` on the standard tier.

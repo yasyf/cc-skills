@@ -208,6 +208,8 @@ update, never from memory>.
 | Board refresher, `drive-watchdog`, `user-test` | Tap cards and records; the retro log; the owner played against each surface | [drive-watchdog-brief.md](drive-watchdog-brief.md), [user-test-brief.md](user-test-brief.md) |
 | Priority desk, merge train, sequencer, Slack lane, handoff writer | One number-one outcome; the hot set; a wait-then-do chain; a named post; a rotating lane's handoff | [priority-desk-brief.md](priority-desk-brief.md), [merge-train-brief.md](merge-train-brief.md), [orca-lane-brief.md](orca-lane-brief.md), [slack-lane-brief.md](slack-lane-brief.md), [handoff-subagent-brief.md](handoff-subagent-brief.md) |
 
+**Reclaim every settled dispatch.** After a dispatch settles, completed or failed, the root runs the orca plugin's reclaim from the repo root (`orca-reclaim.py --run <run> --dispatch <ctx>`) to close its idle terminal and remove its clean, pushed-or-landed worktree, at every handoff and before the session ends. A settled lane left with a live terminal or worktree is the root's defect. Never reclaim a live or unsettled dispatch, and never use pkill, signals or a hand-rolled bulk close.
+
 ## A sub-drive's coordinator
 
 `lr drive sub start` writes this brief itself, to
