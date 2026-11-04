@@ -89,3 +89,25 @@ func TestARegisteredVerbRuns(t *testing.T) {
 		t.Fatal("the registered verb did not run")
 	}
 }
+
+func TestAGroupRefusesAVerbItDoesNotHave(t *testing.T) {
+	saved := verbs
+	t.Cleanup(func() { verbs = saved })
+	register(func(*app.App) *cobra.Command {
+		group := &cobra.Command{Use: "probe-group"}
+		nested := &cobra.Command{Use: "inner"}
+		nested.AddCommand(&cobra.Command{Use: "leaf", RunE: func(*cobra.Command, []string) error { return nil }})
+		group.AddCommand(nested)
+		return group
+	})
+	for _, args := range [][]string{{"probe-group", "gone"}, {"probe-group", "inner", "gone"}} {
+		if _, err := run(t, args...); err == nil || !strings.Contains(err.Error(), "has no verb gone") {
+			t.Errorf("lr %v = %v, want the unknown verb refused so a probe does not read it as installed", args, err)
+		}
+	}
+	for _, args := range [][]string{{"probe-group"}, {"probe-group", "inner"}, {"probe-group", "inner", "leaf"}} {
+		if _, err := run(t, args...); err != nil {
+			t.Errorf("lr %v = %v, want help or the verb", args, err)
+		}
+	}
+}
