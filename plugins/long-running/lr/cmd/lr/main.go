@@ -31,7 +31,7 @@ func root(a *app.App) *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	cmd.PersistentFlags().StringVar(&a.ConfigPath, "config", "", "the drive's lr.json; default the lr.json of the drive this session belongs to")
+	cmd.PersistentFlags().StringVar(&a.ConfigPath, "config", os.Getenv("LR_CONFIG"), "the drive's lr.json; default LR_CONFIG, for a Sprite desk with no drive registry, then the lr.json of the drive this session belongs to")
 	for _, verb := range verbs {
 		cmd.AddCommand(verb(a))
 	}

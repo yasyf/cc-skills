@@ -21,6 +21,18 @@ func run(t *testing.T, args ...string) (string, error) {
 	return out.String(), err
 }
 
+func TestLRConfigNamesTheDriveOnASpriteDeskWithNoRegistry(t *testing.T) {
+	t.Setenv("LR_CONFIG", "/drive/lr.json")
+	a := app.New(&bytes.Buffer{})
+	root(a)
+
+	path, err := a.ConfigFile()
+
+	if err != nil || path != "/drive/lr.json" {
+		t.Fatalf("config %q, %v", path, err)
+	}
+}
+
 func TestVersionPrintsTheBuildVersion(t *testing.T) {
 	out, err := run(t, "--version")
 	if err != nil {
