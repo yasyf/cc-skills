@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -345,6 +347,12 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 		}
 		if parsed = parseDirective(text); parsed == nil {
 			return d.refuseLine(record)
+		}
+	}
+	if parsed.Verb == "alert" || parsed.Verb == verbIncident {
+		if refusal, _, refused := config.RefusedLine(d.Config.RefusedBriefs, parsed.Rest); refused {
+			slog.Debug("alert on a refused topic dropped", "line", key, "why", refusal.Why)
+			return nil
 		}
 	}
 	if taken, err := d.takes(ctx, parsed, key); !taken || err != nil {
@@ -699,22 +707,13 @@ func (d *Desk) acceptLaunch(key, lane string, spec launchTarget) (incident.Actio
 	return d.accept(container, key, kindLaunch, target, key, d.Now().Add(time.Duration(d.Config.LaunchMinutes)*time.Minute))
 }
 
-type BriefRefusal struct {
-	Match  *regexp.Regexp `json:"match"`
-	Except *regexp.Regexp `json:"except"`
-	Why    string         `json:"why"`
-}
-
-func refusedBrief(refusals []BriefRefusal, brief string) string {
-	for _, refusal := range refusals {
-		for line := range strings.SplitSeq(brief, "\n") {
-			if refusal.Match.MatchString(line) && !refusal.Except.MatchString(line) {
-				line = strings.TrimSpace(line)
-				return fmt.Sprintf("%s; brief line: %s", refusal.Why, line[:min(len(line), briefLineShown)])
-			}
-		}
+func refusedBrief(refusals []config.Refusal, brief string) string {
+	refusal, line, refused := config.RefusedLine(refusals, brief)
+	if !refused {
+		return ""
 	}
-	return ""
+	line = strings.TrimSpace(line)
+	return fmt.Sprintf("%s; brief line: %s", refusal.Why, line[:min(len(line), briefLineShown)])
 }
 
 func (d *Desk) launchRefusal(ctx context.Context, key string, order Order) (string, error) {

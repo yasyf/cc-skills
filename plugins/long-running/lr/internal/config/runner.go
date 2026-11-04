@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -26,6 +27,23 @@ type RunnerDeadlines struct {
 type RunnerBriefs struct {
 	Repo string `json:"repo"`
 	Log  string `json:"log"`
+}
+
+type Refusal struct {
+	Match  *regexp.Regexp `json:"match"`
+	Except *regexp.Regexp `json:"except"`
+	Why    string         `json:"why"`
+}
+
+func RefusedLine(refusals []Refusal, text string) (Refusal, string, bool) {
+	for _, refusal := range refusals {
+		for line := range strings.SplitSeq(text, "\n") {
+			if refusal.Match.MatchString(line) && (refusal.Except == nil || !refusal.Except.MatchString(line)) {
+				return refusal, line, true
+			}
+		}
+	}
+	return Refusal{}, "", false
 }
 
 type RunnerOrca struct {
