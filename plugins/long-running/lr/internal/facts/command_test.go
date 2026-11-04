@@ -3,12 +3,14 @@ package facts_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
@@ -24,14 +26,15 @@ func lrFacts(t *testing.T, args ...string) []machine.Facts {
 	if err := os.WriteFile(cfg, []byte(`{"repo":"org/repo","drive":"d","checkout":"/checkouts/repo","author":"drive-bot","label":"drive","movers":["lanes"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	statuses, err := json.Marshal([]statusRow{status(1)})
-	if err != nil {
-		t.Fatal(err)
+	for _, draft := range []client.Draft{
+		{Drive: "d", Lane: "lane-7", Kind: "opened", Text: "opened", PRs: []string{"org/repo#1"}, Attrs: map[string]string{"repo": "org/repo", "head": head}},
+		{Drive: "d", Lane: "supervisor", Kind: "github", Text: "the title", PRs: []string{"org/repo#1"}, Attrs: map[string]string{"record": "pr.read", "repo": "org/repo", "head": head, "state": "open", "ci": "green"}},
+	} {
+		if _, err := client.Post(context.Background(), draft); err != nil {
+			t.Fatal(err)
+		}
 	}
 	runner := &shelltest.Fake{}
-	runner.Reply(graphQLPages([]recordedPR{{number: 1, head: head, login: "drive-bot"}}), "ccx", "vcs", "gh", "--max-age", "0s")
-	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
-	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
 	a := app.New(io.Discard)
 	a.Runner, a.ConfigPath = runner, cfg
 	var out bytes.Buffer

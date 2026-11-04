@@ -226,12 +226,12 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		Lanes: func(now time.Time, generation int64) (lanes.Outcome, error) {
 			return lanes.Tick(s, laneDeps, now, generation)
 		},
-		Checks:   checks,
-		Stagger:  checkStagger,
-		Repo:     env.Config.Repo,
-		Snapshot: prfacts.New(a, env.Config, s).Snapshot,
-		Post:     post,
-		Log:      a.Log,
+		Checks:    checks,
+		Stagger:   checkStagger,
+		Snapshot:  prfacts.New(a, env.Config, s).Snapshot,
+		WriteRows: prfacts.New(a, env.Config, s).WriteRows,
+		Post:      post,
+		Log:       a.Log,
 	}
 	deps.Checks = append(deps.Checks, (&background{name: "tap-orders", every: TickEvery, run: prfacts.New(a, env.Config, s).WriteOrders, store: s, post: post, log: a.Log}).Check)
 	if slices.Contains(env.Config.Movers, config.MoverGrading) {
