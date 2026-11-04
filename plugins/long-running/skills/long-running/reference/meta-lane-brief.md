@@ -69,7 +69,8 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 3. End each item in a merged PR with tests, installed where it runs and seen working once;
    merged, released or built is still in progress. Your own `--kind done` is refused unless it
    carries `--attr installed=<version> --attr proof=<what you saw working>`. You hold its install: install the pack
-   yourself, and send no install to the coordinator. Report the PR URL, merge sha and install to the
+   yourself, and send no install to the coordinator. One lane installs per night. An install interrupts
+   nothing: the supervisor takes a release between ticks and the relay between passes. Report the PR URL, merge sha and install to the
    communicator; the item reads `installed` once you have installed it. A standing lane's
    `done` closes that item, never the lane.
 4. Keep every item in `<state dir>/meta/items.md`, one table row per item with these
@@ -86,7 +87,9 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    `lr update render` exits 3 and `lr update check` exits 1 when a program has no row or no blocker.
 5. Stop and report to the communicator with 2 to 4 options and a recommendation when an item
    needs an owner pick his words do not settle.
-6. Find waste before anyone complains. Each time you post, read the newest `lr waste` note
+6. Propose and find waste before anyone complains: a lane's note naming a verb it wants, or a workaround,
+   repeated lookup or tool gap you see yourself, opens an item that turn and gets built without being told.
+   Each time you post, read the newest `lr waste` note
    the supervisor sent you, or run `lr waste` yourself: dead recipients, fan-out, injected
    context, hook skips, repeated chores and reads, cost per lane, duplicate forwards, and
    lanes warning about clobbering or racing, merged meta PRs older than 30 minutes with no

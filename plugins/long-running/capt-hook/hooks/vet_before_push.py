@@ -10,10 +10,10 @@ from captain_hook.util.builds import LOAD_PER_CORE, is_local_build
 from pydantic import BaseModel
 
 from .compaction_handoff import COMMUNICATOR_LANE, ROOT_LANE, Bound
-from .lane_landing import lane_name, program, run_quietly
+from .lane_landing import HELP_FLAGS, lane_name, program, run_quietly
 
 PUSHES = frozenset({("git", "push"), ("ccx", "vcs", "push"), ("ccx", "vcs", "ship"), ("gt", "submit")})
-NOT_A_PUSH = frozenset({"--no-push", "--dry-run", "-n", "--delete", "-d"})
+NOT_A_PUSH = HELP_FLAGS | {"--no-push", "--dry-run", "-n", "--delete", "-d"}
 GO_KINDS = ("build", "vet")
 TYPECHECK = "typecheck"
 TYPECHECKERS = frozenset({"tsc", "tsgo"})
@@ -268,6 +268,8 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": (128, "fatal: bad revision 'origin/HEAD'")}): Warn(pattern=r"`origin/HEAD` did not read"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "tools/loose/main.go\n"}): Warn(pattern=r"has no `go.mod`"),
         Input(command="git push --dry-run", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),
+        Input(command="ccx vcs ship --help", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),
+        Input(command="gofmt -l . ; git log -1 ; git push -h", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),
         Input(command=SHIP, env={"CLAUDE_LONG_RUNNING_LANE": ROOT_LANE}, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),
         Input(command=SHIP, env={"CLAUDE_LONG_RUNNING_LANE": COMMUNICATOR_LANE}, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),
         Input(command=SHIP, env={}, cwd=str(FIXTURE), commands=GO_DIFF): Allow(),

@@ -567,7 +567,7 @@ def state(home: Path) -> Path:
 def registered(home: Path, state: Path) -> Path:
     drives = home / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci", "checkout": REPO, "ledger": DRIVE_LEDGER}
+    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci", "checkout": REPO, "ledger": DRIVE_LEDGER, "repo": "acme/app"}
     (drives / "brook-drive.json").write_text(json.dumps(entry))
     return drives
 

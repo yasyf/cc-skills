@@ -16,6 +16,7 @@ DASHBOARD = "plugins/long-running/dashboard"
 UI_LANE = re.compile(r"^(?:dashboard|tap-queue|owner-apps|owner-board|chat-design)\b")
 LIVE = re.compile(r"(?:^|[.;:]\s*)live\b|\b(?:is|are|went|now|all)\s+live\b|\blive on\b|\bserved (?:at|on)\b", re.IGNORECASE)
 NOT_INSTALLED = re.compile(r"\bmerged,? not installed\b", re.IGNORECASE)
+NOT_LIVE = re.compile(r"\bnot live\b", re.IGNORECASE)
 PR = re.compile(r"(?:cc-skills#|/pull/|#)(\d{1,5})\b")
 CITE = re.compile(r"\b(?:card:(?P<card>[\w.-]+)|owner:(?P<row>m\d+))\b")
 YES = re.compile(r"^\W*(?:approved|yes|yep|yeah|lgtm|looks good|ship it)\b", re.IGNORECASE)
@@ -67,7 +68,9 @@ def unseen_claims(evt: BaseHookEvent) -> list[str]:
     found = []
     for lane, _, kind, text, _, _ in posts(evt):
         kinds = set(kind.lower().split(","))
-        live = "live" in kinds or bool(LIVE.search(text))
+        live = "live" in kinds or bool(LIVE.search(NOT_LIVE.sub("", text)))
+        if NOT_LIVE.search(text) and not live:
+            continue
         if not (live or "landed" in kinds):
             continue
         ui = touches_dashboard(evt, text)
@@ -87,6 +90,9 @@ def unseen_claims(evt: BaseHookEvent) -> list[str]:
         post(f"{CLAIM}; per owner:m480", commands=CHAT_PR | REJECTED): Block(),
         post("Merged, not installed: #2618 sets tap_queue_url for the pack", commands=PACK_PR): Allow(),
         post("Merged, not installed: #2675 rebuilds the Chat tab", commands=CHAT_PR): Block(),
+        post("Merged, not installed, not live: #2675 rebuilds the Chat tab", commands=CHAT_PR): Allow(),
+        post("#2675 is not live on the checkout, but the Chat tab is now live", kind="report", commands=CHAT_PR): Block(),
+        post("Not live: #2675 rebuilds the Chat tab", kind="live", commands=CHAT_PR): Block(),
         post("Merged, not installed: #2675 rebuilds the Chat tab", lane="slack-bugs-1", commands=CHAT_PR): Block(),
         post("Live: the Slack bug fix is released on build 12345", lane="slack-bugs-1", kind="live"): Allow(),
         Input(tool=POST_TOOL, tool_input={"lane": "owner-apps-1", "kind": "live", "text": "The Review tab now lists PRs only"}, env={"CLAUDE_LONG_RUNNING_LANE": "owner-apps-1"}): Block(),

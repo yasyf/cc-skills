@@ -546,6 +546,20 @@ def test_a_decision_in_the_body_must_cite_an_answer(package: Path, state: Path, 
     assert lines[1].startswith("BLOCKER the owner's answers: ") and len(lines) == 2
 
 
+@pytest.mark.parametrize(
+    ("repo", "outcome"),
+    [
+        ("yasyf/tools", (0, [])),
+        ("ACME/App", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
+    ],
+)
+def test_only_a_pr_in_the_drives_ledger_repo_owes_a_read_back(package: Path, state: Path, registered: Path, capsys, repo: str, outcome: tuple[int, list[str]]) -> None:
+    entry = registered / "brook-drive.json"
+    entry.write_text(json.dumps(json.loads(entry.read_text()) | {"repo": repo}))
+
+    assert check(capsys, CheckShell(pinned(package), reviews=[])) == outcome
+
+
 def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slice(package: Path, state: Path, registered: Path, capsys) -> None:
     rows = pinned(package)
     stamp = current_stamp(rows, None)

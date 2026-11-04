@@ -85,7 +85,7 @@ asked again.
 
 Plan: {plan}; its sub-plans sit beside it.
 
-PR body, never edited after the PR opens:
+PR body as it stands at this grade:
 {body}
 
 PR comments its author posted, oldest first: Rulings, Body addenda and evidence such as a caller

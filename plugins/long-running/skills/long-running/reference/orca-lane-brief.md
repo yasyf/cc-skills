@@ -420,9 +420,9 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   Dry-run a bulk poster before it posts.
 - PR bodies, commits, review comments and repo docs paraphrase the owner and cite answer
   ids; his words stay in cci and cc-notes. Run `gh pr` verbs directly, never through a
-  script file that hides them from the hooks. Never restate an open PR's body through
-  ship (`--pr-body-file` on a later ship rewrites the body as opened); rework goes in one
-  PR comment.
+  script file that hides them from the hooks. Correct an open PR's body unasked with
+  `gh pr edit <n> --body-file <file>` when it turns out false or when evidence a grader
+  reads arrives; rework that leaves it true goes in one PR comment.
 - Never run `ccx vcs cleanup resume`: physical deletion stays paused.
 - Findings, decisions, and handoffs go to cc-notes (`ccn note add`, `ccn log append`,
   `ccn papercut`), never only into your report.
@@ -449,7 +449,7 @@ auth or approval gate, or two failed approaches. Ask with 2-4 options.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
 It posts one PR comment opening with `## Rulings` and one opening with `## Regression
 tests`, which lists each test id and links one CI run where that test failed against
-the old tree, since nobody edits a PR body after it opens. The body's `## Risk profile`
+the old tree. The body's `## Risk profile`
 states Load and Data in prose. Nothing checks the test link; the fidelity desk reads each
 named test against the failure it claims. A change that deletes a code path carries its caller
 trace before the coordinator GOs it: every caller of the removed path, each one read, and

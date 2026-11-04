@@ -26,7 +26,7 @@ from captain_hook import (
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, LOCK_WAIT_ENV, REGISTER_FENCE, ROOT_LANE, Bound, Communicator, CompactionState, Coordinator, bus_name, ccn, communicator_tests, coordinator_tests, drive_entry, post_blocker, rulings, script
-from .lane_landing import GH_REPO_FLAGS, lane_name, program
+from .lane_landing import GH_REPO_FLAGS, HELP_FLAGS, lane_name, outside_drive_repo, program
 from .lane_rotation import DriveActive
 from .nudges import once_per_hour
 from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, inbox_text, incident_spawn, open_incidents, posted_text, prose, read_incident_source
@@ -138,6 +138,7 @@ TARGET_FLAGS = frozenset({"--targets", "--target", "--groups"})
 RELEASE_VALUE_FLAGS = TARGET_FLAGS | {"--env", "--commit", "--stack"}
 GATES_OWED = "Warning, nothing was blocked: gate rows the register holds as owed name what this call starts. Meet each before going on."
 CONTRACT_MISSING = "CONTRACT-MISSING "
+READBACK_WARNED = "readback-warned"
 ACCEPTED = "accepted "
 ACCEPTED_CHECK = f"{sys.executable} {script('rulings.py')} accepted"
 READBACK_MISSING = (
@@ -811,8 +812,8 @@ def unflagged(argv: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(kept)
 
 
-def runs(evt: BaseHookEvent) -> list[tuple[str, ...]]:
-    return [unflagged(program((call.name, *call.args))) for call in evt.command.calls()]
+def readback_calls(evt: BaseHookEvent) -> list[tuple[Call, tuple[str, ...]]]:
+    return [(call, run) for call in evt.command.calls() if not HELP_FLAGS & set(call.args) and (opens_pr(run := unflagged(program((call.name, *call.args)))) or new_branch(run) or reports_ready(run))]
 
 
 def opens_pr(run: tuple[str, ...]) -> bool:
@@ -857,8 +858,8 @@ def acceptance(evt: BaseHookEvent, lane: str, drive: str) -> str:
 UNREAD_WARNING = r"^Warning, nothing was blocked: readback_gate could not read the register"
 
 
-def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = LANE, incidents: str | tuple[int, str] = "[]", prs: str | tuple[int, str] = "[]") -> Input:
-    commands = {ACCEPTED_CHECK: said, LEDGER_LIST: prs, "cci post": "#1", " ".join(INCIDENT_STORE): incidents, " ".join(INCIDENT_DIGEST[:2]): "{}", "cci grep": ""}
+def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = LANE, incidents: str | tuple[int, str] = "[]", prs: str | tuple[int, str] = "[]", common_dir: str = "/repo/.git\n") -> Input:
+    commands = {ACCEPTED_CHECK: said, LEDGER_LIST: prs, "cci post": "#1", " ".join(INCIDENT_STORE): incidents, " ".join(INCIDENT_DIGEST[:2]): "{}", "cci grep": "", f"git -C {CWD} rev-parse": common_dir}
     return Input(command=command, cwd=CWD, env=DRIVE_CONFIG | env, commands=commands)
 
 
@@ -871,7 +872,11 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
             pattern=r"^Warning, nothing was blocked: lane `lane-a` has no read-back a fidelity desk accepted yet\.[\s\S]*CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n~+$"
         ),
         gated("gh pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb\n"): Warn(pattern=r"the newest grade, #9, is missing"),
-        gated("gh -R yasyf/cc-skills pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: none\n"): Warn(pattern=r"has no read-back"),
+        gated("gh -R example/web pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: none\n"): Warn(pattern=r"has no read-back"),
+        gated("gh -R yasyf/cc-skills pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: none\n"): Allow(),
+        gated("ccx vcs ship --help", "CONTRACT-MISSING lane-a: none\n"): Allow(),
+        gated("ccx vcs ship -m x --new-branch lane-a-x", "CONTRACT-MISSING lane-a: none\n", common_dir="/tools/.git\n"): Allow(),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", common_dir="/tools/.git\n"): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: the grade #9 covers slice-hash 0; the lane's slice is now 1\n", prs=OPEN_PR): Allow(),
         gated("ccx vcs stack continue", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Allow(),
         gated("ccx vcs ship -m x --new-branch lane-a-y", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Warn(pattern=r"has no read-back"),
@@ -889,18 +894,18 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
     }),
 )
 def readback_gate(evt: BaseHookEvent) -> HookResult | None:
-    called = runs(evt)
-    always = any(new_branch(run) or reports_ready(run) for run in called)
-    if not always and not any(opens_pr(run) for run in called):
+    called = readback_calls(evt)
+    if not called:
         return None
     try:
         if not (lane := owning_lane(evt)) or not (entry := drive_entry(evt)) or incident_lane(evt, lane):
             return None
-        if not always and has_pr(entry, lane):
+        owed = [run for call, run in called if not outside_drive_repo(evt, call, entry)]
+        if not owed or (not any(new_branch(run) or reports_ready(run) for run in owed) and has_pr(entry, lane)):
             return None
         said = acceptance(evt, lane, entry["drive"])
     except READ_ERRORS as error:
         return evt.context(READBACK_UNREAD.format(cause=cause(error)))
-    if not said.startswith(CONTRACT_MISSING) or not once_per_hour(evt, [f"readback:{lane}"]):
+    if not said.startswith(CONTRACT_MISSING) or not evt.ctx.s.once(f"readback:{lane}", scope=READBACK_WARNED):
         return None
     return evt.context("\n".join([READBACK_MISSING.format(lane=lane), fenced(said.strip())]))

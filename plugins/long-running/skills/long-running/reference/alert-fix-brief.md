@@ -197,9 +197,10 @@ Do:
      back, else with a short body you write yourself in plain words: what broke,
      what the change does, the test that proves it (or, for a fix to a live
      user-facing break, that tests follow in a named PR), the risk. Never wait for a
-     writer, a red-baseline build, or the coordinator. The failing-first CI link, a scope
-     change on a later push, and anything the body missed go in one PR comment
-     after the push; the body stays as opened. A fix that changes a credential,
+     writer, a red-baseline build, or the coordinator. The fix lands fast with the
+     body as opened; correct the body unasked with `gh pr edit <n> --body-file <file>`
+     the moment it turns out false or evidence a grader reads arrives, such as the
+     failing-first CI link or a scope change on a later push. A fix that changes a credential,
      token, or wire format keeps what running clients already renew and read.
      A fix for a live user-facing break opens with the code change alone and no
      tests; ship its regression and CI tests as a follow-up PR from this lane right

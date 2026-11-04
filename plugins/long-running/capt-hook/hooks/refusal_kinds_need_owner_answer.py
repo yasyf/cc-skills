@@ -12,7 +12,7 @@ from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, T
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, CompactionState, drive_entry, judged, rulings, script, script_module
-from .lane_landing import DRIVE_ENV, LANDERS, lane_name, named_repo, without_repo
+from .lane_landing import DRIVE_ENV, HELP_FLAGS, LANDERS, lane_name, named_repo, without_repo
 from .register_injection import drive_args
 from .ruling_judge import MATCH_COMMAND, candidate_rows
 from .ruling_misread import CLAUDE, FLAGGED, answer
@@ -209,7 +209,7 @@ def stdin_file(call: Call) -> str | None:
 
 def request(evt: BaseHookEvent, call: Call) -> Request | None:
     cwd = call.cwd or evt.cwd
-    if call.name == "ccx" and call.args[:2] == ("vcs", "ship") and "--no-pr" not in call.args:
+    if call.name == "ccx" and call.args[:2] == ("vcs", "ship") and "--no-pr" not in call.args and not HELP_FLAGS & set(call.args):
         parent = values(call.args, ("--parent",))
         return Request(
             str(evt.command), cwd, (), parent[0] if parent else None, tuple(values(call.args, SHIP_BODY)), (), None, True, ship_paths(call.args[2:]),
@@ -427,6 +427,7 @@ def ship(command: str, verdict: dict = FLAGGED, **extra: object) -> Input:
         ),
         ship(f"ccx vcs ship --pr-body-file {CITED}", CARRIED, commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
+        ship("ccx vcs ship --help", commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"gh pr edit 1 --body-file - < {CITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
         ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(UPLOAD_BUDGET)): Warn(
