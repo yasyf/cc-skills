@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -215,6 +216,27 @@ func TestARetiredLanesUnownedOpenPRsOnItsBranchGoToRootOnce(t *testing.T) {
 	equal(t, reports[0].PRs, []int{48999, 49000})
 	contains(t, reports[0].Text, "journal-apply-threads-1 left #48999 on journal-apply-threads; journal-apply-threads-1 left #49000 on journal-apply-threads/restack")
 	equal(t, f.branchReads, 1)
+}
+
+func TestOpenBranchesComeFromTheRowsAndLeaveOutEndedOnes(t *testing.T) {
+	s := memory(t)
+	rows := []store.ReviewRow{
+		{Repo: "o/r", Number: 1, Branch: "open-one", State: prrow.StateOpen},
+		{Repo: "o/r", Number: 2, Branch: "open-one", State: prrow.StateOpen},
+		{Repo: "o/r", Number: 3, Branch: "landed", State: prrow.StateLanded},
+		{Repo: "o/r", Number: 4, Branch: "closed", State: prrow.StateClosed},
+		{Repo: "o/r", Number: 5, Branch: "replaced", State: prrow.StateSuperseded},
+		{Repo: "other/r", Number: 6, Branch: "other-repo", State: prrow.StateOpen},
+	}
+	if err := s.PutReviewRows(rows); err != nil {
+		t.Fatal(err)
+	}
+
+	branches, err := openBranches(s, "o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, branches, map[string][]int{"open-one": {1, 2}})
 }
 
 func TestTheBranchReadIsOnePerTickAtOneRetiredLaneAndAtAThousand(t *testing.T) {

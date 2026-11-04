@@ -220,7 +220,7 @@ func decideLanes(given Input) (Decided, error) {
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
 		Desks:        func() (map[string]string, error) { return nil, nil },
 		RetireAfter:  config.RetireSilent,
-		OpenBranches: func() (map[string][]int, error) { return nil, nil },
+		OpenBranches: func(*store.Store) (map[string][]int, error) { return nil, nil },
 		OpenWork:     func() ([]lanes.Record, error) { return nil, nil },
 		Owed:         func() ([]deletions.Owed, error) { return nil, nil },
 		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },

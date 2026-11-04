@@ -25,6 +25,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -877,28 +878,23 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		},
 		RotateAt:              at,
 		RetireAfter:           e.Config.RetireSilent,
-		OpenBranches:          func() (map[string][]int, error) { return e.openBranches(ctx) },
+		OpenBranches:          func(s *store.Store) (map[string][]int, error) { return openBranches(s, e.Config.Repo) },
 		Sprites:               func(names []string) (map[string]Sprite, error) { return e.laneSprites(ctx, names) },
 		Hosts:                 func(names []string, sprites map[string]Sprite) map[string]Host { return e.hosts(ctx, names, sprites) },
 		BuildRecommendedOrder: e.Config.BuildRecommendedOrder,
 	}, nil
 }
 
-func (e Env) openBranches(ctx context.Context) (map[string][]int, error) {
-	stdout, err := e.Run(ctx, "gh", "pr", "list", "--repo", e.Config.Repo, "--state", "open", "--limit", "5000", "--json", "number,headRefName")
+func openBranches(s *store.Store, repo string) (map[string][]int, error) {
+	rows, err := s.ReviewRows(repo)
 	if err != nil {
 		return nil, err
 	}
-	var prs []struct {
-		Number int    `json:"number"`
-		Branch string `json:"headRefName"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &prs); err != nil {
-		return nil, fmt.Errorf("%w: gh pr list: %w", ErrUnread, err)
-	}
 	branches := map[string][]int{}
-	for _, pr := range prs {
-		branches[pr.Branch] = append(branches[pr.Branch], pr.Number)
+	for _, row := range rows {
+		if !prrow.Terminal(row.State) && row.State != prrow.StateSuperseded {
+			branches[row.Branch] = append(branches[row.Branch], row.Number)
+		}
 	}
 	return branches, nil
 }
