@@ -32,7 +32,7 @@ SETTLERS = (("cci", "post"), ("gh", "pr", "close"))
 PULL_URL = re.compile(r"/pull/(?P<pr>\d+)")
 STACK_HEAD = re.compile(r"^\S+ · #(?P<pr>\d+) · head (?P<head>[0-9a-f]{7,40}) · ", re.MULTILINE)
 PUBLISHED = re.compile(r"\bpublished (?P<head>[0-9a-f]{7,40})\b")
-RECORD_TIMEOUT_SECONDS = 30
+RECORD_TIMEOUT_SECONDS = 15
 
 
 @dataclass(frozen=True)
