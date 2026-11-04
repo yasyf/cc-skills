@@ -317,3 +317,44 @@ func TestHoldLiftsReadsOnceForAnyNumberOfHolds(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAppealIsADecideFromTheAppealsLaneThatNamesAnOverride(t *testing.T) {
+	const override = "finder-override #9 at e718a74: 434757. Row rule/e20e623 grounds it"
+	for name, tc := range map[string]struct {
+		kind, lane, text string
+		want             bool
+	}{
+		"the desk":             {"decide", "grader-appeals", override, true},
+		"its first number":     {"decide", "grader-appeals-1", override, true},
+		"a successor":          {"decide", "grader-appeals-7", override, true},
+		"another lane":         {"decide", "grader-appeals-desk", override, false},
+		"root":                 {"decide", "root", override, false},
+		"a note":               {"note", "grader-appeals-1", override, false},
+		"a decide of no grade": {"decide", "grader-appeals-1", "the row stands", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := bus.Appeal(legacyRecord(t, tc.kind, tc.lane, tc.text, []int{9}, nil)); got != tc.want {
+				t.Fatalf("Appeal = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLegacyFactsLeaveAnAppealUncountedUntilItsRowIsRead(t *testing.T) {
+	record := legacyRecord(t, "decide", "grader-appeals-1", "finder-override #9 at e718a74: 434757. Row rule/e20e623 grounds it", []int{9}, nil)
+	if got := bus.LegacyFacts(record, repo, nil); got != nil {
+		t.Fatalf("LegacyFacts = %+v, want none", got)
+	}
+	want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}, {PR: 9, Head: "e718a74", Kind: "override-finder", Value: "434757"}}
+	if got := bus.AppealFacts(record); !reflect.DeepEqual(got, want) {
+		t.Fatalf("AppealFacts = %+v, want %+v", got, want)
+	}
+}
+
+func TestTheLandingPassesCarriedOverrideCounts(t *testing.T) {
+	record := legacyRecord(t, "decide", bus.SweepLane, "finder-override #9 at e718a74: 434757. Carried from aaaaaaa, whose own diff is the same.", []int{9}, nil)
+	want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}, {PR: 9, Head: "e718a74", Kind: "override-finder", Value: "434757"}}
+	if got := bus.LegacyFacts(record, repo, nil); !reflect.DeepEqual(got, want) {
+		t.Fatalf("LegacyFacts = %+v, want %+v", got, want)
+	}
+}

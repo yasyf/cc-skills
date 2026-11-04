@@ -39,6 +39,7 @@ func reader(t *testing.T) *Reader {
 	fake.Reply(string(rows), "ccn", "-R", "/repo", "ledger", "show", "register-1")
 	fake.Reply("title: the look\n\nVerbatim: \""+oneLevel+"\" Bridge reading: the lane re-reads.\n", "ccn", "-R", "/repo", "answer", "show", "79e14c4")
 	fake.Fail(1, "no such answer", "ccn", "-R", "/repo", "answer", "show", "0000000")
+	fake.Fail(noSuchNote, "not-found", "ccn", "-R", "/repo", "answer", "show", "1111111")
 	return &Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo", Program: "p"}, nil }}
 }
 
@@ -123,14 +124,15 @@ func TestARegisterItCannotReadWarnsOncePerRead(t *testing.T) {
 	}
 }
 
-func TestOverrideReadsOnlyRootsOverrides(t *testing.T) {
+func TestOverrideReadsRootsAndAppealsOverrides(t *testing.T) {
 	bad := `finder-override #1 at abc1234: 9. rule/784f1ab, "words he never said", asks for it`
 	for name, tc := range map[string]struct {
 		record client.Record
 		want   int
 	}{
 		"root's override":       {client.Record{Lane: "root", Kind: "decide", Text: bad}, 1},
-		"a lane's proposal":     {client.Record{Lane: "grader-appeals-1", Kind: "decide", Text: bad}, 0},
+		"an appeal":             {client.Record{Lane: "grader-appeals-1", Kind: "decide", Text: bad}, 1},
+		"a lane's proposal":     {client.Record{Lane: "lane-7", Kind: "decide", Text: bad}, 0},
 		"root with no override": {client.Record{Lane: "root", Kind: "decide", Text: `rule/784f1ab, "words he never said" came up`}, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -220,5 +222,34 @@ func TestAnswersFollowsASupersededAnswerToItsLiveHead(t *testing.T) {
 	}
 	if len(found) != 2 || found[0].Body != "his first tap" || found[1].Body != "his full answer" {
 		t.Fatalf("Answers = %+v", found)
+	}
+}
+
+func TestGroundedNeedsEveryCitedRowToExist(t *testing.T) {
+	for name, tc := range map[string]struct {
+		text string
+		want bool
+	}{
+		"a row":                {"finder-override #1 at abc1234: 9. Row rule/784f1ab grounds it", true},
+		"a repeat's key":       {"finder-override #1 at abc1234: 9. Row prompt/1026-184540 grounds it", true},
+		"an answer":            {"fidelity-override #1 at abc1234: 9. Answer 79e14c4 grounds it", true},
+		"a row that is no row": {"finder-override #1 at abc1234: 9. Row rule/0000000 grounds it", false},
+		"no such answer":       {"fidelity-override #1 at abc1234: 9. Answer 1111111 grounds it", false},
+		"one real and one not": {"finder-override #1 at abc1234: 9. Rows rule/784f1ab and rule/0000000 ground it", false},
+		"no row cited at all":  {"finder-override #1 at abc1234: 9. The finding is wrong", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := reader(t).Grounded(context.Background(), client.Record{Lane: "grader-appeals-1", Kind: "decide", Text: tc.text})
+			if err != nil || got != tc.want {
+				t.Fatalf("Grounded = %v, %v, want %v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestGroundedSaysSoWhenCcnCannotAnswer(t *testing.T) {
+	got, err := reader(t).Grounded(context.Background(), client.Record{Lane: "grader-appeals-1", Kind: "decide", Text: "fidelity-override #1 at abc1234: 9. Answer 0000000 grounds it"})
+	if err == nil || got {
+		t.Fatalf("Grounded = %v, %v, want an error so the record is read again", got, err)
 	}
 }

@@ -1585,3 +1585,93 @@ func TestReadMergeableSaysEachPRsAnswerFromOneBatchedRead(t *testing.T) {
 		t.Fatalf("%d calls, want one batched read", got)
 	}
 }
+
+func appealText(row string) string {
+	return "finder-override #1 at " + head[:7] + ": 434757. Row " + row + " grounds it"
+}
+
+func TestAnAppealCountsOnlyWhenTheOwnerRowItCitesExists(t *testing.T) {
+	for name, tc := range map[string]struct {
+		lane, row string
+		want      bool
+	}{
+		"a real row":              {"grader-appeals-1", "rule/4236611", true},
+		"a successor of the lane": {"grader-appeals-4", "rule/4236611", true},
+		"a row that is no row":    {"grader-appeals-1", "rule/0000000", false},
+		"another lane":            {"lane-7", "rule/4236611", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+			h.source.Grounds = func(_ context.Context, record client.Record) (bool, error) {
+				return strings.Contains(record.Text, "rule/4236611"), nil
+			}
+			putFact(t, h.store, 1, head, "finder", "ask", tappedAt)
+			putFact(t, h.store, 1, head, "fidelity", "pass", tappedAt)
+			if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: tc.lane, Kind: "decide", PRs: []string{"1"}, Text: appealText(tc.row)}); err != nil {
+				t.Fatal(err)
+			}
+
+			if row := h.snapshot(t)[1]; row.Cleared() != tc.want {
+				t.Fatalf("cleared = %v, want %v: %+v", row.Cleared(), tc.want, row)
+			}
+		})
+	}
+}
+
+func TestAnUnreadRowLeavesThePassRunningAndTheAppealIsReadAgain(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	h.source.Grounds = func(context.Context, client.Record) (bool, error) { return false, errors.New("ccn is down") }
+	putFact(t, h.store, 1, head, "finder", "ask", tappedAt)
+	putFact(t, h.store, 1, head, "fidelity", "pass", tappedAt)
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "grader-appeals-1", Kind: "decide", PRs: []string{"1"}, Text: appealText("rule/4236611")}); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := h.snapshot(t)[1]; row.Cleared() {
+		t.Fatalf("an appeal whose rows went unread cleared the grade: %+v", row)
+	}
+	h.source.Grounds = func(context.Context, client.Record) (bool, error) { return true, nil }
+	if row := h.snapshot(t)[1]; !row.Cleared() {
+		t.Fatalf("the appeal was not read again: %+v", row)
+	}
+}
+
+func TestAnOverrideCarriesToANewHeadOnlyWhenItsOwnDiffIsTheSame(t *testing.T) {
+	restacked := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,3 +10,4", "-42,3 +44,4").Replace(ownDiff)
+	respaced := strings.Replace(ownDiff, `"a b"`, `"ab"`, 1)
+	for name, tc := range map[string]struct {
+		diff string
+		want bool
+	}{
+		"a restack with the same patch": {restacked, true},
+		"a patch that differs":          {respaced, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			putFact(t, s, 1, head2, "finder", "ask", tappedAt)
+			putFact(t, s, 1, head2, "fidelity", "pass", tappedAt)
+			putFact(t, s, 1, head2, "verdict", "accept", tappedAt.Add(time.Minute))
+			putFact(t, s, 1, head2, machine.OverrideFact("finder"), "434757", tappedAt.Add(time.Minute))
+			on(t, s, recordedPR{number: 1, head: head2, login: "drive-bot", diff: ownDiff}).snapshot(t)
+			putFact(t, s, 1, head, "finder", "ask", tappedAt.Add(time.Hour))
+			putFact(t, s, 1, head, "fidelity", "pass", tappedAt.Add(time.Hour))
+
+			moved := on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: tc.diff})
+			moved.snapshot(t)
+			if row := moved.snapshot(t)[1]; row.Cleared() != tc.want {
+				t.Fatalf("cleared = %v, want %v: %+v", row.Cleared(), tc.want, row)
+			}
+
+			posted, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"decide"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want && (len(posted) != 1 || posted[0].Lane != bus.SweepLane || !strings.HasPrefix(posted[0].Text, "finder-override #1 at "+head+": 434757.")) {
+				t.Fatalf("posted = %+v, want one carried override", posted)
+			}
+			if !tc.want && len(posted) != 0 {
+				t.Fatalf("posted = %+v, want none", posted)
+			}
+		})
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -96,6 +97,21 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 	return nil
 }
 
+func groundedAppeals(ctx context.Context, reader *quotes.Reader, records []client.Record) (map[int64]bool, error) {
+	grounded := map[int64]bool{}
+	for _, record := range records {
+		if !bus.Appeal(record) {
+			continue
+		}
+		counts, err := reader.Grounded(ctx, record)
+		if err != nil {
+			return grounded, err
+		}
+		grounded[record.Seq] = counts
+	}
+	return grounded, nil
+}
+
 type goGate struct {
 	a      *app.App
 	cfg    config.Config
@@ -117,8 +133,12 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	if err != nil {
 		fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
 	}
+	grounded, err := groundedAppeals(ctx, quotes.NewReader(a.Runner, cfg.Drive), records)
+	if err != nil {
+		fmt.Fprintf(stdout, "WARNING #%d: could not read the owner rows an appeal cites, so that appeal does not count this pass: %v\n", number, err)
+	}
 	claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards}
+	read := gates.Read{Lifts: lifts, Records: records, Grounded: grounded, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards}
 	port, claimed := gates.PortAt(claim, records)
 	if claimed {
 		sources, err := a.CCX.PRStatus(ctx, cfg.Repo, []int{port.Source})

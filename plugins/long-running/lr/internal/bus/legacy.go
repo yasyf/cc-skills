@@ -20,6 +20,7 @@ const (
 	legacyWindow = 72 * time.Hour
 	rootLane     = "root"
 	SweepLane    = "supervisor"
+	AppealsLane  = "grader-appeals"
 )
 
 var (
@@ -95,7 +96,7 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	}
 	whole := fullText(record)
 	var out []Fact
-	if delegated(record.Lane, []string{rootLane}) {
+	if delegated(record.Lane, []string{rootLane, SweepLane}) {
 		out = overrides(whole)
 	}
 	exempt := exemptClass.FindStringSubmatch(whole)
@@ -235,6 +236,14 @@ func overridesIn(text string) []Override {
 	return out
 }
 
+func Appeal(record client.Record) bool {
+	return string(record.Kind) == "decide" && client.Stem(record.Lane) == AppealsLane && len(Overrides(record)) > 0
+}
+
+func AppealFacts(record client.Record) []Fact {
+	return overrides(fullText(record))
+}
+
 func UnreadOverrides(record client.Record) []string {
 	text := quotedSpan.ReplaceAllString(quotedBlock.ReplaceAllString(fullText(record), ""), "")
 	var unread []string
@@ -253,7 +262,7 @@ func UnreadOverrides(record client.Record) []string {
 func overrides(text string) []Fact {
 	var out []Fact
 	for _, override := range overridesIn(text) {
-		for _, fact := range []Fact{{override.PR, override.Head, "verdict", "accept"}, {override.PR, override.Head, machine.OverrideFact(override.Grader), "accept"}} {
+		for _, fact := range []Fact{{override.PR, override.Head, "verdict", "accept"}, {override.PR, override.Head, machine.OverrideFact(override.Grader), cmp.Or(override.Cites, "accept")}} {
 			if !slices.Contains(out, fact) {
 				out = append(out, fact)
 			}

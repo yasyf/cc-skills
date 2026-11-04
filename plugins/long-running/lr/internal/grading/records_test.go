@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 )
 
@@ -224,7 +225,7 @@ func TestEachRootRulingSettlesTheRecordsItNames(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			settled, err := rootSettled(context.Background(), testDrive, repo, pr, named)
+			settled, err := rootSettled(context.Background(), testDrive, repo, pr, named, noGrounds)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -252,7 +253,7 @@ func TestAnAcceptAnswerIsSettledByTheFirstRootRulingAfterIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	settled, err := rootSettled(context.Background(), testDrive, repo, pr, named)
+	settled, err := rootSettled(context.Background(), testDrive, repo, pr, named, noGrounds)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,5 +304,55 @@ func TestLaneSourcesTakeEveryPatternTheLaneMatchesOnce(t *testing.T) {
 
 	if got, want := laneSources(table, "s8-class-2"), []string{"all", "class"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("sources = %v, want %v", got, want)
+	}
+}
+
+func noGrounds(context.Context, client.Record) (bool, error) {
+	return false, nil
+}
+
+func TestAnAppealSettlesAGradeOnlyWhenItsRowExists(t *testing.T) {
+	for name, grounded := range map[string]bool{"a real row": true, "a row that is no row": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			graded := post(t, client.Draft{Lane: grader.FidelityLane, Kind: kindReview, Text: fidelityMissing + " " + head + " owner/deletion deletes a thing", PRs: []string{pull}})
+			decide := post(t, client.Draft{Lane: "grader-appeals-1", Kind: kindDecide, Text: "fidelity-override #" + pr + " at " + head[:7] + ": " + strconv.FormatInt(graded, 10) + ". Row rule/4236611 grounds it", PRs: []string{pull}})
+			named, err := client.Among(context.Background(), testDrive, []int64{graded})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			settled, err := rootSettled(context.Background(), testDrive, repo, pr, named, func(context.Context, client.Record) (bool, error) { return grounded, nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			want := map[string]int64{}
+			if grounded {
+				want[strconv.FormatInt(graded, 10)] = decide
+			}
+			if !reflect.DeepEqual(settled, want) {
+				t.Errorf("settled = %v, want %v", settled, want)
+			}
+		})
+	}
+}
+
+func TestACarriedOverrideSettlesTheGradeAtItsHead(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	graded := post(t, client.Draft{Lane: grader.FinderLane, Kind: kindReview, Text: "finder: major " + head[:7] + " 1 open", PRs: []string{pull}})
+	decide := post(t, client.Draft{Lane: bus.SweepLane, Kind: kindDecide, Text: "finder-override #" + pr + " at " + head[:7] + ": 9. Carried from aaaaaaa, whose own diff is the same.", PRs: []string{pull}})
+	named, err := client.Among(context.Background(), testDrive, []int64{graded})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settled, err := rootSettled(context.Background(), testDrive, repo, pr, named, noGrounds)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := map[string]int64{strconv.FormatInt(graded, 10): decide}; !reflect.DeepEqual(settled, want) {
+		t.Errorf("settled = %v, want %v", settled, want)
 	}
 }

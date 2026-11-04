@@ -257,3 +257,24 @@ func TestAHoldHisTapEndsMissesOnlyHisTap(t *testing.T) {
 		t.Fatalf("Missing = %v", got)
 	}
 }
+
+func TestCarriedOverrides(t *testing.T) {
+	overridden := map[string]string{DiffFact: "d1", "finder": "ask", "fidelity": "pass", machine.OverrideFact("finder"): "9"}
+	for name, tc := range map[string]struct {
+		from, head map[string]string
+		want       []string
+	}{
+		"the same diff, regraded the same": {overridden, map[string]string{DiffFact: "d1", "finder": "ask", "fidelity": "pass"}, []string{"finder"}},
+		"the same diff, not graded yet":    {overridden, map[string]string{DiffFact: "d1"}, []string{"finder"}},
+		"another diff":                     {overridden, map[string]string{DiffFact: "d2", "finder": "ask", "fidelity": "pass"}, nil},
+		"a grader nothing overrode":        {overridden, map[string]string{DiffFact: "d1", "finder": "ask", "fidelity": "fail"}, nil},
+		"already counted at this head":     {overridden, map[string]string{DiffFact: "d1", "finder": "ask", "fidelity": "pass", verdictFact: "accept"}, nil},
+		"the diff at the old head unread":  {map[string]string{"finder": "ask", machine.OverrideFact("finder"): "9"}, map[string]string{DiffFact: "d1"}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := CarriedOverrides(tc.from, tc.head); !slices.Equal(got, tc.want) {
+				t.Fatalf("CarriedOverrides = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -56,6 +56,7 @@ type Card struct {
 
 type Read struct {
 	Records  []client.Record
+	Grounded map[int64]bool
 	GoLanes  []string
 	Exempt   []string
 	TapRules map[string][]string
@@ -80,14 +81,14 @@ type PortClaim struct {
 }
 
 func ExemptGo(c Claim, r Read) (string, []string) {
-	finder, finderRefusal := finderCite(c, r.Records)
+	finder, finderRefusal := finderCite(c, r)
 	port, claimed := PortAt(c, r.Records)
 	flaked := FlakeAt(c, r.Records)
 	exempt := r.Exempt
 	if claimed {
 		exempt = portsFirst(exempt)
 	}
-	class, fidelity, fidelityRefusals := fidelityCite(c, r.Records, exempt, flaked)
+	class, fidelity, fidelityRefusals := fidelityCite(c, r, exempt, flaked)
 	rules := tapRules(r.TapRules, r.Files)
 	var classRefused []string
 	switch {
@@ -196,7 +197,8 @@ func portRank(phrase string) int {
 	return 1
 }
 
-func finderCite(c Claim, records []client.Record) (string, string) {
+func finderCite(c Claim, r Read) (string, string) {
+	records := r.Records
 	var newest client.Record
 	grade := ""
 	for _, record := range records {
@@ -209,17 +211,18 @@ func finderCite(c Claim, records []client.Record) (string, string) {
 	if grade == string(machine.FinderClear) {
 		return "finder ok " + newest.Name(), ""
 	}
-	if override, found := rootOverride(c, records, finderKind, func(cites string) bool { return cites != "" && named(records, cites) }); found {
+	if override, found := countedOverride(c, r, finderKind, func(cites string) bool { return cites != "" && named(records, cites) }); found {
 		return "finder-override " + override.Name(), ""
 	}
 	said := "no finder-desk grade"
 	if grade != "" {
 		said = "finder-desk's newest grade " + newest.Name() + " is major"
 	}
-	return "", fmt.Sprintf("finder: %s at %s, and no root decide reads finder-override #%d at %s citing a record that exists", said, short(c.Head), c.PR, short(c.Head))
+	return "", fmt.Sprintf("finder: %s at %s, and no counted decide reads finder-override #%d at %s citing a record that exists", said, short(c.Head), c.PR, short(c.Head))
 }
 
-func fidelityCite(c Claim, records []client.Record, exempt []string, flaked bool) (string, string, []string) {
+func fidelityCite(c Claim, r Read, exempt []string, flaked bool) (string, string, []string) {
+	records := r.Records
 	var lanes []string
 	standing := map[string]standingGrade{}
 	for _, record := range records {
@@ -251,15 +254,15 @@ func fidelityCite(c Claim, records []client.Record, exempt []string, flaked bool
 	if class == "" {
 		refusals = append(refusals, fmt.Sprintf("fidelity: no ok grade at %s names an exempt class (%s)", short(c.Head), strings.Join(exempt, "; ")))
 	}
-	if _, overridden := rootOverride(c, records, fidelityKind, func(string) bool { return true }); len(missing) > 0 && !overridden {
-		refusals = append(refusals, fmt.Sprintf("fidelity: %s at %s, and no root decide reads fidelity-override #%d at %s", strings.Join(missing, ", "), short(c.Head), c.PR, short(c.Head)))
+	if _, overridden := countedOverride(c, r, fidelityKind, func(string) bool { return true }); len(missing) > 0 && !overridden {
+		refusals = append(refusals, fmt.Sprintf("fidelity: %s at %s, and no counted decide reads fidelity-override #%d at %s", strings.Join(missing, ", "), short(c.Head), c.PR, short(c.Head)))
 	}
 	return class, cite, refusals
 }
 
-func rootOverride(c Claim, records []client.Record, grader string, cited func(string) bool) (client.Record, bool) {
-	for _, record := range slices.Backward(records) {
-		if string(record.Kind) != kindDecide || record.Lane != rootLane {
+func countedOverride(c Claim, r Read, grader string, cited func(string) bool) (client.Record, bool) {
+	for _, record := range slices.Backward(r.Records) {
+		if string(record.Kind) != kindDecide || record.Lane != rootLane && record.Lane != bus.SweepLane && !r.Grounded[record.Seq] {
 			continue
 		}
 		if slices.ContainsFunc(bus.Overrides(record), func(o bus.Override) bool {

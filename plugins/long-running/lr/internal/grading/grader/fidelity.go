@@ -46,17 +46,18 @@ var fidelityRubric []byte
 var fidelitySchema []byte
 
 var (
-	carriedSeq = regexp.MustCompile(`\bcarried from [0-9a-f]{7,40} \(cci #(\d+)\)`)
-	oldAppLine = regexp.MustCompile(`(?i)^old-app:\s*(unchanged|bug fix|changes)\b:?\s*(?:[0-9a-f]{7,40}\b)?\s*(.*)$`)
-	planLine   = regexp.MustCompile(`^plan:(?:[\w./-]+\.md:)?\d+(?:-\d+)?$`)
-	agentsLine = regexp.MustCompile(`^(?:[\w.-]+/)*AGENTS\.md:\d+(?:-\d+)?$`)
-	spanDash   = regexp.MustCompile(`[–—]`)
-	deletes    = regexp.MustCompile(`(?i)\b(?:delete|deletes|deleting|remove|removes|removing|drop|drops|dropping)\s+(?:the\s+|a\s+|an\s+|its\s+)?([^,;:()\n]+)`)
-	ownerWords = regexp.MustCompile(`(?i)\bowner\b[^"“\n]{0,80}["“]([^"”]+)["”]`)
-	nounWord   = regexp.MustCompile(`[a-z][a-z0-9]+`)
-	shortSHA   = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
-	afterWords = regexp.MustCompile(`(?s)^\s*(\S+)\s+(\S+)\s+(.*)$`)
-	generic    = map[string]bool{"page": true, "pages": true, "route": true, "routes": true, "file": true, "files": true, "feature": true, "features": true, "endpoint": true, "endpoints": true, "code": true, "which": true, "that": true, "and": true, "the": true, "its": true, "from": true, "for": true, "with": true, "unused": true, "old": true, "dead": true}
+	carriedSeq  = regexp.MustCompile(`\bcarried from [0-9a-f]{7,40} \(cci #(\d+)\)`)
+	oldAppLine  = regexp.MustCompile(`(?i)^old-app:\s*(unchanged|bug fix|changes)\b:?\s*(?:[0-9a-f]{7,40}\b)?\s*(.*)$`)
+	planLine    = regexp.MustCompile(`^plan:(?:[\w./-]+\.md:)?\d+(?:-\d+)?$`)
+	agentsLine  = regexp.MustCompile(`^(?:[\w.-]+/)*AGENTS\.md:\d+(?:-\d+)?$`)
+	spanDash    = regexp.MustCompile(`[–—]`)
+	deletes     = regexp.MustCompile(`(?i)\b(?:delete|deletes|deleting|remove|removes|removing|drop|drops|dropping)\s+(?:the\s+|a\s+|an\s+|its\s+)?([^,;:()\n]+)`)
+	numstatLine = regexp.MustCompile(`^(\d+)\t(\d+)\t`)
+	ownerWords  = regexp.MustCompile(`(?i)\bowner\b[^"“\n]{0,80}["“]([^"”]+)["”]`)
+	nounWord    = regexp.MustCompile(`[a-z][a-z0-9]+`)
+	shortSHA    = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	afterWords  = regexp.MustCompile(`(?s)^\s*(\S+)\s+(\S+)\s+(.*)$`)
+	generic     = map[string]bool{"page": true, "pages": true, "route": true, "routes": true, "file": true, "files": true, "feature": true, "features": true, "endpoint": true, "endpoints": true, "code": true, "which": true, "that": true, "and": true, "the": true, "its": true, "from": true, "for": true, "with": true, "unused": true, "old": true, "dead": true}
 )
 
 type OldApp struct {
@@ -169,9 +170,6 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	}
 	spec.Head = view.HeadRefOid
 	head := spec.Head
-	if said := unnamedDeletion(view.Title, view.Body); said != "" {
-		return s.postOnly(fmt.Sprintf("%s %s %s %s", fidelityMissing, head, deletionKey, said))
-	}
 	found, err := s.openFindings()
 	if err != nil {
 		return FidelityOutcome{}, err
@@ -197,6 +195,15 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	}
 	if len(own) == 0 {
 		return FidelityOutcome{Skipped: fmt.Sprintf("%s at %s carries no commit %s lacks", pull, short(head, 12), view.BaseRefName)}, nil
+	}
+	if said := unnamedDeletion(view.Title, view.Body); said != "" {
+		stat, err := s.git("diff", "--find-renames", "--numstat", "--summary", own[0]+"^", head)
+		if err != nil {
+			return FidelityOutcome{}, err
+		}
+		if removesCode(stat) {
+			return s.postOnly(fmt.Sprintf("%s %s %s %s", fidelityMissing, head, deletionKey, said))
+		}
 	}
 	s.touches = s.serviceTouches(own[0] + "^")
 	paths, err := s.git("diff", "--name-only", "--no-renames", own[0]+"^", head)
@@ -320,6 +327,21 @@ func unnamedDeletion(title, body string) string {
 		cited = append(cited, "“"+string(runes[:min(len(runes), 160)])+"”")
 	}
 	return fmt.Sprintf("deletes %s, and the owner words it cites never name %s: %s. A drive PR deletes only what a plan step, the owner's words or a drive-touched fix names.", thing, strings.Join(nouns, ", "), strings.Join(cited, "; "))
+}
+
+func removesCode(stat string) bool {
+	added, removed := 0, 0
+	for line := range strings.SplitSeq(stat, "\n") {
+		if strings.HasPrefix(line, " delete mode ") {
+			return true
+		}
+		if counts := numstatLine.FindStringSubmatch(line); counts != nil {
+			adds, _ := strconv.Atoi(counts[1])
+			removes, _ := strconv.Atoi(counts[2])
+			added, removed = added+adds, removed+removes
+		}
+	}
+	return removed > added
 }
 
 type findingRow struct {
