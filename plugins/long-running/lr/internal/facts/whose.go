@@ -16,11 +16,12 @@ const (
 )
 
 type Whose struct {
-	Number int    `json:"number"`
-	Author string `json:"author"`
-	Name   string `json:"name,omitempty"`
-	Lane   string `json:"lane,omitempty"`
-	Ours   bool   `json:"ours"`
+	Number  int    `json:"number"`
+	Author  string `json:"author"`
+	Name    string `json:"name,omitempty"`
+	Lane    string `json:"lane,omitempty"`
+	Ours    bool   `json:"ours"`
+	Foreign bool   `json:"foreign"`
 }
 
 func (s Source) Whose(ctx context.Context, numbers []int) ([]Whose, error) {
@@ -47,7 +48,7 @@ func (s Source) Whose(ctx context.Context, numbers []int) ([]Whose, error) {
 		if known[authorFact] != s.Author {
 			f.ForeignAuthor = known[authorFact]
 		}
-		out = append(out, Whose{number, known[authorFact], known[authorNameFact], f.Lane, f.Ours()})
+		out = append(out, Whose{number, known[authorFact], known[authorNameFact], f.Lane, f.Ours(), f.Foreign()})
 	}
 	return out, nil
 }

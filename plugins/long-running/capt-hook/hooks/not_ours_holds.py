@@ -12,7 +12,7 @@ from .meta_records import posts
 from .owner_facing import SLACK_CARD, Reads, fenced, slack_card
 from .register_injection import INCIDENT_NAME, drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
-from .urgent_lines_name_the_harm import WHOSE_STUB, person, theirs
+from .urgent_lines_name_the_harm import LR, WHOSE_STUB, person, theirs
 
 HELD = frozenset({"hold", "card"})
 CARD_TOPIC = "card-"
@@ -64,6 +64,7 @@ PUSH = "cc-present update-block - <<'EOF'\n" + json.dumps({"type": "card", "id":
         Input(command=PUSH, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Approve the column drop, #46018?"}}, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(command=OWN_HOLD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command=OWN_HOLD, env=DRIVE_CONFIG, commands={f"{LR} facts whose": json.dumps({"number": 49336, "author": "drive-bot", "ours": False, "foreign": False})}): Allow(),
         Input(command="cci post --kind report --to root --text \"not ours, Andrew's #46018 resolves #382199\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="cci post --kind report --to release --text \"12414 is Andrew's release and ran his #46018; no action\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command=HOLD.replace("cci post", "cci post --lane incident-sofi-1"), env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
