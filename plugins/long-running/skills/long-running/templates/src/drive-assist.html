@@ -61,7 +61,7 @@ html:not(.ai-on) .ai-only { display: none !important; }
   .as-nl .acts .btn { flex: 1; }
 }
 </style>
-<div id="pal" hidden><div class="box"><input id="pal-q" name="jump" placeholder="Jump to a change, a part of the plan, a piece of work, or ask a question" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>Up</kbd> <kbd>Down</kbd> to move</span><span><kbd>Enter</kbd> to open</span><span class="ai-only"><kbd>Tab</kbd> to ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>Esc</kbd> to close</button></div></div></div>
+<div id="pal" hidden><div class="box"><input id="pal-q" name="jump" placeholder="Jump to a change, a part of the plan, a piece of work, or ask the communicator a question" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>Up</kbd> <kbd>Down</kbd> to move</span><span><kbd>Enter</kbd> to open</span><span class="ai-only"><kbd>Tab</kbd> to ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>Esc</kbd> to close</button></div></div></div>
 <aside id="ash" hidden></aside>
 <script>
 const PAL=document.getElementById("pal");
@@ -335,7 +335,7 @@ function entries(){
  Object.keys(STATE_WORD).forEach(k=>{const l=prs.filter(e=>e.state===k);if(l.length)add("Show only",`<i class="d ${k}"></i>`,STATE_WORD[k],`show only these ${l.length} pull requests`,only(STATE_WORD[k],l),k)});
  m.parts.forEach(p=>{const l=prs.filter(e=>e.part===p.key);if(l.length)add("Show only","◧",p.name,`show only these ${l.length} pull requests · ${tally(l).landed} landed`,only(p.name,l),p.key)});
  m.steps.forEach(st=>{const l=prs.filter(e=>e.step===st.id);if(l.length)add("Show only","▸",st.label,`show only these ${l.length} pull requests · ${st.title}`,only(st.label,l),st.title)});
- [["","Now"],["plan","Plan"],["status","Status"],["work","Work"],["review","Review"],["history","History"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
+ [["","Now"],["plan","Plan"],["status","Status"],["work","Work"],["review","Review"],["history","History"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
  waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
  openCards().slice(0,3).forEach(c=>add("Needs you","?",(m.pages?.review?.cards??[]).find(x=>x.key===c.key)?.question??c.title,"answer it on Review",()=>{location.hash="#/review"},c.summary));
  if(openCards().length>3)add("Needs you","→",`All ${openCards().length} questions waiting on you`,"on Review",()=>{location.hash="#/review"});
@@ -363,7 +363,7 @@ function results(raw){
  picked.sort((a,b)=>b.score-a.score).forEach(e=>{(groups[e.group]??=[]).push(e)});
  const items=Object.keys(CAPS).filter(g=>groups[g]).sort((a,b)=>groups[b][0].score-groups[a][0].score).flatMap(g=>groups[g].slice(0,q.length?CAPS[g]:20));
  if(q.length&&AI.endpoint&&!QUESTION.test(raw.trim()))items.push({group:"Assistant",icon:"✦",label:`Show only what matches: ${raw.trim()}`,sub:"the assistant picks the pull requests and dims the rest",go:()=>filterBy(raw.trim()),ask:true});
- if(q.length&&AI.endpoint){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
+ if(q.length&&state.model.talk){const askRow={group:"Talk",icon:"✎",label:`Ask: ${raw.trim()}`,sub:"opens Talk with your question, and the communicator answers there",go:()=>askInPal(raw.trim())};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
 function openPal(){history.replaceState({...history.state,y:scrollY},"");location.hash="#/jump"}
@@ -385,14 +385,10 @@ function paintPal(){
  document.querySelector("#pal-list .it.on")?.scrollIntoView({block:"nearest"});
 }
 function pick(i){const e=pal.items[i];if(!e)return;if(!e.ask)closePal();e.go()}
-async function askInPal(question){
- const box=document.getElementById("pal-ans");
- box.hidden=false;box.innerHTML='<span class="dim">✦ Reading the drive…</span>';
- const mine=pal.busy={};
- try{
-  const text=await assistAsk(question,[],t=>{if(pal.busy===mine)box.innerHTML=markdown(t)});
-  if(pal.busy===mine)box.innerHTML=markdown(text)+`<div class="dim" style="margin-top:8px"><a href="#/ask" data-carry="${esc(question)}">Continue in Ask ›</a></div>`;
- }catch(e){if(pal.busy===mine)box.innerHTML=`<span class="dim">The assistant could not answer: ${esc(e.message)}</span>`}
+function askInPal(question){
+ closePal();
+ leavePal();
+ openTalk(question);
 }
 
 function openSheet(s){sheet=s;paintSheet()}
@@ -436,11 +432,11 @@ document.addEventListener("keydown",e=>{
  else if(e.key==="ArrowDown"){e.preventDefault();pal.i=Math.min(pal.items.length-1,pal.i+1);paintPal()}
  else if(e.key==="ArrowUp"){e.preventDefault();pal.i=Math.max(0,pal.i-1);paintPal()}
  else if(e.key==="Enter"){e.preventDefault();pick(pal.i)}
- else if(e.key==="Tab"&&AI.endpoint){e.preventDefault();const q=document.getElementById("pal-q").value.trim();if(q)askInPal(q)}
+ else if(e.key==="Tab"&&state.model.talk){e.preventDefault();const q=document.getElementById("pal-q").value.trim();if(q)askInPal(q)}
 },true);
 document.getElementById("pal-q").addEventListener("input",()=>{pal.i=0;document.getElementById("pal-ans").hidden=true;paintPal()});
 document.getElementById("pal-list").addEventListener("click",e=>{const it=e.target.closest("[data-i]");if(it)pick(Number(it.dataset.i))});
-PAL.addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))leavePal()});
+PAL.addEventListener("click",e=>{if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))leavePal()});
 document.addEventListener("click",e=>{
  const t=e.target;
  if(t.closest("[data-unsheet]")){sheet=null;paintSheet();return}
