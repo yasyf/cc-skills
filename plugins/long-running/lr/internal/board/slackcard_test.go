@@ -1,6 +1,9 @@
 package board
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -88,5 +91,35 @@ func TestABareNumberNamesEveryDrivePRHoldingItAndNoOther(t *testing.T) {
 	want := []SlackPR{{"yasyf/cc-skills", 2475}, {"Forge-AI/monorepo", 66}, {"yasyf/cc-slack", 66}}
 	if !reflect.DeepEqual(held, want) {
 		t.Fatalf("held = %+v, want %+v", held, want)
+	}
+}
+
+func TestACardReadsTheNamedDriveAndSkipsOneThatEnded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	registry := filepath.Join(home, "long-running", "drives")
+	running := filepath.Join(home, "running")
+	for _, dir := range []string{registry, running} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(running, configFile), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, state := range map[string]string{"ended": filepath.Join(home, "ended"), "running": running} {
+		entry := fmt.Sprintf(`{"drive":%q,"state_dir":%q,"sessions":["s"]}`, name, state)
+		if err := os.WriteFile(filepath.Join(registry, name+".json"), []byte(entry), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, want := range map[string]string{"": "running", "ended": "ended"} {
+		found, err := cardDrives(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(found) != 1 || found[0].Drive != want {
+			t.Fatalf("cardDrives(%q) = %+v, want only %s", name, found, want)
+		}
 	}
 }
