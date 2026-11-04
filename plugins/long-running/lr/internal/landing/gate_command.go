@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -16,24 +19,29 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
-const tapRequired = "TAP-REQUIRED no approval on the owner's board at this head"
+const (
+	tapRequired   = "TAP-REQUIRED no approval on the owner's board at this head"
+	queueUntested = "QUEUE-UNTESTED"
+	queuePassed   = "success"
+)
 
 func gateCommand(a *app.App) *cobra.Command {
-	var partial bool
+	var partial, direct bool
 	cmd := &cobra.Command{
 		Use:   "gate PR...",
 		Short: "Print each gate a hand enqueue of these PRs would pass over, posting nothing, and exit 1 when it prints any",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGate(cmd.Context(), a, args, partial, cmd.OutOrStdout())
+			return runGate(cmd.Context(), a, args, partial, direct, cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().BoolVar(&partial, "partial", false, "The enqueue takes only the named PRs and those below them, not the stacks above")
+	cmd.Flags().BoolVar(&direct, "direct", false, "The landing merges directly, outside the queue, so each head must have passed the queue's own test")
 	return cmd
 }
 
-func runGate(ctx context.Context, a *app.App, args []string, partial bool, stdout io.Writer) error {
-	lines, err := gateLines(ctx, a, args, partial)
+func runGate(ctx context.Context, a *app.App, args []string, partial, direct bool, stdout io.Writer) error {
+	lines, err := gateLines(ctx, a, args, partial, direct)
 	if err != nil {
 		fmt.Fprintf(a.Stderr, "Warning, nothing was refused: lr landing gate could not read the drive's pull requests: %v\n", err)
 		return nil
@@ -47,7 +55,7 @@ func runGate(ctx context.Context, a *app.App, args []string, partial bool, stdou
 	return nil
 }
 
-func gateLines(ctx context.Context, a *app.App, args []string, partial bool) ([]string, error) {
+func gateLines(ctx context.Context, a *app.App, args []string, partial, direct bool) ([]string, error) {
 	cfg, err := a.Config()
 	if err != nil {
 		return nil, err
@@ -66,10 +74,10 @@ func gateLines(ctx context.Context, a *app.App, args []string, partial bool) ([]
 	if err != nil {
 		return nil, err
 	}
-	return g.HandEnqueueLines(ctx, snapshot, args, partial), nil
+	return g.HandEnqueueLines(ctx, snapshot, args, partial, direct), nil
 }
 
-func (g *Gates) HandEnqueueLines(ctx context.Context, snapshot []machine.Facts, named []string, partial bool) []string {
+func (g *Gates) HandEnqueueLines(ctx context.Context, snapshot []machine.Facts, named []string, partial, direct bool) []string {
 	byNumber := make(map[string]machine.Facts, len(snapshot))
 	byBranch := make(map[string]machine.Facts, len(snapshot))
 	for _, f := range snapshot {
@@ -90,6 +98,9 @@ func (g *Gates) HandEnqueueLines(ctx context.Context, snapshot []machine.Facts, 
 	for _, f := range snapshot {
 		if below[f.Branch] || !partial && downstackMeets(f, byBranch, below) {
 			lines = append(append(lines, GateLines(f)...), g.refusalLines(ctx, f)...)
+			if direct {
+				lines = append(lines, g.untestedLines(ctx, f)...)
+			}
 		}
 	}
 	return lines
@@ -123,6 +134,19 @@ func (g *Gates) refusalLines(ctx context.Context, f machine.Facts) []string {
 		lines = append(lines, fmt.Sprintf("#%d %s BUILD-FAILED %s", f.Number, shortHead(f.Head), failure))
 	}
 	return lines
+}
+
+func (g *Gates) untestedLines(ctx context.Context, f machine.Facts) []string {
+	check := facts.QueueCheck(g.Trunk)
+	conclusion, err := g.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "repos/"+f.Repo+"/commits/"+f.Head+"/check-runs?filter=latest&check_name="+url.QueryEscape(check), "--jq", ".check_runs[0].conclusion")
+	if err != nil {
+		g.Log.Warn("the queue's check did not read, so the direct merge gate passes this head", "pr", f.Number, "err", err)
+		return nil
+	}
+	if strings.TrimSpace(conclusion) == queuePassed {
+		return nil
+	}
+	return []string{fmt.Sprintf("#%d %s %s %s has not passed at this head", f.Number, shortHead(f.Head), queueUntested, check)}
 }
 
 func GateLines(f machine.Facts) []string {
