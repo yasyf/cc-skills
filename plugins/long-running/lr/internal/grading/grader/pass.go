@@ -43,6 +43,7 @@ var (
 	blobFetch       = []string{"-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", "origin"}
 
 	zeroRef     = regexp.MustCompile(`bad object (?:0{40}|worktrees/\S+/HEAD)`)
+	looseRef    = regexp.MustCompile(`^(?:[0-9a-f]{40}|ref: \S+)\s*$`)
 	fullSHA     = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	rangePair   = regexp.MustCompile(`(?m)^\s*(?:\d+|-+):\s+([0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)[ \t]*(.*)$`)
 	diffFile    = regexp.MustCompile(`^diff --git a/\S+ b/(\S+)$`)
@@ -224,8 +225,39 @@ func (p *pass) viewPR() (pullRequest, error) {
 
 func (p *pass) fetch(shas ...string) error {
 	args := append([]string{"fetch", "--no-write-fetch-head", "-q", "origin"}, shas...)
-	_, err := p.retried(func() (string, error) { return p.git(args...) }, func(exit *ExitError) bool { return zeroRef.MatchString(exit.Stderr) })
+	_, err := p.retried(func() (string, error) { return p.git(args...) }, p.repairedZeroRef)
 	return err
+}
+
+func (p *pass) repairedZeroRef(exit *ExitError) bool {
+	if !zeroRef.MatchString(exit.Stderr) {
+		return false
+	}
+	if err := p.dropBrokenRefs(); err != nil {
+		p.Log.Warn("dropping the loose refs that hold no ref failed", "checkout", p.job.Checkout, "error", err)
+	}
+	return true
+}
+
+func (p *pass) dropBrokenRefs() error {
+	common, err := p.git("rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(filepath.Join(common, "refs"), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || strings.HasSuffix(path, ".lock") {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil || looseRef.Match(content) {
+			return err
+		}
+		p.Log.Warn("dropping a loose ref that holds no ref", "ref", path)
+		return os.Remove(path)
+	})
 }
 
 func (p *pass) tips(branch string) (string, string, error) {

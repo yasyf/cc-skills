@@ -40,8 +40,8 @@ copy kept in the drive's state as a snapshot for that checkout, which rulings.py
 on the Sprite reads instead of rebuilding the register cold with ccn, and the plan package the drive's
 register names, the directory holding plan/plan.md, whenever a file in it was
 added, removed or changed since the Sprite's copy. The job's checkout drops the
-empty loose refs a Sprite restart leaves, which every fetch reads as the zero
-object, and fetches every remote unless a fetch that began after this job asked for one already
+loose refs a Sprite restart leaves empty or filled with NULs, which every fetch
+reads as the zero object, and fetches every remote unless a fetch that began after this job asked for one already
 did, and the job runs there. <dir> is then copied
 back, job.json and pid left as this machine wrote them and result.json last,
 adopted through long_running/desk_result.py only when it parses, so the runner
@@ -170,7 +170,7 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper "GIT_CONFIG_VALUE_1=!gh auth git-credential"
   [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
     git credential-cache --timeout=3900 store
-  find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f -empty ! -name "*.lock" -delete
+  find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f ! -name "*.lock" -exec grep -LE "^([0-9a-f]{40}|ref: .+)$" {} + | xargs rm -f
   asked=$(date +%s%N)
   exec 9>"$3.fetch.lock"
   flock 9
