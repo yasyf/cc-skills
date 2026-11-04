@@ -66,6 +66,8 @@ BOARD_WRITES = frozenset({"push", "update-block"})
 BRIEF_LAUNCHERS = frozenset({"orca-launch.sh", "codex-ask"})
 NOT_FOUND = 3
 EXCERPT = 160
+GATE_READ_SECONDS = 5
+LEDGER_SYNC_ENV = "LONG_RUNNING_LEDGER_SYNC"
 BLOCKERS = "register-blockers"
 READ_ERRORS = (subprocess.SubprocessError, OSError, ValueError, KeyError)
 UNROWED_ANSWER = (
@@ -158,7 +160,7 @@ ROSTER = "Lane lane-x: drop the roster refresh timer."
 
 
 def read_register(evt: BaseHookEvent, which: list[str]) -> dict:
-    return json.loads(rulings(str(evt.cwd), "rows", *which, "--json", evt=evt))
+    return json.loads(rulings(str(evt.cwd), "rows", *which, "--json", evt=evt, timeout=GATE_READ_SECONDS))
 
 
 def cause(error: Exception) -> str:
@@ -834,14 +836,14 @@ def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
 
 def has_pr(entry: dict, lane: str) -> bool:
     argv = [sys.executable, str(script("ledger.py")), "-C", entry["checkout"], "list", "--ledger", entry["ledger"], "--repo", entry["repo"], "--lane", lane, "--json"]
-    done = subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=GATE_READ_SECONDS, env={**reqenv.env_map(), LEDGER_SYNC_ENV: "0"})
     done.check_returncode()
     return bool(json.loads(done.stdout))
 
 
 def acceptance(evt: BaseHookEvent, lane: str, drive: str) -> str:
     try:
-        said = rulings(str(evt.cwd), "accepted", "--lane", lane, "--drive", drive, evt=evt)
+        said = rulings(str(evt.cwd), "accepted", "--lane", lane, "--drive", drive, evt=evt, timeout=GATE_READ_SECONDS)
     except subprocess.CalledProcessError as refused:
         if not (refused.stdout or "").startswith(CONTRACT_MISSING):
             raise

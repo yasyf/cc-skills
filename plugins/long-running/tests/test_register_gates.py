@@ -264,6 +264,15 @@ def test_acceptance_reads_the_contract_missing_line_a_failing_accepted_run_print
         register_gates.acceptance(evt, "lane-a", DRIVE)
 
 
+def test_the_pr_check_reads_the_ledger_without_a_network_sync_or_a_long_wait(monkeypatch):
+    monkeypatch.setenv(register_gates.LEDGER_SYNC_ENV, "1")
+    ran = subprocess.CompletedProcess([], 0, stdout="[]")
+    with mock.patch.object(register_gates.subprocess, "run", return_value=ran) as run:
+        assert not register_gates.has_pr({"checkout": "/repo", "ledger": LEDGER, "repo": "o/r"}, "lane-a")
+    assert run.call_args.kwargs["env"][register_gates.LEDGER_SYNC_ENV] == "0"
+    assert run.call_args.kwargs["timeout"] == register_gates.GATE_READ_SECONDS
+
+
 def test_a_named_ship_helper_is_gated_as_the_lane_that_spawned_it(tmp_path):
     subagents = tmp_path / SESSION / "subagents"
     subagents.mkdir(parents=True)
