@@ -442,14 +442,16 @@ func nullText(text string) sql.NullString {
 }
 
 func (s Store) Header(id string) (Header, error) {
-	return heldRead(s, id, "header", func() (Header, error) {
-		var header Header
-		err := s.read(id, func(tx *sql.Tx) (err error) {
-			header, err = readHeader(tx)
-			return err
-		})
-		return header, err
+	var header Header
+	err := s.read(id, func(tx *sql.Tx) (err error) {
+		header, err = readHeader(tx)
+		return err
 	})
+	return header, err
+}
+
+func (s Store) PassHeader(id string) (Header, error) {
+	return heldRead(s, id, "header", func() (Header, error) { return s.Header(id) })
 }
 
 func readHeader(tx *sql.Tx) (Header, error) {

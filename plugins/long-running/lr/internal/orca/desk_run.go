@@ -326,7 +326,7 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 		d.passSince = d.Now()
 		d.enter(stepStart)
 		clear(d.stepTook)
-		d.store.StartPass()
+		d.startPass()
 		passErr := d.onePass(ctx)
 		if ctx.Err() != nil {
 			d.background.Wait()

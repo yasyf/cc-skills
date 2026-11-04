@@ -444,23 +444,31 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 }
 
 type standDownReads struct {
-	mu   sync.Mutex
-	read []client.Record
+	mu      sync.Mutex
+	passing bool
+	kept    bool
+	records []client.Record
 }
 
 func (d *Desk) readStandDowns(ctx context.Context) ([]client.Record, error) {
 	d.standDowns.mu.Lock()
 	defer d.standDowns.mu.Unlock()
-	var after int64
-	if read := len(d.standDowns.read); read > 0 {
-		after = d.standDowns.read[read-1].Seq
+	if d.standDowns.kept {
+		return d.standDowns.records, nil
 	}
-	fresh, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane, supervisorLane}, Kinds: []string{kindStandDown, kindStopped}, After: after})
+	records, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane, supervisorLane}, Kinds: []string{kindStandDown, kindStopped}})
 	if err != nil {
 		return nil, err
 	}
-	d.standDowns.read = append(d.standDowns.read, fresh...)
-	return d.standDowns.read, nil
+	d.standDowns.records, d.standDowns.kept = records, d.standDowns.passing
+	return records, nil
+}
+
+func (d *Desk) startPass() {
+	d.store.StartPass()
+	d.standDowns.mu.Lock()
+	defer d.standDowns.mu.Unlock()
+	d.standDowns.passing, d.standDowns.kept = true, false
 }
 
 func standsDown(record client.Record, names []string) bool {

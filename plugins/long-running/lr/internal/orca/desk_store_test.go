@@ -58,20 +58,28 @@ func TestRelayReadsReuseSQLiteSharedMemoryAndSeeExternalWrites(t *testing.T) {
 	}
 }
 
-func TestALaneStoodDownReadsOnlyWhatIsNewAndStillSeesIt(t *testing.T) {
+func TestALaneStoodDownAsksTheInboxOnceAPassAndEveryTimeOutsideOne(t *testing.T) {
 	w := newDeskWorld(t)
-	w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "retired", "to": []string{"another-lane"}})
-	if down, err := w.desk.laneStoodDown(context.Background(), testLane); err != nil || down != "" {
-		t.Fatalf("stood down %q, err %v", down, err)
+	ctx := context.Background()
+	stoodDown := func(want string) {
+		t.Helper()
+		if down, err := w.desk.laneStoodDown(ctx, testLane); err != nil || down != want {
+			t.Fatalf("stood down %q, want %q, err %v", down, want, err)
+		}
 	}
-	stop := w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "retired", "to": []string{testLane}})
+	stoodDown("")
+	first := w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": "retired", "to": []string{testLane}})
+	stoodDown(seqReceipt(first.Seq))
 
-	down, err := w.desk.laneStoodDown(context.Background(), testLane)
-
-	if err != nil || down != seqReceipt(stop.Seq) {
-		t.Fatalf("stood down %q, err %v", down, err)
+	w.desk.startPass()
+	stoodDown(seqReceipt(first.Seq))
+	tails := w.tails
+	stoodDown(seqReceipt(first.Seq))
+	if w.tails != tails {
+		t.Fatalf("a second read in a pass asked the inbox %d more times", w.tails-tails)
 	}
-	if read := len(w.desk.standDowns.read); read != 2 {
-		t.Fatalf("%d stand-downs kept, want 2", read)
-	}
+	w.records = nil
+	stoodDown(seqReceipt(first.Seq))
+	w.desk.startPass()
+	stoodDown("")
 }
