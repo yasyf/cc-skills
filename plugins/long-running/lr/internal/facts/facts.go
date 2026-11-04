@@ -763,7 +763,12 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 		if err != nil {
 			return err
 		}
-		f.TapFrom, f.CarriedBy = tapped, gates.CarriedBy(tapped, atTap, stored)
+		deltas, err := s.Store.HeadFacts(s.Repo, f.Number, gates.DeltaFacts)
+		if err != nil {
+			return err
+		}
+		f.TapFrom = tapped
+		f.CarriedBy, f.TapReturned = gates.CarriedBy(tapped, f.Head, atTap, stored, deltas)
 		if f.CarriedBy != "" {
 			f.Tap = machine.TapTapped
 		}

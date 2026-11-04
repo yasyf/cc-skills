@@ -1,6 +1,7 @@
 package gates
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -26,6 +28,25 @@ const (
 
 	BySameDiff = "same-diff"
 	ByFidelity = "fidelity"
+
+	DeltaFact     = "delta"
+	DeltaFromFact = "delta-from"
+	DeltaWhyFact  = "delta-why"
+
+	DeltaRebase     = "rebase"
+	DeltaReviewFix  = "review-fix"
+	DeltaOrderedFix = "ordered-fix"
+	DeltaBehavior   = "behavior"
+	DeltaScope      = "scope"
+
+	classSeparator = ","
+	unjudged       = "its diff changed, and neither its head record nor fidelity says it means the same yet"
+)
+
+var (
+	DeltaFacts     = []string{DeltaFact, DeltaFromFact, DeltaWhyFact}
+	carryingWords  = map[string]string{DeltaRebase: "a rebase", DeltaReviewFix: "a review fix", DeltaOrderedFix: "a fix the owner ordered"}
+	returningWords = map[string]string{DeltaBehavior: "a behavior change", DeltaScope: "a scope change"}
 )
 
 var (
@@ -67,12 +88,97 @@ func SameDiff(atFrom, atHead map[string]string) bool {
 	return atFrom[DiffFact] != "" && atFrom[DiffFact] == atHead[DiffFact]
 }
 
-func CarriedBy(tapped string, atTap, atHead map[string]string) string {
+func CarriedBy(tapped, head string, atTap, atHead map[string]string, deltas []store.HeadFact) (by, returned string) {
+	since := deltasSince(tapped, head, deltas)
 	if SameDiff(atTap, atHead) {
-		return BySameDiff
+		return cmp.Or(since.carrying(), BySameDiff), ""
+	}
+	if back := since.returning(); back != "" {
+		return "", back
+	}
+	if atHead[BehaviorFact] == BehaviorChanged && sameHead(atHead[SinceFact], tapped) {
+		return "", "fidelity judged a change: " + atHead[ChangedFact]
+	}
+	if by := since.carrying(); by != "" {
+		return by, ""
 	}
 	if sameHead(atHead[SinceFact], tapped) && atHead[BehaviorFact] == BehaviorSame && (atHead[fidelityFact] == string(machine.FidelityPass) || atHead[verdictFact] != "") {
-		return ByFidelity
+		return ByFidelity, ""
+	}
+	return "", unjudged
+}
+
+func CarryWhy(by string) string {
+	switch by {
+	case BySameDiff:
+		return "the PR's own diff is the same as at the tapped head"
+	case ByFidelity:
+		return "fidelity judged no behavior or scope change since the tapped head"
+	}
+	var words []string
+	for class := range strings.SplitSeq(by, classSeparator) {
+		words = append(words, carryingWords[class])
+	}
+	return "every change since the tapped head is " + strings.Join(words, " or ")
+}
+
+type delta struct {
+	head, class, why string
+}
+
+type deltaChain struct {
+	links   []delta
+	reached bool
+}
+
+func deltasSince(tapped, head string, deltas []store.HeadFact) deltaChain {
+	var chain deltaChain
+	at := head
+	for range len(deltas) + 1 {
+		if sameHead(at, tapped) {
+			chain.reached = true
+			return chain
+		}
+		said := factsAt(at, deltas)
+		chain.links = append(chain.links, delta{at, said[DeltaFact], said[DeltaWhyFact]})
+		at = said[DeltaFromFact]
+		if at == "" {
+			return chain
+		}
+	}
+	return chain
+}
+
+func factsAt(head string, deltas []store.HeadFact) map[string]string {
+	said := map[string]string{}
+	for _, fact := range deltas {
+		if sameHead(fact.Head, head) {
+			said[fact.Kind] = fact.Value
+		}
+	}
+	return said
+}
+
+func (c deltaChain) carrying() string {
+	if !c.reached {
+		return ""
+	}
+	var classes []string
+	for _, link := range c.links {
+		if _, carries := carryingWords[link.class]; !carries {
+			return ""
+		}
+		classes = append(classes, link.class)
+	}
+	slices.Sort(classes)
+	return strings.Join(slices.Compact(classes), classSeparator)
+}
+
+func (c deltaChain) returning() string {
+	for _, link := range c.links {
+		if words, returns := returningWords[link.class]; returns {
+			return fmt.Sprintf("%s at %s: %s", words, short(link.head), link.why)
+		}
 	}
 	return ""
 }

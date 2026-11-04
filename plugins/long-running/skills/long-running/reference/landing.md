@@ -193,7 +193,7 @@ D24 sits at the end of this section.
 - A tapped or held row keeps its PATCHes and never moves.
 - A native stack member refuses the PATCH with a 422; the refusal counts toward the 3, and after the third no more are sent at that head.
 - Conflict and behind rows stay on their restack path, and a Trunk read that failed is not this case.
-- A lane or the coordinator may bump such a PR at once instead, by a rebase on the trunk or an empty commit; then read its mergeable state again and queue it. A bump the owner ordered carries his tap to the bumped head; he does not tap again.
+- A lane or the coordinator may bump such a PR at once instead, by a rebase on the trunk or an empty commit; then read its mergeable state again and queue it. A bump is a `rebase` head under [tap carry](#tap-carry-and-blanket-approval), so his tap stays with it.
 
 ## Queue adapters and runner passes
 
@@ -205,7 +205,7 @@ D24 sits at the end of this section.
 - An ejected head gets one resubmit, then goes to its lane as a red item.
 
 **Where runner records go.**
-- When `landing.desk_lane` in `runner.json` names one lane or a list, the runner sends `QUEUED`, `LANDED`, `TAP-CARRIED`, `MERGE-ASK`, `BELOW-BLOCKED`, and `FORK-DEFERRED` to that lane, each `landing.board_lane`, and the PR's owning lane (each read as its live successor), not to the coordinator. Without `landing.desk_lane` they go to the coordinator.
+- When `landing.desk_lane` in `runner.json` names one lane or a list, the runner sends `QUEUED`, `LANDED`, `MERGE-ASK`, `BELOW-BLOCKED`, and `FORK-DEFERRED` to that lane, each `landing.board_lane`, and the PR's owning lane (each read as its live successor), not to the coordinator. Without `landing.desk_lane` they go to the coordinator.
 - A ledger row that settles landed with no enqueue or squash of the runner's own gets its own `LANDED` record the pass the ledger reads its squash.
 - A landed PR whose branch carried other open PRs into the trunk gets one `CARRIED` report to the coordinator and each `landing.board_lane`, listing every carried PR from the GitHub commits on the landed PR with the owner's tap, fidelity grade, and finder state.
 - `GO-UNQUEUED`, `GO-TAP-MISSING`, and `REFUSED` go to each `landing.go_lanes` lane, the desk lanes, and the owning lane, and to the coordinator only when no lane owns the PR.
@@ -327,7 +327,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 - Every push of PR rows to the owner's board refuses a row for a tap already given at that head, a rejected head, or a stale head, so he is never asked twice for the same tap.
 - When two PRs implement one ruling, he gets one tap card for it, never two competing ones: the coordinator picks which lands or folds one into the other first.
 - When he says he is going to sleep, every lane keeps shipping: the exempt classes land on go records all night, and every other green, graded PR waits as a tap row for his return.
-- A tap carries to a later head only when the PR's own diff is the same, or fidelity judges its behavior and scope unchanged since the head he tapped. Any other head returns to his board saying what changed.
+- [Tap carry](#tap-carry-and-blanket-approval) decides whether his tap stays with a later head. A head it does not cover returns to his board saying what changed.
 - The row in `lr board rows --json` is the only list of drive PRs; no lane keeps its own. A PR waits on him only when its row says `ready_for_tap`, and a line saying otherwise is refused. `lr board waits --pr <n>` reads what a PR waits on. A PR's state changes by posting its record, never by asking for a hand entry.
 - Anything else waiting on him is what `cci owner-waits` prints, never a runner note.
 - Every `gh` write posts under his GitHub login, so an approval or a tap verdict a drive posts must cite `board verdict #<seq>`, the `owner` record of his verdict on that PR's row at its current head, or the `owner_login_verdicts` hook refuses it.
@@ -347,7 +347,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 - The landing pass, `lr landing gate` and `lr landing go` read the same row: a PR lands only when its row is ready and it is tapped, or it is exempt under its rule. `lr landing go` still needs a row at that head.
 - A row not ready on a PR that passes every other gate opens a `row-wait` item for its lane, and `lr board rows` says what it waits on. Three or more still open after an hour tell root in one record.
 - A tapped PR with no row lands nothing and tells `meta-desk` once.
-- A tap written before its row lost readiness carries to a new head and lands when the row is ready at that head.
+- A tap that carries lands when the row is ready at the new head.
 
 ### Untapped queue entries
 
@@ -435,8 +435,26 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 
 ### Tap carry and blanket approval
 
-- When an open PR has an approval on a `pr-groups` row at an older head, no verdict at the current head, and no newer rejection, the runner carries the tap to the current head on every pass, using `cc-present verdict carry` or a `board-write` carry record. On failure it logs `TAP-CARRY-FAILED` or a recorder `defect` record.
-- The pass then posts one `TAP-CARRIED` note naming both heads to the coordinator and `landing.board_lane`, and posts its own `go` record for that head.
+- A tap at an older head stays with the PR while nothing meaningful changes. The lane that pushes says what its push did on its `head` record, `--attr delta=<class>`, and the `head_records_name_their_delta` hook warns, never blocks, when the class is missing:
+
+| Class | The push | His tap |
+|---|---|---|
+| `rebase` | moved the PR onto a new base and changed nothing else | carries |
+| `review-fix` | answered a review finding with no change in behavior or scope | carries |
+| `ordered-fix` | made a fix he ordered | carries |
+| `behavior` | changed what the PR does | returns to him |
+| `scope` | changed what the PR covers | returns to him |
+
+- Each pass reads the heads from his tap to the current one, joined by the `<was>..<sha>` a head record names or else the head the row held before it. The first of these that holds decides:
+  1. The PR's own diff is the same as at the tapped head. It carries, whatever a class says, since he approved exactly this diff.
+  2. A head since his tap says `behavior` or `scope`. It returns.
+  3. Fidelity judged a change since the tapped head. It returns, whatever class the lane gave.
+  4. Every head back to his tap says `rebase`, `review-fix` or `ordered-fix`. It carries, naming the classes.
+  5. Fidelity judged behavior and scope unchanged since the tapped head. It carries.
+  6. Otherwise it returns until fidelity judges it, which it does for every untapped head with a tap behind it.
+- A carried head still needs every other gate at that head.
+- The row says which, for every host, through the `pr.read` record. A carried row reads as tapped, and `waits_on` adds "your tap at <head> carried to this head" with the reason. A returned row waits on him, and `waits_on` adds "your tap at <head> does not carry" with what changed.
+- A carry also posts one note on topic `board-write`, `TAP-CARRIED #<n> from <head> to <head> by <class>: <reason>`, whose `op=carry` attributes `board_watch.py` applies with `cc-present verdict carry`. A failed apply is a `defect` record.
 - An owner word that approves the whole board, such as "every pending PR is approved", reaches a landing path only as verdict records. The coordinator records it with `board_watch.py blanket --session <board> --word <seq> --at <time of his word> --program <drive>`, which approves each row of `lr board rows` that is ready for his tap and untapped, whose head was pushed by that time, at that head. A head pushed after the word waits on his tap at its own row. Check each row's up-time before citing an approve-all for a later PR: it covers only the rows that were up when he gave it.
 - The runner, `mq.py gate`, `mq.py enqueue`, and a desk's own tap watch read those records, never the order that quotes the word.
 

@@ -47,7 +47,26 @@ func TestTheOwnersNov2TapOn46107CarriesToItsSameDiffRestackOnTheSessionHeTappedI
 	if writes[0].Topic != "board-write" || attrs["op"] != "carry" || attrs["session"] != tap.Fields.Attrs["session"] || attrs["block"] != "merge-prs" || attrs["row"] != "46107" || attrs["head"] != restack || attrs["from"] != tappedAt || attrs["proof"] != "same-diff" {
 		t.Fatalf("write = topic %q attrs %v", writes[0].Topic, attrs)
 	}
-	if attrs["note"] != "tap carried: the PR's own diff is the same as at the head he tapped" {
+	if attrs["note"] != "tap carried: the PR's own diff is the same as at the tapped head" {
 		t.Fatalf("note = %q", attrs["note"])
+	}
+}
+
+func TestTapCarriedNamesTheClassEveryHeadSinceHisTapSaid(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	carried := machine.Facts{Repo: monorepo, Number: 46107, Head: restack, Tap: machine.TapTapped, TapFrom: tappedAt, CarriedBy: "rebase,review-fix"}
+
+	if err := landing.CarryTaps(ctx, "d", []machine.Facts{carried}); err != nil {
+		t.Fatal(err)
+	}
+
+	writes, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"note"}, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "TAP-CARRIED #46107 from a28ab62 to ff335d010b by rebase,review-fix: every change since the tapped head is a rebase or a review fix"
+	if len(writes) != 1 || writes[0].Text != want || writes[0].Fields.Attrs["proof"] != "rebase,review-fix" {
+		t.Fatalf("writes = %+v, want one reading %q", writes, want)
 	}
 }
