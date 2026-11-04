@@ -564,7 +564,10 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 	if err := w.receipt(beforeWorker, w.pins.installScript(slices.Compact(needs))); err != nil {
 		return nil, err
 	}
-	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker)}
+	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker), "--env", laneEnv + "=" + w.lane}
+	if drive := driveName(w.Env, w.run); drive != "" {
+		argv = append(argv, "--env", driveEnv+"="+drive)
+	}
 	if w.ref != "" {
 		argv = append(argv, "--ref", w.ref)
 	}
