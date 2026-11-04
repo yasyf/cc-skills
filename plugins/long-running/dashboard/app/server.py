@@ -1044,7 +1044,7 @@ class Drive:
         if verdict != "cleared" and shown[:7] != head[:7]:
             return 409, {"error": f"#{number} is now at {shown[:7]}, not the {head[:7]} this page shows, so this tap changed nothing; reload the page to see what changed"}
         said = f"Owner on the dashboard: {number} {verdict} at {head[:7]}" + (f": {note}" if note else "")
-        run(["cci", "post", "--drive", self.config["drive"], "--lane", "board-watch", "--kind", "owner", "--to", "root", "--pr", str(number), "--topic", block, "--attr", "event=triage.decided", "--attr", f"block={block}", "--attr", f"row={number}", "--attr", f"verdict={verdict}", "--attr", f"head={head}", "--text", said])
+        run(["cci", "post", "--drive", self.config["drive"], "--lane", "board-watch", "--kind", "owner", "--to", "root", "--id", f"dashboard-tap:{number}:{uuid.uuid4().hex}", "--pr", str(number), "--topic", block, "--attr", "event=triage.decided", "--attr", f"block={block}", "--attr", f"row={number}", "--attr", f"verdict={verdict}", "--attr", f"head={head}", "--text", said])
         self.tapped[str(number)] = {"verdict": verdict, "head": head, "at": dt.datetime.now(dt.timezone.utc).isoformat(), **({"note": note} if note else {})}
         self.touch()
         return 200, {"seq": self.store_seq()}
