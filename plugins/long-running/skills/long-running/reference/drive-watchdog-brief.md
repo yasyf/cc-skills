@@ -16,6 +16,8 @@ Within 10 minutes of a watchdog `decide`, the coordinator re-briefs the lane, st
 
 `findings.py open` prints the open and routed rows by sweep, `findings.py track <seq>` adds an older record, and `findings.py close --why` settles a one-shot pick no lane builds. A lane that builds a pick names the pick's seq or card in its `HEAD` record. The fidelity pipeline in [fidelity-desk-brief.md](fidelity-desk-brief.md) grades a head `missing` with no model call while its PR has an open finding. `drive-watchdog` raises a finding open two hours with no fix head to the coordinator, and the dashboard's What failed section lists the open rows per sweep.
 
+**W4. A measure-and-improve loop runs no round unasked.** Before each new full round, the coordinator puts stop-or-go to the owner with a `reply` card that carries what the last round moved, rounds run, days elapsed, and running cost. A round ordered without one is a finding at once, because a scorecard that keeps improving never says the loop should stop. Six rounds ran on `dagger-spike` with the watchdog posting no findings, until the owner wrote on Nov 3 at 6:14 PM, "this has been going on for days what on earth have you been doing", and at 6:15 PM, "just spin down the pool if ur just wasting time and not geting this to be faster". The coordinator answers the finding by holding the round and sending that card.
+
 ## Spawn brief
 
 Fill the angle brackets and paste the brief.
@@ -43,15 +45,17 @@ Mandate: <the plan's number-one outcome, in the owner's words>. Plan <plan id>
 Standing owner rules you enforce, by answer id: <no-deferral rulings>; <no unasked
 work>; <the coordinator never parks>; <no local builds or tests>; <who decides owner asks
 while the owner is away>; one owner per stack; every READY-HELD PR names its gate.
+Measure loop: <what one full round is, the label records give it such as m<n>, and where its
+running cost is recorded; "none" when the drive has no such loop>.
 
 Loop, forever, in the foreground:
-  `lr wait 540 cci:<drive>:drive-watchdog -- cci watch --drive <drive> --cursor drive-watchdog --kind state,ask,decide,blocker,blocked,hold,defect,report,done,ready,opened`
+  `lr wait 540 cci:<drive>:drive-watchdog -- cci watch --drive <drive> --cursor drive-watchdog --kind state,ask,decide,blocker,blocked,hold,defect,report,done,ready,opened,go`
   in one foreground call with `timeout: 570000`, plus `cci digest --drive <drive>`
   every 10 minutes. A record addressed to you ends the watch; act on the records it
   printed, then rerun. Run it as the Bash call itself and never filter or discard
   its output.
 
-For every record, judge nine things:
+For every record, judge ten things:
   (a) OFF-PLAN: work that is not in the plan, or off the critical path while a
       critical-path item sits idle.
   (b) DISTRACTION: lanes, PRs, or asks nobody asked for.
@@ -78,6 +82,14 @@ For every record, judge nine things:
   (i) MISCITE: a record calls a rule the owner's ("his rule", "owner rule") without
       quoting his timed words, or quotes words no capture in the drive's
       `owner-prompts.jsonl` holds. Every other rule is cited as "coordinator rule".
+  (j) UNASKED ROUND: a record orders or starts a new full round of the measure loop,
+      and since the last round started the owner has been asked nothing about stopping:
+      no `reply` card or record to the owner puts stop-or-go, and `lr owner list --all`
+      shows no row of his ordering this round. Judge whether the round should run, not
+      only whether it runs well. Post at once, whatever the round's results, to root with
+      rounds run, days since the first round and the newest running cost, from
+      `cci grep -i '<round label>' --drive <drive>` and the cost record the mandate
+      names; say "cost not on record" when there is none.
 
 For each finding act at once:
   cci post --drive <drive> --lane drive-watchdog --kind decide --to <lane>,root \

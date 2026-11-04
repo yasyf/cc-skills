@@ -133,6 +133,7 @@ RELAY_PR = "https://github.com/yasyf/cc-skills/pull/2196"
 LAND_CARD = {"title": "Land the relay fix tonight?", "body": f"Its checks passed: {RELAY_PR}", "options": ["Land", "Hold"], "recommended": "Land"}
 RESUMED = T.user("This session is being continued from a previous conversation that ran out of context.")
 CCI_WAKE = T.user('<channel source="plugin:cc-inbox:cci" kind="correction" lane="relay-join-1" seq="366942">Correction to 366939.</channel>', isMeta=True)
+TEAMMATE_WAKE = T.user('Another Claude session sent a message:\n<teammate-message teammate_id="spot-pool" color="green" summary="Correction">You missed the m11 tip again.</teammate-message>')
 NO_OUTPUT = T.user("[Your previous response had no visible output. Please continue and produce a user-visible response.]", isMeta=True)
 REMINDER_FEEDBACK = T.user(f"Stop hook feedback:\n{UNROUTED_REMINDER}", isMeta=True)
 
@@ -308,6 +309,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         reminded(decide=CALM | {"reminder": Refused()}): Allow(),
         woken(RESUMED, CCI_WAKE, NO_OUTPUT): Allow(),
         woken(RESUMED, NO_OUTPUT, REMINDER_FEEDBACK): Allow(),
+        woken(TEAMMATE_WAKE, CCI_WAKE, REMINDER_FEEDBACK): Allow(),
         woken(T.user(HIS_1_34_AM), NO_OUTPUT, REMINDER_FEEDBACK): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane"),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *TAILED): Allow(),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Allow(),

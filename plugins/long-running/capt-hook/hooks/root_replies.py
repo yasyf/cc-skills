@@ -31,6 +31,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import LR, bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, judged, script
 from .nudges import NagClock, once_per_hour
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents
+from .root_context import HARNESS_PREFIXES
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -48,7 +49,6 @@ NEAREST_SHOWN = 2
 OWNER_LABEL = re.compile(r"\bowner(?:'s)?,?\s+(?:at\s+)?(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?m\b\.?", re.IGNORECASE)
 QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
 WORD = re.compile(r"[\w']+")
-SYSTEM_PREFIXES = ("<", "[Request interrupted", "This session is being continued")
 MISLABELED = (
     "Warning, nothing was blocked: an `OWNER h:mm` label below is off from the owner message it quotes, or, quoting none, more than 15 minutes"
     " from every owner message. The nearest owner message times are beside each; name his ledger row instead of typing a time."
@@ -150,7 +150,7 @@ def owner_text(event: object) -> str:
 
 def owner_message(event: object) -> str:
     text = owner_text(event)
-    return text if text and not event.meta.is_meta and not text.lstrip().startswith(SYSTEM_PREFIXES) else ""
+    return text if text and not event.meta.is_meta and not text.lstrip().startswith(HARNESS_PREFIXES) else ""
 
 
 def owner_turns(evt: BaseHookEvent) -> list[tuple[datetime, list[str]]]:
