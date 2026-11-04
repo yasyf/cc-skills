@@ -460,17 +460,17 @@ def owner_reply_gets_a_fast_ack(evt: BaseHookEvent) -> HookResult | None:
     return evt.warn(UNACKED.format(permalink=waited[0]["permalink"])) if waited else None
 
 
-def dm_owed(evt: BaseHookEvent) -> dict:
-    def read_owed() -> dict:
+def dm_owed(evt: BaseHookEvent) -> dict | None:
+    def read_owed() -> dict | None:
         out = cc_slack(evt, "dm-owed")
-        return json.loads(out) if out else {"replies": [], "holder_session": ""}
+        return None if out is None else json.loads(out) if out else {"replies": [], "holder_session": ""}
 
     return reqenv.shared("long_running.dm_owed", read_owed)
 
 
 def unanswered_reply(evt: BaseHookEvent) -> str | None:
     owed = dm_owed(evt)
-    if owed["holder_session"] != evt.session_id or not owed["replies"]:
+    if owed is None or owed["holder_session"] != evt.session_id or not owed["replies"]:
         return None
     return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in owed["replies"]))
 
@@ -495,7 +495,8 @@ def answers_go_in_his_thread(evt: BaseHookEvent) -> HookResult | None:
 
 class ReadsAnsweredThread:
     def check(self, evt: BaseHookEvent) -> bool:
-        owed = dm_owed(evt)
+        if (owed := dm_owed(evt)) is None:
+            return True
         held = owed["replies"] if owed["holder_session"] == evt.session_id else []
         threads = {ts for reply in held for ts in (reply["thread_ts"], reply["ts"])} | {ts for dm in slack_dms(evt, evt.ctx.turn.events) for ts in (dm["thread"], dm["ts"])}
         named = json.dumps(evt.input.raw)
@@ -519,7 +520,7 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
         reading([T.user("where are we")], json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"}), channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"]): Block(),
         reading(delivered(), NONE_OWED, "mcp__slack__slack_get_thread", channel="C1", ts="1793600000.000001", limit=20): Block(),
         reading([T.user("where are we")], NONE_OWED, "Bash", command="cc-slack thread --url C0B/p1793600000000001 --limit 1000"): Block(),
-        reading([T.user("where are we")], (1, "cc-slack can't reach the daemon"), channel_id="D0B6Z", thread_ts="1793600000.000001"): Block(),
+        reading([T.user("where are we")], (1, "cc-slack can't reach the daemon"), channel_id="D0B6Z", thread_ts="1793600000.000001"): Allow(),
         reading([T.user("where are we")], NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=1): Allow(),
         reading([T.user("where are we")], NONE_OWED, "Bash", command="cc-slack thread --url D0B6Z/p1 --limit 1"): Allow(),
     }),
@@ -633,7 +634,7 @@ def owner_words(evt: BaseHookEvent) -> str:
     events = list(evt.ctx.turn.events)
     typed = [text for event in events if (text := owner_message(event))]
     dms = slack_dms(evt, events)
-    held = bool(dms) and dm_owed(evt)["holder_session"] == evt.session_id
+    held = bool(dms) and (owed := dm_owed(evt)) is not None and owed["holder_session"] == evt.session_id
     return "\n\n".join([*typed, *(dm["text"] for dm in dms if held)])
 
 
