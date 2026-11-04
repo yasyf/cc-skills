@@ -53,6 +53,8 @@ type queue struct {
 	enqueued  []landing.Head
 	dequeued  []int
 	reentered []int
+	failure   string
+	refused   bool
 }
 
 func (q *queue) Enqueue(_ context.Context, number int, head string) (string, error) {
@@ -62,8 +64,13 @@ func (q *queue) Enqueue(_ context.Context, number int, head string) (string, err
 
 func (q *queue) Reenter(_ context.Context, number int) (string, error) {
 	q.reentered = append(q.reentered, number)
+	if q.refused {
+		return fmt.Sprintf("exit 5: #%d GitHub still computing mergeability", number), nil
+	}
 	return fmt.Sprintf("exit 0: #%d QUEUED", number), nil
 }
+
+func (q *queue) LastFailure(context.Context, int) string { return q.failure }
 
 func (q *queue) Dequeue(_ context.Context, number int) (string, error) {
 	q.dequeued = append(q.dequeued, number)
@@ -178,6 +185,50 @@ func TestAnEvictedGreenHeadIsResubmittedAndCounted(t *testing.T) {
 	}
 	if got := fact(t, s, 45711, landing.ResubmittedFact); got != "1" {
 		t.Fatalf("resubmitted = %q", got)
+	}
+}
+
+func TestAFailureThatIsNotThePRsOwnReentersWithoutSpendingItsRetry(t *testing.T) {
+	for _, failure := range []string{"GITHUB_API_MERGE_PR_FAILED", "START_TEST_RUN_RETRY_EXHAUSTED", "TEST_RUN_FAILED_BY_OPTIMIZATION"} {
+		s, q := newStore(t), &queue{failure: failure}
+
+		act(t, s, q, &restacker{}, t0, facts(45711, evicted))
+
+		if !slices.Equal(q.reentered, []int{45711}) || fact(t, s, 45711, landing.ResubmittedFact) != "" || fact(t, s, 45711, landing.FreeRetriesFact) != "1" {
+			t.Fatalf("%s: reentered = %v, resubmitted = %q", failure, q.reentered, fact(t, s, 45711, landing.ResubmittedFact))
+		}
+	}
+}
+
+func TestItsOwnTestFailureSpendsItsRetry(t *testing.T) {
+	s, q := newStore(t), &queue{failure: "TEST_RUN_REQUIRED_STATUS_FAILED"}
+
+	act(t, s, q, &restacker{}, t0, facts(45711, evicted))
+
+	if fact(t, s, 45711, landing.ResubmittedFact) != "1" || fact(t, s, 45711, landing.FreeRetriesFact) != "" {
+		t.Fatalf("resubmitted = %q", fact(t, s, 45711, landing.ResubmittedFact))
+	}
+}
+
+func TestARefusedReentryDoesNotSpendItsRetry(t *testing.T) {
+	s, q := newStore(t), &queue{refused: true}
+
+	act(t, s, q, &restacker{}, t0, facts(45711, evicted))
+
+	if fact(t, s, 45711, landing.ResubmittedFact) != "" || fact(t, s, 45711, landing.FreeRetriesFact) != "1" {
+		t.Fatalf("resubmitted = %q", fact(t, s, 45711, landing.ResubmittedFact))
+	}
+}
+
+func TestAFourthFailureThatIsNotItsOwnSpendsTheRetrySoItCannotLoop(t *testing.T) {
+	s, q := newStore(t), &queue{failure: "GITHUB_API_MERGE_PR_FAILED"}
+
+	for range 4 {
+		act(t, s, q, &restacker{}, t0, facts(45711, evicted))
+	}
+
+	if fact(t, s, 45711, landing.ResubmittedFact) != "1" || fact(t, s, 45711, landing.FreeRetriesFact) != "3" {
+		t.Fatalf("resubmitted = %q, free = %q", fact(t, s, 45711, landing.ResubmittedFact), fact(t, s, 45711, landing.FreeRetriesFact))
 	}
 }
 

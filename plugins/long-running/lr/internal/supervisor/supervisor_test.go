@@ -54,6 +54,8 @@ func (q *queue) Reenter(ctx context.Context, number int) (string, error) {
 
 func (q *queue) Dequeue(context.Context, int) (string, error) { return "", nil }
 
+func (q *queue) LastFailure(context.Context, int) string { return "" }
+
 type restacker struct{}
 
 func (restacker) Restack(context.Context, int, string, string) (string, error) { return "", nil }
