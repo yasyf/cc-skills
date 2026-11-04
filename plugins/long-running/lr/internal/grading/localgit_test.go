@@ -1,11 +1,13 @@
 package grading
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func git(t *testing.T, checkout string, args ...string) string {
@@ -103,7 +105,7 @@ func TestAClonesAttributesComeFromItsHeadNotItsWorktree(t *testing.T) {
 	wantAttributes("on a clone an earlier pass moved")
 }
 
-func TestAMoveOffHomeLeavesEveryPathWorkingBehindALinkOnTheLocalDisk(t *testing.T) {
+func TestAMoveOffHomeLeavesHomeWholeAndKeepsItsToolCopiesCurrent(t *testing.T) {
 	base := t.TempDir()
 	checkout, root, home := filepath.Join(base, "checkout"), filepath.Join(base, "root"), filepath.Join(base, "home")
 	if err := os.MkdirAll(checkout, 0o750); err != nil {
@@ -118,30 +120,30 @@ func TestAMoveOffHomeLeavesEveryPathWorkingBehindALinkOnTheLocalDisk(t *testing.
 	if err := onLocalDisk(checkout, root); err != nil {
 		t.Fatal(err)
 	}
-	bin, codex := filepath.Join(home, ".local", "bin"), filepath.Join(home, ".codex")
-	for path, body := range map[string]string{
-		filepath.Join(bin, "ccx"):                         "ccx",
-		filepath.Join(codex, "config.toml"):               "config",
-		filepath.Join(codex, "sessions", "2026", "a.log"): "session",
-		filepath.Join(codex, "state_1.sqlite"):            "live",
-	} {
+	bin, codex := filepath.Join(home, localBinDir), filepath.Join(home, codexDir)
+	write := func(path, body string) {
+		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte(body), 0o700); err != nil { //nolint:gosec
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
+	write(filepath.Join(bin, "ccx"), "ccx 1")
+	write(filepath.Join(home, ".local", "lib", "tool.js"), "tool")
+	write(filepath.Join(home, ".cache", "cc-context", "ledger.json"), "{}")
+	write(filepath.Join(codex, "config.toml"), "config")
+	write(filepath.Join(codex, "sessions", "2026", "a.log"), "session")
+	write(filepath.Join(codex, "state_1.sqlite"), "live")
+	write(filepath.Join(home, codexReleases, "releases", "1", "bin", "codex"), "codex")
 	if err := os.Symlink("../lib/tool.js", filepath.Join(bin, "tool")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, ".local", "lib"), 0o750); err != nil {
+	if err := os.Symlink("releases/1", filepath.Join(home, codexReleases, "current")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".local", "lib", "tool.js"), []byte("tool"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if movedOffHome(checkout, home) {
+	if movedOffHome(checkout, home, root) {
 		t.Fatal("an unmoved Sprite reads as moved")
 	}
 
@@ -149,42 +151,104 @@ func TestAMoveOffHomeLeavesEveryPathWorkingBehindALinkOnTheLocalDisk(t *testing.
 		t.Fatal(err)
 	}
 
-	if !movedOffHome(checkout, home) {
+	if !movedOffHome(checkout, home, root) {
 		t.Fatal("a moved Sprite still reads as unmoved, so every pass would start another move")
 	}
-	for _, path := range []string{checkout, bin, codex} {
-		moved, err := os.Readlink(path)
-		if err != nil || !strings.HasPrefix(moved, root) {
-			t.Fatalf("%s links to %q: %v", path, moved, err)
-		}
-		if _, err := os.Stat(path + homeCopySuffix); err != nil {
-			t.Fatalf("the home copy of %s is gone: %v", path, err)
-		}
+	if moved, err := os.Readlink(checkout); err != nil || !strings.HasPrefix(moved, root) {
+		t.Fatalf("the checkout links to %q: %v", moved, err)
 	}
 	if got := git(t, checkout, "status", "--porcelain"); got != "" {
 		t.Fatalf("the moved worktree reads as dirty: %s", got)
 	}
+	for _, path := range []string{bin, codex} {
+		if info, err := os.Lstat(path); err != nil || !info.IsDir() {
+			t.Fatalf("%s on home is no longer a directory: %v, %v", path, info, err)
+		}
+	}
+	if info, err := os.Lstat(filepath.Join(home, ".cache", "cc-context")); err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("ccx's state stayed on home: %v, %v", info, err)
+	}
+	copies := filepath.Join(root, homeDirsRoot)
 	for path, want := range map[string]string{
-		filepath.Join(checkout, "tracked.txt"):            "committed\n",
-		filepath.Join(bin, "ccx"):                         "ccx",
-		filepath.Join(bin, "tool"):                        "tool",
-		filepath.Join(codex, "config.toml"):               "config",
-		filepath.Join(codex, "sessions", "2026", "a.log"): "session",
+		filepath.Join(checkout, "tracked.txt"):                     "committed\n",
+		filepath.Join(copies, localBinDir, "ccx"):                  "ccx 1",
+		filepath.Join(copies, localBinDir, "tool"):                 "tool",
+		filepath.Join(copies, codexDir, "config.toml"):             "config",
+		filepath.Join(copies, codexDir, "sessions/2026/a.log"):     "session",
+		filepath.Join(copies, codexBinDir, "codex"):                "codex",
+		filepath.Join(home, ".cache", "cc-context", "ledger.json"): "{}",
 	} {
 		if got, err := os.ReadFile(path); err != nil || string(got) != want {
 			t.Fatalf("%s reads %q: %v", path, got, err)
 		}
 	}
-	session, err := os.Readlink(filepath.Join(codex, "sessions"))
-	if err != nil || strings.HasPrefix(session, root) {
+	if resolved, err := filepath.EvalSymlinks(filepath.Join(copies, codexBinDir)); err != nil || !strings.HasPrefix(resolved, root) {
+		t.Fatalf("the codex copy resolves to %q, off the local disk: %v", resolved, err)
+	}
+	if session, err := os.Readlink(filepath.Join(copies, codexDir, sessionsDir)); err != nil || strings.HasPrefix(session, root) {
 		t.Fatalf("codex sessions moved to the local disk: %q, %v", session, err)
 	}
-	if _, err := os.Lstat(filepath.Join(codex, "state_1.sqlite")); err == nil {
+	if _, err := os.Lstat(filepath.Join(copies, codexDir, "state_1.sqlite")); err == nil {
 		t.Fatal("a live codex database was copied")
 	}
 
+	later := time.Now().Add(time.Hour)
+	write(filepath.Join(bin, "ccx"), "ccx 2")
+	if err := os.Chtimes(filepath.Join(bin, "ccx"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(bin, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if movedOffHome(checkout, home, root) {
+		t.Fatal("an upgraded tool reads as current, so passes would run the old copy")
+	}
 	if err := moveOffHome(checkout, home, root); err != nil {
-		t.Fatalf("a second move: %v", err)
+		t.Fatalf("a refresh: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(copies, localBinDir, "ccx")); err != nil || string(got) != "ccx 2" {
+		t.Fatalf("the refreshed tool reads %q: %v", got, err)
+	}
+}
+
+func TestCodexMovesToItsLocalCopyOnlyOnceTheCopyIsWhole(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("TMPDIR", "/original")
+	t.Setenv("PATH", os.Getenv("PATH"))
+	t.Setenv(toolsPathEnv, "")
+	if err := useLocalTools(t.TempDir(), root); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("CODEX_HOME") != "" || os.Getenv("TMPDIR") != "/original" {
+		t.Fatalf("no copy, but CODEX_HOME=%q TMPDIR=%q", os.Getenv("CODEX_HOME"), os.Getenv("TMPDIR"))
+	}
+	codex := filepath.Join(root, homeDirsRoot, codexDir)
+	if err := os.MkdirAll(codex, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codex, "config.toml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := useLocalTools(t.TempDir(), root); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("CODEX_HOME") != codex {
+		t.Fatalf("CODEX_HOME=%q", os.Getenv("CODEX_HOME"))
+	}
+	if temp := os.Getenv("TMPDIR"); strings.HasPrefix(codex, temp+string(os.PathSeparator)) || !exists(temp) {
+		t.Fatalf("TMPDIR=%q holds codex's home or does not exist, so codex refuses its helpers", temp)
+	}
+}
+
+func TestLocalToolsComeRightBeforeHomesBinSoTheTokenWrappersStayFirst(t *testing.T) {
+	got := localToolsPath("/plugin/sprite-fresh-token:/home/s/.local/bin:/usr/bin", "/home/s", "/tmp/lr-git")
+	want := "/plugin/sprite-fresh-token:/tmp/lr-git/home/.codex/packages/standalone/current/bin:/tmp/lr-git/home/.local/bin:/home/s/.local/bin:/usr/bin"
+	if got != want {
+		t.Fatalf("PATH = %s", got)
+	}
+	if got := localToolsPath("/usr/bin", "/home/s", "/tmp/lr-git"); got != "/usr/bin" {
+		t.Fatalf("a PATH without home's bin became %s", got)
 	}
 }
 

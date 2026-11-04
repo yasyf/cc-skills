@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
@@ -32,11 +33,18 @@ const (
 	moveLog         = "move.log"
 	sessionsDir     = "sessions"
 	sqliteMark      = ".sqlite"
+	localBinDir     = ".local/bin"
+	codexDir        = ".codex"
+	codexReleases   = ".codex/packages/standalone"
+	codexBinDir     = ".codex/packages/standalone/current/bin"
+	toolsPathEnv    = "SPRITE_TOOLS_PATH"
+	localTempDir    = "tmp"
 )
 
 var (
 	uncopiedGitDirs = []string{objectsDir, "cc-notes", "logs"}
-	movedHomeDirs   = []string{".cache/cc-context", ".config/ccx", ".local/share/gh", ".local/bin", ".codex"}
+	linkedHomeDirs  = []string{".cache/cc-context", ".config/ccx", ".local/share/gh"}
+	copiedToolDirs  = []string{localBinDir, codexDir, codexReleases}
 )
 
 func onLocalDisk(checkout, root string) error {
@@ -130,7 +138,10 @@ func startMoveOffHome(checkout, root string) error {
 	if err != nil {
 		return err
 	}
-	if movedOffHome(checkout, home) {
+	if err := useLocalTools(home, root); err != nil {
+		return err
+	}
+	if movedOffHome(checkout, home, root) {
 		return nil
 	}
 	self, err := os.Executable()
@@ -154,13 +165,17 @@ func startMoveOffHome(checkout, root string) error {
 	return cmd.Process.Release()
 }
 
-func movedOffHome(checkout, home string) bool {
+func movedOffHome(checkout, home, root string) bool {
 	if info, err := os.Lstat(checkout); err != nil || info.Mode()&fs.ModeSymlink == 0 {
 		return false
 	}
-	return !slices.ContainsFunc(movedHomeDirs, func(dir string) bool {
-		info, err := os.Lstat(filepath.Join(home, dir))
-		return err == nil && info.IsDir()
+	return !slices.ContainsFunc(copiedToolDirs, func(dir string) bool {
+		tool, err := os.Stat(filepath.Join(home, dir))
+		if err != nil {
+			return false
+		}
+		copied, err := os.Stat(filepath.Join(root, homeDirsRoot, dir))
+		return err != nil || tool.ModTime().After(copied.ModTime())
 	})
 }
 
@@ -182,8 +197,13 @@ func moveOffHome(checkout, home, root string) error {
 	if err := moveWorktree(checkout, root); err != nil {
 		return err
 	}
-	for _, dir := range movedHomeDirs {
+	for _, dir := range linkedHomeDirs {
 		if err := moveHomeDir(filepath.Join(home, dir), filepath.Join(root, homeDirsRoot, dir)); err != nil {
+			return err
+		}
+	}
+	for _, dir := range copiedToolDirs {
+		if err := refreshToolCopy(filepath.Join(home, dir), filepath.Join(root, homeDirsRoot, dir)); err != nil {
 			return err
 		}
 	}
@@ -241,6 +261,20 @@ func moveHomeDir(path, target string) error {
 			return err
 		}
 	}
+	if err := copyTree(path, staged); err != nil {
+		return err
+	}
+	err = swapForLink(path, staged, target)
+	if errors.Is(err, syscall.EXDEV) {
+		return os.RemoveAll(target)
+	}
+	return err
+}
+
+func refreshToolCopy(path, target string) error {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return err
@@ -251,17 +285,65 @@ func moveHomeDir(path, target string) error {
 			stays = append(stays, entry.Name())
 		}
 	}
-	for range 2 {
-		if err := copyTree(path, staged, stays...); err != nil {
-			return err
-		}
+	into := target
+	if !exists(target) {
+		into = target + stagedSuffix
+	}
+	if err := copyTree(path, into, stays...); err != nil {
+		return err
 	}
 	if slices.Contains(stays, sessionsDir) {
-		if err := os.Symlink(filepath.Join(path+homeCopySuffix, sessionsDir), filepath.Join(staged, sessionsDir)); err != nil {
+		link := filepath.Join(into, sessionsDir)
+		if _, err := os.Lstat(link); err != nil {
+			if err := os.Symlink(filepath.Join(path, sessionsDir), link); err != nil {
+				return err
+			}
+		}
+	}
+	if into != target {
+		if err := os.Rename(into, target); err != nil {
 			return err
 		}
 	}
-	return swapForLink(path, staged, target)
+	now := time.Now()
+	return os.Chtimes(target, now, now)
+}
+
+func useLocalTools(home, root string) error {
+	copies := filepath.Join(root, homeDirsRoot)
+	codex := filepath.Join(copies, codexDir)
+	if exists(filepath.Join(codex, "config.toml")) {
+		// Codex refuses to write its helper binaries under the temp dir, and its home is under /tmp.
+		temp := filepath.Join(root, localTempDir)
+		if err := os.MkdirAll(temp, 0o750); err != nil {
+			return err
+		}
+		if err := os.Setenv("TMPDIR", temp); err != nil {
+			return err
+		}
+		if err := os.Setenv("CODEX_HOME", codex); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"PATH", toolsPathEnv} {
+		if err := os.Setenv(name, localToolsPath(os.Getenv(name), home, root)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func localToolsPath(path, home, root string) string {
+	copies := filepath.Join(root, homeDirsRoot)
+	bin := filepath.Join(home, localBinDir)
+	entries := filepath.SplitList(path)
+	for index, entry := range entries {
+		if entry == bin {
+			local := []string{filepath.Join(copies, codexBinDir), filepath.Join(copies, localBinDir)}
+			return strings.Join(slices.Insert(entries, index, local...), string(os.PathListSeparator))
+		}
+	}
+	return path
 }
 
 func swapForLink(path, staged, target string) error {
@@ -293,7 +375,7 @@ func copyTree(from, to string, skip ...string) error {
 		source, target := filepath.Join(from, name), filepath.Join(to, name)
 		if entry.IsDir() {
 			err = copyTree(source, target)
-		} else if _, statErr := os.Lstat(target); statErr != nil {
+		} else if outOfDate(entry, target) {
 			err = copyGitFile(source, target, entry)
 		}
 		if err != nil {
@@ -301,6 +383,15 @@ func copyTree(from, to string, skip ...string) error {
 		}
 	}
 	return nil
+}
+
+func outOfDate(entry fs.DirEntry, target string) bool {
+	copied, err := os.Lstat(target)
+	if err != nil {
+		return true
+	}
+	info, err := entry.Info()
+	return err == nil && info.ModTime().After(copied.ModTime())
 }
 
 func transientGitFile(name string) bool {
@@ -323,8 +414,11 @@ func copyGitFile(from, to string, entry fs.DirEntry) error {
 		if err != nil {
 			return err
 		}
-		if !filepath.IsAbs(link) {
+		if strings.HasPrefix(link, "../") {
 			link = filepath.Join(filepath.Dir(from), link)
+		}
+		if err := os.Remove(to); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
 		}
 		return os.Symlink(link, to)
 	}
