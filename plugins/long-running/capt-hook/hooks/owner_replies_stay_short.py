@@ -43,7 +43,7 @@ WORDY = "The typing box lost drafts. A render reset the input. The fix keeps the
 WHY = "The typing box lost your draft because each render reset its input."
 PAGE = "Fixed and live. The details: https://mac.tail1.ts.net:8665/one-pagers/typing-box/"
 UPDATE_MD = "# Owner update: brook, 10:40 PM\n\n## Workstreams\n\n| Workstream | State |\n| --- | --- |\n| Dashboard | typing box fix live |\n\nThree PRs merged. Two lanes are live. One waits on you."
-QUIET = frozenset({"progress", "info"})
+QUIET = frozenset({"progress"})
 
 
 def replied(md: str, picks: tuple[str, ...] = (), ledger: dict | None = None, **given: object) -> Input:

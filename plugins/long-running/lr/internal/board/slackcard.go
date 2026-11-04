@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -22,24 +22,29 @@ import (
 )
 
 const (
-	slackCardBody = 2800
-	mergeLabel    = "Merge"
-	holdLabel     = "Hold"
+	approveLabel = "Approve"
+	mergeLabel   = "Merge"
+	holdLabel    = "Hold"
 )
 
-type SlackRef struct {
-	URL   string `json:"url"`
-	Label string `json:"label"`
+type SlackCard struct {
+	Status      string       `json:"status"`
+	Title       string       `json:"title"`
+	PRs         []SlackPRRow `json:"prs"`
+	Options     []string     `json:"options"`
+	Recommended string       `json:"recommended"`
+	Waits       string       `json:"waits"`
 }
 
-type SlackCard struct {
-	Status      string     `json:"status"`
-	Title       string     `json:"title"`
-	Body        string     `json:"body"`
-	Refs        []SlackRef `json:"refs"`
-	Options     []string   `json:"options"`
-	Recommended string     `json:"recommended"`
-	Waits       string     `json:"waits"`
+type SlackPRRow struct {
+	URL    string `json:"url"`
+	Title  string `json:"title,omitempty"`
+	Head   string `json:"head,omitempty"`
+	Review string `json:"review,omitempty"`
+	Change string `json:"change"`
+	Plan   string `json:"plan"`
+	Risk   string `json:"risk"`
+	Blocks string `json:"blocks"`
 }
 
 type SlackPR struct {
@@ -68,17 +73,39 @@ func Card(repo string, rows []Row, number int) (SlackCard, bool) {
 		return SlackCard{}, false
 	}
 	row := prRow(rows[at])
-	body := fmt.Sprintf("*%s*\n*What changes:* %s\n*Against the plan:* %s\n*Risk:* %s\n*Review and CI:* %s\n*Blocks landing:* %s",
-		row.Title, row.Change, row.Plan, row.Risk, row.Review, row.Blocker)
-	if utf8.RuneCountInString(body) > slackCardBody {
-		body = string([]rune(body)[:slackCardBody-1]) + "…"
+	title := row.Title
+	if title == fmt.Sprintf("#%d", number) {
+		title = ""
 	}
-	waits := MergeWaits(number, rows[at].Head)
 	return SlackCard{
-		Status: "needs_you", Title: fmt.Sprintf("Merge #%d at %s?", number, rows[at].Head[:min(waitsSHA, len(rows[at].Head))]), Body: body,
-		Refs:    []SlackRef{{URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number), Label: fmt.Sprintf("%s#%d", repo, number)}},
-		Options: []string{mergeLabel, holdLabel}, Recommended: mergeLabel, Waits: waits,
+		Status: "needs_you", Title: fmt.Sprintf("Approve #%d at %s?", number, rows[at].Head[:min(waitsSHA, len(rows[at].Head))]),
+		PRs: []SlackPRRow{{
+			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number), Title: title, Head: rows[at].Head, Review: row.Review,
+			Change: row.Change, Plan: row.Plan, Risk: row.Risk, Blocks: row.Blocker,
+		}},
+		Options: []string{approveLabel, holdLabel}, Recommended: approveLabel, Waits: MergeWaits(number, rows[at].Head),
 	}, true
+}
+
+// Waiting is the rows of the numbered PRs that wait on the owner's tap on this
+// drive, under the repo its config names.
+func Waiting(entry drive.Entry, numbers []int) (string, []Row, error) {
+	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), io.Discard)
+	if err != nil {
+		return "", nil, err
+	}
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = s.Close() }()
+	rows, err := StoredRows(s, cfg.Repo, numbers)
+	return cfg.Repo, rows, err
+}
+
+// MissingOf names the owner's lines a set of head-record words lacks.
+func MissingOf(words map[string]string) []string {
+	return Row{Words: words}.MissingWords()
 }
 
 func StoredRows(s *store.Store, repo string, numbers []int) ([]Row, error) {
@@ -117,9 +144,9 @@ func Holders(s *store.Store, numbers []int, held []SlackPR) ([]SlackPR, error) {
 }
 
 func Respond(s *store.Store, repo string, hooks Hooks, rows []Row, number int, waits, label string, at time.Time) error {
-	verdict, known := map[string]string{mergeLabel: verdictApproved, holdLabel: verdictRejected}[label]
+	verdict, known := map[string]string{approveLabel: verdictApproved, mergeLabel: verdictApproved, holdLabel: verdictRejected}[label]
 	if !known {
-		return fmt.Errorf("a merge card answers %s or %s, not %q", mergeLabel, holdLabel, label)
+		return fmt.Errorf("a merge card answers %s or %s, not %q", approveLabel, holdLabel, label)
 	}
 	found := slices.IndexFunc(rows, func(row Row) bool { return row.PR == number })
 	if found < 0 {
@@ -135,7 +162,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 	var lane string
 	cmd := &cobra.Command{
 		Use:   "card",
-		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]} or {\"answer\": {...}} on stdin: print the merge-row card for each PR that waits on the owner, every drive PR holding each number, or apply his Merge or Hold",
+		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]} or {\"answer\": {...}} on stdin: print the merge-row card for each PR that waits on the owner, every drive PR holding each number, or apply his Approve or Hold",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			var ask slackAsk

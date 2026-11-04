@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 	"testing"
@@ -112,7 +113,7 @@ func TestAnOwnerItemIsOnePRRowCarryingEveryFieldTheOwnerReads(t *testing.T) {
 	}
 }
 
-func TestAHeadRecordMissingAFieldMarksItMissingNeverBlank(t *testing.T) {
+func TestAHeadRecordMissingAFieldLeavesItOutNeverAPlaceholder(t *testing.T) {
 	s := withItem(t)
 	put(t, s, head, FactChange, "chats load faster")
 	found := rows(t, s, facts(nil))
@@ -120,14 +121,19 @@ func TestAHeadRecordMissingAFieldMarksItMissingNeverBlank(t *testing.T) {
 		t.Fatalf("missing = %v", got)
 	}
 	row := Render(repo, found, nil).Groups[0].PRs[0]
-	if row.Change != "chats load faster" || row.Risk != "missing: lane-7 owes this on its head record" {
-		t.Fatalf("row = %+v", row)
+	if row.Change != "chats load faster" || row.Risk != "" || row.Plan != "" || row.Blocker != "" {
+		t.Fatalf("row = %+v, want the line it has and the rest empty", row)
+	}
+	card, ok := Card(repo, found, number)
+	if !ok || card.PRs[0].Change != "chats load faster" || card.PRs[0].Risk != "" {
+		t.Fatalf("card = %+v, %v, want it drawn with the line it has", card, ok)
 	}
 }
 
 func TestRowsGroupByTheFeatureTheirHeadRecordNamesElseTheirLane(t *testing.T) {
-	named := map[string]string{FactGroup: "Chat speed", FactSummary: "Both make chats load faster."}
-	block := Render(repo, []Row{{PR: 1, Head: "a", Lane: "l1", Words: named}, {PR: 2, Head: "b", Lane: "l2", Words: named}, {PR: 3, Head: "c", Lane: "l3"}}, nil)
+	named := maps.Clone(words)
+	named[FactGroup], named[FactSummary] = "Chat speed", "Both make chats load faster."
+	block := Render(repo, []Row{{PR: 1, Head: "a", Lane: "l1", Words: named}, {PR: 2, Head: "b", Lane: "l2", Words: named}, {PR: 3, Head: "c", Lane: "l3", Words: words}}, nil)
 	if len(block.Groups) != 2 || len(block.Groups[0].PRs) != 2 || block.Groups[0].Summary != "Both make chats load faster." {
 		t.Fatalf("groups = %+v", block.Groups)
 	}
@@ -204,6 +210,9 @@ func TestAHeadFidelityJudgedChangedAsksAgainSayingWhatChangedSinceTheTappedHead(
 			t.Fatal(err)
 		}
 	}
+	for kind, value := range words {
+		put(t, s, moved, kind, value)
+	}
 	found := rows(t, s, facts(func(f *machine.Facts) { f.Head, f.TapFrom = moved, head }))
 	if len(found) != 1 || found[0].Head != moved {
 		t.Fatalf("rows = %+v", found)
@@ -215,7 +224,7 @@ func TestAHeadFidelityJudgedChangedAsksAgainSayingWhatChangedSinceTheTappedHead(
 }
 
 func TestARowNamesEveryOtherGateTheHeadStillFails(t *testing.T) {
-	found := rows(t, withItem(t), facts(func(f *machine.Facts) { f.CI = machine.CIPending }))
+	found := rows(t, withWords(t), facts(func(f *machine.Facts) { f.CI = machine.CIPending }))
 	if review := Render(repo, found, nil).Groups[0].PRs[0].Review; review != "CI is not green" {
 		t.Fatalf("review = %q", review)
 	}
@@ -234,7 +243,7 @@ func TestAnOwnerItemOnAnotherPersonsPRALaneCarriesDrawsNoRow(t *testing.T) {
 }
 
 func TestAConditionalTapKeepsTheRowAndShowsTheCondition(t *testing.T) {
-	s := withItem(t)
+	s := withWords(t)
 	put(t, s, head, "tap", "conditional")
 	put(t, s, head, "condition", "only if the finding is superseded")
 	found := rows(t, s, facts(func(f *machine.Facts) {

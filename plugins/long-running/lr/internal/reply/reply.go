@@ -9,14 +9,16 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
@@ -34,8 +36,8 @@ const (
 	maxLinks     = 5
 	maxPRs       = 10
 	maxBlocks    = 8
-	maxSlackBody = 2800
 	withdrawn    = " withdrawn"
+	alreadyGone  = "no block "
 	doneLead     = "Done, nothing for you"
 	pickLead     = "Tap one below"
 	needsYou     = "needs_you"
@@ -50,9 +52,6 @@ var (
 	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
 	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
 	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
-	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^)\s]+)\)`)
-	mdBold     = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
-	mdHeading  = regexp.MustCompile(`^#{1,6} +(.+)$`)
 )
 
 type Link struct {
@@ -66,6 +65,23 @@ type Build struct {
 	None   string `json:"none,omitempty"`
 }
 
+// Lines are a PR's four plain lines, when the lane drawing its card passes them
+// in place of a head record's.
+type Lines struct {
+	Change string `json:"change,omitempty"`
+	Plan   string `json:"plan,omitempty"`
+	Risk   string `json:"risk,omitempty"`
+	Blocks string `json:"blocks,omitempty"`
+}
+
+// prCard is one PR a pick card draws, with its lines read or passed.
+type prCard struct {
+	URL   string `json:"url"`
+	Head  string `json:"head,omitempty"`
+	Title string `json:"title,omitempty"`
+	Lines
+}
+
 type Reply struct {
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
@@ -76,6 +92,8 @@ type Reply struct {
 	Build       *Build   `json:"build,omitempty"`
 	Links       []Link   `json:"links,omitempty"`
 	PRs         []string `json:"prs,omitempty"`
+	Lines       *Lines   `json:"lines,omitempty"`
+	PRCards     []prCard `json:"pr_cards,omitempty"`
 	Thread      string   `json:"thread,omitempty"`
 	Order       string   `json:"order,omitempty"`
 	Action      string   `json:"action,omitempty"`
@@ -115,9 +133,12 @@ type Fanout struct {
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	seen := r
 	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
-	steps := []step{{f.board, seen}, {f.thread, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}}
-	if r.quiet() {
+	steps := []step{{f.board, seen}, {f.thread, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+	switch {
+	case r.quiet():
 		steps = []step{{f.board, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+	case r.Order == "" || r.Status != info || len(r.Picks) > 0:
+		steps = steps[:len(steps)-1]
 	}
 	sent := make([]Outcome, 0, 6)
 	for _, s := range steps {
@@ -127,7 +148,7 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 }
 
 func (r Reply) quiet() bool {
-	return r.Order != "" && len(r.Picks) == 0 && (r.Status == progress || r.Status == info)
+	return r.Order != "" && len(r.Picks) == 0 && r.Status == progress
 }
 
 func (r Reply) led() Reply {
@@ -169,7 +190,7 @@ func (r Reply) mended() (Reply, []string) {
 	}
 	r.Action = strings.Join(strings.Fields(r.Action), " ")
 	if (r.By != "" || r.Routed != 0) && !r.quiet() {
-		warn("by and routed mark his ledger row only from a progress or info reply to an order with no picks, so they were left off")
+		warn("by and routed mark his ledger row only from a progress reply to an order with no picks, so they were left off")
 		r.By, r.Routed = "", 0
 	}
 	if !replyID.MatchString(r.ID) {
@@ -270,6 +291,99 @@ func (r Reply) bareExplainMore() error {
 	return nil
 }
 
+// withPRCards reads the head-record lines of each PR the reply names, for its
+// card to carry. The reply posts whatever it finds: the second result is one
+// warning line naming what is missing, or empty. A PR that does not wait on his
+// tap, on a reply with no picks, is only a mention.
+func (f Fanout) withPRCards(r Reply) (Reply, string) {
+	if len(r.PRs) == 0 {
+		return r, ""
+	}
+	numbers := make([]int, len(r.PRs))
+	for n, pr := range r.PRs {
+		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
+	}
+	repo, rows, read := board.Waiting(f.Entry, numbers)
+	lines := r.Lines
+	var short []string
+	if lines != nil && len(r.PRs) != 1 {
+		lines = nil
+		short = append(short, "lines are one PR's, so they were not used")
+	}
+	cards := make([]prCard, 0, len(r.PRs))
+	for n, pr := range r.PRs {
+		at := slices.IndexFunc(rows, func(row board.Row) bool {
+			return row.PR == numbers[n] && strings.EqualFold(repo, pullURL.FindStringSubmatch(pr)[1])
+		})
+		if at < 0 && len(r.Picks) == 0 && lines == nil {
+			continue
+		}
+		card := prCard{URL: pr}
+		words := map[string]string{}
+		if at >= 0 {
+			card.Head, card.Title, words = rows[at].Head, rows[at].Words[board.FactTitle], rows[at].Words
+		}
+		if lines != nil {
+			words = passed(words, *lines)
+		}
+		card.Lines = Lines{words[board.FactChange], words[board.FactPlan], words[board.FactRisk], words[board.FactBlocks]}
+		if missing := board.MissingOf(words); len(missing) > 0 {
+			short = append(short, fmt.Sprintf("%s has no line for %s", pr, strings.Join(missing, ", ")))
+		}
+		cards = append(cards, card)
+	}
+	if len(r.Picks) > 0 {
+		r.PRCards = cards
+	}
+	if len(short) == 0 {
+		return r, ""
+	}
+	warning := strings.Join(short, "; ") + ", so post a head record carrying them, or pass lines, and edit this reply"
+	if read != nil {
+		warning += fmt.Sprintf("; the drive's head records did not read: %v", read)
+	}
+	return r, warning
+}
+
+func passed(words map[string]string, lines Lines) map[string]string {
+	out := maps.Clone(words)
+	for fact, said := range map[string]string{board.FactChange: lines.Change, board.FactPlan: lines.Plan, board.FactRisk: lines.Risk, board.FactBlocks: lines.Blocks} {
+		if said != "" {
+			out[fact] = said
+		}
+	}
+	return out
+}
+
+func (r Reply) prChild(id, pr string) map[string]any {
+	named := pullURL.FindStringSubmatch(pr)
+	child := map[string]any{"id": id + "-pr-" + named[2], "type": "pr", "repo": named[1], "number": json.Number(named[2])}
+	at := slices.IndexFunc(r.PRCards, func(card prCard) bool { return card.URL == pr })
+	if at < 0 {
+		return child
+	}
+	card := r.PRCards[at]
+	var summary []string
+	for _, line := range []struct{ key, label, said string }{
+		{"change", "What changes", card.Change}, {"plan", "Against the plan", card.Plan}, {"risk", "Risk", card.Risk}, {"blocker", "Blocks landing", card.Blocks},
+	} {
+		if line.said != "" {
+			child[line.key] = line.said
+			summary = append(summary, "**"+line.label+":** "+line.said)
+		}
+	}
+	if len(summary) > 0 {
+		child["summary"] = strings.Join(summary, "\n\n")
+	}
+	if card.Head != "" {
+		child["head"] = card.Head
+	}
+	if card.Title != "" {
+		child["title"] = card.Title
+	}
+	return child
+}
+
 func (r Reply) markdown() string {
 	lines := []string{strings.TrimSpace(r.MD)}
 	if len(r.Picks) > 0 {
@@ -323,8 +437,7 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		children = slices.Insert(children, 0, map[string]any{"id": r.ID + "-md", "type": "markdown", "md": prose})
 	}
 	for _, pr := range r.PRs {
-		named := pullURL.FindStringSubmatch(pr)
-		children = append(children, map[string]any{"id": r.ID + "-pr-" + named[2], "type": "pr", "repo": named[1], "number": json.Number(named[2])})
+		children = append(children, r.prChild(r.ID, pr))
 	}
 	block, err := json.Marshal(map[string]any{"id": id, "type": "card", "title": r.Title, "summary": strings.Join(strings.Fields(lede), " "), "children": children})
 	if err != nil {
@@ -352,25 +465,36 @@ func (f Fanout) withdraw(ctx context.Context, r Reply) []Outcome {
 	if err != nil {
 		return []Outcome{{Surface: "board", Error: err.Error()}, {Surface: "slack", Error: "the earlier reply did not read, so no Slack card was edited"}}
 	}
-	board := surface(was.Surfaces, "board")
-	if board.Surface == "" {
+	drawn := surface(was.Surfaces, "board")
+	if drawn.Surface == "" {
 		return nil
 	}
-	slack := Outcome{Surface: "slack", Ref: surface(was.Surfaces, "slack").Ref}
-	if board.Ref != id+withdrawn {
+	copied := Outcome{Surface: "slack", Ref: surface(was.Surfaces, "slack").Ref}
+	if drawn.Ref != id+withdrawn {
 		if _, err := f.Runner.Run(ctx, shell.Command{
 			Argv:    []string{"cc-present", "remove-block", id, "--session", f.Entry.Root(), "--reason", "edited: " + r.Title},
 			Dir:     f.Entry.Checkout,
 			Timeout: postTimeout,
-		}); err != nil {
-			slack.Error = id + " is still on the board, so its Slack card keeps its buttons"
-			return []Outcome{failed("board", err), slack}
+		}); err != nil && !leftTheBoard(err) {
+			copied.Error = id + " is still on the board, so its Slack card keeps its buttons"
+			return []Outcome{failed("board", err), copied}
 		}
 	}
-	if slack.Ref == "" {
-		slack.Error = id + " never reached Slack, so there is no Slack card to edit"
+	gone := Outcome{Surface: "board", Ref: id + withdrawn}
+	if copied.Ref == "" {
+		copied.Error = id + " never reached Slack, so there is no Slack card to edit"
+		return []Outcome{gone, copied}
 	}
-	return []Outcome{{Surface: "board", Ref: id + withdrawn}, slack}
+	card, err := f.statusCard(r, r.MD, copied.Ref)
+	if err != nil {
+		return []Outcome{gone, {Surface: "slack", Ref: copied.Ref, Error: err.Error()}}
+	}
+	return append([]Outcome{gone}, f.dmStatus(ctx, "--card", card)...)
+}
+
+func leftTheBoard(err error) bool {
+	var exit *shell.ExitError
+	return errors.As(err, &exit) && strings.Contains(exit.Stderr, alreadyGone)
 }
 
 func (f Fanout) thread(ctx context.Context, r Reply, _ []Outcome) []Outcome {
@@ -403,8 +527,7 @@ func (f Fanout) thread(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		children = append(children, block)
 	}
 	for _, pr := range r.PRs {
-		named := pullURL.FindStringSubmatch(pr)
-		children = append(children, map[string]any{"id": id + "-pr-" + named[2], "type": "pr", "repo": named[1], "number": json.Number(named[2])})
+		children = append(children, r.prChild(id, pr))
 	}
 	card := map[string]any{"id": id, "type": "card", "title": r.Title, "mirror": false, "children": children}
 	if re := f.anchor(r.ID); re != "" {
@@ -443,15 +566,26 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if surface(sent, "slack").Surface != "" || r.Thread == "" && len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
 	}
-	body := mrkdwn(r.MD)
-	for _, pr := range r.PRs {
-		body += "\n" + pr
-	}
 	if r.Thread != "" {
+		body := r.MD
+		for _, pr := range r.PRs {
+			body += "\n" + pr
+		}
 		for _, link := range r.Links {
 			body += "\n<" + link.URL + "|" + link.Label + ">"
 		}
 		return f.dmStatus(ctx, "--thread", r.Thread, "*"+r.Title+"*\n"+body)
+	}
+	card, err := f.statusCard(r, r.MD, "")
+	if err != nil {
+		return []Outcome{{Surface: "slack", Error: err.Error()}}
+	}
+	return f.dmStatus(ctx, "--card", card)
+}
+
+func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
+	for _, pr := range r.PRs {
+		body += "\n" + pr
 	}
 	buttons := make([]Link, 0, len(r.Links))
 	for _, link := range r.Links {
@@ -461,22 +595,20 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		}
 		body += "\n<" + link.URL + "|" + link.Label + ">"
 	}
-	fit, err := f.fit(body)
-	if err != nil {
-		return []Outcome{{Surface: "slack", Error: err.Error()}}
+	key := r.ID
+	if replaces != "" {
+		key = ""
 	}
 	card, err := json.Marshal(struct {
-		Key    string `json:"key"`
-		Status string `json:"status"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-		Drive  string `json:"drive"`
-		Links  []Link `json:"links,omitempty"`
-	}{r.ID, cmp.Or(r.Status, "info"), r.Title, fit, f.Entry.Bus(), buttons})
-	if err != nil {
-		return []Outcome{{Surface: "slack", Error: err.Error()}}
-	}
-	return f.dmStatus(ctx, "--card", string(card))
+		Key      string `json:"key,omitempty"`
+		Status   string `json:"status"`
+		Title    string `json:"title"`
+		Body     string `json:"body"`
+		Drive    string `json:"drive"`
+		Links    []Link `json:"links,omitempty"`
+		Replaces string `json:"replaces,omitempty"`
+	}{key, cmp.Or(r.Status, "info"), r.Title, body, f.Entry.Bus(), buttons, replaces})
+	return string(card), err
 }
 
 func (f Fanout) dmStatus(ctx context.Context, args ...string) []Outcome {
@@ -491,18 +623,6 @@ func (f Fanout) dmStatus(ctx context.Context, args ...string) []Outcome {
 		return []Outcome{{Surface: "slack", Error: "cc-slack dm-status named no posted message: " + strings.TrimSpace(done.Stdout)}}
 	}
 	return []Outcome{{Surface: "slack", Ref: posted.Permalink}}
-}
-
-func (f Fanout) fit(body string) (string, error) {
-	if utf8.RuneCountInString(body) <= maxSlackBody {
-		return body, nil
-	}
-	url, err := drive.DashboardURL(f.Entry.StateDir)
-	if err != nil {
-		return "", fmt.Errorf("the reply is longer than a Slack card and its dashboard link did not read: %w", err)
-	}
-	rest := "\n<" + url + "#/replies|Read the rest on your dashboard>"
-	return fitted(body, maxSlackBody-utf8.RuneCountInString(rest)) + rest, nil
 }
 
 func (f Fanout) record(ctx context.Context, r Reply, _ []Outcome) []Outcome {
@@ -588,40 +708,6 @@ func failed(surface string, err error) Outcome {
 		return Outcome{Surface: surface, Error: fmt.Sprintf("%s %s exited %d: %s", exit.Argv[0], exit.Argv[1], exit.Code, strings.TrimSpace(exit.Stderr))}
 	}
 	return Outcome{Surface: surface, Error: err.Error()}
-}
-
-func mrkdwn(md string) string {
-	out := make([]string, 0, strings.Count(md, "\n")+1)
-	table := make([]string, 0, cap(out))
-	flush := func() {
-		if len(table) > 0 {
-			out = append(out, "```\n"+strings.Join(table, "\n")+"\n```")
-			table = table[:0]
-		}
-	}
-	for line := range strings.SplitSeq(strings.TrimSpace(md), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "|") {
-			table = append(table, line)
-			continue
-		}
-		flush()
-		line = mdBold.ReplaceAllString(mdLink.ReplaceAllString(line, "<$2|$1>"), "*$1*")
-		out = append(out, mdHeading.ReplaceAllString(line, "*$1*"))
-	}
-	flush()
-	return strings.Join(out, "\n")
-}
-
-func fitted(text string, limit int) string {
-	runes := []rune(text)
-	if len(runes) <= limit {
-		return text
-	}
-	cut := string(runes[:limit-1])
-	if at := strings.LastIndex(cut, "\n\n"); at > 0 {
-		cut = cut[:at]
-	}
-	return cut + "…"
 }
 
 func receipt(r Reply, sent []Outcome) string {

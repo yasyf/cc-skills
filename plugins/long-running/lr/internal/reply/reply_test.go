@@ -13,10 +13,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talkboard"
 )
 
@@ -86,7 +89,7 @@ type boardCard struct {
 	Children []child `json:"children"`
 }
 
-func board(t *testing.T, c shell.Command) boardCard {
+func drawnCard(t *testing.T, c shell.Command) boardCard {
 	t.Helper()
 	var card boardCard
 	if err := json.Unmarshal([]byte(c.Stdin), &card); err != nil {
@@ -147,6 +150,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	call, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "reply", "arguments": map[string]any{
 		"title": "Land the relay fix tonight?", "md": "Its checks passed.\n\n| check | state |\n|---|---|\n| lr-go | green |",
 		"picks": []string{"Land it", "Hold it"}, "recommended": "Land it", "prs": []string{landPR},
+		"lines": map[string]string{"change": "Chats load", "plan": "Nothing differed", "risk": "Low", "blocks": "Your tap"},
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +194,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 		}
 	}
 	presented := calls(fake, "cc-present")
-	if len(presented) != 1 || flag(t, presented[0].Argv, "--session") != "board-session" || board(t, presented[0]).ID != "card-"+id {
+	if len(presented) != 1 || flag(t, presented[0].Argv, "--session") != "board-session" || drawnCard(t, presented[0]).ID != "card-"+id {
 		t.Fatalf("board writes = %+v, want card-%s on the drive's board", presented, id)
 	}
 	records := calls(fake, "cci")
@@ -243,7 +247,7 @@ func TestAPickRendersOneButtonPerOptionWithTheRecommendedOneMarked(t *testing.T)
 
 	f.Send(context.Background(), Reply{ID: "r2", Title: "How do we fix the relay?", MD: "Each chat keeps its own replica, or they share one.", Picks: picks, Recommended: picks[1], PRs: []string{landPR}})
 
-	card := board(t, calls(fake, "cc-present")[0])
+	card := drawnCard(t, calls(fake, "cc-present")[0])
 	choice := slices.IndexFunc(card.Children, func(c child) bool { return c.Type == "choice" })
 	if choice < 0 || len(card.Children[choice].Options) != len(picks) {
 		t.Fatalf("card %+v, want one choice with a button per pick", card)
@@ -267,7 +271,7 @@ func TestTheRecommendedPickCarriesTheBranchItIsBuiltOn(t *testing.T) {
 
 	f.Send(context.Background(), Reply{ID: "r5", Title: "How do we fix the relay?", MD: "Each chat keeps its own replica, or they share one.", Picks: picks, Recommended: picks[1], Build: built})
 
-	card := board(t, calls(fake, "cc-present")[0])
+	card := drawnCard(t, calls(fake, "cc-present")[0])
 	choice := card.Children[slices.IndexFunc(card.Children, func(c child) bool { return c.Type == "choice" })]
 	if choice.Options[0].Build != nil || choice.Options[1].Build == nil || *choice.Options[1].Build != *built {
 		t.Fatalf("options %+v, want the branch on the recommended pick only", choice.Options)
@@ -294,7 +298,7 @@ func TestAnEditUpdatesEachSurfaceInPlace(t *testing.T) {
 			f.Send(context.Background(), edit(first, "Checks passed."))
 
 			for _, c := range calls(fake, "cc-present") {
-				if card := board(t, c); card.ID != "card-r3" || !strings.Contains(card.Summary, "Checks") {
+				if card := drawnCard(t, c); card.ID != "card-r3" || !strings.Contains(card.Summary, "Checks") {
 					t.Errorf("board write %+v is not card-r3", card)
 				}
 			}
@@ -321,7 +325,7 @@ func TestAnEditUpdatesEachSurfaceInPlace(t *testing.T) {
 	}
 }
 
-func TestAnEditThatDropsItsPicksTakesTheCardOffAndPostsNothingNew(t *testing.T) {
+func TestAnEditThatDropsItsPicksReplacesTheSlackCopyInPlaceAndPostsNothingNew(t *testing.T) {
 	fake := scripted()
 	fake.Reply("removed card-r6\nrev: 9\n", "cc-present", "remove-block")
 	f := fanout(t, fake)
@@ -340,8 +344,22 @@ func TestAnEditThatDropsItsPicksTakesTheCardOffAndPostsNothingNew(t *testing.T) 
 	if len(removed) != 1 || removed[0].Argv[2] != "card-r6" || flag(t, removed[0].Argv, "--session") != "board-session" || !strings.Contains(flag(t, removed[0].Argv, "--reason"), "The relay fix landed") {
 		t.Fatalf("removals = %+v, want card-r6 removed once from the drive's board, naming the edit", removed)
 	}
-	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
-		t.Fatalf("cc-slack calls = %+v, want none: the edit posted a new Slack message beside the picks card", posted)
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 {
+		t.Fatalf("cc-slack calls = %+v, want each edit to redraw the Slack copy once", posted)
+	}
+	var card struct {
+		Replaces string `json:"replaces"`
+		Title    string `json:"title"`
+		Body     string `json:"body"`
+		Key      string `json:"key"`
+		Options  []string
+	}
+	if err := json.Unmarshal([]byte(flag(t, posted[1].Argv, "--card")), &card); err != nil {
+		t.Fatal(err)
+	}
+	if card.Replaces != permalink || card.Title != "The relay fix landed" || !strings.HasPrefix(card.Body, "It merged.") || card.Key != "" || len(card.Options) != 0 {
+		t.Fatalf("slack edit = %+v, want the same message with the new title and body and no buttons", card)
 	}
 	if reply, surfaces := stored(t, f, "r6"); len(reply.Picks) != 0 || reply.MD != "It merged." || surfaces[0].Ref != "card-r6 withdrawn" {
 		t.Fatalf("dashboard response = %+v %+v, want the edit with no picks", reply, surfaces)
@@ -349,6 +367,19 @@ func TestAnEditThatDropsItsPicksTakesTheCardOffAndPostsNothingNew(t *testing.T) 
 	records := calls(fake, "cci")
 	if len(records) != 3 || !strings.HasPrefix(records[2].Stdin, "The relay fix landed\n\nIt merged.") {
 		t.Fatalf("records = %+v, want the edit's body in the last record", records)
+	}
+}
+
+func TestAnEditOfAnAnsweredCardReadsAsGoneAndStillReachesSlack(t *testing.T) {
+	fake := scripted()
+	fake.Fail(1, `no block "card-r7" in the current document`, "cc-present", "remove-block")
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r7", Title: "Land it?", MD: "Checks passed.", Picks: []string{"Land it", "Hold it"}, Recommended: "Land it"})
+
+	sent := f.Send(context.Background(), Reply{ID: "r7", Title: "Landed", MD: "It merged.", Status: "done"})
+
+	if sent[0] != (Outcome{Surface: "board", Ref: "card-r7 withdrawn"}) || sent[1] != (Outcome{Surface: "slack", Ref: permalink}) {
+		t.Fatalf("outcomes = %+v, want an answered card read as gone and its Slack copy edited", sent)
 	}
 }
 
@@ -462,15 +493,12 @@ func TestAnExplainMoreThatIsOnlyALinkStaysRefused(t *testing.T) {
 	}
 }
 
-func TestSlackBodiesTurnMarkdownIntoMrkdwn(t *testing.T) {
-	md := "## Relay\n**Fixed** in [the PR](https://github.com/yasyf/cc-skills/pull/2196).\n\n| check | state |\n|---|---|\n| lr-go | green |\nDone."
-	want := "*Relay*\n*Fixed* in <https://github.com/yasyf/cc-skills/pull/2196|the PR>.\n\n```\n| check | state |\n|---|---|\n| lr-go | green |\n```\nDone."
-	if got := mrkdwn(md); got != want {
-		t.Fatalf("mrkdwn =\n%s\nwant\n%s", got, want)
-	}
-	long := strings.Repeat("a", 2000) + "\n\n" + strings.Repeat("b", 2000)
-	if got := fitted(long, maxSlackBody); got != strings.Repeat("a", 2000)+"…" {
-		t.Fatalf("fitted kept %d runes, want the first paragraph and an ellipsis", len([]rune(got)))
+func TestASlackBodyGoesWholeAsMarkdownForCCSlackToRender(t *testing.T) {
+	fake := scripted()
+	md := "## Relay\n**Fixed** in [the PR](https://github.com/yasyf/cc-skills/pull/2196).\n\n| check | state |\n|---|---|\n| lr-go | green |\n" + strings.Repeat("More words. ", 500)
+	fanout(t, fake).Send(context.Background(), Reply{ID: "long", Title: "t", MD: md, Status: "done"})
+	if body := slack(t, calls(fake, "cc-slack")[0]).Body; body != md {
+		t.Fatalf("slack body = %q, want the whole reply, unrendered and uncut", body)
 	}
 }
 
@@ -534,11 +562,11 @@ func TestACardCarriesItsLeadParagraphOnce(t *testing.T) {
 	f.Send(context.Background(), Reply{ID: "r9", Title: "Hold it?", MD: "Checks passed.", Picks: []string{"Land it", "Hold it"}, Recommended: "Land it"})
 
 	sent := calls(fake, "cc-present")
-	card := board(t, sent[0])
+	card := drawnCard(t, sent[0])
 	if card.Summary != "Checks passed." || card.Children[0].Type != "markdown" || card.Children[0].MD != "It ships tonight." {
 		t.Fatalf("card %+v, want the lead in the summary and the rest in the markdown", card)
 	}
-	if card := board(t, sent[1]); card.Summary != "Checks passed." || card.Children[0].Type != "choice" {
+	if card := drawnCard(t, sent[1]); card.Summary != "Checks passed." || card.Children[0].Type != "choice" {
 		t.Fatalf("card %+v, want a one-paragraph reply in the summary with no markdown child", card)
 	}
 }
@@ -625,26 +653,6 @@ func TestAReplyToAnOrderLeadsWithDoneOrHisOneActionWhateverTheLaneWrote(t *testi
 	}
 }
 
-func TestALongSlackCardLinksTheWholeReplyOnTheDashboardAndNeverJustStops(t *testing.T) {
-	fake := scripted()
-	f := fanout(t, fake)
-	if err := os.WriteFile(filepath.Join(f.Entry.StateDir, "dashboard.json"), []byte(`{"host":"100.1.2.3","port":61210}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	long := strings.Repeat("a", 2000) + "\n\n" + strings.Repeat("b", 2000)
-	f.Send(context.Background(), Reply{ID: "long", Title: "t", MD: long, Status: "done"})
-	card := flag(t, calls(fake, "cc-slack")[0].Argv, "--card")
-	var sent struct {
-		Body string `json:"body"`
-	}
-	if err := json.Unmarshal([]byte(card), &sent); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasSuffix(sent.Body, "<http://100.1.2.3:61210/#/replies|Read the rest on your dashboard>") || len([]rune(sent.Body)) > maxSlackBody {
-		t.Fatalf("slack body ends %q at %d runes", sent.Body[len(sent.Body)-80:], len([]rune(sent.Body)))
-	}
-}
-
 func ledgered(t *testing.T, f Fanout) string {
 	t.Helper()
 	path := owner.Ledger(f.Entry.StateDir)
@@ -680,13 +688,16 @@ func TestAProgressReplyToHisOrderWritesTheLedgerRowAndPostsNothingToSlack(t *tes
 	}
 }
 
-func TestAnInfoReplyToHisOrderMarksTheRowRespondedAndPostsNothingToSlack(t *testing.T) {
+func TestAnInfoReplyToHisOrderReachesSlackAndMarksTheRowResponded(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	path := ledgered(t, f)
-	f.Send(context.Background(), Reply{ID: "ri", Title: "Vector search", MD: "It is a design, not a build.", Status: info, Order: "m447", Thread: "1793635190.051179"}.led())
-	if got := calls(fake, "cc-slack"); len(got) != 0 {
-		t.Fatalf("an info reply reached Slack: %q", got[0].Argv)
+	sent := f.Send(context.Background(), Reply{ID: "ri", Title: "Vector search", MD: "It is a design, not a build.", Status: info, Order: "m447"}.led())
+	if got := calls(fake, "cc-slack"); len(got) != 1 {
+		t.Fatalf("cc-slack calls = %+v, want his answer on Slack", got)
+	}
+	if surface(sent, "slack").Ref != permalink {
+		t.Fatalf("outcomes = %+v, want the card's permalink", sent)
 	}
 	if ledger, _ := os.ReadFile(path); !strings.Contains(string(ledger), "|  | responded |") {
 		t.Fatalf("ledger = %q", ledger)
@@ -704,6 +715,7 @@ func TestByAndRoutedOffAQuietOrderReplyAreLeftOffWithAWarning(t *testing.T) {
 	for name, r := range map[string]Reply{
 		"no order":  {ID: "a", Title: "t", MD: "m", Status: progress, By: "11:30 PM"},
 		"done":      {ID: "a", Title: "t", MD: "m", Status: "done", Order: "m1", Routed: 7},
+		"info":      {ID: "a", Title: "t", MD: "m", Status: info, Order: "m1", By: "11:30 PM"},
 		"with pick": {ID: "a", Title: "t", MD: "m", Status: progress, Order: "m1", By: "11:30 PM", Picks: []string{"A", "B"}, Recommended: "A"},
 	} {
 		got, warned := r.mended()
@@ -759,5 +771,112 @@ func TestADriveWithNoTalkBoardSkipsTheThread(t *testing.T) {
 	sent := f.Send(context.Background(), Reply{ID: "r9", Title: "T", MD: "M"})
 	if len(threadWrites(fake)) != 0 || surface(sent, "talk").Surface != "" {
 		t.Fatalf("thread writes %+v and outcomes %+v, want nothing on a board that was never opened", threadWrites(fake), sent)
+	}
+}
+
+func headRecords(t *testing.T, f Fanout, facts map[string]string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(f.Entry.StateDir, "lr.json"), []byte(`{"repo":"yasyf/cc-skills","drive":"d","checkout":"/repo","author":"a","label":"l","movers":["items"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(f.Entry.Store())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	const head = "e718a7434fa01ee9835f992a9a647a825350732c"
+	if _, err := s.OpenItem(store.NewItem{Kind: "tap", Repo: "yasyf/cc-skills", Number: 2196, Head: head, Mover: machine.MoverOwner, Deadline: time.Hour}, sentAt); err != nil {
+		t.Fatal(err)
+	}
+	for fact, value := range facts {
+		if _, err := s.PutFact("yasyf/cc-skills", 2196, head, fact, value, sentAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAPRCardMissingAHeadRecordLinePostsAndWarnsInOneLine(t *testing.T) {
+	for name, r := range map[string]Reply{
+		"pick":   {ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}},
+		"status": {ID: "r1", Title: "The relay fix", MD: "Checks passed.", Status: "info", PRs: []string{landPR}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := scripted()
+			f := fanout(t, fake)
+			headRecords(t, f, map[string]string{board.FactChange: "Chats load"})
+			got, warning := f.withPRCards(r)
+			if !strings.Contains(warning, "what differed from the plan, the risk, what blocks it") || strings.Contains(warning, "what it changes") || strings.Contains(warning, "\n") {
+				t.Fatalf("warning = %q, want one line naming the three missing lines", warning)
+			}
+			sent := f.Send(context.Background(), got)
+			if out := surface(sent, "slack"); out.Error != "" || out.Ref != permalink {
+				t.Fatalf("slack outcome = %+v, want the card posted", out)
+			}
+			for _, call := range fake.Calls() {
+				if strings.Contains(strings.Join(call.Argv, " ")+call.Stdin, "missing:") {
+					t.Fatalf("a surface got a placeholder: %q %q", call.Argv, call.Stdin)
+				}
+			}
+		})
+	}
+}
+
+func TestAMissingLineIsLeftOffThePRChild(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	headRecords(t, f, map[string]string{board.FactChange: "Chats load"})
+	r, _ := f.withPRCards(Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	f.Send(context.Background(), r)
+	var card struct {
+		Children []map[string]any `json:"children"`
+	}
+	if err := json.Unmarshal([]byte(calls(fake, "cc-present")[0].Stdin), &card); err != nil {
+		t.Fatal(err)
+	}
+	pr := card.Children[len(card.Children)-1]
+	if _, risk := pr["risk"]; risk || pr["change"] != "Chats load" || pr["summary"] != "**What changes:** Chats load" {
+		t.Fatalf("pr child = %+v, want only the line it has", pr)
+	}
+}
+
+func TestAPRCardCarriesItsHeadRecordLinesToEverySurface(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	headRecords(t, f, map[string]string{board.FactChange: "Chats load", board.FactPlan: "Nothing differed", board.FactRisk: "Low", board.FactBlocks: "Your tap", board.FactTitle: "Relay fix"})
+	r, warning := f.withPRCards(Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	if warning != "" {
+		t.Fatalf("warning = %q on a PR with every line", warning)
+	}
+	f.Send(context.Background(), r)
+	var card struct {
+		Children []map[string]any `json:"children"`
+	}
+	if err := json.Unmarshal([]byte(calls(fake, "cc-present")[0].Stdin), &card); err != nil {
+		t.Fatal(err)
+	}
+	pr := card.Children[len(card.Children)-1]
+	if pr["type"] != "pr" || pr["change"] != "Chats load" || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**Risk:** Low") {
+		t.Fatalf("pr child = %+v, want its lines for Slack and for the board", pr)
+	}
+}
+
+func TestPassedLinesFillAHeadRecordAndAPRNotWaitingIsOnlyAMention(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	lines := &Lines{Change: "Chats load", Plan: "Nothing differed", Risk: "Low", Blocks: "Your tap"}
+	r, warning := f.withPRCards(Reply{ID: "r1", Title: "Land it?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}, Lines: lines})
+	if warning != "" || len(r.PRCards) != 1 || r.PRCards[0].Risk != "Low" {
+		t.Fatalf("withPRCards = %+v, %q, want the passed lines on the card", r.PRCards, warning)
+	}
+	mention, warning := f.withPRCards(Reply{ID: "r2", Title: "The relay fix landed", MD: "m", Status: "done", PRs: []string{landPR}})
+	if warning != "" || len(mention.PRCards) != 0 {
+		t.Fatalf("withPRCards = %+v, %q, want a PR nothing waits on left a plain mention", mention.PRCards, warning)
+	}
+	if plain, warning := f.withPRCards(Reply{ID: "r3", Title: "t", MD: "m"}); warning != "" || plain.PRCards != nil {
+		t.Fatalf("a reply naming no PR read the store: %+v, %q", plain, warning)
+	}
+	two, warning := f.withPRCards(Reply{ID: "r4", Title: "t", MD: "m", PRs: []string{landPR, landPR + "0"}, Lines: lines})
+	if !strings.Contains(warning, "lines are one PR's") || len(two.PRCards) != 0 {
+		t.Fatalf("withPRCards = %+v, %q, want lines over two PRs warned on and unused", two.PRCards, warning)
 	}
 }
