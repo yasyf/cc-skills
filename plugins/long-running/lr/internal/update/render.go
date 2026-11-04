@@ -11,6 +11,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -30,6 +31,8 @@ const (
 	releasesTitle  = "Releases today"
 	openPRsTitle   = "Open PRs"
 	gapsTitle      = "Gaps in this update"
+	reapTitle      = "Session reap"
+	reapPasses     = 6
 	workstream     = "Workstream "
 	workstreams    = "Workstreams"
 	firstUpdate    = "- The first update from this generator: every row below is new."
@@ -366,6 +369,7 @@ type draft struct {
 	tracked    []section
 	before     map[string][]string
 	programs   []Program
+	reap       []string
 }
 
 func Render(in Inputs) Report {
@@ -424,6 +428,7 @@ func Render(in Inputs) Report {
 		tracked:    slices.Concat(sections, plan.folded),
 		before:     in.Before.Rows,
 		programs:   in.Programs,
+		reap:       reapLines(recordsFrom(in.All, in.Now.Add(-quietAfter))),
 	}
 	needs := make([]Need, 0, 5+len(sections)+len(lists)+len(lanes)+len(open)+len(prs))
 	needs = append(needs, Need{sinceTitle, sinceTitle}, Need{fyiTitle, fyiTitle}, Need{wordsTitle, wordsTitle}, Need{unownedTitle, unownedTitle}, Need{toolingTitle, toolingTitle})
@@ -432,6 +437,9 @@ func Render(in Inputs) Report {
 	}
 	for _, row := range lead {
 		needs = append(needs, Need{row.Name, row.Delivers})
+	}
+	if len(found.reap) > 0 {
+		needs = append(needs, Need{reapTitle, reapTitle})
 	}
 	for _, each := range sections {
 		needs = append(needs, Need{each.title, each.title})
@@ -463,6 +471,16 @@ func Render(in Inputs) Report {
 		Snapshot:  takeSnapshot(found.tracked, in.Now),
 		Programs:  in.Programs,
 	}
+}
+
+func reapLines(records []Record) []string {
+	var lines []string
+	for _, record := range records {
+		if record.Topic == lanes.ReapTopic {
+			lines = append(lines, fmt.Sprintf("- %s: %s", pacific(record.At), record.Text))
+		}
+	}
+	return lines[max(0, len(lines)-reapPasses):]
 }
 
 func overdueLines(items []store.Item) []string {

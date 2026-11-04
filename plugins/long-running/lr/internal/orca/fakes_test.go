@@ -27,7 +27,7 @@ const (
 	boxWT      = "/home/agent/orca/workspaces/monorepo/box-lane"
 )
 
-var testSprite = Sprite{"pool-abc", "pool-abc", "/s/ssh/pool-abc.ssh", "/home/sprite/monorepo", "env_abc"}
+var testSprite = Sprite{"pool-abc", "pool-abc", "/home/sprite/monorepo", "env_abc"}
 
 type rowOption func(*Worker)
 
@@ -119,6 +119,7 @@ type fakeOrca struct {
 	stale         map[string]bool
 	disconnected  map[string]bool
 	known         map[string]bool
+	forgotten     map[string]bool
 	paired        map[string]CheckoutRead
 	calls         [][]string
 	onRemove      func(string)
@@ -267,6 +268,14 @@ func (f *fakeOrca) Forget(_ context.Context, environment string) (string, error)
 	return "", nil
 }
 
+func (f *fakeOrca) Servers(context.Context) (map[string]bool, error) {
+	saved := map[string]bool{}
+	for _, worker := range f.rows {
+		saved[worker.Environment] = !f.forgotten[worker.Environment]
+	}
+	return saved, nil
+}
+
 func (f *fakeOrca) NowMS() int64 { return fakeNow }
 
 func (f *fakeOrca) Holder(_ context.Context, worktree string, panes map[string]bool) (string, error) {
@@ -361,6 +370,7 @@ type fakeFleet struct {
 	mu        sync.Mutex
 	hosted    map[SpriteKey]Sprite
 	reads     map[string]CheckoutRead
+	holders   []string
 	refusal   string
 	destroyed []string
 }
@@ -378,6 +388,17 @@ func (f *fakeFleet) Checkout(_ context.Context, sprite Sprite, _ Repositories) (
 	}
 	found := checkout(sprite.Root)
 	return CheckoutRead{Found: &found}, nil
+}
+
+func (f *fakeFleet) Holder(context.Context, Sprite) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.holders) == 0 {
+		return "", nil
+	}
+	held := f.holders[0]
+	f.holders = f.holders[1:]
+	return held, nil
 }
 
 func (f *fakeFleet) Destroy(_ context.Context, sprite Sprite) (string, error) {

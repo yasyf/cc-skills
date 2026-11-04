@@ -1,6 +1,7 @@
 package update
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
 
@@ -253,6 +255,24 @@ func TestADoneStepFoldsIntoOneLineAndAnOpenOneWithNobodyLeadsAsUnowned(t *testin
 	unowned := report.Text[strings.Index(report.Text, "## Unowned work"):strings.Index(report.Text, "## Standing duties")]
 	if !strings.Contains(unowned, "Step 3") || strings.Contains(unowned, "Step 2") {
 		t.Fatalf("unowned = %s", unowned)
+	}
+}
+
+func TestTheUpdateCarriesTheNewestReapPassesAndDemandsThemOfAWrittenOne(t *testing.T) {
+	in := inputs(t)
+	for pass := range reapPasses + 1 {
+		text := fmt.Sprintf("sessions %d to %d, worktrees 9 to 8, terminals 7 to 6; this pass: removed=1", 100-pass, 99-pass)
+		in.All = append(in.All, Record{Seq: int64(900 + pass), Drive: testDrive, Lane: "supervisor", Kind: "state", Topic: lanes.ReapTopic, Text: text, At: ago(30 - pass)})
+	}
+	report := Render(in)
+	if !strings.Contains(report.Text, "## "+reapTitle) || !strings.Contains(report.Text, "sessions 94 to 93") {
+		t.Fatalf("no reap section in\n%s", report.Text)
+	}
+	if strings.Contains(report.Text, "sessions 100 to 99") {
+		t.Fatalf("the oldest pass stayed in\n%s", report.Text)
+	}
+	if !slices.Contains(report.Needs, Need{reapTitle, reapTitle}) {
+		t.Fatalf("needs lack the reap section: %v", report.Needs)
 	}
 }
 

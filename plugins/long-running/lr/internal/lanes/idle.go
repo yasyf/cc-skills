@@ -44,15 +44,7 @@ func idleCensus(cmd *cobra.Command, a *app.App) error {
 		return err
 	}
 	ctx := cmd.Context()
-	processes, err := agentProcesses(ctx, a.Runner)
-	if err != nil {
-		return err
-	}
-	worktrees, err := orcaTotal(ctx, a.Runner, "worktree")
-	if err != nil {
-		return err
-	}
-	terminals, err := orcaTotal(ctx, a.Runner, "terminal")
+	counts, err := env.headcount(ctx)
 	if err != nil {
 		return err
 	}
@@ -60,7 +52,7 @@ func idleCensus(cmd *cobra.Command, a *app.App) error {
 	if err != nil {
 		return fmt.Errorf("lr gc --dry-run: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "processes claude=%d codex=%d\norca worktrees=%d terminals=%d\n", processes["claude"], processes["codex"], worktrees, terminals)
+	fmt.Fprintf(cmd.OutOrStdout(), "processes claude=%d codex=%d\norca worktrees=%d terminals=%d\n", counts.claude, counts.codex, counts.worktrees, counts.terminals)
 	fmt.Fprintln(cmd.OutOrStdout(), strings.Join(planSummary(plan.Stdout), "\n"))
 	return nil
 }

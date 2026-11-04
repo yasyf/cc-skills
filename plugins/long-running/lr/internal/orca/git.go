@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -22,7 +23,19 @@ const (
 	providerSprites    = "sprites"
 	ccRemoteEnv        = "WORKER_CC_REMOTE"
 	ccRemoteConfigEnv  = "CC_REMOTE_CONFIG"
+	spriteReadTimeout  = 3 * time.Minute
 )
+
+const spriteHolders = `for p in /proc/[0-9]*; do
+  pid=${p#/proc/}
+  [ "$pid" = "$$" ] && continue
+  case "$(cat "$p/comm" 2>/dev/null)" in
+    claude|codex) echo "$pid"; continue ;;
+  esac
+  case "$(readlink "$p/cwd" 2>/dev/null)" in
+    "$1"|"$1"/*) echo "$pid" ;;
+  esac
+done`
 
 var (
 	squashSubject = regexp.MustCompile(` \(#(\d+)\)$`)
@@ -137,14 +150,12 @@ func (g *Git) Remove(ctx context.Context, worktree string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	done, err := g.run(ctx, strings.TrimSpace(repository), "worktree", "remove", worktree)
-	if err != nil {
-		return "", err
+	done, err := g.Runner.Run(ctx, shell.Command{Argv: []string{"ccx", "vcs", "worktree", "rm", "--path", worktree}, Dir: strings.TrimSpace(repository)})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) {
+		return describeExit(done.Stderr, "ccx vcs worktree rm exited %d", done.Code), nil
 	}
-	if done.Code == 0 {
-		return "", nil
-	}
-	return describeExit(done.Stderr, "git worktree remove exited %d", done.Code), nil
+	return "", err
 }
 
 func (g *Git) advertised(ctx context.Context, repository string) (advertised, error) {
@@ -244,7 +255,6 @@ func (p PullRequests) Landed(ctx context.Context, head string) (bool, error) {
 type Sprite struct {
 	Workspace   string
 	Host        string
-	SSHConfig   string
 	Root        string
 	Environment string
 }
@@ -257,6 +267,7 @@ type SpriteKey struct {
 type SpriteFleet interface {
 	Sprites() (map[SpriteKey]Sprite, error)
 	Checkout(ctx context.Context, sprite Sprite, git Repositories) (CheckoutRead, error)
+	Holder(ctx context.Context, sprite Sprite) (string, error)
 	Destroy(ctx context.Context, sprite Sprite) (string, error)
 }
 
@@ -274,8 +285,7 @@ type ccRemoteTask struct {
 	Worktree    string `json:"worktreeId"`
 	Terminal    string `json:"terminal"`
 	Forward     *struct {
-		Host   string `json:"host"`
-		Config string `json:"config"`
+		Host string `json:"host"`
 	} `json:"forward"`
 }
 
@@ -300,7 +310,7 @@ func (c CCRemote) Sprites() (map[SpriteKey]Sprite, error) {
 		if info, err := os.Stat(filepath.Join(c.State, "workspaces", task.Workspace+".json")); err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		hosted[SpriteKey{task.Worktree, task.Terminal}] = Sprite{task.Workspace, task.Forward.Host, task.Forward.Config, task.ProjectRoot, task.Environment}
+		hosted[SpriteKey{task.Worktree, task.Terminal}] = Sprite{task.Workspace, task.Forward.Host, task.ProjectRoot, task.Environment}
 	}
 	return hosted, nil
 }
@@ -312,11 +322,30 @@ func shellQuote(word string) string {
 	return "'" + strings.ReplaceAll(word, "'", `'"'"'`) + "'"
 }
 
-func (c CCRemote) Checkout(ctx context.Context, sprite Sprite, git Repositories) (CheckoutRead, error) {
-	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"ssh", "-F", sprite.SSHConfig, "-o", "BatchMode=yes", sprite.Host, "git -C " + shellQuote(sprite.Root) + " status --porcelain=v2 --branch"}})
+func spriteExec(sprite Sprite, argv ...string) []string {
+	return append([]string{"sprite", "exec", "-s", sprite.Host, "--no-stdin", "--no-port-forward", "--"}, argv...)
+}
+
+func (c CCRemote) Holder(ctx context.Context, sprite Sprite) (string, error) {
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: spriteExec(sprite, "sh", "-c", spriteHolders, "sh", sprite.Root), Timeout: spriteReadTimeout})
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
-		return CheckoutRead{Refusal: fmt.Sprintf("ssh to %s could not read %s: %s", sprite.Host, sprite.Root, describeExit(result.Stderr, "exit %d", result.Code))}, nil
+		return fmt.Sprintf("sprite exec on %s could not read its processes: %s", sprite.Host, describeExit(result.Stderr, "exit %d", result.Code)), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if held := strings.Fields(result.Stdout); len(held) > 0 {
+		return "processes " + strings.Join(held, ",") + " still run on it", nil
+	}
+	return "", nil
+}
+
+func (c CCRemote) Checkout(ctx context.Context, sprite Sprite, git Repositories) (CheckoutRead, error) {
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: spriteExec(sprite, "git", "-C", sprite.Root, "status", "--porcelain=v2", "--branch"), Timeout: spriteReadTimeout})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) {
+		return CheckoutRead{Refusal: fmt.Sprintf("sprite exec on %s could not read %s: %s", sprite.Host, sprite.Root, describeExit(result.Stderr, "exit %d", result.Code))}, nil
 	}
 	if err != nil {
 		return CheckoutRead{}, err
