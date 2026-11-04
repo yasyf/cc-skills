@@ -3770,7 +3770,6 @@ func TestAnUnreadRelayWakesAParkedWorkerOnce(t *testing.T) {
 func TestAnOverdueRelayIsPolledOncePerSweepInterval(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
-	w.dispatches[testDispatch].environment = "env_sprite"
 	thread := w.sentRelay("R2", "")
 	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
 	w.now = w.now.Add(11 * time.Minute)
@@ -3791,6 +3790,7 @@ func TestAWakeThatDidNotLandRetriesWithinAMinute(t *testing.T) {
 	w.live(testLane, testDispatch, testTerminal)
 	thread := w.sentRelay("R2", "")
 	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.calls = nil
 	w.busyScreen = true
 	w.now = w.now.Add(11 * time.Minute)
 	w.step(w.desk.deadlines)
