@@ -50,6 +50,8 @@ type recordedPR struct {
 	reviews   []map[string]any
 	state     string
 	branch    string
+	base      string
+	queued    bool
 }
 
 type ciRow struct {
@@ -135,7 +137,8 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
 	runner.Reply("", "git", "fetch")
 	for _, pr := range prs {
-		runner.Reply(pr.diff, "git", "diff", "--no-color", "--no-ext-diff", "refs/remotes/origin/dev..."+pr.head)
+		runner.Reply("below-"+pr.head+"\n", "git", "merge-base", pr.head)
+		runner.Reply(pr.diff, "git", "diff", "--no-color", "--no-ext-diff", "below-"+pr.head, pr.head)
 	}
 	seeded := make([]store.ReviewRow, 0, len(prs))
 	for _, pr := range prs {
@@ -1027,6 +1030,63 @@ func TestEachNewHeadIsJudgedAgainstTheHeadHeTappedNeverTheLastCarriedOne(t *test
 	}
 }
 
+const (
+	devBefore = "0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0"
+	squashed  = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+	lowerDiff = "diff --git a/read.go b/read.go\nindex 3333333..4444444 100644\n--- a/read.go\n+++ b/read.go\n@@ -1,2 +1,3 @@\n package list\n+var archived = true\n"
+)
+
+type replayedStack struct {
+	shell.Runner
+	own string
+}
+
+func (r replayedStack) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	switch {
+	case slices.Equal(c.Argv[:2], []string{"git", "merge-base"}) && slices.Contains(c.Argv, "refs/remotes/origin/dev"):
+		return shell.Result{Stdout: squashed + "\n"}, nil
+	case slices.Equal(c.Argv[:2], []string{"git", "merge-base"}):
+		return shell.Result{Stdout: devBefore + "\n"}, nil
+	case slices.Equal(c.Argv[:2], []string{"git", "diff"}) && slices.Contains(c.Argv, squashed):
+		return shell.Result{Stdout: r.own}, nil
+	case slices.Equal(c.Argv[:2], []string{"git", "diff"}):
+		return shell.Result{Stdout: lowerDiff + r.own}, nil
+	}
+	return r.Runner.Run(ctx, c)
+}
+
+func TestAStackReplayBelowItCarriesHisTapAndAGoOnlyWhenItsOwnPatchIsTheSame(t *testing.T) {
+	for name, tc := range map[string]struct {
+		given   string
+		own     string
+		carries bool
+	}{
+		"a patch-identical replay carries his tap": {given: "tap", own: ownDiff, carries: true},
+		"a patch-identical replay carries the go":  {given: "exempt", own: ownDiff, carries: true},
+		"a changed patch carries no tap":           {given: "tap", own: ownDiff + "+\tlog(rows)\n"},
+		"a changed patch carries no go":            {given: "exempt", own: ownDiff + "+\tlog(rows)\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			value := map[string]string{"tap": "tapped", "exempt": "regression"}[tc.given]
+			putFact(t, s, 2, head2, tc.given, value, tappedAt)
+			on(t, s, recordedPR{number: 2, head: head2, login: "drive-bot", base: "lower", queued: true, diff: ownDiff}).snapshot(t)
+			putFact(t, s, 2, head, "lane", "go-lane", tappedAt.Add(time.Hour))
+			h := on(t, s, recordedPR{number: 2, head: head, login: "drive-bot", base: "lower", queued: true})
+			h.source.Runner = replayedStack{h.runner, tc.own}
+
+			row := h.snapshot(t)[2]
+
+			if row.Tapped() != tc.carries {
+				t.Fatalf("tap %q from %q by %q, exempt %v: want carried %v from %s", row.Tap, row.TapFrom, row.CarriedBy, row.Exempt, tc.carries, head2)
+			}
+			if verdict := machine.Classify(row); (verdict.Action == machine.ActionDequeue) == tc.carries {
+				t.Fatalf("verdict = %+v, want a dequeue only when nothing carries", verdict)
+			}
+		})
+	}
+}
+
 func TestRetroRow47ContentPushedOnto45744AfterHisTapGoesBackToHimInsteadOfLanding(t *testing.T) {
 	s := memory(t)
 	putFact(t, s, 45744, tapped45744[:12], "tap", "tapped", time.Date(2026, 10, 31, 1, 50, 0, 0, time.UTC))
@@ -1107,7 +1167,15 @@ func onAll(t *testing.T, s *store.Store, prs []recordedPR) harness {
 	t.Helper()
 	rows := make([]statusRow, 0, len(prs))
 	for _, pr := range prs {
-		rows = append(rows, status(pr.number, func(row *statusRow) { row.Head = pr.head }))
+		rows = append(rows, status(pr.number, func(row *statusRow) {
+			row.Head = pr.head
+			if pr.base != "" {
+				row.Base = pr.base
+			}
+			if pr.queued {
+				row.Queue = "queued"
+			}
+		}))
 	}
 	for _, pr := range prs {
 		if _, known, err := s.ReviewRow(repo, pr.number); err != nil {

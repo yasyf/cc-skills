@@ -714,9 +714,9 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		if author := open.authors[row.Number]; author != s.Author {
 			f.ForeignAuthor = author
 		}
-		if err := s.carryTap(ctx, &f, stored); err != nil {
+		if err := s.carry(ctx, &f, stored); err != nil {
 			if !errors.Is(err, errDiffUnread) || ctx.Err() != nil {
-				return nil, fmt.Errorf("#%d tap: %w", row.Number, err)
+				return nil, fmt.Errorf("#%d carry: %w", row.Number, err)
 			}
 			s.Log.Warn("pull request unread this pass", "pr", row.Number, "err", err)
 			continue
@@ -727,27 +727,47 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	return out, nil
 }
 
-func (s Source) carryTap(ctx context.Context, f *machine.Facts, stored map[string]string) error {
-	if f.Closed || f.Tap != "" && f.Tap != machine.TapTapped {
+func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]string) error {
+	if f.Closed {
 		return nil
 	}
-	tapped := f.Head
-	if f.Tap == "" {
-		var err error
-		if tapped, err = s.Store.StandingTap(s.Repo, f.Number); err != nil || tapped == "" {
+	var tapped, goHead string
+	var err error
+	switch f.Tap {
+	case machine.TapTapped:
+		tapped = f.Head
+	case "":
+		if tapped, err = s.Store.StandingTap(s.Repo, f.Number); err != nil {
 			return err
 		}
 	}
-	if err := s.hashDiff(ctx, *f, stored); err != nil || tapped == f.Head {
+	if f.Exempt {
+		goHead = f.Head
+	} else if goHead, err = s.Store.StandingGo(s.Repo, f.Number); err != nil {
 		return err
 	}
-	atTap, err := s.Store.Facts(s.Repo, f.Number, tapped)
-	if err != nil {
+	if tapped == "" && goHead == "" {
+		return nil
+	}
+	if err := s.hashDiff(ctx, *f, stored); err != nil {
 		return err
 	}
-	f.TapFrom, f.CarriedBy = tapped, gates.CarriedBy(tapped, atTap, stored)
-	if f.CarriedBy != "" {
-		f.Tap = machine.TapTapped
+	if tapped != "" && tapped != f.Head {
+		atTap, err := s.Store.Facts(s.Repo, f.Number, tapped)
+		if err != nil {
+			return err
+		}
+		f.TapFrom, f.CarriedBy = tapped, gates.CarriedBy(tapped, atTap, stored)
+		if f.CarriedBy != "" {
+			f.Tap = machine.TapTapped
+		}
+	}
+	if goHead != "" && goHead != f.Head {
+		atGo, err := s.Store.Facts(s.Repo, f.Number, goHead)
+		if err != nil {
+			return err
+		}
+		f.Exempt = gates.SameDiff(atGo, stored)
 	}
 	return nil
 }
@@ -758,11 +778,19 @@ func (s Source) hashDiff(ctx context.Context, f machine.Facts, stored map[string
 	if stored[gates.DiffFact] != "" {
 		return nil
 	}
-	base := "refs/remotes/origin/" + f.Base
-	if _, err := s.Runner.Run(ctx, shell.Command{Argv: []string{"git", "fetch", "--no-write-fetch-head", "-q", "origin", f.Head, "+refs/heads/" + f.Base + ":" + base}}); err != nil {
+	fetch, below := []string{"git", "fetch", "--no-write-fetch-head", "-q", "origin", f.Head}, []string{"git", "merge-base", f.Head}
+	for _, branch := range slices.Compact([]string{f.Base, s.Trunk}) {
+		ref := "refs/remotes/origin/" + branch
+		fetch, below = append(fetch, "+refs/heads/"+branch+":"+ref), append(below, ref)
+	}
+	if _, err := s.Runner.Run(ctx, shell.Command{Argv: fetch}); err != nil {
 		return fmt.Errorf("%w: %w", errDiffUnread, err)
 	}
-	diff, err := s.Runner.Run(ctx, shell.Command{Argv: []string{"git", "diff", "--no-color", "--no-ext-diff", base + "..." + f.Head}})
+	base, err := s.Runner.Run(ctx, shell.Command{Argv: below})
+	if err != nil {
+		return fmt.Errorf("%w: %w", errDiffUnread, err)
+	}
+	diff, err := s.Runner.Run(ctx, shell.Command{Argv: []string{"git", "diff", "--no-color", "--no-ext-diff", strings.TrimSpace(base.Stdout), f.Head}})
 	if err != nil {
 		return fmt.Errorf("%w: %w", errDiffUnread, err)
 	}

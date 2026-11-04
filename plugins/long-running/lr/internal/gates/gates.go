@@ -63,8 +63,12 @@ func DiffHash(diff string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func SameDiff(atFrom, atHead map[string]string) bool {
+	return atFrom[DiffFact] != "" && atFrom[DiffFact] == atHead[DiffFact]
+}
+
 func CarriedBy(tapped string, atTap, atHead map[string]string) string {
-	if atTap[DiffFact] != "" && atTap[DiffFact] == atHead[DiffFact] {
+	if SameDiff(atTap, atHead) {
 		return BySameDiff
 	}
 	if sameHead(atHead[SinceFact], tapped) && atHead[BehaviorFact] == BehaviorSame && (atHead[fidelityFact] == string(machine.FidelityPass) || atHead[verdictFact] != "") {

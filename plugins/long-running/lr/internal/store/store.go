@@ -323,6 +323,15 @@ func (s *Store) StandingTap(repo string, number int) (string, error) {
 	return head, err
 }
 
+func (s *Store) StandingGo(repo string, number int) (string, error) {
+	var head string
+	err := s.db.QueryRow("SELECT head FROM facts WHERE repo = ? AND number = ? AND kind = 'exempt' ORDER BY posted DESC, rowid DESC LIMIT 1", repo, number).Scan(&head)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return head, err
+}
+
 func (s *Store) TrunkFacts(repo, kind string) (map[string]string, error) {
 	rows, err := s.db.Query("SELECT head, value FROM facts WHERE repo = ? AND number = 0 AND kind = ?", repo, kind)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
