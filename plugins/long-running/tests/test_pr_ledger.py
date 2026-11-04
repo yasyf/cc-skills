@@ -3,15 +3,18 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from captain_hook.context import HookContext
 from captain_hook.events import PostToolUseEvent
 from captain_hook.snapshots.client import EvidenceIncomplete
-from captain_hook.testing.helpers import build_context
+from captain_hook.testing.fixtures import T
+from captain_hook.testing.helpers import build_context, fixture_line
 
 from hooks.call_dir import UnknownDirectory, known_path, located, run_dir, unknown_dir
 from hooks.compaction_handoff import drive_entry
+from hooks.refusal_kinds_need_owner_answer import lane_brief
 from hooks.tests.ledger_fixtures import FIXTURES
 from hooks.pr_ledger import OpenedPr, lane_name, opened_prs, opener_cwd, response_text, settled_prs
 
@@ -574,3 +577,24 @@ def test_a_session_with_no_drive_named_finds_the_drive_that_holds_it(tmp_path, m
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
 
     assert drive_entry(event(tmp_path))["drive"] == "mine"
+
+
+def launched_with(tmp_path: Path, prompt: str) -> SimpleNamespace:
+    transcript = tmp_path / f"{SESSION}.jsonl"
+    transcript.write_text(json.dumps(fixture_line(0, T.user(prompt))) + "\n")
+    return SimpleNamespace(ctx=build_context(None, transcript, tmp_path, tmp_path))
+
+
+@pytest.mark.parametrize("name", ["orca-launch/c9efe004", "lane/brief.md"])
+def test_the_judges_read_the_end_of_the_brief_the_session_was_launched_with(tmp_path, name):
+    brief = tmp_path / name
+    brief.parent.mkdir(parents=True)
+    brief.write_text("x" * 7000 + "a monitor that has passed has a bound after its final card")
+    said = lane_brief(launched_with(tmp_path, f"Lane a: read {brief} in full first."))
+
+    assert said.endswith("a bound after its final card")
+    assert len(said) < 6200
+
+
+def test_a_session_launched_with_no_brief_gives_the_judges_none(tmp_path):
+    assert lane_brief(launched_with(tmp_path, "fix the login page")) == ""
