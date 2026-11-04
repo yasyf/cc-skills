@@ -300,6 +300,11 @@ func refreshToolCopy(path, target string) error {
 			}
 		}
 	}
+	for _, entry := range entries {
+		if err := relinkInsideCopy(path, into, entry); err != nil {
+			return err
+		}
+	}
 	if into != target {
 		if err := os.Rename(into, target); err != nil {
 			return err
@@ -307,6 +312,25 @@ func refreshToolCopy(path, target string) error {
 	}
 	now := time.Now()
 	return os.Chtimes(target, now, now)
+}
+
+func relinkInsideCopy(path, into string, entry fs.DirEntry) error {
+	if entry.Type()&fs.ModeSymlink == 0 {
+		return nil
+	}
+	link, err := os.Readlink(filepath.Join(path, entry.Name()))
+	if err != nil {
+		return err
+	}
+	inside, found := strings.CutPrefix(link, path+string(os.PathSeparator))
+	if !found {
+		return nil
+	}
+	copied := filepath.Join(into, entry.Name())
+	if err := os.Remove(copied); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return os.Symlink(inside, copied)
 }
 
 func useLocalTools(home, root string) error {
