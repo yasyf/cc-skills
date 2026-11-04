@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -16,7 +17,16 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const onlyHim = "Only your approval."
+const (
+	onlyHim     = "Only your approval."
+	fieldChars  = 700
+	planChecked = "Checked against the plan by the fidelity review at this version."
+)
+
+var (
+	heading  = regexp.MustCompile(`(?m)^#{1,3}\s+(.+?)\s*$`)
+	planLine = regexp.MustCompile(`(?im)^.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix)\b.*$`)
+)
 
 func ReviewRows(snapshot []machine.Facts) []store.ReviewRow {
 	byNumber := make(map[int]machine.Facts, len(snapshot))
@@ -32,13 +42,71 @@ func ReviewRows(snapshot []machine.Facts) []store.ReviewRow {
 		if below, stuck := stuckBelow(f, byNumber); stuck {
 			waits = append(waits, fmt.Sprintf("the change below it, %s", titleOf(below)))
 		}
+		forUsers, plan, risk := section(f.Body, "Summary"), planOf(f), section(f.Body, "Risk profile")
+		for _, field := range []struct{ said, name string }{{forUsers, "a Summary"}, {plan, "a plan row"}, {risk, "a Risk profile"}} {
+			if field.said == "" {
+				waits = append(waits, "its PR body has no "+field.name)
+			}
+		}
 		said := onlyHim
 		if len(waits) > 0 {
 			said = strings.Join(waits, "; ")
 		}
-		rows = append(rows, store.ReviewRow{Number: f.Number, Head: f.Head, Lane: f.Lane, Title: titleOf(f), Waits: said, Ready: len(waits) == 0, Tapped: f.Tapped()})
+		rows = append(rows, store.ReviewRow{Number: f.Number, Head: f.Head, Lane: f.Lane, Title: titleOf(f), ForUsers: forUsers, Plan: plan, Risk: risk, Review: reviewOf(f), Waits: said, Ready: len(waits) == 0, Tapped: f.Tapped()})
 	}
 	return rows
+}
+
+func section(body, name string) string {
+	found := heading.FindAllStringSubmatchIndex(body, -1)
+	for at, match := range found {
+		if !strings.EqualFold(body[match[2]:match[3]], name) {
+			continue
+		}
+		end := len(body)
+		if at+1 < len(found) {
+			end = found[at+1][0]
+		}
+		return clipped(strings.TrimSpace(body[match[1]:end]))
+	}
+	return ""
+}
+
+func clipped(text string) string {
+	runes := []rune(text)
+	if len(runes) <= fieldChars {
+		return text
+	}
+	return strings.TrimRight(string(runes[:fieldChars-1]), " \t\n") + "…"
+}
+
+func planOf(f machine.Facts) string {
+	line := strings.TrimSpace(planLine.FindString(f.Body))
+	switch {
+	case line != "" && f.Fidelity == machine.FidelityPass:
+		return clipped(line) + " " + planChecked
+	case line != "":
+		return clipped(line)
+	case f.Fidelity == machine.FidelityPass:
+		return planChecked
+	}
+	return ""
+}
+
+func reviewOf(f machine.Facts) string {
+	ci := map[machine.CI]string{machine.CISuccess: "CI green", machine.CIFailure: "CI red", machine.CIPending: "CI running"}[f.CI]
+	approved := "no approving review"
+	if f.Approved {
+		approved = "approved"
+	}
+	graded := "not graded"
+	if f.Graded() {
+		graded = "graded, a finding needs a verdict"
+		if f.Cleared() {
+			graded = "graded clear"
+		}
+	}
+	return fmt.Sprintf("%s; %s; %s; mergeable: %s; queue: %s", ci, approved, graded, f.Mergeable, f.Queue)
 }
 
 func titleOf(f machine.Facts) string {

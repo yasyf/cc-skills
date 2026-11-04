@@ -10,10 +10,13 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const rowsRepo = "o/r"
+const (
+	rowsRepo = "o/r"
+	rowBody  = "## Context\n\nWhy.\n\n## Summary\n\nChats open faster.\n\n## Motivation\n\nPlan step 7 lists it.\n\n## Risk profile\n\nLow.\n\n## Design\n\nHow.\n"
+)
 
 func rowFacts(number int, change func(*machine.Facts)) machine.Facts {
-	f := machine.Facts{Repo: rowsRepo, Number: number, Title: "a change", Head: "aaaaaaaaaa", Lane: "lane-7", Branch: "b", CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
+	f := machine.Facts{Repo: rowsRepo, Number: number, Title: "a change", Head: "aaaaaaaaaa", Lane: "lane-7", Branch: "b", CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Body: rowBody}
 	if change != nil {
 		change(&f)
 	}
@@ -104,5 +107,28 @@ func TestAPRWithdrawnAtItsHeadLeavesTheTabAndANewHeadBringsItBack(t *testing.T) 
 	}
 	if rows := written(t, s, rowFacts(1, func(f *machine.Facts) { f.Head = "bbbbbbbbbb" })); rows[1].Head != "bbbbbbbbbb" {
 		t.Fatalf("rows = %+v, want #1 back at its new head", rows)
+	}
+}
+
+func TestARowCarriesEveryCardFieldFromTheBodyAndTheFacts(t *testing.T) {
+	row := ReviewRows([]machine.Facts{rowFacts(1, nil)})[0]
+	if row.ForUsers != "Chats open faster." || row.Risk != "Low." || !strings.HasPrefix(row.Plan, "Plan step 7 lists it.") {
+		t.Fatalf("row = %+v, want Summary, Risk profile and the plan line, each stopping at the next heading", row)
+	}
+	if !strings.Contains(row.Review, "CI green; approved; graded clear; mergeable: clean") {
+		t.Fatalf("review = %q, want each check in words", row.Review)
+	}
+}
+
+func TestARowWithAnEmptyCardFieldIsNeverReady(t *testing.T) {
+	for name, body := range map[string]string{
+		"no summary": "## Risk profile\n\nLow.\n",
+		"no risk":    "## Summary\n\nChats open faster.\n",
+		"no body":    "",
+	} {
+		row := ReviewRows([]machine.Facts{rowFacts(1, func(f *machine.Facts) { f.Body = body })})[0]
+		if row.Ready || !strings.Contains(row.Waits, "its PR body has no") {
+			t.Fatalf("%s: row = %+v, want it not ready and saying which field is missing", name, row)
+		}
 	}
 }
