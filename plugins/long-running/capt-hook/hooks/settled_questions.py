@@ -33,7 +33,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, CompactionState, ccn, rulings, script, script_module
 from .judge_metrics import judge_call
-from .owner_facing import CCI_POST, SLACK_CARD, posted_text, shown
+from .owner_facing import post_values, SLACK_CARD, posted_text, shown
 from .register_gates import fenced
 from .register_injection import drive_args
 from .ruling_judge import MATCH_COMMAND, candidate_rows
@@ -167,7 +167,7 @@ def asked(evt: BaseHookEvent) -> list[tuple[str, str]]:
         return [(card["title"], shown)] if card.get("title") and (card.get("options") or card.get("waits") or card.get("asks")) else []
     found = []
     for call in evt.command.calls("cci"):
-        values = CCI_POST.bind(call).values
+        values = post_values(evt, call)
         if values.get("words", ())[:1] == ("post",) and "root" in values.get("lane", ()) and {"decide", "decision"} & set(values.get("kind", ())):
             text = posted_text(values)
             found += [(sentence, text) for sentence in SENTENCE.split(text) if ORDERS_CARD.search(sentence)]

@@ -8,7 +8,7 @@ from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, W
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound, CompactionState
 from .lane_rotation import DriveActive
-from .owner_facing import CCI_POST, posted_text
+from .owner_facing import post_values, posted_text
 
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 CLOCK = r"\d{1,2}(?::\d{2})?\s*[AP]\.?M\.?|\d{1,2}:\d{2}"
@@ -47,7 +47,7 @@ def posts(evt: BaseHookEvent) -> Iterator[tuple[str, set[str], dict[str, str], b
         yield str(given.get("text") or ""), {str(given.get("kind") or "").lower()}, {str(key): str(value) for key, value in (given.get("attrs") or {}).items()}, bool(given.get("re"))
         return
     for call in evt.command.calls("cci"):
-        values = CCI_POST.bind(call).values
+        values = post_values(evt, call)
         if values.get("words", ())[:1] == ("post",):
             pairs = (pair.partition("=") for value in values.get("attr", ()) for pair in str(value).split(","))
             yield posted_text(values), set(values.get("kind", ())), {key: value for key, _, value in pairs}, bool(values.get("re"))

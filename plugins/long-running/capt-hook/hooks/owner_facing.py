@@ -32,10 +32,10 @@ from captain_hook import (
     on,
 )
 from captain_hook.annotations import dispatch_pairs
-from captain_hook.cmd import Call
+from captain_hook.cmd import Call, Cmd
 from captain_hook.util import reqenv
 
-from .call_dir import located
+from .call_dir import UnknownDirectory, located
 from .compaction_handoff import Bound, ccn, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, rulings, script, script_module
 from .judge_metrics import judge_call
 from .nudges import once_per_hour
@@ -175,6 +175,7 @@ AUTHORIZED_BESIDE_A_QUESTION = (
     "Warning, nothing was blocked: A GO, LIFT, or UNBLOCK line or `cci post` record is never written while an owner question on its subject is unanswered."
     " Wait for the answer, then write it in a later turn."
 )
+SUBSTITUTED = re.compile(r'^"?\$\((?P<inner>.*)\)"?$', re.DOTALL)
 CCI_POST = CommandSchema(
     "cci",
     operands=(Operand("words", count="*"),),
@@ -859,7 +860,7 @@ def attached(values: dict[str, tuple]) -> str:
 
 
 def causal_records(evt: BaseHookEvent) -> list[tuple[dict[str, tuple], str]]:
-    posts = [values for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
+    posts = [values for call in evt.command.calls("cci") if (values := post_values(evt, call)).get("words", ())[:1] == ("post",)]
     return [
         (values, text)
         for values in posts
@@ -925,6 +926,35 @@ def record_text(values: dict[str, tuple]) -> str:
     return " ".join([*(str(word) for word in words if word), *prs])
 
 
+def substituted(evt: BaseHookEvent, call: Call, flag: str) -> str | Path | None:
+    words = call.source.words
+    raw = next((word.raw for before, word in zip(words, words[1:]) if before.value == flag), None)
+    raw = raw or next((word.raw.removeprefix(f"{flag}=") for word in words if word.raw.startswith(f"{flag}=")), None)
+    if raw is None or not (found := SUBSTITUTED.match(raw)):
+        return None
+    inner = found["inner"]
+    if redirect := next(ast_grep.find_kinds(inner, "bash", frozenset({"heredoc_redirect"})), None):
+        text = next(ast_grep.find_kinds(inner, "bash", frozenset({"heredoc_body"}))).text
+        return ("\n".join(line.lstrip("\t") for line in text.split("\n")) if redirect.text.startswith("<<-") else text).rstrip("\n")
+    read = inner.strip()
+    command = Cmd.parse(f"cat {read.removeprefix('<')}" if read.startswith("<") else read)
+    match [[word.value for word in nested.source.words] for nested in command.calls()] if command else []:
+        case [["cat", str(path)]]:
+            file = located(evt, call, path)
+            return file.read_text(errors="replace").rstrip("\n") if file.exists() else file
+        case _:
+            return None
+
+
+def post_values(evt: BaseHookEvent, call: Call) -> dict[str, tuple]:
+    values = CCI_POST.bind(call).values
+    try:
+        body = substituted(evt, call, "--text")
+    except UnknownDirectory:
+        return values
+    return values | {"text": (body,)} if isinstance(body, str) else values
+
+
 def posted_text(values: dict[str, tuple]) -> str:
     return "\n".join(part for part in (record_text(values), attached(values)) if part)
 
@@ -933,7 +963,7 @@ def authorizing_lines(evt: BaseHookEvent) -> list[str]:
     records = [
         posted_text(values)
         for call in evt.command.calls("cci")
-        if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)
+        if (values := post_values(evt, call)).get("words", ())[:1] == ("post",)
         and AUTHORIZING_KINDS & set(values.get("kind", ()))
     ]
     return AUTHORIZING_LINE.findall(inbox_text(evt)) + records

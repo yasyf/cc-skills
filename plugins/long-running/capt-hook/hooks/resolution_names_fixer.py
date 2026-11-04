@@ -8,7 +8,7 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, 
 
 from .compaction_handoff import CompactionState, Coordinator, coordinator_tests
 from .lane_rotation import DriveActive
-from .owner_facing import CCI_POST, posted_text
+from .owner_facing import post_values, posted_text
 
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 FAILURE_KINDS = frozenset({"blocker", "incident", "urgent"})
@@ -21,7 +21,7 @@ ASK = json.dumps({"seq": 339405, "kind": "ask", "text": "which stack reads the e
 
 
 def resolutions(evt: BaseHookEvent) -> list[tuple[list[str], str]]:
-    posts = [values for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
+    posts = [values for call in evt.command.calls("cci") if (values := post_values(evt, call)).get("words", ())[:1] == ("post",)]
     return [([seq.lstrip("#") for value in values["resolves"] for seq in str(value).split(",") if seq], posted_text(values)) for values in posts if values.get("resolves")]
 
 

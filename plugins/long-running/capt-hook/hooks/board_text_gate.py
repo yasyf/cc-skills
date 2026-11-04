@@ -12,14 +12,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, ast_grep, on
-from captain_hook.cmd import Cmd
+from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, LR, Bound, CompactionState, ccn, rulings, script, script_module
-from .call_dir import known_path, located
+from .call_dir import known_path
 from .deadline_plans import unowned_deadline
-from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
+from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze, substituted
 from .register_injection import drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.board_fixtures import (
@@ -55,7 +54,6 @@ HIT_COUNT = re.compile(r"\b(?:\d+|no|zero|one|two|three|four|five|six|seven|eigh
 ONLY_THESE = re.compile(r"\bthese changes only\b|\bonly these changes\b|\bonly this block\b", re.IGNORECASE)
 SWEEP_LINE = re.compile(r"^(?P<state>open|deleted|authorized)\s+(?P<answer>\S+)\s+(?P<key>\S+)\s+(?P<where>\S+:\d+)\s+(?P<name>.+)$")
 FIDELITY_TEXT = re.compile(r"^fidelity: (?P<verdict>ok|missing) text (?P<sha>[0-9a-f]{12})\b\s*(?P<detail>.*)$")
-SUBSTITUTED = re.compile(r'^"?\$\((?P<inner>.*)\)"?$', re.DOTALL)
 OK = "ok"
 REVIEW_BUDGET = 200_000
 PLAN_CITE = re.compile(r"\bplan(?: line)? (\d{1,4})\b", re.IGNORECASE)
@@ -108,25 +106,7 @@ def calls(evt: BaseHookEvent, verbs: tuple[str, ...]) -> Iterator[tuple[Call, di
 
 def reply_body(evt: BaseHookEvent, call: Call, values: dict[str, tuple]) -> str | Path | None:
     """The markdown a reply posts: its literal `--body`, or what a `--body "$(cat <<'EOF' ... EOF)"` heredoc or `--body "$(cat <file>)"` substitutes, as the shell would; the file's path when it does not exist yet, and None when it has no body."""
-    if (body := first(values, "body")) is not None:
-        return body
-    words = call.source.words
-    raw = next((word.raw for flag, word in zip(words, words[1:]) if flag.value == "--body"), None)
-    raw = raw or next((word.raw.removeprefix("--body=") for word in words if word.raw.startswith("--body=")), None)
-    if raw is None or not (substituted := SUBSTITUTED.match(raw)):
-        return None
-    inner = substituted["inner"]
-    if redirect := next(ast_grep.find_kinds(inner, "bash", frozenset({"heredoc_redirect"})), None):
-        text = next(ast_grep.find_kinds(inner, "bash", frozenset({"heredoc_body"}))).text
-        return ("\n".join(line.lstrip("\t") for line in text.split("\n")) if redirect.text.startswith("<<-") else text).rstrip("\n")
-    read = inner.strip()
-    command = Cmd.parse(f"cat {read.removeprefix('<')}" if read.startswith("<") else read)
-    match [[word.value for word in found.source.words] for found in command.calls()] if command else []:
-        case [["cat", str(path)]]:
-            file = located(evt, call, path)
-            return file.read_text().rstrip("\n") if file.exists() else file
-        case _:
-            return None
+    return body if (body := first(values, "body")) is not None else substituted(evt, call, "--body")
 
 
 def as_text(verb: str, data: bytes, session: str, path: Path | None, where: str) -> Published:

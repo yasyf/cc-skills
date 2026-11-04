@@ -8,7 +8,7 @@ from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, W
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
 from .lane_rotation import ROOT, route, routed
-from .owner_facing import CCI_POST, record_text
+from .owner_facing import post_values, record_text
 from .session_tree import drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -31,7 +31,7 @@ def posts(evt: BaseHookEvent) -> Iterator[tuple[str, list[str], str, str, bool, 
             yield str(record.get("lane") or lane), [str(to) for to in record.get("to") or ()], str(record.get("kind") or ""), text, not record.get("path") and "\n" not in text, {str(key): str(value) for key, value in (record.get("attrs") or given.get("attrs") or {}).items()}
         return
     for call in evt.command.calls("cci"):
-        values = CCI_POST.bind(call).values
+        values = post_values(evt, call)
         if values.get("words", ())[:1] != ("post",):
             continue
         text = record_text(values)

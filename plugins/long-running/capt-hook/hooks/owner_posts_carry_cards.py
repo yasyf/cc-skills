@@ -9,7 +9,7 @@ from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
 from .gate5_release import OWNER_LANES
 from .lane_slack_status import CC_SLACK, WRITE_TOOLS
-from .owner_facing import CCI_POST, posted_text
+from .owner_facing import post_values, posted_text
 from .owner_returns import DM_CARD, REPLY, dm_posts
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -113,7 +113,7 @@ def owes_card(values: dict[str, tuple]) -> bool:
 def release_records(evt: BaseHookEvent) -> list[str]:
     if evt.tool_name == POST_TOOL:
         return [json.dumps(evt._tool_input)] if evt._tool_input.get("kind") == "release" else []
-    posts = [values for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
+    posts = [values for call in evt.command.calls("cci") if (values := post_values(evt, call)).get("words", ())[:1] == ("post",)]
     return ["\n".join([posted_text(values), *map(str, values.get("attr", ()))]) for values in posts if owes_card(values)]
 
 

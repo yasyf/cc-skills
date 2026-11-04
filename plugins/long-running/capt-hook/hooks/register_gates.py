@@ -30,7 +30,7 @@ from .compaction_handoff import CCN_TIMEOUT_SECONDS, LOCK_WAIT_ENV, REGISTER_FEN
 from .lane_landing import GH_REPO_FLAGS, HELP_FLAGS, lane_name, outside_drive_repo, program
 from .lane_rotation import DriveActive
 from .nudges import once_per_hour
-from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, inbox_text, incident_spawn, open_incidents, posted_text, prose, read_incident_source
+from .owner_facing import post_values, INCIDENT_DIGEST, INCIDENT_STORE, inbox_text, incident_spawn, open_incidents, posted_text, prose, read_incident_source
 from .pr_ledger import OPENERS
 from .register_injection import drive_args, helper
 from .root_context import FILE_WRITES
@@ -222,7 +222,7 @@ def posted(evt: BaseHookEvent, kinds: frozenset[str]) -> list[str]:
     return [
         posted_text(values)
         for call in evt.command.calls("cci")
-        if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",) and kinds & set(values.get("kind", ()))
+        if (values := post_values(evt, call)).get("words", ())[:1] == ("post",) and kinds & set(values.get("kind", ()))
     ]
 
 
