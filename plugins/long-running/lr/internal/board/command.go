@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
@@ -466,6 +467,9 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 			}
 			if err != nil {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING the card draws unchecked against his answers: %s\n", strings.ReplaceAll(err.Error(), "\n", "; "))
+			}
+			if steps := cardtext.StepsForHim(data); steps != "" {
+				fmt.Fprintf(c.OutOrStdout(), "WARNING this card hands him steps (%q). An agent does sign-ins and browser steps itself with cookiesync, through the agent-browser-with-cookies skill: his login, one Touch ID tap. Do them, and card only what only he can decide.\n", steps)
 			}
 			return nil
 		},
