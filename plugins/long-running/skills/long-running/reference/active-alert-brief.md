@@ -278,12 +278,13 @@ Do:
      dev red is never false.
      One actor per incident (SKILL.md R16): when `tools/ci oncall incidents` shows an
      open ai-oncall incident covering this alert, route every finding and requested
-     action through its commander with `ci oncall say --kind finding|request`, or take
-     it over; never ship, roll back, freeze, mute, page or post beside it. You may take
-     it over without asking the owner, at warn or alert level, for any alert this
-     drive's work takes: use the `incident-takeover` skill, which records you as the
-     owner and says so under the page post. That standing grant covers only the Slack
-     posts the takeover itself needs, in the incident channel and the page thread.
+     action through its commander with `ci oncall say --kind finding|request`; never
+     ship, roll back, freeze, mute, page or post beside it. Investigating beside it is
+     yours to do. You never run `ci oncall takeover`, which records the takeover in
+     the owner's name: when you judge ai-oncall's handling wrong or too slow, say so
+     in a `request` and in one record to the coordinator. Only the owner's own words
+     take an incident over, and a refused or waiting `ci oncall connect` is never a
+     reason.
      No credential is read from any store, file, SSM parameter or environment unless the
      owner's words in this brief name it; a mute, an ack or a monitor change goes through
      ai-oncall's verb or an ask in the page thread, never a key you fetched.
