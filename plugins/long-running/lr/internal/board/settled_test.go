@@ -65,6 +65,11 @@ func (j *judgeCalls) judge(_ context.Context, kind, evidence, _ string) (*Judgme
 
 func settledBoard(t *testing.T, board []any, answers ...ownerAnswer) (Cards, *shelltest.Fake, *[]string) {
 	t.Helper()
+	return settledBoardFirst(t, func(*shelltest.Fake) {}, board, answers...)
+}
+
+func settledBoardFirst(t *testing.T, first func(*shelltest.Fake), board []any, answers ...ownerAnswer) (Cards, *shelltest.Fake, *[]string) {
+	t.Helper()
 	listed, err := json.Marshal(answers)
 	if err != nil {
 		t.Fatal(err)
@@ -78,6 +83,7 @@ func settledBoard(t *testing.T, board []any, answers ...ownerAnswer) (Cards, *sh
 		t.Fatal(err)
 	}
 	fake := &shelltest.Fake{}
+	first(fake)
 	fake.Reply(string(listed), "ccn", "-R", "/co", "answer", "list")
 	fake.Reply(`{"id":"c4rd5"}`, "ccn", "-R", "/co", "ledger", "add")
 	fake.Reply(string(all), "cc-present", "outcomes", "--all")
@@ -268,5 +274,59 @@ func TestACardWhoseExplainMoreIsOnlyALinkIsRefusedBeforeAnyJudgeRuns(t *testing.
 	}
 	if len(judged.evidence) != 0 {
 		t.Fatalf("a bare card reached the judge: %v", judged.evidence)
+	}
+}
+
+func touchedAt(t *testing.T, at time.Time) func(*shelltest.Fake) {
+	t.Helper()
+	one, err := json.Marshal(map[string]any{"rev": 7, "onBoard": true, "doc": map[string]any{"blocks": []any{oldChatBlock()}}, "answers": []any{
+		map[string]any{"origin": "agent", "at": cardsNow.Format(time.RFC3339)},
+		map[string]any{"origin": "human", "at": at.Format(time.RFC3339)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(fake *shelltest.Fake) { fake.Reply(string(one), "cc-present", "outcomes", "--block") }
+}
+
+func TestASweepLeavesACardHeTouchedInTheLastTwoMinutes(t *testing.T) {
+	cards, fake, withdrawn := settledBoardFirst(t, touchedAt(t, cardsNow.Add(-time.Minute)), oldChatUp, upgradeOnce)
+	var out bytes.Buffer
+
+	if err := cards.Unask(context.Background(), "supervisor", (&judgeCalls{verdict: "yes"}).judge, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	if removed := removedBlocks(fake); len(removed) != 0 || len(*withdrawn) != 0 {
+		t.Fatalf("removed %q, withdrew %q from under his hands", removed, *withdrawn)
+	}
+	if !strings.Contains(out.String(), "HELD "+oldChatCard) {
+		t.Fatalf("out = %q", out.String())
+	}
+}
+
+func TestASweepKeepsGoingWhenTheBoardHoldsACardHeTouched(t *testing.T) {
+	refusal := "refusing to remove block: the human's choice.selected holds it for 30 minutes unless the round is submitted"
+	cards, _, withdrawn := settledBoardFirst(t, func(fake *shelltest.Fake) { fake.Fail(1, refusal, "cc-present", "remove-block") }, oldChatUp, upgradeOnce)
+	var out bytes.Buffer
+
+	if err := cards.Unask(context.Background(), "supervisor", (&judgeCalls{verdict: "yes"}).judge, &out); err != nil {
+		t.Fatalf("a held card failed the pass: %v", err)
+	}
+
+	if len(*withdrawn) != 0 || !strings.Contains(out.String(), "HELD "+oldChatCard) {
+		t.Fatalf("withdrew %q, out %q", *withdrawn, out.String())
+	}
+}
+
+func TestASweepTakesDownACardHeTouchedLongerAgo(t *testing.T) {
+	cards, fake, _ := settledBoardFirst(t, touchedAt(t, cardsNow.Add(-3*time.Minute)), oldChatUp, upgradeOnce)
+
+	if err := cards.Unask(context.Background(), "supervisor", (&judgeCalls{verdict: "yes"}).judge, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if removed := removedBlocks(fake); len(removed) != 1 {
+		t.Fatalf("removed %q, want the card", removed)
 	}
 }

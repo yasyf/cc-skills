@@ -10,16 +10,19 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 )
 
 const (
-	answersJudged = 4
-	confirmKind   = "confirm"
-	checkedField  = "settled-checked"
-	askedField    = "settled-asked"
+	answersJudged    = 4
+	confirmKind      = "confirm"
+	touchedHold      = 2 * time.Minute
+	boardHoldRefusal = "holds it for"
+	checkedField     = "settled-checked"
+	askedField       = "settled-asked"
 )
 
 type ownerAnswer struct {
@@ -212,7 +215,7 @@ func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Write
 		}
 		settled, err := settles(ctx, judge, shown, found)
 		if settled != nil {
-			if err := c.close(ctx, lane, ask.ID, fields, settled.Line(), settled.Line(), out); err != nil {
+			if err := c.sweepOff(ctx, lane, ask.ID, fields, settled.Line(), settled.Line(), out); err != nil {
 				return err
 			}
 			continue
