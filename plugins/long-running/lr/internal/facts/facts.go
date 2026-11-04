@@ -155,6 +155,15 @@ func (s Source) WriteRows(ctx context.Context, snapshot []machine.Facts) error {
 	return posted
 }
 
+func (s Source) FoldRows(ctx context.Context) error {
+	held, err := s.holds(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.Rows().Pass(ctx, heldWords(held))
+	return err
+}
+
 func (s Source) splitEnded(numbers []int, members memberRead, itemed map[int]bool) ([]int, []machine.Facts) {
 	open := make([]int, 0, len(numbers))
 	var ended []machine.Facts
