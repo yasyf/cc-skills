@@ -21,6 +21,7 @@ TESTDATA = Path(__file__).parents[1] / "lr" / "internal" / "owner" / "testdata"
 HAND_LEDGER = "# Owner message ledger (communicator).\n| time | message (short) | routed | replied |\n|---|---|---|---|\n| 7:32 PM | a hand row | coordinator 346167 | yes 7:33 |\n"
 OPEN = "| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n"
 MARKED = "| m1 | Nov 2 8:05 PM | keep the nightly report | 346705 | responded |\n"
+SEVERAL_ASKS = "is the old-tree failure the same bug or another one? also recap the last hour with an ETA each, and ship the incident fix.\n\nalso if an old-tree Mac chat started the run, why is it in the new format? explain it"
 ASKED = {"questions": [{"question": "Merge #48401 now?", "header": "Ask", "options": [{"label": "Go"}, {"label": "Hold"}], "multiSelect": False}]}
 
 
@@ -50,7 +51,7 @@ class Window:
         self.ledger.write_text(text)
 
     def rows(self) -> list[str]:
-        return [line for line in self.ledger.read_text().splitlines() if re.match(r"\| m\d+ \|", line)]
+        return [line for line in self.ledger.read_text().splitlines() if re.match(r"\| m\d+(?:\.\d+)? \|", line)]
 
     def queued(self, text: str) -> None:
         entry = {"isSidechain": False, "uuid": "u1", "parentUuid": None, "sessionId": SESSION, "timestamp": "2026-10-28T03:53:25.695Z"}
@@ -310,3 +311,65 @@ def test_an_owner_slack_dm_row_posts_its_owner_record(communicator: Window, bus:
     communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
 
     assert bus.posts() == [owner_record("m1", "Meant to approve 43807")] and notes.added == []
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        (SEVERAL_ASKS, ["is the old-tree failure the same bug or another one?", "also recap the last hour with an ETA each, and ship the incident fix.", "also if an old-tree Mac chat started the run, why is it in the new format? explain it"]),
+        ("ship the relay fix, also fix the stop hook so it waits", ["ship the relay fix", "also fix the stop hook so it waits"]),
+        (
+            "ok so two separate issues, for the first chat explain how a new build started a run on an old runner, then for the second user explain what their issue is",
+            ["ok so two separate issues, for the first chat explain how a new build started a run on an old runner", "then for the second user explain what their issue is"],
+        ),
+        ("two issues here, the relay drops a write, the stop hook waits, and the dashboard lags", ["two issues here, the relay drops a write, the stop hook waits, and the dashboard lags"]),
+        ("keep the report | the nightly one\nand the weekly", ["keep the report | the nightly one\nand the weekly"]),
+        ("is it live? ok", ["is it live? ok"]),
+        ("> why is the old build in the new format?\nyou never answered that one, so answer it now", ["> why is the old build in the new format?\nyou never answered that one, so answer it now"]),
+        ("add a one-time migration of each chat (we do that already, right? so it can open in place) before the release", ["add a one-time migration of each chat (we do that already, right? so it can open in place) before the release"]),
+        ("\n\n".join(f"fix the bug number {n} in the relay" for n in range(7)), ["\n\n".join(f"fix the bug number {n} in the relay" for n in range(7))]),
+    ],
+)
+def test_asks_splits_a_message_at_its_questions_also_orders_and_paragraphs_and_fails_open(text: str, want: list[str]) -> None:
+    assert owner_ledger.asks(text) == want
+
+
+def test_a_message_with_several_asks_adds_one_row_and_one_owner_record_per_ask(communicator: Window, bus: Bus, notes: Notes) -> None:
+    [result] = communicator.prompt(SEVERAL_ASKS)
+
+    rows = communicator.rows()
+    assert [row.split(" | ")[0] for row in rows] == ["| m1.1", "| m1.2", "| m1.3"]
+    assert all(row.endswith("|  | open |") for row in rows)
+    assert [post["argv"][8] for post in bus.posts()] == ["owner:m1.1", "owner:m1.2", "owner:m1.3"]
+    assert bus.posts()[0] == owner_record("m1.1", "is the old-tree failure the same bug or another one?")
+    assert len(notes.added) == 1
+    assert "`m1.1`, `m1.2`, `m1.3`" in result.message
+    assert f"`{owner_ledger.LR} owner mark <row> responded|addressed [--routed <seq>] --drive brook-drive`" in result.message
+
+
+def test_one_answered_ask_leaves_its_siblings_holding_the_stop(communicator: Window) -> None:
+    communicator.prompt(SEVERAL_ASKS)
+    communicator.ledger.write_text(communicator.ledger.read_text().replace("ship the incident fix. |  | open |", "ship the incident fix. | 384101 | responded |"))
+
+    [result] = communicator.stop()
+
+    assert result.action == Action.block
+    assert re.search(r"m1\.1 \w{3} \d{1,2} \d{1,2}:\d{2} [AP]M: is the old-tree failure the same bug or another one\?", result.message)
+    assert "m1.3 " in result.message
+    assert "m1.2 " not in result.message
+
+
+def test_the_next_message_numbers_past_a_split_one(communicator: Window) -> None:
+    communicator.prompt(SEVERAL_ASKS)
+
+    communicator.prompt("keep the nightly report")
+
+    assert communicator.rows()[-1].startswith("| m2 | ")
+
+
+def test_a_repeat_delivery_of_a_split_message_records_nothing(communicator: Window, bus: Bus) -> None:
+    communicator.prompt(SEVERAL_ASKS)
+
+    assert communicator.prompt(SEVERAL_ASKS) == []
+
+    assert len(communicator.rows()) == len(bus.posts()) == 3

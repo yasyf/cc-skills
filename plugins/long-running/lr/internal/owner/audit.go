@@ -16,8 +16,8 @@ const (
 )
 
 var (
-	ledgerRow  = regexp.MustCompile(`(?m)^\| (m\d+) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order) \|$`)
-	orderToken = regexp.MustCompile(`\bowner:(m\d+)\b`)
+	ledgerRow  = regexp.MustCompile(`(?m)^\| (m\d+(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order) \|$`)
+	orderToken = regexp.MustCompile(`\bowner:(m\d+(?:\.\d+)?)\b`)
 	sentence   = regexp.MustCompile(`[^.!?\n]+`)
 	imperative = regexp.MustCompile(`(?i)^\W*(?:(?:also|and|but|ok|so|now|then|please)\W+)*(?:add|build|bring|change|check|close|consider|cut|delete|design|dig|drop|explain|figure|find|fix|get|give|keep|land|let|make|merge|move|mute|put|raise|redesign|release|remove|restore|run|send|ship|show|spin|start|stop|switch|tell|turn|use|write)\b`)
 	obligation = regexp.MustCompile(`(?i)\b(?:need to|should(?:n['’]t)?|must|make sure|let['’]s|don['’]t|do not|never|always)\b`)
@@ -58,6 +58,10 @@ func Orders(text string) []string {
 
 func (r Row) Order() bool {
 	return r.State != noOrder && !strings.HasPrefix(r.Text, boardTap) && !question(r.Text)
+}
+
+func (r Row) Owed() bool {
+	return r.Order() || r.State == opened && question(r.Text)
 }
 
 func question(text string) bool {
@@ -101,7 +105,7 @@ func Undelivered(rows []Row, lanes []Lane, proofs []client.Record) []Row {
 			}
 		}
 	}
-	return slices.DeleteFunc(slices.Clone(rows), func(row Row) bool { return covered[row.ID] || !row.Order() })
+	return slices.DeleteFunc(slices.Clone(rows), func(row Row) bool { return covered[row.ID] || !row.Owed() })
 }
 
 func Tokens(rows []Row) string {

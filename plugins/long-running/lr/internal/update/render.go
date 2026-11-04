@@ -484,7 +484,7 @@ func orderLines(rows []owner.Row) []string {
 	if len(rows) == 0 {
 		return nil
 	}
-	lines := []string{"", fmt.Sprintf("Owner orders with no live lane, open PR or landed or done record (%d):", len(rows))}
+	lines := []string{"", fmt.Sprintf("Owner asks still open, orders with no live lane, open PR or landed or done record and questions nobody answered (%d):", len(rows))}
 	for _, row := range rows {
 		lines = append(lines, "- "+row.Line())
 	}

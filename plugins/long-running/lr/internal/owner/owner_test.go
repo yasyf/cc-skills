@@ -315,3 +315,24 @@ func TestANoOrderRowLeavesTheWaitingListAndStillCountsTowardTheNextID(t *testing
 		t.Fatalf("row %s, err %v", row, err)
 	}
 }
+
+func TestAnAsksRowIsMarkedAloneAndTheNextMessageNumbersPastIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "owner-ledger.md")
+	if err := os.WriteFile(path, []byte(splitLedger), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Mark(path, "m203.3", responded, 384200); err != nil {
+		t.Fatal(err)
+	}
+	row, err := Add(path, addedAt, "keep the nightly report", opened, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := Rows(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row != "m205" || len(waiting) != 5 || !strings.HasSuffix(waiting[0], "| 384100 | open |") || !strings.HasSuffix(waiting[2], "| 384200 | responded |") {
+		t.Fatalf("row %s, waiting %q", row, waiting)
+	}
+}

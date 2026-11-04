@@ -45,8 +45,8 @@ const (
 var batchedKinds = []string{"report", "note", "answer", "done", "head", "state", "serving", "release", "evidence", "decision"}
 
 var (
-	rowID     = regexp.MustCompile(`(?m)^\| m(\d+) \|`)
-	rowState  = regexp.MustCompile(`(?m)^\| m\d+ \| .* \| (open|responded|addressed|no-order) \|$`)
+	rowID     = regexp.MustCompile(`(?m)^\| m(\d+)(?:\.\d+)? \|`)
+	rowState  = regexp.MustCompile(`(?m)^\| m\d+(?:\.\d+)? \| .* \| (open|responded|addressed|no-order) \|$`)
 	cellBreak = strings.NewReplacer("|", `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
 	pacific   = mustZone("America/Los_Angeles")
 )

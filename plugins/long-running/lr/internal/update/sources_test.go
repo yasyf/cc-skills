@@ -167,7 +167,7 @@ func TestUndeliveredOwnerOrdersFollowTheOverdueItemsAtTheTop(t *testing.T) {
 
 	lines := strings.Split(Render(in).Text, "\n")
 
-	want := []string{"", "Owner orders with no live lane, open PR or landed or done record (1):", "- m85 Nov 3 4:50 AM: build the phone app for approvals", ""}
+	want := []string{"", "Owner asks still open, orders with no live lane, open PR or landed or done record and questions nobody answered (1):", "- m85 Nov 3 4:50 AM: build the phone app for approvals", ""}
 	if !reflect.DeepEqual(lines[1:5], want) || !strings.HasPrefix(lines[5], "## "+sinceTitle) {
 		t.Fatalf("the update opens:\n%s", strings.Join(lines[:6], "\n"))
 	}
