@@ -201,6 +201,29 @@ func TestALaunchPostsAnAddressedLineWithNoClockAndPrintsItsVerdict(t *testing.T)
 	}
 }
 
+func TestALaunchWarnsOnABriefWithASecondCCXLine(t *testing.T) {
+	for _, tt := range []struct {
+		name, ccx string
+		warned    bool
+	}{
+		{"two lines", "ccx: role=build\nccx: incident=none\n", true},
+		{"one line", "ccx: role=build\n", false},
+		{"prose naming it", "ccx: role=build\nThe first ccx: line wins.\n", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newPosterFixture(t)
+			brief := f.brief(t, "brief-of-a.md", "Register slice: lane=new-lane step=all\nScale: no N\n"+tt.ccx)
+			f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+			if _, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief, Now: true}, time.Minute); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(f.out.String(), "WARN brief "+brief+" has 2 `ccx:` lines"); got != tt.warned {
+				t.Fatalf("warned = %v, want %v:\n%s", got, tt.warned, f.out)
+			}
+		})
+	}
+}
+
 func TestALaunchTheRunnerRefusesReturnsItsVerdict(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "b.md", "work\n"+briefLines)

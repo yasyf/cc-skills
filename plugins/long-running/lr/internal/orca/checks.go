@@ -29,6 +29,7 @@ var (
 	scaleRule     = time.Date(2026, 10, 30, 13, 11, 35, 0, time.UTC)
 	briefSlice    = regexp.MustCompile(`(?m)^` + sliceLine)
 	briefScale    = regexp.MustCompile(`(?m)^[ \t>*_-]*Scale:`)
+	briefCCX      = regexp.MustCompile(`(?m)^ccx:.*$`)
 	briefIncident = regexp.MustCompile(`(?m)^ccx:.*\bincident=([\w.-]+)`)
 	briefStanding = regexp.MustCompile(`(?m)^Standing: *\S`)
 	briefSlack    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?mcp=slack(?:\s|$)`)
