@@ -2,6 +2,7 @@
 
 Contents:
 - [Dashboard app startup](#dashboard-app-startup)
+- [Going live](#going-live)
 - [Owner bar and user testing](#owner-bar-and-user-testing)
 - [One model, one stream](#one-model-one-stream)
 - [Seven states, one each](#seven-states-one-each)
@@ -16,6 +17,19 @@ Contents:
 At drive start, `lr dashboard install` writes the launchd job `com.yasyf.long-running.dashboard.<drive>` running `dashboard/app/server.py --config <state dir>/dashboard.json`. The config names the drive, ledger, board session and URL, repo, progress-doc label, release doc, story file, host, port, `tailnet_owner`, which is the owner's Tailscale sign-in, and keeper lane `update-desk`, the communicator's helper briefed from [communicator-brief.md](communicator-brief.md).
 
 `python3 dashboard/app/keep.py --config <state dir>/dashboard.json` runs `lr dashboard restart` when the app is not answering and tells the coordinator; the job logs to `server.log` beside the config. The coordinator hands the owner its tailnet URL once, and never hands him a cc-present board in its place. A build failure posts one `defect` record to the coordinator.
+
+## Going live
+
+`lr dashboard restart` records the git tree of the dashboard it serves in `<state dir>/dashboard.served`. When the installed `dashboard/` tree differs and the app still answers, the restart refuses unless `--proof <file>` proves that tree or `--ordered <m-id>` names the owner's own order in his ledger. A restart of an unchanged tree, or of an app that stopped answering, needs neither, so crash recovery is never held. The proof is JSON:
+
+```json
+{"commit": "<full sha>", "tree": "<git rev-parse <commit>:plugins/long-running/dashboard>",
+ "served": "http://127.0.0.1:<non-live port>/", "text_only": false,
+ "pages": [{"page": "Review", "desktop": "<png>", "phone": "<png>",
+            "answers": [{"id": "<ccn answer id or ledger m-id>", "shows": "what the tab shows for it"}]}]}
+```
+
+Before writing it, the lane serves that commit from any worktree on a port other than the live one. It screenshots each page the diff touches at desktop and phone widths and looks at every shot. For each page or tab it names every owner answer and dashboard ruling governing that tab's contents, from `ccn answer search` and the ledger, with what the tab shows for it. A text-only change sets `text_only` and needs one screenshot of its page. The verb checks only that the proof names the tree going live, an off-live port, existing screenshots, and per page at least one answer that says what the page shows. It cannot tell whether the page is right; the lane's own look does that. Moving the live checkout and restarting run on the Mac.
 
 The app serves Overview, Needs you, Review, Releases, Workers, Timeline, and Ask from the cci daemon's record stream, `cc-present watch` on the board, the ledger, the drive's cc-notes answers, and the newest progress doc carrying `## Ordered plan of action`.
 
