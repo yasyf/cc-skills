@@ -27,6 +27,9 @@ Where you post:
 Do:
   1. Follow the fix lane with `cci tail --drive {drive} --lane {slug}-fix --reader {lane}`, and
      read each thread whole with `cc-slack thread --url <link> --limit 1000` before replying.
+     On a message you pick up from a public channel, the alerts channel included, add `eyes`
+     when you first look and `wrench` beside it when the fix lane starts, with
+     `cc-slack react --url <link> --name <name>`. Neither needs a grant.
   2. Post the first notice now, before the mechanism is known, then again at `MECHANISM` and
      `FIX-LIVE`, and nothing between them, since a test or progress is never a post: who is
      affected, what fails, what is being done, in plain words, every reference linked, and in `#outage` and the page thread the alert links above too. Follow
