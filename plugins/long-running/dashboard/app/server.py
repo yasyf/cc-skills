@@ -938,6 +938,7 @@ class Drive:
         self.board_seq = None
         self.reported_build = None
         self.reported_live = None
+        self.reported_owed = None
         self.flagged = set()
         self.board_times = {}
         self.gos = {}
@@ -1229,30 +1230,39 @@ class Drive:
                     curator.poke()
             time.sleep(1)
 
+    def owner_rows(self, known, store, lanes, threads, now):
+        ledger_file = Path(self.config["owner_ledger"])
+        ledger = ledger_file.read_text()
+        told = order_replies(self.replies)
+        self.told_asks = closed_asks(ledger) | told_asks(ledger, told)
+        answers = {path.stem: path.read_text() for path in (ledger_file.parent / "answers").glob("*.md")} | {row: reply["md"] for row, reply in told.items()}
+        return owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year, answers, threads)
+
     def follow_owed(self):
         drive = self.config["drive"]
         known, after = [], 0
+        self.owed = {**self.owed, "owner_asks": self.owner_rows([], [], set(), {}, dt.datetime.now(dt.timezone.utc))}
         while True:
-            now = dt.datetime.now(dt.timezone.utc)
-            fresh = self.read_records(OWED_KINDS, now - OWED_WINDOW, after)
-            known += [trimmed(record) for record in fresh if kept(record)]
-            after = fresh[-1]["seq"] if fresh else after
-            render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
-            store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
-            ledger_file = Path(self.config["owner_ledger"])
-            ledger = ledger_file.read_text()
-            told = order_replies(self.replies)
-            self.told_asks = closed_asks(ledger) | told_asks(ledger, told)
-            answers = {path.stem: path.read_text() for path in (ledger_file.parent / "answers").glob("*.md")} | {row: reply["md"] for row, reply in told.items()}
-            threads = {ask["seq"]: ask for asks in self.model.get("asks", {}).values() for ask in asks}
-            lanes = set(self.lane_names())
-            self.owed = {
-                "owner_asks": owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year, answers, threads),
-                "coordinator_overdue": overdue_rows(render, known, store),
-            }
-            self.touch()
-            self.bump()
-            until_changed(ledger_file, SLOW_REFRESH)
+            try:
+                now = dt.datetime.now(dt.timezone.utc)
+                fresh = self.read_records(OWED_KINDS, now - OWED_WINDOW, after)
+                known += [trimmed(record) for record in fresh if kept(record)]
+                after = fresh[-1]["seq"] if fresh else after
+                render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
+                store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
+                threads = {ask["seq"]: ask for asks in self.model.get("asks", {}).values() for ask in asks}
+                self.owed = {
+                    "owner_asks": self.owner_rows(known, store, set(self.lane_names()), threads, now),
+                    "coordinator_overdue": overdue_rows(render, known, store),
+                }
+                self.reported_owed = None
+                self.touch()
+                self.bump()
+            except (OSError, subprocess.SubprocessError, ValueError) as failure:
+                if self.reported_owed != str(failure):
+                    self.reported_owed = str(failure)
+                    self.flag(f"his messages on the dashboard could not refresh: {failure}", ())
+            until_changed(Path(self.config["owner_ledger"]), SLOW_REFRESH)
 
     def follow_replies(self):
         store = Path(self.config["replies"])
