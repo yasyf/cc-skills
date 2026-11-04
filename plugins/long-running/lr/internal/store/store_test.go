@@ -166,6 +166,40 @@ func TestAWithdrawalSupersedesAnEarlierTap(t *testing.T) {
 	}
 }
 
+func TestAnOverrideStopsClearingOnceAGradeFailsAfterItAndARepeatClearsAgain(t *testing.T) {
+	s := memory(t)
+	full, short := strings.Repeat("f", 40), strings.Repeat("f", 7)
+	at := time.Date(2026, 11, 4, 14, 43, 0, 0, time.UTC)
+	put := func(head, kind, value string, offset time.Duration) {
+		t.Helper()
+		if _, err := s.PutFact("r", 1, head, kind, value, at.Add(offset)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	verdict := func() bool {
+		t.Helper()
+		facts, err := s.Facts("r", 1, full)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return facts["verdict"] != ""
+	}
+
+	put(short, "verdict", "accept", 0)
+	put(full, "fidelity", "pass", time.Minute)
+	if !verdict() {
+		t.Fatal("a passing grade after the override dropped it")
+	}
+	put(full, "finder", "ask", time.Hour)
+	if verdict() {
+		t.Fatal("an override older than a failing grade still stands")
+	}
+	put(short, "verdict", "accept", 2*time.Hour)
+	if !verdict() {
+		t.Fatal("a repeated override after the grade does not stand")
+	}
+}
+
 func TestFactsArePerHead(t *testing.T) {
 	s := memory(t)
 	must[bool](t)(s.PutFact(repo, 45744, "aa11bb22cc33dd44ee55ff6677889900aabbccdd", "tap", "tapped", t0))
