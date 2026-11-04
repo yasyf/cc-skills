@@ -678,6 +678,9 @@ func (d *Desk) acceptLaunch(key, lane string, spec launchTarget) (incident.Actio
 	if err != nil {
 		return incident.Action{}, false, err
 	}
+	if err := d.watchClockLane(lane); err != nil {
+		return incident.Action{}, false, err
+	}
 	return d.accept(container, key, kindLaunch, target, key, d.Now().Add(time.Duration(d.Config.LaunchMinutes)*time.Minute))
 }
 

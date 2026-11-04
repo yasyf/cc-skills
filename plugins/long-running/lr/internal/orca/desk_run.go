@@ -301,6 +301,9 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 	if err := d.ensure(deskRunner, deskRunner); err != nil {
 		return err
 	}
+	if _, err := d.clockLanes(); err != nil {
+		return err
+	}
 	state, err := d.readBinding(ctx)
 	if err != nil {
 		return err

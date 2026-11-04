@@ -243,9 +243,14 @@ func compactJSON(value any) (string, error) {
 }
 
 func (d *Desk) ensure(container, owner string) error {
+	facts := map[string]any{}
+	if container == deskRunner {
+		facts[clockFacts] = map[string]any{}
+		facts[clockWork] = map[string]any{}
+	}
 	return d.store.Create(incident.Incident{
 		Header: incident.Header{ID: container, Owner: owner, OpenedAt: d.stamp(), Status: incident.StatusOpen},
-		Facts:  map[string]any{},
+		Facts:  facts,
 	})
 }
 
@@ -486,26 +491,11 @@ func (d *Desk) postOnce(ctx context.Context, p deskPost) (client.Record, error) 
 }
 
 func (d *Desk) liveClocks() ([]string, error) {
-	books, err := d.containers(lanePrefix)
-	if err != nil {
+	exists, err := d.store.Exists(deskRunner)
+	if err != nil || !exists {
 		return nil, err
 	}
-	var running []string
-	for _, container := range books {
-		clock, found, err := d.factOf(container, clockFact)
-		if err != nil {
-			return nil, err
-		}
-		fields, isTable := clock.(map[string]any)
-		if found && isTable && blank(fields["ended"]) {
-			running = append(running, strings.TrimPrefix(container, lanePrefix))
-		}
-	}
-	return running, nil
-}
-
-func blank(value any) bool {
-	return value == nil || value == "" || value == false
+	return d.store.MatchingFactEntries(deskRunner, clockFacts, "ended", "")
 }
 
 func (d *Desk) flush(ctx context.Context) error {
