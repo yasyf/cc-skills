@@ -136,7 +136,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		if err != nil {
 			return Deps{}, err
 		}
-		counter := replay.Deps{Runner: a.Runner, CCX: a.CCX, Installs: installs, Now: a.Now, Stdout: io.Discard}
+		counter := replay.Deps{Runner: a.Runner, CCX: a.CCX, Installs: installs, Now: a.Now, Stdout: io.Discard, Tail: env.Bus.Tail}
 		wasteConfig, err := waste.ReadConfig(env.State)
 		if err != nil {
 			return Deps{}, err
