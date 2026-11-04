@@ -171,8 +171,11 @@ class FakeCcRemote(orca_gc.CcRemote):
     def sprites(self) -> dict[tuple[str, str], orca_gc.Sprite]:
         return self.hosted
 
-    def checkout(self, sprite: orca_gc.Sprite, git: orca_gc.Git) -> orca_gc.Checkout | str:
+    def checkout(self, sprite: orca_gc.Sprite) -> orca_gc.Checkout | str:
         return self.checkouts.get(sprite.workspace, checkout(sprite.root))
+
+    def remote(self, slug: str) -> orca_gc.Remote:
+        return REMOTE
 
     def destroy(self, sprite: orca_gc.Sprite) -> str | None:
         self.destroyed.append(sprite.workspace)
@@ -1208,15 +1211,59 @@ class OrcaArgvTest(unittest.TestCase):
 
         def fake(command, **_):
             argv.append(command)
-            return orca_gc.subprocess.CompletedProcess(command, 0, "# branch.oid " + "a" * 40 + "\n# branch.head (detached)\n? scratch.txt\n", "")
+            if command[0] == "ssh":
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://token@github.com/acme/repo.git\n# branch.oid " + "a" * 40 + "\n# branch.head (detached)\n? scratch.txt\n", "")
+            return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
+        orca_gc.github_trunk.cache_clear()
         orca_gc.subprocess.run = fake
         try:
-            found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE, FakeGit({}))
+            found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
         finally:
             orca_gc.subprocess.run = original
-        self.assertEqual(found, orca_gc.Checkout(SPRITE.root, True, None, "a" * 40, False, REPOSITORY))
+        self.assertEqual(found, orca_gc.Checkout(SPRITE.root, True, None, "a" * 40, True, "acme/repo"))
         self.assertEqual(argv[0][:6], ["ssh", "-F", "/s/ssh/pool-abc.ssh", "-o", "BatchMode=yes", "pool-abc"])
+        self.assertEqual(argv[1:], [["gh", "api", "repos/acme/repo"], ["gh", "api", f"repos/acme/repo/compare/dev...{'a' * 40}?per_page=1"]])
+
+    def test_a_sprite_without_a_github_origin_is_kept_by_name(self):
+        original = orca_gc.subprocess.run
+        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, 0, "https://token@gitlab.example/acme/repo\n# branch.oid x\n# branch.head dev\n", "")
+        try:
+            found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
+        finally:
+            orca_gc.subprocess.run = original
+        self.assertEqual(found, "/home/sprite/repo has no GitHub origin to check its HEAD against")
+
+    def replying(self, replies: dict[str, tuple[int, str, str]]) -> None:
+        original = orca_gc.subprocess.run
+        self.addCleanup(setattr, orca_gc.subprocess, "run", original)
+        orca_gc.github_trunk.cache_clear()
+        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, *replies[command[-1]])
+
+    def test_a_head_github_does_not_know_is_not_on_its_trunk(self):
+        self.replying({"repos/acme/repo": (0, '{"default_branch": "dev"}', ""), "repos/acme/repo/compare/dev...dead?per_page=1": (1, "{}", "gh: Not Found (HTTP 404)")})
+        self.assertFalse(orca_gc.on_github_trunk("dead", "acme/repo"))
+
+    def test_a_head_that_diverged_from_trunk_is_not_on_it(self):
+        self.replying({"repos/acme/repo": (0, '{"default_branch": "dev"}', ""), "repos/acme/repo/compare/dev...b?per_page=1": (0, '{"status": "diverged"}', "")})
+        self.assertFalse(orca_gc.on_github_trunk("b", "acme/repo"))
+
+    def test_any_other_github_failure_raises(self):
+        self.replying({"repos/acme/repo": (1, "", "gh: API rate limit exceeded (HTTP 403)")})
+        with self.assertRaises(orca_gc.subprocess.CalledProcessError):
+            orca_gc.on_github_trunk("b", "acme/repo")
+
+    def test_github_tips_hold_a_head_only_a_branch_points_at(self):
+        self.replying({"repos/acme/repo/commits/a/branches-where-head": (0, '[{"name": "lane"}]', ""), "repos/acme/repo/commits/b/branches-where-head": (0, "[]", ""), "repos/acme/repo/commits/c/branches-where-head": (1, "{}", "gh: No commit found for SHA: c (HTTP 422)")})
+        tips = orca_gc.GitHubTips("acme/repo")
+        self.assertEqual(("a" in tips, "b" in tips, "c" in tips), (True, False, False))
+
+    def test_github_landed_needs_this_head_merged_into_trunk(self):
+        pull = {"merged_at": "2026-11-03T00:00:00Z", "head": {"sha": "a"}, "base": {"ref": "dev"}}
+        cases = {"a": pull, "b": {**pull, "merged_at": None, "head": {"sha": "b"}}, "c": {**pull, "head": {"sha": "other"}}, "d": {**pull, "head": {"sha": "d"}, "base": {"ref": "parent"}}}
+        self.replying({"repos/acme/repo": (0, '{"default_branch": "dev"}', ""), **{f"repos/acme/repo/commits/{head}/pulls": (0, json.dumps([found]), "") for head, found in cases.items()}})
+        landed = orca_gc.GitHubLanded("acme/repo")
+        self.assertEqual([head in landed for head in cases], [True, False, False, False])
 
     def test_landed_searches_closed_prs_for_the_one_head_it_is_asked_about(self):
         original = orca_gc.subprocess.run

@@ -51,6 +51,8 @@ HOOK_DAEMON = "capt-hookd serve"
 HOOK_WORKER = "-m captain_hook.worker"
 PANE_KEY = re.compile(r"\bORCA_PANE_KEY=(\S+)")
 SQUASH = re.compile(r" \(#(?P<number>\d+)\)$")
+GITHUB_ORIGIN = re.compile(r"github\.com[:/](?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$")
+UNKNOWN_TO_GITHUB = re.compile(r"HTTP 4(04|22)")
 REPO_VALUES = json.loads(Path(".orca.json").read_text()) if Path(".orca.json").is_file() else {}
 CC_REMOTE = os.environ.get("WORKER_CC_REMOTE") or REPO_VALUES.get("ccRemote") or "cc-remote"
 if "ccRemoteConfig" in REPO_VALUES:
@@ -187,9 +189,45 @@ class Landed:
         return any(pull["number"] in self.squashed and pull["headRefOid"] == head for pull in found)
 
 
+def github(path: str):
+    done = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+    if done.returncode == 0:
+        return json.loads(done.stdout)
+    if UNKNOWN_TO_GITHUB.search(done.stderr):
+        return None
+    raise subprocess.CalledProcessError(done.returncode, done.args, done.stdout, done.stderr)
+
+
+@functools.cache
+def github_trunk(slug: str) -> str:
+    return github(f"repos/{slug}")["default_branch"]
+
+
+def on_github_trunk(head: str, slug: str) -> bool:
+    compared = github(f"repos/{slug}/compare/{github_trunk(slug)}...{head}?per_page=1")
+    return compared is not None and compared["status"] in ("behind", "identical")
+
+
+@dataclass(frozen=True)
+class GitHubTips:
+    slug: str
+
+    def __contains__(self, head: str) -> bool:
+        return bool(github(f"repos/{self.slug}/commits/{head}/branches-where-head"))
+
+
+@dataclass(frozen=True)
+class GitHubLanded:
+    slug: str
+
+    def __contains__(self, head: str) -> bool:
+        pulls = github(f"repos/{self.slug}/commits/{head}/pulls") or []
+        return any(pull["merged_at"] and pull["head"]["sha"] == head and pull["base"]["ref"] == github_trunk(self.slug) for pull in pulls)
+
+
 @dataclass(frozen=True)
 class Remote:
-    heads: frozenset[str]
+    heads: Container[str]
     landed: Container[str]
 
 
@@ -405,23 +443,29 @@ class CcRemote:
             hosted[(task["worktreeId"], task["terminal"])] = sprite
         return hosted
 
-    def checkout(self, sprite: Sprite, git: Git) -> Checkout | str:
-        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"git -C {shlex.quote(sprite.root)} status --porcelain=v2 --branch"]
+    def checkout(self, sprite: Sprite) -> Checkout | str:
+        git_c = f"git -C {shlex.quote(sprite.root)}"
+        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {git_c} status --porcelain=v2 --branch"]
         done = subprocess.run(argv, capture_output=True, text=True)
         if done.returncode != 0:
             return f"ssh to {sprite.host} could not read {sprite.root}: {(done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[-1]}"
-        lines = done.stdout.splitlines()
+        origin, *lines = done.stdout.splitlines()
+        hub = GITHUB_ORIGIN.search(origin)
+        if hub is None:
+            return f"{sprite.root} has no GitHub origin to check its HEAD against"
         headers = dict(line[2:].split(" ", 1) for line in lines if line.startswith("# "))
         head, branch = headers["branch.oid"], headers["branch.head"]
-        repository = git.repository()
         return Checkout(
             path=sprite.root,
             dirty=any(not line.startswith("# ") for line in lines),
             branch=None if branch == "(detached)" else branch,
             head=head,
-            on_trunk=git.on_trunk(head, repository),
-            repository=repository,
+            on_trunk=on_github_trunk(head, hub["slug"]),
+            repository=hub["slug"],
         )
+
+    def remote(self, slug: str) -> Remote:
+        return Remote(GitHubTips(slug), GitHubLanded(slug))
 
     def destroy(self, sprite: Sprite) -> str | None:
         done = subprocess.run([CC_REMOTE, "destroy", sprite.workspace], capture_output=True, text=True)
@@ -478,15 +522,15 @@ def unsaved(checkout: Checkout, remote: Remote) -> str | None:
     return None
 
 
-def sprite_action(worker: Worker, sprite: Sprite, live_workspaces: set[str], ended: dict[str, str], orca: Orca, cc_remote: CcRemote, git: Git, remotes: dict[str, Remote]) -> Action:
+def sprite_action(worker: Worker, sprite: Sprite, live_workspaces: set[str], ended: dict[str, str], orca: Orca, cc_remote: CcRemote) -> Action:
     if worker.workspace in live_workspaces:
         return Action("keep", sprite.workspace, "serves an unsettled dispatch")
     if worker.dispatch not in ended and (idle := orca.idle(worker.terminal, sprite.environment)) is not True:
         return Action("keep", sprite.workspace, f"terminal {worker.terminal} is {NOT_IDLE}" if idle is False else f"terminal {worker.terminal} is unreadable or disconnected, so its idleness is unknown")
-    checkout = cc_remote.checkout(sprite, git)
+    checkout = cc_remote.checkout(sprite)
     if isinstance(checkout, str):
         return Action("keep", sprite.workspace, checkout)
-    if held := unsaved(checkout, remotes[checkout.repository]):
+    if held := unsaved(checkout, cc_remote.remote(checkout.repository)):
         return Action("keep", sprite.workspace, held)
     return Action("destroy", sprite.workspace, f"dispatch {worker.dispatch}")
 
@@ -630,7 +674,7 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
         return report(action if dry_run else apply(action, orca, git, pause))
 
     def reap_sprite(sprite: Sprite, worker: Worker) -> Action:
-        action = sprite_action(worker, sprite, live_workspaces, ended, orca, cc_remote, git, remotes)
+        action = sprite_action(worker, sprite, live_workspaces, ended, orca, cc_remote)
         return action if dry_run else reap(action, worker, sprite, ended, orca, cc_remote, pause)
 
     unplaced = [report(Action("keep", worker.dispatch, "Orca records no workspace for it")) for worker in finished if worker.workspace is None]
@@ -649,7 +693,7 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
         worktrees = [report(Action("keep", path, checkout)) for path, checkout in read.items() if isinstance(checkout, str)]
         worktrees += [report(Action("keep", path, checkout)) for (_, path), checkout in zip(paired, reached) if isinstance(checkout, str)]
         worktrees += pool.map(act, [Action("drop", path, "its directory is gone") for path in gone])
-        repositories = sorted({checkout.repository for checkout in checkouts} | ({git.repository()} if hosted else set()))
+        repositories = sorted({checkout.repository for checkout in checkouts})
         remotes = dict(zip(repositories, pool.map(git.remote, repositories)))
         worktrees += pool.map(lambda checkout: act(worktree_action(checkout, orca.terminals_in(checkout.path, checkout.environment) or [], closing, remotes[checkout.repository], orca.now_ms())), checkouts)
         stopped = {agent.target for done in worktrees if done.verb in ("remove", "removed") for agent in done.agents}
@@ -680,7 +724,7 @@ def main() -> int:
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label, and its Orca environment removed, once no unsettled dispatch "
         "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean with its HEAD on origin "
-        "or landed. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
+        "or landed, which GitHub answers for the Sprite's own origin from any working directory. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "

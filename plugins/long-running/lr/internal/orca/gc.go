@@ -557,7 +557,7 @@ func (g *GC) spriteInUse(ctx context.Context, worker Worker, sprite Sprite) (str
 	return "", nil
 }
 
-func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liveWorkspaces map[string]bool, ended map[string]string, remotes map[string]Remote) (Action, error) {
+func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liveWorkspaces map[string]bool, ended map[string]string) (Action, error) {
 	keep := func(reason string) (Action, error) {
 		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: reason}, nil
 	}
@@ -573,14 +573,18 @@ func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liv
 			return keep(held)
 		}
 	}
-	read, err := g.Fleet.Checkout(ctx, sprite, g.Git)
+	read, err := g.Fleet.Checkout(ctx, sprite)
 	if err != nil {
 		return Action{}, err
 	}
 	if read.Found == nil {
 		return keep(read.Refusal)
 	}
-	held, err := unsaved(ctx, *read.Found, remotes[read.Found.Repository])
+	remote, err := g.Fleet.Remote(ctx, *read.Found)
+	if err != nil {
+		return Action{}, err
+	}
+	held, err := unsaved(ctx, *read.Found, remote)
 	if err != nil {
 		return Action{}, err
 	}
@@ -799,7 +803,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		return nil, err
 	}
 	count(terminals)
-	worktrees, stoppedTerminals, err := g.reclaimTrees(ctx, finishedTrees, closing, hosted)
+	worktrees, stoppedTerminals, err := g.reclaimTrees(ctx, finishedTrees, closing)
 	if err != nil {
 		return nil, err
 	}
@@ -827,7 +831,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 	}
 	count(closedTerminals)
 	reaped, err := bounded(spriteReads, hosted, func(pair hostedSprite) (Action, error) {
-		action, err := g.spriteAction(ctx, pair.worker, pair.sprite, liveWorkspaces, ended, worktrees.remotes)
+		action, err := g.spriteAction(ctx, pair.worker, pair.sprite, liveWorkspaces, ended)
 		if err != nil {
 			return Action{}, err
 		}
@@ -847,11 +851,10 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 
 type reclaimed struct {
 	done     []Action
-	remotes  map[string]Remote
 	unproven map[tree]string
 }
 
-func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[string]Action, hosted []hostedSprite) (reclaimed, map[string]bool, error) {
+func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[string]Action) (reclaimed, map[string]bool, error) {
 	var local, paired []tree
 	for _, candidate := range candidates {
 		if candidate.environment == "" {
@@ -917,28 +920,21 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 	for _, checkout := range checkouts {
 		repositories[checkout.Repository] = true
 	}
-	if len(hosted) > 0 {
-		own, err := g.Git.Repository(ctx)
-		if err != nil {
-			return reclaimed{}, nil, err
-		}
-		repositories[own] = true
-	}
 	names := sortedKeys(repositories)
 	remotes, err := parallel(names, func(repository string) (Remote, error) { return g.Git.Remote(ctx, repository) })
 	if err != nil {
 		return reclaimed{}, nil, err
 	}
-	result.remotes = make(map[string]Remote, len(names))
+	remoteOf := make(map[string]Remote, len(names))
 	for i, name := range names {
-		result.remotes[name] = remotes[i]
+		remoteOf[name] = remotes[i]
 	}
 	actions, err := parallel(checkouts, func(checkout Checkout) (Action, error) {
 		listed, err := g.Orca.TerminalsIn(ctx, checkout.Path, checkout.Environment)
 		if err != nil {
 			return Action{}, err
 		}
-		action, err := worktreeAction(ctx, checkout, listed, closing, result.remotes[checkout.Repository], g.Orca.NowMS())
+		action, err := worktreeAction(ctx, checkout, listed, closing, remoteOf[checkout.Repository], g.Orca.NowMS())
 		if err != nil {
 			return Action{}, err
 		}

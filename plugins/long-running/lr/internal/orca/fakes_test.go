@@ -382,7 +382,9 @@ func (f *fakeFleet) Sprites() (map[SpriteKey]Sprite, error) {
 	return f.hosted, nil
 }
 
-func (f *fakeFleet) Checkout(_ context.Context, sprite Sprite, _ Repositories) (CheckoutRead, error) {
+func (*fakeFleet) Remote(context.Context, Checkout) (Remote, error) { return defaultRemote(), nil }
+
+func (f *fakeFleet) Checkout(_ context.Context, sprite Sprite) (CheckoutRead, error) {
 	if read, ok := f.reads[sprite.Workspace]; ok {
 		return read, nil
 	}

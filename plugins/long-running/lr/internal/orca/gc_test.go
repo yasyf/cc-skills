@@ -1588,19 +1588,95 @@ func TestOrcaReadsABoxTreesHeadAndBranchFromItsServer(t *testing.T) {
 }
 
 func TestARemoteCheckoutReadsPorcelainBranchHeadersThroughSpriteExec(t *testing.T) {
-	runner := &scripted{reply: constant("# branch.oid " + headA + "\n# branch.head (detached)\n? scratch.txt\n")}
-	read, err := CCRemote{Runner: runner, State: "/nonexistent"}.Checkout(context.Background(), testSprite, newGit())
+	runner := &scripted{reply: func(argv []string) (string, string, int) {
+		if argv[0] == "sprite" {
+			return "https://token@github.com/acme/repo.git\n# branch.oid " + headA + "\n# branch.head (detached)\n? scratch.txt\n", "", 0
+		}
+		return `{"default_branch":"dev","status":"behind"}`, "", 0
+	}}
+	read, err := CCRemote{Runner: runner, State: "/nonexistent"}.Checkout(context.Background(), testSprite)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Checkout{Path: testSprite.Root, Dirty: true, Head: headA, Repository: repository}
+	want := Checkout{Path: testSprite.Root, Dirty: true, Head: headA, OnTrunk: true, Repository: "acme/repo"}
 	if !reflect.DeepEqual(*read.Found, want) {
 		t.Fatalf("got %+v", *read.Found)
 	}
-	want2 := []string{"sprite", "exec", "-s", "pool-abc", "--no-stdin", "--no-port-forward", "--", "git", "-C", testSprite.Root, "status", "--porcelain=v2", "--branch"}
+	want2 := []string{"sprite", "exec", "-s", "pool-abc", "--no-stdin", "--no-port-forward", "--", "sh", "-c", spriteCheckout, "sh", testSprite.Root}
 	if !slices.Equal(runner.calls[0], want2) {
 		t.Fatalf("argv %v", runner.calls[0])
 	}
+	if !slices.Equal(runner.calls[2], []string{"gh", "api", "repos/acme/repo/compare/dev..." + headA + "?per_page=1"}) {
+		t.Fatalf("argv %v", runner.calls[2])
+	}
+}
+
+func TestASpriteWithoutAGitHubOriginIsKeptByName(t *testing.T) {
+	runner := &scripted{reply: constant("https://token@gitlab.example/acme/repo\n# branch.oid " + headA + "\n# branch.head dev\n")}
+	read, err := CCRemote{Runner: runner, State: "/nonexistent"}.Checkout(context.Background(), testSprite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Found != nil || read.Refusal != testSprite.Root+" has no GitHub origin to check its HEAD against" {
+		t.Fatalf("got %+v", read)
+	}
+}
+
+func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
+	fleet := func(replies map[string]string, failures map[string]string) CCRemote {
+		return CCRemote{Runner: &scripted{reply: func(argv []string) (string, string, int) {
+			if stderr, failed := failures[argv[2]]; failed {
+				return "{}", stderr, 1
+			}
+			return replies[argv[2]], "", 0
+		}}}
+	}
+	const repo, compare = `{"default_branch":"dev"}`, "repos/acme/repo/compare/dev..." + headA + "?per_page=1"
+	ctx := context.Background()
+
+	t.Run("a head GitHub does not know is not on trunk", func(t *testing.T) {
+		got, err := fleet(map[string]string{"repos/acme/repo": repo}, map[string]string{compare: "gh: Not Found (HTTP 404)"}).onTrunk(ctx, headA, "acme/repo")
+		if got || err != nil {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a diverged head is not on trunk", func(t *testing.T) {
+		got, err := fleet(map[string]string{"repos/acme/repo": repo, compare: `{"status":"diverged"}`}, nil).onTrunk(ctx, headA, "acme/repo")
+		if got || err != nil {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("any other GitHub failure is an error", func(t *testing.T) {
+		if _, err := fleet(nil, map[string]string{"repos/acme/repo": "gh: API rate limit exceeded (HTTP 403)"}).onTrunk(ctx, headA, "acme/repo"); err == nil {
+			t.Fatal("no error")
+		}
+	})
+	t.Run("a head counts as pushed only when a branch points at it", func(t *testing.T) {
+		tips := "repos/acme/repo/commits/" + headA + "/branches-where-head"
+		for reply, want := range map[string]bool{`[{"name":"lane"}]`: true, `[]`: false} {
+			remote, err := fleet(map[string]string{tips: reply}, nil).Remote(ctx, Checkout{Head: headA, Repository: "acme/repo"})
+			if err != nil || remote.Heads[headA] != want {
+				t.Fatalf("%s: got %v, err %v", reply, remote.Heads, err)
+			}
+		}
+		remote, err := fleet(nil, map[string]string{tips: "gh: No commit found for SHA (HTTP 422)"}).Remote(ctx, Checkout{Head: headA, Repository: "acme/repo"})
+		if err != nil || remote.Heads[headA] {
+			t.Fatalf("got %v, err %v", remote.Heads, err)
+		}
+	})
+	t.Run("landed needs this head merged into trunk", func(t *testing.T) {
+		pull := func(merged, head, base string) string {
+			return `[{"merged_at":` + merged + `,"head":{"sha":"` + head + `"},"base":{"ref":"` + base + `"}}]`
+		}
+		const when = `"2026-11-03T00:00:00Z"`
+		cases := map[string]bool{pull(when, headA, "dev"): true, pull("null", headA, "dev"): false, pull(when, headB, "dev"): false, pull(when, headA, "parent"): false}
+		for reply, want := range cases {
+			landings := githubLandings{fleet(map[string]string{"repos/acme/repo": repo, "repos/acme/repo/commits/" + headA + "/pulls": reply}, nil), "acme/repo"}
+			if got, err := landings.Landed(ctx, headA); err != nil || got != want {
+				t.Fatalf("%s: got %v, err %v", reply, got, err)
+			}
+		}
+	})
 }
 
 func TestASpriteHolderNamesWhatTheScanPrintsAndKeepsWhatItCannotRead(t *testing.T) {
