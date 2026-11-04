@@ -580,6 +580,7 @@ type landing struct {
 
 type LandedNotLive struct {
 	Env        Env
+	Store      *store.Store
 	ReleaseCLI []string
 	Token      bkread.Token
 	Builds     *ReleaseBuilds
@@ -631,8 +632,13 @@ func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]la
 	if err := json.Unmarshal([]byte(stdout), &rows); err != nil {
 		return nil, fmt.Errorf("%w: ledger list: %w", ErrUnread, err)
 	}
+	if n.touched == nil {
+		if n.touched, err = n.Store.ReleaseTargets(); err != nil {
+			return nil, err
+		}
+	}
 	found := map[int]landing{}
-	touched := map[string][]string{}
+	window := map[string]bool{}
 	for _, row := range rows {
 		if row.State != kindLanded || row.LandedSHA == "" || row.LandedAt == "" {
 			continue
@@ -648,18 +654,18 @@ func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]la
 		if err != nil {
 			return nil, fmt.Errorf("ledger row pr %q: %w", row.PR, err)
 		}
-		targets, err := n.targetsOf(ctx, row.LandedSHA)
+		targets, err := n.targetsOf(ctx, row.LandedSHA, at)
 		if err != nil {
 			return nil, err
 		}
-		touched[row.LandedSHA] = targets
+		window[row.LandedSHA] = true
 		found[int(number)] = landing{targets, row.LandedSHA, at}
 	}
-	n.touched = touched
-	return found, nil
+	maps.DeleteFunc(n.touched, func(sha string, _ []string) bool { return !window[sha] })
+	return found, n.Store.DropReleaseTargets(now.Add(-notLiveSpan))
 }
 
-func (n *LandedNotLive) targetsOf(ctx context.Context, sha string) ([]string, error) {
+func (n *LandedNotLive) targetsOf(ctx context.Context, sha string, landed time.Time) ([]string, error) {
 	if targets, known := n.touched[sha]; known {
 		return targets, nil
 	}
@@ -667,7 +673,12 @@ func (n *LandedNotLive) targetsOf(ctx context.Context, sha string) ([]string, er
 	if err != nil {
 		return nil, err
 	}
-	return touchedBy(ctx, n.Env.Runner, n.ReleaseCLI, n.Env.Config.Checkout, paths)
+	targets, err := touchedBy(ctx, n.Env.Runner, n.ReleaseCLI, n.Env.Config.Checkout, paths)
+	if err != nil {
+		return nil, err
+	}
+	n.touched[sha] = targets
+	return targets, n.Store.PutReleaseTargets(sha, targets, landed)
 }
 
 func (n *LandedNotLive) running(ctx context.Context) (map[string][]string, error) {
@@ -1039,7 +1050,7 @@ func (e Env) Checks(s *store.Store, log *slog.Logger) ([]Check, error) {
 		checks = append(checks, (&NscDeadlines{Env: e, Store: s, Log: log}).Check)
 	}
 	if cli := strings.Fields(landing.ReleaseCLI); len(cli) > 0 {
-		checks = append(checks, (&LandedNotLive{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Builds: builds, Log: log}).Check, (&ReleaseGates{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
+		checks = append(checks, (&LandedNotLive{Env: e, Store: s, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Builds: builds, Log: log}).Check, (&ReleaseGates{Env: e, ReleaseCLI: cli, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log}).Check)
 	}
 	return checks, nil
 }

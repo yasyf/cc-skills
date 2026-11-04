@@ -335,7 +335,46 @@ func notLive(t *testing.T, ledger string, files map[string]string, live string, 
 			return shell.Result{Stdout: live}, nil
 		}
 	})}
-	return &LandedNotLive{Env: env, ReleaseCLI: []string{"tools/ci", "release"}, Token: bkread.Token{Command: []string{tokenTool}}, Log: slog.Default()}, bus
+	s, err := store.Open(filepath.Join(t.TempDir(), StoreFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return &LandedNotLive{Env: env, Store: s, ReleaseCLI: []string{"tools/ci", "release"}, Token: bkread.Token{Command: []string{tokenTool}}, Log: slog.Default()}, bus
+}
+
+func TestARestartedCheckKeepsTheTargetsItAlreadyResolved(t *testing.T) {
+	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"Sand: fix it","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
+	files := map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}
+	first, _ := notLive(t, ledger, files, `[{"target":"sand","commit":"c1"}]`, false)
+	if err := first.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, _ := notLive(t, ledger, files, `[{"target":"sand","commit":"c1"}]`, false)
+	restarted.Store = first.Store
+	answers := restarted.Env.Runner
+	restarted.Env.Runner = commanded(func(c shell.Command) (shell.Result, error) {
+		if slices.Contains(c.Argv, "diff-tree") || slices.Contains(c.Argv, "select") {
+			t.Fatalf("a restart resolved a landing again: %v", c.Argv)
+		}
+		return answers.Run(context.Background(), c)
+	})
+	landed, err := restarted.landings(context.Background(), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, landed[47799].targets, []string{"sand"})
+
+	later := t0.Add(notLiveSpan + time.Hour)
+	if _, err := restarted.landings(context.Background(), later); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := restarted.Store.ReleaseTargets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(kept), 0)
 }
 
 func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *testing.T) {
