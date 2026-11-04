@@ -125,6 +125,9 @@ func TestAClockIsADeadlineOnlyWhileStillAheadOfItsRecord(t *testing.T) {
 		{"a past date with a later clock of day", writtenAt(11, 4, 9, 0), "it was on the page by 10:18 AM Nov 3", ""},
 		{"an undated clock behind the record", writtenAt(11, 4, 3, 0), "the routing update was owed by 1:55 AM", ""},
 		{"not a clock", writtenAt(11, 4, 3, 0), "padded before 13 PM", ""},
+		{"a clock the record reports as done", writtenAt(11, 4, 13, 53), "By 1:55 PM I posted 10 grades on five PRs", ""},
+		{"a clock it reports as landed", writtenAt(11, 4, 13, 53), "by 1:55 PM it landed", ""},
+		{"the same clock as a promise", writtenAt(11, 4, 13, 53), "By 1:55 PM I post 10 grades", "1:55 PM"},
 		{"an undated clock ahead", writtenAt(11, 4, 10, 45), "lands by 11:20 AM", "11:20 AM"},
 		{"a later date", writtenAt(11, 4, 11, 0), "lands by 9 AM Nov 5", "9 AM"},
 		{"tomorrow", writtenAt(11, 4, 11, 0), "lands by 9 AM tomorrow", "9 AM"},
@@ -160,6 +163,8 @@ func TestARecordThatIsThePlanOwesNoOtherAndClearsTheRecordItAnswers(t *testing.T
 	noOwner := client.Record{Seq: 40, Lane: "lane-a", Kind: "state", Re: 39, At: written, Text: steps}
 	ownerOfSomethingElse := client.Record{Seq: 40, Lane: "lane-a", Kind: "state", Re: 39, At: written, Text: "the owner: asked. " + steps}
 	namedNoClock := client.Record{Seq: 41, Lane: "lane-a", Kind: "state", Re: 39, At: written, Text: "Owner: lane-a, steps later"}
+	ownerByLane := client.Record{Seq: 40, Lane: "lane-a", Kind: "note", Re: 39, At: written, Text: "Plan for the 3:00 PM landing, owner port-grades-usage: grades by 2:30 PM, ready by 2:40 PM."}
+	ownerOfNoLane := client.Record{Seq: 40, Lane: "lane-a", Kind: "note", Re: 39, At: written, Text: "the owner asked for grades by 2:30 PM."}
 
 	for _, tt := range []struct {
 		name    string
@@ -169,6 +174,8 @@ func TestARecordThatIsThePlanOwesNoOtherAndClearsTheRecordItAnswers(t *testing.T
 		{"an owner and clocks in words", []client.Record{parent, inWords}, nil},
 		{"an owner and timed steps in attrs", []client.Record{parent, inAttrs}, nil},
 		{"clocks with no owner", []client.Record{noOwner}, []int{40}},
+		{"an owner named by lane in words", []client.Record{parent, ownerByLane}, nil},
+		{"the word owner before no lane name", []client.Record{ownerOfNoLane}, []int{40}},
 		{"the word owner naming nobody", []client.Record{ownerOfSomethingElse}, []int{40}},
 		{"an owner with no clock clears nothing", []client.Record{parent, namedNoClock}, []int{39}},
 	} {

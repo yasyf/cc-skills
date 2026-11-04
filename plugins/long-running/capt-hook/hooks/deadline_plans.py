@@ -16,14 +16,20 @@ DEADLINE = re.compile(rf"(?i)\b(?:by|before|until|due(?:\s+(?:by|at))?)\s+(?:{CL
 LEADING_CLOCK = re.compile(rf"(?i)^(?:{CLOCK})\b")
 NAMES_LANE = re.compile(r"\blane=[\w.-]+|\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d{1,2}\b")
 NAMES_RECORD = re.compile(r"(?<![.\d])\b\d{6,7}\b")
+PAST_CLAUSE = re.compile(r",?\s+(?:I|we|it|they)\s+(?:(?:had|have|already)\s+)*(?:[a-z]+ed|was|were|had|sent|ran|wrote|got|made|took|saw|read|did|went|found|built|put)\b")
+OWNER_IN_WORDS = re.compile(r"\bOwner:\s+\S|\bowner\s+[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b")
 STEP = "step:"
 UNCHECKED_KINDS = frozenset({"escalation"})
 POST = "cci post --drive d --lane memoryschema-1 --kind report --text 'schema migration lands by 3:10 AM'"
 PLAN = "--attr owner=memoryschema-1 --attr 'step:1=2:30 AM open the PR' --attr 'step:2=3:00 AM merge on green'"
 
 
+def promises_clock(text: str) -> bool:
+    return any(PAST_CLAUSE.match(text, found.end()) is None for found in DEADLINE.finditer(text))
+
+
 def names_deadline(text: str, attrs: dict[str, str]) -> bool:
-    return bool(attrs.get("deadline") or DEADLINE.search(text))
+    return bool(attrs.get("deadline") or promises_clock(text))
 
 
 def planned(attrs: dict[str, str]) -> bool:
@@ -32,7 +38,7 @@ def planned(attrs: dict[str, str]) -> bool:
 
 
 def unowned_deadline(text: str) -> bool:
-    return bool(DEADLINE.search(text)) and not NAMES_LANE.search(text)
+    return promises_clock(text) and not NAMES_LANE.search(text)
 
 
 def posts(evt: BaseHookEvent) -> Iterator[tuple[str, set[str], dict[str, str], bool]]:
@@ -49,7 +55,7 @@ def posts(evt: BaseHookEvent) -> Iterator[tuple[str, set[str], dict[str, str], b
 
 class PostsUnplannedDeadline:
     def check(self, evt: BaseHookEvent) -> bool:
-        return any(not kinds & UNCHECKED_KINDS and not answers and not NAMES_RECORD.search(text) and names_deadline(text, attrs) and not planned(attrs) for text, kinds, attrs, answers in posts(evt))
+        return any(not kinds & UNCHECKED_KINDS and not answers and not NAMES_RECORD.search(text) and names_deadline(text, attrs) and not planned(attrs) and not OWNER_IN_WORDS.search(text) for text, kinds, attrs, answers in posts(evt))
 
 
 def mcp(text: str, **attrs: str) -> Input:
@@ -76,6 +82,10 @@ DEADLINE_PLAN = (
         Input(command="cci post --drive d --lane lane-a --kind state --text 'm630 due 12:15 PM routed 423936'", state=ACTIVE): Allow(),
         Input(tool=POST_TOOL, tool_input={"kind": "report", "text": "schema migration lands before 4 PM", "re": 423936}, state=ACTIVE): Allow(),
         Input(command=f"{POST} {PLAN}", state=ACTIVE): Allow(),
+        Input(command="cci post --drive d --lane lane-a --kind report --text 'By 1:55 PM I posted 10 grades'", state=ACTIVE): Allow(),
+        Input(command="cci post --drive d --lane lane-a --kind report --text 'By 1:55 PM I post 10 grades'", state=ACTIVE): Warn(),
+        Input(command="cci post --drive d --lane lane-a --kind note --text 'Plan, owner port-grades: grades by 2:30 PM'", state=ACTIVE): Allow(),
+        Input(command="cci post --drive d --lane lane-a --kind note --text 'the owner asked for grades by 2:30 PM'", state=ACTIVE): Warn(),
         mcp("schema migration lands before 4 PM", owner="memoryschema-1", **{"step:1": "2:30 AM open the PR"}): Allow(),
         Input(command="cci post --drive d --lane lane-a --kind state --text 'relaunched at 3:10 AM, quiet since 9:45 PM'", state=ACTIVE): Allow(),
         Input(command="cci post --drive d --lane lane-a --kind report --text - <<'EOF'\nlands by 3:10 AM\nEOF", state=ACTIVE): Allow(),

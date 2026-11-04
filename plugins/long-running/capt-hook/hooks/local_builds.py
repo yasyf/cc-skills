@@ -4,7 +4,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 
 from .compaction_handoff import Bound, CompactionState
 
-COMMANDS = frozenset({"tsc", "pytest", "jest", "vitest", "eslint", "mypy", "pyright", "golangci-lint", "xcodebuild"})
+COMMANDS = frozenset({"tsc", "pytest", "jest", "vitest", "eslint", "mypy", "pyright", "xcodebuild"})
 VERBS = {
     "cargo": frozenset({"build", "check", "test", "clippy", "nextest", "bench"}),
     "just": frozenset({"vet", "build", "test", "lint", "check", "typecheck"}),
@@ -14,6 +14,7 @@ VERBS = {
     "biome": frozenset({"check", "lint", "ci"}),
     "ty": frozenset({"check"}),
     "capt-hook": frozenset({"test", "lint"}),
+    "golangci-lint": frozenset({"run"}),
 }
 MAKE_TARGETS = frozenset({"all", "build", "test", "check", "lint", "vet", "typecheck"})
 SCRIPTS = frozenset({"tsc", "build", "test", "lint", "typecheck"})
@@ -31,7 +32,7 @@ VALUE_FLAGS = {
     "uvx": frozenset({"--from", "--with", "--python", "-p"}),
 }
 LAUNCHERS = frozenset({"npx", "bunx", "uvx"})
-INFO_FLAGS = frozenset({"--version", "-v", "-V", "--help", "-h"})
+INFO_FLAGS = frozenset({"--version", "-version", "-v", "-V", "--help", "-h"})
 VERBOSE_V = frozenset({"pytest"})
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-b", "CLAUDE_LONG_RUNNING_DRIVE": "leftovers-oct-18"}
 ROOT = [CompactionState(active=True, coordinator=True)]
@@ -138,6 +139,10 @@ def builds(call: Call) -> bool:
         Input(command="uv run ruff check", env=LANE_ENV): Block(),
         Input(command="ruff check --fix .", env=LANE_ENV): Block(),
         Input(command="golangci-lint run ./...", env=LANE_ENV): Block(),
+        Input(command="golangci-lint version", env=LANE_ENV): Allow(),
+        Input(command="golangci-lint --version", env=LANE_ENV): Allow(),
+        Input(command="xcodebuild -version", env=LANE_ENV): Allow(),
+        Input(command="xcodebuild -scheme App build", env=LANE_ENV): Block(),
         Input(command="python3 -m mypy scripts", env=LANE_ENV): Block(),
         Input(command="go test ./internal/iris/... -run TestGolden -update", env=LANE_ENV): Allow(),
         Input(command="go test ./internal/parser -update=true", env=LANE_ENV): Allow(),

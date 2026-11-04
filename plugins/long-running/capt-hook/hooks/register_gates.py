@@ -25,6 +25,7 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
+from .call_dir import known_path
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, LOCK_WAIT_ENV, REGISTER_FENCE, ROOT_LANE, Bound, Communicator, CompactionState, Coordinator, bus_name, ccn, communicator_tests, coordinator_tests, drive_entry, post_blocker, rulings, script
 from .lane_landing import GH_REPO_FLAGS, HELP_FLAGS, lane_name, outside_drive_repo, program
 from .lane_rotation import DriveActive
@@ -379,7 +380,7 @@ def replies(evt: BaseHookEvent) -> list[tuple[str, ...]]:
 
 
 def brief_files(evt: BaseHookEvent) -> list[Path]:
-    return [path for call, run in launches(evt) for arg in run[1:] if (path := Path(call.cwd or evt.cwd) / Path(arg).expanduser()).is_file()]
+    return [path for call, run in launches(evt) for arg in run[1:] if (path := known_path(evt, call, arg)) and path.is_file()]
 
 
 def answer_text(evt: BaseHookEvent) -> tuple[str, str]:
@@ -668,12 +669,15 @@ def absolute(raw: str, cwd: Path) -> Path:
     return Path(os.path.abspath(cwd / Path(raw).expanduser()))
 
 
+def call_writes(evt: BaseHookEvent, call: Call, raws: list[str]) -> list[Path]:
+    return [Path(os.path.abspath(path)) for raw in raws if (path := known_path(evt, call, raw))]
+
+
 def bash_writes(evt: BaseHookEvent) -> list[Path]:
     found: list[Path] = []
     for call in evt.command.calls():
-        cwd = Path(call.cwd or evt.cwd)
-        found += [absolute(redirect.target.strip("'\""), cwd) for redirect in call.redirects if redirect.op in FILE_WRITES]
-        operands = [absolute(target.value, cwd) for target in call.targets if target.value is not None]
+        found += call_writes(evt, call, [redirect.target.strip("'\"") for redirect in call.redirects if redirect.op in FILE_WRITES])
+        operands = call_writes(evt, call, [target.value for target in call.targets if target.value is not None])
         if call.name in DESTINATION_WRITERS:
             found += operands[-1:]
         elif call.name in TARGET_WRITERS or (call.name in IN_PLACE_EDITORS and any(in_place(arg) for arg in call.args)):

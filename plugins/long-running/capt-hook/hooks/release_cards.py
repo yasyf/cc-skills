@@ -7,6 +7,7 @@ import subprocess
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
+from .call_dir import UnknownDirectory, run_dir
 from .compaction_handoff import Bound, bus_name, drive_entry
 from .gate5_release import LR
 from .incident_commands import drive_session
@@ -134,8 +135,8 @@ def release_leaves_out_what_his_open_cards_gate(evt: BaseHookEvent) -> HookResul
         return unread(evt, "the owner's board", failed)
     for call in calls:
         try:
-            found = gating(shipped(call, str(call.cwd or evt.cwd)), cards)
-        except (Unread, ValueError, KeyError) as failed:
+            found = gating(shipped(call, run_dir(evt, call)), cards)
+        except (Unread, UnknownDirectory, ValueError, KeyError) as failed:
             return unread(evt, "the release plan", failed)
         if found:
             gated = "; ".join(GATED.format(stack=stack, card=card["block"]) for stack, card in found)

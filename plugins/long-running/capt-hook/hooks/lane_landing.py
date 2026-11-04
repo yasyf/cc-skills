@@ -10,6 +10,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
 from captain_hook.util import reqenv
 
+from .call_dir import run_dir, unknown_dir
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, Bound, CompactionState, bus_name, drive_entry, rulings, run_script, script, script_module
 from .register_injection import INCIDENT_NAME, INCIDENT_SLICE
 from .session_tree import drive_lane
@@ -195,8 +196,9 @@ def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bo
         return False
     if repo := named_repo(call):
         return repo.casefold() != entry["repo"].casefold()
-    cwd = call.cwd or evt.cwd
-    done = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True)
+    if unknown_dir(evt, call):
+        return False
+    done = subprocess.run(["git", "-C", run_dir(evt, call), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True)
     return done.returncode == 0 and done.stdout.strip() != entry["git_common_dir"]
 
 
@@ -447,7 +449,10 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
             continue
         if verb != "stack-enqueue" and (lander or not monorepo or incident and (verb in MERGERS or verb == API_MERGE)):
             continue
-        cwd = str(call.cwd or evt.cwd)
+        if unknown_dir(evt, call):
+            unread.append(f"`{verb}` runs after a `cd` this hook cannot follow")
+            continue
+        cwd = run_dir(evt, call)
         if (args := landed_prs(call, verb, named_repo(call) or entry["repo"], cwd)) is None:
             unread.append(f"`{verb}` names no PR that reads")
             continue
@@ -550,7 +555,7 @@ def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
         return None
     lane = lane_name(evt) or ""
     incident = incident_lane(evt, lane)
-    found = [checked for call in merges if (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident, evt=evt))]
+    found = [checked for call in merges if not unknown_dir(evt, call) and (checked := merge_causes(call, entry, run_dir(evt, call), incident, evt=evt))]
     if incident and found:
         return evt.context("\n".join(INCIDENT_RULINGS_REFUSAL.format(pr=pr, head=head, lane=lane, causes=causes) for pr, head, causes in found))
     advice = [RULINGS_ADVICE.format(causes=causes, pr=pr, head=head) for pr, head, causes in found]

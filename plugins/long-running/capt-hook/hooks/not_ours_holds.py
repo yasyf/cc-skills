@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 from itertools import pairwise
-from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Tool, on
 
 from .board_text_gate import blocks, published
+from .call_dir import located
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
 from .meta_records import posts
@@ -34,7 +34,7 @@ def drawn_rows(evt: BaseHookEvent, reads: Reads) -> list[str]:
             continue
         source = next((arg for flag, arg in pairwise(call.args) if flag == "--card" and arg != "-"), None)
         found.append(str(evt._tool_input.get("command") or ""))
-        if source and (text := reads.read(f"the board row {source}", lambda source=source, call=call: Path(str(call.cwd or evt.cwd), source).expanduser().read_text())):
+        if source and (text := reads.read(f"the board row {source}", lambda source=source, call=call: located(evt, call, source).read_text())):
             found.append(text)
     return found
 

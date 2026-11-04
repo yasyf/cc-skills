@@ -5,6 +5,7 @@ import re
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.annotations import shell_comments
 
+from .call_dir import run_dir, unknown_dir
 from .compaction_handoff import Bound, CompactionState
 from .lane_landing import HELP_FLAGS, LANE, incident_lane, lane_name, option, run_quietly, sliced_brief
 
@@ -32,7 +33,9 @@ def pushes(call: Call) -> bool:
 
 
 def restarts_green_ci(evt: BaseHookEvent, call: Call) -> bool:
-    cwd = str(call.cwd or evt.cwd)
+    if unknown_dir(evt, call):
+        return False
+    cwd = run_dir(evt, call)
     branch = option(call.args, "--branch")[:1]
     viewed = run_quietly(["gh", "pr", "view", *branch, "--json", "state,headRefOid", "--jq", '.state+" "+.headRefOid'], cwd)
     if viewed is None or (state := viewed.stdout.split())[:1] != ["OPEN"] or len(state) != 2:

@@ -17,6 +17,7 @@ from captain_hook.cmd import Cmd
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, LR, Bound, CompactionState, ccn, rulings, script, script_module
+from .call_dir import known_path, located
 from .deadline_plans import unowned_deadline
 from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
 from .register_injection import drive_args
@@ -122,7 +123,7 @@ def reply_body(evt: BaseHookEvent, call: Call, values: dict[str, tuple]) -> str 
     command = Cmd.parse(f"cat {read.removeprefix('<')}" if read.startswith("<") else read)
     match [[word.value for word in found.source.words] for found in command.calls()] if command else []:
         case [["cat", str(path)]]:
-            file = Path(str(call.cwd or evt.cwd), Path(path).expanduser())
+            file = located(evt, call, path)
             return file.read_text().rstrip("\n") if file.exists() else file
         case _:
             return None
@@ -152,7 +153,10 @@ def published(evt: BaseHookEvent, reads: Reads, skipped: list[str]) -> list[Publ
             elif body is not None:
                 found.append(as_text("reply", body.encode(), session, None, where))
             continue
-        path = None if source in (None, STDIN) else Path(str(call.cwd or evt.cwd), Path(source).expanduser())
+        path = None if source in (None, STDIN) else known_path(evt, call, source)
+        if source not in (None, STDIN) and path is None:
+            skipped.append(f"the board {source}: this command's `cd` goes where the hook cannot follow, so its text went unchecked; pass its absolute path")
+            continue
         if path and not path.exists():
             skipped.append(f"the board {source}: {path} does not exist when the hook runs, so its text went unchecked; write the file in an earlier call or pass its absolute path")
             continue
@@ -459,6 +463,7 @@ def exits(name: str, **extra: object) -> Input:
         reply("reply-4ae100d5.md", sweep_out=f"open - rule/5c0e9a1 {board('reply-4ae100d5.md')}:1 held copy\n"): Warn(pattern=r"names \"held copy\""),
         reply("reply-4ae100d5.redraft.md"): Allow(),
         posting('cc-present reply --block r3-confirm-loops --body "$(cat /nonexistent/fork-refusals-reply.md)"'): Warn(pattern=r"skipped text[\s\S]*/nonexistent/fork-refusals-reply.md does not exist when the hook runs"),
+        posting(". /env.sh; cd $A; cc-present push preview.json"): Warn(pattern=r"skipped text[\s\S]*the board preview.json: this command's `cd` goes where the hook cannot follow"),
         posting("cc-present push /nonexistent/preview-doc2.json"): Warn(pattern=r"skipped text[\s\S]*the board /nonexistent/preview-doc2.json: /nonexistent/preview-doc2.json does not exist when the hook runs"),
         posting(f"cc-present push {board('r3-titles.redraft.json')}"): Warn(pattern=r"no fidelity desk review names"),
         update("customer-break-card.json"): Warn(pattern=r"sand-order: names customer breakage, \"Anubhav's release 11719 ships the sand app ahead of api on three tenant clusters[\s\S]*never a card"),

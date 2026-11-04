@@ -91,7 +91,7 @@ def opened_prs(output: str) -> list[OpenedPr]:
 
 def opener_cwd(evt: BaseHookEvent) -> Path | None:
     calls = (call for call in evt.cmd.calls() if any((call.name, *call.args)[: len(argv)] == argv for argv in OPENERS))
-    return next((call.cwd for call in calls if call.cwd), evt.cwd)
+    return next((call.cwd for call in calls), evt.cwd)
 
 
 def lane_name(evt: BaseHookEvent) -> str:
@@ -294,7 +294,7 @@ def opens_a_pr(call: Call) -> bool:
     tests={
         Input(command="ccx vcs ship -m 'x: ✨ y'  # ccx:raw", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y'", env=LANE_ENV, cwd="/", commands=NOT_OPEN): Block(pattern=r"^This ship opens a PR"),
-        Input(command=". /env.sh /lr.json; A=/a; cd $A; ccx vcs ship --no-commit", env=LANE_ENV, cwd="/", commands=NOT_OPEN): Allow(),
+        Input(command=". /env.sh /lr.json; cd $A; ccx vcs ship --no-commit", env=LANE_ENV, cwd="/", commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --new-branch lane/fix", env=LANE_ENV, commands={"gh pr view": '{"number":9}'}): Block(pattern=r"--pr-body-file <path>"),
         Input(command="ccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --no-pr", env=LANE_ENV, commands=NOT_OPEN): Allow(),

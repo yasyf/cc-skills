@@ -33,7 +33,8 @@ var (
 	monthDay         = regexp.MustCompile(`(?i)^\.?,?[ \t]+(?:on[ \t]+)?((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*)\.?[ \t]+(\d{1,2})\b`)
 	laterDay         = regexp.MustCompile(`(?i)^\.?,?[ \t]+(?:on[ \t]+)?(?:tomorrow|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b`)
 	clockLayouts     = []string{"3:04PM", "3PM", "15:04"}
-	ownerInWords     = regexp.MustCompile(`\bOwner:[ \t]+\S`)
+	ownerInWords     = regexp.MustCompile(`\bOwner:[ \t]+\S|\bowner[ \t]+[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b`)
+	pastClause       = regexp.MustCompile(`^,?[ \t]+(?:I|we|it|they)[ \t]+(?:(?:had|have|already)[ \t]+)*(?:[a-z]+ed|was|were|had|sent|ran|wrote|got|made|took|saw|read|did|went|found|built|put)\b`)
 	recordNumber     = regexp.MustCompile(`(?:^|[^\d.:@/])#?(\d{3,})\b`)
 	machineLanes     = []string{Lane, "stall-watch", "desk-runner", lanes.Self}
 	kindsOwingNoPlan = []string{"hold", "go", "lift", "owner"}
@@ -63,7 +64,7 @@ func deadlineOf(record client.Record, restated []string) string {
 	}
 	for _, at := range namedDeadline.FindAllStringSubmatchIndex(record.Text, -1) {
 		clock, rest := record.Text[at[2]:at[3]], record.Text[at[3]:]
-		if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(record.Text[:at[0]])), "since") && !strings.HasPrefix(rest, ":") && !slices.Contains(restated, clockKey(clock)) && stillAhead(clock, rest, record.At) {
+		if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(record.Text[:at[0]])), "since") && !strings.HasPrefix(rest, ":") && !pastClause.MatchString(rest) && !slices.Contains(restated, clockKey(clock)) && stillAhead(clock, rest, record.At) {
 			return clock
 		}
 	}
