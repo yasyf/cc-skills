@@ -25,6 +25,11 @@ type unread struct {
 	why  string
 }
 
+type refusal struct {
+	lane string
+	why  string
+}
+
 type folded struct {
 	adopted []string
 	hand    []string
@@ -33,6 +38,7 @@ type folded struct {
 	stood   []stoodDown
 	untyped []int64
 	unheard []string
+	refused []refusal
 	deps    Deps
 }
 
@@ -488,6 +494,10 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		return
 	}
 	if name == runner {
+		if found := launchRefused.FindStringSubmatch(text); found != nil && !fresh {
+			out.refused = append(out.refused, refusal{found[2], found[1] + ": " + strings.TrimSpace(found[3])})
+			return
+		}
 		if found := workerDone.FindStringSubmatch(text); found != nil {
 			if ended, ok := laneOf(s, found[1]); ok && ended.State != store.LaneRetired {
 				if ended.Heard.IsZero() {

@@ -821,7 +821,11 @@ func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, 
 	keys := briefIncidents(text)
 	pushers := map[string]bool{}
 	seen := map[string]bool{}
-	for _, found := range prNamedInBrief.FindAllStringSubmatch(text, -1) {
+	var named [][]string
+	if !briefStanding.MatchString(text) {
+		named = prNamedInBrief.FindAllStringSubmatch(text, -1)
+	}
+	for _, found := range named {
 		pr := found[1] + found[2]
 		if seen[pr] {
 			continue
