@@ -55,6 +55,18 @@ func (b Bus) PostOrder(ctx context.Context, tap Tap, from client.Record) (Record
 	return b.postKeyed(ctx, tap.Kind(), raw, nil, "", namespace+"."+tap.Kind()+"/"+cmp.Or(from.ID, from.Name()))
 }
 
+// PostCardTap records his tap on a card as an owner record, which WriteOrders turns into the land order on the landing host. An owner machine's relay never carries a dotted kind, so a typed order written here would stay here.
+func (b Bus) PostCardTap(ctx context.Context, repo string, tap Tap) error {
+	_, err := client.Post(ctx, client.Draft{
+		Drive: b.Drive, Lane: b.Lane, Kind: ownerKind,
+		ID:    fmt.Sprintf("card-tap/%d/%s", tap.PR, tap.Head),
+		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
+		Attrs: map[string]string{"row": strconv.Itoa(tap.PR), "verdict": "approved", "head": tap.Head},
+		Text:  fmt.Sprintf("Owner on a card: #%d approved at %s", tap.PR, tap.Head[:min(12, len(tap.Head))]),
+	})
+	return err
+}
+
 func (b Bus) PostRefusal(ctx context.Context, repo string, tap Tap, reason string) error {
 	sum := sha256.Sum256([]byte(reason))
 	_, err := client.Post(ctx, client.Draft{
