@@ -99,8 +99,8 @@ func hostGone(f *fake, gone bool) {
 
 func TestASpriteLaneWhoseHostOrcaReportsUnavailableForTenMinutesIsRelaunchedOnceFromWhatTheBusHolds(t *testing.T) {
 	s := memory(t)
-	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
 	f := onSprite(t, s, 46001)
+	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
 	hostGone(f, true)
 	f.peers = append(f.peers, who("meta-desk-3", true, t0))
 
@@ -127,8 +127,8 @@ func TestASpriteLaneWhoseHostOrcaReportsUnavailableForTenMinutesIsRelaunchedOnce
 
 func TestASpriteLaneThatRecoversIsNeverRelaunchedAndOneThatRecoversAfterItsRelaunchDoesNotDoubleUp(t *testing.T) {
 	s := memory(t)
-	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
 	f := onSprite(t, s, 46001)
+	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
 	meta := who("meta-desk-3", true, t0)
 	at := func(minutes int, gone bool) Outcome {
 		hostGone(f, gone)
@@ -163,7 +163,7 @@ func TestAQuietSpriteLaneOrcaReportsLiveIsNeverRelaunchedForPostingNoRecord(t *t
 	tick(t, s, f, t0)
 	equal(t, len(f.launches), 0)
 
-	f.peers = []Row{{Lane: lane2, SeenAt: t0, Dispatch: "ctx_1", Unverified: "has an Orca agent that reads unverifiable (stale_status)"}, who("meta-desk-3", true, t0)}
+	f.peers = []Row{{Lane: lane2, SeenAt: t0.Add(-time.Hour), Dispatch: "ctx_1", Unverified: "has an Orca agent that reads unverifiable (stale_status)"}, who("meta-desk-3", true, t0)}
 	out := tick(t, s, f, t0.Add(mins(1)))
 
 	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", "has posted no record in the 61 min since its launch, and Orca does not report it live"}})
