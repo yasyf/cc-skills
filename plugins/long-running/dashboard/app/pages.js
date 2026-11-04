@@ -225,6 +225,7 @@ function statusStep(row) {
   return `<div class="pg pg-page"><div class="kick muted">Plan step</div><h1 class="pg-title">${esc(words(row[0]))}</h1><dl class="pg-facts">${row.slice(1).map((c, i) => `<dt>${esc(head[i + 1] ?? '')}</dt><dd>${workerLinks(inline(c))}</dd>`).join('')}</dl></div>`;
 }
 const STATUS_STATES = [['', 'Every state'], ['you', 'Needs you'], ['bad', 'Stuck'], ['acc', 'Moving'], ['ok', 'Done']];
+const TABLE_STALE_MS = 2 * 60 * 60 * 1000;
 const OWNER_HEAD = ['Step', 'What it delivers', 'State', 'What blocks it', 'What we are doing to unblock it', 'What went wrong so far'];
 function rowTone(row) {
   if (/^(done|live|landed)\b/i.test(row.state)) return 'ok';
@@ -252,6 +253,9 @@ function ownerRow(tableId, row, i) {
   })];
   return `<details class="pg-rows" data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary class="pg-row"><span class="pg-cells"><b>${esc(row.step)}</b>${cell(row.delivers)}<span class="st-clip">${dotted(said(row.state).replace(/^(.{44}\S*)\s.+$/, '$1…'), row.tone)}</span>${cell(row.blocks)}${cell(row.doing)}${cell(row.wrong)}</span></summary><dl class="pg-facts st-full">${facts.map(([label, text]) => `<dt>${esc(label)}</dt><dd>${inline(text)}</dd>`).join('')}${records.length ? `<dt>Records</dt><dd>${records.join('<br>')}</dd>` : ''}</dl></details>`;
 }
+function tableStale(asOf) {
+  return Date.now() - new Date(`${new Date().toDateString()} ${asOf}`) > TABLE_STALE_MS;
+}
 function ownerTable(table, tone) {
   const rows = table.rows.map((row, i) => ({ row, i })).filter(({ row }) => !tone || row.tone === tone);
   if (!rows.length) return '';
@@ -259,7 +263,7 @@ function ownerTable(table, tone) {
   const open = rows.filter((x) => !done.includes(x));
   const draw = ({ row, i }) => ownerRow(table.id, row, i);
   const empty = OWNER_HEAD.slice(2).map(() => '<span></span>').join('');
-  return `<section class="pg-sec" id="status-${esc(table.id)}"><h2><a href="#/status/${esc(table.id)}">${esc(table.title)}</a> <span class="pg-n">${table.rows.length}</span></h2>${table.short ? `<p class="pg-rel">${esc(table.short)}${table.as_of ? ` <span class="pg-at">As of ${esc(table.as_of)}.</span>` : ''}</p>` : ''}<div class="pg-table st-six">${tableHead(...OWNER_HEAD)}${open.map(draw).join('')}${done.length ? rowFold(`st-done-${table.id}`, [`<b>${done.length} done</b>`, `<span></span>${empty}`], done.map(draw)) : ''}</div></section>`;
+  return `<section class="pg-sec" id="status-${esc(table.id)}"><h2><a href="#/status/${esc(table.id)}">${esc(table.title)}</a> <span class="pg-n">${table.rows.length}</span></h2>${table.short ? `<p class="pg-rel">${esc(table.short)}${table.as_of ? ` <span class="pg-at${tableStale(table.as_of) ? ' pg-stale' : ''}">${tableStale(table.as_of) ? 'Not updated since' : 'As of'} ${esc(table.as_of)}.</span>` : ''}</p>` : ''}<div class="pg-table st-six">${tableHead(...OWNER_HEAD)}${open.map(draw).join('')}${done.length ? rowFold(`st-done-${table.id}`, [`<b>${done.length} done</b>`, `<span></span>${empty}`], done.map(draw)) : ''}</div></section>`;
 }
 function statusScreen(feature = 'all', tone = '') {
   const m = state.model;
@@ -749,7 +753,7 @@ function repliesScreen() {
   const shown = flow.slice(-rp.limit);
   const hidden = flow.length - shown.length;
   const last = flow.at(-1);
-  const overdue = overdueRows();
+  const overdue = [...overdueRows(), ...picksRow()];
   return `<div class="ct">
     ${overdue.length ? `<div class="ct-owed">${eventList(overdue)}</div>` : ''}
     ${hidden ? `<button class="ct-link ct-earlier" data-chat-earlier>Show earlier (${hidden})</button>` : ''}

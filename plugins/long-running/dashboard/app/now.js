@@ -129,7 +129,7 @@ function notLive() {
 }
 function preventions() {
   const failed = state.model.errors?.preventions;
-  const rows = newestFirst([...failureRows(), ...liveFixRows(), ...picksRow()]);
+  const rows = newestFirst([...failureRows(), ...liveFixRows()]);
   if (!rows.length && !failed) return '';
   return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again${notLive().length ? ` <span class="pg-n">${notLive().length} not live</span>` : ''}</h2>
     ${failed ? `<p class="pg-fail">${esc(failed)}</p>` : ''}

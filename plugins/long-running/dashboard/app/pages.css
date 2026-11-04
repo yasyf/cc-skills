@@ -417,3 +417,4 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .ct-whole summary { cursor: pointer; font-size: 12px; opacity: .85; }
 .ct-owed { margin-bottom: 18px; }
 #chatmodal .bq > header { display: none; }
+.pg-stale { color: var(--bad); font-weight: 600; }
