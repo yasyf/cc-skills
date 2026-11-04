@@ -31,6 +31,7 @@ var (
 	briefStanding = regexp.MustCompile(`(?m)^Standing: *\S`)
 	briefMonitor  = regexp.MustCompile(`(?m)^ccx:.*\bmonitor=(\d{4,})`)
 	briefPlace    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(remote|local)(?:\s|$)`)
+	briefWhy      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=\S`)
 	fableModel    = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
 	successorLane = regexp.MustCompile(`^.+-(\d+)$`)
 	notFixRoles   = []string{"evidence", "proof", "closeout", "desk", "audit"}
@@ -139,7 +140,7 @@ func (o Order) scaleFault(text string, written time.Time) string {
 
 func macPinned(lane, model, text string) bool {
 	placed := briefPlace.FindStringSubmatch(text)
-	return lane == coordinatorLane || fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus || (placed != nil && placed[1] == "local")
+	return lane == coordinatorLane || fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus || (placed != nil && placed[1] == "local" && briefWhy.MatchString(text))
 }
 
 func carryFault(ctx context.Context, runner shell.Runner, home, repo, brief, text string) (string, error) {

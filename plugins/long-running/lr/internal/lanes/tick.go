@@ -576,9 +576,13 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 	if found := sliceStep.FindSubmatch(body); found != nil {
 		step = string(found[1])
 	}
+	place := "ccx: place=remote"
+	if macBrief.Match(body) {
+		place = "ccx: place=local why=predecessor-worked-here"
+	}
 	lines := []string{
 		"Replaces: " + old.Name,
-		"ccx: place=local",
+		place,
 		fmt.Sprintf("Register slice: lane=%s step=%s", name, step),
 		fmt.Sprintf("You are %s and take over %s's work. The lane supervisor launched you because %s %s; %s is stood down on cci, so never SendMessage it.", name, old.Name, old.Name, why, old.Name),
 		start,

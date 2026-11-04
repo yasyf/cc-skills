@@ -12,7 +12,7 @@ Fill the angle brackets and write the result to `<state dir>/chores/brief.md`.
 Register slice: lane=chores step=all
 Standing: run the coordinator's reads, counts, tables and cleanups so none of them enter its context
 Scale: one drive, one coordinator, a few chores per batch of its records.
-ccx: role=helper place=local incident=none
+ccx: role=helper place=local why=chores-run-on-the-mac incident=none
 No test, build, lint or LLM call runs on this Mac; CI grades.
 No credential, token or key in any record.
 

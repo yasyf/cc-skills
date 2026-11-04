@@ -333,7 +333,7 @@ func TestABriefNamingWhatNoSpriteCanReceiveIsRefusedOnlyWhenTheLaneMayLeaveTheMa
 	if err == nil || !strings.Contains(err.Error(), "names what no Sprite can receive: "+gone+" does not exist on this Mac") || len(f.bus.posts) != 0 {
 		t.Fatal(err)
 	}
-	local := f.brief(t, "local.md", "ccx: role=build place=local\nRead "+gone+".\n"+briefLines)
+	local := f.brief(t, "local.md", "ccx: role=build place=local why=test\nRead "+gone+".\n"+briefLines)
 	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "xhigh", Brief: local}, {Lane: "a", Model: "fable", Effort: "xhigh", Brief: away}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}} {
 		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {
 			t.Fatal(order, err)

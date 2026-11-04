@@ -86,7 +86,7 @@ Run for this terminal, starts only what is down, and starts nothing when a desk'
 is missing or says place=local. It starts the relay, the landing pass,
 `landing-desk`, `fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` and
 `board-refresher`. The landing pass and every desk run remote, each an lr-launched lane
-registered to you, on a Sprite unless its brief says place=local and names why it needs
+registered to you, on a Sprite unless its brief says `place=local why=<reason>`, naming what needs
 the Mac. You never spawn a desk with Agent: a subagent ends with your window. The relay is the
 one exception: it stays on the Mac, started from this terminal, because it drives the
 Mac's Orca app.

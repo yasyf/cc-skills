@@ -15,7 +15,7 @@ takes.
 Register slice: lane=meta step=all
 Standing: every improvement to the long-running skill, its tooling, prompts, hooks and briefs, and every process order the owner sends the communicator
 Scale: the whole drive's process; <the repos its packs live in>; one live drive to keep working while they change.
-ccx: role=desk place=local incident=none
+ccx: role=desk place=local why=installs-run-on-the-mac incident=none
 No test, build, vet, typecheck, lint or LLM call runs on this Mac; CI grades.
 No credential, token or key in any file, record or brief.
 
