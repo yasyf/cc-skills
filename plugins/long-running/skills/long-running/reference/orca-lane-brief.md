@@ -173,7 +173,7 @@ is listed under Escalate stops for the coordinator: post
 preamble's `orca orchestration send` and `ask` carry the dispatch lifecycle alone
 (heartbeats, the runner-action acks below, `worker_done`). Keep working on everything
 that does not depend on the answer.
-End a turn on a wait only after posting it as a cci `ask` or `blocked` record. AskUserQuestion is unavailable. A decision
+End a turn on a wait for a person or another lane only after posting it as a cci `ask` or `blocked` record to whoever acts on it; a wait on a process, a build or a clock ends the turn on `lr wait --wake` below and posts nothing. AskUserQuestion is unavailable. A decision
 the brief, the plan, and the owner's answers do not settle stops that item until the
 coordinator answers the ask above; never take a default or a provisional pick.
 
@@ -208,10 +208,16 @@ it is kept, such as a volume, claim, reclaim, retention or eviction field. Only
 the incident fix and its headroom go first. `design_picks.py` refuses a PR without the
 cite when it touches an open design card's paths or those fields under `infra/rows/`.
 
-Never end a turn waiting, and never loop over `orca orchestration check`: Orca
-  delivers its mail into your terminal, and `lr wait 540 cci:<drive>:<name> -- orca
-  orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --wait --timeout-ms 540000 --json`
-  blocks on Orca's own long poll and on the bus in one foreground call.
+Never loop over `orca orchestration check`: Orca delivers its mail into your terminal, and
+  `lr wait 540 cci:<drive>:<name> -- orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE"
+  --wait --timeout-ms 540000 --json` blocks on Orca's own long poll and on the bus in one
+  foreground call. A wait that outlasts a call is
+  `lr wait --wake <output file> <seconds> [<source>...] [-- <command>]`, which returns at once;
+  when it ends it mails your own terminal and types a wake there if you are at rest, so you can
+  end your turn on it. A Codex lane has
+  only this, since nothing else wakes an idle Codex terminal; a Claude lane may use a background
+  Bash or a `Monitor` instead, which wake it themselves. A wait's completion is never a record:
+  no desk, `root` or `supervisor` acts on one, so your next step would sit until someone noticed.
 
 Bus: your cci drive is <drive>, with the CLI `cci` on PATH. Subscribe with `--topic <each PR,
 branch prefix, and contract you own or consume> --kind decision`. On every wake, and before

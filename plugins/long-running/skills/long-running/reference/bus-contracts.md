@@ -81,7 +81,7 @@ A lane reads with `cci tail --drive <drive> --cursor <lane> --reader <lane>`.
 - The cursor is a cci cursor named for the lane. It survives compaction and advances only through printed records. A new tail cursor reads the past hour. Repeat a capped read with the same drive, cursor and filters to continue. Tail defaults to a 4,000-byte budget and caps at 16,000 with `--budget`.
 - `--since <seq>` reads after that seq without reading or advancing the cursor. `--since 0` replays retained records. Omit `--reader` for a drive-wide replay when another lane's thread matters.
 
-**A lane waits** with `Monitor` on its record stream, by ending its turn on a typed record or an Agent or `Monitor` notification, or with `lr wait 540 cci:<drive>:<lane>` as its Bash call at `timeout: 570000`, re-run when it returns. Only an in-process teammate adds its mailbox, under I7.
+**A lane waits** with `Monitor` on its record stream, by ending its turn on a typed record, an Agent or `Monitor` notification or an armed `lr wait --wake <output file>`, or with `lr wait 540 cci:<drive>:<lane>` as its Bash call at `timeout: 570000`, re-run when it returns. An armed wait wakes the lane that armed it and posts no record, and it is how a Codex lane waits past a call. Only an in-process teammate adds its mailbox, under I7.
 
 - The call follows the cci daemon's stream and any file source, so it polls nothing.
 - Its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor.

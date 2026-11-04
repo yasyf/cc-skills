@@ -33,6 +33,10 @@ Standing orders, fixed in this template:
   - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile, such as one missing generated bindings, never holds a push, and neither does a load-gate refusal: push, and CI compiles it; never generate code just to satisfy the local build.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
+  - A wait on a release, a replay or any other process that outlasts a call is
+    `lr wait --wake <output file> <seconds> [<source>...] [-- <command>]`, which wakes
+    this lane when it ends. Never post its completion as a record: no desk, root or
+    supervisor acts on it.
   - A hook that blocks your work gets a fix lane you launch that turn,
     `lr launch lane hook-fix-<hook> opus xhigh <brief>`, and the fix goes on through what the
     hook does not block; nothing runs the refused thing through a wrapper, `cc-sudo` or a script.
