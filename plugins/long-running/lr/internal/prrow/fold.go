@@ -25,7 +25,6 @@ const (
 	FactTapBy     = "tap-by"
 	FactTapAt     = "tap-at"
 
-	cursor      = "review-rows"
 	foldWindow  = 72 * time.Hour
 	readKind    = "github"
 	readRecord  = "pr.read"
@@ -56,7 +55,7 @@ type Fold struct {
 }
 
 func (f Fold) Pass(ctx context.Context, held map[int]string) ([]store.ReviewRow, error) {
-	after, err := f.Store.Cursor(cursor)
+	after, err := f.Store.Cursor(store.ReviewRowsCursor)
 	if err != nil {
 		return nil, err
 	}
@@ -70,10 +69,10 @@ func (f Fold) Pass(ctx context.Context, held map[int]string) ([]store.ReviewRow,
 	}
 	var out []store.ReviewRow
 	err = f.Store.Update(func(t *store.Tx) error {
-		if err := t.Advance(cursor, 0); err != nil {
+		if err := t.Advance(store.ReviewRowsCursor, 0); err != nil {
 			return err
 		}
-		position, err := t.Cursor(cursor)
+		position, err := t.Cursor(store.ReviewRowsCursor)
 		if err != nil {
 			return err
 		}
@@ -92,7 +91,7 @@ func (f Fold) Pass(ctx context.Context, held map[int]string) ([]store.ReviewRow,
 			if err := f.apply(t, rows, record); err != nil {
 				return err
 			}
-			if err := t.Advance(cursor, record.Seq); err != nil {
+			if err := t.Advance(store.ReviewRowsCursor, record.Seq); err != nil {
 				return err
 			}
 		}
@@ -142,6 +141,9 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Rec
 		var err error
 		switch string(record.Kind) {
 		case "opened":
+			if attrs["head"] == "" {
+				continue
+			}
 			if !known {
 				row = newRow(f.Repo, number)
 			}
