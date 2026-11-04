@@ -746,7 +746,7 @@ func TestAnAlertLaunchStartsNoCommsLane(t *testing.T) {
 	}
 
 	equal(t, slices.Contains(argv, "--comms-brief"), false)
-||||||| 61626b907
+}
 
 func TestTwoFiringsOfOneMonitorInAPassLaunchOnce(t *testing.T) {
 	triggered := "Triggered: runtime-api-next logging errors — plat\n" + monitorLink
