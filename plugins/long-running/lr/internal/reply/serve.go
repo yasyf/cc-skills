@@ -28,6 +28,8 @@ var schema = map[string]any{
 		"links":       map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string"}, "url": map[string]any{"type": "string"}}, "required": []string{"label", "url"}}, "description": "Up to 5 links, such as a hosted one-pager; an https link is a button in Slack, an http one a line of the card."},
 		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls, each shown as its live PR card."},
 		"thread":      map[string]any{"type": "string", "description": "The ts of the Slack DM thread this reply answers. An ask he sent as a thread reply this turn fills it in; name it only to answer a thread he wrote in on an earlier turn."},
+		"order":       map[string]any{"type": "string", "description": "The ledger row, such as m347, of the owner order this reply answers. The tool then leads the reply with \"Done, nothing for you\", or with action; write md without that lead."},
+		"action":      map[string]any{"type": "string", "description": "With order, the one thing he must do, on one line. Omit it when he need do nothing."},
 	},
 	"required": []string{"title", "md"},
 }
@@ -63,6 +65,7 @@ func Tool(a *app.App) channel.Tool {
 			if r.ID == "" {
 				r.ID = "r" + strconv.FormatInt(a.Now().UnixMilli(), 36)
 			}
+			r = r.led()
 			if err := r.check(); err != nil {
 				return "reply: " + err.Error(), true
 			}

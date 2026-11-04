@@ -32,10 +32,14 @@ const (
 	maxPRs       = 10
 	maxSlackBody = 2800
 	withdrawn    = " withdrawn"
+	doneLead     = "Done, nothing for you"
+	pickLead     = "Tap one below"
+	needsYou     = "needs_you"
 )
 
 var (
-	statuses   = []string{"info", "progress", "needs_you", "incident", "done"}
+	statuses   = []string{"info", "progress", needsYou, "incident", "done"}
+	orderRow   = regexp.MustCompile(`^m\d+$`)
 	replyID    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
 	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
@@ -67,6 +71,8 @@ type Reply struct {
 	Links       []Link   `json:"links,omitempty"`
 	PRs         []string `json:"prs,omitempty"`
 	Thread      string   `json:"thread,omitempty"`
+	Order       string   `json:"order,omitempty"`
+	Action      string   `json:"action,omitempty"`
 }
 
 type Outcome struct {
@@ -102,8 +108,38 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	return sent
 }
 
+func (r Reply) led() Reply {
+	if r.Order == "" || strings.TrimSpace(r.Title) == "" || strings.TrimSpace(r.MD) == "" {
+		return r
+	}
+	lead := strings.TrimRight(strings.TrimSpace(r.Action), ".")
+	switch {
+	case lead != "":
+		r.Status = cmp.Or(r.Status, needsYou)
+	case len(r.Picks) > 0:
+		lead = pickLead
+		r.Action = lead
+		r.Status = cmp.Or(r.Status, needsYou)
+	default:
+		lead = doneLead
+	}
+	if !strings.HasPrefix(r.Title, lead) {
+		r.Title = lead + ": " + r.Title
+	}
+	if md := strings.TrimSpace(r.MD); !strings.HasPrefix(md, lead) {
+		r.MD = lead + ".\n\n" + md
+	}
+	return r
+}
+
 func (r Reply) check() error {
 	switch {
+	case r.Order != "" && !orderRow.MatchString(r.Order):
+		return fmt.Errorf("order %q is not a ledger row such as m347", r.Order)
+	case r.Action != "" && r.Order == "":
+		return errors.New("action names what he must do about an order, and this reply names no order")
+	case strings.Contains(r.Action, "\n"):
+		return errors.New("action is the one thing he must do, on one line")
 	case !replyID.MatchString(r.ID):
 		return fmt.Errorf("id %q is not one an earlier reply returned", r.ID)
 	case strings.TrimSpace(r.Title) == "" || strings.Contains(r.Title, "\n") || utf8.RuneCountInString(r.Title) > maxTitle:
@@ -270,6 +306,10 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		}
 		body += "\n<" + link.URL + "|" + link.Label + ">"
 	}
+	fit, err := f.fit(body)
+	if err != nil {
+		return []Outcome{{Surface: "slack", Error: err.Error()}}
+	}
 	card, err := json.Marshal(struct {
 		Key    string `json:"key"`
 		Status string `json:"status"`
@@ -277,7 +317,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		Body   string `json:"body"`
 		Drive  string `json:"drive"`
 		Links  []Link `json:"links,omitempty"`
-	}{r.ID, cmp.Or(r.Status, "info"), r.Title, fitted(body, maxSlackBody), f.Entry.Bus(), buttons})
+	}{r.ID, cmp.Or(r.Status, "info"), r.Title, fit, f.Entry.Bus(), buttons})
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
@@ -296,6 +336,18 @@ func (f Fanout) dmStatus(ctx context.Context, args ...string) []Outcome {
 		return []Outcome{{Surface: "slack", Error: "cc-slack dm-status named no posted message: " + strings.TrimSpace(done.Stdout)}}
 	}
 	return []Outcome{{Surface: "slack", Ref: posted.Permalink}}
+}
+
+func (f Fanout) fit(body string) (string, error) {
+	if utf8.RuneCountInString(body) <= maxSlackBody {
+		return body, nil
+	}
+	url, err := drive.DashboardURL(f.Entry.StateDir)
+	if err != nil {
+		return "", fmt.Errorf("the reply is longer than a Slack card and its dashboard link did not read: %w", err)
+	}
+	rest := "\n<" + url + "#/replies|Read the rest on your dashboard>"
+	return fitted(body, maxSlackBody-utf8.RuneCountInString(rest)) + rest, nil
 }
 
 func (f Fanout) record(ctx context.Context, r Reply, _ []Outcome) []Outcome {

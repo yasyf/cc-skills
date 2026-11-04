@@ -192,6 +192,19 @@ func hisWords(text string) string {
 	return text[open+1 : closed]
 }
 
+func namedBy(replies, row, reply string) bool {
+	sent, err := os.ReadFile(filepath.Join(replies, reply+".json"))
+	if err != nil {
+		return false
+	}
+	var body struct {
+		Reply struct {
+			Order string `json:"order"`
+		} `json:"reply"`
+	}
+	return json.Unmarshal(sent, &body) == nil && body.Reply.Order == row
+}
+
 func Rows(path string, all bool) ([]string, error) {
 	ledger, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -241,12 +254,15 @@ func Command(a *app.App) *cobra.Command {
 			if err := Mark(Ledger(entry.StateDir), row, state, routed); err != nil {
 				return err
 			}
+			if state == responded && !namedBy(filepath.Join(entry.StateDir, repliesDir), row, reply) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s is responded with no reply naming it, so nothing told him whether he has anything to do; send the reply with order=%s and pass it as --reply\n", row, row)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", row, state)
 			return nil
 		},
 	}
 	mark.Flags().IntVar(&routed, "routed", 0, "the seq of the cci record that routed the message")
-	mark.Flags().StringVar(&reply, "reply", "", "the reply that carries what a row asking for an update, recap or report asked for")
+	mark.Flags().StringVar(&reply, "reply", "", "the reply that answers the row: it names the row as its order, or carries what a row asking for an update, recap or report asked for")
 	mark.Flags().StringVar(&by, "by", "", "the clock a due row is promised by, such as 6:40 PM")
 	add := &cobra.Command{
 		Use:   "add",
