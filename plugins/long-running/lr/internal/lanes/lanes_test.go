@@ -834,6 +834,23 @@ func TestAMetaLanesSecondDeathRaisesItsDefectToItsLaunchersHead(t *testing.T) {
 	equal(t, defects[0].To, []string{"meta-desk-2"})
 }
 
+func TestALaneThatEndedItselfStandsDownOnTheBusSoItsAliasPassesOn(t *testing.T) {
+	for _, kind := range []string{"done", "stopped", "handoff"} {
+		s := memory(t)
+		f := adopted(t, s, writeBrief(t), "")
+		f.feed = append(f.feed, rec(2, lane2, kind, t0, "finished", Root))
+		f.peers = []Row{who(lane2, false, t0)}
+
+		tick(t, s, f, t0.Add(mins(1)))
+		tick(t, s, f, t0.Add(mins(2)))
+
+		equal(t, row(t, s, lane2).State, store.LaneRetired)
+		standDowns := f.ofKind("stand-down")
+		equal(t, len(standDowns), 1)
+		equal(t, standDowns[0].To, []string{lane2})
+	}
+}
+
 func TestDoneAndARootStandDownRetireALane(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	f := adopted(t, s, brief, "")
@@ -843,7 +860,7 @@ func TestDoneAndARootStandDownRetireALane(t *testing.T) {
 	tick(t, s, f, t0.Add(mins(30)))
 
 	equal(t, len(f.launches), 0)
-	equal(t, f.kinds(), []string{"stand-down:red-sweep-3"})
+	equal(t, f.kinds(), []string{"stand-down:red-sweep-3", "stand-down:" + lane2})
 	equal(t, row(t, s, lane2).RetiredBy, "done")
 	equal(t, row(t, s, "red-sweep-3").RetiredBy, Root)
 }
