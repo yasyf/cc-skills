@@ -174,6 +174,7 @@ func (s Source) fromRows(rows []store.ReviewRow, held map[int]hold) ([]machine.F
 			return nil, err
 		}
 		f.Hold, f.HoldSeq = held[row.Number].by, held[row.Number].seq
+		f.RowWait = gates.RowWait(row, true, row.Head)
 		out = append(out, f)
 	}
 	return out, nil
@@ -620,7 +621,9 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	if err != nil {
 		return nil, err
 	}
+	drawn := make(map[int]store.ReviewRow, len(known))
 	for _, row := range known {
+		drawn[row.Number] = row
 		if owners[row.Number] == "" {
 			owners[row.Number] = row.Lane
 		}
@@ -640,6 +643,8 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 			return nil, err
 		}
 		f.Hold, f.HoldSeq, f.Carries = held[row.Number].by, held[row.Number].seq, open.carries[row.Number]
+		review, found := drawn[row.Number]
+		f.RowWait = gates.RowWait(review, found, row.Head)
 		if author := open.authors[row.Number]; author != s.Author {
 			f.ForeignAuthor = author
 		}
@@ -746,6 +751,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 	f.Finder, f.Fidelity = machine.Finder(stored["finder"]), machine.Fidelity(stored["fidelity"])
 	f.Tap, f.Condition = machine.Tap(stored["tap"]), stored["condition"]
 	f.GradeStopped = stored[machine.GradeStoppedFact]
+	f.TapRefused = stored[bus.TapRefusedFact]
 	_, f.Verdict = stored["verdict"]
 	_, f.Exempt = stored["exempt"]
 	return nil

@@ -137,4 +137,4 @@ At three hours, write a handoff note beside the dashboard config naming your cur
 the last update file, post `cci post --to owner-relay` with `rotate update-desk: <path>`, and stop.
 ```
 
-A thread answer that lands or merges a PR is his land order: record it, then run `lr landing order <PR> --record <seq>` on that record, so the landing pass reads it. A status line that says a PR waits on his tap quotes `lr board waits --pr <PR>`, never an older record.
+A thread answer that lands or merges a PR is his land order: record it, then run `lr landing order <PR> --record <seq>` on that record (it prints REFUSED with the reason and exits 1 when the PR's review row is not ready, and tell him that reason), so the landing pass reads it. A status line that says a PR waits on his tap quotes `lr board waits --pr <PR>`, never an older record.

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -66,14 +67,14 @@ func CarriedBy(tapped string, atTap, atHead map[string]string) string {
 	if atTap[DiffFact] != "" && atTap[DiffFact] == atHead[DiffFact] {
 		return BySameDiff
 	}
-	if namesTapped(atHead[SinceFact], tapped) && atHead[BehaviorFact] == BehaviorSame && (atHead[fidelityFact] == string(machine.FidelityPass) || atHead[verdictFact] != "") {
+	if sameHead(atHead[SinceFact], tapped) && atHead[BehaviorFact] == BehaviorSame && (atHead[fidelityFact] == string(machine.FidelityPass) || atHead[verdictFact] != "") {
 		return ByFidelity
 	}
 	return ""
 }
 
-func namesTapped(since, tapped string) bool {
-	return since != "" && (strings.HasPrefix(since, tapped) || strings.HasPrefix(tapped, since))
+func sameHead(a, b string) bool {
+	return a != "" && (strings.HasPrefix(a, b) || strings.HasPrefix(b, a))
 }
 
 const NoTap = "no tap"
@@ -111,6 +112,9 @@ func Missing(f machine.Facts) []string {
 	}
 	if f.UnsafeWait != "" {
 		out = append(out, UnsafeOnDev(f.UnsafeWait))
+	}
+	if !f.RowClear() && !slices.ContainsFunc(out, func(gate string) bool { return gate != NoTap }) {
+		out = append(out, "its row waits on: "+f.RowWait)
 	}
 	return out
 }

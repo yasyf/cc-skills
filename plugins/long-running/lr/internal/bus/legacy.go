@@ -20,7 +20,7 @@ const (
 )
 
 var (
-	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction"}
+	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", TapRefusedKind}
 	goKinds        = []string{"go", "decide", "decision"}
 	finderDesk     = []string{"finder-desk"}
 	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk", "fidelity-sweep"}
@@ -66,6 +66,8 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	switch {
 	case kind == "withdraw" || kind == "correction" || kind == ownerKind:
 		return nil
+	case kind == TapRefusedKind:
+		return factsPerPR(record, repo, record.Fields.Attrs[refusedHead], TapRefusedFact, record.Fields.Attrs[refusalAttr])
 	case kind == "review" && delegated(record.Lane, finderDesk) && strings.HasPrefix(record.Text, "finder:"):
 		grade, head := finderVerdicts[finderGrade(record.Text)], firstSHA(record.Text)
 		if grade == "" || head == "" {

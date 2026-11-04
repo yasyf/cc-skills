@@ -10,6 +10,8 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 )
 
 const (
@@ -24,8 +26,11 @@ const (
 
 var orderWatchers = []string{"meta-desk", "owner-relay"}
 
-// WriteOrders turns each owner tap recorded on any surface into the one lr.tap record the landing pass and every desk read.
+// WriteOrders turns each owner tap recorded on any surface into the one lr.tap record the landing pass and every desk read, or, on a row not ready at that head, one tap.refused naming why.
 func (s Source) WriteOrders(ctx context.Context) error {
+	if !s.Reads {
+		return nil
+	}
 	since, err := s.Store.Cursor(OrderCursor)
 	if err != nil {
 		return err
@@ -74,13 +79,26 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 			return nil
 		}
 	}
-	head, open, err := s.orderHead(ctx, tap)
+	head, refusal, open, err := s.orderAt(ctx, tap)
 	if err != nil || !open {
 		return err
 	}
 	tap.Head = head
-	_, err = bus.Bus{Drive: s.Drive, Lane: OrderLane}.PostOrder(ctx, tap, record)
+	orders := bus.Bus{Drive: s.Drive, Lane: OrderLane}
+	if refusal != "" {
+		return orders.PostRefusal(ctx, s.Repo, tap, refusal)
+	}
+	_, err = orders.PostOrder(ctx, tap, record)
 	return err
+}
+
+func (s Source) orderAt(ctx context.Context, tap bus.Tap) (head, refusal string, open bool, err error) {
+	if tap.Value != string(machine.TapTapped) {
+		head, open, err = s.orderHead(ctx, tap)
+		return head, "", open, err
+	}
+	head, refusal, err = gates.TapAt(s.Store, s.Repo, tap)
+	return head, refusal, true, err
 }
 
 func (s Source) orderHead(ctx context.Context, tap bus.Tap) (string, bool, error) {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -859,5 +860,45 @@ func TestOnlyAGreenOpenHeadThatCanBeGradedStartsTheUngradedClock(t *testing.T) {
 				t.Fatalf("posts = %+v", got)
 			}
 		})
+	}
+}
+
+func TestATappedPRWhoseRowIsNotReadyIsNeitherQueuedNorAskedOf(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	out := run(t, s, r, t0, all, facts(1, func(f *machine.Facts) { f.RowWait = "not graded" }))
+
+	open, err := s.OpenItems(repo, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Verdicts[1].State != machine.StateNotReady || len(out.Acts) != 0 || len(open) != 0 || len(out.Escalated) != 0 {
+		t.Fatalf("out = %+v, open = %+v", out, open)
+	}
+}
+
+func TestATappedPRWithNoRowLandsNothingAndMetaDeskHearsOnce(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	unread := func(f *machine.Facts) { f.RowWait = gates.NoRow }
+
+	first := run(t, s, r, t0, all, facts(1, unread), facts(2, unread))
+	run(t, s, r, t0.Add(time.Minute), all, facts(1, unread), facts(2, unread))
+
+	told := r.of("escalation")
+	if len(first.Acts) != 0 || len(told) != 1 || !slices.Equal(told[0].to, []string{pass.RowsDesk}) {
+		t.Fatalf("acts = %+v, told = %+v", first.Acts, told)
+	}
+	if said := told[0].body.(bus.Escalation); !strings.Contains(said.Subject, "#1, #2") {
+		t.Fatalf("said = %+v", said)
+	}
+}
+
+func TestAnExemptPRWithNoRowLandsUnderItsRuleAndTellsNobody(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+
+	out := run(t, s, r, t0, all, facts(1, func(f *machine.Facts) { f.Tap, f.Exempt, f.RowWait = "", true, gates.NoRow }))
+
+	if out.Verdicts[1].Action != machine.ActionEnqueue || len(r.of("escalation")) != 0 {
+		t.Fatalf("out = %+v, posts = %+v", out, r.posts)
 	}
 }

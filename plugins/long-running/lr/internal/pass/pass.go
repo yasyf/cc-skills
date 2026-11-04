@@ -52,12 +52,15 @@ type Outcome struct {
 const (
 	EnqueuedFact = "enqueued"
 	BoardDesk    = "board-refresher"
+	RowsDesk     = "meta-desk"
 	GraderDesk   = "grader-appeals"
 	root         = string(machine.MoverRoot)
 
 	clusterSize    = 3
 	refusalCluster = 30 * time.Minute
 	waitCluster    = time.Hour
+
+	rowsUnread = "REVIEW-ROW-UNREAD"
 
 	ungradedFact = "green-ungraded"
 	ungradedLane = time.Hour
@@ -133,6 +136,9 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 			return out, err
 		}
 		if err := escalateTappedHolds(s, snapshot, now, tell, &out); err != nil {
+			return out, err
+		}
+		if err := escalateUnreadRows(s, snapshot, now, tell, &out); err != nil {
 			return out, err
 		}
 	}
@@ -400,6 +406,26 @@ func escalateTappedHolds(s *store.Store, snapshot []machine.Facts, now time.Time
 		}
 	}
 	return nil
+}
+
+func escalateUnreadRows(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, out *Outcome) error {
+	var unread []string
+	for _, f := range snapshot {
+		if f.RowWait == gates.NoRow && f.Tap == machine.TapTapped && !f.Exempt && !out.Verdicts[f.Number].State.Terminal() {
+			unread = append(unread, fmt.Sprintf("#%d", f.Number))
+		}
+	}
+	if len(unread) == 0 {
+		return nil
+	}
+	subject := rowsUnread + " " + strings.Join(unread, ", ")
+	cause := "the owner tapped these and none has a review row, so none lands until its row is written"
+	raised, err := s.Escalate(subject, cause, RowsDesk, now)
+	if err != nil || !raised {
+		return err
+	}
+	out.Escalated = append(out.Escalated, Escalated{subject, cause, RowsDesk})
+	return post([]string{RowsDesk}, bus.Escalation{Subject: subject, Cause: cause})
 }
 
 func stuckBecause(s *store.Store, base machine.Facts, now time.Time) (string, error) {

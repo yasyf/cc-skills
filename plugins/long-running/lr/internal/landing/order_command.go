@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -14,7 +15,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 var ownerWordLanes = []string{"board-watch", "owner-relay"}
@@ -55,19 +59,33 @@ func runOrder(ctx context.Context, a *app.App, number int, seq int64, stdout io.
 	if !holdsOwnerWord(records[0], number) {
 		return fmt.Errorf("record #%d, from lane %s, is no owner word naming #%d", seq, records[0].Lane, number)
 	}
-	heads, err := currentHeads(ctx, a.CCX, cfg.Repo, []int{number}, "")
+	s, err := store.Open(filepath.Join(filepath.Dir(a.ConfigPath), storeFile))
 	if err != nil {
 		return err
 	}
-	head, open := heads[number]
-	if !open {
-		return fmt.Errorf("#%d is not an open pull request", number)
-	}
-	posted, err := bus.Bus{Drive: cfg.Drive, Lane: facts.OrderLane}.PostOrder(ctx, bus.Tap{PR: number, Head: head, By: bus.OwnerBy, Value: string(machine.TapTapped)}, records[0])
+	defer func() { _ = s.Close() }()
+	return writeOrder(ctx, s, cfg.Repo, bus.Bus{Drive: cfg.Drive, Lane: facts.OrderLane}, number, records[0], stdout)
+}
+
+func writeOrder(ctx context.Context, s *store.Store, repo string, orders bus.Bus, number int, word client.Record, stdout io.Writer) error {
+	tap := bus.Tap{PR: number, By: bus.OwnerBy, Value: string(machine.TapTapped)}
+	head, refusal, err := gates.TapAt(s, repo, tap)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "ORDER #%d at %s: posted #%d on %s\n", number, head[:7], posted.Seq, records[0].Name())
+	tap.Head = head
+	if refusal != "" {
+		if err := orders.PostRefusal(ctx, repo, tap, refusal); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "REFUSED #%d: %s\n", number, refusal)
+		return &wait.ExitError{Code: 1}
+	}
+	posted, err := orders.PostOrder(ctx, tap, word)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "ORDER #%d at %s: posted #%d on %s\n", number, head[:7], posted.Seq, word.Name())
 	return nil
 }
 
