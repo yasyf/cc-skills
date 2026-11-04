@@ -244,6 +244,55 @@ func TestAnEndedPRCostsNoStatusReadAndLeavesTheRowsWithItsState(t *testing.T) {
 	}
 }
 
+func TestANumberGitHubCannotResolveEndsItsRowAndThePassGoesOn(t *testing.T) {
+	h := newHarness(t, nil)
+	if err := h.store.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: head, State: prrow.StateOpen}, {Repo: repo, Number: 99999, State: prrow.StateOpen}}); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := json.Marshal([]statusRow{status(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial := `{"data":{"repository":{"r99999":null,"r1":{"number":1,"state":"OPEN","headRefOid":"` + head + `"}}},"errors":[{"type":"NOT_FOUND","message":"Could not resolve"}]}`
+	runner := &shelltest.Fake{}
+	runner.FailOut(1, partial, "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
+	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
+	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
+	a := app.New(io.Discard)
+	a.Runner = runner
+	source := facts.New(a, landingConfig, h.store)
+
+	rows, err := source.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("one number GitHub cannot resolve failed the whole pass: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Number != 1 {
+		t.Fatalf("rows = %+v, want only #1", rows)
+	}
+	if err := source.WriteRows(context.Background(), rows); err != nil {
+		t.Fatal(err)
+	}
+	row, _, err := h.store.ReviewRow(repo, 99999)
+	if err != nil || row.State != prrow.StateClosed {
+		t.Fatalf("#99999 = %+v, %v, want closed so it stops being read", row, err)
+	}
+}
+
+func TestAnotherErrorFromTheMemberReadStillFailsThePass(t *testing.T) {
+	h := newHarness(t, nil)
+	if err := h.store.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: head, State: prrow.StateOpen}}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &shelltest.Fake{}
+	runner.FailOut(1, `{"data":null,"errors":[{"type":"RATE_LIMITED"}]}`, "ccx", "vcs", "gh", "--max-age", "0s")
+	a := app.New(io.Discard)
+	a.Runner = runner
+
+	if _, err := facts.New(a, landingConfig, h.store).Snapshot(context.Background()); err == nil {
+		t.Fatal("a rate limit read as a clean pass")
+	}
+}
+
 func TestAnOpenedRecordMakesTheRow(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 7, head: head, login: "drive-bot", unopened: true}}, status(7))
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "opened", Text: "opened", PRs: []string{repo + "#7"}, Attrs: map[string]string{"repo": repo, "head": head}}); err != nil {

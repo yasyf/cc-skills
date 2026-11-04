@@ -155,12 +155,21 @@ func (s Source) WriteRows(ctx context.Context, snapshot []machine.Facts) error {
 	return posted
 }
 
+func (s Source) FoldRows(ctx context.Context) error {
+	held, err := s.holds(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.Rows().Pass(ctx, heldWords(held))
+	return err
+}
+
 func (s Source) splitEnded(numbers []int, members memberRead, itemed map[int]bool) ([]int, []machine.Facts) {
 	open := make([]int, 0, len(numbers))
 	var ended []machine.Facts
 	for _, number := range numbers {
 		pr, read := members.prs[number]
-		if !read || pr.State == "OPEN" || itemed[number] {
+		if itemed[number] || pr.State == "OPEN" || !read && !members.missing[number] {
 			open = append(open, number)
 			continue
 		}
@@ -449,6 +458,7 @@ type memberRead struct {
 	carries map[int][]int
 	prs     map[int]pullRequest
 	authors map[int]string
+	missing map[int]bool
 }
 
 type label struct {
@@ -528,23 +538,39 @@ func (pr pullRequest) mergeableAt(head string) bool {
 	return pr.HeadRefOid == head && pr.Mergeable == "MERGEABLE" && pr.MergeStateStatus != "DIRTY"
 }
 
+type graphError struct {
+	Type string `json:"type"`
+}
+
 func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, error) {
 	prs := make([]pullRequest, 0, len(numbers))
+	missing := make(map[int]bool)
 	for batch := range slices.Chunk(numbers, memberBatch) {
 		out, err := s.graphQL(ctx, membersQuery(batch))
-		if err != nil {
-			return memberRead{}, err
-		}
 		var reply struct {
 			Data struct {
-				Repository map[string]pullRequest `json:"repository"`
+				Repository map[string]*pullRequest `json:"repository"`
 			} `json:"data"`
+			Errors []graphError `json:"errors"`
 		}
-		if err := json.Unmarshal([]byte(out), &reply); err != nil {
+		decoded := json.Unmarshal([]byte(out), &reply)
+		notFound := len(reply.Errors) > 0 && !slices.ContainsFunc(reply.Errors, func(one graphError) bool { return one.Type != "NOT_FOUND" })
+		if err != nil && !notFound {
 			return memberRead{}, err
 		}
-		for _, pr := range reply.Data.Repository {
-			prs = append(prs, pr)
+		if decoded != nil {
+			return memberRead{}, decoded
+		}
+		for alias, pr := range reply.Data.Repository {
+			if pr != nil {
+				prs = append(prs, *pr)
+				continue
+			}
+			number, err := strconv.Atoi(strings.TrimPrefix(alias, "r"))
+			if err != nil {
+				return memberRead{}, err
+			}
+			missing[number] = true
 		}
 	}
 	authors := make(map[int]string, len(prs))
@@ -553,7 +579,7 @@ func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, err
 		authors[pr.Number] = pr.Author.Login
 		byNumber[pr.Number] = pr
 	}
-	return memberRead{carried(prs), byNumber, authors}, nil
+	return memberRead{carried(prs), byNumber, authors, missing}, nil
 }
 
 func membersQuery(numbers []int) string {

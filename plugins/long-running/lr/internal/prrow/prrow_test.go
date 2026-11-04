@@ -325,15 +325,37 @@ func TestASupersededPRLeavesAndANewHeadBringsItBack(t *testing.T) {
 	}
 }
 
-func TestAClaimWithNoAttrsMakesNoRowSoEveryHostHoldsTheSameRows(t *testing.T) {
-	f, _ := foldFor(t)
+func TestAClaimMakesARowThatTheReadFillsAndThatStaysNotReadyWithNoBody(t *testing.T) {
+	f, s := foldFor(t)
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "opened", Text: "opened #o/r#1", PRs: []string{testRepo + "#1"}}); err != nil {
 		t.Fatal(err)
 	}
-	postHead(t, 1, headA)
-	rows, err := f.Pass(context.Background(), nil)
-	if err != nil || len(rows) != 0 {
-		t.Fatalf("rows = %+v, %v, want none: a claim says nothing about the PR's head or body", rows, err)
+	row := folded(t, f, 1)
+	if row.Head != "" || row.ReadyForTap || row.Lane != "lane-7" || row.WaitsOn != "no record names its head yet" {
+		t.Fatalf("row = %+v, want a row at once, under its lane, saying no head is known", row)
+	}
+
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headA)}); err != nil {
+		t.Fatal(err)
+	}
+	gradeClear(t, s, 1, headA)
+	row = folded(t, f, 1)
+
+	if row.Head != headA || row.Base != "dev" || row.State != StateOpen || row.CI != CIGreen {
+		t.Fatalf("row = %+v, want head, base and state from the read", row)
+	}
+	if row.ReadyForTap || row.WaitsOn != "its PR body has no Summary" {
+		t.Fatalf("row = %+v, want it not ready, saying its body is missing", row)
+	}
+}
+
+func TestForUsersRiskAndDescriptionAreStoredWhole(t *testing.T) {
+	long := strings.Repeat("word ", 1000) + "end"
+	body := "## Summary\n\n" + long + "\n\n## Risk profile\n\n" + long + "\n"
+	var row store.ReviewRow
+	ApplyBody(&row, body)
+	if row.ForUsers != long || row.Risk != long || row.Description != strings.TrimSpace(body) {
+		t.Fatalf("for_users %d, risk %d and description %d characters, want %d, %d and %d", len(row.ForUsers), len(row.Risk), len(row.Description), len(long), len(long), len(strings.TrimSpace(body)))
 	}
 }
 
