@@ -15,6 +15,7 @@ const (
 	CodeUnregistered = "selector_not_found"
 	CodeStaleHandle  = "terminal_handle_stale"
 	CodeFenced       = "dispatch_inactive"
+	hostUnavailable  = "host_unavailable"
 	CodeRuntimeDown  = "remote_runtime_unavailable"
 	orchestration    = "orchestration"
 )

@@ -1812,6 +1812,37 @@ func TestProveStaleEndsOnlyAVerifiedSessionAtAnEmptyPrompt(t *testing.T) {
 	}
 }
 
+func TestAHostOrcaCallsUnavailableIsProofAndTheDispatchIsAbandoned(t *testing.T) {
+	gone := func(w *Worker) { w.Environment, w.HostGone = "host-1", true }
+	orca := newOrca(staleRow("ctx_s", gone))
+	orca.stops["ctx_s"] = fenceReply{detail: CodeRuntimeDown}
+	orca.abandons["ctx_s"] = fenceReply{state: "abandoned"}
+	var out bytes.Buffer
+	gc := &GC{Orca: orca, Git: newGit(checkout(testWT)), Out: &out, Keep: map[string]bool{}, Pause: Pause{Resumed: t.TempDir()}}
+
+	got, err := gc.proveStale(context.Background(), "run_x", []string{"ctx_s"})
+	if err != nil || !slices.Equal(got, []string{"ctx_s"}) {
+		t.Fatalf("proved %v, err %v", got, err)
+	}
+	outcome, err := gc.stop(context.Background(), "ctx_s")
+	if err != nil || !outcome.ended || outcome.action.Verb != verbStopped {
+		t.Fatalf("outcome %+v, err %v", outcome, err)
+	}
+}
+
+func TestAWorkerRowReadsItsHostAsGoneOnlyFromTheListReason(t *testing.T) {
+	var gone, down workerRow
+	if err := json.Unmarshal([]byte(`{"dispatchId":"a","projection":{"liveness":{"verdict":"unverifiable","reason":"host_unavailable"}}}`), &gone); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"dispatchId":"b","projection":{"liveness":{"verdict":"unverifiable","reason":"stale_status"}}}`), &down); err != nil {
+		t.Fatal(err)
+	}
+	if !gone.worker().HostGone || down.worker().HostGone {
+		t.Fatalf("gone %v, stale %v", gone.worker().HostGone, down.worker().HostGone)
+	}
+}
+
 func TestProveStaleNamesAQuietVerifiedCleanSessionAndNothingElse(t *testing.T) {
 	orca := newOrca(staleRow("ctx_s"), row("ctx_settled"), staleRow("ctx_other"), boxRow("ctx_box", status("dispatched")))
 	var out bytes.Buffer

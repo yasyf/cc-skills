@@ -141,7 +141,7 @@ coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
 ledger as it arrives, one row per ask, and its turn cannot end while a row is not marked responded
-or addressed (`lr owner mark <id> responded|addressed`). A coordinator `ask` or
+or addressed (`lr owner mark <id> responded|addressed`; a row for what he asked to read takes `--reply <id>`, and a promise takes `due --by <clock>`). A coordinator `ask` or
 `blocked` record that waits on him is a ledger row the moment it posts, delivered by
 the cci channel the communicator subscribed to, never found by a later read: on Nov 3
 the coordinator waited from 10:20 PM to 1:40 AM and he noticed before the

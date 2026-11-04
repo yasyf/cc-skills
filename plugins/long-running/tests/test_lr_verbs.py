@@ -91,7 +91,7 @@ def missing(words: tuple[str, ...], binary: str = str(LR)) -> str | None:
         (".md", "run `lr wait 60 mailbox:x -- gh pr checks --watch` once", [("wait",)]),
         (".md", "```sh\nlr drive sub start <name> --objective y\n```\n", [("drive", "sub", "start", "--objective")]),
         (".md", "the lr verb for a chore, or `for meta: lr verb for <chore>`", []),
-        (".py", 'MARK = "`{lr} owner mark {row} responded|addressed [--routed <seq>] --drive {drive}`"', [("owner", "mark", "--routed", "--drive")]),
+        (".py", 'MARK = "`{lr} owner mark {row} responded|addressed|due [--routed <seq>] [--reply <id>] [--by <clock>] --drive {drive}`"', [("owner", "mark", "--routed", "--reply", "--by", "--drive")]),
         (".py", 'NEXT = "lr coordinator next --drive d"', [("coordinator", "next", "--drive")]),
         (".py", "from lr import loop", []),
         (".py", '"""Every pass runs `lr stop-sprites`; lr decides which lanes ended."""', [("stop-sprites",)]),
@@ -123,7 +123,7 @@ def test_the_check_reads_hooks_scripts_skill_text_and_brief_templates() -> None:
     read = {(path.relative_to(PACK).as_posix(), words) for path, words in named()}
 
     assert ("capt-hook/hooks/lane_waits.py", ("wait",)) in read
-    assert ("capt-hook/hooks/owner_ledger.py", ("owner", "mark", "--routed", "--drive")) in read
+    assert ("capt-hook/hooks/owner_ledger.py", ("owner", "mark", "--routed", "--reply", "--by", "--drive")) in read
     assert ("scripts/bin-shim.sh", ("board", "waits")) in read
     assert ("skills/long-running/reference/sub-drives.md", ("drive", "sub", "start", "--objective", "--reason")) in read
     assert ("skills/long-running/reference/chores-lane-brief.md", ("launch", "chores")) in read

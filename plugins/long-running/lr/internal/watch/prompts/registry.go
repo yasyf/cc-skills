@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 const watchDirName = "prompt-watch"
@@ -136,11 +138,36 @@ func launchReceipts(run string) (string, error) {
 	return filepath.Join(state, "long-running", "orca-launch", run), nil
 }
 
-func receiptLanes(run string) (map[string]string, error) {
+type receiptCache struct {
+	dir   string
+	moved time.Time
+	read  map[string]string
+}
+
+func (c *receiptCache) lanes(run string) (map[string]string, error) {
 	dir, err := launchReceipts(run)
 	if err != nil {
 		return nil, err
 	}
+	info, err := os.Stat(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if dir == c.dir && info.ModTime().Equal(c.moved) {
+		return c.read, nil
+	}
+	read, err := receiptLanes(dir)
+	if err != nil {
+		return nil, err
+	}
+	c.dir, c.moved, c.read = dir, info.ModTime(), read
+	return read, nil
+}
+
+func receiptLanes(dir string) (map[string]string, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		return nil, err
