@@ -39,7 +39,6 @@ const (
 	joinReceipt       = "relay-join.log"
 	workerDriveDir    = "WORKER_DRIVE_DIR"
 	seedReceipt       = "store-seed.log"
-	seedTimeout       = 10 * time.Minute
 	lrPlatform        = "linux-x86_64"
 	toolsMissing      = 3
 	beforeWorker      = "before-worker.sh"
@@ -69,6 +68,7 @@ type WorkerStarter struct {
 	Env    func(string) string
 	Sleep  func(time.Duration)
 	Stderr io.Writer
+	Spawn  func(argv []string, log string, env []string) (Process, error)
 }
 
 type workerLaunch struct {
@@ -662,12 +662,11 @@ func (w *workerLaunch) seedDesk(workspace string) error {
 	if drive == "" {
 		return nil
 	}
-	seeded, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sh", "-c", seedStore, "sh", drive, workspace}, Timeout: seedTimeout})
-	said := seeded.Stdout + seeded.Stderr
-	if err != nil {
-		said += err.Error() + "\n"
+	log := filepath.Join(w.attempt, seedReceipt)
+	if _, err := w.Spawn([]string{"sh", "-c", seedStore, "sh", drive, workspace}, log, nil); err != nil {
+		return w.receipt(seedReceipt, err.Error()+"\n")
 	}
-	return w.receipt(seedReceipt, said)
+	return nil
 }
 
 func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
@@ -759,9 +758,6 @@ func (w *workerLaunch) startSprite() (string, error) {
 	desk := ""
 	if briefDesk.Match(raw) {
 		desk = standingDesk
-		if err := w.seedDesk(workspace); err != nil {
-			return "", err
-		}
 	}
 	noPR := ""
 	if briefNoPR.Match(raw) {
@@ -781,6 +777,11 @@ func (w *workerLaunch) startSprite() (string, error) {
 	}
 	if err := w.holdAwake(workspace); err != nil {
 		return "", err
+	}
+	if desk != "" {
+		if err := w.seedDesk(workspace); err != nil {
+			return "", err
+		}
 	}
 	made, _ := textOf(allocation["allocation"])
 	line, err := json.Marshal(spriteStarted{workerStarted{"ready", taskID, dispatch, w.terminal, w.worktree}, w.lane, workspace, made})
