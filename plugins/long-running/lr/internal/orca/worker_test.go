@@ -410,6 +410,11 @@ func (f *workerFixture) fullSpriteCalls() [][]string {
 	return slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, f.startCalls(prepared()))
 }
 
+func (f *workerFixture) startedSpec() string {
+	started := slices.IndexFunc(f.calls, func(call []string) bool { return slices.Contains(call, "--spec") })
+	return flag(f.calls[started], "--spec")
+}
+
 func (f *workerFixture) heldSpriteCalls() [][]string {
 	return append(f.fullSpriteCalls(), holdCall(workerWorkspace))
 }
@@ -685,7 +690,7 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	f.write(f.brief, text, 0o600)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 	f.launched()
-	spec := flag(f.calls[len(f.calls)-1], "--spec")
+	spec := f.startedSpec()
 	if !strings.HasSuffix(spec, "then follow it exactly."+spriteBuildkite+standingDesk) {
 		t.Fatal(spec)
 	}
@@ -698,7 +703,7 @@ func TestABriefThatOrdersNoPRSaysSoInTheSpriteSpec(t *testing.T) {
 		f.write(f.brief, text, 0o600)
 		f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 		f.launched()
-		spec := flag(f.calls[len(f.calls)-1], "--spec")
+		spec := f.startedSpec()
 		if strings.HasSuffix(spec, "then follow it exactly."+spriteBuildkite+" This brief orders no PR: push the work as a branch and never open a PR for it.") != want {
 			t.Fatal(header, spec)
 		}
@@ -712,7 +717,7 @@ func TestAReadLaneTheMacsLoadSentToASpriteIsToldItsStoreStartsAtLaunch(t *testin
 		f.write(f.brief, text, 0o600)
 		f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 		f.launched()
-		spec := flag(f.calls[len(f.calls)-1], "--spec")
+		spec := f.startedSpec()
 		if strings.HasSuffix(spec, "cci store starts at its launch: check on the Mac before you report anything absent.") != want {
 			t.Fatal(header, spec)
 		}
