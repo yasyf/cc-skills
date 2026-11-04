@@ -30,7 +30,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import LR, bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, judged, script
 from .nudges import NagClock, once_per_hour
-from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents
+from .owner_facing import post_values, incident_sources, last_reply, open_incidents
 from .root_context import HARNESS_PREFIXES
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -512,7 +512,7 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
         message, to = raw.get("message"), raw.get("to")
         standing_down = isinstance(message, str) and re.match(r"\s*stand[ -]down\b", message, re.IGNORECASE)
         return evt.context(UNREAD_LANE) if standing_down and not lane_status_read(evt, {str(to)}) else None
-    posts = [CCI_POST.bind(call).values for call in evt.command.calls("cci")]
+    posts = [post_values(evt, call) for call in evt.command.calls("cci")]
     lanes = {lane for values in posts if "stand-down" in values.get("kind", ()) for to in values.get("to", ()) for lane in to.split(",") if lane}
     standing_down = any("stand-down" in values.get("kind", ()) for values in posts)
     return evt.context(UNREAD_LANE) if standing_down and not lane_status_read(evt, lanes) else None

@@ -72,6 +72,22 @@ def test_a_line_no_ruling_matches_says_nothing(tmp_path: Path, line):
     expect("lines_name_a_ruling", line(drive_home(tmp_path), MISS), Allow())
 
 
+def test_a_record_posted_from_a_file_warns_with_the_ruling(tmp_path: Path):
+    written = tmp_path / "record.md"
+    written.write_text(THE_CARD)
+    expect("lines_name_a_ruling", Input(command=f'cci post --kind incident --text "$(cat {written})"', env=drive_home(tmp_path), commands=HIT), Warn(pattern=SHOWN))
+
+
+def test_a_record_posted_from_a_heredoc_warns_with_the_ruling(tmp_path: Path):
+    command = f"cci post --kind incident --text \"$(cat <<'EOF'\n{THE_CARD}\nEOF\n)\""
+    expect("lines_name_a_ruling", Input(command=command, env=drive_home(tmp_path), commands=HIT), Warn(pattern=SHOWN))
+
+
+def test_a_record_from_a_file_that_is_not_there_yet_says_nothing(tmp_path: Path):
+    command = f'cci post --kind incident --text "$(cat {tmp_path / "later.md"})"'
+    expect("lines_name_a_ruling", Input(command=command, env=drive_home(tmp_path), commands=HIT), Allow())
+
+
 def test_a_matcher_that_does_not_answer_says_nothing(tmp_path: Path):
     expect("lines_name_a_ruling", record(drive_home(tmp_path), DOWN), Allow())
 

@@ -4,14 +4,14 @@ from captain_hook import Allow, Annotated, BaseHookEvent, Event, HookResult, Inp
 
 from .compaction_handoff import Bound, drive_entry
 from .lane_landing import DRIVE_ENV, FIXTURES
-from .owner_facing import CCI_POST
+from .owner_facing import post_values
 
 OVER_THE_PARENTS_HEAD = frozenset({"owner", "owner-relay"})
 SUB_DRIVE = {"CLAUDE_LONG_RUNNING_DRIVE": "brook--billing", "CLAUDE_CONFIG_DIR": str(FIXTURES / "sub-drive-config")}
 
 
 def addressed(evt: BaseHookEvent) -> set[str]:
-    posts = [values for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
+    posts = [values for call in evt.command.calls("cci") if (values := post_values(evt, call)).get("words", ())[:1] == ("post",)]
     return {lane.partition("@")[0] for values in posts for value in values.get("to", ()) for lane in str(value).split(",")}
 
 

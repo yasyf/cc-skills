@@ -10,7 +10,7 @@ from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSuba
 from captain_hook.util import reqenv
 
 from .compaction_handoff import ROOT_LANE, Bound, Communicator, CompactionState, Coordinator, bus_name, communicator_tests, coordinator_tests, drive_entry, script_module
-from .owner_facing import CCI_POST, board_bytes, board_sources, posted_text
+from .owner_facing import post_values, board_bytes, board_sources, posted_text
 from .root_replies import DRIVE_ACTIVE, OWNER_WAITS, PACIFIC, owner_waits
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -213,7 +213,7 @@ def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
     """A coordinator order that asks for board rows on PRs the owner already approved at their current heads warns with those PRs (owner, 2:48 AM Oct 31). A read that fails blocks nothing."""
     if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
         return None
-    texts = [posted_text(values) for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",) and (values.get("lane") or (ROOT_LANE,))[0] in (ROOT_LANE, "main")]
+    texts = [posted_text(values) for call in evt.command.calls("cci") if (values := post_values(evt, call)).get("words", ())[:1] == ("post",) and (values.get("lane") or (ROOT_LANE,))[0] in (ROOT_LANE, "main")]
     if not (prs := sorted({pr for text in texts if BOARD_ROWS.search(text) for pr in PR_NUMBER.findall(text)})):
         return None
     try:

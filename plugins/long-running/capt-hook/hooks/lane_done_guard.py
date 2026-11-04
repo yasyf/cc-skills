@@ -8,7 +8,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, drive_entry
 from .lane_landing import lane_name
-from .owner_facing import CCI_POST
+from .owner_facing import post_values
 from .tests.register_fixtures import DRIVE_CONFIG
 
 LR = Path(__file__).parents[2] / "bin" / "lr"
@@ -20,7 +20,7 @@ LANE_ENV = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "conflicts-2"}
 
 
 def done_lanes(evt: BaseHookEvent) -> list[str]:
-    posts = [values for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",) and "done" in values.get("kind", ())]
+    posts = [values for call in evt.command.calls("cci") if (values := post_values(evt, call)).get("words", ())[:1] == ("post",) and "done" in values.get("kind", ())]
     return [lane for values in posts if (lane := str((values.get("lane") or (lane_name(evt),))[0] or ""))]
 
 
