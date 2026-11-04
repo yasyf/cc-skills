@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -47,16 +48,18 @@ func sprite(t *testing.T) Sampler {
 		1:   statLine(1, 0, "init", 256),
 		40:  statLine(40, 1, "orcad", 25600),
 		41:  statLine(41, 40, "claude", 512000),
-		42:  statLine(42, 41, "go build (x)", 1024000),
+		42:  strings.Replace(statLine(42, 41, "go build (x)", 1024000), ") S ", ") D ", 1),
 		43:  statLine(43, 41, "kworker", 0),
 		999: statLine(999, 7, "codex", 2560),
 	} {
 		writeFixture(t, filepath.Join(proc, fmt.Sprint(pid), "stat"), stat)
 	}
+	writeFixture(t, filepath.Join(proc, "42", "cmdline"), "go\x00build\x00./...\x00")
 	writeFixture(t, filepath.Join(root, "memory.events"), "low 0\nmax 3\noom 1\noom_kill 1\n")
 	return Sampler{
 		Proc: proc, Events: filepath.Join(root, "memory.events"), Path: filepath.Join(root, "samples.log"),
-		Every: time.Millisecond, Now: func() time.Time { return time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC) },
+		Kernel: func() ([]byte, error) { return nil, nil },
+		Every:  time.Millisecond, Now: func() time.Time { return time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC) },
 		Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
 	}
 }
@@ -94,7 +97,8 @@ func TestASampleLineCarriesTheNumbersAStopWipes(t *testing.T) {
 		BalloonMB:      8192,
 		OOMKills:       2,
 		Load:           "0.50 0.25 0.10 1/237 2688",
-		Top:            []Process{{"go build (x)", 42, 4000}, {"claude", 41, 2000}, {"orcad", 40, 100}},
+		DiskWaiting:    1,
+		Top:            []Process{{"go build (x)", 42, 4000, "go build ./..."}, {"claude", 41, 2000, ""}, {"orcad", 40, 100, ""}},
 		Agents:         []Agent{{"claude", 41, "orcad", 40}, {"codex", 999, "", 7}},
 		MemoryEvents:   map[string]int64{"low": 0, "max": 3, "oom": 1, "oom_kill": 1},
 	}
@@ -121,6 +125,63 @@ func TestABoxWithNoAgentSaysSoSoTheAgentsExitShowsAgainstUptime(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"agents":[]`) || !strings.Contains(string(raw), `"uptime_s":4344.37`) {
 		t.Fatal(string(raw))
+	}
+}
+
+func TestAKernelLineOnTheHomeDiskIsRecordedOnceAndOtherLinesNever(t *testing.T) {
+	s := sprite(t)
+	log := "<6>[ 1.000] nbd0: detected capacity change\n<4>[ 2.000] audit: unrelated\n<3>[ 1453.196886] block nbd0: Send data failed (result -11)\n"
+	s.Kernel = func() ([]byte, error) { return []byte(log), nil }
+	for range 2 {
+		if err := s.append(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	log += "<3>[ 1453.200063] I/O error, dev nbd0, sector 105302904\n"
+	if err := s.append(); err != nil {
+		t.Fatal(err)
+	}
+	got := samplesIn(t, s.Path)
+	want := []string{"<6>[ 1.000] nbd0: detected capacity change", "<3>[ 1453.196886] block nbd0: Send data failed (result -11)"}
+	if !reflect.DeepEqual(got[0].Kernel, want) || got[1].Kernel != nil {
+		t.Fatalf("first %q, second %q", got[0].Kernel, got[1].Kernel)
+	}
+	if want := []string{"<3>[ 1453.200063] I/O error, dev nbd0, sector 105302904"}; !reflect.DeepEqual(got[2].Kernel, want) {
+		t.Fatalf("third %q", got[2].Kernel)
+	}
+}
+
+func TestAFloodOfKernelLinesKeepsTheNewestAndAFailedReadLeavesTheSample(t *testing.T) {
+	s := sprite(t)
+	var flood strings.Builder
+	for i := 1; i <= 2*kernelKeep; i++ {
+		fmt.Fprintf(&flood, "<3>[ %d.000] I/O error, dev nbd0, sector %d\n", i, i)
+	}
+	s.Kernel = func() ([]byte, error) { return []byte(flood.String()), nil }
+	if err := s.append(); err != nil {
+		t.Fatal(err)
+	}
+	s.Kernel = func() ([]byte, error) { return nil, errors.New("not permitted") }
+	if err := s.append(); err != nil {
+		t.Fatal(err)
+	}
+	got := samplesIn(t, s.Path)
+	if len(got[0].Kernel) != kernelKeep || !strings.Contains(got[0].Kernel[kernelKeep-1], "sector 100") {
+		t.Fatalf("%d lines: %q", len(got[0].Kernel), got[0].Kernel)
+	}
+	if got[1].Kernel != nil || got[1].MemAvailableMB != 2048 {
+		t.Fatalf("%+v", got[1])
+	}
+}
+
+func TestALongCommandLineIsClipped(t *testing.T) {
+	s := sprite(t)
+	writeFixture(t, filepath.Join(s.Proc, "42", "cmdline"), strings.Repeat("x", 2*argsKeep))
+	if err := s.append(); err != nil {
+		t.Fatal(err)
+	}
+	if got := samplesIn(t, s.Path)[0].Top[0].Args; len(got) != argsKeep {
+		t.Fatalf("%d bytes", len(got))
 	}
 }
 

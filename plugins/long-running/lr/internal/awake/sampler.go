@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,28 +17,38 @@ import (
 
 const (
 	SampleEvery = 10 * time.Second
-	SampleFile  = ".cc-remote/samples.log"
+	SamplePath  = "/tmp/cc-remote-samples.log"
 	sampleKeep  = 720
 	trimEvery   = 60
 	topByRSS    = 3
 	pageKB      = 4
+	statState   = 0
 	statPPID    = 1
 	statRSS     = 21
+	diskWait    = "D"
+	homeDisk    = "nbd0"
+	kernelKeep  = 50
+	argsKeep    = 200
 )
+
+var kernelStamp = regexp.MustCompile(`^<\d+>\[\s*(\d+\.\d+)\]`)
 
 type Sampler struct {
 	Proc   string
 	Events string
+	Kernel func() ([]byte, error)
 	Path   string
 	Every  time.Duration
 	Now    func() time.Time
 	Log    *slog.Logger
+	since  float64
 }
 
 type Process struct {
 	Comm  string `json:"comm"`
 	PID   int    `json:"pid"`
 	RSSMB int64  `json:"rss_mb"`
+	Args  string `json:"args"`
 }
 
 type Agent struct {
@@ -55,17 +66,20 @@ type Sample struct {
 	BalloonMB      int64            `json:"balloon_mb"`
 	OOMKills       int64            `json:"oom_kills"`
 	Load           string           `json:"load"`
+	DiskWaiting    int              `json:"disk_waiting"`
 	Top            []Process        `json:"top"`
 	Agents         []Agent          `json:"agents"`
 	MemoryEvents   map[string]int64 `json:"memory_events,omitempty"`
+	Kernel         []string         `json:"kernel,omitempty"`
 }
 
 type procEntry struct {
 	Process
-	ppid int
+	ppid  int
+	state string
 }
 
-func (s Sampler) Run(ctx context.Context) {
+func (s *Sampler) Run(ctx context.Context) {
 	if err := s.trim(); err != nil {
 		s.Log.Warn("the sample file was not trimmed", "path", s.Path, "err", err)
 	}
@@ -86,7 +100,7 @@ func (s Sampler) Run(ctx context.Context) {
 	}
 }
 
-func (s Sampler) append() error {
+func (s *Sampler) append() error {
 	sample, err := s.read()
 	if err != nil {
 		return err
@@ -106,7 +120,7 @@ func (s Sampler) append() error {
 	return file.Sync()
 }
 
-func (s Sampler) read() (Sample, error) {
+func (s *Sampler) read() (Sample, error) {
 	memory, err := counters(filepath.Join(s.Proc, "meminfo"))
 	if err != nil {
 		return Sample{}, err
@@ -140,13 +154,15 @@ func (s Sampler) read() (Sample, error) {
 		BalloonMB:      (vmstat["balloon_inflate"] - vmstat["balloon_deflate"]) * pageKB / 1024,
 		OOMKills:       vmstat["oom_kill"],
 		Load:           strings.TrimSpace(string(load)),
-		Top:            largest(processes),
+		DiskWaiting:    waiting(processes),
+		Top:            s.largest(processes),
 		Agents:         agents(processes),
 		MemoryEvents:   events,
+		Kernel:         s.kernelLines(),
 	}, nil
 }
 
-func (s Sampler) processes() ([]procEntry, error) {
+func (s *Sampler) processes() ([]procEntry, error) {
 	entries, err := os.ReadDir(s.Proc)
 	if err != nil {
 		return nil, err
@@ -170,7 +186,7 @@ func (s Sampler) processes() ([]procEntry, error) {
 	return found, nil
 }
 
-func (s Sampler) trim() error {
+func (s *Sampler) trim() error {
 	raw, err := os.ReadFile(s.Path)
 	if os.IsNotExist(err) {
 		return nil
@@ -206,17 +222,58 @@ func parseStat(pid int, stat string) (procEntry, error) {
 	if err != nil {
 		return procEntry{}, err
 	}
-	return procEntry{Process{stat[open+1 : shut], pid, pages * pageKB / 1024}, ppid}, nil
+	return procEntry{Process{stat[open+1 : shut], pid, pages * pageKB / 1024, ""}, ppid, fields[statState]}, nil
 }
 
-func largest(processes []procEntry) []Process {
+func (s *Sampler) largest(processes []procEntry) []Process {
 	sorted := slices.Clone(processes)
 	slices.SortFunc(sorted, func(a, b procEntry) int { return cmp.Compare(b.RSSMB, a.RSSMB) })
 	top := make([]Process, 0, topByRSS)
 	for _, process := range sorted[:min(topByRSS, len(sorted))] {
+		process.Args = s.args(process.PID)
 		top = append(top, process.Process)
 	}
 	return top
+}
+
+func (s *Sampler) args(pid int) string {
+	raw, err := os.ReadFile(filepath.Join(s.Proc, strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return ""
+	}
+	joined := strings.TrimSpace(strings.ReplaceAll(string(raw), "\x00", " "))
+	return joined[:min(argsKeep, len(joined))]
+}
+
+func (s *Sampler) kernelLines() []string {
+	raw, err := s.Kernel()
+	if err != nil {
+		return nil
+	}
+	var fresh []string
+	for line := range strings.Lines(string(raw)) {
+		stamp := kernelStamp.FindStringSubmatch(line)
+		if stamp == nil || !strings.Contains(line, homeDisk) {
+			continue
+		}
+		at, err := strconv.ParseFloat(stamp[1], 64)
+		if err != nil || at <= s.since {
+			continue
+		}
+		s.since = at
+		fresh = append(fresh, strings.TrimSpace(line))
+	}
+	return fresh[max(0, len(fresh)-kernelKeep):]
+}
+
+func waiting(processes []procEntry) int {
+	count := 0
+	for _, process := range processes {
+		if process.state == diskWait {
+			count++
+		}
+	}
+	return count
 }
 
 func agents(processes []procEntry) []Agent {
