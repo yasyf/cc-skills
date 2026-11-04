@@ -243,7 +243,7 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     top, names = diffed
     sparse = run_quietly(["git", "config", "--bool", "--default", "false", "core.sparseCheckout"], str(top))
     if not sparse or sparse.returncode or sparse.stdout.strip() == "true":
-        return "a sparse checkout may not compile what it touched"
+        return "a sparse checkout may not compile what it touched; for TypeScript skip the `yarn tsc:*` seam, which builds wasm, run `./node_modules/.bin/tsgo --noEmit -p <project> --preserveSymlinks false --composite false` and read only the errors in files you touched"
     changed = [top / line for line in names.splitlines() if line.strip()]
     go = go_commands(evt, top, changed)
     return go if isinstance(go, str) else go + ts_commands(evt, top, changed)
