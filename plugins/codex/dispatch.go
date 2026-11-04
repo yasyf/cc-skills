@@ -399,11 +399,7 @@ var telemetryMCP = []string{"datadog", "sentry"}
 func mcpMountFlags(requested []string) ([]string, []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), mcpListTimeout)
 	defer cancel()
-	// Config load parses each enabled plugin's .mcp.json before any -c override, so
-	// one bad transport fails the dispatch and no mcp_servers override undoes it.
-	c := exec.CommandContext(ctx, "codex", "mcp", "list", "--json", "--disable", "plugins")
-	c.WaitDelay = time.Second
-	out, err := c.Output()
+	out, err := listedMCP(ctx)
 	if ctx.Err() == context.DeadlineExceeded {
 		die("codex-ask: `codex mcp list --json` timed out after "+mcpListTimeout.String(), 2)
 	}
@@ -444,6 +440,33 @@ func mcpMountFlags(requested []string) ([]string, []string) {
 		}
 	}
 	return append(flags, "--disable", "apps", "--disable", "plugins"), mounted
+}
+
+func listedMCP(ctx context.Context) ([]byte, error) {
+	configured := os.Getenv("CODEX_HOME")
+	if configured == "" {
+		user, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		configured = filepath.Join(user, ".codex")
+	}
+	// Codex starts by writing and pruning per-process directories under CODEX_HOME/tmp, which took 27 s on a
+	// Sprite's busy network disk. The listing reads only config.toml, so it runs from a home holding just that.
+	home, err := os.MkdirTemp("", "codex-ask-mcp-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(home) }()
+	if err := os.Symlink(filepath.Join(configured, "config.toml"), filepath.Join(home, "config.toml")); err != nil {
+		return nil, err
+	}
+	// Config load parses each enabled plugin's .mcp.json before any -c override, so
+	// one bad transport fails the dispatch and no mcp_servers override undoes it.
+	c := exec.CommandContext(ctx, "codex", "mcp", "list", "--json", "--disable", "plugins")
+	c.Env = append(os.Environ(), "CODEX_HOME="+home)
+	c.WaitDelay = time.Second
+	return c.Output()
 }
 
 func mcpContract(servers []string) string {
