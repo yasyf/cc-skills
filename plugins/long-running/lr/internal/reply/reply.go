@@ -222,8 +222,8 @@ func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 	return r, strings.Join(warned, "; ")
 }
 
-func (f Fanout) tappableWithoutCards(r Reply) string {
-	said := namedPR.FindAllStringSubmatch(r.Title+"\n"+r.MD, -1)
+func (f Fanout) tapWarning(r Reply) string {
+	said := namedPR.FindAllStringSubmatch(r.Title+"\n"+r.MD+"\n"+strings.Join(r.PRs, "\n"), -1)
 	numbers := make([]int, 0, len(said))
 	for _, found := range said {
 		number, _ := strconv.Atoi(cmp.Or(found[2], found[4], found[5], found[6]))
@@ -236,20 +236,29 @@ func (f Fanout) tappableWithoutCards(r Reply) string {
 	if err != nil {
 		return fmt.Sprintf("the PR ledger did not read, so no PR this names was checked for a tap he owes: %v", err)
 	}
-	var missing []string
+	var missing, tapped []string
 	for n, found := range said {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] })
-		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])
-		listed := func(pr string) bool { return strings.EqualFold(pr, url) }
-		if at < 0 || !rows[at].ReadyForTap || rows[at].Tapped || !strings.HasSuffix(strings.ToLower(repo), strings.ToLower(cmp.Or(found[1], found[3], repo))) || slices.ContainsFunc(r.PRs, listed) || slices.Contains(missing, url) {
+		if at < 0 || !strings.HasSuffix(strings.ToLower(repo), strings.ToLower(cmp.Or(found[1], found[3], repo))) {
 			continue
 		}
-		missing = append(missing, url)
+		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])
+		listed := func(pr string) bool { return strings.EqualFold(pr, url) }
+		switch {
+		case rows[at].Tapped && len(r.Picks) > 0 && !slices.Contains(tapped, url):
+			tapped = append(tapped, url)
+		case rows[at].ReadyForTap && !rows[at].Tapped && !slices.ContainsFunc(r.PRs, listed) && !slices.Contains(missing, url):
+			missing = append(missing, url)
+		}
 	}
-	if len(missing) == 0 {
-		return ""
+	var warned []string
+	if len(tapped) > 0 {
+		warned = append(warned, "this asks him to pick on a PR he already tapped, so take it off the question: "+strings.Join(tapped, ", "))
 	}
-	return "this names a PR waiting on his tap and does not list it, so it carries no tap card; edit the reply with it in prs: " + strings.Join(missing, ", ")
+	if len(missing) > 0 {
+		warned = append(warned, "this names a PR waiting on his tap and does not list it, so it carries no tap card; edit the reply with it in prs: "+strings.Join(missing, ", "))
+	}
+	return strings.Join(warned, "; ")
 }
 
 func linkedCard(md string, card board.OpenCard) string {
