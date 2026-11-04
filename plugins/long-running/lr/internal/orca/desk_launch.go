@@ -38,6 +38,7 @@ var (
 	spriteID     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	spriteModels = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
 	cpuIdle      = regexp.MustCompile(`([\d.]+)% idle`)
+	loadAverage  = regexp.MustCompile(`^\{ (\d+(?:\.\d+)?) `)
 )
 
 type detached struct{ done atomic.Bool }
@@ -116,7 +117,7 @@ func (d *Desk) launch(ctx context.Context, container, lane string, action incide
 	if !bound.Bound {
 		return d.refuseLaunch(ctx, container, lane, action, "an unbound runner: "+bound.Why, "post the go again under a new key once the coordinator's Orca terminal has run `"+d.rebindCommand()+"`")
 	}
-	route, err := d.spriteRefusal(ctx, lane, spec)
+	route, err := d.spriteRefusal(ctx, action.ActionID, lane, spec)
 	if err != nil {
 		return err
 	}
@@ -237,23 +238,67 @@ type launchRoute struct {
 	refusal string
 }
 
-func (d *Desk) spriteRefusal(ctx context.Context, lane string, spec launchTarget) (launchRoute, error) {
+func (d *Desk) spriteRefusal(ctx context.Context, key, lane string, spec launchTarget) (launchRoute, error) {
 	raw, err := os.ReadFile(spec.Brief)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return launchRoute{}, err
 	}
 	text := string(raw)
-	if macPinned(lane, spec.Model, text) {
-		return launchRoute{}, nil
+	over, remote, err := d.onSprite(ctx, key, lane, spec.Model, text)
+	if err != nil || !remote {
+		return launchRoute{}, err
 	}
 	fault, err := d.spriteFault(ctx, lane)
 	if err != nil {
 		return launchRoute{}, err
 	}
-	if briefDesk.MatchString(text) {
+	if briefDesk.MatchString(text) || over != "" {
 		return launchRoute{remote: fault == ""}, nil
 	}
 	return launchRoute{remote: fault == "", refusal: fault}, nil
+}
+
+func (d *Desk) onSprite(ctx context.Context, key, lane, model, text string) (string, bool, error) {
+	if macRequired(lane, model, text) {
+		return "", false, nil
+	}
+	if !macPreferred(text) {
+		return "", true, nil
+	}
+	over, err := d.macOverload(ctx, key)
+	return over, over != "", err
+}
+
+func (d *Desk) loadPath(key string) string {
+	return filepath.Join(filepath.Dir(filepath.Dir(d.Config.DeskInbox)), "launch-load", key)
+}
+
+func (d *Desk) macOverload(ctx context.Context, key string) (string, error) {
+	path := d.loadPath(key)
+	if raw, err := os.ReadFile(path); !errors.Is(err, os.ErrNotExist) {
+		return string(raw), err
+	}
+	over := ""
+	said, _, err := d.capture(ctx, nil, "sysctl", "-n", "vm.loadavg")
+	if found := loadAverage.FindStringSubmatch(said); err == nil && found != nil {
+		load, _ := strconv.ParseFloat(found[1], 64)
+		if load > float64(d.Config.LoadLimit) {
+			over = fmt.Sprintf("Mac load %.0f over %d", load, d.Config.LoadLimit)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return "", err
+	}
+	staged := fmt.Sprintf("%s.%d", path, os.Getpid())
+	if err := os.WriteFile(staged, []byte(over), 0o600); err != nil {
+		return "", err
+	}
+	defer func() { _ = os.Remove(staged) }()
+	if err := os.Link(staged, path); err != nil && !errors.Is(err, os.ErrExist) {
+		return "", err
+	}
+	raw, err := os.ReadFile(path)
+	return string(raw), err
 }
 
 func (d *Desk) spriteFault(ctx context.Context, lane string) (string, error) {
@@ -673,6 +718,13 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	on := ""
 	if box != "" {
 		on = " on Sprite " + box
+		raw, err := os.ReadFile(d.loadPath(key))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if len(raw) > 0 {
+			on += ": " + string(raw)
+		}
 	}
 	if err := d.recordTo(ctx, escalationPref+container+"/"+key+":launched", fmt.Sprintf("LAUNCHED %s %s: dispatch %s terminal %s%s", key, lane, dispatch, terminal, on), verdictTo(spec.By)); err != nil {
 		return err

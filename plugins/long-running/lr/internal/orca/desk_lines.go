@@ -346,8 +346,8 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 			return d.refuseLine(record)
 		}
 	}
-	if !d.takes(parsed) {
-		return nil
+	if taken, err := d.takes(ctx, parsed, key); !taken || err != nil {
+		return err
 	}
 	if expired, err := d.expiredLine(ctx, parsed, record, key); expired || err != nil {
 		return err
@@ -612,20 +612,22 @@ func launchOf(action incident.Action) (launchTarget, error) {
 	return target, json.Unmarshal([]byte(action.Target), &target)
 }
 
-func (d *Desk) takes(parsed *directive) bool {
+func (d *Desk) takes(ctx context.Context, parsed *directive, key string) (bool, error) {
 	if d.Config.Launches == "" || parsed.Verb == verbRelay || parsed.Verb == verbWithdraw {
-		return true
+		return true, nil
 	}
-	return spriteLaunch(parsed) == (d.Config.Launches == launchesSprite)
+	remote, err := d.spriteLaunch(ctx, parsed, key)
+	return remote == (d.Config.Launches == launchesSprite), err
 }
 
-func spriteLaunch(parsed *directive) bool {
+func (d *Desk) spriteLaunch(ctx context.Context, parsed *directive, key string) (bool, error) {
 	spec := launchSpec.FindStringSubmatch(parsed.Rest)
 	if parsed.Verb != verbLaunch || spec == nil {
-		return false
+		return false, nil
 	}
 	raw, _ := os.ReadFile(resolved(spec[6]))
-	return !macPinned(spec[1], spec[3], string(raw))
+	_, remote, err := d.onSprite(ctx, key, spec[1], spec[3], string(raw))
+	return remote, err
 }
 
 func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {

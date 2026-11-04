@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -65,7 +66,7 @@ type DeskConfig struct {
 	Launches                                                                                                            string
 	LaunchEnv                                                                                                           map[string]string
 	IncidentMechanismMinutes, IncidentPRMinutes, IncidentReadyMinutes                                                   int
-	StartMinutes, LaunchMinutes, HoldMinutes, CaseLanes                                                                 int
+	StartMinutes, LaunchMinutes, HoldMinutes, CaseLanes, LoadLimit                                                      int
 }
 
 type runnerFile struct {
@@ -75,6 +76,7 @@ type runnerFile struct {
 		DeskInbox string `json:"desk_inbox"`
 		Run       string `json:"run"`
 		Launches  string `json:"launches"`
+		LoadLimit *int   `json:"load_limit"`
 		Briefs    struct {
 			Repo string `json:"repo"`
 			Log  string `json:"log"`
@@ -162,7 +164,7 @@ func LoadDeskConfig(path string, env func(string) string) (DeskConfig, error) {
 		Receipts:   filepath.Join(state, "long-running", "orca-launch", file.Orca.Run),
 		BriefsRepo: expandHome(file.Orca.Briefs.Repo, home), BriefsLog: file.Orca.Briefs.Log, GC: file.Orca.GC, AlertFacts: expandHome(file.Alert.Facts, home),
 		LandingRepo: file.Landing.Repo, LandingCheckout: file.Landing.Checkout, LaunchEnv: file.Orca.LaunchEnv,
-		StartMinutes: orDefault(file.Deadlines.Start, 10), LaunchMinutes: orDefault(file.Deadlines.Launch, 15), HoldMinutes: orDefault(file.Deadlines.Hold, 15), CaseLanes: orDefault(file.Incident.CaseLanes, 2),
+		StartMinutes: orDefault(file.Deadlines.Start, 10), LaunchMinutes: orDefault(file.Deadlines.Launch, 15), HoldMinutes: orDefault(file.Deadlines.Hold, 15), CaseLanes: orDefault(file.Incident.CaseLanes, 2), LoadLimit: orDefault(file.Orca.LoadLimit, runtime.NumCPU()),
 		IncidentMechanismMinutes: orDefault(file.Deadlines.IncidentMechanism, 10), IncidentPRMinutes: orDefault(file.Deadlines.IncidentPR, 15), IncidentReadyMinutes: orDefault(file.Deadlines.IncidentReady, 20),
 	}, nil
 }
