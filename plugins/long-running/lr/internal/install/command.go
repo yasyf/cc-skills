@@ -172,6 +172,7 @@ func check(cmd *cobra.Command, a *app.App) []string {
 		return faults
 	}
 	faults = append(faults, cciFaults(ctx, a.Runner, plugin, state)...)
+	faults = append(faults, toolFaults(ctx, a.Runner, plugin)...)
 	script, err := os.ReadFile(filepath.Join(plugin, "scripts", shimFile))
 	if err != nil {
 		return append(faults, err.Error())
