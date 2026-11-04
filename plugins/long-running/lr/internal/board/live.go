@@ -67,6 +67,7 @@ type OpenCard struct {
 	ID    string
 	Title string
 	URL   string
+	Block json.RawMessage
 }
 
 type Live struct {
@@ -249,7 +250,8 @@ func (o Outcomes) OpenCards() []OpenCard {
 		slack, _ := card["slack"].(map[string]any)
 		url := text(slack, "url")
 		if url != "" && slices.ContainsFunc(typed(card, "choice"), func(choice map[string]any) bool { return !o.answered(choice) }) {
-			open = append(open, OpenCard{text(card, "id"), clip(text(card, "title")), url})
+			block, _ := json.Marshal(card)
+			open = append(open, OpenCard{text(card, "id"), clip(text(card, "title")), url, block})
 		}
 	}
 	return open

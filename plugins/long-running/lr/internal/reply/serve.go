@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-interact/channel"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
@@ -31,7 +32,7 @@ var schema = map[string]any{
 		"build":       map[string]any{"type": "object", "properties": map[string]any{"repo": map[string]any{"type": "string"}, "branch": map[string]any{"type": "string"}, "none": map[string]any{"type": "string"}}, "description": "The branch the recommended pick is built on, as repo OWNER/NAME and branch, or none with the reason it has nothing to build; his board and Slack card show it under that pick."},
 		"blocks":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Up to 8 live cc-present blocks drawn on Talk beneath md, such as a table with filter, sort, rowKey, details and actions, a chart, a diagram or a display.artifact. Your window and Slack get md alone, so md must still say the answer."},
 		"links":       map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string"}, "url": map[string]any{"type": "string"}}, "required": []string{"label", "url"}}, "description": "Up to 5 links, such as a hosted one-pager; an https link is a button in Slack, an http one a line of the card."},
-		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls. A PR on a reply with picks, or one whose PR ledger row is ready for his tap, draws as a PR card from that row alone: title, what it changes for a user, the plan row, the risk and what it waits on. A missing field is left out and this call's result names it in one warning line; its lane fixes the PR body, never the reply."},
+		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls, the only way a reply asks for a tap card: a PR named in the md alone draws none, and one waiting on his tap warns. A PR on a reply with picks, or one whose PR ledger row is ready for his tap, draws as a PR card from that row alone: title, what it changes for a user, the plan row, the risk and what it waits on. A missing field is left out and this call's result names it in one warning line; its lane fixes the PR body, never the reply."},
 		"thread":      map[string]any{"type": "string", "description": "The ts of the Slack DM thread this reply answers. An order or on naming a row he sent as a Slack thread reply fills it in, and a reply to a terminal or board order posts at his DM root; name it only to answer a thread whose row the reply does not name."},
 		"order":       map[string]any{"type": "string", "description": "The ledger row, such as m347, of the owner order this reply answers. The tool then leads the reply with \"Done, nothing for you\", or with action; write md without that lead."},
 		"action":      map[string]any{"type": "string", "description": "With order, the one thing he must do, on one line. Omit it when he need do nothing."},
@@ -116,7 +117,10 @@ func Tool(a *app.App) channel.Tool {
 			if err != nil {
 				return "reply: " + err.Error(), true
 			}
-			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now}
+			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner)}
+			if warning := fanout.tappableWithoutCards(r); warning != "" {
+				warned = append(warned, warning)
+			}
 			r, warning := fanout.withPRCards(r)
 			if warning != "" {
 				warned = append(warned, warning)

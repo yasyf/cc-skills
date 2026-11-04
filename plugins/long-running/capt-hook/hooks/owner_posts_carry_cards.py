@@ -18,7 +18,7 @@ LINKED_PR = re.compile(r"/monorepo/pull/(\d+)")
 RELEASE_WORD = re.compile(r"\breleas(?:e[sd]?|ing)\b", re.IGNORECASE)
 PLATY_CARD = re.compile(r"/archives/C0B75AL4XEW/p\d{16}")
 RELEASE_BUILD = "/release/builds/"
-BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR shows its card, and a bare number draws none. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
+BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
 NO_PLATY_CARD = "Warning, nothing was blocked: A release word to the owner gives what users get in plain words and links the Platy release card. Add the card's #releases permalink, which the build's `release-slack-root` annotation names."
 UNCARDED_RECORD = "Warning, nothing was blocked: A release record carries the Platy release card, so the relay can show it to the owner. Add `--attr card=<permalink>`, read from the build's `release-slack-root` annotation."
 
