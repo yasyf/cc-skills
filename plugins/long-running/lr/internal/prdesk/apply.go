@@ -3,6 +3,7 @@ package prdesk
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
@@ -146,8 +147,11 @@ func placeOne(tx *store.Tx, repo Repo, f store.PRFacts, beneath *machine.Place, 
 		return machine.Place{}, err
 	}
 	here := machine.Decide(seen.pr, beneath)
-	if here.State == machine.StateAwaitingTap && seen.whatChanged != "" {
+	switch {
+	case here.State == machine.StateAwaitingTap && seen.whatChanged != "":
 		here.Reason += "; since the tap: " + seen.whatChanged
+	case here.State == machine.StateGrading && len(seen.missing) > 0:
+		here.Reason = "this head waits on " + strings.Join(seen.missing, " and ")
 	}
 	prev, had, err := tx.State(repo.Name, f.Number)
 	if err != nil {
@@ -236,6 +240,7 @@ type view struct {
 	pr          machine.PR
 	change      string
 	ungraded    []string
+	missing     []string
 	inQueue     bool
 	carry       *store.Carry
 	whatChanged string
@@ -325,10 +330,14 @@ func read(tx *store.Tx, repo Repo, f store.PRFacts) (view, error) {
 	for _, grader := range graders {
 		if _, graded := grades[grader]; !graded {
 			out.ungraded = append(out.ungraded, grader)
+			out.missing = append(out.missing, "its "+grader+" grade")
 		}
 	}
-	if before && judged.Behavior == "" && !slices.Contains(out.ungraded, "fidelity") {
-		out.ungraded = append(out.ungraded, "fidelity")
+	if before && judged.Behavior == "" {
+		out.missing = append(out.missing, "the fidelity judgment of its behavior since the tapped change")
+		if !slices.Contains(out.ungraded, "fidelity") {
+			out.ungraded = append(out.ungraded, "fidelity")
+		}
 	}
 	out.pr.Graded = len(out.ungraded) == 0
 	open := grades["finder"].Verdict == string(machine.FinderAsk) || grades["fidelity"].Verdict == string(machine.FidelityFail)
