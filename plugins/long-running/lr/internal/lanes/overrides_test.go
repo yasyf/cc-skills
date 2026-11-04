@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
@@ -96,5 +97,32 @@ func TestAnOverrideThatParsesOrIsOnlyQuotedDrawsNoRefusal(t *testing.T) {
 				t.Fatalf("posted = %+v", fake.posted)
 			}
 		})
+	}
+}
+
+func TestAnOverrideReachesThePRsOwningLaneOnce(t *testing.T) {
+	fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "root", Kind: "decide", At: t0, Text: "finder-override #47755 at abc1234: 174488"}}}
+	s := memory(t)
+	if err := s.Own("lane-1", []int{47755}); err != nil {
+		t.Fatal(err)
+	}
+	check := &OverrideRefusals{Env: Env{Bus: fake, Runner: &shelltest.Fake{}, Config: config.Config{Drive: testDrive}}, Store: s}
+	registerDrive(t)
+
+	for range 2 {
+		check.read, check.quoted = time.Time{}, 0
+		if err := check.Check(context.Background(), t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var told []client.Draft
+	for _, post := range fake.posted {
+		if post.To[0] == "lane-1" {
+			told = append(told, post)
+		}
+	}
+	if len(told) != 1 || !strings.Contains(told[0].Text, "#47755 at abc1234 in cci #9") {
+		t.Fatalf("told = %+v, want one note naming the PR, head and record", told)
 	}
 }

@@ -12,7 +12,7 @@ from .urgent_lines_name_the_harm import ACTIVE
 
 BOUND = [CompactionState(active=True, coordinator=True)]
 
-FORMAT_NUMBER = re.compile(r"\b(?:format|migrat(?:e|es|ed|ing) to)\s+(\d+)\b", re.IGNORECASE)
+FORMAT_NUMBER = re.compile(r"\b(?:format|sessions head(?: to)?|migrat(?:e|es|ed|ing) to)\s+(\d+)\b", re.IGNORECASE)
 FORMAT_REFUSAL = (
     "A chat format reaches the owner as format 0 or format 1 only; a sessions migration number is internal."
     " Rewrite each line below with format 0, format 1 or plain words for the change, then send it again."
@@ -35,6 +35,7 @@ def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
     tests={
         Input(tool=REPLY, tool_input={"title": "Old Macs and new chats", "md": INTERNAL}, state=BOUND): Block(pattern=r"^A chat format reaches the owner[\s\S]*sessions format 6"),
         Input(tool=REPLY, tool_input={"title": "Old Macs and new chats", "md": PLAIN}, state=BOUND): Allow(),
+        Input(tool=REPLY, tool_input={"title": "Next", "md": "Next raises the shared catalog's sessions head to 7."}, state=BOUND): Block(pattern=r"^A chat format reaches the owner"),
     },
 )
 def reply_formats_are_0_or_1(evt: BaseHookEvent) -> HookResult | None:
