@@ -40,6 +40,7 @@ func parityForms(ctx context.Context, client *Client) ([][]string, error) {
 		{"status", "--json"},
 		{"terminal", "list", "--limit", "1", "--json"},
 		{"environment", "list", "--json"},
+		{"orchestration", "inbox", "--limit", "1", "--full", "--json"},
 		{"worktree", "show", "--worktree", parityMissingWorktree, "--json"},
 		{"terminal", "show", "--terminal", parityMissingTerminal, "--json"},
 	}

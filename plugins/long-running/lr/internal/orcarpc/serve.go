@@ -29,6 +29,7 @@ const (
 type Served struct {
 	Stdout []byte
 	Code   int
+	Retry  string
 }
 
 func (c *Client) Serve(ctx context.Context, args []string) (Served, bool) {
@@ -64,29 +65,48 @@ func (c *Client) Serve(ctx context.Context, args []string) (Served, bool) {
 		}
 		return rendered(reply, 0)
 	}
-	reply, err := conn.call(ctx, request.method, request.params, request.timeout)
+	var sent Served
+	var reply Response
+	if check, isCheck := request.params.(CheckParams); isCheck && check.mutates() {
+		if sent.Retry, err = newUUID(); err != nil {
+			return Served{}, false
+		}
+		reply, err = conn.mutateCheck(ctx, check, request.timeout, sent.Retry)
+	} else {
+		reply, err = conn.call(ctx, request.method, request.params, request.timeout)
+	}
 	if err != nil {
-		return Served{}, false
+		return sent, false
 	}
 	if !reply.OK {
+		if sent.Retry != "" {
+			return sent, false
+		}
 		return refusal(path, in, reply, false)
 	}
 	code := 0
 	if spec.finish != nil {
 		if reply.Result, code, ok = spec.finish(c, conn, in, reply.Result); !ok {
-			return Served{}, false
+			return sent, false
 		}
 	}
 	if request.method == "status.get" {
 		if reply, err = projectStatus(conn.metadata.PID, reply); err != nil {
-			return Served{}, false
+			return sent, false
 		}
 	}
 	stdout, err := Render(reply)
 	if err != nil {
-		return Served{}, false
+		return sent, false
 	}
 	return Served{Stdout: stdout, Code: code}, true
+}
+
+func (s Served) RetryFlags() []string {
+	if s.Retry == "" {
+		return nil
+	}
+	return []string{"--retry-request", s.Retry}
 }
 
 func (c *Client) omittedSelectors(hostIDs []string) (json.RawMessage, error) {
@@ -283,6 +303,7 @@ func (r Runner) Run(ctx context.Context, c shell.Command) (shell.Result, error) 
 		if attempt.Err() != nil {
 			return shell.Result{Code: shell.CodeTimedOut}, fmt.Errorf("%s: %w", strings.Join(c.Argv, " "), attempt.Err())
 		}
+		c.Argv = append(slices.Clone(c.Argv), served.RetryFlags()...)
 		return r.Next.Run(ctx, c)
 	}
 	result := shell.Result{Code: served.Code}

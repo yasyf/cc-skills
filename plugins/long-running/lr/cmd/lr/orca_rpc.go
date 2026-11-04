@@ -40,7 +40,8 @@ func orcaCommand(*app.App) *cobra.Command {
 func runOrca(ctx context.Context, args []string) error {
 	client := orcarpc.New()
 	client.Gate = &orcarpc.Gate{Spawn: orcarpc.SpawnParity}
-	if served, ok := client.Serve(ctx, args); ok {
+	served, ok := client.Serve(ctx, args)
+	if ok {
 		if _, err := os.Stdout.Write(served.Stdout); err != nil {
 			return err
 		}
@@ -53,5 +54,5 @@ func runOrca(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("orca is not on PATH: %w", err)
 	}
-	return orcarpc.Passthrough(path, args)
+	return orcarpc.Passthrough(path, append(args, served.RetryFlags()...))
 }
