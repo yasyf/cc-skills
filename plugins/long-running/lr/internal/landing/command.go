@@ -64,7 +64,7 @@ func restackCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			path, err := restackRunner(runner, a.ConfigPath)
+			path, err := restackRunner(runner, a)
 			if err != nil {
 				return err
 			}
@@ -86,14 +86,15 @@ func restackCommand(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func restackRunner(runner, configPath string) (string, error) {
+func restackRunner(runner string, a *app.App) (string, error) {
 	if runner != "" {
 		return runner, nil
 	}
-	if configPath == "" {
-		return "", errors.New("lr landing restack: pass --runner, or --config so the runner.json beside it is read")
+	file, err := a.ConfigFile()
+	if err != nil {
+		return "", fmt.Errorf("lr landing restack: pass --runner or --config: %w", err)
 	}
-	return filepath.Join(filepath.Dir(configPath), runnerFile), nil
+	return filepath.Join(filepath.Dir(file), runnerFile), nil
 }
 
 func NewRemote(a *app.App, runnerPath, lane, sprite string) (Remote, error) {

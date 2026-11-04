@@ -3,6 +3,9 @@ package landing
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
 func TestFirstSpritePrefersFidelityAndReadsAStringOrAList(t *testing.T) {
@@ -42,13 +45,15 @@ func TestRestackReadsTheRunnerBesideConfigWhenNoRunnerIsPassed(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := restackRunner(c.runner, c.config)
+			got, err := restackRunner(c.runner, &app.App{ConfigPath: c.config})
 			if err != nil || got != c.want {
 				t.Fatalf("got %q, %v; want %q", got, err, c.want)
 			}
 		})
 	}
-	if got, err := restackRunner("", ""); err == nil {
-		t.Fatalf("got %q with neither flag", got)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(drive.Env, "a-drive-no-registry-holds")
+	if got, err := restackRunner("", &app.App{}); err == nil {
+		t.Fatalf("got %q with neither flag and no bound drive", got)
 	}
 }
