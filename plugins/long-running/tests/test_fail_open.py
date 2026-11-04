@@ -34,7 +34,7 @@ EXITED, TIMED_OUT, NOT_RUN, DENIED = "exited 1", "timed out", "did not start", "
 FAILURES = {COMMAND: (EXITED, TIMED_OUT, NOT_RUN), FILE: (DENIED,)}
 KEPT = {
     "owner_login_verdicts.owner_login_verdicts_cite_the_board": "answer 8c73884: an approval under his login stands only on his verdict, and an unread verdict is no verdict",
-    "gate5_release.sand_next_release_needs_gate5_pass": "cci 369335: publishing next past a failed gate read has no way back across a server migration, while --without sand-next costs one flag and needs no read",
+    "gate5_release.sand_next_release_needs_gate5_pass": "cci 369335: publishing next past a failed gate read has no way back across a server migration, while a release that does not name sand-next needs no read",
 }
 PARKS = "AskUserQuestion parks the session, so a warning lands too late (answer 1fe20ee)"
 STOP = "a warning on Stop reaches nobody, and {what}"
