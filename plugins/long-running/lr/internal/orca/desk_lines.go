@@ -664,7 +664,10 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
 	raw, readErr := os.ReadFile(order.Brief)
 	text := string(raw)
 	if why := refusedBrief(d.Config.RefusedBriefs, text); why != "" {
-		return failed(why)
+		warned := fmt.Sprintf("BRIEF-NAMES-RULING %s %s: %s. It launches anyway, warned and not refused, with the ruling in its slice; withdraw it if this class is all its work", key, order.Lane, why)
+		if err := d.recordTo(ctx, "escalation:ruling:"+at, warned, verdictTo(by)); err != nil {
+			return err
+		}
 	}
 	if !order.Now {
 		holder, err := d.duplicateHolder(ctx, order.Lane, text)
@@ -707,6 +710,21 @@ func (d *Desk) acceptLaunch(key, lane string, spec launchTarget) (incident.Actio
 		return incident.Action{}, false, err
 	}
 	return d.accept(container, key, kindLaunch, target, key, d.Now().Add(time.Duration(d.Config.LaunchMinutes)*time.Minute))
+}
+
+func (d *Desk) dropClasses(ctx context.Context) []config.Refusal {
+	listing, code, err := d.briefs(ctx, "answer", "list", "--label", config.DropClassLabel, "--limit", "0", "--json")
+	if err == nil && code != 0 {
+		err = errors.New(ccnFailure(listing, code))
+	}
+	var refusals []config.Refusal
+	if err == nil {
+		refusals, err = config.RefusalsOf(listing)
+	}
+	if err != nil {
+		fmt.Fprintf(d.Stderr, "his drop classes did not read, so no alert line is dropped: %v\n", err)
+	}
+	return refusals
 }
 
 func refusedBrief(refusals []config.Refusal, brief string) string {

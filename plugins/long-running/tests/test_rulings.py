@@ -446,6 +446,8 @@ class RegisterShell(ledger.Shell):
             case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--full", "--json"] | ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
                 wanted = set(labels[1::2])
                 return json.dumps([answer for answer in self.answers if wanted <= set(answer["tags"])])
+            case ["ccn", "-R", "/repo", "answer", "match", "--label", "scope:durable", "--limit", "3", "--json", "--", text]:
+                return json.dumps([answer for answer in self.answers if any(word in text.lower() for tag in answer["tags"] if tag.startswith("match:") for word in [tag.removeprefix("match:")])])
             case ["ccn", "-R", "/repo", "answer", "search", topic, "--limit", "0", "--json"]:
                 return json.dumps([answer for answer in self.answers if any(part.startswith(topic) for tag in answer["tags"] for part in tag.split(":"))])
             case ["ccn", "-R", "/repo", "ledger", "list", "--label", "answer-topics", "--label", "program:brook", "--json"]:
@@ -1871,6 +1873,36 @@ OLD_CHAT_ANSWERS = [
     {"id": "e34cc77" + "0" * 33, "title": "How does an old build handle a new-format chat?", "body": "It refuses it.", "tags": ["from:owner"], "dirs": ["go/sand/next"], "updated_at": "2026-11-02T22:17:00Z"},
     {"id": "1984bf6" + "0" * 33, "title": "May a migration ship behind a flag?", "body": "No.", "tags": ["from:owner"], "updated_at": "2026-11-03T20:00:00Z"},
 ]
+
+
+AKAMAI_RULING = {
+    "id": "ff7fca14cc8d31efc64b4eb588b5b168d4a86534",
+    "title": "Do we chase Akamai edge 403s (GSK or any tenant proxy) at all, ever?",
+    "body": "No. Never a lane, a read, a report, a line to him.",
+    "tags": ["akamai", "owner-ruling", "scope:durable", "match:customer edge", "match:gsk edge"],
+    "updated_at": "2026-11-04T04:07:16Z",
+}
+
+
+def alert_brief(path: Path, alert: str) -> Path:
+    path.write_text(f"# dd-1-fix: fix the production alert dd-1\n\nAlert: {alert}\n\nStanding orders, fixed in this template:\n  - the customer edge is boilerplate here\n\nRegister slice: lane=dd-1-fix step=incident\n")
+    return path
+
+
+def test_an_alert_naming_a_403_at_the_customer_edge_launches_with_the_ruling_in_its_brief(home: Path, package: Path, state: Path, capsys) -> None:
+    brief = alert_brief(state / "brief.md", "Blob list failing with HTTP 403 Access Denied from the customer edge on plat")
+    code, _ = ran(capsys, RegisterShell(seeded(package), answers=[AKAMAI_RULING]), "slice", "--refresh", str(brief))
+    lines = brief.read_text().splitlines()
+    assert code == 0
+    assert "- ff7fca1 Do we chase Akamai edge 403s (GSK or any tenant proxy) at all, ever?" in lines
+    assert "  > No. Never a lane, a read, a report, a line to him." in lines
+
+
+def test_an_alert_that_names_nothing_of_the_ruling_is_not_handed_it_by_its_template(home: Path, package: Path, state: Path, capsys) -> None:
+    brief = alert_brief(state / "brief.md", "Runner failing to change a watched run's sync cadence")
+    code, _ = ran(capsys, RegisterShell(seeded(package), answers=[AKAMAI_RULING]), "slice", "--refresh", str(brief))
+    assert code == 0
+    assert "Do we chase Akamai" not in brief.read_text()
 
 
 def test_a_launch_refresh_opens_the_brief_with_the_answers_its_topics_and_paths_find_newest_first(home: Path, package: Path, state: Path, capsys) -> None:

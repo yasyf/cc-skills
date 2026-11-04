@@ -2,10 +2,9 @@ package lanes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -15,7 +14,7 @@ import (
 )
 
 func refusedEdge() []config.Refusal {
-	return []config.Refusal{{Match: regexp.MustCompile(`(?i)edge-vendor`), Except: regexp.MustCompile(`(?i)never`), Why: "never chased"}}
+	return []config.Refusal{{Match: regexp.MustCompile(`(?i)edge-vendor`), Why: "never chased"}}
 }
 
 func TestAnAlertOnARefusedTopicOpensNothingAndItsNeighbourOpensItsIncident(t *testing.T) {
@@ -25,7 +24,6 @@ func TestAnAlertOnARefusedTopicOpensNothingAndItsNeighbourOpensItsIncident(t *te
 		launched bool
 	}{
 		"refused":   {"Triggered: edge-vendor answers 403 — plat\n" + monitorLink, refusedEdge(), false},
-		"spared":    {"Triggered: edge-vendor is never ours — plat\n" + monitorLink, refusedEdge(), true},
 		"neighbour": {"Triggered: runtime-api-next logging errors — plat\n" + monitorLink, refusedEdge(), true},
 		"no-list":   {"Triggered: edge-vendor answers 403 — plat\n" + monitorLink, nil, true},
 	}
@@ -92,35 +90,29 @@ func TestAPageWithNoListPostsAsBefore(t *testing.T) {
 	}
 }
 
-func TestTheRefusedListComesFromTheDrivesRunnerConfig(t *testing.T) {
-	state := t.TempDir()
-	if got, err := ReadRefusedBriefs(state); err != nil || got != nil {
-		t.Fatalf("no runner.json: %v, %v", got, err)
+func TestTheDropClassesComeFromTheRulingsOwnLabels(t *testing.T) {
+	listing := `[{"id":"ff7fca14cc8d","title":"Do we chase Akamai edge 403s?","body":"No. Never a lane, a read, a report, a line to him. Owner, Nov 3.","tags":["akamai","drop-class","match:gsk edge","match:platform.poetic.gsk.com"]}]`
+	env := Env{Config: config.Config{Checkout: "/repo"}, Runner: scripted(func(argv []string) (shell.Result, error) {
+		equal(t, strings.Join(argv, " "), "ccn -R /repo answer list --label drop-class --limit 0 --json")
+		return shell.Result{Stdout: listing}, nil
+	})}
+	got := env.dropClasses(context.Background(), slog.Default())
+	refusal, line, refused := config.RefusedLine(got, "ok\nfailing with timeouts and 403s at the GSK edge\nok")
+	if !refused || line != "failing with timeouts and 403s at the GSK edge" {
+		t.Fatalf("the card that reached him was not classified: %v %q %v", refusal, line, refused)
 	}
-	path := filepath.Join(state, "runner.json")
-	write := func(raw string) {
-		t.Helper()
-		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(`{"drive":"brook"}`)
-	if got, err := ReadRefusedBriefs(state); err != nil || len(got) != 0 {
-		t.Fatalf("no list: %v, %v", got, err)
-	}
-	write(`{"orca":{"refused_briefs":[{"match":"edge-vendor","why":"never chased"}]}}`)
-	got, err := ReadRefusedBriefs(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if refusal, line, refused := config.RefusedLine(got, "ok\nan edge-vendor 403\nok"); !refused || line != "an edge-vendor 403" || refusal.Why != "never chased" {
-		t.Fatalf("a row with no except: %v %q %v", refusal, line, refused)
-	}
-	if _, _, refused := config.RefusedLine(got, "the api is down"); refused {
+	equal(t, refusal.Why, "owner ruling ff7fca1: No. Never a lane, a read, a report, a line to him.")
+	if _, _, refused := config.RefusedLine(got, "the api answers 500"); refused {
 		t.Fatal("a neighbour was refused")
 	}
-	write(`{"orca":{"refused_briefs":[{"match":"("}]}}`)
-	if _, err := ReadRefusedBriefs(state); err == nil {
-		t.Fatal("a bad pattern loaded")
+	if _, _, refused := config.RefusedLine(got, "platform.poeticXgsk.com"); refused {
+		t.Fatal("a phrase matched as a pattern")
 	}
+}
+
+func TestDropClassesThatDoNotReadDropNothing(t *testing.T) {
+	env := Env{Config: config.Config{Checkout: "/repo"}, Runner: scripted(func([]string) (shell.Result, error) {
+		return shell.Result{}, errors.New("ccn is down")
+	})}
+	equal(t, len(env.dropClasses(context.Background(), slog.Default())), 0)
 }

@@ -83,10 +83,9 @@ type runnerFile struct {
 			Repo string `json:"repo"`
 			Log  string `json:"log"`
 		} `json:"briefs"`
-		LaunchEnv     map[string]string `json:"launch_env"`
-		GC            string            `json:"gc"`
-		Sprite        *spriteRoute      `json:"sprite"`
-		RefusedBriefs []config.Refusal  `json:"refused_briefs"`
+		LaunchEnv map[string]string `json:"launch_env"`
+		GC        string            `json:"gc"`
+		Sprite    *spriteRoute      `json:"sprite"`
 	} `json:"orca"`
 	Deadlines struct {
 		Start  *int `json:"start_minutes"`
@@ -186,7 +185,7 @@ func LoadDeskConfig(path string, env func(string) string) (DeskConfig, error) {
 		Source: resolved(source), Store: root, Drive: file.Drive, DeskInbox: expandHome(file.Orca.DeskInbox, home), Run: file.Orca.Run, Launches: file.Orca.Launches,
 		Receipts:   filepath.Join(state, "long-running", "orca-launch", file.Orca.Run),
 		BriefsRepo: expandHome(file.Orca.Briefs.Repo, home), BriefsLog: file.Orca.Briefs.Log, GC: file.Orca.GC, AlertFacts: expandHome(file.Alert.Facts, home),
-		LandingRepo: file.Landing.Repo, LandingCheckout: file.Landing.Checkout, LaunchEnv: file.Orca.LaunchEnv, RefusedBriefs: file.Orca.RefusedBriefs,
+		LandingRepo: file.Landing.Repo, LandingCheckout: file.Landing.Checkout, LaunchEnv: file.Orca.LaunchEnv,
 		StartMinutes: orDefault(file.Deadlines.Start, 10), LaunchMinutes: orDefault(file.Deadlines.Launch, 15), HoldMinutes: orDefault(file.Deadlines.Hold, 15), CaseLanes: orDefault(file.Incident.CaseLanes, 2), LoadLimit: orDefault(file.Orca.LoadLimit, runtime.NumCPU()),
 		IncidentMechanismMinutes: orDefault(file.Deadlines.IncidentMechanism, 10), IncidentPRMinutes: orDefault(file.Deadlines.IncidentPR, 15), IncidentReadyMinutes: orDefault(file.Deadlines.IncidentReady, 20),
 	}, nil

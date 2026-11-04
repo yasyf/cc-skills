@@ -474,42 +474,6 @@ func wantContains(t *testing.T, text, part string) {
 	}
 }
 
-func TestABriefLineOnARefusedTopicRefusesItsLaunchUnlessThatLineOnlyDropsIt(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "runner.json")
-	raw := `{"orca":{"refused_briefs":[{"match":"(?i)edge-vendor","except":"(?i)never|classify","why":"the owner ruled this class is never chased"}]}}`
-	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	file, err := readRunnerFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	refusals := file.Orca.RefusedBriefs
-	for brief, want := range map[string]string{
-		"# fix the outage\nno mention here":                   "",
-		"An edge-vendor 403 is never an incident":             "",
-		"Classify the edge-vendor 403 and stop":               "",
-		"# lane\n  Find why Edge-Vendor answers 403 at open ": "the owner ruled this class is never chased; brief line: Find why Edge-Vendor answers 403 at open",
-	} {
-		if got := refusedBrief(refusals, brief); got != want {
-			t.Errorf("refusedBrief(%q) = %q, want %q", brief, got, want)
-		}
-	}
-	if got := refusedBrief(nil, "edge-vendor"); got != "" {
-		t.Errorf("no configured refusal refused: %q", got)
-	}
-}
-
-func TestABadRefusalPatternFailsTheRunnersConfigAtLoad(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "runner.json")
-	if err := os.WriteFile(path, []byte(`{"orca":{"refused_briefs":[{"match":"(","except":"x","why":"y"}]}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := readRunnerFile(path); err == nil {
-		t.Fatal("a bad pattern loaded")
-	}
-}
-
 func TestLoadDeskConfigReadsTheRunnerFileWithItsDefaults(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, "runner.json")

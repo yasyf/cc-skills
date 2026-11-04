@@ -29,16 +29,54 @@ type RunnerBriefs struct {
 	Log  string `json:"log"`
 }
 
+const (
+	DropClassLabel    = "drop-class"
+	matchLabel        = "match:"
+	refusalMeaningCap = 160
+)
+
 type Refusal struct {
-	Match  *regexp.Regexp `json:"match"`
-	Except *regexp.Regexp `json:"except"`
-	Why    string         `json:"why"`
+	Match *regexp.Regexp
+	Why   string
+}
+
+func RefusalsOf(listing string) ([]Refusal, error) {
+	var answers []struct {
+		ID   string   `json:"id"`
+		Body string   `json:"body"`
+		Tags []string `json:"tags"`
+	}
+	if err := json.Unmarshal([]byte(listing), &answers); err != nil {
+		return nil, fmt.Errorf("ccn answer list: %w", err)
+	}
+	var refusals []Refusal
+	for _, answer := range answers {
+		var phrases []string
+		for _, tag := range answer.Tags {
+			if phrase, labelled := strings.CutPrefix(tag, matchLabel); labelled {
+				phrases = append(phrases, regexp.QuoteMeta(phrase))
+			}
+		}
+		if len(phrases) > 0 {
+			refusals = append(refusals, Refusal{regexp.MustCompile("(?i)" + strings.Join(phrases, "|")), fmt.Sprintf("owner ruling %s: %s", answer.ID[:min(len(answer.ID), 7)], meaningOf(answer.Body))})
+		}
+	}
+	return refusals, nil
+}
+
+func meaningOf(body string) string {
+	first, _, _ := strings.Cut(strings.TrimSpace(body), "\n")
+	first = first[:min(len(first), refusalMeaningCap)]
+	if end := strings.LastIndex(first, ". "); end > 0 {
+		return first[:end+1]
+	}
+	return first
 }
 
 func RefusedLine(refusals []Refusal, text string) (Refusal, string, bool) {
 	for _, refusal := range refusals {
 		for line := range strings.SplitSeq(text, "\n") {
-			if refusal.Match.MatchString(line) && (refusal.Except == nil || !refusal.Except.MatchString(line)) {
+			if refusal.Match.MatchString(line) {
 				return refusal, line, true
 			}
 		}

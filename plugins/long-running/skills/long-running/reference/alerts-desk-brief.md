@@ -33,7 +33,7 @@ An alert in a watched channel opens its own incident.
 - A Datadog or Sentry alert, a red Watch line (`The Watch failed for <component> on <env>: "<monitor>"`) or a red tenant smoke line (`<release> is live, but <test> on <env> went red`), in a card or a reply, that no `incident` record names launches `<slug>-fix` and `<slug>-evidence` through `lr incident run` on that tick and posts `ALERT-LAUNCHED` to the coordinator, with no verdict first.
 - The slug is stable per monitor, component and env. A later red on the same key within a day posts one `ALERT-AGAIN` note to the open fix lane and launches nothing.
 - Only a failed launch posts the `ALERT-UNOPENED` blocker; the coordinator then opens the incident by hand.
-- An alert or page matching `orca.refused_briefs` in the drive's `runner.json` is logged at debug and opens nothing.
+- An alert or page naming a phrase of a ruling labelled `drop-class` (its `match:` labels in cc-notes) is logged at debug and opens nothing.
 
 ## The monitors file and the desk inbox
 

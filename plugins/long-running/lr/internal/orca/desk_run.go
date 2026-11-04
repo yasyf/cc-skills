@@ -322,6 +322,7 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 	if _, err := d.post(ctx, deskPost{Kind: kindNote, Text: fmt.Sprintf("%s reads its orders through lr relay pid %d", deskLane, os.Getpid()), To: watchdogLane + "@" + d.Config.Drive, Topic: "alive:" + deskLane, Key: "register:" + deskLane, Lane: deskLane}); err != nil {
 		fmt.Fprintf(d.Stderr, "the desk's register note left unposted: %v\n", err)
 	}
+	d.Config.RefusedBriefs = d.dropClasses(ctx)
 	d.passSince = d.Now()
 	d.enter(stepStart)
 	defer d.keepAlive(ctx)()

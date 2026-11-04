@@ -185,7 +185,8 @@ Shape:
 - He reads this window too, so what reaches Slack or the dashboard also reaches him here.
 - A reply about something that waits on him carries its card, says in one line what he must do, `blocked on you doing X`, and never retells how the hold was read.
 - A chat format reaches him as format 0 or format 1 only; `chat_formats.py` refuses `format N` or `migrate to N` for any other N in a reply and the `reply` tool.
-- A line matching the drive's `orca.refused_briefs` is refused in every reply, card, board and DM to him, because the class is never reported to him: drop the line and send the rest.
+- A line naming a phrase of a ruling labelled `drop-class` is refused in every reply, card, board and DM to him, because the class is never reported to him and a warning would land after he had read it: drop the line and send the rest. A line about the ruling itself passes.
+- `lines_name_a_ruling.py` warns on any other line, record or reply that names something he has ruled on, and quotes the ruling. It blocks nothing.
 
 Length (`owner_replies_stay_short.py` warns and never blocks, in this window, on the `reply` tool and a Slack DM post):
 - a reply that only acknowledges or promises a clock;
