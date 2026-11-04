@@ -165,7 +165,7 @@ Do:
      token, or wire format keeps what running clients already renew and read.
      Once GitHub's required checks are green and the PR is approved, post READY
      with the exact head; the landing desk owns enqueue. Accept each reviewer-bot
-     finding with `scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`
+     finding with `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`
      and push nothing for it, since a push restarts CI; push only for a finding
      that says the fix itself is wrong, ending the push with `# fix-is-wrong: <slug>`. Never run stack-enqueue,
      rebase, or push a queued branch. A red check the branch rules do not require
