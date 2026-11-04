@@ -1590,7 +1590,7 @@ func TestOrcaReadsABoxTreesHeadAndBranchFromItsServer(t *testing.T) {
 func TestARemoteCheckoutReadsPorcelainBranchHeadersThroughSpriteExec(t *testing.T) {
 	runner := &scripted{reply: func(argv []string) (string, string, int) {
 		if argv[0] == "sprite" {
-			return "https://token@github.com/acme/repo.git\n# branch.oid " + headA + "\n# branch.head (detached)\n? scratch.txt\n", "", 0
+			return "https://token@github.com/acme/repo.git\n0\n# branch.oid " + headA + "\n# branch.head (detached)\n? scratch.txt\n", "", 0
 		}
 		return `{"default_branch":"dev","status":"behind"}`, "", 0
 	}}
@@ -1611,8 +1611,28 @@ func TestARemoteCheckoutReadsPorcelainBranchHeadersThroughSpriteExec(t *testing.
 	}
 }
 
+func TestCommitsOnAnotherBranchKeepASpriteWhoseHeadIsSaved(t *testing.T) {
+	runner := &scripted{reply: func(argv []string) (string, string, int) {
+		if argv[0] == "sprite" {
+			return "https://github.com/acme/repo\n6\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
+		}
+		return `{"default_branch":"dev","status":"behind"}`, "", 0
+	}}
+	read, err := CCRemote{Runner: runner, State: "/nonexistent"}.Checkout(context.Background(), testSprite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Found.OffOrigin != 6 || !read.Found.OnTrunk {
+		t.Fatalf("got %+v", *read.Found)
+	}
+	held, err := unsaved(context.Background(), *read.Found, defaultRemote())
+	if err != nil || held != "6 commits off origin on its other branches or stashes" {
+		t.Fatalf("held %q, err %v", held, err)
+	}
+}
+
 func TestASpriteWithoutAGitHubOriginIsKeptByName(t *testing.T) {
-	runner := &scripted{reply: constant("https://token@gitlab.example/acme/repo\n# branch.oid " + headA + "\n# branch.head dev\n")}
+	runner := &scripted{reply: constant("https://token@gitlab.example/acme/repo\n0\n# branch.oid " + headA + "\n# branch.head dev\n")}
 	read, err := CCRemote{Runner: runner, State: "/nonexistent"}.Checkout(context.Background(), testSprite)
 	if err != nil {
 		t.Fatal(err)
@@ -1649,7 +1669,7 @@ func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 	t.Run("a rate limit keeps the Sprite it was reading", func(t *testing.T) {
 		limited := func(argv []string) (string, string, int) {
 			if argv[0] == "sprite" {
-				return "https://github.com/acme/repo\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
+				return "https://github.com/acme/repo\n0\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
 			}
 			return "{}", "gh: API rate limit exceeded (HTTP 403)", 1
 		}

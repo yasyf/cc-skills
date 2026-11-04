@@ -237,6 +237,9 @@ func unsaved(ctx context.Context, checkout Checkout, remote Remote) (string, err
 	if checkout.Dirty {
 		return "uncommitted changes", nil
 	}
+	if checkout.OffOrigin > 0 {
+		return fmt.Sprintf("%d commits off origin on its other branches or stashes", checkout.OffOrigin), nil
+	}
 	if checkout.OnTrunk || remote.Heads[checkout.Head] {
 		return "", nil
 	}

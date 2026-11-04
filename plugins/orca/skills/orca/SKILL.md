@@ -403,8 +403,8 @@ worktree and terminal, and whose workspace record still exists. The reclaimer
 runs `cc-remote destroy` through `WORKER_CC_REMOTE` or `ccRemote`, under
 `CC_REMOTE_CONFIG` or `ccRemoteConfig`, and removes its Orca environment. It
 does this only once no unsettled Dispatch shares the workspace, the terminal
-reads idle twice, and the checkout, read over ssh, is clean with its HEAD on
-origin or landed; `--done` skips the idle check. GitHub answers whether the HEAD
+reads idle twice, and the checkout, read over ssh, is clean, holds no commit off
+origin on another branch or stash, and has its HEAD on origin or landed; `--done` skips the idle check. GitHub answers whether the HEAD
 is on origin or landed, for the Sprite's own origin, so the check doesn't depend
 on which checkout you run from. A Sprite without a GitHub origin is kept, and so
 is one GitHub can't answer for, such as under a rate limit, while the rest of
