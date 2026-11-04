@@ -127,7 +127,7 @@ A call that survives the list decides something no verb and no lane can decide. 
 | Which PRs the owner approved on the board, and which of them are still open | `lr approved [--since <seq>]`, backfilled verdicts excluded |
 | Every open ask, and what is landed but not live | `lr asks` |
 | The owner update, complete and from sources | `lr update render`, run by the communicator's `update-desk` |
-| What an incident is doing | `lr incident status <slug>` |
+| What an incident is doing; one sentence on what it is | `lr incident status <slug>`; `lr incident describe <slug>` |
 | Where a lane's mail goes; every `lr` verb takes a stem, `meta-desk`, for its newest live lane | `lr route <lane>` |
 
 A read the table lacks belongs to a lane: a PR, a CI log, a Slack thread, a long file, a cloud

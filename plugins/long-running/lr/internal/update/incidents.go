@@ -24,7 +24,9 @@ const (
 var (
 	milestoneLine = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?(MECHANISM|FIX-LIVE|NOT-OURS)\b`)
 	scopeLine     = regexp.MustCompile(`\bSCOPE\b`)
-	recordLead    = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?(?:GO fix lane \S+ for class \S+|INCIDENT (?:OPEN |REOPENED )?\S+|MECHANISM(?: \S+)?)?\s*:?\s*`)
+	recordLead    = regexp.MustCompile(`^(?:\d{1,2}:\d{2}(?: [AP]M)?:? )?(?:GO fix lane \S+ for class \S+|(?i:INCIDENT) (?:OPEN |REOPENED )?\S+|MECHANISM(?: \S+)?)?\s*:?\s*`)
+	sentenceEnd   = regexp.MustCompile(`\. | \| `)
+	workNotCause  = regexp.MustCompile(`\blane\b`)
 	noDescription = regexp.MustCompile(`^orca-desk:|\bSCOPE\b|\blaunch(?:ed)?\b`)
 )
 
@@ -227,8 +229,8 @@ func descriptionRank(record Record) int {
 
 func firstSentence(text string) string {
 	sentence := strings.Join(strings.Fields(recordLead.ReplaceAllString(text, "")), " ")
-	if end := strings.Index(sentence, ". "); end >= 0 {
-		sentence = sentence[:end]
+	if end := sentenceEnd.FindStringIndex(sentence); end != nil {
+		sentence = sentence[:end[0]]
 	}
 	return strings.TrimRight(clipTo(sentence, describeCells), ".")
 }
@@ -243,7 +245,7 @@ func describeIncident(records []Record, name string) string {
 		if incidentRole.ReplaceAllString(record.Topic, "") != name && incidentRole.ReplaceAllString(incidentName(record), "") != name {
 			continue
 		}
-		if sentence := firstSentence(record.Text); sentence != "" {
+		if sentence := firstSentence(record.Text); sentence != "" && !workNotCause.MatchString(sentence) {
 			described, best = sentence, rank
 		}
 	}
