@@ -29,19 +29,22 @@ const (
 var (
 	ErrRemoteSelected = errors.New("orcarpc: a paired runtime is selected, and only the local socket is supported")
 	ErrWriteMethod    = errors.New("orcarpc: only read methods are supported")
-	ErrNoCaller       = errors.New("orcarpc: check needs --terminal or ORCA_TERMINAL_HANDLE")
-	ErrOtherCaller    = errors.New("orcarpc: consumer_fenced: this agent session cannot read as another caller")
 )
 
 var readMethods = map[string]bool{
 	"status.get":               true,
 	"orchestration.workerList": true,
 	"orchestration.workerShow": true,
-	"orchestration.runCurrent": true,
+	"orchestration.runList":    true,
 	"orchestration.runShow":    true,
+	"orchestration.taskList":   true,
 	"terminal.list":            true,
 	"terminal.show":            true,
+	"terminal.read":            true,
+	"terminal.wait":            true,
 	"worktree.show":            true,
+	"worktree.list":            true,
+	"repo.show":                true,
 }
 
 func readOnly(method string, params any) bool {
@@ -117,6 +120,7 @@ type Client struct {
 	UserData string
 	Getenv   func(string) string
 	Timeout  time.Duration
+	Gate     *Gate
 }
 
 func New() *Client {
@@ -218,20 +222,11 @@ func (c *Conn) Close() error {
 	return c.socket.Close()
 }
 
-func (c *Conn) Metadata() Metadata {
-	return c.metadata
-}
-
-func (c *Client) Call(ctx context.Context, method string, params any) (Response, error) {
-	conn, err := c.Dial(ctx)
-	if err != nil {
-		return Response{}, err
-	}
-	defer func() { _ = conn.Close() }()
-	return conn.Call(ctx, method, params)
-}
-
 func (c *Conn) Call(ctx context.Context, method string, params any) (Response, error) {
+	return c.call(ctx, method, params, 0)
+}
+
+func (c *Conn) call(ctx context.Context, method string, params any, timeout time.Duration) (Response, error) {
 	if !readOnly(method, params) {
 		return Response{}, fmt.Errorf("%w: %s", ErrWriteMethod, method)
 	}
@@ -250,7 +245,9 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (Response, e
 	if method != "status.get" {
 		outgoing.ExpectedRuntimeSource = c.fence
 	}
-	timeout := c.client.Timeout
+	if timeout == 0 {
+		timeout = c.client.Timeout
+	}
 	if timeout == 0 {
 		timeout = defaultRequestTimeout
 	}

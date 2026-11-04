@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -39,6 +40,7 @@ Run = Callable[[list[str]], str]
 Item = TypeVar("Item")
 Result = TypeVar("Result")
 WORKERS = 8
+ORCA = ("lr", "orca") if shutil.which("lr") else ("orca",)
 WORKTREE_PATH = re.compile(r"(?<![\w/])(/[\w.~/-]*/(?:worktrees|workspaces)/[\w.-]+(?:/[\w.-]+)*)")
 RECEIPT = "launch receipt"
 OWN_RECORD = "WORKTREE record"
@@ -333,7 +335,7 @@ def lane_dispatches(lane: str, tasks: list[dict], workers: list[dict]) -> list[s
 
 def orca(run: Run, *argv: str) -> dict | None:
     """The `result` of one `orca orchestration` call, or None when it fails."""
-    reply = json.loads(output(run, ["orca", "orchestration", *argv, "--full", "--json"]) or "{}")
+    reply = json.loads(output(run, [*ORCA, "orchestration", *argv, "--full", "--json"]) or "{}")
     return reply.get("result") if reply.get("ok") else None
 
 
