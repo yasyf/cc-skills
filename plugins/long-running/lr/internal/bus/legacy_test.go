@@ -177,6 +177,21 @@ func TestAnOverrideInASpilledBodyCounts(t *testing.T) {
 	}
 }
 
+func TestAnOverrideInASpilledBodyOfManyLinesCounts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(path, []byte("a long decide\nthat opens the same way. finder-override #9 at e718a74: read the deleted file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := legacyRecord(t, "decide", "root", "a long decide that opens the same way…", []int{9}, nil)
+	record.Refs.Path = path
+
+	got := bus.LegacyFacts(record, repo, nil)
+
+	if want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("LegacyFacts = %+v, want %+v", got, want)
+	}
+}
+
 func TestABodyRewrittenAfterPostingIsNotTheRecordsText(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "body.txt")
 	if err := os.WriteFile(path, []byte("rewritten. finder-override #9 at e718a74"), 0o600); err != nil {

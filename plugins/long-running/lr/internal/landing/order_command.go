@@ -21,6 +21,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
+const ownerWordKind = "owner"
+
 var ownerWordLanes = []string{"board-watch", "owner-relay"}
 
 func orderCommand(a *app.App) *cobra.Command {
@@ -57,7 +59,7 @@ func runOrder(ctx context.Context, a *app.App, number int, seq int64, stdout io.
 		return fmt.Errorf("no record #%d on drive %s", seq, cfg.Drive)
 	}
 	if !holdsOwnerWord(records[0], number) {
-		return fmt.Errorf("record #%d, from lane %s, is no owner word naming #%d", seq, records[0].Lane, number)
+		return fmt.Errorf("record #%d, a %s from lane %s, is no owner word naming #%d; post his words, then run this on that record: cci post --drive %s --lane owner-relay --kind %s --pr %s#%d \"Owner: <his words> #%d\"", seq, records[0].Kind, records[0].Lane, number, cfg.Drive, ownerWordKind, cfg.Repo, number, number)
 	}
 	s, err := store.Open(filepath.Join(filepath.Dir(a.ConfigPath), storeFile))
 	if err != nil {
@@ -90,5 +92,5 @@ func writeOrder(ctx context.Context, s *store.Store, repo string, orders bus.Bus
 
 func holdsOwnerWord(record client.Record, number int) bool {
 	names := regexp.MustCompile(`#` + strconv.Itoa(number) + `\b`)
-	return slices.Contains(ownerWordLanes, client.Stem(record.Lane)) && names.MatchString(record.Text)
+	return string(record.Kind) == ownerWordKind && slices.Contains(ownerWordLanes, client.Stem(record.Lane)) && names.MatchString(bus.FullText(record))
 }
