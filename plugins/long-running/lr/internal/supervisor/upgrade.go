@@ -46,9 +46,13 @@ type Upgrade struct {
 	Env     lanes.Env
 	Running string
 	Read    time.Time
+	Holding func() bool
 }
 
 func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
+	if u.Holding() {
+		return false, nil
+	}
 	if changed, err := u.configChanged(ctx); changed || err != nil {
 		return changed, err
 	}

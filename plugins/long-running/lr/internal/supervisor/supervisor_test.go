@@ -449,7 +449,7 @@ func TestTheSupervisorMovesToANewerInstallWithoutReadingOrReplayingHistory(t *te
 		t.Fatalf("upgrade launched a command: %v", argv)
 		return shell.Result{}, nil
 	})}
-	upgrade := &Upgrade{Env: env, Running: "0.7.820", Read: time.Now()}
+	upgrade := &Upgrade{Env: env, Running: "0.7.820", Read: time.Now(), Holding: nothingHolds}
 	for _, step := range []struct {
 		version string
 		stale   bool
@@ -462,6 +462,31 @@ func TestTheSupervisorMovesToANewerInstallWithoutReadingOrReplayingHistory(t *te
 		equal(t, stale, step.stale)
 	}
 	equal(t, len(b.posted), 0)
+}
+
+func nothingHolds() bool {
+	return false
+}
+
+func TestARestartWaitsForTheCleanupPassItWouldCut(t *testing.T) {
+	claude := t.TempDir()
+	state := configs(t)
+	holding := true
+	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now(), Holding: func() bool { return holding }}
+	link(t, claude, "0.7.821")
+
+	stale, err := upgrade.Stale(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, stale, false)
+
+	holding = false
+	stale, err = upgrade.Stale(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, stale, true)
 }
 
 func configs(t *testing.T) string {
@@ -479,7 +504,7 @@ func TestAConfigWrittenAfterTheSupervisorReadItRestartsItAndTellsRoot(t *testing
 	b := &recordingBus{}
 	state := configs(t)
 	read := time.Now()
-	upgrade := &Upgrade{Env: lanes.Env{Bus: b, Claude: t.TempDir(), State: state, Config: config.Config{Drive: "d1"}}, Running: "0.7.820", Read: read}
+	upgrade := &Upgrade{Env: lanes.Env{Bus: b, Claude: t.TempDir(), State: state, Config: config.Config{Drive: "d1"}}, Running: "0.7.820", Read: read, Holding: nothingHolds}
 
 	stale, err := upgrade.Stale(context.Background())
 	if err != nil {
