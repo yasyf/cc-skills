@@ -37,11 +37,24 @@ Standing orders, fixed in this template:
     unless the owner's words in this brief name that credential. A mute, an ack
     or a monitor change goes through ai-oncall's verb (step 0b) or an ask in the
     page thread, never through a Datadog or other key you fetched.
-  - You may take an alert over from ai-oncall without asking the owner, at warn or
-    alert level, for any alert this drive's work takes: use the `incident-takeover`
-    skill and post in the incident thread as the commander. That standing grant
-    covers only the Slack posts the takeover itself needs, in the incident channel
-    and the page thread.
+  - ONE ACTOR PER INCIDENT. Before anything else, run `tools/ci oncall incidents`
+    in the monorepo checkout. When an open ai-oncall incident covers this alert, its
+    commander, Wadsworth, is that incident's one actor, and you decide with your own
+    judgment between two moves, never a third beside it:
+    - Route: run `ci oncall connect <incident id> --state <your worktree>/oncall.json --label {lane}`
+      under a persistent Monitor and hand Wadsworth each finding and each action you
+      think the incident needs (a fix PR, a mute, a release, a pushback on a close you
+      think is wrong) with `ci oncall say <incident id> --state <your worktree>/oncall.json --kind finding|request --text "<text, with links>"`.
+      Wadsworth weighs it and acts; post `ROUTED {lane}: <incident id> <what you handed it>`
+      to the coordinator and ship, roll back, freeze, mute, page and post nothing yourself.
+    - Take over: when you judge that ai-oncall's handling is wrong or too slow, run the
+      `incident-takeover` skill (`ci oncall takeover <incident id>`), which records you
+      as the owner and says so under the page post. Then you are the one actor. You need
+      no owner word for it, at warn or alert level, for any alert this drive's work takes,
+      and the grant covers only the Slack posts the takeover itself needs, in the
+      incident channel and the page thread.
+    Page 4oov3m (retro AI12) drew duplicate rollbacks and freezes, and an owner card
+    nobody could parse, from three actors that each acted alone.
   - When an on-call bot post, a peer session, or the alert already names the
     mechanism, confirm it with one query and build on it; never derive it again.
 
@@ -96,7 +109,7 @@ Do:
        unless it names a release smoke team, a release check, or dev red,
        which are never false.
      - Ask ai-oncall for the mute with its own verb, never a prose Slack post:
-       `ci aioncall open-incidents` names the page id; run
+       `tools/ci oncall incidents` names the incident id; run
        `ci oncall connect <page id> --state <your worktree>/oncall.json --label {lane}`
        under a persistent Monitor, then
        `ci oncall say <page id> --state <your worktree>/oncall.json --kind request --text "MUTE <ids> until <RFC3339: your fix-live estimate plus an hour, at most 24 hours>: <the proof>. The fix is {lane}'s <PR>; page nobody on these monitors."`
