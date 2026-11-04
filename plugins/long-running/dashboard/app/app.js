@@ -694,12 +694,23 @@ function load() {
 }
 function modelUrl() {
   if (!state.served || (state.served.cut && state.wantFull)) return '/api/model';
-  return `/api/model?${state.served.cut ? 'tab=now&' : ''}since=${state.served.version}`;
+  return `/api/model?rows=1&${state.served.cut ? 'tab=now&' : ''}since=${state.served.version}`;
+}
+function patchedRows(was, patch) {
+  if (patch.$runs) return patch.$runs.flatMap((run) => (Array.isArray(run) ? was.slice(run[0], run[0] + run[1]) : [run.row]));
+  const next = { ...was };
+  for (const key of patch.$gone) delete next[key];
+  for (const [key, moved] of Object.entries(patch.$keys)) next[key] = moved.$runs ? patchedRows(was[key], moved) : moved.$value;
+  return next;
+}
+function withDelta(served, answer) {
+  const patched = Object.entries(answer.patched ?? {}).map(([key, patch]) => [key, patchedRows(served[key], patch)]);
+  return { ...served, ...answer.changed, ...Object.fromEntries(patched) };
 }
 async function fetchModel() {
   const answer = await (window.firstModel ?? fetch(modelUrl(), { cache: 'no-store' }).then((res) => res.json()));
   window.firstModel = null;
-  const served = answer.changed ? { ...state.served, ...answer.changed } : answer;
+  const served = answer.changed ? withDelta(state.served, answer) : answer;
   state.fetched = served.version;
   if (!served.prs) return setTimeout(load, 1000);
   state.served = served;

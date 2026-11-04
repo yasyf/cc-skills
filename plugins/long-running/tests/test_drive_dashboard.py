@@ -104,7 +104,7 @@ def test_the_tab_lists_each_stored_pr_with_its_fields_from_the_store():
     assert rows[0]["group"] == "lane" and rows[0]["verdict"] == {"verdict": "approved", "head": "aaaaaaa"} and rows[0]["blocker"] == "your approval"
     assert rows[1]["head"] == "bbbbbbbcccc" and rows[1]["blocker"] == "held, root: cutover"
     assert rows[2]["group"] == "old-chat-convert" and rows[2]["tapped"] is True
-    assert ["Hold", "none"] in rows[0]["meta"] and ["Approved by", "a bot"] in rows[0]["meta"] and {label for label, _ in rows[0]["meta"]} >= {"Waits on", "CI", "Grade", "Findings", "Mergeable", "Queue", "Superseded by", "Lane", "Branch", "Parent", "Head", "Tapped at", "Tapped by", "Landed at", "Written at", "Description"}
+    assert ["Hold", "none"] in rows[0]["meta"] and ["Approved by", "a bot"] in rows[0]["meta"] and {label for label, _ in rows[0]["meta"]} >= {"Waits on", "CI", "Grade", "Findings", "Mergeable", "Queue", "Superseded by", "Lane", "Branch", "Parent", "Head", "Tapped at", "Tapped by", "Landed at", "Description"} and "Written at" not in {label for label, _ in rows[0]["meta"]}
 
 
 def test_the_tab_query_leaves_out_ended_rows_and_puts_ready_ones_first(tmp_path):
@@ -1642,6 +1642,30 @@ def test_the_retro_table_reads_through_the_installed_retro_py_drops_duplicates_a
     monkeypatch.setattr(server, "run", lambda argv: (_ for _ in ()).throw(subprocess.CalledProcessError(1, argv, stderr="ccn down")))
     assert reader.read_preventions() == []
     assert reader.errors["preventions"].startswith("the retro table did not read") and "ccn down" in reader.errors["preventions"]
+
+
+@pytest.mark.parametrize("n", [1, 1000])
+def test_a_browser_refresh_sends_the_new_record_alone_at_any_length(n):
+    before = [{"seq": seq} for seq in range(n)]
+    after = [*before[1:], {"seq": n}]
+    piece = server.encoded({"prs": after, "at": "new"})
+    records = server.encoded(after)
+    pieces = {"version": server.encoded(8), "records": records, "drive": piece}
+    past_records = server.encoded(before)
+    past_drive = server.encoded({"prs": before, "at": "old"})
+    shapes = {item[2]: server.rows_of(item[0]) for item in (records, piece, past_records, past_drive)}
+    past = {"version": server.encoded(7)[2], "records": past_records[2], "drive": past_drive[2]}
+    answer = json.loads(server.changed_rows(8, pieces, past, shapes))
+    assert answer["changed"] == {"version": 8}
+    assert answer["patched"]["records"] == {"$runs": [*([[1, n - 1]] if n > 1 else []), {"row": {"seq": n}}]}
+    assert answer["patched"]["drive"]["$keys"]["at"] == {"$value": "new"}
+    assert len(json.dumps(answer)) < 400
+
+
+def test_a_row_delta_needs_the_shape_the_browser_holds():
+    pieces = {"version": server.encoded(8), "records": server.encoded([1, 2])}
+    past = {"version": server.encoded(7)[2], "records": server.encoded([1])[2]}
+    assert json.loads(server.changed_rows(8, pieces, past, {})) == {"version": 8, "changed": {"version": 8, "records": [1, 2]}, "patched": {}}
 
 
 def test_a_refresh_carries_only_the_parts_that_changed_since_the_version_the_browser_holds():

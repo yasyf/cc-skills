@@ -54,6 +54,7 @@ REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
 SNAPSHOT_EVERY = 60.0
 DELTAS_KEPT = 30
+ROW_DELTA_KINDS = ("lean", "now")
 LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes", "owner_asks", "status_tables", "step_records", "replies", "chat_lines")
 NOW_DRAWS = ("needs", "board", "brief", "milestone_state", "pages", "workers", "now", "status_now")
 NOW_EVENTS = 5
@@ -146,8 +147,7 @@ LR_STORE = "lr.sqlite"
 ROW_META = (
     ("Waits on", "waits_on"), ("Description", "description"), ("CI", "ci"), ("Approved by", "approvers"), ("Grade", "grade"), ("Findings", "grade_findings"),
     ("Mergeable", "mergeable"), ("Queue", "queue"), ("Hold", "hold"), ("Superseded by", "superseded_by"), ("Lane", "lane"), ("Branch", "branch"), ("Parent", "parent"),
-    ("Head", "head"), ("Tapped at", "tapped_at"), ("Tapped by", "tapped_by"), ("Tap refused", "tap_refused"), ("Landed at", "landed_at"), ("Written at", "written_at"),
-)
+    ("Head", "head"), ("Tapped at", "tapped_at"), ("Tapped by", "tapped_by"), ("Tap refused", "tap_refused"), ("Landed at", "landed_at"), )
 LANE_NUMBER = re.compile(r"-\d+$")
 ACTIVE = dt.timedelta(minutes=30)
 WORKING = dt.timedelta(minutes=20)
@@ -316,6 +316,61 @@ def changed_since(version, pieces, past):
     if not past or past.keys() != pieces.keys():
         return None
     return b'{"version": %d, "changed": %s}' % (version, joined(pieces, [key for key, (_, _, digest) in pieces.items() if past[key] != digest]))
+
+
+def row_mark(value):
+    return hashlib.sha1(json.dumps(value).encode()).digest()[:8]
+
+
+def rows_of(value):
+    if isinstance(value, list):
+        return [row_mark(row) for row in value]
+    if isinstance(value, dict):
+        return {key: rows_of(item) if isinstance(item, list) else row_mark(item) for key, item in value.items()}
+    return row_mark(value)
+
+
+def list_patch(rows, marks, past):
+    place = {mark: at for at, mark in enumerate(past)}
+    runs = []
+    for row, mark in zip(rows, marks):
+        at = place.get(mark)
+        if at is None:
+            runs.append({"row": row})
+        elif runs and isinstance(runs[-1], list) and sum(runs[-1]) == at:
+            runs[-1][1] += 1
+        else:
+            runs.append([at, 1])
+    return {"$runs": runs}
+
+
+def row_patch(value, marks, past):
+    if isinstance(value, list) and isinstance(past, list):
+        return list_patch(value, marks, past)
+    if not (isinstance(value, dict) and isinstance(past, dict)):
+        return None
+    moved = {
+        key: list_patch(item, marks[key], past[key]) if isinstance(item, list) and isinstance(past.get(key), list) else {"$value": item}
+        for key, item in value.items()
+        if marks[key] != past.get(key)
+    }
+    return {"$keys": moved, "$gone": [key for key in past if key not in value]}
+
+
+def changed_rows(version, pieces, past, shapes):
+    if not past or past.keys() != pieces.keys():
+        return None
+    patched = {}
+    whole = []
+    for key, (value, _, digest) in pieces.items():
+        if past[key] == digest:
+            continue
+        patch = row_patch(value, shapes[digest], shapes[past[key]]) if digest in shapes and past[key] in shapes else None
+        if patch is None:
+            whole.append(key)
+        else:
+            patched[key] = patch
+    return b'{"version": %d, "changed": %s, "patched": %s}' % (version, joined(pieces, whole), json.dumps(patched).encode())
 
 
 def part_of(title, parts):
@@ -975,6 +1030,7 @@ class Drive:
         self.fetched = {}
         self.lanes_due = True
         self.digests = deque(maxlen=DELTAS_KEPT)
+        self.shapes = {}
         self.slow = {}
         self.slow_at = 0.0
         self.dirty_at = time.monotonic()
@@ -1447,10 +1503,13 @@ class Drive:
         for name in SCREENS:
             views[screen_kind(name)] = self.encode(screen_kind(name), screen_view(name, view, version))
         served = {"version": version, "sig": sig, "live": live, "views": views, "bodies": {}}
+        shapes = {digest: self.shapes.get(digest) or rows_of(value) for kind in ROW_DELTA_KINDS for value, _, digest in views[kind].values() if isinstance(value, (list, dict))}
         with self.serving:
             self.live_model = live
             self.served = served
             self.digests.append((version, {kind: {key: digest for key, (_, _, digest) in pieces.items()} for kind, pieces in views.items()}))
+            kept = {digest for _, kinds in self.digests for kind in ROW_DELTA_KINDS for digest in kinds[kind].values()}
+            self.shapes = {digest: shape for digest, shape in (self.shapes | shapes).items() if digest in kept}
             self.serving.notify_all()
         if time.monotonic() - self.snapshot_at >= SNAPSHOT_EVERY:
             self.snapshot_at = time.monotonic()
@@ -1467,7 +1526,7 @@ class Drive:
         self.pieces[kind] = pieces
         return pieces
 
-    def body(self, kind, since=None):
+    def body(self, kind, since=None, by_row=False):
         with self.serving:
             if not self.watchers:
                 self.asked_at = time.monotonic()
@@ -1476,6 +1535,8 @@ class Drive:
             if not served or (kind not in ("lean", "now") and not served["live"]):
                 return None
             past = dict(self.digests).get(since)
+            if past and by_row and (delta := self.built(served, (kind, since, "rows"), lambda: changed_rows(served["version"], served["views"][kind], past[kind], self.shapes))):
+                return delta
             if past and (delta := self.built(served, (kind, since), lambda: changed_since(served["version"], served["views"][kind], past[kind]))):
                 return delta
             return self.built(served, (kind,), lambda: json.dumps(served["live"]).encode() if kind == "full" else joined(served["views"][kind], served["views"][kind]))
@@ -1898,7 +1959,7 @@ def handler(drive, tailnet_owner, names):
             if path == "/api/model":
                 kind = "full" if "full=1" in self.path else "now" if "tab=now" in self.path else "lean"
                 since = kind != "full" and re.search(r"since=(\d+)", self.path)
-                if not (body := drive.body(kind, int(since[1]) if since else None)):
+                if not (body := drive.body(kind, int(since[1]) if since else None, "rows=1" in self.path)):
                     return self.send(503, "text/plain", b"The dashboard is building its first view.")
                 return self.send_built(*body)
             if found := SCREEN_ROUTE.fullmatch(path):
