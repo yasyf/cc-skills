@@ -1606,7 +1606,7 @@ func TestARemoteCheckoutReadsPorcelainBranchHeadersThroughSpriteExec(t *testing.
 	if !slices.Equal(runner.calls[0], want2) {
 		t.Fatalf("argv %v", runner.calls[0])
 	}
-	if !slices.Equal(runner.calls[2], []string{"gh", "api", "repos/acme/repo/compare/dev..." + headA + "?per_page=1"}) {
+	if !slices.Equal(runner.calls[2], slices.Concat(githubRead, []string{"api", "repos/acme/repo/compare/dev..." + headA + "?per_page=1"})) {
 		t.Fatalf("argv %v", runner.calls[2])
 	}
 }
@@ -1645,10 +1645,11 @@ func TestASpriteWithoutAGitHubOriginIsKeptByName(t *testing.T) {
 func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 	fleet := func(replies map[string]string, failures map[string]string) CCRemote {
 		return CCRemote{Runner: &scripted{reply: func(argv []string) (string, string, int) {
-			if stderr, failed := failures[argv[2]]; failed {
+			path := argv[len(argv)-1]
+			if stderr, failed := failures[path]; failed {
 				return "{}", stderr, 1
 			}
-			return replies[argv[2]], "", 0
+			return replies[path], "", 0
 		}}}
 	}
 	const repo, compare = `{"default_branch":"dev"}`, "repos/acme/repo/compare/dev..." + headA + "?per_page=1"
@@ -1975,7 +1976,7 @@ func TestProveStaleNamesAQuietVerifiedCleanSessionAndNothingElse(t *testing.T) {
 
 func TestLandedSearchesClosedPRsForTheOneHeadItIsAskedAbout(t *testing.T) {
 	runner := &scripted{reply: func(argv []string) (string, string, int) {
-		switch argv[8] {
+		switch argv[13] {
 		case headB:
 			return `[{"number":7,"headRefOid":"` + headB + `"}]`, "", 0
 		case headC:
@@ -1990,7 +1991,7 @@ func TestLandedSearchesClosedPRsForTheOneHeadItIsAskedAbout(t *testing.T) {
 		}
 	}
 	found := slices.ContainsFunc(runner.calls, func(argv []string) bool {
-		return slices.Equal(argv, []string{"gh", "pr", "list", "--repo", "https://github.com/Forge-AI/monorepo", "--state", "closed", "--search", headB, "--json", "number,headRefOid"})
+		return slices.Equal(argv, slices.Concat(githubRead, []string{"pr", "list", "--repo", "https://github.com/Forge-AI/monorepo", "--state", "closed", "--search", headB, "--json", "number,headRefOid"}))
 	})
 	if !found {
 		t.Fatalf("calls %v", runner.calls)

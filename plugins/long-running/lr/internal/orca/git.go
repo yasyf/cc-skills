@@ -244,7 +244,9 @@ type PullRequests struct {
 }
 
 func (p PullRequests) Landed(ctx context.Context, head string) (bool, error) {
-	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "list", "--repo", p.Origin, "--state", "closed", "--search", head, "--json", "number,headRefOid"}, Idempotent: true})
+	command := githubCommand("pr", "list", "--repo", p.Origin, "--state", "closed", "--search", head, "--json", "number,headRefOid")
+	command.Idempotent = true
+	result, err := p.Runner.Run(ctx, command)
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
 		return false, githubRefusal{describeExit(result.Stderr, "gh exited %d", result.Code)}
@@ -259,6 +261,12 @@ func (p PullRequests) Landed(ctx context.Context, head string) (bool, error) {
 	return slices.ContainsFunc(pulls, func(pull closedPull) bool {
 		return p.Squashed[pull.Number] && pull.Head == head
 	}), nil
+}
+
+var githubRead = []string{"ccx", "vcs", "gh", "--max-age", "10m", "--"}
+
+func githubCommand(args ...string) shell.Command {
+	return shell.Command{Argv: slices.Concat(githubRead, args), Env: []string{"CCX_CALLER=lr-gc"}}
 }
 
 type githubRefusal struct{ reason string }
@@ -402,7 +410,7 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, er
 }
 
 func (c CCRemote) github(ctx context.Context, path string, into any) (bool, error) {
-	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "api", path}})
+	result, err := c.Runner.Run(ctx, githubCommand("api", path))
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
 		if githubUnknown.MatchString(result.Stderr) {
