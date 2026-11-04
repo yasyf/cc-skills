@@ -40,7 +40,7 @@ def cci() -> str:
     assert hashlib.sha256(data).hexdigest() == sums[archive], f"{archive} does not match cc-inbox v{version}'s checksums.txt"
     out = Path(tempfile.mkdtemp())
     with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-        tar.extract("cci", out, filter="data")
+        tar.extractall(out, filter="data")
     return str(out / "cci")
 
 
