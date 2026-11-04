@@ -592,8 +592,12 @@ func (l *launch) composeCommand() error {
 		settings = append(settings, claudeFastSettings)
 	}
 	l.command = command + " --model " + l.modelID + " --effort " + l.effort + laneSettingsFlag(l.Env, settings...)
-	if l.agent != agentIncident {
+	if l.agent == agentClaude {
 		return nil
+	}
+	tier := ""
+	if l.agent == agentIncident {
+		tier = " -c service_tier=fast"
 	}
 	mcp := l.Env("ORCA_LAUNCH_CODEX_MCP")
 	if mcp == "" {
@@ -607,7 +611,7 @@ func (l *launch) composeCommand() error {
 	if err != nil {
 		return l.fail("codex config: cannot read the mcp_servers of %s", filepath.Join(home, "config.toml"))
 	}
-	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + " -c service_tier=fast -c model_reasoning_effort=" + l.effort + " -c check_for_update_on_startup=false -c mcp_servers=" + mcp + off + "'"
+	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + tier + " -c model_reasoning_effort=" + l.effort + codexLaneConfig + " -c mcp_servers=" + mcp + off + "'"
 	return nil
 }
 
@@ -1172,18 +1176,16 @@ func (l *launch) closeStartupShells() error {
 }
 
 func (l *launch) openTerminal() error {
-	if l.agent != agentCodex || l.startup {
-		if err := l.listTerminals(); err != nil {
-			return err
-		}
-		l.before = slices.Clone(l.listed)
+	if err := l.listTerminals(); err != nil {
+		return err
 	}
+	l.before = slices.Clone(l.listed)
 	if l.startup {
 		if err := l.closeStartupShells(); err != nil {
 			return l.fail("startup shells: %v", err)
 		}
 	}
-	for attempt := 1; l.agent != agentCodex && l.terminal == ""; attempt++ {
+	for attempt := 1; l.terminal == ""; attempt++ {
 		if attempt > terminalCreateAttempts {
 			return l.fail("terminal create: %s", orcaError(l.savedFile(".terminal.json"), l.savedFile(".terminal.err")))
 		}
@@ -1267,9 +1269,6 @@ func (l *launch) bootReads() string {
 }
 
 func (l *launch) awaitAgent() error {
-	if l.agent == agentCodex {
-		return nil
-	}
 	marker := "CLAUDE_LONG_RUNNING_LANE=" + l.lane
 	if l.agent != agentClaude {
 		marker = l.modelID
@@ -1319,11 +1318,6 @@ type workerReceipt struct {
 		DispatchID  string `json:"dispatchId"`
 		State       string `json:"state"`
 		FailedStage string `json:"failedStage"`
-		Effects     []struct {
-			Kind string `json:"kind"`
-			Role string `json:"role"`
-			ID   string `json:"id"`
-		} `json:"effects"`
 	} `json:"result"`
 }
 
@@ -1378,16 +1372,10 @@ func (l *launch) screenText() string {
 
 func (l *launch) workerArgs() []string {
 	previous := readReceipt(l.savedFile(".json"))
-	var args []string
 	if task := previous.Result.TaskID; task != "" && l.retryable(task) {
-		args = []string{"--task", task, "--retry-of", previous.Result.DispatchID}
-	} else {
-		args = []string{"--spec", l.spec, "--task-title", l.name}
+		return []string{"--task", task, "--retry-of", previous.Result.DispatchID, "--terminal", l.terminal}
 	}
-	if l.agent == agentCodex {
-		return append(args, "--agent", agentCodex, "--model", l.modelID, "--effort", l.effort)
-	}
-	return append(args, "--terminal", l.terminal)
+	return []string{"--spec", l.spec, "--task-title", l.name, "--terminal", l.terminal}
 }
 
 func (l *launch) callWorkerStart(args []string) (string, string, error) {
@@ -1461,15 +1449,6 @@ func (l *launch) startWorker() (string, error) {
 	case receipt.Result.TaskID != "" && receipt.Result.DispatchID != "":
 		if err := os.Rename(l.receipt+".new", l.receipt); err != nil {
 			return "", l.fail("worker receipt: %v", err)
-		}
-		if l.agent == agentCodex {
-			l.terminal = ""
-			for _, effect := range receipt.Result.Effects {
-				if effect.Kind == "terminal" && effect.Role == "agent" {
-					l.terminal = effect.ID
-					break
-				}
-			}
 		}
 		if err := os.WriteFile(l.path(".terminal"), []byte(l.terminal+"\n"), 0o600); err != nil {
 			return "", l.fail("terminal receipt: %v", err)

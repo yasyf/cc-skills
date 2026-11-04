@@ -14,6 +14,9 @@ const (
 		`"feedbackDrafts":"off","awaySummaryEnabled":false,"promptSuggestionEnabled":false,"tui":"fullscreen",` +
 		`"disableDeepLinkRegistration":"disable","statusLine":{"type":"command","command":"exit 0"}`
 	laneDeniedTools = "AskUserQuestion,EnterPlanMode,ExitPlanMode,PushNotification,DesignSync"
+	codexLaneConfig = " -c check_for_update_on_startup=false -c features.plugins=false -c features.remote_plugin=false -c features.memories=false" +
+		" -c features.apps=false -c features.skill_mcp_dependency_install=false -c features.skill_search=false -c analytics.enabled=false" +
+		" -c feedback.enabled=false -c notify=[] -c history.persistence=none -c tui.notifications=false -c tui.animations=false -c tui.show_tooltips=false"
 	laneSettingsEnv = "CLAUDE_LANE_SETTINGS"
 )
 

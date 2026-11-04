@@ -71,14 +71,13 @@ orca worktree set --worktree "path:<wt>" --parent-worktree "path:<coordinator wo
 | `incident-opus` | `claude-opus-5-5` in Claude fast mode, the incident fallback |
 | `astra` | `gpt-6-astra` on Orca's codex agent, exceptional cases only |
 
-**Launch standard Codex workers with `--agent codex`.** A lane routed to Codex launches on Orca's codex agent, never as a Claude worker calling the codex skill. `lr launch start <lane> sol xhigh <brief>`, where `codex` is the same alias, creates the worktree, and runs:
+**Launch standard Codex workers in their own terminal.** A lane routed to Codex runs Codex directly, never as a Claude worker calling the codex skill. `lr launch start <lane> sol xhigh <brief>`, where `codex` is the same alias, creates the worktree and a terminal running the command below, then passes `--terminal` to `worker-start`:
 
 ```sh
-orca orchestration worker-start --run "<run>" --spec "<pointer>" --task-title "<prefix><lane>" \
-  --worktree "path:<wt>" --agent codex --model gpt-6.1-sol --effort xhigh --timeout-ms 600000 --json
+codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_reasoning_effort=xhigh <codexLaneConfig> -c mcp_servers={} -c mcp_servers.<name>.enabled=false ...
 ```
 
-`--agent` makes Orca create the terminal using `agentDefaultArgs.codex`, which carries `--dangerously-bypass-approvals-and-sandbox`, so there is no custom command or screen check. `--terminal` cannot combine with `--agent`. The script reads the terminal handle from the receipt's agent-terminal effect and counts `ready` or `unsupervised` as launched.
+`worker-start --agent codex` takes no launch flags, so it could not carry this list. `codexLaneConfig` in `lr/internal/orca/lane_env.go` turns off plugins, the remote plugin catalog, memories, apps, skill search, analytics, feedback, `notify`, history, and TUI notifications and animations. Every server in `config.toml` is off except `datadog`, `sentry`, and whatever `ORCA_LAUNCH_CODEX_MCP` names.
 
 ## Launch fast-tier incident workers
 
