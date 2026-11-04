@@ -10,6 +10,7 @@ from captain_hook.events import PostToolUseEvent
 from captain_hook.snapshots.client import EvidenceIncomplete
 from captain_hook.testing.helpers import build_context
 
+from hooks.call_dir import UnknownDirectory, known_path, located, run_dir, unknown_dir
 from hooks.tests.ledger_fixtures import FIXTURES
 from hooks.pr_ledger import OpenedPr, lane_name, opened_prs, opener_cwd, response_text, settled_prs
 
@@ -190,6 +191,34 @@ def test_the_ship_runs_in_the_directory_its_command_cd_into(tmp_path):
     (tmp_path / "cc-skills").mkdir()
     assert opener_cwd(event(tmp_path, command=f"cd {tmp_path}/cc-skills && ccx vcs ship -m x")) == tmp_path / "cc-skills"
     assert opener_cwd(event(tmp_path, command="gt submit --stack")) == tmp_path
+
+
+def test_a_ship_after_a_cd_the_hook_cannot_follow_has_no_directory(tmp_path):
+    assert opener_cwd(event(tmp_path, command=". /env.sh; cd $A; ccx vcs ship -m x")) is None
+
+
+def test_every_hook_reads_an_unknown_directory_as_unknown_never_the_session(tmp_path):
+    (tmp_path / "body.md").write_text("x")
+    evt = event(tmp_path, command=f". /env.sh; cd $A; gh pr edit 1 -F body.md; gh pr edit 2 -F {tmp_path}/body.md")
+    relative, absolute = evt.cmd.calls("gh")
+
+    assert unknown_dir(evt, relative)
+    assert known_path(evt, relative, "body.md") is None
+    assert known_path(evt, absolute, f"{tmp_path}/body.md") == tmp_path / "body.md"
+    with pytest.raises(UnknownDirectory, match=r"`gh` runs after a `cd` this hook cannot follow"):
+        run_dir(evt, relative)
+    with pytest.raises(UnknownDirectory):
+        located(evt, relative, "body.md")
+
+
+def test_a_followed_cd_reads_its_own_directory_and_no_cd_reads_the_session(tmp_path):
+    (tmp_path / "lane").mkdir()
+    evt = event(tmp_path, command=f"gh pr edit 1 -F a.md; cd {tmp_path}/lane; gh pr edit 2 -F a.md")
+    session, moved = evt.cmd.calls("gh")
+
+    assert not unknown_dir(evt, session)
+    assert run_dir(evt, session) == str(tmp_path)
+    assert located(evt, moved, "a.md") == tmp_path / "lane" / "a.md"
 
 
 def test_a_failed_fork_names_the_unrecorded_prs_instead_of_faulting(tmp_path, monkeypatch):

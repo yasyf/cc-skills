@@ -6,6 +6,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
+from .call_dir import run_dir, unknown_dir
 from .compaction_handoff import Bound, CompactionState, bus_name, drive_entry
 from .lane_landing import DRIVE_ENV, landing_verb, lane_name, merge_target, repo_flag
 from .tests.merge_fixtures import BASE_UNREAD, BROADCAST, INHERITED, OWN, PENDING, UNREAD, own_red
@@ -17,6 +18,7 @@ MERGE_SETS = {"gh pr merge": (), "ccx vcs merge": ("--below",), "gh stack merge"
 LR_TIMEOUT_SECONDS = 180
 OWN_LINE = "OWN-RED"
 BASE_UNREAD_LINE = "BASE-UNREAD"
+UNFOLLOWED = "`{verb}` runs after a `cd` this hook cannot follow, so nothing read its PR's red checks. Run `gh pr checks` on that PR."
 UNREAD_LINE = "UNREAD"
 MAIL_LINE = "MAIL"
 LANE_ENV = DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "fix-lane-1"}
@@ -64,6 +66,8 @@ BROADCAST_NOTE = r"^The merge read these records for `fix-lane-1` on its way:\n`
         Input(command="gh pr merge 5 --squash --admin", env=LANE_ENV, commands=own_red(*LANE_READ, "5", said=BROADCAST)): Warn(pattern=BROADCAST_NOTE),
         Input(command="gh pr merge 5 --squash --admin", env=LANE_ENV, commands=own_red(*LANE_READ, "5", said=PENDING)): Allow(),
         Input(command="gh pr merge 5 --disable-auto", commands=own_red("5", said=OWN), state=BOUND): Allow(),
+        Input(command=". /env.sh; cd $A; gh pr merge 5 --squash --admin", cwd="/", commands=own_red("5", said=OWN), state=BOUND): Warn(pattern=r"`cd` this hook cannot follow"),
+        Input(command="cd /; gh pr merge 5 --squash --admin", cwd="/", commands=own_red("5", said=OWN), state=BOUND): Block(),
         Input(command="gh pr view 5 --json url", commands=own_red("5", said=OWN), state=BOUND): Allow(),
     },
 )
@@ -73,15 +77,19 @@ def merge_never_lands_past_its_own_red(evt: BaseHookEvent) -> HookResult | None:
     base_unread: list[str] = []
     unread: list[str] = []
     mail: list[str] = []
+    unfollowed: list[str] = []
     lane = lane_name(evt)
     read = ("--drive", bus_name(entry), "--lane", lane) if lane and (entry := drive_entry(evt)) else ()
     for call in evt.command.calls():
         if (merge_set := MERGE_SETS.get(landing_verb(call) or "")) is None or "--disable-auto" in call.args:
             continue
+        if unknown_dir(evt, call):
+            unfollowed.append(UNFOLLOWED.format(verb=landing_verb(call)))
+            continue
         target, _ = merge_target(call)
         repo = repo_flag(call)
         argv = [str(LR), "own-red", *merge_set, *(("--repo", repo) if repo else ()), *read, *((target,) if target else ())]
-        said = subprocess.run(argv, capture_output=True, text=True, timeout=LR_TIMEOUT_SECONDS, cwd=str(call.cwd or evt.cwd), env=dict(reqenv.env_map()), check=True).stdout
+        said = subprocess.run(argv, capture_output=True, text=True, timeout=LR_TIMEOUT_SECONDS, cwd=run_dir(evt, call), env=dict(reqenv.env_map()), check=True).stdout
         for line in said.splitlines():
             kind, _, finding = line.partition(" ")
             {OWN_LINE: own, BASE_UNREAD_LINE: base_unread, UNREAD_LINE: unread, MAIL_LINE: mail}.get(kind, inherited).append(finding)
@@ -89,7 +97,7 @@ def merge_never_lands_past_its_own_red(evt: BaseHookEvent) -> HookResult | None:
         return evt.block(UNREAD_MAIL.format(lane=lane, records="\n".join(unread + mail)))
     if own:
         return evt.block(OWN_RED.format(findings="\n".join(own)))
-    notes = [MAIL.format(lane=lane, records="\n".join(mail))] if mail else []
+    notes = [*unfollowed, *([MAIL.format(lane=lane, records="\n".join(mail))] if mail else [])]
     notes += [INHERITED_RED.format(checks=", ".join(f"`{check}`" for check in inherited))] if inherited else []
     notes += [BASE_UNREAD_RED.format(checks=", ".join(f"`{check}`" for check in base_unread))] if base_unread else []
     return evt.context("\n\n".join(notes)) if notes else None

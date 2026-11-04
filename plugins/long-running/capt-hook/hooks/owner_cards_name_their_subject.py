@@ -10,6 +10,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, CommandSchema, Event
 from captain_hook.util import reqenv
 
 from .board_text_gate import calls
+from .call_dir import located
 from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, Bound, CompactionState, script_module
 from .judge_metrics import judge_call
 from .owner_facing import SLACK_CARD, STDIN, Reads, board_bytes, fenced, readable, shown, slack_card
@@ -120,7 +121,7 @@ def drawn_file(call: Call) -> str | None:
 
 
 def card_text(evt: BaseHookEvent, call: Call, source: str, reads: Reads) -> list[str]:
-    doc = reads.read(f"the card {source}", lambda: json.loads(Path(str(call.cwd or evt.cwd), Path(source).expanduser()).read_text()))
+    doc = reads.read(f"the card {source}", lambda: json.loads(located(evt, call, source).read_text()))
     return [text for _, text in shown(doc or {})]
 
 

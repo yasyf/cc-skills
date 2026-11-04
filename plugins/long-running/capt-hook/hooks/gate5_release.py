@@ -8,6 +8,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
+from .call_dir import UnknownDirectory, run_dir
 from .compaction_handoff import Bound, CompactionState, bus_name
 
 BOUND = [CompactionState(active=True, coordinator=True)]
@@ -120,7 +121,7 @@ def overridden(call: Call, seq: str) -> str | None:
     return None
 
 
-def gated(call: Call, cwd: str) -> str | None:
+def gated(evt: BaseHookEvent, call: Call) -> str | None:
     if not carries_sand_next(call.args[2:]):
         return None
     flags = release_flags(call.args[2:])
@@ -128,7 +129,7 @@ def gated(call: Call, cwd: str) -> str | None:
         return overridden(call, seq)
     if "green" in flags:
         return UNCHECKABLE
-    sha, commit = released_commit(flags, cwd)
+    sha, commit = released_commit(flags, run_dir(evt, call))
     return None if gate_passed(sha) else UNGATED.format(commit=commit)
 
 
@@ -167,6 +168,8 @@ def release(command: str, said: str | tuple[int, str] = "", routed: str = GATE_L
         release("tools/ci release start --only sand-next,api"): Block(pattern=r"Ask switch-drive for a gate run"),
         release("tools/ci release start --manual sand-next --env core-usw2-auto --commit dc94738", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next at `dc94738`,"),
         release("tools/ci release start sand-next", passes(SHA)): Allow(),
+        Input(command=". /env.sh; cd $A; tools/ci release start sand-next", cwd="/", env=CONFIG, state=BOUND): Block(pattern=r"^GATE5 fails closed: .*`cd` this hook cannot follow"),
+        Input(command=". /env.sh; cd $A; tools/ci release start sand --without sand-next/core-usw2-auto", cwd="/", env=CONFIG, state=BOUND): Allow(),
         release("cd /repo && ci release start --targets sand-next --from dc94738", passes(SHA)): Allow(),
         release("tools/ci release start sand-next", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next"),
         release("tools/ci release start sand-next", passes(SHA, "switch-drive-2"), routed="switch-drive-2"): Allow(),
@@ -192,8 +195,8 @@ def sand_next_release_needs_gate5_pass(evt: BaseHookEvent) -> HookResult | None:
         if call.args[:1] != ("release",) or call.args[1:2] == () or call.args[1] != "start":
             continue
         try:
-            refusal = gated(call, str(call.cwd or evt.cwd))
-        except (Unread, ValueError, KeyError) as failed:
+            refusal = gated(evt, call)
+        except (Unread, UnknownDirectory, ValueError, KeyError) as failed:
             refusal = UNREAD.format(why=failed)
         if refusal:
             return evt.block(refusal)

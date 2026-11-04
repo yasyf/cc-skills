@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator
-from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Or, Runs, Tool, Warn, on
 
 from .board_text_gate import reply_body
+from .call_dir import known_path
 from .compaction_handoff import Bound, shared_tests
 from .pr_body_frozen import DRIVE, PR_EDIT, SHIP, InDrive
 from .tests.register_fixtures import ACTIVE, DRIVE_CONFIG, FIXTURES
@@ -33,7 +33,7 @@ def bodies(evt: BaseHookEvent) -> Iterator[str]:
 
 def read(evt: BaseHookEvent, call: Call, paths: Iterable[str | None]) -> Iterator[str]:
     for path in paths:
-        if path and path != "-" and (file := Path(str(call.cwd or evt.cwd), Path(path).expanduser())).exists():
+        if path and path != "-" and (file := known_path(evt, call, path)) and file.exists():
             yield file.read_text()
 
 
@@ -43,6 +43,8 @@ def read(evt: BaseHookEvent, call: Call, paths: Iterable[str | None]) -> Iterato
     tests=shared_tests({
         Input(command=f"gh pr create --title 'x: y' --body-file {QUOTE}", env=DRIVE): Warn(pattern=r"paraphrase"),
         Input(command=f"gh -R acme/app pr edit 12 -F {QUOTE}", env=DRIVE): Warn(),
+        Input(command=f"gh pr edit 12 -F {QUOTE.name}", cwd=str(QUOTE.parent), env=DRIVE): Warn(),
+        Input(command=f". /env.sh; cd $A; gh pr edit 12 -F {QUOTE.name}", cwd=str(QUOTE.parent), env=DRIVE): Allow(),
         Input(command="gh pr edit 12 --body 'Quotes the order verbatim.'", env=DRIVE): Warn(),
         Input(command=HEREDOC, env=DRIVE): Warn(),
         Input(command=f"ccx vcs ship -m 'x: y' --pr-body-file {QUOTE}", env=DRIVE): Warn(),

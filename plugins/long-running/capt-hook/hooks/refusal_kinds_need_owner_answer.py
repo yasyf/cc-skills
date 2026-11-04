@@ -11,6 +11,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
+from .call_dir import unknown_dir
 from .compaction_handoff import Bound, CompactionState, drive_entry, judged, rulings, script, script_module
 from .lane_landing import DRIVE_ENV, HELP_FLAGS, LANDERS, lane_name, named_repo, without_repo
 from .register_injection import drive_args
@@ -208,6 +209,8 @@ def stdin_file(call: Call) -> str | None:
 
 
 def request(evt: BaseHookEvent, call: Call) -> Request | None:
+    if unknown_dir(evt, call):
+        return None
     cwd = call.cwd or evt.cwd
     if call.name == "ccx" and call.args[:2] == ("vcs", "ship") and "--no-pr" not in call.args and not HELP_FLAGS & set(call.args):
         parent = values(call.args, ("--parent",))

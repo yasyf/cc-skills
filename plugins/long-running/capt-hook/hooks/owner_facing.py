@@ -35,6 +35,7 @@ from captain_hook.annotations import dispatch_pairs
 from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 
+from .call_dir import located
 from .compaction_handoff import Bound, ccn, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, rulings, script, script_module
 from .judge_metrics import judge_call
 from .nudges import once_per_hour
@@ -633,7 +634,7 @@ def piped_boards(evt: BaseHookEvent) -> list[str]:
 
 def board_bytes(evt: BaseHookEvent, call: Call, source: str, piped: int) -> bytes:
     if source != STDIN:
-        return Path(str(call.cwd or evt.cwd), Path(source).expanduser()).read_bytes()
+        return located(evt, call, source).read_bytes()
     if feeder := pipe_feeder(evt, call):
         return fed_board(evt, feeder)
     return piped_boards(evt)[piped].encode()
@@ -649,7 +650,7 @@ def fed_board(evt: BaseHookEvent, feeder: Call) -> bytes:
         case ["echo", str(text)]:
             return f"{text}\n".encode()
         case ["cat", str(path)]:
-            return Path(str(feeder.cwd or evt.cwd), Path(path).expanduser()).read_bytes()
+            return located(evt, feeder, path).read_bytes()
         case [name, *_]:
             raise ValueError(f"a board piped from {name} exists only once the command runs")
     raise ValueError("a board piped from an empty command")
@@ -671,7 +672,7 @@ def slack_card(evt: BaseHookEvent) -> dict | None:
     for call in evt.command.calls("cc-slack"):
         values = CC_SLACK.bind(call).values
         if values.get("words", ())[:1] == ("dm-status",) and (card := next(iter(values.get("card", ())), None)):
-            found = Path(str(call.cwd or evt.cwd), Path(card[1:]).expanduser()).read_text() if card.startswith("@") else card
+            found = located(evt, call, card[1:]).read_text() if card.startswith("@") else card
             return json.loads(found)
     return None
 

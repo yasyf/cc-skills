@@ -6,6 +6,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
 
 from .buildkite_budget import MAX_SCRIPT_BYTES, SCRIPT_LANGS, executed_words, script_path
+from .call_dir import run_dir, unknown_dir
 from .compaction_handoff import Bound, CompactionState
 
 BOUND = [CompactionState(active=True, coordinator=True)]
@@ -48,7 +49,7 @@ def inline_unscoped(evt: BaseHookEvent) -> bool:
 
 
 def scripts_unscoped(evt: BaseHookEvent) -> bool:
-    paths = [path for call in evt.command.calls() for word in executed_words(call) if (path := script_path(word, Path(str(call.cwd or evt.cwd))))]
+    paths = [path for call in evt.command.calls() for word in executed_words(call) if (path := script_path(word, None if unknown_dir(evt, call) else Path(run_dir(evt, call))))]
     return any(path.stat().st_size <= MAX_SCRIPT_BYTES and unscoped(path.read_text(errors="replace")) for path in paths)
 
 
