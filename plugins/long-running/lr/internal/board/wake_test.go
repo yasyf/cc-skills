@@ -248,6 +248,40 @@ func TestAPickTheRelayAlreadyRoutedDrawsNoNeedsLane(t *testing.T) {
 	}
 }
 
+func TestATapOnAPRCardIsItsOwnOrderAndAsksForNoLane(t *testing.T) {
+	for name, tap := range map[string]string{
+		"#49948": "Owner on board d50e80e8, Tap: sand list for members of 42 or more teams (#49948) (rmw2kaiat-choice): picked \u201cApprove\u201d",
+		"#49830": "Owner on board d50e80e8, Tap Approve on #49830: Tap: #49830, long chats stop failing on \"longer than the model can read\" (rmw2kelye-choice): picked \u201cApprove\u201d",
+		"a hold": "Owner on board d50e80e8, Tap: #49830, long chats stop failing (rmw2kelye-choice): picked \u201cHold\u201d",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newWaker(t)
+			owner := client.Record{Seq: pick.OwnerSeq, Lane: "board-watch", Kind: ownerKind, Text: tap}
+			owner.Fields.Attrs = map[string]string{"event": "choice.selected", "picked": "o1"}
+			f.bus = []client.Record{owner}
+			if err := f.Wake(context.Background(), pick); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.posts) != 0 {
+				t.Fatalf("posts = %+v, want no lane asked for", f.posts)
+			}
+		})
+	}
+}
+
+func TestAPickOnACardNamingNoPRStillAsksForALane(t *testing.T) {
+	f := newWaker(t)
+	owner := client.Record{Seq: pick.OwnerSeq, Lane: "board-watch", Kind: ownerKind, Text: "Owner on board d50e80e8, Which chat app? (card-chat-pick): picked \u201cCombined\u201d"}
+	owner.Fields.Attrs = map[string]string{"event": "choice.selected", "picked": "o1"}
+	f.bus = []client.Record{owner}
+	if err := f.Wake(context.Background(), pick); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.posts) != 1 || !strings.HasPrefix(f.posts[0].Text, "NEEDS-LANE card-chat") {
+		t.Fatalf("posts = %+v", f.posts)
+	}
+}
+
 func wakeRecord(seq int64, lane string, age time.Duration) client.Record {
 	var r client.Record
 	r.Seq, r.Lane, r.Kind, r.Topic, r.Re, r.At = seq, "board-watch", wakeKind, wakeTopic+"card-chat", 700, cardsNow.Add(-age)

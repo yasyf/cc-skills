@@ -944,6 +944,44 @@ func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 	}
 }
 
+type ccPresentPR struct {
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Repo    string          `json:"repo"`
+	Number  int             `json:"number"`
+	Title   string          `json:"title,omitempty"`
+	Summary string          `json:"summary,omitempty"`
+	Files   []string        `json:"files,omitempty"`
+	Head    string          `json:"head,omitempty"`
+	Change  string          `json:"change,omitempty"`
+	Plan    string          `json:"plan,omitempty"`
+	Risk    string          `json:"risk,omitempty"`
+	Blocker string          `json:"blocker,omitempty"`
+	Row     json.RawMessage `json:"row,omitempty"`
+}
+
+func TestAPRChildDecodesUnderCCPresentsFieldsAndCarriesItsLedgerRow(t *testing.T) {
+	row := store.ReviewRow{Repo: "acme/app", Number: 41, Title: "Relay fix", CI: "green", Approvers: "poetic-svc", State: "open"}
+	child := Reply{PRCards: []prCard{{URL: landPR, Head: "abc1234", Title: "Relay fix", Review: "CI green", Lines: Lines{"Chats load", "Nothing differed", "Low", "Your tap"}, Row: &row}}}.prChild("r1", landPR)
+	raw, err := json.Marshal(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var pr ccPresentPR
+	if err := decoder.Decode(&pr); err != nil {
+		t.Fatalf("cc-present refuses %s: %v", raw, err)
+	}
+	var carried store.ReviewRow
+	if err := json.Unmarshal(pr.Row, &carried); err != nil {
+		t.Fatal(err)
+	}
+	if carried != row {
+		t.Fatalf("row = %+v, want the ledger row %+v", carried, row)
+	}
+}
+
 func TestAnOrderNamesARowOrASubRow(t *testing.T) {
 	for order, kept := range map[string]bool{"m703": true, "m703.2": true, "m703.2.1": false, "703": false} {
 		got, _ := Reply{ID: "a", Title: "t", MD: "m", Order: order}.mended()
