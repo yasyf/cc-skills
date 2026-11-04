@@ -347,7 +347,7 @@ The coordinator's brief lists every desk it starts and what each does.
   read with `lr board rows --json`. Its writers are records, folded by `lr facts`: `opened` from the ship
   hook with the PR body, `head` from the lane that pushes, CI, review and grade records from the desks,
   taps, holds, supersedes and landings. Every surface that shows a PR reads that row and no other store:
-  the review tab, his Slack PR and Approve cards (`lr board slack card`), `lr reply` PR cards, `lr board
+  the review tab, his Slack PR and Approve cards (`lr board card`), `lr reply` PR cards, `lr board
   waits`, the owner update, root's and every lane's PR lists, and the landing gate. A PR waits on him only
   when its row says `ready_for_tap` and not tapped; otherwise a line reads `Not ready for your tap` with
   `waits_on`. No lane keeps a PR list, a scratch file of PRs, or card lines of its own; a missing or wrong
@@ -395,7 +395,7 @@ writes a view by hand. A surface that cannot read the store is removed, not patc
 
 | Concept | The one store | Written by | Views drawn from it | Removed |
 |---|---|---|---|---|
-| Drive PRs: title, body fields, head, CI, review, grade, mergeability, hold, tap, state, `ready_for_tap`, `waits_on` | PR ledger: `review_rows` in the drive's landing store, `lr board rows --json` | `lr facts` folding `opened`, `head`, `pr.read`, grade, tap, hold, superseded and landing records | review tab; Slack PR and Approve cards (`lr board slack card`); `lr reply` PR cards; `lr board waits`; the landing gate | per-head `words-*` facts; `lines` passed to `lr reply`; card fields read from GitHub at draw time |
+| Drive PRs: title, body fields, head, CI, review, grade, mergeability, hold, tap, state, `ready_for_tap`, `waits_on` | PR ledger: `review_rows` in the drive's landing store, `lr board rows --json` | `lr facts` folding `opened`, `head`, `pr.read`, grade, tap, hold, superseded and landing records | review tab; Slack PR and Approve cards (`lr board card`); `lr reply` PR cards; `lr board waits`; the landing gate | per-head `words-*` facts; `lines` passed to `lr reply`; card fields read from GitHub at draw time |
 
 ## Start and resume
 
