@@ -337,13 +337,13 @@ func TestAContentAskStaysDueUntilAReplyCarriesIt(t *testing.T) {
 			t.Fatalf("%s closed a content ask", name)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "short.json"), []byte(`{"md":"lands by 6:40 PM"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "short.json"), []byte(`{"reply":{"md":"lands by 6:40 PM"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := carried(path, dir, "m1", "short"); err == nil || !strings.Contains(err.Error(), "a promise") {
 		t.Fatalf("a promise closed a content ask: %v", err)
 	}
-	body, err := json.Marshal(map[string]string{"md": strings.Repeat("x", carriedChars)})
+	body, err := json.Marshal(map[string]map[string]string{"reply": {"md": strings.Repeat("x", carriedChars)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,5 +374,17 @@ func TestADueRowGoesFirstOnceItsClockPasses(t *testing.T) {
 	}
 	if got, want := late[0].Line(), "m1 Nov 3 6:17 PM: update [PAST DUE NOV 3 6:40 PM]"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAQuotedRowIsClassifiedByHisWordsNotTheFraming(t *testing.T) {
+	for text, want := range map[string]bool{
+		`Slack DM 9:29 PM, thread on the 9:30 update card: "I cant read the options the buttons cut them off"`: false,
+		`Slack DM 9:29 PM: "give me the update"`: true,
+		`also the holistic update I asked for`:   true,
+	} {
+		if got := contentAsk.MatchString(hisWords(text)); got != want {
+			t.Errorf("%q asks for an update = %v, want %v", text, got, want)
+		}
 	}
 }
