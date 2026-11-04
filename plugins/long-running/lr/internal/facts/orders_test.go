@@ -2,6 +2,7 @@ package facts_test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"os"
@@ -68,7 +69,7 @@ func surfaceHarness(t *testing.T) harness {
 
 func ownerRecord(t *testing.T, text string, attrs map[string]string) client.Record {
 	t.Helper()
-	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "board-watch", Kind: "owner", Text: text, Attrs: attrs})
+	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "board-watch", Kind: "owner", ID: "board:" + rand.Text(), Text: text, Attrs: attrs})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +162,22 @@ func TestAPickOrderedOnceIsNotWrittenAgainAtALaterHead(t *testing.T) {
 		if strings.Contains(written.Text, surfaceHead[:12]) {
 			t.Fatalf("wrote a second order: %s", written.Text)
 		}
+	}
+}
+
+func TestAPickItsBoardCouldNotLabelEscalatesOnceAndWritesNoOrder(t *testing.T) {
+	h := surfaceHarness(t)
+	ownerRecord(t, "Owner on board b, c: picked option c-1", map[string]string{"event": "choice.selected", "block": "c", "picked": "c-1"})
+
+	writeOrders(t, h)
+	writeOrders(t, h)
+
+	found, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"blocker"}, Lanes: []string{facts.OrderLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || !slices.Contains(found[0].To, "meta-desk") || !strings.Contains(found[0].Text, "c-1") || len(orders(t)) != 0 {
+		t.Fatalf("escalated = %+v, orders = %+v", found, orders(t))
 	}
 }
 

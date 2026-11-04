@@ -64,6 +64,12 @@ func OrderOf(record client.Record, repo string) (Tap, bool) {
 	return Tap{PR: number, Head: head, By: OwnerBy, Value: value}, named
 }
 
+// UnreadPick says a pick was recorded with option ids and no label because its board could not be read, so no one can tell a land pick from any other.
+func UnreadPick(record client.Record) bool {
+	attrs := record.Fields.Attrs
+	return string(record.Kind) == ownerKind && attrs["event"] == "choice.selected" && attrs["picked"] != "" && !pickedLabel.MatchString(record.Text)
+}
+
 func cardValue(attrs map[string]string, text string) string {
 	switch attrs["event"] {
 	case "decision.created":
