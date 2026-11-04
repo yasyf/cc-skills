@@ -386,6 +386,26 @@ func TestThePRPassRunsEveryThreeMinutesWhileTheLanesTickEveryThirtySeconds(t *te
 	equal(t, prs, []int{1, 0, 0, 0, 0, 0, 1})
 }
 
+func TestALandingPassSweepsGosOverItsSnapshotAndAPassWithoutLandingDoesNot(t *testing.T) {
+	for movers, want := range map[string][]int{"landing": {7}, "grading": nil} {
+		s, c := memory(t), &clock{t0}
+		d := deps(c, &queue{}, &pool{}, prFacts(7, nil))
+		d.Movers = []string{movers}
+		var swept []int
+		d.SweepGos = func(_ context.Context, snapshot []machine.Facts) error {
+			for _, f := range snapshot {
+				swept = append(swept, f.Number)
+			}
+			return errors.New("the gate inputs are stale")
+		}
+
+		reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
+
+		equal(t, swept, want)
+		equal(t, reports[0].PRs, 1)
+	}
+}
+
 func TestAPassWhoseSourcesDoNotAnswerActsOnNothing(t *testing.T) {
 	s, c, q := memory(t), &clock{t0}, &queue{}
 	d := deps(c, q, &pool{})

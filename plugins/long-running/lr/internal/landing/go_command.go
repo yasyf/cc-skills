@@ -34,6 +34,7 @@ const (
 type goFlags struct {
 	lane, head string
 	before     int64
+	sweep      bool
 }
 
 func goCommand(a *app.App) *cobra.Command {
@@ -112,20 +113,28 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	if flags.before != 0 {
 		records = slices.DeleteFunc(records, func(record client.Record) bool { return record.Seq >= flags.before })
 	}
-	files, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", cfg.Repo, number), "--jq", filesJQ)
-	if err != nil {
-		return false, err
-	}
-	body, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body")
-	if err != nil {
-		fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
-	}
 	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, cfg.Drive, seqs) })
 	if err != nil {
 		fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
 	}
 	claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-	text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Files: strings.Fields(files), Cards: inputs.Cards, TapRows: inputs.Taps, Body: body})
+	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards, TapRows: inputs.Taps}
+	if flags.sweep {
+		if _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
+			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
+			return true, nil
+		}
+	}
+	files, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", cfg.Repo, number), "--jq", filesJQ)
+	if err != nil {
+		return false, err
+	}
+	read.Files = strings.Fields(files)
+	read.Body, err = a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body")
+	if err != nil {
+		fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
+	}
+	text, refusals := gates.ExemptGo(claim, read)
 	if flags.before == 0 {
 		row, found, err := s.ReviewRow(cfg.Repo, number)
 		if err != nil {
@@ -161,7 +170,7 @@ func goProbe(number int) string {
 	return fmt.Sprintf("go-refused:%d", number)
 }
 
-func sweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store, snapshot []machine.Facts, now time.Time, stdout io.Writer) error {
+func SweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store, snapshot []machine.Facts, now time.Time, stdout io.Writer) error {
 	probes, err := s.Probes()
 	if err != nil {
 		return err
@@ -179,7 +188,7 @@ func sweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store
 	}
 	gate := goGate{a: a, cfg: cfg, s: s, inputs: inputs, stdout: stdout}
 	for _, f := range ready {
-		refused, err := gate.one(ctx, f.Number, f.Head, goFlags{lane: bus.SweepLane})
+		refused, err := gate.one(ctx, f.Number, f.Head, goFlags{lane: bus.SweepLane, sweep: true})
 		if err != nil {
 			return err
 		}
