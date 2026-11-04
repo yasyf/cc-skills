@@ -27,6 +27,7 @@ var schema = map[string]any{
 		"build":       map[string]any{"type": "object", "properties": map[string]any{"repo": map[string]any{"type": "string"}, "branch": map[string]any{"type": "string"}, "none": map[string]any{"type": "string"}}, "description": "The branch the recommended pick is built on, as repo OWNER/NAME and branch, or none with the reason it has nothing to build; his board and Slack card show it under that pick."},
 		"links":       map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string"}, "url": map[string]any{"type": "string"}}, "required": []string{"label", "url"}}, "description": "Up to 5 links, such as a hosted one-pager; an https link is a button in Slack, an http one a line of the card."},
 		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls, each shown as its live PR card."},
+		"thread":      map[string]any{"type": "string", "description": "The ts of the Slack DM thread this reply answers. An ask he sent as a thread reply this turn fills it in; name it only to answer a thread he wrote in on an earlier turn."},
 	},
 	"required": []string{"title", "md"},
 }
@@ -50,7 +51,8 @@ func Tool(a *app.App) channel.Tool {
 		Name: "reply",
 		Description: "Send the owner one reply. It always reaches this window as the returned markdown, a cci record and the dashboard's store; " +
 			"a reply with picks also becomes one card on his board that cc-present posts to his Slack DM with a button per pick, " +
-			"and one with links, PRs or a status becomes a card at his Slack DM root. A tap comes back to this session. " +
+			"and one with links, PRs or a status becomes a card at his Slack DM root. One answering his Slack thread reply posts there as text instead. " +
+			"A tap comes back to this session. " +
 			"A surface that fails is named in the result while the others still go; never resend for it.",
 		InputSchema: schema,
 		Handler: func(ctx context.Context, args json.RawMessage, _ func(string)) (string, bool) {

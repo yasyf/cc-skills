@@ -419,3 +419,36 @@ func TestAHiddenCiteStaysOnTheRecordAndOffEverySurfaceHeReads(t *testing.T) {
 		t.Fatalf("the record lost its cite: %+v", record)
 	}
 }
+
+func TestAnAnswerToHisThreadReplyPostsInThatThreadAsWholeText(t *testing.T) {
+	fake := scripted()
+	long := strings.Repeat("a", 2000) + "\n\n" + strings.Repeat("b", 2000)
+	r := Reply{ID: "r6", Title: "The relay lane is half done", MD: long, PRs: []string{landPR}, Links: []Link{{Label: "One-pager", URL: "https://studio.example.ts.net/one-pagers/relay/"}}, Thread: "1793684147.131059"}
+
+	sent := fanout(t, fake).Send(context.Background(), r)
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != r.Thread || slices.Contains(posted[0].Argv, "--card") {
+		t.Fatalf("cc-slack calls = %+v, want one text post under thread %s", posted, r.Thread)
+	}
+	want := "*The relay lane is half done*\n" + long + "\n" + landPR + "\n<https://studio.example.ts.net/one-pagers/relay/|One-pager>"
+	if text := posted[0].Argv[len(posted[0].Argv)-1]; text != want {
+		t.Fatalf("thread text = %q, want the title, the whole reply, its PR and its link", text)
+	}
+	if sent[0] != (Outcome{Surface: "slack", Ref: permalink}) {
+		t.Fatalf("outcomes = %+v, want the thread reply's permalink", sent)
+	}
+}
+
+func TestAPlainAnswerToHisThreadStillReachesTheThread(t *testing.T) {
+	fake := scripted()
+	fanout(t, fake).Send(context.Background(), Reply{ID: "r7", Title: "Yes, it reached the board", MD: "It is the third card.", Thread: "1793684147.131059"})
+	if posted := calls(fake, "cc-slack"); len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != "1793684147.131059" {
+		t.Fatalf("cc-slack calls = %+v, want the answer in his thread", posted)
+	}
+	fake = scripted()
+	fanout(t, fake).Send(context.Background(), Reply{ID: "r8", Title: "Yes, it reached the board", MD: "It is the third card."})
+	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want an answer to a chat ask kept off Slack", posted)
+	}
+}

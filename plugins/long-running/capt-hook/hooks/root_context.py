@@ -81,7 +81,7 @@ DRIVE_GREP = re.compile(r"^grep (?!.*--budget)(?=.*--drive[ =]\S)")
 ASK_LANE = (
     "The communicator runs no search inline: ask a lane with `lr ask-lane '<question>'`, `--mac` for Slack or a transcript, "
     "and its answer arrives as a record. "
-    "Bounded reads stay yours: `cci show <seq>`, `cci grep --drive <drive>` at its default budget, one named file, or your thread's newest message."
+    "Bounded reads stay yours: `cci show <seq>`, `cci grep --drive <drive>` at its default budget, one named file, or the thread you are answering."
 )
 SECTION_WINDOW = re.compile(r"(\d+)-(\d+)(?:#\w+)?")
 SED_WINDOW = re.compile(r"(\d+)(?:,(\d+))?p")
@@ -721,8 +721,8 @@ hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator
         Or(
             WideCciGrep(),
             Tool("mcp__plugin_cc-inbox_cci__find"),
-            Tool(*SLACK_READ_TOOLS),
-            runs_verb(CC_SLACK, ("thread",), ("history",), ("search",)),
+            Tool(*(tool for tool in SLACK_READ_TOOLS if tool not in SLACK_THREAD_TOOLS)),
+            runs_verb(CC_SLACK, ("history",), ("search",)),
             CommandMatches(GH, only_if=(searches_github,)),
             runs_verb(CC_TRANSCRIPT, ("grep",), ("corpus",), ("tools",), ("commands",), ("mcp",), ("stats",)),
             Tool("WebSearch", *CCX_MCP_SEARCHES),
@@ -731,16 +731,13 @@ hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator
             SearchesRepo(),
         ),
     ],
-    skip_if=[FromSubagent(), ReadsNewestSlackMessage()],
+    skip_if=[FromSubagent()],
     tests=communicator_tests({
         Input(command="cci grep dashboard --drive durable-agents-rebuild --budget 400000", state=ACTIVE): Block(pattern=r"^The communicator runs no search inline: ask a lane with `lr ask-lane"),
         Input(command="cci grep dashboard --drive durable-agents-rebuild", state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-inbox_cci__find", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
         Input(tool="mcp__slack__slack_search_messages", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
         Input(tool="mcp__slack__slack_conversations_history", tool_input={"channel": "C1"}, state=ACTIVE): Block(),
-        Input(tool="mcp__plugin_cc-slack_cc-slack__slack_thread", tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2"}, state=ACTIVE): Block(),
-        Input(tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2", "limit": 20}, state=ACTIVE): Block(),
-        Input(command="cc-slack thread --url C0B/p1 --limit 1000", state=ACTIVE): Block(),
         Input(command="cc-slack history --channel C0B --limit 1", state=ACTIVE): Block(),
         Input(command="gh pr list --search dashboard", state=ACTIVE): Block(),
         Input(command="gh -R yasyf/cc-skills issue list", state=ACTIVE): Block(),
@@ -758,8 +755,6 @@ hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator
         Input(command="cci grep dashboard # ccx:raw", state=ACTIVE): Block(),
         Input(command="cci show '#374430'", state=ACTIVE): Allow(),
         Input(command="cat /drive/state/meta/items.md", state=ACTIVE): Allow(),
-        Input(tool="mcp__plugin_cc-slack_cc-slack__slack_thread", tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "limit": 1}, state=ACTIVE): Allow(),
-        Input(command="cc-slack thread --url D0B6Z/p1 --limit 1", state=ACTIVE): Allow(),
         Input(command="lr ask-lane 'which PR moved the dashboard URL?'", state=ACTIVE): Allow(),
         Input(command="gh pr checks 2360", state=ACTIVE): Allow(),
         Input(command="cci grep dashboard"): Allow(),
