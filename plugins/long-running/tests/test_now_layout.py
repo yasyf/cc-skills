@@ -369,9 +369,9 @@ def test_what_the_coordinator_owes_is_on_chat_folded_by_kind_and_not_on_now(page
     now(page)
     page.evaluate("""() => {
         state.model.coordinator_overdue = [
-            { id: 'ask-1', group: 'ask', seq: 1, due: '3:14 AM', text: 'Please lift the hold' },
-            { id: 'pick-2', group: 'pick', seq: 2, due: '4:20 AM', text: 'Start the release?' },
-            { id: 'pick-3', group: 'pick', seq: 3, due: '4:21 AM', text: 'Delete the leftovers?' },
+            { id: 'ask-1', group: 'ask', due: '3:14 AM', text: 'Cut the job', holder: 'ci-speed-1' },
+            { id: 'retro-2', group: 'retro', due: 'Nov 4, 4:20 AM', text: 'The queue dropped changes', holder: 'meta-desk' },
+            { id: 'retro-3', group: 'retro', due: 'Nov 4, 4:21 AM', text: 'A lane lost its brief', holder: 'meta-desk' },
         ];
         state.model.owner_asks = { messages: [], taps: [], store: [] };
         state.model.replies = [];
@@ -383,8 +383,8 @@ def test_what_the_coordinator_owes_is_on_chat_folded_by_kind_and_not_on_now(page
     page.evaluate("location.hash = '#/replies'")
     page.locator(".ct-owed > summary").click()
     rows = page.locator(".ct-owed .ev-rows > li")
-    assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()][:2] == ["2 of your picks not carried out", "1 ask with no answer"]
-    assert "Delete the leftovers?" in rows.first.text_content()
+    assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()][:2] == ["1 ask still open", "2 retro actions past due"]
+    assert "A lane lost its brief" in rows.nth(1).text_content()
     assert page.locator(".tab.on .count").count() == 0
     page.evaluate("() => { state.model.coordinator_overdue = []; delete state.model.owner_asks; render(); }")
     now(page)
@@ -792,8 +792,8 @@ def test_chat_shows_each_ask_as_one_title_and_state_with_its_answer_under_it(pag
       state.model.chat_lines = [];
       state.model.coordinator_overdue = [];
       state.model.replies = [
-        { reply: { id: 'ans', title: 'Done, nothing for you: Fixed', md: 'Done, nothing for you. The box holds now', status: 'done', order: 'm1.2' }, at: '2026-11-03T14:00:00Z', surfaces: [] },
-        { reply: { id: 'later', title: 'Something else', md: 'Another thing', status: 'info' }, at: '2026-11-03T13:00:00Z', surfaces: [] },
+        { reply: { id: 'ans', title: 'Done, nothing for you: Fixed', md: 'Done, nothing for you. The box holds now', type: 'done', status: 'done', order: 'm1.2' }, at: '2026-11-03T14:00:00Z', surfaces: [] },
+        { reply: { id: 'later', title: 'Something else', md: 'Another thing', type: 'explanation', status: 'info' }, at: '2026-11-03T13:00:00Z', surfaces: [] },
       ];
       state.model.owner_asks = { messages: [
         { m: '1.1', iso: '2026-11-03T12:00:00Z', title: 'Fix the typing box', text: 'Please fix the typing box. It resets on every refresh and I lose what I typed.', state: 'asked', ack: 'routed', lanes: [], prs: [], answer: '' },
@@ -992,14 +992,14 @@ CHAT_MODEL = """(n) => {
   const reply = (id, extra) => ({ reply: { id, title: `Title ${id}`, md: `Body ${id}`, ...extra }, at: '2026-11-03T20:00:00Z', surfaces: [] });
   const card = (id, labels) => ({ id: `card-${id}`, title: id, summary: 'Why', chips: [], prs: [], parts: [], key: id, decides: true, choice: `${id}-choice`, options: labels.map((label, i) => ({ id: `${id}-${i + 1}`, label, recommended: i === 0 })) });
   state.model.replies = [
-    reply('open4', { status: 'needs_you', picks: ['p', 'q', 'r'] }),
-    reply('open3', { status: 'needs_you', picks: ['a', 'b', 'c'] }),
-    reply('open2', { status: 'needs_you', picks: ['Yes', 'No'] }),
-    { ...reply('plain', { status: 'needs_you' }), at: new Date().toISOString() },
-    reply('stale', { status: 'needs_you' }),
-    reply('old', { status: 'needs_you', picks: ['x', 'y'] }),
-    reply('routed', { status: 'progress', order: 'm7' }),
-    reply('change', { status: 'info', md: 'See #77001 for it', links: [{ url: 'https://example.ts.net:8665/one-pagers/how-it-works/', label: 'How it works' }, { url: 'https://example.slack.com/x', label: 'The thread' }] }),
+    reply('open4', { type: 'for_you', status: 'needs_you', picks: ['p', 'q', 'r'] }),
+    reply('open3', { type: 'for_you', status: 'needs_you', picks: ['a', 'b', 'c'] }),
+    reply('open2', { type: 'for_you', status: 'needs_you', picks: ['Yes', 'No'] }),
+    { ...reply('plain', { type: 'for_you', status: 'needs_you' }), at: new Date().toISOString() },
+    reply('stale', { type: 'for_you', status: 'needs_you' }),
+    reply('old', { type: 'for_you', status: 'needs_you', picks: ['x', 'y'] }),
+    reply('routed', { type: 'update', status: 'progress', order: 'm7' }),
+    reply('change', { type: 'explanation', status: 'info', md: 'See #77001 for it', links: [{ url: 'https://example.ts.net:8665/one-pagers/how-it-works/', label: 'How it works' }, { url: 'https://example.slack.com/x', label: 'The thread' }] }),
     ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
   ];
   state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c']), card('open4', ['p', 'q', 'r'])];
@@ -1168,7 +1168,7 @@ def test_a_refresh_leaves_a_thread_it_did_not_change_as_the_same_elements(page):
       const frame = document.querySelector('.document-card iframe');
       const thread = document.querySelector('[data-k="line:m7"]');
       thread.querySelector('.ask-head').click();
-      state.model.replies = [{ reply: { id: 'fresh', title: 'Fresh', md: 'New', status: 'info' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
+      state.model.replies = [{ reply: { id: 'fresh', title: 'Fresh', md: 'New', type: 'explanation', status: 'info' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
       render();
       const kept = document.querySelector('.document-card iframe') === frame && document.querySelector('[data-k="line:m7"]') === thread && thread.classList.contains('open');
       cw.open.clear();
@@ -1185,7 +1185,7 @@ def test_a_reply_box_with_text_survives_a_change_to_its_own_thread(page):
     assert page.evaluate("""() => {
       const box = document.querySelector('[data-k="line:m7"] .reply-editor textarea');
       box.setSelectionRange(2, 4);
-      state.model.replies = [{ reply: { id: 'arrived', title: 'Arrived', md: 'New answer', status: 'done', order: 'm7' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
+      state.model.replies = [{ reply: { id: 'arrived', title: 'Arrived', md: 'New answer', type: 'done', status: 'done', order: 'm7' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
       render();
       return document.querySelector('[data-k="line:m7"] .reply-editor textarea') === box && document.activeElement === box && box.selectionStart === 2 && box.selectionEnd === 4;
     }""")
@@ -1208,7 +1208,7 @@ def test_an_ask_typed_here_keeps_its_thread_replies_and_draft_when_its_ledger_ro
     open_chat(page)
     page.evaluate("""() => {
       state.model.chat_lines = [{ seq: 42, at: new Date().toISOString(), on: '', text: 'typed just now' }];
-      state.model.replies = [{ reply: { id: 'typed-answer', title: 'Typed answer', md: 'Here', status: 'info', on: 'seq:42' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
+      state.model.replies = [{ reply: { id: 'typed-answer', title: 'Typed answer', md: 'Here', type: 'explanation', status: 'info', on: 'seq:42' }, at: new Date().toISOString(), surfaces: [] }, ...state.model.replies];
       render();
     }""")
     thread = page.locator('[data-k="seq:42"]')
@@ -1231,7 +1231,7 @@ def test_an_ask_typed_here_keeps_its_thread_replies_and_draft_when_its_ledger_ro
 def test_a_notification_shows_its_reply_past_any_filter_or_attention_cap(page):
     open_chat(page)
     page.evaluate("""() => {
-      const late = Array.from({ length: 8 }, (_, i) => ({ reply: { id: `ask${i}`, title: `Ask ${i}`, md: 'x', status: 'needs_you' }, at: new Date(Date.now() - i * 60000).toISOString(), surfaces: [] }));
+      const late = Array.from({ length: 8 }, (_, i) => ({ reply: { id: `ask${i}`, title: `Ask ${i}`, md: 'x', type: 'for_you', status: 'needs_you' }, at: new Date(Date.now() - i * 60000).toISOString(), surfaces: [] }));
       state.model.replies = [...late, ...state.model.replies];
       cw.filter = 'completed';
       cw.query = 'nothing matches this';
@@ -1278,4 +1278,60 @@ def test_the_sidebar_holds_the_navigation_on_a_wide_screen_and_a_bar_on_a_phone(
 def test_the_chat_draws_a_bounded_window_at_any_length(page, n):
     open_chat(page, n)
     assert page.locator(".cw .thread").count() <= 30
+    now(page)
+
+
+def chat_with(page, replies, messages):
+    now(page)
+    page.evaluate("""([replies, messages]) => {
+      state.model.board.answered = {};
+      state.model.chat_lines = [];
+      state.model.coordinator_overdue = [];
+      state.model.replies = replies;
+      state.model.owner_asks = { messages, taps: [], store: [] };
+      cw.filter = 'all';
+      cw.query = '';
+      location.hash = '#/chat';
+      render();
+    }""", [replies, messages])
+    page.wait_for_selector(".cw .thread")
+
+
+def ask(m, title, **rest):
+    return {"m": m, "iso": "2026-11-03T12:00:00Z", "title": title, "text": f"{title}, please", "state": "answered", "ack": "done", "lanes": [], "prs": [], "answer": "", **rest}
+
+
+def test_a_note_with_no_message_above_it_is_not_open_work_and_only_an_undelivered_order_is(page):
+    news = {"reply": {"id": "news", "title": "9:00 PM update", "md": "What moved", "type": "update", "status": "progress"}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
+    chat_with(page, [news], [
+        ask(3, "Nobody took this", owed={"id": "m3", "status": "open", "lane": "", "hold": ""}),
+        ask(4, "Last with a worker", owed={"id": "m4", "status": "in progress", "lane": "tap-rows-1", "hold": ""}),
+        ask(5, "Delivered"),
+    ])
+    assert page.locator('[data-cw-filter="progress"] small').inner_text() == "2"
+    assert page.locator('[data-cw-filter="completed"] small').inner_text() == "1"
+    assert page.locator(".thread.loose .pill").count() == 0
+    asks = page.locator(".cw .thread:has(.ask-head)")
+    pills = {asks.nth(i).locator(".ask-title").inner_text(): asks.nth(i).locator(".pill").inner_text() for i in range(asks.count())}
+    assert pills == {"Nobody took this": "In progress", "Last with a worker": "In progress", "Delivered": "Completed"}
+    nobody = page.locator(".cw .thread:has(.ask-title:text-is('Nobody took this'))")
+    nobody.locator(".ask-head").click()
+    assert "Nobody has it" in nobody.locator(".ask-detail").inner_text()
+    page.evaluate("cw.open.clear()")
+    now(page)
+
+
+def test_an_answer_wears_the_type_it_records_not_its_status(page):
+    typed = {"reply": {"id": "typed", "title": "Plainly typed", "md": "The words", "type": "done", "status": "info"}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
+    chat_with(page, [typed], [])
+    assert page.locator("#rp-typed .artifact-top").inner_text().split("\n")[0].strip() == "Done"
+    now(page)
+
+
+def test_a_diagram_draws_its_own_card_with_no_one_pager(page):
+    drawn = {"reply": {"id": "dia", "title": "How the relay runs", "md": "One picture.", "type": "explanation", "diagram": {"arch": 1, "name": "relay", "title": "The relay", "nodes": []}}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
+    chat_with(page, [drawn], [])
+    card = page.locator(".cw .document-card")
+    assert card.locator(".artifact-top").inner_text().strip() == "Diagram"
+    assert card.locator(".document-title").inner_text() == "The relay"
     now(page)

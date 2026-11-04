@@ -1,3 +1,4 @@
+import base64
 import contextlib
 import datetime as dt
 import itertools
@@ -11,6 +12,7 @@ import threading
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import queue
+import re
 import urllib.error
 import urllib.parse
 from types import SimpleNamespace
@@ -1842,3 +1844,44 @@ def test_a_thread_line_names_its_parent_to_the_communicator_and_reads_back_clean
     assert server.chat_line(record) == {"seq": 7, "at": "t", "on": "reply:abc", "text": "yes do that"}
     assert not server.typed_in_chat({**record, "to": ["root"]})
 
+
+def test_a_crashed_follower_says_so_on_the_page_and_runs_again(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x", "drive": "d", "keeper_lane": "keeper", "defects_to": ["keeper"]}, None)
+    posted = []
+    monkeypatch.setattr(drive, "flag", lambda text, lanes: posted.append(text))
+    seen = []
+    class Stop(BaseException):
+        pass
+    def nap(_seconds):
+        seen.append(dict(drive.errors))
+    monkeypatch.setattr(server.time, "sleep", nap)
+    runs = []
+    def follow_owed():
+        runs.append(1)
+        if len(runs) == 3:
+            raise Stop
+        raise TypeError("'NoneType' object is not subscriptable")
+    with pytest.raises(Stop):
+        drive.followed(follow_owed)
+    assert len(runs) == 3
+    assert "follow_owed crashed" in seen[0]["follow_owed"]
+    assert len(posted) == 1
+    assert "follow_owed" not in drive.errors
+
+
+def test_a_diagram_page_draws_the_architecture_doc_and_a_reply_without_one_is_missing():
+    drive = Drive({"board_url": "http://board/p/x", "repo": "o/r"}, None)
+    drive.replies = [{"reply": {"id": "dia", "title": "The <relay>", "diagram": {"arch": 1, "title": "x"}}}, {"reply": {"id": "plain", "title": "t"}}]
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive, "owner@example.com", set()))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        page = urllib.request.urlopen(f"{base}/diagram/dia", timeout=5).read().decode()
+        doc = re.search(r'src="data:application/json;base64,([^"]+)"', page)[1]
+        assert json.loads(base64.b64decode(doc)) == {"arch": 1, "title": "x"}
+        assert "The &lt;relay&gt;" in page
+        assert urllib.request.urlopen(f"{base}/arch-kit/vendor/system-map.js", timeout=5).status == 200
+        with pytest.raises(urllib.error.HTTPError):
+            urllib.request.urlopen(f"{base}/diagram/plain", timeout=5)
+    finally:
+        httpd.shutdown()

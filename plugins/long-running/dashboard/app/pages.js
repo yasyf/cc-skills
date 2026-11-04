@@ -328,11 +328,8 @@ function prGroup(text) {
 }
 const ACK = { received: ['Received', 'you'], routed: ['Routed', 'acc'], done: ['Done', 'ok'] };
 const OVERDUE_GROUP = {
-  pick: (n) => `${n} of your picks not carried out`,
-  ask: (n) => `${plural(n, 'ask')} with no answer`,
-  retro: (n) => `${plural(n, 'retro action')} not done`,
-  finding: (n) => `${plural(n, 'finding')} not closed`,
-  repeat: (n) => plural(n, 'repeating alarm'),
+  ask: (n) => `${plural(n, 'ask')} still open`,
+  retro: (n) => `${plural(n, 'retro action')} past due`,
 };
 function askTitle(text) {
   return firstClause(text.replace(/https?:\/\/\S+/g, '').trim() || 'A message with only a link').replace(/^(.{96}\S*)\s.+$/, '$1…');
@@ -345,11 +342,11 @@ function receivedTone(ask) {
 }
 function overdueRows() {
   const clipped = (item) => esc(item.text.replace(/^(.{120}\S*)\s.+$/s, '$1…'));
-  const named = (item) => `<li><time>${esc(item.due)}</time><span>${item.seq ? `<a href="/record/${item.seq}" target="_blank" rel="noopener">${clipped(item)}</a>` : clipped(item)}</span></li>`;
+  const named = (item) => `<li><time>${esc(item.due)}</time><span>${clipped(item)} <small>${esc(workerName(item.holder))}</small></span></li>`;
   const groups = new Map(groupBy(state.model.coordinator_overdue ?? [], (item) => item.group));
   return Object.keys(OVERDUE_GROUP).filter((group) => groups.has(group)).map((group) => {
     const list = groups.get(group);
-    return { id: `overdue-${group}`, at: list[0].due, title: OVERDUE_GROUP[group](list.length), word: 'Overdue', tone: 'bad', side: '', more: `<ol class="ev-named">${list.map(named).join('')}</ol>` };
+    return { id: `overdue-${group}`, at: group === 'retro' ? list[0].due : '', title: OVERDUE_GROUP[group](list.length), word: group === 'retro' ? 'Overdue' : 'Open', tone: 'bad', side: '', more: `<ol class="ev-named">${list.map(named).join('')}</ol>` };
   });
 }
 function workScreen() {

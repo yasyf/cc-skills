@@ -1,4 +1,5 @@
 import argparse
+import base64
 import datetime as dt
 import gzip
 import hashlib
@@ -155,7 +156,10 @@ BOXES = 12
 SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", "owner": "you", "landed": "ok", "go": "ok", "fix-live": "ok"}
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css"), "/chat.js": ("chat.js", "text/javascript"), "/chat.css": ("chat.css", "text/css"), "/theme.css": ("theme.css", "text/css")}
+DIAGRAM_ROUTE = re.compile(r"/diagram/([\w-]+)")
+DIAGRAM_PAGE = """<!doctype html><meta charset="utf-8"><title>{title}</title><script type="module" src="/arch-kit/arch-doc.js"></script><style>html,body{{margin:0;background:#12150f}}arch-doc{{display:block}}</style><arch-doc src="data:application/json;base64,{doc}"></arch-doc>"""
+FOLLOW_RESTART = 60
+STATIC = {"/arch-kit/arch-doc.js": ("arch-kit/arch-doc.js", "text/javascript"), "/arch-kit/vendor/arch-map.js": ("arch-kit/vendor/arch-map.js", "text/javascript"), "/arch-kit/vendor/system-map.js": ("arch-kit/vendor/system-map.js", "text/javascript"), "/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css"), "/chat.js": ("chat.js", "text/javascript"), "/chat.css": ("chat.css", "text/css"), "/theme.css": ("theme.css", "text/css")}
 
 
 def gh(repo, *args):
@@ -1272,13 +1276,29 @@ class Drive:
                     curator.poke()
             time.sleep(1)
 
-    def owner_rows(self, known, store, lanes, threads, now):
+    def owner_rows(self, known, store, lanes, threads, now, owed=None):
         ledger_file = Path(self.config["owner_ledger"])
         ledger = ledger_file.read_text()
         told = order_replies(self.replies)
         self.told_asks = closed_asks(ledger) | told_asks(ledger, told)
         answers = {path.stem: path.read_text() for path in (ledger_file.parent / "answers").glob("*.md")} | {row: reply["md"] for row, reply in told.items()}
-        return owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year, answers, threads)
+        return owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year, answers, threads, owed)
+
+    def followed(self, target, *rest):
+        name = target.__name__
+        while True:
+            try:
+                target(*rest)
+            except Exception as failure:
+                traceback.print_exc()
+                words = f"{name} crashed and restarts in {FOLLOW_RESTART} s: {failure!r}"[:300]
+                self.errors[name] = words
+                self.bump()
+                if words not in self.flagged:
+                    self.flagged.add(words)
+                    self.flag(words, ())
+                time.sleep(FOLLOW_RESTART)
+                self.errors.pop(name, None)
 
     def follow_owed(self):
         drive = self.config["drive"]
@@ -1290,15 +1310,15 @@ class Drive:
                 fresh = self.read_records(OWED_KINDS, now - OWED_WINDOW, after)
                 known += [trimmed(record) for record in fresh if kept(record)]
                 after = fresh[-1]["seq"] if fresh else after
-                render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
                 store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
                 threads = {ask["seq"]: ask for asks in self.model.get("asks", {}).values() for ask in asks}
-                asks = self.owner_rows(known, store, set(self.lane_names()), threads, now)
+                owed = {row["id"]: row for row in json.loads(run(["lr", "owner", "audit", "--drive", drive, "--json"])) or []}
+                asks = self.owner_rows(known, store, set(self.lane_names()), threads, now, owed)
                 if len(asks["messages"]) != len(self.owed["owner_asks"]["messages"]):
                     self.pages["asks"].poke()
                 self.owed = {
                     "owner_asks": asks,
-                    "coordinator_overdue": overdue_rows(render, known, store),
+                    "coordinator_overdue": overdue_rows(store, self.model.get("preventions", []), now),
                 }
                 self.reported_owed = None
                 self.touch()
@@ -1867,6 +1887,12 @@ def handler(drive, tailnet_owner, names):
                     if "CEREBRAS_API_KEY" in os.environ and self.owner_calling():
                         body = body.replace("<html", '<html class="ai-on"', 1)
                 return self.send(200, kind, body.encode())
+            if found := DIAGRAM_ROUTE.fullmatch(path):
+                reply = next((entry["reply"] for entry in drive.replies if entry["reply"]["id"] == found[1] and entry["reply"].get("diagram")), None)
+                if not reply:
+                    return self.send(404, "text/plain", b"no such diagram")
+                doc = base64.b64encode(json.dumps(reply["diagram"]).encode()).decode()
+                return self.send(200, "text/html; charset=utf-8", DIAGRAM_PAGE.format(title=html.escape(reply["title"]), doc=doc).encode())
             if path == "/api/model":
                 kind = "full" if "full=1" in self.path else "now" if "tab=now" in self.path else "lean"
                 since = kind != "full" and re.search(r"since=(\d+)", self.path)
@@ -2157,7 +2183,7 @@ def main():
     drive.load_gos()
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
     for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_rows, ()), (drive.follow_cards, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_replies, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
-        threading.Thread(target=target, args=rest, daemon=True).start()
+        threading.Thread(target=drive.followed, args=(target, *rest), daemon=True).start()
     app = handler(drive, config["tailnet_owner"], own_names(config["host"]))
     if "tls_port" in config:
         threading.Thread(target=serve_tls, args=(drive, config, app, args.config.parent), daemon=True).start()
