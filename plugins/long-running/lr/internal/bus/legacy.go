@@ -33,7 +33,7 @@ var (
 	quotedBlock    = regexp.MustCompile("(?s)```.*?(?:```|\\z)|(?m:^[ \\t]*>[^\\n]*)")
 	quotedSpan     = regexp.MustCompile("`[^`\\n]*`|\"[^\"\\n]*\"|“[^”]*”")
 	overrideNamed  = regexp.MustCompile(`(?i)\b(?:finder|fidelity)-override\b[^.;\n]*`)
-	overrideForm   = regexp.MustCompile(`(?i)^(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b(?:\s*:\s*#?(\d+(?:@[0-9a-f]+)?)\b)?`)
+	overrideForm   = regexp.MustCompile(`(?i)^(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b(?:\s*(?::|\s(?:finder|fidelity)\s)\s*#?(\d+(?:@[0-9a-f]+)?)\b)?`)
 	clauseStart    = regexp.MustCompile(`(?m)(?:^|[.!?]\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?(?:(?:root|main):\s+)?$`)
 	goPair         = `#\d+\s+at\s+[0-9a-f]{7,40}\b`
 	goClause       = regexp.MustCompile(`(?i)(?:^\s*(?:\d{1,2}:\d{2}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+(?:port|test-only|ci-only))?|merge)\s+(` + goPair + `(?:(?:\s*,\s*|\s*,?\s+and\s+)` + goPair + `)*)`)

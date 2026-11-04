@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -96,6 +97,19 @@ func TestAGoLaneTheConfigNamesMayNameAnExemptClass(t *testing.T) {
 
 	if want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "exempt", Value: "owner-pick"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("LegacyFacts = %+v, want %+v", got, want)
+	}
+}
+
+func TestAnOverrideCitesItsGradeWithOrWithoutTheGraderNamed(t *testing.T) {
+	for _, text := range []string{
+		"finder-override #9 at e718a74: 79447@637eacf4 reads a deleted file",
+		"finder-override #9 at e718a74 finder #79447@637eacf4: reads a deleted file",
+	} {
+		got := bus.Overrides(legacyRecord(t, "decide", "root", text, []int{9}, nil))
+		want := []bus.Override{{Grader: "finder", PR: 9, Head: "e718a74", Cites: "79447@637eacf4"}}
+		if !slices.Equal(got, want) {
+			t.Errorf("Overrides(%q) = %+v, want %+v", text, got, want)
+		}
 	}
 }
 
