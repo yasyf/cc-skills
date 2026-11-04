@@ -253,7 +253,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if !fresh && (kind == "blocker" || (kind == "ask" && name == Root)) {
 		foldPage(s, r, name, addressed)
 	}
-	if !fresh && (kind == "ask" || kind == "lr.ask" || kind == kindRequest) {
+	if !fresh && (kind == "ask" || kind == "lr.ask" || kind == kindRequest || failedGrade(kind, text)) {
 		foldOrder(s, r, addressed, at)
 	}
 	foldGates(s, r, fresh, at)
@@ -448,6 +448,10 @@ func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) 
 		do(s.SetLaneWaiting(target, 0, r.At.UTC(), ""))
 		do(s.SetLanePage(target, page))
 	}
+}
+
+func failedGrade(kind, text string) bool {
+	return kind == "review" && (strings.HasPrefix(text, "finder: major") || strings.HasPrefix(text, "fidelity: missing"))
 }
 
 func foldOrder(s *store.Store, r Record, addressed map[string]bool, at time.Time) {

@@ -183,6 +183,26 @@ func TestAnOverdueItemsAskToAParkedLaneIsRelayedThroughTheDesk(t *testing.T) {
 	}
 }
 
+func TestAFailedGradeIsAnOrderToItsLaneAndAPassIsNot(t *testing.T) {
+	for text, relays := range map[string]int{
+		"finder: major 187ae77 2 open over delta 035bd9e..187ae77": 1,
+		"fidelity: missing 187ae77 the plan row":                   1,
+		"finder: ok 187ae77 no majors":                             0,
+		"fidelity: ok 187ae77 class owner-pick":                    0,
+	} {
+		t.Run(text, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			f.feed = append(f.feed, rec(2, "finder-desk", "review", t0, text, lane2))
+			f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0.Add(mins(11)), Dispatch: "ctx_1"}}
+
+			tick(t, s, f, t0.Add(mins(11)))
+
+			equal(t, len(f.ofKind("go")), relays)
+		})
+	}
+}
+
 func TestUnreadOrdersAreRelayedThroughTheDeskExceptForASpriteLaneTheSupervisorSeesNoToolCallsFrom(t *testing.T) {
 	for name, c := range map[string]struct {
 		setup  func(*testing.T, *store.Store) *fake
