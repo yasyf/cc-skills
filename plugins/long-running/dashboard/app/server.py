@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 
 import plainwords
 from brief import COORDINATORS, ROOT, Curator
+from owed import kept, overdue_rows, owner_ask_rows, trimmed
 from pages import PAGES, source_key, stamp
 from review_assistant import ReviewAssistant
 from story import Stories
@@ -46,7 +47,7 @@ REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
 SNAPSHOT_EVERY = 60.0
 DELTAS_KEPT = 30
-LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes")
+LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes", "owner_asks", "status_tables", "step_records")
 NOW_DRAWS = ("needs", "board", "brief", "milestone_state", "pages", "workers", "now", "status_now")
 NOW_EVENTS = 5
 NOW_RECORDS = 300
@@ -55,6 +56,8 @@ LANE_NAME = re.compile(r'"([a-z][a-z0-9]*(?:-[a-z0-9]+)+)"')
 WORD_BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner")
 PR_NAMED = re.compile(r"#(\d{5})(?!\d)")
 SLOW_REFRESH = 300
+OWED_KINDS = ("ask", "owner", "defect", "done", "report", "answer")
+OWED_WINDOW = dt.timedelta(days=7)
 PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 GO = re.compile(r"^go #(\d+) at (\w+)")
@@ -879,6 +882,7 @@ class Drive:
         self.curator = Curator(config, self.curator_model, self.bump)
         self.status_now = None
         self.status_rejected = None
+        self.owed = {"owner_asks": {"messages": [], "taps": [], "store": []}, "coordinator_overdue": []}
         self.pages = {page.name: Curator(config, self.curator_model, self.bump, page) for page in PAGES}
         self.curators = (self.curator, *self.pages.values())
         self.stories = Stories(config, self.lane_names, self.worker_reports)
@@ -1092,6 +1096,26 @@ class Drive:
                 for curator in self.curators:
                     curator.poke()
             time.sleep(1)
+
+    def follow_owed(self):
+        drive = self.config["drive"]
+        known, after = [], 0
+        while True:
+            now = dt.datetime.now(dt.timezone.utc)
+            fresh = self.read_records(OWED_KINDS, now - OWED_WINDOW, after)
+            known += [trimmed(record) for record in fresh if kept(record)]
+            after = fresh[-1]["seq"] if fresh else after
+            render = subprocess.run(["lr", "update", "render", "--drive", drive], capture_output=True, text=True, timeout=SLOW_REFRESH).stdout
+            store = json.loads(run(["lr", "asks", "--drive", drive, "--json"]))
+            ledger = Path(self.config["owner_ledger"]).read_text()
+            lanes = set(self.lane_names())
+            self.owed = {
+                "owner_asks": owner_ask_rows(ledger, known, self.model.get("prs", {}), store, lanes, now.astimezone(PACIFIC).year),
+                "coordinator_overdue": overdue_rows(render, known, store),
+            }
+            self.touch()
+            self.bump()
+            time.sleep(SLOW_REFRESH)
 
     def follow_status(self):
         status = Path(self.config["status_now"])
@@ -1365,6 +1389,9 @@ class Drive:
             "status_rejected": self.status_rejected,
             "stack": self.read(self.config["stack"])["prs"],
             "status_table": self.read(self.config["status_table"], str),
+            "status_tables": [table for table in self.read(self.config["status_tables"]) if table["id"] != "plan"],
+            "step_records": {step["id"]: {"wrong": step.get("went_wrong", ""), "lanes": step.get("lanes", []), "prs": step.get("prs", [])} for step in progress["steps"]},
+            **self.owed,
             "register_log": "register" in self.config,
             "latest_words": self.words(),
             "evidence": live_evidence(self.evidences(), model["prs"], progress.get("pr_state", {}), pushes),
@@ -1768,7 +1795,7 @@ def main():
     after = drive.load_records()
     drive.load_gos()
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
-    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive, config["tailnet_owner"], own_names(config["host"])))
     server.daemon_threads = True

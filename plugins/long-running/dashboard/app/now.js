@@ -6,7 +6,6 @@ const NODE_TONE = { fixing: 'acc', you: 'you', nobody: 'bad', waiting: '', done:
 const hover = { at: null, timer: 0, hold: 0, scrolled: 0 };
 const story = { item: null, es: null, lines: [], draft: null, status: null, open: false };
 const feed = { item: null };
-const FYI_SHOWN = 5;
 const lastPaint = { events: new Map(), next: new Map(), stops: null };
 
 function view(key) {
@@ -45,11 +44,11 @@ function nowScreen() {
   const b = m.brief;
   if (!b) return `<div class="nw"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p>${diagramSlot()}</div>`;
   const html = `<div class="nw">
+    ${overdueBand()}
     ${band(b)}
     <h1 class="nw-head">${esc(b.headline)}</h1>
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    ${notLive().length ? `<p class="nw-sub nw-notlive">${notLive().length} failure${notLive().length === 1 ? '' : 's'} with no live fix yet, listed under What failed.</p>` : ''}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     ${fyiFeed()}
     ${liveFeed(b)}
@@ -62,13 +61,32 @@ function nowScreen() {
 }
 
 function fyiFeed() {
-  const all = state.model.fyi ?? [];
-  const open = state.open.has('nw-fyi-all');
-  const rows = (open ? all : all.slice(0, FYI_SHOWN)).map((f) => `<div class="fy-row"><time>${clock(f.at)}</time><span class="fy-tag">${esc(f.group)}</span><span class="fy-text">${esc(f.text)}</span></div>`).join('');
-  const more = all.length > FYI_SHOWN ? `<button class="linkish" data-toggle="nw-fyi-all">${open ? 'Newest only ‹' : 'Earlier today ›'}</button>  ·  ` : '';
-  return `<section class="nw-fyi"><h2 class="nw-h">Decided for you, and what changed</h2><div class="fy">${rows || '<div class="fy-row fy-none">Nothing has been decided for you yet today.</div>'}<div class="fy-foot">${more}The same notes reach you in chat as they are written</div></div></section>`;
+  const fyi = (state.model.fyi ?? []).map((f) => ({ id: `fy-${f.at}`, iso: f.at, at: clock(f.at), word: 'Decided', tone: 'you', title: f.text, why: f.group }));
+  const events = (curated('history')?.entries ?? []).filter((e) => KEY_EVENTS.has(e.kind)).map((e) => ({ id: `hs-${e.at}-${e.title}`, iso: sinceClock(e.at), at: e.at, word: HISTORY_WORD[e.kind], tone: HISTORY_TONE[e.kind], title: e.title, more: e.detail.trim() && `<p>${esc(e.detail)}</p>` }));
+  const rows = newestFirst([...fyi, ...events]);
+  if (!rows.length) return '';
+  const earlier = rows.length - EVENTS_AT_REST;
+  return `<section class="nw-fyi"><h2 class="nw-h">Decided for you, and what changed</h2>${eventList(rows.slice(0, EVENTS_AT_REST))}${earlier > 0 ? `<a class="ev-all" href="#/history">Earlier today ${countPill(earlier)} ›</a>` : ''}</section>`;
 }
 
+const OVERDUE_GROUP = {
+  pick: (n) => `${n} of your picks not carried out`,
+  ask: (n) => `${plural(n, 'ask')} with no answer`,
+  retro: (n) => `${plural(n, 'retro action')} not done`,
+  finding: (n) => `${plural(n, 'finding')} not closed`,
+  repeat: (n) => plural(n, 'repeating alarm'),
+};
+function overdueBand() {
+  const items = state.model.coordinator_overdue ?? [];
+  if (!items.length) return '';
+  const named = (item) => `<li><time>${esc(item.due)}</time> ${item.seq ? `<a href="/record/${item.seq}" target="_blank" rel="noopener">${esc(askTitle(item.text))}</a>` : esc(askTitle(item.text))}</li>`;
+  const groups = new Map(groupBy(items, (item) => item.group));
+  const rows = Object.keys(OVERDUE_GROUP).filter((group) => groups.has(group)).map((group) => {
+    const list = groups.get(group);
+    return { id: `overdue-${group}`, at: list[0].due, word: 'Overdue', tone: 'bad', title: OVERDUE_GROUP[group](list.length), more: `<ol class="ev-named">${list.map(named).join('')}</ol>` };
+  });
+  return `<section class="nw-overdue"><h2 class="nw-h">The coordinator owes you ${plural(items.length, 'overdue item')}</h2>${eventList(rows)}</section>`;
+}
 function band(b) {
   const m = state.model;
   const incident = b.band.kind === 'incident' ? `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>` : '';
@@ -111,49 +129,68 @@ function needLine(item) {
 
 function liveFeed(b) {
   if (feed.item && workItem(feed.item) && !workOpen()) return `<section class="nw-live"><h2 class="nw-h">Live story <button class="linkish" data-feed-all>‹ All work</button></h2><div class="nw-story-col"><div class="nw-story-host">${storyBody(feed.item)}</div></div></section>`;
-  const lead = focusLane();
-  const rows = [...b.work].sort((x, y) => (y.item === lead) - (x.item === lead)).map((w) => workRow(w, w.item === lead));
-  return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${rows.length ? `<div class="nw-work">${rows.join('')}</div>` : '<div class="nw-calm">No work is running right now.</div>'}</section>`;
+  if (!b.work.length) return '';
+  const rank = (w) => ({ 'Ready for you': 0, Stuck: 1 })[statusOf(w).word] ?? 2;
+  const rows = newestFirst(b.work.map(workEvent)).sort((x, y) => rank(x.w) - rank(y.w));
+  return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${eventList(rows)}</section>`;
+}
+function workEvent(w) {
+  const st = statusOf(w);
+  const said = /^(\d{1,2}:\d{2} [AP]M)/.exec(w.latest ?? '')?.[1] ?? w.since;
+  const line = (st.when ?? w.latest ?? '').replace(/^\d{1,2}:\d{2} [AP]M: /, '').replace(/^./, (c) => c.toUpperCase());
+  return { w, id: `wr-${w.item}`, iso: sinceClock(said), at: said, word: st.word, tone: WORK_TONE[st.word] ?? (st.word === 'Cleared to land' ? 'ok' : 'acc'), title: w.title, side: lasted(w.since), more: `<p>${esc(line)}</p>${stuck(w) ? `<p>${unblockLine(historyOf(rowKeys(w.item))?.unblocking)}</p>` : ''}<button class="linkish" data-feed="${esc(w.item)}">Live story ›</button>` };
 }
 const PREVENT_WORD = { building: 'Being built', open: 'Fix open', merged: 'Merged', live: 'Live' };
-function preventionChip(p) {
-  if (!p.problems.length) return `<span class="chip pv-${p.state}">${PREVENT_WORD[p.state]}</span>`;
-  return `<span class="chip pv-broken">${p.problems.every((x) => x.startsWith('past due')) ? 'Past due' : 'Broken row'}</span>`;
-}
+const FAILED_VERB = { 'Past due': 'past due', 'Broken row': 'with fields missing', Merged: 'merged, not live yet' };
+const FAILED_TONE = { 'Past due': 'bad', 'Broken row': 'bad', 'Fix open': 'warn', Merged: '' };
 function notLive() {
   return state.model.preventions.filter((p) => p.state !== 'live' || p.problems.length);
 }
 function preventions() {
-  const list = state.model.preventions;
-  const findings = state.model.findings ?? [];
   const failed = state.model.errors?.preventions;
-  if (!list.length && !findings.length && !failed) return '';
-  const order = Object.keys(PREVENT_WORD);
-  const rank = (p) => (p.problems.length ? -1 : order.indexOf(p.state));
-  const table = (rows) => `<div class="pt"><div class="pt-head"><span>What failed</span><span>What stops it happening again</span><span>State</span><span>Owner</span><span>Due</span></div>${rows.map((p) => `<div class="pt-row ${p.problems.length ? 'broken' : p.state}"><b>${esc(p.failure ?? '')}</b><span>${esc(p.mechanism ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}${p.problems.length ? `<span class="pv-why">${esc(p.problems.join('; '))}</span>` : ''}</span><span>${preventionChip(p)}</span><span>${p.owner ? esc(workerName(p.owner)) : ''}</span><span>${p.problems.length ? '' : esc(clock(p.due))}</span></div>`).join('')}</div>`;
-  const open = notLive().sort((a, b) => rank(a) - rank(b));
-  const live = list.filter((p) => p.state === 'live' && !p.problems.length);
-  return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again <span class="pg-n">${open.length} not live</span></h2>
+  const rows = newestFirst([...failureRows(), ...liveFixRows(), ...picksRow()]);
+  if (!rows.length && !failed) return '';
+  return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again${notLive().length ? ` <span class="pg-n">${notLive().length} not live</span>` : ''}</h2>
     ${failed ? `<p class="pg-fail">${esc(failed)}</p>` : ''}
-    ${open.length ? table(open) : ''}
-    ${live.length ? fold('pv-live', `Prevention live <span class="pg-n">${live.length}</span>`, table(live)) : ''}
-    ${findings.map(findingTable).join('')}</section>`;
+    ${eventList(rows)}</section>`;
 }
-function findingTable(group) {
-  const picks = group.sweep === 'owner';
-  const title = picks ? 'Your picks not yet carried out' : `Open findings from ${esc(workerName(group.sweep))}`;
-  const rows = group.rows.map((f) => `<div class="pt-row fd-${f.state}"><b>${esc(f.text)}${f.line ? ` <span class="pr">${esc(f.line)}</span>` : ''}</b><span>${f.pr ? `<a href="${prHref(f.pr)}">#${esc(f.pr)}</a>` : ''}</span><span><span class="chip fd-${f.state}">${f.state === 'routed' ? 'Routed' : 'Open'}</span></span><span>${f.owner ? esc(workerName(f.owner)) : ''}</span><span>${esc(blockedFor(f.at))}</span></div>`).join('');
-  return `<h3 class="nw-fh">${title} <span class="pg-n">${group.rows.length}</span></h3><div class="pt fd"><div class="pt-head"><span>${picks ? 'Your answer' : 'Finding'}</span><span>Pull request</span><span>State</span><span>Owner</span><span>Open</span></div>${rows}</div>`;
+function fixItems(list) {
+  return `<ul>${list.map((p) => `<li><b>${esc(p.failure ?? '')}</b><span>${esc(p.mechanism ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}${p.problems.length ? ` <span class="pv-why">${esc(p.problems.join('; '))}</span>` : ''}</span></li>`).join('')}</ul>`;
+}
+function failureRows() {
+  const word = (p) => (!p.problems.length ? PREVENT_WORD[p.state] : p.problems.every((x) => x.startsWith('past due')) ? 'Past due' : 'Broken row');
+  return groupBy(notLive(), (p) => `${word(p)}/${p.owner}`).map(([key, list]) => {
+    const said = word(list[0]);
+    const iso = list.map((p) => (p.problems.length ? p.due : p.moved)).sort().at(-1);
+    const owner = workerName(list[0].owner).replace(/^Mq\b/, 'Merge queue');
+    const title = list.length === 1 ? firstClause(list[0].failure).replace(/^./, (c) => c.toUpperCase()) : `${owner}: ${list.length} fixes ${FAILED_VERB[said] ?? said.toLowerCase()}`;
+    return { id: `pv-${key}`, iso, at: clock(iso), word: said, tone: FAILED_TONE[said] ?? 'acc', title, side: list.length === 1 ? esc(owner) : countPill(list.length), more: fixItems(list) };
+  });
+}
+function liveFixRows() {
+  const live = state.model.preventions.filter((p) => p.state === 'live' && !p.problems.length);
+  const fresh = live.filter((p) => minutesSince(p.moved) < 1440);
+  const old = live.filter((p) => minutesSince(p.moved) >= 1440);
+  const row = (id, list, title) => {
+    const iso = list.map((p) => p.moved).sort().at(-1);
+    return { id, iso, at: clock(iso), word: 'Fix live', tone: 'ok', title, side: countPill(list.length), more: fixItems(list) };
+  };
+  return [...(fresh.length ? [row('pv-live-new', fresh, `${fresh.length} ${fresh.length === 1 ? 'fix' : 'fixes'} went live in the last 24 hours`)] : []), ...(old.length ? [row('pv-live-old', old, `${old.length} older ${old.length === 1 ? 'fix is' : 'fixes are'} live`)] : [])];
+}
+function picksRow() {
+  const rows = (state.model.findings ?? []).find((group) => group.sweep === 'owner')?.rows ?? [];
+  if (!rows.length) return [];
+  const picks = rows.map((f) => {
+    const [, asked, answer] = /^(.*\?)(?:\s*)?: (.*)$/s.exec(f.text) ?? [0, f.text, ''];
+    const [, title, question] = /^(.*?)(?:\?,|,) ([A-Z].*)$/s.exec(asked) ?? [0, asked, ''];
+    return { title, question, answer, at: f.at };
+  });
+  const dated = rows.map((f) => f.at).sort();
+  const items = groupBy(picks, (p) => p.title).map(([title, list]) => `<li><b>${esc(title)}</b>${list.map((p) => `<span>${list.length > 1 ? `${esc(p.question)} ` : ''}${p.answer ? `You said: ${esc(p.answer)}` : ''}</span>`).join('')}</li>`).join('');
+  return [{ id: 'pv-picks', iso: dated.at(-1), at: clock(dated.at(-1)), word: 'Not done', tone: 'bad', title: `${rows.length} of your picks have no record they were carried out`, why: workerName(rows[0].owner) === 'Coordinator' ? 'the coordinator holds them' : '', side: `oldest ${spanFor(dated[0]).replace(/^for /, '')} ${countPill(rows.length)}`, more: `<ul>${items}</ul>` }];
 }
 function workOpen() {
   return stackOf().length > 0 && route().screen === 'work';
-}
-function workRow(w, lead) {
-  const h = historyOf(rowKeys(w.item));
-  const st = statusOf(w);
-  return `<button class="wr ${lead ? 'lead' : 'rest'} ${st.tone}" data-feed="${esc(w.item)}"><span class="pulse"></span>
-    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${st.tone}">${esc(st.word)}</span>${esc(st.when ?? w.latest)}</span>${stuck(w) ? unblockLine(h?.unblocking) : ''}${latestLine(h)}</span>
-    <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span>` : ''}<span class="open">Live story ›</span></span></button>`;
 }
 function stops() {
   return state.model.milestone_state;
@@ -317,8 +354,9 @@ function historyOf(keys) {
   if (!events.length) return null;
   return { key: keys.join(' '), events, unblocking: found.find((h) => h.unblocking)?.unblocking, quiet: found.find((h) => h.quiet)?.quiet };
 }
+const WORKER_CHATTER = /^(new version pushed|opened|restacked onto|checked: today's app|plan check passed|code review passed|queued to merge|a worker started)/i;
 function latestLine(h) {
-  const e = h?.events[0];
+  const e = h?.events.find((x) => !WORKER_CHATTER.test(x.text));
   if (!e) return '';
   const fresh = lastPaint.events.has(h.key) && lastPaint.events.get(h.key) !== e.ts;
   lastPaint.next.set(h.key, e.ts);
