@@ -283,7 +283,7 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 
 func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Command {
 	var until, owner, lane, pick, said string
-	var on []string
+	var on, paths []string
 	cmd := &cobra.Command{Use: "cards", Short: "The event that ends each question card on the owner's board, and what each card depends on"}
 	record := &cobra.Command{
 		Use:   "until CARD",
@@ -295,7 +295,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 				return err
 			}
 			defer done()
-			end, err := board.Until(c.Context(), args[0], until)
+			end, err := board.Until(c.Context(), args[0], until, paths...)
 			if err != nil {
 				return err
 			}
@@ -310,6 +310,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 	record.Flags().StringVar(&until, "until", "", "at:TIME, pr:N, release:STACK@ENV:COMMIT or record:SEQ")
 	record.Flags().StringVar(&owner, "lane", os.Getenv("CLAUDE_LONG_RUNNING_LANE"), "the lane that owns the card, told when a ruling may change it")
 	record.Flags().StringArrayVar(&on, "on", nil, "an object or card:ID the card rests on beyond the PRs and register names it cites, repeatable")
+	record.Flags().StringArrayVar(&paths, "path", nil, "a repo-relative path prefix of the subsystem a design card decides, where a drive lane's PR waits for his pick, repeatable")
 	recheck := &cobra.Command{
 		Use:   "recheck [RULING...]",
 		Short: "Re-judge each open card resting on what these register rows or --pick just landed on: redraw it on the new premise, withdraw it, or flag it to its lane, and tell the communicator",
@@ -362,6 +363,22 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 		panic(err)
 	}
 	cmd.AddCommand(record, &cobra.Command{
+		Use:   "paths",
+		Short: "Print as JSON each card on the board with its design paths, the prefixes where a drive lane's PR waits for his pick",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			board, done, err := cards()
+			if err != nil {
+				return err
+			}
+			defer done()
+			gated, err := board.Paths(c.Context())
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(c.OutOrStdout()).Encode(gated)
+		},
+	}, &cobra.Command{
 		Use:   "missing [CARD...]",
 		Short: "Print each named card, or each card on the board, with no recorded end",
 		RunE: func(c *cobra.Command, args []string) error {

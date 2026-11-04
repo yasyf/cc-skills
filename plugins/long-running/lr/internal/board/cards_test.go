@@ -175,6 +175,34 @@ func TestMissingListsBoardCardsWithNoEndAndSkipsTheMergeList(t *testing.T) {
 	}
 }
 
+func TestPathsListsEachOpenCardsDesignPaths(t *testing.T) {
+	f := newCards(t, &cardShell{cards: []string{"card-storage", "card-plain", "card-done"}}, nil)
+	ctx := context.Background()
+	if _, err := f.Until(ctx, "card-storage", "pr:1", "go/sand/internal/cloudrunner", "infra/rows/cloudrunner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Until(ctx, "card-storage", "pr:2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Until(ctx, "card-plain", "pr:1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Until(ctx, "card-gone", "pr:1", "api/src"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Until(ctx, "card-done", "pr:1", "dashboard"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.record(ctx, "card-done", map[string]string{"withdrawn": stamp(cardsNow)}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.Paths(ctx)
+	want := map[string][]string{"card-storage": {"go/sand/internal/cloudrunner", "infra/rows/cloudrunner"}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("paths = %v, %v; want %v", got, err, want)
+	}
+}
+
 func TestSweepWithdrawsEachCardWhoseEventHappenedAndNamesTheOutcome(t *testing.T) {
 	on := &cardShell{cards: []string{"merged-pr", "open-pr", "past-time", "future-time", "closed-record", "shipped", "unshipped", "no-end"}, ancestors: map[string]bool{"0dfbd44e 0dfbd44e165e": true}}
 	f := newCards(t, on, map[int]string{1: "MERGED"}, "7")
