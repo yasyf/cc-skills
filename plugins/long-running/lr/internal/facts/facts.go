@@ -538,6 +538,10 @@ func (pr pullRequest) mergeableAt(head string) bool {
 	return pr.HeadRefOid == head && pr.Mergeable == "MERGEABLE" && pr.MergeStateStatus != "DIRTY"
 }
 
+type graphError struct {
+	Type string `json:"type"`
+}
+
 func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, error) {
 	prs := make([]pullRequest, 0, len(numbers))
 	missing := make(map[int]bool)
@@ -547,16 +551,10 @@ func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, err
 			Data struct {
 				Repository map[string]*pullRequest `json:"repository"`
 			} `json:"data"`
-			Errors []struct {
-				Type string `json:"type"`
-			} `json:"errors"`
+			Errors []graphError `json:"errors"`
 		}
 		decoded := json.Unmarshal([]byte(out), &reply)
-		notFound := len(reply.Errors) > 0 && !slices.ContainsFunc(reply.Errors, func(one struct {
-			Type string `json:"type"`
-		}) bool {
-			return one.Type != "NOT_FOUND"
-		})
+		notFound := len(reply.Errors) > 0 && !slices.ContainsFunc(reply.Errors, func(one graphError) bool { return one.Type != "NOT_FOUND" })
 		if err != nil && !notFound {
 			return memberRead{}, err
 		}
