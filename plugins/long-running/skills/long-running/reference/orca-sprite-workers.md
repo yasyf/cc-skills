@@ -152,6 +152,24 @@ naming the relay's reason, with no worker started. Every five minutes the
 supervisor joins each live lane whose receipt shows a failed join, stopping at
 the first refusal; `lr rejoin` runs the same pass at once.
 
+A Sprite pauses about 30 seconds after its last activity, and a parked agent is
+not activity. A lane waiting on CI or a Monitor goes warm, then cold, and a cold
+Sprite has lost its processes.
+
+So once `worker-start` succeeds, the launch creates the `worker-awake` Sprite
+service, `lr sprites hold`. Each minute it reads `/proc` for a `claude` or `codex`
+process, and while it finds one it refreshes a `worker-awake` task with a 5-minute
+expiry through the Sprite's task API, the same helper `lr desk-creds serve` uses.
+When the agent exits, the refreshes stop and the task expires, so the Sprite sleeps
+about 5 minutes later. `lr stop-sprites` and `lr gc` end the agent, so a settled
+lane's Sprite still sleeps or is destroyed.
+
+A failed read or refresh logs at warn and tries again next minute. A service that
+fails to start warns on the launch's stderr and in `awake.log` in the attempt
+directory, and the worker keeps running without a hold. A lane already running
+when this version installs has no holder until it is relaunched; `lr sprites roll`
+does not add one.
+
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
 server's build as `managedServer`, read from the ready event `orca serve --json`

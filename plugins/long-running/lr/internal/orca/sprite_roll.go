@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/awake"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -259,6 +261,15 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			return refusalExit(cmd, MoveSpritePins(cmd.Context(), s, claude, filepath.Join(state, "runner.json"), cmd.OutOrStdout()))
 		},
 	}
-	cmd.AddCommand(roll, pin)
+	hold := &cobra.Command{
+		Use:   "hold",
+		Short: "Run on a Sprite as its service: keep the Sprite awake while a claude or codex runs on it, so the hold lapses within 5 minutes of the agent's exit",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			awake.Holder{Runner: a.Runner, Task: workerAwake, Every: awake.Every, Log: slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)), Wanted: awake.WorkerAlive(a.Runner)}.Run(cmd.Context())
+			return nil
+		},
+	}
+	cmd.AddCommand(roll, pin, hold)
 	return cmd
 }

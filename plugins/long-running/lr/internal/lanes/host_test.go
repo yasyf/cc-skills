@@ -196,6 +196,19 @@ func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *te
 	contains(t, reports[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 has a Sprite sprite-conflicts-2")
 }
 
+func TestAColdSpriteTheAPIGivesNoLastRunTimeIsReportedWithoutATime(t *testing.T) {
+	s := memory(t)
+	f := newFake(t, nil, nil)
+	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "was lost"})
+	lostOnSprite(t, s, f, "conflicts-3", time.Time{})
+
+	tick(t, s, f, t0)
+
+	reports := lostReports(f)
+	equal(t, len(reports), 1)
+	contains(t, reports[0].Text, "LANE-LOST conflicts-3: it has a Sprite sprite-conflicts-3 that is cold, and its dispatch never settled")
+}
+
 func TestASettledLaneOrAFailedSpritesListLeavesAColdSpriteLaneAlone(t *testing.T) {
 	for name, setup := range map[string]func(*fake){
 		"a settled lane": func(f *fake) {

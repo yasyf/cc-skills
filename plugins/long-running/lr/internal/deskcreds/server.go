@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/awake"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -20,7 +22,6 @@ const (
 	DefaultPort   = 9181
 	secretPrefix  = "secret/"
 	awakeTask     = "desk-creds"
-	awakeEvery    = time.Minute
 	fetchTimeout  = 10 * time.Second
 	headerTimeout = 10 * time.Second
 	stderrLimit   = 300
@@ -119,22 +120,8 @@ func (s *server) put(w http.ResponseWriter, r *http.Request, key string) int {
 	return http.StatusNoContent
 }
 
-func holdAwake(ctx context.Context, runner shell.Runner, log io.Writer) {
-	for {
-		_, err := runner.Run(ctx, shell.Command{Argv: []string{"/.sprite/bin/sprite-env", "curl", "-sSf", "-X", "PUT", "/v1/tasks/" + awakeTask, "-H", "Content-Type: application/json", "-d", `{"expire": "5m"}`}, Timeout: awakeEvery})
-		if err != nil {
-			_, _ = fmt.Fprintf(log, "desk-creds: the %s task was not refreshed: %v\n", awakeTask, err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(awakeEvery):
-		}
-	}
-}
-
 func Serve(ctx context.Context, runner shell.Runner, port int, log io.Writer) error {
-	go holdAwake(ctx, runner, log)
+	go awake.Holder{Runner: runner, Task: awakeTask, Every: awake.Every, Log: slog.New(slog.NewTextHandler(log, nil)), Wanted: awake.Always}.Run(ctx)
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return err
