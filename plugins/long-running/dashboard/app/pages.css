@@ -295,6 +295,10 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .hs .ev-named time { display: block; color: var(--ink-3); }
 @media (max-width: 760px) { .hs.ev-rows .ev-more, .hs .ev-named { padding-left: 0; } .ev-more .pg-list, .ev-more .mr { margin-left: 0; } }
 .ev-side{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width: 760px) {
+  .hs.ev-rows summary, .hs.ev-rows .hs-line { grid-template-columns: auto minmax(0, 1fr); }
+  .ev-side { grid-column: 1 / -1; max-width: none; white-space: normal; }
+}
 .alerts-bar:not([hidden]) { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 14px; padding: 10px 22px; background: color-mix(in srgb, var(--amber) 16%, transparent); border-bottom: 1px solid var(--amber); }
 .rp-md { color: var(--ink); font-size: 14px; line-height: 1.55; }
 .rp-md ul, .rp-md ol { list-style: revert; padding-left: 20px; margin: 0 0 8px; }
