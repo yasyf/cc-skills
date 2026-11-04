@@ -1290,6 +1290,14 @@ def test_the_sidebar_holds_the_navigation_on_a_wide_screen_and_a_bar_on_a_phone(
     now(page)
 
 
+def test_chat_counts_what_waits_on_him_once_and_never_calls_it_needs_me_twice(page):
+    asked = dt.datetime.now(dt.timezone.utc).isoformat()
+    question = {"reply": {"id": "q", "title": "Pick one", "md": "Which?", "type": "for_you"}, "at": asked, "surfaces": []}
+    chat_with(page, [question], [ask(3, "Delivered")])
+    assert page.locator('[data-cw-filter="needs"]').inner_text().startswith("Questions")
+    assert int(page.locator('[data-cw-filter="needs"] small').inner_text()) == int(page.locator(".tab.on .count").inner_text()) >= 1
+
+
 def test_the_phone_tab_bar_brings_the_current_screen_into_view_and_keeps_a_swipe_through_a_refresh(page):
     now(page)
     size = page.viewport_size
