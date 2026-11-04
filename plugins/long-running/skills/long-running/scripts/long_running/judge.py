@@ -56,6 +56,13 @@ ENGINEERING = frozenset(
     typecheck ui update upgrade upload url version vm webhook worktree
     """.split()
 )
+VAGUE_OPENERS = ("this", "these", "it", "the change")
+VAGUE_WORDS = (
+    "a few", "a number of", "and so on", "certain", "cleanup", "etc", "improvements", "minor", "one new setting", "several", "some changes",
+    "some fields", "some state", "some things", "some work", "stuff", "tweaks", "various",
+)
+VAGUE_OPENER = re.compile(rf"(?i)^\W*({'|'.join(VAGUE_OPENERS)})\b")
+VAGUE = re.compile(rf"(?i)\b({'|'.join(VAGUE_WORDS)})\b")
 PLAIN_MARKS = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-"})
 QUOTE_EDGES = " '\".,;:"
 ROW_HEADING = re.compile(r"^### (\S+) \|", re.MULTILINE)
@@ -112,6 +119,13 @@ PLAIN = """Would he stumble reading this text? Any of three things is a yes.
 Plain English, everyday engineering words, the product's nouns, the plain words given below for the drive's own words, his own words used as he used them, a pull request number with words beside it saying what it is, a link, and a file path cited to say where a change goes all pass, and so does a term the same text explains. A question that carries a reply or post drafted for Slack or for someone else, instead of asking him about facts, is a yes too.
 He follows these updates closely, so a plain-words reference back to something an earlier update or his board already showed him, such as "that card" or "the other three items", is not a stumble, and a pull request number passes when the same sentence says what the change does. A card, row or record named only by its number or id is still an id.
 Answer "yes" when he would stumble, quote the first term or line he would stumble on, and say in your sentence what to write instead."""
+FIRST_QUESTION = """Would this post make him ask something back before he can act on it? Either of two things is a yes.
+- An abstract change: a sentence describes a change without naming the concrete things, such as which fields or tables and where they live, which chats or users it applies to, and what happens before and after. "It adds one new setting" is abstract, because he has to ask which fields, where, and whether only for old chats. "It adds `window_unsealed` to the chat's stored row, for any chat over 64 turns, which then opens on its newest turns" is concrete.
+- An unanswered first question: the first thing he would ask on reading it, such as which one, what exactly, where, how long, why, what it is for or what an option changes for a user, is not answered in the post.
+A plain fact with no change in it, such as a landing, a time or the answer to what he asked, is a no. So is a reference to something an earlier update or his board already showed him, and so is detail he could ask for but does not need in order to act.
+Judge the post by itself: the evidence holds none of his words and needs none, so the evidence phrase stays empty.
+Answer "yes" when either holds, quote the sentence it rests on, and make your sentence the first question he would ask that the post does not answer. Answer "unsure" the same way, with the sentence and the question."""
+JUDGED_BY_ITSELF = frozenset({"first-question"})
 
 KINDS: dict[str, tuple[str, str]] = {
     "contract": ("a lane's contract: what it promises to build from his words", MISREAD),
@@ -164,6 +178,7 @@ When it does, answer "yes" if it drops, narrows or contradicts any part of his a
 Answer "yes" when the card asks him to grade a reading, and say in your sentence what the agent should do with its reading instead of asking.""",
     ),
     "plain": ("text the owner reads: a card, a board block, a question, a plan or a reply", PLAIN),
+    "first-question": ("a post the owner is about to read: a reply, a card or a board block", FIRST_QUESTION),
     "mechanism": (
         "the refusals, retries, timers and waits a pull request adds, as the lines that add them, with its body",
         "Does the pull request add a refusal, retry, timer or wait that neither his words nor the plan name?"
@@ -277,6 +292,7 @@ class Call:
             "cost_usd": round(sum(answer.cost_usd for answer in self.answers), 4),
             "tokens": sum(answer.tokens for answer in self.answers),
             "asks": len(self.answers),
+            "answers": [answer.verdict.verdict for answer in self.answers],
             "p_yes": next((answer.p_yes for answer in self.answers if answer.p_yes is not None), None),
             "error": self.error,
         }
@@ -417,7 +433,8 @@ def ask(kind: str, evidence: str, artifact: str, *, backend: Backend, timeout: f
         return answer.verdict
 
     try:
-        call.verdict = grounded(decide(backend, lambda: asked(sonnet(prompt, timeout, env, run=run, checkpoint=checkpoint)), lambda: asked(jev(state, question, timeout, env, run=run, checkpoint=checkpoint))), evidence)
+        decided = decide(backend, lambda: asked(sonnet(prompt, timeout, env, run=run, checkpoint=checkpoint)), lambda: asked(jev(state, question, timeout, env, run=run, checkpoint=checkpoint)))
+        call.verdict = decided if kind in JUDGED_BY_ITSELF else grounded(decided, evidence)
     except (subprocess.SubprocessError, OSError, ValueError, KeyError) as exc:
         checkpoint()
         call.error = f"{type(exc).__name__}: {exc}"[:300]
@@ -441,7 +458,7 @@ def plain_text(text: str) -> str:
 def quoted_row(evidence: str, phrase: str) -> str:
     piece = plain_text(phrase).split("...")[0].strip(QUOTE_EDGES)
     starts = [*ROW_HEADING.finditer(evidence)]
-    return next(start[1] for start, end in zip(starts, [*starts[1:], None]) if piece in plain_text(evidence[start.start() : end.start() if end else None]))
+    return next(start[1] for start, end in zip(starts, [*starts[1:], None], strict=True) if piece in plain_text(evidence[start.start() : end.start() if end else None]))
 
 
 def decide(backend: Backend, sonnet_ask: Callable[[], Verdict], jev_ask: Callable[[], Verdict]) -> Verdict:
@@ -465,7 +482,7 @@ def decide(backend: Backend, sonnet_ask: Callable[[], Verdict], jev_ask: Callabl
 def confirmed(second: Verdict, first: Verdict) -> Verdict:
     if second.flagged:
         return second if second.sentence else first
-    return Verdict("unsure", first.artifact_phrase, first.evidence_phrase, second.sentence)
+    return Verdict("unsure", first.artifact_phrase or second.artifact_phrase, first.evidence_phrase, second.sentence)
 
 
 def batch(kind: str, prompt: str, schema: str, *, drive: str | None = None, timeout: float = JUDGE_SECONDS, env: Mapping[str, str] | None = None) -> dict | None:

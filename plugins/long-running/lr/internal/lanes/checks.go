@@ -55,6 +55,7 @@ const (
 
 var (
 	alertURL       = regexp.MustCompile(`app\.datadoghq\.com/monitors/(\d+)|sentry\.io/\S*?issues/(\d+)`)
+	alertLink      = regexp.MustCompile(`https?://[\w.-]*(?:datadoghq\.com/monitors|sentry\.io/\S*?issues)/\d+`)
 	recoveredAlert = regexp.MustCompile(`(?i)^\W*(?:Recovered|Resolved)\b`)
 	redWatch       = regexp.MustCompile(`The Watch failed for (.+?) on (\S+?): ("[^"]+"(?:, "[^"]+")*) crossed`)
 	redSmoke       = regexp.MustCompile(`(\S+) is live, but (.+?) on (\S+?) went red`)
@@ -259,6 +260,13 @@ func factsOf(pairs ...string) []string {
 	return facts
 }
 
+func namedFor(fired alert, message slackMessage) string {
+	if link := alertLink.FindString(message.Text); link != "" {
+		return link
+	}
+	return fired.name
+}
+
 func firedAt(ts string) (time.Time, error) {
 	seconds, err := strconv.ParseFloat(ts, 64)
 	if err != nil {
@@ -300,7 +308,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 			return err
 		}
 		draft.Kind, draft.ID, draft.To = "note", "alert-joined:"+channel+":"+message.TS, []string{lane.Name}
-		draft.Text = fmt.Sprintf("ALERT-AGAIN %s: %s fired again %d min ago, so the supervisor told %s and launched nothing new", headline, alert.name, minutes, lane.Name)
+		draft.Text = fmt.Sprintf("ALERT-AGAIN %s: %s fired again %d min ago, so the supervisor told %s and launched nothing new", headline, namedFor(alert, message), minutes, lane.Name)
 		if _, err := a.Env.Bus.Post(ctx, draft); err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
@@ -337,7 +345,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 	if launchErr != nil {
 		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
 		failure := []rune(launchErr.Error())
-		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: launch its fix lane this turn with `lr incident run %s --fix-brief <file>`", headline, alert.name, minutes, alert.slug, string(failure[max(0, len(failure)-200):]), alert.slug)
+		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: launch its fix lane this turn with `lr incident run %s --fix-brief <file>`", headline, namedFor(alert, message), minutes, alert.slug, string(failure[max(0, len(failure)-200):]), alert.slug)
 	} else {
 		if a.launched == nil {
 			a.launched = map[string]bool{}
@@ -347,7 +355,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		draft.Kind, draft.ID, draft.To = kindSpawn, "alert-launched:"+channel+":"+message.TS, []string{Root, OwnerRelay}
 		draft.LaneRefs = []string{alert.slug + "-fix"}
 		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}
-		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence", headline, alert.name, minutes, alert.slug, alert.slug)
+		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence", headline, namedFor(alert, message), minutes, alert.slug, alert.slug)
 	}
 	if _, err := a.Env.Bus.Post(ctx, draft); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
