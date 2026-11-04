@@ -35,6 +35,7 @@ from .pr_ledger import OPENERS
 from .register_injection import drive_args, helper
 from .root_context import FILE_WRITES
 from .session_tree import drive_lane
+from .vet_before_push import branch_diff
 from .tests.register_fixtures import (
     ACTIVE,
     CWD,
@@ -140,6 +141,7 @@ RELEASE_VALUE_FLAGS = TARGET_FLAGS | {"--env", "--commit", "--stack"}
 GATES_OWED = "Warning, nothing was blocked: gate rows the register holds as owed name what this call starts. Meet each before going on."
 CONTRACT_MISSING = "CONTRACT-MISSING "
 READBACK_WARNED = "readback-warned"
+TEXT_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
 ACCEPTED = "accepted "
 ACCEPTED_CHECK = f"{sys.executable} {script('rulings.py')} accepted"
 READBACK_MISSING = (
@@ -832,6 +834,13 @@ def reports_ready(run: tuple[str, ...]) -> bool:
     return "ledger.py" in {Path(arg).name for arg in run[:2]} and "report" in run and any(text.startswith("READY") for text in option(run, "--text"))
 
 
+def text_only(evt: BaseHookEvent, call: Call) -> bool:
+    if isinstance(diffed := branch_diff(evt, call, "--name-only"), str):
+        return False
+    names = diffed[1].splitlines()
+    return bool(names) and all(Path(name).suffix in TEXT_SUFFIXES for name in names)
+
+
 def owning_lane(evt: BaseHookEvent) -> str | None:
     return (evt.agent_id and drive_lane(evt, helper)) or lane_name(evt)
 
@@ -904,7 +913,7 @@ def readback_gate(evt: BaseHookEvent) -> HookResult | None:
     try:
         if not (lane := owning_lane(evt)) or not (entry := drive_entry(evt)) or incident_lane(evt, lane):
             return None
-        owed = [run for call, run in called if not outside_drive_repo(evt, call, entry)]
+        owed = [run for call, run in called if not outside_drive_repo(evt, call, entry) and not text_only(evt, call)]
         if not owed or (not any(new_branch(run) or reports_ready(run) for run in owed) and has_pr(entry, lane)):
             return None
         said = acceptance(evt, lane, entry["drive"])

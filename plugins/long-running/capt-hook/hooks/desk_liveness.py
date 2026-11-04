@@ -11,8 +11,8 @@ from zoneinfo import ZoneInfo
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, Bound, bus_name
-from .prompt_watch import DRIVE_ENV, FIXTURES, entry_of
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, Bound, bus_name, drive_entry
+from .prompt_watch import DRIVE_ENV, FIXTURES
 
 DESK = "orca-desk"
 DESK_INBOX = f"{DESK}.md"
@@ -75,7 +75,7 @@ def pacific(at: str) -> str:
     },
 )
 def desk_runner_down(evt: BaseHookEvent) -> HookResult | None:
-    if not (appends_to_desk(evt) or posts_to_desk(evt)) or (entry := entry_of(evt)) is None:
+    if not (appends_to_desk(evt) or posts_to_desk(evt)) or (entry := drive_entry(evt)) is None:
         return None
     if appends_to_desk(evt):
         return evt.context(

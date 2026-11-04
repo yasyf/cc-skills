@@ -569,12 +569,9 @@ def queue_register(state: CompactionState, reader: RegisterRead) -> None:
 
 def drive_entry(evt: BaseHookEvent) -> dict | None:
     drives = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
-    drive = reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")
-    for path in sorted(drives.glob("*.json")):
-        entry = json.loads(path.read_text())
-        if entry["drive"] == drive or (not drive and evt.session_id in entry["sessions"]):
-            return entry
-    return None
+    if drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE"):
+        return json.loads(named.read_text()) if (named := drives / f"{drive}.json").exists() else None
+    return next((entry for path in sorted(drives.glob("*.json")) if evt.session_id in (entry := json.loads(path.read_text()))["sessions"]), None)
 
 
 def bus_name(entry: dict) -> str:

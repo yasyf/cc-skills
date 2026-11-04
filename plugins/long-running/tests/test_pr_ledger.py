@@ -11,6 +11,7 @@ from captain_hook.snapshots.client import EvidenceIncomplete
 from captain_hook.testing.helpers import build_context
 
 from hooks.call_dir import UnknownDirectory, known_path, located, run_dir, unknown_dir
+from hooks.compaction_handoff import drive_entry
 from hooks.tests.ledger_fixtures import FIXTURES
 from hooks.pr_ledger import OpenedPr, lane_name, opened_prs, opener_cwd, response_text, settled_prs
 
@@ -548,3 +549,28 @@ def test_an_edited_body_on_a_pr_with_no_row_posts_nothing(tmp_path, tools):
     assert pr_ledger.record_edited_bodies(shipped(tmp_path, "https://github.com/Forge-AI/monorepo/pull/28534", "gh pr edit 28534 --body hello")) is None
 
     assert posted(calls) == []
+
+
+def test_a_named_drive_reads_only_its_own_registry_file(tmp_path, monkeypatch):
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "other.json").write_text("not json")
+    (drives / "mine.json").write_text(json.dumps({"drive": "mine", "sessions": []}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_DRIVE", "mine")
+    assert drive_entry(event(tmp_path))["drive"] == "mine"
+
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_DRIVE", "gone")
+    assert drive_entry(event(tmp_path)) is None
+
+
+def test_a_session_with_no_drive_named_finds_the_drive_that_holds_it(tmp_path, monkeypatch):
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "other.json").write_text(json.dumps({"drive": "other", "sessions": []}))
+    (drives / "mine.json").write_text(json.dumps({"drive": "mine", "sessions": [SESSION]}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+
+    assert drive_entry(event(tmp_path))["drive"] == "mine"

@@ -21,7 +21,7 @@ def test_a_mnemonic_prefix_config_still_yields_the_changed_paths(tmp_path: Path)
     git("update-ref", "refs/remotes/origin/HEAD", "HEAD")
     changed.write_text("new\n")
 
-    top, diff = branch_diff(SimpleNamespace(cwd=str(tmp_path)), SimpleNamespace(cwd=None), "-U0")
+    top, diff = branch_diff(SimpleNamespace(cwd=str(tmp_path)), SimpleNamespace(cwd=tmp_path), "-U0")
 
     assert top == tmp_path.resolve()
     assert touched(diff) == {"a.py": ["old", "new"]}
