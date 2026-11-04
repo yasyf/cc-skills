@@ -71,13 +71,13 @@ func TestAClonesGitMovesToTheLocalDiskOnceAndStillReadsWithoutItsLeftovers(t *te
 
 func TestACopyOfAStoreThatGainedAPackTakesItOnTheSecondWalk(t *testing.T) {
 	from, to := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(from, "pack-a"), []byte("a"), 0o444); err != nil {
+	if err := os.WriteFile(filepath.Join(from, "pack-a"), []byte("a"), 0o400); err != nil {
 		t.Fatal(err)
 	}
 	if err := copyTree(from, to); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(from, "pack-b"), []byte("b"), 0o444); err != nil {
+	if err := os.WriteFile(filepath.Join(from, "pack-b"), []byte("b"), 0o400); err != nil {
 		t.Fatal(err)
 	}
 	if err := copyTree(from, to); err != nil {
@@ -88,7 +88,7 @@ func TestACopyOfAStoreThatGainedAPackTakesItOnTheSecondWalk(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != 0o444 {
+		if info.Mode().Perm() != 0o400 {
 			t.Fatalf("%s copied as %v", pack, info.Mode())
 		}
 	}
