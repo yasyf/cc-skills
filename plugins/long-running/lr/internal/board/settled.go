@@ -29,6 +29,7 @@ const (
 	askedField         = "settled-asked"
 	cardLabel          = "card:"
 	boardCardLabel     = "board-card:"
+	optionsKind        = "options"
 )
 
 type ownerAnswer struct {
@@ -221,13 +222,23 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 	}
 	answers, err := c.answers(ctx)
 	if err != nil {
-		return nil, errors.Join(append(failed, err)...)
+		failed = append(failed, err)
 	}
 	settled, err := settles(ctx, judge, c.settledByHim(), card, title, answers, "")
 	if settled != nil {
 		return settled.Refusal(), nil
 	}
-	return nil, errors.Join(append(failed, err)...)
+	if err != nil {
+		failed = append(failed, err)
+	}
+	offered, err := judge(ctx, optionsKind, "A coding agent drew this card on the owner's board for him to answer.", string(card))
+	if verdictOf(offered) == "yes" {
+		return fmt.Errorf("refused: %s", offered.Sentence), nil
+	}
+	if err != nil || offered == nil {
+		failed = append(failed, fmt.Errorf("the judge did not read whether its options fix the cause and name a fix beside any loss: %w", cmp.Or(err, errors.New("no verdict"))))
+	}
+	return nil, errors.Join(failed...)
 }
 
 func (c Cards) settledByHim() settlingSource {

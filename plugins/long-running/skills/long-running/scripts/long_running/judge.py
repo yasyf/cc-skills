@@ -163,6 +163,11 @@ When it does, answer "yes" if it drops, narrows or contradicts any part of his a
         """Does the card ask him to confirm or grade an agent's reading of his own words, in any wording, instead of asking him to decide something his words leave open? Judge the card by itself: the evidence holds none of his words and needs none, so a card saying what he said is enough, and the evidence phrase stays empty. A card that restates what he said and asks whether it is right, read correctly, what he meant, or offers right, wrong or other on that restatement is a yes. A card whose options are real alternatives his words have not chosen between is a no, even when it quotes him.
 Answer "yes" when the card asks him to grade a reading, and say in your sentence what the agent should do with its reading instead of asking.""",
     ),
+    "options": (
+        "a card an agent is about to draw on his board, with every option it offers",
+        """Does the card fail him in either of two ways? First, it asks how to handle a failure or a defect and every option only lives with it, such as retrying, skipping, waiting, raising a limit or accepting the loss, when a change that removes the cause could be offered. A question with nothing broken, such as a taste, scope or timing pick, never fails this way. Second, the background or an option names something that breaks or is lost and says nothing of the plan that fixes it. Judge the card by itself: the evidence holds none of his words and needs none, and the evidence phrase stays empty.
+Answer "yes" when the card fails either way, and say in your sentence which, and what to add: the option that fixes the cause, or the plan beside that loss.""",
+    ),
     "plain": ("text the owner reads: a card, a board block, a question, a plan or a reply", PLAIN),
     "mechanism": (
         "the refusals, retries, timers and waits a pull request adds, as the lines that add them, with its body",

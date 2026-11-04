@@ -192,7 +192,7 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 				Kind: kindNote,
 				To:   []string{record.Lane},
 				Re:   record.Seq,
-				Line: fmt.Sprintf("UNTYPED #%d reads as a choice for him with no card: %s If it is his, post it to %s as `CARD: card-<slug>: <question>`, options recommended first. If it is yours or root's, ignore this.", record.Seq, excerpt(record.Text), pass.BoardDesk),
+				Line: fmt.Sprintf("UNTYPED #%d reads as a choice for him with no card: %s If it is his, ask him with `lr ask-owner`, options recommended first. If it is yours or root's, ignore this.", record.Seq, excerpt(record.Text)),
 			})
 		}
 	}
@@ -272,7 +272,7 @@ func (c *Check) offBoard(record client.Record, unseen string) (Finding, bool) {
 		Kind: kindNote,
 		To:   owners,
 		Re:   record.Seq,
-		Line: fmt.Sprintf("OFF-BOARD #%d from %s is a defect, never a wait: %s, so he never sees it. %s draws each card on the main board with `lr board draw` and sends its Slack copy, then names the card-<slug> ids: %s", record.Seq, record.Lane, unseen, record.Lane, excerpt(record.Text)),
+		Line: fmt.Sprintf("OFF-BOARD #%d from %s is a defect, never a wait: %s, so he never sees it. %s asks each on the main board and in his Slack with `lr ask-owner`, then names the card-<slug> ids: %s", record.Seq, record.Lane, unseen, record.Lane, excerpt(record.Text)),
 	}, true
 }
 
