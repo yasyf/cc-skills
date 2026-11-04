@@ -163,7 +163,7 @@ def communicator_holds_the_owners_dm(evt: BaseHookEvent) -> None:
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        Input(prompt="where are we", state=away(61), env=DRIVE_CONFIG): Warn(pattern=r"^The owner is back after 61 minutes away\..*`/s/brook/progress-desk/steps\.json`"),
+        Input(prompt="where are we", state=away(61), env=DRIVE_CONFIG): Warn(pattern=r"^The owner is back after 61 minutes away\..*dashboard link on its first line"),
         Input(prompt="where are we", state=away(59), env=DRIVE_CONFIG): Allow(),
         Input(prompt="where are we", state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG): Allow(),
         Input(prompt="<task-notification>update-desk finished</task-notification>", state=away(61), env=DRIVE_CONFIG): Allow(),
