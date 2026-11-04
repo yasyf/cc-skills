@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -186,7 +187,8 @@ func readGateInputs(ctx context.Context, drive string, now time.Time) (gateInput
 		}
 		var inputs gateInputs
 		if err := json.Unmarshal([]byte(records[i].Fields.Attrs[gateInputsAttr]), &inputs); err != nil {
-			return gateInputs{}, fmt.Errorf("gate inputs #%d: %w", records[i].Seq, err)
+			slog.Warn("gate inputs record does not parse, so the gate reads the one before it", "record", records[i].Seq, "error", err)
+			continue
 		}
 		return inputs, nil
 	}

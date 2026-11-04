@@ -237,3 +237,29 @@ func TestALandingOnlyMachineWithNoInputsRefusesToCallAnyLaneAFix(t *testing.T) {
 		t.Fatal("a mirror with no inputs record answered whether a lane is a fix")
 	}
 }
+
+func TestABadInputsRecordLeavesTheGateOnTheRecordBeforeIt(t *testing.T) {
+	now := time.Now()
+	p, _ := publisher(t, openBoard, &now)
+	bad := client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "bad", Text: "bad", Attrs: map[string]string{gateInputsAttr: `{""cards"":[]}`}}
+	if _, err := client.Post(context.Background(), bad); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readGateInputs(context.Background(), "d", now); err == nil || !strings.Contains(err.Error(), gateInputsTopic) {
+		t.Fatalf("a bad record alone read as %v", err)
+	}
+	if err := p.Pass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	bad.ID = "bad-2"
+	if _, err := client.Post(context.Background(), bad); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := readGateInputs(context.Background(), "d", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs.Cards) != 1 || inputs.Cards[0].ID != "card-49064" {
+		t.Fatalf("the gate did not read the record before the bad one: %+v", inputs)
+	}
+}
