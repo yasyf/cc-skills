@@ -44,7 +44,6 @@ function nowScreen() {
   const b = m.brief;
   if (!b) return `<div class="nw"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p>${diagramSlot()}</div>`;
   const html = `<div class="nw">
-    ${overdueBand()}
     ${band(b)}
     <h1 class="nw-head">${esc(b.headline)}</h1>
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
@@ -69,25 +68,6 @@ function fyiFeed() {
   return `<section class="nw-fyi"><h2 class="nw-h">Decided for you, and what changed</h2>${eventList(rows.slice(0, EVENTS_AT_REST))}${earlier > 0 ? `<a class="ev-all" href="#/history">Earlier today ${countPill(earlier)} ›</a>` : ''}</section>`;
 }
 
-const OVERDUE_GROUP = {
-  pick: (n) => `${n} of your picks not carried out`,
-  ask: (n) => `${plural(n, 'ask')} with no answer`,
-  retro: (n) => `${plural(n, 'retro action')} not done`,
-  finding: (n) => `${plural(n, 'finding')} not closed`,
-  repeat: (n) => plural(n, 'repeating alarm'),
-};
-function overdueBand() {
-  const items = state.model.coordinator_overdue ?? [];
-  if (!items.length) return '';
-  const clipped = (item) => esc(item.text.replace(/^(.{120}\S*)\s.+$/s, '$1…'));
-  const named = (item) => `<li><time>${esc(item.due)}</time><span>${item.seq ? `<a href="/record/${item.seq}" target="_blank" rel="noopener">${clipped(item)}</a>` : clipped(item)}</span></li>`;
-  const groups = new Map(groupBy(items, (item) => item.group));
-  const rows = Object.keys(OVERDUE_GROUP).filter((group) => groups.has(group)).map((group) => {
-    const list = groups.get(group);
-    return { id: `overdue-${group}`, at: list[0].due, word: 'Overdue', tone: 'bad', title: OVERDUE_GROUP[group](list.length), more: `<ol class="ev-named">${list.map(named).join('')}</ol>` };
-  });
-  return `<section class="nw-overdue"><h2 class="nw-h">The coordinator owes you ${plural(items.length, 'overdue item')}</h2>${eventList(rows)}</section>`;
-}
 function band(b) {
   const m = state.model;
   const incident = b.band.kind === 'incident' ? `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>` : '';

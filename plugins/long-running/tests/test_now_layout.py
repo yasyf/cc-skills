@@ -367,7 +367,7 @@ def test_what_failed_folds_to_lines_and_a_broken_row_says_what_it_lacks(page):
     assert page.locator(".nw-notlive").count() == 0
 
 
-def test_what_the_coordinator_owes_folds_by_kind_and_names_each_when_opened(page):
+def test_what_the_coordinator_owes_is_on_your_asks_folded_by_kind_and_not_on_now(page):
     now(page)
     page.evaluate("""() => {
         state.model.coordinator_overdue = [
@@ -375,15 +375,18 @@ def test_what_the_coordinator_owes_folds_by_kind_and_names_each_when_opened(page
             { id: 'pick-2', group: 'pick', seq: 2, due: '4:20 AM', text: 'Start the release?' },
             { id: 'pick-3', group: 'pick', seq: 3, due: '4:21 AM', text: 'Delete the leftovers?' },
         ];
+        state.model.owner_asks = { messages: [], taps: [], store: [] };
         render();
     }""")
-    band = page.locator(".nw-overdue")
-    assert "3 overdue items" in band.locator(".nw-h").text_content().lower()
-    rows = band.locator(".ev-rows > li")
-    assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()] == ["2 of your picks not carried out", "1 ask with no answer"]
+    assert "overdue item" not in page.locator(".nw").inner_text().lower()
+    page.evaluate("location.hash = '#/asks'")
+    page.wait_for_selector(".ev-rows")
+    rows = page.locator(".ev-rows > li")
+    assert [row.locator("summary").inner_text().split("\n")[-1] for row in rows.all()][:2] == ["2 of your picks not carried out", "1 ask with no answer"]
     assert "Delete the leftovers?" in rows.first.text_content()
-    page.evaluate("() => { state.model.coordinator_overdue = []; render(); }")
-    assert page.locator(".nw-overdue").count() == 0
+    assert page.locator(".tab.on .count").inner_text() == "3"
+    page.evaluate("() => { state.model.coordinator_overdue = []; delete state.model.owner_asks; render(); }")
+    now(page)
 
 
 def test_a_retro_table_that_does_not_read_says_so_above_the_table(page):
@@ -545,7 +548,7 @@ def test_a_page_served_without_the_assistant_hides_it_and_calls_no_model(page):
 
 TAP_QUEUE = [
     {"kind": "land", "id": "land-49902", "number": 49902, "title": "Idle runners stop renewing", "frees": 3, "line": "Frees 2 changes: Team credential; Cache removal. 1 worker stopped until you tap.", "recommended": "Approve"},
-    {"kind": "pick", "id": "card-tq", "card": "card-tq", "title": "Should the credential write run folders?", "frees": 1, "line": "1 worker stopped until you tap.", "recommended": "One credential"},
+    {"kind": "pick", "id": "card-tq", "card": "card-tq", "title": "Should the credential write run folders?", "frees": 1, "line": "1 worker stopped until you tap.", "recommended": "One credential", "choice": "tq-pick"},
     {"kind": "slack", "id": "slack-tq", "card": "slack-tq", "title": "Post this in a Slack thread?", "frees": 0, "line": "No worker is waiting on this post. (#49638) is in review.", "recommended": "Yes", "text": "@someone, the fix is in review.", "choice": "slack-tq-answer", "options": [{"id": "yes", "label": "Yes", "recommended": True}, {"id": "no", "label": "No", "recommended": False}], "subject": "questions-for-you--x"},
 ]
 TAP_ROW = {"number": 49902, "head": "abc1234", "state": "you", "block": "merge-prs", "title": "Idle runners stop renewing", "key": "tq"}

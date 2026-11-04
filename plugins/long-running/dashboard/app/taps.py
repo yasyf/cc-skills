@@ -143,9 +143,9 @@ def card_tap(card, kind, above, lanes, named, entries, title_of):
     words = freed_words(prs, waiting, title_of)
     summary = slack_text(first_sentence(card.get("summary")))
     line = f"{words or 'No worker is waiting on this post.'} {summary}" if kind == SLACK else words or f"No recorded work waits on it. {summary}"
-    tap = {"kind": kind, "id": card["id"], "card": card["id"], "title": card["title"], "frees": len(prs) + len(waiting), "line": line.strip(), "recommended": card.get("recommended")}
+    tap = {"kind": kind, "id": card["id"], "card": card["id"], "title": card["title"], "frees": len(prs) + len(waiting), "line": line.strip(), "recommended": card.get("recommended"), "choice": card.get("choice")}
     if "subject" in card:
-        tap.update({key: card[key] for key in ("text", "choice", "options", "subject")})
+        tap.update({key: card[key] for key in ("text", "options", "subject")})
     return tap
 
 
