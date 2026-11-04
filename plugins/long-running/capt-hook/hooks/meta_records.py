@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 
 from .cci_mcp_posts import POST_TOOL
+from .compaction_handoff import Bound
 from .lane_rotation import ROOT, route, routed
 from .owner_facing import CCI_POST, record_text
 from .session_tree import drive_lane
@@ -72,7 +73,7 @@ META_TO_ROOT = (
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", POST_TOOL), MetaRecordToRoot()],
+    only_if=[Bound(), Tool("Bash", POST_TOOL), MetaRecordToRoot()],
     tests={
         Input(command=REPORT, env=DRIVE_CONFIG, commands=IS_META): Warn(pattern=r"^Warning, nothing was blocked: A meta lane's record never reaches root[\s\S]*`owner-relay`[\s\S]*one `--kind decide` line"),
         Input(command=REPORT.replace("--to root", "--to owner-relay,root@brook-drive"), env=DRIVE_CONFIG, commands=IS_META): Warn(),
@@ -100,7 +101,7 @@ META_DONE = (
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", POST_TOOL), MetaDoneOwesItsInstall()],
+    only_if=[Bound(), Tool("Bash", POST_TOOL), MetaDoneOwesItsInstall()],
     tests={
         Input(command=DONE, env=DRIVE_CONFIG, commands=IS_META): Warn(pattern=r"^Warning, nothing was blocked: A meta lane's `--kind done`[\s\S]*`--attr installed=[\s\S]*`--kind landed --pr <n>`"),
         Input(command=f"{DONE} --attr installed=0.7.1198", env=DRIVE_CONFIG, commands=IS_META): Warn(),

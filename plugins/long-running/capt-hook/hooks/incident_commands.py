@@ -5,9 +5,8 @@ import re
 import subprocess
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
-from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, judged
+from .compaction_handoff import Bound, CompactionState, judged
 from .lane_landing import DRIVE_ENV, drive_entry, lane_name
 from .owner_facing import incident_sources, open_incidents
 from .tests.incident_fixtures import BARE_INCIDENT, CLOSED_0820, EARLIER_CLOSEOUT, INCIDENT_CLOSED, SAND_NOT_MIGRATED
@@ -54,10 +53,6 @@ def run(argv: list[str]) -> subprocess.CompletedProcess[str] | None:
         return subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=READ_TIMEOUT_SECONDS)
     except (OSError, subprocess.TimeoutExpired):
         return None
-
-
-def drive_session(evt: BaseHookEvent) -> bool:
-    return bool(reqenv.getenv("CLAUDE_LONG_RUNNING_LANE")) or CompactionState.load(evt).active
 
 
 def token(target: str) -> re.Pattern[str]:
@@ -168,7 +163,7 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests=separate("incident_commands.release_undo_cites_its_cause", {
         cancel("tools/ci release cancel 2026-01-05/7", commands={"cci grep": ""}): Warn(pattern=r"^Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record"),
         cancel("./tools/ci release rollback sand --to 905", commands={"cci grep": ""}): Block(),
@@ -221,7 +216,7 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
     }, all_cases=True),
 )
 def release_undo_cites_its_cause(evt: BaseHookEvent) -> HookResult | None:
-    if not (calls := undos(evt)) or not drive_session(evt):
+    if not (calls := undos(evt)):
         return None
     texts = [str(evt.command)]
     if all(undo_settled(evt, call, texts) for call in calls):
@@ -248,7 +243,7 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         plugin("claude plugin update long-running@skills", SAND_NOT_MIGRATED): Warn(pattern=r"^Warning, nothing was blocked: Incident tooling stays as it is"),
         plugin("claude plugin install long-running@skills", SAND_NOT_MIGRATED): Warn(),
@@ -262,6 +257,6 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
     },
 )
 def no_tooling_change_during_an_incident(evt: BaseHookEvent) -> HookResult | None:
-    if not tooling_change(evt) or not drive_session(evt) or not open_incidents(evt):
+    if not tooling_change(evt) or not open_incidents(evt):
         return None
     return evt.context(FROZEN_TOOLING)

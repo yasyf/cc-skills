@@ -6,6 +6,7 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, 
 from captain_hook.cmd import Call
 
 from .cci_mcp_posts import POST_TOOL
+from .compaction_handoff import Bound
 from .deadline_plans import posts
 from .lane_landing import lane_name
 from .pr_ledger import OPENERS
@@ -56,7 +57,7 @@ class AsksOrOpensAPR:
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Bash"), InLane(), RunsAnswerSearch()],
+    only_if=[Bound(), Tool("Bash"), InLane(), RunsAnswerSearch()],
     skip_if=[FromSubagent()],
     tests={
         Input(command="ccn answer search old-chats", env=LANE): Allow(),
@@ -70,7 +71,7 @@ def note_the_answer_search(evt: BaseHookEvent) -> None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", POST_TOOL), InLane(), AsksOrOpensAPR()],
+    only_if=[Bound(), Tool("Bash", POST_TOOL), InLane(), AsksOrOpensAPR()],
     skip_if=[FromSubagent(), Searched()],
     tests={
         Input(command=ASK, env=LANE): Warn(pattern=r"^Warning, nothing was blocked: Search his answers"),

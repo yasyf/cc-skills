@@ -15,7 +15,7 @@ from captain_hook import Allow, Annotated, BaseHookEvent, Event, FromSubagent, H
 from cc_transcript import UserEvent
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry, failure_of, judged, post_blocker, register_context, register_of, rulings, script, script_module
+from .compaction_handoff import Bound, CompactionState, drive_entry, failure_of, judged, post_blocker, register_context, register_of, rulings, script, script_module
 from .nudges import once_per_hour
 from .session_tree import Subagent, drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -187,7 +187,7 @@ def judge_answer(verdict: dict) -> str:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Agent", "Bash")],
+    only_if=[Bound(), Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
     tests=separate("register_injection.slice_on_spawn", {
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
@@ -255,7 +255,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Agent", "Bash")],
+    only_if=[Bound(), Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
     tests=separate("register_injection.warn_unscaled_spawn", {
         spawn("lane-a", UNSCALED): Warn(pattern=r"^Warning, nothing was blocked: brief <brief> has no `Scale:` line; add one line to it: `Scale: no N`"),
@@ -282,7 +282,7 @@ def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Agent")],
+    only_if=[Bound(), Tool("Agent")],
     skip_if=[Annotated("raw"), Annotated("incident", "none")],
     tests={
         spawn("api-sessions-fix", ALERT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s[\s\S]*desk-launch\.py incident <name> <brief>"),
@@ -316,7 +316,7 @@ def warn_incident_brief_without_403_stand_down(evt: BaseHookEvent) -> HookResult
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Agent")],
+    only_if=[Bound(), Tool("Agent")],
     skip_if=[Annotated("raw")],
     tests=separate("register_injection.record_spawn", {
         spawn("lane-a", SLICED, commands={SPAWNED: ""}): Allow(),
@@ -407,7 +407,7 @@ DESK_LOOP_CLAUDE = {CLAUDE_STARTED: "claude -p --model claude-sonnet-5-5 'answer
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     skip_if=[Annotated("raw")],
     tests=separate("register_injection.register_lane_at_first_command", {
         Input(command="git status", env=ORCA_LANE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null\ngit status"),
@@ -442,7 +442,7 @@ def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests=separate("register_injection.settle_lane_registration", {
         Input(command=f"{registration('lane-a', window=True)}\ngit status", env=ORCA_LANE, state=[LaneRegistrations(pending={ROOT_THREAD: "lane-a"})]): Allow(),
         Input(command="git status", env=ORCA_LANE): Allow(),
@@ -459,6 +459,7 @@ def settle_lane_registration(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.SubagentStart,
+    only_if=[Bound()],
     skip_planning_agents=False,
     tests=separate("register_injection.brief_subagent", {
         Input(agent_type="general-purpose", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
@@ -482,6 +483,7 @@ def brief_subagent(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.SessionStart,
+    only_if=[Bound()],
     skip_if=[FromSubagent()],
     tests=separate("register_injection.brief_drive_worker", {
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=FOUND): Warn(pattern=r"^Standing rules register `ccccccc`"),

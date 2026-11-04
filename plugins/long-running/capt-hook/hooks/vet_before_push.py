@@ -9,7 +9,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.util.builds import LOAD_PER_CORE, HostLoad, is_local_build
 from pydantic import BaseModel
 
-from .compaction_handoff import COMMUNICATOR_LANE, ROOT_LANE
+from .compaction_handoff import COMMUNICATOR_LANE, ROOT_LANE, Bound
 from .lane_landing import lane_name, program, run_quietly
 
 PUSHES = frozenset({("git", "push"), ("ccx", "vcs", "push"), ("ccx", "vcs", "ship"), ("gt", "submit")})
@@ -134,7 +134,7 @@ def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
 
 @on(
     Event.PostToolUse | Event.PostToolUseFailure,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command="go -C go/sand vet ./...", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="cd go/sand && go build ./internal/vm", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
@@ -150,7 +150,7 @@ def note_compile_checks(evt: BaseHookEvent) -> None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command="go -C go/sand vet ./...", env=SATURATED, cwd=str(FIXTURE)): Allow(),
         Input(command="go -C go/sand vet ./...", env=HEALTHY, cwd=str(FIXTURE)): Allow(),
@@ -242,7 +242,7 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
 
 @on(  # capt-hook: no-escape the owner ordered a hook rather than goodwill, and every misread fails open with a warning
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Block(pattern=r"^A lane runs `go build` and `go vet`[\s\S]*go -C \S+/go/sand build \./internal/vm\ngo -C \S+/go/sand vet \./internal/vm\n"),
         Input(command="git push origin HEAD", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("vet", root="go/sand")]): Block(pattern=r"go -C \S+ build \./internal/vm\n```$"),

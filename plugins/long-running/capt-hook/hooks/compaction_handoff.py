@@ -186,6 +186,12 @@ class Communicator:
         return evt.agent_id is None and state.active and state.communicator and not state.coordinator
 
 
+class Bound:
+    def check(self, evt: BaseHookEvent) -> bool:
+        state = CompactionState.load(evt)
+        return bool(reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) or state.active and (state.coordinator or state.communicator)
+
+
 def switched(case: Input, coordinator: bool) -> Input:
     states = case.state if isinstance(case.state, list) else [case.state] if case.state else []
     drive = [state for state in states if isinstance(state, CompactionState)]
@@ -926,6 +932,21 @@ def delivered_since(drive: str, since: str) -> list[str]:
 @on(
     Event.SessionStart,
     tests={
+        Input(source="startup", model="claude-fable-5-1[1m]"): Allow(),
+        Input(source="resume"): Allow(),
+    },
+)
+def record_model(evt: BaseHookEvent) -> HookResult | None:
+    if model := evt._raw.get("model"):
+        with CompactionState.mutate(evt) as state:
+            state.model = model
+    return None
+
+
+@on(
+    Event.SessionStart,
+    only_if=[Bound()],
+    tests={
         Input(
             source="compact",
             state=[CompactionState(active=True, coordinator=True, plan_path="/p/brook.md", slug="brook", phase="compacting")],
@@ -947,6 +968,7 @@ def delivered_since(drive: str, since: str) -> list[str]:
                     active=True, plan_path="/p/brook.md", slug="brook", phase="due", prior=["17ec5e6" + "0" * 33], narrative="aea91e3"
                 )
             ],
+            env={"CLAUDE_LONG_RUNNING_LANE": "lane-a"},
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, .*Reload the long-running rules .*context\.$"),
         Input(
             source="compact", transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]
@@ -973,8 +995,6 @@ def delivered_since(drive: str, since: str) -> list[str]:
 )
 def reground(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
-        if model := evt._raw.get("model"):
-            state.model = model
         if evt.source == "resume" and state.active and state.plan_path:
             resolve_record(state, evt.cwd)
             if state.store == "ccn" and (entry := drive_entry(evt)):

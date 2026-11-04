@@ -9,7 +9,7 @@ from functools import partial
 from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, ROOT_LANE, script_module
+from .compaction_handoff import ROOT_LANE, Bound, Communicator, CompactionState, Coordinator, bus_name, communicator_tests, coordinator_tests, drive_entry, script_module
 from .owner_facing import CCI_POST, board_bytes, board_sources, posted_text
 from .root_replies import DRIVE_ACTIVE, OWNER_WAITS, PACIFIC, owner_waits
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -224,7 +224,7 @@ def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     skip_if=[Annotated("raw")],
     tests={
         Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"}): Warn(pattern=r"card-a: q1 answered .*flush them at startup"),

@@ -6,6 +6,9 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
 
 from .buildkite_budget import MAX_SCRIPT_BYTES, SCRIPT_LANGS, executed_words, script_path
+from .compaction_handoff import Bound, CompactionState
+
+BOUND = [CompactionState(active=True, coordinator=True)]
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "run-cancels"
 CANCELS = re.compile(r"\bgh\s+run\s+cancel\b|/actions/runs/\S*/cancel\b")
@@ -51,17 +54,17 @@ def scripts_unscoped(evt: BaseHookEvent) -> bool:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Write")],
+    only_if=[Bound(), Tool("Bash", "Write")],
     tests={
-        Input(tool="Write", file="/work/every-repo.sh", content=(FIXTURES / "every-repo.sh").read_text()): Warn(pattern=r"^A run canceller cancels only yasyf/cc-skills pull_request runs"),
-        Input(tool="Write", file="/work/cc-skills-prs.sh", content=(FIXTURES / "cc-skills-prs.sh").read_text()): Allow(),
-        Input(tool="Write", file="/work/notes.md", content=(FIXTURES / "every-repo.sh").read_text()): Allow(),
-        Input(command="gh run cancel -R yasyf/cc-context 41435515365"): Warn(pattern=r"keep only `pull_request` events"),
-        Input(command="gh run list -R yasyf/cc-skills --event pull_request --limit 5 && gh run cancel -R yasyf/cc-skills 41435515365"): Allow(),
-        Input(command="gh api -X POST repos/yasyf/cc-skills/actions/runs/41435515365/cancel"): Warn(pattern=r"^A run canceller"),
-        Input(command=f"zsh {FIXTURES / 'every-repo.sh'}"): Warn(pattern=r"^A run canceller"),
-        Input(command=f"zsh {FIXTURES / 'cc-skills-prs.sh'}"): Allow(),
-        Input(command="gh run view 41435515365 -R yasyf/cc-context --log-failed"): Allow(),
+        Input(tool="Write", file="/work/every-repo.sh", content=(FIXTURES / "every-repo.sh").read_text(), state=BOUND): Warn(pattern=r"^A run canceller cancels only yasyf/cc-skills pull_request runs"),
+        Input(tool="Write", file="/work/cc-skills-prs.sh", content=(FIXTURES / "cc-skills-prs.sh").read_text(), state=BOUND): Allow(),
+        Input(tool="Write", file="/work/notes.md", content=(FIXTURES / "every-repo.sh").read_text(), state=BOUND): Allow(),
+        Input(command="gh run cancel -R yasyf/cc-context 41435515365", state=BOUND): Warn(pattern=r"keep only `pull_request` events"),
+        Input(command="gh run list -R yasyf/cc-skills --event pull_request --limit 5 && gh run cancel -R yasyf/cc-skills 41435515365", state=BOUND): Allow(),
+        Input(command="gh api -X POST repos/yasyf/cc-skills/actions/runs/41435515365/cancel", state=BOUND): Warn(pattern=r"^A run canceller"),
+        Input(command=f"zsh {FIXTURES / 'every-repo.sh'}", state=BOUND): Warn(pattern=r"^A run canceller"),
+        Input(command=f"zsh {FIXTURES / 'cc-skills-prs.sh'}", state=BOUND): Allow(),
+        Input(command="gh run view 41435515365 -R yasyf/cc-context --log-failed", state=BOUND): Allow(),
     },
 )
 def run_cancels_stay_on_cc_skills_prs(evt: BaseHookEvent) -> HookResult | None:

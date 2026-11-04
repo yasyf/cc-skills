@@ -7,8 +7,8 @@ from collections.abc import Iterable, Iterator
 from captain_hook import Allow, BaseHookEvent, Block, Call, CommandSchema, Event, HookResult, Input, Operand, Option, Tool, ast_grep, on
 
 from .board_text_gate import first, reply_body
-from .compaction_handoff import shared_tests
-from .local_builds import LANE_ENV, in_drive
+from .compaction_handoff import Bound, shared_tests
+from .local_builds import LANE_ENV
 from .owner_quotes import read
 from .pr_body_frozen import GH_API, ran
 from .tests.register_fixtures import ACTIVE, FIXTURES
@@ -101,7 +101,7 @@ def record(head: str, lane: str = BOARD_LANE, row: str = "48019") -> dict[str, s
 
 @on(  # capt-hook: no-escape an approval or tap under the owner's login stands only on his board verdict at the head
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests=shared_tests({
         Input(command="gh pr review 48019 --approve", env=LANE_ENV): Block(pattern=r"^An approval or tap verdict from a drive posts under the owner's GitHub login[\s\S]*`board verdict #<seq>`"),
         Input(command="gh pr review 48019 --approve", state=ACTIVE): Block(),
@@ -132,6 +132,4 @@ def record(head: str, lane: str = BOARD_LANE, row: str = "48019") -> dict[str, s
     }),
 )
 def owner_login_verdicts_cite_the_board(evt: BaseHookEvent) -> HookResult | None:
-    if not in_drive(evt):
-        return None
     return evt.block(UNGROUNDED) if any(not grounded(evt, target, repo, f"{evt.command.raw}\n{body}") for target, repo, body in verdicts(evt)) else None

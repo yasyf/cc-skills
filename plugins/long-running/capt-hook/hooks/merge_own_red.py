@@ -6,9 +6,11 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import bus_name, drive_entry
+from .compaction_handoff import Bound, CompactionState, bus_name, drive_entry
 from .lane_landing import DRIVE_ENV, landing_verb, lane_name, merge_target, repo_flag
 from .tests.merge_fixtures import BROADCAST, INHERITED, OWN, PENDING, UNREAD, own_red
+
+BOUND = [CompactionState(active=True, coordinator=True)]
 
 LR = Path(__file__).parents[2] / "bin" / "lr"
 MERGE_SETS = {"gh pr merge": (), "ccx vcs merge": ("--below",), "gh stack merge": ("--stack",)}
@@ -36,29 +38,29 @@ BROADCAST_NOTE = r"^The merge read these records for `fix-lane-1` on its way:\n`
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
-        Input(command="gh pr merge 5 --squash --admin", commands=own_red("5", said=OWN)): Block(pattern=OWN_FINDING),
-        Input(command="gh pr merge 5 --squash", commands=own_red("5", said=OWN)): Block(pattern=OWN_FINDING),
-        Input(command="gh -R acme/app pr merge 5 --squash", commands=own_red("--repo", "acme/app", "5", said=OWN)): Block(pattern=OWN_FINDING),
-        Input(command="gh stack merge 5 --yes --squash", commands=own_red("--stack", "5", said=OWN)): Block(pattern=OWN_FINDING),
-        Input(command="gh stack merge --merge-method squash 5", commands=own_red("--stack", "5", said=OWN)): Block(pattern=OWN_FINDING),
-        Input(command="ccx vcs merge 5 -R acme/app", commands=own_red("--below", "--repo", "acme/app", "5", said=OWN)): Block(pattern=OWN_FINDING),
-        Input(command="gh pr merge 5 --squash --admin", commands=own_red("5", said=INHERITED)): Warn(pattern=INHERITED_NOTE),
-        Input(command="gh pr merge 5 --squash", commands=own_red("5", said=INHERITED)): Warn(pattern=INHERITED_NOTE),
-        Input(command="gh stack merge 5 --yes --squash", commands=own_red("--stack", "5", said=INHERITED)): Warn(pattern=INHERITED_NOTE),
-        Input(command="ccx vcs merge 5", commands=own_red("--below", "5", said=INHERITED)): Warn(pattern=INHERITED_NOTE),
-        Input(command="gh pr merge 5 --squash --admin", commands=own_red("5", said=PENDING)): Allow(),
-        Input(command="gh pr merge --squash", commands=own_red(said=PENDING)): Allow(),
-        Input(command="gh stack merge --yes --squash", commands=own_red("--stack", said=PENDING)): Allow(),
-        Input(command="ccx vcs merge", commands=own_red("--below", said=PENDING)): Allow(),
+        Input(command="gh pr merge 5 --squash --admin", commands=own_red("5", said=OWN), state=BOUND): Block(pattern=OWN_FINDING),
+        Input(command="gh pr merge 5 --squash", commands=own_red("5", said=OWN), state=BOUND): Block(pattern=OWN_FINDING),
+        Input(command="gh -R acme/app pr merge 5 --squash", commands=own_red("--repo", "acme/app", "5", said=OWN), state=BOUND): Block(pattern=OWN_FINDING),
+        Input(command="gh stack merge 5 --yes --squash", commands=own_red("--stack", "5", said=OWN), state=BOUND): Block(pattern=OWN_FINDING),
+        Input(command="gh stack merge --merge-method squash 5", commands=own_red("--stack", "5", said=OWN), state=BOUND): Block(pattern=OWN_FINDING),
+        Input(command="ccx vcs merge 5 -R acme/app", commands=own_red("--below", "--repo", "acme/app", "5", said=OWN), state=BOUND): Block(pattern=OWN_FINDING),
+        Input(command="gh pr merge 5 --squash --admin", commands=own_red("5", said=INHERITED), state=BOUND): Warn(pattern=INHERITED_NOTE),
+        Input(command="gh pr merge 5 --squash", commands=own_red("5", said=INHERITED), state=BOUND): Warn(pattern=INHERITED_NOTE),
+        Input(command="gh stack merge 5 --yes --squash", commands=own_red("--stack", "5", said=INHERITED), state=BOUND): Warn(pattern=INHERITED_NOTE),
+        Input(command="ccx vcs merge 5", commands=own_red("--below", "5", said=INHERITED), state=BOUND): Warn(pattern=INHERITED_NOTE),
+        Input(command="gh pr merge 5 --squash --admin", commands=own_red("5", said=PENDING), state=BOUND): Allow(),
+        Input(command="gh pr merge --squash", commands=own_red(said=PENDING), state=BOUND): Allow(),
+        Input(command="gh stack merge --yes --squash", commands=own_red("--stack", said=PENDING), state=BOUND): Allow(),
+        Input(command="ccx vcs merge", commands=own_red("--below", said=PENDING), state=BOUND): Allow(),
         Input(command="gh pr merge 5 --squash --admin", env=LANE_ENV, commands=own_red(*LANE_READ, "5", said=UNREAD)): Block(pattern=UNREAD_RELAY),
         Input(command="gh stack merge 5 --yes --squash", env=LANE_ENV, commands=own_red("--stack", *LANE_READ, "5", said=UNREAD)): Block(pattern=UNREAD_RELAY),
         Input(command="ccx vcs merge 5", env=LANE_ENV, commands=own_red("--below", *LANE_READ, "5", said=UNREAD)): Block(pattern=UNREAD_RELAY),
         Input(command="gh pr merge 5 --squash --admin", env=LANE_ENV, commands=own_red(*LANE_READ, "5", said=BROADCAST)): Warn(pattern=BROADCAST_NOTE),
         Input(command="gh pr merge 5 --squash --admin", env=LANE_ENV, commands=own_red(*LANE_READ, "5", said=PENDING)): Allow(),
-        Input(command="gh pr merge 5 --disable-auto", commands=own_red("5", said=OWN)): Allow(),
-        Input(command="gh pr view 5 --json url", commands=own_red("5", said=OWN)): Allow(),
+        Input(command="gh pr merge 5 --disable-auto", commands=own_red("5", said=OWN), state=BOUND): Allow(),
+        Input(command="gh pr view 5 --json url", commands=own_red("5", said=OWN), state=BOUND): Allow(),
     },
 )
 def merge_never_lands_past_its_own_red(evt: BaseHookEvent) -> HookResult | None:

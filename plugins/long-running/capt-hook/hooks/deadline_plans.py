@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 
 from .cci_mcp_posts import POST_TOOL
-from .compaction_handoff import CompactionState
+from .compaction_handoff import Bound, CompactionState
 from .lane_rotation import DriveActive
 from .owner_facing import CCI_POST, posted_text
 
@@ -63,7 +63,7 @@ DEADLINE_PLAN = (
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", POST_TOOL), DriveActive(), PostsUnplannedDeadline()],
+    only_if=[Bound(), Tool("Bash", POST_TOOL), DriveActive(), PostsUnplannedDeadline()],
     tests={
         Input(command=POST, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: A record naming a deadline"),
         Input(command=f"{POST} --attr owner=memoryschema-1", state=ACTIVE): Warn(),

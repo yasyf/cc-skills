@@ -7,7 +7,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, script
+from .compaction_handoff import Bound, CompactionState, script
 from .lane_landing import lane_name
 from .lane_reports import is_lane
 from .lane_rotation import DriveActive
@@ -46,7 +46,7 @@ def touched_dirs(evt: BaseHookEvent) -> list[Path]:
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Bash"), FromSubagent(), DriveActive()],
+    only_if=[Bound(), Tool("Bash"), FromSubagent(), DriveActive()],
     tests={
         Input(command=f"cd {WORKTREE}/rust && git status", agent_id=AGENT, state=ACTIVE, env=ENV, commands={ANNOUNCE: ""}): Allow(),
         Input(command=f"git -C {WORKTREE} diff --stat", agent_id=AGENT, state=ACTIVE, env=ENV, commands={ANNOUNCE: ""}): Allow(),

@@ -9,12 +9,14 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, Warn, WorkflowState, hook, on, workflow_state
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, COMMUNICATOR_LANE, Communicator, CompactionState, bus_name, communicator_tests, drive_entry
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, COMMUNICATOR_LANE, Bound, Communicator, CompactionState, bus_name, communicator_tests, drive_entry
 from .owner_facing import REPLY_WINDOW
 from .register_capture import CREDENTIAL, REDACTED, STAMP, slack_dms
 from .register_gates import written_paths
 from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body
 from .tests.register_fixtures import CWD, DRIVE_CONFIG
+
+BOUND = [CompactionState(active=True, coordinator=True)]
 
 ACTIVE = [CompactionState(active=True, communicator=True)]
 LEDGER_DIR = "owner-relay"
@@ -218,15 +220,15 @@ class WritesRulings:
 
 hook(  # capt-hook: no-escape the owner ruled that his words reach the drive only through the ledger hook
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Edit", "Write", "MultiEdit"), WritesRulings()],
+    only_if=[Bound(), Tool("Bash", "Edit", "Write", "MultiEdit"), WritesRulings()],
     block=True,
     message=HAND_RULING,
     tests={
-        Input(tool="Write", tool_input={"file_path": "/s/brook/root/rulings/1102-1035-bug-followups.md", "content": "## 2:45 AM Nov 3, owner, terminal\n"}, cwd=CWD): Block(pattern=r"^The `owner_ledger` hook records every owner message"),
-        Input(tool="Edit", tool_input={"file_path": "/s/brook/root/rulings/1102-1035-bug-followups.md", "old_string": "a", "new_string": "b"}, cwd=CWD): Block(),
-        Input(command="printf 'Verbatim: x' >> /s/brook/root/rulings/1102-1035-bug-followups.md", cwd=CWD): Block(),
-        Input(command="cat /s/brook/root/rulings/1102-1035-bug-followups.md", cwd=CWD): Allow(),
-        Input(tool="Write", tool_input={"file_path": "/s/brook/rulings/4ffc9a5.md", "content": "x"}, cwd=CWD): Allow(),
+        Input(tool="Write", tool_input={"file_path": "/s/brook/root/rulings/1102-1035-bug-followups.md", "content": "## 2:45 AM Nov 3, owner, terminal\n"}, cwd=CWD, state=BOUND): Block(pattern=r"^The `owner_ledger` hook records every owner message"),
+        Input(tool="Edit", tool_input={"file_path": "/s/brook/root/rulings/1102-1035-bug-followups.md", "old_string": "a", "new_string": "b"}, cwd=CWD, state=BOUND): Block(),
+        Input(command="printf 'Verbatim: x' >> /s/brook/root/rulings/1102-1035-bug-followups.md", cwd=CWD, state=BOUND): Block(),
+        Input(command="cat /s/brook/root/rulings/1102-1035-bug-followups.md", cwd=CWD, state=BOUND): Allow(),
+        Input(tool="Write", tool_input={"file_path": "/s/brook/rulings/4ffc9a5.md", "content": "x"}, cwd=CWD, state=BOUND): Allow(),
     },
 )
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from captain_hook import Allow, Annotated, BaseHookEvent, Event, HookResult, Input, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import drive_entry
+from .compaction_handoff import Bound, drive_entry
 from .lane_landing import lane_name
 from .owner_facing import CCI_POST
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -26,7 +26,7 @@ def done_lanes(evt: BaseHookEvent) -> list[str]:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash"), Runs("cci", "post")],
+    only_if=[Bound(), Tool("Bash"), Runs("cci", "post")],
     skip_if=[Annotated("raw")],
     tests={
         Input(command="cci post --lane conflicts-2 --kind done --to landing-desk --text 'all merged'", env=DRIVE_CONFIG, commands={f"{DONE_CHECK} conflicts-2": REFUSAL}): Warn(pattern=r"A lane that owns an open PR never posts done[\s\S]*open: #13\ncci post --lane conflicts-2 --kind blocked --pr 13 "),

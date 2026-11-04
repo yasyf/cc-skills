@@ -27,7 +27,7 @@ from captain_hook import (
 from captain_hook.util import reqenv
 
 from . import session_tree
-from .compaction_handoff import bus_name, CompactionState, Coordinator, coordinator_tests, drive_entry, TURN_WINDOW
+from .compaction_handoff import TURN_WINDOW, Bound, CompactionState, Coordinator, bus_name, coordinator_tests, drive_entry
 from .lane_rotation import DriveActive
 from .nudges import once_per_hour, queue_nudge
 from .register_injection import MAINTENANCE, own_prompt, own_role
@@ -132,7 +132,7 @@ def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("TaskUpdate"), FromSubagent(), DriveActive()],
+    only_if=[Bound(), Tool("TaskUpdate"), FromSubagent(), DriveActive()],
     max_fires=1,
     tests={
         Input(
@@ -172,7 +172,7 @@ def lanes_leave_root_tasks_open(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse | Event.PostToolUse,
-    only_if=[Tool("TaskUpdate", "Bash"), FromSubagent(), DriveActive()],
+    only_if=[Bound(), Tool("TaskUpdate", "Bash"), FromSubagent(), DriveActive()],
     tests={
         Input(tool="TaskUpdate", agent_id="a1b2c3", tool_input={"taskId": "1", "status": "completed"}, tasks=[LANE_TASK], state=[CompactionState(active=True, coordinator=True)]): Allow(),
     },

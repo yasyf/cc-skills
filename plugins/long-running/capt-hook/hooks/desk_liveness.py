@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, bus_name
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, Bound, bus_name
 from .prompt_watch import DRIVE_ENV, FIXTURES, entry_of
 
 DESK = "orca-desk"
@@ -65,7 +65,7 @@ def pacific(at: str) -> str:
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command=APPEND, env=SILENT_CCI): Warn(pattern=r"^UNREAD: the relay reads only cci records addressed to `orca-desk`[\s\S]*cci post --lane <your lane> --kind go --to orca-desk --text"),
         Input(command=POST, env=SILENT_CCI): Warn(pattern=r"^LAUNCH-FAILED: no orca alive record from the relay in the last five minutes \(last never\)[\s\S]*supervisor\.log"),

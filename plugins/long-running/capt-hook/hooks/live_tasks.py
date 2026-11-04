@@ -6,6 +6,10 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, on
 from captain_hook.util import reqenv
 
+from .compaction_handoff import Bound, CompactionState
+
+BOUND = [CompactionState(active=True, coordinator=True)]
+
 LR = Path(__file__).parents[2] / "bin" / "lr"
 LIST_SECONDS = 20
 LIST = f"{LR} handoff live-tasks"
@@ -17,13 +21,14 @@ HEADS = {"resume": RESTARTED, "compact": COMPACTED}
 
 @on(
     Event.SessionStart,
+    only_if=[Bound()],
     tests={
-        Input(source="resume", commands={LIST: LINE}): Warn(pattern=r"^This session restarted and .*\n- Monitor \"ci log\" \(task aaa\)"),
-        Input(source="compact", commands={LIST: LINE}): Warn(pattern=r"^These background tasks were live when this session compacted"),
-        Input(source="resume", commands={LIST: ""}): Allow(),
-        Input(source="resume", commands={LIST: (1, "open transcript: no such file")}): Warn(pattern=r"^Could not list this session's background tasks"),
-        Input(source="startup", commands={LIST: LINE}): Allow(),
-        Input(source="clear", commands={LIST: LINE}): Allow(),
+        Input(source="resume", commands={LIST: LINE}, state=BOUND): Warn(pattern=r"^This session restarted and .*\n- Monitor \"ci log\" \(task aaa\)"),
+        Input(source="compact", commands={LIST: LINE}, state=BOUND): Warn(pattern=r"^These background tasks were live when this session compacted"),
+        Input(source="resume", commands={LIST: ""}, state=BOUND): Allow(),
+        Input(source="resume", commands={LIST: (1, "open transcript: no such file")}, state=BOUND): Warn(pattern=r"^Could not list this session's background tasks"),
+        Input(source="startup", commands={LIST: LINE}, state=BOUND): Allow(),
+        Input(source="clear", commands={LIST: LINE}, state=BOUND): Allow(),
     },
 )
 def a_restart_or_compaction_names_the_tasks_it_lost(evt: BaseHookEvent) -> HookResult | None:

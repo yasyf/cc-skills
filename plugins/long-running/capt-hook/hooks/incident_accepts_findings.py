@@ -5,7 +5,10 @@ import re
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.annotations import shell_comments
 
+from .compaction_handoff import Bound, CompactionState
 from .lane_landing import LANE, incident_lane, lane_name, option, run_quietly, sliced_brief
+
+BOUND = [CompactionState(active=True, coordinator=True)]
 
 PUSHES = frozenset({("git", "push"), ("ccx", "vcs", "push"), ("ccx", "vcs", "ship")})
 NOT_A_PUSH = frozenset({"--new-branch", "--create", "--no-push", "--dry-run", "-n", "--delete", "-d"})
@@ -45,20 +48,20 @@ def restarts_green_ci(evt: BaseHookEvent, call: Call) -> bool:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
-        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Block(pattern=r"^An incident fix accepts its reviewer findings.*scripts/pr-reviews accept <slug>"),
-        Input(command="git push", agent_id="aincident-api-500s-0123456789abcdef", commands=RUNNING): Block(pattern=r"`# fix-is-wrong: <slug>`"),
-        Input(command="ccx vcs push", agent_id="aincident-api-500s-0123456789abcdef", commands=OPEN | {"gh pr checks": "pass\n"}): Block(),
-        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RED): Allow(),
-        Input(command=POLISH, agent_id=LANE, commands=RUNNING): Allow(),
-        Input(command=f"{POLISH}  # fix-is-wrong: retry-test-misses-first-backoff", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Warn(pattern=r"^Finding `retry-test-misses-first-backoff` says"),
-        Input(command="ccx vcs ship --new-branch shared-open/fix -m 'shared-open: 🐛 fix'", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Allow(),
-        Input(command="ccx vcs ship -m 'shared-open: 🐛 fix'", agent_id=FIX_LANE, transcript=INCIDENT, commands={"gh pr view": (1, "no pull requests found")}): Allow(),
-        Input(command="ccx vcs ship --tip-only --no-commit", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING | {"git diff --name-only": ""}): Allow(),
-        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=OPEN | {"gh pr checks": (1, "no required checks reported")}): Allow(),
-        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING | {"git diff --name-only": (128, "fatal: bad object")}): Allow(),
-        Input(command="git push --dry-run", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Allow(),
+        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING, state=BOUND): Block(pattern=r"^An incident fix accepts its reviewer findings.*scripts/pr-reviews accept <slug>"),
+        Input(command="git push", agent_id="aincident-api-500s-0123456789abcdef", commands=RUNNING, state=BOUND): Block(pattern=r"`# fix-is-wrong: <slug>`"),
+        Input(command="ccx vcs push", agent_id="aincident-api-500s-0123456789abcdef", commands=OPEN | {"gh pr checks": "pass\n"}, state=BOUND): Block(),
+        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RED, state=BOUND): Allow(),
+        Input(command=POLISH, agent_id=LANE, commands=RUNNING, state=BOUND): Allow(),
+        Input(command=f"{POLISH}  # fix-is-wrong: retry-test-misses-first-backoff", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING, state=BOUND): Warn(pattern=r"^Finding `retry-test-misses-first-backoff` says"),
+        Input(command="ccx vcs ship --new-branch shared-open/fix -m 'shared-open: 🐛 fix'", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING, state=BOUND): Allow(),
+        Input(command="ccx vcs ship -m 'shared-open: 🐛 fix'", agent_id=FIX_LANE, transcript=INCIDENT, commands={"gh pr view": (1, "no pull requests found")}, state=BOUND): Allow(),
+        Input(command="ccx vcs ship --tip-only --no-commit", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING | {"git diff --name-only": ""}, state=BOUND): Allow(),
+        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=OPEN | {"gh pr checks": (1, "no required checks reported")}, state=BOUND): Allow(),
+        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING | {"git diff --name-only": (128, "fatal: bad object")}, state=BOUND): Allow(),
+        Input(command="git push --dry-run", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING, state=BOUND): Allow(),
     },
 )
 def incident_accepts_findings(evt: BaseHookEvent) -> HookResult | None:

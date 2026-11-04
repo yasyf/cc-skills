@@ -7,7 +7,7 @@ from pathlib import Path
 from captain_hook import CONFIRMED, UNCONFIRMED, Allow, BaseHookEvent, Block, Call, Confirm, Event, HookResult, Input, Or, Runs, Tool, on
 
 from .board_text_gate import reply_body
-from .compaction_handoff import shared_tests
+from .compaction_handoff import Bound, shared_tests
 from .pr_body_frozen import DRIVE, PR_EDIT, SHIP, InDrive
 from .tests.register_fixtures import ACTIVE, DRIVE_CONFIG, FIXTURES
 
@@ -39,7 +39,7 @@ def read(evt: BaseHookEvent, call: Call, paths: Iterable[str | None]) -> Iterato
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash"), Or(Runs("gh"), Runs("ccx", "vcs", "ship")), InDrive()],
+    only_if=[Bound(), Tool("Bash"), Or(Runs("gh"), Runs("ccx", "vcs", "ship")), InDrive()],
     tests=shared_tests({
         Input(command=f"gh pr create --title 'x: y' --body-file {QUOTE}", env=DRIVE, decide=CONFIRMED): Block(pattern=r"paraphrase"),
         Input(command=f"gh -R acme/app pr edit 12 -F {QUOTE}", env=DRIVE, decide=CONFIRMED): Block(),

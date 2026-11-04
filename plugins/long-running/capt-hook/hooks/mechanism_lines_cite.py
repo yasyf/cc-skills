@@ -5,7 +5,7 @@ from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, on
 
-from .compaction_handoff import Communicator, communicator_tests
+from .compaction_handoff import Bound, Communicator, communicator_tests
 from .owner_facing import CODE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, fenced, last_reply
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -79,7 +79,7 @@ def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
 
 @on(  # capt-hook: no-escape the owner ordered a mechanism sentence to him that cites no record refused
     Event.PreToolUse,
-    only_if=[Tool("Bash", SLACK_CARD, *DM_TOOLS)],
+    only_if=[Bound(), Tool("Bash", SLACK_CARD, *DM_TOOLS)],
     tests={
         card(title="Why did the FDE run crash?", body=SKEW): Block(pattern=r"^A sentence to the owner saying why[\s\S]*migration 6[\s\S]*That is a release skew[\s\S]*example: "),
         card(title="Why did the FDE run crash?", body=CITED): Allow(),

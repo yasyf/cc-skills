@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from captain_hook import Allow, Annotated, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 
-from .compaction_handoff import drive_entry
+from .compaction_handoff import Bound, drive_entry
 from .lane_landing import DRIVE_ENV, FIXTURES
 from .owner_facing import CCI_POST
 
@@ -25,7 +25,7 @@ PARENT_ONLY = "Warning, nothing was blocked: A sub-drive reports only to its par
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash"), OverTheParentsHead()],
+    only_if=[Bound(), Tool("Bash"), OverTheParentsHead()],
     skip_if=[Annotated("raw")],
     tests={
         Input(command="cci post --lane root --drive brook--billing --kind report --to owner-relay 'billing is up'", env=SUB_DRIVE): Warn(pattern=r"^Warning, nothing was blocked: A sub-drive reports only"),

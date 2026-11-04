@@ -16,7 +16,7 @@ from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, T
 from captain_hook.cmd import Cmd
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, LR, ccn, rulings, script, script_module
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, LR, Bound, CompactionState, ccn, rulings, script, script_module
 from .deadline_plans import unowned_deadline
 from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
 from .register_injection import drive_args
@@ -452,7 +452,7 @@ def exits(name: str, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "ExitPlanMode")],
+    only_if=[Bound(), Tool("Bash", "ExitPlanMode")],
     tests=separate("board_text_gate.board_text_gate", {
         **{update(name, sweep_out=HELD.get(name, "")): Warn(pattern=BREACHES[name]) for name in FAILING},
         **{update(redraft(name)): Allow() for name in FAILING},
@@ -534,7 +534,7 @@ def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests=separate("board_text_gate.start_board_watch", {
         Input(command="cc-present push board.json --session s1", state=[*PROGRAM_ACTIVE, BoardWatches(sessions=["s1"])]): Allow(),
         Input(command="cc-present push board.json --session s1 --dry-run", state=PROGRAM_ACTIVE): Allow(),

@@ -3,7 +3,7 @@ from __future__ import annotations
 from cc_transcript import AttachmentEvent, DeferredToolsDelta
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Warn, on
 
-from .compaction_handoff import Communicator, Coordinator, shared_tests
+from .compaction_handoff import Bound, Communicator, Coordinator, shared_tests
 from .owner_facing import CCI_POST
 from .tests.root_fixtures import ACTIVE
 
@@ -34,7 +34,7 @@ POST_THROUGH_THE_TOOL = f"Warning, nothing was blocked: This session lists the c
 
 @on(
     Event.PreToolUse,
-    only_if=[Or(Coordinator(), Communicator()), PostTheToolCarries(), ListsThePostTool()],
+    only_if=[Bound(), Or(Coordinator(), Communicator()), PostTheToolCarries(), ListsThePostTool()],
     tests=shared_tests({
         Input(command=POST, transcript=LISTED, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: This session lists the cci post tool, so post through `mcp__plugin_cc-inbox_cci__post`"),
         Input(command=f"cci tail --drive d --reader root --since 9 && {POST}", transcript=LISTED, state=ACTIVE): Warn(),

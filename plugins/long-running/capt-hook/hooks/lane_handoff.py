@@ -6,7 +6,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, WorkflowState, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import drive_entry
+from .compaction_handoff import Bound, drive_entry
 from .session_tree import ROOT_NAMES, drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -29,6 +29,7 @@ def lane_of(evt: BaseHookEvent) -> str | None:
 
 @on(
     Event.PreCompact,
+    only_if=[Bound()],
     tests={
         Input(env=LANE_ENV, commands={WRITE: "abc1234\n"}): Allow(),
         Input(env=LANE_ENV, commands={WRITE: (1, "the blocker is posted")}): Allow(),
@@ -50,6 +51,7 @@ def lane_writes_its_handoff_before_compacting(evt: BaseHookEvent) -> HookResult 
 
 @on(
     Event.SessionStart,
+    only_if=[Bound()],
     tests={
         Input(source="compact", env=LANE_ENV, state=[LaneHandoffs(docs={THREAD: "abc1234"})]): Warn(pattern=r"^You are fix-lane-1 and just compacted\. Read `ccn doc show abc1234`"),
         Input(source="compact", env=LANE_ENV): Allow(),

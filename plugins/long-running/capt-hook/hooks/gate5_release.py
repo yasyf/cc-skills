@@ -8,7 +8,9 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import bus_name
+from .compaction_handoff import Bound, CompactionState, bus_name
+
+BOUND = [CompactionState(active=True, coordinator=True)]
 
 LR = Path(__file__).parents[2] / "bin" / "lr"
 DRIVE = "durable-agents-rebuild"
@@ -142,26 +144,26 @@ def release(command: str, said: str | tuple[int, str] = "", routed: str = GATE_L
         ROUTE: json.dumps({"lane": GATE_LANE, "route": routed, "state": "desired", "standing": ""}),
         f"{GREP} --drive {DRIVE} --lane {GATE_LANE}" + (f" --lane {routed}" if routed not in (GATE_LANE, ROOT_LANE) else " --since"): said,
     }
-    return Input(command=command, env=env, commands=stubs | commands)
+    return Input(command=command, env=env, commands=stubs | commands, state=BOUND)
 
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
-        Input(command="tools/ci release start sand --without=web,sand-next,api"): Allow(),
-        Input(command="tools/ci release start --groups platform --without sand-next"): Allow(),
-        Input(command="tools/ci release start sand --only api,web"): Allow(),
-        Input(command="tools/ci release start --manual --stack api/plat-usw2-prod --commit dc94738"): Allow(),
-        Input(command="tools/ci release hotfix 48885 --without sand-next"): Allow(),
-        Input(command="tools/ci release status"): Allow(),
+        Input(command="tools/ci release start sand --without=web,sand-next,api", state=BOUND): Allow(),
+        Input(command="tools/ci release start --groups platform --without sand-next", state=BOUND): Allow(),
+        Input(command="tools/ci release start sand --only api,web", state=BOUND): Allow(),
+        Input(command="tools/ci release start --manual --stack api/plat-usw2-prod --commit dc94738", state=BOUND): Allow(),
+        Input(command="tools/ci release hotfix 48885 --without sand-next", state=BOUND): Allow(),
+        Input(command="tools/ci release status", state=BOUND): Allow(),
         release("tools/ci release start sand-next"): Block(pattern=r"^GATE5: this release carries sand-next at origin dev's tip, and switch-drive has posted no"),
-        Input(command="./tools/ci release start sand --without sand-next/core-usw2-auto"): Allow(),
-        Input(command="tools/ci release start sand"): Allow(),
-        Input(command="tools/ci release start everything"): Allow(),
-        Input(command="tools/ci release start --hotfix 49538"): Allow(),
-        Input(command="tools/ci release hotfix 49538 --dry-run"): Allow(),
-        Input(command="tools/ci release hotfix --help"): Allow(),
+        Input(command="./tools/ci release start sand --without sand-next/core-usw2-auto", state=BOUND): Allow(),
+        Input(command="tools/ci release start sand", state=BOUND): Allow(),
+        Input(command="tools/ci release start everything", state=BOUND): Allow(),
+        Input(command="tools/ci release start --hotfix 49538", state=BOUND): Allow(),
+        Input(command="tools/ci release hotfix 49538 --dry-run", state=BOUND): Allow(),
+        Input(command="tools/ci release hotfix --help", state=BOUND): Allow(),
         release("tools/ci release start --only sand-next,api"): Block(pattern=r"Ask switch-drive for a gate run"),
         release("tools/ci release start --manual sand-next --env core-usw2-auto --commit dc94738", passes(OTHER)): Block(pattern=r"^GATE5: this release carries sand-next at `dc94738`,"),
         release("tools/ci release start sand-next", passes(SHA)): Allow(),
@@ -173,11 +175,11 @@ def release(command: str, said: str | tuple[int, str] = "", routed: str = GATE_L
         release("tools/ci release start sand-next", (1, "cci: daemon unavailable")): Block(pattern=r"^GATE5 fails closed: it could not read[\s\S]*daemon unavailable"),
         release("tools/ci release start sand-next", **{"git ls-remote": (128, "fatal: could not read from remote")}): Block(pattern=r"^GATE5 fails closed[\s\S]*could not read from remote"),
         release("tools/ci release start sand-next", env={"CLAUDE_CONFIG_DIR": "/nonexistent"}): Block(pattern=r"no drive durable-agents-rebuild is registered"),
-        Input(command="ci release hotfix 48885"): Allow(),
+        Input(command="ci release hotfix 48885", state=BOUND): Allow(),
         release("tools/ci release start sand-next --green"): Block(pattern=r"^GATE5: a `--green` release"),
         release(
             "GATE5_OWNER_OVERRIDE=356990 tools/ci release start sand-next",
-            **{"cci show 356990": json.dumps({"seq": 356990, "lane": "owner-relay", "kind": "answer", "text": "ship sand-next now"}), "cci post": "#357200"},
+            **{"cci show 356990": json.dumps({"seq": 356990, "lane": "owner-relay", "kind": "answer", "text": "ship sand-next now"}), "cci post": "#357200"}
         ): Allow(),
         release("GATE5_OWNER_OVERRIDE=356990 tools/ci release start sand-next", **{"cci show 356990": json.dumps({"seq": 356990, "lane": "release-6", "kind": "note", "text": "x"})}): Block(
             pattern=r"names a record from `release-6`"

@@ -9,6 +9,10 @@ from urllib.parse import SplitResult, urlsplit
 
 from captain_hook import Allow, Annotated, BaseHookEvent, Call, Cmd, Event, HookResult, Input, Tool, Warn, ast_grep, on
 
+from .compaction_handoff import Bound, CompactionState
+
+BOUND = [CompactionState(active=True, coordinator=True)]
+
 FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "buildkite"
 REST_HOST = "api.buildkite.com"
 HTTP_CLIENTS = frozenset({"curl", "wget", "http", "xh"})
@@ -391,7 +395,7 @@ def command_findings(evt: BaseHookEvent) -> set[str]:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Monitor")],
+    only_if=[Bound(), Tool("Bash", "Monitor")],
     skip_if=[Annotated("raw")],
     max_fires=1,
     tests={
@@ -399,61 +403,61 @@ def command_findings(evt: BaseHookEvent) -> set[str]:
             command=(
                 "jq -r '.jobs[].id' build.json | xargs -P 6 -I{} zsh -c"
                 " \"bk api '/pipelines/$p/builds/$b/jobs/{}/log' | jq -r .content > $out/{}.log\""
-            )
+            ), state=BOUND
         ): Warn(pattern="bk build view"),
-        Input(command="for id in $(jq -r '.jobs[].id' b.json); do bk job log $id > $id.log; done"): Warn(),
-        Input(command="jq -r '.jobs[].id' b.json | while read id; do bk api \"/pipelines/test/builds/9/jobs/$id/log\"; done"): Warn(),
-        Input(command=f"cd /tmp && python3 {FIXTURES}/job_logs.py 595"): Warn(pattern="bk job log"),
-        Input(command=f"python3 {FIXTURES}/job_logs_pool.py"): Warn(),
+        Input(command="for id in $(jq -r '.jobs[].id' b.json); do bk job log $id > $id.log; done", state=BOUND): Warn(),
+        Input(command="jq -r '.jobs[].id' b.json | while read id; do bk api \"/pipelines/test/builds/9/jobs/$id/log\"; done", state=BOUND): Warn(),
+        Input(command=f"cd /tmp && python3 {FIXTURES}/job_logs.py 595", state=BOUND): Warn(pattern="bk job log"),
+        Input(command=f"python3 {FIXTURES}/job_logs_pool.py", state=BOUND): Warn(),
         Input(
             command=(
                 "python3 - <<'EOF'\nimport subprocess\nfor j in open('ids').read().split():\n"
                 "    subprocess.run(['bk', 'api', f'/pipelines/p/builds/1/jobs/{j}/log'])\nEOF"
-            )
+            ), state=BOUND
         ): Warn(),
-        Input(command="bash -c 'for id in a b; do bk job log $id; done'"): Warn(),
-        Input(command="bash -lc 'for id in a b; do bk job log $id; done'"): Warn(),
-        Input(command=f"cd {FIXTURES} && python3 job_logs.py 595"): Warn(),
-        Input(command=f"cat ids | xargs -n 1 python3 {FIXTURES}/one_job_log.py 595"): Warn(),
-        Input(command=f"for id in a b; do python3 {FIXTURES}/one_job_log.py 595 $id; done"): Warn(),
+        Input(command="bash -c 'for id in a b; do bk job log $id; done'", state=BOUND): Warn(),
+        Input(command="bash -lc 'for id in a b; do bk job log $id; done'", state=BOUND): Warn(),
+        Input(command=f"cd {FIXTURES} && python3 job_logs.py 595", state=BOUND): Warn(),
+        Input(command=f"cat ids | xargs -n 1 python3 {FIXTURES}/one_job_log.py 595", state=BOUND): Warn(),
+        Input(command=f"for id in a b; do python3 {FIXTURES}/one_job_log.py 595 $id; done", state=BOUND): Warn(),
         Input(
             command=(
                 "for id in $(cat ids); do curl -sS -H \"Authorization: Bearer $T\""
                 " https://api.buildkite.com/v2/organizations/forge/pipelines/test/builds/9/jobs/$id/log; done"
-            )
+            ), state=BOUND
         ): Warn(),
-        Input(tool="Monitor", tool_input={"command": "for id in a b; do bk job log $id; done", "description": "logs"}): Warn(),
-        Input(command="for id in a b; do bk job log $id; sleep 1; done"): Warn(pattern="sleep 2"),
-        Input(command="for id in a b; do bash -c 'bk job log $0' $id; sleep 1; done"): Warn(),
-        Input(command="bk job log 0190046e-e199-453b-a302-a21a4d649d31 --agent"): Allow(),
+        Input(tool="Monitor", tool_input={"command": "for id in a b; do bk job log $id; done", "description": "logs"}, state=BOUND): Warn(),
+        Input(command="for id in a b; do bk job log $id; sleep 1; done", state=BOUND): Warn(pattern="sleep 2"),
+        Input(command="for id in a b; do bash -c 'bk job log $0' $id; sleep 1; done", state=BOUND): Warn(),
+        Input(command="bk job log 0190046e-e199-453b-a302-a21a4d649d31 --agent", state=BOUND): Allow(),
         Input(
             command=(
                 "while read id name; do bk job log $id -p release -b 4292 > logs/$id.log; sleep 2; done < planjobs.txt"
-            )
+            ), state=BOUND
         ): Allow(),
-        Input(command="for id in a b; do bash -c 'bk job log $0' $id; sleep 3; done"): Allow(),
+        Input(command="for id in a b; do bash -c 'bk job log $0' $id; sleep 3; done", state=BOUND): Allow(),
         Input(
             command=(
                 "python3 -c \"import subprocess, time\nfor j in open('ids').read().split():\n"
                 "    subprocess.run(['bk', 'job', 'log', j])\n    time.sleep(2)\""
-            )
+            ), state=BOUND
         ): Allow(),
-        Input(command="bk build view 595 -p release-pr-check --json"): Allow(),
-        Input(command="for b in 14399 14396; do bk build view $b -p test --json; done"): Allow(),
-        Input(command=f"python3 {FIXTURES}/one_job_log.py 595 0190046e"): Allow(),
-        Input(command="gh pr create --body-file - <<'EOF'\nfor id in $ids; do bk job log $id; done\nEOF"): Allow(),
-        Input(command="echo 'for id in a b; do bk job log $id; done'"): Allow(),
-        Input(command="python3 /nonexistent/dump_logs.py"): Allow(),
-        Input(command='python3 -c "for job in"'): Allow(),
-        Input(command=f"cat {FIXTURES}/job_logs.py"): Allow(),
+        Input(command="bk build view 595 -p release-pr-check --json", state=BOUND): Allow(),
+        Input(command="for b in 14399 14396; do bk build view $b -p test --json; done", state=BOUND): Allow(),
+        Input(command=f"python3 {FIXTURES}/one_job_log.py 595 0190046e", state=BOUND): Allow(),
+        Input(command="gh pr create --body-file - <<'EOF'\nfor id in $ids; do bk job log $id; done\nEOF", state=BOUND): Allow(),
+        Input(command="echo 'for id in a b; do bk job log $id; done'", state=BOUND): Allow(),
+        Input(command="python3 /nonexistent/dump_logs.py", state=BOUND): Allow(),
+        Input(command='python3 -c "for job in"', state=BOUND): Allow(),
+        Input(command=f"cat {FIXTURES}/job_logs.py", state=BOUND): Allow(),
         Input(
             command=(
                 "python3 -c \"import subprocess\nfrom concurrent.futures import ThreadPoolExecutor\n"
                 "def fetch(j):\n    subprocess.run(['bk', 'job', 'log', j])\n"
                 "ThreadPoolExecutor().submit(fetch, 'one')\""
-            )
+            ), state=BOUND
         ): Allow(),
-        Input(command="for id in a b; do bk job log $id; done  # ccx:raw"): Allow(),
+        Input(command="for id in a b; do bk job log $id; done  # ccx:raw", state=BOUND): Allow(),
     },
 )
 def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
@@ -462,7 +466,7 @@ def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Monitor")],
+    only_if=[Bound(), Tool("Bash", "Monitor")],
     skip_if=[Annotated("raw")],
     max_fires=1,
     tests={
@@ -470,53 +474,53 @@ def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
             command=(
                 "until s=$(bk api /pipelines/release-pr-check/builds/626 2>/dev/null | jq -r .state);"
                 ' [ "$s" = passed ] || [ "$s" = failed ]; do sleep 20; done; echo $s'
-            )
+            ), state=BOUND
         ): Warn(pattern="Monitor"),
         Input(
             tool="Monitor",
-            tool_input={"command": "while true; do bk build view 1 -p test --json | jq -r .state; sleep 10; done", "description": "b"},
+            tool_input={"command": "while true; do bk build view 1 -p test --json | jq -r .state; sleep 10; done", "description": "b"}, state=BOUND
         ): Warn(),
-        Input(command=f"{FIXTURES}/poll_fast.sh 45159"): Warn(),
+        Input(command=f"{FIXTURES}/poll_fast.sh 45159", state=BOUND): Warn(),
         Input(
             command=(
                 "python3 -c \"import subprocess, time\nwhile True:\n"
                 "    subprocess.run(['bk', 'build', 'view', '1', '--json'])\n    time.sleep(5)\""
-            )
+            ), state=BOUND
         ): Warn(),
         Input(
             command=(
                 "python3 -u -c \"import subprocess, time\nwhile True:\n"
                 "    subprocess.run(['bk', 'build', 'view', '1', '--json'])\n    time.sleep(5)\""
-            )
+            ), state=BOUND
         ): Warn(),
         Input(
             command=(
                 "while true; do curl -sS https://api.buildkite.com/v2/organizations/forge/pipelines/test/builds/1"
                 " | jq -r .state; sleep 15s; done"
-            )
+            ), state=BOUND
         ): Warn(),
         Input(
             command=(
                 "cat > /tmp/wait.sh <<'EOF'\nwhile true; do bk api /pipelines/test/builds/1; sleep 10; done\nEOF\n"
                 "chmod +x /tmp/wait.sh && /tmp/wait.sh"
-            )
+            ), state=BOUND
         ): Warn(),
         Input(
             command=(
                 "until s=$(bk api /pipelines/release-pr-check/builds/626 2>/dev/null | jq -r .state);"
                 ' [ "$s" = passed ]; do sleep 30; done'
-            )
+            ), state=BOUND
         ): Allow(),
-        Input(command=f"{FIXTURES}/poll_slow.sh 45159 45164"): Allow(),
-        Input(command="while true; do gh pr checks 1; sleep 5; done"): Allow(),
-        Input(command="while true; do bk build view 1; sleep 15; sleep 15; done"): Allow(),
-        Input(command="while true; do curl https://example.com -o api.buildkite.com.json; sleep 5; done"): Allow(),
-        Input(command=f"cat {FIXTURES}/poll_fast.sh"): Allow(),
-        Input(command="for b in 1 2; do bk build view $b -p test --json; sleep 1; done"): Allow(),
-        Input(command="sleep 5 && bk build view 1 -p test --json"): Allow(),
-        Input(command="while true; do bk build view 1; sleep $INTERVAL; done"): Allow(),
-        Input(command="cat > notes.md <<'EOF'\nwhile true; do bk build view 1; sleep 5; done\nEOF"): Allow(),
-        Input(command="while true; do bk build view 1; sleep 5; done  # ccx:raw"): Allow(),
+        Input(command=f"{FIXTURES}/poll_slow.sh 45159 45164", state=BOUND): Allow(),
+        Input(command="while true; do gh pr checks 1; sleep 5; done", state=BOUND): Allow(),
+        Input(command="while true; do bk build view 1; sleep 15; sleep 15; done", state=BOUND): Allow(),
+        Input(command="while true; do curl https://example.com -o api.buildkite.com.json; sleep 5; done", state=BOUND): Allow(),
+        Input(command=f"cat {FIXTURES}/poll_fast.sh", state=BOUND): Allow(),
+        Input(command="for b in 1 2; do bk build view $b -p test --json; sleep 1; done", state=BOUND): Allow(),
+        Input(command="sleep 5 && bk build view 1 -p test --json", state=BOUND): Allow(),
+        Input(command="while true; do bk build view 1; sleep $INTERVAL; done", state=BOUND): Allow(),
+        Input(command="cat > notes.md <<'EOF'\nwhile true; do bk build view 1; sleep 5; done\nEOF", state=BOUND): Allow(),
+        Input(command="while true; do bk build view 1; sleep 5; done  # ccx:raw", state=BOUND): Allow(),
     },
 )
 def no_fast_buildkite_polls(evt: BaseHookEvent) -> HookResult | None:
@@ -525,34 +529,34 @@ def no_fast_buildkite_polls(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Monitor")],
+    only_if=[Bound(), Tool("Bash", "Monitor")],
     skip_if=[Annotated("raw")],
     max_fires=1,
     tests={
-        Input(command="while true; do gh pr checks 1; sleep 5; done"): Warn(pattern="--interval 300"),
-        Input(command="until gh pr view 7 --json state | grep -q MERGED; do sleep 60; done"): Warn(),
-        Input(command="while :; do ccx vcs pr status 1 2; sleep 30; done"): Warn(),
-        Input(command="gh run watch 123 --exit-status"): Warn(),
-        Input(command="ccx vcs gh -- run watch 123 --exit-status --interval 30"): Warn(),
-        Input(command="gh pr checks 7 --watch"): Warn(),
+        Input(command="while true; do gh pr checks 1; sleep 5; done", state=BOUND): Warn(pattern="--interval 300"),
+        Input(command="until gh pr view 7 --json state | grep -q MERGED; do sleep 60; done", state=BOUND): Warn(),
+        Input(command="while :; do ccx vcs pr status 1 2; sleep 30; done", state=BOUND): Warn(),
+        Input(command="gh run watch 123 --exit-status", state=BOUND): Warn(),
+        Input(command="ccx vcs gh -- run watch 123 --exit-status --interval 30", state=BOUND): Warn(),
+        Input(command="gh pr checks 7 --watch", state=BOUND): Warn(),
         Input(
             command=(
                 "python3 -c \"import subprocess, time\nwhile True:\n"
                 "    subprocess.run(['gh', 'pr', 'view', '1', '--json', 'state'])\n    time.sleep(30)\""
-            )
+            ), state=BOUND
         ): Warn(),
-        Input(tool="Monitor", tool_input={"command": "while true; do gh run list -L 1; sleep 20; done", "description": "ci"}): Warn(),
-        Input(command="while true; do gh pr checks 1; done"): Warn(),
-        Input(command="while true; do gh pr checks 1; sleep 300; done"): Allow(),
-        Input(command="while read pr; do gh pr view $pr --json state; done < prs.txt"): Allow(),
-        Input(command="gh run watch 1 --interval ²"): Allow(),
-        Input(command="gh run watch 123 --exit-status --interval 300"): Allow(),
-        Input(command="gh pr checks 7 --watch --interval=5m"): Allow(),
-        Input(command="gh pr checks 7"): Allow(),
-        Input(command="for pr in 1 2; do gh pr view $pr --json state; done"): Allow(),
-        Input(command="while true; do bk build view 1; sleep 45; done"): Allow(),
-        Input(command="cat > notes.md <<'EOF'\nwhile true; do gh pr checks 1; sleep 5; done\nEOF"): Allow(),
-        Input(command="while true; do gh pr checks 1; sleep 5; done  # ccx:raw"): Allow(),
+        Input(tool="Monitor", tool_input={"command": "while true; do gh run list -L 1; sleep 20; done", "description": "ci"}, state=BOUND): Warn(),
+        Input(command="while true; do gh pr checks 1; done", state=BOUND): Warn(),
+        Input(command="while true; do gh pr checks 1; sleep 300; done", state=BOUND): Allow(),
+        Input(command="while read pr; do gh pr view $pr --json state; done < prs.txt", state=BOUND): Allow(),
+        Input(command="gh run watch 1 --interval ²", state=BOUND): Allow(),
+        Input(command="gh run watch 123 --exit-status --interval 300", state=BOUND): Allow(),
+        Input(command="gh pr checks 7 --watch --interval=5m", state=BOUND): Allow(),
+        Input(command="gh pr checks 7", state=BOUND): Allow(),
+        Input(command="for pr in 1 2; do gh pr view $pr --json state; done", state=BOUND): Allow(),
+        Input(command="while true; do bk build view 1; sleep 45; done", state=BOUND): Allow(),
+        Input(command="cat > notes.md <<'EOF'\nwhile true; do gh pr checks 1; sleep 5; done\nEOF", state=BOUND): Allow(),
+        Input(command="while true; do gh pr checks 1; sleep 5; done  # ccx:raw", state=BOUND): Allow(),
     },
 )
 def no_fast_github_polls(evt: BaseHookEvent) -> HookResult | None:
