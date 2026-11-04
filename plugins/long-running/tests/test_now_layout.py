@@ -712,7 +712,8 @@ CHAT_MODEL = """(n) => {
   state.model.replies = [
     reply('open3', { status: 'needs_you', picks: ['a', 'b', 'c'] }),
     reply('open2', { status: 'needs_you', picks: ['Yes', 'No'] }),
-    reply('plain', { status: 'needs_you' }),
+    { ...reply('plain', { status: 'needs_you' }), at: new Date().toISOString() },
+    reply('stale', { status: 'needs_you' }),
     reply('old', { status: 'needs_you', picks: ['x', 'y'] }),
     ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
   ];
@@ -756,6 +757,7 @@ def test_a_yes_no_answers_inline_and_anything_else_opens_the_task(page):
     assert page.locator("#rp-old [data-choose]").count() == 0
     assert page.locator("#rp-old .ct-closed").count() == 1
     assert page.locator("#rp-plain [data-chat-done]").count() == 1
+    assert page.locator("#rp-stale [data-chat-done], #rp-stale .ct-flag").count() == 0
     page.locator("#rp-open3 [data-chat-modal]").click()
     assert page.locator("#chatmodal [data-choose]").count() == 3
     page.locator("#chatmodal [data-chat-close]").click()
