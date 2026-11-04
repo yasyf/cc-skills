@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import subprocess
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import UTC, datetime
 from itertools import dropwhile, takewhile
 from pathlib import Path
@@ -34,6 +34,8 @@ TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*|[?.!,;:\n]")
 SLACK_MESSAGE = re.compile(r'<channel source="plugin:cc-slack:cc-slack"[^>]*type="slack\.message">\s*(?P<payload>\{.*\})\s*</channel>', re.DOTALL)
 OPERATOR = "U05FTPXU8PP"
 FALLBACK_POST = "_(Yasyf's Claude)_"
+OWNER_WATCH = "owner Slack watch"
+WATCH_EVENT = re.compile(rf'<summary>Monitor event: "{OWNER_WATCH}"</summary>\s*<event>(?P<lines>.*?)</event>', re.DOTALL)
 PASTED_IMAGE = re.compile(r"\[Image #\d+\]")
 ENDS = frozenset({"?", ".", "!", ",", ";", ":", "\n", "and", "or", "but", "wtf"})
 LEADING = frozenset({"a", "an", "the", "this", "that", "these", "those"})
@@ -228,15 +230,29 @@ def queued_prompts(events: Iterable[object]) -> list[str]:
     return [event.detail.prompt for event in events if isinstance(event, AttachmentEvent) and event.attachment_type == "queued_command" and event.detail.prompt]
 
 
+def his_message(message: dict) -> bool:
+    return message["user"] == OPERATOR and not message["from_claude"] and not message["text"].startswith(FALLBACK_POST)
+
+
 def owner_slack_messages(prompts: Iterable[str]) -> list[dict]:
     messages = (json.loads(found["payload"]) for prompt in prompts if (found := SLACK_MESSAGE.search(prompt)))
-    return [message for message in messages if message["user"] == OPERATOR and not message["from_claude"] and not message["text"].startswith(FALLBACK_POST)]
+    return [message for message in messages if his_message(message)]
+
+
+def owner_messages_heard(prompts: Sequence[str]) -> list[dict]:
+    watched = (json.loads(line) for prompt in prompts for found in WATCH_EVENT.finditer(prompt) for line in found["lines"].splitlines() if line.startswith("{"))
+    heard = [*owner_slack_messages(prompts), *(event for event in watched if event.get("type") == "slack.message" and his_message(event))]
+    return sorted({message["ts"]: message for message in heard}.values(), key=lambda message: float(message["ts"]))
+
+
+def dm_digest(evt: BaseHookEvent, ts: str) -> str:
+    return hashlib.sha256(f"{evt.session_id}\0{ts}".encode()).hexdigest()[:DIGEST_CHARS]
 
 
 def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
     return [
         {
-            "digest": hashlib.sha256(f"{evt.session_id}\0{message['ts']}".encode()).hexdigest()[:DIGEST_CHARS],
+            "digest": dm_digest(evt, message["ts"]),
             "at": datetime.fromtimestamp(float(message["ts"]), UTC).strftime(STAMP),
             "session": evt.session_id,
             "source": "slack",
@@ -244,7 +260,7 @@ def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
             "ts": message["ts"],
             "thread": message["thread_ts"],
         }
-        for message in owner_slack_messages(queued_prompts(events))
+        for message in owner_messages_heard(queued_prompts(events))
         if message["channel_id"].startswith("D")
     ]
 

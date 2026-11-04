@@ -9,6 +9,7 @@ from itertools import pairwise
 from collections.abc import Sequence
 from pathlib import Path
 
+from cc_transcript.models import AssistantEvent
 from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Or, Rewrite, T, Tool, Warn, WorkflowState, hook, on, workflow_state
@@ -17,7 +18,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, ROOT_LANE
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
-from .register_capture import OPERATOR, owner_slack_messages, queued_prompts, slack_dms
+from .register_capture import OPERATOR, OWNER_WATCH, owner_messages_heard, queued_prompts, slack_dms
 from .register_gates import blocker, cause
 from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, runs_verb, SLACK_THREAD_TOOLS
 from .root_replies import owner_message, REPLY_WINDOW
@@ -69,16 +70,15 @@ UNANSWERED = (
 )
 ACK_AFTER_SECONDS = 30
 UNACKED = "An owner Slack message has waited over 30 seconds with no thread reply. Answer before any routing with the `reply` tool, or `slack_react` `+1` with `url` {permalink} when it needs nothing back."
-OWNER_WATCH = "owner Slack watch"
 WATCH_COMMAND = "lr owner watch"
 WATCH_CALL = f"`Monitor` with description `{OWNER_WATCH}`, command `{WATCH_COMMAND}` and `timeout_ms` 1800000"
 ARM_WATCH = f"An idle window hears the owner's Slack messages only through its standing watch. Arm {WATCH_CALL} unless it already runs, and again each time it ends."
 UNWATCHED = f"The owner's Slack watch is not running, so his next message waits until this window moves. Arm {WATCH_CALL}, then stop."
-WATCH_EVENT = re.compile(rf'<summary>Monitor event: "{OWNER_WATCH}"</summary>\s*<event>(?P<lines>.*?)</event>', re.DOTALL)
 WATCHING = [{"id": "w1", "type": "shell", "status": "running", "description": OWNER_WATCH, "command": WATCH_COMMAND}]
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
 IN_THREAD = "He asked in a Slack thread, so this reply posts in that thread."
+ANSWERS_HIS_MESSAGE = f"{REPLY}|Agent|Task|{CC_SLACK}slack_react"
 THREAD_READ = "The communicator reads only the Slack thread it is answering, one the owner wrote in. Ask a lane with `lr ask-lane '<question>'` for any other thread, and its answer arrives as a record."
 EXPLAINER = re.compile(r"https?://[^\s/]+/(?:one-pagers|design-docs)/[\w.-]+/")
 TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
@@ -175,8 +175,8 @@ def owner_return_opens_with_the_update(evt: BaseHookEvent) -> HookResult | None:
     return evt.context(RETURNED.format(minutes=int(gap // 60)))
 
 
-def delivered(thread: str = OWED_REPLY["thread_ts"]) -> list:
-    payload = {"type": "slack.message", "channel_id": "D0B6Z", "thread_ts": thread, "ts": OWED_REPLY["ts"], "user": OPERATOR, "from_claude": False, "text": OWED_REPLY["text"]}
+def delivered(thread: str = OWED_REPLY["thread_ts"], ts: str = OWED_REPLY["ts"]) -> list:
+    payload = {"type": "slack.message", "channel_id": "D0B6Z", "thread_ts": thread, "ts": ts, "user": OPERATOR, "from_claude": False, "text": OWED_REPLY["text"]}
     tagged = f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
     return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": tagged, "commandMode": "prompt"}}]
 
@@ -194,6 +194,17 @@ def delivered(thread: str = OWED_REPLY["thread_ts"]) -> list:
 )
 def communicator_arms_the_owner_watch(evt: BaseHookEvent) -> HookResult | None:
     return evt.context(ARM_WATCH)
+
+
+def watch_queued(thread: str) -> list:
+    payload = {"type": "slack.message", "watch_id": 742, "kind": "dm", "channel_id": "D0B6Z", "thread_ts": thread, "ts": OWED_REPLY["ts"], "user": OPERATOR, "from_claude": False, "text": OWED_REPLY["text"]}
+    notified = f'<task-notification>\n<task-id>bi4wzi4te</task-id>\n<summary>Monitor event: "{OWNER_WATCH}"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>'
+    queued = {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": notified, "commandMode": "task-notification"}}
+    return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), queued]
+
+
+def watch_delivered(thread: str) -> list:
+    return [*watch_queued(thread), T.assistant("Answering."), T.user(f"Stop hook feedback:\n{UNANSWERED}", isMeta=True)]
 
 
 def waiting(replies: str | tuple) -> Input:
@@ -521,6 +532,7 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
     Event.PreToolUse,
     only_if=[Communicator(), Tool(REPLY)],
     skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
     tests=communicator_tests({
         answering(delivered()): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
         answering(delivered(thread=OWED_REPLY["ts"])): Allow(),
@@ -533,21 +545,41 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
         answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, order="m11"): Allow(),
         answering(delivered(), owed=(OWED_REPLY,), order="m11"): Allow(),
         answering(delivered(), on="reply:r1"): Allow(),
+        answering(watch_queued(OWED_REPLY["thread_ts"])): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering(watch_queued(OWED_REPLY["ts"])): Allow(),
+        answering(watch_queued(OWED_REPLY["thread_ts"]), threads={"m12": "1793600000.000001"}, order="m12"): Rewrite(None, thread="1793600000.000001"),
+        answering(watch_delivered(OWED_REPLY["thread_ts"])): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering([*delivered(), TEAMMATE_WAKE, T.assistant("Answering."), REMINDER_FEEDBACK]): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering([*watch_delivered(OWED_REPLY["thread_ts"]), *T.tool_turn(REPLY, result=REPLIED, title="It is on the board", md="The third card."), REMINDER_FEEDBACK]): Allow(),
+        answering([*watch_delivered(OWED_REPLY["thread_ts"]), *T.tool_turn(REPLY, result="reply: md carries the reply itself", is_error=True, title="It is on the board"), REMINDER_FEEDBACK]): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering([*delivered(), *T.tool_turn("Agent", result="started", description="answer his thread"), REMINDER_FEEDBACK]): Allow(),
+        answering([*delivered(), *T.tool_turn(f"{CC_SLACK}slack_react", result="ok", reaction="+1"), REMINDER_FEEDBACK]): Allow(),
+        answering([*delivered(), *delivered(thread="1793705800.000001", ts="1793705800.000001")]): Allow(),
+        answering([*delivered(), T.user("fix the relay")]): Allow(),
+        answering([*delivered(), T.user("fix the relay"), *watch_queued(OWED_REPLY["thread_ts"])[1:]]): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
     }),
 )
 def answers_go_in_his_thread(evt: BaseHookEvent) -> HookResult | None:
     if evt.input.raw.get("thread"):
         return None
-    if named := evt.input.raw.get("order") or evt.input.raw.get("on"):
-        if not (thread := RowThreads.load(evt).threads.get(named.removeprefix("line:"))):
-            return None
-        return evt.rewrite(evt.input.raw | {"thread": thread}, note=IN_THREAD)
+    named = evt.input.raw.get("order") or evt.input.raw.get("on")
+    thread = RowThreads.load(evt).threads.get(named.removeprefix("line:")) if named else newest_open_thread(evt)
+    return evt.rewrite(evt.input.raw | {"thread": thread}, note=IN_THREAD) if thread else None
+
+
+def newest_open_thread(evt: BaseHookEvent) -> str | None:
+    if dms := unanswered_dms(evt):
+        return dms[-1]["thread"] if dms[-1]["thread"] != dms[-1]["ts"] else None
     owed = dm_owed(evt)
     held = owed["replies"] if owed and owed["holder_session"] == evt.session_id else []
-    threads = [*(reply["thread_ts"] for reply in held if reply["thread_ts"] != reply["ts"]), *(dm["thread"] for dm in slack_dms(evt, evt.ctx.turn.events) if dm["thread"] != dm["ts"])]
-    if not threads:
-        return None
-    return evt.rewrite(evt.input.raw | {"thread": threads[-1]}, note=IN_THREAD)
+    return next((reply["thread_ts"] for reply in reversed(held) if reply["thread_ts"] != reply["ts"]), None)
+
+
+def unanswered_dms(evt: BaseHookEvent) -> list[dict]:
+    events = evt.ctx.t.events
+    answers = {use.ref.event_uuid for use in evt.ctx.t.tool_calls.named(ANSWERS_HIS_MESSAGE).items if use.result}
+    closed = max((at for at, event in enumerate(events) if owner_message(event) or (isinstance(event, AssistantEvent) and event.meta.uuid in answers)), default=-1)
+    return slack_dms(evt, events[closed + 1:])
 
 
 class ReadsAnsweredThread:
@@ -561,17 +593,8 @@ class ReadsAnsweredThread:
 
 
 def owner_dm_threads(evt: BaseHookEvent) -> set[str]:
-    prompts = [*queued_prompts(evt.ctx.t.events), evt.user_prompt or ""]
-    watched = [json.loads(line) for prompt in prompts for found in WATCH_EVENT.finditer(prompt) for line in found["lines"].splitlines() if line.startswith("{")]
-    heard = [*owner_slack_messages(prompts), *(event for event in watched if event.get("type") == "slack.message" and event.get("user") == OPERATOR and not event.get("from_claude"))]
+    heard = owner_messages_heard([*queued_prompts(evt.ctx.t.events), evt.user_prompt or ""])
     return {ts for message in heard if message["channel_id"].startswith("D") for ts in (message["thread_ts"], message["ts"])}
-
-
-def watch_delivered(thread: str) -> list:
-    payload = {"type": "slack.message", "watch_id": 742, "kind": "dm", "channel_id": "D0B6Z", "thread_ts": thread, "ts": OWED_REPLY["ts"], "user": OPERATOR, "from_claude": False, "text": OWED_REPLY["text"]}
-    notified = f'<task-notification>\n<task-id>bi4wzi4te</task-id>\n<summary>Monitor event: "{OWNER_WATCH}"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>'
-    queued = {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": notified, "commandMode": "prompt"}}
-    return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), queued, T.assistant("Answering."), T.user(f"Stop hook feedback:\n{UNANSWERED}", isMeta=True)]
 
 
 NONE_OWED = json.dumps({"replies": [], "holder_session": HOLDER})

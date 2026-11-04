@@ -143,6 +143,11 @@ def slack_dm(**fields) -> str:
     return f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
 
 
+def watched_dm(**fields) -> str:
+    payload = {"type": "slack.message", "watch_id": 742, "kind": "dm", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": "U05FTPXU8PP", "from_claude": False, "text": "Meant to approve 43807"} | fields
+    return f'<task-notification>\n<task-id>bi4wzi4te</task-id>\n<summary>Monitor event: "owner Slack watch"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>'
+
+
 def test_a_prompt_on_the_communicator_adds_a_row_with_its_full_text(communicator: Window) -> None:
     [result] = communicator.prompt("keep the report | the nightly one\nand the weekly")
 
@@ -249,6 +254,35 @@ def test_an_owner_slack_dm_adds_one_row_with_its_slack_time(communicator: Window
     communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
 
     assert communicator.rows() == ["| m1 | Oct 27 8:53 PM | Meant to approve 43807 |  | open |"]
+
+
+def test_an_owner_thread_message_from_the_watch_records_its_thread_on_its_row(communicator: Window) -> None:
+    communicator.queued(watched_dm())
+
+    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+
+    assert communicator.rows() == ["| m1 | Oct 27 8:53 PM | Meant to approve 43807 |  | open |"]
+    assert owner_returns.RowThreads.load(communicator.event(PostToolUseEvent, tool_name="Bash")).threads == {"m1": "1792842193.708029"}
+
+
+def test_a_watch_message_at_the_dm_root_records_no_thread(communicator: Window) -> None:
+    communicator.queued(watched_dm(thread_ts="1793159602.693499"))
+
+    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+
+    assert owner_returns.RowThreads.load(communicator.event(PostToolUseEvent, tool_name="Bash")).threads == {}
+
+
+def test_a_watch_message_still_owed_after_its_row_moved_on_adds_no_second_row(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued(watched_dm())
+    communicator.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+    communicator.seed(communicator.ledger.read_text().replace("| open |", "| due Nov 4 1:00 PM |"))
+    reply = {"thread_ts": "1792842193.708029", "ts": "1793159602.693499", "text": "Meant to approve 43807", "permalink": "https://acme.slack.com/archives/D0DIRECT001/p1793159602693499"}
+    monkeypatch.setattr(owner_ledger, "dm_owed", lambda _evt: {"replies": [reply], "holder_session": SESSION})
+
+    communicator.stop()
+
+    assert len(communicator.rows()) == 1
 
 
 @pytest.mark.parametrize("fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"channel_id": "C0TEAM0001"}])
