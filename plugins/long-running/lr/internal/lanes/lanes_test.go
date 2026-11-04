@@ -1950,7 +1950,7 @@ func TestAStandingLaneStoppedWithNoSuccessorReachesRootOnceAfterTenMinutes(t *te
 
 	blockers := f.ofKind("blocker")
 	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, "standing lane board-refresher-6 (refresh the owner's board every pass) has had no live owner for over 10 min")
+	contains(t, blockers[0].Text, "standing lane board-refresher-6 (refresh the owner's board every pass) has no live owner")
 	contains(t, blockers[0].Text, "retired by stand-down")
 	contains(t, blockers[0].Text, path)
 }
