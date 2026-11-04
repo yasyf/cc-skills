@@ -113,18 +113,18 @@ func TestASuccessorThatNeverTakesTheLeaseEscalatesWithinThreeMinutes(t *testing.
 
 	_, err := Run(context.Background(), w.store, "d", "0.8.1", w.steps())
 
-	if err == nil || !strings.Contains(err.Error(), "did not take the lease within 3 minutes; generation 1 still serves") {
+	if err == nil || !strings.Contains(err.Error(), "did not take the lease within 15 minutes; generation 1 still serves") {
 		t.Fatalf("got %v", err)
 	}
 	if !w.now.Equal(t0.Add(Handoff)) {
 		t.Fatalf("waited until %v", w.now)
 	}
 	last := w.posts[len(w.posts)-1]
-	if !reflect.DeepEqual(last, posted{[]string{"root"}, bus.Escalation{Subject: "install:0.8.1", Cause: "no successor within 3 minutes"}}) {
+	if !reflect.DeepEqual(last, posted{[]string{"root"}, bus.Escalation{Subject: "install:0.8.1", Cause: "no successor within 15 minutes"}}) {
 		t.Fatalf("last post %+v", last)
 	}
 	rows, err := w.store.Escalations("install:0.8.1")
-	if err != nil || len(rows) != 1 || rows[0].Cause != "no successor within 3 minutes" {
+	if err != nil || len(rows) != 1 || rows[0].Cause != "no successor within 15 minutes" {
 		t.Fatalf("escalations %+v %v", rows, err)
 	}
 }

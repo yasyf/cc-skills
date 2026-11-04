@@ -228,6 +228,22 @@ func TestRunEndsAtTheTickBoundaryOnceANewerReleaseIsInstalled(t *testing.T) {
 	equal(t, c.now, t0)
 }
 
+func TestARunTakesANewerReleaseAfterItsSleepWithoutAnotherTick(t *testing.T) {
+	s, c := memory(t), &clock{t0}
+	d := deps(c, &queue{}, &pool{}, prFacts(1, nil))
+	reads := 0
+	d.Stale = func(context.Context) (bool, error) {
+		reads++
+		return reads == 2, nil
+	}
+
+	reports, ended := runLoop(t, s, "0.8.0", 101, d, 0)
+
+	equal(t, len(reports), 1)
+	equal(t, ended, EndedRelease)
+	equal(t, reads, 2)
+}
+
 func TestALanesOnlySupervisorRunsNoPRPass(t *testing.T) {
 	s, c := memory(t), &clock{t0}
 	var ticked []time.Time
