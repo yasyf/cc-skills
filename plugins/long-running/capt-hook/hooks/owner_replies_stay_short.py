@@ -62,7 +62,8 @@ def breaches(evt: BaseHookEvent, text: str, card: bool) -> list[str]:
     found = [ACKED] if parts and all(ACK.match(part) or (PROMISE.search(part) and not LIVE.search(part)) for part in parts) else []
     if len(parts) > 2 and not (card or UPDATE.search(text) or OwnerReturns.load(evt).returned):
         found.append(LONG)
-    if not card and not OwnerReturns.load(evt).explain_due and (EXPLAINER.search(text) or DIAGRAM.search(text) or explains(evt, text)):
+    returns = OwnerReturns.load(evt)
+    if not (card or returns.explain_due or returns.asked_why) and (EXPLAINER.search(text) or DIAGRAM.search(text) or explains(evt, text)):
         found.append(UNASKED)
     return found
 
@@ -107,6 +108,7 @@ def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookRes
         replied(WHY, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
         replied(WHY, decide=EXPLAINS, state=[*ACTIVE, OwnerReturns(explain_due=True)]): Allow(),
         replied(WHY, picks=("Build it", "Hold it"), decide=EXPLAINS): Allow(),
+        replied(WHY, decide=EXPLAINS, state=[*ACTIVE, OwnerReturns(asked_why=True)]): Allow(),
         Input(tool=REPLY, tool_input={"id": "r1", "title": "Typing box", "md": WHY}, state=ACTIVE, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
         replied(WHY, decide={"mechanism": Refused()}): Allow(),
         replied(PAGE): Block(pattern=r"no mechanism, diagram or explainer link"),

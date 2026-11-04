@@ -50,6 +50,7 @@ REMINDER = Binary(
     " Yes when he reminds the assistant of something it should already have done, repeats an instruction or ruling he gave before, or corrects how it works: something missed, forgotten, still happening, done wrong or not followed."
     " No for a new request, a question, an answer to a question, a pick, an approval or thanks that points at nothing the assistant failed to do."
 )
+ASKED_WHY = re.compile(r"\bwhy\b|\bhow come\b|\bhow (?:does|do|did|is|are|was|were)\b|\bwhat happened\b", re.IGNORECASE)
 UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
     " Before stopping, post one ask to meta naming his ledger row, `owner:m<row>` plus your one-line order, or launch the lane with `lr launch`."
@@ -137,6 +138,7 @@ class OwnerReturns(WorkflowState):
     prompted_at: float | None = None
     returned: bool = False
     explain_due: bool = False
+    asked_why: bool = False
 
 
 def away(minutes: float) -> list:
@@ -220,9 +222,11 @@ def raised(decide: dict, prompt: str = SIGNAL, **fields: object) -> Input:
     }),
 )
 def owner_words_about_a_system_get_a_page(evt: BaseHookEvent) -> HookResult | None:
-    due = OwnerPrompt().check(evt) and system_raised(evt)
+    his = OwnerPrompt().check(evt)
+    due = his and system_raised(evt)
     with OwnerReturns.mutate(evt) as state:
         state.explain_due = due
+        state.asked_why = his and bool(ASKED_WHY.search(evt.user_prompt))
     return evt.context(RAISED) if due else None
 
 
@@ -257,12 +261,12 @@ def pathed(reply: str) -> Input:
     return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, decide=CALM)
 
 
-def reminded(*calls: dict, decide: dict = REMINDED, asks: str | tuple = "", opening: tuple = ()) -> Input:
-    return Input(transcript=[*opening, T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={ASKS: asks}, decide=decide)
+def reminded(*calls: dict, decide: dict = REMINDED, asks: str | tuple = "", opening: tuple = (), posted: str | tuple = "") -> Input:
+    return Input(transcript=[*opening, T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={ASKS: asks, "cci post": posted}, decide=decide)
 
 
 def woken(*said: dict) -> Input:
-    return Input(transcript=[*said, T.assistant("Correction to my last line: the rejoin proof failed.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={ASKS: ""}, decide=REMINDED)
+    return Input(transcript=[*said, T.assistant("Correction to my last line: the rejoin proof failed.")], state=[CompactionState(active=True)], env=DRIVE_CONFIG, commands={ASKS: "", "cci post": ""}, decide=REMINDED)
 
 
 def ask_to(*to: str) -> str:
@@ -307,11 +311,12 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         back("Since you were away, three PRs merged.\n\nhttp://dash.brook.ts.net:8840/"): Block(pattern=r"opens with the dashboard link on its first line"),
         back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Allow(),
         back("Since you were away, three PRs merged.", returned=False): Allow(),
-        reminded(): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane.*owner:m<row>"),
+        reminded(): Allow(),
+        reminded(posted=(1, "bus down")): Allow(),
         reminded(asks=ask_to("meta", "meta-desk-2", "root")): Allow(),
         reminded(asks=ask_to("meta-desk-2")): Allow(),
-        reminded(asks=ask_to("root")): Block(pattern=r"meta tooling lane"),
-        reminded(asks=ask_to("root"), opening=({"type": "attachment", "attachment": {"type": "skill_listing"}},)): Block(pattern=r"meta tooling lane"),
+        reminded(asks=ask_to("root")): Allow(),
+        reminded(asks=ask_to("root"), opening=({"type": "attachment", "attachment": {"type": "skill_listing"}},), posted=(1, "bus down")): Allow(),
         reminded(asks=(1, "bus down")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
@@ -320,7 +325,7 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         woken(RESUMED, CCI_WAKE, NO_OUTPUT): Allow(),
         woken(RESUMED, NO_OUTPUT, REMINDER_FEEDBACK): Allow(),
         woken(TEAMMATE_WAKE, CCI_WAKE, REMINDER_FEEDBACK): Allow(),
-        woken(T.user(HIS_1_34_AM), NO_OUTPUT, REMINDER_FEEDBACK): Block(pattern=r"^Every owner reminder or correction spawns a meta tooling lane"),
+        woken(T.user(HIS_1_34_AM), NO_OUTPUT, REMINDER_FEEDBACK): Allow(),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *TAILED): Allow(),
         asked("relay-fix-2 opened its PR and CI is running (#359771, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Allow(),
         asked("relay-fix-2 opened its PR and CI is running (#359772, 3:02 AM, 8 minutes ago).", *COMPACT_TAILED): Block(pattern=r"never from what the lane is for"),
@@ -349,8 +354,9 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
     }),
 )
 def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult | None:
+    route_reminder(evt)
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unrouted_reminder(evt), unread_status(evt, reply), file_path(evt, reply), unexplained(evt, reply), unread_pr_state(evt, reply)) if problem]
+    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), unread_status(evt, reply), file_path(evt, reply), unexplained(evt, reply), unread_pr_state(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -571,13 +577,13 @@ def offers_pick(text: str) -> bool:
     return bool(CHOICE.search(text)) or {"A", "B"} <= {letter for found in LETTERED.findall(text) for letter in found if letter}
 
 
-def unrouted_reminder(evt: BaseHookEvent) -> str | None:
+def route_reminder(evt: BaseHookEvent) -> None:
     if any(launched(use) for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)):
-        return None
+        return
     match (decision := evt.decide(words, {"reminder": REMINDER})) and decision.answers["reminder"]:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5 and not forwarded(evt):
-            return UNROUTED_REMINDER
-    return None
+            text = f"owner correction the relay did not route; make the behaviour automatic. His words: {words[:600]}"
+            read(["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "ask", "--to", "meta-desk", "--text", text])
 
 
 def unread_status(evt: BaseHookEvent, reply: str) -> str | None:
