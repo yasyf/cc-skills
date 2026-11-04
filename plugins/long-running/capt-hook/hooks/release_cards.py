@@ -11,7 +11,7 @@ from .compaction_handoff import bus_name, drive_entry
 from .gate5_release import LR
 from .incident_commands import drive_session
 from .lane_landing import DRIVE_ENV
-from .owner_facing import incident_sources, open_incidents
+from .owner_facing import INCIDENT_DIGEST, incident_sources, open_incidents, read_incident_source
 from .tests.incident_fixtures import SAND_NOT_MIGRATED
 
 RELEASE_VERBS = frozenset({"start", "hotfix"})
@@ -19,7 +19,7 @@ PULL_WORD = re.compile(r"^(#?\d+,?)+$")
 WORD = re.compile(r"[a-z0-9]+")
 PLAN_SECONDS = 120
 BOARD_SECONDS = 30
-GATED = "{stack} under card `{card}` (“{title}”)"
+GATED = "{stack} under card `{card}`"
 REFUSAL = "This release ships what an open owner card gates: {gated}. Start it again with `--without {stacks}`, or wait for his tap on the card and start it once he answers."
 UNREAD = (
     "Warning, nothing was blocked: release_cards could not read {what} ({why}), so this start runs unchecked against the owner's open cards."
@@ -100,7 +100,7 @@ def gating(stacks: set[str], cards: list[dict]) -> list[tuple[str, dict]]:
         ): Allow(),
         release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql"), (OTHER_CARD,)): Allow(),
         release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql"), ()): Allow(),
-        release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql"), (TITLED_CARD,)): Block(pattern=r"sandsql under card `card-index-order` \(“Ship SandSQL to plat"),
+        release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql"), (TITLED_CARD,)): Block(pattern=r"gates: sandsql under card `card-index-order`\."),
         release("tools/ci release start --targets db,restate,code-sandbox --json", planned("sandsql")): Block(),
         release("./tools/ci release start sand", **{"./tools/ci release plan sand --json": planned(picked=("sand",))}): Allow(),
         release("tools/ci release hotfix 48885 48890", **{"tools/ci release plan --hotfix 48885,48890 --json": planned("sandsql", picked=())}): Block(pattern=r"`--without sandsql`"),
@@ -111,13 +111,19 @@ def gating(stacks: set[str], cards: list[dict]) -> list[tuple[str, dict]]:
             pattern=r"^Warning, nothing was blocked: release_cards could not read the release plan[\s\S]*operator unavailable"
         ),
         release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql"), **{BOARD: (1, "cc-present down")}): Warn(pattern=r"could not read the owner's board[\s\S]*cc-present down"),
+        release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql"), **{" ".join(INCIDENT_DIGEST): (1, "cci: daemon unavailable")}): Warn(pattern=r"could not read whether an incident is open"),
         release("tools/ci release status"): Allow(),
     },
 )
 def release_leaves_out_what_his_open_cards_gate(evt: BaseHookEvent) -> HookResult | None:
     calls = [call for call in evt.command.calls("ci") if call.args[:1] == ("release",) and call.args[1:2] and call.args[1] in RELEASE_VERBS and "--dry-run" not in call.args]
-    if not calls or not drive_session(evt) or open_incidents(evt):
+    if not calls or not drive_session(evt):
         return None
+    try:
+        if open_incidents(evt, read_incident_source):
+            return None
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as failed:
+        return evt.context(UNREAD.format(what="whether an incident is open", why=failed))
     if (entry := drive_entry(evt)) is None:
         return evt.context(UNREAD.format(what="the owner's board", why="this session names no registered drive"))
     try:
@@ -130,6 +136,6 @@ def release_leaves_out_what_his_open_cards_gate(evt: BaseHookEvent) -> HookResul
         except (Unread, ValueError, KeyError) as failed:
             return evt.context(UNREAD.format(what="the release plan", why=failed))
         if found:
-            gated = "; ".join(GATED.format(stack=stack, card=card["block"], title=card.get("title") or "") for stack, card in found)
+            gated = "; ".join(GATED.format(stack=stack, card=card["block"]) for stack, card in found)
             return evt.block(REFUSAL.format(gated=gated, stacks=",".join(dict.fromkeys(stack for stack, _ in found))))
     return None

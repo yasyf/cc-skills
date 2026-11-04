@@ -60,6 +60,7 @@ KEPT_REFUSALS = KEPT | {
     "owner_returns.communicator_reply_follows_the_owner_rules": STOP.format(what="the owner would read the reply as sent"),
     "owner_slack_links.owner_slack_links_get_routed": STOP.format(what="a thread the owner linked would go unanswered"),
     "register_gates.hook_edit_guard": "trust: hook-file edits",
+    "release_cards.release_leaves_out_what_his_open_cards_gate": "an apply cannot be recalled and sandsql cannot roll back, so a warning on the start lands after the stack ships (cci 386973)",
     "root_context.The communicator runs no search inline: as": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
     "root_replies.tap_claims_match_the_board": STOP.format(what="the owner would read a false claim about what waits on him"),
     "shell_script_file.BLOCKED: Claude Code reads `$$(`, `$${` or": "the call would hold on a permission prompt, so a warning lands too late",
