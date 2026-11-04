@@ -110,6 +110,8 @@ import re
 import subprocess
 import sys
 import threading
+import time
+import traceback
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -148,6 +150,7 @@ BLANKET_BLOCK = "merge-prs"
 RUNNER = board_rows.RUNNER_LANE
 GREP_BYTES = 200000
 SNAPSHOT_SECONDS = 60
+RESTART_SECONDS = 60
 SNAPSHOT_FRESH = timedelta(hours=6)
 CLOSED_ROUND = re.compile(r"belongs to closed round")
 UNKNOWN_BLOCK = re.compile(r'\bunknown block "')
@@ -236,7 +239,18 @@ class Shell:
         yield from self._watch(argv)
 
     def spawn(self, target, *args) -> None:
-        threading.Thread(target=target, args=args, name=target.__name__, daemon=True).start()
+        def run() -> None:
+            try:
+                target(*args)
+            except Exception:
+                traceback.print_exc()
+                time.sleep(RESTART_SECONDS)
+                self.reexec()
+                with self._watch_lock:
+                    self._end_watches_locked()
+                    drive.reexec([sys.executable, *sys.argv])
+
+        threading.Thread(target=run, name=target.__name__, daemon=True).start()
 
     def root_session(self, drive_name: str) -> str | None:
         entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == drive_name and entry["sessions"]), None)

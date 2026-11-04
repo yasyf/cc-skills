@@ -56,6 +56,13 @@ func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error)
 		}
 		encoded, err := json.Marshal(map[string]any{"onBoard": onBoard, "doc": map[string]any{"blocks": blocks}, "answers": []any{}})
 		return shell.Result{Stdout: string(encoded)}, err
+	case strings.Contains(argv, "outcomes --all"):
+		blocks := make([]any, 0, len(f.board))
+		for _, card := range f.board {
+			blocks = append(blocks, card)
+		}
+		encoded, err := json.Marshal(map[string]any{"doc": map[string]any{"blocks": blocks}})
+		return shell.Result{Stdout: string(encoded)}, err
 	case strings.Contains(argv, "remove-block"):
 		if f.refuse != "" {
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: f.refuse}
@@ -332,5 +339,35 @@ func TestRecheckReadsAreFlatAtOneAndAHundredOpenCards(t *testing.T) {
 	manyCalls, manyJudged := reads(100)
 	if oneCalls != manyCalls || oneJudged != manyJudged {
 		t.Fatalf("reads grew with open cards: %d calls and %d judge calls at 1, %d and %d at 100", oneCalls, oneJudged, manyCalls, manyJudged)
+	}
+}
+
+func TestAPickReadsTheBoardOnceHoweverManyCardsRestOnTheCard(t *testing.T) {
+	reads := func(resting int) int {
+		f := newDeps(t, map[string]any{"id": "card-merge-order", "type": "card", "title": "Which lands first?", "children": []any{}})
+		for i := range resting {
+			card := fmt.Sprintf("card-%d", i)
+			f.shell.board[card] = map[string]any{"id": card, "type": "card", "title": card, "children": []any{}}
+			if err := f.Cards.Store.PutCardDeps(store.CardRef{Session: "s1", Card: card, Lane: "lane-a"}, []string{cardKey("card-merge-order")}); err != nil {
+				t.Fatal(err)
+			}
+			f.says(card, premiseKind, "no", "")
+		}
+		if _, err := f.Pick(context.Background(), "card-merge-order", "picked the index change first"); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.judged) != resting {
+			t.Fatalf("judged %d of %d resting cards", len(f.judged), resting)
+		}
+		outcomes := 0
+		for _, call := range f.shell.calls {
+			if strings.Contains(call, "cc-present outcomes") {
+				outcomes++
+			}
+		}
+		return outcomes
+	}
+	if one, many := reads(1), reads(1000); one != 1 || many != 1 {
+		t.Fatalf("board reads: %d at 1 resting card, %d at 1,000", one, many)
 	}
 }
