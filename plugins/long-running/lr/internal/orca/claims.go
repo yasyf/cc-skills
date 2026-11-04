@@ -19,11 +19,12 @@ var (
 )
 
 func briefClaims(text string) []string {
-	var claims []string
-	for _, session := range briefSession.FindAllString(text, -1) {
+	sessions, threads := briefSession.FindAllString(text, -1), briefThread.FindAllStringSubmatch(text, -1)
+	claims := make([]string, 0, len(sessions)+len(threads))
+	for _, session := range sessions {
 		claims = append(claims, "session:"+session)
 	}
-	for _, thread := range briefThread.FindAllStringSubmatch(text, -1) {
+	for _, thread := range threads {
 		claims = append(claims, "thread:"+thread[1]+"/"+thread[2]+"."+thread[3])
 	}
 	slices.Sort(claims)
