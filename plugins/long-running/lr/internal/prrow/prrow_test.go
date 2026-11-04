@@ -152,6 +152,7 @@ func TestAKnownMergeabilitySurvivesGitHubsRecomputeThenGoesUnknown(t *testing.T)
 	gradeClear(t, s, 1, headA)
 	read := func(mergeable machine.Mergeable) store.ReviewRow {
 		t.Helper()
+		now = now.Add(time.Second)
 		pr := cleanRead(1, headA)
 		pr.Mergeable = mergeable
 		if err := f.PostReads(context.Background(), []machine.Facts{pr}); err != nil {
