@@ -8,12 +8,14 @@ import (
 
 const (
 	unproven = "Unproven:"
-	cited    = "The run crashed because the cloud runner reads only migration 0 (#384714)."
-	refusal  = "lr explain refuses this page: a sentence saying why something happened cites, in it or the sentence before, the record, PR, build, file:line, monitor, notebook or ccn id that proves it, or opens with `" + unproven + "`."
+	cited    = "The run crashed because the cloud runner reads only migration 0. <!-- cci #384714 -->"
+	refusal  = "lr explain refuses this page: a sentence saying why something happened cites, in it or the sentence before, the record, PR, build, file:line, monitor, notebook or ccn id that proves it, in an HTML comment he never sees such as `<!-- cci #384714 -->`, or opens with `" + unproven + "`."
 )
 
 var (
 	fenced     = regexp.MustCompile("(?s)```.*?```")
+	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
+	citeAfter  = regexp.MustCompile(`(?s)([.!?])(\s*<!--.*?-->)`)
 	unsaid     = regexp.MustCompile("`[^`\n]+`|\"[^\"\n]*\"|“[^”\n]*”|https?://\\S+")
 	breaks     = regexp.MustCompile(`([.!?])\s+|\n+`)
 	lead       = regexp.MustCompile(`^[\s>*_#-]*(?:\d+\.\s*)?`)
@@ -29,7 +31,7 @@ var (
 func Uncited(source []byte) []string {
 	var found []string
 	previous := ""
-	for _, line := range strings.Split(breaks.ReplaceAllString(fenced.ReplaceAllString(string(source), "\n"), "$1\n"), "\n") {
+	for _, line := range strings.Split(breaks.ReplaceAllString(citeAfter.ReplaceAllString(fenced.ReplaceAllString(string(source), "\n"), "$2$1"), "$1\n"), "\n") {
 		sentence := strings.TrimSpace(line)
 		if sentence == "" {
 			continue
@@ -46,6 +48,11 @@ func Uncited(source []byte) []string {
 		previous = sentence
 	}
 	return found
+}
+
+// Visible is what he reads of a page: its hidden cites stay in the source on disk and never reach him.
+func Visible(source []byte) []byte {
+	return hiddenCite.ReplaceAll(source, nil)
 }
 
 func refuse(claims []string) error {

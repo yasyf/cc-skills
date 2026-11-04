@@ -35,13 +35,14 @@ const (
 )
 
 var (
-	statuses  = []string{"info", "progress", "needs_you", "incident", "done"}
-	replyID   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
-	pullURL   = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
-	slackSent = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
-	mdLink    = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^)\s]+)\)`)
-	mdBold    = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
-	mdHeading = regexp.MustCompile(`^#{1,6} +(.+)$`)
+	statuses   = []string{"info", "progress", "needs_you", "incident", "done"}
+	replyID    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
+	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
+	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
+	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
+	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^)\s]+)\)`)
+	mdBold     = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
+	mdHeading  = regexp.MustCompile(`^#{1,6} +(.+)$`)
 )
 
 type Link struct {
@@ -88,10 +89,14 @@ type Fanout struct {
 }
 
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
-	surfaces := []Surface{f.board, f.slack, f.record, f.dashboard}
-	sent := make([]Outcome, 0, len(surfaces)+1)
-	for _, surface := range surfaces {
-		sent = append(sent, surface(ctx, r, sent)...)
+	seen := r
+	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
+	sent := make([]Outcome, 0, 5)
+	for _, step := range []struct {
+		surface Surface
+		reply   Reply
+	}{{f.board, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}} {
+		sent = append(sent, step.surface(ctx, step.reply, sent)...)
 	}
 	return sent
 }

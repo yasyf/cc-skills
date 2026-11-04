@@ -196,8 +196,8 @@ func TestTheVerbMarksTheRowTheHooksLedgerPathHolds(t *testing.T) {
 
 func TestTheVerbRefusesAnyOtherState(t *testing.T) {
 	got, err := run(t, "mark", "m1", "done")
-	if err == nil || !strings.Contains(err.Error(), "responded, addressed or no-order") {
-		t.Fatalf("got %v, want a refusal naming the three states", err)
+	if err == nil || !strings.Contains(err.Error(), "responded, addressed, no-order or due") {
+		t.Fatalf("got %v, want a refusal naming the four states", err)
 	}
 	if !strings.Contains(got, "| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n") {
 		t.Fatalf("m1 changed:\n%s", got)
@@ -319,5 +319,60 @@ func TestAnAsksRowIsMarkedAloneAndTheNextMessageNumbersPastIt(t *testing.T) {
 	}
 	if row != "m205" || len(waiting) != 5 || !strings.HasSuffix(waiting[0], "| 384100 | open |") || !strings.HasSuffix(waiting[2], "| 384200 | responded |") {
 		t.Fatalf("row %s, waiting %q", row, waiting)
+	}
+}
+
+func TestAContentAskStaysDueUntilAReplyCarriesIt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "owner-ledger.md")
+	ledger := header + "| m1 | Nov 3 6:17 PM | the holistic update you still have not given me |  | open |\n| m2 | Nov 3 6:18 PM | merge it |  | open |\n"
+	if err := os.WriteFile(path, []byte(ledger), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := carried(path, dir, "m2", ""); err != nil {
+		t.Fatalf("a row asking for no write-up was refused: %v", err)
+	}
+	for name, reply := range map[string]string{"no reply": "", "no such reply": "missing", "a promise": "short"} {
+		if err := carried(path, dir, "m1", reply); err == nil {
+			t.Fatalf("%s closed a content ask", name)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "short.json"), []byte(`{"md":"lands by 6:40 PM"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := carried(path, dir, "m1", "short"); err == nil || !strings.Contains(err.Error(), "a promise") {
+		t.Fatalf("a promise closed a content ask: %v", err)
+	}
+	body, err := json.Marshal(map[string]string{"md": strings.Repeat("x", carriedChars)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "full.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := carried(path, dir, "m1", "full"); err != nil {
+		t.Fatalf("the reply carrying it was refused: %v", err)
+	}
+}
+
+func TestADueRowGoesFirstOnceItsClockPasses(t *testing.T) {
+	now := time.Date(2026, 11, 3, 18, 41, 0, 0, pacific)
+	state, err := dueBy("6:40 PM", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "due Nov 3 6:40 PM"; state != want {
+		t.Fatalf("got %q, want %q", state, want)
+	}
+	if _, err := dueBy("6:40 PM", now); err == nil {
+		t.Fatal("a clock already past was accepted")
+	}
+	rows := Parse([]byte(header + "| m1 | Nov 3 6:17 PM | update | 391 | " + state + " |\n| m2 | Nov 3 6:18 PM | recap |  | due Nov 3 7:00 PM |\n"))
+	late := PastDue(rows, now)
+	if len(late) != 1 || late[0].ID != "m1" {
+		t.Fatalf("past due rows: %+v", late)
+	}
+	if got, want := late[0].Line(), "m1 Nov 3 6:17 PM: update [PAST DUE NOV 3 6:40 PM]"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
