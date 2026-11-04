@@ -18,7 +18,7 @@
 
 **An active production alert is P0 from the moment it is seen.** An active alert or outage on any surface counts. That includes a Datadog monitor, a Sentry alert, an `#outage` report, an on-call page, or a broken CI or review pipeline. It also includes an alert or breakage link from the owner, an `incident` record from the `oncall` drive that carries ai-oncall's page feed, or a runner `PAGE` record relayed from an on-call channel during a drive release.
 
-A record that says customers are failing, or fail from a change already moving, counts too. The stall watch opens it to the coordinator in the pass that reads it, never as a card (`reference/watchers.md`), and no finding waits on a card. An `oncall` or `PAGE` record works like the owner's alert link. The coordinator opens the incident and launches the fix lane, and the comms lane replies in the page's thread with no owner round-trip and no wait on ai-oncall.
+A record that says customers are failing, or fail from a change already moving, counts too. The stall watch opens it to the coordinator in the pass that reads it, never as a card (`reference/watchers.md`), and no finding waits on a card. An `oncall` or `PAGE` record works like the owner's alert link. The coordinator opens the incident and launches the fix lane with no owner round-trip. When `tools/ci oncall incidents` shows an open ai-oncall incident covering it, ai-oncall's commander is its one actor: the fix lane routes its findings and requests through the commander or takes the incident over (SKILL.md R16), and the comms lane posts nothing in the page's thread beside it.
 
 **Open the incident and launch its fix lane in the same turn, before anything else (SKILL.md R16).** An incident is its records on the drive's cci bus: the coordinator's `INCIDENT OPEN <slug>: <what fired>`, the fix lane's `SCOPE`, `MECHANISM`, `FIX-LIVE` or `NOT-OURS` records, and the coordinator's `INCIDENT <slug> CLOSED` once a `FIX-LIVE` or `NOT-OURS` record cites the evidence. `lr incident run <slug> --fix-brief <file>` launches the lanes (below). `lr incident status <slug>` prints what fired, the live lane on it, its newest scope, mechanism and fix-live records with their seqs, and what closes it; `lr incident list` prints every incident since midnight Pacific, unowned first, from the same reader as `lr update`.
 
@@ -77,7 +77,7 @@ Active means customer runs are failing now in telemetry since the last check-in.
 
 **Own our failures and leave Akamai's.** A failure on our own build, such as a sand-next release, is ours by default and gets a fix lane at once. An alert whose cause is Akamai, such as a tenant-edge 403, gets a look and no fix work: the fix lane posts a `NOT-OURS` record and stops. Whether a recent PR caused a failure is evidence for the mechanism, never a stop. Customer harm now and a path the plan keeps are the only gates.
 
-Push back on false-alarm or mute closes while unfixed. A mute, a false-alarm verdict, or a monitor change that stops counting failing teams, proposed by ai-oncall or anyone while the mechanism is unfixed, is never a close. The coordinator posts pushback where it was proposed, keeps the incident open, and names the fix owner that turn. The relay refuses a fix lane's stop that scopes a release gate out (`REFUSED-STOP`, launching its Opus fallback at once) and flags every proposed mute on a record its typed fields tie to an open incident or a monitor (`MUTE-PUSHBACK`): its kind, a `monitor` or `incident` attr, a monitor URL, or a `re` chain reaching one, never its words alone.
+Push back on false-alarm or mute closes while unfixed. A mute, a false-alarm verdict, or a monitor change that stops counting failing teams, proposed by ai-oncall or anyone while the mechanism is unfixed, is never a close. The coordinator posts pushback where it was proposed, keeps the incident open, and names the fix owner that turn; a proposal from ai-oncall gets its pushback as a `ci oncall say --kind finding` to its commander, or a takeover when the lane judges the commander will not hear it. The relay refuses a fix lane's stop that scopes a release gate out (`REFUSED-STOP`, launching its Opus fallback at once) and flags every proposed mute on a record its typed fields tie to an open incident or a monitor (`MUTE-PUSHBACK`): its kind, a `monitor` or `incident` attr, a monitor URL, or a `re` chain reaching one, never its words alone.
 
 Mute a proven false page as a window, never a close. When the fix lane's mechanism proves a page false because every team the monitor names is completing runs and the defect is in the signal, the lane mutes it the minute it is proven. It posts `MUTE <lane>: monitors <ids> until fix-live: <proof>` and requests the mute from ai-oncall through `ci oncall connect` and `ci oncall say --kind request`, never a prose Slack post. The incident stays open until `FIX-LIVE`. A release smoke team, a release check, or dev red is never false. The plan keeps the path when no step of the drive's plan deletes or replaces it before its next milestone. A path deleted at cutover is `no`, however far off cutover is.
 
@@ -272,15 +272,18 @@ Do:
      `MUTE <fix lane name>: monitors <ids> until fix-live: <the proof, one line>`, kind
      `incident`, to the coordinator, then ask ai-oncall with its verb, never a prose Slack post:
      `ci oncall connect <page id> --state <your worktree>/oncall.json --label <fix lane name>`
-     under a persistent Monitor (`ci aioncall open-incidents` names the page id), and
+     under a persistent Monitor (`tools/ci oncall incidents` names the incident id), and
      `ci oncall say <page id> --state <your worktree>/oncall.json --kind request --text "MUTE <ids> until <RFC3339, fix-live estimate plus an hour, at most 24 hours>: <the proof>. The fix is ours; page nobody on these monitors."`.
      The incident stays open until `FIX-LIVE`. A release smoke team, a release check, or
      dev red is never false.
-     You may take an alert over from ai-oncall without asking the owner, at warn
-     or alert level, for any alert this drive's work takes: use the
-     `incident-takeover` skill and post in the incident thread as the commander.
-     That standing grant covers only the Slack posts the takeover itself needs,
-     in the incident channel and the page thread.
+     One actor per incident (SKILL.md R16): when `tools/ci oncall incidents` shows an
+     open ai-oncall incident covering this alert, route every finding and requested
+     action through its commander with `ci oncall say --kind finding|request`, or take
+     it over; never ship, roll back, freeze, mute, page or post beside it. You may take
+     it over without asking the owner, at warn or alert level, for any alert this
+     drive's work takes: use the `incident-takeover` skill, which records you as the
+     owner and says so under the page post. That standing grant covers only the Slack
+     posts the takeover itself needs, in the incident channel and the page thread.
      No credential is read from any store, file, SSM parameter or environment unless the
      owner's words in this brief name it; a mute, an ack or a monitor change goes through
      ai-oncall's verb or an ask in the page thread, never a key you fetched.
