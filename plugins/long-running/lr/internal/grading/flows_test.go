@@ -418,6 +418,25 @@ func TestAToolingFailureTellsTheToolingLaneOncePerCauseAndHour(t *testing.T) {
 	}
 }
 
+func TestAFailedPassTellsItsPRsLaneOnceAtItsFirstFailure(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	f.now = time.Now()
+	name := f.started(t, GraderFinder)
+	f.shell.exitAll()
+	writeResult(t, f.finderDir(jobDir), `{"error":"TimeoutExpired: git --no-lazy-fetch range-diff --no-patch timed out after 15m0s"}`, f.now)
+
+	for range 2 {
+		if _, err := f.pool.Settle(context.Background(), []string{name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	notes := recordsOf(t, kindNote)
+	if len(notes) != 1 || !strings.HasPrefix(notes[0].Text, "GRADER-FAILED #45489 "+head[:headChars]+": its finder pass died: TimeoutExpired: git --no-lazy-fetch range-diff") || !slices.Contains(notes[0].To, "lane-7") {
+		t.Fatalf("notes = %+v", notes)
+	}
+}
+
 func TestACancelledJobWhoseCodexWasKilledTellsNobody(t *testing.T) {
 	f := newPool(t, map[string]any{"tooling_lane": "tooling-1", "finder": map[string]any{}})
 	f.now = time.Now().Truncate(time.Hour)

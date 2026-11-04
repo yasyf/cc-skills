@@ -34,12 +34,13 @@ const (
 	baseSubject = 500
 	reasonless  = "no reasoning in `swept`, which gives one sentence per group of related hunks saying what it changes and why it holds or fails"
 	nothing     = "(none)"
+	gitlinkMode = "160000"
 )
 
 var (
 	retryBackoff    = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
 	rateLimitFloors = []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 60 * time.Second, 60 * time.Second}
-	blobFetch       = []string{"-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "origin"}
+	blobFetch       = []string{"-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", "origin"}
 
 	zeroRef     = regexp.MustCompile(`bad object (?:0{40}|worktrees/\S+/HEAD)`)
 	fullSHA     = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -156,7 +157,11 @@ func (f *future[T]) result() (T, error) {
 }
 
 func (p *pass) git(args ...string) (string, error) {
-	out, err := p.run(append([]string{"git"}, args...), p.job.Checkout, gitTimeout)
+	return p.gitFed("", args...)
+}
+
+func (p *pass) gitFed(stdin string, args ...string) (string, error) {
+	out, err := p.execute(shell.Command{Argv: append([]string{"git"}, args...), Stdin: stdin, Dir: p.job.Checkout, Timeout: gitTimeout})
 	return strings.TrimSpace(out), err
 }
 
@@ -329,23 +334,52 @@ func (p *pass) ownSince(other, head string) (string, error) {
 			paths = append(paths, path)
 		}
 	}
-	span := other + "..." + head
-	objects, err := p.git(append([]string{"rev-list", "--objects", "--missing=print", "--no-object-names", span, "--"}, paths...)...)
-	if err != nil {
+	span := append([]string{other + "..." + head, "--"}, paths...)
+	if err := p.prefetch(span); err != nil {
 		return "", err
 	}
-	var missing []string
-	for line := range strings.SplitSeq(objects, "\n") {
-		if oid, absent := strings.CutPrefix(line, "?"); absent {
-			missing = append(missing, oid)
+	return p.git(append([]string{"--no-lazy-fetch", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse"}, span...)...)
+}
+
+func (p *pass) prefetch(walks ...[]string) error {
+	seen := map[string]bool{}
+	var blobs strings.Builder
+	for _, walk := range walks {
+		raw, err := p.git(append([]string{"log", "--raw", "--no-abbrev", "--no-merges", "--no-renames", "--format="}, walk...)...)
+		if err != nil {
+			return err
+		}
+		for line := range strings.SplitSeq(raw, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 4 || !strings.HasPrefix(fields[0], ":") {
+				continue
+			}
+			for _, side := range [][2]string{{fields[0][1:], fields[2]}, {fields[1], fields[3]}} {
+				if side[0] != gitlinkMode && strings.Trim(side[1], "0") != "" && !seen[side[1]] {
+					seen[side[1]] = true
+					blobs.WriteString(side[1] + "\n")
+				}
+			}
 		}
 	}
-	if len(missing) > 0 {
-		if _, err := p.git(append(slices.Clone(blobFetch), missing...)...); err != nil {
-			return "", err
+	if blobs.Len() == 0 {
+		return nil
+	}
+	checked, err := p.gitFed(blobs.String(), "--no-lazy-fetch", "cat-file", "--batch-check")
+	if err != nil {
+		return err
+	}
+	var missing strings.Builder
+	for line := range strings.SplitSeq(checked, "\n") {
+		if oid, absent := strings.CutSuffix(line, " missing"); absent {
+			missing.WriteString(oid + "\n")
 		}
 	}
-	return p.git(append([]string{"rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", span, "--"}, paths...)...)
+	if missing.Len() == 0 {
+		return nil
+	}
+	_, err = p.gitFed(missing.String(), blobFetch...)
+	return err
 }
 
 func (p *pass) resolve(name string) (string, error) {
@@ -376,8 +410,12 @@ type pair struct {
 }
 
 func (p *pass) rangePairs(base, last string, earlier, own []string) (string, []pair, error) {
-	pairs := fmt.Sprintf("%s^..%s %s^..%s", earlier[0], last, own[0], p.job.Head)
-	out, err := p.git(append([]string{"range-diff", "--no-patch", "--no-color"}, strings.Fields(pairs)...)...)
+	ranges := []string{earlier[0] + "^.." + last, own[0] + "^.." + p.job.Head}
+	if err := p.prefetch(ranges[:1], ranges[1:]); err != nil {
+		return "", nil, err
+	}
+	pairs := strings.Join(ranges, " ")
+	out, err := p.git(append([]string{"--no-lazy-fetch", "range-diff", "--no-patch", "--no-color"}, ranges...)...)
 	if err != nil {
 		return "", nil, err
 	}

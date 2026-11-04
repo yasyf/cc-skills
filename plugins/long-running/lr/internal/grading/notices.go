@@ -83,20 +83,30 @@ func jobNames(directory string) (grader.Job, error) {
 }
 
 func (p *JobPool) toolingFailed(ctx context.Context, lane, directory string) error {
-	if p.tooling == "" {
-		return nil
-	}
 	spec, err := jobNames(directory)
 	if err != nil {
 		return err
 	}
 	desk := graderOf(lane)
 	why := failureOf(directory)
+	to := spec.Lane
+	if to == "" {
+		to = rootLane
+	}
+	failed := "grader-failed:" + desk + ":" + spec.PR + ":" + spec.Head
+	told := fmt.Sprintf("GRADER-FAILED #%s %s: its %s pass died: %s; it runs again after %d min, up to %d attempts, and the head has no %s grade until one completes",
+		spec.PR, short(spec.Head), desk, squeezed(why), int(failedHold.Minutes()), maxAttempts, desk)
+	if err := p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindNote, Text: told, To: []string{to}, Topic: failed, ID: failed, PRs: []string{spec.Repo + "#" + spec.PR}}); err != nil {
+		return err
+	}
+	if p.tooling == "" {
+		return nil
+	}
 	cause := toolingCause.ReplaceAllString(why, clipMark)
 	cause = string([]rune(cause)[:min(causeChars, len([]rune(cause)))])
 	sum := sha256.Sum256([]byte(cause))
 	subject := "grader-tooling:" + hex.EncodeToString(sum[:])[:causeHash] + ":" + p.Now().UTC().Format("2006010215")
-	text := fmt.Sprintf("GRADER-TOOLING %s %s: %s passes die on a tooling error, first on #%s %s: %s; each retries after %d min, and its lanes hear only after its %dth failure",
+	text := fmt.Sprintf("GRADER-TOOLING %s %s: %s passes die on a tooling error, first on #%s %s: %s; each retries after %d min, up to %d attempts, and each PR's lane hears at its first failure",
 		subject, desk, desk, spec.PR, short(spec.Head), squeezed(why), int(failedHold.Minutes()), maxAttempts)
 	return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindReport, Text: text, To: []string{p.tooling}, Topic: subject, ID: subject})
 }
