@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from brief import Curator
 from pages import PAGES, REVIEW_SCHEMA, open_question, plan_slot, review_digest, review_slot, stamp, waiting_since
-from server import bot_words, drawable, stored_replies, unanswered
+from server import ALERTS_SENT, bot_words, drawable, reply_alerts, stored_replies, unanswered
 
 NOW = dt.datetime(2026, 10, 27, 23, 0, tzinfo=dt.timezone.utc)
 ROW = {
@@ -201,3 +201,21 @@ def test_replies_read_newest_first_by_time_and_skip_a_staged_write(tmp_path):
     (tmp_path / "half-written.json.staged").write_text("{")
     read = stored_replies(lambda path: json.loads(Path(path).read_text()), tmp_path)
     assert [entry["reply"]["id"] for entry in read] == ["later-in-the-second", "earlier-in-the-second", "older"]
+
+
+def reply_entry(id, **fields):
+    return {"at": "2026-11-03T18:00:00Z", "surfaces": [], "reply": {"id": id, "title": f"title {id}", "md": "body", **fields}}
+
+
+def test_alerts_carry_each_reply_that_needs_him_and_no_other():
+    replies = [reply_entry("n", status="needs_you"), reply_entry("i", status="incident"), reply_entry("p", status="info", picks=["a", "b"]), reply_entry("d", status="done"), reply_entry("g", status="progress"), reply_entry("x")]
+    assert reply_alerts(replies) == [
+        {"id": "n", "title": "title n", "incident": False, "picks": []},
+        {"id": "i", "title": "title i", "incident": True, "picks": []},
+        {"id": "p", "title": "title p", "incident": False, "picks": ["a", "b"]},
+    ]
+
+
+def test_alerts_keep_the_newest_when_many_wait():
+    replies = [reply_entry(f"r{n}", status="needs_you") for n in range(ALERTS_SENT + 5)]
+    assert [alert["id"] for alert in reply_alerts(replies)] == [f"r{n}" for n in range(ALERTS_SENT)]

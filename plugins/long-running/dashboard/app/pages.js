@@ -663,3 +663,37 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   replyBack(form.dataset.replyBack, form.reply.value);
 });
+function noticeReplies(alerts) {
+  const seen = JSON.parse(localStorage.getItem('replies-noticed'));
+  localStorage.setItem('replies-noticed', JSON.stringify(alerts.map((a) => a.id)));
+  if (!seen || Notification.permission !== 'granted') return;
+  for (const a of alerts.filter((alert) => !seen.includes(alert.id)).reverse()) {
+    const notice = new Notification(a.incident && !/^incident/i.test(a.title) ? `Incident: ${a.title}` : a.title, { body: a.picks.join(' · '), tag: a.id, requireInteraction: a.incident });
+    notice.onclick = () => {
+      window.focus();
+      state.open.add(`rp-${a.id}`);
+      location.hash = '#/replies';
+      render();
+    };
+  }
+}
+function followAlerts() {
+  const es = new EventSource('/api/alerts');
+  es.addEventListener('alerts', (e) => noticeReplies(JSON.parse(e.data)));
+  es.onerror = () => { es.close(); setTimeout(followAlerts, 3000); };
+}
+function alertsButton() {
+  const el = $('#alerts');
+  el.hidden = Notification.permission === 'granted';
+  el.disabled = Notification.permission === 'denied';
+  el.textContent = el.disabled ? 'Alerts blocked in this browser' : 'Turn on alerts';
+}
+function startAlerts() {
+  if (!window.isSecureContext || !('Notification' in window)) return;
+  alertsButton();
+  $('#alerts').addEventListener('click', () => Notification.requestPermission().then(alertsButton));
+  navigator.locks.request('drive-alerts', () => {
+    followAlerts();
+    return new Promise(() => {});
+  });
+}
