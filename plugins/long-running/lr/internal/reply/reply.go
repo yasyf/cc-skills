@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -35,10 +36,12 @@ const (
 	doneLead     = "Done, nothing for you"
 	pickLead     = "Tap one below"
 	needsYou     = "needs_you"
+	progress     = "progress"
+	info         = "info"
 )
 
 var (
-	statuses   = []string{"info", "progress", needsYou, "incident", "done"}
+	statuses   = []string{info, progress, needsYou, "incident", "done"}
 	orderRow   = regexp.MustCompile(`^m\d+$`)
 	replyID    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
@@ -73,6 +76,8 @@ type Reply struct {
 	Thread      string   `json:"thread,omitempty"`
 	Order       string   `json:"order,omitempty"`
 	Action      string   `json:"action,omitempty"`
+	By          string   `json:"by,omitempty"`
+	Routed      int      `json:"routed,omitempty"`
 }
 
 type Outcome struct {
@@ -89,6 +94,11 @@ type delivery struct {
 
 type Surface func(ctx context.Context, r Reply, sent []Outcome) []Outcome
 
+type step struct {
+	surface Surface
+	reply   Reply
+}
+
 type Fanout struct {
 	Runner shell.Runner
 	Entry  drive.Entry
@@ -98,14 +108,19 @@ type Fanout struct {
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	seen := r
 	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
+	steps := []step{{f.board, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}}
+	if r.quiet() {
+		steps = []step{{f.board, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+	}
 	sent := make([]Outcome, 0, 5)
-	for _, step := range []struct {
-		surface Surface
-		reply   Reply
-	}{{f.board, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}} {
-		sent = append(sent, step.surface(ctx, step.reply, sent)...)
+	for _, s := range steps {
+		sent = append(sent, s.surface(ctx, s.reply, sent)...)
 	}
 	return sent
+}
+
+func (r Reply) quiet() bool {
+	return r.Order != "" && len(r.Picks) == 0 && (r.Status == progress || r.Status == info)
 }
 
 func (r Reply) led() Reply {
@@ -120,6 +135,8 @@ func (r Reply) led() Reply {
 		lead = pickLead
 		r.Action = lead
 		r.Status = cmp.Or(r.Status, needsYou)
+	case r.Status == progress:
+		return r
 	default:
 		lead = doneLead
 	}
@@ -138,6 +155,8 @@ func (r Reply) check() error {
 		return fmt.Errorf("order %q is not a ledger row such as m347", r.Order)
 	case r.Action != "" && r.Order == "":
 		return errors.New("action names what he must do about an order, and this reply names no order")
+	case (r.By != "" || r.Routed != 0) && !r.quiet():
+		return errors.New("by and routed mark his ledger row from a progress or info reply to an order, with no picks")
 	case strings.Contains(r.Action, "\n"):
 		return errors.New("action is the one thing he must do, on one line")
 	case !replyID.MatchString(r.ID):
@@ -374,6 +393,14 @@ func (f Fanout) record(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		return []Outcome{{Surface: "record", Error: "cci post named no record: " + strings.TrimSpace(done.Stdout)}}
 	}
 	return []Outcome{{Surface: "record", Ref: posted.Num}}
+}
+
+func (f Fanout) ledger(_ context.Context, r Reply, _ []Outcome) []Outcome {
+	state, err := owner.Answer(f.Entry.StateDir, r.Order, r.By, r.ID, r.Routed, f.Now())
+	if err != nil {
+		return []Outcome{failed("ledger", err)}
+	}
+	return []Outcome{{Surface: "ledger", Ref: r.Order + " " + state}}
 }
 
 func (f Fanout) dashboard(_ context.Context, r Reply, sent []Outcome) []Outcome {

@@ -42,6 +42,7 @@ WORDY = "The typing box lost drafts. A render reset the input. The fix keeps the
 WHY = "The typing box lost your draft because each render reset its input."
 PAGE = "Fixed and live. The details: https://mac.tail1.ts.net:8665/one-pagers/typing-box/"
 UPDATE_MD = "# Owner update: brook, 10:40 PM\n\n## Workstreams\n\n| Workstream | State |\n| --- | --- |\n| Dashboard | typing box fix live |\n\nThree PRs merged. Two lanes are live. One waits on you."
+QUIET = frozenset({"progress", "info"})
 RECEIPT = "Its checks passed.\n\n- Land it (recommended)\n- Hold it\n\nReply r1; pass this id to edit it on every surface."
 
 
@@ -49,9 +50,9 @@ def said(text: str, **given: object) -> Input:
     return Input(transcript=reply_transcript(text), **({"state": ACTIVE, "decide": CALM} | given))
 
 
-def replied(md: str, picks: tuple[str, ...] = (), **given: object) -> Input:
+def replied(md: str, picks: tuple[str, ...] = (), ledger: dict | None = None, **given: object) -> Input:
     card = {"picks": list(picks), "recommended": picks[0]} if picks else {}
-    return Input(tool=REPLY, tool_input={"title": "Typing box", "md": md, **card}, **({"state": ACTIVE, "decide": CALM} | given))
+    return Input(tool=REPLY, tool_input={"title": "Typing box", "md": md, **card, **(ledger or {})}, **({"state": ACTIVE, "decide": CALM} | given))
 
 
 def breaches(evt: BaseHookEvent, text: str, card: bool) -> list[str]:
@@ -99,10 +100,14 @@ def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookRes
         Input(command=f"cc-slack send --channel D0B6Z --text '{WORDY}'", state=ACTIVE, decide=CALM): Block(pattern=r"at most two sentences"),
         Input(command="cci post --lane owner-relay --kind note --text 'On it.'", state=ACTIVE, decide=CALM): Allow(),
         replied(ACKS, agent_id="a1b2c3"): Allow(),
+        replied("Due by 11:30 PM.", ledger={"order": "m447", "status": "progress", "by": "11:30 PM"}): Allow(),
+        replied("Due by 11:30 PM.", ledger={"order": "m447", "status": "done"}): Block(pattern=r"no acknowledgement"),
     }),
 )
 def owner_writes_stay_short(evt: BaseHookEvent) -> HookResult | None:
     if evt.tool_name == REPLY:
+        if evt._tool_input.get("order") and evt._tool_input.get("status") in QUIET and not evt._tool_input.get("picks"):
+            return None
         return refused(evt, [str(evt._tool_input.get("md") or "")], card=bool(evt._tool_input.get("picks")))
     return refused(evt, [text for _, text in dm_posts(evt)])
 
