@@ -224,12 +224,16 @@ def stamped(prompt: dict, seen: dict[str, datetime], ending: bool) -> dict:
     return prompt
 
 
+def queued_prompts(events: Iterable[object]) -> list[str]:
+    return [event.detail.prompt for event in events if isinstance(event, AttachmentEvent) and event.attachment_type == "queued_command" and event.detail.prompt]
+
+
+def owner_slack_messages(prompts: Iterable[str]) -> list[dict]:
+    messages = (json.loads(found["payload"]) for prompt in prompts if (found := SLACK_MESSAGE.search(prompt)))
+    return [message for message in messages if message["user"] == OPERATOR and not message["from_claude"] and not message["text"].startswith(FALLBACK_POST)]
+
+
 def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
-    messages = (
-        json.loads(found["payload"])
-        for event in events
-        if isinstance(event, AttachmentEvent) and event.attachment_type == "queued_command" and event.detail.prompt and (found := SLACK_MESSAGE.search(event.detail.prompt))
-    )
     return [
         {
             "digest": hashlib.sha256(f"{evt.session_id}\0{message['ts']}".encode()).hexdigest()[:DIGEST_CHARS],
@@ -240,8 +244,8 @@ def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
             "ts": message["ts"],
             "thread": message["thread_ts"],
         }
-        for message in messages
-        if message["channel_id"].startswith("D") and message["user"] == OPERATOR and not message["from_claude"] and not message["text"].startswith(FALLBACK_POST)
+        for message in owner_slack_messages(queued_prompts(events))
+        if message["channel_id"].startswith("D")
     ]
 
 

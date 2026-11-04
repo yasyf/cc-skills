@@ -53,7 +53,8 @@ def replied(md: str, picks: tuple[str, ...] = (), ledger: dict | None = None, **
 
 def breaches(evt: BaseHookEvent, text: str, card: bool) -> list[str]:
     parts = sentences(text)
-    found = [ACKED] if parts and all(ACK.match(part) or (PROMISE.search(part) and not LIVE.search(part)) for part in parts) else []
+    acked = parts and all(ACK.match(part) or (PROMISE.search(part) and not LIVE.search(part)) for part in parts)
+    found = [ACKED] if acked and not owed_a_reply(evt) else []
     if len(parts) > 2 and not (card or UPDATE.search(text) or OwnerReturns.load(evt).returned):
         found.append(LONG)
     if not (card or answering_him(evt)) and (EXPLAINER.search(text) or DIAGRAM.search(text) or explains(evt, text)):
@@ -61,10 +62,14 @@ def breaches(evt: BaseHookEvent, text: str, card: bool) -> list[str]:
     return found
 
 
+def owed_a_reply(evt: BaseHookEvent) -> bool:
+    owed = dm_owed(evt)
+    return bool(owed and owed["replies"])
+
+
 def answering_him(evt: BaseHookEvent) -> bool:
     returns = OwnerReturns.load(evt)
-    owed = dm_owed(evt)
-    return returns.explain_due or returns.asked_why or bool(owed and owed["replies"])
+    return returns.explain_due or returns.asked_why or owed_a_reply(evt)
 
 
 def explains(evt: BaseHookEvent, text: str) -> bool:
@@ -98,6 +103,7 @@ def advised(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookRes
     tests=communicator_tests({
         replied(ACKS): Warn(pattern=r"An order gets no acknowledgement and no promised time"),
         replied("On it."): Warn(pattern=r"no acknowledgement"),
+        replied(ACKS, env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": json.dumps({"replies": [{"ts": "1.2"}], "holder_session": "s"})}): Allow(),
         replied(LIVE_NOW): Allow(),
         replied("Yes, the relay keeps one replica per chat."): Allow(),
         replied(WORDY): Warn(pattern=r"A reply to him is at most two sentences"),

@@ -63,11 +63,16 @@ VERSION = re.compile(r"\d+(?:\.\d+)*")
 SHIPPED_CC_SLACK = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / CC_SLACK_CACHE / "0.4.27" / "bin" / "cc-slack"
 CC_SLACK_UNREAD = "The communicator could not run `cc-slack {verb}` from the plugin ({why}), so the owner's DM replies go unwatched or unchecked until it works."
 UNANSWERED = (
-    "The owner wrote in Slack and nobody has answered in that thread: {replies}."
-    " Run `slack_react` with `name` `+1` on each that needs nothing back, `slack_reply` saying what was done, or `owner_mark` on its row, then stop."
+    "An owner Slack message has no answer, and a mark or a lane does not answer a message in a thread."
+    " Answer each now with the `reply` tool, which posts in his thread, or `slack_react` `+1` when it needs nothing back.\n```\n{replies}\n```"
 )
 ACK_AFTER_SECONDS = 30
-UNACKED = "An owner Slack reply has waited over 30 seconds with no ack. Run `slack_react` with `name` `+1` and `url` {permalink}, or `slack_reply` if you have news for him."
+UNACKED = "An owner Slack message has waited over 30 seconds with no thread reply. Answer before any routing with the `reply` tool, or `slack_react` `+1` with `url` {permalink} when it needs nothing back."
+OWNER_WATCH = "owner Slack watch"
+WATCH_CALL = f"`Monitor` with description `{OWNER_WATCH}`, command `lr owner watch` and `timeout_ms` 1800000"
+ARM_WATCH = f"An idle window hears the owner's Slack messages only through its standing watch. Arm {WATCH_CALL} unless it already runs, and again each time it ends."
+UNWATCHED = f"The owner's Slack watch is not running, so his next message waits until this window moves. Arm {WATCH_CALL}, then stop."
+WATCHING = [{"id": "w1", "type": "monitor", "status": "running", "description": OWNER_WATCH}]
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
 IN_THREAD = "He asked in a Slack thread, so this reply posts in that thread."
@@ -168,12 +173,28 @@ def delivered(thread: str = OWED_REPLY["thread_ts"]) -> list:
     return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": tagged, "commandMode": "prompt"}}]
 
 
+@on(
+    Event.SessionStart,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(source="compact", state=[CompactionState(active=True, communicator=True)]): Warn(pattern=r"^An idle window hears.*`lr owner watch`"),
+        Input(source="startup", state=[CompactionState(active=True, communicator=True)]): Warn(pattern=r"`lr owner watch`"),
+        Input(source="resume", state=[CompactionState(active=True, communicator=True)]): Warn(pattern=r"`lr owner watch`"),
+        Input(source="compact", agent_id="a1b2c3", state=[CompactionState(active=True, communicator=True)]): Allow(),
+    }),
+)
+def communicator_arms_the_owner_watch(evt: BaseHookEvent) -> HookResult | None:
+    return evt.context(ARM_WATCH)
+
+
 def waiting(replies: str | tuple) -> Input:
     return Input(session_id=HOLDER, command="ls", transcript=delivered(), state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
 
 
-def answering(transcript: list, **given: object) -> Input:
-    return Input(session_id=HOLDER, tool=REPLY, tool_input={"title": "Yes, it is on the board", "md": "It is the third card."} | given, transcript=transcript, state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG)
+def answering(transcript: list, owed: tuple = (), **given: object) -> Input:
+    replies = json.dumps({"replies": list(owed), "holder_session": HOLDER})
+    return Input(session_id=HOLDER, tool=REPLY, tool_input={"title": "Yes, it is on the board", "md": "It is the third card."} | given, transcript=transcript, state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
 
 
 def reading(transcript: list, owed: str | tuple, tool: str = f"{CC_SLACK}slack_thread", **given: object) -> Input:
@@ -181,8 +202,8 @@ def reading(transcript: list, owed: str | tuple, tool: str = f"{CC_SLACK}slack_t
     return Input(session_id=HOLDER, **call, transcript=transcript, state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": owed})
 
 
-def owed(replies: str | tuple, *calls: dict) -> Input:
-    return Input(session_id=HOLDER, transcript=[T.user("where are we"), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
+def owed(replies: str | tuple, *calls: dict, tasks: list = WATCHING) -> Input:
+    return Input(session_id=HOLDER, transcript=[T.user("where are we"), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, background_tasks=tasks)
 
 
 def raised(decide: dict, prompt: str = SIGNAL, **fields: object) -> Input:
@@ -258,21 +279,9 @@ def ask_to(*to: str) -> str:
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"})): Allow(),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Block(pattern=r"^The owner wrote in Slack.*p1793705742180139: A, but as buttons.*`slack_reply`"),
-        owed(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
-        Input(session_id=HOLDER, transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True, communicator=True), OwnerReturns(marked_replies=[OWED_REPLY["ts"]])], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})}, decide=CALM): Allow(),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(OWNER_MARK, result="m447 responded", row="m447", state="responded")): Allow(),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Bash", result="m447 due Nov 3 11:30 PM", command="lr owner mark m447 due --by '11:30 PM' --routed 400803")): Allow(),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger: m447 due Nov 3 11:30 PM", title="Vector search", md="Designing.", status="progress", order="m447", by="11:30 PM")): Allow(),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger FAILED: no row m9", title="Vector search", md="Designing.", status="progress", order="m9")): Block(pattern=r"owner_mark"),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(OWNER_MARK, result="no row m9", is_error=True, row="m9", state="responded")): Block(pattern=r"^The owner wrote in Slack"),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Agent", result="started", description="status", prompt="read every lane")): Allow(),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Monitor", result="armed", description="status read", timeout_ms=1000)): Allow(),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Bash", result="started", command="zsh read.zsh", run_in_background=True)): Allow(),
-        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Bash", result="launched", command="lr ask-lane 'how far along is relay-fix-2'")): Allow(),
-        owed((1, "cc-slack can't reach the daemon")): Allow(),
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
+        picked(*T.tool_turn("Monitor", result="armed", description=OWNER_WATCH, timeout_ms=1800000)): Block(pattern=r"^A pick for the owner never sits inline"),
+        picked(*T.tool_turn("Monitor", result="armed", description="status read", timeout_ms=1000)): Allow(),
         picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*the `reply` tool, the answers as its `picks`"),
         picked(*T.tool_turn(REPLY, result=REPLIED, title="Land the relay fix tonight?", md="Its checks passed.", picks=["Land it", "Hold it"], recommended="Land it")): Allow(),
         picked(*T.tool_turn(REPLY, result=REPLIED.replace("- slack: https://brook.slack.com/archives/D0B6Z/p1793635190051179", "- slack FAILED: cc-slack dm-status exited 1: channel_not_found"), title="Land the relay fix tonight?", md="Its checks passed.", picks=["Land it", "Hold it"], recommended="Land it")): Block(pattern=r"never sits inline"),
@@ -322,8 +331,48 @@ def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult
     if any(hands_off(use) for use in evt.ctx.turn.tool_calls.items):
         return None
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (unanswered_reply(evt), missing_update(evt, reply), inline_pick(evt, reply), file_path(evt, reply), unexplained(evt, reply)) if problem]
+    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply), file_path(evt, reply), unexplained(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
+
+
+OWES_HIM = json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})
+AT_THE_ROOT = OWED_REPLY | {"thread_ts": OWED_REPLY["ts"]}
+OWES_THE_ROOT = json.dumps({"replies": [AT_THE_ROOT], "holder_session": HOLDER})
+
+
+@on(
+    Event.Stop,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"})): Allow(),
+        owed(OWES_HIM): Block(pattern=r"^An owner Slack message has no answer[\s\S]*p1793705742180139: A, but as buttons"),
+        owed(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
+        owed(OWES_HIM, *T.tool_turn(OWNER_MARK, result="m447 responded", row="m447", state="responded")): Block(pattern=r"^An owner Slack message has no answer"),
+        owed(OWES_HIM, *T.tool_turn("Bash", result="m447 due Nov 3 11:30 PM", command="lr owner mark m447 due --by '11:30 PM' --routed 400803")): Block(),
+        owed(OWES_HIM, *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger: m447 due Nov 3 11:30 PM", title="Vector search", md="Designing.", status="progress", order="m447", by="11:30 PM")): Block(),
+        owed(OWES_HIM, *T.tool_turn("Agent", result="started", description="status", prompt="read every lane")): Block(),
+        owed(OWES_HIM, *T.tool_turn("Monitor", result="armed", description="status read", timeout_ms=1000)): Block(),
+        owed(OWES_HIM, *T.tool_turn("Bash", result="started", command="zsh read.zsh", run_in_background=True)): Block(),
+        owed(OWES_HIM, *T.tool_turn("Bash", result="launched", command="lr ask-lane 'how far along is relay-fix-2'")): Block(),
+        owed((1, "cc-slack can't reach the daemon")): Allow(),
+        owed(OWES_THE_ROOT): Block(pattern=r"^An owner Slack message has no answer"),
+        owed(OWES_THE_ROOT, *T.tool_turn(OWNER_MARK, result="m447 responded", row="m447", state="responded")): Allow(),
+        owed(OWES_THE_ROOT, *T.tool_turn(OWNER_MARK, result="no row m9", is_error=True, row="m9", state="responded")): Block(),
+        owed(OWES_THE_ROOT, *T.tool_turn("Agent", result="started", description="status", prompt="read every lane")): Allow(),
+        owed(OWES_THE_ROOT, *T.tool_turn("Monitor", result="armed", description=OWNER_WATCH, timeout_ms=1800000)): Block(),
+        Input(session_id=HOLDER, transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True, communicator=True), OwnerReturns(marked_replies=[AT_THE_ROOT["ts"]])], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": OWES_THE_ROOT}, background_tasks=WATCHING): Allow(),
+        owed(json.dumps({"replies": [], "holder_session": HOLDER}), tasks=[]): Block(pattern=r"^The owner's Slack watch is not running.*`lr owner watch`"),
+        owed(json.dumps({"replies": [], "holder_session": HOLDER}), tasks=[{"id": "m1", "type": "monitor", "status": "running", "description": "cci subscribe owner-relay"}]): Block(pattern=r"^The owner's Slack watch is not running"),
+    }),
+)
+def owner_slack_waits_hold_the_stop(evt: BaseHookEvent) -> HookResult | None:
+    problems = [problem for problem in (unwatched(evt), unanswered_reply(evt)) if problem]
+    return evt.block(" ".join(problems)) if problems else None
+
+
+def unwatched(evt: BaseHookEvent) -> str | None:
+    return None if any(task.type == "monitor" and task.status == "running" and task.description == OWNER_WATCH for task in evt.background_tasks) else UNWATCHED
 
 
 def dm(tool: str = DM_CARD, **given: object) -> Input:
@@ -403,17 +452,15 @@ def unread_cc_slack(evt: BaseHookEvent, verb: str, why: str) -> None:
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        waiting(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Warn(pattern=r"^An owner Slack reply has waited.*`url` https://\S*p1793705742180139, or `slack_reply`"),
+        waiting(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Warn(pattern=r"^An owner Slack message has waited.*`url` https://\S*p1793705742180139"),
+        Input(session_id=HOLDER, command="ls", transcript=[T.user("where are we")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})}): Warn(pattern=r"^An owner Slack message has waited"),
         waiting(json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"})): Allow(),
         waiting(json.dumps({"replies": [OWED_REPLY | {"ts": f"{time.time() + 3600:.6f}"}], "holder_session": HOLDER})): Allow(),
         waiting(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
         waiting((1, "cc-slack can't reach the daemon")): Allow(),
-        Input(session_id=HOLDER, command="ls", transcript=[T.user("where are we")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG): Allow(),
     }),
 )
 def owner_reply_gets_a_fast_ack(evt: BaseHookEvent) -> HookResult | None:
-    if not slack_dms(evt, evt.ctx.turn.events):
-        return None
     try:
         out = read([str(shipped_cc_slack()), "dm-owed"])
     except (OSError, subprocess.SubprocessError):
@@ -447,11 +494,13 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
     owed = dm_owed(evt)
     if owed is None or owed["holder_session"] != evt.session_id or not owed["replies"]:
         return None
+    calls = evt.ctx.turn.tool_calls.items
     with OwnerReturns.mutate(evt) as state:
-        if any(marked(use) for use in evt.ctx.turn.tool_calls.items):
+        if any(marked(use) for use in calls):
             state.marked_replies = sorted({*state.marked_replies, *(reply["ts"] for reply in owed["replies"])})
-        unmarked = [reply for reply in owed["replies"] if reply["ts"] not in state.marked_replies]
-    return UNANSWERED.format(replies="; ".join(f'{reply["permalink"]}: {reply["text"]}' for reply in unmarked)) if unmarked else None
+        handed_off = any(hands_off(use) for use in calls)
+        waiting = [reply for reply in owed["replies"] if reply["thread_ts"] != reply["ts"] or not (handed_off or reply["ts"] in state.marked_replies)]
+    return UNANSWERED.format(replies="\n".join(f'{reply["permalink"]}: {reply["text"]}' for reply in waiting)) if waiting else None
 
 
 @on(
@@ -461,13 +510,19 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
     tests=communicator_tests({
         answering(delivered()): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
         answering(delivered(thread=OWED_REPLY["ts"])): Allow(),
+        answering([T.user("where are we")], owed=(OWED_REPLY,)): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering([T.user("where are we")], owed=(OWED_REPLY | {"thread_ts": OWED_REPLY["ts"]},)): Allow(),
         answering(delivered(), thread="1793600000.000001"): Allow(),
         answering([T.user("where are we")]): Allow(),
     }),
 )
 def answers_go_in_his_thread(evt: BaseHookEvent) -> HookResult | None:
-    threads = [dm["thread"] for dm in slack_dms(evt, evt.ctx.turn.events) if dm["thread"] != dm["ts"]]
-    if not threads or evt.input.raw.get("thread"):
+    if evt.input.raw.get("thread"):
+        return None
+    owed = dm_owed(evt)
+    held = owed["replies"] if owed and owed["holder_session"] == evt.session_id else []
+    threads = [*(reply["thread_ts"] for reply in held if reply["thread_ts"] != reply["ts"]), *(dm["thread"] for dm in slack_dms(evt, evt.ctx.turn.events) if dm["thread"] != dm["ts"])]
+    if not threads:
         return None
     return evt.rewrite(evt.input.raw | {"thread": threads[-1]}, note=IN_THREAD)
 
@@ -556,7 +611,7 @@ def route_reminder(evt: BaseHookEvent) -> None:
 
 def hands_off(use: object) -> bool:
     if use.call.name in WAIT_TOOLS:
-        return True
+        return use.call.raw.get("description") != OWNER_WATCH
     return use.call.name == "Bash" and (bool(use.call.raw.get("run_in_background")) or any(cmd.runs("lr", "ask-lane") for cmd in use.call.command_line))
 
 

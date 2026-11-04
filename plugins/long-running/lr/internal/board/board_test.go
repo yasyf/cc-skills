@@ -2,6 +2,7 @@ package board
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,8 +151,8 @@ func TestApprovedBecomesATapFactAndATapRecord(t *testing.T) {
 func TestApprovedOnARowNotReadyIsRefusedWithItsReasonAndTapsNothing(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
 	rowWaits(t, s, "held by root")
-	if err := Answer(s, repo, hooks.hooks(), rows(t, s, facts(nil))[0], verdictApproved, t0); err != nil {
-		t.Fatal(err)
+	if err := Answer(s, repo, hooks.hooks(), rows(t, s, facts(nil))[0], verdictApproved, t0); err == nil || !strings.Contains(err.Error(), "held by root") {
+		t.Fatalf("err = %v, want the refusal for the card to tell him", err)
 	}
 	if len(hooks.taps) != 0 || stored(t, s)["tap"] != "" {
 		t.Fatalf("taps = %+v, facts = %v", hooks.taps, stored(t, s))
