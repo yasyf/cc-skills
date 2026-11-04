@@ -25,6 +25,7 @@ var (
 		"lr/internal/board/board.go",
 		"lr/internal/landing/carry.go",
 		"dashboard/app/server.py",
+		"skills/long-running/scripts/board_watch.py",
 	}
 	skippedDirs = []string{"tests", "testdata", "fixtures", "node_modules", ".venv", "ios", "benchmarks"}
 	sourceKinds = []string{".go", ".py", ".sh", ".js"}
@@ -44,33 +45,33 @@ func offenders(files map[string]string, call *regexp.Regexp, allowed []string) [
 func packSources(t *testing.T) map[string]string {
 	t.Helper()
 	root := filepath.Join("..", "..", "..")
-	files := map[string]string{}
+	var paths []string
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() {
-			if slices.Contains(skippedDirs, entry.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
+		if entry.IsDir() && slices.Contains(skippedDirs, entry.Name()) {
+			return filepath.SkipDir
 		}
-		if !slices.Contains(sourceKinds, filepath.Ext(path)) || strings.HasSuffix(path, "_test.go") {
-			return nil
+		if !entry.IsDir() && slices.Contains(sourceKinds, filepath.Ext(path)) && !strings.HasSuffix(path, "_test.go") {
+			paths = append(paths, path)
 		}
-		text, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		files[filepath.ToSlash(relative)] = string(text)
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	files := make(map[string]string, len(paths))
+	for _, path := range paths {
+		text, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[filepath.ToSlash(relative)] = string(text)
 	}
 	return files
 }

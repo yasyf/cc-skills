@@ -1,8 +1,6 @@
 package board
 
 import (
-	"context"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -10,7 +8,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -207,20 +204,4 @@ func TestAnOwnerItemOnAnotherPersonsPRALaneCarriesDrawsNoRow(t *testing.T) {
 	if found := rows(t, withItem(t), facts(func(f *machine.Facts) { f.ForeignAuthor = "teammate" })); len(found) != 0 {
 		t.Fatalf("rows = %+v", found)
 	}
-}
-
-type passShell struct {
-	outcomes string
-	pushed   []string
-}
-
-func (p *passShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
-	switch c.Argv[1] {
-	case "outcomes":
-		return shell.Result{Stdout: p.outcomes}, nil
-	case "update-block":
-		p.pushed = append(p.pushed, c.Stdin)
-		return shell.Result{}, nil
-	}
-	return shell.Result{}, fmt.Errorf("unexpected call %v", c.Argv)
 }

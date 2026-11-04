@@ -150,12 +150,6 @@ def snapshot(doc: dict) -> dict:
     }
 
 
-def snapshot_of_records(records: list[dict]) -> dict | None:
-    """The newest board snapshot board-watch posted, with the session of the board it shows and empty lists for any part an older board-watch does not post, or None while it has posted none."""
-    found = [attrs(record) for record in records if record["lane"] == OWNER_LANE and record.get("topic") == SNAPSHOT_TOPIC and "board" in attrs(record)]
-    return {"blocks": [], "rows": [], "merges": [], "cards": []} | json.loads(found[-1]["board"]) | {"session": found[-1]["session"]} if found else None
-
-
 def block_ids(node: object) -> Iterator[str]:
     if isinstance(node, dict):
         if isinstance(node.get("id"), str):

@@ -92,10 +92,10 @@ still differs: the landing runner reads taps only from records once this prints 
 writes the ccn answer row for each answered block that has none, from the newest answer
 `cc-present outcomes --block` lists, and exits 1 naming each block still without one.
 
-`blanket` records an owner word that approves the whole board, such as "every pending PR on the
-board is approved", as one approved `owner` record per row of the newest `board-rows` snapshot
-posted for the session by the word's `--at` time, at that row's head and the word's time. A row
-put up after the word gets no record, so it waits on his tap at its own row: every landing path
+`blanket` records an owner word that approves everything waiting on him, such as "every pending PR
+is approved", as one approved `owner` record per row of `lr board rows` that is ready for his tap,
+not tapped, and whose head was pushed by the word's `--at` time, at that row's head and the word's
+time. A head pushed after the word gets no record, so it waits on his tap at its own row: every landing path
 reads the verdict records, never the word (coordinator 313672, 314327).
 """
 
@@ -144,6 +144,7 @@ PICK_WINDOW = "3h"
 UNCITED = "uncited"
 OPEN_KINDS = ("ask", "blocker", "hold")
 BUS_LANE = board_rows.OWNER_LANE
+BLANKET_BLOCK = "merge-prs"
 RUNNER = board_rows.RUNNER_LANE
 GREP_BYTES = 200000
 SNAPSHOT_SECONDS = 60
@@ -746,19 +747,19 @@ def cmd_backfill(args: argparse.Namespace, shell: Shell) -> int:
 def cmd_blanket(args: argparse.Namespace, shell: Shell) -> int:
     drive_name = bus_drive(args)
     word = datetime.fromisoformat(args.at)
-    shown = board_rows.snapshot_of_records([record for record in bus_records(shell, drive_name, "--lane", BUS_LANE, f"--topic={board_rows.SNAPSHOT_TOPIC}") if datetime.fromisoformat(record["at"]) <= word and board_rows.attrs(record).get("session") == args.session])
-    if shown is None:
-        print(f"board-watch blanket: board {args.session[:8]} posted no snapshot by {args.at}", file=sys.stderr)
+    done = shell.lr(["board", "rows", "--drive", drive_name, "--json"], "")
+    if done.returncode:
+        print(f"board-watch blanket: lr board rows failed: {done.stderr.strip()}", file=sys.stderr)
         return 1
-    [block] = shown["blocks"]
+    rows = [(str(row["number"]), row["head"]) for row in json.loads(done.stdout) if row["ready_for_tap"] and not row["tapped"] and datetime.fromisoformat(row["head_at"]) <= word]
     standing = board_rows.verdicts_of_records(board_records(shell, drive_name))
-    for pr, head, _ in shown["rows"]:
-        if same(standing.get(block, {}).get(pr), {"verdict": "approved", "head": head}):
+    for pr, head in rows:
+        if same(standing.get(BLANKET_BLOCK, {}).get(pr), {"verdict": "approved", "head": head}):
             continue
-        text = f"The owner's word {args.word} at {args.at} approved board {args.session[:8]}, which showed #{pr} at {head}"
-        fields = {"event": "blanket", "word": args.word, "session": args.session, "block": block, "row": pr, "verdict": "approved", "head": head, "at": args.at}
-        backfilled(shell, drive_name, f"blanket:{args.word}:{block}:{pr}:{head}", text, [pr], fields)
-    print(f"blanket {args.word}: approved {', '.join(f'#{pr} at {head}' for pr, head, _ in shown['rows']) or 'no rows'}, the rows board {args.session[:8]} showed by {args.at}")
+        text = f"The owner's word {args.word} at {args.at} approved #{pr} at {head}, ready for his tap in lr board rows"
+        fields = {"event": "blanket", "word": args.word, "session": args.session, "block": BLANKET_BLOCK, "row": pr, "verdict": "approved", "head": head, "at": args.at}
+        backfilled(shell, drive_name, f"blanket:{args.word}:{BLANKET_BLOCK}:{pr}:{head}", text, [pr], fields)
+    print(f"blanket {args.word}: approved {', '.join(f'#{pr} at {head}' for pr, head in rows) or 'no rows'}, the rows ready for his tap with a head from by {args.at}")
     return 0
 
 
