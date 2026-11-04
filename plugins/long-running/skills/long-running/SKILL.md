@@ -106,17 +106,10 @@ carries a hosted one-pager, unasked, and so does the turn after he asks how a sy
 works. `lr explain <topic> --from <markdown or record>` hosts it and sends him its
 link, and the communicator's hooks prompt for it and refuse a reply without one,
 unless the verb ran and failed, in which case it has filed a defect to the meta desk.
-When he says a design is wrong at its root (correctness traded for speed, the wrong
-object model, or a plain ask to redesign it), the drive runs the whole redesign
-sequence that turn, with no further word from him. The communicator names the
-subsystem, its open cards and its PRs, and runs
-`lr explain redesign <subsystem> --from <markdown> --card <card> --pr <owner/repo#N>`,
-which withdraws those cards, puts a typed hold on each PR, hosts the page on what
-he corrected and opens `<subsystem>-design-1` from a generated brief; a rerun
-changes nothing. That lane designs from scratch, hosts its one-pager both ways (on
-the tailnet, its link in the communicator's window and as his Slack card), puts the
-new questions on his board and builds each recommended option as a branch, never a
-PR. The communicator's reply that turn says what each step did
+When he says a design is wrong at its root, the drive runs the whole redesign
+sequence that turn, with no further word from him: `lr explain redesign` withdraws the
+cards, holds the PRs, hosts the page and opens a design lane that builds each
+recommended option as a branch, never a PR
 ([communicator-brief.md](reference/communicator-brief.md#redesigns)).
 When the owner writes after an hour or more away, its reply opens with the
 full update: the dashboard link, then the owner table grouped by feature. A question
