@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -147,6 +148,13 @@ func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcr
 	}
 	for _, r := range records[max(0, len(records)-handoffRecords):] {
 		fmt.Fprintf(&out, "- #%d %s %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), pacific(r.At), truncated(r.Text, handoffChars))
+	}
+	if transcript != "" {
+		tasks, err := livetasks.Read(transcript, e.Now())
+		if err != nil {
+			return "", err
+		}
+		out.WriteString("\n" + livetasks.Section("## Background tasks live now, each with the call that starts it again\n", tasks))
 	}
 	if cwd != "" {
 		status, err := e.Run(ctx, "git", "-C", cwd, "status", "--short", "--branch")

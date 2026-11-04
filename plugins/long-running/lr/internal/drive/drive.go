@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 )
 
 type Pin struct {
@@ -129,6 +130,29 @@ func Holding(session string) (Entry, error) {
 		return found[i], nil
 	}
 	return Entry{}, fmt.Errorf("no drive registry entry holds session %q", session)
+}
+
+// HoldingWindow finds the drive of the Claude window with this pid, by the session
+// that window runs now. A resumed window's MCP servers keep the session id they
+// booted with, so a server asks the window rather than its own environment. It
+// only reads: the order of an entry's sessions names the coordinator's and stays
+// as it is.
+func HoldingWindow(pid int) (Entry, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return Entry{}, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "sessions", strconv.Itoa(pid)+".json"))
+	if err != nil {
+		return Entry{}, fmt.Errorf("read the session of window %d: %w", pid, err)
+	}
+	var window struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(data, &window); err != nil {
+		return Entry{}, fmt.Errorf("decode the session of window %d: %w", pid, err)
+	}
+	return Holding(window.SessionID)
 }
 
 func Children(parent string) ([]Entry, error) {

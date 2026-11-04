@@ -8,14 +8,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-interact/channel"
+	"github.com/yasyf/cc-interact/procs"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
-const (
-	driveEnv   = "CLAUDE_LONG_RUNNING_DRIVE"
-	sessionEnv = "CLAUDE_CODE_SESSION_ID"
-)
+const driveEnv = "CLAUDE_LONG_RUNNING_DRIVE"
 
 var schema = map[string]any{
 	"type": "object",
@@ -79,5 +77,5 @@ func current() (drive.Entry, error) {
 	if name := os.Getenv(driveEnv); name != "" {
 		return drive.Named(name)
 	}
-	return drive.Holding(os.Getenv(sessionEnv))
+	return drive.HoldingWindow(procs.ClaudePID())
 }

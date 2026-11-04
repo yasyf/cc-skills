@@ -80,3 +80,56 @@ func TestASavedSubDriveReadsBackAsItsParentsChildUntilRemoved(t *testing.T) {
 		t.Fatalf("after remove: %+v, %v", found, err)
 	}
 }
+
+func TestAResumedWindowFindsItsDriveAndLeavesItsSessionsAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "boot-id-of-the-mcp-server")
+	const (
+		pid          = 45444
+		communicator = "communicator-session"
+		coordinator  = "coordinator-session"
+	)
+	drives := filepath.Join(home, "long-running", "drives")
+	if err := os.MkdirAll(drives, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := filepath.Join(drives, "drive.json")
+	body := `{"drive":"drive","sessions":["` + communicator + `","` + coordinator + `"]}`
+	if err := os.WriteFile(registry, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sessions := filepath.Join(home, "sessions")
+	if err := os.MkdirAll(sessions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	window := `{"pid":45444,"sessionId":"` + communicator + `"}`
+	if err := os.WriteFile(filepath.Join(sessions, "45444.json"), []byte(window), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entry, err := HoldingWindow(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Drive != "drive" {
+		t.Fatalf("drive = %q, want the drive holding the window's session", entry.Drive)
+	}
+	if entry.Root() != coordinator {
+		t.Fatalf("root = %q, want the coordinator still last", entry.Root())
+	}
+	after, err := os.ReadFile(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != body {
+		t.Fatalf("registry = %s, want it untouched", after)
+	}
+}
+
+func TestAWindowWithNoSessionFileIsAnError(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := HoldingWindow(45444); err == nil {
+		t.Fatal("want an error naming the window")
+	}
+}

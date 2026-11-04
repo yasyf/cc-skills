@@ -2,6 +2,7 @@ package handoff
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
 )
 
 const (
@@ -23,7 +25,29 @@ func Command(a *app.App) *cobra.Command {
 		Short: "Generate and lint a drive's compaction handoff",
 		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(generateCommand(a), lintCommand(a), standingCommand(a), compactCommand(a))
+	cmd.AddCommand(generateCommand(a), lintCommand(a), standingCommand(a), compactCommand(a), liveTasksCommand(a))
+	return cmd
+}
+
+func liveTasksCommand(a *app.App) *cobra.Command {
+	var transcript string
+	cmd := &cobra.Command{
+		Use:   "live-tasks",
+		Short: "List the Monitors and background tasks a session's transcript shows started and never ended, each with the call that starts it again",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			tasks, err := livetasks.Read(transcript, a.Now())
+			if err != nil {
+				return err
+			}
+			for _, task := range tasks {
+				fmt.Fprintln(cmd.OutOrStdout(), task.Line())
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&transcript, "transcript", "", "the session's transcript")
+	_ = cmd.MarkFlagRequired("transcript")
 	return cmd
 }
 
