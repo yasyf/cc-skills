@@ -96,6 +96,7 @@ func newWorld(t *testing.T) *world {
 	t.Setenv("CCI_HOME", t.TempDir())
 	cfg := defaults()
 	cfg.HookLogs = t.TempDir()
+	cfg.CodexSessions = t.TempDir()
 	return &world{bus: &fakeBus{}, runner: &fakeRunner{files: map[string]string{}}, cfg: cfg}
 }
 
@@ -580,7 +581,7 @@ func crowded(t *testing.T, lanes int) *world {
 	t.Helper()
 	w := newWorld(t)
 	w.cfg.Transcripts = 50
-	w.cfg.Floors = Floors{Dead: 1, FanOut: 1, Injected: 1, Skips: 1, Chores: 1, Reads: 1, Cost: 1, Duplicates: 2, Races: 1, Uninstalled: 30, OwedReplies: 2}
+	w.cfg.Floors = Floors{Dead: 1, FanOut: 1, Injected: 1, Skips: 1, Chores: 1, Reads: 1, Cost: 1, Duplicates: 2, Races: 1, Uninstalled: 30, OwedReplies: 2, Compactions: 6}
 	everyone := make([]string, lanes)
 	for i := range lanes {
 		lane := fmt.Sprintf("a-lane-with-a-fairly-long-name-%d", i)

@@ -32,6 +32,7 @@ const (
 	signalRace        = "race-warning"
 	signalUninstalled = "uninstalled"
 	signalOwedReply   = "owed-reply"
+	signalCompactions = "compactions"
 )
 
 type Bus interface {
@@ -118,11 +119,15 @@ func Read(ctx context.Context, src Sources, cfg Config, drive config.Config, now
 	if err != nil {
 		return Report{}, err
 	}
+	compacted, err := codexCompactions(cfg, peers, since, now)
+	if err != nil {
+		return Report{}, err
+	}
 	unfinished, err := uninstalled(ctx, src, cfg, drive, now)
 	if err != nil {
 		return Report{}, err
 	}
-	findings := slices.Concat(dead, unfinished, owed, fanOut(cfg, records, window), duplicateAsks(cfg, records), raceWarnings(cfg, records), used.findings(cfg, records, window), skips)
+	findings := slices.Concat(dead, unfinished, owed, fanOut(cfg, records, window), duplicateAsks(cfg, records), raceWarnings(cfg, records), used.findings(cfg, records, window), skips, compacted)
 	slices.SortFunc(findings, func(a, b Finding) int {
 		return cmp.Or(cmp.Compare(b.weight(), a.weight()), cmp.Compare(a.Key, b.Key))
 	})

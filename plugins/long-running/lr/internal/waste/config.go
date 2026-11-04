@@ -22,6 +22,7 @@ type Floors struct {
 	Races       int64 `json:"races"`
 	Uninstalled int64 `json:"uninstalled"`
 	OwedReplies int64 `json:"owed_replies"`
+	Compactions int64 `json:"compactions"`
 }
 
 type Config struct {
@@ -31,6 +32,7 @@ type Config struct {
 	FanOutRecipients   int      `json:"fan_out_recipients"`
 	Transcripts        int      `json:"transcripts"`
 	HookLogs           string   `json:"hook_logs"`
+	CodexSessions      string   `json:"codex_sessions"`
 	MergeLookbackHours int      `json:"merge_lookback_hours"`
 	Floors             Floors   `json:"floors"`
 }
@@ -54,6 +56,7 @@ func defaults() Config {
 			Races:       1,
 			Uninstalled: 30,
 			OwedReplies: 2,
+			Compactions: 6,
 		},
 	}
 }
@@ -77,6 +80,11 @@ func ReadConfig(state string) (Config, error) {
 		return Config{}, err
 	}
 	runner.Waste.HookLogs = logs
+	sessions, err := codexSessions(runner.Waste.CodexSessions)
+	if err != nil {
+		return Config{}, err
+	}
+	runner.Waste.CodexSessions = sessions
 	return runner.Waste, nil
 }
 
@@ -93,4 +101,18 @@ func hookLogs(configured string) (string, error) {
 		cache = filepath.Join(home, ".cache")
 	}
 	return filepath.Join(cache, "captain-hook", "logs"), nil
+}
+
+func codexSessions(configured string) (string, error) {
+	if configured != "" {
+		return configured, nil
+	}
+	if home := os.Getenv("CODEX_HOME"); home != "" {
+		return filepath.Join(home, "sessions"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".codex", "sessions"), nil
 }
