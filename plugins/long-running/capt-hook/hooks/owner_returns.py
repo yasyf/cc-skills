@@ -34,6 +34,8 @@ CHOICE = re.compile(
 )
 DM_CARD = "slack_dm_status"
 REPLY = "mcp__plugin_long-running_lr__reply"
+OWNER_MARK = "mcp__plugin_long-running_lr__owner_mark"
+LEDGER_SURFACE = re.compile(r"^- ledger: m\d", re.MULTILINE)
 REPLIED = "Its checks passed.\n\n- Land it (recommended)\n- Hold it\n\nReply r1; pass this id to edit it on every surface.\n- board: card-r1\n- slack: https://brook.slack.com/archives/D0B6Z/p1793635190051179\n- record: #12@2479ec97"
 SLACK_POSTED = re.compile(r"\bts\W{1,4}\d{10}\.\d{6}|/archives/\w+/p\d{16}")
 BOARD_VERBS = frozenset({"push", "update-block", "ask", "send"})
@@ -77,7 +79,7 @@ SHIPPED_CC_SLACK = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / CC_SLACK_CACHE / "0
 CC_SLACK_UNREAD = "The communicator could not run `cc-slack {verb}` from the plugin ({why}), so the owner's DM replies go unwatched or unchecked until it works."
 UNANSWERED = (
     "The owner wrote in Slack and nobody has answered in that thread: {replies}."
-    " Run `slack_react` with `name` `+1` on each that needs nothing back, or `slack_reply` saying what was done with it, then stop."
+    " Run `slack_react` with `name` `+1` on each that needs nothing back, `slack_reply` saying what was done, or `owner_mark` on its row, then stop."
 )
 ACK_AFTER_SECONDS = 30
 UNACKED = "An owner Slack reply has waited over 30 seconds with no ack. Run `slack_react` with `name` `+1` and `url` {permalink}, or `slack_reply` if you have news for him."
@@ -197,8 +199,8 @@ def reading(transcript: list, owed: str | tuple, tool: str = f"{CC_SLACK}slack_t
     return Input(session_id=HOLDER, **call, transcript=transcript, state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": owed})
 
 
-def owed(replies: str | tuple) -> Input:
-    return Input(session_id=HOLDER, transcript=[T.user("where are we"), T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
+def owed(replies: str | tuple, *calls: dict) -> Input:
+    return Input(session_id=HOLDER, transcript=[T.user("where are we"), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies}, decide=CALM)
 
 
 def raised(decide: dict, prompt: str = SIGNAL, **fields: object) -> Input:
@@ -283,6 +285,11 @@ def asked(reply: str, *calls: dict, words: str = HOW_FAR, decide: dict = ASKED) 
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"})): Allow(),
         owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER})): Block(pattern=r"^The owner wrote in Slack.*p1793705742180139: A, but as buttons.*`slack_reply`"),
         owed(json.dumps({"replies": [], "holder_session": HOLDER})): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(OWNER_MARK, result="m447 responded", row="m447", state="responded")): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn("Bash", result="m447 due Nov 3 11:30 PM", command="lr owner mark m447 due --by '11:30 PM' --routed 400803")): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger: m447 due Nov 3 11:30 PM", title="Vector search", md="Designing.", status="progress", order="m447", by="11:30 PM")): Allow(),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(REPLY, result="Designing.\n\nReply rp; pass this id to edit it on every surface.\n- record: #12@2479ec97\n- ledger FAILED: no row m9", title="Vector search", md="Designing.", status="progress", order="m9")): Block(pattern=r"owner_mark"),
+        owed(json.dumps({"replies": [OWED_REPLY], "holder_session": HOLDER}), *T.tool_turn(OWNER_MARK, result="no row m9", is_error=True, row="m9", state="responded")): Block(pattern=r"^The owner wrote in Slack"),
         owed((1, "cc-slack can't reach the daemon")): Allow(),
         picked(): Block(pattern=r"^A pick for the owner never sits inline"),
         picked(*T.tool_turn("mcp__plugin_cc-slack_cc-slack__slack_send", result=SENT, channel_id="D0B6Z", text=PICK)): Block(pattern=r"never sits inline.*the `reply` tool, the answers as its `picks`"),
@@ -446,6 +453,16 @@ def owner_reply_gets_a_fast_ack(evt: BaseHookEvent) -> HookResult | None:
     return evt.warn(UNACKED.format(permalink=waited[0]["permalink"])) if waited else None
 
 
+def marked(use: object) -> bool:
+    if use.result is None or use.result.is_error:
+        return False
+    if use.call.name == OWNER_MARK:
+        return True
+    if use.call.name == REPLY:
+        return bool(LEDGER_SURFACE.search(use.result.content))
+    return use.call.name == "Bash" and any(Path(cmd.argv[0]).name == "lr" and tuple(cmd.argv[1:3]) == ("owner", "mark") for cmd in use.call.command_line if cmd.argv)
+
+
 def dm_owed(evt: BaseHookEvent) -> dict | None:
     def read_owed() -> dict | None:
         out = cc_slack(evt, "dm-owed")
@@ -455,6 +472,8 @@ def dm_owed(evt: BaseHookEvent) -> dict | None:
 
 
 def unanswered_reply(evt: BaseHookEvent) -> str | None:
+    if any(marked(use) for use in evt.ctx.turn.tool_calls.items):
+        return None
     owed = dm_owed(evt)
     if owed is None or owed["holder_session"] != evt.session_id or not owed["replies"]:
         return None

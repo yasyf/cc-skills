@@ -13,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
@@ -528,5 +529,72 @@ func TestALongSlackCardLinksTheWholeReplyOnTheDashboardAndNeverJustStops(t *test
 	}
 	if !strings.HasSuffix(sent.Body, "<http://100.1.2.3:61210/#/replies|Read the rest on your dashboard>") || len([]rune(sent.Body)) > maxSlackBody {
 		t.Fatalf("slack body ends %q at %d runes", sent.Body[len(sent.Body)-80:], len([]rune(sent.Body)))
+	}
+}
+
+func ledgered(t *testing.T, f Fanout) string {
+	t.Helper()
+	path := owner.Ledger(f.Entry.StateDir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("| id | time | message | routed | state |\n|---|---|---|---|---|\n| m447 | Nov 3 10:55 PM | make the routed reply state |  | open |\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestAProgressReplyToHisOrderWritesTheLedgerRowAndPostsNothingToSlack(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	path := ledgered(t, f)
+	sent := f.Send(context.Background(), Reply{ID: "rp", Title: "Vector search", MD: "tp-desc-vector-1 is designing it.", Status: progress, Order: "m447", By: "11:30 PM", Routed: 400803}.led())
+	if got := calls(fake, "cc-slack"); len(got) != 0 {
+		t.Fatalf("a progress reply reached Slack: %q", got[0].Argv)
+	}
+	ledger, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ledger), "| m447 | Nov 3 10:55 PM | make the routed reply state | 400803 | due Nov 3 11:30 PM |") {
+		t.Fatalf("ledger = %q", ledger)
+	}
+	if got := surface(sent, "ledger"); got.Ref != "m447 due Nov 3 11:30 PM" || got.Error != "" {
+		t.Fatalf("ledger outcome = %+v", got)
+	}
+	if surface(sent, "record").Ref == "" || surface(sent, "dashboard").Ref == "" {
+		t.Fatalf("the record and dashboard surfaces dropped: %+v", sent)
+	}
+}
+
+func TestAnInfoReplyToHisOrderMarksTheRowRespondedAndPostsNothingToSlack(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	path := ledgered(t, f)
+	f.Send(context.Background(), Reply{ID: "ri", Title: "Vector search", MD: "It is a design, not a build.", Status: info, Order: "m447", Thread: "1793635190.051179"}.led())
+	if got := calls(fake, "cc-slack"); len(got) != 0 {
+		t.Fatalf("an info reply reached Slack: %q", got[0].Argv)
+	}
+	if ledger, _ := os.ReadFile(path); !strings.Contains(string(ledger), "|  | responded |") {
+		t.Fatalf("ledger = %q", ledger)
+	}
+}
+
+func TestAProgressReplyIsNotLedAsDone(t *testing.T) {
+	r := Reply{Title: "Vector search", MD: "Designing.", Status: progress, Order: "m447"}.led()
+	if strings.Contains(r.Title+r.MD, doneLead) {
+		t.Fatalf("progress reply led as done: %q, %q", r.Title, r.MD)
+	}
+}
+
+func TestByAndRoutedAreRefusedOffAQuietOrderReply(t *testing.T) {
+	for name, r := range map[string]Reply{
+		"no order":  {ID: "a", Title: "t", MD: "m", Status: progress, By: "11:30 PM"},
+		"done":      {ID: "a", Title: "t", MD: "m", Status: "done", Order: "m1", Routed: 7},
+		"with pick": {ID: "a", Title: "t", MD: "m", Status: progress, Order: "m1", By: "11:30 PM", Picks: []string{"A", "B"}, Recommended: "A"},
+	} {
+		if err := r.led().check(); err == nil {
+			t.Fatalf("%s passed check", name)
+		}
 	}
 }

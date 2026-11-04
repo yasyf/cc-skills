@@ -141,6 +141,28 @@ func Mark(path, row, state string, routed int) error {
 	})
 }
 
+func Answer(stateDir, row, by, reply string, routed int, now time.Time) (string, error) {
+	if by == "" {
+		return settle(stateDir, row, responded, by, reply, routed, now)
+	}
+	return settle(stateDir, row, dueState, by, reply, routed, now)
+}
+
+func settle(stateDir, row, state, by, reply string, routed int, now time.Time) (string, error) {
+	var err error
+	if state == dueState {
+		if state, err = dueBy(by, now); err != nil {
+			return "", fmt.Errorf("%s: %w", row, err)
+		}
+	}
+	if state == responded {
+		if err := carried(Ledger(stateDir), filepath.Join(stateDir, repliesDir), row, reply); err != nil {
+			return "", err
+		}
+	}
+	return state, Mark(Ledger(stateDir), row, state, routed)
+}
+
 func dueBy(by string, now time.Time) (string, error) {
 	clock, err := time.ParseInLocation(byTime, by, pacific)
 	if err != nil {
@@ -253,17 +275,7 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if state == dueState {
-				if state, err = dueBy(by, a.Now()); err != nil {
-					return fmt.Errorf("%s: %w", row, err)
-				}
-			}
-			if state == responded {
-				if err := carried(Ledger(entry.StateDir), filepath.Join(entry.StateDir, repliesDir), row, reply); err != nil {
-					return err
-				}
-			}
-			if err := Mark(Ledger(entry.StateDir), row, state, routed); err != nil {
+			if state, err = settle(entry.StateDir, row, state, by, reply, routed, a.Now()); err != nil {
 				return err
 			}
 			if state == responded && !namedBy(filepath.Join(entry.StateDir, repliesDir), row, reply) {
