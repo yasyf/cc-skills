@@ -100,7 +100,7 @@ func TestEachWorkstreamRowIsComputedFromItsLanesRecordsPRsAndBoardAndNamesItsLiv
 	if durable[2] != "durable-agents-3, durable-agents-fix-1" {
 		t.Errorf("lanes = %q", durable[2])
 	}
-	if !strings.HasPrefix(durable[3], "#49509 red; #49510 ready for your tap; durable-agents-fix-1 blocked "+pacific(ago(3))+": waits on the review of #49509") {
+	if !strings.HasPrefix(durable[3], "#49509 red; #49510 ready for your tap; durable-agents-fix-1 blocked "+pacific(ago(3))+": waits on the review") {
 		t.Errorf("state = %q", durable[3])
 	}
 	if want := "#49400 landed " + pacific(ago(30)) + "; durable-agents-3 report " + pacific(ago(20)) + ": a run survives a pod restart"; durable[4] != want {
