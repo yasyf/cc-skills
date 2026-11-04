@@ -696,7 +696,7 @@ window.addEventListener('hashchange', (e) => {
   const deeper = before === baseOf() && stackOf().length > stackOf(from === '#/jump' ? state.lastHash ?? '' : from).length;
   remember();
   render();
-  if (before !== baseOf() && !/^#\/review\/q(\/|$)/.test(location.hash)) window.scrollTo(0, history.state?.y ?? 0);
+  if (before !== baseOf() && pageRoute().screen !== 'replies') window.scrollTo(0, history.state?.y ?? 0);
   if (history.state?.spot && !deeper) refocus(history.state.spot);
   else if (stackOf().length) $('#main .pr-drawer.front .pr-x')?.focus({ preventScroll: true });
   else if (history.state?.y !== undefined) focusInView();

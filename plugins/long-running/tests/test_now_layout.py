@@ -880,6 +880,13 @@ def open_chat(page, n=0):
     page.wait_for_selector(".ct-foot .ct-box")
 
 
+def test_chat_opens_at_its_newest_message_when_he_comes_from_another_tab(page):
+    open_chat(page, 100)
+    assert page.evaluate("window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200")
+    assert page.evaluate("window.scrollY") > 0
+    now(page)
+
+
 def test_a_thread_reply_names_its_parent_and_shows_under_it(page):
     """Owner 10:07 PM Nov 3: any message threads, and Claude gets the line knowing what it hangs on."""
     open_chat(page)
