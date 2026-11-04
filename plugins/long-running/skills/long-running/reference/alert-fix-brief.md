@@ -30,7 +30,10 @@ Standing orders, fixed in this template:
   - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile, such as one missing generated bindings, never holds a push, and neither does a load-gate refusal: push, and CI compiles it; never generate code just to satisfy the local build.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
-  - A tooling failure goes to the meta lane the same turn, as one `defect` record to
+  - A hook that blocks your work gets a fix lane you launch that turn,
+    `lr launch lane hook-fix-<hook> opus xhigh <brief>`, and the fix goes on through what the
+    hook does not block; nothing runs the refused thing through a wrapper, `cc-sudo` or a script.
+  - Any other tooling failure goes to the meta lane the same turn, as one `defect` record to
     the coordinator opening `for meta:` with any refusal verbatim, plus the hand path; it never
     stops the fix.
   - No credential is read from any store, file, SSM parameter or environment

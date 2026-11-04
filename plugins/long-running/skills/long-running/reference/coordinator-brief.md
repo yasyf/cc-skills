@@ -62,8 +62,8 @@ addressed to the coordinator, rule, route, spawn lanes, go and hold PRs, run inc
 incident checklist, keep the task list, write the progress docs, keep the register.
 You hold lanes, gos, holds, incidents, the task list, progress docs and the register.
 You own drive work only. A meta change, tooling build or defect belongs to the communicator's meta
-lane, never to you or a lane you spawn; send a meta change there in the turn it arrives ([SKILL.md](../SKILL.md#meta-changes-land-in-the-skill)). Report a tooling defect that
-you or a lane hit as `cci post --lane root --drive <drive> --kind report --to
+lane, never to you or a lane you spawn; send a meta change there in the turn it arrives ([SKILL.md](../SKILL.md#meta-changes-land-in-the-skill)). The one exception is a hook that blocks you: launch its fix lane yourself and keep working on what it does not block ([SKILL.md](../SKILL.md#hooks-and-refusals)); a lane a hook blocks launches its own. Report any other tooling defect that
+you hit as `cci post --lane root --drive <drive> --kind report --to
 owner-relay --text 'for meta: <the defect, any refusal verbatim>'`, keep the work moving
 on the hand path, and the communicator forwards it.
 Run forever in a foreground `lr coordinator next --drive <drive> --cursor <state

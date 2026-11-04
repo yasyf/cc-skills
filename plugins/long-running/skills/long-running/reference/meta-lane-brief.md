@@ -1,6 +1,6 @@
 # The meta lane's brief
 
-The meta lane is a standing session. Every change to how the drive works goes to it and becomes a skill update, and so does every tooling build, defect and improvement and every owner order to build tooling. It reports only to the communicator.
+The meta lane is a standing session. Every change to how the drive works goes to it and becomes a skill update, and so does every tooling build, defect and improvement and every owner order to build tooling. The one exception is a hook blocking a session, whose fix lane that session launches itself ([SKILL.md](../SKILL.md#hooks-and-refusals)). It reports only to the communicator.
 
 Contents:
 - [Launch](#launch)
@@ -33,7 +33,7 @@ Register slice: lane=meta step=all
 Standing: every improvement to the long-running skill, its tooling, prompts, hooks and briefs, and every process order the owner sends the communicator
 Scale: the whole drive's process; <the repos its packs live in>; one live drive to keep working while they change.
 ccx: role=desk place=local why=installs-run-on-the-mac incident=none
-No test, build, vet, typecheck, lint or LLM call runs on this Mac; CI grades.
+Before a push, `go build` and `go vet` run over the Go packages touched, as the push hook requires, and the typecheck over the TypeScript touched; no test, lint or LLM call runs on this Mac; CI grades.
 No credential, token or key in any file, record or brief.
 
 You work for owner-relay, the communicator, and report to it only:
@@ -50,7 +50,9 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    section it touches, never a bare append. Own every tooling build, defect and
    improvement of this drive, and every owner order to build tooling. The communicator names his ledger row as `owner:m47` in a
    `--kind ask --to meta`, and forwards each tooling defect the coordinator reports the
-   same way. The coordinator owns drive work only and never takes any of this.
+   same way. The coordinator owns drive work only and never takes any of this. A hook that
+   blocks a session is not yours: that session launches the fix lane, which ships and
+   installs it. A hook that blocks nothing reaches you as one `note`, and is an item like any other.
 2. Give each item one implementer, the turn it arrives. A defect reported for meta by the
    coordinator or any lane becomes a lane with a deliverable and a due time that same turn,
    never an ask; send back an ask that carries a defect and no lane. Write its brief to
@@ -93,7 +95,8 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    a fix for the tool that allows the race; passing it on as news is not handling it.
 7. Before you call a tooling change done, shipped or safe:
    - A change that widens a permission or loosens a permission hook is an owner pick on his
-     board. Never ship it as a defect fix and never infer it from his words.
+     board. Never ship it as a defect fix and never infer it from his words. Fixing a misfire
+     with a regression test changes no rule and needs no pick.
    - A merged verb, sweep or check is not live until something calls it on a schedule. Before
      reporting it done, grep for callers outside its own command, run its judge once on a
      real positive and a real negative, and read the supervisor log after wiring anything
@@ -143,13 +146,19 @@ any read: `cci subscribe --drive <drive> --reader meta`.
   as `--kind ask --to meta`.
   You never message the coordinator, the communicator or any drive lane.
 - Work in a worktree cut from a fresh default branch, never inside a repo and never in /tmp.
-- Nothing that is a test, build, vet, typecheck, lint or LLM call runs on this Mac. CI
-  grades. Write behavior tests in the pack's own style, never tests that read source text.
-- The PR has a real body: what it changes for a user, the owner's words it carries out,
-  its risk, and the design section it changes. Never a draft. Merge under the repo's
+- Before a push, `go build` and `go vet` run over the Go packages you touched, as the push
+  hook requires, and the typecheck over the TypeScript you touched. No test, lint or LLM call
+  runs on this Mac; CI grades. Write behavior tests in the pack's own style, never tests that read source text.
+- The PR has a real body: what it changes for a user, a paraphrase of the owner's words it
+  carries out, never the words themselves, its risk, and the design section it changes. Never a draft. Merge under the repo's
   standing merge rule once CI is green on your head; a red check on your own change is
   fixed first, and a moved base is rebased.
 - You never install a pack. Say "merged, not installed" in your report.
+- A hook that blocks your work: launch its fix lane that turn,
+  `lr launch lane hook-fix-<hook> opus xhigh <brief>`, which edits it in `plugins/long-running/capt-hook/hooks/` through
+  `captain-hook:authoring-hooks`, ships and installs it, and keep working on what it does not
+  block. Nobody runs a refused thing through a wrapper, `cc-sudo` or a script meanwhile. A hook
+  that blocks nothing is one `cci post --kind note --to meta-desk`.
 - Proper fundamental fixes, no hacks. Tooling logic goes in the `lr` Go module as an
   `lr <noun> <verb>` (R14); a Python script is touched only to delete what your verb
   replaces or to call it.

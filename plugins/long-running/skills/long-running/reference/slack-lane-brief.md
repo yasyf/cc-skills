@@ -47,7 +47,7 @@
 - The Slack permission hook counts the coordinator's prompt as the owner's words and mints the captain-hook ticket for that target. Lanes never pass `--ticket`.
 - The owner's surface word is literal: _channel_ means a top-level channel post, _thread_ a thread reply, _DM_ a direct message.
 - An answer the owner dictated goes out as one message with the grant in the dispatch, never staged across several instructions.
-- On a permission hook refusal for a judge timeout, the lane retries once, then reports the verdict to the hook lane and continues.
+- A permission hook refusal on a judge timeout is a misfire of the fail-open rule below: the lane retries once, then launches the hook's fix lane ([SKILL.md](../SKILL.md#hooks-and-refusals)) and continues on what the refusal does not block.
 - The Slack permission hook fails open: a hook error, a missing grant file, an unreadable ticket or a timeout warns and never refuses a post. The one block it keeps is a post with no grant and no tap.
 
 ### Writes the owner did not ask for
