@@ -327,6 +327,8 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .fm:hover { background: var(--surface); }
 .fm-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); font-weight: 700; font-size: 14px; }
 .fm.you .fm-icon { background: var(--ok-soft); color: var(--ok); }
+.fm.bad .fm-icon { background: var(--bad-soft); color: var(--bad); }
+.fm.bad header b { color: var(--bad); }
 .fm header { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--ink-2); }
 .fm header b { color: var(--ink-2); font-weight: 600; }
 .fm-frees { margin-left: auto; font-size: 12px; color: var(--ok); white-space: nowrap; }

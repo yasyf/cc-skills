@@ -541,3 +541,79 @@ def test_a_page_served_without_the_assistant_hides_it_and_calls_no_model(page):
     assert fresh.evaluate("document.documentElement.classList.contains('ai-on')") is False
     assert not any("/ai/" in url or "ai.json" in url for url in requested)
     fresh.close()
+
+
+TAP_QUEUE = [
+    {"kind": "land", "id": "land-49902", "number": 49902, "title": "Idle runners stop renewing", "frees": 3, "line": "Frees 2 changes: Team credential; Cache removal. 1 worker stopped until you tap.", "recommended": "Approve"},
+    {"kind": "pick", "id": "card-tq", "card": "card-tq", "title": "Should the credential write run folders?", "frees": 1, "line": "1 worker stopped until you tap.", "recommended": "One credential"},
+    {"kind": "slack", "id": "slack-tq", "card": "slack-tq", "title": "Post this in a Slack thread?", "frees": 0, "line": "No worker is waiting on this post. (#49638) is in review.", "recommended": "Yes", "text": "@someone, the fix is in review.", "choice": "slack-tq-answer", "options": [{"id": "yes", "label": "Yes", "recommended": True}, {"id": "no", "label": "No", "recommended": False}], "subject": "questions-for-you--x"},
+]
+TAP_ROW = {"number": 49902, "head": "abc1234", "state": "you", "block": "merge-prs", "title": "Idle runners stop renewing", "key": "tq"}
+TAP_CARD = {"id": "card-tq", "title": "Should the credential write run folders?", "summary": "", "key": "tqc", "choice": "tq-pick", "decides": True, "parts": [], "embed": None, "recommended": "One credential", "options": [{"id": "one", "label": "One credential", "recommended": True}, {"id": "two", "label": "Two credentials", "recommended": False}]}
+
+
+def tap_screen(page):
+    page.route("**/api/verdict", lambda route: route.fulfill(json={"seq": 10**9}))
+    page.route("**/api/answer", lambda route: route.fulfill(json={"seq": 10**9}))
+    now(page)
+    page.evaluate("""([taps, row, card]) => {
+      state.model.taps = taps;
+      state.model.board.rows.push(row);
+      state.model.board.cards.push(card);
+      location.hash = '#/needs';
+    }""", [TAP_QUEUE, TAP_ROW, TAP_CARD])
+    page.wait_for_selector(".fm")
+
+
+def tap_titles(page):
+    return page.locator(".fm-lead").all_inner_texts()
+
+
+def test_needs_me_shows_every_tap_in_queue_order_with_its_count_and_no_numbers(page):
+    tap_screen(page)
+    assert tap_titles(page) == [tap["title"] for tap in TAP_QUEUE]
+    assert page.locator(".fm-icon").all_inner_texts() == ["1", "2", "3"]
+    assert page.locator(".tab.on").inner_text().startswith("Needs me")
+    assert "#49638" not in page.locator(".fd").inner_text()
+    assert page.locator(".fm .btn.pri").all_inner_texts()[1:] == ["One credential", "Yes"]
+    now(page)
+
+
+def test_an_incident_tap_leads_needs_me_even_with_nothing_waiting_on_it(page):
+    tap_screen(page)
+    page.evaluate("""() => {
+      state.model.taps = [{ ...state.model.taps[2], id: 'slack-tq-2', urgent: true, title: 'Answer the incident thread' }, ...state.model.taps];
+      render();
+    }""")
+    assert tap_titles(page)[0] == "Answer the incident thread"
+    assert page.locator(".fd-div").all_inner_texts()[0] == "Live incidents"
+    assert page.locator(".fm-icon").all_inner_texts()[:2] == ["1", "2"]
+    now(page)
+
+
+def test_needs_me_fits_a_phone(page):
+    tap_screen(page)
+    page.set_viewport_size({"width": 390, "height": 800})
+    assert page.evaluate("document.documentElement.scrollWidth") <= 390
+    page.set_viewport_size(LAPTOP)
+    now(page)
+
+
+def test_a_tap_on_needs_me_goes_down_the_boards_path_and_drops_its_row_at_once(page):
+    tap_screen(page)
+    with page.expect_request("**/api/answer") as asked:
+        page.locator('[data-tap="slack-tq"] .btn.pri').click()
+    assert asked.value.post_data_json == {"kind": "choice", "block": "slack-tq-answer", "options": ["yes"], "subject": "questions-for-you--x"}
+    page.wait_for_function("!document.querySelector('[data-tap=\"slack-tq\"]')")
+    with page.expect_request("**/api/verdict") as decided:
+        page.locator('[data-tap="land-49902"] .btn.pri').click()
+    assert decided.value.post_data_json == {"block": "merge-prs", "number": 49902, "verdict": "approved", "head": "abc1234"}
+    page.wait_for_function("!document.querySelector('[data-tap=\"land-49902\"]')")
+    with page.expect_request("**/api/answer") as picked:
+        page.locator('[data-tap="card-tq"] .btn.pri').click()
+    assert picked.value.post_data_json == {"kind": "choice", "block": "tq-pick", "options": ["one"]}
+    page.wait_for_function("!document.querySelector('[data-tap=\"card-tq\"]')")
+    assert page.locator(".fd-h h1").inner_text() == "Nothing waits on your tap."
+    page.unroute("**/api/verdict")
+    page.unroute("**/api/answer")
+    now(page)

@@ -577,7 +577,7 @@ function tapButtons(t) {
 }
 function tapRow(t, at) {
   const textId = `tap-text-${t.id}`;
-  return `<article class="fm${t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${at + 1}</span><div class="fm-main">
+  return `<article class="fm${t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${at + 1}</span><div class="fm-main">
     <header><b>${TAP_WORD[t.kind]}</b>${t.frees ? `<span class="fm-frees">Frees ${t.frees}</span>` : ''}</header>
     <p class="fm-lead">${esc(tapWords(t.title))}</p>
     <p class="fm-why">${esc(tapWords(t.line))}</p>
@@ -589,12 +589,14 @@ function feedDivider(word) {
 }
 function needsScreen() {
   const taps = openTaps();
-  const freeing = taps.filter((t) => t.frees);
-  const rest = taps.filter((t) => !t.frees);
+  const incidents = taps.filter((t) => t.urgent);
+  const freeing = taps.filter((t) => !t.urgent && t.frees);
+  const rest = taps.filter((t) => !t.urgent && !t.frees);
   const lead = taps.length ? `${plural(taps.length, 'tap')} wait on you, the most downstream work first.` : 'Nothing waits on your tap.';
   return `<div class="pg fd"><header class="fd-h"><h1>${lead}</h1></header>
-    ${freeing.length ? `${feedDivider('These free other work')}${freeing.map(tapRow).join('')}` : ''}
-    ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + freeing.length)).join('')}` : ''}</div>`;
+    ${incidents.length ? `${feedDivider('Live incidents')}${incidents.map(tapRow).join('')}` : ''}
+    ${freeing.length ? `${feedDivider('These free other work')}${freeing.map((t, at) => tapRow(t, at + incidents.length)).join('')}` : ''}
+    ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + incidents.length + freeing.length)).join('')}` : ''}</div>`;
 }
 
 const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_you: ['Needs you', 'you'], incident: ['Incident', 'bad'], done: ['Done', 'ok'] };
