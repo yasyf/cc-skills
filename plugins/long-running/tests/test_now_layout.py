@@ -611,7 +611,7 @@ def test_needs_me_shows_every_tap_in_queue_order_with_its_count_and_no_numbers(p
     assert page.locator(".fm-icon").all_inner_texts() == ["1", "2", "3"]
     assert page.locator(".tab.on").inner_text().startswith("Needs me")
     assert "#49638" not in page.locator(".fd").inner_text()
-    assert page.locator(".fm .btn.pri").all_inner_texts()[1:] == ["One credential", "Yes"]
+    assert page.locator(".fm .pk.rec .pk-t").all_inner_texts() == ["One credential", "Yes"]
     now(page)
 
 
@@ -721,6 +721,7 @@ def drop_whole_card(page):
 def test_a_card_renders_whole_on_the_dashboard_with_no_link_to_the_board(page):
     whole_card(page)
     card = page.locator("#card-card-whole")
+    card.locator(".pk-more > summary").click()
     words = card.inner_text().lower()
     for said in ("One credential covers it.", "Background", "one per team", "Runs live in the bucket.", "One credential", "One mint a team", "what does it risk?", "A client bug could overwrite a run."):
         assert said.lower() in words
@@ -759,9 +760,9 @@ def test_a_click_anywhere_on_a_tap_row_opens_its_window_and_a_button_stays_a_but
       render();
     }""", [{**TAP_QUEUE[1], "id": "card-btn", "card": "card-btn", "choice": "btn-pick"}, {**TAP_CARD, "id": "card-btn", "choice": "btn-pick"}])
     with page.expect_request("**/api/answer"):
-        page.locator('.fm[data-tap="card-btn"] .fm-acts button').first.click()
+        page.locator('.fm[data-tap="card-btn"] .pk').first.click()
     assert "question" not in page.evaluate("location.hash")
-    page.evaluate("ov.sent.clear(); state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-btn')")
+    page.evaluate("ov.sent.clear(); ov.kept.clear(); state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-btn')")
     page.unroute("**/api/verdict")
     page.unroute("**/api/answer")
     now(page)
@@ -834,24 +835,153 @@ def test_needs_me_fits_a_phone(page):
     now(page)
 
 
-def test_a_tap_on_needs_me_goes_down_the_boards_path_and_drops_its_row_at_once(page):
+def test_a_tap_on_needs_me_goes_down_the_boards_path_and_shows_what_he_picked_in_its_row(page):
     tap_screen(page)
     with page.expect_request("**/api/answer") as asked:
-        page.locator('[data-tap="slack-tq"] .btn.pri').click()
+        page.locator('[data-tap="slack-tq"] .pk.rec').click()
     assert asked.value.post_data_json == {"kind": "choice", "block": "slack-tq-answer", "options": ["yes"], "subject": "questions-for-you--x"}
-    page.wait_for_function("!document.querySelector('[data-tap=\"slack-tq\"]')")
+    page.wait_for_selector('[data-tap="slack-tq"] .pk-picked')
+    assert "Yes" in page.locator('[data-tap="slack-tq"] .pk-picked').inner_text()
+    assert page.locator('[data-tap="slack-tq"] .pk').count() == 0
     with page.expect_request("**/api/verdict") as decided:
         page.locator('[data-tap="land-49902"] .btn.pri').click()
     assert decided.value.post_data_json == {"block": "merge-prs", "number": 49902, "verdict": "approved", "head": "abc1234"}
     page.wait_for_function("!document.querySelector('[data-tap=\"land-49902\"]')")
     with page.expect_request("**/api/answer") as picked:
-        page.locator('[data-tap="card-tq"] .btn.pri').click()
+        page.locator('[data-tap="card-tq"] .pk.rec').click()
     assert picked.value.post_data_json == {"kind": "choice", "block": "tq-pick", "options": ["one"]}
-    page.wait_for_function("!document.querySelector('[data-tap=\"card-tq\"]')")
+    page.wait_for_selector('[data-tap="card-tq"] .pk-picked')
     assert page.locator(".fd-h h1").inner_text() == "Nothing waits on your tap."
+    page.evaluate("ov.sent.clear(); ov.kept.clear()")
     page.unroute("**/api/verdict")
     page.unroute("**/api/answer")
     now(page)
+
+
+FOLDED_PICK = {"kind": "choice", "id": "fold-pick", "prompt": "Which one?", "answer": None, "options": [
+    {"id": "one", "label": "One credential", "hint": "", "note": "as you said", "facts": [{"label": "For", "value": "One mint a team.", "tone": "good"}, {"label": "Against", "value": "A client bug could overwrite a run.", "tone": "bad"}], "recommended": True},
+    {"id": "two", "label": "Two credentials", "hint": "", "facts": [{"label": "For", "value": "Runs stay safe.", "tone": "good"}, {"label": "Against", "value": "Two mints a team.", "tone": "bad"}], "recommended": False},
+]}
+FOLDED_CARD = {"id": "card-fold", "title": "Should it write run folders?", "summary": "One permission per credential.", "key": "fold", "choice": "fold-pick", "decides": True, "embed": None, "recommended": "One credential", "options": [{"id": "one", "label": "One credential", "recommended": True}, {"id": "two", "label": "Two credentials", "recommended": False}], "parts": [{"kind": "page", "id": "fold-md", "md": "The run reader waits on this."}, FOLDED_PICK]}
+FOLDED_TAP = {"kind": "pick", "id": "card-fold", "card": "card-fold", "title": FOLDED_CARD["title"], "frees": 2, "line": "Frees 2 changes.", "recommended": "One credential", "choice": "fold-pick"}
+
+
+def folded_screen(page, answer=None):
+    page.route("**/api/answer", lambda route: route.fulfill(json=answer or {"seq": 10**9}))
+    now(page)
+    page.evaluate("""([tap, card]) => {
+      state.model.taps = [tap];
+      state.model.board.cards.push(card);
+      state.model.needs.push({ kind: 'card', card, why: '' });
+      location.hash = '#/needs';
+    }""", [FOLDED_TAP, FOLDED_CARD])
+    page.wait_for_selector('.fm[data-tap="card-fold"]')
+    return page.locator('.fm[data-tap="card-fold"]')
+
+
+def drop_folded(page):
+    page.evaluate("""() => {
+      ov.sent.clear();
+      ov.kept.clear();
+      state.open.delete('explain-card-fold');
+      state.taps.length = 0;
+      state.model.taps = [];
+      state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-fold');
+      state.model.needs = state.model.needs.filter((item) => item.card?.id !== 'card-fold');
+    }""")
+    page.unroute("**/api/answer")
+    now(page)
+
+
+def test_a_pick_card_shows_each_option_once_and_the_block_is_the_tap_target(page):
+    row = folded_screen(page)
+    assert row.inner_text().count("One credential") == 1
+    assert row.locator("button[data-choose]").count() == 0
+    best = row.locator('.pk[data-choose="one"]')
+    assert "Recommended" in best.inner_text() and "as you said" in best.inner_text()
+    assert best.locator(".pk-facts .good").inner_text().endswith("One mint a team.")
+    assert best.locator(".pk-facts .bad").inner_text().endswith("A client bug could overwrite a run.")
+    assert not row.locator(".pk-more .md").is_visible()
+    row.locator(".pk-more > summary").click()
+    assert row.locator(".pk-more .md").inner_text() == "The run reader waits on this."
+    assert row.locator(".pk-more .bq-ask textarea").is_visible()
+    with page.expect_request("**/api/answer") as picked:
+        row.locator('.pk[data-choose="two"] .pk-facts .bad').click()
+    assert picked.value.post_data_json == {"kind": "choice", "block": "fold-pick", "options": ["two"]}
+    page.wait_for_selector('.fm.done[data-tap="card-fold"] .pk-picked')
+    assert "Two credentials" in row.locator(".pk-picked").inner_text()
+    assert page.locator(".fd-h h1").inner_text() == "Nothing waits on your tap."
+    drop_folded(page)
+
+
+def test_a_file_and_line_on_a_card_hovers_the_line_from_github(page):
+    page.route("**/api/source*", lambda route: route.fulfill(json={"lines": [{"n": 55, "text": "const before = 1"}, {"n": 56, "text": "const cited = 2"}]}))
+    row = folded_screen(page)
+    page.evaluate("""() => {
+      state.model.board.cards.find((card) => card.id === 'card-fold').parts[0].md = 'One permission (`api/src/modules/r2.ts:56`).';
+      render();
+    }""")
+    row.locator(".pk-more > summary").click()
+    cite = row.locator(".ln-src")
+    assert cite.inner_text() == "r2.ts:56"
+    assert cite.get_attribute("href").endswith("/blob/HEAD/api/src/modules/r2.ts#L56")
+    with page.expect_request("**/api/source*") as asked:
+        cite.hover()
+    assert "path=api%2Fsrc%2Fmodules%2Fr2.ts" in asked.value.url and "line=56" in asked.value.url
+    page.wait_for_selector("#srctip .hl")
+    assert page.locator("#srctip .hl").inner_text().endswith("const cited = 2")
+    page.mouse.move(0, 0)
+    page.wait_for_function("!document.querySelector('#srctip').matches(':popover-open')")
+    page.unroute("**/api/source*")
+    drop_folded(page)
+
+
+def test_a_release_id_becomes_its_name_only_beside_that_name(page):
+    now(page)
+    assert page.evaluate("""() => {
+      state.model.now.releases.push({ id: 'R9', name: 'Desktop app', parts: [], state: '' });
+      const said = [words('R9 Desktop app ships'), words('On R9, one credential carries one permission')];
+      state.model.now.releases.pop();
+      return said;
+    }""") == ["Desktop app ships", "On R9, one credential carries one permission"]
+
+
+def test_an_answer_the_server_refuses_leaves_the_blocks_tappable_with_the_reason(page):
+    row = folded_screen(page, {"error": "the board is down"})
+    row.locator('.pk[data-choose="one"]').click()
+    page.wait_for_selector('.fm[data-tap="card-fold"] .nsent.bad')
+    assert "the board is down" in row.locator(".nsent.bad").inner_text()
+    assert row.locator(".pk[data-choose]").count() == 2 and row.locator(".pk.off, .pk.on").count() == 0
+    drop_folded(page)
+
+
+def test_a_written_answer_goes_down_the_boards_other_path_and_shows_in_place(page):
+    row = folded_screen(page)
+    box = row.locator(".pk-other textarea")
+    box.fill("1 but only for chats")
+    with page.expect_request("**/api/answer") as written:
+        box.press("Enter")
+    assert written.value.post_data_json == {"kind": "choice", "block": "fold-pick", "options": [], "other": "1 but only for chats"}
+    page.wait_for_selector('.fm.done[data-tap="card-fold"] .pk-picked')
+    assert "1 but only for chats" in row.locator(".pk-picked").inner_text()
+    assert page.evaluate("localStorage.getItem('draft:pick-other:fold-pick:')") is None
+    drop_folded(page)
+
+
+def test_a_number_key_picks_only_in_the_one_card_he_opened(page):
+    asked = []
+    folded_screen(page)
+    page.on("request", lambda request: asked.append(request) if request.url.endswith("/api/answer") else None)
+    page.keyboard.press("1")
+    assert asked == []
+    page.evaluate("location.hash = '#/needs~question/card-fold'")
+    page.wait_for_selector(".pr-drawer.front .pk-set")
+    with page.expect_request("**/api/answer") as picked:
+        page.keyboard.press("2")
+    assert picked.value.post_data_json == {"kind": "choice", "block": "fold-pick", "options": ["two"]}
+    page.wait_for_selector(".pr-drawer.front .pk-picked")
+    assert "Two credentials" in page.locator(".pr-drawer.front .pk-picked").inner_text()
+    drop_folded(page)
 
 
 CHAT_MODEL = """(n) => {
@@ -925,7 +1055,7 @@ def test_a_thread_reply_names_its_parent_and_shows_under_it(page):
 def test_a_yes_no_answers_inline_and_anything_else_opens_the_task(page):
     """Owner 10:07 PM Nov 3: a button inline if simple yes/no, a modal to the proper task otherwise."""
     open_chat(page)
-    assert page.locator("#rp-open2 .ct-acts [data-choose]").all_inner_texts() == ["Yes", "No"]
+    assert page.locator("#rp-open2 .ct-acts .pk-t").all_inner_texts() == ["Yes", "No"]
     assert page.locator("#rp-old [data-choose]").count() == 0
     assert page.locator("#rp-routed").count() == 0
     assert page.locator("#rp-old .ct-closed").count() == 1
@@ -948,8 +1078,9 @@ def test_a_pick_tapped_in_chat_posts_its_answer_inline_and_in_the_task_window(pa
     with page.expect_request("**/api/answer") as windowed:
         page.locator('#chatmodal [data-choose="open3-1"]').click()
     assert windowed.value.post_data_json == {"kind": "choice", "block": "open3-choice", "options": ["open3-1"]}
-    page.locator("#chatmodal [data-chat-close]").click()
-    page.evaluate("ov.sent.clear(); state.taps.length = 0")
+    page.wait_for_selector("#rp-open2 .ct-picked")
+    assert "You picked" in page.locator("#rp-open2 .ct-picked").inner_text()
+    page.evaluate("ov.sent.clear(); ov.kept.clear(); state.taps.length = 0")
     page.unroute("**/api/answer")
     now(page)
 

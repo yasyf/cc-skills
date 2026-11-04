@@ -174,6 +174,18 @@ def test_a_step_or_milestone_still_waiting_on_an_answered_card_a_minute_later_is
     assert posted == [("progress-desk-2",), ()]
 
 
+def test_a_card_read_off_the_board_shows_its_options_once_with_context_only_in_its_body():
+    pick = card("card-pick", ("markdown", "why"), ("choice", "pick"))
+    pick["summary"] = "One permission per credential. Recommended: one credential."
+    pick["children"][0]["md"] = "Context stays.\n\n| Option | For | Against |\n|---|---|---|\n| One credential | One mint. | A bug overwrites a run. |\n| Two credentials | Runs stay safe. | Two mints. |"
+    pick["children"][1]["options"] = [{"id": "one", "label": "One credential", "hint": "one mint", "recommended": True}, {"id": "two", "label": "Two credentials", "hint": "safer"}, {"id": "o", "label": "Other"}]
+    out = Drive({"board_url": "http://board/p/x"}, None).read_board(board(pick))["cards"][0]
+    assert out["summary"] == "One permission per credential."
+    assert out["parts"][0]["md"] == "Context stays."
+    assert [[fact["value"] for fact in option["facts"]] for option in out["parts"][1]["options"]] == [["One mint.", "A bug overwrites a run."], ["Runs stay safe.", "Two mints."]]
+    assert [option["id"] for option in out["options"]] == ["one", "two"]
+
+
 def test_a_card_keeps_his_earlier_picks_and_offers_the_next_one():
     retro = card("retro", ("record", "why"), ("choice", "p1"), ("choice", "p2"))
     retro["children"][1]["options"] = [{"id": "a", "label": "Check first (Recommended)", "recommended": True}, {"id": "o", "label": "Other"}]

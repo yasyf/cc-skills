@@ -128,12 +128,17 @@ function words(text) {
   const rels = state.model?.now?.releases ?? [];
   return String(text ?? '').replace(/\bR(\d{1,2})\b ?/g, (all, n, at, whole) => {
     const r = rels.find((x) => x.id === `R${n}`);
-    if (!r) return all;
-    return whole.startsWith(r.name, at + all.length) ? '' : `the “${r.name}” release${all.endsWith(' ') ? ' ' : ''}`;
+    return r && whole.startsWith(r.name, at + all.length) ? '' : all;
   });
+}
+const SOURCE_CITE = /(^|[^\w/.@`-])`?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?`?(?![\w-]|[./]\w)/g;
+function sourceLink(all, pre, path, from, to) {
+  const span = `${from}${to ? `-${to}` : ''}`;
+  return `${pre}<a class="ln-src" href="https://github.com/${state.model.repo}/blob/HEAD/${path}#L${from}${to ? `-L${to}` : ''}" target="_blank" rel="noopener" data-ghfile="${path}" data-line="${from}" data-to="${to ?? from}">${path.split('/').pop()}:${span}</a>`;
 }
 function inline(md) {
   return esc(words(md))
+    .replace(SOURCE_CITE, sourceLink)
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
@@ -204,31 +209,106 @@ function openQuestion(card) {
 function boardCard(item) {
   const c = item.card;
   const said = rewritten('cards', c.key);
-  const busy = sending(c.choice) ? ' disabled' : '';
-  const label = (o, i) => said?.answers?.[i] || o.label.replace(/\s*\(Recommended\)\s*$/i, '');
-  const button = (o, i) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(c.choice)}"${busy}>${esc(label(o, i))}</button>`;
-  const lead = c.options.findIndex((o) => o.recommended);
-  const others = c.options.map((o, i) => (i === lead ? '' : button(o, i))).join('');
-  const id = `answers-${c.id}`;
-  const answers = c.embed
-    ? `<button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button>`
-    : c.choice ? `${lead >= 0 ? button(c.options[lead], lead) : ''}<details class="bq-more" data-id="${esc(id)}"${state.open.has(id) || lead < 0 ? ' open' : ''}><summary>${lead >= 0 ? 'Other answers' : 'Answers'}</summary><div class="bq-acts">${others}</div></details>` : '';
+  const answers = c.embed ? `<div class="bq-acts"><button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button></div>` : pickSet(c, { said, other: true });
   return `<article class="mr bq" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span></header>
-    ${said ? `<p class="mr-why">${esc(said.means)}</p>` : c.summary ? `<p class="mr-why">${inline(c.summary)}</p>` : ''}${c.parts.map(cardPart).join('')}${answers ? `<div class="bq-acts">${answers}</div>` : ''}${c.choice ? sentNote(c.choice) : ''}${cardAsk(c)}</article>`;
+    ${c.summary ? `<p class="mr-why">${inline(c.summary)}</p>` : said ? `<p class="mr-why">${esc(said.means)}</p>` : ''}${answers}${explainMore(c)}${cardAsk(c)}</article>`;
 }
-function cardFact(f) {
-  return typeof f === 'string' ? esc(f) : `${esc(f.label)} ${inline(String(f.value))}`;
+const RECOMMENDED_LABEL = /\s*\(Recommended\)\s*$/i;
+const PLAIN_FROM_ITS_MARK = /^(?:for|against|good|bad)$/i;
+const FACT_MARK = { good: '✓', bad: '✕' };
+function pickFact(f) {
+  if (typeof f === 'string') return `<li><i></i><span>${esc(f)}</span></li>`;
+  const label = f.label && !PLAIN_FROM_ITS_MARK.test(f.label) ? `<em>${esc(f.label)}</em>` : '';
+  return `<li class="${esc(f.tone ?? '')}"><i${f.label ? ` aria-label="${esc(f.label)}"` : ''}>${FACT_MARK[f.tone] ?? ''}</i><span>${label}${inline(plain(String(f.value)))}</span></li>`;
+}
+function pickOption(c, o, at, { said, subject }) {
+  const sent = ov.sent.get(c.choice);
+  const on = sending(c.choice) && sent.option === o.id;
+  const state = `${o.recommended ? ' rec' : ''}${on ? ' on' : sending(c.choice) ? ' off' : ''}`;
+  return `<div class="pk${state}" role="radio" aria-checked="${on}" tabindex="0" data-n="${at + 1}" data-choose="${esc(o.id)}" data-choice="${esc(c.choice)}"${subject ? ` data-subject="${esc(subject)}"` : ''}><span class="pk-dot"></span><div class="pk-body"><div class="pk-main">
+    <div class="pk-head"><b class="pk-t">${esc(plain(said?.answers?.[at] || o.title || o.label.replace(RECOMMENDED_LABEL, '')).replace(/\(?#\d{4,5}\)?/g, 'this change'))}</b>${o.recommended ? '<span class="pk-rec">★ Recommended</span>' : ''}</div>
+    ${o.note ? `<p class="pk-note">${inline(plain(o.note))}</p>` : ''}${o.hint ? `<p class="pk-hint">${inline(plain(o.hint))}</p>` : ''}</div>${o.facts?.length ? `<ul class="pk-facts">${o.facts.map(pickFact).join('')}</ul>` : ''}</div></div>`;
+}
+function pickOther(c, at) {
+  return `<form class="pk pk-other" data-n="${at}" data-pick-other="${esc(c.choice)}"><span class="pk-dot"></span><div class="pk-body"><b class="pk-t">Other</b><textarea name="pick-other" data-draft="${esc(c.choice)}" rows="1" placeholder="Write your own answer" aria-label="Write your own answer"></textarea></div><button class="btn">Send</button></form>`;
+}
+function pickedWords(p) {
+  const labels = p.answer.optionIds.map((id) => p.options.find((o) => o.id === id)?.label.replace(RECOMMENDED_LABEL, '') ?? id);
+  return [...labels, ...(p.answer.other ? [p.answer.other] : [])].join(', ');
+}
+function pickSet(c, { said, subject, other } = {}) {
+  const picked = (c.parts ?? []).filter((p) => p.kind === 'choice' && p.answer).map((p) => `<p class="pk-picked"><i>✓</i>You picked <b>${esc(pickedWords(p))}</b></p>`).join('');
+  if (!c.choice || c.embed) return picked;
+  const part = c.parts?.find((p) => p.id === c.choice);
+  const options = part?.options ?? c.options;
+  return `${picked}${part?.prompt ? `<p class="bq-part bq-prompt">${inline(part.prompt)}</p>` : ''}<div class="pk-set${options.some((o) => o.facts?.length || o.note || o.hint) ? '' : ' short'}" role="radiogroup">${options.map((o, at) => pickOption(c, o, at, { said, subject })).join('')}${other ? pickOther(c, options.length + 1) : ''}</div>${sentNote(c.choice)}`;
+}
+function keepPicked(block, given) {
+  const taps = state.model.taps ?? [];
+  const card = [...state.model.board.cards, ...taps].find((c) => c.choice === block);
+  if (!card || card.parts?.some((p) => ASK_PARTS.has(p.kind) && p.id !== block && !p.answer)) return;
+  const parts = card.parts?.some((p) => p.id === block) ? card.parts : [...(card.parts ?? []), { kind: 'choice', id: block, options: card.options }];
+  const tap = taps.find((t) => t.card === card.id);
+  ov.kept.set(card.id, { tap, at: new Date().toISOString(), place: shownTaps().indexOf(tap), card: { ...card, choice: null, parts: parts.map((p) => (p.id === block ? { ...p, answer: given } : p)) } });
+}
+function keptWords(id) {
+  return ov.kept.get(id)?.card.parts.filter((p) => p.kind === 'choice' && p.answer).map(pickedWords).join('; ');
 }
 function cardPart(p) {
-  if (p.kind === 'page') return `<div class="md bq-part">${markdown(p.md)}</div>`;
+  if (p.kind === 'page') return p.md ? `<div class="md bq-part">${markdown(p.md)}</div>` : '';
+  if (p.kind === 'from') return `<p class="pk-from">From ${inline(plain(p.text))}</p>`;
   if (p.kind === 'record') return `<section class="bq-part bq-bg">${p.title ? `<h4>${esc(p.title)}</h4>` : ''}<dl class="bq-facts">${p.facts.map((f) => `<dt>${esc(f.label)}</dt><dd>${inline(String(f.value))}</dd>`).join('')}</dl></section>`;
   if (p.kind === 'image') return `<figure class="bq-part bq-fig"><img src="${esc(p.src)}" alt="${esc(p.alt)}" loading="lazy">${p.alt ? `<figcaption>${esc(p.alt)}</figcaption>` : ''}</figure>`;
   if (p.kind === 'pr') return `<p class="bq-part">${p.repo === state.model.repo ? `<a href="#/review/${esc(p.number)}">${esc(plainTitle(p.number))}</a>` : `<a href="https://github.com/${esc(p.repo)}/pull/${esc(p.number)}" target="_blank" rel="noopener">${esc(p.repo)}#${esc(p.number)} ↗</a>`}</p>`;
   if (p.kind === 'table') return `<div class="tablewrap bq-part"><table><thead><tr>${p.columns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${p.rows.map((row) => `<tr>${p.columns.map((col) => `<td data-h="${esc(col.label)}">${inline(String(row[col.key] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  if (p.kind !== 'choice' || p.answer) return '';
-  const told = p.options.filter((o) => o.hint || o.facts?.length);
-  return `${p.prompt ? `<p class="bq-part bq-prompt">${inline(p.prompt)}</p>` : ''}${told.length ? `<ul class="bq-part bq-opts">${told.map((o) => `<li><b>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</b>${o.hint ? ` ${inline(o.hint)}` : ''}${o.facts?.length ? `<small>${o.facts.map(cardFact).join(' · ')}</small>` : ''}</li>`).join('')}</ul>` : ''}`;
+  return '';
 }
+function explainMore(c, ask = '') {
+  const body = (c.parts ?? []).map(cardPart).join('');
+  if (!body && !ask) return '';
+  const id = `explain-${c.id}`;
+  return `<details class="fm-thread pk-more" data-id="${esc(id)}"${state.open.has(id) || (ask && c.thread?.length) ? ' open' : ''}><summary>Explain more</summary><div class="fm-open">${body}${ask}</div></details>`;
+}
+const sourceSeen = new Map();
+function sourceRows(a, found) {
+  const head = `<header>${esc(state.model.repo)} · ${esc(a.dataset.ghfile)}</header>`;
+  if (!found) return `${head}<p>Reading the line from GitHub…</p>`;
+  if (found.error) return `${head}<p>${esc(found.error)}</p>`;
+  return `${head}<pre>${found.lines.map((l) => `<span class="${l.n >= Number(a.dataset.line) && l.n <= Number(a.dataset.to) ? 'hl' : ''}"><i>${l.n}</i>${esc(l.text)}</span>`).join('')}</pre>`;
+}
+function hideSource() {
+  const tip = $('#srctip');
+  if (tip.matches(':popover-open')) tip.hidePopover();
+}
+function showSource(a) {
+  const tip = $('#srctip');
+  const key = `${a.dataset.ghfile}:${a.dataset.line}:${a.dataset.to}`;
+  tip.dataset.key = key;
+  tip.innerHTML = sourceRows(a, sourceSeen.get(key));
+  if (!tip.matches(':popover-open')) tip.showPopover();
+  const box = a.getBoundingClientRect();
+  tip.style.left = `${Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, box.left))}px`;
+  tip.style.top = `${box.bottom + 6 + tip.offsetHeight > innerHeight ? Math.max(8, box.top - tip.offsetHeight - 6) : box.bottom + 6}px`;
+  if (sourceSeen.has(key)) return;
+  fetch(`/api/source?${new URLSearchParams({ path: a.dataset.ghfile, line: a.dataset.line, to: a.dataset.to })}`)
+    .then((res) => res.json())
+    .catch((failure) => ({ error: `Could not reach the dashboard server (${failure.message}).` }))
+    .then((found) => {
+      sourceSeen.set(key, found);
+      if (tip.dataset.key === key && a.isConnected && tip.matches(':popover-open')) showSource(a);
+    });
+}
+document.addEventListener('mouseover', (e) => {
+  const a = e.target.closest('a[data-ghfile]');
+  if (a) showSource(a);
+  else hideSource();
+});
+document.addEventListener('focusin', (e) => {
+  if (e.target.matches('a[data-ghfile]')) showSource(e.target);
+});
+document.addEventListener('focusout', (e) => {
+  if (e.target.matches('a[data-ghfile]')) hideSource();
+});
 function cardAsk(c) {
   const sent = ov.sent.get(c.id);
   const note = !sent ? '' : sent.error ? `<em class="nsent bad">Not sent: ${esc(sent.error)}. Try again.</em>` : `<em class="nsent">${sent.recorded ? '✓ Sent. The answer lands on this card.' : 'Sending…'}</em>`;
@@ -245,17 +325,39 @@ document.addEventListener('submit', (e) => {
   answer({ kind: 'note', block, text }).then(() => {
     if (ov.sent.get(block)?.error) return;
     localStorage.removeItem(`draft:card-note:${block}:`);
-    const box = $('#main').querySelector(`[name="card-note"][data-draft="${CSS.escape(block)}"]`);
-    if (!box) return;
-    box.value = '';
-    box.blur();
+    for (const box of $('#main').querySelectorAll(`[name="card-note"][data-draft="${CSS.escape(block)}"]`)) {
+      box.value = '';
+      box.blur();
+    }
+  });
+});
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-pick-other]');
+  if (!form) return;
+  e.preventDefault();
+  const block = form.dataset.pickOther;
+  const other = form.elements['pick-other'].value.trim();
+  if (!other || sending(block)) return;
+  answer({ kind: 'choice', block, options: [], other }).then(() => {
+    if (!ov.sent.get(block)?.error) localStorage.removeItem(`draft:pick-other:${block}:`);
   });
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && e.target.matches('.bq-ask textarea')) {
+  if (e.key === 'Enter' && !e.shiftKey && e.target.matches('.bq-ask textarea, .pk-other textarea')) {
     e.preventDefault();
-    e.target.form.requestSubmit();
+    return e.target.form.requestSubmit();
   }
+  if (e.target.closest('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.pk[data-choose]')) {
+    e.preventDefault();
+    return e.target.click();
+  }
+  if (!/^[1-9]$/.test(e.key)) return;
+  const pick = document.querySelector(`#chatmodal[open] .pk-set [data-n="${e.key}"], .pr-drawer.front .pk-set [data-n="${e.key}"], .pk-set:focus-within [data-n="${e.key}"]`);
+  if (!pick) return;
+  e.preventDefault();
+  if (pick.matches('[data-choose]')) pick.click();
+  else pick.querySelector('textarea').focus();
 });
 function syncCardEmbed() {
   const host = $('#cardembed');
@@ -437,7 +539,7 @@ function drawerOf(seg) {
   if (kind === 'work') return { kick: 'Work', title: workItem(id)?.title ?? id, body: () => workDrawer(id) };
   if (kind === 'worker') return { kick: 'Worker', title: workerName(id), body: () => workerScreen(id) };
   if (kind === 'question') {
-    const item = openQuestion(id);
+    const item = openQuestion(id) ?? (ov.kept.has(id) ? { card: ov.kept.get(id).card } : null);
     return { kick: 'Needs you', title: 'A question for you', tone: 'you', body: item ? () => boardCard(item) : gone('This question is answered or no longer open.') };
   }
   if (kind === 'blocker') return { kick: 'Blocker', title: blockerById(id)?.node.text ?? id, tone: blockerById(id)?.node.state ?? '', body: () => blockerPage(id) };

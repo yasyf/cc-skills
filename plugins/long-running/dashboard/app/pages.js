@@ -448,7 +448,7 @@ function reviewScreen(list) {
     ${merges}</div>`;
 }
 function noteCard(c) {
-  return `<article class="mr bq note" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(words(c.title))}</span></header>${c.summary ? `<p class="mr-why">${esc(words(c.summary))}</p>` : ''}${c.parts.map(cardPart).join('')}${cardAsk(c)}</article>`;
+  return `<article class="mr bq note" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(words(c.title))}</span></header>${c.summary ? `<p class="mr-why">${esc(words(c.summary))}</p>` : ''}${pickSet(c)}${c.parts.map(cardPart).join('')}${cardAsk(c)}</article>`;
 }
 
 function firstClause(text) {
@@ -510,7 +510,7 @@ document.addEventListener('click', (e) => {
 });
 
 const TAP_WORD = { land: 'Land it', pick: 'Your pick', slack: 'Slack post' };
-const OTHERS_INLINE = 2;
+const PICKED_SHOWN_MINUTES = 30;
 function tapWords(text) {
   return plain(text).replace(/\s*\(?#\d{4,5}\)?,?/g, '');
 }
@@ -519,48 +519,53 @@ function tapCard(t) {
 }
 function tapOpen(t) {
   if (t.kind === 'land') return verdictState(boardRow(t.number) ?? {}) === 'you';
-  return Boolean(tapCard(t)) && !ov.sent.get(t.choice)?.recorded;
+  return Boolean(tapCard(t)) && !ov.kept.has(t.id) && !ov.sent.get(t.choice)?.recorded;
 }
 function openTaps() {
   return (state.model?.taps ?? []).filter(tapOpen);
 }
-function tapButtons(t) {
-  if (t.kind === 'land') {
-    const failed = pending.number === t.number && pending.error ? `<em class="nsent bad">Not recorded: ${esc(pending.error)}. Try again.</em>` : '';
-    return `${rowActs(boardRow(t.number))}<a class="btn ghost" href="#/review/${t.number}">Details</a>${failed}`;
-  }
-  const c = tapCard(t);
-  const question = `#/question/${encodeURIComponent(c.id)}`;
-  if (!c.choice) return `<a class="btn pri" href="${question}">Answer it</a>`;
-  const busy = sending(c.choice) ? ' disabled' : '';
-  const subject = t.subject ? ` data-subject="${esc(t.subject)}"` : '';
-  const button = (o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(c.choice)}"${subject}${busy}>${esc(tapWords(o.label.replace(/\s*\(Recommended\)\s*$/i, '')))}</button>`;
-  const lead = c.options.filter((o) => o.recommended);
-  const others = c.options.filter((o) => !o.recommended);
-  const openId = `tap-more-${c.id}`;
-  const rest = lead.length && others.length > OTHERS_INLINE
-    ? `<details class="bq-more" data-id="${esc(openId)}"${state.open.has(openId) ? ' open' : ''}><summary>Other answers</summary><div class="fm-acts">${others.map(button).join('')}</div></details>`
-    : others.map(button).join('');
-  return `${lead.map(button).join('')}${rest}${t.subject ? '' : `<a class="btn ghost" href="${question}">Details</a>`}${sentNote(c.choice)}`;
+function shownTaps() {
+  const shown = openTaps();
+  for (const [id, kept] of ov.kept) if (minutesSince(kept.at) >= PICKED_SHOWN_MINUTES) ov.kept.delete(id);
+  for (const kept of [...ov.kept.values()].filter((k) => k.tap).sort((x, y) => x.place - y.place)) shown.splice(Math.min(kept.place, shown.length), 0, kept.tap);
+  return shown;
+}
+function landButtons(t) {
+  const failed = pending.number === t.number && pending.error ? `<em class="nsent bad">Not recorded: ${esc(pending.error)}. Try again.</em>` : '';
+  return `${rowActs(boardRow(t.number))}<a class="btn ghost" href="#/review/${t.number}">Details</a>${failed}`;
 }
 function tapRow(t, at) {
+  if (t.kind === 'land') return tapShell(t, at, esc(tapWords(t.title)), esc(tapWords(t.line)), `<div class="fm-acts">${landButtons(t)}</div>`);
+  const kept = ov.kept.get(t.id);
+  const c = kept?.card ?? tapCard(t);
+  const question = `#/question/${encodeURIComponent(c.id)}`;
+  const said = rewritten('cards', c.key);
+  const title = esc(tapWords(said?.question ?? t.title));
+  const lead = t.subject ? title : `<a class="fm-open-q" href="${question}">${title}</a>`;
+  const summary = t.kind === 'pick' ? c.summary || said?.means : null;
+  const why = summary ? inline(tapWords(summary)) : esc(tapWords(t.line));
+  const pick = c.embed || (!c.choice && !kept) ? `<div class="fm-acts"><a class="btn pri" href="${question}">Answer it</a></div>` : pickSet(c, { said, subject: t.subject, other: !t.subject });
   const textId = `tap-text-${t.id}`;
-  return `<article class="fm${t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${at + 1}</span><div class="fm-main">
-    <header><b>${TAP_WORD[t.kind]}</b>${t.frees ? `<span class="fm-frees">Frees ${t.frees}</span>` : ''}</header>
-    <p class="fm-lead">${esc(tapWords(t.title))}</p>
-    <p class="fm-why">${esc(tapWords(t.line))}</p>
-    <div class="fm-acts">${tapButtons(t)}</div>
-    ${t.text ? `<details class="fm-thread" data-id="${esc(textId)}"${state.open.has(textId) ? ' open' : ''}><summary>Read the post</summary><div class="fm-open fm-post">${esc(t.text)}</div></details>` : ''}</div></article>`;
+  const post = t.text ? `<details class="fm-thread" data-id="${esc(textId)}"${state.open.has(textId) ? ' open' : ''}><summary>Read the post</summary><div class="fm-open fm-post">${esc(t.text)}</div></details>` : '';
+  const more = t.subject || kept ? '' : explainMore(c, cardAsk(c));
+  return tapShell(t, at, lead, why, `${pick}${post}${more}`, kept);
+}
+function tapShell(t, at, lead, why, body, kept) {
+  return `<article class="fm${kept ? ' done' : t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${kept ? '✓' : at + 1}</span><div class="fm-main">
+    <header><b>${TAP_WORD[t.kind]}</b>${t.frees && !kept ? `<span class="fm-frees" title="${esc(tapWords(t.line))}">Frees ${t.frees}</span>` : ''}</header>
+    <p class="fm-lead">${lead}</p>
+    ${kept ? '' : `<p class="fm-why">${why}</p>`}${body}</div></article>`;
 }
 function feedDivider(word) {
   return `<h2 class="fd-div"><span>${word}</span></h2>`;
 }
 function needsScreen() {
-  const taps = openTaps();
+  const waiting = openTaps().length;
+  const taps = shownTaps();
   const incidents = taps.filter((t) => t.urgent);
   const freeing = taps.filter((t) => !t.urgent && t.frees);
   const rest = taps.filter((t) => !t.urgent && !t.frees);
-  const lead = taps.length ? `${plural(taps.length, 'tap')} wait on you, the most downstream work first.` : 'Nothing waits on your tap.';
+  const lead = waiting ? `${plural(waiting, 'tap')} wait on you, the most downstream work first.` : 'Nothing waits on your tap.';
   const notes = state.model.board.cards.filter((c) => !c.decides);
   return `<div class="pg fd"><header class="fd-h"><h1>${lead}</h1></header>
     ${incidents.length ? `${feedDivider('Live incidents')}${incidents.map(tapRow).join('')}` : ''}
@@ -570,7 +575,7 @@ function needsScreen() {
 }
 document.addEventListener('click', (e) => {
   const row = e.target.closest('.fm[data-tap], .nl');
-  if (!row || e.target.closest('a, button, summary, details, form') || String(getSelection())) return;
+  if (!row || e.target.closest('a, button, summary, details, form, .pk') || String(getSelection())) return;
   row.querySelector('a[href*="question/"], a[href*="review/"]')?.click();
 });
 
@@ -683,13 +688,12 @@ function chatAction(entry, answeredInThread) {
   const r = entry.reply;
   const key = `reply:${r.id}`;
   const about = `reply ${r.id} "${r.title}"`;
-  const picked = state.model.board.answered[`card-${r.id}`];
-  if (picked) return `<p class="ct-picked">You picked <b>${esc(picked.picked)}</b></p>`;
+  const picked = state.model.board.answered[`card-${r.id}`]?.picked ?? keptWords(`card-${r.id}`);
+  if (picked) return `<p class="ct-picked">You picked <b>${esc(picked)}</b></p>`;
   const card = replyCard(r);
   if (card) {
-    if (!card.choice || card.options.length > 2 || card.options.some((o) => o.label.length > SIMPLE_PICK)) return `<div class="ct-acts"><button class="btn pri" data-chat-modal="${esc(card.id)}">Open the pick</button></div>`;
-    const busy = sending(card.choice) ? ' disabled' : '';
-    return `<div class="ct-acts">${card.options.map((o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(card.choice)}"${busy}>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}</div>${sentNote(card.choice)}`;
+    if (!card.choice || card.embed || card.options.length > 2 || card.options.some((o) => o.label.length > SIMPLE_PICK)) return `<div class="ct-acts"><button class="btn pri" data-chat-modal="${esc(card.id)}">Open the pick</button></div>`;
+    return `<div class="ct-acts">${pickSet(card)}</div>`;
   }
   if (r.picks?.length) return '<p class="ct-closed">This pick is no longer open.</p>';
   if (bareAskOpen(entry, answeredInThread)) return `<div class="ct-acts"><button class="btn pri" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>`;
