@@ -1377,6 +1377,38 @@ def test_an_owed_row_reads_in_full_on_a_phone(page):
     now(page)
 
 
+def test_a_phone_keeps_chat_clear_until_he_writes_and_reply_send_above_the_new_ask_box(page):
+    context = page.context.browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    phone = context.new_page()
+    phone.goto(page.url.split("#")[0] + "#/")
+    news = {"reply": {"id": "news", "title": "An update", "md": "What moved", "type": "update", "status": "progress"}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
+    chat_with(phone, [news], [ask(3, "Delivered")])
+    heading = phone.locator(".page-heading").bounding_box()
+    assert phone.locator("#cw-list").bounding_box()["y"] - heading["y"] <= 170
+    tops = [chip.bounding_box()["y"] for chip in phone.locator(".filter").all()]
+    assert max(tops) - min(tops) <= 1
+    assert phone.locator(".filter small:visible").count() == 1
+    assert phone.evaluate("document.documentElement.scrollWidth") <= 390
+    composer = phone.locator(".composer")
+    send = phone.locator(".compose-bottom button")
+    assert composer.bounding_box()["height"] <= 60
+    assert not send.is_visible()
+    box = phone.locator(".composer textarea")
+    box.tap()
+    assert composer.bounding_box()["height"] >= 120
+    assert send.is_visible()
+    box.fill("a draft")
+    phone.evaluate("document.activeElement.blur()")
+    assert send.is_visible()
+    box.fill("")
+    phone.evaluate("document.activeElement.blur()")
+    phone.locator(".obj-reply").first.tap()
+    sent = phone.locator(".decision-card .reply-editor button")
+    sent.wait_for()
+    assert sent.bounding_box()["y"] + sent.bounding_box()["height"] <= composer.bounding_box()["y"]
+    context.close()
+
+
 def test_a_note_with_no_message_above_it_is_not_open_work_and_only_an_undelivered_order_is(page):
     news = {"reply": {"id": "news", "title": "9:00 PM update", "md": "What moved", "type": "update", "status": "progress"}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
     chat_with(page, [news], [

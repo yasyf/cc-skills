@@ -379,4 +379,25 @@
   #main:has(> .cw) { padding: 18px 14px 24px; }
   .cw .question.simple .inline-picks { width: 100%; }
   .cw .reply-editor { flex-direction: column; align-items: stretch; }
+  body:has(.cw) .top { position: static; }
+  .cw .page-heading { height: 44px; margin: 8px 0 4px; align-items: center; }
+  .cw .page-heading h1 { margin: 0; }
+  .cw .page-heading p, .cw .page-heading .quiet-button { display: none; }
+  .cw .ct-owed-slot { margin-top: -48px; }
+  .cw .ct-owed-slot:empty { margin-top: 0; }
+  .cw .ct-owed { margin-bottom: 4px; }
+  .cw .ct-owed summary { text-align: right; line-height: 44px; list-style-position: inside; }
+  .cw .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding-bottom: 12px; margin-bottom: 12px; }
+  .cw .filter, .cw .filter.active { min-height: 44px; padding: 0; font-size: 12px; }
+  .cw .filter small { display: none; }
+  .cw .filter[data-cw-filter="needs"] small { display: inline; }
+  .cw .search-wrap { grid-column: 1 / -1; height: 44px; margin-top: 4px; padding: 0 12px; }
+  .cw .reply-editor textarea { scroll-margin-bottom: 140px; }
+  .cw .composer { bottom: calc(8px + env(safe-area-inset-bottom)); padding: 5px; }
+  .cw .compose-context, .cw .compose-bottom { display: none; }
+  .cw .composer textarea { height: 44px; min-height: 0; padding: 10px 8px; line-height: 24px; resize: none; }
+  .cw .composer:is(:focus-within, :has(textarea:not(:placeholder-shown))) textarea { height: 66px; }
+  .cw .composer:is(:focus-within, :has(textarea:not(:placeholder-shown))) .compose-bottom { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .cw .compose-bottom > span { display: none; }
+  .cw .compose-bottom button { min-height: 44px; padding: 0 14px; font-size: 14px; }
 }
