@@ -944,14 +944,16 @@ func effectStart(terminal string) reply {
 func TestACodexLaneStartsSolOnTheCodexAgentWithoutACustomTerminal(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
-	h.reply("orchestration worker-start", effectStart("term_codex"))
-	wantLine(t, h.launchedAs(agentCodex, "xhigh"), "lane-a ready task=task_a dispatch=ctx_a terminal=term_codex worktree="+h.worktree())
-	wantNoCalls(t, h, "terminal create", "terminal read")
+	wantLine(t, h.launchedAs(agentCodex, "xhigh"), "lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
+	command := flag(h.orcaCalls("terminal create")[0], "--command")
+	if !strings.Contains(command, " codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_reasoning_effort=xhigh"+codexLaneConfig+" -c mcp_servers={}") || strings.Contains(command, "service_tier") {
+		t.Fatal(command)
+	}
 	start := h.orcaCalls("orchestration worker-start")[0]
-	if flag(start, "--agent") != agentCodex || flag(start, "--model") != "gpt-6.1-sol" || flag(start, "--effort") != "xhigh" || slices.Contains(start, "--terminal") || slices.Contains(start, "service_tier") {
+	if flag(start, "--terminal") != "term_a" || slices.Contains(start, "--agent") || slices.Contains(start, "--model") {
 		t.Fatal(start)
 	}
-	wantLine(t, strings.TrimSpace(h.readReceipt("lane-a.terminal")), "term_codex")
+	wantLine(t, strings.TrimSpace(h.readReceipt("lane-a.terminal")), "term_a")
 	if sets := h.orcaCalls("worktree set"); !slices.Contains(sets[0], "--parent-worktree") || slices.Contains(sets[0], "--no-parent") {
 		t.Fatal(sets)
 	}
@@ -1029,7 +1031,7 @@ func TestAnIncidentLaneRunsCodexOnTheFastTierInItsOwnTerminalInATopLevelWorktree
 	if !slices.Contains(set, "--no-parent") || slices.Contains(set, "--parent-worktree") {
 		t.Fatal(set)
 	}
-	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false -c mcp_servers={}'")
+	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"+codexLaneConfig+" -c mcp_servers={}'")
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--terminal") != "term_a" || slices.Contains(start, "--agent") || slices.Contains(start, "--model") || slices.Contains(start, "--effort") {
 		t.Fatal(start)
@@ -1173,9 +1175,9 @@ func TestACodexReadinessTimeoutSendsTheSpecAndRunsUnsupervised(t *testing.T) {
 	h.healthyClaude()
 	h.reply("orchestration worker-start", reply{rc: 1, out: object{"ok": true, "result": object{"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []object{{"kind": "terminal", "role": "agent", "id": "term_codex"}}}}})
 	h.reply("terminal send", reply{out: object{"ok": true}})
-	wantLine(t, h.launchedAs(agentCodex, "xhigh"), "lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_codex worktree="+h.worktree())
+	wantLine(t, h.launchedAs(agentCodex, "xhigh"), "lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
 	send := h.orcaCalls("terminal send")[0]
-	if flag(send, "--terminal") != "term_codex" || !strings.Contains(flag(send, "--text"), filepath.Join(h.receipts, "lane-a.brief.md")) || !slices.Contains(send, "--enter") {
+	if flag(send, "--terminal") != "term_a" || !strings.Contains(flag(send, "--text"), filepath.Join(h.receipts, "lane-a.brief.md")) || !slices.Contains(send, "--enter") {
 		t.Fatal(send)
 	}
 }
@@ -1826,8 +1828,7 @@ func TestACreatedWorktreesStartupShellIsClosedBeforeTheAgentTerminalOpens(t *tes
 func TestACodexLanesCreatedWorktreeHasItsStartupShellClosed(t *testing.T) {
 	h := newFullHarness(t)
 	h.healthyClaude()
-	h.reply("terminal list", startup)
-	h.reply("orchestration worker-start", okResult(object{"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []object{}}))
+	h.reply("terminal list", startup, listing(agentClaude))
 	h.launchedAs(agentCodex, "xhigh")
 	closes := h.orcaCalls("terminal close")
 	if len(closes) != 1 || flag(closes[0], "--terminal") != "term_shell" {
@@ -2100,14 +2101,12 @@ func TestLaunchRejectsAnUnknownModelInOneLine(t *testing.T) {
 	}
 }
 
-func TestAnAstraLaneStartsGPT6AstraOnTheCodexAgent(t *testing.T) {
+func TestAnAstraLaneStartsGPT6AstraInItsOwnCodexTerminal(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
-	h.reply("orchestration worker-start", effectStart("term_codex"))
 	h.launchedAs("astra", "xhigh")
-	start := h.orcaCalls("orchestration worker-start")[0]
-	if flag(start, "--agent") != agentCodex || flag(start, "--model") != "gpt-6-astra" {
-		t.Fatal(start)
+	if command := flag(h.orcaCalls("terminal create")[0], "--command"); !strings.Contains(command, " -c model=gpt-6-astra ") {
+		t.Fatal(command)
 	}
 }
 
