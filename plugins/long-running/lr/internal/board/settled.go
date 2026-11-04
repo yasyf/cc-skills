@@ -22,6 +22,7 @@ const (
 	confirmKind        = "confirm"
 	touchedHold        = 2 * time.Minute
 	boardHoldRefusal   = "holds it for"
+	neverOnBoard       = "was never on this board"
 	checkedField       = "settled-checked"
 	finishedKind       = "finished"
 	finishedField      = "finished-checked"
