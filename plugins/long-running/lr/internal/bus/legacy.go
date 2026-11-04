@@ -318,6 +318,26 @@ func GoNames(record client.Record, pr int) bool {
 	return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool { return pair.PR == pr })
 }
 
+// GoLifts reports whether one of gos, posted after hold, names pr. Seq only
+// orders a store's arrivals, and a relay backfill numbers an old go last.
+func GoLifts(gos []client.Record, hold client.Record, pr int) bool {
+	return slices.ContainsFunc(gos, func(g client.Record) bool { return postedAfter(g, hold) && GoNames(g, pr) })
+}
+
+func postedAfter(a, b client.Record) bool {
+	if a.Origin == b.Origin {
+		return originSeq(a) > originSeq(b)
+	}
+	return a.At.After(b.At)
+}
+
+func originSeq(record client.Record) int64 {
+	if record.OriginSeq == 0 {
+		return record.Seq
+	}
+	return record.OriginSeq
+}
+
 func GoNamesHead(record client.Record, pr int, head string) bool {
 	return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool { return pair.PR == pr && strings.HasPrefix(head, pair.Head) })
 }

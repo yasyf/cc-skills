@@ -209,6 +209,40 @@ func TestHoldLifts(t *testing.T) {
 	}
 }
 
+func TestAGoLiftsAHoldOnlyWhenPostedAfterItWhateverOrderTheRelayNumberedThem(t *testing.T) {
+	at := func(minute int) time.Time { return time.Date(2026, 11, 4, 1, minute, 0, 0, time.UTC) }
+	record := func(seq int64, origin string, originSeq int64, minute int, text string) client.Record {
+		return client.Record{Seq: seq, Origin: origin, OriginSeq: originSeq, At: at(minute), Text: text}
+	}
+	hold := record(100, "mac", 500, 10, "hold #1")
+	for name, tc := range map[string]struct {
+		g    client.Record
+		want bool
+	}{
+		"an older go backfilled after the hold":        {record(900, "mac", 400, 5, "go #1 at e718a74"), false},
+		"a later go numbered before a late hold":       {record(50, "mac", 600, 15, "go #1 at e718a74"), true},
+		"a later go from another node":                 {record(90, "sprite", 7, 15, "go #1 at e718a74"), true},
+		"an older go from another node, numbered last": {record(900, "sprite", 7, 5, "go #1 at e718a74"), false},
+		"a later go naming another PR":                 {record(900, "mac", 600, 15, "go #2 at e718a74"), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := bus.GoLifts([]client.Record{tc.g}, hold, 1); got != tc.want {
+				t.Fatalf("lifted = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAGoPostedOnThisNodeLiftsAHoldPostedHereByItsSeq(t *testing.T) {
+	at := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
+	hold := client.Record{Seq: 100, At: at, Text: "hold #1"}
+	for seq, want := range map[int64]bool{99: false, 101: true} {
+		if got := bus.GoLifts([]client.Record{{Seq: seq, At: at, Text: "go #1 at e718a74"}}, hold, 1); got != want {
+			t.Fatalf("go at seq %d: lifted = %v, want %v", seq, got, want)
+		}
+	}
+}
+
 func TestHoldLiftsReadsOnceForAnyNumberOfHolds(t *testing.T) {
 	for _, n := range []int64{1, 1000} {
 		records := make([]client.Record, n)

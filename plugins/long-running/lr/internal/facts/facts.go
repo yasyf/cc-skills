@@ -1,7 +1,6 @@
 package facts
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -515,8 +514,8 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 	if err != nil || len(records) == 0 {
 		return nil, err
 	}
-	first := slices.MinFunc(records, func(a, b client.Record) int { return cmp.Compare(a.Seq, b.Seq) })
-	later, err := client.Tail(ctx, client.Query{Drive: s.Drive, After: first.Seq, Kinds: bus.GoReadKinds})
+	first := slices.MinFunc(records, func(a, b client.Record) int { return a.At.Compare(b.At) })
+	later, err := client.Tail(ctx, client.Query{Drive: s.Drive, Since: first.At, Kinds: bus.GoReadKinds})
 	if err != nil {
 		return nil, err
 	}
@@ -532,11 +531,10 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 		}
 		byOwner := record.Lane == string(machine.MoverOwner)
 		for _, pr := range bus.HeldBy(record, s.Repo) {
-			lifted := slices.ContainsFunc(gos, func(g client.Record) bool { return g.Seq > record.Seq && bus.GoNames(g, pr) })
 			switch {
 			case byOwner:
 				held[pr] = hold{machine.MoverOwner, record.Seq}
-			case !lifted && held[pr].by != machine.MoverOwner:
+			case !bus.GoLifts(gos, record, pr) && held[pr].by != machine.MoverOwner:
 				held[pr] = hold{machine.MoverRoot, record.Seq}
 			}
 		}
