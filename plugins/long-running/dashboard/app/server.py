@@ -1212,7 +1212,7 @@ class Drive:
                             self.note_go(record)
                             self.note_word(record)
                             if typed_in_chat(record):
-                                self.chat_lines.append(chat_line(record))
+                                self.chat_lines = [*self.chat_lines, chat_line(record)]
                             self.note_evidence(record)
                             with self.lock:
                                 self.records.append(record)

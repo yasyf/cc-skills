@@ -1885,3 +1885,25 @@ def test_a_diagram_page_draws_the_architecture_doc_and_a_reply_without_one_is_mi
             urllib.request.urlopen(f"{base}/diagram/plain", timeout=5)
     finally:
         httpd.shutdown()
+
+
+def test_a_line_he_types_reaches_the_lean_model_the_page_reads(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x", "drive": "d"}, None)
+    record = {"seq": 9, "kind": "owner", "lane": "dashboard", "to": [server.COMMUNICATOR], "at": "2026-11-04T18:00:00Z", "topic": "", "text": "a new ask"}
+    before = drive.encode("lean", {"chat_lines": drive.chat_lines})
+    class Stop(BaseException):
+        pass
+    def stream(*_args, **_kwargs):
+        if drive.chat_lines:
+            raise Stop
+        return contextlib.nullcontext([b"data: " + json.dumps(record).encode()])
+    monkeypatch.setattr(server.urllib.request, "urlopen", stream)
+    monkeypatch.setattr(drive, "note_go", lambda _record: None)
+    monkeypatch.setattr(drive, "note_word", lambda _record: None)
+    monkeypatch.setattr(drive, "note_evidence", lambda _record: None)
+    with pytest.raises(Stop):
+        drive.follow_records(0)
+    after = drive.encode("lean", {"chat_lines": drive.chat_lines})
+    assert before["chat_lines"][2] != after["chat_lines"][2]
+    assert json.loads(after["chat_lines"][1])[0]["text"] == "a new ask"
+
