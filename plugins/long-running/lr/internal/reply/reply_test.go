@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
@@ -382,31 +383,81 @@ func TestAStatusReplyNamesItsPRsInTheSlackCardTextForCCSlackToLinkAndCard(t *tes
 	}
 }
 
-func TestAReplyThatFitsNoSurfaceIsRefusedBeforeAnythingPosts(t *testing.T) {
+func TestAMalformedReplyPostsWithAWarningInsteadOfARefusal(t *testing.T) {
+	base := Reply{ID: "r4", Title: "Pick a relay", MD: "Two ways."}
+	for name, c := range map[string]struct {
+		in   Reply
+		want func(Reply) bool
+	}{
+		"one pick":          {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"Only"}, Recommended: "Only"}, func(r Reply) bool { return len(r.Picks) == 0 && r.Recommended == "" }},
+		"no recommendation": {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"A way", "B way"}}, func(r Reply) bool { return len(r.Picks) == 2 && r.Recommended == "" }},
+		"repeated pick":     {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"A way", "A way"}, Recommended: "A way"}, func(r Reply) bool { return len(r.Picks) == 0 }},
+		"unlabeled link":    {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Links: []Link{{URL: "https://studio.ts.net/doc/"}}}, func(r Reply) bool { return len(r.Links) == 0 }},
+		"file link":         {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Links: []Link{{Label: "Doc", URL: "file:///tmp/doc.md"}}}, func(r Reply) bool { return len(r.Links) == 0 }},
+		"not a PR":          {Reply{ID: base.ID, Title: base.Title, MD: base.MD, PRs: []string{"yasyf/cc-skills#2196"}}, func(r Reply) bool { return len(r.PRs) == 0 }},
+		"made-up id":        {Reply{ID: "../r4", Title: base.Title, MD: base.MD}, func(r Reply) bool { return r.ID == "" }},
+		"build, no pick":    {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Build: &Build{None: "a process pick"}}, func(r Reply) bool { return r.Build == nil }},
+		"bad status":        {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Status: "urgent"}, func(r Reply) bool { return r.Status == "" }},
+		"bad row":           {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Order: "347"}, func(r Reply) bool { return r.Order == "" }},
+		"lone action":       {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Action: "Tap it"}, func(r Reply) bool { return r.Action == "" }},
+		"typeless block":    {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Blocks: []json.RawMessage{json.RawMessage(`{"id":"x"}`)}}, func(r Reply) bool { return len(r.Blocks) == 0 }},
+	} {
+		got, warned := c.in.mended()
+		if !c.want(got) || len(warned) == 0 {
+			t.Errorf("%s: mended to %+v, warned %q", name, got, warned)
+		}
+	}
+	if got, warned := base.mended(); len(warned) != 0 || got.Title != base.Title || got.MD != base.MD {
+		t.Fatalf("a plain reply mended to %+v, warned %q", got, warned)
+	}
+}
+
+func TestAReplyMissingATextPartTakesItFromTheOther(t *testing.T) {
+	if got, _ := (Reply{ID: "a", Title: "t", MD: " "}).mended(); got.MD != "t" {
+		t.Fatalf("no md: %+v", got)
+	}
+	if got, _ := (Reply{ID: "a", Title: " ", MD: "first\nsecond"}).mended(); got.Title != "first" {
+		t.Fatalf("no title: %+v", got)
+	}
+	if got, _ := (Reply{ID: "a", Title: "Pick\na relay", MD: "m"}).mended(); got.Title != "Pick a relay" {
+		t.Fatalf("two-line title: %+v", got)
+	}
+	if got, _ := (Reply{ID: "a", MD: " "}).mended(); got.MD != "" {
+		t.Fatalf("nothing to say: %+v", got)
+	}
+	if got, _ := (Reply{ID: "a", Title: "t", MD: "m", Order: "m1", Action: "Tap it\nThen this"}).mended(); got.Action != "Tap it Then this" {
+		t.Fatalf("two-line action: %+v", got)
+	}
+}
+
+func TestATitleLedPastTheLimitIsShortenedAndStillPosts(t *testing.T) {
+	long := strings.TrimSpace(strings.Repeat("word ", 27))
+	for name, in := range map[string]Reply{
+		"action": {ID: "a", Title: long, MD: "m", Order: "m1", Action: "Tap one of these below please", Picks: []string{"A", "B"}, Recommended: "A"},
+		"done":   {ID: "a", Title: long, MD: "m", Order: "m1", Status: "done"},
+	} {
+		mended, _ := in.mended()
+		if got := mended.led().Title; utf8.RuneCountInString(got) > maxTitle || got == long {
+			t.Errorf("%s: title %q, want it led and at most %d characters", name, got, maxTitle)
+		}
+	}
+}
+
+func TestAnExplainMoreThatIsOnlyALinkStaysRefused(t *testing.T) {
 	base := Reply{ID: "r4", Title: "Pick a relay", MD: "Two ways."}
 	for name, r := range map[string]Reply{
-		"one pick":                        {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"Only"}, Recommended: "Only"},
-		"no recommendation":               {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"A way", "B way"}},
-		"repeated pick":                   {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"A way", "A way"}, Recommended: "A way"},
-		"unlabeled link":                  {ID: base.ID, Title: base.Title, MD: base.MD, Links: []Link{{URL: "https://studio.ts.net/doc/"}}},
-		"file link":                       {ID: base.ID, Title: base.Title, MD: base.MD, Links: []Link{{Label: "Doc", URL: "file:///tmp/doc.md"}}},
-		"not a PR":                        {ID: base.ID, Title: base.Title, MD: base.MD, PRs: []string{"yasyf/cc-skills#2196"}},
-		"two-line title":                  {ID: base.ID, Title: "Pick\na relay", MD: base.MD},
-		"no body":                         {ID: base.ID, Title: base.Title},
-		"made-up id":                      {ID: "../r4", Title: base.Title, MD: base.MD},
-		"build, no pick":                  {ID: base.ID, Title: base.Title, MD: base.MD, Build: &Build{None: "a process pick"}},
 		"a pick explained by a link only": {ID: base.ID, Title: base.Title, MD: "Tap one below.\n\nsee https://docs.poetic.design/one-pagers/x/", Action: "Tap one below", Picks: []string{"A way", "B way"}, Recommended: "A way"},
 		"an Explain more that is a link":  {ID: base.ID, Title: base.Title, MD: "Two ways.\n\n**Explain more:** https://docs.poetic.design/one-pagers/x/"},
 	} {
-		if err := r.check(); err == nil {
-			t.Errorf("%s: check passed %+v", name, r)
+		if err := r.bareExplainMore(); err == nil {
+			t.Errorf("%s: passed %+v", name, r)
 		}
 	}
-	if err := base.check(); err != nil {
+	if err := base.bareExplainMore(); err != nil {
 		t.Fatalf("plain reply refused: %v", err)
 	}
 	linked := Reply{ID: base.ID, Title: base.Title, MD: "Done, nothing for you.\n\nhttps://docs.poetic.design/one-pagers/x/"}
-	if err := linked.check(); err != nil {
+	if err := linked.bareExplainMore(); err != nil {
 		t.Fatalf("a done reply naming its page refused: %v", err)
 	}
 }
@@ -574,20 +625,6 @@ func TestAReplyToAnOrderLeadsWithDoneOrHisOneActionWhateverTheLaneWrote(t *testi
 	}
 }
 
-func TestAnOrderReplyWithNoBodyIsRefusedRatherThanLedIntoOne(t *testing.T) {
-	for name, r := range map[string]Reply{
-		"no md":       {ID: "a", Title: "t", MD: " ", Order: "m1"},
-		"no title":    {ID: "a", Title: " ", MD: "m", Order: "m1"},
-		"bad row":     {ID: "a", Title: "t", MD: "m", Order: "347"},
-		"lone action": {ID: "a", Title: "t", MD: "m", Action: "Tap it"},
-		"two lines":   {ID: "a", Title: "t", MD: "m", Order: "m1", Action: "Tap it\nThen this"},
-	} {
-		if err := r.led().check(); err == nil {
-			t.Fatalf("%s passed check", name)
-		}
-	}
-}
-
 func TestALongSlackCardLinksTheWholeReplyOnTheDashboardAndNeverJustStops(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
@@ -663,15 +700,20 @@ func TestAProgressReplyIsNotLedAsDone(t *testing.T) {
 	}
 }
 
-func TestByAndRoutedAreRefusedOffAQuietOrderReply(t *testing.T) {
+func TestByAndRoutedOffAQuietOrderReplyAreLeftOffWithAWarning(t *testing.T) {
 	for name, r := range map[string]Reply{
 		"no order":  {ID: "a", Title: "t", MD: "m", Status: progress, By: "11:30 PM"},
 		"done":      {ID: "a", Title: "t", MD: "m", Status: "done", Order: "m1", Routed: 7},
 		"with pick": {ID: "a", Title: "t", MD: "m", Status: progress, Order: "m1", By: "11:30 PM", Picks: []string{"A", "B"}, Recommended: "A"},
 	} {
-		if err := r.led().check(); err == nil {
-			t.Fatalf("%s passed check", name)
+		got, warned := r.mended()
+		if got.By != "" || got.Routed != 0 || len(warned) == 0 {
+			t.Errorf("%s: mended to %+v, warned %q", name, got, warned)
 		}
+	}
+	quiet := Reply{ID: "a", Title: "t", MD: "m", Status: progress, Order: "m1", By: "11:30 PM", Routed: 7}
+	if got, warned := quiet.mended(); got.By == "" || got.Routed == 0 || len(warned) != 0 {
+		t.Fatalf("a quiet reply mended to %+v, warned %q", got, warned)
 	}
 }
 
@@ -705,13 +747,6 @@ func TestLiveBlocksLandOnTheThreadAndTheirActionsPostToTalk(t *testing.T) {
 	}
 	if strings.Contains(calls(fake, "cci")[0].Stdin, "anything") {
 		t.Fatal("the record carried the block, want the reply's prose alone")
-	}
-}
-
-func TestABlockWithNoTypeIsRefusedBeforeAnythingPosts(t *testing.T) {
-	r := Reply{ID: "r8", Title: "T", MD: "M", Blocks: []json.RawMessage{json.RawMessage(`{"id":"x"}`)}}
-	if err := r.check(); err == nil || !strings.Contains(err.Error(), "block 1") {
-		t.Fatalf("check = %v, want block 1 named", err)
 	}
 }
 

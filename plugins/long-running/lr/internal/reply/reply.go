@@ -148,7 +148,7 @@ func (r Reply) led() Reply {
 		lead = doneLead
 	}
 	if !strings.HasPrefix(r.Title, lead) {
-		r.Title = lead + ": " + r.Title
+		r.Title = shortened(lead+": "+r.Title, maxTitle)
 	}
 	if md := strings.TrimSpace(r.MD); !strings.HasPrefix(md, lead) {
 		r.MD = lead + ".\n\n" + md
@@ -156,64 +156,110 @@ func (r Reply) led() Reply {
 	return r
 }
 
-func (r Reply) check() error {
-	switch {
-	case r.Order != "" && !orderRow.MatchString(r.Order):
-		return fmt.Errorf("order %q is not a ledger row such as m347", r.Order)
-	case r.Action != "" && r.Order == "":
-		return errors.New("action names what he must do about an order, and this reply names no order")
-	case (r.By != "" || r.Routed != 0) && !r.quiet():
-		return errors.New("by and routed mark his ledger row from a progress or info reply to an order, with no picks")
-	case strings.Contains(r.Action, "\n"):
-		return errors.New("action is the one thing he must do, on one line")
-	case !replyID.MatchString(r.ID):
-		return fmt.Errorf("id %q is not one an earlier reply returned", r.ID)
-	case strings.TrimSpace(r.Title) == "" || strings.Contains(r.Title, "\n") || utf8.RuneCountInString(r.Title) > maxTitle:
-		return fmt.Errorf("title is one line of 1 to %d characters", maxTitle)
-	case strings.TrimSpace(r.MD) == "":
-		return errors.New("md carries the reply itself")
-	case r.Status != "" && !slices.Contains(statuses, r.Status):
-		return fmt.Errorf("status %q is not one of %s", r.Status, strings.Join(statuses, ", "))
-	case len(r.Picks) == 1 || len(r.Picks) > maxPicks:
-		return fmt.Errorf("picks offer 2 to %d answers, not %d", maxPicks, len(r.Picks))
-	case len(r.Picks) == 0 && r.Recommended != "":
-		return errors.New("recommended names one of picks, and this reply has none")
-	case len(r.Picks) > 0 && !slices.Contains(r.Picks, r.Recommended):
-		return fmt.Errorf("recommended %q is not one of picks", r.Recommended)
-	case r.Build != nil && r.Recommended == "":
-		return errors.New("build names what the recommended pick is built on, and this reply recommends none")
-	case len(slices.Compact(slices.Sorted(slices.Values(r.Picks)))) != len(r.Picks):
-		return errors.New("each pick is a different answer")
-	case len(r.Links) > maxLinks:
-		return fmt.Errorf("a reply carries at most %d links", maxLinks)
-	case len(r.PRs) > maxPRs:
-		return fmt.Errorf("a reply carries at most %d PRs", maxPRs)
-	case len(r.Blocks) > maxBlocks:
-		return fmt.Errorf("a reply carries at most %d blocks", maxBlocks)
+func (r Reply) mended() (Reply, []string) {
+	var warned []string
+	warn := func(format string, args ...any) { warned = append(warned, fmt.Sprintf(format, args...)) }
+	if r.Order != "" && !orderRow.MatchString(r.Order) {
+		warn("order %q is not a ledger row such as m347, so it marks nothing", r.Order)
+		r.Order = ""
 	}
-	for n, raw := range r.Blocks {
+	if r.Action != "" && r.Order == "" {
+		warn("action names what he must do about an order, and this reply names no order, so it was left off")
+		r.Action = ""
+	}
+	r.Action = strings.Join(strings.Fields(r.Action), " ")
+	if (r.By != "" || r.Routed != 0) && !r.quiet() {
+		warn("by and routed mark his ledger row only from a progress or info reply to an order with no picks, so they were left off")
+		r.By, r.Routed = "", 0
+	}
+	if !replyID.MatchString(r.ID) {
+		if r.ID != "" {
+			warn("id %q is not one an earlier reply returned, so this is a new reply", r.ID)
+		}
+		r.ID = ""
+	}
+	r.MD = cmp.Or(strings.TrimSpace(r.MD), strings.TrimSpace(r.Title))
+	r.Title = shortened(cmp.Or(strings.Join(strings.Fields(r.Title), " "), firstLine(r.MD)), maxTitle)
+	if r.Status != "" && !slices.Contains(statuses, r.Status) {
+		warn("status %q is not one of %s, so it was left off", r.Status, strings.Join(statuses, ", "))
+		r.Status = ""
+	}
+	r, warned = r.mendedPicks(warned)
+	r.Links = kept(r.Links, maxLinks, "links", &warned, func(link Link) bool {
+		return link.Label != "" && (strings.HasPrefix(link.URL, "https://") || strings.HasPrefix(link.URL, "http://"))
+	})
+	r.PRs = kept(r.PRs, maxPRs, "PRs", &warned, pullURL.MatchString)
+	r.Blocks = kept(r.Blocks, maxBlocks, "blocks", &warned, func(raw json.RawMessage) bool {
 		var block struct {
 			Type string `json:"type"`
 		}
-		if err := json.Unmarshal(raw, &block); err != nil || block.Type == "" {
-			return fmt.Errorf("block %d is not a cc-present block with a type", n+1)
-		}
-	}
+		return json.Unmarshal(raw, &block) == nil && block.Type != ""
+	})
+	return r, warned
+}
+
+func (r Reply) mendedPicks(warned []string) (Reply, []string) {
+	var picks []string
 	for _, pick := range r.Picks {
-		if pick == "" || utf8.RuneCountInString(pick) > maxPick {
-			return fmt.Errorf("pick %q is 1 to %d characters, the width of a button", pick, maxPick)
+		pick = shortened(strings.TrimSpace(pick), maxPick)
+		if pick != "" && !slices.Contains(picks, pick) {
+			picks = append(picks, pick)
 		}
 	}
-	for _, link := range r.Links {
-		if link.Label == "" || !strings.HasPrefix(link.URL, "https://") && !strings.HasPrefix(link.URL, "http://") {
-			return fmt.Errorf("link %q needs a label and an http or https url", link.URL)
-		}
+	if len(picks) > maxPicks {
+		warned = append(warned, fmt.Sprintf("a card offers at most %d picks, so the rest were left off", maxPicks))
+		picks = picks[:maxPicks]
 	}
-	for _, pr := range r.PRs {
-		if !pullURL.MatchString(pr) {
-			return fmt.Errorf("pr %q is not a https://github.com/<owner>/<repo>/pull/<n> url", pr)
-		}
+	if len(picks) == 1 {
+		warned = append(warned, fmt.Sprintf("one pick is no choice, so %q was left off", picks[0]))
+		picks = nil
 	}
+	r.Picks = picks
+	r.Recommended = shortened(r.Recommended, maxPick)
+	if len(picks) > 0 && !slices.Contains(picks, r.Recommended) {
+		warned = append(warned, "no pick is recommended")
+		r.Recommended = ""
+	}
+	if len(picks) == 0 {
+		r.Recommended = ""
+	}
+	if r.Build != nil && r.Recommended == "" {
+		warned = append(warned, "build names what the recommended pick is built on, and nothing is recommended, so it was left off")
+		r.Build = nil
+	}
+	return r, warned
+}
+
+func kept[T any](items []T, limit int, name string, warned *[]string, valid func(T) bool) []T {
+	good := slices.DeleteFunc(slices.Clone(items), func(item T) bool { return !valid(item) })
+	if dropped := len(items) - len(good); dropped > 0 {
+		*warned = append(*warned, fmt.Sprintf("%d of the %s are malformed, so they were left off", dropped, name))
+	}
+	if len(good) > limit {
+		*warned = append(*warned, fmt.Sprintf("a reply carries at most %d %s, so the rest were left off", limit, name))
+		good = good[:limit]
+	}
+	return good
+}
+
+func shortened(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	cut := string(runes[:limit-1])
+	if space := strings.LastIndexByte(cut, ' '); space > 0 {
+		cut = cut[:space]
+	}
+	return cut + "…"
+}
+
+func firstLine(md string) string {
+	line, _, _ := strings.Cut(md, "\n")
+	return strings.TrimSpace(line)
+}
+
+func (r Reply) bareExplainMore() error {
 	card, err := json.Marshal(map[string]any{"type": "card", "summary": strings.TrimPrefix(strings.TrimSpace(r.MD), strings.TrimRight(r.Action, ".")+"."), "children": r.Blocks})
 	if err != nil {
 		return err
