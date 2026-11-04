@@ -231,7 +231,7 @@ def branch_diff(evt: BaseHookEvent, call: Call, *flags: str) -> tuple[Path, str]
     if not (shown := run_quietly(["git", "rev-parse", "--show-toplevel"], str(Path(evt.cwd, call.cwd or ".")))) or shown.returncode or not shown.stdout.strip():
         return "the checkout's top level did not read"
     top = Path(shown.stdout.strip())
-    diffed = run_quietly(["git", "diff", *flags, "--merge-base", "origin/HEAD"], str(top))
+    diffed = run_quietly(["git", "diff", "--src-prefix=a/", "--dst-prefix=b/", *flags, "--merge-base", "origin/HEAD"], str(top))
     if not diffed or diffed.returncode:
         return "the diff against `origin/HEAD` did not read"
     return top, diffed.stdout
