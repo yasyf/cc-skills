@@ -155,7 +155,7 @@ function sending(block) {
 function sentNote(block) {
   const sent = ov.sent.get(block);
   if (!sent) return '';
-  return sent.error ? `<em class="nsent bad">Not recorded: ${esc(sent.error)}. Try again.</em>` : `<em class="nsent">${sent.recorded ? '✓ Recorded on your board' : 'Sending…'}</em>`;
+  return sent.error ? `<em class="nsent bad">Not recorded: ${esc(sent.error)}. Try again.</em>` : `<em class="nsent">${sent.recorded ? '✓ Recorded' : 'Sending…'}</em>`;
 }
 async function answer(body) {
   if (sending(body.block)) return;
