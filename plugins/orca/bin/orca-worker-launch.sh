@@ -11,7 +11,9 @@ run=${WORKER_RUN:?set WORKER_RUN to the Orca Run id}
 ref=${WORKER_REF:-}
 expect=${WORKER_EXPECT_BASE:-}
 tier=${WORKER_SERVICE_TIER:-}
-lane_env='DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1'
+lane_env='DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 CHOKIDAR_USEPOLLING=1 CHOKIDAR_INTERVAL=300000 CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 CLAUDE_CODE_DISABLE_MOUSE=1 CLAUDE_CODE_SYNTAX_HIGHLIGHT=false CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=1 CLAUDE_CODE_ENABLE_AWAY_SUMMARY=false CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 DISABLE_COST_WARNINGS=1 DISABLE_INSTALLATION_CHECKS=1 CLAUDE_CODE_AUTO_CONNECT_IDE=false CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL=1 ENABLE_CLAUDEAI_MCP_SERVERS=false DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1 CLAUDE_CODE_DISABLE_CRON=1'
+lane_settings='{"spinnerTipsEnabled":false,"prefersReducedMotion":true,"verbose":false,"showThinkingSummaries":false,"feedbackDrafts":"off","awaySummaryEnabled":false,"promptSuggestionEnabled":false,"tui":"fullscreen","disableDeepLinkRegistration":"disable","statusLine":{"type":"command","command":"exit 0"}}'
+lane_denied_tools=AskUserQuestion,EnterPlanMode,ExitPlanMode,PushNotification,DesignSync
 
 die() {
   echo "$*" >&2
@@ -222,8 +224,10 @@ terminal=
   jq -r 'first(.result.terminals[] | select((.agentIdentity // "") == "") | .handle) // empty')
 # terminal create --command times out waiting for the handle while claude boots in a fresh worktree.
 [ -n "$terminal" ] || terminal=$(orca_json terminal create --worktree "path:$wt" --title "$lane" | jq -er '.result.terminal.handle')
-printf -v claude 'env %s claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model %q --effort %q' "$lane_env" "$model_id" "$effort"
+printf -v claude 'env %s claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools %s --strict-mcp-config --no-chrome --model %q --effort %q' "$lane_env" "$lane_denied_tools" "$model_id" "$effort"
 [ -z "${WORKER_MCP_CONFIG:-}" ] || printf -v claude '%s --mcp-config %q' "$claude" "$WORKER_MCP_CONFIG"
+[ -z "${CLAUDE_LANE_SETTINGS:-}" ] || lane_settings=$(jq -c --argjson local "$CLAUDE_LANE_SETTINGS" '. + $local' <<<"$lane_settings")
+printf -v claude "%s --settings '%s'" "$claude" "$lane_settings"
 orca_json terminal send --terminal "$terminal" --enter --text "$claude" >/dev/null
 
 for _ in $(seq 120); do

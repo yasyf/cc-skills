@@ -11,7 +11,9 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[1] / "bin/orca-worker-launch.sh"
 RUN = "run_1"
 LANE = "lane-a"
-LANE_ENV = "DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1"
+LANE_ENV = "DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 CHOKIDAR_USEPOLLING=1 CHOKIDAR_INTERVAL=300000 CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 CLAUDE_CODE_DISABLE_MOUSE=1 CLAUDE_CODE_SYNTAX_HIGHLIGHT=false CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=1 CLAUDE_CODE_ENABLE_AWAY_SUMMARY=false CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 DISABLE_COST_WARNINGS=1 DISABLE_INSTALLATION_CHECKS=1 CLAUDE_CODE_AUTO_CONNECT_IDE=false CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL=1 ENABLE_CLAUDEAI_MCP_SERVERS=false DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1 CLAUDE_CODE_DISABLE_CRON=1"
+LANE_SETTINGS = '{"spinnerTipsEnabled":false,"prefersReducedMotion":true,"verbose":false,"showThinkingSummaries":false,"feedbackDrafts":"off","awaySummaryEnabled":false,"promptSuggestionEnabled":false,"tui":"fullscreen","disableDeepLinkRegistration":"disable","statusLine":{"type":"command","command":"exit 0"}}'
+LANE_DENIED_TOOLS = "AskUserQuestion,EnterPlanMode,ExitPlanMode,PushNotification,DesignSync"
 WORKSPACE = "pool-spare"
 REPO = "repo-local"
 BASE_BRANCH = "origin/main"
@@ -186,7 +188,7 @@ class Launch:
         return ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, "--timeout-ms", "600000", "--full", "--json"]
 
     def local_calls(self, model: str = "claude-fable-5-1", effort: str = "xhigh", repo: str = REPO, cone: tuple[str, ...] = CONE) -> list[list[str]]:
-        claude = f"env {LANE_ENV} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model {model} --effort {effort}"
+        claude = f"env {LANE_ENV} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools {LANE_DENIED_TOOLS} --strict-mcp-config --no-chrome --model {model} --effort {effort} --settings '{LANE_SETTINGS}'"
         pointer = f"Lane '{LANE}'. Your full brief is the file {self.brief}: read it in full with the Read tool before anything else and execute it exactly (Orca truncates pasted specs). Your Orca worktree is {LOCAL_WORKTREE}.{f" This lane is sparse: widen with `{WIDEN}` before reading outside it." if cone else ""} You run in bypass-permissions mode; the brief's Escalate rules still hold."
         return [
             CURRENT,

@@ -873,10 +873,11 @@ func (w *workerLaunch) startLocal() (string, error) {
 }
 
 func (w *workerLaunch) bootClaude() error {
-	command := "env " + claudeLaneEnv + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model " + shellQuote(w.modelID) + " --effort " + shellQuote(w.effort)
+	command := "env " + claudeLaneEnv + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + laneDeniedTools + " --strict-mcp-config --no-chrome --model " + shellQuote(w.modelID) + " --effort " + shellQuote(w.effort)
 	if mcp := w.Env("WORKER_MCP_CONFIG"); mcp != "" {
 		command += " --mcp-config " + shellQuote(mcp)
 	}
+	command += laneSettingsFlag(w.Env)
 	if _, ok := w.orcaJSON("terminal", "send", "--terminal", w.terminal, "--enter", "--text", command); !ok {
 		return refuse("claude never started in %s; kept it and worktree %s", w.terminal, w.worktree)
 	}

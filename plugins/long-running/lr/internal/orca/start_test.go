@@ -511,6 +511,17 @@ func TestAWorkerLaunchedInsideADriveCarriesTheDriveToClaude(t *testing.T) {
 	}
 }
 
+func TestALaneMergesItsLocalSettingsAfterTheStrippedOnes(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.env[laneSettingsEnv] = `{"enabledPlugins":{"a@b":false}}`
+	h.launched()
+	command := flag(h.orcaCalls("terminal create")[0], "--command")
+	if !strings.HasSuffix(command, " --settings '{"+claudeLaneSettings+`,"enabledPlugins":{"a@b":false}}'`) {
+		t.Fatal(command)
+	}
+}
+
 func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
@@ -523,7 +534,7 @@ func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *t
 	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root "+claudeLaneEnv+" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=210000 claude ") {
 		t.Fatal(command)
 	}
-	for _, want := range []string{"--disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode" + coordinatorDenied + " ", `--settings '{"skillListingBudgetFraction":0.001}' `} {
+	for _, want := range []string{"--disallowedTools " + laneDeniedTools + coordinatorDenied + " ", `,"skillListingBudgetFraction":0.001}'`} {
 		if !strings.Contains(command, want) {
 			t.Fatalf("%q misses %q", command, want)
 		}
@@ -532,7 +543,7 @@ func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *t
 		t.Fatalf("a drive that names no rules kept its instructions out: %q", command)
 	}
 	other := flag(creates[1], "--command")
-	if !strings.HasPrefix(other, "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" claude ") || strings.Contains(other, coordinatorDenied) || strings.Contains(other, "--settings") {
+	if !strings.HasPrefix(other, "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" claude ") || strings.Contains(other, coordinatorDenied) || strings.Contains(other, coordinatorListing) {
 		t.Fatal(other)
 	}
 }
@@ -706,7 +717,7 @@ func TestLaunchCreatesAChildWorktreeAndABypassTerminal(t *testing.T) {
 		t.Fatal("the branch tracks something")
 	}
 	create := h.orcaCalls("terminal create")[0]
-	wantLine(t, flag(create, "--command"), "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high")
+	wantLine(t, flag(create, "--command"), "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools "+laneDeniedTools+" --strict-mcp-config --no-chrome --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high --settings '{"+claudeLaneSettings+"}'")
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--terminal") != "term_a" || flag(start, "--run") != "run_1" || slices.Contains(start, "--model") || slices.Contains(start, "--effort") {
 		t.Fatal(start)
@@ -1032,7 +1043,7 @@ func TestAWorkerStartsOnlyTheMCPServersItsLaunchNames(t *testing.T) {
 	h.healthyClaude()
 	h.env["ORCA_LAUNCH_MCP_CONFIG"] = "/briefs/slack-mcp.json"
 	h.launched()
-	if command := flag(h.orcaCalls("terminal create")[0], "--command"); !strings.Contains(command, " --strict-mcp-config --mcp-config /briefs/slack-mcp.json ") {
+	if command := flag(h.orcaCalls("terminal create")[0], "--command"); !strings.Contains(command, " --strict-mcp-config --no-chrome --mcp-config /briefs/slack-mcp.json ") {
 		t.Fatal(command)
 	}
 }
@@ -2105,7 +2116,7 @@ func TestAnIncidentOpusLaneRunsClaudeOpusInFastMode(t *testing.T) {
 	h.healthyClaude()
 	h.launchedAs(modelIncidentOpus, "xhigh")
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
-	if !strings.HasSuffix(command, ` --model claude-opus-5-5 --effort xhigh --settings '{"fastMode":true}'`) {
+	if !strings.HasSuffix(command, " --model claude-opus-5-5 --effort xhigh --settings '{"+claudeLaneSettings+","+claudeFastSettings+"}'") {
 		t.Fatal(command)
 	}
 }

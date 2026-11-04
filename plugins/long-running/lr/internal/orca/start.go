@@ -26,8 +26,7 @@ const (
 	agentCodex             = "codex"
 	agentIncident          = "incident"
 	modelIncidentOpus      = "incident-opus"
-	claudeFastSettings     = ` --settings '{"fastMode":true}'`
-	claudeLaneEnv          = "DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1"
+	claudeFastSettings     = `"fastMode":true`
 	startPoll              = 4 * time.Second
 	stallRetry             = 30 * time.Second
 	coordinatorLane        = "root"
@@ -569,28 +568,30 @@ func (l *launch) composeCommand() error {
 	if l.lane == coordinatorLane {
 		command += fmt.Sprintf(" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=%d", coordinatorCompact)
 	}
-	denied := "AskUserQuestion,EnterPlanMode,ExitPlanMode"
+	denied := laneDeniedTools
 	if l.lane == coordinatorLane {
 		denied += coordinatorDenied
 	}
-	command += " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + denied + " --strict-mcp-config"
+	command += " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + denied + " --strict-mcp-config --no-chrome"
 	if config := l.Env("ORCA_LAUNCH_MCP_CONFIG"); config != "" {
 		command += " --mcp-config " + config
 	}
 	if args := l.Env("ORCA_LAUNCH_CLAUDE_ARGS"); args != "" {
 		command += " " + args
 	}
+	var settings []string
 	if l.lane == coordinatorLane {
-		flags, err := l.coordinatorFlags()
+		fragment, flags, err := l.coordinatorFlags()
 		if err != nil {
 			return err
 		}
+		settings = append(settings, fragment)
 		command += flags
 	}
-	l.command = command + " --model " + l.modelID + " --effort " + l.effort
 	if l.model == modelIncidentOpus {
-		l.command += claudeFastSettings
+		settings = append(settings, claudeFastSettings)
 	}
+	l.command = command + " --model " + l.modelID + " --effort " + l.effort + laneSettingsFlag(l.Env, settings...)
 	if l.agent != agentIncident {
 		return nil
 	}
@@ -610,16 +611,16 @@ func (l *launch) composeCommand() error {
 	return nil
 }
 
-func (l *launch) coordinatorFlags() (string, error) {
+func (l *launch) coordinatorFlags() (string, string, error) {
 	sections := filepath.Join(filepath.Dir(l.brief), coordinatorSections)
 	if _, err := os.Stat(sections); errors.Is(err, os.ErrNotExist) {
-		return " --settings '{" + coordinatorListing + "}'", nil
+		return coordinatorListing, "", nil
 	}
 	rules, err := writeCoordinatorRules(sections, filepath.Join(l.Env("HOME"), ".claude", "CLAUDE.md"))
 	if err != nil {
-		return "", l.fail("coordinator rules: %v", err)
+		return "", "", l.fail("coordinator rules: %v", err)
 	}
-	return " --settings '{" + coordinatorNoMemory + coordinatorListing + "}' --append-system-prompt-file " + rules, nil
+	return coordinatorNoMemory + coordinatorListing, " --append-system-prompt-file " + rules, nil
 }
 
 func writeCoordinatorRules(sections, instructions string) (string, error) {
