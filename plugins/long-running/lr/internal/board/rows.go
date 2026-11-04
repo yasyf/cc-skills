@@ -11,17 +11,9 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
-
-func titleOf(f machine.Facts) string {
-	if f.Title != "" {
-		return f.Title
-	}
-	return fmt.Sprintf("#%d", f.Number)
-}
 
 func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 	var asJSON, all bool
