@@ -108,20 +108,31 @@ UNSETTLED = (
 LANDED = f"{sys.executable} {script('drive.py')} landed"
 UNPOSTED = "#{number} has no fresh row in the landing store: {reason}. It stays out of Waiting on you until `ccx vcs ship --no-commit --pr-body-file <body>` posts it."
 SHIP_NEEDS_BODY = "This ship opens a PR, and a drive PR's row takes its card from the body: write the body first and pass `--pr-body-file <path>`. `--no-pr` or `--no-push` opens nothing."
+DETACHED_LOG = Path.home() / ".cache" / "ccn-ledger" / "detached-drive.log"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "d", "CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 NOT_OPEN = {"gh pr view": (1, 'no pull requests found for branch "lane/fix"')}
 
 
-def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, str]:
+def run_drive(argv: list[str], *, detach_on_timeout: bool = False) -> tuple[subprocess.CompletedProcess[str] | None, str]:
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        return None, f"drive.py timed out after {RECORD_TIMEOUT_SECONDS}s"
+        return finish_detached(argv) if detach_on_timeout else (None, f"drive.py timed out after {RECORD_TIMEOUT_SECONDS}s")
     except OSError as failure:
         return None, str(failure)
     if not done.returncode:
         return done, ""
     return done, (done.stderr.strip().splitlines() or [f"drive.py exited {done.returncode}"])[-1]
+
+
+def finish_detached(argv: list[str]) -> tuple[None, str]:
+    try:
+        DETACHED_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with DETACHED_LOG.open("a") as log:
+            subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+    except OSError as failure:
+        return None, str(failure)
+    return None, ""
 
 
 class Unposted(Exception):
@@ -220,9 +231,11 @@ def ledger_note(evt: BaseHookEvent, prs: list[OpenedPr]) -> str | None:
     argv = [sys.executable, str(script("drive.py")), "record", "--session", evt.session_id, "--lane", lane_name(evt), "--cwd", str(opener_cwd(evt)), *drive_flag()]
     for pr in prs:
         argv += ["--pr", pr.spec]
-    done, reason = run_drive(argv)
-    if done is None or done.returncode:
+    done, reason = run_drive(argv, detach_on_timeout=True)
+    if reason:
         return UNRECORDED.format(reason=reason, retry=shlex.join(argv))
+    if done is None:
+        return None
     if done.stdout.strip():
         return UNNAMED if evt.agent_id and not drive_lane(evt) else None
     return done.stderr.strip() if done.stderr.strip() and reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") else None
@@ -260,13 +273,15 @@ def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     return evt.context("\n".join(notes)) if notes else None
 
 
-def opens_a_pr(call: Call, cwd: Path | None) -> bool:
+def opens_a_pr(call: Call) -> bool:
     if flag_values(call.args, SHIP_BODY) or SHIP_OPENS_NOTHING.intersection(call.args):
         return False
     if any(arg == flag or arg.startswith(f"{flag}=") for arg in call.args for flag in SHIP_NEW_PR):
         return True
+    if call.cwd is None:
+        return False
     try:
-        tool(["gh", "pr", "view", "--json", "number"], cwd)
+        tool(["gh", "pr", "view", "--json", "number"], call.cwd)
     except Unposted as failure:
         return NO_PR in str(failure)
     return False
@@ -278,18 +293,19 @@ def opens_a_pr(call: Call, cwd: Path | None) -> bool:
     skip_if=[Annotated("raw")],
     tests={
         Input(command="ccx vcs ship -m 'x: ✨ y'  # ccx:raw", env=LANE_ENV, commands=NOT_OPEN): Allow(),
-        Input(command="ccx vcs ship -m 'x: ✨ y'", env=LANE_ENV, commands=NOT_OPEN): Block(pattern=r"^This ship opens a PR"),
+        Input(command="ccx vcs ship -m 'x: ✨ y'", env=LANE_ENV, cwd="/", commands=NOT_OPEN): Block(pattern=r"^This ship opens a PR"),
+        Input(command=". /env.sh /lr.json; A=/a; cd $A; ccx vcs ship --no-commit", env=LANE_ENV, cwd="/", commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --new-branch lane/fix", env=LANE_ENV, commands={"gh pr view": '{"number":9}'}): Block(pattern=r"--pr-body-file <path>"),
         Input(command="ccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --no-pr", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --no-push", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship --help", env=LANE_ENV, commands=NOT_OPEN): Allow(),
-        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, commands={"gh pr view": '{"number":9}'}): Allow(),
-        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, commands={"gh pr view": (1, "HTTP 502: Bad Gateway")}): Allow(),
+        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, cwd="/", commands={"gh pr view": '{"number":9}'}): Allow(),
+        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, cwd="/", commands={"gh pr view": (1, "HTTP 502: Bad Gateway")}): Allow(),
     },
 )
 def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
-    if any(opens_a_pr(call, call.cwd or evt.cwd) for call in ship_calls(evt)):
+    if any(opens_a_pr(call) for call in ship_calls(evt)):
         return evt.block(SHIP_NEEDS_BODY)
     return None
 
@@ -375,7 +391,7 @@ def settle_landed_prs(evt: BaseHookEvent) -> HookResult | None:
     argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
     for pr in prs:
         argv += ["--pr", pr]
-    done, reason = run_drive(argv)
-    if done is None or done.returncode:
+    _, reason = run_drive(argv)
+    if reason:
         return evt.context(UNSETTLED.format(prs=", ".join(f"#{pr}" for pr in prs), reason=reason, retry=shlex.join(argv)))
     return None

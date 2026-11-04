@@ -209,6 +209,44 @@ def test_a_failed_fork_names_the_unrecorded_prs_instead_of_faulting(tmp_path, mo
     assert f"drive.py record --session {SESSION} " in result.message
 
 
+def test_a_record_past_its_timeout_finishes_detached_and_tells_the_lane_nothing(tmp_path, monkeypatch):
+    from hooks import pr_ledger
+
+    def stalled(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    spawned = []
+    monkeypatch.setattr(pr_ledger.subprocess, "run", stalled)
+    monkeypatch.setattr(pr_ledger.subprocess, "Popen", lambda argv, **kwargs: spawned.append((argv, kwargs)))
+    monkeypatch.setattr(pr_ledger, "DETACHED_LOG", tmp_path / "logs" / "detached.log")
+    evt = event(tmp_path)
+    prs = opened_prs((FIXTURES / "ccx-ship-gt.txt").read_text())
+
+    assert pr_ledger.ledger_note(evt, prs) is None
+
+    assert len(spawned) == 1
+    argv, kwargs = spawned[0]
+    assert argv[1].endswith("drive.py") and argv[2] == "record"
+    assert kwargs["start_new_session"] is True
+
+
+def test_a_record_that_cannot_detach_still_names_the_unrecorded_prs(tmp_path, monkeypatch):
+    from hooks import pr_ledger
+
+    def stalled(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    def exhausted(*args, **kwargs):
+        raise BlockingIOError(35, "Resource temporarily unavailable")
+
+    monkeypatch.setattr(pr_ledger.subprocess, "run", stalled)
+    monkeypatch.setattr(pr_ledger.subprocess, "Popen", exhausted)
+    monkeypatch.setattr(pr_ledger, "DETACHED_LOG", tmp_path / "detached.log")
+    prs = opened_prs((FIXTURES / "ccx-ship-gt.txt").read_text())
+
+    assert pr_ledger.ledger_note(event(tmp_path), prs).startswith("The opened PRs were not recorded in the drive ledger: [Errno 35]")
+
+
 @pytest.mark.parametrize(("lane", "expected"), [("merge-walker-r2", "no drive claims session"), (None, None)], ids=["lane", "no-lane"])
 def test_a_lane_in_no_drive_is_told_its_pr_was_not_recorded(tmp_path, monkeypatch, lane, expected):
     from hooks import pr_ledger
