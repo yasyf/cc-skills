@@ -19,7 +19,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const unknownGrace = 10 * time.Minute
+const (
+	unknownGrace = 10 * time.Minute
+	headGrace    = 5 * time.Minute
+)
 
 const (
 	FactWithdrawn = "withdrawn"
@@ -279,7 +282,8 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 		if err != nil {
 			return row, err
 		}
-		if !seen {
+		pushed, unstamped := store.Parse(row.HeadAt)
+		if !seen || unstamped != nil || record.At.Sub(pushed) >= headGrace {
 			row.Head, row.HeadAt = head, store.Stamp(record.At)
 			if err := t.PutFact(f.Repo, row.Number, head, factSeen, "yes", record.At); err != nil {
 				return row, err
@@ -414,7 +418,8 @@ func SaidFact(grader string) string {
 func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 	var failed []error
 	for _, pr := range snapshot {
-		if _, known, err := f.Store.ReviewRow(f.Repo, pr.Number); err != nil || !known {
+		row, known, err := f.Store.ReviewRow(f.Repo, pr.Number)
+		if err != nil || !known {
 			failed = append(failed, err)
 			continue
 		}
@@ -428,7 +433,7 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 			failed = append(failed, err)
 			continue
 		}
-		if facts[factValues] == valuesOf(attrs) {
+		if facts[factValues] == valuesOf(attrs) && sameHead(row.Head, pr.Head) {
 			continue
 		}
 		var body json.RawMessage

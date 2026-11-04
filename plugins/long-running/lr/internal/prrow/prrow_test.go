@@ -346,6 +346,53 @@ func TestAStaleGitHubReadNeverUndoesAPushAndAnUnseenHeadMovesTheRow(t *testing.T
 	}
 }
 
+func TestAReadCorrectsARowAStaleHeadRecordMovedBackOnceTheGraceEnds(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	pass := func() store.ReviewRow {
+		t.Helper()
+		if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headB)}); err != nil {
+			t.Fatal(err)
+		}
+		return folded(t, f, 1)
+	}
+	if row := pass(); row.Head != headB {
+		t.Fatalf("row = %+v, want the read's new head", row)
+	}
+	postHead(t, 1, headA)
+	if row := folded(t, f, 1); row.Head != headA {
+		t.Fatalf("row = %+v, want the head record to move it back", row)
+	}
+
+	row := pass()
+	if row.Head != headA {
+		t.Fatalf("row = %+v, want a read inside the grace to leave a fresh push alone", row)
+	}
+
+	row.HeadAt = store.Stamp(time.Now().Add(-headGrace - time.Minute))
+	if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
+		t.Fatal(err)
+	}
+	if row := pass(); row.Head != headB {
+		t.Fatalf("row = %+v, want GitHub's head once the grace ended", row)
+	}
+	reads, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{readKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headB)}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{readKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != len(reads) {
+		t.Fatalf("reads went from %d to %d once the row matched GitHub", len(reads), len(again))
+	}
+}
+
 func TestAReadPostsOnlyWhenAValueChanged(t *testing.T) {
 	f, _ := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)
