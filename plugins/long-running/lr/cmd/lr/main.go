@@ -35,7 +35,23 @@ func root(a *app.App) *cobra.Command {
 	for _, verb := range verbs {
 		cmd.AddCommand(verb(a))
 	}
+	refuseUnknownVerbs(cmd)
 	return cmd
+}
+
+func refuseUnknownVerbs(cmd *cobra.Command) {
+	for _, verb := range cmd.Commands() {
+		refuseUnknownVerbs(verb)
+	}
+	if !cmd.HasSubCommands() || cmd.Runnable() {
+		return
+	}
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return fmt.Errorf("%s has no verb %s; see %s --help", cmd.CommandPath(), args[0], cmd.CommandPath())
+		}
+		return cmd.Help()
+	}
 }
 
 func main() {
