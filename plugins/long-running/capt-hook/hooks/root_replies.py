@@ -579,7 +579,7 @@ TAP_CLAIM = re.compile(
     re.IGNORECASE,
 )
 CLAIM_NEGATED = re.compile(r"\b(?:no|nothing|none|not|never|without)\b|n't\b", re.IGNORECASE)
-CLAIMED_PR = re.compile(r"(?<![\w&])#(\d{4,})\b")
+CLAIMED_PR = re.compile(r"(?<![\w&])#(\d{4,5})\b")
 OWNER_WAITS = f"{LR} board waits"
 OWNER_WAITS_SECONDS = 30
 FALSE_TAP = (
