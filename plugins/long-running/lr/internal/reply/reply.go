@@ -119,6 +119,7 @@ func (r Reply) led() Reply {
 		r.Status = cmp.Or(r.Status, needsYou)
 	case len(r.Picks) > 0:
 		lead = pickLead
+		r.Action = lead
 		r.Status = cmp.Or(r.Status, needsYou)
 	default:
 		lead = doneLead

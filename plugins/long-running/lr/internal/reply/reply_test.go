@@ -484,8 +484,8 @@ func TestAReplyToAnOrderLeadsWithDoneOrHisOneActionWhateverTheLaneWrote(t *testi
 		t.Fatalf("action reply = %q, status %q", acting.MD, acting.Status)
 	}
 	picking := Reply{Title: "Storage", MD: "Two places.", Order: "m347", Picks: []string{"A", "B"}, Recommended: "A"}.led()
-	if !strings.HasPrefix(picking.MD, pickLead) {
-		t.Fatalf("a reply with picks leads %q: done would be false", picking.MD)
+	if !strings.HasPrefix(picking.MD, pickLead) || picking.Action != pickLead {
+		t.Fatalf("a reply with picks leads %q and stores action %q: done would be false", picking.MD, picking.Action)
 	}
 	twice := Reply{Title: "Done, nothing for you: stored", MD: "Done, nothing for you. It is stored.", Order: "m347"}.led()
 	if twice.Title != "Done, nothing for you: stored" || twice.MD != "Done, nothing for you. It is stored." {
