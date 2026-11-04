@@ -57,12 +57,20 @@ func (b Bus) PostOrder(ctx context.Context, tap Tap, from client.Record) (Record
 
 // PostCardTap records his tap on a card as an owner record, which WriteOrders turns into the land order on the landing host. An owner machine's relay never carries a dotted kind, so a typed order written here would stay here.
 func (b Bus) PostCardTap(ctx context.Context, repo string, tap Tap) error {
+	return b.postOwnerTap(ctx, repo, tap, fmt.Sprintf("card-tap/%d/%s", tap.PR, tap.Head), "on a card")
+}
+
+func (b Bus) PostWordTap(ctx context.Context, repo string, tap Tap, word client.Record) error {
+	return b.postOwnerTap(ctx, repo, tap, "word-tap/"+cmp.Or(word.ID, word.Name()), "in "+word.Name())
+}
+
+func (b Bus) postOwnerTap(ctx context.Context, repo string, tap Tap, id, where string) error {
 	_, err := client.Post(ctx, client.Draft{
 		Drive: b.Drive, Lane: b.Lane, Kind: ownerKind,
-		ID:    fmt.Sprintf("card-tap/%d/%s", tap.PR, tap.Head),
+		ID:    id,
 		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
 		Attrs: map[string]string{"row": strconv.Itoa(tap.PR), "verdict": "approved", "head": tap.Head},
-		Text:  fmt.Sprintf("Owner on a card: #%d approved at %s", tap.PR, tap.Head[:min(12, len(tap.Head))]),
+		Text:  fmt.Sprintf("Owner %s: #%d approved at %s", where, tap.PR, tap.Head[:min(12, len(tap.Head))]),
 	})
 	return err
 }

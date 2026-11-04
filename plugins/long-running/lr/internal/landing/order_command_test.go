@@ -32,6 +32,45 @@ func TestOnlyTheOwnersOwnWordNamingThePROrdersIt(t *testing.T) {
 	}
 }
 
+func TestAWordGivenAgainAtOneHeadIsANewOrder(t *testing.T) {
+	const head = "e718a7434fa01ee9835f992a9a647a825350732c"
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 7, Head: head, ReadyForTap: true}}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", Text: "Owner in thread: merge #7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	orders := bus.Bus{Drive: "d", Lane: "tap-orders"}
+	if err := writeOrder(ctx, s, "o/r", orders, 7, first, &out); err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", Text: "Owner in thread: merge #7 after all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeOrder(ctx, s, "o/r", orders, 7, second, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := client.Tail(ctx, client.Query{Drive: "d", After: second.Seq})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 1 {
+		t.Fatalf("written = %+v", written)
+	}
+}
+
 func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 	const handHead = "e718a7434fa01ee9835f992a9a647a825350732c"
 	for _, tt := range []struct {
@@ -40,7 +79,7 @@ func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 		kind    string
 		refused bool
 	}{
-		{"a ready row", store.ReviewRow{Repo: "o/r", Number: 7, Head: handHead, ReadyForTap: true}, "lr.tap", false},
+		{"a ready row", store.ReviewRow{Repo: "o/r", Number: 7, Head: handHead, ReadyForTap: true}, "owner", false},
 		{"a held row", store.ReviewRow{Repo: "o/r", Number: 7, Head: handHead, WaitsOn: "held by root"}, bus.TapRefusedKind, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -66,12 +105,15 @@ func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 			if got := errors.As(err, &exit); got != tt.refused {
 				t.Fatalf("err = %v, out = %s", err, out.String())
 			}
-			written, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"lr.tap", bus.TapRefusedKind}})
+			written, err := client.Tail(ctx, client.Query{Drive: "d", After: word.Seq})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(written) != 1 || string(written[0].Kind) != tt.kind {
 				t.Fatalf("written = %+v", written)
+			}
+			if tap, ordered := bus.OrderOf(written[0], "o/r"); ordered == tt.refused || !tt.refused && (tap.PR != 7 || tap.Head != handHead) {
+				t.Fatalf("the landing host reads = %+v, %v", tap, ordered)
 			}
 			if tt.refused && !strings.Contains(out.String(), "held by root") {
 				t.Fatalf("out = %s", out.String())

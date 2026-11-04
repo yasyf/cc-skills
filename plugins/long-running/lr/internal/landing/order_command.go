@@ -81,11 +81,10 @@ func writeOrder(ctx context.Context, s *store.Store, repo string, orders bus.Bus
 		fmt.Fprintf(stdout, "REFUSED #%d: %s\n", number, refusal)
 		return &wait.ExitError{Code: 1}
 	}
-	posted, err := orders.PostOrder(ctx, tap, word)
-	if err != nil {
+	if err := orders.PostWordTap(ctx, repo, tap, word); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "ORDER #%d at %s: posted #%d on %s\n", number, head[:7], posted.Seq, word.Name())
+	fmt.Fprintf(stdout, "ORDER #%d at %s: recorded on %s; the landing host writes the land order on its next tick\n", number, head[:7], word.Name())
 	return nil
 }
 
