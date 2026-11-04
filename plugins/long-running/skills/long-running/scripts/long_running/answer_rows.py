@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -13,6 +14,8 @@ from zoneinfo import ZoneInfo
 ROW = "board-answer"
 OWNER = "from:owner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
+PERMISSION_CARD = re.compile(r"slack:([A-Z0-9]+):(\d+\.\d+)?:[0-9a-f]{12}")
+SLACK_LABELS = {"Yes": "slack-grant:", "No": "slack-revoke:"}
 
 Run = Callable[[list[str]], str]
 
@@ -31,11 +34,23 @@ def answered(event: dict) -> bool:
     return False
 
 
-def add_argv(program: str, session: str, card: str, block: str, title: str, words: str, moment: datetime, proof: str, anchors: list[str]) -> list[str]:
-    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names."""
+def slack_labels(card: dict, event: dict) -> tuple[str, ...]:
+    """The label a pick on a Slack permission card records, read from the label the board showed on the tapped option: `slack-grant:` for Yes and `slack-revoke:` for No, naming the card's channel, and its thread when the card named one."""
+    if (place := PERMISSION_CARD.fullmatch(card.get("id", ""))) is None or event.get("other"):
+        return ()
+    choice = next((child for child in card.get("children", []) if child.get("id") == event.get("blockId")), {})
+    shown = [option.get("label") for option in choice.get("options", []) if option.get("id") in (event.get("optionIds") or [])]
+    if len(shown) != 1 or (prefix := SLACK_LABELS.get(shown[0])) is None:
+        return ()
+    channel, thread = place.groups()
+    return (f"{prefix}{channel}/{thread}" if thread else f"{prefix}{channel}",)
+
+
+def add_argv(program: str, session: str, card: str, block: str, title: str, words: str, moment: datetime, proof: str, anchors: list[str], granted: tuple[str, ...]) -> list[str]:
+    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names and the `granted` Slack grant labels."""
     when = moment.astimezone(PACIFIC).strftime("%b %-d %-I:%M %p PT")
     body = f"{words}\nBoard question: {title}\nCard {card}, block {block}, board {session}, {when}."
-    labels = (OWNER, ROW, f"program:{program}", f"board-session:{session}", f"board-card:{card}", f"board-block:{block}", proof)
+    labels = (*granted, OWNER, ROW, f"program:{program}", f"board-session:{session}", f"board-card:{card}", f"board-block:{block}", proof)
     return ["answer", "add", title, "--body", body, *anchors, *(arg for label in labels for arg in ("--label", label)), "--json"]
 
 
