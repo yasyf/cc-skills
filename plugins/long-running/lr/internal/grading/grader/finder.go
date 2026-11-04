@@ -46,7 +46,7 @@ var (
 	citedFile    = regexp.MustCompile(`([\w.@+-]+(?:/[\w.@+-]+)*\.\w+):\d+`)
 	counted      = regexp.MustCompile(`\brows checked:\s*(\d+)`)
 	lists        = regexp.MustCompile(`\b(rows met|rows checked|n/a|pending|tests):`)
-	classNamed   = regexp.MustCompile(`(?im)^.*\bclass\b.*\b(?:remov\w*|impossible|eliminat\w*|cannot recur|can no longer)\b|\bdeleted at cutover\b`)
+	classNamed   = regexp.MustCompile(`(?im)^.*\bclass\b.*\b(?:remov\w*|impossible|eliminat\w*|cannot recur|can no longer)\b|\bdeleted at cutover\b|\binvariant\b.*\bsingle owner\b`)
 	landedCommit = regexp.MustCompile(`^@([0-9a-f]{40})$`)
 	finderSays   = regexp.MustCompile(`(?i)\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b`)
 	finderMajor  = regexp.MustCompile(`(?i)\b[1-9]\d* majors?\b`)
