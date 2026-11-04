@@ -40,6 +40,7 @@ const (
       pageInfo { hasNextPage endCursor }
       nodes {
         number
+        title
         isDraft
         headRefOid
         headRefName
@@ -366,6 +367,7 @@ type label struct {
 
 type pullRequest struct {
 	Number      int    `json:"number"`
+	Title       string `json:"title"`
 	IsDraft     bool   `json:"isDraft"`
 	HeadRefOid  string `json:"headRefOid"`
 	HeadRefName string `json:"headRefName"`
@@ -639,6 +641,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 	f := machine.Facts{
 		Repo:        s.Repo,
 		Number:      row.Number,
+		Title:       pr.Title,
 		Head:        row.Head,
 		Branch:      pr.HeadRefName,
 		Base:        row.Base,

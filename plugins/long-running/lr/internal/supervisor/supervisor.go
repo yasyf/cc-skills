@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
@@ -29,7 +30,9 @@ const (
 	passedName    = "pass"
 	moverLanes    = "lanes"
 
-	unreadSubject = "STATUS-READ-FAILED"
+	unreadSubject    = "STATUS-READ-FAILED"
+	unwrittenSubject = "REVIEW-ROWS-UNWRITTEN"
+	rowsDesk         = "meta-desk"
 )
 
 var (
@@ -50,6 +53,7 @@ type Deps struct {
 	Queue     landing.Queue
 	Restacker landing.Restacker
 	Trunk     string
+	Repo      string
 	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
 	DropStale func(ctx context.Context, snapshot []machine.Facts) error
 	Pool      grading.Pool
@@ -119,6 +123,12 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		return report, nil
 	}
 	report.PRs = len(snapshot)
+	if err := board.WriteReviewRows(s, d.Repo, snapshot, now); err != nil {
+		d.Log.Warn("the review tab's rows were not written", "err", err)
+		if err := tellUnwritten(s, d.Post, err, now); err != nil {
+			d.Log.Warn("unwritten review rows could not say so", "err", err)
+		}
+	}
 	route, err := watch.Desks(s)
 	if err != nil {
 		return report, err
@@ -173,6 +183,15 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		report.Dispatched = len(dispatched)
 	}
 	return report, nil
+}
+
+func tellUnwritten(s *store.Store, post pass.Post, unwritten error, now time.Time) error {
+	cause := "the landing facts did not reach the review tab's rows, so the tab shows the last pass until the next one writes: " + unwritten.Error()
+	raised, err := s.Escalate(unwrittenSubject, digits.ReplaceAllString(cause, "N"), rowsDesk, now)
+	if err != nil || !raised {
+		return err
+	}
+	return post([]string{rowsDesk}, bus.Escalation{Subject: unwrittenSubject, Cause: cause})
 }
 
 func tellUnread(s *store.Store, post pass.Post, unread error, now time.Time) error {
