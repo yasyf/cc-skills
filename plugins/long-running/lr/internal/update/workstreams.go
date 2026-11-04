@@ -38,6 +38,8 @@ type Workstream struct {
 	Note     string
 }
 
+const shortSHA = 7
+
 func ReadWorkstreams(path string) ([]Workstream, error) {
 	rows, err := readTable(path, workstreamColumns)
 	if err != nil {
@@ -192,8 +194,13 @@ func (v view) workstreamRow(in Inputs, each Workstream, mine []Lane) string {
 			break
 		}
 	}
+	for _, pr := range open {
+		if pr.ReadyForTap && !pr.Tapped {
+			actions = append(actions, fmt.Sprintf("tap #%d at %s: %s", pr.Number, pr.Head[:min(shortSHA, len(pr.Head))], pr.Title))
+		}
+	}
 	for _, card := range in.Cards {
-		if onCard(card, each, open) {
+		if card.PR == "" && onCard(card, each) {
 			actions = append(actions, card.Line())
 		}
 	}
@@ -264,10 +271,7 @@ func (v view) workstreamLanes(each Workstream, mine []Lane) string {
 	return fmt.Sprintf("%s; last %s, heard %s", noLiveLane, last, stamp(at, v.now))
 }
 
-func onCard(card board.Wait, each Workstream, open []store.ReviewRow) bool {
-	if card.PR != "" {
-		return slices.ContainsFunc(open, func(pr store.ReviewRow) bool { return strconv.Itoa(pr.Number) == card.PR })
-	}
+func onCard(card board.Wait, each Workstream) bool {
 	words := strings.ToLower(strings.Join([]string{card.Block, card.Subject, card.Title}, " "))
 	return slices.ContainsFunc(each.Stems, func(stem string) bool {
 		stem = regexp.QuoteMeta(strings.ToLower(client.Stem(stem)))

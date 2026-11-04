@@ -194,6 +194,43 @@ func gradeClear(t *testing.T, s *store.Store, number int, head string) {
 	}
 }
 
+func TestAnOpenedRecordReopensAClosedRowAndThePRAboveSeesItsParentOpen(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	postOpened(t, 2, headB, "branch-1", fullBody)
+	folded(t, f, 2)
+	closed := cleanRead(1, headA)
+	closed.Closed = true
+	if err := f.PostReads(context.Background(), []machine.Facts{closed}); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 2); row.ParentState != ParentClosed {
+		t.Fatalf("after the close: #2 = %+v, want its parent closed", row)
+	}
+
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: "lane-7", Kind: "opened", Text: "reopened #1", PRs: []string{testRepo + "#1"},
+		Attrs: map[string]string{"repo": testRepo, "head": headA},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := f.Pass(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byNumber := map[int]store.ReviewRow{}
+	for _, row := range rows {
+		byNumber[row.Number] = row
+	}
+	if got := byNumber[1].State; got != StateOpen {
+		t.Fatalf("#1 state = %q after its opened record, want open", got)
+	}
+	if got := byNumber[2]; got.Parent != "#1" || got.ParentState != ParentOpen {
+		t.Fatalf("#2 = %+v, want its parent #1 open", got)
+	}
+}
+
 func TestAKnownMergeabilitySurvivesGitHubsRecomputeThenGoesUnknown(t *testing.T) {
 	f, s := foldFor(t)
 	now := time.Now()
