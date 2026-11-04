@@ -762,11 +762,16 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 			n.Log.Warn("landed-not-live did not read the release builds", "err", err)
 			return nil
 		}
+		unchanged, err := n.unchanged(ctx)
+		if err != nil {
+			n.Log.Warn("landed-not-live did not read the releases", "err", err)
+			return nil
+		}
 		for _, number := range slices.Sorted(maps.Keys(landed)) {
 			entry := landed[number]
 			for _, target := range entry.targets {
 				commits, known := running[target]
-				if !known || withheld[target] || slices.ContainsFunc(slices.Concat(commits, releasing[target]), func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
+				if !known || withheld[target] || slices.ContainsFunc(slices.Concat(commits, releasing[target], unchanged[target]), func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
 					continue
 				}
 				owed[target] = append(owed[target], number)
@@ -800,6 +805,23 @@ func (n *LandedNotLive) releasing(ctx context.Context) (map[string][]string, err
 	return releasing, nil
 }
 
+func (n *LandedNotLive) unchanged(ctx context.Context) (map[string][]string, error) {
+	cuts, err := readCuts(ctx, n.Env.Runner, &n.Token, n.ReleaseCLI, n.Env.Config.Checkout)
+	if err != nil {
+		return nil, err
+	}
+	unchanged := map[string][]string{}
+	for _, cut := range cuts {
+		if cut.Mode == dryRunMode {
+			continue
+		}
+		for _, stack := range cut.Unchanged {
+			unchanged[stack.Component] = append(unchanged[stack.Component], cut.Commit)
+		}
+	}
+	return unchanged, nil
+}
+
 func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string]bool, error) {
 	records, err := n.Env.Bus.Open(ctx, n.Env.Config.Drive, "hold")
 	if err != nil {
@@ -828,9 +850,7 @@ func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string
 }
 
 func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, owed map[string][]int, now time.Time) error {
-	cli := strings.Join(n.ReleaseCLI, " ")
 	parts := make([]string, 0, len(owed))
-	starts := make([]string, 0, len(owed))
 	var prs []string
 	oldest := now
 	for _, target := range slices.Sorted(maps.Keys(owed)) {
@@ -846,7 +866,6 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 			}
 		}
 		parts = append(parts, target+": "+strings.Join(words, ", "))
-		starts = append(starts, fmt.Sprintf("`%s start --only %s --manual`", cli, target))
 	}
 	said := strings.Join(parts, "; ")
 	if said == n.said {
@@ -860,7 +879,7 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 	}
 	switch {
 	case said != "":
-		stored, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key + ":blocker", PRs: prs, Resolves: n.blocker, Text: fmt.Sprintf("LANDED-NOT-LIVE %s. The oldest landed %d minutes ago, and no live release or running release build carries them; start each release: %s", said, int(now.Sub(oldest).Minutes()), strings.Join(starts, ", "))})
+		stored, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key + ":blocker", PRs: prs, Resolves: n.blocker, Text: fmt.Sprintf("LANDED-NOT-LIVE %s. The oldest landed %d minutes ago, and no live release, running release build or release that found its target unchanged carries them; each ships with the next release that picks its target, and the owner starts that release", said, int(now.Sub(oldest).Minutes()))})
 		if err != nil {
 			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
