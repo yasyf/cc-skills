@@ -490,6 +490,10 @@ function render() {
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${(p.screen === 'milestone' ? 'plan' : p.screen) === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${chatIcon(NAV_ICONS[id])}${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
+  if (state.tabShown !== p.screen) {
+    state.tabShown = p.screen;
+    $('#tabs .tab.on')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
   if (chatInPlace(p, stack)) return;
   const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), needs: needsScreen, replies: repliesScreen, ask: askScreen, status: () => statusScreen(p.id, p.tab), jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;

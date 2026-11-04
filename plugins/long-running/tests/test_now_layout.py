@@ -1290,6 +1290,20 @@ def test_the_sidebar_holds_the_navigation_on_a_wide_screen_and_a_bar_on_a_phone(
     now(page)
 
 
+def test_the_phone_tab_bar_brings_the_current_screen_into_view_and_keeps_a_swipe_through_a_refresh(page):
+    now(page)
+    size = page.viewport_size
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.evaluate("location.hash = '#/history'")
+    page.wait_for_selector("#tabs .tab.on[href='#/history']")
+    box = page.locator("#tabs .tab.on").bounding_box()
+    assert box["x"] >= 0 and box["x"] + box["width"] <= 390
+    page.evaluate("document.querySelector('#tabs').scrollLeft = 0; refresh()")
+    assert page.evaluate("document.querySelector('#tabs').scrollLeft") == 0
+    page.set_viewport_size(size)
+    now(page)
+
+
 @pytest.mark.parametrize("n", [1, 1000])
 def test_the_chat_draws_a_bounded_window_at_any_length(page, n):
     open_chat(page, n)
