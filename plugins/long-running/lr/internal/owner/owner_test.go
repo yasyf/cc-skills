@@ -388,3 +388,18 @@ func TestAQuotedRowIsClassifiedByHisWordsNotTheFraming(t *testing.T) {
 		}
 	}
 }
+
+func TestRespondedWarnsUnlessTheNamedReplyAnswersThatRow(t *testing.T) {
+	replies := t.TempDir()
+	if err := os.WriteFile(filepath.Join(replies, "r1.json"), []byte(`{"reply":{"id":"r1","order":"m12"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !namedBy(replies, "m12", "r1") {
+		t.Fatal("the reply naming m12 did not count for m12")
+	}
+	for row, reply := range map[string]string{"m13": "r1", "m12": ""} {
+		if namedBy(replies, row, reply) {
+			t.Fatalf("%s with reply %q counted as answered", row, reply)
+		}
+	}
+}

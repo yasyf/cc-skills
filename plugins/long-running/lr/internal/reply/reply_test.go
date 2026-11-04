@@ -470,3 +470,63 @@ func TestACardCarriesItsLeadParagraphOnce(t *testing.T) {
 		t.Fatalf("card %+v, want a one-paragraph reply in the summary with no markdown child", card)
 	}
 }
+
+func TestAReplyToAnOrderLeadsWithDoneOrHisOneActionWhateverTheLaneWrote(t *testing.T) {
+	done := Reply{Title: "Stored in the background", MD: "A parse is stored only for a chat being opened.", Order: "m347"}.led()
+	if !strings.HasPrefix(done.Title, "Done, nothing for you: ") || !strings.HasPrefix(done.MD, "Done, nothing for you.\n\nA parse") {
+		t.Fatalf("done reply = %q, %q", done.Title, done.MD)
+	}
+	if done.Status != "" {
+		t.Fatalf("status = %q, want none: a done reply asks nothing of him", done.Status)
+	}
+	acting := Reply{Title: "Storage", MD: "It cannot write the new store.", Order: "m347", Action: "Pick where it stores on your board."}.led()
+	if !strings.HasPrefix(acting.MD, "Pick where it stores on your board.\n\nIt cannot") || acting.Status != needsYou {
+		t.Fatalf("action reply = %q, status %q", acting.MD, acting.Status)
+	}
+	picking := Reply{Title: "Storage", MD: "Two places.", Order: "m347", Picks: []string{"A", "B"}, Recommended: "A"}.led()
+	if !strings.HasPrefix(picking.MD, pickLead) {
+		t.Fatalf("a reply with picks leads %q: done would be false", picking.MD)
+	}
+	twice := Reply{Title: "Done, nothing for you: stored", MD: "Done, nothing for you. It is stored.", Order: "m347"}.led()
+	if twice.Title != "Done, nothing for you: stored" || twice.MD != "Done, nothing for you. It is stored." {
+		t.Fatalf("a lead the lane wrote doubled: %q, %q", twice.Title, twice.MD)
+	}
+	plain := Reply{Title: "A status line", MD: "Nothing he ordered."}.led()
+	if plain.Title != "A status line" || plain.MD != "Nothing he ordered." {
+		t.Fatalf("a reply naming no order changed: %q, %q", plain.Title, plain.MD)
+	}
+}
+
+func TestAnOrderReplyWithNoBodyIsRefusedRatherThanLedIntoOne(t *testing.T) {
+	for name, r := range map[string]Reply{
+		"no md":       {ID: "a", Title: "t", MD: " ", Order: "m1"},
+		"no title":    {ID: "a", Title: " ", MD: "m", Order: "m1"},
+		"bad row":     {ID: "a", Title: "t", MD: "m", Order: "347"},
+		"lone action": {ID: "a", Title: "t", MD: "m", Action: "Tap it"},
+		"two lines":   {ID: "a", Title: "t", MD: "m", Order: "m1", Action: "Tap it\nThen this"},
+	} {
+		if err := r.led().check(); err == nil {
+			t.Fatalf("%s passed check", name)
+		}
+	}
+}
+
+func TestALongSlackCardLinksTheWholeReplyOnTheDashboardAndNeverJustStops(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	if err := os.WriteFile(filepath.Join(f.Entry.StateDir, "dashboard.json"), []byte(`{"host":"100.1.2.3","port":61210}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("a", 2000) + "\n\n" + strings.Repeat("b", 2000)
+	f.Send(context.Background(), Reply{ID: "long", Title: "t", MD: long, Status: "done"})
+	card := flag(t, calls(fake, "cc-slack")[0].Argv, "--card")
+	var sent struct {
+		Body string `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(card), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(sent.Body, "<http://100.1.2.3:61210/#/replies|Read the rest on your dashboard>") || len([]rune(sent.Body)) > maxSlackBody {
+		t.Fatalf("slack body ends %q at %d runes", sent.Body[len(sent.Body)-80:], len([]rune(sent.Body)))
+	}
+}
