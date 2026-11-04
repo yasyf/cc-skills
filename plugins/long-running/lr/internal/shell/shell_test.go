@@ -59,6 +59,17 @@ func TestANonZeroExitReturnsItsCodeAndStderr(t *testing.T) {
 	}
 }
 
+func TestACommandsOwnExitDecidesItsResultWhileADescendantHoldsItsPipes(t *testing.T) {
+	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"sh", "-c", "sleep 8 & echo answered"}})
+	if err != nil || result.Stdout != "answered\n" {
+		t.Fatalf("a clean exit read as result %+v, err %v", result, err)
+	}
+	var exit *ExitError
+	if _, err := (Exec{}).Run(context.Background(), Command{Argv: []string{"sh", "-c", "sleep 8 & exit 3"}}); !errors.As(err, &exit) || exit.Code != 3 {
+		t.Fatalf("a failing exit read as %v", err)
+	}
+}
+
 func TestAMissingBinaryIsCode127(t *testing.T) {
 	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"lr-no-such-binary"}})
 	if !errors.Is(err, exec.ErrNotFound) || result.Code != CodeMissingBinary {

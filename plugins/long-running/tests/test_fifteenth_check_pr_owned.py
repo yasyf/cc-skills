@@ -30,8 +30,9 @@ class RequestCheckShell(CheckShell):
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         normalized = list(argv)
-        if normalized[:2] in (["ccn", "-R"], ["git", "-C"]) and normalized[2] == self.request_cwd:
-            normalized[2] = REPO
+        start = 2 if normalized[0] == "env" else 0
+        if normalized[start:start + 2] in (["ccn", "-R"], ["git", "-C"]) and normalized[start + 2] == self.request_cwd:
+            normalized[start + 2] = REPO
         return super().run(normalized, stdin, cwd)
 
 

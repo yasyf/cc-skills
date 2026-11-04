@@ -69,6 +69,40 @@ func TestAClonesGitMovesToTheLocalDiskOnceAndStillReadsWithoutItsLeftovers(t *te
 	}
 }
 
+func TestAClonesAttributesComeFromItsHeadNotItsWorktree(t *testing.T) {
+	checkout, root := t.TempDir(), t.TempDir()
+	git(t, checkout, "init", "-q")
+	attributes := filepath.Join(checkout, ".gitattributes")
+	if err := os.WriteFile(attributes, []byte("committed.txt -diff\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, checkout, "add", ".gitattributes")
+	git(t, checkout, "commit", "-q", "-m", "attributes")
+	if err := os.WriteFile(attributes, []byte("worktree.txt -diff\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wantAttributes := func(moment string) {
+		t.Helper()
+		if got := git(t, checkout, "check-attr", "diff", "--", "committed.txt"); !strings.HasSuffix(got, "diff: unset") {
+			t.Fatalf("%s: the head's attribute reads %q", moment, got)
+		}
+		if got := git(t, checkout, "check-attr", "diff", "--", "worktree.txt"); !strings.HasSuffix(got, "diff: unspecified") {
+			t.Fatalf("%s: the worktree's attribute reads %q", moment, got)
+		}
+	}
+
+	if err := onLocalDisk(checkout, root); err != nil {
+		t.Fatal(err)
+	}
+	wantAttributes("after the move")
+
+	git(t, checkout, "config", "--unset", attrTree)
+	if err := onLocalDisk(checkout, root); err != nil {
+		t.Fatal(err)
+	}
+	wantAttributes("on a clone an earlier pass moved")
+}
+
 func TestACopyOfAStoreThatGainedAPackTakesItOnTheSecondWalk(t *testing.T) {
 	from, to := t.TempDir(), t.TempDir()
 	if err := os.WriteFile(filepath.Join(from, "pack-a"), []byte("a"), 0o400); err != nil {

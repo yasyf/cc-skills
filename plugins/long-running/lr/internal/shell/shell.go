@@ -111,6 +111,8 @@ func once(ctx context.Context, c Command) (Result, error) {
 	case ctx.Err() != nil:
 		result.Code = CodeTimedOut
 		return result, fmt.Errorf("%s: %w", strings.Join(c.Argv, " "), ctx.Err())
+	case errors.Is(err, exec.ErrWaitDelay):
+		return result, nil
 	case errors.As(err, &exit):
 		result.Code = exit.ExitCode()
 		return result, &ExitError{Argv: c.Argv, Code: result.Code, Stderr: result.Stderr}
