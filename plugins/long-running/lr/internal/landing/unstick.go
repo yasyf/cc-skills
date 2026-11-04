@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	BumpedAtFact = "mergeable-bumped-at"
-	BumpReadFact = "mergeable-bump-read"
-	BumpMoveFact = "mergeable-moved"
+	BumpedAtFact    = "mergeable-bumped-at"
+	BumpReadFact    = "mergeable-bump-read"
+	BumpMoveFact    = "mergeable-moved"
+	BumpRefusedFact = "mergeable-bump-refused"
 
 	bumpEvery       = 10 * time.Minute
 	bumpsBeforeMove = 3
@@ -78,6 +79,9 @@ func (u Unstick) Pass(ctx context.Context, snapshot []machine.Facts) error {
 				moves++
 				failed = append(failed, u.move(ctx, f, chain, now))
 			}
+			continue
+		}
+		if bumps >= bumpsBeforeMove && facts[BumpRefusedFact] != "" {
 			continue
 		}
 		accepted, err := u.bump(ctx, f, bumps, now)
@@ -139,6 +143,11 @@ func (u Unstick) bump(ctx context.Context, f machine.Facts, bumps int, now time.
 	refused := err != nil && strings.Contains(done.Stdout+done.Stderr, stackRefusal)
 	if err != nil && !refused {
 		return false, fmt.Errorf("#%d base PATCH: %w", f.Number, err)
+	}
+	if refused {
+		if _, err := u.Store.PutFact(f.Repo, f.Number, f.Head, BumpRefusedFact, "yes", now); err != nil {
+			return false, err
+		}
 	}
 	if _, err := u.Store.PutFact(f.Repo, f.Number, f.Head, prrow.FactBumps, strconv.Itoa(bumps+1), now); err != nil {
 		return false, err
