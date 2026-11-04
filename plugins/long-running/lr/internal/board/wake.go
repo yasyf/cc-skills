@@ -66,7 +66,7 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 		if err != nil || routed {
 			return err
 		}
-		return w.needsLane(ctx, a, "", "No lane asked for this card, so launch one whose brief carries this answer")
+		return w.needsLane(ctx, a, "", communicator, "No lane asked for this card, so route his answer, or launch a lane whose brief carries it")
 	}
 	lane, known, err := w.Cards.Store.Lane(asker)
 	if err != nil {
@@ -78,7 +78,7 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 			return err
 		}
 		if !found || ended(heir) {
-			return w.needsLane(ctx, a, asker, fmt.Sprintf("%s asked for it and has stopped, so launch its successor with this answer in its brief; the stopped lane's brief is %s", asker, lane.Brief))
+			return w.needsLane(ctx, a, asker, metaDesk, fmt.Sprintf("%s asked for it and has stopped, so launch its successor with this answer in its brief; the stopped lane's brief is %s", asker, lane.Brief))
 		}
 		asker, lane = heir.Name, heir
 	}
@@ -148,9 +148,9 @@ func namesAny(names ...string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)(?:^|[^\w-])#?(?:` + strings.Join(quoted, "|") + `)(?:[^\w-]|$)`)
 }
 
-func (w Waker) needsLane(ctx context.Context, a CardAnswer, lane, what string) error {
+func (w Waker) needsLane(ctx context.Context, a CardAnswer, lane, to, what string) error {
 	_, err := w.Post(ctx, client.Draft{
-		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: needsLaneTopic + a.Key, Topic: needsLaneTopic + a.Card, To: []string{metaDesk}, Re: a.OwnerSeq, Force: true,
+		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: needsLaneTopic + a.Key, Topic: needsLaneTopic + a.Card, To: []string{to}, Re: a.OwnerSeq, Force: true,
 		Text:  fmt.Sprintf("NEEDS-LANE %s on board %s: the owner answered: %s. %s.", a.Card, w.Cards.Session, a.Said, what),
 		Attrs: map[string]string{"session": w.Cards.Session, "card": a.Card, "block": a.Block, laneField: lane},
 	})

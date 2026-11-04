@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 from long_running import drive
 from long_running import overview
 import pytest
-from conftest import DRIVE, LEDGER, FakeShell
+from conftest import DRIVE, LEDGER
 
 NOW = datetime(2026, 10, 30, 2, 30, tzinfo=UTC)
 ROOT_SESSION = "900424b6-7393-480c-a26a-f1bd21da6e57"
@@ -149,102 +148,3 @@ def test_overview_reads_the_progress_record_in_the_drives_state_dir(registered, 
 def test_overview_without_a_progress_record_says_where_it_looked(registered, capsys):
     assert drive.main(["overview", "--drive", DRIVE]) == 1
     assert "progress-desk/steps.json; the progress desk writes it" in capsys.readouterr().err
-
-
-class BoardShell(FakeShell):
-    def __init__(self, refuse: str = ""):
-        super().__init__()
-        self.refuse = refuse
-        self.pushed: list[tuple[list[str], dict, str]] = []
-
-    def run(self, argv, stdin=None, cwd=None):
-        if argv[0] != "cc-present":
-            return super().run(argv, stdin, cwd)
-        if self.refuse:
-            raise subprocess.CalledProcessError(1, argv, stderr=f"dropped pack\n{self.refuse}\n")
-        self.pushed.append((argv, json.loads(stdin), str(cwd)))
-        return "ok\n"
-
-
-def ask(shell: FakeShell, *extra: str) -> int:
-    argv = ["ask-owner", "--drive", DRIVE, "--title", "Ship the chat-list fix tonight?", "--lede", "It fixes the empty chat list after launch.", "--option", "Ship now", "--option", "Wait for the morning build", "--recommend", "2", *extra]
-    return drive.main(argv, shell)
-
-
-@pytest.mark.parametrize("number", ["#1", "#100@remote"])
-def test_ask_owner_puts_the_card_on_the_root_sessions_board_and_opens_an_ask_for_the_waiting_lanes(registered, capsys, monkeypatch, number):
-    shell = BoardShell()
-    cci = shell._cci
-
-    def response(argv):
-        output = cci(argv)
-        return json.dumps(json.loads(output) | {"num": number}) if argv[1] == "post" and "--json" in argv else output
-
-    monkeypatch.setattr(shell, "_cci", response)
-    assert ask(shell, "--for", "release-5", "--for", "root") == 0
-    [(argv, block, cwd)] = shell.pushed
-    assert argv == ["cc-present", "update-block", "-", "--session", ROOT_SESSION, "--round", "current"]
-    assert cwd == registered["checkout"]
-    assert block == {
-        "id": "card-ship-the-chat-list-fix-tonight",
-        "type": "card",
-        "title": "Ship the chat-list fix tonight?",
-        "summary": "It fixes the empty chat list after launch.",
-        "children": [{"id": "ship-the-chat-list-fix-tonight-choice", "type": "choice", "options": [
-            {"id": "ship-the-chat-list-fix-tonight-1", "label": "Ship now"},
-            {"id": "ship-the-chat-list-fix-tonight-2", "label": "Wait for the morning build", "recommended": True},
-        ]}],
-    }
-    post = next(call for call in shell.calls if call[:2] == ["cci", "post"])
-    assert post[post.index("--to") + 1] == "release-5,root"
-    assert "--force" not in post
-    assert [record["kind"] for record in shell.cci] == ["ask"]
-    assert shell.cci[0]["text"] == "Owner card card-ship-the-chat-list-fix-tonight is on his board: Ship the chat-list fix tonight? Recommended: Wait for the morning build"
-    assert capsys.readouterr().out == f"card card-ship-the-chat-list-fix-tonight is on the owner's board; ask {number} stays open until his tap\n"
-
-
-@pytest.mark.parametrize(("flag", "build"), [
-    (["--branch", "yasyf/cc-skills:chat-list-morning"], {"repo": "yasyf/cc-skills", "branch": "chat-list-morning"}),
-    (["--nothing-to-build", "a timing pick"], {"none": "a timing pick"}),
-])
-def test_ask_owner_names_what_the_recommended_option_is_built_on(registered, flag, build):
-    shell = BoardShell()
-    assert ask(shell, *flag) == 0
-    [(_, block, _)] = shell.pushed
-    assert block["children"][0]["options"] == [
-        {"id": "ship-the-chat-list-fix-tonight-1", "label": "Ship now"},
-        {"id": "ship-the-chat-list-fix-tonight-2", "label": "Wait for the morning build", "recommended": True, "build": build},
-    ]
-
-
-def test_ask_owner_carries_each_pull_request_it_names_on_the_card(registered):
-    shell = BoardShell()
-    lede = "It is https://github.com/yasyf/cc-skills/pull/2196 rebased, and yasyf/cc-skills#2196 is the same change."
-    assert drive.main(["ask-owner", "--drive", DRIVE, "--title", "Land PR 2190 tonight?", "--lede", lede, "--option", "Land", "--option", "Hold", "--recommend", "1"], shell) == 0
-    [(_, block, _)] = shell.pushed
-    assert block["children"][1:] == [
-        {"id": "land-pr-2190-tonight-pr-2190", "type": "pr", "repo": "Forge-AI/monorepo", "number": 2190},
-        {"id": "land-pr-2190-tonight-pr-2196", "type": "pr", "repo": "yasyf/cc-skills", "number": 2196},
-    ]
-
-
-@pytest.mark.parametrize(
-    ("extra", "said"),
-    [
-        (("--option", "Fold it into #45306"), "the card names #45306"),
-        (("--option", "Three", "--option", "Four", "--option", "Five"), "2 to 4 options; got 5"),
-        (("--recommend", "3"), "--recommend 3 names no option"),
-    ],
-)
-def test_ask_owner_refuses_a_card_before_pushing_anything(registered, extra, said):
-    shell = BoardShell()
-    with pytest.raises(SystemExit, match=said):
-        ask(shell, *extra)
-    assert shell.pushed == [] and shell.cci == []
-
-
-def test_a_refused_push_opens_no_ask(registered, capsys):
-    shell = BoardShell(refuse="card-x: choice needs options")
-    assert ask(shell) == 1
-    assert shell.cci == []
-    assert capsys.readouterr().err == "card card-ship-the-chat-list-fix-tonight not pushed: card-x: choice needs options\n"

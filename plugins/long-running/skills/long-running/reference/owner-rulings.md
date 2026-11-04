@@ -61,9 +61,9 @@ The judge reads:
 
 It warns when a card re-asks a settled question or offers an option narrower or more literal than the owner's words. A found violation of an existing ruling is applied directly and never put back to the owner as a card or pick. A failed judge call adds nothing, and re-issuing the same card passes on retry, so a false positive costs one retry.
 
-**A card that asks to end or restart a process names it, and his yes on it is enough.** The card's own words carry `pid <number>` or the script's file name, and the lane that ends it, such as "meta-desk restarts pid 74452 (board_watch.py)". The board stamps those words on its own log of his tap, and board-watch's answer row lets the process guard find it. The guard then lifts one kill of that process for that lane or its successor, within the hour of the tap, so he never types a line for something he already tapped. A row or an edit to the card lifts nothing, and live sessions, Orca terminals and an agent's ancestors stay protected whatever a card says. `lr board draw` and `lr board cards check`, which every `cc-present` draw reads through the `answer_search_first` hook, print a `WARNING` for a card that asks to end a process and names none.
+**A card that asks to end or restart a process names it, and his yes on it is enough.** The card's own words carry `pid <number>` or the script's file name, and the lane that ends it, such as "meta-desk restarts pid 74452 (board_watch.py)". The board stamps those words on its own log of his tap, and board-watch's answer row lets the process guard find it. The guard then lifts one kill of that process for that lane or its successor, within the hour of the tap, so he never types a line for something he already tapped. A row or an edit to the card lifts nothing, and live sessions, Orca terminals and an agent's ancestors stay protected whatever a card says. `lr ask-owner` and `lr board cards check`, which every `cc-present` draw reads through the `answer_search_first` hook, print a `WARNING` for a card that asks to end a process and names none.
 
-**A card an owner ccn answer settles is never drawn and never stays.** `lr board draw`, `lr board cards check CARD_FILE|-` and every `cc-present` push in a drive refuse a card, through the `answer_search_first` hook, when:
+**A card an owner ccn answer settles is never drawn and never stays.** `lr ask-owner`, `lr board cards check CARD_FILE|-` and every `cc-present` push in a drive refuse a card, through the `answer_search_first` hook, when:
 
 - a card already on the board asks the same question text;
 - the `confirm` judge reads it as asking the owner to grade a reading of the owner's own words, in any wording; or
@@ -165,14 +165,17 @@ The coordinator never ends a turn waiting for the owner to say "ask" and never l
 
 ### A choice that is the owner's
 
-A choice that is the owner's is one record, with options recommended first:
+A choice that is the owner's has one drawer, the lane that needs it, with options recommended first:
 
 ```
-cci post --kind ask --to board-refresher "CARD: card-<slug>: <question>" --path <card.json>
+lr ask-owner --title '<question>?' --background '<what he needs to decide it>' --option 'LABEL :: what it does' --option 'LABEL :: what it does' --nothing-to-build '<why>' --until at:3d
 ```
 
-- The record stays open until the card is drawn. The desk that draws it runs `lr board cards until <card> --lane <the lane that asked>`, so the card carries the asking lane, not the desk's.
-- The owner's answer wakes that lane through `lr board wake` the moment board-watch records it. A stopped lane draws `NEEDS-LANE` to meta-desk with its brief path. A card no lane asked for draws it only when no decide or claim has named the card since his answer.
+- The lane draws its own card, on his main board and at the root of his Slack direct message, and owns it. The call waits for the board link on the Mac and prints the card's link, or exits 1 with what to change.
+- Until a lane is on the verb, board-refresher alone draws a lane's `CARD:` ask, through `lr ask-owner --card <file> --for-ask <seq> --until <end>`, so the asking lane owns the card and that ask gets one card. A second card for the same ask is refused naming the first.
+- owner-relay draws only the cards of its own replies, and never a lane's `CARD:` ask. board-refresher also redraws and withdraws stale cards.
+- A missing background, a repeat of a card on his board, a card he already answered, only ways to live with a failure and no fix for its cause, and a loss with no plan beside it are all refused at the link.
+- The owner's answer wakes that lane through `lr board wake` the moment board-watch records it. A stopped lane draws `NEEDS-LANE` to meta-desk with its brief path, and a pick no lane asked for goes to owner-relay.
 - Any record of the lane naming the card within ten minutes is the acknowledgement. Past that, meta-desk and the communicator hear once and nothing blocks.
 - A decide with options, a plan fork, an open item in a design doc and an owner-pick line are the same case.
 - A lane does not park on a card with nothing built. It builds the recommended option as a branch, no PR, and the owner can overturn it, unless the pick deletes data, sends a message or needs the owner's hand. This branches-only rule covers design questions the owner has not ordered built.
@@ -180,7 +183,7 @@ cci post --kind ask --to board-refresher "CARD: card-<slug>: <question>" --path 
 - A correction card cannot reorder a settled owner order: fixes go on top of it, and the gap is a one-line risk.
 - A tapped PR never returns to the board for a restack. A re-ask is only for a named behavior change, and its first line names what changed.
 - A pick of a mechanism does not authorize reading a secret store. Put the key step to the owner on the first card instead of briefing a lane to read Keychain keys.
-- The supervisor's choices check lists what misses this path: a `CARD` record open past an hour, a waiting card with no Slack copy past an hour, an owner item in a recent design doc's open list naming no card, prose reading as the owner's choice, and a lane blocked on the owner's pick with nothing built. It sends each once, to `board-refresher` or to the lane for prose and parking, as warnings that never block. A read that fails says nothing.
+- The supervisor's choices check lists what misses this path: a `CARD` record open past an hour, a waiting card with no Slack copy past an hour, an owner item in a recent design doc's open list naming no card, prose reading as the owner's choice, and a lane blocked on the owner's pick with nothing built. It sends each once, to `board-refresher` for a `CARD:` ask or to the lane for prose and parking, as warnings that never block. A read that fails says nothing.
 
 ### Before a card is drawn
 

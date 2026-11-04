@@ -67,8 +67,8 @@ anyone but this watcher, by its card, block id or owner record's seq, 30 minutes
 Each answer also runs `lr board wake`, which addresses a wake to the lane whose ask drew the card, the
 lane on the card's row or else the newest ask naming the card from a lane that is not a desk, and relays
 it to a lane placed on Orca. A stopped lane with no live heir draws one `NEEDS-LANE` ask to `meta-desk` with
-the card, the answer and its brief path, as does a structured pick on the drive coordinator's newest board
-that no lane asked for. Every minute `lr board wake late` tells `meta-desk` and `owner-relay`, once, of each
+the card, the answer and its brief path. A structured pick on the drive coordinator's newest board that no
+lane asked for draws the same ask to `owner-relay`. Every minute `lr board wake late` tells `meta-desk` and `owner-relay`, once, of each
 wake its lane has not acknowledged in ten minutes; nothing blocks.
 
 While the board is open, the watch of the drive coordinator's newest session, read from the drive
