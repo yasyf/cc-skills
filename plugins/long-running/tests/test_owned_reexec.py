@@ -130,13 +130,17 @@ else:
 '''
 
 
+def sleeper(pid_file: str) -> str:
+    return f"import os, time\nfrom pathlib import Path\npid_file = {pid_file}\nwriting = pid_file.with_suffix('.writing')\nwriting.write_text(str(os.getpid()))\nwriting.replace(pid_file)\ntime.sleep(600)\n"
+
+
 def reexec_probe(tmp_path: Path, mode: str) -> dict:
     root = tmp_path / mode
     tools = root / 'bin'
     tools.mkdir(parents=True)
     protected = root / 'protected.py'
-    protected.write_text("import os, time\nfrom pathlib import Path\nPath(__file__).with_suffix('.pid').write_text(str(os.getpid()))\ntime.sleep(600)\n")
-    utility = f"#!{sys.executable}\nimport os, time\nfrom pathlib import Path\nroot = Path(os.environ['WATCH_PROBE_ROOT'])\n(root / (Path(__file__).name + '.pid')).write_text(str(os.getpid()))\ntime.sleep(600)\n"
+    protected.write_text(sleeper("Path(__file__).with_suffix('.pid')"))
+    utility = f"#!{sys.executable}\n" + sleeper("Path(os.environ['WATCH_PROBE_ROOT']) / (Path(__file__).name + '.pid')")
     for name in ('cc-present', 'cci'):
         path = tools / name
         path.write_text(utility)
@@ -167,6 +171,20 @@ def reexec_probe(tmp_path: Path, mode: str) -> dict:
                 current = subprocess.run(['ps', '-ww', '-p', str(pid), '-o', 'command='], capture_output=True, text=True).stdout
                 if str(root) in current:
                     os.kill(pid, signal.SIGKILL)
+
+
+def test_a_stream_killed_the_moment_its_pid_file_appears_leaves_its_pid(tmp_path: Path) -> None:
+    stream = tmp_path / 'stream.py'
+    stream.write_text(sleeper("Path(__file__).with_suffix('.pid')"))
+    pid_file = stream.with_suffix('.pid')
+    for _ in range(25):
+        child = subprocess.Popen([sys.executable, str(stream)])
+        while not pid_file.exists():
+            assert child.poll() is None
+        child.kill()
+        child.wait()
+        assert int(pid_file.read_text()) == child.pid
+        pid_file.unlink()
 
 
 def board_reexec(tmp_path: Path) -> None:
