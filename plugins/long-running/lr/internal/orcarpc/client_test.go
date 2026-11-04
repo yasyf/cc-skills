@@ -125,6 +125,27 @@ func TestCallRefusesWriteMethods(t *testing.T) {
 	}
 }
 
+func TestCheckReadNeverConsumes(t *testing.T) {
+	client, seen := serve(t, map[string]string{"ORCA_TERMINAL_HANDLE": "term_env", "ORCA_PANE_KEY": "pane"}, func(got frame) []string {
+		return []string{ok(got.ID, `{"messages":[]}`)}
+	})
+	if _, err := client.Call(context.Background(), checkMethod, CheckParams{Terminal: "term_1"}); !errors.Is(err, ErrWriteMethod) {
+		t.Fatalf("consuming check: err = %v", err)
+	}
+	if _, err := client.Call(context.Background(), checkMethod, map[string]any{"peek": true, "ack": "d"}); !errors.Is(err, ErrWriteMethod) {
+		t.Fatalf("untyped check: err = %v", err)
+	}
+	if sent := seen.all(); len(sent) != 0 {
+		t.Fatalf("sent %d frames", len(sent))
+	}
+	if _, err := client.CheckRead(context.Background(), CheckParams{Peek: true, Run: "run_1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(seen.all()[0].Params), `{"terminal":"term_env","terminalPaneKey":"pane","unread":false,"peek":true,"compatibilityCliCommand":"`+client.cliCommand()+`","run":"run_1"}`; got != want {
+		t.Fatalf("params = %s, want %s", got, want)
+	}
+}
+
 func TestDialRefusesSelectedRemote(t *testing.T) {
 	client, _ := serve(t, map[string]string{"ORCA_ENVIRONMENT": "box"}, func(frame) []string { return nil })
 	if _, err := client.Dial(context.Background()); !errors.Is(err, ErrRemoteSelected) {

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
+	"strings"
 )
 
 type WorkerListParams struct {
@@ -20,6 +22,53 @@ type TerminalListParams struct {
 	Worktree             string `json:"worktree,omitempty"`
 	Limit                int    `json:"limit,omitempty"`
 	IncludeVisualLayouts bool   `json:"includeVisualLayouts"`
+}
+
+type CheckParams struct {
+	Terminal         string `json:"terminal,omitempty"`
+	TerminalPaneKey  string `json:"terminalPaneKey,omitempty"`
+	Unread           *bool  `json:"unread,omitempty"`
+	Peek             bool   `json:"peek,omitempty"`
+	All              bool   `json:"all,omitempty"`
+	Types            string `json:"types,omitempty"`
+	CompatibilityCLI string `json:"compatibilityCliCommand"`
+	Run              string `json:"run,omitempty"`
+}
+
+func (c *Client) CheckRead(ctx context.Context, params CheckParams) (Response, error) {
+	if params.Peek {
+		unread := false
+		params.Unread = &unread
+	}
+	params.CompatibilityCLI = c.cliCommand()
+	switch session := strings.TrimSpace(c.getenv("ORCA_AGENT_SESSION_ID")); {
+	case session != "":
+		address := sessionAddressPrefix + session
+		switch {
+		case params.Terminal == "", params.Terminal == session, params.Terminal == address:
+			params.Terminal = ""
+		case !strings.HasPrefix(params.Terminal, sessionAddressPrefix):
+			return Response{}, fmt.Errorf("%w: %s", ErrOtherCaller, params.Terminal)
+		}
+	case params.Terminal == "":
+		params.Terminal = bounded(c.getenv("ORCA_TERMINAL_HANDLE"))
+		if params.Terminal == "" {
+			return Response{}, ErrNoCaller
+		}
+		params.TerminalPaneKey = bounded(c.getenv("ORCA_PANE_KEY"))
+	}
+	return c.Call(ctx, checkMethod, params)
+}
+
+func (c *Client) cliCommand() string {
+	switch configured := c.getenv("ORCA_CLI_COMMAND"); configured {
+	case "orca", "orca-ide", "orca-dev":
+		return configured
+	}
+	if runtime.GOOS == "linux" {
+		return "orca-ide"
+	}
+	return "orca"
 }
 
 func (c *Client) WorkerList(ctx context.Context, params WorkerListParams) (Response, error) {

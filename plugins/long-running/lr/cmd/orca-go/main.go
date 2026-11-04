@@ -27,6 +27,9 @@ func run(ctx context.Context, client *orcarpc.Client, args []string) (orcarpc.Re
 	terminalState := flags.String("terminal-state", "", "")
 	limit := flags.Int("limit", 0, "")
 	includeRemote := flags.Bool("include-remote", false, "")
+	peek := flags.Bool("peek", false, "")
+	all := flags.Bool("all", false, "")
+	types := flags.String("types", "", "")
 	full := flags.Bool("full", false, "")
 	asJSON := flags.Bool("json", false, "")
 
@@ -48,6 +51,11 @@ func run(ctx context.Context, client *orcarpc.Client, args []string) (orcarpc.Re
 			return orcarpc.Response{}, fmt.Errorf("%w: worker-show needs --dispatch and --full", errUnsupported)
 		}
 		return client.WorkerShow(ctx, *dispatch)
+	case "orchestration check":
+		if !*full || (*peek == *all) {
+			return orcarpc.Response{}, fmt.Errorf("%w: check needs --full and one of --peek or --all", errUnsupported)
+		}
+		return client.CheckRead(ctx, orcarpc.CheckParams{Terminal: *terminal, Run: *runID, Peek: *peek, All: *all, Types: *types})
 	case "terminal list":
 		return client.TerminalList(ctx, orcarpc.TerminalListParams{Worktree: *worktree, Limit: *limit})
 	case "terminal show":

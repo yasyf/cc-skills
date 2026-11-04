@@ -21,12 +21,16 @@ const (
 	statusRequestTimeout   = time.Second
 	orchestrationPrefix    = "orchestration."
 	orchestrationContract  = 1
+	checkMethod            = "orchestration.check"
+	sessionAddressPrefix   = "orca_session_id:"
 	maxEvidenceFieldLength = 4096
 )
 
 var (
 	ErrRemoteSelected = errors.New("orcarpc: a paired runtime is selected, and only the local socket is supported")
 	ErrWriteMethod    = errors.New("orcarpc: only read methods are supported")
+	ErrNoCaller       = errors.New("orcarpc: check needs --terminal or ORCA_TERMINAL_HANDLE")
+	ErrOtherCaller    = errors.New("orcarpc: consumer_fenced: this agent session cannot read as another caller")
 )
 
 var readMethods = map[string]bool{
@@ -38,6 +42,14 @@ var readMethods = map[string]bool{
 	"terminal.list":            true,
 	"terminal.show":            true,
 	"worktree.show":            true,
+}
+
+func readOnly(method string, params any) bool {
+	if method == checkMethod {
+		check, typed := params.(CheckParams)
+		return typed && (check.Peek || check.All)
+	}
+	return readMethods[method]
 }
 
 type Transport struct {
@@ -220,7 +232,7 @@ func (c *Client) Call(ctx context.Context, method string, params any) (Response,
 }
 
 func (c *Conn) Call(ctx context.Context, method string, params any) (Response, error) {
-	if !readMethods[method] {
+	if !readOnly(method, params) {
 		return Response{}, fmt.Errorf("%w: %s", ErrWriteMethod, method)
 	}
 	id, err := newUUID()
