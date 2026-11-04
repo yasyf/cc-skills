@@ -66,6 +66,7 @@ type Inputs struct {
 	Releases  []Record
 	Board     []string
 	Cards     []board.Wait
+	Unboarded error
 	Before    Snapshot
 	Retro     []Retro
 	Owed      []deletions.Owed

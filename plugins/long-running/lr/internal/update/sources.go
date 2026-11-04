@@ -153,7 +153,7 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 		return Inputs{}, err
 	}
 	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
-	in.Board, in.Cards = boardOf(ctx, src, day)
+	in.Board, in.Cards, in.Unboarded = boardOf(ctx, src, day)
 	in.Streams, in.Unread = src.Streams()
 	in.Leading = leadingAsks(all)
 	if shas := landedSHAs(src.Pins, in.Leading, book); len(shas) > 0 {
@@ -188,12 +188,12 @@ func snapshotsOf(records []Record) []board.Snapshot {
 	return snapshots
 }
 
-func boardOf(ctx context.Context, src Sources, records []Record) ([]string, []board.Wait) {
+func boardOf(ctx context.Context, src Sources, records []Record) ([]string, []board.Wait, error) {
 	live, err := src.Board(ctx, snapshotsOf(records))
 	if err != nil {
-		return []string{fmt.Sprintf("board unread: %v", err)}, nil
+		return []string{fmt.Sprintf("board unread: %v", err)}, nil, err
 	}
-	return live.Lines(), live.Waits()
+	return live.Lines(), live.Waits(), nil
 }
 
 type ClaudeTask struct {

@@ -140,6 +140,20 @@ func TestAWorkstreamNoLaneEverWorkedSaysSo(t *testing.T) {
 	}
 }
 
+func TestAnUnreadBoardIsWhatTheOwnerActionCellSaysNeverNothingOnTheBoard(t *testing.T) {
+	sources := src([]Lane{heard("ship-2", "desired", 5)}, nil, nil, errors.New("cc-present: no session"))
+	sources.Streams = func() ([]Workstream, error) {
+		return []Workstream{{Name: "Sealed journal", Delivers: "every reader on the sealed format", Stems: []string{"ship"}}}, nil
+	}
+	in, err := Collect(context.Background(), sources, testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cells := workstreamCells(t, sectionOf(t, Render(in).Text, workstreamsTitle), "Sealed journal"); cells[6] != "board unread: cc-present: no session" {
+		t.Fatalf("you must = %q", cells[6])
+	}
+}
+
 func TestAnUpdateWithNoWorkstreamListSaysSoOnOneLineAndStillRendersEveryOtherSection(t *testing.T) {
 	in := inputs(t)
 	in.Streams = nil

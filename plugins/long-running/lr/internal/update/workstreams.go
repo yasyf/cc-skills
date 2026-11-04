@@ -179,6 +179,10 @@ func (v view) workstreamRow(in Inputs, each Workstream, mine []Lane) string {
 			actions = append(actions, card.Line())
 		}
 	}
+	noAction := "nothing on your board as of " + pacific(in.Now)
+	if in.Unboarded != nil {
+		noAction = fmt.Sprintf("board unread: %v", in.Unboarded)
+	}
 	cells := []string{
 		cell(each.Name),
 		cell(each.Delivers),
@@ -186,7 +190,7 @@ func (v view) workstreamRow(in Inputs, each Workstream, mine []Lane) string {
 		cell(orWord(strings.Join(state, "; "), "nothing recorded since "+stamp(dayStart, in.Now))),
 		cell(orWord(strings.Join(changed, "; "), "nothing recorded since "+stamp(in.Before.At, in.Now))),
 		cell(orWord(strings.Join(blocks, "; "), "nothing recorded since "+stamp(dayStart, in.Now))),
-		cell(orWord(strings.Join(actions, "; "), "nothing on your board as of "+pacific(in.Now))),
+		cell(orWord(strings.Join(actions, "; "), noAction)),
 	}
 	return "| " + strings.Join(cells, " | ") + " |"
 }
