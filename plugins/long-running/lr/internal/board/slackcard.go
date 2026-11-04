@@ -96,6 +96,34 @@ func waitsOnHim(row store.ReviewRow) bool {
 	return row.ReadyForTap && !row.Tapped
 }
 
+func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
+	var summary []string
+	for _, line := range []struct{ key, label, said string }{
+		{"change", "What changes", row.Change}, {"plan", "Against the plan", row.Plan}, {"risk", "Risk", row.Risk}, {"blocker", "Blocks landing", row.Blocks},
+	} {
+		if line.said != "" {
+			child[line.key] = line.said
+			summary = append(summary, "**"+line.label+":** "+line.said)
+		}
+	}
+	if row.Review != "" {
+		summary = append(summary, "**Status:** "+row.Review)
+	}
+	if len(summary) > 0 {
+		child["summary"] = strings.Join(summary, "\n\n")
+	}
+	if row.Row != nil {
+		child["row"] = row.Row
+	}
+	if row.Head != "" {
+		child["head"] = row.Head
+	}
+	if row.Title != "" {
+		child["title"] = row.Title
+	}
+	return child
+}
+
 // PlanWords is the row's plan line and plan row, a sentence they share said once.
 func PlanWords(row store.ReviewRow) string {
 	if row.PlanLine == row.PlanRow {
@@ -233,10 +261,18 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				for i, pr := range held {
 					numbers[i] = pr.Number
 				}
-				if err := withRows(c, entry, numbers, ledgerRows, func(_ *store.Store, repository string, rows []store.ReviewRow) error {
+				if err := withRows(c, entry, numbers, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
 					for _, pr := range held {
-						if at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == pr.Number }); at >= 0 {
-							cards = append(cards, SlackPRCard{pr, Card(repository, rows[at])})
+						at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == pr.Number })
+						if at < 0 {
+							continue
+						}
+						cards = append(cards, SlackPRCard{pr, Card(repository, rows[at])})
+						if !waitsOnHim(rows[at]) {
+							continue
+						}
+						if _, err := s.PutFact(repository, pr.Number, rows[at].Head, FactTapCard, tapCardInSlack, a.Now()); err != nil {
+							return err
 						}
 					}
 					return nil

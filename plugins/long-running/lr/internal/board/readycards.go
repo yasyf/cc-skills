@@ -1,0 +1,267 @@
+package board
+
+import (
+	"cmp"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const (
+	FactTapCard  = "tap_card"
+	Communicator = communicator
+
+	liveTapCards   = 10
+	tapCardDrawn   = "drawn"
+	tapCardOnBoard = "on the board"
+	tapCardInSlack = "in slack"
+	tapCardRefused = "refused"
+	repliesDir     = "replies"
+	newVersionWhy  = "a new version replaced it, and its own card asks again"
+)
+
+var pullNumber = regexp.MustCompile(`/([^/]+/[^/]+)/pull/(\d+)`)
+
+type ReadyCards struct {
+	Cards Cards
+	Repo  string
+	Lane  string
+	Named func(context.Context) (map[int]bool, error)
+}
+
+func (r ReadyCards) Pass(ctx context.Context) error {
+	rows, err := r.Cards.Store.ReviewRows(r.Repo)
+	if err != nil {
+		return err
+	}
+	facts, err := r.Cards.Store.FactsAtRowHeads(r.Repo)
+	if err != nil {
+		return err
+	}
+	live, due := 0, []store.ReviewRow{}
+	for _, row := range rows {
+		if !waitsOnHim(row) || row.State != prrow.StateOpen {
+			continue
+		}
+		switch facts[row.Number][FactTapCard] {
+		case "":
+			due = append(due, row)
+		case tapCardRefused:
+		default:
+			live++
+		}
+	}
+	if len(due) == 0 || live >= liveTapCards {
+		return nil
+	}
+	shown, err := r.Cards.tapCards(ctx)
+	if err != nil {
+		return err
+	}
+	drawable := due[:0]
+	for _, row := range due {
+		if !slices.ContainsFunc(shown, func(card tapCard) bool { return card.asksAt(row) }) {
+			drawable = append(drawable, row)
+			continue
+		}
+		if err := r.mark(row, tapCardOnBoard); err != nil {
+			return err
+		}
+		live++
+	}
+	if live >= liveTapCards || len(drawable) == 0 {
+		return nil
+	}
+	named, err := r.Named(ctx)
+	if err != nil {
+		return err
+	}
+	threads, err := prThreads(filepath.Join(r.Cards.StateDir, repliesDir), r.Repo)
+	if err != nil {
+		return err
+	}
+	inTapOrder(drawable, rows, named)
+	for _, row := range drawable[:min(liveTapCards-live, len(drawable))] {
+		if err := r.draw(ctx, row, shown, threads[row.Number]); err != nil {
+			return fmt.Errorf("#%d: %w", row.Number, err)
+		}
+	}
+	return nil
+}
+
+func inTapOrder(due, rows []store.ReviewRow, named map[int]bool) {
+	freed := make(map[int]int, len(due))
+	for _, row := range due {
+		freed[row.Number] = lanesFreed(row, rows)
+	}
+	slices.SortStableFunc(due, func(one, other store.ReviewRow) int {
+		if named[one.Number] != named[other.Number] {
+			if named[one.Number] {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Or(cmp.Compare(freed[other.Number], freed[one.Number]), cmp.Compare(one.Number, other.Number))
+	})
+}
+
+func lanesFreed(row store.ReviewRow, rows []store.ReviewRow) int {
+	lanes := map[string]bool{row.Lane: true}
+	below := []int{row.Number}
+	for len(below) > 0 {
+		number := "#" + strconv.Itoa(below[0])
+		below = below[1:]
+		for _, above := range rows {
+			if above.Parent == number && above.State == prrow.StateOpen {
+				lanes[above.Lane] = true
+				below = append(below, above.Number)
+			}
+		}
+	}
+	return len(lanes)
+}
+
+func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCard, thread string) error {
+	for _, card := range shown {
+		if strings.HasPrefix(card.ID, tapCardPrefix(row.Number)) {
+			if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, "tap-off-"+card.ID, cardBody{Remove: card.ID, Reason: newVersionWhy}); err != nil {
+				return err
+			}
+		}
+	}
+	block, err := TapCard(r.Repo, row)
+	if err != nil {
+		return err
+	}
+	pr := fmt.Sprintf("%s#%d", r.Repo, row.Number)
+	if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, tapCardID(row), cardBody{Block: block, Until: KindPR + ":" + pr, Thread: thread, TapOf: pr, TapHead: row.Head}); err != nil {
+		return err
+	}
+	return r.mark(row, tapCardDrawn)
+}
+
+func (r ReadyCards) mark(row store.ReviewRow, how string) error {
+	_, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, FactTapCard, how, r.Cards.Now())
+	return err
+}
+
+func tapCardPrefix(number int) string {
+	return fmt.Sprintf("card-tap-%d-", number)
+}
+
+func tapCardID(row store.ReviewRow) string {
+	return tapCardPrefix(row.Number) + row.Head[:min(waitsSHA, len(row.Head))]
+}
+
+func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
+	id := tapCardID(row)
+	url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number)
+	return json.Marshal(map[string]any{
+		"id": id, "type": "card", "title": fmt.Sprintf("Tap: #%d, %s", row.Number, row.Title),
+		"summary": fmt.Sprintf("[#%d](%s) at %s is green, approved and graded, and waits only on your tap. %s", row.Number, url, row.Head[:min(waitsSHA, len(row.Head))], strings.Join(strings.Fields(row.ForUsers), " ")),
+		"children": []map[string]any{
+			{"id": id + "-choice", "type": "choice", "options": []map[string]any{
+				{"id": id + "-approve", "label": approveLabel, "recommended": true},
+				{"id": id + "-hold", "label": holdLabel},
+			}},
+			FillPRChild(map[string]any{"id": id + "-pr", "type": "pr", "repo": repo, "number": row.Number}, Card(repo, row).PRs[0]),
+		},
+	})
+}
+
+type cardOption struct {
+	Label string `json:"label"`
+}
+
+type tapCard struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Children []struct {
+		Type    string       `json:"type"`
+		Number  int          `json:"number"`
+		Head    string       `json:"head"`
+		Options []cardOption `json:"options"`
+	} `json:"children"`
+}
+
+func (c tapCard) asksAt(row store.ReviewRow) bool {
+	if c.ID == MergeWaits(row.Number, row.Head) {
+		return true
+	}
+	offers, names := false, false
+	for _, child := range c.Children {
+		offers = offers || slices.ContainsFunc(child.Options, func(option cardOption) bool {
+			return option.Label == approveLabel || option.Label == mergeLabel
+		})
+		names = names || child.Type == "pr" && child.Number == row.Number && (child.Head == "" || strings.HasPrefix(row.Head, child.Head))
+	}
+	return offers && names
+}
+
+func (c Cards) tapCards(ctx context.Context) ([]tapCard, error) {
+	shown, err := c.present(ctx, "outcomes", "--all")
+	if err != nil {
+		return nil, err
+	}
+	var outcomes struct {
+		Doc struct {
+			Blocks []tapCard `json:"blocks"`
+		} `json:"doc"`
+	}
+	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
+		return nil, fmt.Errorf("cc-present outcomes: %w", err)
+	}
+	return slices.DeleteFunc(outcomes.Doc.Blocks, func(card tapCard) bool { return card.Type != "card" }), nil
+}
+
+func prThreads(replies, repo string) (map[int]string, error) {
+	paths, err := filepath.Glob(filepath.Join(replies, "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	threads := map[int]string{}
+	newest := map[int]time.Time{}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var sent struct {
+			Reply struct {
+				PRs    []string `json:"prs"`
+				Thread string   `json:"thread"`
+			} `json:"reply"`
+			At time.Time `json:"at"`
+		}
+		if err := json.Unmarshal(data, &sent); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if sent.Reply.Thread == "" {
+			continue
+		}
+		for _, pr := range sent.Reply.PRs {
+			named := pullNumber.FindStringSubmatch(pr)
+			if named == nil || !strings.EqualFold(named[1], repo) {
+				continue
+			}
+			number, err := strconv.Atoi(named[2])
+			if err != nil {
+				return nil, err
+			}
+			if sent.At.After(newest[number]) {
+				threads[number], newest[number] = sent.Reply.Thread, sent.At
+			}
+		}
+	}
+	return threads, nil
+}
