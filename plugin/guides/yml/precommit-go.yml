@@ -9,3 +9,4 @@
         language_version: '1.26.6'
       - id: golangci-lint
         language_version: '1.26.6'
+        args: [--allow-serial-runners]
