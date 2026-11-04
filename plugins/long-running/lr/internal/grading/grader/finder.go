@@ -29,6 +29,7 @@ const (
 	finderFail    = "major"
 	areaShown     = 3
 	secondFix     = "second fix in this area: the owner's rule needs a class fix, name the invariant and the single owner"
+	classFixOwed  = "a class fix in this area, naming the invariant and the single owner, since this port repeats an earlier fix"
 	scopedStep    = "2. This head follows an earlier reviewed head, so it gets no row pass. Name an owner row\n" +
 		"   only when a hunk this pass reads breaks it, as one major finding whose defect starts\n" +
 		`   "row <key> missing:".`
@@ -264,15 +265,15 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if now.HeadRefOid != head {
 		return FinderOutcome{Skipped: fmt.Sprintf("%s moved to %s while codex read %s", pull, short(now.HeadRefOid, 12), short(head, 12))}, nil
 	}
-	owed, graded := followUpsOwed(view.Body, parsed.Findings)
-	findings, census := triage(graded, diff)
 	repeat, err := s.secondFix(view, diff)
 	if err != nil {
 		return FinderOutcome{}, err
 	}
 	if repeat != nil {
-		findings = append(findings, *repeat)
+		parsed.Findings = append(parsed.Findings, *repeat)
 	}
+	owed, graded := followUpsOwed(view.Body, parsed.Findings)
+	findings, census := triage(graded, diff)
 	open, settled := s.openFindings(findings)
 	text := s.recordText(own, last, open)
 	if len(settled) > 0 {
@@ -363,6 +364,10 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 	text := fmt.Sprintf("finder: %s %s carried from #%d", grade, short(head, 7), earlier.Seq)
 	if root := s.settledBy(earlier); grade != finderPass && root != 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, settled by coordinator #%d", finderPass, short(head, 7), earlier.Seq, root)
+	}
+	if grade == finderFail && s.onlySecondFix(earlier) && opensAsPort.MatchString(view.Body) {
+		_, fixes, _ := strings.Cut(s.originOf(earlier).Text, secondFix)
+		text = fmt.Sprintf("finder: %s %s carried from #%d, whose one major, the second fix, stands as a follow-up owed after this port: %s%s", finderPass, short(head, 7), earlier.Seq, classFixOwed, fixes)
 	}
 	if grade == finderFail && s.onlySecondFix(earlier) && view.namesClassFix() {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, whose one major, the second fix, the PR body now answers", finderPass, short(head, 7), earlier.Seq)
@@ -491,7 +496,7 @@ func followUpsLine(owed []finding) string {
 	for _, f := range owed {
 		named = append(named, squeezed(f.Cite+" "+strings.TrimPrefix(f.Defect, followUpWord)))
 	}
-	return "follow-ups owed after this port, since its source has them too: " + strings.Join(named, "; ")
+	return "follow-ups owed after this port: " + strings.Join(named, "; ")
 }
 
 func (s *finderPassState) recordText(own []string, last string, findings []finding) string {
@@ -721,7 +726,11 @@ func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, e
 		files := slices.Sorted(slices.Values(fix.files))
 		named = append(named, fmt.Sprintf("#%s (%s) fixed %s", fix.number, fix.title, strings.Join(files, ", ")))
 	}
-	return &finding{Severity: finderFail, Cite: fmt.Sprintf("%s:%d", first.path, first.spans[0].start), Defect: secondFix + ". " + strings.Join(named, "; ")}, nil
+	defect := secondFix
+	if opensAsPort.MatchString(view.Body) {
+		defect = followUpWord + " " + classFixOwed
+	}
+	return &finding{Severity: finderFail, Cite: fmt.Sprintf("%s:%d", first.path, first.spans[0].start), Defect: defect + ". " + strings.Join(named, "; ")}, nil
 }
 
 func (v pullRequest) namesClassFix() bool {

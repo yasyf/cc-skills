@@ -576,7 +576,7 @@ func TestAMajorWhoseCitesNameNoChangedLineAndACensusFindingGoToTheCensusFile(t *
 func TestAFindingAPortsSourceSharesIsOwedAsAFollowUpAndHoldsNothing(t *testing.T) {
 	shared := "follow-up: #49412 go/client.go:88 drops the marker the same way"
 	cite := "go/sand/internal/replica/follow.go:41"
-	owed := "; follow-ups owed after this port, since its source has them too: " + cite + " #49412 go/client.go:88 drops the marker the same way"
+	owed := "; follow-ups owed after this port: " + cite + " #49412 go/client.go:88 drops the marker the same way"
 	for name, tc := range map[string]struct {
 		body     string
 		findings []map[string]any
@@ -1252,6 +1252,80 @@ func TestACarriedSecondFixMajorIsReadAgainstTheBodyAsItStandsNow(t *testing.T) {
 			equal(t, len(shell.asks()), 0)
 			equal(t, shell.posted[0]["--text"], fmt.Sprintf(c.want, shaHead[:7]))
 			equal(t, shell.posted[0]["--id"], "finder:"+repoName+"#43299:"+shaHead+c.id)
+		})
+	}
+}
+
+func TestAPortOwesItsSecondFixAsAFollowUpAndAnyOtherBodyKeepsTheMajor(t *testing.T) {
+	cite := "go/sand/internal/replica/follow.go:40"
+	owed := "follow-ups owed after this port: " + cite + " " + classFixOwed + ". #47001 ("
+	own := "the next tree's wiring drops the marker"
+	for name, tc := range map[string]struct {
+		body     string
+		findings []map[string]any
+		want     string
+	}{
+		"a port grades ok and names the follow-up": {
+			"port of #49412\n\n" + summaryBody,
+			nil,
+			"finder: ok " + shaHead + " sol finder " + wholeRecord + ": no majors; " + owed,
+		},
+		"a port's own defect still holds it, beside the follow-up": {
+			"port of #49412\n\n" + summaryBody,
+			[]map[string]any{findingOf("major", cite, own)},
+			"finder: major " + shaHead + " 1 open " + wholeRecord + ": " + cite + " " + own + "; " + owed,
+		},
+		"a body that only mentions a port keeps the major": {
+			summaryBody + "\n\nport of #49412",
+			nil,
+			"finder: major " + shaHead + " 1 open " + wholeRecord + ": " + cite + " " + secondFix + ".",
+		},
+		"the port's follow-up PR keeps the major": {
+			"follow-up to port of #49412\n\n" + summaryBody,
+			nil,
+			"finder: major " + shaHead + " 1 open " + wholeRecord + ": " + cite + " " + secondFix + ".",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := finderJobDir(t, nil)
+			shell, repo := newFinderFake(t, replyOf(tc.findings...))
+			shell.title, shell.body = fixTitle, tc.body
+			registered(t, shell)
+			repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
+			mustFinder(t, directory, shell)
+			if !strings.HasPrefix(shell.posted[0]["--text"], tc.want) {
+				t.Errorf("posted %q, want the prefix %q", shell.posted[0]["--text"], tc.want)
+			}
+		})
+	}
+}
+
+func TestACarriedGradeOnAPortClearsOnlyASecondFixThatWasItsOneMajor(t *testing.T) {
+	fixes := ". #43100 (sand: 🐛 the replica follows) fixed go/sand/internal/replica/follow.go"
+	cite := "go/sand/internal/replica/follow.go:40"
+	whole := "finder: major a269784 1 open over whole 4be7a52^..a269784: " + cite + " "
+	port := "port of #49412\n\n" + summaryBody
+	classLine := "port of #49412\n\nThe class: a resubscribe that reads its position twice. This fix removes it, since one owner holds the position."
+	cleared := "finder: ok " + shaHead[:7] + " carried from #149302, whose one major, the second fix, stands as a follow-up owed after this port: " + classFixOwed + fixes
+	held := "finder: major " + shaHead[:7] + " carried from #149302"
+	for name, c := range map[string]struct {
+		graded, body, want string
+	}{
+		"a second fix on a body that opens as a port":                     {whole + secondFix + fixes, port, cleared},
+		"a second fix on a body that only mentions a port":                {whole + secondFix + fixes, summaryBody + "\n\nport of #49412", held},
+		"an own major beside a second fix already owed as a follow-up":    {whole + "the wiring drops the marker; follow-ups owed after this port: " + cite + " " + classFixOwed + fixes, port, held},
+		"an own major beside an owed follow-up, on a body naming a class": {whole + "the wiring drops the marker; follow-ups owed after this port: " + cite + " " + classFixOwed + fixes, classLine, held},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := finderJobDir(t, map[string]any{"prior": map[string]any{"seq": 149302, "lane": "finder-desk", "head": "a269784", "text": c.graded}})
+			shell, repo := newFinderFake(t)
+			shell.title, shell.body = fixTitle, c.body
+			repo.own[shaBase+".."+shaOld] = []string{shaOldOwn}
+			repo.resolved = map[string]string{"a269784": shaOld}
+			repo.ranges = map[string]string{earlierRange: pairLines("=", "=")}
+			mustFinder(t, directory, shell)
+			equal(t, len(shell.asks()), 0)
+			equal(t, shell.posted[0]["--text"], c.want)
 		})
 	}
 }

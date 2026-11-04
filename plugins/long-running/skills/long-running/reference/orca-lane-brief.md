@@ -456,7 +456,9 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   A `## Body addendum` that answers a second-fix major by naming the class the fix
   removes posts one `head` record at the unchanged sha, `--head <pr>=<sha>`, with the
   note `body edit`: the finder reads the body again against that head's major, with no
-  new codex pass, and posts `finder: ok` when the second fix was its one major.
+  new codex pass, and posts `finder: ok` when the second fix was its one major. A port names no
+  class: a body that opens `port of #<n>` draws no second-fix major, and the class fix is a
+  follow-up its `finder: ok` lists.
 
 Escalate early, never improvise: scope surprise, an assumption the code refutes, an
 auth or approval gate, or two failed approaches. Ask with 2-4 options.
