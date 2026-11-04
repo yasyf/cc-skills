@@ -194,22 +194,26 @@ job=$!
     sleep 0.2
   done
   exit 1' sh "$dir"
-forwarded=
-ticks=0
-while kill -0 "$job" 2>/dev/null; do
-  if [ -z "$forwarded" ] && [ -e "$dir/cancelled" ]; then
-    sprite exec -s "$sprite" -- sh -c 'cat >"$1/cancelled"; for run in "$1"/codex-*; do [ -e "$run" ] && codex-ask --cancel "$run"; done; true' sh "$dir" <"$dir/cancelled" || true
-    forwarded=1
-  fi
-  if [ "$ticks" -eq 0 ]; then
-    refresh_gh_token &
-    ticks=24
-  fi
-  ticks=$((ticks - 1))
-  sleep 10
-done
+(
+  forwarded=
+  ticks=0
+  while kill -0 "$job" 2>/dev/null; do
+    if [ -z "$forwarded" ] && [ -e "$dir/cancelled" ]; then
+      sprite exec -s "$sprite" -- sh -c 'cat >"$1/cancelled"; for run in "$1"/codex-*; do [ -e "$run" ] && codex-ask --cancel "$run"; done; true' sh "$dir" <"$dir/cancelled" || true
+      forwarded=1
+    fi
+    if [ "$ticks" -eq 0 ]; then
+      refresh_gh_token &
+      ticks=4
+    fi
+    ticks=$((ticks - 1))
+    sleep 60 </dev/null >/dev/null 2>&1
+  done
+) &
+tender=$!
 status=0
 wait "$job" || status=$?
+kill "$tender" 2>/dev/null || true
 sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./result.json | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir" || true
 sprite exec -s "$sprite" --no-stdin -- cat "$dir/result.json" | python3 "$results" adopt "$dir"
 no_result "$status"

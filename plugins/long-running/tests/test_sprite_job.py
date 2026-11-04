@@ -50,6 +50,25 @@ def plugin_with_job(mac: Path, job: str) -> Path:
     return scripts / "sprite-job.sh"
 
 
+def test_a_finished_job_returns_without_waiting_out_the_tender_sleep(tmp_path: Path) -> None:
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45682-c051a2816b25", mac / "config"
+    job_script, grader = plugin_with_job(mac, RESTARTED_JOB), "finder"
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", '#!/bin/sh\n[ "$1" = 60 ] && exec /bin/sleep 300\nexec /bin/sleep 0.05\n')
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    subprocess.run(["sh", str(job_script), "vet4", grader, str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+
+
 @pytest.mark.parametrize("relay", ["#!/bin/sh\n", "#!/bin/sh\necho 'cci: database is locked (5) (SQLITE_BUSY)' >&2\nexit 1\n"], ids=["relay-pushes", "relay-locked"])
 def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite_restart_left(tmp_path: Path, relay: str) -> None:
     """Coordinator #220372, #220831: a Sprite restart emptied its copies of a job's files and three loose refs, the copy back emptied job.json and pid here, and every fetch on the Sprite read the zero object. Coordinator #222905: a relay push that failed on SQLITE_BUSY exited before result.json came back, so the runner never settled the pass."""
