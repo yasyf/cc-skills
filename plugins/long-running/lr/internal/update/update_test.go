@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const testDrive = "d1"
@@ -244,6 +244,7 @@ func inputs(t *testing.T) Inputs {
 		Drive:   testDrive,
 		Now:     now,
 		Book:    book,
+		PRRows:  []store.ReviewRow{{Number: 48401, Lane: "ship-2", Title: "journal readers move to the sealed format", Head: "abc", State: "open"}},
 		Held:    map[string]int64{},
 		Lanes:   []Lane{ship, heard("quiet-9", "desired", 30*60)},
 		Records: []Record{record(5, "ship-2", "report", "readers ported", 10)},
