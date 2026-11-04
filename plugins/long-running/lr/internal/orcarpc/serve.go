@@ -49,6 +49,9 @@ func (c *Client) Serve(ctx context.Context, args []string) (Served, bool) {
 	if !ok {
 		return Served{}, false
 	}
+	if in.has(flagEnvironment) {
+		return c.serveRemote(ctx, in.flags[flagEnvironment], spec, in, request)
+	}
 	conn, err := c.Dial(ctx)
 	if err != nil {
 		return Served{}, false

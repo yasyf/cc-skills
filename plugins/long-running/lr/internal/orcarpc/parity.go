@@ -11,7 +11,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
-const parityAttempts = 3
+const (
+	parityAttempts     = 3
+	parityEnvironments = 3
+)
 
 var errParityDiffers = errors.New("orcarpc parity: output differs")
 
@@ -54,6 +57,7 @@ func parityForms(ctx context.Context, client *Client) ([][]string, error) {
 			[]string{"orchestration", "check", "--terminal", handle, "--peek", "--full", "--json"},
 		)
 	}
+	forms = append(forms, remoteParityForms(ctx, client)...)
 	conn, err := client.Dial(ctx)
 	if err != nil {
 		return nil, err
@@ -92,6 +96,29 @@ func parityForms(ctx context.Context, client *Client) ([][]string, error) {
 		}
 	}
 	return forms, nil
+}
+
+func remoteParityForms(ctx context.Context, client *Client) [][]string {
+	for _, name := range client.recentEnvironments(parityEnvironments) {
+		form := []string{"terminal", "list", "--limit", "1", "--environment", name, "--json"}
+		listed, ok := client.Serve(ctx, form)
+		if !ok || listed.Code != 0 {
+			continue
+		}
+		var terminals struct {
+			Result struct {
+				Terminals []struct {
+					Handle string `json:"handle"`
+				} `json:"terminals"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(listed.Stdout, &terminals) != nil || len(terminals.Result.Terminals) == 0 {
+			continue
+		}
+		handle := terminals.Result.Terminals[0].Handle
+		return [][]string{form, {"terminal", "read", "--terminal", handle, "--screen", "--environment", name, "--json"}}
+	}
+	return nil
 }
 
 func (c *Client) parityOf(ctx context.Context, cli shell.Runner, form []string) error {

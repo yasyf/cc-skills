@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,7 +20,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"golang.org/x/crypto/nacl/box"
 )
 
 type frame struct {
@@ -439,5 +445,190 @@ func TestRenderMatchesCLIShape(t *testing.T) {
 	want := "{\n  \"id\": \"a\",\n  \"ok\": true,\n  \"result\": {\n    \"s\": \"<&>\",\n    \"e\": [],\n    \"o\": {}\n  },\n  \"_meta\": {\n    \"runtimeId\": \"rt\"\n  }\n}\n"
 	if string(out) != want {
 		t.Fatalf("got %s", out)
+	}
+}
+
+type fakeHost struct {
+	key       [boxKeyBytes]byte
+	runtimeID string
+	token     string
+	answer    func(remoteRequest) string
+}
+
+func (h *fakeHost) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	socket, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer func() { _ = socket.CloseNow() }()
+	ctx := r.Context()
+	_, raw, err := socket.Read(ctx)
+	if err != nil {
+		return
+	}
+	var hello struct {
+		Public string `json:"publicKeyB64"`
+	}
+	if json.Unmarshal(raw, &hello) != nil {
+		return
+	}
+	peer, err := base64.StdEncoding.DecodeString(hello.Public)
+	if err != nil {
+		return
+	}
+	channel := remoteConn{socket: socket}
+	box.Precompute(&channel.key, (*[boxKeyBytes]byte)(peer), &h.key)
+	if socket.Write(ctx, websocket.MessageText, []byte(`{"type":"e2ee_ready"}`)) != nil {
+		return
+	}
+	opened, err := channel.readSealed(ctx)
+	if err != nil {
+		return
+	}
+	var auth struct {
+		Token string `json:"deviceToken"`
+	}
+	if json.Unmarshal(opened, &auth) != nil || auth.Token != h.token {
+		_ = channel.writeSealed(ctx, []byte(`{"type":"e2ee_error","errorCode":"unauthorized"}`))
+		return
+	}
+	if channel.writeSealed(ctx, []byte(`{"type":"e2ee_authenticated"}`)) != nil {
+		return
+	}
+	for {
+		opened, err := channel.readSealed(ctx)
+		if err != nil {
+			return
+		}
+		var request remoteRequest
+		if json.Unmarshal(opened, &request) != nil {
+			return
+		}
+		result := h.answer(request)
+		if request.Method == "status.get" {
+			result = fmt.Sprintf(`{"runtimeId":%q,"runtimeProtocolVersion":3,"minCompatibleRuntimeClientVersion":2}`, h.runtimeID)
+		}
+		if channel.writeSealed(ctx, []byte(`{"_keepalive":true}`)) != nil {
+			return
+		}
+		frame := fmt.Sprintf(`{"id":%q,"ok":true,"result":%s,"_meta":{"runtimeId":%q}}`, request.ID, result, h.runtimeID)
+		if strings.HasPrefix(result, `{"id"`) {
+			frame = strings.Replace(result, "REQUEST", request.ID, 1)
+		}
+		if channel.writeSealed(ctx, []byte(frame)) != nil {
+			return
+		}
+	}
+}
+
+func pairedClient(t *testing.T, storedRuntime, deviceToken string, answer func(remoteRequest) string) *Client {
+	t.Helper()
+	public, secret, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(&fakeHost{key: *secret, runtimeID: "rt-remote", token: "device", answer: answer})
+	t.Cleanup(server.Close)
+	dir := t.TempDir()
+	store, err := json.Marshal(map[string]any{"environments": []storedEnvironment{{
+		ID: "env-id", Name: "box", RuntimeID: storedRuntime, Preferred: "ws", Endpoints: []storedEndpoint{{
+			ID: "ws", Kind: "websocket", Endpoint: "ws" + strings.TrimPrefix(server.URL, "http"), DeviceToken: deviceToken, PublicKey: base64.StdEncoding.EncodeToString(public[:]),
+		}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, environmentStore), store, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return &Client{UserData: dir, Getenv: func(string) string { return "" }, Timeout: 5 * time.Second}
+}
+
+func TestRemoteReadGoesOverTheSealedChannel(t *testing.T) {
+	var mu sync.Mutex
+	var sent []remoteRequest
+	client := pairedClient(t, "rt-remote", "device", func(request remoteRequest) string {
+		mu.Lock()
+		defer mu.Unlock()
+		sent = append(sent, request)
+		return `{"terminal":{"source":"screen"}}`
+	})
+	reply := served(t, client, "terminal", "read", "--terminal", "t", "--screen", "--environment", "box", "--json")
+	if reply.Code != 0 || !strings.Contains(string(reply.Stdout), `"source": "screen"`) {
+		t.Fatalf("reply = %+v", reply)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	last := sent[len(sent)-1]
+	if sent[0].Method != "status.get" || last.Method != "terminal.read" || last.DeviceToken != "device" {
+		t.Fatalf("sent = %+v", sent)
+	}
+}
+
+func TestRemoteLeavesToTheCLI(t *testing.T) {
+	answer := func(remoteRequest) string { return `{"terminal":{"source":"screen"}}` }
+	args := []string{"terminal", "read", "--terminal", "t", "--screen", "--environment", "box", "--json"}
+	for name, client := range map[string]*Client{
+		"rejected token":  pairedClient(t, "rt-remote", "wrong", answer),
+		"changed runtime": pairedClient(t, "rt-older", "device", answer),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, handled := client.Serve(context.Background(), args); handled {
+				t.Fatal("served")
+			}
+		})
+	}
+	client := pairedClient(t, "rt-remote", "device", answer)
+	for _, other := range [][]string{
+		{"terminal", "read", "--terminal", "t", "--environment", "unknown", "--json"},
+		{"orchestration", "worker-show", "--dispatch", "d", "--environment", "box", "--full", "--json"},
+		{"status", "--environment", "box", "--json"},
+	} {
+		if _, handled := client.Serve(context.Background(), other); handled {
+			t.Errorf("%v was served", other)
+		}
+	}
+}
+
+func TestRemoteRefusals(t *testing.T) {
+	refusing := func(code string) func(remoteRequest) string {
+		return func(remoteRequest) string {
+			return fmt.Sprintf(`{"id":"REQUEST","ok":false,"error":{"code":%q,"message":"no"},"_meta":{"runtimeId":"rt-remote"}}`, code)
+		}
+	}
+	args := []string{"terminal", "show", "--terminal", "t", "--environment", "box", "--json"}
+	reply := served(t, pairedClient(t, "rt-remote", "device", refusing("terminal_handle_stale")), args...)
+	if reply.Code != 1 || !strings.Contains(string(reply.Stdout), `"code": "terminal_handle_stale"`) {
+		t.Fatalf("reply = %+v", reply)
+	}
+	if _, handled := pairedClient(t, "rt-remote", "device", refusing("invalid_argument")).Serve(context.Background(), args); handled {
+		t.Fatal("a refusal the CLI adds to was served")
+	}
+}
+
+func TestDownHostAnswersLikeTheCLI(t *testing.T) {
+	client := pairedClient(t, "rt-remote", "device", nil)
+	environments, err := client.environments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	environments[0].Endpoints[0].Endpoint = "ws://127.0.0.1:1"
+	store, err := json.Marshal(map[string]any{"environments": environments})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(client.UserData, environmentStore), store, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reply := served(t, client, "terminal", "show", "--terminal", "t", "--environment", "box", "--json")
+	var printed struct {
+		ID    string   `json:"id"`
+		Error RPCError `json:"error"`
+	}
+	if err := json.Unmarshal(reply.Stdout, &printed); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != 1 || printed.ID != "local" || printed.Error.Code != "remote_runtime_unavailable" || printed.Error.Message != connectFailure+"." {
+		t.Fatalf("reply = %s", reply.Stdout)
 	}
 }
