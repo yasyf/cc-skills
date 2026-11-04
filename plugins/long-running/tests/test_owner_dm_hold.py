@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 from captain_hook.events import PostToolUseEvent, StopEvent, UserPromptSubmitEvent
 from fire import fire
-from hooks import owner_returns
+from hooks import owner_messages_get_eyes, owner_returns
 from hooks.compaction_handoff import CompactionState
 from test_register_capture import SESSION, root, slack_message  # noqa: F401
 
@@ -129,5 +129,40 @@ def test_a_read_that_raises_adds_no_nudge_and_no_blocker(root):  # noqa: F811
 
     messages = [result.message for result in fired(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))]
 
-    assert not any("with no ack" in (message or "") for message in messages)
+    assert not any("with no thread reply" in (message or "") for message in messages)
     assert not blockers(root)
+
+
+def test_a_message_of_his_gets_eyes_once_at_first_read(root, shipped):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.queued(slack_message(), "2026-10-28T03:53:26.695Z")
+    event = root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+
+    with mock.patch.object(subprocess, "run", root.run):
+        fire(owner_messages_get_eyes, event)
+        fire(owner_messages_get_eyes, event)
+
+    reacted = [call for call in root.calls if call[:2] == (shipped, "react")]
+    assert len(reacted) == 1
+    assert reacted[0][-2:] == ("--name", "eyes")
+
+
+def test_a_bots_message_gets_no_eyes(root, shipped):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.queued(slack_message(from_claude=True), "2026-10-28T03:53:26.695Z")
+
+    with mock.patch.object(subprocess, "run", root.run):
+        fire(owner_messages_get_eyes, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
+
+    assert not [call for call in root.calls if call[:2] == (shipped, "react")]
+
+
+def test_a_stop_is_refused_while_the_owner_watch_is_down(root, shipped):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.routes[(shipped, "dm-owed")] = json.dumps({"replies": [], "holder_session": SESSION})
+
+    down = [result.message for result in fired(root, root.event(StopEvent))]
+    up = [result.message for result in fired(root, root.event(StopEvent, background_tasks=owner_returns.WATCHING))]
+
+    assert any("`lr owner watch`" in (message or "") for message in down)
+    assert not any("`lr owner watch`" in (message or "") for message in up)

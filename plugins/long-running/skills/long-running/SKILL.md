@@ -149,9 +149,9 @@ and a stop that leaves the pick inline. Its session
 holds the owner's DM: `owner_returns.py` arms a channel watch on the DM at session start
 and on each prompt, so his reply in a DM thread reaches it as well as the lane that
 posted there, and refuses a stop while `cc-slack dm-owed` lists a reply nobody has
-answered in its thread. A reply in the thread of a card another live session posted
+answered in its thread; for a message in a thread a ledger mark, a lane or a Monitor does not count, and its own standing Monitor on `lr owner watch` must be running too, so an idle window wakes on his message and `:eyes:` lands the moment it arrives ([communicator-brief.md](reference/communicator-brief.md#his-slack-messages)). A reply in the thread of a card another live session posted
 reaches only that session, and this one neither sees nor owes it. One session holds the DM at a time: while another live session
-holds it, this one takes no watch and owes no replies. A reply unacked after 30 seconds adds one line to its next tool result. `register_capture.py` posts each such reply once as an `owner`
+holds it, this one takes no watch and owes no replies. A message with no thread reply after 30 seconds adds one line to its next tool result. `register_capture.py` posts each such reply once as an `owner`
 record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words. A reply under another session's card goes to that session, never to a lane of this drive ([communicator-brief.md](reference/communicator-brief.md#his-replies-under-another-sessions-card)). It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
@@ -475,7 +475,7 @@ one refusal prints all of them.
 
 ## The owner's surfaces
 
-A line to him that names something breaking names the plan to fix it beside it, and a card option is never drawn with a loss and no fix.
+A line to him that names something breaking names the plan to fix it beside it, and a card option is never drawn with a loss and no fix. A change to anything he sees, a card, status line, board row, Slack post or dashboard, is designed for how he reads and taps it on his phone before it ships; the fastest edit is not the bar. A bare link where he expects a preview is a defect.
 
 Every PR goes to the owner. A PR that is green, approved and graded at its head
 reaches his tap card within one runner pass and lands on his tap; only the classes

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	his      = `{"type":"slack.message","channel_id":"D0B6Z","thread_ts":"1.0","ts":"1.1","user":"U1","from_claude":false,"text":"why no reply"}`
+	hisEvent = `{"type":"slack.message","channel_id":"D0B6Z","thread_ts":"1.0","ts":"1.1","user":"U1","from_claude":false,"text":"why no reply"}`
 	bot      = `{"type":"slack.message","channel_id":"D0B6Z","thread_ts":"1.0","ts":"1.2","user":"","from_claude":true,"text":"a lane's card"}`
 	asClaude = `{"type":"slack.message","channel_id":"D0B6Z","thread_ts":"1.0","ts":"1.5","user":"U1","from_claude":false,"text":"_(Yasyf's Claude)_ sent through his login"}`
 	someone  = `{"type":"slack.message","channel_id":"C1","thread_ts":"1.0","ts":"1.3","user":"U2","from_claude":false,"text":"a teammate"}`
@@ -56,7 +56,7 @@ func reactions(fake *shelltest.Fake) [][]string {
 }
 
 func TestHisMessageGetsEyesBeforeItWakesTheWindow(t *testing.T) {
-	runner := watched(his)
+	runner := watched(hisEvent)
 	var out bytes.Buffer
 
 	if err := watch(context.Background(), runner, &out); err != nil {
@@ -67,7 +67,7 @@ func TestHisMessageGetsEyesBeforeItWakesTheWindow(t *testing.T) {
 	if got := reactions(runner.Fake); !slices.EqualFunc(got, want, slices.Equal[[]string]) {
 		t.Fatalf("reactions = %q, want eyes on his message", got)
 	}
-	if out.String() != his+"\n" {
+	if out.String() != hisEvent+"\n" {
 		t.Fatalf("printed %q, want his event", out.String())
 	}
 }
@@ -94,17 +94,17 @@ func TestAFailedReactionStillDeliversHisMessage(t *testing.T) {
 	fake.Fail(1, "channel_not_found", "cc-slack", "react")
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{his}}, &out); err != nil {
+	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{hisEvent}}, &out); err != nil {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(out.String(), "eyes did not land on his message 1.1") || !strings.Contains(out.String(), his) {
+	if !strings.Contains(out.String(), "eyes did not land on his message 1.1") || !strings.Contains(out.String(), hisEvent) {
 		t.Fatalf("printed %q, want the failure and his message", out.String())
 	}
 }
 
 func TestAWatchThatDiesEndsTheMonitorWithItsCause(t *testing.T) {
-	runner := watched(his)
+	runner := watched(hisEvent)
 	runner.ended = errors.New("daemon gone")
 
 	err := watch(context.Background(), runner, io.Discard)

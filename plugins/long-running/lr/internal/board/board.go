@@ -123,7 +123,10 @@ func Answer(s *store.Store, repo string, hooks Hooks, row Row, verdict string, a
 			if _, err := s.PutFact(repo, row.PR, row.Head, bus.TapRefusedFact, refusal, at); err != nil {
 				return err
 			}
-			return hooks.Refuse(tap, refusal)
+			if err := hooks.Refuse(tap, refusal); err != nil {
+				return err
+			}
+			return fmt.Errorf("#%d: %s", row.PR, refusal)
 		}
 		if _, err := s.PutFact(repo, row.PR, row.Head, tapFact, string(machine.TapTapped), at); err != nil {
 			return err

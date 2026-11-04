@@ -305,6 +305,9 @@ the brief, the plan, and the owner's answers do not settle stops that item until
 coordinator answers the ask above; never take a default or a provisional pick (owner
 answers 01736af and 752564a).
 
+A change to anything the owner sees (card, status line, board row, Slack post,
+dashboard) is designed for how he reads and taps it on his phone before it ships; the
+fastest edit is not the bar.
 A question the plan or a recorded owner ruling already answers is not a question:
 apply the answer, cite it, and never put it in an ask or in an owner-question list.
 An owner-question list you write marks, for every item, which authorities you checked
