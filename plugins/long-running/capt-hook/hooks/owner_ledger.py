@@ -4,6 +4,7 @@ import fcntl
 import logging
 import re
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -47,6 +48,8 @@ RULINGS = "root/rulings/*.md"
 LR = Path(__file__).parents[2] / "bin" / "lr"
 AUDIT = f"{LR} owner audit --drive brook-drive"
 AUDIT_SECONDS = 60
+ANSWER_ATTEMPTS = 3
+ANSWER_RETRY_SECONDS = 20
 CARRY = "Every order below is still owed, and a reply or a route does not close one. Carry each into the summary by its row id.\n\n```\n{orders}\n```"
 REREAD = "You just compacted as the communicator. Run `lr owner audit --drive {drive}` before any other search: every order it prints is still owed."
 MARK = "`mcp__plugin_long-running_lr__owner_mark` with `row` {row} and `state` responded, addressed or due, plus `routed`, `reply` or `by` when they apply,"
@@ -68,7 +71,7 @@ class LedgeredDms(WorkflowState):
 @workflow_state("long_running_owner_turn")
 class TurnRows(WorkflowState):
     rows: list[str] = []
-    answer_at: str | None = None
+    answers_owed: list[dict] = []
 
 
 def ledger_of(entry: dict) -> Path:
@@ -134,10 +137,24 @@ def post_owner_row(entry: dict, row: str, text: str) -> None:
     subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
 
 
-def add_answer(evt: BaseHookEvent, at: datetime) -> None:
-    labels = (OWNER_ANSWER, f"program:{CompactionState.load(evt).slug}", message_label(evt))
-    title = ANSWER_TITLE.format(at=at.astimezone(PACIFIC).strftime(ROW_TIME))
-    answers(evt, "add", *(f"--label={label}" for label in labels), f"--body={CREDENTIAL.sub(REDACTED, ruling_body(evt))}", "--", title)
+def owed_answer(evt: BaseHookEvent, at: datetime) -> dict:
+    return {
+        "labels": [OWNER_ANSWER, f"program:{CompactionState.load(evt).slug}", message_label(evt)],
+        "title": ANSWER_TITLE.format(at=at.astimezone(PACIFIC).strftime(ROW_TIME)),
+        "body": CREDENTIAL.sub(REDACTED, ruling_body(evt)),
+    }
+
+
+def land_answer_on_notes(evt: BaseHookEvent, owed: dict) -> None:
+    for attempt in range(ANSWER_ATTEMPTS):
+        try:
+            if not answers(evt, "list", "--label", owed["labels"][-1], "--limit", "1"):
+                answers(evt, "add", *(f"--label={label}" for label in owed["labels"]), f"--body={owed['body']}", "--", owed["title"])
+            return
+        except subprocess.SubprocessError:
+            if attempt == ANSWER_ATTEMPTS - 1:
+                raise
+            time.sleep(ANSWER_RETRY_SECONDS)
 
 
 def past_due(state: str) -> bool:
@@ -171,7 +188,7 @@ def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
     ids = [row for row, _ in rows]
     with TurnRows.mutate(evt) as turn:
         turn.rows = ids
-        turn.answer_at = at.isoformat()
+        turn.answers_owed.append(owed_answer(evt, at))
     return evt.context(NEW_ROW.format(rows=", ".join(f"`{row}`" for row in ids), row=ids[0] if len(ids) == 1 else "<row>"))
 
 
@@ -186,10 +203,10 @@ def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
     }),
 )
 def record_owner_answer(evt: BaseHookEvent) -> None:
-    with TurnRows.mutate(evt) as turn:
-        owed, turn.answer_at = turn.answer_at, None
-    if owed and not answers(evt, "list", "--label", message_label(evt), "--limit", "1"):
-        add_answer(evt, datetime.fromisoformat(owed))
+    for owed in TurnRows.load(evt).answers_owed:
+        land_answer_on_notes(evt, owed)
+        with TurnRows.mutate(evt) as turn:
+            turn.answers_owed.remove(owed)
 
 
 @on(

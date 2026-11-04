@@ -319,7 +319,34 @@ def test_a_stalled_ccn_never_holds_the_owner_prompt(communicator: Window, bus: B
     assert owner_ledger.add_owner_message(evt) is not None
 
     assert len(communicator.rows()) == len(bus.posts()) == 1
-    assert owner_ledger.TurnRows.load(evt).answer_at
+    assert len(owner_ledger.TurnRows.load(evt).answers_owed) == 1
+
+
+def test_a_stalled_ccn_retries_the_answer_and_a_later_prompt_lands_what_is_still_owed(
+    communicator: Window, notes: Notes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def stalled(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        raise subprocess.TimeoutExpired("ccn", 20)
+
+    monkeypatch.setattr(owner_ledger, "ANSWER_RETRY_SECONDS", 0)
+    monkeypatch.setattr(root_context, "ccn", stalled)
+    evt = communicator.event(UserPromptSubmitEvent, prompt="hook should just do it for you")
+    owner_ledger.add_owner_message(evt)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        owner_ledger.record_owner_answer(evt)
+
+    assert len(calls) == owner_ledger.ANSWER_ATTEMPTS
+    assert len(owner_ledger.TurnRows.load(evt).answers_owed) == 1
+
+    monkeypatch.setattr(root_context, "ccn", notes)
+    owner_ledger.record_owner_answer(evt)
+
+    assert len(notes.added) == 1
+    assert owner_ledger.TurnRows.load(evt).answers_owed == []
 
 
 def test_a_repeat_delivery_of_one_prompt_records_nothing(communicator: Window, bus: Bus, notes: Notes) -> None:
