@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 )
@@ -15,12 +16,13 @@ const (
 	lineChars     = 160
 	deliveredAttr = "delivered"
 	Open          = "open"
+	Late          = "late"
 	InProgress    = "in progress"
 	Parked        = "parked"
 )
 
 var (
-	ledgerRow  = regexp.MustCompile(`(?m)^\| (m\d+(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order) \|$`)
+	ledgerRow  = regexp.MustCompile(`(?m)^\| (m\d+(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order|due [^|]*) \|$`)
 	orderToken = regexp.MustCompile(`\bowner:(m\d+(?:\.\d+)?)\b`)
 	sentence   = regexp.MustCompile(`[^.!?\n]+`)
 	imperative = regexp.MustCompile(`(?i)^\W*(?:(?:also|and|but|ok|so|now|then|please)\W+)*(?:add|build|bring|change|check|close|consider|cut|delete|design|dig|drop|explain|figure|find|fix|get|give|keep|land|let|make|merge|move|mute|put|raise|redesign|release|remove|restore|run|send|ship|show|spin|start|stop|switch|tell|turn|use|write)\b`)
@@ -86,6 +88,8 @@ func (r Row) Line() string {
 		text = strings.TrimSpace(string(runes[:lineChars])) + "…"
 	}
 	switch r.Status {
+	case Late:
+		return fmt.Sprintf("%s %s: %s [PAST %s]", r.ID, r.At, text, strings.ToUpper(r.State))
 	case Parked:
 		return fmt.Sprintf("%s %s: %s [parked: %s; last lane %s]", r.ID, r.At, text, r.Hold, r.Lane)
 	case InProgress:
@@ -167,6 +171,30 @@ func holdOf(text string) string {
 		}
 	}
 	return ""
+}
+
+// PastDue returns the rows whose promised clock has passed, oldest promise first, whatever a lane or a record says about them.
+func PastDue(rows []Row, now time.Time) []Row {
+	var late []Row
+	for _, row := range rows {
+		if at, promised := row.dueAt(now); promised && !at.After(now) {
+			row.Status = Late
+			late = append(late, row)
+		}
+	}
+	return late
+}
+
+func (r Row) dueAt(now time.Time) (time.Time, bool) {
+	clock, promised := strings.CutPrefix(r.State, duePrefix)
+	if !promised {
+		return time.Time{}, false
+	}
+	at, err := time.ParseInLocation(rowTime, clock, pacific)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.Date(now.In(pacific).Year(), at.Month(), at.Day(), at.Hour(), at.Minute(), 0, 0, pacific), true
 }
 
 func Only(rows []Row, status string) []Row {

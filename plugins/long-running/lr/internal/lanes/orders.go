@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
@@ -46,7 +47,11 @@ func OpenOrders(ctx context.Context, bus Bus, s *store.Store, drive, repo, state
 	if err != nil {
 		return nil, fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
 	}
-	return owner.Undelivered(owner.Parse(ledger), carriers, proofs), nil
+	parsed := owner.Parse(ledger)
+	late := owner.PastDue(parsed, time.Now())
+	return append(late, slices.DeleteFunc(owner.Undelivered(parsed, carriers, proofs), func(order owner.Row) bool {
+		return slices.ContainsFunc(late, func(row owner.Row) bool { return row.ID == order.ID })
+	})...), nil
 }
 
 func AuditCommand() *cobra.Command {

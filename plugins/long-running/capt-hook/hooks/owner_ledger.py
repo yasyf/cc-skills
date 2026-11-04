@@ -21,7 +21,7 @@ LEDGER_DIR = "owner-relay"
 LEDGER = "owner-ledger.md"
 LOCK = ".owner-ledger.lock"
 HEADER = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
-ROW = re.compile(r"^\| (m(\d+)(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order) \|$", re.MULTILINE)
+ROW = re.compile(r"^\| (m(\d+)(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order|due [^|]*) \|$", re.MULTILINE)
 PARAGRAPH = re.compile(r"\n\s*\n")
 AFTER_QUESTION = re.compile(r"(?<=\?)\s+")
 BEFORE_ALSO = re.compile(
@@ -34,6 +34,7 @@ CLAUSE = re.compile(r"\s*[,;]\s*")
 ASK_WORDS = 4
 MOST_ASKS = 6
 ROW_TIME = "%b %-d %-I:%M %p"
+DUE = "due "
 SHOWN = 120
 OWNER_ANSWER = "from:owner"
 ANSWER_TITLE = "What did the owner say at {at}?"
@@ -120,9 +121,14 @@ def add_answer(evt: BaseHookEvent, at: datetime) -> None:
     answers(evt, "add", *(f"--label={label}" for label in labels), f"--body={CREDENTIAL.sub(REDACTED, ruling_body(evt))}", "--", title)
 
 
+def past_due(state: str) -> bool:
+    now = datetime.now(PACIFIC)
+    return state.startswith(DUE) and datetime.strptime(f"{now.year} {state.removeprefix(DUE)}", "%Y %b %d %I:%M %p").replace(tzinfo=PACIFIC) <= now
+
+
 def open_rows(path: Path) -> list[str]:
     ledger = path.read_text() if path.exists() else ""
-    return [f"{row} {at}: {text[:SHOWN]}" for row, _, at, text, state in ROW.findall(ledger) if state == "open"]
+    return [f"{row} {at}: {text[:SHOWN]}{f' [PAST {state}]' if state != 'open' else ''}" for row, _, at, text, state in ROW.findall(ledger) if state == "open" or past_due(state)]
 
 
 @on(

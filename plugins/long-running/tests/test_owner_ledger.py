@@ -176,6 +176,18 @@ def test_stop_with_an_open_row_refuses_naming_the_row_and_the_verb(communicator:
     assert "m1 Nov 2 8:05 PM: keep the nightly report" in result.message
 
 
+@pytest.mark.parametrize(("clock", "blocks"), [("Jan 1 12:00 AM", True), ("Dec 31 11:59 PM", False)])
+def test_a_due_row_ends_a_turn_until_its_clock_passes(communicator: Window, clock: str, blocks: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(owner_ledger, "past_due", lambda state: state == "due Jan 1 12:00 AM")
+    communicator.seed(owner_ledger.HEADER + f"| m1 | Nov 2 8:05 PM | the holistic update |  | due {clock} |\n")
+
+    results = communicator.stop()
+
+    assert bool(results) is blocks
+    if blocks:
+        assert "m1 Nov 2 8:05 PM: the holistic update [PAST due Jan 1 12:00 AM]" in results[0].message
+
+
 def test_the_marks_the_hooks_name_run_the_packs_own_lr() -> None:
     assert owner_ledger.LR == Path(__file__).parents[1] / "bin" / "lr"
     assert owner_ledger.LR.exists()

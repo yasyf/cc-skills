@@ -2,6 +2,7 @@ package owner
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,13 +23,19 @@ import (
 )
 
 const (
-	opened    = "open"
-	responded = "responded"
-	addressed = "addressed"
-	noOrder   = "no-order"
-	lockFile  = ".owner-ledger.lock"
-	header    = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
-	rowTime   = "Jan 2 3:04 PM"
+	opened     = "open"
+	responded  = "responded"
+	addressed  = "addressed"
+	noOrder    = "no-order"
+	dueState   = "due"
+	duePrefix  = dueState + " "
+	repliesDir = "replies"
+	lockFile   = ".owner-ledger.lock"
+	header     = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
+	rowTime    = "Jan 2 3:04 PM"
+	byTime     = "3:04 PM"
+
+	carriedChars = 1500
 
 	subscribeWait   = time.Minute
 	communicator    = "owner-relay"
@@ -41,10 +48,11 @@ const (
 var batchedKinds = []string{"report", "note", "answer", "done", "head", "state", "serving", "release", "evidence", "decision"}
 
 var (
-	rowID     = regexp.MustCompile(`(?m)^\| m(\d+)(?:\.\d+)? \|`)
-	rowState  = regexp.MustCompile(`(?m)^\| m\d+(?:\.\d+)? \| .* \| (open|responded|addressed|no-order) \|$`)
-	cellBreak = strings.NewReplacer("|", `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
-	pacific   = mustZone("America/Los_Angeles")
+	contentAsk = regexp.MustCompile(`(?i)\b(?:recap|report|summary|(?:up|ip)d\w{0,2}t\w?)\b`)
+	rowID      = regexp.MustCompile(`(?m)^\| m(\d+)(?:\.\d+)? \|`)
+	rowState   = regexp.MustCompile(`(?m)^\| m\d+(?:\.\d+)? \| .* \| (open|responded|addressed|no-order|due [^|]*) \|$`)
+	cellBreak  = strings.NewReplacer("|", `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
+	pacific    = mustZone("America/Los_Angeles")
 )
 
 func mustZone(name string) *time.Location {
@@ -115,7 +123,7 @@ func Mark(path, row, state string, routed int) error {
 		if err != nil {
 			return err
 		}
-		found := regexp.MustCompile(`(?m)^\| ` + regexp.QuoteMeta(row) + ` \| .* \| ([^|]*) \| (?:open|responded|addressed|no-order) \|$`).FindSubmatchIndex(ledger)
+		found := regexp.MustCompile(`(?m)^\| ` + regexp.QuoteMeta(row) + ` \| .* \| ([^|]*) \| (?:open|responded|addressed|no-order|due [^|]*) \|$`).FindSubmatchIndex(ledger)
 		if found == nil {
 			return fmt.Errorf("no row %s in %s", row, path)
 		}
@@ -130,6 +138,48 @@ func Mark(path, row, state string, routed int) error {
 		}
 		return os.Rename(staged, path)
 	})
+}
+
+func dueBy(by string, now time.Time) (string, error) {
+	clock, err := time.ParseInLocation(byTime, by, pacific)
+	if err != nil {
+		return "", fmt.Errorf("due needs --by with a clock such as 6:40 PM, not %q", by)
+	}
+	local := now.In(pacific)
+	at := time.Date(local.Year(), local.Month(), local.Day(), clock.Hour(), clock.Minute(), 0, 0, pacific)
+	if at.Before(local) {
+		return "", fmt.Errorf("--by %s has passed", by)
+	}
+	return duePrefix + at.Format(rowTime), nil
+}
+
+func carried(path, replies, row, reply string) error {
+	ledger, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(Parse(ledger), func(r Row) bool { return r.ID == row })
+	if i < 0 || !contentAsk.MatchString(Parse(ledger)[i].Text) {
+		return nil
+	}
+	refusal := fmt.Sprintf("%s asks for an update, recap or report, so responded needs --reply with the reply that carries it; until then mark it due --by <clock>", row)
+	if reply == "" {
+		return errors.New(refusal)
+	}
+	sent, err := os.ReadFile(filepath.Join(replies, reply+".json"))
+	if err != nil {
+		return fmt.Errorf("%s: %w", refusal, err)
+	}
+	var body struct {
+		MD string `json:"md"`
+	}
+	if err := json.Unmarshal(sent, &body); err != nil {
+		return err
+	}
+	if len(body.MD) < carriedChars {
+		return fmt.Errorf("%s; reply %s is %d characters, a promise rather than the content", refusal, reply, len(body.MD))
+	}
+	return nil
 }
 
 func Rows(path string, all bool) ([]string, error) {
@@ -150,23 +200,33 @@ func Rows(path string, all bool) ([]string, error) {
 }
 
 func Command(a *app.App) *cobra.Command {
-	var driveName, addState string
+	var driveName, addState, reply, by string
 	var routed, addRouted int
 	var listAll bool
 	owner := &cobra.Command{Use: "owner", Short: "The communicator's ledger of every owner message"}
 	owner.PersistentFlags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
 	mark := &cobra.Command{
-		Use:   "mark ROW responded|addressed|no-order",
+		Use:   "mark ROW responded|addressed|no-order|due",
 		Short: "Mark one ledger row, so the communicator's turn can end; no-order takes a question or remark off lr owner audit",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			row, state := args[0], args[1]
-			if state != responded && state != addressed && state != noOrder {
-				return fmt.Errorf("mark %s responded, addressed or no-order, not %s", row, state)
+			if state != responded && state != addressed && state != noOrder && state != dueState {
+				return fmt.Errorf("mark %s responded, addressed, no-order or due, not %s", row, state)
 			}
 			entry, err := drive.Named(driveName)
 			if err != nil {
 				return err
+			}
+			if state == dueState {
+				if state, err = dueBy(by, a.Now()); err != nil {
+					return fmt.Errorf("%s: %w", row, err)
+				}
+			}
+			if state == responded {
+				if err := carried(Ledger(entry.StateDir), filepath.Join(entry.StateDir, repliesDir), row, reply); err != nil {
+					return err
+				}
 			}
 			if err := Mark(Ledger(entry.StateDir), row, state, routed); err != nil {
 				return err
@@ -176,6 +236,8 @@ func Command(a *app.App) *cobra.Command {
 		},
 	}
 	mark.Flags().IntVar(&routed, "routed", 0, "the seq of the cci record that routed the message")
+	mark.Flags().StringVar(&reply, "reply", "", "the reply that carries what a row asking for an update, recap or report asked for")
+	mark.Flags().StringVar(&by, "by", "", "the clock a due row is promised by, such as 6:40 PM")
 	add := &cobra.Command{
 		Use:   "add",
 		Short: "Add the owner message on stdin as one ledger row, and print its id",
