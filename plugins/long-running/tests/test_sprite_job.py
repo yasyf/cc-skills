@@ -656,3 +656,21 @@ def test_a_clone_still_on_home_skips_the_fetch_so_its_lock_never_holds_up_the_mo
 
     assert b"git fetch --all took" not in ran.stderr
     assert not Path(f"{sprite}{checkout}.fetched").exists()
+
+
+RECORDING_JOB = """import json, os, pathlib, sys
+job = pathlib.Path(sys.argv[1])
+pid, start = (job / "job-process").read_text().split()
+(job / "result.json").write_text(json.dumps({"verdict": "ok", "pid": int(pid), "start": start, "parent": os.getppid()}))
+"""
+
+
+def test_a_job_records_the_process_a_stall_kill_checks_before_it_signals_that_group(tmp_path: Path) -> None:
+    """Coordinator #437992: a pass with no progress is killed on its Sprite, only that job, by its own recorded identity."""
+    _, _, directory, _, run = one_job(tmp_path, RECORDING_JOB)
+
+    run()
+
+    outcome = json.loads((directory / "result.json").read_text())
+    assert outcome["parent"] == outcome["pid"]
+    assert outcome["start"].isdigit()

@@ -116,17 +116,18 @@ type Cursors interface {
 }
 
 type PoolDeps struct {
-	Runner  shell.Runner
-	Spawn   Spawn
-	Workers func() ([]store.Worker, error)
-	Cursors Cursors
-	Ledger  func(ledger string) (map[string]map[string]string, error)
-	Picks   func() ([]store.Rule, error)
-	Now     func() time.Time
-	Log     *slog.Logger
-	Self    string
-	Scripts string
-	Config  string
+	Runner    shell.Runner
+	Spawn     Spawn
+	KillGroup func(group int) error
+	Workers   func() ([]store.Worker, error)
+	Cursors   Cursors
+	Ledger    func(ledger string) (map[string]map[string]string, error)
+	Picks     func() ([]store.Rule, error)
+	Now       func() time.Time
+	Log       *slog.Logger
+	Self      string
+	Scripts   string
+	Config    string
 }
 
 type JobPool struct {
@@ -388,26 +389,45 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 	if err != nil {
 		return nil, err
 	}
+	states := make(map[string]jobState, len(workers))
+	var running []string
+	for _, name := range workers {
+		ref := refOf(name)
+		states[name] = stateOf(filepath.Join(p.root, ref.lane, ref.base), commands)
+		if states[name] == jobRunning {
+			running = append(running, name)
+		}
+	}
+	stalled, err := p.stalls(ctx, running)
+	if err != nil {
+		return nil, err
+	}
 	for _, name := range workers {
 		ref := refOf(name)
 		directory := filepath.Join(p.root, ref.lane, ref.base)
-		state := stateOf(directory, commands)
-		late := false
-		if state == jobRunning {
-			if late, err = p.timedOut(ref.lane, directory); err != nil {
+		state := states[name]
+		stopBy := ""
+		if idle, stall := stalled[name]; stall {
+			if err := p.markStalled(ref, directory, idle); err != nil {
+				return nil, err
+			}
+			state, stopBy = jobStalled, stallCancel
+		} else if state == jobRunning {
+			late, err := p.timedOut(ref.lane, directory)
+			if err != nil {
 				return nil, err
 			}
 			if !late {
 				live[name] = true
 				continue
 			}
-			state = jobFailed
+			state, stopBy = jobFailed, deadlineCancel
 		}
 		if err := p.finished(ctx, ref, directory, state); err != nil {
 			return nil, err
 		}
-		if late {
-			if err := p.cancel(ctx, directory, deadlineCancel); err != nil {
+		if stopBy != "" {
+			if err := p.stop(ctx, ref, directory, stopBy); err != nil {
 				return nil, err
 			}
 		}
@@ -450,6 +470,7 @@ const (
 	jobFailed
 	jobLost
 	jobSkipped
+	jobStalled
 )
 
 func stateOf(directory string, commands map[int]string) jobState {
@@ -464,11 +485,15 @@ func stateOf(directory string, commands map[int]string) jobState {
 	var outcome struct {
 		Error    *string `json:"error"`
 		Lost     bool    `json:"no_result"`
+		Stalled  bool    `json:"stalled"`
 		Skipped  string  `json:"skipped"`
 		Ungraded bool    `json:"ungraded"`
 	}
 	if err := json.Unmarshal(data, &outcome); err != nil || outcome.Lost {
 		return jobLost
+	}
+	if outcome.Stalled {
+		return jobStalled
 	}
 	if outcome.Error != nil {
 		return jobFailed
@@ -544,7 +569,7 @@ func (p *JobPool) nextAttempt(ctx context.Context, d desk, base string) (attempt
 		if p.Now().Sub(info.ModTime()) < failedHold {
 			return attemptPlan{held: true}, nil
 		}
-	case jobLost:
+	case jobLost, jobStalled:
 	}
 	if tried >= maxAttempts {
 		p.Log.Warn("a grader pass failed on its last attempt", "job", directory, "attempts", tried)

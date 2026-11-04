@@ -55,7 +55,9 @@ settles the pass from this process and its files as it does a local one. Every
 exit of this script leaves exactly one whole result.json: a job that ends with none, as
 when the Sprite restarts mid-pass or cannot be reached, gets one from
 desk_result.py naming the error and marked `no_result`, so the runner fails and requeues the
-pass at once, without the retry hold a tooling error gets, instead of waiting out its deadline. The Sprite then pushes the records the job posted to the drive's
+pass at once, without the retry hold a tooling error gets, instead of waiting out its deadline. The job's first act on
+the Sprite writes its process id and start time to job-process, since `sprite exec` makes that process the leader of its
+own process group; the runner's kill of a stalled pass checks both before it signals that group and nothing else. The Sprite then pushes the records the job posted to the drive's
 cci relay, retried five times over about 40 seconds; a push that still fails
 loses nothing, since the runner reposts the job's records when it settles the
 pass. A `cancelled` mark
@@ -192,6 +194,7 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
 ' "$dir" "$here/long_running") || exit 1
 took "reading the keys"
 sprite exec -s "$sprite" --no-stdin -- sh -c '
+  printf "%s %s\n" "$$" "$(cut -d" " -f22 "/proc/$$/stat")" >"$2/job-process"
   rm -f "$2.keys" && mkfifo -m 600 "$2.keys"
   vars=$(timeout 120 cat "$2.keys") || exit 1
   rm -f "$2.keys"

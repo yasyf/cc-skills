@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,17 +41,60 @@ type spawned struct {
 }
 
 type poolShell struct {
-	running map[int]string
-	view    string
-	docs    map[string]string
-	card    string
-	calls   [][]string
-	spawns  []spawned
+	lock       sync.Mutex
+	running    map[int]string
+	view       string
+	docs       map[string]string
+	card       string
+	calls      [][]string
+	spawns     []spawned
+	ages       map[string]int
+	spriteDown bool
+	killAnswer string
+	onKill     func()
+	killed     []int
+}
+
+func (f *poolShell) sprite(script string, args []string) (shell.Result, error) {
+	if script == killScript {
+		if f.onKill != nil {
+			f.onKill()
+		}
+		return shell.Result{Stdout: f.killAnswer}, nil
+	}
+	if f.spriteDown {
+		return shell.Result{}, errors.New("sprite: no route to the Sprite")
+	}
+	var lines strings.Builder
+	for _, directory := range args {
+		fmt.Fprintf(&lines, "%d %s\n", f.ages[directory], directory)
+	}
+	return shell.Result{Stdout: lines.String()}, nil
+}
+
+func (f *poolShell) killGroup(group int) error {
+	f.killed = append(f.killed, group)
+	delete(f.running, group)
+	return nil
+}
+
+func (f *poolShell) spriteCalls(script string) [][]string {
+	var calls [][]string
+	for _, call := range f.calls {
+		if call[0] == "sprite" && call[8] == script {
+			calls = append(calls, call)
+		}
+	}
+	return calls
 }
 
 func (f *poolShell) Run(_ context.Context, command shell.Command) (shell.Result, error) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
 	f.calls = append(f.calls, command.Argv)
 	switch command.Argv[0] {
+	case "sprite":
+		return f.sprite(command.Argv[8], command.Argv[10:])
 	case "ps":
 		var lines strings.Builder
 		for pid, line := range f.running {
@@ -114,23 +158,24 @@ func poolAt(t *testing.T, root string, sections map[string]any) *poolFixture {
 		raw[name] = data
 	}
 	f := &poolFixture{
-		shell: &poolShell{running: map[int]string{}, view: `{"title":"a change","body":"","headRefName":"lane-7"}`, docs: map[string]string{}},
+		shell: &poolShell{running: map[int]string{}, view: `{"title":"a change","body":"","headRefName":"lane-7"}`, docs: map[string]string{}, ages: map[string]int{}, killAnswer: jobKilled + "\n"},
 		store: memory(t),
 		now:   t0,
 	}
 	runner := config.Runner{Source: filepath.Join(root, "runner.json"), Drive: testDrive, Orca: config.RunnerOrca{Briefs: config.RunnerBriefs{Repo: "/briefs"}}, Sections: raw}
 	pool, err := NewJobPool(runner, PoolDeps{
-		Runner:  f.shell,
-		Spawn:   f.shell.spawn,
-		Workers: f.store.Workers,
-		Cursors: f.store,
-		Ledger:  f.store.LedgerRows,
-		Picks:   f.store.CheckedRules,
-		Now:     func() time.Time { return f.now },
-		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Self:    "/plugin/bin/lr",
-		Scripts: "/plugin/scripts",
-		Config:  t.TempDir(),
+		Runner:    f.shell,
+		Spawn:     f.shell.spawn,
+		KillGroup: f.shell.killGroup,
+		Workers:   f.store.Workers,
+		Cursors:   f.store,
+		Ledger:    f.store.LedgerRows,
+		Picks:     f.store.CheckedRules,
+		Now:       func() time.Time { return f.now },
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Self:      "/plugin/bin/lr",
+		Scripts:   "/plugin/scripts",
+		Config:    t.TempDir(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -839,6 +884,248 @@ func TestAJobWithNoResultPastItsTimeoutFailsAndFreesItsSlot(t *testing.T) {
 	}
 	if strings.TrimSpace(string(said)) != deadlineCancel {
 		t.Fatalf("cancelled = %q", said)
+	}
+}
+
+func twoSpritePass(t *testing.T) (*poolFixture, string, string) {
+	t.Helper()
+	f := newPool(t, map[string]any{"finder": map[string]any{"sprite": []string{"dar-1", "dar-2"}}})
+	if err := f.pool.Scale(16, f.now); err != nil {
+		t.Fatal(err)
+	}
+	return f, f.started(t, GraderFinder), f.finderDir(jobDir)
+}
+
+func (f *poolFixture) quiet(t *testing.T, directory string, ago time.Duration) {
+	t.Helper()
+	at := f.now.Add(-ago)
+	if err := os.Chtimes(filepath.Join(directory, pidFile), at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *poolFixture) settle(t *testing.T, name string) bool {
+	t.Helper()
+	live, err := f.pool.Settle(context.Background(), []string{name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return live[name]
+}
+
+func TestAPassQuietForFifteenMinutesIsKilledAndNamedAndRerunsAtOnceOnAnotherSprite(t *testing.T) {
+	f, name, directory := twoSpritePass(t)
+	f.quiet(t, directory, 17*time.Minute)
+	f.shell.ages[directory] = int((16 * time.Minute).Seconds())
+
+	if f.settle(t, name) {
+		t.Fatal("a stalled pass stayed live")
+	}
+
+	if why := failureOf(directory); !strings.Contains(why, "dar-1") || !strings.Contains(why, "16 min") {
+		t.Fatalf("result = %q", why)
+	}
+	kills := f.shell.spriteCalls(killScript)
+	if len(kills) != 1 || kills[0][3] != "dar-1" || kills[0][10] != directory {
+		t.Fatalf("kills = %q", kills)
+	}
+	if len(f.shell.killed) != 0 {
+		t.Fatalf("a wrapper was killed though the job answered: %v", f.shell.killed)
+	}
+	if said, err := os.ReadFile(filepath.Join(directory, grader.CancelledFile)); err != nil || strings.TrimSpace(string(said)) != stallCancel {
+		t.Fatalf("cancelled = %q, %v", said, err)
+	}
+	notes, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{kindNote}, PR: pull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || !strings.HasPrefix(notes[0].Text, "GRADER-FAILED #45489") || !strings.Contains(notes[0].Text, "killed on dar-1 after 16 min") || !strings.Contains(notes[0].Text, "at once") {
+		t.Fatalf("notes = %+v", notes)
+	}
+
+	again := f.started(t, GraderFinder)
+	if refOf(again).base != jobDir+"-2" || refOf(again).box != "dar-2" {
+		t.Fatalf("the rerun at the same minute = %q", again)
+	}
+}
+
+func TestEachKillOfAHeadsPassesPostsItsOwnFailure(t *testing.T) {
+	f, name, directory := twoSpritePass(t)
+	f.quiet(t, directory, 20*time.Minute)
+	f.shell.ages[directory] = 1 << 30
+	f.settle(t, name)
+
+	again := f.started(t, GraderFinder)
+	second := f.finderDir(jobDir + "-2")
+	f.quiet(t, second, 20*time.Minute)
+	f.shell.ages[second] = 1 << 30
+	f.settle(t, again)
+
+	notes, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{kindNote}, PR: pull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 2 || !strings.Contains(notes[0].Text, "dar-1") || !strings.Contains(notes[1].Text, "dar-2") {
+		t.Fatalf("notes = %+v", notes)
+	}
+}
+
+func TestAPassStillWritingAtFortyMinutesLives(t *testing.T) {
+	f, name, directory := twoSpritePass(t)
+	f.quiet(t, directory, 40*time.Minute)
+	f.shell.ages[directory] = 30
+
+	if !f.settle(t, name) {
+		t.Fatal("a pass still writing was settled")
+	}
+
+	if exists(filepath.Join(directory, grader.ResultFile)) || len(f.shell.spriteCalls(killScript)) != 0 {
+		t.Fatal("a pass still writing was killed")
+	}
+	if got := len(f.shell.spriteCalls(newestScript)); got != 1 {
+		t.Fatalf("read the Sprite %d times", got)
+	}
+
+	f.now = f.now.Add(14 * time.Minute)
+	if !f.settle(t, name) {
+		t.Fatal("a pass inside its window was settled")
+	}
+	if got := len(f.shell.spriteCalls(newestScript)); got != 1 {
+		t.Fatalf("a pass seen writing 14 min ago was read again: %d reads", got)
+	}
+
+	f.now = f.now.Add(2 * time.Minute)
+	f.shell.ages[directory] = int((15*time.Minute + time.Second).Seconds())
+	if f.settle(t, name) {
+		t.Fatal("a pass that stopped writing stayed live")
+	}
+}
+
+func TestAPassOneSecondShortOfItsWindowLives(t *testing.T) {
+	f, name, directory := twoSpritePass(t)
+	f.quiet(t, directory, 50*time.Minute)
+	f.shell.ages[directory] = int((stallAfter - time.Second).Seconds())
+
+	if !f.settle(t, name) {
+		t.Fatal("a pass inside its window was settled")
+	}
+}
+
+func TestALogLineHereSparesAQuietSpriteARead(t *testing.T) {
+	f, name, directory := twoSpritePass(t)
+	f.quiet(t, directory, 40*time.Minute)
+	logged := filepath.Join(directory, logFile)
+	if err := os.WriteFile(logged, []byte("sprite-job: the job copy took 1 s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(logged, f.now, f.now); err != nil {
+		t.Fatal(err)
+	}
+
+	if !f.settle(t, name) || len(f.shell.spriteCalls(newestScript)) != 0 {
+		t.Fatalf("calls = %q", f.shell.calls)
+	}
+}
+
+func TestASpriteThatDoesNotAnswerKillsNothing(t *testing.T) {
+	f, name, directory := twoSpritePass(t)
+	f.quiet(t, directory, 40*time.Minute)
+	f.shell.spriteDown = true
+
+	if !f.settle(t, name) {
+		t.Fatal("a pass was settled on no reading")
+	}
+	if exists(filepath.Join(directory, grader.ResultFile)) || len(f.shell.spriteCalls(killScript)) != 0 || len(f.shell.killed) != 0 {
+		t.Fatal("a pass was killed on no reading")
+	}
+}
+
+func TestAKillTheSpriteDidNotConfirmGoesToTheWrapperOnlyWhileItsPidStillRunsTheJob(t *testing.T) {
+	f, name, directory := twoSpritePass(t)
+	f.quiet(t, directory, 40*time.Minute)
+	f.shell.ages[directory] = 1 << 30
+	f.shell.killAnswer = ""
+	f.settle(t, name)
+	if !slices.Equal(f.shell.killed, []int{4001}) {
+		t.Fatalf("killed = %v", f.shell.killed)
+	}
+
+	f, name, directory = twoSpritePass(t)
+	f.quiet(t, directory, 40*time.Minute)
+	f.shell.ages[directory] = 1 << 30
+	f.shell.killAnswer = ""
+	f.shell.onKill = func() { f.shell.running[4001] = "/usr/sbin/something-else" }
+	f.settle(t, name)
+	if len(f.shell.killed) != 0 {
+		t.Fatalf("a pid handed to another process was killed: %v", f.shell.killed)
+	}
+}
+
+func TestAPassPastItsDeadlineStillWritingIsKilledToo(t *testing.T) {
+	f, name, directory := twoSpritePass(t)
+	f.quiet(t, directory, 61*time.Minute)
+	f.shell.ages[directory] = 30
+
+	if f.settle(t, name) {
+		t.Fatal("a pass past its deadline stayed live")
+	}
+
+	if len(f.shell.spriteCalls(killScript)) != 1 {
+		t.Fatalf("calls = %q", f.shell.calls)
+	}
+	if _, err := f.dispatch(t, GraderFinder); !errors.Is(err, ErrAnswered) {
+		t.Fatalf("a pass past its deadline keeps its hold: err = %v", err)
+	}
+}
+
+func TestALocalPassIsReadHereAndItsOwnGroupIsKilled(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	name := f.started(t, GraderFinder)
+	f.now = time.Now().Add(16 * time.Minute)
+
+	if f.settle(t, name) {
+		t.Fatal("a stalled local pass stayed live")
+	}
+
+	if !slices.Equal(f.shell.killed, []int{4001}) || f.shell.count("sprite") != 0 {
+		t.Fatalf("killed = %v, calls = %q", f.shell.killed, f.shell.calls)
+	}
+}
+
+func TestQuietPassesAreReadOncePerSpriteAtOnePassAndAtAThousand(t *testing.T) {
+	for _, passes := range []int{1, 1000} {
+		f := newPool(t, map[string]any{"finder": map[string]any{"sprite": []string{"dar-1", "dar-2"}}})
+		names := make([]string, 0, passes)
+		for index := range passes {
+			box := "dar-1"
+			if index%2 == 1 {
+				box = "dar-2"
+			}
+			base := fmt.Sprintf("%d-aaaaaaaaaaaa", index)
+			directory := f.finderDir(base)
+			if err := os.MkdirAll(directory, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			pid := 5000 + index
+			if err := writeAtomic(filepath.Join(directory, pidFile), pid); err != nil {
+				t.Fatal(err)
+			}
+			f.quiet(t, directory, 20*time.Minute)
+			f.shell.running[pid] = "sprite-job.sh " + box + " finder " + directory
+			names = append(names, box+"/"+grader.FinderLane+"/"+base)
+		}
+
+		live, err := f.pool.Settle(context.Background(), names)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(live) != passes {
+			t.Fatalf("at %d passes %d lived", passes, len(live))
+		}
+		if got, want := len(f.shell.spriteCalls(newestScript)), min(passes, 2); got != want {
+			t.Fatalf("at %d passes the Sprites were read %d times, want %d", passes, got, want)
+		}
 	}
 }
 

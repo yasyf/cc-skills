@@ -265,4 +265,4 @@ The owner's critical path goes first. The pool ranks a coordinator `ask` or `dec
 
 Fidelity grading runs on Sprites like the finder, and may use a smaller model or lower effort when sampled results stay sound.
 
-A grader past its deadline is usually alive. Tell dead workers from a live pass on a sick Sprite home disk before relaunching: "no result in 60 minutes" is not death, and dead workers surface within minutes.
+Dead workers surface within minutes. A live pass on a sick Sprite home disk stops writing, and the pool kills it after 15 minutes of no progress and reruns it elsewhere, so nobody relaunches one by hand. A pass still writing runs to its deadline.
