@@ -29,6 +29,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/profile"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/replay"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -38,8 +39,9 @@ import (
 )
 
 const (
-	runnerFile = "runner.json"
-	configFile = "lr.json"
+	runnerFile  = "runner.json"
+	configFile  = "lr.json"
+	profileFile = "supervisor-pprof.sock"
 )
 
 func Command(a *app.App) *cobra.Command {
@@ -91,7 +93,7 @@ func run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	if stop, err := serveProfiles(filepath.Join(state, profileFile), a.Log); err != nil {
+	if stop, err := profile.Serve(filepath.Join(state, profileFile), a.Log); err != nil {
 		a.Log.Warn("the supervisor serves no profiles", "err", err)
 	} else {
 		defer stop()

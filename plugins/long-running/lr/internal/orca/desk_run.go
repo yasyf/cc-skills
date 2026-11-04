@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"os/signal"
@@ -19,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/profile"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
@@ -31,6 +33,7 @@ const (
 	aliveEvery      = time.Minute
 	unreachableFact = "orca-unreachable"
 	relayLock       = "relay.lock"
+	relayProfile    = "relay-pprof.sock"
 	unboundExit     = 3
 	stepStart       = "start"
 	stepIdle        = "idle"
@@ -281,6 +284,11 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
+	if stop, err := profile.Serve(filepath.Join(filepath.Dir(d.Config.Source), relayProfile), slog.New(slog.NewTextHandler(d.Stderr, nil))); err != nil {
+		fmt.Fprintf(d.Stderr, "the relay serves no profiles: %v\n", err)
+	} else {
+		defer stop()
+	}
 	release := d.Release()
 	d.open()
 	originalStore := d.store
