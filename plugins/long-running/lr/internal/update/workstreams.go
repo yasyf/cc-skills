@@ -10,7 +10,6 @@ import (
 	"unicode"
 
 	"github.com/yasyf/cc-inbox/client"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
