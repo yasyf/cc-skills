@@ -39,12 +39,6 @@ def executable(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
-def clone_on_local_disk(checkout: Path) -> None:
-    moved = checkout.with_name(f"{checkout.name}.clone")
-    (checkout / ".git").rename(moved)
-    (checkout / ".git").symlink_to(moved)
-
-
 def plugin_with_job(mac: Path, job: str) -> Path:
     """A plugin copy whose `lr grade <grader> <dir>` runs `job` with the job's directory as its one argument; returns its sprite-job.sh."""
     scripts = mac / "plugin" / "skills" / "long-running" / "scripts"
@@ -101,7 +95,6 @@ def test_a_job_keeps_its_own_job_pid_and_log_files_and_drops_the_empty_or_nul_fi
     emptied.write_text("")
     nulled.write_bytes(b"\0" * 123)
     kept.write_text("0b0e1f2a3c4d5e6f708192a3b4c5d6e7f8091a2b\n")
-    clone_on_local_disk(remote)
 
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
     ran = subprocess.run(["sh", str(job_script), "vet4", grader, str(directory)], env=env, check=True, capture_output=True, text=True, timeout=60)
@@ -183,7 +176,6 @@ def test_a_job_keeps_fetch_start_freshness_without_running_pack_maintenance(tmp_
     (config / "long-running" / "drives").mkdir(parents=True)
     (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
     subprocess.run([shutil.which("git"), "init", "-q", f"{sprite}{checkout}"], check=True)
-    clone_on_local_disk(Path(f"{sprite}{checkout}"))
     fetched = Path(f"{sprite}{checkout}.fetched")
     if marker and not queued:
         fetched.write_text(marker)
@@ -585,14 +577,13 @@ def one_job(tmp_path: Path, job: str):
     return mac, sprite, directory, config, lambda: subprocess.run(["sh", str(job_script), "vet4", "finder", str(directory)], env=env, check=True, capture_output=True, timeout=60)
 
 
-def test_a_job_directory_runs_on_the_local_disk_and_goes_once_it_is_copied_back(tmp_path: Path) -> None:
-    """Nov 4: a Sprite's home reads took up to seconds under load, and #50099 spent 16 minutes before its first model output."""
+def test_a_job_directory_goes_once_it_is_copied_back(tmp_path: Path) -> None:
     _, sprite, directory, _, run = one_job(tmp_path, LOCATING_JOB)
 
     run()
 
     where = (directory / "where.txt").read_text()
-    assert where.startswith(os.path.realpath("/tmp/lr-scratch") + "/")
+    assert where == os.path.realpath(f"{sprite}{directory}")
     assert not os.path.lexists(f"{sprite}{directory}")
     assert not Path(where).exists()
 
@@ -620,9 +611,8 @@ def test_a_shipped_copy_lands_on_the_local_disk_and_a_version_an_hour_unused_goe
     versions.mkdir(parents=True, exist_ok=True)
 
     def version(name: str, age: int, held: bool = False) -> Path:
-        kept = tmp_path / f"local-{name}"
+        kept = versions / f"{name}.d"
         (kept / "abc").mkdir(parents=True)
-        (versions / f"{name}.d").symlink_to(kept)
         (versions / name).symlink_to(versions / f"{name}.d" / "abc")
         if held:
             handle = (kept / "abc.lock").open("w")
@@ -638,24 +628,23 @@ def test_a_shipped_copy_lands_on_the_local_disk_and_a_version_an_hour_unused_goe
     run()
 
     shipped = versions / "plugin.d"
-    assert shipped.is_symlink() and os.readlink(shipped).startswith("/tmp/lr-ship/")
+    assert shipped.is_dir() and not shipped.is_symlink()
     assert (versions / "plugin" / "bin" / "lr").is_file()
     assert not idle.exists() and not os.path.lexists(versions / "idle.d") and not os.path.lexists(versions / "idle")
-    assert recent.exists() and (versions / "recent.d").is_symlink()
-    assert (running / "abc").exists() and (versions / "running.d").is_symlink()
+    assert recent.exists()
+    assert (running / "abc").exists()
 
 
-def test_a_clone_still_on_home_skips_the_fetch_so_its_lock_never_holds_up_the_move(tmp_path: Path) -> None:
-    """Nov 4 dar-fleet-4: a stale clone's `git fetch --all` on the network disk held the fetch lock for an hour, and every pass, including the `lr grade` that moves .git, waited behind it."""
-    mac, sprite, _, _, run = one_job(tmp_path, RESTARTED_JOB)
-    checkout = mac / "checkout"
+def test_a_failed_fetch_ends_the_job_and_leaves_the_next_job_its_fetch(tmp_path: Path) -> None:
+    """Finder on #3021: a failed `git fetch --all` still wrote `.fetched` and started the grader, so the jobs queued behind it skipped their refresh."""
+    mac, sprite, directory, _, run = one_job(tmp_path, RESTARTED_JOB)
+    executable(mac / "bin" / "git", f'#!/bin/sh\ncase " $* " in *" fetch "*) exit 1;; esac\nexec {shutil.which("git")} "$@"\n')
 
-    with Path(f"{sprite}{checkout}.fetch.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        ran = run()
+    with pytest.raises(subprocess.CalledProcessError):
+        run()
 
-    assert b"git fetch --all took" not in ran.stderr
-    assert not Path(f"{sprite}{checkout}.fetched").exists()
+    assert "ended with status 1 and no result" in json.loads((directory / "result.json").read_text())["error"]
+    assert not Path(f"{sprite}{mac / 'checkout'}.fetched").exists()
 
 
 RECORDING_JOB = """import json, os, pathlib, sys
