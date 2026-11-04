@@ -1579,6 +1579,32 @@ def test_an_owner_question_stays_open_until_an_answer_lands_down_its_chain_or_a_
     asks = server.owner_asks(records, prs)
     awaiting = {row["number"]: row["awaiting"] for row in server.awaiting_reply(rows, asks)}
 
-    assert [r["seq"] for r in asks["46811"][0]["replies"]] == [3]
-    assert [r["seq"] for r in asks["46742"][0]["replies"]] == [5]
+    assert asks["46811"][0]["answered"] is True
+    assert asks["46742"][0]["answered"] is False
     assert awaiting == {46811: None, 46742: 4, 47329: None, 47400: None}
+
+
+def test_a_lanes_confirmation_clears_his_order_and_only_a_reply_to_him_keeps_it():
+    ask = lambda seq, number: {"seq": seq, "lane": "owner-board", "kind": "ask", "at": "2026-11-04T05:27:00Z", "text": "store it", "refs": {"prs": [number]}, "fields": {"attrs": {"head": "aaaa111"}}}
+    records = [
+        ask(1, 7),
+        {"seq": 2, "lane": "root", "kind": "report", "at": "2026-11-04T05:29:00Z", "re": 1, "text": "For him on this: order applied, and board-refresher-7 withdraws the card.", "refs": {}},
+        ask(3, 8),
+        {"seq": 4, "lane": "owner-board", "kind": "posted", "at": "2026-11-04T05:29:00Z", "re": 3, "text": "Received, with the coordinator", "refs": {}},
+        {"seq": 5, "lane": "lane-1", "kind": "blocked", "at": "2026-11-04T05:29:00Z", "re": 3, "text": "Waiting on a build.", "refs": {}},
+        ask(6, 9),
+        ask(7, 10),
+        ask(8, 11),
+        {"seq": 9, "lane": "root", "kind": "report", "at": "2026-11-04T05:29:00Z", "resolves": 8, "text": "Applied.", "refs": {}},
+    ]
+    prs = {str(n): {"head": "aaaa111"} for n in (7, 8, 9, 10, 11)}
+    told = {6: {"id": "r1", "md": "Pick where it stores on your board.\n\nTwo places.", "action": "Pick where it stores on your board"}, 7: {"id": "r2", "md": "Done, nothing for you.\n\nStored."}}
+
+    asks = server.owner_asks(records, prs, told)
+
+    assert (asks["7"][0]["answered"], asks["7"][0]["action"]) == (True, None)
+    assert "For him" not in json.dumps(asks)
+    assert asks["8"][0]["answered"] is False
+    assert (asks["9"][0]["answered"], asks["9"][0]["action"], asks["9"][0]["reply"]) == (True, "Pick where it stores on your board", "r1")
+    assert (asks["10"][0]["answered"], asks["10"][0]["action"]) == (True, None)
+    assert asks["11"][0]["answered"] is True

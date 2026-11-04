@@ -491,6 +491,26 @@ def test_after_a_tap_the_queue_moves_to_the_next_new_or_answered_row_never_one_a
     assert order == [3, 4, 1]
 
 
+def test_an_applied_order_leaves_the_review_page_and_a_reply_needing_him_shows_one_whole_line(page):
+    page.goto(page.url.split("#")[0] + "#/review")
+    action = "Pick where it stores on your board, and this line runs well past the old cut so that its last words prove nothing clipped it, however long a single action happens to be when he reads it. The last words"
+    boxes = page.evaluate("""(action) => {
+      const ask = (fields) => ({ seq: 1, at: new Date().toISOString(), text: 'store it', refs: { prs: [99] }, ...fields });
+      const box = (asks) => { state.model.asks[99] = asks; return changeBox(99, 'abc1234'); };
+      state.model.board.answered = { 'card-tapped': { picked: 'A' } };
+      return {
+        waiting: box([ask({ answered: false })]),
+        applied: box([ask({ answered: true, action: null })]),
+        action: box([ask({ answered: true, action, reply: 'open' })]),
+        tapped: box([ask({ answered: true, action, reply: 'tapped' })]),
+      };
+    }""", action)
+    assert "You asked; waiting on the reply" in boxes["waiting"]
+    assert "fb-said" not in boxes["applied"]
+    assert "The last words" in boxes["action"] and "store it" not in boxes["action"]
+    assert "fb-said" not in boxes["tapped"]
+
+
 def test_the_first_load_asks_for_the_now_slice_and_another_tab_fetches_the_whole_model_on_demand(page):
     """Root #306148: every tab's data was parsed on the first load; Now draws from its slice and the other tabs load theirs when opened."""
     model = json.loads(MODEL.read_text())
