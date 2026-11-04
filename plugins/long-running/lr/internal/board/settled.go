@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 )
 
@@ -134,6 +135,9 @@ func sameText(one, other string) bool {
 }
 
 func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (refused, unchecked error) {
+	if name := cardtext.Bare(card); name != "" {
+		return cardtext.Refusal(name), nil
+	}
 	id, title, asks := asksTitle(card)
 	if !asks {
 		return nil, nil

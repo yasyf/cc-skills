@@ -39,7 +39,7 @@ KEPT = {
 PARKS = "AskUserQuestion parks the session, so a warning lands too late (answer 1fe20ee)"
 STOP = "a warning on Stop reaches nobody, and {what}"
 KEPT_REFUSALS = KEPT | {
-    "answer_search_first.no_card_asks_what_is_settled": "the owner ordered the refusal (m414, m415, m425, m433): a card that re-asks what his answer settles, repeats a card on his board or asks him to grade a reading reaches him the moment it is drawn, so a warning lands after he has read it",
+    "answer_search_first.no_card_asks_what_is_settled": "the owner ordered the refusal (m414, m415, m425, m433, m453): a card that re-asks what his answer settles, repeats a card on his board asks him to grade a reading or explains itself with only a link reaches him the moment it is drawn, so a warning lands after he has read it",
     "blocking_asks.drive_roots_never_park_on_asks": PARKS,
     "capacity_fixes_name_the_reclaim.applies_name_the_next_writer": "the owner ordered the refusal: a hand apply on an incident names the next writer of its field, and a capacity fix-live waits until that writer agrees, since the next launch undoes an apply nobody checked",
     "capacity_fixes_name_the_reclaim.capacity_fixes_name_the_reclaim": "the owner ordered the refusal: an incident fix that only adds capacity names what stopped reclaiming it before fix-live, since the capacity is headroom and the reclaim fix is the fix",

@@ -385,16 +385,18 @@ func TestAStatusReplyNamesItsPRsInTheSlackCardTextForCCSlackToLinkAndCard(t *tes
 func TestAReplyThatFitsNoSurfaceIsRefusedBeforeAnythingPosts(t *testing.T) {
 	base := Reply{ID: "r4", Title: "Pick a relay", MD: "Two ways."}
 	for name, r := range map[string]Reply{
-		"one pick":          {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"Only"}, Recommended: "Only"},
-		"no recommendation": {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"A way", "B way"}},
-		"repeated pick":     {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"A way", "A way"}, Recommended: "A way"},
-		"unlabeled link":    {ID: base.ID, Title: base.Title, MD: base.MD, Links: []Link{{URL: "https://studio.ts.net/doc/"}}},
-		"file link":         {ID: base.ID, Title: base.Title, MD: base.MD, Links: []Link{{Label: "Doc", URL: "file:///tmp/doc.md"}}},
-		"not a PR":          {ID: base.ID, Title: base.Title, MD: base.MD, PRs: []string{"yasyf/cc-skills#2196"}},
-		"two-line title":    {ID: base.ID, Title: "Pick\na relay", MD: base.MD},
-		"no body":           {ID: base.ID, Title: base.Title},
-		"made-up id":        {ID: "../r4", Title: base.Title, MD: base.MD},
-		"build, no pick":    {ID: base.ID, Title: base.Title, MD: base.MD, Build: &Build{None: "a process pick"}},
+		"one pick":                        {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"Only"}, Recommended: "Only"},
+		"no recommendation":               {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"A way", "B way"}},
+		"repeated pick":                   {ID: base.ID, Title: base.Title, MD: base.MD, Picks: []string{"A way", "A way"}, Recommended: "A way"},
+		"unlabeled link":                  {ID: base.ID, Title: base.Title, MD: base.MD, Links: []Link{{URL: "https://studio.ts.net/doc/"}}},
+		"file link":                       {ID: base.ID, Title: base.Title, MD: base.MD, Links: []Link{{Label: "Doc", URL: "file:///tmp/doc.md"}}},
+		"not a PR":                        {ID: base.ID, Title: base.Title, MD: base.MD, PRs: []string{"yasyf/cc-skills#2196"}},
+		"two-line title":                  {ID: base.ID, Title: "Pick\na relay", MD: base.MD},
+		"no body":                         {ID: base.ID, Title: base.Title},
+		"made-up id":                      {ID: "../r4", Title: base.Title, MD: base.MD},
+		"build, no pick":                  {ID: base.ID, Title: base.Title, MD: base.MD, Build: &Build{None: "a process pick"}},
+		"a pick explained by a link only": {ID: base.ID, Title: base.Title, MD: "Tap one below.\n\nsee https://docs.poetic.design/one-pagers/x/", Action: "Tap one below", Picks: []string{"A way", "B way"}, Recommended: "A way"},
+		"an Explain more that is a link":  {ID: base.ID, Title: base.Title, MD: "Two ways.\n\n**Explain more:** https://docs.poetic.design/one-pagers/x/"},
 	} {
 		if err := r.check(); err == nil {
 			t.Errorf("%s: check passed %+v", name, r)
@@ -402,6 +404,10 @@ func TestAReplyThatFitsNoSurfaceIsRefusedBeforeAnythingPosts(t *testing.T) {
 	}
 	if err := base.check(); err != nil {
 		t.Fatalf("plain reply refused: %v", err)
+	}
+	linked := Reply{ID: base.ID, Title: base.Title, MD: "Done, nothing for you.\n\nhttps://docs.poetic.design/one-pagers/x/"}
+	if err := linked.check(); err != nil {
+		t.Fatalf("a done reply naming its page refused: %v", err)
 	}
 }
 

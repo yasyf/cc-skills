@@ -99,7 +99,7 @@ def search_his_answers_before_asking(evt: BaseHookEvent) -> HookResult:
 
 CHECK_SECONDS = 300
 REFUSED = "lr: refused: "
-DRAW_REFUSED = "No card below reaches his board: each asks what a card on it already asks, asks him to grade a reading of his words, or asks what his answer named below already settles. Apply his answer or act on your reading and say what you did, instead of asking."
+DRAW_REFUSED = "No card below reaches his board: each is explained only by a link, repeats a card on it, asks him to grade a reading of his words, or asks what his answer below settles. Embed the write-up's section, apply his answer, or act on your reading and say what you did."
 CHECK = f"{LR} board --drive d --session s cards check -"
 SETTLED_CARD = {"id": "card-old-snapshot-new-build-choice", "type": "card", "title": "An old chat will not open on the new build: what should happen to chats like this?", "children": [{"id": "pick", "type": "choice"}]}
 DRAWN = {"command": "cc-present push ~/owner-board.json --session s", "file": FileFixture(home=True, name="owner-board.json", content=json.dumps({"blocks": [SETTLED_CARD]})), "env": {DRIVE_ENV: "d"}}
@@ -117,9 +117,11 @@ class PushesABoard:
         Input(**DRAWN, commands={CHECK: (1, 'lr: refused: his answer to "When does an old-build chat convert?" already settles it: each old chat gets one background upgrade attempt on open (cc-notes answer 29b2e59)')}): Block(
             pattern=r"^No card below reaches his board[\s\S]*his answer to \"When does an old-build chat convert\?\" already settles it"
         ),
+        Input(**DRAWN, commands={CHECK: (1, "lr: refused: its Explain more is only a link, and he reads cards where they are: put the write-up's section in the card")}): Block(pattern=r"^No card below reaches his board[\s\S]*its Explain more is only a link"),
         Input(**DRAWN, commands={CHECK: "WARNING the card draws unchecked against his answers: claude: overloaded\n"}): Warn(pattern=r"draws unchecked against his answers"),
         Input(**DRAWN, commands={CHECK: (1, "lr: drive d: no such drive")}): Warn(pattern=r"no such drive"),
         Input(**DRAWN, commands={CHECK: ""}): Allow(),
+        Input(**{**DRAWN, "command": "cc-present ask ~/owner-board.json --session s"}, commands={CHECK: (1, "lr: refused: its background is only a link")}): Block(pattern=r"its background is only a link"),
         Input(**{**DRAWN, "env": {}}): Allow(),
         Input(**{**DRAWN, "command": "cc-present push ~/owner-board.json --session s --dry-run"}): Allow(),
     },
