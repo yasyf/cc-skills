@@ -12,6 +12,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, COMMUNICATOR_LANE, Bound, Communicator, CompactionState, bus_name, communicator_tests, drive_entry
 from .owner_facing import REPLY_WINDOW
+from .owner_returns import dm_owed
 from .register_capture import CREDENTIAL, REDACTED, STAMP, overlaps, slack_dms
 from .register_gates import folded, written_paths
 from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body
@@ -193,6 +194,26 @@ def add_owner_slack_dms(evt: BaseHookEvent) -> HookResult | None:
                 post_owner_row(entry, row, ask)
             state.digests.append(dm["digest"])
     return None
+
+
+@on(
+    Event.Stop,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(state=ACTIVE): Allow(),
+    }),
+)
+def owed_slack_messages_get_rows(evt: BaseHookEvent) -> None:
+    owed = dm_owed(evt)
+    if not owed or owed["holder_session"] != evt.session_id or not (entry := drive_entry(evt)):
+        return
+    ledgered = LedgeredDms.load(evt).digests
+    with LedgeredDms.mutate(evt) as state:
+        for reply in (reply for reply in owed["replies"] if reply["ts"] not in ledgered):
+            for row, ask in add_rows(ledger_of(entry), datetime.fromtimestamp(float(reply["ts"]), UTC), reply["text"]):
+                post_owner_row(entry, row, ask)
+            state.digests.append(reply["ts"])
 
 
 def land_answer(entry: dict, row: str, state: str, text: str) -> None:
