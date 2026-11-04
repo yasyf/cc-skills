@@ -432,6 +432,7 @@ func TestAMalformedReplyPostsWithAWarningInsteadOfARefusal(t *testing.T) {
 		"bad status":        {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Status: "urgent"}, func(r Reply) bool { return r.Status == "" }},
 		"bad row":           {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Order: "347"}, func(r Reply) bool { return r.Order == "" }},
 		"lone action":       {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Action: "Tap it"}, func(r Reply) bool { return r.Action == "" }},
+		"untitled notebook": {Reply{ID: base.ID, Title: base.Title, MD: "See https://app.datadoghq.com/notebook/123 for it."}, func(r Reply) bool { return strings.Contains(r.MD, "notebook/123") }},
 		"typeless block":    {Reply{ID: base.ID, Title: base.Title, MD: base.MD, Blocks: []json.RawMessage{json.RawMessage(`{"id":"x"}`)}}, func(r Reply) bool { return len(r.Blocks) == 0 }},
 	} {
 		got, warned := c.in.mended()
@@ -441,6 +442,10 @@ func TestAMalformedReplyPostsWithAWarningInsteadOfARefusal(t *testing.T) {
 	}
 	if got, warned := base.mended(); len(warned) != 0 || got.Title != base.Title || got.MD != base.MD {
 		t.Fatalf("a plain reply mended to %+v, warned %q", got, warned)
+	}
+	titled := Reply{ID: base.ID, Title: base.Title, MD: "See [LLM spend](https://app.datadoghq.com/notebook/123/llm-spend) for it."}
+	if _, warned := titled.mended(); len(warned) != 0 {
+		t.Fatalf("a titled notebook link warned %q", warned)
 	}
 }
 
