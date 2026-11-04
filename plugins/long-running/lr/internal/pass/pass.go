@@ -355,6 +355,8 @@ func clusterCause(s *store.Store, item store.Item) (string, time.Duration, error
 	switch {
 	case item.Kind == string(machine.ActionReview):
 		return fmt.Sprintf("review waited on a reviewer for %d minutes", int(waitCluster.Minutes())), waitCluster, nil
+	case item.Kind == string(machine.ActionRowWait):
+		return fmt.Sprintf("a review row waited on its lane for %d minutes", int(waitCluster.Minutes())), waitCluster, nil
 	case slices.Contains(automated, item.Mover):
 		return fmt.Sprintf("%s waited on the %s for %d minutes", item.Kind, item.Mover, int(waitCluster.Minutes())), waitCluster, nil
 	}

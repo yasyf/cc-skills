@@ -85,11 +85,16 @@ func drawReady(t *testing.T, s *store.Store, number int, at string) {
 	}
 }
 
-func drawLandable(t *testing.T, s *store.Store, number int, at string) {
+func drawFilled(t *testing.T, s *store.Store, number int, at string) {
 	t.Helper()
 	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: at, State: prrow.StateOpen, ForUsers: "a user sees it", PlanLine: "plan step 1", Risk: "low"}}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func drawLandable(t *testing.T, s *store.Store, number int, at string) {
+	t.Helper()
+	drawFilled(t, s, number, at)
 	for kind, value := range map[string]string{"read-ci": prrow.CIGreen, "read-approvers": "reviewer", "read-mergeable": string(machine.MergeableClean)} {
 		if _, err := s.PutFact(repo, number, at, kind, value, time.Now()); err != nil {
 			t.Fatal(err)
@@ -99,7 +104,7 @@ func drawLandable(t *testing.T, s *store.Store, number int, at string) {
 
 func drawWaiting(t *testing.T, s *store.Store, number int, at, waits string) {
 	t.Helper()
-	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: at, WaitsOn: waits}}); err != nil {
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: at, ReadHead: at, WaitsOn: waits}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -430,6 +435,29 @@ func TestALandableRowIsReadyAfterTheFoldAndATapOnItLands(t *testing.T) {
 
 	if written := orders(t); len(written) != 1 || !row.Tapped() || row.RowWait != "" || machine.Classify(row).Action != machine.ActionEnqueue {
 		t.Fatalf("orders = %+v, row = %+v, verdict = %+v", written, row, machine.Classify(row))
+	}
+}
+
+func TestThePassReadsTheRowItJustFoldedSoAPRThatTurnedReadyIsNotHeldAPass(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: surfacePR, head: surfaceHead, login: "drive-bot", approvers: []string{"reviewer"}}}, status(surfacePR, func(r *statusRow) { r.Head = surfaceHead }))
+	drawFilled(t, h.store, surfacePR, surfaceHead)
+	post(t, "finder-desk", bus.Grade{PR: surfacePR, Head: surfaceHead, Grader: "finder", Verdict: "clear"})
+	post(t, "fidelity-desk", bus.Grade{PR: surfacePR, Head: surfaceHead, Grader: "fidelity", Verdict: "pass"})
+
+	snapshot, err := h.source.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot) != 1 || snapshot[0].RowWait == "" {
+		t.Fatalf("before the pass's own read: %+v", snapshot)
+	}
+
+	if err := h.source.WriteRows(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	if snapshot[0].RowWait != "" {
+		t.Fatalf("after the pass's own read: %+v", snapshot[0])
 	}
 }
 

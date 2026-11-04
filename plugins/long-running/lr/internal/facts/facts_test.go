@@ -614,7 +614,7 @@ func TestAHeadRecordsTheBoardsWordsAsFactsOnItsHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"lane": "lane-7", "words-title": "the title", "words-change": "what a user sees", "words-risk": "none"}
+	want := map[string]string{"lane": "lane-7", "seen": "yes", "words-title": "the title", "words-change": "what a user sees", "words-risk": "none"}
 	if !maps.Equal(stored, want) {
 		t.Fatalf("facts = %+v, want %+v", stored, want)
 	}
@@ -976,6 +976,15 @@ func onAll(t *testing.T, s *store.Store, prs []recordedPR) harness {
 	rows := make([]statusRow, 0, len(prs))
 	for _, pr := range prs {
 		rows = append(rows, status(pr.number, func(row *statusRow) { row.Head = pr.head }))
+	}
+	for _, pr := range prs {
+		if _, known, err := s.ReviewRow(repo, pr.number); err != nil {
+			t.Fatal(err)
+		} else if !known && !pr.unopened {
+			if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: pr.number, Head: pr.head, State: prrow.StateOpen}}); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	h := newHarness(t, prs, rows...)
 	h.source.Store, h.store = s, s

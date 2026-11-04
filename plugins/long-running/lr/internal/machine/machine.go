@@ -49,6 +49,7 @@ const (
 	ActionGrade      Action = "grade"
 	ActionWaitCI     Action = "wait-ci"
 	ActionReview     Action = "review"
+	ActionRowWait    Action = "row-wait"
 	ActionRestack    Action = "restack"
 	ActionVerdict    Action = "verdict"
 	ActionFixRed     Action = "fix-red"
@@ -278,7 +279,7 @@ func Classify(f Facts) Verdict {
 		return Verdict{StateAwaitingTap, f.Hold, ActionLift, OwnerClock}
 	}
 	if !f.RowClear() {
-		return Verdict{StateNotReady, MoverNobody, ActionNone, 0}
+		return Verdict{StateNotReady, MoverLane, ActionRowWait, LaneClock}
 	}
 	if !f.Tapped() {
 		return Verdict{StateAwaitingTap, MoverOwner, ActionTap, OwnerClock}
