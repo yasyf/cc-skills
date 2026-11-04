@@ -1,8 +1,10 @@
 package drive
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -131,5 +133,28 @@ func TestAWindowWithNoSessionFileIsAnError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if _, err := HoldingWindow(45444); err == nil {
 		t.Fatal("want an error naming the window")
+	}
+}
+
+func TestASessionFindsOnlyTheDriveItCarriesAndNoDriveIsOnePlainRefusal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	dir := filepath.Join(home, "long-running", "drives")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "brook.json", `{"drive":"brook","state_dir":"/scratch/brook","sessions":["s1"]}`)
+	write(t, dir, "reef.json", `{"drive":"reef","state_dir":"/scratch/reef","sessions":["s2"]}`)
+	t.Setenv(Env, "reef")
+	entry, err := Named("")
+	if err != nil || entry.Config() != "/scratch/reef/lr.json" {
+		t.Fatalf("session drive = %+v, %v", entry, err)
+	}
+	if entry, err := Named("brook"); err != nil || entry.Drive != "brook" {
+		t.Fatalf("named drive = %+v, %v", entry, err)
+	}
+	t.Setenv(Env, "")
+	if _, err := Session(); !errors.Is(err, ErrNoDrive) || strings.Contains(err.Error(), "\n") {
+		t.Fatalf("a session in no drive = %v", err)
 	}
 }

@@ -934,7 +934,7 @@ func hourly(s *store.Store, d Deps, now time.Time) {
 		open, progressing := owner.Only(orders, owner.Open), owner.Only(orders, owner.InProgress)
 		var said []string
 		if len(open) > 0 {
-			said = append(said, fmt.Sprintf("%d owner asks are open, orders with no live lane, no open PR and no landed or carried record and questions nobody answered: %s. Answer each question and mark its row, restart each order, or run `lr owner mark <row> no-order` on a row that orders nothing; a lane delivering an order names its owner:<row> token in its brief.", len(open), owner.Tokens(open)))
+			said = append(said, fmt.Sprintf("%d owner asks are open, orders with no live lane, no open PR and no landed or carried record and questions nobody answered: %s. Answer each question and mark its row, restart each order, or mark a row that orders nothing no-order with `mcp__plugin_long-running_lr__owner_mark`; a lane delivering an order names its owner:<row> token in its brief.", len(open), owner.Tokens(open)))
 		}
 		if len(progressing) > 0 {
 			said = append(said, fmt.Sprintf("%d owner orders are in progress, landed or carried with no live lane and no delivered proof: %s. Post `cci post --kind report --attr delivered=owner:<row>` once he has what the row asked for, or restart the order.", len(progressing), owner.Tokens(progressing)))

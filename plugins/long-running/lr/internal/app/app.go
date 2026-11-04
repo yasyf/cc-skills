@@ -1,7 +1,6 @@
 package app
 
 import (
-	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/actions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orcarpc"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -40,8 +40,20 @@ func New(stderr io.Writer) *App {
 }
 
 func (a *App) Config() (config.Config, error) {
-	if a.ConfigPath == "" {
-		return config.Config{}, errors.New("name the drive's lr.json with --config or LR_CONFIG")
+	path, err := a.ConfigFile()
+	if err != nil {
+		return config.Config{}, err
 	}
-	return config.Load(a.ConfigPath, a.Stderr)
+	return config.Load(path, a.Stderr)
+}
+
+func (a *App) ConfigFile() (string, error) {
+	if a.ConfigPath == "" {
+		entry, err := drive.Session()
+		if err != nil {
+			return "", err
+		}
+		a.ConfigPath = entry.Config()
+	}
+	return a.ConfigPath, nil
 }

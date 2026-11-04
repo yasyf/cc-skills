@@ -2,12 +2,19 @@ package drive
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
+
+	"github.com/yasyf/cc-interact/procs"
 )
+
+const Env = "CLAUDE_LONG_RUNNING_DRIVE"
+
+var ErrNoDrive = errors.New("this session belongs to no drive: it carries no " + Env + " and no drive registry entry holds it")
 
 type Pin struct {
 	Name     string   `json:"name"`
@@ -52,6 +59,10 @@ func (e Entry) Root() string {
 
 func (e Entry) Store() string {
 	return filepath.Join(e.StateDir, "lr.sqlite")
+}
+
+func (e Entry) Config() string {
+	return filepath.Join(e.StateDir, "lr.json")
 }
 
 func ConfigDir() (string, error) {
@@ -106,6 +117,9 @@ func Live() ([]Entry, error) {
 }
 
 func Named(name string) (Entry, error) {
+	if name == "" {
+		return Session()
+	}
 	live, err := Live()
 	if err != nil {
 		return Entry{}, err
@@ -119,6 +133,17 @@ func Named(name string) (Entry, error) {
 		}
 	}
 	return Entry{}, fmt.Errorf("no drive registry entry for %s names a coordinator session", name)
+}
+
+func Session() (Entry, error) {
+	if name := os.Getenv(Env); name != "" {
+		return Named(name)
+	}
+	entry, err := HoldingWindow(procs.ClaudePID())
+	if err != nil {
+		return Entry{}, ErrNoDrive
+	}
+	return entry, nil
 }
 
 func Holding(session string) (Entry, error) {

@@ -123,7 +123,7 @@ def test_the_check_reads_hooks_scripts_skill_text_and_brief_templates() -> None:
     read = {(path.relative_to(PACK).as_posix(), words) for path, words in named()}
 
     assert ("capt-hook/hooks/lane_waits.py", ("wait",)) in read
-    assert ("capt-hook/hooks/owner_ledger.py", ("owner", "mark", "--routed", "--reply", "--by", "--drive")) in read
+    assert ("capt-hook/hooks/owner_ledger.py", ("owner", "audit", "--drive")) in read
     assert ("scripts/bin-shim.sh", ("board", "waits")) in read
     assert ("skills/long-running/reference/sub-drives.md", ("drive", "sub", "start", "--objective", "--reason")) in read
     assert ("skills/long-running/reference/chores-lane-brief.md", ("launch", "chores")) in read

@@ -18,10 +18,11 @@ import (
 const StoreFile = "lr.sqlite"
 
 func Loaded(a *app.App) (config.Config, string, error) {
-	if a.ConfigPath == "" {
-		return config.Config{}, "", errors.New("name the drive's lr.json with --config or LR_CONFIG")
+	path, err := a.ConfigFile()
+	if err != nil {
+		return config.Config{}, "", err
 	}
-	path, err := filepath.Abs(a.ConfigPath)
+	path, err = filepath.Abs(path)
 	if err != nil {
 		return config.Config{}, "", err
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -359,9 +361,11 @@ func TestTheStrandedPRBlockersCommandRunAsWrittenHandsThePRsToTheLaneItNames(t *
 	equal(t, owners(t, s, 45492, 46512), map[int]string{45492: "conflicts-3", 46512: "conflicts-3"})
 }
 
-func TestAMissingConfigNamesTheFlag(t *testing.T) {
+func TestASessionInNoDriveIsRefusedInOneLine(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(drive.Env, "")
 	_, err := execute(t, Command(&app.App{}))
-	if err == nil || !strings.Contains(err.Error(), "--config") {
+	if !errors.Is(err, drive.ErrNoDrive) || strings.Contains(err.Error(), "\n") {
 		t.Fatalf("err %v", err)
 	}
 	if _, statErr := os.Stat("lr.sqlite"); statErr == nil {
