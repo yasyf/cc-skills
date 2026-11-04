@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -18,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+ORCA = ("lr", "orca") if shutil.which("lr") else ("orca",)
 SETTLED = {"completed", "failed"}
 EXTERNAL = "external_terminal"
 RELEASED = {"released", "already_released"}
@@ -212,7 +214,7 @@ def on(environment: str | None) -> tuple[str, ...]:
 class Orca:
     def call(self, *args: str) -> dict:
         orchestration = args[0] == "orchestration"
-        done = subprocess.run(["orca", *args, *(("--full",) if orchestration else ()), "--json"], capture_output=True, text=True)
+        done = subprocess.run([*ORCA, *args, *(("--full",) if orchestration else ()), "--json"], capture_output=True, text=True)
         reply = json.loads(done.stdout or done.stderr)
         if orchestration and reply.get("ok") and "_meta" not in reply:
             raise RuntimeError(f"orca {' '.join(args[:2])} printed its concise view, not the full record")

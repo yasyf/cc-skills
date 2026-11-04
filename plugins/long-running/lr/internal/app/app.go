@@ -11,6 +11,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orcarpc"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -26,7 +27,7 @@ type App struct {
 }
 
 func New(stderr io.Writer) *App {
-	runner := shell.Exec{}
+	runner := orcarpc.NewRunner(shell.Exec{})
 	return &App{
 		Runner:  runner,
 		CCX:     ccx.CLI{Runner: runner},

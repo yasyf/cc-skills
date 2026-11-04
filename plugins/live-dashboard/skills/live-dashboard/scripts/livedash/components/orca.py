@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import shutil
+
 from livedash import Col, Context, Table, component
 
+ORCA = ("lr", "orca") if shutil.which("lr") else ("orca",)
 SETTLED = frozenset({"completed", "failed"})
 LIVE = "live"
 
@@ -14,7 +17,7 @@ def workers(ctx: Context, run: str) -> list[dict]:
     found: list[dict] = []
     cursor: list[str] = []
     while True:
-        page = ctx.json(["orca", "orchestration", "worker-list", "--run", run, "--json", "--limit", "100", *cursor])["result"]
+        page = ctx.json([*ORCA, "orchestration", "worker-list", "--run", run, "--full", "--json", "--limit", "100", *cursor])["result"]
         found += page["workers"]
         if not page["page"].get("hasMore"):
             return found
@@ -27,7 +30,7 @@ def orca(ctx: Context, *, orca_run: str | None = None) -> Table:
     A dispatched worker with no live status and a task never dispatched are counted in the note, not listed."""
     if not orca_run:
         return Table([Col("name", "Worker")], [], note="This drive has no Orca run.")
-    tasks = ctx.json(["orca", "orchestration", "task-list", "--run", orca_run, "--json"])["result"]["tasks"]
+    tasks = ctx.json([*ORCA, "orchestration", "task-list", "--run", orca_run, "--full", "--json"])["result"]["tasks"]
     current = {worker["taskId"]: worker for worker in workers(ctx, orca_run) if worker["dispatchStatus"] not in SETTLED}
     rows = []
     silent = 0

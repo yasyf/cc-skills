@@ -48,10 +48,12 @@ else
   set -- --wait --types worker_done,escalation,question --timeout-ms "$TIMEOUT" "$@"
 fi
 
+ORCA=orca
+command -v lr >/dev/null 2>&1 && ORCA="lr orca"
 attempt=0
 while :; do
   attempt=$((attempt + 1))
-  OUT=$(orca orchestration check "$@" --full --json 2>/dev/null) || true
+  OUT=$($ORCA orchestration check "$@" --full --json 2>/dev/null) || true
   if printf '%s' "$OUT" | jq -e '.ok == false and .error.code != "runtime_unavailable"' >/dev/null 2>&1; then
     printf '%s' "$OUT" | jq -r '"error \(.error.code): \(.error.message)"'
     exit 1
