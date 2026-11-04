@@ -222,7 +222,7 @@ def drive_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
     (drives / "brook.json").write_text(json.dumps(entry))
     root = Root(tmp_path)
     seed = PostToolUseEvent(_raw={"session_id": "0123456789abcdef", "tool_name": "Bash"}, ctx=build_context(session_dir=root.session_dir))
-    CompactionState(active=True, slug="brook").save(seed)
+    CompactionState(active=True, communicator=True, slug="brook").save(seed)
     return root
 
 

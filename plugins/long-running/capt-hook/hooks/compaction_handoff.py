@@ -166,6 +166,7 @@ class CompactionState(WorkflowState):
     register_body: str | None = None
     root_slice: str | None = None
     coordinator: bool = False
+    communicator: bool = False
 
 
 class Coordinator:
@@ -177,18 +178,18 @@ class Coordinator:
 
 
 class Communicator:
-    """The coordinator thread of the session that ran `/long-running` and not `/long-running:coordinator`, the window the owner types in: every hook on how words reach the human acts there and only there."""
+    """The coordinator thread of the session that ran `lr owner start`, the window the owner types in: every hook on how words reach the human acts there and only there. A session that only loaded the skill is not it."""
 
     def check(self, evt: BaseHookEvent) -> bool:
         state = CompactionState.load(evt)
-        return evt.agent_id is None and state.active and not state.coordinator
+        return evt.agent_id is None and state.active and state.communicator and not state.coordinator
 
 
 def switched(case: Input, coordinator: bool) -> Input:
     states = case.state if isinstance(case.state, list) else [case.state] if case.state else []
     drive = [state for state in states if isinstance(state, CompactionState)]
     rest = [state for state in states if not isinstance(state, CompactionState)]
-    compaction = drive[0].model_copy(update={"coordinator": coordinator}) if drive else CompactionState(active=True, coordinator=coordinator)
+    compaction = drive[0].model_copy(update={"coordinator": coordinator, "communicator": not coordinator}) if drive else CompactionState(active=True, coordinator=coordinator, communicator=not coordinator)
     return dataclasses.replace(case, state=[*rest, compaction])
 
 
@@ -727,6 +728,22 @@ def activate_on_skill(evt: BaseHookEvent) -> HookResult | None:
 def activate_on_command(evt: BaseHookEvent) -> HookResult | None:
     if (prompt := evt.user_prompt or "").startswith("/long-running"):
         activate(evt, prompt, coordinator=prompt.startswith(f"/{COORDINATOR_SKILL}"))
+    return None
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Tool("Bash")],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(command="lr owner start --drive d --project /w"): Allow(),
+        Input(command="lr owner list --drive d"): Allow(),
+    },
+)
+def arm_communicator(evt: BaseHookEvent) -> HookResult | None:
+    if any("owner start" in " ".join(call.args) for call in evt.command.calls("lr")):
+        with CompactionState.mutate(evt) as state:
+            state.active = state.communicator = True
     return None
 
 

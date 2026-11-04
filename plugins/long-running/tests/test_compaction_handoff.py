@@ -98,6 +98,15 @@ def test_only_the_coordinator_skill_arms_the_root_hooks(home: Path, skill: str, 
     assert handoff.Coordinator().check(tool_event(session, "Bash", {"command": "ls"})) is armed
 
 
+def test_only_lr_owner_start_arms_the_communicator_hooks(home: Path) -> None:
+    session = home / "session"
+    read = tool_event(session, "Bash", {"command": "ls"})
+    handoff.activate_on_skill(tool_event(session, "Skill", {"skill": "long-running"}))
+    assert not handoff.Communicator().check(read)
+    handoff.arm_communicator(tool_event(session, "Bash", {"command": "lr owner start --drive d --project /w"}))
+    assert handoff.Communicator().check(read)
+
+
 @pytest.mark.parametrize(("prompt", "armed"), [("/long-running drive the release", False), ("/long-running:coordinator run the drive", True)])
 def test_only_the_coordinator_command_arms_the_root_hooks(home: Path, prompt: str, armed: bool) -> None:
     session = home / "session"

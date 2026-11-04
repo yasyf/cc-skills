@@ -7,7 +7,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, Communicator, communicator_tests
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, communicator=True)]
 LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
 STANDING = re.compile(r"(?:landing-desk|fidelity-desk|fidelity-sweep|red-sweep|alerts-desk|drive-watchdog|board-refresher)(?:-\d+)?")
 STARTS = {"lr": (("relay", "run"),)}

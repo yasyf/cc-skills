@@ -11,7 +11,7 @@ Do not fire when the message reports nothing wrong, or when it names the change 
 
 MESSAGE = "This report names a failure but not what stops it recurring. Add one line: the mechanism, the tooling or process change, and its PR or owner."
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, communicator=True)]
 
 
 def closing(text: str, call: str) -> list:

@@ -66,7 +66,7 @@ class Root:
             ("cc-present", "outcomes"): (1, f'cc-present: no cc-present artifact for session "{SESSION}"; run `cc-present start` first'),
             SWEEP: "open rule/0a1b2c3 plan.md:305 relay slot\n",
         }
-        CompactionState(active=True, slug="users-plan-stem-of-brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
+        CompactionState(active=True, communicator=True, slug="users-plan-stem-of-brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def line(self, entry: dict, at: str) -> None:
         envelope = {"isSidechain": False, "uuid": f"u{len(self.transcript.read_text().splitlines())}", "parentUuid": None, "sessionId": SESSION, "timestamp": at}

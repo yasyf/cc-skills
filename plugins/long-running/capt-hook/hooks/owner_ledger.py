@@ -16,7 +16,7 @@ from .register_gates import written_paths
 from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body
 from .tests.register_fixtures import CWD, DRIVE_CONFIG
 
-ACTIVE = [CompactionState(active=True)]
+ACTIVE = [CompactionState(active=True, communicator=True)]
 LEDGER_DIR = "owner-relay"
 LEDGER = "owner-ledger.md"
 LOCK = ".owner-ledger.lock"
