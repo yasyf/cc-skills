@@ -17,12 +17,12 @@
 
 **Act on every owner Slack link in the same turn (R20 in `SKILL.md`).** A Slack permalink from the owner, bare or with text, belongs to the coordinator regardless of who wrote the Slack message. It always asks the coordinator to act and is never informational. An in-thread reply from the owner saying "Looking," "on it," or "checking" hands the thread to the drive.
 
-- **Launch both lanes in one batch.** The Slack lane adds `eyes` within one minute on the asking message through the `cc-slack` CLI or tool, reads the thread, and returns the ask in at most five lines.
+- **Launch both lanes in one batch.** The Slack lane adds `eyes` within one minute on the asking message through the `cc-slack` CLI or tool, reads the thread, and returns the ask in at most five lines. On a public channel it adds `wrench` beside `eyes` when the doing lane starts.
 - **A production break runs as an `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fails>` line.** The runner then fills `alert-fix-brief.md`, launches `<slug>-fix` and clocks it, with no hand-written brief. The Slack lane sends its capture to the fix lane over `cci`, addressed to that lane.
 - **For an alert or a broken pipeline under R16, the fix lane is the doing lane and its comms lane is the Slack lane** ([active-alert-brief.md](active-alert-brief.md)).
 - **Brief readers for action, never for relevance.** A reader or Slack-lane brief asks "who asks, what they ask, and what fixes it," never "what, if anything, it asks of the coordinator."
 - **A line from the owner that needs nothing back gets a 👍, not a reply.** Use `slack_react` with `name` `+1` on his message. Reply only when the reply carries a condition, correction, time, answer, or consequence he lacks. `owner_replies_carry_news.py` refuses a short reply with no number, link or question mark.
-- **Close the loop in the thread.** When the doing lane has the answer to the ask, or the fix is live, the Slack lane posts the one in-thread report under [Reporter threads](#reporter-threads) and swaps `eyes` for `white_check_mark` once the ask is complete. A cause, PR or ETA alone is progress, never a post.
+- **Close the loop in the thread.** When the doing lane has the answer to the ask, or the fix is live, the Slack lane posts the one in-thread report under [Reporter threads](#reporter-threads) and swaps `eyes` and any `wrench` for `white_check_mark` once the ask is complete. A cause, PR or ETA alone is progress, never a post.
 - **A post that asks a person for a grant, a permission, an approval, or an answer opens an R3 wait-then-do chain** (`SKILL.md`). Any fence, hold, or `until <person>` line it gates names the thread as `until reply in <channel>/<thread_ts>`. No hook enrolls a posted thread or pasted Slack link for watching, and no lane watches or polls a Slack thread or channel. A thread about someone else's tooling or release, reaching the drive's Slack watch, is no incident, no bug-list item and no reason to post; drop its watch.
 
 ## Copy and pre-post checks
@@ -102,8 +102,9 @@ ccn answer add "May the drive reply in <channel id> thread <thread ts>, where <u
 
 ## Reporter threads
 
-Every lane that writes in a thread where a person reported a break follows these five rules. Both spawn briefs below point here instead of repeating them:
+Every lane that writes in a thread where a person reported a break follows these six rules. Both spawn briefs below point here instead of repeating them:
 
+- **Show a public-channel pickup on the message.** The lane adds `eyes` to the message it picks up when it first looks, and `wrench` beside it when work starts. Both carry the owner's standing rule on public channels and need no grant id.
 - **Read the whole thread, then the shared message.** The lane that writes reads the thread itself with `slack_thread`, never from another lane's summary; the `cc-slack` hook refuses a reply without a full read by that agent in the last 10 minutes. A message that lists `shares` is a share: the report, the reporter, their machine, and their screenshot belong to the shared message's original author, never the person who shared it. Open each image at its `path`, and never ask for what the thread already holds.
 - **Read telemetry, never ask the reporter.** No lane asks a reporter for evidence such as a client version, an id, a log line, a reproduction step, or what they saw. Lanes read metrics, logs, Sentry, and run or session records first. If a fact is missing from all of them, spawn a tooling lane to add it to telemetry (for example, logging the client version on every request).
 - **Prove the architecture path before naming a client cause.** Before any message names a cause on a reporter's machine, the lane states which component served the failing request and shows that the request reached the reporter's client. The cloud serves a cloud run. Every unproven cause is labeled "suspected" both to the owner and in the thread. Bug-thread comms post only confirmed causes: hold the post until the cause is confirmed, and never post a cause that flips or a machine-side workaround.
@@ -151,8 +152,8 @@ Model opus; effort low for react/read. gemini-4-argon drafts the copy: hand it t
   facts and the voice rules through `gemini -m gemini-4-argon --skip-trust -p` and post its reply verbatim.
 Bound by `reference/slack-lane-brief.md`: read "Copy and pre-post checks", "Agent types,
   surfaces, and fallbacks" and "Reporter threads" first and follow them in full.
-Authority: reactions eyes, white_check_mark, and pray carry the owner's standing grant.
-  A post or reply needs <grant id>: the owner's instruction to post, quoted from the
+Authority: reactions eyes, white_check_mark, and pray carry the owner's standing grant,
+  and wrench does on a public channel. A post or reply needs <grant id>: the owner's instruction to post, quoted from the
   coordinator's session, or the id of a `slack-grant:<channel id>` answer. Never pass
   `--ticket`: the permission hook mints and attaches the ticket on the write. With one,
   draft and post in one turn; never return the draft. Without one, return the exact
@@ -186,6 +187,8 @@ Do:
      An owner link always asks the coordinator to act, whoever wrote the message.
      The owner's "Looking", "on it", or "checking" hands it to the drive.
      Never ask "what, if anything, it asks of the coordinator".
+     On a public channel, add wrench beside eyes when <doing lane name> starts:
+     `slack_react` with `url` <permalink> and `name` wrench.
   5. Wait for <doing lane name>'s result (the answer, or the fix live) with `Monitor` on <named disk file
      or bus entry>, or end the turn on `blocked --lane-ref <doing lane name>` so the supervisor wakes you.
   6. For a PR post, re-read its current state with `ccx vcs pr status <n>`
@@ -202,8 +205,8 @@ Do:
      old or the copy no longer fits it, then post the thread reply as the cc-slack bot:
      `slack_reply` with `url` <permalink> and `text` <copy>.
      Leave top-level channel posts to <coordinator agent name>.
-     Once the ask is done, swap eyes for white_check_mark:
-     `slack_unreact` with `url` <permalink> and `name` eyes, then
+     Once the ask is done, swap eyes and any wrench for white_check_mark:
+     `slack_unreact` with `url` <permalink> and `name` eyes and then wrench, then
      `slack_react` with `url` <permalink> and `name` white_check_mark.
      Post a cci record to the coordinator with the post's permalink and whether it commits to
      a standing behavior ("from now on", "we will", "we now", or "going forward").
@@ -231,7 +234,7 @@ Authority: the channel and thread grants supplied at launch, plus the grant id o
   grant covers replies in <channel id>/<thread ts> only, never a channel post,
   broadcast, or another thread. A channel grant covers top-level posts in
   <channel id> only, never a reply, broadcast, or edit. Reactions eyes, white_check_mark, and pray carry
-  the owner's standing grant. Never post an event that carries no grant.
+  the owner's standing grant, and wrench does on a public channel. Never post an event that carries no grant.
 
 Thread: <permalink>; channel <channel id>; thread ts <thread ts>.
 Account channels and FDEs: ai-oncall skill mapping.
@@ -273,7 +276,8 @@ Do:
      rendered URL and rerun the check. Post the checked text verbatim. For `thread`, use
      `slack_reply` with `url` <thread> and `text` <copy>. For `channel`,
      use `slack_send` with `channel_id` <channel id> and `text` <copy>. Add eyes
-     for `ack`, and swap eyes for white_check_mark after `recovered`.
+     for `ack`, add wrench beside it on a public channel when the fix lane starts,
+     and swap both for white_check_mark after `recovered`.
   6. Answer every entry once it posts:
      `cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "posted ts=<ts>"`.
      An entry left unanswered for two minutes reaches the coordinator as a decision.
