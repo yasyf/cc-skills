@@ -24,6 +24,7 @@ NUMBER = re.compile(r"^\W*(?:#\d{3,}|\d{5,}|0\d{3})(?:'s)?\W*$")
 PLAIN = re.compile(r"^[A-Za-z][a-z'-]{2,}$")
 FILLER = frozenset("the and for with its his her this that was are has had have been now not but from into about then than also just still yet all any our you your".split())
 PR_REF = re.compile(r"(?i)(?:#|\bpr ?#?|\bcard-)(\d{4,})\b")
+OTHER_REPO_REF = re.compile(r"(?i)(?<![\w./-])(?:(?!forge-ai/)[\w.-]+/[\w.-]+|cc-[\w-]+)(?:#| #| pr ?#?)\d+|(?<![\w./-])(?!monorepo#)[\w.-]+#\d+")
 ESCALATES = re.compile(r"(?i)\b(?:releases?|deploy(?:s|ed|ing)?|rollouts?|resum\w*)\b")
 RELAY = "owner-relay"
 RAISING = frozenset({"ask", "blocker", "blocked", "hold", "urgent", "red", "decide"})
@@ -111,7 +112,7 @@ def relay_lines(evt: BaseHookEvent) -> list[tuple[str, str]]:
 
 
 def prs_named(texts: list[str]) -> list[int]:
-    return sorted({int(number) for text in texts for number in PR_REF.findall(text)})
+    return sorted({int(number) for text in texts for number in PR_REF.findall(OTHER_REPO_REF.sub("", text))})
 
 
 def whose(reads: Reads, numbers: list[int]) -> dict[int, dict]:
