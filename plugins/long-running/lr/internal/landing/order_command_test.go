@@ -109,7 +109,7 @@ func TestOneWordOrdersEachPRAndEachHeadItCovers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got []string
+	got := make([]string, 0, len(written))
 	for _, record := range written {
 		got = append(got, record.Fields.Attrs["row"]+" "+record.Fields.Attrs["head"][:7])
 	}
