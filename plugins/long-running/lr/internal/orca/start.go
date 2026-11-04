@@ -28,6 +28,7 @@ const (
 	modelIncidentOpus      = "incident-opus"
 	claudeFastSettings     = ` --settings '{"fastMode":true}'`
 	startPoll              = 4 * time.Second
+	stallRetry             = 30 * time.Second
 	coordinatorLane        = "root"
 	coordinatorCompact     = 210000
 	coordinatorDenied      = ",Workflow,ScheduleWakeup,ReportFindings,ListAgents,Monitor,SendMessage,TaskGet"
@@ -115,8 +116,8 @@ type launch struct {
 	worktreeName, branch          string
 	rollingBack                   bool
 	created, made, lost, startup  bool
-	branched                      bool
 	owned, terminal, undone, kept string
+	stalled                       string
 	waitFor                       string
 	waitStart, said               int64
 	listed, before                []string
@@ -209,7 +210,8 @@ func (l *launch) pause(reason string) error {
 		l.waitFor, l.waitStart, l.said = reason, now, now
 	}
 	if now-l.waitStart >= int64(l.stall) {
-		return l.fail("LAUNCH-FAILED: %s for %ds", reason, now-l.waitStart)
+		l.stalled = fmt.Sprintf("%s for %ds", reason, now-l.waitStart)
+		return l.fail("LAUNCH-FAILED: %s", l.stalled)
 	}
 	if now-l.said >= saidEvery {
 		fmt.Fprintf(l.Stderr, "%s waiting %ds: %s\n", l.lane, now-l.waitStart, reason)
@@ -329,31 +331,43 @@ func (l *launch) undo() {
 			l.kept += " terminal=" + l.terminal
 		}
 	}
+	if l.holdsCommits() {
+		l.kept += " worktree=" + l.wt + " branch=" + l.branch + " (it holds commits not on " + l.base + ")"
+		return
+	}
 	switch {
 	case l.made || (l.lost && l.registered()):
 		if l.removed() {
 			_ = os.Remove(l.path(".worktree"))
 			l.undone += " worktree=" + l.wt
 		} else {
-			l.kept += " worktree=" + l.wt
+			l.kept += " worktree=" + l.wt + " (its removal failed: " + l.path(".rm.log") + ")"
 		}
 	case l.lost && isDir(l.wt) && !l.isCheckout():
-		if os.RemoveAll(l.wt) == nil {
+		if err := os.RemoveAll(l.wt); err == nil {
 			l.undone += " worktree=" + l.wt
 		} else {
-			l.kept += " worktree=" + l.wt
+			l.kept += " worktree=" + l.wt + " (" + err.Error() + ")"
 		}
 	}
-	if l.branched && l.gitQuiet(l.main, "show-ref", "--verify", "--quiet", "refs/heads/"+l.branch) {
-		if l.gitQuiet(l.main, "branch", "-D", l.branch) {
+	if l.created && l.gitQuiet(l.main, "show-ref", "--verify", "--quiet", "refs/heads/"+l.branch) {
+		if said, code := l.git(l.main, "branch", "-D", l.branch); code == 0 {
 			l.undone += " branch=" + l.branch
 		} else {
-			l.kept += " branch=" + l.branch
+			l.kept += " branch=" + l.branch + " (" + tailLines(strings.TrimSpace(said), 1) + ")"
 		}
 	}
 	if !l.isCheckout() {
 		_ = os.Remove(l.path(".worktree"))
 	}
+}
+
+func (l *launch) holdsCommits() bool {
+	if !l.created {
+		return false
+	}
+	said, code := l.output(shell.Command{Argv: []string{"git", "-C", l.main, "rev-list", "--count", l.base + ".." + l.branch}})
+	return code == 0 && strings.TrimSpace(said) != "0"
 }
 
 func modelRoute(model string) (string, string, bool) {
@@ -390,8 +404,22 @@ func (l *launch) stateHome() string {
 }
 
 func (s *Starter) Run(ctx context.Context, lane, model, effort, brief string) (string, error) {
-	l := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief}
-	return l.start()
+	first := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief}
+	line, err := first.start()
+	if first.stalled == "" || first.startTries > 0 || first.kept != "" {
+		return line, err
+	}
+	fmt.Fprintf(s.Stderr, "%s retries once after a stall: %s\n", lane, first.stalled)
+	if first.agent != agentIncident {
+		s.Sleep(stallRetry)
+	}
+	retry := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief}
+	line, err = retry.start()
+	var failed *Failed
+	if errors.As(err, &failed) {
+		failed.Line += "; this was its one retry"
+	}
+	return line, err
 }
 
 func (l *launch) readEnv() error {
@@ -846,7 +874,6 @@ func (l *launch) added() (string, bool) {
 	if l.gitQuiet(l.main, "remote", "get-url", remote) {
 		l.gitQuiet(l.main, "fetch", "--quiet", remote, branch)
 	}
-	l.branched = true
 	said, code := l.git(l.main, "worktree", "add", "--no-checkout", "--no-track", "-b", l.branch, l.wt, l.base)
 	return said, code == 0
 }
@@ -1455,6 +1482,9 @@ func (l *launch) startWorker() (string, error) {
 			}
 			if l.made || l.lost {
 				l.kept += " worktree=" + l.wt
+			}
+			if l.kept != "" {
+				l.kept += " (worker-start may have dispatched a worker there)"
 			}
 		}
 		fenced := ""
