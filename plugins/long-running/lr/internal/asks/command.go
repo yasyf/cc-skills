@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -22,6 +23,7 @@ const (
 )
 
 var (
+	pacific    = mustZone("America/Los_Angeles")
 	notOwners  = []string{"root", "main", "all", ""}
 	endedKinds = []string{"stand-down", "handoff", "stopped", "done"}
 )
@@ -78,8 +80,37 @@ func (g Graded) Status(now time.Time) string {
 	return line
 }
 
+func mustZone(name string) *time.Location {
+	zone, err := time.LoadLocation(name)
+	if err != nil {
+		panic(err)
+	}
+	return zone
+}
+
+func clock(at time.Time) string { return at.In(pacific).Format("Jan 2 3:04 PM") }
+
+func (b Book) Order(g Graded) string {
+	owner := g.Lane
+	if slices.Contains(notOwners, owner) {
+		owner = "UNOWNED"
+	}
+	asked := fmt.Sprintf("| %s %s: %s", g.Key, owner, g.Text)
+	prs := strings.Join(g.PRs, ",")
+	landed, delivered := b.landedAt(g.Ask)
+	switch {
+	case delivered && g.State == Live:
+		return fmt.Sprintf("LIVE by %s, landed %s in %s %s", clock(b.LiveSince), clock(landed), prs, asked)
+	case delivered:
+		return fmt.Sprintf("%s, landed %s in %s %s", g.State, clock(landed), prs, asked)
+	case g.State == InPR:
+		return fmt.Sprintf("IN-PR %s, %s due %s %s", prs, owner, clock(g.Due), asked)
+	}
+	return fmt.Sprintf("%s, %s due %s %s", g.State, owner, clock(g.Due), asked)
+}
+
 func Command(a *app.App) *cobra.Command {
-	var driveName string
+	var driveName, surface string
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "asks",
@@ -101,21 +132,27 @@ func Command(a *app.App) *cobra.Command {
 			}
 			now := a.Now()
 			open := book.Open(now)
+			line := func(g Graded) string { return g.Status(now) }
+			if surface != "" {
+				open = slices.DeleteFunc(open, func(g Graded) bool { return g.Surface != surface })
+				line = book.Order
+			}
 			if !asJSON {
 				for _, graded := range open {
-					fmt.Fprintln(cmd.OutOrStdout(), graded.Status(now))
+					fmt.Fprintln(cmd.OutOrStdout(), line(graded))
 				}
 				return nil
 			}
 			out := make([]map[string]string, len(open))
 			for i, graded := range open {
-				out[i] = map[string]string{"key": graded.Key, "lane": graded.Lane, "state": string(graded.State), "text": graded.Text, "line": graded.Status(now)}
+				out[i] = map[string]string{"key": graded.Key, "lane": graded.Lane, "state": string(graded.State), "text": graded.Text, "surface": graded.Surface, "line": line(graded)}
 			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 		},
 	}
 	cmd.PersistentFlags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print a JSON list")
+	cmd.Flags().StringVar(&surface, "surface", "", "only the asks on this surface, such as dashboard, each as live, in a PR or its owner lane and due time")
 	cmd.AddCommand(&cobra.Command{
 		Use:   "sync",
 		Short: "Refresh the store's copy of the drive's ledger",
@@ -205,6 +242,7 @@ func writeCommands(a *app.App, driveName *string) []*cobra.Command {
 	addCmd.Flags().StringVar(&add.Lane, "lane", "", "the live lane that delivers it")
 	addCmd.Flags().StringVar(&add.Accept, "accept", "", "the check that says it is done")
 	addCmd.Flags().StringVar(&add.Due, "due", "", "an ISO 8601 time or a span such as 4h")
+	addCmd.Flags().StringVar(&add.Surface, "surface", "", "the surface the ask changes, when his words do not name a dashboard tab or page")
 	addCmd.Flags().IntVar(&add.Standing, "standing", 0, "an ask that is never done: in progress while its newest entry is under this many hours old")
 	required(addCmd, "text", "lane", "accept", "due")
 
@@ -247,7 +285,13 @@ func writeCommands(a *app.App, driveName *string) []*cobra.Command {
 		return m.Answer(cmd.Context(), key, text)
 	})}
 	answerCmd.Flags().StringVar(&text, "text", "", "the answer")
-	for _, command := range []*cobra.Command{stateCmd, standingCmd, progressCmd, dropCmd, answerCmd} {
+	var surface string
+	surfaceCmd := &cobra.Command{Use: "surface", Short: "Set the surface an ask changes, such as dashboard", Args: cobra.NoArgs, RunE: keyed(func(cmd *cobra.Command, m Mirror, key string) error {
+		return m.SetSurface(cmd.Context(), key, surface)
+	})}
+	surfaceCmd.Flags().StringVar(&surface, "surface", "", "the surface, such as dashboard")
+	required(surfaceCmd, "surface")
+	for _, command := range []*cobra.Command{stateCmd, standingCmd, progressCmd, dropCmd, answerCmd, surfaceCmd} {
 		command.Flags().StringVar(&ask, "ask", "", "the ask's id")
 		required(command, "ask")
 	}
@@ -261,7 +305,7 @@ func writeCommands(a *app.App, driveName *string) []*cobra.Command {
 	liveCmd.Flags().StringVar(&at, "at", "", "an RFC 3339 time")
 	liveCmd.Flags().StringVar(&text, "text", "", "what ran")
 	required(liveCmd, "at")
-	return []*cobra.Command{addCmd, stateCmd, standingCmd, progressCmd, dropCmd, answerCmd, liveCmd}
+	return []*cobra.Command{addCmd, stateCmd, standingCmd, progressCmd, dropCmd, answerCmd, surfaceCmd, liveCmd}
 }
 
 func required(cmd *cobra.Command, names ...string) {

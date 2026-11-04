@@ -21,8 +21,9 @@ const (
 )
 
 var (
-	askKey     = regexp.MustCompile(`^(?:ask/)?(\d+)$`)
-	OverrideOf = []string{"backlog", "live", "lost", stateReopen}
+	askKey         = regexp.MustCompile(`^(?:ask/)?(\d+)$`)
+	dashboardWords = regexp.MustCompile(`(?i)\bdashboard\b|\b(?:overview|needs (?:you|me)|review|releases|workers|timeline|asks?|chat)\s+(?:tab|page)\b`)
+	OverrideOf     = []string{"backlog", "live", "lost", stateReopen}
 )
 
 type NewAsk struct {
@@ -31,6 +32,14 @@ type NewAsk struct {
 	Accept   string
 	Due      string
 	Standing int
+	Surface  string
+}
+
+func surfaceOf(ask NewAsk) string {
+	if ask.Surface == "" && dashboardWords.MatchString(ask.Text) {
+		return Dashboard
+	}
+	return ask.Surface
 }
 
 func Key(value string) (string, error) {
@@ -128,6 +137,9 @@ func (m Mirror) Add(ctx context.Context, ask NewAsk, refuses func(ctx context.Co
 	if ask.Standing > 0 {
 		fields["standing_hours"] = strconv.Itoa(ask.Standing)
 	}
+	if surface := surfaceOf(ask); surface != "" {
+		fields["surface"] = surface
+	}
 	if _, err := m.set(ctx, key, fields); err != nil {
 		return "", "", err
 	}
@@ -154,6 +166,14 @@ func (m Mirror) SetStanding(ctx context.Context, key string, hours int) error {
 		return err
 	}
 	_, err := m.set(ctx, key, map[string]string{"standing_hours": strconv.Itoa(hours)})
+	return err
+}
+
+func (m Mirror) SetSurface(ctx context.Context, key, surface string) error {
+	if _, err := m.existing(ctx, key); err != nil {
+		return err
+	}
+	_, err := m.set(ctx, key, map[string]string{"surface": surface})
 	return err
 }
 
