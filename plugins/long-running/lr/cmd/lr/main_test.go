@@ -16,8 +16,7 @@ func run(t *testing.T, args ...string) (string, error) {
 	cmd := root(app.New(&out))
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs(args)
-	err := cmd.Execute()
+	err := execute(cmd, args)
 	return out.String(), err
 }
 
