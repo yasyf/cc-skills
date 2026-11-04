@@ -155,6 +155,8 @@ func TestServeLeavesEverythingElseToTheCLI(t *testing.T) {
 		{"orchestration", "check", "--terminal", "t", "--full", "--json"},
 		{"orchestration", "check", "--terminal", "t", "--peek", "--all", "--full", "--json"},
 		{"orchestration", "check", "--terminal", "t", "--peek", "--ack", "d", "--full", "--json"},
+		{"orchestration", "check", "--run", "r", "--terminal", "", "--full", "--json"},
+		{"orchestration", "inbox", "--terminal", "", "--full", "--json"},
 		{"orchestration", "check", "--terminal", "t", "--peek", "--wait", "--full", "--json"},
 		{"terminal", "read", "--terminal", "t", "--environment", "box", "--json"},
 		{"terminal", "read", "--json"},

@@ -265,7 +265,7 @@ func parseInvocation(args []string) (string, invocation, bool) {
 			continue
 		}
 		index++
-		if index == len(args) || strings.HasPrefix(args[index], "-") {
+		if index == len(args) || args[index] == "" || strings.HasPrefix(args[index], "-") {
 			return "", in, false
 		}
 		in.flags[name] = args[index]
