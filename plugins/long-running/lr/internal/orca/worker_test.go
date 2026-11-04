@@ -407,7 +407,7 @@ func (f *workerFixture) fullSpriteCalls() [][]string {
 }
 
 func (f *workerFixture) localCalls(model, effort, repo string) [][]string {
-	claude := "env " + claudeLaneEnv + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --model " + model + " --effort " + effort
+	claude := "env " + claudeLaneEnv + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + laneDeniedTools + " --strict-mcp-config --no-chrome --model " + model + " --effort " + effort + " --settings '{" + claudeLaneSettings + "}'"
 	pointer := "Lane '" + workerLane + "'. Your full brief is the file " + f.brief + ": read it in full with the Read tool before anything else and execute it exactly (Orca truncates pasted specs). Your Orca worktree is " + localWorktree + ". You run in bypass-permissions mode; the brief's Escalate rules still hold."
 	return [][]string{
 		currentRunCall,

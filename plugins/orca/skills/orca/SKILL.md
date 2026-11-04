@@ -172,9 +172,11 @@ An unset or empty `WORKER_LOCAL` selects Sprite; any other nonempty value
 refuses. The local route starts Claude only and refuses Codex models. Remote
 Fable refuses before prepare; it never turns into a local launch or a different
 model. Local Claude keeps the machine's existing interactive authentication and
-task-scoped bypass behavior. It starts under `lane_env`, which turns off plugin
-and CLI auto-update and `/rewind` file backups; interactive sessions and
-`claude plugin update` still update the plugin cache.
+task-scoped bypass behavior. It starts stripped under `lane_env` and
+`lane_settings`, with no auto-update, native `~/.claude` watcher, animation,
+telemetry or status line, and `lane_denied_tools` keeps it from parking on a human.
+Interactive sessions and `claude plugin update` still update the plugin cache. Set
+`CLAUDE_LANE_SETTINGS` to a JSON object to add local settings.
 
 Start only the Model Context Protocol servers named in the task's allowlist.
 On Sprite, `WORKER_MCP_CONFIG` passes an inline JSON object for Claude or an
