@@ -274,6 +274,46 @@ func TestARulingOnAnUnrelatedObjectTouchesNoCard(t *testing.T) {
 	}
 }
 
+func TestAnExtendedRulingIsJudgedOnTheWordsJustAddedAndNeverItsOldOnes(t *testing.T) {
+	const oldWords, addedWords = "drop the old sync PR, #42605", "ship #48879 once it is green"
+	closed := map[string]any{"id": "card-closed", "type": "card", "title": "Keep the old sync PR?", "children": []any{}}
+	f := newDeps(t, lookupsDoc, closed)
+	ctx := context.Background()
+	if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Cards.Store.PutCardDeps(store.CardRef{Session: "s1", Card: "card-closed", Lane: "lane-b"}, []string{"#42605"}); err != nil {
+		t.Fatal(err)
+	}
+	repeats, err := json.Marshal([]map[string]string{{"key": "prompt:1", "at": "Oct 24", "words": "an earlier addition"}, {"key": "prompt:2", "at": "Nov 4", "words": addedWords}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.rule(t, "rule/old", map[string]string{"kind": "order", "status": "in-force", "words": oldWords, "repeats": string(repeats)})
+	judge := f.Judge
+	var shown []string
+	f.Judge = func(ctx context.Context, kind, evidence, artifact string) (*Judgment, error) {
+		f.mu.Lock()
+		shown = append(shown, evidence)
+		f.mu.Unlock()
+		return judge(ctx, kind, evidence, artifact)
+	}
+	f.says(lookupsCard, premiseKind, "no", "")
+	moved, err := f.Ruling(ctx, []string{"rule/old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 0 || len(f.posts) != 0 {
+		t.Fatalf("moved = %v, posts = %v", moved, f.posts)
+	}
+	if !reflect.DeepEqual(f.judged, []string{premiseKind + " " + lookupsCard}) {
+		t.Fatalf("judged = %v, want only the card resting on the PR his added words cite", f.judged)
+	}
+	if len(shown) != 1 || !strings.Contains(shown[0], addedWords) || strings.Contains(shown[0], "old sync") || strings.Contains(shown[0], "earlier addition") {
+		t.Fatalf("evidence = %q, want his added words and none of the older ones", shown)
+	}
+}
+
 func TestAnUnsureJudgeKeepsTheCardAndFlagsItToItsLane(t *testing.T) {
 	f := newDeps(t, lookupsDoc)
 	ctx := context.Background()

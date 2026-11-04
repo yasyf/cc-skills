@@ -1,6 +1,7 @@
 package board
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -87,7 +88,20 @@ func rulingTerms(fields map[string]string) ([]string, error) {
 	return slices.DeleteFunc(terms, func(term string) bool { return strings.TrimSpace(term) == "" }), nil
 }
 
-func rulingDeps(fields map[string]string) ([]string, error) {
+func landedWords(fields map[string]string) (string, error) {
+	var added []struct {
+		Words string `json:"words"`
+	}
+	if err := json.Unmarshal([]byte(cmp.Or(fields["repeats"], "[]")), &added); err != nil {
+		return "", fmt.Errorf("register repeats %q: %w", fields["repeats"], err)
+	}
+	if len(added) == 0 {
+		return fields["words"], nil
+	}
+	return added[len(added)-1].Words, nil
+}
+
+func rulingDeps(fields map[string]string, landed string) ([]string, error) {
 	terms, err := rulingTerms(fields)
 	if err != nil {
 		return nil, err
@@ -96,7 +110,7 @@ func rulingDeps(fields map[string]string) ([]string, error) {
 	for _, term := range terms {
 		deps[termKey(term)] = true
 	}
-	for _, cited := range prCited.FindAllStringSubmatch(fields["words"]+" "+fields["names"]+" "+fields["surfaces"], -1) {
+	for _, cited := range prCited.FindAllStringSubmatch(landed+" "+fields["names"]+" "+fields["surfaces"], -1) {
 		deps[prKey(cited[1])] = true
 	}
 	return sortedKeys(deps), nil
@@ -270,12 +284,16 @@ func (r Recheck) Ruling(ctx context.Context, keys []string) ([]Moved, error) {
 			return nil, fmt.Errorf("no register row %s", key)
 		}
 		fields := rows[i].Fields
-		named, err := rulingDeps(fields)
+		landed, err := landedWords(fields)
+		if err != nil {
+			return nil, err
+		}
+		named, err := rulingDeps(fields, landed)
 		if err != nil {
 			return nil, err
 		}
 		deps = append(deps, named...)
-		evidence = append(evidence, fmt.Sprintf("His ruling, just recorded (%s), in his words: %s", fields["kind"], fields["words"]))
+		evidence = append(evidence, fmt.Sprintf("His ruling, just recorded (%s), in his words: %s", fields["kind"], landed))
 	}
 	refs, err := r.Cards.Store.CardsDependingOn(deps)
 	if err != nil {
