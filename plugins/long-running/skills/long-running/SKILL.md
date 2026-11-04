@@ -3141,14 +3141,14 @@ whenever it exits, carrying the installing shell's `PATH`, `HOME`, `LANG` and
 code and runs `launchctl kickstart -k` on the label it prints. The config
 names the drive, ledger, board session and URL, repo, progress-doc label, release doc,
 story file, keeper lane, host, port, and `tailnet_owner` (the owner's Tailscale login), plus the Now page's milestones, views, brief and
-story directories, and transcript directory; `/live-dashboard`'s
+story directories, transcript directory, and `replies`, the `<state dir>/replies` folder `lr reply serve` writes; `/live-dashboard`'s
 `templates/drive-now.json` is the template and `reference/drive-now-page.md` says how a
-drive fits it. It serves Now, Plan, Work, Review, History, and Ask from the cci daemon's record stream, `cc-present watch` on the
+drive fits it. It serves Now, Plan, Work, Review, Replies, History, and Ask from the cci daemon's record stream, the communicator's stored replies, `cc-present watch` on the
 board, the ledger, the drive's cc-notes answers, and the newest progress doc carrying
 `## Ordered plan of action`. A build failure posts one `defect` record to root.
 
 Every route that changes state, starts a process or spends model tokens
-(`/api/verdict`, `/api/answer`, `/api/asked`, `/api/change`, `/api/review/<n>`,
+(`/api/verdict`, `/api/answer`, `/api/asked`, `/api/reply`, `/api/change`, `/api/review/<n>`,
 `/api/story/<item>`, `/ai/chat/completions`) answers only `tailnet_owner`: the server
 runs `tailscale whois` on the caller's address and refuses a tagged device, another
 login, or a failed lookup, and refuses a `Host` that does not name this Mac, which is

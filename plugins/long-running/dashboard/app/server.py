@@ -47,7 +47,7 @@ REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
 SNAPSHOT_EVERY = 60.0
 DELTAS_KEPT = 30
-LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes", "owner_asks", "status_tables", "step_records")
+LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes", "owner_asks", "status_tables", "step_records", "replies")
 NOW_DRAWS = ("needs", "board", "brief", "milestone_state", "pages", "workers", "now", "status_now")
 NOW_EVENTS = 5
 NOW_RECORDS = 300
@@ -82,6 +82,7 @@ PR_TAG = re.compile(r"\s*\bpr:\S+")
 FILE_PATH = re.compile(r"\s*(?<![\w.])~?/(?:[\w.@-]+/)+[\w.@-]+")
 ASKED_PREFIX = "Asked on the dashboard: "
 OWNER_LANES = frozenset({"dashboard", "owner-board", "owner"})
+COMMUNICATOR = "owner-relay"
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 REGISTER_DAY = dt.timedelta(days=1)
 REGISTER_SHOWN = 25
@@ -818,6 +819,10 @@ def needs(rows, cards, asks, board_url, landed):
     return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards if card["decides"]), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
 
 
+def stored_replies(read, store):
+    return sorted((read(str(path)) for path in store.glob("*.json")), key=lambda entry: at(entry["at"]), reverse=True)
+
+
 def open_findings(rows):
     groups = {}
     for fields in sorted((row["fields"] for row in rows if row["fields"]["state"] in UNSETTLED), key=lambda fields: fields["at"]):
@@ -883,6 +888,7 @@ class Drive:
         self.status_now = None
         self.status_rejected = None
         self.owed = {"owner_asks": {"messages": [], "taps": [], "store": []}, "coordinator_overdue": []}
+        self.replies = []
         self.pages = {page.name: Curator(config, self.curator_model, self.bump, page) for page in PAGES}
         self.curators = (self.curator, *self.pages.values())
         self.stories = Stories(config, self.lane_names, self.worker_reports)
@@ -962,6 +968,13 @@ class Drive:
         lane, kind = ("dashboard-ask-test", "note") if text.startswith("[user-test") else ("dashboard", "owner")
         run(["cci", "post", "--drive", self.config["drive"], "--lane", lane, "--kind", kind, "--to", "root", "--text", f"Asked on the dashboard: {text}"])
         return 200, {}
+
+    def reply_back(self, text, reply):
+        if "mirror" in self.config:
+            return 409, {"error": "a test copy sends nothing to the communicator"}
+        about = ["--topic", f"reply:{reply}"] if reply else []
+        seq = run(["cci", "post", "--drive", self.config["drive"], "--lane", "dashboard", "--kind", "owner", "--to", COMMUNICATOR, *about, "--text", text]).strip().splitlines()[-1].lstrip("#")
+        return 200, {"seq": int(seq)}
 
     def change_request(self, number, head, text):
         if "mirror" in self.config:
@@ -1116,6 +1129,17 @@ class Drive:
             self.touch()
             self.bump()
             time.sleep(SLOW_REFRESH)
+
+    def follow_replies(self):
+        store = Path(self.config["replies"])
+        seen = None
+        while True:
+            stamp = store.stat().st_mtime_ns if store.exists() else None
+            if stamp != seen:
+                seen = stamp
+                self.replies = stored_replies(self.read, store) if stamp else []
+                self.touch()
+            time.sleep(1)
 
     def follow_status(self):
         status = Path(self.config["status_now"])
@@ -1392,6 +1416,7 @@ class Drive:
             "status_tables": [table for table in self.read(self.config["status_tables"]) if table["id"] != "plan"],
             "step_records": {step["id"]: {"wrong": step.get("went_wrong", ""), "lanes": step.get("lanes", []), "prs": step.get("prs", [])} for step in progress["steps"]},
             **self.owed,
+            "replies": self.replies,
             "register_log": "register" in self.config,
             "latest_words": self.words(),
             "evidence": live_evidence(self.evidences(), model["prs"], progress.get("pr_state", {}), pushes),
@@ -1641,7 +1666,7 @@ def handler(drive, tailnet_owner, names):
 
         def do_POST(self):
             review = REVIEW_ROUTE.fullmatch(self.path)
-            if not review and self.path not in (MODEL_ROUTE, "/api/verdict", "/api/answer", "/api/asked", "/api/change"):
+            if not review and self.path not in (MODEL_ROUTE, "/api/verdict", "/api/answer", "/api/asked", "/api/reply", "/api/change"):
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
@@ -1662,6 +1687,11 @@ def handler(drive, tailnet_owner, names):
                 status, out = drive.answer(body)
             elif self.path == "/api/asked":
                 status, out = drive.asked(body["text"])
+            elif self.path == "/api/reply":
+                try:
+                    status, out = drive.reply_back(body["text"].strip(), body.get("reply"))
+                except (OSError, subprocess.SubprocessError) as failure:
+                    status, out = 502, {"error": f"the drive's records could not take it ({getattr(failure, 'stderr', None) or failure})"}
             elif self.path == "/api/change":
                 try:
                     status, out = drive.change_request(int(body["number"]), body["head"], body["text"].strip())
@@ -1795,7 +1825,7 @@ def main():
     after = drive.load_records()
     drive.load_gos()
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
-    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_replies, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive, config["tailnet_owner"], own_names(config["host"])))
     server.daemon_threads = True
