@@ -37,6 +37,7 @@ var schema = map[string]any{
 		"action":      map[string]any{"type": "string", "description": "With order, the one thing he must do, on one line. Omit it when he need do nothing."},
 		"by":          map[string]any{"type": "string", "description": "With order and status progress, the clock it is due by, such as 11:30 PM: the ledger row reads due by it. Omit it and the row reads responded."},
 		"routed":      map[string]any{"type": "integer", "description": "With order and status progress, the seq of the cci record that routed his ask, written to the ledger row."},
+		"unprompted":  map[string]any{"type": "boolean", "description": "True when this message answers nothing he asked. Every other reply names its row in order or its line in on, and the tool warns on one naming neither."},
 		"on":          map[string]any{"type": "string", "description": "The dashboard chat message this reply answers in its thread: the topic of his thread line, such as reply:<id> or line:m<n>. Omit it for a reply in the main conversation."},
 	},
 	"required": []string{"title", "md"},
@@ -99,8 +100,8 @@ func Tool(a *app.App) channel.Tool {
 			}
 			r, warned := r.mended()
 			r = r.led()
-			if r.Order == "" && r.On == "" {
-				warned = append(warned, "this names no order, so Chat lists it by time; pass order if it answers one of his messages")
+			if r.Order == "" && r.On == "" && !r.Unprompted {
+				warned = append(warned, "this names no order, so Chat lists it by time; pass his row in order, or set unprompted if he asked nothing")
 			}
 			if r.MD == "" {
 				return "reply: md carries the reply itself", true

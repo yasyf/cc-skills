@@ -525,6 +525,43 @@ func TestAnActionWithALongTitlePostsThroughTheTool(t *testing.T) {
 	}
 }
 
+func TestOnlyAReplyTiedToNothingWarnsThatItNamesNoOrder(t *testing.T) {
+	for name, tc := range map[string]struct {
+		fields map[string]any
+		warns  bool
+	}{
+		"names nothing":         {map[string]any{}, true},
+		"names its row":         {map[string]any{"order": "m543"}, false},
+		"names its line":        {map[string]any{"on": "line:m543"}, false},
+		"says he asked nothing": {map[string]any{"unprompted": true}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", config)
+			t.Setenv(drive.Env, "d")
+			entry, err := json.Marshal(fanout(t, nil).Entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(config, "long-running", "drives"), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(config, "long-running", "drives", "d.json"), entry, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			tc.fields["title"], tc.fields["md"] = "The fix is live", "The body."
+			args, err := json.Marshal(tc.fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text, failed := Tool(&app.App{Runner: scripted(), Now: func() time.Time { return sentAt }}).Handler(context.Background(), args, func(string) {})
+			if failed || strings.Contains(text, "names no order") != tc.warns {
+				t.Fatalf("reply = %q, failed %v; want posted, warns = %v", text, failed, tc.warns)
+			}
+		})
+	}
+}
+
 func TestAnExplainMoreThatIsOnlyALinkStaysRefused(t *testing.T) {
 	base := Reply{ID: "r4", Title: "Pick a relay", MD: "Two ways."}
 	for name, r := range map[string]Reply{

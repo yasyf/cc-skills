@@ -113,6 +113,7 @@ type Reply struct {
 	PRCards     []prCard `json:"pr_cards,omitempty"`
 	Thread      string   `json:"thread,omitempty"`
 	Order       string   `json:"order,omitempty"`
+	Unprompted  bool     `json:"unprompted,omitempty"`
 	Action      string   `json:"action,omitempty"`
 	By          string   `json:"by,omitempty"`
 	Routed      int      `json:"routed,omitempty"`
