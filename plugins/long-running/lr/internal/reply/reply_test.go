@@ -32,7 +32,10 @@ const (
 var sentAt = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 
 func scripted() *shelltest.Fake {
-	fake := &shelltest.Fake{}
+	return scriptedOver(&shelltest.Fake{})
+}
+
+func scriptedOver(fake *shelltest.Fake) *shelltest.Fake {
 	fake.Reply("updated card\nsent: card ts=1793635190.051179 "+permalink+"\n", "cc-present", "update-block")
 	fake.Reply(`{"channel_id":"D0B6Z","thread_ts":"1793635190.051179","ts":"1793635190.051179","permalink":"`+permalink+`"}`, "cc-slack", "dm-status")
 	fake.Reply(posted, "cci", "post")
@@ -1258,15 +1261,19 @@ func TestAProgressReplyInHisThreadAnswersThereAndKeepsTheLedgerRow(t *testing.T)
 	}
 }
 
-func TestAPickReplyInHisThreadAnswersThereWithTheLinkToItsCard(t *testing.T) {
+func TestAPickReplyInHisThreadPutsAWorkingCopyOfItsCardThere(t *testing.T) {
 	fake := scripted()
+	fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p3"}`, "cc-slack", "card-copy")
 	sent := fanout(t, fake).Send(context.Background(), Reply{ID: "r9", Title: "Land the relay fix?", MD: "Its checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: "1793684147.131059"})
 	posted := calls(fake, "cc-slack")
-	if len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != "1793684147.131059" {
-		t.Fatalf("cc-slack calls = %+v, want one post in his thread", posted)
+	if len(posted) != 2 || flag(t, posted[0].Argv, "--thread") != "1793684147.131059" {
+		t.Fatalf("cc-slack calls = %+v, want a post and a copy in his thread", posted)
 	}
-	if text := posted[0].Argv[len(posted[0].Argv)-1]; !strings.Contains(text, "<"+permalink+"|"+pickLead+">") {
-		t.Fatalf("thread text = %q, want the card's link", text)
+	if !slices.Equal(posted[1].Argv, []string{"cc-slack", "card-copy", "--url", permalink, "--thread", "1793684147.131059"}) {
+		t.Fatalf("copy = %q, want the card copied into his thread", posted[1].Argv)
+	}
+	if text := posted[0].Argv[len(posted[0].Argv)-1]; strings.Contains(text, permalink) {
+		t.Fatalf("thread text = %q, want the copy in place of a link to the card", text)
 	}
 	if surface(sent, "slack").Ref != permalink || surface(sent, "slack thread").Ref != permalink {
 		t.Fatalf("outcomes = %+v, want the card and the thread reply apart", sent)
@@ -1301,6 +1308,7 @@ func postedInThread(fake *shelltest.Fake, ref string) {
 
 func threadedFake() *shelltest.Fake {
 	fake := &shelltest.Fake{}
+	fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p3"}`, "cc-slack", "card-copy")
 	fake.Reply("updated card\nsent: card ts=1793820000.000100 "+cardCopy+"\n", "cc-present", "update-block")
 	fake.Reply("removed\nrev: 9\n", "cc-present", "remove-block")
 	postedInThread(fake, threadCopy)
@@ -1437,10 +1445,10 @@ func TestAPickReplyInHisThreadEditsItsThreadCopyAcrossEdits(t *testing.T) {
 	sent := f.Send(context.Background(), ask)
 
 	posted := calls(fake, "cc-slack")
-	if len(posted) != 2 || slices.Contains(posted[1].Argv, "--thread") {
-		t.Fatalf("cc-slack calls = %+v, want one thread post and one edit", posted)
+	if len(posted) != 3 || posted[1].Argv[1] != "card-copy" || slices.Contains(posted[2].Argv, "--thread") {
+		t.Fatalf("cc-slack calls = %+v, want one thread post, one copy of the card and one edit", posted)
 	}
-	edit := slack(t, posted[1])
+	edit := slack(t, posted[2])
 	if edit.Replaces != threadCopy || !strings.Contains(edit.Body, cardCopy) || !strings.HasPrefix(edit.Body, "Checks passed again.") {
 		t.Fatalf("edit = %+v, want the thread copy with the new words and the card's link", edit)
 	}
@@ -1449,7 +1457,7 @@ func TestAPickReplyInHisThreadEditsItsThreadCopyAcrossEdits(t *testing.T) {
 	}
 
 	sent = f.Send(context.Background(), Reply{ID: "r6", Title: "Landed", MD: "It merged.", Thread: hisThread})
-	posted = calls(fake, "cc-slack")[2:]
+	posted = calls(fake, "cc-slack")[3:]
 	if len(posted) != 2 || slack(t, posted[0]).Replaces != cardCopy || slack(t, posted[1]).Replaces != threadCopy {
 		t.Fatalf("cc-slack calls = %+v, want the card then the thread copy edited and nothing posted", posted)
 	}
@@ -1687,5 +1695,97 @@ func TestAReplyNamingNoCardReadsNoAnswers(t *testing.T) {
 	}
 	if len(calls(fake, "ccn")) != 0 {
 		t.Fatal("read his answers with no card named")
+	}
+}
+
+func TestAReplyNamingAnOpenPickPutsAWorkingCopyInItsThread(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
+	fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p3"}`, "cc-slack", "card-copy")
+	scriptedOver(fake)
+	f := fanout(t, fake)
+	r, warning := f.withCardLinks(context.Background(), Reply{ID: "r1", Title: "Where things stand", MD: "Waiting on card-storage-eviction now.", Status: "info"})
+	if warning != "" {
+		t.Fatal(warning)
+	}
+	sent := f.Send(context.Background(), r)
+	if copied := surface(sent, "card copy"); copied.Ref != "https://brook.slack.com/archives/D0B6Z/p3" {
+		t.Fatalf("card copy = %+v in %+v", copied, sent)
+	}
+	var argv []string
+	for _, call := range calls(fake, "cc-slack") {
+		if call.Argv[1] == "card-copy" {
+			argv = call.Argv
+		}
+	}
+	if !slices.Equal(argv, []string{"cc-slack", "card-copy", "--url", cardMessage, "--thread", "1793635190.051179"}) {
+		t.Fatalf("argv = %q, want the card copied under the reply it was named in", argv)
+	}
+	sent = f.Send(context.Background(), r)
+	if copied := surface(sent, "card copy"); copied.Surface != "" {
+		t.Fatalf("an edit copied the card again: %+v", copied)
+	}
+}
+
+func TestACardCopyThatFailsIsNamedAndTheOtherSurfacesStillGo(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
+	fake.Fail(1, "the card has no answer left", "cc-slack", "card-copy")
+	scriptedOver(fake)
+	f := fanout(t, fake)
+	r, _ := f.withCardLinks(context.Background(), Reply{ID: "r1", Title: "Where things stand", MD: "Waiting on card-storage-eviction now.", Status: "info"})
+	sent := f.Send(context.Background(), r)
+	if copied := surface(sent, "card copy"); !strings.Contains(copied.Error, "no answer left") {
+		t.Fatalf("card copy = %+v", copied)
+	}
+	if surface(sent, "record").Ref == "" || surface(sent, "dashboard").Ref == "" {
+		t.Fatalf("a failed copy stopped the rest: %+v", sent)
+	}
+}
+
+func TestAPickHisAnswerSettlesGetsNoCopy(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
+	fake.Reply(`[{"id":"29b2e59aaaa","title":"Storage eviction: where to start","body":"Storage eviction should start with the oldest chats.","updated_at":"2026-11-04T09:00:00Z"}]`, "ccn", "-R", "/repo", "answer", "list")
+	f := fanout(t, fake)
+	f.Judge = func(_ context.Context, _, _, _ string) (*board.Judgment, error) {
+		return &board.Judgment{Verdict: "yes", Sentence: "He said the oldest chats."}, nil
+	}
+	r, _ := f.withCardLinks(context.Background(), Reply{ID: "r1", Title: "Where things stand", MD: "Waiting on card-storage-eviction now.", Status: "info"})
+	if len(r.OpenPicks) != 0 {
+		t.Fatalf("open picks = %q, want the settled card left out", r.OpenPicks)
+	}
+}
+
+func TestOnlyAPickFreeReplyAsksForTheTapCardsOfItsPRs(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reply Reply
+		want  []string
+	}{
+		"a status card":  {Reply{ID: "r1", Title: "t", MD: "m", Status: info, PRs: []string{landPR}}, []string{"--tap-pr", landPR}},
+		"his thread":     {Reply{ID: "r1", Title: "t", MD: "m", Thread: "1793684147.131059", PRs: []string{landPR}}, []string{"--tap-pr", landPR}},
+		"a link in text": {Reply{ID: "r1", Title: "t", MD: landPR + " is ready.", Status: info}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := scripted()
+			fanout(t, fake).Send(context.Background(), tc.reply)
+			var got []string
+			for _, call := range calls(fake, "cc-slack") {
+				if i := slices.Index(call.Argv, "--tap-pr"); i >= 0 {
+					got = call.Argv[i : i+2]
+				}
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("tap flags = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	fake := scripted()
+	fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p3"}`, "cc-slack", "card-copy")
+	fanout(t, fake).Send(context.Background(), Reply{ID: "r2", Title: "t", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: "1793684147.131059", PRs: []string{landPR}})
+	for _, call := range calls(fake, "cc-slack") {
+		if slices.Contains(call.Argv, "--tap-pr") {
+			t.Fatalf("a pick reply asked for a tap card: %q; its pick card is the offer", call.Argv)
+		}
 	}
 }
