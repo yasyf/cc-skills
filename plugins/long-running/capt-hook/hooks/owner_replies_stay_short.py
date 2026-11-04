@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, on
 
-from .compaction_handoff import Communicator, CompactionState, communicator_tests
+from .compaction_handoff import Communicator, CompactionState, communicator_tests, drive_entry
 from .owner_facing import REPLY_WINDOW, last_reply
 from .owner_replies_carry_news import dm_posts
 from .owner_returns import EXPLAINER, REPLY, OwnerReturns
@@ -92,6 +94,7 @@ def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookRes
         replied(WHY, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
         replied(WHY, decide=EXPLAINS, state=[*ACTIVE, OwnerReturns(explain_due=True)]): Allow(),
         replied(WHY, picks=("Build it", "Hold it"), decide=EXPLAINS): Allow(),
+        Input(tool=REPLY, tool_input={"id": "r1", "title": "Typing box", "md": WHY}, state=ACTIVE, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
         replied(WHY, decide={"mechanism": Refused()}): Allow(),
         replied(PAGE): Block(pattern=r"no mechanism, diagram or explainer link"),
         replied("Fixed and live.\n```mermaid\ngraph LR; a-->b\n```"): Block(pattern=r"no mechanism, diagram"),
@@ -103,9 +106,21 @@ def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookRes
         replied(ACKS, agent_id="a1b2c3"): Allow(),
     }),
 )
+def is_pick_card(evt: BaseHookEvent) -> bool:
+    given = evt._tool_input
+    if given.get("picks"):
+        return True
+    entry = given.get("id") and drive_entry(evt)
+    return bool(entry) and has_picks(Path(entry["state_dir"]) / "replies" / f"{given['id']}.json")
+
+
+def has_picks(stored: Path) -> bool:
+    return stored.exists() and bool(json.loads(stored.read_text()).get("picks"))
+
+
 def owner_writes_stay_short(evt: BaseHookEvent) -> HookResult | None:
     if evt.tool_name == REPLY:
-        return refused(evt, [str(evt._tool_input.get("md") or "")], card=bool(evt._tool_input.get("picks")))
+        return refused(evt, [str(evt._tool_input.get("md") or "")], card=is_pick_card(evt))
     return refused(evt, [text for _, text in dm_posts(evt)])
 
 
