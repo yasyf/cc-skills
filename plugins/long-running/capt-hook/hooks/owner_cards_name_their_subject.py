@@ -6,13 +6,13 @@ import re
 import tempfile
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on, workflow_state
+from captain_hook import Allow, BaseHookEvent, Block, Call, CommandSchema, Event, HookResult, Input, Operand, Option, Tool, Warn, WorkflowState, on, workflow_state
 from captain_hook.util import reqenv
 
 from .board_text_gate import calls
 from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, Bound, CompactionState, script_module
 from .judge_metrics import judge_call
-from .owner_facing import SLACK_CARD, Reads, board_bytes, fenced, readable, shown, slack_card
+from .owner_facing import SLACK_CARD, STDIN, Reads, board_bytes, fenced, readable, shown, slack_card
 from .owner_replies_carry_news import dm_posts
 from .owner_returns import REPLY
 from .register_injection import drive_args
@@ -34,6 +34,12 @@ HIDDEN_CITE = re.compile(r"<!--.*?-->", re.DOTALL)
 SHORT_WORDS = 12
 CHANGE = re.compile(r"(?i)\b(?:add|chang|clean|delet|drop|fix|migrat|mov|refactor|remov|renam|replac|rewrit|split)\w*")
 DRAW_SCRIPT = "draw.zsh"
+ASK_OWNER = CommandSchema(
+    "lr",
+    operands=(Operand("words", count="*"),),
+    options=tuple(Option(name, (f"--{name}",)) for name in ("background", "branch", "card", "drive", "from", "id", "lane", "nothing-to-build", "option", "reason", "session", "shot", "title", "until", "withdraw")),
+)
+ASK = "lr ask-owner --title 'Add the setting?' --background 'It adds one new setting for big chats.' --option 'Add it :: Big chats load faster.' --option 'Hold :: Nothing changes.' --nothing-to-build process"
 HOOK_SCRATCH = str(Path(tempfile.gettempdir()) / "long-running-first-question")
 HOOK_ENV = {"CLAUDE_CONFIG_DIR": HOOK_SCRATCH, "LONG_RUNNING_SCRATCH_ROOT": HOOK_SCRATCH, "CLAUDE_LONG_RUNNING_DRIVE": "first-question"}
 VAGUE_POST = "It adds one new setting for big chats, and the sidebar stays as it is."
@@ -120,6 +126,15 @@ def card_text(evt: BaseHookEvent, call: Call, source: str, reads: Reads) -> list
     return [text for _, text in shown(doc or {})]
 
 
+def asked_lines(evt: BaseHookEvent, call: Call, reads: Reads) -> list[str]:
+    values = ASK_OWNER.bind(call).values
+    if values.get("words", ())[:1] != ("ask-owner",) or values.get("withdraw"):
+        return []
+    file = next(iter(values.get("card", ())), STDIN)
+    flags = [str(text) for name in ("title", "background", "option") for text in values.get(name, ()) if text]
+    return flags if file == STDIN else [*flags, *card_text(evt, call, str(file), reads)]
+
+
 def urgent_asks(evt: BaseHookEvent, reads: Reads) -> list[str]:
     docs = [reads.read(f"the asked board {source}", lambda call=call, source=source, piped=piped: json.loads(board_bytes(evt, call, source, piped))) for call, _, source, piped in calls(evt, ("ask",)) if source]
     return [text for doc in docs if doc for _, text in shown(doc)]
@@ -127,7 +142,8 @@ def urgent_asks(evt: BaseHookEvent, reads: Reads) -> list[str]:
 
 def command_lines(evt: BaseHookEvent, reads: Reads) -> list[str]:
     drawn = [text for call in evt.command.calls() if (file := drawn_file(call)) for text in card_text(evt, call, file, reads)]
-    return [*drawn, *urgent_asks(evt, reads)]
+    asked = [text for call in evt.command.calls("lr") for text in asked_lines(evt, call, reads)]
+    return [*drawn, *asked, *urgent_asks(evt, reads)]
 
 
 def post_text(evt: BaseHookEvent, reads: Reads) -> str:
@@ -189,6 +205,9 @@ def resent(title: str, md: str) -> list[HeldPosts]:
     tests={
         reply("Big chats", VAGUE_POST, commands=HOLDS): Block(pattern=r"^A post to the owner links what it names[\s\S]*It adds one new setting[\s\S]*Which fields, on which table"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Add the setting?", "body": VAGUE_POST}}, env=HOOK_ENV, commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        Input(command=ASK, env=HOOK_ENV, commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        Input(command=f"lr ask-owner --card {board('clean-card.json')} --until at:3d", env=HOOK_ENV, commands=HOLDS): Block(),
+        Input(command="lr ask-owner --withdraw card-add-the-setting --lane first-question", env=HOOK_ENV, commands=HOLDS): Allow(),
         Input(command=f"cc-present update-block {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
         Input(command=f"CARD_NO_CODE=1 zsh draw.zsh --new-question 'not settled' {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
         Input(command=f"lr board draw {board('clean-card.json')} --lane board-refresher", env=HOOK_ENV, commands=HOLDS): Block(),
