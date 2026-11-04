@@ -895,6 +895,22 @@ func TestTheToolInstallPutsThePinnedLROnPathWithTheProxyURLAndRefusesAnotherDige
 	}
 }
 
+func TestTheToolInstallUnpacksEveryCCIBinaryAndNoDocs(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.58\n", "cci-core": "core", "README.md": "docs"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho 9.9.9\n"})
+	home := t.TempDir()
+	run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "--")
+	run.Env = append(os.Environ(), "HOME="+home)
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	bin := filepath.Join(home, ".local", "bin")
+	if !present(filepath.Join(bin, "cci-core")) || present(filepath.Join(bin, "README.md")) {
+		t.Fatal("the install must unpack cci-core beside cci and leave the docs out")
+	}
+}
+
 func TestALaunchCarriesEachToolPinIntoTheInstallAndRefusesAMalformedPinBeforeAnyCall(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.env["WORKER_TOOLS"] = `[{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"0.91.68"},{"kind":"plugin","name":"long-running@skills","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"0.7.1199"}]`
