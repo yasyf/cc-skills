@@ -3,10 +3,10 @@ package explain
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"html/template"
 	"io"
 	"io/fs"
@@ -62,6 +62,8 @@ var (
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="../kit/one-pager.css">
 <script type="module" src="../kit/one-pager.js"></script>
+<script type="module" src="../../architecture/kit/arch-doc.js"></script>
+<style>arch-doc{display:block;--smap-max-h:70vh}figure.op-fig:has(arch-doc){margin:1.5rem 0}</style>
 </head>
 <body>
 <header class="op-head">
@@ -114,7 +116,7 @@ func parse(topic string, source []byte, updated time.Time) (onePager, error) {
 	heading := ""
 	flush := func() {
 		if heading != "" || strings.TrimSpace(body.String()) != "" {
-			p.Sections = append(p.Sections, section{ID: Slug(heading), Heading: heading, Body: template.HTML(body.String())}) //nolint:gosec // goldmark escapes raw HTML in the source, and mermaid text is escaped below.
+			p.Sections = append(p.Sections, section{ID: Slug(heading), Heading: heading, Body: template.HTML(body.String())}) //nolint:gosec // goldmark escapes raw HTML in the source, and an arch block is base64 below.
 		}
 		body.Reset()
 	}
@@ -137,13 +139,8 @@ func parse(topic string, source []byte, updated time.Time) (onePager, error) {
 				continue
 			}
 		case *ast.FencedCodeBlock:
-			if string(n.Language(source)) == "mermaid" {
-				body.WriteString(`<figure class="op-fig"><pre class="mermaid">`)
-				for i := range n.Lines().Len() {
-					line := n.Lines().At(i)
-					body.WriteString(html.EscapeString(string(line.Value(source))))
-				}
-				body.WriteString("</pre></figure>\n")
+			if string(n.Language(source)) == archLanguage {
+				body.WriteString(`<figure class="op-fig"><arch-doc src="data:application/json;base64,` + base64.StdEncoding.EncodeToString(fence(n, source)) + "\" fill></arch-doc></figure>\n")
 				continue
 			}
 		}
@@ -343,6 +340,9 @@ func (o Owner) dm(ctx context.Context, n Notice) error {
 func Explain(ctx context.Context, checkout Checkout, host Host, owner Announcer, topic string, source []byte, now time.Time) (string, error) {
 	if claims := Uncited(source); len(claims) > 0 {
 		return "", refuse(claims)
+	}
+	if err := refuseDiagrams(source); err != nil {
+		return "", err
 	}
 	notice, _, err := publish(ctx, checkout, host, topic, Visible(source), now)
 	if err != nil {

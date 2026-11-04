@@ -24,7 +24,7 @@ PROMISE = re.compile(
 )
 LIVE = re.compile(r"(?i)\b(?:is|are|went|now) live\b")
 UPDATE = re.compile(r"^# Owner update:", re.MULTILINE)
-DIAGRAM = re.compile(r"```mermaid\b")
+DIAGRAM = re.compile(r"```(?:mermaid|arch)\b")
 MECHANISM = Binary(
     "The assistant's reply to the owner is below."
     " Yes when it explains a mechanism, an incident or a design change to him: how something works, why something failed, or what a design now does differently."
@@ -94,6 +94,7 @@ def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookRes
         replied(WHY, decide={"mechanism": Refused()}): Allow(),
         replied(PAGE): Block(pattern=r"no mechanism, diagram or explainer link"),
         replied("Fixed and live.\n```mermaid\ngraph LR; a-->b\n```"): Block(pattern=r"no mechanism, diagram"),
+        replied("Fixed and live.\n```arch\n{\"arch\":1}\n```"): Block(pattern=r"no mechanism, diagram"),
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": ACKS}, state=ACTIVE, decide=CALM): Block(pattern=r"no acknowledgement"),
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "C0RELEASES1", "thread_ts": "1.2", "text": ACKS}, state=ACTIVE, decide=CALM): Allow(),
         Input(command=f"cc-slack send --channel D0B6Z --text '{WORDY}'", state=ACTIVE, decide=CALM): Block(pattern=r"at most two sentences"),

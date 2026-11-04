@@ -73,6 +73,9 @@ func (r Redesign) Run(ctx context.Context, subsystem string, cards, prs []string
 	if claims := Uncited(source); len(claims) > 0 {
 		return refuse(claims)
 	}
+	if err := refuseDiagrams(source); err != nil {
+		return err
+	}
 	source = Visible(source)
 	designLane := slug + "-design-1"
 	if err := r.Board.Retire(ctx, r.Lane, "the owner sent "+subsystem+" back for a redesign from scratch", cards, r.Out); err != nil {
