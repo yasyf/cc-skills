@@ -442,7 +442,7 @@ func withStandingWord(row store.ReviewRow, facts map[string]string) store.Review
 	case facts[gates.FlakeFixAttr] != "":
 		lands = flakeLands
 	case facts[gates.PortOfAttr] != "" && facts[gates.PortInteractsAttr] == gates.PortCleanWord:
-		lands = portLands
+		lands = PortLands
 	}
 	if lands == "" || !row.ReadyForTap || row.Tapped {
 		return row

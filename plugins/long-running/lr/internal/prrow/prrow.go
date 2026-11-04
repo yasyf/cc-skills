@@ -45,7 +45,7 @@ const (
 	tappedWaits = "You approved it; the landing desk lands it next."
 	fieldChars  = 700
 	planChecked = "Checked against the plan by the fidelity review at this version."
-	portLands   = "Nothing from you: a clean old-tree port lands on your standing word that ports need no tap, and its go comes next."
+	PortLands   = "Nothing from you: a clean old-tree port lands on your standing word that ports need no tap, and its go comes next."
 	flakeLands  = "Nothing from you: a test-flake fix lands on your standing word that flake fixes need no tap, and its go comes next."
 )
 
@@ -216,4 +216,9 @@ func planRow(line string, fidelity machine.Fidelity) string {
 		return planChecked
 	}
 	return line
+}
+
+// LandsOnHisWord reports a row that lands on a standing word of his with no tap.
+func LandsOnHisWord(row store.ReviewRow) bool {
+	return row.WaitsOn == PortLands || row.WaitsOn == flakeLands
 }

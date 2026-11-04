@@ -822,7 +822,7 @@ func TestAPortAsksHimOnlyWhenItSaysItInteractsOrTheGateRefusesIt(t *testing.T) {
 		ready bool
 		waits string
 	}{
-		"a clean port waits on nothing of his":                 {clean, false, portLands},
+		"a clean port waits on nothing of his":                 {clean, false, PortLands},
 		"a port that interacts asks him":                       {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: "yes"}, true, onlyHim},
 		"a port silent on interaction asks him":                {map[string]string{gates.PortOfAttr: "49000"}, true, onlyHim},
 		"a head with no port claim asks him":                   {nil, true, onlyHim},
