@@ -97,6 +97,22 @@ func hostGone(f *fake, gone bool) {
 	f.hosts = map[string]Host{lane2: HostUnreachable}
 }
 
+func TestASpriteOrcaCannotReachIsLeftAloneWhileItsWorkerRunsAndRelaunchedWhenItStops(t *testing.T) {
+	s := memory(t)
+	f := onSprite(t, s, 46001)
+	hostGone(f, true)
+	f.hosts = map[string]Host{lane2: HostRunning}
+
+	tick(t, s, f, t0)
+	out := tick(t, s, f, t0.Add(hostGoneAfter+mins(30)))
+	equal(t, []any{out.Relaunched, len(f.launches), row(t, s, lane2).State}, []any{[]Relaunch(nil), 0, store.LaneDesired})
+
+	f.hosts = map[string]Host{lane2: HostEmpty}
+	stopped := tick(t, s, f, t0.Add(hostGoneAfter+mins(31)))
+
+	equal(t, len(stopped.Relaunched), 1)
+}
+
 func TestASpriteLaneWhoseHostOrcaReportsUnavailableForTenMinutesIsRelaunchedOnceFromWhatTheBusHolds(t *testing.T) {
 	s := memory(t)
 	f := onSprite(t, s, 46001)
