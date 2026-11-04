@@ -183,7 +183,7 @@ A refused PR prints every reason and posts nothing. Text in an ask, answer, note
 - `Merge`: The coordinator posts `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`. Only the opening `go` or `merge` clause followed by `#<n> at <short sha>` pairs joined by commas or `and` names a PR; prose mentions, routing notes, or a `go` answered by a coordinator `withdraw --re` merge nothing.
 - `Hold`: The coordinator runs `cci post --kind hold --pr <n> --text "hold #<n> <why>"`.
 - `Other`: opens a Slack modal whose text reaches the coordinator as a capture and merges nothing.
-- `Explain more`: resolves nothing; the coordinator posts the `explain more` ask and replies with `cc-present reply --block <waits id> --body <answer>`.
+- `Explain more`: resolves nothing; the communicator answers within five minutes from the card body with `cc-present reply --block <waits id> --body <answer>`.
 
 **Board surface when `landing.merge_ask_surface` is `board`.** The runner posts no Slack card, and a merge question is the PR's row on the review tab, read from `lr board rows`; nobody writes PR rows onto the board. Under `every`, the runner checks only heads a coordinator `go` names and bars every other open PR like a held one. No `stack-enqueue` call names or sweeps it in, and a go'd PR stacked on it waits with one note to the coordinator per stack when its un-go'd parents change. After go'd trees enqueue, the pass's `ccx vcs pr status` read routes conflicts, red CI, and requested changes to lanes and runs accept checks on landable heads so `MERGE-ASK` reaches the row.
 
