@@ -12,6 +12,8 @@ REPO_PR = re.compile(r"(yasyf/[\w-]+)(?:#|/pull/)(\d+)")
 LANE = re.compile(r"\b([a-z][a-z-]+-\d+)\b")
 TAP = re.compile(r"Owner on board \w+, (.*?)(?:, [A-Z][^,]*\?)? \(([\w:-]+)\)(?:: (picked .+?|\d+ approved at \w+))?(?:, at [^,]*)?$")
 RELAY_LANE = re.compile(r"(root|owner-relay|orca-desk|meta|supervisor|board-watch|signal-\d+|.*-desk(-\d+)?|board-refresher(-\d+)?)")
+TAP_LEAD = re.compile(r"^Owner on board \w+, ")
+TAP_ANSWER = re.compile(r" \([\w:-]+\)(?:: .*)?$", re.S)
 OVERDUE_HEAD = re.compile(r"^\d+ overdue:$", re.M)
 OVERDUE_ROW = re.compile(r"^- (?:(unfinished) (\w+)/(\d+)|(ask) #(\d+)|(repeat) (.+?)), due (.+)$")
 SEQ_KINDS = {"pick", "finding"}
@@ -125,7 +127,6 @@ def overdue_rows(render, records, store):
         key = found[3] or found[5] or ""
         seq = int(key) if found[4] or kind in SEQ_KINDS else None
         record = by_seq.get(seq)
-        tap = TAP.search(record["text"]) if record else None
-        words = found[7] or by_key.get(f"{kind}/{key}") or (tap[1] if tap else record["text"] if record else f"{kind} {int(key)}")
+        words = found[7] or by_key.get(f"{kind}/{key}") or (TAP_ANSWER.sub("", TAP_LEAD.sub("", record["text"])) if record else f"{kind} {int(key)}")
         rows.append({"id": f"{kind}-{key or found[7]}", "group": kind, "seq": seq, "due": found[8], "text": words})
     return rows

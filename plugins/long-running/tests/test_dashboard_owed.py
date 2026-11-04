@@ -86,6 +86,17 @@ def test_overdue_rows_name_what_is_owed_and_stop_at_the_section_end():
     ]
 
 
+def test_a_tap_row_keeps_every_question_it_asked_and_drops_the_board_words():
+    text = "Owner on board d50e, Five picks for the new system, Which store holds it? (actions-store): picked \u201cA\u201d, at 2:28 AM"
+    render = "1 overdue:\n- unfinished pick/100, due 4:20 AM\n"
+    assert overdue_rows(render, [record(100, "board-watch", "owner", text)], [])[0]["text"] == "Five picks for the new system, Which store holds it?"
+
+
+def test_a_tap_cut_off_before_its_answer_still_drops_the_board_words():
+    render = "1 overdue:\n- unfinished pick/100, due 4:20 AM\n"
+    assert overdue_rows(render, [record(100, "board-watch", "owner", "Owner on board d50e, A very long question that was cut")], [])[0]["text"] == "A very long question that was cut"
+
+
 def test_a_store_ask_takes_its_words_from_the_store():
     render = "1 overdue:\n- unfinished ask/000025, due 10:00 AM\n"
     assert overdue_rows(render, [], [{"key": "ask/000025", "text": "Cut the job"}])[0]["text"] == "Cut the job"
