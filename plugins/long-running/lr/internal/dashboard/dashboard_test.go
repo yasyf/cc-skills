@@ -94,7 +94,7 @@ func TestInstallWritesNoCredentialIntoThePlistWhenTheShellHoldsOne(t *testing.T)
 	t.Setenv("CEREBRAS_API_KEY", key)
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", tools)
-	if err := os.WriteFile(filepath.Join(tools, "python3"), nil, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(tools, "python3"), nil, 0o700); err != nil { //nolint:gosec
 		t.Fatal(err)
 	}
 	config := filepath.Join(t.TempDir(), "lr.json")
@@ -120,8 +120,9 @@ func TestInstallWritesNoCredentialIntoThePlistWhenTheShellHoldsOne(t *testing.T)
 	}
 	_, env, _ := strings.Cut(string(written), "<key>EnvironmentVariables</key>")
 	env, _, _ = strings.Cut(env, "</dict>")
-	var names []string
-	for _, found := range regexp.MustCompile(`<key>([^<]+)</key>`).FindAllStringSubmatch(env, -1) {
+	keys := regexp.MustCompile(`<key>([^<]+)</key>`).FindAllStringSubmatch(env, -1)
+	names := make([]string, 0, len(keys))
+	for _, found := range keys {
 		names = append(names, found[1])
 	}
 	if want := []string{"CLAUDE_LONG_RUNNING_DRIVE", "PATH"}; !slices.Equal(names, want) {
