@@ -60,10 +60,7 @@ func serve(t *testing.T, env map[string]string, answer func(frame) []string) (*C
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
-	metadata, err := json.Marshal(Metadata{RuntimeID: "rt", PID: 7, Transports: []Transport{{Kind: "websocket", Endpoint: "ws://x"}, {Kind: "unix", Endpoint: socket}}, AuthToken: "tok"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	metadata := fmt.Appendf(nil, `{"runtimeId":"rt","pid":7,"transports":[{"kind":"websocket","endpoint":"ws://x"},{"kind":"unix","endpoint":%q}],"authToken":"tok"}`, socket)
 	if err := os.WriteFile(filepath.Join(dir, metadataFile), metadata, 0o600); err != nil {
 		t.Fatal(err)
 	}
