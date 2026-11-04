@@ -34,6 +34,8 @@ EXITED, TIMED_OUT, NOT_RUN, DENIED = "exited 1", "timed out", "did not start", "
 FAILURES = {COMMAND: (EXITED, TIMED_OUT, NOT_RUN), FILE: (DENIED,)}
 KEPT = {
     "owner_login_verdicts.owner_login_verdicts_cite_the_board": "answer 8c73884: an approval under his login stands only on his verdict, and an unread verdict is no verdict",
+    "incident_commands.takeovers_pass_lr_owner_away": "answer 7641eea: a takeover records in the owner's name, and a lane took one over while he was at work, so a read that failed counts as present and he asked for a real check rather than a warning",
+    "incident_commands.only_the_communicator_records_his_word": "answer 7641eea: his word overrides the presence clock, so a session whose role did not read is not allowed to speak for him",
     "gate5_release.sand_next_release_needs_gate5_pass": "cci 369335: publishing next past a failed gate read has no way back across a server migration, while a release that does not name sand-next needs no read",
 }
 PARKS = "AskUserQuestion parks the session, so a warning lands too late (answer 1fe20ee)"

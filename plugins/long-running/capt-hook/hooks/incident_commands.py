@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import Bound, CompactionState, judged
+from .compaction_handoff import Bound, Communicator, CompactionState, judged
 from .lane_landing import DRIVE_ENV, drive_entry, lane_name
 from .owner_facing import incident_sources, open_incidents
 from .tests.incident_fixtures import BARE_INCIDENT, CLOSED_0820, EARLIER_CLOSEOUT, INCIDENT_CLOSED, SAND_NOT_MIGRATED
+from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.rulings_consumers import separate
 
 ACTIVE = [CompactionState(active=True, coordinator=True)]
@@ -21,6 +23,8 @@ CANCEL_ANSWER = '{"id": "a9e1075b00", "title": "Cancel build 4120?", "body": "Ye
 ROLLBACK_ANSWER = '{"id": "a9e1075b00", "title": "Roll back sand?", "body": "Yes, roll sand back to 905."}'
 DECLINED_ROLLBACK = '{"id": "a9e1075b00", "title": "Roll back sand to 905?", "body": "No, fix forward."}'
 READ_TIMEOUT_SECONDS = 20
+AWAY_READ_SECONDS = 180
+LR = Path(__file__).parents[2] / "bin" / "lr"
 CCN_NOT_FOUND = 3
 RECORD_REF = re.compile(r"#(\d{3,})\b")
 ANSWER_REF = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
@@ -43,15 +47,20 @@ MISORDERED = (
 CLAUDE = "claude -p"
 ORDERED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "He ordered it."}
 UNORDERED = {"verdict": "yes", "artifact_phrase": "rollback sand --to 905", "evidence_phrase": "Yes", "sentence": "He said to let it finish, not to roll it back."}
+TAKEOVER_NEEDS_AWAY = "A takeover runs only when `lr owner away {incident}` prints away, and a failed read counts as present. Hand it to the incident's commander with `ci oncall say`, and post this output to the coordinator.\n```\n{said}\n```"
+WORD_NEEDS_THE_COMMUNICATOR = "Only the window the owner types in records his word on his presence. Send the row to owner-relay with `cci post --kind ask --to owner-relay`."
+AWAY_TEXT = "away: nothing from him for 47m, and no person or commander holds inc-1"
+PRESENT_TEXT = "present: he was seen 2m ago, inside 30m0s"
+AWAY_CHECK = f"{LR} owner away inc-1 --drive brook-drive"
 FROZEN_TOOLING = (
     "Warning, nothing was blocked: Incident tooling stays as it is while an incident is open."
     " Run `claude plugin update long-running` once the incident closes."
 )
 
 
-def run(argv: list[str]) -> subprocess.CompletedProcess[str] | None:
+def run(argv: list[str], timeout: int = READ_TIMEOUT_SECONDS, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=READ_TIMEOUT_SECONDS)
+        return subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired):
         return None
 
@@ -265,3 +274,57 @@ def no_tooling_change_during_an_incident(evt: BaseHookEvent) -> HookResult | Non
     if not tooling_change(evt) or not drive_session(evt) or not open_incidents(evt):
         return None
     return evt.context(FROZEN_TOOLING)
+
+
+def takeover_incidents(evt: BaseHookEvent) -> list[str]:
+    calls = (call for call in evt.command.calls() if call.name == "ci" and call.args[:2] == ("oncall", "takeover"))
+    return [incident for call in calls if (incident := next((arg for arg in call.args[2:] if not arg.startswith("-")), None))]
+
+
+def away_refusal(evt: BaseHookEvent, incident: str) -> HookResult | None:
+    if (entry := drive_entry(evt)) is None:
+        return evt.block(TAKEOVER_NEEDS_AWAY.format(incident=incident, said="present: this session names no drive"))
+    done = run([str(LR), "owner", "away", incident, "--drive", entry["drive"]], timeout=AWAY_READ_SECONDS, env=dict(reqenv.env_map()))
+    if done is None:
+        return evt.block(TAKEOVER_NEEDS_AWAY.format(incident=incident, said=f"present: {LR} did not finish"))
+    return None if done.returncode == 0 else evt.block(TAKEOVER_NEEDS_AWAY.format(incident=incident, said=(done.stdout or done.stderr).strip()))
+
+
+@on(  # capt-hook: no-escape the owner ordered a real presence check before a takeover in his name, so no lane's reading or marker stands in for it
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash")],
+    tests={
+        Input(command="tools/ci oncall takeover inc-1", state=ACTIVE, env=DRIVE_CONFIG, commands={AWAY_CHECK: AWAY_TEXT}): Allow(),
+        Input(command="tools/ci oncall takeover inc-1", state=ACTIVE, env=DRIVE_CONFIG, commands={AWAY_CHECK: (1, PRESENT_TEXT)}): Block(pattern=r"^A takeover runs only when `lr owner away inc-1` prints away[\s\S]*he was seen 2m ago"),
+        Input(command="./tools/ci oncall takeover inc-1 --json  # ccx:raw", state=ACTIVE, env=DRIVE_CONFIG, commands={AWAY_CHECK: (1, PRESENT_TEXT)}): Block(),
+        Input(command="tools/ci oncall takeover inc-1", state=ACTIVE, env=DRIVE_CONFIG, commands={AWAY_CHECK: (127, "lr: not found")}): Block(pattern=r"lr: not found"),
+        Input(command="tools/ci oncall takeover inc-1", env={"CLAUDE_LONG_RUNNING_LANE": "dd-1-fix"}, state=[]): Block(pattern=r"names no drive"),
+        Input(command="tools/ci oncall incidents --json", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+        Input(command="tools/ci oncall say inc-1 --state s.json --kind finding --text takeover", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+        Input(command="tools/ci oncall takeover inc-1"): Allow(),
+    },
+)
+def takeovers_pass_lr_owner_away(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_session(evt):
+        return None
+    for incident in takeover_incidents(evt):
+        if refused := away_refusal(evt, incident):
+            return refused
+    return None
+
+
+@on(  # capt-hook: no-escape his word overrides the presence clock, so a lane recording it would be a lane's reading of his presence
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash")],
+    skip_if=[Communicator()],
+    tests={
+        Input(command="lr owner word away --row m1", env={"CLAUDE_LONG_RUNNING_LANE": "dd-1-fix"}, state=[]): Block(pattern=r"^Only the window the owner types in"),
+        Input(command="lr owner word here --row m1 --incident inc-1", state=ACTIVE): Block(),
+        Input(command="lr owner word away --row m1", state=[CompactionState(active=True, communicator=True)]): Allow(),
+        Input(command="lr owner away inc-1", env={"CLAUDE_LONG_RUNNING_LANE": "dd-1-fix"}, state=[]): Allow(),
+    },
+)
+def only_the_communicator_records_his_word(evt: BaseHookEvent) -> HookResult | None:
+    if any(call.name == "lr" and call.args[:2] == ("owner", "word") for call in evt.command.calls()):
+        return evt.block(WORD_NEEDS_THE_COMMUNICATOR)
+    return None

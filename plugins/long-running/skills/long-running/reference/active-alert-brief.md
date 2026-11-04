@@ -98,7 +98,9 @@ The coordinator records Slack grants for the affected account channels and threa
 
 Each incident has one actor. When `tools/ci oncall incidents` shows an open ai-oncall incident covering the alert, ai-oncall's commander is that actor, and this applies to another drive's sessions too.
 
-- The fix lane's rules and commands (`ci oncall connect`, `ci oncall say --kind finding|request`, `ROUTED`, the ban on `ci oncall takeover`, what to do when ai-oncall seems wrong) are in the "One actor per incident" paragraph of step 0 in the [Fix lane brief](#fix-lane-brief). The same rules bind every lane that touches the incident.
+- The fix lane's rules and commands (`ci oncall connect`, `ci oncall say --kind finding|request`, `ROUTED`, when `ci oncall takeover` may run, what to do when ai-oncall seems wrong) are in the "One actor per incident" paragraph of step 0 in the [Fix lane brief](#fix-lane-brief). The same rules bind every lane that touches the incident.
+- A fix lane takes an incident over only when `lr owner away <incident id>` prints away, and a hook refuses every other `ci oncall takeover`. The verb decides, never a lane's reading: nothing from him for 30 minutes across his ledger and owner records, no named person holding the incident, and `ci oncall connect` saying no commander runs. A failed read means present. The takeover records in the owner's name, and his standing yes (answer 7641eea) covers that in this case. On page eu7ayk two lanes took over on a refused connect alone while he was at work, which is why a refused or waiting connect is never enough.
+- His explicit word wins either way. The communicator records it with `lr owner word away|here --row <mN> [--incident <id>]`: an `away` with no incident ends at his next message, and one naming an incident orders that takeover.
 - The comms lane posts nothing in the page's thread beside the commander.
 - Pushback on a mute or false-alarm close proposed by ai-oncall: see [Scope before and during incident mode](#scope-before-and-during-incident-mode).
 
@@ -437,11 +439,14 @@ Do:
      open ai-oncall incident covering this alert, route every finding and requested
      action through its commander with `ci oncall say --kind finding|request`; never
      ship, roll back, freeze, mute, page or post beside it. Investigating beside it is
-     yours to do. You never run `ci oncall takeover`, which records the takeover in
-     the owner's name: when you judge ai-oncall's handling wrong or too slow, say so
-     in a `request` and in one record to the coordinator. Only the owner's own words
-     take an incident over, and a refused or waiting `ci oncall connect` is never a
-     reason.
+     yours to do. Take it over only when `lr owner away <incident id>` prints away: run
+     it right before `ci oncall takeover <incident id>` and quote its whole output in
+     your `TAKEOVER` record; a hook refuses any other takeover. The takeover records in
+     the owner's name, which is what his standing yes (answer 7641eea) covers, along with
+     only the Slack posts the takeover itself needs, in the incident channel and the
+     page thread. When it prints present, you do not take over: when you judge
+     ai-oncall's handling wrong or too slow, say so in a `request` and in one record to
+     the coordinator. A refused or waiting `ci oncall connect` alone is never a reason.
      No credential is read from any store, file, SSM parameter or environment unless the
      owner's words in this brief name it; a mute, an ack or a monitor change goes through
      ai-oncall's verb or an ask in the page thread, never a key you fetched.
