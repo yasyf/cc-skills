@@ -362,16 +362,19 @@ CLOCK_TIME = re.compile(r"\b\d{1,2}:\d{2} [AP]M\b")
 WORKER_RECORD_KINDS = {"blocker", "report", "ask", "state"}
 REPLIES_SCHEMA = strict({
     "headline": string("at most 25 words: the one thing to do first, or that nothing needs the owner"),
+    "update_lead": string("at most 25 words: where the whole drive stands today"),
     "replies": listing(strict({
         "id": string("the reply's id, copied"),
         "topic": string("lowercase words joined by dashes, the same for every reply on one subject; \"update\" for a reply that is a whole-drive status update"),
         "line": string("at most 20 words"),
+        "why": string("at most 30 words, or empty"),
         "needs": {"enum": ["incident", "do", "none"]},
     })),
     "taps": listing(strict({
         "card": string("an open card's id, copied"),
         "urgent": {"type": "boolean"},
         "line": string("at most 20 words: the question"),
+        "why": string("at most 30 words, or empty"),
         "frees": string("at most 8 words: what this answer frees, with its count, empty when the facts state none"),
         "count": {"type": "integer"},
         "answers": listing(string("at most 8 words: this answer, one per option, same order")),
@@ -386,18 +389,20 @@ REPLIES_SCHEMA = strict({
     })),
 })
 REPLIES_PROMPT = PAGE_PROMPT.format(what="the Replies page of a live dashboard, the one page its owner uses to act on the drive. Every line tells the owner what to do or what changed for a user, and nothing else.", fields="""- headline: the first thing to do, from taps and incidents.
+- update_lead: one sentence on where the whole drive stands, with its counts, the way a colleague would open a status message.
+- every reply reads like a short Slack message, decision first. line is the decision or the news. why is at most two short sentences with only what the owner needs to act or to understand the news: never history, never how it was found, never a repeat of line.
 - replies: one entry per reply in replies; a reply with an empty body already has its line in previous_brief, so keep that line, topic and needs unless a newer reply changes them. line says what to do, or what changed for a user, in plain words; it replaces the reply's title, so never copy a title that carries a number, a hash or a worker's name. needs is incident only for a reply about a customer-facing problem whose newest reply on that topic says it is still open with no fix live; do only when the reply needs the owner's own words and has no card to tap; none otherwise, which is most replies. Replies on one subject share one topic, even with different titles.
 - taps: at most 12 open cards, the ones that free the most work first. urgent is true only for a card deciding an open customer-facing incident. Skip a card whose subject the newest replies show is settled. count is how many pull requests, workers or customers the answer frees, read only from waiting and from what the replies and the update state about that card; 0 when they state none. Never guess a count. frees starts with Frees or Unblocks and says what becomes possible for users or which work moves, in words a newcomer follows, never a project nickname. answers shortens each option so it fits a button, keeping what it does.
 - update: the whole holistic update, so the owner never needs another page: every plan step in steps, every area in status_table, the services, signal, chats, releases and apps. One entry per item, grouped under short headings such as Plan, Five services, Signal, Chats, Releases, Apps. line is where it stands for users today, with its count when the facts state one. do is what the owner must do, empty when nothing. changed is what changed for a user since they last looked. blocks is what stands in its way. Leave out the drive's own tooling and desks unless the owner must act on them, and any item whose state is not known.""")
 
 
 def replies_slot(path):
-    if path[0] == "headline":
+    if path[0] in ("headline", "update_lead"):
         return "headline"
     if path[0] == "replies":
-        return "line" if path[2] == "line" else None
+        return {"line": "line", "why": "story"}.get(path[2])
     if path[0] == "taps":
-        return {"line": "line", "frees": "title", "answers": "title"}.get(path[2])
+        return {"line": "line", "why": "story", "frees": "title", "answers": "title"}.get(path[2])
     if path[0] == "update":
         return {"area": "title", "line": "line", "do": "latest", "changed": "latest", "blocks": "latest"}.get(path[2])
     return None
