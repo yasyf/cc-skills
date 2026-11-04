@@ -95,17 +95,23 @@ layer: it reads what the
 coordinator addresses to it (`--kind report --to owner-relay`) and synthesizes what
 he would want from it, never forwarding the coordinator's text as written. Only the
 communicator owes him his own terms (R21): plain words, Pacific times, the thing's
-name never a codename or id, the mechanism of the failure before the fix, the human
+name never a codename or id, the fix and when it is live rather than how it broke, the human
 layer before the agent layer ([communicator-brief.md](reference/communicator-brief.md)).
 It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
 ([owner-report-table.md](reference/owner-report-table.md)). A dashboard restart is
 `lr dashboard restart`, which the communicator runs itself and never hands the
-owner. Every reply that explains a mechanism, an incident or a design change to him
-carries a hosted one-pager, unasked, and so does the turn after he asks how a system
-works. `lr explain <topic> --from <markdown or record>` hosts it and sends him its
-link, and the communicator's hooks prompt for it and refuse a reply without one,
-unless the verb ran and failed, in which case it has filed a defect to the meta desk.
+owner. An order of his gets no acknowledgement and no promised time: he hears back
+once, when it is live or decided, in one sentence, and a question gets one sentence.
+`owner_replies_stay_short.py` refuses, in the window, the `reply` tool and his Slack
+DM, a reply that only acknowledges or promises a clock, one over two sentences that is
+not an update, a return update or a pick card, and a mechanism, diagram or explainer
+link he did not ask for. Only a turn where he asks how a system works gets a hosted
+one-pager: `lr explain <topic> --from <markdown or record>` hosts it and sends him its
+link, and the communicator's hooks prompt for it and refuse that turn's reply without
+one, unless the verb ran and failed, in which case it has filed a defect to the meta
+desk. A Bash `lr` or `cci` command the communicator runs twice in one session with the
+same verb and flag names raises one `chore:<shape>` ask to the meta desk, unseen.
 When he says a design is wrong at its root, the drive runs the whole redesign
 sequence that turn, with no further word from him: `lr explain redesign` withdraws the
 cards, holds the PRs, hosts the page and opens a design lane that builds each
