@@ -34,6 +34,7 @@ const (
 	header     = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
 	rowTime    = "Jan 2 3:04 PM"
 	byTime     = "3:04 PM"
+	overnight  = 12 * time.Hour
 
 	carriedChars = 1500
 
@@ -147,6 +148,9 @@ func dueBy(by string, now time.Time) (string, error) {
 	}
 	local := now.In(pacific)
 	at := time.Date(local.Year(), local.Month(), local.Day(), clock.Hour(), clock.Minute(), 0, 0, pacific)
+	if local.Sub(at) > overnight {
+		at = at.AddDate(0, 0, 1)
+	}
 	if at.Before(local) {
 		return "", fmt.Errorf("--by %s has passed", by)
 	}
