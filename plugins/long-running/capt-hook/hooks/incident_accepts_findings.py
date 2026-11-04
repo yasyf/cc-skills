@@ -18,8 +18,8 @@ RUNNING = OPEN | {"gh pr checks": "pending\npass\n"}
 RED = OPEN | {"gh pr checks": "fail\npass\n"}
 POLISH = "ccx vcs ship -m 'shared-open: 🧪 capture the exact first retry backoff'"
 ACCEPT = (
-    "An incident fix accepts its reviewer findings, so no push restarts CI while its head has no failed required check. "
-    'Run `scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`, or end the push with `# fix-is-wrong: <slug>` if the finding says the fix is wrong.'
+    "An incident fix accepts its reviewer findings, so no push restarts CI unless a required check failed. "
+    'Run `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`, or end the push with `# fix-is-wrong: <slug>` if the finding says the fix is wrong.'
 )
 FIX_IS_WRONG_NOTE = "Finding `{slug}` says the incident fix itself is wrong, so this push restarts its CI. Name `{slug}` in the lane's report."
 
@@ -47,7 +47,7 @@ def restarts_green_ci(evt: BaseHookEvent, call: Call) -> bool:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Block(pattern=r"^An incident fix accepts its reviewer findings.*`scripts/pr-reviews accept <slug>"),
+        Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING): Block(pattern=r"^An incident fix accepts its reviewer findings.*scripts/pr-reviews accept <slug>"),
         Input(command="git push", agent_id="aincident-api-500s-0123456789abcdef", commands=RUNNING): Block(pattern=r"`# fix-is-wrong: <slug>`"),
         Input(command="ccx vcs push", agent_id="aincident-api-500s-0123456789abcdef", commands=OPEN | {"gh pr checks": "pass\n"}): Block(),
         Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RED): Allow(),
