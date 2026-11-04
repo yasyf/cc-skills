@@ -21,7 +21,7 @@ from pages import stamp
 from review_assistant import ReviewAssistant
 from screens import screen_kind
 import server
-from server import QUEUED_NEXT, Drive, changed_since, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
+from server import QUEUED_NEXT, Drive, changed_since, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state
 
 TAILNET_OWNER = "owner@example.test"
 OWNER_WHOIS = {"Node": {"Name": "owners-mac."}, "UserProfile": {"LoginName": TAILNET_OWNER}}
@@ -152,18 +152,6 @@ def test_a_refused_tap_says_why_and_drops_his_click_so_the_row_asks_again():
     assert rows[1]["blocker"] == "Your tap was refused: held by root. It now waits on: CI is not green"
     assert rows[2]["blocker"] == "your approval"
     assert [row["state"] for row in rows] == ["not-ready", "not-ready", "you"]
-
-
-def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():
-    row = {"number": 43211, "head": "8242887", "title": "T", "change": "C.", "plan": "P.", "risk": "R.", "review": "V.", "blocker": "B."}
-    board = {
-        "doc": {"blocks": [{"id": "card-merge", "type": "card", "children": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "title": "G", "summary": "S.", "prs": [row]}]}]}]},
-        "interactions": {"triage": {"merge-prs": {"43211": {"verdict": "approved", "head": "8242887"}}}, "choices": {}},
-    }
-    rows = Drive({"board_url": "http://board/p/x"}, None).read_board(board)["rows"]
-    assert rows[0]["block"] == "merge-prs"
-    assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
-
 
 
 def test_the_board_still_reads_after_he_submits_it(monkeypatch):
@@ -748,9 +736,8 @@ def test_a_release_whose_named_blockers_all_landed_lists_none_and_tonight_names_
     assert (out["track"]["lines"][2]["source"]["href"], out["track"]["missing"]) == ("/record/147640", [])
 
 
-def merge_board(*groups):
-    blocks = [{"id": "card-merge", "type": "card", "children": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": gid, "title": title, "summary": summary, "prs": prs} for gid, title, summary, prs in groups]}]}]
-    return {"doc": {"blocks": blocks}, "interactions": {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, "feedback": {}}}
+def merge_rows(*groups):
+    return [{**row, "group": title, "group_id": gid, "group_summary": summary, "block": "merge-prs", "verdict": None} for gid, title, summary, prs in groups for row in prs]
 
 
 def board_row(number, state):
@@ -758,14 +745,12 @@ def board_row(number, state):
 
 
 def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
-    store = merge_board(
+    rows = merge_rows(
         ("tools", "Faster tools", "Four tooling changes; none reaches a user.", [board_row(43243, "approved"), board_row(43246, "you")]),
         ("done", "All approved", "Nothing left.", [board_row(43300, "approved")]),
         ("gate", "Release 1 waits on this", "The first release cannot start without it.", [board_row(43258, "you")]),
     )
-    board = Drive({"board_url": "http://board/p/x"}, None).read_board(store)
-    stamp(board)
-    rows = board["rows"]
+    stamp({"rows": rows})
 
     out = needs(rows, [], [], "http://board/p/x", set())
 
@@ -790,60 +775,18 @@ def test_a_restack_that_keeps_the_file_count_reuses_the_cached_paths(cached, pr,
     assert paths_current(cached, pr) is current
 
 
-def test_a_row_whose_pull_request_conflicts_with_its_base_never_reads_unblocked():
-    clear = {"blocker": "Nothing; lands on your tap."}
-    rows = [board_row(43203, "you") | clear, board_row(42786, "you") | {"blocker": "Waits for #42766 to merge first."}, board_row(43323, "you") | clear, board_row(43204, "you")]
-
-    out = with_conflicts(rows, {"43203": {"mergeable_state": "dirty"}, "42786": {"mergeable_state": "dirty"}, "43323": {"mergeable_state": "unknown"}, "43204": {"mergeable_state": "clean"}})
-
-    assert [row["blocker"] for row in out] == [
-        "Conflicts with its base, so it cannot land until its worker rebases it.",
-        "Conflicts with its base, so it cannot land until its worker rebases it. It also waits on: Waits for #42766 to merge first.",
-        "GitHub has not yet rechecked whether it merges cleanly. The merge board said: Nothing; lands on your tap.",
-        "B43204",
-    ]
-
-
-def test_a_board_blocker_whose_named_pull_requests_all_landed_reads_cleared():
-    rows = [board_row(42786, "you") | {"blocker": "Waits for #42766 to merge first."}, board_row(42787, "you") | {"blocker": "Waits for #42766 and #42770."}]
-
-    rows += [board_row(42788, "you") | {"blocker": "Waits on #42780-#42782."}, board_row(42789, "you") | {"blocker": "Waits for #42766 to merge first, and the red test build must turn green."}]
-
-    out = with_conflicts(rows, {"42766": {"state": "landed"}, "42770": {"state": "open"}, "42780": {"state": "landed"}, "42781": {"state": "open"}, "42782": {"state": "landed"}})
-
-    assert [row["blocker"] for row in out] == [
-        "Nothing now: #42766 landed.",
-        "Waits for #42766 and #42770.",
-        "Waits on #42780-#42782.",
-        "Waits for #42766 to merge first, and the red test build must turn green.",
-    ]
-
-
 def test_a_landed_pull_request_with_a_stale_tap_row_is_not_a_need():
-    store = merge_board(("tools", "Faster tools", "Two tooling changes.", [board_row(43246, "you"), board_row(43247, "you")]))
-    rows = Drive({"board_url": "http://board/p/x"}, None).read_board(store)["rows"]
+    rows = merge_rows(("tools", "Faster tools", "Two tooling changes.", [board_row(43246, "you"), board_row(43247, "you")]))
 
     out = needs(rows, [], [], "http://board/p/x", {43246})
 
     assert [row["number"] for row in out[0]["prs"]] == [43247]
 
 
-def test_a_merge_card_with_no_rows_waiting_still_reaches_needs_you_as_its_feature_table():
-    table = {"id": "merge-fixing", "type": "table", "columns": [{"key": "f", "label": "Feature"}, {"key": "l", "label": "Approved, landing"}], "rows": [{"f": "Release 1 waits on this", "l": "1"}]}
-    page = {"id": "merge-approved-landing", "type": "display.page", "md": "| Feature | Waiting on |"}
-    store = {"doc": {"blocks": [{"id": "card-merge-triage", "type": "card", "title": "Which may merge now?", "summary": "Nothing needs your tap.", "children": [table, page]}]}, "interactions": {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, "feedback": {}}}
-
-    board = Drive({"board_url": "http://board/p/x"}, None).read_board(store)
-
-    assert board["rows"] == []
-    assert board["merge"] == {"title": "Which may merge now?", "summary": "Nothing needs your tap.", "chips": [], "tables": [table], "pages": ["| Feature | Waiting on |"]}
-
-
 def test_a_board_row_missing_a_fact_still_reaches_needs_you():
     row = board_row(43250, "you")
     del row["risk"], row["review"]
-    store = merge_board(("gate", "Release 1 waits on this", "The first release cannot start without it.", [row]))
-    rows = Drive({"board_url": "http://board/p/x"}, None).read_board(store)["rows"]
+    rows = merge_rows(("gate", "Release 1 waits on this", "The first release cannot start without it.", [row]))
 
     out = needs(rows, [], [], "http://board/p/x", set())
 
@@ -1155,17 +1098,11 @@ def test_a_head_record_names_its_pull_request_at_its_commit_and_a_dump_says_why_
     assert "<dt>Says</dt>" not in page and "<dt>Details</dt>" not in page
 
 
-def test_every_board_row_waiting_on_the_owner_stays_on_the_deck_whatever_the_ledger_says_about_its_tests():
+def test_every_row_waiting_on_the_owner_stays_on_the_deck():
     """Owner 12:14 PM Nov 2: 'why are there PRs to approve on my board that are not showing in the long-running dashboard?'"""
     rows = [{"number": n, "key": str(n), "head": "aaaa111", "state": "you", "verdict": None, "go_head": None, "blocker": "", "block": "b", "group_id": "g", "group": "G", "group_summary": ""} for n in (45411, 45412, 45413)]
-    prs = {
-        "45411": {"state": "open", "head": "aaaa111", "test_state": "failure"},
-        "45412": {"state": "open", "head": "bbbb222", "test_state": "pending"},
-    }
 
-    out = server.with_conflicts(rows, prs)
-
-    assert [row["number"] for need in server.merge_needs(out, "u") for row in need["prs"]] == [45411, 45412, 45413]
+    assert [row["number"] for need in server.merge_needs(rows, "u") for row in need["prs"]] == [45411, 45412, 45413]
 
 
 def test_evidence_written_before_the_live_head_was_pushed_never_reaches_the_owner():

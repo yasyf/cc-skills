@@ -121,7 +121,6 @@ STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
 ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "meta", "md", "block", "state", "ci_fix_go", "checked_at", "awaiting")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
-UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
 RELEASED = re.compile(r"^(released|done|live)", re.I)
 HELD = re.compile(r"^(hold|held|paused|stopped)", re.I)
 WAITS = re.compile(r"^(waits? on|blocked)", re.I)
@@ -141,8 +140,6 @@ STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
 NATIVE = {*ASKS, "record", "display.page", "markdown", "image", "pr", "table"}
 OTHER = re.compile(r"^other$", re.I)
-MERGE_ONLY = re.compile(r"^(waits? (for|on)|lands? after|after|stacked on)[\s#\d,\-–and]+(to (merge|land))?( first)?\.?$", re.I)
-MERGE_CARD = "card-merge-triage"
 MERGE_BLOCK = "merge-prs"
 LR_STORE = "lr.sqlite"
 ROW_META = (
@@ -710,22 +707,6 @@ def release_path(releases):
 
 def paths_current(cached, pr):
     return bool(cached) and (cached["head"] == pr["head"] or cached.get("files") == pr.get("changed_files"))
-
-
-def with_conflicts(rows, prs):
-    def blocker(row):
-        board = row.get("blocker") or ""
-        named = plan_prs(board)
-        if named and MERGE_ONLY.match(board.strip()) and all(prs.get(str(n), {}).get("state") == "landed" for n in named):
-            board = f"Nothing now: {', '.join(f'#{n}' for n in named)} landed."
-        merge = prs.get(str(row["number"]), {}).get("mergeable_state")
-        clear = not board or re.match(r"nothing", board, re.I)
-        if merge == "dirty":
-            return CONFLICT if clear else f"{CONFLICT} It also waits on: {board}"
-        if merge == "unknown" and clear:
-            return f"{UNCHECKED} The merge board said: {board}"
-        return board
-    return [{**row, "blocker": blocker(row)} for row in rows]
 
 
 def pushed_at(records, number, head):
@@ -1624,7 +1605,7 @@ class Drive:
         board = self.board()
         self.check_gos(board["rows"])
         pushes = [record for record in model["records"] if record["kind"] in ("head", "opened")]
-        board["rows"] = awaiting_reply(with_conflicts(board["rows"], model["prs"]), model["asks"])
+        board["rows"] = awaiting_reply(board["rows"], model["asks"])
         board["cards"] = unanswered(board["cards"], model["words"])
         stamp(board)
         now = dt.datetime.now(dt.timezone.utc)
@@ -1797,19 +1778,12 @@ class Drive:
 
     def read_board(self, board):
         interactions = board["interactions"]
-        verdicts = interactions["triage"]
         retired = set(board.get("retired") or [])
-        rows, cards, answered, merge = [], [], {}, None
+        cards, answered = [], {}
         for block in board["doc"]["blocks"]:
             if block["type"] != "card" or block["id"] in retired:
                 continue
             groups = [child for child in block.get("children", []) if child["type"] == "pr-groups"]
-            if block["id"] == MERGE_CARD:
-                merge = {"title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [], "tables": [child for child in block.get("children", []) if child["type"] == "table"], "pages": [child["md"] for child in block.get("children", []) if child["type"] == "display.page"]}
-            for child in groups:
-                for group in child["groups"]:
-                    for row in group["prs"]:
-                        rows.append({**row, "group": group["title"], "group_id": group["id"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
             if groups:
                 continue
             children = block.get("children", [])
@@ -1834,7 +1808,7 @@ class Drive:
                 "thread": self.board_threads.get(block["id"], []),
                 "embed": f"{self.config['board_url']}?{urllib.parse.urlencode({'block': block['id'], 'theme': 'dark'})}" if embed else None,
             })
-        return {"rows": rows, "cards": cards, "answered": answered, "merge": merge, "url": self.config["board_url"]}
+        return {"cards": cards, "answered": answered, "url": self.config["board_url"]}
 
 
 def own_names(host):
