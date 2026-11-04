@@ -12,19 +12,13 @@ func Command(a *app.App) *cobra.Command {
 	var below, stack bool
 	cmd := &cobra.Command{
 		Use:   "own-red [PR]",
-		Short: "Print an OWN-RED line for each finished failing check a merge would land past on its own PR's change, and an INHERITED line for each red inherited from its base",
-		Long: `Read every PR the merge would land and print, for each check that finished
-red, one OWN-RED line per finding in a file that PR changes, or one INHERITED
-line when its findings all sit outside the PR's diff. A check's findings are its
-annotations, or the path:line mentions in its Actions job log when it annotates
-no file. A pending check prints nothing.
-
-A compiler can name either side of a redeclaration, so a Go build or vet, tsc,
-tsgo or compiler error outside the diff proves nothing. That check reads the
-base branch instead, in one call for every PR: the nearest finished run of the
-same check at or below the PR's merge base. Red there prints INHERITED, green
-prints an OWN-RED line per compile error, and no readable run prints INHERITED
-marked "base branch state unread".
+		Short: "Print an OWN-RED line for each finished failing check a merge would land that is green on its base, and an INHERITED line for each that is red there too",
+		Long: `Read every PR the merge would land and compare each check that finished red
+with the same check on the base branch, in one call for every PR: the nearest
+finished run at or below the PR's merge base. Green there prints an OWN-RED line
+with the failing job's link, whichever files the failure names, since a change
+breaks tests it does not touch. Red there prints INHERITED. No readable run
+prints BASE-UNREAD. A pending check prints nothing.
 
 The PR is a number, URL or branch, the current branch's when none is given.
 With --below, the merge also lands every open PR below it in its native stack,

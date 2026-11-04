@@ -16,40 +16,49 @@ import (
 )
 
 const (
-	sources     = "lr/internal/lanes/sources.go"
-	sourcesTest = "lr/internal/lanes/sources_test.go"
-	prealloc    = "Consider preallocating messages with capacity 1 (prealloc)"
-	ownLint     = "OWN-RED #7 lr-go " + sources + ":336 " + prealloc
+	job           = "https://github.com/acme/app/actions/runs/1/job/9"
+	ownLine       = "OWN-RED #7 lr-go " + job
+	inheritedLine = "INHERITED #7 lr-go"
+	unreadBase    = "BASE-UNREAD #7 lr-go"
 )
 
-type annotation struct {
-	path    string
-	line    int
-	message string
+func checkRun(status, conclusion string) map[string]any {
+	return map[string]any{"name": "lr-go", "status": status, "conclusion": conclusion, "detailsUrl": job}
 }
 
-func checkRun(status, conclusion string, notes ...annotation) map[string]any {
-	nodes := make([]map[string]any, 0, len(notes))
-	for _, note := range notes {
-		nodes = append(nodes, map[string]any{"path": note.path, "location": map[string]any{"start": map[string]any{"line": note.line}}, "message": note.message})
-	}
-	return map[string]any{"name": "lr-go", "status": status, "conclusion": conclusion, "databaseId": 9, "annotations": map[string]any{"nodes": nodes}}
+func namedRun(name, conclusion string) map[string]any {
+	run := checkRun("COMPLETED", conclusion)
+	run["name"] = name
+	return run
 }
 
 var (
-	ownRed       = checkRun("COMPLETED", "FAILURE", annotation{sources, 336, prealloc + "\nmore detail"})
-	inheritedRed = checkRun("COMPLETED", "FAILURE", annotation{"lr/internal/asks/command.go", 12, "QF1008: could remove embedded field (staticcheck)"})
-	pending      = checkRun("IN_PROGRESS", "", annotation{sources, 336, prealloc})
-	green        = checkRun("COMPLETED", "SUCCESS")
-	testFailure  = checkRun("COMPLETED", "FAILURE", annotation{".github", 140, "Process completed with exit code 1."})
+	failing = checkRun("COMPLETED", "FAILURE")
+	pending = checkRun("IN_PROGRESS", "")
+	green   = checkRun("COMPLETED", "SUCCESS")
+	baseOff = checkRun("COMPLETED", "CANCELLED")
 )
 
 func pull(runs ...map[string]any) map[string]any {
-	suite := map[string]any{"app": map[string]any{"slug": "github-actions"}, "checkRuns": map[string]any{"nodes": runs}}
+	suite := map[string]any{"checkRuns": map[string]any{"nodes": runs}}
 	return map[string]any{
-		"files":   map[string]any{"nodes": []map[string]any{{"path": sources}, {"path": sourcesTest}}},
 		"commits": map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"checkSuites": map[string]any{"nodes": []any{suite}}}}}},
 	}
+}
+
+func ancestor(runs ...map[string]any) map[string]any {
+	suite := map[string]any{"checkRuns": map[string]any{"nodes": runs}}
+	return map[string]any{"checkSuites": map[string]any{"nodes": []any{suite}}}
+}
+
+func withHistory(p map[string]any, history ...map[string]any) map[string]any {
+	head := p["commits"].(map[string]any)["nodes"].([]map[string]any)[0]["commit"].(map[string]any)
+	head["parents"] = map[string]any{"nodes": []any{map[string]any{"history": map[string]any{"nodes": history}}}}
+	return p
+}
+
+func redOnGreenBase() map[string]any {
+	return withHistory(pull(failing), ancestor(green))
 }
 
 func encoded(t *testing.T, v any) string {
@@ -97,25 +106,26 @@ func lines(t *testing.T, fake *shelltest.Fake, m ownred.Merge) []string {
 	return got
 }
 
-func TestEveryMergePathNamesItsOwnRedAndPassesAnInheritedRedAndAPendingCheck(t *testing.T) {
+func TestEveryMergePathReadsARedAgainstItsBase(t *testing.T) {
 	paths := map[string]ownred.Merge{
 		"gh pr merge":    {Selector: "7"},
 		"ccx vcs merge":  {Selector: "7", Mode: ownred.Below},
 		"gh stack merge": {Selector: "7", Mode: ownred.Stack},
 	}
 	checks := map[string]struct {
-		run  map[string]any
+		pull map[string]any
 		want []string
 	}{
-		"own red":       {ownRed, []string{ownLint}},
-		"inherited red": {inheritedRed, []string{"INHERITED #7 lr-go"}},
-		"pending":       {pending, nil},
-		"green":         {green, nil},
+		"red on a green base": {redOnGreenBase(), []string{ownLine}},
+		"red on a red base":   {withHistory(pull(failing), ancestor(failing)), []string{inheritedLine}},
+		"red on no base run":  {withHistory(pull(failing)), []string{unreadBase}},
+		"pending":             {withHistory(pull(pending), ancestor(green)), nil},
+		"green":               {withHistory(pull(green), ancestor(failing)), nil},
 	}
 	for path, merge := range paths {
 		for name, check := range checks {
 			t.Run(path+"/"+name, func(t *testing.T) {
-				fake := github(t, map[int]map[string]any{6: pull(green), 7: pull(check.run)}, true)
+				fake := github(t, map[int]map[string]any{6: pull(green), 7: check.pull}, true)
 				if got := lines(t, fake, merge); !slices.Equal(got, check.want) {
 					t.Fatalf("got %q, want %q", got, check.want)
 				}
@@ -124,19 +134,65 @@ func TestEveryMergePathNamesItsOwnRedAndPassesAnInheritedRedAndAPendingCheck(t *
 	}
 }
 
+func TestAFailingTestThePRNeverTouchedReadsItsBaseAndNothingElse(t *testing.T) {
+	const check = "test (ubuntu-latest, 7)"
+	for name, c := range map[string]struct {
+		history []map[string]any
+		want    string
+	}{
+		"its base is green": {[]map[string]any{ancestor(namedRun(check, "SUCCESS"))}, "OWN-RED #7 " + check + " " + job},
+		"its base is red":   {[]map[string]any{ancestor(namedRun(check, "FAILURE"))}, "INHERITED #7 " + check},
+		"its base has none": {nil, "BASE-UNREAD #7 " + check},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := github(t, map[int]map[string]any{7: withHistory(pull(namedRun(check, "FAILURE")), c.history...)}, false)
+			if got, want := lines(t, fake, ownred.Merge{Selector: "7"}), []string{c.want}; !slices.Equal(got, want) {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestAVetFindingReadsItsBaseWhateverFilesThePRChanged(t *testing.T) {
+	const found = "internal/reply/reply_test.go"
+	vet := checkRun("COMPLETED", "FAILURE")
+	vet["annotations"] = map[string]any{"nodes": []map[string]any{{"path": found, "location": map[string]any{"start": map[string]any{"line": 7, "column": 2}}, "message": `vet: "fmt" imported and not used`}}}
+	for name, changed := range map[string]string{
+		"a PR of text files":              "docs/landing.md",
+		"a PR that touched the same file": found,
+	} {
+		for base, want := range map[string]struct {
+			run  map[string]any
+			line string
+		}{
+			"red":   {failing, inheritedLine},
+			"green": {green, ownLine},
+		} {
+			t.Run(name+"/base "+base, func(t *testing.T) {
+				p := withHistory(pull(vet), ancestor(want.run))
+				p["files"] = map[string]any{"nodes": []map[string]any{{"path": changed}}}
+				got := lines(t, github(t, map[int]map[string]any{7: p}, false), ownred.Merge{Selector: "7"})
+				if !slices.Equal(got, []string{want.line}) {
+					t.Fatalf("got %q, want %q", got, want.line)
+				}
+			})
+		}
+	}
+}
+
 func TestAStackedMergeReadsEveryOpenPRBelowItsTargetAndNoneAbove(t *testing.T) {
-	pulls := map[int]map[string]any{5: pull(ownRed), 6: pull(ownRed), 7: pull(green), 8: pull(ownRed)}
+	pulls := map[int]map[string]any{5: redOnGreenBase(), 6: redOnGreenBase(), 7: pull(green), 8: redOnGreenBase()}
 	for _, mode := range []ownred.Mode{ownred.Below, ownred.Stack} {
 		got := lines(t, github(t, pulls, true), ownred.Merge{Selector: "7", Mode: mode})
-		if want := []string{"OWN-RED #6 lr-go " + sources + ":336 " + prealloc}; !slices.Equal(got, want) {
+		if want := []string{"OWN-RED #6 lr-go " + job}; !slices.Equal(got, want) {
 			t.Fatalf("mode %d: got %q, want %q", mode, got, want)
 		}
 	}
 }
 
 func TestAStackMergeOfAStackNumberOrOfNoSelectorReadsTheWholeStack(t *testing.T) {
-	pulls := map[int]map[string]any{6: pull(green), 7: pull(green), 8: pull(ownRed)}
-	want := []string{"OWN-RED #8 lr-go " + sources + ":336 " + prealloc}
+	pulls := map[int]map[string]any{6: pull(green), 7: pull(green), 8: redOnGreenBase()}
+	want := []string{"OWN-RED #8 lr-go " + job}
 	for _, selector := range []string{"42", ""} {
 		if got := lines(t, github(t, pulls, true), ownred.Merge{Selector: selector, Mode: ownred.Stack}); !slices.Equal(got, want) {
 			t.Fatalf("selector %q: got %q, want %q", selector, got, want)
@@ -148,40 +204,9 @@ func TestAStackMergeOfAStackNumberOrOfNoSelectorReadsTheWholeStack(t *testing.T)
 }
 
 func TestAPROutsideAnyStackMergesAlone(t *testing.T) {
-	got := lines(t, github(t, map[int]map[string]any{7: pull(ownRed)}, false), ownred.Merge{Selector: "7", Mode: ownred.Below})
-	if want := []string{ownLint}; !slices.Equal(got, want) {
+	got := lines(t, github(t, map[int]map[string]any{7: redOnGreenBase()}, false), ownred.Merge{Selector: "7", Mode: ownred.Below})
+	if want := []string{ownLine}; !slices.Equal(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
-func TestATestFailureThatAnnotatesNoFileIsReadFromItsJobLog(t *testing.T) {
-	ownLog := "2026-11-03T04:10:55.1971800Z ok  \tlr/internal/asks\n2026-11-03T04:10:55.1980294Z \x1b[31m    sources_test.go:42: got 2 messages, want 1\x1b[0m\n"
-	inheritedLog := "2026-11-03T04:10:55.1980294Z     command_test.go:9: want ask line\n"
-	for log, want := range map[string][]string{
-		ownLog:       {"OWN-RED #7 lr-go " + sourcesTest + ":42 sources_test.go:42: got 2 messages, want 1"},
-		inheritedLog: {"INHERITED #7 lr-go"},
-	} {
-		fake := github(t, map[int]map[string]any{7: pull(testFailure)}, false)
-		fake.Reply("      --allow-escape-sequences   Allow terminal escape sequences in the output\n", "gh", "api", "--help")
-		fake.Reply(log, "gh", "api", "repos/acme/app/actions/jobs/9/logs", "--allow-escape-sequences")
-		if got := lines(t, fake, ownred.Merge{Selector: "7"}); !slices.Equal(got, want) {
-			t.Fatalf("got %q, want %q", got, want)
-		}
-	}
-}
-
-func TestAGhWithoutTheEscapeFlagReadsTheJobLogWithoutIt(t *testing.T) {
-	fake := github(t, map[int]map[string]any{7: pull(testFailure)}, false)
-	fake.Reply("  -X, --method string   The HTTP method for the request\n", "gh", "api", "--help")
-	fake.Reply("2026-11-03T04:10:55.1980294Z     sources_test.go:42: got 2 messages, want 1\n", "gh", "api", "repos/acme/app/actions/jobs/9/logs")
-	got := lines(t, fake, ownred.Merge{Selector: "7"})
-	if want := []string{"OWN-RED #7 lr-go " + sourcesTest + ":42 sources_test.go:42: got 2 messages, want 1"}; !slices.Equal(got, want) {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-	for _, call := range fake.Calls() {
-		if slices.Contains(call.Argv, "--allow-escape-sequences") {
-			t.Fatalf("an old gh got the flag it exits on: %q", call.Argv)
-		}
 	}
 }
 
@@ -340,10 +365,10 @@ func TestAMergeShowsEveryBroadcastUpToTheCut(t *testing.T) {
 }
 
 func TestAMergeAfterTheLaneReadItsRecordsComesDownToItsChecks(t *testing.T) {
-	fake := github(t, map[int]map[string]any{7: pull(ownRed)}, false)
+	fake := github(t, map[int]map[string]any{7: redOnGreenBase()}, false)
 	fake.Reply("", "cci", "tail")
-	if got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"}); !slices.Equal(got, []string{ownLint}) {
-		t.Fatalf("got %q, want %q", got, []string{ownLint})
+	if got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"}); !slices.Equal(got, []string{ownLine}) {
+		t.Fatalf("got %q, want %q", got, []string{ownLine})
 	}
 }
 
@@ -374,43 +399,6 @@ func TestTheLaneReadTakesTheSameCallsAtOneRecordAndAtAThousand(t *testing.T) {
 	}
 }
 
-const (
-	redeclared    = "internal/owner/watch_test.go:18:2: his redeclared in this block"
-	redeclaredLog = "2026-11-04T18:35:40.5345492Z ##[error]vet: " + redeclared + "\n"
-	ownRedeclared = "OWN-RED #7 lr-go internal/owner/watch_test.go:18 vet: " + redeclared
-	unreadBase    = "INHERITED #7 lr-go (base branch state unread)"
-)
-
-func ancestor(runs ...map[string]any) map[string]any {
-	suite := map[string]any{"checkRuns": map[string]any{"nodes": runs}}
-	return map[string]any{"checkSuites": map[string]any{"nodes": []any{suite}}}
-}
-
-func withHistory(p map[string]any, history ...map[string]any) map[string]any {
-	head := p["commits"].(map[string]any)["nodes"].([]map[string]any)[0]["commit"].(map[string]any)
-	head["parents"] = map[string]any{"nodes": []any{map[string]any{"history": map[string]any{"nodes": history}}}}
-	return p
-}
-
-var (
-	baseRed     = checkRun("COMPLETED", "FAILURE")
-	baseGreen   = checkRun("COMPLETED", "SUCCESS")
-	baseOff     = checkRun("COMPLETED", "CANCELLED")
-	basePending = checkRun("IN_PROGRESS", "")
-)
-
-func logReads(fake *shelltest.Fake, log string) {
-	fake.Reply("", "gh", "api", "--help")
-	fake.Reply(log, "gh", "api", "repos/acme/app/actions/jobs/9/logs")
-}
-
-func redFromLog(t *testing.T, log string, history ...map[string]any) *shelltest.Fake {
-	t.Helper()
-	fake := github(t, map[int]map[string]any{7: withHistory(pull(testFailure), history...)}, false)
-	logReads(fake, log)
-	return fake
-}
-
 func queries(fake *shelltest.Fake) []string {
 	var read []string
 	for _, call := range fake.Calls() {
@@ -421,135 +409,35 @@ func queries(fake *shelltest.Fake) []string {
 	return read
 }
 
-func TestARedeclarationOutsideTheDiffIsOwnRedWhenTheBaseIsGreenAndInheritedWhenItIsRed(t *testing.T) {
-	paths := map[string]ownred.Merge{
-		"gh pr merge":    {Selector: "7"},
-		"ccx vcs merge":  {Selector: "7", Mode: ownred.Below},
-		"gh stack merge": {Selector: "7", Mode: ownred.Stack},
-	}
-	bases := map[string]struct {
-		base map[string]any
-		want []string
-	}{
-		"base green": {baseGreen, []string{ownRedeclared}},
-		"base red":   {baseRed, []string{"INHERITED #7 lr-go"}},
-	}
-	for path, merge := range paths {
-		for name, base := range bases {
-			t.Run(path+"/"+name, func(t *testing.T) {
-				fake := github(t, map[int]map[string]any{6: pull(green), 7: withHistory(pull(testFailure), ancestor(base.base))}, true)
-				logReads(fake, redeclaredLog)
-				if got := lines(t, fake, merge); !slices.Equal(got, base.want) {
-					t.Fatalf("got %q, want %q", got, base.want)
-				}
-			})
-		}
-	}
-}
-
 func TestTheBaseReadsAsTheNearestFinishedRunOfTheSameCheck(t *testing.T) {
-	otherCheck := checkRun("COMPLETED", "FAILURE")
-	otherCheck["name"] = "publish"
+	otherCheck := namedRun("publish", "FAILURE")
 	for name, c := range map[string]struct {
 		history []map[string]any
 		want    []string
 	}{
-		"a skip-ci merge base over a green run": {[]map[string]any{ancestor(), ancestor(otherCheck), ancestor(baseGreen)}, []string{ownRedeclared}},
-		"a skip-ci merge base over a red run":   {[]map[string]any{ancestor(), ancestor(baseRed)}, []string{"INHERITED #7 lr-go"}},
-		"green nearer than an older red":        {[]map[string]any{ancestor(baseGreen), ancestor(baseRed)}, []string{ownRedeclared}},
-		"red nearer than an older green":        {[]map[string]any{ancestor(baseRed), ancestor(baseGreen)}, []string{"INHERITED #7 lr-go"}},
-		"cancelled and pending runs read past":  {[]map[string]any{ancestor(baseOff), ancestor(basePending), ancestor(baseGreen)}, []string{ownRedeclared}},
-		"red and green at one commit":           {[]map[string]any{ancestor(baseGreen, baseRed)}, []string{"INHERITED #7 lr-go"}},
-		"no finished run in the window":         {[]map[string]any{ancestor(), ancestor(baseOff), ancestor(basePending)}, []string{unreadBase}},
+		"a skip-ci merge base over a green run": {[]map[string]any{ancestor(), ancestor(otherCheck), ancestor(green)}, []string{ownLine}},
+		"a skip-ci merge base over a red run":   {[]map[string]any{ancestor(), ancestor(failing)}, []string{inheritedLine}},
+		"green nearer than an older red":        {[]map[string]any{ancestor(green), ancestor(failing)}, []string{ownLine}},
+		"red nearer than an older green":        {[]map[string]any{ancestor(failing), ancestor(green)}, []string{inheritedLine}},
+		"cancelled and pending runs read past":  {[]map[string]any{ancestor(baseOff), ancestor(pending), ancestor(green)}, []string{ownLine}},
+		"red and green at one commit":           {[]map[string]any{ancestor(green, failing)}, []string{inheritedLine}},
+		"no finished run in the window":         {[]map[string]any{ancestor(), ancestor(baseOff), ancestor(pending)}, []string{unreadBase}},
 		"no history at all":                     {nil, []string{unreadBase}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := lines(t, redFromLog(t, redeclaredLog, c.history...), ownred.Merge{Selector: "7"}); !slices.Equal(got, c.want) {
-				t.Fatalf("got %q, want %q", got, c.want)
-			}
-		})
-	}
-}
-
-func TestEveryCompileClassReadsTheBaseAndEveryOtherFailureKeepsTheOutsideReading(t *testing.T) {
-	for _, text := range []string{
-		"internal/owner/watch.go:18:2: undefined: his",
-		"vet: internal/owner/watch.go:18:2: undefined: his",
-		"./watch.go:18:2: invalid operation: a + b (mismatched types int and string)",
-		"internal/owner/watch.go:18:2: his redeclared in this block (typecheck)",
-		"internal/owner/watch.go:18:2: self-assignment of x to x (govet)",
-		"src/watch.ts(18,2): error TS2451: Cannot redeclare block-scoped variable 'his'.",
-		"src/watch.ts:18:2 - error TS2451: Cannot redeclare block-scoped variable 'his'.",
-		"ios/Watch.swift:18:2: error: invalid redeclaration of 'his'",
-		"native/watch.c:18:2: fatal error: 'his.h' file not found",
-	} {
-		t.Run(text, func(t *testing.T) {
-			got := lines(t, redFromLog(t, "2026-11-04T18:35:40.5345492Z "+text+"\n", ancestor(baseGreen)), ownred.Merge{Selector: "7"})
-			if len(got) != 1 || !strings.HasPrefix(got[0], "OWN-RED #7 lr-go ") || !strings.HasSuffix(got[0], text) {
-				t.Fatalf("got %q, want one OWN-RED line ending %q", got, text)
-			}
-		})
-	}
-	for _, text := range []string{
-		"    command_test.go:9: want ask line",
-		"    command_test.go:9: got \"watch.go:18:2: undefined: his\"",
-		"\t/home/runner/work/lr/internal/owner/watch.go:18 +0x1d",
-		"internal/asks/command.go:12:2: QF1008: could remove embedded field (staticcheck)",
-		"ios/Watch.swift:18:2: warning: var never mutated",
-	} {
-		t.Run(text, func(t *testing.T) {
-			fake := redFromLog(t, "2026-11-04T18:35:40.5345492Z "+text+"\n", ancestor(baseGreen))
-			if got, want := lines(t, fake, ownred.Merge{Selector: "7"}), []string{"INHERITED #7 lr-go"}; !slices.Equal(got, want) {
-				t.Fatalf("got %q, want %q", got, want)
-			}
-			if read := queries(fake); len(read) != 1 {
-				t.Fatalf("a failure outside the compile class read the base: %q", read)
-			}
-		})
-	}
-}
-
-func TestATscErrorInTheDiffIsOwnRedWithoutReadingTheBase(t *testing.T) {
-	p := pull(testFailure)
-	p["files"] = map[string]any{"nodes": []map[string]any{{"path": "src/watch.ts"}}}
-	fake := github(t, map[int]map[string]any{7: p}, false)
-	logReads(fake, "2026-11-04T18:35:40.5345492Z src/watch.ts(18,2): error TS2451: Cannot redeclare 'his'.\n")
-	want := []string{"OWN-RED #7 lr-go src/watch.ts:18 src/watch.ts(18,2): error TS2451: Cannot redeclare 'his'."}
-	if got := lines(t, fake, ownred.Merge{Selector: "7"}); !slices.Equal(got, want) {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-	if read := queries(fake); len(read) != 1 {
-		t.Fatalf("a red in the diff read the base: %q", read)
-	}
-}
-
-func annotatedAt(path string, line, column int, message string) map[string]any {
-	run := checkRun("COMPLETED", "FAILURE")
-	start := map[string]any{"line": line}
-	if column > 0 {
-		start["column"] = column
-	}
-	run["annotations"] = map[string]any{"nodes": []map[string]any{{"path": path, "location": map[string]any{"start": start}, "message": message}}}
-	return run
-}
-
-func TestAnAnnotationReadsItsClassFromItsColumnAndItsLinter(t *testing.T) {
-	const outside = "lr/internal/asks/command.go"
-	for name, c := range map[string]struct {
-		run  map[string]any
-		want []string
-	}{
-		"a compiler annotation": {annotatedAt(outside, 12, 2, "his redeclared in this block"), []string{"OWN-RED #7 lr-go " + outside + ":12 his redeclared in this block"}},
-		"a typecheck lint":      {annotatedAt(outside, 12, 0, "his redeclared in this block (typecheck)"), []string{"OWN-RED #7 lr-go " + outside + ":12 his redeclared in this block (typecheck)"}},
-		"a test assertion":      {annotatedAt(outside, 12, 0, "got 2 messages, want 1"), []string{"INHERITED #7 lr-go"}},
-		"another lint":          {annotatedAt(outside, 12, 2, "could remove embedded field (staticcheck)"), []string{"INHERITED #7 lr-go"}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			fake := github(t, map[int]map[string]any{7: withHistory(pull(c.run), ancestor(baseGreen))}, false)
+			fake := github(t, map[int]map[string]any{7: withHistory(pull(failing), c.history...)}, false)
 			if got := lines(t, fake, ownred.Merge{Selector: "7"}); !slices.Equal(got, c.want) {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestAPRWithNoRedNeverReadsTheBase(t *testing.T) {
+	fake := github(t, map[int]map[string]any{7: pull(green, pending)}, false)
+	lines(t, fake, ownred.Merge{Selector: "7"})
+	if read := queries(fake); len(read) != 1 {
+		t.Fatalf("a PR with no red read the base: %q", read)
 	}
 }
 
@@ -562,8 +450,8 @@ func (r baseReadFails) Run(ctx context.Context, c shell.Command) (shell.Result, 
 	return r.Fake.Run(ctx, c)
 }
 
-func TestABaseItCannotReadKeepsTheOutsideReadingAndSaysSo(t *testing.T) {
-	runner := baseReadFails{redFromLog(t, redeclaredLog, ancestor(baseGreen))}
+func TestABaseItCannotReadSaysSoRatherThanRefusing(t *testing.T) {
+	runner := baseReadFails{github(t, map[int]map[string]any{7: redOnGreenBase()}, false)}
 	got, err := ownred.Guard{Runner: runner}.Lines(context.Background(), ownred.Merge{Selector: "7"})
 	if err != nil {
 		t.Fatal(err)
@@ -578,10 +466,9 @@ func TestEveryPRInAStackReadsItsBaseInOneCall(t *testing.T) {
 	for _, numbers := range [][]int{{6}, {6, 7, 8}} {
 		pulls := map[int]map[string]any{6: pull(green), 7: pull(green), 8: pull(green)}
 		for _, number := range numbers {
-			pulls[number] = withHistory(pull(testFailure), ancestor(baseGreen))
+			pulls[number] = redOnGreenBase()
 		}
 		fake := github(t, pulls, true)
-		logReads(fake, redeclaredLog)
 		lines(t, fake, ownred.Merge{Selector: "42", Mode: ownred.Stack})
 		calls[len(numbers)] = len(queries(fake))
 	}
@@ -610,7 +497,7 @@ func possibleNodes(fragment string) int {
 }
 
 func TestAStackOfTenStaysInsideGitHubsNodeLimit(t *testing.T) {
-	fake := redFromLog(t, redeclaredLog, ancestor(baseGreen))
+	fake := github(t, map[int]map[string]any{7: redOnGreenBase()}, false)
 	lines(t, fake, ownred.Merge{Selector: "7"})
 	read := queries(fake)
 	if len(read) != 2 {

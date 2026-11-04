@@ -16,6 +16,7 @@ LR = Path(__file__).parents[2] / "bin" / "lr"
 MERGE_SETS = {"gh pr merge": (), "ccx vcs merge": ("--below",), "gh stack merge": ("--stack",)}
 LR_TIMEOUT_SECONDS = 180
 OWN_LINE = "OWN-RED"
+BASE_UNREAD_LINE = "BASE-UNREAD"
 UNREAD_LINE = "UNREAD"
 MAIL_LINE = "MAIL"
 LANE_ENV = DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "fix-lane-1"}
@@ -26,13 +27,14 @@ UNREAD_MAIL = (
 )
 MAIL = "The merge read these records for `{lane}` on its way:\n```\n{records}\n```"
 OWN_RED = (
-    "A merge never lands past a check its own change turned red. Fix each finding below and push, then merge once those checks pass:\n"
-    "```\n{findings}\n```"
+    "A merge never lands past a check its own change turned red, meaning red on its PR and green on its base:\n```\n{findings}\n```\n"
+    "Fix and push, or rerun a possible flake with `gh run rerun --job <number after /job/>`, then merge once it passes."
 )
-INHERITED_RED = "{checks} fail only on files outside their PR's diff, so they are inherited from the base branch and the merge goes ahead."
-OWN_FINDING = r"own change turned red.*\n```\n#5 lr-go lr/internal/lanes/sources\.go:336 Consider preallocating"
-INHERITED_NOTE = r"^`#5 lr-go` fail only on files outside their PR's diff, so they are inherited"
-BASE_UNREAD_NOTE = r"^`#5 lr-go \(base branch state unread\)` fail only on files outside"
+INHERITED_RED = "{checks} are red on the base branch at their PR's merge base too, so they are inherited and the merge goes ahead."
+BASE_UNREAD_RED = "{checks} are red and the base branch's state could not be read, so nothing says whether their PR caused them. The merge goes ahead; read the same check on the base."
+OWN_FINDING = r"own change turned red.*\n```\n#5 lr-go https://github\.com/acme/app/actions/runs/1/job/2\n```\n.*`gh run rerun --job "
+INHERITED_NOTE = r"^`#5 lr-go` are red on the base branch at their PR's merge base too, so they are inherited"
+BASE_UNREAD_NOTE = r"^`#5 lr-go` are red and the base branch's state could not be read"
 UNREAD_RELAY = r"reached `fix-lane-1` unread.*\n```\n#360037 meta-desk-2 relay: hold #2188, do not merge\n#360040 root note: dev is green"
 BROADCAST_NOTE = r"^The merge read these records for `fix-lane-1` on its way:\n```\n#360040 root note: dev is green"
 
@@ -68,6 +70,7 @@ BROADCAST_NOTE = r"^The merge read these records for `fix-lane-1` on its way:\n`
 def merge_never_lands_past_its_own_red(evt: BaseHookEvent) -> HookResult | None:
     own: list[str] = []
     inherited: list[str] = []
+    base_unread: list[str] = []
     unread: list[str] = []
     mail: list[str] = []
     lane = lane_name(evt)
@@ -81,11 +84,12 @@ def merge_never_lands_past_its_own_red(evt: BaseHookEvent) -> HookResult | None:
         said = subprocess.run(argv, capture_output=True, text=True, timeout=LR_TIMEOUT_SECONDS, cwd=str(call.cwd or evt.cwd), env=dict(reqenv.env_map()), check=True).stdout
         for line in said.splitlines():
             kind, _, finding = line.partition(" ")
-            {OWN_LINE: own, UNREAD_LINE: unread, MAIL_LINE: mail}.get(kind, inherited).append(finding)
+            {OWN_LINE: own, BASE_UNREAD_LINE: base_unread, UNREAD_LINE: unread, MAIL_LINE: mail}.get(kind, inherited).append(finding)
     if unread:
         return evt.block(UNREAD_MAIL.format(lane=lane, records="\n".join(unread + mail)))
     if own:
         return evt.block(OWN_RED.format(findings="\n".join(own)))
     notes = [MAIL.format(lane=lane, records="\n".join(mail))] if mail else []
     notes += [INHERITED_RED.format(checks=", ".join(f"`{check}`" for check in inherited))] if inherited else []
+    notes += [BASE_UNREAD_RED.format(checks=", ".join(f"`{check}`" for check in base_unread))] if base_unread else []
     return evt.context("\n\n".join(notes)) if notes else None

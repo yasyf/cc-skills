@@ -570,11 +570,11 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 - Automatic retries stay, and a retry that turns the build green never closes the flake.
 
 **Merges past their own red (`merge_own_red`).**
-- In every session, drive or not, the pack blocks `gh pr merge` (with or without `--admin`), `gh stack merge`, and `ccx vcs merge` when a finished failing check names a file that a PR the merge lands changes.
+- In every session, drive or not, the pack blocks `gh pr merge` (with or without `--admin`), `gh stack merge`, and `ccx vcs merge` when a finished failing check on a PR the merge lands is that PR's own: red on the PR and green on the base.
 - `gh pr merge` lands one PR. `ccx vcs merge` lands its PR and every open PR below it in the native stack, and so does `gh stack merge` given a PR; given a stack number or nothing, it lands the whole stack.
-- `lr own-red` makes that decision for every path by reading each check's annotations, or its Actions job log when it annotates no file. The block lists each PR, check, `file:line`, and finding.
-- A red check whose findings all sit outside its PR's diff is inherited from the base branch, so the merge runs with a note naming it. A pending check never blocks.
-- A Go build or vet, `tsc`, `tsgo` or compiler error outside the diff proves nothing, since a redeclaration names either side. That check reads the base in one batched call: the nearest finished run of the same check at or below the PR's merge base, because path filters and `[skip ci]` leave most base commits without one. Red there is inherited, green blocks with each error, and no readable run lets the merge go with a note saying the base branch state is unread. Test failures keep the outside-the-diff reading.
+- `lr own-red` makes that decision for every path by reading the same check on the base in one batched call: the nearest finished run at or below the PR's merge base, because path filters and `[skip ci]` leave most base commits without one. The files a failure names play no part, since a change breaks tests it does not touch.
+- Green there blocks, listing each PR, check, and failing job's link. Red there is inherited, so the merge runs with a note naming it. No readable run lets the merge go with a note saying the base branch state is unread. A pending check never blocks.
+- A failure that may be a flake still reads as own, and the block names the step: rerun that check with `gh run rerun --job <id>`. The read takes each check's latest attempt, so a passing rerun clears it.
 - In a lane's own window, the same `lr own-red` call first reads the lane's records through its cursor, `cci tail --cursor <lane> --reader <lane>`, and blocks while one another lane addressed to it has no closing reply, no resolving record, and no answer from the lane. The lane's own records never count.
 - The read is never paged: one block lists every such record, then the oldest and newest 20 of the rest with a line naming how to read those between, and the next attempt has read them. A window with no lane binding reads nothing.
 
