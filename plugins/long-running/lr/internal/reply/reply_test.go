@@ -475,6 +475,56 @@ func TestATitleLedPastTheLimitIsShortenedAndStillPosts(t *testing.T) {
 	}
 }
 
+func TestAnActionWithALongTitlePostsThroughTheTool(t *testing.T) {
+	title := strings.TrimSpace(strings.Repeat("word ", 19)) + " up"
+	if len(title) != 97 {
+		t.Fatalf("title is %d characters, want 97", len(title))
+	}
+	for name, tc := range map[string]struct {
+		action string
+		whole  bool
+	}{
+		"a short action keeps the whole title": {"Tap approve", true},
+		"a long action shortens it":            {strings.Repeat("Tap approve on the card ", 4), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", config)
+			t.Setenv(drive.Env, "d")
+			entry, err := json.Marshal(fanout(t, nil).Entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(config, "long-running", "drives"), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(config, "long-running", "drives", "d.json"), entry, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args, err := json.Marshal(map[string]any{"title": title, "md": "The body.", "order": "m543", "action": tc.action})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fake := scripted()
+			text, failed := Tool(&app.App{Runner: fake, Now: func() time.Time { return sentAt }}).Handler(context.Background(), args, func(string) {})
+			if failed || strings.Contains(text, "Warning") {
+				t.Fatalf("reply = %q, failed %v; want it posted with no warning", text, failed)
+			}
+			records := calls(fake, "cci")
+			if len(records) != 1 {
+				t.Fatalf("cci calls = %d, want the one record", len(records))
+			}
+			posted, _, _ := strings.Cut(records[0].Stdin, "\n")
+			if !strings.HasPrefix(posted, "Tap approve") || utf8.RuneCountInString(posted) > maxTitle {
+				t.Fatalf("title %q does not lead with the action inside %d characters", posted, maxTitle)
+			}
+			if strings.Contains(posted, title) != tc.whole {
+				t.Fatalf("title %q: carries the whole title = %v, want %v", posted, !tc.whole, tc.whole)
+			}
+		})
+	}
+}
+
 func TestAnExplainMoreThatIsOnlyALinkStaysRefused(t *testing.T) {
 	base := Reply{ID: "r4", Title: "Pick a relay", MD: "Two ways."}
 	for name, r := range map[string]Reply{

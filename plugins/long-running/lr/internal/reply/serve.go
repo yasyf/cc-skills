@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-interact/channel"
@@ -42,9 +43,10 @@ var schema = map[string]any{
 
 func Command(a *app.App, commands func() *cobra.Command) *cobra.Command {
 	reply := &cobra.Command{Use: "reply", Short: "The communicator's one write to the owner"}
-	reply.AddCommand(&cobra.Command{
+	var resumed bool
+	serve := &cobra.Command{
 		Use:   "serve",
-		Short: "Serve the reply tool over MCP on stdio, and in a drive's session the owner ledger, explain, ask-lane and asks verbs",
+		Short: "Serve the reply tool over MCP on stdio, and in a drive's session the owner ledger, explain, ask-lane and asks verbs; a frame that arrives after a newer lr is installed moves the server to it on the same stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tools := []channel.Tool{Tool(a)}
@@ -52,10 +54,19 @@ func Command(a *app.App, commands func() *cobra.Command) *cobra.Command {
 				tools = append(tools, VerbTools(commands)...)
 			}
 			tools = pinnedInTheCommunicator(tools, os.Getenv(drive.Env))
-			server := channel.NewServer(channel.ServerInfo{Name: "lr", Version: cmd.Root().Version}, tools)
-			return server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
+			stdin, err := newHandoff(cmd.Context(), a.Runner, a.Log, cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
+			server := channel.NewServer(channel.ServerInfo{Name: "lr", Version: cmd.Root().Version, Resumed: resumed}, stdin.counted(tools))
+			if err := server.Serve(cmd.Context(), stdin, cmd.OutOrStdout()); err != nil || stdin.moved == "" {
+				return err
+			}
+			return syscall.Exec(stdin.moved, []string{stdin.moved, "reply", "serve", "--resumed"}, os.Environ())
 		},
-	})
+	}
+	serve.Flags().BoolVar(&resumed, "resumed", false, "take over a session an older lr already initialized on this stdio")
+	reply.AddCommand(serve)
 	return reply
 }
 
