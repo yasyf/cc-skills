@@ -136,6 +136,11 @@ Answer "yes" when they change it, and make your sentence the premise the card sh
         """Do his words in the evidence already decide everything this card asks, so that nothing on it is left for him to decide? A card that still asks something his words leave open is a no, even when they change its premise.
 Answer "yes" when nothing is left, and say in your sentence which of his words decide it.""",
     ),
+    "finished": (
+        "a card still open on his board that asks him to do or decide something",
+        """Does the lane's record in the evidence report as already finished the very work this card asks of him, naming this card or this card's own step? Work that is planned, started, waiting on him, only part of what the card asks, or merely on the same subject is a no. A card with anything left for him to do or decide is a no, and so is a record that does not name this card or its own step.
+Answer "yes" only when nothing on the card is left, and say in your sentence what the lane finished, in plain words he reads without any id.""",
+    ),
     "implication": (
         "one line an agent wrote into the register as what his words imply, marked removes, requires or permits; removes and requires bind every lane at once, permits waits for his tick",
         """Does this line misstate his words? It misstates them in one of three ways.

@@ -34,6 +34,8 @@ const (
 	configFile     = "lr.json"
 	judgeTimeout   = 2 * time.Minute
 	rulingsShown   = 3
+	reportsRead    = 24 * time.Hour
+	reportStamp    = "2006-01-02T15:04:05.000Z"
 )
 
 func Snapshots(ctx context.Context, bus string, since time.Time) ([]Snapshot, error) {
@@ -48,6 +50,22 @@ func Snapshots(ctx context.Context, bus string, since time.Time) ([]Snapshot, er
 		}
 	}
 	return snapshots, nil
+}
+
+func laneReports(ctx context.Context, bus string, now time.Time) ([]ownerAnswer, error) {
+	found, err := client.Tail(ctx, client.Query{Drive: bus, Since: now.Add(-reportsRead), Kinds: []string{"done", "landed", "report"}})
+	if err != nil {
+		return nil, err
+	}
+	reports := make([]ownerAnswer, 0, len(found))
+	for _, record := range found {
+		body := record.Text
+		if whole, err := os.ReadFile(record.Refs.Path); err == nil {
+			body = string(whole)
+		}
+		reports = append(reports, ownerAnswer{ID: strconv.FormatInt(record.Seq, 10), Title: fmt.Sprintf("%s record from %s", record.Kind, record.Lane), Body: body, Updated: record.At.UTC().Format(reportStamp)})
+	}
+	return reports, nil
 }
 
 func closedRecords(ctx context.Context, bus string, seqs []string) (map[string]bool, error) {
@@ -115,6 +133,9 @@ func CardsOf(a *app.App, entry drive.Entry, session string, s *store.Store) Card
 		Bus: entry.Bus(), Checkout: entry.Checkout, Session: session, StateDir: entry.StateDir, Program: program, Store: s, Now: a.Now,
 		Closed: func(ctx context.Context, seqs []string) (map[string]bool, error) {
 			return closedRecords(ctx, entry.Bus(), seqs)
+		},
+		Reports: func(ctx context.Context) ([]ownerAnswer, error) {
+			return laneReports(ctx, entry.Bus(), a.Now())
 		},
 		Withdraw: func(ctx context.Context, lane, card, text string) error {
 			_, err := client.Post(ctx, client.Draft{Drive: entry.Bus(), Lane: lane, Kind: "withdraw", Topic: card, To: []string{"root"}, Text: text})

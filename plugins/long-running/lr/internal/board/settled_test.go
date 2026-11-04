@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -96,6 +97,7 @@ func settledBoardFirst(t *testing.T, first func(*shelltest.Fake), board []any, a
 			withdrawn = append(withdrawn, card+": "+text)
 			return nil
 		},
+		Reports: func(context.Context) ([]ownerAnswer, error) { return nil, nil },
 	}
 	return cards, fake, &withdrawn
 }
@@ -386,5 +388,92 @@ func TestACardItsSweepStampedStillHasNoEndCondition(t *testing.T) {
 	}
 	if missing, err := cards.Missing(context.Background(), []string{oldChatCard}); err != nil || len(missing) != 1 {
 		t.Fatalf("Missing = %v, %v; want the stamped card named", missing, err)
+	}
+}
+
+var stepsDone = ownerAnswer{ID: "398366", Title: "report record from owner-apps-1", Body: "owner-apps-1: the old chat card is done: an old chat will not open on the new build, and all three steps of what should happen to chats like this are finished.", Updated: "2026-11-04T05:50:00.000Z"}
+
+func finishedJudge(verdict string, judged *[]string) Judge {
+	return func(_ context.Context, kind, evidence, _ string) (*Judgment, error) {
+		if kind != finishedKind {
+			return nil, fmt.Errorf("the finished sweep asked the %s judge", kind)
+		}
+		*judged = append(*judged, evidence)
+		return &Judgment{Verdict: verdict, Sentence: "The lane finished all three steps."}, nil
+	}
+}
+
+func TestASweepTakesDownACardALaneReportsFinished(t *testing.T) {
+	cards, fake, withdrawn := settledBoard(t, oldChatUp)
+	cards.Reports = func(context.Context) ([]ownerAnswer, error) { return []ownerAnswer{stepsDone}, nil }
+	var judged []string
+
+	if err := cards.Finished(context.Background(), "supervisor", finishedJudge("yes", &judged), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	removed := removedBlocks(fake)
+	if len(removed) != 1 || !strings.HasPrefix(removed[0], oldChatCard+" a lane already finished what it asks: The lane finished all three steps") {
+		t.Fatalf("removed %q", removed)
+	}
+	if len(judged) != 1 || !strings.Contains(judged[0], stepsDone.Body) || len(*withdrawn) != 1 {
+		t.Fatalf("judged %q, withdrew %q", judged, *withdrawn)
+	}
+}
+
+func TestASweepKeepsACardWhenItsReportIsOnlyRelatedOrUnsure(t *testing.T) {
+	for _, verdict := range []string{"no", "unsure"} {
+		cards, fake, _ := settledBoard(t, oldChatUp)
+		cards.Reports = func(context.Context) ([]ownerAnswer, error) { return []ownerAnswer{stepsDone}, nil }
+		var judged []string
+		if err := cards.Finished(context.Background(), "supervisor", finishedJudge(verdict, &judged), &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+		if removed := removedBlocks(fake); len(removed) != 0 || len(judged) != 1 {
+			t.Fatalf("%s: removed %q after %d judgments", verdict, removed, len(judged))
+		}
+	}
+}
+
+func TestAReportOnAnotherSubjectNeverReachesTheJudge(t *testing.T) {
+	cards, fake, _ := settledBoard(t, oldChatUp)
+	unrelated := ownerAnswer{ID: "398400", Title: "report record from lane-b", Body: "The Sonnet pool bills to the shared account now.", Updated: stepsDone.Updated}
+	cards.Reports = func(context.Context) ([]ownerAnswer, error) { return []ownerAnswer{unrelated}, nil }
+	var judged []string
+
+	if err := cards.Finished(context.Background(), "supervisor", finishedJudge("yes", &judged), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if removed := removedBlocks(fake); len(removed) != 0 || len(judged) != 0 {
+		t.Fatalf("removed %q, judged %q", removed, judged)
+	}
+}
+
+func TestASweepJudgesEachReportOnce(t *testing.T) {
+	cards, _, _ := settledBoard(t, oldChatUp)
+	cards.Reports = func(context.Context) ([]ownerAnswer, error) { return []ownerAnswer{stepsDone}, nil }
+	var judged []string
+	for range 2 {
+		if err := cards.Finished(context.Background(), "supervisor", finishedJudge("no", &judged), &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(judged) != 1 {
+		t.Fatalf("judged %d times, want once", len(judged))
+	}
+}
+
+func TestAFailedReportReadKeepsEveryCardAndSaysSo(t *testing.T) {
+	cards, fake, _ := settledBoard(t, oldChatUp)
+	cards.Reports = func(context.Context) ([]ownerAnswer, error) { return nil, errors.New("the bus is down") }
+	var out bytes.Buffer
+
+	if err := cards.Finished(context.Background(), "supervisor", finishedJudge("yes", &[]string{}), &out); err != nil {
+		t.Fatal(err)
+	}
+
+	if removed := removedBlocks(fake); len(removed) != 0 || !strings.Contains(out.String(), "WARNING every card stays up unchecked against the lanes' reports") {
+		t.Fatalf("removed %q, out %q", removed, out.String())
 	}
 }

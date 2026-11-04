@@ -17,12 +17,15 @@ import (
 )
 
 const (
-	answersJudged    = 4
-	confirmKind      = "confirm"
-	touchedHold      = 2 * time.Minute
-	boardHoldRefusal = "holds it for"
-	checkedField     = "settled-checked"
-	askedField       = "settled-asked"
+	answersJudged      = 4
+	confirmKind        = "confirm"
+	touchedHold        = 2 * time.Minute
+	boardHoldRefusal   = "holds it for"
+	checkedField       = "settled-checked"
+	finishedKind       = "finished"
+	finishedField      = "finished-checked"
+	finishedAskedField = "finished-asked"
+	askedField         = "settled-asked"
 )
 
 type ownerAnswer struct {
@@ -33,12 +36,30 @@ type ownerAnswer struct {
 }
 
 type Settling struct {
-	Answer ownerAnswer
-	Why    string
+	Answer   ownerAnswer
+	Why      string
+	Finished bool
+}
+
+type settlingSource struct {
+	checked, asked string
+	kind           string
+	finished       bool
+	read           func(context.Context) ([]ownerAnswer, error)
+	unread         string
+	evidence       func(ownerAnswer) string
+}
+
+func hisAnswer(answer ownerAnswer) string {
+	return fmt.Sprintf("His answer, recorded in cc-notes, to the question %q, in his words and as recorded:\n%s", answer.Title, answer.Body)
 }
 
 func (s Settling) Line() string {
-	return fmt.Sprintf("his answer to %q already settles it: %s", strings.TrimSpace(s.Answer.Title), strings.TrimSuffix(strings.TrimSpace(s.Why), "."))
+	why := strings.TrimSuffix(strings.TrimSpace(s.Why), ".")
+	if s.Finished {
+		return "a lane already finished what it asks: " + why
+	}
+	return fmt.Sprintf("his answer to %q already settles it: %s", strings.TrimSpace(s.Answer.Title), why)
 }
 
 func (s Settling) Refusal() error {
@@ -91,14 +112,13 @@ func candidates(title string, answers []ownerAnswer, since string) []ownerAnswer
 	return out
 }
 
-func settles(ctx context.Context, judge Judge, card json.RawMessage, found []ownerAnswer) (*Settling, error) {
+func settles(ctx context.Context, judge Judge, source settlingSource, card json.RawMessage, found []ownerAnswer) (*Settling, error) {
 	verdicts := make([]*Judgment, len(found))
 	failed := make([]error, len(found))
 	var wg sync.WaitGroup
 	for i, answer := range found {
 		wg.Go(func() {
-			evidence := fmt.Sprintf("His answer, recorded in cc-notes, to the question %q, in his words and as recorded:\n%s", answer.Title, answer.Body)
-			verdicts[i], failed[i] = judge(ctx, decidedKind, evidence, string(card))
+			verdicts[i], failed[i] = judge(ctx, source.kind, source.evidence(answer), string(card))
 			if failed[i] == nil && verdicts[i] == nil {
 				failed[i] = fmt.Errorf("the judge gave no verdict on answer %s", answer.ID[:min(len(answer.ID), 7)])
 			}
@@ -107,7 +127,7 @@ func settles(ctx context.Context, judge Judge, card json.RawMessage, found []own
 	wg.Wait()
 	for i, verdict := range verdicts {
 		if verdictOf(verdict) == "yes" {
-			return &Settling{found[i], verdict.Sentence}, nil
+			return &Settling{found[i], verdict.Sentence, source.finished}, nil
 		}
 	}
 	return nil, errors.Join(failed...)
@@ -169,21 +189,39 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 	if err != nil {
 		return nil, errors.Join(append(failed, err)...)
 	}
-	settled, err := settles(ctx, judge, card, candidates(title, answers, ""))
+	settled, err := settles(ctx, judge, c.settledByHim(), card, candidates(title, answers, ""))
 	if settled != nil {
 		return settled.Refusal(), nil
 	}
 	return nil, errors.Join(append(failed, err)...)
 }
 
+func (c Cards) settledByHim() settlingSource {
+	return settlingSource{checked: checkedField, asked: askedField, kind: decidedKind, read: c.answers, unread: "his answers", evidence: hisAnswer}
+}
+
+func (c Cards) finishedByLanes() settlingSource {
+	return settlingSource{checked: finishedField, asked: finishedAskedField, kind: finishedKind, finished: true, read: c.Reports, unread: "the lanes' reports", evidence: func(report ownerAnswer) string {
+		return fmt.Sprintf("A lane's %s, in its own words:\n%s", report.Title, report.Body)
+	}}
+}
+
 func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Writer) error {
+	return c.takeDown(ctx, lane, judge, c.settledByHim(), out)
+}
+
+func (c Cards) Finished(ctx context.Context, lane string, judge Judge, out io.Writer) error {
+	return c.takeDown(ctx, lane, judge, c.finishedByLanes(), out)
+}
+
+func (c Cards) takeDown(ctx context.Context, lane string, judge Judge, source settlingSource, out io.Writer) error {
 	asks, err := c.OpenAsks(ctx)
 	if err != nil || len(asks) == 0 {
 		return err
 	}
-	answers, err := c.answers(ctx)
+	answers, err := source.read(ctx)
 	if err != nil {
-		fmt.Fprintf(out, "WARNING every card stays up unchecked against his answers: %s\n", err)
+		fmt.Fprintf(out, "WARNING every card stays up unchecked against %s: %s\n", source.unread, err)
 		return nil
 	}
 	newest := ""
@@ -200,12 +238,16 @@ func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Write
 			return err
 		}
 		fields := known[ask.ID]
-		since := fields[checkedField]
-		if fields[askedField] != ask.Title {
+		since := fields[source.checked]
+		if fields[source.asked] != ask.Title {
 			since = ""
 		}
-		found := candidates(ask.Title, answers, since)
-		stamp := ledger.Row{Key: cardPrefix + ask.ID, Fields: map[string]string{checkedField: newest, askedField: ask.Title}}
+		question := ask.Title
+		if source.finished {
+			question += " " + ask.ID
+		}
+		found := candidates(question, answers, since)
+		stamp := ledger.Row{Key: cardPrefix + ask.ID, Fields: map[string]string{source.checked: newest, source.asked: ask.Title}}
 		if len(found) == 0 {
 			unjudged = append(unjudged, stamp)
 			continue
@@ -217,7 +259,7 @@ func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Write
 		if !onBoard {
 			continue
 		}
-		settled, err := settles(ctx, judge, shown, found)
+		settled, err := settles(ctx, judge, source, shown, found)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -228,7 +270,7 @@ func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Write
 			continue
 		}
 		if err != nil {
-			fmt.Fprintf(out, "WARNING %s stays up: its check against his answers failed and runs again next pass: %s\n", ask.ID, strings.ReplaceAll(err.Error(), "\n", "; "))
+			fmt.Fprintf(out, "WARNING %s stays up: its check against %s failed and runs again next pass: %s\n", ask.ID, source.unread, strings.ReplaceAll(err.Error(), "\n", "; "))
 			continue
 		}
 		if err := c.Ledger.Sync(ctx, id, []ledger.Row{stamp}); err != nil {
