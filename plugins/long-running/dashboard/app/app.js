@@ -233,7 +233,7 @@ function pickedWords(p) {
 }
 function pickSet(c, { said, subject, other } = {}) {
   const picked = (c.parts ?? []).filter((p) => p.kind === 'choice' && p.answer).map((p) => `<p class="pk-picked"><i>✓</i>You picked <b>${esc(pickedWords(p))}</b></p>`).join('');
-  if (!c.choice) return picked;
+  if (!c.choice || c.embed) return picked;
   const part = c.parts?.find((p) => p.id === c.choice);
   const options = part?.options ?? c.options;
   return `${picked}${part?.prompt ? `<p class="bq-part bq-prompt">${inline(part.prompt)}</p>` : ''}<div class="pk-set${options.some((o) => o.facts?.length || o.note || o.hint) ? '' : ' short'}" role="radiogroup">${options.map((o, at) => pickOption(c, o, at, { said, subject })).join('')}${other ? pickOther(c, options.length + 1) : ''}</div>${sentNote(c.choice)}`;
