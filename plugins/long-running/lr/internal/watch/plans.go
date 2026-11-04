@@ -35,7 +35,7 @@ func Unplanned(records []client.Record, now time.Time) []Wait {
 	var waits []Wait
 	for _, record := range records {
 		deadline := deadlineOf(record)
-		if deadline == "" || record.Kind == "escalation" || slices.Contains(ordersOwingNoPlan, string(record.Kind)) || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || planned(record.Fields.Attrs) || settled(records, record.Seq) {
+		if deadline == "" || slices.Contains(record.To, "owner") || record.Kind == "escalation" || slices.Contains(ordersOwingNoPlan, string(record.Kind)) || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || planned(record.Fields.Attrs) || settled(records, record.Seq) {
 			continue
 		}
 		waits = append(waits, Wait{
