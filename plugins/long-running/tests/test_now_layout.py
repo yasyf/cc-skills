@@ -892,6 +892,15 @@ def test_a_reply_never_shows_the_comments_the_communicator_left_for_its_tools(pa
     assert page.evaluate("plain('It ran. <!-- Slack C0C5SEUJK5L/1793776460.701879; cci --> Done.')") == "It ran. Done."
 
 
+def test_a_status_table_nobody_has_updated_says_so_and_a_fresh_one_does_not(page):
+    now(page)
+    assert page.evaluate("""() => {
+      const clockAgo = (hours) => new Date(Date.now() - hours * 3600000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const today = new Date().getHours();
+      return [today < 3 || tableStale(clockAgo(3)), tableStale(clockAgo(0))];
+    }""") == [True, False]
+
+
 def test_a_thread_reply_names_its_parent_and_shows_under_it(page):
     """Owner 10:07 PM Nov 3: any message threads, and Claude gets the line knowing what it hangs on."""
     open_chat(page)

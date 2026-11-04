@@ -1580,7 +1580,7 @@ class Drive:
             "status_rejected": self.status_rejected,
             "stack": self.read(self.config["stack"])["prs"],
             "status_table": self.read(self.config["status_table"], str),
-            "status_tables": [table for table in self.read(self.config["status_tables"]) if table["id"] != "plan"],
+            "status_tables": [table for table in self.read(self.config["status_tables"]) if table["id"] not in ("plan", "what-waits-on-you")],
             "step_records": {step["id"]: {"wrong": step.get("went_wrong", ""), "lanes": step.get("lanes", []), "prs": step.get("prs", [])} for step in progress["steps"]},
             **self.owed,
             "replies": self.replies,
