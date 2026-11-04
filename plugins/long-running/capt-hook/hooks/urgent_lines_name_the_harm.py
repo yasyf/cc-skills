@@ -23,7 +23,7 @@ UNDONE = re.compile(r"\b(?:(?:ir)?revers\w*|permanent\w*|undo\w*|undone|restor\w
 NUMBER = re.compile(r"^\W*(?:#\d{3,}|\d{5,}|0\d{3})(?:'s)?\W*$")
 PLAIN = re.compile(r"^[A-Za-z][a-z'-]{2,}$")
 FILLER = frozenset("the and for with its his her this that was are has had have been now not but from into about then than also just still yet all any our you your".split())
-PR_REF = re.compile(r"(?i)(?:#|\bpr ?#?|\bcard-)(\d{4,5})\b")
+PR_REF = re.compile(r"(?i)(?:#|\bpr ?#?|\bcard-)(\d{5})\b")
 OTHER_REPO_REF = re.compile(r"(?i)(?<![\w./-])(?:(?!forge-ai/)[\w.-]+/[\w.-]+|cc-[\w-]+)(?:#| #| pr ?#?)\d+|(?<![\w./-])(?!monorepo#)[\w.-]+#\d+")
 ESCALATES = re.compile(r"(?i)\b(?:releases?|deploy(?:s|ed|ing)?|rollouts?|resum\w*)\b")
 RELAY = "owner-relay"
@@ -53,6 +53,7 @@ WHOSE = "\n".join(
     for row in (
         {"number": 46018, "author": "andrew", "name": "Andrew Benton", "ours": False, "foreign": True},
         {"number": 49336, "author": "drive-bot", "lane": "chat-version-land-1", "ours": True},
+        {"number": 2455, "author": "jason", "name": "Jason Lee", "ours": False, "foreign": True},
     )
 )
 WHOSE_STUB = {f"{LR} facts whose": WHOSE}
@@ -181,6 +182,7 @@ def updated(block: dict) -> str:
         Input(command=f"cci post --kind urgent --to owner-relay --pr 46018 --text {json.dumps(ESCALATED)}", env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"^A line to the owner that calls something urgent"),
         Input(command=f"cci post --kind ask --to owner-relay --text {json.dumps(ESCALATED.replace('URGENT: ', ''))}", env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"^A line that calls another person's PR urgent[\s\S]*#46018 is Andrew Benton \(andrew\)'s PR: [\s\S]*example: "),
         Input(command=f"cci post --kind urgent --to owner-relay --text {json.dumps(HIS_HARM)}", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command=f"cci post --kind urgent --to owner-relay --text {json.dumps(HIS_HARM + ' Closed #2455 carried the first half.')}", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="cci post --kind report --to root --text \"not ours, Andrew's #46018 resolves #382199\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="cci post --kind report --to owner-relay --text \"12414 is Andrew's release and ran his #46018; no action\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="cci post --kind report --to owner-relay --text '#49336 lands with the release; its stores stay.'", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),

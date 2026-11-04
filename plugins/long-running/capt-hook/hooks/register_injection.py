@@ -57,6 +57,7 @@ MISSCALED_STALE = (
     " Fix the line and run `rulings.py slice --refresh` on the brief for the next spawn."
 )
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
+DRIVE_LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
 ALERT_WORDS = re.compile(r"\b(?:alerts?|incidents?|outages?|sentry)\b|(?-i:\bmonitors?\b)", re.IGNORECASE)
 TENANT_EDGE_403 = re.compile(r"\b403s?\b")
 STAND_DOWN = re.compile(r"\bstand[- ]?down\b", re.IGNORECASE)
@@ -280,11 +281,20 @@ def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
     return evt.context(f"Warning, nothing was blocked: {lane_brief.no_scale(found.shown)}")
 
 
+class SpawnedByABuildLane:
+    def check(self, evt: BaseHookEvent) -> bool:
+        lane = reqenv.getenv(DRIVE_LANE_ENV) or "root"
+        return lane != "root" and not ALERT_WORDS.search(lane)
+
+
 @on(
     Event.PreToolUse,
     only_if=[Bound(), Tool("Agent")],
-    skip_if=[Annotated("raw"), Annotated("incident", "none")],
+    skip_if=[Annotated("raw"), Annotated("incident", "none"), SpawnedByABuildLane()],
     tests={
+        spawn("rewrite-worker", "Rewrite the incident section of the skill.", env=DRIVE_CONFIG | {DRIVE_LANE_ENV: "skill-sweep-1"}): Allow(),
+        spawn("api-fix", ALERT_BRIEF, env=DRIVE_CONFIG | {DRIVE_LANE_ENV: "alerts-desk-3"}): Warn(),
+        spawn("rewrite-worker", "Rewrite the incident section of the skill."): Warn(),
         spawn("api-sessions-fix", ALERT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s[\s\S]*desk-launch\.py incident <name> <brief>"),
         spawn("api-sessions-fix", STANDS_DOWN): Allow(),
         spawn("lane-a", SLICED): Allow(),
