@@ -499,7 +499,7 @@ def register(event: dict, key: str, session: str, doc: dict | None, shell: Shell
     words = CREDENTIAL.sub(REDACTED, told(event, doc))
     topics = answer_search.vocabulary(lambda argv: shell.ccn(entry["checkout"], argv).stdout, drive.program_of(entry))
     card = top.get("id") or block
-    argv = answer_rows.add_argv(drive.program_of(entry), session, card, block, title, words, moment or shell.now(), proof, answer_search.anchors(topics, f"{title}\n{words}"), answer_rows.slack_labels(top, event))
+    argv = answer_rows.add_argv(drive.program_of(entry), session, card, block, title, CREDENTIAL.sub(REDACTED, answer_rows.card_words(top)), words, moment or shell.now(), proof, answer_search.anchors(topics, f"{title}\n{words}"), answer_rows.slack_labels(top, event))
     if (done := shell.ccn(entry["checkout"], argv)).returncode:
         print(f"board-watch {session}: the ccn answer row for {block} did not write: {done.stderr.strip()}", flush=True)
 

@@ -46,10 +46,18 @@ def slack_labels(card: dict, event: dict) -> tuple[str, ...]:
     return (f"{prefix}{channel}/{thread}" if thread else f"{prefix}{channel}",)
 
 
-def add_argv(program: str, session: str, card: str, block: str, title: str, words: str, moment: datetime, proof: str, anchors: list[str], granted: tuple[str, ...]) -> list[str]:
-    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names and the `granted` Slack grant labels."""
+def card_words(card: dict) -> str:
+    """The card's summary, markdown, prompts and option text on one line, so a search for a pid or script the card names finds its answer."""
+    children = card.get("children", ())
+    words = [card.get("summary"), *(child.get(name) for child in children for name in ("md", "prompt")), *(option.get("hint") for child in children for option in child.get("options", ()))]
+    return " ".join(" ".join(word for word in words if word).split())
+
+
+def add_argv(program: str, session: str, card: str, block: str, title: str, said: str, words: str, moment: datetime, proof: str, anchors: list[str], granted: tuple[str, ...]) -> list[str]:
+    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the question, what the card `said`, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names and the `granted` Slack grant labels. The process guard finds a tap on a card naming a process by searching these words, then reads the tap and what the card said from the board's own log."""
     when = moment.astimezone(PACIFIC).strftime("%b %-d %-I:%M %p PT")
-    body = f"{words}\nBoard question: {title}\nCard {card}, block {block}, board {session}, {when}."
+    card_said = f"Card said: {said}\n" if said else ""
+    body = f"{words}\nBoard question: {title}\n{card_said}Card {card}, block {block}, board {session}, {when}."
     labels = (*granted, OWNER, ROW, f"program:{program}", f"board-session:{session}", f"board-card:{card}", f"board-block:{block}", proof)
     return ["answer", "add", title, "--body", body, *anchors, *(arg for label in labels for arg in ("--label", label)), "--json"]
 

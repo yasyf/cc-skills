@@ -730,6 +730,17 @@ def test_each_owner_answer_gets_a_ccn_answer_row_with_his_words_card_and_time(tm
     assert len({row["tags"][-1] for row in shell.rows}) == 7
 
 
+def test_an_answer_row_carries_the_cards_words_so_the_process_guard_can_find_his_tap(tmp_path: Path) -> None:
+    shell = RecordedShell()
+    doc = {"blocks": [{"id": "card-rec", "type": "card", "title": "May I restart the recorder?", "summary": "meta-desk restarts pid 74452.", "children": [{"id": "rec-choice", "type": "choice", "options": [{"id": "rec-1", "label": "Yes, restart it", "hint": "Ends it now."}]}, {"id": "rec-more", "type": "markdown", "md": "It runs board_watch.py.\nNo answer is lost."}]}]}
+    board_watch.register({"type": "choice.selected", "blockId": "rec-choice", "optionIds": ["rec-1"]}, "board:board-1:9:abcd1234", SESSION, doc, shell, "brook")
+
+    body = shell.rows[0]["body"].splitlines()
+    assert body[0] == "picked \u201cYes, restart it\u201d"
+    assert body[2] == "Card said: meta-desk restarts pid 74452. It runs board_watch.py. No answer is lost. Ends it now."
+    assert body[-1].startswith("Card card-rec, block rec-choice")
+
+
 def test_an_answer_row_carries_the_label_and_dirs_of_each_topic_his_words_or_the_card_name(tmp_path: Path) -> None:
     shell = RecordedShell()
     shell.topics = {"share-links": {"words": r"\bshare (menu|links?)\b", "dirs": '["dashboard/src/iris/share"]'}, "old-chats": {"words": r"\bold chats?\b", "dirs": "[]"}}

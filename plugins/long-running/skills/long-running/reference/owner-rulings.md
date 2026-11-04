@@ -61,6 +61,8 @@ The judge reads:
 
 It warns when a card re-asks a settled question or offers an option narrower or more literal than the owner's words. A found violation of an existing ruling is applied directly and never put back to the owner as a card or pick. A failed judge call adds nothing, and re-issuing the same card passes on retry, so a false positive costs one retry.
 
+**A card that asks to end or restart a process names it, and his yes on it is enough.** The card's own words carry `pid <number>` or the script's file name, and the lane that ends it, such as "meta-desk restarts pid 74452 (board_watch.py)". The board stamps those words on its own log of his tap, and board-watch's answer row lets the process guard find it. The guard then lifts one kill of that process for that lane or its successor, within the hour of the tap, so he never types a line for something he already tapped. A row or an edit to the card lifts nothing, and live sessions, Orca terminals and an agent's ancestors stay protected whatever a card says. `lr board draw` and `lr board cards check`, which every `cc-present` draw reads through the `answer_search_first` hook, print a `WARNING` for a card that asks to end a process and names none.
+
 **A card an owner ccn answer settles is never drawn and never stays.** `lr board draw`, `lr board cards check CARD_FILE|-` and every `cc-present` push in a drive refuse a card, through the `answer_search_first` hook, when:
 
 - a card already on the board asks the same question text;

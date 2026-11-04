@@ -197,6 +197,7 @@ func drawCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 				if err != nil {
 					fmt.Fprintf(c.ErrOrStderr(), "WARNING the card draws unchecked against his answers: %s\n", strings.ReplaceAll(err.Error(), "\n", "; "))
 				}
+				warnUnnamedProcess(c.ErrOrStderr(), block)
 			}
 			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, session, block, remove)
 			if err != nil {

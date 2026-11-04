@@ -477,6 +477,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 			if err != nil {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING the card draws unchecked against his answers: %s\n", strings.ReplaceAll(err.Error(), "\n", "; "))
 			}
+			warnUnnamedProcess(c.OutOrStdout(), data)
 			if steps := cardtext.StepsForHim(data); steps != "" {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING this card hands him steps (%q). An agent does sign-ins and browser steps itself with cookiesync, through the agent-browser-with-cookies skill: his login, one Touch ID tap. Do them, and card only what only he can decide.\n", steps)
 			}
@@ -484,6 +485,12 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 		},
 	}, sweep, recheck)
 	return cmd
+}
+
+func warnUnnamedProcess(w io.Writer, card []byte) {
+	if asked := cardtext.EndsAnUnnamedProcess(card); asked != "" {
+		fmt.Fprintf(w, "WARNING this card asks to end or restart a process (%q) and names no pid or script. Put \"pid <number>\" or the script's file name, and the lane that ends it, in the card's words: his tap lifts the process guard only when they name them, and otherwise he has to type it himself.\n", asked)
+	}
 }
 
 func PackJudge(runner shell.Runner) Judge {
