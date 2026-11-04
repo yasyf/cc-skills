@@ -5,7 +5,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
 
-COMMANDS = frozenset({"pytest", "jest", "vitest", "eslint", "mypy", "pyright", "golangci-lint", "xcodebuild"})
+COMMANDS = frozenset({"tsc", "pytest", "jest", "vitest", "eslint", "mypy", "pyright", "golangci-lint", "xcodebuild"})
 VERBS = {
     "cargo": frozenset({"build", "check", "test", "clippy", "nextest", "bench"}),
     "just": frozenset({"vet", "build", "test", "lint", "check", "typecheck"}),
@@ -17,7 +17,7 @@ VERBS = {
     "capt-hook": frozenset({"test", "lint"}),
 }
 MAKE_TARGETS = frozenset({"all", "build", "test", "check", "lint", "vet", "typecheck"})
-SCRIPTS = frozenset({"build", "test", "lint"})
+SCRIPTS = frozenset({"tsc", "build", "test", "lint", "typecheck"})
 VALUE_FLAGS = {
     "go": frozenset({"-C", "-run", "-tags", "-timeout", "-count", "-p"}),
     "cargo": frozenset({"--manifest-path", "--config", "-Z", "--color", "-p", "--package"}),
@@ -136,6 +136,7 @@ def in_drive(evt: BaseHookEvent) -> bool:
         Input(command="uvx --isolated capt-hook lint .claude/hooks/x.py", env=LANE_ENV): Block(),
         Input(command="jest --ci", env=LANE_ENV): Block(),
         Input(command="vitest run", env=LANE_ENV): Block(),
+        Input(command="npx tsc --noEmit", env=LANE_ENV): Block(),
         Input(command="bunx biome check api/src common/src", env=LANE_ENV): Block(),
         Input(command="biome check api/src", env=LANE_ENV): Block(),
         Input(command="pnpm exec eslint .", env=LANE_ENV): Block(),
@@ -145,13 +146,7 @@ def in_drive(evt: BaseHookEvent) -> bool:
         Input(command="python3 -m mypy scripts", env=LANE_ENV): Block(),
         Input(command="go test ./internal/iris/... -run TestGolden -update", env=LANE_ENV): Allow(),
         Input(command="go test ./internal/parser -update=true", env=LANE_ENV): Allow(),
-        Input(command="go build ./...", env=LANE_ENV): Allow(),
-        Input(command="go vet ./internal/sandsql/...", env=LANE_ENV): Allow(),
-        Input(command="go -C go/sand vet ./...", state=ROOT): Allow(),
-        Input(command="tsc --noEmit -p api", env=LANE_ENV): Allow(),
-        Input(command="yarn tsc:all", env=LANE_ENV): Allow(),
-        Input(command="npx tsc --noEmit", env=LANE_ENV): Allow(),
-        Input(command="go test ./...", env={}): Allow(),
+        Input(command="go build ./...", env={}): Allow(),
         Input(command="pytest tests/", env={}): Allow(),
         Input(command="go env GOFLAGS", env=LANE_ENV): Allow(),
         Input(command="go run ./cmd/sand version", env=LANE_ENV): Allow(),
