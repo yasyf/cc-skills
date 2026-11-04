@@ -98,6 +98,7 @@ MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_c
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
 HARNESS_PREFIXES = ("<", "Another Claude session sent a message", "This session is being continued", "[Request interrupted")
 SYSTEM_PREFIXES = (*HARNESS_PREFIXES, "/")
+PASTED = re.compile(r'(?:^[ \t]*`{2,}[ \t]*\n\s*)?<pasted_content id="(\w+)">.*?</pasted_content id="\1">(?:\s*^[ \t]*`{2,}[ \t]*$)?', re.DOTALL | re.MULTILINE)
 RULING_LABELS = ("scope:durable", "owner-ruling")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 RULING_SYSTEM = (
@@ -208,13 +209,17 @@ class RulingTitle(BaseModel):
     title: str = ""
 
 
+def typed_words(prompt: str) -> str:
+    return PASTED.sub("", prompt).strip()
+
+
 class OwnerPrompt:
     def __init__(self, *, commands: bool = False) -> None:
         self.prefixes = HARNESS_PREFIXES if commands else SYSTEM_PREFIXES
 
     def check(self, evt: BaseHookEvent) -> bool:
-        text = (evt.user_prompt or "").strip()
-        return not text.startswith(self.prefixes) and "<teammate-message" not in text and "<cross-session-message" not in text and text not in ScheduledPrompts.load(evt).prompts
+        text = typed_words(evt.user_prompt or "")
+        return bool(text) and not text.startswith(self.prefixes) and "<teammate-message" not in text and "<cross-session-message" not in text and text not in ScheduledPrompts.load(evt).prompts
 
 
 class OversizedTool:
@@ -840,7 +845,7 @@ def ruling_title(evt: BaseHookEvent) -> str:
     prompt = (
         Prompt()
         .system(RULING_SYSTEM)
-        .context("message", evt.user_prompt or "")
+        .context("message", typed_words(evt.user_prompt or ""))
         .ask("What question does the standing rule in this message answer?")
     )
     return evt.ctx.call_llm(prompt, response_model=RulingTitle, model="small", agent=False, transcript=False).title.strip()
@@ -848,7 +853,7 @@ def ruling_title(evt: BaseHookEvent) -> str:
 
 def ruling_body(evt: BaseHookEvent) -> str:
     stamp = datetime.now(PACIFIC).strftime("%Y-%m-%d %-I:%M %p PT")
-    return f"{evt.user_prompt}\n\nOwner, {stamp}, session {evt.session_id}"
+    return f"{typed_words(evt.user_prompt or '')}\n\nOwner, {stamp}, session {evt.session_id}"
 
 
 def record_ruling(evt: BaseHookEvent) -> str:
@@ -865,7 +870,7 @@ def record_ruling(evt: BaseHookEvent) -> str:
     search = script_module("long_running/answer_search")
     topics = search.vocabulary(lambda argv: ccn(str(evt.cwd), *argv).stdout, program)
     flags = [arg for name in (*RULING_LABELS, f"program:{program}", label) for arg in ("--label", name)]
-    return answers(evt, "add", *flags, *search.anchors(topics, f"{title}\n{evt.user_prompt}"), f"--body={ruling_body(evt)}", "--", title)["id"]
+    return answers(evt, "add", *flags, *search.anchors(topics, f"{title}\n{typed_words(evt.user_prompt or '')}"), f"--body={ruling_body(evt)}", "--", title)["id"]
 
 
 @on(
@@ -900,7 +905,7 @@ def scheduled_prompts_are_not_his_words(evt: BaseHookEvent) -> None:
     }),
 )
 def capture_standing_rule(evt: BaseHookEvent) -> None:
-    if evt.ctx.nlp(evt.user_prompt, STANDING) and (answer_id := record_ruling(evt)):
+    if evt.ctx.nlp(typed_words(evt.user_prompt or ""), STANDING) and (answer_id := record_ruling(evt)):
         queue_nudge(
             evt, f"Recorded this standing rule as cc-notes answer `{answer_id[:7]}`; never record it again by hand."
         )

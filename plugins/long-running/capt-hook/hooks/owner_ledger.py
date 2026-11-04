@@ -16,7 +16,7 @@ from .owner_facing import REPLY_WINDOW
 from .owner_returns import RowThreads, dm_owed
 from .register_capture import CREDENTIAL, REDACTED, STAMP, dm_digest, overlaps, slack_dms
 from .register_gates import folded, written_paths
-from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body
+from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body, typed_words
 from .tests.register_fixtures import CWD, DRIVE_CONFIG
 
 BOUND = [CompactionState(active=True, coordinator=True)]
@@ -187,7 +187,7 @@ def open_rows(path: Path) -> list[str]:
 def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
     if not (entry := drive_entry(evt)):
         return None
-    at, text = datetime.now(UTC), evt.user_prompt or ""
+    at, text = datetime.now(UTC), typed_words(evt.user_prompt or "")
     if not (rows := add_rows(ledger_of(entry), at, text)):
         return None
     for row, ask in rows:

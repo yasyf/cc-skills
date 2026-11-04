@@ -17,7 +17,7 @@ from .compaction_handoff import bus_name, ccn, CCN_TIMEOUT_SECONDS, Communicator
 from .owner_facing import REPLY_WINDOW, last_reply
 from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
-from .root_context import DriveActive, OwnerPrompt, message_label
+from .root_context import DriveActive, OwnerPrompt, message_label, typed_words
 from .tests.register_fixtures import ACTIVE, CWD, DRIVE_CONFIG, ROWS, readings
 from .tests.rulings_consumers import separate
 
@@ -96,7 +96,7 @@ def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
         return None
     with PendingPrompts.mutate(evt) as pending:
-        pending.prompts.append({"digest": digest_of(evt), "submitted": datetime.now(UTC).strftime(STAMP), "session": evt.session_id, "source": "prompt", "text": evt.user_prompt or ""})
+        pending.prompts.append({"digest": digest_of(evt), "submitted": datetime.now(UTC).strftime(STAMP), "session": evt.session_id, "source": "prompt", "stamp": evt.user_prompt or "", "text": typed_words(evt.user_prompt or "")})
     return None
 
 
@@ -412,7 +412,7 @@ def bearing(rows: dict, term: str, sentence: str) -> list[str]:
 
 
 def revise(evt: BaseHookEvent, blocks: list[str]) -> None:
-    argv = ["cc-present", "revising", *blocks, "--note", evt.user_prompt or "", "--session", evt.session_id]
+    argv = ["cc-present", "revising", *blocks, "--note", typed_words(evt.user_prompt or ""), "--session", evt.session_id]
     subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, check=True)
 
 
@@ -427,13 +427,15 @@ def revise(evt: BaseHookEvent, blocks: list[str]) -> None:
         Input(prompt="what is a relay slot?", state=[CompactionState(active=True, coordinator=True)], cwd=CWD): Allow(),
         Input(prompt="what is a relay slot?", cwd=CWD, commands=readings("quiet")): Allow(),
         Input(prompt="what is a bananagram?", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("question-marked") | SUBMITTED_BOARD): Warn(pattern=r"^Until this question's reply is posted.*Blocks marked revising: none"),
+        Input(prompt='```\n<pasted_content id="a1">\nwhat is a bananagram?\n</pasted_content id="a1">\n```\n\nship it', env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("question-marked") | SUBMITTED_BOARD): Allow(),
     })),
 )
 def mark_owner_question(evt: BaseHookEvent) -> HookResult | None:
-    words = tokens(evt.user_prompt or "")
+    text = typed_words(evt.user_prompt or "")
+    words = tokens(text)
     if (end := trigger(words)) is None or not (which := drive_args(evt)):
         return None
-    term, quote = term_after(words, end), quoted(evt.user_prompt or "")
+    term, quote = term_after(words, end), quoted(text)
     try:
         register = read_register(evt, which)
         needles = [needle for needle in (quote, term) if needle]
@@ -441,7 +443,7 @@ def mark_owner_question(evt: BaseHookEvent) -> HookResult | None:
         sentence = quote or next((found for block in marked if (found := sentence_with(block_text(block), term))), "") or sentence_with(last_reply(evt), term)
         rows = bearing(register["rows"], term, sentence)
         blocks = [block["id"] for block in marked]
-        question = {"digest": digest_of(evt), "text": evt.user_prompt or "", "term": term, "sentence": sentence, "rows": rows, "blocks": blocks}
+        question = {"digest": digest_of(evt), "text": text, "term": term, "sentence": sentence, "rows": rows, "blocks": blocks}
         path = Path(register["state_dir"]) / "register" / f"question-{question['digest']}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(question))

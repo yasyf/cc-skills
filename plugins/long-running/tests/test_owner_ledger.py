@@ -357,6 +357,34 @@ def test_an_owner_prompt_posts_its_row_as_one_owner_record_and_registers_one_ans
     assert next(flag for flag in answer if flag.startswith("--body=")).startswith("--body=hook should just do it for you\n\nOwner, ")
 
 
+def pasted(body: str) -> str:
+    return f'<pasted_content id="cca2">\n{body}\n</pasted_content id="cca2">'
+
+
+def test_a_paste_above_his_words_leaves_only_his_words_on_his_row_record_and_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
+    communicator.prompt(f"``\n\n\n{pasted('Tool input schema was not in your prompt')}\n\n```\nthis seems like a bug fix it")
+
+    [row] = communicator.rows()
+    assert "this seems like a bug fix it" in row and "schema" not in row
+    assert bus.posts() == [owner_record("m1", "this seems like a bug fix it")]
+    [answer] = notes.added
+    assert next(flag for flag in answer if flag.startswith("--body=")).startswith("--body=this seems like a bug fix it\n\nOwner, ")
+
+
+def test_his_words_after_a_paste_with_no_fence_still_open_a_row(communicator: Window, bus: Bus) -> None:
+    communicator.prompt(f"{pasted('The chat was not an old-build chat')}\n\nnone of this makes sense")
+
+    assert bus.posts() == [owner_record("m1", "none of this makes sense")]
+
+
+def test_a_paste_with_nothing_typed_writes_no_row_and_no_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
+    communicator.prompt(f"```\n\n\n{pasted('Your three messages are all in motion')}\n\n```\n")
+
+    assert not communicator.ledger.exists()
+    assert bus.posts() == []
+    assert notes.added == []
+
+
 def test_a_stalled_ccn_never_holds_the_owner_prompt(communicator: Window, bus: Bus, monkeypatch: pytest.MonkeyPatch) -> None:
     def stalled(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
         raise subprocess.TimeoutExpired("ccn", 20)

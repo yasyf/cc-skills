@@ -19,7 +19,7 @@ from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .register_capture import OPERATOR, OWNER_WATCH, owner_messages_heard, queued_prompts, slack_dms
 from .register_gates import blocker, cause
-from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, runs_verb, SLACK_THREAD_TOOLS
+from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, runs_verb, SLACK_THREAD_TOOLS, typed_words
 from .root_replies import owner_message, REPLY_WINDOW
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -246,13 +246,13 @@ def owner_words_about_a_system_get_a_page(evt: BaseHookEvent) -> HookResult | No
     due = his and system_raised(evt)
     with OwnerReturns.mutate(evt) as state:
         state.explain_due = due
-        state.asked_why = his and bool(ASKED_WHY.search(evt.user_prompt))
+        state.asked_why = his and bool(ASKED_WHY.search(typed_words(evt.user_prompt or "")))
     return evt.context(RAISED) if due else None
 
 
 def system_raised(evt: BaseHookEvent) -> bool:
     pages = "\n".join(f"- {title}" for title in hosted_titles()) or "(none)"
-    match (decision := evt.decide(f"{evt.user_prompt}\n\nHosted one-pagers:\n{pages}", {"system_raised": SYSTEM_RAISED})) and decision.answers["system_raised"]:
+    match (decision := evt.decide(f"{typed_words(evt.user_prompt or '')}\n\nHosted one-pagers:\n{pages}", {"system_raised": SYSTEM_RAISED})) and decision.answers["system_raised"]:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5:
             return True
     return False

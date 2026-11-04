@@ -380,6 +380,37 @@ def test_the_root_keeps_its_own_dm_status_and_identity_checks(root: Root, comman
     assert root.bash(command) is None
 
 
+def test_a_standing_word_in_a_paste_records_no_rule(root: Root, notes: Notes) -> None:
+    root.verdict["title"] = "When does a merged PR get released?"
+
+    root.say('```\n\n\n<pasted_content id="cca2">\nrecorded as a standing rule: never enumerate N things\n</pasted_content id="cca2">\n\n```\n\ngive me the verdict')
+
+    assert notes.adds == []
+
+
+def test_a_standing_rule_typed_under_a_paste_records_his_words_alone(root: Root, notes: Notes) -> None:
+    root.verdict["title"] = "When does a merged PR get released?"
+
+    root.say('``\n\n\n<pasted_content id="cca2">\nThis tool\'s input schema\n</pasted_content id="cca2">\n\n```\nfrom now on, release as it merges')
+
+    [answer] = notes.answers
+    assert answer["body"].startswith("from now on, release as it merges\n\nOwner, ")
+
+
+@pytest.mark.parametrize(
+    ("prompt", "words"),
+    [
+        ("keep the nightly report", "keep the nightly report"),
+        ('<pasted_content id="a1">\nquoted\n</pasted_content id="a1">', ""),
+        ('```\n\n\n<pasted_content id="a1">\nquoted\n</pasted_content id="a1">\n\n\n\n<pasted_content id="a1">\nquoted\n</pasted_content id="a1">\n\n```\n\nship it', "ship it"),
+        ('first\n\n```\n<pasted_content id="a1">\nquoted\n</pasted_content id="a1">\n  \n```\n\nlast', "first\n\n\n\nlast"),
+        ('```\nmy own words in a fence\n```\n\n```\n<pasted_content id="a1">\nquoted\n</pasted_content id="a1">\n```', "```\nmy own words in a fence\n```"),
+    ],
+)
+def test_typed_words_drop_each_paste_and_its_fence_and_keep_what_he_typed(prompt: str, words: str) -> None:
+    assert root_context.typed_words(prompt) == words
+
+
 def test_an_unrecorded_standing_rule_leaves_no_stop_nudge(root: Root, notes: Notes) -> None:
     assert root.say("From now on, release everything as it merges.") is None
 
