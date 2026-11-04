@@ -89,7 +89,7 @@ func StoredRows(s *store.Store, repo string, numbers []int) ([]Row, error) {
 	var out []Row
 	for _, row := range open {
 		_, exempt := row.Facts["exempt"]
-		if (machine.Facts{Tap: machine.Tap(row.Facts[tapFact]), Exempt: exempt}).Tapped() {
+		if (machine.Facts{Tap: machine.Tap(row.Facts[tapFact]), Exempt: exempt}).Tapped() || row.Facts[FactWithdrawn] != "" {
 			continue
 		}
 		var missing []string
