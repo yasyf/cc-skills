@@ -59,9 +59,10 @@ func (v view) incidents(records []Record, drive string) []Incident {
 		if record.Drive != drive {
 			continue
 		}
-		name := incidentRole.ReplaceAllString(incidentName(record), "")
+		raw := incidentName(record)
+		name := incidentRole.ReplaceAllString(raw, "")
 		found := byName[name]
-		if found == nil && record.Kind == kindIncident {
+		if found == nil && record.Kind == kindIncident && (incidentSlug.MatchString(record.Text) || incidentRole.MatchString(raw)) {
 			found = &Incident{Name: name, Fired: record}
 			byName[name] = found
 			names = append(names, name)
@@ -107,6 +108,10 @@ func (i Incident) unowned() bool {
 }
 
 func (i Incident) state() string {
+	closed := "closed"
+	if i.Closed.Seq != 0 {
+		closed = fmt.Sprintf("closed by #%d", i.Closed.Seq)
+	}
 	switch {
 	case i.Open && i.FixLive.Seq != 0:
 		return fmt.Sprintf("open, fix live by #%d", i.FixLive.Seq)
@@ -117,11 +122,11 @@ func (i Incident) state() string {
 	case i.Open:
 		return fmt.Sprintf("open since %s, cause not found yet", pacific(i.Fired.At))
 	case i.FixLive.Seq != 0:
-		return fmt.Sprintf("fixed: fix live by #%d, closed by #%d", i.FixLive.Seq, i.Closed.Seq)
+		return fmt.Sprintf("fixed: fix live by #%d, %s", i.FixLive.Seq, closed)
 	case i.NotOurs.Seq != 0:
-		return fmt.Sprintf("closed as not ours by #%d, closed by #%d", i.NotOurs.Seq, i.Closed.Seq)
+		return fmt.Sprintf("closed as not ours by #%d, %s", i.NotOurs.Seq, closed)
 	}
-	return fmt.Sprintf("closed by #%d with no fix-live record", i.Closed.Seq)
+	return closed + " with no fix-live record"
 }
 
 func (i Incident) closes() string {

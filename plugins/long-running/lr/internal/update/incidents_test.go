@@ -87,6 +87,31 @@ func TestARowCallsAnIncidentFixedOnlyWithAFixLiveSeq(t *testing.T) {
 	}
 }
 
+func TestAStandingLanesIncidentRecordWithNoSlugMakesNoRow(t *testing.T) {
+	lanes, records := incidentFixture()
+	records = append(records,
+		opened(9, "supervisor", "PAGE https://example.test/p1 | a drive page", 5, root),
+		opened(10, "owner-relay", "7:03 PM OWNER in chat about freezes", 4, root),
+		opened(11, "root", "INCIDENT dd-42 monitor 42", 3, "owner-relay"),
+	)
+	var names []string
+	for _, i := range viewOf(lanes, records, nil).incidents(records, testDrive) {
+		names = append(names, i.Name)
+	}
+	if want := []string{"api", "creds", "sso", "dd-42"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("rows = %v, want %v", names, want)
+	}
+}
+
+func TestAnIncidentResolvedWithNoClosingRecordNamesNoRecord(t *testing.T) {
+	if got, want := (Incident{}).state(), "closed with no fix-live record"; got != want {
+		t.Fatalf("state = %q, want %q", got, want)
+	}
+	if got, want := (Incident{FixLive: Record{Seq: 7}}).state(), "fixed: fix live by #7, closed"; got != want {
+		t.Fatalf("state = %q, want %q", got, want)
+	}
+}
+
 func TestAFixLiveMentionInsideAnotherRecordIsNoMilestone(t *testing.T) {
 	if got := milestone(record(1, "api-fix", "report", "stays open until FIX-LIVE", 1)); got != "" {
 		t.Fatalf("milestone = %q", got)
