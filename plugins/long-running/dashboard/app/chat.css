@@ -182,8 +182,9 @@
   .cw .search-wrap { margin:12px 0 0;width:100%;padding:7px 8px;background:#23211c;border-radius:5px }
   .cw .search-wrap input, .cw .search-wrap input:focus { width:100%;font-size:12px }
   .cw .ask-title { font-size:13px;line-height:1.6 }
-  .cw .ask-meta { gap:6px }
-  .cw .ask-meta time { display:none }
+  .cw .ask-meta { display:grid;grid-template-columns:auto auto;justify-items:end;gap:2px 6px }
+  .cw .ask-meta time { grid-column:1;font-size:11px }
+  .cw .ask-meta .chevron { grid-area:1/2 }
   .cw .ask-head { align-items:flex-start;gap:9px }
   .cw .ask-icon { width:25px;height:25px;margin-top:2px }
   .cw .ask-meta .chevron { margin-top:6px }
@@ -361,6 +362,8 @@
 #chatmodal:has(> iframe) iframe { width: 100%; height: calc(100% - 50px); background: #fff; }
 @media (hover: none) {
   .cw .obj-reply { opacity: 1; }
+  .cw :is(.obj-reply, .text-button, .thread-foot button, .pr-bottom .source-link) { position: relative; }
+  .cw :is(.obj-reply, .text-button, .thread-foot button, .pr-bottom .source-link)::after { content: ''; position: absolute; inset: -13px -8px; }
   .cw .choices { position: static; border-width: 1px 0 0; box-shadow: none; max-height: none; }
   .cw .question:hover .choices, .cw .question:focus-within .choices { display: none; }
   .cw .question.pinned .choices { display: block; }
@@ -374,7 +377,6 @@
 }
 @media (max-width: 720px) {
   #main:has(> .cw) { padding: 18px 14px 24px; }
-  .cw .ask-meta time { display: none; }
   .cw .question.simple .inline-picks { width: 100%; }
   .cw .reply-editor { flex-direction: column; align-items: stretch; }
 }

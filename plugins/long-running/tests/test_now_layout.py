@@ -1339,6 +1339,44 @@ def ask(m, title, **rest):
     return {"m": m, "iso": "2026-11-03T12:00:00Z", "title": title, "text": f"{title}, please", "state": "answered", "ack": "done", "lanes": [], "prs": [], "answer": "", **rest}
 
 
+def test_a_phone_gets_room_to_tap_reply_and_sees_when_each_ask_came_in(page):
+    context = page.context.browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    phone = context.new_page()
+    phone.goto(page.url.split("#")[0] + "#/")
+    news = {"reply": {"id": "news", "title": "An update", "md": "What moved", "type": "update", "status": "progress"}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
+    chat_with(phone, [news], [ask(3, "Delivered")])
+    assert phone.locator(".ask-meta time").is_visible()
+    reply = phone.locator(".obj-reply").first
+    reply.scroll_into_view_if_needed()
+    box = reply.bounding_box()
+    assert box["height"] < 24
+    assert phone.evaluate("([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('.obj-reply'))", [box["x"] + box["width"] / 2, box["y"] - 8])
+    context.close()
+
+
+def test_an_owed_row_reads_in_full_on_a_phone(page):
+    now(page)
+    size = page.viewport_size
+    page.evaluate("""() => {
+        state.model.findings = [{ sweep: 'owner', rows: [{ text: 'Run it?, Which way?: Yes', at: '2026-11-01T01:00:00Z', owner: 'ci-speed-1' }] }];
+        state.model.coordinator_overdue = [{ id: 'ask-1', group: 'ask', due: '3:14 AM', text: 'Cut the job', holder: 'ci-speed-1' }];
+        state.model.owner_asks = { messages: [], taps: [], store: [] };
+        state.model.replies = [];
+        state.model.chat_lines = [];
+        state.model.board.answered = {};
+        location.hash = '#/replies';
+    }""")
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.locator(".ct-owed > summary").click()
+    side = page.locator(".ct-owed .ev-side").last
+    assert side.text_content().strip()
+    assert side.evaluate("(el) => el.scrollWidth <= el.clientWidth")
+    assert page.evaluate("document.documentElement.scrollWidth") <= 390
+    page.evaluate("() => { state.model.coordinator_overdue = []; state.model.findings = []; delete state.model.owner_asks; render(); }")
+    page.set_viewport_size(size)
+    now(page)
+
+
 def test_a_note_with_no_message_above_it_is_not_open_work_and_only_an_undelivered_order_is(page):
     news = {"reply": {"id": "news", "title": "9:00 PM update", "md": "What moved", "type": "update", "status": "progress"}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
     chat_with(page, [news], [
