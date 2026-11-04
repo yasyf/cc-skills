@@ -45,8 +45,9 @@ on the Sprite reads instead of rebuilding the register cold with ccn, and the pl
 register names, the directory holding plan/plan.md, whenever a file in it was
 added, removed or changed since the Sprite's copy. The job's checkout drops the
 loose refs a Sprite restart leaves empty or filled with NULs, which every fetch
-reads as the zero object, and fetches every remote unless a fetch that began after this job asked for one already
-did, and the job runs there. <dir> is then copied
+reads as the zero object. Once `lr grade` has moved its .git to the local disk, it fetches every remote unless a fetch
+that began after this job asked for one already did; before that it fetches nothing, since a stale clone's catch-up
+on the network disk holds the lock `lr grade` needs for the move, for an hour on dar-fleet-4. The job runs there. <dir> is then copied
 back, job.json, pid and job.log left as this machine wrote them and result.json last,
 adopted through long_running/desk_result.py only when it parses, so the runner
 settles the pass from this process and its files as it does a local one. Every
@@ -205,19 +206,21 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   started=$(date +%s)
   find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f ! -name "*.lock" -exec grep -LE "^([0-9a-f]{40}|ref: .+)$" {} + | xargs rm -f
   echo "sprite-job: the ref cleanup took $(($(date +%s) - started)) s" >&2
-  started=$(date +%s)
-  asked=$(date +%s%N)
-  exec 9>"$3.fetch.lock"
-  flock 9
-  echo "sprite-job: waiting on the fetch lock took $(($(date +%s) - started)) s" >&2
-  if [ "$(cat "$3.fetched" 2>/dev/null || echo 0)" -lt "$asked" ]; then
-    began=$(date +%s%N)
+  if [ -L "$3/.git" ]; then
     started=$(date +%s)
-    git -C "$3" fetch --quiet --all
-    echo "sprite-job: git fetch --all took $(($(date +%s) - started)) s" >&2
-    printf %s "$began" >"$3.fetched"
+    asked=$(date +%s%N)
+    exec 9>"$3.fetch.lock"
+    flock 9
+    echo "sprite-job: waiting on the fetch lock took $(($(date +%s) - started)) s" >&2
+    if [ "$(cat "$3.fetched" 2>/dev/null || echo 0)" -lt "$asked" ]; then
+      began=$(date +%s%N)
+      started=$(date +%s)
+      git -C "$3" fetch --quiet --all
+      echo "sprite-job: git fetch --all took $(($(date +%s) - started)) s" >&2
+      printf %s "$began" >"$3.fetched"
+    fi
+    exec 9>&-
   fi
-  exec 9>&-
   real=$(readlink "$4")
   export SPRITE_TOOLS_PATH="$PATH"
   [ -z "${GH_TOKEN:-}" ] || export PATH="$real/skills/long-running/scripts/sprite-fresh-token:$PATH"
