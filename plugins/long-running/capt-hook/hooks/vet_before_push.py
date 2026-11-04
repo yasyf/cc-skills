@@ -227,18 +227,24 @@ def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]
     return [typecheck_command(top, project) for project, edited in sorted(projects_edited.items()) if not covered(checks, TYPECHECK, project, edited)]
 
 
-def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
-    cwd = str(Path(evt.cwd, call.cwd or "."))
-    if not (shown := run_quietly(["git", "rev-parse", "--show-toplevel"], cwd)) or shown.returncode or not shown.stdout.strip():
+def branch_diff(evt: BaseHookEvent, call: Call, *flags: str) -> tuple[Path, str] | str:
+    if not (shown := run_quietly(["git", "rev-parse", "--show-toplevel"], str(Path(evt.cwd, call.cwd or ".")))) or shown.returncode or not shown.stdout.strip():
         return "the checkout's top level did not read"
     top = Path(shown.stdout.strip())
+    diffed = run_quietly(["git", "diff", *flags, "--merge-base", "origin/HEAD"], str(top))
+    if not diffed or diffed.returncode:
+        return "the diff against `origin/HEAD` did not read"
+    return top, diffed.stdout
+
+
+def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
+    if isinstance(diffed := branch_diff(evt, call, "--name-only"), str):
+        return diffed
+    top, names = diffed
     sparse = run_quietly(["git", "config", "--bool", "--default", "false", "core.sparseCheckout"], str(top))
     if not sparse or sparse.returncode or sparse.stdout.strip() == "true":
         return "a sparse checkout may not compile what it touched"
-    diffed = run_quietly(["git", "diff", "--name-only", "--merge-base", "origin/HEAD"], str(top))
-    if not diffed or diffed.returncode:
-        return "the diff against `origin/HEAD` did not read"
-    changed = [top / line for line in diffed.stdout.splitlines() if line.strip()]
+    changed = [top / line for line in names.splitlines() if line.strip()]
     go = go_commands(evt, top, changed)
     return go if isinstance(go, str) else go + ts_commands(evt, top, changed)
 

@@ -49,6 +49,8 @@ KEPT_REFUSALS = KEPT | {
     "thread_owner_relay.thread_replies_reach_their_card_owner": "the owner ordered the refusal: a warned forward still reaches the wrong drive's lane, which acts on his reply to another session's card (cci 399129)",
     "communicator_chat.communicator_chat:llm_gate_communicator_replies_carry_owner_news": STOP.format(what="the owner would read internal bookkeeping as his update"),
     "communicator_chat.A do-nothing Bash call ends no turn, and t": "the call has already shown in the owner's window when a warning lands",
+    "communicator_chat.design_orders_carve_out_nothing": "the owner ordered the refusal: a lane opens the carved-out PR within minutes of the record, ahead of the design he asked for (cci 403107)",
+    "design_picks.ships_wait_for_his_design_pick": "the owner ordered the refusal: nothing in a subsystem under his open design ships before his pick except the incident fix and headroom, and a warning lands after the PR is open (cci 403107, 402293)",
     "desk_ownership.The coordinator owns the relay and every d": "trust: a runner or desk started from the communicator",
     "no_credential_on_a_shell.no_credential_on_a_shell": "the owner ordered the refusal: a credential in a transcript cannot be taken back",
     "no_credential_on_a_shell.no_whole_object_kubectl_reads": "the owner ordered the refusal: a pod env value printed by a whole-object read cannot be taken back",
