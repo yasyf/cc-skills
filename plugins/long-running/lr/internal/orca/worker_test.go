@@ -1091,6 +1091,14 @@ func TestThePathLRRunsThePackTheCurrentLinkNamesAcrossPackMoves(t *testing.T) {
 	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
 	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 0.1.1\n"})
 	home := t.TempDir()
+	plugins := filepath.Join(home, ".claude", "plugins")
+	if err := os.MkdirAll(plugins, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	baked := `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}`
+	if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(baked), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(home, ".claude", "long-running"), 0o750); err != nil {
 		t.Fatal(err)
 	}
