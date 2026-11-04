@@ -31,7 +31,7 @@ type streamed struct {
 }
 
 func (s streamed) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
-	if !slices.Equal(c.Argv, []string{"cc-slack", "watch"}) {
+	if !slices.Equal(c.Argv, []string{"cc-slack", "watch", "--only-delivery"}) {
 		return s.Fake.Run(ctx, c)
 	}
 	if _, err := io.WriteString(c.Stdout, strings.Join(s.lines, "\n")+"\n"); err != nil {
