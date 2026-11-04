@@ -10,6 +10,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -69,7 +70,7 @@ func argsAfter(row, flag string) []string {
 func TestHisWordsInACardsThreadWriteTheRowTheLiveGateReads(t *testing.T) {
 	book, entry := booked(t)
 
-	if err := wordOn("1793817344.717479").record(context.Background(), book, entry, "s1"); err != nil {
+	if err := wordOn("1793817344.717479").record(context.Background(), book, noThreads, entry, "s1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,7 +105,7 @@ func TestAReplayOfTheSameMessageWritesNoSecondRow(t *testing.T) {
 	book, entry := booked(t)
 
 	for range 2 {
-		if err := wordOn("1793817344.717479").record(context.Background(), book, entry, "s1"); err != nil {
+		if err := wordOn("1793817344.717479").record(context.Background(), book, noThreads, entry, "s1"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -124,7 +125,7 @@ func TestAThreadWithNoCardOfItsOwnWritesNoRow(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			book, entry := booked(t)
 
-			if err := wordOn(thread).record(context.Background(), book, entry, "s1"); err != nil {
+			if err := wordOn(thread).record(context.Background(), book, noThreads, entry, "s1"); err != nil {
 				t.Fatal(err)
 			}
 
@@ -140,7 +141,7 @@ func TestAWindowWithNoBoardWritesNoRowAndNoError(t *testing.T) {
 	fake.Fail(1, "cc-present: no cc-present artifact for this session", "cc-present", "outcomes")
 	book := &answerBook{Fake: fake}
 
-	err := wordOn("1793817344.717479").record(context.Background(), book, drive.Entry{Checkout: "/drive", StateDir: t.TempDir()}, "s1")
+	err := wordOn("1793817344.717479").record(context.Background(), book, noThreads, drive.Entry{Checkout: "/drive", StateDir: t.TempDir()}, "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +155,7 @@ func TestABoardThatCannotBeReadIsAnError(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Fail(1, "daemon gone", "cc-present", "outcomes")
 
-	err := wordOn("1793817344.717479").record(context.Background(), &answerBook{Fake: fake}, drive.Entry{Checkout: "/drive", StateDir: t.TempDir()}, "s1")
+	err := wordOn("1793817344.717479").record(context.Background(), &answerBook{Fake: fake}, noThreads, drive.Entry{Checkout: "/drive", StateDir: t.TempDir()}, "s1")
 
 	if err == nil || !strings.Contains(err.Error(), "daemon gone") {
 		t.Fatalf("err = %v, want the board's failure", err)
@@ -169,7 +170,7 @@ func TestACardAnotherSessionPostedIsNamedByTheEventWithNoBoardRead(t *testing.T)
 	}
 	book := &answerBook{Fake: &shelltest.Fake{}}
 
-	if err := word.record(context.Background(), book, drive.Entry{Checkout: "/drive", StateDir: t.TempDir(), Program: "rebuild"}, "holder-session"); err != nil {
+	if err := word.record(context.Background(), book, noThreads, drive.Entry{Checkout: "/drive", StateDir: t.TempDir(), Program: "rebuild"}, "holder-session"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -193,11 +194,52 @@ func TestAThreadAnotherSessionPostedWithNoCardWritesNoRow(t *testing.T) {
 	}
 	book := &answerBook{Fake: &shelltest.Fake{}}
 
-	if err := word.record(context.Background(), book, drive.Entry{Checkout: "/drive", StateDir: t.TempDir()}, "holder-session"); err != nil {
+	if err := word.record(context.Background(), book, noThreads, drive.Entry{Checkout: "/drive", StateDir: t.TempDir()}, "holder-session"); err != nil {
 		t.Fatal(err)
 	}
 
 	if len(book.rows) != 0 {
 		t.Fatalf("rows = %q, want none", book.rows)
+	}
+}
+
+func TestACardOffTheBoardIsStillFoundInTheThreadIndex(t *testing.T) {
+	book := &answerBook{Fake: &shelltest.Fake{}}
+	indexed := func(ts string) (store.SlackThread, bool, error) {
+		return store.SlackThread{TS: ts, Card: "card-gone", Question: "Keep it?"}, true, nil
+	}
+	entry := drive.Entry{Checkout: "/drive", StateDir: t.TempDir(), Program: "rebuild", Sessions: []string{"old-root", "root"}}
+
+	if err := wordOn("1793817344.717479").record(context.Background(), book, indexed, entry, "s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(book.rows) != 1 {
+		t.Fatalf("rows = %q, want one", book.rows)
+	}
+	labels := argsAfter(book.rows[0], "--label")
+	if !slices.Contains(labels, "board-card:card-gone") || !slices.Contains(labels, "board-session:root") {
+		t.Fatalf("labels = %q, want the indexed card on the coordinator's board", labels)
+	}
+	if !slices.Contains(strings.Split(book.rows[0], "\x00"), "Keep it?") {
+		t.Fatalf("row = %q, want the indexed question as its title", book.rows[0])
+	}
+	if len(book.Fake.Calls()) != 0 {
+		t.Fatalf("calls = %v, want no board read", book.Fake.Calls())
+	}
+}
+
+func TestAThreadIndexedWithNoCardStillReadsThisWindowsBoard(t *testing.T) {
+	book, entry := booked(t)
+	replyOnly := func(ts string) (store.SlackThread, bool, error) {
+		return store.SlackThread{TS: ts, Reply: "r1"}, true, nil
+	}
+
+	if err := wordOn("1793817344.717479").record(context.Background(), book, replyOnly, entry, "lane-session"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(book.rows) != 1 || !slices.Contains(argsAfter(book.rows[0], "--label"), "board-session:lane-session") {
+		t.Fatalf("rows = %q, want the card on this window's own board", book.rows)
 	}
 }

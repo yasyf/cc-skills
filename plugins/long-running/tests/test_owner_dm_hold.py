@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 from captain_hook.events import PostToolUseEvent, StopEvent, UserPromptSubmitEvent
 from fire import fire
-from hooks import owner_messages_get_eyes, owner_returns
+from hooks import owner_messages_get_eyes, owner_returns, owner_thread_words_write_rows
 from hooks.compaction_handoff import CompactionState
 from test_register_capture import SESSION, root, slack_message  # noqa: F401
 
@@ -155,6 +155,48 @@ def test_a_bots_message_gets_no_eyes(root, shipped):  # noqa: F811
         fire(owner_messages_get_eyes, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
 
     assert not [call for call in root.calls if call[:2] == (shipped, "react")]
+
+
+def thread_word_inputs(root, event, times=1):  # noqa: F811
+    inputs = []
+
+    def run(args, *pargs, **kwargs):
+        if tuple(str(arg) for arg in args)[1:3] == ("owner", "thread-word"):
+            inputs.append(kwargs["input"])
+        return root.run(args, *pargs, **kwargs)
+
+    with mock.patch.object(subprocess, "run", run):
+        for _ in range(times):
+            fire(owner_thread_words_write_rows, event)
+    return inputs
+
+
+def test_his_thread_reply_reaches_the_row_verb_once_with_any_credential_redacted(root):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.queued(slack_message(text="yes, xoxb-1234567890abcdef ships"), "2026-10-28T03:53:26.695Z")
+
+    inputs = thread_word_inputs(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}), times=2)
+
+    assert [json.loads(sent)["text"] for sent in inputs] == ["yes, [credential redacted] ships"]
+
+
+def test_his_message_at_the_dm_root_writes_no_thread_row(root):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.queued(slack_message(thread_ts="1793159602.693499", ts="1793159602.693499"), "2026-10-28T03:53:26.695Z")
+
+    assert not thread_word_inputs(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
+
+
+def test_a_row_that_does_not_write_tells_the_meta_desk(root):  # noqa: F811
+    root.typed("where are we", "2026-10-28T03:53:25.695Z")
+    root.queued(slack_message(), "2026-10-28T03:53:26.695Z")
+    root.routes[(str(owner_thread_words_write_rows.LR), "owner", "thread-word")] = (1, "board gone")
+
+    thread_word_inputs(root, root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"}))
+
+    told = blockers(root)
+    assert len(told) == 1
+    assert "board gone" in " ".join(told[0])
 
 
 def test_a_stop_is_refused_while_the_owner_watch_is_down(root, shipped):  # noqa: F811

@@ -222,6 +222,7 @@ A message of his at the root of the DM gets its eyes and its answer at the root,
 - One session holds the DM at a time. While another live session holds it, this one takes no watch and owes no replies. A reply in the thread of a card another live session posted reaches only that session; this one neither sees nor owes it.
 - A reply unacked after 30 seconds adds one line to its next tool result.
 - `register_capture.py` posts each such reply once as an `owner` record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words.
+- `owner_thread_words_write_rows` runs `lr owner thread-word` on each reply of his in any drive window it reaches. A reply in a card's own thread writes one `from:owner` `board-answer` row labelled `board-card:<card>`, his words first, keyed `proof:slack-thread:<ts>`, the row a tap writes, so the live gate and the settled check read what he typed. The writer never judges the words. The row names no `board-block:`, so a typed question cannot stand as the row of a later tap on that block. It writes nothing for a thread with no card of its own, nor for a card off a lane's own board, since `lr owner watch`'s thread index covers the coordinator's board only. This adds no routing: a question he asks there is still this window's to answer.
 
 ## Wakes with nothing for him
 
