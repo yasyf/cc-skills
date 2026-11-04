@@ -406,7 +406,7 @@ class RegisterShell(ledger.Shell):
         pr: dict | None = None,
     ) -> None:
         self.pulls = pulls or {}
-        self.pr = {"author": {"login": "lane-a"}, "baseRefName": "main", "body": "", "comments": []} | (pr or {})
+        self.pr = {"author": {"login": "lane-a"}, "baseRefName": "main", "body": "", "comments": [], "title": ""} | (pr or {})
         self.board = board or {}
         self.blocks = blocks or {}
         self.rows = {key: dict(fields) for key, fields in rows.items()}
@@ -418,6 +418,7 @@ class RegisterShell(ledger.Shell):
         self.status = "active"
         self.vocabulary: dict[str, dict[str, str]] | None = None
         self.added = ""
+        self.answer_reads: list[tuple[str, list[str]]] = []
 
     def writes(self) -> list[list[str]]:
         return [argv for argv in self.calls if argv[3:6] == ["ledger", "row", "set"]]
@@ -500,7 +501,7 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
                 return json.dumps({"baseRefName": "main"})
-            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "author,baseRefName,body,comments"]:
+            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "author,baseRefName,body,comments,title"]:
                 return json.dumps(self.pr)
             case ["gh", "api", "repos/acme/app"]:
                 return json.dumps({"default_branch": "main"})
@@ -512,6 +513,10 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["lr", "board", "cards", "recheck", *_]:
                 return ""
+            case [lr, "rules", "answers", "--repo", "/repo", "--scope", scope, *ids] if lr == str(ledger.LR):
+                self.answer_reads.append((scope, ids))
+                named = [answer for answer in self.answers if any(answer["id"].startswith(token) for token in ids)]
+                return json.dumps(named + [answer for answer in self.answers if scope and answer not in named and any(scope in tag for tag in answer["tags"]) and "scope:durable" in answer["tags"]])
             case ["cci", "grep", "--drive", "brook-cci", "--json", *_]:
                 return "".join(json.dumps(record) + "\n" for record in self.records)
             case ["cci", "show", seq, "--json"]:
@@ -1956,6 +1961,43 @@ def test_the_required_slice_carries_his_answers_on_every_topic_the_pr_text_names
     assert lines[lines.index("### answer/7e61322 | answer | 2026-11-02") + 1 : lines.index("### answer/7e61322 | answer | 2026-11-02") + 3] == ["Asked: What if a relay drain fails?", "> Keep the old relay open read-only."]
 
 
+@pytest.mark.parametrize("words", [[], ["--words"]])
+def test_an_answer_the_pr_cites_that_no_row_carries_reaches_the_grader_with_his_words_and_only_an_id_nothing_holds_reads_as_unknown(home: Path, package: Path, state: Path, capsys, words: list[str]) -> None:
+    cited = {"id": "0531fdd" + "0" * 33, "title": "Which routes accept which models?", "body": "Every route takes every model.", "tags": ["scope:durable", "topic:llm-gateway"], "updated_at": "2026-11-04T06:52:15Z"}
+    untagged = {"id": "7f54b1d" + "0" * 33, "title": "How much does one dream night read?", "body": "A percentage of the team.", "tags": ["card:dream-night-cap", "scope:durable"], "updated_at": "2026-11-04T09:47:00Z"}
+    shell = RegisterShell(seeded(package), answers=[cited, untagged], diff=DIFF, pr={"body": "Under answer 0531fdd and answer 7f54b1d, at commit 7777777."})
+
+    code, out = ran(capsys, shell, "slice", "--required", *words, "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+
+    assert code == 0
+    assert hashed_correctly(out)
+    assert [key for key in required(out) if key.startswith("answer/")] == ["answer/7f54b1d", "answer/0531fdd"]
+    assert "> Every route takes every model." in out.splitlines()
+    assert "> A percentage of the team." in out.splitlines()
+    assert "Cited by id in the PR, unknown to the register: 7777777" in out.splitlines()
+
+
+def test_his_top_ranked_answers_on_the_title_scope_reach_the_grader_though_the_pr_cites_none(home: Path, package: Path, state: Path, capsys) -> None:
+    binding = {"id": "c473471" + "0" * 33, "title": "What should a dream night look at?", "body": "Only what changed.", "tags": ["dream", "scope:durable"], "updated_at": "2026-11-02T10:00:00Z"}
+    elsewhere = {"id": "1984bf6" + "0" * 33, "title": "May a migration ship behind a flag?", "body": "No.", "tags": ["flags", "scope:durable"], "updated_at": "2026-11-03T20:00:00Z"}
+    shell = RegisterShell(seeded(package), answers=[binding, elsewhere], diff=DIFF, pr={"title": "dream: a night reads every changed memory"})
+
+    code, out = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+
+    assert code == 0
+    assert shell.answer_reads == [("dream", [])]
+    assert [key for key in required(out) if key.startswith("answer/")] == ["answer/c473471"]
+
+
+def test_a_pr_with_no_scope_and_no_unknown_id_reads_no_answer_by_id(home: Path, package: Path, state: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package), diff=DIFF, pr={"title": "a title with no scope"})
+
+    code, _ = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+
+    assert code == 0
+    assert shell.answer_reads == []
+
+
 def test_the_worded_required_slice_carries_his_words_and_the_card_a_tap_answered_and_never_an_implication(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
     card = "card-relay: Where does relay code live?\n  - relay-journal: In relay-journal (recommended)\n  - relay-server: In relay-server"
     taps = {"Relay code lives in relay-journal. Never in relay-server.": card}
@@ -1979,7 +2021,7 @@ def test_the_worded_required_slice_carries_his_words_and_the_card_a_tap_answered
 class SiblingBase(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         match gateway(argv):
-            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "author,baseRefName,body,comments"]:
+            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "author,baseRefName,body,comments,title"]:
                 return json.dumps(self.pr | {"baseRefName": "lane-b"})
             case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", ghdiff.MEDIA, "--allow-escape-sequences"]:
                 return self.diff
