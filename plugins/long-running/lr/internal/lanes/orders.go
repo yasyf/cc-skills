@@ -47,6 +47,7 @@ func OpenOrders(ctx context.Context, bus Bus, s *store.Store, drive, repo, state
 	if err != nil {
 		return nil, fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
 	}
+	proofs = slices.DeleteFunc(proofs, func(proof client.Record) bool { return proof.Lane == Self && proof.Kind == "report" })
 	parsed := owner.Parse(ledger)
 	late := owner.PastDue(parsed, time.Now())
 	return append(late, slices.DeleteFunc(owner.Undelivered(parsed, carriers, proofs), func(order owner.Row) bool {

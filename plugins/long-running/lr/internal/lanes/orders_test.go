@@ -53,6 +53,26 @@ func carrier(t *testing.T, s *store.Store, name, orders string, state store.Lane
 	}
 }
 
+func TestTheSupervisorsOwnReportIsNoClaimOnTheRowsItNames(t *testing.T) {
+	s := memory(t)
+	state := ownerLedger(t, 2)
+	bus := &fakeBus{tail: []client.Record{
+		{Lane: Self, Kind: "report", Text: "2 owner asks newly open: owner:m1, owner:m2."},
+		{Lane: "install-desk-1", Kind: "report", Text: "owner:m2 installed"},
+	}}
+
+	orders, err := OpenOrders(context.Background(), bus, s, testDrive, ordersRepo, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := owner.Only(orders, owner.Open); len(got) != 1 || got[0].ID != "m1" || got[0].Lane != "" {
+		t.Fatalf("open = %+v, want m1 alone, with no lane", got)
+	}
+	if got := owner.Only(orders, owner.InProgress); len(got) != 1 || got[0].ID != "m2" || got[0].Lane != "install-desk-1" {
+		t.Fatalf("in progress = %+v, want m2 on the lane that named it", got)
+	}
+}
+
 func TestOpenOrdersListsEveryOrderNoLaneOrOpenPRCarriesAndADoneRecordLeavesItInProgress(t *testing.T) {
 	s := memory(t)
 	state := ownerLedger(t, 5)
