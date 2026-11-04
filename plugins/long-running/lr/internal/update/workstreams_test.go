@@ -78,6 +78,7 @@ func TestEachWorkstreamRowIsComputedFromItsLanesRecordsPRsAndBoardAndNamesItsLiv
 	in.Book = book
 	in.PRRows = []store.ReviewRow{
 		{Number: 49509, Lane: "durable-agents-fix-1", Title: "pause meters", Head: "abc", State: "open", CI: "red", WaitsOn: "CI is red at this head"},
+		{Number: 49510, Lane: "durable-agents-3", Title: "stops the crash", Head: "def5678abcdef", State: "open", ReadyForTap: true},
 		{Number: 49400, Lane: "durable-agents-3", Title: "resume runs", State: "landed", LandedAt: store.Stamp(ago(30))},
 		{Number: 48401, Lane: "ship-2", Title: "journal readers move to the sealed format", Head: "abc", State: "queued"},
 	}
@@ -99,7 +100,7 @@ func TestEachWorkstreamRowIsComputedFromItsLanesRecordsPRsAndBoardAndNamesItsLiv
 	if durable[2] != "durable-agents-3, durable-agents-fix-1" {
 		t.Errorf("lanes = %q", durable[2])
 	}
-	if !strings.HasPrefix(durable[3], "#49509 red; durable-agents-fix-1 blocked "+pacific(ago(3))+": waits on the review of #49509") {
+	if !strings.HasPrefix(durable[3], "#49509 red; #49510 ready for your tap; durable-agents-fix-1 blocked "+pacific(ago(3))+": waits on the review of #49509") {
 		t.Errorf("state = %q", durable[3])
 	}
 	if want := "#49400 landed " + pacific(ago(30)) + "; durable-agents-3 report " + pacific(ago(20)) + ": a run survives a pod restart"; durable[4] != want {
@@ -108,7 +109,7 @@ func TestEachWorkstreamRowIsComputedFromItsLanesRecordsPRsAndBoardAndNamesItsLiv
 	if durable[5] != "#49509 red; durable-agents-fix-1: waits on the review of #49509" {
 		t.Errorf("blocks = %q", durable[5])
 	}
-	if !strings.HasPrefix(durable[6], "tap #49509 at abc1234, head since 10:50 AM: stops the crash; pick card-durable-agents-store") || strings.Contains(durable[6], "signal") {
+	if !strings.HasPrefix(durable[6], "tap #49510 at def5678: stops the crash; pick card-durable-agents-store") || strings.Contains(durable[6], "49509") || strings.Contains(durable[6], "signal") {
 		t.Errorf("you must = %q", durable[6])
 	}
 
