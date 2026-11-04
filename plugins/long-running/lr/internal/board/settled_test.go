@@ -330,3 +330,41 @@ func TestASweepTakesDownACardHeTouchedLongerAgo(t *testing.T) {
 		t.Fatalf("removed %q, want the card", removed)
 	}
 }
+
+func TestASweepCutOffMidPassKeepsWhatItJudged(t *testing.T) {
+	first, second := oldChatBlock(), oldChatBlock()
+	second["id"] = "card-old-chat-twin"
+	onBoard := func(card map[string]any) string {
+		one, err := json.Marshal(map[string]any{"onBoard": true, "doc": map[string]any{"blocks": []any{card}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(one)
+	}
+	cards, _, _ := settledBoardFirst(t, func(fake *shelltest.Fake) {
+		fake.Reply(onBoard(first), "cc-present", "outcomes", "--block", oldChatCard)
+		fake.Reply(onBoard(second), "cc-present", "outcomes", "--block", "card-old-chat-twin")
+	}, []any{first, second}, upgradeOnce)
+	ctx, cutOff := context.WithCancel(context.Background())
+	defer cutOff()
+	var judged []string
+	judge := func(_ context.Context, _, _, card string) (*Judgment, error) {
+		judged = append(judged, card)
+		if len(judged) == 2 {
+			cutOff()
+		}
+		return &Judgment{Verdict: "no"}, nil
+	}
+
+	if err := cards.Unask(ctx, "supervisor", judge, &bytes.Buffer{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Unask = %v, want the cut-off", err)
+	}
+	judged = nil
+	if err := cards.Unask(context.Background(), "supervisor", judge, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(judged) != 1 || !strings.Contains(judged[0], "card-old-chat-twin") {
+		t.Fatalf("the next pass judged %q, want only the card the cut-off pass never finished", judged)
+	}
+}
