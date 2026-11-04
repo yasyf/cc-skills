@@ -1050,6 +1050,19 @@ func TestAWorkerStartsOnlyTheMCPServersItsLaunchNames(t *testing.T) {
 	}
 }
 
+func TestOnlyABriefAskingForSlackStartsTheSlackServer(t *testing.T) {
+	for brief, want := range map[string]bool{"ccx: role=reader place=local why=mac-question mcp=slack\nScale: one\n": true, "ccx: role=reader place=local why=mac-question\nScale: one\n": false} {
+		h := newHarness(t)
+		h.healthyClaude()
+		h.env["ORCA_LAUNCH_SLACK_MCP_CONFIG"] = "/briefs/slack-only.json"
+		h.writeFile(h.brief, brief)
+		h.launched()
+		if command := flag(h.orcaCalls("terminal create")[0], "--command"); strings.Contains(command, " --mcp-config /briefs/slack-only.json") != want {
+			t.Fatalf("%q: %s", brief, command)
+		}
+	}
+}
+
 func TestAnIncidentWorkerTakesItsMCPServersFromTheLaunch(t *testing.T) {
 	h := newHarness(t)
 	h.healthyCodex()

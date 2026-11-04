@@ -108,6 +108,7 @@ type launch struct {
 	boot, worktreeWait, prepareWait, sparseFiles, stall      int
 	prepare                                                  string
 	sparseLanes                                              bool
+	slackMCP                                                 bool
 
 	run, receipts, state, receipt, repo, main, root, gitUser, runID, wt, base, drive string
 	command, bin, desk, noPR, sparse, node, laneBrief, spec, rebind                  string
@@ -486,6 +487,7 @@ func (l *launch) resolveLaunch() error {
 		return err
 	}
 	l.resolveDrive()
+	l.slackMCP = briefSlack.MatchString(text)
 	if err := l.composeCommand(); err != nil {
 		return err
 	}
@@ -575,6 +577,9 @@ func (l *launch) composeCommand() error {
 	}
 	command += " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + denied + " --strict-mcp-config --no-chrome"
 	if config := l.Env("ORCA_LAUNCH_MCP_CONFIG"); config != "" {
+		command += " --mcp-config " + config
+	}
+	if config := l.Env("ORCA_LAUNCH_SLACK_MCP_CONFIG"); config != "" && l.slackMCP {
 		command += " --mcp-config " + config
 	}
 	if args := l.Env("ORCA_LAUNCH_CLAUDE_ARGS"); args != "" {

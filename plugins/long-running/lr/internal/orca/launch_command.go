@@ -234,6 +234,7 @@ Only the terminal bound to the Run may call worker-start, so a launch from any o
   ORCA_LAUNCH_STATE          receipt directory, default $XDG_STATE_HOME/long-running/orca-launch/RUN
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args, default none
   ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config values for a claude worker, default none
+  ORCA_LAUNCH_SLACK_MCP_CONFIG  --mcp-config value for a brief whose ccx: line says mcp=slack, default none
   ORCA_LAUNCH_CODEX_MCP      inline TOML table for an incident worker's mcp_servers, default {}
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the waits for a terminal, its agent and its first turn, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the waits for a worktree to register and check out, default 180
