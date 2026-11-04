@@ -548,13 +548,20 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
         answering(watch_queued(OWED_REPLY["thread_ts"])): Allow(),
         answering(watch_delivered(OWED_REPLY["thread_ts"]), threads={"m12": OWED_REPLY["thread_ts"]}, order="m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
         answering(watch_delivered(OWED_REPLY["thread_ts"]), threads={"m12": OWED_REPLY["thread_ts"]}, order="m11"): Allow(),
+        answering(delivered(), threads={"m12.1": "1793600000.000001", "m12": "1793600000.000001"}, thread="1793600000.000001"): Rewrite(None, order="m12"),
+        answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}): Allow(),
+        answering(delivered(), threads={"m12": "1793600000.000001"}, thread="1793600000.000001", unprompted=True): Allow(),
     }),
 )
 def answers_go_in_his_thread(evt: BaseHookEvent) -> HookResult | None:
-    named = evt.input.raw.get("order") or evt.input.raw.get("on") or ""
-    if evt.input.raw.get("thread") or not (thread := RowThreads.load(evt).threads.get(named.removeprefix("line:"))):
-        return None
-    return evt.rewrite(evt.input.raw | {"thread": thread}, note=IN_THREAD)
+    raw = evt.input.raw
+    rows = RowThreads.load(evt).threads
+    if named := raw.get("order") or raw.get("on"):
+        if raw.get("thread") or not (thread := rows.get(named.removeprefix("line:"))):
+            return None
+        return evt.rewrite(raw | {"thread": thread}, note=IN_THREAD)
+    its_rows = [row for row, at in rows.items() if at == raw.get("thread") and "." not in row]
+    return evt.rewrite(raw | {"order": its_rows[-1]}, note=IN_THREAD) if its_rows and not raw.get("unprompted") else None
 
 
 class ReadsAnsweredThread:
