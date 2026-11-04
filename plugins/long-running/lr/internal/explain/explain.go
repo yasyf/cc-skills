@@ -344,7 +344,7 @@ func Explain(ctx context.Context, checkout Checkout, host Host, owner Announcer,
 	if claims := Uncited(source); len(claims) > 0 {
 		return "", refuse(claims)
 	}
-	notice, _, err := publish(ctx, checkout, host, topic, source, now)
+	notice, _, err := publish(ctx, checkout, host, topic, Visible(source), now)
 	if err != nil {
 		return "", owner.Failed(ctx, topic, err)
 	}
