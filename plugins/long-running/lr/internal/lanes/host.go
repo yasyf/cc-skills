@@ -35,7 +35,12 @@ const (
 	goneAfter      = 2 * StaleAfter
 	lostAfter      = 5 * time.Minute
 	hostGoneAfter  = 10 * time.Minute
+	relayAnswer    = StaleAfter
 )
+
+func relayProbe(lane string) string {
+	return "relay-asked:" + lane
+}
 
 func runningProbe(lane string) string {
 	return "host-running:" + lane
@@ -68,6 +73,28 @@ func needsProof(lane store.Lane, silent, retireAfter time.Duration) bool {
 }
 
 func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, now time.Time) map[string]Verdict {
+	proven := hostProofs(s, d, lanes, found, now)
+	probes := must(s.Probes())
+	for _, lane := range lanes {
+		key := relayProbe(lane.Name)
+		asked, relayed := probes[key]
+		if !relayed {
+			continue
+		}
+		verdict := Classify(lane, peerOf(found, lane.Name), now, 0, 0)
+		if _, settled := proven[lane.Name]; settled || verdict.Kind != Unproven {
+			do(s.Unprobe(key))
+			continue
+		}
+		proven[lane.Name] = Verdict{Kind: Ok}
+		if quiet := now.Sub(asked.Asked); quiet >= relayAnswer {
+			proven[lane.Name] = Verdict{Unanswered, fmt.Sprintf("%s, and posted no record in the %d min after a relay asked its state", strings.TrimSuffix(verdict.Why, nothingProves), int(quiet.Minutes()))}
+		}
+	}
+	return proven
+}
+
+func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, now time.Time) map[string]Verdict {
 	proven := map[string]Verdict{}
 	probes := must(s.Probes())
 	var unproven []store.Lane
@@ -82,7 +109,7 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 			do(s.Unprobe(gone))
 			delete(probes, gone)
 		}
-		if lane.Placement == placedOnSprite && lane.State == store.LaneDesired && Classify(lane, peer, now, 0, 0).Kind == Unproven {
+		if (lane.Placement == placedOnSprite || (peer != nil && peer.Row.Unverified != "")) && lane.State == store.LaneDesired && Classify(lane, peer, now, 0, 0).Kind == Unproven {
 			unproven = append(unproven, lane)
 			names = append(names, lane.Name)
 		}
@@ -93,12 +120,21 @@ func proofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Peer, n
 	sprites, err := d.Sprites(names)
 	if err != nil {
 		slog.Warn("no sprite read this tick, since the Sprites list failed", "err", err)
+		for _, lane := range unproven {
+			if lane.Placement == placedOnSprite {
+				proven[lane.Name] = Verdict{Kind: Ok}
+			}
+		}
 		return proven
 	}
 	var asked []string
 	down := map[string]string{}
 	for _, lane := range unproven {
-		if sprite, listed := sprites[lane.Name]; listed && sprite.Status != spriteRunning && !settledLane(lane) {
+		sprite, listed := sprites[lane.Name]
+		if !listed && lane.Placement != placedOnSprite {
+			continue
+		}
+		if listed && sprite.Status != spriteRunning && !settledLane(lane) {
 			proven[lane.Name] = Verdict{Kind: Ok}
 			if now.Sub(sprite.LastRunning) >= lostAfter {
 				why := fmt.Sprintf("has a Sprite %s that is %s", sprite.Name, sprite.Status)

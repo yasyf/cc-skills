@@ -275,13 +275,20 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 			if lane.Placement == placedOnSprite && isStanding(lane) {
 				return
 			}
+			if peer != nil && peer.Row.Unverified != "" && lane.Name != Root {
+				askState(s, d, lane, verdict.Why, now)
+				return
+			}
 			hold(s, lane.Name, verdict.Why, now)
 			escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched or retired: it %s, and it runs on no Sprite whose probe answered; brief %s", verdict.Why, lane.Brief), residueTo(s, d, lane.Name), now)
 			out.Held = append(out.Held, lane.Name)
 			return
 		}
-		if proof.Kind == Dead {
+		switch proof.Kind {
+		case Dead:
 			died(s, d, lane, peer, found, proof, silent, taken, now, out)
+		case Unanswered:
+			unanswered(s, d, lane, peer, found, proof, silent, taken, now, out)
 		}
 	case StoodDown:
 		if !refusedOwing(s, d, lane.Name, now) {
@@ -322,6 +329,26 @@ func died(s *store.Store, d Deps, lane store.Lane, peer *Peer, found map[string]
 	if silent >= d.RetireAfter {
 		retireSilent(s, d, lane, verdict.Why, now, out)
 	}
+}
+
+func askState(s *store.Store, d Deps, lane store.Lane, why string, now time.Time) {
+	do(d.Post(Post{Kind: "go", To: []string{orcaDesk}, Text: fmt.Sprintf("%s: relay to %s: This lane %s. Post your state now with `cci post --drive %s --lane %s --kind state`: what you hold and what you wait on. With no record in %d min the supervisor relaunches this lane from its brief and handoff.", orcaDesk, lane.Name, strings.TrimSuffix(why, nothingProves), d.Drive, lane.Name, int(relayAnswer.Minutes()))}))
+	do(s.Probe(relayProbe(lane.Name), now))
+}
+
+func unanswered(s *store.Store, d Deps, lane store.Lane, peer *Peer, found map[string]Peer, proof Verdict, silent time.Duration, taken map[string]bool, now time.Time, out *Outcome) {
+	do(s.Unprobe(relayProbe(lane.Name)))
+	failed := spentRelaunches(s, lane, proof.Why, now)
+	if failed == "" && !briefExists(lane.Brief) {
+		failed = fmt.Sprintf("its brief %s is gone, and it %s", lane.Brief, proof.Why)
+	}
+	if failed == "" || holdsNothing(lane) || lane.Last == kindLanded {
+		died(s, d, lane, peer, found, proof, silent, taken, now, out)
+		return
+	}
+	hold(s, lane.Name, proof.Why, now)
+	escalateTo(s, d, "lane:"+lane.Name, "held, not relaunched: "+failed, residueTo(s, d, lane.Name), now)
+	out.Held = append(out.Held, lane.Name)
 }
 
 func lost(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, verdict Verdict, taken map[string]bool, now time.Time, out *Outcome) {

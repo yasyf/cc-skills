@@ -1850,23 +1850,17 @@ func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {
 	equal(t, row(t, s, lane2).RetiredBy, "worker-done")
 }
 
-func TestALaneOnARootOrderThatNothingProvesStoppedIsHeldNeverRetired(t *testing.T) {
-	unverifiable := who(lane2, false, t0.Add(-mins(20)))
-	unverifiable.Unverified = "has an Orca agent that reads unverifiable (stale_status)"
-	for name, peers := range map[string][]Row{"no process row": nil, "an unverifiable agent": {unverifiable}} {
-		t.Run(name, func(t *testing.T) {
-			s := memory(t)
-			f := adopted(t, s, writeBrief(t), "", 46001)
-			f.feed = append(f.feed, rec(2, Root, "decide", t0.Add(-mins(25)), "fix the race in your open PR", lane2))
-			f.peers = peers
+func TestALaneOnARootOrderWithNoProcessRowIsHeldNeverRetired(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46001)
+	f.feed = append(f.feed, rec(2, Root, "decide", t0.Add(-mins(25)), "fix the race in your open PR", lane2))
+	f.peers = nil
 
-			tick(t, s, f, t0)
+	tick(t, s, f, t0)
 
-			equal(t, row(t, s, lane2).State, store.LaneHeld)
-			equal(t, row(t, s, lane2).RetiredBy, "")
-			equal(t, len(f.ofKind("blocker")), 1)
-		})
-	}
+	equal(t, row(t, s, lane2).State, store.LaneHeld)
+	equal(t, row(t, s, lane2).RetiredBy, "")
+	equal(t, len(f.ofKind("blocker")), 1)
 }
 
 func TestALaneThatStoppedOnAnEarlierDayNamesHowLongItWasQuietAndNoClock(t *testing.T) {
