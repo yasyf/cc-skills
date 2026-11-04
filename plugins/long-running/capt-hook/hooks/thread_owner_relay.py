@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 import subprocess
 
-from cc_transcript import AttachmentEvent
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, on
 
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, drive_entry
 from .meta_records import posts
-from .register_capture import OPERATOR, SLACK_MESSAGE
+from .register_capture import OPERATOR, OWNER_WATCH, owner_messages_heard, queued_prompts
 from .tests.register_fixtures import DRIVE_CONFIG
 
 WHO_TIMEOUT_SECONDS = 10
@@ -33,13 +32,14 @@ def reply(owner: dict | None = None, thread: str = THREAD) -> list:
     return [T.user("where are we"), {"type": "attachment", "timestamp": "2026-11-04T06:14:00Z", "attachment": {"type": "queued_command", "prompt": tagged, "commandMode": "prompt"}}]
 
 
+def watched_reply(owner: dict) -> list:
+    payload = {"type": "slack.message", "channel_id": "D0B6Z", "thread_ts": THREAD, "ts": TS, "user": OPERATOR, "from_claude": False, "text": "tag the engines instead", "thread_owner": owner}
+    notified = f'<task-notification>\n<summary>Monitor event: "{OWNER_WATCH}"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>'
+    return [T.user("where are we"), {"type": "attachment", "timestamp": "2026-11-04T06:14:00Z", "attachment": {"type": "queued_command", "prompt": notified, "commandMode": "task-notification"}}]
+
+
 def foreign_replies(evt: BaseHookEvent) -> list[dict]:
-    messages = (
-        json.loads(found["payload"])
-        for event in evt.ctx.turn.events
-        if isinstance(event, AttachmentEvent) and event.attachment_type == "queued_command" and event.detail.prompt and (found := SLACK_MESSAGE.search(event.detail.prompt))
-    )
-    found = [message for message in messages if message.get("thread_owner") and message["user"] == OPERATOR]
+    found = [message for message in owner_messages_heard(queued_prompts(evt.ctx.turn.events)) if message.get("thread_owner")]
     entry = drive_entry(evt)
     return [message for message in found if entry and not on_drive(bus_name(entry), message["thread_owner"]["session"])]
 
@@ -63,6 +63,8 @@ def carried(evt: BaseHookEvent) -> str:
     tests=communicator_tests({
         Input(command=f"cci post --lane owner-relay --kind decide --to release,root --text 'Owner 10:14 PM in DM thread {THREAD}: tag the CI engines'", transcript=reply(FOREIGN), state=ACTIVE, env=DRIVE_CONFIG, commands={"cci who": ""}): Block(pattern=r"^His Slack reply answers a card another session posted[\s\S]*`cci post --to peer:<thread_owner\.session>`"),
         Input(command=f"cci post --lane owner-relay --kind ask --to root --re slack:{TS} --text 'owner:m403 fix routing'", transcript=reply(FOREIGN), state=ACTIVE, env=DRIVE_CONFIG, commands={"cci who": ""}): Block(),
+        Input(command=f"cci post --lane owner-relay --kind ask --to root --re slack:{TS} --text 'owner:m403 fix routing'", transcript=watched_reply(FOREIGN), state=ACTIVE, env=DRIVE_CONFIG, commands={"cci who": ""}): Block(),
+        Input(command="cci post --lane owner-relay --kind ask --to root --text 'owner:m404 cut the release'", transcript=watched_reply(FOREIGN), state=ACTIVE, env=DRIVE_CONFIG, commands={"cci who": ""}): Allow(),
         Input(tool=POST_TOOL, tool_input={"lane": "owner-relay", "kind": "decide", "to": ["release"], "text": f"slack:{TS} is for you"}, transcript=reply(FOREIGN), state=ACTIVE, env=DRIVE_CONFIG, commands={"cci who": ""}): Block(),
         Input(command=f"cci post --lane owner-relay --kind decide --to peer:{OWNER} --text 'Owner in DM thread {THREAD}: tag the CI engines'", transcript=reply(FOREIGN), state=ACTIVE, env=DRIVE_CONFIG, commands={"cci who": ""}): Allow(),
         Input(command=f"cci post --lane owner-relay --kind decide --to release --text 'Owner in DM thread {THREAD}: tag the CI engines'", transcript=reply(FOREIGN), state=ACTIVE, env=DRIVE_CONFIG, commands={"cci who": json.dumps({"session": OWNER, "lane": "release"})}): Allow(),
