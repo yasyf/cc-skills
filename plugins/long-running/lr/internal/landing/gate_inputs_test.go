@@ -54,9 +54,9 @@ func publisher(t *testing.T, stdout string, now *time.Time) (*InputsPublisher, *
 	}, runner
 }
 
-func lane(t *testing.T, s *store.Store, name string, state store.LaneState, retiredBy string, at time.Time) {
+func lane(t *testing.T, s *store.Store, name string, state store.LaneState, retiredBy string, at time.Time, prs ...int) {
 	t.Helper()
-	if _, err := s.WantLane(store.Lane{Name: name, State: store.LaneDesired}, at); err != nil {
+	if _, err := s.WantLane(store.Lane{Name: name, State: store.LaneDesired, PRs: prs}, at); err != nil {
 		t.Fatal(err)
 	}
 	if state != store.LaneDesired {
@@ -176,12 +176,19 @@ func TestALandingOnlyStoreRoutesEachLaneWhereTheLanesMachineDoes(t *testing.T) {
 	now := time.Now()
 	p, _ := publisher(t, openBoard, &now)
 	lane(t, p.Store, "api-fix-2", store.LaneDesired, "", now)
-	lane(t, p.Store, "api-fix", store.LaneRetired, "api-fix-2", now)
+	lane(t, p.Store, "api-fix", store.LaneRetired, "api-fix-2", now, 5)
 	lane(t, p.Store, "parked", store.LaneHeld, "", now)
-	lane(t, p.Store, "done", store.LaneRetired, "", now)
+	lane(t, p.Store, "done", store.LaneRetired, "", now, 6)
 	m := mirrored(t, p)
 
-	for name, want := range map[string]string{"api-fix": "api-fix-2", "parked": lanes.Root, "done": lanes.Root} {
+	owners, err := m.Store.OwnerOf([]int{5, 6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owners[5] != "api-fix" || owners[6] != "" {
+		t.Fatalf("owners = %v, want #5 owned by api-fix and #6 by no mirrored lane", owners)
+	}
+	for name, want := range map[string]string{owners[5]: "api-fix-2", "parked": lanes.Root, "done": lanes.Root} {
 		if got, err := lanes.Running(m.Store, "d", name); err != nil || got != want {
 			t.Fatalf("Running(%s) = %q, %v; want %q", name, got, err, want)
 		}
@@ -197,16 +204,21 @@ func TestALandingOnlyStoreRoutesEachLaneWhereTheLanesMachineDoes(t *testing.T) {
 func TestAFixLaneTheLanesMachineLaunchedStillSquashesOnALandingOnlyMachine(t *testing.T) {
 	now := time.Now()
 	p, _ := publisher(t, openBoard, &now)
-	lane(t, p.Store, "dd-1-fix", store.LaneRetired, "", now.Add(-time.Hour))
-	lane(t, p.Store, "dd-1-fix-old", store.LaneRetired, "", now.Add(-incidentHorizon-time.Hour))
+	lane(t, p.Store, "dd-1-fix", store.LaneRetired, "", now.Add(-time.Hour), 7)
+	lane(t, p.Store, "dd-1-fix-old", store.LaneRetired, "", now.Add(-incidentHorizon-time.Hour), 8)
+	lane(t, p.Store, "ordinary", store.LaneDesired, "", now, 9)
 	m := mirrored(t, p)
 	q := &Squash{Store: m.Store, Trunk: "dev", FixLane: m.FixLane}
 
-	named, err := q.tagged([]machine.Facts{
-		{Repo: "o/r", Number: 7, Base: "dev", Lane: "dd-1-fix"},
-		{Repo: "o/r", Number: 8, Base: "dev", Lane: "dd-1-fix-old"},
-		{Repo: "o/r", Number: 9, Base: "dev", Lane: "ordinary"},
-	})
+	owners, err := m.Store.OwnerOf([]int{7, 8, 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := make([]machine.Facts, 0, len(owners))
+	for _, number := range []int{7, 8, 9} {
+		snapshot = append(snapshot, machine.Facts{Repo: "o/r", Number: number, Base: "dev", Lane: owners[number]})
+	}
+	named, err := q.tagged(snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}

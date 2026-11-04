@@ -43,6 +43,7 @@ type laneRow struct {
 	Name      string          `json:"name"`
 	State     store.LaneState `json:"state"`
 	RetiredBy string          `json:"retired_by,omitempty"`
+	PRs       []int           `json:"prs,omitempty"`
 }
 
 type InputsPublisher struct {
@@ -98,15 +99,15 @@ func (p *InputsPublisher) Pass(ctx context.Context) error {
 		return err
 	}
 	cards, taps := ownerWaits(live)
-	routed := routedLanes(all)
-	encoded, err := json.Marshal(gateInputs{Cards: cards, Taps: taps, TapRules: landing.TapRules, Exempt: landing.ExemptGrades, GoLanes: cfg.GoLaneNames(), Lanes: routed, FixLanes: fixes, Clocks: clocks, Session: p.Session})
+	mirrored := mirroredLanes(all, fixes)
+	encoded, err := json.Marshal(gateInputs{Cards: cards, Taps: taps, TapRules: landing.TapRules, Exempt: landing.ExemptGrades, GoLanes: cfg.GoLaneNames(), Lanes: mirrored, FixLanes: fixes, Clocks: clocks, Session: p.Session})
 	if err != nil {
 		return err
 	}
 	if string(encoded) == p.posted && now.Sub(p.at) < inputsRepost {
 		return nil
 	}
-	text := fmt.Sprintf("What landing reads off the lanes machine: %d open cards, %d open tap rows, %d routed lanes, %d fix lanes, %d live incident clocks", len(cards), len(taps), len(routed), len(fixes), len(clocks))
+	text := fmt.Sprintf("What landing reads off the lanes machine: %d open cards, %d open tap rows, %d mirrored lanes, %d fix lanes, %d live incident clocks", len(cards), len(taps), len(mirrored), len(fixes), len(clocks))
 	if _, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: self, Kind: "note", Topic: gateInputsTopic, ID: fmt.Sprintf("%s:%d", gateInputsTopic, now.UnixMilli()), To: []string{gateInputsReader}, Text: text, Attrs: map[string]string{gateInputsAttr: string(encoded)}}); err != nil {
 		return err
 	}
@@ -114,7 +115,7 @@ func (p *InputsPublisher) Pass(ctx context.Context) error {
 	return nil
 }
 
-func routedLanes(all []store.Lane) []laneRow {
+func mirroredLanes(all []store.Lane, fixes []string) []laneRow {
 	named := make(map[string]store.Lane, len(all))
 	for _, lane := range all {
 		named[lane.Name] = lane
@@ -129,8 +130,8 @@ func routedLanes(all []store.Lane) []laneRow {
 			}
 			last, seen[next.Name] = next, true
 		}
-		if last.State != store.LaneRetired {
-			rows = append(rows, laneRow{Name: lane.Name, State: lane.State, RetiredBy: lane.RetiredBy})
+		if last.State != store.LaneRetired || slices.Contains(fixes, lane.Name) {
+			rows = append(rows, laneRow{Name: lane.Name, State: lane.State, RetiredBy: lane.RetiredBy, PRs: lane.PRs})
 		}
 	}
 	return rows
@@ -152,7 +153,7 @@ func (m *InputsMirror) Pass(ctx context.Context) error {
 	if err == nil && m.CopyLanes {
 		rows := make([]store.Lane, len(inputs.Lanes))
 		for i, lane := range inputs.Lanes {
-			rows[i] = store.Lane{Name: lane.Name, State: lane.State, RetiredBy: lane.RetiredBy}
+			rows[i] = store.Lane{Name: lane.Name, State: lane.State, RetiredBy: lane.RetiredBy, PRs: lane.PRs}
 		}
 		err = m.Store.PutLanes(rows, m.Now())
 	}
