@@ -208,6 +208,12 @@ func (s Shadow) said(r client.Record, meta Meta, fromBoard bool) []Event {
 		}
 		return nil
 	}
+	if tap, ordered := bus.OrderOf(r, s.Repo); ordered {
+		if !fromBoard || tap.Head == "" {
+			return nil
+		}
+		return []Event{Tap{meta, tap.PR, tap.Head, machine.Tap(tap.Value)}}
+	}
 	facts := bus.LegacyFacts(r, s.Repo, s.GoLanes)
 	events := make([]Event, 0, len(facts))
 	judged := map[string]int{}
@@ -235,10 +241,6 @@ func (s Shadow) said(r client.Record, meta Meta, fromBoard bool) []Event {
 			events = append(events, Grade{meta, f.PR, f.Head, "appeal", 0, "settle"})
 		case "exempt":
 			events = append(events, Tap{meta, f.PR, f.Head, machine.TapTapped})
-		case "tap":
-			if fromBoard {
-				events = append(events, Tap{meta, f.PR, f.Head, machine.Tap(f.Value)})
-			}
 		}
 	}
 	return events

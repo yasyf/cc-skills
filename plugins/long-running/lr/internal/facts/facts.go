@@ -104,6 +104,9 @@ func (f fromCheckout) Run(ctx context.Context, c shell.Command) (shell.Result, e
 }
 
 func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
+	if err := s.WriteOrders(ctx); err != nil {
+		return nil, fmt.Errorf("write his land orders: %w", err)
+	}
 	if err := s.ingestBus(ctx); err != nil {
 		return nil, fmt.Errorf("read the bus: %w", err)
 	}

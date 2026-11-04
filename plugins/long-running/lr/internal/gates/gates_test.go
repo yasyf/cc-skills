@@ -85,13 +85,17 @@ func TestATapCarriesOnlyWhenTheNewHeadMeansTheSameAsTheTappedOne(t *testing.T) {
 		atTap, atHead map[string]string
 		want          string
 	}{
-		"the same diff":                       {tapped, map[string]string{DiffFact: DiffHash(tappedDiff)}, BySameDiff},
-		"fidelity judged it the same":         {tapped, judged(BehaviorSame, oldHead, "pass"), ByFidelity},
-		"fidelity judged it changed":          {tapped, judged(BehaviorChanged, oldHead, "pass"), ""},
-		"the same since a later carried head": {tapped, judged(BehaviorSame, "bb22cc33dd44", "pass"), ""},
-		"the same but a plan line is missing": {tapped, judged(BehaviorSame, oldHead, "fail"), ""},
-		"a different diff not judged yet":     {tapped, map[string]string{DiffFact: "other", fidelityFact: "pass"}, ""},
-		"no diff recorded at the tapped head": {map[string]string{}, map[string]string{DiffFact: ""}, ""},
+		"the same diff":                             {tapped, map[string]string{DiffFact: DiffHash(tappedDiff)}, BySameDiff},
+		"fidelity judged it the same":               {tapped, judged(BehaviorSame, oldHead, "pass"), ByFidelity},
+		"fidelity judged it changed":                {tapped, judged(BehaviorChanged, oldHead, "pass"), ""},
+		"the same since a later carried head":       {tapped, judged(BehaviorSame, "bb22cc33dd44", "pass"), ""},
+		"the same but a plan line is missing":       {tapped, judged(BehaviorSame, oldHead, "fail"), ""},
+		"the same with its plan line overridden":    {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "fail", verdictFact: "accept"}, ByFidelity},
+		"changed though a plan line is overridden":  {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorChanged, SinceFact: oldHead, fidelityFact: "fail", verdictFact: "accept"}, ""},
+		"the same since a shorter form of the head": {tapped, judged(BehaviorSame, oldHead[:7], "pass"), ByFidelity},
+		"the same since nothing named":              {tapped, judged(BehaviorSame, "", "pass"), ""},
+		"a different diff not judged yet":           {tapped, map[string]string{DiffFact: "other", fidelityFact: "pass"}, ""},
+		"no diff recorded at the tapped head":       {map[string]string{}, map[string]string{DiffFact: ""}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := CarriedBy(oldHead, c.atTap, c.atHead); got != c.want {

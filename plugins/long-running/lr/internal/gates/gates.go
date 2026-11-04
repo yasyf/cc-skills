@@ -15,6 +15,7 @@ const (
 	DiffFact     = "diff"
 	BehaviorFact = "behavior"
 	SinceFact    = "behavior-since"
+	verdictFact  = "verdict"
 	ChangedFact  = "what-changed"
 	MissingFact  = "gates-missing"
 	fidelityFact = "fidelity"
@@ -65,10 +66,14 @@ func CarriedBy(tapped string, atTap, atHead map[string]string) string {
 	if atTap[DiffFact] != "" && atTap[DiffFact] == atHead[DiffFact] {
 		return BySameDiff
 	}
-	if atHead[SinceFact] == tapped && atHead[BehaviorFact] == BehaviorSame && atHead[fidelityFact] == string(machine.FidelityPass) {
+	if namesTapped(atHead[SinceFact], tapped) && atHead[BehaviorFact] == BehaviorSame && (atHead[fidelityFact] == string(machine.FidelityPass) || atHead[verdictFact] != "") {
 		return ByFidelity
 	}
 	return ""
+}
+
+func namesTapped(since, tapped string) bool {
+	return since != "" && (strings.HasPrefix(since, tapped) || strings.HasPrefix(tapped, since))
 }
 
 const NoTap = "no tap"

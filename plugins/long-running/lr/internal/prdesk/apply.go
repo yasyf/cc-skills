@@ -378,7 +378,7 @@ func tapOf(tx *store.Tx, repo Repo, f store.PRFacts, change string, grades map[s
 	if b.Behavior == "" {
 		return "", nil, "", nil
 	}
-	if b.Behavior != gates.BehaviorSame || grades["fidelity"].Verdict != string(machine.FidelityPass) {
+	if b.Behavior != gates.BehaviorSame || grades["fidelity"].Verdict != string(machine.FidelityPass) && grades["appeal"].Verdict == "" {
 		return "", nil, b.WhatChanged, nil
 	}
 	since, err := tx.ChangeOf(repo.Name, b.Since)

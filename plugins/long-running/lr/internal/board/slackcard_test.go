@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
@@ -247,5 +248,22 @@ func TestTheCardReadsNothingButTheStoreAtOneAndAThousandPRs(t *testing.T) {
 				t.Fatalf("%d cards for %d PRs with %d commands run, want %d and none", len(answer.Cards), n, counted.calls, n)
 			}
 		})
+	}
+}
+
+func TestASlackMergeCardTapPostsTheLandOrderTheBoardRecorderPosts(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+
+	if err := postHooks(ctx, "d", "pr-cards", repo).Tap(TapRecord{number, head, byOwner, machine.TapTapped}); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"lr.tap"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 1 || !strings.HasPrefix(written[0].Text, fmt.Sprintf("tap #%d ", number)) {
+		t.Fatalf("orders = %+v", written)
 	}
 }

@@ -34,6 +34,12 @@ func TestAPRWaitsOnHisTapOnlyOnARowAtItsHeadElseItNamesWhatHoldsIt(t *testing.T)
 			line: "#45583 at e718a74: not waiting on you: its board row names aa11bb2, not its head; you rejected it at aa11bb2, an older head",
 		},
 		{
+			name:   "a land order from a card, its row not yet off the board",
+			live:   Live{Rows: []MergeRow{{MergeBlock, pr, head}}},
+			change: func(f *machine.Facts) { f.Tap = machine.TapTapped },
+			line:   "#45583 at e718a74: not waiting on you: a land order stands at e718a74",
+		},
+		{
 			name:   "no row and a failing gate",
 			change: func(f *machine.Facts) { f.CI = machine.CIFailure },
 			line:   "#45583 at e718a74: not waiting on you: the board holds no row for it; CI is not green",
