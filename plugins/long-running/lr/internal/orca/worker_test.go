@@ -149,6 +149,8 @@ func rendered(value any) string {
 
 type workerFixture struct {
 	t        *testing.T
+	spawn    func(argv []string, log string, env []string) (Process, error)
+	spawned  [][]string
 	root     string
 	checkout string
 	cli      string
@@ -308,6 +310,13 @@ func (f *workerFixture) launch(lane, model, effort string) (string, string, erro
 		Env:    func(name string) string { return f.env[name] },
 		Sleep:  func(wait time.Duration) { f.slept = append(f.slept, wait) },
 		Stderr: &f.stderr,
+		Spawn: func(argv []string, log string, env []string) (Process, error) {
+			if f.spawn != nil {
+				return f.spawn(argv, log, env)
+			}
+			f.spawned = append(f.spawned, argv)
+			return nil, nil
+		},
 	}
 	line, err := starter.Run(context.Background(), lane, model, effort, f.brief)
 	var failed *Failed
@@ -696,32 +705,32 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	}
 }
 
-func seedCalls(f *workerFixture) int {
-	seeds := 0
-	for _, call := range f.calls {
-		if slices.Contains(call, seedStore) {
-			seeds++
-		}
-	}
-	return seeds
-}
-
-func TestADeskSpriteLoadsItsStoreFromACopyBeforeTheWorkerAndAFailedCopyStopsNothing(t *testing.T) {
+func TestADeskSpriteCopiesItsStoreDetachedAfterItsWorkerStartsSoACopyNeverHoldsTheLaunch(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.env[driveEnv] = "the-drive"
 	text := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
 	f.write(f.brief, text, 0o600)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
-	f.reply("sh "+seedStore, workerReply{code: 1, err: "cci: unknown command seed\n"})
+	var before int
+	f.spawn = func(argv []string, _ string, _ []string) (Process, error) {
+		before = len(f.calls)
+		f.spawned = append(f.spawned, argv)
+		return nil, errors.New("sprite is not on PATH")
+	}
 
 	if line := f.launched(); !strings.Contains(line, `"state":"ready"`) {
 		t.Fatal(line)
 	}
 
-	if seeds := seedCalls(f); seeds != 1 {
-		t.Fatalf("%d seeds, want 1: %v", seeds, f.calls)
+	want := [][]string{{"sh", "-c", seedStore, "sh", "the-drive", workerWorkspace}}
+	if !reflect.DeepEqual(f.spawned, want) {
+		t.Fatalf("spawned %v, want %v", f.spawned, want)
 	}
-	if !strings.Contains(f.receiptText(seedReceipt), "unknown command seed") {
+	started := slices.IndexFunc(f.calls, func(call []string) bool { return slices.Contains(call, "worker-start") })
+	if started < 0 || started >= before {
+		t.Fatalf("the copy began at call %d, before worker-start at %d", before, started)
+	}
+	if !strings.Contains(f.receiptText(seedReceipt), "sprite is not on PATH") {
 		t.Fatal(f.receiptText(seedReceipt))
 	}
 }
@@ -731,8 +740,8 @@ func TestALaneThatIsNoDeskStartsWithoutACopy(t *testing.T) {
 	f.env[driveEnv] = "the-drive"
 	f.sprite()
 	f.launched()
-	if seeds := seedCalls(f); seeds != 0 {
-		t.Fatalf("%d seeds, want 0", seeds)
+	if len(f.spawned) != 0 {
+		t.Fatalf("spawned %v, want none", f.spawned)
 	}
 }
 

@@ -202,7 +202,7 @@ func workerCommand(a *app.App) *cobra.Command {
   WORKER_BASE_BRANCH    the base of a local worktree, default origin/dev`,
 		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			starter := &WorkerStarter{Runner: a.Runner, Env: os.Getenv, Sleep: time.Sleep, Stderr: cmd.ErrOrStderr()}
+			starter := &WorkerStarter{Runner: a.Runner, Env: os.Getenv, Sleep: time.Sleep, Stderr: cmd.ErrOrStderr(), Spawn: SpawnDetached}
 			line, err := starter.Run(cmd.Context(), args[0], args[1], args[2], args[3])
 			var failed *Failed
 			if errors.As(err, &failed) {
