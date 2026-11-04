@@ -115,25 +115,25 @@ func run(ctx context.Context, a *app.App, binary string) error {
 }
 
 func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps, error) {
-	monitorLane, err := orca.MonitorLane(a)
-	if err != nil {
-		return Deps{}, err
-	}
-	env.MonitorLane = monitorLane
-	checks, err := env.Checks(s, a.Log)
-	if err != nil {
-		return Deps{}, err
-	}
-	laneDeps, err := env.Deps(ctx)
-	if err != nil {
-		return Deps{}, err
-	}
 	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self, Bodies: filepath.Join(env.State, bus.BodiesDir)}
 	post := func(to []string, body bus.Body) error {
 		_, err := sender.Post(ctx, to, body)
 		return err
 	}
+	var checks []lanes.Check
+	var laneDeps lanes.Deps
 	if slices.Contains(env.Config.Movers, moverLanes) {
+		monitorLane, err := orca.MonitorLane(a)
+		if err != nil {
+			return Deps{}, err
+		}
+		env.MonitorLane = monitorLane
+		if checks, err = env.Checks(s, a.Log); err != nil {
+			return Deps{}, err
+		}
+		if laneDeps, err = env.Deps(ctx); err != nil {
+			return Deps{}, err
+		}
 		installs, err := install.Installs(env.Claude)
 		if err != nil {
 			return Deps{}, err
@@ -173,11 +173,33 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		if err != nil {
 			a.Log.Warn("the choices check is off", "err", err)
 		} else {
-			inputs := &landing.InputsPublisher{Runner: a.Runner, Session: entry.Root(), Config: a.ConfigPath, Now: a.Now}
+			fixLanes, err := orca.FixLanes(a)
+			if err != nil {
+				return Deps{}, err
+			}
+			liveClocks, err := orca.LiveClocks(a)
+			if err != nil {
+				return Deps{}, err
+			}
+			inputs := &landing.InputsPublisher{Runner: a.Runner, Store: s, FixLane: fixLanes, LiveClocks: liveClocks, Session: entry.Root(), Config: a.ConfigPath, Now: a.Now}
 			checks = append(checks,
 				(&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "landing-gate-inputs", every: landing.InputsEvery, run: inputs.Pass, store: s, post: post, log: a.Log}).Check,
 			)
+		}
+		orcaRunner, err := config.LoadRunner(filepath.Join(env.State, runnerFile))
+		if err != nil {
+			return Deps{}, err
+		}
+		if orcaRunner.Orca.DeskInbox != "" {
+			agents, err := launchd.New(a.Runner, os.Stdout)
+			if err != nil {
+				return Deps{}, err
+			}
+			if err := agents.Install(ctx, agentOf(env).RelayJob(orcaRunner.Orca.DeskInbox)); err != nil {
+				a.Log.Warn("the relay's launchd job is not installed", "err", err)
+			}
+			checks = append(checks, NewRelayKeeper(env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log).Check)
 		}
 	}
 	deps := Deps{
@@ -187,9 +209,18 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		Lanes: func(now time.Time, generation int64) (lanes.Outcome, error) {
 			return lanes.Tick(s, laneDeps, now, generation)
 		},
-		Checks:  checks,
-		Stagger: checkStagger,
-		Log:     a.Log,
+		Checks:   checks,
+		Stagger:  checkStagger,
+		Snapshot: prfacts.New(a, env.Config, s).Snapshot,
+		Post:     post,
+		Log:      a.Log,
+	}
+	if slices.Contains(env.Config.Movers, config.MoverGrading) {
+		pool, err := grading.NewLivePool(a, filepath.Join(env.State, runnerFile), s)
+		if err != nil {
+			return Deps{}, err
+		}
+		deps.Pool = pool
 	}
 	if !slices.Contains(env.Config.Movers, config.MoverLanding) {
 		return deps, nil
@@ -219,27 +250,22 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		}
 		deps.Checks = append(deps.Checks, (&background{name: "trunk-watch", every: PassEvery, run: trunk.Pass, store: s, post: post, log: a.Log}).Check)
 	}
-	deps.Snapshot = prfacts.New(a, env.Config, s).Snapshot
-	deps.Post = post
 	deps.Queue = landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
 	deps.Restacker = restacker
 	gates, err := landing.NewGates(a, s, env.Config, filepath.Join(env.State, runnerFile))
 	if err != nil {
 		return Deps{}, err
 	}
-	fixLanes, err := orca.FixLanes(a)
+	mirror := &landing.InputsMirror{Drive: env.Config.Drive, Store: s, CopyLanes: !slices.Contains(env.Config.Movers, moverLanes), Now: a.Now}
+	if err := mirror.Pass(ctx); err != nil {
+		a.Log.Warn("landing starts before the lanes machine's inputs are read", "err", err)
+	}
+	deps.Checks = append(deps.Checks, (&background{name: "landing-inputs", every: landing.InputsEvery, run: mirror.Pass, store: s, post: post, log: a.Log}).Check)
+	squash, err := landing.NewSquash(a, s, env.Config, restacker, mirror.FixLane)
 	if err != nil {
 		return Deps{}, err
 	}
-	squash, err := landing.NewSquash(a, s, env.Config, restacker, fixLanes)
-	if err != nil {
-		return Deps{}, err
-	}
-	liveClocks, err := orca.LiveClocks(a)
-	if err != nil {
-		return Deps{}, err
-	}
-	owed, err := landing.NewReleaseOwed(a, s, env.Config, filepath.Join(env.State, runnerFile), squash, liveClocks)
+	owed, err := landing.NewReleaseOwed(a, s, env.Config, filepath.Join(env.State, runnerFile), squash, mirror.LiveClocks)
 	if err != nil {
 		return Deps{}, err
 	}
@@ -258,25 +284,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return gates.Admit(ctx, squash.Admit(ctx, acts, snapshot), snapshot)
 	}
 	deps.Trunk = env.Config.Trunk
-	orcaRunner, err := config.LoadRunner(filepath.Join(env.State, runnerFile))
-	if err != nil {
-		return Deps{}, err
-	}
-	if orcaRunner.Orca.DeskInbox != "" {
-		agents, err := launchd.New(a.Runner, os.Stdout)
-		if err != nil {
-			return Deps{}, err
-		}
-		if err := agents.Install(ctx, agentOf(env).RelayJob(orcaRunner.Orca.DeskInbox)); err != nil {
-			a.Log.Warn("the relay's launchd job is not installed", "err", err)
-		}
-		deps.Checks = append(deps.Checks, NewRelayKeeper(env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log).Check)
-	}
-	if !slices.Contains(env.Config.Movers, config.MoverGrading) {
-		return deps, nil
-	}
-	deps.Pool, err = grading.NewLivePool(a, filepath.Join(env.State, runnerFile), s)
-	return deps, err
+	return deps, nil
 }
 
 func Install(cmd *cobra.Command, a *app.App) error {

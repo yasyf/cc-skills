@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -13,6 +15,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -30,13 +33,26 @@ type gateInputs struct {
 	TapRules map[string][]string `json:"tap_rules"`
 	Exempt   []string            `json:"exempt"`
 	GoLanes  []string            `json:"go_lanes"`
+	Lanes    []laneRow           `json:"lanes"`
+	FixLanes []string            `json:"fix_lanes"`
+	Clocks   []string            `json:"clocks"`
+	Session  string              `json:"session"`
+}
+
+type laneRow struct {
+	Name      string          `json:"name"`
+	State     store.LaneState `json:"state"`
+	RetiredBy string          `json:"retired_by,omitempty"`
 }
 
 type InputsPublisher struct {
-	Runner  shell.Runner
-	Session string
-	Config  string
-	Now     func() time.Time
+	Runner     shell.Runner
+	Store      *store.Store
+	FixLane    func(lane string) (bool, error)
+	LiveClocks func() ([]string, error)
+	Session    string
+	Config     string
+	Now        func() time.Time
 
 	posted string
 	at     time.Time
@@ -59,21 +75,103 @@ func (p *InputsPublisher) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	cards, taps := ownerWaits(live)
-	encoded, err := json.Marshal(gateInputs{Cards: cards, Taps: taps, TapRules: landing.TapRules, Exempt: landing.ExemptGrades, GoLanes: cfg.GoLaneNames()})
+	all, err := p.Store.AllLanes()
 	if err != nil {
 		return err
 	}
 	now := p.Now()
+	var fixes []string
+	for _, lane := range all {
+		if lane.State == store.LaneRetired && now.Sub(lane.Since) > incidentHorizon {
+			continue
+		}
+		fix, err := p.FixLane(lane.Name)
+		if err != nil {
+			return err
+		}
+		if fix {
+			fixes = append(fixes, lane.Name)
+		}
+	}
+	clocks, err := p.LiveClocks()
+	if err != nil {
+		return err
+	}
+	cards, taps := ownerWaits(live)
+	routed := routedLanes(all)
+	encoded, err := json.Marshal(gateInputs{Cards: cards, Taps: taps, TapRules: landing.TapRules, Exempt: landing.ExemptGrades, GoLanes: cfg.GoLaneNames(), Lanes: routed, FixLanes: fixes, Clocks: clocks, Session: p.Session})
+	if err != nil {
+		return err
+	}
 	if string(encoded) == p.posted && now.Sub(p.at) < inputsRepost {
 		return nil
 	}
-	text := fmt.Sprintf("What lr landing go reads off this board: %d open cards, %d open tap rows", len(cards), len(taps))
+	text := fmt.Sprintf("What landing reads off the lanes machine: %d open cards, %d open tap rows, %d routed lanes, %d fix lanes, %d live incident clocks", len(cards), len(taps), len(routed), len(fixes), len(clocks))
 	if _, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: self, Kind: "note", Topic: gateInputsTopic, ID: fmt.Sprintf("%s:%d", gateInputsTopic, now.UnixMilli()), To: []string{gateInputsReader}, Text: text, Attrs: map[string]string{gateInputsAttr: string(encoded)}}); err != nil {
 		return err
 	}
 	p.posted, p.at = string(encoded), now
 	return nil
+}
+
+func routedLanes(all []store.Lane) []laneRow {
+	named := make(map[string]store.Lane, len(all))
+	for _, lane := range all {
+		named[lane.Name] = lane
+	}
+	var rows []laneRow
+	for _, lane := range all {
+		last, seen := lane, map[string]bool{lane.Name: true}
+		for last.State == store.LaneRetired && !seen[last.RetiredBy] {
+			next, found := named[last.RetiredBy]
+			if !found {
+				break
+			}
+			last, seen[next.Name] = next, true
+		}
+		if last.State != store.LaneRetired {
+			rows = append(rows, laneRow{Name: lane.Name, State: lane.State, RetiredBy: lane.RetiredBy})
+		}
+	}
+	return rows
+}
+
+type InputsMirror struct {
+	Drive     string
+	Store     *store.Store
+	CopyLanes bool
+	Now       func() time.Time
+
+	mu     sync.Mutex
+	inputs gateInputs
+	err    error
+}
+
+func (m *InputsMirror) Pass(ctx context.Context) error {
+	inputs, err := readGateInputs(ctx, m.Drive, m.Now())
+	if err == nil && m.CopyLanes {
+		rows := make([]store.Lane, len(inputs.Lanes))
+		for i, lane := range inputs.Lanes {
+			rows[i] = store.Lane{Name: lane.Name, State: lane.State, RetiredBy: lane.RetiredBy}
+		}
+		err = m.Store.PutLanes(rows, m.Now())
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.inputs, m.err = inputs, err
+	return err
+}
+
+func (m *InputsMirror) FixLane(lane string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Contains(m.inputs.FixLanes, lane), m.err
+}
+
+func (m *InputsMirror) LiveClocks() ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.inputs.Clocks, m.err
 }
 
 func readGateInputs(ctx context.Context, drive string, now time.Time) (gateInputs, error) {

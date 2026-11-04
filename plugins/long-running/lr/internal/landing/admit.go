@@ -59,7 +59,7 @@ type Gates struct {
 	Repo     string
 	Checkout string
 	Rulings  string
-	Session  func() (string, error)
+	Session  func(ctx context.Context) (string, error)
 	Build    BuildFailures
 	Token    bkread.Token
 	Now      func() time.Time
@@ -87,12 +87,9 @@ func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) 
 	return &Gates{
 		Runner: a.Runner, CCX: a.CCX, Store: s, Drive: cfg.Drive, Repo: cfg.Repo, Checkout: cfg.Checkout,
 		Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py"),
-		Session: func() (string, error) {
-			entry, err := drive.Named(cfg.Drive)
-			if err != nil {
-				return "", err
-			}
-			return entry.Root(), nil
+		Session: func(ctx context.Context) (string, error) {
+			inputs, err := readGateInputs(ctx, cfg.Drive, a.Now())
+			return inputs.Session, err
 		},
 		Build: landing.Build, Token: bkread.Token{Command: landing.TokenCommand}, Now: a.Now, Log: a.Log,
 	}, nil
@@ -251,7 +248,7 @@ func (g *Gates) ask(ctx context.Context, f machine.Facts, rows []board.ReservedR
 }
 
 func (g *Gates) drawCard(ctx context.Context, f machine.Facts, rows []board.ReservedRow) error {
-	session, err := g.Session()
+	session, err := g.Session(ctx)
 	if err != nil {
 		return err
 	}
