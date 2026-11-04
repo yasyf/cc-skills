@@ -99,6 +99,9 @@ type fake struct {
 	branchReads int
 	hosts       map[string]Host
 	hostReads   int
+	sprites     map[string]Sprite
+	spriteReads int
+	spritesFail error
 	deps        Deps
 }
 
@@ -154,7 +157,17 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		RotateAt:     600_000,
 		RetireAfter:  time.Hour,
 		OpenBranches: func() (map[string][]int, error) { f.branchReads++; return f.branches, nil },
-		Hosts: func(names []string) map[string]Host {
+		Sprites: func(names []string) (map[string]Sprite, error) {
+			f.spriteReads++
+			out := map[string]Sprite{}
+			for _, name := range names {
+				if sprite, ok := f.sprites[name]; ok {
+					out[name] = sprite
+				}
+			}
+			return out, f.spritesFail
+		},
+		Hosts: func(names []string, _ map[string]Sprite) map[string]Host {
 			f.hostReads++
 			out := map[string]Host{}
 			for _, name := range names {

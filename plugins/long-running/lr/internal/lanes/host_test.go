@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,26 +105,119 @@ func TestAQuietLaneNoProbeSettlesIsHeldWithItsBlockerToTheMetaDeskNotRoot(t *tes
 	}
 }
 
-func TestOneTickProbesEveryUnprovenSpriteInOneCallAtOneLaneAndAtAThousand(t *testing.T) {
-	reads := func(n int) int {
+func TestOneTickReadsTheSpritesListOnceAndProbesInOneCallAtOneLaneAndAtAThousand(t *testing.T) {
+	reads := func(n int) []int {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
 		f.peers = []Row{who(lane2, true, t0)}
 		f.hosts = map[string]Host{}
+		f.sprites = map[string]Sprite{}
 		for i := range n {
 			name := fmt.Sprintf("parked-%d", i)
 			registered(t, s, store.Lane{Name: name, Role: "lane", Placement: placedOnSprite, PRs: []int{50000 + i}})
 			f.peers = append(f.peers, Row{Lane: name, SeenAt: t0.Add(-time.Hour), Dispatch: fmt.Sprintf("ctx_%d", i), Unverified: "has an Orca agent that reads unverifiable (host_unavailable)"})
 			f.hosts[name] = HostRunning
+			f.sprites[name] = Sprite{Name: name, Status: spriteRunning, LastRunning: t0}
 		}
 		out := tick(t, s, f, t0)
 		equal(t, len(out.Held), 0)
-		return f.hostReads
+		return []int{f.spriteReads, f.hostReads}
 	}
 	equal(t, reads(1000), reads(1))
+	equal(t, reads(1), []int{1, 1})
 }
 
-func TestASpriteReadsByWhatSpriteListAndItsWorkerProbeAnswer(t *testing.T) {
+func lostOnSprite(t *testing.T, s *store.Store, f *fake, name string, ran time.Time) {
+	t.Helper()
+	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
+	f.peers = append(f.peers, who("meta-desk-3", true, t0), Row{Lane: name, SeenAt: t0.Add(-mins(20)), Dispatch: "ctx_1", Unverified: "has an Orca agent that reads unverifiable (sprite_runtime)"})
+	f.sprites = map[string]Sprite{name: {Name: "sprite-" + name, Status: "cold", LastRunning: ran}}
+}
+
+func lostReports(f *fake) []Post {
+	var out []Post
+	for _, p := range f.ofKind("report") {
+		if strings.HasPrefix(p.Text, "LANE-LOST ") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func TestALaneHeardNeverWhoseSpriteWentColdIsReportedLostAndRelaunchedFromItsBriefOnce(t *testing.T) {
+	s := memory(t)
+	registered(t, s, store.Lane{Name: "build-desk", Role: "lane"})
+	spawn := spawned(1, lane2, writeBrief(t), t0.Add(-mins(30)), map[string]string{"model": "opus", "effort": "xhigh", "placement": placedOnSprite})
+	spawn.Lane = "build-desk"
+	f := newFake(t, []Record{spawn}, []Row{who(lane2, true, t0.Add(-mins(30))), who("build-desk", true, t0.Add(-mins(30)))})
+	tick(t, s, f, t0.Add(-mins(30)))
+	f.peers = []Row{who("build-desk", true, t0)}
+	ran := t0.Add(-mins(4))
+	lostOnSprite(t, s, f, lane2, ran)
+	f.posts = nil
+	lines, err := RegistryLines(s, []string{lane2}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, lines[0], "heard never")
+
+	early := tick(t, s, f, t0)
+
+	equal(t, []any{early.Relaunched, early.Held, len(f.launches), len(lostReports(f)), row(t, s, lane2).State}, []any{[]Relaunch(nil), []string(nil), 0, 0, store.LaneDesired})
+
+	out := tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	why := "has a Sprite sprite-conflicts-2 that is cold and last ran at " + pacific(ran)
+	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", why}})
+	equal(t, []any{f.launches, f.hostReads, row(t, s, lane2).State}, []any{[]string{"conflicts-3"}, 0, store.LaneRetired})
+	brief := strings.Split(f.briefs["conflicts-3"], "\n")
+	contains(t, brief[0], "Partial work: conflicts-2 was lost mid-task, since it "+why)
+	equal(t, brief[1], "Replaces: conflicts-2")
+	reports := lostReports(f)
+	equal(t, len(reports), 1)
+	equal(t, reports[0].To, []string{"build-desk", "meta-desk-3"})
+	equal(t, reports[0].Text, "LANE-LOST conflicts-2: it "+why+", and its dispatch never settled; relaunched as conflicts-3 from its brief.")
+}
+
+func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *testing.T) {
+	s := memory(t)
+	f := newFake(t, nil, nil)
+	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "has a Sprite sprite-conflicts-2 that is cold and last ran at 1:40 PM"})
+	lostOnSprite(t, s, f, "conflicts-3", t0.Add(-mins(10)))
+
+	first := tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, []any{first.Held, len(f.launches), row(t, s, "conflicts-3").State}, []any{[]string{"conflicts-3"}, 0, store.LaneHeld})
+	reports := lostReports(f)
+	equal(t, len(reports), 1)
+	equal(t, reports[0].To, []string{"meta-desk-3"})
+	contains(t, reports[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 has a Sprite sprite-conflicts-2")
+}
+
+func TestASettledLaneOrAFailedSpritesListLeavesAColdSpriteLaneAlone(t *testing.T) {
+	for name, setup := range map[string]func(*fake){
+		"a settled lane": func(f *fake) {
+			f.feed = append(f.feed, rec(2, lane2, "done", t0.Add(-mins(20)), "shipped", Root))
+		},
+		"a failed list read": func(f *fake) { f.spritesFail = errors.New("sprite api /sprites: 502") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := onSprite(t, s)
+			f.peers = nil
+			lostOnSprite(t, s, f, lane2, t0.Add(-mins(30)))
+			setup(f)
+
+			out := tick(t, s, f, t0)
+
+			equal(t, []any{out.Relaunched, len(f.launches), len(lostReports(f))}, []any{[]Relaunch(nil), 0, 0})
+		})
+	}
+}
+
+func TestASpriteReadsByTheSpritesListAndItsWorkerProbeAnswer(t *testing.T) {
 	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir()}
 	for lane, box := range map[string]string{"parked": "dar-parked", "ended": "dar-ended", "hung": "dar-hung", "odd": "dar-odd", "down": "dar-down"} {
 		writeJSON(t, filepath.Join(env.receipts(), lane+".json"), map[string]any{"result": map[string]any{"server": map[string]string{"name": box}}})
@@ -139,19 +233,35 @@ func TestASpriteReadsByWhatSpriteListAndItsWorkerProbeAnswer(t *testing.T) {
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1, Stderr: "connection refused"}
 		},
 	}
+	pages := []string{
+		`{"sprites":[{"name":"dar-parked","status":"running"},{"name":"dar-ended","status":"running"},{"name":"dar-hung","status":"running"},{"name":"warm-pool-1","status":"warm"}],"has_more":true,"next_continuation_token":"page 2"}`,
+		`{"sprites":[{"name":"dar-odd","status":"running"},{"name":"dar-down","status":"cold","last_running_at":"2026-11-03T20:58:00Z"}],"has_more":false}`,
+	}
+	var listed []string
 	env.Runner = scripted(func(argv []string) (shell.Result, error) {
-		if argv[1] == "list" {
-			return shell.Result{Stdout: "dar-parked\ndar-ended\ndar-hung\ndar-odd\ndar-down\n"}, nil
+		if argv[1] == "api" {
+			listed = append(listed, argv[2])
+			return shell.Result{Stdout: pages[len(listed)-1]}, nil
 		}
 		return answers[argv[3]](argv)
 	})
+	lanes := []string{"parked", "ended", "hung", "odd", "down", "deleted"}
 
-	equal(t, env.hosts(context.Background(), []string{"parked", "ended", "hung", "odd", "down", "deleted"}), map[string]Host{
+	sprites, err := env.laneSprites(context.Background(), lanes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, listed, []string{"/sprites", "/sprites?continuation_token=page+2"})
+	equal(t, []any{len(sprites), sprites["down"]}, []any{5, Sprite{Name: "dar-down", Status: "cold", LastRunning: time.Date(2026, 11, 3, 20, 58, 0, 0, time.UTC)}})
+	equal(t, env.hosts(context.Background(), lanes, sprites), map[string]Host{
 		"parked": HostRunning, "ended": HostEmpty, "hung": HostUnreachable, "down": HostUnreachable, "deleted": HostUnreachable,
 	})
 
 	env.Runner = scripted(func([]string) (shell.Result, error) {
 		return shell.Result{}, errors.New("sprite: not logged in")
 	})
-	equal(t, len(env.hosts(context.Background(), []string{"parked"})), 0)
+	if _, err := env.laneSprites(context.Background(), []string{"parked"}); err == nil {
+		t.Fatal("a failed Sprites list read returned no error")
+	}
 }
