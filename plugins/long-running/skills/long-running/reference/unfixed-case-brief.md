@@ -65,7 +65,8 @@ Do:
   2. Fix it. Stack on the branch of `{parent}` when the fix belongs with its change;
      otherwise, start from a fresh trunk. Ship it through submit-pr, pushing and
      opening the PR within 10 minutes of the candidate; the PR text never gates the
-     push, and a scope change on a later push goes in one PR comment. Once GitHub's
+     push, and the body is corrected unasked with `gh pr edit <n> --body-file <file>`
+     when it turns out false or when evidence a grader reads arrives. Once GitHub's
      required checks are green and the PR is approved, post READY with the exact
      head; the landing desk owns enqueue. Accept each reviewer-bot finding with
      `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`

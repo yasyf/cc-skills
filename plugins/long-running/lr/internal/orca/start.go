@@ -704,7 +704,7 @@ func (l *launch) writeLaneBrief(text string) error {
 	}
 	copied.WriteString(text)
 	if l.agent == agentIncident {
-		fmt.Fprintf(&copied, "\n\n## PR prose\n\n%s\n", "The fix outranks its prose. The moment the candidate is committed, push the branch and open the PR within 10 minutes of the candidate, with a short body you write yourself in plain words: what broke, what the change does, the test that proves it, the risk. Never wait for a red-baseline build, the coordinator, or an Orca answer. The failing-first CI link and any scope change on a later push go in one PR comment, in your own plain words; the body stays as opened.")
+		fmt.Fprintf(&copied, "\n\n## PR prose\n\n%s\n", "The fix outranks its prose. The moment the candidate is committed, push the branch and open the PR within 10 minutes of the candidate, with a short body you write yourself in plain words: what broke, what the change does, the test that proves it, the risk. Never wait for a red-baseline build, the coordinator, or an Orca answer. The fix lands fast with the body as opened; correct the body unasked with `gh pr edit <n> --body-file <file>` the moment it turns out false or evidence a grader reads arrives, such as the failing-first CI link or a scope change on a later push.")
 	} else {
 		fmt.Fprintf(&copied, "\n\n## PR prose\n\n%s\n", "You write your own PR title, PR body, and commit message. Never ask the coordinator, another lane, or an Orca question for prose.")
 	}

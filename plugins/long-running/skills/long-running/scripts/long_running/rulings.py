@@ -2756,7 +2756,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
     findings.refusals += decided(head.body, card_answers(loaded, findings))
     findings.refusals += uncounted_store(head)
-    if records is None:
+    if records is None or head.repo.casefold() != entry_of(args)["repo"].casefold():
         return
     if not (lane := lane_of(records)):
         findings.blockers.append(f"BLOCKER no cci record names the lane of {head.repo}#{head.number}")

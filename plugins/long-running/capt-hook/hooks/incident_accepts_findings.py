@@ -6,12 +6,12 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.annotations import shell_comments
 
 from .compaction_handoff import Bound, CompactionState
-from .lane_landing import LANE, incident_lane, lane_name, option, run_quietly, sliced_brief
+from .lane_landing import HELP_FLAGS, LANE, incident_lane, lane_name, option, run_quietly, sliced_brief
 
 BOUND = [CompactionState(active=True, coordinator=True)]
 
 PUSHES = frozenset({("git", "push"), ("ccx", "vcs", "push"), ("ccx", "vcs", "ship")})
-NOT_A_PUSH = frozenset({"--new-branch", "--create", "--no-push", "--dry-run", "-n", "--delete", "-d"})
+NOT_A_PUSH = HELP_FLAGS | {"--new-branch", "--create", "--no-push", "--dry-run", "-n", "--delete", "-d"}
 FIX_IS_WRONG = re.compile(r"#\s*fix-is-wrong:\s*(?P<slug>\S+)\s*")
 FIX_LANE = "ashared-open-fix-0123456789abcdef"
 INCIDENT = sliced_brief("shared-open-fix", "incident")
@@ -54,6 +54,7 @@ def restarts_green_ci(evt: BaseHookEvent, call: Call) -> bool:
         Input(command="git push", agent_id="aincident-api-500s-0123456789abcdef", commands=RUNNING, state=BOUND): Block(pattern=r"`# fix-is-wrong: <slug>`"),
         Input(command="ccx vcs push", agent_id="aincident-api-500s-0123456789abcdef", commands=OPEN | {"gh pr checks": "pass\n"}, state=BOUND): Block(),
         Input(command=POLISH, agent_id=FIX_LANE, transcript=INCIDENT, commands=RED, state=BOUND): Allow(),
+        Input(command="ccx vcs ship --help", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING, state=BOUND): Allow(),
         Input(command=POLISH, agent_id=LANE, commands=RUNNING, state=BOUND): Allow(),
         Input(command=f"{POLISH}  # fix-is-wrong: retry-test-misses-first-backoff", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING, state=BOUND): Warn(pattern=r"^Finding `retry-test-misses-first-backoff` says"),
         Input(command="ccx vcs ship --new-branch shared-open/fix -m 'shared-open: 🐛 fix'", agent_id=FIX_LANE, transcript=INCIDENT, commands=RUNNING, state=BOUND): Allow(),

@@ -200,11 +200,11 @@ the lane that owns it, as a commit on that PR, never a new lane or a stacked chi
 **R14.** A process fix is a PR the turn it is adopted, driven to merge, release and install by its
 lane, proven on the record that reported the defect. A hook that blocks a session is fixed by the lane
 that session launches, which installs its own fix at merge ([Hooks and refusals](#hooks-and-refusals)).
-Every other tooling defect, refusal or repeated chore goes to the meta lane that turn, which gives it an
-implementer; the coordinator never spawns one. One lane installs those per night. An install interrupts
-nothing: the supervisor takes a release between ticks and the relay between passes. A fix for drive tooling
-that is actively causing harm ships as its own PR off main, never stacked, merged and installed before any
-other tooling change. No new Python enters the pack apart from capt-hook hooks; a fix to a Python script is a Go verb.
+Every other tooling defect or refusal goes to the meta lane that turn, which gives it an implementer; the coordinator never spawns one.
+A session or lane that hits a workaround, a repeated lookup or a tool gap twice sends the meta lane one
+`cci post --kind note --to meta-desk` that turn, unasked, naming the verb it wants, and the meta lane builds it
+without being told. A fix for drive tooling that is actively causing harm ships as its own PR off main, never stacked,
+merged and installed before any other tooling change. No new Python enters the pack apart from capt-hook hooks; a fix to a Python script is a Go verb.
 
 **R15.** CI is the verifier and runs every test. Before it pushes, a lane runs `go build` and `go vet` over the Go packages
 it touched and the typecheck over the TypeScript it touched, which the `vet_before_push` hook enforces; the `local_builds`

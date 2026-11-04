@@ -51,7 +51,7 @@ def environment(root: Path, state: Path, backend: str) -> dict[str, str]:
     selected = dict(os.environ) | {"HOME": str(root), "CLAUDE_CONFIG_DIR": str(root / "config"), judge.BACKEND_ENV: backend}
     drives = root / "config" / "long-running" / "drives"
     drives.mkdir(parents=True, exist_ok=True)
-    (drives / "brook-drive.json").write_text(json.dumps({"drive": "brook-drive", "program": "brook", "state_dir": str(state), "checkout": REPO, "cci_drive": "brook-cci", "sessions": ["s-root"]}))
+    (drives / "brook-drive.json").write_text(json.dumps({"drive": "brook-drive", "program": "brook", "state_dir": str(state), "checkout": REPO, "cci_drive": "brook-cci", "sessions": ["s-root"], "repo": "acme/app"}))
     return selected
 
 

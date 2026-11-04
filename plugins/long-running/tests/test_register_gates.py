@@ -274,6 +274,20 @@ def test_the_pr_check_reads_the_ledger_without_a_network_sync_or_a_long_wait(mon
     assert run.call_args.kwargs["timeout"] == register_gates.GATE_READ_SECONDS
 
 
+def test_the_read_back_warning_fires_once_per_lane(root, monkeypatch):
+    root.configure(repo="example/web")
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "lane-a")
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_DRIVE", DRIVE)
+    monkeypatch.setattr(register_gates, "acceptance", lambda *_: "CONTRACT-MISSING lane-a: none\n")
+    monkeypatch.setattr(register_gates, "has_pr", lambda *_: False)
+
+    def warnings() -> list[str]:
+        return [message for message in root.bash(PreToolUseEvent, "gh -R example/web pr create --title x --body-file b.md") if "has no read-back" in message]
+
+    assert len(warnings()) == 1
+    assert warnings() == []
+
+
 def test_a_named_ship_helper_is_gated_as_the_lane_that_spawned_it(tmp_path):
     subagents = tmp_path / SESSION / "subagents"
     subagents.mkdir(parents=True)
