@@ -16,8 +16,9 @@ import (
 
 func recurrenceRecords(t *testing.T, lines string, queries *[]client.Query) func(context.Context, client.Query) ([]client.Record, error) {
 	t.Helper()
-	var records []client.Record
-	for _, line := range nonEmptyLines(lines) {
+	parts := nonEmptyLines(lines)
+	records := make([]client.Record, 0, len(parts))
+	for _, line := range parts {
 		var record client.Record
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			t.Fatal(err)
