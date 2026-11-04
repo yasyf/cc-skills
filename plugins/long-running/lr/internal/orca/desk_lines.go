@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/alert"
 	"log/slog"
 	"os"
 	"regexp"
@@ -962,6 +963,9 @@ func (d *Desk) alertLine(ctx context.Context, at, key, rest string) error {
 	if dispatch.active() {
 		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), "", nil)
 	}
+	if muted, err := d.ownerMuted(ctx, lineMonitors(link, what)); muted != "" || err != nil {
+		return err
+	}
 	return d.record(log, fmt.Sprintf("ALERT %s: %s %s | no lane launched; the alerts desk writes `%s` when it judges one necessary", slug, what, link, incidentGrammar))
 }
 
@@ -981,8 +985,15 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
 		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), "", nil)
 	}
 	monitors := map[string]bool{}
-	for _, found := range monitorID.FindAllStringSubmatch(link+" "+what, -1) {
-		monitors[found[1]] = true
+	for _, monitor := range lineMonitors(link, what) {
+		monitors[monitor] = true
+	}
+	muted, err := d.ownerMuted(ctx, sortedKeys(monitors))
+	if err != nil {
+		return err
+	}
+	if muted != "" {
+		return d.record(log, fmt.Sprintf("INCIDENT-MUTED %s %s: %s; no launch", key, lane, muted))
 	}
 	if len(monitors) > 0 {
 		peer, err := d.incidentLane(ctx, monitors, lane)
@@ -1067,4 +1078,26 @@ func (d *Desk) unholdLine(at, key, rest string) error {
 		}
 	}
 	return nil
+}
+
+func lineMonitors(link, what string) []string {
+	var monitors []string
+	for _, found := range monitorID.FindAllStringSubmatch(link+" "+what, -1) {
+		monitors = append(monitors, found[1])
+	}
+	return monitors
+}
+
+func (d *Desk) ownerMuted(ctx context.Context, monitors []string) (string, error) {
+	if len(monitors) == 0 {
+		return "", nil
+	}
+	records, err := d.tail(ctx, alert.MutedQuery())
+	if err != nil {
+		return "", d.noteTailFailure(err)
+	}
+	if record, found := alert.Muted(records, monitors); found {
+		return alert.MutedLine(record), nil
+	}
+	return "", nil
 }
