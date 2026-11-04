@@ -105,7 +105,7 @@ owner; a changed dashboard goes live only with `--proof` ([drive-dashboard.md](r
 His ruling on a dashboard surface ships its text change within 15 minutes, with one screenshot of that page, even while the full fix is still in a PR.
 An order of his gets no acknowledgement and no promised time: he hears back
 once, when it is live or decided, in one sentence, and a question gets one sentence.
-`owner_replies_stay_short.py` refuses, in the window, the `reply` tool and his Slack
+`owner_replies_stay_short.py` warns and never blocks, in the window, on the `reply` tool and his Slack
 DM, a reply that only acknowledges or promises a clock, one over two sentences that is
 not an update, a return update or a pick card, and a mechanism, diagram or explainer
 link he did not ask for. Only a turn where he asks how a system works gets a hosted

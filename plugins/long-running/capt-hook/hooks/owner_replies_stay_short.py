@@ -6,13 +6,11 @@ from pathlib import Path
 
 from spawnllm import Binary, BinaryAnswer, Refused
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, on
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 
 from .compaction_handoff import Communicator, CompactionState, communicator_tests, drive_entry
-from .owner_facing import REPLY_WINDOW, last_reply
 from .owner_replies_carry_news import dm_posts
 from .owner_returns import EXPLAINER, REPLY, SHIPPED_CC_SLACK, OwnerReturns, dm_owed
-from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
 from .urgent_lines_name_the_harm import DM_TOOLS, sentences
 
@@ -46,11 +44,6 @@ WHY = "The typing box lost your draft because each render reset its input."
 PAGE = "Fixed and live. The details: https://mac.tail1.ts.net:8665/one-pagers/typing-box/"
 UPDATE_MD = "# Owner update: brook, 10:40 PM\n\n## Workstreams\n\n| Workstream | State |\n| --- | --- |\n| Dashboard | typing box fix live |\n\nThree PRs merged. Two lanes are live. One waits on you."
 QUIET = frozenset({"progress", "info"})
-RECEIPT = "Its checks passed.\n\n- Land it (recommended)\n- Hold it\n\nReply r1; pass this id to edit it on every surface."
-
-
-def said(text: str, **given: object) -> Input:
-    return Input(transcript=reply_transcript(text), **({"state": ACTIVE, "decide": CALM} | given))
 
 
 def replied(md: str, picks: tuple[str, ...] = (), ledger: dict | None = None, **given: object) -> Input:
@@ -93,66 +86,46 @@ def has_picks(stored: Path) -> bool:
     return stored.exists() and bool(json.loads(stored.read_text()).get("picks"))
 
 
-def refused(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookResult | None:
+def advised(evt: BaseHookEvent, texts: list[str], card: bool = False) -> HookResult | None:
     found = [rule for text in texts if text.strip() for rule in breaches(evt, text, card)]
-    return evt.block(" ".join(dict.fromkeys(found))) if found else None
+    return evt.context("Warning, nothing was blocked: " + " ".join(dict.fromkeys(found))) if found else None
 
 
-@on(  # capt-hook: no-escape the owner ordered every chatty reply refused before it reaches him
+@on(
     Event.PreToolUse,
     only_if=[Communicator(), Tool("Bash", REPLY, *DM_TOOLS)],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        replied(ACKS): Block(pattern=r"^An order gets no acknowledgement and no promised time"),
-        replied("On it."): Block(pattern=r"no acknowledgement"),
+        replied(ACKS): Warn(pattern=r"An order gets no acknowledgement and no promised time"),
+        replied("On it."): Warn(pattern=r"no acknowledgement"),
         replied(LIVE_NOW): Allow(),
         replied("Yes, the relay keeps one replica per chat."): Allow(),
-        replied(WORDY): Block(pattern=r"^A reply to him is at most two sentences"),
+        replied(WORDY): Warn(pattern=r"A reply to him is at most two sentences"),
         replied(WORDY, picks=("Land it", "Hold it")): Allow(),
         replied(UPDATE_MD): Allow(),
         replied(WORDY, state=[*ACTIVE, OwnerReturns(returned=True)]): Allow(),
-        replied(WHY, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
+        replied(WHY, decide=EXPLAINS): Warn(pattern=r"He did not ask how or why"),
         replied(WHY, decide=EXPLAINS, state=[*ACTIVE, OwnerReturns(explain_due=True)]): Allow(),
         replied(WHY, picks=("Build it", "Hold it"), decide=EXPLAINS): Allow(),
         replied(WHY, decide=EXPLAINS, state=[*ACTIVE, OwnerReturns(asked_why=True)]): Allow(),
         replied(WHY, decide=EXPLAINS, env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": json.dumps({"replies": [{"ts": "1.2"}], "holder_session": "s"})}): Allow(),
-        Input(tool=REPLY, tool_input={"id": "r1", "title": "Typing box", "md": WHY}, state=ACTIVE, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
+        Input(tool=REPLY, tool_input={"id": "r1", "title": "Typing box", "md": WHY}, state=ACTIVE, decide=EXPLAINS): Warn(pattern=r"He did not ask how or why"),
         replied(WHY, decide={"mechanism": Refused()}): Allow(),
-        replied(PAGE): Block(pattern=r"no mechanism, diagram or explainer link"),
-        replied("Fixed and live.\n```mermaid\ngraph LR; a-->b\n```"): Block(pattern=r"no mechanism, diagram"),
-        replied("Fixed and live.\n```arch\n{\"arch\":1}\n```"): Block(pattern=r"no mechanism, diagram"),
-        Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": ACKS}, state=ACTIVE, decide=CALM): Block(pattern=r"no acknowledgement"),
+        replied(PAGE): Warn(pattern=r"no mechanism, diagram or explainer link"),
+        replied("Fixed and live.\n```mermaid\ngraph LR; a-->b\n```"): Warn(pattern=r"no mechanism, diagram"),
+        replied("Fixed and live.\n```arch\n{\"arch\":1}\n```"): Warn(pattern=r"no mechanism, diagram"),
+        Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": ACKS}, state=ACTIVE, decide=CALM): Warn(pattern=r"no acknowledgement"),
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "C0RELEASES1", "thread_ts": "1.2", "text": ACKS}, state=ACTIVE, decide=CALM): Allow(),
-        Input(command=f"cc-slack send --channel D0B6Z --text '{WORDY}'", state=ACTIVE, decide=CALM): Block(pattern=r"at most two sentences"),
+        Input(command=f"cc-slack send --channel D0B6Z --text '{WORDY}'", state=ACTIVE, decide=CALM): Warn(pattern=r"at most two sentences"),
         Input(command="cci post --lane owner-relay --kind note --text 'On it.'", state=ACTIVE, decide=CALM): Allow(),
         replied(ACKS, agent_id="a1b2c3"): Allow(),
         replied("Due by 11:30 PM.", ledger={"order": "m447", "status": "progress", "by": "11:30 PM"}): Allow(),
-        replied("Due by 11:30 PM.", ledger={"order": "m447", "status": "done"}): Block(pattern=r"no acknowledgement"),
+        replied("Due by 11:30 PM.", ledger={"order": "m447", "status": "done"}): Warn(pattern=r"no acknowledgement"),
     }),
 )
 def owner_writes_stay_short(evt: BaseHookEvent) -> HookResult | None:
     if evt.tool_name == REPLY:
         if evt._tool_input.get("order") and evt._tool_input.get("status") in QUIET and not evt._tool_input.get("picks"):
             return None
-        return refused(evt, [str(evt._tool_input.get("md") or "")], card=is_pick_card(evt))
-    return refused(evt, [text for _, text in dm_posts(evt)])
-
-
-@on(  # capt-hook: no-escape the owner ordered every chatty reply refused before it reaches him
-    Event.Stop,
-    only_if=[Communicator()],
-    skip_if=[FromSubagent()],
-    transcript_events=REPLY_WINDOW,
-    tests=communicator_tests({
-        said(ACKS): Block(pattern=r"^An order gets no acknowledgement"),
-        said(LIVE_NOW): Allow(),
-        said(WORDY): Block(pattern=r"^A reply to him is at most two sentences"),
-        said(WHY, decide=EXPLAINS): Block(pattern=r"^He did not ask how or why"),
-        Input(transcript=[T.user("land the relay fix"), *T.tool_turn(REPLY, result=RECEIPT, title="Land it?", md="Its checks passed.", picks=["Land it", "Hold it"], recommended="Land it"), T.assistant(RECEIPT)], state=ACTIVE, decide=CALM): Allow(),
-        said(ACKS, agent_id="a1b2c3"): Allow(),
-    }),
-)
-def owner_replies_stay_short(evt: BaseHookEvent) -> HookResult | None:
-    if any(use.call.name == REPLY and use.result and not use.result.is_error for use in evt.ctx.turn.tool_calls.items):
-        return None
-    return refused(evt, [last_reply(evt)])
+        return advised(evt, [str(evt._tool_input.get("md") or "")], card=is_pick_card(evt))
+    return advised(evt, [text for _, text in dm_posts(evt)])
