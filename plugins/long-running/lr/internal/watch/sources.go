@@ -18,10 +18,13 @@ const (
 	AskNamespace    = "ask"
 	GateNamespace   = "gate"
 	RepeatNamespace = "repeat"
+	PortCensusTopic = "port-census"
 
-	askKind    = "ask"
-	gateKind   = "gate"
-	repeatKind = "repeat"
+	askKind        = "ask"
+	gateKind       = "gate"
+	repeatKind     = "repeat"
+	portCensusKind = "port-census"
+	portEndedAttr  = "ended"
 
 	askWithin    = 15 * time.Minute
 	waitWithin   = 10 * time.Minute
@@ -29,6 +32,8 @@ const (
 	repeatCount  = 3
 	askWindow    = 24 * time.Hour
 	quoteChars   = 160
+
+	portCensusQuiet = 6 * time.Hour
 )
 
 var (
@@ -215,4 +220,20 @@ func Repeats(escalations []store.Escalation, now time.Time) []Wait {
 		})
 	}
 	return waits
+}
+
+func PortCensusWaits(records []client.Record, now time.Time) []Wait {
+	var newest *client.Record
+	for i, record := range records {
+		if record.Kind == "state" && record.Topic == PortCensusTopic {
+			newest = &records[i]
+		}
+	}
+	if newest == nil || newest.Fields.Attrs[portEndedAttr] != "" || now.Before(newest.At.Add(portCensusQuiet)) {
+		return nil
+	}
+	return []Wait{{
+		Kind: portCensusKind, Repo: UnfinishedNamespace, Head: PortCensusTopic, Mover: machine.MoverRoot, Since: newest.At.Add(portCensusQuiet), To: root,
+		Cause: fmt.Sprintf("old-tree port census: %s by %s is the newest walk, so old-tree PRs may be landing with no port; name a live old-tree-port-desk or post its census with %s=<why> if ports have ended", newest.Name(), newest.Lane, portEndedAttr),
+	}}
 }

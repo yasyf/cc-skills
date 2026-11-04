@@ -210,8 +210,7 @@ func newRow(repo string, number int) store.ReviewRow {
 const noReview = "no approving review at this head"
 
 func (f Fold) headNamed(record client.Record, number int) string {
-	attrs := record.Fields.Attrs
-	return cmp.Or(attrs["head:"+strconv.Itoa(number)], attrs[fmt.Sprintf("head:%s#%d", f.Repo, number)])
+	return bus.HeadNamed(record, f.Repo, number)
 }
 
 func (f Fold) headOf(record client.Record, number int) string {
