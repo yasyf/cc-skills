@@ -297,3 +297,22 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .hs .ev-named li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; padding: 3px 0; border: 0; }
 .hs .ev-named time { display: block; color: var(--ink-3); }
 .ev-side{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rp-ask { position: static; max-width: none; margin: 0 0 18px; }
+.ev-more .rp-ask { margin: 12px 0 0; }
+.rp-md { color: var(--ink); font-size: 14px; line-height: 1.55; }
+.rp-md ul, .rp-md ol { list-style: revert; padding-left: 20px; margin: 0 0 8px; }
+.rp-md li { display: list-item; padding: 2px 0; border-bottom: 0; }
+.rp-sort { all: unset; cursor: pointer; }
+.rp-sort::after { content: "↕"; margin-left: 6px; color: var(--ink-3); font-size: 11px; }
+.rp-table th[aria-sort="ascending"] .rp-sort::after { content: "↑"; color: var(--accent); }
+.rp-table th[aria-sort="descending"] .rp-sort::after { content: "↓"; color: var(--accent); }
+.ev-more .rp-picks { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 4px; }
+.ev-more .rp-picks li { display: grid; gap: 4px; padding: 0; border: 0; }
+.rp-picks small { color: var(--ink-3); font-size: 12px; }
+.rp-pick { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink-2); }
+.rp-pick.pri { border-color: var(--accent); color: var(--ink); }
+.ev-more .rp-links, .ev-more .rp-went { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0 0; }
+.ev-more .rp-links li, .ev-more .rp-went li { display: block; padding: 0; border: 0; }
+.rp-went { font-size: 12.5px; }
+.rp-went .bad { color: var(--bad); }
+.rp-prs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }

@@ -539,3 +539,127 @@ document.addEventListener('click', (e) => {
   const row = boardRow(hold.dataset.holdRow);
   if (row) decide(row, 'rejected', '', false);
 });
+
+const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_you: ['Needs you', 'you'], incident: ['Incident', 'bad'], done: ['Done', 'ok'] };
+const SURFACE_WORD = { board: 'Board', slack: 'Slack', record: 'Record' };
+const REPLIES_AT_REST = 12;
+const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
+const rp = { sent: new Map(), sort: new Map() };
+function replyCard(r) {
+  return state.model.board.cards.find((c) => c.id === `card-${r.id}`);
+}
+function replyState(r) {
+  if (state.model.board.answered[`card-${r.id}`]) return ['Answered', 'ok'];
+  if (replyCard(r)) return ['Asks you', 'you'];
+  return REPLY_WORD[r.status ?? 'info'];
+}
+function openReplies() {
+  return state.model?.replies ? state.model.replies.filter((entry) => replyCard(entry.reply)).length : 0;
+}
+function sortableTable(key, lines) {
+  const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const [head, ...rows] = lines.filter((line) => !/^\s*\|[\s:|-]+\|\s*$/.test(line)).map(cells);
+  const sort = rp.sort.get(key);
+  const shown = sort ? [...rows].sort((a, b) => sort.dir * collate(a[sort.col] ?? '', b[sort.col] ?? '')) : rows;
+  const order = (i) => (sort?.col === i ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none');
+  return `<div class="tablewrap"><table class="rp-table"><thead><tr>${head.map((c, i) => `<th aria-sort="${order(i)}"><button class="rp-sort" data-sort="${esc(key)}" data-col="${i}">${inline(c)}</button></th>`).join('')}</tr></thead><tbody>${shown.map((r) => `<tr>${r.map((c, i) => `<td data-h="${esc(head[i] ?? '')}">${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function replyMarkdown(id, md) {
+  const out = [];
+  let prose = [];
+  let table = null;
+  let fenced = false;
+  const flush = () => {
+    if (prose.length) out.push(markdown(prose.join('\n')));
+    prose = [];
+  };
+  const close = () => {
+    if (table) out.push(sortableTable(`${id}:${out.length}`, table));
+    table = null;
+  };
+  for (const line of md.split('\n')) {
+    if (/^\s*```/.test(line)) fenced = !fenced;
+    if (!fenced && /^\s*\|/.test(line)) {
+      flush();
+      (table ??= []).push(line);
+      continue;
+    }
+    close();
+    prose.push(line);
+  }
+  close();
+  flush();
+  return out.join('');
+}
+function replyPicks(r) {
+  const answered = state.model.board.answered[`card-${r.id}`];
+  if (answered) return `<p class="rp-picked">You picked <b>${esc(answered.picked)}</b> on your board.</p>`;
+  const card = replyCard(r);
+  const busy = card && sending(card.choice) ? ' disabled' : '';
+  const built = !r.build ? '' : r.build.none ? `; nothing to build: ${esc(r.build.none)}` : `; built on ${esc(r.build.repo)} ${esc(r.build.branch)}`;
+  const pick = (label, n) => {
+    const lead = label === r.recommended;
+    const face = card ? `<button class="btn${lead ? ' pri' : ''}" data-choose="${esc(`${r.id}-${n + 1}`)}" data-choice="${esc(card.choice)}"${busy}>${esc(label)}</button>` : `<span class="rp-pick${lead ? ' pri' : ''}">${esc(label)}</span>`;
+    return `<li>${face}${lead ? `<small>Recommended${built}</small>` : ''}</li>`;
+  };
+  return `<ul class="rp-picks">${r.picks.map(pick).join('')}</ul>${card ? sentNote(card.choice) : '<p class="pg-none">Your board has no open card for these picks, so answer in the box below.</p>'}`;
+}
+function replyPR(url) {
+  const [, repo, n] = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)$/.exec(url);
+  return repo === state.model.repo ? prLink(n) : `<a class="prc" href="${esc(url)}" target="_blank" rel="noopener">${esc(repo)}#${n} ↗</a>`;
+}
+function replySurface(s) {
+  if (s.error) return `<li class="bad">${SURFACE_WORD[s.surface]} failed: ${esc(s.error)}</li>`;
+  const href = { board: `${state.model.board.url}?block=${encodeURIComponent(s.ref)}`, slack: s.ref, record: `/record/${s.ref}` }[s.surface];
+  const label = { board: 'On your board', slack: 'In your Slack DM', record: `Record #${s.ref}` }[s.surface];
+  return `<li><a href="${esc(href)}" target="_blank" rel="noopener">${esc(label)} ↗</a></li>`;
+}
+function replyBox(id) {
+  const sent = rp.sent.get(id);
+  const waiting = sent && !sent.seq && !sent.error;
+  const note = !sent ? '' : sent.error ? `<em class="nsent bad">Not sent: ${esc(sent.error)}. Try again.</em>` : sent.seq ? `<em class="nsent">✓ Sent to the communicator as <a href="/record/${sent.seq}" target="_blank" rel="noopener">#${sent.seq}</a></em>` : '<em class="nsent">Sending…</em>';
+  return `<form class="ask rp-ask" data-reply-back="${esc(id)}"><textarea name="reply" data-draft="${esc(id)}" rows="2" placeholder="${id ? 'Answer this reply' : 'Message the communicator'}"${waiting ? ' disabled' : ''}>${sent?.error ? esc(sent.text) : ''}</textarea><button class="btn pri"${waiting ? ' disabled' : ''}>Send</button></form>${note}`;
+}
+function replyMore(entry) {
+  const r = entry.reply;
+  return `<div class="rp-md prose">${replyMarkdown(r.id, r.md)}</div>${r.picks ? replyPicks(r) : ''}
+    ${r.links?.length ? `<ul class="rp-links">${r.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a></li>`).join('')}</ul>` : ''}
+    ${r.prs?.length ? `<p class="rp-prs">${r.prs.map(replyPR).join(' ')}</p>` : ''}
+    <ul class="rp-went">${entry.surfaces.map(replySurface).join('')}</ul>${replyBox(r.id)}`;
+}
+function replyRow(entry) {
+  const [word, tone] = replyState(entry.reply);
+  const failed = entry.surfaces.filter((s) => s.error).map((s) => SURFACE_WORD[s.surface]);
+  return { id: `rp-${entry.reply.id}`, iso: entry.at, at: clock(entry.at), word, tone, title: entry.reply.title, why: failed.length ? `${failed.join(' and ')} failed` : '', side: entry.surfaces.filter((s) => !s.error).map((s) => SURFACE_WORD[s.surface]).join(', '), more: replyMore(entry) };
+}
+function repliesScreen() {
+  const rows = state.model.replies.map(replyRow);
+  const first = rows.slice(0, REPLIES_AT_REST);
+  const rest = rows.slice(REPLIES_AT_REST);
+  const lead = rows.length ? 'What the communicator sent you, newest first. Open one to read it whole, tap a pick, or answer it.' : 'The communicator has sent you no replies yet.';
+  return `<div class="pg">${pageHead('Replies')}<p class="pg-lead">${lead}</p>${replyBox('')}${first.length ? eventList(first) : ''}${rest.length ? fold('rp-older', `Older ${countPill(rest.length)}`, eventList(rest)) : ''}</div>`;
+}
+async function replyBack(id, text) {
+  if (!text.trim() || (rp.sent.get(id) && !rp.sent.get(id).seq && !rp.sent.get(id).error)) return;
+  rp.sent.set(id, {});
+  render();
+  const out = await fetch('/api/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, reply: id || null }) })
+    .then((res) => res.json())
+    .catch((failure) => ({ error: `could not reach the dashboard server (${failure.message})` }));
+  rp.sent.set(id, out.error ? { error: out.error, text } : out);
+  render();
+}
+document.addEventListener('click', (e) => {
+  const sorter = e.target.closest('[data-sort]');
+  if (!sorter) return;
+  const col = Number(sorter.dataset.col);
+  const was = rp.sort.get(sorter.dataset.sort);
+  rp.sort.set(sorter.dataset.sort, { col, dir: was?.col === col ? -was.dir : 1 });
+  render();
+});
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-reply-back]');
+  if (!form) return;
+  e.preventDefault();
+  replyBack(form.dataset.replyBack, form.reply.value);
+});

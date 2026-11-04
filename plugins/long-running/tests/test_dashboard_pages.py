@@ -1,9 +1,11 @@
 import datetime as dt
+import json
+from pathlib import Path
 
 import pytest
 from brief import Curator
 from pages import PAGES, REVIEW_SCHEMA, open_question, plan_slot, review_digest, review_slot, stamp, waiting_since
-from server import bot_words, drawable, unanswered
+from server import bot_words, drawable, stored_replies, unanswered
 
 NOW = dt.datetime(2026, 10, 27, 23, 0, tzinfo=dt.timezone.utc)
 ROW = {
@@ -191,3 +193,11 @@ def test_a_sequence_participant_named_like_a_mermaid_keyword_is_renamed_where_it
 def test_a_flowchart_is_drawn_as_written():
     source = "flowchart LR\n    Actor --> End"
     assert drawable(source) == source
+
+
+def test_replies_read_newest_first_by_time_and_skip_a_staged_write(tmp_path):
+    for name, at in (("older", "2026-11-03T23:00:00Z"), ("later-in-the-second", "2026-11-04T00:14:44.764488193Z"), ("earlier-in-the-second", "2026-11-04T00:14:44.76Z")):
+        (tmp_path / f"{name}.json").write_text(json.dumps({"reply": {"id": name, "title": name, "md": name}, "at": at, "surfaces": []}))
+    (tmp_path / "half-written.json.staged").write_text("{")
+    read = stored_replies(lambda path: json.loads(Path(path).read_text()), tmp_path)
+    assert [entry["reply"]["id"] for entry in read] == ["later-in-the-second", "earlier-in-the-second", "older"]
