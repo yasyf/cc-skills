@@ -608,7 +608,15 @@ func Render(reply Response) ([]byte, error) {
 		return nil, err
 	}
 	var compact bytes.Buffer
-	fmt.Fprintf(&compact, `{"id":%s,"ok":true,"result":%s,"_meta":%s}`, id, reply.Result, reply.Meta)
+	if reply.OK {
+		fmt.Fprintf(&compact, `{"id":%s,"ok":true,"result":%s,"_meta":%s}`, id, reply.Result, reply.Meta)
+	} else {
+		failure, err := marshal(reply.Error)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(&compact, `{"id":%s,"ok":false,"error":%s,"_meta":%s}`, id, failure, reply.Meta)
+	}
 	var pretty bytes.Buffer
 	if err := json.Indent(&pretty, compact.Bytes(), "", "  "); err != nil {
 		return nil, err

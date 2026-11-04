@@ -26,6 +26,11 @@ const (
 	staleLock          = 5 * time.Minute
 )
 
+var plainRefusals = map[string]bool{
+	"dispatch_not_found":         true,
+	"remote_runtime_unavailable": true,
+}
+
 type Served struct {
 	Stdout []byte
 	Code   int
@@ -53,8 +58,11 @@ func (c *Client) Serve(ctx context.Context, args []string) (Served, bool) {
 		return Served{}, false
 	}
 	reply, err := conn.call(ctx, request.method, request.params, request.timeout)
-	if err != nil || !reply.OK {
+	if err != nil {
 		return Served{}, false
+	}
+	if !reply.OK {
+		return refusal(reply)
 	}
 	code := 0
 	if spec.finish != nil {
@@ -72,6 +80,17 @@ func (c *Client) Serve(ctx context.Context, args []string) (Served, bool) {
 		return Served{}, false
 	}
 	return Served{Stdout: stdout, Code: code}, true
+}
+
+func refusal(reply Response) (Served, bool) {
+	if reply.Error == nil || !plainRefusals[reply.Error.Code] {
+		return Served{}, false
+	}
+	stdout, err := Render(reply)
+	if err != nil {
+		return Served{}, false
+	}
+	return Served{Stdout: stdout, Code: 1}, true
 }
 
 func (c *Client) omittedSelectors(hostIDs []string) (json.RawMessage, error) {
