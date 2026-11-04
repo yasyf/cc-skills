@@ -17,7 +17,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -41,14 +40,12 @@ var (
 	incidentCleared = regexp.MustCompile(`(?i)not an incident fix|off the incident path|no release is owed`)
 	clearingKinds   = []string{"go", "hold", "lift", "decide", "decision", "release"}
 	incidentChecks  = []string{"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"}
-	settledIncident = []string{"closed", "recovered"}
 )
 
 type Squash struct {
 	Runner    shell.Runner
 	CCX       ccx.Client
 	Store     *store.Store
-	Incidents incident.Store
 	Drive     string
 	Trunk     string
 	Checkout  string
@@ -64,12 +61,8 @@ func NewSquash(a *app.App, s *store.Store, cfg config.Config, remote Remote, fix
 	if err != nil {
 		return nil, err
 	}
-	root, err := incident.DefaultRoot()
-	if err != nil {
-		return nil, err
-	}
 	return &Squash{
-		Runner: a.Runner, CCX: a.CCX, Store: s, Incidents: incident.Store{Root: root}, Drive: cfg.Drive, Trunk: cfg.Trunk, Checkout: cfg.Checkout,
+		Runner: a.Runner, CCX: a.CCX, Store: s, Drive: cfg.Drive, Trunk: cfg.Trunk, Checkout: cfg.Checkout,
 		Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py"),
 		FixLane: fixLane, Restack: remote.Run, Now: a.Now, Log: a.Log,
 	}, nil
@@ -91,7 +84,7 @@ func leftToSquash(act pass.Act) bool {
 }
 
 func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bool, error) {
-	named, repairs, err := q.tagged(snapshot)
+	named, err := q.tagged(snapshot)
 	if err != nil || len(named) == 0 {
 		return nil, err
 	}
@@ -107,7 +100,7 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 	ended := endedLanes(slices.Concat(incidents, decides))
 	taken := map[int]bool{}
 	for _, f := range named {
-		if _, closed := ended[client.Stem(f.Lane)]; closed && !repairs[f.Number] {
+		if _, closed := ended[client.Stem(f.Lane)]; closed {
 			continue
 		}
 		cleared, err := q.cleared(ctx, f)
@@ -127,12 +120,9 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 }
 
 func (q *Squash) alerted(ctx context.Context, f machine.Facts, squashed bool) (bool, error) {
-	named, repairs, err := q.tagged([]machine.Facts{f})
+	named, err := q.tagged([]machine.Facts{f})
 	if err != nil || (len(named) == 0 && !squashed) {
 		return false, err
-	}
-	if repairs[f.Number] {
-		return true, nil
 	}
 	since := q.Now().Add(-incidentHorizon)
 	incidents, err := client.Tail(ctx, client.Query{Drive: q.Drive, Kinds: []string{incidentKind}, Since: since})
@@ -146,54 +136,24 @@ func (q *Squash) alerted(ctx context.Context, f machine.Facts, squashed bool) (b
 	return openIncident(f, incidents, endedLanes(slices.Concat(incidents, decides))) != nil, nil
 }
 
-func (q *Squash) tagged(snapshot []machine.Facts) ([]machine.Facts, map[int]bool, error) {
-	repairs, err := q.repairs()
-	if err != nil {
-		return nil, nil, err
-	}
+func (q *Squash) tagged(snapshot []machine.Facts) ([]machine.Facts, error) {
 	var named []machine.Facts
 	for _, f := range snapshot {
 		if f.Base != q.Trunk || f.Closed || f.Merged || f.Draft || f.Foreign() {
 			continue
 		}
-		fix := incidentLane.MatchString(f.Lane) || repairs[f.Number]
+		fix := incidentLane.MatchString(f.Lane)
 		if !fix && f.Lane != "" {
+			var err error
 			if fix, err = q.FixLane(f.Lane); err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 		}
 		if fix {
 			named = append(named, f)
 		}
 	}
-	return named, repairs, nil
-}
-
-func (q *Squash) repairs() (map[int]bool, error) {
-	ids, err := q.Incidents.IDs()
-	if err != nil {
-		return nil, err
-	}
-	repairs := map[int]bool{}
-	for _, id := range ids {
-		facts, err := q.Incidents.Facts(id, "repair_pr", "adopted", "not_ours")
-		if err != nil {
-			q.Log.Warn("an incident's repair did not read", "incident", id, "err", err)
-			continue
-		}
-		if facts.RepairPR == 0 || facts.Adopted == nil || facts.NotOurs != "" {
-			continue
-		}
-		header, err := q.Incidents.Header(id)
-		if err != nil {
-			q.Log.Warn("an incident's status did not read", "incident", id, "err", err)
-			continue
-		}
-		if !slices.Contains(settledIncident, string(header.Status)) {
-			repairs[facts.RepairPR] = true
-		}
-	}
-	return repairs, nil
+	return named, nil
 }
 
 func endedLanes(records []client.Record) map[string]int64 {

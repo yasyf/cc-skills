@@ -371,13 +371,13 @@ script is a Go verb.
 **R15.** CI is the verifier. No lane runs tests, builds, typechecks or lint locally;
 the `local_builds` hook refuses them. Batch jobs run on in-region compute.
 
-**R16.** An active alert gets its executor the same turn, without a coordinator:
+**R16.** An active alert gets its fix lane the same turn, without a coordinator:
 the supervisor launches the fix and evidence lanes for an alert nobody answered in
 three minutes. When an alert reaches the coordinator first (a link the communicator
 relayed, an `#outage` report, a page, a runner `PAGE`, a failing release check, an
-`ALERT-UNOPENED` blocker), it runs `lr incident open` and `run` before anything
-else, with no real-or-not verdict and no mute treated as resolution. Fixes land
-forward; a rollback runs only on the owner's own word.
+`ALERT-UNOPENED` blocker), it runs `lr incident run <slug> --fix-brief <file>`
+before anything else, with no real-or-not verdict and no mute treated as
+resolution. Fixes land forward; a rollback runs only on the owner's own word.
 
 **R17.** An owner routing instruction applies to the next spawn and to every live
 lane on that problem, the turn it arrives.
@@ -442,7 +442,7 @@ one refusal prints all of them.
 | Landing pass and `landing-desk` | The merge queue, lane reports, the ledger; both remote | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md) |
 | Orca runner, the relay | Launches and relays to Orca workers, starts grading jobs; on the Mac, the one desk that is not remote | [orca-desk-brief.md](reference/orca-desk-brief.md) |
 | Lane supervisor | Liveness, relaunch, rotation, standing duties, alert launch, landed-not-live, Sprite stops | [watchers.md](reference/watchers.md) |
-| Incident executor, `alerts-desk` | One incident from intake to final reply; monitor transitions as records | [active-alert-brief.md](reference/active-alert-brief.md), [alerts-desk-brief.md](reference/alerts-desk-brief.md) |
+| Incident lanes, `alerts-desk` | One incident from intake to final reply; monitor transitions as records | [active-alert-brief.md](reference/active-alert-brief.md), [alerts-desk-brief.md](reference/alerts-desk-brief.md) |
 | `update-desk`, the communicator's one helper | Renders the owner update the communicator sends, writes the dashboard's rows from it, keeps the dashboard app up | [communicator-brief.md](reference/communicator-brief.md), [owner-report-table.md](reference/owner-report-table.md) |
 | `finder-desk`, fidelity desks, `red-sweep` | Grade every head; own every red with no owner | [finder-brief.md](reference/finder-brief.md), [fidelity-desk-brief.md](reference/fidelity-desk-brief.md), [red-sweep-brief.md](reference/red-sweep-brief.md) |
 | Board refresher, `drive-watchdog`, `user-test` | Tap cards and records; the retro log; the owner played against each surface | [drive-watchdog-brief.md](reference/drive-watchdog-brief.md), [user-test-brief.md](reference/user-test-brief.md) |
@@ -556,7 +556,7 @@ and ledger row. Is it a wait? Fold it into the lane that acts. Is it status? The
 communicator sends the update desk's render; the coordinator sends nothing. Is it
 an owner message? The communicator records the words and queues them; the
 coordinator applies the ruling everywhere, and a meta order goes to the meta lane.
-Is it an alert the supervisor has not answered? `lr incident open` and `run` now.
+Is it an alert the supervisor has not answered? `lr incident run <slug>` now.
 Did a tool refuse, or did something go wrong twice? It goes to the meta lane this
 turn, where the fix is a Go verb, and the work proceeds. Am I about to approve,
 hold, start or cancel something? The owner's order carries it or a lane owns it.

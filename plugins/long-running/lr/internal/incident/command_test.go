@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -47,154 +46,8 @@ func mustVerb(t *testing.T, args ...string) string {
 	return out
 }
 
-func home(t *testing.T) Store {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	return Store{Root: filepath.Join(dir, ".claude", "long-running", "incidents")}
-}
-
-func openAlert(t *testing.T, id string, extra ...string) {
-	t.Helper()
-	args := append([]string{
-		"open", "--kind", "alert", "--incident", id, "--target", "api", "--thread", "t", "--onset", onsetStamp, "--reported", reportedStamp,
-		"--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m",
-	}, extra...)
-	mustVerb(t, args...)
-}
-
-func TestOpenRecordsItsFlagsAndNamesTheNextVerb(t *testing.T) {
-	s := home(t)
-	out := mustVerb(t, "open", "--kind", "alert", "--incident", "x2", "--target", "api", "--thread", "t", "--onset", onsetStamp, "--reported", reportedStamp,
-		"--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m", "--alert", "https://forge-rf.sentry.io/issues/7766636402/", "--runbook", "4950740",
-		"--adopt", "fix=api-1n85-fix", "--grant", "thread=g", "--ruling", ruling, "--entry-point", entryPoint)
-	path, err := s.Path("x2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "incident x2 at " + path + "; run: lr incident run --incident x2\n"; out != want {
-		t.Fatalf("printed %q, want %q", out, want)
-	}
-	facts, err := s.Facts("x2", "alert", "runbook", "adopted", "grants", "rulings", "entry_point", "repo", "trunk")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if facts.Alert != "https://forge-rf.sentry.io/issues/7766636402/" || facts.Runbook != "4950740" || facts.Adopted[RoleFix] != "api-1n85-fix" || facts.Grants["thread"] != "g" {
-		t.Fatalf("facts %+v", facts)
-	}
-	if !reflect.DeepEqual(facts.Rulings, []string{ruling}) || facts.EntryPoint != entryPoint || facts.Repo != "Forge-AI/monorepo" || facts.Trunk != "dev" {
-		t.Fatalf("facts %+v", facts)
-	}
-}
-
-func TestOpenRefusesABadPair(t *testing.T) {
-	home(t)
-	for _, extra := range [][]string{{"--adopt", "backup=lane"}, {"--adopt", "fix="}, {"--grant", "deploy=ref"}} {
-		args := append([]string{
-			"open", "--kind", "alert", "--incident", "x", "--target", "api", "--thread", "t", "--onset", onsetStamp, "--reported", reportedStamp,
-			"--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m",
-		}, extra...)
-		if _, err := verb(t, args...); err == nil {
-			t.Errorf("%v was accepted", extra)
-		}
-	}
-	if _, err := verb(t, "open", "--kind", "alert"); err == nil || !strings.Contains(err.Error(), "required") {
-		t.Fatalf("got %v, want missing required flags", err)
-	}
-}
-
-func TestNoteRecordsEachFieldAndBumpsTheInputRevision(t *testing.T) {
-	s := home(t)
-	openAlert(t, "x")
-	out := mustVerb(t, "note", "--incident", "x", "--pr", "28998", "--mechanism", "m", "--live", "l", "--not-ours", "n", "--design-check", "d", "--design-ok")
-	if out != "noted on x at input revision 2\n" {
-		t.Fatalf("printed %q", out)
-	}
-	facts, err := s.Facts("x", "repair_pr", "mechanism", "live", "not_ours", "design_check", "design_ok")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if facts.RepairPR != 28998 || facts.Mechanism != "m" || facts.Live != "l" || facts.NotOurs != "n" || facts.DesignCheck != "d" || !facts.DesignOK {
-		t.Fatalf("facts %+v", facts)
-	}
-	mustVerb(t, "note", "--incident", "x", "--mechanism", "m2")
-	if facts, err = s.Facts("x", "repair_pr", "mechanism"); err != nil {
-		t.Fatal(err)
-	}
-	if facts.RepairPR != 28998 || facts.Mechanism != "m2" {
-		t.Fatalf("a later note changed what it did not name: %+v", facts)
-	}
-}
-
-func TestGrantAddsANamedAuthorityAndRefusesAnother(t *testing.T) {
-	s := home(t)
-	openAlert(t, "x", "--grant", "thread=g-thread")
-	if out := mustVerb(t, "grant", "--incident", "x", "--name", "sync", "--ref", "g-sync"); out != "x grant sync=g-sync\n" {
-		t.Fatalf("printed %q", out)
-	}
-	facts, err := s.Facts("x", "grants")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(facts.Grants, map[string]string{"thread": "g-thread", "sync": "g-sync"}) {
-		t.Fatalf("grants %v", facts.Grants)
-	}
-	if _, err := verb(t, "grant", "--incident", "x", "--name", "deploy", "--ref", "r"); err == nil {
-		t.Fatal("an unknown grant was accepted")
-	}
-}
-
-func TestBriefWritesTheBriefsRunWouldLaunchAndPrintsTheirPaths(t *testing.T) {
-	s := home(t)
-	openAlert(t, "x", "--adopt", "evidence=plat-evidence")
-	paths := strings.Split(strings.TrimSpace(mustVerb(t, "brief", "--incident", "x")), "\n")
-	want := []string{filepath.Join(s.Root, "x", "incident-x-fix.full.md"), filepath.Join(s.Root, "x", "incident-x-evidence.full.md")}
-	if !reflect.DeepEqual(paths, want) {
-		t.Fatalf("paths %v", paths)
-	}
-	fix := readFile(t, paths[0])
-	if !strings.Contains(fix, "incident-x-fix") || !strings.Contains(fix, "plat-evidence") || placeholder.FindString(fix+readFile(t, paths[1])) != "" {
-		t.Fatalf("fix brief:\n%s", fix)
-	}
-	if out := mustVerb(t, "brief", "--incident", "x", "--role", "evidence"); strings.TrimSpace(out) != paths[1] {
-		t.Fatalf("printed %q", out)
-	}
-	if _, err := verb(t, "brief", "--incident", "x", "--role", "backup"); err == nil {
-		t.Fatal("a backup brief was written")
-	}
-}
-
-func TestARunnerForAFormerOwnerRefusesToStart(t *testing.T) {
-	s := home(t)
-	openAlert(t, "x")
-	transfer(t, s, "x", "runner-b")
-	_, err := verb(t, "run", "--incident", "x", "--once")
-	if err == nil || !strings.Contains(err.Error(), "is owned by runner-b at generation 2") {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestRunRefusesAnIncidentThatAlreadyHasARunner(t *testing.T) {
-	s := home(t)
-	openAlert(t, "x")
-	lock, err := os.OpenFile(filepath.Join(s.Root, ".x.runner"), os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
-	_, err = verb(t, "run", "--incident", "x", "--once")
-	if err == nil || !strings.Contains(err.Error(), "already has a runner") {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestRunNeedsAnIncidentOrASlugWithABrief(t *testing.T) {
-	home(t)
-	for _, args := range [][]string{{"run"}, {"run", "slug"}, {"run", "slug", "--incident", "x", "--fix-brief", "b"}} {
+func TestRunNeedsASlugWithABrief(t *testing.T) {
+	for _, args := range [][]string{{"run"}, {"run", "slug"}, {"run", "--fix-brief", "b"}} {
 		if _, err := verb(t, args...); err == nil {
 			t.Errorf("%v was accepted", args)
 		}
@@ -268,71 +121,6 @@ func (f *fakeBus) Tail(_ context.Context, q client.Query) ([]client.Record, erro
 		found = append(found, record)
 	}
 	return found, nil
-}
-
-func TestCommsPostsToTheLaneAndReadsItsPostedTS(t *testing.T) {
-	bus := &fakeBus{nextSeq: 6}
-	comms := CommsBus{Bus: bus, Drive: "bus1", Sender: "incident-x", CommsLane: "incident-comms", RootLane: "release-v3", Topic: "incident:x"}
-	ctx := context.Background()
-	seq, err := comms.Event(ctx, "ack", map[string]any{"reaction": "eyes"}, "g-thread")
-	if err != nil || seq != 7 {
-		t.Fatalf("seq %d, err %v", seq, err)
-	}
-	draft := bus.drafts[0]
-	if draft.Kind != "ask" || !reflect.DeepEqual(draft.To, []string{"incident-comms"}) || draft.Topic != "incident:x" || draft.Lane != "incident-x" || draft.Drive != "bus1" {
-		t.Fatalf("draft %+v", draft)
-	}
-	var text map[string]any
-	if err := json.Unmarshal([]byte(draft.Text), &text); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(text, map[string]any{"event": "ack", "grant": "g-thread", "reaction": "eyes"}) {
-		t.Fatalf("text %v", text)
-	}
-	bus.add(9, newRecord(t, 9, "incident-comms", "answer", "incident:x", "posted ts=1790877617.443359", 7, time.Now()))
-	if ts, err := comms.Posted(ctx, 7); err != nil || ts != "1790877617.443359" {
-		t.Fatalf("ts %q, err %v", ts, err)
-	}
-	if ts, err := comms.Posted(ctx, 8); err != nil || ts != "" {
-		t.Fatalf("ts %q, err %v", ts, err)
-	}
-}
-
-func TestCommsFindMatchesOnlyItsOwnEventsAndATruncatedPostStillMatches(t *testing.T) {
-	bus := &fakeBus{}
-	comms := CommsBus{Bus: bus, Drive: "bus1", Sender: "incident-x", CommsLane: "incident-comms", RootLane: "r", Topic: "incident:x"}
-	ctx := context.Background()
-	seq, err := comms.Event(ctx, "ack", map[string]any{"surface": "thread"}, "g")
-	if err != nil {
-		t.Fatal(err)
-	}
-	truncated := `{"event":"recovered","grant":"g","green":3,"red":[{"pr":"https://github.com/o/n/pu`
-	bus.add(50, newRecord(t, 50, "incident-x", "ask", "incident:x", truncated, 0, time.Now(), "incident-comms"))
-	bus.add(51, newRecord(t, 51, "someone-else", "ask", "incident:x", `{"event":"pr","grant":"g"}`, 0, time.Now(), "incident-comms"))
-	if found, err := comms.Find(ctx, "ack"); err != nil || found != seq {
-		t.Fatalf("found %d, want %d, err %v", found, seq, err)
-	}
-	if found, err := comms.Find(ctx, "recovered"); err != nil || found != 50 {
-		t.Fatalf("found %d, err %v", found, err)
-	}
-	if found, err := comms.Find(ctx, "pr"); err != nil || found != 0 {
-		t.Fatalf("found %d, err %v", found, err)
-	}
-}
-
-func TestCommsAsksAndReportsToTheRootLane(t *testing.T) {
-	bus := &fakeBus{}
-	comms := CommsBus{Bus: bus, Drive: "b", Sender: "s", CommsLane: "c", RootLane: "root", Topic: "t"}
-	ctx := context.Background()
-	if err := comms.AskRoot(ctx, "q"); err != nil {
-		t.Fatal(err)
-	}
-	if err := comms.Report(ctx, "r"); err != nil {
-		t.Fatal(err)
-	}
-	if bus.drafts[0].Kind != "ask" || bus.drafts[1].Kind != "decision" || bus.drafts[0].To[0] != "root" || bus.drafts[1].To[0] != "root" {
-		t.Fatalf("drafts %+v", bus.drafts)
-	}
 }
 
 func deskFixture(t *testing.T) (DeskLaunch, *fakeBus, string, *bytes.Buffer) {
@@ -619,4 +407,13 @@ func TestAStuckPassRefusesAnIncidentLaunchAndALongOneDoesNot(t *testing.T) {
 			}
 		})
 	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }

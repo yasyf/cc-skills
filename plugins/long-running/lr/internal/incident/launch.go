@@ -20,6 +20,11 @@ import (
 )
 
 const (
+	RoleFix         = "fix"
+	RoleEvidence    = "evidence"
+	RoleComms       = "comms"
+	routeIncident   = "incident"
+	effortXHigh     = "xhigh"
 	deskLane        = "orca-desk"
 	deskRunner      = "desk-runner"
 	kindGo          = "go"
@@ -39,6 +44,7 @@ const (
 )
 
 var (
+	pacificZone  = mustZone("America/Los_Angeles")
 	ErrUnsettled = errors.New("a launch has no runner verdict")
 
 	verdictLine     = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-DUPLICATE|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+(?:@\w+)?) ([\w.-]+): `)
@@ -48,6 +54,14 @@ var (
 	anyPlaceholder  = regexp.MustCompile(`<[^>]+>`)
 	extraBlankLines = regexp.MustCompile(`\n{3,}`)
 )
+
+func mustZone(name string) *time.Location {
+	zone, err := time.LoadLocation(name)
+	if err != nil {
+		panic(err)
+	}
+	return zone
+}
 
 type DeskLaunch struct {
 	Bus           Bus

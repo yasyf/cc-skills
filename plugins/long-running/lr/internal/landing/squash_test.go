@@ -12,7 +12,6 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -47,7 +46,7 @@ func newSquash(t *testing.T) *squashFixture {
 	fake := &shelltest.Fake{}
 	fixture := &squashFixture{fake: fake}
 	fixture.squash = &landing.Squash{
-		Runner: fake, CCX: ccx.CLI{Runner: fake}, Store: s, Incidents: incident.Store{Root: t.TempDir()}, Drive: "d", Trunk: "dev", Checkout: "/co", Rulings: squashTool,
+		Runner: fake, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Trunk: "dev", Checkout: "/co", Rulings: squashTool,
 		FixLane: func(lane string) (bool, error) { return lane == "dd-1-fix", nil },
 		Restack: func(_ context.Context, number int) (string, error) {
 			fixture.restack = append(fixture.restack, number)

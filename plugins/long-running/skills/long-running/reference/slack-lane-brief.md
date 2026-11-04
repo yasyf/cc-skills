@@ -17,7 +17,7 @@
 
 **Act on every owner Slack link in the same turn (R20 in `SKILL.md`).** A Slack permalink from the owner, bare or with text, belongs to the coordinator regardless of who wrote the Slack message. An in-thread reply from the owner saying "Looking," "on it," or "checking" hands the thread to the drive. An owner link always asks the coordinator to act and is never informational.
 
-**The coordinator launches both lanes in one batch under R20 in SKILL.md.** The Slack lane adds `eyes` within one minute on the asking message through the `cc-slack` CLI or tool, reads the thread, and returns the ask in at most five lines. A production break runs as an `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fails>` line, so the runner fills `alert-fix-brief.md`, launches `<slug>-fix` and clocks it with no hand-written brief. The Slack lane sends its capture to the fix lane over `cci`, addressed to that lane. For an alert or a broken pipeline under R16, the executor is the doing lane and its comms lane is the Slack lane ([active-alert-brief.md](active-alert-brief.md)).
+**The coordinator launches both lanes in one batch under R20 in SKILL.md.** The Slack lane adds `eyes` within one minute on the asking message through the `cc-slack` CLI or tool, reads the thread, and returns the ask in at most five lines. A production break runs as an `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fails>` line, so the runner fills `alert-fix-brief.md`, launches `<slug>-fix` and clocks it with no hand-written brief. The Slack lane sends its capture to the fix lane over `cci`, addressed to that lane. For an alert or a broken pipeline under R16, the fix lane is the doing lane and its comms lane is the Slack lane ([active-alert-brief.md](active-alert-brief.md)).
 
 **Brief readers for action, never for relevance.** A reader or Slack-lane brief asks "who asks, what they ask, and what fixes it," never "what, if anything, it asks of the coordinator."
 
@@ -57,7 +57,7 @@ The channel grant stands across sessions until a `slack-revoke:<channel id>` ans
 ccn answer add "May the drive reply in <channel id> thread <thread ts>, where <user id> reported <incident>?" --body "Reply grant for error and incident threads, answers 763620a and a4bd071" --label slack-grant:<channel id>/<thread ts>
 ```
 
-A thread grant covers replies in `<channel id>/<thread ts>` only; every other thread and top-level post in that channel stays silent unless the owner names it. An incident comms lane posts under the grant id on each executor event (`slack-grant:<channel id>`) without a coordinator turn or draft return (`reference/active-alert-brief.md`).
+A thread grant covers replies in `<channel id>/<thread ts>` only; every other thread and top-level post in that channel stays silent unless the owner names it. An incident comms lane posts under the grant id on each ask (`slack-grant:<channel id>`) without a coordinator turn or draft return (`reference/active-alert-brief.md`).
 
 **Follow surface words and single-message rules.** The owner's surface word is literal. The word _channel_ means a top-level channel post, _thread_ means a thread reply, and _DM_ means a direct message. An answer the owner dictated goes out as one message with the grant in the dispatch, never staged across multiple instructions.
 
@@ -75,7 +75,7 @@ A thread grant covers replies in `<channel id>/<thread ts>` only; every other th
 | 2 | `cc-slack` CLI on `PATH` | If `cc-slack whoami` shows no identity, run `cc-slack login` from the project checkout and retry. |
 | 3 | User-level Slack MCP (`mcp__slack__slack_send_message`, `mcp__slack__slack_add_reaction` by using `ToolSearch`) | Use when both tool and CLI reject the write because a hook crashes, an identity is missing, or the bot cannot join. Prefix the checked text with `_(<owner name>'s Claude)_` and report the refusal verbatim to the coordinator or on the bus as a `defect`. |
 
-**Replace a stalled Slack lane with a fresh sender lane.** Urgency never licenses the coordinator to write Slack inline. When a Slack lane stalls, the coordinator spawns a fresh sender lane whose brief carries the grant and the exact approved or dictated text. That lane posts and reports the post's `ts`, while the coordinator tells the owner it is posting by using a lane and checks the post's `ts` on disk within two minutes. In an incident, the executor raises a silent comms lane as a decision, and the replacement lane posts the executor's unanswered event without restating prior posts.
+**Replace a stalled Slack lane with a fresh sender lane.** Urgency never licenses the coordinator to write Slack inline. When a Slack lane stalls, the coordinator spawns a fresh sender lane whose brief carries the grant and the exact approved or dictated text. That lane posts and reports the post's `ts`, while the coordinator tells the owner it is posting by using a lane and checks the post's `ts` on disk within two minutes. In an incident, the coordinator replaces a silent comms lane, and the replacement lane posts the unanswered ask without restating prior posts.
 
 ## Reporter threads
 
@@ -211,7 +211,7 @@ Reporter threads, per SKILL.md "Reporter threads":
 
 ## Incident comms lane spawn brief
 
-Use for an incident owned by the executor (`reference/active-alert-brief.md`), spawned as `general-purpose` on `opus` in the R16 turn. It posts without a coordinator turn using standing rulings in `cc-notes` answers `5ad4507` and `52f4863`, account mappings per `d12f767`, launch grants, and the grant id on each executor event.
+Use for an incident the coordinator owns (`reference/active-alert-brief.md`), spawned as `general-purpose` on `opus` in the R16 turn. It posts without a coordinator turn using standing rulings in `cc-notes` answers `5ad4507` and `52f4863`, account mappings per `d12f767`, launch grants, and the grant id on each ask.
 
 ```text
 ccx: role=comms
@@ -220,7 +220,7 @@ You are <comms lane name>, owning incident posts in the affected account channel
 Model opus; gemini-4-argon writes the copy through `gemini -m gemini-4-argon --skip-trust -p`;
   you hand it the facts and post its reply verbatim.
 Authority: standing cc-notes answers 5ad4507 and 52f4863, with the channel and
-  thread grants supplied at launch, plus the grant id on each executor event.
+  thread grants supplied at launch, plus the grant id on each ask.
   Never pass `--ticket`; the permission hook attaches the ticket. No per-post owner ask. A thread
   grant covers replies in <channel id>/<thread ts> only, never a channel post,
   broadcast, or another thread. A channel grant covers top-level posts in
@@ -260,13 +260,12 @@ Do:
      first, says what we are doing to prevent recurrence. State work underway
      without claiming an unverified fix. Use plain words and Pacific times;
      @-mention the account's FDEs. Apply step 5's drafting and checks to every post.
-  4. incident.py posts onto the same cci drive, opened with
-     `incident.py open --bus <cci drive>`.
+  4. The fix and evidence lanes post onto the same cci drive.
      Loop in foreground units of at most 60 seconds:
      `cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json`.
      The loop reads no Slack thread (owner answer d94db5b).
-  5. Each executor entry is JSON: `event`, `grant`, `surface`, `thread`, and the
-     facts to report, with times already in Pacific. Have gemini-4-argon draft each post per "Write a post" in full: plain words for the thread's reader, with every build, PR,
+  5. Each ask names the event, the surface and thread, and the facts to report,
+     with times already in Pacific. Have gemini-4-argon draft each post per "Write a post" in full: plain words for the thread's reader, with every build, PR,
      deploy, alert, monitor, dashboard, run, commit, and doc linked as <url|label>.
      Before each post, write the text to <tmpfile>, then run
      `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every
@@ -283,7 +282,7 @@ Do:
      An entry left unanswered for two minutes reaches the coordinator as a decision.
   7. Before each reply in a thread, read it once with `slack_thread` and `url` <thread>.
      A human question found there is answered in that reply, drafted from the latest
-     executor entries under step 5's drafting and checks, and posted verbatim under
+     asks under step 5's drafting and checks, and posted verbatim under
      the thread grant (owner answer a4bd071). Nothing reads the thread between replies.
 
 Never: a post without the matching channel or thread grant; a reply to a from_claude message
