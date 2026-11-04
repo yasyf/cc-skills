@@ -303,7 +303,7 @@ func (s *Store) Overdue(now time.Time) ([]Item, error) {
 
 func (s *Store) PutFact(repo string, number int, head, kind, value string, at time.Time) (bool, error) {
 	result, err := s.db.Exec(
-		"INSERT INTO facts (repo, number, head, kind, value, posted) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (repo, number, head, kind) DO UPDATE SET value = excluded.value, posted = excluded.posted WHERE facts.value IS NOT excluded.value",
+		"INSERT INTO facts (repo, number, head, kind, value, posted) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (repo, number, head, kind) DO UPDATE SET value = excluded.value, posted = excluded.posted WHERE facts.value IS NOT excluded.value OR facts.kind = 'verdict'",
 		repo, number, head, kind, value, Stamp(at),
 	)
 	return changed(result, err)
@@ -355,7 +355,7 @@ func (s *Store) DeleteFact(repo string, number int, head, kind string) error {
 }
 
 func (s *Store) Facts(repo string, number int, head string) (map[string]string, error) {
-	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3) ORDER BY posted, length(head)", repo, number, head)
+	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3) ORDER BY posted, kind = 'verdict', length(head)", repo, number, head)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
 		var pair [2]string
 		err := rows.Scan(&pair[0], &pair[1])
@@ -366,9 +366,16 @@ func (s *Store) Facts(repo string, number int, head string) (map[string]string, 
 	}
 	facts := make(map[string]string, len(found))
 	for _, pair := range found {
-		facts[pair[0]] = pair[1]
+		foldFact(facts, pair[0], pair[1])
 	}
 	return facts, nil
+}
+
+func foldFact(facts map[string]string, kind, value string) {
+	facts[kind] = value
+	if kind == "finder" && value != string(machine.FinderClear) || kind == "fidelity" && value != string(machine.FidelityPass) {
+		delete(facts, "verdict")
+	}
 }
 
 func (s *Store) PRFacts(repo string, number int) (map[string]string, error) {
