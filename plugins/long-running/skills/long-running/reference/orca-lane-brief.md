@@ -31,10 +31,11 @@ Read this to write a lane's brief, choose where it runs, and launch it. The fenc
 
 ### Sparse checkout
 
-- With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `lr launch start` gives every lane a sparse checkout of the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, `release`, `infra/envs`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`.
+- With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `lr launch start` gives every lane a sparse checkout of the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, `release`, `infra/envs`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A directory inside a Go module widens to that module, with its local `replace` targets followed through their own `go.mod`s, because `go build` cannot run from one package of a module.
+- A launched lane in a repo with `tools/hooks/warm-lane.sh` has its `node_modules` linked before its worker starts, unless `ORCA_LAUNCH_PREPARE` names another command.
 - A smaller repo, such as cc-skills, keeps full lanes, and so does every launch without `ORCA_LAUNCH_SPARSE=1`.
 - Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`. A Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`.
-- The lane widens with `git sparse-checkout add <dir>` before it reads outside the cone.
+- The lane widens with `lr sparse add <dir>` before it reads outside the cone, which widens to the Go module and its `replace` targets the same way.
 
 ### Choose Sprite or Mac
 
@@ -124,7 +125,7 @@ lr launch start <lane> <model> <effort> \
 `lr launch start` generates a pointer spec from the lane, brief path, and worktree path, so the brief outranks Orca's preamble and any leave-uncommitted default. A sparse lane's pointer ends with the widen sentence below, and a lane in a repo with `tools/hooks/warm-lane.sh` also carries the shared `node_modules` line:
 
 ```text
-Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold. This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
+Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold. This lane is sparse: widen with `lr sparse add <dir>` before reading outside it.
 ```
 
 When a brief's `ccx:` header line says `role=desk` or `role=watch`, `lr launch start` and `lr launch worker` append the standing desk contract to the pointer. Every other role keeps the one-shot pointer; the role in the brief is the only switch, and the launch line carries none.
@@ -293,7 +294,7 @@ Worktree and VCS:
   files outside your Ownership, and never write probes into another worktree. Never work
   in the session's own worktree: cut one of your own for the lane, and a second at dev
   for stack-enqueue.
-- If the launch made this worktree sparse, widen with `git sparse-checkout add <dir>` before reading outside it.
+- If the launch made this worktree sparse, widen with `lr sparse add <dir>` before reading outside it.
 - In a repo with tools/hooks/warm-lane.sh, node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
 - Branch prefix: <prefix>/<lane>/. The launch created your worktree on a branch named
   for this launch, <prefix>/<lane>-<run>-<n>; rename it into that prefix before your
