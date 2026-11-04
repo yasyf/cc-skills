@@ -84,7 +84,7 @@ func newGates(t *testing.T) *gateFixture {
 	f := &gateFixture{fake: fake, tool: tool, now: t0}
 	f.gates = &landing.Gates{
 		Runner: tool, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Repo: monorepo, Checkout: "/co", Rulings: gateTool,
-		Session: func() (string, error) { return "board-1", nil },
+		Session: func(context.Context) (string, error) { return "board-1", nil },
 		Now:     func() time.Time { return f.now },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}

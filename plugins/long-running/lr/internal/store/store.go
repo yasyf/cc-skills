@@ -493,21 +493,45 @@ func advance(db execer, source string, position int64) error {
 const laneColumns = "name, brief, model, effort, role, state, since, handoff, predecessor, reason, asked, flushed, retired_by, waiting, answered, page, awaits, placement, stopped_on, launcher"
 
 func (s *Store) WantLane(lane Lane, at time.Time) (bool, error) {
-	page, err := encodePage(lane.Page)
+	added, err := changed(insertLane(s.db, lane, at))
 	if err != nil {
 		return false, err
 	}
-	result, err := s.db.Exec(
+	return added, s.Own(lane.Name, lane.PRs)
+}
+
+func (s *Store) PutLanes(lanes []Lane, at time.Time) (err error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.Exec("DELETE FROM lanes"); err != nil {
+		return err
+	}
+	for _, lane := range lanes {
+		if _, err = insertLane(tx, lane, at); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func insertLane(db execer, lane Lane, at time.Time) (sql.Result, error) {
+	page, err := encodePage(lane.Page)
+	if err != nil {
+		return nil, err
+	}
+	return db.Exec(
 		"INSERT INTO lanes ("+laneColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
 		lane.Name, lane.Brief, lane.Model, lane.Effort, lane.Role, string(lane.State), Stamp(at),
 		text(lane.Handoff), text(lane.Predecessor), text(lane.Reason), when(lane.Asked), when(lane.Flushed), text(lane.RetiredBy),
 		whole(lane.Waiting), when(lane.Answered), page, text(lane.Awaits), text(lane.Placement), whole(lane.StoppedOn), text(lane.Launcher),
 	)
-	added, err := changed(result, err)
-	if err != nil {
-		return false, err
-	}
-	return added, s.Own(lane.Name, lane.PRs)
 }
 
 func (s *Store) Lane(name string) (Lane, bool, error) {
