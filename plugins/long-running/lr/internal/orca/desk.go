@@ -208,6 +208,9 @@ type Desk struct {
 	unreachable int
 	refused     []time.Time
 	swept       time.Time
+	rosterAt    time.Time
+	settled     map[string]bool
+	unreadSeen  map[string]unreadCheck
 	pass        atomic.Pointer[passMark]
 	stuckPass   int
 	stepTook    map[string]time.Duration

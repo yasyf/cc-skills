@@ -156,10 +156,11 @@ func displayEndpoint(endpoint string) string {
 }
 
 type remoteConn struct {
-	socket  *websocket.Conn
-	key     [boxKeyBytes]byte
-	token   string
-	timeout time.Duration
+	socket   *websocket.Conn
+	key      [boxKeyBytes]byte
+	token    string
+	timeout  time.Duration
+	evidence map[string]any
 }
 
 func (c *Client) dialRemote(ctx context.Context, endpoint storedEndpoint) (*remoteConn, error) {
@@ -175,7 +176,7 @@ func (c *Client) dialRemote(ctx context.Context, endpoint storedEndpoint) (*remo
 	if timeout == 0 {
 		timeout = defaultRequestTimeout
 	}
-	remote := &remoteConn{token: endpoint.DeviceToken, timeout: timeout}
+	remote := &remoteConn{token: endpoint.DeviceToken, timeout: timeout, evidence: c.evidence()}
 	box.Precompute(&remote.key, (*[boxKeyBytes]byte)(hostKey), secret)
 	connecting, cancel := context.WithTimeout(ctx, remoteConnectTimeout)
 	defer cancel()
@@ -278,21 +279,32 @@ func (r *remoteConn) readSealed(ctx context.Context) ([]byte, error) {
 }
 
 type remoteRequest struct {
-	ID          string `json:"id"`
-	DeviceToken string `json:"deviceToken"`
-	Method      string `json:"method"`
-	Params      any    `json:"params,omitempty"`
+	ID                    string         `json:"id"`
+	DeviceToken           string         `json:"deviceToken"`
+	Method                string         `json:"method"`
+	Params                any            `json:"params,omitempty"`
+	ContractVersion       int            `json:"orchestrationContractVersion,omitempty"`
+	CompatibilityID       string         `json:"compatibilityInvocationId,omitempty"`
+	CompatibilityEvidence map[string]any `json:"orchestrationCompatibilityEvidence,omitempty"`
 }
 
 func (r *remoteConn) call(ctx context.Context, method string, params any, timeout time.Duration) (Response, error) {
-	if !readOnly(method, params) || strings.HasPrefix(method, orchestrationPrefix) {
+	if !readOnly(method, params) || (strings.HasPrefix(method, orchestrationPrefix) && method != checkMethod) {
 		return Response{}, fmt.Errorf("%w: %s", ErrWriteMethod, method)
 	}
 	id, err := newUUID()
 	if err != nil {
 		return Response{}, err
 	}
-	frame, err := marshal(remoteRequest{ID: id, DeviceToken: r.token, Method: method, Params: params})
+	outgoing := remoteRequest{ID: id, DeviceToken: r.token, Method: method, Params: params}
+	if strings.HasPrefix(method, orchestrationPrefix) {
+		outgoing.ContractVersion = orchestrationContract
+		outgoing.CompatibilityEvidence = r.evidence
+		if outgoing.CompatibilityID, err = newUUID(); err != nil {
+			return Response{}, err
+		}
+	}
+	frame, err := marshal(outgoing)
 	if err != nil {
 		return Response{}, err
 	}

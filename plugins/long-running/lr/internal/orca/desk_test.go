@@ -3763,6 +3763,42 @@ func TestAnUnreadRelayWakesAParkedWorkerOnce(t *testing.T) {
 	}
 }
 
+func TestAnOverdueRelayIsPolledOncePerSweepInterval(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.dispatches[testDispatch].environment = "env_sprite"
+	thread := w.sentRelay("R2", "")
+	w.unread[testTerminal] = []orcaMessage{{ID: "relay_held", ThreadID: thread}}
+	w.now = w.now.Add(11 * time.Minute)
+	w.step(w.desk.deadlines)
+	w.calls = nil
+	w.step(w.desk.deadlines)
+	if len(w.calls) != 0 {
+		t.Fatalf("second pass inside the interval called %v", w.calls)
+	}
+	w.now = w.now.Add(sweepEvery)
+	w.unread[testTerminal] = nil
+	w.step(w.desk.deadlines)
+	wantContains(t, w.wantEscalation("DEADLINE "), "no started reply")
+}
+
+func TestARelayToASettledWorkerIsNamedWithoutReadingTheWorker(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.sentRelay("R2", "")
+	w.dispatches[testDispatch].status = statusCompleted
+	w.refusals["orchestration worker-show"] = object{"code": "invalid_argument", "message": "Unknown environment: gone"}
+	w.now = w.now.Add(11 * time.Minute)
+	w.calls = nil
+	w.step(w.desk.deadlines)
+	for _, call := range w.calls {
+		if slices.Contains(call, "worker-show") || slices.Contains(call, "check") {
+			t.Fatalf("read the settled worker: %v", call)
+		}
+	}
+	wantContains(t, w.wantEscalation("DEADLINE "), "no started reply")
+}
+
 func TestAnUnreadableMailboxLeavesTheDeadlineSaying(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)

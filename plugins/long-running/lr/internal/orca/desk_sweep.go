@@ -331,7 +331,28 @@ func (d *Desk) overdue(ctx context.Context, container, about string) error {
 	return nil
 }
 
+type unreadCheck struct {
+	at     time.Time
+	unread bool
+}
+
 func (d *Desk) reportUnread(ctx context.Context, container, about string, action incident.Action) (bool, error) {
+	key := container + "/" + action.ActionID
+	if last, checked := d.unreadSeen[key]; checked && d.Now().Sub(last.at) < sweepEvery {
+		return last.unread, nil
+	}
+	unread, err := d.checkUnread(ctx, container, about, action)
+	if err != nil {
+		return false, err
+	}
+	if d.unreadSeen == nil {
+		d.unreadSeen = map[string]unreadCheck{}
+	}
+	d.unreadSeen[key] = unreadCheck{at: d.Now(), unread: unread}
+	return unread, nil
+}
+
+func (d *Desk) checkUnread(ctx context.Context, container, about string, action incident.Action) (bool, error) {
 	dispatch, sent, err := d.sentTo(ctx, container, about, action)
 	if err != nil || !sent {
 		return false, err
@@ -399,11 +420,36 @@ func (d *Desk) sentTo(ctx context.Context, container, about string, action incid
 	if err != nil || !delivered {
 		return nil, false, err
 	}
+	settled, err := d.dispatchSettled(ctx, d.receipt(about))
+	if err != nil || settled {
+		return nil, false, err
+	}
 	dispatch, err := d.show(ctx, about, "")
 	if err != nil || !dispatch.active() {
 		return nil, false, err
 	}
 	return dispatch, true, nil
+}
+
+func (d *Desk) dispatchSettled(ctx context.Context, dispatch string) (bool, error) {
+	if d.settled == nil || d.Now().Sub(d.rosterAt) >= sweepEvery {
+		rows, err := d.workers(ctx)
+		var down *orcaUnreachable
+		if errors.As(err, &down) {
+			return false, err
+		}
+		if err != nil {
+			fmt.Fprintln(d.Stderr, err)
+			return false, nil
+		}
+		d.settled, d.rosterAt = map[string]bool{}, d.Now()
+		for _, row := range rows {
+			if inactive(row.Status) {
+				d.settled[row.Dispatch] = true
+			}
+		}
+	}
+	return d.settled[dispatch], nil
 }
 
 func notDelivered(rows []orcaMessage, container string, action incident.Action, dispatch string, now time.Time) (string, error) {

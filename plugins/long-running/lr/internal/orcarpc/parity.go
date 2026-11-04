@@ -125,7 +125,11 @@ func remoteParityForms(ctx context.Context, client *Client) [][]string {
 			continue
 		}
 		handle := terminals.Result.Terminals[0].Handle
-		return [][]string{form, {"terminal", "read", "--terminal", handle, "--screen", "--environment", name, "--json"}}
+		return [][]string{
+			form,
+			{"terminal", "read", "--terminal", handle, "--screen", "--environment", name, "--json"},
+			{"orchestration", "check", "--terminal", handle, "--peek", "--environment", name, "--full", "--json"},
+		}
 	}
 	return nil
 }
