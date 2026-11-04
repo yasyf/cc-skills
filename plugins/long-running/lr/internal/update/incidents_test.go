@@ -149,3 +149,25 @@ func TestAnIncidentIsDescribedByItsOwnRecordsTheCoordinatorsWordsFirst(t *testin
 		}
 	}
 }
+
+func TestAQuietLaneHoldingAnOpenPROwnsItsIncidentAndARetiredOrEmptyHandedOneDoesNot(t *testing.T) {
+	parked := heard("drain-repair-1", "desired", 500)
+	parked.PRs = []int{50026}
+	retired := heard("drain-fix", "retired", 500)
+	retired.PRs = []int{50025}
+	records := []Record{opened(1, "root", "INCIDENT OPEN drain: runs crash on node roll", 600, "drain-fix")}
+
+	found := viewOf([]Lane{parked, retired}, records, nil).incidents(records, testDrive)
+
+	if len(found) != 1 || found[0].unowned() || !strings.HasPrefix(found[0].work.who, "drain-repair-1, quiet since ") || !strings.HasSuffix(found[0].work.who, ", holding #50026") {
+		t.Fatalf("incidents = %+v", found)
+	}
+	if strings.Contains(found[0].work.who, "drain-fix") {
+		t.Fatalf("a retired lane reads as on it: %q", found[0].work.who)
+	}
+
+	empty := viewOf([]Lane{heard("drain-repair-1", "desired", 500)}, records, nil).incidents(records, testDrive)
+	if len(empty) != 1 || !empty[0].unowned() {
+		t.Fatalf("a quiet lane holding nothing owns its incident: %+v", empty)
+	}
+}
