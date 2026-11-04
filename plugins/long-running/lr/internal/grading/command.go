@@ -133,16 +133,17 @@ func NewLivePool(a *app.App, runnerPath string, s *store.Store) (*JobPool, error
 		return nil, err
 	}
 	return NewJobPool(runner, PoolDeps{
-		Runner:  a.Runner,
-		Spawn:   Detached,
-		Workers: s.Workers,
-		Cursors: s,
-		Ledger:  s.LedgerRows,
-		Picks:   s.CheckedRules,
-		Now:     a.Now,
-		Log:     a.Log,
-		Self:    filepath.Join(plugin, "bin", "lr"),
-		Scripts: filepath.Join(plugin, "skills", "long-running", "scripts"),
-		Config:  claude,
+		Runner:    a.Runner,
+		Spawn:     Detached,
+		KillGroup: KillGroup,
+		Workers:   s.Workers,
+		Cursors:   s,
+		Ledger:    s.LedgerRows,
+		Picks:     s.CheckedRules,
+		Now:       a.Now,
+		Log:       a.Log,
+		Self:      filepath.Join(plugin, "bin", "lr"),
+		Scripts:   filepath.Join(plugin, "skills", "long-running", "scripts"),
+		Config:    claude,
 	})
 }
