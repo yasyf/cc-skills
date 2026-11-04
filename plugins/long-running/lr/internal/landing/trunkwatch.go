@@ -788,6 +788,12 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 	if err != nil {
 		return err
 	}
+	if fix == "" {
+		line := fmt.Sprintf("orca-desk: incident %s-%s %s :: %s's %s %s, %s; fix it", trunkTopic, first.OID[:min(10, len(first.OID))], newest.TargetURL, w.Trunk, w.Config.Check, failing, origin)
+		if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "go", To: []string{orcaDesk}, Topic: trunkTopic, ID: "fix-lane:" + id, Text: line}); err != nil {
+			return err
+		}
+	}
 	if blocking {
 		owed := "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`"
 		if fix != "" {

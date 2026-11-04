@@ -62,7 +62,7 @@ Read only the row you are doing. Each file states its rules in full.
 | Landing a PR, the merge queue, D1 to D23 | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md), [merge-train-brief.md](reference/merge-train-brief.md) |
 | Grading a head, a landing or a plan | [grading-principles.md](reference/grading-principles.md), [finder-brief.md](reference/finder-brief.md), [finder-desk-brief.md](reference/finder-desk-brief.md), [finder-desk-rows.md](reference/finder-desk-rows.md), [fidelity-desk-brief.md](reference/fidelity-desk-brief.md), [fidelity-job-brief.md](reference/fidelity-job-brief.md), [semantic-collisions-brief.md](reference/semantic-collisions-brief.md) |
 | Owning a red with no owner | [red-sweep-brief.md](reference/red-sweep-brief.md) |
-| An alert or incident | [active-alert-brief.md](reference/active-alert-brief.md), [alert-fix-brief.md](reference/alert-fix-brief.md), [alerts-desk-brief.md](reference/alerts-desk-brief.md), [alert-comms-brief.md](reference/alert-comms-brief.md), [unfixed-case-brief.md](reference/unfixed-case-brief.md) |
+| An alert or incident | [active-alert-brief.md](reference/active-alert-brief.md), [alert-fix-brief.md](reference/alert-fix-brief.md), [alerts-desk-brief.md](reference/alerts-desk-brief.md), [alert-evidence-brief.md](reference/alert-evidence-brief.md), [alert-comms-brief.md](reference/alert-comms-brief.md), [unfixed-case-brief.md](reference/unfixed-case-brief.md) |
 | A release | [release-lanes.md](reference/release-lanes.md), [manual-release-brief.md](reference/manual-release-brief.md) |
 | Posting to Slack | [slack-lane-brief.md](reference/slack-lane-brief.md), [comms-desk-brief.md](reference/comms-desk-brief.md) |
 | Posting or reading cci records, the lane bus, B rules | [bus-contracts.md](reference/bus-contracts.md) |
@@ -130,8 +130,8 @@ A call that survives the list decides something no verb and no lane can decide. 
 | What an incident is doing | `lr incident status <slug>` |
 | Where a lane's mail goes; every `lr` verb takes a stem, `meta-desk`, for its newest live lane | `lr route <lane>` |
 
-A read the table lacks belongs to a lane: a PR, a diff, a CI log, a Slack thread, a plan
-artifact, a long file, a cloud listing, a build page. The coordinator spawns a reader and takes
+A read the table lacks belongs to a lane: a PR, a CI log, a Slack thread, a long file, a cloud
+listing, a build page. A diff, plan or verdict you are approving is yours to read. The coordinator spawns a reader and takes
 back at most five lines; a search is one call, `lr ask-lane '<question>'`. The `root_context`
 and `root_reads` hooks warn on every read of those kinds, on a second source opened for one
 owner ask, and on a lane's records piped through `tail` or `grep`; in the communicator's

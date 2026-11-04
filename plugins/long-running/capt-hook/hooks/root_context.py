@@ -644,12 +644,13 @@ root_warning(
 
 root_warning(
     message="Warning, nothing was blocked: PR and review reads belong to a lane, not the drive coordinator. Delegate with `Agent` using `cc-context:pr-review-triage`.",
-    only_if=[Or(runs_verb(GH, ("pr", "view"), ("pr", "diff")), runs_verb(CCX, ("vcs", "reviews")))],
+    only_if=[Or(runs_verb(GH, ("pr", "view")), runs_verb(CCX, ("vcs", "reviews")))],
     tests={
         Input(command="gh pr view 28797 --json body", state=ACTIVE): Warn(pattern=r"PR and review reads"),
         Input(command="gh -R yasyf/cc-skills pr view 148", state=ACTIVE): Warn(),
         Input(command="ccx vcs reviews --stack", state=ACTIVE): Warn(),
         Input(command="gh pr list", state=ACTIVE): Allow(),
+        Input(command="gh pr diff 28797", state=ACTIVE): Allow(),
         Input(command="gh pr view 28797", agent_id="a1b2c3", state=ACTIVE): Allow(),
     },
 )

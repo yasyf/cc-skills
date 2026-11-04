@@ -84,7 +84,7 @@ ccn answer add "May the drive reply in <channel id> thread <thread ts>, where <u
 
 ## Agent types, surfaces, and fallbacks
 
-**Spawn every Slack writer as `general-purpose` on `opus`.** That covers the R20 Slack lane, the incident comms lane, and `comms-desk`; never spawn them as `long-running:lane` or `lane-ship`. Plugin agent tool lists are frozen when the coordinator session starts, and `general-purpose` carries all session Model Context Protocol (MCP) tools plus `ToolSearch`. Even if the coordinator session started before `cc-slack` was installed and lacks `mcp__plugin_cc-slack_*`, `cc-slack:slack-waiter`, or `cc-slack:slack-triage` tools, the coordinator never writes Slack inline; the lane reaches Slack by using the CLI or user-level MCP.
+**Spawn every Slack writer as `general-purpose` on `opus`, and never as a codex lane, which cannot post.** That covers the R20 Slack lane and `comms-desk`, while `lr launch incident` starts the incident comms lane as Claude on `incident-opus`; never spawn them as `long-running:lane` or `lane-ship`. Plugin agent tool lists are frozen when the coordinator session starts, and `general-purpose` carries all session Model Context Protocol (MCP) tools plus `ToolSearch`. Even if the coordinator session started before `cc-slack` was installed and lacks `mcp__plugin_cc-slack_*`, `cc-slack:slack-waiter`, or `cc-slack:slack-triage` tools, the coordinator never writes Slack inline; the lane reaches Slack by using the CLI or user-level MCP.
 
 **Use `cc-slack` MCP tools first, then the CLI, then the user-level Slack MCP.** Every writer lane follows this order under the same grant and never leaves a reporter unanswered because one surface refused:
 

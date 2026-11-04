@@ -170,7 +170,7 @@ func TestAnIncidentTrioPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testin
 			for i, want := range []string{
 				"orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief=" + desk.FixBrief,
 				"orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief=" + desk.EvidenceBrief,
-				"orca-desk: launch inc-app-origin-comms NOW incident xhigh role=comms brief=" + desk.CommsBrief,
+				"orca-desk: launch inc-app-origin-comms NOW incident-opus xhigh role=comms brief=" + desk.CommsBrief,
 			} {
 				draft := bus.drafts[i]
 				if !reflect.DeepEqual(draft.To, []string{deskLane}) || draft.Kind != "go" || draft.Lane != "root" || draft.Topic != "inc-app-origin" {
