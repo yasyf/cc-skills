@@ -43,7 +43,9 @@ func verbTree(ran *[]string) func() *cobra.Command {
 		mark.Flags().String("by", "", "the clock")
 		add := &cobra.Command{Use: "add", Short: "Add the owner message", Args: cobra.NoArgs, RunE: run}
 		add.Flags().String("state", "open", "open or addressed")
-		owner.AddCommand(mark, add)
+		rule := &cobra.Command{Use: "rule", Short: "Record an owner ruling", Args: cobra.ExactArgs(1), RunE: run}
+		rule.Flags().String("reply", "", "the reply")
+		owner.AddCommand(mark, add, rule)
 		explain := &cobra.Command{Use: "explain", Short: "Host a page", Args: cobra.ExactArgs(1), RunE: run}
 		explain.Flags().String("from", "", "a markdown file")
 		_ = explain.MarkFlagRequired("from")
@@ -147,7 +149,7 @@ func TestOnlyADrivesSessionSeesTheVerbTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(drive.Env, "d")
-	if names := listed(t); !slices.Equal(names, []string{"reply", "owner_add", "owner_mark", "explain", "ask_lane", "asks"}) {
+	if names := listed(t); !slices.Equal(names, []string{"reply", "owner_add", "owner_mark", "owner_rule", "explain", "ask_lane", "asks"}) {
 		t.Fatalf("a drive's session lists %v", names)
 	}
 }
