@@ -229,7 +229,7 @@ function syncReviewEmbed(r) {
     .then(({ url, assistant, stale, error }) => {
       if (embed.number !== number) return;
       code.innerHTML = url
-        ? `${stale ? STALE_LINE : ''}${assistant ? ASSISTANT_LINE : ''}${framable(url) ? `<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>` : `<div class="pane-wait"><a class="btn pri" href="${esc(url)}" target="_blank" rel="noopener">Open the code review ↗</a></div>`}`
+        ? `${stale ? STALE_LINE : ''}${assistant ? ASSISTANT_LINE : ''}<iframe title="Code and review of #${number}" src="${esc(framedUrl(url))}" allow="clipboard-write"></iframe>`
         : `<div class="pane-wait"><b>The code view is unavailable right now${/rate limit/i.test(error) ? ': GitHub is limiting requests' : ''}.</b> What this pull request changes and where it stands are above. <a href="https://github.com/${esc(state.model.repo)}/pull/${number}" target="_blank" rel="noopener">Open it on GitHub ↗</a></div>
           <form class="assist-line pr-ask" data-ask-pr="${number}"><input name="q" placeholder="Ask about #${number}: it answers from its facts, your rulings and the drive's records"><button class="btn pri">Ask</button></form><div class="pr-answer"></div>`;
     });
