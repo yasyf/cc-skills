@@ -146,6 +146,15 @@ def test_a_credential_typed_in_a_prompt_is_redacted_in_its_capture(root, token):
     assert [capture["text"] for capture in root.captures()] == ["use [credential redacted] for the flags api, and keep 6e74115 on Release-2026-10-26-owner-capture-redaction as the head"]
 
 
+def test_a_prompt_with_a_paste_captures_his_words_and_takes_the_stamp_of_the_whole_message(root):
+    text = '```\n\n\n<pasted_content id="cca2">\nThis tool\'s input schema was not in your prompt\n</pasted_content id="cca2">\n\n``\n\nkeep the nightly report'
+    root.prompt(text)
+    root.typed(text, "2026-10-23T11:20:00.000Z")
+    root.fire(StopEvent)
+
+    assert root.captures() == [{"digest": digest(text), "at": "2026-10-23T11:20:00Z", "session": SESSION, "source": "prompt", "text": "keep the nightly report"}]
+
+
 def test_a_prompt_whose_line_has_not_landed_waits_for_a_later_hook(root):
     root.prompt("ship the register gates")
     root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
