@@ -1262,7 +1262,7 @@ func TestARelaunchAfterTheRecordedTaskCompletedStartsAFreshTask(t *testing.T) {
 	}
 }
 
-func TestALaunchWhoseOneWaitOutlastsTheStallLimitFailsWithLaunchFailedNamingTheWait(t *testing.T) {
+func TestALaunchThatStallsTwiceFailsOnceWithLaunchFailedNamingTheSecondWait(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
 	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
@@ -1271,11 +1271,64 @@ func TestALaunchWhoseOneWaitOutlastsTheStallLimitFailsWithLaunchFailedNamingTheW
 	if code != 1 {
 		t.Fatal(line)
 	}
-	wt := h.worktree()
-	wantLine(t, line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+wt+" yet for 0s; rolled back worktree="+wt+" branch="+testBranch)
+	retried := filepath.Join(filepath.Dir(h.parent), "v3-lane-a-1-2")
+	wantLine(t, line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+retried+" yet for 0s; rolled back worktree="+retried+" branch=yasyf/v3-lane-a-1-2; this was its one retry")
+	if strings.Count(h.stderr.String(), "lane-a retries once after a stall: Orca does not list worktree "+h.worktree()+" yet for 0s\n") != 1 {
+		t.Fatal(h.stderr.String())
+	}
 	wantNoCalls(t, h, "terminal create")
-	if exists(wt) || h.gitIn(h.main, "branch", "--list", testBranch) != "" {
-		t.Fatal("the rollback left work behind")
+	if !slices.Equal(h.sleeps, []time.Duration{stallRetry}) {
+		t.Fatal(h.sleeps)
+	}
+	for _, wt := range []string{h.worktree(), retried} {
+		if exists(wt) || h.gitIn(h.main, "branch", "--list", "yasyf/"+filepath.Base(wt)) != "" {
+			t.Fatal("the rollback left work behind")
+		}
+	}
+}
+
+func TestALaunchThatStallsOnceRetriesUnderTheSameLaneAndStartsOneWorker(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
+	h.reply("worktree show", missing, sent)
+	retried := filepath.Join(filepath.Dir(h.parent), "v3-lane-a-1-2")
+	wantLine(t, h.launched(), "lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree="+retried)
+	if starts := h.orcaCalls("orchestration worker-start"); len(starts) != 1 {
+		t.Fatal(starts)
+	}
+	if strings.Contains(h.stderr.String(), "LAUNCH-FAILED") || exists(h.worktree()) || h.gitIn(h.main, "branch", "--list", testBranch) != "" {
+		t.Fatal(h.stderr.String())
+	}
+}
+
+func TestARefusedLaunchIsNeverRetried(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
+	h.reply("orchestration worker-start", fencedStart)
+	if line, code := h.launch(); code != 1 || strings.Contains(line, "one retry") {
+		t.Fatal(line)
+	}
+	if starts := h.orcaCalls("orchestration worker-start"); len(starts) != 1 || strings.Contains(h.stderr.String(), "retries once") {
+		t.Fatal(starts)
+	}
+	if len(h.sleeps) != 0 {
+		t.Fatal(h.sleeps)
+	}
+}
+
+func TestARollbackKeepsABranchThatHoldsCommitsAndSaysWhy(t *testing.T) {
+	h := newHarness(t)
+	h.noAgent()
+	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+	h.reply("terminal create", reply{out: object{"ok": true, "result": object{"terminal": object{"handle": "term_a"}}}, sh: "git -C " + h.worktree() + " -c user.name=t -c user.email=t@t commit -q --allow-empty -m work"})
+	line, _ := h.launch()
+	if !strings.HasSuffix(line, "; rolled back terminal=term_a; rollback left worktree="+h.worktree()+" branch="+testBranch+" (it holds commits not on origin/dev)") {
+		t.Fatal(line)
+	}
+	if !exists(h.worktree()) || h.gitIn(h.main, "branch", "--list", testBranch) == "" {
+		t.Fatal("the rollback dropped a branch holding commits")
 	}
 }
 
@@ -1816,8 +1869,11 @@ func TestACreateWhoseWaitOutlastsTheStallLimitFailsWithLaunchFailedNamingTheWait
 	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
 	h.reply("worktree create", reply{rc: 1, out: "connection lost"})
 	line, code := h.launch()
-	if code != 1 || !strings.HasPrefix(line, "lane-a failed LAUNCH-FAILED: Orca has not registered worktree v3-lane-a-1-1 for 0s") {
+	if code != 1 || !strings.HasPrefix(line, "lane-a failed LAUNCH-FAILED: Orca has not registered worktree v3-lane-a-1-2 for 0s") || !strings.HasSuffix(line, "; this was its one retry") {
 		t.Fatal(line)
+	}
+	if creates := h.orcaCalls("worktree create"); len(creates) != 2 || flag(creates[0], "--name") != "v3-lane-a-1-1" {
+		t.Fatal(creates)
 	}
 	wantNoCalls(t, h, "terminal create")
 }
@@ -1977,7 +2033,7 @@ func TestARollbackOrcaRefusesIsNamedInTheFailure(t *testing.T) {
 	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
 	h.reply("worktree rm", reply{rc: 1, out: object{"ok": false, "error": object{"code": "worktree_locked"}}})
 	line, _ := h.launch()
-	if !strings.HasSuffix(line, "; rolled back terminal=term_a; rollback left worktree="+h.worktree()) {
+	if !strings.HasSuffix(line, "; rolled back terminal=term_a; rollback left worktree="+h.worktree()+" (its removal failed: "+filepath.Join(h.receipts, "lane-a.rm.log")+")") {
 		t.Fatal(line)
 	}
 	wantLine(t, strings.TrimSpace(h.readReceipt("lane-a.worktree")), h.worktree())
@@ -2117,7 +2173,7 @@ func TestARollbackCCXRefusesIsNamedInTheFailure(t *testing.T) {
 	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
 	h.ccxRefuses = true
 	line, _ := h.launch()
-	if !strings.HasSuffix(line, "; rolled back terminal=term_a; rollback left worktree="+h.worktree()+" branch="+testBranch) {
+	if !strings.Contains(line, "; rolled back terminal=term_a; rollback left worktree="+h.worktree()+" (its removal failed: "+filepath.Join(h.receipts, "lane-a.rm.log")+") branch="+testBranch+" (") {
 		t.Fatal(line)
 	}
 	wantLine(t, strings.TrimSpace(h.readReceipt("lane-a.worktree")), h.worktree())
@@ -2212,7 +2268,7 @@ func TestAWorkerStartThatMayHaveDispatchedNamesWhatItLeft(t *testing.T) {
 	h.healthyClaude()
 	h.reply("orchestration worker-start", timedOut)
 	line, _ := h.launch()
-	wantLine(t, line, "lane-a failed worker-start terminal=term_a: runtime_error: Timed out waiting for terminal handle after creation; rollback left terminal=term_a worktree="+h.worktree())
+	wantLine(t, line, "lane-a failed worker-start terminal=term_a: runtime_error: Timed out waiting for terminal handle after creation; rollback left terminal=term_a worktree="+h.worktree()+" (worker-start may have dispatched a worker there)")
 	wantNoCalls(t, h, "ccx vcs", "terminal close")
 }
 
@@ -2229,7 +2285,7 @@ func TestAWorkerStartThatPrintedADispatchBesideARefusalRollsNothingBack(t *testi
 	h.healthyClaude()
 	h.reply("orchestration worker-start", reply{rc: 1, out: okResult(object{"state": "starting"}).body() + "\n" + fencedStart.body()})
 	line, _ := h.launch()
-	if !strings.HasSuffix(line, "; rollback left terminal=term_a worktree="+h.worktree()) {
+	if !strings.HasSuffix(line, "; rollback left terminal=term_a worktree="+h.worktree()+" (worker-start may have dispatched a worker there)") {
 		t.Fatal(line)
 	}
 	wantNoCalls(t, h, "ccx vcs")
