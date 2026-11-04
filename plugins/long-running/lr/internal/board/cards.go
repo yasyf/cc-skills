@@ -161,7 +161,7 @@ func (c Cards) onBoard(ctx context.Context) ([]string, error) {
 	return cards, nil
 }
 
-func (c Cards) Until(ctx context.Context, card, condition string, paths ...string) (End, error) {
+func (c Cards) Until(ctx context.Context, card, condition, lane string, paths ...string) (End, error) {
 	now := c.Now()
 	if why := Refusal(condition, now); why != "" {
 		return End{}, fmt.Errorf("refused: %s", why)
@@ -171,6 +171,9 @@ func (c Cards) Until(ctx context.Context, card, condition string, paths ...strin
 		return End{}, err
 	}
 	fields := map[string]string{"until": end.String(), "set": stamp(now)}
+	if lane != "" {
+		fields[laneField] = lane
+	}
 	if len(paths) > 0 {
 		fields[pathsField] = strings.Join(paths, ",")
 	}

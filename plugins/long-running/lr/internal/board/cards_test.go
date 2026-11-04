@@ -132,7 +132,7 @@ func TestUntilRecordsTheEventThatEndsACard(t *testing.T) {
 		"record:#308624":                      "record:308624",
 	} {
 		f := newCards(t, &cardShell{}, nil)
-		end, err := f.Until(context.Background(), "card-a", given)
+		end, err := f.Until(context.Background(), "card-a", given, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -154,7 +154,7 @@ func TestUntilRefusesACardWithNoCheckableEnd(t *testing.T) {
 		"at:2026-11-02T07:00:00Z":        "has already passed",
 	} {
 		f := newCards(t, &cardShell{}, nil)
-		_, err := f.Until(context.Background(), "card-a", given)
+		_, err := f.Until(context.Background(), "card-a", given, "")
 		if err == nil || !strings.Contains(err.Error(), said) {
 			t.Errorf("%s: err = %v", given, err)
 		}
@@ -166,7 +166,7 @@ func TestUntilRefusesACardWithNoCheckableEnd(t *testing.T) {
 
 func TestMissingListsBoardCardsWithNoEndAndSkipsTheMergeList(t *testing.T) {
 	f := newCards(t, &cardShell{cards: []string{"card-a", "card-b"}}, nil)
-	if _, err := f.Until(context.Background(), "card-a", "pr:1"); err != nil {
+	if _, err := f.Until(context.Background(), "card-a", "pr:1", ""); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.Missing(context.Background(), nil)
@@ -178,19 +178,19 @@ func TestMissingListsBoardCardsWithNoEndAndSkipsTheMergeList(t *testing.T) {
 func TestPathsListsEachOpenCardsDesignPaths(t *testing.T) {
 	f := newCards(t, &cardShell{cards: []string{"card-storage", "card-plain", "card-done"}}, nil)
 	ctx := context.Background()
-	if _, err := f.Until(ctx, "card-storage", "pr:1", "go/sand/internal/cloudrunner", "infra/rows/cloudrunner"); err != nil {
+	if _, err := f.Until(ctx, "card-storage", "pr:1", "", "go/sand/internal/cloudrunner", "infra/rows/cloudrunner"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Until(ctx, "card-storage", "pr:2"); err != nil {
+	if _, err := f.Until(ctx, "card-storage", "pr:2", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Until(ctx, "card-plain", "pr:1"); err != nil {
+	if _, err := f.Until(ctx, "card-plain", "pr:1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Until(ctx, "card-gone", "pr:1", "api/src"); err != nil {
+	if _, err := f.Until(ctx, "card-gone", "pr:1", "", "api/src"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Until(ctx, "card-done", "pr:1", "dashboard"); err != nil {
+	if _, err := f.Until(ctx, "card-done", "pr:1", "", "dashboard"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.record(ctx, "card-done", map[string]string{"withdrawn": stamp(cardsNow)}); err != nil {
@@ -208,7 +208,7 @@ func TestSweepWithdrawsEachCardWhoseEventHappenedAndNamesTheOutcome(t *testing.T
 	f := newCards(t, on, map[int]string{1: "MERGED"}, "7")
 	ctx := context.Background()
 	for _, pair := range [][2]string{{"merged-pr", "pr:1"}, {"open-pr", "pr:2"}, {"past-time", "at:1h"}, {"future-time", "at:3h"}, {"closed-record", "record:7"}, {"shipped", "release:api@plat-usw2-prod:0dfbd44e"}, {"unshipped", "release:api@plat-usw2-prod:1234567"}} {
-		if _, err := f.Until(ctx, pair[0], pair[1]); err != nil {
+		if _, err := f.Until(ctx, pair[0], pair[1], ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -240,7 +240,7 @@ func TestSweepWithdrawsEachCardWhoseEventHappenedAndNamesTheOutcome(t *testing.T
 func TestAWithdrawnCardPushedAgainNeedsANewEnd(t *testing.T) {
 	f := newCards(t, &cardShell{cards: []string{"merged-pr"}}, map[int]string{1: "MERGED"})
 	ctx := context.Background()
-	if _, err := f.Until(ctx, "merged-pr", "pr:1"); err != nil {
+	if _, err := f.Until(ctx, "merged-pr", "pr:1", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.Sweep(ctx, "board-lane", &bytes.Buffer{}); err != nil {
@@ -265,7 +265,7 @@ func TestDrawnKeepsTheFirstDrawUntilASweepWithdrawsTheCard(t *testing.T) {
 	}
 	drawnAt(first)
 	f.clock = first.Add(2 * time.Hour)
-	if _, err := f.Until(ctx, "merged-pr", "pr:1"); err != nil {
+	if _, err := f.Until(ctx, "merged-pr", "pr:1", ""); err != nil {
 		t.Fatal(err)
 	}
 	drawnAt(first)
@@ -295,7 +295,7 @@ func TestSweepKeepsAnAnsweredCardWhoseAnswerHasNoCcnRow(t *testing.T) {
 	f := newCards(t, on, map[int]string{1: "MERGED"})
 	ctx := context.Background()
 	for _, card := range on.cards {
-		if _, err := f.Until(ctx, card, "pr:1"); err != nil {
+		if _, err := f.Until(ctx, card, "pr:1", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
