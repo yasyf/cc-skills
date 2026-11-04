@@ -174,7 +174,7 @@ is listed under Escalate stops for the coordinator: post
 preamble's `orca orchestration send` and `ask` carry the dispatch lifecycle alone
 (heartbeats, the runner-action acks below, `worker_done`). Keep working on everything
 that does not depend on the answer.
-End a turn on a wait for a person or another lane only after posting it as a cci `ask` or `blocked` record to whoever acts on it; a wait on a process, a build or a clock ends the turn on `lr wait --wake` below and posts nothing. AskUserQuestion is unavailable. A decision
+End a turn on a wait for a person or another lane only after posting it as a cci `ask` or `blocked` record to whoever acts on it. Any record a person or lane then addresses to you by name, whatever its kind and whatever you parked on, wakes you within 5 minutes, so that wait needs no `lr wait` on your mail. A wait on a process, a build or a clock ends the turn on `lr wait --wake` below and posts nothing. AskUserQuestion is unavailable. A decision
 the brief, the plan, and the owner's answers do not settle stops that item until the
 coordinator answers the ask above; never take a default or a provisional pick.
 
@@ -475,7 +475,7 @@ the lane supervisor relaunches a lane that stops without one. A turn ends only o
 record, and `cci hook stop` refuses every other stop: `done`, `stopped`, or an open `ask`,
 `blocker` or `blocked`. To wait on an event, post `cci post --kind blocked` with `--pr N`,
 `--target T`, `--lane-ref L`, or a `card-` id in its text, and stop; that event wakes you,
-and a red PR you parked on wakes you. `done` retires you for good, so post it only when
+as do a red PR you parked on and a record addressed to you by name. `done` retires you for good, so post it only when
 nothing is left: while you own an open PR it is refused, and you post `blocked --pr N`
 instead. Handing work to another lane is `blocked --lane-ref <it>`. Every push to a
 reported PR re-reports the new head with `ledger.py report --drive <drive>` in the same

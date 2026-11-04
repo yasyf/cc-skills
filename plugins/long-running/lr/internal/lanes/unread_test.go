@@ -66,6 +66,95 @@ func TestAnIdleWorkerLaneIsWokenAtFiveMinutesAndNobodyIsAskedToRelay(t *testing.
 	equal(t, len(f.ofKind("blocker")), 0)
 }
 
+func TestANoteOrAnAnswerToALaneParkedOnItsPRWakesItOnceAtFiveMinutes(t *testing.T) {
+	for _, kind := range []string{"note", "answer"} {
+		t.Run(kind, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			idle := t0.Add(-mins(12))
+			f.feed = append(f.feed,
+				rec(2, lane2, "blocked", idle, "waiting on #50231 and the install").withRefs(prs(50231)),
+				rec(3, orderAuthor, kind, t0, "the release is on the Mac", lane2),
+			)
+
+			f.peers = orcaPeers(lane2, idle, t0.Add(mins(5)-time.Second))
+			before := tick(t, s, f, t0.Add(mins(5)-time.Second))
+			f.peers = orcaPeers(lane2, idle, t0.Add(mins(5)))
+			woken := tick(t, s, f, t0.Add(mins(5)))
+			f.peers = orcaPeers(lane2, idle, t0.Add(mins(6)))
+			after := tick(t, s, f, t0.Add(mins(6)))
+
+			equal(t, len(before.Woken)+len(after.Woken), 0)
+			equal(t, woken.Woken, []string{lane2})
+			equal(t, f.wakes, []string{lane2})
+			contains(t, pageText(f.pages[0], "why"), fmt.Sprintf("%s's %s #3", orderAuthor, kind))
+		})
+	}
+}
+
+func TestALaneThatPostedSinceANoteIsNotWokenForIt(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed,
+		rec(2, orderAuthor, "note", t0, "the release is on the Mac", lane2),
+		rec(3, lane2, "report", t0.Add(time.Minute), "reading it now", orderAuthor),
+	)
+	f.peers = orcaPeers(lane2, t0.Add(-mins(12)), t0.Add(mins(6)))
+
+	out := tick(t, s, f, t0.Add(mins(6)))
+
+	equal(t, len(out.Woken), 0)
+	equal(t, len(unreadOrders(t, s)), 0)
+}
+
+func TestARecordTheMachineWroteOrOneNotAddressedToTheLaneNeverWakesIt(t *testing.T) {
+	cases := map[string]Record{
+		"head":            rec(2, orderAuthor, "head", t0, "abc123", lane2),
+		"state":           rec(2, orderAuthor, "state", t0, "working", lane2),
+		"opened":          rec(2, orderAuthor, "opened", t0, "#50231", lane2),
+		"heartbeat":       rec(2, orderAuthor, "heartbeat", t0, "alive", lane2),
+		"lr.note":         rec(2, orderAuthor, "lr.note", t0, "tick", lane2),
+		"a passing grade": rec(2, orderAuthor, "review", t0, "finder: clean", lane2),
+		"the supervisor":  rec(2, Self, "note", t0, "tick", lane2),
+		"the runner":      rec(2, runner, "report", t0, "launched", lane2),
+		"the stall watch": rec(2, "stall-watch", "blocker", t0, "STALL red #50231", lane2),
+		"its own record":  rec(2, lane2, "note", t0, "to myself", lane2),
+		"every lane":      rec(2, orderAuthor, "note", t0, "to everyone", "all"),
+	}
+	for name, record := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			f.feed = append(f.feed, record)
+			f.peers = orcaPeers(lane2, t0.Add(-mins(12)), t0.Add(mins(6)))
+
+			out := tick(t, s, f, t0.Add(mins(6)))
+
+			equal(t, len(out.Woken), 0)
+			equal(t, len(unreadOrders(t, s)), 0)
+		})
+	}
+}
+
+func TestAReportToADeskWaitsFiveMinutesAndNeitherRelaysNorRelaunches(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	idle := t0.Add(-mins(12))
+	f.feed = append(f.feed, rec(2, orderAuthor, "report", t0, "merged, not installed", refresher))
+
+	f.peers = orcaPeers(refresher, idle, t0.Add(mins(4)))
+	early := tick(t, s, f, t0.Add(mins(4)))
+	f.peers = orcaPeers(refresher, idle, t0.Add(mins(5)))
+	woken := tick(t, s, f, t0.Add(mins(5)))
+	f.peers = orcaPeers(refresher, idle, t0.Add(mins(31)))
+	late := tick(t, s, f, t0.Add(mins(31)))
+
+	equal(t, len(early.Woken)+len(late.Woken), 0)
+	equal(t, woken.Woken, []string{refresher})
+	equal(t, len(late.Relaunched), 0)
+	equal(t, len(relays(f)), 0)
+}
+
 func TestAFailedWakeTriesAgainOnTheNextTick(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
