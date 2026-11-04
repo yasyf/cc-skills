@@ -43,17 +43,17 @@ var (
 )
 
 type Squash struct {
-	Runner    shell.Runner
-	CCX       ccx.Client
-	Store     *store.Store
-	Drive     string
-	Trunk     string
-	Checkout  string
-	Rulings   string
-	FixLane   func(lane string) (bool, error)
-	Restack   func(ctx context.Context, number int) (string, error)
-	Now       func() time.Time
-	Log       *slog.Logger
+	Runner   shell.Runner
+	CCX      ccx.Client
+	Store    *store.Store
+	Drive    string
+	Trunk    string
+	Checkout string
+	Rulings  string
+	FixLane  func(lane string) (bool, error)
+	Restack  func(ctx context.Context, number int) (string, error)
+	Now      func() time.Time
+	Log      *slog.Logger
 }
 
 func NewSquash(a *app.App, s *store.Store, cfg config.Config, remote Remote, fixLane func(string) (bool, error)) (*Squash, error) {

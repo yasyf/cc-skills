@@ -20,8 +20,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 )
 
-const onsetStamp = "2026-10-01T16:45:36Z"
-
 func verb(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
@@ -35,15 +33,6 @@ func verb(t *testing.T, args ...string) (string, error) {
 	cmd.SilenceErrors = true
 	err := cmd.Execute()
 	return out.String(), err
-}
-
-func mustVerb(t *testing.T, args ...string) string {
-	t.Helper()
-	out, err := verb(t, args...)
-	if err != nil {
-		t.Fatalf("lr incident %v: %v", args, err)
-	}
-	return out
 }
 
 func TestRunNeedsASlugWithABrief(t *testing.T) {
