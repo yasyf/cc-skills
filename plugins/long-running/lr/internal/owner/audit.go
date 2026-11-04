@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ var (
 	imperative = regexp.MustCompile(`(?i)^\W*(?:(?:also|and|but|ok|so|now|then|please)\W+)*(?:add|build|bring|change|check|close|consider|cut|delete|design|dig|drop|explain|figure|find|fix|get|give|keep|land|let|make|merge|move|mute|put|raise|redesign|release|remove|restore|run|send|ship|show|spin|start|stop|switch|tell|turn|use|write)\b`)
 	obligation = regexp.MustCompile(`(?i)\b(?:need to|should(?:n['’]t)?|must|make sure|let['’]s|don['’]t|do not|never|always)\b`)
 	plainCell  = strings.NewReplacer(`\|`, "|", "<br>", " ")
+	prInOrder  = regexp.MustCompile(`(?:#|/pull/)(\d{3,})|\b(\d{5})\b`)
 	holdLine   = regexp.MustCompile(`(?i)\b(?:on hold|behind (?:a|the|its) hold|held (?:at|behind|by|for|on)|parked|blocked on|waiting on|left (?:\w+ ){0,3}open|leaves? (?:\w+ ){0,3}open|still open|not (?:yet )?built)\b`)
 )
 
@@ -66,6 +68,20 @@ func Orders(text string) []string {
 		}
 	}
 	return ids
+}
+
+func PRsNamed(orders []Row) (map[int]bool, error) {
+	named := map[int]bool{}
+	for _, order := range orders {
+		for _, found := range prInOrder.FindAllStringSubmatch(order.Text, -1) {
+			number, err := strconv.Atoi(found[1] + found[2])
+			if err != nil {
+				return nil, err
+			}
+			named[number] = true
+		}
+	}
+	return named, nil
 }
 
 func (r Row) Order() bool {

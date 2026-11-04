@@ -193,3 +193,16 @@ func TestCarriedNamesTheWorkingLaneOnEachOwedOrderItHolds(t *testing.T) {
 		t.Fatalf("got %+v, want m1 held by phone-app-1 and the retired lane's order left off", got)
 	}
 }
+
+func TestPRsNamedReadsEachWayHeNamesAPR(t *testing.T) {
+	named, err := PRsNamed([]Row{
+		{Text: "land #50287 and https://github.com/o/r/pull/50129"},
+		{Text: "assume 49538 will merge, and fix the 12 failures"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[int]bool{50287: true, 50129: true, 49538: true}; !reflect.DeepEqual(named, want) {
+		t.Fatalf("named = %v, want %v", named, want)
+	}
+}

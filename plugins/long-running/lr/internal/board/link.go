@@ -43,6 +43,9 @@ type cardBody struct {
 	Reason  string          `json:"reason,omitempty"`
 	Until   string          `json:"until,omitempty"`
 	Ask     int64           `json:"ask,omitempty"`
+	Thread  string          `json:"thread,omitempty"`
+	TapOf   string          `json:"tap_of,omitempty"`
+	TapHead string          `json:"tap_head,omitempty"`
 }
 
 type linkSaid struct {
@@ -128,9 +131,9 @@ func (l Link) apply(ctx context.Context, record client.Record) error {
 	var failed *shell.ExitError
 	switch {
 	case errors.As(err, &refused):
-		return l.tell(ctx, record, linkRefusalKind, refused.said)
+		return l.refuse(ctx, cards, record, card, refused.said)
 	case errors.As(err, &failed):
-		return l.tell(ctx, record, linkRefusalKind, "it did not reach the board: "+strings.TrimSpace(failed.Stderr))
+		return l.refuse(ctx, cards, record, card, "it did not reach the board: "+strings.TrimSpace(failed.Stderr))
 	case err != nil:
 		return err
 	}
@@ -171,12 +174,15 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	if len(answered) > 0 {
 		return "", linkRefusal{fmt.Sprintf("refused: he already answered %s; act on his answer, which `cc-present block show %s --session %s` prints, and give a new question a new --id", top.ID, top.ID, cards.Session)}
 	}
-	refused, unchecked := cards.Check(ctx, l.Judge, card.Block)
-	if refused != nil {
-		return "", linkRefusal{refused.Error()}
+	var unchecked error
+	if card.TapOf == "" {
+		var refused error
+		if refused, unchecked = cards.Check(ctx, l.Judge, card.Block); refused != nil {
+			return "", linkRefusal{refused.Error()}
+		}
 	}
 	_, _, asks := asksTitle(card.Block)
-	drawn, err := cards.Runner.Run(ctx, presentCommand(card.Block, cards, lane, asks))
+	drawn, err := cards.Runner.Run(ctx, presentCommand(card.Block, cards, lane, asks, card.Thread))
 	if err != nil {
 		return "", err
 	}
@@ -188,9 +194,11 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 		if _, err := cards.Until(ctx, top.ID, card.Until, lane); err != nil {
 			return "", err
 		}
-		said += fmt.Sprintf("; his answer wakes %s", lane)
-		if _, err := cards.Depend(ctx, top.ID, lane, nil); err != nil {
-			said += fmt.Sprintf("; what it rests on was not read, so a later ruling will not redraw it: %s", err)
+		if card.TapOf == "" {
+			said += fmt.Sprintf("; his answer wakes %s", lane)
+			if _, err := cards.Depend(ctx, top.ID, lane, nil); err != nil {
+				said += fmt.Sprintf("; what it rests on was not read, so a later ruling will not redraw it: %s", err)
+			}
 		}
 	}
 	if card.Ask != 0 {
@@ -230,12 +238,36 @@ func askingLane(ctx context.Context, cards Cards, lane string, ask int64, card s
 	return asked[0].Lane, nil
 }
 
-func presentCommand(block json.RawMessage, cards Cards, lane string, asks bool) shell.Command {
+func presentCommand(block json.RawMessage, cards Cards, lane string, asks bool, thread string) shell.Command {
 	verb := "update-block"
 	if asks {
 		verb = "ask"
 	}
-	return shell.Command{Argv: []string{"cc-present", verb, "-", "--session", cards.Session, "--lane", lane}, Stdin: string(block), Dir: cards.Checkout}
+	argv := []string{"cc-present", verb, "-", "--session", cards.Session, "--lane", lane}
+	if thread != "" {
+		argv = append(argv, "--slack", thread)
+	}
+	return shell.Command{Argv: argv, Stdin: string(block), Dir: cards.Checkout}
+}
+
+func (l Link) refuse(ctx context.Context, cards Cards, record client.Record, card cardBody, said string) error {
+	if card.TapOf == "" {
+		return l.tell(ctx, record, linkRefusalKind, said)
+	}
+	repo, digits, _ := strings.Cut(card.TapOf, "#")
+	number, err := strconv.Atoi(digits)
+	if err != nil {
+		return err
+	}
+	if _, err := cards.Store.PutFact(repo, number, card.TapHead, FactTapCard, tapCardRefused, cards.Now()); err != nil {
+		return err
+	}
+	text := fmt.Sprintf("The tap card for %s did not draw, so nothing asks him for it; draw it by hand: %s", card.TapOf, said)
+	_, err = client.Post(ctx, client.Draft{
+		Drive: l.Drive, Lane: LinkLane, Kind: linkRefusalKind, ID: "tap-card-alarm/" + record.Fields.Attrs[changeAttr],
+		Text: text[:min(len(text), saidLimit)], To: []string{communicator}, PRs: []string{card.TapOf}, Re: record.Seq, Force: true,
+	})
+	return err
 }
 
 func (l Link) tell(ctx context.Context, record client.Record, kind, said string) error {

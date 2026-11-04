@@ -593,31 +593,7 @@ func (r Reply) prChild(id, pr string) map[string]any {
 		return child
 	}
 	card := r.PRCards[at]
-	var summary []string
-	for _, line := range []struct{ key, label, said string }{
-		{"change", "What changes", card.Change}, {"plan", "Against the plan", card.Plan}, {"risk", "Risk", card.Risk}, {"blocker", "Blocks landing", card.Blocks},
-	} {
-		if line.said != "" {
-			child[line.key] = line.said
-			summary = append(summary, "**"+line.label+":** "+line.said)
-		}
-	}
-	if card.Review != "" {
-		summary = append(summary, "**Status:** "+card.Review)
-	}
-	if len(summary) > 0 {
-		child["summary"] = strings.Join(summary, "\n\n")
-	}
-	if card.Row != nil {
-		child["row"] = card.Row
-	}
-	if card.Head != "" {
-		child["head"] = card.Head
-	}
-	if card.Title != "" {
-		child["title"] = card.Title
-	}
-	return child
+	return board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, Risk: card.Risk, Blocks: card.Blocks, Row: card.Row})
 }
 
 func (r Reply) markdown() string {

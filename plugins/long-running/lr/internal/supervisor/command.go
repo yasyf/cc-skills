@@ -209,6 +209,13 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 					return cards.Pass(ctx, lanes.Self, board.PackJudge(a.Runner), sweepLog{a.Log, "card sweep"})
 				}, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "findings", every: findingsEvery, run: findings.New(a, entry).Pass, store: s, post: post, log: a.Log}).Check,
+				(&background{name: "ready-cards", every: PassEvery, run: board.ReadyCards{Cards: cards, Repo: env.Config.Repo, Lane: lanes.Self, Named: func(ctx context.Context) (map[int]bool, error) {
+					orders, err := lanes.OpenOrders(ctx, lanes.CCI{}, s, entry.Bus(), entry.Repo, entry.StateDir)
+					if err != nil {
+						return nil, err
+					}
+					return owner.PRsNamed(orders)
+				}}.Pass, store: s, post: post, log: a.Log, to: board.Communicator}).Check,
 			)
 		}
 		orcaRunner, err := config.LoadRunner(filepath.Join(env.State, runnerFile))
