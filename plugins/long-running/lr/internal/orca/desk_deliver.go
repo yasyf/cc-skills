@@ -136,6 +136,9 @@ func (d *Desk) deliverRelays(ctx context.Context, container, lane string, relays
 	if err != nil {
 		return err
 	}
+	if dispatch != nil && stoodDown == "" && dispatch.Environment != "" {
+		return d.postRelaysToSprite(ctx, container, dispatch, relays)
+	}
 	if dispatch != nil {
 		if err := d.sendRelays(ctx, container, dispatch, relays); err != nil {
 			return err
@@ -188,6 +191,18 @@ func (d *Desk) deliverRelays(ctx context.Context, container, lane string, relays
 			continue
 		}
 		if err := d.postRelay(ctx, container, lane, action, reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Desk) postRelaysToSprite(ctx context.Context, container string, dispatch *laneDispatch, relays []incident.Action) error {
+	for _, action := range relays {
+		if err := d.postRelay(ctx, container, dispatch.Lane, action, "a Sprite lane does not read its Run mailbox"); err != nil {
+			return err
+		}
+		if _, err := d.wake(ctx, dispatch.Terminal, dispatch.Environment, fmt.Sprintf("%s: read your cci records now", action.AuthorityRef)); err != nil {
 			return err
 		}
 	}
