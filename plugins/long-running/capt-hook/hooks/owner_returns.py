@@ -65,7 +65,7 @@ SHIPPED_CC_SLACK = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / CC_SLACK_CACHE / "0
 CC_SLACK_UNREAD = "The communicator could not run `cc-slack {verb}` from the plugin ({why}), so the owner's DM replies go unwatched or unchecked until it works."
 UNANSWERED = (
     "An owner Slack message has no answer, and a mark or a lane does not answer a message in a thread."
-    " Spawn the subagent that answers each one, or answer it now with the `reply` tool, which posts in his thread, or `slack_react` `+1` when it needs nothing back.\n```\n{replies}\n```"
+    " Spawn the subagent that answers each one, or answer it now with the `reply` tool, its `order` naming his row so it posts in his thread, or `slack_react` `+1` when it needs nothing back.\n```\n{replies}\n```"
 )
 ACK_AFTER_SECONDS = 30
 UNACKED = "An owner Slack message has waited over 30 seconds with no thread reply. Answer before any routing with the `reply` tool, or `slack_react` `+1` with `url` {permalink} when it needs nothing back."
@@ -522,11 +522,13 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
     only_if=[Communicator(), Tool(REPLY)],
     skip_if=[FromSubagent()],
     tests=communicator_tests({
-        answering(delivered()): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering(delivered()): Allow(),
         answering(delivered(thread=OWED_REPLY["ts"])): Allow(),
-        answering([T.user("where are we")], owed=(OWED_REPLY,)): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
+        answering([T.user("where are we")], owed=(OWED_REPLY,)): Allow(),
+        answering(delivered(), owed=(OWED_REPLY,), title="Alert: FlightSQL rejections", status="incident"): Allow(),
         answering([T.user("where are we")], owed=(OWED_REPLY | {"thread_ts": OWED_REPLY["ts"]},)): Allow(),
         answering(delivered(), thread="1793600000.000001"): Allow(),
+        answering(delivered(), owed=(OWED_REPLY,), threads={"m12": OWED_REPLY["thread_ts"]}, thread="1793600000.000001", order="m12"): Allow(),
         answering([T.user("where are we")]): Allow(),
         answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, order="m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
         answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, on="line:m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
@@ -536,18 +538,10 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
     }),
 )
 def answers_go_in_his_thread(evt: BaseHookEvent) -> HookResult | None:
-    if evt.input.raw.get("thread"):
+    named = evt.input.raw.get("order") or evt.input.raw.get("on") or ""
+    if evt.input.raw.get("thread") or not (thread := RowThreads.load(evt).threads.get(named.removeprefix("line:"))):
         return None
-    if named := evt.input.raw.get("order") or evt.input.raw.get("on"):
-        if not (thread := RowThreads.load(evt).threads.get(named.removeprefix("line:"))):
-            return None
-        return evt.rewrite(evt.input.raw | {"thread": thread}, note=IN_THREAD)
-    owed = dm_owed(evt)
-    held = owed["replies"] if owed and owed["holder_session"] == evt.session_id else []
-    threads = [*(reply["thread_ts"] for reply in held if reply["thread_ts"] != reply["ts"]), *(dm["thread"] for dm in slack_dms(evt, evt.ctx.turn.events) if dm["thread"] != dm["ts"])]
-    if not threads:
-        return None
-    return evt.rewrite(evt.input.raw | {"thread": threads[-1]}, note=IN_THREAD)
+    return evt.rewrite(evt.input.raw | {"thread": thread}, note=IN_THREAD)
 
 
 class ReadsAnsweredThread:
