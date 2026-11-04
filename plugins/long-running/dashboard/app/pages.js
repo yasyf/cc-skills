@@ -579,6 +579,7 @@ const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).
 const chatDraft = (on) => `draft:chat:${on}:`;
 const rp = { sort: new Map(), sent: [], failed: new Map(), threads: new Set(Object.keys(localStorage).flatMap((key) => /^draft:chat:(.+):$/.exec(key)?.[1] ?? [])), limit: CHAT_AT_REST, bottom: true, anchor: null, focus: null, box: null, modal: null };
 const NOISE = [
+  [/<!--[\s\S]*?-->/g, ''],
   [/\s*\([^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
   [/\brecords?\s+#*\d[\dx]*\b/gi, ''],
   [/\bowner table\s+[0-9a-f]{6,}\b/gi, ''],
