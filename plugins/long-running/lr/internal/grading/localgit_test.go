@@ -140,7 +140,7 @@ func TestAMoveOffHomeLeavesHomeWholeAndKeepsItsToolCopiesCurrent(t *testing.T) {
 	if err := os.Symlink("../lib/tool.js", filepath.Join(bin, "tool")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("releases/1", filepath.Join(home, codexReleases, "current")); err != nil {
+	if err := os.Symlink(filepath.Join(home, codexReleases, "releases", "1"), filepath.Join(home, codexReleases, "current")); err != nil {
 		t.Fatal(err)
 	}
 	if movedOffHome(checkout, home, root) {
