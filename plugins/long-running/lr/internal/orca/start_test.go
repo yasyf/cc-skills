@@ -1200,10 +1200,7 @@ func TestAReadinessTimeoutAtAnUpdatePromptNeverSendsTheSpec(t *testing.T) {
 			h.healthy(healthyOptions{agent: agentCodex, screen: prompt})
 			h.reply("orchestration worker-start", reply{rc: 1, out: object{"ok": true, "result": object{"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []object{{"kind": "terminal", "role": "agent", "id": "term_codex"}}}}})
 			h.reply("terminal send", sent)
-			terminal := "term_codex"
-			if model == agentIncident {
-				terminal = "term_a"
-			}
+			terminal := "term_a"
 			line, code := h.launchAs("lane-a", model, "xhigh", h.brief)
 			if code != 1 {
 				t.Fatal(line)
