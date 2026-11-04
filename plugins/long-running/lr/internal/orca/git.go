@@ -244,6 +244,10 @@ type PullRequests struct {
 
 func (p PullRequests) Landed(ctx context.Context, head string) (bool, error) {
 	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "list", "--repo", p.Origin, "--state", "closed", "--search", head, "--json", "number,headRefOid"}, Idempotent: true})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) {
+		return false, githubRefusal{describeExit(result.Stderr, "gh exited %d", result.Code)}
+	}
 	if err != nil {
 		return false, err
 	}
@@ -255,6 +259,10 @@ func (p PullRequests) Landed(ctx context.Context, head string) (bool, error) {
 		return p.Squashed[pull.Number] && pull.Head == head
 	}), nil
 }
+
+type githubRefusal struct{ reason string }
+
+func (r githubRefusal) Error() string { return "GitHub could not answer: " + r.reason }
 
 type Sprite struct {
 	Workspace   string
@@ -271,7 +279,7 @@ type SpriteKey struct {
 type SpriteFleet interface {
 	Sprites() (map[SpriteKey]Sprite, error)
 	Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, error)
-	Remote(ctx context.Context, checkout Checkout) (Remote, error)
+	Remote(checkout Checkout) Remote
 	Holder(ctx context.Context, sprite Sprite) (string, error)
 	Destroy(ctx context.Context, sprite Sprite) (string, error)
 }
@@ -377,7 +385,12 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, er
 			}
 		}
 	}
-	if checkout.OnTrunk, err = c.onTrunk(ctx, checkout.Head, checkout.Repository); err != nil {
+	checkout.OnTrunk, err = c.onTrunk(ctx, checkout.Head, checkout.Repository)
+	var refused githubRefusal
+	if errors.As(err, &refused) {
+		return CheckoutRead{Refusal: refused.Error()}, nil
+	}
+	if err != nil {
 		return CheckoutRead{}, err
 	}
 	return CheckoutRead{Found: &checkout}, nil
@@ -386,8 +399,11 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, er
 func (c CCRemote) github(ctx context.Context, path string, into any) (bool, error) {
 	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "api", path}})
 	var exit *shell.ExitError
-	if errors.As(err, &exit) && githubUnknown.MatchString(result.Stderr) {
-		return false, nil
+	if errors.As(err, &exit) {
+		if githubUnknown.MatchString(result.Stderr) {
+			return false, nil
+		}
+		return false, githubRefusal{describeExit(result.Stderr, "gh exited %d", result.Code)}
 	}
 	if err != nil {
 		return false, err
@@ -415,12 +431,8 @@ func (c CCRemote) onTrunk(ctx context.Context, head, slug string) (bool, error) 
 	return found && (compared.Status == "behind" || compared.Status == "identical"), err
 }
 
-func (c CCRemote) Remote(ctx context.Context, checkout Checkout) (Remote, error) {
-	var branches []struct{}
-	if _, err := c.github(ctx, fmt.Sprintf("repos/%s/commits/%s/branches-where-head", checkout.Repository, checkout.Head), &branches); err != nil {
-		return Remote{}, err
-	}
-	return Remote{Heads: map[string]bool{checkout.Head: len(branches) > 0}, Landed: githubLandings{c, checkout.Repository}}, nil
+func (c CCRemote) Remote(checkout Checkout) Remote {
+	return Remote{Landed: githubLandings{c, checkout.Repository}}
 }
 
 type githubLandings struct {
@@ -429,6 +441,10 @@ type githubLandings struct {
 }
 
 func (l githubLandings) Landed(ctx context.Context, head string) (bool, error) {
+	var branches []struct{}
+	if _, err := l.fleet.github(ctx, fmt.Sprintf("repos/%s/commits/%s/branches-where-head", l.slug, head), &branches); err != nil || len(branches) > 0 {
+		return len(branches) > 0, err
+	}
 	trunk, err := l.fleet.trunk(ctx, l.slug)
 	if err != nil {
 		return false, err

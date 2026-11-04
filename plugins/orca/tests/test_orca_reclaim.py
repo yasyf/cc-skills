@@ -1248,10 +1248,32 @@ class OrcaArgvTest(unittest.TestCase):
         self.replying({"repos/acme/repo": (0, '{"default_branch": "dev"}', ""), "repos/acme/repo/compare/dev...b?per_page=1": (0, '{"status": "diverged"}', "")})
         self.assertFalse(orca_gc.on_github_trunk("b", "acme/repo"))
 
-    def test_any_other_github_failure_raises(self):
+    def test_any_other_github_failure_raises_a_refusal(self):
         self.replying({"repos/acme/repo": (1, "", "gh: API rate limit exceeded (HTTP 403)")})
-        with self.assertRaises(orca_gc.subprocess.CalledProcessError):
+        with self.assertRaisesRegex(orca_gc.GitHubRefusal, "API rate limit exceeded"):
             orca_gc.on_github_trunk("b", "acme/repo")
+
+    def test_a_rate_limit_keeps_the_sprite_it_was_reading(self):
+        original = orca_gc.subprocess.run
+        self.addCleanup(setattr, orca_gc.subprocess, "run", original)
+        orca_gc.github_trunk.cache_clear()
+
+        def fake(command, **_):
+            if command[0] == "ssh":
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+            return orca_gc.subprocess.CompletedProcess(command, 1, "", "gh: API rate limit exceeded (HTTP 403)")
+
+        orca_gc.subprocess.run = fake
+        found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
+        self.assertEqual(found, "GitHub could not answer: gh: API rate limit exceeded (HTTP 403)")
+
+    def test_a_rate_limit_on_the_landed_check_reads_as_unsaved_not_a_crash(self):
+        class Limited:
+            def __contains__(self, head: str) -> bool:
+                raise orca_gc.GitHubRefusal("GitHub could not answer: rate limit")
+
+        held = orca_gc.unsaved(checkout(head="b" * 40), orca_gc.Remote(frozenset(), Limited()))
+        self.assertEqual(held, "GitHub could not answer: rate limit")
 
     def test_github_tips_hold_a_head_only_a_branch_points_at(self):
         self.replying({"repos/acme/repo/commits/a/branches-where-head": (0, '[{"name": "lane"}]', ""), "repos/acme/repo/commits/b/branches-where-head": (0, "[]", ""), "repos/acme/repo/commits/c/branches-where-head": (1, "{}", "gh: No commit found for SHA: c (HTTP 422)")})

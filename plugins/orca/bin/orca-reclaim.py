@@ -178,6 +178,12 @@ class Pause:
         return Action("skip", target, f"{verb}: cleanup paused until {self.resumed} exists")
 
 
+class GitHubRefusal(Exception):
+    @classmethod
+    def of(cls, done: subprocess.CompletedProcess[str]) -> GitHubRefusal:
+        return cls(f"GitHub could not answer: {(done.stderr.strip().splitlines() or [f'gh exited {done.returncode}'])[-1]}")
+
+
 @dataclass(frozen=True)
 class Landed:
     origin: str
@@ -185,7 +191,10 @@ class Landed:
 
     def __contains__(self, head: str) -> bool:
         argv = ["gh", "pr", "list", "--repo", self.origin, "--state", "closed", "--search", head, "--json", "number,headRefOid"]
-        found = json.loads(subprocess.run(argv, capture_output=True, text=True, check=True).stdout)
+        done = subprocess.run(argv, capture_output=True, text=True)
+        if done.returncode != 0:
+            raise GitHubRefusal.of(done)
+        found = json.loads(done.stdout)
         return any(pull["number"] in self.squashed and pull["headRefOid"] == head for pull in found)
 
 
@@ -195,7 +204,7 @@ def github(path: str):
         return json.loads(done.stdout)
     if UNKNOWN_TO_GITHUB.search(done.stderr):
         return None
-    raise subprocess.CalledProcessError(done.returncode, done.args, done.stdout, done.stderr)
+    raise GitHubRefusal.of(done)
 
 
 @functools.cache
@@ -455,12 +464,16 @@ class CcRemote:
             return f"{sprite.root} has no GitHub origin to check its HEAD against"
         headers = dict(line[2:].split(" ", 1) for line in lines if line.startswith("# "))
         head, branch = headers["branch.oid"], headers["branch.head"]
+        try:
+            on_trunk = on_github_trunk(head, hub["slug"])
+        except GitHubRefusal as refused:
+            return str(refused)
         return Checkout(
             path=sprite.root,
             dirty=any(not line.startswith("# ") for line in lines),
             branch=None if branch == "(detached)" else branch,
             head=head,
-            on_trunk=on_github_trunk(head, hub["slug"]),
+            on_trunk=on_trunk,
             repository=hub["slug"],
         )
 
@@ -517,8 +530,11 @@ def terminal_action(worker: Worker, live: set[str], orca: Orca, ended: dict[str,
 def unsaved(checkout: Checkout, remote: Remote) -> str | None:
     if checkout.dirty:
         return "uncommitted changes"
-    if not (checkout.on_trunk or checkout.head in remote.heads or checkout.head in remote.landed):
-        return f"unpushed commits on {checkout.branch or checkout.head[:10]}"
+    try:
+        if not (checkout.on_trunk or checkout.head in remote.heads or checkout.head in remote.landed):
+            return f"unpushed commits on {checkout.branch or checkout.head[:10]}"
+    except GitHubRefusal as refused:
+        return str(refused)
     return None
 
 
@@ -724,7 +740,7 @@ def main() -> int:
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label, and its Orca environment removed, once no unsettled dispatch "
         "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean with its HEAD on origin "
-        "or landed, which GitHub answers for the Sprite's own origin from any working directory. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
+        "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "

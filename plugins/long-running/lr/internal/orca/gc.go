@@ -241,6 +241,10 @@ func unsaved(ctx context.Context, checkout Checkout, remote Remote) (string, err
 		return "", nil
 	}
 	landed, err := remote.Landed.Landed(ctx, checkout.Head)
+	var refused githubRefusal
+	if errors.As(err, &refused) {
+		return refused.Error(), nil
+	}
 	if err != nil || landed {
 		return "", err
 	}
@@ -580,11 +584,7 @@ func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liv
 	if read.Found == nil {
 		return keep(read.Refusal)
 	}
-	remote, err := g.Fleet.Remote(ctx, *read.Found)
-	if err != nil {
-		return Action{}, err
-	}
-	held, err := unsaved(ctx, *read.Found, remote)
+	held, err := unsaved(ctx, *read.Found, g.Fleet.Remote(*read.Found))
 	if err != nil {
 		return Action{}, err
 	}

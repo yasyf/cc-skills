@@ -1646,22 +1646,46 @@ func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 			t.Fatalf("got %v, err %v", got, err)
 		}
 	})
-	t.Run("any other GitHub failure is an error", func(t *testing.T) {
-		if _, err := fleet(nil, map[string]string{"repos/acme/repo": "gh: API rate limit exceeded (HTTP 403)"}).onTrunk(ctx, headA, "acme/repo"); err == nil {
-			t.Fatal("no error")
+	t.Run("a rate limit keeps the Sprite it was reading", func(t *testing.T) {
+		limited := func(argv []string) (string, string, int) {
+			if argv[0] == "sprite" {
+				return "https://github.com/acme/repo\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
+			}
+			return "{}", "gh: API rate limit exceeded (HTTP 403)", 1
+		}
+		read, err := CCRemote{Runner: &scripted{reply: limited}}.Checkout(ctx, testSprite)
+		if err != nil || read.Found != nil || read.Refusal != "GitHub could not answer: gh: API rate limit exceeded (HTTP 403)" {
+			t.Fatalf("read %+v, err %v", read, err)
 		}
 	})
-	t.Run("a head counts as pushed only when a branch points at it", func(t *testing.T) {
+	t.Run("a rate limit on the landed check holds the tree rather than failing the pass", func(t *testing.T) {
 		tips := "repos/acme/repo/commits/" + headA + "/branches-where-head"
-		for reply, want := range map[string]bool{`[{"name":"lane"}]`: true, `[]`: false} {
-			remote, err := fleet(map[string]string{tips: reply}, nil).Remote(ctx, Checkout{Head: headA, Repository: "acme/repo"})
-			if err != nil || remote.Heads[headA] != want {
-				t.Fatalf("%s: got %v, err %v", reply, remote.Heads, err)
-			}
+		limited := fleet(nil, map[string]string{tips: "gh: API rate limit exceeded (HTTP 403)"})
+		held, err := unsaved(ctx, Checkout{Head: headA, Repository: "acme/repo"}, limited.Remote(Checkout{Head: headA, Repository: "acme/repo"}))
+		if err != nil || held != "GitHub could not answer: gh: API rate limit exceeded (HTTP 403)" {
+			t.Fatalf("held %q, err %v", held, err)
 		}
-		remote, err := fleet(nil, map[string]string{tips: "gh: No commit found for SHA (HTTP 422)"}).Remote(ctx, Checkout{Head: headA, Repository: "acme/repo"})
-		if err != nil || remote.Heads[headA] {
-			t.Fatalf("got %v, err %v", remote.Heads, err)
+	})
+	t.Run("a closed-PR search that fails holds the tree too", func(t *testing.T) {
+		runner := &scripted{reply: func([]string) (string, string, int) { return "", "gh: API rate limit exceeded (HTTP 403)", 1 }}
+		held, err := unsaved(ctx, Checkout{Head: headA}, Remote{Landed: PullRequests{Runner: runner, Origin: "acme/repo"}})
+		if err != nil || held != "GitHub could not answer: gh: API rate limit exceeded (HTTP 403)" {
+			t.Fatalf("held %q, err %v", held, err)
+		}
+	})
+	t.Run("a branch tip counts as saved", func(t *testing.T) {
+		tips := "repos/acme/repo/commits/" + headA + "/branches-where-head"
+		landings := githubLandings{fleet(map[string]string{tips: `[{"name":"lane"}]`}, nil), "acme/repo"}
+		if got, err := landings.Landed(ctx, headA); err != nil || !got {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a head GitHub does not know is not saved", func(t *testing.T) {
+		unknown := "gh: No commit found for SHA (HTTP 422)"
+		failures := map[string]string{"repos/acme/repo/commits/" + headA + "/branches-where-head": unknown, "repos/acme/repo/commits/" + headA + "/pulls": unknown}
+		landings := githubLandings{fleet(map[string]string{"repos/acme/repo": repo}, failures), "acme/repo"}
+		if got, err := landings.Landed(ctx, headA); err != nil || got {
+			t.Fatalf("got %v, err %v", got, err)
 		}
 	})
 	t.Run("landed needs this head merged into trunk", func(t *testing.T) {
@@ -1671,7 +1695,7 @@ func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 		const when = `"2026-11-03T00:00:00Z"`
 		cases := map[string]bool{pull(when, headA, "dev"): true, pull("null", headA, "dev"): false, pull(when, headB, "dev"): false, pull(when, headA, "parent"): false}
 		for reply, want := range cases {
-			landings := githubLandings{fleet(map[string]string{"repos/acme/repo": repo, "repos/acme/repo/commits/" + headA + "/pulls": reply}, nil), "acme/repo"}
+			landings := githubLandings{fleet(map[string]string{"repos/acme/repo": repo, "repos/acme/repo/commits/" + headA + "/branches-where-head": `[]`, "repos/acme/repo/commits/" + headA + "/pulls": reply}, nil), "acme/repo"}
 			if got, err := landings.Landed(ctx, headA); err != nil || got != want {
 				t.Fatalf("%s: got %v, err %v", reply, got, err)
 			}
