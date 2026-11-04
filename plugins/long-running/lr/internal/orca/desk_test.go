@@ -851,7 +851,7 @@ func TestALaunchStillRunningIsNotSettled(t *testing.T) {
 	}
 }
 
-const sparseNotice = testLane + " sparse: .agents tools; widen with git -C /wt sparse-checkout add <dir>\n"
+const sparseNotice = testLane + " sparse: .agents tools; widen with cd /wt && lr sparse add <dir>\n"
 
 func (w *deskWorld) startedThenRestarted(notice string) (string, string) {
 	w.t.Helper()
@@ -904,7 +904,7 @@ func TestALaunchThatEndedOnANoticeIsUnsettledNotFailed(t *testing.T) {
 		t.Fatal(action)
 	}
 	w.noEscalation("LAUNCH-FAILED ")
-	wantContains(t, w.wantEscalation("UNVERIFIABLE "), "sparse-checkout add")
+	wantContains(t, w.wantEscalation("UNVERIFIABLE "), "lr sparse add")
 }
 
 func TestALaunchThatEndedOnANoticeWithANewReceiptLaunched(t *testing.T) {

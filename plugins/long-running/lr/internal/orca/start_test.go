@@ -23,7 +23,7 @@ import (
 const (
 	testBranch   = "yasyf/v3-lane-a-1-1"
 	nodeLine     = " node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile."
-	sparseLine   = " This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it."
+	sparseLine   = " This lane is sparse: widen with `lr sparse add <dir>` before reading outside it."
 	deskContract = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc. Mail reaches you only between tool calls, so no foreground command runs over five minutes: run a long read in the background and report it by record."
 	pluginBin    = "/plugin/bin"
 	agentScreen  = "⏵⏵ bypass permissions on (shift+tab to cycle)"
@@ -800,11 +800,38 @@ func TestANewWorktreeChecksOutOnlyTheRootFilesTheAgentDirsAndTheBriefsPaths(t *t
 	if got := h.gitIn(wt, "status", "--porcelain"); got != "" {
 		t.Fatal(got)
 	}
-	if want := "lane-a sparse: .agents .claude tools infra/ci/hooks/lib release infra/envs go/ci infra; widen with git -C " + wt + " sparse-checkout add <dir>"; !strings.Contains(h.stderr.String(), want) {
+	if want := "lane-a sparse: .agents .claude tools infra/ci/hooks/lib release infra/envs go/ci infra; widen with cd " + wt + " && lr sparse add <dir>"; !strings.Contains(h.stderr.String(), want) {
 		t.Fatal(h.stderr.String())
 	}
 	if !strings.HasSuffix(h.spec(), sparseLine) {
 		t.Fatal(h.spec())
+	}
+}
+
+func TestABriefNamingAPackageChecksOutItsWholeGoModuleAndLocalReplaceTargets(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile(filepath.Join(h.main, "go", "app", "cmd", "x", "main.go"), "package main\n")
+	h.writeFile(filepath.Join(h.main, "go", "app", "internal", "y", "y.go"), "package y\n")
+	h.writeFile(filepath.Join(h.main, "go", "app", "go.mod"), "module app\n\nreplace lib => ../lib\n")
+	h.writeFile(filepath.Join(h.main, "go", "lib", "go.mod"), "module lib\n\nreplace deep => ../deep\n")
+	h.writeFile(filepath.Join(h.main, "go", "deep", "go.mod"), "module deep\n")
+	h.gitIn(h.main, "add", "-A")
+	h.gitIn(h.main, "commit", "-qm", "modules")
+	h.gitIn(h.main, "update-ref", "refs/remotes/origin/dev", "HEAD")
+	h.healthyClaude()
+	h.writeFile(h.brief, "# lane-a\nccx: role=fix paths=go/app/cmd/x\nShip the fix.\n")
+	h.launched()
+	wt := h.worktree()
+	for _, module := range []string{"app", "lib", "deep"} {
+		if !exists(filepath.Join(wt, "go", module, "go.mod")) {
+			t.Fatalf("go/%s is not checked out", module)
+		}
+	}
+	if !exists(filepath.Join(wt, "go", "app", "internal", "y", "y.go")) {
+		t.Fatal("a package beside the named directory is not checked out")
+	}
+	if exists(filepath.Join(wt, "go", "other")) {
+		t.Fatal("the cone took a module nothing replaces")
 	}
 }
 
@@ -895,6 +922,19 @@ func TestARelaunchAfterARollbackCutsTheNextName(t *testing.T) {
 	delete(h.env, "ORCA_LAUNCH_BOOT_SECONDS")
 	if line := h.launched(); !strings.HasSuffix(line, "worktree="+filepath.Join(filepath.Dir(h.parent), "v3-lane-a-1-2")) {
 		t.Fatal(line)
+	}
+}
+
+func TestALaunchLinksNodeModulesThroughTheWarmLaneHookBeforeItsWorkerStarts(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile(filepath.Join(h.main, "tools", "hooks", "warm-lane.sh"), "#!/bin/sh\ntouch linked\n")
+	h.gitIn(h.main, "add", "--chmod=+x", "tools/hooks/warm-lane.sh")
+	h.gitIn(h.main, "commit", "-qm", "warm-lane")
+	h.gitIn(h.main, "update-ref", "refs/remotes/origin/dev", "HEAD")
+	h.healthyClaude()
+	h.launched()
+	if !exists(filepath.Join(h.worktree(), "linked")) {
+		t.Fatal("the launch did not run the warm-lane hook")
 	}
 }
 
