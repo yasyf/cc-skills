@@ -56,3 +56,42 @@ func TestAGradedLineLeadsWithItsStateAndNamesItsProgress(t *testing.T) {
 		t.Fatalf("line = %q", line)
 	}
 }
+
+func TestADashboardOrderReadsLiveInAPROrItsOwnerAndDueTime(t *testing.T) {
+	landed := map[string]string{"state": "landed", "landed_at": stamp(time.Hour)}
+	due := stamp(-2 * time.Hour)
+	cases := []struct {
+		name string
+		rows map[string]map[string]string
+		want string
+	}{
+		{"live", map[string]map[string]string{"ask/000001": ask(map[string]string{"prs": "7", "due": due}), "7": landed, "live": {"at": stamp(time.Minute)}}, "LIVE by Nov 2 10:59 AM, landed Nov 2 10:00 AM in 7 | ask/000001 lane-1: measure idle"},
+		{"in a PR", map[string]map[string]string{"ask/000001": ask(map[string]string{"prs": "7", "due": due}), "7": {"head": "abc"}}, "IN-PR 7, lane-1 due Nov 2 1:00 PM | ask/000001 lane-1: measure idle"},
+		{"unowned", map[string]map[string]string{"ask/000001": ask(map[string]string{"lane": "root", "due": due})}, "fresh, UNOWNED due Nov 2 1:00 PM | ask/000001 UNOWNED: measure idle"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			book := read(t, c.rows)
+			graded := Graded{book.Asks[0], book.State(book.Asks[0], now)}
+			if got := book.Order(graded); got != c.want {
+				t.Fatalf("order = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAnAskNamingADashboardTabOrPageIsADashboardOrderUnlessTheLaneSaysOtherwise(t *testing.T) {
+	cases := map[NewAsk]string{
+		{Text: "the Review tab lists PRs only"}:                   Dashboard,
+		{Text: "this dashboard chat is terrible"}:                 Dashboard,
+		{Text: "clicking the card should open the needs me page"}: Dashboard,
+		{Text: "review the PR before it merges"}:                  "",
+		{Text: "the board card still says it", Surface: "board"}:  "board",
+		{Text: "the Chat tab drops my asks", Surface: "slack"}:    "slack",
+	}
+	for ask, want := range cases {
+		if got := surfaceOf(ask); got != want {
+			t.Errorf("%q: surface %q, want %q", ask.Text, got, want)
+		}
+	}
+}

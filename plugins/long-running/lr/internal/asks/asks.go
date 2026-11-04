@@ -26,6 +26,7 @@ const (
 	Fresh         State = "fresh"
 
 	Prefix         = "ask/"
+	Dashboard      = "dashboard"
 	liveKey        = "live"
 	progressPrefix = "progress_"
 	stateLanded    = "landed"
@@ -58,6 +59,7 @@ type Ask struct {
 	Answered      bool
 	Dropped       bool
 	PRs           []string
+	Surface       string
 	Newest        *Progress
 }
 
@@ -204,7 +206,8 @@ func readAsk(key string, fields map[string]string) (Ask, error) {
 	ask := Ask{
 		Key: key, Lane: fields["lane"], Text: fields["text"], AskedAt: asked, Override: fields["state"],
 		Answered: fields["answered_at"] != "", Dropped: fields["dropped_at"] != "",
-		PRs: slices.DeleteFunc(strings.Split(fields["prs"], ","), func(pr string) bool { return pr == "" }),
+		PRs:     slices.DeleteFunc(strings.Split(fields["prs"], ","), func(pr string) bool { return pr == "" }),
+		Surface: fields["surface"],
 	}
 	if ask.Due, err = when(fields, "due"); err != nil {
 		return Ask{}, err
