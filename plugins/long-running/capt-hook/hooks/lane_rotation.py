@@ -10,8 +10,10 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Rewrite, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry, script
+from .compaction_handoff import Bound, CompactionState, drive_entry, script
 from .tests.register_fixtures import DRIVE_CONFIG
+
+BOUND = [CompactionState(active=True, coordinator=True)]
 
 MENTIONS_STAND_DOWN = re.compile(r"\bstand[\s-]?down\b", re.IGNORECASE)
 MAIN = "main"
@@ -44,7 +46,7 @@ def mentions_stand_down(message: object) -> bool:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("SendMessage")],
+    only_if=[Bound(), Tool("SendMessage")],
     tests={
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "restack-desk")): Rewrite(None, to="restack-desk"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired")): Rewrite(None, to="desk-3"),
@@ -92,12 +94,12 @@ def stands_down_another(evt: BaseHookEvent) -> str | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
-        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind stand-down --to conflicts-2 --successor conflicts-3 --text 'done'"}): Block(pattern=r"^Only the lane supervisor stands a lane down"),
-        Input(tool="Bash", tool_input={"command": "cci post --lane conflicts-2 --kind stand-down --to root --text 'standing down'"}): Block(pattern=r"`root`"),
-        Input(tool="Bash", tool_input={"command": "cci post --lane conflicts-2 --kind stand-down --to conflicts-2 --text 'standing down'"}): Allow(),
-        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to supervisor --attr verb=stand-down --attr lane=conflicts-2 --text 'x'"}): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind stand-down --to conflicts-2 --successor conflicts-3 --text 'done'"}, state=BOUND): Block(pattern=r"^Only the lane supervisor stands a lane down"),
+        Input(tool="Bash", tool_input={"command": "cci post --lane conflicts-2 --kind stand-down --to root --text 'standing down'"}, state=BOUND): Block(pattern=r"`root`"),
+        Input(tool="Bash", tool_input={"command": "cci post --lane conflicts-2 --kind stand-down --to conflicts-2 --text 'standing down'"}, state=BOUND): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to supervisor --attr verb=stand-down --attr lane=conflicts-2 --text 'x'"}, state=BOUND): Allow(),
     },
 )
 def stand_downs_go_through_the_registry(evt: BaseHookEvent) -> HookResult | None:
@@ -127,7 +129,7 @@ def urgent_targets(evt: BaseHookEvent) -> list[str]:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash"), Runs("cci", "post")],
+    only_if=[Bound(), Tool("Bash"), Runs("cci", "post")],
     tests={
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind incident --to s3-errors-2 --text 'litestream respawn'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", ROOT)): Warn(pattern=r"`s3-errors-2` is stood down in the lane supervisor's registry with no successor"),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to s3-errors-2@drive,root --text 'x'"}, env=DRIVE_CONFIG, commands=route("s3-errors-2", "s3-errors-3")): Warn(pattern=r"Post it to its successor `s3-errors-3`"),
@@ -171,7 +173,7 @@ def lanes_stood_down_alone(evt: BaseHookEvent) -> list[str]:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(tool="Bash", tool_input={"command": "drive_supervisor.py request stand-down devbox-explore-7 --config s/lr.json --last-read 5"}, env=DRIVE_CONFIG, commands=route("devbox-explore-7", "devbox-explore-7", "desired", DUTY)): Warn(
             pattern=r"^Warning, nothing was blocked: `devbox-explore-7` keeps a standing duty \(devbox perf and bug hunting\), so it stands down only for a successor"

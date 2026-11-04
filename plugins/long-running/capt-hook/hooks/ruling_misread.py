@@ -21,7 +21,7 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, rulings, script, script_module
+from .compaction_handoff import Bound, CompactionState, rulings, script, script_module
 from .pr_ledger import OPENERS, OpenedPr, opened_prs, response_text
 from .register_gates import fenced
 from .register_injection import drive_args
@@ -118,7 +118,7 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Bash"), Or(*(Runs(*argv) for argv in OPENERS))],
+    only_if=[Bound(), Tool("Bash"), Or(*(Runs(*argv) for argv in OPENERS))],
     skip_if=[Annotated("raw")],
     tests=separate("ruling_misread.misread_rulings", {
         Input(

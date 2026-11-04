@@ -7,6 +7,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, 
 
 from .board_text_gate import blocks, published
 from .cci_mcp_posts import POST_TOOL
+from .compaction_handoff import Bound
 from .meta_records import posts
 from .owner_facing import SLACK_CARD, Reads, fenced, slack_card
 from .register_injection import INCIDENT_NAME, drive_args
@@ -55,7 +56,7 @@ PUSH = "cc-present update-block - <<'EOF'\n" + json.dumps({"type": "card", "id":
 
 @on(  # capt-hook: no-escape the owner ordered a hold, card or board row on another person's PR refused at post time
     Event.PreToolUse,
-    only_if=[Tool("Bash", SLACK_CARD, POST_TOOL)],
+    only_if=[Bound(), Tool("Bash", SLACK_CARD, POST_TOOL)],
     tests={
         Input(command=HOLD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"^A hold, card or board row is for a PR[\s\S]*#46018 is Andrew Benton \(andrew\)'s PR"),
         Input(command=CARD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),

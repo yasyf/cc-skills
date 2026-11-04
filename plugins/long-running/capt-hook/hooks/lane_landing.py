@@ -10,7 +10,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, rulings, run_script, script, script_module
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, Bound, CompactionState, bus_name, drive_entry, rulings, run_script, script, script_module
 from .register_injection import INCIDENT_NAME, INCIDENT_SLICE
 from .session_tree import drive_lane
 
@@ -245,7 +245,7 @@ def landing_verb(call: Call) -> str | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command=ENQUEUE, agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `lane-a` may not run `stack-enqueue`\."),
         Input(command="stack-enqueue 36039 --fast", agent_id="aL23-dashboard-wasm-follower-14fd0a86e696c1e3", state=ACTIVE): Warn(pattern=r"`L23-dashboard-wasm-follower`"),
@@ -378,7 +378,7 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command=ENQUEUE, agent_id=DESK, env=DRIVE_ENV, state=ACTIVE, commands={"lr landing gate": ""}): Allow(),
         Input(command="stack-enqueue 7 --check", env=DRIVE_ENV): Allow(),
@@ -507,7 +507,7 @@ def merge_causes(call: Call, entry: dict, cwd: str, incident: bool, *, evt: Base
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command="gh pr merge 36023 --squash"): Allow(),
         Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", env=DRIVE_ENV): Allow(),
@@ -532,7 +532,7 @@ def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command="tools/ci trunk dequeue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `ci trunk dequeue`"),
         Input(command="tools/ci trunk restart 36023", agent_id=DESK, state=ACTIVE): Warn(pattern=r"lane `landing-desk` may not run `ci trunk restart`"),
@@ -586,7 +586,7 @@ def trunk_clause(entry: dict) -> str:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command="ledger.py report --pr 43163 --head abc --verdict clean --text 'READY CI green except the known red'", env=DRIVE_ENV): Warn(pattern=r"^Warning, nothing was blocked: `green except` reads as red"),
         Input(command="python3 ledger.py -C ~/m report --pr 43163 --text 'READY: green apart from the known publish job'", env=DRIVE_ENV): Warn(pattern=r"`green apart from`"),

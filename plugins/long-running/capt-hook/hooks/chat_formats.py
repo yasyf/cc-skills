@@ -4,11 +4,13 @@ import re
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, on
 
-from .compaction_handoff import Communicator, communicator_tests
+from .compaction_handoff import Bound, Communicator, CompactionState, communicator_tests
 from .owner_facing import REPLY_WINDOW, SENTENCE_BREAK, fenced, last_reply
 from .owner_returns import REPLY
 from .tests.handoff_fixtures import reply_transcript
 from .urgent_lines_name_the_harm import ACTIVE
+
+BOUND = [CompactionState(active=True, coordinator=True)]
 
 FORMAT_NUMBER = re.compile(r"\b(?:format|migrat(?:e|es|ed|ing) to)\s+(\d+)\b", re.IGNORECASE)
 FORMAT_REFUSAL = (
@@ -29,10 +31,10 @@ def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
 
 @on(  # capt-hook: no-escape the owner ordered owner-facing text to name chat format 0 or 1 only
     Event.PreToolUse,
-    only_if=[Tool(REPLY)],
+    only_if=[Bound(), Tool(REPLY)],
     tests={
-        Input(tool=REPLY, tool_input={"title": "Old Macs and new chats", "md": INTERNAL}): Block(pattern=r"^A chat format reaches the owner[\s\S]*sessions format 6"),
-        Input(tool=REPLY, tool_input={"title": "Old Macs and new chats", "md": PLAIN}): Allow(),
+        Input(tool=REPLY, tool_input={"title": "Old Macs and new chats", "md": INTERNAL}, state=BOUND): Block(pattern=r"^A chat format reaches the owner[\s\S]*sessions format 6"),
+        Input(tool=REPLY, tool_input={"title": "Old Macs and new chats", "md": PLAIN}, state=BOUND): Allow(),
     },
 )
 def reply_formats_are_0_or_1(evt: BaseHookEvent) -> HookResult | None:

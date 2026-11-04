@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from captain_hook import Allow, BaseHookEvent, Event, Input, Warn, warn_command
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import Bound, CompactionState
 from .lane_landing import lane_name
 from .lane_rotation import DriveActive
 
@@ -29,7 +29,7 @@ warn_command(
         "wait with one `lr wait <seconds> <source>... [-- <command>]` call, which follows its sources and exits, "
         "or end the turn on a typed record naming who resumes you."
     ),
-    only_if=[InLane(), DriveActive()],
+    only_if=[Bound(), InLane(), DriveActive()],
     events=Event.PreToolUse,
     tests={
         Input(command="while true; do sleep 5; done", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`lr wait <seconds> <source>"),

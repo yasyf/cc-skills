@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, on
 
+from .compaction_handoff import Bound
 from .lane_reports import ACTIVE
 from .lane_rotation import DriveActive
 
@@ -36,7 +37,7 @@ def owned_by(agent_id: str, pids: list[int]) -> set[int]:
 
 @on(
     Event.Stop | Event.SubagentStop,
-    only_if=[FromSubagent(), DriveActive()],
+    only_if=[Bound(), FromSubagent(), DriveActive()],
     tests={
         Input(
             agent_id=LANE,

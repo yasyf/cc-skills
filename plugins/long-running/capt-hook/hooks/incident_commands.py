@@ -7,7 +7,7 @@ import subprocess
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, judged
+from .compaction_handoff import Bound, CompactionState, judged
 from .lane_landing import DRIVE_ENV, drive_entry, lane_name
 from .owner_facing import incident_sources, open_incidents
 from .tests.incident_fixtures import BARE_INCIDENT, CLOSED_0820, EARLIER_CLOSEOUT, INCIDENT_CLOSED, SAND_NOT_MIGRATED
@@ -168,7 +168,7 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests=separate("incident_commands.release_undo_cites_its_cause", {
         cancel("tools/ci release cancel 2026-01-05/7", commands={"cci grep": ""}): Warn(pattern=r"^Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record"),
         cancel("./tools/ci release rollback sand --to 905", commands={"cci grep": ""}): Block(),
@@ -248,7 +248,7 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         plugin("claude plugin update long-running@skills", SAND_NOT_MIGRATED): Warn(pattern=r"^Warning, nothing was blocked: Incident tooling stays as it is"),
         plugin("claude plugin install long-running@skills", SAND_NOT_MIGRATED): Warn(),

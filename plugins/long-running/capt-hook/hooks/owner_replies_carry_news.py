@@ -6,7 +6,7 @@ import subprocess
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Tool, Warn, on
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import Bound, CompactionState
 from .lane_slack_status import CC_SLACK, CLI, drive_lane
 from .owner_answers import read
 from .owner_returns import SHIPPED_CC_SLACK, shipped_cc_slack
@@ -33,7 +33,7 @@ def reply(text: str, peer: str | tuple = HIS_DM, **given: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", f"{CC_SLACK}slack_reply", f"{CC_SLACK}slack_send")],
+    only_if=[Bound(), Tool("Bash", f"{CC_SLACK}slack_reply", f"{CC_SLACK}slack_send")],
     tests={
         reply("Got it, on it."): Block(pattern=r"^A short reply to the owner.*`slack_react`"),
         Input(tool=f"{CC_SLACK}slack_reply", tool_input={"url": "https://brook.slack.com/archives/D0B6Z/p1793635190051179", "text": "Got it."}, env=LANE, commands={PEER: HIS_DM}): Block(),

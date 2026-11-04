@@ -7,7 +7,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookR
 
 from .board_text_gate import published, ran
 from .cci_mcp_posts import POST_TOOL
-from .compaction_handoff import LR, Communicator, communicator_tests, CompactionState
+from .compaction_handoff import LR, Bound, Communicator, CompactionState, communicator_tests
 from .lane_slack_status import CC_SLACK
 from .meta_records import posts
 from .owner_facing import CODE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, Reads, fenced, last_reply, shown, slack_card, started_boards
@@ -174,7 +174,7 @@ def updated(block: dict) -> str:
 
 @on(  # capt-hook: no-escape the owner ordered every urgent line to him that names no harm refused
     Event.PreToolUse,
-    only_if=[Tool("Bash", SLACK_CARD, POST_TOOL, *DM_TOOLS)],
+    only_if=[Bound(), Tool("Bash", SLACK_CARD, POST_TOOL, *DM_TOOLS)],
     tests={
         card(title=UNEXPLAINED, body="This is urgent."): Block(pattern=r"^A line to the owner that calls something urgent[\s\S]*This is urgent\.[\s\S]*example: "),
         Input(command=f"cci post --kind urgent --to owner-relay --pr 46018 --text {json.dumps(ESCALATED)}", env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"^A line to the owner that calls something urgent"),
@@ -218,7 +218,7 @@ def urgent_replies_name_the_harm(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", SLACK_CARD, *DM_TOOLS)],
+    only_if=[Bound(), Tool("Bash", SLACK_CARD, *DM_TOOLS)],
     tests={
         card(title="Land #49335?"): Warn(pattern=r"^Warning, nothing was blocked: a migration[\s\S]*#49335: \"Land #49335\?\""),
         card(title="Land the chat-version fix, #49335?"): Allow(),

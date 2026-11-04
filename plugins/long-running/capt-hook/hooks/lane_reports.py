@@ -4,7 +4,7 @@ import re
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, on
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import Bound, CompactionState
 from .lane_rotation import DriveActive
 
 FINAL_TEXT_CAP = 300
@@ -27,7 +27,7 @@ def final_text(evt: BaseHookEvent) -> str:
 
 @on(
     Event.Stop | Event.SubagentStop,
-    only_if=[FromSubagent(), DriveActive()],
+    only_if=[Bound(), FromSubagent(), DriveActive()],
     max_fires=1,
     tests={
         Input(agent_id="alanding-desk-1a1a1a1a1a1a1a1a", state=ACTIVE): Allow(),

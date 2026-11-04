@@ -11,7 +11,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, WorkflowState, on, workflow_state
 from captain_hook.util import reqenv
 
-from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings, script, script_module
+from .compaction_handoff import REGISTER_FENCE, Bound, CompactionState, rulings, script, script_module
 from .judge_metrics import judge_call
 from .register_injection import SLICE_HEADER, drive_args, start_operands
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -115,6 +115,7 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
 
 @on(
     Event.PreToolUse,
+    only_if=[Bound()],
     tests=separate("ruling_judge.judge_key_moment", {
         Input(tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
             pattern=r"^Warning, nothing was blocked: this call makes the decision durable owner answer `1984bf6` settled without carrying all of it\.\n~{12}\nHe said a migration never ships"
@@ -200,6 +201,7 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.SessionStart,
+    only_if=[Bound()],
     skip_if=[FromSubagent()],
     tests=separate("ruling_judge.forget_root_answers_after_compaction", {
         Input(source="compact", state=[JudgedAnswers(injected=["main:1984bf6", "a1b2c3:1984bf6"])]): Allow(),

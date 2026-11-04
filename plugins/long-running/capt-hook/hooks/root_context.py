@@ -41,7 +41,7 @@ from captain_hook.command_schema import Scalar
 from captain_hook.util import reqenv
 from pydantic import BaseModel
 
-from .compaction_handoff import ccn, Communicator, communicator_tests, CompactionState, progress_folder, script_module, shared_tests
+from .compaction_handoff import Bound, Communicator, CompactionState, ccn, communicator_tests, progress_folder, script_module, shared_tests
 from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
 
@@ -477,7 +477,7 @@ def root_warning(*, message: str, only_if: Sequence[object], tests: dict, bypass
     hook(
         Event.PreToolUse,
         message=message,
-        only_if=[DriveActive(), *only_if],
+        only_if=[Bound(), DriveActive(), *only_if],
         skip_if=[FromSubagent(), *([Annotated("raw")] if bypass else [])],
         tests=shared_tests(tests),
     )
@@ -799,7 +799,7 @@ root_warning(
 
 @on(
     Event.PostToolUse,
-    only_if=[DriveActive()],
+    only_if=[Bound(), DriveActive()],
     skip_if=[FromSubagent()],
     tests={
         Input(tool="mcp__linear__get_issue", output="x" * 9000, state=ACTIVE): Warn(pattern=r"overflowed the drive coordinator"),

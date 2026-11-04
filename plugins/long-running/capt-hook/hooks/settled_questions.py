@@ -31,7 +31,7 @@ from captain_hook import (
 
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, ccn, rulings, script, script_module
+from .compaction_handoff import Bound, CompactionState, ccn, rulings, script, script_module
 from .judge_metrics import judge_call
 from .owner_facing import CCI_POST, SLACK_CARD, posted_text, shown
 from .register_gates import fenced
@@ -304,7 +304,7 @@ DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("AskUserQuestion", "Bash", SLACK_CARD)],
+    only_if=[Bound(), Tool("AskUserQuestion", "Bash", SLACK_CARD)],
     tests=separate("settled_questions.check_settled_before_asking", {
         Input(tool_input=SETTLED_ASK, commands=judged("are some dropped", "His plan says nothing is dropped."), **PLAN_ASK): Warn(
             pattern=r"^Warning, nothing was blocked: A judge reads this as asking the owner what he already ruled[\s\S]*His plan says nothing is dropped\."

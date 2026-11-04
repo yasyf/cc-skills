@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
-from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import Bound, CompactionState
 
 COMMANDS = frozenset({"tsc", "pytest", "jest", "vitest", "eslint", "mypy", "pyright", "golangci-lint", "xcodebuild"})
 VERBS = {
@@ -95,13 +94,9 @@ def builds(call: Call) -> bool:
     return runs(call.name, call.args)
 
 
-def in_drive(evt: BaseHookEvent) -> bool:
-    return bool(reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) or CompactionState.load(evt).active
-
-
 @on(  # capt-hook: no-escape the owner bans local tests and whole-module builds in every drive session
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command="go build ./...", env=LANE_ENV): Block(pattern=r"^No local test, whole-module compile or lint runs in a drive[\s\S]*ccx vcs ship"),
         Input(command="go build ./...", state=ROOT): Block(),
@@ -174,6 +169,6 @@ def in_drive(evt: BaseHookEvent) -> bool:
     },
 )
 def no_local_builds_in_a_drive(evt: BaseHookEvent) -> HookResult | None:
-    if not any(builds(call) for call in evt.command.calls()) or not in_drive(evt):
+    if not any(builds(call) for call in evt.command.calls()):
         return None
     return evt.block(REFUSAL)

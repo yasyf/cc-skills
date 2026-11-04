@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Runs, Tool, Warn, on
 
-from .compaction_handoff import shared_tests
+from .compaction_handoff import Bound, shared_tests
 from .pr_body_frozen import DRIVE, InDrive
 from .tests.register_fixtures import ACTIVE, DRIVE_CONFIG
 
@@ -19,7 +19,7 @@ def makes_a_box(evt: BaseHookEvent) -> bool:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash"), Runs("nsc"), InDrive()],
+    only_if=[Bound(), Tool("Bash"), Runs("nsc"), InDrive()],
     tests=shared_tests({
         Input(command="nsc create --duration 8h --machine_type macos/arm64:6x14", env=DRIVE): Warn(pattern=r"lr nsc create --drive <drive> --lane <lane>"),
         Input(command="nsc extend sh4pma4mccmt4 --duration 2h", env=DRIVE): Warn(),

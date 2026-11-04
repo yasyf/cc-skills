@@ -7,6 +7,7 @@ from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, O
 from captain_hook.command_schema import CommandSchema, Operand, Option
 from captain_hook.util import reqenv
 
+from .compaction_handoff import Bound
 from .register_injection import drive_args
 
 DRIVE = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6"}
@@ -102,7 +103,7 @@ def ran(evt: BaseHookEvent, *argv: str) -> str:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash"), Or(Runs("gh"), Runs("ccx", "vcs", "ship")), InDrive()],
+    only_if=[Bound(), Tool("Bash"), Or(Runs("gh"), Runs("ccx", "vcs", "ship")), InDrive()],
     tests={
         Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE, commands=OTHERS): Warn(pattern=r"gh pr comment"),
         Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE, commands=OWN): Allow(),

@@ -11,7 +11,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry, judged, rulings, script, script_module
+from .compaction_handoff import Bound, CompactionState, drive_entry, judged, rulings, script, script_module
 from .lane_landing import DRIVE_ENV, LANDERS, lane_name, named_repo, without_repo
 from .register_injection import drive_args
 from .ruling_judge import MATCH_COMMAND, candidate_rows
@@ -418,7 +418,7 @@ def ship(command: str, verdict: dict = FLAGGED, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     max_fires=1,
     tests=separate("refusal_kinds_need_owner_answer.refusal_kinds_need_owner_answer", {
         ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(
@@ -480,7 +480,7 @@ def refusal_kinds_need_owner_answer(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     max_fires=1,
     tests=separate("refusal_kinds_need_owner_answer.pr_bodies_name_what_they_defer", {
         ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(

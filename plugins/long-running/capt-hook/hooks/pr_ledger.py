@@ -10,7 +10,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Runs, Tool, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import script
+from .compaction_handoff import Bound, script
 from .session_tree import drive_lane
 from .tests.ledger_fixtures import FIXTURES
 
@@ -99,7 +99,7 @@ def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None,
 
 @on(
     Event.PostToolUse,
-    only_if=[
+    only_if=[Bound(), 
         Tool("Bash"),
         Or(*(Runs(*argv) for argv in OPENERS)),
     ],
@@ -166,7 +166,7 @@ def settled_prs(evt: BaseHookEvent) -> list[str]:
 
 @on(
     Event.PostToolUse,
-    only_if=[
+    only_if=[Bound(), 
         Tool("Bash"),
         Or(*(Runs(*argv) for argv in SETTLERS)),
     ],

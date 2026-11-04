@@ -25,7 +25,7 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
-from .compaction_handoff import bus_name, ccn, CCN_TIMEOUT_SECONDS, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, post_blocker, REGISTER_FENCE, ROOT_LANE, rulings, script
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, ROOT_LANE, Bound, Communicator, CompactionState, Coordinator, bus_name, ccn, communicator_tests, coordinator_tests, drive_entry, post_blocker, rulings, script
 from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
 from .nudges import once_per_hour
@@ -424,7 +424,7 @@ def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[DriveActive(), Tool("Bash", "Agent")],
+    only_if=[Bound(), DriveActive(), Tool("Bash", "Agent")],
     skip_if=[Annotated("raw")],
     tests=separate("register_gates.owner_question_gate", {
         asks("reply-lookup", fixture("brief-158585"), "question-lookup"): Allow(),
@@ -485,7 +485,7 @@ def close(evt: BaseHookEvent, hook: str, answered: Callable[[dict], bool], how: 
 
 @on(
     Event.PostToolUse,
-    only_if=[DriveActive(), Tool("Bash")],
+    only_if=[Bound(), DriveActive(), Tool("Bash")],
     tests=separate("register_gates.close_replied_questions", {
         question(reply("c7-repair", "Done."), "question-timers"): Allow(),
         question("cc-present push /tmp/board.json", "question-timers"): Allow(),
@@ -598,6 +598,7 @@ def lane(name: str) -> dict[str, str]:
 
 @on(
     Event.PreToolUse,
+    only_if=[Bound()],
     tests=separate("register_gates.register_write_guard", {
         register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met"): Warn(
             pattern=r"^Warning, nothing was blocked: Only `rulings\.py` writes the register ledger of `brook`"
@@ -688,7 +689,7 @@ def written_paths(evt: BaseHookEvent) -> list[Path]:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")],
+    only_if=[Bound(), Tool("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")],
     tests=separate("register_gates.hook_edit_guard", {
         Input(tool="Edit", tool_input={"file_path": f"{CACHE}/capt-hook/hooks/register_gates.py", "old_string": "a", "new_string": "b"}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(
             pattern=r"^The installed long-running plugin changes only through a reviewed pull request, so this write into its `0\.7\.217/capt-hook/hooks/register_gates\.py` is refused\."
@@ -769,7 +770,7 @@ def cut_case(command: str, **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Edit", "Write")],
+    only_if=[Bound(), Tool("Bash", "Edit", "Write")],
     tests=separate("register_gates.go_and_cut_gate", {
         cut_case("tools/ci release channel promote next fleet"): Warn(pattern=r"^Warning, nothing was blocked[\s\S]*- rule/7e8f901 \(widen\): Run every scenario"),
         cut_case("tools/ci release channel promote fleet next"): Allow(),
@@ -860,7 +861,7 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests=separate("register_gates.readback_gate", {
         gated("ccx vcs ship -m 'long-running: ✨ x' --new-branch lane-a-x"): Allow(),
         gated("ccx vcs ship -m 'long-running: ✨ x'", "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n"): Warn(

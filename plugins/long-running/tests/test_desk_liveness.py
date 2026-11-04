@@ -10,6 +10,7 @@ from captain_hook.testing.helpers import build_context
 
 from fire import fire
 from hooks import desk_liveness
+from hooks.compaction_handoff import CompactionState
 
 SESSION = "06923255-284c-4abb-9d9e-df56d5ca1e74"
 LANE = "aalerts-desk-3-7dd760cda47127c2"
@@ -40,7 +41,9 @@ def beat(state: Path, at: datetime) -> None:
 def fire_bash(command: str, cwd: Path) -> list:
     cwd.mkdir(exist_ok=True)
     raw = {"session_id": SESSION, "agent_id": LANE, "tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd)}
-    return fire(desk_liveness, PostToolUseEvent(_raw=raw, ctx=build_context(session_dir=cwd)))
+    evt = PostToolUseEvent(_raw=raw, ctx=build_context(session_dir=cwd))
+    CompactionState(active=True, coordinator=True).save(evt)
+    return fire(desk_liveness, evt)
 
 
 def append(state: Path, cwd: Path) -> list:

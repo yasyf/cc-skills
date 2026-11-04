@@ -7,7 +7,7 @@ import subprocess
 from captain_hook import Allow, BaseHookEvent, Block, CommandSchema, Event, HookResult, Input, Operand, Option, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import Bound, CompactionState
 from .gate5_release import OWNER_LANES
 
 CC_SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -65,7 +65,7 @@ def owners(record: dict) -> bool:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", *WRITE_TOOLS)],
+    only_if=[Bound(), Tool("Bash", *WRITE_TOOLS)],
     tests={
         Input(tool=f"{CC_SLACK}slack_send", tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 converged on every cluster"}, env=LANE): Block(pattern=r"^A drive lane writes nothing to Slack about a release"),
         Input(tool=f"{CC_SLACK}slack_reply", tool_input={"channel_id": "C0RELEASES1", "thread_ts": "1.2", "text": "smoke passed on staging"}, agent_id="a1b2c3", state=ACTIVE): Block(pattern=r"cite that owner record"),

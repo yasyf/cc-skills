@@ -4,7 +4,7 @@ import re
 
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Tool, Warn, on
 
-from .compaction_handoff import CompactionState, Communicator, Coordinator
+from .compaction_handoff import Bound, Communicator, CompactionState, Coordinator
 
 COMMUNICATING = [CompactionState(active=True, communicator=True)]
 COORDINATING = [CompactionState(active=True, coordinator=True)]
@@ -33,7 +33,7 @@ DESK_PLACEMENT = "Warning, nothing was blocked: A standing desk is an lr-launche
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Agent"), Or(Communicator(), Coordinator()), SpawnsDesk()],
+    only_if=[Bound(), Tool("Agent"), Or(Communicator(), Coordinator()), SpawnsDesk()],
     tests={
         spawn(COMMUNICATING, "queue-shard", STANDING_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: A standing desk is an lr-launched lane .*`lr desks start`.*`lr launch lane "),
         spawn(COMMUNICATING, "landing-desk-4", "Run the landing desk."): Warn(),

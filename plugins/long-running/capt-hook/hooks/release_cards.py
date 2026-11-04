@@ -7,7 +7,7 @@ import subprocess
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import bus_name, drive_entry
+from .compaction_handoff import Bound, bus_name, drive_entry
 from .gate5_release import LR
 from .incident_commands import drive_session
 from .lane_landing import DRIVE_ENV
@@ -91,7 +91,7 @@ def gating(stacks: set[str], cards: list[dict]) -> list[tuple[str, dict]]:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Bound(), Tool("Bash")],
     tests={
         release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql")): Block(
             pattern=r"^This release ships what an open owner card gates: sandsql under card `card-sandsql-release-without`[\s\S]*`--without sandsql`, or wait for his tap"
