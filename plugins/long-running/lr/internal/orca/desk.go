@@ -107,6 +107,9 @@ type runnerFile struct {
 		Repo     string `json:"repo"`
 		Checkout string `json:"checkout"`
 	} `json:"landing"`
+	Host struct {
+		Sprite string `json:"sprite"`
+	} `json:"host"`
 }
 
 type spriteRoute struct {

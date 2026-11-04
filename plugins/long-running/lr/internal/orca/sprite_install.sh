@@ -96,6 +96,10 @@ while [ "$1" != -- ]; do
     fi
     jq -e --arg id "$name" --arg dir "$dir" --arg version "$version" --arg now "$now" '.plugins[$id] = ((.plugins[$id] // [{scope: "user", installedAt: $now, lastUpdated: $now}]) | map(.installPath = $dir | .version = $version))' "$plugins/installed_plugins.json" > "$plugins/installed_plugins.json.new"
     mv "$plugins/installed_plugins.json.new" "$plugins/installed_plugins.json"
+    current="$HOME/.claude/${name%@*}/current"
+    if [ -L "$current" ]; then
+      ln -sfn "$dir" "$current"
+    fi
     ;;
   esac
   rm -f /tmp/tool.tgz

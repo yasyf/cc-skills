@@ -123,6 +123,9 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 	if err := orca.MoveSpritePins(ctx, s, claude, filepath.Join(state, "runner.json"), a.Stderr); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		a.Log.Warn("the Sprite pins did not all move", "error", err)
 	}
+	if err := orca.RollHost(ctx, a.Runner, s, filepath.Join(state, "runner.json"), a.Now, a.Stderr); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		a.Log.Warn("the desk host did not move to the Sprite pins", "error", err)
+	}
 	return generation, nil
 }
 

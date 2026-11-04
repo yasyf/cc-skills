@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -34,6 +35,7 @@ type rollWorld struct {
 	out     bytes.Buffer
 
 	probeOnly bool
+	host      string
 }
 
 func newRollWorld(t *testing.T) *rollWorld {
@@ -95,7 +97,7 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 func (w *rollWorld) roll(probe string) string {
 	w.t.Helper()
 	w.out.Reset()
-	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
+	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Host: w.host, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
 	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe, w.probeOnly)
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -121,6 +123,47 @@ func (w *rollWorld) census() map[string]map[string]string {
 		by[tool.Sprite][tool.Name] = tool.Version
 	}
 	return by
+}
+
+func TestARollInstallsOnTheDeskHostThoughItHostsNoWorker(t *testing.T) {
+	w := newRollWorld(t)
+	w.host = "desk-host"
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+	if !slices.Equal(w.boxes, []string{"desk-host", "pool-a", "pool-b", "pool-c"}) {
+		t.Fatal("the roll did not visit the host and each live Sprite once", w.boxes)
+	}
+	if census := w.census(); census["desk-host"]["long-running@skills"] != rollPack {
+		t.Fatal(census)
+	}
+}
+
+func TestRollHostInstallsOnlyOnTheDeskHost(t *testing.T) {
+	w := newRollWorld(t)
+	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
+	roll := func(host string) {
+		t.Helper()
+		runner := filepath.Join(t.TempDir(), "runner.json")
+		raw := `{"host":{"sprite":"` + host + `"},"orca":{"sprite":{"env":{"WORKER_CCI_URL":"` + testCCIURL + `","WORKER_CCI_SHA256":"` + testCCISHA + `"},"tools":` + rollTools + `}}}`
+		if err := os.WriteFile(runner, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := RollHost(context.Background(), w, w.store, runner, func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, &w.out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roll("")
+	if len(w.boxes) != 0 {
+		t.Fatal("a drive with no desk host installed somewhere", w.boxes)
+	}
+	roll("desk-host")
+	if !slices.Equal(w.boxes, []string{"desk-host"}) {
+		t.Fatal(w.boxes)
+	}
+	if census := w.census(); census["desk-host"]["lr"] != "9.9.9" {
+		t.Fatal(census)
+	}
 }
 
 func TestARollInstallsOnTheProbeSpriteFirstThenEachLiveSpriteOnceAndRecordsWhatEachRuns(t *testing.T) {

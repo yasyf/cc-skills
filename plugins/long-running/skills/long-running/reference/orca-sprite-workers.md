@@ -110,6 +110,13 @@ there before running the rest.
 `lr sprites roll` finds a Sprite through the cc-remote task record of each live
 worker, keyed by worktree and terminal, so a worker on the Mac is never a box.
 
+The roll also installs on `host.sprite` from `runner.json`, the always-on desk
+host, which hosts no worker. `lr install` rolls that host right after it moves
+the pins, so the host follows the Mac without a separate roll. A failure there
+is logged and does not undo the Mac's install. On a box with a
+`~/.claude/long-running/current` link, installing the pack moves the link, and a
+supervisor running there re-executes onto it.
+
 `lr sprites` prints, from one store read, each Sprite's tools and versions as
 its last launch or roll installed them, or one line saying none is recorded.
 
