@@ -281,6 +281,7 @@ def rebase_onto_base(docs: Path, live) -> str:
     base = run(["gh", "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"], cwd=docs).strip()
     git = ["git", "-C", str(docs), "-c", "core.editor=true"]
     run([*git, "fetch", "-q", "origin", base])
+    run([*git, "remote", "prune", "origin"])
     run([*git, "checkout", "HEAD", "--", *live.CARD_PAGES])
     done = subprocess.run([*git, "rebase", "--autostash", f"origin/{base}"], capture_output=True, text=True)
     while done.returncode:
@@ -327,7 +328,8 @@ def publish(args) -> int:
     sync_and_push(root, retro, run(["git", "-C", str(docs), "branch", "--show-current"]).strip())
     title = title_of(root)
     body = pr_body(root, retro)
-    url = run(["gh", "pr", "view", "--json", "url", "-q", ".url"], cwd=docs, check=False).strip()
+    found = json.loads(run(["gh", "pr", "view", "--json", "url,state"], cwd=docs, check=False) or "{}")
+    url = found["url"] if found.get("state") == "OPEN" else ""
     if url:
         run(["gh", "pr", "edit", url, "--title", title, "--body", body], cwd=docs)
         run(["gh", "pr", "ready", url], cwd=docs, check=False)
@@ -358,6 +360,12 @@ def behind_base(root: Path, base: str) -> bool:
     docs = root.parents[1]
     run(["git", "-C", str(docs), "fetch", "-q", "origin", base])
     return subprocess.run(["git", "-C", str(docs), "merge-base", "--is-ancestor", f"origin/{base}", "HEAD"]).returncode != 0
+
+
+def off_base(root: Path, base: str) -> list[str]:
+    docs = root.parents[1]
+    run(["git", "-C", str(docs), "fetch", "-q", "origin", base])
+    return run(["git", "-C", str(docs), "diff", "--name-only", f"origin/{base}", "HEAD", "--", str(root)]).split()
 
 
 def await_rendered(root: Path, url: str, seconds: float, retro) -> int:
@@ -391,6 +399,10 @@ def await_rendered(root: Path, url: str, seconds: float, retro) -> int:
             return 1
         if pr["state"] == "OPEN" and pr["mergeStateStatus"] == "CLEAN" and all(v in GREEN for v in verdicts):
             run(["gh", "pr", "merge", url, merge_flag(url)], cwd=root.parents[1])
+        if pr["state"] == "MERGED" and (missing := off_base(root, pr["baseRefName"])):
+            print(f"publish: {url} merged, but {pr['baseRefName']} lacks this revision of {', '.join(missing)}; "
+                  f"run publish again to open a new pull request", file=sys.stderr)
+            return 1
         if pr["state"] == "MERGED" and pages_live(repo, pr["mergeCommit"]["oid"]):
             print(f"RENDERED: {rendered_url(root)}")
             return 0

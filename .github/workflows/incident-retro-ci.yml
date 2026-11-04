@@ -35,3 +35,5 @@ jobs:
         run: python3 scripts/test_retro_live.py
       - name: Live render
         run: python3 scripts/test_live_render.py
+      - name: Scaffold and publish
+        run: python3 scripts/test_retro_new.py
