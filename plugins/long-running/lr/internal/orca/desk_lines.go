@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/alert"
 	"log/slog"
 	"os"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/alert"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -1081,8 +1081,9 @@ func (d *Desk) unholdLine(at, key, rest string) error {
 }
 
 func lineMonitors(link, what string) []string {
-	var monitors []string
-	for _, found := range monitorID.FindAllStringSubmatch(link+" "+what, -1) {
+	matches := monitorID.FindAllStringSubmatch(link+" "+what, -1)
+	monitors := make([]string, 0, len(matches))
+	for _, found := range matches {
 		monitors = append(monitors, found[1])
 	}
 	return monitors

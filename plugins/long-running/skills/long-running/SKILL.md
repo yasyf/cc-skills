@@ -95,17 +95,23 @@ layer: it reads what the
 coordinator addresses to it (`--kind report --to owner-relay`) and synthesizes what
 he would want from it, never forwarding the coordinator's text as written. Only the
 communicator owes him his own terms (R21): plain words, Pacific times, the thing's
-name never a codename or id, the mechanism of the failure before the fix, the human
+name never a codename or id, the fix and when it is live rather than how it broke, the human
 layer before the agent layer ([communicator-brief.md](reference/communicator-brief.md)).
 It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
 ([owner-report-table.md](reference/owner-report-table.md)). A dashboard restart is
 `lr dashboard restart`, which the communicator runs itself and never hands the
-owner. Every reply that explains a mechanism, an incident or a design change to him
-carries a hosted one-pager, unasked, and so does the turn after he asks how a system
-works. `lr explain <topic> --from <markdown or record>` hosts it and sends him its
-link, and the communicator's hooks prompt for it and refuse a reply without one,
-unless the verb ran and failed, in which case it has filed a defect to the meta desk.
+owner. An order of his gets no acknowledgement and no promised time: he hears back
+once, when it is live or decided, in one sentence, and a question gets one sentence.
+`owner_replies_stay_short.py` refuses, in the window, the `reply` tool and his Slack
+DM, a reply that only acknowledges or promises a clock, one over two sentences that is
+not an update, a return update or a pick card, and a mechanism, diagram or explainer
+link he did not ask for. Only a turn where he asks how a system works gets a hosted
+one-pager: `lr explain <topic> --from <markdown or record>` hosts it and sends him its
+link, and the communicator's hooks prompt for it and refuse that turn's reply without
+one, unless the verb ran and failed, in which case it has filed a defect to the meta
+desk. A Bash `lr` or `cci` command the communicator runs twice in one session with the
+same verb and flag names raises one `chore:<shape>` ask to the meta desk, unseen.
 When he says a design is wrong at its root, the drive runs the whole redesign
 sequence that turn, with no further word from him: `lr explain redesign` withdraws the
 cards, holds the PRs, hosts the page and opens a design lane that builds each
@@ -131,12 +137,12 @@ posted there, and refuses a stop while `cc-slack dm-owed` lists a reply nobody h
 answered in its thread. A reply in the thread of a card another live session posted
 reaches only that session, and this one neither sees nor owes it. One session holds the DM at a time: while another live session
 holds it, this one takes no watch and owes no replies. A reply unacked after 30 seconds adds one line to its next tool result. `register_capture.py` posts each such reply once as an `owner`
-record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words. It talks only to the
+record with id `slack:<ts>` and attrs `ts` and `thread`, so a forward names the id instead of pasting his words. A reply under another session's card goes to that session, never to a lane of this drive ([communicator-brief.md](reference/communicator-brief.md#his-replies-under-another-sessions-card)). It talks only to the
 coordinator, the meta and signal lanes and helpers it spawned for its own work,
 never to the coordinator's children, and beyond the launches at drive start it posts
 no `go`, `hold`, `decide` or `launch`. Every owner message lands in its message
 ledger as it arrives, one row per ask, and its turn cannot end while a row is not marked responded
-or addressed (`lr owner mark <id> responded|addressed`; a row for what he asked to read takes `--reply <id>`, and a promise takes `due --by <clock>`). The turn's final text in its window lands on each row its owner message opened, as `owner-relay/answers/<row>.md`, never replacing a longer answer, and marks an open row responded through `lr owner mark`. A question he types on the dashboard's review page or his board gets its row with no turn of the communicator's: `lr owner ask` routes a review-page question to the coordinator and the communicator, `lr owner received` takes one the board watch routed, and each writes the row due 15 minutes out and wakes this window with "Received, with <who has it>, answer by <clock>", the same line the page shows on his question. The communicator marks that row like any other, and past its clock it blocks the turn the same way. A coordinator `ask` or
+or addressed (the `owner_mark` tool of the `lr` MCP server; a row for what he asked to read takes `reply`, and a promise takes `due` with `by`). The turn's final text in its window lands on each row its owner message opened, as `owner-relay/answers/<row>.md`, never replacing a longer answer, and marks an open row responded. A question he types on the dashboard's review page or his board gets its row with no turn of the communicator's: `lr owner ask` routes a review-page question to the coordinator and the communicator, `lr owner received` takes one the board watch routed, and each writes the row due 15 minutes out and wakes this window with "Received, with <who has it>, answer by <clock>", the same line the page shows on his question. The communicator marks that row like any other, and past its clock it blocks the turn the same way. A coordinator `ask` or
 `blocked` record that waits on him is a ledger row the moment it posts, delivered by
 the cci channel the communicator subscribed to, never found by a later read: on Nov 3
 the coordinator waited from 10:20 PM to 1:40 AM and he noticed before the
@@ -375,10 +381,9 @@ the `local_builds` hook refuses every other local test, build and lint. Batch jo
 the supervisor launches the fix and evidence lanes for an alert nobody answered in three minutes.
 When an alert reaches the coordinator first (a link the communicator relayed, an `#outage` report, a page, a runner `PAGE`, a failing release check, an `ALERT-UNOPENED` blocker), it runs `lr incident run <slug> --fix-brief <file>`
 before anything else, with no real-or-not verdict and no mute treated as resolution. Fixes land forward; a rollback runs only on the owner's own word.
-Only the owner's explicit order to mute an alert runs `lr alert mute <monitor> --why '<reason>'`: it mutes the monitor, stands down its lanes, and keeps every launch off it.
 Each incident has one actor: when `tools/ci oncall incidents` shows an open ai-oncall incident covering the alert, the fix lane hands its findings and requests to that incident's commander with `ci oncall connect` and `ci oncall say`,
-or takes it over with `ci oncall takeover`, which says so under the page post. It never ships, rolls back, freezes, mutes, pages or posts beside the commander,
-and another drive's sessions follow the same rule (retro AI12, page 4oov3m).
+and never takes it over: `ci oncall takeover` runs only on the owner's own words, since it records the takeover in the owner's name. It investigates freely and never ships, rolls back, freezes, mutes, pages or posts beside the commander,
+and another drive's sessions follow the same rule (retro AI12, page 4oov3m; page eu7ayk, two lanes took over in the owner's name when connect was refused during commander startup).
 
 **R17.** An owner routing instruction applies to the next spawn and to every live
 lane on that problem, the turn it arrives.
@@ -512,7 +517,6 @@ LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" --orca-run <run> [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
 lr owner start --drive <drive>
 lr supervisor install --config <state dir>/lr.json
-export LR_CONFIG=<state dir>/lr.json
 lr dashboard install
 lr launch coordinator <state dir>/root/brief.md
 lr launch meta <state dir>/meta/brief.md
