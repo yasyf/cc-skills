@@ -199,6 +199,9 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			checks = append(checks,
 				(&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "landing-gate-inputs", every: landing.InputsEvery, run: inputs.Pass, store: s, post: post, log: a.Log}).Check,
+				(&background{name: "card-sweep", every: sweepEvery, run: func(ctx context.Context) error {
+					return cards.Pass(ctx, lanes.Self, board.PackJudge(a.Runner), sweepLog{a.Log})
+				}, store: s, post: post, log: a.Log}).Check,
 			)
 		}
 		orcaRunner, err := config.LoadRunner(filepath.Join(env.State, runnerFile))

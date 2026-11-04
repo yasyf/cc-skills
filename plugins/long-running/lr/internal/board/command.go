@@ -100,7 +100,7 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return CardsOf(a, entry, board, s), func() { _ = s.Close() }, nil
 	}
-	cmd.AddCommand(waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened), drawCommand(a, opened, packJudge(a.Runner)))
+	cmd.AddCommand(waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, PackJudge(a.Runner)), passCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened), drawCommand(a, opened, PackJudge(a.Runner)))
 	return cmd
 }
 
@@ -352,10 +352,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 				return err
 			}
 			defer done()
-			if err := board.Sweep(c.Context(), lane, c.OutOrStdout()); err != nil {
-				return err
-			}
-			return board.Unask(c.Context(), lane, judge, c.OutOrStdout())
+			return board.Pass(c.Context(), lane, judge, c.OutOrStdout())
 		},
 	}
 	sweep.Flags().StringVar(&lane, "lane", "", "the lane the withdraw records post as")
@@ -476,7 +473,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 	return cmd
 }
 
-func packJudge(runner shell.Runner) Judge {
+func PackJudge(runner shell.Runner) Judge {
 	return func(ctx context.Context, kind, evidence, artifact string) (*Judgment, error) {
 		dir, err := os.MkdirTemp("", "lr-judge-")
 		if err != nil {

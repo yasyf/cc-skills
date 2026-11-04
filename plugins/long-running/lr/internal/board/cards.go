@@ -343,6 +343,10 @@ func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
 	return slices.DeleteFunc(blocks, func(block string) bool { return !answered[block] }), nil
 }
 
+func (c Cards) Pass(ctx context.Context, lane string, judge Judge, out io.Writer) error {
+	return errors.Join(c.Sweep(ctx, lane, out), c.Unask(ctx, lane, judge, out))
+}
+
 func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 	known, err := c.ends(ctx)
 	if err != nil {
@@ -379,11 +383,39 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 		if outcome == "" {
 			continue
 		}
-		if err := c.close(ctx, lane, card, known[card], outcome, fmt.Sprintf("%s (its end, %s)", outcome, end), out); err != nil {
+		if err := c.sweepOff(ctx, lane, card, known[card], outcome, fmt.Sprintf("%s (its end, %s)", outcome, end), out); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (c Cards) sweepOff(ctx context.Context, lane, card string, prior map[string]string, outcome, why string, out io.Writer) error {
+	shown, err := c.present(ctx, "outcomes", "--block", card)
+	if err != nil {
+		return err
+	}
+	var outcomes struct {
+		Answers []struct {
+			Origin string    `json:"origin"`
+			At     time.Time `json:"at"`
+		} `json:"answers"`
+	}
+	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
+		return fmt.Errorf("cc-present outcomes --block %s: %w", card, err)
+	}
+	for _, answer := range outcomes.Answers {
+		if answer.Origin == "human" && c.Now().Sub(answer.At) < touchedHold {
+			fmt.Fprintf(out, "HELD %s: he touched it at %s, and the next sweep takes it\n", card, answer.At.Format(time.Kitchen))
+			return nil
+		}
+	}
+	err = c.close(ctx, lane, card, prior, outcome, why, out)
+	if err != nil && strings.Contains(err.Error(), boardHoldRefusal) {
+		fmt.Fprintf(out, "HELD %s: the board holds a card he touched, and a later sweep takes it\n", card)
+		return nil
+	}
+	return err
 }
 
 func (c Cards) Retire(ctx context.Context, lane, reason string, named []string, out io.Writer) error {

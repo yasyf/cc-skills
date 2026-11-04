@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -20,6 +21,7 @@ const (
 	judgeEvery  = time.Minute
 	judgeLimit  = 15 * time.Minute
 	choiceEvery = 10 * time.Minute
+	sweepEvery  = 5 * time.Minute
 
 	recoveredCursor = "background-recovered:"
 	startedCursor   = "background-started:"
@@ -92,4 +94,11 @@ func (b *background) sayRecovered(to string) error {
 		return err
 	}
 	return b.store.Advance(cursor, last.Raised.UnixMicro())
+}
+
+type sweepLog struct{ log *slog.Logger }
+
+func (l sweepLog) Write(line []byte) (int, error) {
+	l.log.Info("card sweep", "line", strings.TrimSpace(string(line)))
+	return len(line), nil
 }
