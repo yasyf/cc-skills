@@ -103,6 +103,91 @@ func TestAClonesAttributesComeFromItsHeadNotItsWorktree(t *testing.T) {
 	wantAttributes("on a clone an earlier pass moved")
 }
 
+func TestAMoveOffHomeLeavesEveryPathWorkingBehindALinkOnTheLocalDisk(t *testing.T) {
+	base := t.TempDir()
+	checkout, root, home := filepath.Join(base, "checkout"), filepath.Join(base, "root"), filepath.Join(base, "home")
+	if err := os.MkdirAll(checkout, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	git(t, checkout, "init", "-q")
+	if err := os.WriteFile(filepath.Join(checkout, "tracked.txt"), []byte("committed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, checkout, "add", "tracked.txt")
+	git(t, checkout, "commit", "-q", "-m", "tree")
+	if err := onLocalDisk(checkout, root); err != nil {
+		t.Fatal(err)
+	}
+	bin, codex := filepath.Join(home, ".local", "bin"), filepath.Join(home, ".codex")
+	for path, body := range map[string]string{
+		filepath.Join(bin, "ccx"):                         "ccx",
+		filepath.Join(codex, "config.toml"):               "config",
+		filepath.Join(codex, "sessions", "2026", "a.log"): "session",
+		filepath.Join(codex, "state_1.sqlite"):            "live",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("../lib/tool.js", filepath.Join(bin, "tool")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".local", "lib"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".local", "lib", "tool.js"), []byte("tool"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if movedOffHome(checkout, home) {
+		t.Fatal("an unmoved Sprite reads as moved")
+	}
+
+	if err := moveOffHome(checkout, home, root); err != nil {
+		t.Fatal(err)
+	}
+
+	if !movedOffHome(checkout, home) {
+		t.Fatal("a moved Sprite still reads as unmoved, so every pass would start another move")
+	}
+	for _, path := range []string{checkout, bin, codex} {
+		moved, err := os.Readlink(path)
+		if err != nil || !strings.HasPrefix(moved, root) {
+			t.Fatalf("%s links to %q: %v", path, moved, err)
+		}
+		if _, err := os.Stat(path + homeCopySuffix); err != nil {
+			t.Fatalf("the home copy of %s is gone: %v", path, err)
+		}
+	}
+	if got := git(t, checkout, "status", "--porcelain"); got != "" {
+		t.Fatalf("the moved worktree reads as dirty: %s", got)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(checkout, "tracked.txt"):            "committed\n",
+		filepath.Join(bin, "ccx"):                         "ccx",
+		filepath.Join(bin, "tool"):                        "tool",
+		filepath.Join(codex, "config.toml"):               "config",
+		filepath.Join(codex, "sessions", "2026", "a.log"): "session",
+	} {
+		if got, err := os.ReadFile(path); err != nil || string(got) != want {
+			t.Fatalf("%s reads %q: %v", path, got, err)
+		}
+	}
+	session, err := os.Readlink(filepath.Join(codex, "sessions"))
+	if err != nil || strings.HasPrefix(session, root) {
+		t.Fatalf("codex sessions moved to the local disk: %q, %v", session, err)
+	}
+	if _, err := os.Lstat(filepath.Join(codex, "state_1.sqlite")); err == nil {
+		t.Fatal("a live codex database was copied")
+	}
+
+	if err := moveOffHome(checkout, home, root); err != nil {
+		t.Fatalf("a second move: %v", err)
+	}
+}
+
 func TestACopyOfAStoreThatGainedAPackTakesItOnTheSecondWalk(t *testing.T) {
 	from, to := t.TempDir(), t.TempDir()
 	if err := os.WriteFile(filepath.Join(from, "pack-a"), []byte("a"), 0o400); err != nil {
