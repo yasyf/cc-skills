@@ -245,13 +245,23 @@ func TestACCIAtOrPastThePackFloorPassesAndADriveWithoutSpritesChecksOnlyThisMach
 
 func TestLocalEditsInTheCheckoutRefuseOnlyWhenTheLandingMoverRuns(t *testing.T) {
 	fake := &shelltest.Fake{}
-	fake.Reply(" M go/a.go\nM  go/b.go\n", "git", "-C", "/co", "status")
+	fake.Reply(" M go/a.go\nM  go/b.go\n M go/untouched.go\n", "git", "-C", "/co", "status")
+	fake.Reply("go/a.go\ngo/b.go\ngo/c.go\n", "git", "-C", "/co", "diff")
 	got := checkoutFault(context.Background(), fake, config.Config{Checkout: "/co", Trunk: "main", Movers: []string{"lanes", config.MoverLanding}})
 	if got != "/co has local edits to go/a.go, go/b.go, so no pass can fast-forward it to origin/main" {
 		t.Fatalf("got %q", got)
 	}
 	if got := checkoutFault(context.Background(), fake, config.Config{Checkout: "/co", Trunk: "main", Movers: []string{"lanes"}}); got != "" {
 		t.Fatalf("a drive that lands nothing refused on %q", got)
+	}
+}
+
+func TestLocalEditsTheTrunkDoesNotMoveDoNotRefuse(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(" M go/a.go\n", "git", "-C", "/co", "status")
+	fake.Reply("go/b.go\n", "git", "-C", "/co", "diff")
+	if got := checkoutFault(context.Background(), fake, config.Config{Checkout: "/co", Trunk: "main", Movers: []string{config.MoverLanding}}); got != "" {
+		t.Fatalf("got %q", got)
 	}
 }
 

@@ -53,7 +53,7 @@ func Command(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&opts.ciRedOK, "ci-red-ok", "", "why this version must run though main's CI has not passed on it")
 	cmd.AddCommand(&cobra.Command{
 		Use:   "check",
-		Short: "Refuse when this binary could not run this drive: its config, its lanes, its credentials and every shim's verb",
+		Short: "Refuse when this binary could not run this drive: its config, its credentials and every shim's verb",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if faults := check(cmd, a); len(faults) > 0 {
@@ -148,7 +148,10 @@ func check(cmd *cobra.Command, a *app.App) []string {
 	if err != nil {
 		return []string{err.Error()}
 	}
-	faults := lanesFaults(ctx, a.Runner, cfg, a.ConfigPath)
+	for _, drifted := range lanesFaults(ctx, a.Runner, cfg, a.ConfigPath) {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "lr install check: "+drifted)
+	}
+	var faults []string
 	if edited := checkoutFault(ctx, a.Runner, cfg); edited != "" {
 		faults = append(faults, edited)
 	}
@@ -224,6 +227,15 @@ func checkoutFault(ctx context.Context, runner shell.Runner, cfg config.Config) 
 			edited = append(edited, line[3:])
 		}
 	}
+	if len(edited) == 0 {
+		return ""
+	}
+	upstream, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "diff", "--name-only", "HEAD", "origin/" + cfg.Trunk}, Timeout: readTimeout})
+	if err != nil {
+		return ""
+	}
+	moving := strings.Split(upstream.Stdout, "\n")
+	edited = slices.DeleteFunc(edited, func(path string) bool { return !slices.Contains(moving, path) })
 	if len(edited) == 0 {
 		return ""
 	}

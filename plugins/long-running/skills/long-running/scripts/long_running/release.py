@@ -3,7 +3,9 @@
 Claude Code writes each version into a directory of its own and names it in its registry only once the copy is whole.
 The first process of a version `promote`s it: ``$CLAUDE_CONFIG_DIR/long-running/current`` is swapped to that version's
 directory with one rename, only to a higher version, so a reader that resolves the link once runs one whole version,
-the old one or the new one. A reader never scans the cache for the newest copy. STDLIB ONLY.
+the old one or the new one. A reader never scans the cache for the newest copy. A machine whose installs must pass
+`lr install`'s checks creates ``long-running/lr-install-only``, and a process then promotes only when no link exists yet.
+STDLIB ONLY.
 """
 
 from __future__ import annotations
@@ -62,7 +64,7 @@ def promote(own: Path) -> None:
         return
     publish_lr()
     named = held()
-    if named is not None and version_key(named.name) >= version_key(own.name):
+    if named is not None and (version_key(named.name) >= version_key(own.name) or (link().parent / "lr-install-only").exists()):
         return
     staged = link().with_name(f"current.{uuid.uuid4().hex}")
     staged.parent.mkdir(parents=True, exist_ok=True)
