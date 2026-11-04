@@ -91,6 +91,20 @@ func TestAdoptMetaRefusesADeskWithNoRow(t *testing.T) {
 	}
 }
 
+func TestTheSameVerbPrintsTheNamesThatMeanOneLane(t *testing.T) {
+	a, _ := driveState(t)
+	for lane, want := range map[string]string{
+		"bugs-2": "bugs\nbugs-2\n",
+		"bugs":   "bugs\nbugs-2\nbugs-3\n",
+	} {
+		out, err := execute(t, Command(a), "same", lane, "bugs", "bugs-2", "bugs-3", "bugs-fix", "other-2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, out, want)
+	}
+}
+
 func TestTheLanesVerbPrintsTheRegistryAndOneJSONObjectPerLane(t *testing.T) {
 	a, s := driveState(t)
 	if _, err := s.WantLane(storeLane("desk-1"), t0); err != nil {

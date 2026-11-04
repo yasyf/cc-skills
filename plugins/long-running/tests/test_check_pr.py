@@ -650,6 +650,9 @@ def test_a_numbered_successor_keeps_the_read_back_a_desk_accepted_for_the_lane_i
 
     assert ran(capsys, CheckShell(rows, reviews=[grade]), "accepted", "--lane", "lane-a-2") == (0, "accepted lane-a-2\n")
     assert ran(capsys, CheckShell(rows, reviews=[grade]), "accepted", "--lane", "lane-b-2") == (1, "CONTRACT-MISSING lane-b-2: no fidelity desk has graded a read-back\n")
+    numbered = dict(grade, text="readback ok lane-c-2: every row carries the graded contract")
+    assert ran(capsys, CheckShell(rows, reviews=[numbered]), "accepted", "--lane", "lane-c") == (0, "accepted lane-c\n")
+    assert ran(capsys, CheckShell(rows, reviews=[numbered]), "accepted", "--lane", "lane-d") == (1, "CONTRACT-MISSING lane-d: no fidelity desk has graded a read-back\n")
 
 
 def test_a_pr_citing_a_shape_ruling_adds_a_test_naming_it_or_the_row_records_one(package: Path, state: Path, registered: Path, capsys) -> None:

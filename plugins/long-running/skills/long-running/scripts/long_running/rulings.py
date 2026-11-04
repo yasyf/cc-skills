@@ -1940,27 +1940,34 @@ class ReadBack:
     sliced_by: str = ""
 
 
+def names_of_lane(shell: ledger.Shell, lane: str, names: list[str]) -> set[str]:
+    others = sorted(set(names) - {lane})
+    return {lane, *(shell.run([str(ledger.LR), "lanes", "same", lane, *others]).split() if others else [])}
+
+
 def read_back(loaded: Register, record: dict, lane: str, step: str | None, plan: Path | None, selector: str) -> ReadBack | str:
     seq = record["seq"]
-    if record.get("kind") != "contract" or record.get("lane") != lane:
+    if record.get("kind") != "contract" or record["lane"] not in names_of_lane(loaded.shell, lane, [record["lane"]]):
         return f"READBACK-NOT-LANES #{seq}: the read-back is {lane}'s own contract record"
     attached = (record.get("refs") or {}).get("path")
     body = record_body(record)
     if not (header := SLICE_HEADER.search(body)):
         sliced = brief_slice(loaded, seq, lane, step, plan, selector)
         return sliced if isinstance(sliced, str) else ReadBack(record, body, sliced[0], attached, sliced[1])
-    if (want := Want.parse(header)).lane != lane:
+    if (want := Want.parse(header)).lane not in names_of_lane(loaded.shell, lane, [want.lane]):
         return f"READBACK-NOT-LANES #{seq}: the read-back covers lane {want.lane}'s slice, not {lane}'s"
     return ReadBack(record, body, want, attached)
 
 
 def brief_slice(loaded: Register, seq: int, lane: str, step: str | None, plan: Path | None, selector: str) -> tuple[Want, str] | str:
     """The slice of a read-back that names no `Register slice:` line: the one a brief under the drive's state gives `lane`, else `--step`'s, which readback also writes into the brief named for the lane, `briefs/<lane>.md` when none is, the way `slice --refresh` writes a brief's slice."""
-    found = briefs(loaded.state)
-    for brief in sorted(found, key=lambda path: path.stat().st_mtime, reverse=True):
-        if header := next((header for header in SLICE_HEADER.finditer(brief.read_text()) if header["lane"] == lane), None):
+    found = sorted(briefs(loaded.state), key=lambda path: path.stat().st_mtime, reverse=True)
+    headers = [(brief, header) for brief in found for header in SLICE_HEADER.finditer(brief.read_text())]
+    same = names_of_lane(loaded.shell, lane, [header["lane"] for _, header in headers] + [brief.stem for brief in found])
+    for brief, header in headers:
+        if header["lane"] in same:
             return Want.parse(header), f"the read-back names no `{SLICE_LINE}` line; graded against the slice in {brief}"
-    named = next((brief for brief in found if brief.stem == lane), None)
+    named = next((brief for brief in found if brief.stem in same), None)
     if step is None:
         return (
             f"READBACK-NO-SLICE #{seq}: neither the read-back nor {named or f'a brief under {loaded.state}'} names a `{SLICE_LINE} lane={lane} step=<n>` line; "
@@ -2029,11 +2036,13 @@ def fidelity_lanes(loaded: Register) -> set[str]:
 
 def unaccepted(loaded: Register, lane: str, reviews: list[dict]) -> str | None:
     desks = fidelity_lanes(loaded)
-    graded = [
+    said = [
         (record, found)
         for record in reviews
-        if record.get("kind") in READBACK_KINDS and record.get("lane") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text)) and (found["lane"] == lane or grades.succeeds(lane, found["lane"]))
+        if record.get("kind") in READBACK_KINDS and record.get("lane") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text))
     ]
+    same = names_of_lane(loaded.shell, lane, [found["lane"] for _, found in said])
+    graded = [(record, found) for record, found in said if found["lane"] in same or grades.succeeds(lane, found["lane"])]
     if not graded:
         return "no fidelity desk has graded a read-back"
     record, newest = max(graded, key=lambda item: item[0]["seq"])
