@@ -20,6 +20,7 @@ const (
 	CancelledFile = "cancelled"
 	wholeRead     = "over whole "
 	censusPrefix  = "census:"
+	followUpWord  = "follow-up:"
 	bigSlice      = 150
 	bigSliceModel = "sol"
 	outputCap     = "max_output_tokens"
@@ -48,6 +49,7 @@ var (
 	lists        = regexp.MustCompile(`\b(rows met|rows checked|n/a|pending|tests):`)
 	classNamed   = regexp.MustCompile(`(?im)^.*\bclass\b.*\b(?:remov\w*|impossible|eliminat\w*|cannot recur|can no longer)\b|\bdeleted at cutover\b|\binvariant\b.*\bsingle owner\b`)
 	landedCommit = regexp.MustCompile(`^@([0-9a-f]{40})$`)
+	opensAsPort  = regexp.MustCompile(`(?i)^\s*port of #\d+\b`)
 	finderSays   = regexp.MustCompile(`(?i)\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b`)
 	finderMajor  = regexp.MustCompile(`(?i)\b[1-9]\d* majors?\b`)
 	finderClean  = regexp.MustCompile(`(?i)\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b`)
@@ -262,7 +264,8 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if now.HeadRefOid != head {
 		return FinderOutcome{Skipped: fmt.Sprintf("%s moved to %s while codex read %s", pull, short(now.HeadRefOid, 12), short(head, 12))}, nil
 	}
-	findings, census := triage(parsed.Findings, diff)
+	owed, graded := followUpsOwed(view.Body, parsed.Findings)
+	findings, census := triage(graded, diff)
 	repeat, err := s.secondFix(view, diff)
 	if err != nil {
 		return FinderOutcome{}, err
@@ -274,6 +277,9 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	text := s.recordText(own, last, open)
 	if len(settled) > 0 {
 		text += "; " + settledByPicks(settled)
+	}
+	if len(owed) > 0 {
+		text += "; " + followUpsLine(owed)
 	}
 	body := filepath.Join(s.dir, bodyFile)
 	if err := os.WriteFile(body, []byte(text+"\n\n"+strings.TrimSpace(reply)+"\n"), 0o600); err != nil {
@@ -463,6 +469,29 @@ func triage(findings []finding, diff touched) ([]finding, []finding) {
 		stands = append(stands, f)
 	}
 	return stands, census
+}
+
+func followUpsOwed(body string, findings []finding) ([]finding, []finding) {
+	if !opensAsPort.MatchString(body) {
+		return nil, findings
+	}
+	var owed, graded []finding
+	for _, f := range findings {
+		if strings.HasPrefix(f.Defect, followUpWord) {
+			owed = append(owed, f)
+			continue
+		}
+		graded = append(graded, f)
+	}
+	return owed, graded
+}
+
+func followUpsLine(owed []finding) string {
+	named := make([]string, 0, len(owed))
+	for _, f := range owed {
+		named = append(named, squeezed(f.Cite+" "+strings.TrimPrefix(f.Defect, followUpWord)))
+	}
+	return "follow-ups owed after this port, since its source has them too: " + strings.Join(named, "; ")
 }
 
 func (s *finderPassState) recordText(own []string, last string, findings []finding) string {

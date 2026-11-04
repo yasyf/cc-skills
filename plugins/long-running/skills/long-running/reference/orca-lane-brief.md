@@ -451,7 +451,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `review-fix` or `ordered-fix` keep it, and `behavior` or `scope` send the PR back to him, the note
   saying what changed. `reference/landing.md`, tap carry, has the rule. PRs that differ in class take
   one record per class. A port of an old-tree PR adds `--attr port-of=<old PR> --attr port-interacts=no|yes`
-  to every head record, one record per port; `reference/landing.md`, Old-tree forward port, has the rule. The supervisor's finder reads that head and posts its `finder:` record to you; fix or rebut each major before you call
+  to every head record, one record per port, and `port of #<n>` is the first line of its PR body and opens every card and reply naming it. A port lands faithful to that PR, and a fix past it is a follow-up PR on top; `reference/landing.md`, Old-tree forward port, has the rule. The supervisor's finder reads that head and posts its `finder:` record to you; fix or rebut each major before you call
   a PR done. On a drive whose runner has no finder, run one finder pass yourself.
   A `## Body addendum` that answers a second-fix major by naming the class the fix
   removes posts one `head` record at the unchanged sha, `--head <pr>=<sha>`, with the

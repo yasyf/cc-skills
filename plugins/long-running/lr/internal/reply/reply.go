@@ -223,13 +223,49 @@ func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 	return r, strings.Join(warned, "; ")
 }
 
-func (f Fanout) tapWarning(r Reply) string {
+func (r Reply) namedPRs() ([][]string, []int) {
 	said := namedPR.FindAllStringSubmatch(r.Title+"\n"+r.MD+"\n"+strings.Join(r.PRs, "\n"), -1)
 	numbers := make([]int, 0, len(said))
 	for _, found := range said {
 		number, _ := strconv.Atoi(cmp.Or(found[2], found[4], found[5], found[6]))
 		numbers = append(numbers, number)
 	}
+	return said, numbers
+}
+
+func inRepo(repo string, found []string) bool {
+	return strings.HasSuffix(strings.ToLower(repo), strings.ToLower(cmp.Or(found[1], found[3], repo)))
+}
+
+func (f Fanout) withPortOpening(r Reply) (Reply, string) {
+	said, numbers := r.namedPRs()
+	if len(numbers) == 0 {
+		return r, ""
+	}
+	repo, ports, err := board.Ports(f.Entry, numbers)
+	if err != nil {
+		return r, fmt.Sprintf("the PR ledger did not read, so no port this names opens the reply with port of #n: %v", err)
+	}
+	var opening []string
+	for n, found := range said {
+		source, port := ports[numbers[n]]
+		if !port || !inRepo(repo, found) {
+			continue
+		}
+		line := fmt.Sprintf("port of [#%d](https://github.com/%s/pull/%d)", source, repo, source)
+		opens := regexp.MustCompile(fmt.Sprintf(`(?i)^\s*port of \[?#%d\b`, source))
+		if !slices.Contains(opening, line) && !opens.MatchString(r.Title) && !opens.MatchString(r.MD) {
+			opening = append(opening, line)
+		}
+	}
+	if len(opening) > 0 {
+		r.MD = strings.Join(opening, ", ") + "\n\n" + r.MD
+	}
+	return r, ""
+}
+
+func (f Fanout) tapWarning(r Reply) string {
+	said, numbers := r.namedPRs()
 	if len(numbers) == 0 {
 		return ""
 	}
@@ -240,7 +276,7 @@ func (f Fanout) tapWarning(r Reply) string {
 	var missing, tapped, standing []string
 	for n, found := range said {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] })
-		if at < 0 || !strings.HasSuffix(strings.ToLower(repo), strings.ToLower(cmp.Or(found[1], found[3], repo))) {
+		if at < 0 || !inRepo(repo, found) {
 			continue
 		}
 		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])

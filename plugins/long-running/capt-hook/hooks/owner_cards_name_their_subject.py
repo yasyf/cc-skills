@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from captain_hook.util import reqenv
 
 from .board_text_gate import calls
 from .call_dir import located
-from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, Bound, CompactionState, script_module
+from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, LR, Bound, CompactionState, script_module
 from .judge_metrics import judge_call
 from .owner_facing import SLACK_CARD, STDIN, Reads, as_read, board_bytes, fenced, readable, shown, slack_card
 from .owner_replies_carry_news import dm_posts
@@ -36,10 +37,13 @@ SHORT_WORDS = 12
 HELD_CHARS = 400
 CHANGE = re.compile(r"(?i)\b(?:add|chang|clean|delet|drop|fix|migrat|mov|refactor|remov|renam|replac|rewrit|split)\w*")
 DRAW_SCRIPT = "draw.zsh"
+NAMED_PR = re.compile(r"(?i)(?<![\w/&])#(\d{2,})\b|/pull/(\d+)|\bPR (\d+)\b")
+PORTS_READ = f"{LR} board ports"
+PORT_UNSAID = 'Warning, nothing was blocked: a post naming a forward port opens with "port of" and the number of the old-tree PR it copies. Open this one that way for PR {sources}.'
 ASK_OWNER = CommandSchema(
     "lr",
     operands=(Operand("words", count="*"),),
-    options=tuple(Option(name, (f"--{name}",)) for name in ("background", "branch", "card", "drive", "from", "id", "lane", "nothing-to-build", "option", "reason", "session", "shot", "title", "until", "withdraw")),
+    options=tuple(Option(name, (f"--{name}",)) for name in ("background", "branch", "card", "drive", "from", "id", "lane", "nothing-to-build", "option", "port-of", "reason", "session", "shot", "title", "until", "withdraw")),
 )
 ASK = "lr ask-owner --title 'Add the setting?' --background 'It adds one new setting for big chats.' --option 'Add it :: Big chats load faster.' --option 'Hold :: Nothing changes.' --nothing-to-build process"
 HOOK_SCRATCH = str(Path(tempfile.gettempdir()) / "long-running-first-question")
@@ -132,6 +136,7 @@ def asked_lines(evt: BaseHookEvent, call: Call, reads: Reads) -> list[str]:
         return []
     file = next(iter(values.get("card", ())), STDIN)
     flags = [str(text) for name in ("title", "background", "option") for text in values.get(name, ()) if text]
+    flags += [f"port of #{source}" for source in values.get("port-of", ())]
     return flags if file == STDIN else [*flags, *card_text(evt, call, str(file), reads)]
 
 
@@ -173,6 +178,44 @@ def hold(evt: BaseHookEvent, drive: str, key: str, lines: list[str]) -> HookResu
         state.held = [*state.held, key]
     JUDGE.record(drive, "first-question-hold", "none", "held", {"seconds": 0.0, "cost_usd": 0.0, "tokens": 0, "asks": 0, "p_yes": None, "error": ""}, " | ".join(lines)[:HELD_CHARS], env=reqenv.env_map())
     return evt.block(fenced(HOLD, lines))
+
+
+def ports_of(drive: list[str], numbers: list[str]) -> dict[str, int]:
+    done = subprocess.run([str(LR), "board", "ports", *drive, *numbers], capture_output=True, text=True, timeout=FOREGROUND_JUDGE_SECONDS, env=dict(reqenv.env_map()), check=True)
+    return json.loads(done.stdout)
+
+
+def card_about(title: str, body: str, commands: dict[str, object]) -> Input:
+    return Input(tool=SLACK_CARD, tool_input={"card": {"title": title, "body": body}}, env=HOOK_ENV, commands=commands)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash", SLACK_CARD, *DM_TOOLS)],
+    tests={
+        card_about("Land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
+        card_about("port of #49412: land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
+        card_about("port of [#49412](https://github.com/Forge-AI/monorepo/pull/49412): land it?", "See [#50254](https://github.com/Forge-AI/monorepo/pull/50254).", {PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
+        card_about("Land it?", "See https://github.com/Forge-AI/monorepo/pull/50254.", {PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
+        card_about("Land #50333?", "Its checks passed.", {PORTS_READ: "{}"}): Allow(),
+        card_about("Land #50254?", "Its checks passed.", {PORTS_READ: (1, "store unreadable")}): Warn(pattern=r"could not read"),
+        card_about("Relay fix", "Its checks passed.", {}): Allow(),
+        Input(command="ls -la", env=HOOK_ENV): Allow(),
+    },
+)
+def posts_say_when_they_name_a_port(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    reads = Reads(evt, which)
+    text = post_text(evt, reads)
+    numbers = list(dict.fromkeys(next(filter(None, found)) for found in NAMED_PR.findall(text)))
+    if not numbers:
+        return None
+    sources = reads.read("the PR ledger", lambda: ports_of(which, numbers))
+    if sources is None:
+        return evt.context(reads.warning("posts_say_when_they_name_a_port"))
+    unsaid = [source for source in dict.fromkeys(sources.values()) if not re.search(rf"(?i)port of \[?#{source}\b", text)]
+    return evt.context(PORT_UNSAID.format(sources=", ".join(map(str, unsaid)))) if unsaid else None
 
 
 def describes_change(text: str) -> bool:

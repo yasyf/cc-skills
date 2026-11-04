@@ -517,6 +517,35 @@ func TestACardFromAskFlagsRecommendsItsFirstOptionAndCarriesItsPRs(t *testing.T)
 	}
 }
 
+func TestACardAboutAPortOpensWithItAndCarriesItsSource(t *testing.T) {
+	block, err := Ask{
+		Title: "Keep the old encoder?", Background: "The client sends numbers as strings.", PortOf: 49412,
+		Options: []string{"Keep :: Nothing changes.", "Switch :: Numbers arrive as numbers."}, NothingToBuild: "a pick",
+	}.Block("Forge-AI/monorepo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Children []struct {
+			Type   string `json:"type"`
+			Md     string `json:"md"`
+			Number int    `json:"number"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	if card.Title != "port of #49412: Keep the old encoder?" || card.ID != "card-keep-the-old-encoder" {
+		t.Fatalf("title %q, id %q", card.Title, card.ID)
+	}
+	last := card.Children[len(card.Children)-1]
+	if card.Children[0].Md != "**From:** port of #49412" || last.Type != "pr" || last.Number != 49412 {
+		t.Fatalf("children %+v", card.Children)
+	}
+}
+
 func TestAskFlagsAreRefusedSayingWhatToChange(t *testing.T) {
 	good := Ask{Title: "Which one?", Background: "Why it matters.", Options: []string{"One :: It does one.", "Two :: It does two."}, NothingToBuild: "a pick"}
 	for name, tc := range map[string]struct {

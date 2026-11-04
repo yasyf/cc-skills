@@ -121,7 +121,11 @@ func Tool(a *app.App) channel.Tool {
 			if warning := fanout.tapWarning(r); warning != "" {
 				warned = append(warned, warning)
 			}
-			r, warning := fanout.withPRCards(r)
+			r, warning := fanout.withPortOpening(r)
+			if warning != "" {
+				warned = append(warned, warning)
+			}
+			r, warning = fanout.withPRCards(r)
 			if warning != "" {
 				warned = append(warned, warning)
 			}
