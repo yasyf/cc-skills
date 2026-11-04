@@ -100,7 +100,7 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return CardsOf(a, entry, board, s), func() { _ = s.Close() }, nil
 	}
-	cmd.AddCommand(waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened), drawCommand(opened))
+	cmd.AddCommand(waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, packJudge(a.Runner)), passCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened), drawCommand(a, opened, packJudge(a.Runner)))
 	return cmd
 }
 
@@ -343,7 +343,7 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 	}
 	sweep := &cobra.Command{
 		Use:   "sweep",
-		Short: "Withdraw every card whose end has happened and name each card with none",
+		Short: "Withdraw every card whose end has happened or that his ccn answers settle, judging only cards and answers newer than a card's last check, and name each card with no end",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			board, done, err := cards()
@@ -351,7 +351,10 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 				return err
 			}
 			defer done()
-			return board.Sweep(c.Context(), lane, c.OutOrStdout())
+			if err := board.Sweep(c.Context(), lane, c.OutOrStdout()); err != nil {
+				return err
+			}
+			return board.Unask(c.Context(), lane, judge, c.OutOrStdout())
 		},
 	}
 	sweep.Flags().StringVar(&lane, "lane", "", "the lane the withdraw records post as")
@@ -421,6 +424,34 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 			}
 			if unread != nil {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING %s; the card draws unchecked against it\n", strings.ReplaceAll(unread.Error(), "\n", "; "))
+			}
+			return nil
+		},
+	}, &cobra.Command{
+		Use:   "check CARD_FILE|-",
+		Short: "Refuse a card that asks what a card on his board already asks, asks him to grade a reading of his words, or that one of his ccn answers settles, naming that answer; print a WARNING and pass it when a check could not run",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			board, done, err := cards()
+			if err != nil {
+				return err
+			}
+			defer done()
+			var data []byte
+			if args[0] == "-" {
+				data, err = io.ReadAll(c.InOrStdin())
+			} else {
+				data, err = os.ReadFile(args[0])
+			}
+			if err != nil {
+				return err
+			}
+			refused, err := board.Check(c.Context(), judge, data)
+			if refused != nil {
+				return refused
+			}
+			if err != nil {
+				fmt.Fprintf(c.OutOrStdout(), "WARNING the card draws unchecked against his answers: %s\n", strings.ReplaceAll(err.Error(), "\n", "; "))
 			}
 			return nil
 		},
