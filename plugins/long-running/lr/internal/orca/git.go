@@ -26,6 +26,8 @@ const (
 	spriteReadTimeout  = 3 * time.Minute
 )
 
+const spriteCheckout = `git -C "$1" remote get-url origin && git -C "$1" status --porcelain=v2 --branch`
+
 const spriteHolders = `for p in /proc/[0-9]*; do
   pid=${p#/proc/}
   [ "$pid" = "$$" ] && continue
@@ -40,6 +42,8 @@ done`
 var (
 	squashSubject = regexp.MustCompile(` \(#(\d+)\)$`)
 	shellSafe     = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+	githubOrigin  = regexp.MustCompile(`github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?$`)
+	githubUnknown = regexp.MustCompile(`HTTP 4(04|22)`)
 )
 
 type Checkout struct {
@@ -266,7 +270,8 @@ type SpriteKey struct {
 
 type SpriteFleet interface {
 	Sprites() (map[SpriteKey]Sprite, error)
-	Checkout(ctx context.Context, sprite Sprite, git Repositories) (CheckoutRead, error)
+	Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, error)
+	Remote(ctx context.Context, checkout Checkout) (Remote, error)
 	Holder(ctx context.Context, sprite Sprite) (string, error)
 	Destroy(ctx context.Context, sprite Sprite) (string, error)
 }
@@ -341,8 +346,8 @@ func (c CCRemote) Holder(ctx context.Context, sprite Sprite) (string, error) {
 	return "", nil
 }
 
-func (c CCRemote) Checkout(ctx context.Context, sprite Sprite, git Repositories) (CheckoutRead, error) {
-	result, err := c.Runner.Run(ctx, shell.Command{Argv: spriteExec(sprite, "git", "-C", sprite.Root, "status", "--porcelain=v2", "--branch"), Timeout: spriteReadTimeout})
+func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, error) {
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: spriteExec(sprite, "sh", "-c", spriteCheckout, "sh", sprite.Root), Timeout: spriteReadTimeout})
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
 		return CheckoutRead{Refusal: fmt.Sprintf("sprite exec on %s could not read %s: %s", sprite.Host, sprite.Root, describeExit(result.Stderr, "exit %d", result.Code))}, nil
@@ -350,8 +355,13 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite, git Repositories)
 	if err != nil {
 		return CheckoutRead{}, err
 	}
-	checkout := Checkout{Path: sprite.Root}
-	for line := range strings.Lines(result.Stdout) {
+	origin, status, _ := strings.Cut(result.Stdout, "\n")
+	hub := githubOrigin.FindStringSubmatch(origin)
+	if hub == nil {
+		return CheckoutRead{Refusal: sprite.Root + " has no GitHub origin to check its HEAD against"}, nil
+	}
+	checkout := Checkout{Path: sprite.Root, Repository: hub[1]}
+	for line := range strings.Lines(status) {
 		line = strings.TrimRight(line, "\n")
 		if !strings.HasPrefix(line, "# ") {
 			checkout.Dirty = true
@@ -367,13 +377,80 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite, git Repositories)
 			}
 		}
 	}
-	if checkout.Repository, err = git.Repository(ctx); err != nil {
-		return CheckoutRead{}, err
-	}
-	if checkout.OnTrunk, err = git.OnTrunk(ctx, checkout.Head, checkout.Repository); err != nil {
+	if checkout.OnTrunk, err = c.onTrunk(ctx, checkout.Head, checkout.Repository); err != nil {
 		return CheckoutRead{}, err
 	}
 	return CheckoutRead{Found: &checkout}, nil
+}
+
+func (c CCRemote) github(ctx context.Context, path string, into any) (bool, error) {
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "api", path}})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) && githubUnknown.MatchString(result.Stderr) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, json.Unmarshal([]byte(result.Stdout), into)
+}
+
+func (c CCRemote) trunk(ctx context.Context, slug string) (string, error) {
+	var repo struct {
+		Trunk string `json:"default_branch"`
+	}
+	_, err := c.github(ctx, "repos/"+slug, &repo)
+	return repo.Trunk, err
+}
+
+func (c CCRemote) onTrunk(ctx context.Context, head, slug string) (bool, error) {
+	trunk, err := c.trunk(ctx, slug)
+	if err != nil {
+		return false, err
+	}
+	var compared struct {
+		Status string `json:"status"`
+	}
+	found, err := c.github(ctx, fmt.Sprintf("repos/%s/compare/%s...%s?per_page=1", slug, trunk, head), &compared)
+	return found && (compared.Status == "behind" || compared.Status == "identical"), err
+}
+
+func (c CCRemote) Remote(ctx context.Context, checkout Checkout) (Remote, error) {
+	var branches []struct{}
+	if _, err := c.github(ctx, fmt.Sprintf("repos/%s/commits/%s/branches-where-head", checkout.Repository, checkout.Head), &branches); err != nil {
+		return Remote{}, err
+	}
+	return Remote{Heads: map[string]bool{checkout.Head: len(branches) > 0}, Landed: githubLandings{c, checkout.Repository}}, nil
+}
+
+type githubLandings struct {
+	fleet CCRemote
+	slug  string
+}
+
+func (l githubLandings) Landed(ctx context.Context, head string) (bool, error) {
+	trunk, err := l.fleet.trunk(ctx, l.slug)
+	if err != nil {
+		return false, err
+	}
+	var pulls []struct {
+		Merged string `json:"merged_at"`
+		Head   struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+	}
+	if _, err := l.fleet.github(ctx, fmt.Sprintf("repos/%s/commits/%s/pulls", l.slug, head), &pulls); err != nil {
+		return false, err
+	}
+	for _, pull := range pulls {
+		if pull.Merged != "" && pull.Head.SHA == head && pull.Base.Ref == trunk {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c CCRemote) tool(ctx context.Context) (string, []string, error) {

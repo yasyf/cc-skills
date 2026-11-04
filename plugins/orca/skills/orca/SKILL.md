@@ -404,8 +404,10 @@ runs `cc-remote destroy` through `WORKER_CC_REMOTE` or `ccRemote`, under
 `CC_REMOTE_CONFIG` or `ccRemoteConfig`, and removes its Orca environment. It
 does this only once no unsettled Dispatch shares the workspace, the terminal
 reads idle twice, and the checkout, read over ssh, is clean with its HEAD on
-origin or landed; `--done` skips the idle check. A Sprite with no matching task
-record is left alone.
+origin or landed; `--done` skips the idle check. GitHub answers whether the HEAD
+is on origin or landed, for the Sprite's own origin, so the check doesn't depend
+on which checkout you run from, and a Sprite without a GitHub origin is kept. A
+Sprite with no matching task record is left alone.
 
 The reclaimer is paused until `~/.local/state/orca-gc/resumed` exists, or
 `$XDG_STATE_HOME/orca-gc/resumed` when that variable is set. A paused pass
