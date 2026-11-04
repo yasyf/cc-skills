@@ -63,6 +63,9 @@ func (r *fidelityRepo) git(full []string) (string, error) {
 		return "", nil
 	}
 	argv := full[1:]
+	if argv[0] == "--no-lazy-fetch" {
+		argv = argv[1:]
+	}
 	switch argv[0] {
 	case "ls-remote":
 		return shaBase + "\tHEAD\n" + shaBase + "\trefs/heads/dev\n", nil
@@ -71,9 +74,6 @@ func (r *fidelityRepo) git(full []string) (string, error) {
 	case "log":
 		return "signal/stream.go\n", nil
 	case "rev-list":
-		if slices.Contains(argv, "--objects") {
-			return "", nil
-		}
 		span := argv[slices.Index(argv, "--")-1]
 		if strings.HasSuffix(span, shaHead) {
 			return shaOwn + "\n", nil

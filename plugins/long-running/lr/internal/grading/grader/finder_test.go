@@ -90,6 +90,7 @@ type finderRepo struct {
 	subjects  []string
 	baseGone  bool
 	missing   []string
+	raw       string
 	landedLog string
 	deleted   []string
 }
@@ -131,6 +132,9 @@ func newFinderFake(t *testing.T, replies ...any) (*fakeShell, *finderRepo) {
 
 func (r *finderRepo) git(full []string) (string, error) {
 	argv := full[1:]
+	if argv[0] == "--no-lazy-fetch" {
+		argv = argv[1:]
+	}
 	switch argv[0] {
 	case "ls-remote":
 		return r.lsRemote(argv), nil
@@ -170,6 +174,12 @@ func (r *finderRepo) git(full []string) (string, error) {
 			}
 		}
 		return strings.Join(present, "\n") + "\n", nil
+	case "cat-file":
+		var out strings.Builder
+		for _, oid := range r.missing {
+			out.WriteString(oid + " missing\n")
+		}
+		return out.String(), nil
 	case "-c":
 		return "", nil
 	}
@@ -204,6 +214,8 @@ func (r *finderRepo) fetch(full, argv []string) (string, error) {
 
 func (r *finderRepo) log(argv []string) string {
 	switch argv[1] {
+	case "--raw":
+		return r.raw
 	case "--no-merges":
 		if len(r.own[argv[5]]) > 0 {
 			return strings.Join(ownPaths, "\n\n") + "\n\n"
@@ -220,15 +232,6 @@ func (r *finderRepo) revList(argv []string) string {
 	switch argv[1] {
 	case "--topo-order":
 		return strings.Join(r.history, "\n") + "\n"
-	case "--objects":
-		var out strings.Builder
-		for _, oid := range r.missing {
-			out.WriteString("?" + oid + "\n")
-		}
-		for _, sha := range r.own[strings.ReplaceAll(argv[4], "...", "..")] {
-			out.WriteString(sha + "\n")
-		}
-		return out.String()
 	}
 	span := argv[slices.Index(argv, "--")-1]
 	return strings.Join(r.own[strings.ReplaceAll(span, "...", "..")], "\n") + "\n"
@@ -362,7 +365,7 @@ func TestAHeadWhoseParentWasRestackedReadsOnlyItsOwnCommitsAgainstTheBaseBranchs
 	shell, repo := newFinderFake(t, replyOf())
 	repo.own = map[string][]string{shaBase + ".." + shaHead: {shaOwn, shaNewer}}
 	mustFinder(t, directory, shell)
-	sameList(t, shell.gitCalls("rev-list", "--cherry-pick")[0][:7], []string{"git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", shaBase + "..." + shaHead})
+	sameList(t, shell.gitCalls("--no-lazy-fetch", "rev-list", "--cherry-pick")[0][:8], []string{"git", "--no-lazy-fetch", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", shaBase + "..." + shaHead})
 	question := readText(t, directory, "question-1.md")
 	holdsAll(t, question, "`git diff "+shaOwn+"^ "+shaHead+"`")
 	holdsNone(t, question, shaBase+"..."+shaHead, shaStale+"..."+shaHead)
@@ -371,26 +374,35 @@ func TestAHeadWhoseParentWasRestackedReadsOnlyItsOwnCommitsAgainstTheBaseBranchs
 func TestThePatchMatchAgainstTheTrunkReadsOnlyThePathsTheHeadsOwnCommitsTouch(t *testing.T) {
 	shell, _ := newFinderFake(t, replyOf())
 	mustFinder(t, finderJobDir(t, nil), shell)
-	sameList(t, shell.gitCalls("rev-list", "--cherry-pick")[0][7:], append([]string{"--"}, ownPaths...))
+	sameList(t, shell.gitCalls("--no-lazy-fetch", "rev-list", "--cherry-pick")[0][8:], append([]string{"--"}, ownPaths...))
 }
 
-func TestThePatchMatchFetchesTheBlobsItComparesInOneRequestBeforeComparing(t *testing.T) {
-	blobs := []string{strings.Repeat("a", 40), strings.Repeat("b", 40)}
+func TestThePatchMatchFetchesBothSidesOfEveryDiffItComparesInOneRequestAndNeverFetchesLazily(t *testing.T) {
+	atMergeBase, atHead, present, zero, gitlink := strings.Repeat("a", 40), strings.Repeat("b", 40), strings.Repeat("c", 40), strings.Repeat("0", 40), strings.Repeat("d", 40)
 	shell, repo := newFinderFake(t, replyOf())
-	repo.missing = blobs
+	repo.raw = ":100644 100644 " + atMergeBase + " " + atHead + " M\tgo/a.go\n" +
+		":000000 100644 " + zero + " " + present + " A\tgo/b.go\n" +
+		":160000 160000 " + gitlink + " " + gitlink + " M\tvendor/sub\n"
+	repo.missing = []string{atMergeBase, atHead}
 	mustFinder(t, finderJobDir(t, nil), shell)
-	batch := append(append([]string{"git"}, blobFetch...), blobs...)
-	fetchedAt, comparedAt := -1, -1
+	batch := append([]string{"git"}, blobFetch...)
+	checkedAt, fetchedAt, comparedAt := -1, -1, -1
 	for index, call := range shell.snapshot() {
-		if slices.Equal(call.Argv, batch) && fetchedAt < 0 {
+		switch {
+		case slices.Equal(call.Argv, []string{"git", "--no-lazy-fetch", "cat-file", "--batch-check"}) && checkedAt < 0:
+			checkedAt = index
+			equal(t, call.Stdin, atMergeBase+"\n"+atHead+"\n"+present+"\n")
+		case slices.Equal(call.Argv, batch) && fetchedAt < 0:
 			fetchedAt = index
-		}
-		if len(call.Argv) > 2 && call.Argv[1] == "rev-list" && call.Argv[2] == "--cherry-pick" && comparedAt < 0 {
+			equal(t, call.Stdin, atMergeBase+"\n"+atHead+"\n")
+		case len(call.Argv) > 2 && call.Argv[1] == "rev-list" && call.Argv[2] == "--cherry-pick":
+			t.Errorf("compared with lazy fetches on: %v", call.Argv)
+		case len(call.Argv) > 3 && call.Argv[2] == "rev-list" && call.Argv[3] == "--cherry-pick" && comparedAt < 0:
 			comparedAt = index
 		}
 	}
-	if fetchedAt < 0 || fetchedAt > comparedAt {
-		t.Errorf("fetched at %d, compared at %d", fetchedAt, comparedAt)
+	if checkedAt < 0 || fetchedAt < checkedAt || comparedAt < fetchedAt {
+		t.Errorf("checked at %d, fetched at %d, compared at %d", checkedAt, fetchedAt, comparedAt)
 	}
 }
 
@@ -937,7 +949,7 @@ func TestAGradedHeadWithNoOwnCommitPastTheBaseReadsTheWholeChangeWithNoRangeDiff
 	repo.resolved = map[string]string{shaOld: shaOld}
 	mustFinder(t, directory, shell)
 	holdsAll(t, readText(t, directory, "question-1.md"), "This pass reads the PR's whole change: `git diff "+shaOwn+"^ "+shaHead+"`.")
-	equal(t, len(shell.gitCalls("range-diff")), 0)
+	equal(t, len(shell.gitCalls("--no-lazy-fetch", "range-diff")), 0)
 	equal(t, shell.posted[0]["--text"], "finder: ok "+shaHead+" sol finder "+wholeRecord+": no majors")
 }
 

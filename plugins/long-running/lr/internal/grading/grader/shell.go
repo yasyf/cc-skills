@@ -73,8 +73,14 @@ func lastRunes(text string, count int) string {
 }
 
 func (p *pass) run(argv []string, dir string, timeout time.Duration) (string, error) {
+	return p.execute(shell.Command{Argv: argv, Dir: dir, Timeout: timeout})
+}
+
+func (p *pass) execute(command shell.Command) (string, error) {
 	started := time.Now()
-	result, err := p.Runner.Run(p.ctx, shell.Command{Argv: p.shimmed(argv), Dir: dir, Timeout: timeout})
+	argv, timeout := command.Argv, command.Timeout
+	command.Argv = p.shimmed(argv)
+	result, err := p.Runner.Run(p.ctx, command)
 	p.Log.Info("command", "stage", stage(argv), "seconds", time.Since(started).Seconds())
 	if err == nil {
 		return result.Stdout, nil
