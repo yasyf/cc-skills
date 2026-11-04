@@ -51,7 +51,7 @@ def stage(entry, inp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
             registry.write_text(json.dumps(entry_data))
         inp = replace(inp, env=env | {"CLAUDE_CONFIG_DIR": str(copied)})
 
-    def capability(cwd, *args, evt, stdin="", timeout=compaction_handoff.CCN_TIMEOUT_SECONDS):
+    def capability(cwd, *args, evt, stdin="", timeout=compaction_handoff.CCN_TIMEOUT_SECONDS, lock_wait=""):
         argv = [sys.executable, str(compaction_handoff.script("rulings.py")), *args, "--repo", cwd]
         assert any(tuple(argv[:len(prefix)]) == prefix for key in inp.commands for prefix in [tuple(key.split())])
         return evt.ctx.call_cli(argv, input=stdin, timeout=timeout)

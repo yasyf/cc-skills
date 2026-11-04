@@ -124,7 +124,7 @@ def check_pr_stub(monkeypatch, code: int, out: str, viewed: str = "41700") -> li
             return subprocess.CompletedProcess(argv, 0, "", "")
         return real(argv, **kwargs)
 
-    def capability(cwd, *args, evt, stdin="", timeout=lane_landing.CHECK_PR_TIMEOUT_SECONDS):
+    def capability(cwd, *args, evt, stdin="", timeout=lane_landing.CHECK_PR_TIMEOUT_SECONDS, lock_wait=""):
         argv = [sys.executable, str(lane_landing.script("rulings.py")), *args, "--repo", cwd]
         done = run(argv, input=stdin, cwd=cwd, timeout=timeout)
         done.check_returncode()
