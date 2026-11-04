@@ -883,6 +883,7 @@ def drop_folded(page):
     page.evaluate("""() => {
       ov.sent.clear();
       ov.kept.clear();
+      state.open.delete('explain-card-fold');
       state.taps.length = 0;
       state.model.taps = [];
       state.model.board.cards = state.model.board.cards.filter((card) => card.id !== 'card-fold');
