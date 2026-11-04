@@ -169,7 +169,7 @@ def test_a_job_keeps_fetch_start_freshness_without_running_pack_maintenance(tmp_
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
     executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     log, clock = tmp_path / "git.log", tmp_path / "clock"
-    executable(mac / "bin" / "date", f"#!/usr/bin/env python3\nfrom pathlib import Path\np = Path({str(clock)!r})\nnow = 100 * (len(p.read_text().splitlines()) + 1) if p.exists() else 100\nwith p.open('a') as stream: stream.write(f'{{now}}\\n')\nprint(now)\n")
+    executable(mac / "bin" / "date", f"#!/usr/bin/env python3\nimport os, sys\nfrom pathlib import Path\nif sys.argv[1:] != ['+%s%N']: os.execv({shutil.which('date')!r}, sys.argv)\np = Path({str(clock)!r})\nnow = 100 * (len(p.read_text().splitlines()) + 1) if p.exists() else 100\nwith p.open('a') as stream: stream.write(f'{{now}}\\n')\nprint(now)\n")
     executable(mac / "bin" / "git", f"#!/bin/sh\necho \"$*\" >> {log}\ncase \" $* \" in *' fetch '*) date +%s%N >/dev/null;; esac\nexec {shutil.which('git')} \"$@\"\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
