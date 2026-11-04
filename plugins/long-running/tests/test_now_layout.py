@@ -992,6 +992,7 @@ CHAT_MODEL = """(n) => {
   const reply = (id, extra) => ({ reply: { id, title: `Title ${id}`, md: `Body ${id}`, ...extra }, at: '2026-11-03T20:00:00Z', surfaces: [] });
   const card = (id, labels) => ({ id: `card-${id}`, title: id, summary: 'Why', chips: [], prs: [], parts: [], key: id, decides: true, choice: `${id}-choice`, options: labels.map((label, i) => ({ id: `${id}-${i + 1}`, label, recommended: i === 0 })) });
   state.model.replies = [
+    reply('open4', { status: 'needs_you', picks: ['p', 'q', 'r'] }),
     reply('open3', { status: 'needs_you', picks: ['a', 'b', 'c'] }),
     reply('open2', { status: 'needs_you', picks: ['Yes', 'No'] }),
     { ...reply('plain', { status: 'needs_you' }), at: new Date().toISOString() },
@@ -1001,7 +1002,7 @@ CHAT_MODEL = """(n) => {
     reply('change', { status: 'info', md: 'See #77001 for it', links: [{ url: 'https://example.ts.net:8665/one-pagers/how-it-works/', label: 'How it works' }, { url: 'https://example.slack.com/x', label: 'The thread' }] }),
     ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
   ];
-  state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c'])];
+  state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c']), card('open4', ['p', 'q', 'r'])];
   state.model.board.answered = {};
   state.model.prs[77001] = { title: 'dashboard: 🐛 fix the box', test_state: 'passed', ai_review: 'success', changed_files: '3', head: 'abc1234' };
   state.model.board.rows = state.model.board.rows.filter((row) => row.number !== 77001).concat({ number: 77001, head: 'abc1234', title: 'fix the box', change: 'Keeps what he typed', state: 'you', blocker: '', plan: '', risk: '', review: '' });
@@ -1022,8 +1023,8 @@ def open_chat(page, n=0):
 def test_chat_leads_with_what_needs_him_and_then_the_newest(page):
     open_chat(page, 100)
     keys = page.evaluate("[...document.querySelectorAll('.cw .thread')].map((el) => el.dataset.k)")
-    assert set(keys[:3]) == {"reply:open2", "reply:open3", "reply:plain"}
-    assert keys[3] == "line:m7"
+    assert set(keys[:4]) == {"reply:open2", "reply:open3", "reply:open4", "reply:plain"}
+    assert keys[4] == "line:m7"
     assert page.locator(".dayline .eyebrow").first.inner_text().lower() == "needs you first"
     now(page)
 
@@ -1113,10 +1114,10 @@ def test_a_pick_tapped_in_chat_posts_its_answer_inline_on_hover_and_in_the_windo
         page.locator("#rp-open3 .write-in button").click()
     assert written.value.post_data_json == {"kind": "choice", "block": "open3-choice", "options": [], "other": "neither"}
     page.wait_for_selector("#rp-open3 .obj-picked")
-    page.evaluate("ov.sent.clear(); ov.kept.clear(); state.taps.length = 0; rp.modal = 'card-open3'; render()")
+    page.evaluate("rp.modal = 'card-open4'; render()")
     with page.expect_request("**/api/answer") as windowed:
-        page.locator('#chatmodal [data-choose="open3-1"]').click()
-    assert windowed.value.post_data_json == {"kind": "choice", "block": "open3-choice", "options": ["open3-1"]}
+        page.locator('#chatmodal [data-choose="open4-1"]').click()
+    assert windowed.value.post_data_json == {"kind": "choice", "block": "open4-choice", "options": ["open4-1"]}
     page.evaluate("ov.sent.clear(); ov.kept.clear(); state.taps.length = 0; rp.modal = null; render()")
     page.unroute("**/api/answer")
     now(page)
