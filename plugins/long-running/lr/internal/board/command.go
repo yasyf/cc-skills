@@ -36,6 +36,7 @@ const (
 	rulingsShown   = 3
 	reportsRead    = 24 * time.Hour
 	reportStamp    = "2006-01-02T15:04:05.000Z"
+	reportBytes    = 4096
 )
 
 func Snapshots(ctx context.Context, bus string, since time.Time) ([]Snapshot, error) {
@@ -59,13 +60,22 @@ func laneReports(ctx context.Context, bus string, now time.Time) ([]ownerAnswer,
 	}
 	reports := make([]ownerAnswer, 0, len(found))
 	for _, record := range found {
-		body := record.Text
-		if whole, err := os.ReadFile(record.Refs.Path); err == nil {
-			body = string(whole)
-		}
-		reports = append(reports, ownerAnswer{ID: strconv.FormatInt(record.Seq, 10), Title: fmt.Sprintf("%s record from %s", record.Kind, record.Lane), Body: body, Updated: record.At.UTC().Format(reportStamp)})
+		reports = append(reports, ownerAnswer{ID: strconv.FormatInt(record.Seq, 10), Title: fmt.Sprintf("%s record from %s", record.Kind, record.Lane), Body: reportBody(record.Text, record.Refs.Path), Updated: record.At.UTC().Format(reportStamp)})
 	}
 	return reports, nil
+}
+
+func reportBody(text, path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return text
+	}
+	defer func() { _ = file.Close() }()
+	head, err := io.ReadAll(io.LimitReader(file, reportBytes))
+	if err != nil {
+		return text
+	}
+	return string(head)
 }
 
 func closedRecords(ctx context.Context, bus string, seqs []string) (map[string]bool, error) {
