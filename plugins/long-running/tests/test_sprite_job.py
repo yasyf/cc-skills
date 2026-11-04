@@ -28,6 +28,7 @@ RESTARTED_JOB = """import json, pathlib, sys
 job = pathlib.Path(sys.argv[1])
 (job / "job.json").write_text("")
 (job / "pid").write_text("")
+(job / "job.log").write_text("")
 (job / "result.json").write_text(json.dumps({"verdict": "ok"}))
 """
 
@@ -70,7 +71,7 @@ def test_a_finished_job_returns_without_waiting_out_the_tender_sleep(tmp_path: P
 
 
 @pytest.mark.parametrize("relay", ["#!/bin/sh\n", "#!/bin/sh\necho 'cci: database is locked (5) (SQLITE_BUSY)' >&2\nexit 1\n"], ids=["relay-pushes", "relay-locked"])
-def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_or_nul_filled_refs_a_sprite_restart_left(tmp_path: Path, relay: str) -> None:
+def test_a_job_keeps_its_own_job_pid_and_log_files_and_drops_the_empty_or_nul_filled_refs_a_sprite_restart_left(tmp_path: Path, relay: str) -> None:
     """Coordinator #220372, #220831: a Sprite restart emptied its copies of a job's files and three loose refs, the copy back emptied job.json and pid here, and every fetch on the Sprite read the zero object. Coordinator #222905: a relay push that failed on SQLITE_BUSY exited before result.json came back, so the runner never settled the pass."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45682-c051a2816b25", mac / "config"
@@ -82,6 +83,7 @@ def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_or_nul_filled
     job = json.dumps({"drive": "d1", "checkout": str(checkout)})
     (directory / "job.json").write_text(job)
     (directory / "pid").write_text("4242\n")
+    (directory / "job.log").write_text("sprite-job: the plugin copy took 3 s\n")
     (config / "long-running" / "drives").mkdir(parents=True)
     (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
     remote = Path(f"{sprite}{checkout}")
@@ -95,10 +97,12 @@ def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_or_nul_filled
     kept.write_text("0b0e1f2a3c4d5e6f708192a3b4c5d6e7f8091a2b\n")
 
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
-    subprocess.run(["sh", str(job_script), "vet4", grader, str(directory)], env=env, check=True, capture_output=True, timeout=60)
+    ran = subprocess.run(["sh", str(job_script), "vet4", grader, str(directory)], env=env, check=True, capture_output=True, text=True, timeout=60)
 
     assert (directory / "job.json").read_text() == job
     assert (directory / "pid").read_text() == "4242\n"
+    assert (directory / "job.log").read_text() == "sprite-job: the plugin copy took 3 s\n"
+    assert "sprite-job: git fetch --all took " in ran.stderr
     assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
     assert not emptied.exists()
     assert not nulled.exists()
@@ -165,7 +169,7 @@ def test_a_job_keeps_fetch_start_freshness_without_running_pack_maintenance(tmp_
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
     executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     log, clock = tmp_path / "git.log", tmp_path / "clock"
-    executable(mac / "bin" / "date", f"#!/usr/bin/env python3\nfrom pathlib import Path\np = Path({str(clock)!r})\nnow = 100 * (len(p.read_text().splitlines()) + 1) if p.exists() else 100\nwith p.open('a') as stream: stream.write(f'{{now}}\\n')\nprint(now)\n")
+    executable(mac / "bin" / "date", f"#!/usr/bin/env python3\nimport os, sys\nfrom pathlib import Path\nif sys.argv[1:] != ['+%s%N']: os.execv({shutil.which('date')!r}, sys.argv)\np = Path({str(clock)!r})\nnow = 100 * (len(p.read_text().splitlines()) + 1) if p.exists() else 100\nwith p.open('a') as stream: stream.write(f'{{now}}\\n')\nprint(now)\n")
     executable(mac / "bin" / "git", f"#!/bin/sh\necho \"$*\" >> {log}\ncase \" $* \" in *' fetch '*) date +%s%N >/dev/null;; esac\nexec {shutil.which('git')} \"$@\"\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
