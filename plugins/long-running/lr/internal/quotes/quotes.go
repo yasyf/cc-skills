@@ -38,7 +38,7 @@ var (
 
 var joiners = []string{" and", " but", " or", " so"}
 
-var ErrUnknownKey = errors.New("no such row or answer")
+var ErrUnknownKey = errors.New("no such row or answer; an answer's key is `answer <id>`")
 
 type Quote struct {
 	Key   string
@@ -143,7 +143,7 @@ func (r *Reader) Check(ctx context.Context, text string) []string {
 	var warnings []string
 	cited := Cited(text)
 	if words := quoted.FindString(text); words != "" && len(cited) == 0 {
-		warnings = append(warnings, fmt.Sprintf("quotes %s with no row or answer key before it", words))
+		warnings = append(warnings, fmt.Sprintf("quotes %s with no row or answer key before it; an answer's key is `answer <id>`", words))
 	}
 	for _, quote := range cited {
 		source, err := r.words(ctx, quote.Key)
