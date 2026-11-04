@@ -2,7 +2,11 @@ package board
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -113,7 +117,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 			if err := json.NewDecoder(c.InOrStdin()).Decode(&ask); err != nil {
 				return fmt.Errorf("read the card request: %w", err)
 			}
-			live, err := drive.Live()
+			live, err := cardDrives(c.Flag("drive").Value.String())
 			if err != nil {
 				return err
 			}
@@ -166,6 +170,21 @@ func slackCardCommand(a *app.App) *cobra.Command {
 		panic(err)
 	}
 	return cmd
+}
+
+func cardDrives(name string) ([]drive.Entry, error) {
+	if name != "" {
+		entry, err := drive.Named(name)
+		return []drive.Entry{entry}, err
+	}
+	live, err := drive.Live()
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(live, func(entry drive.Entry) bool {
+		_, err := os.Stat(filepath.Join(entry.StateDir, configFile))
+		return errors.Is(err, fs.ErrNotExist)
+	}), nil
 }
 
 func withRows(c *cobra.Command, a *app.App, entry drive.Entry, use func(*store.Store, string, []Row) error) error {
