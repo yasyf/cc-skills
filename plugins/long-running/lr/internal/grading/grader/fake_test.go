@@ -307,3 +307,15 @@ func wantNoFile(t *testing.T, directory, name string) {
 		t.Errorf("%s exists in %s", name, directory)
 	}
 }
+
+func subjectsOf(shas []string, named map[string]string) string {
+	subjects := make([]string, 0, len(shas))
+	for _, sha := range shas {
+		subject, known := named[sha]
+		if !known {
+			subject = "commit " + sha
+		}
+		subjects = append(subjects, subject)
+	}
+	return strings.Join(subjects, "\n") + "\n"
+}

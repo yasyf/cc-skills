@@ -360,6 +360,29 @@ func (p *pass) beyond(others []string, head string) ([]string, error) {
 	return own, nil
 }
 
+func (p *pass) earlierOwn(base, trunk, last string) ([]string, error) {
+	earlier, err := p.beyond([]string{base, trunk}, last)
+	if err != nil || len(earlier) == 0 {
+		return earlier, err
+	}
+	carried, err := p.git("log", "--format=%s", "-n", strconv.Itoa(baseSubject), base)
+	if err != nil {
+		return nil, err
+	}
+	listed, err := p.git(append([]string{"log", "--no-walk=unsorted", "--format=%s"}, earlier...)...)
+	if err != nil {
+		return nil, err
+	}
+	moved := strings.Split(carried, "\n")
+	own := make([]string, 0, len(earlier))
+	for index, subject := range strings.Split(listed, "\n") {
+		if !slices.Contains(moved, subject) {
+			own = append(own, earlier[index])
+		}
+	}
+	return own, nil
+}
+
 func (p *pass) ownSince(other, head string) (string, error) {
 	listed, err := p.git("log", "--no-merges", "--no-renames", "--format=", "--name-only", other+".."+head)
 	if err != nil {

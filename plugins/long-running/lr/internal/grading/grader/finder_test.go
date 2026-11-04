@@ -78,21 +78,22 @@ func pairLines(marks ...string) string {
 }
 
 type finderRepo struct {
-	own       map[string][]string
-	resolved  map[string]string
-	races     int
-	gone      []string
-	ranges    map[string]string
-	shows     map[string]string
-	trunk     string
-	history   []string
-	pulls     map[string]int
-	subjects  []string
-	baseGone  bool
-	missing   []string
-	raw       string
-	landedLog string
-	deleted   []string
+	own            map[string][]string
+	resolved       map[string]string
+	races          int
+	gone           []string
+	ranges         map[string]string
+	shows          map[string]string
+	trunk          string
+	history        []string
+	pulls          map[string]int
+	subjects       []string
+	commitSubjects map[string]string
+	baseGone       bool
+	missing        []string
+	raw            string
+	landedLog      string
+	deleted        []string
 }
 
 func newFinderFake(t *testing.T, replies ...any) (*fakeShell, *finderRepo) {
@@ -216,6 +217,8 @@ func (r *finderRepo) log(argv []string) string {
 	switch argv[1] {
 	case "--raw":
 		return r.raw
+	case "--no-walk=unsorted":
+		return subjectsOf(argv[3:], r.commitSubjects)
 	case "--no-merges":
 		if len(r.own[argv[5]]) > 0 {
 			return strings.Join(ownPaths, "\n\n") + "\n\n"
@@ -1038,6 +1041,18 @@ func TestAReplayWhoseDroppedCommitMovedIntoTheBaseAmendedCarriesTheGradedVerdict
 	repo.subjects = []string{"api: the parent's commit before its restack"}
 	mustFinder(t, directory, shell)
 	equal(t, len(shell.asks()), 0)
+	sameList(t, shell.texts(), []string{"finder: ok " + shaHead[:7] + " carried from #149302"})
+}
+
+func TestAnEarlierHeadsLowerStackCommitTheBaseNowCarriesStaysOutOfTheRangeDiff(t *testing.T) {
+	directory := finderJobDir(t, map[string]any{"since": shaOld, "prior": priorAt(149302, "finder: ok a269784")})
+	shell, repo := newFinderFake(t)
+	amendedRepo(repo, "=", "=")
+	repo.shows[shaBase+":api/parent.go"] = "pending()\n"
+	repo.own[shaBase+".."+shaOld] = []string{shaParentTip, shaOldOwn}
+	repo.commitSubjects = map[string]string{shaParentTip: "sand: delete the old Go tree"}
+	repo.subjects = []string{"sand: delete the old Go tree"}
+	mustFinder(t, directory, shell)
 	sameList(t, shell.texts(), []string{"finder: ok " + shaHead[:7] + " carried from #149302"})
 }
 
