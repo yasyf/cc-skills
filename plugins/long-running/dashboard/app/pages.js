@@ -614,7 +614,7 @@ function needsScreen() {
 }
 
 const REPLY_WORD = { info: ['Note', ''], progress: ['Progress', 'acc'], needs_you: ['Needs you', 'you'], incident: ['Incident', 'bad'], done: ['Done', 'ok'] };
-const SURFACE_WORD = { board: 'Board', slack: 'Slack', record: 'Record' };
+const SURFACE_WORD = { board: 'Board', talk: 'Talk', slack: 'Slack', record: 'Record' };
 const CHAT_AT_REST = 60;
 const SIMPLE_PICK = 50;
 const BARE_ASK_MINUTES = 60;

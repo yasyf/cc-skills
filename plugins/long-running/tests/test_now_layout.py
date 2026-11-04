@@ -718,6 +718,7 @@ CHAT_MODEL = """(n) => {
     ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
   ];
   state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c'])];
+  state.model.board.answered = {};
   state.model.owner_asks = { messages: [{ m: 7, iso: '2026-11-03T21:00:00-08:00', text: 'my line', state: 'asked', lanes: ['a-1'], prs: [] }], taps: [], store: [] };
   state.model.chat_lines = [];
   render();
