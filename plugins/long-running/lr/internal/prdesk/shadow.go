@@ -182,7 +182,7 @@ func (s Shadow) events(r client.Record) []Event {
 	}
 	lifts := make([]Event, 0, len(resolved))
 	for _, seq := range resolved {
-		lifts = append(lifts, Lift{meta, fmt.Sprintf("#%d", seq), poster})
+		lifts = append(lifts, Lift{meta, fmt.Sprintf("#%d", seq)})
 	}
 	return append(lifts, s.said(r, meta, fromBoard)...)
 }
