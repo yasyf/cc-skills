@@ -319,6 +319,7 @@ function prGroup(text) {
   return hit ? hit.slice(1) : [ledgerWords(text), 'Moving', 'acc'];
 }
 const ASK_WORD = { overdue: 'Overdue', asked: 'Asked', answered: 'Answered', applied: 'Applied', live: 'Live' };
+const ACK = { received: ['Received', 'you'], routed: ['Routed', 'acc'], done: ['Done', 'ok'] };
 const ASK_TONE = { overdue: 'bad', asked: 'bad', answered: 'you', applied: 'acc', live: 'ok' };
 const OVERDUE_GROUP = {
   pick: (n) => `${n} of your picks not carried out`,
@@ -342,7 +343,8 @@ function askMessage(a) {
     a.lanes.length ? `<dt>Who holds it</dt><dd>${a.lanes.map((lane) => `<a href="#/worker/${encodeURIComponent(lane)}">${esc(workerName(lane))}</a>`).join(', ')}</dd>` : '',
     a.prs.length ? `<dt>Pull requests</dt><dd>${a.prs.map((ref) => (ref.includes('#') ? esc(ref) : `<a href="#/review/${esc(ref)}">${esc(plainTitle(ref))}</a>`)).join('<br>')}</dd>` : '',
   ].join('');
-  return askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text) }, a.state, where, `${a.answer ? `<div class="md">${markdown(plain(a.answer))}</div>` : ''}${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`);
+  const [word, tone] = ACK[a.ack];
+  return { ...askRow({ id: `ask-m${a.m}`, iso: a.iso, at: clock(a.iso), title: a.title ?? askTitle(a.text) }, a.state, where, `${a.answer ? `<div class="md">${markdown(plain(a.answer))}</div>` : ''}${facts ? `<dl class="pg-facts st-full">${facts}</dl>` : ''}`), word, tone };
 }
 function overdueRows() {
   const clipped = (item) => esc(item.text.replace(/^(.{120}\S*)\s.+$/s, '$1…'));
@@ -748,9 +750,7 @@ function chatTheirs(item, kids) {
     ${failed ? `<ul class="rp-went">${failed}</ul>` : ''}`;
 }
 function lineState(row) {
-  if (!row) return 'Received';
-  if (row.state === 'answered' || row.state === 'applied') return 'Done';
-  return row.lanes.length ? 'Routed' : 'Received';
+  return ACK[row?.ack ?? 'received'][0];
 }
 function chatYours(item) {
   const text = esc(item.text).replace(/\[Image #\d+\]/g, '<span class="ct-shot">Screenshot</span>');

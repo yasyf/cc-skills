@@ -4,7 +4,7 @@ import re
 from zoneinfo import ZoneInfo
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
-LEDGER_ROW = re.compile(r"\| m(\d+) \| (\w+ \d+ \d+:\d+ [AP]M) \| (.*) \| (\S*) \| (\S*) \|$")
+LEDGER_ROW = re.compile(r"\| m(\d+) \| (\w+ \d+ \d+:\d+ [AP]M) \| (.*) \| (\S*) \| (\S*|due [^|]*?) \|$")
 ANSWERED = "Answered, nothing for you."
 MENTION = re.compile(r"\bm(\d{1,3})\b")
 ITEM = re.compile(r"\bM(\d{1,3})\b")
@@ -85,6 +85,7 @@ def owner_ask_rows(ledger, records, prs, store, known_lanes, year, answers):
             "iso": iso,
             "text": text,
             "state": state,
+            "ack": ack_state(row[4], mark, state),
             "lanes": holders,
             "prs": named,
             "answer": answer or (ANSWERED if state == "answered" else ""),
@@ -121,6 +122,12 @@ def message_state(mark, finished, records, named, prs, answer):
     if answer or mark == "responded" or any(r["kind"] in {"answer", "report"} for r in records):
         return "answered"
     return "asked"
+
+
+def ack_state(routed, mark, state):
+    if state != "asked" or mark in {"addressed", "no-order"}:
+        return "done"
+    return "routed" if routed or mark.startswith("due") else "received"
 
 
 def overdue_rows(render, records, store):

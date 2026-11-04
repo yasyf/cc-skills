@@ -678,6 +678,19 @@ def test_a_failed_chat_line_returns_to_its_box_and_a_sent_one_clears_it(page):
     now(page)
 
 
+def test_his_message_shows_its_state_on_its_own_row(page):
+    now(page)
+    page.evaluate("""() => {
+      state.model.owner_asks = { messages: [{ m: 1, iso: '2026-11-03T12:00:00Z', text: 'please fix the typing box now', state: 'asked', ack: 'routed', lanes: [], prs: [], answer: '' }], taps: [], store: [] };
+      location.hash = '#/asks';
+    }""")
+    row = page.locator(".ev-rows > li", has_text="please fix the typing box now")
+    assert "Routed" in row.inner_text()
+    assert page.locator(".ev-rows > li", has_text="Routed").count() == 1
+    page.evaluate("delete state.model.owner_asks")
+    now(page)
+
+
 def test_needs_me_fits_a_phone(page):
     tap_screen(page)
     page.set_viewport_size({"width": 390, "height": 800})
@@ -718,7 +731,7 @@ CHAT_MODEL = """(n) => {
     ...Array.from({ length: n }, (_, i) => ({ ...reply(`r${i}`, {}), at: '2026-11-03T19:00:00Z' })),
   ];
   state.model.board.cards = [card('open2', ['Yes', 'No']), card('open3', ['a', 'b', 'c'])];
-  state.model.owner_asks = { messages: [{ m: 7, iso: '2026-11-03T21:00:00-08:00', text: 'my line', state: 'asked', lanes: ['a-1'], prs: [] }], taps: [], store: [] };
+  state.model.owner_asks = { messages: [{ m: 7, iso: '2026-11-03T21:00:00-08:00', text: 'my line', state: 'asked', ack: 'routed', lanes: ['a-1'], prs: [] }], taps: [], store: [] };
   state.model.chat_lines = [];
   render();
 }"""

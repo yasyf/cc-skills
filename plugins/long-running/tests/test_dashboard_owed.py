@@ -140,3 +140,14 @@ def test_the_newest_reply_naming_a_row_is_its_answer_and_reaches_the_question_th
     ledger = "| m20 | Nov 3 9:17 PM | why? | 77 | responded |\n| m21 | Nov 3 9:18 PM | how? | 78 | responded |\n"
     assert {row: reply["id"] for row, reply in told.items()} == {"m20": "b"}
     assert {seq: reply["id"] for seq, reply in told_asks(ledger, told).items()} == {77: "b"}
+
+
+def test_a_message_moves_from_received_to_routed_to_done_as_the_ledger_is_marked():
+    ledger = """| m1 | Nov 3 3:00 AM | please fix the typing box now |  | open |
+| m2 | Nov 3 3:01 AM | please fix the other box now | 55 | open |
+| m3 | Nov 3 3:02 AM | promise me a clock on this one |  | due 6:40 PM |
+| m4 | Nov 3 3:03 AM | tell me when this one is done | 56 | responded |
+| m5 | Nov 3 3:04 AM | this was only a remark, thanks | 57 | no-order |
+"""
+    messages = owner_ask_rows(ledger, [], {}, [], set(), 2026, {})["messages"]
+    assert [message["ack"] for message in messages] == ["received", "routed", "routed", "done", "done"]
