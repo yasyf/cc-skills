@@ -61,6 +61,14 @@ func (w Wait) Line() string {
 	return fmt.Sprintf("pick %s %s: %s, up since %s", w.Block, w.Subject, w.Title, w.Since)
 }
 
+// OpenCard is a question card waiting on his pick, with the Slack message that
+// carries its buttons.
+type OpenCard struct {
+	ID    string
+	Title string
+	URL   string
+}
+
 type MergeRow struct {
 	Block string
 	PR    string
@@ -259,8 +267,7 @@ func LiveOf(outcomes Outcomes, snapshots []Snapshot) (Live, error) {
 	live := Live{Rows: mergeRows(outcomes.Doc), Taps: newestByPR(outcomes.Interactions.Triage), Shown: shown}
 	for _, card := range typed(outcomes.Doc, "card") {
 		for _, choice := range typed(card, "choice") {
-			answer := outcomes.Interactions.Choices[text(choice, "id")]
-			if len(answer.OptionIDs) > 0 || answer.Other != "" {
+			if outcomes.answered(choice) {
 				continue
 			}
 			title := text(card, "title")
@@ -271,6 +278,25 @@ func LiveOf(outcomes Outcomes, snapshots []Snapshot) (Live, error) {
 		}
 	}
 	return live, nil
+}
+
+func (o Outcomes) answered(choice map[string]any) bool {
+	answer := o.Interactions.Choices[text(choice, "id")]
+	return len(answer.OptionIDs) > 0 || answer.Other != ""
+}
+
+// OpenCards lists each card on the board with a pick he has not made and a
+// Slack message to make it on.
+func (o Outcomes) OpenCards() []OpenCard {
+	var open []OpenCard
+	for _, card := range typed(o.Doc, "card") {
+		slack, _ := card["slack"].(map[string]any)
+		url := text(slack, "url")
+		if url != "" && slices.ContainsFunc(typed(card, "choice"), func(choice map[string]any) bool { return !o.answered(choice) }) {
+			open = append(open, OpenCard{text(card, "id"), clip(text(card, "title")), url})
+		}
+	}
+	return open
 }
 
 func (l Live) since(key string) string {

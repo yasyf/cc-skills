@@ -39,6 +39,7 @@ const (
 	maxLinks     = 5
 	maxPRs       = 10
 	maxBlocks    = 8
+	cardPrefix   = "card-"
 	withdrawn    = " withdrawn"
 	alreadyGone  = "no block "
 	doneLead     = "Done, nothing for you"
@@ -65,6 +66,7 @@ var (
 	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
 	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
 	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
+	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
 )
 
 type Link struct {
@@ -152,6 +154,8 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	told := seen.diagramNoted()
 	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
+	case r.quiet() && r.Thread != "":
+		steps = []step{{f.board, seen}, {f.slack, seen}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	case r.quiet():
 		steps = []step{{f.board, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	case r.Order == "" || r.Status != info || len(r.Picks) > 0:
@@ -162,6 +166,44 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 		sent = append(sent, s.surface(ctx, s.reply, sent)...)
 	}
 	return sent
+}
+
+// withCardLinks links each open card the reply names to the Slack message he
+// taps it on, longest id first so no card's name is taken for a shorter one's.
+// The reply posts whatever it finds: the second result is one warning line when
+// the board did not read, or empty.
+func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
+	outcomes, err := board.ReadOutcomes(ctx, f.Runner, f.Entry.Root())
+	if err != nil {
+		return r, fmt.Sprintf("the board did not read, so no card this names carries its Slack link: %v", err)
+	}
+	cards := outcomes.OpenCards()
+	slices.SortFunc(cards, func(one, other board.OpenCard) int { return cmp.Compare(len(other.ID), len(one.ID)) })
+	for _, card := range cards {
+		if card.ID != cardPrefix+r.ID {
+			r.MD = linkedCard(r.MD, card)
+		}
+	}
+	return r, ""
+}
+
+func linkedCard(md string, card board.OpenCard) string {
+	if strings.Contains(md, card.URL) {
+		return md
+	}
+	id := regexp.QuoteMeta(card.ID)
+	words := strings.ReplaceAll(regexp.QuoteMeta(strings.TrimPrefix(card.ID, cardPrefix)), "-", `[ -]`)
+	for _, name := range []struct{ pattern, label string }{
+		{"`?" + `\b` + id + `\b` + "`?", card.Title},
+		{`(?i)\bcard ` + words + `\b|\b` + words + ` card\b`, ""},
+		{`(?i)` + regexp.QuoteMeta(card.Title), ""},
+	} {
+		found := regexp.MustCompile(name.pattern).FindStringIndex(md)
+		if found != nil {
+			return md[:found[0]] + "[" + cmp.Or(name.label, md[found[0]:found[1]]) + "](" + card.URL + ")" + md[found[1]:]
+		}
+	}
+	return md
 }
 
 func (f Fanout) aliased(r Reply) Reply {
@@ -641,24 +683,36 @@ func (f Fanout) anchor(id string) string {
 }
 
 func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
-	if surface(sent, "slack").Surface != "" || r.Thread == "" && len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
-		return nil
+	drawn := surface(sent, "slack")
+	if r.Thread != "" && (drawn.Surface == "" || len(r.Picks) > 0) {
+		return f.inThread(ctx, r, drawn)
 	}
-	if r.Thread != "" {
-		body := r.MD
-		for _, pr := range r.PRs {
-			body += "\n" + pr
-		}
-		for _, link := range r.Links {
-			body += "\n<" + link.URL + "|" + link.Label + ">"
-		}
-		return f.dmStatus(ctx, "--thread", r.Thread, "*"+r.Title+"*\n"+body)
+	if drawn.Surface != "" || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
+		return nil
 	}
 	card, err := f.statusCard(r, r.MD, "")
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
 	return f.dmStatus(ctx, "--card", card)
+}
+
+func (f Fanout) inThread(ctx context.Context, r Reply, drawn Outcome) []Outcome {
+	body := mdLink.ReplaceAllString(r.MD, "<$2|$1>")
+	for _, pr := range r.PRs {
+		body += "\n" + pr
+	}
+	for _, link := range r.Links {
+		body += "\n<" + link.URL + "|" + link.Label + ">"
+	}
+	if drawn.Ref != "" {
+		body += "\n<" + drawn.Ref + "|" + pickLead + ">"
+	}
+	posted := f.dmStatus(ctx, "--thread", r.Thread, "*"+r.Title+"*\n"+body)
+	if drawn.Surface != "" {
+		posted[0].Surface = "slack thread"
+	}
+	return posted
 }
 
 func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
