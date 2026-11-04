@@ -5,12 +5,14 @@ import re
 
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 
-from .board_text_gate import published
-from .compaction_handoff import Communicator, communicator_tests, CompactionState
+from .board_text_gate import published, ran
+from .cci_mcp_posts import POST_TOOL
+from .compaction_handoff import LR, Communicator, communicator_tests, CompactionState
 from .lane_slack_status import CC_SLACK
+from .meta_records import posts
 from .owner_facing import CODE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, Reads, fenced, last_reply, shown, slack_card, started_boards
 from .owner_replies_carry_news import dm_posts
-from .register_injection import drive_args
+from .register_injection import INCIDENT_NAME, drive_args
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -21,6 +23,10 @@ UNDONE = re.compile(r"\b(?:(?:ir)?revers\w*|permanent\w*|undo\w*|undone|restor\w
 NUMBER = re.compile(r"^\W*(?:#\d{3,}|\d{5,}|0\d{3})(?:'s)?\W*$")
 PLAIN = re.compile(r"^[A-Za-z][a-z'-]{2,}$")
 FILLER = frozenset("the and for with its his her this that was are has had have been now not but from into about then than also just still yet all any our you your".split())
+PR_REF = re.compile(r"(?i)(?:#|\bpr ?#?|\bcard-)(\d{4,})\b")
+ESCALATES = re.compile(r"(?i)\b(?:releases?|deploy(?:s|ed|ing)?|rollouts?|resum\w*)\b")
+RELAY = "owner-relay"
+RAISING = frozenset({"ask", "blocker", "blocked", "hold", "urgent", "red", "decide"})
 BESIDE = 4
 PUNCTUATION = ".,:;()?!\"'"
 URGENT_REFUSAL = (
@@ -32,11 +38,25 @@ BARE_NUMBERS = (
     "Warning, nothing was blocked: a migration, release or PR number the owner reads carries plain words beside it saying what that change does."
     " Add them beside each number below, as in `the migration that drops the four teams columns`."
 )
+FOREIGN_REFUSAL = (
+    "A line that calls another person's PR urgent, or escalates a release to the owner or owner-relay, names that person and the concrete harm:"
+    " what is lost, for whom, and whether it can be undone. Their release is theirs to run; with no harm to name, state the fact plainly or say nothing."
+)
 DM_TOOLS = (f"{CC_SLACK}slack_reply", f"{CC_SLACK}slack_send")
 ACTIVE = [CompactionState(active=True)]
 UNEXPLAINED = "Approve Andrew's deploy?"
 RESUMING = "12401 IS RESUMING NOW: 12414, 'Resume releases/2026-11-03/43', started by Andrew Benton about 1:45 PM. Its plan may carry the signal-valkey deletes on plat and SoFi, 0453 and SandSQL on SoFi and AIG."
 NAMED = "Urgent: the delete drops SoFi's old signal store for good, so their chats lose history unless you cancel first."
+WHOSE = "\n".join(
+    json.dumps(row)
+    for row in (
+        {"number": 46018, "author": "andrew", "name": "Andrew Benton", "ours": False},
+        {"number": 49336, "author": "drive-bot", "lane": "chat-version-land-1", "ours": True},
+    )
+)
+WHOSE_STUB = {f"{LR} facts whose": WHOSE}
+ESCALATED = "URGENT: 12401 is resuming now and runs #46018's column drop on SoFi and AIG; cancel it."
+HIS_HARM = "Urgent: Andrew's resume of #46018 drops the four teams columns on SoFi for good, so their chats lose that history unless he cancels first."
 
 
 def sentences(text: str) -> list[str]:
@@ -86,8 +106,58 @@ def tool_lines(evt: BaseHookEvent) -> list[str]:
     return owner_lines(evt, Reads(evt, which)) if (which := drive_args(evt)) else []
 
 
+def relay_lines(evt: BaseHookEvent) -> list[tuple[str, str]]:
+    return [(kind.lower(), text) for lane, recipients, kind, text, _, _ in posts(evt) if RELAY in (to.split("@", 1)[0] for to in recipients) and not INCIDENT_NAME.match(lane)]
+
+
+def prs_named(texts: list[str]) -> list[int]:
+    return sorted({int(number) for text in texts for number in PR_REF.findall(text)})
+
+
+def whose(reads: Reads, numbers: list[int]) -> dict[int, dict]:
+    if not numbers:
+        return {}
+    rows = reads.read("the pull requests' GitHub authors", lambda: [json.loads(line) for line in ran([str(LR), "facts", "whose", *map(str, numbers), *reads.which]).splitlines()])
+    return {row["number"]: row for row in rows or []}
+
+
+def theirs(reads: Reads, texts: list[str]) -> list[tuple[str, dict]]:
+    found = whose(reads, prs_named(texts))
+    return [(text, row) for text in texts for number in prs_named([text]) if (row := found.get(number)) and not row["ours"]]
+
+
+def person(row: dict) -> str:
+    return f"{row['name']} ({row['author']})" if row.get("name") else row["author"]
+
+
+def names(text: str, row: dict) -> bool:
+    words = {row["author"].lower(), *(part.lower() for part in (row.get("name") or "").split())}
+    return any(re.search(rf"(?i)\b{re.escape(word)}\b", text) for word in words if word)
+
+
+def unexplained_escalations(reads: Reads, owner: list[str], relayed: list[tuple[str, str]]) -> list[str]:
+    raised = [text for text in owner if URGENT.search(text)] + [text for kind, text in relayed if URGENT.search(text) or kind in RAISING and ESCALATES.search(text)]
+    return [
+        f"#{row['number']} is {person(row)}'s PR: \"{text[:160]}\""
+        for text, row in theirs(reads, raised)
+        if not (names(text, row) and HARM.search(text) and UNDONE.search(text))
+    ]
+
+
 def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
     return evt.block(fenced(URGENT_REFUSAL, [*found, EXAMPLE])) if (found := unexplained_urgency(texts)) else None
+
+
+def refused_tool(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    reads = Reads(evt, which)
+    owner, relayed = owner_lines(evt, reads), relay_lines(evt)
+    if blocked := refused(evt, [*owner, *(text for _, text in relayed)]):
+        return blocked
+    if found := unexplained_escalations(reads, owner, relayed):
+        return evt.block(fenced(FOREIGN_REFUSAL, [*found, f"example: {HIS_HARM}"]))
+    return evt.context(reads.warning("urgent_lines_name_the_harm")) if reads.failures else None
 
 
 def flagged(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
@@ -104,9 +174,16 @@ def updated(block: dict) -> str:
 
 @on(  # capt-hook: no-escape the owner ordered every urgent line to him that names no harm refused
     Event.PreToolUse,
-    only_if=[Tool("Bash", SLACK_CARD, *DM_TOOLS)],
+    only_if=[Tool("Bash", SLACK_CARD, POST_TOOL, *DM_TOOLS)],
     tests={
         card(title=UNEXPLAINED, body="This is urgent."): Block(pattern=r"^A line to the owner that calls something urgent[\s\S]*This is urgent\.[\s\S]*example: "),
+        Input(command=f"cci post --kind urgent --to owner-relay --pr 46018 --text {json.dumps(ESCALATED)}", env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"^A line to the owner that calls something urgent"),
+        Input(command=f"cci post --kind ask --to owner-relay --text {json.dumps(ESCALATED.replace('URGENT: ', ''))}", env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"^A line that calls another person's PR urgent[\s\S]*#46018 is Andrew Benton \(andrew\)'s PR: [\s\S]*example: "),
+        Input(command=f"cci post --kind urgent --to owner-relay --text {json.dumps(HIS_HARM)}", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command="cci post --kind report --to root --text \"not ours, Andrew's #46018 resolves #382199\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command="cci post --kind report --to owner-relay --text \"12414 is Andrew's release and ran his #46018; no action\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command="cci post --kind report --to owner-relay --text '#49336 lands with the release; its stores stay.'", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command="cci post --lane incident-sofi-1 --kind urgent --to owner-relay --text 'CRITICAL: SandSQL Below-Floor Database Count on SoFi, now.'", env=DRIVE_CONFIG): Allow(),
         card(title=UNEXPLAINED, body=NAMED): Allow(),
         card(title="Did the SoFi alert clear?", body='The "CRITICAL: sandsql latency" alert fired and cleared on its own.'): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": UNEXPLAINED, "body": "This is urgent."}}): Allow(),
@@ -121,7 +198,7 @@ def updated(block: dict) -> str:
     },
 )
 def urgent_lines_name_the_harm(evt: BaseHookEvent) -> HookResult | None:
-    return refused(evt, tool_lines(evt))
+    return refused_tool(evt)
 
 
 @on(  # capt-hook: no-escape the owner ordered every urgent line to him that names no harm refused
