@@ -213,6 +213,15 @@ def test_only_an_open_approval_or_a_real_choice_asks_him_to_decide(options, appr
     assert Drive({"board_url": "http://board/p/x"}, None).read_board(board(block))["cards"][0]["decides"] is decides
 
 
+def test_a_pick_the_board_cannot_take_comes_back_as_an_error_he_can_read(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    def unreachable(*_args, **_kwargs):
+        raise server.urllib.error.URLError("timed out")
+    monkeypatch.setattr(server.urllib.request, "urlopen", unreachable)
+    status, out = drive.answer({"kind": "choice", "block": "b", "options": ["o"]})
+    assert status == 502 and "the board did not answer" in out["error"]
+
+
 def test_a_card_of_words_a_picture_a_table_and_a_pull_request_draws_on_the_dashboard():
     block = card("whole", ("markdown", "m"), ("image", "i"), ("table", "t"), ("pr", "p"), ("choice", "c"))
     block["children"][0]["md"] = "Why it matters"

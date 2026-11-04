@@ -610,8 +610,11 @@ async function fetchModel() {
 }
 function reloadWhenIdle() {
   const typing = document.activeElement?.matches('input, textarea') && document.activeElement.value;
-  if (typing || state.pressing || state.asking || (pending.number && !pending.error)) setTimeout(reloadWhenIdle, 2000);
+  if (typing || state.pressing || state.asking || (pending.number && !pending.error) || pickUnsettled() || rp.sent.some((sent) => !sent.seq)) setTimeout(reloadWhenIdle, 2000);
   else location.reload();
+}
+for (const type of ['error', 'unhandledrejection']) {
+  window.addEventListener(type, (e) => fetch('/api/browser', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page_error: String(e.message ?? e.reason) }) }));
 }
 document.addEventListener('pointerdown', () => { state.pressing = true; }, true);
 for (const type of ['pointerup', 'pointercancel']) {
