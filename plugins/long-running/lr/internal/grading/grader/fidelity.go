@@ -500,7 +500,7 @@ func (s *fidelityPassState) sinceEarlier(heads []candidate, base, trunk string, 
 	if err != nil || last == "" {
 		return "", "", nil, err
 	}
-	earlier, err := s.beyond([]string{base, trunk}, last)
+	earlier, err := s.earlierOwn(base, trunk, last)
 	if err != nil || len(earlier) == 0 {
 		return "", "", nil, err
 	}

@@ -72,6 +72,9 @@ func (r *fidelityRepo) git(full []string) (string, error) {
 	case "fetch", "merge-base":
 		return "", nil
 	case "log":
+		if argv[1] == "--no-walk=unsorted" {
+			return subjectsOf(argv[3:], nil), nil
+		}
 		return "signal/stream.go\n", nil
 	case "rev-list":
 		span := argv[slices.Index(argv, "--")-1]

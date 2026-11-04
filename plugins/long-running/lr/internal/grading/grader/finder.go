@@ -187,7 +187,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	owning := async(func() ([]string, error) { return s.beyond([]string{base, trunk}, head) })
 	var earlier []string
 	if last != "" {
-		if earlier, err = s.beyond([]string{base, trunk}, last); err != nil {
+		if earlier, err = s.earlierOwn(base, trunk, last); err != nil {
 			return FinderOutcome{}, err
 		}
 	}
