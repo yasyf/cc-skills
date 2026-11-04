@@ -17,6 +17,7 @@ const (
 	LegacyCursor = "legacy"
 	legacyWindow = 72 * time.Hour
 	rootLane     = "root"
+	SweepLane    = "supervisor"
 )
 
 var (
@@ -87,7 +88,7 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 		return factsPerPR(record, repo, head, "fidelity", grade)
 	case kind == "review" && delegated(record.Lane, fidelityLanes) && strings.HasPrefix(record.Text, "behavior:"):
 		return behaviorFacts(record, repo)
-	case !delegated(record.Lane, append([]string{rootLane}, goLanes...)):
+	case !delegated(record.Lane, goAuthors(goLanes)):
 		return nil
 	}
 	whole := fullText(record)
@@ -125,6 +126,10 @@ func factsPerPR(record client.Record, repo, head, kind, value string) []Fact {
 		}
 	}
 	return out
+}
+
+func goAuthors(goLanes []string) []string {
+	return append([]string{rootLane, SweepLane}, goLanes...)
 }
 
 func delegated(lane string, delegates []string) bool {
@@ -283,7 +288,7 @@ func RootGos(records []client.Record) []client.Record {
 }
 
 func LiveGos(records []client.Record, goLanes []string) []client.Record {
-	lanes := append([]string{rootLane}, goLanes...)
+	lanes := goAuthors(goLanes)
 	closed := make(map[int64]bool)
 	for _, record := range records {
 		if delegated(record.Lane, lanes) {
@@ -299,7 +304,7 @@ func LiveGos(records []client.Record, goLanes []string) []client.Record {
 
 func ClosedGos(record client.Record, goLanes []string) []int64 {
 	kind := string(record.Kind)
-	if (kind != "withdraw" && kind != "correction") || !delegated(record.Lane, append([]string{rootLane}, goLanes...)) {
+	if (kind != "withdraw" && kind != "correction") || !delegated(record.Lane, goAuthors(goLanes)) {
 		return nil
 	}
 	return slices.DeleteFunc(closes(record), func(seq int64) bool { return seq == 0 })

@@ -88,5 +88,8 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("movers stopped mid-pass: %w", err)
 	}
+	if err := sweepGos(ctx, a, cfg, s, snapshot, now, stdout); err != nil {
+		return fmt.Errorf("the go sweep stopped: %w", err)
+	}
 	return nil
 }
