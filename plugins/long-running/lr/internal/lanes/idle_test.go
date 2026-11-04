@@ -2,6 +2,8 @@ package lanes
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -10,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 type recordingRunner struct {
@@ -44,13 +48,105 @@ func TestSettledGCRunsANewPassEveryFiveMinutesFromTheCheckoutWithTheDrivesCCRemo
 			t.Fatal(err)
 		}
 	}
-	if len(runner.commands) != 2 {
-		t.Fatalf("ran %d passes", len(runner.commands))
+	passes := slices.DeleteFunc(slices.Clone(runner.commands), func(c shell.Command) bool { return !slices.Contains(c.Argv, "gc") })
+	if len(passes) != 2 {
+		t.Fatalf("ran %d passes", len(passes))
 	}
-	got := runner.commands[0]
+	got := passes[0]
 	equal(t, got.Argv, []string{filepath.Join(claude, "long-running", "current", "bin", "lr"), "gc", "--run", "run_1", "--keep", "ctx_wanted", "--new"})
 	equal(t, got.Dir, "/checkout")
 	equal(t, got.Env, []string{"WORKER_CC_REMOTE=/pin/cc-remote", "CC_REMOTE_CONFIG=/pin/config.yaml"})
+}
+
+func reapPass(t *testing.T, gcSaid string, terminals ...int) ([]client.Draft, []shell.Command) {
+	t.Helper()
+	listed := 0
+	runner := &recordingRunner{reply: func(c shell.Command) (shell.Result, error) {
+		switch {
+		case c.Argv[0] == "ps":
+			return shell.Result{Stdout: "claude\ncodex\n"}, nil
+		case c.Argv[0] == "orca" && c.Argv[1] == "worktree":
+			return shell.Result{Stdout: `{"result":{"totalCount":10}}`}, nil
+		case c.Argv[0] == "orca" && c.Argv[1] == "terminal":
+			total := terminals[listed]
+			listed++
+			return shell.Result{Stdout: fmt.Sprintf(`{"result":{"totalCount":%d}}`, total)}, nil
+		}
+		return shell.Result{Stdout: gcSaid}, nil
+	}}
+	_, s := driveState(t)
+	bus := &fakeBus{}
+	env := Env{Bus: bus, Runner: runner, Config: config.Config{Drive: testDrive, OrcaRun: "run_1", Checkout: "/checkout"}, State: t.TempDir(), Claude: t.TempDir(), Local: t.TempDir()}
+	check := &SettledGC{Env: env, Store: s, Log: slog.Default()}
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	return bus.posted, runner.commands
+}
+
+func TestAPassThatReclaimedPostsItsBeforeAndAfterCounts(t *testing.T) {
+	posted, _ := reapPass(t, "removed /w/a\nremoved=1 stopping=1 keep=2\n", 8, 6)
+	if len(posted) != 1 || posted[0].Topic != ReapTopic || posted[0].Text != "sessions 2 to 2, worktrees 10 to 10, terminals 8 to 6; this pass: removed=1 stopping=1 keep=2" {
+		t.Fatalf("posted %+v", posted)
+	}
+}
+
+func TestAPassThatOnlyKeptPostsNothing(t *testing.T) {
+	if posted, _ := reapPass(t, "keep /w/a dirty\nkeep=1\n", 8, 8); len(posted) != 0 {
+		t.Fatalf("posted %+v", posted)
+	}
+}
+
+func TestStaleRetiredNamesOnlyASilentRetiredUnsettledLaneWithAnOrdinaryBrief(t *testing.T) {
+	_, s := driveState(t)
+	dir := t.TempDir()
+	brief := func(name, text string) string {
+		path := filepath.Join(dir, name+".md")
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	statuses := map[string]string{}
+	runner := &recordingRunner{reply: func(shell.Command) (shell.Result, error) {
+		rows := make([]map[string]string, 0, len(statuses))
+		for dispatch, status := range statuses {
+			rows = append(rows, map[string]string{"dispatchId": dispatch, "dispatchStatus": status})
+		}
+		raw, err := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"workers": rows}})
+		return shell.Result{Stdout: string(raw)}, err
+	}}
+	env := Env{Runner: runner, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, State: t.TempDir(), Claude: t.TempDir(), Local: t.TempDir()}
+	lane := func(name, briefPath, status string, silent time.Duration, state store.LaneState) {
+		t.Helper()
+		row := storeLane(name)
+		row.Brief = briefPath
+		if _, err := s.WantLane(row, t0); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetLaneState(name, state, t0, "done", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.LaneHeard(name, t0.Add(-silent), "report", 1); err != nil {
+			t.Fatal(err)
+		}
+		writeJSON(t, filepath.Join(env.receipts(), name+".json"), map[string]any{"result": map[string]string{"dispatchId": "ctx_" + name}})
+		statuses["ctx_"+name] = status
+	}
+	ordinary := brief("ordinary", "Step: 1\n")
+	lane("stale-1", ordinary, "dispatched", 3*time.Hour, store.LaneRetired)
+	lane("recent-1", ordinary, "dispatched", time.Hour, store.LaneRetired)
+	lane("settled-1", ordinary, "completed", 3*time.Hour, store.LaneRetired)
+	lane("wanted-1", ordinary, "dispatched", 3*time.Hour, store.LaneDesired)
+	lane("standing-1", brief("standing", "Standing: landing desk\n"), "dispatched", 3*time.Hour, store.LaneRetired)
+	lane("no-brief-1", filepath.Join(dir, "absent.md"), "dispatched", 3*time.Hour, store.LaneRetired)
+	lane(Root, ordinary, "dispatched", 3*time.Hour, store.LaneRetired)
+	lane(OwnerRelay, ordinary, "dispatched", 3*time.Hour, store.LaneRetired)
+	got, err := env.staleRetired(context.Background(), s, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, got, []string{"--stale", "ctx_stale-1"})
 }
 
 func TestAFailedSettledPassIsLoggedAndTheSupervisorContinues(t *testing.T) {

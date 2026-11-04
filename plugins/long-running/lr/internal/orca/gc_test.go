@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -656,7 +657,7 @@ func TestATreeOrcaNoLongerTracksIsRemovedWithGit(t *testing.T) {
 	if !slices.Equal(git.removed, []string{tree}) {
 		t.Fatalf("git removed %v", git.removed)
 	}
-	wantSaid(t, out, "removed "+tree+" Orca no longer tracks it, so git worktree remove removed it\n")
+	wantSaid(t, out, "removed "+tree+" Orca no longer tracks it, so ccx vcs worktree rm removed it\n")
 }
 
 func TestATreeOrcaNoLongerTracksIsKeptWhenGitRefuses(t *testing.T) {
@@ -667,7 +668,7 @@ func TestATreeOrcaNoLongerTracksIsKeptWhenGitRefuses(t *testing.T) {
 	git.refusal = "fatal: cannot remove a locked working tree"
 	tally, out := runGC(t, orca, git, gcOptions{})
 	wantTally(t, tally, Tally{verbClosed: 1, verbKeep: 1})
-	wantSaid(t, out, "keep "+tree+" Orca no longer tracks it and git worktree remove refused: fatal: cannot remove a locked working tree\n")
+	wantSaid(t, out, "keep "+tree+" Orca no longer tracks it and ccx vcs worktree rm refused: fatal: cannot remove a locked working tree\n")
 }
 
 func TestAnUntrackedTreeALiveProcessHoldsIsNeverHandedToGit(t *testing.T) {
@@ -1006,17 +1007,20 @@ func TestSpriteVerdicts(t *testing.T) {
 	dirty := checkout(testSprite.Root, dirtyTree)
 	unpushed := checkout(testSprite.Root, withHead(headB))
 	cases := []struct {
-		name string
-		rows []Worker
-		idle []Idleness
-		read *CheckoutRead
-		want string
+		name    string
+		rows    []Worker
+		idle    []Idleness
+		holders []string
+		read    *CheckoutRead
+		want    string
 	}{
 		{name: "uncommitted work keeps the Sprite", read: &CheckoutRead{Found: &dirty}, want: "keep pool-abc uncommitted changes"},
 		{name: "an unpushed head keeps the Sprite", read: &CheckoutRead{Found: &unpushed}, want: "keep pool-abc unpushed commits on v3/lane"},
 		{name: "an unreadable checkout keeps the Sprite", read: new(refused("ssh to pool-abc could not read /home/sprite/monorepo: timeout")), want: "keep pool-abc ssh to pool-abc could not read"},
 		{name: "a busy terminal keeps the Sprite", idle: []Idleness{IdleBusy}, want: "keep pool-abc terminal term_sprite is " + notIdle},
-		{name: "an unreadable terminal keeps the Sprite", idle: []Idleness{IdleUnknown}, want: "keep pool-abc terminal term_sprite is unreadable or disconnected, so its idleness is unknown"},
+		{name: "an unreadable terminal with a process on the Sprite keeps it", idle: []Idleness{IdleUnknown}, holders: []string{"processes 101 still run on it"}, want: "keep pool-abc terminal term_sprite is unreadable and processes 101 still run on it"},
+		{name: "a process that starts before the destroy keeps the Sprite", idle: []Idleness{IdleUnknown, IdleUnknown}, holders: []string{"", "processes 101 still run on it"}, want: "keep pool-abc " + changed},
+		{name: "an unreadable terminal on a dirty checkout keeps the Sprite", idle: []Idleness{IdleUnknown}, read: &CheckoutRead{Found: &dirty}, want: "keep pool-abc uncommitted changes"},
 		{name: "a terminal that wakes before the destroy keeps the Sprite", idle: []Idleness{IdleQuiet, IdleBusy}, want: "keep pool-abc " + changed},
 		{name: "an unsettled dispatch on the same Sprite keeps it", rows: []Worker{spriteRow("ctx_t", status("dispatched"))}, want: "keep pool-abc serves an unsettled dispatch"},
 	}
@@ -1027,6 +1031,7 @@ func TestSpriteVerdicts(t *testing.T) {
 				orca.idle["term_sprite"] = c.idle
 			}
 			fleet := hostedFleet()
+			fleet.holders = c.holders
 			if c.read != nil {
 				fleet.reads["pool-abc"] = *c.read
 			}
@@ -1048,6 +1053,27 @@ func TestASettledLanesCleanLandedSpriteIsDestroyedWithItsEnvironment(t *testing.
 		t.Fatalf("destroyed %v", fleet.destroyed)
 	}
 	wantSaid(t, out, "destroyed pool-abc dispatch ctx_s")
+}
+
+func TestASettledLanesSpriteWhoseRuntimeIsDownIsDestroyedOnceSpriteExecFindsNoProcess(t *testing.T) {
+	orca, fleet := newOrca(spriteRow("ctx_s")), hostedFleet()
+	orca.idle["term_sprite"] = []Idleness{IdleUnknown}
+	tally, out := runGC(t, orca, newGit(), gcOptions{fleet: fleet})
+	wantTally(t, tally, Tally{verbGone: 1})
+	if !slices.Equal(fleet.destroyed, []string{"pool-abc"}) {
+		t.Fatalf("destroyed %v", fleet.destroyed)
+	}
+	wantSaid(t, out, "destroyed pool-abc dispatch ctx_s")
+}
+
+func TestADispatchOnAServerOrcaNoLongerKnowsIsSkippedInSilence(t *testing.T) {
+	orca := newOrca(boxRow("ctx_gone"))
+	orca.forgotten = map[string]bool{boxEnv: true}
+	tally, out := runGC(t, orca, newGit(), gcOptions{})
+	if len(tally) != 0 || out != "" {
+		t.Fatalf("tally %v, out %q", tally, out)
+	}
+	wantCalls(t, orca)
 }
 
 func TestASpriteNoCCRemoteTaskTiesToTheDispatchIsNeverTouched(t *testing.T) {
@@ -1146,7 +1172,7 @@ func TestTaskRecordsTieARecordedSpriteWorkspaceToItsOrcaWorktreeAndTerminal(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[SpriteKey]Sprite{{"repo_live::/home/sprite/monorepo", "term_live"}: {"live", "live", "/s/ssh/live.ssh", "/home/sprite/monorepo", "env_live"}}
+	want := map[SpriteKey]Sprite{{"repo_live::/home/sprite/monorepo", "term_live"}: {"live", "live", "/home/sprite/monorepo", "env_live"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v", got)
 	}
@@ -1206,7 +1232,7 @@ func TestGCReclaimsTheRestOfTheRunPastACheckoutGitCannotRead(t *testing.T) {
 	wantSaid(t, out, "keep "+root+" git cannot read it: fatal: ")
 }
 
-func TestGitRemovesACleanWorktreeAndNamesWhyItKeepsADirtyOne(t *testing.T) {
+func TestGitHandsAWorktreeToCCXAndNamesItsRefusal(t *testing.T) {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -1214,25 +1240,28 @@ func TestGitRemovesACleanWorktreeAndNamesWhyItKeepsADirtyOne(t *testing.T) {
 	realGit(t, base, "init", "--quiet", "-b", "main", "clone")
 	clone := filepath.Join(base, "clone")
 	realGit(t, clone, "commit", "--allow-empty", "-m", "base")
-	realGit(t, clone, "worktree", "add", "--quiet", "--detach", filepath.Join(base, "clean"))
-	realGit(t, clone, "worktree", "add", "--quiet", "--detach", filepath.Join(base, "dirty"))
-	if err := os.WriteFile(filepath.Join(base, "dirty", "scratch.txt"), []byte("unsaved"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	git := &Git{Runner: shell.Exec{}}
-	removed, err := git.Remove(context.Background(), filepath.Join(base, "clean"))
-	if err != nil || removed != "" {
+	tree := filepath.Join(base, "tree")
+	realGit(t, clone, "worktree", "add", "--quiet", "--detach", tree)
+	refusal := ""
+	runner := runnerFunc(func(ctx context.Context, c shell.Command) (shell.Result, error) {
+		if c.Argv[0] != "ccx" {
+			return shell.Exec{}.Run(ctx, c)
+		}
+		if want := []string{"ccx", "vcs", "worktree", "rm", "--path", tree}; !slices.Equal(c.Argv, want) || c.Dir != filepath.Join(clone, ".git") {
+			t.Fatalf("argv %v in %s", c.Argv, c.Dir)
+		}
+		if refusal == "" {
+			return shell.Result{}, nil
+		}
+		return shell.Result{Code: 1, Stderr: refusal}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: refusal}
+	})
+	git := &Git{Runner: runner}
+	if removed, err := git.Remove(context.Background(), tree); err != nil || removed != "" {
 		t.Fatalf("removed %q, err %v", removed, err)
 	}
-	if isDir(filepath.Join(base, "clean")) {
-		t.Fatal("the clean worktree is still there")
-	}
-	refused, err := git.Remove(context.Background(), filepath.Join(base, "dirty"))
-	if err != nil || !strings.HasPrefix(refused, "fatal: ") {
+	refusal = "ccx: worktree rm: " + tree + " is in use"
+	if refused, err := git.Remove(context.Background(), tree); err != nil || refused != refusal {
 		t.Fatalf("refused %q, err %v", refused, err)
-	}
-	if _, err := os.Stat(filepath.Join(base, "dirty", "scratch.txt")); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -1450,6 +1479,17 @@ func TestIdleReads(t *testing.T) {
 	})
 }
 
+func TestServersNamesEverySavedEnvironment(t *testing.T) {
+	client, runner := clientFor(constant(`{"ok":true,"result":{"environments":[{"id":"env_a"},{"id":"env_b"}]}}`))
+	got, err := client.Servers(context.Background())
+	if err != nil || !got["env_a"] || !got["env_b"] || got["env_gone"] {
+		t.Fatalf("got %v, err %v", got, err)
+	}
+	if want := []string{"orca", "environment", "list", "--json"}; !slices.Equal(runner.calls[0], want) {
+		t.Fatalf("argv %v", runner.calls[0])
+	}
+}
+
 func TestADisconnectedTerminalNoLongerHoldsItsWorktree(t *testing.T) {
 	client, _ := clientFor(constant(`{"ok":true,"result":{"terminals":[{"handle":"term_dead","agentIdentity":"codex","connected":false},{"handle":"term_sh","connected":true}]}}`))
 	listed, err := client.TerminalsIn(context.Background(), testWT, "")
@@ -1547,7 +1587,7 @@ func TestOrcaReadsABoxTreesHeadAndBranchFromItsServer(t *testing.T) {
 	}
 }
 
-func TestARemoteCheckoutReadsPorcelainBranchHeadersOverSSH(t *testing.T) {
+func TestARemoteCheckoutReadsPorcelainBranchHeadersThroughSpriteExec(t *testing.T) {
 	runner := &scripted{reply: constant("# branch.oid " + headA + "\n# branch.head (detached)\n? scratch.txt\n")}
 	read, err := CCRemote{Runner: runner, State: "/nonexistent"}.Checkout(context.Background(), testSprite, newGit())
 	if err != nil {
@@ -1557,8 +1597,52 @@ func TestARemoteCheckoutReadsPorcelainBranchHeadersOverSSH(t *testing.T) {
 	if !reflect.DeepEqual(*read.Found, want) {
 		t.Fatalf("got %+v", *read.Found)
 	}
-	if got := runner.calls[0][:6]; !slices.Equal(got, []string{"ssh", "-F", "/s/ssh/pool-abc.ssh", "-o", "BatchMode=yes", "pool-abc"}) {
-		t.Fatalf("argv %v", got)
+	want2 := []string{"sprite", "exec", "-s", "pool-abc", "--no-stdin", "--no-port-forward", "--", "git", "-C", testSprite.Root, "status", "--porcelain=v2", "--branch"}
+	if !slices.Equal(runner.calls[0], want2) {
+		t.Fatalf("argv %v", runner.calls[0])
+	}
+}
+
+func TestASpriteHolderNamesWhatTheScanPrintsAndKeepsWhatItCannotRead(t *testing.T) {
+	cases := []struct {
+		name, stdout, stderr string
+		code                 int
+		want                 string
+	}{
+		{name: "nothing runs", want: ""},
+		{name: "two processes", stdout: "101\n202\n", want: "processes 101,202 still run on it"},
+		{name: "the exec fails", stderr: "no such sprite", code: 1, want: "sprite exec on pool-abc could not read its processes: no such sprite"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			runner := &scripted{reply: func([]string) (string, string, int) { return c.stdout, c.stderr, c.code }}
+			got, err := CCRemote{Runner: runner, State: "/nonexistent"}.Holder(context.Background(), testSprite)
+			if err != nil || got != c.want {
+				t.Fatalf("got %q, err %v", got, err)
+			}
+		})
+	}
+}
+
+func TestTheSpriteHolderScanFindsAProcessInTheCheckoutAndSkipsItself(t *testing.T) {
+	if _, err := os.Stat("/proc/self/cwd"); err != nil {
+		t.Skip("reads /proc")
+	}
+	root := t.TempDir()
+	sleeper := exec.Command("sleep", "30")
+	sleeper.Dir = root
+	if err := sleeper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sleeper.Process.Kill(); _ = sleeper.Wait() })
+	inside := exec.Command("sh", "-c", spriteHolders, "sh", root)
+	inside.Dir = root
+	out, err := inside.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Fields(string(out)); !slices.Contains(got, strconv.Itoa(sleeper.Process.Pid)) || slices.Contains(got, strconv.Itoa(inside.Process.Pid)) {
+		t.Fatalf("got %v, sleeper %d, scan %d", got, sleeper.Process.Pid, inside.Process.Pid)
 	}
 }
 
@@ -1620,39 +1704,121 @@ func TestAKeptDispatchIsTreatedAsLiveWhateverOrcaSaysOfIt(t *testing.T) {
 	wantTally(t, tally, Tally{verbClosed: 1})
 	wantCalls(t, orca, []string{"close", "term_ctx_done"})
 	gc := &GC{Orca: orca, Keep: map[string]bool{"ctx_kept": true}}
-	got, err := gc.unswept(context.Background(), "run_x", Swept{Path: filepath.Join(t.TempDir(), "swept.json")})
+	got, err := gc.due(context.Background(), "run_x", Swept{Path: filepath.Join(t.TempDir(), "swept.json")})
 	if err != nil || !slices.Equal(got, []string{"ctx_done"}) {
 		t.Fatalf("got %v, err %v", got, err)
 	}
 }
 
-func TestUnsweptNamesOnlySettledDispatchesNoPassSweptNewestFirstUpToABatch(t *testing.T) {
+func TestDueTakesNeverSweptDispatchesFirstThenThoseSweptLongestAgoAndKeepsCycling(t *testing.T) {
 	ledger := Swept{Path: filepath.Join(t.TempDir(), "orca-gc", "swept-run_x.json")}
-	if err := ledger.record([]string{"ctx_swept"}); err != nil {
+	if err := ledger.record([]string{"ctx_old", "ctx_older_gone", "ctx_recent"}); err != nil {
 		t.Fatal(err)
 	}
-	gc := &GC{Orca: newOrca(row("ctx_new"), row("ctx_live", status("dispatched")), row("ctx_swept"), row("ctx_failed", status(statusFailed)))}
-	got, err := gc.unswept(context.Background(), "run_x", ledger)
+	gc := &GC{Orca: newOrca(row("ctx_new"), row("ctx_live", status("dispatched")), row("ctx_recent"), row("ctx_old"), row("ctx_failed", status(statusFailed)))}
+	got, err := gc.due(context.Background(), "run_x", ledger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"ctx_new", "ctx_failed"}; !slices.Equal(got, want) {
+	if want := []string{"ctx_new", "ctx_failed", "ctx_old", "ctx_recent"}; !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	if err := ledger.record(got); err != nil {
+	if err := ledger.record([]string{"ctx_old"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err = gc.unswept(context.Background(), "run_x", ledger); err != nil || len(got) != 0 {
-		t.Fatalf("got %v, err %v", got, err)
+	if got, err = gc.due(context.Background(), "run_x", ledger); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"ctx_new", "ctx_failed", "ctx_recent", "ctx_old"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 	many := make([]Worker, 0, sweptBatch+2)
 	for n := range sweptBatch + 2 {
 		many = append(many, row("ctx_"+strconv.Itoa(n)))
 	}
 	gc = &GC{Orca: newOrca(many...)}
-	got, err = gc.unswept(context.Background(), "run_x", ledger)
+	got, err = gc.due(context.Background(), "run_x", ledger)
 	if err != nil || len(got) != sweptBatch || got[0] != "ctx_0" {
 		t.Fatalf("got %v, err %v", got, err)
+	}
+}
+
+func TestADispatchAPassKeptIsReadAgainOnALaterPass(t *testing.T) {
+	ledger := Swept{Path: filepath.Join(t.TempDir(), "swept.json")}
+	orca := newOrca(row("ctx_a"))
+	git := newGit(checkout(testWT, dirtyTree))
+	first, out := runGC(t, orca, git, gcOptions{})
+	wantTally(t, first, Tally{verbKeep: 2})
+	wantSaid(t, out, "uncommitted changes")
+	if err := ledger.record([]string{"ctx_a"}); err != nil {
+		t.Fatal(err)
+	}
+	gc := &GC{Orca: orca}
+	again, err := gc.due(context.Background(), "run_x", ledger)
+	if err != nil || !slices.Equal(again, []string{"ctx_a"}) {
+		t.Fatalf("got %v, err %v", again, err)
+	}
+	second, _ := runGC(t, orca, newGit(checkout(testWT)), gcOptions{dispatches: again})
+	if second[verbRemoved] != 1 {
+		t.Fatalf("second pass %v", second)
+	}
+}
+
+func staleRow(dispatch string, options ...rowOption) Worker {
+	return row(dispatch, append([]rowOption{status("dispatched")}, options...)...)
+}
+
+func TestProveStaleEndsOnlyAVerifiedSessionAtAnEmptyPrompt(t *testing.T) {
+	cases := []struct {
+		name  string
+		rows  []Worker
+		idle  []Idleness
+		git   *fakeGit
+		alter func(*fakeOrca)
+		said  string
+	}{
+		{name: "a busy screen", idle: []Idleness{IdleBusy}, said: "stale but its screen does not read as an empty prompt"},
+		{name: "an unreadable screen", idle: []Idleness{IdleUnknown}, said: "stale but its screen does not read as an empty prompt"},
+		{name: "two agent processes", alter: func(o *fakeOrca) {
+			two := liveSession(o.rows[0])
+			o.sessions = Sessions{o.rows[0].Terminal: append(two, Session{PID: "102", PPID: "100", PGID: "102", Command: two[1].Command})}
+		}, said: "stale but " + unknownID + "2 agent processes"},
+		{name: "a dirty tree", git: newGit(checkout(testWT, dirtyTree)), said: "stale but uncommitted changes"},
+		{name: "a tree git cannot read", git: newGit(), said: "stale but its worktree cannot be read"},
+		{name: "a process that restarted", alter: func(o *fakeOrca) { o.restarted = map[string]bool{"101": true} }, said: "stale but " + changed},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			orca := newOrca(staleRow("ctx_s"))
+			if c.idle != nil {
+				orca.idle[orca.rows[0].Terminal] = c.idle
+			}
+			if c.alter != nil {
+				c.alter(orca)
+			}
+			git := c.git
+			if git == nil {
+				git = newGit(checkout(testWT))
+			}
+			var out bytes.Buffer
+			gc := &GC{Orca: orca, Git: git, Out: &out, Keep: map[string]bool{}}
+			got, err := gc.proveStale(context.Background(), "run_x", []string{"ctx_s"})
+			if err != nil || len(got) != 0 {
+				t.Fatalf("proved %v, err %v", got, err)
+			}
+			wantSaid(t, out.String(), c.said)
+			wantCalls(t, orca)
+		})
+	}
+}
+
+func TestProveStaleNamesAQuietVerifiedCleanSessionAndNothingElse(t *testing.T) {
+	orca := newOrca(staleRow("ctx_s"), row("ctx_settled"), staleRow("ctx_other"), boxRow("ctx_box", status("dispatched")))
+	var out bytes.Buffer
+	gc := &GC{Orca: orca, Git: newGit(checkout(testWT)), Out: &out, Keep: map[string]bool{}}
+	got, err := gc.proveStale(context.Background(), "run_x", []string{"ctx_s", "ctx_settled", "ctx_box"})
+	if err != nil || !slices.Equal(got, []string{"ctx_s"}) {
+		t.Fatalf("proved %v, err %v", got, err)
 	}
 }
 

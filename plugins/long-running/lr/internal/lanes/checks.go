@@ -36,6 +36,8 @@ const (
 	fixLiveBack  = 6 * time.Hour
 	gcEvery      = 5 * time.Minute
 	gcTimeout    = 10 * time.Minute
+	staleSilence = 2 * time.Hour
+	ReapTopic    = "session-reap"
 	stopTimeout  = 5 * time.Minute
 	stopRelease  = "v0.27.4"
 	stopTries    = 3
@@ -864,6 +866,82 @@ func (e Env) keepWanted(s *store.Store) ([]string, error) {
 	return keep, nil
 }
 
+func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([]string, error) {
+	registered, err := s.AllLanes()
+	if err != nil {
+		return nil, err
+	}
+	heard, err := s.Heard()
+	if err != nil {
+		return nil, err
+	}
+	var candidates []string
+	for _, lane := range registered {
+		at, known := heard[lane.Name]
+		if lane.State != store.LaneRetired || lane.Name == Root || lane.Name == OwnerRelay || !known || now.Sub(at) < staleSilence {
+			continue
+		}
+		if _, err := os.Stat(lane.Brief); err != nil {
+			continue
+		}
+		brief, err := BriefOf(lane.Brief)
+		if err != nil || brief.Standing != "" {
+			continue
+		}
+		if dispatch := dispatchOf(e.receipts(), lane.Name); dispatch != "" {
+			candidates = append(candidates, dispatch)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	statuses, err := e.dispatchStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var stale []string
+	for _, dispatch := range candidates {
+		if read, known := statuses[dispatch]; known && !slices.Contains(settledDispatch, read.Status) {
+			stale = append(stale, "--stale", dispatch)
+		}
+	}
+	return stale, nil
+}
+
+type headcount struct {
+	claude, codex, worktrees, terminals int
+}
+
+func (e Env) headcount(ctx context.Context) (headcount, error) {
+	processes, err := agentProcesses(ctx, e.Runner)
+	if err != nil {
+		return headcount{}, err
+	}
+	worktrees, err := orcaTotal(ctx, e.Runner, "worktree")
+	if err != nil {
+		return headcount{}, err
+	}
+	terminals, err := orcaTotal(ctx, e.Runner, "terminal")
+	if err != nil {
+		return headcount{}, err
+	}
+	return headcount{processes["claude"], processes["codex"], worktrees, terminals}, nil
+}
+
+func reapText(before, after headcount, tally string) string {
+	return fmt.Sprintf("sessions %d to %d, worktrees %d to %d, terminals %d to %d; this pass: %s",
+		before.claude+before.codex, after.claude+after.codex, before.worktrees, after.worktrees, before.terminals, after.terminals, tally)
+}
+
+func reclaimedAny(tally string) bool {
+	for word := range strings.FieldsSeq(tally) {
+		if verb, _, counted := strings.Cut(word, "="); counted && verb != "keep" && verb != "skip" {
+			return true
+		}
+	}
+	return false
+}
+
 type SettledGC struct {
 	Env   Env
 	Store *store.Store
@@ -881,12 +959,36 @@ func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
 		g.Log.Warn("lr gc --new did not read the registry", "err", err)
 		return nil
 	}
-	result, err := g.Env.gc(ctx, append(keep, "--new")...)
+	stale, err := g.Env.staleRetired(ctx, g.Store, now)
+	if err != nil {
+		g.Log.Warn("lr gc --new did not read which retired lanes are stale", "err", err)
+		stale = nil
+	}
+	before, uncounted := g.Env.headcount(ctx)
+	result, err := g.Env.gc(ctx, slices.Concat(keep, stale, []string{"--new"})...)
 	if err != nil {
 		g.Log.Warn("lr gc --new did not finish", "err", err, "said", strings.TrimSpace(result.Stderr))
 		return nil
 	}
-	g.Log.Info("lr gc --new", "said", strings.TrimSpace(result.Stdout))
+	said := strings.TrimSpace(result.Stdout)
+	g.Log.Info("lr gc --new", "said", said)
+	if uncounted != nil {
+		g.Log.Warn("lr gc --new did not count before its pass", "err", uncounted)
+		return nil
+	}
+	after, err := g.Env.headcount(ctx)
+	if err != nil {
+		g.Log.Warn("lr gc --new did not count after its pass", "err", err)
+		return nil
+	}
+	tally := said[strings.LastIndex(said, "\n")+1:]
+	if before == after && !reclaimedAny(tally) {
+		return nil
+	}
+	_, err = g.Env.Bus.Post(ctx, client.Draft{Drive: g.Env.Config.Drive, Lane: Self, Kind: "state", Topic: ReapTopic, ID: fmt.Sprintf("%s:%d", ReapTopic, now.Unix()), Text: reapText(before, after, tally)})
+	if err != nil {
+		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+	}
 	return nil
 }
 

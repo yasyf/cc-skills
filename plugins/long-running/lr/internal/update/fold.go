@@ -210,6 +210,9 @@ func (d draft) lines(f folding) ([]string, int) {
 			out = append(out, titled(found.title, found.lines(f))...)
 			if found.title == dutiesTitle {
 				out = append(out, titled(toolingTitle, toolingLines(d.programs))...)
+				if len(d.reap) > 0 {
+					out = append(out, titled(reapTitle, d.reap)...)
+				}
 			}
 			at++
 			continue

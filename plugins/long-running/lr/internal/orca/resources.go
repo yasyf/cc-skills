@@ -405,6 +405,26 @@ func (c Client) Forget(ctx context.Context, environment string) (string, error) 
 	return c.refused(ctx, "environment", "rm", "--environment", environment)
 }
 
+func (c Client) Servers(ctx context.Context) (map[string]bool, error) {
+	reply, err := c.Call(ctx, "environment", "list")
+	if err != nil {
+		return nil, err
+	}
+	var listed struct {
+		Environments []struct {
+			ID string `json:"id"`
+		} `json:"environments"`
+	}
+	if err := reply.Into(&listed); err != nil {
+		return nil, err
+	}
+	saved := make(map[string]bool, len(listed.Environments))
+	for _, environment := range listed.Environments {
+		saved[environment.ID] = true
+	}
+	return saved, nil
+}
+
 func (c Client) Registered(ctx context.Context, worktree string) (bool, error) {
 	shown, err := c.Call(ctx, "worktree", "show", "--worktree", "path:"+worktree)
 	if err != nil {

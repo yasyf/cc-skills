@@ -19,7 +19,8 @@ import (
 
 const (
 	gcParallel  = 4
-	sweptBatch  = 10
+	spriteReads = 12
+	sweptBatch  = 40
 	changed     = "changed since the first read"
 	verbKeep    = "keep"
 	verbSkip    = "skip"
@@ -52,6 +53,7 @@ type API interface {
 	PairedCheckout(ctx context.Context, worktree, environment string, git Repositories) (CheckoutRead, error)
 	Registered(ctx context.Context, worktree string) (bool, error)
 	Forget(ctx context.Context, environment string) (string, error)
+	Servers(ctx context.Context) (map[string]bool, error)
 	NowMS() int64
 	Holder(ctx context.Context, worktree string, panes map[string]bool) (string, error)
 	Sessions(ctx context.Context) (Sessions, error)
@@ -140,9 +142,13 @@ func (g *GC) report(done Action) Action {
 }
 
 func parallel[T, R any](items []T, work func(T) (R, error)) ([]R, error) {
+	return bounded(gcParallel, items, work)
+}
+
+func bounded[T, R any](limit int, items []T, work func(T) (R, error)) ([]R, error) {
 	results := make([]R, len(items))
 	faults := make([]error, len(items))
-	slots := make(chan struct{}, gcParallel)
+	slots := make(chan struct{}, limit)
 	var running sync.WaitGroup
 	for i, item := range items {
 		slots <- struct{}{}
@@ -407,10 +413,10 @@ func (g *GC) removeLocal(ctx context.Context, action Action) (Action, error) {
 			return err
 		}
 		if refused != "" {
-			untracked = &Action{Verb: verbKeep, Target: action.Target, Reason: "Orca no longer tracks it and git worktree remove refused: " + refused}
+			untracked = &Action{Verb: verbKeep, Target: action.Target, Reason: "Orca no longer tracks it and ccx vcs worktree rm refused: " + refused}
 			return nil
 		}
-		reasons := []string{"Orca no longer tracks it, so git worktree remove removed it"}
+		reasons := []string{"Orca no longer tracks it, so ccx vcs worktree rm removed it"}
 		if action.Reason != "" {
 			reasons = []string{action.Reason, reasons[0]}
 		}
@@ -533,6 +539,24 @@ func (g *GC) stop(ctx context.Context, dispatch string) (stopOutcome, error) {
 	return stopOutcome{action: done, detail: detail, ended: true}, nil
 }
 
+func (g *GC) spriteInUse(ctx context.Context, worker Worker, sprite Sprite) (string, error) {
+	idle, err := g.Orca.Idle(ctx, worker.Terminal, sprite.Environment)
+	if err != nil {
+		return "", err
+	}
+	switch idle {
+	case IdleBusy:
+		return fmt.Sprintf("terminal %s is %s", worker.Terminal, notIdle), nil
+	case IdleUnknown:
+		held, err := g.Fleet.Holder(ctx, sprite)
+		if err != nil || held == "" {
+			return "", err
+		}
+		return fmt.Sprintf("terminal %s is unreadable and %s", worker.Terminal, held), nil
+	}
+	return "", nil
+}
+
 func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liveWorkspaces map[string]bool, ended map[string]string, remotes map[string]Remote) (Action, error) {
 	keep := func(reason string) (Action, error) {
 		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: reason}, nil
@@ -541,15 +565,12 @@ func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liv
 		return keep("serves an unsettled dispatch")
 	}
 	if _, done := ended[worker.Dispatch]; !done {
-		idle, err := g.Orca.Idle(ctx, worker.Terminal, sprite.Environment)
+		held, err := g.spriteInUse(ctx, worker, sprite)
 		if err != nil {
 			return Action{}, err
 		}
-		switch idle {
-		case IdleBusy:
-			return keep(fmt.Sprintf("terminal %s is %s", worker.Terminal, notIdle))
-		case IdleUnknown:
-			return keep(fmt.Sprintf("terminal %s is unreadable or disconnected, so its idleness is unknown", worker.Terminal))
+		if held != "" {
+			return keep(held)
 		}
 	}
 	read, err := g.Fleet.Checkout(ctx, sprite, g.Git)
@@ -577,12 +598,12 @@ func (g *GC) reap(ctx context.Context, action Action, worker Worker, sprite Spri
 		return g.Pause.Skip(action.Target, action.Verb), nil
 	}
 	if _, done := ended[worker.Dispatch]; !done {
-		idle, err := g.Orca.Idle(ctx, worker.Terminal, sprite.Environment)
+		held, err := g.spriteInUse(ctx, worker, sprite)
 		if err != nil {
 			return Action{}, err
 		}
-		if idle != IdleQuiet {
-			return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: changed}, nil
+		if held != "" {
+			return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: changed + ": " + held}, nil
 		}
 	}
 	if g.Pause.Held() {
@@ -701,11 +722,15 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 	}
 	sprites := map[SpriteKey]Sprite{}
 	sessions := Sessions{}
+	servers := map[string]bool{}
 	if len(finished) > 0 {
 		if sprites, err = g.Fleet.Sprites(); err != nil {
 			return nil, err
 		}
 		if sessions, err = g.Orca.Sessions(ctx); err != nil {
+			return nil, err
+		}
+		if servers, err = g.Orca.Servers(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -721,7 +746,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 	}
 	slices.SortFunc(hosted, func(a, b hostedSprite) int { return strings.Compare(a.sprite.Workspace, b.sprite.Workspace) })
 	finished = slices.DeleteFunc(finished, func(worker Worker) bool {
-		return slices.ContainsFunc(hosted, func(h hostedSprite) bool { return h.worker == worker })
+		return slices.ContainsFunc(hosted, func(h hostedSprite) bool { return h.worker == worker }) || (worker.Environment != "" && !servers[worker.Environment])
 	})
 	spriteCheckouts := map[string]bool{}
 	for key := range sprites {
@@ -801,7 +826,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		return nil, err
 	}
 	count(closedTerminals)
-	reaped, err := parallel(hosted, func(pair hostedSprite) (Action, error) {
+	reaped, err := bounded(spriteReads, hosted, func(pair hostedSprite) (Action, error) {
 		action, err := g.spriteAction(ctx, pair.worker, pair.sprite, liveWorkspaces, ended, worktrees.remotes)
 		if err != nil {
 			return Action{}, err
@@ -941,10 +966,10 @@ type Swept struct {
 	Path string
 }
 
-func (s Swept) read() (map[string]bool, error) {
+func (s Swept) read() ([]string, error) {
 	raw, err := os.ReadFile(s.Path)
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]bool{}, nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -953,22 +978,16 @@ func (s Swept) read() (map[string]bool, error) {
 	if err := json.Unmarshal(raw, &dispatches); err != nil {
 		return nil, fmt.Errorf("%s: %w", s.Path, err)
 	}
-	seen := make(map[string]bool, len(dispatches))
-	for _, dispatch := range dispatches {
-		seen[dispatch] = true
-	}
-	return seen, nil
+	return dispatches, nil
 }
 
 func (s Swept) record(dispatches []string) error {
-	seen, err := s.read()
+	order, err := s.read()
 	if err != nil {
 		return err
 	}
-	for _, dispatch := range dispatches {
-		seen[dispatch] = true
-	}
-	raw, err := json.Marshal(sortedKeys(seen))
+	order = slices.DeleteFunc(order, func(dispatch string) bool { return slices.Contains(dispatches, dispatch) })
+	raw, err := json.Marshal(append(order, dispatches...))
 	if err != nil {
 		return err
 	}
@@ -982,8 +1001,8 @@ func (s Swept) record(dispatches []string) error {
 	return os.Rename(staged, s.Path)
 }
 
-func (g *GC) unswept(ctx context.Context, run string, ledger Swept) ([]string, error) {
-	seen, err := ledger.read()
+func (g *GC) due(ctx context.Context, run string, ledger Swept) ([]string, error) {
+	swept, err := ledger.read()
 	if err != nil {
 		return nil, err
 	}
@@ -991,13 +1010,92 @@ func (g *GC) unswept(ctx context.Context, run string, ledger Swept) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	var fresh []string
+	settled := map[string]bool{}
+	var due []string
 	for _, worker := range workers {
-		if worker.Settled() && !seen[worker.Dispatch] && !g.Keep[worker.Dispatch] && len(fresh) < sweptBatch {
-			fresh = append(fresh, worker.Dispatch)
+		if !worker.Settled() || g.Keep[worker.Dispatch] {
+			continue
+		}
+		settled[worker.Dispatch] = true
+		if !slices.Contains(swept, worker.Dispatch) {
+			due = append(due, worker.Dispatch)
 		}
 	}
-	return fresh, nil
+	for _, dispatch := range swept {
+		if settled[dispatch] {
+			due = append(due, dispatch)
+		}
+	}
+	return due[:min(len(due), sweptBatch)], nil
+}
+
+func (g *GC) proveStale(ctx context.Context, run string, stale []string) ([]string, error) {
+	if len(stale) == 0 {
+		return nil, nil
+	}
+	workers, err := g.Orca.Workers(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := g.Orca.Sessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	candidates := slices.DeleteFunc(workers, func(worker Worker) bool {
+		return !slices.Contains(stale, worker.Dispatch) || worker.Settled() || worker.Environment != ""
+	})
+	proofs, err := parallel(candidates, func(worker Worker) (string, error) {
+		held, err := g.staleHeld(ctx, worker, sessions)
+		if err != nil {
+			return "", err
+		}
+		if held != "" {
+			g.report(Action{Verb: verbKeep, Target: worker.Dispatch, Reason: "stale but " + held})
+			return "", nil
+		}
+		return worker.Dispatch, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(proofs, func(dispatch string) bool { return dispatch == "" }), nil
+}
+
+func (g *GC) staleHeld(ctx context.Context, worker Worker, sessions Sessions) (string, error) {
+	idle, err := g.Orca.Idle(ctx, worker.Terminal, "")
+	if err != nil {
+		return "", err
+	}
+	if idle != IdleQuiet {
+		return "its screen does not read as an empty prompt", nil
+	}
+	session, unknown := sessions.agent(worker)
+	if unknown != "" {
+		return unknownID + unknown, nil
+	}
+	read, err := g.Git.Checkout(ctx, worker.Worktree)
+	if err != nil {
+		return "", err
+	}
+	if read.Found == nil {
+		return "its worktree cannot be read", nil
+	}
+	remote, err := g.Git.Remote(ctx, read.Found.Repository)
+	if err != nil {
+		return "", err
+	}
+	held, err := unsaved(ctx, *read.Found, remote)
+	if err != nil || held != "" {
+		return held, err
+	}
+	same, err := g.Orca.StillRuns(ctx, session)
+	if err != nil {
+		return "", err
+	}
+	if !same {
+		return changed, nil
+	}
+	return "", nil
 }
 
 func Drift(planned, replanned string) []string {
