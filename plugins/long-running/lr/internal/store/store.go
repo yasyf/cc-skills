@@ -513,8 +513,14 @@ func (s *Store) PutLanes(lanes []Lane, at time.Time) (err error) {
 	if _, err = tx.Exec("DELETE FROM lanes"); err != nil {
 		return err
 	}
+	if _, err = tx.Exec("DELETE FROM owners"); err != nil {
+		return err
+	}
 	for _, lane := range lanes {
 		if _, err = insertLane(tx, lane, at); err != nil {
+			return err
+		}
+		if err = own(tx, lane.Name, lane.PRs); err != nil {
 			return err
 		}
 	}
@@ -748,8 +754,12 @@ func (s *Store) Unprobe(name string) error {
 }
 
 func (s *Store) Own(name string, prs []int) error {
+	return own(s.db, name, prs)
+}
+
+func own(db execer, name string, prs []int) error {
 	for _, pr := range prs {
-		if _, err := s.db.Exec("INSERT INTO owners (pr, lane) VALUES (?, ?) ON CONFLICT (pr) DO UPDATE SET lane = excluded.lane", pr, name); err != nil {
+		if _, err := db.Exec("INSERT INTO owners (pr, lane) VALUES (?, ?) ON CONFLICT (pr) DO UPDATE SET lane = excluded.lane", pr, name); err != nil {
 			return err
 		}
 	}
