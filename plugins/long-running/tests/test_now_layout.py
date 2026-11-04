@@ -614,6 +614,55 @@ def test_an_incident_tap_leads_needs_me_even_with_nothing_waiting_on_it(page):
     now(page)
 
 
+def replies_box(page):
+    now(page)
+    page.evaluate("() => { state.model.replies = []; location.hash = '#/replies'; }")
+    page.wait_for_selector("textarea[name=reply]")
+    return page.locator("textarea[name=reply]")
+
+
+def test_a_refresh_waits_while_a_box_has_focus_and_a_draft_survives_a_redraw_and_a_reload(page):
+    box = replies_box(page)
+    box.click()
+    assert page.evaluate("""() => {
+      const el = document.querySelector('textarea[name=reply]');
+      refresh();
+      return document.querySelector('textarea[name=reply]') === el && state.owed;
+    }""")
+    page.keyboard.type("half a thought")
+    page.evaluate("render()")
+    assert box.input_value() == "half a thought"
+    assert page.evaluate("document.activeElement.name") == "reply"
+    page.keyboard.type(" more")
+    assert box.input_value() == "half a thought more"
+    page.evaluate("document.activeElement.blur()")
+    page.wait_for_function("!state.owed")
+    assert box.input_value() == "half a thought more"
+    page.reload()
+    assert replies_box(page).input_value() == "half a thought more"
+    page.evaluate("localStorage.removeItem('draft:reply::')")
+    now(page)
+
+
+def test_a_failed_reply_keeps_its_draft_and_a_sent_one_clears_it(page):
+    box = replies_box(page)
+    box.click()
+    page.keyboard.type("send me")
+    page.route("**/api/reply", lambda route: route.fulfill(status=502, json={"error": "the records were down"}))
+    page.evaluate("document.querySelector('.rp-ask').requestSubmit()")
+    page.wait_for_function("rp.sent.get('')?.error")
+    assert box.input_value() == "send me"
+    page.unroute("**/api/reply")
+    page.route("**/api/reply", lambda route: route.fulfill(json={"seq": 5}))
+    page.evaluate("document.querySelector('.rp-ask').requestSubmit()")
+    page.wait_for_function("rp.sent.get('')?.seq === 5")
+    assert box.input_value() == ""
+    assert page.evaluate("localStorage.getItem('draft:reply::')") is None
+    page.unroute("**/api/reply")
+    page.evaluate("rp.sent.delete('')")
+    now(page)
+
+
 def test_needs_me_fits_a_phone(page):
     tap_screen(page)
     page.set_viewport_size({"width": 390, "height": 800})

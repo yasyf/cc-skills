@@ -286,7 +286,7 @@ function lanePosts(lane) {
   const key = `${lane}@${Math.floor(Date.now() / 60000)}`;
   if (!(key in posts)) {
     posts[key] = posts[Object.keys(posts).findLast((k) => k.startsWith(`${lane}@`))] ?? null;
-    fetch(`/api/lane/${encodeURIComponent(lane)}`, { cache: 'no-store' }).then((res) => res.json()).then((out) => { posts[key] = out; render(); });
+    fetch(`/api/lane/${encodeURIComponent(lane)}`, { cache: 'no-store' }).then((res) => res.json()).then((out) => { posts[key] = out; refresh(); });
   }
   return posts[key];
 }
@@ -735,6 +735,7 @@ async function replyBack(id, text) {
     .then((res) => res.json())
     .catch((failure) => ({ error: `could not reach the dashboard server (${failure.message})` }));
   rp.sent.set(id, out.error ? { error: out.error, text } : out);
+  if (!out.error) sentDraft('reply', id);
   render();
 }
 document.addEventListener('click', (e) => {

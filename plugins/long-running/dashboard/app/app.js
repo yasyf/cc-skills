@@ -295,6 +295,43 @@ function pageRoute() {
 function cutDraws() {
   return pageRoute().screen === 'overview' && stackOf().every((seg) => /^review\/\d+/.test(seg) && state.model.prs[seg.split('/')[1]]);
 }
+const BOX = '#main form textarea, #main form input';
+function boxKey(el) {
+  const form = el.closest('form');
+  return `draft:${el.name}:${el.dataset.draft ?? form.id}:${form.dataset.askPr ?? form.dataset.hold ?? ''}`;
+}
+function restoreBoxes() {
+  for (const el of document.querySelectorAll(BOX)) {
+    const kept = localStorage.getItem(boxKey(el));
+    if (kept) el.value = kept;
+  }
+}
+function sentDraft(name, draft) {
+  localStorage.removeItem(`draft:${name}:${draft}:`);
+  for (const el of document.querySelectorAll(`#main [name="${name}"]`)) {
+    if (el.dataset.draft !== draft) continue;
+    el.value = '';
+    el.blur();
+  }
+}
+function refresh() {
+  if (state.pressing || document.activeElement?.matches(BOX)) state.owed = true;
+  else render();
+}
+document.addEventListener('input', (e) => {
+  if (!e.target.matches(BOX)) return;
+  if (e.target.value) localStorage.setItem(boxKey(e.target), e.target.value);
+  else localStorage.removeItem(boxKey(e.target));
+});
+document.addEventListener('focusout', (e) => {
+  if (!e.target.matches(BOX) || !state.owed || state.pressing) return;
+  state.owed = false;
+  setTimeout(refresh);
+});
+document.addEventListener('submit', (e) => {
+  if (e.target.matches('.rp-ask')) return;
+  for (const el of e.target.elements) if (el.name) localStorage.removeItem(boxKey(el));
+}, true);
 function render() {
   const m = state.model;
   if (!m || !m.prs) return;
@@ -339,6 +376,7 @@ function render() {
     }
     state.shown = location.hash;
   }
+  restoreBoxes();
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1] && !el.closest('[inert]') && el.checkVisibility());
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   if (spot) refocus(spot, spotRoot);
@@ -527,8 +565,7 @@ async function fetchModel() {
   state.model = model;
   state.drive = new Map(model.drive.prs.map((e) => [e.number, e]));
   state.version = model.version;
-  if (state.pressing) state.owed = true;
-  else render();
+  refresh();
   if (!state.painted) {
     state.painted = true;
     if (history.state?.spot) refocus(history.state.spot);
@@ -547,7 +584,7 @@ document.addEventListener('pointerdown', () => { state.pressing = true; }, true)
 for (const type of ['pointerup', 'pointercancel']) {
   document.addEventListener(type, () => {
     state.pressing = false;
-    if (state.owed) { state.owed = false; setTimeout(render); }
+    if (state.owed) { state.owed = false; setTimeout(refresh); }
   }, true);
 }
 let stream = null;
