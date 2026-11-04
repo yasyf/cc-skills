@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
+from captain_hook.snapshots.client import RemoteSession
 from captain_hook.util import reqenv
 
 from .call_dir import unknown_dir
@@ -97,6 +98,9 @@ PLAN_LINES = 12
 PLAN_LINE_CHARS = 300
 NO_RULINGS = "No ruling of his was found that bears on this pull request."
 PLAN_SAID = "The plan's lines that name these mechanisms, verbatim:"
+BRIEF_SAID = "The end of this lane's brief, its plan for this work, verbatim:"
+BRIEF_CHARS = 6000
+BRIEF_NAMED = re.compile(r"(?<![\w.~/-])[~/][\w./~-]*(?:\.md\b|/orca-launch/\w+)")
 MECHANISM_WARNING = (
     "Warning, nothing was blocked: a judge reads this PR as adding a refusal, retry, timer or wait that neither the owner's words nor the plan name."
     " Remove it, or bring him the case for it with `cci post --kind ask --to root`."
@@ -361,6 +365,17 @@ def owner_evidence(evt: BaseHookEvent, drive: list[str], text: str) -> str:
     return "\n\n".join(judge.owner_words(key, judge.said(row, state, env)) for key, row in rows.items()) or NO_RULINGS
 
 
+def first_prompt(evt: BaseHookEvent) -> str:
+    t = evt.ctx.t
+    prompts = t.prompts(selection="first", count=1) if isinstance(t, RemoteSession) else [turn.prompt for turn in t.turns if turn.prompt]
+    return prompts[0] if prompts else ""
+
+
+def lane_brief(evt: BaseHookEvent) -> str:
+    named = (path for found in BRIEF_NAMED.findall(first_prompt(evt)) if (path := Path(found).expanduser()).is_file())
+    return next((f"\n\n{BRIEF_SAID}\n{path.read_text(errors='replace')[-BRIEF_CHARS:]}" for path in named), "")
+
+
 def plan_lines(evt: BaseHookEvent, drive: list[str], findings: list[Finding]) -> list[str]:
     found = rulings(str(evt.cwd), "plan", *drive, evt=evt).strip()
     if not found or not (plan := Path(found)).is_file():
@@ -397,7 +412,7 @@ def mechanisms_named(evt: BaseHookEvent, req: Request) -> HookResult | None:
         return None
     body, shown = read[2], "\n".join(finding.render() for finding in findings[:SHOWN])
     plan = plan_lines(evt, drive, findings)
-    said = owner_evidence(evt, drive, f"{shown}\n{body}") + (f"\n\n{PLAN_SAID}\n" + "\n".join(plan) if plan else "")
+    said = owner_evidence(evt, drive, f"{shown}\n{body}") + (f"\n\n{PLAN_SAID}\n" + "\n".join(plan) if plan else "") + lane_brief(evt)
     if not (found := judged("mechanism", said, f"The lines it adds:\n{shown}\n\nIts body:\n{body}", drive[1])):
         return None
     return evt.context("\n".join([MECHANISM_WARNING, found, evidence(findings)]))
@@ -409,7 +424,7 @@ def body_names_what_it_defers(evt: BaseHookEvent, req: Request) -> HookResult | 
     diff, base, body = read
     findings = new_findings(req, diff, base)
     stand_ins = "\n\nLines it adds that may stand in for a fix:\n" + "\n".join(finding.render() for finding in findings[:SHOWN]) if findings else ""
-    said = f"{owner_evidence(evt, drive, body)}\n\nWhat the diff changes:\n{changed_files(diff)}{stand_ins}"
+    said = f"{owner_evidence(evt, drive, body)}{lane_brief(evt)}\n\nWhat the diff changes:\n{changed_files(diff)}{stand_ins}"
     found = judged("pr-body", said, body, drive[1])
     return evt.context("\n".join([BODY_WARNING, found])) if found else None
 
