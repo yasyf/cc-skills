@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,7 +17,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 )
 
@@ -66,23 +64,10 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 	if err != nil {
 		return err
 	}
-	landing, err := landingSection(filepath.Join(filepath.Dir(a.ConfigPath), runnerFile))
+	inputs, err := readGateInputs(ctx, cfg.Drive, a.Now())
 	if err != nil {
 		return err
 	}
-	entry, err := drive.Named(cfg.Drive)
-	if err != nil {
-		return err
-	}
-	outcomes, err := board.ReadOutcomes(ctx, a.Runner, entry.Root())
-	if err != nil {
-		return err
-	}
-	live, err := board.LiveOf(outcomes, nil)
-	if err != nil {
-		return err
-	}
-	cards, taps := ownerWaits(live)
 	heads, err := currentHeads(ctx, a.CCX, cfg.Repo, numbers, flags.head)
 	if err != nil {
 		return err
@@ -113,7 +98,7 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 			fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
 		}
 		claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-		text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: cfg.GoLaneNames(), Exempt: landing.ExemptGrades, TapRules: landing.TapRules, Files: strings.Fields(files), Cards: cards, TapRows: taps, Body: body})
+		text, refusals := gates.ExemptGo(claim, gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Files: strings.Fields(files), Cards: inputs.Cards, TapRows: inputs.Taps, Body: body})
 		if len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
 			continue
