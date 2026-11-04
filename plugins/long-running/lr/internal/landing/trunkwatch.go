@@ -1,10 +1,13 @@
 package landing
 
 import (
+	"cmp"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -13,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -23,7 +27,12 @@ const (
 	trunkTopic      = "dev-red"
 	deskRunnerLane  = "desk-runner"
 	trunkRedEvery   = 30 * time.Minute
-	flakeDue        = 24 * time.Hour
+	flakeDue        = 2 * time.Hour
+	flakeAttr       = "flake"
+	flakeCloser     = "flake-closers"
+	flakeAsked      = "flake-asked"
+	flakeLookback   = 24 * time.Hour
+	orcaDesk        = "orca-desk"
 	trunkRedFact    = "trunk-red"
 	trunkJobsFact   = "trunk-compared"
 	trunkJobsHead   = "compared"
@@ -37,6 +46,9 @@ const (
 	trunkQuery      = `query($owner: String!, $name: String!, $tip: String!) { repository(owner: $owner, name: $name) { object(expression: $tip) { ... on Commit { history(first: 50) { nodes { oid committedDate message status { contexts { context state targetUrl } } } } } } } }`
 )
 
+//go:embed flake_brief.md
+var flakeBrief string
+
 var (
 	squashedPR  = regexp.MustCompile(`\(#(\d+)\)$`)
 	buildURL    = regexp.MustCompile(`/([\w.-]+)/builds/(\d+)/?$`)
@@ -45,6 +57,7 @@ var (
 	logControl  = regexp.MustCompile("\x1b(?:_[^\x07]*\x07|\\[[0-9;]*[A-Za-z])|\r")
 	flakyNotice = regexp.MustCompile("> failed (?:`([^`]+)`.*? )?on <(https://buildkite\\.com/[^|>]+)\\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told")
 	testName    = regexp.MustCompile(`^(?:Test\w+|\w+(?:::\w+)+)$`)
+	infraLine   = regexp.MustCompile(`(?im)^.*(?:API rate limit exceeded|secondary rate limit|quota exceeded|\b403\b.*\b(?:rate limit|quota|Forbidden)\b|\b429 Too Many Requests|no space left on device).*$`)
 	dataFile    = []string{".json", ".md", ".txt", ".yaml", ".yml"}
 	finished    = []string{stateSuccess, "FAILURE", "ERROR"}
 )
@@ -65,6 +78,8 @@ type TrunkWatch struct {
 	Repo     string
 	Trunk    string
 	Checkout string
+	State    string
+	Asks     *asks.Mirror
 	Config   TrunkConfig
 	Now      func() time.Time
 
@@ -147,7 +162,7 @@ func (w *TrunkWatch) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return errors.Join(w.compareBuilds(ctx, history), w.watchFlakes(ctx, history), w.watchNotices(ctx), w.reportRed(ctx, history))
+	return errors.Join(w.compareBuilds(ctx, history), w.watchFlakes(ctx, history), w.watchNotices(ctx), w.reopenUnfixed(ctx), w.askPastDue(ctx), w.reportRed(ctx, history))
 }
 
 func (w *TrunkWatch) history(ctx context.Context) ([]trunkCommit, error) {
@@ -345,7 +360,7 @@ func (w *TrunkWatch) watchFlakes(ctx context.Context, history []trunkCommit) err
 }
 
 func (w *TrunkWatch) flake(ctx context.Context, oid, red, green string) error {
-	var jobs []string
+	var jobs []trunkJob
 	if red == green {
 		build, err := w.build(ctx, green)
 		if err != nil {
@@ -360,7 +375,8 @@ func (w *TrunkWatch) flake(ctx context.Context, oid, red, green string) error {
 				return err
 			}
 			if !stopped {
-				jobs = append(jobs, job.RetrySource.JobID)
+				job.ID = job.RetrySource.JobID
+				jobs = append(jobs, job)
 			}
 		}
 	} else {
@@ -370,20 +386,26 @@ func (w *TrunkWatch) flake(ctx context.Context, oid, red, green string) error {
 		}
 		for _, job := range build.Jobs {
 			if job.failed() && !job.SoftFailed && job.SignalReason != agentStop {
-				jobs = append(jobs, job.ID)
+				jobs = append(jobs, job)
 			}
 		}
 	}
 	if len(jobs) == 0 {
 		return nil
 	}
-	test := ""
+	found := flakeFound{job: jobs[0].step()}
 	for _, job := range jobs {
-		if test = w.failedTest(ctx, red, job); test != "" {
+		test, infra := w.failure(ctx, red, job.ID)
+		if test != "" {
+			found = flakeFound{test: test, job: job.step()}
 			break
 		}
+		if infra != "" && found.infra == "" {
+			found = flakeFound{job: job.step(), infra: infra}
+		}
 	}
-	return w.postFlake(ctx, test, fmt.Sprintf("failed on %s at %s and passed on retry", red, oid[:min(10, len(oid))]), "flake:"+oid)
+	found.failed = fmt.Sprintf("failed on %s at %s and passed on retry", red, oid[:min(10, len(oid))])
+	return w.postFlake(ctx, found, "flake:"+oid)
 }
 
 func (w *TrunkWatch) stopped(ctx context.Context, build, job string) (bool, error) {
@@ -398,24 +420,26 @@ func (w *TrunkWatch) stopped(ctx context.Context, build, job string) (bool, erro
 	return read.SignalReason == agentStop, nil
 }
 
-func (w *TrunkWatch) failedTest(ctx context.Context, build, job string) string {
+func (w *TrunkWatch) failure(ctx context.Context, build, job string) (test, infra string) {
 	out, err := w.bk(ctx, build, "/jobs/"+job+"/log")
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	var log struct {
 		Content string `json:"content"`
 	}
 	if json.Unmarshal([]byte(out), &log) != nil {
-		return ""
+		return "", ""
 	}
-	found := failedTest.FindStringSubmatch(logControl.ReplaceAllString(log.Content, ""))
+	content := logControl.ReplaceAllString(log.Content, "")
+	found := failedTest.FindStringSubmatch(content)
 	for _, group := range found[min(1, len(found)):] {
 		if group != "" {
-			return group
+			return group, ""
 		}
 	}
-	return ""
+	line := strings.TrimSpace(infraLine.FindString(content))
+	return "", line[:min(200, len(line))]
 }
 
 func (w *TrunkWatch) watchNotices(ctx context.Context) error {
@@ -455,7 +479,7 @@ func (w *TrunkWatch) watchNotices(ctx context.Context) error {
 				test = words[len(words)-1]
 			}
 			failed := fmt.Sprintf("failed on %s at %s while nothing it reads changed, per %s", found[2], found[3][:min(10, len(found[3]))], message.Permalink)
-			if err := w.postFlake(ctx, test, failed, "flake-notice:"+message.TS); err != nil {
+			if err := w.postFlake(ctx, flakeFound{test: test, job: found[1], failed: failed}, "flake-notice:"+message.TS); err != nil {
 				return err
 			}
 		}
@@ -466,8 +490,37 @@ func (w *TrunkWatch) watchNotices(ctx context.Context) error {
 	return nil
 }
 
-func (w *TrunkWatch) postFlake(ctx context.Context, test, failed, key string) error {
-	path, pr := w.lastChange(ctx, test)
+type flakeFound struct {
+	test, job, infra, failed string
+}
+
+func (f flakeFound) subject() string {
+	if f.test != "" {
+		return f.test
+	}
+	return "job " + f.job
+}
+
+func (f flakeFound) named() string {
+	switch {
+	case f.test != "":
+		return "FLAKE " + f.test
+	case f.infra != "":
+		return fmt.Sprintf("INFRA job %s failed on infrastructure, not a test (%s)", f.job, f.infra)
+	}
+	return fmt.Sprintf("FLAKE job %s, no failing test named in its log", f.job)
+}
+
+func (w *TrunkWatch) postFlake(ctx context.Context, found flakeFound, key string) error {
+	open, err := w.openFlakes(ctx)
+	if err != nil {
+		return err
+	}
+	if at := slices.IndexFunc(open, func(r client.Record) bool { return r.Fields.Attrs[flakeAttr] == found.subject() }); at >= 0 {
+		_, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "note", To: open[at].To, Topic: trunkTopic, ID: key, Re: open[at].Seq, Force: true, Text: fmt.Sprintf("%s again: %s. It stays open on %s until a merged PR fixes it.", found.named(), found.failed, open[at].Name())})
+		return err
+	}
+	path, pr := w.lastChange(ctx, found.test)
 	owner, err := w.flakeOwner(ctx, pr)
 	if err != nil {
 		return err
@@ -476,21 +529,23 @@ func (w *TrunkWatch) postFlake(ctx context.Context, test, failed, key string) er
 	if pr != "" {
 		changed = "; #" + pr + " last changed it"
 	}
-	shown, named := "-", "a test"
+	shown := "-"
 	if path != "" {
 		shown = path
 	}
-	if test != "" {
-		named = test
-	}
 	due := w.Now().Add(flakeDue).In(pacificZone()).Format("Jan 2 3:04 PM")
-	text := fmt.Sprintf("[finding:%s] - %s flake owner %s: FLAKE %s %s%s. Fix due %s; name this record in the fix's HEAD. It blocks nothing.", self, shown, owner, named, failed, changed, due)
-	to := []string{owner}
-	if owner != rootLane {
-		to = append(to, rootLane)
+	text := fmt.Sprintf("[finding:%s] - %s flake owner %s: %s %s%s. Find the cause and fix it by %s; a retry, skip, quarantine or longer timeout is no fix. It stays open until a merged PR fixes it: resolve it with that PR. It blocks nothing.", self, shown, owner, found.named(), found.failed, changed, due)
+	stored, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "defect", To: []string{owner}, Topic: trunkTopic, ID: key, Force: true, Attrs: map[string]string{flakeAttr: found.subject()}, Text: text})
+	if err != nil || owner == rootLane {
+		return err
 	}
-	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "defect", To: to, Topic: trunkTopic, ID: key, Text: text})
+	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "note", To: []string{rootLane}, Topic: trunkTopic, ID: key + ":root", Re: stored.Seq, Text: fmt.Sprintf("%s: %s owns the fix in %s; nothing for root to do.", found.named(), owner, stored.Name())})
 	return err
+}
+
+func (w *TrunkWatch) openFlakes(ctx context.Context) ([]client.Record, error) {
+	open, err := client.Open(ctx, w.Drive, "defect")
+	return slices.DeleteFunc(open, func(r client.Record) bool { return r.Lane != self || r.Fields.Attrs[flakeAttr] == "" }), err
 }
 
 func (w *TrunkWatch) lastChange(ctx context.Context, test string) (path, pr string) {
@@ -548,11 +603,127 @@ func (w *TrunkWatch) flakeOwner(ctx context.Context, pr string) (string, error) 
 		return "", err
 	}
 	for _, candidate := range candidates {
-		if slices.ContainsFunc(peers, func(peer client.Peer) bool { return peer.Lane == candidate && peer.Live }) {
-			return candidate, nil
+		if at := slices.IndexFunc(peers, func(peer client.Peer) bool { return peer.Live && client.Stem(peer.Lane) == client.Stem(candidate) }); at >= 0 {
+			return peers[at].Lane, nil
 		}
 	}
-	return rootLane, nil
+	if w.Config.FlakeLane == "" {
+		return rootLane, nil
+	}
+	return w.launchFlakeLane(ctx)
+}
+
+func (w *TrunkWatch) launchFlakeLane(ctx context.Context) (string, error) {
+	stem := client.Stem(w.Config.FlakeLane)
+	taken, err := client.Generations(ctx, w.Drive, stem)
+	if err != nil {
+		return "", err
+	}
+	highest := 0
+	for _, name := range taken {
+		if n, err := strconv.Atoi(strings.TrimPrefix(name, stem+"-")); err == nil {
+			highest = max(highest, n)
+		}
+	}
+	lane := fmt.Sprintf("%s-%d", stem, highest+1)
+	brief := filepath.Join(w.State, stem, "brief.md")
+	if err := os.MkdirAll(filepath.Dir(brief), 0o750); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(brief, []byte(strings.NewReplacer("<stem>", stem, "<drive>", w.Drive, "<self>", self).Replace(flakeBrief)), 0o600); err != nil {
+		return "", err
+	}
+	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "go", To: []string{orcaDesk}, Topic: stem, ID: "flake-launch:" + lane, Text: fmt.Sprintf("%s: launch %s opus xhigh role=fix brief=%s", orcaDesk, lane, brief)})
+	return lane, err
+}
+
+func (w *TrunkWatch) reopenUnfixed(ctx context.Context) error {
+	after, err := w.Store.Cursor(flakeCloser)
+	if err != nil {
+		return err
+	}
+	query := client.Query{Drive: w.Drive, After: after}
+	if after == 0 {
+		query = client.Query{Drive: w.Drive, Since: w.Now().Add(-flakeLookback)}
+	}
+	records, err := client.Tail(ctx, query)
+	if err != nil || len(records) == 0 {
+		return err
+	}
+	closers := map[int64][]client.Record{}
+	var seqs []int64
+	for _, record := range records {
+		for _, seq := range append([]int64{record.Resolves}, record.AlsoResolves...) {
+			if seq != 0 {
+				closers[seq] = append(closers[seq], record)
+				seqs = append(seqs, seq)
+			}
+		}
+	}
+	closed, err := client.Among(ctx, w.Drive, seqs)
+	if err != nil {
+		return err
+	}
+	for _, flake := range closed {
+		if flake.Lane != self || flake.Fields.Attrs[flakeAttr] == "" {
+			continue
+		}
+		for _, closer := range closers[flake.Seq] {
+			merged, err := w.mergedPR(ctx, closer)
+			if err != nil {
+				return err
+			}
+			if merged != 0 {
+				continue
+			}
+			text := fmt.Sprintf("REOPENED %s: %s closed it with no merged PR, and a flake closes only when a merged PR fixes it. %s", flake.Name(), closer.Name(), flake.Text)
+			if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "defect", To: flake.To, Topic: trunkTopic, ID: fmt.Sprintf("flake-reopen:%d", closer.Seq), Re: flake.Seq, Force: true, Attrs: map[string]string{flakeAttr: flake.Fields.Attrs[flakeAttr]}, Text: text}); err != nil {
+				return err
+			}
+		}
+	}
+	return w.Store.Advance(flakeCloser, records[len(records)-1].Seq)
+}
+
+func (w *TrunkWatch) mergedPR(ctx context.Context, closer client.Record) (int, error) {
+	for _, pr := range closer.Refs.PRs {
+		out, err := w.CCX.GH(ctx, ccx.MaxAgeCached, "pr", "view", strconv.Itoa(pr.Number), "--repo", cmp.Or(pr.Repo, w.Repo), "--json", "mergedAt", "--jq", ".mergedAt")
+		if err != nil {
+			return 0, err
+		}
+		if strings.TrimSpace(out) != "" {
+			return pr.Number, nil
+		}
+	}
+	return 0, nil
+}
+
+func (w *TrunkWatch) askPastDue(ctx context.Context) error {
+	if w.Asks == nil {
+		return nil
+	}
+	open, err := w.openFlakes(ctx)
+	if err != nil {
+		return err
+	}
+	asked, err := w.Store.Facts(w.Repo, 0, flakeAsked)
+	if err != nil {
+		return err
+	}
+	for _, flake := range open {
+		due := flake.At.Add(flakeDue)
+		if w.Now().Before(due) || asked[flake.Name()] != "" {
+			continue
+		}
+		line, held, err := w.Asks.Add(ctx, asks.NewAsk{Text: fmt.Sprintf("Fix the flake %s names: %s", flake.Name(), flake.Fields.Attrs[flakeAttr]), Lane: flake.To[0], Accept: "a merged PR fixes its cause and resolves " + flake.Name(), Due: due.UTC().Format(time.RFC3339)}, func(context.Context, string) (string, error) { return "", nil })
+		if err != nil {
+			return err
+		}
+		if _, err := w.Store.PutFact(w.Repo, 0, flakeAsked, flake.Name(), cmp.Or(held, line), w.Now()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error {

@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/choices"
@@ -27,6 +28,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -250,8 +252,12 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			Repo:     env.Config.Repo,
 			Trunk:    env.Config.Trunk,
 			Checkout: env.Config.Checkout,
+			State:    env.State,
 			Config:   landing.TrunkConfig{Check: runner.TrunkCheck, CIBuild: runner.CIBuild, TokenCommand: runner.CITokenCommand, FlakeLane: runner.FlakeLane, Channel: runner.FlakyChannel},
 			Now:      a.Now,
+		}
+		if runner.Ledger != "" {
+			trunk.Asks = &asks.Mirror{Source: ledger.CLI{Runner: a.Runner, Repo: env.Config.Checkout}, Store: s, Ledger: runner.Ledger, Now: a.Now}
 		}
 		deps.Checks = append(deps.Checks, (&background{name: "trunk-watch", every: PassEvery, run: trunk.Pass, store: s, post: post, log: a.Log}).Check)
 	}
