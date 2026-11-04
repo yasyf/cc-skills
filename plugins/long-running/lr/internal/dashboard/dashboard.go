@@ -94,6 +94,39 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return Service{Drive: cfg.Drive, State: state, Claude: env.Claude, Path: os.Getenv("PATH")}, nil
 	}
+	var proof, order string
+	restart := &cobra.Command{Use: "restart", Short: "Restart the drive dashboard's launchd agent and print its URL once it answers; a changed dashboard needs --proof or the owner's --ordered", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		s, err := service()
+		if err != nil {
+			return err
+		}
+		live, err := s.URL()
+		if err != nil {
+			return err
+		}
+		tree, err := Tree(s.live())
+		if err != nil {
+			return err
+		}
+		if err := s.Clear(tree, live, answers(live), proof, order); err != nil {
+			return err
+		}
+		agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
+		if err != nil {
+			return err
+		}
+		url, err := Restart(cmd.Context(), agents, s, answers)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(s.served(), []byte(tree), 0o600); err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), url)
+		return nil
+	}}
+	restart.Flags().StringVar(&proof, "proof", "", "the JSON proof that the commit going live was served off the live port, screenshotted and checked against the owner's answers")
+	restart.Flags().StringVar(&order, "ordered", "", "the owner ledger row, such as m416, of his own order to restart")
 	cmd := &cobra.Command{Use: "dashboard", Short: "The drive dashboard's launchd agent, which hosts no session"}
 	cmd.AddCommand(
 		&cobra.Command{Use: "install", Short: "Write the drive dashboard's launchd agent and bootstrap it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
@@ -113,22 +146,7 @@ func Command(a *app.App) *cobra.Command {
 			}
 			return agents.Install(cmd.Context(), s.Job())
 		}},
-		&cobra.Command{Use: "restart", Short: "Restart the drive dashboard's launchd agent and print its URL once it answers", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-			s, err := service()
-			if err != nil {
-				return err
-			}
-			agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
-			if err != nil {
-				return err
-			}
-			url, err := Restart(cmd.Context(), agents, s, answers)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), url)
-			return nil
-		}},
+		restart,
 	)
 	return cmd
 }

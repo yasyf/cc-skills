@@ -101,7 +101,9 @@ It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
 ([owner-report-table.md](reference/owner-report-table.md)). A dashboard restart is
 `lr dashboard restart`, which the communicator runs itself and never hands the
-owner. An order of his gets no acknowledgement and no promised time: he hears back
+owner; a changed dashboard goes live only with `--proof` ([drive-dashboard.md](reference/drive-dashboard.md#going-live)).
+His ruling on a dashboard surface ships its text change within 15 minutes, with one screenshot of that page, even while the full fix is still in a PR.
+An order of his gets no acknowledgement and no promised time: he hears back
 once, when it is live or decided, in one sentence, and a question gets one sentence.
 `owner_replies_stay_short.py` refuses, in the window, the `reply` tool and his Slack
 DM, a reply that only acknowledges or promises a clock, one over two sentences that is
@@ -109,9 +111,7 @@ not an update, a return update or a pick card, and a mechanism, diagram or expla
 link he did not ask for. Only a turn where he asks how a system works gets a hosted
 one-pager: `lr explain <topic> --from <markdown or record>` hosts it and sends him its
 link, and the communicator's hooks prompt for it and refuse that turn's reply without
-one, unless the verb ran and failed, in which case it has filed a defect to the meta
-desk. A Bash `lr` or `cci` command the communicator runs twice in one session with the
-same verb and flag names raises one `chore:<shape>` ask to the meta desk, unseen.
+one, unless the verb ran and failed, in which case it has filed a defect to the meta desk.
 When he says a design is wrong at its root, the drive runs the whole redesign
 sequence that turn, with no further word from him: `lr explain redesign` withdraws the
 cards, holds the PRs, hosts the page and opens a design lane that builds each
