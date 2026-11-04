@@ -516,7 +516,7 @@ document.addEventListener('close', (e) => {
   delete e.target.dataset.card;
 }, true);
 document.addEventListener('keydown', (e) => {
-  if (e.target.name === 'chat' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  if (e.target.name === 'chat' && e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(hover: none)').matches) {
     e.preventDefault();
     e.target.form.requestSubmit();
   }

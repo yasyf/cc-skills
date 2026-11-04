@@ -125,6 +125,7 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
   .bar-bottom .btn { flex: 1; min-height: 48px; font-size: 16px; }
   .embed { height: calc(100vh - 190px); }
 }
+@media (hover: none) { input, textarea, select { font-size: 16px !important; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 
 @keyframes breathe { 50% { opacity: .45; } }

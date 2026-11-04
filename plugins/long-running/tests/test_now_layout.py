@@ -671,6 +671,22 @@ def test_a_refresh_waits_while_any_other_box_has_focus(page):
     now(page)
 
 
+def test_return_starts_a_new_line_on_a_phone_and_no_box_is_small_enough_for_ios_to_zoom(page):
+    context = page.context.browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    phone = context.new_page()
+    phone.goto(page.url.split("#")[0] + "#/replies")
+    box = phone.locator(".composer textarea")
+    box.tap()
+    phone.keyboard.type("first line")
+    phone.keyboard.press("Enter")
+    phone.keyboard.type("second line")
+    assert box.input_value() == "first line\nsecond line"
+    assert not phone.locator(".compose-bottom > span").is_visible()
+    assert phone.locator(".compose-bottom button").is_visible()
+    assert phone.evaluate("Math.min(...[...document.querySelectorAll('input, textarea')].map((el) => parseFloat(getComputedStyle(el).fontSize)))") >= 16
+    context.close()
+
+
 def test_a_failed_chat_line_returns_to_its_box_and_a_sent_one_clears_it(page):
     box = chat_box(page)
     box.click()

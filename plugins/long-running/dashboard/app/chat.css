@@ -365,6 +365,8 @@
   .cw .question:hover .choices, .cw .question:focus-within .choices { display: none; }
   .cw .question.pinned .choices { display: block; }
   .cw .question-hint { display: none; }
+  .cw .compose-bottom { justify-content: flex-end; }
+  .cw .compose-bottom > span { display: none; }
 }
 @media (max-width: 1050px) {
   .cw-layout { grid-template-columns: minmax(0, 1fr); }
