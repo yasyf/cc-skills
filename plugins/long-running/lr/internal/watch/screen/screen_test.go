@@ -94,6 +94,29 @@ func TestOnlyThePlainEmptyPromptIsIdle(t *testing.T) {
 	}
 }
 
+func TestAWakeIsTypedOnlyAtARestingPrompt(t *testing.T) {
+	cases := []struct {
+		name     string
+		terminal screen.Terminal
+		wakeable bool
+	}{
+		{"claude at its prompt", on(idle...), true},
+		{"claude working above an empty prompt, as a relay always typed", on(claudeWorking...), true},
+		{"codex at its composer", on(codexIdle...), true},
+		{"codex working", on(codexWorking...), false},
+		{"codex asking for approval", on(codexApproval...), false},
+		{"codex with a draft", drafted("half-typed", codexIdle...), false},
+		{"an unreadable screen", unavailable(codexIdle...), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := screen.Wakeable(c.terminal); got != c.wakeable {
+				t.Fatalf("Wakeable = %v, want %v for %q", got, c.wakeable, c.terminal.Tail)
+			}
+		})
+	}
+}
+
 func TestADialogIsACancelFooterUnderASelectionCursor(t *testing.T) {
 	cases := []struct {
 		terminal screen.Terminal

@@ -37,7 +37,7 @@ const (
 	CodeNoRoster   = 1
 	CodeCCIMissing = shell.CodeMissingBinary
 	Daemon         = "http://127.0.0.1:7377/v1/stream"
-	Usage          = "usage: lr wait <seconds> (<file>=<cursor-file> | mailbox:<lane>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]"
+	Usage          = "usage: lr wait [--wake <file>] <seconds> [<file>=<cursor-file> | mailbox:<lane>=<cursor-file> | cci:<drive>:<lane>]... [-- <command> [<arg>...]]"
 
 	CodeRecursive = 3
 
@@ -240,7 +240,7 @@ func drain(events chan fsnotify.Event, first string) []string {
 }
 
 func (w *waiter) parse() (int, error) {
-	if w.Seconds < 0 || len(w.Sources) == 0 {
+	if w.Seconds < 0 || (len(w.Sources) == 0 && len(w.Command) == 0) {
 		return CodeUsage, errors.New(Usage)
 	}
 	for _, text := range w.Sources {

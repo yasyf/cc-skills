@@ -196,6 +196,10 @@ func lastIndex(tail []string, before int, matches func(string) bool) int {
 	return -1
 }
 
+func Wakeable(t Terminal) bool {
+	return IdlePrompt(t) || InputState(t) == Idle
+}
+
 func InputState(t Terminal) Input {
 	if t.Source != rendered {
 		return NoInput

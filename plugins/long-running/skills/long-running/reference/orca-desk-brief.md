@@ -375,7 +375,7 @@ Each pass settles detached launches, delivers accepted relays and launches, reco
 
 **O13. A prompt is a bug, and the prompt watch finds it.** `lr watch prompts` is the one reader of Orca's `agentWait`, as [reference/watchers.md](watchers.md) describes.
 - The relay's 5-minute sweep reads the watch's last poll and emits `PROMPT-WATCH-DOWN` once an hour while that poll is over two minutes old.
-- Stale unread mail gets one terminal wake per message, typed only when the lane's screen shows the plain empty prompt. Completed or failed dispatch mail emits `STALE-MAIL`.
+- Stale unread mail gets one terminal wake per message, typed only when the lane's screen shows the plain empty prompt, Claude's or Codex's. Completed or failed dispatch mail emits `STALE-MAIL`.
 - No sweep relaunches a worker or types a guessed answer to a prompt.
 
 **O14. Mac load queues and refuses no launch.** Before each Mac launch, the relay reads how busy the CPU was over the last minute from the kernel's tick counters, never the load average, which counts every sleeping shell.

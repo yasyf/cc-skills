@@ -323,7 +323,7 @@ func (d *Desk) atRest(ctx context.Context, terminal, environment string) bool {
 
 func (d *Desk) wake(ctx context.Context, terminal, environment, text string) (bool, error) {
 	shown, read := d.readScreen(ctx, terminal, environment)
-	if !read || !screen.IdlePrompt(shown) {
+	if !read || !screen.Wakeable(shown) {
 		return false, nil
 	}
 	_, err := d.Runner.Run(ctx, shell.Command{Argv: append([]string{"orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"}, on(environment)...)})
