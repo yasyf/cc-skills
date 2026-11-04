@@ -693,6 +693,18 @@ def test_an_answer_row_carries_the_label_and_dirs_of_each_topic_his_words_or_the
     assert "old-chats" not in " ".join(shell.rows[0]["tags"])
 
 
+def test_an_approving_pick_on_a_slack_permission_card_labels_its_row_with_the_cards_thread(tmp_path: Path) -> None:
+    card = "slack:C0APPFOLLOW:1791859635.513139:0a1b2c3d4e5f"
+    doc = {"blocks": [{"id": card, "type": "card", "title": "Post this in the #app-followers thread Dana started?", "children": [{"id": f"{card}-answer", "type": "choice", "options": [{"id": "yes", "label": "Yes"}, {"id": "no", "label": "No"}]}]}]}
+    shell = RecordedShell(doc=doc)
+    board_watch.register({"type": "choice.selected", "blockId": f"{card}-answer", "optionIds": ["yes"]}, "board:board-1:5:abcd1234", SESSION, doc, shell, "brook")
+    declined = RecordedShell(doc=doc)
+    board_watch.register({"type": "choice.selected", "blockId": f"{card}-answer", "optionIds": ["no"]}, "board:board-1:6:abcd1235", SESSION, doc, declined, "brook")
+
+    assert "slack-grant:C0APPFOLLOW/1791859635.513139" in shell.rows[0]["tags"]
+    assert not any(tag.startswith("slack-grant:") for tag in declined.rows[0]["tags"])
+
+
 def test_an_answer_row_is_written_once_per_owner_record(tmp_path: Path) -> None:
     shell = RecordedShell()
     event = {"type": "choice.selected", "blockId": "share-open-pick", "optionIds": [], "other": "only read-only"}

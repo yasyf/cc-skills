@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -13,6 +14,8 @@ from zoneinfo import ZoneInfo
 ROW = "board-answer"
 OWNER = "from:owner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
+PERMISSION_CARD = re.compile(r"slack:([A-Z0-9]+):(\d+\.\d+)?:[0-9a-f]{12}")
+APPROVED = ["yes"]
 
 Run = Callable[[list[str]], str]
 
@@ -31,11 +34,19 @@ def answered(event: dict) -> bool:
     return False
 
 
-def add_argv(program: str, session: str, card: str, block: str, title: str, words: str, moment: datetime, proof: str, anchors: list[str]) -> list[str]:
-    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names."""
+def grants(card: str, event: dict) -> tuple[str, ...]:
+    """The `slack-grant:` label an approving pick on a Slack permission card records: the card's channel, and its thread when the card named one."""
+    if (place := PERMISSION_CARD.fullmatch(card)) is None or event.get("optionIds") != APPROVED or event.get("other"):
+        return ()
+    channel, thread = place.groups()
+    return (f"slack-grant:{channel}/{thread}" if thread else f"slack-grant:{channel}",)
+
+
+def add_argv(program: str, session: str, card: str, block: str, title: str, words: str, moment: datetime, proof: str, anchors: list[str], granted: tuple[str, ...]) -> list[str]:
+    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names and the `granted` Slack grant labels."""
     when = moment.astimezone(PACIFIC).strftime("%b %-d %-I:%M %p PT")
     body = f"{words}\nBoard question: {title}\nCard {card}, block {block}, board {session}, {when}."
-    labels = (OWNER, ROW, f"program:{program}", f"board-session:{session}", f"board-card:{card}", f"board-block:{block}", proof)
+    labels = (*granted, OWNER, ROW, f"program:{program}", f"board-session:{session}", f"board-card:{card}", f"board-block:{block}", proof)
     return ["answer", "add", title, "--body", body, *anchors, *(arg for label in labels for arg in ("--label", label)), "--json"]
 
 
