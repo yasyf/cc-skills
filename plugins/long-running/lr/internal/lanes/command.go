@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -92,8 +93,25 @@ func Command(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "one JSON object per lane")
 	cmd.Flags().BoolVar(&idle, "idle", false, "the idle-session census: claude and codex processes, Orca worktrees and terminals, and what a whole-Run gc would close, remove, destroy and keep; changes nothing")
-	cmd.AddCommand(handoffCommand(a), adoptMetaCommand(a))
+	cmd.AddCommand(handoffCommand(a), adoptMetaCommand(a), sameCommand())
 	return cmd
+}
+
+func sameCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "same LANE NAME...",
+		Short: "Print each NAME that means LANE: the lane itself, the alias it answers under, or a numbered lane answering under it",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			lane := args[0]
+			for _, name := range args[1:] {
+				if name == lane || client.Stem(name) == lane || client.Stem(lane) == name {
+					fmt.Fprintln(cmd.OutOrStdout(), name)
+				}
+			}
+			return nil
+		},
+	}
 }
 
 func adoptMetaCommand(a *app.App) *cobra.Command {

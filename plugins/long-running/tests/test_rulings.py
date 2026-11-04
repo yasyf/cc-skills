@@ -513,6 +513,8 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["lr", "board", "cards", "recheck", *_]:
                 return ""
+            case [lr, "lanes", "same", lane, *names] if lr == str(ledger.LR):
+                return "".join(f"{name}\n" for name in names if re.sub(r"-\d+$", "", name) == lane or re.sub(r"-\d+$", "", lane) == name)
             case [lr, "rules", "answers", "--repo", "/repo", "--scope", scope, *ids] if lr == str(ledger.LR):
                 self.answer_reads.append((scope, ids))
                 named = [answer for answer in self.answers if any(answer["id"].startswith(token) for token in ids)]
@@ -2252,6 +2254,8 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     )
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-a", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-b", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
+    for named in ("lane-a-2", "lane-a"):
+        assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-a-2"), "readback", "--lane", named, "--contract", "500")[0] == 0
 
 
 def test_shapes_lists_rows_naming_a_count_or_topology_until_shape_records_a_test_or_no_shape(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
@@ -2296,6 +2300,10 @@ def test_a_read_back_with_no_slice_line_names_the_roots_command_then_takes_the_s
     ]
     assert brief.read_text().startswith("# lane-a\n\nBuild the pass.\n\nRegister slice: lane=lane-a step=1.9\n")
     assert rulings.SLICE_HASH.search(brief.read_text())["hash"] == current
+    numbered = [dict(records[0], lane="lane-a-2")]
+    code, out = ran(capsys, RegisterShell(seeded(package), records=numbered), "readback", "--lane", "lane-a-2", "--contract", "500")
+    assert code == 0
+    assert out.splitlines()[0] == f"WARNING READBACK-SLICE-FROM-BRIEF #500: the read-back names no `Register slice:` line; graded against the slice in {brief}"
     code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500")
     assert code == 0
     assert out.splitlines() == [
