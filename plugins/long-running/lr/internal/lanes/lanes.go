@@ -553,6 +553,10 @@ const (
 	Lost      VerdictKind = "lost"
 	StoodDown VerdictKind = "stood-down"
 	AskRotate VerdictKind = "ask-rotate"
+
+	Unanswered VerdictKind = "unanswered"
+
+	nothingProves = ", so nothing proves it died"
 )
 
 type Verdict struct {
@@ -603,7 +607,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 			heardFor = fmt.Sprintf("has been quiet for %d min", int(now.Sub(heard).Minutes()))
 		}
 		if peer == nil {
-			return Verdict{Unproven, "has no process row in cci who or Orca and " + heardFor + ", so nothing proves it died"}
+			return Verdict{Unproven, "has no process row in cci who or Orca and " + heardFor + nothingProves}
 		}
 		if peer.Row.StoodDown {
 			return Verdict{Kind: StoodDown}
@@ -612,7 +616,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 			return Verdict{Kind: Ok}
 		}
 		if peer.Row.Unverified != "" {
-			return Verdict{Unproven, peer.Row.Unverified + " and " + heardFor + ", so nothing proves it died"}
+			return Verdict{Unproven, peer.Row.Unverified + " and " + heardFor + nothingProves}
 		}
 		return Verdict{Dead, fmt.Sprintf("stopped, quiet for %d min", int(now.Sub(heard).Minutes()))}
 	}

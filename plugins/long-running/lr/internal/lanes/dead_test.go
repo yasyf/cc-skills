@@ -50,7 +50,7 @@ func TestADeadLaneThatHoldsNothingRetiresOnceSilentPastTheThresholdAndIsToldItSt
 	equal(t, len(f.ofKind("stand-down")), 1)
 }
 
-func TestAColdSpriteParkedOnARecordedWaitIsLeftAloneAndAnUnparkedOneWithAPRIsHeld(t *testing.T) {
+func TestAColdSpriteParkedOnARecordedWaitIsLeftAloneAndAnUnparkedOneWithAPRIsAskedItsState(t *testing.T) {
 	cold := Row{Lane: lane2, SeenAt: t0.Add(-3 * time.Hour), Dispatch: "ctx_1", Unverified: "has an Orca agent that reads unverifiable (host_unavailable)"}
 	for _, parked := range []bool{true, false} {
 		s := memory(t)
@@ -69,36 +69,29 @@ func TestAColdSpriteParkedOnARecordedWaitIsLeftAloneAndAnUnparkedOneWithAPRIsHel
 			equal(t, []any{row(t, s, lane2).State, len(f.posts)}, []any{store.LaneDesired, 0})
 			continue
 		}
-		equal(t, out.Held, []string{lane2})
-		blockers := f.ofKind("blocker")
-		equal(t, len(blockers), 1)
-		contains(t, blockers[0].Text, "it has an Orca agent that reads unverifiable (host_unavailable) and has been quiet for 180 min, so nothing proves it died")
+		equal(t, []any{out.Held, row(t, s, lane2).State, len(f.ofKind("blocker"))}, []any{[]string(nil), store.LaneDesired, 0})
+		relays := f.ofKind("go")
+		equal(t, len(relays), 1)
+		contains(t, relays[0].Text, "relay to conflicts-2: This lane has an Orca agent that reads unverifiable (host_unavailable) and has been quiet for 180 min. Post your state now")
 	}
 }
 
-func TestAColdLaneHoldingNothingIsHeldForRootPastTheThresholdNeverRetired(t *testing.T) {
-	for name, peers := range map[string][]Row{
-		"an unverifiable host": {{Lane: lane2, SeenAt: t0, Dispatch: "ctx_1", Unverified: "has an Orca agent that reads unverifiable (host_unavailable)"}},
-		"no process row":       nil,
-	} {
-		t.Run(name, func(t *testing.T) {
-			s := memory(t)
-			f := adopted(t, s, writeBrief(t), "")
-			f.feed = append(f.feed, rec(2, lane2, "state", t0, "reading the logs", Root))
-			f.peers = peers
+func TestALaneWithNoProcessRowHoldingNothingIsHeldForRootPastTheThresholdNeverRetired(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "state", t0, "reading the logs", Root))
+	f.peers = nil
 
-			tick(t, s, f, t0.Add(mins(59)))
-			equal(t, []any{row(t, s, lane2).State, len(f.posts)}, []any{store.LaneDesired, 0})
+	tick(t, s, f, t0.Add(mins(59)))
+	equal(t, []any{row(t, s, lane2).State, len(f.posts)}, []any{store.LaneDesired, 0})
 
-			out := tick(t, s, f, t0.Add(mins(60)))
+	out := tick(t, s, f, t0.Add(mins(60)))
 
-			equal(t, out.Held, []string{lane2})
-			equal(t, []any{row(t, s, lane2).State, len(out.Retired), len(f.launches)}, []any{store.LaneHeld, 0, 0})
-			blockers := f.ofKind("blocker")
-			equal(t, len(blockers), 1)
-			equal(t, blockers[0].To, []string{Root})
-		})
-	}
+	equal(t, out.Held, []string{lane2})
+	equal(t, []any{row(t, s, lane2).State, len(out.Retired), len(f.launches)}, []any{store.LaneHeld, 0, 0})
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	equal(t, blockers[0].To, []string{Root})
 }
 
 func TestALaneTheSpriteAutostopEndedIsNeverRelaunched(t *testing.T) {

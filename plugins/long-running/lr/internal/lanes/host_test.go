@@ -78,7 +78,7 @@ func TestAQuietLaneWhoseSpriteRunsItsWorkerIsNotHeldAndItsSpriteIsLeftToSleep(t 
 	equal(t, f.hostReads, 2)
 }
 
-func TestAQuietLaneNoProbeSettlesIsHeldWithItsBlockerToTheMetaDeskNotRoot(t *testing.T) {
+func TestAQuietLaneNoProbeSettlesIsAskedItsStateOnceThenRelaunchedWithNoBlocker(t *testing.T) {
 	for name, setup := range map[string]func(*testing.T, *store.Store) *fake{
 		"a lane on no Sprite": func(t *testing.T, s *store.Store) *fake { return adopted(t, s, writeBrief(t), "", 46001) },
 		"a Sprite whose probe never answered": func(t *testing.T, s *store.Store) *fake {
@@ -94,13 +94,15 @@ func TestAQuietLaneNoProbeSettlesIsHeldWithItsBlockerToTheMetaDeskNotRoot(t *tes
 			quietFor(f, mins(41), "host_unavailable")
 			f.peers = append(f.peers, who("meta-desk-3", true, t0))
 
-			out := tick(t, s, f, t0)
+			first := tick(t, s, f, t0)
+			early := tick(t, s, f, t0.Add(relayAnswer-time.Minute))
 
-			equal(t, []any{out.Held, row(t, s, lane2).State}, []any{[]string{lane2}, store.LaneHeld})
-			blockers := f.ofKind("blocker")
-			equal(t, len(blockers), 1)
-			equal(t, blockers[0].To, []string{"meta-desk-3"})
-			contains(t, blockers[0].Text, "and it runs on no Sprite whose probe answered")
+			equal(t, []any{first.Held, early.Relaunched, row(t, s, lane2).State, len(f.ofKind("go"))}, []any{[]string(nil), []Relaunch(nil), store.LaneDesired, 1})
+
+			out := tick(t, s, f, t0.Add(relayAnswer))
+
+			equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", "has an Orca agent that reads unverifiable (host_unavailable) and has been quiet for 56 min, and posted no record in the 15 min after a relay asked its state"}})
+			equal(t, []any{f.launches, row(t, s, "conflicts-3").PRs, len(f.ofKind("go")), len(f.ofKind("blocker"))}, []any{[]string{"conflicts-3"}, []int{46001}, 1, 0})
 		})
 	}
 }
