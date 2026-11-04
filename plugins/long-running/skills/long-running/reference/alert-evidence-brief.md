@@ -4,6 +4,7 @@ ccx: lane={lane} role=evidence effort=xhigh
 
 Alert: {what}
 Link: {link}
+Alert links: {links}
 
 You are the evidence lane beside `{slug}-fix`: gpt-6.1-sol, fast tier, xhigh, launched with it.
 You read telemetry, logs and the deploy timeline, feed the fix lane and the coordinator, and
@@ -22,7 +23,7 @@ Do:
      you name a mechanism, quoting an entry on the alert's target with its authorizing answer:
      `ccn log show "$(ccn log list --label prod-ops | cut -f1)"`.
   4. Once the mechanism is clear, record it, citing what proves it or opening with `Unproven:`:
-     `cci post --drive {drive} --lane {lane} --kind mechanism --text 'MECHANISM {lane}: ...'`.
+     `cci post --drive {drive} --lane {lane} --kind mechanism --text 'MECHANISM {lane}: ... {links}'`.
   5. If the alert is a monitor defect, send the evidence so the fix lane fixes the monitor. A
      muted monitor is not resolved.
   6. Record every artifact in cc-notes, never under ~/.claude/scratch. Never run `ccn sync`.

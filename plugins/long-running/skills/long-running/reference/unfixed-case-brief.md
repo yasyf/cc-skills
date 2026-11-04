@@ -12,7 +12,8 @@ backlog, while both answers of step 0 are yes. This brief is the `{lane}.full.md
 `{log}`.
 
 `{parent}` works from the brief at {parent_brief}. Read it first for the incident,
-its links, and the code path. Its pull requests so far: {prs}. Read what it has
+its links, and the code path. Its `Alert links` line ends your `SCOPE`, `MECHANISM`
+and `FIX-LIVE` lines. Its pull requests so far: {prs}. Read what it has
 posted with `cci tail --drive <drive> --lane {parent} --since 6h`, using the cci
 drive from the drive facts.
 

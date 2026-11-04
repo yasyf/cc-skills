@@ -56,6 +56,7 @@ const (
 var (
 	alertURL       = regexp.MustCompile(`app\.datadoghq\.com/monitors/(\d+)|sentry\.io/\S*?issues/(\d+)`)
 	alertLink      = regexp.MustCompile(`https?://[\w.-]*(?:datadoghq\.com/monitors|sentry\.io/\S*?issues)/\d+`)
+	alertMessage   = regexp.MustCompile(`https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s|>)]*)?`)
 	recoveredAlert = regexp.MustCompile(`(?i)^\W*(?:Recovered|Resolved)\b`)
 	redWatch       = regexp.MustCompile(`The Watch failed for (.+?) on (\S+?): ("[^"]+"(?:, "[^"]+")*) crossed`)
 	redSmoke       = regexp.MustCompile(`(\S+) is live, but (.+?) on (\S+?) went red`)
@@ -95,6 +96,17 @@ type Fired struct {
 	Link  string
 	At    time.Time
 	Facts []string
+	Issue string
+}
+
+func (f Fired) links() string {
+	var kept []string
+	for _, link := range slices.Concat([]string{f.Link, f.Issue}, alertMessage.FindAllString(f.What, -1), alertLink.FindAllString(f.What, -1)) {
+		if link != "" && !slices.Contains(kept, link) {
+			kept = append(kept, link)
+		}
+	}
+	return strings.Join(kept, " ")
 }
 
 type alert struct {
@@ -114,7 +126,7 @@ func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
 	}
 	reported := e.Now().In(pacificZone)
 	rendered := strings.NewReplacer(
-		"{{", "{", "}}", "}", "{lane}", lane, "{incident}", fired.Slug, "{slug}", fired.Slug, "{link}", fired.Link, "{what}", fired.What,
+		"{{", "{", "}}", "}", "{lane}", lane, "{incident}", fired.Slug, "{slug}", fired.Slug, "{link}", fired.Link, "{links}", fired.links(), "{what}", fired.What,
 		"{onset}", pacific(fired.At), "{reported}", reported.Format("15:04"), "{due}", reported.Add(incidentBar).Format("15:04"),
 		"{repo}", e.Config.Checkout, "{drive}", e.Config.Drive, "{facts}", strings.Join(append([]string{"drive " + e.Config.Drive}, fired.Facts...), "\n"),
 	).Replace(string(text))
@@ -340,12 +352,12 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 	}
 	var brief string
 	if launchErr == nil {
-		brief, launchErr = a.Launch(ctx, Fired{alert.slug, headline, card.Permalink, fired, alert.facts})
+		brief, launchErr = a.Launch(ctx, Fired{alert.slug, headline, card.Permalink, fired, alert.facts, alertLink.FindString(message.Text)})
 	}
 	if launchErr != nil {
 		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
 		failure := []rune(launchErr.Error())
-		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: launch its fix lane this turn with `lr incident run %s --fix-brief <file>`", headline, namedFor(alert, message), minutes, alert.slug, string(failure[max(0, len(failure)-200):]), alert.slug)
+		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: launch its fix lane this turn with `lr incident run %s --fix-brief <file>`; alert message %s", headline, namedFor(alert, message), minutes, alert.slug, string(failure[max(0, len(failure)-200):]), alert.slug, card.Permalink)
 	} else {
 		if a.launched == nil {
 			a.launched = map[string]bool{}
@@ -355,7 +367,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		draft.Kind, draft.ID, draft.To = kindSpawn, "alert-launched:"+channel+":"+message.TS, []string{Root, OwnerRelay}
 		draft.LaneRefs = []string{alert.slug + "-fix"}
 		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}
-		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence", headline, namedFor(alert, message), minutes, alert.slug, alert.slug)
+		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence; alert message %s", headline, namedFor(alert, message), minutes, alert.slug, alert.slug, card.Permalink)
 	}
 	if _, err := a.Env.Bus.Post(ctx, draft); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)

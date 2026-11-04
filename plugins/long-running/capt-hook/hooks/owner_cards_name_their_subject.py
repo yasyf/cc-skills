@@ -33,6 +33,10 @@ HOLD = "A post to the owner links what it names, carries the cards it asks him t
 BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
 TAP_WORDS = re.compile(r"(?i)\b(?:tap|taps|tapping|waiting on you|waits on you)\b|(?<!release )\bcards?\b")
 HIDDEN_CITE = re.compile(r"<!--.*?-->", re.DOTALL)
+ALERT_HOST = r"[^)|>\s]*(?:sentry\.io/|datadoghq\.com/monitors|slack\.com/archives)[^)|>\s]*"
+LABELLED_ALERT = re.compile(rf"\]\(<?https://{ALERT_HOST}>?\)|<https://{ALERT_HOST}\|")
+INCIDENT = re.compile(r"(?i)\bincident\b")
+BARE_ALERT = "Warning, nothing was blocked: an incident line carries the alert's Slack message and its Sentry or Datadog issue as bare URLs so Slack unfurls them, and a label hides the URL. Write each one out."
 SHORT_WORDS = 12
 HELD_CHARS = 400
 CHANGE = re.compile(r"(?i)\b(?:add|chang|clean|delet|drop|fix|migrat|mov|refactor|remov|renam|replac|rewrit|split)\w*")
@@ -302,3 +306,23 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
     if verdict is None or not (verdict.flagged or verdict.verdict == "unsure" and describes_change(text)):
         return evt.context(reads.warning("posts_answer_his_first_question")) if reads.failures else None
     return hold(evt, which[1], key, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"])
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool(REPLY, SLACK_CARD, *DM_TOOLS)],
+    tests={
+        reply("Incident: run timeline", f"It fails. [Sentry 4821]({SENTRY_LINK})"): Warn(pattern=r"bare URLs"),
+        reply("Incident: run timeline", f"It fails. <{SENTRY_LINK}|Sentry 4821>"): Warn(pattern=r"bare URLs"),
+        reply("Incident: run timeline", "It fails. [alert](https://acme.slack.com/archives/C1/p1793833513167859)"): Warn(pattern=r"bare URLs"),
+        reply("Incident: run timeline", f"It fails. {SENTRY_LINK} https://acme.slack.com/archives/C1/p1793833513167859"): Allow(),
+        reply("Incident: run timeline", f"It fails. <{SENTRY_LINK}>"): Allow(),
+        reply("Alert", f"[Sentry 4821]({SENTRY_LINK}) fired again."): Allow(),
+        reply("Incident: run timeline", f"Live as [the relay fix]({LAND_PR})."): Allow(),
+    },
+)
+def incident_lines_carry_bare_links(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    posted = post_text(evt, Reads(evt, which))
+    return evt.context(BARE_ALERT) if INCIDENT.search(posted) and LABELLED_ALERT.search(posted) else None
