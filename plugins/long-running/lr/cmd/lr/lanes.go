@@ -9,6 +9,7 @@ func init() {
 	register(lanes.DoneCheckCommand)
 	register(lanes.StopSpritesCommand)
 	register(lanes.NscCommand)
+	register(lanes.DevboxCommand)
 	register(lanes.ApprovedCommand)
 	register(lanes.WhereCommand)
 }
