@@ -382,6 +382,22 @@ func TestALastFailedFinderAttemptTellsRootOnce(t *testing.T) {
 	}
 }
 
+func TestAStoppedHeadTellsTheDesksAndItsLaneOnce(t *testing.T) {
+	f := newPool(t, map[string]any{"tooling_lane": "meta-1", "finder": map[string]any{}})
+
+	for range 2 {
+		if err := f.pool.TellStopped(context.Background(), facts(head), "fidelity: no reader took it"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	reports := recordsOf(t, kindReport)
+	if len(reports) != 1 || !strings.Contains(reports[0].Text, "#45489 "+head[:headChars]) || !strings.Contains(reports[0].Text, "no reader took it") {
+		t.Fatalf("reports = %+v", reports)
+	}
+	sameStrings(t, reports[0].To, []string{appealsDesk, "meta-1", "lane-7"})
+}
+
 func TestALastFailedFidelityAttemptTellsItsHumanDesks(t *testing.T) {
 	f := newPool(t, map[string]any{"landing": map[string]any{"fidelity_lane": []string{"fidelity-desk-4", grader.FidelityLane}}, "fidelity": map[string]any{}})
 	for range maxAttempts {

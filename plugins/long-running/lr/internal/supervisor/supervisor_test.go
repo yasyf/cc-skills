@@ -56,6 +56,10 @@ func (restacker) Restack(context.Context, int, string, string) (string, error) {
 
 type pool struct{ jobs []string }
 
+func (p *pool) TellStopped(context.Context, machine.Facts, string) error {
+	return nil
+}
+
 func (p *pool) Dispatch(_ context.Context, grader string, facts machine.Facts) (string, error) {
 	job := fmt.Sprintf("job/%s/%d", grader, facts.Number)
 	p.jobs = append(p.jobs, job)

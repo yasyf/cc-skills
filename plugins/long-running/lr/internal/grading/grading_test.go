@@ -33,6 +33,12 @@ type fakePool struct {
 
 	reversed bool
 	wholes   []string
+	told     []string
+}
+
+func (p *fakePool) TellStopped(_ context.Context, _ machine.Facts, why string) error {
+	p.told = append(p.told, why)
+	return nil
 }
 
 func (p *fakePool) Plan(_ context.Context, items []store.Item, _ map[int]machine.Facts, queued int, _ time.Time) ([]store.Item, error) {
@@ -437,5 +443,44 @@ func TestAWholePassHoldsAWorkerWithNoItemUntilItsJobEnds(t *testing.T) {
 	act(t, s, pool, nil, facts(head), t0.Add(21*time.Minute))
 	if got := workerNames(t, s); len(got) != 0 {
 		t.Fatalf("workers = %v, want it released", got)
+	}
+}
+
+func TestAnItemPastItsDeadlineThatNoPassWillGradeTellsOnceAndStopsTheHead(t *testing.T) {
+	s := memory(t)
+	pool := &fakePool{refuse: map[string]error{GraderFinder: &Stopped{"failed"}, GraderFidelity: &Stopped{"reader"}}}
+	open := opened(t, s, head)
+
+	act(t, s, pool, open, facts(head), t0.Add(machine.GradeClock-time.Minute))
+	if len(pool.told) != 0 {
+		t.Fatalf("told before the deadline: %v", pool.told)
+	}
+
+	act(t, s, pool, open, facts(head), t0.Add(machine.GradeClock))
+
+	want := GraderFinder + ": failed; " + GraderFidelity + ": reader"
+	if !slices.Equal(pool.told, []string{want}) {
+		t.Fatalf("told = %v", pool.told)
+	}
+	stored, err := s.Facts(repo, number, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored[machine.GradeStoppedFact] != want {
+		t.Fatalf("facts = %v", stored)
+	}
+}
+
+func TestAnItemWithAPassStillToRunDoesNotStopForTheOtherGrader(t *testing.T) {
+	s := memory(t)
+	pool := &fakePool{refuse: map[string]error{GraderFidelity: &Stopped{"reader"}}}
+
+	act(t, s, pool, opened(t, s, head), facts(head), t0.Add(machine.GradeClock))
+
+	if len(pool.told) != 0 {
+		t.Fatalf("told = %v", pool.told)
+	}
+	if got := graders(pool.jobs); !slices.Equal(got, []string{GraderFinder}) {
+		t.Fatalf("dispatched = %v", got)
 	}
 }

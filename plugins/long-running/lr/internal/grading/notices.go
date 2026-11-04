@@ -29,6 +29,8 @@ const (
 	watchdogLane     = "drive-watchdog"
 	kindState        = "state"
 	kindReport       = "report"
+	appealsDesk      = "grader-appeals"
+	readerVerdict    = "reader"
 )
 
 var toolingCause = regexp.MustCompile(`[0-9a-f]{7,}|\d+|/\S+`)
@@ -39,7 +41,7 @@ func (p *JobPool) finished(ctx context.Context, ref workerRef, directory string,
 		if ref.box != localBox {
 			return p.stamp(failuresDir, ref.box)
 		}
-	case jobSettled:
+	case jobSettled, jobSkipped:
 		if ref.lane == grader.FinderLane && ungraded(directory) {
 			if err := p.queueUngraded(directory); err != nil {
 				return err
@@ -64,12 +66,13 @@ func failureOf(directory string) string {
 		return "the job exited and wrote no result"
 	}
 	var outcome struct {
-		Error string `json:"error"`
+		Error   string `json:"error"`
+		Skipped string `json:"skipped"`
 	}
-	if err := json.Unmarshal(data, &outcome); err != nil || outcome.Error == "" {
+	if err := json.Unmarshal(data, &outcome); err != nil || outcome.Error+outcome.Skipped == "" {
 		return "its result.json is empty or does not parse"
 	}
-	return outcome.Error
+	return outcome.Error + outcome.Skipped
 }
 
 func jobNames(directory string) (grader.Job, error) {
@@ -149,7 +152,20 @@ func (p *JobPool) tellProofSkip(ctx context.Context, facts machine.Facts, pr str
 	if err := p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindNote, Text: text, To: []string{to}, Topic: "grader-skipped:" + pr, ID: id, PRs: []string{facts.Repo + "#" + pr}}); err != nil {
 		return err
 	}
-	return ErrAnswered
+	return &Stopped{"its title or body marks it a proof PR, which never merges"}
+}
+
+func (p *JobPool) TellStopped(ctx context.Context, facts machine.Facts, why string) error {
+	pr := strconv.Itoa(facts.Number)
+	to := []string{appealsDesk}
+	for _, lane := range []string{p.tooling, facts.Lane} {
+		if lane != "" && !slices.Contains(to, lane) {
+			to = append(to, lane)
+		}
+	}
+	text := fmt.Sprintf("GRADE-STOPPED #%s %s: no grader pass is left to run at this head, so its grade item closes and a verdict item opens for its lane. %s. A grade posted at this head, a desk's read or `finder: whole`, clears it; a new head gets new passes.", pr, short(facts.Head), squeezed(why))
+	id := "grade-stopped:" + facts.Repo + "#" + pr + ":" + facts.Head
+	return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindReport, Text: text, To: to, Topic: id, ID: id, PRs: []string{facts.Repo + "#" + pr}})
 }
 
 func squeezed(text string) string {
