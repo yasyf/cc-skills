@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -84,6 +85,47 @@ func TestRestartFailsWhenTheDashboardNeverAnswers(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "did not answer") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+func TestInstallWritesNoCredentialIntoThePlistWhenTheShellHoldsOne(t *testing.T) {
+	const key = "csk-sentinel-the-shell-holds"
+	home, tools := t.TempDir(), t.TempDir()
+	t.Setenv("CEREBRAS_API_KEY", key)
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", tools)
+	if err := os.WriteFile(filepath.Join(tools, "python3"), nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(t.TempDir(), "lr.json")
+	body := `{"repo":"org/repo","drive":"d1","checkout":"/checkouts/repo","author":"drive-bot","label":"drive","movers":["lanes"]}`
+	if err := os.WriteFile(config, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := Command(&app.App{Runner: &ctl{printed: 113}, ConfigPath: config, Now: time.Now})
+	cmd.SetArgs([]string{"install"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", Label("d1")+".plist"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(written, []byte(key)) {
+		t.Fatal("the plist holds the shell's key")
+	}
+	_, env, _ := strings.Cut(string(written), "<key>EnvironmentVariables</key>")
+	env, _, _ = strings.Cut(env, "</dict>")
+	var names []string
+	for _, found := range regexp.MustCompile(`<key>([^<]+)</key>`).FindAllStringSubmatch(env, -1) {
+		names = append(names, found[1])
+	}
+	if want := []string{"CLAUDE_LONG_RUNNING_DRIVE", "PATH"}; !slices.Equal(names, want) {
+		t.Fatalf("plist environment %v, want %v", names, want)
 	}
 }
 
