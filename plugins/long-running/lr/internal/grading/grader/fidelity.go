@@ -340,7 +340,7 @@ func (s *fidelityPassState) openFindings() ([]findingRow, error) {
 	if _, err := os.Stat(filepath.Join(entry.StateDir, findingsState)); err != nil {
 		return nil, nil
 	}
-	out, err := s.run([]string{filepath.Join(s.Bin, "findings.py"), "--drive", entry.Drive, "open", "--pr", s.job.PR, "--json"}, "", readTimeout)
+	out, err := s.run([]string{filepath.Join(s.Bin, "lr"), "findings", "--drive", entry.Drive, "open", "--pr", s.job.PR, "--json"}, "", readTimeout)
 	if err != nil {
 		return nil, err
 	}

@@ -100,6 +100,10 @@ func (r Row) Line() string {
 	return fmt.Sprintf("%s %s: %s", r.ID, r.At, text)
 }
 
+func DeliveredBy(record client.Record) (delivered, retracted []string) {
+	return Orders(record.Fields.Attrs[deliveredAttr]), Orders(record.Fields.Attrs[retractedAttr])
+}
+
 func Undelivered(rows []Row, lanes []Lane, proofs []client.Record) []Row {
 	working, delivered, claimed := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	carried, carriers := map[string][]string{}, map[string][]string{}
@@ -115,10 +119,11 @@ func Undelivered(rows []Row, lanes []Lane, proofs []client.Record) []Row {
 		if last, seen := latest[proof.Lane]; !seen || proof.Seq > last.Seq {
 			latest[proof.Lane] = proof
 		}
-		for _, id := range Orders(proof.Fields.Attrs[deliveredAttr]) {
+		credited, retracted := DeliveredBy(proof)
+		for _, id := range credited {
 			delivered[id] = true
 		}
-		for _, id := range Orders(proof.Fields.Attrs[retractedAttr]) {
+		for _, id := range retracted {
 			delete(delivered, id)
 		}
 		for _, id := range Orders(proof.Text) {

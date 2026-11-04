@@ -103,7 +103,7 @@ func (f *fakeShell) route(command Command) (string, error) {
 		}
 		data, err := json.Marshal(map[string]any{"rows": f.ledger})
 		return string(data), err
-	case argv[0] == binDir+"/findings.py":
+	case argv[0] == binDir+"/lr" && argv[1] == "findings":
 		return f.findings, nil
 	}
 	return "", fmt.Errorf("unexpected call %v", argv)

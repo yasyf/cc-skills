@@ -18,7 +18,6 @@
     "test_endstate.py": [0.0, 0.0],
     "test_fidelity_briefs.py": [0.0, 0.0],
     "test_fifteenth_check_pr_owned.py": [25.4, 0.0],
-    "test_findings.py": [0.1, 0.0],
     "test_grades.py": [0.1, 0.0],
     "test_handoff.py": [0.7, 0.0],
     "test_inboxes.py": [2.0, 0.0],
