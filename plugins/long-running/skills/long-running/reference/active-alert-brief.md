@@ -50,7 +50,7 @@ An `oncall` or `PAGE` record works like the owner's alert link: the coordinator 
 An incident is its records on the drive's cci bus:
 
 - The coordinator's `INCIDENT OPEN <slug>: <what fired>`.
-- The fix lane's `SCOPE`, `MECHANISM`, `FIX-LIVE` or `NOT-OURS` records.
+- The fix lane's `SCOPE`, `MECHANISM`, `FIX-LIVE` or `NOT-OURS` records. `SCOPE`, `MECHANISM` and `FIX-LIVE` end with the alert's Slack message permalink and its Sentry or Datadog issue URL, as bare URLs, whichever exist; the owner's incident line reads them from there.
 - The coordinator's `INCIDENT <slug> CLOSED` once a `FIX-LIVE` or `NOT-OURS` record cites the evidence.
 
 `lr incident run <slug> --fix-brief <file>` launches the lanes. `lr incident status <slug>` prints what fired, the live lane on it, its newest scope, mechanism and fix-live records with their seqs, and what closes it. `lr incident list` prints every incident since midnight Pacific, unowned first, from the same reader as `lr update`.
@@ -72,7 +72,7 @@ A report that arrives as a Slack share belongs to its original author. Read it w
 
 ### Ratify desk launches and start support lanes in the intake turn
 
-A monitor transition from `monitor-watch.py --alert-drive` posts `orca-desk: alert <slug> <link> :: <what fired>` to `orca-desk` on cci; the runner records it without launching. The alerts desk posts `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>` only when it judges a lane necessary (`reference/alerts-desk-brief.md`); `reported` is the first report's Pacific time (`reference/orca-desk-brief.md`).
+A monitor transition from `monitor-watch.py --alert-drive` posts `orca-desk: alert <slug> <link> :: <what fired>` to `orca-desk` on cci; the runner records it without launching. The alerts desk posts `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>` only when it judges a lane necessary (`reference/alerts-desk-brief.md`); `reported` is the first report's Pacific time (`reference/orca-desk-brief.md`). When the alert has a second link, such as the Slack message beside a Sentry issue, `<what fired>` carries it, so the record and every brief hold both.
 
 For an `incident` line the runner fills `reference/alert-fix-brief.md` with drive facts from `alert.facts`, attaches it to the briefs log as `<slug>-fix.full.md`, launches `<slug>-fix` on `incident` `xhigh` at once, and relays a repeat to the live lane. When the runner's `INCIDENT` line arrives, the coordinator ratifies it in that turn:
 
@@ -176,7 +176,7 @@ Outside a drive, the fix lane is an inline background `codex:codex-wrapper` runn
 
 ```sh
 cci post --lane root --drive <drive> --kind incident --topic <slug> --to <fix lane>,<evidence lane> \
-  --text "INCIDENT <slug> SCOPE: active <yes|no: customer runs failing now, from telemetry>; plan keeps path <yes|no: the plan step that keeps or deletes it>"
+  --text "INCIDENT <slug> SCOPE: active <yes|no: customer runs failing now, from telemetry>; plan keeps path <yes|no: the plan step that keeps or deletes it> <alert links>"
 ```
 
 ### The two answers
@@ -428,7 +428,9 @@ Do:
      questions, kind `incident`: `SCOPE <fix lane name>: active <yes|no: customer runs
      failing now, from telemetry>; plan keeps path <yes|no: the step of the
      drive's plan in cc-notes that keeps or deletes this path past its next
-     milestone>`. A failing Forge release smoke team, a red dev build, and a
+     milestone> <alert links>`, where `<alert links>` is the alert's Slack message
+     permalink and its Sentry or Datadog issue URL, bare, whichever exist, and it ends
+     your `MECHANISM` and `FIX-LIVE` lines too. A failing Forge release smoke team, a red dev build, and a
      failing release check are `active yes` always: they are the release gate
      and the earliest canary, and a customer run in the same window fails the
      same way, with the release that preceded it as the first suspect. "No
@@ -514,7 +516,7 @@ Do:
      waits until that writer's PR carrying the applied value is live, or says
      the writer does not reset it.
      The moment you know the mechanism, record it on the bus:
-     `cci post --drive <bus id> --lane <fix lane name> --kind mechanism --text "MECHANISM <fix lane name>: <mechanism, one line>"`.
+     `cci post --drive <bus id> --lane <fix lane name> --kind mechanism --text "MECHANISM <fix lane name>: <mechanism, one line> <alert links>"`.
      The line cites what proves it: a record, PR, build, `file:line`, monitor or
      notebook. A cause you infer and have not proven opens with `Unproven:`.
      Also send a status Run message with subject `mechanism: <evidence>`.
@@ -544,7 +546,7 @@ Do:
      apply under the authority above, log the apply in <runbook> and on the
      production-operations log, and verify it against the alert's metric. Then
      record the evidence:
-     `cci post --drive <bus id> --lane <fix lane name> --kind fix-live --text "FIX-LIVE <fix lane name>: <evidence, one line>"`.
+     `cci post --drive <bus id> --lane <fix lane name> --kind fix-live --text "FIX-LIVE <fix lane name>: <evidence, one line> <alert links>"`.
      If the evidence shows the alert is not ours, record that instead:
      `cci post --drive <bus id> --lane <fix lane name> --kind not-ours --text "NOT-OURS <fix lane name>: <evidence, one line>"`.
   9. Run <exact live-check command> every two minutes and post its output as a
@@ -616,7 +618,7 @@ Do:
   4. Send findings as they land to <fix lane name> on the bus topic
      <incident topic>, with query, time window, and evidence pointers. Once the
      mechanism is clear, record it:
-     `cci post --drive <bus id> --lane <evidence lane name> --kind mechanism --text "MECHANISM <evidence lane name>: <mechanism, one line>"`.
+     `cci post --drive <bus id> --lane <evidence lane name> --kind mechanism --text "MECHANISM <evidence lane name>: <mechanism, one line> <alert links>"`.
      The line cites what proves it, or opens with `Unproven:`.
   5. If the alert is a monitor defect, send the evidence to redirect the fix lane
      to a monitor fix. A muted monitor is not resolved.

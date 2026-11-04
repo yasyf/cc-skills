@@ -97,7 +97,8 @@ On each printed line, in the same turn:
      The orca desk decides whether a live lane already holds the monitor: it
      relays to `dd-<id>-fix`, or answers `LAUNCH-SKIPPED` naming the lane whose
      brief or incident record names the monitor, so post the line. To launch,
-     post one record to the orca desk:
+     post one record to the orca desk, with `<what fired>` carrying the alert's Slack
+     message permalink when it has one:
      `cci post --drive <drive> --lane alerts-desk --kind go --to orca-desk --text 'orca-desk: incident dd-<id> <link> :: <what fired>'`.
      In the same turn, post the incident record that names it, so the supervisor raises no
      `ALERT-UNOPENED` for it:

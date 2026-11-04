@@ -73,6 +73,8 @@ func TestAnAlertNobodyAnsweredThreeMinutesOnLaunchesItsLanes(t *testing.T) {
 				posted := bus.posted[0]
 				equal(t, []any{posted.Kind, posted.To, posted.LaneRefs, posted.Attrs["brief"]}, []any{kindSpawn, []string{Root, OwnerRelay}, []string{"dd-338724738-fix"}, "/state/lanes/dd-338724738-fix.brief.md"})
 				contains(t, posted.Text, "ALERT-LAUNCHED Triggered: runtime-api-next logging errors — plat: no incident record named https://app.datadoghq.com/monitors/338724738 4 min after it fired")
+				contains(t, posted.Text, "alert message https://slack/p1")
+				equal(t, launched[0].Issue, "https://app.datadoghq.com/monitors/338724738")
 			}
 		})
 	}
@@ -185,13 +187,13 @@ func TestAnIncidentBriefFillsEveryPlaceholderAndFallsBackToTheDrivesCopy(t *test
 	if err := os.MkdirAll(filepath.Dir(template), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(template, []byte("{lane} {incident} {slug} {link} {what} {onset} {reported} {due} {repo} {drive} {facts} {{literal}}\n"), 0o600); err != nil {
+	if err := os.WriteFile(template, []byte("{lane} {incident} {slug} {link} {links} {what} {onset} {reported} {due} {repo} {drive} {facts} {{literal}}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(state, "alert-evidence-brief.md"), []byte("evidence {lane}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fired := Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4)), nil}
+	fired := Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4)), nil, "https://acme.sentry.io/issues/4821"}
 
 	fix, err := env.incidentBrief("dd-1-fix", "alert-fix-brief.md", fired)
 	if err != nil {
@@ -209,12 +211,30 @@ func TestAnIncidentBriefFillsEveryPlaceholderAndFallsBackToTheDrivesCopy(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, string(text), "dd-1-fix dd-1 dd-1 https://slack/p1 it broke 9:56 AM 10:00 10:20 /checkout d1 drive d1 {literal}\n")
+	equal(t, string(text), "dd-1-fix dd-1 dd-1 https://slack/p1 https://slack/p1 https://acme.sentry.io/issues/4821 it broke 9:56 AM 10:00 10:20 /checkout d1 drive d1 {literal}\n")
 	said, err := os.ReadFile(evidence)
 	if err != nil {
 		t.Fatal(err)
 	}
 	equal(t, string(said), "evidence dd-1-evidence\n")
+}
+
+func TestAnIncidentCarriesEachAlertLinkItWasHandedOnce(t *testing.T) {
+	const message, issue, monitor = "https://acme.slack.com/archives/C1/p1793833513167859", "https://acme.sentry.io/issues/4821", "https://app.datadoghq.com/monitors/7"
+	for name, c := range map[string]struct {
+		fired Fired
+		want  string
+	}{
+		"the supervisor's message and issue": {Fired{Link: message, What: "it broke", Issue: issue}, message + " " + issue},
+		"a desk line naming the issue":       {Fired{Link: issue, What: "it broke, alert at " + message}, issue + " " + message},
+		"a desk line naming the message":     {Fired{Link: message, What: "it broke " + monitor}, message + " " + monitor},
+		"an issue named twice":               {Fired{Link: issue, What: "it broke " + issue, Issue: issue}, issue},
+		"a monitor alone":                    {Fired{Link: monitor, What: "it broke"}, monitor},
+	} {
+		t.Run(name, func(t *testing.T) {
+			equal(t, c.fired.links(), c.want)
+		})
+	}
 }
 
 func TestAnAlertChannelThatDoesNotReadPostsNothingAndTheTickGoesOn(t *testing.T) {
@@ -825,7 +845,7 @@ func TestAnAlertLaunchStartsItsEvidenceLaneAndItsSlackWriter(t *testing.T) {
 		return shell.Result{}, nil
 	})}
 
-	if _, err := env.IncidentLaunch(context.Background(), Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4)), nil}); err != nil {
+	if _, err := env.IncidentLaunch(context.Background(), Fired{"dd-1", "it broke", "https://slack/p1", t0.Add(-mins(4)), nil, ""}); err != nil {
 		t.Fatal(err)
 	}
 
