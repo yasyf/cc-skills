@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: How a multi-lane drive runs without a coordinator as its bottleneck. The session the owner types in is the communicator; a sibling Orca session bound as lane root is the coordinator; a standing meta lane takes every skill, tooling and process improvement; every question has a verb of the drive tool lr; landing, grading, lane liveness, incident spawn, release tracking and owner updates run as processes that reach the coordinator only with a decision to make. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: How a multi-lane drive runs without a coordinator as its bottleneck. The session the owner types in is the communicator; a sibling Orca session bound as lane root is the coordinator; a standing meta lane takes tooling builds and defects, while a ruling on how the drive works lands in the skill the turn it is made; every question has a verb of the drive tool lr; landing, grading, lane liveness, incident spawn, release tracking and owner updates run as processes that reach the coordinator only with a decision to make. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -79,16 +79,27 @@ window-scoped, the coordinator is never an in-process subagent of the communicat
 the two never `SendMessage` each other, and the bus is their only channel, since a
 record survives a compaction where a message does not.
 
-**The communicator** answers every owner message that turn, in his terms: the "why"
-with the mechanism of the drive's own failure, the pick on his board. The
+**The communicator** routes and spawns, like the coordinator, and does no work
+inline. Every owner message, whether chat, his Slack DM, a Slack thread or a board
+tap, becomes one spawned subagent (`Agent`, `general-purpose`, opus), which reads
+what the answer needs, does the work or routes it, and sends the reply itself with
+the `lr` reply, cc-slack and cci tools. The communicator's own calls for a message
+are `slack_react`, `owner_mark`, the `cci post` of its routing record and the
+spawn; it writes no file, reads no Slack thread and runs no multi-step lookup
+([communicator-brief.md](reference/communicator-brief.md#each-message-is-a-subagent)).
+The reply lands where the message came from: a chat message is answered in chat, a
+Slack thread message in that thread, a board tap on that card, and no answer moves
+to another surface. Each answer comes that turn, in his terms: the "why" with the
+mechanism of the drive's own failure, the pick on his board. The
 ledger hook records his words verbatim as they arrive (`lr owner`); nobody appends
 them to a rulings file by hand or pastes them into a forward (owner, Nov 3).
 The communicator names each row to the coordinator as one `cci post --lane owner-relay
 --kind ask --to root --text 'owner:m47 <one-line order>'`, so the coordinator reads it
 at its next tool call. A
-message about the skill, its tooling, a prompt, a hook or the process goes to the
-meta lane instead, verbatim, as `--kind ask --to meta`, and so does a tooling defect
-the coordinator reports. Meta records go to the meta desk only, and the coordinator
+ruling of his on how the drive works is written into this skill by the subagent
+that takes his message, in that turn ([Meta changes land in the skill](#meta-changes-land-in-the-skill)).
+Tooling he asks to have built goes to the meta lane, as `--kind ask --to meta`, and
+so does a tooling defect the coordinator reports. Meta records go to the meta desk only, and the coordinator
 hears one line only when it must act on a drive lane. It is the drive's presentation
 layer: it reads what the
 coordinator addresses to it (`--kind report --to owner-relay`) and synthesizes what
@@ -100,7 +111,7 @@ Every cci `--to`, record, reply card, status line and chat message names a lane 
 It owns the dashboard and the owner updates: one generator, `lr update render`,
 feeds both from the same rows, run by its one standing helper `update-desk`
 ([owner-report-table.md](reference/owner-report-table.md)). A dashboard restart is
-`lr dashboard restart`, which the communicator runs itself and never hands the
+`lr dashboard restart`, which a subagent of the communicator runs and never hands the
 owner; a changed dashboard goes live only with `--proof` ([drive-dashboard.md](reference/drive-dashboard.md#going-live)).
 His ruling on a dashboard surface ships its text change within 15 minutes, with one screenshot of that page, even while the full fix is still in a PR.
 An order of his gets no acknowledgement and no promised time: he hears back
@@ -121,7 +132,7 @@ When the owner writes after an hour or more away, its reply opens with the
 dashboard link, then what changed in a few lines; the full table lives on the
 dashboard. A question about how far a lane has got is answered from that lane's newest record,
 `cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes. Every
-message it sends him goes out through one call, the `reply` tool on the plugin's
+message to him goes out through one call, the `reply` tool on the plugin's
 `lr` MCP server, which lands it in this window, a cci record and the dashboard's
 store, adds a board card that cc-present posts to his Slack with one button per pick
 when it carries `picks`, and a card at his Slack DM root when it carries links, PRs
@@ -158,8 +169,8 @@ Stop refuses the reply. Every message it
 sends is addressed to him in second person and carries only what changed for him
 or what he must decide; ledger rows, hook mechanics, lane acks and "nothing new"
 never appear in chat, a turn with nothing for him ends with no text, and its Stop
-hook refuses any other closing message. For reads it is a top-level session: each fact
-it needs is one bounded read or one post, else a subagent.
+hook refuses any other closing message. It reads nothing to answer him: the
+subagent for his message does every read.
 
 **The coordinator** reads reader `root`, posts as `root`, runs in a foreground
 `lr coordinator next` loop for the life of the drive, one turn per batch of
@@ -204,10 +215,18 @@ dashboard in the pack names the coordinator for a decision, names
 `owner-relay` where the owner must see something, and names the meta lane where a
 skill or tooling fix is owed.
 
+**Meta changes land in the skill.** Every globally applicable meta change, any
+ruling on how lanes, cards, waits, replies, hooks, routing or answers work, is
+written into this skill, or into the brief template, hook or cc-notes doc that owns
+it, in the turn it is made, as a PR merged and installed that turn. A memory file or
+a cci record to another lane is at most a pointer and never counts as done. The
+session that received the ruling owns the write, the communicator through the
+subagent it spawns for that message, and never hands it to the meta lane.
+
 **The meta lane** is a standing session the communicator launches at drive start
 from [meta-lane-brief.md](reference/meta-lane-brief.md), bound to lane `meta`.
-Every skill, tooling, prompt, hook and process improvement goes there, and so does
-every meta order the owner sends. It reports only to the communicator. The
+Every tooling build, defect and improvement that no ruling settles goes there, and
+so does every owner order to build tooling. It reports only to the communicator. The
 coordinator hears from it only one `decide` line with no item number, when it must
 act on a drive lane such as a stand-down or a relaunch. The `meta_records` hook
 refuses any other record a meta lane sends `root`. `lr launch meta` records its role
@@ -427,7 +446,8 @@ drive keeps for good carries `Standing: <duty>`. Every standing desk is an
 `lr`-launched lane registered to the coordinator, on a Sprite unless its brief says
 `place=local` and names why it needs the Mac; an `Agent` subagent ends with the window
 that spawned it, so neither window spawns a desk with `Agent`, and the communicator
-spawns only short read lanes, under an hour and with no `Standing:` line. A lane never spawns with `Agent`;
+spawns only its per-message subagents and short read lanes, under an hour and with no
+`Standing:` line. A lane never spawns with `Agent`;
 it writes the brief and posts `cci post --kind ask --to root --text 'spawn <name>
 brief=<path> model=<model>'`. The meta lane launches its own implementers with
 `lr launch lane <name> opus xhigh <brief> --lane meta`. A question that needs a search goes to `lr ask-lane '<question>'`, with `--mac` when it needs Slack or a session transcript, which no Sprite has: a Sonnet lane answers the asker in one `answer` record naming the seqs and paths it read, then ends, and the asker's turn never waits on it. A question that takes more than a
@@ -440,7 +460,7 @@ one refusal prints all of them.
 | Desk or lane | Does | Brief |
 |---|---|---|
 | Coordinator | Everything in [Phase 0](#phase-0-the-standing-sessions), every former coordinator role, and every runner and desk in this table but `update-desk`, which it starts with `lr desks start` | [coordinator-brief.md](reference/coordinator-brief.md) |
-| Meta lane, the communicator's | Every skill, tooling, prompt, hook and process improvement, and every meta order the owner sends; `items.md`; one implementer per item | [meta-lane-brief.md](reference/meta-lane-brief.md) |
+| Meta lane, the communicator's | Every tooling build, defect and improvement no ruling settles, and every owner order to build tooling; `items.md`; one implementer per item | [meta-lane-brief.md](reference/meta-lane-brief.md) |
 | Signal lane, the communicator's | Tails the coordinator's feed and posts the communicator pointers, never summaries | [signal-lane-brief.md](reference/signal-lane-brief.md) |
 | Landing pass and `landing-desk` | The merge queue, lane reports, the ledger; both remote | [landing.md](reference/landing.md), [landing-desk-brief.md](reference/landing-desk-brief.md) |
 | Orca runner, the relay | Launches and relays to Orca workers, starts grading jobs; on the Mac, the one desk that is not remote | [orca-desk-brief.md](reference/orca-desk-brief.md) |
@@ -552,8 +572,9 @@ relaunched coordinator follows its catch-up there before any other work.
 Is there a verb for this? Run it. Does it have a body? Spawn the lane with its task
 and ledger row. Is it a wait? Fold it into the lane that acts. Is it status? The
 communicator sends the update desk's render; the coordinator sends nothing. Is it
-an owner message? The communicator records the words and queues them; the
-coordinator applies the ruling everywhere, and a meta order goes to the meta lane.
+an owner message? The communicator spawns one subagent for it, which answers on
+the surface it came from; the coordinator applies the ruling everywhere, and a
+ruling on how the drive works lands in this skill that turn.
 Is it an alert the supervisor has not answered? `lr incident run <slug>` now.
 Did a tool refuse, or did something go wrong twice? It goes to the meta lane this
 turn, where the fix is a Go verb, and the work proceeds. Am I about to approve,

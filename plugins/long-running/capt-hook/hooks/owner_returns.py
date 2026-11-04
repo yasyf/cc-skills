@@ -50,7 +50,7 @@ REMINDER = Binary(
 ASKED_WHY = re.compile(r"\bwhy\b|\bhow come\b|\bhow (?:does|do|did|is|are|was|were)\b|\bwhat happened\b", re.IGNORECASE)
 UNROUTED_REMINDER = (
     "Every owner reminder or correction spawns a meta tooling lane that makes the behaviour automatic."
-    " Before stopping, post one ask to meta naming his ledger row, `owner:m<row>` plus your one-line order, or launch the lane with `lr launch`."
+    " Before stopping, spawn the subagent that writes his ruling into the skill, post one ask to meta naming his ledger row, `owner:m<row>` plus your one-line order, or launch the lane with `lr launch`."
 )
 WAIT_TOOLS = frozenset({"Agent", "Task", "Monitor"})
 FILE_PATH = (
@@ -296,6 +296,7 @@ def ask_to(*to: str) -> str:
         reminded(asks=ask_to("root"), opening=({"type": "attachment", "attachment": {"type": "skill_listing"}},), posted=(1, "bus down")): Allow(),
         reminded(asks=(1, "bus down")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
+        reminded(*T.tool_turn("Agent", result="started", description="m47 ruling", prompt="Write his ruling into the long-running skill and reply.")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
         reminded(decide=CALM | {"reminder": Refused()}): Allow(),
@@ -546,7 +547,7 @@ def offers_pick(text: str) -> bool:
 
 
 def route_reminder(evt: BaseHookEvent) -> None:
-    if any(launched(use) for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)):
+    if any(launched(use) or use.call.name in {"Agent", "Task"} for use in evt.ctx.turn.tool_calls.items) or not (words := owner_words(evt)):
         return
     match (decision := evt.decide(words, {"reminder": REMINDER})) and decision.answers["reminder"]:
         case BinaryAnswer(p_yes=p_yes) if p_yes > 0.5 and not forwarded(evt):
