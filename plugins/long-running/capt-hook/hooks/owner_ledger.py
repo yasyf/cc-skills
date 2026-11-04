@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import logging
 import re
 import subprocess
 from datetime import UTC, datetime
@@ -20,6 +21,7 @@ ACTIVE = [CompactionState(active=True, communicator=True)]
 LEDGER_DIR = "owner-relay"
 LEDGER = "owner-ledger.md"
 LOCK = ".owner-ledger.lock"
+ANSWERS = "answers"
 HEADER = "| id | time | message | routed | state |\n|---|---|---|---|---|\n"
 ROW = re.compile(r"^\| (m(\d+)(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order|due [^|]*) \|$", re.MULTILINE)
 PARAGRAPH = re.compile(r"\n\s*\n")
@@ -48,12 +50,21 @@ MARK = "`{lr} owner mark {row} responded|addressed|due [--routed <seq>] [--reply
 NEW_ROW = f"Owner message {{rows}} is open in the communicator's ledger, one row per ask. Once each ask is answered or routed, run {MARK} for its row."
 OPEN_ROWS = f"A communicator turn ends only when every owner message is marked responded or addressed. Run {MARK} for each row below.\n\n```\n{{rows}}\n```"
 HAND_RULING = "The `owner_ledger` hook records every owner message in the owner ledger and a cc-notes answer, so nothing writes to `root/rulings/` by hand. Drop this write and post anything else for the coordinator with `cci post`."
+UNMAPPED = "owner row %s: the communicator's chat answer did not land, %s"
 NO_ASK = "The communicator never calls `AskUserQuestion`. Put the question on the owner's board with `cc-present push`, or send an urgent yes/no to the owner's Slack with `cc-present ask <card>`."
+
+
+log = logging.getLogger(__name__)
 
 
 @workflow_state("long_running_owner_ledger")
 class LedgeredDms(WorkflowState):
     digests: list[str] = []
+
+
+@workflow_state("long_running_owner_turn")
+class TurnRows(WorkflowState):
+    rows: list[str] = []
 
 
 def ledger_of(entry: dict) -> Path:
@@ -151,6 +162,8 @@ def add_owner_message(evt: BaseHookEvent) -> HookResult | None:
         post_owner_row(entry, row, ask)
     add_answer(evt, at)
     ids = [row for row, _ in rows]
+    with TurnRows.mutate(evt) as turn:
+        turn.rows = ids
     return evt.context(NEW_ROW.format(lr=LR, rows=", ".join(f"`{row}`" for row in ids), row=ids[0] if len(ids) == 1 else "<row>", drive=entry["drive"]))
 
 
@@ -173,6 +186,43 @@ def add_owner_slack_dms(evt: BaseHookEvent) -> HookResult | None:
             for row, ask in add_rows(ledger_of(entry), datetime.strptime(dm["at"], STAMP).replace(tzinfo=UTC), dm["text"]):
                 post_owner_row(entry, row, ask)
             state.digests.append(dm["digest"])
+    return None
+
+
+def land_answer(entry: dict, row: str, state: str, text: str) -> None:
+    answer = ledger_of(entry).parent / ANSWERS / f"{row}.md"
+    answer.parent.mkdir(exist_ok=True)
+    if not answer.exists() or len(answer.read_text()) < len(text):
+        answer.write_text(text)
+    if state != "open":
+        return
+    done = subprocess.run([str(LR), "owner", "mark", row, "responded", "--drive", entry["drive"]], capture_output=True, text=True, timeout=AUDIT_SECONDS, env=dict(reqenv.env_map()))
+    if done.returncode:
+        log.warning(UNMAPPED, row, f"lr owner mark refused: {(done.stderr or done.stdout).strip()}")
+
+
+@on(
+    Event.Stop,
+    only_if=[Communicator()],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+        Input(env=DRIVE_CONFIG): Allow(),
+    }),
+)
+def chat_answers_land_on_their_rows(evt: BaseHookEvent) -> HookResult | None:
+    if not (rows := TurnRows.load(evt).rows) or not (entry := drive_entry(evt)):
+        return None
+    with TurnRows.mutate(evt) as turn:
+        turn.rows = []
+    text = CREDENTIAL.sub(REDACTED, (evt._raw.get("last_assistant_message") or "").strip())
+    ledger = ledger_of(entry).read_text() if ledger_of(entry).exists() else ""
+    states = {found[0]: found[4] for found in ROW.findall(ledger)}
+    for row in rows:
+        if not text or row not in states:
+            log.warning(UNMAPPED, row, "the turn ended with no text" if not text else "the ledger has no such row")
+            continue
+        land_answer(entry, row, states[row], text)
     return None
 
 
