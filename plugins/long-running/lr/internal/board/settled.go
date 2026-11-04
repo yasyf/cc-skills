@@ -1,6 +1,7 @@
 package board
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 
 const (
 	answersJudged = 4
+	confirmKind   = "confirm"
 	checkedField  = "settled-checked"
 	askedField    = "settled-asked"
 )
@@ -107,8 +109,9 @@ func settles(ctx context.Context, judge Judge, card json.RawMessage, found []own
 	return nil, errors.Join(failed...)
 }
 
-func asksTitle(card json.RawMessage) (string, bool) {
+func asksTitle(card json.RawMessage) (string, string, bool) {
 	var block struct {
+		ID       string `json:"id"`
 		Type     string `json:"type"`
 		Title    string `json:"title"`
 		Children []struct {
@@ -116,26 +119,51 @@ func asksTitle(card json.RawMessage) (string, bool) {
 		} `json:"children"`
 	}
 	if json.Unmarshal(card, &block) != nil || block.Type != "card" {
-		return "", false
+		return "", "", false
 	}
 	for _, child := range block.Children {
 		if child.Type == "choice" {
-			return block.Title, true
+			return block.ID, block.Title, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
-func (c Cards) Settled(ctx context.Context, judge Judge, card json.RawMessage) (*Settling, error) {
-	title, asks := asksTitle(card)
+func sameText(one, other string) bool {
+	return strings.EqualFold(strings.Join(strings.Fields(one), " "), strings.Join(strings.Fields(other), " "))
+}
+
+func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (refused, unchecked error) {
+	id, title, asks := asksTitle(card)
 	if !asks {
 		return nil, nil
 	}
+	var failed []error
+	open, err := c.OpenAsks(ctx)
+	if err != nil {
+		failed = append(failed, fmt.Errorf("his board was not read for a card asking the same: %w", err))
+	}
+	for _, ask := range open {
+		if ask.ID != id && sameText(ask.Title, title) {
+			return fmt.Errorf("refused: %s already asks him %q; change that card instead of drawing a second", ask.ID, strings.TrimSpace(ask.Title)), nil
+		}
+	}
+	confirm, err := judge(ctx, confirmKind, "A coding agent drew this card on the owner's board for him to answer.", string(card))
+	if verdictOf(confirm) == "yes" {
+		return fmt.Errorf("refused: this card asks him to grade a reading of his own words, and no such card is drawn: %s", confirm.Sentence), nil
+	}
+	if err != nil || confirm == nil {
+		failed = append(failed, fmt.Errorf("the judge did not read whether it asks him to grade a reading: %w", cmp.Or(err, errors.New("no verdict"))))
+	}
 	answers, err := c.answers(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(append(failed, err)...)
 	}
-	return settles(ctx, judge, card, candidates(title, answers, ""))
+	settled, err := settles(ctx, judge, card, candidates(title, answers, ""))
+	if settled != nil {
+		return settled.Refusal(), nil
+	}
+	return nil, errors.Join(append(failed, err)...)
 }
 
 func (c Cards) Unask(ctx context.Context, lane string, judge Judge, out io.Writer) error {

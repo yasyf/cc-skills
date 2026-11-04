@@ -2,6 +2,7 @@ package board
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,12 +41,16 @@ type judgeCalls struct {
 	mu       sync.Mutex
 	evidence []string
 	verdict  string
+	confirms string
 	err      error
 }
 
 func (j *judgeCalls) judge(_ context.Context, kind, evidence, _ string) (*Judgment, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if kind == confirmKind {
+		return &Judgment{Verdict: cmp.Or(j.confirms, "no"), Sentence: "Act on your reading of his words and say what you did."}, j.err
+	}
 	j.evidence = append(j.evidence, evidence)
 	if j.err != nil {
 		return nil, j.err
@@ -105,12 +110,12 @@ func TestADrawHisAnswerSettlesIsRefusedNamingHisAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	settled, err := cards.Settled(context.Background(), judge.judge, block)
+	refused, err := cards.Check(context.Background(), judge.judge, block)
 
-	if err != nil || settled == nil || settled.Answer.ID != upgradeOnce.ID {
-		t.Fatalf("settled = %+v, %v; want answer %s", settled, err, upgradeOnce.ID)
+	if err != nil || refused == nil {
+		t.Fatalf("refused = %v, %v; want answer %s named", refused, err, upgradeOnce.ID)
 	}
-	if refusal := settled.Refusal().Error(); !strings.Contains(refusal, upgradeOnce.Title) || !strings.Contains(refusal, "29b2e59") || !strings.Contains(refusal, "one background upgrade attempt") {
+	if refusal := refused.Error(); !strings.Contains(refusal, upgradeOnce.Title) || !strings.Contains(refusal, "29b2e59") || !strings.Contains(refusal, "one background upgrade attempt") {
 		t.Fatalf("refusal %q does not name his answer and why it settles the card", refusal)
 	}
 	if len(judge.evidence) != 1 {
@@ -126,9 +131,9 @@ func TestADrawStaysUnrefusedWhenTheJudgeIsUnsureOrFails(t *testing.T) {
 	for name, judge := range map[string]*judgeCalls{"unsure": {verdict: "unsure"}, "failed": {err: errors.New("claude: overloaded")}} {
 		t.Run(name, func(t *testing.T) {
 			cards, _, _ := settledBoard(t, upgradeOnce)
-			settled, err := cards.Settled(context.Background(), judge.judge, block)
-			if settled != nil {
-				t.Fatalf("refused on %s: %+v", name, settled)
+			refused, err := cards.Check(context.Background(), judge.judge, block)
+			if refused != nil {
+				t.Fatalf("refused on %s: %v", name, refused)
 			}
 			if (err != nil) != (name == "failed") {
 				t.Fatalf("err = %v, want a warning only when the judge failed", err)
@@ -192,5 +197,38 @@ func TestASweepKeepsACardAndWarnsWhenTheJudgeFails(t *testing.T) {
 	}
 	if len(removedBlocks(fake)) != 0 || strings.Count(out.String(), "WARNING "+oldChatCard+" stays up") != 2 || len(judge.evidence) != 2 {
 		t.Fatalf("removed %v, out %q, judged %d; want the card kept, warned and judged again next pass", removedBlocks(fake), out.String(), len(judge.evidence))
+	}
+}
+
+func TestADrawAskingWhatACardOnHisBoardAlreadyAsksIsRefused(t *testing.T) {
+	cards, _, _ := settledBoard(t)
+	second := oldChatBlock()
+	second["id"], second["title"] = "card-old-snapshot-again", "  an old chat will not open on the new build: is that the expected you meant?   What should happen to chats like this?"
+	block, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	refused, err := cards.Check(context.Background(), (&judgeCalls{}).judge, block)
+
+	if err != nil || refused == nil || !strings.Contains(refused.Error(), oldChatCard+" already asks him") {
+		t.Fatalf("refused = %v, %v; want the card already on his board named", refused, err)
+	}
+}
+
+func TestADrawAskingHimToGradeAReadingOfHisWordsIsRefused(t *testing.T) {
+	cards, _, _ := settledBoard(t)
+	reading := map[string]any{"id": "card-read-sessions", "type": "card", "title": "Did I read this correctly? Try to move more sessions to remote machines from now on", "children": []any{
+		map[string]any{"id": "card-read-sessions-pick", "type": "choice", "options": []any{map[string]any{"id": "right", "label": "Right"}, map[string]any{"id": "wrong", "label": "Wrong"}}},
+	}}
+	block, err := json.Marshal(reading)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	refused, err := cards.Check(context.Background(), (&judgeCalls{confirms: "yes"}).judge, block)
+
+	if err != nil || refused == nil || !strings.Contains(refused.Error(), "grade a reading of his own words") {
+		t.Fatalf("refused = %v, %v; want the reading card refused", refused, err)
 	}
 }

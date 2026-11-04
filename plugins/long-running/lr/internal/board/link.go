@@ -171,7 +171,7 @@ func drawCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 	var lane, key, remove string
 	cmd := &cobra.Command{
 		Use:   "draw [FILE|-]",
-		Short: "From any host, post one card change on the bus for the board link: a block as JSON, refused when one of his ccn answers already settles what the card asks, or --remove ID",
+		Short: "From any host, post one card change on the bus for the board link: a block as JSON, refused when a card on his board already asks the same, when it asks him to grade a reading of his words, or when one of his ccn answers already settles it; or --remove ID",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			entry, session, err := opened()
@@ -190,9 +190,9 @@ func drawCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 				return err
 			}
 			if len(block) > 0 {
-				settled, err := CardsOf(a, entry, session, nil).Settled(c.Context(), judge, block)
-				if settled != nil {
-					return settled.Refusal()
+				refused, err := CardsOf(a, entry, session, nil).Check(c.Context(), judge, block)
+				if refused != nil {
+					return refused
 				}
 				if err != nil {
 					fmt.Fprintf(c.ErrOrStderr(), "WARNING the card draws unchecked against his answers: %s\n", strings.ReplaceAll(err.Error(), "\n", "; "))

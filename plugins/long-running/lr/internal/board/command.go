@@ -428,8 +428,8 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 			return nil
 		},
 	}, &cobra.Command{
-		Use:   "settled CARD_FILE|-",
-		Short: "Refuse, naming his answer, a card one of his ccn answers already settles; print a WARNING and pass it when the judge fails",
+		Use:   "check CARD_FILE|-",
+		Short: "Refuse a card that asks what a card on his board already asks, asks him to grade a reading of his words, or that one of his ccn answers settles, naming that answer; print a WARNING and pass it when a check could not run",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			board, done, err := cards()
@@ -446,9 +446,9 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 			if err != nil {
 				return err
 			}
-			settled, err := board.Settled(c.Context(), judge, data)
-			if settled != nil {
-				return settled.Refusal()
+			refused, err := board.Check(c.Context(), judge, data)
+			if refused != nil {
+				return refused
 			}
 			if err != nil {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING the card draws unchecked against his answers: %s\n", strings.ReplaceAll(err.Error(), "\n", "; "))
