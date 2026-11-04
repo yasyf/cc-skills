@@ -1,7 +1,9 @@
 package bus
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strconv"
@@ -35,6 +37,15 @@ func (b Bus) ReadOwner(ctx context.Context, since int64, floor time.Time) ([]cli
 	return client.Tail(ctx, query)
 }
 
+// PostOrder keys the order by the owner record it carries out, so a tap undone and given again at one head is a new order, and a second machine reading the same record writes nothing.
+func (b Bus) PostOrder(ctx context.Context, tap Tap, from client.Record) (Record, error) {
+	raw, err := json.Marshal(tap)
+	if err != nil {
+		return Record{}, err
+	}
+	return b.postKeyed(ctx, tap.Kind(), raw, nil, "", namespace+"."+tap.Kind()+"/"+cmp.Or(from.ID, from.Name()))
+}
+
 // OrderOf reads the land order one owner record carries. An empty Head means the record names no head, so the order lands at the PR's head when it is written.
 func OrderOf(record client.Record, repo string) (Tap, bool) {
 	if string(record.Kind) != ownerKind {
@@ -51,6 +62,12 @@ func OrderOf(record client.Record, repo string) (Tap, bool) {
 	}
 	number, head, named := cardPR(attrs["heads"], record.Text, repo)
 	return Tap{PR: number, Head: head, By: OwnerBy, Value: value}, named
+}
+
+// UnreadPick says a pick was recorded with option ids and no label because its board could not be read, so no one can tell a land pick from any other.
+func UnreadPick(record client.Record) bool {
+	attrs := record.Fields.Attrs
+	return string(record.Kind) == ownerKind && attrs["event"] == "choice.selected" && attrs["picked"] != "" && !pickedLabel.MatchString(record.Text)
 }
 
 func cardValue(attrs map[string]string, text string) string {
