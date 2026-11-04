@@ -69,7 +69,7 @@ func (p *InputsPublisher) Pass(ctx context.Context) error {
 		return nil
 	}
 	text := fmt.Sprintf("What lr landing go reads off this board: %d open cards, %d open tap rows", len(cards), len(taps))
-	if _, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: self, Kind: "note", Topic: gateInputsTopic, To: []string{gateInputsReader}, Text: text, Attrs: map[string]string{gateInputsAttr: string(encoded)}}); err != nil {
+	if _, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: self, Kind: "note", Topic: gateInputsTopic, ID: fmt.Sprintf("%s:%d", gateInputsTopic, now.UnixMilli()), To: []string{gateInputsReader}, Text: text, Attrs: map[string]string{gateInputsAttr: string(encoded)}}); err != nil {
 		return err
 	}
 	p.posted, p.at = string(encoded), now
