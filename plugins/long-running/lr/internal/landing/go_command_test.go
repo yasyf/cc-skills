@@ -67,7 +67,7 @@ func TestARefusedHeadIsNotGatedAgainWithinTenMinutesSoThePassMakesNoReadsForIt(t
 		t.Fatal(err)
 	}
 
-	if err := sweepGos(context.Background(), nil, config.Config{}, s, []machine.Facts{ready}, now.Add(goRegate-time.Second), io.Discard); err != nil {
+	if err := SweepGos(context.Background(), nil, config.Config{}, s, []machine.Facts{ready}, now.Add(goRegate-time.Second), io.Discard); err != nil {
 		t.Fatalf("the sweep read the gate for a head refused within %s: %v", goRegate, err)
 	}
 }

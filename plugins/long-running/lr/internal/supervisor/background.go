@@ -96,9 +96,12 @@ func (b *background) sayRecovered(to string) error {
 	return b.store.Advance(cursor, last.Raised.UnixMicro())
 }
 
-type sweepLog struct{ log *slog.Logger }
+type sweepLog struct {
+	log  *slog.Logger
+	name string
+}
 
 func (l sweepLog) Write(line []byte) (int, error) {
-	l.log.Info("card sweep", "line", strings.TrimSpace(string(line)))
+	l.log.Info(l.name, "line", strings.TrimSpace(string(line)))
 	return len(line), nil
 }

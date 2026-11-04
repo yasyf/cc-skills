@@ -56,6 +56,7 @@ type Deps struct {
 	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
 	DropStale func(ctx context.Context, snapshot []machine.Facts) error
 	Unstick   func(ctx context.Context, snapshot []machine.Facts) error
+	SweepGos  func(ctx context.Context, snapshot []machine.Facts) error
 	Pool      grading.Pool
 	Stale     func(ctx context.Context) (bool, error)
 	Log       *slog.Logger
@@ -170,6 +171,11 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		if d.Unstick != nil {
 			if err := d.Unstick(ctx, snapshot); err != nil {
 				d.Log.Warn("a PR stuck on an unknown mergeability was not retried", "err", err)
+			}
+		}
+		if d.SweepGos != nil {
+			if err := d.SweepGos(ctx, snapshot); err != nil {
+				d.Log.Warn("the go sweep stopped", "err", err)
 			}
 		}
 	}
