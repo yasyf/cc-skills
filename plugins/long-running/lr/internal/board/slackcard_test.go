@@ -297,3 +297,18 @@ func TestTheApproveCardReadsThePRLedgerWhenNoHeadRecordCarriesWords(t *testing.T
 		t.Fatalf("row = %+v, want %+v", card.PRs[0], want)
 	}
 }
+
+func TestPlanWordsSayASentenceTheLineAndRowShareOnce(t *testing.T) {
+	for _, tc := range []struct {
+		line, row, want string
+	}{
+		{"the plan's step", "the plan's step", "the plan's step"},
+		{"", "the plan's step", "the plan's step"},
+		{"the plan's step", "", "the plan's step"},
+		{"line 73", "the plan's step", "line 73 the plan's step"},
+	} {
+		if got := planWords(store.ReviewRow{PlanLine: tc.line, PlanRow: tc.row}); got != tc.want {
+			t.Fatalf("planWords(%q, %q) = %q, want %q", tc.line, tc.row, got, tc.want)
+		}
+	}
+}
