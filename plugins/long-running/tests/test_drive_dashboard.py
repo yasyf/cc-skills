@@ -1188,13 +1188,13 @@ def sse_events(stream):
         event[field] = value
 
 
-def board_with(*titles):
+def board_of_cards(*titles):
     return json.dumps({"interactions": {"triage": {}, "feedback": {}}, "doc": {"blocks": [{"type": "card", "id": title, "title": title, "summary": "", "status": "open"} for title in titles]}})
 
 
 def test_the_alert_stream_names_the_build_waits_for_the_first_read_and_carries_a_new_card(live_alerts, monkeypatch):
     drive = live_alerts.drive
-    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_with("card-one"))
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_of_cards("card-one"))
     with urllib.request.urlopen(f"{live_alerts.url}/api/alerts", timeout=5) as stream:
         events = sse_events(stream)
         assert next(events) == {"event": "build", "data": server.BUILD}
@@ -1202,14 +1202,14 @@ def test_the_alert_stream_names_the_build_waits_for_the_first_read_and_carries_a
         drive.read_cards()
         first = next(events)
         assert first["event"] == "alerts" and [alert["id"] for alert in json.loads(first["data"])] == ["one"]
-        monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_with("card-one", "card-two"))
+        monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_of_cards("card-one", "card-two"))
         drive.read_cards()
         assert [alert["id"] for alert in json.loads(next(events)["data"])] == ["one", "two"]
 
 
 def test_an_unchanged_board_wakes_no_alert_stream(live_alerts, monkeypatch):
     drive = live_alerts.drive
-    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_with("card-one"))
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_of_cards("card-one"))
     drive.read_cards()
     published = drive.alerts
     drive.read_cards()
@@ -1218,7 +1218,7 @@ def test_an_unchanged_board_wakes_no_alert_stream(live_alerts, monkeypatch):
 
 def test_a_failed_board_read_keeps_the_last_alerts_and_says_so(live_alerts, monkeypatch):
     drive = live_alerts.drive
-    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_with("card-one"))
+    monkeypatch.setattr(server, "run", lambda argv, cwd=None: board_of_cards("card-one"))
     drive.read_cards()
     published = drive.alerts
 
