@@ -241,7 +241,7 @@ func inputs(t *testing.T) Inputs {
 			{Number: "3", Title: "3. The writers", Tasks: []plans.Task{{Title: "Writers", State: plans.Open}}},
 		}}},
 		Programs: []Program{{"cci token cut", "building", "nothing", "lands tonight"}},
-		Streams:  []Workstream{{"Sealed journal", []string{"ship"}, "building", "readers ported", "nothing", "nothing"}},
+		Streams:  []Workstream{{Name: "Sealed journal", Delivers: "every reader on the sealed format", Stems: []string{"ship"}}},
 	}
 }
 
@@ -344,5 +344,17 @@ func TestAStepWithTasksInProgressAndNoLaneCallsThemStaleAndNamesTheLastLaneThatW
 	untouched := v.stepRow("Step 5", "5. The writers", &plans.Step{Number: "5", Tasks: tasks}, nil)
 	if want := "1 of 2 tasks done, 1 stale with no lane on them, 0 blocked; no lane record names it"; untouched.State != want {
 		t.Fatalf("state = %q", untouched.State)
+	}
+}
+
+func TestAnOpenStepWithNoLiveLaneNamesTheLastLaneThatWorkedItAndWhen(t *testing.T) {
+	v := viewOf([]Lane{heard("writers-1", "retired", 600)}, []Record{record(1, "writers-1", "report", "step 6 half written", 26*60)}, nil)
+	open := []plans.Task{{Title: "Write", State: plans.Open}}
+	row := v.stepRow("Step 6", "6. The writers", &plans.Step{Number: "6", Tasks: open}, nil)
+	if want := "0 of 1 tasks done, 0 in progress, 0 blocked; " + noLiveLane + ", last worked by writers-1, report Nov 1 9:00 AM"; row.State != want {
+		t.Fatalf("state = %q", row.State)
+	}
+	if done := v.stepRow("Step 7", "7. Done", &plans.Step{Number: "7", Tasks: []plans.Task{{Title: "Write", State: plans.Done}}}, nil); done.State != "1 of 1 tasks done, 0 in progress, 0 blocked" {
+		t.Fatalf("done state = %q", done.State)
 	}
 }

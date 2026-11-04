@@ -39,7 +39,7 @@ func crowded(t *testing.T) Inputs {
 	}
 	rows := map[string]map[string]string{}
 	in.Lanes, in.Records, in.Waits = nil, nil, nil
-	in.Streams = append(in.Streams, Workstream{"The rebuild", []string{"worker"}, "building", "parts moved", "nothing", "nothing"})
+	in.Streams = append(in.Streams, Workstream{Name: "The rebuild", Delivers: "every part of the rebuild", Stems: []string{"worker"}})
 	for i := range laneCount {
 		name := fmt.Sprintf("worker-%d", i)
 		lane := heard(name, "desired", 5)
@@ -262,7 +262,7 @@ func TestAPlanStepIsOneLineUnlessARowUnderItChangedSinceTheLastSentUpdate(t *tes
 	if strings.Contains(unmoved.Text, "### The readers") || strings.Contains(unmoved.Text, "### The writers") {
 		t.Fatalf("an unchanged step kept its table:\n%s", unmoved.Text)
 	}
-	for _, line := range []string{"- The readers: 0 of 1 tasks done, 1 in progress, 0 blocked; ship-2", "- The writers: 0 of 1 tasks done, 0 in progress, 0 blocked; " + nobody} {
+	for _, line := range []string{"- The readers: 0 of 1 tasks done, 1 in progress, 0 blocked; ship-2", "- The writers: 0 of 1 tasks done, 0 in progress, 0 blocked; " + noLiveLane + ", no lane record names it; " + nobody} {
 		if !strings.Contains(unmoved.Text, line) {
 			t.Errorf("no %q in\n%s", line, unmoved.Text)
 		}
