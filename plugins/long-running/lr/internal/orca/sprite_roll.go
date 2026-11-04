@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -266,7 +268,9 @@ func SpritesCommand(a *app.App) *cobra.Command {
 		Short: "Run on a Sprite as its service: keep the Sprite awake while a claude or codex runs on it, so the hold lapses within 5 minutes of the agent's exit",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			awake.Holder{Runner: a.Runner, Task: workerAwake, Every: awake.Every, Log: slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)), Wanted: awake.WorkerAlive(a.Runner)}.Run(cmd.Context())
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, os.Interrupt)
+			defer stop()
+			awake.Holder{Runner: a.Runner, Task: workerAwake, Every: awake.Every, Log: slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)), Wanted: awake.WorkerAlive(a.Runner)}.Run(ctx)
 			return nil
 		},
 	}

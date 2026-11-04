@@ -162,7 +162,8 @@ process, and while it finds one it refreshes a `worker-awake` task with a 5-minu
 expiry through the Sprite's task API, the same helper `lr desk-creds serve` uses.
 When the agent exits, the refreshes stop and the task expires, so the Sprite sleeps
 about 5 minutes later. `lr stop-sprites` and `lr gc` end the agent, so a settled
-lane's Sprite still sleeps or is destroyed.
+lane's Sprite still sleeps or is destroyed. A holder that is stopped deletes its
+task, so `cc-remote orca stop` does not find the Sprite held.
 
 A failed read or refresh logs at warn and tries again next minute. A service that
 fails to start warns on the launch's stderr and in `awake.log` in the attempt

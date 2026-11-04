@@ -44,6 +44,9 @@ func (h Holder) Run(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
+			if err := h.call(context.WithoutCancel(ctx), "DELETE"); err != nil {
+				h.Log.Warn("the Sprite's awake task was not released", "task", h.Task, "err", err)
+			}
 			return
 		case <-time.After(h.Every):
 		}
@@ -55,6 +58,10 @@ func (h Holder) refresh(ctx context.Context) error {
 	if err != nil || !wanted {
 		return err
 	}
-	_, err = h.Runner.Run(ctx, shell.Command{Argv: []string{"/.sprite/bin/sprite-env", "curl", "-sSf", "-X", "PUT", "/v1/tasks/" + h.Task, "-H", "Content-Type: application/json", "-d", `{"expire": "5m"}`}, Timeout: h.Every})
+	return h.call(ctx, "PUT", "-H", "Content-Type: application/json", "-d", `{"expire": "5m"}`)
+}
+
+func (h Holder) call(ctx context.Context, method string, body ...string) error {
+	_, err := h.Runner.Run(ctx, shell.Command{Argv: append([]string{"/.sprite/bin/sprite-env", "curl", "-sSf", "-X", method, "/v1/tasks/" + h.Task}, body...), Timeout: h.Every})
 	return err
 }
