@@ -159,7 +159,12 @@ func TestAnOpenedRecordReopensAClosedRowAndThePRAboveSeesItsParentOpen(t *testin
 		t.Fatalf("after the close: #2 = %+v, want its parent closed", row)
 	}
 
-	postOpened(t, 1, headA, "dev", fullBody)
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: "lane-7", Kind: "opened", Text: "reopened #1", PRs: []string{testRepo + "#1"},
+		Attrs: map[string]string{"repo": testRepo, "head": headA},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	rows, err := f.Pass(context.Background(), nil)
 	if err != nil {
