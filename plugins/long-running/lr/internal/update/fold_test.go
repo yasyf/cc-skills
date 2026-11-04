@@ -1,6 +1,7 @@
 package update
 
 import (
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"context"
 	"errors"
 	"fmt"
@@ -54,7 +55,7 @@ func crowded(t *testing.T) Inputs {
 		}
 	}
 	for i := range prCount {
-		rows[strconv.Itoa(48000+i)] = map[string]string{"title": words, "reported_head": "abc"}
+		in.PRRows = append(in.PRRows, store.ReviewRow{Number: 48000 + i, Title: words, State: "open", Head: "abc"})
 	}
 	book, err := asks.Read(rows)
 	if err != nil {

@@ -28,16 +28,7 @@ cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "po
 
 ### Where each kind of state lives
 
-| State | Lives in |
-| --- | --- |
-| Lane messages, decisions, heads, contracts, blockers, asks | `cci` |
-| Lane liveness, PRs, standing duties | the supervisor's registry |
-| Owner asks, PR rows, holds, landings | the ledger |
-| Findings, notes, docs, logs | cc-notes |
-| Standing owner rules | the register doc |
-| Production operations | the `production-operations` log |
-| Progress and handoffs | generated progress docs |
-| Meta items | the meta lane's `items.md` |
+Each concept has one store, listed in the skill's [Sources of truth](../SKILL.md#sources-of-truth) table with its writers, its views and what was removed. Records on `cci` carry lane messages, decisions, heads, contracts, blockers and asks; findings, notes, docs and logs live in cc-notes.
 
 - An agent never writes a time in a record: cci stamps each one. A record cites an earlier one by its seq.
 - The coordinator changes the registry only through `lr request`: `done <lane>` retires a lane, `owner <lane> --pr <n>` moves a PR, `stand-down <old> --successor <new>` replaces a lane. A decide's prose changes no row.

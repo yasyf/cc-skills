@@ -39,6 +39,7 @@ func src(lanes []Lane, records []Record, tasks []ClaudeTask, boardErr error) Sou
 		},
 		Plans:    func(context.Context) ([]*plans.Plan, error) { return nil, nil },
 		Book:     func(context.Context) (asks.Book, error) { return asks.Book{PRs: map[string]asks.PR{}}, nil },
+		PRRows:   func() ([]store.ReviewRow, error) { return nil, nil },
 		Board:    func(context.Context, []board.Snapshot) (board.Live, error) { return board.Live{}, boardErr },
 		Tasks:    func() ([]ClaudeTask, error) { return tasks, nil },
 		Before:   func() (Snapshot, error) { return Snapshot{}, nil },

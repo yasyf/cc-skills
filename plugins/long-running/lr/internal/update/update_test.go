@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 )
@@ -182,7 +183,7 @@ func TestAPRRowsOwnerIsTheNewestLanePushingItEvenWhenTheLedgerNamesAnotherAndNoD
 		},
 		nil,
 	)
-	row := v.prRow(asks.PR{Number: 48401, Lane: "stale-1", State: "open", Title: "the title"}, nil)
+	row := v.prRow(store.ReviewRow{Number: 48401, Lane: "stale-1", State: "open", Title: "the title"}, nil)
 	if row.Who != "ship-2" {
 		t.Fatalf("who = %q", row.Who)
 	}
@@ -191,19 +192,30 @@ func TestAPRRowsOwnerIsTheNewestLanePushingItEvenWhenTheLedgerNamesAnotherAndNoD
 	}
 }
 
-func TestAPRRowSaysWhatHoldsIt(t *testing.T) {
+func TestAPRRowSaysWhatHoldsItFromItsLedgerRow(t *testing.T) {
 	v := viewOf(nil, nil, nil)
-	held := v.prRow(asks.PR{Number: 7, State: "open", Registered: true, TestState: "failure"}, map[string]int64{"7": 91})
+	held := v.prRow(store.ReviewRow{Number: 7, State: "open", CI: "red", WaitsOn: "CI is red at this head"}, map[string]int64{"7": 91})
 	if held.Blocks != "held by cci #91" || held.State != "red" || held.Wrong != "its head is red" {
 		t.Fatalf("held = %+v", held)
 	}
-	red := v.prRow(asks.PR{Number: 8, State: "open", Registered: true, TestState: "failure"}, nil)
-	if red.Blocks != "waits: red" {
+	red := v.prRow(store.ReviewRow{Number: 8, State: "open", CI: "red", WaitsOn: "CI is red at this head"}, nil)
+	if red.Blocks != "waits: CI is red at this head" {
 		t.Fatalf("red = %+v", red)
 	}
-	labelled := v.prRow(asks.PR{Number: 9, State: "open", Labels: "merge"}, nil)
-	if labelled.State != queueLabelled || !labelled.Done || labelled.unowned() {
-		t.Fatalf("labelled = %+v", labelled)
+	queued := v.prRow(store.ReviewRow{Number: 9, State: "queued"}, nil)
+	if queued.State != queueLabelled || !queued.Done || queued.unowned() {
+		t.Fatalf("queued = %+v", queued)
+	}
+	ready := v.prRow(store.ReviewRow{Number: 10, State: "open", ReadyForTap: true, WaitsOn: "Only your approval."}, nil)
+	if ready.State != "ready for your tap" || ready.Blocks != "waits: Only your approval." {
+		t.Fatalf("ready = %+v", ready)
+	}
+}
+
+func TestTheOpenPRSectionListsLedgerRowsAndNoOtherStore(t *testing.T) {
+	rows := openPRRows([]store.ReviewRow{{Number: 1, State: "open"}, {Number: 2, State: "landed"}, {Number: 3, State: "superseded"}, {Number: 4, State: "queued"}})
+	if len(rows) != 2 || rows[0].Number != 1 || rows[1].Number != 4 {
+		t.Fatalf("open rows = %+v, want the open and queued rows alone", rows)
 	}
 }
 

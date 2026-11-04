@@ -44,6 +44,7 @@ type Sources struct {
 	Records  func(ctx context.Context, since time.Time, kinds ...string) ([]Record, error)
 	Plans    func(ctx context.Context) ([]*plans.Plan, error)
 	Book     func(ctx context.Context) (asks.Book, error)
+	PRRows   func() ([]store.ReviewRow, error)
 	Board    func(ctx context.Context, snapshots []board.Snapshot) (board.Live, error)
 	Tasks    func() ([]ClaudeTask, error)
 	Before   func() (Snapshot, error)
@@ -133,6 +134,10 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	if err != nil {
 		return Inputs{}, err
 	}
+	prRows, err := src.PRRows()
+	if err != nil {
+		return Inputs{}, err
+	}
 	owed, err := src.Owed(ctx)
 	if err != nil {
 		return Inputs{}, err
@@ -153,7 +158,7 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	if err != nil {
 		return Inputs{}, err
 	}
-	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, Held: heldPRs(holds), Waits: waitingOnRoot(day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
+	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, PRRows: prRows, Held: heldPRs(holds), Waits: waitingOnRoot(day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
 	in.Cards, in.Unboarded = boardOf(ctx, src, day)
 	if in.TapQueue, err = src.TapQueue(); err != nil {
 		return Inputs{}, err
