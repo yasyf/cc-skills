@@ -20,7 +20,7 @@ ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "d", "CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 HELD = {ROWS: json.dumps([{"number": 49730, "ready_for_tap": False, "waits_on": "held by root: cutover pick"}])}
 READY = {ROWS: json.dumps([{"number": 49730, "ready_for_tap": True, "waits_on": ""}])}
 REFUSED = "A line naming a PR as waiting on the owner stands only when its row says `ready_for_tap`. Say what each one waits on instead, from `lr board rows --json`:\n```\n{lines}\n```"
-UNREAD = "Warning, nothing was refused: `lr board rows` did not answer, so a line naming {prs} as waiting on the owner went unchecked. Read the row before it reaches him."
+UNREAD = "Warning, nothing was refused: `lr board rows` did not answer, so this line naming a PR as waiting on the owner went unchecked. Read the row before it reaches him."
 
 
 def flagged(evt: BaseHookEvent) -> list[str]:
@@ -70,5 +70,5 @@ def waits_on_him_is_ready(evt: BaseHookEvent) -> HookResult | None:
     try:
         lines = unready(drive, prs)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError):
-        return evt.context(UNREAD.format(prs=", ".join(f"#{pr}" for pr in prs)))
+        return evt.context(UNREAD)
     return evt.block(REFUSED.format(lines="\n".join(lines))) if lines else None
