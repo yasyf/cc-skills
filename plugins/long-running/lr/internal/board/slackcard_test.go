@@ -79,6 +79,42 @@ func waitingRows(s *store.Store, repo string, numbers []int) ([]store.ReviewRow,
 	return slices.DeleteFunc(rows, func(row store.ReviewRow) bool { return !waitsOnHim(row) }), err
 }
 
+func TestATapOnAHeldRowsCardIsRefusedNamingTheHoldAndHoldStillHolds(t *testing.T) {
+	const why = "held, root:the cutover has not run (record #7)"
+	s, hooks := withLedger(t, readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.WaitsOn = false, why })), &recorded{}
+	found, err := ledgerRows(s, repo, []int{number})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Approve", t0)
+	if err == nil || !strings.Contains(err.Error(), why) {
+		t.Fatalf("err = %v, want it to name the hold", err)
+	}
+	if !reflect.DeepEqual(hooks.refused, []string{why}) || len(hooks.taps) != 0 {
+		t.Fatalf("refused = %v, taps = %+v", hooks.refused, hooks.taps)
+	}
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Hold", t0); err != nil {
+		t.Fatal(err)
+	}
+	if want := []Key{{number, head}}; !reflect.DeepEqual(hooks.holds, want) {
+		t.Fatalf("holds = %+v", hooks.holds)
+	}
+}
+
+func TestATapOnAnUntilTapRowsCardStands(t *testing.T) {
+	s, hooks := withLedger(t, readyRow(func(r *store.ReviewRow) { r.AwaitsTap = "asks his tap" })), &recorded{}
+	found, err := waitingRows(s, repo, []int{number})
+	if err != nil || len(found) != 1 {
+		t.Fatalf("waiting = %+v, %v", found, err)
+	}
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Approve", t0); err != nil {
+		t.Fatal(err)
+	}
+	if len(hooks.taps) != 1 || len(hooks.refused) != 0 {
+		t.Fatalf("taps = %+v, refused = %v", hooks.taps, hooks.refused)
+	}
+}
+
 func TestMergeOnTheCardTapsTheRowAndHoldHoldsIt(t *testing.T) {
 	s, hooks := withLedger(t, readyRow(nil)), &recorded{}
 	found, err := ledgerRows(s, repo, []int{number})

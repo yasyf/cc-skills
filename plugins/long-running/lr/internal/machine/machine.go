@@ -151,6 +151,7 @@ type Facts struct {
 	Exempt        bool
 	Hold          Mover
 	HoldSeq       int64
+	HoldAwaitsTap bool
 	Carries       []int
 	Condition     string
 	UnsafeWait    string
@@ -275,16 +276,16 @@ func Classify(f Facts) Verdict {
 	if !f.Approved {
 		return Verdict{StateGrading, MoverLane, ActionReview, LaneClock}
 	}
-	if f.Hold != "" && f.Tap == TapTapped {
-		return Verdict{StateHeld, MoverRoot, ActionLift, RootClock}
-	}
-	if f.Hold != "" {
+	if f.Hold != "" && !f.HoldAwaitsTap {
+		if f.Tap == TapTapped {
+			return Verdict{StateHeld, MoverRoot, ActionLift, RootClock}
+		}
 		return Verdict{StateAwaitingTap, f.Hold, ActionLift, OwnerClock}
 	}
 	if !f.RowClear() {
 		return Verdict{StateNotReady, MoverLane, ActionRowWait, LaneClock}
 	}
-	if !f.Tapped() {
+	if !f.Tapped() || f.HoldAwaitsTap {
 		return Verdict{StateAwaitingTap, MoverOwner, ActionTap, OwnerClock}
 	}
 	return Verdict{StateReady, MoverSupervisor, ActionEnqueue, SupervisorClock}

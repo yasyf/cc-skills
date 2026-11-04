@@ -393,6 +393,10 @@ func HoldLifts(records []client.Record, read func([]int64) ([]client.Record, err
 	return lifts, nil
 }
 
+func HoldsUntilTap(record client.Record) bool {
+	return record.Fields.Attrs[holdUntilAttr] == holdUntilTap && len(record.Refs.PRs) == 1
+}
+
 func HeldBy(record client.Record, repo string) []int {
 	var prs []int
 	for _, pr := range record.Refs.PRs {

@@ -222,7 +222,7 @@ func (s Source) fromRows(rows []store.ReviewRow, held map[int]hold) ([]machine.F
 		if err != nil {
 			return nil, err
 		}
-		f.Hold, f.HoldSeq = held[row.Number].by, held[row.Number].seq
+		held[row.Number].onto(&f)
 		out = append(out, f)
 	}
 	readRows(out, rows)
@@ -237,6 +237,9 @@ func readRows(snapshot []machine.Facts, rows []store.ReviewRow) {
 	for at := range snapshot {
 		row, found := drawn[snapshot[at].Number]
 		snapshot[at].RowWait = gates.RowWait(row, found, snapshot[at].Head)
+		if row.AwaitsTap != "" && snapshot[at].Hold == "" {
+			snapshot[at].Hold, snapshot[at].HoldAwaitsTap = machine.MoverRoot, true
+		}
 	}
 }
 
@@ -624,9 +627,18 @@ func carried(prs []pullRequest) map[int][]int {
 }
 
 type hold struct {
-	by  machine.Mover
-	seq int64
-	why string
+	by      machine.Mover
+	seq     int64
+	why     string
+	asks    []string
+	asksSeq int64
+}
+
+func (h hold) onto(f *machine.Facts) {
+	f.Hold, f.HoldSeq = h.by, h.seq
+	if h.by == "" && len(h.asks) > 0 {
+		f.Hold, f.HoldSeq, f.HoldAwaitsTap = machine.MoverRoot, h.asksSeq, true
+	}
 }
 
 var (
@@ -634,9 +646,14 @@ var (
 	planNamed   = regexp.MustCompile(`(?i)\bplan (?:row|step|\d)`)
 )
 
+func holdSaid(record client.Record) string {
+	line, _, _ := strings.Cut(record.Text, "\n")
+	return fmt.Sprintf("%s (record #%d)", holdOpening.ReplaceAllString(line, ""), record.Seq)
+}
+
 func holdWhy(record client.Record, by machine.Mover) string {
 	line, _, _ := strings.Cut(record.Text, "\n")
-	why := fmt.Sprintf("%s (record #%d)", holdOpening.ReplaceAllString(line, ""), record.Seq)
+	why := holdSaid(record)
 	switch {
 	case by == machine.MoverOwner:
 		return "owner:" + why
@@ -648,10 +665,10 @@ func holdWhy(record client.Record, by machine.Mover) string {
 	return "root:" + why
 }
 
-func heldWords(held map[int]hold) map[int]string {
-	words := make(map[int]string, len(held))
+func heldWords(held map[int]hold) map[int]prrow.Held {
+	words := make(map[int]prrow.Held, len(held))
 	for number, one := range held {
-		words[number] = one.why
+		words[number] = prrow.Held{Why: one.why, AwaitsTap: strings.Join(one.asks, "; ")}
 	}
 	return words
 }
@@ -678,12 +695,16 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 		}
 		byOwner := record.Lane == string(machine.MoverOwner)
 		for _, pr := range bus.HeldBy(record, s.Repo) {
+			one := held[pr]
 			switch {
+			case bus.HoldsUntilTap(record):
+				one.asks, one.asksSeq = append(one.asks, holdSaid(record)), record.Seq
 			case byOwner:
-				held[pr] = hold{machine.MoverOwner, record.Seq, holdWhy(record, machine.MoverOwner)}
-			case !bus.GoLifts(gos, record, pr) && held[pr].by != machine.MoverOwner:
-				held[pr] = hold{machine.MoverRoot, record.Seq, holdWhy(record, machine.MoverRoot)}
+				one.by, one.seq, one.why = machine.MoverOwner, record.Seq, holdWhy(record, machine.MoverOwner)
+			case !bus.GoLifts(gos, record, pr) && one.by != machine.MoverOwner:
+				one.by, one.seq, one.why = machine.MoverRoot, record.Seq, holdWhy(record, machine.MoverRoot)
 			}
+			held[pr] = one
 		}
 	}
 	return held, nil
@@ -720,7 +741,8 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		if err != nil {
 			return nil, err
 		}
-		f.Hold, f.HoldSeq, f.Carries = held[row.Number].by, held[row.Number].seq, open.carries[row.Number]
+		held[row.Number].onto(&f)
+		f.Carries = open.carries[row.Number]
 		if author := open.authors[row.Number]; author != s.Author {
 			f.ForeignAuthor = author
 		}

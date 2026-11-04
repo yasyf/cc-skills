@@ -79,7 +79,7 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 			return err
 		}
 		if len(written) > 0 {
-			return nil
+			return s.endTapHolds(ctx, tap, record)
 		}
 	}
 	head, refusal, open, err := s.orderAt(ctx, tap)
@@ -91,8 +91,29 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 	if refusal != "" {
 		return orders.PostRefusal(ctx, s.Repo, tap, refusal)
 	}
-	_, err = orders.PostOrder(ctx, tap, record)
-	return err
+	if _, err := orders.PostOrder(ctx, tap, record); err != nil {
+		return err
+	}
+	return s.endTapHolds(ctx, tap, record)
+}
+
+func (s Source) endTapHolds(ctx context.Context, tap bus.Tap, word client.Record) error {
+	if tap.Value != string(machine.TapTapped) {
+		return nil
+	}
+	holds, err := client.Open(ctx, s.Drive, "hold")
+	if err != nil {
+		return err
+	}
+	for _, held := range holds {
+		if !bus.HoldsUntilTap(held) || !slices.Contains(bus.HeldBy(held, s.Repo), tap.PR) || !held.At.Before(word.At) {
+			continue
+		}
+		if err := (bus.Bus{Drive: s.Drive, Lane: OrderLane}).PostHoldEnded(ctx, s.Repo, tap.PR, held); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s Source) orderAt(ctx context.Context, tap bus.Tap) (head, refusal string, open bool, err error) {

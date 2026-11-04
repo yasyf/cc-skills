@@ -78,7 +78,12 @@ type Fold struct {
 	Now   func() time.Time
 }
 
-func (f Fold) Pass(ctx context.Context, held map[int]string) ([]store.ReviewRow, error) {
+type Held struct {
+	Why       string
+	AwaitsTap string
+}
+
+func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, error) {
 	after, err := f.Store.Cursor(store.ReviewRowsCursor)
 	if err != nil {
 		return nil, err
@@ -385,7 +390,7 @@ func longer(a, b string) string {
 	return a
 }
 
-func Materialize(row store.ReviewRow, facts map[string]string, hold string, branches map[string]store.ReviewRow, trunk string) store.ReviewRow {
+func Materialize(row store.ReviewRow, facts map[string]string, held Held, branches map[string]store.ReviewRow, trunk string) store.ReviewRow {
 	row.Lane = client.Stem(row.Lane)
 	row.CI, row.Approvers = orElse(facts[factCI], CIPending), orElse(facts[factApprovers], None)
 	row.Review = noReview
@@ -399,13 +404,13 @@ func Materialize(row store.ReviewRow, facts map[string]string, hold string, bran
 		row.Review += fmt.Sprintf("; changed since the head he tapped, %s: %s", facts[gates.SinceFact], facts[gates.ChangedFact])
 	}
 	row.PlanRow = planRow(row.PlanLine, machine.Fidelity(facts["fidelity"]))
-	row.Hold = orElse(hold, None)
+	row.Hold, row.AwaitsTap = orElse(held.Why, None), held.AwaitsTap
 	row.SupersededBy = orElse(facts[FactWithdrawn], None)
 	row.Parent, row.ParentState = parentOf(row, branches, trunk)
 	_, exempt := facts["exempt"]
 	tappedHere := machine.Tap(facts["tap"]) == machine.TapTapped
 	carried := facts[factCarriedBy] != "" && !tappedHere
-	row.Tapped = tappedHere || exempt || carried
+	row.Tapped = (tappedHere || exempt || carried) && held.AwaitsTap == ""
 	row.TappedAt, row.TappedBy = NotYet, NotYet
 	row.TapRefused = orElse(facts[bus.TapRefusedFact], None)
 	if row.Tapped {
@@ -417,7 +422,11 @@ func Materialize(row store.ReviewRow, facts map[string]string, hold string, bran
 		row.TappedAt, row.TappedBy = orElse(facts[FactTapAt], unstated), orElse(facts[FactTapBy], unstated)
 	}
 	row.State = stateOf(row, facts)
-	row = withStandingWord(Decide(row), facts)
+	row = Decide(row)
+	if held.AwaitsTap != "" {
+		return row
+	}
+	row = withStandingWord(row, facts)
 	if tappedHere || row.SupersededBy != None {
 		return row
 	}

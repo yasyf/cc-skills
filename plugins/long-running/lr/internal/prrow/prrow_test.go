@@ -82,6 +82,55 @@ func TestATappedRowStaysReadySoTheGateCanLandItAndIsNotWaitingOnHim(t *testing.T
 	}
 }
 
+func TestARowWhoseHoldsAllAwaitHisTapStaysReadyAndSaysWhatItWaitsOn(t *testing.T) {
+	row := readyRow()
+	row.AwaitsTap = "his approval was at an older head (record #7)"
+	if row = Decide(row); !row.ReadyForTap || row.WaitsOn != tapEndsHold+"his approval was at an older head (record #7)" {
+		t.Fatalf("row = %+v", row)
+	}
+	row.Hold = "root:the cutover (record #8)"
+	if row = Decide(row); row.ReadyForTap || !strings.Contains(row.WaitsOn, "root:the cutover (record #8)") {
+		t.Fatalf("an ordinary hold beside it: row = %+v", row)
+	}
+}
+
+func TestATapFromBeforeAnUntilTapHoldDoesNotCountOnTheRow(t *testing.T) {
+	facts := map[string]string{"tap": "tapped"}
+	if tapped := Materialize(store.ReviewRow{Number: 1, Head: headA}, facts, Held{}, nil, "dev"); !tapped.Tapped {
+		t.Fatalf("no hold: row = %+v", tapped)
+	}
+	held := Materialize(store.ReviewRow{Number: 1, Head: headA}, facts, Held{AwaitsTap: "asks his tap"}, nil, "dev")
+	if held.Tapped || held.Hold != None || held.AwaitsTap != "asks his tap" {
+		t.Fatalf("row = %+v", held)
+	}
+}
+
+func TestAStandingWordLeavesAnUntilTapRowForHisTap(t *testing.T) {
+	facts := map[string]string{gates.FlakeFixAttr: "yes", "read-ci": CIGreen, "read-approvers": "a", "read-mergeable": string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
+	base := func() store.ReviewRow {
+		row := readyRow()
+		row.Number, row.Head = 1, headA
+		return row
+	}
+	if standing := Materialize(base(), facts, Held{}, nil, "dev"); standing.ReadyForTap {
+		t.Fatalf("no hold: row = %+v, want the standing word to take it off his tab", standing)
+	}
+	if held := Materialize(base(), facts, Held{AwaitsTap: "asks his tap"}, nil, "dev"); !held.ReadyForTap || !strings.Contains(held.WaitsOn, "asks his tap") {
+		t.Fatalf("until=tap: row = %+v, want it ready for his tap", held)
+	}
+}
+
+func TestACarriedTapDoesNotCountOnAnUntilTapRowOrSpeakOnIt(t *testing.T) {
+	facts := map[string]string{factCarriedBy: "same-diff", factTapFrom: headB}
+	if carried := Materialize(store.ReviewRow{Number: 1, Head: headA}, facts, Held{}, nil, "dev"); !carried.Tapped || !strings.Contains(carried.WaitsOn, "carried to this head") {
+		t.Fatalf("no hold: row = %+v", carried)
+	}
+	held := Materialize(store.ReviewRow{Number: 1, Head: headA}, facts, Held{AwaitsTap: "asks his tap"}, nil, "dev")
+	if held.Tapped || strings.Contains(held.WaitsOn, "carried") {
+		t.Fatalf("row = %+v", held)
+	}
+}
+
 func foldFor(t *testing.T) (Fold, *store.Store) {
 	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
@@ -582,15 +631,15 @@ func TestAPlanRowIsTheBodysLineOrTheFidelityPass(t *testing.T) {
 
 func TestARefusedTapShowsOnItsRowUntilALaterTapStands(t *testing.T) {
 	const reason = "held, root:waits on the cutover"
-	refused := Materialize(store.ReviewRow{Number: 1, Head: headA}, map[string]string{bus.TapRefusedFact: reason}, "", nil, "dev")
+	refused := Materialize(store.ReviewRow{Number: 1, Head: headA}, map[string]string{bus.TapRefusedFact: reason}, Held{}, nil, "dev")
 	if refused.TapRefused != reason || refused.Tapped {
 		t.Fatalf("row = %+v", refused)
 	}
-	tapped := Materialize(store.ReviewRow{Number: 1, Head: headA}, map[string]string{bus.TapRefusedFact: reason, "tap": "tapped"}, "", nil, "dev")
+	tapped := Materialize(store.ReviewRow{Number: 1, Head: headA}, map[string]string{bus.TapRefusedFact: reason, "tap": "tapped"}, Held{}, nil, "dev")
 	if tapped.TapRefused != None || !tapped.Tapped {
 		t.Fatalf("row = %+v", tapped)
 	}
-	if never := Materialize(store.ReviewRow{Number: 1, Head: headA}, nil, "", nil, "dev"); never.TapRefused != None {
+	if never := Materialize(store.ReviewRow{Number: 1, Head: headA}, nil, Held{}, nil, "dev"); never.TapRefused != None {
 		t.Fatalf("row = %+v", never)
 	}
 }
@@ -703,7 +752,7 @@ func TestARowSaysHisTapCarriedOrReturnedAndWhy(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
 			maps.Copy(facts, tc.facts)
-			row := Materialize(ready, facts, "", nil, "dev")
+			row := Materialize(ready, facts, Held{}, nil, "dev")
 			if row.Tapped != tc.tapped || row.WaitsOn != tc.waits {
 				t.Fatalf("tapped %v, waits %q; want %v, %q", row.Tapped, row.WaitsOn, tc.tapped, tc.waits)
 			}
@@ -747,7 +796,7 @@ func TestAPortAsksHimOnlyWhenItSaysItInteractsOrTheGateRefusesIt(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
 			maps.Copy(facts, tc.facts)
-			row := Materialize(readyRow(), facts, "", nil, "dev")
+			row := Materialize(readyRow(), facts, Held{}, nil, "dev")
 			if row.ReadyForTap != tc.ready || row.WaitsOn != tc.waits {
 				t.Fatalf("ready %v, waits %q; want %v, %q", row.ReadyForTap, row.WaitsOn, tc.ready, tc.waits)
 			}

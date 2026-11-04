@@ -41,6 +41,7 @@ const (
 	RedAtHead = "CI is red at this head"
 
 	onlyHim     = "Only your approval."
+	tapEndsHold = "Only your approval at this head, which ends the hold: "
 	tappedWaits = "You approved it; the landing desk lands it next."
 	fieldChars  = 700
 	planChecked = "Checked against the plan by the fidelity review at this version."
@@ -65,6 +66,8 @@ func Decide(row store.ReviewRow) store.ReviewRow {
 		row.WaitsOn = unmet
 	case row.Tapped:
 		row.WaitsOn = tappedWaits
+	case row.AwaitsTap != "":
+		row.WaitsOn = tapEndsHold + row.AwaitsTap
 	default:
 		row.WaitsOn = onlyHim
 	}

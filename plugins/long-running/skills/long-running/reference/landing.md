@@ -357,7 +357,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 ### A tap reads the row
 
 - Only the host with the landing mover answers a tap. A tap from any surface stands only when the PR's review row is ready for his tap at the head the tap names. Otherwise no `lr.tap` is written; one `tap.refused` record names the reason, and the reason shows on that row until a later tap stands. A Slack merge card tap on a head that moved or a PR with no row writes the same record, at the head the card named, so it never shows on the new head's row.
-- A refused tap never revives: when the row turns ready, the PR returns to Waiting on you and needs a new tap, so lifting a hold never lands something he tapped while it was held. A hold or an undo is always written.
+- A refused tap never revives: when the row turns ready, the PR returns to Waiting on you and needs a new tap, so lifting an ordinary hold never lands something he tapped while it was held. An `until=tap` hold keeps its row ready, so his tap stands and ends it, under [Holds](#holds-priority-dequeue-and-requeue). A hold or an undo is always written.
 - The landing pass, `lr landing gate` and `lr landing go` read the same row: a PR lands only when its row is ready and it is tapped, or it is exempt under its rule. `lr landing go` still needs a row at that head.
 - A row not ready on a PR that passes every other gate opens a `row-wait` item for its lane, and `lr board rows` says what it waits on. Three or more still open after an hour tell root in one record.
 - A tapped PR with no row lands nothing and tells `meta-desk` once.
@@ -503,11 +503,15 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 
 **Holds.**
 - Holds travel only as cci records or the GitHub `hold` label; no adapter takes a hold flag.
-- The coordinator holds a PR with `cci post --kind hold --pr <n> --text "hold #<n> <why>"`. A record holds the one PR its text leads with as `hold #<n>`, else every PR its refs name; a later `#<n>` in the text is prose.
-- Only a typed `--resolves` on a hold lifts it; a `go` never does.
+- The coordinator holds a PR with `cci post --kind hold --pr <n> --text "hold #<n> <why>"`. A record holds the one PR its text leads with as `hold #<n>`, else every PR its refs name; a later `#<n>` in the text is prose. A held row is not ready for his tap: it leaves his tab and Slack card, and his tap on a card he still has is refused and answered in the thread with the hold's reason.
+- A hold placed while any message of ours asks him for a tap is `cci post --kind hold --pr <n> --attr until=tap --text "hold #<n> <why>"`, naming one PR. No other hold may be used for it, because a row that leaves his tab while we ask him to tap it refuses the tap he was asked for.
+  - The row stays `ready_for_tap`, on his tab and Slack card, and its `waits_on` says the hold's reason. A tap from before the hold, carried or written over, does not count, and nothing lands.
+  - His tap at the row's head ends the hold and writes the land order, with no second step: the landing host posts the `lr.tap` and a `note` resolving the hold to the lane that placed it. A tap at another head is refused and leaves the hold open.
+  - Any other open hold on the PR still reads as held. A hold on several PRs is an ordinary hold, whatever its `until`.
+- Only a typed `--resolves` on a hold lifts it, and his tap on an `until=tap` hold is the one thing that writes that for you; a `go` never does.
 - Each pass reads open holds. A queued head under an open hold leaves the queue top first with every PR stacked on it and a `DEQUEUED` record per PR.
-- A head the owner tapped under an open hold, the owner's or the coordinator's, is `held` and the coordinator's to decide within the hour. The pass sends the coordinator one `DECIDE` per head and hold that names the hold's record and the tapped head and asks it to lift the hold or tell the owner why not. Nothing lifts the hold for it, and a root go never lifts the owner's hold.
-- An untapped head under a hold still waits on the owner's 12-hour clock and posts nothing.
+- A head the owner tapped under an ordinary open hold, the owner's or the coordinator's, is `held` and the coordinator's to decide within the hour. The pass sends the coordinator one `DECIDE` per head and hold that names the hold's record and the tapped head and asks it to lift the hold or tell the owner why not. Nothing lifts the hold for it, and a root go never lifts the owner's hold.
+- An untapped head under an ordinary hold still waits on the owner's 12-hour clock and posts nothing.
 - A lane whose stack sits on a held PR reads why with `lr board waits --pr <n>` and leaves release to the coordinator.
 - An order to hold a PR becomes a typed hold record the turn it lands. A spoken hold or a `SendMessage` never reaches a polling land lane, which will enqueue PRs past it.
 - A PR sent back to its lane for rework gets the `hold` label (or a cci hold record) in the same turn and leaves the watch list that turn. Removing the merge label or converting it to a draft is not enough, because Graphite can still land a PR it has already enqueued.
