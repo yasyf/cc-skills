@@ -725,7 +725,7 @@ def test_refusals_print_in_the_contracts_order_and_an_incident_fix_meets_only_th
     ("failing", "blocker"),
     [
         ("gh pr view", "BLOCKER acme/app#12: "),
-        ("git -C /repo diff", "BLOCKER the diff of acme/app#12: "),
+        (f"env {rulings.ABSENT_INDEX} git -C /repo diff", "BLOCKER the diff of acme/app#12: "),
         ("git -C /repo for-each-ref", "BLOCKER the register: "),
         ("cci tail", "BLOCKER the PR's cci records: "),
     ],

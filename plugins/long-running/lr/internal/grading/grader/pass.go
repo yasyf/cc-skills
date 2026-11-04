@@ -35,6 +35,7 @@ const (
 	reasonless  = "no reasoning in `swept`, which gives one sentence per group of related hunks saying what it changes and why it holds or fails"
 	nothing     = "(none)"
 	gitlinkMode = "160000"
+	absentIndex = "GIT_INDEX_FILE=/nonexistent/lr-no-index"
 )
 
 var (
@@ -162,7 +163,7 @@ func (p *pass) git(args ...string) (string, error) {
 }
 
 func (p *pass) gitFed(stdin string, args ...string) (string, error) {
-	out, err := p.execute(shell.Command{Argv: append([]string{"git"}, args...), Stdin: stdin, Dir: p.job.Checkout, Timeout: gitTimeout})
+	out, err := p.execute(shell.Command{Argv: append([]string{"git"}, args...), Stdin: stdin, Dir: p.job.Checkout, Env: []string{absentIndex}, Timeout: gitTimeout})
 	return strings.TrimSpace(out), err
 }
 

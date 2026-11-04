@@ -283,6 +283,7 @@ KEY_QUALIFIERS = frozenset({"api", "private", "secret", "signing", "access", "au
 IDENTIFIER_PART = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])")
 STATEMENT_LINES = 4
 LOOKBACK = 15
+ABSENT_INDEX = "GIT_INDEX_FILE=/nonexistent/lr-no-index"
 LOCAL_RUN = re.compile(r"\b(?:cargo\s+(?:build|test|nextest|run)|go\s+(?:test|run)|pytest|py\.test|jest|vitest|(?:yarn|npm|pnpm|bun)\s+(?:run\s+)?test|buck2\s+(?:build|test|run))\b")
 ARGUMENT_PUNCTUATION = re.compile(r"[\"'`,\[\]()]|\.args?\b")
 MAC_PATH = re.compile(r"/Users/|~/|\$HOME\b|\$\{HOME\}")
@@ -1006,8 +1007,9 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
             fcntl.flock(lock, fcntl.LOCK_EX)
             if not kept.is_file():
                 staged = kept.with_suffix(f".{os.getpid()}")
-                copies = ["--find-copies-harder", "-l0"] if shell.run([*git, "diff-tree", "-r", "--no-renames", "--diff-filter=A", "--name-only", fork, head]).strip() else []
-                shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", *copies, f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{tip}...{head}"])
+                unindexed = ["env", ABSENT_INDEX, *git]
+                copies = ["--find-copies-harder", "-l0"] if shell.run([*unindexed, "diff-tree", "-r", "--no-renames", "--diff-filter=A", "--name-only", fork, head]).strip() else []
+                shell.run([*unindexed, "diff", "--no-color", "--no-ext-diff", "--no-textconv", *copies, f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{tip}...{head}"])
                 staged.replace(kept)
     return parse_diff(kept.read_text(errors="replace"))
 

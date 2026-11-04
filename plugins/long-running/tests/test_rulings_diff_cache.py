@@ -37,8 +37,8 @@ LEGACY_PR_DIFF_SOURCE = '''def pr_diff(args: argparse.Namespace, shell: ledger.S
 '''
 
 
-def git(checkout: Path, *arguments: str, stdin: str | None = None) -> str:
-    env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+def git(checkout: Path, *arguments: str, stdin: str | None = None, extra_env: dict[str, str] | None = None) -> str:
+    env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull) | (extra_env or {})
     return subprocess.run(
         ["git", "-C", str(checkout), "-c", "core.hooksPath=" + os.devnull, *arguments],
         input=stdin, capture_output=True, text=True, check=True, env=env,
@@ -73,6 +73,12 @@ def arguments(root: Path, checkout: Path) -> argparse.Namespace:
     return argparse.Namespace(drive="fixture", program=None, runtime=SimpleNamespace(drives=drives, scratch=root / "scratch"))
 
 
+def split_env(argv: list[str]) -> tuple[list[str], dict[str, str]]:
+    if argv[0] != "env":
+        return argv, {}
+    return argv[2:], dict([argv[1].split("=", 1)])
+
+
 class GitShell:
     def __init__(self, records: Path, entered=None, release=None) -> None:
         self.records = records
@@ -80,14 +86,15 @@ class GitShell:
         self.release = release
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
-        assert argv[0] == "git", argv
-        if argv[3] == "diff":
+        command, extra_env = split_env(argv)
+        assert command[0] == "git", argv
+        if command[3] == "diff":
             with (self.records / f"diff-{os.getpid()}.jsonl").open("a") as output:
                 output.write(json.dumps(argv) + "\n")
             if self.entered is not None:
                 self.entered.set()
                 assert self.release.wait(20), "fixture did not release its producer"
-        return git(Path(argv[2]), *argv[3:], stdin=stdin)
+        return git(Path(command[2]), *command[3:], stdin=stdin, extra_env=extra_env)
 
 
 def cold_reader(root: str, checkout: str, base: str, head: str, missed, entered, release, output, legacy: bool = False) -> None:
@@ -173,6 +180,20 @@ def test_same_cold_key_computes_one_copy_aware_diff(tmp_path: Path, size: int) -
     print(json.dumps({"candidate_sources": size, "concurrent_cold_callers": 2, "expensive_diff_commands": len(commands), "diff_bytes": len(expected.encode()), "diff_sha256": hashlib.sha256(expected.encode()).hexdigest(), "copy_parse_parity": True, "warm_additional_diff_commands": 0}), flush=True)
 
 
+def test_a_cold_diff_reads_no_index_so_it_stats_no_file_of_the_checkout(tmp_path: Path) -> None:
+    """Nov 4: on a Sprite, a copy search over the checkout's index statted every candidate on the network home disk, 452 s on #50076 where the same diff with no index took 3 s."""
+    checkout, base, head = repository(tmp_path, 2)
+    (checkout / ".git" / "index").write_text("not an index")
+    expected = git(checkout, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", f"-U{rulings.LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"{base}...{head}", extra_env={"GIT_INDEX_FILE": str(tmp_path / "absent")})
+
+    found = rulings.pr_diff(arguments(tmp_path, checkout), GitShell(tmp_path), "acme/project", base, head)
+
+    assert asdict(found) == asdict(rulings.parse_diff(expected))
+    [command] = diff_commands(tmp_path)
+    assert command[:2] == ["env", rulings.ABSENT_INDEX]
+    assert not Path(rulings.ABSENT_INDEX.split("=", 1)[1]).exists()
+
+
 @pytest.mark.parametrize("failure", [RuntimeError("diff failed"), KeyboardInterrupt("fixture interruption"), subprocess.CalledProcessError(42, ["git", "diff"], stderr="fixture diff error")])
 def test_failed_producer_keeps_its_error_and_next_independent_call_can_fill(tmp_path: Path, failure: BaseException) -> None:
     checkout, base, head = repository(tmp_path, 2)
@@ -181,7 +202,7 @@ def test_failed_producer_keeps_its_error_and_next_independent_call_can_fill(tmp_
 
     class FailingGit(GitShell):
         def run(self, argv: list[str], stdin: str | None = None) -> str:
-            if argv[3] == "diff":
+            if split_env(argv)[0][3] == "diff":
                 Path(next(arg.removeprefix("--output=") for arg in argv if arg.startswith("--output="))).write_text("partial")
                 raise failure
             return super().run(argv, stdin)

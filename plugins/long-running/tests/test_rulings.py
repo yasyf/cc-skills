@@ -494,9 +494,9 @@ class RegisterShell(ledger.Shell):
                 return f"{FULL_HEAD}\n"
             case ["git", "-C", "/repo", "merge-base", _, _]:
                 return hashlib.sha1(self.diff.encode()).hexdigest() + "\n"
-            case ["git", "-C", "/repo", "diff-tree", *_]:
+            case ["env", rulings.ABSENT_INDEX, "git", "-C", "/repo", "diff-tree", *_]:
                 return self.added
-            case ["git", "-C", "/repo", "diff", *_, output, _]:
+            case ["env", rulings.ABSENT_INDEX, "git", "-C", "/repo", "diff", *_, output, _]:
                 Path(output.removeprefix("--output=")).write_text(self.diff)
                 return ""
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
@@ -2056,7 +2056,7 @@ class LargeDiff(RegisterShell):
         match gateway(argv):
             case ["gh", "api", path, "-H", _, "--allow-escape-sequences"] if "/compare/" in path:
                 raise subprocess.CalledProcessError(1, argv, stderr="HTTP 406: Sorry, the diff exceeded the maximum number of files (300).")
-            case ["git", "-C", "/repo", "diff", *_, output, spec] if spec == f"{BASE_TIP}...{FULL_HEAD}":
+            case ["env", rulings.ABSENT_INDEX, "git", "-C", "/repo", "diff", *_, output, spec] if spec == f"{BASE_TIP}...{FULL_HEAD}":
                 Path(output.removeprefix("--output=")).write_bytes(DIFF.encode() + FIXTURES_DIFF)
                 self.calls.append(argv)
                 return ""
@@ -2098,7 +2098,7 @@ def test_the_checkout_diff_searches_the_whole_tree_for_copies_only_when_the_pr_a
     code, _ = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", FULL_HEAD, "--base", "main")
 
     assert code == 0
-    diffs = [argv for argv in shell.calls if argv[3:4] == ["diff"]]
+    diffs = [argv for argv in shell.calls if argv[5:6] == ["diff"]]
     assert diffs and ("--find-copies-harder" in diffs[0]) is searched
 
 

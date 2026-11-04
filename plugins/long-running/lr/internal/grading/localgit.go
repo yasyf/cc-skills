@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -21,30 +23,63 @@ const (
 	replacedSuffix  = ".replaced"
 	stagedSuffix    = ".part"
 	clonePathChars  = 12
+	attrTree        = "attr.tree"
+	headTree        = "HEAD"
 )
 
 var uncopiedGitDirs = []string{objectsDir, "cc-notes", "logs"}
 
 func onLocalDisk(checkout, root string) error {
 	git := filepath.Join(checkout, gitDir)
-	if info, err := os.Lstat(git); err != nil || !info.IsDir() {
+	info, err := os.Lstat(git)
+	if err != nil || info.Mode().IsRegular() {
 		return err
 	}
-	if err := moveGit(checkout, git, root); err != nil {
-		return err
+	if info.IsDir() {
+		if err := moveGit(checkout, git, root); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(git + replacedSuffix); err != nil {
+			return err
+		}
 	}
-	return os.RemoveAll(git + replacedSuffix)
+	return attributesFromHead(checkout)
 }
 
-func moveGit(checkout, git, root string) error {
-	lock, err := os.OpenFile(checkout+fetchLock, os.O_CREATE|os.O_RDWR, 0o600)
+func attributesFromHead(checkout string) error {
+	set, err := exec.Command("git", "-C", checkout, "config", "--get", attrTree).Output()
+	if err == nil && strings.TrimSpace(string(set)) == headTree {
+		return nil
+	}
+	lock, err := lockFetch(checkout)
 	if err != nil {
 		return err
 	}
 	defer lock.Close()
+	if out, err := exec.Command("git", "-C", checkout, "config", attrTree, headTree).CombinedOutput(); err != nil {
+		return fmt.Errorf("git config %s: %w: %s", attrTree, err, out)
+	}
+	return nil
+}
+
+func lockFetch(checkout string) (*os.File, error) {
+	lock, err := os.OpenFile(checkout+fetchLock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		lock.Close()
+		return nil, err
+	}
+	return lock, nil
+}
+
+func moveGit(checkout, git, root string) error {
+	lock, err := lockFetch(checkout)
+	if err != nil {
 		return err
 	}
+	defer lock.Close()
 	if info, err := os.Lstat(git); err != nil || !info.IsDir() {
 		return err
 	}
