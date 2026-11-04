@@ -315,14 +315,14 @@ func TestADeadLaneRelaunchesWithItsHandoffAndIsToldItStoodDownAtOnce(t *testing.
 	equal(t, row(t, s, "conflicts-4").State, store.LaneDesired)
 }
 
-func TestARelaunchBriefKeepsTheLaneOnTheMacAndCarriesItsRegisterSlice(t *testing.T) {
+func TestARelaunchBriefKeepsTheLanesPlacementAndCarriesItsRegisterSlice(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(30)))}
 
 	tick(t, s, f, t0)
 
-	equal(t, strings.Split(f.briefs["conflicts-3"], "\n")[:3], []string{"Replaces: conflicts-2", "ccx: place=local", "Register slice: lane=conflicts-3 step=tooling"})
+	equal(t, strings.Split(f.briefs["conflicts-3"], "\n")[:3], []string{"Replaces: conflicts-2", "ccx: place=remote", "Register slice: lane=conflicts-3 step=tooling"})
 }
 
 func TestADeadLaneWhoseSuccessorLaunchNamedItIsRetiredNotRelaunched(t *testing.T) {

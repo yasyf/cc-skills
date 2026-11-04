@@ -2290,3 +2290,17 @@ func TestAWorkerStartThatPrintedADispatchBesideARefusalRollsNothingBack(t *testi
 	}
 	wantNoCalls(t, h, "ccx vcs")
 }
+
+func TestAMacBriefNamesWhyOrTheLaneGoesToASprite(t *testing.T) {
+	cases := map[string]bool{
+		"ccx: role=build place=local incident=none\n":                    false,
+		"ccx: role=build place=local why=orca-terminals incident=none\n": true,
+		"ccx: role=build place=remote\n":                                 false,
+		"Scale: one PR\n":                                                false,
+	}
+	for brief, pinned := range cases {
+		if macPinned("a-lane", "opus", brief) != pinned {
+			t.Fatalf("%q pinned = %v", brief, !pinned)
+		}
+	}
+}

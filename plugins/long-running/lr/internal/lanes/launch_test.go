@@ -31,9 +31,9 @@ func sessionBrief(t *testing.T, state, lane, role string) string {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	ccx := "ccx: place=local"
+	ccx := "ccx: place=local why=test"
 	if role != "" {
-		ccx = "ccx: role=" + role + " place=local"
+		ccx = "ccx: role=" + role + " place=local why=test"
 	}
 	if err := os.WriteFile(path, []byte(fmt.Sprintf("# %s\nRegister slice: lane=%s step=all\nStanding: the %s duty\n%s\n", lane, lane, lane, ccx)), 0o600); err != nil {
 		t.Fatal(err)

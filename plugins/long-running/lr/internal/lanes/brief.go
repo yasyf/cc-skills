@@ -13,6 +13,7 @@ import (
 )
 
 var (
+	macBrief    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=local(?:\s|$)`)
 	sliceStep   = regexp.MustCompile(`(?m)^Register slice: lane=\S+ step=(\S+)`)
 	standing    = regexp.MustCompile(`(?m)^Standing: *(\S.*?)[ \t]*$`)
 	deliverable = regexp.MustCompile(`(?m)^(?:#+ *)?(?:\*\*)?Deliverables?\b[^\n:]*:?\**[ \t]*([^\n]*)(?:\n\s*([^\n]*))?`)
