@@ -2469,6 +2469,17 @@ func TestBriefParsing(t *testing.T) {
 	equal(t, parseBrief("nothing"), Brief{})
 }
 
+func TestAStandingLineOfNoneIsNoDuty(t *testing.T) {
+	for text, duty := range map[string]string{
+		"Standing: none; ends when the report lands\n":  "",
+		"Standing: None.\n":                             "",
+		"Standing: yes\n":                               "yes",
+		"Standing: nonetheless keep the queue moving\n": "nonetheless keep the queue moving",
+	} {
+		equal(t, parseBrief("# x\n"+text).Standing, duty)
+	}
+}
+
 func coordinator(t *testing.T, s *store.Store, brief string) *fake {
 	t.Helper()
 	f := newFake(t, []Record{spawned(1, Root, brief, t0.Add(-2*time.Hour), map[string]string{"model": "opus", "effort": "xhigh"})}, []Row{who(Root, true, t0.Add(-time.Hour))})
