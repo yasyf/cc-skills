@@ -21,6 +21,8 @@ const (
 	SinceFact    = "behavior-since"
 	ChangedFact  = "what-changed"
 	MissingFact  = "gates-missing"
+	ShownFact    = "approval-shown"
+	MergesAtFact = "merges-at"
 	fidelityFact = "fidelity"
 
 	BehaviorSame    = "same"

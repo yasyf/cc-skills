@@ -2060,3 +2060,28 @@ func TestAHoldOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
 		t.Fatalf("verdict = %+v, want root to lift the hold", verdict)
 	}
 }
+
+func TestTheMinuteHisPostReachedHimCarriesToARestackAndRestartsOnARealChange(t *testing.T) {
+	restacked := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,3 +10,4", "-42,3 +44,4").Replace(ownDiff)
+	changed := strings.Replace(ownDiff, `"a b"`, `"ab"`, 1)
+	for name, tc := range map[string]struct {
+		diff  string
+		shown string
+	}{
+		"a restack whose own diff is the same": {restacked, store.Stamp(tappedAt)},
+		"a change to its own diff":             {changed, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			putFact(t, s, 1, head2, gates.ShownFact, store.Stamp(tappedAt), tappedAt)
+			on(t, s, recordedPR{number: 1, head: head2, login: "drive-bot", diff: ownDiff}).snapshot(t)
+
+			on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: tc.diff}).snapshot(t)
+
+			stored, err := s.Facts(repo, 1, head)
+			if err != nil || stored[gates.ShownFact] != tc.shown {
+				t.Fatalf("shown at the new head %q, %v, want %q", stored[gates.ShownFact], err, tc.shown)
+			}
+		})
+	}
+}

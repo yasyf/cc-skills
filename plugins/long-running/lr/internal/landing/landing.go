@@ -146,7 +146,7 @@ func dequeued(f machine.Facts, said string) Said {
 		if f.TapRefused != "" {
 			answer.Text += "his tap was refused: " + f.TapRefused + "; "
 		}
-		answer.Text += "it was queued with no owner tap and no go naming an exempt class at this head; a class on fidelity's ok admits it only through the go sweep, which posts its go on the next pass and needs no ask, and the pass queues it; lr landing go prints why the sweep refuses; an incident fix asks for nothing and lands by plain squash once approved and green"
+		answer.Text += "it was queued with no owner tap and no go naming an exempt class at this head; a class on fidelity's ok admits it only through the go sweep, which posts its go on the next pass and needs no ask, and the pass queues it; lr landing go prints why the sweep refuses; an alert fix lands by plain squash once approved and green: at once on his Approve or while an open incident names it, else once the alert wait from its approval post has passed"
 	default:
 		answer.Text = "an open hold names a PR below it"
 	}

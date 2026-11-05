@@ -37,6 +37,7 @@ type SlackCard struct {
 	Options     []string     `json:"options"`
 	Recommended string       `json:"recommended"`
 	Waits       string       `json:"waits"`
+	MergesAt    string       `json:"merges_at,omitempty"`
 }
 
 type SlackPRRow struct {
@@ -101,6 +102,9 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	}
 	card.Status, card.Title = "needs_you", fmt.Sprintf("%sApprove #%d at %s?", opening, row.Number, at)
 	card.Options, card.Recommended, card.Waits = []string{approveLabel, holdLabel}, approveLabel, MergeWaits(row.Number, row.Head)
+	if merges, err := store.Parse(row.MergesAt); err == nil {
+		card.Title, card.MergesAt = fmt.Sprintf("Approve #%d at %s? It merges itself at %s unless you tap Hold", row.Number, at, pacific(merges)), row.MergesAt
+	}
 	if !row.ReadyForTap {
 		card.PRs[0].Blocks, card.PRs[0].Lands = "", prrow.LandsOnce(row)
 	}
@@ -308,6 +312,16 @@ func MarkShown(s *store.Store, repo string, rows []store.ReviewRow, shown []Slac
 			continue
 		}
 		if _, err := s.PutFact(repo, card.Number, row.Head, FactTapCard, tapCardInSlack, at); err != nil {
+			return err
+		}
+		stored, err := s.Facts(repo, card.Number, row.Head)
+		if err != nil {
+			return err
+		}
+		if stored[gates.ShownFact] != "" {
+			continue
+		}
+		if _, err := s.PutFact(repo, card.Number, row.Head, gates.ShownFact, store.Stamp(at), at); err != nil {
 			return err
 		}
 	}

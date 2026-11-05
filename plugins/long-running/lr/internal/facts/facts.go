@@ -933,7 +933,11 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 	if err != nil {
 		return err
 	}
-	if tapped == "" && goHead == "" && len(overrides) == 0 && len(claims) == 0 {
+	shown, err := s.Store.HeadFacts(s.Repo, f.Number, []string{gates.ShownFact})
+	if err != nil {
+		return err
+	}
+	if tapped == "" && goHead == "" && len(overrides) == 0 && len(claims) == 0 && len(shown) == 0 {
 		return nil
 	}
 	if err := s.hashDiff(ctx, *f, stored); err != nil {
@@ -964,7 +968,31 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 	if err := s.carryClaim(ctx, *f, stored, claims); err != nil {
 		return err
 	}
+	if err := s.carryShown(*f, stored, shown); err != nil {
+		return err
+	}
 	return s.carryOverrides(ctx, *f, stored, overrides)
+}
+
+func (s Source) carryShown(f machine.Facts, stored map[string]string, shown []store.HeadFact) error {
+	if len(shown) == 0 || stored[gates.ShownFact] != "" {
+		return nil
+	}
+	from := shown[len(shown)-1]
+	atFrom, err := s.Store.Facts(s.Repo, f.Number, from.Head)
+	if err != nil {
+		return err
+	}
+	deltas, err := s.Store.HeadFacts(s.Repo, f.Number, gates.DeltaFacts)
+	if err != nil {
+		return err
+	}
+	if by, _ := gates.CarriedBy(from.Head, f.Head, atFrom, stored, deltas); by == "" {
+		return nil
+	}
+	stored[gates.ShownFact] = from.Value
+	_, err = s.Store.PutFact(s.Repo, f.Number, f.Head, gates.ShownFact, from.Value, s.Now())
+	return err
 }
 
 func (s Source) carryClaim(ctx context.Context, f machine.Facts, stored map[string]string, claims []store.HeadFact) error {

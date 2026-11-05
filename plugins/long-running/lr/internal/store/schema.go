@@ -135,4 +135,5 @@ var addedColumns = []struct{ table, column, kind string }{
 	{"review_rows", "awaits_tap", "TEXT NOT NULL DEFAULT ''"},
 	{"review_rows", "port", "TEXT NOT NULL DEFAULT ''"},
 	{"review_rows", "moved_at", "TEXT NOT NULL DEFAULT ''"},
+	{"review_rows", "merges_at", "TEXT NOT NULL DEFAULT ''"},
 }
