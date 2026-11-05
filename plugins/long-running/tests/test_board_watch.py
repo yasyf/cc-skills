@@ -307,6 +307,17 @@ def test_a_pick_names_the_head_its_card_asked_about() -> None:
     )
 
 
+def test_a_pick_records_the_pull_request_its_option_approves() -> None:
+    """A pick of an option that names the PR it approves carries that PR and head on the owner record, so the landing pass orders it by that field and not by the label."""
+    shell = RecordedShell(doc=GROUP_DOC)
+    event = {"type": "choice.selected", "blockId": "fix-rows", "optionIds": ["fix-rows-build"], "approves": {"org/repo#48855": "abc1234"}}
+
+    board_watch.announce(event, json.dumps(event), "board-1", GROUP_DOC, shell, board_watch.Bus("brook", 0))
+
+    [owner] = [post for post in shell.posts if post[post.index("--kind") + 1] == "owner"]
+    assert attrs(owner)["approves"] == "org/repo#48855=abc1234"
+
+
 def test_a_restart_keys_events_after_the_lines_already_recorded(tmp_path: Path) -> None:
     first, second = RecordedShell(), RecordedShell()
     run(tmp_path, first)

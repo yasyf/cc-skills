@@ -20,7 +20,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
@@ -45,7 +47,8 @@ var (
 type Ask struct {
 	ID, Title, Background, From, Branch, NothingToBuild string
 	Options, Shots                                      []string
-	PortOf                                              int
+	PortOf, Approves                                    int
+	ApprovesHead                                        string
 }
 
 type askOption struct {
@@ -54,6 +57,7 @@ type askOption struct {
 	Md          string         `json:"md"`
 	Recommended bool           `json:"recommended,omitempty"`
 	Build       map[string]any `json:"build,omitempty"`
+	Approves    map[string]any `json:"approves,omitempty"`
 }
 
 func (a Ask) Block(repo string) (json.RawMessage, error) {
@@ -76,6 +80,12 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 			return nil, fmt.Errorf("refused: --option %q does not say what picking it does; write it as 'Keep it :: what picking it does'", option)
 		}
 		options[i] = askOption{ID: fmt.Sprintf("%s-%d", slug, i+1), Label: label, Md: linkedNumbers(does, repo)}
+		if a.Approves != 0 && bus.ReadsAsLand(label) {
+			options[i].Approves = map[string]any{"repo": repo, "number": a.Approves, "head": a.ApprovesHead}
+		}
+	}
+	if a.Approves != 0 && !slices.ContainsFunc(options, func(o askOption) bool { return o.Approves != nil }) {
+		return nil, fmt.Errorf("refused: --approves #%d names the PR an option lands, and no option's label reads as landing it; open that option's label with Land, Merge, Approve or Ship", a.Approves)
 	}
 	options[0].Recommended, options[0].Build = true, build
 	background := linkedNumbers(strings.TrimSpace(a.Background), repo)
@@ -90,6 +100,9 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 		title, from = opening+": "+a.Title, cmp.Or(a.From, opening)
 		said = append(said, fmt.Sprintf("PR %d", a.PortOf))
 	}
+	if a.Approves != 0 {
+		said = append(said, fmt.Sprintf("PR %d", a.Approves))
+	}
 	children := []map[string]any{{"id": slug + "-from", "type": "markdown", "md": "**From:** " + from}}
 	if more = strings.TrimSpace(more); more != "" {
 		children = slices.Insert(children, 0, map[string]any{"id": slug + "-background", "type": "markdown", "md": more})
@@ -101,7 +114,11 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	children = append(children, shots...)
 	children = append(children, map[string]any{"id": slug + "-choice", "type": "choice", "options": options})
 	for _, pr := range namedPRs(said, repo) {
-		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%s-%d", slug, strings.ReplaceAll(pr.Repo, "/", "-"), pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
+		child := map[string]any{"id": fmt.Sprintf("%s-pr-%s-%d", slug, strings.ReplaceAll(pr.Repo, "/", "-"), pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number}
+		if pr == (SlackPR{repo, a.Approves}) {
+			child["head"] = a.ApprovesHead
+		}
+		children = append(children, child)
 	}
 	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": strings.TrimSpace(summary), "children": children})
 }
@@ -261,6 +278,17 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 				return err
 			}
 			block, remove := json.RawMessage(nil), withdraw
+			if ask.Approves != 0 {
+				prs, err := ccx.CLI{Runner: a.Runner}.PRStatus(c.Context(), entry.Repo, []int{ask.Approves})
+				if err != nil {
+					return err
+				}
+				at := slices.IndexFunc(prs, func(pr ccx.PRStatus) bool { return pr.Number == ask.Approves && pr.State == "OPEN" })
+				if at < 0 {
+					return fmt.Errorf("refused: --approves #%d is no open PR of %s, so his pick would approve nothing", ask.Approves, entry.Repo)
+				}
+				ask.ApprovesHead = prs[at].Head
+			}
 			if withdraw == "" {
 				if block, err = askedCard(c.InOrStdin(), ask, file, entry.Repo); err != nil {
 					return err
@@ -291,6 +319,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags.StringArrayVar(&ask.Shots, "shot", nil, "'PATH or https URL :: what it shows', a real screenshot, repeatable; a path is read on the board's Mac")
 	flags.StringVar(&ask.From, "from", "", "the plan step and date, his ruling id, or whose PR it ports; default "+noPlanFrom)
 	flags.IntVar(&ask.PortOf, "port-of", 0, "the old-tree PR this card's port copies: the card's title opens with port of #N")
+	flags.IntVar(&ask.Approves, "approves", 0, "the PR an option whose label opens with Land, Merge, Approve or Ship lands: his pick of it approves that PR at its head now, by that field, never by the label")
 	flags.StringVar(&ask.ID, "id", "", "the card's id after card-; default the title's first words")
 	flags.StringVar(&until, "until", "", "the event after which his answer no longer matters: at:TIME or a span such as at:3d, pr:N, release:STACK@ENV:COMMIT or record:SEQ")
 	flags.StringVar(&file, "card", "", "a whole cc-present card as JSON, FILE or -, in place of the question flags")

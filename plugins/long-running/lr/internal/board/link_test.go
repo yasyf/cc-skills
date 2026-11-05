@@ -680,3 +680,49 @@ func TestAskFlagsAreRefusedSayingWhatToChange(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAskOwnerCardApprovingAPRCarriesItAndItsHeadOnTheLandingOption(t *testing.T) {
+	const head = "2c28d5b8c446559e1bec27b9987c183a3a50bbce"
+	ask := Ask{
+		Title: "Land the run usage report for the new tree?", Background: "Port of the old tree's report.", PortOf: 49563, Approves: 50200, ApprovesHead: head,
+		Options: []string{"Land it as it is :: It lands at this head.", "Hold :: It waits."}, NothingToBuild: "a landing pick",
+	}
+	block, err := ask.Block("Forge-AI/monorepo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		Children []struct {
+			Type    string           `json:"type"`
+			Number  int              `json:"number"`
+			Head    string           `json:"head"`
+			Options []map[string]any `json:"options"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	heads := map[int]string{}
+	var options []map[string]any
+	for _, child := range card.Children {
+		if child.Type == "pr" {
+			heads[child.Number] = child.Head
+		}
+		options = append(options, child.Options...)
+	}
+	if heads[50200] != head || heads[49563] != "" {
+		t.Fatalf("pr heads = %v, want only #50200 at its head", heads)
+	}
+	want := map[string]any{"repo": "Forge-AI/monorepo", "number": float64(50200), "head": head}
+	if got := options[0]["approves"]; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("landing option = %+v, want approves %v", options[0], want)
+	}
+	if _, held := options[1]["approves"]; held {
+		t.Fatalf("hold option = %+v, want no approves", options[1])
+	}
+
+	ask.Options = []string{"Keep it :: It stays.", "Drop it :: It goes."}
+	if _, err := ask.Block("Forge-AI/monorepo"); err == nil || !strings.Contains(err.Error(), "--approves #50200") {
+		t.Fatalf("err = %v, want a refusal naming the option it lacks", err)
+	}
+}

@@ -332,7 +332,7 @@ func (f Fanout) tapWarning(r Reply) string {
 // untiedApprovals marks each pick that reads as approving a PR when the card
 // shows no one PR at one head, since only that head turns his pick into a tap.
 func (r Reply) untiedApprovals() (Reply, string) {
-	if len(r.PRCards) == 1 && r.PRCards[0].Head != "" {
+	if r.tied() {
 		return r, ""
 	}
 	var untied []string
@@ -347,6 +347,20 @@ func (r Reply) untiedApprovals() (Reply, string) {
 		return r, ""
 	}
 	return r, fmt.Sprintf("APPROVES NOTHING: pick %s reads as approving a PR, but this card does not show one PR at one head, so picking it writes no tap and a lane must carry it by hand; list only the one PR it approves in prs, with a ledger row, or relabel the pick if it lands nothing", strings.Join(untied, ", "))
+}
+
+func (r Reply) tied() bool {
+	return len(r.PRCards) == 1 && r.PRCards[0].Head != ""
+}
+
+// approves names the PR and head an approving pick lands, for the card to
+// carry so his pick records what it approves by that field, not by its label.
+func (r Reply) approves(pick string) map[string]any {
+	if !bus.ReadsAsLand(pick) || !r.tied() {
+		return nil
+	}
+	named := pullURL.FindStringSubmatch(r.PRCards[0].URL)
+	return map[string]any{"repo": named[1], "number": json.Number(named[2]), "head": r.PRCards[0].Head}
 }
 
 func linkedCard(md string, card board.OpenCard) string {
@@ -776,6 +790,9 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		options[n] = map[string]any{"id": fmt.Sprintf("%s-%d", r.ID, n+1), "label": pick}
 		if said := r.Words[pick]; said != "" {
 			options[n]["md"] = said
+		}
+		if approves := r.approves(pick); approves != nil {
+			options[n]["approves"] = approves
 		}
 		if pick == r.Recommended {
 			options[n]["recommended"] = true

@@ -407,6 +407,22 @@ func TestAnApprovingPickOnAReplyMarksTheRowTappedAtItsHeadAndTheQueueKeepsIt(t *
 	}
 }
 
+func TestAPickOfAnOptionNamingThePRItApprovesOrdersItWhenItsLabelNamesNoPR(t *testing.T) {
+	h := surfaceHarness(t)
+	ownerRecord(t, "Owner on board b, Port of #4100, land the report? (card-port-4242-pick): picked “Keep it as it is”", map[string]string{
+		"event": "choice.selected", "block": "card-port-4242-pick", "picked": "card-port-4242-1", "approves": repo + "#4242=" + surfaceHead,
+	})
+
+	writeOrders(t, h)
+
+	if written := orders(t); len(written) != 1 || !strings.Contains(written[0].Text, surfaceHead[:12]) {
+		t.Fatalf("orders = %+v", written)
+	}
+	if row := h.snapshot(t)[surfacePR]; !row.Tapped() {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
 func TestATapRefusedWhileHeldDoesNotLandWhenTheRowLaterTurnsReady(t *testing.T) {
 	h := unreadHarness(t)
 	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)

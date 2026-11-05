@@ -46,7 +46,7 @@ naming those ten, which `<state dir>/boards/<session>-taps.jsonl` holds until th
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
 never posts an event twice. Each record carries attributes a reader takes without parsing the
 text: `event`, `session` and `block`; a decision's `verdict`; a pick's `picked` option ids,
-`other` for a write-in, and `heads`, each `owner/name#number=head` its card asked about; and a triage.decided posts one record per row, with that row's `row`,
+`other` for a write-in, `heads`, each `owner/name#number=head` its card asked about, and `approves`, each `owner/name#number=head` the picked option approves; and a triage.decided posts one record per row, with that row's `row`,
 `verdict` and `head`, keyed by the row as well.
 
 Each of those records that carries the owner's answer, every one but a triage row and a submit,
@@ -443,7 +443,7 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
     if event["type"] == "decision.created":
         fields["verdict"] = event.get("verdict", "")
     if event["type"] == "choice.selected":
-        fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else "", "heads": ",".join(f"{pr}={head}" for pr, head in sorted((event.get("heads") or {}).items()))}
+        fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else "", "heads": ",".join(f"{pr}={head}" for pr, head in sorted((event.get("heads") or {}).items())), "approves": ",".join(f"{pr}={head}" for pr, head in sorted((event.get("approves") or {}).items()))}
     answer = answer_of(event, session, shell)
     seq = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields, answer)
     register(event, key, session, doc, shell, bus.drive)
