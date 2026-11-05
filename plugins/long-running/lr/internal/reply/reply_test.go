@@ -2231,6 +2231,33 @@ func TestAReplyAskingAboutAnExemptPRNeverSaysHeTappedIt(t *testing.T) {
 	}
 }
 
+func TestADocMergePickCarriesTheDocsPage(t *testing.T) {
+	merge := Reply{
+		Title:       "SandSQL sharding doc, revision 4: merge it?",
+		MD:          "SandSQL sharding doc, one pick needed. Revision 4 is on [design-docs#332](https://github.com/Forge-AI/design-docs/pull/332) with green checks. It is a new doc, so your standing grant for doc revisions does not cover it and it waits on your word. <!-- cci #499307 -->",
+		Picks:       []string{"Merge the doc :: The lane merges revision 4 and you get the rendered page link.", "Not yet :: The doc stays open for your comments, and nothing merges."},
+		Recommended: "Merge the doc",
+	}
+	page := []Link{{Label: "Read revision 4", URL: "https://docs.poetic.design/design-docs/sandsql-per-database-sharding/"}}
+	for name, tc := range map[string]struct {
+		reply   Reply
+		refused bool
+	}{
+		"the m1270 card, its PR link alone":    {merge, true},
+		"the same card with its Pages link":    {Reply{Title: merge.Title, MD: merge.MD, Picks: merge.Picks, Links: page}, false},
+		"its Pages link only in a hidden cite": {Reply{Title: merge.Title, MD: merge.MD + " <!-- " + page[0].URL + " -->", Picks: merge.Picks}, true},
+		"the same words with no pick to tap":   {Reply{Title: merge.Title, MD: merge.MD}, false},
+		"a code PR's merge pick":               {Reply{Title: "Merge #51418?", MD: "[#51418](https://github.com/Forge-AI/monorepo/pull/51418) is green.", Picks: merge.Picks}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := tc.reply.unshownDoc()
+			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "NO DOC PAGE") {
+				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
+			}
+		})
+	}
+}
+
 func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
 	ready := store.ReviewRow{ReadyForTap: true}
 	for name, tc := range map[string]struct {

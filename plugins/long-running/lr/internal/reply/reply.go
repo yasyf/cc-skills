@@ -828,6 +828,17 @@ func firstLine(md string) string {
 	return strings.TrimSpace(line)
 }
 
+func (r Reply) unshownDoc() error {
+	if len(r.Picks) == 0 {
+		return nil
+	}
+	asked := slices.Concat([]string{r.Title, r.MD}, r.Picks)
+	for _, link := range r.Links {
+		asked = append(asked, link.URL)
+	}
+	return cardtext.UnshownDoc(cardtext.HiddenCite.ReplaceAllString(strings.Join(asked, "\n"), " "))
+}
+
 func (r Reply) bareExplainMore() error {
 	card, err := json.Marshal(map[string]any{"type": "card", "summary": strings.TrimPrefix(strings.TrimSpace(r.MD), strings.TrimRight(r.Action, ".")+"."), "children": r.Blocks})
 	if err != nil {

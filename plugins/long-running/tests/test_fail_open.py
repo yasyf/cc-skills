@@ -71,6 +71,7 @@ KEPT_REFUSALS = KEPT | {
     "owner_ledger.owner_messages_close_before_stop": STOP.format(what="the owner's message would stay open"),
     "owner_ledger.The communicator never calls `AskUserQuest": PARKS,
     "owner_ledger.The `owner_ledger` hook records every owne": "the write to the rulings file lands before a warning does",
+    "owner_posts_carry_cards.doc_merge_cards_link_the_page": "the owner ordered every doc-merge card to carry its rendered page (m1270, prompt/1105-141546): he taps a merge card the moment it posts, so a warning lands after he was asked to merge a doc he could not read",
     "owner_posts_carry_cards.tap_asks_carry_the_button": "the owner ordered the refusal, said many times (rule d840bb1, cci 491094): a message that asks for his tap reaches him the moment it posts, so a warning lands after he opened it with nothing to tap",
     "owner_lines_skip_refused_topics.owner_lines_skip_refused_topics": "the owner ordered the refusal: this class never reaches him, and a warning lands after it has",
     "owner_lines_skip_refused_topics.owner_replies_skip_refused_topics": STOP.format(what="the owner would read a class he ruled is never reported"),
