@@ -85,6 +85,7 @@ type fake struct {
 	tokens      map[string]int
 	posts       []Post
 	launches    []string
+	costs       map[string]Cost
 	briefs      map[string]string
 	withdrawn   []string
 	wakes       []string
@@ -110,7 +111,7 @@ type fake struct {
 
 func newFake(t *testing.T, records []Record, peers []Row) *fake {
 	t.Helper()
-	f := &fake{feed: records, peers: peers, tokens: map[string]int{}, states: map[int]string{}, holds: map[int]bool{}, briefs: map[string]string{}}
+	f := &fake{feed: records, peers: peers, costs: map[string]Cost{}, tokens: map[string]int{}, states: map[int]string{}, holds: map[int]bool{}, briefs: map[string]string{}}
 	f.deps = Deps{
 		Drive: testDrive, Checkout: testCheckout, Briefs: filepath.Join(t.TempDir(), "lanes"), Bin: "/plugin/bin", HandoffBrief: "/plugin/handoff-subagent-brief.md",
 		Records: func(since int64) ([]Record, error) {
@@ -128,8 +129,9 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 			return fmt.Sprintf("/projects/x/%s/subagents/agent-%s.jsonl", row.Session, row.Agent)
 		},
 		Post: func(p Post) error { f.posts = append(f.posts, p); return nil },
-		Launch: func(name, _, _, brief string) error {
+		Launch: func(name, model, effort, brief string) error {
 			f.launches = append(f.launches, name)
+			f.costs[name] = Cost{model, effort}
 			text, err := os.ReadFile(brief)
 			f.briefs[name] = string(text)
 			return err

@@ -37,15 +37,20 @@ type owing struct {
 
 var (
 	standing = []desk{
-		{"fidelity-desk", "opus", "medium"},
-		{"red-sweep", "opus", "medium"},
-		{"alerts-desk", "sonnet", "low"},
+		tabled("fidelity-desk"),
+		tabled("red-sweep"),
+		tabled("alerts-desk"),
 		{watchdog, "opus", "high"},
-		{"board-refresher", "opus", "medium"},
+		tabled("board-refresher"),
 	}
 	placedLocal = regexp.MustCompile(`(?m)^ccx:(.* )?place=local(\s|$)`)
 	up          = []store.LaneState{store.LaneLaunching, store.LaneDesired}
 )
+
+func tabled(name string) desk {
+	cost := lanes.DeskCosts[name]
+	return desk{name, cost.Model, cost.Effort}
+}
 
 type drive struct {
 	app    *app.App

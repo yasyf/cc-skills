@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
 const (
@@ -100,7 +102,7 @@ func (n NewBrief) text(lane string) (string, error) {
 		if !ownerPick.MatchString(n.OwnerPick) {
 			return "", fmt.Errorf("--owner-pick takes owner:m<row>, the owner row whose words asked for this model or effort, not %q", n.OwnerPick)
 		}
-		sections = append(sections, ownerPickLine+" "+n.OwnerPick)
+		sections = append(sections, lanes.OwnerPickLine+" "+n.OwnerPick)
 	}
 	return strings.Join(sections, "\n\n") + "\n", nil
 }

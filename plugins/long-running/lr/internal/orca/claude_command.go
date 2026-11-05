@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
 const ownerPickFlag = "--owner-pick"
@@ -97,7 +98,7 @@ func (s claudeStart) argv() ([]string, error) {
 	if fableModel.MatchString(s.model) || astraModel.MatchString(s.model) {
 		return nil, fmt.Errorf("%s starts only when the owner named it for this work: run `%s` naming his words, or drop --model for opus", s.model, again)
 	}
-	if slices.Contains(aboveHigh, s.effort) {
+	if slices.Contains(lanes.AboveHigh, s.effort) {
 		return nil, fmt.Errorf("effort %s is above high, which starts only when the owner named it: run `%s` naming his words, or drop --effort for high", s.effort, again)
 	}
 	return argv, nil

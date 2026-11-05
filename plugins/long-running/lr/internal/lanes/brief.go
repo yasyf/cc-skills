@@ -24,6 +24,7 @@ type Brief struct {
 	Standing    string
 	Deliverable string
 	Orders      []string
+	OwnerPicked bool
 }
 
 type cachedBrief struct {
@@ -48,6 +49,7 @@ func parseBrief(text string) Brief {
 		said.Deliverable = strings.TrimSpace(or(found[1], found[2]))
 	}
 	said.Orders = owner.Orders(text)
+	said.OwnerPicked = BriefOwnerPick.MatchString(text)
 	return said
 }
 

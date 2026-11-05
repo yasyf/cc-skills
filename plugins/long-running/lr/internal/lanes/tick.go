@@ -685,7 +685,8 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 		transcript = d.Transcript(peer.Row)
 	}
 	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, partial, d, transcript))), 0o600))
-	if err := launchOrRetry(d, name, old.Model, old.Effort, path); err != nil {
+	cost := successorCost(old)
+	if err := launchOrRetry(d, name, cost.Model, cost.Effort, path); err != nil {
 		hold(s, old.Name, why, now)
 		escalateTo(s, d, "lane:"+old.Name, fmt.Sprintf("held, not relaunched: its relaunch as %s was refused twice, last with %s; it %s; brief %s", name, err, why, path), must(MetaDesk(s)), now)
 		out.Held = append(out.Held, old.Name)
@@ -696,7 +697,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 		to = must(MetaDesk(s))
 	}
 	retire(s, old.Name, name, now)
-	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher, Standing: old.Standing}, now))
+	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: cost.Model, Effort: cost.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher, Standing: old.Standing}, now))
 	do(d.Post(Post{Kind: "report", To: []string{to}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 	return name
