@@ -12,7 +12,7 @@
 
 **Read the trunk from the remote ref**, never from a bare checkout path: a shared working tree can sit on an unlanded branch while looking like trunk. Use `git show <remote>/<trunk>:<path>`, `git ls-tree`, or `git log`. A bare-path read means auditing the whole session.
 
-**Refuse to grade when the repository is shallow or a fetch failed.** A shallow clone (`git rev-parse --is-shallow-repository` returns `true`) truncates history traversal silently. A failed fetch leaves stale refs when worktrees contend on a ref lock:
+**Refuse to grade when the history a read walks is cut off or a fetch failed.** A shallow clone (`git rev-parse --is-shallow-repository` returns `true`) truncates history traversal silently at its grafted commit, which reads parentless. A shallow clone whose graft is older than the earliest commit the read needs answers in full, so refuse only when the walk reaches the graft, and never unshallow a checkout another lane owns. A failed fetch leaves stale refs when worktrees contend on a ref lock:
 
 ```
 error: cannot lock ref 'refs/remotes/origin/dev': is at <a> but expected <b>
