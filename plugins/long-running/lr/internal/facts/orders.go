@@ -87,6 +87,9 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 		return err
 	}
 	tap.Head = head
+	if refusal == prrow.AlreadyLanded {
+		return nil
+	}
 	orders := bus.Bus{Drive: s.Drive, Lane: OrderLane}
 	if refusal != "" {
 		if err := orders.PostRefusal(ctx, s.Repo, tap, refusal); err != nil {
