@@ -175,9 +175,18 @@ func Resolve(ctx context.Context, drive, name string) (string, error) {
 		return name, nil
 	case err != nil:
 		return "", err
-	default:
-		return cmp.Or(reach.Lane, name), nil
+	case reach.Lane != "":
+		return reach.Lane, nil
 	}
+	generations, err := client.Generations(ctx, drive, name)
+	if err != nil || len(generations) == 0 {
+		return name, err
+	}
+	return slices.MaxFunc(generations, func(a, b string) int {
+		_, older := family(a)
+		_, newer := family(b)
+		return cmp.Compare(older, newer)
+	}), nil
 }
 
 func Stem(name string) string {
