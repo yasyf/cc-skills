@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
 )
 
@@ -169,21 +170,27 @@ func lintCommand(a *app.App) *cobra.Command {
 }
 
 func standingCommand(a *app.App) *cobra.Command {
-	var drive string
+	var driveName string
 	cmd := &cobra.Command{
 		Use:   "standing",
 		Short: "Print the live standing rules on a cci drive",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if driveName == "" {
+				entry, err := drive.Session()
+				if err != nil {
+					return err
+				}
+				driveName = entry.Bus()
+			}
 			d, err := depsOf(a, cmd)
 			if err != nil {
 				return err
 			}
-			return d.standing(cmd.Context(), drive)
+			return d.standing(cmd.Context(), driveName)
 		},
 	}
-	cmd.Flags().StringVar(&drive, "drive", "", "the cci drive")
-	mustRequire(cmd, "drive")
+	cmd.Flags().StringVar(&driveName, "drive", "", "the cci drive; default this session's")
 	return cmd
 }
 

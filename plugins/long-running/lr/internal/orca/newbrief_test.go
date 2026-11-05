@@ -73,6 +73,49 @@ func TestNewBriefRemotePlaceAndNoOwnerOrders(t *testing.T) {
 	}
 }
 
+func TestNewBriefReadsItsBodyFromStdinAndAppendsThePostersStandingLines(t *testing.T) {
+	standing := t.TempDir()
+	if err := os.WriteFile(filepath.Join(standing, standingFile), []byte("A standing line.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	n := NewBrief{Title: "t", BodyFile: bodyFromStdin, Stdin: strings.NewReader("Owner m35 said so.\n"), Scale: "small", Place: placeLocal, StandingDir: standing}
+	text, err := n.text("lane-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Owner m35 said so.\n\nA standing line.\n\nOwner orders: owner:m35\n") {
+		t.Errorf("brief:\n%s", text)
+	}
+}
+
+func TestNewBriefWithNoStandingFileWritesOnlyItsBody(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal, StandingDir: t.TempDir()}
+	text, err := n.text("lane-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(text, "\n\nplain\n") {
+		t.Errorf("brief:\n%s", text)
+	}
+}
+
+func TestNewBriefCCXIsTheWholeLineAndKeepsACommaInItsReason(t *testing.T) {
+	for give, want := range map[string]string{
+		"role=read,place=local,why=two rows, no compile": "ccx: role=read place=local why=two rows, no compile incident=none\n",
+		"role=build, place=remote":                       "ccx: role=build place=remote incident=none\n",
+		"role=build,incident=sev1,place=local":           "ccx: role=build incident=sev1 place=local\n",
+	} {
+		n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal, CCX: give}
+		text, err := n.text("lane-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(text, want) {
+			t.Errorf("--ccx %q, want %q in:\n%s", give, want, text)
+		}
+	}
+}
+
 func TestNewBriefRefusals(t *testing.T) {
 	body := writeFixture(t, "body.md", "plain\n")
 	for _, tt := range []struct {
@@ -82,7 +125,7 @@ func TestNewBriefRefusals(t *testing.T) {
 	}{
 		{"no title", NewBrief{BodyFile: body, Place: placeLocal}, "--title"},
 		{"empty body", NewBrief{Title: "t", BodyFile: writeFixture(t, "empty.md", " \n"), Place: placeLocal}, "is empty"},
-		{"missing body", NewBrief{Title: "t", BodyFile: filepath.Join(t.TempDir(), "gone.md"), Place: placeLocal}, "--body-file"},
+		{"missing body", NewBrief{Title: "t", BodyFile: filepath.Join(t.TempDir(), "gone.md"), Place: placeLocal}, "--body"},
 		{"missing contract", NewBrief{Title: "t", BodyFile: body, Contract: filepath.Join(t.TempDir(), "gone.md"), Place: placeLocal}, "--contract"},
 		{"unknown place", NewBrief{Title: "t", BodyFile: body, Place: "moon"}, "--place moon"},
 	} {
