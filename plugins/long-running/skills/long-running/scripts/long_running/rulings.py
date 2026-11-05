@@ -15,7 +15,7 @@
                             | --add --text TEXT --direction DIR [--proof REF]]
     rulings.py round        [--program SLUG | --drive ID]
     rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--prs [OWNER/NAME#]N]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
-    rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF] [--words]
+    rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF] [--words] [--answers FILE]
     rulings.py plan         [--program SLUG | --drive ID]
     rulings.py sweep        [--program SLUG | --drive ID] [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
     rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ[@NODE] [--step N] [--root DIR] [--words]
@@ -87,7 +87,8 @@ resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands 
 ``slice --required`` adds every live row the PR body or its author's comments cite by key or by an answer id the row
 carries, a superseded row's key standing for the rows superseding it. It adds the answers no live row carries through
 ``lr rules answers``, which reads each cited id as ``lr rules row`` does and his top-ranked durable answers on the scope of
-the PR's title, and names each cited id nothing holds as unknown to the register.
+the PR's title, and names each cited key nothing holds as unknown to the register and each hex word nothing holds as no
+ruling of his. ``--answers`` takes those answers from the file a grader's pass carries, since a grader holds no cc-notes.
 ``slice --required --words`` prints each row as `lr grade fidelity` reads it: the owner's words and repeats verbatim,
 oldest first, each board tap with the card it answered as ``cc-present block show`` prints it, a design row's or
 exception's plan text labelled as the coordinator's, and none of the register's implications or summaries.
@@ -158,7 +159,8 @@ QUERY_CHARS = 2000
 QUOTE = "  >"
 CITED = re.compile(r"\b[0-9a-f]{7,40}\b")
 PR_SCOPE = re.compile(r"(?P<scope>[\w./-]+):")
-KEY_TOKEN = re.compile(r"\b[a-z]+/[\w.-]*\w")
+KEY_TOKEN = re.compile(r"(?<![\w./-])[a-z]+/[\w.-]*\w")
+PATH_WORD = re.compile(r"\b[a-z]+/[\w.-]*\w")
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 KINDS = ("order", "pick", "design", "exception", "scope", "reserved", "gate")
@@ -1093,7 +1095,7 @@ def cited_rows(loaded: Register, text: str, required: list[tuple[str, dict[str, 
             carriers.setdefault(str(answer)[:SHORT], []).append(key)
     prefixes = {key.partition("/")[0] for key in loaded.rows}
     tokens = [token for token in KEY_TOKEN.findall(text) if token.partition("/")[0] in prefixes]
-    tokens += [token[:SHORT] for token in CITED.findall(KEY_TOKEN.sub(" ", text))]
+    tokens += [token[:SHORT] for token in CITED.findall(PATH_WORD.sub(" ", text))]
     cited, unknown = {}, []
     for token in dict.fromkeys(tokens):
         if keys := ([token] if token in rows else successors(loaded, token) if loaded.rows.get(token, {}).get("status") == "superseded" else carriers.get(token)):
@@ -1104,27 +1106,33 @@ def cited_rows(loaded: Register, text: str, required: list[tuple[str, dict[str, 
     return [(key, rows[key]) for key in cited if key not in have], unknown
 
 
-def pr_answers(loaded: Register, diff: Diff, text: str, title: str, unknown: list[str]) -> list[str]:
+def pr_answers(loaded: Register, diff: Diff, text: str, title: str, unknown: list[str], carried: str | None) -> list[str]:
+    found = json.loads(Path(carried).read_text()) if carried else read_pr_answers(loaded, diff, text, title, unknown)
+    lines = ["", f"## His answers on the topics this PR's text names or its files touch, those it cites, and his top-ranked on its title's scope ({len(found)})"]
+    for answer in found:
+        lines += ["", f"### answer/{answer['id'][:SHORT]} | answer | {answer['updated_at'][:10]}", f"Asked: {answer['title']}", *(f"> {line}" for line in answer["body"].splitlines())]
+    held = [answer["id"] for answer in found]
+    nowhere = [token for token in unknown if not any(identity.startswith(token) for identity in held)]
+    keys, words = [token for token in nowhere if "/" in token], [token for token in nowhere if "/" not in token]
+    lines += ["", f"Cited by id in the PR, unknown to the register: {', '.join(keys)}"] if keys else []
+    return lines + (["", f"Hex words in the PR no answer or row holds, such as a commit, so no ruling of his: {', '.join(words)}"] if words else [])
+
+
+def read_pr_answers(loaded: Register, diff: Diff, text: str, title: str, unknown: list[str]) -> list[dict]:
     ccn = partial(ccn_text, loaded.shell, loaded.repo)
     topics = answer_search.named(answer_search.vocabulary(ccn, loaded.program), text, diff.files)
     found = answer_search.hits(ccn, [topic.slug for topic in topics], [], "")
     ids = [token for token in unknown if CITED.fullmatch(token)]
     scope = match["scope"] if (match := PR_SCOPE.match(title)) else ""
     read = json.loads(loaded.shell.run([str(ledger.LR), "rules", "answers", "--repo", loaded.repo, "--scope", scope, *ids])) if ids or scope else []
-    found = sorted({answer["id"]: answer for answer in [*found, *read]}.values(), key=lambda answer: answer["updated_at"], reverse=True)
-    lines = ["", f"## His answers on the topics this PR's text names or its files touch, those it cites, and his top-ranked on its title's scope ({len(found)})"]
-    for answer in found:
-        lines += ["", f"### answer/{answer['id'][:SHORT]} | answer | {answer['updated_at'][:10]}", f"Asked: {answer['title']}", *(f"> {line}" for line in answer["body"].splitlines())]
-    held = [answer["id"] for answer in found]
-    nowhere = [token for token in unknown if not any(identity.startswith(token) for identity in held)]
-    return lines + (["", f"Cited by id in the PR, unknown to the register: {', '.join(nowhere)}"] if nowhere else [])
+    return sorted({answer["id"]: answer for answer in [*found, *read]}.values(), key=lambda answer: answer["updated_at"], reverse=True)
 
 
-def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str) -> str:
+def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str, carried: str | None) -> str:
     rows = required_rows(loaded, diff)
     cited, unknown = cited_rows(loaded, text, rows)
     lines = [f"Required rows for {pr} at {head}", f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
-    return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + pr_answers(loaded, diff, text, title, unknown))
+    return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + pr_answers(loaded, diff, text, title, unknown, carried))
 
 
 def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]]) -> list[list[str]]:
@@ -1132,7 +1140,7 @@ def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]]) -> lis
         return list(pool.map(lambda item: worded_row(*item, loaded.state), rows))
 
 
-def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str) -> str:
+def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str, carried: str | None) -> str:
     rows = required_rows(loaded, diff)
     cited, unknown = cited_rows(loaded, text, rows)
     worded = worded_rows(loaded, [*rows, *cited])
@@ -1144,7 +1152,7 @@ def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, ti
         lines += ["", f"## {title}"]
         for row in part:
             lines += ["", *row]
-    return hashed(lines + pr_answers(loaded, diff, text, title, unknown))
+    return hashed(lines + pr_answers(loaded, diff, text, title, unknown, carried))
 
 
 def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
@@ -1891,7 +1899,7 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
         view = json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "author,baseRefName,body,comments,title", max_age=ghread.FRESH)))
         text = "\n".join([view["body"], *(comment["body"] for comment in view["comments"] if comment["author"]["login"] == view["author"]["login"])])
         diff = pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)
-        args.stdout.write((worded_slice if args.words else required_slice)(loaded, diff, f"{repo}#{number}", args.head, text, view["title"]))
+        args.stdout.write((worded_slice if args.words else required_slice)(loaded, diff, f"{repo}#{number}", args.head, text, view["title"], args.answers))
     elif args.root:
         args.stdout.write(root_slice(loaded))
     elif args.refresh:
@@ -3145,6 +3153,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     sliced.add_argument("--root", action="store_true")
     sliced.add_argument("--refresh", metavar="BRIEF")
     sliced.add_argument("--required", action="store_true")
+    sliced.add_argument("--answers", metavar="FILE", help="with --required, the answers the coordinator read for this PR, as JSON, read instead of this checkout's cc-notes")
     sliced.add_argument("--words", action="store_true", help="with --required, each row as his words and the cards his taps answered, without implications")
     sliced.add_argument("--pr", metavar="[OWNER/NAME#]N")
     sliced.add_argument("--head", metavar="SHA")

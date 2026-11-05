@@ -189,6 +189,40 @@ func TestAnswersReadsEachCitedIDAndHisTopRankedOnTheScopeAndSkipsAnIDNoAnswerHol
 	}
 }
 
+func TestForPRReadsCitedTopicAndScopeAnswersOnceEachNewestFirstAndNeverAURLFragment(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(`{"id":"8ae07a000","title":"which path","body":"one path","updated_at":"2026-11-04"}`, "ccn", "-R", "/repo", "answer", "show", "8ae07a0", "--json")
+	fake.Reply(`{"id":"33d842800","title":"the settings","body":"recommended","updated_at":"2026-11-01"}`, "ccn", "-R", "/repo", "answer", "show", "33d8428", "--json")
+	fake.Fail(3, "not-found: entity not found", "ccn", "-R", "/repo", "answer", "show", "7777777", "--json")
+	fake.Reply(`[{"id":"c47347100","title":"a night","body":"what changed","updated_at":"2026-11-02"}]`, "ccn", "-R", "/repo", "answer", "search", "sand-next", "--label", "scope:durable")
+	fake.Reply(`[{"id":"aaaaaaa00","updated_at":"2026-10-20"}]`, "ccn", "-R", "/repo", "ledger", "list", "--label", "answer-topics", "--label", "program:brook", "--json")
+	fake.Reply(`{"rows":[{"key":"old-chats","fields":{"words":"\\bold chats?\\b","dirs":"[]"}},{"key":"kernel","fields":{"words":"nothing here","dirs":"[\"go/kernel\"]"}},{"key":"elsewhere","fields":{"words":"nothing here","dirs":"[\"api\"]"}}]}`, "ccn", "-R", "/repo", "ledger", "show", "aaaaaaa00", "--json")
+	fake.Reply(`[{"id":"b0b0b0b00","title":"old","body":"chats open","updated_at":"2026-10-20"},{"id":"8ae07a000","title":"which path","body":"one path","updated_at":"2026-11-04"}]`, "ccn", "-R", "/repo", "answer", "search", "old-chats", "--limit", "0", "--json")
+	fake.Reply(`[{"id":"d0d0d0d00","title":"kernel","body":"keep it","updated_at":"2026-10-21"}]`, "ccn", "-R", "/repo", "answer", "search", "kernel", "--limit", "0", "--json")
+	pr := PR{Title: "sand-next: compaction forks", Body: "Under answer 8ae07a0 at commit 7777777, on OLD chats. Doc: https://docs.poetic.design/design-docs/fork/abcdef1 and rule/ffacf77.", Author: author{Login: "lane"}}
+	pr.Comments = append(pr.Comments, struct {
+		Author author `json:"author"`
+		Body   string `json:"body"`
+	}{author{"lane"}, "Also answer/33d8428."}, struct {
+		Author author `json:"author"`
+		Body   string `json:"body"`
+	}{author{"bot"}, "Breaks 9999999."})
+	pr.Files = append(pr.Files, struct {
+		Path string `json:"path"`
+	}{"go/kernel/run.go"})
+	found, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).ForPR(context.Background(), "brook", pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(found))
+	for _, answer := range found {
+		ids = append(ids, answer.ID)
+	}
+	if want := []string{"8ae07a000", "c47347100", "33d842800", "d0d0d0d00", "b0b0b0b00"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("ids = %v, want %v", ids, want)
+	}
+}
+
 func TestAnswersFailsWhenTheStoreCannotBeRead(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Fail(1, "open git repository", "ccn", "-R", "/repo", "answer", "show", "0531fdd", "--json")

@@ -46,6 +46,7 @@ type poolShell struct {
 	running    map[int]string
 	view       string
 	docs       map[string]string
+	answers    map[string]string
 	card       string
 	calls      [][]string
 	spawns     []spawned
@@ -105,13 +106,26 @@ func (f *poolShell) Run(_ context.Context, command shell.Command) (shell.Result,
 	case "ccx":
 		return shell.Result{Stdout: f.view}, nil
 	case "ccn":
-		return shell.Result{Stdout: f.docs[command.Argv[5]]}, nil
+		if command.Argv[3] == "doc" {
+			return shell.Result{Stdout: f.docs[command.Argv[5]]}, nil
+		}
+		return f.notes(command.Argv[3:])
 	case "cc-present":
 		return shell.Result{Stdout: f.card}, nil
 	case "codex-ask":
 		return shell.Result{}, nil
 	}
 	return shell.Result{}, fmt.Errorf("unexpected call %v", command.Argv)
+}
+
+func (f *poolShell) notes(argv []string) (shell.Result, error) {
+	if argv[0] == "answer" && argv[1] == "show" {
+		if answer, held := f.answers[argv[2]]; held {
+			return shell.Result{Stdout: answer}, nil
+		}
+		return shell.Result{}, &shell.ExitError{Argv: argv, Code: 3}
+	}
+	return shell.Result{Stdout: "[]"}, nil
 }
 
 func (f *poolShell) spawn(_ context.Context, argv []string, env map[string]string, log string) (int, error) {
@@ -467,6 +481,50 @@ func TestABranchOfABoardOptionGroundsItsGradeOnTheCardAndTheRootsSession(t *test
 	}
 	if want := "## Board card card-night-design, whose option 2 this branch builds\n\nthe card"; string(sources) != want {
 		t.Errorf("sources = %q, want %q", sources, want)
+	}
+}
+
+func TestAPassCarriesTheAnswersItsPRCitesSoAGraderNeedsNoNotes(t *testing.T) {
+	for _, grading := range []string{GraderFinder, GraderFidelity} {
+		t.Run(grading, func(t *testing.T) {
+			f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}, "fidelity": map[string]any{"sprite": "dar-1"}})
+			f.shell.view = `{"title":"a change","body":"Under answer 8ae07a0, at commit 7777777.","headRefName":"lane-7"}`
+			f.shell.answers = map[string]string{"8ae07a0": `{"id":"8ae07a000","title":"which path","body":"one path","updated_at":"2026-11-04"}`}
+
+			f.started(t, grading)
+
+			lane := grader.FinderLane
+			if grading == GraderFidelity {
+				lane = grader.FidelityLane
+			}
+			data, err := os.ReadFile(filepath.Join(f.pool.root, lane, jobDir, grader.AnswersFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := `[{"id":"8ae07a000","title":"which path","body":"one path","updated_at":"2026-11-04"}]`; string(data) != want {
+				t.Errorf("answers = %s, want %s", data, want)
+			}
+		})
+	}
+}
+
+func TestAFinderJobCarriesTheLandedRowsItsSecondFixCheckReads(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main", "ledger": "drive-ledger"}, "finder": map[string]any{"sprite": "dar-1"}})
+	if err := f.store.PutLedgerRow("drive-ledger", "47001", map[string]string{"title": "sand: 🐛 held marker", "landed_sha": "abc"}, f.now); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.PutLedgerRow("drive-ledger", "47002", map[string]string{"title": "sand: 🐛 still open"}, f.now); err != nil {
+		t.Fatal(err)
+	}
+
+	f.started(t, GraderFinder)
+
+	data, err := os.ReadFile(filepath.Join(f.finderDir(jobDir), grader.LandedFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `[{"key":"47001","title":"sand: 🐛 held marker","landed_sha":"abc"}]`; string(data) != want {
+		t.Errorf("landed = %s, want %s", data, want)
 	}
 }
 

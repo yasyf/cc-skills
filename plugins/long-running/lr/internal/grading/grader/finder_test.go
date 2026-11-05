@@ -3,6 +3,7 @@ package grader
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1206,7 +1207,7 @@ func TestAReplyCutOffAtTheModelsOutputCapIsAskedOnceMoreOnSol(t *testing.T) {
 	equal(t, len(shell.asks()), 1)
 }
 
-func registered(t *testing.T, shell *fakeShell) {
+func registered(t *testing.T, directory string, shell *fakeShell) {
 	t.Helper()
 	entry := filepath.Join(shell.config, "long-running", "drives", "d1.json")
 	if err := os.MkdirAll(filepath.Dir(entry), 0o750); err != nil {
@@ -1216,11 +1217,16 @@ func registered(t *testing.T, shell *fakeShell) {
 	if err := os.WriteFile(entry, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	shell.ledger = []map[string]any{
-		{"key": "47001", "fields": map[string]string{"title": "sand: 🐛 the replica keeps its held marker", "landed_sha": shaFixed}},
-		{"key": "47002", "fields": map[string]string{"title": "sand: ✨ replica metrics", "landed_sha": strings.Repeat("b", 40)}},
-		{"key": "47003", "fields": map[string]string{"title": "api: 🐛 the parent read retries", "landed_sha": shaOtherArea}},
-		{"key": "47004", "fields": map[string]string{"title": "sand: 🐛 the open replica fix", "state": "open"}},
+	landed, err := json.Marshal([]LandedRow{
+		{Key: "47001", Title: "sand: 🐛 the replica keeps its held marker", SHA: shaFixed},
+		{Key: "47002", Title: "sand: ✨ replica metrics", SHA: strings.Repeat("b", 40)},
+		{Key: "47003", Title: "api: 🐛 the parent read retries", SHA: shaOtherArea},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, LandedFile), landed, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -1232,7 +1238,7 @@ func TestASecondBugFixInAnAreaTheDriveAlreadyFixedPostsABlockingPointNamingTheEa
 	directory := finderJobDir(t, nil)
 	shell, repo := newFinderFake(t, replyOf())
 	shell.title = fixTitle
-	registered(t, shell)
+	registered(t, directory, shell)
 	repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
 	mustFinder(t, directory, shell)
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: major "+shaHead+" 1 open "+wholeRecord+": go/sand/internal/replica/follow.go:40 "+secondFix+".") {
@@ -1250,7 +1256,7 @@ func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t
 		directory := finderJobDir(t, nil)
 		shell, repo := newFinderFake(t, replyOf())
 		shell.title, shell.body = fixTitle, body
-		registered(t, shell)
+		registered(t, directory, shell)
 		repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
 		mustFinder(t, directory, shell)
 		if !strings.HasPrefix(shell.posted[0]["--text"], "finder: ok "+shaHead+" ") {
@@ -1319,7 +1325,7 @@ func TestAPortOwesItsSecondFixAsAFollowUpAndAnyOtherBodyKeepsTheMajor(t *testing
 			directory := finderJobDir(t, nil)
 			shell, repo := newFinderFake(t, replyOf(tc.findings...))
 			shell.title, shell.body = fixTitle, tc.body
-			registered(t, shell)
+			registered(t, directory, shell)
 			repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
 			mustFinder(t, directory, shell)
 			if !strings.HasPrefix(shell.posted[0]["--text"], tc.want) {
@@ -1359,23 +1365,11 @@ func TestACarriedGradeOnAPortClearsOnlyASecondFixThatWasItsOneMajor(t *testing.T
 	}
 }
 
-func TestADriveLedgerThatDoesNotReadSkipsTheSecondFixCheckInsteadOfFailingThePass(t *testing.T) {
-	directory := finderJobDir(t, nil)
-	shell, _ := newFinderFake(t, replyOf())
-	shell.title = fixTitle
-	registered(t, shell)
-	shell.ledgerBy = &TimeoutError{Argv: []string{"ccn"}, After: readTimeout}
-	mustFinder(t, directory, shell)
-	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: ok "+shaHead+" ") {
-		t.Errorf("posted %q", shell.posted[0]["--text"])
-	}
-}
-
 func TestAFixBesideAnEarlierFixInOneFlatDirectoryIsNoSecondFix(t *testing.T) {
 	directory := finderJobDir(t, nil)
 	shell, repo := newFinderFake(t, replyOf())
 	shell.title = fixTitle
-	registered(t, shell)
+	registered(t, directory, shell)
 	repo.landedLog = "@" + shaFixed + "\n\ngo/sand/internal/replica/marker.go\n@" + shaOtherArea + "\n\napi/parent.go\n"
 	mustFinder(t, directory, shell)
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: ok "+shaHead+" ") {
@@ -1387,14 +1381,14 @@ func TestAChangeThatIsNoBugFixReadsNoLandedArea(t *testing.T) {
 	directory := finderJobDir(t, nil)
 	shell, _ := newFinderFake(t, replyOf())
 	shell.title = "sand: ✨ the replica streams its position"
-	registered(t, shell)
+	registered(t, directory, shell)
 	mustFinder(t, directory, shell)
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: ok "+shaHead+" ") {
 		t.Errorf("posted %q", shell.posted[0]["--text"])
 	}
 	for _, call := range shell.snapshot() {
-		if call.Argv[0] == "ccn" {
-			t.Errorf("read the ledger: %v", call.Argv)
+		if slices.Contains(call.Argv, "--ignore-missing") {
+			t.Errorf("read the landed fixes: %v", call.Argv)
 		}
 	}
 }

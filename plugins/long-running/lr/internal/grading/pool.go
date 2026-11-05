@@ -282,6 +282,9 @@ func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Fa
 	if err != nil {
 		return "", err
 	}
+	if built.answers, err = p.answersOwed(ctx, live); err != nil {
+		return "", err
+	}
 	return p.start(ctx, grading, d, sprite, directory, built)
 }
 
@@ -343,6 +346,14 @@ func (p *JobPool) start(ctx context.Context, grading string, d desk, sprite, dir
 	}
 	if built.sources != "" {
 		if err := os.WriteFile(filepath.Join(directory, sourcesFile), []byte(built.sources), 0o600); err != nil {
+			return "", err
+		}
+	}
+	if err := writeAtomic(filepath.Join(directory, grader.AnswersFile), built.answers); err != nil {
+		return "", err
+	}
+	if built.landed != nil {
+		if err := writeAtomic(filepath.Join(directory, grader.LandedFile), built.landed); err != nil {
 			return "", err
 		}
 	}

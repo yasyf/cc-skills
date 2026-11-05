@@ -1,15 +1,18 @@
 package rules
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -108,13 +111,19 @@ func Command(a *app.App) *cobra.Command {
 }
 
 func answersCommand(a *app.App) *cobra.Command {
-	var repo, scope string
+	var repo, scope, pull, program string
 	answers := &cobra.Command{
 		Use:   "answers [ID...]",
-		Short: "Print as JSON each answer named by id, as `row` finds one, and his top-ranked durable answers on a PR's scope; an id no answer holds is left out",
+		Short: "Print as JSON each answer named by id, as `row` finds one, and his top-ranked durable answers on a PR's scope; an id no answer holds is left out; --pr prints every answer a grade of that PR owes",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reader := &quotes.Reader{Runner: a.Runner, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: repo}, nil }}
-			found, err := reader.Answers(cmd.Context(), args, scope)
+			var found []quotes.Answer
+			var err error
+			if pull != "" {
+				found, err = answersOwed(cmd.Context(), a.Runner, reader, program, pull)
+			} else {
+				found, err = reader.Answers(cmd.Context(), args, scope)
+			}
 			if err != nil {
 				return err
 			}
@@ -123,10 +132,28 @@ func answersCommand(a *app.App) *cobra.Command {
 	}
 	answers.Flags().StringVar(&repo, "repo", "", "the checkout whose cc-notes hold the answers")
 	answers.Flags().StringVar(&scope, "scope", "", "the word of a PR title's scope to search his durable answers for")
+	answers.Flags().StringVar(&pull, "pr", "", "OWNER/NAME#N: print every answer a grade of this PR owes, read as the coordinator reads them for a pass")
+	answers.Flags().StringVar(&program, "program", "", "with --pr, the program whose topic ledger names his topics")
 	if err := answers.MarkFlagRequired("repo"); err != nil {
 		panic(err)
 	}
 	return answers
+}
+
+func answersOwed(ctx context.Context, runner shell.Runner, reader *quotes.Reader, program, pull string) ([]quotes.Answer, error) {
+	repo, number, found := strings.Cut(pull, "#")
+	if !found {
+		return nil, fmt.Errorf("--pr %q is not OWNER/NAME#N", pull)
+	}
+	view, err := runner.Run(ctx, shell.Command{Argv: []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", number, "--repo", repo, "--json", quotes.PRFields}})
+	if err != nil {
+		return nil, err
+	}
+	var pr quotes.PR
+	if err := json.Unmarshal([]byte(view.Stdout), &pr); err != nil {
+		return nil, fmt.Errorf("%s: %w", pull, err)
+	}
+	return reader.ForPR(ctx, program, pr)
 }
 
 func pickCommand(a *app.App, opened func() (*store.Store, error)) *cobra.Command {
