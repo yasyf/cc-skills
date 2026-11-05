@@ -167,6 +167,7 @@ type Facts struct {
 	CarriedBy     string
 	TapReturned   string
 	Exempt        bool
+	StandingWord  string
 	Hold          Mover
 	HoldSeq       int64
 	HoldAwaitsTap bool

@@ -31,6 +31,10 @@ const (
 	PortOfAttr        = "port-of"
 	PortInteractsAttr = "port-interacts"
 	PortCleanWord     = "no"
+	PortSourceFact    = "port-source"
+	PortOutsideFact   = "port-outside"
+	portSourceMerged  = "merged"
+	portSourceOpen    = "not merged"
 	FlakeFixClass     = "flake-fix"
 	FlakeFixAttr      = "flake-fix"
 	StandingRefused   = "standing-refused"
@@ -83,18 +87,29 @@ func ExemptGo(c Claim, r Read) (string, []string) {
 	finder, finderRefusal := finderCite(c, r)
 	port, claimed := PortAt(c, r.Records)
 	flaked := FlakeAt(c, r.Records)
+	portFacts := claimFacts(port, r)
+	word := ""
+	switch {
+	case flaked:
+		word = FlakeFixClass
+	case claimed && len(PortRefusals(portFacts)) == 0:
+		word = OldTreePortClass
+	}
 	exempt := r.Exempt
 	if claimed {
 		exempt = portsFirst(exempt)
 	}
-	class, fidelity, fidelityRefusals := fidelityCite(c, r, exempt, flaked)
+	class, fidelity, fidelityRefusals := fidelityCite(c, r, exempt, word)
 	rules := tapRules(r.TapRules, r.Files)
 	var classRefused []string
 	switch {
 	case class == FlakeFixClass:
 		classRefused = flakeRefusals(r)
 	case isPortClass(class):
-		classRefused = portRefusals(c, r, port, claimed)
+		classRefused = PortRefusals(portFacts)
+		if !claimed {
+			classRefused = []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr)}
+		}
 	}
 	if (class == FlakeFixClass || isPortClass(class)) && len(classRefused) == 0 {
 		rules = nil
@@ -160,21 +175,59 @@ func namesHead(record client.Record, c Claim) bool {
 	return strings.HasPrefix(c.Head, sha)
 }
 
-func portRefusals(c Claim, r Read, port PortClaim, claimed bool) []string {
-	if !claimed {
-		return []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr)}
+func LandsOnWord(facts map[string]string) (class, refused string) {
+	_, unclaimed := strconv.Atoi(facts[PortOfAttr])
+	switch {
+	case facts[FlakeFixAttr] != "":
+		class = FlakeFixClass
+	case unclaimed == nil && facts[PortInteractsAttr] == PortCleanWord:
+		class = OldTreePortClass
+	default:
+		return "", ""
 	}
+	if said := facts[StandingRefused]; said != "" {
+		return "", said
+	}
+	if class == OldTreePortClass {
+		if why := PortRefusals(facts); len(why) > 0 {
+			return "", strings.Join(why, "; ")
+		}
+	}
+	return class, ""
+}
+
+func PortRefusals(facts map[string]string) []string {
 	var out []string
-	if port.Interacts {
-		out = append(out, fmt.Sprintf("port: head record %s does not read %s=%s, so it goes to the owner on one card and lands on his tap", port.Record.Name(), PortInteractsAttr, PortCleanWord))
+	if facts[PortInteractsAttr] != PortCleanWord {
+		out = append(out, fmt.Sprintf("port: its head record does not read %s=%s, so it goes to the owner on one card and lands on his tap", PortInteractsAttr, PortCleanWord))
 	}
-	if !r.PortSourceMerged {
-		out = append(out, fmt.Sprintf("port: its source #%d is not a merged pull request", port.Source))
+	if source := facts[PortSourceFact]; source != "" && source != portSourceMerged {
+		out = append(out, fmt.Sprintf("port: its source #%s is not a merged pull request", facts[PortOfAttr]))
 	}
-	if file := slices.IndexFunc(r.Files, func(file string) bool { return !strings.HasPrefix(file, portTree) }); file >= 0 {
-		out = append(out, fmt.Sprintf("port: %s is outside %s, so it is no pure port and lands on his tap", r.Files[file], portTree))
+	if outside := facts[PortOutsideFact]; outside != "" {
+		out = append(out, fmt.Sprintf("port: %s is outside %s, so it is no pure port and lands on his tap", outside, portTree))
 	}
 	return out
+}
+
+func PortEvidence(sourceMerged bool, files []string) map[string]string {
+	evidence := map[string]string{PortSourceFact: portSourceOpen}
+	if sourceMerged {
+		evidence[PortSourceFact] = portSourceMerged
+	}
+	if file := slices.IndexFunc(files, func(file string) bool { return !strings.HasPrefix(file, portTree) }); file >= 0 {
+		evidence[PortOutsideFact] = files[file]
+	}
+	return evidence
+}
+
+func claimFacts(port PortClaim, r Read) map[string]string {
+	facts := PortEvidence(r.PortSourceMerged, r.Files)
+	facts[PortOfAttr] = strconv.Itoa(port.Source)
+	if !port.Interacts {
+		facts[PortInteractsAttr] = PortCleanWord
+	}
+	return facts
 }
 
 func isPortClass(class string) bool {
@@ -220,7 +273,7 @@ func finderCite(c Claim, r Read) (string, string) {
 	return "", fmt.Sprintf("finder: %s at %s, and no counted decide reads finder-override #%d at %s citing a record that exists", said, short(c.Head), c.PR, short(c.Head))
 }
 
-func fidelityCite(c Claim, r Read, exempt []string, flaked bool) (string, string, []string) {
+func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string, []string) {
 	records := r.Records
 	var lanes []string
 	standing := map[string]standingGrade{}
@@ -246,8 +299,8 @@ func fidelityCite(c Claim, r Read, exempt []string, flaked bool) (string, string
 		if phrase := exemptPhrase(grade.record.Text, exempt); phrase != "" && class == "" {
 			class, cite = ClassOf(phrase), "fidelity ok "+grade.record.Name()
 		}
-		if flaked {
-			class, cite = FlakeFixClass, "fidelity ok "+grade.record.Name()
+		if word != "" {
+			class, cite = word, "fidelity ok "+grade.record.Name()
 		}
 	}
 	if class == "" {

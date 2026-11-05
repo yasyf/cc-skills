@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	unknownGrace = 10 * time.Minute
-	headGrace    = 5 * time.Minute
+	unknownGrace          = 10 * time.Minute
+	portInteractsUnstated = "unstated"
+	headGrace             = 5 * time.Minute
 )
 
 const (
@@ -243,12 +244,8 @@ func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, hea
 		if err := f.putDelta(t, row.Number, record, head, replaced); err != nil {
 			return row, err
 		}
-		for _, attr := range []string{gates.PortOfAttr, gates.PortInteractsAttr, gates.FlakeFixAttr} {
-			if value := record.Fields.Attrs[attr]; value != "" {
-				if err := t.PutFact(f.Repo, row.Number, head, attr, value, record.At); err != nil {
-					return row, err
-				}
-			}
+		if err := f.putClaims(t, row.Number, record, head); err != nil {
+			return row, err
 		}
 	}
 	if at < row.HeadAt {
@@ -274,6 +271,24 @@ func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, hea
 		ApplyBody(&row, body)
 	}
 	return row, nil
+}
+
+func (f Fold) putClaims(t *store.Tx, number int, record client.Record, head string) error {
+	attrs := record.Fields.Attrs
+	claims := map[string]string{gates.FlakeFixAttr: attrs[gates.FlakeFixAttr]}
+	if _, err := strconv.Atoi(attrs[gates.PortOfAttr]); err == nil {
+		claims[gates.PortOfAttr] = attrs[gates.PortOfAttr]
+		claims[gates.PortInteractsAttr] = cmp.Or(attrs[gates.PortInteractsAttr], portInteractsUnstated)
+	}
+	for attr, value := range claims {
+		if value == "" {
+			continue
+		}
+		if err := t.PutFact(f.Repo, number, head, attr, value, record.At); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f Fold) putDelta(t *store.Tx, number int, record client.Record, head, replaced string) error {
@@ -437,21 +452,18 @@ func Materialize(row store.ReviewRow, facts map[string]string, held Held, branch
 }
 
 func withStandingWord(row store.ReviewRow, facts map[string]string) store.ReviewRow {
-	lands := ""
+	if !row.ReadyForTap || row.Tapped {
+		return row
+	}
+	class, refused := gates.LandsOnWord(facts)
 	switch {
-	case facts[gates.FlakeFixAttr] != "":
-		lands = flakeLands
-	case facts[gates.PortOfAttr] != "" && facts[gates.PortInteractsAttr] == gates.PortCleanWord:
-		lands = PortLands
-	}
-	if lands == "" || !row.ReadyForTap || row.Tapped {
-		return row
-	}
-	if refused := facts[gates.StandingRefused]; refused != "" {
+	case refused != "":
 		row.WaitsOn = strings.TrimSuffix(row.WaitsOn, ".") + "; the gate refused it: " + clip(refused, fieldChars)
-		return row
+	case class == gates.FlakeFixClass:
+		row.ReadyForTap, row.WaitsOn = false, FlakeLands
+	case class == gates.OldTreePortClass:
+		row.ReadyForTap, row.WaitsOn = false, PortLands
 	}
-	row.ReadyForTap, row.WaitsOn = false, lands
 	return row
 }
 

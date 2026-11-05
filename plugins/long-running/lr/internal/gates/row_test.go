@@ -75,6 +75,10 @@ func TestMissingAddsTheRowsWaitOnlyWhenNoOtherGateSaysWhy(t *testing.T) {
 		{"the row and no tap", func(f *machine.Facts) { f.RowWait, f.Tap = "not graded", "" }, []string{NoTap, "its row waits on: not graded"}},
 		{"a gate that already says why", func(f *machine.Facts) { f.RowWait, f.CI = "CI is not green", machine.CIPending }, []string{"CI is not green"}},
 		{"exempt", func(f *machine.Facts) { f.RowWait, f.Tap, f.Exempt = "its PR body has no Summary", "", true }, nil},
+		{"a standing word owes a go, not a tap", func(f *machine.Facts) { f.RowWait, f.Tap, f.StandingWord = "lands on his word", "", OldTreePortClass }, []string{NoGo}},
+		{"a standing word under an until-tap hold still owes his tap", func(f *machine.Facts) {
+			f.RowWait, f.Tap, f.StandingWord, f.Hold, f.HoldAwaitsTap = "", "", OldTreePortClass, machine.MoverRoot, true
+		}, []string{NoTap}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := tapped
