@@ -3,6 +3,7 @@ package landing
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -113,6 +114,10 @@ func Act(ctx context.Context, s *store.Store, queue Queue, restacker Restacker, 
 		switch act.Verdict.Action {
 		case machine.ActionEnqueue:
 			err = enqueue(ctx, s, queue, act.Facts, now, &done)
+			if errors.Is(err, ErrHeld) {
+				done.Said = append(done.Said, Said{Facts: act.Facts, Accepted: "QUEUED", Refused: "REFUSED", Text: "an open hold names it, so the queue was not asked"})
+				err = nil
+			}
 		case machine.ActionDequeue:
 			var said string
 			if said, err = queue.Dequeue(ctx, act.Facts.Number); err == nil {
@@ -205,11 +210,9 @@ func recordSaid(s *store.Store, f machine.Facts, said string, now time.Time, don
 	if said == "" {
 		return nil
 	}
-	if _, err := s.PutFact(f.Repo, f.Number, f.Head, pass.EnqueuedFact, said, now); err != nil {
-		return err
-	}
 	done.Said = append(done.Said, Said{Facts: f, Accepted: "QUEUED", Refused: "REFUSED", Text: said})
-	return nil
+	_, err := s.PutFact(f.Repo, f.Number, f.Head, pass.EnqueuedFact, said, now)
+	return err
 }
 
 func restack(ctx context.Context, s *store.Store, restacker Restacker, f machine.Facts, now time.Time, done *Done) error {

@@ -268,3 +268,22 @@ func TestARowNoLongerEvictedForgetsItsEviction(t *testing.T) {
 		t.Fatalf("facts = %+v", again[0])
 	}
 }
+
+func TestAHeldRowTheQueueEvictedIsNotReenteredWhenItsSnapshotShowsNoHold(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, q := storeWith(t, "lane-7"), &queue{failure: batchFailure}
+	guard := landing.HoldGuard{Queue: q, Held: func(context.Context) (map[int]bool, error) { return map[int]bool{45711: true}, nil }}
+	read := settle(t, s, q, facts(45711, fellOut))
+
+	done, err := landing.Act(context.Background(), s, guard, &restacker{}, acts(t, s, t0, read...), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(q.reentered) != 0 || len(q.enqueued) != 0 || len(done.Resubmitted) != 0 {
+		t.Fatalf("reentered = %v, enqueued = %+v, resubmitted = %+v", q.reentered, q.enqueued, done.Resubmitted)
+	}
+	if len(done.Said) != 1 || !strings.Contains(done.Said[0].Text, "an open hold names it") {
+		t.Fatalf("said = %+v", done.Said)
+	}
+}

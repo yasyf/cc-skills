@@ -1040,7 +1040,7 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 	gos := bus.RootGos(later)
 	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, s.Drive, seqs) })
 	if err != nil {
-		s.Log.Warn("could not read what holds resolve, so each counts as a lift", "error", err)
+		return nil, fmt.Errorf("read what the holds resolve: %w", err)
 	}
 	held := make(map[int]hold)
 	for _, record := range records {
@@ -1062,6 +1062,18 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 		}
 	}
 	return held, nil
+}
+
+func (s Source) HeldPRs(ctx context.Context) (map[int]bool, error) {
+	held, err := s.holds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	numbers := make(map[int]bool, len(held))
+	for number, one := range held {
+		numbers[number] = one.by != "" || len(one.asks) > 0
+	}
+	return numbers, nil
 }
 
 func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead, required []string, held map[int]hold, known []store.ReviewRow) ([]machine.Facts, error) {

@@ -336,7 +336,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	if runner.CIBuild != "" {
 		queue.Logs = landing.TrunkWatch{Runner: a.Runner, Checkout: env.Config.Checkout, Config: landing.TrunkConfig{CIBuild: runner.CIBuild, TokenCommand: runner.CITokenCommand}}.FailedJob
 	}
-	deps.Queue = queue
+	deps.Queue = landing.HoldGuard{Queue: queue, Held: prfacts.New(a, env.Config, s).HeldPRs}
 	deps.Restacker = restacker
 	deps.Followers = append(deps.Followers, (&landing.HoldWatch{Store: s, Drive: env.Config.Drive, Repo: env.Config.Repo, Trunk: env.Config.Trunk, Read: prfacts.New(a, env.Config, s).HeldAndQueued, Queue: deps.Queue, Now: a.Now, Log: a.Log}).Run)
 	deps.Unstick = landing.Unstick{Runner: a.Runner, Read: prfacts.New(a, env.Config, s).ReadMergeable, Move: restacker.Run, Store: s, Drive: env.Config.Drive, Trunk: env.Config.Trunk, Now: a.Now, Log: a.Log}.Pass

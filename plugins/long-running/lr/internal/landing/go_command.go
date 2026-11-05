@@ -131,7 +131,7 @@ func (g goGate) readHead(ctx context.Context, number int, head string, before in
 	}
 	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, g.cfg.Drive, seqs) })
 	if err != nil {
-		fmt.Fprintf(g.stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
+		return headRead{}, fmt.Errorf("read what its holds resolve: %w", err)
 	}
 	r := headRead{claim: gates.Claim{Repo: g.cfg.Repo, PR: number, Head: head}, records: records}
 	r.read = gates.Read{Lifts: lifts, Records: records, GoLanes: g.inputs.GoLanes, Exempt: g.inputs.Exempt, TapRules: g.inputs.TapRules, Cards: g.inputs.Cards}
