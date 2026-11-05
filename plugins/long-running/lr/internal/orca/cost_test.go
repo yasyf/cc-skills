@@ -27,6 +27,10 @@ func TestALaunchAboveTheCostDefaultsNeedsTheOwnersPick(t *testing.T) {
 		{"incident xhigh", Order{Lane: "api-fix", Model: agentIncident, Effort: "xhigh"}, "# brief\n", ""},
 		{"incident opus xhigh", Order{Lane: "api-comms", Model: modelIncidentOpus, Effort: "xhigh"}, "# brief\n", ""},
 		{"incident role xhigh", Order{Lane: "api-fix", Model: "gpt-6.1-sol", Effort: "xhigh", Role: agentIncident}, "# brief\n", ""},
+		{"a desk at its table effort", Order{Lane: "board-refresher-10", Model: "opus", Effort: "medium"}, "# brief\n", ""},
+		{"a desk above its table effort", Order{Lane: "board-refresher-10", Model: "opus", Effort: "high", Brief: "/b.md"}, "# brief\n", "board-refresher-10 is a desk, and the desk table runs it on opus at medium, not high: launch `lr launch lane board-refresher-10 opus medium /b.md`"},
+		{"the table beats a pick on a desk", Order{Lane: "fidelity-desk-31", Model: "opus", Effort: "xhigh", Brief: "/b.md"}, picked, "fidelity-desk-31 is a desk"},
+		{"a desk on another model than its row", Order{Lane: "drive-watchdog-5", Model: "sonnet", Effort: "low"}, "# brief\n", ""},
 		{"a pick with no row", Order{Lane: "lane-a", Model: "fable", Effort: "high"}, "# brief\nOwner pick: he said so\n", "fable starts only"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
