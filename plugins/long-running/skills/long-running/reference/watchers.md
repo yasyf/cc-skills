@@ -157,7 +157,7 @@ The rule these lines serve: every turn of a launched lane ends on a typed record
 ### Run the supervisor
 
 `lr supervisor run` runs under launchd and keeps required lanes alive without coordinator action.
-- Each tick reads the bus once and `cci who` once. A fresh store adopts only the lanes live at that moment, and a tick whose sources do not all answer acts on nothing.
+- Each tick reads the bus once and `cci who` twice: once for the drive, and once for the live agent threads of the drive's sessions that no post has bound to a lane yet. A fresh store adopts only the lanes live at that moment, and a tick whose sources do not all answer acts on nothing.
 - The supervisor never signals a process; a lane leaves only through the record that stands it down.
 
 ### Track lane ownership and retirement
@@ -173,7 +173,7 @@ The `lanes` table of the drive store holds one row per worker, and only the supe
 **A lane is retired only by typed records, never by prose or by its name:**
 - its own `done` with no `--re` (a `done --re` closes that one record's item and leaves the lane live), `stopped`, or `stand-down` record;
 - a `stand-down` request, which retires it or hands it to the successor it names;
-- for a lane that never came up, another lane's records taking its last PR.
+- for a lane that has posted nothing since its launch, another lane's records taking its last PR.
 
 A numbered spawn such as `desk-4` takes over `desk-3` only when its launch names it. A lane told in prose to stand down remains active until it posts `cci post --kind done`, so a death mid-task still gets a successor. The relay asks for `done` when a lane's Orca worker reports `worker_done succeeded`.
 
@@ -189,7 +189,7 @@ A numbered spawn such as `desk-4` takes over `desk-3` only when its launch names
 
 ### Check liveness and wake parked lanes
 
-A lane is dead only when it lacks both a live process and a record within `STALE_AFTER` (15 minutes). Silence and activity are measured from the lane's own cci records, never from `cci who`. A `cci who` row is a process fact only, because every in-process teammate of a live coordinator session reads live there, however long ago it stopped. A live process is a live `cci who` row, a live Orca dispatch, or an in-process teammate on a live lead session's team roster.
+A lane is dead only when it lacks both a live process and a record within `STALE_AFTER` (15 minutes). Silence and activity are measured from the lane's own cci records, never from `cci who`. A `cci who` row is a process fact only, because every in-process teammate of a live coordinator session reads live there, however long ago it stopped. A live process is a live `cci who` row, a live Orca dispatch, or an in-process teammate on a live lead session's team roster. A teammate that has yet to post has an empty lane on its `cci who` row, so the supervisor reads that row under the teammate's spawn name while its lead session is live.
 
 - **Parking.** A lane's `ask`, `blocked`, or `blocker` parks its row, with the gates the record names: `--pr`, `--target`, `--lane-ref`, or a `card-` id. A parked lane with no live process gets no successor. Any later record from the lane clears the wait.
 - **Events that clear the wait and page the lane:** the answer with `--re` or `--resolves`; `landed` naming the PR; `release`, `applied` or `fix-live` naming the target; the named lane's `done`, `stopped` or `fix-live`; the owner's pick on the card.

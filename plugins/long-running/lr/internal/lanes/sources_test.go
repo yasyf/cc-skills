@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 type scripted func(argv []string) (shell.Result, error)
@@ -648,7 +649,7 @@ func TestWhoRowsCarryTheRosterOfALiveLeadsTeam(t *testing.T) {
 	claude := t.TempDir()
 	writeJSON(t, filepath.Join(claude, "teams", "session-d50e80e8", "config.json"), map[string]any{"members": []map[string]string{{"name": "mate"}}})
 	bus := &fakeBus{peers: []client.Peer{{Lane: Root, Session: "d50e80e8-7", Live: true, SeenAt: t0}, {Lane: "mate", Session: "d50e80e8-7", Agent: "amate", SeenAt: t0}}}
-	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, Claude: claude}
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, Claude: claude, Runner: scripted(func([]string) (shell.Result, error) { return shell.Result{}, nil })}
 
 	rows, err := env.Who(context.Background())(nil)
 	if err != nil {
@@ -657,6 +658,32 @@ func TestWhoRowsCarryTheRosterOfALiveLeadsTeam(t *testing.T) {
 
 	equal(t, []bool{rows[0].Idle, rows[1].Live, rows[1].Idle}, []bool{false, true, true})
 	equal(t, rows[1].Roster, filepath.Join(claude, "teams", "session-d50e80e8"))
+}
+
+func TestATeammateThatHasNotPostedReadsLiveUnderItsNameOnlyInALiveLeadsSession(t *testing.T) {
+	claude := t.TempDir()
+	team := filepath.Join(claude, "teams", "session-d50e80e8")
+	writeJSON(t, filepath.Join(team, "config.json"), map[string]any{"members": []map[string]string{{"name": "team-lead"}, {"name": "signed-in-released"}}})
+	bus := &fakeBus{peers: []client.Peer{{Lane: "meta-desk-3", Session: "d50e80e8-7", Live: true, SeenAt: t0}, {Lane: "ended-desk", Session: "0ddba11-2", SeenAt: t0}}}
+	threads := strings.Join([]string{
+		`{"session":"d50e80e8-7","agent":"asigned-in-released-01","agent_name":"signed-in-released","live":true,"seen_at":"2026-10-31T17:00:00Z"}`,
+		`{"session":"0ddba11-2","agent":"aorphan-01","agent_name":"orphan","live":true,"seen_at":"2026-10-31T17:00:00Z"}`,
+		`{"session":"0badc0de-1","agent":"aelsewhere-01","agent_name":"elsewhere","live":true,"seen_at":"2026-10-31T17:00:00Z"}`,
+	}, "\n")
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, Claude: claude, Runner: scripted(func([]string) (shell.Result, error) { return shell.Result{Stdout: threads}, nil })}
+
+	rows, err := env.Who(context.Background())(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := Peers(rows)
+	helper := found["signed-in-released"]
+	equal(t, []any{helper.Live, helper.Row.Idle, helper.Row.Roster}, []any{true, false, team})
+	equal(t, Classify(store.Lane{Name: "signed-in-released", State: store.LaneLaunching, Since: t0.Add(-mins(20))}, &helper, t0, 0, 0).Kind, CameUp)
+	_, orphan := found["orphan"]
+	_, elsewhere := found["elsewhere"]
+	equal(t, []bool{orphan, elsewhere}, []bool{false, false})
 }
 
 func TestAnInboxKeepsItsEarlierMessagesVerbatim(t *testing.T) {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +20,7 @@ __capt_hook_skip__ = True
 
 TEAMMATE_MESSAGE = re.compile(r'<teammate-message teammate_id="([^"]+)"[^>]*>\n(.*?)\n</teammate-message>', re.DOTALL)
 ROOT_NAMES = frozenset({"team-lead", "main"})
+IN_PROCESS_TEAMMATE = "in_process_teammate"
 LANE_IN_SUBJECT = re.compile(r"\blane `?([\w.-]+)")
 LOCK_STALE_SECONDS = 10
 LOCK_RETRIES = 10
@@ -59,16 +60,26 @@ def drive_lane(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _
     """The drive lane `evt` runs in: an Orca lane session's own lane, which owns every worker it spawns, else the outermost named agent above it, so a lane's named worker acts as its lane."""
     if lane := reqenv.getenv("CLAUDE_LONG_RUNNING_LANE"):
         return lane
-    if not evt.agent_id or not (transcript := evt._raw.get("transcript_path")):
-        return None
-    lanes = Path(transcript).with_suffix("") / "subagents"
-    agent_id, outermost = evt.agent_id, None
-    while agent_id and (meta := lanes / f"agent-{agent_id}.meta.json").is_file():
-        fields = json.loads(meta.read_text())
+    outermost = None
+    for fields in agent_chain(evt):
         if (name := fields.get("name")) and not skip(fields.get("agentType")):
             outermost = name
-        agent_id = fields.get("parentAgentId")
     return outermost
+
+
+def teammate_lane(evt: BaseHookEvent) -> str | None:
+    return next((fields["name"] for fields in agent_chain(evt) if fields.get("taskKind") == IN_PROCESS_TEAMMATE and fields.get("name")), None)
+
+
+def agent_chain(evt: BaseHookEvent) -> Iterator[dict]:
+    if not evt.agent_id or not (transcript := evt._raw.get("transcript_path")):
+        return
+    lanes = Path(transcript).with_suffix("") / "subagents"
+    agent_id = evt.agent_id
+    while agent_id and (meta := lanes / f"agent-{agent_id}.meta.json").is_file():
+        fields = json.loads(meta.read_text())
+        yield fields
+        agent_id = fields.get("parentAgentId")
 
 
 def acquire(lock: Path) -> bool:

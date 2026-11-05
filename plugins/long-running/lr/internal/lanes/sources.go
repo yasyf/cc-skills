@@ -180,7 +180,11 @@ func (e Env) Who(ctx context.Context) func([]string) ([]Row, error) {
 		for _, peer := range peers {
 			rows = append(rows, Row{Lane: peer.Lane, Session: peer.Session, Agent: peer.Agent, Live: peer.Live, SeenAt: peer.SeenAt, StoodDown: peer.StoodDown})
 		}
-		rows = Rostered(rows, filepath.Join(e.Claude, "teams"))
+		threads, err := e.unboundThreads(ctx, rows)
+		if err != nil {
+			return nil, err
+		}
+		rows = Rostered(append(rows, threads...), filepath.Join(e.Claude, "teams"))
 		if e.Config.OrcaRun == "" {
 			return rows, nil
 		}
@@ -190,6 +194,41 @@ func (e Env) Who(ctx context.Context) func([]string) ([]Row, error) {
 		}
 		return append(rows, orca...), nil
 	}
+}
+
+func (e Env) unboundThreads(ctx context.Context, rows []Row) ([]Row, error) {
+	leads := map[string]bool{}
+	for _, row := range rows {
+		if row.Live && row.Agent == "" && row.Session != "" {
+			leads[row.Session] = true
+		}
+	}
+	if len(leads) == 0 {
+		return nil, nil
+	}
+	out, err := e.Run(ctx, "cci", "who", "--role", "agent", "--json", "--fields", "session,agent,agent_name,lane,live,seen_at")
+	if err != nil {
+		return nil, err
+	}
+	var threads []Row
+	decoder := json.NewDecoder(strings.NewReader(out))
+	for decoder.More() {
+		var thread struct {
+			Session string    `json:"session"`
+			Agent   string    `json:"agent"`
+			Name    string    `json:"agent_name"`
+			Lane    string    `json:"lane"`
+			Live    bool      `json:"live"`
+			SeenAt  time.Time `json:"seen_at"`
+		}
+		if err := decoder.Decode(&thread); err != nil {
+			return nil, fmt.Errorf("%w: cci who printed a thread that does not parse: %w", ErrUnread, err)
+		}
+		if leads[thread.Session] && thread.Lane == "" && thread.Name != "" {
+			threads = append(threads, Row{Lane: thread.Name, Session: thread.Session, Agent: thread.Agent, Live: thread.Live, SeenAt: thread.SeenAt})
+		}
+	}
+	return threads, nil
 }
 
 func teamDir(teams, session string) string {

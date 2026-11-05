@@ -764,7 +764,7 @@ func foldCarried(s *store.Store, r Record, at time.Time) bool {
 	}
 	slices.Sort(numbers)
 	for _, other := range must(s.Lanes(store.LaneLaunching)) {
-		if other.Name == r.Lane || len(other.PRs) == 0 {
+		if other.Name == r.Lane || len(other.PRs) == 0 || other.Heard.After(other.Since) {
 			continue
 		}
 		covered := true

@@ -16,7 +16,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, drive_entry, script
 from .lane_landing import outside_drive_repo
-from .session_tree import drive_lane
+from .session_tree import drive_lane, teammate_lane
 from .tests.ledger_fixtures import FIXTURES
 
 OPENERS = (
@@ -96,7 +96,7 @@ def opener_cwd(evt: BaseHookEvent) -> Path | None:
 
 
 def lane_name(evt: BaseHookEvent) -> str:
-    return drive_lane(evt) or ROOT_LANE
+    return teammate_lane(evt) or drive_lane(evt) or ROOT_LANE
 
 
 ROOT_LANE = "root"
