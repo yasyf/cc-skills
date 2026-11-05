@@ -1153,12 +1153,21 @@ func (f Fanout) record(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	return []Outcome{{Surface: "record", Ref: posted.Num}}
 }
 
-func (f Fanout) ledger(_ context.Context, r Reply, _ []Outcome) []Outcome {
+func (f Fanout) ledger(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	state, err := owner.Answer(f.Entry.StateDir, r.Order, r.By, r.ID, r.Routed, f.Now())
 	if err != nil {
 		return []Outcome{failed("ledger", err)}
 	}
-	return []Outcome{{Surface: "ledger", Ref: r.Order + " " + state}}
+	marked := Outcome{Surface: "ledger", Ref: r.Order + " " + state}
+	if r.By == "" {
+		return []Outcome{marked}
+	}
+	warnings, err := owner.UnreadAnswers(ctx, f.Entry, func(row owner.Row) bool { return row.ID == r.Order })
+	if err != nil {
+		warnings = []string{"reading answers already waiting failed: " + err.Error()}
+	}
+	marked.Warning = strings.Join(warnings, "\n")
+	return []Outcome{marked}
 }
 
 func (f Fanout) dashboard(_ context.Context, r Reply, sent []Outcome) []Outcome {

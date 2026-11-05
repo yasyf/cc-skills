@@ -262,7 +262,7 @@ func namedBy(replies, row, reply string) bool {
 	return json.Unmarshal(sent, &body) == nil && body.Reply.Order == row
 }
 
-func unreadAnswers(ctx context.Context, entry drive.Entry, wanted func(Row) bool) ([]string, error) {
+func UnreadAnswers(ctx context.Context, entry drive.Entry, wanted func(Row) bool) ([]string, error) {
 	ledger, err := os.ReadFile(Ledger(entry.StateDir))
 	if err != nil {
 		return nil, err
@@ -328,8 +328,8 @@ func Command(a *app.App) *cobra.Command {
 			if state, err = settle(entry.StateDir, row, state, by, reply, routed, a.Now()); err != nil {
 				return err
 			}
-			if state != responded && state != addressed && state != noOrder {
-				warnings, err := unreadAnswers(cmd.Context(), entry, func(r Row) bool { return r.ID == row })
+			if strings.HasPrefix(state, duePrefix) {
+				warnings, err := UnreadAnswers(cmd.Context(), entry, func(r Row) bool { return r.ID == row })
 				if err != nil {
 					return err
 				}
@@ -413,7 +413,7 @@ func Command(a *app.App) *cobra.Command {
 					named[number] = true
 				}
 			}
-			warnings, err := unreadAnswers(cmd.Context(), entry, func(r Row) bool {
+			warnings, err := UnreadAnswers(cmd.Context(), entry, func(r Row) bool {
 				prs, _ := PRsNamed([]Row{r})
 				for number := range prs {
 					if named[number] {
