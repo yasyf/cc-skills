@@ -244,6 +244,9 @@ DIFF_GIT = re.compile(r"^diff --git a/(?P<old>\S+) b/(?P<new>\S+)$")
 HUNK = re.compile(r"^@@ -(?P<old>\d+)(?:,\d+)? \+(?P<new>\d+)(?:,\d+)? @@")
 WORD = re.compile(r"[a-z][a-z'-]+")
 SLACK_ACTION = re.compile(r"(\{\"type\":\s*\"slack\.action\".*?\})\s*</channel>", re.DOTALL)
+MONITOR_EVENT = re.compile(r"<event>(?P<lines>.*?)</event>", re.DOTALL)
+WATCHED_TAP = '"type":"slack.action"'
+MONITOR_CUT = "...(truncated)"
 CARD_FILE = re.compile(r"@(\S+\.json)")
 CARD_ANSWERS = "\nAnswers, newest first:\n"
 CARD_ANSWER = re.compile(r"^\s+\S.*?\s{2}(?P<block>\S+)\s{2}(?P<said>.+)$", re.MULTILINE)
@@ -2312,12 +2315,16 @@ def quotes_row(text: str, key: str, fields: dict[str, str]) -> bool:
     return (key in text or card_id(key) in text) and first_sentence(fields.get("words") or "") in " ".join(text.split())
 
 
+def taps_in(text: str) -> Iterator[dict]:
+    yield from (json.loads(raw) for raw in SLACK_ACTION.findall(text))
+    yield from (json.loads(line) for found in MONITOR_EVENT.finditer(text) for line in found["lines"].splitlines() if WATCHED_TAP in line and not line.endswith(MONITOR_CUT))
+
+
 def tapped_card(entries: list[dict], ts: str) -> tuple[dict, str] | None:
     action = None
     for entry in entries:
         for text in strings(entry):
-            for raw in SLACK_ACTION.findall(text):
-                payload = json.loads(raw)
+            for payload in taps_in(text):
                 if ts in (payload.get("action_ts"), payload.get("ts")):
                     action = payload
     if not action:
