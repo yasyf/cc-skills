@@ -32,7 +32,7 @@ Fill the angle brackets and write the result to `<state dir>/meta/brief.md`, the
 Register slice: lane=meta step=all
 Standing: every improvement to the long-running skill, its tooling, prompts, hooks and briefs, and every process order the owner sends the communicator
 Scale: the whole drive's process; <the repos its packs live in>; one live drive to keep working while they change.
-ccx: role=desk place=local why=installs-run-on-the-mac incident=none
+ccx: role=desk place=local why=mac-build incident=none
 Before a push, `go build` and `go vet` run over the Go packages touched, as the push hook requires, and the typecheck over the TypeScript touched; no test, lint or LLM call runs on this Mac; CI grades.
 No credential, token or key in any file, record or brief.
 
@@ -61,7 +61,7 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    Keep the contract below in another file. Launch it with
    `lr launch lane <lane> --title <title> --body <body> --contract <contract> --topics <subjects> [--order owner:m<row>] --drive <drive> --lane meta`,
    which writes `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:`, `ccx:` and
-   `Assigned orders:` lines and starts it on opus at high; `--scale`, `--place`, `--ccx`, `--model`
+   `Assigned orders:` lines and starts it on a Sprite on opus at high; `--scale`, `--place local --why <need>`, `--ccx`, `--model`
    and `--effort` change those, and `--body -` takes the body on stdin. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
    subagent. A question over transcripts, records or logs too big for your window goes

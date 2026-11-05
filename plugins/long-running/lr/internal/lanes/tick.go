@@ -855,8 +855,8 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 	place := "ccx: place=remote"
 	if macBrief.Match(body) {
 		place = "ccx: place=local why=predecessor-worked-here"
-		if own := macNeed.Find(body); own != nil {
-			place = string(own)
+		if own := macNeed.FindSubmatch(body); own != nil && slices.Contains(MacNeeds, string(own[1])) {
+			place = string(own[0])
 		}
 	}
 	lines := []string{

@@ -56,7 +56,6 @@ const (
 	standingDesk           = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc. Mail reaches you only between tool calls, so no foreground command runs over five minutes: run a long read in the background and report it by record."
 	noPRLine               = " This brief orders no PR: push the work as a branch and never open a PR for it."
 	createTimedOut         = "Timed out"
-	macInputsOnSprite      = " The Mac was over its load limit or out of Orca terminals, so this lane runs on a Sprite though its brief named Mac inputs. If the work truly needs the Mac, post a `blocked` record to the lane that launched you naming what it needs, and stop: it relaunches you on the Mac."
 	readOnSprite           = " The Mac was over its load limit or out of Orca terminals, so this read lane runs on a Sprite whose cci store starts at its launch: check on the Mac before you report anything absent."
 	incidentOnSprite       = " This Sprite has no AWS identity, so `aws` and `tools/ci` fail here, no Sentry or Datadog, and no devbox CLI. For each Sentry, Datadog or AWS read and each devbox repro, post `cci post --kind ask` naming the one read or repro to a lane of this incident still on the Mac, or to root when none is."
 )

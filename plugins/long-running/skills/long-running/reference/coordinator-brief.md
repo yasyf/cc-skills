@@ -139,13 +139,15 @@ keep launches, holds, finder and fidelity overrides, incidents and rulings.
 Launch lanes through the supervisor and Orca, never with `Agent`, keeping only the body text:
 
     lr launch lane <lane> --title <title> --model opus --effort high --scale small \
-      --ccx role=build,place=local,why=<reason> --timeout-seconds 3 --body - <<'EOF'
+      --timeout-seconds 3 --body - <<'EOF'
     <the body>
     EOF
 
 It writes `<state dir>/<lane>/brief.md` with the header and your standing lines from
 `<state dir>/root/brief-lines.txt`, the runner refreshes the register slice, and it prints the
-verdict. A later verdict arrives as a `desk-runner` record. Model and effort default to opus
+verdict. A later verdict arrives as a `desk-runner` record. The lane starts on a Sprite; one
+that needs the Mac takes `--place local --why <need>`, a need O16 in
+[orca-desk-brief.md](orca-desk-brief.md) lists. Model and effort default to opus
 high; Fable, astra, `xhigh` or `max` takes `--owner-pick owner:m<row>` naming his words. A launch beside a live lane holding the work takes `--now`.
 
 The task list is yours. Run `TaskCreate` the turn you spawn a lane or an ask arrives,
@@ -179,8 +181,8 @@ Run for this terminal, starts only what is down, and starts nothing when a desk'
 is missing or says place=local. It starts the relay, the landing pass,
 `fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` and
 `board-refresher`. The landing pass and every desk run remote, each an lr-launched lane
-registered to you, on a Sprite unless its brief says `place=local why=<reason>`, naming what needs
-the Mac. You never spawn a desk with Agent: a subagent ends with your window. The relay is the
+registered to you, on a Sprite unless its brief says `place=local why=<need>`, naming what only
+the Mac has. You never spawn a desk with Agent: a subagent ends with your window. The relay is the
 one exception: it runs under launchd on the Mac, because it drives the Mac's Orca app and
 cuts Mac worktrees.
 

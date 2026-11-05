@@ -13,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -25,30 +26,28 @@ const (
 	stepIncident   = "incident"
 	handoffLane    = "-handoff"
 	whyPredecessor = "predecessor-worked-here"
-	whyMacInputs   = "mac-inputs"
 	whySentry      = "sentry"
 )
 
 var (
-	scaleRule       = time.Date(2026, 10, 30, 13, 11, 35, 0, time.UTC)
-	briefSlice      = regexp.MustCompile(`(?m)^` + sliceLine)
-	briefScale      = regexp.MustCompile(`(?m)^[ \t>*_-]*Scale:`)
-	briefCCX        = regexp.MustCompile(`(?m)^ccx:.*$`)
-	briefIncident   = regexp.MustCompile(`(?m)^ccx:.*\bincident=([\w.-]+)`)
-	briefStanding   = regexp.MustCompile(`(?m)^Standing: *\S`)
-	briefSlack      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?mcp=slack(?:\s|$)`)
-	briefMonitor    = regexp.MustCompile(`(?m)^ccx:.*\bmonitor=(\d{4,})`)
-	briefPlace      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(remote|local)(?:\s|$)`)
-	briefWhy        = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+)`)
-	briefNoIncident = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?incident=none(\s|$)`)
-	briefRead       = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=read(?:\s|$)`)
-	briefReader     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=reader(?:\s|$)`)
-	incidentNamed   = regexp.MustCompile(`^(?:incident|outage)-`)
-	fableModel      = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
-	successorLane   = regexp.MustCompile(`^.+-(\d+)$`)
-	notFixRoles     = []string{"evidence", "proof", "closeout", "desk", "audit"}
-	fixRoles        = []string{roleFix, agentIncident}
-	efforts         = []string{"low", "medium", "high", "xhigh", "max"}
+	scaleRule     = time.Date(2026, 10, 30, 13, 11, 35, 0, time.UTC)
+	briefSlice    = regexp.MustCompile(`(?m)^` + sliceLine)
+	briefScale    = regexp.MustCompile(`(?m)^[ \t>*_-]*Scale:`)
+	briefCCX      = regexp.MustCompile(`(?m)^ccx:.*$`)
+	briefIncident = regexp.MustCompile(`(?m)^ccx:.*\bincident=([\w.-]+)`)
+	briefStanding = regexp.MustCompile(`(?m)^Standing: *\S`)
+	briefSlack    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?mcp=slack(?:\s|$)`)
+	briefMonitor  = regexp.MustCompile(`(?m)^ccx:.*\bmonitor=(\d{4,})`)
+	briefPlace    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(remote|local)(?:\s|$)`)
+	briefWhy      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+)`)
+	briefRead     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=read(?:\s|$)`)
+	briefReader   = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=reader(?:\s|$)`)
+	incidentNamed = regexp.MustCompile(`^(?:incident|outage)-`)
+	fableModel    = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
+	successorLane = regexp.MustCompile(`^.+-(\d+)$`)
+	notFixRoles   = []string{"evidence", "proof", "closeout", "desk", "audit"}
+	fixRoles      = []string{roleFix, agentIncident}
+	efforts       = []string{"low", "medium", "high", "xhigh", "max"}
 )
 
 type Order struct {
@@ -126,6 +125,9 @@ func (o Order) launchFaults(text string, readable bool) []string {
 		return append(faults, "brief "+o.Brief+" is not a file")
 	}
 	faults = append(faults, o.costFaults(text)...)
+	if unneeded := o.unneededLocal(text); unneeded != "" {
+		faults = append(faults, unneeded)
+	}
 	role := o.Lane
 	if numbered := successorLane.FindStringSubmatch(o.Lane); numbered != nil {
 		role = strings.TrimSuffix(o.Lane, "-"+numbered[1])
@@ -171,27 +173,30 @@ func macPinned(lane, model, text string) bool {
 }
 
 func macRequired(lane, model, text string) bool {
-	needs := slices.ContainsFunc(submatches(briefWhy, text), func(why string) bool { return why != whyPredecessor })
-	return alwaysOnMac(lane, model) || placedLocal(text) && needs
+	return alwaysOnMac(lane, model) || placedLocal(text) && namesMacNeed(text)
+}
+
+func namesMacNeed(text string) bool {
+	return slices.ContainsFunc(submatches(briefWhy, text), func(why string) bool { return slices.Contains(lanes.MacNeeds, why) })
 }
 
 func alwaysOnMac(lane, model string) bool {
 	return lane == coordinatorLane || fableModel.MatchString(model)
 }
 
-func macInputsOnly(lane, model, text string) bool {
-	return !alwaysOnMac(lane, model) && stampedMacInputs(text)
-}
-
-func stampedMacInputs(text string) bool {
-	return placedLocal(text) && briefNoIncident.MatchString(text) && slices.Equal(submatches(briefWhy, text), []string{whyMacInputs})
-}
-
 func unreasonedLocal(lane, model, text string) string {
-	if !placedLocal(text) || macRequired(lane, model, text) || macPreferred(text) || macInputsOnly(lane, model, text) {
+	if !placedLocal(text) || len(submatches(briefWhy, text)) > 0 || macRequired(lane, model, text) || macPreferred(text) {
 		return ""
 	}
-	return fmt.Sprintf("%s's brief says place=local but names no why=<need>, so it launches on a Sprite; a lane that needs the Mac names why=<what it needs there> on its ccx line", lane)
+	return fmt.Sprintf("%s's brief says place=local but names no why=<need>, so it launches on a Sprite; a lane that needs the Mac names its need on its ccx line as %s", lane, lanes.MacNeedsLine)
+}
+
+func (o Order) unneededLocal(text string) string {
+	whys := submatches(briefWhy, text)
+	if !placedLocal(text) || len(whys) == 0 || macRequired(o.Lane, o.Model, text) || macPreferred(text) || incidentLaunch(o, text) {
+		return ""
+	}
+	return fmt.Sprintf("%s's brief says place=local why=%s, which is no need only this Mac meets; name its need on its ccx line as %s, or drop place=local so it starts on a Sprite", o.Lane, strings.Join(whys, ","), lanes.MacNeedsLine)
 }
 
 func claudeWithoutSentry(lane, model, text string) string {
@@ -209,8 +214,7 @@ func capFallsBack(o Order, text string) bool {
 	if !canLeaveMac(o, text) {
 		return false
 	}
-	needs := placedLocal(text) && slices.ContainsFunc(submatches(briefWhy, text), func(why string) bool { return why != whyPredecessor && why != whyMacInputs })
-	return !needs || incidentLaunch(o, text)
+	return !placedLocal(text) || !namesMacNeed(text) || incidentLaunch(o, text)
 }
 
 func failureFallsBack(o Order, text string) bool {

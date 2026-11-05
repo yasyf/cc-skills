@@ -672,7 +672,7 @@ func TestALaunchVerdictReachesTheMetaLaneThatLaunchedTheLaneAndADriveLanesReache
 			w := newDeskWorld(t)
 			w.register(store.Lane{Name: "meta-desk-2", Role: lanes.RoleMeta, Launcher: lanes.OwnerRelay})
 			w.register(store.Lane{Name: testLane, Role: "lane", Launcher: tt.by})
-			brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+			brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 			w.lines()
 			line := w.add(object{"lane": tt.by, "text": launchText(testLane, brief), "to": []string{deskLane}})
 			key := "R" + strings.TrimPrefix(line.Name(), "#")
@@ -706,7 +706,7 @@ func TestALaunchVerdictReachesTheLaneThatPostedTheGo(t *testing.T) {
 				w.register(store.Lane{Name: "meta-desk-3", Role: lanes.RoleMeta, Launcher: lanes.OwnerRelay})
 				w.register(store.Lane{Name: testLane, Role: "lane", Launcher: "meta-desk-3"})
 			}
-			brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+			brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 			w.lines()
 			w.add(object{"lane": tt.by, "text": launchText(testLane, brief), "to": []string{deskLane}})
 			w.launchOut[testLane] = or(tt.out, w.launched(testLane, testDispatch, testTerminal))
@@ -729,7 +729,7 @@ func TestALaunchVerdictReachesTheLaneThatPostedTheGo(t *testing.T) {
 
 func TestARefusedLaunchTellsThePosterToPostTheGoAgain(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.coordinate = "run_other"
 	w.lines()
 	w.add(object{"lane": "meta-desk-3", "text": launchText(testLane, brief), "to": []string{deskLane}})
@@ -744,7 +744,7 @@ func TestARefusedLaunchTellsThePosterToPostTheGoAgain(t *testing.T) {
 
 func TestALaunchIsStartedThroughLrLaunchStartAndSettlesFromItsLine(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.lines()
 	line := w.add(object{"lane": "meta-desk-1", "text": launchText(testLane, brief), "to": []string{deskLane}})
 	key := "R" + strings.TrimPrefix(line.Name(), "#")
@@ -784,7 +784,7 @@ func TestALaunchIsStartedThroughLrLaunchStartAndSettlesFromItsLine(t *testing.T)
 
 func TestALaunchThatPrintsAFailureFailsWithItsLine(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.lines()
 	line := w.line(launchText(testLane, brief))
 	key := "R" + strings.TrimPrefix(line.Name(), "#")
@@ -800,7 +800,7 @@ func TestALaunchThatPrintsAFailureFailsWithItsLine(t *testing.T) {
 
 func TestALaunchWithNoLineAndNoReceiptIsUnverifiableAndNeverRelaunched(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.lines()
 	line := w.line(launchText(testLane, brief))
 	key := "R" + strings.TrimPrefix(line.Name(), "#")
@@ -819,7 +819,7 @@ func TestALaunchWithNoLineAndNoReceiptIsUnverifiableAndNeverRelaunched(t *testin
 
 func TestALaunchStillRunningIsNotSettled(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.process = &fakeProcess{}
 	w.lines()
 	line := w.line(launchText(testLane, brief))
@@ -836,7 +836,7 @@ const sparseNotice = testLane + " sparse: .agents tools; widen with cd /wt && lr
 
 func (w *deskWorld) startedThenRestarted(notice string) (string, string) {
 	w.t.Helper()
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.launchOut[testLane] = notice
 	w.lines()
 	line := w.line(launchText(testLane, brief))
@@ -969,7 +969,7 @@ func TestALaunchLinePastItsWindowExpires(t *testing.T) {
 
 func TestASlowPassWidensTheLaunchWindow(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.lines()
 	w.line(launchText(testLane, brief))
 	w.now = w.now.Add(20 * time.Minute)
@@ -980,7 +980,7 @@ func TestASlowPassWidensTheLaunchWindow(t *testing.T) {
 
 func TestALaunchIsRefusedWhileTheRunnerIsUnbound(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.coordinate = "run_other"
 	w.lines()
 	w.line(launchText(testLane, brief))
@@ -995,7 +995,7 @@ func TestALaunchIsRefusedWhileTheRunnerIsUnbound(t *testing.T) {
 
 func TestABriefWithNoSliceLaunchesWarnedWithStepAllWritten(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, "Do the thing.\nScale: no N\nccx: place=local why=test\n")
+	brief := w.brief(testLane, "Do the thing.\nScale: no N\nccx: place=local why=mac-build\n")
 	w.lines()
 	w.line(launchText(testLane, brief))
 	w.lines()
@@ -1036,7 +1036,7 @@ func TestAnIncidentCommsBriefWithNoSliceOrScaleLaunchesUnwarnedWithStepIncident(
 
 func TestAScaleLessBriefStillLaunches(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, "Register slice: lane=lane-a step=all\nccx: place=local why=test\n")
+	brief := w.brief(testLane, "Register slice: lane=lane-a step=all\nccx: place=local why=mac-build\n")
 	w.lines()
 	w.line(launchText(testLane, brief))
 	w.lines()
@@ -1049,7 +1049,7 @@ func TestAScaleLessBriefStillLaunches(t *testing.T) {
 
 func TestASliceThatDoesNotRefreshLogsOneAndNeverHoldsTheLaunch(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.desk.Runner = runnerFunc(func(ctx context.Context, c shell.Command) (shell.Result, error) {
 		if filepath.Base(c.Argv[0]) == "rulings.py" {
 			return shell.Result{Code: 2, Stderr: "no register\n"}, &shell.ExitError{Argv: c.Argv, Code: 2}
@@ -1074,7 +1074,7 @@ func (f runnerFunc) Run(ctx context.Context, c shell.Command) (shell.Result, err
 
 func TestWithdrawingALaunchNotYetStartedFailsIt(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.lines()
 	line := w.line(launchText(testLane, brief))
 	key := "R" + strings.TrimPrefix(line.Name(), "#")
@@ -1093,7 +1093,7 @@ func TestWithdrawingALaunchNotYetStartedFailsIt(t *testing.T) {
 
 func TestALaunchWithdrawnWhileStartingIsStoppedOnceItLogsLaunched(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.process = &fakeProcess{}
 	w.lines()
 	line := w.line(launchText(testLane, brief))
@@ -1247,7 +1247,7 @@ func TestAnIncidentLineNamingItsFixLaneFiresThatLaneOnce(t *testing.T) {
 
 func TestAFullFormIncidentLaunchStartsItsLaneOnceUnderItsOwnName(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief("api-500-fix", "Register slice: lane=api-500-fix step=all\nScale: no N\nccx: place=local why=test\n")
+	brief := w.brief("api-500-fix", "Register slice: lane=api-500-fix step=all\nScale: no N\nccx: place=local why=mac-build\n")
 	w.lines()
 	line := w.line("orca-desk: launch api-500-fix NOW incident xhigh role=fix brief=" + brief)
 	key := "R" + strings.TrimPrefix(line.Name(), "#")
@@ -1321,7 +1321,7 @@ func (w *deskWorld) incidentOnMonitor() {
 
 func TestAnIncidentOnAMonitorAHandOpenedFixLaneNamesInItsBriefIsSkipped(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief("journal-open-fix", testBrief+"ccx: role=build place=local why=test incident=journal-open-plat monitor=334038082\n")
+	brief := w.brief("journal-open-fix", testBrief+"ccx: role=build place=local why=mac-build incident=journal-open-plat monitor=334038082\n")
 	if _, _, err := w.desk.acceptLaunch("R1", "journal-open-fix", launchTarget{Model: "incident", Effort: "xhigh", Brief: brief}); err != nil {
 		t.Fatal(err)
 	}
@@ -1334,7 +1334,7 @@ func TestAnIncidentOnAMonitorAHandOpenedFixLaneNamesInItsBriefIsSkipped(t *testi
 
 func TestAnIncidentOnALaneWhoseSlugNamesNoMonitorStillLaunches(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief("journal-open-fix", testBrief+"ccx: role=build place=local why=test incident=journal-open-plat\n")
+	brief := w.brief("journal-open-fix", testBrief+"ccx: role=build place=local why=mac-build incident=journal-open-plat\n")
 	if _, _, err := w.desk.acceptLaunch("R1", "journal-open-fix", launchTarget{Model: "incident", Effort: "xhigh", Brief: brief}); err != nil {
 		t.Fatal(err)
 	}
@@ -1516,7 +1516,7 @@ func TestAReplyToTheBlockedRecordReachesTheParkedLane(t *testing.T) {
 
 func TestARootWithdrawOfALaunchRecordWithdrawsIt(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.lines()
 	line := w.line(launchText(testLane, brief))
 	key := "R" + strings.TrimPrefix(line.Name(), "#")
@@ -1673,7 +1673,7 @@ func TestALaneCopiedOnAnotherLanesStandDownStillTakesItsRelay(t *testing.T) {
 
 func TestASuccessorWhoseBriefQuotesItsPredecessorStillTakesItsRelay(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\nYour predecessor posted with `cci post --lane old-lane --kind note`.\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\nYour predecessor posted with `cci post --lane old-lane --kind note`.\n")
 	w.lines()
 	w.line(launchText(testLane, brief))
 	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
@@ -1710,7 +1710,7 @@ func TestOnlyTheFirstLaneOfARootStandDownEndsItsIncident(t *testing.T) {
 
 func TestARelayWaitsForALaunchInFlight(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
 	w.process = &fakeProcess{}
 	w.lines()
 	w.line(launchText(testLane, brief))
@@ -2337,8 +2337,6 @@ func TestWithOrcaOutOfTerminalsALaneThatOnlyPrefersTheMacTakesASpriteAndSaysWhy(
 		{"a read lane on a full host", "ccx: role=read place=local", 256, "sprite"},
 		{"a read lane with one terminal free", "ccx: role=read place=local", 255, "start"},
 		{"a lane naming its need on a full host", "ccx: role=build place=local why=devbox", 256, "start"},
-		{"a helper stamped mac-inputs on a full host", "ccx: role=build incident=none place=local why=mac-inputs", 256, "sprite"},
-		{"a helper stamped mac-inputs with one terminal free", "ccx: role=build incident=none place=local why=mac-inputs", 255, "start"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
@@ -2374,27 +2372,35 @@ func TestWithOrcaOutOfTerminalsALaneThatOnlyPrefersTheMacTakesASpriteAndSaysWhy(
 	}
 }
 
-func TestOverTheMacsLoadAHelperStampedWithMacInputsTakesASpriteAndSaysWhy(t *testing.T) {
+func TestALocalLaunchWhoseWhyNamesNoMacNeedIsRefusedNamingTheNeedsThatQualify(t *testing.T) {
 	for _, tt := range []struct {
-		load, want string
+		name, ccx, want string
 	}{
-		{"41.20", "sprite"},
-		{"31.90", "start"},
+		{"the old helper stamp", "ccx: role=build incident=none place=local why=mac-inputs", "refused"},
+		{"a reason in prose", "ccx: role=build place=local why=two rows, no compile", "refused"},
+		{"a named need", "ccx: role=build place=local why=mac-build", "start"},
+		{"a read lane, which may run either side", "ccx: role=read place=local why=two rows", "start"},
+		{"an incident lane, which is never refused for its place", "ccx: role=build incident=dd-1 place=local why=mac-inputs", "sprite"},
 	} {
-		t.Run(tt.load, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+		t.Run(tt.name, func(t *testing.T) {
 			w := newDeskWorld(t)
-			w.load, w.ptys, w.terminals = tt.load, "511", 3
 			launcher := spriteConfig(w)
-			brief := w.brief(testLane, testBrief+"ccx: role=build incident=none place=local why=mac-inputs\n")
+			brief := w.brief(testLane, testBrief+tt.ccx+"\n")
 			w.lines()
-			line := w.line(launchText(testLane, brief))
-			key := "R" + strings.TrimPrefix(line.Name(), "#")
-			w.launchOut[testLane] = `{"task":"t","dispatch":"ctx_s","terminal":"term_s","worktree":"/box/w","workspace":"pool-1"}` + "\n"
+			w.line(launchText(testLane, brief))
 			w.lines()
 			w.step(w.desk.deliver)
+			if tt.want == "refused" {
+				failed := w.wantEscalation("LAUNCH-FAILED ")
+				wantContains(t, failed, "which is no need only this Mac meets; name its need on its ccx line as why=sentry or why=datadog")
+				wantContains(t, failed, "or drop place=local so it starts on a Sprite")
+				if len(w.spawns) != 0 {
+					t.Fatal(w.spawns)
+				}
+				return
+			}
 			if len(w.spawns) != 1 {
-				t.Fatal(w.spawns)
+				t.Fatal(w.escalations(), w.spawns)
 			}
 			got := "sprite"
 			if w.spawns[0].argv[0] != launcher {
@@ -2403,14 +2409,6 @@ func TestOverTheMacsLoadAHelperStampedWithMacInputsTakesASpriteAndSaysWhy(t *tes
 			if got != tt.want {
 				t.Fatal(w.spawns)
 			}
-			if tt.want != "sprite" {
-				return
-			}
-			attempt := spriteAttempt(brief)
-			w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
-			w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
-			w.step(w.desk.reap)
-			wantContains(t, w.wantEscalation("LAUNCHED "+key), "on Sprite pool-1: Mac load 41 over 32")
 		})
 	}
 }
@@ -2441,27 +2439,6 @@ func TestALaneThatNeedsTheMacStartsThereAtAnyLoadAndItsLaunchedLineNamesALoadOve
 				t.Fatalf("%q does not end in %q", launched, tt.want)
 			}
 		})
-	}
-}
-
-func TestOnlyAHelperStampedWithMacInputsCanLeaveTheMacUnderLoadOrWhenOrcaIsFull(t *testing.T) {
-	const stamp = "ccx: role=build incident=none place=local why=mac-inputs\n"
-	for _, tt := range []struct {
-		name, lane, model, text string
-		want                    bool
-	}{
-		{"the launch's stamp", "helper-1", "opus", stamp, true},
-		{"the coordinator", coordinatorLane, "opus", stamp, false},
-		{"a Fable lane", "helper-1", "fable", stamp, false},
-		{"an incident model", "helper-1", agentIncident, stamp, true},
-		{"an incident-opus model", "helper-1", modelIncidentOpus, stamp, true},
-		{"a brief under an incident", "helper-1", "opus", "ccx: role=build incident=dd-1 place=local why=mac-inputs\n", false},
-		{"another need", "helper-1", "opus", "ccx: role=build incident=none place=local why=devbox\n", false},
-		{"a brief placed remotely", "helper-1", "opus", "ccx: role=build incident=none\n", false},
-	} {
-		if got := macInputsOnly(tt.lane, tt.model, tt.text); got != tt.want {
-			t.Errorf("%s: %v", tt.name, got)
-		}
 	}
 }
 
@@ -3213,7 +3190,7 @@ func TestAnIncidentLaunchAnotherOwnerHoldsFails(t *testing.T) {
 
 func (w *deskWorld) cutLaunch(key string, clock object, silent bool) {
 	w.t.Helper()
-	brief := w.brief("manual-release-api", testBrief+"ccx: place=local why=test\n")
+	brief := w.brief("manual-release-api", testBrief+"ccx: place=local why=mac-build\n")
 	if _, _, err := w.desk.acceptLaunch("cut:"+key, "manual-release-api", launchTarget{Model: "opus", Effort: "high", Brief: brief}); err != nil {
 		w.t.Fatal(err)
 	}
@@ -4513,7 +4490,7 @@ func TestALaunchOrcaRefusesAtItsCapRelaunchesOnceOnASpriteWithItsModelAndBrief(t
 	for _, tt := range []struct{ model, ccx, onSprite string }{
 		{agentIncident, macIncident, agentIncident},
 		{modelIncidentOpus, macIncident, modelIncidentOpus},
-		{"opus", "ccx: role=build incident=none place=local why=mac-inputs", "claude-opus-5-5"},
+		{"opus", "ccx: role=read place=local", "claude-opus-5-5"},
 	} {
 		t.Run(tt.model, func(t *testing.T) {
 			w := newDeskWorld(t)
@@ -4579,7 +4556,6 @@ func TestEveryLaneButTheCoordinatorFableAndANamedMacNeedLeavesTheMacAtTheCap(t *
 		want bool
 	}{
 		{"a helper placed remotely", Order{Lane: "helper-1", Model: "opus"}, "ccx: role=build incident=none\n", true},
-		{"a helper stamped mac-inputs", Order{Lane: "helper-1", Model: "opus"}, "ccx: role=build incident=none place=local why=mac-inputs\n", true},
 		{"a read lane preferring the Mac", Order{Lane: "helper-1", Model: "opus"}, "ccx: role=read place=local why=predecessor-worked-here\n", true},
 		{"a brief naming its need", Order{Lane: "helper-1", Model: "opus"}, devbox, false},
 		{"an incident model naming a need", Order{Lane: "helper-1", Model: agentIncident}, devbox, true},

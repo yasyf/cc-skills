@@ -265,7 +265,6 @@ func (d *Desk) spriteRefusal(ctx context.Context, key, lane string, spec launchT
 
 func (d *Desk) onSprite(ctx context.Context, key, lane, model, text string) (string, bool, error) {
 	switch {
-	case macInputsOnly(lane, model, text):
 	case macRequired(lane, model, text):
 		_, err := d.macOverload(ctx, key, d.overLoad)
 		return "", false, err

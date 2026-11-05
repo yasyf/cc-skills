@@ -2502,7 +2502,8 @@ func TestAWorkerStartThatPrintedADispatchBesideARefusalRollsNothingBack(t *testi
 func TestAMacBriefNamesWhyOrTheLaneGoesToASprite(t *testing.T) {
 	cases := map[string]bool{
 		"ccx: role=build place=local incident=none\n":                    false,
-		"ccx: role=build place=local why=orca-terminals incident=none\n": true,
+		"ccx: role=build place=local why=mac-state incident=none\n":      true,
+		"ccx: role=build place=local why=orca-terminals incident=none\n": false,
 		"ccx: role=build place=remote\n":                                 false,
 		"ccx: role=read place=local incident=none\n":                     true,
 		"ccx: role=read place=remote\n":                                  false,

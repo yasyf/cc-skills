@@ -14,16 +14,21 @@ import (
 
 var (
 	macBrief    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=local(?:\s|$)`)
-	macNeed     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=\S.*$`)
+	macNeed     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+).*$`)
 	sliceStep   = regexp.MustCompile(`(?m)^Register slice: lane=\S+ step=(\S+)`)
 	standing    = regexp.MustCompile(`(?m)^Standing: *(\S.*?)[ \t]*$`)
 	noDuty      = regexp.MustCompile(`(?i)^none\b`)
 	deliverable = regexp.MustCompile(`(?m)^(?:#+ *)?(?:\*\*)?Deliverables?\b[^\n:]*:?\**[ \t]*([^\n]*)(?:\n\s*([^\n]*))?`)
 
 	BriefAssignedOrders = regexp.MustCompile(`(?m)^` + AssignedOrdersLine + `(.*)$`)
+
+	MacNeeds = []string{"sentry", "datadog", "signed-in", "cc-present", "mac-build", "mac-state", "devbox"}
 )
 
-const AssignedOrdersLine = "Assigned orders:"
+const (
+	AssignedOrdersLine = "Assigned orders:"
+	MacNeedsLine       = "why=sentry or why=datadog to read evidence there, why=signed-in for a proof in a signed-in session, why=cc-present to serve the owner's board or another page he opens on this Mac, why=mac-build for a build or install only this Mac runs, why=mac-state to read or change this Mac's own stores, worktrees or processes, or why=devbox to claim a devbox or EC2 Mac box with this Mac's AWS identity"
+)
 
 type Brief struct {
 	Step        string

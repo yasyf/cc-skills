@@ -73,7 +73,7 @@ func TestADriveWithNoListRecordsAndFiresAsBefore(t *testing.T) {
 func TestABriefNamingADropClassLaunchesAndWarnsQuotingTheRuling(t *testing.T) {
 	w := newDeskWorld(t)
 	w.desk.Config.RefusedBriefs = []config.Refusal{{Match: regexp.MustCompile(`(?i)edge-vendor`), Why: "owner ruling ff7fca1: No. Never a lane, a read, a report, a line to him."}}
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=test\nFind why Edge-Vendor answers 403 at open\n")
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\nFind why Edge-Vendor answers 403 at open\n")
 	w.lines()
 	w.line(launchText(testLane, brief))
 	w.lines()
@@ -128,7 +128,7 @@ func TestABriefPlacedLocalWithNoNeedLaunchesWarnedThatItLandsOnASprite(t *testin
 
 func TestABriefNamingWhyItNeedsTheMacLaunchesUnwarned(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: role=desk place=local why=serves-previews incident=none\n")
+	brief := w.brief(testLane, testBrief+"ccx: role=desk place=local why=cc-present incident=none\n")
 	w.lines()
 	w.line(launchText(testLane, brief))
 	w.lines()

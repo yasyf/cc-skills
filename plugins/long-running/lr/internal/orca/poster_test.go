@@ -311,7 +311,7 @@ func TestAClaudeLaunchWhoseBriefNeedsSentryWarnsToRunItOnSol(t *testing.T) {
 	}{
 		{"claude reading sentry", "opus", "ccx: role=read place=local why=sentry", true},
 		{"sol reading sentry", "sol", "ccx: role=read place=local why=sentry", false},
-		{"claude naming sentry in prose", "opus", "ccx: role=build place=local why=mac-inputs\nThe fix ends a Sentry issue's events.", false},
+		{"claude naming sentry in prose", "opus", "ccx: role=build place=local why=mac-build\nThe fix ends a Sentry issue's events.", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newPosterFixture(t)
@@ -490,7 +490,7 @@ func TestABriefNamingACredentialIsRefusedOnlyWhenTheLaneMayLeaveTheMacAndAMissin
 		t.Fatal(f.out)
 	}
 	f.bus.posts = nil
-	local := f.brief(t, "local.md", "ccx: role=build place=local why=test\nRead "+gone+".\n"+briefLines)
+	local := f.brief(t, "local.md", "ccx: role=build place=local why=mac-build\nRead "+gone+".\n"+briefLines)
 	picked := f.brief(t, "picked.md", "Read "+gone+".\nOwner pick: owner:m836\n"+briefLines)
 	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "high", Brief: local}, {Lane: "a", Model: "fable", Effort: "high", Brief: picked}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: local}} {
 		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {
