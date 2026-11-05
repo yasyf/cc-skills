@@ -359,7 +359,7 @@ func TestASlackToolGoneForGoodSaysToSendAgainAndTheSendPostsOnce(t *testing.T) {
 func TestACardCopyWithTheToolGonePromisesNoResend(t *testing.T) {
 	f := fanout(t, &slackGone{Fake: &shelltest.Fake{}})
 
-	copies := f.cardCopies(context.Background(), Reply{ID: "r1", Thread: hisThread, OpenPicks: []string{permalink}}, nil)
+	copies := f.cardCopies(context.Background(), Reply{ID: "r1", Thread: hisThread, OpenCards: []board.OpenCard{{ID: "card-x", URL: permalink}}}, nil)
 
 	if len(copies) != 1 || !strings.Contains(copies[0].Error, "install it") || strings.Contains(copies[0].Error, "send this reply again") {
 		t.Fatalf("copies = %+v; a re-send skips card copies, so it must not promise one", copies)
@@ -1329,16 +1329,18 @@ func linkedMD(t *testing.T, r Reply, answers string) string {
 	return got.MD
 }
 
-func TestAnOpenCardTheReplyNamesLinksToTheMessageHeTapsItOn(t *testing.T) {
-	linked := "[" + evictionAsk + "](" + cardMessage + ")"
+func TestAnOpenCardTheReplyNamesLinksByItsTypedKey(t *testing.T) {
+	typed := "(card:card-storage-eviction)"
+	linked := "[" + evictionAsk + "]" + typed
 	for name, tc := range map[string]struct{ md, want string }{
 		"its id":           {"Waiting on card-storage-eviction now.", "Waiting on " + linked + " now."},
 		"its id in code":   {"Waiting on `card-storage-eviction` now.", "Waiting on " + linked + " now."},
-		"its words":        {"Card storage eviction if it needs you.", "[Card storage eviction](" + cardMessage + ") if it needs you."},
-		"its words after":  {"The storage eviction card needs you.", "The [storage eviction card](" + cardMessage + ") needs you."},
-		"its title":        {"Asked: where should storage eviction start?", "Asked: [where should storage eviction start?](" + cardMessage + ")"},
-		"a longer name":    {"Waiting on card-storage-eviction-window.", "Waiting on [How long is the window?](https://brook.slack.com/archives/D0B6Z/p2)."},
-		"already linked":   {"See [the card](" + cardMessage + ") for storage eviction card.", "See [the card](" + cardMessage + ") for storage eviction card."},
+		"its words":        {"Card storage eviction if it needs you.", "[Card storage eviction]" + typed + " if it needs you."},
+		"its words after":  {"The storage eviction card needs you.", "The [storage eviction card]" + typed + " needs you."},
+		"its title":        {"Asked: where should storage eviction start?", "Asked: [where should storage eviction start?]" + typed},
+		"a longer name":    {"Waiting on card-storage-eviction-window.", "Waiting on [How long is the window?](card:card-storage-eviction-window)."},
+		"its Slack link":   {"See [the card](" + cardMessage + ") for storage eviction card.", "See [the card]" + typed + " for storage eviction card."},
+		"already typed":    {"See [the card]" + typed + " for storage eviction card.", "See [the card]" + typed + " for storage eviction card."},
 		"no card":          {"Storage eviction merged.", "Storage eviction merged."},
 		"a card off Slack": {"Waiting on card-never-sent.", "Waiting on card-never-sent."},
 	} {
@@ -1347,6 +1349,42 @@ func TestAnOpenCardTheReplyNamesLinksToTheMessageHeTapsItOn(t *testing.T) {
 				t.Fatalf("md = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestACardLinkIsTheSlackMessageOnlyInSlack(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
+	fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p3"}`, "cc-slack", "card-copy")
+	scriptedOver(fake)
+	f := fanout(t, fake)
+	r, warning := f.withCardLinks(context.Background(), Reply{ID: "r1", Title: "Where things stand", MD: "Waiting on card-storage-eviction now.", Status: "info"})
+	if warning != "" {
+		t.Fatal(warning)
+	}
+	sent := f.Send(context.Background(), r)
+	var card string
+	for _, call := range calls(fake, "cc-slack") {
+		if call.Argv[1] == "dm-status" {
+			card = call.Argv[3]
+		}
+	}
+	if !strings.Contains(card, "]("+cardMessage+")") || strings.Contains(card, "card:") {
+		t.Fatalf("Slack card = %s, want the card linked to its Slack message", card)
+	}
+	stored, err := os.ReadFile(surface(sent, "dashboard").Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stored), "(card:card-storage-eviction)") || strings.Contains(string(stored), cardMessage) {
+		t.Fatalf("dashboard copy = %s, want the typed link and no Slack address", stored)
+	}
+}
+
+func TestAnUnknownCardLinkDrawsItsWordsInSlack(t *testing.T) {
+	r := Reply{OpenCards: []board.OpenCard{{ID: "card-a", Title: "Card A", URL: cardMessage}}}
+	if got := r.inSlack("[the gone one](card:card-b) and [](card:card-a)"); got != "the gone one and [Card A]("+cardMessage+")" {
+		t.Fatalf("inSlack = %q", got)
 	}
 }
 
@@ -1934,8 +1972,8 @@ func TestAPickHisAnswerSettlesGetsNoCopy(t *testing.T) {
 		return &board.Judgment{Verdict: "yes", Sentence: "He said the oldest chats."}, nil
 	}
 	r, _ := f.withCardLinks(context.Background(), Reply{ID: "r1", Title: "Where things stand", MD: "Waiting on card-storage-eviction now.", Status: "info"})
-	if len(r.OpenPicks) != 0 {
-		t.Fatalf("open picks = %q, want the settled card left out", r.OpenPicks)
+	if len(r.OpenCards) != 0 {
+		t.Fatalf("open cards = %+v, want the settled card left out", r.OpenCards)
 	}
 }
 
