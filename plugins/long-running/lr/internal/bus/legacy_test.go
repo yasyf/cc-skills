@@ -53,7 +53,7 @@ func TestEachGradeTapAndExemptionBecomesOneFact(t *testing.T) {
 		{"the first shard's fidelity missing", legacyRecord(t, "review", "fidelity-shard-1", "fidelity: missing "+head[:7]+" plan:12 the plan's cap is gone", []int{1}, nil), []bus.Fact{{PR: 1, Head: head[:7], Kind: "fidelity", Value: "fail"}}},
 		{"the grader's stopped report", legacyRecord(t, "report", bus.RunnerLane, "GRADE-STOPPED #1", []int{1}, map[string]string{bus.GradeStoppedWhyAttr: "fidelity: its pass ended without a grade", bus.GradeStoppedHeadAttr: head}), []bus.Fact{{PR: 1, Head: head, Kind: "grade-stopped", Value: "fidelity: its pass ended without a grade"}}},
 		{"fidelity missing", legacyRecord(t, "review", "fidelity-pipeline", "fidelity: missing "+head[:7]+" plan:12 the plan's cap is gone", []int{1}, nil), []bus.Fact{{PR: 1, Head: head[:7], Kind: "fidelity", Value: "fail"}}},
-		{"coordinator go names an exempt class", legacyRecord(t, "go", "root", "5:26 PM go #9 at e718a74 on green [exempt: regression]", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "exempt", Value: "regression"}}},
+		{"a coordinator go the gate posted names its class", legacyRecord(t, "go", "root", "5:26 PM go #9 at e718a74 on green [exempt: regression]", []int{9}, map[string]string{bus.ExemptClassAttr: "regression"}), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "exempt", Value: "regression"}}},
 		{"a head that cannot move", legacyRecord(t, bus.StuckKind, "supervisor", "#9 cannot move", []int{9}, map[string]string{"head": "e718a74", "reason": "its grade waits on the pool"}), []bus.Fact{{PR: 9, Head: "e718a74", Kind: bus.StuckFact, Value: "its grade waits on the pool"}}},
 		{"a finder override", legacyRecord(t, "decide", "root", "finder-override #9 at e718a74: the finding reads a deleted file", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "override-finder", Value: "accept"}}},
 		{"an override after a clock and a root label", legacyRecord(t, "decide", "root", "5:26 PM root: fidelity-override 9 e718a74", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "override-fidelity", Value: "accept"}}},
@@ -82,7 +82,8 @@ func TestARecordThatGradesTapsOrExemptsNothingWritesNothing(t *testing.T) {
 		{"a lane's own behavior line", legacyRecord(t, "review", "lane-7", "behavior: same "+head+" since a28ab62c0ffe", []int{1}, nil)},
 		{"a finder line that says nothing", legacyRecord(t, "review", "finder-desk", "finder: running on "+head[:7], []int{1}, nil)},
 		{"a finder line with no head", legacyRecord(t, "review", "finder-desk", "finder: ok", []int{1}, nil)},
-		{"an exempt go by a lane", legacyRecord(t, "go", "lane-7", "go #9 at e718a74 [exempt: test-only]", []int{9}, nil)},
+		{"an exempt go by a lane", legacyRecord(t, "go", "lane-7", "go #9 at e718a74 [exempt: test-only]", []int{9}, map[string]string{bus.ExemptClassAttr: "test-only"})},
+		{"a coordinator's exempt class typed by hand", legacyRecord(t, "go", "root", "go #9 at e718a74 on green [exempt: regression]", []int{9}, nil)},
 		{"a go with no exempt class", legacyRecord(t, "go", "root", "go #9 at e718a74 on green", []int{9}, nil)},
 		{"a withdrawn exempt go", legacyRecord(t, "go", "root", "withdrawn go #9 at e718a74 [exempt: test-only]", []int{9}, nil)},
 		{"an exempt class on a decide with no go clause", legacyRecord(t, "decide", "root", "the class [exempt: regression] is for later", []int{9}, nil)},
@@ -114,7 +115,7 @@ func TestAFinderOverrideWithNoCiteIsUnreadAndAFidelityOneIsNot(t *testing.T) {
 }
 
 func TestAGoLaneTheConfigNamesMayNameAnExemptClass(t *testing.T) {
-	record := legacyRecord(t, "go", "go-carry-sweep-3", "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, nil)
+	record := legacyRecord(t, "go", "go-carry-sweep-3", "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, map[string]string{bus.ExemptClassAttr: "owner-pick"})
 
 	got := bus.LegacyFacts(record, repo, []string{"go-carry-sweep"})
 
@@ -124,8 +125,9 @@ func TestAGoLaneTheConfigNamesMayNameAnExemptClass(t *testing.T) {
 }
 
 func TestTheLandingPassesSweepGoCountsWhatEverTheConfigNamesAndAStrangersDoesNot(t *testing.T) {
-	swept := legacyRecord(t, "go", bus.SweepLane, "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, nil)
-	stranger := legacyRecord(t, "go", "pr-unblock-3", "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, nil)
+	gated := map[string]string{bus.ExemptClassAttr: "owner-pick"}
+	swept := legacyRecord(t, "go", bus.SweepLane, "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, gated)
+	stranger := legacyRecord(t, "go", "pr-unblock-3", "go #9 at e718a74 on green [exempt: owner-pick]", []int{9}, gated)
 
 	if want := []bus.Fact{{PR: 9, Head: "e718a74", Kind: "exempt", Value: "owner-pick"}}; !reflect.DeepEqual(bus.LegacyFacts(swept, repo, nil), want) {
 		t.Fatalf("LegacyFacts = %+v, want %+v", bus.LegacyFacts(swept, repo, nil), want)

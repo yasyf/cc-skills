@@ -1360,6 +1360,35 @@ func goRecord(t *testing.T, lane, text string) client.Record {
 	return record
 }
 
+func gatedGo(t *testing.T, lane, text string) client.Record {
+	t.Helper()
+	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "go", Attrs: map[string]string{bus.ExemptClassAttr: "owner-pick"}, Text: text})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func TestOnlyAnExemptGoTheGatePostedMarksItsPRExempt(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		post   func(*testing.T, string, string) client.Record
+		exempt bool
+	}{
+		{"a go the gate posted", gatedGo, true},
+		{"the same go typed by hand", goRecord, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+			c.post(t, "root", "go #1 at "+head+" on green [exempt: owner-pick]")
+
+			if got := h.snapshot(t)[1].Exempt; got != c.exempt {
+				t.Fatalf("exempt = %v, want %v", got, c.exempt)
+			}
+		})
+	}
+}
+
 func TestALaterRootGoLiftsARootHoldAtAnyHeadSoARestackDoesNotRestallThePR(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 48401, head: head, login: "drive-bot"}, {number: 2, head: head, login: "drive-bot"}}, status(48401), status(2))
 	hold(t, "root", "hold #48401 until the audit", repo+"#48401")
@@ -1378,7 +1407,7 @@ func TestAGoLanesExemptGoLeavesARootHoldStanding(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.GoLanes = []string{"landing-desk"}
 	hold(t, "root", "hold #1 for now", repo+"#1")
-	goRecord(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: owner-pick]")
+	gatedGo(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: owner-pick]")
 
 	row := h.snapshot(t)[1]
 
@@ -1391,7 +1420,7 @@ func TestAWithdrawnExemptGoStopsCountingAndALaterGoCountsAgain(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.GoLanes = []string{"landing-desk"}
 	exempt := "go #1 at " + head + " on green [exempt: owner-pick]"
-	first := goRecord(t, "landing-desk-3", exempt)
+	first := gatedGo(t, "landing-desk-3", exempt)
 	if !h.snapshot(t)[1].Exempt {
 		t.Fatal("the go marks the PR exempt")
 	}
@@ -1404,7 +1433,7 @@ func TestAWithdrawnExemptGoStopsCountingAndALaterGoCountsAgain(t *testing.T) {
 	}
 
 	time.Sleep(time.Second)
-	goRecord(t, "landing-desk-3", exempt+" after the card closed")
+	gatedGo(t, "landing-desk-3", exempt+" after the card closed")
 	if !h.snapshot(t)[1].Exempt {
 		t.Fatal("a later go must mark it exempt again")
 	}
@@ -1412,7 +1441,7 @@ func TestAWithdrawnExemptGoStopsCountingAndALaterGoCountsAgain(t *testing.T) {
 
 func TestAWithdrawalFromALaneWithNoSayLeavesTheExemptGo(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
-	first := goRecord(t, "root", "go #1 at "+head+" on green [exempt: owner-pick]")
+	first := gatedGo(t, "root", "go #1 at "+head+" on green [exempt: owner-pick]")
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "withdraw", Text: "not mine", Re: first.Seq}); err != nil {
 		t.Fatal(err)
 	}

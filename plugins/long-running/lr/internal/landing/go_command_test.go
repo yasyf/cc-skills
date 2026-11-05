@@ -134,7 +134,7 @@ func TestALaneGoOnAHeadTheSweepDoesNotGateGetsOneRefusalSayingWhy(t *testing.T) 
 	for _, draft := range []client.Draft{
 		{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{}`}},
 		{Drive: "d", Lane: "fixer", Kind: kindGo, PRs: []string{"o/r#1"}, Text: "go #1 at abc1234 on green [exempt: test-only-or-ci-only]: fidelity ok #1, finder ok #2"},
-		{Drive: "d", Lane: "root", Kind: kindGo, PRs: []string{"o/r#2"}, Text: "go #2 at bcd2345 on green [exempt: test-only-or-ci-only]: fidelity ok #1, finder ok #2"},
+		{Drive: "d", Lane: "root", Kind: kindGo, PRs: []string{"o/r#2"}, Attrs: map[string]string{bus.ExemptClassAttr: "test-only-or-ci-only"}, Text: "go #2 at bcd2345 on green [exempt: test-only-or-ci-only]: fidelity ok #1, finder ok #2"},
 		{Drive: "d", Lane: "fixer", Kind: kindGo, PRs: []string{"o/r#3"}, Text: "go #3 at 0000000 on green [exempt: test-only-or-ci-only]: fidelity ok #1, finder ok #2"},
 	} {
 		if _, err := client.Post(ctx, draft); err != nil {
@@ -235,6 +235,7 @@ func TestASweepRefusalSaysSoInOneRecordOnlyWhereSomeoneExpectsAGo(t *testing.T) 
 	refused := []string{"finder: no counted decide"}
 	head := "abc1234def"
 	laneGo := client.Record{Seq: 1, Lane: "port-x-1", Kind: kindGo, Text: "go #7 at abc1234 on green [exempt: old-tree-port]: fidelity ok #1, finder ok #2"}
+	laneGo.Fields.Attrs = map[string]string{bus.ExemptClassAttr: gates.OldTreePortClass}
 	for name, c := range map[string]struct {
 		standing bool
 		records  []client.Record
@@ -271,6 +272,90 @@ func TestASweepRefusalSaysSoInOneRecordOnlyWhereSomeoneExpectsAGo(t *testing.T) 
 			facts := bus.LegacyFacts(posted[0], "o/r", nil)
 			if len(facts) != 1 || facts[0].Kind != gates.StandingRefused || facts[0].PR != 7 || facts[0].Head != head || facts[0].Value != refused[0] {
 				t.Fatalf("facts = %+v, want the refusal at its head for every store's row", facts)
+			}
+		})
+	}
+}
+
+func TestAHandTypedExemptGoLandsOnlyWhenTheGateFindsItsClassAtItsHead(t *testing.T) {
+	const head = "73ce0deb655e60e30d22c352f7678e33ab37f8f3"
+	for _, c := range []struct {
+		name    string
+		grade   string
+		lands   bool
+		refused []string
+	}{
+		{name: "a head its grade puts in the class", grade: "class test-only: one wait", lands: true},
+		{name: "a head no grade puts in an exempt class", grade: "stays in scope", refused: []string{
+			"fidelity: no ok grade at 73ce0de names an exempt class",
+			"by root names its exempt class by hand",
+			"this head lands on his tap from its row's card",
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			ctx := context.Background()
+			s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			for _, draft := range []client.Draft{
+				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"]}`}},
+				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade},
+				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"},
+				{Drive: "d", Lane: "root", Kind: kindGo, PRs: []string{"o/r#1"}, Text: "go #1 at 73ce0de on green [exempt: test-only]: fidelity ok, finder ok"},
+			} {
+				if _, err := client.Post(ctx, draft); err != nil {
+					t.Fatal(err)
+				}
+			}
+			hand, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{kindGo}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if facts := bus.LegacyFacts(hand[0], "o/r", nil); len(facts) != 0 {
+				t.Fatalf("the hand go folds to %+v, want no exempt fact before the gate checks it", facts)
+			}
+			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 1, Head: head, ReadyForTap: true}}); err != nil {
+				t.Fatal(err)
+			}
+			runner := &shelltest.Fake{}
+			runner.Reply("[\"rust/crates/sandsql-server/tests/handoff_e2e.rs\",\"@@ +1 @@\\n+wait_log\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/1/files")
+			a := app.New(io.Discard)
+			a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
+			ready := readyFacts(1, head)
+			ready.Lane = "owner-1"
+
+			posted, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready}, time.Now().UTC(), io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			gos, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{kindGo}, Lanes: []string{bus.SweepLane}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			refusals, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{bus.GoRefusedKind}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.lands {
+				if !slices.Equal(posted, []int{1}) || len(gos) != 1 || len(refusals) != 0 {
+					t.Fatalf("posted %v, gos %+v, refusals %+v; want the sweep's own go and no refusal", posted, gos, refusals)
+				}
+				if facts := bus.LegacyFacts(gos[0], "o/r", nil); len(facts) != 1 || facts[0].Value != "test-only" {
+					t.Fatalf("the sweep's go folds to %+v, want the class the gate checked", facts)
+				}
+				return
+			}
+			if len(posted) != 0 || len(gos) != 0 || len(refusals) != 1 || !slices.Equal(refusals[0].To, []string{"owner-1", "root"}) {
+				t.Fatalf("posted %v, gos %+v, refusals %+v; want one refusal to the PR's lane and root, and no go", posted, gos, refusals)
+			}
+			for _, want := range c.refused {
+				if !strings.Contains(refusals[0].Text, want) {
+					t.Fatalf("refusal %q, want %q", refusals[0].Text, want)
+				}
 			}
 		})
 	}

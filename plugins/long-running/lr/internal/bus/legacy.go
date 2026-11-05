@@ -20,6 +20,7 @@ const (
 	PortOfAttr        = "port-of"
 	PortInteractsAttr = "port-interacts"
 	FlakeFixAttr      = "flake-fix"
+	ExemptClassAttr   = "exempt-class"
 
 	LegacyCursor = "legacy"
 	legacyWindow = 72 * time.Hour
@@ -131,19 +132,34 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	case !delegated(record.Lane, goAuthors(goLanes)):
 		return nil
 	}
-	whole := fullText(record)
 	var out []Fact
 	if delegated(record.Lane, []string{rootLane, SweepLane}) {
-		out = overrides(whole)
+		out = overrides(fullText(record))
 	}
-	exempt := exemptClass.FindStringSubmatch(whole)
-	if exempt == nil || !isGo(record) {
+	class := record.Fields.Attrs[ExemptClassAttr]
+	if class == "" || !isGo(record) {
 		return out
 	}
 	for _, pair := range goHeads(record.Text) {
-		out = append(out, Fact{pair.PR, pair.Head, "exempt", strings.ToLower(exempt[1])})
+		out = append(out, Fact{pair.PR, pair.Head, "exempt", class})
 	}
 	return out
+}
+
+func ExemptClaims(record client.Record) []Fact {
+	claimed := exemptClass.FindStringSubmatch(fullText(record))
+	if claimed == nil || !isGo(record) {
+		return nil
+	}
+	var out []Fact
+	for _, pair := range goHeads(record.Text) {
+		out = append(out, Fact{pair.PR, pair.Head, "exempt", strings.ToLower(claimed[1])})
+	}
+	return out
+}
+
+func HandExempt(record client.Record) bool {
+	return record.Fields.Attrs[ExemptClassAttr] == "" && len(ExemptClaims(record)) > 0
 }
 
 func stoppedFacts(record client.Record, repo string) []Fact {

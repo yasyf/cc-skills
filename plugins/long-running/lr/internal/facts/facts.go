@@ -519,13 +519,10 @@ func (s Source) clearWithdrawn(ctx context.Context, record client.Record) error 
 		return err
 	}
 	for _, closedGo := range closed {
-		if !slices.Contains(gos, closedGo.Seq) {
+		if !slices.Contains(gos, closedGo.Seq) || !bus.GoCounts(closedGo.Lane, s.GoLanes) {
 			continue
 		}
-		for _, fact := range bus.LegacyFacts(closedGo, s.Repo, s.GoLanes) {
-			if fact.Kind != "exempt" {
-				continue
-			}
+		for _, fact := range bus.ExemptClaims(closedGo) {
 			if err := s.Store.ClearExempt(s.Repo, fact.PR, record.At.UTC()); err != nil {
 				return err
 			}

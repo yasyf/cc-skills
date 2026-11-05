@@ -166,7 +166,7 @@ func (g goGate) answer(ctx context.Context, f machine.Facts) ([]string, error) {
 	if err := g.readDiff(ctx, f.Number, &r.read); err != nil {
 		return nil, err
 	}
-	_, refusals := gates.ExemptGo(r.claim, r.read)
+	_, _, refusals := gates.ExemptGo(r.claim, r.read)
 	unread, err := gates.RowReadAt(g.s, g.cfg.Repo, f.Number, f.Head)
 	if err != nil {
 		return nil, err
@@ -207,7 +207,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	standing := claimed && !port.Interacts || gates.FlakeAt(claim, records)
 	if flags.sweep {
 		read.Body = flags.body
-		if _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
+		if _, _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
 			if err := sayGoRefused(ctx, cfg, claim, flags.owner, standing, records, refusals); err != nil {
 				return true, lapses, err
@@ -229,7 +229,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 			fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
 		}
 	}
-	text, refusals := gates.ExemptGo(claim, read)
+	text, class, refusals := gates.ExemptGo(claim, read)
 	if err := noteStandingRefused(s, claim, standing && flags.before == 0 && (flags.sweep || len(refusals) == 0), refusals, a.Now()); err != nil {
 		return false, lapses, err
 	}
@@ -253,7 +253,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		fmt.Fprintf(stdout, "GO #%d at %s (dry): %s\n", number, head[:7], text)
 		return false, time.Time{}, nil
 	}
-	posted, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: flags.lane, Kind: kindGo, To: []string{goReader}, PRs: []string{strconv.Itoa(number)}, Text: text})
+	posted, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: flags.lane, Kind: kindGo, To: []string{goReader}, PRs: []string{strconv.Itoa(number)}, Attrs: map[string]string{bus.ExemptClassAttr: class}, Text: text})
 	if err != nil {
 		return false, time.Time{}, err
 	}
@@ -304,12 +304,16 @@ func sayGoRefused(ctx context.Context, cfg config.Config, claim gates.Claim, own
 		return nil
 	}
 	to := []string{owner}
+	said := slices.Clone(refusals)
 	for _, record := range gos {
 		to = append(to, record.Lane)
+		if bus.HandExempt(record) {
+			said = append(said, fmt.Sprintf("go %s by %s names its exempt class by hand, and a class lands a PR only once the gate checks it at its head: until every reason above clears, this head lands on his tap from its row's card, and lr landing go %d prints what the gate reads", record.Name(), record.Lane, claim.PR))
+		}
 	}
 	slices.Sort(to)
 	to = slices.DeleteFunc(slices.Compact(to), func(lane string) bool { return lane == "" || lane == bus.SweepLane })
-	return bus.Bus{Drive: cfg.Drive, Lane: bus.SweepLane}.PostGoRefused(ctx, claim.Repo, claim.PR, claim.Head, to, strings.Join(refusals, "; "))
+	return bus.Bus{Drive: cfg.Drive, Lane: bus.SweepLane}.PostGoRefused(ctx, claim.Repo, claim.PR, claim.Head, to, strings.Join(said, "; "))
 }
 
 func noteStandingRefused(s *store.Store, claim gates.Claim, standing bool, refusals []string, at time.Time) error {
@@ -444,7 +448,7 @@ func refuseUnready(ctx context.Context, cfg config.Config, snapshot []machine.Fa
 			continue
 		}
 		gos := slices.DeleteFunc(slices.Clone(since), func(record client.Record) bool {
-			return string(record.Kind) != kindGo || bus.GoCounts(record.Lane, goLanes) || !bus.GoNamesHead(record, f.Number, f.Head)
+			return string(record.Kind) != kindGo || bus.GoCounts(record.Lane, goLanes) && !bus.HandExempt(record) || !bus.GoNamesHead(record, f.Number, f.Head)
 		})
 		if len(gos) == 0 {
 			continue
