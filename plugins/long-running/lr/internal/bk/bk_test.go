@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -250,6 +251,11 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk build test",
 		"bk build test twelve",
 		"bk jobs test twelve",
+		"bk builds",
+		"bk builds --branch dev",
+		"bk builds test extra",
+		"bk builds test --fields number",
+		"bk builds test --since yesterday",
 		"bk grep test 12 job",
 		"bk grep test 12 job (unclosed",
 	} {
@@ -489,5 +495,101 @@ func TestJobsListsPassedJobsTooSoAPassCanBeProven(t *testing.T) {
 	}
 	if body := bodyOf(t, found[0]); body != "passed job=job-1 go tests\nfailed job=job-2 lint\n" {
 		t.Fatalf("body = %q", body)
+	}
+}
+
+func listedBuilds(from, count, messageBytes int) string {
+	builds := make([]map[string]any, count)
+	for i := range builds {
+		builds[i] = map[string]any{
+			"number": from - i, "state": "passed", "branch": "releases/rollback/1", "created_at": "2026-11-04T05:41:31Z",
+			"message": "Undo it\n" + strings.Repeat("m", messageBytes), "env": map[string]string{"HUGE": strings.Repeat("e", 1000)},
+		}
+	}
+	raw, err := json.Marshal(builds)
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
+}
+
+func TestABuildListingIsOneReadThatKeepsWhatACallerNeeds(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: listedBuilds(27, 27, 100)}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk builds release --branch releases/rollback/* --since 2026-10-22")
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %d, want the one page 27 builds fit in", len(runner.calls))
+	}
+	path := runner.calls[0].Argv[len(runner.calls[0].Argv)-1]
+	parsed, err := url.Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	if parsed.Path != "/pipelines/release/builds" || query.Get("branch") != "releases/rollback/*" || query.Get("created_from") != "2026-10-22T00:00:00Z" || query.Get("exclude_jobs") != "true" {
+		t.Fatalf("read %s", path)
+	}
+	if read.head != "bk builds release branch=releases/rollback/* created_from=2026-10-22T00:00:00Z: 27 builds" {
+		t.Fatalf("head = %q", read.head)
+	}
+	if !strings.Contains(read.body, "27 passed releases/rollback/1 2026-11-04T05:41:31Z\n  Undo it\n  mmm") {
+		t.Fatalf("body misses the first build:\n%s", read.body)
+	}
+	if strings.Contains(read.body, "HUGE") {
+		t.Fatal("body carries fields no caller asked for")
+	}
+}
+
+func TestABuildListingPagesAtTheDeskUntilAShortPage(t *testing.T) {
+	runner := &fakeRunner{replies: map[string]string{}}
+	desk, _ := newDesk(t, runner)
+	first := "/pipelines/test/builds?exclude_jobs=true&exclude_pipeline=true&page=1&per_page=100"
+	second := "/pipelines/test/builds?exclude_jobs=true&exclude_pipeline=true&page=2&per_page=100"
+	runner.replies[first] = listedBuilds(103, buildsPage, 0)
+	runner.replies[second] = listedBuilds(3, 3, 0)
+
+	read := desk.read(context.Background(), "bk builds test")
+
+	if len(runner.calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(runner.calls))
+	}
+	if read.head != "bk builds test: 103 builds" {
+		t.Fatalf("head = %q", read.head)
+	}
+}
+
+func TestABuildListingStopsReadingOnceTheAnswerIsFull(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: listedBuilds(100, buildsPage, 1000)}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk builds test")
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %d, want no page past the full answer", len(runner.calls))
+	}
+	if len(read.body) > replyLimit {
+		t.Fatalf("body = %d bytes, over the limit", len(read.body))
+	}
+	shown := strings.Count(read.body, "Undo it")
+	if want := fmt.Sprintf("bk builds test: the newest %d builds; older ones did not fit, so narrow with --branch or --since", shown); read.head != want {
+		t.Fatalf("head = %q, want %q", read.head, want)
+	}
+	if !strings.HasSuffix(read.body, strings.Repeat("m", 1000)+"\n") {
+		t.Fatal("the last listed build was cut mid-message")
+	}
+}
+
+func TestABuildListingWithNoMatchSaysSo(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: "[]"}}
+	desk, _ := newDesk(t, runner)
+	opened := ask(t, "bk builds test --branch nothing/*")
+
+	firstPass(t, desk)
+
+	found := answers(t)
+	if len(found) != 1 || found[0].Resolves != opened.Seq || !strings.HasSuffix(found[0].Text, ": 0 builds") {
+		t.Fatalf("answers = %+v", found)
 	}
 }
