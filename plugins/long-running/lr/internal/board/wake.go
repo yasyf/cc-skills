@@ -30,7 +30,11 @@ const (
 	wakeTopic      = lanes.CardWakeTopic
 	lateTopic      = "card-wake-late:"
 	needsLaneTopic = "needs-lane:"
+	sendTopic      = "send:"
 	laneField      = "lane"
+	sendsField     = "sends"
+	sendToField    = "send-to"
+	sendTextField  = "send-text"
 	orcaPlacement  = "orca"
 	ackAfter       = 10 * time.Minute
 	wakeWindow     = 3 * time.Hour
@@ -54,8 +58,19 @@ type Waker struct {
 	Warn  io.Writer
 }
 
+func (c Cards) RecordSend(ctx context.Context, card, pick, to, text string) error {
+	return c.record(ctx, card, map[string]string{sendsField: pick, sendToField: to, sendTextField: text})
+}
+
 func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
-	asker, err := w.asker(ctx, a)
+	_, rows, err := w.Cards.rows(ctx)
+	if err != nil {
+		return err
+	}
+	if row := rows[a.Card]; row[sendsField] != "" && a.Said == pickedLead+row[sendsField]+pickedEnd {
+		return w.send(ctx, a, row)
+	}
+	asker, err := w.asker(ctx, a, rows)
 	if err != nil {
 		return err
 	}
@@ -108,11 +123,7 @@ func (w Waker) Unheard(ctx context.Context, u SlackUnheard) error {
 	return w.Wake(ctx, CardAnswer{Card: u.Card, Said: said, Key: u.Key, OwnerSeq: owner.Seq, Unclaimed: true})
 }
 
-func (w Waker) asker(ctx context.Context, a CardAnswer) (string, error) {
-	_, rows, err := w.Cards.rows(ctx)
-	if err != nil {
-		return "", err
-	}
+func (w Waker) asker(ctx context.Context, a CardAnswer, rows map[string]map[string]string) (string, error) {
 	if lane := rows[a.Card][laneField]; lane != "" && !DeskLane.MatchString(lane) {
 		return lane, nil
 	}
@@ -159,6 +170,16 @@ func (w Waker) needsLane(ctx context.Context, a CardAnswer) error {
 		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: needsLaneTopic + a.Key, Topic: needsLaneTopic + a.Card, To: []string{communicator}, Re: a.OwnerSeq, Force: true,
 		Text:  fmt.Sprintf("NEEDS-LANE %s on board %s: the owner answered: %s. No lane asked for this card, so route his answer, or launch a lane whose brief carries it.", a.Card, w.Cards.Session, a.Said),
 		Attrs: map[string]string{"session": w.Cards.Session, "card": a.Card, "block": a.Block},
+	})
+	return err
+}
+
+func (w Waker) send(ctx context.Context, a CardAnswer, row map[string]string) error {
+	to := row[sendToField]
+	_, err := w.Post(ctx, client.Draft{
+		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: sendTopic + a.Key, Topic: sendTopic + a.Card, To: []string{communicator}, Re: a.OwnerSeq, Force: true, Path: row[sendTextField],
+		Text:  fmt.Sprintf("SEND %s: the owner %s, which sends this record's body to %s on Slack. Send it yourself in this turn with slack_send to %s, exactly as written, and post its permalink; never hand the send to another lane.", a.Card, a.Said, to, to),
+		Attrs: map[string]string{"session": w.Cards.Session, "card": a.Card, "block": a.Block, sendToField: to},
 	})
 	return err
 }

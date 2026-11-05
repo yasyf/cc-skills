@@ -230,7 +230,7 @@ func MissedSteps(records []client.Record, registered []store.Lane, now time.Time
 			continue
 		}
 		to := []string{owner}
-		if !sameLane(owner, ownerRelay) && (slices.Contains(record.To, ownerRelay) || record.Fields.Attrs[rowAttr] != "") {
+		if !sameLane(owner, ownerRelay) && (slices.Contains(record.To, ownerRelay) || record.Kind == "owner" || record.Fields.Attrs[rowAttr] != "") {
 			to = append(to, ownerRelay)
 		}
 		since := record.At

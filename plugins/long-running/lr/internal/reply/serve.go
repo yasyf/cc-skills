@@ -29,6 +29,7 @@ var schema = map[string]any{
 		"recommended": map[string]any{"type": "string", "description": "The pick you recommend; required with picks."},
 		"ask":         map[string]any{"type": "integer", "description": "With picks, the seq of the lane's ask or other cci record the card is drawn from. The card's row records it, and a later correction or head record whose re or resolves chain reaches it sends you a STALE ask to redraw or withdraw the card before he taps."},
 		"build":       map[string]any{"type": "object", "properties": map[string]any{"repo": map[string]any{"type": "string"}, "branch": map[string]any{"type": "string"}, "none": map[string]any{"type": "string"}}, "description": "The branch the recommended pick is built on, as repo OWNER/NAME and branch, or none with the reason it has nothing to build; his board and Slack card show it under that pick."},
+		"message":     map[string]any{"type": "object", "properties": map[string]any{"to": map[string]any{"type": "string", "description": "The Slack user or channel id it goes to, such as U0123ABCDE."}, "text": map[string]any{"type": "string", "description": "The message exactly as it goes out, in Slack mrkdwn, written to the cc-slack post rules: the person as a <@U…> mention, short paragraphs, settings as a list, identifiers in backticks."}, "pick": map[string]any{"type": "string", "description": "The one of picks whose tap sends it."}}, "required": []string{"to", "text", "pick"}, "description": "With picks, the Slack message one pick sends for him to someone else, such as a direct message to a teammate; keep it out of md. The card shows the text as it goes out. A text cc-slack check-post flags, or one it could not check, draws nothing and the result lists the findings. His tap on that pick comes back to you as a SEND record whose body is the text: send it yourself with slack_send that turn and never hand it to a lane."},
 		"blocks":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Up to 8 live cc-present blocks drawn on Talk beneath md, such as a table with filter, sort, rowKey, details and actions, a chart, a diagram or a display.artifact, which takes kind html or svg and a source, never a PNG. Your window and Slack get md alone, so md must still say the answer."},
 		"links":       map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string"}, "url": map[string]any{"type": "string"}}, "required": []string{"label", "url"}}, "description": "Up to 5 links, such as a hosted one-pager; an https link is a button in Slack, an http one a line of the card."},
 		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls. On a reply with no picks, every open PR it names here or in md joins prs by itself and draws his Approve at once, in CI or not: his tap is stored at that head, and landing still waits for green checks, the approving review and grades. A PR landed, closed, held or already tapped shows as a link. A PR on a reply with picks, or one he can approve, draws as a PR card from its ledger row alone: title, what it changes for a user, the plan row, the risk and what it waits on. A missing field is left out and this call's result names it in one warning line; its lane fixes the PR body, never the reply."},
@@ -85,6 +86,7 @@ func Tool(a *app.App) channel.Tool {
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
 			"- by and routed need order, no picks and status progress or info.\n" +
 			"- Picks drawn from a lane's ask or record? Pass its seq in ask, so a correction to it reaches you before he taps.\n" +
+			"- A pick that sends a message for him to someone else? Pass it in message, never in md; it must pass check-post or nothing draws, and his tap on it comes back as SEND, which you send yourself that turn.\n" +
 			"- Every open PR you name draws his Approve now, in CI or not; never tell him a button comes later.\n" +
 			"- Naming an open bug? Its fix PRs join prs by themselves; a line in the result names any it could not draw.\n" +
 			"- The first reply after he has been away an hour opens with the dashboard link on line one.",
@@ -116,6 +118,9 @@ func Tool(a *app.App) channel.Tool {
 				return "reply: md carries the reply itself", true
 			}
 			if err := r.bareExplainMore(); err != nil {
+				return "reply: " + err.Error(), true
+			}
+			if r, err = fanout.checkedMessage(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
 			if r.ID == "" {

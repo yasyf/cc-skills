@@ -274,6 +274,31 @@ func TestALaneRetiredWithNoRecordedHeirWakesTheLiveLaneNumberedAfterIt(t *testin
 	}
 }
 
+func TestHisTapOnASendPickTellsTheSessionThatDrewTheCardToSendItNeverTheLaneThatAsked(t *testing.T) {
+	f := newWaker(t)
+	if err := f.Cards.RecordSend(context.Background(), "card-chat", "Send it", "U0ANUBHAV1", "/state/replies/r1.message"); err != nil {
+		t.Fatal(err)
+	}
+	f.bus = []client.Record{asked(1, "handover-option-a", "parked on card-chat")}
+	send, hold := pick, pick
+	send.Said, hold.Said = "picked “Send it”", "picked “Do not send”"
+
+	if err := f.Wake(context.Background(), send); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{communicator}) || !strings.HasPrefix(f.posts[0].Text, "SEND card-chat") || f.posts[0].Path != "/state/replies/r1.message" || f.posts[0].Re != 700 || !strings.Contains(f.posts[0].Text, "U0ANUBHAV1") {
+		t.Fatalf("posts = %+v, want one SEND to %s carrying the message", f.posts, communicator)
+	}
+
+	f.posts = nil
+	if err := f.Wake(context.Background(), hold); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"handover-option-a"}) || f.posts[0].Kind != wakeKind {
+		t.Fatalf("posts = %+v, want the other pick to wake the lane that asked", f.posts)
+	}
+}
+
 func TestAPickNoLaneAskedForGoesToOwnerRelayOnlyWhenUnclaimedIsSet(t *testing.T) {
 	f := newWaker(t)
 	quiet := pick

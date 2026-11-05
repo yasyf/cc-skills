@@ -128,6 +128,7 @@ type Reply struct {
 	Recommended string           `json:"recommended,omitempty"`
 	Ask         int64            `json:"ask,omitempty"`
 	Build       *Build           `json:"build,omitempty"`
+	Message     *Message         `json:"message,omitempty"`
 	Links       []Link           `json:"links,omitempty"`
 	PRs         []string         `json:"prs,omitempty"`
 	PRCards     []prCard         `json:"pr_cards,omitempty"`
@@ -1037,11 +1038,18 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		return []Outcome{failed("board", err), {Surface: "slack", Ref: f.postedRef(r.ID), Error: "the board card did not post, so cc-present sent no Slack card"}}
 	}
 	drawn := Outcome{Surface: "board", Ref: id}
+	var warned []string
 	if r.Ask != 0 {
 		if err := f.Cards.RecordAsk(ctx, id, r.Ask); err != nil {
-			drawn.Warning = fmt.Sprintf("the card's row does not record ask %d, so a correction answering it will not flag the card: %s", r.Ask, err)
+			warned = append(warned, fmt.Sprintf("the card's row does not record ask %d, so a correction answering it will not flag the card: %s", r.Ask, err))
 		}
 	}
+	if r.Message != nil {
+		if err := f.recordSend(ctx, id, r); err != nil {
+			warned = append(warned, fmt.Sprintf("the card's row does not record its message, so his tap on %q reaches you as NEEDS-LANE, not SEND; send the message yourself the turn it arrives: %s", r.Message.Pick, err))
+		}
+	}
+	drawn.Warning = strings.Join(warned, "; ")
 	posted := slackSent.FindStringSubmatch(done.Stdout)
 	if posted == nil {
 		return []Outcome{drawn, f.leftOnTheBoard(r.ID, id)}
