@@ -27,17 +27,18 @@ import (
 )
 
 const (
-	BusCursor      = "bus"
-	lostGrades     = "lost-grades"
-	lostGradesSpan = 14 * 24 * time.Hour
-	caller         = "lr-facts"
-	trunkFailed    = "trunk-failed"
-	trunkCancelled = "trunk-cancelled"
-	trunkMerged    = "trunk-merged"
-	memberBatch    = 25
-	queueUnknown   = "queue-unknown"
-	diffRefs       = "refs/lr/diff/"
-	memberFields   = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
+	BusCursor       = "bus"
+	lostGrades      = "lost-grades"
+	lostGradesSpan  = 14 * 24 * time.Hour
+	caller          = "lr-facts"
+	trunkFailed     = "trunk-failed"
+	trunkCancelled  = "trunk-cancelled"
+	trunkMerged     = "trunk-merged"
+	memberBatch     = 25
+	mergeableFields = "number headRefOid mergeable"
+	queueUnknown    = "queue-unknown"
+	diffRefs        = "refs/lr/diff/"
+	memberFields    = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
 var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
@@ -98,6 +99,9 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 		return nil, err
 	}
 	if !s.Reads {
+		if err := s.readTrunk(ctx, rows); err != nil {
+			s.Log.Warn("the read of mergeability after dev moved failed", "error", err)
+		}
 		return s.fromRows(rows, held)
 	}
 	if err := s.admitOutside(ctx, rows); err != nil {
@@ -111,7 +115,30 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err != nil || unread == "" {
 		return snapshot, err
 	}
-	return snapshot, s.Rows().PostTrunkRead(ctx, unread)
+	return snapshot, s.Rows().PostTrunkRead(ctx, unread, nil)
+}
+
+func (s Source) readTrunk(ctx context.Context, rows []store.ReviewRow) error {
+	unread, err := s.Rows().UnreadTrunk()
+	if err != nil || unread == "" {
+		return err
+	}
+	read, err := s.readAliased(ctx, liveNumbers(rows), memberBatch, mergeableFields)
+	if err != nil {
+		return err
+	}
+	heads := make(map[int]string, len(rows))
+	for _, row := range rows {
+		heads[row.Number] = row.Head
+	}
+	var conflicts []string
+	for _, pr := range read {
+		if pr != nil && pr.Mergeable == "CONFLICTING" && heads[pr.Number] != "" && strings.HasPrefix(pr.HeadRefOid, heads[pr.Number]) {
+			conflicts = append(conflicts, fmt.Sprintf("%d@%s", pr.Number, pr.HeadRefOid))
+		}
+	}
+	slices.Sort(conflicts)
+	return s.Rows().PostTrunkRead(ctx, unread, conflicts)
 }
 
 func (s Source) ReadOnce(ctx context.Context) (int, error) {
