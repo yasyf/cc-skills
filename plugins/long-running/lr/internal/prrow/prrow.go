@@ -40,13 +40,14 @@ const (
 	NotGraded = "not graded at this head"
 	RedAtHead = "CI is red at this head"
 
-	onlyHim     = "Only your approval."
-	tapEndsHold = "Only your approval at this head, which ends the hold: "
-	tappedWaits = "You approved it; the landing desk lands it next."
-	fieldChars  = 700
-	planChecked = "Checked against the plan by the fidelity review at this version."
-	PortLands   = "Nothing from you: a clean old-tree port lands on your standing word that ports need no tap, and its go comes next."
-	FlakeLands  = "Nothing from you: a test-flake fix lands on your standing word that flake fixes need no tap, and its go comes next."
+	onlyHim        = "Only your approval."
+	tapEndsHold    = "Only your approval at this head, which ends the hold: "
+	tappedWaits    = "You approved it; the landing desk lands it next."
+	fieldChars     = 700
+	planChecked    = "Checked against the plan by the fidelity review at this version."
+	planOverridden = "The fidelity review's finding was overridden at this version, so the plan check did not pass it."
+	PortLands      = "Nothing from you: a clean old-tree port lands on your standing word that ports need no tap, and its go comes next."
+	FlakeLands     = "Nothing from you: a test-flake fix lands on your standing word that flake fixes need no tap, and its go comes next."
 )
 
 var (
@@ -208,14 +209,15 @@ func clip(text string, chars int) string {
 	return strings.TrimRight(string(runes[:chars-1]), " \t\n") + "…"
 }
 
-func planRow(line string, fidelity machine.Fidelity) string {
+func planRow(line string, fidelity machine.Fidelity, overridden string) string {
+	said := ""
 	switch {
-	case line != "" && fidelity == machine.FidelityPass:
-		return line + " " + planChecked
 	case fidelity == machine.FidelityPass:
-		return planChecked
+		said = planChecked
+	case overridden != "":
+		said = planOverridden
 	}
-	return line
+	return strings.TrimSpace(line + " " + said)
 }
 
 // LandsOnHisWord reports a row that lands on a standing word of his with no tap.

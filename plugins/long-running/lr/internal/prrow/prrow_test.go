@@ -709,14 +709,45 @@ func TestTheBodyParserReadsEachField(t *testing.T) {
 }
 
 func TestAPlanRowIsTheBodysLineOrTheFidelityPass(t *testing.T) {
-	if got := planRow("", machine.FidelityPass); got != planChecked {
+	if got := planRow("", machine.FidelityPass, ""); got != planChecked {
 		t.Fatalf("no line with a pass = %q", got)
 	}
-	if got := planRow("", machine.FidelityFail); got != "" {
+	if got := planRow("", machine.FidelityFail, ""); got != "" {
 		t.Fatalf("no line with a fail = %q, want empty so the row is not ready", got)
 	}
-	if got := planRow("plan step 1", ""); got != "plan step 1" {
+	if got := planRow("plan step 1", "", ""); got != "plan step 1" {
 		t.Fatalf("line ungraded = %q", got)
+	}
+	if got := planRow("plan step 1", machine.FidelityFail, "443549"); got != "plan step 1 "+planOverridden {
+		t.Fatalf("line with an override = %q", got)
+	}
+}
+
+func TestOnlyAFidelityOverrideFillsAnEmptyPlanRow(t *testing.T) {
+	row := store.ReviewRow{Number: 1, Head: headA, Hold: None, SupersededBy: None, State: StateOpen, ForUsers: "a user sees it", Risk: "low"}
+	failed := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityFail)}
+
+	for name, test := range map[string]struct {
+		extra map[string]string
+		ready bool
+		grade string
+		waits string
+	}{
+		"a fidelity override": {extra: map[string]string{machine.OverrideFact("fidelity"): "443549"}, ready: true, grade: GradePass, waits: onlyHim},
+		"a finder override":   {extra: map[string]string{machine.OverrideFact("finder"): "284378"}, grade: GradeFail, waits: "a grade needs a verdict"},
+		"no override":         {grade: GradeFail, waits: "a grade needs a verdict"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			facts := maps.Clone(failed)
+			maps.Copy(facts, test.extra)
+			got := Materialize(row, facts, Held{}, nil, "dev")
+			if got.Grade != test.grade || got.ReadyForTap != test.ready || !strings.HasPrefix(got.WaitsOn, test.waits) {
+				t.Fatalf("grade %q, ready %v, waits %q, want %q, %v, %q", got.Grade, got.ReadyForTap, got.WaitsOn, test.grade, test.ready, test.waits)
+			}
+			if test.ready && got.PlanRow != planOverridden {
+				t.Fatalf("plan row %q, want %q", got.PlanRow, planOverridden)
+			}
+		})
 	}
 }
 
