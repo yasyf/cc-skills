@@ -645,7 +645,11 @@ func (f Fold) putDelta(t *store.Tx, number int, record client.Record, head, repl
 		}
 		why = strings.Join(fields[1:], " ")
 	}
-	said := map[string]string{gates.DeltaFromFact: cmp.Or(was, replaced)}
+	from := cmp.Or(was, replaced)
+	if closes, err := f.closesLoop(t, number, from, head); err != nil || closes {
+		return err
+	}
+	said := map[string]string{gates.DeltaFromFact: from}
 	if class := record.Fields.Attrs[deltaAttr]; class != "" {
 		said[gates.DeltaFact], said[gates.DeltaWhyFact] = class, clip(cmp.Or(why, record.Text), fieldChars)
 	}
@@ -658,6 +662,14 @@ func (f Fold) putDelta(t *store.Tx, number int, record client.Record, head, repl
 		}
 	}
 	return nil
+}
+
+func (f Fold) closesLoop(t *store.Tx, number int, from, head string) (bool, error) {
+	if from == "" {
+		return false, nil
+	}
+	deltas, err := t.HeadFacts(f.Repo, number, []string{gates.DeltaFromFact})
+	return gates.LeadsBack(from, head, deltas), err
 }
 
 func BodyRecord(body string) (json.RawMessage, error) {
@@ -709,7 +721,11 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 		}
 		pushed, unstamped := store.Parse(row.HeadAt)
 		if !seen || unstamped != nil || record.At.Sub(pushed) >= headGrace {
-			if row.Head != "" {
+			closes, err := f.closesLoop(t, row.Number, row.Head, head)
+			if err != nil {
+				return row, err
+			}
+			if row.Head != "" && !closes {
 				if err := t.PutFact(f.Repo, row.Number, head, gates.DeltaFromFact, row.Head, record.At); err != nil {
 					return row, err
 				}
