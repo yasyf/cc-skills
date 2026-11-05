@@ -685,6 +685,22 @@ func TestALongPassPostsALineAndAStuckOneRefusesIt(t *testing.T) {
 	}
 }
 
+func TestARunnerThatIsAliveButGetsNoAnswerFromOrcaRefusesAtOnceAndNamesTheAgentFallback(t *testing.T) {
+	f := newPosterFixture(t)
+	beat := aliveRecord(time.Now())
+	beat.Fields.Attrs = map[string]string{incident.OrcaDownAttr: "runtime_timeout"}
+	f.bus.records = slices.Insert(f.bus.records[1:], 0, beat)
+	brief := f.brief(t, "b.md", "work\n"+briefLines)
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "solo", Model: "opus", Effort: "high", Brief: brief}, 0)
+	want := "refused: the orca desk runner on cci drive prog is alive but Orca does not answer it: runtime_timeout, so nothing reads orca-desk lines; spawn an Agent named `solo` instead"
+	if err == nil || err.Error() != want {
+		t.Fatalf("got %v, want %s", err, want)
+	}
+	if len(f.bus.posts) != 0 {
+		t.Fatal(f.bus.posts)
+	}
+}
+
 func TestALaunchWarnsOfALaneAlreadyClaimingItsWorkAndClaimsItOnceLaunched(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "beside/brief.md", "Fix https://app.withforge.com/iris/sessions/sess_01m6efkn56e9krzhaa2fwtqmh0 from https://acme.slack.com/archives/C0909AD1458/p1793733828430639\n"+briefLines)

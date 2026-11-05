@@ -95,6 +95,8 @@ func (d *Desk) onePass(ctx context.Context) error {
 
 func (d *Desk) orcaDown(down *orcaUnreachable) error {
 	d.unreachable++
+	text := down.Error()
+	d.orcaSaid.Store(&text)
 	var streak struct {
 		Since string `json:"since"`
 		Error string `json:"error"`
@@ -121,6 +123,7 @@ func (d *Desk) orcaDown(down *orcaUnreachable) error {
 
 func (d *Desk) orcaBack() error {
 	d.unreachable = 0
+	d.orcaSaid.Store(nil)
 	value, found, err := d.factOf(deskRunner, unreachableFact)
 	if err != nil || !found {
 		return err
@@ -209,6 +212,9 @@ func (d *Desk) postAlive(ctx context.Context) {
 	running := d.Now().Sub(pass.since)
 	text := fmt.Sprintf("%s pass %d", runnerAlive, pass.number)
 	attrs := map[string]string{"pid": fmt.Sprint(os.Getpid()), "config": d.Config.Source, "terminal": d.Env("ORCA_TERMINAL_HANDLE"), incident.PassSecondsAttr: fmt.Sprint(int(running.Seconds())), incident.PassStepAttr: pass.step}
+	if down := d.orcaSaid.Load(); down != nil {
+		attrs[incident.OrcaDownAttr] = *down
+	}
 	if _, err := d.Bus.Post(ctx, client.Draft{Drive: d.Config.Drive, Lane: deskRunner, Kind: kindState, Topic: runnerTopic, Text: text, To: []string{watchdogLane + "@" + d.Config.Drive}, Attrs: attrs}); err != nil {
 		fmt.Fprintf(d.Stderr, "relay alive left for the next minute: %v\n", err)
 	}

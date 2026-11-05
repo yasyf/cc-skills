@@ -44,6 +44,7 @@ const (
 	RunnerAlive     = "orca alive"
 	PassSecondsAttr = "pass_seconds"
 	PassStepAttr    = "pass_step"
+	OrcaDownAttr    = "orca_down"
 	StuckPass       = 20 * time.Minute
 )
 
@@ -217,6 +218,9 @@ func RunnerFault(records []client.Record, drive string, now time.Time) string {
 		seconds, _ := strconv.Atoi(record.Fields.Attrs[PassSecondsAttr])
 		if running := time.Duration(seconds) * time.Second; running >= StuckPass {
 			return fmt.Sprintf("the orca desk runner on cci drive %s is alive but stuck: %s has run %d minutes, at step %s", drive, strings.TrimSpace(strings.TrimPrefix(record.Text, RunnerAlive)), int(running.Minutes()), record.Fields.Attrs[PassStepAttr])
+		}
+		if down := record.Fields.Attrs[OrcaDownAttr]; down != "" {
+			return fmt.Sprintf("the orca desk runner on cci drive %s is alive but Orca does not answer it: %s", drive, down)
 		}
 		return ""
 	}

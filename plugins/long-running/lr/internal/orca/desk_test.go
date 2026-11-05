@@ -3873,6 +3873,32 @@ func TestALongPassKeepsPostingAliveAndAStuckOneIsNamedOnce(t *testing.T) {
 	wantContains(t, said.String(), "relay pass 1 took 1620s: check 1620s\n")
 }
 
+func TestTheAliveRecordNamesAnOrcaThatDoesNotAnswerUntilItAnswers(t *testing.T) {
+	w := newDeskWorld(t)
+	w.desk.enter("check")
+	alive := func(post client.Draft) bool {
+		return post.Topic == runnerTopic && strings.HasPrefix(post.Text, runnerAlive)
+	}
+	w.desk.postAlive(context.Background())
+	if found := w.postsWhere(alive); len(found) != 1 || found[0].Attrs[incident.OrcaDownAttr] != "" {
+		t.Fatal(found)
+	}
+	if err := w.desk.settlePass(context.Background(), &orcaUnreachable{Text: "runtime_timeout"}); err != nil {
+		t.Fatal(err)
+	}
+	w.desk.postAlive(context.Background())
+	if found := w.postsWhere(alive); len(found) != 2 || found[1].Attrs[incident.OrcaDownAttr] != "runtime_timeout" {
+		t.Fatal(found)
+	}
+	if err := w.desk.settlePass(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	w.desk.postAlive(context.Background())
+	if found := w.postsWhere(alive); len(found) != 3 || found[2].Attrs[incident.OrcaDownAttr] != "" {
+		t.Fatal(found)
+	}
+}
+
 func TestARelayDeliveredToItsLanesDispatchCostsNoOrcaCallAndNoTailAtAnyN(t *testing.T) {
 	for _, count := range []int{1, 25} {
 		w := newDeskWorld(t)
