@@ -1183,6 +1183,19 @@ func TestALaneAnUnreadStandDownLeftInPlaceIsNeverRelaunchedOnceItStops(t *testin
 	}
 }
 
+func TestALanesOwnStandDownForASuccessorPassesThoughItIsTheLanesNewestRecord(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "state", t0, "graded #50972"), ask(3, "stand-down", lane2, t0.Add(time.Minute), nil, lane2, map[string]string{"successor": "conflicts-3", "last-read": "2"}))
+	f.peers = []Row{who(lane2, true, t0.Add(time.Minute))}
+
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, []any{row(t, s, lane2).State, row(t, s, lane2).RetiredBy}, []any{store.LaneRetired, "conflicts-3"})
+	equal(t, row(t, s, "conflicts-3").State, store.LaneLaunching)
+	equal(t, len(f.ofKind("defect")), 0)
+}
+
 func TestARootStandDownCitingAReadAsNewAsTheLanesNewestRecordRetiresIt(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
