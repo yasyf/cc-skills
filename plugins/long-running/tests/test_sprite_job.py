@@ -658,6 +658,26 @@ def test_a_clone_still_on_home_skips_the_fetch_so_its_lock_never_holds_up_the_mo
     assert not Path(f"{sprite}{checkout}.fetched").exists()
 
 
+def test_a_job_drops_the_empty_loose_objects_an_unclean_stop_left_so_its_fetch_can_bring_them_back(tmp_path: Path) -> None:
+    """Nov 4 dar-fleet-35: an unclean reboot left 52 empty loose objects, and every pass on it died in `git fetch` with "object file is empty", three attempts at 10 minutes each."""
+    mac, sprite, directory, _, run = one_job(tmp_path, RESTARTED_JOB)
+    objects = Path(f"{sprite}{mac / 'checkout'}") / ".git" / "objects"
+    (objects / "07").mkdir(exist_ok=True)
+    empty, writing, whole = objects / "07" / ("4" * 38), objects / "07" / "tmp_obj_abc", objects / "07" / ("5" * 38)
+    empty.write_bytes(b"")
+    writing.write_bytes(b"")
+    whole.write_bytes(b"compressed")
+    (objects / "info" / "alternates").write_bytes(b"")
+
+    run()
+
+    assert not empty.exists()
+    assert writing.exists()
+    assert whole.read_bytes() == b"compressed"
+    assert (objects / "info" / "alternates").exists()
+    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+
+
 RECORDING_JOB = """import json, os, pathlib, sys
 job = pathlib.Path(sys.argv[1])
 pid, start = (job / "job-process").read_text().split()
