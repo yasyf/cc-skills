@@ -420,3 +420,55 @@ func TestAHandEnqueueGateNamesEachGateAndCallsANoTapTapRequired(t *testing.T) {
 		t.Fatalf("a head that passes printed %q", lines)
 	}
 }
+
+func TestAHeldPRIsNeverEnqueuedOrReenteredWhateverItsSnapshotSays(t *testing.T) {
+	s, q := newStore(t), &queue{}
+	guard := landing.HoldGuard{Queue: q, Held: func(context.Context) (map[int]bool, error) { return map[int]bool{45583: true, 45584: true}, nil }}
+	snapshot := []machine.Facts{facts(45583, nil), facts(45585, nil)}
+
+	done, err := landing.Act(context.Background(), s, guard, &restacker{}, acts(t, s, t0, snapshot...), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []landing.Head{{Number: 45585, Head: head}}; !slices.Equal(q.enqueued, want) || len(q.reentered) != 0 {
+		t.Fatalf("enqueued = %+v, reentered = %v", q.enqueued, q.reentered)
+	}
+	if _, err := guard.Reenter(context.Background(), 45584); !errors.Is(err, landing.ErrHeld) || len(q.reentered) != 0 {
+		t.Fatalf("reenter err = %v, reentered = %v", err, q.reentered)
+	}
+	refused := 0
+	for _, said := range done.Said {
+		if strings.Contains(said.Text, "an open hold names it") {
+			refused++
+		}
+	}
+	if refused != 1 {
+		t.Fatalf("said = %+v", done.Said)
+	}
+}
+
+func TestAnUnreadHoldStopsTheEnqueueInsteadOfCountingEveryHoldLifted(t *testing.T) {
+	s, q := newStore(t), &queue{}
+	guard := landing.HoldGuard{Queue: q, Held: func(context.Context) (map[int]bool, error) { return nil, errors.New("cci store is busy") }}
+
+	_, err := landing.Act(context.Background(), s, guard, &restacker{}, acts(t, s, t0, facts(45583, nil)), t0)
+
+	if err == nil || len(q.enqueued) != 0 {
+		t.Fatalf("err = %v, enqueued = %+v", err, q.enqueued)
+	}
+}
+
+func TestAnEnqueueTheQueueTookIsAnsweredEvenWhenTheStoreCannotRecordIt(t *testing.T) {
+	s, q := newStore(t), &queue{}
+	planned := acts(t, s, t0, facts(45583, nil))
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	done, err := landing.Act(context.Background(), s, q, &restacker{}, planned, t0)
+
+	if err == nil || len(q.enqueued) != 1 || len(done.Said) != 1 || done.Said[0].Accepted != "QUEUED" {
+		t.Fatalf("err = %v, enqueued = %+v, said = %+v", err, q.enqueued, done.Said)
+	}
+}

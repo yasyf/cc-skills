@@ -115,7 +115,7 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	done, err := Act(ctx, s, trunk, remote, gates.Admit(ctx, Clear(out.Acts, snapshot, cfg.Trunk), snapshot), now)
+	done, err := Act(ctx, s, HoldGuard{Queue: trunk, Held: facts.New(a, cfg, s).HeldPRs}, remote, gates.Admit(ctx, Clear(out.Acts, snapshot, cfg.Trunk), snapshot), now)
 	fmt.Fprintf(stdout, "%s landing enqueued=%d resubmitted=%d dequeued=%d restacked=%d conflicts=%d\n", store.Stamp(now), len(done.Enqueued), len(done.Resubmitted), len(done.Dequeued), len(done.Restacked), len(done.Conflicts))
 	if err != nil {
 		return fmt.Errorf("movers stopped mid-pass: %w", err)
