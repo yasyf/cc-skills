@@ -44,6 +44,7 @@ var (
 	landLabel      = regexp.MustCompile(`(?i)^\W*(?:yes\W+)?(?:land|merge|approve|ship)\b`)
 	holdLabel      = regexp.MustCompile(`(?i)^\W*hold\b`)
 	namedPR        = regexp.MustCompile(`([\w./-]*)#(\d+)\b`)
+	portOpening    = regexp.MustCompile(`(?i)\bport of [\w./-]*#\d+`)
 	slackAsk       = regexp.MustCompile(`^slack[-:]`)
 )
 
@@ -193,7 +194,7 @@ func cardPR(heads, text, repo string) (int, string, bool) {
 		return number, strings.ToLower(head), err == nil && !strings.Contains(heads, ",") && (repo == "" || strings.EqualFold(owner, repo))
 	}
 	var numbers []int
-	for _, found := range namedPR.FindAllStringSubmatch(text, -1) {
+	for _, found := range namedPR.FindAllStringSubmatch(portOpening.ReplaceAllString(text, ""), -1) {
 		number, err := strconv.Atoi(found[2])
 		if err != nil || found[1] != "" && !strings.EqualFold(found[1], repo) || slices.Contains(numbers, number) {
 			continue

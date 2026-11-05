@@ -87,8 +87,7 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	title, from := a.Title, cmp.Or(a.From, noPlanFrom)
 	if a.PortOf != 0 {
 		opening := fmt.Sprintf("port of #%d", a.PortOf)
-		title, from = opening+": "+a.Title, cmp.Or(a.From, opening)
-		said = append(said, fmt.Sprintf("PR %d", a.PortOf))
+		title, from = opening+": "+a.Title, cmp.Or(a.From, linkedNumbers(opening, repo))
 	}
 	children := []map[string]any{{"id": slug + "-from", "type": "markdown", "md": "**From:** " + from}}
 	if more = strings.TrimSpace(more); more != "" {
@@ -107,7 +106,7 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	}
 	children = append(children, shots...)
 	children = append(children, map[string]any{"id": slug + "-choice", "type": "choice", "options": options})
-	for _, pr := range namedPRs(said, repo) {
+	for _, pr := range slices.DeleteFunc(namedPRs(said, repo), func(pr SlackPR) bool { return pr == SlackPR{repo, a.PortOf} }) {
 		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%s-%d", slug, strings.ReplaceAll(pr.Repo, "/", "-"), pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
 	}
 	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": strings.TrimSpace(summary), "children": children})
