@@ -435,15 +435,14 @@ func (f Fanout) withApprovedPR(r Reply) (Reply, string) {
 	if err != nil {
 		return r, fmt.Sprintf("the PR ledger did not read, so the PR an approving pick lands was not drawn: %v", err)
 	}
-	var named []string
+	var named []int
 	for n, found := range said {
-		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])
-		if inRepo(repo, found) && slices.ContainsFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] }) && !slices.Contains(named, url) {
-			named = append(named, url)
+		if inRepo(repo, found) && !slices.Contains(named, numbers[n]) {
+			named = append(named, numbers[n])
 		}
 	}
-	if len(named) == 1 {
-		r.PRs = named
+	if len(named) == 1 && slices.ContainsFunc(rows, func(row store.ReviewRow) bool { return row.Number == named[0] }) {
+		r.PRs = []string{fmt.Sprintf("https://github.com/%s/pull/%d", repo, named[0])}
 	}
 	return r, ""
 }

@@ -145,6 +145,9 @@ func Rows(entry drive.Entry, numbers []int) (string, []store.ReviewRow, error) {
 
 func BugFixes(entry drive.Entry) (string, map[string][]store.ReviewRow, error) {
 	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), io.Discard)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil, nil
+	}
 	if err != nil {
 		return "", nil, err
 	}
