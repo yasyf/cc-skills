@@ -59,14 +59,13 @@ Run it from the terminal that already owns the named native Run. The script chec
 
 ### What refuses the launch
 
+A path the brief's own text names that does not exist or is over 64 MiB, or a `ccn` entity that does not render, warns and the lane starts without it: the caller reads a `WARN` line and a stage. Register rows the launch quoted between `Register slice:` and `slice-hash:` are not carried or checked.
+
 Each refusal names its cause, and nothing is prepared unless noted.
 
 | Cause | Refusal |
 | --- | --- |
-| A path the brief names does not exist | `lr carry` names each |
 | A credential path under `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh` or `~/.netrc` | `lr carry` names each |
-| A carried path over 64 MiB | `lr carry` names each |
-| A `ccn` entity that does not render | `lr carry` names each |
 | A drive CLI the brief invokes is missing on the box | Names each missing CLI; output in `prepare.err`; no lane starts on a box that cannot run its brief |
 | `bin/lr.binrun` pins no sha256 tar.gz GitHub release for `linux-x86_64` | Refuses before prepare |
 | A malformed tool pin | Refuses before prepare |

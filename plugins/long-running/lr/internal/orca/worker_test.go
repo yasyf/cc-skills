@@ -1626,12 +1626,25 @@ func TestAMacFileTheBriefNamesIsOnTheBoxAtThePathTheWorkerReadsBeforeItStarts(t 
 	}
 }
 
-func TestABriefNamingWhatNoSpriteCanReceiveRefusesNamingItAndPreparesNothing(t *testing.T) {
+func TestABriefNamingACredentialRefusesNamingItAndPreparesNothing(t *testing.T) {
+	f := newWorkerFixture(t)
+	key := filepath.Join(f.home, ".ssh", "id")
+	f.write(key, "secret", 0o600)
+	f.write(f.brief, "Read "+key+".\n", 0o600)
+	f.sprite()
+	f.refusedWith(fmt.Sprintf("brief %s names what no Sprite can receive: %s is a credential path, which never leaves this Mac; nothing was prepared", f.brief, key), versionCall, currentRunCall)
+}
+
+func TestABriefNamingAMissingPathWarnsAndStillStartsItsWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	gone := filepath.Join(f.home, "gone.md")
-	f.write(f.brief, "Read "+gone+".\n", 0o600)
-	f.sprite()
-	f.refusedWith(fmt.Sprintf("brief %s names what no Sprite can receive: %s does not exist on this Mac; nothing was prepared", f.brief, gone), versionCall, currentRunCall)
+	text := "Read " + gone + ".\n"
+	f.write(f.brief, text, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+	f.launched()
+	if want := fmt.Sprintf("warning: brief %s names what stays behind: %s does not exist on this Mac\n", f.brief, gone); !strings.Contains(f.stderr.String(), want) {
+		t.Fatal(f.stderr.String())
+	}
 }
 
 func TestASpriteThatCannotFetchTheCCNotesRefsStillStartsItsWorkerAndKeepsTheLog(t *testing.T) {

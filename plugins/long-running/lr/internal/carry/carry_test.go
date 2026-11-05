@@ -43,16 +43,25 @@ func landed(t *testing.T, c Carrier, onBox string) string {
 
 func carried(t *testing.T, c Carrier, brief string) string {
 	t.Helper()
-	out, err := c.Carry(context.Background(), brief)
+	out, _, err := c.Carry(context.Background(), brief)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return out
 }
 
+func leftBehind(t *testing.T, c Carrier, brief string) string {
+	t.Helper()
+	_, left, err := c.Carry(context.Background(), brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Join(left, "; ")
+}
+
 func refused(t *testing.T, c Carrier, brief string) string {
 	t.Helper()
-	out, err := c.Carry(context.Background(), brief)
+	out, _, err := c.Carry(context.Background(), brief)
 	if err == nil {
 		t.Fatalf("carried a brief that should be refused, as %q", out)
 	}
@@ -97,17 +106,21 @@ func TestTheCcnPlanABriefNamesTravelsWithIt(t *testing.T) {
 	}
 }
 
-func TestAMissingPathRefusesTheLaunchNamingEveryOne(t *testing.T) {
+func TestAMissingPathWarnsNamingEveryOneAndLeavesItsReferenceAlone(t *testing.T) {
 	c, _ := carrier(t)
 	gone := filepath.Join(c.Home, ".claude/scratch/gone.md")
 	report := filepath.Join(c.Home, ".claude/scratch/lane/report.md")
 
-	fault := refused(t, c, "Read "+gone+" and write "+report+".\n")
+	brief := "Read " + gone + " and write " + report + ".\n"
+	left := leftBehind(t, c, brief)
 
 	for _, name := range []string{gone, report} {
-		if !strings.Contains(fault, name+" does not exist on this Mac") {
-			t.Fatalf("refusal %q does not name %s", fault, name)
+		if !strings.Contains(left, name+" does not exist on this Mac") {
+			t.Fatalf("warning %q does not name %s", left, name)
 		}
+	}
+	if out := carried(t, c, brief); out != brief {
+		t.Fatalf("rewritten brief %q", out)
 	}
 }
 
@@ -133,7 +146,7 @@ func TestACredentialPathNeverLeavesTheMac(t *testing.T) {
 	}
 }
 
-func TestADirectoryTravelsWholeAndOneOverTheCapIsRefused(t *testing.T) {
+func TestADirectoryTravelsWholeAndOneOverTheCapStaysBehind(t *testing.T) {
 	c, _ := carrier(t)
 	logs := filepath.Join(c.Home, "logs")
 	put(t, filepath.Join(logs, "a.log"), "a\n")
@@ -153,8 +166,8 @@ func TestADirectoryTravelsWholeAndOneOverTheCapIsRefused(t *testing.T) {
 	if err := os.Truncate(filepath.Join(big, "small.txt"), maxBytes+1); err != nil {
 		t.Fatal(err)
 	}
-	if fault := refused(t, c, "See "+big+"\n"); !strings.Contains(fault, big+" holds 65 MiB, over the 64 MiB a launch carries") {
-		t.Fatalf("refusal %q", fault)
+	if left := leftBehind(t, c, "See "+big+"\n"); !strings.Contains(left, big+" holds 65 MiB, over the 64 MiB a launch carries") {
+		t.Fatalf("warning %q", left)
 	}
 }
 
@@ -177,14 +190,14 @@ func TestTextNamingNothingOnThisMacPassesThroughUnchanged(t *testing.T) {
 	}
 }
 
-func TestACcnEntityThatDoesNotRenderRefusesNamingIt(t *testing.T) {
+func TestACcnEntityThatDoesNotRenderWarnsNamingIt(t *testing.T) {
 	c, fake := carrier(t)
 	fake.Fail(1, "not-found: entity not found: no task matches \"t-9\"", "ccn")
 
-	fault := refused(t, c, "Follow `ccn task show t-9`.\n")
+	left := leftBehind(t, c, "Follow `ccn task show t-9`.\n")
 
-	if !strings.Contains(fault, "`ccn task show t-9` failed") || !strings.Contains(fault, "no task matches") {
-		t.Fatalf("refusal %q", fault)
+	if !strings.Contains(left, "`ccn task show t-9` failed") || !strings.Contains(left, "no task matches") {
+		t.Fatalf("warning %q", left)
 	}
 }
 
@@ -196,7 +209,7 @@ func TestAHelperNamedThroughAVariableTravelsAndItsReferenceReadsTheCopy(t *testi
 	put(t, drive+"/fg/bin.zsh", "echo fg")
 	put(t, c.Home+"/notes.md", "notes")
 
-	rewritten, err := c.Carry(context.Background(), `python3 "$DRIVE_DIR/go-desk-2/carry.py" --post; ${DRIVE_DIR}/fg/bin.zsh; cat $HOME/notes.md`)
+	rewritten, _, err := c.Carry(context.Background(), `python3 "$DRIVE_DIR/go-desk-2/carry.py" --post; ${DRIVE_DIR}/fg/bin.zsh; cat $HOME/notes.md`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +228,7 @@ func TestAVariableTheBriefAssignsItselfExpands(t *testing.T) {
 	root := filepath.Join(c.Home, "lane")
 	put(t, root+"/items.md", "items")
 
-	rewritten, err := c.Carry(context.Background(), "Read `$B/items.md` once.\nexport B="+root+"/\n")
+	rewritten, _, err := c.Carry(context.Background(), "Read `$B/items.md` once.\nexport B="+root+"/\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +243,7 @@ func TestAVariablePathThatDoesNotExistYetIsRewrittenAndNeverRefused(t *testing.T
 	drive := filepath.Join(c.Home, "drive")
 	c.Vars = map[string]string{DriveDir: drive}
 
-	rewritten, err := c.Carry(context.Background(), "Write $DRIVE_DIR/lane/NOTES.md as you go.")
+	rewritten, _, err := c.Carry(context.Background(), "Write $DRIVE_DIR/lane/NOTES.md as you go.")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +258,7 @@ func TestAVariableNoOneDefinedOrATemplateUnderOnePassesThrough(t *testing.T) {
 	c.Vars = map[string]string{DriveDir: filepath.Join(c.Home, "drive")}
 	text := "cd $DESK_WT/plugins; run $DRIVE_DIR/<lane>/carry.py; ls $DRIVE_DIR"
 
-	rewritten, err := c.Carry(context.Background(), text)
+	rewritten, _, err := c.Carry(context.Background(), text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,12 +325,47 @@ func TestBriefsNamingEachOtherCarryOnceAndEnd(t *testing.T) {
 	}
 }
 
-func TestAMissingPathInTheBriefItselfStillRefusesWhileANestedOneDoesNot(t *testing.T) {
+func TestAMissingPathInTheBriefItselfWarnsWhileANestedOneStaysInTheLog(t *testing.T) {
 	c, _ := carrier(t)
 	put(t, c.Home+"/a/one.brief.md", "old "+c.Home+"/gone.txt\n")
 
-	carried(t, c, "Read "+c.Home+"/a/one.brief.md\n")
-	if got := refused(t, c, "Read "+c.Home+"/gone.txt\n"); !strings.Contains(got, "does not exist") {
+	if left := leftBehind(t, c, "Read "+c.Home+"/a/one.brief.md\n"); left != "" {
+		t.Fatal(left)
+	}
+	if left := leftBehind(t, c, "Read "+c.Home+"/gone.txt\n"); !strings.Contains(left, "does not exist") {
+		t.Fatal(left)
+	}
+}
+
+func TestARegisterRowTheToolQuotedIsNeitherCarriedNorChecked(t *testing.T) {
+	c, fake := carrier(t)
+	kept := filepath.Join(c.Home, "kept.md")
+	put(t, kept, "kept\n")
+	put(t, c.Home+"/.ssh/id", "secret")
+	rows := "Register slice: lane=a step=all\n  > HAR is at " + c.Home + "/Downloads/gone.har\n  > see " + kept + ", " + c.Home + "/.ssh/id and `ccn task show t-9`\nslice-hash: 0c81c2cb1fc0\n"
+	body := "Scale: small\nRead " + kept + " once.\n"
+
+	out, left, err := c.Carry(context.Background(), "# a\n\n"+rows+body)
+	if err != nil || len(left) != 0 {
+		t.Fatal(err, left)
+	}
+	if want := "# a\n\n" + rows + "Scale: small\nRead " + box + kept + " once.\n"; out != want {
+		t.Fatalf("got %q, want %q", out, want)
+	}
+	if calls := fake.Calls(); len(calls) != 0 {
+		t.Fatalf("a quoted row ran %v", calls)
+	}
+}
+
+func TestAPathOutsideTheQuotedRowsIsStillChecked(t *testing.T) {
+	c, _ := carrier(t)
+	rows := "Register slice: lane=a step=all\nslice-hash: 0c81c2cb1fc0\n"
+	put(t, c.Home+"/.ssh/id", "secret")
+
+	if got := refused(t, c, rows+"cat "+c.Home+"/.ssh/id\n"); !strings.Contains(got, "credential path") {
 		t.Fatal(got)
+	}
+	if left := leftBehind(t, c, rows+"Read "+c.Home+"/gone.txt\n"); !strings.Contains(left, "does not exist") {
+		t.Fatal(left)
 	}
 }

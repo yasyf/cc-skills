@@ -129,7 +129,8 @@ func (p Poster) Faults(ctx context.Context, order Order) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout, filepath.Dir(entry.Config()))
+	faults, _, err := order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout, filepath.Dir(entry.Config()))
+	return faults, err
 }
 
 func (p Poster) Numbered(ctx context.Context, lane string) (string, error) {
@@ -166,7 +167,7 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	if err != nil {
 		return "", err
 	}
-	faults, err := order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout, filepath.Dir(entry.Config()))
+	faults, left, err := order.faults(ctx, p.Runner, p.Env("HOME"), entry.Checkout, filepath.Dir(entry.Config()))
 	if err != nil {
 		return "", err
 	}
@@ -182,7 +183,7 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 		return "", err
 	}
 	claims := briefClaims(string(raw))
-	warnings := p.claimedBeside(ctx, bus, order.Lane, claims)
+	warnings := slices.Concat(left, p.claimedBeside(ctx, bus, order.Lane, claims))
 	if grant := order.grantWarning(string(raw)); grant != "" {
 		warnings = append(warnings, grant)
 	}
