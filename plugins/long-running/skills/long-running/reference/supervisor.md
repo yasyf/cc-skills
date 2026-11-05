@@ -83,11 +83,11 @@ A wait is a row: `Waiting` and `Awaits` hold the gate. The matching event clears
 | Owner or decision gate (a tap, a ruling, a carried override) | `blocked` naming the `card-` id; `ask` | The owner's pick, or a record answering the ask |
 | Upstream PR | `blocked --pr N` | A `landed` record naming N, resuming exactly the lanes parked on N |
 | Release or cutover | `blocked --target T` | A `release`, `applied` or `fix-live` record naming T |
-| Another lane's work | `blocked --lane-ref L` | L's `done`, `stopped` or `fix-live` |
+| Another lane's work | `blocked --lane-ref L` | L's `done`, `stopped` or `fix-live`; a `fix-live` the coordinator files is the work of the lanes it is addressed to, never its own |
 | Head and go (green at a new head with an old go) | `blocked --pr N` | The landing mover owns the go at the new head. A `blocker` naming N pages the lane and overrides the wait |
 | Expired credential, case unrecovered | `blocked` or `ask` | The answer |
 
-An unrelated record fires no gate.
+An unrelated record fires no gate. The page names the record that fired, its lane and kind, and the gate it matched.
 
 - **Retired lane with a broken PR.** `done` retires the row, whatever is open; replay and the supervisor never relaunch a lane that stopped, was withdrawn or is done. When a retired lane's PR goes red or conflicting, one blocker tells the coordinator no lane owns it and names the `lr request owner <lane> --pr N` that hands it on.
 - **Card gates.** Every card id a `blocked` record names is a gate, and any `owner` record naming one of them, bare or in parentheses, wakes the lane. With `build_recommended_order` in `lr.json` set to the standing order's token, such as `owner:m104`, the hourly pass wakes every lane parked on a card, citing the token, and sends the meta desk one line naming them. A lane whose card recommends nothing re-parks with `no-recommendation` and is left alone.
