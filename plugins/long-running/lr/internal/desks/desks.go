@@ -83,14 +83,14 @@ func start(ctx context.Context, a *app.App, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	owed, err := d.owed(out)
+	owed, faults, err := d.owed(out)
 	if err != nil {
 		return err
 	}
 	if _, err := d.run(ctx, "lr", "relay", "rebind", "--config", a.ConfigPath); err != nil {
 		return err
 	}
-	return d.launch(ctx, out, owed)
+	return errors.Join(d.launch(ctx, out, owed), faults)
 }
 
 func loaded(a *app.App) (drive, error) {
@@ -105,19 +105,19 @@ func (d drive) run(ctx context.Context, argv ...string) (string, error) {
 
 func (d drive) brief(lane string) string { return filepath.Join(d.state, lane, "brief.md") }
 
-func (d drive) owed(out io.Writer) ([]owing, error) {
+func (d drive) owed(out io.Writer) (owed []owing, faults error, err error) {
 	s, err := store.Open(filepath.Join(d.state, lanes.StoreFile))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = s.Close() }()
 	rows, err := s.AllLanes()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	heard, err := s.Heard()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	posted := map[string]poster{}
 	for name, at := range heard {
@@ -140,15 +140,14 @@ func (d drive) owed(out io.Writer) ([]owing, error) {
 	for name := range known {
 		taken[name] = true
 	}
-	var owed []owing
-	var faults []error
+	var faulted []error
 	for _, standingDesk := range standing {
 		next := owing{desk: standingDesk, lane: standingDesk.name, from: d.brief(standingDesk.name)}
 		if row, found, live := d.holder(known, posted, standingDesk.name); found {
 			if live {
 				seq, err := s.NewestSeq(posted[row.Name].name)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				newest := "no record yet"
 				if seq != 0 {
@@ -164,15 +163,15 @@ func (d drive) owed(out io.Writer) ([]owing, error) {
 		text, err := os.ReadFile(next.from)
 		switch {
 		case err != nil:
-			faults = append(faults, fmt.Errorf("%s has no brief to launch: %w", standingDesk.name, err))
+			faulted = append(faulted, fmt.Errorf("%s has no brief to launch: %w", standingDesk.name, err))
 		case placedLocal.Match(text):
-			faults = append(faults, fmt.Errorf("%s: %s says place=local, and every desk runs remote", standingDesk.name, next.from))
+			faulted = append(faulted, fmt.Errorf("%s: %s says place=local, and every desk runs remote", standingDesk.name, next.from))
 		default:
 			next.text = text
 			owed = append(owed, next)
 		}
 	}
-	return owed, errors.Join(faults...)
+	return owed, errors.Join(faulted...), nil
 }
 
 type poster struct {

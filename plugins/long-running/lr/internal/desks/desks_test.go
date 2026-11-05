@@ -267,15 +267,23 @@ func TestARoleWhoseHolderPostsUnderAnyNameLaunchesNoSecondWriter(t *testing.T) {
 	}
 }
 
-func TestABriefThatStaysOnTheMacOrIsMissingStartsNothing(t *testing.T) {
+func TestABriefThatStaysOnTheMacOrIsMissingFaultsOnlyItsOwnDesk(t *testing.T) {
 	a, m, state := newDrive(t, lanes.Root, "fidelity-desk", "red-sweep", "drive-watchdog")
 	writeBrief(t, state, "alerts-desk", "ccx: role=watch place=local\n")
 	err := start(context.Background(), a, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "alerts-desk") || !strings.Contains(err.Error(), "every desk runs remote") || !strings.Contains(err.Error(), "board-refresher has no brief") {
 		t.Fatalf("got %v, want each bad desk named", err)
 	}
-	if ran := m.lines(""); !slices.Equal(ran, []string{"cci me"}) {
-		t.Fatalf("started with a bad brief: %q", ran)
+	for _, good := range []string{"fidelity-desk", "red-sweep", "drive-watchdog"} {
+		if strings.Contains(err.Error(), good) {
+			t.Fatalf("got %v, want only the bad desks named", err)
+		}
+		if launched := m.lines("desk-launch.py lane " + good + " "); len(launched) != 1 {
+			t.Fatalf("%s launched %q, want once", good, launched)
+		}
+	}
+	if launched := m.lines("desk-launch.py lane"); len(launched) != 3 {
+		t.Fatalf("launched %q, want only the three desks with a good brief", launched)
 	}
 }
 
