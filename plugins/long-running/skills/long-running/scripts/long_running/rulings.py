@@ -142,6 +142,7 @@ from . import register_reads
 from .register_reads import BINDING_DIRECTIONS, LEDGER_REFS, NOT_RULINGS, SLICE_LINE, UNANCHORED, binding, digest, hashed, kept_copy, listed, rendered_row, row_anchors, row_heading, section, write_atomic
 from .ruling_documents import DocumentIndex, readable
 
+from . import answer_rows
 from . import answer_search
 from . import board_rows
 from . import cci
@@ -1569,7 +1570,7 @@ def ruling_answer(loaded: Register, capture: dict, words: str, at: str, proof: s
     body = f"{words}\n\nOwner, {at}, {capture.get('source', 'prompt')} capture {capture['digest']}; recorded as rulings.py classify wrote its register row."
     labels = ("from:owner", "scope:durable", f"program:{loaded.program}", message, proof)
     topics = answer_search.anchors(answer_search.vocabulary(ccn, loaded.program), words)
-    return json.loads(ccn(["answer", "add", first_sentence(words), "--body", body, *topics, *(arg for label in labels for arg in ("--label", label)), "--json"]))["id"]
+    return json.loads(ccn(["answer", "add", answer_rows.ccn_title(first_sentence(words)), "--body", body, *topics, *(arg for label in labels for arg in ("--label", label)), "--json"]))["id"]
 
 
 def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Callable[[], list[Path]], documents: DocumentIndex | None = None) -> dict:
@@ -2479,10 +2480,10 @@ def card_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell, 
         print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the card holding block {args.block} does not quote the words of {key}", file=args.stdout)
         return None
     proof = f"proof:card:{args.block}:{args.option or 'approved'}"
-    title = card.split("\n", 1)[0].partition(": ")[2]
-    body = f"Owner answered {label!r} on block {args.block} of board {session[:8]}; the card quotes the words of {key}, so the answer also authorizes {key}."
+    question = card.split("\n", 1)[0].partition(": ")[2]
+    body = f"Owner answered {label!r} on block {args.block} of board {session[:8]}; the card quotes the words of {key}, so the answer also authorizes {key}.\nBoard question: {question}"
     made = [answer for answer in owner if proof in (answer.get("tags") or [])]
-    return made or [ccn(shell, loaded.repo, "answer", "add", title, "--body", body, "--label", "from:owner", "--label", f"program:{loaded.program}", "--label", proof)]
+    return made or [ccn(shell, loaded.repo, "answer", "add", answer_rows.ccn_title(question), "--body", body, "--label", "from:owner", "--label", f"program:{loaded.program}", "--label", proof)]
 
 
 def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:

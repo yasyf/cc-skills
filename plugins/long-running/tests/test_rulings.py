@@ -1015,6 +1015,23 @@ def test_classify_records_a_ruling_with_no_answer_as_his_answer_with_its_topics_
     assert json.loads(shell.rows["prompt/again"]["answer"]) == [prior["id"]]
 
 
+def test_classify_records_a_ruling_longer_than_a_ccn_title_with_a_cut_title_and_every_word_in_its_body(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    words = "draw the drive as one diagram per desk, with the coordinator at the top, the communicator beside it, every lane below them in the order it starts, each arrow labelled by the record kind it carries and the lane that reads it, and a dashed box around the lanes sharing a checkout so a reader sees at a glance which lanes collide."
+    captured(state, capture("4", words))
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "4" * 16, "kind": "order", "words": words})
+
+    assert code == 0, out
+    assert len(words.encode()) == 327
+    [add] = [argv for argv in shell.calls if argv[3:5] == ["answer", "add"]]
+    title = add[5]
+    assert len(title.encode()) <= 256
+    assert title.endswith("…") and words.startswith(title.removesuffix("…"))
+    assert add[add.index("--body") + 1].startswith(f"{words}\n\nOwner,")
+    assert json.loads(shell.rows[PROMPT_KEY]["answer"]) == [RECORDED]
+
+
 def test_classify_records_no_answer_for_a_board_tap_or_a_design_row(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     captured(state, capture("4", "keep the parked worker", source="board", block="worker-pick"), capture("5", "one database per session"))
     shell = RegisterShell(seeded(package))

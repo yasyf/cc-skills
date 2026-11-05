@@ -16,8 +16,18 @@ OWNER = "from:owner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 PERMISSION_CARD = re.compile(r"slack:([A-Z0-9]+):(\d+\.\d+)?:[0-9a-f]{12}")
 SLACK_LABELS = {"Yes": "slack-grant:", "No": "slack-revoke:"}
+TITLE_BYTES = 256
+ELLIPSIS = "…"
 
 Run = Callable[[list[str]], str]
+
+
+def ccn_title(text: str) -> str:
+    """`text` as a `ccn answer add` TITLE: whole when it fits ccn's byte cap, else cut at the last word that fits and marked with an ellipsis, so every caller keeps the whole text in the body."""
+    if len(text.encode()) <= TITLE_BYTES:
+        return text
+    kept = text.encode()[: TITLE_BYTES - len(ELLIPSIS.encode())].decode(errors="ignore")
+    return kept.rsplit(None, 1)[0] + ELLIPSIS
 
 
 def answered(event: dict) -> bool:
@@ -54,12 +64,12 @@ def card_words(card: dict) -> str:
 
 
 def add_argv(program: str, session: str, card: str, block: str, title: str, said: str, words: str, moment: datetime, proof: str, anchors: list[str], granted: tuple[str, ...]) -> list[str]:
-    """The `ccn answer add` argv for one answer: the card's question as the title, and the owner's words verbatim, the question, what the card `said`, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names and the `granted` Slack grant labels. The process guard finds a tap on a card naming a process by searching these words, then reads the tap and what the card said from the board's own log."""
+    """The `ccn answer add` argv for one answer: the card's question as the title, cut to ccn's cap, and the owner's words verbatim, the question, what the card `said`, the card and block ids, the board and the Pacific time as the body, after the `anchors` of each vocabulary topic it names and the `granted` Slack grant labels. The process guard finds a tap on a card naming a process by searching these words, then reads the tap and what the card said from the board's own log."""
     when = moment.astimezone(PACIFIC).strftime("%b %-d %-I:%M %p PT")
     card_said = f"Card said: {said}\n" if said else ""
     body = f"{words}\nBoard question: {title}\n{card_said}Card {card}, block {block}, board {session}, {when}."
     labels = (*granted, OWNER, ROW, f"program:{program}", f"board-session:{session}", f"board-card:{card}", f"board-block:{block}", proof)
-    return ["answer", "add", title, "--body", body, *anchors, *(arg for label in labels for arg in ("--label", label)), "--json"]
+    return ["answer", "add", ccn_title(title), "--body", body, *anchors, *(arg for label in labels for arg in ("--label", label)), "--json"]
 
 
 def rowed(ccn: Run, session: str, card: str | None = None) -> set[str]:
