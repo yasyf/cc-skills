@@ -266,7 +266,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		}, store: s, post: post, log: a.Log, forgiven: 1}).Check)
 	}
 	if slices.Contains(env.Config.Movers, moverLanes) {
-		deps.Checks = append(deps.Checks, (&lanes.NotesPublish{Store: s, Deps: laneDeps}).Check)
+		notes, err := lanes.NewNotesPublish(s, laneDeps)
+		if err != nil {
+			return Deps{}, err
+		}
+		deps.Checks = append(deps.Checks, notes.Check)
 		claude, err := drive.ConfigDir()
 		if err != nil {
 			return Deps{}, err

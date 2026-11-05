@@ -113,6 +113,14 @@ type NotesPublish struct {
 	Deps  Deps
 }
 
+func NewNotesPublish(s *store.Store, d Deps) (_ *NotesPublish, err error) {
+	defer recovered(&err)
+	if must(s.Cursor(notesCursor)) == 0 {
+		do(s.Advance(notesCursor, must(s.Cursor(CursorName))))
+	}
+	return &NotesPublish{Store: s, Deps: d}, nil
+}
+
 func (n *NotesPublish) Check(_ context.Context, now time.Time) (err error) {
 	defer recovered(&err)
 	folded := must(n.Store.Cursor(CursorName))
@@ -175,8 +183,12 @@ func (out *folded) orderedOff(s *store.Store, name string, fresh bool, at time.T
 
 func publishWritten(s *store.Store, d Deps, records []Record, now time.Time) {
 	var writers []string
-	seen := map[string]bool{}
+	read, seen := map[string]bool{}, map[string]bool{}
 	for _, r := range records {
+		if read[r.Lane] {
+			continue
+		}
+		read[r.Lane] = true
 		lane, found := laneOf(s, r.Lane)
 		if found && isLive(lane.State) && !seen[lane.Name] {
 			seen[lane.Name] = true

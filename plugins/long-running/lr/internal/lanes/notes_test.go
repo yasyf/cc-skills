@@ -222,6 +222,25 @@ func TestNotesPublishWaitsForTheTickToFoldARecord(t *testing.T) {
 	equal(t, f.published, []string{lane2})
 }
 
+func TestARecordTheFirstTickFoldsBeforeTheFirstCheckIsStillPublished(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	notes, err := NewNotesPublish(s, f.deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.published = nil
+	f.peers = []Row{who(lane2, true, t0)}
+	f.feed = append(f.feed, rec(2, lane2, "report", t0, "report, ccn a24d471", Root))
+
+	tick(t, s, f, t0.Add(mins(1)))
+	if err := notes.Check(context.Background(), t0.Add(mins(1))); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, f.published, []string{lane2})
+}
+
 func TestATickWithNoRecordsPublishesNothing(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")

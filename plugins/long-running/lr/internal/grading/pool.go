@@ -493,7 +493,8 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 			}
 		}
 		if err := grader.Repost(ctx, directory, client.Post); err != nil {
-			p.Log.Warn("reposting a desk record failed", "job", directory, "error", err)
+			p.Log.Warn("a settled pass's records did not reach the store; it stays a worker and the next settle posts them again", "job", directory, "error", err)
+			live[name] = true
 		}
 	}
 	return live, nil
@@ -703,7 +704,7 @@ func (p *JobPool) stamp(kind, sprite string) error {
 	if err := os.MkdirAll(directory, 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(directory, sprite), []byte(p.Now().UTC().Format(time.RFC3339)), 0o600)
+	return writeFileAtomic(filepath.Join(directory, sprite), []byte(p.Now().UTC().Format(time.RFC3339)))
 }
 
 func (p *JobPool) stampedWithin(kind, sprite string, window time.Duration) (bool, error) {
@@ -811,9 +812,17 @@ func writeAtomic(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	staged := fmt.Sprintf("%s.%d", path, os.Getpid())
-	if err := os.WriteFile(staged, data, 0o600); err != nil {
+	return writeFileAtomic(path, data)
+}
+
+func writeFileAtomic(path string, data []byte) error {
+	staged, err := os.CreateTemp(filepath.Dir(path), ".staged-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(staged, path)
+	_, err = staged.Write(data)
+	if err = errors.Join(err, staged.Close()); err != nil {
+		return errors.Join(err, os.Remove(staged.Name()))
+	}
+	return os.Rename(staged.Name(), path)
 }
