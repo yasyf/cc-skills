@@ -433,8 +433,9 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   (`|| exit 1`), never pipe ship into `tail`, and check the head moved before posting. A
   record that claims a fix nobody pushed misleads the landing desks that replay stacks.
   Dry-run a bulk poster before it posts.
-- PR bodies, commits, review comments and repo docs paraphrase the owner and cite answer
-  ids; his words stay in cci and cc-notes. Run `gh pr` verbs directly, never through a
+- In a public repo, PR bodies, commits, review comments and docs paraphrase the owner and
+  cite answer ids; his words stay in cci and cc-notes. A Forge-AI/monorepo PR body quotes
+  his words, since the finder grades a paraphrase as missing the row. Run `gh pr` verbs directly, never through a
   script file that hides them from the hooks. Correct an open PR's body unasked with
   `gh pr edit <n> --body-file <file>` when it turns out false or when evidence a grader
   reads arrives; rework that leaves it true goes in one PR comment.
