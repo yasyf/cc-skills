@@ -79,6 +79,10 @@ Read the code around every changed symbol at that sha, its callers and callees i
    its severity. A defect those lines lack stays a finding, and so does one that would break
    or undo a rebuild change, even when the old PR has the same lines, since our changes
    supersede a port.
+   This overrides anything an AGENTS.md or other repo guide says about a port's contents until
+   the guide catches up: a guide line the old PR's lines break, or one telling a port to drop or
+   change them, is "follow-up:" like any shared defect, and a guide's sentence is not a rebuild
+   change.
 
 Every blocker or major, row and test findings included, cites at least one `path:line`
 inside a hunk the PR's own commits add or change. These are those hunks, as new-file line

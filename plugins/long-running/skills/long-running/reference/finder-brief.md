@@ -142,6 +142,10 @@ Do three things and report all three in the findings schema.
    holds nothing. A defect those lines lack stays a finding, and so does one that would break
    or undo a rebuild change, even when the old PR has the same lines, since our changes
    supersede a port.
+   This overrides anything an AGENTS.md or other repo guide says about a port's contents until
+   the guide catches up: a guide line the old PR's lines break, or one telling a port to drop or
+   change them, is "follow-up:" like any shared defect, and a guide's sentence is not a rebuild
+   change.
 
 Plan: <plan path>; sub-plans: <paths>
 
