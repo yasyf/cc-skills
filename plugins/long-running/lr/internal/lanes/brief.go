@@ -27,7 +27,7 @@ var (
 
 const (
 	AssignedOrdersLine = "Assigned orders:"
-	MacNeedsLine       = "why=sentry or why=datadog to read evidence there, why=signed-in for a proof in a signed-in session, why=cc-present to serve the owner's board or another page he opens on this Mac, why=mac-build for a build or install only this Mac runs, why=mac-state to read or change this Mac's own stores, worktrees or processes, why=devbox to claim a devbox or EC2 Mac box with this Mac's AWS identity, or why=aws-machine-profile for an AWS read or tools/ci call, such as scripts/stack-enqueue, that runs on this Mac's machine profile"
+	MacNeedsLine       = "why=sentry or why=datadog to read evidence there, why=signed-in for a proof in a signed-in session, why=cc-present to serve the owner's board or another page he opens on this Mac, why=mac-build for a build or install only this Mac runs, why=mac-state to read or change this Mac's own stores, worktrees or processes, why=devbox to claim a devbox or EC2 Mac box with this Mac's AWS identity, or why=aws-machine-profile for an AWS read or tools/ci call, such as scripts/stack-enqueue, that runs on one of this Mac's machine-sourced AWS profiles"
 )
 
 type Brief struct {

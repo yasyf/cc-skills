@@ -172,7 +172,7 @@ The command:
 Two things must already be on this Mac:
 
 - The AWS Session Manager plugin.
-- A `desk-host-reach` profile in `~/.aws/config`, whose `source_profile` is the machine profile `DEVBOX_AWS_PROFILE` names, the `role_arn` of this machine's CI-account desk-host reach role, and the machine's operator as `role_session_name`. That role may start the port forward and read the ready event only on instances named `*-desk-host`.
+- A `desk-host-reach` profile in `~/.aws/config`, whose `source_profile` is the plat-dev machine-sourced profile `DEVBOX_AWS_PROFILE` names, the `role_arn` of this machine's CI-account desk-host reach role, and the machine's operator as `role_session_name`. That role may start the port forward and read the ready event only on instances named `*-desk-host`.
 
 Set `orca.launches` to `mac` on this Mac's relay, and to `sprite` on the relay that serves the host's Run.
 
