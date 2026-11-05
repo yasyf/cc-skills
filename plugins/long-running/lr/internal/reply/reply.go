@@ -44,8 +44,7 @@ const (
 	cardPrefix   = "card-"
 	withdrawn    = " withdrawn"
 	alreadyGone  = "no block "
-	doneLead     = "Done, nothing for you"
-	pickLead     = "Tap one below"
+	pickLink     = "Pick on the card"
 	needsYou     = "needs_you"
 	progress     = "progress"
 	info         = "info"
@@ -439,17 +438,11 @@ func (r Reply) led() Reply {
 		return r
 	}
 	lead := strings.TrimRight(strings.TrimSpace(r.Action), ".")
-	switch {
-	case lead != "":
+	if lead != "" || len(r.Picks) > 0 {
 		r.Status = cmp.Or(r.Status, needsYou)
-	case len(r.Picks) > 0:
-		lead = pickLead
-		r.Action = lead
-		r.Status = cmp.Or(r.Status, needsYou)
-	case r.Status == progress:
+	}
+	if lead == "" {
 		return r
-	default:
-		lead = doneLead
 	}
 	if !strings.HasPrefix(r.Title, lead) {
 		r.Title = shortened(lead+": "+r.Title, maxTitle)
@@ -913,7 +906,7 @@ func (r Reply) withPickLink(body string, drawn Outcome) string {
 	if drawn.Ref == "" || len(r.Picks) == 0 {
 		return body
 	}
-	return body + "\n<" + drawn.Ref + "|" + pickLead + ">"
+	return body + "\n<" + drawn.Ref + "|" + pickLink + ">"
 }
 
 func (f Fanout) inThread(ctx context.Context, r Reply, drawn Outcome) []Outcome {

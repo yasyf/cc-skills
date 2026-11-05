@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -555,14 +556,9 @@ func TestAReplyMissingATextPartTakesItFromTheOther(t *testing.T) {
 
 func TestATitleLedPastTheLimitIsShortenedAndStillPosts(t *testing.T) {
 	long := strings.TrimSpace(strings.Repeat("word ", 27))
-	for name, in := range map[string]Reply{
-		"action": {ID: "a", Title: long, MD: "m", Order: "m1", Action: "Tap one of these below please", Picks: []string{"A", "B"}, Recommended: "A"},
-		"done":   {ID: "a", Title: long, MD: "m", Order: "m1", Status: "done"},
-	} {
-		mended, _ := in.mended()
-		if got := mended.led().Title; utf8.RuneCountInString(got) > maxTitle || got == long {
-			t.Errorf("%s: title %q, want it led and at most %d characters", name, got, maxTitle)
-		}
+	mended, _ := Reply{ID: "a", Title: long, MD: "m", Order: "m1", Action: "Tap one of these below please", Picks: []string{"A", "B"}, Recommended: "A"}.mended()
+	if got := mended.led().Title; utf8.RuneCountInString(got) > maxTitle || got == long {
+		t.Fatalf("title %q, want it led and at most %d characters", got, maxTitle)
 	}
 }
 
@@ -660,7 +656,7 @@ func TestOnlyAReplyTiedToNothingWarnsThatItNamesNoOrder(t *testing.T) {
 func TestAnExplainMoreThatIsOnlyALinkStaysRefused(t *testing.T) {
 	base := Reply{ID: "r4", Title: "Pick a relay", MD: "Two ways."}
 	for name, r := range map[string]Reply{
-		"a pick explained by a link only": {ID: base.ID, Title: base.Title, MD: "Tap one below.\n\nsee https://docs.poetic.design/one-pagers/x/", Action: "Tap one below", Picks: []string{"A way", "B way"}, Recommended: "A way"},
+		"a pick explained by a link only": {ID: base.ID, Title: base.Title, MD: "see https://docs.poetic.design/one-pagers/x/", Picks: []string{"A way", "B way"}, Recommended: "A way"},
 		"an Explain more that is a link":  {ID: base.ID, Title: base.Title, MD: "Two ways.\n\n**Explain more:** https://docs.poetic.design/one-pagers/x/"},
 	} {
 		if err := r.bareExplainMore(); err == nil {
@@ -670,7 +666,7 @@ func TestAnExplainMoreThatIsOnlyALinkStaysRefused(t *testing.T) {
 	if err := base.bareExplainMore(); err != nil {
 		t.Fatalf("plain reply refused: %v", err)
 	}
-	linked := Reply{ID: base.ID, Title: base.Title, MD: "Done, nothing for you.\n\nhttps://docs.poetic.design/one-pagers/x/"}
+	linked := Reply{ID: base.ID, Title: base.Title, MD: "Stored in the background.\n\nhttps://docs.poetic.design/one-pagers/x/"}
 	if err := linked.bareExplainMore(); err != nil {
 		t.Fatalf("a done reply naming its page refused: %v", err)
 	}
@@ -810,24 +806,23 @@ func TestAThreadFailureIsNamedAndTheOtherSurfacesStillGo(t *testing.T) {
 	}
 }
 
-func TestAReplyToAnOrderLeadsWithDoneOrHisOneActionWhateverTheLaneWrote(t *testing.T) {
-	done := Reply{Title: "Stored in the background", MD: "A parse is stored only for a chat being opened.", Order: "m347"}.led()
-	if !strings.HasPrefix(done.Title, "Done, nothing for you: ") || !strings.HasPrefix(done.MD, "Done, nothing for you.\n\nA parse") {
-		t.Fatalf("done reply = %q, %q", done.Title, done.MD)
-	}
-	if done.Status != "" {
-		t.Fatalf("status = %q, want none: a done reply asks nothing of him", done.Status)
+func TestAReplyToAnOrderLeadsWithHisOneActionAndOtherwiseReadsAsItsOwnText(t *testing.T) {
+	for _, status := range []string{"", done, progress} {
+		in := Reply{Title: "Stored in the background", MD: "A parse is stored only for a chat being opened.", Order: "m347", Status: status}
+		if got := in.led(); !reflect.DeepEqual(got, in) {
+			t.Fatalf("a %q reply asking nothing of him changed: %+v", status, got)
+		}
 	}
 	acting := Reply{Title: "Storage", MD: "It cannot write the new store.", Order: "m347", Action: "Pick where it stores on your board."}.led()
 	if !strings.HasPrefix(acting.MD, "Pick where it stores on your board.\n\nIt cannot") || acting.Status != needsYou {
 		t.Fatalf("action reply = %q, status %q", acting.MD, acting.Status)
 	}
 	picking := Reply{Title: "Storage", MD: "Two places.", Order: "m347", Picks: []string{"A", "B"}, Recommended: "A"}.led()
-	if !strings.HasPrefix(picking.MD, pickLead) || picking.Action != pickLead {
-		t.Fatalf("a reply with picks leads %q and stores action %q: done would be false", picking.MD, picking.Action)
+	if picking.Title != "Storage" || picking.MD != "Two places." || picking.Status != needsYou {
+		t.Fatalf("a reply with picks = %q, %q, status %q, want its own words waiting on him", picking.Title, picking.MD, picking.Status)
 	}
-	twice := Reply{Title: "Done, nothing for you: stored", MD: "Done, nothing for you. It is stored.", Order: "m347"}.led()
-	if twice.Title != "Done, nothing for you: stored" || twice.MD != "Done, nothing for you. It is stored." {
+	twice := Reply{Title: "Pick a store: storage", MD: "Pick a store. It cannot write the new one.", Order: "m347", Action: "Pick a store"}.led()
+	if twice.Title != "Pick a store: storage" || twice.MD != "Pick a store. It cannot write the new one." {
 		t.Fatalf("a lead the lane wrote doubled: %q, %q", twice.Title, twice.MD)
 	}
 	plain := Reply{Title: "A status line", MD: "Nothing he ordered."}.led()
@@ -884,13 +879,6 @@ func TestAnInfoReplyToHisOrderReachesSlackAndMarksTheRowResponded(t *testing.T) 
 	}
 	if ledger, _ := os.ReadFile(path); !strings.Contains(string(ledger), "|  | responded |") {
 		t.Fatalf("ledger = %q", ledger)
-	}
-}
-
-func TestAProgressReplyIsNotLedAsDone(t *testing.T) {
-	r := Reply{Title: "Vector search", MD: "Designing.", Status: progress, Order: "m447"}.led()
-	if strings.Contains(r.Title+r.MD, doneLead) {
-		t.Fatalf("progress reply led as done: %q, %q", r.Title, r.MD)
 	}
 }
 
@@ -1579,7 +1567,7 @@ func TestAPickReplyInHisThreadEditsItsThreadCopyAcrossEdits(t *testing.T) {
 	if len(posted) != 2 || slack(t, posted[0]).Replaces != cardCopy || slack(t, posted[1]).Replaces != threadCopy {
 		t.Fatalf("cc-slack calls = %+v, want the card then the thread copy edited and nothing posted", posted)
 	}
-	if body := slack(t, posted[1]).Body; strings.Contains(body, pickLead) {
+	if body := slack(t, posted[1]).Body; strings.Contains(body, pickLink) {
 		t.Fatalf("thread copy = %q still tells him to tap a withdrawn card", body)
 	}
 	if surface(sent, "slack thread").Ref != threadCopy {
