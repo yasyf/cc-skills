@@ -33,7 +33,7 @@ var schema = map[string]any{
 		"blocks":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Up to 8 live cc-present blocks drawn on Talk beneath md, such as a table with filter, sort, rowKey, details and actions, a chart, a diagram or a display.artifact. Your window and Slack get md alone, so md must still say the answer."},
 		"links":       map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string"}, "url": map[string]any{"type": "string"}}, "required": []string{"label", "url"}}, "description": "Up to 5 links, such as a hosted one-pager; an https link is a button in Slack, an http one a line of the card."},
 		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls, the only way a reply asks for a tap card: a PR named in the md alone draws none, and one waiting on his tap warns. A PR on a reply with picks, or one whose PR ledger row is ready for his tap, draws as a PR card from that row alone: title, what it changes for a user, the plan row, the risk and what it waits on. A missing field is left out and this call's result names it in one warning line; its lane fixes the PR body, never the reply."},
-		"thread":      map[string]any{"type": "string", "description": "The ts of the Slack DM thread this reply answers. An order or on naming a row he sent as a Slack thread reply fills it in, and a reply to a terminal or board order posts at his DM root; name it only to answer a thread whose row the reply does not name."},
+		"thread":      map[string]any{"type": "string", "description": "The ts of the Slack DM thread this reply answers, or root for his DM root. The row an order or on names sets it: a row from a Slack thread posts in that thread, and a terminal, board or Talk row at his DM root. A row with no recorded place refuses until this names one. Otherwise name it only to answer a thread whose row the reply does not name."},
 		"order":       map[string]any{"type": "string", "description": "The ledger row, such as m347, of the owner order this reply answers. The tool then leads the reply with \"Done, nothing for you\", or with action; write md without that lead."},
 		"action":      map[string]any{"type": "string", "description": "With order, the one thing he must do, on one line. Omit it when he need do nothing."},
 		"by":          map[string]any{"type": "string", "description": "With order and status progress, the clock it is due by, such as 11:30 PM: the ledger row reads due by it. Omit it and the row reads responded."},
@@ -90,7 +90,7 @@ func Tool(a *app.App) channel.Tool {
 		Name: "reply",
 		Description: "Send the owner one reply. It always reaches this window as the returned markdown, a cci record and the dashboard's store; " +
 			"a reply with picks also becomes one card on his board that cc-present posts to his Slack DM with a button per pick, " +
-			"and one with links, PRs or a status becomes a card at his Slack DM root. A progress reply to an order writes his ledger row, which his dashboard shows under the ask, and posts nothing to Slack. One answering his Slack thread reply posts there as text instead. A reply carrying an earlier id edits the Slack message it already posted and posts a new one only when it has none. " +
+			"and one with links, PRs or a status becomes a card at his Slack DM root. A progress reply to an order writes his ledger row, which his dashboard shows under the ask, and posts nothing to Slack. One answering his Slack thread reply posts there as text instead, and one whose row has no recorded place refuses until thread names it. A reply carrying an earlier id edits the Slack message it already posted and posts a new one only when it has none. " +
 			"A tap comes back to this session. " +
 			"A surface that fails is named in the result while the others still go; never resend for it.",
 		InputSchema: schema,
@@ -100,6 +100,15 @@ func Tool(a *app.App) channel.Tool {
 				return "reply: " + err.Error(), true
 			}
 			r, warned := r.mended()
+			entry, err := drive.Session()
+			if err != nil {
+				return "reply: " + err.Error(), true
+			}
+			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner)}
+			r, err = fanout.placed(r)
+			if err != nil {
+				return "reply: " + err.Error(), true
+			}
 			r = r.led()
 			if r.Order == "" && r.On == "" && !r.Unprompted {
 				warned = append(warned, "this names no order, so Chat lists it by time; pass his row in order, or set unprompted if he asked nothing")
@@ -113,11 +122,6 @@ func Tool(a *app.App) channel.Tool {
 			if r.ID == "" {
 				r.ID = "r" + strconv.FormatInt(a.Now().UnixMilli(), 36)
 			}
-			entry, err := drive.Session()
-			if err != nil {
-				return "reply: " + err.Error(), true
-			}
-			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner)}
 			if warning := fanout.tapWarning(r); warning != "" {
 				warned = append(warned, warning)
 			}

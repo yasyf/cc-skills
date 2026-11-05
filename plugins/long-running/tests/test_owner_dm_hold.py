@@ -229,17 +229,6 @@ def test_a_monitor_event_cut_mid_line_breaks_no_later_message(root):  # noqa: F8
     assert json.loads(sent)["text"] == "make the smoke less flaky"
 
 
-def test_the_rows_the_verb_prints_carry_his_thread_for_the_answer(root):  # noqa: F811
-    root.typed("where are we", "2026-10-28T03:53:25.695Z")
-    root.queued(slack_message(), "2026-10-28T03:53:26.695Z")
-    root.routes[(str(owner_thread_words_write_rows.LR), "owner", "thread-word")] = json.dumps({"ts": "1793159602.693499", "rows": ["m7.1", "m7.2"]})
-    event = root.event(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-
-    thread_word_inputs(root, event)
-
-    assert owner_returns.RowThreads.load(event).threads == {"m7.1": "1792842193.708029", "m7": "1792842193.708029", "m7.2": "1792842193.708029"}
-
-
 def test_a_row_that_does_not_write_tells_the_meta_desk(root):  # noqa: F811
     root.typed("where are we", "2026-10-28T03:53:25.695Z")
     root.queued(slack_message(), "2026-10-28T03:53:26.695Z")

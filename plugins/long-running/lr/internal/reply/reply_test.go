@@ -503,7 +503,9 @@ func TestAnActionWithALongTitlePostsThroughTheTool(t *testing.T) {
 			config := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", config)
 			t.Setenv(drive.Env, "d")
-			entry, err := json.Marshal(fanout(t, nil).Entry)
+			f := fanout(t, nil)
+			ledgerHolds(t, f.Entry, "| m543 | Nov 4 2:29 PM | where is it |  | open |")
+			entry, err := json.Marshal(f.Entry)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -551,7 +553,9 @@ func TestOnlyAReplyTiedToNothingWarnsThatItNamesNoOrder(t *testing.T) {
 			config := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", config)
 			t.Setenv(drive.Env, "d")
-			entry, err := json.Marshal(fanout(t, nil).Entry)
+			f := fanout(t, nil)
+			ledgerHolds(t, f.Entry, "| m543 | Nov 4 2:29 PM | where is it |  | open |")
+			entry, err := json.Marshal(f.Entry)
 			if err != nil {
 				t.Fatal(err)
 			}

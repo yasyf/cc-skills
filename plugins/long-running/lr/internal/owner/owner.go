@@ -329,6 +329,11 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if !strings.HasPrefix(string(text), boardTap) {
+				if err := rememberRows(Ledger(entry.StateDir), wordRows{Rows: []string{row}}); err != nil {
+					return err
+				}
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), row)
 			return nil
 		},
