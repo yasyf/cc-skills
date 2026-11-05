@@ -49,7 +49,8 @@ func recordsBefore(t *testing.T, pr string, before int64) []client.Record {
 }
 
 func gate(records []client.Record, pr int, head string, cards ...Card) (string, []string) {
-	return ExemptGo(Claim{Repo: monorepo, PR: pr, Head: head}, Read{Records: records, GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Cards: cards})
+	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: pr, Head: head}, Read{Records: records, GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Cards: cards})
+	return text, refusals
 }
 
 func refusedWith(t *testing.T, text string, refusals []string, want string) {
@@ -143,7 +144,9 @@ func TestAGradedHeadWithRootsOverrideAndAnExemptClassGetsItsGo(t *testing.T) {
 }
 
 func TestTheSameHeadIsRefusedWhenTheGoLaneAlreadyPostedItsGo(t *testing.T) {
-	records := append(recordsBefore(t, "48375", 356113), client.Record{Seq: 356114, Lane: "go-sweep-9", Kind: "go", Text: "go #48375 at 71bd0ab on green [exempt: owner-pick]"})
+	posted := client.Record{Seq: 356114, Lane: "go-sweep-9", Kind: "go", Text: "go #48375 at 71bd0ab on green [exempt: owner-pick]"}
+	posted.Fields.Attrs = map[string]string{bus.ExemptClassAttr: "owner-pick"}
+	records := append(recordsBefore(t, "48375", 356113), posted)
 	text, refusals := gate(records, 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84")
 	refusedWith(t, text, refusals, "go #356114 by go-sweep-9 already names this head")
 }
@@ -157,19 +160,19 @@ func TestAPlainGoNamingTheHeadDoesNotStopTheGoThatCarriesItsClass(t *testing.T) 
 }
 
 func TestAClassOutsideTheDrivesExemptGradesNeedsHisTap(t *testing.T) {
-	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, Read{Records: recordsBefore(t, "48375", 356113), Exempt: DefaultExemptGrades})
+	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, Read{Records: recordsBefore(t, "48375", 356113), Exempt: DefaultExemptGrades})
 	refusedWith(t, text, refusals, "fidelity: no ok grade at 71bd0ab names an exempt class")
 }
 
 func TestATapRuleMatchingAChangedFileHoldsTheHeadForHisTap(t *testing.T) {
 	read := Read{Records: recordsBefore(t, "48375", 356113), Exempt: driveClasses, TapRules: driveTaps, Files: []string{"infra/rows/x.ts", "go/sand/next/internal/vm/run.go"}}
-	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, read)
+	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, read)
 	refusedWith(t, text, refusals, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go")
 }
 
 func TestAnExemptGoIsRefusedForABodyThatWaitsToGoLiveWithNoWayItIsSafeOnDev(t *testing.T) {
 	read := Read{Records: recordsBefore(t, "48375", 356113), GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Body: pr46018 + "\nHold this PR until that release is live.\n"}
-	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, read)
+	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, read)
 	if want := UnsafeOnDev("Hold this PR until that release is live"); text != "" || !slices.Equal(refusals, []string{want}) {
 		t.Fatalf("got go %q and refusals %q, want only %q", text, refusals, want)
 	}
@@ -184,11 +187,11 @@ func TestAnExemptGoWaitsOnAnOpenCardItsBodyNamesThoughTheCardNamesNoPR(t *testin
 		return Read{Records: recordsBefore(t, "48375", 356113), GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Body: body, Cards: cards}
 	}
 
-	text, refusals := ExemptGo(claim, read(pacing, other))
+	text, _, refusals := ExemptGo(claim, read(pacing, other))
 	if want := "owner card card-rmw3cuhus is open"; text != "" || !slices.Equal(refusals, []string{want}) {
 		t.Fatalf("got go %q and refusals %q, want only %q", text, refusals, want)
 	}
-	if text, refusals := ExemptGo(claim, read(other)); !strings.HasPrefix(text, "go #48375 at 71bd0ab on green [exempt: owner-pick]") || len(refusals) > 0 {
+	if text, _, refusals := ExemptGo(claim, read(other)); !strings.HasPrefix(text, "go #48375 at 71bd0ab on green [exempt: owner-pick]") || len(refusals) > 0 {
 		t.Fatalf("with no open card its body names, got go %q and refusals %q", text, refusals)
 	}
 }
@@ -270,7 +273,7 @@ func TestAPortLandsWithNoTapOnlyWhenItsHeadRecordProvesItCleanAndEveryOtherGateH
 			if c.head != "" {
 				records = append(records, headRecord(t, c.head, c.attrs))
 			}
-			text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: c.files, PortSourceMerged: c.source})
+			text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: c.files, PortSourceMerged: c.source})
 			if c.want != "" {
 				refusedWith(t, text, refusals, c.want)
 				return
@@ -298,7 +301,7 @@ func TestACleanPortWhoseOnlyFidelityIsACountedOverrideLands(t *testing.T) {
 		"overridden with no port claim, the tap rule stands": {append(slices.Clone(missing), override), "tap rule rule/82317b0"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: c.records, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})
+			text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: c.records, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})
 			if c.want != "" {
 				refusedWith(t, text, refusals, c.want)
 				return
@@ -326,7 +329,7 @@ func TestAFinderOverrideWrittenOnAnotherStoreCountsWithItsBareSeqCite(t *testing
 		"another store's cite that is no seq stays refused":    {override("#436664", "nothing"), "citing a record that exists"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: []client.Record{major, fidelity, head, c.override}, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})
+			text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: []client.Record{major, fidelity, head, c.override}, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})
 			if c.want != "" {
 				refusedWith(t, text, refusals, c.want)
 				return
@@ -340,7 +343,7 @@ func TestAFinderOverrideWrittenOnAnotherStoreCountsWithItsBareSeqCite(t *testing
 
 func TestAPortGoNamesAClassTheBusReadsAsExempt(t *testing.T) {
 	records := append(graded(t, "class old-tree-port"), headRecord(t, portHead, `,"port-of":"49000","port-interacts":"no"`))
-	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})
+	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})
 	if want := "go #49999 at abc1234 on green [exempt: old-tree-port]: fidelity ok #2, finder ok #1"; text != want || len(refusals) > 0 {
 		t.Fatalf("got go %q and refusals %q, want %q", text, refusals, want)
 	}
@@ -385,7 +388,7 @@ func TestAFlakeFixLandsWithNoTapOnlyWhenItsWholeChangeIsTestCodeWithNoTimeoutBum
 			if c.attrs != "" {
 				records = append(records, headRecord(t, portHead, c.attrs))
 			}
-			text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: c.files, Patches: c.patches})
+			text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: c.files, Patches: c.patches})
 			if c.want != "" {
 				refusedWith(t, text, refusals, c.want)
 				return
@@ -402,13 +405,13 @@ func TestOnlyALanesNewestGradeVouchesForAFlakeFixHelper(t *testing.T) {
 	patch := "+uncounted"
 	regraded := decoded(t, `{"seq":4,"lane":"fidelity-pipeline","kind":"review","text":"fidelity: ok `+portHead+` reads right","refs":{"prs":[49999]}}`)
 	records := append(graded(t, "class test-only"), headRecord(t, portHead, `,"flake-fix":"TestChatStream"`), regraded)
-	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: []string{helper}, Patches: map[string]*string{helper: &patch}})
+	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: []string{helper}, Patches: map[string]*string{helper: &patch}})
 	refusedWith(t, text, refusals, "flake fix: "+helper+" is not test or fixture code")
 }
 
 func TestAFlakeRecordDoesNotExcuseAMissingFidelityGrade(t *testing.T) {
 	records := []client.Record{graded(t, "class test-only")[0], headRecord(t, portHead, `,"flake-fix":"TestChatStream"`)}
-	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses})
+	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses})
 	refusedWith(t, text, refusals, "fidelity: no ok grade at abc1234 names an exempt class")
 }
 
@@ -420,12 +423,12 @@ func TestOnlyTheCountedRecordSettlesTheFinderNeverTheAppealItself(t *testing.T) 
 	finder := func(refusal string) bool { return strings.HasPrefix(refusal, "finder:") }
 	appealed := append(records, client.Record{Seq: 355824, Lane: "grader-appeals-1", Kind: "decide", Text: "finder-override #48375 at 71bd0ab: " + cite + ". Row rule/4236611 grounds it"})
 
-	_, alone := ExemptGo(claim, Read{Records: appealed, GoLanes: goLanes, Exempt: driveClasses})
+	_, _, alone := ExemptGo(claim, Read{Records: appealed, GoLanes: goLanes, Exempt: driveClasses})
 	if !slices.ContainsFunc(alone, finder) {
 		t.Fatalf("an appeal nothing has counted settled the finder: %q", alone)
 	}
 	counted := append(appealed, client.Record{Seq: 355830, Lane: bus.SweepLane, Kind: "decide", Text: "finder-override #48375 at 71bd0ab: " + cite + ". Counted from grader-appeals-1's cci #355824, whose owner rows exist."})
-	_, read := ExemptGo(claim, Read{Records: counted, GoLanes: goLanes, Exempt: driveClasses})
+	_, _, read := ExemptGo(claim, Read{Records: counted, GoLanes: goLanes, Exempt: driveClasses})
 	if slices.ContainsFunc(read, finder) {
 		t.Fatalf("a counted override left the finder refused: %q", read)
 	}

@@ -484,8 +484,8 @@ func (p *JobPool) classes() map[string]string {
 func claimedClasses(gos []client.Record, facts machine.Facts) []string {
 	var claims []string
 	for _, record := range gos {
-		for _, fact := range bus.LegacyFacts(record, facts.Repo, []string{record.Lane}) {
-			if fact.Kind == "exempt" && fact.PR == facts.Number && strings.HasPrefix(facts.Head, fact.Head) && !slices.Contains(claims, fact.Value) {
+		for _, fact := range bus.ExemptClaims(record) {
+			if fact.PR == facts.Number && strings.HasPrefix(facts.Head, fact.Head) && !slices.Contains(claims, fact.Value) {
 				claims = append(claims, fact.Value)
 			}
 		}
