@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -42,20 +43,24 @@ func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 			}
 			if !all {
 				rows = slices.DeleteFunc(rows, func(row store.ReviewRow) bool {
-					return prrow.Terminal(row.State) || row.State == prrow.StateSuperseded
+					return (prrow.Terminal(row.State) || row.State == prrow.StateSuperseded) && !strings.HasPrefix(row.Port, prrow.PortOwed)
 				})
 			}
 			if asJSON {
 				return json.NewEncoder(c.OutOrStdout()).Encode(rows)
 			}
 			for _, row := range rows {
-				fmt.Fprintf(c.OutOrStdout(), "#%d at %s (%s): %s: %s\n", row.Number, abbreviate(row.Head), row.Lane, row.Title, row.WaitsOn)
+				port := ""
+				if row.Port != prrow.None {
+					port = "; port: " + row.Port
+				}
+				fmt.Fprintf(c.OutOrStdout(), "#%d at %s (%s, %s): %s: %s%s\n", row.Number, abbreviate(row.Head), row.Lane, row.State, row.Title, row.WaitsOn, port)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the rows as one JSON array")
-	cmd.Flags().BoolVar(&all, "all", false, "include landed, closed and superseded rows")
+	cmd.Flags().BoolVar(&all, "all", false, "include landed, closed and superseded rows; an old-tree row whose port is owed is listed without it")
 	return cmd
 }
 

@@ -398,3 +398,19 @@ func TestOnlyTheCountedRecordSettlesTheFinderNeverTheAppealItself(t *testing.T) 
 		t.Fatalf("a counted override left the finder refused: %q", read)
 	}
 }
+
+func TestAnOldTreeFileIsUnderGoSandAndOutsideTheNextTree(t *testing.T) {
+	for _, c := range []struct {
+		files []string
+		want  string
+	}{
+		{[]string{"go/sand/internal/steptree/tree.go"}, "go/sand/internal/steptree/tree.go"},
+		{[]string{"go/sand/next/internal/steptree/tree.go", "go/sand/next/internal/steptree/tree_test.go"}, ""},
+		{[]string{"api/src/x.ts", "go/sand/next/a.go", "go/sand/cmd/iris.go"}, "go/sand/cmd/iris.go"},
+		{[]string{"go/sandsql/x.go", "dashboard/src/a.tsx"}, ""},
+	} {
+		if got := OldTreeFile(c.files); got != c.want {
+			t.Errorf("OldTreeFile(%q) = %q, want %q", c.files, got, c.want)
+		}
+	}
+}

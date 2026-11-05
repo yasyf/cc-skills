@@ -185,6 +185,7 @@ type Facts struct {
 	Condition        string
 	UnsafeWait       string
 	Body             string
+	OldTree          string
 	GradeStopped     string
 	RowWait          string
 	TapRefused       string
