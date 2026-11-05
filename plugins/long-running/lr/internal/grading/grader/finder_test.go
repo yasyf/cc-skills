@@ -1259,6 +1259,8 @@ func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t
 	for _, body := range []string{
 		"## Summary\nThe class: a resubscribe that reads its position twice. This fix removes it, since one owner holds the position.",
 		"## Design\n- Invariant: a claim carries a fence only while its transfer waits. Single owner: `Control.Transfer`.",
+		"## Design\n- One invariant, one owner: a pod takes no work it lacks room to journal, and `leaveIfDiskLow` is the one place that decides.",
+		"## Design\n- Different concerns; the one owner of \"a disk takes no pod until it is clear\" is `journal_disk_quarantines`.",
 		"## Summary\nThe replica reader is deleted at cutover, so this is its last fix.",
 	} {
 		directory := finderJobDir(t, nil)
