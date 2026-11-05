@@ -204,5 +204,5 @@ jobs:
           retention-days: 3
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.15.0
           working-directory: plugins/long-running/lr
