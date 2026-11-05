@@ -901,6 +901,42 @@ func TestAProofPRStartsNoPass(t *testing.T) {
 	}
 }
 
+func TestAPassStartsOnlyAtTheHeadGitHubShowsOpen(t *testing.T) {
+	for name, c := range map[string]struct {
+		view   string
+		starts bool
+	}{
+		"open at the head": {`{"title":"a change","headRefName":"b","state":"OPEN","headRefOid":"` + head + `"}`, true},
+		"closed":           {`{"title":"a change","headRefName":"b","state":"CLOSED","headRefOid":"` + head + `"}`, false},
+		"merged":           {`{"title":"a change","headRefName":"b","state":"MERGED","headRefOid":"` + head + `"}`, false},
+		"a draft":          {`{"title":"a change","headRefName":"b","state":"OPEN","isDraft":true,"headRefOid":"` + head + `"}`, false},
+		"moved on":         {`{"title":"a change","headRefName":"b","state":"OPEN","headRefOid":"` + older + `"}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPool(t, map[string]any{"finder": map[string]any{}})
+			f.shell.view = c.view
+
+			_, err := f.dispatch(t, GraderFinder)
+
+			if c.starts && (err != nil || len(f.shell.spawns) != 1) {
+				t.Fatalf("err = %v, spawns = %v, want one pass", err, f.shell.spawns)
+			}
+			if !c.starts && (!errors.Is(err, ErrAnswered) || len(f.shell.spawns) != 0) {
+				t.Fatalf("err = %v, spawns = %v, want no pass and no attempt spent", err, f.shell.spawns)
+			}
+		})
+	}
+}
+
+func TestARegradeStillRunsOnAClosedPR(t *testing.T) {
+	f := newPool(t, map[string]any{"fidelity": map[string]any{}})
+	f.shell.view = `{"title":"a change","headRefName":"b","state":"MERGED","headRefOid":"` + older + `"}`
+
+	if _, err := f.pool.Regrade(context.Background(), facts(head), nil); err != nil || len(f.shell.spawns) != 1 {
+		t.Fatalf("err = %v, spawns = %v, want one pass", err, f.shell.spawns)
+	}
+}
+
 func TestABodyLineCitingAPRsProofPRIsNoProofPR(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
 	f.shell.view = `{"title":"a real fix","body":"## Risk\n\nProof PR, red before this fix: linked in a comment once CI grades it.","headRefName":"b"}`

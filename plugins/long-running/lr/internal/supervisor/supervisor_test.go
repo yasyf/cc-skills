@@ -281,6 +281,38 @@ func TestALanesOnlySupervisorRunsNoPRPass(t *testing.T) {
 	equal(t, len(items), 0)
 }
 
+type signallingPool struct {
+	*pool
+	dispatched chan struct{}
+	once       sync.Once
+}
+
+func (p *signallingPool) Dispatch(ctx context.Context, grader string, facts machine.Facts) (string, error) {
+	p.once.Do(func() { close(p.dispatched) })
+	return p.pool.Dispatch(ctx, grader, facts)
+}
+
+func TestALanesHostDispatchesGradesWhileItsLanesTickIsStillRunning(t *testing.T) {
+	p := &signallingPool{pool: &pool{}, dispatched: make(chan struct{})}
+	ungraded := prFacts(2, func(f *machine.Facts) { f.Finder, f.Fidelity = "", "" })
+	d := Deps{
+		Movers: []string{"lanes", "grading"}, Clock: func() time.Time { return t0 }, Sleep: func(time.Duration) {}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Snapshot: func(context.Context) ([]machine.Facts, error) { return []machine.Facts{ungraded}, nil },
+		Post:     func([]string, bus.Body) error { return nil },
+		Pool:     p,
+		Lanes: func(time.Time, int64) (lanes.Outcome, error) {
+			select {
+			case <-p.dispatched:
+			case <-time.After(10 * time.Second):
+				t.Error("no grade was dispatched while the lanes tick ran")
+			}
+			return lanes.Outcome{}, nil
+		},
+	}
+
+	runLoop(t, memory(t), "0.8.0", 1, d, 1)
+}
+
 func TestAnUnreadLanesSourceAndAFailedCheckSkipOnlyThemselves(t *testing.T) {
 	var ran sync.WaitGroup
 	ran.Add(3)

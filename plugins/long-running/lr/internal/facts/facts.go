@@ -258,7 +258,7 @@ func (s Source) fromRows(rows []store.ReviewRow, held map[int]hold) ([]machine.F
 	}
 	out := make([]machine.Facts, 0, len(rows))
 	for _, row := range rows {
-		if row.ReadHead == "" || prrow.Terminal(row.State) && !itemed[row.Number] {
+		if row.Head == "" || prrow.Terminal(row.State) && !itemed[row.Number] {
 			continue
 		}
 		f, err := factsOfRow(s.Repo, row, atHeads[row.Number])

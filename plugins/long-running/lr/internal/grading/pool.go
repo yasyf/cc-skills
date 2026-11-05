@@ -308,6 +308,9 @@ func (p *JobPool) nextPass(ctx context.Context, grading string, d desk, workers 
 	if proofTitle.MatchString(live.Title) || proofBody.MatchString(live.Body) {
 		return "", p.tellProofSkip(ctx, facts, pr, live)
 	}
+	if again == nil && live.closedDraftOrMovedFrom(facts.Head) {
+		return "", ErrAnswered
+	}
 	directory := filepath.Join(p.root, d.lane, attemptBase(base, plan.number))
 	var built job
 	switch grading {

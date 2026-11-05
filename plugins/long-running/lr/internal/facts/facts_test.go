@@ -375,8 +375,11 @@ func TestAHostWithoutTheLandingMoverReadsATapCarriedToTheRowsHead(t *testing.T) 
 	}
 }
 
-func TestAHostWithoutTheLandingMoverActsOnNoRowTheLandingHostHasNotRead(t *testing.T) {
+func TestAHostWithoutTheLandingMoverActsOnNoLandedRowTheLandingHostNeverRead(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}})
+	if err := h.store.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: head, State: prrow.StateLanded}}); err != nil {
+		t.Fatal(err)
+	}
 	a := app.New(io.Discard)
 	a.Runner = h.runner
 	away := landingConfig
@@ -388,7 +391,7 @@ func TestAHostWithoutTheLandingMoverActsOnNoRowTheLandingHostHasNotRead(t *testi
 	}
 
 	if len(rows) != 0 {
-		t.Fatalf("rows = %+v, want none: an unread row may already have merged", rows)
+		t.Fatalf("rows = %+v, want none: this row has landed", rows)
 	}
 }
 
@@ -2058,6 +2061,26 @@ func TestAHoldOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
 
 	if verdict := machine.Classify(row); verdict.State != machine.StateHeld || verdict.Mover != machine.MoverRoot || verdict.Action != machine.ActionLift {
 		t.Fatalf("verdict = %+v, want root to lift the hold", verdict)
+	}
+}
+
+func TestARowTheLandingHostNeverReadStillOwesAGradeOnAHostThatDoesNotRead(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	h.source.Reads = false
+	if err := h.store.PutReviewRows([]store.ReviewRow{
+		{Repo: repo, Number: 1, Head: head, Lane: "lane-1", CI: prrow.CIPending, Approvers: prrow.None, Mergeable: string(machine.MergeableUnknown), State: prrow.StateOpen},
+		{Repo: repo, Number: 2, Lane: "lane-2", CI: prrow.CIPending, Approvers: prrow.None, Mergeable: string(machine.MergeableUnknown), State: prrow.StateOpen},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := h.snapshot(t)
+
+	if verdict := machine.Classify(snapshot[1]); verdict.Mover != machine.MoverPool || verdict.Action != machine.ActionGrade {
+		t.Fatalf("verdict = %+v, want the pool to grade it", verdict)
+	}
+	if _, listed := snapshot[2]; listed {
+		t.Fatalf("a row with no head reached the pass: %+v", snapshot[2])
 	}
 }
 
