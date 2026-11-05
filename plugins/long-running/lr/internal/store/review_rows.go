@@ -69,6 +69,11 @@ func (t *Tx) PutReviewRows(rows []ReviewRow) error {
 	return nil
 }
 
+func (t *Tx) DeleteReviewRow(repo string, number int) error {
+	_, err := t.tx.Exec("DELETE FROM review_rows WHERE repo = ? AND number = ?", repo, number)
+	return err
+}
+
 func (s *Store) PutReviewRows(rows []ReviewRow) error {
 	return s.Update(func(t *Tx) error { return t.PutReviewRows(rows) })
 }

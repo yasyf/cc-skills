@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -803,6 +804,48 @@ func TestATapWritesItsByAndAtFactsSoTheNextFoldKeepsThem(t *testing.T) {
 	row, _, err := s.ReviewRow(testRepo, 1)
 	if err != nil || !row.Tapped || row.ReadyForTap && !row.Tapped || row.TappedBy != "owner" {
 		t.Fatalf("row = %+v, %v, want it tapped by the owner at once", row, err)
+	}
+}
+
+func TestAnotherPersonsPRLeavesTheRowsUnlessHeTappedIt(t *testing.T) {
+	f, s := foldFor(t)
+	const theirs, tapped, ours = 1, 2, 3
+	for _, number := range []int{theirs, tapped, ours} {
+		postOpened(t, number, headA, "dev", "the body")
+	}
+	if _, err := f.Pass(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := Tap(s, testRepo, tapped, headA, "owner", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	foreign := func(number int) machine.Facts {
+		pr := cleanRead(number, headA)
+		pr.ForeignAuthor = "a-teammate"
+		return pr
+	}
+	if err := f.PostReads(context.Background(), []machine.Facts{foreign(theirs), foreign(tapped), cleanRead(ours, headA)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Pass(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	postOpened(t, theirs, headA, "dev", "a later backfill of the same PR")
+
+	rows, err := f.Pass(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kept := make([]int, 0, len(rows))
+	for _, row := range rows {
+		kept = append(kept, row.Number)
+	}
+	if !slices.Equal(kept, []int{tapped, ours}) {
+		t.Fatalf("the pass returned rows %v, want the tapped PR and our own", kept)
+	}
+	if _, found, err := s.ReviewRow(testRepo, theirs); err != nil || found {
+		t.Fatalf("the store still holds another person's row: found=%v err=%v", found, err)
 	}
 }
 

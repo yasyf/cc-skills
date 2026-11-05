@@ -146,6 +146,13 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		for number, row := range rows {
 			if !Terminal(row.State) {
 				row = Materialize(row, atHeads[number], held[number], branches, f.Trunk)
+				if atHeads[number][FactForeign] != "" && !row.Tapped {
+					delete(rows, number)
+					if err := t.DeleteReviewRow(f.Repo, number); err != nil {
+						return err
+					}
+					continue
+				}
 			}
 			row.WrittenAt = store.Stamp(written)
 			rows[number] = row
