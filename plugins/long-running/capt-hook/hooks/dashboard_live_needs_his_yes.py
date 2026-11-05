@@ -124,7 +124,7 @@ def unseen_claims(evt: BaseHookEvent) -> list[str]:
         Input(command=f"cci post --kind correction --re '#984@2e1ef26e' --to root \"{SAND_RELEASED}\" 2>&1 | tail -1", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Allow(),
         Input(command=f"cci post --kind correction --re '#983@2e1ef26e' --to root \"{SAND_RELEASED}\" 2>&1 | tail -1", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Block(),
         Input(tool=POST_TOOL, tool_input={"lane": "bug-regressions-2", "kind": "correction", "re": "#984@2e1ef26e", "text": SAND_RELEASED}, env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Allow(),
-        post("Live: cc-skills#984 draws every reviewer-bot diagram", lane="bug-regressions-2", kind="correction", commands=RECORD_NUMBER_PR, re="#984@2e1ef26e"): Block(),
+        Input(command="cci post --kind correction --re '#984@2e1ef26e' --to root \"Live: cc-skills#984 draws every reviewer-bot diagram\"", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Block(),
         Input(tool=POST_TOOL, tool_input={"lane": "owner-apps-1", "kind": "live", "text": "The Review tab now lists PRs only"}, env={"CLAUDE_LONG_RUNNING_LANE": "owner-apps-1"}): Block(),
     },
 )
