@@ -2,6 +2,7 @@ package owner
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -260,6 +262,33 @@ func namedBy(replies, row, reply string) bool {
 	return json.Unmarshal(sent, &body) == nil && body.Reply.Order == row
 }
 
+func UnreadAnswers(ctx context.Context, entry drive.Entry, wanted func(Row) bool) ([]string, error) {
+	ledger, err := os.ReadFile(Ledger(entry.StateDir))
+	if err != nil {
+		return nil, err
+	}
+	rows := slices.DeleteFunc(Parse(ledger), func(row Row) bool { return row.Routed == 0 || !wanted(row) })
+	first := FirstRouted(rows)
+	if first == 0 {
+		return nil, nil
+	}
+	records, err := client.Tail(ctx, client.Query{Drive: entry.Bus(), After: first})
+	if err != nil {
+		return nil, err
+	}
+	var warnings []string
+	for _, row := range rows {
+		answer, unread, err := Unread(row, records)
+		if err != nil {
+			return nil, err
+		}
+		if unread {
+			warnings = append(warnings, fmt.Sprintf("warning: %s already has an answer addressed to %s that you have posted nothing about since, a %s from %s. Read it with `cci show %d --body` before asking again or promising a clock.", row.ID, communicator, answer.Kind, answer.Lane, answer.Seq))
+		}
+	}
+	return warnings, nil
+}
+
 func Rows(path string, all bool) ([]string, error) {
 	ledger, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -298,6 +327,15 @@ func Command(a *app.App) *cobra.Command {
 			}
 			if state, err = settle(entry.StateDir, row, state, by, reply, routed, a.Now()); err != nil {
 				return err
+			}
+			if strings.HasPrefix(state, duePrefix) {
+				warnings, err := UnreadAnswers(cmd.Context(), entry, func(r Row) bool { return r.ID == row })
+				if err != nil {
+					return err
+				}
+				for _, warning := range warnings {
+					fmt.Fprintln(cmd.ErrOrStderr(), warning)
+				}
 			}
 			if state == responded && !namedBy(filepath.Join(entry.StateDir, repliesDir), row, reply) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s is responded with no reply naming it, so nothing told him whether he has anything to do; send that reply again with its id and order=%s, which edits it in place, and pass it as --reply\n", row, row)
@@ -360,6 +398,39 @@ func Command(a *app.App) *cobra.Command {
 		},
 	}
 	list.Flags().BoolVar(&listAll, "all", false, "print addressed and no-order rows too")
+	unread := &cobra.Command{
+		Use:   "unread ROW|PR...",
+		Short: "Warn about each named ledger row, or row whose text names the PR, that has an answer addressed to the communicator it has posted nothing about since; it advises and never blocks",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			entry, err := drive.Named(driveName)
+			if err != nil {
+				return err
+			}
+			named := map[int]bool{}
+			for _, arg := range args {
+				if number, err := strconv.Atoi(strings.TrimPrefix(arg, "#")); err == nil {
+					named[number] = true
+				}
+			}
+			warnings, err := UnreadAnswers(cmd.Context(), entry, func(r Row) bool {
+				prs, _ := PRsNamed([]Row{r})
+				for number := range prs {
+					if named[number] {
+						return true
+					}
+				}
+				return slices.Contains(args, r.ID)
+			})
+			if err != nil {
+				return err
+			}
+			for _, warning := range warnings {
+				fmt.Fprintln(cmd.OutOrStdout(), warning)
+			}
+			return nil
+		},
+	}
 	start := &cobra.Command{
 		Use:   "start",
 		Short: "Subscribe this window as the communicator, with routine records batched",
@@ -376,7 +447,7 @@ func Command(a *app.App) *cobra.Command {
 			return err
 		},
 	}
-	owner.AddCommand(mark, add, list, start, ruleCommand(a, &driveName), watchCommand(a, &driveName), threadWordCommand(a, &driveName), awayCommand(a, &driveName), wordCommand(&driveName), recaptureCommand(a, &driveName))
+	owner.AddCommand(mark, add, list, unread, start, ruleCommand(a, &driveName), watchCommand(a, &driveName), threadWordCommand(a, &driveName), awayCommand(a, &driveName), wordCommand(&driveName), recaptureCommand(a, &driveName))
 	owner.AddCommand(questionCommands(a, &driveName)...)
 	return owner
 }

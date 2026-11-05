@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	ledgerRow  = regexp.MustCompile(`(?m)^\| (m\d+(?:\.\d+)?) \| ([^|]*) \| (.*) \| [^|]* \| (open|responded|addressed|no-order|due [^|]*) \|$`)
+	ledgerRow  = regexp.MustCompile(`(?m)^\| (m\d+(?:\.\d+)?) \| ([^|]*) \| (.*) \| (\d*) \| (open|responded|addressed|no-order|due [^|]*) \|$`)
 	orderToken = regexp.MustCompile(`\bowner:(m\d+(?:\.\d+)?)\b`)
 	sentence   = regexp.MustCompile(`[^.!?\n]+`)
 	imperative = regexp.MustCompile(`(?i)^\W*(?:(?:also|and|but|ok|so|now|then|please)\W+)*(?:` + orderVerbs + `)\b`)
@@ -40,7 +40,9 @@ type Row struct {
 	ID     string `json:"id"`
 	At     string `json:"at"`
 	Text   string `json:"text"`
+	Routed int64  `json:"routed,omitempty"`
 	State  string `json:"state"`
+	Answer string `json:"answer,omitempty"`
 	Status string `json:"status"`
 	Lane   string `json:"lane"`
 	Hold   string `json:"hold"`
@@ -56,7 +58,8 @@ func Parse(ledger []byte) []Row {
 	matches := ledgerRow.FindAllSubmatch(ledger, -1)
 	rows := make([]Row, 0, len(matches))
 	for _, found := range matches {
-		rows = append(rows, Row{ID: string(found[1]), At: strings.TrimSpace(string(found[2])), Text: plainCell.Replace(string(found[3])), State: string(found[4])})
+		routed, _ := strconv.ParseInt(string(found[4]), 10, 64)
+		rows = append(rows, Row{ID: string(found[1]), At: strings.TrimSpace(string(found[2])), Text: plainCell.Replace(string(found[3])), Routed: routed, State: string(found[5])})
 	}
 	return rows
 }
@@ -105,6 +108,9 @@ func (r Row) Line() string {
 	text := r.Text
 	if runes := []rune(text); len(runes) > lineChars {
 		text = strings.TrimSpace(string(runes[:lineChars])) + "…"
+	}
+	if r.Answer != "" {
+		text += " [newest answer: " + r.Answer + "]"
 	}
 	switch r.Status {
 	case Late:
@@ -244,6 +250,73 @@ func (r Row) dueAt(now time.Time) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return time.Date(now.In(pacific).Year(), at.Month(), at.Day(), at.Hour(), at.Minute(), 0, 0, pacific), true
+}
+
+func Answers(rows []Row, records []client.Record) ([]Row, error) {
+	for i, row := range rows {
+		if !row.Due() || row.Routed == 0 {
+			continue
+		}
+		answer, _, err := row.answer(records)
+		if err != nil {
+			return nil, err
+		}
+		if answer.Seq != 0 {
+			rows[i].Answer = fmt.Sprintf("%s from %s, `cci show %d --body`", answer.Kind, answer.Lane, answer.Seq)
+		}
+	}
+	return rows, nil
+}
+
+func (r Row) Due() bool {
+	return strings.HasPrefix(r.State, duePrefix)
+}
+
+func Unread(row Row, records []client.Record) (client.Record, bool, error) {
+	answer, read, err := row.answer(records)
+	return answer, answer.Seq != 0 && !read, err
+}
+
+func (r Row) answer(records []client.Record) (answer client.Record, read bool, err error) {
+	prs, err := PRsNamed([]Row{r})
+	if err != nil {
+		return client.Record{}, false, err
+	}
+	for _, record := range records {
+		if record.Seq <= r.Routed || !r.about(record, prs) {
+			continue
+		}
+		if record.Lane == communicator {
+			read = answer.Seq != 0
+			continue
+		}
+		if slices.Contains(record.To, communicator) {
+			answer, read = record, false
+		}
+	}
+	return answer, read, nil
+}
+
+func (r Row) about(record client.Record, prs map[int]bool) bool {
+	if r.Routed != 0 && record.Re == r.Routed || record.Fields.Attrs["row"] == r.ID || slices.Contains(Orders(record.Text), r.ID) {
+		return true
+	}
+	for _, pr := range record.Refs.PRs {
+		if prs[pr.Number] {
+			return true
+		}
+	}
+	return false
+}
+
+func FirstRouted(rows []Row) int64 {
+	var first int64
+	for _, row := range rows {
+		if row.Routed != 0 && (first == 0 || row.Routed < first) {
+			first = row.Routed
+		}
+	}
+	return first
 }
 
 func Only(rows []Row, status string) []Row {
