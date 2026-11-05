@@ -76,7 +76,7 @@ func runOrder(ctx context.Context, a *app.App, number int, seq int64, stdout io.
 		return fmt.Errorf("no record #%d on drive %s", seq, cfg.Drive)
 	}
 	if gap := ownerWordGap(records[0], number); gap != "" {
-		return fmt.Errorf("record #%d is no owner word naming #%d: %s; an order needs a %s record from lane %s whose own text or body names #%d, and a --pr field alone does not count; post his words naming it, then run this on that record: cci post --drive %s --lane owner-relay --kind %s --pr %s#%d \"Owner: <his words> #%d\"", seq, number, gap, ownerWordKind, strings.Join(ownerWordLanes, " or "), number, cfg.Drive, ownerWordKind, cfg.Repo, number, number)
+		return fmt.Errorf("record #%d is no owner word naming #%d: %s; an order needs a %s record from lane %s whose own text or body names #%d, and a --pr field alone does not count; post his words naming it, then run this on that record: cci post --drive %s --lane owner-relay --kind %s --pr %s#%d \"Owner: <his words> #%d\". A test-flake fix needs no order, since his standing word covers the class: claim it on the head record, cci post --drive %s --lane <your lane> --kind head --head %s#%d=<head> --attr %s=<the test that flaked>, and the gate lands it untapped once every changed file is test or fixture code and no added line names a timeout", seq, number, gap, ownerWordKind, strings.Join(ownerWordLanes, " or "), number, cfg.Drive, ownerWordKind, cfg.Repo, number, number, cfg.Drive, cfg.Repo, number, bus.FlakeFixAttr)
 	}
 	writer, err := lanes.BoundLane(ctx, a.Runner)
 	if err != nil {
