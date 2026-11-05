@@ -333,21 +333,11 @@ func joined(ctx context.Context, runner shell.Runner, threads threadsAt, raw []b
 }
 
 func readLink(ctx context.Context, runner shell.Runner, threads threadsAt, url string) (linkedMessage, error) {
-	shown, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "thread", "--url", url, "--limit", linkReadLimit}, Timeout: slackCall})
+	message, err := messageIn(ctx, runner, MessageTS(url), "--url", url)
 	if err != nil {
 		return linkedMessage{}, err
 	}
-	var thread struct {
-		Messages []threadMessage `json:"messages"`
-	}
-	if err := json.Unmarshal([]byte(shown.Stdout), &thread); err != nil {
-		return linkedMessage{}, fmt.Errorf("cc-slack thread printed %q: %w", shown.Stdout, err)
-	}
-	at := slices.IndexFunc(thread.Messages, func(message threadMessage) bool { return message.TS == MessageTS(url) })
-	if at < 0 {
-		return linkedMessage{}, fmt.Errorf("%s is not in its thread's last %s messages", url, linkReadLimit)
-	}
-	linked := linkedMessage{URL: url, UserName: thread.Messages[at].UserName, Text: thread.Messages[at].Text}
+	linked := linkedMessage{URL: url, UserName: message.UserName, Text: message.Text}
 	found, ok, err := threads(ThreadRoot(url))
 	if err != nil {
 		return linked, err
@@ -356,6 +346,25 @@ func readLink(ctx context.Context, runner shell.Runner, threads threadsAt, url s
 		linked.Answers = &found
 	}
 	return linked, nil
+}
+
+func messageIn(ctx context.Context, runner shell.Runner, ts string, thread ...string) (threadMessage, error) {
+	argv := append(append([]string{"cc-slack", "thread"}, thread...), "--limit", linkReadLimit)
+	shown, err := runner.Run(ctx, shell.Command{Argv: argv, Timeout: slackCall})
+	if err != nil {
+		return threadMessage{}, err
+	}
+	var read struct {
+		Messages []threadMessage `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(shown.Stdout), &read); err != nil {
+		return threadMessage{}, fmt.Errorf("cc-slack thread printed %q: %w", shown.Stdout, err)
+	}
+	at := slices.IndexFunc(read.Messages, func(message threadMessage) bool { return message.TS == ts })
+	if at < 0 {
+		return threadMessage{}, fmt.Errorf("%s is not in its thread's last %s messages", ts, linkReadLimit)
+	}
+	return read.Messages[at], nil
 }
 
 func streamLines(ctx context.Context, runner shell.Runner, argv []string, handle func([]byte) error) error {

@@ -201,7 +201,7 @@ def test_an_owner_slack_dm_lands_once_with_its_slack_time_and_no_prompt_hook(roo
     root.fire(StopEvent)
 
     assert root.captures() == [
-        {"digest": digest("1793159602.693499"), "at": "2026-10-28T03:53:22Z", "session": SESSION, "source": "slack", "text": "Meant to approve 43807"}
+        {"digest": digest("1793159602.693499"), "at": "2026-10-28T03:53:22Z", "session": SESSION, "source": "slack", "text": "Meant to approve 43807", "ts": "1793159602.693499", "thread": "1792842193.708029", "channel": "D0DIRECT001"}
     ]
 
 
