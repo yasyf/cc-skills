@@ -110,6 +110,19 @@ def test_a_named_worker_in_an_orca_lane_session_records_under_the_session_lane(t
     assert lane_name(event(tmp_path, "ap8a7-c40-9f8e7d6c5b4a3f2e")) == "p8a-step7"
 
 
+def test_an_in_process_teammate_of_an_orca_lane_records_its_ship_under_its_own_lane(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "meta-desk-3")
+    subagents = tmp_path / SESSION / "subagents"
+    subagents.mkdir(parents=True)
+    (subagents / "agent-ahost-tap-fold-30fc5ffd702ffbf8.meta.json").write_text(
+        json.dumps({"name": "host-tap-fold", "agentType": "host-tap-fold", "taskKind": "in_process_teammate", "spawnedAgentType": "long-running:lane-ship"})
+    )
+    (subagents / "agent-a3d0ef77.meta.json").write_text(json.dumps({"agentType": "ship-pr", "parentAgentId": "ahost-tap-fold-30fc5ffd702ffbf8"}))
+    (subagents / "agent-a3d0ef77.jsonl").write_text("")
+
+    assert [lane_name(event(tmp_path, agent)) for agent in ("ahost-tap-fold-30fc5ffd702ffbf8", "a3d0ef77")] == ["host-tap-fold", "host-tap-fold"]
+
+
 IN_PROCESS_LANE = "ap8a-step5-5-e7b153ce1ea9184c"
 
 

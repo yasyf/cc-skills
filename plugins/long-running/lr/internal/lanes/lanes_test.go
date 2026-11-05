@@ -1935,6 +1935,28 @@ func TestAHeldLaneThatPostsAgainIsLiveAndAPRRootOpenedForItIsTheLanes(t *testing
 	}
 }
 
+func TestALaunchersRecordTakingAPRRetiresOnlyALaunchThatNeverPosted(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := adopted(t, s, brief, "", 46001)
+	f.feed = append(f.feed, spawned(2, "sprite-lane-gaps", brief, t0, nil), spawned(3, "never-up", brief, t0, nil))
+	tick(t, s, f, t0.Add(time.Minute))
+	if err := s.SetLanePRs("never-up", []int{121}); err != nil {
+		t.Fatal(err)
+	}
+	f.feed = append(f.feed,
+		rec(4, "sprite-lane-gaps", "opened", t0.Add(mins(8)), "opened #yasyf/cc-remote#120").withRefs(prs(120)),
+		rec(5, lane2, "opened", t0.Add(mins(8)), "yasyf/cc-remote#120 on sprite-lane-gaps-gemini").withRefs(prs(120, 121)),
+	)
+
+	tick(t, s, f, t0.Add(mins(10)))
+
+	equal(t, row(t, s, "sprite-lane-gaps").State, store.LaneDesired)
+	equal(t, []any{row(t, s, "never-up").State, row(t, s, "never-up").RetiredBy}, []any{store.LaneRetired, lane2})
+	downs := f.ofKind("stand-down")
+	equal(t, len(downs), 1)
+	equal(t, []any{downs[0].To, downs[0].Successor, downs[0].PRs, downs[0].Text}, []any{[]string{"never-up"}, lane2, []int{121}, "never-up stood down for conflicts-2."})
+}
+
 func TestALaneWhoseOrcaWorkerFinishedIsRetiredAndNeverRelaunched(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
