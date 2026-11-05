@@ -52,8 +52,6 @@ type fakeShell struct {
 	rows      string
 	counting  bool
 	failures  int
-	ledger    []map[string]any
-	ledgerBy  error
 	findings  string
 	gitFn     func(argv []string) (string, error)
 	before    func(Command)
@@ -97,12 +95,6 @@ func (f *fakeShell) route(command Command) (string, error) {
 		return planPath + "\n", nil
 	case argv[0] == "codex-ask":
 		return f.codex(argv)
-	case argv[0] == "ccn":
-		if f.ledgerBy != nil {
-			return "", f.ledgerBy
-		}
-		data, err := json.Marshal(map[string]any{"rows": f.ledger})
-		return string(data), err
 	case argv[0] == binDir+"/lr" && argv[1] == "findings":
 		return f.findings, nil
 	}

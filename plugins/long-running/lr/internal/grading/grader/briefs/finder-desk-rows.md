@@ -1,5 +1,5 @@
 2. Read the head against each owner row in {rows}, every row the register requires for
-   this head. His answers in {rows} are the ones this PR cites, the topics it names and the top-ranked on its title's scope, not everything he has said. Before you call an answer or a ruling of his absent, look: `ccn answer show <id>` reads one by id, and `ccn answer search <word>` finds one by subject; use one or two words, since every word must match. For each row, ask whether any line of the head keeps, offers, recommends,
+   this head. His answers in {rows} are the ones this PR cites, the topics it names and the top-ranked on its title's scope, not everything he has said, and this machine holds no others: `ccn` finds nothing here, so its silence never shows an answer of his absent. Never report one absent on that silence. For each row, ask whether any line of the head keeps, offers, recommends,
    budgets, or tests what the words ban, under any of its names, and whether the code does
    what the words say. Read the words and implications, never a summary of them; the PR
    body's claims are claims to check. A deletion is judged on what it deletes: read every

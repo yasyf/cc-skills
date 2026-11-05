@@ -27,6 +27,8 @@ const (
 	quotedForm  = `"[^"\n]+"|“[^”\n]+”`
 	noSuchNote  = 3
 	scopeHits   = "20"
+	topicsLabel = "answer-topics"
+	PRFields    = "title,body,author,comments,files"
 )
 
 var (
@@ -36,6 +38,9 @@ var (
 	otherSource = regexp.MustCompile(`(?i)\b(?:your|root|relay|record)\s+#?\d{5,}`)
 	elided      = regexp.MustCompile(`\s*(?:\.\.\.|…)\s*`)
 	flatten     = strings.NewReplacer("’", "'", "‘", "'", "“", `"`, "”", `"`)
+	prScope     = regexp.MustCompile(`^[\w./-]+:`)
+	pathWord    = regexp.MustCompile(`\b[a-z]+/[\w.-]*\w`)
+	hexWord     = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 )
 
 var joiners = []string{" and", " but", " or", " so"}
@@ -273,6 +278,138 @@ func (r *Reader) Answers(ctx context.Context, ids []string, scope string) ([]Ans
 		return nil, fmt.Errorf("answers on %s: %w", scope, err)
 	}
 	return append(found, ranked...), nil
+}
+
+type PR struct {
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Author   author `json:"author"`
+	Comments []struct {
+		Author author `json:"author"`
+		Body   string `json:"body"`
+	} `json:"comments"`
+	Files []struct {
+		Path string `json:"path"`
+	} `json:"files"`
+}
+
+type author struct {
+	Login string `json:"login"`
+}
+
+type topicLedger struct {
+	ID        string `json:"id"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+func (p PR) text() string {
+	said := []string{p.Body}
+	for _, comment := range p.Comments {
+		if comment.Author == p.Author {
+			said = append(said, comment.Body)
+		}
+	}
+	return strings.Join(said, "\n")
+}
+
+func citedIDs(text string) []string {
+	bare := pathWord.ReplaceAllString(strings.ReplaceAll(text, "answer/", "answer "), " ")
+	var ids []string
+	for _, id := range hexWord.FindAllString(bare, -1) {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func (r *Reader) ForPR(ctx context.Context, program string, pr PR) ([]Answer, error) {
+	text := pr.text()
+	found, err := r.Answers(ctx, citedIDs(text), strings.TrimSuffix(prScope.FindString(pr.Title), ":"))
+	if err != nil {
+		return nil, err
+	}
+	topics, err := r.namedTopics(ctx, program, pr, text)
+	if err != nil {
+		return nil, err
+	}
+	for _, topic := range topics {
+		out, err := r.ccn(ctx, "answer", "search", topic, "--limit", "0", "--json")
+		if err != nil {
+			return nil, err
+		}
+		var hits []Answer
+		if err := json.Unmarshal([]byte(out), &hits); err != nil {
+			return nil, fmt.Errorf("answers on %s: %w", topic, err)
+		}
+		found = append(found, hits...)
+	}
+	slices.SortStableFunc(found, func(a, b Answer) int { return cmp.Compare(b.UpdatedAt, a.UpdatedAt) })
+	seen := map[string]bool{}
+	return slices.DeleteFunc(found, func(answer Answer) bool {
+		repeated := seen[answer.ID]
+		seen[answer.ID] = true
+		return repeated
+	}), nil
+}
+
+func (r *Reader) namedTopics(ctx context.Context, program string, pr PR, text string) ([]string, error) {
+	out, err := r.ccn(ctx, "ledger", "list", "--label", topicsLabel, "--label", "program:"+program, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var ledgers []topicLedger
+	if err := json.Unmarshal([]byte(out), &ledgers); err != nil {
+		return nil, fmt.Errorf("topic ledgers: %w", err)
+	}
+	if len(ledgers) == 0 {
+		return nil, nil
+	}
+	newest := slices.MaxFunc(ledgers, func(a, b topicLedger) int { return cmp.Compare(a.UpdatedAt, b.UpdatedAt) })
+	out, err = r.ccn(ctx, "ledger", "show", newest.ID, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var vocabulary struct {
+		Rows []struct {
+			Key    string `json:"key"`
+			Fields struct {
+				Words string `json:"words"`
+				Dirs  string `json:"dirs"`
+			} `json:"fields"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal([]byte(out), &vocabulary); err != nil {
+		return nil, fmt.Errorf("topic ledger %s: %w", newest.ID, err)
+	}
+	var named []string
+	for _, row := range vocabulary.Rows {
+		words, err := regexp.Compile("(?i)" + row.Fields.Words)
+		if err != nil {
+			return nil, fmt.Errorf("topic %s: %w", row.Key, err)
+		}
+		var dirs []string
+		if row.Fields.Dirs != "" {
+			if err := json.Unmarshal([]byte(row.Fields.Dirs), &dirs); err != nil {
+				return nil, fmt.Errorf("topic %s: %w", row.Key, err)
+			}
+		}
+		if words.MatchString(text) || pr.touches(dirs) {
+			named = append(named, row.Key)
+		}
+	}
+	return named, nil
+}
+
+func (p PR) touches(dirs []string) bool {
+	for _, file := range p.Files {
+		for _, dir := range dirs {
+			if file.Path == dir || strings.HasPrefix(file.Path, dir+"/") || strings.HasPrefix(dir, file.Path+"/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *Reader) ccn(ctx context.Context, args ...string) (string, error) {

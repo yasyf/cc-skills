@@ -2023,7 +2023,28 @@ def test_an_answer_the_pr_cites_that_no_row_carries_reaches_the_grader_with_his_
     assert [key for key in required(out) if key.startswith("answer/")] == ["answer/7f54b1d", "answer/0531fdd"]
     assert "> Every route takes every model." in out.splitlines()
     assert "> A percentage of the team." in out.splitlines()
-    assert "Cited by id in the PR, unknown to the register: 7777777" in out.splitlines()
+    assert "Hex words in the PR no answer or row holds, such as a commit, so no ruling of his: 7777777" in out.splitlines()
+
+
+@pytest.mark.parametrize("words", [[], ["--words"]])
+def test_a_grader_prints_the_answers_its_pass_carries_and_reads_none_from_its_empty_checkout(home: Path, package: Path, state: Path, tmp_path: Path, capsys, words: list[str]) -> None:
+    carried = {"id": "8ae07a0" + "0" * 33, "title": "Which path compacts?", "body": "One path for both triggers.", "tags": [], "updated_at": "2026-11-04T18:21:00Z"}
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps([carried]))
+    body = "Under answer 8ae07a0, at commit 7777777. Design doc: https://docs.poetic.design/design-docs/compaction/ and rule/0000000."
+    shell = RegisterShell(seeded(package), diff=DIFF, pr={"title": "dream: a night compacts", "body": body})
+
+    code, out = ran(capsys, shell, "slice", "--required", *words, "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main", "--answers", str(answers))
+    lines = out.splitlines()
+
+    assert code == 0
+    assert hashed_correctly(out)
+    assert shell.answer_reads == []
+    assert [key for key in required(out) if key.startswith("answer/")] == ["answer/8ae07a0"]
+    assert "> One path for both triggers." in lines
+    assert "Cited by id in the PR, unknown to the register: rule/0000000" in lines
+    assert "Hex words in the PR no answer or row holds, such as a commit, so no ruling of his: 7777777" in lines
+    assert "design-docs" not in "\n".join(line for line in lines if "unknown to the register" in line)
 
 
 def test_his_top_ranked_answers_on_the_title_scope_reach_the_grader_though_the_pr_cites_none(home: Path, package: Path, state: Path, capsys) -> None:
@@ -2193,7 +2214,8 @@ def test_the_required_slice_adds_each_row_the_pr_cites_by_key_or_answer_id_and_n
     assert "## Rows the PR cites by id (2)" in lines
     assert "Cards quote the words they ask about." in out
     assert "Two outages stop the drive." in out
-    assert "Cited by id in the PR, unknown to the register: rule/0000000, 7777777" in lines
+    assert "Cited by id in the PR, unknown to the register: rule/0000000" in lines
+    assert "Hex words in the PR no answer or row holds, such as a commit, so no ruling of his: 7777777" in lines
     assert "rule/9999999" not in out
 
 

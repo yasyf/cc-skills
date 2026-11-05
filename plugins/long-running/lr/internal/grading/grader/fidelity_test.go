@@ -210,6 +210,22 @@ func TestASpriteFidelityReturnsItsGradeForCoordinatorPosting(t *testing.T) {
 	}
 }
 
+func TestAPassPrintsItsRowsFromTheAnswersItsJobCarries(t *testing.T) {
+	directory := fidelityDir(t, nil)
+	shell, _ := newFidelityFake(t, nil, fidelityReplyOf(nil))
+	mustFidelity(t, directory, shell)
+	carried := []string{"--answers", filepath.Join(directory, AnswersFile)}
+	for _, call := range shell.snapshot() {
+		if call.Argv[0] == rulingsPath && call.Argv[1] == "slice" {
+			if slices.Index(call.Argv, carried[0]) < 0 || call.Argv[slices.Index(call.Argv, carried[0])+1] != carried[1] {
+				t.Errorf("slice = %v, want %v", call.Argv, carried)
+			}
+			return
+		}
+	}
+	t.Fatal("no pass printed its rows")
+}
+
 func fidelityReplyOf(changes map[string]any) map[string]any {
 	reply := map[string]any{
 		"verdict": "ok",

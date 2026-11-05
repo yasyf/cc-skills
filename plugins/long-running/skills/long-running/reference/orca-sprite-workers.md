@@ -235,7 +235,7 @@ The script prints one `installed <name> <version>` line per tool, cci and lr inc
 
 ### `lr sprites grader`
 
-`lr sprites grader NAME...` makes each named Sprite a grader the `finder` and `fidelity` desks can list. It makes the Sprites at the same time, each in this order:
+`lr sprites grader NAME...` makes each named Sprite a grader the `finder` and `fidelity` desks can list. A grader holds no cc-notes and needs none: the coordinator reads the answers and landed rows a pass needs and puts them in its job directory, so a pass reads the same on any grader. It makes the Sprites at the same time, each in this order:
 
 1. Install the lr, ccx, ccn and codex-ask pins, recorded for `lr sprites roll`. The install script also lays down the cci binary, which nothing on a grader runs.
 2. Link this Mac's home to `/home/sprite`, and each of the `landing`, `finder` and `fidelity` checkouts to the Sprite's checkout, so a job's Mac paths resolve there.

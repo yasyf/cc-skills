@@ -1,6 +1,7 @@
 package grader
 
 import (
+	"cmp"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -705,11 +706,6 @@ func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, e
 		return nil, nil
 	}
 	landed, err := s.landedFixes()
-	var timedOut *TimeoutError
-	if exited(err) || errors.As(err, &timedOut) {
-		s.Log.Warn("the second-fix check is skipped, since the drive ledger did not read", "error", err)
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -745,6 +741,12 @@ func (s *finderPassState) onlySecondFix(from *Record) bool {
 	return strings.Contains(text, " 1 open ") && strings.Contains(text, secondFix)
 }
 
+type LandedRow struct {
+	Key   string `json:"key"`
+	Title string `json:"title"`
+	SHA   string `json:"landed_sha"`
+}
+
 type landedFix struct {
 	number string
 	title  string
@@ -756,35 +758,25 @@ func (s *finderPassState) landedFixes() ([]landedFix, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.retried(func() (string, error) {
-		return s.run([]string{"ccn", "-R", entry.Checkout, "ledger", "show", entry.Ledger, "--json"}, "", readTimeout)
-	}, anyFailure)
+	data, err := os.ReadFile(filepath.Join(s.dir, LandedFile))
 	if err != nil {
 		return nil, err
 	}
-	var ledger struct {
-		Rows []struct {
-			Key    string `json:"key"`
-			Fields struct {
-				Title     string `json:"title"`
-				LandedSHA string `json:"landed_sha"`
-			} `json:"fields"`
-		} `json:"rows"`
-	}
-	if err := json.Unmarshal([]byte(out), &ledger); err != nil {
+	var rows []LandedRow
+	if err := json.Unmarshal(data, &rows); err != nil {
 		return nil, err
 	}
 	fixes := map[string]landedFix{}
 	var shas []string
-	for _, row := range ledger.Rows {
+	for _, row := range rows {
 		repo, number, keyed := ledgerPR(row.Key, entry.Repo)
-		if !keyed || repo != s.job.Repo || number == s.job.PR || row.Fields.LandedSHA == "" || !isFix(row.Fields.Title) {
+		if !keyed || repo != s.job.Repo || number == s.job.PR || !isFix(row.Title) {
 			continue
 		}
-		if _, known := fixes[row.Fields.LandedSHA]; !known {
-			shas = append(shas, row.Fields.LandedSHA)
+		if _, known := fixes[row.SHA]; !known {
+			shas = append(shas, row.SHA)
 		}
-		fixes[row.Fields.LandedSHA] = landedFix{number: number, title: row.Fields.Title}
+		fixes[row.SHA] = landedFix{number: number, title: row.Title}
 	}
 	if len(shas) == 0 {
 		return nil, nil
@@ -863,6 +855,17 @@ func driveOf(config, drive string) (driveEntry, error) {
 		}
 	}
 	return driveEntry{}, fmt.Errorf("%w: %s", errNoDrive, drive)
+}
+
+func DriveProgram(config, drive string) (string, error) {
+	entry, err := driveOf(config, drive)
+	if errors.Is(err, errNoDrive) {
+		return drive, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return cmp.Or(entry.Program, filepath.Base(entry.StateDir)), nil
 }
 
 func RootSession(config, drive string) (string, error) {

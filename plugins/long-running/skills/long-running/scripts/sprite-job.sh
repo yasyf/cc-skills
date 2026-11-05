@@ -10,9 +10,9 @@ name for `lr grade`, finder or fidelity, or the absolute path of a Python script
 in this plugin, at the same absolute paths, so job.json and every path it names read
 the same there. The Sprite mirrors this machine's home at its own path, has
 codex, codex-ask, ccx and ccn installed,
-and holds a clone at the job's checkout whose remotes fetch the branches and
-cc-notes refs the job reads, cc-notes from an unfiltered remote when the clone
-is partial. `lr grade` moves that clone's .git to the Sprite's local disk on the
+and holds a clone at the job's checkout whose remotes fetch the branches the
+job reads. It holds no cc-notes: the coordinator reads the answers a pass needs
+and puts them in <dir>. `lr grade` moves that clone's .git to the Sprite's local disk on the
 first pass that finds it on the network disk home lives on, takes the clone's
 whole history when it is shallow, since a shallow trunk reads every commit behind
 a head as the head's own, and starts one background move of the clone's worktree and the tools a pass reads. <dir> and each

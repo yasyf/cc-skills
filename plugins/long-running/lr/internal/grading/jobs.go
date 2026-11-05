@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path"
@@ -14,9 +15,11 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -30,16 +33,17 @@ const (
 type job struct {
 	spec    any
 	sources string
+	answers []quotes.Answer
+	landed  []grader.LandedRow
 }
 
 type livePR struct {
-	Title       string `json:"title"`
-	Body        string `json:"body"`
+	quotes.PR
 	HeadRefName string `json:"headRefName"`
 }
 
 func (p *JobPool) readPR(ctx context.Context, repo, pr string) livePR {
-	argv := []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", pr, "--repo", repo, "--json", "title,body,headRefName"}
+	argv := []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", pr, "--repo", repo, "--json", quotes.PRFields + ",headRefName"}
 	var live livePR
 	result, err := p.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
 	if err == nil {
@@ -115,7 +119,11 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 	if len(named) > 0 {
 		previous = previousHead(found, facts.Repo, pr, facts.Head)
 	}
-	return job{spec: grader.FinderJob{
+	landed, err := p.landedRows()
+	if err != nil {
+		return job{}, err
+	}
+	return job{landed: landed, spec: grader.FinderJob{
 		Job:      p.baseJob(d, facts, sprite, settled),
 		Since:    last,
 		Prior:    prior,
@@ -123,6 +131,35 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 		History:  jobRecords(named),
 		Ruled:    jobRecords(ruled),
 	}}, nil
+}
+
+func (p *JobPool) answersOwed(ctx context.Context, live livePR) ([]quotes.Answer, error) {
+	if live.Title == "" {
+		return nil, errors.New("the PR did not read, so the answers its grade owes cannot be read")
+	}
+	program, err := grader.DriveProgram(p.Config, p.drive)
+	if err != nil {
+		return nil, err
+	}
+	reader := &quotes.Reader{Runner: p.Runner, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: p.briefs}, nil }}
+	reading, cancel := context.WithTimeout(ctx, readTimeout)
+	defer cancel()
+	return reader.ForPR(reading, program, live.PR)
+}
+
+func (p *JobPool) landedRows() ([]grader.LandedRow, error) {
+	rows, err := p.Ledger(p.landing.Ledger)
+	if err != nil {
+		return nil, err
+	}
+	landed := []grader.LandedRow{}
+	for key, fields := range rows {
+		if fields["landed_sha"] != "" {
+			landed = append(landed, grader.LandedRow{Key: key, Title: fields["title"], SHA: fields["landed_sha"]})
+		}
+	}
+	slices.SortFunc(landed, func(a, b grader.LandedRow) int { return cmp.Compare(a.Key, b.Key) })
+	return landed, nil
 }
 
 func jobRecords(records []client.Record) []grader.Record {

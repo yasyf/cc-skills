@@ -24,6 +24,8 @@ const (
 	JobFile     = "job.json"
 	PostsFile   = "posts.jsonl"
 	ResultFile  = "result.json"
+	AnswersFile = "answers.json"
+	LandedFile  = "landed.json"
 	bodyFile    = "record.md"
 	rowsFile    = "rows.md"
 	readTimeout = 120 * time.Second
@@ -621,7 +623,7 @@ func (p *pass) planRead() *future[string] {
 
 func (p *pass) sliceRows(head, branch string, flags ...string) *future[string] {
 	return async(func() (string, error) {
-		return p.run(p.rulings("slice", append([]string{"--required", "--pr", p.job.pull(), "--head", head, "--base", branch}, flags...)...), "", gitTimeout)
+		return p.run(p.rulings("slice", append([]string{"--required", "--pr", p.job.pull(), "--head", head, "--base", branch, "--answers", filepath.Join(p.dir, AnswersFile)}, flags...)...), "", gitTimeout)
 	})
 }
 
