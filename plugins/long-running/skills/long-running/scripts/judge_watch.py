@@ -26,12 +26,14 @@ the artifact, naming the row whose words the judge quoted. A recheck yes whose e
 contract, or the same relay and row, was not a yes is a miss: it says so, and the case is written to
 `judge/misses/` in the drive's state folder for `judge-eval.py`.
 The writer disputes a flag by answering on it, and an `answer` on it from any lane counts the same, as cci's open
-fold counts it. A coordinator `decide` or `decision` of the last day that replies to or resolves the flag, the artifact or the answer, or names one of the artifact's PRs, closes the dispute with
-that ruling. Otherwise the pass asks the coordinator alone, never a board lane, with his words, the judge's reading and
+fold counts it. A coordinator `decide` or `decision` of the last day that replies to or resolves the flag, the artifact or the answer, or names the
+flagged row and a PR at the head the artifact names it at, closes the dispute with that ruling. Otherwise the pass asks the coordinator alone, never a board lane, with his words, the judge's reading and
 the writer's in `judge/disputes/<flag seq>.md`. An owner pick on a `judge-dispute-<flag seq>` card the coordinator puts
 on his board writes the case to `judge/owner/` with the verdict he chose. A failed judge call posts nothing.
 A coordinator answer or ruling in reply to a flag, or sent to the judge, that names the flag, the artifact or one of its
-PRs closes the artifact: it is never judged again, by a new pass or a recheck.
+PRs closes the artifact: it is never judged again, by a new pass or a recheck. An artifact holding an open flag is never
+judged again either, and each flag is saved as it posts, so a pass that dies partway through a recheck and reruns it
+flags nothing twice.
 State lives in `judge-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. A pass saves
 its cursor after each record it acts on, so a pass the supervisor stops at its time limit never judges those again.
 """
@@ -75,6 +77,7 @@ RELAY_KINDS = frozenset({"decide"})
 CITED = re.compile(r"([\w-]+) #(\d+)\b")
 CLOSING_KINDS = frozenset({"answer", *cci.ROOT_RULINGS})
 POSTED = re.compile(r"#(\d+)")
+PR_HEAD = re.compile(r"#(\d+) at ([0-9a-f]{7,40})\b")
 RULING_CHARS = 200
 SPRITE_SECONDS = 600
 SCRIPTS = Path(__file__).resolve().parent
@@ -190,7 +193,7 @@ class Pass:
         return "".join([text, *(f"\n\nThe record it cites, {source['lane']} #{source['seq']}, whole:\n{body(source)}" for source in sources)])
 
     def judge_record(self, record: dict, kind: str, recheck: str | None = None) -> None:
-        if record["seq"] in self.saved.closed:
+        if record["seq"] in self.saved.closed or record["seq"] in {flag["seq"] for flag in self.saved.flags.values()}:
             return
         text = self.whole(record)
         if kind == "contract":
@@ -265,6 +268,7 @@ class Pass:
         posted = self.post("review", line, to, re=record["seq"])
         if posted is not None:
             self.saved.flags[str(posted)] = {"lane": record["lane"], "kind": kind, "key": key, "said": said, "artifact": text, "reading": verdict.sentence, "seq": record["seq"], "prs": (record.get("refs") or {}).get("prs", [])}
+            self.save()
 
     def dispute(self, reply: dict) -> None:
         flag = self.saved.flags[str(reply["re"])]
@@ -289,7 +293,7 @@ class Pass:
         since = (datetime.now(timezone.utc) - RECHECK_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
         answered = {flag["seq"], int(reply["re"]), reply["seq"]}
         rulings = [record for record in cci.records(self.cli, self.watch.cci, "--lane", ROOT, *(f"--kind={kind}" for kind in sorted(cci.ROOT_RULINGS)), since=since) if record.get("lane") == ROOT and record.get("kind") in cci.ROOT_RULINGS]
-        return next((record for record in reversed(rulings) if answered & ({record.get("re")} | cci.resolved(record)) or any(cci.names_pr(record, str(pr)) for pr in flag.get("prs", []))), None)
+        return next((record for record in reversed(rulings) if answered & ({record.get("re")} | cci.resolved(record)) or rules_on(record, flag)), None)
 
     def owner_ruled(self, flag_seq: str, label: str) -> None:
         if (flag := self.saved.flags.get(flag_seq)) is None:
@@ -311,6 +315,11 @@ class Pass:
 def body(record: dict) -> str:
     attached = (record.get("refs") or {}).get("path")
     return "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""]).strip()
+
+
+def rules_on(ruling: dict, flag: dict) -> bool:
+    text = body(ruling)
+    return flag["key"] in text and any(f"#{pr} at {head[:7]}" in text for pr, head in PR_HEAD.findall(flag["artifact"]))
 
 
 def earlier(state: Path, subject: str) -> str | None:

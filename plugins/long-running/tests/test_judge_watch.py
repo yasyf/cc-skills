@@ -130,18 +130,22 @@ def test_a_writers_answer_on_a_flag_asks_root_alone_with_both_readings_and_an_ow
     assert (case["expect"], case["artifact"]) == ("yes", contract(100)["text"])
 
 
-@pytest.mark.parametrize("ruling", [{"refs": {"prs": [46788]}}, {"re": 300, "refs": {}}], ids=["names-the-pr", "replies-to-the-answer"])
+@pytest.mark.parametrize(
+    "ruling",
+    [{"text": "#46788 at 1a2b3c4d keeps one process, rule/a201ee6", "refs": {"prs": [46788]}}, {"text": "the port keeps the source contract (ruling #262338)", "re": 300, "refs": {}}],
+    ids=["names-the-row-and-the-pr-at-its-head", "replies-to-the-answer"],
+)
 def test_a_dispute_root_already_ruled_on_closes_with_that_ruling_and_asks_nobody(watch, run, ruling):
-    first = run(Scripted(watch, [contract(100) | {"refs": {"prs": [46788]}}], [MISREAD]))
+    first = run(Scripted(watch, [contract(100, "One upload process per destination and key (#46788 at 1a2b3c4). rule/a201ee6") | {"refs": {"prs": [46788]}}], [MISREAD]))
     flag_seq = next(iter(first.saved.flags))
     reply = {"seq": 300, "lane": "lane-a", "kind": "answer", "re": int(flag_seq), "text": "The port keeps the source contract.", "refs": {}}
-    ruled = {"seq": 290, "lane": "root", "kind": "decide", "text": "the port keeps the source contract (ruling #262338)"} | ruling
+    ruled = {"seq": 290, "lane": "root", "kind": "decide"} | ruling
 
     second = run(Scripted(watch, [reply], [], cited=[ruled]))
 
     [closed] = posted(second)
     assert (closed["kind"], closed["to"]) == ("answer", ["lane-a", "root"])
-    assert closed["text"] == f"JUDGE dispute on #{flag_seq} closed by coordinator #290: the port keeps the source contract (ruling #262338)"
+    assert closed["text"] == f"JUDGE dispute on #{flag_seq} closed by coordinator #290: {ruling['text']}"
     assert "--resolves" in second.posts[-1] and flag_seq not in second.saved.flags and second.saved.closed == [100]
 
 
@@ -192,6 +196,24 @@ def test_the_job_on_the_sprite_writes_the_verdict_and_summary(tmp_path, monkeypa
     assert written["verdict"]["verdict"] == "no" and written["summary"]["asks"] == 0
 
 
+@pytest.mark.parametrize(
+    "text",
+    ["finder-override #46788 at 75650e3: graded at b0186e2, rule/a201ee6", "finder-override #46788 at 1a2b3c4: rule/b0b3517"],
+    ids=["another-head", "another-row"],
+)
+def test_a_ruling_on_the_disputed_pr_at_another_head_or_row_leaves_the_dispute_to_root(watch, run, text):
+    """run-search-shape #479654: judge-watch closed dispute 473188 with coordinator 419128, an override of another finder row at another head of the same PR."""
+    first = run(Scripted(watch, [contract(100, "One upload process per destination and key (#46788 at 1a2b3c4). rule/a201ee6") | {"refs": {"prs": [46788]}}], [MISREAD]))
+    flag_seq = next(iter(first.saved.flags))
+    reply = {"seq": 300, "lane": "lane-a", "kind": "answer", "re": int(flag_seq), "text": "The port keeps the source contract.", "refs": {}}
+    other = {"seq": 290, "lane": "root", "kind": "decide", "text": text, "refs": {"prs": [46788]}}
+
+    second = run(Scripted(watch, [reply], [], cited=[other]))
+
+    [ask] = posted(second)
+    assert (ask["kind"], ask["to"]) == ("ask", ["root"]) and flag_seq in second.saved.flags
+
+
 def test_a_pass_stopped_partway_resumes_after_the_last_record_it_judged_and_flags_nothing_twice(watch, monkeypatch):
     """Coordinator #458576: judge-watch re-flagged relays #374518 and #374519 every pass, since a pass the supervisor stopped at its time limit never saved its cursor."""
     relays = [{"seq": seq, "lane": "root", "kind": "decide", "text": "lane-a: one process per key. rule/a201ee6", "refs": {}} for seq in (101, 102, 103)]
@@ -213,6 +235,30 @@ def test_a_pass_stopped_partway_resumes_after_the_last_record_it_judged_and_flag
 
     assert json.loads(watch.state.read_text())["cursor"] == 103
     assert [flag["re"] for flag in posted(resumed)] == ["103"]
+
+
+def test_a_recheck_flags_each_relay_once_though_its_pass_dies_partway_and_the_row_is_extended_again(watch, monkeypatch):
+    """Root #479056: judge-watch posted the same recheck verdict on relay #431168 six times in 13 minutes, each worded differently."""
+    relays = [{"seq": seq, "lane": "root", "kind": "decide", "text": "lane-a: one process per key. rule/a201ee6", "refs": {}} for seq in (101, 102)]
+    bus = [{"seq": seq, "lane": "root", "kind": "decision", "text": "Register classify, 1 rows: extended rule/a201ee6.", "refs": {}} for seq in (400, 401)]
+    stops = [TimeoutError("the pass died")]
+
+    def verdict(*args, subject, **kwargs):
+        if subject.startswith("cci:102") and stops:
+            raise stops.pop()
+        return MISREAD
+
+    monkeypatch.setattr(judge_watch.judge, "judge", verdict)
+    monkeypatch.setattr(judge_watch.judge, "said", lambda row, state, env=None: [{"at": row["at"], "words": row["words"], "answered": None}])
+    monkeypatch.setattr(judge_watch.cci, "records", lambda cli, drive, *filters, since=0: relays if filters else [record for record in bus if record["seq"] > int(since)] if str(since).isdigit() else bus)
+
+    scripted = Scripted(watch, bus, [])
+    with pytest.raises(TimeoutError):
+        scripted.run()
+    scripted.saved = judge_watch.Saved.load(watch.state)
+    scripted.run()
+
+    assert [flag["re"] for flag in posted(scripted)] == ["101", "102"]
 
 
 def test_an_answer_on_a_relays_flag_from_the_appeals_lane_reaches_root_as_its_dispute(watch, run):

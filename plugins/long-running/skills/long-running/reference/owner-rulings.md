@@ -212,7 +212,7 @@ Settle a route, grade a timer or state a design count only from the owner's word
 
 ## Audit contracts and relays with `judge_watch.py`
 
-Contracts, read-backs and `DECIDE` records never narrow an owner row or stretch it past its purpose. The relay runs `judge_watch.py` once every minute. It calls the drive's judge asynchronously after each post, so writers never block. Each artifact is judged once: a pass saves its place after each record it acts on, so a pass the supervisor stops at its 15-minute limit resumes after the last record it judged.
+Contracts, read-backs and `DECIDE` records never narrow an owner row or stretch it past its purpose. The relay runs `judge_watch.py` once every minute. It calls the drive's judge asynchronously after each post, so writers never block. Each artifact is judged once: a pass saves its place after each record it acts on, so a pass the supervisor stops at its 15-minute limit resumes after the last record it judged. An artifact holding an open flag is never judged again, by a new pass or a recheck, and each flag is saved as it posts, so a recheck a pass dies partway through flags nothing twice when it reruns.
 
 | Artifact | What `judge_watch.py` asks the judge |
 | --- | --- |
