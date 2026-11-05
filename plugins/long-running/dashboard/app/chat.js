@@ -178,10 +178,10 @@ function dashboardLinksHere(md) {
     .replace(DASHBOARD_LINE, (line, host) => (own.has(host) ? '' : line))
     .replace(DASHBOARD_WORD, (url, at, host, hash) => (own.has(host) ? `[here](${hash ?? '#/'})` : url));
 }
-function chatBody(id, md, title = '') {
+function chatBody(id, md, title = '', folded = false) {
   const words = bodyAfterTitle(plain(namedChanges(dashboardLinksHere(md))).replace(DONE_LEAD, ''), title);
-  const body = `<div class="rp-md prose obj-text" data-clamp="${esc(id)}">${replyMarkdown(id, words)}</div>`;
-  return words.length > CLAMP_CHARS ? `${body}<button class="text-button" data-read="${esc(id)}">Read all</button>` : body;
+  const body = `<div class="rp-md prose obj-text${folded ? ' folded' : ''}" data-clamp="${esc(id)}">${replyMarkdown(id, words)}</div>`;
+  return folded || words.length > CLAMP_CHARS ? `${body}<button class="text-button" data-read="${esc(id)}">Read all</button>` : body;
 }
 function linkTile(l) {
   const label = plain(l.label).replace(/\s*\(doc [0-9a-f]+\)/i, '').replace(/#(\d{5})\b/g, (_, n) => changeWords(n)).replace(/\s*\(your tap\)/, '');
@@ -197,15 +197,16 @@ function docCard(l, deck, kind = 'One-pager', icon = 'doc') {
 function replyLinks(r) {
   const links = (r.links ?? []).filter((l) => dashboardLinksHere(l.url) === l.url);
   const deck = firstClause(plain(dashboardLinksHere(r.md)).replace(DONE_LEAD, '').replace(/[*`#]+/g, ''));
-  const chips = links.filter((l) => !isOnePager(l.url)).map(linkTile).join('');
+  const chips = links.filter((l) => !isOnePager(l.url) && !ownPrNumber(l.url)).map(linkTile).join('');
   const diagram = r.diagram ? docCard({ label: r.diagram.title, url: `${location.origin}/diagram/${r.id}` }, deck, 'Diagram', 'diagram') : '';
   return `${diagram}${links.filter((l) => isOnePager(l.url)).map((l) => docCard(l, deck)).join('')}${chips ? `<div class="decision-tail">${chips}</div>` : ''}`;
 }
+function ownPrNumber(url) {
+  const found = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(url);
+  return found?.[1] === state.model.repo ? Number(found[2]) : null;
+}
 function prNumbers(r) {
-  const named = (r.prs ?? []).flatMap((url) => {
-    const found = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(url);
-    return found?.[1] === state.model.repo ? [Number(found[2])] : [];
-  });
+  const named = [...(r.prs ?? []), ...(r.links ?? []).map((l) => l.url)].map(ownPrNumber).filter(Boolean);
   return [...new Set([...named, ...[...r.md.matchAll(/#(\d{5})\b/g)].map((found) => Number(found[1]))])];
 }
 function prCard(n) {
@@ -285,7 +286,7 @@ function replyObject(entry, t) {
   }
   const kind = REPLY_KIND[r.type];
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<p class="ct-failed">${esc(SURFACE_WORD[s.surface])} failed: ${esc(s.error)}</p>`).join('');
-  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
+  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r), r.status === 'progress')}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
   const label = picked ? 'Decision' : kind.label;
   const pickLine = picked ? `<p class="obj-picked">${chatIcon('check')}<span>You picked <b>${esc(picked)}</b></span></p>` : r.picks?.length ? '<p class="ct-closed">This pick is no longer open.</p>' : '';
   const done = !picked && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>` : '';
@@ -345,17 +346,12 @@ function railTap(t) {
   const open = card ? `<button class="attention-title" data-chat-modal="${esc(card.id)}">${title}</button>` : t.kind === 'land' ? `<a class="attention-title" href="#/replies~review/${t.number}">${title}</a>` : `<a class="attention-title" href="#/needs">${title}</a>`;
   return `<div class="attention-item"><div class="attention-kind">${chatIcon(t.kind === 'land' ? 'pr' : 'spark')} ${t.kind === 'land' ? 'Landing approval' : 'Decision'}${t.frees ? `<span class="attention-frees">Frees ${t.frees}</span>` : ''}</div>${open}</div>`;
 }
-function chatRail(all) {
+function chatRail() {
   const taps = openTaps();
-  const asks = all.filter(({ t }) => t.rows.length);
-  const done = asks.filter(({ stage }) => stage === 'completed').length;
-  const working = asks.filter(({ stage }) => stage === 'progress' || stage === 'you').length;
-  const waiting = asks.length - done - working;
-  const width = (n) => `${asks.length ? (n / asks.length) * 100 : 0}%`;
-  return `<div class="rail-section"><div class="rail-heading"><h2>Needs your decision</h2><small>${taps.length}</small></div>${taps.slice(0, RAIL_SHOWN).map(railTap).join('') || '<p class="rail-none">Nothing waits on you.</p>'}${taps.length > RAIL_SHOWN ? `<a class="rail-all" href="#/needs">All ${taps.length} on Needs me ${chatIcon('arrow')}</a>` : ''}</div><div class="rail-section"><div class="rail-heading"><h2>Your asks</h2></div><div class="mini-progress"><i style="width:${width(done)}"></i><i style="width:${width(working)}"></i><i style="width:${width(waiting)}"></i></div><div class="legend"><span><i></i>${done} done</span><span><i></i>${working} working</span><span><i></i>${waiting} waiting</span></div></div>`;
+  return `<div class="rail-section"><div class="rail-heading"><h2>Needs your decision</h2><small>${taps.length}</small></div>${taps.slice(0, RAIL_SHOWN).map(railTap).join('') || '<p class="rail-none">Nothing waits on you.</p>'}${taps.length > RAIL_SHOWN ? `<a class="rail-all" href="#/needs">All ${taps.length} on Needs me ${chatIcon('arrow')}</a>` : ''}</div>`;
 }
 function repliesScreen() {
-  return `<div class="pg cw"><header class="page-heading"><div><h1>Chat</h1><p>Your asks, and what came back.</p></div><button class="quiet-button" data-cw-new>${chatIcon('edit')} New ask</button></header><div class="cw-layout"><div class="conversation"><div id="cw-owed" class="ct-owed-slot"></div><div class="filters" role="group" aria-label="Filter asks"><div id="cw-filters" style="display:contents"></div><label class="search-wrap">${chatIcon('search')}<input id="cw-search" aria-label="Search asks" placeholder="Search asks" value="${esc(cw.query)}"></label></div><section id="cw-list" aria-label="Your asks and responses"></section><div id="cw-more"></div><p class="ct-failed" id="cw-failed" hidden></p><form class="composer" data-chat-send="" data-about=""><div class="compose-context"><span>New ask</span><span>To the communicator</span></div><textarea name="chat" data-draft="" aria-label="New ask" placeholder="What would you like done?" rows="2"></textarea><div class="compose-bottom"><span>Enter to send · Shift + Enter for a new line</span><button type="submit">Send ask ${chatIcon('send')}</button></div></form></div><aside class="context-rail" id="cw-rail" aria-label="Decisions"></aside></div></div>`;
+  return `<div class="pg cw"><header class="page-heading"><div><h1>Chat</h1><p>Your asks, and what came back.</p></div></header><div class="cw-layout"><div class="conversation"><div id="cw-owed" class="ct-owed-slot"></div><div class="filters" role="group" aria-label="Filter asks"><div id="cw-filters" style="display:contents"></div><label class="search-wrap">${chatIcon('search')}<input id="cw-search" aria-label="Search asks" placeholder="Search asks" value="${esc(cw.query)}"></label></div><section id="cw-list" aria-label="Your asks and responses"></section><div id="cw-more"></div><p class="ct-failed" id="cw-failed" hidden></p><form class="composer" data-chat-send="" data-about=""><div class="compose-context"><span>New ask</span><span>To the communicator</span></div><textarea name="chat" data-draft="" aria-label="New ask" placeholder="What would you like done?" rows="2"></textarea><div class="compose-bottom"><span>Enter to send · Shift + Enter for a new line</span><button type="submit">Send ask ${chatIcon('send')}</button></div></form></div><aside class="context-rail" id="cw-rail" aria-label="Decisions"></aside></div></div>`;
 }
 function chatSet(el, html) {
   if (chatSigs.get(el) === html) return;
@@ -423,7 +419,7 @@ function patchChat() {
   chatKeyed(list, items);
   if (!lines.length) list.innerHTML = `<div class="empty">${state.model.owner_asks.messages.length || cw.query ? 'No asks match this view.' : '<b>Ask the communicator</b> It answers here, and you can reply to any of it.'}${cw.query || cw.filter !== 'all' ? '<button class="text-button" data-cw-clear>Clear filters and search</button>' : ''}</div>`;
   chatSet($('#cw-filters'), chatFilters(all));
-  chatSet($('#cw-rail'), chatRail(all));
+  chatSet($('#cw-rail'), chatRail());
   chatSet($('#cw-more'), count > lines.length + hidden ? `<button class="archive-toggle" data-cw-more>${chatIcon('history')} Show earlier <span>${count - lines.length - hidden}</span></button>` : '');
   const overdue = [...overdueRows(), ...picksRow()];
   chatSet($('#cw-owed'), overdue.length ? `<details class="ct-owed" data-id="cw-owed"${state.open.has('cw-owed') ? ' open' : ''}><summary>${plural(overdue.length, 'thing')} owed to you</summary>${eventList(overdue)}</details>` : '');
@@ -616,7 +612,6 @@ document.addEventListener('click', (e) => {
     $('#cw-search').value = '';
     return patchChat();
   }
-  if (e.target.closest('[data-cw-new]')) return liveChatBox('')?.focus();
   if (cw.pinned && !e.target.closest('.question')) {
     cw.pinned = null;
     document.querySelectorAll('.cw .thread').forEach(chatReapply);

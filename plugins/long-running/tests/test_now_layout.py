@@ -1206,6 +1206,38 @@ def test_a_reply_reads_angle_brackets_and_no_reply_id(page):
     assert page.evaluate("replyTitle({ title: 'Four items, two on your tap (#50590), and more' })") == "Four items, two on your tap, and more"
 
 
+def test_a_routed_update_is_one_line_until_he_opens_it(page):
+    open_chat(page)
+    row = page.locator(".update-row#rp-routed")
+    assert not row.locator(".obj-text").is_visible()
+    row.locator("[data-read]").click()
+    assert row.locator(".obj-text").is_visible()
+    page.evaluate("cw.read.clear()")
+    now(page)
+
+
+def test_chat_shows_each_count_once_and_the_ask_box_stays_out_of_the_way(page):
+    open_chat(page)
+    assert page.locator(".cw .legend, .cw [data-cw-new]").count() == 0
+    box = page.locator(".cw .composer")
+    closed = box.bounding_box()["height"]
+    assert closed < 50 and not page.locator(".cw .compose-bottom").is_visible()
+    box.locator("textarea").focus()
+    assert box.bounding_box()["height"] > closed and page.locator(".cw .compose-bottom").is_visible()
+    box.locator("textarea").blur()
+    now(page)
+
+
+def test_a_change_a_post_links_draws_as_its_card_with_no_second_link(page):
+    open_chat(page)
+    page.evaluate(PRS_IN_TWO_POSTS)
+    page.evaluate("state.model.replies[1].reply.links = [{ url: `https://github.com/${state.model.repo}/pull/77003`, label: 'Change' }, { url: 'https://github.com/yasyf/cc-skills/pull/9', label: 'cc-skills #9' }]; render()")
+    again = page.locator('.cw .thread[data-k="reply:again"]')
+    assert again.locator("#pr-77003").count() == 1
+    assert again.locator(".embedded-ref").all_inner_texts() == ["cc-skills #9"]
+    now(page)
+
+
 def test_a_phone_never_slides_sideways_on_a_long_url_or_a_long_code_line(page):
     open_chat(page)
     long = "https://example.slack.com/archives/C0B75AL4XEW/" + "p" * 80
