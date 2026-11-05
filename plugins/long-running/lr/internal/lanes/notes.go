@@ -23,7 +23,7 @@ cd "$1" || exit 1
 origin=$(mktemp)
 trap 'rm -f "$origin"' EXIT
 git ls-remote origin 'refs/cc-notes/*' > "$origin" || { echo "could not read origin's cc-notes refs" >&2; exit 1; }
-rows=$(git for-each-ref --format='%(refname) %(objectname)' refs/cc-notes/ | awk 'NR == FNR { theirs[$2] = $1; next } theirs[$1] != $2 { print $1 "," $2 "," theirs[$1] }' "$origin" -)
+rows=$(git for-each-ref --format='%(refname) %(objectname)' refs/cc-notes/ | awk 'FILENAME == ARGV[1] { theirs[$2] = $1; next } theirs[$1] != $2 { print $1 "," $2 "," theirs[$1] }' "$origin" -)
 moved=$(printf '%s\n' "$rows" | awk -F, '$3 != "" { print $1 }')
 [ -z "$moved" ] || git fetch -q --no-write-fetch-head origin $moved 2> /dev/null
 status=0
