@@ -42,6 +42,7 @@ D24 sits at the end of this section.
 
 **D1. The landing desk is the only enqueuer; lanes report; the coordinator owns holds and priority PRs.**
 - A lane never runs `stack-enqueue` outside `--check` and `--status`, `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label.
+- On a Sprite neither read works, since `tools/ci` fetches its binary from a bucket a Sprite holds no AWS identity for. A Sprite lane reads queue state, checks, approval and a verdict with `ccx vcs pr status <n>`, and asks `go-sweep` for the go.
 - The pack's `lane_landing` hook reads the drive registry and warns on those commands against the drive's repo, without blocking, from every lane except `landing-desk`, its shards, priority desks, `desk-runner`, `merge-train` lanes, and incident lanes.
 - An incident lane is named `incident-` or `outage-`, briefed with `ccx: incident=<id>` other than `none`, or named `<x>-fix` and briefed with `Register slice: lane=<x>-fix step=incident`. The hook warns it only on `stack-enqueue` and `gh pr merge --admin` and lets it run `gh pr merge <n> --squash`.
 - The same pack warns on `tools/ci trunk dequeue`, `restart`, and `prioritize` from every lane, desks included, because only the coordinator steers the queue. A tooling lane merges its own PRs in other repos.
