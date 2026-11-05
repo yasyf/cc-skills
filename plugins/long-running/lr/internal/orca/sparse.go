@@ -25,6 +25,14 @@ func SparseCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			top := strings.TrimSpace(shown.Stdout)
+			sparse, err := a.Runner.Run(cmd.Context(), shell.Command{Argv: []string{"git", "config", "--type=bool", "--default=false", "core.sparseCheckout"}, Dir: top})
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(sparse.Stdout) != "true" {
+				fmt.Fprintf(cmd.OutOrStdout(), "sparse: a full checkout already holds %s\n", strings.Join(args, " "))
+				return nil
+			}
 			dirs := withGoModules(args, func(goMod string) string {
 				read, err := a.Runner.Run(cmd.Context(), shell.Command{Argv: []string{"git", "show", "HEAD:" + goMod}, Dir: top})
 				if err != nil {

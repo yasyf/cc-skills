@@ -89,3 +89,26 @@ func TestSparseAddOfADirectoryWithNoGoModuleAddsOnlyThatDirectory(t *testing.T) 
 		t.Fatal("the sparse set is wrong")
 	}
 }
+
+func TestSparseAddOnAFullCheckoutSucceedsAndSaysTheCheckoutHoldsIt(t *testing.T) {
+	repo := sparseRepo(t, map[string]string{"tools/t.sh": "t\n", "infra/main.tf": "x\n"})
+	disable := exec.Command("git", "sparse-checkout", "disable")
+	disable.Dir = repo
+	if out, err := disable.CombinedOutput(); err != nil {
+		t.Fatalf("git sparse-checkout disable: %v: %s", err, out)
+	}
+	t.Chdir(repo)
+	var out bytes.Buffer
+	cmd := SparseCommand(&app.App{Runner: shell.Exec{}})
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"add", "infra"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(out.String()), "sparse: a full checkout already holds infra"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if !exists(filepath.Join(repo, "infra", "main.tf")) {
+		t.Fatal("the full checkout lost infra")
+	}
+}
