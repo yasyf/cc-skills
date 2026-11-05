@@ -72,7 +72,7 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 		if lane, ok := registered[name]; ok {
 			said := must(BriefOf(lane.Brief))
 			row.Live = isLive(lane.State)
-			row.State, row.Step, row.Standing, row.Deliverable, row.Orders = string(lane.State), said.Step, said.Standing, said.Deliverable, said.Orders
+			row.State, row.Step, row.Standing, row.Deliverable, row.Orders = string(lane.State), said.Step, dutyOf(lane), said.Deliverable, said.Orders
 			row.Handoff, row.RetiredBy, row.Placement, row.Predecessor, row.Brief = nullable(lane.Handoff), nullable(lane.RetiredBy), nullable(lane.Placement), nullable(lane.Predecessor), nullable(lane.Brief)
 			if !lane.Answered.IsZero() {
 				row.Woke = nullable(store.Stamp(lane.Answered))
@@ -121,7 +121,7 @@ func RegistryLines(s *store.Store, names []string, now time.Time) (lines []strin
 		if lane.RetiredBy != "" {
 			fmt.Fprintf(&line, " retired by %s", lane.RetiredBy)
 		}
-		if duty := must(BriefOf(lane.Brief)).Standing; duty != "" {
+		if duty := dutyOf(lane); duty != "" {
 			fmt.Fprintf(&line, " standing: %s", duty)
 		}
 		lines = append(lines, line.String())
@@ -157,7 +157,7 @@ func AnswerRoute(s *store.Store, name string) (answer RouteAnswer, err error) {
 	defer recovered(&err)
 	answer = RouteAnswer{Lane: name, Route: routeOf(s, name), State: Unregistered, Meta: isMeta(s, name)}
 	if lane, found := laneOf(s, name); found {
-		answer.State, answer.Standing = string(lane.State), must(BriefOf(lane.Brief)).Standing
+		answer.State, answer.Standing = string(lane.State), dutyOf(lane)
 	}
 	return answer, nil
 }
@@ -263,8 +263,8 @@ func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
 	if !found || !isStanding(lane) {
 		return "", nil
 	}
-	if duty := must(BriefOf(lane.Brief)).Standing; duty != "" && r.Successor == "" {
-		return fmt.Sprintf("%s is standing (%s): it stands down only for a successor, so name one with --successor, or delete the `Standing:` line in %s to end the duty", r.Lane, duty, lane.Brief), nil
+	if duty := dutyOf(lane); duty != "" && r.Successor == "" {
+		return fmt.Sprintf("%s is standing (%s): it stands down only for a successor, so name one with --successor%s", r.Lane, duty, dutyEnd(lane)), nil
 	}
 	if r.Open == "" {
 		return fmt.Sprintf("%s is a desk, so its stand-down carries its open items for whoever takes them: every owner order it holds (`lr owner audit`), and every ask, PR and card it owes. Name them with --open '<item>; <item>', or pass --open none", r.Lane), nil

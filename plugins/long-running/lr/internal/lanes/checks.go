@@ -1010,7 +1010,7 @@ func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([
 	}
 	var candidates []staleLane
 	for _, lane := range registered {
-		if lane.State != store.LaneRetired || lane.Name == Root || lane.Name == OwnerRelay || slices.Contains(standingRoles, lane.Role) || lane.Heard.IsZero() || now.Sub(lane.Heard) < endedQuiet {
+		if lane.State != store.LaneRetired || lane.Name == Root || lane.Name == OwnerRelay || slices.Contains(standingRoles, lane.Role) || lane.Standing != "" || lane.Heard.IsZero() || now.Sub(lane.Heard) < endedQuiet {
 			continue
 		}
 		if _, err := os.Stat(lane.Brief); err != nil {

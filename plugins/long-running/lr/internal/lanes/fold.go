@@ -67,6 +67,9 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		if out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "done", at)
 		}
+	case verb == "revive" && known && row.State == store.LaneRetired:
+		do(s.ReviveLane(name, at))
+		do(s.SetLaneStanding(name, or(row.Standing, inheritedDuty(s, name, row.Brief, ""))))
 	case verb == "owner":
 		numbers := r.PRs()
 		if !fresh {
@@ -104,7 +107,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			retire(s, name, or(successor, Root), at)
 		}
 		if successor != "" {
-			must(s.WantLane(store.Lane{Name: successor, Brief: row.Brief, Model: row.Model, Effort: row.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher}, at))
+			must(s.WantLane(store.Lane{Name: successor, Brief: row.Brief, Model: row.Model, Effort: row.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing}, at))
 			do(s.Own(successor, row.PRs))
 		} else {
 			do(s.Own(Root, row.PRs))
@@ -136,6 +139,7 @@ func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs st
 
 func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool, fresh bool, at time.Time, briefs string, out *folded) {
 	name, role := spawn.Name, spawn.Role
+	duty := inheritedDuty(s, name, spawn.Brief, spawn.SuccessorOf)
 	if spawn.SuccessorOf != "" {
 		if old, found := laneOf(s, spawn.SuccessorOf); found && old.Name != name {
 			role = or(role, takesOver(s, name, old, at))
@@ -161,10 +165,22 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 		if fresh {
 			state = store.LaneDesired
 		}
-		if must(s.WantLane(store.Lane{Name: name, Brief: spawn.Brief, Model: spawn.Model, Effort: spawn.Effort, Role: or(role, "lane"), State: state, Placement: spawn.Placement, Launcher: r.Lane}, at)) {
+		if must(s.WantLane(store.Lane{Name: name, Brief: spawn.Brief, Model: spawn.Model, Effort: spawn.Effort, Role: or(role, "lane"), State: state, Placement: spawn.Placement, Launcher: r.Lane, Standing: duty}, at)) {
 			out.adopted = append(out.adopted, name)
 		}
 	}
+}
+
+func inheritedDuty(s *store.Store, name, brief, successorOf string) string {
+	if must(BriefOf(brief)).Standing != "" {
+		return ""
+	}
+	for _, old := range must(s.AllLanes()) {
+		if old.Name != name && (old.Name == successorOf || succeeds(name, old.Name)) && isStanding(old) {
+			return or(dutyOf(old), old.Role)
+		}
+	}
+	return ""
 }
 
 func resolvedPath(path string) string {
@@ -331,7 +347,7 @@ func maxOrder(s *store.Store, r Record) int64 {
 func foldWait(s *store.Store, r Record, row store.Lane) {
 	var ask int64
 	awaits := ""
-	if slices.Contains(waits, r.Kind) && (cardOnOwner(r) || slices.Contains(r.To, Root) || must(BriefOf(row.Brief)).Standing == "") {
+	if slices.Contains(waits, r.Kind) && (cardOnOwner(r) || slices.Contains(r.To, Root) || dutyOf(row) == "") {
 		ask, awaits = r.Seq, strings.Join(gatesOf(r), " ")
 	}
 	do(s.SetLaneWaiting(r.Lane, ask, time.Time{}, awaits))
@@ -772,7 +788,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		if gone.State != store.LaneRetired {
 			retire(s, old, or(successor, Root), at)
 			if successor != "" {
-				must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: gone.Model, Effort: gone.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher}, at))
+				must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: gone.Model, Effort: gone.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, at))
 				continue
 			}
 		} else if slices.Contains(unprovenEnds, gone.RetiredBy) {

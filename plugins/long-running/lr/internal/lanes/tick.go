@@ -466,7 +466,18 @@ func settledLane(lane store.Lane) bool {
 }
 
 func isStanding(lane store.Lane) bool {
-	return slices.Contains(standingRoles, lane.Role) || must(BriefOf(lane.Brief)).Standing != ""
+	return slices.Contains(standingRoles, lane.Role) || dutyOf(lane) != ""
+}
+
+func dutyOf(lane store.Lane) string {
+	return or(lane.Standing, must(BriefOf(lane.Brief)).Standing)
+}
+
+func dutyEnd(lane store.Lane) string {
+	if lane.Standing != "" {
+		return ", since it holds the duty of the lane it succeeds"
+	}
+	return fmt.Sprintf(", or delete the `Standing:` line in %s to end the duty", lane.Brief)
 }
 
 func retireSilent(s *store.Store, d Deps, lane store.Lane, why string, now time.Time, out *Outcome) {
@@ -681,7 +692,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 		to = must(MetaDesk(s))
 	}
 	retire(s, old.Name, name, now)
-	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher}, now))
+	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: old.Model, Effort: old.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher, Standing: old.Standing}, now))
 	do(d.Post(Post{Kind: "report", To: []string{to}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 	return name
@@ -1086,10 +1097,10 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 	heard := must(s.Heard())
 	heads := map[string]store.Lane{}
 	for _, lane := range must(s.AllLanes()) {
-		if must(BriefOf(lane.Brief)).Standing == "" {
+		if dutyOf(lane) == "" {
 			continue
 		}
-		if head, ok := newest(s, lane.Name); ok && head.State == store.LaneRetired && must(BriefOf(head.Brief)).Standing != "" {
+		if head, ok := newest(s, lane.Name); ok && head.State == store.LaneRetired && dutyOf(head) != "" {
 			heads[head.Name] = head
 		}
 	}
@@ -1108,7 +1119,7 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 		}
 		why := fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
 		if head.RetiredBy == "stand-down" || head.RetiredBy == "done" {
-			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. Launch its successor from %s if the duty is still open, or delete the brief's `Standing:` line to end it.", name, must(BriefOf(head.Brief)).Standing, why, head.Brief), now)
+			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. Launch its successor from %s if the duty is still open%s.", name, dutyOf(head), why, head.Brief, dutyEnd(head)), now)
 			continue
 		}
 		relaunch(s, d, head, found, why, "", taken, now, out)
