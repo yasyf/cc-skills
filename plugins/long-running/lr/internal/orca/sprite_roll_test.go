@@ -400,6 +400,29 @@ func TestRollHostInstallsOnlyOnTheDeskHost(t *testing.T) {
 	}
 }
 
+func TestADownDeskHostRefusesTheSameWayEveryPass(t *testing.T) {
+	w := newRollWorld(t)
+	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
+	runner := filepath.Join(t.TempDir(), "runner.json")
+	raw := `{"host":{"sprite":"desk-host"},"orca":{"sprite":{"env":{"WORKER_CCI_URL":"` + testCCIURL + `","WORKER_CCI_SHA256":"` + testCCISHA + `"},"tools":` + rollTools + `}}}`
+	if err := os.WriteFile(runner, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refusals := make([]string, 0, 2)
+	for _, said := range []string{unreachableSprite, "Error: failed to fetch sprite version: 502\n"} {
+		w.replies["desk-host"] = shell.Result{Code: 1, Stderr: said}
+		err := RollHost(context.Background(), w, w.store, runner, func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, &w.out)
+		var failed *Failed
+		if !errors.As(err, &failed) {
+			t.Fatal(err)
+		}
+		refusals = append(refusals, failed.Line)
+	}
+	if want := "lr sprites roll: the desk host desk-host is down, so it keeps what it runs until a pass reaches it"; refusals[0] != want || refusals[1] != want {
+		t.Fatalf("a down host refused %q, want %q every pass so one blocker stands for it", refusals, want)
+	}
+}
+
 func TestARollInstallsOnTheProbeSpriteFirstThenEachLiveSpriteOnceAndRecordsWhatEachRuns(t *testing.T) {
 	w := newRollWorld(t)
 	if refused := w.roll("pool-c"); refused != "" {
