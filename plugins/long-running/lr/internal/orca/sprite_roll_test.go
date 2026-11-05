@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -33,12 +34,14 @@ type rollWorld struct {
 	env     map[string]string
 	workers []Worker
 	replies map[string]shell.Result
+	first   map[string]shell.Result
 	boxes   []string
 	out     bytes.Buffer
 
 	probeOnly bool
 	host      string
 	graders   []string
+	skip      []string
 	argv      map[string][]string
 }
 
@@ -49,7 +52,7 @@ func newRollWorld(t *testing.T) *rollWorld {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	w := &rollWorld{t: t, store: s, replies: map[string]shell.Result{}, argv: map[string][]string{}}
+	w := &rollWorld{t: t, store: s, replies: map[string]shell.Result{}, first: map[string]shell.Result{}, argv: map[string][]string{}}
 	f := &workerFixture{t: t}
 	f.write(filepath.Join(root, "plugin", "bin", "lr.binrun"), lrPin("linux-x86_64"), 0o700)
 	w.env = map[string]string{"WORKER_CCI_URL": testCCIURL, "WORKER_CCI_SHA256": testCCISHA, "BINRUN_PLUGIN_ROOT": filepath.Join(root, "plugin"), "WORKER_TOOLS": rollTools}
@@ -89,7 +92,12 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 	if want := (spritePins{}).installArgv(box, nil); !slices.Equal(c.Argv[:10], want[:10]) || c.Argv[len(c.Argv)-1] != "--" {
 		w.t.Fatal(c.Argv)
 	}
-	result, scripted := w.replies[box]
+	result, scripted := w.first[box]
+	if scripted {
+		delete(w.first, box)
+	} else {
+		result, scripted = w.replies[box]
+	}
 	if !scripted {
 		return shell.Result{Stdout: rollAll}, nil
 	}
@@ -102,7 +110,7 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 func (w *rollWorld) roll(probe string) string {
 	w.t.Helper()
 	w.out.Reset()
-	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Host: w.host, Graders: w.graders, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
+	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Host: w.host, Graders: w.graders, Skip: w.skip, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
 	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe, w.probeOnly)
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -217,10 +225,10 @@ func TestAFailureOnTheDeskHostMarksNoPinBadAndTheRollGoesOn(t *testing.T) {
 
 	refused := w.roll("")
 
-	if want := "lr sprites roll: the desk host desk-host keeps what it runs, and no pin is marked bad: jq: error: Could not open file known_marketplaces.json"; refused != want {
+	if want := "lr sprites roll: 1 of 4 Sprites failed twice and keep what they hold, and no pin is marked bad: desk-host"; refused != want {
 		t.Fatalf("refused\n%s\nwant\n%s", refused, want)
 	}
-	if !slices.Equal(w.boxes, []string{"desk-host", "pool-a", "pool-b", "pool-c"}) {
+	if !slices.Equal(w.boxes, []string{"desk-host", "pool-a", "pool-b", "pool-c", "desk-host"}) {
 		t.Fatal("the host's failure stopped the roll", w.boxes)
 	}
 	for tool, version := range map[string]string{"ccx": rollCCX, "long-running@skills": rollPack} {
@@ -409,7 +417,7 @@ func TestARollReachesItsGradersBeforeAStopOnALiveSpriteCanStrandThem(t *testing.
 
 	w.roll("")
 
-	if !slices.Equal(w.boxes, []string{"sdf-1", "sdf-2", "desk-host", "pool-a"}) {
+	if !slices.Equal(w.boxes[:4], []string{"sdf-1", "sdf-2", "desk-host", "pool-a"}) {
 		t.Fatal("the graders did not go first", w.boxes)
 	}
 }
@@ -433,6 +441,99 @@ func TestAnInstallThatRunsOutOfTimeMarksNoPinBad(t *testing.T) {
 	}
 	if why, err := w.store.BadTool("ccx", rollCCX); err != nil || why != "" {
 		t.Fatal(why, err)
+	}
+}
+
+const handshakeFailed = "captain package: ensure the supervised host: wire: handshake failed: read acknowledge: wire: receive"
+
+func TestABoxThatFailsAfterTheProbeIsRetriedAtTheEndAndTheRollGoesOn(t *testing.T) {
+	w := newRollWorld(t)
+	w.first["pool-b"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: "curl: (28) Failed to connect to github.com port 443 after 75002 ms\n"}
+
+	if refused := w.roll("pool-a"); refused != "" {
+		t.Fatal(refused)
+	}
+
+	if !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c", "pool-b"}) {
+		t.Fatal("the roll did not go past the failed box and retry it last", w.boxes)
+	}
+	if !strings.Contains(w.out.String(), "lr sprites roll: pool-b runs cci=0.49.36 ccx="+rollCCX+" long-running@skills="+rollPack+" lr=9.9.9 on its second try\n") {
+		t.Fatal(w.out.String())
+	}
+}
+
+func TestABoxThatFailsTwiceIsNamedWithItsErrorAndWhatItHoldsAndMarksNoPinBad(t *testing.T) {
+	w := newRollWorld(t)
+	said := "curl: (22) The requested URL returned error: 502"
+	w.replies["pool-b"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: said + "\n"}
+
+	refused := w.roll("pool-a")
+
+	if want := "lr sprites roll: 1 of 3 Sprites failed twice and keep what they hold, and no pin is marked bad: pool-b"; refused != want {
+		t.Fatalf("refused\n%s\nwant\n%s", refused, want)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c", "pool-b"}) {
+		t.Fatal(w.boxes)
+	}
+	if !strings.Contains(w.out.String(), "lr sprites roll: pool-b failed twice and holds cci=0.49.36 lr=9.9.9: "+said+"\n") {
+		t.Fatal(w.out.String())
+	}
+	if why, err := w.store.BadTool("ccx", rollCCX); err != nil || why != "" {
+		t.Fatal("a pin the probe installed was marked bad for one box's failure:", why, err)
+	}
+}
+
+func TestBoxesFailingTheSameWayThreeInARowStopTheRoll(t *testing.T) {
+	w := newRollWorld(t)
+	w.graders = []string{"fleet-1"}
+	w.host = "pool-d"
+	for _, box := range []string{"pool-a", "pool-b", "pool-c"} {
+		w.replies[box] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: handshakeFailed + "\n"}
+	}
+
+	refused := w.roll("")
+
+	if want := "lr sprites roll: 3 Sprites in a row failed the same way, so a pin is likely at fault though none is marked bad, and 1 more Sprites keep what they run: " + handshakeFailed; refused != want {
+		t.Fatalf("refused\n%s\nwant\n%s", refused, want)
+	}
+	if !slices.Equal(w.boxes, []string{"fleet-1", "pool-a", "pool-b", "pool-c"}) {
+		t.Fatal(w.boxes)
+	}
+}
+
+func TestBoxesFailingDifferentWaysDoNotStopTheRoll(t *testing.T) {
+	w := newRollWorld(t)
+	w.graders = []string{"fleet-1"}
+	w.host = "pool-d"
+	for i, box := range []string{"pool-a", "pool-b", "pool-c"} {
+		w.first[box] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: handshakeFailed + " " + strconv.Itoa(i) + "\n"}
+	}
+
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+
+	if !slices.Equal(w.boxes, []string{"fleet-1", "pool-a", "pool-b", "pool-c", "pool-d", "pool-a", "pool-b", "pool-c"}) {
+		t.Fatal(w.boxes)
+	}
+}
+
+func TestASkippedBoxIsNamedAndNeverTouched(t *testing.T) {
+	w := newRollWorld(t)
+	w.skip = []string{"pool-b"}
+
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+
+	if !slices.Equal(w.boxes, []string{"pool-a", "pool-c"}) {
+		t.Fatal(w.boxes)
+	}
+	if !strings.Contains(w.out.String(), "lr sprites roll: skipped, as --skip asks: pool-b\n") {
+		t.Fatal(w.out.String())
+	}
+	if refused := w.roll("pool-b"); refused != "nothing rolled: --skip names the probe pool-b" {
+		t.Fatal(refused)
 	}
 }
 
