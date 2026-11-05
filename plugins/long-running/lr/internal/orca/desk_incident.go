@@ -818,6 +818,9 @@ func (d *Desk) heldWorktree(ctx context.Context, lane string) (string, error) {
 }
 
 func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, error) {
+	if briefReader.MatchString(text) {
+		return "", nil
+	}
 	keys := briefIncidents(text)
 	pushers := map[string]bool{}
 	seen := map[string]bool{}
