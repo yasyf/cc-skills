@@ -507,7 +507,8 @@ func markRead(path string, keys []string, now func() time.Time) error {
 func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 	argv := []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-wake", "--seed", s.lane, "--to", s.lane, "--mail"}
 	if s.to != s.lane {
-		argv = []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-stem-wake", "--seed", s.lane, "--to", s.to}
+		cursor := s.lane + "-stem-wake"
+		argv = []string{"cci", "tail", "--drive", s.drive, "--cursor", cursor, "--seed", cursor, "--to", s.to}
 	}
 	result, err := w.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
 	if err != nil {
