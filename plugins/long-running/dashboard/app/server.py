@@ -1016,6 +1016,7 @@ class Drive:
         self.browsers = {}
         self.listening = Counter()
         self.secure_url = None
+        self.own_hosts = []
         self.served = None
         self.live_model = None
         self.watchers = 0
@@ -1741,6 +1742,7 @@ class Drive:
             "milestone_state": milestone_rows,
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
+            "own_hosts": self.own_hosts,
             "views": self.config.get("views", {}),
         }
 
@@ -2247,7 +2249,9 @@ def main():
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
     for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_rows, ()), (drive.follow_cards, ()), (drive.follow_steps, ()), (drive.follow_owed, ()), (drive.follow_replies, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=drive.followed, args=(target, *rest), daemon=True).start()
-    app = handler(drive, config["tailnet_owner"], own_names(config["host"]))
+    names = own_names(config["host"])
+    drive.own_hosts = sorted(names)
+    app = handler(drive, config["tailnet_owner"], names)
     if "tls_port" in config:
         threading.Thread(target=serve_tls, args=(drive, config, app, args.config.parent), daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), app)

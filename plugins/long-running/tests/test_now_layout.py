@@ -1154,6 +1154,58 @@ def test_a_pick_tapped_in_chat_posts_its_answer_inline_on_hover_and_in_the_windo
     now(page)
 
 
+PRS_IN_TWO_POSTS = """() => {
+  for (const n of [77002, 77003, 77004, 77005, 77006]) {
+    state.model.prs[n] = { title: `change ${n}`, head: 'abc1234' };
+    state.model.board.rows = state.model.board.rows.filter((row) => row.number !== n).concat({ number: n, head: 'abc1234', title: `change ${n}`, change: 'Words', state: 'not-ready', key: `k${n}` });
+    state.drive.set(n, { number: n, state: 'waiting' });
+  }
+  const post = (id, md) => ({ reply: { id, title: `Post ${id}`, md, type: 'explanation', status: 'info' }, at: '2026-11-03T20:00:00Z', surfaces: [] });
+  state.model.replies = [post('five', 'Waiting: #77002, #77003, #77004, #77005 and #77006.'), post('again', 'Still waiting: #77002.')];
+  render();
+}"""
+
+
+def test_a_post_draws_every_open_change_it_names_even_one_drawn_in_another_post(page):
+    open_chat(page)
+    page.evaluate(PRS_IN_TWO_POSTS)
+    five = page.locator('.cw .thread[data-k="reply:five"]')
+    assert five.locator(".pr-card").count() == 5
+    assert five.locator(".embedded-ref").count() == 0
+    assert page.locator('.cw .thread[data-k="reply:again"] .pr-card').count() == 1
+    now(page)
+
+
+def test_a_change_an_open_question_holds_says_it_waits_on_his_answer(page):
+    open_chat(page)
+    page.evaluate(PRS_IN_TWO_POSTS)
+    page.evaluate("state.model.board.cards[0].prs = [77002]; render()")
+    five = page.locator('.cw .thread[data-k="reply:five"]')
+    assert five.locator("#pr-77002 .artifact-top .right").inner_text() == "Waits on your answer"
+    assert five.locator("#pr-77003 .artifact-top .right").inner_text() == "Waiting its turn"
+    page.evaluate("state.model.board.answered[state.model.board.cards[0].id] = { picked: 'Yes' }; render()")
+    assert five.locator("#pr-77002 .artifact-top .right").inner_text() == "Waiting its turn"
+    now(page)
+
+
+def test_the_dashboard_never_shows_its_own_url_and_keeps_every_other_link(page):
+    now(page)
+    page.evaluate("state.model.own_hosts = ['studio', 'studio.tail.ts.net', '100.1.2.3']")
+    drop = lambda md: page.evaluate("(md) => dashboardLinksHere(md)", md)
+    assert drop("https://studio.tail.ts.net:61211/\n\nThree merged.") == "Three merged."
+    assert drop("Your taps: https://studio.tail.ts.net:61211/#/needs.") == "Your taps: [here](#/needs)."
+    assert drop("Live at http://100.1.2.3:61210/ since 4:55 PM.") == "Live [here](#/) since 4:55 PM."
+    for kept in ("https://studio.tail.ts.net:8665/one-pagers/relay/", "https://buildkite.com/", "http://elsewhere:61211/#/needs"):
+        assert drop(kept) == kept
+
+
+def test_a_reply_reads_angle_brackets_and_no_reply_id(page):
+    now(page)
+    assert page.evaluate("plain('one sessions-&lt;session&gt; database')") == "one sessions-<session> database"
+    assert page.evaluate("plain('Your order has its count (rmw35v9u3): 234 cuts.')") == "Your order has its count: 234 cuts."
+    assert page.evaluate("replyTitle({ title: 'Four items, two on your tap (#50590), and more' })") == "Four items, two on your tap, and more"
+
+
 def test_a_change_named_in_a_reply_is_a_small_card_with_real_approve_and_hold(page):
     open_chat(page)
     card = page.locator("#pr-77001")
