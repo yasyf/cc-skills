@@ -22,6 +22,7 @@ const (
 	proseWindow  = 3 * time.Hour
 	staleCard    = 7 * 24 * time.Hour
 	communicator = "owner-relay"
+	ownerAddress = "owner"
 	lineChars    = 240
 	listChars    = 2000
 	heldShown    = 5
@@ -184,7 +185,7 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 			side = c.sideBoards(ctx, record.Text)
 		}
 		switch {
-		case record.Lane == communicator && repeatWords.MatchString(record.Text):
+		case record.Lane == communicator && !slices.Contains(record.To, ownerAddress) && repeatWords.MatchString(record.Text):
 			found = append(found, c.repeated(ctx, record))
 		case len(side) > 0:
 			if finding, routed := c.offBoard(record, "board "+strings.Join(side, ", ")+" is not his main board"); routed {
