@@ -393,8 +393,8 @@ Authority: implement the fix and open its PR through <submit skill>.
   staging or on a pass box as the service account; a proof that needs his
   identity is a pick to him through `lr ask-owner`, and a scratch proof with no
   named identity means a test identity or no write. `lr codex-guard check`
-  refuses the Orca browser shape on a production host; this line binds every
-  other route.
+  refuses the Orca browser shape on a production host and Iris launched on a
+  test Mac signed in as him; this line binds every other route.
   Any delete or replace stops for the owner, unless he ordered this release: start
   that one with `--order <answer id>`, and its gate passes itself.
   A break-glass profile refused with ForbiddenException on GetRoleCredentials

@@ -14,8 +14,8 @@ import (
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "codex-guard",
-		Short: "Refuse a Codex lane driving the owner's signed-in Orca browser on a production host",
-		Long:  "Codex runs no capt-hook pack, so this holds the no_production_as_him rule through its own PreToolUse hook. The hosts come from the global git config key long-running.productionHost.",
+		Short: "Refuse a Codex lane driving the owner's signed-in Orca browser on a production host or launching Iris on a test Mac signed in as him",
+		Long:  "Codex runs no capt-hook pack, so this holds the no_production_as_him rule through its own PreToolUse hook. The hosts come from the global git config key long-running.productionHost, and the test Macs signed in as him from long-running.signedInBox.",
 	}
 	cmd.AddCommand(checkCommand(a), installCommand())
 	return cmd
@@ -24,7 +24,7 @@ func Command(a *app.App) *cobra.Command {
 func checkCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
-		Short: "Read one PreToolUse call on stdin and print a deny when it drives a production page",
+		Short: "Read one PreToolUse call on stdin and print a deny when it drives a production page or launches Iris as the owner",
 		Long:  "Every read that fails lets the call through. Codex runs this from hooks.json, so nothing else needs to call it.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -32,10 +32,11 @@ func checkCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return nil
 			}
-			if !(Guard{Runner: a.Runner, Getenv: os.Getenv}).Refuses(cmd.Context(), payload) {
+			reason := Guard{Runner: a.Runner, Getenv: os.Getenv}.Refusal(cmd.Context(), payload)
+			if reason == "" {
 				return nil
 			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(denial())
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(denial(reason))
 		},
 	}
 }
