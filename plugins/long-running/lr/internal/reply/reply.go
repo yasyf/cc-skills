@@ -43,7 +43,6 @@ const (
 	cardPrefix   = "card-"
 	withdrawn    = " withdrawn"
 	alreadyGone  = "no block "
-	doneLead     = "Done, nothing for you"
 	pickLead     = "Tap one below"
 	needsYou     = "needs_you"
 	progress     = "progress"
@@ -442,10 +441,8 @@ func (r Reply) led() Reply {
 		lead = pickLead
 		r.Action = lead
 		r.Status = cmp.Or(r.Status, needsYou)
-	case r.Status == progress:
-		return r
 	default:
-		lead = doneLead
+		return r
 	}
 	if !strings.HasPrefix(r.Title, lead) {
 		r.Title = shortened(lead+": "+r.Title, maxTitle)
