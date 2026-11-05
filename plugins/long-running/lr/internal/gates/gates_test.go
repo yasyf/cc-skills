@@ -224,6 +224,8 @@ func TestABodyThatWaitsToGoLiveAndNamesNoWayItIsSafeOnDevDoesNotLand(t *testing.
 		"#48995 waiting on a card":  {pr48995 + "\nThis PR waits on the owner's card before it goes live.\n", "This PR waits on the owner's card before it goes live"},
 		"a hold until a release":    {"## Risk\n\n**Hold this PR until that release is live.**\n", "Hold this PR until that release is live"},
 		"a stack held by the owner": {"> Held by the owner until Dec 2, 2026; needs evidence that old clients upgraded\n", "Held by the owner until Dec 2, 2026; needs evidence that old clients upgraded"},
+		"a wait on a named pick":    {"## Risk\n\nThis PR waits on the cutover pick before it goes live.\n", "This PR waits on the cutover pick before it goes live"},
+		"a wait after a denied one": {"## Risk\n\nThis PR waits on no pick. It waits for his go before it lands.\n", "It waits for his go before it lands"},
 	} {
 		f := green
 		f.UnsafeWait = UnsafeWait(c.body)
@@ -245,6 +247,7 @@ func TestABodyThatNamesHowItIsSafeOnDevOrWaitsOnNothingLands(t *testing.T) {
 		"#2436 waiting on his tap":    pr2436 + "\nIt waits for his tap before it goes live.\n",
 		"#46018 behind a flag":        pr46018 + "\nThe drop sits behind a feature flag that stays off until #46014 is live.\n",
 		"a wait for a page to settle": "It waits for the chat to open, about 10 s at the burst's p50.\n",
+		"#49951 denying a wait":       "## Risk\n\nThis PR waits on no pick, and nothing about it changes once it merges.\n",
 	} {
 		if wait := UnsafeWait(body); wait != "" {
 			t.Errorf("%s: refused for %q", name, wait)

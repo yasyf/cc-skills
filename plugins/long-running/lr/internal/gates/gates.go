@@ -60,17 +60,22 @@ var (
 		`|` + waiter + `(?: is [^.;\n]{0,40}? and)? goes live (?:only )?(?:(?:one |a )?release after|in a release after|after|once|until)\b` +
 		`|` + waiter + ` waits (?:on|for) (?:a |an |the |his |that |its |the owner's )?(?:[\w-]+ )?(?:card|tap|pick|release|hold|go|ruling|decision|cutover)\b` +
 		`)[^.\n]*)`)
-	safeOnDev = regexp.MustCompile(`(?i)\b(?:feature flag|flag(?:ged)? (?:off|behind)|behind a (?:flag|gate)|code gate|gated (?:by|behind|on)|inert|nothing (?:calls|runs|reads|uses)\b[^.\n]*\b(?:yet|until #\d+))`)
+	deniedWait = regexp.MustCompile(`(?i)\bwaits (?:on|for) no\b`)
+	safeOnDev  = regexp.MustCompile(`(?i)\b(?:feature flag|flag(?:ged)? (?:off|behind)|behind a (?:flag|gate)|code gate|gated (?:by|behind|on)|inert|nothing (?:calls|runs|reads|uses)\b[^.\n]*\b(?:yet|until #\d+))`)
 )
 
 const waiter = `(?:this|it)(?: pr| stack| change| deletion| removal| drop)?`
 
 func UnsafeWait(body string) string {
-	wait := waitsLive.FindStringSubmatch(body)
-	if wait == nil || safeOnDev.MatchString(body) {
+	if safeOnDev.MatchString(body) {
 		return ""
 	}
-	return strings.Trim(wait[1], " *")
+	for _, wait := range waitsLive.FindAllStringSubmatch(body, -1) {
+		if !deniedWait.MatchString(wait[1]) {
+			return strings.Trim(wait[1], " *")
+		}
+	}
+	return ""
 }
 
 func UnsafeOnDev(wait string) string {
