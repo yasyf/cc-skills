@@ -53,6 +53,10 @@ const (
 	readKind    = "github"
 	pullsDrive  = "github-pr"
 	readRecord  = "pr.read"
+	trunkRecord = "trunk.read"
+	trunkHead   = "trunk-mergeable"
+	trunkMoved  = "moved"
+	trunkRead   = "read"
 	readLane    = "pr-read"
 	readReader  = "supervisor"
 	stateMerged = "merged"
@@ -173,12 +177,20 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 				branches[row.Branch] = row
 			}
 		}
+		trunk, err := t.Facts(f.Repo, 0, trunkHead)
+		if err != nil {
+			return err
+		}
 		written := f.Now()
 		for number, row := range rows {
 			if Terminal(row.State) {
 				row = withoutExemptTap(row, atHeads[number])
 			} else {
 				row = Materialize(row, atHeads[number], held[number], branches, f.Trunk)
+				if row.ReadyForTap && trunk[trunkMoved] != trunk[trunkRead] {
+					row.ReadyForTap, row.MergesAt = false, ""
+					row.WaitsOn = fmt.Sprintf("dev moved to %s, and the landing host has not read mergeability since", shortHead(trunk[trunkMoved]))
+				}
 				if atHeads[number][FactForeign] != "" && !row.Tapped && !Exempted(row, atHeads[number]) {
 					delete(rows, number)
 					if err := t.DeleteReviewRow(f.Repo, number); err != nil {
@@ -289,8 +301,15 @@ func (f Fold) tail(ctx context.Context, drive, cursor string, kinds []string) ([
 }
 
 func (f Fold) follow(t *store.Tx, rows map[int]store.ReviewRow, record client.Record) error {
-	if record.Topic == "check" {
+	switch record.Topic {
+	case "check":
 		return f.checked(t, rows, record)
+	case "push":
+		attrs := record.Fields.Attrs
+		if !strings.EqualFold(attrs["repo"], f.Repo) || attrs["branch"] != f.Trunk {
+			return nil
+		}
+		return t.PutFact(f.Repo, 0, trunkHead, trunkMoved, record.Fields.Commit, record.At)
 	}
 	for _, number := range bus.HeldBy(record, f.Repo) {
 		row, known := rows[number]
@@ -383,6 +402,9 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, outside map[int]s
 	attrs := record.Fields.Attrs
 	if repo := attrs["repo"]; repo != "" && !strings.EqualFold(repo, f.Repo) {
 		return nil
+	}
+	if string(record.Kind) == readKind && attrs["record"] == trunkRecord {
+		return t.PutFact(f.Repo, 0, trunkHead, trunkRead, attrs["trunk"], record.At)
 	}
 	for _, number := range bus.HeldBy(record, f.Repo) {
 		row, known := rows[number]
@@ -837,6 +859,27 @@ func valuesOf(attrs map[string]string) string {
 		panic(err)
 	}
 	return string(encoded)
+}
+
+func (f Fold) UnreadTrunk() (string, error) {
+	trunk, err := f.Store.Facts(f.Repo, 0, trunkHead)
+	if err != nil || trunk[trunkMoved] == trunk[trunkRead] {
+		return "", err
+	}
+	return trunk[trunkMoved], nil
+}
+
+func (f Fold) PostTrunkRead(ctx context.Context, sha string) error {
+	_, err := client.Post(ctx, client.Draft{
+		Drive: f.Drive, Lane: readLane, Kind: readKind, Text: "read every row's mergeability after dev moved to " + shortHead(sha), To: []string{readReader}, Force: true,
+		ID:    trunkRecord + "/" + sha,
+		Attrs: map[string]string{"record": trunkRecord, "repo": f.Repo, "trunk": sha},
+	})
+	if err != nil {
+		return err
+	}
+	_, err = f.Store.PutFact(f.Repo, 0, trunkHead, trunkRead, sha, f.Now())
+	return err
 }
 
 func SaidFact(grader string) string {

@@ -103,7 +103,15 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err := s.admitOutside(ctx, rows); err != nil {
 		s.Log.Warn("the search for old-tree pull requests no drive lane opened failed", "error", err)
 	}
-	return s.readGitHub(ctx, rows, held)
+	unread, err := s.Rows().UnreadTrunk()
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := s.readGitHub(ctx, rows, held)
+	if err != nil || unread == "" {
+		return snapshot, err
+	}
+	return snapshot, s.Rows().PostTrunkRead(ctx, unread)
 }
 
 func (s Source) ReadOnce(ctx context.Context) (int, error) {

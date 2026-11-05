@@ -352,6 +352,48 @@ func TestAKnownMergeabilitySurvivesGitHubsRecomputeThenGoesUnknown(t *testing.T)
 	}
 }
 
+func TestADevMoveHoldsAReadyRowFromATapUntilTheLandingHostReadsAgain(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	gradeClear(t, s, 1, headA)
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headA)}); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); !row.ReadyForTap {
+		t.Fatalf("before dev moves: row = %+v, want ready", row)
+	}
+	for _, branch := range []string{"lane/fix", "dev"} {
+		var push client.Record
+		raw := fmt.Sprintf(`{"seq":1,"drive":"github-pr","lane":"github","kind":"github","at":%q,"topic":"push","fields":{"outcome":"pushed","commit":%q,"attrs":{"repo":%q,"branch":%q}}}`,
+			time.Now().Format(time.RFC3339Nano), headB, testRepo, branch)
+		if err := json.Unmarshal([]byte(raw), &push); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Update(func(tx *store.Tx) error { return f.follow(tx, map[int]store.ReviewRow{}, push) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	row := folded(t, f, 1)
+	if row.ReadyForTap || row.Mergeable != "clean" || !strings.Contains(row.WaitsOn, "dev moved to "+shortHead(headB)) {
+		t.Fatalf("after dev moves: row = %+v, want its clean kept and no tap until a read", row)
+	}
+	unread, err := f.UnreadTrunk()
+	if err != nil || unread != headB {
+		t.Fatalf("unread trunk = %q, %v, want %s", unread, err, headB)
+	}
+	if err := f.PostTrunkRead(context.Background(), unread); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); !row.ReadyForTap {
+		t.Fatalf("after the landing host reads: row = %+v, want ready", row)
+	}
+	if unread, err := f.UnreadTrunk(); err != nil || unread != "" {
+		t.Fatalf("unread trunk after the read = %q, %v, want none", unread, err)
+	}
+}
+
 func TestAConflictAnswerReplacesAKeptClean(t *testing.T) {
 	f, s := foldFor(t)
 	now := time.Now()
