@@ -22,6 +22,8 @@ SLEEP = re.compile(r"(\d+(?:\.\d+)?)([smhd]?)")
 SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 LONG_SLEEP = 60
 PAYLOAD_FLAG = re.compile(r"-[a-z]*c")
+PR_WATCH_SCRIPTS = frozenset({"pr-poll.sh", "pr-watch-armed.sh"})
+POLL = "PR_POLL_WINDOW=40 bash /p/open-pr/0.6.8/scripts/pr-poll.sh acme/widgets 7 /c/pr/7.json"
 UNTIL = "until grep -q done out.txt; do sleep 5; done"
 ACTIVE = [CompactionState(active=True, communicator=True)]
 
@@ -63,7 +65,7 @@ def script_text(call: Call) -> str | None:
         return call.args[flag + 1]
     operand = next((arg for arg in call.args if not arg.startswith("-")), None) if call.name in SHELLS else call.command.executable
     path = (call.cwd or Path()) / operand if operand else None
-    if path is None or not path.is_file() or any((parent / ".git").exists() for parent in path.resolve().parents):
+    if path is None or path.name in PR_WATCH_SCRIPTS or not path.is_file() or any((parent / ".git").exists() for parent in path.resolve().parents):
         return None
     return path.read_text()
 
@@ -101,6 +103,9 @@ hook(  # capt-hook: no-escape the owner asked for a block on every shell wait, a
         Input(command="sleep $((target - now)); echo wake", env=DRIVE): Block(),
         Input(command="zsh -c 'until grep -q x y; do sleep 5; done'", env=DRIVE): Block(),
         Input(command="cat > /tmp/wake-1015.zsh <<'EOF'\nsleep 3600\nEOF\nzsh /tmp/wake-1015.zsh", env=DRIVE): Block(),
+        Input(command=f"while true; do {POLL}; sleep 30; done", agent_id="a1b2c3", env=DRIVE): Block(),
+        Input(command=f"sleep 600 && {POLL}", agent_id="a1b2c3", env=DRIVE): Block(),
+        Input(command=POLL, agent_id="a1b2c3", env=DRIVE): Allow(),
         Input(command="sleep 5; cat x", env=DRIVE): Allow(),
         Input(command="for f in a b; do cat $f; done", env=DRIVE): Allow(),
         Input(command="for b in 1 2 3; do bk build view $b; done", env=DRIVE): Allow(),

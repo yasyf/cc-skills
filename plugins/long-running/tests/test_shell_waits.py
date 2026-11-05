@@ -6,6 +6,8 @@ import pytest
 from captain_hook.cmd import Cmd
 from hooks import shell_waits
 
+POLLS_INSIDE = "while :; do\n  gh api x\n  sleep 120\ndone\n"
+
 
 def script(directory: Path, name: str, text: str) -> Path:
     path = directory / name
@@ -49,6 +51,24 @@ def test_a_checked_in_script_keeps_its_own_short_retry(tmp_path: Path):
     (tmp_path / ".git").mkdir()
     (tmp_path / "tools").mkdir()
     assert not runs(f"zsh {script(tmp_path / 'tools', 'warm.zsh', 'until test -e lock; do sleep 1; done')}")
+
+
+@pytest.mark.parametrize("name", ["pr-poll.sh", "pr-watch-armed.sh"])
+@pytest.mark.parametrize("launch", ["PR_POLL_WINDOW=40 bash {} acme/widgets 7 /c/7.json", "{} acme/widgets 7 /c/7.json"])
+def test_the_pr_watchers_installed_scripts_are_no_wait(tmp_path: Path, launch: str, name: str):
+    assert not runs(launch.format(script(tmp_path, name, POLLS_INSIDE)))
+
+
+@pytest.mark.parametrize(
+    "launch",
+    ["while true; do bash {}; sleep 30; done", "until bash {}; do sleep 5; done", "sleep 600 && bash {}"],
+)
+def test_a_wait_written_around_the_poll_script_is_still_a_wait(tmp_path: Path, launch: str):
+    assert runs(launch.format(script(tmp_path, "pr-poll.sh", POLLS_INSIDE)))
+
+
+def test_the_same_loop_under_another_name_is_still_a_wait(tmp_path: Path):
+    assert runs(f"bash {script(tmp_path, 'my-poll.sh', POLLS_INSIDE)}")
 
 
 def test_a_script_that_is_not_there_is_no_wait(tmp_path: Path):
