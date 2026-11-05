@@ -62,7 +62,6 @@ type watchedBuild struct {
 
 type pageMessage struct {
 	slackMessage
-	User     string `json:"user"`
 	UserName string `json:"user_name"`
 }
 

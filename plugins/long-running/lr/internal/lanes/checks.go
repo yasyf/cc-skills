@@ -76,6 +76,8 @@ type Check func(ctx context.Context, now time.Time) error
 
 type slackMessage struct {
 	TS          string `json:"ts"`
+	User        string `json:"user"`
+	FromClaude  bool   `json:"from_claude"`
 	Text        string `json:"text"`
 	Permalink   string `json:"permalink"`
 	ReplyCount  int    `json:"reply_count"`
@@ -178,6 +180,9 @@ func (a *Alerts) Check(ctx context.Context, now time.Time) error {
 			continue
 		}
 		for _, card := range history.Messages {
+			if card.FromClaude {
+				continue
+			}
 			if err := a.raise(ctx, channel, card, card, now); err != nil {
 				return err
 			}
@@ -204,7 +209,7 @@ func (a *Alerts) Check(ctx context.Context, now time.Time) error {
 			}
 			threads[key] = moved
 			for _, reply := range thread.Messages {
-				if reply.TS == card.TS {
+				if reply.TS == card.TS || reply.FromClaude || reply.User != card.User {
 					continue
 				}
 				if err := a.raise(ctx, channel, card, reply, now); err != nil {

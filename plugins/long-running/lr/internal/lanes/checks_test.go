@@ -176,6 +176,46 @@ func TestAnAlertWithAFixLaneNamingItJoinsThatLaneAndLaunchesNothing(t *testing.T
 	contains(t, bus.posted[0].Text, "ALERT-AGAIN Triggered: x: https://app.datadoghq.com/monitors/338724738 fired again 4 min ago")
 }
 
+func TestOnlyTheAlertBotsOwnPostsInAnAlertThreadOpenAnAlertAndTheDrivesBotNeverDoes(t *testing.T) {
+	const datadog, root = "U0828UHTV42", "https://poetic-technology.slack.com/archives/C0822AHFY3G/p1793742000000100"
+	message := func(ts, user string, fromClaude bool, text string) map[string]any {
+		return map[string]any{"ts": ts, "user": user, "from_claude": fromClaude, "text": text, "permalink": "https://poetic-technology.slack.com/archives/C0822AHFY3G/p" + strings.ReplaceAll(ts, ".", "")}
+	}
+	summary := message("1793742000.000100", datadog, false, "*Monitor alert summary:* Iris memory fix runs over 60 minutes behind\n_View thread for the full alert cycle timeline._")
+	summary["reply_count"], summary["latest_reply"] = 3, "1793742541.000600"
+	history, err := json.Marshal(map[string]any{"messages": []any{
+		message("1793742300.000400", "", true, "Update: <https://app.datadoghq.com/monitors/341391738|the new monitor> reads OK"),
+		summary,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, err := json.Marshal(map[string]any{"messages": []any{
+		summary,
+		message("1793742400.000300", "", true, "The fix is live. <https://github.com/Forge-AI/monorepo/pull/51178|#51178> shipped in <https://buildkite.com/forge/release/builds/13332|release 13332> at 12:24pm and replaced this alert with <https://app.datadoghq.com/monitors/341391738|a new monitor> that tracks how long work actually waits in the repair queue."),
+		message("1793742540.000500", "U0HUMAN", false, "is <https://app.datadoghq.com/monitors/341500000|this one> related?"),
+		message("1793742541.000600", datadog, false, "Warn: Iris memory fix runs over 60 minutes behind\nhttps://app.datadoghq.com/monitors/334378984?from_ts=1793741000000"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel, bus := &releaseChannel{history: string(history), threads: map[string]string{root: string(thread)}}, &fakeBus{}
+	var launched []string
+	check := releaseAlerts(t, channel, bus, func(_ context.Context, fired Fired) (string, error) {
+		launched = append(launched, fired.Slug)
+		return "/state/lanes/" + fired.Slug + "-fix.brief.md", nil
+	})
+
+	for tick := range 2 {
+		if err := check.Check(context.Background(), releaseNow.Add(time.Duration(tick)*30*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	equal(t, launched, []string{"dd-334378984"})
+	equal(t, len(bus.posted), 1)
+}
+
 func storeLane(name string) store.Lane {
 	return store.Lane{Name: name, Brief: "/briefs/" + name + ".md", Model: "opus", Effort: "xhigh", Role: "lane", State: store.LaneDesired}
 }

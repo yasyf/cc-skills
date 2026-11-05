@@ -360,19 +360,57 @@ func TestASettledBuildPostsReleasedOnceEveryComponentIsLive(t *testing.T) {
 	f.fake = &shelltest.Fake{}
 	f.owed = f.instance(t, f.merged.Add(-time.Minute))
 	f.fake.Reply(`{"api":{"live":"v42"}}`, owedTool, "release", "live", "12305", "--json")
+	f.fake.Reply(`[{"target":"api","env":"core-usw2-auto","commit":"later","build":"`+owedBuild+`"}]`, owedTool, "release", "live", "--json")
 	f.fake.Reply("", "cci", "post")
 	f.at(t, 2*time.Minute)
 	f.at(t, 3*time.Minute)
 
+	posts := cciPosts(f.fake)
+	if len(posts) != 1 || !strings.Contains(posts[0], "--kind fix-live --to root --id release:7:live") || !strings.Contains(posts[0], "--target api") || !strings.Contains(posts[0], "--build "+owedBuild) || !strings.HasSuffix(posts[0], "--text RELEASED api v42 ("+owedBuild+")") {
+		t.Fatalf("posts = %v", posts)
+	}
+}
+
+func TestAFixLiveNamesTheBuildThatDeployedTheHeadNotACancelledOneThatCarriedIt(t *testing.T) {
+	const cancelled, deployed, staging = "https://buildkite.com/forge/release/builds/13320", "https://buildkite.com/forge/release/builds/13332", "https://buildkite.com/forge/release/builds/13322"
+	f := newOwed(t, "lane-1", fastLabel, "Release-With: rsw-go datadog")
+	value := fmt.Sprintf(`{"sha":%q,"components":["rsw-go","datadog"],"landed":%q,"posted":{"0":1},"settled":9,"builds":[%q]}`, owedSHA, f.merged.Format(time.RFC3339), cancelled)
+	if _, err := f.store.PutFact(monorepo, 7, owedSHA, "release-owed", value, f.merged); err != nil {
+		t.Fatal(err)
+	}
+	f.fake.Reply(`{
+		"rsw-go":{"live":"8603b7cd1760","clusters":[{"env":"plat-usw2-prod","commit":"7f33c8d2252e"},{"env":"tnt-usw2-0ddq7rb","commit":"7f33c8d2252e"}]},
+		"datadog":{"live":"8603b7cd1760","clusters":[{"env":"plat-usw2-prod","commit":"7f33c8d2252e"}]},
+		"identity":{"live":"not live","clusters":[{"env":"plat-usw2-prod","commit":"37a3e2866bfe","behind":true}]}
+	}`, owedTool, "release", "live", "13320", "--json")
+	f.fake.Reply(`[
+		{"target":"rsw-go","env":"plat-usw2-prod","commit":"7f33c8d2252e4056","build":"`+deployed+`"},
+		{"target":"rsw-go","env":"plat-usw2-staging","commit":"3bf223518eae","build":"`+staging+`"},
+		{"target":"rsw-go","env":"tnt-usw2-0ddq7rb","commit":"7f33c8d2252e4056","build":"`+deployed+`"},
+		{"target":"datadog","env":"plat-usw2-prod","commit":"7f33c8d2252e4056","build":"`+deployed+`"},
+		{"target":"identity","env":"plat-usw2-prod","commit":"37a3e2866bfe","build":"https://buildkite.com/forge/release/builds/13290"}
+	]`, owedTool, "release", "live", "--json")
+	f.fake.Reply("", "cci", "post")
+
+	f.at(t, 2*time.Minute)
+
+	posts := cciPosts(f.fake)
+	if len(posts) != 1 {
+		t.Fatalf("posts = %v", posts)
+	}
+	if strings.Contains(posts[0], cancelled) || strings.Contains(posts[0], staging) || !strings.Contains(posts[0], "--build "+deployed+" --target rsw-go --target datadog") || !strings.HasSuffix(posts[0], "--text RELEASED rsw-go 8603b7cd1760, datadog 8603b7cd1760 ("+deployed+")") {
+		t.Fatalf("the fix-live names another build than the one that deployed the head: %s", posts[0])
+	}
+}
+
+func cciPosts(fake *shelltest.Fake) []string {
 	var posts []string
-	for _, call := range f.fake.Calls() {
+	for _, call := range fake.Calls() {
 		if len(call.Argv) > 1 && call.Argv[0] == "cci" {
 			posts = append(posts, strings.Join(call.Argv, " "))
 		}
 	}
-	if len(posts) != 1 || !strings.Contains(posts[0], "--kind fix-live --to root --id release:7:live") || !strings.Contains(posts[0], "--target api") || !strings.Contains(posts[0], "--build "+owedBuild) || !strings.HasSuffix(posts[0], "--text RELEASED api v42 ("+owedBuild+")") {
-		t.Fatalf("posts = %v", posts)
-	}
+	return posts
 }
 
 func TestANagToARetiredOwnerReachesTheRoleHolder(t *testing.T) {
