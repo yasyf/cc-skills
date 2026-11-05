@@ -3656,6 +3656,40 @@ func TestRebindRefusesOutsideAnOrcaTerminalAndBindsInsideOne(t *testing.T) {
 	}
 }
 
+func TestARefusedRebindSucceedsOnlyWhileTheRunIsAlreadyCoordinated(t *testing.T) {
+	refused := object{"code": "worker_cannot_coordinate_own_run", "message": "You work Dispatch ctx_1"}
+	for _, tt := range []struct {
+		name       string
+		coordinate string
+		wantErr    bool
+	}{
+		{"the Run already has a working coordinator", testRun, false},
+		{"no terminal coordinates the Run", "run_other", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.refusals["orchestration run-use"] = refused
+			w.coordinate = tt.coordinate
+			w.desk.Env = func(name string) string {
+				if name == "ORCA_TERMINAL_HANDLE" {
+					return "term_worker"
+				}
+				return ""
+			}
+			var stderr strings.Builder
+			w.desk.Stderr = &stderr
+			err := w.desk.Rebind(context.Background())
+			var exit *wait.ExitError
+			if tt.wantErr != errors.As(err, &exit) {
+				t.Fatalf("got %v, want an exit error: %v", err, tt.wantErr)
+			}
+			if !strings.Contains(stderr.String(), "worker_cannot_coordinate_own_run") {
+				t.Fatalf("the refusal must reach stderr: %q", stderr.String())
+			}
+		})
+	}
+}
+
 func TestADirectiveParsesEveryForm(t *testing.T) {
 	for _, tt := range []struct{ line, key, verb string }{
 		{"orca-desk: relay to a: b", "", verbRelay},
