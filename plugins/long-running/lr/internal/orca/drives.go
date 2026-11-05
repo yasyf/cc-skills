@@ -63,16 +63,25 @@ func namedDrive(env func(string) string, name string) *drive.Entry {
 	return entry
 }
 
-func currentDriveEntry(ctx context.Context, env func(string) string, runner shell.Runner) *drive.Entry {
+func currentDriveEntry(env func(string) string) *drive.Entry {
 	if name := env(driveEnv); name != "" {
 		return namedDrive(env, name)
 	}
-	if session := env(sessionEnv); session != "" {
-		for _, entry := range allDrives(env) {
-			if slices.Contains(entry.Sessions, session) {
-				return &entry
-			}
+	session := env(sessionEnv)
+	if session == "" {
+		return nil
+	}
+	for _, entry := range allDrives(env) {
+		if slices.Contains(entry.Sessions, session) {
+			return &entry
 		}
+	}
+	return nil
+}
+
+func ownDriveEntry(ctx context.Context, env func(string) string, runner shell.Runner) *drive.Entry {
+	if entry := currentDriveEntry(env); entry != nil || env(driveEnv) != "" {
+		return entry
 	}
 	me, err := runner.Run(ctx, shell.Command{Argv: []string{"cci", "me"}})
 	if err != nil {
@@ -99,11 +108,11 @@ func driveOfRun(env func(string) string, run string) *drive.Entry {
 	return nil
 }
 
-func driveName(ctx context.Context, env func(string) string, runner shell.Runner, run string) string {
+func driveName(env func(string) string, run string) string {
 	if name := env(driveEnv); name != "" {
 		return name
 	}
-	if entry := currentDriveEntry(ctx, env, runner); entry != nil {
+	if entry := currentDriveEntry(env); entry != nil {
 		return entry.Drive
 	}
 	if entry := driveOfRun(env, run); entry != nil {

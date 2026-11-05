@@ -75,7 +75,7 @@ type Poster struct {
 
 func (p Poster) Entry(ctx context.Context) (*drive.Entry, error) {
 	if p.Drive == "" {
-		if entry := currentDriveEntry(ctx, p.Env, p.Runner); entry != nil {
+		if entry := ownDriveEntry(ctx, p.Env, p.Runner); entry != nil {
 			return entry, nil
 		}
 		return nil, fmt.Errorf("no drive in the registry is bound to session %s and cci me names none, so its orca desk runner is unknown and nothing is posted", p.Env(sessionEnv))
