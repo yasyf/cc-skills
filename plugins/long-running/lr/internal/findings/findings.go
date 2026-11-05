@@ -19,10 +19,13 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -294,14 +297,15 @@ func (b Book) Track(ctx context.Context, seqs []int64) error {
 	return b.write(ctx, id, rows, keys)
 }
 
-// Cited returns which picks a record has named since, reading records once for
-// them all. picks maps each pick's seq to its box id.
+// Cited returns which picks are carried, reading records once for them all: a
+// record has named the pick since, or the pick is a land order whose PR row
+// reads tapped at or after it. picks maps each pick's seq to its box id.
 func (b Book) Cited(ctx context.Context, picks map[int64]string) ([]int64, error) {
 	oldest := int64(math.MaxInt64)
 	for seq := range picks {
 		oldest = min(oldest, seq)
 	}
-	records, err := b.Bus.Tail(ctx, client.Query{Drive: b.Entry.Bus(), After: oldest})
+	records, err := b.Bus.Tail(ctx, client.Query{Drive: b.Entry.Bus(), After: oldest - 1})
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +313,47 @@ func (b Book) Cited(ctx context.Context, picks map[int64]string) ([]int64, error
 	if err != nil {
 		return nil, err
 	}
-	return cited(picks, records, names), nil
+	tapped, err := b.tapped(picks, records)
+	if err != nil {
+		return nil, err
+	}
+	return slices.Compact(slices.Sorted(slices.Values(append(cited(picks, records, names), tapped...)))), nil
+}
+
+func (b Book) tapped(picks map[int64]string, records []client.Record) ([]int64, error) {
+	orders := map[int64]bus.Tap{}
+	at := map[int64]string{}
+	for _, record := range records {
+		if _, asked := picks[record.Seq]; !asked {
+			continue
+		}
+		if tap, named := bus.OrderOf(record, b.Entry.Repo); named && tap.Value == string(machine.TapTapped) {
+			orders[record.Seq], at[record.Seq] = tap, store.Stamp(record.At)
+		}
+	}
+	if len(orders) == 0 {
+		return nil, nil
+	}
+	s, err := store.Open(b.Entry.Store())
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	rows, err := s.ReviewRows(b.Entry.Repo)
+	if err != nil {
+		return nil, err
+	}
+	byNumber := make(map[int]store.ReviewRow, len(rows))
+	for _, row := range rows {
+		byNumber[row.Number] = row
+	}
+	var carried []int64
+	for seq, tap := range orders {
+		if row, known := byNumber[tap.PR]; known && row.Tapped && row.TappedAt >= at[seq] {
+			carried = append(carried, seq)
+		}
+	}
+	return carried, nil
 }
 
 // Close ends the rows with these seqs, for a pick no record will ever name.
