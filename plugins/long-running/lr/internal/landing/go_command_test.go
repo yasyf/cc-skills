@@ -365,6 +365,108 @@ func TestAHandTypedExemptGoLandsOnlyWhenTheGateFindsItsClassAtItsHead(t *testing
 	}
 }
 
+func TestTheSweepLandsAClaimedOneTestFileFlakeFixPastItsTapRuleAndTellsAnUnclaimedOneHow(t *testing.T) {
+	const head = "aab8fd2b7e80d25838b30153600acad437970fed"
+	const test = "go/sand/next/cmd/iris_serve_idle_test.go"
+	testFile := fmt.Sprintf("[%q,\"@@ +1 @@\\n+\\tchild := exec.Command(os.Args[0])\"]\n", test)
+	for _, c := range []struct {
+		name     string
+		files    string
+		grade    string
+		told     string
+		refused  string
+		landsNow bool
+	}{
+		{
+			name: "one test file", files: testFile, grade: "class test-only: one test file", landsNow: true,
+			told: "claim it: cci post --drive d --lane <your lane> --kind head --head o/r#1=" + head + " --attr flake-fix=<the test that flaked>",
+		},
+		{
+			name: "the same fix touching one product file", files: testFile + "[\"go/sand/next/cmd/iris_serve.go\",\"@@ +1 @@\\n+\\tgc()\"]\n", grade: "reads right",
+			refused: "flake fix: go/sand/next/cmd/iris_serve.go is not test or fixture code, so it lands on his tap",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			ctx := context.Background()
+			s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			post := func(draft client.Draft) {
+				if _, err := client.Post(ctx, draft); err != nil {
+					t.Fatal(err)
+				}
+			}
+			post(client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"],"tap_rules":{"rule/82317b0":["go/sand/next/*"]}}`}})
+			post(client.Draft{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade})
+			post(client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"})
+			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 1, Head: head, ReadyForTap: true}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.PutFact("o/r", 99, head, gates.ShownFact, "1", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			runner := &shelltest.Fake{}
+			runner.Reply(c.files, "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/1/files")
+			a := app.New(io.Discard)
+			a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
+			ready := readyFacts(1, head)
+			ready.Lane = "flake-1"
+			sweep := func() []int {
+				posted, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready}, time.Now().UTC(), io.Discard)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return posted
+			}
+			refusals := func() []client.Record {
+				records, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{bus.GoRefusedKind}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return records
+			}
+
+			for range 2 {
+				if posted := sweep(); len(posted) != 0 {
+					t.Fatalf("posted %v with no flake-fix record at its head, want it waiting on his tap", posted)
+				}
+			}
+			notes, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"note"}, Lanes: []string{bus.SweepLane}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			told := slices.DeleteFunc(notes, func(record client.Record) bool {
+				return !strings.HasPrefix(record.Text, "FLAKE-UNCLAIMED #1 at aab8fd2")
+			})
+			if c.told == "" && len(told) != 0 {
+				t.Fatalf("notes %+v, want none: a claim would not land it", told)
+			}
+			if c.told != "" && (len(told) != 1 || !slices.Equal(told[0].To, []string{"flake-1"}) || !strings.Contains(told[0].Text, c.told)) {
+				t.Fatalf("notes %+v, want one across both passes, to the PR's lane, saying %q", told, c.told)
+			}
+
+			post(client.Draft{Drive: "d", Lane: "flake-1", Kind: "head", PRs: []string{"o/r#1"}, Text: "HEAD #1", Attrs: map[string]string{"head:1": head, gates.FlakeFixAttr: "TestServeHoldingWhatAPreludePerChatLeftCollectsAboveItsLiveHeapInsideItsFootprint"}})
+			posted := sweep()
+			gos, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{kindGo}, Lanes: []string{bus.SweepLane}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.landsNow {
+				if !slices.Equal(posted, []int{1}) || len(gos) != 1 || !strings.Contains(gos[0].Text, "[exempt: flake-fix]") {
+					t.Fatalf("posted %v, gos %+v; want the sweep's flake-fix go once the head record claims it", posted, gos)
+				}
+				return
+			}
+			if len(posted) != 0 || len(gos) != 0 || !slices.ContainsFunc(refusals(), func(record client.Record) bool { return strings.Contains(record.Text, c.refused) }) {
+				t.Fatalf("posted %v, gos %+v, refusals %+v; want no go and a refusal saying %q", posted, gos, refusals(), c.refused)
+			}
+		})
+	}
+}
+
 func TestAPortSourceLandedWhenGitHubSaysMergedOrACommitNamingItIsOnTrunk(t *testing.T) {
 	const source = 40810
 	for name, c := range map[string]struct {
