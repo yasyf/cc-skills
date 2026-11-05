@@ -230,13 +230,13 @@ def test_a_recheck_flags_each_relay_once_though_its_pass_dies_partway_and_the_ro
     monkeypatch.setattr(judge_watch.judge, "said", lambda row, state, env=None: [{"at": row["at"], "words": row["words"], "answered": None}])
     monkeypatch.setattr(judge_watch.cci, "records", lambda cli, drive, *filters, since=0: relays if filters else [record for record in bus if record["seq"] > int(since)] if str(since).isdigit() else bus)
 
-    died = Scripted(watch, bus, [])
+    scripted = Scripted(watch, bus, [])
     with pytest.raises(TimeoutError):
-        died.run()
-    rerun = Scripted(watch, bus, [])
-    rerun.run()
+        scripted.run()
+    scripted.saved = judge_watch.Saved.load(watch.state)
+    scripted.run()
 
-    assert [flag["re"] for flag in posted(died) + posted(rerun)] == ["101", "102"]
+    assert [flag["re"] for flag in posted(scripted)] == ["101", "102"]
 
 
 def test_an_answer_on_a_relays_flag_from_the_appeals_lane_reaches_root_as_its_dispute(watch, run):
