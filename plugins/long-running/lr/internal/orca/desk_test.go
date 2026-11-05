@@ -954,30 +954,6 @@ func TestALaunchOnAnotherLanesBriefIsRefused(t *testing.T) {
 	wantContains(t, w.wantEscalation("LAUNCH-FAILED "), "is lane other's")
 }
 
-func TestALaunchLinePastItsWindowExpires(t *testing.T) {
-	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief)
-	w.lines()
-	w.line(launchText(testLane, brief))
-	w.now = w.now.Add(20 * time.Minute)
-	w.desk.passSince = w.now
-	w.lines()
-	line := w.wantEscalation("LAUNCH-EXPIRED ")
-	wantContains(t, line, "20 minutes before this read")
-	wantContains(t, line, "a launch line is valid for 15")
-}
-
-func TestASlowPassWidensTheLaunchWindow(t *testing.T) {
-	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
-	w.lines()
-	w.line(launchText(testLane, brief))
-	w.now = w.now.Add(20 * time.Minute)
-	w.desk.passTook = []time.Duration{25 * time.Minute}
-	w.lines()
-	w.noEscalation("LAUNCH-EXPIRED ")
-}
-
 func TestALaunchIsRefusedWhileTheRunnerIsUnbound(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
@@ -1261,16 +1237,6 @@ func TestAFullFormIncidentLaunchStartsItsLaneOnceUnderItsOwnName(t *testing.T) {
 		t.Fatal(w.spawns)
 	}
 	w.postOpening("LAUNCHED " + key + " api-500-fix")
-}
-
-func TestAnExpiredIncidentLineNamingItsFixLaneReportsThatLane(t *testing.T) {
-	w := newDeskWorld(t)
-	w.lines()
-	w.line("orca-desk: incident api-500-fix https://dd/1 :: errors")
-	w.now = w.now.Add(20 * time.Minute)
-	w.desk.passSince = w.now
-	w.lines()
-	wantContains(t, w.wantEscalation("LAUNCH-EXPIRED "), " api-500-fix: cci #1 ")
 }
 
 func TestAnIncidentLaunchThatFailsIsReported(t *testing.T) {
@@ -2680,6 +2646,9 @@ func (w *deskWorld) saidStarted(lane, key string) {
 	w.t.Helper()
 	container, err := w.desk.lane(lane)
 	if err != nil {
+		w.t.Fatal(err)
+	}
+	if err := w.desk.openBook(container); err != nil {
 		w.t.Fatal(err)
 	}
 	if err := w.desk.store.Edit(container, func(tx *incident.Tx) error {

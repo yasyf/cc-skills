@@ -251,10 +251,6 @@ func (d *Desk) settlePass(ctx context.Context, err error) error {
 func (d *Desk) timedPass() {
 	d.enter(stepIdle)
 	took := d.Now().Sub(d.passSince)
-	d.passTook = append(d.passTook, took)
-	if len(d.passTook) > passesTimed {
-		d.passTook = d.passTook[len(d.passTook)-passesTimed:]
-	}
 	if took < aliveEvery {
 		return
 	}

@@ -424,7 +424,7 @@ func (d *Desk) refuseLaunch(ctx context.Context, container, lane string, action 
 }
 
 func (d *Desk) stalledLaunches(ctx context.Context) error {
-	books, err := d.containers(lanePrefix)
+	books, err := d.workBooks()
 	if err != nil {
 		return err
 	}
@@ -469,7 +469,7 @@ func (d *Desk) stalledLaunch(ctx context.Context, container, lane string, action
 }
 
 func (d *Desk) reap(ctx context.Context) error {
-	books, err := d.containers(lanePrefix)
+	books, err := d.workBooks()
 	if err != nil {
 		return err
 	}

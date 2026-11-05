@@ -32,7 +32,7 @@ func threadOf(container, key string) string {
 
 func (d *Desk) deliver(ctx context.Context) error {
 	d.binding = nil
-	books, err := d.containers(lanePrefix)
+	books, err := d.workBooks()
 	if err != nil {
 		return err
 	}
@@ -69,11 +69,11 @@ func (d *Desk) deliver(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return d.closeIdleBooks(books)
 }
 
 func (d *Desk) deliverLaunch(ctx context.Context, container, lane string, action incident.Action) error {
-	for _, gate := range []func(context.Context, string, string, incident.Action) (bool, error){d.holdsCaseLaunch, d.holdsOwnedLaunch, d.holdsCutLaunch} {
+	for _, gate := range []func(context.Context, string, string, incident.Action) (bool, error){d.holdsEndedLaunch, d.holdsCaseLaunch, d.holdsOwnedLaunch, d.holdsCutLaunch} {
 		held, err := gate(ctx, container, lane, action)
 		if err != nil {
 			return err
