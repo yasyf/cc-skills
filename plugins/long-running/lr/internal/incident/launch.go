@@ -231,8 +231,12 @@ func launchDirective(lane plannedLane, brief string) string {
 	return fmt.Sprintf("launch %s NOW %s %s role=%s brief=%s", lane.lane, route, effortXHigh, lane.role, brief)
 }
 
-func (d DeskLaunch) post(ctx context.Context, drive, topic, directive string) (client.Record, error) {
-	stored, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + directive})
+func LaunchAttempt(lane string, at time.Time) string {
+	return fmt.Sprintf("launch:%s:%d", lane, at.UnixNano())
+}
+
+func (d DeskLaunch) post(ctx context.Context, drive, topic, directive, attempt string) (client.Record, error) {
+	stored, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + directive, ID: attempt})
 	if err != nil {
 		return client.Record{}, err
 	}
@@ -314,7 +318,7 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		stored, err := d.post(ctx, drive, strings.TrimSuffix(d.Name, fixAlias), launchDirective(lane, brief))
+		stored, err := d.post(ctx, drive, strings.TrimSuffix(d.Name, fixAlias), launchDirective(lane, brief), LaunchAttempt(lane.lane, d.Now()))
 		if err != nil {
 			return err
 		}
