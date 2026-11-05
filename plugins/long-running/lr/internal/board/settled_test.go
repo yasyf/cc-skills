@@ -256,6 +256,72 @@ func alwaysSettles(context.Context, string, string, string) (*Judgment, error) {
 	return &Judgment{Verdict: "yes", Sentence: "Old chats show the can't-open screen."}, nil
 }
 
+func TestASweepClosesACardHeTappedWithoutAskingAJudge(t *testing.T) {
+	onThisCard := boardCardLabel + oldChatCard
+	tapped := "proof:board-watch:key"
+	picked := map[string]any{"optionIds": []any{"a"}}
+	wrote := map[string]any{"optionIds": []any{}, "other": "why this one?"}
+	for name, tc := range map[string]struct {
+		choice map[string]any
+		rows   []ownerAnswer
+		closes bool
+	}{
+		"his tap with its row":              {picked, []ownerAnswer{{ID: "1", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, onThisCard, tapped}}}, true},
+		"his tap before its row is written": {picked, nil, false},
+		"his tap on another card":           {picked, []ownerAnswer{{ID: "2", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, boardCardLabel + "card-another", tapped}}}, false},
+		"his write-in with no number":       {wrote, []ownerAnswer{{ID: "3", Title: oldChatTitle, Body: "wrote “why this one?”", Tags: []string{ownerLabel, onThisCard, tapped}}}, false},
+		"his write-in and a relay's record": {wrote, []ownerAnswer{{ID: "4", Title: oldChatTitle, Body: "Owner, in the thread: keep it.", Tags: []string{ownerLabel, cardLabel + oldChatCard}}}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			shown, err := json.Marshal(map[string]any{"rev": 7, "doc": map[string]any{"blocks": oldChatUp}, "interactions": map[string]any{"choices": map[string]any{oldChatCard + "-pick": tc.choice}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cards, fake, withdrawn := settledBoardFirst(t, func(fake *shelltest.Fake) { fake.Reply(string(shown), "cc-present", "outcomes", "--all") }, oldChatUp, tc.rows...)
+			noJudge := func(context.Context, string, string, string) (*Judgment, error) {
+				return nil, errors.New("a tap asks no judge")
+			}
+			var out bytes.Buffer
+
+			if err := cards.Pass(context.Background(), "supervisor", noJudge, &out); err != nil {
+				t.Fatal(err)
+			}
+
+			removed := removedBlocks(fake)
+			if !tc.closes {
+				if len(removed) != 0 || len(*withdrawn) != 0 {
+					t.Fatalf("removed %q, withdrew %q; want the card left up", removed, *withdrawn)
+				}
+				return
+			}
+			if len(removed) != 1 || removed[0] != oldChatCard+" "+answeredReason || len(*withdrawn) != 1 || !strings.Contains(out.String(), "WITHDRAWN "+oldChatCard) {
+				t.Fatalf("removed %q, withdrew %q, out %q; want the tapped card closed", removed, *withdrawn, out.String())
+			}
+		})
+	}
+}
+
+func TestASweepLeavesATappedCardTheBoardStillHolds(t *testing.T) {
+	shown, err := json.Marshal(map[string]any{"rev": 7, "doc": map[string]any{"blocks": oldChatUp}, "interactions": map[string]any{"choices": map[string]any{oldChatCard + "-pick": map[string]any{"optionIds": []any{"a"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusal := "refusing to remove block: the human's choice.selected holds it for 30 minutes unless the round is submitted"
+	cards, _, withdrawn := settledBoardFirst(t, func(fake *shelltest.Fake) {
+		fake.Reply(string(shown), "cc-present", "outcomes", "--all")
+		fake.Fail(1, refusal, "cc-present", "remove-block")
+	}, oldChatUp, answeredHere)
+	var out bytes.Buffer
+
+	if err := cards.Pass(context.Background(), "supervisor", (&judgeCalls{verdict: "yes"}).judge, &out); err != nil {
+		t.Fatalf("a held card failed the pass: %v", err)
+	}
+
+	if len(*withdrawn) != 0 || !strings.Contains(out.String(), "HELD "+oldChatCard) {
+		t.Fatalf("withdrew %q, out %q", *withdrawn, out.String())
+	}
+}
+
 func TestASweepKeepsACardWhoseQuestionAnAnswerOffItReadsTheSame(t *testing.T) {
 	same := upgradeOnce
 	same.Title = "  an old chat will not open on the new build: is that the expected you meant?   What should happen to chats like this?"

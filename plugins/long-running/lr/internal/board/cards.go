@@ -21,12 +21,13 @@ import (
 )
 
 const (
-	cardPrefix    = "card/"
-	cardStateFile = "board_cards.json"
-	mergeTriage   = "card-merge-triage"
-	answerRow     = "board-answer"
-	blockLabel    = "board-block:"
-	pathsField    = "paths"
+	cardPrefix     = "card/"
+	cardStateFile  = "board_cards.json"
+	mergeTriage    = "card-merge-triage"
+	answeredReason = "you answered this"
+	answerRow      = "board-answer"
+	blockLabel     = "board-block:"
+	pathsField     = "paths"
 )
 
 type Cards struct {
@@ -379,7 +380,40 @@ func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
 }
 
 func (c Cards) Pass(ctx context.Context, lane string, judge Judge, out io.Writer) error {
-	return errors.Join(c.Sweep(ctx, lane, out), c.Unask(ctx, lane, judge, out), c.Finished(ctx, lane, judge, out))
+	return errors.Join(c.Sweep(ctx, lane, out), c.closeAnswered(ctx, lane, out), c.Unask(ctx, lane, judge, out), c.Finished(ctx, lane, judge, out))
+}
+
+func (c Cards) closeAnswered(ctx context.Context, lane string, out io.Writer) error {
+	outcomes, err := ReadOutcomes(ctx, c.Runner, c.Session)
+	if err != nil {
+		return err
+	}
+	var answered []string
+	for _, card := range typed(outcomes.Doc, "card") {
+		if id := text(card, "id"); id != mergeTriage && !asksOpen(card, outcomes) {
+			answered = append(answered, id)
+		}
+	}
+	if len(answered) == 0 {
+		return nil
+	}
+	rows, err := c.answers(ctx)
+	if err != nil {
+		return err
+	}
+	known, err := c.ends(ctx)
+	if err != nil {
+		return err
+	}
+	for _, card := range answered {
+		if !slices.ContainsFunc(rows, func(row ownerAnswer) bool { return closesCard(row, card) }) {
+			continue
+		}
+		if err := c.sweepOff(ctx, lane, card, known[card], answeredReason, answeredReason, out); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
