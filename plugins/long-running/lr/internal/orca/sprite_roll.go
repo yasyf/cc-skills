@@ -408,7 +408,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	}
 	grader := &cobra.Command{
 		Use:   "grader NAME...",
-		Short: "Make each named Sprite a grader from one export of the drive's store: install the grader pins, link this Mac's home and the grading checkouts onto the Sprite's checkout, fetch its whole history, and join the cci relay with WORKER_RELAY_SPONSOR's service key under cci supervise, which renews the delegation before it lapses",
+		Short: "Make each named Sprite a grader: install the grader pins, link this Mac's home and grading checkouts onto the Sprite's checkout, and fetch its whole history; the coordinator publishes the job's returned records",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, _, state, err := opened()
@@ -420,7 +420,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			maker := &GraderMaker{Runner: a.Runner, Store: s, Home: home, Sleep: time.Sleep, Now: a.Now, Out: cmd.OutOrStdout()}
+			maker := &GraderMaker{Runner: a.Runner, Store: s, Home: home, Now: a.Now, Out: cmd.OutOrStdout()}
 			return refusalExit(cmd, maker.Make(cmd.Context(), filepath.Join(state, "runner.json"), args))
 		},
 	}

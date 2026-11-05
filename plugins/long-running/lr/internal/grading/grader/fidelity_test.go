@@ -182,6 +182,34 @@ func mustFidelity(t *testing.T, directory string, shell *fakeShell) {
 	}
 }
 
+func TestASpriteFidelityReturnsItsGradeForCoordinatorPosting(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"sprite": "grader-a", "grades": []any{}, "baseline": ""})
+	shell, _ := newFidelityFake(t, nil, fidelityReplyOf(nil))
+	deps := shell.deps()
+	deps.Post = nil
+	if err := Fidelity(context.Background(), directory, deps); err != nil {
+		t.Fatal(err)
+	}
+	holdsAll(t, readText(t, directory, ResultFile), `"verdict":"ok"`)
+	if len(shell.posted) != 0 {
+		t.Fatal("the Sprite posted to a local replica", shell.posted)
+	}
+	if err := Repost(context.Background(), directory, shell.post); err != nil {
+		t.Fatal(err)
+	}
+	if len(shell.posted) == 0 {
+		t.Fatal("the coordinator received no grade")
+	}
+	holdsAll(t, shell.posted[0]["--text"], "fidelity: ok "+shaHead)
+	for index, post := range shell.posted {
+		equal(t, post["--id"], fmt.Sprintf("fidelity:%s#43299:%s:%d", repoName, shaHead, index))
+		if filepath.Dir(post["--path"]) != directory {
+			t.Fatal("a grade body would be left on the Sprite", post)
+		}
+		readText(t, directory, filepath.Base(post["--path"]))
+	}
+}
+
 func fidelityReplyOf(changes map[string]any) map[string]any {
 	reply := map[string]any{
 		"verdict": "ok",
