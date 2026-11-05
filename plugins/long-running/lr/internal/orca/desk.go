@@ -29,6 +29,7 @@ import (
 
 const (
 	lanePrefix      = "desk-lane-"
+	openBooksFact   = "open-books"
 	landingBook     = "desk-landing"
 	supervisorLane  = "supervisor"
 	watchdogLane    = "drive-watchdog"
@@ -227,7 +228,6 @@ type Desk struct {
 	launching   map[string]Process
 	sprites     map[string]bool
 	binding     *bindingState
-	passTook    []time.Duration
 	passSince   time.Time
 	unreachable int
 	refused     []time.Time
@@ -236,6 +236,7 @@ type Desk struct {
 	rosterAt    time.Time
 	settled     map[string]string
 	unreadSeen  map[string]unreadCheck
+	withdrawals map[int64]int64
 	pass        atomic.Pointer[passMark]
 	orcaSaid    atomic.Pointer[string]
 	stuckPass   int
@@ -330,7 +331,82 @@ func (d *Desk) laneActions(container, kind string, statuses ...incident.ActionSt
 	return d.store.Actions(container, kind, statuses...)
 }
 
+func (d *Desk) workBooks() ([]string, error) {
+	value, found, err := d.factOf(deskRunner, openBooksFact)
+	if err != nil || found {
+		return stringList(value), err
+	}
+	books, err := d.containers(lanePrefix)
+	if err != nil {
+		return nil, err
+	}
+	open := make([]string, 0, len(books))
+	for _, book := range books {
+		busy, err := d.holdsWork(book)
+		if err != nil {
+			return nil, err
+		}
+		if busy {
+			open = append(open, book)
+		}
+	}
+	return open, d.setFact(deskRunner, openBooksFact, open)
+}
+
+func (d *Desk) holdsWork(container string) (bool, error) {
+	actions, err := d.store.Actions(container, "", incident.ActionAccepted, incident.ActionStarted, incident.ActionUnverifiable)
+	return len(actions) > 0, err
+}
+
+func (d *Desk) openBook(container string) error {
+	books, err := d.workBooks()
+	if err != nil || slices.Contains(books, container) {
+		return err
+	}
+	return d.store.Edit(deskRunner, func(tx *incident.Tx) error {
+		value, _, err := tx.Fact(openBooksFact)
+		if err != nil {
+			return err
+		}
+		books := stringList(value)
+		if slices.Contains(books, container) {
+			return nil
+		}
+		books = append(books, container)
+		slices.Sort(books)
+		return tx.SetFact(openBooksFact, books)
+	})
+}
+
+func (d *Desk) closeIdleBooks(books []string) error {
+	var idle []string
+	for _, book := range books {
+		busy, err := d.holdsWork(book)
+		if err != nil {
+			return err
+		}
+		if !busy {
+			idle = append(idle, book)
+		}
+	}
+	if len(idle) == 0 {
+		return nil
+	}
+	return d.store.Edit(deskRunner, func(tx *incident.Tx) error {
+		value, _, err := tx.Fact(openBooksFact)
+		if err != nil {
+			return err
+		}
+		return tx.SetFact(openBooksFact, slices.DeleteFunc(stringList(value), func(book string) bool { return slices.Contains(idle, book) }))
+	})
+}
+
 func (d *Desk) accept(container, key, kind, target, authority string, deadline time.Time) (incident.Action, bool, error) {
+	if strings.HasPrefix(container, lanePrefix) {
+		if err := d.openBook(container); err != nil {
+			return incident.Action{}, false, err
+		}
+	}
 	var action incident.Action
 	var created bool
 	err := d.store.Edit(container, func(tx *incident.Tx) (err error) {

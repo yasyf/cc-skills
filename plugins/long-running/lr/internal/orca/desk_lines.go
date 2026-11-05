@@ -30,9 +30,7 @@ const (
 	withdrawGrammar = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | incident-clock:<dispatch> | lane>"
 	withdrawnFact   = "withdrawn"
 	withdrawPending = "withdraw-pending"
-	launchValid     = 15 * time.Minute
 	briefLineShown  = 160
-	passesTimed     = 10
 	stopConfirm     = 30 * time.Second
 	stopPoll        = 2 * time.Second
 	verbLaunch      = "launch"
@@ -158,6 +156,7 @@ func (d *Desk) readLines(ctx context.Context) error {
 	if err != nil {
 		return d.noteTailFailure(err)
 	}
+	d.withdrawals = withdrawalsIn(records)
 	var skipped int64
 	for _, record := range records {
 		if !toDesk(record) && !rootReplies(record) {
@@ -176,6 +175,53 @@ func (d *Desk) readLines(ctx context.Context) error {
 		return d.setFact(deskRunner, fact, skipped)
 	}
 	return nil
+}
+
+func withdrawalsIn(records []client.Record) map[int64]int64 {
+	withdrawn := map[int64]int64{}
+	for _, record := range records {
+		if record.Lane != coordinatorLane || string(record.Kind) != verbWithdraw {
+			continue
+		}
+		for _, seq := range resolvedSeqs(record) {
+			withdrawn[seq] = record.Seq
+		}
+		if record.Re != 0 {
+			withdrawn[record.Re] = record.Seq
+		}
+	}
+	return withdrawn
+}
+
+func (d *Desk) lineEnded(ctx context.Context, lane string, line client.Record) (string, error) {
+	if by := d.withdrawals[line.Seq]; by != 0 {
+		return fmt.Sprintf("root withdrew it on cci #%d", by), nil
+	}
+	return d.endedSince(ctx, lane, line.At)
+}
+
+func (d *Desk) endedSince(ctx context.Context, lane string, posted time.Time) (string, error) {
+	row, found, err := d.Registry.Lane(lane)
+	if err != nil {
+		return "", err
+	}
+	if found && row.State == store.LaneRetired {
+		return "its lane is retired", nil
+	}
+	names, err := d.names(lane)
+	if err != nil {
+		return "", err
+	}
+	posts, err := d.readStandDowns(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, record := range posts {
+		if record.At.After(posted) && standsDown(record, names) {
+			return fmt.Sprintf("it was stood down on cci #%d", record.Seq), nil
+		}
+	}
+	return "", nil
 }
 
 func rootReplies(record client.Record) bool {
@@ -330,14 +376,6 @@ func (d *Desk) wholeText(at, key, about string, record client.Record) (string, e
 	return kept, nil
 }
 
-func (d *Desk) launchWindow() time.Duration {
-	window := launchValid
-	for _, took := range d.passTook {
-		window = max(window, took)
-	}
-	return max(window, d.Now().Sub(d.passSince))
-}
-
 func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 	at := fmt.Sprintf("cci#%d", record.Seq)
 	line := strings.TrimSpace(record.Text)
@@ -364,53 +402,21 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 	if taken, err := d.takes(ctx, parsed, key); !taken || err != nil {
 		return err
 	}
-	if expired, err := d.expiredLine(ctx, parsed, record, key); expired || err != nil {
-		return err
-	}
 	switch parsed.Verb {
 	case verbLaunch:
-		return d.launchLine(ctx, at, key, parsed.Rest, record.Lane)
+		return d.launchLine(ctx, at, key, parsed.Rest, record.Lane, record.At)
 	case verbRelay:
 		return d.relayLine(ctx, at, key, parsed.Rest, record.Lane)
 	case "alert":
 		return d.alertLine(ctx, at, key, parsed.Rest)
 	case verbIncident:
-		return d.incidentLine(ctx, at, key, parsed.Rest)
+		return d.incidentLine(ctx, at, key, parsed.Rest, record)
 	case kindHold:
 		return d.holdLine(at, key, parsed.Rest)
 	case "unhold":
 		return d.unholdLine(at, key, parsed.Rest)
 	}
 	return d.withdrawLine(ctx, at, key, parsed.Rest)
-}
-
-func (d *Desk) expiredLine(ctx context.Context, parsed *directive, record client.Record, key string) (bool, error) {
-	if !expires(parsed.Verb) {
-		return false, nil
-	}
-	spec := launchSpec
-	if parsed.Verb == verbIncident {
-		spec = incidentSpec
-	}
-	found := spec.FindStringSubmatch(parsed.Rest)
-	if found == nil {
-		return false, nil
-	}
-	age, window := d.Now().Sub(record.At), d.launchWindow()
-	if age <= window {
-		return false, nil
-	}
-	lane := found[1]
-	if parsed.Verb == verbIncident {
-		lane = strings.TrimSuffix(lane, spawnedFix) + spawnedFix
-	}
-	var longest time.Duration
-	for _, took := range d.passTook {
-		longest = max(longest, took)
-	}
-	line := fmt.Sprintf("LAUNCH-EXPIRED %s %s: cci #%d was posted %d minutes before this read; this runner's longest recent pass took %d minutes, and a launch line is valid for %d; nothing was launched",
-		key, lane, record.Seq, int(age.Minutes()), int(longest.Minutes()), int(window.Minutes()))
-	return true, d.recordTo(ctx, fmt.Sprintf("escalation:launch:cci#%d", record.Seq), line, verdictTo(record.Lane))
 }
 
 func (d *Desk) warnUnheard(ctx context.Context, at, key, lane, sender string) error {
@@ -641,6 +647,7 @@ type launchTarget struct {
 	Role     string `json:"role"`
 	Incident string `json:"incident"`
 	By       string `json:"by"`
+	Posted   string `json:"posted,omitempty"`
 }
 
 func launchOf(action incident.Action) (launchTarget, error) {
@@ -666,7 +673,7 @@ func (d *Desk) spriteLaunch(ctx context.Context, parsed *directive, key string) 
 	return remote, err
 }
 
-func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
+func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string, posted time.Time) error {
 	log := "escalation:launch:" + at
 	spec := launchSpec.FindStringSubmatch(rest)
 	if spec == nil {
@@ -727,7 +734,7 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
 	if err := d.refreshSlice(ctx, key, order.Lane, order.Brief, order.sliceStep(text)); err != nil {
 		return err
 	}
-	_, _, err = d.acceptLaunch(key, order.Lane, launchTarget{Model: order.Model, Effort: order.Effort, Brief: order.Brief, Role: order.Role, By: by})
+	_, _, err = d.acceptLaunch(key, order.Lane, launchTarget{Model: order.Model, Effort: order.Effort, Brief: order.Brief, Role: order.Role, By: by, Posted: store.Stamp(posted)})
 	return err
 }
 
@@ -1022,7 +1029,7 @@ func (d *Desk) alertLine(ctx context.Context, at, key, rest string) error {
 	return d.record(log, fmt.Sprintf("ALERT %s: %s %s | no lane launched; the alerts desk writes `%s` when it judges one necessary", slug, what, link, incidentGrammar))
 }
 
-func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
+func (d *Desk) incidentLine(ctx context.Context, at, key, rest string, line client.Record) error {
 	log := "escalation:incident:" + at
 	spec := incidentSpec.FindStringSubmatch(rest)
 	if spec == nil {
@@ -1036,6 +1043,13 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string) error {
 	}
 	if dispatch.active() {
 		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), "", nil)
+	}
+	ended, err := d.lineEnded(ctx, lane, line)
+	if err != nil {
+		return err
+	}
+	if ended != "" {
+		return d.record(log, fmt.Sprintf("WITHDRAWN %s %s: %s after its incident line was posted; nothing was launched", key, lane, ended))
 	}
 	monitors := map[string]bool{}
 	for _, monitor := range lineMonitors(link, what) {

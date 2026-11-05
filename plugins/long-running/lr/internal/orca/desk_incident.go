@@ -2,6 +2,7 @@ package orca
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -556,6 +557,28 @@ func standsDown(record client.Record, names []string) bool {
 		return slices.Contains(names, record.To[0]) && !slices.Contains(names, record.Fields.Attrs["successor"])
 	}
 	return addressed(record, names)
+}
+
+func (d *Desk) holdsEndedLaunch(ctx context.Context, container, lane string, action incident.Action) (bool, error) {
+	spec, err := launchOf(action)
+	if err != nil {
+		return false, err
+	}
+	posted, err := store.Parse(cmp.Or(spec.Posted, action.AcceptedAt))
+	if err != nil {
+		return false, err
+	}
+	ended, err := d.endedSince(ctx, lane, posted)
+	if err != nil || ended == "" {
+		return false, err
+	}
+	if _, err := d.attempt(container, func(tx *incident.Tx) error {
+		_, err := tx.Fail(action.ActionID, ended)
+		return err
+	}); err != nil {
+		return false, err
+	}
+	return true, d.recordTo(ctx, fmt.Sprintf("escalation:%s/%s:ended", container, action.ActionID), fmt.Sprintf("WITHDRAWN %s %s: %s after its launch line was posted; nothing was launched", action.ActionID, lane, ended), verdictTo(spec.By))
 }
 
 func (d *Desk) holdsCaseLaunch(ctx context.Context, container, lane string, action incident.Action) (bool, error) {

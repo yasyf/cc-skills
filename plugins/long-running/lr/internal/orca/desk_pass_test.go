@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -22,7 +23,7 @@ func (w *deskWorld) orcaCount() int {
 	return count
 }
 
-func TestRootRepliesToAHundredLanesCostTheLineReadNoMoreOrcaCallsThanOne(t *testing.T) {
+func TestRootRepliesToManyLanesCostTheLineReadNoMoreOrcaCallsThanOne(t *testing.T) {
 	read := func(lanes int) int {
 		w := newDeskWorld(t)
 		w.runInbox = []orcaMessage{question("msg_q", "term_0")}
@@ -46,8 +47,8 @@ func TestRootRepliesToAHundredLanesCostTheLineReadNoMoreOrcaCallsThanOne(t *test
 		}
 		return w.orcaCount()
 	}
-	if one, hundred := read(1), read(100); one != hundred {
-		t.Fatalf("a line read made %d Orca calls for 1 lane and %d for 100", one, hundred)
+	if one, many := read(1), read(scaletest.N()); one != many {
+		t.Fatalf("a line read made %d Orca calls for 1 lane and %d for %d", one, many, scaletest.N())
 	}
 }
 

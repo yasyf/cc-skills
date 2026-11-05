@@ -280,7 +280,7 @@ func (d *Desk) reclaim(settled []laneDispatch) error {
 }
 
 func (d *Desk) deadlines(ctx context.Context) error {
-	books, err := d.containers(lanePrefix)
+	books, err := d.workBooks()
 	if err != nil {
 		return err
 	}
