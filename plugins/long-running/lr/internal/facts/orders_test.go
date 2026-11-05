@@ -172,6 +172,24 @@ func TestATapOnEachSurfaceWritesTheOneLandOrder(t *testing.T) {
 	}
 }
 
+func TestAWordCarriedFromABoxWithNoLandStoreWritesTheOneLandOrder(t *testing.T) {
+	h := surfaceHarness(t)
+	word := ownerRecord(t, "Owner in thread: merge #4242", nil)
+	tap := bus.Tap{PR: surfacePR, Head: surfaceHead, By: bus.OwnerBy, Value: string(machine.TapTapped)}
+	if err := (bus.Bus{Drive: "d", Lane: facts.OrderLane}).PostWordTap(context.Background(), repo, tap, word, "sprite-lane"); err != nil {
+		t.Fatal(err)
+	}
+
+	row := h.snapshot(t)[surfacePR]
+
+	if row.Tap != machine.TapTapped {
+		t.Fatalf("tap = %q", row.Tap)
+	}
+	if written := orders(t); len(written) != 1 {
+		t.Fatalf("orders = %+v", written)
+	}
+}
+
 func TestAShortHeadHoldOnAPRThatMovedOrdersTheHeadHeHeldNotItsNewOne(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: surfacePR, head: head, login: "drive-bot"}}, status(surfacePR))
 	h.runner.Reply(surfaceHead+"\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/"+repo+"/commits/abc1234")
