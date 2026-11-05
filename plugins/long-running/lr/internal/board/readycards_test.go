@@ -25,6 +25,7 @@ func tapRow(number int) store.ReviewRow {
 	return store.ReviewRow{
 		Repo: readyRepo, Number: number, Title: fmt.Sprintf("sand: fix %d", number), Lane: fmt.Sprintf("lane-%d", number), Head: readyHead,
 		ForUsers: "Chats load.", PlanRow: "Checked.", Risk: "Low.", ReadyForTap: true, State: prrow.StateOpen, WaitsOn: "Only your approval.",
+		Hold: prrow.None, SupersededBy: prrow.None,
 	}
 }
 
@@ -440,6 +441,60 @@ func TestATapCardDrawsAtHisDMRootEvenWhenAReplyNamedItsPRInAThread(t *testing.T)
 	f.run(t)
 	if calls := askCalls(f); len(calls) != 1 || strings.Contains(calls[0], "--slack") {
 		t.Fatalf("asks = %v, want one at the root, naming no thread", calls)
+	}
+}
+
+func redrawCalls(f *linkFixture) []string {
+	var calls []string
+	for _, call := range f.shell.seen() {
+		if strings.HasPrefix(call, "cc-slack redraw-pr-cards ") {
+			calls = append(calls, call)
+		}
+	}
+	return calls
+}
+
+func drawnAt(t *testing.T, f *linkFixture, row store.ReviewRow) {
+	t.Helper()
+	if _, err := f.Cards.Store.PutFact(readyRepo, row.Number, row.Head, FactCardDrawn, drawnSignature(Card(readyRepo, row)), f.Cards.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestADrawnCardFollowsItsRowAndTheRowTurningReadyDrawsNoSecondPost(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	f.shell.redrawing = 1
+	pending := tapRow(50287)
+	pending.ReadyForTap, pending.CI = false, prrow.CIPending
+	drawnAt(t, f, pending)
+	putRows(t, f, pending)
+	readyPass(t, f)
+	if calls := redrawCalls(f); len(calls) != 0 {
+		t.Fatalf("redraws = %v, want none for a row that has not changed", calls)
+	}
+	putRows(t, f, tapRow(50287))
+	readyPass(t, f)
+	f.run(t)
+	if calls := redrawCalls(f); len(calls) != 1 || !strings.HasSuffix(calls[0], "--pr https://github.com/o/r/pull/50287") {
+		t.Fatalf("redraws = %v, want this PR's post redrawn", calls)
+	}
+	if calls := askCalls(f); len(calls) != 0 {
+		t.Fatalf("asks = %v, want no second post", calls)
+	}
+}
+
+func TestARowWhosePostIsGoneDrawsItsOwnCard(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	pending := tapRow(50287)
+	pending.ReadyForTap, pending.CI = false, prrow.CIPending
+	drawnAt(t, f, pending)
+	putRows(t, f, tapRow(50287))
+	readyPass(t, f)
+	f.run(t)
+	if calls := askCalls(f); len(calls) != 1 {
+		t.Fatalf("asks = %v, want the row's own card once its post is gone", calls)
 	}
 }
 

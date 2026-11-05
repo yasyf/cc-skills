@@ -1141,8 +1141,8 @@ func TestAPRListedWithNoButtonToDrawSaysSoInTheResult(t *testing.T) {
 	if _, warning := f.withPRCards(context.Background(), r); !strings.Contains(warning, "NO BUTTON: "+landPR+" has no row") {
 		t.Fatalf("no row warned %q", warning)
 	}
-	ledgerRow(t, f, store.ReviewRow{WaitsOn: "CI", Title: "Relay fix"})
-	if _, warning := f.withPRCards(context.Background(), r); !strings.Contains(warning, "NO BUTTON: "+landPR+" is not ready for his tap: CI") || !strings.Contains(warning, "nothing to tap") {
+	ledgerRow(t, f, store.ReviewRow{WaitsOn: "CI", Title: "Relay fix", Hold: "root:until the migration lands"})
+	if _, warning := f.withPRCards(context.Background(), r); !strings.Contains(warning, "NO BUTTON: "+landPR+" has no Approve: ") || !strings.Contains(warning, "nothing to tap") {
 		t.Fatalf("a row not ready warned %q", warning)
 	}
 	r.Picks, r.Recommended = []string{"Land", "Hold"}, "Land"

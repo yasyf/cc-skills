@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	FactTapCard  = "tap_card"
-	Communicator = communicator
+	FactCardDrawn = "card_drawn"
+	staleDrawn    = "stale"
+	FactTapCard   = "tap_card"
+	Communicator  = communicator
 
 	slackMessageBlocks = 50
 	listFrameBlocks    = 3
@@ -76,9 +78,13 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if err := r.refreshLists(ctx, rows, facts, lists); err != nil {
 		return err
 	}
+	followed, err := r.followDrawn(ctx, rows)
+	if err != nil {
+		return err
+	}
 	due := []store.ReviewRow{}
 	for _, row := range rows {
-		if waitsOnHim(row) && row.State == prrow.StateOpen && facts[row.Number][FactTapCard] == "" {
+		if waitsOnHim(row) && row.State == prrow.StateOpen && facts[row.Number][FactTapCard] == "" && !followed[row.Number] {
 			due = append(due, row)
 		}
 	}
@@ -120,6 +126,45 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// followDrawn redraws in place each post whose row now draws differently, and
+// names the rows whose post stands, so a row turning ready draws no second one.
+// A row whose post Slack no longer holds draws its own again.
+func (r ReadyCards) followDrawn(ctx context.Context, rows []store.ReviewRow) (map[int]bool, error) {
+	drawn, err := r.Cards.Store.LatestFacts(r.Repo, FactCardDrawn)
+	if err != nil {
+		return nil, err
+	}
+	followed := make(map[int]bool, len(drawn))
+	for _, row := range rows {
+		was := drawn[row.Number]
+		if was == "" {
+			continue
+		}
+		if was == drawnSignature(Card(r.Repo, row)) {
+			followed[row.Number] = true
+			continue
+		}
+		done, err := r.Cards.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "redraw-pr-cards", "--pr", fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, row.Number)}})
+		if err != nil {
+			return nil, fmt.Errorf("#%d: %w", row.Number, err)
+		}
+		var said struct {
+			Redrawing int `json:"redrawing"`
+		}
+		if err := json.Unmarshal([]byte(done.Stdout), &said); err != nil {
+			return nil, fmt.Errorf("#%d: cc-slack redraw-pr-cards said %q: %w", row.Number, done.Stdout, err)
+		}
+		if said.Redrawing > 0 {
+			followed[row.Number] = true
+			continue
+		}
+		if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, FactCardDrawn, "", r.Cards.Now()); err != nil {
+			return nil, err
+		}
+	}
+	return followed, nil
 }
 
 func inTapOrder(due []store.ReviewRow) {

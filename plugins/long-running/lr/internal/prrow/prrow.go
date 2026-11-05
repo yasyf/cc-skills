@@ -149,13 +149,44 @@ func TapAt(s *store.Store, repo string, tap bus.Tap) (head, refusal string, err 
 	if strings.HasPrefix(row.Head, tap.Head) {
 		head = row.Head
 	}
+	return head, TapRefusal(row), nil
+}
+
+// TapRefusal names what refuses his approval of a row, empty when it counts.
+func TapRefusal(row store.ReviewRow) string {
 	switch {
 	case row.ReadyForTap:
-		return head, "", nil
+		return ""
 	case LandsOnHisWord(row):
-		return head, row.WaitsOn, nil
+		return row.WaitsOn
 	}
-	return head, unmet(row, false), nil
+	return unmet(row, false)
+}
+
+// LandsOnce says what an approval on an open row lands behind, reading the
+// checks in the order unmet reads them.
+func LandsOnce(row store.ReviewRow) string {
+	switch {
+	case row.State == StateQueued:
+		return "the merge queue takes it"
+	case row.ParentState == ParentOpen:
+		return fmt.Sprintf("the change below it, %s, lands", row.Parent)
+	case row.ParentState == ParentClosed:
+		return fmt.Sprintf("the change below it, %s, is replaced", row.Parent)
+	case row.ParentState == ParentUnknown:
+		return fmt.Sprintf("the change below it, on branch %s, has a row", row.Parent)
+	case row.CI != CIGreen:
+		return "CI is green at this version"
+	case row.Approvers == None:
+		return "it has an approving review at this version"
+	case row.Grade == GradePending:
+		return "its review grade passes"
+	case row.Grade != GradePass:
+		return "its review grade gets a verdict"
+	case row.Mergeable != string(machine.MergeableClean):
+		return "it can merge cleanly"
+	}
+	return "its checks pass"
 }
 
 func unmet(row store.ReviewRow, checks bool) string {

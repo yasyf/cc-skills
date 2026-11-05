@@ -36,6 +36,8 @@ type linkShell struct {
 	calls    []string
 	refuse   string
 	missing  bool
+
+	redrawing int
 }
 
 func (f *linkShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -46,6 +48,9 @@ func (f *linkShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		return shell.Result{}, errors.New("cc-present: not found")
 	}
 	switch {
+	case strings.Contains(argv, "redraw-pr-cards"):
+		f.calls = append(f.calls, argv)
+		return shell.Result{Stdout: fmt.Sprintf(`{"redrawing":%d}`, f.redrawing)}, nil
 	case strings.Contains(argv, "ledger add"):
 		return shell.Result{Stdout: `{"id":"c4rd5"}`}, nil
 	case strings.Contains(argv, "ledger list"), strings.Contains(argv, "answer list"):

@@ -53,6 +53,7 @@ func readyRow(change func(*store.ReviewRow)) store.ReviewRow {
 		Repo: repo, Number: number, Head: head, ReadyForTap: true, State: "open", Title: "sand: faster chats", ForUsers: "chats load faster",
 		PlanRow: "checked against the plan", Risk: "one cache key", Description: "## Context", WaitsOn: "Only your approval.", CI: "green",
 		Review: "approved by poetic-svc", Grade: "pass", GradeFindings: "none", Mergeable: "clean", Lane: "lane-7", Branch: "lane-7/fast", Parent: "none",
+		Hold: "none", SupersededBy: "none",
 	}
 	if change != nil {
 		change(&row)

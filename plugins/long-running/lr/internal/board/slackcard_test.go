@@ -43,21 +43,61 @@ func TestOnlyALedgerRowReadyAndUntappedWaitsOnHim(t *testing.T) {
 	for name, c := range map[string]struct {
 		row     store.ReviewRow
 		waiting bool
+		buttons bool
 	}{
-		"ready":          {readyRow(nil), true},
-		"not ready":      {readyRow(func(r *store.ReviewRow) { r.ReadyForTap = false }), false},
-		"already tapped": {readyRow(func(r *store.ReviewRow) { r.Tapped = true }), false},
-		"another PR":     {readyRow(func(r *store.ReviewRow) { r.Number = number + 1 }), false},
+		"ready":          {readyRow(nil), true, true},
+		"not ready":      {readyRow(func(r *store.ReviewRow) { r.ReadyForTap = false }), false, true},
+		"already tapped": {readyRow(func(r *store.ReviewRow) { r.Tapped = true }), false, false},
+		"another PR":     {readyRow(func(r *store.ReviewRow) { r.Number = number + 1 }), false, true},
+		"held":           {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.Hold = false, "root:until #49305 lands" }), false, false},
+		"its own word":   {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.WaitsOn = false, prrow.FlakeLands }), false, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			found, err := waitingRows(withLedger(t, c.row), repo, []int{number})
 			if err != nil || (len(found) == 1) != c.waiting {
 				t.Fatalf("waiting = %+v, %v, want waiting %v", found, err, c.waiting)
 			}
-			if card := Card(repo, c.row); c.row.Number == number && (card.Waits != "" && len(card.Options) == 2) != c.waiting {
-				t.Fatalf("card = %+v, want buttons %v", card, c.waiting)
+			if card := Card(repo, c.row); (card.Waits != "" && len(card.Options) == 2) != c.buttons {
+				t.Fatalf("card = %+v, want buttons %v", card, c.buttons)
 			}
 		})
+	}
+}
+
+func TestAnOpenRowOffersApproveWithTheOneThingItLandsBehind(t *testing.T) {
+	for name, c := range map[string]struct {
+		change func(*store.ReviewRow)
+		lands  string
+	}{
+		"CI running":   {func(r *store.ReviewRow) { r.CI = prrow.CIPending }, "CI is green at this version"},
+		"no review":    {func(r *store.ReviewRow) { r.Approvers = prrow.None }, "it has an approving review at this version"},
+		"grade":        {func(r *store.ReviewRow) { r.Grade = prrow.GradePending }, "its review grade passes"},
+		"a stack":      {func(r *store.ReviewRow) { r.ParentState, r.Parent = prrow.ParentOpen, "#7" }, "the change below it, #7, lands"},
+		"in the queue": {func(r *store.ReviewRow) { r.State = prrow.StateQueued }, "the merge queue takes it"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			row := readyRow(func(r *store.ReviewRow) { r.ReadyForTap = false; c.change(r) })
+			card := Card(repo, row)
+			if card.Status != "needs_you" || card.Recommended != approveLabel || card.Waits != MergeWaits(number, head) {
+				t.Fatalf("card = %+v, want Approve at this head", card)
+			}
+			if got := card.PRs[0]; got.Lands != c.lands || got.Blocks != "" {
+				t.Fatalf("card PR = %+v, want it to land once %s", got, c.lands)
+			}
+		})
+	}
+}
+
+func TestAHeldRowSaysWhatHoldsItAndOffersNoApprove(t *testing.T) {
+	row := readyRow(func(r *store.ReviewRow) {
+		r.ReadyForTap, r.Hold, r.WaitsOn = false, "root:until #49305 lands", "held, root:until #49305 lands"
+	})
+	card := Card(repo, row)
+	if card.Waits != "" || len(card.Options) != 0 || card.Status != "info" {
+		t.Fatalf("card = %+v, want no buttons", card)
+	}
+	if got := card.PRs[0].Blocks; !strings.HasPrefix(got, "Held: ") {
+		t.Fatalf("blocks = %q, want what holds it", got)
 	}
 }
 
