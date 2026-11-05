@@ -39,6 +39,7 @@ type runnerBus struct {
 	node     string
 	posts    []client.Draft
 	calls    []string
+	stored   map[string]client.Record
 }
 
 func (b *runnerBus) Post(_ context.Context, d client.Draft) (client.Record, error) {
@@ -46,9 +47,15 @@ func (b *runnerBus) Post(_ context.Context, d client.Draft) (client.Record, erro
 	defer b.mu.Unlock()
 	b.calls = append(b.calls, "post")
 	b.posts = append(b.posts, d)
+	if earlier, found := b.stored[d.Text+"\x00"+d.ID]; found {
+		return earlier, nil
+	}
 	seq := b.records[len(b.records)-1].Seq + 1
 	record := client.Record{Seq: seq, Num: fmt.Sprintf("#%d%s", seq, b.node), Lane: d.Lane, Text: d.Text}
 	b.records = append(b.records, record)
+	if b.stored != nil {
+		b.stored[d.Text+"\x00"+d.ID] = record
+	}
 	key := "R" + strings.TrimPrefix(record.Num, "#")
 	_, after, launch := strings.Cut(d.Text, " launch ")
 	if !launch {
@@ -198,6 +205,46 @@ func TestALaunchPostsAnAddressedLineWithNoClockAndPrintsItsVerdict(t *testing.T)
 	}
 	if !strings.Contains(f.out.String(), "new-lane R102 LAUNCHED R102 new-lane: dispatch ctx_l terminal term_l\n") {
 		t.Fatal(f.out)
+	}
+}
+
+func TestARelaunchUnderAFailedNameWithinTheBusDedupWindowPostsItsOwnLineAndReadsItsOwnVerdict(t *testing.T) {
+	f := newPosterFixture(t)
+	f.bus.stored = map[string]client.Record{}
+	brief := f.brief(t, "brief-of-a.md", "work\n"+briefLines)
+	order := Order{Lane: "new-lane", Model: "opus", Effort: "high", Brief: brief, Now: true}
+	f.bus.verdicts["R102"] = "LAUNCH-FAILED desk-lane-%[1]s/R102 %[1]s: no terminal has appeared after orca terminal create"
+	f.bus.verdicts["R104"] = "LAUNCHED R104 %[1]s: dispatch ctx_l terminal term_l"
+
+	failed, err := f.poster.Launch(context.Background(), order, time.Minute)
+	if err != nil || failed != "LAUNCH-FAILED" {
+		t.Fatal(failed, err)
+	}
+	again, err := f.poster.Launch(context.Background(), order, time.Minute)
+	if err != nil || again != verdictLaunched {
+		t.Fatalf("the relaunch read %q, %v:\n%s", again, err, f.out)
+	}
+	if !strings.Contains(f.out.String(), "posted cci #104: ") {
+		t.Fatalf("the relaunch posted no line of its own:\n%s", f.out)
+	}
+}
+
+func TestTheRealBusReplaysARepeatedLineAndPostsOneWithItsOwnAttemptKey(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	line := client.Draft{Drive: "d", Lane: coordinatorLane, Kind: kindGo, To: []string{deskLane}, Topic: "new-lane", Text: "orca-desk: launch new-lane NOW opus high brief=/b.md"}
+	first, err := CCI{}.Post(ctx, line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := CCI{}.Post(ctx, line)
+	if err != nil || replayed.Seq != first.Seq {
+		t.Fatalf("no key: #%d after #%d, %v", replayed.Seq, first.Seq, err)
+	}
+	line.ID = incident.LaunchAttempt("new-lane", time.Now())
+	attempt, err := CCI{}.Post(ctx, line)
+	if err != nil || attempt.Seq == first.Seq {
+		t.Fatalf("attempt key: #%d after #%d, %v", attempt.Seq, first.Seq, err)
 	}
 }
 

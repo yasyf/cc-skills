@@ -221,6 +221,25 @@ func TestARefusedCommsLaneDoesNotFailAnIncidentWhoseFixLaneStands(t *testing.T) 
 	}
 }
 
+func TestARetriedIncidentRunGivesEachLaunchItsOwnAttemptKey(t *testing.T) {
+	desk, bus, dir, _ := deskFixture(t)
+	desk.Name, desk.FixBrief = "inc-x", briefFile(t, dir, "fix.md", "fix")
+	bus.verdicts["R102"] = "LAUNCH-FAILED desk-lane-{lane}/R102 {lane}: no terminal has appeared"
+	if err := desk.Run(context.Background()); err == nil {
+		t.Fatal("the refused launch succeeded")
+	}
+	bus.verdicts["R104"] = "LAUNCHED R104 {lane}: dispatch ctx_l terminal term_l"
+
+	if err := desk.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	first, second := bus.drafts[0], bus.drafts[1]
+	if first.Text != second.Text || first.ID == "" || first.ID == second.ID {
+		t.Fatalf("attempts share a key the bus dedups on: %q and %q", first.ID, second.ID)
+	}
+}
+
 func TestALaunchTheRunnerRefusesFailsWithItsLine(t *testing.T) {
 	desk, bus, dir, out := deskFixture(t)
 	desk.Name, desk.FixBrief = "inc-x", briefFile(t, dir, "fix.md", "fix")
