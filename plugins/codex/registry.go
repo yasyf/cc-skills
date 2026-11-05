@@ -301,6 +301,8 @@ func classify(d string) laneInfo {
 	switch {
 	case !hasMeta:
 		state = "no-run"
+	case st == strconv.Itoa(workerLostStatus):
+		state = "died"
 	case st != "":
 		// A present, non-"0" status is failed unconditionally; turn markers are
 		// consulted only when status is "0".

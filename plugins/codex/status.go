@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
+
+const workerLostStatus = 75
 
 func awaitMode(target string) {
 	if !strings.HasPrefix(target, "/") {
@@ -60,7 +61,7 @@ func pollStatus(sdir, reply, log string) {
 		switch {
 		case !exists(pidFile):
 			if registrationExpired(sdir) {
-				die(fmt.Sprintf("codex-ask: run at %s never registered a pid", sdir), 1)
+				recordLostWorker(sdir, fmt.Sprintf("codex-ask: run at %s never registered a pid", sdir))
 			}
 		case pidAlive(sdir):
 			grace = 0
@@ -72,11 +73,16 @@ func pollStatus(sdir, reply, log string) {
 					_ = atomicWrite(status, "0\n") // tolerate a concurrent publisher
 					continue
 				}
-				die(fmt.Sprintf("codex-ask: run at %s exited without recording status", sdir), 1)
+				recordLostWorker(sdir, fmt.Sprintf("codex-ask: run at %s lost its worker: SIGKILL, the OOM killer or a machine restart ended it before it could record a status", sdir))
 			}
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+func recordLostWorker(sdir, why string) {
+	_ = atomicWrite(join(sdir, "status"), strconv.Itoa(workerLostStatus)+"\n")
+	die(why, workerLostStatus)
 }
 
 func verifyGeneration(sdir, reply, log string) {
@@ -126,34 +132,22 @@ func registrationExpired(sdir string) bool {
 	return err == nil && nowSec()-float64(fi.ModTime().UnixNano())/1e9 > registerGraceS
 }
 
-// pidAlive: kill-0 AND the recorded start-time still matches, so a recycled pid
-// reads dead. A blank/missing recorded lstart degrades to bare kill-0.
+// pidAlive: kill-0 AND the recorded start still matches, so a recycled pid reads
+// dead.
 func pidAlive(sdir string) bool {
 	pid, ok := readPid(join(sdir, "pid"))
 	if !ok || !kill0(pid) {
 		return false
 	}
 	recorded := ""
-	if b, err := os.ReadFile(join(sdir, "lstart")); err == nil { //nolint:gosec // reads the lane's own lstart file, by design
+	if b, err := os.ReadFile(join(sdir, "started")); err == nil { //nolint:gosec // reads the lane's own started file, by design
 		recorded = strings.TrimSpace(string(b))
 	}
-	if recorded == "" {
-		return true
-	}
-	return procLstart(pid) == recorded
+	return !startMoved(recorded, procStart(pid))
 }
 
-// procLstart: the process start-time via a fixed binary and pinned env, so a TZ or
-// locale change between the launch record and a later probe can't reformat the
-// timestamp and make a live lane read dead.
-func procLstart(pid int) string {
-	c := exec.Command("/bin/ps", "-o", "lstart=", "-p", strconv.Itoa(pid)) //nolint:gosec // fixed /bin/ps liveness probe; only the pid varies
-	c.Env = envWith("TZ=UTC", "LC_ALL=C")
-	out, err := c.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+func startMoved(recorded, current string) bool {
+	return recorded != "" && current != "" && recorded != current
 }
 
 func readPid(pidFile string) (int, bool) {

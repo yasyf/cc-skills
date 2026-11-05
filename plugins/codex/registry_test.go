@@ -227,15 +227,63 @@ func TestClassifyIsReadOnly(t *testing.T) {
 func TestClassifyOmitsARecycledPid(t *testing.T) {
 	lane := mustTempDir(t)
 	writeFile(t, filepath.Join(lane, "pid"), strconv.Itoa(os.Getpid())+"\n")
-	writeFile(t, filepath.Join(lane, "lstart"), "Thu Jan  1 00:00:00 2026\n")
+	writeFile(t, filepath.Join(lane, "started"), "Thu Jan  1 00:00:00 2026\n")
 	writeFile(t, filepath.Join(lane, "status"), "0\n")
 	if li := classify(lane); li.pid != nil {
 		t.Fatalf("settled run with a recycled pid reports pid %d", *li.pid)
 	}
 
-	writeFile(t, filepath.Join(lane, "lstart"), procLstart(os.Getpid())+"\n")
+	writeFile(t, filepath.Join(lane, "started"), procStart(os.Getpid())+"\n")
 	if li := classify(lane); li.pid == nil || *li.pid != os.Getpid() {
 		t.Fatalf("live run's pid = %v, want %d", li.pid, os.Getpid())
+	}
+}
+
+func TestOnlyTwoStartsThatDifferProveARecycledPid(t *testing.T) {
+	cases := []struct {
+		recorded, current string
+		moved             bool
+	}{
+		{"100", "100", false},
+		{"100", "200", true},
+		{"", "100", false},
+		{"100", "", false},
+	}
+	for _, c := range cases {
+		if got := startMoved(c.recorded, c.current); got != c.moved {
+			t.Errorf("startMoved(%q, %q) = %v, want %v", c.recorded, c.current, got, c.moved)
+		}
+	}
+}
+
+func TestAwaitRecordsAWorkerThatVanished(t *testing.T) {
+	runs := mustTempDir(t)
+	lane := filepath.Join(mustTempDir(t), "lane")
+	t.Cleanup(func() { killLane(lane) })
+	stdout, stderr, code := askRun(t, runs, stubCodexReply, "-s", lane, "ping")
+	if code != 0 {
+		t.Fatalf("dispatch exit %d\nstderr: %s", code, stderr)
+	}
+	gone := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := gone.Run(); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(lane, "pid"), strconv.Itoa(gone.Process.Pid)+"\n")
+	for _, settled := range []string{filepath.Join(lane, "status"), filepath.Join(lane, "started"), stdoutLine(stdout, "REPLY_FILE: ")} {
+		if err := os.Remove(settled); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, stderr, code = askRun(t, runs, stubCodexReply, "--await", lane)
+	if code != workerLostStatus || !strings.Contains(stderr, "lost its worker") {
+		t.Fatalf("--await exit %d, stderr %q; want exit %d naming the lost worker", code, stderr, workerLostStatus)
+	}
+	if got := strings.TrimSpace(readFile(filepath.Join(lane, "status"))); got != strconv.Itoa(workerLostStatus) {
+		t.Fatalf("status = %q, want %d", got, workerLostStatus)
+	}
+	if state := classify(lane).state; state != "died" {
+		t.Fatalf("state = %q, want died", state)
 	}
 }
 
@@ -326,7 +374,7 @@ func TestPsScopedDoesNotClassifyOtherLanes(t *testing.T) {
 	selected := agedNamedLane(t, filepath.Join(runs, "codex-run.selected"), "review")
 	unrelated := agedNamedLane(t, filepath.Join(runs, "codex-run.other"), "blocked")
 	writeFile(t, filepath.Join(unrelated, "pid"), strconv.Itoa(os.Getpid()))
-	if err := syscall.Mkfifo(filepath.Join(unrelated, "lstart"), 0o600); err != nil {
+	if err := syscall.Mkfifo(filepath.Join(unrelated, "started"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
