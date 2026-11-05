@@ -344,6 +344,22 @@ func TestATapOnARowWhoseStandingRefusesItIsRefusedWithTheReasonAndNeverOrdered(t
 	}
 }
 
+func TestATapOnALandedRowPostsNoOrderNoRefusalAndNoBlocker(t *testing.T) {
+	h := unreadHarness(t)
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.State = prrow.StateLanded })
+	ownerRecord(t, landOnCard, pickAttrs)
+
+	writeOrders(t, h)
+
+	told, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"blocker"}, Lanes: []string{facts.OrderLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written, refused := orders(t), refusals(t); len(written)+len(refused)+len(told) != 0 {
+		t.Fatalf("orders = %+v, refusals = %+v, told = %+v", written, refused, told)
+	}
+}
+
 func TestARefusedTapTellsTheRelayWhatHoldsItOnce(t *testing.T) {
 	h := unreadHarness(t)
 	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)

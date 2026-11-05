@@ -54,6 +54,9 @@ func Answer(s *store.Store, repo string, hooks Hooks, row store.ReviewRow, verdi
 		if err != nil {
 			return err
 		}
+		if refusal == prrow.AlreadyLanded {
+			return nil
+		}
 		if refusal != "" {
 			if _, err := s.PutFact(repo, row.Number, row.Head, bus.TapRefusedFact, refusal, at); err != nil {
 				return err

@@ -41,8 +41,9 @@ const (
 	ParentClosed  = "closed"
 	ParentUnknown = "unknown"
 
-	NotGraded = "not graded at this head"
-	RedAtHead = "CI is red at this head"
+	NotGraded     = "not graded at this head"
+	AlreadyLanded = "Nothing: it landed."
+	RedAtHead     = "CI is red at this head"
 
 	heldLead       = "held, "
 	verdictLead    = "a grade needs a verdict"
@@ -198,7 +199,7 @@ func LandsOnce(row store.ReviewRow) string {
 func unmet(row store.ReviewRow, checks bool) string {
 	switch {
 	case row.State == StateLanded:
-		return "Nothing: it landed."
+		return AlreadyLanded
 	case row.State == StateClosed:
 		return "Nothing: it was closed without landing."
 	case row.SupersededBy != None:

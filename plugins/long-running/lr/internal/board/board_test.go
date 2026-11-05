@@ -155,6 +155,17 @@ func TestApprovedOnAHeldRowIsRefusedWithItsReasonAndTapsNothing(t *testing.T) {
 	}
 }
 
+func TestApprovedOnALandedRowPostsNothing(t *testing.T) {
+	s, hooks := withItem(t), &recorded{}
+	row := rowWaits(t, s, func(r *store.ReviewRow) { r.State = prrow.StateLanded })
+	if err := Answer(s, repo, hooks.hooks(), row, verdictApproved, t0); err != nil {
+		t.Fatal(err)
+	}
+	if len(hooks.taps)+len(hooks.refused) != 0 || stored(t, s)[bus.TapRefusedFact] != "" {
+		t.Fatalf("taps = %+v, refused = %+v, facts = %v", hooks.taps, hooks.refused, stored(t, s))
+	}
+}
+
 func TestRejectedGoesToTheHoldHookAndTapsNothing(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
 	if err := Answer(s, repo, hooks.hooks(), readyRow(nil), verdictRejected, t0); err != nil {
