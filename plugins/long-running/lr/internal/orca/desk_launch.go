@@ -170,6 +170,9 @@ func sortedStrings(values map[string]string) []string {
 func (d *Desk) launchLocal(container, lane string, action incident.Action, spec launchTarget) error {
 	env := append(envPairs(d.Config.LaunchEnv), d.sender...)
 	env = append(env, "ORCA_LAUNCH_STATE="+d.Config.Receipts, "LAUNCH_ROLE="+spec.Role, laneEnv+"="+or(spec.By, coordinatorLane), stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive)
+	if failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) {
+		env = append(env, fallbackEnv+"=1")
+	}
 	process, err := d.Spawn([]string{d.tool("lr"), "launch", "start", lane, spec.Model, spec.Effort, spec.Brief}, d.launchLog(container, action.ActionID), env)
 	if err != nil {
 		return err

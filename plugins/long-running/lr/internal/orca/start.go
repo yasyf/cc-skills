@@ -436,7 +436,7 @@ func (s *Starter) Run(ctx context.Context, lane, model, effort, brief string) (s
 	stages := stagesOf(s.Env, s.Bus, lane, s.Stderr)
 	first := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief, stages: stages}
 	line, err := first.start()
-	if first.stalled == "" || first.startTries > 0 || first.kept != "" {
+	if first.stalled == "" || first.startTries > 0 || first.kept != "" || s.Env(fallbackEnv) == "1" {
 		return line, err
 	}
 	fmt.Fprintf(s.Stderr, "%s retries once after a stall: %s\n", lane, first.stalled)

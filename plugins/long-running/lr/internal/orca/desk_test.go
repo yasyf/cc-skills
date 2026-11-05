@@ -4488,6 +4488,9 @@ func TestAnIncidentLaunchStartsOnASpriteUnlessItsBriefNamesTheMac(t *testing.T) 
 				if tt.onSprite && w.spawns[0].argv[2] != model {
 					t.Fatal(w.spawns)
 				}
+				if !tt.onSprite && !slices.Contains(w.spawns[0].env, fallbackEnv+"=1") {
+					t.Fatal(w.spawns[0].env)
+				}
 			})
 		}
 	}
@@ -4541,7 +4544,7 @@ func TestAMacLaunchOfAnOrdinaryLaneThatFailsStaysFailed(t *testing.T) {
 	spriteConfig(w)
 	key := w.failedOnTheMac("opus", "ccx: role=build incident=none place=local why=devbox", worktreeStalled)
 	w.step(w.desk.reap)
-	if len(w.spawns) != 1 {
+	if len(w.spawns) != 1 || slices.Contains(w.spawns[0].env, fallbackEnv+"=1") {
 		t.Fatal(w.spawns)
 	}
 	if action := w.action(testLane, key); action.Status != incident.ActionFailed {

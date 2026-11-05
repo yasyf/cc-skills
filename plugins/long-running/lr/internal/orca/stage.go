@@ -15,6 +15,7 @@ import (
 
 const (
 	stageKeyEnv   = "LAUNCH_STAGE_KEY"
+	fallbackEnv   = "LAUNCH_FALLS_BACK"
 	stageDriveEnv = "LAUNCH_STAGE_DRIVE"
 )
 
