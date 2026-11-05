@@ -38,7 +38,7 @@ const (
 
 var (
 	numberedChange  = regexp.MustCompile(`(^|[^\w&])(#(\d+))\b`)
-	prNamed         = regexp.MustCompile(`github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+/[\w.-]+)#(\d+)|\bPR (\d+)\b`)
+	prNamed         = regexp.MustCompile(`github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|(?:^|[^\w./:-])([\w.-]+/[\w.-]+)#(\d+)\b|\bPR (\d+)\b`)
 	kept            = regexp.MustCompile(cardtext.HiddenCite.String() + "|" + cardtext.Link.String())
 	slugWord        = regexp.MustCompile(`[a-z0-9]+`)
 	errLinkAnswered = errors.New("the board link answered")
