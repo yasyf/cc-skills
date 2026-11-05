@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -26,6 +27,7 @@ type Wait struct {
 	Since  time.Time
 	Within time.Duration
 	To     string
+	Key    string
 	Cause  string
 }
 
@@ -74,7 +76,7 @@ func Apply(s *store.Store, namespaces []string, standing []Wait, now time.Time, 
 		if !wait.overdue(now) {
 			continue
 		}
-		raised, err := s.Escalate(wait.subject(), wait.Cause, wait.To, now)
+		raised, err := s.Escalate(wait.subject(), cmp.Or(wait.Key, wait.Cause), wait.To, now)
 		if err != nil {
 			failed = err
 			break

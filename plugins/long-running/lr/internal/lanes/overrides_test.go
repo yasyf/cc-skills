@@ -63,6 +63,9 @@ func TestAnOverrideWhoseQuoteDoesNotHoldWarnsRootOnceAndNeverRefuses(t *testing.
 			if len(fake.posted) != 1 || fake.posted[0].Kind != "note" || !strings.HasPrefix(fake.posted[0].Text, "OVERRIDE-WARNING cci #9 still counts") || !strings.Contains(fake.posted[0].Text, tc.want) {
 				t.Fatalf("posted = %+v", fake.posted)
 			}
+			if escalations, err := check.Store.Escalations(""); err != nil || len(escalations) != 0 {
+				t.Fatalf("escalations = %+v, %v", escalations, err)
+			}
 		})
 	}
 }
@@ -214,5 +217,32 @@ func TestAnAppealCitingARealRowIsCountedOnceByTheLanesMachine(t *testing.T) {
 	counted := fake.posted[0]
 	if counted.Lane != Self || counted.Kind != "decide" || !slices.Equal(counted.PRs, []string{"47755"}) || !strings.HasPrefix(counted.Text, "finder-override #47755 at abc1234: 174488. Counted from grader-appeals-1's cci #9") {
 		t.Fatalf("counted = %+v", counted)
+	}
+}
+
+func TestACountedAppealToldToItsOwnerRaisesNoEscalation(t *testing.T) {
+	fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "grader-appeals-1", Kind: "decide", At: t0, Text: "finder-override #47755 at abc1234: 174488. Answer 7f54b1d grounds it"}}}
+	runner := &shelltest.Fake{}
+	runner.Reply("the owner's words\n", "ccn")
+	s := memory(t)
+	if _, err := s.WantLane(store.Lane{Name: "lane-1", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Own("lane-1", []int{47755}); err != nil {
+		t.Fatal(err)
+	}
+	check := &OverrideRefusals{Env: Env{Bus: fake, Runner: runner, Config: config.Config{Drive: testDrive}}, Store: s}
+	registerDrive(t)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	escalations, err := s.Escalations("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.posted) != 2 || len(escalations) != 0 {
+		t.Fatalf("posted = %+v, escalations = %+v, want the counted record and the owner's note and no escalation", fake.posted, escalations)
 	}
 }

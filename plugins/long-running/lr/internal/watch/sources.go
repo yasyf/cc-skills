@@ -191,7 +191,7 @@ func classOf(cause string) string {
 }
 
 func Repeats(escalations []store.Escalation, now time.Time) []Wait {
-	subjects := map[string]map[string]bool{}
+	subjects := map[string][]string{}
 	third := map[string]time.Time{}
 	var classes []string
 	for _, escalation := range escalations {
@@ -200,10 +200,12 @@ func Repeats(escalations []store.Escalation, now time.Time) []Wait {
 			continue
 		}
 		if subjects[class] == nil {
-			subjects[class] = map[string]bool{}
 			classes = append(classes, class)
 		}
-		subjects[class][escalation.Subject] = true
+		if slices.Contains(subjects[class], escalation.Subject) {
+			continue
+		}
+		subjects[class] = append(subjects[class], escalation.Subject)
 		if len(subjects[class]) == repeatCount {
 			third[class] = escalation.Raised
 		}
@@ -214,9 +216,12 @@ func Repeats(escalations []store.Escalation, now time.Time) []Wait {
 		if !repeated {
 			continue
 		}
+		reached := fmt.Sprintf("repeat: %s reached %d or more subjects within %d hours on %s", class, repeatCount, int(repeatWindow.Hours()), since.In(pacific).Format("Jan 2"))
+		const order = "a known defect is fixed the hour it is known, so order one fix lane for the class"
 		waits = append(waits, Wait{
 			Kind: repeatKind, Repo: RepeatNamespace, Head: class, Mover: machine.MoverRoot, Since: since, To: root,
-			Cause: fmt.Sprintf("repeat: %s reached %d or more subjects within %d hours on %s; a known defect is fixed the hour it is known, so order one fix lane for the class", class, repeatCount, int(repeatWindow.Hours()), since.In(pacific).Format("Jan 2")),
+			Key:   reached + "; " + order,
+			Cause: reached + ": " + strings.Join(subjects[class], ", ") + "; " + order,
 		})
 	}
 	return waits

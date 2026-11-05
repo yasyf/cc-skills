@@ -411,6 +411,23 @@ func TestAStoreFileFromAnOlderSchemaGainsTheColumnsItLacks(t *testing.T) {
 	}
 }
 
+func TestANoticeAnOlderStoreMarkedAsAnEscalationStaysSentAndLeavesTheEscalations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lr.sqlite")
+	s := must[*Store](t)(Open(path))
+	must[bool](t)(s.Escalate("alert:C1:1.5", "launch", "root", t0))
+	must[bool](t)(s.Escalate("org/repo#1", "enqueue overdue", "root", t0))
+	ok(t, s.Close())
+
+	again := must[*Store](t)(Open(path))
+	defer again.Close()
+	if must[bool](t)(again.Notice("alert:C1:1.5", t0)) {
+		t.Fatal("the alert's launch notice was sent again")
+	}
+	if got := must[[]Escalation](t)(again.Escalations("")); len(got) != 1 || got[0].Subject != "org/repo#1" {
+		t.Fatalf("escalations %+v", got)
+	}
+}
+
 func TestOpeningACurrentStoreAgainChangesNothing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lr.sqlite")
 	s := must[*Store](t)(Open(path))

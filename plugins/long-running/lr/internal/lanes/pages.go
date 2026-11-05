@@ -113,7 +113,7 @@ func (w *PageWatch) readReleases(ctx context.Context, now time.Time) error {
 }
 
 func (w *PageWatch) claim(ctx context.Context, build string, watched *watchedBuild, now time.Time) error {
-	first, err := w.Store.Escalate("release-claim:"+build, "claim", Root, now)
+	first, err := w.Store.Notice("release-claim:"+build, now)
 	if err != nil || !first {
 		return err
 	}
