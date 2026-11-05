@@ -30,6 +30,7 @@ type cardShell struct {
 	ancestors map[string]bool
 	answers   map[string]bool
 	questions map[string]bool
+	shows     map[string][]int
 	rowed     map[string]bool
 	removed   []string
 	reasons   []string
@@ -52,8 +53,15 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		blocks := []map[string]any{{"id": "sec", "type": "markdown"}, {"id": mergeTriage, "type": "card"}}
 		for _, card := range f.cards {
 			block := map[string]any{"id": card, "type": "card"}
+			var children []map[string]any
 			if f.questions[card] {
-				block["children"] = []map[string]string{{"id": card + "-choice", "type": "choice"}}
+				children = append(children, map[string]any{"id": card + "-choice", "type": "choice"})
+			}
+			for _, number := range f.shows[card] {
+				children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%d", card, number), "type": "pr", "repo": defaultRepo, "number": number})
+			}
+			if children != nil {
+				block["children"] = children
 			}
 			blocks = append(blocks, block)
 		}
@@ -288,6 +296,34 @@ func TestSweepNeverTakesAnUnansweredQuestionDownOnATimeAlone(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "PROBLEM") {
 		t.Fatalf("out = %s, want an answered end read as an end", out.String())
+	}
+}
+
+func TestSweepWithdrawsACardOnceEveryPRItShowsMergedOrClosedWhateverItsEnd(t *testing.T) {
+	on := &cardShell{
+		cards:     []string{"card-pick-merged", "card-tap-closed", "card-two-one-open", "card-pick-open", "card-no-pr"},
+		questions: map[string]bool{"card-pick-merged": true, "card-two-one-open": true, "card-pick-open": true, "card-no-pr": true},
+		shows:     map[string][]int{"card-pick-merged": {1}, "card-tap-closed": {2}, "card-two-one-open": {1, 3}, "card-pick-open": {3}},
+	}
+	f := newCards(t, on, map[int]string{1: "MERGED", 2: "CLOSED"})
+	ctx := context.Background()
+	for _, card := range []string{"card-pick-merged", "card-two-one-open", "card-pick-open", "card-no-pr"} {
+		if _, err := f.Until(ctx, card, "answered", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := f.Sweep(ctx, "board-lane", &out); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"card-pick-merged", "card-tap-closed"}; !reflect.DeepEqual(on.removed, want) {
+		t.Fatalf("removed = %v, want %v", on.removed, want)
+	}
+	if want := []string{"Forge-AI/monorepo#1 is merged", "Forge-AI/monorepo#2 is closed"}; !reflect.DeepEqual(on.reasons, want) {
+		t.Fatalf("remove-block reasons = %q, want %q for each Slack card", on.reasons, want)
+	}
+	if f.status.reads != 1 {
+		t.Fatalf("status reads = %d, want one read for every card's PRs", f.status.reads)
 	}
 }
 
