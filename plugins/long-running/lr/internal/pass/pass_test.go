@@ -821,7 +821,7 @@ func TestAStackBasePastItsDeadlineTellsRootOnceWhatItHolds(t *testing.T) {
 
 	want := []pass.Escalated{{
 		Subject: "org/repo#45469",
-		Cause:   "stack base stuck at e718a7434f; its fix-red waits on the lane past its deadline and holds #45470 above it",
+		Cause:   "stack base stuck; its fix-red waits on the lane past its deadline at e718a7434f and holds #45470 above it",
 		To:      "root",
 	}}
 	if len(toRoot(early)) != 0 || !reflect.DeepEqual(toRoot(late), want) || len(toRoot(later)) != 0 {
@@ -836,9 +836,77 @@ func TestAStackBaseNobodyDrivesTellsRootWhatItHolds(t *testing.T) {
 
 	out := run(t, s, r, t0, all, below, above)
 
-	want := []pass.Escalated{{Subject: "org/repo#45469", Cause: "stack base stuck at e718a7434f; nobody drives it and holds #45470 above it", To: "root"}}
+	want := []pass.Escalated{{Subject: "org/repo#45469", Cause: "stack base stuck; nobody drives it at e718a7434f and holds #45470 above it", To: "root"}}
 	if !reflect.DeepEqual(toRoot(out), want) {
 		t.Fatalf("escalated = %+v", toRoot(out))
+	}
+}
+
+func TestABaseWaitingOnlyOnHisTapAsksRootNothing(t *testing.T) {
+	waitsOnTap := facts(45468, func(f *machine.Facts) { f.Branch, f.Tap = "lowest", "" })
+	for name, base := range map[string]machine.Facts{
+		"its own tap":                facts(45469, func(f *machine.Facts) { f.Branch, f.Tap = "below", "" }),
+		"the tap of what it carries": facts(45469, func(f *machine.Facts) { f.Branch, f.Tap, f.Carries = "below", "", []int{45468} }),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+			if _, err := s.WantLane(store.Lane{Name: above.Lane, State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
+
+			for _, at := range []time.Duration{0, machine.OwnerClock, machine.OwnerClock + time.Minute} {
+				if got := toRoot(run(t, s, r, t0.Add(at), all, waitsOnTap, base, above)); len(got) != 0 {
+					t.Fatalf("at %s: root was asked %+v", at, got)
+				}
+			}
+		})
+	}
+}
+
+func TestABaseCarryingAPRThatWaitsOnALaneStillTellsRoot(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	red := facts(45468, func(f *machine.Facts) { f.Branch, f.Tap, f.CI = "lowest", "", machine.CIFailure })
+	base := facts(45469, func(f *machine.Facts) { f.Branch, f.Tap, f.Carries = "below", "", []int{45468} })
+	above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+	if _, err := s.WantLane(store.Lane{Name: above.Lane, State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	run(t, s, r, t0, all, red, base, above)
+	late := run(t, s, r, t0.Add(machine.LaneClock), all, red, base, above)
+
+	want := []pass.Escalated{{Subject: "org/repo#45469", Cause: "stack base stuck; its restack waits on the lane past its deadline at e718a7434f and holds #45470 above it", To: "root"}}
+	if got := toRoot(late); !reflect.DeepEqual(got, want) {
+		t.Fatalf("escalated = %+v", got)
+	}
+}
+
+func TestAStackBaseWhoseHeadMovesRaisesOnceForOneCause(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	at := func(sha string) machine.Facts {
+		return facts(45469, func(f *machine.Facts) { f.Branch, f.Head, f.CI = "below", sha, machine.CIFailure })
+	}
+	above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+	if _, err := s.WantLane(store.Lane{Name: above.Lane, State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	heads := []string{"f1eab2fc27aa", "18ac09aad8bb", "eed99540abcc"}
+	raised := make([]pass.Escalated, 0, len(heads))
+	for round, sha := range heads {
+		start := t0.Add(time.Duration(round) * 2 * machine.LaneClock)
+		run(t, s, r, start, all, at(sha), above)
+		raised = append(raised, toRoot(run(t, s, r, start.Add(machine.LaneClock), all, at(sha), above))...)
+	}
+
+	want := []pass.Escalated{{
+		Subject: "org/repo#45469",
+		Cause:   "stack base stuck; its fix-red waits on the lane past its deadline at f1eab2fc27 and holds #45470 above it",
+		To:      "root",
+	}}
+	if !reflect.DeepEqual(raised, want) {
+		t.Fatalf("raised = %+v", raised)
 	}
 }
 
@@ -1055,6 +1123,7 @@ func TestATappedHeadOverdueOnAMoverThisHostDoesNotRunSaysWhy(t *testing.T) {
 		"a head nobody tapped":               {func(f *machine.Facts) { f.Fidelity, f.Tap = "", "" }, landing, late, false},
 		"on a host that runs the mover":      {ungraded, all, late, false},
 		"a head the landing pass moves here": {nil, landing, late, false},
+		"a conflicted head under a hold":     {func(f *machine.Facts) { f.Mergeable, f.Hold = machine.MergeableConflict, machine.MoverRoot }, landing, t0.Add(machine.LaneClock + time.Minute), false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s, r := newStore(t), &recorder{}

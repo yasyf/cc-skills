@@ -378,6 +378,10 @@ func clusterCause(s *store.Store, item store.Item) (string, time.Duration, error
 func escalateStuckBases(s *store.Store, snapshot []machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, out *Outcome) error {
 	var bases []machine.Facts
 	held := map[int][]string{}
+	byNumber := make(map[int]machine.Facts, len(snapshot))
+	for _, f := range snapshot {
+		byNumber[f.Number] = f
+	}
 	for _, f := range snapshot {
 		if out.Verdicts[f.Number].Action != machine.ActionEnqueue {
 			continue
@@ -392,6 +396,9 @@ func escalateStuckBases(s *store.Store, snapshot []machine.Facts, byBranch map[s
 		held[base.Number] = append(held[base.Number], fmt.Sprintf("#%d", f.Number))
 	}
 	for _, base := range bases {
+		if waitsOnlyOnHisTap(base, byNumber) {
+			continue
+		}
 		stuck, err := stuckBecause(s, base, now)
 		if err != nil {
 			return err
@@ -400,8 +407,8 @@ func escalateStuckBases(s *store.Store, snapshot []machine.Facts, byBranch map[s
 			continue
 		}
 		subject := fmt.Sprintf("%s#%d", base.Repo, base.Number)
-		cause := "stack base stuck at " + base.Head[:min(10, len(base.Head))]
-		if err := escalate(s, subject, cause, "; "+stuck+" and holds "+strings.Join(held[base.Number], ", ")+" above it", root, now, post, out); err != nil {
+		detail := " at " + base.Head[:min(10, len(base.Head))] + " and holds " + strings.Join(held[base.Number], ", ") + " above it"
+		if err := escalate(s, subject, "stack base stuck; "+stuck, detail, root, now, post, out); err != nil {
 			return err
 		}
 	}
@@ -440,6 +447,15 @@ func escalateUnreadRows(s *store.Store, snapshot []machine.Facts, now time.Time,
 	}
 	out.Escalated = append(out.Escalated, Escalated{subject, cause, RowsDesk})
 	return post([]string{RowsDesk}, bus.Escalation{Subject: subject, Cause: cause})
+}
+
+func waitsOnlyOnHisTap(base machine.Facts, byNumber map[int]machine.Facts) bool {
+	return tapIsNext(base) && !slices.ContainsFunc(base.Carries, func(number int) bool { return !tapIsNext(byNumber[number]) })
+}
+
+func tapIsNext(f machine.Facts) bool {
+	f.Carries = nil
+	return machine.Classify(f).Action == machine.ActionTap
 }
 
 func stuckBecause(s *store.Store, base machine.Facts, now time.Time) (string, error) {
@@ -523,7 +539,7 @@ func stuckHeads(s *store.Store, snapshot []machine.Facts, now time.Time, live []
 	stuck := map[int]string{}
 	for _, f := range snapshot {
 		item, waits := unserved[f.Number]
-		if !waits || item.Head != f.Head || !f.Tapped() {
+		if !waits || item.Head != f.Head || !f.Tapped() || f.Hold != "" {
 			continue
 		}
 		why := fmt.Sprintf("the landing pass reads it as %s: its %s waits on the %s past its deadline, and the %s does not run on the landing host", verdicts[f.Number].State, item.Kind, item.Mover, item.Mover)
