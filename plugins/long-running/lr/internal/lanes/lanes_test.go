@@ -98,6 +98,7 @@ type fake struct {
 	published   []string
 	gaps        []string
 	orders      []owner.Row
+	undelivered []owner.Row
 	branches    map[string][]int
 	branchReads int
 	hosts       map[string]Host
@@ -158,6 +159,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		PublishNotes: func(lane string) error { f.published = append(f.published, lane); return f.notes[lane] },
 		Gaps:         func() ([]string, error) { return f.gaps, nil },
 		Orders:       func(*store.Store) ([]owner.Row, error) { return f.orders, nil },
+		Undelivered:  func() ([]owner.Row, error) { return f.undelivered, nil },
 		RotateAt:     600_000,
 		RetireAfter:  time.Hour,
 		OpenBranches: func(*store.Store) (map[string][]int, error) { f.branchReads++; return f.branches, nil },

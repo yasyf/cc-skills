@@ -22,7 +22,7 @@ The supervisor makes a quiet lane structurally impossible; it does not report on
 
 | The lane's newest record | What it means | Who resumes the work |
 | --- | --- | --- |
-| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A `done` is refused while the lane owns an open PR, so it posts `blocked --pr <n>` instead; a PR it still owns after a `stopped` or `stand-down` goes to the coordinator if it breaks. A lane that still owes a deletion is held instead (see Owed deletions) |
+| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A `done` is refused while the lane owns an open PR, so it posts `blocked --pr <n>` instead; a PR it still owns after a `stopped` or `stand-down` goes to the coordinator if it breaks. A lane that still owes a deletion or carries an owner order with no delivered proof is held instead (see Owed deletions and Owner orders a lane carries) |
 | `ask`, `blocker`, or `blocked` to a lane | It waits on that lane's answer | The answer, through the supervisor |
 | `blocked` naming a gate: `--pr`, `--target`, `--lane-ref`, or a `card-` id in the text | It waits on an event | That event, through the supervisor |
 | Anything else | The turn has open work | Stopping is refused, and the refusal prints the commands |
@@ -121,6 +121,12 @@ A lane cannot retire while its line owns an open `owed-deletion` task whose code
 - Each hour the tick posts one `blocker` digest to the coordinator, listing every path or symbol an in-force `removes` row names that lacks both an `owed-deletion` task and an `exception` row, is not in the row's `guards`, and is still on trunk at the row's anchored paths: one line per target, with the rows that remove it. The digest's id hashes that list, so an unchanged set of gaps is never reposted.
 - The owner update lists each such task of the drive's program whose code is still there and whose owner has no live lane, under "Owed deletions with no live owner".
 - A task past its due date with its code still on trunk draws one `blocker` to the live head of its owner's line, or to the coordinator when there is none, and the update lists it under "Owed deletions past due".
+
+### Owner orders a lane carries
+
+A lane cannot retire while its brief names an `owner:m<row>` that `lr owner audit` still owes, with no record carrying `delivered=owner:m<row>`.
+- Every end that an owed deletion holds holds it too, with one `defect` to the coordinator and the lane naming each row. A coordinator stand-down that names a successor hands the brief, and its orders, to that successor.
+- An `owner` record addressed to a lane that is retired or held, or that retires in the same pass before it reads the record, goes on in that pass: one `ask` to the live end of the lane's successor chain, or to the coordinator when there is none, names the record and the lane. A stem such as `spinner-pictures` resolves to its newest numbered lane, live or not.
 
 ## Dead lanes
 

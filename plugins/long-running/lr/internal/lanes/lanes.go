@@ -14,6 +14,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -438,15 +439,19 @@ func hold(s *store.Store, name, why string, at time.Time) {
 }
 
 type owing struct {
-	name  string
-	rows  []deletions.Owed
-	err   error
-	notes error
+	name   string
+	rows   []deletions.Owed
+	orders []owner.Row
+	err    error
+	notes  error
 }
 
 func owingOf(s *store.Store, d Deps, name string) (owing, bool) {
 	one, owes := deletionsOwed(s, d, name)
 	if owes {
+		return one, true
+	}
+	if one.orders, one.err = carriedOrders(s, d, name); one.err != nil || len(one.orders) > 0 {
 		return one, true
 	}
 	one.notes = notesOwed(s, d, name)
@@ -464,6 +469,16 @@ func deletionsOwed(s *store.Store, d Deps, name string) (owing, bool) {
 	})
 	rows, err := d.Present(owned)
 	return owing{name: name, rows: rows, err: err}, err != nil || len(rows) > 0
+}
+
+func carriedOrders(s *store.Store, d Deps, name string) ([]owner.Row, error) {
+	lane, _ := laneOf(s, name)
+	carried := must(BriefOf(lane.Brief)).Orders
+	if len(carried) == 0 {
+		return nil, nil
+	}
+	rows, err := d.Undelivered()
+	return slices.DeleteFunc(rows, func(row owner.Row) bool { return !slices.Contains(carried, row.ID) }), err
 }
 
 func overdue(s *store.Store, d Deps, now time.Time) {
@@ -514,13 +529,20 @@ func (o owing) owes() string {
 		return "its cc-notes did not reach origin: " + o.notes.Error()
 	}
 	if o.err != nil {
-		return "the deletions it owes did not read: " + o.err.Error()
+		return "what it owes did not read: " + o.err.Error()
 	}
-	rows := make([]string, len(o.rows))
-	for i, row := range o.rows {
-		rows[i] = row.String()
+	var owed []string
+	if len(o.rows) > 0 {
+		rows := make([]string, len(o.rows))
+		for i, row := range o.rows {
+			rows[i] = row.String()
+		}
+		owed = append(owed, fmt.Sprintf("it owes %d deletions whose code is still on trunk: %s", len(o.rows), strings.Join(rows, "; ")))
 	}
-	return fmt.Sprintf("it owes %d deletions whose code is still on trunk: %s", len(o.rows), strings.Join(rows, "; "))
+	if len(o.orders) > 0 {
+		owed = append(owed, fmt.Sprintf("its brief carries %d owner orders with no delivered proof: %s", len(o.orders), owner.Tokens(o.orders)))
+	}
+	return strings.Join(owed, ", and ")
 }
 
 func (o owing) post(s *store.Store, d Deps) {
@@ -528,7 +550,14 @@ func (o owing) post(s *store.Store, d Deps) {
 		do(d.Post(Post{Kind: "blocker", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s would retire, but %s. The supervisor holds %s, never relaunched or retired, and tries again when it posts. Standing it down by order accepts leaving those notes on its Sprite.", o.name, o.owes(), o.name)}))
 		return
 	}
-	do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; coordinator: relaunch it or reassign its tasks.", o.name, o.owes(), o.name, o.name)}))
+	var remedies []string
+	if o.err != nil || len(o.rows) > 0 {
+		remedies = append(remedies, "delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`")
+	}
+	if o.err != nil || len(o.orders) > 0 {
+		remedies = append(remedies, "deliver each order and post `cci post --kind report --attr delivered=owner:<row>` once he has it")
+	}
+	do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: %s; coordinator: relaunch it or reassign its tasks.", o.name, o.owes(), o.name, o.name, strings.Join(remedies, "; "))}))
 }
 
 func unreadBy(s *store.Store, r Record, name, cited string) string {

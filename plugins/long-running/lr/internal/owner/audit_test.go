@@ -270,3 +270,18 @@ func aboutPR(record client.Record, number int) client.Record {
 	}{Number: number})
 	return record
 }
+
+func TestAQuestionRoutedToALaneStaysOwedUntilItIsAnswered(t *testing.T) {
+	rows := Parse([]byte(`| id | time | message | routed | state |
+|---|---|---|---|---|
+| m1 | Nov 3 4:50 AM | why did the queue evict it silently? | 461612 | addressed |
+| m2 | Nov 3 4:51 AM | why does it need Touch ID? |  | responded |
+| m3 | Nov 3 4:52 AM | is this live yet? |  | no-order |
+`))
+
+	got := ids(Undelivered(rows, nil, nil))
+
+	if want := []string{"m1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}

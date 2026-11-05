@@ -60,6 +60,7 @@ type Deps struct {
 	PublishNotes          func(lane string) error
 	Gaps                  func() ([]string, error)
 	Orders                func(s *store.Store) ([]owner.Row, error)
+	Undelivered           func() ([]owner.Row, error)
 	RotateAt              int
 	RetireAfter           time.Duration
 	OpenBranches          func(s *store.Store) (map[string][]int, error)
@@ -98,6 +99,11 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	owed := sync.OnceValues(d.Owed)
 	d.Owed = func() ([]deletions.Owed, error) {
 		rows, err := owed()
+		return slices.Clone(rows), err
+	}
+	undelivered := sync.OnceValues(d.Undelivered)
+	d.Undelivered = func() ([]owner.Row, error) {
+		rows, err := undelivered()
 		return slices.Clone(rows), err
 	}
 	cursor := must(s.Cursor(CursorName))
@@ -846,6 +852,7 @@ func parkedUntil(transcript string, now time.Time) time.Time {
 
 func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string, taken map[string]bool, now time.Time, out *Outcome) (woken []string, err error) {
 	defer recovered(&err)
+	forwardOwnerWords(s, d)
 	do(s.KeepUnread(live...))
 	held := map[string][]store.Unread{}
 	for _, order := range must(s.Unread()) {
@@ -878,6 +885,22 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 		do(s.MarkUnreadRaised(lane.Name))
 	}
 	return woken, nil
+}
+
+func forwardOwnerWords(s *store.Store, d Deps) {
+	for _, order := range must(s.Unread()) {
+		lane, _ := laneOf(s, order.Lane)
+		if order.Kind != "owner" || isLive(lane.State) {
+			continue
+		}
+		to, ended := routeOf(s, lane.Name), fmt.Sprintf("retired (%s)", lane.RetiredBy)
+		if lane.State == store.LaneHeld {
+			to, ended = noticeTo(s, lane.Name), "was held"
+		}
+		if to != order.Author {
+			do(d.Post(Post{Kind: "ask", To: []string{to}, Re: order.Seq, Text: fmt.Sprintf("%s's owner record #%d reached %s after it %s, so it is yours to carry: read it with `cci show %d`.", order.Author, order.Seq, lane.Name, ended, order.Seq)}))
+		}
+	}
 }
 
 func wakeOnUnread(s *store.Store, d Deps, lane store.Lane, peer Peer, records []store.Unread, now time.Time) bool {

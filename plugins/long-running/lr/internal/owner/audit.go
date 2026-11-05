@@ -93,7 +93,7 @@ func (r Row) Order() bool {
 }
 
 func (r Row) Owed() bool {
-	return r.Order() || r.State == opened && question(r.Text)
+	return r.Order() || (r.State == opened || r.State == addressed) && question(r.Text)
 }
 
 func question(text string) bool {
