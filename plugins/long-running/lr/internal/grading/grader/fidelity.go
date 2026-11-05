@@ -83,6 +83,7 @@ type FidelityJob struct {
 	Contract       string            `json:"contract"`
 	Sources        string            `json:"sources"`
 	Regrade        int               `json:"regrade,omitempty"`
+	ReportOnly     bool              `json:"report_only,omitempty"`
 	Exempt         map[string]string `json:"exempt"`
 	ExemptGrades   []string          `json:"exempt_grades"`
 	Baseline       string            `json:"baseline"`
@@ -193,6 +194,9 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	own, err := s.beyond([]string{base, trunk}, head)
 	if err != nil {
 		return FidelityOutcome{}, err
+	}
+	if len(own) == 0 && spec.ReportOnly {
+		own = []string{head}
 	}
 	if len(own) == 0 {
 		return FidelityOutcome{Skipped: fmt.Sprintf("%s at %s carries no commit %s lacks", pull, short(head, 12), view.BaseRefName)}, nil

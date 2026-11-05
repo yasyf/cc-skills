@@ -582,12 +582,12 @@ class Register:
         return words
 
 
-def worded_row(key: str, fields: dict[str, str], state: Path, cards: tuple[Path, dict[str, int]] | None = None) -> list[str]:
+def worded_row(key: str, fields: dict[str, str], state: Path, cards: dict[str, int] | None = None) -> list[str]:
     """A row as a grader of his words reads it: his words and repeats verbatim, each tap with the card it answered, and the plan's text of a design row or exception labelled as the coordinator's; never the register's implications or summaries."""
     if fields.get("kind") in PLAN_KINDS:
         lines = [row_heading(key, fields), "The plan's text for this row, the coordinator's words his answers approve, not his own:", *(f"> {line}" for line in (fields.get("words") or "").splitlines())]
     else:
-        lines = [row_heading(key, fields), judge.owner_words(key, judge.said_with_card_lines(fields, *cards) if cards else judge.said(fields, state))]
+        lines = [row_heading(key, fields), judge.owner_words(key, judge.said(fields, state) if cards is None else judge.said_with_card_lines(fields, cards))]
     lines += [f"This row supersedes {old}, which no longer binds." for old in listed(fields.get("supersedes"))]
     if anchors := row_anchors(fields):
         lines += ["The coordinator's reading of where this row bears, not his words:", *anchors]
@@ -1135,7 +1135,7 @@ def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, 
     return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + pr_answers(loaded, diff, text, title, unknown, carried))
 
 
-def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]], cards: tuple[Path, dict[str, int]] | None = None) -> list[list[str]]:
+def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]], cards: dict[str, int] | None = None) -> list[list[str]]:
     with ThreadPoolExecutor(CARD_READERS) as pool:
         return list(pool.map(lambda item: worded_row(*item, loaded.state, cards), rows))
 
@@ -1143,7 +1143,7 @@ def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]], cards:
 def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str, carried: str | None, cards: str | None) -> str:
     rows = required_rows(loaded, diff)
     cited, unknown = cited_rows(loaded, text, rows)
-    worded = worded_rows(loaded, [*rows, *cited], (Path(cards), judge.card_lines(Path(cards))) if cards else None)
+    worded = worded_rows(loaded, [*rows, *cited], judge.card_lines(Path(cards)) if cards else None)
     lines = [
         f"Required rows for {pr} at {head}",
         f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Each row is the owner's words verbatim, oldest first, with the board card each tap answered; the register's implications and summaries are left out.",

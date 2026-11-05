@@ -53,6 +53,7 @@ type fidelityRepo struct {
 	diff      string
 	names     string
 	stat      string
+	landed    bool
 }
 
 func (r *fidelityRepo) git(full []string) (string, error) {
@@ -78,6 +79,9 @@ func (r *fidelityRepo) git(full []string) (string, error) {
 		}
 		return "signal/stream.go\n", nil
 	case "rev-list":
+		if r.landed {
+			return "", nil
+		}
 		span := argv[slices.Index(argv, "--")-1]
 		if strings.HasSuffix(span, shaHead) {
 			return shaOwn + "\n", nil
@@ -851,6 +855,28 @@ func TestAClosedPROrAHeadThatMovedPostsNothing(t *testing.T) {
 			equal(t, len(shell.posted), 0)
 			if _, skipped := resultOf(t, directory)["skipped"]; !skipped {
 				t.Errorf("result = %v", resultOf(t, directory))
+			}
+		})
+	}
+}
+
+func TestALandedHeadOnAReportOnlyRegradeGradesItsOwnCommitWhereAnyOtherPassSkips(t *testing.T) {
+	for name, reported := range map[string]bool{"report only": true, "any other pass": false} {
+		t.Run(name, func(t *testing.T) {
+			directory := fidelityDir(t, map[string]any{"grades": []any{}, "report_only": reported})
+			shell, repo := newFidelityFake(t, nil, fidelityReplyOf(nil))
+			repo.landed = true
+			mustFidelity(t, directory, shell)
+			if _, skipped := resultOf(t, directory)["skipped"]; skipped == reported {
+				t.Errorf("result = %v", resultOf(t, directory))
+			}
+			if graded := len(shell.posted) > 0; graded != reported {
+				t.Errorf("posted = %v", shell.posted)
+			}
+			if reported && !slices.ContainsFunc(shell.snapshot(), func(call Command) bool {
+				return slices.Contains(call.Argv, shaHead+"^")
+			}) {
+				t.Error("the pass did not read the head's own commit")
 			}
 		})
 	}

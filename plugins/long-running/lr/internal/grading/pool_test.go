@@ -654,6 +654,9 @@ func TestARegradeOfAClosedPRGoesOnlyToWhoAskedAndAnOpenHeadThatMovedIsRefused(t 
 	}
 	spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, "7-"+head[:7]+regradeMark))
 	sameStrings(t, spec.To, []string{"asker"})
+	if !spec.ReportOnly {
+		t.Error("a closed PR's regrade is not report-only")
+	}
 	if spec.Lane != "" {
 		t.Errorf("lane = %q", spec.Lane)
 	}
