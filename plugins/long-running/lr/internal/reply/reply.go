@@ -1078,7 +1078,9 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		return nil
 	}
 	if r.Thread != "" && drawn.Surface == "" {
-		return f.inThread(ctx, r)
+		r, shown := f.pictured(ctx, r)
+		defer shown.remove()
+		return []Outcome{shown.told(f.inThread(ctx, r)[0])}
 	}
 	if drawn.Surface != "" || r.quiet() || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
@@ -1136,7 +1138,7 @@ func (f Fanout) inThread(ctx context.Context, r Reply) []Outcome {
 	for _, link := range r.Links {
 		body += "\n<" + link.URL + "|" + link.Label + ">"
 	}
-	return f.dmStatus(ctx, slices.Concat([]string{"--thread", r.Thread}, r.tapFlags(), []string{"*" + r.Title + "*\n" + body})...)
+	return f.dmStatus(ctx, slices.Concat([]string{"--thread", r.Thread}, r.tapFlags(), r.pictureFlags(), []string{"*" + r.Title + "*\n" + body})...)
 }
 
 func (r Reply) tapFlags() []string {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -132,5 +133,48 @@ func TestADiagramWhosePictureDoesNotDrawStillPostsItsCardAndSaysWhy(t *testing.T
 	}
 	if slack := surface(sent, "slack"); slack.Error != "" || !strings.Contains(slack.Warning, "no Chrome on this Mac") {
 		t.Fatalf("slack outcome = %+v, want a posted card and the reason it has no picture", slack)
+	}
+}
+
+func TestADiagramOnAThreadReplyPostsItsPictureInThatThread(t *testing.T) {
+	fake := scripted()
+	f, _ := onDashboard(t, fanout(t, fake), nil)
+	var pictures []string
+	f.Runner = readingRunner{fake, func(c shell.Command) {
+		if c.Argv[0] != "cc-slack" || c.Argv[1] != "dm-status" || !slices.Contains(c.Argv, "--file") {
+			return
+		}
+		if body, err := os.ReadFile(flag(t, c.Argv, "--file")); err == nil && string(body) == testPNG {
+			pictures = append(pictures, flag(t, c.Argv, "--file"))
+		}
+	}}
+	sent := f.Send(context.Background(), Reply{ID: "d1", Title: "How the relay runs", MD: "The relay in one picture.", Diagram: json.RawMessage(drawnDiagram), Thread: "1793684147.131059"})
+
+	posts := calls(fake, "cc-slack")
+	if len(posts) != 1 || flag(t, posts[0].Argv, "--thread") != "1793684147.131059" || len(pictures) != 1 {
+		t.Fatalf("cc-slack calls = %v, pictures read while posting %v; want one post in his thread carrying the drawn diagram", posts, pictures)
+	}
+	if text := posts[0].Argv[len(posts[0].Argv)-1]; !strings.Contains(text, "<"+testDiagramPage+"|"+diagramLead+"The relay>") {
+		t.Fatalf("thread text %q lacks the dashboard link", text)
+	}
+	if _, err := os.Stat(pictures[0]); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the picture %s outlived its post: %v", pictures[0], err)
+	}
+	if slack := surface(sent, "slack"); slack.Error != "" || slack.Warning != "" {
+		t.Fatalf("slack outcome = %+v", slack)
+	}
+}
+
+func TestADiagramWhosePictureDoesNotDrawStillPostsTheThreadReplyWithItsLink(t *testing.T) {
+	fake := scripted()
+	f, _ := onDashboard(t, fanout(t, fake), errors.New("no Chrome on this Mac"))
+	sent := f.Send(context.Background(), Reply{ID: "d1", Title: "How the relay runs", MD: "The relay in one picture.", Diagram: json.RawMessage(drawnDiagram), Thread: "1793684147.131059"})
+
+	posts := calls(fake, "cc-slack")
+	if len(posts) != 1 || slices.Contains(posts[0].Argv, "--file") || !strings.Contains(posts[0].Argv[len(posts[0].Argv)-1], testDiagramPage) {
+		t.Fatalf("cc-slack calls = %v, want the thread reply with the dashboard link and no picture", posts)
+	}
+	if slack := surface(sent, "slack"); slack.Error != "" || !strings.Contains(slack.Warning, "no Chrome on this Mac") {
+		t.Fatalf("slack outcome = %+v, want a posted reply and the reason it has no picture", slack)
 	}
 }
