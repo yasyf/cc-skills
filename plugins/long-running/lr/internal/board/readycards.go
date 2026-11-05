@@ -71,7 +71,7 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	facts, err := r.Cards.Store.FactsAtRowHeads(r.Repo)
+	facts, err := r.Cards.Store.FactsAtRowHeads(r.Repo, rows)
 	if err != nil {
 		return err
 	}

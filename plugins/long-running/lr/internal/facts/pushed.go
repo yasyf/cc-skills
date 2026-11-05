@@ -42,7 +42,7 @@ func (s Source) AtPushedHeads(ctx context.Context) (map[int]Pushed, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read records the pass has not folded: %w", err)
 	}
-	atHeads, err := s.Store.FactsAtRowHeads(s.Repo)
+	atHeads, err := s.Store.FactsAtRowHeads(s.Repo, rows)
 	if err != nil {
 		return nil, err
 	}

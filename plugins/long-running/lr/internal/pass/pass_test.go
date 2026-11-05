@@ -903,6 +903,29 @@ func TestThreePRsWaitingOnAnAutomatedActorOrAReviewerForAnHourReachRoot(t *testi
 	}
 }
 
+func TestThreeHeldUngradedHeadsNeverReadAsWaitingOnThePool(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	numbers := []int{50994, 51056, 51282}
+	held := make([]machine.Facts, 0, len(numbers))
+	for _, number := range numbers {
+		held = append(held, facts(number, func(f *machine.Facts) {
+			f.Finder, f.Fidelity, f.Tap, f.Hold, f.HoldRecord = "", "", "", machine.MoverRoot, "#471709"
+		}))
+	}
+
+	run(t, s, r, t0, all, held...)
+	late := run(t, s, r, t0.Add(time.Hour), all, held...)
+
+	if len(clustered(late)) != 0 {
+		t.Fatalf("clusters = %+v, want none: the pool grades no held head, so its hold is what each waits on", clustered(late))
+	}
+	for _, f := range held {
+		if item := openOne(t, s, f.Number); item.Kind != string(machine.ActionLift) || item.Mover != machine.MoverRoot {
+			t.Fatalf("#%d opened %s for %s, want a lift for root", f.Number, item.Kind, item.Mover)
+		}
+	}
+}
+
 func TestAStackBasePastItsDeadlineTellsRootOnceWhatItHolds(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	below := facts(45469, func(f *machine.Facts) { f.Branch, f.CI = "below", machine.CIFailure })
