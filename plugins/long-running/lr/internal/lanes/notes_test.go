@@ -69,7 +69,7 @@ func TestASpriteLanesNotesSyncOnItsBoxWithTheTokenOnStdinAlone(t *testing.T) {
 	}
 	equal(t, ran.Stdin, notesLogin+"\n")
 	equal(t, ran.Argv[:4], []string{"sprite", "exec", "-s", notesSprite})
-	equal(t, ran.Argv[len(ran.Argv)-1], notesCheckout)
+	equal(t, ran.Argv[len(ran.Argv)-2:], []string{notesCheckout, "60"})
 }
 
 func TestANoteADefaultKeepsOnTheSpriteFailsItsSync(t *testing.T) {
@@ -96,6 +96,44 @@ func TestAFailedSyncOnASpriteStillListedIsItsOwnError(t *testing.T) {
 		t.Fatalf("publish = %v, want the sync failure", err)
 	}
 	contains(t, err.Error(), "could not read Username")
+}
+
+func TestASyncThatRanPastItsDeadlineNamesTheSpriteAndNotTheScript(t *testing.T) {
+	env := notesEnv(t, lane2, spriteReceipt(), func(c shell.Command) (shell.Result, error) {
+		return shell.Result{}, fmt.Errorf("%s: %w", strings.Join(c.Argv, " "), context.DeadlineExceeded)
+	})
+	err := env.publishNotes(context.Background(), givenToken, lane2)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("publish = %v, want the deadline", err)
+	}
+	contains(t, err.Error(), notesSprite)
+	if strings.Contains(err.Error(), "NOTES_TOKEN") {
+		t.Fatalf("the script is in the error: %v", err)
+	}
+}
+
+func TestAFailedSyncReportsItsFirstStderrLineAndNotTheScript(t *testing.T) {
+	env := notesEnv(t, lane2, spriteReceipt(), func(c shell.Command) (shell.Result, error) {
+		if c.Argv[1] == "api" {
+			return shell.Result{Stdout: fmt.Sprintf(`{"sprites":[{"name":%q}]}`, notesSprite)}, nil
+		}
+		return shell.Result{}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: "error: sync origin: boom\nrefs/cc-notes/notes/a24d471 did not reach origin\n"}
+	})
+	err := env.publishNotes(context.Background(), givenToken, lane2)
+	if err == nil || strings.Contains(err.Error(), "NOTES_TOKEN") || strings.Contains(err.Error(), "did not reach origin") {
+		t.Fatalf("publish = %v, want the first stderr line alone", err)
+	}
+	contains(t, err.Error(), notesSprite)
+	contains(t, err.Error(), "sync origin: boom")
+}
+
+func TestASyncThatRanOutOfTimeIsDeferredNotFailed(t *testing.T) {
+	env := notesEnv(t, lane2, spriteReceipt(), func(c shell.Command) (shell.Result, error) {
+		return shell.Result{}, &shell.ExitError{Argv: c.Argv, Code: exitNotesDeferred}
+	})
+	if err := env.publishNotes(context.Background(), givenToken, lane2); !errors.Is(err, ErrNotesDeferred) {
+		t.Fatalf("publish = %v, want ErrNotesDeferred", err)
+	}
 }
 
 func TestAFailedSyncOnASpriteNoLongerListedSaysItIsGone(t *testing.T) {
@@ -205,6 +243,30 @@ func TestARecordFromALiveLanePublishesItsNotesOffTheTickOnceAndAFailureBlocksOnc
 	equal(t, len(f.ofKind("blocker")), 2)
 }
 
+func TestADeferredPublishPostsNoBlockerAndTheNextRecordRetries(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	publish(t, s, f, t0)
+	f.published = nil
+	f.notes = map[string]error{lane2: fmt.Errorf("ccn sync on Sprite %s: %w", notesSprite, ErrNotesDeferred)}
+	f.feed = append(f.feed, rec(2, lane2, "report", t0, "report, ccn a24d471", Root))
+	f.peers = []Row{who(lane2, true, t0)}
+
+	tick(t, s, f, t0.Add(mins(1)))
+	publish(t, s, f, t0.Add(mins(1)))
+
+	equal(t, f.published, []string{lane2})
+	equal(t, len(f.ofKind("blocker")), 0)
+
+	f.notes = nil
+	f.feed = append(f.feed, rec(3, lane2, "report", t0.Add(mins(2)), "more", Root))
+	tick(t, s, f, t0.Add(mins(3)))
+	publish(t, s, f, t0.Add(mins(3)))
+
+	equal(t, f.published, []string{lane2, lane2})
+	equal(t, len(f.ofKind("blocker")), 0)
+}
+
 func TestNotesPublishWaitsForTheTickToFoldARecord(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
@@ -304,9 +366,14 @@ func notesGit(t *testing.T, dir string, args ...string) string {
 
 func fakeCCN(t *testing.T, exit int, stdout string) (bin, called string) {
 	t.Helper()
+	return fakeCCNSaying(t, exit, stdout, "sync failed")
+}
+
+func fakeCCNSaying(t *testing.T, exit int, stdout, stderr string) (bin, called string) {
+	t.Helper()
 	bin = t.TempDir()
 	called = filepath.Join(bin, "called")
-	body := fmt.Sprintf("#!/bin/sh\nprintf 'token=%%s helper=%%s args=%%s\\n' \"$NOTES_TOKEN\" \"$GIT_CONFIG_VALUE_1\" \"$*\" >> %q\nprintf '%%s' %q\n[ %d = 0 ] || echo 'sync failed' >&2\nexit %d\n", called, stdout, exit, exit)
+	body := fmt.Sprintf("#!/bin/sh\nprintf 'token=%%s helper=%%s args=%%s\\n' \"$NOTES_TOKEN\" \"$GIT_CONFIG_VALUE_1\" \"$*\" >> %q\nprintf '%%s' %q\n[ %d = 0 ] || echo %q >&2\nexit %d\n", called, stdout, exit, stderr, exit)
 	if err := os.WriteFile(filepath.Join(bin, "ccn"), []byte(body), 0o700); err != nil { //nolint:gosec // the stub has to execute
 		t.Fatal(err)
 	}
@@ -315,7 +382,12 @@ func fakeCCN(t *testing.T, exit int, stdout string) (bin, called string) {
 
 func runScript(t *testing.T, script, bin, dir string) (stdout, stderr string, err error) {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", script, "sh", dir)
+	return runScriptWithin(t, script, bin, dir, "60")
+}
+
+func runScriptWithin(t *testing.T, script, bin, dir, budget string) (stdout, stderr string, err error) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", script, "sh", dir, budget)
 	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
 	cmd.Stdin = strings.NewReader(notesLogin + "\n")
 	var out, errOut strings.Builder
@@ -425,6 +497,63 @@ func TestTheScriptNamesTheRefThatFailedAndStillTriesTheRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	contains(t, string(seen), "b35e582")
+}
+
+func TestTheScriptStopsBeforeAnotherRefOnceItsBudgetIsSpent(t *testing.T) {
+	dir := notesRepo(t)
+	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/mine", "HEAD")
+	bin, called := fakeCCN(t, 0, `{}`)
+
+	_, _, err := runScriptWithin(t, publishNotesScript, bin, dir, "0")
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != exitNotesDeferred {
+		t.Fatalf("exit = %v, want %d", err, exitNotesDeferred)
+	}
+	if _, err := os.Stat(called); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("ccn sync ran after the budget was spent")
+	}
+}
+
+func TestTheScriptStopsAtTheFirstRefCcnCallsItselfImporting(t *testing.T) {
+	dir := notesRepo(t)
+	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/a24d471", "HEAD")
+	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/b35e582", "HEAD")
+	bin, called := fakeCCNSaying(t, 1, `{}`, "error: importing existing records into the managed authority in the background; retry shortly")
+
+	_, stderr, err := runScript(t, publishNotesScript, bin, dir)
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != exitNotesDeferred {
+		t.Fatalf("exit = %v, want %d", err, exitNotesDeferred)
+	}
+	contains(t, stderr, "retry shortly")
+	seen, err := os.ReadFile(called)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, strings.Count(string(seen), "args=sync"), 1)
+}
+
+func TestTheScriptSetsAShortAuthorityWaitForCcn(t *testing.T) {
+	dir := notesRepo(t)
+	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/mine", "HEAD")
+	bin, _ := fakeCCN(t, 0, `{}`)
+	waits := filepath.Join(bin, "ccn")
+	body, err := os.ReadFile(waits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(waits, append([]byte("#!/bin/sh\nprintf '%s' \"$CCN_LOCK_WAIT\" > "+filepath.Join(bin, "wait")+"\n"), body[len("#!/bin/sh\n"):]...), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+
+	if _, _, err := runScript(t, publishNotesScript, bin, dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(bin, "wait"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, string(got), "5s")
 }
 
 func TestTheScriptHoldsTheLaneWhenOriginCannotBeRead(t *testing.T) {
