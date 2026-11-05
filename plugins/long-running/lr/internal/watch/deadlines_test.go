@@ -133,6 +133,9 @@ func TestAClassOfEscalationAcrossThreeSubjectsInTwoHoursReachesRootOnce(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.Escalate("org/repo#4", "enqueue overdue; the queue said org/repo#4", "landing-desk-3", base.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	second, err := Sweep(s, nil, nil, nil, base.Add(4*time.Minute), r.post)
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +143,7 @@ func TestAClassOfEscalationAcrossThreeSubjectsInTwoHoursReachesRootOnce(t *testi
 
 	want(t, len(first), 1)
 	want(t, first[0].To, "root")
-	if !strings.HasPrefix(first[0].Cause, "repeat: enqueue overdue reached 3") {
+	if !strings.HasPrefix(first[0].Cause, "repeat: enqueue overdue reached 3") || !strings.Contains(first[0].Cause, ": org/repo#1, org/repo#2, org/repo#3;") {
 		t.Fatalf("cause = %q", first[0].Cause)
 	}
 	want(t, len(second), 0)

@@ -318,7 +318,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		return err
 	}
 	if found {
-		first, err := a.Store.Escalate("alert:"+channel+":"+message.TS, "launch", Root, now)
+		first, err := a.Store.Notice("alert:"+channel+":"+message.TS, now)
 		if err != nil || !first {
 			return err
 		}
@@ -344,7 +344,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 			return nil
 		}
 	}
-	first, err := a.Store.Escalate("alert:"+channel+":"+message.TS, "launch", Root, now)
+	first, err := a.Store.Notice("alert:"+channel+":"+message.TS, now)
 	if err != nil || !first {
 		return err
 	}

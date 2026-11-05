@@ -446,6 +446,11 @@ func (s *Store) Escalate(subject, cause, toMover string, at time.Time) (bool, er
 	return changed(result, err)
 }
 
+func (s *Store) Notice(subject string, at time.Time) (bool, error) {
+	result, err := s.db.Exec("INSERT OR IGNORE INTO notices (subject, at) VALUES (?, ?)", subject, Stamp(at))
+	return changed(result, err)
+}
+
 func (s *Store) ClearEscalation(subject string) error {
 	_, err := s.db.Exec("DELETE FROM escalations WHERE subject = ?", subject)
 	return err
