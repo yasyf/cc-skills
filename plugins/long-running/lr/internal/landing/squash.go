@@ -44,28 +44,34 @@ var (
 )
 
 type Squash struct {
-	Runner   shell.Runner
-	CCX      ccx.Client
-	Store    *store.Store
-	Drive    string
-	Trunk    string
-	Checkout string
-	Rulings  string
-	FixLane  func(lane string) (bool, error)
-	Restack  func(ctx context.Context, number int) (string, error)
-	Now      func() time.Time
-	Log      *slog.Logger
+	Runner     shell.Runner
+	CCX        ccx.Client
+	Store      *store.Store
+	Drive      string
+	Trunk      string
+	Checkout   string
+	Rulings    string
+	FixLane    func(lane string) (bool, error)
+	LiveClocks func() ([]string, error)
+	Restack    func(ctx context.Context, number int) (string, error)
+	Wait       time.Duration
+	Now        func() time.Time
+	Log        *slog.Logger
 }
 
-func NewSquash(a *app.App, s *store.Store, cfg config.Config, remote Remote, fixLane func(string) (bool, error)) (*Squash, error) {
+func NewSquash(a *app.App, s *store.Store, cfg config.Config, runnerPath string, remote Remote, fixLane func(string) (bool, error), liveClocks func() ([]string, error)) (*Squash, error) {
 	claude, err := drive.ConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	runner, err := config.LoadRunner(runnerPath)
 	if err != nil {
 		return nil, err
 	}
 	return &Squash{
 		Runner: a.Runner, CCX: a.CCX, Store: s, Drive: cfg.Drive, Trunk: cfg.Trunk, Checkout: cfg.Checkout,
 		Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py"),
-		FixLane: fixLane, Restack: remote.Run, Now: a.Now, Log: a.Log,
+		FixLane: fixLane, LiveClocks: liveClocks, Restack: remote.Run, Wait: time.Duration(runner.Deadlines.AlertWaitMinutes) * time.Minute, Now: a.Now, Log: a.Log,
 	}, nil
 }
 
@@ -99,6 +105,10 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 		return nil, err
 	}
 	ended := endedLanes(slices.Concat(incidents, decides))
+	clocks, err := q.LiveClocks()
+	if err != nil {
+		return nil, err
+	}
 	taken := map[int]bool{}
 	for _, f := range named {
 		if _, closed := ended[client.Stem(f.Lane)]; closed {
@@ -113,11 +123,35 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 			continue
 		}
 		taken[f.Number] = true
-		if err := q.land(ctx, f, openIncident(f, incidents, ended)); err != nil {
+		open := openIncident(f, incidents, ended)
+		if open == nil && !slices.Contains(clocks, client.Stem(f.Lane)) && !f.Admitted() {
+			due, err := q.due(f)
+			if err != nil {
+				return taken, err
+			}
+			if due.IsZero() || q.Now().Before(due) || f.Tap == machine.TapWithdrawn {
+				continue
+			}
+		}
+		if err := q.land(ctx, f, open); err != nil {
 			return taken, err
 		}
 	}
 	return taken, nil
+}
+
+func (q *Squash) due(f machine.Facts) (time.Time, error) {
+	facts, err := q.Store.Facts(f.Repo, f.Number, f.Head)
+	if err != nil || facts[gates.ShownFact] == "" {
+		return time.Time{}, err
+	}
+	shown, err := store.Parse(facts[gates.ShownFact])
+	if err != nil {
+		return time.Time{}, err
+	}
+	due := shown.Add(q.Wait)
+	_, err = q.Store.PutFact(f.Repo, f.Number, f.Head, gates.MergesAtFact, store.Stamp(due), q.Now())
+	return due, err
 }
 
 func (q *Squash) alerted(ctx context.Context, f machine.Facts, squashed bool) (bool, error) {

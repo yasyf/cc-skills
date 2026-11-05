@@ -12,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -30,6 +31,8 @@ type squashFixture struct {
 	fake    *shelltest.Fake
 	restack []int
 	moved   string
+	now     time.Time
+	clocks  []string
 }
 
 func newSquash(t *testing.T) *squashFixture {
@@ -44,21 +47,33 @@ func newSquash(t *testing.T) *squashFixture {
 		t.Fatal(err)
 	}
 	fake := &shelltest.Fake{}
-	fixture := &squashFixture{fake: fake}
+	fixture := &squashFixture{fake: fake, now: t0}
 	fixture.squash = &landing.Squash{
 		Runner: fake, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Trunk: "dev", Checkout: "/co", Rulings: squashTool,
-		FixLane: func(lane string) (bool, error) { return lane == "dd-1-fix", nil },
+		FixLane:    func(lane string) (bool, error) { return lane == "dd-1-fix", nil },
+		LiveClocks: func() ([]string, error) { return fixture.clocks, nil },
 		Restack: func(_ context.Context, number int) (string, error) {
 			fixture.restack = append(fixture.restack, number)
 			return fixture.moved, nil
 		},
-		Now: func() time.Time { return t0 },
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Wait: time.Hour,
+		Now:  func() time.Time { return fixture.now },
+		Log:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	for _, head := range []string{squashFirst, squashMoved} {
+		fixture.shown(t, 7, head, t0.Add(-2*time.Hour))
 	}
 	fake.Reply("", squashTool, "check-pr")
 	fake.Reply("0\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/"+monorepo+"/compare/dev..."+squashFirst)
 	fake.Reply("", "gh", "pr", "merge")
 	return fixture
+}
+
+func (s *squashFixture) shown(t *testing.T, number int, head string, at time.Time) {
+	t.Helper()
+	if _, err := s.squash.Store.PutFact(monorepo, number, head, gates.ShownFact, store.Stamp(at), at); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func fixFacts(mutate func(*machine.Facts)) machine.Facts {
@@ -377,5 +392,77 @@ func TestANativeStackMemberIncidentFixLandsThroughGhStackMerge(t *testing.T) {
 	}
 	if len(blockers) != 0 {
 		t.Fatalf("blockers = %+v", blockers)
+	}
+}
+
+func TestAnAlertFixLandsItselfAnHourAfterItsPostReachedHimAndNotBefore(t *testing.T) {
+	f := newSquash(t)
+	fix := fixFacts(func(row *machine.Facts) { row.Number, row.Branch = 9, "nine" })
+	f.shown(t, 9, squashFirst, t0.Add(-30*time.Minute))
+
+	if kept := f.admit(fix); len(kept) != 0 {
+		t.Fatalf("the queue kept %v while its hour runs", kept)
+	}
+	if merges := f.merges(); len(merges) != 0 {
+		t.Fatalf("merged before its hour: %v", merges)
+	}
+	stored, err := f.squash.Store.Facts(monorepo, 9, squashFirst)
+	if err != nil || stored[gates.MergesAtFact] != store.Stamp(t0.Add(30*time.Minute)) {
+		t.Fatalf("merges at %q, %v, want %s", stored[gates.MergesAtFact], err, store.Stamp(t0.Add(30*time.Minute)))
+	}
+
+	f.now = t0.Add(30 * time.Minute)
+	f.admit(fix)
+
+	want := "gh pr merge 9 --repo " + monorepo + " --squash --match-head-commit " + squashFirst
+	if merges := f.merges(); !slices.Equal(merges, []string{want}) {
+		t.Fatalf("merges = %v, want %q once its hour passed", merges, want)
+	}
+}
+
+func TestAnAlertFixWhosePostHasNotReachedHimOrThatHeHeldNeverLandsOnTheClock(t *testing.T) {
+	for name, fix := range map[string]machine.Facts{
+		"post not shown": fixFacts(func(row *machine.Facts) { row.Number, row.Branch = 9, "nine" }),
+		"hold tapped":    fixFacts(func(row *machine.Facts) { row.Tap = machine.TapWithdrawn }),
+		"held":           fixFacts(func(row *machine.Facts) { row.Hold = machine.MoverRoot }),
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSquash(t)
+			if kept := f.admit(fix); len(kept) != 0 {
+				t.Fatalf("the queue kept %v", kept)
+			}
+			if merges := f.merges(); len(merges) != 0 {
+				t.Fatalf("merges = %v", merges)
+			}
+		})
+	}
+}
+
+func TestHisApproveOrAnOpenIncidentLandsAnAlertFixWithoutWaitingItsHour(t *testing.T) {
+	for name, tc := range map[string]struct {
+		post   func(*testing.T)
+		mutate func(*machine.Facts)
+		clocks []string
+	}{
+		"approved":       {mutate: func(row *machine.Facts) { row.Tap = machine.TapTapped }},
+		"open incident":  {post: func(t *testing.T) { squashPost(t, "incident", "root", "api is down", []string{"incident-api-fix"}) }},
+		"incident clock": {clocks: []string{"incident-api-fix"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSquash(t)
+			f.clocks = tc.clocks
+			if tc.post != nil {
+				tc.post(t)
+			}
+			f.admit(fixFacts(func(row *machine.Facts) {
+				row.Number, row.Branch = 9, "nine"
+				if tc.mutate != nil {
+					tc.mutate(row)
+				}
+			}))
+			if merges := f.merges(); len(merges) != 1 {
+				t.Fatalf("merges = %v, want one at once", merges)
+			}
+		})
 	}
 }

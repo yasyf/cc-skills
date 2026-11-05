@@ -17,6 +17,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -453,5 +454,35 @@ func TestPlanWordsSayASentenceTheLineAndRowShareOnce(t *testing.T) {
 		if got := PlanWords(store.ReviewRow{PlanLine: tc.line, PlanRow: tc.row}); got != tc.want {
 			t.Fatalf("PlanWords(%q, %q) = %q, want %q", tc.line, tc.row, got, tc.want)
 		}
+	}
+}
+
+func TestAnAlertFixCardSaysThePacificMinuteItMergesItselfAt(t *testing.T) {
+	row := readyRow(func(r *store.ReviewRow) { r.MergesAt = "2026-11-05T13:12:00Z" })
+
+	card := Card(repo, row)
+
+	if card.MergesAt != row.MergesAt || card.Title != "Approve #45583 at e718a74? It merges itself at 5:12 AM unless you tap Hold" {
+		t.Fatalf("card = %+v, want the minute it merges itself", card)
+	}
+	if moved := Card(repo, readyRow(func(r *store.ReviewRow) { r.MergesAt = "2026-11-05T14:12:00Z" })); drawnSignature(moved) == drawnSignature(card) {
+		t.Fatal("a moved minute draws the same card, so his post would keep the old one")
+	}
+}
+
+func TestHisApprovalPostKeepsTheMinuteItFirstReachedHimAtAHead(t *testing.T) {
+	row := readyRow(nil)
+	s := withLedger(t, row)
+	shown := []SlackShown{{SlackPR{repo, row.Number}, MergeWaits(row.Number, row.Head)}}
+
+	for _, at := range []time.Time{t0, t0.Add(time.Hour)} {
+		if err := MarkShown(s, repo, []store.ReviewRow{row}, shown, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stored, err := s.Facts(repo, row.Number, row.Head)
+	if err != nil || stored[gates.ShownFact] != store.Stamp(t0) {
+		t.Fatalf("shown at %q, %v, want %s, the first time it reached him", stored[gates.ShownFact], err, store.Stamp(t0))
 	}
 }

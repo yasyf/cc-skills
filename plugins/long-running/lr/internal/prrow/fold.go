@@ -583,10 +583,14 @@ func materialized(row store.ReviewRow, facts map[string]string, held Held, branc
 	}
 	row.State = stateOf(row, facts)
 	row = Decide(row)
+	row.MergesAt = ""
 	if held.AwaitsTap != "" {
 		return row
 	}
 	row = withStandingWord(row, facts)
+	if row.ReadyForTap && !row.Tapped && row.State != StateExempt && machine.Tap(facts["tap"]) != machine.TapWithdrawn {
+		row.MergesAt = facts[gates.MergesAtFact]
+	}
 	if (row.State == StateTapped || row.State == StateExempt) && facts[bus.StuckFact] != "" {
 		row.WaitsOn = strings.TrimSuffix(row.WaitsOn, ".") + "; " + clip(facts[bus.StuckFact], fieldChars)
 	}

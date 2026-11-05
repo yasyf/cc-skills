@@ -323,7 +323,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		a.Log.Warn("landing starts before the lanes machine's inputs are read", "err", err)
 	}
 	deps.Checks = append(deps.Checks, (&background{name: "landing-inputs", every: landing.InputsEvery, run: mirror.Pass, store: s, post: post, log: a.Log}).Check)
-	squash, err := landing.NewSquash(a, s, env.Config, restacker, mirror.FixLane)
+	squash, err := landing.NewSquash(a, s, env.Config, filepath.Join(env.State, runnerFile), restacker, mirror.FixLane, mirror.LiveClocks)
 	if err != nil {
 		return Deps{}, err
 	}
