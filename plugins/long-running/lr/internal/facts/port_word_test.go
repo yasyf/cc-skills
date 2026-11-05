@@ -86,7 +86,7 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 				patches[file] = &patch
 			}
 			claim := gates.Claim{Repo: repo, PR: surfacePR, Head: surfaceHead}
-			text, refusals := gates.ExemptGo(claim, gates.Read{
+			text, _, refusals := gates.ExemptGo(claim, gates.Read{
 				Records: records, Exempt: gates.Grades(nil, []string{"class twin", "class old-tree-port"}, ""),
 				TapRules: map[string][]string{"rule/82317b0": {"go/sand/next/*"}}, Files: c.files, Patches: patches, PortSourceMerged: c.sourceMerged,
 			})

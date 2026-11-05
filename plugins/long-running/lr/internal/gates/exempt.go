@@ -85,7 +85,7 @@ type PortClaim struct {
 	Record    client.Record
 }
 
-func ExemptGo(c Claim, r Read) (string, []string) {
+func ExemptGo(c Claim, r Read) (string, string, []string) {
 	finder, finderRefusal := finderCite(c, r)
 	port, claimed := PortAt(c, r.Records)
 	flaked := FlakeAt(c, r.Records)
@@ -117,9 +117,9 @@ func ExemptGo(c Claim, r Read) (string, []string) {
 	}
 	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), OpenCards(c.PR, r.Body, r.Cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
-		return "", refusals
+		return "", "", refusals
 	}
-	return fmt.Sprintf("go #%d at %s on green [exempt: %s]: %s, %s", c.PR, short(c.Head), class, fidelity, finder), nil
+	return fmt.Sprintf("go #%d at %s on green [exempt: %s]: %s, %s", c.PR, short(c.Head), class, fidelity, finder), class, nil
 }
 
 func PortAt(c Claim, records []client.Record) (PortClaim, bool) {
