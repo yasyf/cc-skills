@@ -71,6 +71,8 @@ func Wake(ctx context.Context, runner shell.Runner, terminal, output string, cod
 	if !screen.Wakeable(shown.Result.Terminal) {
 		return nil
 	}
-	_, err = runner.Run(ctx, shell.Command{Argv: []string{"orca", "terminal", "send", "--terminal", terminal, "--text", fmt.Sprintf("%s: read Orca message %s now", subject, mail.Result.MessageID), "--enter", "--json"}})
-	return err
+	if _, err := runner.Run(ctx, shell.Command{Argv: []string{"orca", "terminal", "send", "--terminal", terminal, "--text", fmt.Sprintf("%s: read Orca message %s now", subject, mail.Result.MessageID), "--enter", "--json"}}); err != nil {
+		return fmt.Errorf("the Orca message %s reached %s and only the typed wake failed, so the lane reads the message at its next check: %w", mail.Result.MessageID, terminal, err)
+	}
+	return nil
 }

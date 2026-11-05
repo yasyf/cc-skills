@@ -24,7 +24,8 @@ their keys join the cursor; cci records addressed to the lane print as cci tail 
 them and wake the wait. They are read through the thread's lane mail cursor, or the <lane>-wake
 cursor when the thread is not bound to the lane, and never from behind the lane's own <lane>
 cursor, so a record the lane already read never wakes it and one that arrived while no waiter
-ran does. A first wait for a lane with no <lane> cursor starts at the newest record. At the
+ran does. A numbered lane such as journal-1 also wakes on records addressed to its stem,
+journal, read through its <lane>-stem-wake cursor. A first wait for a lane with no <lane> cursor starts at the newest record. At the
 deadline it prints QUIET <Pacific time>. A command after -- runs
 in its own session and process group; its output and exit status pass through when it exits
 first, and a wake or the deadline ends the whole group with SIGTERM, then SIGKILL after 5 s.
