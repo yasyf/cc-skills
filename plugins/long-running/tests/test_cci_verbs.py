@@ -1,13 +1,7 @@
 from __future__ import annotations
 
-import hashlib
-import io
 import json
-import platform
 import re
-import tarfile
-import tempfile
-import urllib.request
 from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
@@ -20,7 +14,6 @@ COMMAND = re.compile(r"""(?:^\s*|[|;&(]\s*|\bexec\s+|/)cci\b((?:[ \t]+[a-z][a-z-
 ARGV = re.compile(r'(?:\[\]string\{|\b(?:[Rr]un|capture|Command(?:Context)?)\((?:[^()"]*,\s*)?)"cci"\s*,(.*)')
 LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 VERB = re.compile(r"[a-z][a-z-]*")
-RELEASE = "https://github.com/yasyf/cc-inbox/releases/download/v{}/"
 
 
 def floor() -> str:
@@ -30,18 +23,9 @@ def floor() -> str:
 
 @cache
 def cci() -> str:
-    version = floor()
-    arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine().lower()]
-    archive = f"cci_{version}_{platform.system().lower()}_{arch}.tar.gz"
-    with urllib.request.urlopen(RELEASE.format(version) + "checksums.txt", timeout=60) as response:
-        sums = {name: digest for digest, name in (line.split() for line in response.read().decode().splitlines())}
-    with urllib.request.urlopen(RELEASE.format(version) + archive, timeout=120) as response:
-        data = response.read()
-    assert hashlib.sha256(data).hexdigest() == sums[archive], f"{archive} does not match cc-inbox v{version}'s checksums.txt"
-    out = Path(tempfile.mkdtemp())
-    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-        tar.extractall(out, filter="data")
-    return str(out / "cci")
+    binary = Path.home() / ".cache" / "cc-skills" / "cci" / floor() / "cci"
+    assert binary.is_file(), f"cc-inbox v{floor()}'s cci is not at {binary}; .github/scripts/lr_pinned_binaries.sh fetches it"
+    return str(binary)
 
 
 def argv(text: str) -> Iterator[tuple[str, ...]]:
