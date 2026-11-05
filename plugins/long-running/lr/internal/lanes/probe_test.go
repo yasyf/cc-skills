@@ -159,7 +159,7 @@ func TestARelayOutstandingWhenOrcaProvesTheLaneLiveIsForgotten(t *testing.T) {
 func TestAnUnverifiableLaneWithNoPlacementWhoseSpriteRunsItsWorkerIsLeftAlone(t *testing.T) {
 	s := memory(t)
 	f := quietOrcaLane(t, s, writeBrief(t), "", 46001)
-	f.sprites = map[string]Sprite{lane2: {Name: "sprite-" + lane2, Status: spriteRunning, LastRunning: t0}}
+	f.sprites = map[string]Sprite{lane2: {Name: "sprite-" + lane2, Status: spriteRunning}}
 	f.hosts = map[string]Host{lane2: HostRunning}
 
 	first := tick(t, s, f, t0)

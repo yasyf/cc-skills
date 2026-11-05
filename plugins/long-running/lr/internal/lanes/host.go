@@ -19,23 +19,23 @@ import (
 type Host string
 
 type Sprite struct {
-	Name        string    `json:"name"`
-	Status      string    `json:"status"`
-	LastRunning time.Time `json:"last_running_at"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 const (
 	HostRunning     Host = awake.WorkerRunning
 	HostEmpty       Host = "none"
 	HostUnreachable Host = "unreachable"
+	HostNoStorage   Host = "no-storage"
 
-	placedOnSprite = "sprite"
-	spriteRunning  = "running"
-	reprobeAfter   = StaleAfter
-	goneAfter      = 2 * StaleAfter
-	lostAfter      = 5 * time.Minute
-	hostGoneAfter  = 10 * time.Minute
-	relayAnswer    = StaleAfter
+	placedOnSprite  = "sprite"
+	spriteRunning   = "running"
+	reprobeAfter    = StaleAfter
+	goneAfter       = 2 * StaleAfter
+	hostGoneAfter   = 10 * time.Minute
+	relayAnswer     = StaleAfter
+	storageNotReady = "Storage not ready"
 )
 
 func relayProbe(lane string) string {
@@ -129,6 +129,7 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 	}
 	var asked []string
 	down := map[string]string{}
+	cold := map[string]Sprite{}
 	for _, lane := range unproven {
 		sprite, listed := sprites[lane.Name]
 		if !listed && lane.Placement != placedOnSprite {
@@ -136,15 +137,9 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 		}
 		if listed && sprite.Status != spriteRunning && !settledLane(lane) {
 			proven[lane.Name] = Verdict{Kind: Ok}
-			if now.Sub(sprite.LastRunning) >= lostAfter {
-				why := fmt.Sprintf("has a Sprite %s that is %s", sprite.Name, sprite.Status)
-				if !sprite.LastRunning.IsZero() {
-					why += " and last ran at " + pacific(sprite.LastRunning)
-				}
-				if words := d.LastWords(sprite.Name); words != "" {
-					why += "; " + words
-				}
-				proven[lane.Name] = Verdict{Lost, why}
+			if seen, ok := probes[runningProbe(lane.Name)]; !ok || now.Sub(seen.Asked) >= reprobeAfter {
+				cold[lane.Name] = sprite
+				asked = append(asked, lane.Name)
 			}
 			continue
 		}
@@ -170,6 +165,7 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 		return proven
 	}
 	hosts := d.Hosts(asked, sprites)
+	died := map[string]string{}
 	for name, host := range hosts {
 		gone := unreachableProbe(name)
 		switch host {
@@ -179,7 +175,10 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 			proven[name] = Verdict{Kind: Ok}
 		case HostEmpty:
 			do(s.Unprobe(gone))
-			proven[name] = Verdict{Dead, "has a Sprite that answers with no claude or codex running"}
+			died[name] = "answers with no claude or codex running"
+		case HostNoStorage:
+			do(s.Unprobe(gone))
+			died[name] = "answers " + storageNotReady
 		case HostUnreachable:
 			since, seen := probes[gone]
 			if !seen {
@@ -188,9 +187,21 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 			}
 			proven[name] = Verdict{Kind: Ok}
 			if quiet := now.Sub(since.Asked); quiet >= goneAfter {
-				proven[name] = Verdict{Dead, fmt.Sprintf("has a Sprite that has not answered for %d min", int(quiet.Minutes()))}
+				died[name] = fmt.Sprintf("has not answered for %d min", int(quiet.Minutes()))
 			}
 		}
+	}
+	for name, read := range died {
+		sprite, wasCold := cold[name]
+		if !wasCold {
+			proven[name] = Verdict{Dead, "has a Sprite that " + read}
+			continue
+		}
+		why := fmt.Sprintf("has a Sprite %s that was %s and, woken, %s", sprite.Name, sprite.Status, read)
+		if words := d.LastWords(sprite.Name); words != "" {
+			why += "; " + words
+		}
+		proven[name] = Verdict{Lost, why}
 	}
 	for name, why := range down {
 		if hosts[name] != HostRunning {
@@ -295,6 +306,9 @@ func (e Env) lastWords(ctx context.Context, sprite string) string {
 func (e Env) host(ctx context.Context, sprite string) (Host, error) {
 	result, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", sprite, "--no-stdin", "--", "sh", "-c", awake.WorkerScript}, Timeout: readTimeout})
 	var exit *shell.ExitError
+	if errors.As(err, &exit) && strings.Contains(exit.Stderr, storageNotReady) {
+		return HostNoStorage, nil
+	}
 	if errors.As(err, &exit) || errors.Is(err, context.DeadlineExceeded) {
 		return HostUnreachable, nil
 	}

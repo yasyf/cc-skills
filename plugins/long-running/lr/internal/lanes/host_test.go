@@ -119,7 +119,7 @@ func TestOneTickReadsTheSpritesListOnceAndProbesInOneCallAtOneLaneAndAtAThousand
 			registered(t, s, store.Lane{Name: name, Role: "lane", Placement: placedOnSprite, PRs: []int{50000 + i}})
 			f.peers = append(f.peers, Row{Lane: name, SeenAt: t0.Add(-time.Hour), Dispatch: fmt.Sprintf("ctx_%d", i), Unverified: "has an Orca agent that reads unverifiable (host_unavailable)"})
 			f.hosts[name] = HostRunning
-			f.sprites[name] = Sprite{Name: name, Status: spriteRunning, LastRunning: t0}
+			f.sprites[name] = Sprite{Name: name, Status: spriteRunning}
 		}
 		out := tick(t, s, f, t0)
 		equal(t, len(out.Held), 0)
@@ -129,11 +129,12 @@ func TestOneTickReadsTheSpritesListOnceAndProbesInOneCallAtOneLaneAndAtAThousand
 	equal(t, reads(1), []int{1, 1})
 }
 
-func lostOnSprite(t *testing.T, s *store.Store, f *fake, name string, ran time.Time) {
+func coldOnSprite(t *testing.T, s *store.Store, f *fake, name string, woken Host) {
 	t.Helper()
 	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
 	f.peers = append(f.peers, who("meta-desk-3", true, t0), Row{Lane: name, SeenAt: t0.Add(-mins(20)), Dispatch: "ctx_1", Unverified: "has an Orca agent that reads unverifiable (sprite_runtime)"})
-	f.sprites = map[string]Sprite{name: {Name: "sprite-" + name, Status: "cold", LastRunning: ran}}
+	f.sprites = map[string]Sprite{name: {Name: "sprite-" + name, Status: "cold"}}
+	f.hosts = map[string]Host{name: woken}
 }
 
 func lostReports(f *fake) []Post {
@@ -151,7 +152,7 @@ func TestALostSpritesLastWordsReachItsReport(t *testing.T) {
 	f := onSprite(t, s)
 	f.lastWords = "its last sample before the stop read 5558 MB free; block nbd0: Dead connection"
 	f.peers = nil
-	lostOnSprite(t, s, f, lane2, t0.Add(-mins(20)))
+	coldOnSprite(t, s, f, lane2, HostEmpty)
 
 	out := tick(t, s, f, t0)
 
@@ -169,8 +170,7 @@ func TestALaneHeardNeverWhoseSpriteWentColdIsReportedLostAndRelaunchedFromItsBri
 	f := newFake(t, []Record{spawn}, []Row{who(lane2, true, t0.Add(-mins(30))), who("build-desk", true, t0.Add(-mins(30)))})
 	tick(t, s, f, t0.Add(-mins(30)))
 	f.peers = []Row{who("build-desk", true, t0)}
-	ran := t0.Add(-mins(4))
-	lostOnSprite(t, s, f, lane2, ran)
+	coldOnSprite(t, s, f, lane2, HostEmpty)
 	f.posts = nil
 	lines, err := RegistryLines(s, []string{lane2}, t0)
 	if err != nil {
@@ -178,16 +178,12 @@ func TestALaneHeardNeverWhoseSpriteWentColdIsReportedLostAndRelaunchedFromItsBri
 	}
 	contains(t, lines[0], "heard never")
 
-	early := tick(t, s, f, t0)
+	out := tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(1)))
 
-	equal(t, []any{early.Relaunched, early.Held, len(f.launches), len(lostReports(f)), row(t, s, lane2).State}, []any{[]Relaunch(nil), []string(nil), 0, 0, store.LaneDesired})
-
-	out := tick(t, s, f, t0.Add(mins(1)))
-	tick(t, s, f, t0.Add(mins(2)))
-
-	why := "has a Sprite sprite-conflicts-2 that is cold and last ran at " + pacific(ran)
+	why := "has a Sprite sprite-conflicts-2 that was cold and, woken, answers with no claude or codex running"
 	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", why}})
-	equal(t, []any{f.launches, f.hostReads, row(t, s, lane2).State}, []any{[]string{"conflicts-3"}, 0, store.LaneRetired})
+	equal(t, []any{f.launches, f.hostReads, row(t, s, lane2).State}, []any{[]string{"conflicts-3"}, 1, store.LaneRetired})
 	brief := strings.Split(f.briefs["conflicts-3"], "\n")
 	contains(t, brief[0], "Partial work: conflicts-2 was lost mid-task, since it "+why)
 	equal(t, brief[1], "Replaces: conflicts-2")
@@ -200,8 +196,8 @@ func TestALaneHeardNeverWhoseSpriteWentColdIsReportedLostAndRelaunchedFromItsBri
 func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *testing.T) {
 	s := memory(t)
 	f := newFake(t, nil, nil)
-	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "has a Sprite sprite-conflicts-2 that is cold and last ran at 1:40 PM"})
-	lostOnSprite(t, s, f, "conflicts-3", t0.Add(-mins(10)))
+	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "has a Sprite sprite-conflicts-2 that was cold and, woken, answers Storage not ready"})
+	coldOnSprite(t, s, f, "conflicts-3", HostNoStorage)
 
 	first := tick(t, s, f, t0)
 	tick(t, s, f, t0.Add(mins(1)))
@@ -213,17 +209,46 @@ func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *te
 	contains(t, reports[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 has a Sprite sprite-conflicts-2")
 }
 
-func TestAColdSpriteTheAPIGivesNoLastRunTimeIsReportedWithoutATime(t *testing.T) {
+func TestAColdSpriteWhoseLaneStillRunsRelaunchesNothingAndIsLeftToSleep(t *testing.T) {
 	s := memory(t)
-	f := newFake(t, nil, nil)
-	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "was lost"})
-	lostOnSprite(t, s, f, "conflicts-3", time.Time{})
+	f := onSprite(t, s, 46001)
+	f.peers = nil
+	coldOnSprite(t, s, f, lane2, HostRunning)
 
 	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(1)))
+	out := tick(t, s, f, t0.Add(mins(10)))
 
-	reports := lostReports(f)
-	equal(t, len(reports), 1)
-	contains(t, reports[0].Text, "LANE-LOST conflicts-3: it has a Sprite sprite-conflicts-3 that is cold, and its dispatch never settled")
+	equal(t, []any{out.Relaunched, out.Held, len(f.launches), len(lostReports(f)), f.hostReads, row(t, s, lane2).State}, []any{[]Relaunch(nil), []string(nil), 0, 0, 1, store.LaneDesired})
+}
+
+func TestAColdSpriteRelaunchesItsLaneOnceWhenWokenItRunsNoWorkerHasNoStorageOrNeverAnswers(t *testing.T) {
+	for woken, read := range map[Host]string{
+		HostEmpty:       "answers with no claude or codex running",
+		HostNoStorage:   "answers Storage not ready",
+		HostUnreachable: "has not answered for 30 min",
+	} {
+		t.Run(string(woken), func(t *testing.T) {
+			s := memory(t)
+			f := onSprite(t, s)
+			f.peers = nil
+			coldOnSprite(t, s, f, lane2, woken)
+
+			ticks := []time.Duration{0, goneAfter, goneAfter + mins(1)}
+			relaunched := make([]Relaunch, 0, len(ticks))
+			for _, at := range ticks {
+				relaunched = append(relaunched, tick(t, s, f, t0.Add(at)).Relaunched...)
+			}
+
+			var reports []string
+			for _, p := range lostReports(f) {
+				if strings.HasPrefix(p.Text, "LANE-LOST "+lane2+":") {
+					reports = append(reports, p.Text)
+				}
+			}
+			equal(t, []any{relaunched, f.launches, len(reports)}, []any{[]Relaunch{{lane2, "conflicts-3", "has a Sprite sprite-conflicts-2 that was cold and, woken, " + read}}, []string{"conflicts-3"}, 1})
+		})
+	}
 }
 
 func TestASettledLaneOrAFailedSpritesListLeavesAColdSpriteLaneAlone(t *testing.T) {
@@ -237,7 +262,7 @@ func TestASettledLaneOrAFailedSpritesListLeavesAColdSpriteLaneAlone(t *testing.T
 			s := memory(t)
 			f := onSprite(t, s)
 			f.peers = nil
-			lostOnSprite(t, s, f, lane2, t0.Add(-mins(30)))
+			coldOnSprite(t, s, f, lane2, HostEmpty)
 			setup(f)
 
 			out := tick(t, s, f, t0)
@@ -249,7 +274,7 @@ func TestASettledLaneOrAFailedSpritesListLeavesAColdSpriteLaneAlone(t *testing.T
 
 func TestASpriteReadsByTheSpritesListAndItsWorkerProbeAnswer(t *testing.T) {
 	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir()}
-	for lane, box := range map[string]string{"parked": "dar-parked", "ended": "dar-ended", "hung": "dar-hung", "odd": "dar-odd", "down": "dar-down"} {
+	for lane, box := range map[string]string{"parked": "dar-parked", "ended": "dar-ended", "hung": "dar-hung", "odd": "dar-odd", "down": "dar-down", "unstored": "dar-unstored"} {
 		writeJSON(t, filepath.Join(env.receipts(), lane+".json"), map[string]any{"result": map[string]any{"server": map[string]string{"name": box}}})
 	}
 	answers := map[string]func([]string) (shell.Result, error){
@@ -262,10 +287,13 @@ func TestASpriteReadsByTheSpritesListAndItsWorkerProbeAnswer(t *testing.T) {
 		"dar-down": func(argv []string) (shell.Result, error) {
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1, Stderr: "connection refused"}
 		},
+		"dar-unstored": func(argv []string) (shell.Result, error) {
+			return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1, Stderr: "Error: failed to start sprite command: Storage not ready"}
+		},
 	}
 	pages := []string{
 		`{"sprites":[{"name":"dar-parked","status":"running"},{"name":"dar-ended","status":"running"},{"name":"dar-hung","status":"running"},{"name":"warm-pool-1","status":"warm"}],"has_more":true,"next_continuation_token":"page 2"}`,
-		`{"sprites":[{"name":"dar-odd","status":"running"},{"name":"dar-down","status":"cold","last_running_at":"2026-11-03T20:58:00Z"}],"has_more":false}`,
+		`{"sprites":[{"name":"dar-odd","status":"running"},{"name":"dar-down","status":"cold","last_running_at":null},{"name":"dar-unstored","status":"cold","last_running_at":null}],"has_more":false}`,
 	}
 	var listed []string
 	env.Runner = scripted(func(argv []string) (shell.Result, error) {
@@ -275,7 +303,7 @@ func TestASpriteReadsByTheSpritesListAndItsWorkerProbeAnswer(t *testing.T) {
 		}
 		return answers[argv[3]](argv)
 	})
-	lanes := []string{"parked", "ended", "hung", "odd", "down", "deleted"}
+	lanes := []string{"parked", "ended", "hung", "odd", "down", "unstored", "deleted"}
 
 	sprites, err := env.laneSprites(context.Background(), lanes)
 	if err != nil {
@@ -283,9 +311,9 @@ func TestASpriteReadsByTheSpritesListAndItsWorkerProbeAnswer(t *testing.T) {
 	}
 
 	equal(t, listed, []string{"/sprites", "/sprites?continuation_token=page+2"})
-	equal(t, []any{len(sprites), sprites["down"]}, []any{5, Sprite{Name: "dar-down", Status: "cold", LastRunning: time.Date(2026, 11, 3, 20, 58, 0, 0, time.UTC)}})
+	equal(t, []any{len(sprites), sprites["down"]}, []any{6, Sprite{Name: "dar-down", Status: "cold"}})
 	equal(t, env.hosts(context.Background(), lanes, sprites), map[string]Host{
-		"parked": HostRunning, "ended": HostEmpty, "hung": HostUnreachable, "down": HostUnreachable, "deleted": HostUnreachable,
+		"parked": HostRunning, "ended": HostEmpty, "hung": HostUnreachable, "down": HostUnreachable, "unstored": HostNoStorage, "deleted": HostUnreachable,
 	})
 
 	env.Runner = scripted(func([]string) (shell.Result, error) {
@@ -303,7 +331,7 @@ func spriteDesk(t *testing.T, s *store.Store, host Host) *fake {
 	tick(t, s, f, t0.Add(-time.Hour))
 	f.posts = nil
 	f.peers = []Row{who("meta-desk-3", true, t0)}
-	f.sprites = map[string]Sprite{"go-desk-1": {Name: "sprite-go-desk-1", Status: spriteRunning, LastRunning: t0}}
+	f.sprites = map[string]Sprite{"go-desk-1": {Name: "sprite-go-desk-1", Status: spriteRunning}}
 	f.hosts = map[string]Host{"go-desk-1": host}
 	return f
 }
@@ -352,7 +380,7 @@ func TestAStandingDeskRelaunchedAndDeadThreeTimesInAnHourStopsWithOneBlockerNami
 		tick(t, s, f, at)
 		at = at.Add(StaleAfter + mins(1))
 		f.peers = []Row{who("meta-desk-3", true, at)}
-		f.sprites[name] = Sprite{Name: "sprite-" + name, Status: spriteRunning, LastRunning: at}
+		f.sprites[name] = Sprite{Name: "sprite-" + name, Status: spriteRunning}
 		f.hosts[name] = HostEmpty
 		out = tick(t, s, f, at)
 	}
