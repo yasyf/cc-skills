@@ -500,6 +500,46 @@ def test_a_job_outlives_a_dropped_connection_since_only_the_short_key_exec_forwa
     assert not Path(f"{sprite}{directory}.keys").exists()
 
 
+LOSSY_SPRITE = """#!/usr/bin/env python3
+import os, pathlib, subprocess, sys
+args = sys.argv[4:]
+stdin = None
+if args[0] == "--no-stdin":
+    args, stdin = args[1:], subprocess.DEVNULL
+if any("tail -c +" in arg for arg in args):
+    lost = pathlib.Path(os.environ["LOST_POLLS"])
+    count = int(lost.read_text()) if lost.exists() else 0
+    if count < 2:
+        lost.write_text(str(count + 1))
+        sys.stderr.write("Error: cannot resume output at byte 0: earliest retained byte is 76804\\n")
+        sys.exit(1)
+mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
+sys.exit(subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode)
+"""
+
+
+def test_a_pass_outlives_polls_whose_stream_the_sprite_cli_cannot_resume(tmp_path: Path) -> None:
+    """Nov 5: 117 of 132 lost grade passes ended on "cannot resume output at byte 0: earliest retained byte is 76804", the Sprite CLI's error when the one long exec that streamed a job's output dropped; #51253 lost all three finder attempts that way, on three Sprites."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "51253-7fbaaa311022", mac / "config"
+    job_script, grader = plugin_with_job(mac, KEYED_JOB), "finder"
+    executable(mac / "bin" / "sprite", LOSSY_SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+    lost = tmp_path / "lost-polls"
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "LOST_POLLS": str(lost), "SPRITE_JOB_KEYS": json.dumps({"OPENAI_API_KEY": ["echo", "sk-test"]})}
+    subprocess.run(["sh", str(job_script), "sdf-rel-1", grader, str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert lost.read_text() == "2"
+    assert json.loads((directory / "result.json").read_text()) == {"key": "sk-test"}
+
+
 FLAKY_SPRITE = """#!/bin/sh
 if [ "$WAY" = unreachable ]; then
   echo "Error: failed to start sprite command: failed to connect: read: operation timed out" >&2
@@ -512,7 +552,7 @@ if [ "$1" = --no-stdin ]; then
 fi
 dropped= flock=
 for arg do
-  case $arg in *"exec flock -s"*) flock=1 ;; esac
+  case $arg in *"setsid sh -c"*) flock=1 ;; esac
   [ "$WAY" = dropped ] && [ -z "$dropped" ] || continue
   case $arg in
     */finder-desk/job-[0-9]*)
@@ -702,7 +742,7 @@ def test_a_job_drops_the_empty_loose_objects_an_unclean_stop_left_so_its_fetch_c
 RECORDING_JOB = """import json, os, pathlib, sys
 job = pathlib.Path(sys.argv[1])
 pid, start = (job / "job-process").read_text().split()
-(job / "result.json").write_text(json.dumps({"verdict": "ok", "pid": int(pid), "start": start, "parent": os.getppid()}))
+(job / "result.json").write_text(json.dumps({"verdict": "ok", "pid": int(pid), "start": start, "group": os.getpgid(0)}))
 """
 
 
@@ -713,5 +753,5 @@ def test_a_job_records_the_process_a_stall_kill_checks_before_it_signals_that_gr
     run()
 
     outcome = json.loads((directory / "result.json").read_text())
-    assert outcome["parent"] == outcome["pid"]
+    assert outcome["group"] == outcome["pid"]
     assert outcome["start"].isdigit()

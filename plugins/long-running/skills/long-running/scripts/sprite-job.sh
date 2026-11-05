@@ -23,8 +23,12 @@ SPRITE_JOB_KEYS, a JSON object of environment names to the commands that print
 their values, such as {"GH_TOKEN": ["gh", "auth", "token"]}, is run here at
 start; each value reaches the job's process on the Sprite through a named pipe
 the job reads once and its environment only, never a stored file or an argument,
-written by a short exec's standard input, so the long exec that runs the job
-forwards no stdin and the Sprite CLI reconnects it when the connection drops; a command that prints
+written by a short exec's standard input. The job runs detached on the Sprite in a session of its own,
+its output and exit status in .out and .status files beside <dir>'s directory on the local disk, so a job
+that loses <dir> still reports, and no exec stream outlives a short call, so a dropped one cannot lose a pass. Every 20
+seconds one short exec returns the output written since the last and whether the job runs, exited with
+a status, or is gone, and that output lands in job.log here; a Sprite no poll reaches 15 times running
+ends the pass with status 255. A command that prints
 nothing stops the job before it reaches the Sprite, with that error as its result. Every git command
 the job runs authenticates through `gh auth git-credential`, the partial clone's
 on-demand object fetches included. A GH_TOKEN also refreshes git's in-memory
@@ -56,7 +60,7 @@ exit of this script leaves exactly one whole result.json: a job that ends with n
 when the Sprite restarts mid-pass or cannot be reached, gets one from
 desk_result.py naming the error and marked `no_result`, so the runner fails and requeues the
 pass at once, without the retry hold a tooling error gets, instead of waiting out its deadline. The job's first act on
-the Sprite writes its process id and start time to job-process, since `sprite exec` makes that process the leader of its
+the Sprite writes its process id and start time to job-process, since setsid makes that process the leader of its
 own process group; the runner's kill of a stalled pass checks both before it signals that group and nothing else. A finder or fidelity job writes its records to posts.jsonl for the
 coordinator to publish after the files return, without a cci replica on the grader.
 A job named by a Python script path then pushes the records it posted to the drive's
@@ -195,7 +199,7 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
     print(f"{name}={value}")
 ' "$dir" "$here/long_running") || exit 1
 took "reading the keys"
-sprite exec -s "$sprite" --no-stdin -- sh -c '
+run='
   printf "%s %s\n" "$$" "$(cut -d" " -f22 "/proc/$$/stat")" >"$2/job-process"
   rm -f "$2.keys" && mkfifo -m 600 "$2.keys"
   vars=$(timeout 120 cat "$2.keys") || exit 1
@@ -233,36 +237,66 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   export SPRITE_TOOLS_PATH="$PATH"
   [ -z "${GH_TOKEN:-}" ] || export PATH="$real/skills/long-running/scripts/sprite-fresh-token:$PATH"
   case "$1" in
-    /*) exec flock -s "$real.lock" python3 "$real${1#"$4"}" "$2" ;;
-    *) exec flock -s "$real.lock" "$real/bin/lr" grade "$1" "$2" ;;
-  esac' sh "$job" "$dir" "$checkout" "$plugin" &
-job_pid=$!
+    /*) flock -s "$real.lock" python3 "$real${1#"$4"}" "$2" ;;
+    *) flock -s "$real.lock" "$real/bin/lr" grade "$1" "$2" ;;
+  esac
+  printf "%s\n" "$?" >"$5.status.part" && mv "$5.status.part" "$5.status"'
+sprite exec -s "$sprite" --no-stdin -- sh -c '
+  disk=$(readlink -f "$2")
+  rm -f "$2/job-process" "$disk.status" "$disk.out"
+  setsid sh -c "$1" sh "$3" "$2" "$4" "$5" "$disk" </dev/null >"$disk.out" 2>&1 &
+  for _ in $(seq 100); do
+    [ ! -s "$2/job-process" ] || exit 0
+    sleep 0.1
+  done
+  exit 1' sh "$run" "$dir" "$job" "$checkout" "$plugin" || exit 1
+took "starting the job"
 { [ -z "$keys" ] || printf "%s\n" "$keys"; } | sprite exec -s "$sprite" -- sh -c '
   for _ in $(seq 600); do
     if [ -p "$1.keys" ]; then exec cat >"$1.keys"; fi
     sleep 0.2
   done
   exit 1' sh "$dir"
-(
-  forwarded=
-  ticks=0
-  while kill -0 "$job_pid" 2>/dev/null; do
-    if [ -z "$forwarded" ] && [ -e "$dir/cancelled" ]; then
-      sprite exec -s "$sprite" -- sh -c 'cat >"$1/cancelled"; for run in "$1"/codex-*; do [ -e "$run" ] && codex-ask --cancel "$run"; done; true' sh "$dir" <"$dir/cancelled" || true
-      forwarded=1
+status=
+offset=0
+misses=0
+forwarded=
+ticks=0
+delta=$(mktemp)
+while [ -z "$status" ]; do
+  if [ -z "$forwarded" ] && [ -e "$dir/cancelled" ]; then
+    sprite exec -s "$sprite" -- sh -c 'cat >"$1/cancelled"; for run in "$1"/codex-*; do [ -e "$run" ] && codex-ask --cancel "$run"; done; true' sh "$dir" <"$dir/cancelled" || true
+    forwarded=1
+  fi
+  if [ "$ticks" -eq 0 ]; then
+    refresh_gh_token &
+    ticks=12
+  fi
+  ticks=$((ticks - 1))
+  if said=$(sprite exec -s "$sprite" --no-stdin -- sh -c '
+    disk=$(readlink -f "$1")
+    state=gone
+    if read -r pid start 2>/dev/null <"$1/job-process" && [ "$(cut -d" " -f22 "/proc/$pid/stat" 2>/dev/null)" = "$start" ]; then
+      state=running
     fi
-    if [ "$ticks" -eq 0 ]; then
-      refresh_gh_token &
-      ticks=4
-    fi
-    ticks=$((ticks - 1))
-    sleep 60 </dev/null >/dev/null 2>&1
-  done
-) &
-tender=$!
-status=0
-wait "$job_pid" || status=$?
-kill "$tender" 2>/dev/null || true
+    [ ! -e "$disk.status" ] || state=$(cat "$disk.status")
+    tail -c +"$2" "$disk.out" 2>/dev/null
+    echo "$state" >&2' sh "$dir" "$((offset + 1))" 2>&1 >"$delta"); then
+    misses=0
+  else
+    misses=$((misses + 1))
+  fi
+  cat "$delta" >&2
+  offset=$((offset + $(wc -c <"$delta")))
+  said=$(printf "%s\n" "$said" | tail -n 1)
+  case $said in
+    gone) status=1 ;;
+    running) sleep 20 ;;
+    '' | *[!0-9]*) if [ "$misses" -ge 15 ]; then status=255; else sleep 20; fi ;;
+    *) status=$said ;;
+  esac
+done
+rm -f "$delta"
 archive=$(mktemp)
 if sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" || exit 2; find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./job.log ! -path ./result.json ! -path ./cards.md | tar -cz --no-recursion -T -; [ $? -le 1 ]' sh "$dir" >"$archive" &&
   tar -tzf "$archive" >/dev/null && tar -xz -m -f "$archive" -C "$dir"; then
@@ -274,7 +308,7 @@ else
 fi
 sprite exec -s "$sprite" --no-stdin -- cat "$dir/result.json" | python3 "$results" adopt "$dir"
 no_result "$status"
-sprite exec -s "$sprite" --no-stdin -- sh -c '[ ! -L "$1" ] || rm -rf "$(readlink "$1")" "$1"' sh "$dir" || true
+sprite exec -s "$sprite" --no-stdin -- sh -c 'disk=$(readlink -f "$1"); rm -f "$disk.status" "$disk.out"; [ ! -L "$1" ] || rm -rf "$(readlink "$1")" "$1"' sh "$dir" || true
 case "$job" in
 /*)
 for pause in 2 5 10 20 ""; do
