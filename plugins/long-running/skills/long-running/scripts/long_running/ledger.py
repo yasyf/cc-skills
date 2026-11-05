@@ -445,9 +445,13 @@ def working_repo(shell: Shell, named: str | None) -> str:
         raise
 
 
-def inside_checkout() -> bool:
+def checkout_root() -> Path | None:
     here = Path.cwd()
-    return any((folder / ".git").exists() for folder in (here, *here.parents))
+    return next((folder for folder in (here, *here.parents) if (folder / ".git").exists()), None)
+
+
+def inside_checkout() -> bool:
+    return checkout_root() is not None
 
 
 def registered_drive(ledger_id: str, bus: str) -> dict | None:
@@ -1021,7 +1025,7 @@ def buildkite_targets(status: dict, checks: dict) -> list[re.Match]:
 
 
 def failed_job(shell: Shell, pipeline: str, build: str, job_id: str | None) -> dict:
-    jobs = json.loads(shell.run(["bk", "build", "view", "-p", pipeline, build]))["jobs"]
+    jobs = json.loads(buildkite(shell, "api", "-no-wait", f"/pipelines/{pipeline}/builds/{build}"))["jobs"]
     return next(job for job in jobs if job["id"] == job_id) if job_id else next(job for job in jobs if job["state"] == "failed" and not job["soft_failed"])
 
 
@@ -1046,7 +1050,11 @@ def resolve_error(shell: Shell, target: re.Match) -> tuple[str, str]:
     """The failed job's name and its log's first error line."""
     pipeline, build = target["pipeline"], target["build"]
     job = failed_job(shell, pipeline, build, target["job"])
-    return job["name"], first_error_line(shell.run(["bk", "job", "log", "-p", pipeline, "-b", build, job["id"]]))
+    return job["name"], first_error_line(buildkite(shell, "log", pipeline, build, job["id"]))
+
+
+def buildkite(shell: Shell, *args: str) -> str:
+    return shell.run(["tools/ci", "bk", *args], cwd=checkout_root())
 
 
 def route_verdict(shell: Shell, gh: Github, fields: dict[str, str]) -> tuple[str, str]:
