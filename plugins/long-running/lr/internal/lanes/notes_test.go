@@ -243,27 +243,30 @@ func TestARecordFromALiveLanePublishesItsNotesOffTheTickOnceAndAFailureBlocksOnc
 	equal(t, len(f.ofKind("blocker")), 2)
 }
 
-func TestADeferredPublishPostsNoBlockerAndTheNextRecordRetries(t *testing.T) {
+func TestADeferredPublishPostsNoBlockerAndTheNextCheckRetriesWithNoNewRecord(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
-	publish(t, s, f, t0)
+	notes := &NotesPublish{Store: s, Deps: f.deps}
+	check := func(at time.Time) {
+		t.Helper()
+		if err := notes.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(t0)
 	f.published = nil
 	f.notes = map[string]error{lane2: fmt.Errorf("ccn sync on Sprite %s: %w", notesSprite, ErrNotesDeferred)}
-	f.feed = append(f.feed, rec(2, lane2, "report", t0, "report, ccn a24d471", Root))
+	f.feed = append(f.feed, rec(2, lane2, "handoff", t0, "handoff in ccn a24d471", Root))
 	f.peers = []Row{who(lane2, true, t0)}
 
 	tick(t, s, f, t0.Add(mins(1)))
-	publish(t, s, f, t0.Add(mins(1)))
-
-	equal(t, f.published, []string{lane2})
-	equal(t, len(f.ofKind("blocker")), 0)
-
+	check(t0.Add(mins(1)))
+	check(t0.Add(mins(1) + 30*time.Second))
 	f.notes = nil
-	f.feed = append(f.feed, rec(3, lane2, "report", t0.Add(mins(2)), "more", Root))
-	tick(t, s, f, t0.Add(mins(3)))
-	publish(t, s, f, t0.Add(mins(3)))
+	check(t0.Add(mins(2)))
+	check(t0.Add(mins(2) + 30*time.Second))
 
-	equal(t, f.published, []string{lane2, lane2})
+	equal(t, f.published, []string{lane2, lane2, lane2})
 	equal(t, len(f.ofKind("blocker")), 0)
 }
 
