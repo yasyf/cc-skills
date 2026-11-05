@@ -35,7 +35,11 @@ func Command(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			report, err := Read(cmd.Context(), Live(env.Bus, env.Runner, s), cfg, drive, a.Now(), window)
+			running, err := Current(a.CCX, env.Claude, cmd.Root().Version)
+			if err != nil {
+				return err
+			}
+			report, err := Read(cmd.Context(), Live(env.Bus, env.Runner, s, running), cfg, drive, a.Now(), window)
 			if err != nil {
 				return err
 			}

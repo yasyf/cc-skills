@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	releaseRepo     = "yasyf/cc-skills"
+	ReleaseRepo     = "yasyf/cc-skills"
 	releaseWorkflow = "long-running lr release"
 	releaseBranch   = "main"
 	releaseRuns     = "30"
@@ -138,7 +138,7 @@ func (w ReleaseWait) released(ctx context.Context, carried map[string]bool, told
 }
 
 func (w ReleaseWait) runs(ctx context.Context) ([]releaseRun, error) {
-	out, err := w.CCX.GH(ctx, ccx.MaxAgeFresh, "run", "list", "--repo", releaseRepo, "--workflow", releaseWorkflow, "--branch", releaseBranch, "--limit", releaseRuns, "--json", "status,conclusion,headSha,databaseId,number,attempt")
+	out, err := w.CCX.GH(ctx, ccx.MaxAgeFresh, "run", "list", "--repo", ReleaseRepo, "--workflow", releaseWorkflow, "--branch", releaseBranch, "--limit", releaseRuns, "--json", "status,conclusion,headSha,databaseId,number,attempt")
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (w ReleaseWait) runs(ctx context.Context) ([]releaseRun, error) {
 }
 
 func (w ReleaseWait) contains(ctx context.Context, maxAge, commit, head string) (bool, error) {
-	out, err := w.CCX.GH(ctx, maxAge, "api", "repos/"+releaseRepo+"/compare/"+commit+"..."+head, "--jq", ".status")
+	out, err := w.CCX.GH(ctx, maxAge, "api", "repos/"+ReleaseRepo+"/compare/"+commit+"..."+head, "--jq", ".status")
 	if err != nil {
 		return false, err
 	}

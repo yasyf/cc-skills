@@ -42,6 +42,14 @@ func Installed(claude string) string {
 	return filepath.Base(resolved)
 }
 
+func InstalledSince(claude string) (string, time.Time, error) {
+	moved, err := os.Lstat(link(claude))
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return Installed(claude), moved.ModTime(), nil
+}
+
 func Promote(claude, target string) error {
 	version := filepath.Base(target)
 	if !wholeVersion.MatchString(version) {

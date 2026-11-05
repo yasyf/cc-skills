@@ -17,6 +17,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx/ccxtest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -90,6 +91,8 @@ type world struct {
 	runner  *fakeRunner
 	retired []store.Lane
 	cfg     Config
+	gh      map[string]string
+	running *Running
 }
 
 func newWorld(t *testing.T) *world {
@@ -98,7 +101,23 @@ func newWorld(t *testing.T) *world {
 	cfg := defaults()
 	cfg.HookLogs = t.TempDir()
 	cfg.CodexSessions = t.TempDir()
-	return &world{bus: &fakeBus{}, runner: &fakeRunner{files: map[string]string{}}, cfg: cfg}
+	gh := map[string]string{}
+	for number := range 10 {
+		gh[mergedSHA(number)] = ""
+	}
+	running := &Running{CCX: &ccxtest.Fake{GHOut: gh}, Repo: "yasyf/cc-skills", LR: "0.9.1", Pack: "0.7.9", Since: t0.Add(-time.Hour), held: map[int]bool{}}
+	return &world{bus: &fakeBus{}, runner: &fakeRunner{files: map[string]string{}}, cfg: cfg, gh: gh, running: running}
+}
+
+func mergedSHA(number int) string {
+	return fmt.Sprintf("api repos/yasyf/cc-skills/pulls/%d --jq select(.merged) | .merge_commit_sha", number)
+}
+
+func (w *world) released(number int, lr, pack string) {
+	sha := fmt.Sprintf("sha%d", number)
+	w.gh[mergedSHA(number)] = sha + "\n"
+	w.gh["api repos/yasyf/cc-skills/compare/"+sha+"...lr--v0.9.1 --jq .status"] = lr + "\n"
+	w.gh["api repos/yasyf/cc-skills/compare/"+sha+"...long-running--v0.7.9 --jq .status"] = pack + "\n"
 }
 
 func (w *world) sources() Sources {
@@ -106,6 +125,7 @@ func (w *world) sources() Sources {
 		Bus:     w.bus,
 		Runner:  w.runner,
 		Retired: func() ([]store.Lane, error) { return w.retired, nil },
+		Running: w.running,
 	}
 }
 
@@ -520,6 +540,35 @@ func TestAMergedToolingPRWithNoInstallIsFlaggedAfterHalfAnHour(t *testing.T) {
 	if !strings.Contains(report.Findings[0].Detail, "yasyf/cc-skills#1 merged") {
 		t.Fatalf("detail %q does not name the PR", report.Findings[0].Detail)
 	}
+}
+
+func TestAMergeTheRunningLRAndPackBothHoldOwesOnlyItsProof(t *testing.T) {
+	w := newWorld(t)
+	old := t0.Add(-45 * time.Minute)
+	w.released(1, "ahead", "identical")
+	w.released(2, "behind", "ahead")
+	w.released(3, "ahead", "behind")
+	w.bus.merges = []client.Record{
+		merged(t, old, "meta-helper-1", "landed", "yasyf/cc-skills#1", nil),
+		merged(t, old, "meta-helper-2", "landed", "yasyf/cc-skills#2", nil),
+		merged(t, old, "meta-helper-3", "landed", "yasyf/cc-skills#3", nil),
+		merged(t, old, "meta-helper-4", "landed", "yasyf/cc-skills#4", nil),
+		merged(t, old, "meta-helper-5", "landed", "yasyf/cc-skills#5", nil),
+		merged(t, old.Add(time.Minute), "meta-desk", "done", "yasyf/cc-skills#5", map[string]string{"installed": "0.7.9", "proof": "saw it run"}),
+	}
+
+	report := w.read(t, Window)
+
+	equal(t, signal(report, signalUnproven), []string{"meta-helper-1 45"})
+	equal(t, signal(report, signalUninstalled), []string{"meta-helper-2 45", "meta-helper-3 45", "meta-helper-4 45"})
+	for _, finding := range report.Findings {
+		if finding.Signal == signalUnproven {
+			equal(t, finding.Detail, "yasyf/cc-skills#1 installed in lr 0.9.1 and pack 0.7.9 since 3:00 AM, proof owed")
+		}
+	}
+
+	w.running.CCX = &ccxtest.Fake{GHOut: map[string]string{mergedSHA(2): "", mergedSHA(3): "", mergedSHA(4): ""}}
+	equal(t, signal(w.read(t, Window), signalUnproven), []string{"meta-helper-1 45"})
 }
 
 func TestAnUninstalledMergeRepostsAsItAges(t *testing.T) {
