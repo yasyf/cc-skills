@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 )
@@ -211,7 +212,8 @@ func (p *JobPool) TellStopped(ctx context.Context, facts machine.Facts, why stri
 	}
 	text := fmt.Sprintf("GRADE-STOPPED #%s %s: no grader pass is left to run at this head, so its grade item closes and a verdict item opens for its lane. %s. A grade posted at this head, a desk's read or `finder: whole`, clears it, and so does root's `fidelity-override #%s at %s: <seq>` or `finder-override #%s at %s: <seq>` for the grader that stopped; a new head gets new passes.", pr, short(facts.Head), squeezed(why), pr, short(facts.Head), pr, short(facts.Head))
 	id := "grade-stopped:" + facts.Repo + "#" + pr + ":" + facts.Head
-	return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindReport, Text: text, To: to, Topic: id, ID: id, PRs: []string{facts.Repo + "#" + pr}})
+	attrs := map[string]string{bus.GradeStoppedWhyAttr: why, bus.GradeStoppedHeadAttr: facts.Head}
+	return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindReport, Text: text, To: to, Topic: id, ID: id, PRs: []string{facts.Repo + "#" + pr}, Attrs: attrs})
 }
 
 func squeezed(text string) string {

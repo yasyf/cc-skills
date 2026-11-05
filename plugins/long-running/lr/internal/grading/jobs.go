@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	runnerLane    = "desk-runner"
+	runnerLane    = bus.RunnerLane
 	defaultModel  = "sol"
 	optionsBranch = "options/"
 	docChars      = 7

@@ -22,10 +22,14 @@ const (
 	rootLane     = "root"
 	SweepLane    = "supervisor"
 	AppealsLane  = "grader-appeals"
+	RunnerLane   = "desk-runner"
+
+	GradeStoppedWhyAttr  = "grade-stopped"
+	GradeStoppedHeadAttr = "grade-stopped-head"
 )
 
 var (
-	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", TapRefusedKind}
+	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", "report", TapRefusedKind}
 	goKinds        = []string{"go", "decide", "decision"}
 	finderDesk     = []string{"finder-desk"}
 	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk", "fidelity-sweep", "fidelity-shard", "fidelity-shard-1"}
@@ -71,6 +75,8 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	switch {
 	case kind == "withdraw" || kind == "correction" || kind == ownerKind:
 		return nil
+	case kind == "report":
+		return stoppedFacts(record, repo)
 	case kind == TapRefusedKind:
 		return factsPerPR(record, repo, record.Fields.Attrs[refusedHead], TapRefusedFact, record.Fields.Attrs[refusalAttr])
 	case kind == "review" && delegated(record.Lane, finderDesk) && strings.HasPrefix(record.Text, "finder:"):
@@ -108,6 +114,14 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 		out = append(out, Fact{pair.PR, pair.Head, "exempt", strings.ToLower(exempt[1])})
 	}
 	return out
+}
+
+func stoppedFacts(record client.Record, repo string) []Fact {
+	why, head := record.Fields.Attrs[GradeStoppedWhyAttr], record.Fields.Attrs[GradeStoppedHeadAttr]
+	if client.Stem(record.Lane) != RunnerLane || why == "" || head == "" {
+		return nil
+	}
+	return factsPerPR(record, repo, head, machine.GradeStoppedFact, why)
 }
 
 func HeadNamed(record client.Record, repo string, number int) string {

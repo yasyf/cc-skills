@@ -51,6 +51,7 @@ func TestEachGradeTapAndExemptionBecomesOneFact(t *testing.T) {
 		{"the sweep desk's fidelity ok", legacyRecord(t, "review", "fidelity-sweep", "fidelity: ok "+head[:7]+" stays in scope", []int{1}, nil), []bus.Fact{{PR: 1, Head: head[:7], Kind: "fidelity", Value: "pass"}}},
 		{"a shard's fidelity ok, shaped as 439107", legacyRecord(t, "review", "fidelity-shard-5", "fidelity: ok "+head+" class regression: carries my ok at a2fdafc (438794). The delta answers ai-review's low finding", []int{1}, nil), []bus.Fact{{PR: 1, Head: head, Kind: "fidelity", Value: "pass"}}},
 		{"the first shard's fidelity missing", legacyRecord(t, "review", "fidelity-shard-1", "fidelity: missing "+head[:7]+" plan:12 the plan's cap is gone", []int{1}, nil), []bus.Fact{{PR: 1, Head: head[:7], Kind: "fidelity", Value: "fail"}}},
+		{"the grader's stopped report", legacyRecord(t, "report", bus.RunnerLane, "GRADE-STOPPED #1", []int{1}, map[string]string{bus.GradeStoppedWhyAttr: "fidelity: its pass ended without a grade", bus.GradeStoppedHeadAttr: head}), []bus.Fact{{PR: 1, Head: head, Kind: "grade-stopped", Value: "fidelity: its pass ended without a grade"}}},
 		{"fidelity missing", legacyRecord(t, "review", "fidelity-pipeline", "fidelity: missing "+head[:7]+" plan:12 the plan's cap is gone", []int{1}, nil), []bus.Fact{{PR: 1, Head: head[:7], Kind: "fidelity", Value: "fail"}}},
 		{"coordinator go names an exempt class", legacyRecord(t, "go", "root", "5:26 PM go #9 at e718a74 on green [exempt: regression]", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "exempt", Value: "regression"}}},
 		{"a finder override", legacyRecord(t, "decide", "root", "finder-override #9 at e718a74: the finding reads a deleted file", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "verdict", Value: "accept"}, {PR: 9, Head: "e718a74", Kind: "override-finder", Value: "accept"}}},
@@ -73,6 +74,9 @@ func TestARecordThatGradesTapsOrExemptsNothingWritesNothing(t *testing.T) {
 	}{
 		{"a lane's own view of the finder", legacyRecord(t, "review", "lane-7", "finder: ok "+head+" my own view of the finder", []int{1}, nil)},
 		{"a lane's own view of fidelity", legacyRecord(t, "review", "lane-7", "fidelity: ok "+head+" my own view of the plan", []int{1}, nil)},
+		{"a lane's report naming a stop", legacyRecord(t, "report", "lane-7", "GRADE-STOPPED #1", []int{1}, map[string]string{bus.GradeStoppedWhyAttr: "my own view", bus.GradeStoppedHeadAttr: head})},
+		{"a runner report that stops nothing", legacyRecord(t, "report", bus.RunnerLane, "two passes ran", []int{1}, nil)},
+		{"root's report quoting an override", legacyRecord(t, "report", "root", "finder-override #1 at e718a74: 9", []int{1}, nil)},
 		{"a line that is no grade", legacyRecord(t, "review", "fidelity-desk-22", "old-app: unchanged "+head[:7]+" baseline", []int{1}, nil)},
 		{"a lane's own behavior line", legacyRecord(t, "review", "lane-7", "behavior: same "+head+" since a28ab62c0ffe", []int{1}, nil)},
 		{"a finder line that says nothing", legacyRecord(t, "review", "finder-desk", "finder: running on "+head[:7], []int{1}, nil)},

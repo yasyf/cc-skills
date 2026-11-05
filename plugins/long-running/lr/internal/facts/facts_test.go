@@ -1667,3 +1667,24 @@ func TestAShardsGradeReachesTheStoreSoItsRowReadsGraded(t *testing.T) {
 		t.Fatalf("the shard's ok did not reach the row: %+v", row)
 	}
 }
+
+func TestAStoppedReportLetsAnOverrideClearAHeadWithNoGradeOnAHostThatDidNotGradeIt(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	putFact(t, h.store, 1, head, "finder", "clear", tappedAt)
+	override := client.Draft{Drive: "d", Lane: bus.SweepLane, Kind: "decide", PRs: []string{"1"}, Text: "fidelity-override #1 at " + head[:7] + ": 439849. Counted from grader-appeals-1's cci #7, whose owner rows exist."}
+	if _, err := client.Post(context.Background(), override); err != nil {
+		t.Fatal(err)
+	}
+	if row := h.snapshot(t)[1]; row.Graded() {
+		t.Fatalf("an override alone graded a head nothing stopped: %+v", row)
+	}
+
+	stopped := client.Draft{Drive: "d", Lane: bus.RunnerLane, Kind: "report", PRs: []string{repo + "#1"}, Text: "GRADE-STOPPED #1", Attrs: map[string]string{bus.GradeStoppedWhyAttr: "fidelity: its pass ended without a grade", bus.GradeStoppedHeadAttr: head}}
+	if _, err := client.Post(context.Background(), stopped); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := h.snapshot(t)[1]; row.Fidelity != machine.FidelityPass || !row.Cleared() {
+		t.Fatalf("the stopped head's override did not clear it: %+v", row)
+	}
+}
