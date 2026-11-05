@@ -1305,15 +1305,22 @@ func TestABodyEditAtTheHeadAMajorReadReadsTheWholePRAgainWithItsNewBody(t *testi
 		asks   int
 		want   string
 	}{
-		"a body edit asks the finder again":            {true, 1, "finder: ok " + shaHead + " "},
-		"a repeat pass at that head carries the major": {false, 0, "finder: major " + shaHead[:7] + " carried from #502773"},
+		"a body edit asks the finder, whose reply accepting the rebuttal clears the major": {true, 1, "finder: ok " + shaHead + " "},
+		"a repeat pass at that head carries the major without asking":                      {false, 0, "finder: major " + shaHead[:7] + " carried from #502773"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			directory := finderJobDir(t, map[string]any{"prior": map[string]any{"seq": 502773, "lane": "finder-desk", "head": shaHead[:7], "text": graded}, "body_edited": c.edited})
+			rebuttal := "ProjectScheduleEvaluator.ts:294 seeds every new schedule's cursor at create, so its first run is prewarmed."
 			shell, _ := newFinderFake(t, replyOf())
-			shell.body = summaryBody + "\n\nAccepted: ProjectScheduleEvaluator.ts:294 seeds every new schedule's cursor at create, so its first run is prewarmed."
+			shell.body = summaryBody + "\n\nAnswered: " + rebuttal
 			mustFinder(t, directory, shell)
 			equal(t, len(shell.asks()), c.asks)
+			if c.asks > 0 {
+				question := readText(t, directory, "question-1.md")
+				if !strings.Contains(question, rebuttal) || !strings.Contains(question, "This pass reads the PR's whole change") {
+					t.Errorf("the finder's question carries no rebuttal or reads less than the whole change:\n%s", question)
+				}
+			}
 			if !strings.HasPrefix(shell.posted[0]["--text"], c.want) {
 				t.Errorf("posted %q, want it to open %q", shell.posted[0]["--text"], c.want)
 			}
