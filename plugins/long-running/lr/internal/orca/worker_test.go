@@ -409,9 +409,9 @@ func relayCalls(workspace string) [][]string {
 	return [][]string{{"cci", "relay", "status", "--json"}, {"cci", "node", "--json"}, {"sprite", "exec", "-s", sponsorBox, "--no-stdin", "--", "cat", sponsorKey}, joinCall(workspace)}
 }
 
-func (f *workerFixture) startCalls(task object) [][]string {
+func (f *workerFixture) startCalls(task object, told ...string) [][]string {
 	brief := task["brief"].(object)
-	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spritePreamble, spriteBuildkite)
+	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spritePreamble, spriteBuildkite) + strings.Join(told, "")
 	return slices.Concat([][]string{{"gh", "auth", "token"}, notesCall(task["environment"].(string))}, relayCalls(task["environment"].(string)), [][]string{
 		slices.Concat([]string{"orca", "orchestration", "worker-start", "--run", workerRun, "--spec", spec, "--task-title", workerLane, "--on", task["environment"].(string), "--worktree", "id:" + task["worktreeId"].(string), "--terminal", task["terminal"].(string)}, []string{"--timeout-ms", "600000", "--full", "--json"}),
 	})
@@ -1479,7 +1479,7 @@ func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 	if _, failed, err := f.launch(workerLane, "gpt-6.1-sol", "xhigh"); err != nil || failed != "" {
 		t.Fatal(failed, err)
 	}
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task), [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
 }
 
 func TestAnExpectedBaseMismatchLeavesThePreparedWorkerIdle(t *testing.T) {
@@ -1990,5 +1990,74 @@ func TestAWorkerStartRefusalThatMeansNoIsNeverReplayed(t *testing.T) {
 
 	if err != nil || !strings.Contains(failed, "worker-start exited 1: dispatch_inactive") || len(f.workerStarts()) != 1 || len(f.slept) != 0 {
 		t.Fatalf("failed %q, err %v, %d worker-starts, slept %v", failed, err, len(f.workerStarts()), f.slept)
+	}
+}
+
+func TestAnIncidentModelStartsOnASpriteAsAnIncidentLaneOnItsFastTier(t *testing.T) {
+	for _, tt := range []struct {
+		model, kind, modelID string
+		tier                 []string
+		fastMode             bool
+	}{
+		{agentIncident, "codex", "gpt-6.1-sol", []string{"--service-tier", "fast"}, false},
+		{modelIncidentOpus, "claude", "claude-opus-5-5", nil, true},
+	} {
+		t.Run(tt.model, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			agent := object{"kind": tt.kind, "model": tt.modelID, "effort": "xhigh"}
+			if tt.tier != nil {
+				agent["serviceTier"] = "fast"
+			}
+			task := overlaid(prepared(), object{"agent": agent})
+			f.spriteAllocated(allocationOf(task, nil))
+			if _, failed, err := f.launch(workerLane, tt.model, "xhigh"); err != nil || failed != "" {
+				t.Fatal(failed, err)
+			}
+			f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, tt.kind, tt.modelID, "xhigh", tt.tier...)}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
+			if got := strings.HasSuffix(f.receiptText(beforeWorker), claudeFastMode); got != tt.fastMode {
+				t.Fatalf("fast mode in the before-worker script = %v, want %v", got, tt.fastMode)
+			}
+		})
+	}
+}
+
+func TestTheFastModeStepTurnsOnFastModeAndKeepsTheSettingsAlreadyThere(t *testing.T) {
+	for _, existing := range []string{"", `{"model":"opus"}`} {
+		home := t.TempDir()
+		settings := filepath.Join(home, ".claude", "settings.json")
+		if existing != "" {
+			if err := os.MkdirAll(filepath.Dir(settings), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(settings, []byte(existing), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run := exec.Command("sh", "-c", claudeFastMode)
+		run.Env = append(os.Environ(), "HOME="+home, "CLAUDE_CONFIG_DIR=")
+		if out, err := run.CombinedOutput(); err != nil {
+			t.Fatal(string(out), err)
+		}
+		raw, err := os.ReadFile(settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil || got["fastMode"] != true || existing != "" && got["model"] != "opus" {
+			t.Fatalf("%s: %s %v", existing, raw, err)
+		}
+	}
+}
+
+func TestAnIncidentBriefOnASpriteIsToldWhatItCannotReadAndWhoReadsItInstead(t *testing.T) {
+	for header, want := range map[string]bool{"ccx: role=fix incident=sentry-1": true, "ccx: role=build incident=none": false} {
+		f := newWorkerFixture(t)
+		text := "# Lane A\n" + header + "\nFix what broke.\n"
+		f.write(f.brief, text, 0o600)
+		f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+		f.launched()
+		if strings.HasSuffix(f.startedSpec(), incidentOnSprite) != want {
+			t.Fatal(header, f.startedSpec())
+		}
 	}
 }

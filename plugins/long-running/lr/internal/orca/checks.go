@@ -41,6 +41,7 @@ var (
 	briefWhy        = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+)`)
 	briefNoIncident = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?incident=none(\s|$)`)
 	briefRead       = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=read(?:\s|$)`)
+	incidentNamed   = regexp.MustCompile(`^(?:incident|outage)-`)
 	fableModel      = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
 	successorLane   = regexp.MustCompile(`^.+-(\d+)$`)
 	notFixRoles     = []string{"evidence", "proof", "closeout", "desk", "audit"}
@@ -185,6 +186,19 @@ func stampedMacInputs(text string) bool {
 
 func macPreferred(text string) bool {
 	return placedLocal(text) && (briefRead.MatchString(text) || slices.Contains(submatches(briefWhy, text), whyPredecessor))
+}
+
+func capFallsBack(o Order, text string) bool {
+	if o.Lane == coordinatorLane || fableModel.MatchString(o.Model) {
+		return false
+	}
+	needs := placedLocal(text) && slices.ContainsFunc(submatches(briefWhy, text), func(why string) bool { return why != whyPredecessor && why != whyMacInputs })
+	return !needs || o.incidentLane(text) || incidentBrief(o.Lane, text)
+}
+
+func incidentBrief(lane, text string) bool {
+	named := slices.ContainsFunc(submatches(briefIncident, text), func(incident string) bool { return incident != namesNothing })
+	return incidentNamed.MatchString(lane) || named || strings.HasSuffix(lane, "-"+roleFix) && regexp.MustCompile(`(?m)^`+sliceLine+` lane=`+regexp.QuoteMeta(lane)+` step=`+stepIncident+`\b`).MatchString(text)
 }
 
 func placedLocal(text string) bool {
