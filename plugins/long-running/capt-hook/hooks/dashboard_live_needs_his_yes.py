@@ -20,7 +20,7 @@ NOT_LIVE = re.compile(r"\bnot live\b", re.IGNORECASE)
 PR = re.compile(r"(?P<repo>[\w.-]*(?:/[\w.-]+)?)(?:#|/pull/)(?P<number>\d{1,5})\b")
 CC_SKILLS = frozenset({"", "pr", "cc-skills", "yasyf/cc-skills"})
 CITE = re.compile(r"\b(?:card:(?P<card>[\w.-]+)|owner:(?P<row>m\d+))\b")
-YES = re.compile(r"^\W*(?:approved|(?:picked\W+)?(?:yes|yep|yeah|lgtm|looks good|ship it))\b", re.IGNORECASE)
+YES = re.compile(r"^\W*(?:approved|(?:picked\W+)?(?:yes|yep|yeah|lgtm|looks (?:good|right)|ship it))\b", re.IGNORECASE)
 READ_TIMEOUT_SECONDS = 20
 REFUSAL = (
     "A dashboard or board change is live only once the owner saw a real screenshot of the new render on a card and said yes:"
@@ -32,6 +32,7 @@ CHAT_PR = {"gh pr view 2675": f"{DASHBOARD}/app/chat.js\n"}
 APPROVED = {"ccn answer list --label from:owner --label board-card:chat-mock": json.dumps([{"body": "approved “ship this render” | Card chat-mock"}])}
 REJECTED = {"ccn answer list --label from:owner --label owner:m480": json.dumps([{"body": "this is not at all what I wanted"}])}
 PICKED_YES = {"ccn answer list --label from:owner --label board-card:chat-keep": json.dumps([{"body": "picked “Yes, keep it”\nBoard question: Keep it?"}])}
+PICKED_LOOKS_RIGHT = {"ccn answer list --label from:owner --label board-card:chat-window": json.dumps([{"body": "picked “Looks right; keep on this Mac”\nBoard question: Does this window look right?"}])}
 PICKED_NO = {"ccn answer list --label from:owner --label board-card:chat-drop": json.dumps([{"body": "picked “Take it back off”\nBoard question: Keep it?"}])}
 PACK_PR = {"gh pr view 2618": "plugins/long-running/capt-hook/hooks/release_cards.py\n"}
 SAME_NUMBER_PR = {"gh pr view 817": f"{DASHBOARD}/app/chat.js\n"}
@@ -95,6 +96,7 @@ def unseen_claims(evt: BaseHookEvent) -> list[str]:
         post(f"{CLAIM}; his yes is card:chat-mock", commands=CHAT_PR | APPROVED): Allow(),
         post(f"{CLAIM}; per owner:m480", commands=CHAT_PR | REJECTED): Block(),
         post(f"{CLAIM}; his yes is card:chat-keep", commands=CHAT_PR | PICKED_YES): Allow(),
+        post(f"{CLAIM}; his yes is card:chat-window", commands=CHAT_PR | PICKED_LOOKS_RIGHT): Allow(),
         post(f"{CLAIM}; per card:chat-drop", commands=CHAT_PR | PICKED_NO): Block(),
         post("Merged, not installed: #2618 sets tap_queue_url for the pack", commands=PACK_PR): Allow(),
         post("Merged, not installed: #2675 rebuilds the Chat tab", commands=CHAT_PR): Block(),
