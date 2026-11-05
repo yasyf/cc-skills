@@ -19,7 +19,7 @@ var startSequence = []struct {
 	session, lane, model, effort string
 	role                         []string
 }{
-	{"coordinator", "root", "fable", "xhigh", nil},
+	{"coordinator", "root", "fable", "high", nil},
 	{"meta", "meta", "opus", "xhigh", []string{"--role", "meta"}},
 	{"signal", "signal", "sonnet", "low", nil},
 	{"chores", "chores", "sonnet", "low", nil},
@@ -111,7 +111,7 @@ func TestASubDrivesCoordinatorLaunchesOnOpus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, ran[3:5], []string{"opus", "xhigh"})
+	equal(t, ran[3:5], []string{"opus", "high"})
 }
 
 func TestASubDrivesCoordinatorLaunchedBeforeItCouldRegisterIsAdoptedOnOpus(t *testing.T) {
