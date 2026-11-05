@@ -206,7 +206,7 @@ Claims (each enforced by a hook):
 - **A lane's guess is `Unproven:`.** A lane's inference reaches him only as a sentence that opens with `Unproven:` and names the lane still proving it, or not at all. The communicator cites the lane's record that proves a mechanism and never restates a lane's guess as fact, however confident the lane sounds.
 - `mechanism_lines_cite.py` refuses an uncited cause sentence in a reply, a Slack card or board text, and `lr explain` refuses a page that carries one. Quoted text, code spans and links stay out of the check.
 - **A quote-check warning stops the post.** Never check and post in one run, or the recipient receives words the owner never wrote.
-- **Unanswered claims.** Before a line calls a question unanswered, unproven or something nobody knows, run `cci grep --drive <drive>` for it in that turn (the one search the search refusal leaves open, at the default budget), since a lane may already have answered it. The same hook refuses the line otherwise.
+- **Unanswered claims.** Before a line calls a question unanswered, unproven or something nobody knows, run `cci grep --drive <drive>` for it in that turn (the one search the search refusal leaves open, at the default budget), since a lane may already have answered it. The same hook refuses the line otherwise. Before a line calls a lane silent, read `cci tail --to <your lane> --since <the seq you asked at>` in that turn, since its answer may be waiting addressed to you, and name the seq you read from. A lane resting on a long monitor between records is not silent.
 
 ## His replies under another session's card
 
