@@ -22,6 +22,9 @@ var (
 )
 
 func (o Order) costFaults(text string) []string {
+	if row, desk := lanes.DeskCostOf(o.Lane); desk && row.Model == o.Model && row.Effort != o.Effort {
+		return []string{fmt.Sprintf("%s is a desk, and the desk table runs it on %s at %s, not %s: launch `lr launch lane %s %s %s %s`", o.Lane, row.Model, row.Effort, o.Effort, o.Lane, row.Model, row.Effort, o.Brief)}
+	}
 	if lanes.BriefOwnerPick.MatchString(text) {
 		return nil
 	}
