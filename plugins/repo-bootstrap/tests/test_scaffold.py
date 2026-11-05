@@ -12,6 +12,7 @@ import select
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -435,7 +436,8 @@ def test_codex_ask_pins_model_and_quiet_exec(templates_dir):
         "--worker",
         # PID-recycle guard: kill-0 + recorded start-time, pinned TZ/locale/binary
         "pidAlive",
-        "lstart",
+        'join(sdir, "started")',
+        "startMoved",
         '"TZ=UTC"',
         "/bin/ps",
         # signal death normalizes to 128+signal so the status still parses
@@ -452,7 +454,7 @@ def test_codex_ask_pins_model_and_quiet_exec(templates_dir):
         "codex exited 0 but wrote no reply",
         # disk-truth: staged reply, meta wipe, collect, --ps registry, marker
         "os.Rename(cmd.ReplyTmp, cmd.Reply)",
-        '"status", "pid", "lstart", "meta", "cmd"',
+        '"status", "pid", "started", "meta", "cmd"',
         "--collect",
         "--ps",
         '"type":"turn.started"',
@@ -953,8 +955,8 @@ def test_codex_ask_concurrent_scratch_reuse_never_crashes(templates_dir, tmp_pat
     tmpdir.mkdir()
     env = _codex_env(stub_bin, tmpdir)
 
-    # (1) deterministic: an empty status file + a dead pid must clean-error (exit
-    # 1), never crash the integer test in report_status.
+    # (1) deterministic: an empty status file + a dead pid must clean-error as a
+    # lost worker (exit 75), never crash the integer test in report_status.
     sdir = tmp_path / "empty-status"
     sdir.mkdir()
     (sdir / "meta").write_text(f"{sdir / 'r'}\n{sdir / 'l'}\n")
@@ -964,7 +966,8 @@ def test_codex_ask_concurrent_scratch_reuse_never_crashes(templates_dir, tmp_pat
     det = subprocess.run(
         [str(script), "--await", str(sdir)], cwd=cwd, env=env, text=True, capture_output=True, timeout=15
     )
-    assert det.returncode == 1, det.stdout + det.stderr
+    assert det.returncode == 75, det.stdout + det.stderr
+    assert "lost its worker" in det.stderr
     assert "integer expected" not in (det.stdout + det.stderr)
 
     # (2) complete a run, then race an --await against a second run reusing the
@@ -1018,20 +1021,27 @@ def _codex_ask(templates_dir):
     return _GO_CODEX_ASK
 
 
-def _lstart_of(pid):
-    # Match the script's pinned probe (TZ=UTC LC_ALL=C /bin/ps) so a crafted live
-    # lane's recorded start-time compares equal to codex-ask's own reading.
+def _started_of(pid):
+    # Match codex-ask's procStart (the /proc start tick on Linux, pinned TZ=UTC
+    # LC_ALL=C /bin/ps elsewhere) so a crafted live lane's recorded start compares
+    # equal to codex-ask's own reading; a dead pid reads "" on both.
+    if sys.platform == "linux":
+        stat = Path(f"/proc/{pid}/stat")
+        if not stat.exists():
+            return ""
+        text = stat.read_text()
+        return text[text.rindex(")") + 1 :].split()[19]
     env = {**os.environ, "TZ": "UTC", "LC_ALL": "C"}
     return subprocess.run(
         ["/bin/ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, env=env
     ).stdout.strip()
 
 
-def _craft_lane(d, *, reply=None, status=None, pid=None, log=None, question="ask\n", meta=True, lstart=None):
-    # Hand-build one lane's on-disk state (meta/status/pid/lstart/reply/log),
+def _craft_lane(d, *, reply=None, status=None, pid=None, log=None, question="ask\n", meta=True, started=None):
+    # Hand-build one lane's on-disk state (meta/status/pid/started/reply/log),
     # mirroring what a real codex-ask run leaves behind, so --collect/--ps can be
     # tested offline. A live pid gets its real recorded start-time so pid_alive
-    # sees it as running; pass lstart= to simulate a recycle mismatch.
+    # sees it as running; pass started= to simulate a recycle mismatch.
     d.mkdir(parents=True, exist_ok=True)
     r, q, lg = d / "codex-r-x", d / "codex-q-x", d / "codex-q-x.log"
     if meta:
@@ -1045,7 +1055,7 @@ def _craft_lane(d, *, reply=None, status=None, pid=None, log=None, question="ask
         (d / "status").write_text(status)
     if pid is not None:
         (d / "pid").write_text(f"{pid}\n")
-        (d / "lstart").write_text((_lstart_of(pid) if lstart is None else lstart) + "\n")
+        (d / "started").write_text((_started_of(pid) if started is None else started) + "\n")
     return d
 
 
@@ -1121,13 +1131,16 @@ def test_codex_ask_poll_recovery_synthesizes_status(templates_dir, tmp_path):
 
 
 def test_codex_ask_poll_recovery_inverse(templates_dir, tmp_path):
-    # Same shape, EMPTY staged reply -> a genuine death: rc 1, no durable status.
+    # Same shape, EMPTY staged reply -> a genuine death: rc 75, recorded as a lost
+    # worker so the lane reads died rather than running.
     script = _codex_ask(templates_dir)
     d = tmp_path / "lane"
     _craft_lane(d, reply="", pid=DEAD_PID, log="tail\n")
     run = subprocess.run([str(script), "--await", str(d)], text=True, capture_output=True, timeout=30)
-    assert run.returncode == 1, run.stdout + run.stderr
-    assert not (d / "status").exists()
+    assert run.returncode == 75, run.stdout + run.stderr
+    assert (d / "status").read_text() == "75\n"
+    _, lanes = _collect_lanes(script, d)
+    assert lanes["."]["state"] == "died"
 
 
 def test_codex_ask_reply_published_only_on_zero_exit(templates_dir, tmp_path):
@@ -1177,7 +1190,7 @@ def test_codex_ask_reuse_wipes_meta(templates_dir, tmp_path):
     assert aw.returncode == 2
     assert "no recorded" in aw.stderr.lower()
     go_src = "\n".join(p.read_text() for p in sorted((templates_dir.parents[3] / "codex").glob("*.go")))
-    assert '"status", "pid", "lstart", "meta", "cmd"' in go_src
+    assert '"status", "pid", "started", "meta", "cmd"' in go_src
 
 
 def test_codex_ask_reply_staging_is_atomic(templates_dir, tmp_path):
@@ -1520,7 +1533,7 @@ def test_codex_ask_foreground_lane_reuse_serializes(templates_dir, tmp_path):
     assert reuse.returncode == 0, reuse.stdout + reuse.stderr
 
 
-def test_codex_ask_lstart_mismatch_classified_dead(templates_dir, tmp_path):
+def test_codex_ask_start_mismatch_classified_dead(templates_dir, tmp_path):
     # A recycled pid — kill-0 passes but the recorded start-time no longer
     # matches — reads dead, not running.
     script = _codex_ask(templates_dir)
@@ -1528,8 +1541,8 @@ def test_codex_ask_lstart_mismatch_classified_dead(templates_dir, tmp_path):
     root.mkdir()
     sleeper = subprocess.Popen(["sleep", "30"])
     try:
-        _craft_lane(root / "live", pid=sleeper.pid)  # real recorded lstart
-        _craft_lane(root / "recycled", pid=sleeper.pid, lstart="Wed Jan  1 00:00:00 2020")
+        _craft_lane(root / "live", pid=sleeper.pid)  # real recorded start
+        _craft_lane(root / "recycled", pid=sleeper.pid, started="1")
         _, lanes = _collect_lanes(script, root)
     finally:
         sleeper.terminate()
@@ -1538,7 +1551,7 @@ def test_codex_ask_lstart_mismatch_classified_dead(templates_dir, tmp_path):
     assert lanes["recycled"]["state"] == "died"
 
 
-def test_codex_ask_lstart_tz_stable(templates_dir, tmp_path):
+def test_codex_ask_start_tz_stable(templates_dir, tmp_path):
     # The start-time is recorded and probed under a pinned TZ, so a probe run in a
     # different TZ still matches a live lane (a /etc/localtime change can't wedge).
     script = _codex_ask(templates_dir)
@@ -1561,15 +1574,15 @@ def test_codex_ask_lstart_tz_stable(templates_dir, tmp_path):
 
 
 def test_codex_ask_legacy_lane_kill0_fallback(templates_dir, tmp_path):
-    # A live lane with no recorded lstart (a legacy bash run, or a failed initial
-    # ps) degrades to bare kill-0 and still reads running, not dead.
+    # A live lane with no recorded start (a legacy bash run, or a failed initial
+    # probe) degrades to bare kill-0 and still reads running, not dead.
     script = _codex_ask(templates_dir)
     root = tmp_path / "root"
     root.mkdir()
     sleeper = subprocess.Popen(["sleep", "30"])
     try:
         lane = _craft_lane(root / "legacy", pid=sleeper.pid)
-        (lane / "lstart").unlink()
+        (lane / "started").unlink()
         _, lanes = _collect_lanes(script, root)
     finally:
         sleeper.terminate()
