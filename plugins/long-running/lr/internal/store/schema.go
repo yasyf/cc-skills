@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS branch_cards (
   lane TEXT NOT NULL, card TEXT NOT NULL, answered TEXT, ordered TEXT, held TEXT,
   PRIMARY KEY (lane, card)
 );
+CREATE TABLE IF NOT EXISTS card_takers (card TEXT PRIMARY KEY, lane TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS card_deps (
   dep TEXT NOT NULL, session TEXT NOT NULL, card TEXT NOT NULL, lane TEXT NOT NULL,
   PRIMARY KEY (dep, session, card)

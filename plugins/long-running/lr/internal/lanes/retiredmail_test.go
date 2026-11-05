@@ -26,6 +26,25 @@ func stoppedOnACard(t *testing.T, s *store.Store) *fake {
 	return f
 }
 
+func TestAnAnswerToAGoneLanesCardGoesToTheLiveLaneRootGaveThePickTo(t *testing.T) {
+	s := memory(t)
+	f := stoppedOnACard(t, s)
+	f.feed = append(f.feed,
+		spawned(3, "chat-pick-1", writeBrief(t), t0.Add(mins(1)), nil),
+		rec(4, Root, "report", t0.Add(mins(2)), "lane=chat-pick-1: build his pick on card-chat"),
+	)
+	f.peers = []Row{who("chat-pick-1", true, t0.Add(mins(2)))}
+	tick(t, s, f, t0.Add(mins(2)))
+
+	f.feed = append(f.feed, cardWake(5, lane2, "picked Combined", t0.Add(mins(5))))
+	f.peers = []Row{who("chat-pick-1", true, t0.Add(mins(5)))}
+	out := tick(t, s, f, t0.Add(mins(5)))
+
+	equal(t, []any{len(f.launches), len(out.Relaunched)}, []any{0, 0})
+	equal(t, row(t, s, lane2).State, store.LaneRetired)
+	contains(t, pageText(row(t, s, "chat-pick-1").Page, "why"), "the owner answered card-chat, which root gave you after "+lane2+" drew it")
+}
+
 func TestAnAnswerToAGoneLanesCardRelaunchesItOnceWithTheAnswerAndASecondAnswerLaunchesNothing(t *testing.T) {
 	s := memory(t)
 	f := stoppedOnACard(t, s)
