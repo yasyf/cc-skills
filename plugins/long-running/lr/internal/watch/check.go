@@ -61,34 +61,35 @@ func Sweep(s *store.Store, records, asks []client.Record, unfinished []Wait, now
 		return nil, err
 	}
 	watched := slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return !slices.Contains(Kinds, string(record.Kind)) })
-	standing := slices.Concat(unfinished, OpenAsks(asks, watched, now), LandedWaits(watched), Unplanned(records, now), Repeats(escalations, now), PortCensusWaits(records, now))
+	standing := slices.Concat(unfinished, OpenAsks(asks, watched, now), LandedWaits(watched), Unplanned(records, now), MissedSteps(records, now), Repeats(escalations, now), PortCensusWaits(records, now))
 	return Apply(s, Namespaces, standing, now, post)
 }
 
-func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.Runner, now time.Time, post pass.Post) ([]pass.Escalated, error) {
+func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.Runner, now time.Time, post pass.Post) ([]pass.Escalated, time.Time, error) {
 	records, err := client.Tail(ctx, client.Query{Drive: entry.Bus(), Since: now.Add(-Window)})
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
+	next := NextStep(records, now)
 	open, err := client.Open(ctx, entry.Bus(), "ask")
 	if err != nil {
-		return nil, err
+		return nil, next, err
 	}
 	ledgers, err := ReadLedgers(ctx, s, entry, runner, now)
 	if err != nil {
-		return nil, err
+		return nil, next, err
 	}
 	unfinished, err := Unfinished(ledgers, now)
 	if err != nil {
-		return nil, err
+		return nil, next, err
 	}
 	escalated, swept := Sweep(s, records, open, unfinished, now, post)
 	items, written, err := ReadMeta(entry.StateDir)
 	if err != nil {
-		return escalated, errors.Join(swept, err)
+		return escalated, next, errors.Join(swept, err)
 	}
 	paged, err := Meta(s, items, written, now, post)
-	return append(escalated, paged...), errors.Join(swept, err)
+	return append(escalated, paged...), next, errors.Join(swept, err)
 }
 
 type Stalls struct {
@@ -98,10 +99,11 @@ type Stalls struct {
 	Post   pass.Post
 	Log    *slog.Logger
 	read   time.Time
+	step   time.Time
 }
 
 func (w *Stalls) Check(ctx context.Context, now time.Time) error {
-	if !w.read.IsZero() && now.Sub(w.read) < stallEvery {
+	if !w.read.IsZero() && now.Sub(w.read) < stallEvery && (w.step.IsZero() || now.Before(w.step)) {
 		return nil
 	}
 	w.read = now
@@ -110,7 +112,9 @@ func (w *Stalls) Check(ctx context.Context, now time.Time) error {
 		w.Log.Warn("stall watch has no drive entry", "err", err)
 		return nil
 	}
-	if _, err := Check(ctx, w.Store, entry, w.Runner, now, w.Post); err != nil {
+	_, next, err := Check(ctx, w.Store, entry, w.Runner, now, w.Post)
+	w.step = next
+	if err != nil {
 		w.Log.Warn("stall watch pass left work undone", "err", err)
 	}
 	return nil
@@ -144,7 +148,7 @@ func deadlinesCommand(a *app.App) *cobra.Command {
 				_, err := sender.Post(cmd.Context(), to, body)
 				return err
 			}
-			escalated, err := Check(cmd.Context(), s, entry, a.Runner, a.Now(), post)
+			escalated, _, err := Check(cmd.Context(), s, entry, a.Runner, a.Now(), post)
 			if err != nil {
 				return err
 			}

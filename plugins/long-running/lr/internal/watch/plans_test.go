@@ -331,3 +331,55 @@ func TestAReplyToTheOwnerOwesNoPlanForTheDeadlineItRepeats(t *testing.T) {
 
 	want(t, len(Unplanned([]client.Record{reply}, said)), 0)
 }
+
+func TestAStepClockPassingWithNothingFromItsOwnerTellsThatLaneAndTheCommunicatorOnce(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-05T05:00:00Z")
+	row := withAttrs(client.Record{Seq: 912, Lane: "owner-board", Kind: "posted", At: said, Text: "Received, with the coordinator"}, map[string]string{"row": "m912", "owner": "tap-rows", "step:1": "9:15 PM answer his question"})
+
+	early := planSweep(t, s, r, said.Add(14*time.Minute), row)
+	first := planSweep(t, s, r, said.Add(15*time.Minute), row)
+	second := planSweep(t, s, r, said.Add(20*time.Minute), row)
+
+	want(t, len(early), 0)
+	want(t, len(first), 2)
+	want(t, first[0].To, "tap-rows")
+	want(t, first[1].To, "owner-relay")
+	for _, words := range []string{"step clock passed", "#912", "row m912", "step:1=9:15 PM answer his question", "tap-rows"} {
+		if !strings.Contains(first[1].Cause, words) {
+			t.Fatalf("cause %q lacks %q", first[1].Cause, words)
+		}
+	}
+	want(t, len(r.posts), 1)
+	want(t, len(second), 0)
+}
+
+func TestOnlyTheStepNoRecordFromItsOwnerAnswersGoesOverdue(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-05T05:00:00Z")
+	plan := withAttrs(client.Record{Seq: 50, Lane: "tap-rows-1", Kind: "report", At: said, Text: "the rows land tonight"}, map[string]string{"owner": "tap-rows", "step:1": "9:30 PM open the PR", "step:2": "10:00 PM land it"})
+	stranger := client.Record{Seq: 51, Lane: "meta-desk-3", Kind: "note", At: said.Add(10 * time.Minute), Re: 50, Text: "seen"}
+	opened := client.Record{Seq: 52, Lane: "tap-rows-1", Kind: "report", At: said.Add(25 * time.Minute), Re: 50, Text: "opened"}
+	records := []client.Record{plan, stranger, opened}
+
+	want(t, NextStep(records, said).Equal(said.Add(30*time.Minute)), true)
+	atFirst := planSweep(t, s, r, said.Add(31*time.Minute), records...)
+	atSecond := planSweep(t, s, r, said.Add(time.Hour), records...)
+
+	want(t, len(atFirst), 0)
+	want(t, len(atSecond), 2)
+	if !strings.Contains(atSecond[0].Cause, "step:2=10:00 PM land it") {
+		t.Fatalf("cause %q", atSecond[0].Cause)
+	}
+}
+
+func TestAResolvedOrDeliveredStepRecordStaysSilent(t *testing.T) {
+	said := at(t, "2026-11-05T05:00:00Z")
+	row := withAttrs(client.Record{Seq: 864, Lane: "owner-board", Kind: "posted", At: said}, map[string]string{"row": "m864", "owner": "owner-relay", "step:1": "9:15 PM answer his question"})
+	delivered := withAttrs(client.Record{Seq: 870, Lane: "owner-relay-2", Kind: "report", At: said.Add(5 * time.Minute)}, map[string]string{"delivered": "owner:m864"})
+	resolved := client.Record{Seq: 871, Lane: "root", Kind: "answer", At: said.Add(5 * time.Minute), Resolves: 864}
+
+	want(t, len(MissedSteps([]client.Record{row, delivered}, said.Add(time.Hour))), 0)
+	want(t, len(MissedSteps([]client.Record{row, resolved}, said.Add(time.Hour))), 0)
+	want(t, len(MissedSteps([]client.Record{row}, said.Add(time.Hour))), 1)
+}
