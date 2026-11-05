@@ -627,6 +627,55 @@ func TestADevMoveAddsOneRecordAndNoGitHubCallsAtAnyRowCount(t *testing.T) {
 	}
 }
 
+func TestAHostWithoutTheLandingMoverReadsADevMoveOncePerPageAndNamesItsConflicts(t *testing.T) {
+	added := map[int]int{}
+	for _, n := range []int{1, 1000} {
+		calls := map[bool]int{}
+		for _, moved := range []bool{false, true} {
+			prs := make([]recordedPR, 0, n)
+			for i := 1; i <= n; i++ {
+				pr := recordedPR{number: i, head: fmt.Sprintf("%040x", i), login: "drive-bot", merge: "MERGEABLE"}
+				if i == 1 {
+					pr.merge = "CONFLICTING"
+				}
+				prs = append(prs, pr)
+			}
+			h := newHarness(t, prs)
+			a := app.New(io.Discard)
+			a.Runner = h.runner
+			h.source = facts.New(a, config.Config{Repo: repo, Drive: "d", Checkout: "/checkouts/repo", Author: "drive-bot", Trunk: "dev"}, h.store)
+			if moved {
+				if _, err := h.store.PutFact(repo, 0, "trunk-mergeable", "moved", "def4567890123def4567890123def4567890123d", time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			h.snapshot(t)
+			h.snapshot(t)
+
+			reads, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"github"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var conflicts []string
+			for _, record := range reads {
+				if record.Fields.Attrs["record"] == "trunk.read" {
+					conflicts = append(conflicts, record.Fields.Attrs["conflicts"])
+				}
+			}
+			want := map[bool][]string{false: nil, true: {fmt.Sprintf("1@%040x", 1)}}[moved]
+			if !slices.Equal(conflicts, want) {
+				t.Fatalf("n=%d moved=%v: trunk reads over two passes name %q, want %q", n, moved, conflicts, want)
+			}
+			calls[moved] = len(h.runner.Calls())
+		}
+		added[n] = calls[true] - calls[false]
+	}
+	if added[1] != 1 || added[1000] != 40 {
+		t.Fatalf("a dev move added %d and %d command runs at 1 and 1,000 PRs, want 1 and 40: one mergeable read per page of 25", added[1], added[1000])
+	}
+}
+
 func TestEachLandingsMergerRidesThePageThePassAlreadyReads(t *testing.T) {
 	calls := map[string]int{}
 	for _, n := range []int{1, 1000} {

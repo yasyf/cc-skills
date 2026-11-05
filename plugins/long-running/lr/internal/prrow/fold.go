@@ -189,7 +189,7 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 				row = Materialize(row, atHeads[number], held[number], branches, f.Trunk)
 				if row.ReadyForTap && trunk[trunkMoved] != trunk[trunkRead] {
 					row.ReadyForTap, row.MergesAt = false, ""
-					row.WaitsOn = fmt.Sprintf("dev moved to %s, and the landing host has not read mergeability since", shortHead(trunk[trunkMoved]))
+					row.WaitsOn = fmt.Sprintf("dev moved to %s, and no host has read mergeability since", shortHead(trunk[trunkMoved]))
 				}
 				if atHeads[number][FactForeign] != "" && !row.Tapped && !Exempted(row, atHeads[number]) {
 					delete(rows, number)
@@ -404,6 +404,16 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, outside map[int]s
 		return nil
 	}
 	if string(record.Kind) == readKind && attrs["record"] == trunkRecord {
+		for _, conflict := range strings.Fields(attrs["conflicts"]) {
+			named, head, _ := strings.Cut(conflict, "@")
+			number, err := strconv.Atoi(named)
+			if err != nil {
+				continue
+			}
+			if err := t.PutFact(f.Repo, number, head, factMergeable, string(machine.MergeableConflict), record.At); err != nil {
+				return err
+			}
+		}
 		return t.PutFact(f.Repo, 0, trunkHead, trunkRead, attrs["trunk"], record.At)
 	}
 	for _, number := range bus.HeldBy(record, f.Repo) {
@@ -869,16 +879,12 @@ func (f Fold) UnreadTrunk() (string, error) {
 	return trunk[trunkMoved], nil
 }
 
-func (f Fold) PostTrunkRead(ctx context.Context, sha string) error {
+func (f Fold) PostTrunkRead(ctx context.Context, sha string, conflicts []string) error {
 	_, err := client.Post(ctx, client.Draft{
 		Drive: f.Drive, Lane: readLane, Kind: readKind, Text: "read every row's mergeability after dev moved to " + shortHead(sha), To: []string{readReader}, Force: true,
 		ID:    trunkRecord + "/" + sha,
-		Attrs: map[string]string{"record": trunkRecord, "repo": f.Repo, "trunk": sha},
+		Attrs: map[string]string{"record": trunkRecord, "repo": f.Repo, "trunk": sha, "conflicts": strings.Join(conflicts, " ")},
 	})
-	if err != nil {
-		return err
-	}
-	_, err = f.Store.PutFact(f.Repo, 0, trunkHead, trunkRead, sha, f.Now())
 	return err
 }
 

@@ -352,21 +352,24 @@ func TestAKnownMergeabilitySurvivesGitHubsRecomputeThenGoesUnknown(t *testing.T)
 	}
 }
 
-func TestADevMoveHoldsAReadyRowFromATapUntilTheLandingHostReadsAgain(t *testing.T) {
+func TestADevMoveHoldsReadyRowsFromATapUntilAHostReadsAgainAndItsConflictsStick(t *testing.T) {
 	f, s := foldFor(t)
-	postOpened(t, 1, headA, "dev", fullBody)
-	folded(t, f, 1)
-	gradeClear(t, s, 1, headA)
-	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headA)}); err != nil {
-		t.Fatal(err)
-	}
-	if row := folded(t, f, 1); !row.ReadyForTap {
-		t.Fatalf("before dev moves: row = %+v, want ready", row)
+	dev := strings.Repeat("d", 40)
+	for number, head := range map[int]string{1: headA, 2: headB} {
+		postOpened(t, number, head, "dev", fullBody)
+		folded(t, f, number)
+		gradeClear(t, s, number, head)
+		if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(number, head)}); err != nil {
+			t.Fatal(err)
+		}
+		if row := folded(t, f, number); !row.ReadyForTap {
+			t.Fatalf("before dev moves: #%d = %+v, want ready", number, row)
+		}
 	}
 	for _, branch := range []string{"lane/fix", "dev"} {
 		var push client.Record
 		raw := fmt.Sprintf(`{"seq":1,"drive":"github-pr","lane":"github","kind":"github","at":%q,"topic":"push","fields":{"outcome":"pushed","commit":%q,"attrs":{"repo":%q,"branch":%q}}}`,
-			time.Now().Format(time.RFC3339Nano), headB, testRepo, branch)
+			time.Now().Format(time.RFC3339Nano), dev, testRepo, branch)
 		if err := json.Unmarshal([]byte(raw), &push); err != nil {
 			t.Fatal(err)
 		}
@@ -376,18 +379,21 @@ func TestADevMoveHoldsAReadyRowFromATapUntilTheLandingHostReadsAgain(t *testing.
 	}
 
 	row := folded(t, f, 1)
-	if row.ReadyForTap || row.Mergeable != "clean" || !strings.Contains(row.WaitsOn, "dev moved to "+shortHead(headB)) {
+	if row.ReadyForTap || row.Mergeable != "clean" || !strings.Contains(row.WaitsOn, "dev moved to "+shortHead(dev)) {
 		t.Fatalf("after dev moves: row = %+v, want its clean kept and no tap until a read", row)
 	}
 	unread, err := f.UnreadTrunk()
-	if err != nil || unread != headB {
-		t.Fatalf("unread trunk = %q, %v, want %s", unread, err, headB)
+	if err != nil || unread != dev {
+		t.Fatalf("unread trunk = %q, %v, want %s", unread, err, dev)
 	}
-	if err := f.PostTrunkRead(context.Background(), unread); err != nil {
+	if err := f.PostTrunkRead(context.Background(), unread, []string{"2@" + headB}); err != nil {
 		t.Fatal(err)
 	}
 	if row := folded(t, f, 1); !row.ReadyForTap {
-		t.Fatalf("after the landing host reads: row = %+v, want ready", row)
+		t.Fatalf("after a host reads: #1 = %+v, want ready", row)
+	}
+	if row := folded(t, f, 2); row.ReadyForTap || row.Mergeable != string(machine.MergeableConflict) {
+		t.Fatalf("after a host reads: #2 = %+v, want the conflict it named", row)
 	}
 	if unread, err := f.UnreadTrunk(); err != nil || unread != "" {
 		t.Fatalf("unread trunk after the read = %q, %v, want none", unread, err)
