@@ -571,6 +571,63 @@ func TestTheLanesHostsPassReadsAGreenApprovedCleanHeadIntoItsRow(t *testing.T) {
 	}
 }
 
+type pushedMidRead struct {
+	*shelltest.Fake
+	push func()
+}
+
+func (r *pushedMidRead) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if r.push != nil && slices.Contains(c.Argv, "graphql") {
+		r.push()
+		r.push = nil
+	}
+	return r.Fake.Run(ctx, c)
+}
+
+func TestARowPushedWhileTheLanesHostReadsGitHubKeepsTheGradesOfTheHeadThePassDescribes(t *testing.T) {
+	const graded, pushed = "485c2c256b21d3e16c8e5679769ca39d36c054ed", "af05d037a6ff17042fcb4a6595c35423574b24c5"
+	for _, n := range []int{1, manyPRs} {
+		prs := []recordedPR{{number: 49907, head: graded, login: "drive-bot"}}
+		moved := []store.ReviewRow{{Repo: repo, Number: 49907, Head: pushed, State: prrow.StateOpen}}
+		for i := 1; i < n; i++ {
+			prs = append(prs, recordedPR{number: i, head: fmt.Sprintf("%040x", i), login: "drive-bot"})
+			moved = append(moved, store.ReviewRow{Repo: repo, Number: i, Head: fmt.Sprintf("f%039x", i), State: prrow.StateOpen})
+		}
+		h := newHarness(t, prs)
+		for _, pr := range prs {
+			for kind, value := range map[string]string{"finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)} {
+				if _, err := h.store.PutFact(repo, pr.number, pr.head, kind, value, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		a := app.New(io.Discard)
+		a.Runner = &pushedMidRead{Fake: h.runner, push: func() {
+			if err := h.store.PutReviewRows(moved); err != nil {
+				t.Error(err)
+			}
+		}}
+		lanes := landingConfig
+		lanes.Movers = []string{"lanes", config.MoverGrading}
+		source := facts.New(a, lanes, h.store)
+		source.ReadsRows = true
+
+		snapshot, err := source.Snapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(snapshot) != n {
+			t.Fatalf("n=%d: the pass read %d PRs", n, len(snapshot))
+		}
+		for _, f := range snapshot {
+			if f.Finder != machine.FinderClear || f.Fidelity != machine.FidelityPass {
+				t.Fatalf("n=%d: #%d at %s reads finder %q and fidelity %q, the empty grades of the head pushed while the pass read GitHub, want its own head's clear and pass", n, f.Number, f.Head[:7], f.Finder, f.Fidelity)
+			}
+		}
+	}
+}
+
 func TestTheBatchedReadGradesTheChecksStandingAtTheHead(t *testing.T) {
 	for _, tt := range []struct {
 		name    string

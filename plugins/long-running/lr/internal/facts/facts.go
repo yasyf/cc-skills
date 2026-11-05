@@ -381,7 +381,7 @@ func (s Source) fromRows(rows []store.ReviewRow, held map[int]hold) ([]machine.F
 	if err != nil {
 		return nil, err
 	}
-	atHeads, err := s.Store.FactsAtRowHeads(s.Repo)
+	atHeads, err := s.Store.FactsAtRowHeads(s.Repo, rows)
 	if err != nil {
 		return nil, err
 	}

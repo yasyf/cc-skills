@@ -314,6 +314,9 @@ func classify(f Facts) Verdict {
 		return Verdict{StatePushed, MoverNobody, ActionNone, 0}
 	}
 	if !f.Graded() {
+		if f.Held() {
+			return heldVerdict(f)
+		}
 		if f.GradeStopped != "" {
 			return Verdict{StateNeedsVerdict, MoverLane, ActionVerdict, LaneClock}
 		}
@@ -332,11 +335,8 @@ func classify(f Facts) Verdict {
 	if !f.Approved {
 		return Verdict{StateGrading, MoverLane, ActionReview, LaneClock}
 	}
-	if f.Hold != "" && !f.HoldAwaitsTap {
-		if f.Tap == TapTapped {
-			return Verdict{StateHeld, MoverRoot, ActionLift, RootClock}
-		}
-		return Verdict{StateAwaitingTap, f.Hold, ActionLift, OwnerClock}
+	if f.Held() {
+		return heldVerdict(f)
 	}
 	if !f.RowClear() {
 		return Verdict{StateNotReady, MoverLane, ActionRowWait, LaneClock}
@@ -345,4 +345,11 @@ func classify(f Facts) Verdict {
 		return Verdict{StateAwaitingTap, MoverOwner, ActionTap, OwnerClock}
 	}
 	return Verdict{StateReady, MoverSupervisor, ActionEnqueue, SupervisorClock}
+}
+
+func heldVerdict(f Facts) Verdict {
+	if f.Tap == TapTapped {
+		return Verdict{StateHeld, MoverRoot, ActionLift, RootClock}
+	}
+	return Verdict{StateAwaitingTap, f.Hold, ActionLift, OwnerClock}
 }

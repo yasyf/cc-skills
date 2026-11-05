@@ -176,10 +176,11 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 				}
 			}
 		}
-		if err := t.PutReviewRows(values(rows)); err != nil {
+		folded := values(rows)
+		if err := t.PutReviewRows(folded); err != nil {
 			return err
 		}
-		atHeads, err := t.FactsAtRowHeads(f.Repo)
+		atHeads, err := t.FactsAtRowHeads(f.Repo, folded)
 		if err != nil {
 			return err
 		}

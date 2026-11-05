@@ -349,7 +349,7 @@ func TestAFailedListPostStopsThePassAndNoRowReadsAsShown(t *testing.T) {
 	if err := (ReadyCards{Cards: cards, Repo: readyRepo, Lane: "supervisor"}).Pass(context.Background()); err == nil {
 		t.Fatal("a refused list post read as a clean pass, so nothing raises it")
 	}
-	facts, err := f.Cards.Store.FactsAtRowHeads(readyRepo)
+	facts, err := f.Cards.Store.FactsAtRowHeads(readyRepo, rows)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestARefusedDrawAlarmsOnceNamingThePR(t *testing.T) {
 	if alarms := addressedTo(t, linkRefusalKind, communicator); len(alarms) != 1 {
 		t.Fatalf("after a second pass, alarms = %d, want one", len(alarms))
 	}
-	facts, err := f.Cards.Store.FactsAtRowHeads(readyRepo)
+	facts, err := f.Cards.Store.FactsAtRowHeads(readyRepo, []store.ReviewRow{tapRow(50287)})
 	if err != nil {
 		t.Fatal(err)
 	}

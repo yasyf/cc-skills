@@ -211,11 +211,12 @@ func TestAWithdrawnOverrideStopsStandingAtItsHeadWhicheverCopyCameLast(t *testin
 		t.Helper()
 		must[bool](t)(s.PutFact(repo, 49933, short, kind, value, t0.Add(offset)))
 	}
-	ok(t, s.PutReviewRows([]ReviewRow{{Repo: repo, Number: 49933, Head: head}}))
+	row := ReviewRow{Repo: repo, Number: 49933, Head: head}
+	ok(t, s.PutReviewRows([]ReviewRow{row}))
 	standing := func() string {
 		t.Helper()
 		atHead := must[map[string]string](t)(s.Facts(repo, 49933, head))[machine.OverrideFact("fidelity")]
-		if atRow := must[map[int]map[string]string](t)(s.FactsAtRowHeads(repo))[49933][machine.OverrideFact("fidelity")]; atRow != atHead {
+		if atRow := must[map[int]map[string]string](t)(s.FactsAtRowHeads(repo, []ReviewRow{row}))[49933][machine.OverrideFact("fidelity")]; atRow != atHead {
 			t.Fatalf("the row reads override %q where the head reads %q", atRow, atHead)
 		}
 		return atHead

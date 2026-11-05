@@ -131,19 +131,28 @@ func (s *Store) HoldsReviewRows(repo string) (bool, error) {
 	return held, err
 }
 
-func (s *Store) FactsAtRowHeads(repo string) (map[int]map[string]string, error) {
-	return factsAtRowHeads(s.db, repo)
+func (s *Store) FactsAtRowHeads(repo string, held []ReviewRow) (map[int]map[string]string, error) {
+	return factsAtRowHeads(s.db, repo, held)
 }
 
-func (t *Tx) FactsAtRowHeads(repo string) (map[int]map[string]string, error) {
-	return factsAtRowHeads(t.tx, repo)
+func (t *Tx) FactsAtRowHeads(repo string, held []ReviewRow) (map[int]map[string]string, error) {
+	return factsAtRowHeads(t.tx, repo, held)
 }
 
-func factsAtRowHeads(db rowReader, repo string) (map[int]map[string]string, error) {
-	rows, err := db.Query(`SELECT r.number, f.kind, f.value FROM review_rows r
-JOIN facts f ON f.repo = r.repo AND f.number = r.number AND length(f.head) >= 7 AND length(r.head) >= 7
+func factsAtRowHeads(db rowReader, repo string, held []ReviewRow) (map[int]map[string]string, error) {
+	heads := make([]map[string]any, 0, len(held))
+	for _, row := range held {
+		heads = append(heads, map[string]any{"number": row.Number, "head": row.Head})
+	}
+	given, err := json.Marshal(heads)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`WITH r AS (SELECT json_extract(value, '$.number') AS number, json_extract(value, '$.head') AS head FROM json_each(?2))
+SELECT r.number, f.kind, f.value FROM r
+JOIN facts f ON f.repo = ?1 AND f.number = r.number AND length(f.head) >= 7 AND length(r.head) >= 7
   AND (substr(r.head, 1, length(f.head)) = f.head OR substr(f.head, 1, length(r.head)) = r.head)
-WHERE r.repo = ? ORDER BY f.posted, f.kind LIKE 'override-%', length(f.head)`, repo)
+ORDER BY f.posted, f.kind LIKE 'override-%', length(f.head)`, repo, string(given))
 	type fact struct {
 		number      int
 		kind, value string
