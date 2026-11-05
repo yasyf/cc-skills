@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,8 +145,9 @@ func (r launchReceipt) worktree() (string, bool) {
 }
 
 type NotesPublish struct {
-	Store *store.Store
-	Deps  Deps
+	Store    *store.Store
+	Deps     Deps
+	deferred []string
 }
 
 func NewNotesPublish(s *store.Store, d Deps) (_ *NotesPublish, err error) {
@@ -165,15 +165,16 @@ func (n *NotesPublish) Check(_ context.Context, now time.Time) (err error) {
 	if from == 0 {
 		return n.Store.Advance(notesCursor, folded)
 	}
-	if folded <= from {
-		return nil
+	writers := n.deferred
+	if folded > from {
+		for _, r := range must(n.Deps.Records(from)) {
+			if r.Seq <= folded {
+				writers = append(writers, Canonical(n.Deps.Drive, r.Lane))
+			}
+		}
 	}
-	records := slices.DeleteFunc(must(n.Deps.Records(from)), func(r Record) bool { return r.Seq > folded })
-	for i := range records {
-		records[i].Lane = Canonical(n.Deps.Drive, records[i].Lane)
-	}
-	publishWritten(n.Store, n.Deps, records, now.UTC().Truncate(time.Second))
-	return n.Store.Advance(notesCursor, folded)
+	n.deferred = publishWritten(n.Store, n.Deps, writers, now.UTC().Truncate(time.Second))
+	return n.Store.Advance(notesCursor, max(folded, from))
 }
 
 type laneLocks struct {
@@ -218,15 +219,15 @@ func (out *folded) orderedOff(s *store.Store, name string, fresh bool, at time.T
 	return true
 }
 
-func publishWritten(s *store.Store, d Deps, records []Record, now time.Time) {
+func publishWritten(s *store.Store, d Deps, names []string, now time.Time) (deferred []string) {
 	var writers []string
 	read, seen := map[string]bool{}, map[string]bool{}
-	for _, r := range records {
-		if read[r.Lane] {
+	for _, name := range names {
+		if read[name] {
 			continue
 		}
-		read[r.Lane] = true
-		lane, found := laneOf(s, r.Lane)
+		read[name] = true
+		lane, found := laneOf(s, name)
 		if found && isLive(lane.State) && !seen[lane.Name] {
 			seen[lane.Name] = true
 			writers = append(writers, lane.Name)
@@ -241,6 +242,7 @@ func publishWritten(s *store.Store, d Deps, records []Record, now time.Time) {
 	for i, name := range writers {
 		subject := "notes:" + name
 		if errors.Is(failed[i], ErrNotesDeferred) {
+			deferred = append(deferred, name)
 			continue
 		}
 		if failed[i] == nil {
@@ -251,4 +253,5 @@ func publishWritten(s *store.Store, d Deps, records []Record, now time.Time) {
 			do(d.Post(Post{Kind: "blocker", To: []string{name, noticeTo(s, name)}, LaneRef: name, Text: fmt.Sprintf("%s has cc-notes that did not reach origin, so no other lane can read them: %v. The supervisor retries at its next record and before it retires.", name, failed[i])}))
 		}
 	}
+	return deferred
 }
