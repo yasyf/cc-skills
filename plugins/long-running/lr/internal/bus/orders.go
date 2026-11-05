@@ -163,6 +163,10 @@ func UnnamedLand(record client.Record, repo string) bool {
 	return !ordered
 }
 
+func ReadsAsLand(label string) bool {
+	return landLabel.MatchString(label)
+}
+
 func cardValue(attrs map[string]string, text string) string {
 	switch attrs["event"] {
 	case "decision.created":

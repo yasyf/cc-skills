@@ -4,7 +4,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -36,32 +35,6 @@ func TestARowAnswersOnlyForItsOwnHeadAndUnknownIsNotReady(t *testing.T) {
 	}
 }
 
-func TestATapIsReadAtTheHeadItNames(t *testing.T) {
-	for _, c := range []struct {
-		name, named, head, refusal string
-	}{
-		{"no head is the row's head", "", newHead, ""},
-		{"a prefix is the row's head", newHead[:7], newHead, ""},
-		{"its full head", newHead, newHead, ""},
-		{"an older head is refused", oldHead, oldHead, "its review row is at e718a74, not aa11bb2"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			s, err := store.Memory()
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = s.Close() })
-			if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: newHead, ReadyForTap: true}}); err != nil {
-				t.Fatal(err)
-			}
-			head, refusal, err := TapAt(s, repo, bus.Tap{PR: 1, Head: c.named})
-			if err != nil || head != c.head || refusal != c.refusal {
-				t.Fatalf("TapAt = %q, %q, %v", head, refusal, err)
-			}
-		})
-	}
-}
-
 func TestAMissingRowSaysWhenTheBoxHoldsNoLandingStore(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -80,9 +53,6 @@ func TestAMissingRowSaysWhenTheBoxHoldsNoLandingStore(t *testing.T) {
 			t.Cleanup(func() { _ = s.Close() })
 			if err := s.PutReviewRows(c.rows); err != nil {
 				t.Fatal(err)
-			}
-			if _, refusal, err := TapAt(s, repo, bus.Tap{PR: 1, Head: newHead}); err != nil || refusal != c.want {
-				t.Errorf("TapAt refusal = %q, %v, want %q", refusal, err, c.want)
 			}
 			if unread, err := RowReadAt(s, repo, 1, newHead); err != nil || unread != c.want {
 				t.Errorf("RowReadAt = %q, %v, want %q", unread, err, c.want)

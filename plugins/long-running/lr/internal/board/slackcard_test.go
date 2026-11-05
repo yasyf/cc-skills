@@ -81,7 +81,9 @@ func waitingRows(s *store.Store, repo string, numbers []int) ([]store.ReviewRow,
 
 func TestATapOnAHeldRowsCardIsRefusedNamingTheHoldAndHoldStillHolds(t *testing.T) {
 	const why = "held, root:the cutover has not run (record #7)"
-	s, hooks := withLedger(t, readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.WaitsOn = false, why })), &recorded{}
+	s, hooks := withLedger(t, prrow.Decide(readyRow(func(r *store.ReviewRow) {
+		r.Hold, r.SupersededBy = "root:the cutover has not run (record #7)", prrow.None
+	}))), &recorded{}
 	found, err := ledgerRows(s, repo, []int{number})
 	if err != nil {
 		t.Fatal(err)

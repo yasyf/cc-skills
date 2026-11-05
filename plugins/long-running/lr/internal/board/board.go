@@ -50,7 +50,7 @@ func Answer(s *store.Store, repo string, hooks Hooks, row store.ReviewRow, verdi
 	switch verdict {
 	case verdictApproved:
 		tap := TapRecord{row.Number, row.Head, byOwner, machine.TapTapped}
-		_, refusal, err := gates.TapAt(s, repo, bus.Tap{PR: row.Number, Head: row.Head})
+		_, refusal, err := prrow.TapAt(s, repo, bus.Tap{PR: row.Number, Head: row.Head})
 		if err != nil {
 			return err
 		}

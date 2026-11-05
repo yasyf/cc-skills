@@ -134,7 +134,7 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 			if err != nil || !found {
 				t.Fatalf("row %+v, found %v, err %v", row, found, err)
 			}
-			_, tapRefused, err := gates.TapAt(h.store, repo, bus.Tap{PR: surfacePR, Head: surfaceHead})
+			_, tapRefused, err := prrow.TapAt(h.store, repo, bus.Tap{PR: surfacePR, Head: surfaceHead})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -127,6 +127,10 @@ func Tool(a *app.App) channel.Tool {
 			if warning != "" {
 				warned = append(warned, warning)
 			}
+			r, warning = r.untiedApprovals()
+			if warning != "" {
+				warned = append(warned, warning)
+			}
 			r, warning = fanout.withCardLinks(ctx, r)
 			if warning != "" {
 				warned = append(warned, warning)

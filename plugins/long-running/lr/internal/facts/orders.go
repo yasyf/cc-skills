@@ -10,8 +10,8 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 )
 
 const (
@@ -43,10 +43,10 @@ func (s Source) WriteOrders(ctx context.Context) error {
 	settled := true
 	for _, record := range records {
 		if bus.UnreadPick(record) {
-			s.escalate(ctx, record, nil, fmt.Sprintf("Owner pick %s (%s, option %s) was recorded with no label because its board could not be read, so no land order can come from it. Nothing was blocked; read what that option said and write the order if it lands a PR.", record.Name(), record.Fields.Attrs["block"], record.Fields.Attrs["picked"]))
+			s.escalate(ctx, record, fmt.Sprintf("tap-order-missing:%d", record.Seq), nil, fmt.Sprintf("Owner pick %s (%s, option %s) was recorded with no label because its board could not be read, so no land order can come from it. Nothing was blocked; read what that option said and write the order if it lands a PR.", record.Name(), record.Fields.Attrs["block"], record.Fields.Attrs["picked"]))
 		}
 		if bus.UnnamedLand(record, s.Repo) {
-			s.escalate(ctx, record, nil, fmt.Sprintf("Owner pick %s (%s) reads as a land or hold order, but its card names no one PR, so no land order can come from it. Nothing was blocked; name the PR in a record and carry it with lr landing order.", record.Name(), record.Fields.Attrs["block"]))
+			s.escalate(ctx, record, fmt.Sprintf("tap-order-missing:%d", record.Seq), nil, fmt.Sprintf("Owner pick %s (%s) reads as a land or hold order, but its card names no one PR, so no land order can come from it. Nothing was blocked; name the PR in a record and carry it with lr landing order.", record.Name(), record.Fields.Attrs["block"]))
 		}
 		if tap, ordered := bus.OrderOf(record, s.Repo); ordered {
 			age := now.Sub(record.At)
@@ -89,7 +89,11 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 	tap.Head = head
 	orders := bus.Bus{Drive: s.Drive, Lane: OrderLane}
 	if refusal != "" {
-		return orders.PostRefusal(ctx, s.Repo, tap, refusal)
+		if err := orders.PostRefusal(ctx, s.Repo, tap, refusal); err != nil {
+			return err
+		}
+		s.escalate(ctx, record, fmt.Sprintf("tap-refused:%d", record.Seq), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("His approval %s of #%d at %s was refused and lands nothing: %s. Tell him what stops it; once that is lifted, his approval needs a new tap.", record.Name(), tap.PR, tap.Head[:min(12, len(tap.Head))], refusal))
+		return nil
 	}
 	if _, err := orders.PostOrder(ctx, tap, record); err != nil {
 		return err
@@ -100,6 +104,10 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 func (s Source) endTapHolds(ctx context.Context, tap bus.Tap, word client.Record) error {
 	if tap.Value != string(machine.TapTapped) {
 		return nil
+	}
+	row, found, err := s.Store.ReviewRow(s.Repo, tap.PR)
+	if err != nil || !found || !strings.HasPrefix(row.Head, tap.Head) {
+		return err
 	}
 	holds, err := client.Open(ctx, s.Drive, "hold")
 	if err != nil {
@@ -121,7 +129,7 @@ func (s Source) orderAt(ctx context.Context, tap bus.Tap) (head, refusal string,
 		head, open, err = s.orderHead(ctx, tap)
 		return head, "", open, err
 	}
-	head, refusal, err = gates.TapAt(s.Store, s.Repo, tap)
+	head, refusal, err = prrow.TapAt(s.Store, s.Repo, tap)
 	return head, refusal, true, err
 }
 
@@ -144,11 +152,11 @@ func (s Source) orderHead(ctx context.Context, tap bus.Tap) (string, bool, error
 }
 
 func (s Source) escalateOrder(ctx context.Context, record client.Record, tap bus.Tap, failed error) {
-	s.escalate(ctx, record, []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("Owner tap %s on #%d has no land order after %s, so nothing will land it: %v. Nothing was blocked; lr landing order %d --record %d writes it.", record.Name(), tap.PR, OrderGrace, failed, tap.PR, record.Seq))
+	s.escalate(ctx, record, fmt.Sprintf("tap-order-missing:%d", record.Seq), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("Owner tap %s on #%d has no land order after %s, so nothing will land it: %v. Nothing was blocked; lr landing order %d --record %d writes it.", record.Name(), tap.PR, OrderGrace, failed, tap.PR, record.Seq))
 }
 
-func (s Source) escalate(ctx context.Context, record client.Record, prs []string, text string) {
-	_, err := client.Post(ctx, client.Draft{Drive: s.Drive, Lane: OrderLane, Kind: "blocker", To: orderWatchers, ID: fmt.Sprintf("tap-order-missing:%d", record.Seq), PRs: prs, Text: text})
+func (s Source) escalate(ctx context.Context, record client.Record, id string, prs []string, text string) {
+	_, err := client.Post(ctx, client.Draft{Drive: s.Drive, Lane: OrderLane, Kind: "blocker", To: orderWatchers, ID: id, PRs: prs, Text: text})
 	if err != nil {
 		s.Log.Warn("a missing land order could not be escalated", "record", record.Name(), "err", err)
 	}
