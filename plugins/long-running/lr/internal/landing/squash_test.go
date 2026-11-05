@@ -311,6 +311,9 @@ func TestAnUntappedIncidentFixInTheQueueIsLeftToTheSquashOnlyWhenTheSquashWouldM
 		acts = append(acts, pass.Act{Facts: row, Verdict: machine.Classify(row)})
 	}
 
+	if err := f.squash.Pass(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
 	kept := f.squash.Admit(context.Background(), acts, snapshot)
 
 	numbers := make([]int, 0, len(kept))
