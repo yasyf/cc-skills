@@ -35,9 +35,15 @@ Standing orders, fixed in this template:
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - Never ask a reporter or anyone else for evidence; read telemetry and Sentry
     yourself. You run on a Sprite, which has no AWS identity, Sentry, Datadog or devbox, so read
-    them and run devbox repros through `{slug}-evidence`, which runs on the Mac: `cci post --drive {drive} --lane {lane} --kind ask --to {slug}-evidence --text "<sentry issue <id> | datadog monitor <id> | datadog logs <query> | datadog metric <query> | devbox <shas> <repro command and what it shows>>"`.
-    Its answer is a record to you, usually within two minutes, longer for a devbox. When its launch failed and no
-    answer comes, say what you could not read or run on the lane's records and go on from code and GitHub.
+    them through `obs-desk`, the Mac desk that holds read keys: `cci post --drive {drive} --lane {lane} --kind ask --to obs-desk --text "<read>"`,
+    where a read is `sentry issue <id, short id or URL>`, `sentry events <id>`, `sentry search [--period 14d] <query>`,
+    `datadog monitor <id>`, `datadog logs [--from 6h] <query>`, `datadog spans [--from 6h] <query>`,
+    `datadog metric [--from 6h] <query>`, `sentry api <path>` or `datadog api <path>` (a GET).
+    Its answer is a record to you within seconds; `cci show <seq>` prints its body. When the
+    answer is an HTTP error, or none comes in five minutes, ask `{slug}-evidence` the same read.
+    Run devbox repros through `{slug}-evidence`, which runs on the Mac: `cci post --drive {drive} --lane {lane} --kind ask --to {slug}-evidence --text "devbox <shas> <repro command and what it shows>"`;
+    its answer takes longer. When no answer comes, say what you could not read or run on the
+    lane's records and go on from code and GitHub.
   - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile, such as one missing generated bindings, never holds a push, and neither does a load-gate refusal: push, and CI compiles it; never generate code just to satisfy the local build.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
@@ -61,6 +67,8 @@ Standing orders, fixed in this template:
     Before anything else, read its first record (`cci tail --drive {drive} --lane {slug}-evidence`),
     which carries the output of `tools/ci oncall incidents`, and wherever this brief says
     to run `tools/ci oncall ...` or `ci oncall ...`, ask it: `cci post --drive {drive} --lane {lane} --kind ask --to {slug}-evidence --text "oncall <verb and arguments>"`.
+    A verb that only reads (`incidents`, `page status`, `ledger`, `journal read`, `history`,
+    `monitors`, `impact`, `current`, `responder`, `connections list`) can go to `obs-desk` instead, which answers in seconds.
     When no record has arrived after 5 minutes, post `NO-EVIDENCE {lane}: <what is missing>`
     to the coordinator and go on from code and GitHub. When an open ai-oncall incident covers this alert, its
     commander, Wadsworth, is that incident's one actor, and you route through it:

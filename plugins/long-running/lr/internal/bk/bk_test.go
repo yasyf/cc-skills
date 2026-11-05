@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -65,7 +66,7 @@ func ask(t *testing.T, text string) client.Record {
 
 func askAs(t *testing.T, from, text string) client.Record {
 	t.Helper()
-	posted, err := client.Post(context.Background(), client.Draft{Drive: drive, Lane: from, Kind: askKind, Text: text, To: []string{Lane}, Force: true})
+	posted, err := client.Post(context.Background(), client.Draft{Drive: drive, Lane: from, Kind: askdesk.AskKind, Text: text, To: []string{Lane}, Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func askAs(t *testing.T, from, text string) client.Record {
 
 func firstPass(t *testing.T, desk *Desk) client.Query {
 	t.Helper()
-	next, err := desk.pass(context.Background(), client.Query{Drive: drive, Since: time.Now().Add(-catchUp), Kinds: []string{askKind}})
+	next, err := desk.loop().Pass(context.Background(), client.Query{Drive: drive, Since: time.Now().Add(-askdesk.CatchUp), Kinds: []string{askdesk.AskKind}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func firstPass(t *testing.T, desk *Desk) client.Query {
 
 func answers(t *testing.T) []client.Record {
 	t.Helper()
-	found, err := client.Tail(context.Background(), client.Query{Drive: drive, Kinds: []string{answerKind}, Lanes: []string{Lane}})
+	found, err := client.Tail(context.Background(), client.Query{Drive: drive, Kinds: []string{askdesk.AnswerKind}, Lanes: []string{Lane}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func TestAnAskIsAnsweredToItsLaneAndClosed(t *testing.T) {
 	if body := bodyOf(t, found[0]); body != `{"state":"failed"}` {
 		t.Fatalf("body = %q", body)
 	}
-	still, err := client.Open(context.Background(), drive, askKind)
+	still, err := client.Open(context.Background(), drive, askdesk.AskKind)
 	if err != nil || len(still) != 0 {
 		t.Fatalf("open asks = %v, %v", still, err)
 	}
@@ -149,10 +150,10 @@ func TestALaterPassReadsOnlyNewAsks(t *testing.T) {
 	next := firstPass(t, desk)
 	ask(t, "bk api /two")
 
-	if _, err := desk.pass(context.Background(), next); err != nil {
+	if _, err := desk.loop().Pass(context.Background(), next); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := desk.pass(context.Background(), next); err != nil {
+	if _, err := desk.loop().Pass(context.Background(), next); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +178,7 @@ func TestAnAskWhoseAnswerFailsStaysOpenAndTheNextIsStillAnswered(t *testing.T) {
 	if len(found) != 1 || bodyOf(t, found[0]) != "next body" {
 		t.Fatalf("answers = %+v, want only the next ask's", found)
 	}
-	still, err := client.Open(context.Background(), drive, askKind)
+	still, err := client.Open(context.Background(), drive, askdesk.AskKind)
 	if err != nil || len(still) != 1 || still[0].Seq != stuck.Seq {
 		t.Fatalf("open asks = %+v, %v, want only #%d", still, err, stuck.Seq)
 	}
@@ -186,7 +187,7 @@ func TestAnAskWhoseAnswerFailsStaysOpenAndTheNextIsStillAnswered(t *testing.T) {
 func TestAnAskToAnotherLaneIsLeftAlone(t *testing.T) {
 	runner := &fakeRunner{}
 	desk, _ := newDesk(t, runner)
-	if _, err := client.Post(context.Background(), client.Draft{Drive: drive, Lane: lane, Kind: askKind, Text: "bk api /x", To: []string{"root"}, Force: true}); err != nil {
+	if _, err := client.Post(context.Background(), client.Draft{Drive: drive, Lane: lane, Kind: askdesk.AskKind, Text: "bk api /x", To: []string{"root"}, Force: true}); err != nil {
 		t.Fatal(err)
 	}
 

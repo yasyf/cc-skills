@@ -2,8 +2,6 @@ package bk
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,19 +18,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
 	Lane = "bk-desk"
 
-	askKind     = "ask"
-	answerKind  = "answer"
-	openStatus  = "open"
-	catchUp     = time.Hour
 	fresh       = time.Minute
-	pollEvery   = 2 * time.Second
 	readTimeout = 5 * time.Minute
 	tokenWait   = time.Minute
 	replyLimit  = 16 << 10
@@ -102,53 +95,14 @@ func NewDesk(ctx context.Context, runner shell.Runner, settings Settings, drive,
 }
 
 func (d *Desk) Serve(ctx context.Context) error {
-	query := client.Query{Drive: d.Drive, Since: d.Now().Add(-catchUp), Kinds: []string{askKind}}
-	for {
-		next, err := d.pass(ctx, query)
-		if err != nil {
-			return err
-		}
-		query = next
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(pollEvery):
-		}
-	}
+	return d.loop().Serve(ctx)
 }
 
-func (d *Desk) pass(ctx context.Context, query client.Query) (client.Query, error) {
-	asks, err := client.Tail(ctx, query)
-	if err != nil {
-		return query, err
-	}
-	for _, ask := range asks {
-		query = client.Query{Drive: query.Drive, After: ask.Seq, Kinds: query.Kinds}
-		if ask.Status != openStatus || !slices.Contains(ask.To, Lane) {
-			continue
-		}
-		if err := d.answer(ctx, ask); err != nil {
-			_, _ = fmt.Fprintf(d.Log, "bk-desk: ask #%d from %s stays open: %v\n", ask.Seq, ask.Lane, err)
-		}
-	}
-	return query, nil
-}
-
-func (d *Desk) answer(ctx context.Context, ask client.Record) error {
-	read := d.read(ctx, ask.Text)
-	sum := sha256.Sum256([]byte(read.body))
-	path := filepath.Join(d.Bodies, hex.EncodeToString(sum[:])[:16]+".txt")
-	if err := os.MkdirAll(d.Bodies, 0o750); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, []byte(read.body), 0o600); err != nil {
-		return err
-	}
-	_, err := client.Post(ctx, client.Draft{
-		Drive: d.Drive, Lane: Lane, Kind: answerKind, Text: read.head, To: []string{ask.Lane},
-		Resolves: ask.Seq, Path: path, URL: read.url, Force: true,
-	})
-	return err
+func (d *Desk) loop() askdesk.Desk {
+	return askdesk.Desk{Lane: Lane, Drive: d.Drive, Bodies: d.Bodies, Now: d.Now, Log: d.Log, Read: func(ctx context.Context, text string) askdesk.Reply {
+		read := d.read(ctx, text)
+		return askdesk.Reply{Head: read.head, Body: read.body, URL: read.url}
+	}}
 }
 
 func (d *Desk) read(ctx context.Context, text string) reply {
@@ -284,14 +238,14 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 		if failure != nil {
 			return *failure
 		}
-		cut := lastBytes(logEscapes.ReplaceAllString(said, ""), replyLimit)
+		cut := askdesk.LastBytes(logEscapes.ReplaceAllString(said, ""), replyLimit)
 		return reply{head: fmt.Sprintf("%d bytes of its log", len(cut)), body: cut}
 	}
 	said, failure := d.run(ctx, "api", "-no-wait", args[1])
 	if failure != nil {
 		return *failure
 	}
-	cut := firstBytes(said, replyLimit)
+	cut := askdesk.FirstBytes(said, replyLimit)
 	return reply{head: fmt.Sprintf("%d of %d bytes", len(cut), len(said)), body: cut}
 }
 
@@ -303,7 +257,7 @@ func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
 	if err == nil {
 		return result.Stdout, nil
 	}
-	said := lastBytes(strings.TrimSpace(result.Stderr), replyLimit)
+	said := askdesk.LastBytes(strings.TrimSpace(result.Stderr), replyLimit)
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
 		head := fmt.Sprintf("the read exited %d", exit.Code)
@@ -325,7 +279,7 @@ func (d *Desk) jobLog(ctx context.Context, pipeline, number, job string) (string
 	}
 	var read build
 	if err := json.Unmarshal([]byte(said), &read); err != nil {
-		return "", &reply{head: "the build did not parse", body: firstBytes(said, replyLimit)}
+		return "", &reply{head: "the build did not parse", body: askdesk.FirstBytes(said, replyLimit)}
 	}
 	var keyed strings.Builder
 	var only string
@@ -340,7 +294,7 @@ func (d *Desk) jobLog(ctx context.Context, pipeline, number, job string) (string
 	if count != 1 {
 		return "", &reply{
 			head: fmt.Sprintf("%d jobs of build %s carry step key %s, so name one job id; bk jobs %s %s lists them", count, number, job, pipeline, number),
-			body: firstBytes(keyed.String(), replyLimit),
+			body: askdesk.FirstBytes(keyed.String(), replyLimit),
 		}
 	}
 	return d.run(ctx, "log", pipeline, number, only)
@@ -365,7 +319,7 @@ func (d *Desk) annotations(ctx context.Context, pipeline, number string, wanted 
 		}
 		var read []annotation
 		if err := json.Unmarshal([]byte(said), &read); err != nil {
-			return reply{head: "the annotations did not parse", body: firstBytes(said, replyLimit)}
+			return reply{head: "the annotations did not parse", body: askdesk.FirstBytes(said, replyLimit)}
 		}
 		every = append(every, read...)
 		if len(read) < perPage {
@@ -377,7 +331,7 @@ func (d *Desk) annotations(ctx context.Context, pipeline, number string, wanted 
 		for _, found := range every {
 			if found.Context == wanted[0] {
 				text := found.text()
-				return reply{head: fmt.Sprintf("%s, %d bytes", found.Style, len(text)), body: firstBytes(text, replyLimit)}
+				return reply{head: fmt.Sprintf("%s, %d bytes", found.Style, len(text)), body: askdesk.FirstBytes(text, replyLimit)}
 			}
 		}
 		for _, found := range every {
@@ -399,7 +353,7 @@ func (d *Desk) annotations(ctx context.Context, pipeline, number string, wanted 
 	if pointed > 0 {
 		head += fmt.Sprintf(", %d too long to fit and named by context", pointed)
 	}
-	return reply{head: head, body: firstBytes(lines.String(), replyLimit)}
+	return reply{head: head, body: askdesk.FirstBytes(lines.String(), replyLimit)}
 }
 
 type build struct {
@@ -441,7 +395,7 @@ func (d *Desk) listBuilds(ctx context.Context, pipeline string, filters []string
 		}
 		var read []build
 		if err := json.Unmarshal([]byte(said), &read); err != nil {
-			return reply{head: "the builds did not parse", body: firstBytes(said, replyLimit)}
+			return reply{head: "the builds did not parse", body: askdesk.FirstBytes(said, replyLimit)}
 		}
 		for _, found := range read {
 			entry := fmt.Sprintf("%d %s %s %s\n  %s\n", found.Number, found.State, found.Branch, found.CreatedAt, strings.ReplaceAll(strings.TrimSpace(found.Message), "\n", "\n  "))
@@ -460,7 +414,7 @@ func (d *Desk) listBuilds(ctx context.Context, pipeline string, filters []string
 func summary(said string) reply {
 	var read build
 	if err := json.Unmarshal([]byte(said), &read); err != nil {
-		return reply{head: "the build did not parse", body: firstBytes(said, replyLimit)}
+		return reply{head: "the build did not parse", body: askdesk.FirstBytes(said, replyLimit)}
 	}
 	var scripts, unlisted int
 	var lines strings.Builder
@@ -486,7 +440,7 @@ func summary(said string) reply {
 	}
 	return reply{
 		head: fmt.Sprintf("%s, %d of %d jobs not passed", read.State, scripts-unlisted, scripts),
-		body: firstBytes(lines.String(), replyLimit),
+		body: askdesk.FirstBytes(lines.String(), replyLimit),
 		url:  read.WebURL,
 	}
 }
@@ -494,7 +448,7 @@ func summary(said string) reply {
 func everyJob(said string) reply {
 	var read build
 	if err := json.Unmarshal([]byte(said), &read); err != nil {
-		return reply{head: "the build did not parse", body: firstBytes(said, replyLimit)}
+		return reply{head: "the build did not parse", body: askdesk.FirstBytes(said, replyLimit)}
 	}
 	var lines strings.Builder
 	scripts := 0
@@ -504,7 +458,7 @@ func everyJob(said string) reply {
 			fmt.Fprintf(&lines, "%s job=%s %s\n", step.State, step.ID, step.Name)
 		}
 	}
-	return reply{head: fmt.Sprintf("%s, %d jobs", read.State, scripts), body: firstBytes(lines.String(), replyLimit), url: read.WebURL}
+	return reply{head: fmt.Sprintf("%s, %d jobs", read.State, scripts), body: askdesk.FirstBytes(lines.String(), replyLimit), url: read.WebURL}
 }
 
 func matching(log string, pattern *regexp.Regexp) reply {
@@ -516,21 +470,5 @@ func matching(log string, pattern *regexp.Regexp) reply {
 			lines.WriteString(line)
 		}
 	}
-	return reply{head: fmt.Sprintf("%d matching lines of a %d byte log", found, len(log)), body: firstBytes(lines.String(), replyLimit)}
-}
-
-func firstBytes(text string, limit int) string {
-	if len(text) <= limit {
-		return text
-	}
-	cut := strings.ToValidUTF8(text[:limit], "")
-	return fmt.Sprintf("%s\n… cut: the first %d of %d bytes\n", cut, len(cut), len(text))
-}
-
-func lastBytes(text string, limit int) string {
-	if len(text) <= limit {
-		return text
-	}
-	cut := strings.ToValidUTF8(text[len(text)-limit:], "")
-	return fmt.Sprintf("… cut: the last %d of %d bytes\n%s", len(cut), len(text), cut)
+	return reply{head: fmt.Sprintf("%d matching lines of a %d byte log", found, len(log)), body: askdesk.FirstBytes(lines.String(), replyLimit)}
 }

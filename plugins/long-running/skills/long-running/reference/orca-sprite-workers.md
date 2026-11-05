@@ -350,6 +350,30 @@ sprite exec -s <host> -- sprite-env services create bk-desk \
 - An answer that fails is logged, its ask stays open, and the desk goes on to the next ask. A restart answers any ask from the last hour that is still open.
 - It needs the host joined to the relay and nothing else: no tailnet route, no open port and no credential on a lane.
 
+## Read Sentry, Datadog and ai-oncall from a Sprite
+
+A Sprite holds no Sentry or Datadog key and no AWS identity, so a lane asks the `obs-desk` lane, which runs on the Mac, over cci:
+
+```sh
+cci post --kind ask --to obs-desk "sentry issue <id>"
+```
+
+| Read | Answer body |
+|---|---|
+| `sentry issue <id, short id or issue URL>` | The issue's state, counts and first and last seen, then its latest event: exception, newest frame first, request and tags |
+| `sentry events <id>` | The issue's newest events, one line each with its time, id, title and key tags |
+| `sentry search [--period 14d] <query>` | Up to 25 issues matching a Sentry search, newest first, over the last day by default |
+| `datadog monitor <id>` | The monitor's state, query and tags, each group not OK and since when, and its message |
+| `datadog logs [--from <age>] [--to <age>] <query>` | Up to 100 logs, newest first, over the last hour by default; an age is `90m`, `6h`, `2d` or an RFC3339 time |
+| `datadog spans [--from <age>] [--to <age>] <query>` | Up to 100 APM spans, newest first, with service, resource, duration, trace and error |
+| `datadog metric [--from <age>] [--to <age>] <query>` | Each series of a metrics query with its points |
+| `sentry api <path>`, `datadog api <path>` | The first 16 KiB of one GET under that API |
+| `oncall <read verb>` | `tools/ci oncall` with `incidents`, `page status`, `ledger`, `journal read`, `history`, `monitors`, `impact`, `current`, `responder` or `connections list` |
+
+- The desk makes read calls only. Any other text, a resolve, mute, downtime, notebook, `oncall say` or `oncall connect` included, gets a refusal, and nothing runs.
+- The answer is a record addressed to the lane that closes the ask, within seconds; `cci show <seq>` prints the body. A repeated read is answered from memory for a minute.
+- The keys stay in the desk's memory: never in a file, record, log, brief or command line, and never on a Sprite.
+
 ## Prepare and attach separately
 
 Use the configured signed CLI and YAML when preparation and first-task attachment need separate inspection. This explicit fresh Sprite agents example returns a plain prepared task:

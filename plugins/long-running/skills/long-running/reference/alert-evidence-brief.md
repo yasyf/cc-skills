@@ -24,7 +24,10 @@ Before anything else:
      repro at each sha it names with `devbox exec {lane} -- <command>`, and post each sha's output; keep the box for its later asks and
      remove it with `devbox expire {lane} --force` when you finish. Run reads and repros only on its
      behalf: a mute, ack, takeover or release goes through the verb the fix brief names and the
-     rules it states.
+     rules it states. The fix lane sends its Sentry, Datadog and
+     read-only oncall asks to `obs-desk` first and to you only when the desk does not answer.
+     You can read through the desk too, with no MCP: `cci post --drive {drive} --lane {lane}
+     --kind ask --to obs-desk --text "<read>"`, with the reads the fix brief lists.
 
 Drive facts:
 {facts}
