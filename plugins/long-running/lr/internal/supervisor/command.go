@@ -101,7 +101,7 @@ func run(ctx context.Context, a *app.App, binary string) error {
 	if err != nil {
 		return err
 	}
-	deps, err := wired(ctx, a, env, s)
+	deps, err := wired(ctx, a, env, s, binary)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func run(ctx context.Context, a *app.App, binary string) error {
 	return nil
 }
 
-func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps, error) {
+func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binary string) (Deps, error) {
 	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self, Bodies: filepath.Join(env.State, bus.BodiesDir)}
 	post := func(to []string, body bus.Body) error {
 		_, err := sender.Post(ctx, to, body)
@@ -158,7 +158,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		if err != nil {
 			return Deps{}, err
 		}
-		report := waste.Poster{Sources: waste.Live(env.Bus, a.Runner, s), Config: wasteConfig, Store: s, Drive: env.Config, Now: a.Now, Post: post}
+		running, err := waste.Current(a.CCX, env.Claude, binary)
+		if err != nil {
+			return Deps{}, err
+		}
+		report := waste.Poster{Sources: waste.Live(env.Bus, a.Runner, s, running), Config: wasteConfig, Store: s, Drive: env.Config, Now: a.Now, Post: post}
 		rejoin := orca.Rejoin{Runner: a.Runner, Store: s, Config: filepath.Join(env.State, runnerFile), Sleep: time.Sleep, Out: os.Stderr}
 		promptWatch := prompts.NewWatch(a, env.Config.Drive)
 		checks = append(checks,

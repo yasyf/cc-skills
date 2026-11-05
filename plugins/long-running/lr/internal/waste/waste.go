@@ -31,6 +31,7 @@ const (
 	signalDuplicate   = "duplicate-ask"
 	signalRace        = "race-warning"
 	signalUninstalled = "uninstalled"
+	signalUnproven    = "unproven"
 	signalOwedReply   = "owed-reply"
 	signalCompactions = "compactions"
 )
@@ -44,13 +45,15 @@ type Sources struct {
 	Bus     Bus
 	Runner  shell.Runner
 	Retired func() ([]store.Lane, error)
+	Running *Running
 }
 
-func Live(bus Bus, runner shell.Runner, s *store.Store) Sources {
+func Live(bus Bus, runner shell.Runner, s *store.Store, running *Running) Sources {
 	return Sources{
 		Bus:     bus,
 		Runner:  runner,
 		Retired: func() ([]store.Lane, error) { return s.Lanes(store.LaneRetired) },
+		Running: running,
 	}
 }
 

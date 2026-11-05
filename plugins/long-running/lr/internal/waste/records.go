@@ -165,6 +165,7 @@ func uninstalled(ctx context.Context, src Sources, cfg Config, drive config.Conf
 	type merge struct {
 		lane   string
 		at     time.Time
+		repo   string
 		number int
 	}
 	merges := map[string]merge{}
@@ -176,16 +177,27 @@ func uninstalled(ctx context.Context, src Sources, cfg Config, drive config.Conf
 				continue
 			}
 			if _, seen := merges[ref.String()]; !seen && ref.Repo != "" && ref.Repo != drive.Repo {
-				merges[ref.String()] = merge{record.Lane, record.At, ref.Number}
+				merges[ref.String()] = merge{record.Lane, record.At, ref.Repo, ref.Number}
 			}
 		}
 	}
 	var findings []Finding
 	for pr, merged := range merges {
 		age := int64(now.Sub(merged.at).Minutes())
-		if !installed[pr] && !installed[strconv.Itoa(merged.number)] && age >= cfg.Floors.Uninstalled {
-			findings = append(findings, Finding{signalUninstalled, signalUninstalled + "/" + pr, age, "minutes", merged.lane, pr + " merged, and no done record names its installed version and proof", cfg.Floors.Uninstalled})
+		if installed[pr] || installed[strconv.Itoa(merged.number)] || age < cfg.Floors.Uninstalled {
+			continue
 		}
+		if merged.repo == src.Running.Repo {
+			held, err := src.Running.holds(ctx, merged.number)
+			if err != nil {
+				return nil, err
+			}
+			if held {
+				findings = append(findings, Finding{signalUnproven, signalUnproven + "/" + pr, age, "minutes", merged.lane, src.Running.unproven(pr), cfg.Floors.Uninstalled})
+				continue
+			}
+		}
+		findings = append(findings, Finding{signalUninstalled, signalUninstalled + "/" + pr, age, "minutes", merged.lane, pr + " merged, and no done record names its installed version and proof", cfg.Floors.Uninstalled})
 	}
 	return findings, nil
 }
