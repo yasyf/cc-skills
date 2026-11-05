@@ -441,32 +441,19 @@ func TestAnApprovingPickOnAReplyMarksTheRowTappedAtItsHeadAndTheQueueKeepsIt(t *
 	}
 }
 
-func TestATapRefusedWhileHeldDoesNotLandWhenTheRowLaterTurnsReady(t *testing.T) {
+func TestATapRefusedWhileHeldWaitsAndLandsWhenTheHoldLiftsAtTheSameHead(t *testing.T) {
 	h := unreadHarness(t)
 	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)
-	ownerRecord(t, landOnCard, pickAttrs)
+	record := ownerRecord(t, landOnCard, pickAttrs)
 	writeOrders(t, h)
+	if written := orders(t); len(written) != 0 {
+		t.Fatalf("orders = %+v", written)
+	}
+	if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || cursor >= record.Seq {
+		t.Fatalf("cursor = %d, %v, want it held before %d", cursor, err, record.Seq)
+	}
 
 	drawReady(t, h.store, surfacePR, surfaceHead)
-	writeOrders(t, h)
-
-	row := h.snapshot(t)[surfacePR]
-	if written := orders(t); len(written) != 0 || row.Admitted() {
-		t.Fatalf("orders = %+v, row = %+v", written, row)
-	}
-	if verdict := machine.Classify(row); verdict.Action == machine.ActionEnqueue {
-		t.Fatalf("verdict = %+v", verdict)
-	}
-}
-
-func TestATapGivenAgainOnceTheRowIsReadyWritesTheOrder(t *testing.T) {
-	h := unreadHarness(t)
-	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)
-	ownerRecord(t, landOnCard, pickAttrs)
-	writeOrders(t, h)
-
-	drawReady(t, h.store, surfacePR, surfaceHead)
-	ownerRecord(t, landOnCard+" again", pickAttrs)
 	writeOrders(t, h)
 
 	if written := orders(t); len(written) != 1 {
@@ -474,6 +461,23 @@ func TestATapGivenAgainOnceTheRowIsReadyWritesTheOrder(t *testing.T) {
 	}
 	if row := h.snapshot(t)[surfacePR]; !row.Admitted() {
 		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestATapRefusedWhileHeldIsDroppedWhenTheHoldLiftsAtANewHead(t *testing.T) {
+	h := unreadHarness(t)
+	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)
+	record := ownerRecord(t, `Owner: "Land this now" #4242`, nil)
+	writeOrders(t, h)
+
+	drawReady(t, h.store, surfacePR, "def5678"+strings.Repeat("0", 33))
+	writeOrders(t, h)
+
+	if written := orders(t); len(written) != 0 {
+		t.Fatalf("orders = %+v", written)
+	}
+	if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || cursor < record.Seq {
+		t.Fatalf("cursor = %d, %v, want it past %d", cursor, err, record.Seq)
 	}
 }
 
