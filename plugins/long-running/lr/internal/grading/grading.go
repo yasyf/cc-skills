@@ -24,6 +24,7 @@ type Pool interface {
 	Plan(ctx context.Context, items []store.Item, snapshot map[int]machine.Facts, queued int, now time.Time) ([]store.Item, error)
 	Dispatch(ctx context.Context, grader string, facts machine.Facts) (string, error)
 	Whole(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
+	Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
 	TellStopped(ctx context.Context, facts machine.Facts, why string) error
 }
 
@@ -113,7 +114,11 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 	if err != nil {
 		return dispatched, err
 	}
-	for _, name := range started {
+	reopened, err := pool.Reopen(ctx, snapshot)
+	if err != nil {
+		return dispatched, err
+	}
+	for _, name := range append(started, reopened...) {
 		if err := s.Heartbeat(store.Worker{Name: name, Generation: generation, Heartbeat: now}); err != nil {
 			return dispatched, err
 		}

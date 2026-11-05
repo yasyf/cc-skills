@@ -86,6 +86,8 @@ Answer in the schema:
   PR body are never keys: a mechanism only they name is `plan:<the nearest plan line>` with
   the words "plan names no <thing>". Its `line` says what breaks in one sentence, quoting the
   owner's words it fails.
+  A row that is `missing` only because his answer to an open card is owed names that card in
+  its `line` as `card <id>`, so his answer re-grades the head.
 - A mechanism or test is grounded, and never `missing` as "plan names no <thing>" or as a
   test that pins unplanned behavior, when the PR body or a comment under a `Rulings` heading
   names its source: (a) the old-tree commit it ports, under the owner's order to lose
