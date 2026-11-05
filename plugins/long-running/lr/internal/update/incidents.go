@@ -19,6 +19,8 @@ const (
 	milestoneNotOurs   = "not-ours"
 	describeWindow     = 48 * time.Hour
 	describeCells      = 200
+	retiredByItsStop   = "stand-down"
+	kindStopped        = "stopped"
 )
 
 var (
@@ -118,6 +120,9 @@ func (v view) parked(lanes []string) []string {
 		lane := v.byLane[name]
 		if slices.Contains(posting, lane.State) && len(lane.PRs) > 0 && !v.live(name) {
 			parked = append(parked, fmt.Sprintf("%s, quiet since %s, holding #%d", name, pacificText(lane.Heard), lane.PRs[0]))
+		}
+		if last := v.latest[name]; lane.State == retired && lane.RetiredBy == retiredByItsStop && last.Kind == kindStopped {
+			parked = append(parked, fmt.Sprintf("%s, stopped by #%d with its worker unfinished", name, last.Seq))
 		}
 	}
 	return parked

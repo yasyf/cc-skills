@@ -100,7 +100,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		if successor == "" && !fresh {
 			dropQueuedLaunch(s, row, at, out)
 		}
-		if row.State != store.LaneRetired || successor != "" {
+		if row.State != store.LaneRetired || successor != "" || slices.Contains(unprovenEnds, row.RetiredBy) {
 			retire(s, name, or(successor, Root), at)
 		}
 		if successor != "" {
@@ -244,6 +244,10 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 		do(s.SetLaneState(name, store.LaneDesired, at, "", ""))
 		row, known = laneOf(s, name)
 	}
+	if known && postedAfterItsOwnEnd(r, row, at) {
+		do(s.ReviveLane(name, at))
+		row, known = laneOf(s, name)
+	}
 	if known && isLive(row.State) {
 		foldWait(s, r, row)
 		if kind == "blocker" && r.Attr("turn") == turnDied && !fresh {
@@ -299,6 +303,11 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 		return
 	}
 	foldRegistry(s, r, row, known, fresh, at, out)
+}
+
+func postedAfterItsOwnEnd(r Record, row store.Lane, at time.Time) bool {
+	endsItself := slices.Contains(settled, r.Kind) || r.Kind == "state" && stoppedLine.MatchString(r.Text)
+	return row.State == store.LaneRetired && slices.Contains(unprovenEnds, row.RetiredBy) && at.After(row.Since) && !endsItself
 }
 
 func maxOrder(s *store.Store, r Record) int64 {
@@ -509,6 +518,12 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		return
 	}
 	if name == runner {
+		if found := workerEnded.FindStringSubmatch(text); found != nil {
+			if ended, ok := laneOf(s, found[1]); ok && ended.State == store.LaneRetired && ended.RetiredBy == retiredStopped {
+				retire(s, ended.Name, retiredWorkerDone, at)
+				return
+			}
+		}
 		if found := launchRefused.FindStringSubmatch(text); found != nil && !fresh {
 			out.refused = append(out.refused, refusal{found[2], found[1] + ": " + strings.TrimSpace(found[3])})
 			return
@@ -722,6 +737,8 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 				must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: gone.Model, Effort: gone.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher}, at))
 				continue
 			}
+		} else if slices.Contains(unprovenEnds, gone.RetiredBy) {
+			retire(s, old, or(successor, Root), at)
 		}
 		if successor == "" {
 			do(s.Own(Root, gone.PRs))

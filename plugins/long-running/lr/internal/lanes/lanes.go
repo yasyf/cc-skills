@@ -50,6 +50,7 @@ const (
 const (
 	retiredWorkerDone = "worker-done"
 	retiredSilent     = "silent"
+	retiredStopped    = "stand-down"
 	unheardDone       = "reported worker_done, but none of its records ever reached the bus"
 	workerSucceeded   = "succeeded"
 	agentLive         = "live"
@@ -125,9 +126,10 @@ var (
 	machineAuthors = []string{Self, runner, boardWatch, "pr-read", "prompt-watch", "stall-watch"}
 	machineKinds   = []string{"head", "state", "opened", "heartbeat", "github", "review", "claim", kindSpawn, "board.card", "queue"}
 
-	settled  = []string{"handoff", "done", "stand-down", "stopped"}
-	laneEnds = []string{"done", "stopped", "fix-live"}
-	shipped  = []string{"release", "applied", "fix-live"}
+	settled      = []string{"handoff", "done", "stand-down", "stopped"}
+	unprovenEnds = []string{retiredStopped, retiredWorkerDone, retiredSilent, kindLanded}
+	laneEnds     = []string{"done", "stopped", "fix-live"}
+	shipped      = []string{"release", "applied", "fix-live"}
 
 	settledDispatch = []string{"completed", "failed"}
 	agentVerdicts   = []string{agentLive, agentExited, agentUnverifiable}
@@ -136,6 +138,7 @@ var (
 	numbered      = regexp.MustCompile(`^(.+)-(\d{1,2})$`)
 	handedOff     = regexp.MustCompile(`\bhandoff ([\w.-]+): doc ([0-9a-f]{7,40})\b`)
 	workerDone    = regexp.MustCompile(`^OUTCOME \S+ ([\w.-]+): worker_done succeeded\b`)
+	workerEnded   = regexp.MustCompile(`^OUTCOME \S+ ([\w.-]+): worker_done \w+\b`)
 	launchRefused = regexp.MustCompile(`(?s)^(LAUNCH-FAILED|LAUNCH-DUPLICATE|LAUNCH-EXPIRED|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?R\d+(?:@\w+)? ([\w.-]+): (.*)`)
 	withdrawnWork = regexp.MustCompile(`^WITHDRAWN \S+ ([\w.-]+): by \S+; dispatch `)
 	standDownList = regexp.MustCompile(`(?i)\bstand[ -]?down\s+([^.(;:\n]+)`)

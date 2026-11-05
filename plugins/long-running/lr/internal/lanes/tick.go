@@ -192,6 +192,9 @@ func tellRetired(s *store.Store, d Deps, running []store.Lane, told []stoodDown)
 			continue
 		}
 		post := Post{Kind: "stand-down", To: []string{lane.Name}, Text: fmt.Sprintf("%s stood down: the supervisor retired it (%s).", lane.Name, lane.RetiredBy), PRs: lane.PRs}
+		if lane.Last == "stopped" {
+			post.Text = fmt.Sprintf("%s stopped, so mail to it passes on. If it is parked on a wait, keep waiting: its next record makes it live again.", lane.Name)
+		}
 		if heir, ok := laneOf(s, lane.RetiredBy); ok && heir.Name != Root {
 			post.Successor, post.PRs, post.Text = heir.Name, heir.PRs, fmt.Sprintf("%s stood down for %s.", lane.Name, heir.Name)
 			if heir.Predecessor == lane.Name && heir.Reason != "" {

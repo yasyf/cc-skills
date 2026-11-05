@@ -173,3 +173,23 @@ func TestAQuietLaneHoldingAnOpenPROwnsItsIncidentAndARetiredOrEmptyHandedOneDoes
 		t.Fatalf("a quiet lane holding nothing owns its incident: %+v", empty)
 	}
 }
+
+func TestALaneParkedOnItsOwnStopHoldsItsIncidentUntilItsWorkerEnds(t *testing.T) {
+	parked := heard("journal-fix", "retired", 30)
+	parked.RetiredBy = "stand-down"
+	records := []Record{
+		opened(1, "root", "INCIDENT OPEN journal: runs refuse", 90, "journal-fix"),
+		record(2, "journal-fix", "stopped", "Parked on the fixer's PR", 30),
+	}
+
+	found := viewOf([]Lane{parked}, records, nil).incidents(records, testDrive)
+	if len(found) != 1 || found[0].unowned() || !strings.Contains(found[0].work.who, "journal-fix, stopped by #2") {
+		t.Fatalf("incidents = %+v", found)
+	}
+
+	parked.RetiredBy = "worker-done"
+	found = viewOf([]Lane{parked}, records, nil).incidents(records, testDrive)
+	if len(found) != 1 || !found[0].unowned() {
+		t.Fatalf("a lane whose worker ended still holds it: %+v", found)
+	}
+}

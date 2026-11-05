@@ -873,6 +873,11 @@ func (s *Store) SetLaneState(name string, state LaneState, at time.Time, retired
 	return err
 }
 
+func (s *Store) ReviveLane(name string, at time.Time) error {
+	_, err := s.db.Exec("UPDATE lanes SET state = ?, since = ?, retired_by = NULL WHERE name = ?", string(LaneDesired), Stamp(at), name)
+	return err
+}
+
 func (s *Store) LaneHeard(name string, at time.Time, kind string, seq int64) error {
 	_, err := s.db.Exec(
 		"INSERT INTO heard (lane, at, kind, seq) VALUES (?, ?, ?, ?) ON CONFLICT (lane) DO UPDATE SET kind = CASE WHEN excluded.at >= heard.at THEN excluded.kind ELSE heard.kind END, node = CASE WHEN excluded.at > heard.at THEN NULL ELSE heard.node END, late_seconds = CASE WHEN excluded.at > heard.at THEN NULL ELSE heard.late_seconds END, at = max(heard.at, excluded.at), seq = max(coalesce(heard.seq, excluded.seq), coalesce(excluded.seq, heard.seq))",
