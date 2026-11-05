@@ -400,6 +400,25 @@ func TestRollHostInstallsOnlyOnTheDeskHost(t *testing.T) {
 	}
 }
 
+func TestRollHostPinsInstallsTheDeskHostsPinsOnANamedSpriteNoRunNames(t *testing.T) {
+	w := newRollWorld(t)
+	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
+	runner := filepath.Join(t.TempDir(), "runner.json")
+	raw := `{"host":{"sprite":"desk-host"},"orca":{"sprite":{"env":{"WORKER_CCI_URL":"` + testCCIURL + `","WORKER_CCI_SHA256":"` + testCCISHA + `"},"tools":` + rollTools + `}}}`
+	if err := os.WriteFile(runner, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RollHostPins(context.Background(), w, w.store, runner, "standby", "the Sprite", func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, &w.out); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.boxes, []string{"standby"}) {
+		t.Fatal(w.boxes)
+	}
+	if census := w.census(); census["standby"]["lr"] != "9.9.9" || census["desk-host"] != nil {
+		t.Fatal(census)
+	}
+}
+
 func TestADownDeskHostRefusesTheSameWayEveryPass(t *testing.T) {
 	w := newRollWorld(t)
 	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
