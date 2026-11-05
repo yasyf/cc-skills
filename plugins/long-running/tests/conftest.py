@@ -242,7 +242,11 @@ class FakeShell(ledger.Shell):
             self.cci.append(record)
             return json.dumps(record) + "\n" if "--json" in one else f"#{record['seq']}\n"
         if argv[1] == "grep":
-            return "".join(json.dumps(record) + "\n" for record in reversed(self.cci) if record["lane"] in flags["--lane"])
+            return "".join(
+                json.dumps(record) + "\n"
+                for record in reversed(self.cci)
+                if ("--lane" not in flags or record["lane"] in flags["--lane"]) and ("--kind" not in flags or record["kind"] in flags["--kind"])
+            )
         assert argv[1] == "tail", argv
         if "--since-seq" in one:
             after = int(one["--since-seq"])

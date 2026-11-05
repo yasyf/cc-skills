@@ -353,14 +353,18 @@ def resolved(record: dict) -> set[int]:
 
 
 def dead_owner(run: Callable[[list[str]], str], drive: str, lane: str) -> str:
-    """Why `lane` cannot own work on `drive`, or "" when it posted there within OWNER_WINDOW and its newest record ends nothing."""
+    """Why `lane` cannot own work on `drive`, or "" when it posted there within OWNER_WINDOW and its newest record ends nothing, or a `spawn` record naming it in `--lane-ref` is newer than that record."""
     if lane in NOT_OWNERS:
         return f"{lane or 'no lane'} is the coordinator, not a worker; name the worker that builds it, or ask root to spawn one"
     out = run(["cci", "grep", ".", "--drive", drive, "--lane", lane, "--since", OWNER_WINDOW, "-n", "1", "--json"])
     newest = next((json.loads(line) for line in out.splitlines() if line.startswith("{")), None)
-    if newest is None or newest["kind"] in ENDED_KINDS:
-        return f"{lane} has posted nothing on {drive} in {OWNER_WINDOW}{' since its ' + newest['kind'] if newest else ''}; name a live worker, or ask root to spawn one"
-    return ""
+    if newest is not None and newest["kind"] not in ENDED_KINDS:
+        return ""
+    spawned = run(["cci", "grep", lane, "--drive", drive, "--kind", "spawn", "--since", OWNER_WINDOW, "-n", "1", "--json"])
+    spawn = next((json.loads(line) for line in spawned.splitlines() if line.startswith("{")), None)
+    if spawn is not None and lane in spawn.get("refs", {}).get("lanes", []) and (newest is None or spawn["seq"] > newest["seq"]):
+        return ""
+    return f"{lane} has posted nothing on {drive} in {OWNER_WINDOW}{' since its ' + newest['kind'] if newest else ''}; name a live worker, or ask root to spawn one"
 
 
 def expired(record: dict, now: datetime) -> bool:

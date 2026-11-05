@@ -490,3 +490,14 @@ def test_an_ask_needs_a_live_worker_as_its_owner(lane, said):
         run(shell, "ask", "--ledger", LEDGER, "--drive", DRIVE, "--text", ASK, "--lane", lane, "--accept", CHECK, "--due", "4h")
 
     assert shell.keys() == []
+
+
+def test_a_lane_root_just_spawned_owns_an_ask_before_it_posts(capsys):
+    shell = desk_shell()
+    shell.cci.append(
+        {"seq": 1, "drive": DRIVE, "lane": "root", "kind": "spawn", "at": "2026-10-05T09:00:00Z", "text": "SPAWNED fresh-lane", "refs": {"lanes": ["fresh-lane"]}, "num": "#1"}
+    )
+
+    run(shell, "ask", "--ledger", LEDGER, "--drive", DRIVE, "--text", ASK, "--lane", "fresh-lane", "--accept", CHECK, "--due", "4h")
+
+    assert shell.keys() == ["ask/000001"]
