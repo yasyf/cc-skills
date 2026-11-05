@@ -100,6 +100,27 @@ func TestTheChatVersionRowReadsTheReleaseCarryingItAndItsLiveTime(t *testing.T) 
 			want:   "landed, no release has cut it yet",
 		},
 		{
+			name:   "a release still queued holds it",
+			live:   jsonList(behindAPI, behindDesktop),
+			status: jsonList(chatVersionCut("queued"), settledCut),
+			now:    whereNow,
+			want:   "release 12404 queued",
+		},
+		{
+			name:   "the only release that cut it failed before applying",
+			live:   jsonList(behindAPI, behindDesktop),
+			status: jsonList(chatVersionCut("failed"), settledCut),
+			now:    whereNow,
+			want:   "landed; release 12404 cut it and failed, so no release carries it now",
+		},
+		{
+			name:   "a release that leaves out a target the commit touches names it",
+			live:   jsonList(behindAPI, behindDesktop),
+			status: jsonList(strings.Replace(chatVersionCut("running"), `"components":["api","desktop"]`, `"components":["api"]`, 1), settledCut),
+			now:    whereNow,
+			want:   "release 12404 running, ETA 1:26 PM; it leaves out desktop",
+		},
+		{
 			name:   "a running release holds it and the last converged one times it",
 			live:   jsonList(behindAPI, behindStaging, behindDesktop),
 			status: jsonList(chatVersionCut("running"), settledCut),

@@ -24,7 +24,10 @@ import (
 const (
 	releaseReadLimit = 5 * time.Minute
 	releaseRunning   = "running"
+	releaseQueued    = "queued"
+	releaseHeld      = "held"
 	releaseConverged = "converged"
+	releaseFailed    = "failed"
 	waitingShown     = 3
 )
 
@@ -103,6 +106,8 @@ type Where struct {
 	Release    *Carrier      `json:"release"`
 	Targets    []TargetState `json:"targets"`
 	Waiting    []string      `json:"waiting"`
+	Outside    []string      `json:"outside,omitempty"`
+	Failed     *Carrier      `json:"failed,omitempty"`
 	LiveAt     time.Time     `json:"live_at"`
 	LiveOn     int           `json:"live_on"`
 	OfEnvs     int           `json:"of_envs"`
@@ -253,28 +258,31 @@ func (r *ReleaseRead) Locate(ctx context.Context, view ReleaseView, sha string) 
 			return w
 		}
 	}
-	cut, err := r.nextCut(ctx, view, sha, touched)
+	cut, failed, err := r.nextCut(ctx, view, sha, touched)
 	if err != nil {
 		unknown("which release carries it", err)
 		return w
 	}
 	switch {
-	case cut != nil && (cut.Status == releaseRunning || first == nil):
+	case cut != nil && (cut.Status != releaseConverged || first == nil):
 		w.settle(cut)
-		w.Release = &Carrier{Number: releaseNumber(cut.Build, cut.ID), Name: cut.Name, ID: cut.ID, Status: cut.Status}
+		w.Release = carrierOfCut(cut)
 		if cut.Status == releaseRunning {
 			w.Release.ETA, w.Release.ETAWhy = view.eta(*cut, r.Now())
 		}
 	case first != nil:
 		w.Release = carrierOf(first, carrier)
+	case failed != nil:
+		w.Failed = carrierOfCut(failed)
 	}
 	return w
 }
 
 func (w *Where) settle(cut *Cut) {
-	w.Waiting, w.LiveAt, w.LiveOn, w.OfEnvs = nil, time.Time{}, 0, 0
+	w.Waiting, w.Outside, w.LiveAt, w.LiveOn, w.OfEnvs = nil, nil, time.Time{}, 0, 0
 	for _, target := range w.Targets {
 		if cut != nil && !slices.Contains(cut.Components, target.Name) {
+			w.Outside = append(w.Outside, target.Name)
 			continue
 		}
 		for _, env := range target.Behind {
@@ -311,11 +319,15 @@ func carrierOf(first *Deploy, cut *Cut) *Carrier {
 	return &Carrier{Number: releaseNumber(first.Build, first.Release), Name: first.Name, ID: first.Release, Status: status}
 }
 
-func (r *ReleaseRead) nextCut(ctx context.Context, view ReleaseView, sha string, touched []string) (*Cut, error) {
-	var settled *Cut
+func carrierOfCut(cut *Cut) *Carrier {
+	return &Carrier{Number: releaseNumber(cut.Build, cut.ID), Name: cut.Name, ID: cut.ID, Status: cut.Status}
+}
+
+func (r *ReleaseRead) nextCut(ctx context.Context, view ReleaseView, sha string, touched []string) (*Cut, *Cut, error) {
+	var settled, failed *Cut
 	for i := len(view.Cuts) - 1; i >= 0; i-- {
 		cut := &view.Cuts[i]
-		if cut.Mode == dryRunMode || (cut.Status != releaseRunning && cut.Status != releaseConverged) {
+		if cut.Mode == dryRunMode || !slices.Contains([]string{releaseRunning, releaseQueued, releaseHeld, releaseConverged, releaseFailed}, cut.Status) {
 			continue
 		}
 		if !slices.ContainsFunc(cut.Components, func(component string) bool { return slices.Contains(touched, component) }) {
@@ -323,19 +335,19 @@ func (r *ReleaseRead) nextCut(ctx context.Context, view ReleaseView, sha string,
 		}
 		held, err := r.carries(ctx, cut.Commit, sha)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if !held {
-			continue
-		}
-		if cut.Status == releaseRunning {
-			return cut, nil
-		}
-		if settled == nil {
+		switch {
+		case !held:
+		case cut.Status == releaseFailed:
+			failed = cut
+		case cut.Status != releaseConverged:
+			return cut, failed, nil
+		case settled == nil:
 			settled = cut
 		}
 	}
-	return settled, nil
+	return settled, failed, nil
 }
 
 func (v ReleaseView) eta(cut Cut, now time.Time) (time.Time, string) {
@@ -380,8 +392,21 @@ func (w Where) Line() string {
 		return "unknown: " + w.Unknown[0]
 	case len(w.Targets) == 0:
 		return "touches no release target"
+	case w.Release == nil && w.Failed != nil:
+		return fmt.Sprintf("landed; release %s cut it and failed, so no release carries it now", w.Failed.Number)
 	case w.Release == nil:
 		return "landed, no release has cut it yet"
+	}
+	if len(w.Outside) == 0 {
+		return w.carried()
+	}
+	return fmt.Sprintf("%s; it leaves out %s", w.carried(), strings.Join(w.Outside, ", "))
+}
+
+func (w Where) carried() string {
+	switch {
+	case (w.Release.Status == releaseQueued || w.Release.Status == releaseHeld) && (len(w.Waiting) > 0 || w.LiveAt.IsZero()):
+		return fmt.Sprintf("release %s %s", w.Release.Number, w.Release.Status)
 	case w.Release.Status == releaseRunning && (len(w.Waiting) > 0 || w.LiveAt.IsZero()):
 		if w.Release.ETA.IsZero() {
 			return fmt.Sprintf("release %s running, ETA unknown: %s", w.Release.Number, w.Release.ETAWhy)
