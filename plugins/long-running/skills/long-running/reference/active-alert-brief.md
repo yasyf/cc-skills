@@ -166,7 +166,7 @@ When the incident run verb is refused, for example on machine load, the coordina
 **The incident turn outside `lr incident run`.** A coordinator that launches the fix lane by hand posts the full cci record form on one line; the runner refuses a shorter line and logs `LAUNCH-FAILED`:
 
 ```
-cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<absolute path>'
+cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> ({at}) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<absolute path>'
 ```
 
 Outside a drive, the fix lane is an inline background `codex:codex-wrapper` running `codex-ask --incident`, with Claude Opus 5.5 in fast mode on a miss, and never fable or astra. Check each incident lane every 10 minutes; with no mechanism within 15 minutes of spawn, start a second lane on Opus fast in parallel. The fix lane's brief carries apply authority: a PR through the submit skill, merged with `gh pr merge <PR> --squash` the moment it is approved and green, skipping the merge queue (never `stack-enqueue` or `merge-fast`), and break-glass or hand apply pre-authorized at 0 delete and 0 replace with counts reported and runbook-logged. "Reproduce before fixing" and "Observe, don't infer" govern the fix lane, not whether it exists, and no owner round-trip comes before the spawn. An order to unfreeze everything lifts every freeze, listed first in the ack; a request for another lane, such as a retro, is a new named lane, never folded into one already running. A healthy release means the affected teams' customer runs succeed, never only zero OOMKills and CDP errors.

@@ -117,7 +117,11 @@ context only. This log feeds the owner table's "What went wrong or slowed it so 
 column.
 
 Every 30 minutes, post one cci state to the coordinator: findings opened, corrected, and
-  outstanding, and the top three things slowing the critical path.
+  outstanding, and the top three things slowing the critical path. Head it with its pass
+  number, never a clock time: cci stamps the record with its post time and every reader
+  prints that, while a time typed into a `--path` body is stored unchecked. A time the state
+  gives for an event, such as when a release started or a store rebuild ended, is copied
+  from the record or log line it cites, with that seq beside it.
 
 Start by reading the last two hours
 (`cci tail --drive <drive> --since <seq two hours back> --kind decide,ask,blocker,hold,defect,state -n 200`)
