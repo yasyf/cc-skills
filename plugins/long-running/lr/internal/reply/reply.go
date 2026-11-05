@@ -83,6 +83,7 @@ var (
 	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
 	slackStamp = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\?|$)`)
 	laneRole   = regexp.MustCompile(`-(?:fix|evidence|comms)$`)
+	asksTap    = regexp.MustCompile(`(?im)^\s*(?:tap|approve)\b|\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 )
 
@@ -274,7 +275,7 @@ func inRepo(repo string, found []string) bool {
 
 func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 	said, numbers := r.namedPRs()
-	if len(numbers) == 0 {
+	if len(slices.Compact(slices.Sorted(slices.Values(numbers)))) != 1 {
 		return r, ""
 	}
 	repo, ports, err := board.Ports(f.Entry, numbers)
@@ -297,6 +298,25 @@ func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 		r.MD = strings.Join(opening, ", ") + "\n\n" + r.MD
 	}
 	return r, ""
+}
+
+func (f Fanout) nothingToTap(r Reply) error {
+	if len(r.Picks) > 0 || !asksTap.MatchString(cardtext.HiddenCite.ReplaceAllString(r.Title+"\n"+r.MD, " ")) {
+		return nil
+	}
+	numbers := make([]int, len(r.PRs))
+	for n, pr := range r.PRs {
+		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
+	}
+	if len(numbers) > 0 {
+		_, rows, err := board.Rows(f.Entry, numbers)
+		if err != nil || slices.ContainsFunc(rows, func(row store.ReviewRow) bool {
+			return slices.Contains(numbers, row.Number) && row.ReadyForTap && !row.Tapped && prrow.TapRefusal(row) == ""
+		}) {
+			return nil
+		}
+	}
+	return errors.New("NOTHING TO TAP: this asks him to tap, approve or answer, and it carries no picks and no PR in prs that is ready for his tap, so he would get a message with nothing to tap and nothing went out; add the picks, list the ready PR in prs, or say what it waits on without asking him")
 }
 
 func (f Fanout) tapWarning(r Reply) string {
@@ -1191,27 +1211,19 @@ func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outco
 	for _, card := range cards {
 		done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "card-copy", "--url", card, "--thread", thread}, Timeout: postTimeout})
 		if err != nil {
-			copies = append(copies, f.linkInPlaceOfCopy(ctx, thread, card, failed(cardCopySurface, err).Error))
+			copies = append(copies, failed(cardCopySurface, err))
 			continue
 		}
 		var posted struct {
 			Permalink string `json:"permalink"`
 		}
 		if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
-			copies = append(copies, f.linkInPlaceOfCopy(ctx, thread, card, "cc-slack card-copy named no posted message: "+strings.TrimSpace(done.Stdout)))
+			copies = append(copies, Outcome{Surface: cardCopySurface, Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
 			continue
 		}
 		copies = append(copies, Outcome{Surface: cardCopySurface, Ref: posted.Permalink})
 	}
 	return copies
-}
-
-func (f Fanout) linkInPlaceOfCopy(ctx context.Context, thread, card, why string) Outcome {
-	linked := f.dmStatus(ctx, "--thread", thread, "<"+card+"|"+pickLink+">")[0]
-	if linked.Error != "" {
-		why += "; the link to the card did not post either: " + strings.TrimSuffix(linked.Error, resendOnce)
-	}
-	return Outcome{Surface: cardCopySurface, Ref: linked.Ref, Error: why}
 }
 
 func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {

@@ -146,13 +146,14 @@ The tool's description owns the checklist a caller reads before sending. A misse
 
 | Missed | What the hook or tool does |
 |---|---|
-| A line with tap, card, waits on you, your yes, no, pick, answer or word, and no card | Warns and posts; edit it with its `id` |
+| A reply asking him to tap, approve or answer, with no picks and no PR in `prs` ready for his tap and untapped | Refused with `NOTHING TO TAP`, and nothing posts; add the picks or the ready PR, or say what it waits on without asking him. `tap_asks_carry_the_button` refuses the same ask on a cc-slack post to his DM that has no `--tap-pr` and is not a waiting card |
+| Any other line with card, your yes, no, pick or word, and no card | Warns and posts; edit it with its `id` |
 | A release word with no Platy card | Warns and posts; a lane's name or `the release lane` is no release word |
 | An abstract change or an unanswered first question | Warns and posts, naming the sentence and the question; edit it with its `id`, and a sentence opening `Unproven:` counts as answered |
 | A bare cci record number in `md` | Moved to a hidden cite, and the result says so |
 | Any other bare id, or a bare `Sentry <n>` | Warns and posts |
 | A notebook link with no title | Warns and posts |
-| A PR in `prs` not ready for his tap, on a reply with no picks | Warns `NO BUTTON` and posts a link with nothing to tap; live-primitives owns drawing the button |
+| A PR in `prs` not ready for his tap, on a reply with no picks that asks nothing of him | Warns `NO BUTTON` and posts a link with nothing to tap; live-primitives owns drawing the button |
 | An open bug named, its fix PR not in `prs` | Adds the fix PR to `prs` by itself; warns and posts where it cannot, as under Card shape |
 | `by` or `routed` off a progress or info reply to an order with no picks | Left off with a warning |
 | A PNG on `display.artifact` | The Talk surface fails and the result names it; live-primitives owns the artifact design |
@@ -215,7 +216,7 @@ Shape:
 - A pick on who acts for an incident, such as take it over, roll back or wait, is drawn only after `tools/ci oncall incidents --json` shows no open incident on the alert's monitors with `commanderRunning` true. When one shows, send the asking lane that incident id and draw nothing, since its commander is the actor.
 - Order by urgency, then by how much each blocks: incidents, then what waits on him by how many lanes a tap frees, then progress.
 - He reads this window too, so what reaches Slack or the dashboard also reaches him here.
-- A line about something that waits on him, whoever posts it, carries its card with the buttons, says in one line what he must do, `blocked on you doing X`, and never retells how the hold was read. No card means no such line.
+- **A message that asks for his tap carries the button.** A message saying a PR is ready for his tap, waits on his tap or waits only on his approval, or asking him to approve, tap or answer, carries the button in that same message or its thread: the PR's card with Approve and Hold, or the picks. This holds whoever posts it and on every surface, whether a reply, a lane's DM post, cc-slack's link preview, the board mirror or a PR row. It says in one line what he must do, `blocked on you doing X`, and never retells how the hold was read. A message that waits on something else says what it waits on and does not ask, and a surface that cannot draw the button does not print the words. `lr reply` refuses `NOTHING TO TAP` when the reply has no picks and no ready PR in `prs`. The `tap_asks_carry_the_button` hook refuses a DM post that asks with no `--tap-pr` and no waiting card. cc-slack carries the card of each ready PR that a DM post links.
 - A chat format reaches him as format 0 or format 1 only; `chat_formats.py` refuses `format N` or `migrate to N` for any other N in a reply and the `reply` tool.
 - A line naming a phrase of a ruling labelled `drop-class` is refused in every reply, card, board and DM to him, because the class is never reported to him and a warning would land after he had read it: drop the line and send the rest. A line about the ruling itself passes.
 - `lines_name_a_ruling.py` warns on any other line, record or reply that makes a decision he has settled or contradicts it, and quotes the ruling. A judge reads the line against the closest ruling, so a shared word draws nothing; a ruling's `match:` phrase in the line warns without a judge. It blocks nothing.
