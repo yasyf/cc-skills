@@ -51,7 +51,7 @@ var (
 	rawStep       = regexp.MustCompile(`^(?:\d|[A-Z]\d)`)
 	askWrong      = map[asks.State]string{asks.Lost: "no PR and no record carry it", asks.Stale: "no progress past its due time", asks.LandedNotLive: "landed but not live for users"}
 	prWrong       = map[string]string{"red": "its head is red", "refused": "the landing gate refused its head", "held": "a hold stops it"}
-	prWorkKinds   = []string{"head", "opened"}
+	prWorkKinds   = []string{"head", "opened", "claim"}
 	stepWorkKinds = []string{"head", "opened", "report", "done", "handoff"}
 )
 
@@ -302,22 +302,26 @@ func openIncidents(records []Record) map[int64]bool {
 }
 
 type view struct {
-	lanes   []Lane
-	byLane  map[string]Lane
-	latest  map[string]Record
-	waits   map[string]Record
-	records []Record
-	history []Record
-	retro   []Retro
-	rulings *strings.Replacer
-	now     time.Time
+	lanes     []Lane
+	byLane    map[string]Lane
+	answerers map[string]Lane
+	latest    map[string]Record
+	waits     map[string]Record
+	records   []Record
+	history   []Record
+	retro     []Retro
+	rulings   *strings.Replacer
+	now       time.Time
 }
 
 func newView(lanes []Lane, records, waits []Record, now time.Time) view {
-	v := view{lanes: lanes, byLane: map[string]Lane{}, latest: map[string]Record{}, waits: map[string]Record{}, records: bySeq(records), rulings: strings.NewReplacer(), now: now}
+	v := view{lanes: lanes, byLane: map[string]Lane{}, answerers: map[string]Lane{}, latest: map[string]Record{}, waits: map[string]Record{}, records: bySeq(records), rulings: strings.NewReplacer(), now: now}
 	v.history = v.records
 	for _, lane := range lanes {
 		v.byLane[lane.Name] = lane
+		if stem := client.Stem(lane.Name); stem != lane.Name && heardLive(lane, now) && lane.Heard.After(v.answerers[stem].Heard) {
+			v.answerers[stem] = lane
+		}
 	}
 	for _, record := range v.records {
 		v.latest[record.Lane] = record
@@ -328,9 +332,17 @@ func newView(lanes []Lane, records, waits []Record, now time.Time) view {
 	return v
 }
 
+func (v view) answering(name string) (Lane, bool) {
+	if lane, found := v.byLane[name]; found && heardLive(lane, v.now) {
+		return lane, true
+	}
+	lane, found := v.answerers[name]
+	return lane, found
+}
+
 func (v view) live(name string) bool {
-	lane, found := v.byLane[name]
-	return found && !slices.Contains(selves, name) && slices.Contains(posting, lane.State) && !lane.Heard.IsZero() && v.now.Sub(lane.Heard) < heardWithin
+	_, found := v.answering(name)
+	return found
 }
 
 func (v view) liveHead(name string) bool {
@@ -353,11 +365,6 @@ func (v view) newestNaming(kinds []string, pattern *regexp.Regexp, pr string) st
 func (v view) ownerOfPR(number int) string {
 	pr := strconv.Itoa(number)
 	return v.newestNaming(prWorkKinds, regexp.MustCompile(`#`+pr+`\b`), pr)
-}
-
-func (v view) ownerOfStep(number string) string {
-	last, _ := v.lastOnStep(number)
-	return last.Lane
 }
 
 func (v view) lastOnStep(number string) (Record, bool) {
@@ -386,7 +393,8 @@ func (v view) workOf(lanes []string) work {
 			blocks = append(blocks, fmt.Sprintf("%s waits on the coordinator's answer to %s #%d since %s: %s", lane, wait.Kind, wait.Seq, pacific(wait.At), clip(wait.Text)))
 		}
 		if last, found := v.latest[lane]; found {
-			unblock = append(unblock, fmt.Sprintf("%s: %s %s: %s; next record due by %s", lane, last.Kind, pacific(last.At), clip(last.Text), pacific(v.byLane[lane].Heard.Add(store.StaleAfter))))
+			answering, _ := v.answering(lane)
+			unblock = append(unblock, fmt.Sprintf("%s: %s %s: %s; next record due by %s", lane, last.Kind, pacific(last.At), clip(last.Text), pacific(answering.Heard.Add(store.StaleAfter))))
 		}
 	}
 	if len(unblock) == 0 {

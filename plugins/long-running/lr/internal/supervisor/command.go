@@ -38,6 +38,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talk"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/update"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/waste"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/prompts"
@@ -203,6 +204,8 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			} else {
 				squashFixes = squasher.Pass
 			}
+			sources := update.Wire(a, entry, s)
+			steps := &update.StepWatch{Store: s, Lanes: sources.Lanes, Plans: sources.Plans, Post: env.Bus.Post, Drive: env.Config.Drive, Now: a.Now}
 			cards := board.CardsOf(a, entry, entry.Root(), s)
 			laneDeps.Promises = func() ([]lanes.Promise, error) { return cards.Promises(ctx) }
 			dropStale = board.StaleTaps{Runner: a.Runner, Session: entry.Root(), Say: func(ctx context.Context, tap board.DroppedTap) error {
@@ -215,6 +218,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			}}.Pass
 			checks = append(checks,
 				(&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check,
+				(&background{name: "step-owners", every: stepOwnersEvery, run: steps.Pass, store: s, post: post, log: a.Log, forgiven: 1}).Check,
 				(&background{name: "landing-gate-inputs", every: landing.InputsEvery, run: inputs.Pass, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "card-sweep", every: sweepEvery, run: func(ctx context.Context) error {
 					return cards.Pass(ctx, lanes.Self, board.PackJudge(a.Runner), sweepLog{a.Log, "card sweep"})

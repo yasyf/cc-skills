@@ -115,8 +115,33 @@ func Command(a *app.App) *cobra.Command {
 			return missingError(append(Missing(string(written), found.Needs), ToolingLeft(string(written), found.Programs)...))
 		},
 	}
-	status := statusCommand(a, &driveName, cmd)
-	cmd.AddCommand(render, check, status, pinCommand(&driveName))
+	status, since := statusCommand(a, &driveName, cmd)
+	away := &cobra.Command{
+		Use:   "away",
+		Short: "Print the update for his return from sources: what waits on him with its buttons, what landed and is live, what broke and who is on it, by workstream, and every plan step's owner, since the update he was last sent or --since",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			opened, err := open(a, driveName)
+			if err != nil {
+				return err
+			}
+			defer opened.store.Close()
+			if *since != "" {
+				at, err := sinceOf(*since, a.Now())
+				if err != nil {
+					return err
+				}
+				opened.src.Before = func() (Snapshot, error) { return Snapshot{At: at}, nil }
+			}
+			in, err := Collect(c.Context(), opened.src, opened.entry.Bus(), a.Now())
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(c.OutOrStdout(), Away(in))
+			return nil
+		},
+	}
+	cmd.AddCommand(render, check, status, away, pinCommand(&driveName))
 	cmd.Args = cobra.NoArgs
 	cmd.Flags().BoolVar(&rendering, "render", false, "the render verb, under the flag owner_update.py callers name")
 	cmd.Flags().StringVar(&checking, "check", "", "the check verb on this file, under the flag owner_update.py callers name")
@@ -132,7 +157,7 @@ func Command(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func statusCommand(a *app.App, driveName *string, parent *cobra.Command) *cobra.Command {
+func statusCommand(a *app.App, driveName *string, parent *cobra.Command) (*cobra.Command, *string) {
 	var sinceText string
 	var kinds, only []string
 	var asJSON bool
@@ -144,7 +169,7 @@ func statusCommand(a *app.App, driveName *string, parent *cobra.Command) *cobra.
 			now := a.Now()
 			since := now.Add(-defaultSince)
 			if sinceText != "" {
-				parsed, err := time.Parse(time.RFC3339, sinceText)
+				parsed, err := sinceOf(sinceText, now)
 				if err != nil {
 					return err
 				}
@@ -170,9 +195,9 @@ func statusCommand(a *app.App, driveName *string, parent *cobra.Command) *cobra.
 			return nil
 		},
 	}
-	parent.PersistentFlags().StringVar(&sinceText, "since", "", "with status: an RFC 3339 time; delivered records after it count (default: 2 h ago)")
+	parent.PersistentFlags().StringVar(&sinceText, "since", "", "with status or away: an RFC 3339 time, a duration such as 8h, or a Pacific clock time such as 11:30 PM; status counts what was delivered after it (default: 2 h ago), away reads from it (default: the update he was last sent)")
 	parent.PersistentFlags().StringArrayVar(&kinds, "kind", nil, "with status: a record kind that counts as a delivery, repeatable")
 	parent.PersistentFlags().StringArrayVar(&only, "only", nil, "with status: read only this section, repeatable")
 	parent.PersistentFlags().BoolVar(&asJSON, "json", false, "with status: print the sections as one JSON object")
-	return status
+	return status, &sinceText
 }

@@ -172,6 +172,7 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 	cmd.MarkFlagsMutuallyExclusive("ccx", "place")
 	cmd.MarkFlagsMutuallyExclusive("ccx", "why")
 	cmd.Flags().StringSliceVar(&written.Topics, "topics", nil, "with --body, the subjects the lane decides on, for the register slice's owner answers")
+	cmd.Flags().StringVar(&written.Step, "step", "", "with --body, the plan step the lane owns, written into its register slice line, where the owner update and the step watch read its owner; all when unset")
 	cmd.Flags().BoolVar(&now, "now", false, "owner-directed: launch beside a live lane already holding this work")
 	cmd.Flags().StringVar(&id, "id", "", "the launch line's cci idempotency key: a repost under a key already on the drive returns the line first posted, so a retried launch reaches the runner once")
 	cmd.Flags().StringVar(&role, "role", "", "the role the lane registry records for it, over the brief's ccx role")

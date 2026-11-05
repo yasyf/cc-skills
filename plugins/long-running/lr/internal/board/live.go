@@ -45,13 +45,15 @@ type Verdict struct {
 }
 
 type Wait struct {
-	Kind    string `json:"kind"`
-	Block   string `json:"block"`
-	Subject string `json:"subject"`
-	PR      string `json:"pr"`
-	Head    string `json:"head"`
-	Since   string `json:"since"`
-	Title   string `json:"title"`
+	Kind    string   `json:"kind"`
+	Block   string   `json:"block"`
+	Subject string   `json:"subject"`
+	PR      string   `json:"pr"`
+	Head    string   `json:"head"`
+	Since   string   `json:"since"`
+	Title   string   `json:"title"`
+	URL     string   `json:"url,omitempty"`
+	Options []string `json:"options,omitempty"`
 }
 
 func (w Wait) Line() string {
@@ -223,6 +225,7 @@ func LiveOf(outcomes Outcomes, snapshots []Snapshot, rows []store.ReviewRow) (Li
 	}
 	live := Live{Ready: readyWaits(rows), Taps: newestByPR(outcomes.Interactions.Triage), Shown: shown}
 	for _, card := range typed(outcomes.Doc, "card") {
+		slack, _ := card["slack"].(map[string]any)
 		for _, choice := range typed(card, "choice") {
 			if outcomes.answered(choice) {
 				continue
@@ -231,10 +234,23 @@ func LiveOf(outcomes Outcomes, snapshots []Snapshot, rows []store.ReviewRow) (Li
 			if title == "" {
 				title = text(choice, "prompt")
 			}
-			live.Picks = append(live.Picks, Wait{Kind: "pick", Block: text(card, "id"), Subject: text(choice, "id"), Since: live.since("card:" + text(card, "id")), Title: clip(title)})
+			live.Picks = append(live.Picks, Wait{Kind: "pick", Block: text(card, "id"), Subject: text(choice, "id"), Since: live.since("card:" + text(card, "id")), Title: clip(title), URL: text(slack, "url"), Options: optionLabels(choice)})
 		}
 	}
 	return live, nil
+}
+
+func optionLabels(choice map[string]any) []string {
+	options := listOf(choice, "options")
+	labels := make([]string, 0, len(options))
+	for _, option := range options {
+		label := text(option, "label")
+		if recommended, _ := option["recommended"].(bool); recommended {
+			label += " (recommended)"
+		}
+		labels = append(labels, label)
+	}
+	return labels
 }
 
 func (o Outcomes) answered(choice map[string]any) bool {

@@ -49,10 +49,12 @@ const (
 	launchWait   = 45 * time.Second
 	launchMargin = 10 * time.Second
 	incidentBar  = 20 * time.Minute
-	notLiveOwed  = time.Hour
-	notLiveSpan  = 24 * time.Hour
-	notLiveEvery = 5 * time.Minute
-	notLiveTopic = "landed-not-live"
+	NotLiveOwed  = time.Hour
+	NotLiveSpan  = 24 * time.Hour
+	NotLiveEvery = 5 * time.Minute
+	NotLiveTopic = "landed-not-live"
+	notLiveLead  = "LANDED-NOT-LIVE "
+	notLiveNone  = "none"
 	blockerKind  = "blocker"
 )
 
@@ -771,7 +773,7 @@ func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]la
 		if err != nil {
 			return nil, fmt.Errorf("ledger row %s landed_at: %w", row.PR, err)
 		}
-		if age := now.Sub(at); age < notLiveOwed || age >= notLiveSpan {
+		if age := now.Sub(at); age < NotLiveOwed || age >= NotLiveSpan {
 			continue
 		}
 		number, err := row.PR.Int64()
@@ -786,7 +788,7 @@ func (n *LandedNotLive) landings(ctx context.Context, now time.Time) (map[int]la
 		found[int(number)] = landing{targets, row.LandedSHA, at}
 	}
 	maps.DeleteFunc(n.touched, func(sha string, _ []string) bool { return !window[sha] })
-	return found, n.Store.DropReleaseTargets(now.Add(-notLiveSpan))
+	return found, n.Store.DropReleaseTargets(now.Add(-NotLiveSpan))
 }
 
 func (n *LandedNotLive) targetsOf(ctx context.Context, sha string, landed time.Time) ([]string, error) {
@@ -834,7 +836,7 @@ func (n *LandedNotLive) holdsSHA(ctx context.Context, commit, sha string) bool {
 }
 
 func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
-	if !n.read.IsZero() && now.Sub(n.read) < notLiveEvery {
+	if !n.read.IsZero() && now.Sub(n.read) < NotLiveEvery {
 		return nil
 	}
 	n.read = now
@@ -971,8 +973,8 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 	}
 	bus, drive := n.Env.Bus, n.Env.Config.Drive
 	digest := sha256.Sum256([]byte(said))
-	key := notLiveTopic + ":" + hex.EncodeToString(digest[:])[:12]
-	if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "state", Topic: notLiveTopic, ID: key, Text: "LANDED-NOT-LIVE " + or(said, "none"), To: []string{Root}}); err != nil {
+	key := NotLiveTopic + ":" + hex.EncodeToString(digest[:])[:12]
+	if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "state", Topic: NotLiveTopic, ID: key, Text: notLiveLead + or(said, notLiveNone), To: []string{Root}}); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 	}
 	switch {
@@ -990,6 +992,26 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 	}
 	n.said = said
 	return nil
+}
+
+func NotLiveOf(text string) (map[int][]string, bool) {
+	said, found := strings.CutPrefix(text, notLiveLead)
+	if !found {
+		return nil, false
+	}
+	owed := map[int][]string{}
+	if said == notLiveNone {
+		return owed, true
+	}
+	for part := range strings.SplitSeq(said, "; ") {
+		target, numbers, _ := strings.Cut(part, ": ")
+		for word := range strings.SplitSeq(numbers, ", ") {
+			if number, err := strconv.Atoi(strings.TrimPrefix(word, "#")); err == nil {
+				owed[number] = append(owed[number], target)
+			}
+		}
+	}
+	return owed, true
 }
 
 func (e Env) gc(ctx context.Context, args ...string) (shell.Result, error) {
