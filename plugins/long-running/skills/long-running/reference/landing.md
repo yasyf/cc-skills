@@ -223,7 +223,7 @@ D24 sits at the end of this section.
 
 **Escalations to root.** Each landing pass groups the open items it already keeps by cause and reads nothing new, since its snapshot and store hold every fact.
 - Three or more PRs the queue refused with the same words (each PR's own number set aside) for 30 minutes, or that waited an hour on the supervisor, the grading pool or a reviewer, raise one escalation to root naming the cause and every PR, once while the oldest of them stays. Two alike refusals never raise it.
-- A ready PR, or one whose row waits only on the change below it, held by a stack base whose item is past its deadline, or that no lane drives, raises one escalation to root per base head naming the base, what it waits on and the PRs it holds. The PRs it holds open no item of their own, and the base is the lowest PR in the stack that waits on something other than its row.
+- A ready PR, or one whose row waits only on the change below it, held by a stack base whose item is past its deadline, or that no lane drives, raises one escalation to root per base head naming the base, what it waits on and the PRs it holds. A base under a hold names that hold, and a base whose row waits on something names what the row says, never the lane. The PRs it holds open no item of their own, and the base is the lowest PR in the stack that waits on something other than its row.
 
 **Ungraded heads.**
 - A `blocked` or `ready` record from a live `build` or `fix` lane claims each PR it names that no lane owns, and never takes one from another lane.

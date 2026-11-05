@@ -23,12 +23,13 @@ A yes posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, to the
 the artifact, naming the row whose words the judge quoted. A recheck yes whose earlier verdict on the same
 contract, or the same relay and row, was not a yes is a miss: it says so, and the case is written to
 `judge/misses/` in the drive's state folder for `judge-eval.py`.
-The writer disputes a flag by answering on it. A coordinator `decide` or `decision` of the last day that replies to
-or resolves the flag, the artifact or the answer, or names one of the artifact's PRs, closes the dispute with
+The writer disputes a flag by answering on it, and an `answer` on it from any lane counts the same, as cci's open
+fold counts it. A coordinator `decide` or `decision` of the last day that replies to or resolves the flag, the artifact or the answer, or names one of the artifact's PRs, closes the dispute with
 that ruling. Otherwise the pass asks the coordinator alone, never a board lane, with his words, the judge's reading and
 the writer's in `judge/disputes/<flag seq>.md`. An owner pick on a `judge-dispute-<flag seq>` card the coordinator puts
 on his board writes the case to `judge/owner/` with the verdict he chose. A failed judge call posts nothing.
-State lives in `judge-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting.
+State lives in `judge-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. A pass saves
+its cursor after each record it acts on, so a pass the supervisor stops at its time limit never judges those again.
 """
 
 from __future__ import annotations
@@ -117,26 +118,35 @@ class Pass:
         self.backend = judge.backend_from(os.environ)
 
     def run(self) -> int:
-        found = cci.records(self.cli, self.watch.cci, since=self.saved.cursor or FIRST_SINCE)
-        for record in found:
-            if record.get("lane") == LANE:
-                continue
-            if CLASSIFIED.match(record.get("text", "")) and record.get("lane") == ROOT:
-                for key in dict.fromkeys(EXTENDED.findall(record["text"])):
-                    self.recheck(key)
-            elif record.get("kind") == "contract":
-                self.judge_record(record, "contract")
-            elif record.get("kind") in RELAY_KINDS and record.get("lane") == ROOT:
-                self.judge_record(record, "relay")
-            elif str(record.get("re")) in self.saved.flags and record.get("lane") == self.saved.flags[str(record["re"])]["lane"]:
-                self.dispute(record)
-            elif picked := PICKED.search(record.get("text", "")):
-                self.owner_ruled(picked["flag"], picked["label"])
-        if found:
-            self.saved.cursor = found[-1]["seq"]
+        for record in cci.records(self.cli, self.watch.cci, since=self.saved.cursor or FIRST_SINCE):
+            acted = self.handle(record)
+            self.saved.cursor = record["seq"]
+            if acted:
+                self.save()
+        self.save()
+        return 0
+
+    def handle(self, record: dict) -> bool:
+        if record.get("lane") == LANE:
+            return False
+        if CLASSIFIED.match(record.get("text", "")) and record.get("lane") == ROOT:
+            for key in dict.fromkeys(EXTENDED.findall(record["text"])):
+                self.recheck(key)
+        elif record.get("kind") == "contract":
+            self.judge_record(record, "contract")
+        elif record.get("kind") in RELAY_KINDS and record.get("lane") == ROOT:
+            self.judge_record(record, "relay")
+        elif str(record.get("re")) in self.saved.flags and (record.get("kind") == "answer" or record.get("lane") == self.saved.flags[str(record["re"])]["lane"]):
+            self.dispute(record)
+        elif picked := PICKED.search(record.get("text", "")):
+            self.owner_ruled(picked["flag"], picked["label"])
+        else:
+            return False
+        return True
+
+    def save(self) -> None:
         if not self.dry_run:
             self.watch.state.write_text(json.dumps(self.saved.__dict__))
-        return 0
 
     def cli(self, argv: list[str]) -> str:
         return subprocess.run(argv, capture_output=True, text=True, check=True, cwd=self.watch.drive_state).stdout
@@ -238,7 +248,7 @@ class Pass:
             f"# Does this {flag['kind']} read your words the way you meant them?\n\n"
             f"Your words:\n{words}\n\n"
             f"The judge's reading: {flag['reading']}\n\n"
-            f"The writer's reading, {flag['lane']}: {reply.get('text', '')}\n\n"
+            f"The writer's reading, {reply['lane']}: {reply.get('text', '')}\n\n"
             f"What was posted:\n~~~~\n{flag['artifact'][: judge.ARTIFACT_CHARS // 3]}\n~~~~\n\n"
             f"Buttons: \"{JUDGE_RIGHT}\", \"{WRITER_RIGHT}\", plus a write-in box and Explain more. Neither is preselected.\n"
         )

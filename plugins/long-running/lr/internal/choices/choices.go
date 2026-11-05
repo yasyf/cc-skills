@@ -48,11 +48,12 @@ var (
 )
 
 type Finding struct {
-	ID   string
-	Kind string
-	To   []string
-	Re   int64
-	Line string
+	ID     string
+	Kind   string
+	To     []string
+	Re     int64
+	Line   string
+	Covers []string
 }
 
 type Check struct {
@@ -87,6 +88,9 @@ func (c *Check) Pass(ctx context.Context) error {
 			Force: true,
 		})
 		c.said[finding.ID] = err == nil
+		for _, covered := range finding.Covers {
+			c.said[covered] = err == nil
+		}
 	}
 	return nil
 }
@@ -320,21 +324,29 @@ func (c *Check) documented(ctx context.Context, desk string, now time.Time) []Fi
 	if c.Docs == nil {
 		return nil
 	}
-	open := c.Docs.Open(ctx, now)
-	if len(open) == 0 {
-		return nil
+	var listed, covers []string
+	for _, doc := range c.Docs.Open(ctx, now) {
+		var fresh []string
+		for _, item := range doc.Items {
+			if key := "choice-doc:" + doc.Slug + ":" + item; !c.said[key] {
+				fresh, covers = append(fresh, item), append(covers, key)
+			}
+		}
+		if len(fresh) > 0 {
+			listed = append(listed, fmt.Sprintf("%s (%s)", doc.Slug, strings.Join(fresh, ", ")))
+		}
 	}
-	listed := make([]string, 0, len(open))
-	for _, doc := range open {
-		listed = append(listed, fmt.Sprintf("%s (%s)", doc.Slug, strings.Join(doc.Items, ", ")))
+	if len(listed) == 0 {
+		return nil
 	}
 	list := strings.Join(listed, "; ")
 	sum := sha256.Sum256([]byte(list))
 	return []Finding{{
-		ID:   "choice-doc:" + hex.EncodeToString(sum[:6]),
-		Kind: kindNote,
-		To:   []string{desk},
-		Line: fmt.Sprintf("DOC-CHOICE design docs list choices for him that name no card: %s. Draw each, or have its author close it in the doc.", clip(list, listChars)),
+		ID:     "choice-doc:" + hex.EncodeToString(sum[:6]),
+		Kind:   kindNote,
+		To:     []string{desk},
+		Line:   fmt.Sprintf("DOC-CHOICE design docs list choices for him that name no card: %s. Draw each, or have its author close it in the doc.", clip(list, listChars)),
+		Covers: covers,
 	}}
 }
 
