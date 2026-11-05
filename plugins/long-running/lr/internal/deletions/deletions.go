@@ -137,12 +137,13 @@ func (t Trunk) Present(ctx context.Context, rows []Owed) ([]Owed, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
-	if _, err := t.run(ctx, "git", "fetch", "-q", "origin", t.Branch); err != nil {
+	tip, err := t.fetchTip(ctx)
+	if err != nil {
 		return nil, err
 	}
 	var present []Owed
 	for _, row := range rows {
-		there, err := t.present(ctx, row)
+		there, err := t.present(ctx, row, tip)
 		if err != nil {
 			return nil, err
 		}
@@ -153,12 +154,25 @@ func (t Trunk) Present(ctx context.Context, rows []Owed) ([]Owed, error) {
 	return present, nil
 }
 
-func (t Trunk) present(ctx context.Context, row Owed) (bool, error) {
+func (t Trunk) fetchTip(ctx context.Context) (string, error) {
+	listed, err := t.run(ctx, "git", "ls-remote", "origin", "refs/heads/"+t.Branch)
+	if err != nil {
+		return "", err
+	}
+	tip, _, found := strings.Cut(listed, "\t")
+	if !found {
+		return "", fmt.Errorf("origin of %s advertises no %s", t.Checkout, t.Branch)
+	}
+	_, err = t.run(ctx, "git", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", tip)
+	return tip, err
+}
+
+func (t Trunk) present(ctx context.Context, row Owed, tip string) (bool, error) {
 	anchors := slices.Concat(row.Paths, row.Dirs)
 	if len(anchors) == 0 {
 		return true, nil
 	}
-	listing, err := t.run(ctx, "git", append([]string{"ls-tree", t.rev(), "--"}, anchors...)...)
+	listing, err := t.run(ctx, "git", append([]string{"ls-tree", tip, "--"}, anchors...)...)
 	if err != nil {
 		return false, err
 	}
@@ -169,7 +183,7 @@ func (t Trunk) present(ctx context.Context, row Owed) (bool, error) {
 	for _, symbol := range row.Symbols {
 		args = append(args, "-e", identifier(symbol))
 	}
-	args = append(args, t.rev(), "--")
+	args = append(args, tip, "--")
 	for line := range strings.Lines(listing) {
 		meta, path, _ := strings.Cut(strings.TrimSuffix(line, "\n"), "\t")
 		if strings.Fields(meta)[1] == "tree" {
@@ -184,8 +198,6 @@ func (t Trunk) present(ctx context.Context, row Owed) (bool, error) {
 	}
 	return err == nil, err
 }
-
-func (t Trunk) rev() string { return "origin/" + t.Branch }
 
 func (t Trunk) run(ctx context.Context, tool string, args ...string) (string, error) {
 	repo := []string{"-R", t.Checkout}
@@ -226,11 +238,12 @@ func (t Trunk) Gaps(ctx context.Context, rulings, drive string) ([]string, error
 	if len(gaps) == 0 {
 		return lines, nil
 	}
-	if _, err := t.run(ctx, "git", "fetch", "-q", "origin", t.Branch); err != nil {
+	tip, err := t.fetchTip(ctx)
+	if err != nil {
 		return nil, err
 	}
 	for _, gap := range gaps {
-		standing, err := t.standing(ctx, gap)
+		standing, err := t.standing(ctx, gap, tip)
 		if err != nil {
 			return nil, err
 		}
@@ -241,7 +254,7 @@ func (t Trunk) Gaps(ctx context.Context, rulings, drive string) ([]string, error
 	return lines, nil
 }
 
-func (t Trunk) standing(ctx context.Context, gap Gap) (bool, error) {
+func (t Trunk) standing(ctx context.Context, gap Gap, tip string) (bool, error) {
 	if len(gap.Paths) == 0 {
 		return true, nil
 	}
@@ -249,7 +262,7 @@ func (t Trunk) standing(ctx context.Context, gap Gap) (bool, error) {
 	if gap.Symbol {
 		args = []string{"grep", "-q", "-w", "-F", "-e", identifier(gap.Target)}
 	}
-	args = slices.Concat(args, []string{t.rev(), "--"}, gap.Paths, []string{":(glob,exclude)**/*_test.go"})
+	args = slices.Concat(args, []string{tip, "--"}, gap.Paths, []string{":(glob,exclude)**/*_test.go"})
 	_, err := t.run(ctx, "git", args...)
 	var exit *shell.ExitError
 	if errors.As(err, &exit) && exit.Code == 1 {

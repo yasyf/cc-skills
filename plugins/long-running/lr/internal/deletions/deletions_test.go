@@ -144,7 +144,7 @@ func TestAnAnchorARowGuardsOwesNoDeletion(t *testing.T) {
 	}
 }
 
-func TestATargetGoneFromTrunkOwesNoDeletion(t *testing.T) {
+func TestATargetGoneFromTheNewestTrunkOwesNoDeletionWhileAnotherFetchHoldsItsRefLock(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, map[string]string{"gitconfig": "[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = main\n"})
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(root, "gitconfig"))
@@ -173,6 +173,7 @@ func TestATargetGoneFromTrunkOwesNoDeletion(t *testing.T) {
 		"rule/run-dir":    {"status": "in-force", "implications": removes("proposed"), "paths": `["go/run"]`},
 		"rule/unanchored": {"status": "in-force", "implications": removes("proposed"), "symbols": `["Floating"]`},
 	})
+	write(t, checkout, map[string]string{".git/refs/remotes/origin/main.lock": ""})
 	trunk := Trunk{Runner: notes{rows: rows}, Checkout: checkout, Branch: "main"}
 
 	gaps, err := trunk.Gaps(context.Background(), "rulings.py", "durable-agents-rebuild")
@@ -270,7 +271,7 @@ func write(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-func TestPresentKeepsTheOpenTasksWhoseCodeIsStillOnTrunk(t *testing.T) {
+func TestPresentKeepsTheOpenTasksStillOnTheNewestTrunkWhileAnotherFetchHoldsItsRefLock(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, map[string]string{"gitconfig": "[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = main\n"})
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(root, "gitconfig"))
@@ -308,6 +309,7 @@ func TestPresentKeepsTheOpenTasksWhoseCodeIsStillOnTrunk(t *testing.T) {
 		"never":         shown(t, "never", owner, map[string]string{"go/next/cmd/never.go": "path"}),
 		"another-lane":  shown(t, "another-lane", "other-lane-2", map[string]string{"go/follower": "dir"}),
 	}
+	write(t, checkout, map[string]string{".git/refs/remotes/origin/main.lock": ""})
 	trunk := Trunk{Runner: notes{tasks: tasks}, Checkout: checkout, Branch: "main"}
 
 	listed, err := trunk.List(context.Background())
