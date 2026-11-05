@@ -352,7 +352,7 @@ ROW = json.dumps({"seq": 1, "kind": "opened", "fields": {"attrs": {"repo": "Forg
 HAND_POSTED = json.dumps({"seq": 2, "kind": "opened", "fields": {}})
 GT_SHIP = (FIXTURES / "ccx-ship-gt.txt").read_text()
 GT_REF = "Forge-AI/monorepo#28534"
-VIEW = json.dumps({"url": "https://github.com/Forge-AI/monorepo/pull/28534", "title": "x: y", "headRefName": "lane/fix", "baseRefName": "dev", "headRefOid": SHA, "body": "from github"})
+VIEW = json.dumps({"url": "https://github.com/Forge-AI/monorepo/pull/28534", "title": "x: y", "headRefName": "lane/fix", "baseRefName": "dev", "headRefOid": SHA, "body": "from github", "state": "OPEN"})
 
 
 @pytest.fixture
@@ -435,6 +435,18 @@ def test_a_new_pr_with_no_named_file_reads_its_body_once_from_github(tmp_path, t
     assert carried == {"body": "from github"}
 
 
+def test_a_pr_named_only_by_its_url_makes_no_row_once_github_says_it_is_not_open(tmp_path, tools):
+    from hooks import pr_ledger
+
+    calls, answers = tools
+    answers["gh", "pr"] = json.dumps(json.loads(VIEW) | {"url": "https://github.com/Forge-AI/monorepo/pull/50", "state": "MERGED"})
+
+    pr_ledger.record_opened_prs(shipped(tmp_path, output="https://github.com/Forge-AI/monorepo/pull/50\n", command="gh pr create --fill"))
+
+    assert len(viewed(calls)) == 1
+    assert posted(calls) == []
+
+
 def test_a_lanes_hand_posted_opened_record_is_not_a_row(tmp_path, tools):
     from hooks import pr_ledger
 
@@ -482,7 +494,7 @@ def test_a_pr_on_trunk_has_no_parent_and_a_stacked_pr_names_its_base(tmp_path, t
     from hooks import pr_ledger
 
     calls, answers = tools
-    answers["gh", "pr"] = json.dumps({"url": "https://github.com/Forge-AI/monorepo/pull/1", "title": "x: y", "headRefName": "x", "baseRefName": "dev", "headRefOid": SHA, "body": "b"})
+    answers["gh", "pr"] = json.dumps({"url": "https://github.com/Forge-AI/monorepo/pull/1", "title": "x: y", "headRefName": "x", "baseRefName": "dev", "headRefOid": SHA, "body": "b", "state": "OPEN"})
 
     pr_ledger.record_opened_prs(shipped(tmp_path, (FIXTURES / "ccx-stack-submit.txt").read_text(), "ccx vcs stack submit"))
 

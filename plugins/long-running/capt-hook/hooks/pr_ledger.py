@@ -44,7 +44,7 @@ SHIP_BODY = "--pr-body-file"
 SHIP_OPENS_NOTHING = frozenset({"--no-pr", "--no-push", "--dry-run", "--help", "-h"})
 SHIP_NEW_PR = ("--new-branch", "--create", "--new-pr")
 NO_PR = "no pull requests found"
-PR_VIEW = "url,title,headRefName,baseRefName,headRefOid,body"
+PR_VIEW = "url,title,headRefName,baseRefName,headRefOid,body,state"
 EDITED_BODY = ("--body", "-b", "--body-file", "-F")
 SEEN_RECORDS = "10"
 SEEN_BUDGET = str(1 << 20)
@@ -183,7 +183,7 @@ def post_row_record(pr: OpenedPr, body: str | None, cwd: Path | None, lane: str,
     repo = pr.repo or "/".join(viewed()["url"].split("/")[3:5])
     ref = f"{repo}#{pr.number}"
     fresh = not has_row(ref, cwd)
-    if edited and fresh:
+    if fresh and (edited or (not pr.branch and viewed()["state"] != "OPEN")):
         return
     branch = pr.branch or viewed()["headRefName"]
     base = pr.base or viewed()["baseRefName"]
