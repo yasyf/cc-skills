@@ -1923,6 +1923,18 @@ func TestAGradeTheFinderPostedAsAReviewLineCountsForTheFullHeadItAbbreviates(t *
 	}
 }
 
+func TestAPRBelongsToTheLaneTheRegistryNamesEvenWhenAnotherLanePushedItLast(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	post(t, bus.SweepLane, bus.Head{PR: 1, Head: head, Lane: bus.SweepLane}, "supervisor")
+	if err := h.store.Own("lane-9", []int{1}); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := h.snapshot(t)[1]; row.Lane != "lane-9" {
+		t.Fatalf("lane = %q, want the registry's lane over the one that pushed last", row.Lane)
+	}
+}
+
 func TestAPRWithNoHeadRecordBelongsToTheLaneTheRegistryNames(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	if err := h.store.Own("lane-9", []int{1}); err != nil {

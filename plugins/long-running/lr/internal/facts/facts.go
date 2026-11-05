@@ -1088,10 +1088,9 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	if err != nil {
 		return nil, err
 	}
+	rowLanes := make(map[int]string, len(known))
 	for _, row := range known {
-		if owners[row.Number] == "" {
-			owners[row.Number] = row.Lane
-		}
+		rowLanes[row.Number] = row.Lane
 	}
 	enqueuedAt, err := s.Store.FactsOfKind(s.Repo, "enqueued")
 	if err != nil {
@@ -1116,6 +1115,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		if err != nil {
 			return nil, err
 		}
+		f.Lane = cmp.Or(f.Lane, rowLanes[row.Number])
 		f.PersonQueued = f.Queue == machine.QueueQueued && !enqueued[f.Number]
 		held[row.Number].onto(&f)
 		f.Carries = open.carries[row.Number]
@@ -1353,10 +1353,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 }
 
 func fromStored(f *machine.Facts, stored map[string]string, owner string) error {
-	f.Lane = stored["lane"]
-	if f.Lane == "" {
-		f.Lane = owner
-	}
+	f.Lane = cmp.Or(owner, stored["lane"])
 	resubmitted, err := atoiOrZero(stored["resubmitted"])
 	if err != nil {
 		return fmt.Errorf("#%d resubmitted: %w", f.Number, err)

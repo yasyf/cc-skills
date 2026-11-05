@@ -1,6 +1,7 @@
 package facts
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -40,10 +41,7 @@ func (s Source) Whose(ctx context.Context, numbers []int) ([]Whose, error) {
 				return nil, fmt.Errorf("#%d author: %w", number, err)
 			}
 		}
-		f := machine.Facts{Lane: known["lane"], Tap: machine.Tap(known["tap"])}
-		if f.Lane == "" {
-			f.Lane = owners[number]
-		}
+		f := machine.Facts{Lane: cmp.Or(owners[number], known["lane"]), Tap: machine.Tap(known["tap"])}
 		_, f.Exempt = known["exempt"]
 		if known[authorFact] != s.Author {
 			f.ForeignAuthor = known[authorFact]

@@ -763,6 +763,23 @@ func TestARowNamesTheLaneThatLastPushedItByAlias(t *testing.T) {
 	}
 }
 
+func TestARowNamesTheLaneTheRegistryOwnsItByAfterAnotherLanePushedIt(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	if err := s.Own("dd-1-fix", []int{1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: bus.SweepLane, Kind: "head", Text: "HEAD #1 " + headB + ": restacked onto dev by remote-restack", PRs: []string{fmt.Sprintf("%s#%d", testRepo, 1)},
+		ID: "head/1/restack",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); row.Lane != "dd-1-fix" || row.Head != headB {
+		t.Fatalf("row = %+v, want the new head under the lane the registry owns it by", row)
+	}
+}
+
 func TestAReadPostsOnlyWhenAValueChanged(t *testing.T) {
 	f, _ := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)
