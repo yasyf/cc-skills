@@ -202,3 +202,10 @@ func TestAWaitWithNeitherSourceNorCommandIsAUsageError(t *testing.T) {
 		t.Fatalf("got %d %q", r.code, r.errs.String())
 	}
 }
+
+func TestAnArmedWaitWithOnlyADeadlineNamesWhatItNeeds(t *testing.T) {
+	err := runArmed(t, &shelltest.Fake{}, filepath.Join(t.TempDir(), "wait.log"), "2800")
+	if err == nil || err.Error() != Usage {
+		t.Fatalf("got %v, want the usage naming a source or a command", err)
+	}
+}
