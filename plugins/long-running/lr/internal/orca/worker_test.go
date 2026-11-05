@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1009,6 +1010,51 @@ func TestACCIInstallThatDiesMidArchiveLeavesTheRunningCCIInPlace(t *testing.T) {
 
 	if kept, err := os.ReadFile(cci); err != nil || string(kept) != running {
 		t.Fatalf("the running cci was written over by a cut archive: %v, %d bytes", err, len(kept))
+	}
+}
+
+func TestAnInstallWaitsForTheOneAlreadyRunningOnItsBox(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.58\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho 9.9.9\n"})
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := os.Create(filepath.Join(bin, ".install.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Close() }()
+	if err := syscall.Flock(int(holder.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+
+	install := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "--")
+	install.Env = append(os.Environ(), "HOME="+home)
+	if err := install.Start(); err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan error, 1)
+	go func() { finished <- install.Wait() }()
+
+	select {
+	case err := <-finished:
+		t.Fatal("an install ran beside the one holding the box", err)
+	case <-time.After(2 * time.Second):
+	}
+	if present(filepath.Join(bin, "lr")) {
+		t.Fatal("the waiting install wrote before its turn")
+	}
+	if err := holder.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatal("the waiting install did not finish once its turn came", err)
+	}
+	if !present(filepath.Join(bin, "lr")) {
+		t.Fatal("the install finished without lr")
 	}
 }
 

@@ -376,6 +376,40 @@ func TestAFailureBeforeAnyPinMarksNothingBad(t *testing.T) {
 	}
 }
 
+func TestAFailureOfTheBoxOrNetworkMarksNoPinBad(t *testing.T) {
+	for _, said := range []string{
+		"sh: 51: cannot create /tmp/capt-hookd.new: Text file busy",
+		"tar: ccx: Cannot write: No space left on device",
+		"curl: (6) Could not resolve host: github.com",
+		"curl: (56) OpenSSL SSL_read: Connection reset by peer",
+	} {
+		w := newRollWorld(t)
+		w.replies["pool-a"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: said + "\n"}
+
+		refused := w.roll("")
+
+		if want := "lr sprites roll: the box or the network stopped the install on pool-a, so 2 more Sprites keep what they run and no pin is marked bad: " + said; refused != want {
+			t.Fatalf("refused\n%s\nwant\n%s", refused, want)
+		}
+		for _, tool := range [][2]string{{"ccx", rollCCX}, {"long-running@skills", rollPack}} {
+			if why, err := w.store.BadTool(tool[0], tool[1]); err != nil || why != "" {
+				t.Fatal(said, "marked", tool[0], "bad:", why, err)
+			}
+		}
+	}
+}
+
+func TestAPinWhoseDownloadIsGoneIsStillMarkedBad(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-a"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: "curl: (22) The requested URL returned error: 404\n"}
+
+	w.roll("")
+
+	if why, err := w.store.BadTool("ccx", rollCCX); err != nil || why == "" {
+		t.Fatal("a pin with no download stayed good:", why, err)
+	}
+}
+
 func TestAnInstallThatRunsOutOfTimeMarksNoPinBad(t *testing.T) {
 	w := newRollWorld(t)
 	w.replies["pool-a"] = shell.Result{Code: shell.CodeTimedOut, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n"}
