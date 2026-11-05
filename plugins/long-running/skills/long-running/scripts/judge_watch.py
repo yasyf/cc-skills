@@ -19,6 +19,8 @@ and asks the drive's judge (`long_running/judge.py`), on a Sprite from `judge.sp
               row, so the ten newest contracts and relays of the last day that cite it are judged again under
               all his words, told to apply the reason behind his correction to items he did not name
 
+A record that cites another as `<lane> #<seq>` is judged with that record whole after it, so a relay cut short still carries
+what it quotes; what the model's budget cannot hold is marked as left out.
 A yes posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, to the writer and the coordinator, in reply to
 the artifact, naming the row whose words the judge quoted. A recheck yes whose earlier verdict on the same
 contract, or the same relay and row, was not a yes is a miss: it says so, and the case is written to
@@ -28,6 +30,8 @@ fold counts it. A coordinator `decide` or `decision` of the last day that replie
 that ruling. Otherwise the pass asks the coordinator alone, never a board lane, with his words, the judge's reading and
 the writer's in `judge/disputes/<flag seq>.md`. An owner pick on a `judge-dispute-<flag seq>` card the coordinator puts
 on his board writes the case to `judge/owner/` with the verdict he chose. A failed judge call posts nothing.
+A coordinator answer or ruling in reply to a flag, or sent to the judge, that names the flag, the artifact or one of its
+PRs closes the artifact: it is never judged again, by a new pass or a recheck.
 State lives in `judge-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. A pass saves
 its cursor after each record it acts on, so a pass the supervisor stops at its time limit never judges those again.
 """
@@ -68,6 +72,8 @@ PICKED = re.compile(r"\(judge-dispute-(?P<flag>\d+)\): picked “(?P<label>[^”
 JUDGE_RIGHT = "1 The judge's reading"
 WRITER_RIGHT = "2 The writer's reading"
 RELAY_KINDS = frozenset({"decide"})
+CITED = re.compile(r"([\w-]+) #(\d+)\b")
+CLOSING_KINDS = frozenset({"answer", *cci.ROOT_RULINGS})
 POSTED = re.compile(r"#(\d+)")
 RULING_CHARS = 200
 SPRITE_SECONDS = 600
@@ -104,6 +110,7 @@ class Watch:
 class Saved:
     cursor: int = 0
     flags: dict[str, dict] = field(default_factory=dict)
+    closed: list[int] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path) -> Saved:
@@ -134,6 +141,8 @@ class Pass:
                 self.recheck(key)
         elif record.get("kind") == "contract":
             self.judge_record(record, "contract")
+        elif record.get("lane") == ROOT and record.get("kind") in CLOSING_KINDS and self.close(record):
+            pass
         elif record.get("kind") in RELAY_KINDS and record.get("lane") == ROOT:
             self.judge_record(record, "relay")
         elif str(record.get("re")) in self.saved.flags and (record.get("kind") == "answer" or record.get("lane") == self.saved.flags[str(record["re"])]["lane"]):
@@ -160,8 +169,30 @@ class Pass:
             self.registered = json.loads(self.rulings("rows"))
         return self.registered
 
-    def judge_record(self, record: dict, kind: str, recheck: str | None = None) -> None:
+    def close(self, record: dict) -> bool:
+        if str(record.get("re")) not in self.saved.flags and LANE not in (record.get("to") or []):
+            return False
+        mentioned = {record.get("re"), *cci.resolved(record), *(record.get("refs") or {}).get("prs", []), *(int(number) for number in cci.NAMED_PR.findall(record.get("text", "")))}
+        closing = [seq for seq, flag in self.saved.flags.items() if mentioned & {int(seq), flag["seq"], *flag.get("prs", [])}]
+        for seq in closing:
+            self.settle(seq)
+        return bool(closing)
+
+    def settle(self, flag_seq: str) -> None:
+        self.saved.closed = sorted({*self.saved.closed, self.saved.flags.pop(flag_seq)["seq"]})
+
+    def whole(self, record: dict) -> str:
         text = body(record)
+        cited = {int(seq): lane for lane, seq in CITED.findall(text)}
+        if not cited:
+            return text
+        sources = [source for source in cci.selected_records(self.cli, self.watch.cci, list(cited)) if source["lane"] == cited[source["seq"]]]
+        return "".join([text, *(f"\n\nThe record it cites, {source['lane']} #{source['seq']}, whole:\n{body(source)}" for source in sources)])
+
+    def judge_record(self, record: dict, kind: str, recheck: str | None = None) -> None:
+        if record["seq"] in self.saved.closed:
+            return
+        text = self.whole(record)
         if kind == "contract":
             if evidence := self.rulings("readback", "--lane", record["lane"], "--contract", str(record["seq"]), "--words"):
                 self.judged(record, kind, text, evidence, f"cci:{record['seq']}", recheck)
@@ -239,7 +270,7 @@ class Pass:
         flag = self.saved.flags[str(reply["re"])]
         if ruling := self.ruled(flag, reply):
             self.post("answer", f"JUDGE dispute on #{reply['re']} closed by coordinator #{ruling['seq']}: {ruling['text'][:RULING_CHARS]}", [flag["lane"], ROOT], re=reply["seq"], resolves=int(reply["re"]))
-            del self.saved.flags[str(reply["re"])]
+            self.settle(str(reply["re"]))
             return
         card = self.watch.drive_state / "judge" / "disputes" / f"{reply['re']}.md"
         words = "\n".join(f"- {item['at']}: \"{item['words']}\"" for item in flag["said"])

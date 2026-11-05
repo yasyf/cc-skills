@@ -142,7 +142,7 @@ def test_a_dispute_root_already_ruled_on_closes_with_that_ruling_and_asks_nobody
     [closed] = posted(second)
     assert (closed["kind"], closed["to"]) == ("answer", ["lane-a", "root"])
     assert closed["text"] == f"JUDGE dispute on #{flag_seq} closed by coordinator #290: the port keeps the source contract (ruling #262338)"
-    assert "--resolves" in second.posts[-1] and flag_seq not in second.saved.flags
+    assert "--resolves" in second.posts[-1] and flag_seq not in second.saved.flags and second.saved.closed == [100]
 
 
 def sprite_watch(tmp_path: Path) -> judge_watch.Watch:
@@ -226,3 +226,73 @@ def test_an_answer_on_a_relays_flag_from_the_appeals_lane_reaches_root_as_its_di
     assert ask["kind"] == "ask" and ask["to"] == ["root"] and ask["re"] == "300"
     card = (watch.drive_state / "judge" / "disputes" / f"{flag_seq}.md").read_text()
     assert f"The writer's reading, grader-appeals-1: {appeal['text']}" in card
+
+
+class Asked(Scripted):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.texts = []
+
+    def ask(self, kind: str, evidence: str, text: str, subject: str) -> judge.Verdict | None:
+        self.texts.append(text)
+        return next(self.verdicts)
+
+
+@pytest.mark.parametrize("cites", [1, 5])
+def test_a_relay_is_judged_with_the_whole_record_it_cites_in_one_read(watch, run, monkeypatch, tmp_path, cites):
+    """Root #469073: judge-watch graded a relay cut mid-sentence and read it as admitting what the grader's whole text denied."""
+    reads = []
+    blob = tmp_path / "source.txt"
+    blob.write_text("the next tree's config is unchanged. The grader is right.")
+    sources = {seq: {"seq": seq, "lane": "grader-1", "kind": "decide", "text": "the next tree's config is unch…", "refs": {"path": str(blob)}} for seq in range(500, 500 + cites)}
+    monkeypatch.setattr(judge_watch.cci, "selected_records", lambda cli, drive, seqs: reads.append(seqs) or [sources[seq] for seq in seqs if seq in sources])
+    cut = " ".join(f"(grader-1 #{seq})" for seq in sources)
+    relay = {"seq": 103, "lane": "root", "kind": "decide", "text": f"lane-a: the next tree's config rule/a201ee6 {cut}", "refs": {}}
+
+    scripted = run(Asked(watch, [relay], [CARRIED]))
+
+    assert len(reads) == 1
+    assert scripted.texts[0].count("is unchanged. The grader is right.") == cites
+    assert scripted.texts[0].startswith(relay["text"])
+
+
+def test_a_number_after_a_word_that_is_not_a_record_of_that_lane_adds_nothing(watch, run, monkeypatch):
+    other = {"seq": 49722, "lane": "lane-z", "kind": "report", "text": "an unrelated record", "refs": {}}
+    monkeypatch.setattr(judge_watch.cci, "selected_records", lambda cli, drive, seqs: [other])
+    relay = {"seq": 103, "lane": "root", "kind": "decide", "text": "lane-a: override rule/a201ee6 for fidelity-override #49722", "refs": {}}
+
+    scripted = run(Asked(watch, [relay], [CARRIED]))
+
+    assert scripted.texts == [relay["text"]]
+
+
+def test_an_answer_from_root_that_takes_a_flag_closes_its_artifact_and_a_recheck_never_judges_it_again(watch, run):
+    """Root #469392: judge-watch re-fired four times on one relay after root's answer had taken the point."""
+    relay = {"seq": 103, "lane": "root", "kind": "decide", "text": "lane-a: one process per key. rule/a201ee6", "refs": {"prs": [50231]}}
+    first = run(Scripted(watch, [relay], [MISREAD]))
+    answer = {"seq": 300, "lane": "root", "kind": "answer", "to": [judge_watch.LANE], "text": "taken. #50231 has landed and stays.", "refs": {}}
+
+    closed = run(Scripted(watch, [answer], []))
+
+    assert posted(closed) == [] and closed.saved.flags == {} and closed.saved.closed == [103]
+    announce = {"seq": 400, "lane": "root", "kind": "decision", "text": "Register classify, 1 rows: extended rule/a201ee6.", "refs": {}}
+    assert posted(run(Scripted(watch, [announce], [], cited=[relay]))) == []
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"lane": "root", "kind": "decide", "to": ["landing-desk"], "text": "landing-desk: #50231 goes ahead."},
+        {"lane": "root", "kind": "answer", "to": ["lane-a"], "text": "taken. #50231 has landed."},
+        {"lane": "root", "kind": "answer", "to": [judge_watch.LANE], "text": "taken. #61000 has landed."},
+        {"lane": "lane-a", "kind": "answer", "to": [judge_watch.LANE], "text": "#50231 is fine."},
+    ],
+    ids=["a-relay-naming-the-pr", "an-answer-to-another-lane", "an-answer-naming-another-pr", "an-answer-from-the-writer"],
+)
+def test_only_a_coordinator_answer_to_the_judge_that_names_the_flagged_artifact_closes_it(watch, run, record):
+    relay = {"seq": 103, "lane": "root", "kind": "decide", "text": "lane-a: one process per key. rule/a201ee6", "refs": {"prs": [50231]}}
+    run(Scripted(watch, [relay], [MISREAD]))
+
+    after = run(Scripted(watch, [record | {"seq": 300, "refs": {}}], []))
+
+    assert after.saved.closed == [] and len(after.saved.flags) == 1
