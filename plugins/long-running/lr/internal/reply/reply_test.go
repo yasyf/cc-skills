@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -2092,6 +2093,108 @@ func TestAnApprovingPickTheCardCannotTieToOnePRAtOneHeadWarnsOnTheCardAndInTheRe
 			}
 			if strings.Contains(got.Words[got.Picks[1]], untiedPick) {
 				t.Fatalf("words = %q, want only the approving pick marked", got.Words)
+			}
+		})
+	}
+}
+
+func TestAReplyNamingAnOpenBugCarriesItsFixPRsTapCard(t *testing.T) {
+	fix := store.ReviewRow{Title: "Run a subagent's tools once", ForUsers: "Opening a running subagent's tab no longer runs its tools twice.", Description: "Fixes item 7.", ReadyForTap: true, State: prrow.StateOpen}
+	fake := scripted()
+	f := fanout(t, fake)
+	ledgerRow(t, f, fix)
+	var evidence []string
+	f.Judge = func(_ context.Context, kind, said, _ string) (*board.Judgment, error) {
+		evidence = append(evidence, kind+": "+said)
+		return &board.Judgment{Verdict: "yes"}, nil
+	}
+	r, warning := f.withBugFixes(context.Background(), Reply{ID: "r1", Title: "FDE invites", MD: "Anubhav is inviting FDEs while the double-run bug is open.", Status: "info"})
+	if warning != "" || !slices.Equal(r.PRs, []string{landPR}) {
+		t.Fatalf("prs %q, warning %q, want the fix PR listed with no warning", r.PRs, warning)
+	}
+	if len(evidence) != 1 || !strings.HasPrefix(evidence[0], namesBugKind+": ") || !strings.Contains(evidence[0], fix.ForUsers) {
+		t.Fatalf("judge asked %q, want one %s question carrying what the fix changes", evidence, namesBugKind)
+	}
+	f.Send(context.Background(), r)
+	dm := calls(fake, "cc-slack")
+	if len(dm) != 1 || flag(t, dm[0].Argv, "--tap-pr") != landPR {
+		t.Fatalf("cc-slack calls %+v, want one card carrying the fix PR's tap card", dm)
+	}
+}
+
+func TestABugsFixPRIsDrawnOrWarnedOnAsTheToolCanResolveIt(t *testing.T) {
+	ready := store.ReviewRow{Title: "Run a subagent's tools once", ForUsers: "Tools run once.", Description: "Fixes item 7.", ReadyForTap: true, State: prrow.StateOpen}
+	waiting := ready
+	waiting.ReadyForTap, waiting.WaitsOn = false, "CI is running at this head"
+	tapped := ready
+	tapped.Tapped = true
+	about := Reply{ID: "r1", Title: "FDE invites", MD: "The double-run bug is open.", Status: "info"}
+	asking := about
+	asking.Picks, asking.Recommended = []string{"Pause invites", "Keep inviting"}, "Pause invites"
+	approving := asking
+	approving.Picks, approving.Recommended = []string{"Land", "Hold"}, "Land"
+	byItem := about
+	byItem.MD = "Item 7 is open."
+	listed := about
+	listed.PRs = []string{landPR}
+	for name, tc := range map[string]struct {
+		row     store.ReviewRow
+		reply   Reply
+		verdict string
+		failed  error
+		prs     []string
+		warning string
+		judged  bool
+	}{
+		"named by its item, with no judge": {ready, byItem, "", nil, []string{landPR}, "", false},
+		"named in words":                   {ready, about, "yes", nil, []string{landPR}, "", true},
+		"not named":                        {ready, about, "no", nil, nil, "", true},
+		"maybe named":                      {ready, about, "unsure", nil, nil, "this may name a bug these PRs fix; if it does, edit the reply with them in prs: " + landPR, true},
+		"judge down":                       {ready, about, "", errors.New("timed out"), nil, "the judge did not read, so a bug this names in words may lack its fix PR's tap card: timed out", true},
+		"not ready, with no picks":         {waiting, about, "yes", nil, nil, "this names a bug whose fix PR is not ready for his tap, so it carries no tap card yet: " + landPR + " waits on CI is running at this head", true},
+		"not ready, on a pick card":        {waiting, asking, "yes", nil, []string{landPR}, "", true},
+		"beside an approving pick":         {ready, approving, "yes", nil, nil, "this names a bug whose fix PR waits on his tap, and its card beside an approving pick would tie that pick to no one PR, so send the fix in its own reply with it in prs: " + landPR, true},
+		"already listed":                   {ready, listed, "", nil, []string{landPR}, "", false},
+		"already tapped":                   {tapped, about, "", nil, nil, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, tc.row)
+			judged := false
+			f.Judge = func(context.Context, string, string, string) (*board.Judgment, error) {
+				judged = true
+				if tc.failed != nil {
+					return nil, tc.failed
+				}
+				return &board.Judgment{Verdict: tc.verdict}, nil
+			}
+			r, warning := f.withBugFixes(context.Background(), tc.reply)
+			if !slices.Equal(r.PRs, tc.prs) || warning != tc.warning || judged != tc.judged {
+				t.Fatalf("prs %q, warning %q, judged %v; want %q, %q, %v", r.PRs, warning, judged, tc.prs, tc.warning, tc.judged)
+			}
+		})
+	}
+}
+
+func TestAnApprovingPickDrawsTheOnePRItsWordsName(t *testing.T) {
+	land := []string{"Land", "Hold"}
+	for name, tc := range map[string]struct {
+		reply Reply
+		prs   []string
+	}{
+		"one ledger PR named":        {Reply{Title: "Land the relay fix?", MD: "#2196 is green.", Picks: land}, []string{landPR}},
+		"a PR with no ledger row":    {Reply{Title: "Land the relay fix?", MD: "#2197 is green.", Picks: land}, nil},
+		"two PRs named":              {Reply{Title: "Land the relay fixes?", MD: "#2196 and #2197 are green.", Picks: land}, nil},
+		"prs already listed":         {Reply{Title: "Land it?", MD: "#2196 is green.", Picks: land, PRs: []string{landPR + "0"}}, []string{landPR + "0"}},
+		"no approving pick":          {Reply{Title: "Pause invites?", MD: "#2196 is green.", Picks: []string{"Pause", "Keep going"}}, nil},
+		"another repo's same number": {Reply{Title: "Land it?", MD: "Forge-AI/monorepo#2196 is green.", Picks: land}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, store.ReviewRow{Title: "Relay fix", ReadyForTap: true})
+			r, warning := f.withApprovedPR(tc.reply)
+			if warning != "" || !slices.Equal(r.PRs, tc.prs) {
+				t.Fatalf("prs %q, warning %q, want %q", r.PRs, warning, tc.prs)
 			}
 		})
 	}

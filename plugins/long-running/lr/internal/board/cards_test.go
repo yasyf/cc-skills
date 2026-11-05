@@ -357,3 +357,23 @@ func TestTheSweepReadsAPRCardsEndFromTheDrivesCheckoutUnderLaunchd(t *testing.T)
 		t.Fatalf("PRs = %v, want #50129 read open", facts.PRs)
 	}
 }
+
+func TestALandingPickOnACardThatLinksNoPRWarns(t *testing.T) {
+	choice := `{"id":"c-choice","type":"choice","options":[{"id":"c-1","label":"Land it"},{"id":"c-2","label":"Hold"}]}`
+	for name, tc := range map[string]struct {
+		card string
+		warn bool
+	}{
+		"links no PR":     {`{"id":"card-c","type":"card","title":"CI output reuse","children":[` + choice + `]}`, true},
+		"links its PR":    {`{"id":"card-c","type":"card","title":"CI output reuse","children":[` + choice + `,{"id":"c-pr","type":"pr","repo":"Forge-AI/monorepo","number":50346}]}`, false},
+		"no landing pick": {`{"id":"card-c","type":"card","title":"Pause invites?","children":[{"id":"c-choice","type":"choice","options":[{"id":"c-1","label":"Pause"},{"id":"c-2","label":"Keep going"}]}]}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var warned bytes.Buffer
+			warnUntiedLand(&warned, []byte(tc.card))
+			if got := strings.Contains(warned.String(), `pick "Land it" reads as landing a PR`); got != tc.warn {
+				t.Fatalf("warned %q, want a warning %v", warned.String(), tc.warn)
+			}
+		})
+	}
+}

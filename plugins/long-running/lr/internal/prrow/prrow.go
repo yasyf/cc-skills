@@ -63,6 +63,8 @@ var (
 	holdLeadIn  = regexp.MustCompile(`(?i)^(?:\d{1,2}:\d{2} [AP]M )?(?:[\w-]+ holds?|hold(?: on)?) (?:#?\d+|this PR|PR \d+)(?: widened)?[ :,]*`)
 	sentenceEnd = regexp.MustCompile(`[.!?](?:\s|$)`)
 	planLine    = regexp.MustCompile(`(?im)^(?:[\s>*-]*plan:.*|.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix|owner:m\d+|cc-notes task\W+[0-9a-f]{8,})\b.*)$`)
+	itemList    = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
+	itemNumber  = regexp.MustCompile(`\d+`)
 )
 
 func Terminal(state string) bool {
@@ -227,6 +229,18 @@ func heldWords(hold string) string {
 		said = said[:end[0]+1]
 	}
 	return said
+}
+
+func Items(text string) []string {
+	var items []string
+	for _, list := range itemList.FindAllString(text, -1) {
+		for _, number := range itemNumber.FindAllString(list, -1) {
+			if !slices.Contains(items, number) {
+				items = append(items, number)
+			}
+		}
+	}
+	return items
 }
 
 func ApplyBody(row *store.ReviewRow, body string) {

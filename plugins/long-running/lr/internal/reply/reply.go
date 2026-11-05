@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
@@ -64,6 +65,7 @@ const (
 	diagramNote = "The diagram is on the Chat page of your dashboard."
 	untiedPick  = "Picking this approves no PR by itself: this card shows no single PR at one head, so a lane carries your yes by hand."
 
+	namesBugKind    = "names-bug"
 	cardCopySurface = "card copy"
 	resendOnce      = "; nothing went out on this surface, so once the tool is back send this reply again with its id, which posts it once"
 )
@@ -333,6 +335,117 @@ func (f Fanout) tapWarning(r Reply) string {
 		warned = append(warned, "this names a PR waiting on his tap and does not list it, so it carries no tap card; edit the reply with it in prs: "+strings.Join(missing, ", "))
 	}
 	return strings.Join(warned, "; ")
+}
+
+func (f Fanout) withBugFixes(ctx context.Context, r Reply) (Reply, string) {
+	repo, fixes, err := board.BugFixes(f.Entry)
+	if err != nil {
+		return r, fmt.Sprintf("the PR ledger did not read, so no bug this names was checked for a fix PR he can tap: %v", err)
+	}
+	said := r.Title + "\n" + r.MD
+	_, numbers := r.namedPRs()
+	var named, asked []string
+	for _, item := range slices.Sorted(maps.Keys(fixes)) {
+		switch {
+		case slices.ContainsFunc(fixes[item], func(row store.ReviewRow) bool { return slices.Contains(numbers, row.Number) }):
+		case slices.Contains(prrow.Items(said), item):
+			named = append(named, item)
+		default:
+			asked = append(asked, item)
+		}
+	}
+	judging, stop := context.WithTimeout(ctx, postTimeout)
+	defer stop()
+	verdicts, failures := make([]*board.Judgment, len(asked)), make([]error, len(asked))
+	var running sync.WaitGroup
+	for n, item := range asked {
+		evidence := []string{"Open pull requests in the drive fix one bug a person reported. Each is its title, then what it changes for a user:"}
+		for _, row := range fixes[item] {
+			evidence = append(evidence, "- "+row.Title+": "+row.ForUsers)
+		}
+		running.Go(func() { verdicts[n], failures[n] = f.Judge(judging, namesBugKind, strings.Join(evidence, "\n"), said) })
+	}
+	running.Wait()
+	var unsure, unjudged []string
+	for n, item := range asked {
+		switch {
+		case failures[n] != nil:
+			unjudged = append(unjudged, failures[n].Error())
+		case verdicts[n] == nil:
+			unjudged = append(unjudged, "its model call failed for item "+item)
+		case verdicts[n].Verdict == "yes":
+			named = append(named, item)
+		case verdicts[n].Verdict == "unsure":
+			for _, row := range fixes[item] {
+				unsure = append(unsure, fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number))
+			}
+		}
+	}
+	approves := slices.ContainsFunc(r.Picks, bus.ReadsAsLand)
+	var drawn []store.ReviewRow
+	for _, item := range named {
+		for _, row := range fixes[item] {
+			if !slices.ContainsFunc(drawn, func(other store.ReviewRow) bool { return other.Number == row.Number }) {
+				drawn = append(drawn, row)
+			}
+		}
+	}
+	var untying, waiting, over []string
+	for _, row := range drawn {
+		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number)
+		switch {
+		case slices.ContainsFunc(r.PRs, func(pr string) bool { return strings.EqualFold(pr, url) }):
+		case approves:
+			untying = append(untying, url)
+		case len(r.Picks) == 0 && !row.ReadyForTap:
+			waiting = append(waiting, url+" waits on "+cmp.Or(row.WaitsOn, "nothing its row names"))
+		case len(r.PRs) >= maxPRs:
+			over = append(over, url)
+		default:
+			r.PRs = append(r.PRs, url)
+		}
+	}
+	var warned []string
+	for _, warning := range []struct {
+		lead  string
+		found []string
+	}{
+		{"this names a bug whose fix PR waits on his tap, and its card beside an approving pick would tie that pick to no one PR, so send the fix in its own reply with it in prs: ", untying},
+		{"this names a bug whose fix PR is not ready for his tap, so it carries no tap card yet: ", waiting},
+		{fmt.Sprintf("this names a bug whose fix PR did not fit, since a reply carries at most %d PRs: ", maxPRs), over},
+		{"this may name a bug these PRs fix; if it does, edit the reply with them in prs: ", unsure},
+		{"the judge did not read, so a bug this names in words may lack its fix PR's tap card: ", unjudged},
+	} {
+		if len(warning.found) > 0 {
+			warned = append(warned, warning.lead+strings.Join(warning.found, ", "))
+		}
+	}
+	return r, strings.Join(warned, "; ")
+}
+
+func (f Fanout) withApprovedPR(r Reply) (Reply, string) {
+	if len(r.PRs) > 0 || !slices.ContainsFunc(r.Picks, bus.ReadsAsLand) {
+		return r, ""
+	}
+	said, numbers := r.namedPRs()
+	if len(numbers) == 0 {
+		return r, ""
+	}
+	repo, rows, err := board.Rows(f.Entry, numbers)
+	if err != nil {
+		return r, fmt.Sprintf("the PR ledger did not read, so the PR an approving pick lands was not drawn: %v", err)
+	}
+	var named []string
+	for n, found := range said {
+		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])
+		if inRepo(repo, found) && slices.ContainsFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] }) && !slices.Contains(named, url) {
+			named = append(named, url)
+		}
+	}
+	if len(named) == 1 {
+		r.PRs = named
+	}
+	return r, ""
 }
 
 // untiedApprovals marks each pick that reads as approving a PR when the card

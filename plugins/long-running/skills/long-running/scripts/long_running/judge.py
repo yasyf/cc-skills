@@ -133,6 +133,9 @@ SET_OPTIONS = """Does this card leave out what he needs to see before he picks? 
 - Designs with no diagram: the card has him choose between two or more architecture designs, ways of building a system that differ in its parts, where its state lives, which part does a step or how data flows between them, and it carries no architecture diagram comparing them. Only an architecture doc counts as the diagram: JSON with "arch": 1 and its nodes and edges, given as the card's diagram field or as one of its blocks, drawing each design so he can compare and contrast them. A picture, a screenshot, a mermaid block, a table, a link to a page or prose about the designs is no diagram. Options that choose a value, a timing, wording, whether to do one thing, or which of several items goes first compare no designs.
 Judge the card by itself: the evidence holds none of his words and needs none, so the evidence phrase stays empty.
 Answer "yes" when either holds, and quote the option it rests on. For an unnamed set, make your sentence name the group and what the card must list for each member: which one it is, its pull request link and what it does for a user. For designs with no diagram, make your sentence name the designs and say the card must carry one architecture doc that draws them side by side."""
+NAMES_BUG = """Does this post to him name the bug the evidence's pull requests fix, so that he reads it as being about that bug? A post names it when it says the bug is open, still there, being fixed or holding something up, in any words: its symptom, where it shows up or what it breaks.
+A post about another bug, one that shares only the product area or a word with these pull requests, or one that names no bug at all is a no.
+Answer "yes" when it names the bug, quote the artifact words that name it and the evidence words they match, and make your sentence say which bug it names in plain words."""
 JUDGED_BY_ITSELF = frozenset({"first-question", "set-options"})
 
 KINDS: dict[str, tuple[str, str]] = {
@@ -191,6 +194,7 @@ Answer "yes" when the card asks him to grade a reading, and say in your sentence
 Answer "yes" when the card fails either way, and say in your sentence which, and what to add: the option that fixes the cause, or the plan beside that loss.""",
     ),
     "set-options": ("a card an agent is about to draw for him, with every option it offers", SET_OPTIONS),
+    "names-bug": ("a post an agent is about to send him", NAMES_BUG),
     "plain": ("text the owner reads: a card, a board block, a question, a plan or a reply", PLAIN),
     "first-question": ("a post the owner is about to read: a reply, a card or a board block", FIRST_QUESTION),
     "mechanism": (

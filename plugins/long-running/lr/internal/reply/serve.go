@@ -83,6 +83,7 @@ func Tool(a *app.App) channel.Tool {
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
 			"- by and routed need order, no picks and status progress or info.\n" +
 			"- prs draws a button only for a PR ready for his tap; otherwise the result says NO BUTTON and he sees a link, so say in md what he can do.\n" +
+			"- Naming an open bug? Its fix PRs join prs by themselves; a line in the result names any it could not draw.\n" +
 			"- The first reply after he has been away an hour opens with the dashboard link on line one.",
 		InputSchema: schema,
 		Handler: func(ctx context.Context, args json.RawMessage, _ func(string)) (string, bool) {
@@ -116,6 +117,14 @@ func Tool(a *app.App) channel.Tool {
 			}
 			if r.ID == "" {
 				r.ID = "r" + strconv.FormatInt(a.Now().UnixMilli(), 36)
+			}
+			r, warning = fanout.withBugFixes(ctx, r)
+			if warning != "" {
+				warned = append(warned, warning)
+			}
+			r, warning = fanout.withApprovedPR(r)
+			if warning != "" {
+				warned = append(warned, warning)
 			}
 			if warning := fanout.tapWarning(r); warning != "" {
 				warned = append(warned, warning)
