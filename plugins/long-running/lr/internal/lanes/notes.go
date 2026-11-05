@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"slices"
 	"strings"
 	"sync"
@@ -18,32 +19,68 @@ import (
 const (
 	notesCursor        = "notes-published"
 	notesSyncTimeout   = 2 * time.Minute
+	notesSyncBudget    = 60
+	exitNotesDeferred  = 75
 	publishNotesScript = `IFS= read -r NOTES_TOKEN
-export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper
+export NOTES_TOKEN CCN_LOCK_WAIT=5s GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper
 export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'
 cd "$1" || exit 1
-origin=$(mktemp)
-trap 'rm -f "$origin"' EXIT
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+origin=$scratch/origin
 git ls-remote origin 'refs/cc-notes/*' > "$origin" || { echo "could not read origin's cc-notes refs" >&2; exit 1; }
 rows=$(git for-each-ref --format='%(refname) %(objectname)' refs/cc-notes/ | awk 'FILENAME == ARGV[1] { theirs[$2] = $1; next } theirs[$1] != $2 { print $1 "," $2 "," theirs[$1] }' "$origin" -)
 moved=$(printf '%s\n' "$rows" | awk -F, '$3 != "" { print $1 }')
 [ -z "$moved" ] || git fetch -q --no-write-fetch-head origin $moved 2> /dev/null
+started=$(date +%s)
 status=0
 for row in $rows; do
   ref=${row%%,*} theirs=${row##*,} tip=${row#*,}
   tip=${tip%,*}
   [ -n "$theirs" ] && git merge-base --is-ancestor "$tip" "$theirs" 2> /dev/null && continue
-  ccn sync --prefix "$ref" --json || { status=1; echo "$ref did not reach origin" >&2; }
+  [ $(( $(date +%s) - started )) -lt "$2" ] || exit 75
+  if ! ccn sync --prefix "$ref" --json 2> "$scratch/err"; then
+    cat "$scratch/err" >&2
+    grep -qE 'retry shortly|authority busy' "$scratch/err" && exit 75
+    status=1
+    echo "$ref did not reach origin" >&2
+  fi
 done
 exit $status`
 )
 
-var ErrSpriteGone = errors.New("its Sprite no longer exists")
+var (
+	ErrSpriteGone    = errors.New("its Sprite no longer exists")
+	ErrNotesDeferred = errors.New("ccn on its Sprite is importing, busy or out of time, and publishes the rest on the next pass")
+)
+
+type spriteSyncError struct {
+	reason string
+	cause  error
+}
+
+func (e *spriteSyncError) Error() string { return e.reason }
+
+func (e *spriteSyncError) Unwrap() error { return e.cause }
+
+func spriteSyncFailure(sprite string, err error) error {
+	var exit *shell.ExitError
+	switch {
+	case errors.As(err, &exit) && exit.Code == exitNotesDeferred:
+		return fmt.Errorf("ccn sync on Sprite %s: %w", sprite, ErrNotesDeferred)
+	case errors.As(err, &exit):
+		first, _, _ := strings.Cut(strings.TrimSpace(exit.Stderr), "\n")
+		return &spriteSyncError{reason: fmt.Sprintf("ccn sync on Sprite %s exited %d: %s", sprite, exit.Code, first), cause: err}
+	case errors.Is(err, context.DeadlineExceeded):
+		return &spriteSyncError{reason: fmt.Sprintf("ccn sync on Sprite %s ran past %s", sprite, notesSyncTimeout), cause: err}
+	}
+	return fmt.Errorf("ccn sync on Sprite %s: %w", sprite, err)
+}
 
 func publishSpriteNotes(ctx context.Context, runner shell.Runner, sprite, checkout, token string) error {
-	result, err := runner.Run(ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", sprite, "--", "sh", "-c", publishNotesScript, "sh", checkout}, Stdin: token + "\n", Timeout: notesSyncTimeout})
+	result, err := runner.Run(ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", sprite, "--", "sh", "-c", publishNotesScript, "sh", checkout, strconv.Itoa(notesSyncBudget)}, Stdin: token + "\n", Timeout: notesSyncTimeout})
 	if err != nil {
-		return fmt.Errorf("ccn sync on Sprite %s: %w", sprite, err)
+		return spriteSyncFailure(sprite, err)
 	}
 	var kept []string
 	reports := json.NewDecoder(strings.NewReader(result.Stdout))
@@ -203,6 +240,9 @@ func publishWritten(s *store.Store, d Deps, records []Record, now time.Time) {
 	wg.Wait()
 	for i, name := range writers {
 		subject := "notes:" + name
+		if errors.Is(failed[i], ErrNotesDeferred) {
+			continue
+		}
 		if failed[i] == nil {
 			do(s.ClearEscalation(subject))
 			continue
