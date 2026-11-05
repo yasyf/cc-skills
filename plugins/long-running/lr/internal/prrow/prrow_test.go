@@ -253,15 +253,69 @@ func TestAKnownMergeabilitySurvivesGitHubsRecomputeThenGoesUnknown(t *testing.T)
 	if row := read(machine.MergeableUnknown); !row.ReadyForTap || row.Mergeable != "clean" {
 		t.Fatalf("during the recompute: row = %+v, want still ready", row)
 	}
-	now = now.Add(unknownGrace)
-	if row := read(machine.MergeableUnknown); row.ReadyForTap || row.Mergeable != "unknown" {
-		t.Fatalf("past the grace: row = %+v, want unknown and not ready", row)
+	for range 5 {
+		now = now.Add(5 * time.Minute)
+		if row := read(machine.MergeableUnknown); !row.ReadyForTap || row.Mergeable != "clean" {
+			t.Fatalf("dev still moving: row = %+v, want its clean kept until GitHub answers", row)
+		}
 	}
 	if row := read(machine.MergeableClean); !row.ReadyForTap {
 		t.Fatalf("after the answer: row = %+v, want ready", row)
 	}
 	if row := read(machine.MergeableUnknown); !row.ReadyForTap || row.Mergeable != "clean" {
-		t.Fatalf("a later recompute: row = %+v, want its own grace", row)
+		t.Fatalf("a later recompute: row = %+v, want clean kept", row)
+	}
+}
+
+func TestAConflictAnswerReplacesAKeptClean(t *testing.T) {
+	f, s := foldFor(t)
+	now := time.Now()
+	f.Now = func() time.Time { return now }
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	gradeClear(t, s, 1, headA)
+	read := func(mergeable machine.Mergeable) store.ReviewRow {
+		t.Helper()
+		now = now.Add(time.Second)
+		pr := cleanRead(1, headA)
+		pr.Mergeable = mergeable
+		if err := f.PostReads(context.Background(), []machine.Facts{pr}); err != nil {
+			t.Fatal(err)
+		}
+		return folded(t, f, 1)
+	}
+
+	read(machine.MergeableClean)
+	if row := read(machine.MergeableUnknown); !row.ReadyForTap || row.Mergeable != "clean" {
+		t.Fatalf("during the recompute: row = %+v, want clean kept", row)
+	}
+	if row := read(machine.MergeableConflict); row.ReadyForTap || row.Mergeable != "conflict" {
+		t.Fatalf("after the conflict answer: row = %+v, want conflict and not ready", row)
+	}
+	if row := read(machine.MergeableUnknown); row.ReadyForTap || row.Mergeable != "conflict" {
+		t.Fatalf("recomputing after the conflict: row = %+v, want the conflict kept", row)
+	}
+}
+
+func TestANewHeadKeepsNoAnswerFromTheHeadBefore(t *testing.T) {
+	f, s := foldFor(t)
+	now := time.Now()
+	f.Now = func() time.Time { return now }
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	gradeClear(t, s, 1, headA)
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headA)}); err != nil {
+		t.Fatal(err)
+	}
+	folded(t, f, 1)
+	now = now.Add(time.Second)
+	moved := cleanRead(1, headB)
+	moved.Mergeable = machine.MergeableUnknown
+	if err := f.PostReads(context.Background(), []machine.Facts{moved}); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); row.Mergeable != "unknown" || row.ReadyForTap {
+		t.Fatalf("row = %+v, want a new head unknown until GitHub answers for it", row)
 	}
 }
 
