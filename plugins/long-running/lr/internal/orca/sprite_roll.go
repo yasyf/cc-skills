@@ -406,6 +406,24 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(roll, pin, hold)
+	grader := &cobra.Command{
+		Use:   "grader NAME...",
+		Short: "Make each named Sprite a grader from one export of the drive's store: install the grader pins, link this Mac's home and the grading checkouts onto the Sprite's checkout, fetch its whole history, and join the cci relay with WORKER_RELAY_SPONSOR's service key under cci supervise, which renews the delegation before it lapses",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, _, state, err := opened()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			maker := &GraderMaker{Runner: a.Runner, Store: s, Home: home, Sleep: time.Sleep, Now: a.Now, Out: cmd.OutOrStdout()}
+			return refusalExit(cmd, maker.Make(cmd.Context(), filepath.Join(state, "runner.json"), args))
+		},
+	}
+	cmd.AddCommand(roll, pin, hold, grader)
 	return cmd
 }
