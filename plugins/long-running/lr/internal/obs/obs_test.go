@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	drive       = "brook"
+	driveName   = "brook"
 	lane        = "alert-1-fix"
 	sentryValue = "sentry-token-never-in-a-record"
 	ddAPIValue  = "dd-api-key-never-in-a-record"
@@ -93,7 +93,7 @@ func settings(api string) Settings {
 func newDesk(t *testing.T, runner *fakeRunner, api string) *Desk {
 	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
-	desk, err := NewDesk(context.Background(), runner, settings(api), drive, t.TempDir(), func() time.Time { return started }, io.Discard)
+	desk, err := NewDesk(context.Background(), runner, settings(api), driveName, t.TempDir(), func() time.Time { return started }, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,16 +105,16 @@ func TestAnAskIsAnsweredToItsLaneAndClosedWithNoKeyInTheRecordOrBody(t *testing.
 		"/api/v1/monitor/42": `{"name":"api 5xx","type":"query alert","query":"sum:x{*}>1","overall_state":"Alert","state":{"groups":{"service:api":{"status":"Alert","last_triggered_ts":1793908800}}}}`,
 	})
 	desk := newDesk(t, &fakeRunner{}, server.URL)
-	opened, err := client.Post(context.Background(), client.Draft{Drive: drive, Lane: lane, Kind: askdesk.AskKind, Text: "datadog monitor 42", To: []string{Lane}, Force: true})
+	opened, err := client.Post(context.Background(), client.Draft{Drive: driveName, Lane: lane, Kind: askdesk.AskKind, Text: "datadog monitor 42", To: []string{Lane}, Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := desk.loop().Pass(context.Background(), client.Query{Drive: drive, Since: time.Now().Add(-askdesk.CatchUp), Kinds: []string{askdesk.AskKind}}); err != nil {
+	if _, err := desk.loop().Pass(context.Background(), client.Query{Drive: driveName, Since: time.Now().Add(-askdesk.CatchUp), Kinds: []string{askdesk.AskKind}}); err != nil {
 		t.Fatal(err)
 	}
 
-	found, err := client.Tail(context.Background(), client.Query{Drive: drive, Kinds: []string{askdesk.AnswerKind}, Lanes: []string{Lane}})
+	found, err := client.Tail(context.Background(), client.Query{Drive: driveName, Kinds: []string{askdesk.AnswerKind}, Lanes: []string{Lane}})
 	if err != nil || len(found) != 1 {
 		t.Fatalf("answers = %v, %v", found, err)
 	}
@@ -310,7 +310,7 @@ func TestAFailedReadSaysItsStatusAndKeepsTheBodyOutOfTheLine(t *testing.T) {
 }
 
 func TestADeskStartRefusesAKeySSMPrintsEmpty(t *testing.T) {
-	_, err := NewDesk(context.Background(), &fakeRunner{empty: true}, settings("http://unused"), drive, t.TempDir(), time.Now, io.Discard)
+	_, err := NewDesk(context.Background(), &fakeRunner{empty: true}, settings("http://unused"), driveName, t.TempDir(), time.Now, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "SSM printed nothing for /sentry") {
 		t.Fatalf("err = %v", err)
 	}

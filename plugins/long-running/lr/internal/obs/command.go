@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 )
@@ -40,7 +41,7 @@ func Command(a *app.App) *cobra.Command {
 		},
 		&cobra.Command{
 			Use:   "install",
-			Short: "Write the obs desk's launchd agent, which runs this lr, and bootstrap it",
+			Short: "Write the obs desk's launchd agent, which runs the installed lr, and bootstrap it",
 			Args:  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				cfg, state, err := lanes.Loaded(a)
@@ -54,7 +55,7 @@ func Command(a *app.App) *cobra.Command {
 				if path == "" {
 					return errors.New("PATH is empty; launchd would run the desk with no aws CLI")
 				}
-				binary, err := os.Executable()
+				claude, err := drive.ConfigDir()
 				if err != nil {
 					return err
 				}
@@ -72,7 +73,7 @@ func Command(a *app.App) *cobra.Command {
 				return agents.Install(cmd.Context(), launchd.Job{
 					Label:     Label(cfg.Drive),
 					Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", cfg.Drive}, {lanes.LaneEnv, Lane}, {"PATH", path}},
-					Arguments: []string{binary, "obs", "desk", "--config", config},
+					Arguments: []string{filepath.Join(claude, "long-running", "current", "bin", "lr"), "obs", "desk", "--config", config},
 					Directory: state,
 					Log:       filepath.Join(state, "obs-desk.log"),
 				})
