@@ -34,7 +34,7 @@ var (
 
 func successorCost(old store.Lane) Cost {
 	base, _ := family(old.Name)
-	if cost, desk := DeskCosts[base]; desk {
+	if cost, desk := DeskCosts[base]; desk && cost.Model == old.Model {
 		return cost
 	}
 	keeps := base == OwnerRelay || slices.Contains(incidentRoutes, old.Model) || must(BriefOf(old.Brief)).OwnerPicked
