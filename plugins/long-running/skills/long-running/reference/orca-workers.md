@@ -55,11 +55,11 @@ No human reads a lane, so it starts stripped:
 
 `orca worktree create` has no sparse option, and a `git worktree add` from the main checkout copies no sparse config, so each monorepo lane holds the whole tree. Set `ORCA_LAUNCH_SPARSE=1` and the script adds the worktree with git at `<root>/<lane>-<run>-<n>`. `<root>` is `ORCA_LAUNCH_ROOT`, else `<ccx.worktreeRoot>/<main checkout's name>` when the main checkout's git config sets `ccx.worktreeRoot`, else the coordinator worktree's directory.
 
-When HEAD tracks more than `ORCA_LAUNCH_SPARSE_FILES` files, 5,000 by default, the script checks out only the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, and the directories the brief's `ccx:` line names in `paths=`. The monorepo's `tools/ci` sources `infra/ci/hooks/lib`. That cone is about 1,800 entries in the monorepo, and a smaller repo keeps a full checkout. Orca lists the worktree once it reads git's registry, and `orca worktree set` gives it Orca's name and parent:
+When HEAD tracks more than `ORCA_LAUNCH_SPARSE_FILES` files, 5,000 by default, the script checks out only the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, `infra/ci/src`, and the directories the brief's `ccx:` line names in `paths=`. The monorepo's `tools/ci` sources `infra/ci/hooks/lib` and runs `infra/ci/src/cli.ts`. That cone is about 2,100 entries in the monorepo, and a smaller repo keeps a full checkout. Orca lists the worktree once it reads git's registry, and `orca worktree set` gives it Orca's name and parent:
 
 ```sh
 git -C "<main checkout>" worktree add --no-checkout --no-track -b "<user>/<lane>-<run>-<n>" "<root>/<lane>-<run>-<n>" "origin/<base>"
-printf '%s\n' .agents .claude tools infra/ci/hooks/lib <paths> | git -C "<wt>" sparse-checkout set --cone --stdin
+printf '%s\n' .agents .claude tools infra/ci/hooks/lib infra/ci/src <paths> | git -C "<wt>" sparse-checkout set --cone --stdin
 git -C "<wt>" reset --hard
 orca worktree set --worktree "path:<wt>" --display-name "<lane>-<run>-<n>" \
   --parent-worktree "path:<coordinator worktree>" --json

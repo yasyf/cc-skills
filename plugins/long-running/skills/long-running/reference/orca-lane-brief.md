@@ -31,7 +31,7 @@ Read this to write a lane's brief, choose where it runs, and launch it. The fenc
 
 ### Sparse checkout
 
-- With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `lr launch start` gives every lane a sparse checkout of the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, `release`, `infra/envs`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A directory inside a Go module widens to that module, with its local `replace` targets followed through their own `go.mod`s, because `go build` cannot run from one package of a module.
+- With `ORCA_LAUNCH_SPARSE=1`, in a repo whose HEAD tracks more than 5,000 files, `lr launch start` gives every lane a sparse checkout of the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, `infra/ci/src`, `release`, `infra/envs`, and each directory the `ccx:` line names as `paths=<dir>,<dir>`. A directory inside a Go module widens to that module, with its local `replace` targets followed through their own `go.mod`s, because `go build` cannot run from one package of a module.
 - A launched lane in a repo with `tools/hooks/warm-lane.sh` has its `node_modules` linked before its worker starts, unless `ORCA_LAUNCH_PREPARE` names another command.
 - A smaller repo, such as cc-skills, keeps full lanes, and so does every launch without `ORCA_LAUNCH_SPARSE=1`.
 - Name the directories the lane edits or reads, such as `paths=go/ci,infra/ci`. A Go lane names its own module, since the monorepo's Go code is 28 separate modules under `go/`.
