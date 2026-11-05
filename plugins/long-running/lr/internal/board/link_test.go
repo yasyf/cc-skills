@@ -470,6 +470,34 @@ func TestAWithdrawalTakesTheLanesCardDown(t *testing.T) {
 	}
 }
 
+func TestACardReplacingAnotherTakesTheOldOneDownLinkingTheNewOne(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	askCard(t, asker)
+	f.run(t)
+	block, err := askedCard(strings.NewReader(""), Ask{
+		ID: "which-number-at-the-new-head", Title: "Which number do you accept for the test job?", Background: "It takes 90 s now and a warm change waits 3 min.",
+		Options: []string{"Accept it :: The bar moves to what is measured.", "Keep 3 minutes :: A shared compile cache, landed by Friday."}, NothingToBuild: "a choice of target",
+	}, "", "yasyf/cc-skills", everyPR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DrawCard(context.Background(), linkDrive, asker, "again", cardBody{Block: block, Until: "at:3d", Replaces: []string{askedID}}); err != nil {
+		t.Fatal(err)
+	}
+	f.run(t)
+
+	calls := f.shell.seen()
+	want := "cc-present remove-block " + askedID + " --reason " + newVersionWhy + " at " + dmURL + " --lane " + asker + " --take-over --session board-1 <"
+	if len(calls) != 3 || !strings.HasPrefix(calls[1], "cc-present ask - ") || calls[2] != want {
+		t.Fatalf("calls %q, want the new card drawn and then %q", calls, want)
+	}
+	said, err := awaitLink(context.Background(), linkDrive, asker, "again", busStart)
+	if err != nil || !strings.Contains(said, "WITHDRAWN "+askedID) {
+		t.Fatalf("awaitLink = %q, %v; want the old card withdrawn", said, err)
+	}
+}
+
 func TestAChangeMustBeOneDrawOrOneRemoval(t *testing.T) {
 	liveDrive(t)
 	for _, change := range []struct {

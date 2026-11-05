@@ -316,11 +316,10 @@ func clipWords(text string, limit int) string {
 }
 
 func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCard, withdrawn string) error {
+	var replaced []string
 	for _, card := range shown {
-		if strings.HasPrefix(card.ID, tapCardPrefix(row.Number)) {
-			if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, "tap-off-"+card.ID, cardBody{Remove: card.ID, Reason: newVersionWhy}); err != nil {
-				return err
-			}
+		if strings.HasPrefix(card.ID, tapCardPrefix(row.Number)) && card.ID != tapCardID(row) {
+			replaced = append(replaced, card.ID)
 		}
 	}
 	plan := NewAnswerWords(r.Cards.Runner, r.Cards.Checkout).Said(ctx, PlanWords(row))
@@ -334,7 +333,7 @@ func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCa
 	if withdrawn != "" {
 		key += "@" + withdrawn
 	}
-	if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, key, cardBody{Block: block, Until: KindPR + ":" + pr, TapOf: pr, TapHead: row.Head}); err != nil {
+	if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, key, cardBody{Block: block, Until: KindPR + ":" + pr, TapOf: pr, TapHead: row.Head, Replaces: replaced}); err != nil {
 		return err
 	}
 	return r.mark(row, tapCardDrawn)

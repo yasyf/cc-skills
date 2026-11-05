@@ -234,7 +234,7 @@ func sameText(one, other string) bool {
 	return strings.EqualFold(strings.Join(strings.Fields(one), " "), strings.Join(strings.Fields(other), " "))
 }
 
-func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (refused, unchecked error) {
+func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage, replaces ...string) (refused, unchecked error) {
 	if name := cardtext.Bare(card); name != "" {
 		return cardtext.Refusal(name), nil
 	}
@@ -251,7 +251,7 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 		if ask.ID == id && sameText(ask.Title, title) {
 			return nil, nil
 		}
-		if sameText(ask.Title, title) {
+		if sameText(ask.Title, title) && !slices.Contains(replaces, ask.ID) {
 			return fmt.Errorf("refused: %s already asks him %q; change that card instead of drawing a second", ask.ID, strings.TrimSpace(ask.Title)), nil
 		}
 	}
