@@ -171,7 +171,7 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	switch {
 	case r.quiet():
 		steps = []step{{f.board, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
-	case r.Order == "" || r.Status != info || len(r.Picks) > 0:
+	case !r.writesRow():
 		steps = steps[:len(steps)-1]
 	}
 	sent := make([]Outcome, 0, 6)
@@ -433,6 +433,10 @@ func (r Reply) quiet() bool {
 	return r.Order != "" && len(r.Picks) == 0 && r.Status == progress
 }
 
+func (r Reply) writesRow() bool {
+	return r.Order != "" && len(r.Picks) == 0 && (r.Status == progress || r.Status == info)
+}
+
 func (r Reply) led() Reply {
 	if r.Order == "" || strings.TrimSpace(r.Title) == "" || strings.TrimSpace(r.MD) == "" {
 		return r
@@ -465,8 +469,8 @@ func (r Reply) mended() (Reply, []string) {
 		r.Action = ""
 	}
 	r.Action = strings.Join(strings.Fields(r.Action), " ")
-	if (r.By != "" || r.Routed != 0) && !r.quiet() {
-		warn("by and routed mark his ledger row only from a progress reply to an order with no picks, so they were left off")
+	if (r.By != "" || r.Routed != 0) && !r.writesRow() {
+		warn("by and routed mark his ledger row only from a progress or info reply to an order with no picks, so they were left off")
 		r.By, r.Routed = "", 0
 	}
 	if !replyID.MatchString(r.ID) {
@@ -532,7 +536,7 @@ func (r Reply) mendedPicks(warned []string) (Reply, []string) {
 	}
 	for _, pick := range picks {
 		if words[pick] == "" {
-			warned = append(warned, fmt.Sprintf("pick %q does not say what picking it does; write it as 'LABEL%swhat picking it does'", pick, pickSplit))
+			warned = append(warned, fmt.Sprintf("pick %q does not say what picking it does; write it as 'Keep it%swhat picking it does'", pick, pickSplit))
 		}
 	}
 	r.Picks, r.Words = picks, words
@@ -605,7 +609,7 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
 	}
 	repo, rows, read := board.Rows(f.Entry, numbers)
-	var short []string
+	var short, noButton []string
 	cards := make([]prCard, 0, len(r.PRs))
 	for n, pr := range r.PRs {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool {
@@ -615,10 +619,15 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 			if len(r.Picks) > 0 {
 				short = append(short, pr+" has no row in the PR ledger")
 				cards = append(cards, prCard{URL: pr})
+				continue
 			}
+			noButton = append(noButton, pr+" has no row in the PR ledger")
 			continue
 		}
 		row := rows[at]
+		if len(r.Picks) == 0 && !row.ReadyForTap && !row.Tapped {
+			noButton = append(noButton, pr+" is not ready for his tap: "+cmp.Or(row.WaitsOn, "its row names nothing it waits on"))
+		}
 		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
 			continue
 		}
@@ -637,14 +646,17 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 	if len(r.Picks) > 0 {
 		r.PRCards = cards
 	}
-	if len(short) == 0 {
-		return r, ""
+	var warned []string
+	if len(noButton) > 0 {
+		warned = append(warned, "NO BUTTON: "+strings.Join(noButton, "; ")+"; he sees a link and where it stands with nothing to tap, so say in md what he can do, or take it out of prs")
 	}
-	warning := strings.Join(short, "; ") + ", so its lane fixes the PR body's Summary, plan reference or Risk profile, and this reply is edited once the row has them"
-	if read != nil {
-		warning += fmt.Sprintf("; the PR ledger did not read: %v", read)
+	if len(short) > 0 {
+		warned = append(warned, strings.Join(short, "; ")+", so its lane fixes the PR body's Summary, plan reference or Risk profile, and this reply is edited once the row has them")
 	}
-	return r, warning
+	if len(warned) > 0 && read != nil {
+		warned = append(warned, fmt.Sprintf("the PR ledger did not read: %v", read))
+	}
+	return r, strings.Join(warned, "; ")
 }
 
 func (r Reply) prChild(id, pr string) map[string]any {

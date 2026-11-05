@@ -61,7 +61,7 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 		return nil, fmt.Errorf("refused: --title %q is not a question; end it with what he decides and a question mark", a.Title)
 	}
 	if count := len(a.Options); count < fewestOptions || count > mostOptions {
-		return nil, fmt.Errorf("refused: a card offers %d to %d options and this has %d; pass each as --option 'LABEL :: what picking it does', the recommended one first", fewestOptions, mostOptions, count)
+		return nil, fmt.Errorf("refused: a card offers %d to %d options and this has %d; pass each as --option 'Keep it :: what picking it does', the recommended one first", fewestOptions, mostOptions, count)
 	}
 	build, err := a.build()
 	if err != nil {
@@ -73,7 +73,7 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 		label, does, _ := strings.Cut(option, partSplit)
 		label, does = strings.TrimSpace(label), strings.TrimSpace(does)
 		if label == "" || does == "" {
-			return nil, fmt.Errorf("refused: --option %q does not say what picking it does; write it as 'LABEL :: what picking it does'", option)
+			return nil, fmt.Errorf("refused: --option %q does not say what picking it does; write it as 'Keep it :: what picking it does'", option)
 		}
 		options[i] = askOption{ID: fmt.Sprintf("%s-%d", slug, i+1), Label: label, Md: linkedNumbers(does, repo)}
 	}
@@ -285,7 +285,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags := cmd.Flags()
 	flags.StringVar(&ask.Title, "title", "", "the question, in plain words, ending in a question mark")
 	flags.StringVar(&ask.Background, "background", "", "what he needs to decide it: what happened, what it costs, what each way forward rests on, in as many paragraphs as that takes; the first line is the summary his board lists, and the rest shows under it on the card")
-	flags.StringArrayVar(&ask.Options, "option", nil, "'LABEL :: what picking it does', 2 to 4, the recommended one first; a failure offers the fix for its cause, and a loss names its fix")
+	flags.StringArrayVar(&ask.Options, "option", nil, "'Keep it :: what picking it does', 2 to 4, the recommended one first; a failure offers the fix for its cause, and a loss names its fix")
 	flags.StringVar(&ask.Branch, "branch", "", "OWNER/NAME:BRANCH, where the recommended option is built")
 	flags.StringVar(&ask.NothingToBuild, "nothing-to-build", "", "why the recommended option has no branch")
 	flags.StringArrayVar(&ask.Shots, "shot", nil, "'PATH or https URL :: what it shows', a real screenshot, repeatable; a path is read on the board's Mac")

@@ -664,7 +664,7 @@ func TestAskFlagsAreRefusedSayingWhatToChange(t *testing.T) {
 		says   string
 	}{
 		"no question":         {func(a *Ask) { a.Title = "Pick one" }, "not a question"},
-		"one option":          {func(a *Ask) { a.Options = a.Options[:1] }, "--option 'LABEL :: what picking it does'"},
+		"one option":          {func(a *Ask) { a.Options = a.Options[:1] }, "--option 'Keep it :: what picking it does'"},
 		"five options":        {func(a *Ask) { a.Options = slices.Repeat(a.Options, 3)[:5] }, "2 to 4 options"},
 		"a bare option":       {func(a *Ask) { a.Options[1] = "Two" }, "does not say what picking it does"},
 		"nothing built":       {func(a *Ask) { a.NothingToBuild = "" }, "--nothing-to-build REASON"},

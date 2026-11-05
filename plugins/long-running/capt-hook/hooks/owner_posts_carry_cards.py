@@ -17,6 +17,7 @@ NAMED_PR = re.compile(r"(?:(?<![\w/#-])|(?<=monorepo))#(\d{5})\b|\bPRs? #?(\d{5}
 LINKED_PR = re.compile(r"/monorepo/pull/(\d+)")
 RELEASE_WORD = re.compile(r"\breleas(?:e[sd]?|ing)\b", re.IGNORECASE)
 UPCOMING_RELEASE = re.compile(r"\b(?:next|future|upcoming|later)\s+releases?\b", re.IGNORECASE)
+RELEASE_NAME = re.compile(r"(?i)\b(?:[\w-]+-releas\w*(?:-[\w-]+)*|releas\w*-[\w-]+|release lanes?)\b")
 PLATY_CARD = re.compile(r"/archives/C0B75AL4XEW/p\d{16}")
 RELEASE_BUILD = "/release/builds/"
 BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
@@ -57,7 +58,7 @@ def names_bare_pr(words: str) -> bool:
 
 
 def names_a_release(words: str) -> bool:
-    return bool(RELEASE_WORD.search(UPCOMING_RELEASE.sub(" ", HIDDEN_CITE.sub(" ", words))))
+    return bool(RELEASE_WORD.search(UPCOMING_RELEASE.sub(" ", RELEASE_NAME.sub(" ", HIDDEN_CITE.sub(" ", words)))))
 
 
 @on(
@@ -99,6 +100,11 @@ def posts_naming_a_pr_show_its_card(evt: BaseHookEvent) -> HookResult | None:
         sent(f"Release 12881 is live: {OTHER_CHANNEL}"): Warn(),
         sent("The relay fix merged, so each chat keeps its own replica."): Allow(),
         sent("The fix ships in the next release."): Allow(),
+        sent("Lane release-brittle owns the class fix."): Allow(),
+        sent("exempt-release-paths takes that code out of the class now."): Allow(),
+        sent("The release lane answers by 10:40 PM."): Allow(),
+        sent("Lane release-brittle says release 12881 is live."): Warn(),
+        sent("The fix needs CI and a release, about an hour."): Warn(),
         sent("Release 12881 is live, and the rest ships in the next release."): Warn(),
         sent("The relay fix merged. <!-- release build 12890 -->"): Allow(),
         sent("Release 12881 live; 12890 cutting.", channel="C0RELEASES1"): Allow(),

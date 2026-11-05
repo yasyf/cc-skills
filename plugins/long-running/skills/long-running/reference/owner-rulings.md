@@ -168,7 +168,7 @@ The coordinator never ends a turn waiting for the owner to say "ask" and never l
 A choice that is the owner's has one drawer, the lane that needs it, with options recommended first:
 
 ```
-lr ask-owner --title '<question>?' --background '<what he needs to decide it>' --option 'LABEL :: what it does' --option 'LABEL :: what it does' --nothing-to-build '<why>' --until at:3d
+lr ask-owner --title '<question>?' --background '<what he needs to decide it>' --option 'Keep it :: what it does' --option 'Hold it :: what it does' --nothing-to-build '<why>' --until at:3d
 ```
 
 - The lane draws its own card, on his main board and at the root of his Slack direct message, and owns it. The call waits for the board link on the Mac and prints the card's link, or exits 1 with what to change.

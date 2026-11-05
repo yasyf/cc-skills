@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Call, CommandSchema, Event, HookResult, Input, Operand, Option, Tool, Warn, WorkflowState, on, workflow_state
+from captain_hook import Allow, BaseHookEvent, Block, Call, CommandSchema, Event, HookResult, Input, Operand, Option, Rewrite, Tool, Warn, WorkflowState, on, workflow_state
 from captain_hook.util import reqenv
 
 from .board_text_gate import calls
@@ -16,7 +16,7 @@ from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, LR, Bound, CompactionS
 from .judge_metrics import judge_call
 from .owner_facing import CC_SLACK, HIDDEN_CITE, SLACK_CARD, STDIN, Reads, as_read, board_bytes, fenced, readable, shown, slack_card, status_words
 from .owner_lines_skip_refused_topics import reaches_him
-from .owner_posts_carry_cards import CARD_LINK, PLATY_CARD, names_a_release, posted_words
+from .owner_posts_carry_cards import CARD_LINK
 from .owner_replies_carry_news import HIS_DM, PEER, dm_posts
 from .owner_returns import REPLY
 from .register_injection import drive_args
@@ -32,10 +32,13 @@ JUDGE = script_module("long_running/judge")
 NAMES_PR = re.compile(r"(?i)(?<![\w/&])#\d{2,}\b|/pull/\d+|\bPR \d+\b")
 UNNAMED = 'Name the feature: a card\'s title and first sentence say what it is about, and this one opens with "{opener}". Edit the reply to name it.'
 BARE_PR = "A pick card about a PR passes it in `prs`, which gives him its link, CI, description and four lines: edit the reply to add the PR's url to `prs`."
-HOLD = "A post to the owner links what it names, carries the cards it asks him to tap, names the concrete things it changes and answers his first question. Fix each line below, or send the same post again unchanged and it goes through."
+HOLD = "A post to the owner names the concrete things it changes and answers his first question. Fix the line below, or send it again and it goes through."
 BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
+RECORD_NUMBER = re.compile(r"(?is)(<!--.*?-->|\[[^\]]*\]\([^)]*\)|https?://\S+|\bSentry\s+#?\d+\b)|\s*\(#?(\d{6,})\)|\s*(?<![\w/.:=-])#?(\d{6,})\b(?!\.\d)")
+RECORDS_MOVED = "Warning, nothing was blocked: {numbers} moved out of what he reads into a hidden cite, since a cci record number has no page. If one is a real count, edit this reply with its `id`."
+BARE_NUMBER = "Warning, nothing was blocked: a bare id shows him no page. Make each one below a link, and name no cci record number at all."
 TAP_WORDS = re.compile(r"(?i)\b(?:tap|taps|tapping|(?:wait|waits|waiting|blocked) (?:on|for) (?:you|your|a yes or no|yes or no)|needs? a yes or no|yes or no from you|your (?:yes|no|picks?|answers?|word))\b|\byes or no\?|(?<!release )\bcards?\b")
-NO_PLATY_LINE = "no Platy card: a release word to him says what users get and links the Platy release card: add its #releases permalink, which the build's `release-slack-root` annotation names"
+CARDLESS = "Warning, nothing was blocked: the words below read as asking him to tap and this post carries no card. If something waits on him, pass it in `picks` or `prs`, or `options` or `--tap-pr` on a lane's status card, and edit this reply with its `id`."
 ALERT_HOST = r"[^)|>\s]*(?:sentry\.io/|datadoghq\.com/monitors|slack\.com/archives)[^)|>\s]*"
 LABELLED_ALERT = re.compile(rf"\]\(<?https://{ALERT_HOST}>?\)|<https://{ALERT_HOST}\|")
 INCIDENT = re.compile(r"(?i)\bincident\b")
@@ -65,7 +68,6 @@ CONCRETE = {"title": "Big chats open on their newest turns", "md": "A chat over 
 LANDED = "Landed, live at 12:20 PM."
 STATUS = "The nightly build is still running on the staging cluster, and it should finish within the hour."
 REMINDER = "Six things still wait on your tap, so please open your board and go through them today."
-RELEASED = "Release 12881 is live."
 WAITS_ON_HIM = "The support reply is separate and waits on your Yes or No."
 THIRD_PARTY = "The new prompt asks the user yes or no before it deletes a chat, and the sidebar shows the result."
 STATUS_POST = f"/plugins/cc-slack/bin/cc-slack dm-status --thread 1793829658.340949 --agent claude '{WAITS_ON_HIM}' 2>&1 | head -5"
@@ -189,22 +191,35 @@ def carries_cards(evt: BaseHookEvent, reads: Reads) -> bool:
 
 
 def lane_dm_words(evt: BaseHookEvent, reads: Reads) -> str:
-    return "\n\n".join(text for channel, text in dm_posts(evt) if (TAP_WORDS.search(readable(text)) or names_a_release(as_read(text))) and reaches_him(reads, channel))
+    return "\n\n".join(text for channel, text in dm_posts(evt) if TAP_WORDS.search(readable(text)) and reaches_him(reads, channel))
 
 
-def release_without_its_card(evt: BaseHookEvent, said: str) -> bool:
-    return names_a_release(as_read(said)) and not PLATY_CARD.search("\n".join([said, *posted_words(evt)]))
+def hide_records(md: str) -> tuple[str, list[str]]:
+    moved: list[str] = []
+
+    def hidden(found: re.Match[str]) -> str:
+        if found[1]:
+            return found[1]
+        moved.append(found[2] or found[3])
+        return ""
+
+    kept = RECORD_NUMBER.sub(hidden, md).strip()
+    numbers = list(dict.fromkeys(moved))
+    return " ".join([kept, *(f"<!-- cci #{number} -->" for number in numbers)]), numbers
 
 
-def unlinked_or_cardless(evt: BaseHookEvent, posted: str, said: str, reads: Reads) -> list[str]:
-    bare = [f"bare number: {hit}: make it a link, and name no cci record number at all" for hit in dict.fromkeys(found[0] for found in BARE_ID.finditer(readable(posted)))]
-    named = TAP_WORDS.search(readable(said))
-    return [*bare, *([f'no cards: "{named[0]}": put the yes or no itself in this post, as `picks` or `prs` on a reply, `options` on a dm-status card, or `--tap-pr`; a link to a card only where the post cannot carry one; and if you removed the card, say so here with its replacement'] if named and not carries_cards(evt, reads) else []), *([NO_PLATY_LINE] if release_without_its_card(evt, said) else [])]
+def held_row(evt: BaseHookEvent) -> str:
+    return f"row:{given(evt, 'order') or given(evt, 'title')}" if evt.tool_name == REPLY else ""
+
+
+def release_row(evt: BaseHookEvent, row: str) -> None:
+    with HeldPosts.mutate(evt) as state:
+        state.held = [held for held in state.held if held != row]
 
 
 def hold(evt: BaseHookEvent, drive: str, key: str, lines: list[str]) -> HookResult:
     with HeldPosts.mutate(evt) as state:
-        state.held = [*state.held, key]
+        state.held = [*state.held, key, *filter(None, [held_row(evt)])]
     JUDGE.record(drive, "first-question-hold", "none", "held", {"seconds": 0.0, "cost_usd": 0.0, "tokens": 0, "asks": 0, "p_yes": None, "error": ""}, " | ".join(lines)[:HELD_CHARS], env=reqenv.env_map())
     return evt.block(fenced(HOLD, lines))
 
@@ -274,11 +289,15 @@ def resent(title: str, md: str) -> list[HeldPosts]:
     return [HeldPosts(held=[post_key(f"{title}\n\n{md}")])]
 
 
+def row_held(order: str) -> list[HeldPosts]:
+    return [HeldPosts(held=[f"row:{order}"])]
+
+
 @on(  # capt-hook: no-escape the same post sent again goes through, so the hold is its own way past
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD, *DM_TOOLS)],
     tests={
-        reply("Big chats", VAGUE_POST, commands=HOLDS): Block(pattern=r"^A post to the owner links what it names[\s\S]*It adds one new setting[\s\S]*Which fields, on which table"),
+        reply("Big chats", VAGUE_POST, commands=HOLDS): Block(pattern=r"^A post to the owner names the concrete things[\s\S]*It adds one new setting[\s\S]*Which fields, on which table"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Add the setting?", "body": VAGUE_POST}}, env=HOOK_ENV, commands=HOLDS): Block(pattern=r"first question: Which fields"),
         Input(command=ASK, env=HOOK_ENV, commands=HOLDS): Block(pattern=r"first question: Which fields"),
         Input(command=f"lr ask-owner --card {board('clean-card.json')} --until at:3d", env=HOOK_ENV, commands=HOLDS): Block(),
@@ -299,54 +318,15 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         reply("Big chats", VAGUE_POST, commands={**HOLDS, "claude -p": (1, "claude: overloaded")}): Allow(),
         Input(command="cci post --kind note --to meta-desk --text 'It adds one new setting for big chats, and the sidebar stays as it is.'", env=HOOK_ENV, commands=HOLDS): Allow(),
         Input(command="ls -la", env=HOOK_ENV, commands=HOLDS): Allow(),
-        reply("Your list", REMINDER): Block(pattern=r'no cards: "wait on your"'),
         reply("Your list", REMINDER, given={"prs": [LAND_PR]}, commands=judged()): Allow(),
         reply("Your list", REMINDER, given={"picks": ["Land", "Hold"], "recommended": "Land"}, commands=judged()): Allow(),
-        reply("Your list", REMINDER, state=resent("Your list", REMINDER)): Allow(),
-        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER}}, env=HOOK_ENV): Block(pattern=r"no cards"),
-        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER, "options": ["Land", "Hold"]}}, env=HOOK_ENV, commands=judged()): Allow(),
-        reply("Live", f"The Platy release card is up at {CARD_LINK}, and it is live on plat.", commands=judged()): Allow(),
-        reply("Alert", "Sentry 4821 fired again."): Block(pattern=r"bare number: Sentry 4821"),
-        reply("Alert", f"[Sentry 4821]({SENTRY_LINK}) fired again."): Allow(),
+        reply("Why", "It dropped because both chats shared a replica. <!-- cci #384714 -->", commands=judged()): Allow(),
+        Input(tool=REPLY, tool_input={"title": "Big chats", "md": VAGUE_POST}, commands=HOLDS): Allow(),
         reply("Landed", f"Live as [the relay fix]({LAND_PR}).", commands=HOLDS): Block(pattern=r"first question: Which fields"),
         reply("Landed", f"Live as <{LAND_PR}|the relay fix>.", commands=HOLDS): Block(pattern=r"first question: Which fields"),
-        reply("Alert", "Record #427030 says so."): Block(pattern=r"bare number: #427030"),
-        reply("Why", "It dropped because both chats shared a replica. <!-- cci #384714 -->", commands=judged()): Allow(),
-        Input(command="cc-slack reply --channel D0B6Z --text 'Sentry 4821 fired again.'", env=HOOK_ENV): Allow(),
-        Input(tool=REPLY, tool_input={"title": "Big chats", "md": VAGUE_POST}, commands=HOLDS): Allow(),
-        reply("Support reply", WAITS_ON_HIM): Block(pattern=r'no cards: "waits on your"'),
-        reply("Support reply", "It needs your yes before it posts."): Block(pattern=r'no cards: "your yes"'),
-        reply("Support reply", "This is blocked on you."): Block(pattern=r'no cards: "blocked on you"'),
-        reply("Support reply", "Your pick decides the wording."): Block(pattern=r'no cards: "Your pick"'),
-        reply("Support reply", "It holds for your answer."): Block(pattern=r'no cards: "your answer"'),
-        reply("Support reply", "Say your word and it goes."): Block(pattern=r'no cards: "your word"'),
-        reply("Support reply", "The reply waits on yes or no."): Block(pattern=r'no cards: "waits on yes or no"'),
-        reply("Support reply", "Send the reply, yes or no?"): Block(pattern=r'no cards: "yes or no\?"'),
-        reply("Support reply", WAITS_ON_HIM, given=PICKS, commands=judged()): Allow(),
-        reply("Support reply", WAITS_ON_HIM, given={"prs": [LAND_PR]}, commands=judged()): Allow(),
+        reply("Bugs", f"{VAGUE_POST} With the answer.", given={"order": "m1"}, commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        reply("Bugs", f"{VAGUE_POST} With the answer.", given={"order": "m1"}, commands=HOLDS, state=row_held("m1")): Allow(),
         reply("Delete prompt", THIRD_PARTY, commands=judged()): Allow(),
-        reply("Support reply", WAITS_ON_HIM, state=resent("Support reply", WAITS_ON_HIM)): Allow(),
-        Input(command=STATUS_POST, env=LANE_ENV): Block(pattern=r'no cards: "waits on your"'),
-        Input(command=f"cc-slack dm-status --tap-pr {LAND_PR} '{WAITS_ON_HIM}'", env=LANE_ENV, commands=judged()): Allow(),
-        Input(command=f"cc-slack dm-status --about ask-1 '{WAITS_ON_HIM}'", env=LANE_ENV): Allow(),
-        Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM}, env=LANE_ENV): Block(pattern=r"no cards"),
-        Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM, "tap_prs": [LAND_PR]}, env=LANE_ENV, commands=judged()): Allow(),
-        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: HIS_DM}): Block(pattern=r"no cards"),
-        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: json.dumps({"channel_id": "D0B6Z", "peer": "U0SOMEONE", "peer_name": "Sam"})}): Allow(),
-        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "C0RELEASES1", "text": WAITS_ON_HIM}, env=LANE_DM_ENV): Allow(),
-        reply("Live", RELEASED): Block(pattern=r"no Platy card"),
-        reply("Later", "The fix ships in the next release.", commands=judged()): Allow(),
-        reply("Live", "Release 12881 is live, and the rest ships in the next release."): Block(pattern=r"no Platy card"),
-        Input(command="cc-slack dm-status 'The fix ships in the next release.'", env=LANE_ENV, commands=judged()): Allow(),
-        reply("Live", f"{RELEASED} {CARD_LINK}", commands=judged()): Allow(),
-        reply("Live", f"[{RELEASED}]({CARD_LINK})", commands=judged()): Allow(),
-        reply("Live", RELEASED, given={"links": [CARD_LINK]}, commands=judged()): Allow(),
-        reply("Live", RELEASED, state=resent("Live", RELEASED)): Allow(),
-        reply("Build", "The build at https://buildkite.com/forge/release/builds/12890 passed.", commands=judged()): Allow(),
-        Input(command=f"cc-slack dm-status '{RELEASED}'", env=LANE_ENV): Block(pattern=r"no Platy card"),
-        Input(command=f"cc-slack dm-status '{RELEASED} {CARD_LINK}'", env=LANE_ENV, commands=judged()): Allow(),
-        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": RELEASED}, env=LANE_DM_ENV, commands={PEER: HIS_DM}): Block(pattern=r"no Platy card"),
-        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": RELEASED}, env=LANE_DM_ENV, commands={PEER: json.dumps({"channel_id": "D0B6Z", "peer": "U0SOMEONE", "peer_name": "Sam"})}): Allow(),
     },
 )
 def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
@@ -354,11 +334,13 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
         return None
     reads = Reads(evt, which)
     posted = post_text(evt, reads)
-    said = posted or lane_dm_words(evt, reads)
-    if not said or (key := post_key(as_read(said))) in HeldPosts.load(evt).held:
+    if not posted:
         return None
-    if lines := unlinked_or_cardless(evt, posted, said, reads):
-        return hold(evt, which[1], key, lines)
+    held = HeldPosts.load(evt).held
+    key = post_key(as_read(posted))
+    if key in held or held_row(evt) in held:
+        release_row(evt, held_row(evt))
+        return None
     text = as_read(posted)
     if plain_answer(text):
         return None
@@ -367,6 +349,86 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
     if verdict is None or not (verdict.flagged or verdict.verdict == "unsure" and describes_change(text)):
         return evt.context(reads.warning("posts_answer_his_first_question")) if reads.failures else None
     return hold(evt, which[1], key, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"])
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool(REPLY)],
+    tests={
+        reply("Incident", "With root as an incident at 9:06 PM (450686): the fix lane has it."): Rewrite(None, md="With root as an incident at 9:06 PM: the fix lane has it. <!-- cci #450686 -->"),
+        reply("Alert", "Record #427030 says so."): Rewrite(None, md="Record says so. <!-- cci #427030 -->"),
+        reply("Alert", "It dropped because both chats shared a replica. <!-- cci #384714 -->"): Allow(),
+        reply("Alert", f"[Sentry 4821]({SENTRY_LINK}) fired again."): Allow(),
+        reply("Alert", "See [427030](https://acme.slack.com/archives/C1/p1793833513167859)."): Allow(),
+        reply("Alert", "It is on https://buildkite.com/forge/release/builds/1234567 now."): Allow(),
+        reply("Alert", "Sentry 4821123 fired again."): Allow(),
+        reply("Alert", "Thread 1793829658.340949 is the one."): Allow(),
+        Input(tool=REPLY, tool_input={"title": "Alert", "md": "Record #427030 says so."}): Allow(),
+    },
+)
+def reply_record_numbers_move_to_hidden_cites(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    md, numbers = hide_records(given(evt, "md"))
+    return evt.rewrite(evt._tool_input | {"md": md}, note=RECORDS_MOVED.format(numbers=", ".join(numbers))) if numbers else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD, *DM_TOOLS)],
+    tests={
+        reply("Alert", "Sentry 4821 fired again."): Warn(pattern=r"^Warning, nothing was blocked: a bare id[\s\S]*Sentry 4821"),
+        reply("Alert", f"[Sentry 4821]({SENTRY_LINK}) fired again."): Allow(),
+        reply("Alert", "It fired.", given={"action": "Read record #427030."}): Warn(pattern=r"a bare id[\s\S]*#427030"),
+        reply("Alert", "Record #427030 says so."): Allow(),
+        Input(command="cc-slack dm-status 'Record #427030 says so.'", env=LANE_ENV): Warn(pattern=r"#427030"),
+        Input(command="cc-slack reply --channel D0B6Z --text 'Sentry 4821 fired again.'", env=HOOK_ENV): Allow(),
+        Input(tool=REPLY, tool_input={"title": "Alert", "md": "Sentry 4821 fired again."}): Allow(),
+    },
+)
+def posts_link_the_ids_they_name(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    moved = hide_records(given(evt, "md"))[1] if evt.tool_name == REPLY else []
+    bare = [hit for hit in dict.fromkeys(found[0] for found in BARE_ID.finditer(readable(post_text(evt, Reads(evt, which))))) if hit.lstrip("#") not in moved]
+    return evt.context(fenced(BARE_NUMBER, bare)) if bare else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD, *DM_TOOLS)],
+    tests={
+        reply("Your list", REMINDER): Warn(pattern=r"^Warning, nothing was blocked: the words below[\s\S]*wait on your"),
+        reply("Your list", REMINDER, given={"prs": [LAND_PR]}): Allow(),
+        reply("Your list", REMINDER, given={"picks": ["Land", "Hold"], "recommended": "Land"}): Allow(),
+        reply("Support reply", WAITS_ON_HIM): Warn(pattern=r"waits on your"),
+        reply("Support reply", "It needs your yes before it posts."): Warn(pattern=r"your yes"),
+        reply("Support reply", "This is blocked on you."): Warn(pattern=r"blocked on you"),
+        reply("Support reply", "Your pick decides the wording."): Warn(pattern=r"Your pick"),
+        reply("Support reply", "Send the reply, yes or no?"): Warn(pattern=r"yes or no\?"),
+        reply("Pick card", "PR card: redrawing as our own Block Kit."): Warn(pattern=r"```\ncard\n```"),
+        reply("Delete prompt", THIRD_PARTY): Allow(),
+        reply("Live", f"The Platy release card is up at {CARD_LINK}."): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER}}, env=HOOK_ENV): Warn(pattern=r"carries no card"),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER, "options": ["Land", "Hold"]}}, env=HOOK_ENV): Allow(),
+        Input(command=STATUS_POST, env=LANE_ENV): Warn(pattern=r"waits on your"),
+        Input(command=f"cc-slack dm-status --tap-pr {LAND_PR} '{WAITS_ON_HIM}'", env=LANE_ENV): Allow(),
+        Input(command=f"cc-slack dm-status --about ask-1 '{WAITS_ON_HIM}'", env=LANE_ENV): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM}, env=LANE_ENV): Warn(pattern=r"carries no card"),
+        Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM, "tap_prs": [LAND_PR]}, env=LANE_ENV): Allow(),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: HIS_DM}): Warn(pattern=r"carries no card"),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: json.dumps({"channel_id": "D0B6Z", "peer": "U0SOMEONE", "peer_name": "Sam"})}): Allow(),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "C0RELEASES1", "text": WAITS_ON_HIM}, env=LANE_DM_ENV): Allow(),
+        Input(tool=REPLY, tool_input={"title": "Pick card", "md": "The card redraws."}): Allow(),
+        Input(command="ls -la", env=HOOK_ENV): Allow(),
+    },
+)
+def posts_naming_a_card_carry_it(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    reads = Reads(evt, which)
+    named = TAP_WORDS.search(readable(post_text(evt, reads) or lane_dm_words(evt, reads)))
+    return evt.context(fenced(CARDLESS, [named[0]])) if named and not carries_cards(evt, reads) else None
 
 
 @on(

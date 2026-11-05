@@ -916,7 +916,7 @@ func TestByAndRoutedOffAQuietOrderReplyAreLeftOffWithAWarning(t *testing.T) {
 	for name, r := range map[string]Reply{
 		"no order":  {ID: "a", Title: "t", MD: "m", Status: progress, By: "11:30 PM"},
 		"done":      {ID: "a", Title: "t", MD: "m", Status: "done", Order: "m1", Routed: 7},
-		"info":      {ID: "a", Title: "t", MD: "m", Status: info, Order: "m1", By: "11:30 PM"},
+		"incident":  {ID: "a", Title: "t", MD: "m", Status: "incident", Order: "m1", Routed: 7},
 		"with pick": {ID: "a", Title: "t", MD: "m", Status: progress, Order: "m1", By: "11:30 PM", Picks: []string{"A", "B"}, Recommended: "A"},
 	} {
 		got, warned := r.mended()
@@ -924,9 +924,11 @@ func TestByAndRoutedOffAQuietOrderReplyAreLeftOffWithAWarning(t *testing.T) {
 			t.Errorf("%s: mended to %+v, warned %q", name, got, warned)
 		}
 	}
-	quiet := Reply{ID: "a", Title: "t", MD: "m", Status: progress, Order: "m1", By: "11:30 PM", Routed: 7}
-	if got, warned := quiet.mended(); got.By == "" || got.Routed == 0 || len(warned) != 0 {
-		t.Fatalf("a quiet reply mended to %+v, warned %q", got, warned)
+	for _, status := range []string{progress, info} {
+		r := Reply{ID: "a", Title: "t", MD: "m", Status: status, Order: "m1", By: "11:30 PM", Routed: 7}
+		if got, warned := r.mended(); got.By == "" || got.Routed == 0 || len(warned) != 0 {
+			t.Fatalf("a %s reply mended to %+v, warned %q", status, got, warned)
+		}
 	}
 }
 
@@ -1129,6 +1131,23 @@ func TestAnOrderNamesARowOrASubRow(t *testing.T) {
 		if (got.Order == order) != kept {
 			t.Errorf("order %q mended to %q, kept should be %v", order, got.Order, kept)
 		}
+	}
+}
+
+func TestAPRListedWithNoButtonToDrawSaysSoInTheResult(t *testing.T) {
+	r := Reply{ID: "r2", Title: "The relay fix", MD: "m", Status: info, PRs: []string{landPR}}
+	fake := scripted()
+	f := fanout(t, fake)
+	if _, warning := f.withPRCards(r); !strings.Contains(warning, "NO BUTTON: "+landPR+" has no row") {
+		t.Fatalf("no row warned %q", warning)
+	}
+	ledgerRow(t, f, store.ReviewRow{WaitsOn: "CI", Title: "Relay fix"})
+	if _, warning := f.withPRCards(r); !strings.Contains(warning, "NO BUTTON: "+landPR+" is not ready for his tap: CI") || !strings.Contains(warning, "nothing to tap") {
+		t.Fatalf("a row not ready warned %q", warning)
+	}
+	r.Picks, r.Recommended = []string{"Land", "Hold"}, "Land"
+	if _, warning := f.withPRCards(r); strings.Contains(warning, "NO BUTTON") {
+		t.Fatalf("a pick reply carries its buttons, warned %q", warning)
 	}
 }
 
@@ -1366,6 +1385,23 @@ func TestABoardThatDoesNotReadPostsTheReplyWithAWarning(t *testing.T) {
 	r, warning := fanout(t, fake).withCardLinks(context.Background(), Reply{ID: "r1", MD: "card-storage-eviction"})
 	if r.MD != "card-storage-eviction" || !strings.Contains(warning, "daemon not running") {
 		t.Fatalf("md = %q, warning = %q", r.MD, warning)
+	}
+}
+
+func TestAnInfoReplyWritesItsClockAndRoutedSeqToTheLedgerRow(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	path := ledgered(t, f)
+	r, warned := Reply{ID: "ri", Title: "Vector search", MD: "It went to the design lane.", Status: info, Order: "m447", By: "11:30 PM", Routed: 400803, Thread: "1793684147.131059"}.mended()
+	if len(warned) != 0 {
+		t.Fatalf("warned %q", warned)
+	}
+	sent := f.Send(context.Background(), r)
+	if got := surface(sent, "ledger"); got.Ref != "m447 due Nov 3 11:30 PM" {
+		t.Fatalf("ledger outcome = %+v", got)
+	}
+	if ledger, _ := os.ReadFile(path); !strings.Contains(string(ledger), "due Nov 3 11:30 PM") {
+		t.Fatalf("ledger = %q", ledger)
 	}
 }
 
