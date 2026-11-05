@@ -73,12 +73,13 @@ STATUS_POST = f"/plugins/cc-slack/bin/cc-slack dm-status --thread 1793829658.340
 SENTRY_LINK = "https://poetic.sentry.io/issues/4821"
 SET_OPTIONS = "set-options"
 SET_EVIDENCE = "A coding agent is about to send this card to the owner. Each url in `prs` draws on the card with its title and what it changes for a user, and its `diagram`, an architecture doc, draws as the architecture diagram component."
-SET_UNNAMED = "Warning, nothing was blocked: this card leaves out what he needs to pick. List each member of a set an option acts on with its PR link and what it does for a user, and when it compares designs pass `diagram`, one arch/v1 doc drawing each."
+SET_UNNAMED = "Warning, nothing was blocked: this card leaves out what he needs to pick. List each member of a set an option acts on with its PR link and what it does for a user, pass `diagram`, one arch/v1 doc drawing each, when it compares designs, and name the branch of a code pick in `build`."
 BUGS_TITLE = "Pending next-tree bugs: what each needs from you"
 BUGS_BODY = "Seven things wait on you, and the old-chat blocker waits on lanes."
 BUGS_OPTIONS = ["Tap all four ready fixes", "Tap them after the old-chat fixes land", "Hold all of them"]
 BUGS_PICKS = {"picks": BUGS_OPTIONS, "recommended": BUGS_OPTIONS[0]}
 BUGS_CARD = json.dumps({"title": BUGS_TITLE, "body": BUGS_BODY, "options": BUGS_OPTIONS})
+UNBUILT_PICK = judged(BUGS_OPTIONS[0], "The recommended option needs code and this card names no branch: it would add the retry.")
 UNNAMED_SET = judged(BUGS_OPTIONS[0], "Name each of the four ready fixes, with its pull request link and what it does for a user.")
 
 
@@ -326,6 +327,7 @@ def asking_card(evt: BaseHookEvent, reads: Reads) -> dict | None:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD)],
     tests={
+        reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands=UNBUILT_PICK): Warn(pattern=r"name the branch of a code pick[\s\S]*Tap all four ready fixes[\s\S]*names no branch"),
         reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands=UNNAMED_SET): Warn(pattern=r"^Warning, nothing was blocked: this card leaves out[\s\S]*Tap all four ready fixes[\s\S]*Name each of the four ready fixes"),
         Input(tool=SLACK_CARD, tool_input={"card": json.loads(BUGS_CARD)}, env=HOOK_ENV, commands=UNNAMED_SET): Warn(pattern=r"Tap all four ready fixes"),
         Input(command=f"cc-slack dm-status --card '{BUGS_CARD}'", env=LANE_ENV, commands=UNNAMED_SET): Warn(pattern=r"Tap all four ready fixes"),

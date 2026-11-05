@@ -222,5 +222,32 @@
         ]
       }
     ]
+  },
+  "set-options-unbuilt-pick": {
+    "expect": "yes",
+    "runs": [
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.79
+        ]
+      }
+    ]
+  },
+  "set-options-built-pick": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no"
+        ],
+        "jev": [
+          0.08
+        ]
+      }
+    ]
   }
 }

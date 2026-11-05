@@ -876,6 +876,26 @@ func TestACardWhoseOptionActsOnASetItDoesNotNameWarnsSayingWhatToList(t *testing
 	}
 }
 
+func TestACardWhoseRecommendedOptionNeedsCodeAndNamesNoBranchWarnsAndStillDraws(t *testing.T) {
+	cards, _, _ := settledBoard(t, nil)
+	var read string
+	block := json.RawMessage(`{"id":"card-idle-window","type":"card","title":"Should the idle window open after chats close?","summary":"All 1,000 chats close inside the window.","children":[{"id":"pick","type":"choice","options":[{"id":"a","label":"Open it after they close","recommended":true},{"id":"b","label":"Leave it"}]}]}`)
+	judge := func(_ context.Context, kind, _, artifact string) (*Judgment, error) {
+		if kind != setOptionsKind {
+			return &Judgment{Verdict: "no"}, nil
+		}
+		read = artifact
+		return &Judgment{Verdict: "yes", Sentence: "the recommended option needs code and no branch is named: it would move the idle window start."}, nil
+	}
+	warned := cards.Lacks(context.Background(), judge, block)
+	if !strings.Contains(warned, "the recommended option needs code and no branch is named") || !strings.Contains(read, "Open it after they close") {
+		t.Fatalf("warned %q after the judge read %q; want the judge's sentence", warned, read)
+	}
+	if refused, unchecked := cards.Check(context.Background(), judge, block); refused != nil || unchecked != nil {
+		t.Fatalf("Check = %v, %v; a pick with no branch never refuses the card", refused, unchecked)
+	}
+}
+
 func TestACardNamingItsWholeSetDrawsWithNoWarning(t *testing.T) {
 	cards, _, _ := settledBoard(t, nil)
 	var read string
