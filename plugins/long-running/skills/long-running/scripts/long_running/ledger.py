@@ -2238,7 +2238,7 @@ def settle_row(trunk: str, pr: str, record: dict, was: dict[str, str], read: Fut
     if record["state"] != "MERGED":
         return (
             closed,
-            f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: GitHub reads it closed unmerged, so the row stays until its lane answers",
+            f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: GitHub reads it closed unmerged, so the row is settled and waits on no lane",
         )
     if (payload := read.result()):
         sha, landed_at = payload
