@@ -904,6 +904,23 @@ func TestAMetaLanesSecondDeathRaisesItsDefectToItsLaunchersHead(t *testing.T) {
 	equal(t, defects[0].To, []string{"meta-desk-2"})
 }
 
+func TestALaneThatClosesItsRotateAskWithDoneOrAHandoffStaysLive(t *testing.T) {
+	for _, kind := range []string{"done", "handoff"} {
+		s := memory(t)
+		f := adopted(t, s, writeBrief(t), "")
+		closed := rec(3, lane2, kind, t0, "Handoff written as cc-notes doc 5fc90b8 and posted; owner-relay keeps working.", Self)
+		closed.Resolves = 2
+		f.feed = append(f.feed, rec(2, Self, "ask", t0, "ROTATE: conflicts-2 is at 425,128 tokens.", lane2), closed)
+		f.peers = []Row{onRoster(who(lane2, true, t0))}
+
+		tick(t, s, f, t0.Add(mins(1)))
+		tick(t, s, f, t0.Add(mins(2)))
+
+		lane := row(t, s, lane2)
+		equal(t, []any{lane.State, settledLane(lane), len(f.ofKind("stand-down"))}, []any{store.LaneDesired, false, 0})
+	}
+}
+
 func TestALaneThatEndedItselfStandsDownOnTheBusSoItsAliasPassesOn(t *testing.T) {
 	for _, kind := range []string{"done", "stopped", "handoff"} {
 		s := memory(t)

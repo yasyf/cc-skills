@@ -284,7 +284,11 @@ func intersect[T comparable](a, b []T) bool {
 func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at time.Time, out *folded) {
 	name, kind, text := r.Lane, r.Kind, r.Text
 	row, known := laneOf(s, name)
-	do(s.LaneHeard(name, at, kind, r.Seq))
+	heard := kind
+	if kind == "done" && r.answersAnother() {
+		heard = "answer"
+	}
+	do(s.LaneHeard(name, at, heard, r.Seq))
 	if r.Origin != "" {
 		do(s.LaneDelivered(name, at, r.Origin, late))
 	}
@@ -458,7 +462,7 @@ func endedBy(r Record) []string {
 
 func closesAnItem(s *store.Store, r Record) bool {
 	lane, known := laneOf(s, r.Lane)
-	return r.Kind == "done" && known && isStanding(lane)
+	return r.Kind == "done" && (r.answersAnother() || known && isStanding(lane))
 }
 
 func foldGates(s *store.Store, r Record, fresh bool, at time.Time) {
@@ -717,7 +721,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		return
 	}
 	settles := known && !isRoot && row.State != store.LaneRetired
-	if kind == "handoff" && settles && r.Re == 0 {
+	if kind == "handoff" && settles && !r.answersAnother() {
 		if out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "stand-down", at)
 		}
@@ -738,7 +742,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	switch {
 	case kind == kindLanded:
 		foldLanded(s, r, at)
-	case kind == "done" && settles && r.Re == 0 && !isStanding(row):
+	case kind == "done" && settles && !r.answersAnother() && !isStanding(row):
 		if out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "done", at)
 		}
