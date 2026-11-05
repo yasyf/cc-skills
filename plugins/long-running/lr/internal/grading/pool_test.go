@@ -441,6 +441,26 @@ func TestAFidelityJobOffersEveryClassTheGateAcceptsAndTheClassesLanesClaimedAtTh
 	sameStrings(t, spec.Claims, []string{"regression"})
 }
 
+func TestAFidelityJobCarriesAHeadRecordsFlakeClaimOnlyAtThatHead(t *testing.T) {
+	for name, c := range map[string]struct {
+		at   string
+		want []string
+	}{
+		"at this head":    {head, []string{gates.FlakeFixClass}},
+		"at an older one": {older, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{"baseline": "base-1"}})
+			post(t, client.Draft{Lane: "flake-1", Kind: kindHead, Text: "HEAD", PRs: []string{pull}, Attrs: map[string]string{"head:45489": c.at, gates.FlakeFixAttr: "TestChatStream"}})
+
+			f.started(t, GraderFidelity)
+
+			spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir))
+			sameStrings(t, spec.Claims, c.want)
+		})
+	}
+}
+
 func TestAGradeFromAListedLanesSuccessorStartsNoPass(t *testing.T) {
 	for _, lane := range []string{"fidelity-desk-22", "fidelity-shard-5"} {
 		t.Run(lane, func(t *testing.T) {

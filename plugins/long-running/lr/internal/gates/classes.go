@@ -60,6 +60,10 @@ func PathDecided(phrase string) bool {
 	return found
 }
 
+func TestOnlyClass(phrase string) bool {
+	return slices.Contains([]string{ClassOf(TestOnlyGrade), "test-only"}, ClassOf(phrase))
+}
+
 func Manifest(name string) bool {
 	return slices.Contains(manifests, path.Base(name))
 }

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 )
 
 const (
@@ -805,6 +807,30 @@ func TestAnOkNamesAnyClassTheGateAcceptsAndTheBriefListsThemAll(t *testing.T) {
 	mustFidelity(t, directory, shell)
 	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+regressionPhrase+": Resubscribes from the fetched position after a cut.")
 	holdsAll(t, readText(t, directory, "question-1.md"), "`regression` (\""+regressionPhrase+"\")", "`port` (\""+portPhrase+"\")")
+}
+
+func TestOnlyAFlakeClaimLetsAReaderNameTheTestOnlyClassThePathsDoNotDecide(t *testing.T) {
+	for name, c := range map[string]struct {
+		claims []string
+		posted string
+		listed bool
+	}{
+		"a flake fix's helper":    {[]string{gates.FlakeFixClass}, "fidelity: ok " + shaHead + " " + testOnly + ": Resubscribes", true},
+		"a head claiming nothing": {nil, "fidelity: ok " + shaHead + " Resubscribes", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": classes, "claims": c.claims})
+			shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"exempt": "test-only"}))
+			repo.names = "go/sand/next/internal/callcount/callcount.go\n"
+			mustFidelity(t, directory, shell)
+			if !strings.HasPrefix(shell.texts()[0], c.posted) {
+				t.Errorf("posted %q, want it to start %q", shell.texts()[0], c.posted)
+			}
+			if listed := strings.Contains(readText(t, directory, "question-1.md"), "`test-only` (\""+testOnly+"\")"); listed != c.listed {
+				t.Errorf("the brief lists test-only: %v, want %v", listed, c.listed)
+			}
+		})
+	}
 }
 
 func TestAnOkNamingNoClassALaneClaimedIsAskedOnceMoreListingTheClassesAndItsSecondAnswerStands(t *testing.T) {

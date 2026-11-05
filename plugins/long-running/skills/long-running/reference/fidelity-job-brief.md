@@ -138,6 +138,9 @@ Answer in the schema:
   any other class among {classes} only when the head is what its words say; `none` otherwise.
   A class the changed paths alone decide, such as test-only or ci-tooling, is not yours to
   name: the pass reads it from the diff's files.
+  The one exception is a head whose lane claims it fixes a test flake, where {classes} lists
+  test-only. Name it there only when no product binary links any changed file the paths do not
+  read as test code, which you check by reading what imports that file at {head}; `none` otherwise.
 - `old_app`: what the head changes for a user of the live old app, against {baseline}:
   `unchanged` when it touches nothing the old app runs, `bug fix` when it only fixes a defect
   in what the old app does, `changes` otherwise; `why` names the paths or behavior that

@@ -372,6 +372,10 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if err != nil {
 		return job{}, err
 	}
+	claims := claimedClasses(gos, facts)
+	if gates.FlakeAt(gates.Claim{Repo: facts.Repo, PR: facts.Number, Head: facts.Head}, found) {
+		claims = append(claims, gates.FlakeFixClass)
+	}
 	base := p.baseJob(d, facts, sprite, settled)
 	base.BugItems = items
 	base.Unread = slices.Concat(unread, unreadFindings, unreadOwed)
@@ -387,7 +391,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		Exempt:         p.classes(),
 		ExemptGrades:   p.exemptGrades(),
 		Baseline:       d.spec.Baseline,
-		Claims:         claimedClasses(gos, facts),
+		Claims:         claims,
 		ServiceTouches: d.spec.ServiceTouches,
 		Findings:       findings,
 		OwedDeletions:  owed,

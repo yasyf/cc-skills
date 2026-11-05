@@ -39,6 +39,7 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 	twin := "fidelity: ok " + surfaceHead + " class twin: carries the old tree's deploy checks"
 	testOnly := "fidelity: ok " + surfaceHead + " " + gates.TestOnlyGrade + ": ports the test"
 	purePort := "fidelity: ok " + surfaceHead + " " + gates.PortGrade + ": compared by file"
+	plain := "fidelity: ok " + surfaceHead + " stays in scope"
 	clean := map[string]string{gates.PortOfAttr: "48435", gates.PortInteractsAttr: gates.PortCleanWord}
 	flake := map[string]string{gates.FlakeFixAttr: "TestChatStream"}
 	for name, c := range map[string]struct {
@@ -49,16 +50,17 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 		lands        string
 		goRefuses    string
 	}{
-		"#48819, a clean port the first grader calls a twin":        {[]string{twin, purePort}, clean, true, []string{iris}, prrow.PortLands, ""},
-		"#50285, a clean port the first grader calls test-only":     {[]string{testOnly, purePort}, clean, true, []string{testFile}, prrow.PortLands, ""},
-		"#50292, a clean port whose only fidelity is an override":   {[]string{"fidelity: missing " + surfaceHead + " a doc line", "fidelity-override #4242 at abc1234: 3. Port of #48435."}, clean, true, []string{iris}, prrow.PortLands, ""},
-		"a port its record says interacts lands on his tap":         {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435", gates.PortInteractsAttr: "yes"}, true, []string{iris}, "", "port-interacts=no"},
-		"a port silent on interaction lands on his tap":             {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435"}, true, []string{iris}, "", "port-interacts=no"},
-		"a port whose source never merged lands on his tap":         {[]string{purePort}, clean, false, []string{iris}, "", "its source #48435 is not a merged pull request"},
-		"a port with a file outside the next tree lands on his tap": {[]string{purePort}, clean, true, []string{"infra/rows/x.ts", iris}, "", "infra/rows/x.ts is outside go/sand/next/"},
-		"no claim at all stays on the tap rule":                     {[]string{twin}, nil, true, []string{iris}, "", "tap rule rule/82317b0"},
-		"a flake fix in test code lands on his word":                {[]string{testOnly}, flake, false, []string{testFile}, prrow.FlakeLands, ""},
-		"a flake fix touching product code lands on his tap":        {[]string{testOnly}, flake, false, []string{iris}, "", "flake fix: " + iris + " is not test or fixture code"},
+		"#48819, a clean port the first grader calls a twin":         {[]string{twin, purePort}, clean, true, []string{iris}, prrow.PortLands, ""},
+		"#50285, a clean port the first grader calls test-only":      {[]string{testOnly, purePort}, clean, true, []string{testFile}, prrow.PortLands, ""},
+		"#50292, a clean port whose only fidelity is an override":    {[]string{"fidelity: missing " + surfaceHead + " a doc line", "fidelity-override #4242 at abc1234: 3. Port of #48435."}, clean, true, []string{iris}, prrow.PortLands, ""},
+		"a port its record says interacts lands on his tap":          {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435", gates.PortInteractsAttr: "yes"}, true, []string{iris}, "", "port-interacts=no"},
+		"a port silent on interaction lands on his tap":              {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435"}, true, []string{iris}, "", "port-interacts=no"},
+		"a port whose source never merged lands on his tap":          {[]string{purePort}, clean, false, []string{iris}, "", "its source #48435 is not a merged pull request"},
+		"a port with a file outside the next tree lands on his tap":  {[]string{purePort}, clean, true, []string{"infra/rows/x.ts", iris}, "", "infra/rows/x.ts is outside go/sand/next/"},
+		"no claim at all stays on the tap rule":                      {[]string{twin}, nil, true, []string{iris}, "", "tap rule rule/82317b0"},
+		"a flake fix in test code lands on his word":                 {[]string{testOnly}, flake, false, []string{testFile}, prrow.FlakeLands, ""},
+		"a flake fix touching product code lands on his tap":         {[]string{plain}, flake, false, []string{iris}, "", "flake fix: " + iris + " is not test or fixture code"},
+		"#50715, a flake fix whose helper a reader graded test-only": {[]string{testOnly}, flake, false, []string{testFile, "go/sand/next/internal/callcount/callcount.go"}, prrow.FlakeLands, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := unreadHarness(t)

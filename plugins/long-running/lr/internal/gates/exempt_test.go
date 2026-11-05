@@ -326,6 +326,7 @@ func TestAFlakeFixLandsWithNoTapOnlyWhenItsWholeChangeIsTestCodeWithNoTimeoutBum
 	const named = `,"flake-fix":"TestChatStream"`
 	patch := func(text string) *string { return &text }
 	next := "go/sand/next/internal/vm/run_test.go"
+	helper := "go/sand/next/internal/callcount/callcount.go"
 	cases := map[string]struct {
 		grade   string
 		attrs   string
@@ -336,7 +337,11 @@ func TestAFlakeFixLandsWithNoTapOnlyWhenItsWholeChangeIsTestCodeWithNoTimeoutBum
 		"test code alone lands past the tap rule":       {"class test-only", named, []string{next, "dashboard/src/iris/testing/chatHarness.tsx"}, map[string]*string{next: patch("+retry()"), "dashboard/src/iris/testing/chatHarness.tsx": patch("+props")}, ""},
 		"a grade naming no class still counts":          {"reads right", named, []string{next}, map[string]*string{next: patch("+retry()")}, ""},
 		"a test-only PR with no flake record needs him": {"class test-only", "", []string{next}, map[string]*string{next: patch("+retry()")}, "tap rule rule/82317b0 names " + next},
-		"product code is not covered":                   {"class test-only", named, []string{next, "go/sand/next/internal/vm/run.go"}, map[string]*string{next: patch("+retry()"), "go/sand/next/internal/vm/run.go": patch("+x")}, "go/sand/next/internal/vm/run.go is not test or fixture code"},
+		"product code is not covered":                   {"reads right", named, []string{next, "go/sand/next/internal/vm/run.go"}, map[string]*string{next: patch("+retry()"), "go/sand/next/internal/vm/run.go": patch("+x")}, "flake fix: go/sand/next/internal/vm/run.go is not test or fixture code, so it lands on his tap"},
+		"#50715, a helper a reader graded test-only":    {"class test-only", named, []string{next, helper}, map[string]*string{next: patch("+retry()"), helper: patch("+uncounted")}, ""},
+		"a helper no grade vouches for":                 {"class twin", named, []string{next, helper}, map[string]*string{next: patch("+retry()"), helper: patch("+uncounted")}, "flake fix: " + helper + " is not test or fixture code"},
+		"a graded helper's timeout bump is not covered": {"class test-only", named, []string{helper}, map[string]*string{helper: patch("+\tdeadline := time.Minute")}, "adds a timeout line"},
+		"a graded helper with no record needs him":      {"class test-only", "", []string{helper}, map[string]*string{helper: patch("+uncounted")}, "tap rule rule/82317b0 names " + helper},
 		"CI config is not test code":                    {"class test-only", named, []string{"infra/ci/x.ts"}, map[string]*string{"infra/ci/x.ts": patch("+x")}, "infra/ci/x.ts is not test or fixture code"},
 		"a timeout bump is not covered":                 {"class test-only", named, []string{next}, map[string]*string{next: patch(" keep\n+\tctx, cancel := context.WithTimeout(ctx, time.Minute)")}, "adds a timeout line"},
 		"a removed timeout is fine":                     {"class test-only", named, []string{next}, map[string]*string{next: patch("-\tWithTimeout(ctx, time.Minute)\n+\tretry()")}, ""},
@@ -358,6 +363,15 @@ func TestAFlakeFixLandsWithNoTapOnlyWhenItsWholeChangeIsTestCodeWithNoTimeoutBum
 			}
 		})
 	}
+}
+
+func TestOnlyALanesNewestGradeVouchesForAFlakeFixHelper(t *testing.T) {
+	const helper = "go/sand/next/internal/callcount/callcount.go"
+	patch := "+uncounted"
+	regraded := decoded(t, `{"seq":4,"lane":"fidelity-pipeline","kind":"review","text":"fidelity: ok `+portHead+` reads right","refs":{"prs":[49999]}}`)
+	records := append(graded(t, "class test-only"), headRecord(t, portHead, `,"flake-fix":"TestChatStream"`), regraded)
+	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: []string{helper}, Patches: map[string]*string{helper: &patch}})
+	refusedWith(t, text, refusals, "flake fix: "+helper+" is not test or fixture code")
 }
 
 func TestAFlakeRecordDoesNotExcuseAMissingFidelityGrade(t *testing.T) {
