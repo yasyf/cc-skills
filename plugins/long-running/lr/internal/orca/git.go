@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/awake"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -27,7 +29,7 @@ const (
 	spriteReadTimeout  = 3 * time.Minute
 )
 
-const spriteCheckout = `git -C "$1" remote get-url origin && git -C "$1" rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && git -C "$1" worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e "$tree" ] || git -C "$tree" status --porcelain || echo unreadable; done | wc -l && git -C "$1" status --porcelain=v2 --branch`
+const spriteCheckout = `git -C "$1" remote get-url origin && git -C "$1" rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && git -C "$1" worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e "$tree" ] || git -C "$tree" status --porcelain || echo unreadable; done | wc -l && echo $(git -C "$1" for-each-ref --format='%(refname)' ` + awake.WorkRefs + `) && echo $(for tree in $(cat "$HOME/` + awake.CheckoutsFile + `" 2>/dev/null); do [ ! -d "$tree" ] || echo "$tree"; done) && git -C "$1" status --porcelain=v2 --branch`
 
 const (
 	squashCopy       = `tree=$(git -C "$1" merge-tree --write-tree "$2^" "$3") && [ "$tree" = "$(git -C "$1" rev-parse "$2^{tree}")" ]`
@@ -61,11 +63,13 @@ type Checkout struct {
 	Repository  string
 	Environment string
 	OffOrigin   int
+	WorkRefs    []string
 }
 
 type CheckoutRead struct {
-	Found   *Checkout
-	Refusal string
+	Found    *Checkout
+	Refusal  string
+	Recorded []string
 }
 
 type Landings interface {
@@ -333,6 +337,7 @@ type SpriteFleet interface {
 	Remote(sprite Sprite) Remote
 	Holder(ctx context.Context, sprite Sprite) (string, error)
 	Destroy(ctx context.Context, sprite Sprite) (string, error)
+	Prune(ctx context.Context, checkouts []Checkout) (string, error)
 	CloseTunnel(ctx context.Context, sprite Sprite) string
 }
 
@@ -419,12 +424,14 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, er
 	}
 	origin, rest, _ := strings.Cut(result.Stdout, "\n")
 	offOrigin, rest, _ := strings.Cut(rest, "\n")
-	worktreeChanges, status, _ := strings.Cut(rest, "\n")
+	worktreeChanges, rest, _ := strings.Cut(rest, "\n")
+	workRefs, rest, _ := strings.Cut(rest, "\n")
+	recorded, status, _ := strings.Cut(rest, "\n")
 	hub := githubOrigin.FindStringSubmatch(origin)
 	if hub == nil {
 		return CheckoutRead{Refusal: sprite.Root + " has no GitHub origin to check its HEAD against"}, nil
 	}
-	checkout := Checkout{Path: sprite.Root, Repository: hub[1]}
+	checkout := Checkout{Path: sprite.Root, Repository: hub[1], WorkRefs: strings.Fields(workRefs)}
 	if checkout.OffOrigin, err = strconv.Atoi(strings.TrimSpace(offOrigin)); err != nil {
 		return CheckoutRead{}, err
 	}
@@ -457,7 +464,7 @@ func (c CCRemote) Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, er
 	if err != nil {
 		return CheckoutRead{}, err
 	}
-	return CheckoutRead{Found: &checkout}, nil
+	return CheckoutRead{Found: &checkout, Recorded: strings.Fields(recorded)}, nil
 }
 
 func (c CCRemote) github(ctx context.Context, path string, into any) (bool, error) {
@@ -577,6 +584,55 @@ func (c CCRemote) tool(ctx context.Context) (string, []string, error) {
 		return command, nil, nil
 	}
 	return command, []string{ccRemoteConfigEnv + "=" + config}, nil
+}
+
+func (c CCRemote) Prune(ctx context.Context, checkouts []Checkout) (string, error) {
+	refs := map[string][]string{}
+	for _, checkout := range checkouts {
+		refs[checkout.Repository] = append(refs[checkout.Repository], checkout.WorkRefs...)
+	}
+	scratch := ""
+	for _, repository := range slices.Sorted(maps.Keys(refs)) {
+		wanted := slices.Compact(slices.Sorted(slices.Values(refs[repository])))
+		if len(wanted) == 0 {
+			continue
+		}
+		origin := "https://github.com/" + repository + ".git"
+		listed, err := c.Runner.Run(ctx, shell.Command{Argv: append([]string{"git", "ls-remote", origin}, wanted...), Timeout: spriteReadTimeout})
+		var exit *shell.ExitError
+		if errors.As(err, &exit) {
+			return describeExit(listed.Stderr, "git ls-remote "+origin+" exited %d", listed.Code), nil
+		}
+		if err != nil {
+			return "", err
+		}
+		var present []string
+		for line := range strings.Lines(listed.Stdout) {
+			if fields := strings.Fields(line); len(fields) == 2 {
+				present = append(present, fields[1])
+			}
+		}
+		if len(present) == 0 {
+			continue
+		}
+		if scratch == "" {
+			if scratch, err = os.MkdirTemp("", "lr-work-refs-"); err != nil {
+				return "", err
+			}
+			defer func() { _ = os.RemoveAll(scratch) }()
+			if _, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"git", "init", "--quiet", "--bare", scratch}}); err != nil {
+				return "", err
+			}
+		}
+		pushed, err := c.Runner.Run(ctx, shell.Command{Argv: append([]string{"git", "-C", scratch, "push", "--quiet", origin, "--delete"}, present...), Timeout: spriteReadTimeout})
+		if errors.As(err, &exit) {
+			return describeExit(pushed.Stderr, "git push --delete to "+origin+" exited %d", pushed.Code), nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return "", nil
 }
 
 func (c CCRemote) CloseTunnel(ctx context.Context, sprite Sprite) string {

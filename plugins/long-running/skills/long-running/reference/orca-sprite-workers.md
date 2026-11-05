@@ -260,6 +260,15 @@ Once `worker-start` succeeds, the launch creates the `worker-awake` Sprite servi
 - A failed read or refresh logs at warn and tries again next minute. A service that fails to start warns on the launch's stderr and in `awake.log` in the attempt directory, and the worker keeps running without a hold.
 - A lane already running when this version installs has no holder until it is relaunched; `lr sprites roll` does not add one.
 
+The same service carries the lane's work off the box, so a Sprite the provider loses costs at most 5 minutes of work:
+
+- Every 5 minutes it finds the agent whose environment names `CLAUDE_LONG_RUNNING_LANE` and pushes with that agent's GitHub credential and git identity. A Sprite with no lane agent pushes nothing.
+- It walks the home directory three levels deep, skipping dot directories, and takes each git checkout whose origin is on github.com: the drive checkout and any clone the lane made. It records their paths in `~/.local/state/lr/work-checkouts` for `lr gc`.
+- For each checkout it stages the whole tree into a scratch index, so `.gitignore` keeps local-only files out and the lane's own index, branch and PRs never move. It writes one commit whose tree is the working tree, whose first parent is HEAD and whose other parents are the local branch tips no remote-tracking ref holds; its message names each branch and tip.
+- It pushes that commit to `refs/lr/work/<lane>` on the checkout's origin with `--no-verify`, and keeps a local copy of the ref. A checkout with no edits and nothing unpushed pushes nothing, and neither does one whose tree and parents match its last push.
+- A push is plain git. To the monorepo, git first reads GitHub's whole ref advertisement, about 130,000 refs, which takes about 3 seconds, and then sends only the changed objects. A box pushes at most 12 times an hour per checkout, and only while the lane is changing files.
+- A relaunched lane's brief names `refs/lr/work/<old lane>` and the fetch that reads it, and a lost lane's partial-work line says what that ref may lack.
+
 **Tunnel.** The Mac also holds an ssh tunnel to each lane's Sprite, opened when the lane starts, and an open tunnel keeps the box running with or without an agent. `lr gc` closes it, with `ssh -O exit` on that lane's own control path, when it keeps a settled lane's Sprite for unsaved work, an unreadable checkout or a refused destroy, so the kept box can sleep. A live dispatch or a busy terminal keeps its tunnel.
 
 **Local disk.** A Sprite's local disk holds 20 GB, about 18.6 GB of it usable, and a grader wrote about 4 GB a day to its home. So each `lr grade` on a Sprite runs `binrun gc` and deletes codex session files older than a day. A failure there is logged and never fails the pass. Those two were 5.5 GB of a 14 GB home after 2.5 days, read on dar-fleet-23.
@@ -486,8 +495,10 @@ A settled Sprite worker frees its Sprite through the same `lr gc` call. `lr gc` 
 - The Sprite's cc-remote task record names the Dispatch's worktree and terminal, and its workspace record still exists. A Sprite with no matching task record is left alone.
 - No unsettled Dispatch shares the workspace.
 - The terminal reads idle twice (`--done` skips the idle check).
-- The checkout, read over ssh, is clean with its HEAD on origin or landed.
+- The checkout, read over ssh, is clean with its HEAD on origin or landed, and so is every other checkout `lr sprites hold` recorded on the Sprite. A clone holding unsaved work keeps the Sprite and names the clone.
 - The Sprite's Orca runtime is up. A Sprite whose runtime is down, as it is on any Sprite `lr stop-sprites` stopped, reads as unknown and is kept.
+
+Right before the destroy, gc deletes the `refs/lr/work/*` refs each of those checkouts holds from that checkout's origin. That includes a predecessor's ref a successor fetched. It first reads which of them the origin still has, so a ref already gone is passed over, and a delete that fails keeps the Sprite.
 
 The destroy runs `WORKER_CC_REMOTE` with `CC_REMOTE_CONFIG` when set, otherwise `tools/cc-remote/bin/cc-remote` and `tools/cc-remote/config.yaml` of the checkout gc runs from.
 
@@ -497,6 +508,7 @@ A lane that ended has its Sprite stopped without the coordinator. Every five min
 
 - For each ended lane, lr runs `cc-remote orca stop <lane>` with the `WORKER_CC_REMOTE` and `CC_REMOTE_CONFIG` of `runner.json`'s `orca.sprite.env`. That stop closes the forward and stops every service, so the Sprite goes cold with its disk kept. It refuses a warm pool workspace's own name. The gc pause below does not hold it.
 - When a stop fails, lr runs `sprite list` once for the pass and looks for the Sprite named in the lane's launch receipt. A Sprite the list no longer shows closes the stop.
+- A Sprite whose storage the provider lost answers 503 `Storage not ready` and never runs again. A cc-remote release that carries yasyf/cc-remote#117 counts that as stopped, so the stop succeeds, closes any open blocker with one `SPRITE-STOPPED` line, and destroys nothing.
 - A stop that failed on a 5xx from the Sprites API or a timeout is tried again every pass, one call per stuck Sprite. Its first failure posts one `SPRITE-STOP-FAILED` blocker to the coordinator with the error and what the list said. When the Sprite stops or is gone, one `SPRITE-STOPPED` note closes that blocker.
 - A person ends those retries through `lr stop-sprites`, whose blocker line names the flag; it posts one `SPRITE-STOP-LEFT` note. Resolving the blocker does not end them, because a record that only routes the blocker also resolves it.
 - Any other failed stop is tried again on the next pass, up to three tries. The third failure posts one `SPRITE-STOP-FAILED` blocker, and lr never runs that lane's stop again.

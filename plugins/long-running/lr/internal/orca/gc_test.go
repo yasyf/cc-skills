@@ -1685,7 +1685,7 @@ func TestOrcaReadsABoxTreesHeadAndBranchFromItsServer(t *testing.T) {
 func TestARemoteCheckoutReadsPorcelainBranchHeadersThroughSpriteExec(t *testing.T) {
 	runner := &scripted{reply: func(argv []string) (string, string, int) {
 		if argv[0] == "sprite" {
-			return "https://token@github.com/acme/repo.git\n0\n0\n# branch.oid " + headA + "\n# branch.head (detached)\n? scratch.txt\n", "", 0
+			return "https://token@github.com/acme/repo.git\n0\n0\nrefs/lr/work/lane-1 refs/lr/work/lane-2\n/home/sprite/monorepo /home/sprite/work/widgets\n# branch.oid " + headA + "\n# branch.head (detached)\n? scratch.txt\n", "", 0
 		}
 		return `{"default_branch":"dev","status":"behind"}`, "", 0
 	}}
@@ -1693,9 +1693,12 @@ func TestARemoteCheckoutReadsPorcelainBranchHeadersThroughSpriteExec(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Checkout{Path: testSprite.Root, Dirty: true, Head: headA, OnTrunk: true, Repository: "acme/repo"}
+	want := Checkout{Path: testSprite.Root, Dirty: true, Head: headA, OnTrunk: true, Repository: "acme/repo", WorkRefs: []string{"refs/lr/work/lane-1", "refs/lr/work/lane-2"}}
 	if !reflect.DeepEqual(*read.Found, want) {
 		t.Fatalf("got %+v", *read.Found)
+	}
+	if !slices.Equal(read.Recorded, []string{"/home/sprite/monorepo", "/home/sprite/work/widgets"}) {
+		t.Fatalf("recorded %q", read.Recorded)
 	}
 	want2 := []string{"sprite", "exec", "-s", "pool-abc", "--no-stdin", "--no-port-forward", "--", "sh", "-c", spriteCheckout, "sh", testSprite.Root}
 	if !slices.Equal(runner.calls[0], want2) {
@@ -1709,7 +1712,7 @@ func TestARemoteCheckoutReadsPorcelainBranchHeadersThroughSpriteExec(t *testing.
 func TestUncommittedWorkInAnotherWorktreeKeepsASprite(t *testing.T) {
 	runner := &scripted{reply: func(argv []string) (string, string, int) {
 		if argv[0] == "sprite" {
-			return "https://github.com/acme/repo\n0\n2\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
+			return "https://github.com/acme/repo\n0\n2\n\n\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
 		}
 		return `{"default_branch":"dev","status":"behind"}`, "", 0
 	}}
@@ -1726,7 +1729,7 @@ func TestUncommittedWorkInAnotherWorktreeKeepsASprite(t *testing.T) {
 func TestCommitsOnAnotherBranchKeepASpriteWhoseHeadIsSaved(t *testing.T) {
 	runner := &scripted{reply: func(argv []string) (string, string, int) {
 		if argv[0] == "sprite" {
-			return "https://github.com/acme/repo\n6\n0\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
+			return "https://github.com/acme/repo\n6\n0\n\n\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
 		}
 		return `{"default_branch":"dev","status":"behind"}`, "", 0
 	}}
@@ -1744,7 +1747,7 @@ func TestCommitsOnAnotherBranchKeepASpriteWhoseHeadIsSaved(t *testing.T) {
 }
 
 func TestASpriteWithoutAGitHubOriginIsKeptByName(t *testing.T) {
-	runner := &scripted{reply: constant("https://token@gitlab.example/acme/repo\n0\n0\n# branch.oid " + headA + "\n# branch.head dev\n")}
+	runner := &scripted{reply: constant("https://token@gitlab.example/acme/repo\n0\n0\n\n\n# branch.oid " + headA + "\n# branch.head dev\n")}
 	read, err := CCRemote{Runner: runner, State: "/nonexistent"}.Checkout(context.Background(), testSprite)
 	if err != nil {
 		t.Fatal(err)
@@ -1783,7 +1786,7 @@ func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 	t.Run("a rate limit keeps the Sprite it was reading", func(t *testing.T) {
 		limited := func(argv []string) (string, string, int) {
 			if argv[0] == "sprite" {
-				return "https://github.com/acme/repo\n0\n0\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
+				return "https://github.com/acme/repo\n0\n0\n\n\n# branch.oid " + headA + "\n# branch.head dev\n", "", 0
 			}
 			return "{}", "gh: API rate limit exceeded (HTTP 403)", 1
 		}
@@ -2269,5 +2272,73 @@ func TestLandedSearchesClosedPRsForTheOneHeadItIsAskedAbout(t *testing.T) {
 	})
 	if !found {
 		t.Fatalf("calls %v", runner.calls)
+	}
+}
+
+func TestUnsavedWorkInACloneTheHoldRecordedKeepsTheSprite(t *testing.T) {
+	const clone = "/home/sprite/work/widgets"
+	orca, fleet := newOrca(spriteRow("ctx_s")), hostedFleet()
+	root := checkout(testSprite.Root)
+	fleet.reads["pool-abc"] = CheckoutRead{Found: &root, Recorded: []string{testSprite.Root, clone}}
+	fleet.reads[clone] = CheckoutRead{Found: new(checkout(clone, dirtyTree))}
+
+	_, out := runGC(t, orca, newGit(), gcOptions{fleet: fleet})
+
+	if len(fleet.destroyed) != 0 || len(fleet.pruned) != 0 {
+		t.Fatalf("destroyed %v, pruned %v; want the Sprite and its refs kept", fleet.destroyed, fleet.pruned)
+	}
+	wantSaid(t, out, "keep pool-abc uncommitted changes in "+clone)
+}
+
+func TestASavedSpritesWorkRefsArePrunedFromEveryCheckoutBeforeItIsDestroyed(t *testing.T) {
+	const clone = "/home/sprite/work/widgets"
+	orca, fleet := newOrca(spriteRow("ctx_s")), hostedFleet()
+	root := checkout(testSprite.Root, func(c *Checkout) { c.WorkRefs = []string{"refs/lr/work/lane-2", "refs/lr/work/lane-1"} })
+	widgets := checkout(clone, func(c *Checkout) { c.Repository, c.WorkRefs = "acme/widgets", []string{"refs/lr/work/lane-2"} })
+	fleet.reads["pool-abc"] = CheckoutRead{Found: &root, Recorded: []string{testSprite.Root, clone}}
+	fleet.reads[clone] = CheckoutRead{Found: &widgets}
+
+	_, out := runGC(t, orca, newGit(), gcOptions{fleet: fleet})
+
+	if !slices.Equal(fleet.destroyed, []string{"pool-abc"}) {
+		t.Fatalf("destroyed %v", fleet.destroyed)
+	}
+	if len(fleet.pruned) != 1 || !reflect.DeepEqual(fleet.pruned[0], []Checkout{root, widgets}) {
+		t.Fatalf("pruned %+v, want both checkouts once, before the destroy", fleet.pruned)
+	}
+	wantSaid(t, out, "destroyed pool-abc dispatch ctx_s")
+}
+
+func TestPruneDeletesEachWorkRefOriginStillHoldsAndPassesOverOneItDoesNot(t *testing.T) {
+	root := t.TempDir()
+	origin := filepath.Join(root, "widgets.git")
+	config := filepath.Join(root, "gitconfig")
+	if err := os.WriteFile(config, []byte("[url \""+origin+"\"]\n\tinsteadOf = https://github.com/acme/widgets.git\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	run := func(dir string, args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run(root, "init", "-q", "--bare", origin)
+	tree := run(origin, "hash-object", "-t", "tree", "-w", "--stdin")
+	commit := run(origin, "-c", "user.name=Lane", "-c", "user.email=lane@example.com", "commit-tree", tree, "-m", "work")
+	for _, ref := range []string{"refs/lr/work/lane-1", "refs/lr/work/lane-2", "refs/heads/dev"} {
+		run(origin, "update-ref", ref, commit)
+	}
+	widgets := Checkout{Repository: "acme/widgets", WorkRefs: []string{"refs/lr/work/lane-2", "refs/lr/work/lane-1", "refs/lr/work/lane-0"}}
+
+	refusal, err := CCRemote{Runner: shell.Exec{}}.Prune(t.Context(), []Checkout{widgets, {Repository: "acme/other"}})
+
+	if err != nil || refusal != "" {
+		t.Fatalf("Prune = %q, %v", refusal, err)
+	}
+	if left := run(origin, "for-each-ref", "--format=%(refname)"); left != "refs/heads/dev" {
+		t.Errorf("origin holds %q after the prune, want only refs/heads/dev", left)
 	}
 }

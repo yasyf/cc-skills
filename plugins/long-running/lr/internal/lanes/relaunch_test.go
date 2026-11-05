@@ -134,6 +134,7 @@ func TestASpriteLaneWhoseHostOrcaReportsUnavailableForTenMinutesIsRelaunchedOnce
 	brief := f.briefs["conflicts-3"]
 	contains(t, brief, "read conflicts-2's records with `cci tail --drive "+testDrive+" --lane conflicts-2 --oldest`")
 	contains(t, brief, "conflicts-2's worktree and transcript stayed on its Sprite")
+	contains(t, brief, "run `git fetch origin refs/lr/work/conflicts-2:refs/lr/work/conflicts-2`")
 	for _, gone := range []string{testCheckout, "lane-status", "lsof", "handoff-subagent-brief"} {
 		if strings.Contains(brief, gone) {
 			t.Fatalf("a Sprite successor's brief names %q:\n%s", gone, brief)
