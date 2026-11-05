@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,7 +29,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
-const spriteInstallTimeout = 15 * time.Minute
+const (
+	spriteInstallTimeout = 15 * time.Minute
+	sameFailureStop      = 3
+)
 
 var pinAtFault = regexp.MustCompile(`^refused: |curl: \(22\)|Not found in archive`)
 
@@ -47,6 +51,7 @@ type SpriteRoll struct {
 	Store   *store.Store
 	Host    string
 	Graders []string
+	Skip    []string
 	Now     func() time.Time
 	Out     io.Writer
 }
@@ -190,6 +195,20 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 	}
 	slices.Sort(boxes)
 	boxes = slices.Concat(r.Graders, boxes)
+	if slices.Contains(r.Skip, probe) {
+		return refuse("nothing rolled: --skip names the probe %s", probe)
+	}
+	var skipped []string
+	boxes = slices.DeleteFunc(boxes, func(box string) bool {
+		held := slices.Contains(r.Skip, box)
+		if held {
+			skipped = append(skipped, box)
+		}
+		return held
+	})
+	if len(skipped) > 0 {
+		fmt.Fprintf(r.Out, "lr sprites roll: skipped, as --skip asks: %s\n", strings.Join(skipped, " "))
+	}
 	if probe != "" {
 		at := slices.Index(boxes, probe)
 		if at < 0 {
@@ -204,22 +223,19 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 }
 
 func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string, probe string) error {
-	var unreached []string
-	var hostStayed error
+	proven := map[string]bool{}
+	var unreached, failed []string
+	said := map[string]string{}
+	var last string
+	streak := 0
 	for done, box := range boxes {
-		boxPins := pins
-		switch {
-		case box == r.Host:
-			boxPins = pins.forHost()
-		case slices.Contains(r.Graders, box):
-			boxPins = pins.only(graderTools...)
+		boxPins := r.pinsOn(box, pins)
+		try, err := r.installOn(ctx, box, boxPins)
+		if err != nil {
+			return err
 		}
-		result, err := r.Runner.Run(ctx, shell.Command{Argv: boxPins.installArgv(box, nil), Timeout: spriteInstallTimeout})
-		installed := installedTools(result.Stdout)
-		if recorded := r.Store.RecordSpriteTools(box, installed, r.Now()); recorded != nil {
-			return recorded
-		}
-		if err != nil && len(installed) == 0 && spriteUnreached(result) {
+		result, installed := try.result, try.installed
+		if try.failed != nil && len(installed) == 0 && spriteUnreached(result) {
 			if box == probe {
 				return refuse("lr sprites roll: could not reach the probe %s, so %d more Sprites keep what they run: %s", box, len(boxes)-done-1, lastSaid(result))
 			}
@@ -227,19 +243,108 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 			unreached = append(unreached, box)
 			continue
 		}
-		if err != nil && box == r.Host {
-			hostStayed = refuse("lr sprites roll: the desk host %s keeps what it runs, and no pin is marked bad: %s", box, lastSaid(result))
+		for name := range installed {
+			proven[name] = true
+		}
+		if try.failed == nil {
+			proven[""] = true
+			last, streak = "", 0
+			fmt.Fprintf(r.Out, "lr sprites roll: %s runs %s\n", box, censusOf(installed))
 			continue
 		}
-		if err != nil {
+		if box != r.Host && !proven[failedTool(boxPins, installed)] {
 			return r.failed(box, boxPins, installed, result, len(boxes)-done-1)
 		}
-		fmt.Fprintf(r.Out, "lr sprites roll: %s runs %s\n", box, censusOf(installed))
+		failed = append(failed, box)
+		said[box] = lastSaid(result)
+		if said[box] != last {
+			last, streak = said[box], 0
+		}
+		streak++
+		fmt.Fprintf(r.Out, "lr sprites roll: %s failed, the roll goes on and tries it again at the end: %s\n", box, said[box])
+		if streak == sameFailureStop {
+			return refuse("lr sprites roll: %d Sprites in a row failed the same way, so a pin is likely at fault though none is marked bad, and %d more Sprites keep what they run: %s", streak, len(boxes)-done-1, said[box])
+		}
+	}
+	var stayed []string
+	for _, box := range failed {
+		try, err := r.installOn(ctx, box, r.pinsOn(box, pins))
+		if err != nil {
+			return err
+		}
+		if try.failed == nil {
+			fmt.Fprintf(r.Out, "lr sprites roll: %s runs %s on its second try\n", box, censusOf(try.installed))
+			continue
+		}
+		said[box] = lastSaid(try.result)
+		stayed = append(stayed, box)
+	}
+	if err := r.reportStayed(stayed, said); err != nil {
+		return err
 	}
 	if len(unreached) > 0 {
 		fmt.Fprintf(r.Out, "lr sprites roll: never reached: %s\n", strings.Join(unreached, " "))
 	}
-	return hostStayed
+	if len(stayed) > 0 {
+		return refuse("lr sprites roll: %d of %d Sprites failed twice and keep what they hold, and no pin is marked bad: %s", len(stayed), len(boxes), strings.Join(stayed, " "))
+	}
+	return nil
+}
+
+func (r SpriteRoll) pinsOn(box string, pins spritePins) spritePins {
+	switch {
+	case box == r.Host:
+		return pins.forHost()
+	case slices.Contains(r.Graders, box):
+		return pins.only(graderTools...)
+	}
+	return pins
+}
+
+type installTry struct {
+	result    shell.Result
+	installed map[string]string
+	failed    error
+}
+
+func (r SpriteRoll) installOn(ctx context.Context, box string, pins spritePins) (installTry, error) {
+	result, failed := r.Runner.Run(ctx, shell.Command{Argv: pins.installArgv(box, nil), Timeout: spriteInstallTimeout})
+	try := installTry{result: result, installed: installedTools(result.Stdout), failed: failed}
+	return try, r.Store.RecordSpriteTools(box, try.installed, r.Now())
+}
+
+func (r SpriteRoll) reportStayed(stayed []string, said map[string]string) error {
+	if len(stayed) == 0 {
+		return nil
+	}
+	tools, err := r.Store.SpriteTools()
+	if err != nil {
+		return err
+	}
+	held := map[string]map[string]string{}
+	for _, tool := range tools {
+		if held[tool.Sprite] == nil {
+			held[tool.Sprite] = map[string]string{}
+		}
+		held[tool.Sprite][tool.Name] = tool.Version
+	}
+	for _, box := range stayed {
+		fmt.Fprintf(r.Out, "lr sprites roll: %s failed twice and holds %s: %s\n", box, cmp.Or(censusOf(held[box]), "nothing a roll recorded"), said[box])
+	}
+	return nil
+}
+
+func failedTool(pins spritePins, installed map[string]string) string {
+	switch {
+	case installed["cci"] == "":
+		return "cci"
+	case installed["lr"] == "":
+		return "lr"
+	}
+	if failed := slices.IndexFunc(pins.tools, func(tool spriteTool) bool { return installed[tool.Name] != tool.Version }); failed >= 0 {
+		return pins.tools[failed].Name
+	}
+	return ""
 }
 
 func spriteUnreached(result shell.Result) bool {
@@ -356,9 +461,10 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	}
 	var probe string
 	var probeOnly bool
+	var skip []string
 	roll := &cobra.Command{
 		Use:   "roll",
-		Short: "Install runner.json's Sprite pins on the desk host, every Sprite with a live worker in the drive's Run, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin that fails is marked bad, stops the roll, and is never rolled again",
+		Short: "Install runner.json's Sprite pins on the desk host, every Sprite with a live worker in the drive's Run, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin that fails before any box installed it is marked bad, stops the roll, and is never rolled again; a later box's failure is retried once at the end, and three in a row failing the same way stop the roll",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, run, state, err := opened()
@@ -378,7 +484,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Host: file.Host.Sprite, Graders: file.graders(), Now: a.Now, Out: cmd.OutOrStdout()}
+			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Host: file.Host.Sprite, Graders: file.graders(), Skip: skip, Now: a.Now, Out: cmd.OutOrStdout()}
 			if probeOnly && probe == "" {
 				return errors.New("--probe-only needs --probe, so it names the one Sprite to install on")
 			}
@@ -387,6 +493,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	}
 	roll.Flags().StringVar(&probe, "probe", "", "the Sprite to install on first; default the first by name")
 	roll.Flags().BoolVar(&probeOnly, "probe-only", false, "install on the --probe Sprite and stop, so a person can check it before the rest")
+	roll.Flags().StringSliceVar(&skip, "skip", nil, "a Sprite the roll leaves alone and names, never counting it a failure; repeat or comma-separate for more")
 	pin := &cobra.Command{
 		Use:   "pin",
 		Short: "Move each orca.sprite.tools pin to the version this Mac's plugins run, once its release asset matches its release's checksum",
