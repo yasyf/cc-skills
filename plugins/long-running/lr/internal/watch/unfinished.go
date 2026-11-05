@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -27,12 +29,16 @@ const (
 	clockAndDay    = "3:04 PM Jan 2"
 )
 
-var findingOpen = []string{"open", "routed"}
+var (
+	findingOpen = []string{"open", "routed"}
+	namedPR     = regexp.MustCompile(`#(\d+)\b`)
+)
 
 type Ledgers struct {
 	Asks     asks.Book
 	Retro    []ledger.Row
 	Findings []ledger.Row
+	Waits    []board.Wait
 }
 
 func ReadLedgers(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.Runner, now time.Time) (Ledgers, error) {
@@ -49,7 +55,24 @@ func ReadLedgers(ctx context.Context, s *store.Store, entry drive.Entry, runner 
 	if err != nil {
 		return Ledgers{}, err
 	}
-	return Ledgers{book, retro, findings}, nil
+	rows, err := s.ReviewRows(entry.Repo)
+	if err != nil {
+		return Ledgers{}, err
+	}
+	live, err := board.LiveOf(board.Outcomes{}, nil, rows)
+	if err != nil {
+		return Ledgers{}, err
+	}
+	return Ledgers{book, retro, findings, live.Waits()}, nil
+}
+
+func (l Ledgers) waitsOnHim(text string) bool {
+	for _, found := range namedPR.FindAllStringSubmatch(text, -1) {
+		if slices.ContainsFunc(l.Waits, func(w board.Wait) bool { return w.Kind == "tap" && w.PR == found[1] }) {
+			return true
+		}
+	}
+	return false
 }
 
 func Unfinished(l Ledgers, now time.Time) ([]Wait, error) {
@@ -79,7 +102,7 @@ func Unfinished(l Ledgers, now time.Time) ([]Wait, error) {
 		waits = append(waits, unfinishedWait(ask.Key, what, "no progress", ask.Text, step, moved, ask.Due, now))
 	}
 	for _, row := range l.Findings {
-		if !slices.Contains(findingOpen, row.Fields["state"]) {
+		if !slices.Contains(findingOpen, row.Fields["state"]) || row.Fields["kind"] == pickKind && l.waitsOnHim(row.Fields["text"]) {
 			continue
 		}
 		what := "finding from " + row.Fields["sweep"]
