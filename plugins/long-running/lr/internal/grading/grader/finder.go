@@ -25,7 +25,8 @@ const (
 	censusPrefix  = "census:"
 	followUpWord  = "follow-up:"
 	bigSlice      = 150
-	bigSliceModel = "sol"
+	solModel      = "sol"
+	solEffort     = "medium"
 	outputCap     = "max_output_tokens"
 	finderTimeout = 5400 * time.Second
 	finderPass    = "ok"
@@ -246,7 +247,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 		keys = rowKeys(rows)
 	}
 	if len(keys) > bigSlice {
-		spec.Model = bigSliceModel
+		spec.Model = solModel
 	}
 	planned, err := planOnThisBox(plan)
 	if err != nil {
@@ -434,8 +435,8 @@ func (s *finderPassState) askFinder(question string, attempt int) (string, finde
 	}
 	out, err := asked(spec.Model, fmt.Sprintf("codex-%d", attempt))
 	var exit *ExitError
-	if errors.As(err, &exit) && spec.Model != bigSliceModel && strings.Contains(exit.output(), outputCap) {
-		out, err = asked(bigSliceModel, fmt.Sprintf("codex-%d-%s", attempt, bigSliceModel))
+	if errors.As(err, &exit) && spec.Model != solModel && strings.Contains(exit.output(), outputCap) {
+		out, err = asked(solModel, fmt.Sprintf("codex-%d-%s", attempt, solModel))
 	}
 	if err != nil {
 		return "", finderReply{}, err

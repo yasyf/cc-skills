@@ -774,6 +774,9 @@ func Repost(ctx context.Context, dir string, post func(context.Context, client.D
 
 func (p *pass) ask(model, schema, session, question string, timeout time.Duration) (string, error) {
 	argv := []string{"codex-ask", "-m", model}
+	if model == solModel {
+		argv = append(argv, "--effort", solEffort)
+	}
 	if p.job.Fast {
 		argv = append(argv, "--incident")
 	}
