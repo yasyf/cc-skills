@@ -51,13 +51,13 @@ func onDashboard(t *testing.T, f Fanout, failed error) (Fanout, *[]shot) {
 }
 
 func postedCard(t *testing.T, argv []string) struct {
-	Body      string         `json:"body"`
-	Artifacts []cardArtifact `json:"artifacts"`
+	Body      string     `json:"body"`
+	Artifacts []Artifact `json:"artifacts"`
 } {
 	t.Helper()
 	var card struct {
-		Body      string         `json:"body"`
-		Artifacts []cardArtifact `json:"artifacts"`
+		Body      string     `json:"body"`
+		Artifacts []Artifact `json:"artifacts"`
 	}
 	if err := json.Unmarshal([]byte(flag(t, argv, "--card")), &card); err != nil {
 		t.Fatal(err)
