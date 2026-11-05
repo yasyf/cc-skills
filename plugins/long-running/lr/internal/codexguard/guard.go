@@ -56,6 +56,9 @@ func (g Guard) Refusal(ctx context.Context, payload []byte) string {
 	if g.launchesIrisAsHim(ctx, call.ToolInput.Command, call.Cwd) {
 		return irisRefusal
 	}
+	if g.readsProductionUnapproved(ctx, call.ToolInput.Command, call.Cwd) {
+		return productionRefusal
+	}
 	return ""
 }
 

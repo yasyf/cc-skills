@@ -36,6 +36,7 @@ KEPT = {
     "owner_login_verdicts.owner_login_verdicts_cite_the_board": "answer 8c73884: an approval under his login stands only on his verdict, and an unread verdict is no verdict",
     "incident_commands.takeovers_pass_lr_owner_away": "answer 7641eea: a takeover records in the owner's name, and a lane took one over while he was at work, so a read that failed counts as present and he asked for a real check rather than a warning",
     "incident_commands.only_the_communicator_records_his_word": "answer 7641eea: his word overrides the presence clock, so a session whose role did not read is not allowed to speak for him",
+    "production_reads.production_reads_need_his_record": "the owner ordered the refusal: a production secret, pod or database read passes only on his record naming that exact read, so an approval that did not read is no approval, and a printed secret or streamed pod cannot be taken back",
     "gate5_release.sand_next_release_needs_gate5_pass": "cci 369335: publishing next past a failed gate read has no way back across a server migration, while a release that does not name sand-next needs no read",
 }
 PARKS = "AskUserQuestion parks the session, so a warning lands too late (answer 1fe20ee)"
