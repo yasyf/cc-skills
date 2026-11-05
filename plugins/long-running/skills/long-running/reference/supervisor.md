@@ -189,7 +189,7 @@ A coordinator reading unverifiable, and a lane with no process row, are held wit
   - With none live, the supervisor writes the stem's standing brief to `<state>/<stem>/brief.md`, launches the next number from it through `orca-desk`, and root gets one `note` it need not act on.
   - The record names the failing test, or the job when no test failed, and calls a job that failed on a GitHub quota or rate limit `INFRA`, not a flake. It is due in two hours.
   - Each pass, an open record whose lane is gone gets the next lane of the stem, handed over in a `note`, and it shows in the owner update.
-  - A repeat failure of the same test or job attaches to the open record. A record closed by a resolver that names no merged PR reopens to the same owner.
+  - A repeat failure of the same test or job attaches to the open record. A record closed by a resolver that names no merged PR reopens to the same owner. A merged PR closes that record only, never the class part of an owner order ([communicator-brief.md](communicator-brief.md#route-meta-orders)).
   - An open record past its due time, or with no live lane on it, becomes an ask, so it shows in the owner update and on the owner's Your asks page.
   - Automatic retries stay, and a green retry never closes a flake.
 
