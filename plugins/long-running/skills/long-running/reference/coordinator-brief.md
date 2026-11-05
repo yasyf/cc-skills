@@ -146,7 +146,7 @@ Launch lanes through the supervisor and Orca, never with `Agent`, keeping only t
 It writes `<state dir>/<lane>/brief.md` with the header and your standing lines from
 `<state dir>/root/brief-lines.txt`, the runner refreshes the register slice, and it prints the
 verdict. A later verdict arrives as a `desk-runner` record. Model and effort default to opus
-high; Fable, astra, `xhigh` or `max` takes an `Owner pick: owner:m<row>` line in the body naming his words. A launch beside a live lane holding the work takes `--now`.
+high; Fable, astra, `xhigh` or `max` takes `--owner-pick owner:m<row>` naming his words. A launch beside a live lane holding the work takes `--now`.
 
 The task list is yours. Run `TaskCreate` the turn you spawn a lane or an ask arrives,
 complete a task only after consuming the deliverable, and reconcile the list against the
