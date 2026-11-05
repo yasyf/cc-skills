@@ -9,7 +9,7 @@ from .board_text_gate import blocks, published
 from .call_dir import located
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
-from .meta_records import posts
+from .meta_records import post_records
 from .owner_facing import SLACK_CARD, Reads, fenced, slack_card
 from .register_injection import INCIDENT_NAME, drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -24,7 +24,7 @@ REFUSAL = (
 
 
 def held_posts(evt: BaseHookEvent) -> list[str]:
-    return [text for lane, _, kind, text, _, _ in posts(evt) if not INCIDENT_NAME.match(lane) and (kind.lower() in HELD or CARD_TOPIC in text)]
+    return [post.text for post in post_records(evt) if not INCIDENT_NAME.match(post.lane) and (post.kind.lower() in HELD or post.topic.startswith(CARD_TOPIC))]
 
 
 def drawn_rows(evt: BaseHookEvent, reads: Reads) -> list[str]:
@@ -50,6 +50,7 @@ def held_lines(evt: BaseHookEvent, reads: Reads) -> list[str]:
 
 HOLD = "cci post --kind hold --to go-sweep,landing-desk-3 --pr 46018 --text 'Hold until 12414 settles its column drop.'"
 CARD = "cci post --kind report --to root --topic card-46018-column-drop --text 'Card drawn: approve the column drop.'"
+REPORT_NAMING_CARD = "cci post --kind report --to meta-desk --text 'card-expired-grant-renewal, his pick: #46018 by Andrew landed and put one timer on each machine.'"
 OWN_HOLD = "cci post --kind hold --to go-sweep --pr 49336 --text 'Hold until 12414 settles.'"
 DRAW = "lr ask-owner --lane release-6 --until at:3d --card - <<'EOF'\n{\"type\": \"card\", \"id\": \"card-46018-column-drop\", \"title\": \"Approve Andrew's #46018 column drop?\"}\nEOF"
 PUSH = "cc-present update-block - <<'EOF'\n" + json.dumps({"type": "card", "id": "card-46018-column-drop", "title": "Approve the column drop, #46018?"}) + "\nEOF"
@@ -62,6 +63,8 @@ PUSH = "cc-present update-block - <<'EOF'\n" + json.dumps({"type": "card", "id":
         Input(command=HOLD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"^A hold, card or board row is for a PR[\s\S]*#46018 is Andrew Benton \(andrew\)'s PR"),
         Input(command=CARD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(command=DRAW, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
+        Input(tool=POST_TOOL, tool_input={"kind": "report", "to": ["root"], "topic": "card-46018-column-drop", "text": "Card drawn for #46018."}, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
+        Input(command=REPORT_NAMING_CARD, env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="lr ask-owner --title 'Approve the column drop, #46018?' --until at:3d", env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(command="lr ask-owner --withdraw card-chat-limits", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="lr ask-owner --port-of 46018 --title 'Land #49336?' --option 'Land :: It differs from #46018 in two places.'", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
