@@ -1,4 +1,9 @@
 set -eu
+step() {
+  echo "install step: $1" >&2
+}
+trap 'code=$?; [ "$code" = 0 ] || echo "install step failed: exit $code" >&2' EXIT
+step "prepare the install"
 bin="$HOME/.local/bin"
 plugins="$HOME/.claude/plugins"
 mkdir -p "$bin" "$plugins"
@@ -13,7 +18,7 @@ fetch() {
   curl -fsSL "$1" -o "$3"
   if ! echo "$2  $3" | sha256sum -c --status -; then
     rm -f "$3"
-    echo "refused: $1 is not the archive with SHA-256 $2"
+    echo "refused: $1 is not the archive with SHA-256 $2" >&2
     exit 1
   fi
 }
@@ -31,7 +36,7 @@ supervise_on() {
   waited=0
   until pgrep -f "$dir/$1 supervise" > /dev/null; do
     if [ "$waited" -ge 60 ]; then
-      echo "the $1 service never started $dir/$1"
+      echo "the $1 service never started $dir/$1" >&2
       exit 1
     fi
     waited=$((waited + 1))
@@ -42,12 +47,14 @@ supervise_on() {
   done
   echo "installed $1-supervise $2"
 }
+step "install cci"
 fetch "$1" "$2" /tmp/cci.tgz
 staged=$(mktemp -d "$bin/.cci.XXXXXX")
 tar -xzf /tmp/cci.tgz -C "$staged" --exclude='*.md'
 mv -f "$staged"/* "$bin"
 rmdir "$staged"
 echo "installed cci $(said "$bin/cci")"
+step "install lr"
 fetch "$3" "$4" /tmp/lr.tgz
 tar -xzOf /tmp/lr.tgz "$5" > "$bin/lr.new"
 chmod 755 "$bin/lr.new"
@@ -56,6 +63,7 @@ echo "installed lr $(said "$bin/lr")"
 shift 5
 while [ "$1" != -- ]; do
   kind=$1 name=$2 version=$5
+  step "install $name $version"
   fetch "$3" "$4" /tmp/tool.tgz
   shift 5
   case $kind in
@@ -69,7 +77,7 @@ while [ "$1" != -- ]; do
     printed=$(said "$bin/$name.new")
     if [ "$printed" != "$version" ]; then
       rm -f "$bin/$name.new"
-      echo "refused: $name from that download prints $printed for --version, not $version"
+      echo "refused: $name from that download prints $printed for --version, not $version" >&2
       exit 1
     fi
     mv "$bin/$name.new" "$bin/$name"
@@ -80,14 +88,14 @@ while [ "$1" != -- ]; do
     printed=$("/tmp/$name.new" version | jq -r .build)
     if [ "$printed" != "$version" ]; then
       rm -f "/tmp/$name.new"
-      echo "refused: $name from that archive reports build $printed, not $version"
+      echo "refused: $name from that archive reports build $printed, not $version" >&2
       exit 1
     fi
-    "/tmp/$name.new" package-install 9>&-
+    "/tmp/$name.new" package-install 9>&- >&2
     rm -f "/tmp/$name.new"
     printed=$("$bin/$name" version | jq -r .build)
     if [ "$printed" != "$version" ]; then
-      echo "refused: package-install left $name at build $printed, not $version"
+      echo "refused: package-install left $name at build $printed, not $version" >&2
       exit 1
     fi
     ;;
@@ -100,7 +108,7 @@ while [ "$1" != -- ]; do
       printed=$(jq -r .version "$dir.new/.claude-plugin/plugin.json")
       if [ "$printed" != "$version" ]; then
         rm -rf "$dir.new"
-        echo "refused: the $name archive is version $printed, not $version"
+        echo "refused: the $name archive is version $printed, not $version" >&2
         exit 1
       fi
       mv "$dir.new" "$dir"
@@ -149,12 +157,13 @@ while [ "$1" != -- ]; do
     supervise_on "$name" "$version"
   fi
 done
+step "fetch the plugin binaries"
 for dir in $packs; do
   for descriptor in "$dir"/bin/*.binrun; do
     if ! said=$("$dir/scripts/binrun.sh" -- fetch "$descriptor" 2>&1); then
       case $said in
       *mismatch*)
-        echo "refused: $said"
+        echo "refused: $said" >&2
         exit 1
         ;;
       esac
@@ -168,6 +177,7 @@ if [ "${1-}" = no-cci-daemon ]; then
   grader=1
   shift
 fi
+step "restart the cci daemon"
 if ! pgrep -f "$bin/cci supervise" > /dev/null; then
   echo "installed cci-daemon none"
 elif [ -n "$grader" ]; then
@@ -178,12 +188,14 @@ else
   # Without CCI_HANDED_OFF_FROM, cci hands --version to the newest cci on the box, not the build the daemon runs.
   echo "installed cci-daemon $(CCI_HANDED_OFF_FROM=lr "/proc/$daemon/exe" --version)"
 fi
+step "check the tools the brief runs"
 mkdir -p "$HOME/.config/mise/conf.d"
 printf '[settings]\ntrusted_config_paths = ["~"]\n' > "$HOME/.config/mise/conf.d/cc-remote-trust.toml"
 export PATH="$bin:$PATH"
 missing=
 for tool; do command -v "$tool" > /dev/null || missing="$missing $tool"; done
 if [ -n "$missing" ]; then
-  echo "missing:$missing"
+  echo "missing:$missing" >&2
   exit 3
 fi
+step "finish after the tools"

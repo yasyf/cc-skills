@@ -366,6 +366,9 @@ func spriteUnreached(result shell.Result) bool {
 
 func lastSaid(result shell.Result) string {
 	said := strings.TrimSpace(result.Stdout + result.Stderr)
+	if fault := installFault(said); fault != "" {
+		return fault
+	}
 	return said[strings.LastIndex(said, "\n")+1:]
 }
 

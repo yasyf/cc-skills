@@ -78,6 +78,7 @@ Each refusal names its cause, and nothing is prepared unless noted.
 | `bin/lr.binrun` pins no sha256 tar.gz GitHub release for `linux-x86_64` | Refuses before prepare |
 | A malformed tool pin | Refuses before prepare |
 | A pin off its digest or version | `prepare` fails; no worker starts |
+| Any step of the tool install fails | Names the step, its exit and what it printed, for a launch, a roll and a grader; `prepare.err` keeps the rest |
 | No `WORKER_RELAY_SPONSOR` | Refuses before preparing anything |
 | A relay join that fails after its retries | Refuses, naming the relay's reason; no worker started |
 | mise cannot run the pinned `cc-remote` | Refuses before allocation, printing mise's own message |

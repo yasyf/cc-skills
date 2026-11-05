@@ -63,12 +63,13 @@ const (
 )
 
 var (
-	joinWaits    = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second}
-	spriteLane   = regexp.MustCompile(`\A[a-z0-9][a-z0-9-]{0,54}\z`)
-	fullCommit   = regexp.MustCompile(`\A[0-9a-f]{40}([0-9a-f]{24})?\z`)
-	orcaIdent    = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z`)
-	briefTool    = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
-	modelAliases = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
+	joinWaits        = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second}
+	spriteLane       = regexp.MustCompile(`\A[a-z0-9][a-z0-9-]{0,54}\z`)
+	fullCommit       = regexp.MustCompile(`\A[0-9a-f]{40}([0-9a-f]{24})?\z`)
+	orcaIdent        = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z`)
+	briefTool        = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
+	toolsMissingLine = regexp.MustCompile(`(?m)^missing:(.*)$`)
+	modelAliases     = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
 )
 
 type WorkerStarter struct {
@@ -642,9 +643,11 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 			return nil, err
 		}
 	}
-	if _, missing, found := strings.Cut(result.Stderr, "missing:"); code != 0 && found {
-		missing, _, _ = strings.Cut(missing, "\n")
-		return nil, refuse("the Sprite has no %s, which the brief runs, so no worker started; %s keeps its output", strings.Join(strings.Fields(missing), ", "), filepath.Join(w.attempt, "prepare.err"))
+	if missing := toolsMissingLine.FindStringSubmatch(result.Stderr); code != 0 && missing != nil {
+		return nil, refuse("the Sprite has no %s, which the brief runs, so no worker started; %s keeps its output", strings.Join(strings.Fields(missing[1]), ", "), filepath.Join(w.attempt, "prepare.err"))
+	}
+	if fault := installFault(result.Stderr); code != 0 && fault != "" {
+		return nil, refuse("the Sprite's %s, so no worker started; %s keeps its output", fault, filepath.Join(w.attempt, "prepare.err"))
 	}
 	if code != 0 {
 		return nil, refuse("cc-remote orca prepare exited %d; %s keeps its output, and nothing was attached or retried", code, w.attempt)
