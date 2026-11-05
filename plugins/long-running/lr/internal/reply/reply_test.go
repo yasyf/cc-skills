@@ -1010,14 +1010,14 @@ func TestAReplyNamingAPortOpensWithItsSource(t *testing.T) {
 		reply Reply
 		want  string
 	}{
-		"named in the text":       {Reply{Title: "Relay fix", MD: "#2196 is green."}, opening + "#2196 is green."},
-		"named in prs":            {Reply{Title: "Relay fix", MD: "It is green.", PRs: []string{landPR}}, opening + "It is green."},
-		"named twice opens once":  {Reply{Title: "Relay fix", MD: "#2196 is green. #2196 lands."}, opening + "#2196 is green. #2196 lands."},
-		"its text already opens":  {Reply{Title: "Relay fix", MD: "Port of #2190: #2196 is green."}, "Port of #2190: #2196 is green."},
-		"its title already opens": {Reply{Title: "port of #2190: relay fix", MD: "#2196 is green."}, "#2196 is green."},
-		"no port named":           {Reply{Title: "Relay fix", MD: "#2197 is green."}, "#2197 is green."},
+		"named in the text":                        {Reply{Title: "Relay fix", MD: "#2196 is green."}, opening + "#2196 is green."},
+		"named in prs":                             {Reply{Title: "Relay fix", MD: "It is green.", PRs: []string{landPR}}, opening + "It is green."},
+		"named twice opens once":                   {Reply{Title: "Relay fix", MD: "#2196 is green. #2196 lands."}, opening + "#2196 is green. #2196 lands."},
+		"its text already opens":                   {Reply{Title: "Relay fix", MD: "Port of #2190: #2196 is green."}, "Port of #2190: #2196 is green."},
+		"its title already opens":                  {Reply{Title: "port of #2190: relay fix", MD: "#2196 is green."}, "#2196 is green."},
+		"no port named":                            {Reply{Title: "Relay fix", MD: "#2197 is green."}, "#2197 is green."},
 		"a list of PRs names each in its own line": {Reply{Title: "Relay fixes", MD: "#2196 is green.\n#2197 is green."}, "#2196 is green.\n#2197 is green."},
-		"another repo's number":   {Reply{Title: "Relay fix", MD: "Forge-AI/monorepo#2196 is green."}, "Forge-AI/monorepo#2196 is green."},
+		"another repo's number":                    {Reply{Title: "Relay fix", MD: "Forge-AI/monorepo#2196 is green."}, "Forge-AI/monorepo#2196 is green."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, warning := f.withPortOpening(tc.reply)
