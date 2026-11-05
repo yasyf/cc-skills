@@ -163,7 +163,16 @@ for dir in $packs; do
   done
 done
 shift
-if pgrep -f "$bin/cci supervise" > /dev/null; then
+grader=
+if [ "${1-}" = no-cci-daemon ]; then
+  grader=1
+  shift
+fi
+if ! pgrep -f "$bin/cci supervise" > /dev/null; then
+  echo "installed cci-daemon none"
+elif [ -n "$grader" ]; then
+  echo "warning: this grader runs a cci supervisor, which no grader should; the install left its daemon alone"
+else
   "$bin/cci" serve > /dev/null
   daemon=$(pgrep -fo "$HOME/.daemonkit/bin/com.yasyf.cc-inbox daemon run")
   # Without CCI_HANDED_OFF_FROM, cci hands --version to the newest cci on the box, not the build the daemon runs.

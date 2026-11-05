@@ -84,7 +84,7 @@ func RollGraders(ctx context.Context, runner shell.Runner, s *store.Store, path 
 	if err != nil {
 		return err
 	}
-	pins = pins.only(graderTool)
+	pins = pins.forGrader(graderTool)
 	roll := SpriteRoll{Runner: runner, Store: s, Now: now, Out: out}
 	if len(pins.tools) == 0 {
 		return nil
@@ -154,7 +154,7 @@ func (r SpriteRoll) runs(box string, pins spritePins) (bool, error) {
 
 func unmoved(installed map[string]string) string {
 	running, ok := installed["cci-daemon"]
-	if !ok || running == installed["cci"] {
+	if !ok || running == "none" || running == installed["cci"] {
 		return ""
 	}
 	return "its cci daemon runs " + running + ", not yet moved to cci " + installed["cci"]
@@ -308,7 +308,7 @@ func (r SpriteRoll) pinsOn(box string, pins spritePins) spritePins {
 	case box == r.Host:
 		return pins.forHost()
 	case slices.Contains(r.Graders, box):
-		return pins.only(graderTools...)
+		return pins.forGrader(graderTools...)
 	}
 	return pins
 }
