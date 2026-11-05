@@ -61,6 +61,46 @@ func TestAClassThePathsAloneDecideIsNamedOnlyWhenEveryChangedFileFitsIt(t *testi
 	}
 }
 
+func TestProductionCodeUnderTheCITreesGetsNoPathClassWhileItsTestsAndRealCIToolingKeepIt(t *testing.T) {
+	grades := Grades(nil, []string{"class ci-tooling"}, "")
+	cases := []struct {
+		name  string
+		files []string
+		want  string
+	}{
+		{"#50659 a release Watch", []string{"go/ci/internal/release/pipeline/cancel.go"}, ""},
+		{"the release verbs", []string{"go/ci/releasepromote.go"}, ""},
+		{"the release starts", []string{"go/ci/releasestarts.go"}, ""},
+		{"a release package whose name ends in test", []string{"go/ci/internal/release/sandlatest/sandlatest.go"}, ""},
+		{"a deploy", []string{"go/ci/internal/deploy/ship.go"}, ""},
+		{"a promotion", []string{"go/ci/internal/rollout/promote.go"}, ""},
+		{"break-glass", []string{"go/ci/breakglass.go"}, ""},
+		{"a production write", []string{"go/ci/internal/bucketrestore/restore.go"}, ""},
+		{"the release pipeline", []string{"infra/ci/src/pipelines/release.ts"}, ""},
+		{"a release file beside its test", []string{"go/ci/releasestarts.go", "go/ci/releasestarts_test.go"}, ""},
+		{"release tests alone", []string{"go/ci/releasestarts_test.go", "go/ci/internal/release/pipeline/cancel_test.go", "go/ci/internal/release/sandlatest/sandlatest_test.go"}, TestOnlyGrade},
+		{"release fixtures", []string{"go/ci/internal/release/plandoc/testdata/plan.json"}, TestOnlyGrade},
+		{"a release test helper", []string{"go/ci/internal/release/facts/factstest/factstest.go"}, TestOnlyGrade},
+		{"the ci wrapper", []string{"tools/ci/ci"}, TestOnlyGrade},
+		{"#47254 ci verbs and the build cache", []string{"go/ci/bkverb.go", "go/ci/internal/cache/cold.go", "go/ci/prune.go"}, TestOnlyGrade},
+		{"a CI pipeline", []string{"infra/ci/src/pipelines/ci-go.ts"}, TestOnlyGrade},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PathClass(tc.files, grades); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTheClassCheckNamesProductionCodeUnderTheCITrees(t *testing.T) {
+	cancel := "go/ci/internal/release/pipeline/cancel.go"
+	if got := TestOnlyOffender(map[string]*string{cancel: nil, "tools/ci/ci": nil}); got != cancel {
+		t.Fatalf("got %q, want %q", got, cancel)
+	}
+}
+
 func TestAPathClassTheDriveDoesNotListIsNeverNamed(t *testing.T) {
 	if got := PathClass([]string{"tools/cc-remote/config.yaml"}, Grades(nil, []string{"class regression"}, "")); got != "" {
 		t.Fatalf("got %q, want no class", got)

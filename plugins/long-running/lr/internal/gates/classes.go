@@ -10,14 +10,29 @@ import (
 var (
 	testFile = regexp.MustCompile(`(?:^|/)(?:tests?|testing|testdata|fixtures|__snapshots__|__mocks__|e2e|evals|fakes?|mocks?|testkit|testutils?|test-scripts|vcr)/|(?:^|/)[a-z0-9_-]+(?:test|testkit|testutils?|harness)/|(?:^|/)[a-z0-9]+ForTests?/` +
 		`|(?:^|/)tests?\.\w+$|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e)\.\w+$|(?:^|/)(?:fake|mock)s?_[^/]*$|_(?:fake|mock)s?\.\w+$|(?:^|/)[^/]*test-timings\.json$`)
+	latestDir    = regexp.MustCompile(`[a-z0-9_-]*latest/`)
 	toolingGlobs = regexp.MustCompile(`^(?:\.agents/skills/.*/scripts/.*|\.agents/skills/.*/tests/.*|\.agents/skills/.*\.md|\.config/nextest.*|.*/\.config/nextest.*)$`)
 	devTooling   = regexp.MustCompile(`^(?:go/remote-builder/|tools/remote-builder/|tools/cc-remote/)|^(?:mise\.toml|tools/versions\.toml)$`)
 	tomlSection  = regexp.MustCompile(`^\s*\[+([^\]]+)\]+\s*$`)
 	jsonSection  = regexp.MustCompile(`^\s*"([^"]+)":\s*\{\s*$`)
 	jsonClose    = regexp.MustCompile(`^\s*\},?\s*$`)
 
-	testDirs       = []string{"__tests__", "testdata", "fixtures", "docs"}
-	ciPrefixes     = []string{".buildkite/", ".github/", "tools/ci/", "go/ci/", "infra/ci/"}
+	testDirs     = []string{"__tests__", "testdata", "fixtures", "docs"}
+	ciPrefixes   = []string{".buildkite/", ".github/", "tools/ci/", "go/ci/", "infra/ci/"}
+	productionCI = []string{
+		"go/ci/release", "go/ci/internal/release/", "go/ci/internal/contract/release.go", "go/ci/bakedispatch.go",
+		"go/ci/internal/deploy/", "go/ci/internal/rollout/", "go/ci/dashboard.go", "go/ci/internal/dashboard/",
+		"go/ci/desktoprelease.go", "go/ci/internal/desktoprelease/", "go/ci/internal/envs/", "go/ci/envnew.go", "go/ci/envsettings.go",
+		"go/ci/tenant", "go/ci/escapehatch", "go/ci/reco",
+		"go/ci/breakglass.go", "go/ci/internal/breakglass/",
+		"go/ci/restate.go", "go/ci/internal/restate/", "go/ci/sandsqlverb.go", "go/ci/internal/sandsql/",
+		"go/ci/bucketrestore.go", "go/ci/internal/bucketrestore/", "go/ci/internal/coredb/",
+		"go/ci/aioncall", "go/ci/oncall", "go/ci/internal/aioncall/",
+		"infra/ci/src/pipelines/release.ts", "infra/ci/src/lib/release-reads.ts", "infra/ci/src/contract/release",
+		"infra/ci/src/pipelines/break-glass/", "infra/ci/src/contract/breakGlass.ts",
+		"infra/ci/src/pipelines/escape-hatch/", "infra/ci/src/contract/tenant", "infra/ci/src/contract/recoScaffold.ts",
+		"infra/ci/src/ops/core-db.ts", "infra/ci/src/lib/core-db-target.ts", "infra/ci/src/contract/core-db.ts",
+	}
 	lintConfigs    = []string{"clippy.toml", ".clippy.toml", "deny.toml", "rustfmt.toml", ".rustfmt.toml", ".golangci.yml", ".golangci.yaml", "ruff.toml", ".ruff.toml", "biome.json", ".eslintrc.json", "eslint.config.js", "eslint.config.mjs"}
 	manifests      = []string{"Cargo.toml", "package.json"}
 	lockfiles      = []string{"Cargo.lock", "yarn.lock", "package-lock.json", "pnpm-lock.yaml"}
@@ -58,7 +73,15 @@ func SectionLine(body string) bool {
 }
 
 func testCode(name string) bool {
-	return testFile.MatchString(name) || strings.Contains("/"+name, "/__tests__/")
+	return testPath(name) || strings.Contains("/"+name, "/__tests__/")
+}
+
+func testPath(name string) bool {
+	return testFile.MatchString(latestDir.ReplaceAllString(name, ""))
+}
+
+func prefixedBy(prefixes []string, name string) bool {
+	return slices.ContainsFunc(prefixes, func(prefix string) bool { return strings.HasPrefix(name, prefix) })
 }
 
 func testOrCIFile(name string) bool {
@@ -66,10 +89,10 @@ func testOrCIFile(name string) bool {
 }
 
 func isTestOrCI(name string) bool {
-	if slices.ContainsFunc(ciPrefixes, func(prefix string) bool { return strings.HasPrefix(name, prefix) }) {
+	if prefixedBy(ciPrefixes, name) && !prefixedBy(productionCI, name) {
 		return true
 	}
-	if testFile.MatchString(name) || toolingGlobs.MatchString(name) {
+	if testPath(name) || toolingGlobs.MatchString(name) {
 		return true
 	}
 	parts := strings.Split(name, "/")
