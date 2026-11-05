@@ -246,6 +246,8 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			checks = append(checks, NewRelayKeeper(env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log).Check)
 		}
 	}
+	passSource := prfacts.New(a, env.Config, s)
+	passSource.ReadsRows = slices.Contains(env.Config.Movers, moverLanes)
 	deps := Deps{
 		Movers: env.Config.Movers,
 		Clock:  env.Now,
@@ -255,7 +257,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		},
 		Checks:    checks,
 		Stagger:   checkStagger,
-		Snapshot:  prfacts.New(a, env.Config, s).Snapshot,
+		Snapshot:  passSource.Snapshot,
 		WriteRows: prfacts.New(a, env.Config, s).WriteRows,
 		Post:      post,
 		Squash:    squashFixes,

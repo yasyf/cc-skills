@@ -53,6 +53,8 @@ type recordedPR struct {
 	base      string
 	queued    bool
 	mergedBy  string
+	decision  string
+	checks    []map[string]any
 }
 
 type ciRow struct {
@@ -70,8 +72,8 @@ func memberReply(prs []recordedPR) string {
 	repository := make(map[string]any, len(prs))
 	for _, pr := range prs {
 		var rollup any
-		if pr.rollup != "" {
-			rollup = map[string]any{"state": pr.rollup}
+		if pr.rollup != "" || len(pr.checks) > 0 {
+			rollup = map[string]any{"state": pr.rollup, "contexts": map[string]any{"nodes": pr.checks}}
 		}
 		labels, commits, reviews := make([]map[string]any, 0, len(pr.labels)), make([]map[string]any, 0, len(pr.commits)), make([]map[string]any, 0, len(pr.approvers))
 		for _, name := range pr.labels {
@@ -94,7 +96,7 @@ func memberReply(prs []recordedPR) string {
 		}
 		repository[fmt.Sprintf("r%d", pr.number)] = map[string]any{
 			"number": pr.number, "state": state, "isDraft": pr.draft, "headRefOid": pr.head, "headRefName": pr.branch, "baseRefName": "dev", "body": pr.body, "mergedBy": mergedBy,
-			"author": map[string]any{"login": pr.login}, "labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits}, "mergeable": pr.merge,
+			"author": map[string]any{"login": pr.login}, "labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits}, "mergeable": pr.merge, "reviewDecision": pr.decision,
 			"tip":     map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
 			"reviews": map[string]any{"nodes": reviews},
 		}
@@ -316,7 +318,7 @@ func TestAnOpenedRecordMakesTheRow(t *testing.T) {
 	}
 }
 
-func TestAHostWithoutTheLandingMoverReadsTheRowsAndNeverGitHub(t *testing.T) {
+func TestAHostWithNeitherTheLandingNorTheLanesMoverReadsTheRowsAndNeverGitHub(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	if _, err := client.Post(context.Background(), client.Draft{
 		Drive: "d", Lane: "supervisor", Kind: "github", Text: "the title", PRs: []string{repo + "#1"},
@@ -327,7 +329,7 @@ func TestAHostWithoutTheLandingMoverReadsTheRowsAndNeverGitHub(t *testing.T) {
 	a := app.New(io.Discard)
 	a.Runner = h.runner
 	away := landingConfig
-	away.Movers = []string{"lanes", "grading"}
+	away.Movers = []string{"grading"}
 
 	rows, err := facts.New(a, away, h.store).Snapshot(context.Background())
 	if err != nil {
@@ -361,7 +363,7 @@ func TestAHostWithoutTheLandingMoverReadsATapCarriedToTheRowsHead(t *testing.T) 
 			a := app.New(io.Discard)
 			a.Runner = h.runner
 			away := landingConfig
-			away.Movers = []string{"lanes", "grading"}
+			away.Movers = []string{"grading"}
 
 			rows, err := facts.New(a, away, h.store).Snapshot(context.Background())
 			if err != nil {
@@ -383,7 +385,7 @@ func TestAHostWithoutTheLandingMoverActsOnNoLandedRowTheLandingHostNeverRead(t *
 	a := app.New(io.Discard)
 	a.Runner = h.runner
 	away := landingConfig
-	away.Movers = []string{"lanes", "grading"}
+	away.Movers = []string{"grading"}
 
 	rows, err := facts.New(a, away, h.store).Snapshot(context.Background())
 	if err != nil {
@@ -405,7 +407,7 @@ func TestReadOnceFromAHostWithoutTheLandingMoverPostsReadsAndMakesNoLandingAct(t
 	away := landingConfig
 	away.Movers = []string{"lanes", "grading"}
 
-	read, err := facts.New(a, away, h.store).ReadOnce(context.Background())
+	read, err := facts.New(a, away, h.store).ReadOnce(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,6 +448,162 @@ func TestReadOnceFromAHostWithoutTheLandingMoverPostsReadsAndMakesNoLandingAct(t
 		if err != nil || !known || row.State != want {
 			t.Errorf("#%d = %+v, %v, %v, want state %s", number, row, known, err, want)
 		}
+	}
+}
+
+func lanesHost(h harness) facts.Source {
+	a := app.New(io.Discard)
+	a.Runner = h.runner
+	lanes := landingConfig
+	lanes.Movers = []string{"lanes", config.MoverGrading}
+	source := facts.New(a, lanes, h.store)
+	source.ReadsRows = true
+	return source
+}
+
+func postedReads(t *testing.T) map[string]map[string]string {
+	t.Helper()
+	posted, err := client.Tail(context.Background(), client.Query{Drive: "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := map[string]map[string]string{}
+	for _, record := range posted {
+		if record.Fields.Attrs["record"] == "pr.read" {
+			reads[record.Fields.Attrs["head"]] = record.Fields.Attrs
+		}
+	}
+	return reads
+}
+
+func checkRun(name, conclusion string, suite, id int64, started string) map[string]any {
+	return map[string]any{"__typename": "CheckRun", "name": name, "status": "COMPLETED", "conclusion": conclusion, "databaseId": id, "startedAt": started, "checkSuite": map[string]any{"databaseId": suite, "workflowRun": map[string]any{"workflow": map[string]any{"databaseId": suite}}}}
+}
+
+func TestABoardReadAsksGitHubOncePerPageOfRowsWhateverThePRCount(t *testing.T) {
+	calls := map[int]int{}
+	for _, n := range []int{1, 1000} {
+		prs := make([]recordedPR, 0, n)
+		for i := 1; i <= n; i++ {
+			prs = append(prs, recordedPR{number: i, head: fmt.Sprintf("%040x", i), login: "drive-bot", merge: "MERGEABLE", decision: "APPROVED", checks: []map[string]any{{"__typename": "StatusContext", "context": "buildkite/test", "state": "SUCCESS"}}})
+		}
+		h := newHarness(t, prs)
+
+		read, err := lanesHost(h).ReadOnce(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if read != n {
+			t.Fatalf("n=%d: read %d PRs", n, read)
+		}
+		for _, call := range h.runner.Calls() {
+			if slices.Contains(call.Argv, "status") {
+				t.Fatalf("n=%d: it ran %v, a read per PR", n, call.Argv)
+			}
+		}
+		calls[n] = len(h.runner.Calls())
+	}
+	if calls[1] != 2 || calls[1000] != 41 {
+		t.Fatalf("command runs at 1 and 1,000 PRs = %d, %d, want 2 and 41: one rules read and one query per page of 25", calls[1], calls[1000])
+	}
+}
+
+func TestABoardReadOfNamedPRsAsksGitHubForThoseAlone(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}})
+
+	if _, err := lanesHost(h).ReadOnce(context.Background(), []int{2}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, call := range h.runner.Calls() {
+		if query := strings.Join(call.Argv, " "); strings.Contains(query, "pullRequest(") && (strings.Contains(query, "r1:") || !strings.Contains(query, "r2:")) {
+			t.Fatalf("it asked %s, want #2 alone", query)
+		}
+	}
+	if reads := postedReads(t); len(reads) != 1 || reads[head2] == nil {
+		t.Fatalf("reads = %v, want #2's alone", reads)
+	}
+}
+
+func TestTheLanesHostsPassReadsAGreenApprovedCleanHeadIntoItsRow(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", merge: "MERGEABLE", decision: "APPROVED", approvers: []string{"a"}, checks: []map[string]any{
+		{"__typename": "StatusContext", "context": "buildkite/test", "state": "SUCCESS"},
+		checkRun("lint", "SUCCESS", 7, 70, "2026-11-05T10:00:00Z"),
+	}}})
+	if err := h.store.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: head, ReadHead: head2, State: prrow.StateOpen}}); err != nil {
+		t.Fatal(err)
+	}
+	source := lanesHost(h)
+
+	if _, err := source.Snapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.FoldRows(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	row, known, err := h.store.ReviewRow(repo, 1)
+	if err != nil || !known {
+		t.Fatal(known, err)
+	}
+	if row.ReadHead != head || row.CI != prrow.CIGreen || row.Mergeable != string(machine.MergeableClean) || row.Approvers != "a" {
+		t.Fatalf("row = %+v, want it read green, clean and approved at %s", row, head)
+	}
+}
+
+func TestTheBatchedReadGradesTheChecksStandingAtTheHead(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		checks  []map[string]any
+		ci      string
+		failing string
+	}{
+		{"a required check failed", []map[string]any{{"__typename": "StatusContext", "context": "buildkite/test", "state": "FAILURE"}, checkRun("lint", "SUCCESS", 7, 70, "2026-11-05T10:00:00Z")}, prrow.CIRed, "buildkite/test"},
+		{"a rerun passed the run that failed", []map[string]any{checkRun("lint", "FAILURE", 7, 70, "2026-11-05T10:00:00Z"), checkRun("lint", "SUCCESS", 7, 71, "2026-11-05T10:05:00Z")}, prrow.CIGreen, ""},
+		{"a check is still running", []map[string]any{{"__typename": "CheckRun", "name": "lint", "status": "IN_PROGRESS"}}, prrow.CIPending, ""},
+		{"only a check no rule requires failed", []map[string]any{checkRun("ai-review", "FAILURE", 8, 80, "2026-11-05T10:00:00Z"), checkRun("lint", "SUCCESS", 7, 70, "2026-11-05T10:00:00Z")}, prrow.CIGreen, "ai-review"},
+		{"nothing has reported", nil, prrow.CIPending, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", merge: "MERGEABLE", checks: tt.checks}})
+
+			if _, err := lanesHost(h).ReadOnce(context.Background(), nil); err != nil {
+				t.Fatal(err)
+			}
+
+			read := postedReads(t)[head]
+			if read["ci"] != tt.ci || read["failing"] != tt.failing {
+				t.Fatalf("read ci %q failing %q, want %q and %q", read["ci"], read["failing"], tt.ci, tt.failing)
+			}
+		})
+	}
+}
+
+func TestTheBatchedReadTakesMergeabilityAndTheQueueFromGitHub(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		merge     string
+		labels    []string
+		mergeable machine.Mergeable
+		queue     machine.Queue
+	}{
+		{"clean", "MERGEABLE", nil, machine.MergeableClean, machine.QueueNone},
+		{"conflicting", "CONFLICTING", nil, machine.MergeableConflict, machine.QueueNone},
+		{"queued by its label", "MERGEABLE", []string{"trunk-queued"}, machine.MergeableClean, machine.QueueQueued},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", merge: tt.merge, labels: tt.labels}})
+
+			if _, err := lanesHost(h).ReadOnce(context.Background(), nil); err != nil {
+				t.Fatal(err)
+			}
+
+			read := postedReads(t)[head]
+			if read["mergeable"] != string(tt.mergeable) || read["queue"] != string(tt.queue) {
+				t.Fatalf("read mergeable %q queue %q, want %q and %q", read["mergeable"], read["queue"], tt.mergeable, tt.queue)
+			}
+		})
 	}
 }
 

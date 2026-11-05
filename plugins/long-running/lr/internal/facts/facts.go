@@ -37,8 +37,9 @@ const (
 	memberBatch     = 25
 	mergeableFields = "number headRefOid mergeable"
 	queueUnknown    = "queue-unknown"
+	graphiteCheck   = "Graphite / mergeability_check"
 	diffRefs        = "refs/lr/diff/"
-	memberFields    = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
+	memberFields    = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus reviewDecision tip: commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion startedAt databaseId checkSuite { databaseId workflowRun { workflow { databaseId } } } } ... on StatusContext { context state } } } } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
 var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
@@ -46,18 +47,19 @@ var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above th
 var trunkQueued = []string{"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"}
 
 type Source struct {
-	Repo    string
-	Drive   string
-	Author  string
-	Trunk   string
-	GoLanes []string
-	Reads   bool
-	Runner  shell.Runner
-	CCX     ccx.Client
-	Bus     bus.Bus
-	Store   *store.Store
-	Log     *slog.Logger
-	Now     func() time.Time
+	Repo      string
+	Drive     string
+	Author    string
+	Trunk     string
+	GoLanes   []string
+	Reads     bool
+	ReadsRows bool
+	Runner    shell.Runner
+	CCX       ccx.Client
+	Bus       bus.Bus
+	Store     *store.Store
+	Log       *slog.Logger
+	Now       func() time.Time
 }
 
 func New(a *app.App, cfg config.Config, s *store.Store) Source {
@@ -98,6 +100,12 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !s.Reads && s.ReadsRows {
+		if err := s.readRows(ctx, rows, held); err != nil {
+			s.Log.Warn("the read of the open rows failed; the next pass reads again", "error", err)
+		}
+		return s.fromRows(rows, held)
+	}
 	if !s.Reads {
 		if err := s.readTrunk(ctx, rows); err != nil {
 			s.Log.Warn("the read of mergeability after dev moved failed", "error", err)
@@ -111,7 +119,7 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := s.readGitHub(ctx, rows, held)
+	snapshot, err := s.readGitHub(ctx, rows, held, s.statuses)
 	if err != nil || unread == "" {
 		return snapshot, err
 	}
@@ -141,12 +149,35 @@ func (s Source) readTrunk(ctx context.Context, rows []store.ReviewRow) error {
 	return s.Rows().PostTrunkRead(ctx, unread, conflicts)
 }
 
-func (s Source) ReadOnce(ctx context.Context) (int, error) {
+func (s Source) readRows(ctx context.Context, rows []store.ReviewRow, held map[int]hold) error {
+	unread, err := s.Rows().UnreadTrunk()
+	if err != nil {
+		return err
+	}
+	snapshot, err := s.readGitHub(ctx, rows, held, s.graphStatuses)
+	if err != nil {
+		return err
+	}
+	if err := s.Rows().PostReads(ctx, snapshot); err != nil || unread == "" {
+		return err
+	}
+	return s.Rows().PostTrunkRead(ctx, unread, nil)
+}
+
+func (s Source) ReadOnce(ctx context.Context, named []int) (int, error) {
 	held, rows, err := s.foldRecords(ctx)
 	if err != nil {
 		return 0, err
 	}
-	snapshot, err := s.readGitHub(ctx, rows, held)
+	itemed, err := s.itemed()
+	if err != nil {
+		return 0, err
+	}
+	numbers := named
+	if len(numbers) == 0 {
+		numbers = readable(rows, itemed)
+	}
+	snapshot, err := s.readNumbers(ctx, numbers, itemed, rows, held, s.graphStatuses)
 	if err != nil {
 		return 0, err
 	}
@@ -174,20 +205,26 @@ func (s Source) foldRecords(ctx context.Context) (map[int]hold, []store.ReviewRo
 	return held, rows, nil
 }
 
-func (s Source) readGitHub(ctx context.Context, rows []store.ReviewRow, held map[int]hold) ([]machine.Facts, error) {
+func (s Source) readGitHub(ctx context.Context, rows []store.ReviewRow, held map[int]hold, statusesOf statusRead) ([]machine.Facts, error) {
 	itemed, err := s.itemed()
 	if err != nil {
 		return nil, err
 	}
+	return s.readNumbers(ctx, readable(rows, itemed), itemed, rows, held, statusesOf)
+}
+
+func readable(rows []store.ReviewRow, itemed map[int]bool) []int {
 	numbers := liveNumbers(rows)
 	for number := range itemed {
 		numbers = append(numbers, number)
 	}
 	slices.Sort(numbers)
-	return s.readNumbers(ctx, slices.Compact(numbers), itemed, rows, held)
+	return slices.Compact(numbers)
 }
 
-func (s Source) readNumbers(ctx context.Context, numbers []int, itemed map[int]bool, rows []store.ReviewRow, held map[int]hold) ([]machine.Facts, error) {
+type statusRead func(ctx context.Context, numbers []int, members memberRead) ([]statusRow, error)
+
+func (s Source) readNumbers(ctx context.Context, numbers []int, itemed map[int]bool, rows []store.ReviewRow, held map[int]hold, statusesOf statusRead) ([]machine.Facts, error) {
 	members, err := s.readMembers(ctx, numbers)
 	if err != nil {
 		return nil, fmt.Errorf("read the drive's pull requests: %w", err)
@@ -196,7 +233,7 @@ func (s Source) readNumbers(ctx context.Context, numbers []int, itemed map[int]b
 	if err := s.Rows().PostReads(ctx, ended); err != nil {
 		s.Log.Warn("an ended pull request's read went unposted", "error", err)
 	}
-	statuses, err := s.statuses(ctx, open)
+	statuses, err := statusesOf(ctx, open, members)
 	if err != nil {
 		return nil, fmt.Errorf("read queue and CI: %w", err)
 	}
@@ -228,7 +265,7 @@ func (s Source) HeldAndQueued(ctx context.Context, named []int) ([]machine.Facts
 	if err != nil {
 		return nil, fmt.Errorf("read the held pull requests: %w", err)
 	}
-	statuses, err := s.statuses(ctx, numbers)
+	statuses, err := s.statuses(ctx, numbers, members)
 	if err != nil {
 		return nil, fmt.Errorf("read queue and CI: %w", err)
 	}
@@ -284,7 +321,7 @@ func (s Source) answerReadAsks(ctx context.Context, rows []store.ReviewRow, held
 	if err != nil {
 		return err
 	}
-	snapshot, err := s.readNumbers(ctx, asked, itemed, rows, held)
+	snapshot, err := s.readNumbers(ctx, asked, itemed, rows, held, s.statuses)
 	if err != nil {
 		return err
 	}
@@ -409,7 +446,7 @@ type statusRow struct {
 	CI ciRead `json:"ci"`
 }
 
-func (s Source) statuses(ctx context.Context, numbers []int) ([]statusRow, error) {
+func (s Source) statuses(ctx context.Context, numbers []int, _ memberRead) ([]statusRow, error) {
 	if len(numbers) == 0 {
 		return nil, nil
 	}
@@ -423,6 +460,23 @@ func (s Source) statuses(ctx context.Context, numbers []int) ([]statusRow, error
 	}
 	var rows []statusRow
 	return rows, json.Unmarshal([]byte(result.Stdout), &rows)
+}
+
+func (s Source) graphStatuses(_ context.Context, numbers []int, members memberRead) ([]statusRow, error) {
+	rows := make([]statusRow, 0, len(numbers))
+	for _, number := range numbers {
+		pr, read := members.prs[number]
+		if !read {
+			rows = append(rows, statusRow{PRStatus: ccx.PRStatus{Number: number, Verdict: "unread"}})
+			continue
+		}
+		row := statusRow{PRStatus: ccx.PRStatus{Number: number, Head: pr.HeadRefOid, Base: pr.BaseRefName, State: pr.State, Queue: "unknown", Verdict: pr.verdict()}, CI: pr.ciRead()}
+		if pr.ReviewDecision == "APPROVED" {
+			row.Approval.State = "approved"
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 func (s Source) graphQL(ctx context.Context, query string, flags ...string) (string, error) {
@@ -663,11 +717,15 @@ type pullRequest struct {
 	} `json:"files"`
 	Mergeable        string `json:"mergeable"`
 	MergeStateStatus string `json:"mergeStateStatus"`
+	ReviewDecision   string `json:"reviewDecision"`
 	Tip              struct {
 		Nodes []struct {
 			Commit struct {
 				StatusCheckRollup *struct {
-					State string `json:"state"`
+					State    string `json:"state"`
+					Contexts struct {
+						Nodes []checkContext `json:"nodes"`
+					} `json:"contexts"`
 				} `json:"statusCheckRollup"`
 			} `json:"commit"`
 		} `json:"nodes"`
@@ -731,6 +789,100 @@ func (pr pullRequest) greenAt(head string) bool {
 	}
 	rollup := pr.Tip.Nodes[0].Commit.StatusCheckRollup
 	return rollup != nil && rollup.State == "SUCCESS"
+}
+
+func (pr pullRequest) verdict() string {
+	switch {
+	case pr.Mergeable == "CONFLICTING" || pr.MergeStateStatus == "DIRTY":
+		return "blocked:conflict"
+	case pr.Mergeable == "UNKNOWN":
+		return "blocked:mergeable-unknown"
+	}
+	return "landable"
+}
+
+func (pr pullRequest) ciRead() ciRead {
+	if len(pr.Tip.Nodes) == 0 || pr.Tip.Nodes[0].Commit.StatusCheckRollup == nil {
+		return ciRead{State: "none"}
+	}
+	contexts := pr.Tip.Nodes[0].Commit.StatusCheckRollup.Contexts.Nodes
+	read, graded := ciRead{}, 0
+	for _, c := range contexts {
+		if c.label() == graphiteCheck || slices.ContainsFunc(contexts, func(later checkContext) bool { return later.supersedes(c) }) {
+			continue
+		}
+		switch c.outcome() {
+		case "SUCCESS", "SKIPPED", "NEUTRAL":
+			graded++
+		case "QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED", "EXPECTED":
+			read.Running++
+		default:
+			read.Failing = append(read.Failing, c.label())
+		}
+	}
+	switch {
+	case len(read.Failing) > 0:
+		read.State = "red"
+	case read.Running > 0:
+		read.State = "pending"
+	case graded > 0:
+		read.State = "green"
+	default:
+		read.State = "none"
+	}
+	return read
+}
+
+type checkContext struct {
+	Typename   string    `json:"__typename"`
+	Name       string    `json:"name"`
+	Status     string    `json:"status"`
+	Conclusion string    `json:"conclusion"`
+	StartedAt  time.Time `json:"startedAt"`
+	DatabaseID int64     `json:"databaseId"`
+	CheckSuite struct {
+		DatabaseID  int64 `json:"databaseId"`
+		WorkflowRun struct {
+			Workflow struct {
+				DatabaseID int64 `json:"databaseId"`
+			} `json:"workflow"`
+		} `json:"workflowRun"`
+	} `json:"checkSuite"`
+	Context string `json:"context"`
+	State   string `json:"state"`
+}
+
+func (c checkContext) label() string {
+	if c.Typename == "CheckRun" {
+		return c.Name
+	}
+	return c.Context
+}
+
+func (c checkContext) outcome() string {
+	if c.Typename != "CheckRun" {
+		return c.State
+	}
+	return cmp.Or(c.Conclusion, c.Status)
+}
+
+func (c checkContext) supersedes(prior checkContext) bool {
+	if c.Typename != "CheckRun" || prior.Typename != "CheckRun" || c.Name != prior.Name {
+		return false
+	}
+	sameSuite := c.CheckSuite.DatabaseID == prior.CheckSuite.DatabaseID
+	sameWorkflow := c.CheckSuite.WorkflowRun.Workflow.DatabaseID == prior.CheckSuite.WorkflowRun.Workflow.DatabaseID
+	return (sameSuite || sameWorkflow && prior.Conclusion == "CANCELLED") && c.replaces(prior)
+}
+
+func (c checkContext) replaces(prior checkContext) bool {
+	if skipped, priorSkipped := c.Conclusion == "SKIPPED", prior.Conclusion == "SKIPPED"; skipped != priorSkipped {
+		return priorSkipped
+	}
+	if !c.StartedAt.Equal(prior.StartedAt) {
+		return c.StartedAt.IsZero() || !prior.StartedAt.IsZero() && c.StartedAt.After(prior.StartedAt)
+	}
+	return c.DatabaseID > prior.DatabaseID
 }
 
 func (pr pullRequest) mergeableAt(head string) bool {
