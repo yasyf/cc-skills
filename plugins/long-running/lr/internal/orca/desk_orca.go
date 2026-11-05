@@ -149,6 +149,37 @@ func (d *Desk) laneOf(handle string) (string, error) {
 }
 
 func (d *Desk) show(ctx context.Context, lane, dispatch string) (*laneDispatch, error) {
+	key := shownKey{lane: lane, dispatch: or(dispatch, d.receipt(lane))}
+	if key.dispatch == "" {
+		return nil, nil
+	}
+	d.reads.mu.Lock()
+	kept, found := d.reads.shown[key]
+	d.reads.mu.Unlock()
+	if found {
+		return kept.clone(), nil
+	}
+	shown, err := d.showNow(ctx, lane, key.dispatch)
+	if err != nil {
+		return nil, err
+	}
+	d.reads.mu.Lock()
+	defer d.reads.mu.Unlock()
+	if d.reads.passing {
+		d.reads.shown[key] = shown.clone()
+	}
+	return shown, nil
+}
+
+func (l *laneDispatch) clone() *laneDispatch {
+	if l == nil {
+		return nil
+	}
+	copied := *l
+	return &copied
+}
+
+func (d *Desk) showNow(ctx context.Context, lane, dispatch string) (*laneDispatch, error) {
 	if dispatch == "" {
 		dispatch = d.receipt(lane)
 	}
@@ -206,6 +237,7 @@ func (d *Desk) environmentOf(ctx context.Context, lane string) (string, error) {
 }
 
 func (d *Desk) fence(ctx context.Context, dispatch string) (string, string) {
+	defer d.reads.forgetDispatch(dispatch)
 	stopped := d.call(ctx, orchestration, "worker-stop", "--dispatch", dispatch)
 	if !stopped.OK && stopped.Error.Code == CodeFenced {
 		stopped = d.call(ctx, orchestration, "worker-abandon", "--dispatch", dispatch)
@@ -246,6 +278,13 @@ func (d *Desk) mailbox(ctx context.Context, terminal, environment string) ([]orc
 }
 
 func (d *Desk) peek(ctx context.Context, terminal, environment string) ([]orcaMessage, bool) {
+	key := peekKey{terminal: terminal, environment: environment}
+	d.reads.mu.Lock()
+	kept, found := d.reads.peeked[key]
+	d.reads.mu.Unlock()
+	if found {
+		return kept, true
+	}
 	peeked := d.call(ctx, append([]string{orchestration, "check", "--terminal", terminal, "--peek"}, on(environment)...)...)
 	if !peeked.OK {
 		return nil, false
@@ -254,6 +293,11 @@ func (d *Desk) peek(ctx context.Context, terminal, environment string) ([]orcaMe
 	if err != nil {
 		fmt.Fprintln(d.Stderr, err)
 		return nil, false
+	}
+	d.reads.mu.Lock()
+	defer d.reads.mu.Unlock()
+	if d.reads.passing {
+		d.reads.peeked[key] = messages
 	}
 	return messages, true
 }
@@ -351,6 +395,25 @@ type deskWorker struct {
 }
 
 func (d *Desk) workers(ctx context.Context) ([]deskWorker, error) {
+	d.reads.mu.Lock()
+	kept, found := d.reads.workers, d.reads.listed
+	d.reads.mu.Unlock()
+	if found {
+		return kept, nil
+	}
+	rows, err := d.listWorkers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d.reads.mu.Lock()
+	defer d.reads.mu.Unlock()
+	if d.reads.passing {
+		d.reads.workers, d.reads.listed = rows, true
+	}
+	return rows, nil
+}
+
+func (d *Desk) listWorkers(ctx context.Context) ([]deskWorker, error) {
 	var rows []deskWorker
 	var cursor []string
 	for {
