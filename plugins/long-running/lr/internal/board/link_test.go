@@ -957,3 +957,11 @@ func TestALaneRedrawsUnderItsAliasACardAnyOfItsBindingsOwns(t *testing.T) {
 		})
 	}
 }
+
+func TestOnlyAPRReferenceNamesAPRAndABuildLinkNamesNone(t *testing.T) {
+	said := []string{"Release build https://buildkite.com/forge/release/builds/13033#019a3c7e-1 failed; yasyf/cc-skills#3370 fixes it, then PR 51168 and https://github.com/yasyf/cc-slack/pull/157."}
+	want := []SlackPR{{"yasyf/cc-skills", 3370}, {"Forge-AI/monorepo", 51168}, {"yasyf/cc-slack", 157}}
+	if got := namedPRs(said, "Forge-AI/monorepo"); !slices.Equal(got, want) {
+		t.Fatalf("named PRs = %v, want %v and no builds/13033", got, want)
+	}
+}
