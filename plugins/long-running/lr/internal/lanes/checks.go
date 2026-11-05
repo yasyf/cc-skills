@@ -367,6 +367,9 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 			a.launched = map[string]bool{}
 		}
 		a.launched[alert.slug] = true
+		if alert.red != "" {
+			a.launched[alert.red] = true
+		}
 		a.opened = append(a.opened, client.Record{Kind: kindSpawn, Text: card.Permalink})
 		draft.Kind, draft.ID, draft.To = kindSpawn, "alert-launched:"+channel+":"+message.TS, []string{Root, OwnerRelay}
 		draft.LaneRefs = []string{alert.slug + "-fix"}

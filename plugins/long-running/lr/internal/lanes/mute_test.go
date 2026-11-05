@@ -37,6 +37,8 @@ func TestAMuteOrMonitorSkipOnAnUnfixedMechanismGetsOnePushbackToRoot(t *testing.
 		{"desk-runner", "SCALE-MISSED scale:R84898 zeta-sso-hop: The failing health check runs on its own schedule per saved login session, not once per customer run, so counting only Zeta runs leaves out the sessions (and any other teams' sessions) that go through the same blocked connection.", false},
 		{"desk-runner", "SCALE-MISSED scale:R84898 zeta-sso-hop: counting only Zeta runs leaves out the sessions (and any other teams' sessions) the run-failure monitor sees.", false},
 		{"zeta-sso-hop", "MECHANISM the N line leaves out the other teams' sessions, which stop counting toward the monitor", false},
+		{"owner-relay", "462215's 5:30 AM is not a deadline a lane owes: it is when ai-oncall's mute on monitor 337843695 ends by itself. The incident behind it is linear-sync-slow.", false},
+		{"owner-relay", "the mute on monitor 337843695 lapses at 5:30 AM", false},
 	}
 	for _, c := range cases {
 		t.Run(c.text[:min(len(c.text), 40)], func(t *testing.T) {

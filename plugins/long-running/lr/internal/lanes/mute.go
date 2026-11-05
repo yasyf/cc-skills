@@ -30,6 +30,7 @@ var (
 
 	muteProposed = regexp.MustCompile(`(?i)(?:^|[^\w/-])mut(?:e|ed|es|ing)[^\w/.;\n-][^.;\n]{0,39}?\b(?:` + muteTeamWord + `)\b|\bfalse alarm\b|\b(?:skips?|excludes?|scopes? out)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b`)
 	muteWatched  = regexp.MustCompile(`(?i)\b(?:mut\w*|monitors?|alerts?|pages?|false alarm)\b`)
+	muteNamed    = regexp.MustCompile(`(?i)(?:['’]s|\bthe|\bits|\btheir)\s+$`)
 	muteUndone   = regexp.MustCompile(`(?i)\b(?:delet|remov|lift|expir|unmut|drop|clear)\w*`)
 	muteWindow   = regexp.MustCompile(`^MUTE [\w.-]+: monitors \d+(?:,? \d+)* until fix-live: \S`)
 	releaseGates = regexp.MustCompile(`(?i)\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|release[- ](?:checks?|smokes?|gates?)|dev[- ]red|dev is red)\b`)
@@ -128,7 +129,7 @@ func proposedMute(row client.Record) string {
 	for _, found := range muteProposed.FindAllStringIndex(text, -1) {
 		said := strings.TrimLeftFunc(text[found[0]:found[1]], func(r rune) bool { return !unicode.IsLetter(r) })
 		start := found[1] - len(said)
-		if !muteUndone.MatchString(text[max(0, start-beforeMuted):found[1]]) && muteWatched.MatchString(sentenceOf(text, start, found[1])) {
+		if !muteNamed.MatchString(text[:start]) && !muteUndone.MatchString(text[max(0, start-beforeMuted):found[1]]) && muteWatched.MatchString(sentenceOf(text, start, found[1])) {
 			return said
 		}
 	}

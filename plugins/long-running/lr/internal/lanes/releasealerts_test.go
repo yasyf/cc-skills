@@ -273,3 +273,21 @@ func TestReleaseChannelLinesThatAreNotARedWatchOrSmokeAreNotAlerts(t *testing.T)
 		}
 	}
 }
+
+func TestARedPostAfterItsComponentsWatchLaunchedOpensNothing(t *testing.T) {
+	channel := &releaseChannel{threads: map[string]string{}, history: `{"messages":[` +
+		`{"ts":"1793742500.000100","permalink":"https://forge.slack.com/archives/C0B75AL4XEW/p1793742500000100","text":":x: The Watch failed for Executor on AIG: \"Linear case sync stalled\" crossed its monitor's bound since the release started."},` +
+		`{"ts":"1793742550.000100","permalink":"https://forge.slack.com/archives/C0B75AL4XEW/p1793742550000100","text":":rotating_light: Executor went red on AIG after dazzling-almahrus"}]}`}
+	var launched []string
+	check := releaseAlerts(t, channel, &fakeBus{}, func(_ context.Context, fired Fired) (string, error) {
+		launched = append(launched, fired.Slug)
+		return "/state/lanes/" + fired.Slug + "-fix.brief.md", nil
+	})
+
+	if err := check.Check(context.Background(), releaseNow); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(launched), 1)
+	contains(t, launched[0], "watch-executor-aig-")
+}
