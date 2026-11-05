@@ -66,6 +66,37 @@ func TestABoardDaemonNotOnThisHostLogsOnceAndTheFollowerStaysOff(t *testing.T) {
 	}
 }
 
+func TestAWatchWithTheToolOffPATHFollowsFromItsPluginAndLosesNoNote(t *testing.T) {
+	config, plugin := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	t.Setenv("PATH", t.TempDir())
+	for _, dir := range []string{filepath.Join(config, "plugins"), filepath.Join(plugin, "bin")} {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry := fmt.Sprintf(`{"plugins":{"cc-present@cc-present":[{"scope":"user","installPath":%q}]}}`, plugin)
+	if err := os.WriteFile(filepath.Join(config, "plugins", "installed_plugins.json"), []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watch := fmt.Sprintf("#!/bin/sh\necho '%s'\n", noted("n1", Section, "are we there"))
+	if err := os.WriteFile(filepath.Join(plugin, "bin", "cc-present"), []byte(watch), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+	fake := &shelltest.Fake{}
+	fake.Reply(started, "cc-present", "start")
+	fake.Reply("updated talk\n", "cc-present", "update-block")
+	fake.Reply("", "cci", "post")
+
+	if err := follower(t, fake).follow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if sent := posts(fake); len(sent) != 1 || !strings.Contains(sent[0].Stdin, "are we there") {
+		t.Fatalf("records = %+v, want the note on one record", sent)
+	}
+}
+
 func TestANoteBecomesAnOpenRowAndARecordThatWakesTheCommunicator(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply("#1", "cci", "post")

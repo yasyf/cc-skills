@@ -92,7 +92,7 @@ func Tool(a *app.App) channel.Tool {
 			"a reply with picks also becomes one card on his board that cc-present posts to his Slack DM with a button per pick, " +
 			"and one with links, PRs or a status becomes a card at his Slack DM root. A progress reply to an order writes his ledger row, which his dashboard shows under the ask, and posts nothing to Slack. One answering his Slack thread reply posts there as text instead, and one whose row has no recorded place refuses until thread names it. A reply carrying an earlier id edits the Slack message it already posted and posts a new one only when it has none. " +
 			"A tap comes back to this session. " +
-			"A surface that fails is named in the result while the others still go; never resend for it.",
+			"A surface that fails is named in the result while the others still go; never resend for it unless its line says nothing went out, and then send it again with its id.",
 		InputSchema: schema,
 		Handler: func(ctx context.Context, args json.RawMessage, _ func(string)) (string, bool) {
 			var r Reply

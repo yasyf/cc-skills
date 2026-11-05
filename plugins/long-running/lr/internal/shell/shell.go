@@ -3,14 +3,20 @@ package shell
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
 const (
@@ -81,6 +87,58 @@ func (Exec) Run(ctx context.Context, c Command) (Result, error) {
 	}
 }
 
+// CommandContext is exec.CommandContext for a tool a package manager may have
+// unlinked from PATH to upgrade it: a tool PATH lacks runs from the plugin that
+// carries it. Nothing has started when PATH misses, so this never runs a tool twice.
+func CommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if errors.Is(cmd.Err, exec.ErrNotFound) {
+		if carried := pluginBinary(name); carried != "" {
+			cmd.Path, cmd.Err = carried, nil
+		}
+	}
+	return cmd
+}
+
+func LookPath(tool string) (string, error) {
+	found, err := exec.LookPath(tool)
+	if errors.Is(err, exec.ErrNotFound) {
+		if carried := pluginBinary(tool); carried != "" {
+			return carried, nil
+		}
+	}
+	return found, err
+}
+
+func pluginBinary(tool string) string {
+	config, err := drive.ConfigDir()
+	if err != nil {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(config, "plugins", "installed_plugins.json"))
+	if err != nil {
+		return ""
+	}
+	var installed struct {
+		Plugins map[string][]struct {
+			Scope       string `json:"scope"`
+			InstallPath string `json:"installPath"`
+		} `json:"plugins"`
+	}
+	if json.Unmarshal(raw, &installed) != nil {
+		return ""
+	}
+	for _, id := range slices.Sorted(maps.Keys(installed.Plugins)) {
+		for _, entry := range installed.Plugins[id] {
+			carried := filepath.Join(entry.InstallPath, "bin", tool)
+			if _, err := exec.LookPath(carried); entry.Scope == "user" && err == nil {
+				return carried
+			}
+		}
+	}
+	return ""
+}
+
 func once(ctx context.Context, c Command) (Result, error) {
 	if c.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -88,7 +146,7 @@ func once(ctx context.Context, c Command) (Result, error) {
 		defer cancel()
 	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
+	cmd := CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
 	cmd.Stdin = strings.NewReader(c.Stdin)
 	cmd.Stdout = &stdout
@@ -111,7 +169,7 @@ func once(ctx context.Context, c Command) (Result, error) {
 		return result, nil
 	case errors.Is(err, exec.ErrNotFound):
 		result.Code = CodeMissingBinary
-		return result, fmt.Errorf("%s is not on PATH: %w", c.Argv[0], err)
+		return result, fmt.Errorf("%s is not on PATH and no installed plugin carries it, so install it: %w", c.Argv[0], err)
 	case ctx.Err() != nil:
 		result.Code = CodeTimedOut
 		return result, fmt.Errorf("%s: %w", strings.Join(c.Argv, " "), ctx.Err())

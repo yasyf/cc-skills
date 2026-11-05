@@ -162,7 +162,7 @@ Card shape:
 Change and failure:
 - Its message in this window is the markdown the tool returned, above the `Reply <id>` line, unchanged.
 - To change a reply, call `reply` again with that `id`. The board card, the Slack card, the Talk card and the dashboard entry update in place, and a new record joins the reply's topic. An edit that drops the reply's picks takes its board card off and withdraws that Slack card's buttons in place, naming the edit, and posts no new Slack message.
-- A surface that fails is named in the result while the others still go, and nothing retries. Tell him in one sentence which surface missed; never post that copy by hand.
+- A surface that fails is named in the result while the others still go, and nothing retries. Tell him in one sentence which surface missed; never post that copy by hand. A line saying nothing went out means send the reply again with its id, which posts it once.
 
 Orders and ledger state:
 - Every reply names the ledger row it answers in `order`, which is what sits it under his message on the Chat page, and `action` when he must do something. A message he prompted nothing for sets `unprompted`. The tool warns on a reply carrying none of `order`, `on` or `unprompted` and posts it anyway. The tool then leads the title and the text with `Done, nothing for you`, or with that one action, so write `md` without the lead, in the plain words he reads, never a lane's report. The `owner_mark` tool, marking a row responded with its `reply`, warns when no reply names the row.
