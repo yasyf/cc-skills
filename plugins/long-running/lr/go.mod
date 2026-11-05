@@ -9,6 +9,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 	github.com/yasyf/cc-inbox v0.49.52
 	github.com/yasyf/cc-interact v0.40.3
 	github.com/yuin/goldmark v1.8.7
@@ -16,6 +17,7 @@ require (
 	golang.org/x/mod v0.41.0
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.60.1
+	mvdan.cc/sh/v3 v3.14.1
 )
 
 require (
@@ -33,7 +35,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/shirou/gopsutil/v4 v4.26.5 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/vishvananda/netlink v1.2.1-beta.2 // indirect
