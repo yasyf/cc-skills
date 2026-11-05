@@ -159,7 +159,7 @@ Answer "yes" when they change it, and make your sentence the premise the card sh
     ),
     "decided": (
         "a card still open on his board, drawn before the ruling or pick the evidence shows, that asks him to decide",
-        """Do his words in the evidence already decide everything this card asks, so that nothing on it is left for him to decide? A card that still asks something his words leave open is a no, even when they change its premise.
+        """Do his words in the evidence already decide everything this card asks, so that nothing on it is left for him to decide? A card that still asks something his words leave open is a no, even when they change its premise. Words he or the record scopes to one instance, such as this cut, this run or this PR, decide only a card about that same instance; a card about a later cut, run or PR is a no.
 Answer "yes" when nothing is left, and say in your sentence which of his words decide it.""",
     ),
     "finished": (

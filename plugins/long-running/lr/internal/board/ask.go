@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
@@ -38,6 +39,7 @@ const (
 var (
 	numberedChange  = regexp.MustCompile(`(^|[^\w&])(#(\d+))\b`)
 	prNamed         = regexp.MustCompile(`github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+/[\w.-]+)#(\d+)|\bPR (\d+)\b`)
+	kept            = regexp.MustCompile(cardtext.HiddenCite.String() + "|" + cardtext.Link.String())
 	slugWord        = regexp.MustCompile(`[a-z0-9]+`)
 	errLinkAnswered = errors.New("the board link answered")
 )
@@ -56,7 +58,7 @@ type askOption struct {
 	Build       map[string]any `json:"build,omitempty"`
 }
 
-func (a Ask) Block(repo string) (json.RawMessage, error) {
+func (a Ask) Block(repo string, real func([]SlackPR) ([]SlackPR, error)) (json.RawMessage, error) {
 	if !strings.HasSuffix(strings.TrimSpace(a.Title), "?") {
 		return nil, fmt.Errorf("refused: --title %q is not a question; end it with what he decides and a question mark", a.Title)
 	}
@@ -84,6 +86,10 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	for _, option := range a.Options {
 		said = append(said, linkedNumbers(option, repo))
 	}
+	prs, err := real(slices.DeleteFunc(namedPRs(said, repo), func(pr SlackPR) bool { return pr == SlackPR{repo, a.PortOf} }))
+	if err != nil {
+		return nil, err
+	}
 	title, from := a.Title, cmp.Or(a.From, noPlanFrom)
 	if a.PortOf != 0 {
 		opening := fmt.Sprintf("port of #%d", a.PortOf)
@@ -106,7 +112,7 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	}
 	children = append(children, shots...)
 	children = append(children, map[string]any{"id": slug + "-choice", "type": "choice", "options": options})
-	for _, pr := range slices.DeleteFunc(namedPRs(said, repo), func(pr SlackPR) bool { return pr == SlackPR{repo, a.PortOf} }) {
+	for _, pr := range prs {
 		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%s-%d", slug, strings.ReplaceAll(pr.Repo, "/", "-"), pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
 	}
 	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": strings.TrimSpace(summary), "children": children})
@@ -154,7 +160,7 @@ func firstWords(title string) []string {
 func linkedNumbers(text, repo string) string {
 	var linked strings.Builder
 	at := 0
-	for _, span := range append(cardtext.Link.FindAllStringIndex(text, -1), []int{len(text), len(text)}) {
+	for _, span := range append(kept.FindAllStringIndex(text, -1), []int{len(text), len(text)}) {
 		linked.WriteString(numberedChange.ReplaceAllString(text[at:span[0]], "${1}[${2}](https://github.com/"+repo+"/pull/${3})"))
 		linked.WriteString(text[span[0]:span[1]])
 		at = span[1]
@@ -165,7 +171,7 @@ func linkedNumbers(text, repo string) string {
 func namedPRs(said []string, repo string) []SlackPR {
 	var prs []SlackPR
 	for _, text := range said {
-		for _, hit := range prNamed.FindAllStringSubmatch(text, -1) {
+		for _, hit := range prNamed.FindAllStringSubmatch(cardtext.HiddenCite.ReplaceAllString(text, ""), -1) {
 			number, err := strconv.Atoi(cmp.Or(hit[2], hit[4], hit[5]))
 			if err != nil {
 				continue
@@ -176,6 +182,36 @@ func namedPRs(said []string, repo string) []SlackPR {
 		}
 	}
 	return prs
+}
+
+func realPRs(ctx context.Context, read ccx.Client, warn io.Writer) func([]SlackPR) ([]SlackPR, error) {
+	return func(named []SlackPR) ([]SlackPR, error) {
+		numbers := map[string][]int{}
+		for _, pr := range named {
+			numbers[pr.Repo] = append(numbers[pr.Repo], pr.Number)
+		}
+		unread := map[SlackPR]string{}
+		for repo, wanted := range numbers {
+			rows, err := read.PRStatus(ctx, repo, wanted)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				if row.State == "" {
+					unread[SlackPR{repo, row.Number}] = row.Unread
+				}
+			}
+		}
+		var prs []SlackPR
+		for _, pr := range named {
+			if why, missing := unread[pr]; missing {
+				fmt.Fprintf(warn, "WARNING %s, so the card carries no PR block for #%d\n", why, pr.Number)
+				continue
+			}
+			prs = append(prs, pr)
+		}
+		return prs, nil
+	}
 }
 
 func lacksBackground(card json.RawMessage) bool {
@@ -270,7 +306,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 			}
 			block, remove := json.RawMessage(nil), withdraw
 			if withdraw == "" {
-				if block, err = askedCard(c.InOrStdin(), ask, file, entry.Repo); err != nil {
+				if block, err = askedCard(c.InOrStdin(), ask, file, entry.Repo, realPRs(c.Context(), a.CCX, c.ErrOrStderr())); err != nil {
 					return err
 				}
 				if why := Refusal(until, a.Now()); why != "" {
@@ -316,12 +352,12 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	return cmd
 }
 
-func askedCard(stdin io.Reader, ask Ask, file, repo string) (json.RawMessage, error) {
+func askedCard(stdin io.Reader, ask Ask, file, repo string, real func([]SlackPR) ([]SlackPR, error)) (json.RawMessage, error) {
 	var block json.RawMessage
 	var err error
 	switch file {
 	case "":
-		block, err = ask.Block(repo)
+		block, err = ask.Block(repo, real)
 	case "-":
 		block, err = io.ReadAll(stdin)
 	default:

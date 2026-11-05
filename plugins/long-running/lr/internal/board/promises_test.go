@@ -17,7 +17,7 @@ func promiseCard(t *testing.T, key, by, wait string) {
 	block, err := askedCard(strings.NewReader(""), Ask{
 		Title: promiseQuestion, Background: "The grading root cause is half proven.",
 		Options: []string{wait + " :: Nothing changes until it lands.", "Go now :: The fix rolls on what is proven."}, NothingToBuild: "a choice of timing",
-	}, "", "yasyf/cc-skills")
+	}, "", "yasyf/cc-skills", everyPR)
 	if err != nil {
 		t.Fatal(err)
 	}
