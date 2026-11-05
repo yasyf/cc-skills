@@ -37,6 +37,9 @@ type background struct {
 	log   *slog.Logger
 	to    string
 	read  time.Time
+
+	forgiven int
+	failed   int
 }
 
 func (b *background) Check(ctx context.Context, now time.Time) error {
@@ -65,9 +68,13 @@ func (b *background) pass(ctx context.Context, now time.Time) {
 	}
 	to := cmp.Or(b.to, lanes.Root)
 	if failed == nil {
+		b.failed = 0
 		if err := b.sayRecovered(to); err != nil {
 			b.log.Warn("a background pass recovered and could not say so", "pass", b.name, "err", err)
 		}
+		return
+	}
+	if b.failed++; b.failed <= b.forgiven {
 		return
 	}
 	cause := fmt.Sprintf("the last %s pass failed; the next one runs on schedule: %v", b.name, failed)

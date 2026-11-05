@@ -209,7 +209,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 				(&background{name: "landing-gate-inputs", every: landing.InputsEvery, run: inputs.Pass, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "card-sweep", every: sweepEvery, run: func(ctx context.Context) error {
 					return cards.Pass(ctx, lanes.Self, board.PackJudge(a.Runner), sweepLog{a.Log, "card sweep"})
-				}, store: s, post: post, log: a.Log}).Check,
+				}, store: s, post: post, log: a.Log, forgiven: 1}).Check,
 				(&background{name: "findings", every: findingsEvery, run: findings.New(a, entry).Pass, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "ready-cards", every: PassEvery, run: board.ReadyCards{Cards: cards, Repo: env.Config.Repo, Lane: lanes.Self}.Pass, store: s, post: post, log: a.Log, to: board.Communicator}).Check,
 			)

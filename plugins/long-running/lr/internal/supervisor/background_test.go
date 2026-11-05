@@ -48,6 +48,34 @@ func TestAFailedBackgroundPassReachesRootOncePerError(t *testing.T) {
 	equal(t, len(told), 3)
 }
 
+func TestAForgivenBackgroundPassEscalatesOnlyOnItsSecondConsecutiveFailure(t *testing.T) {
+	var told []bus.Body
+	failure := errors.New(`exec: "ccn": executable file not found in $PATH`)
+	b := &background{
+		name:     "card-sweep",
+		run:      func(context.Context) error { return failure },
+		store:    memory(t),
+		post:     func(_ []string, body bus.Body) error { told = append(told, body); return nil },
+		log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		forgiven: 1,
+	}
+
+	b.pass(context.Background(), t0)
+	equal(t, len(told), 0)
+
+	failure = nil
+	b.pass(context.Background(), t0.Add(sweepEvery))
+	equal(t, len(told), 0)
+
+	failure = errors.New("ccn exited 1")
+	b.pass(context.Background(), t0.Add(2*sweepEvery))
+	equal(t, len(told), 0)
+
+	b.pass(context.Background(), t0.Add(3*sweepEvery))
+	equal(t, len(told), 1)
+	equal(t, told[0].Kind(), "escalation")
+}
+
 func TestARecoveryIsSaidAfterASupervisorRestart(t *testing.T) {
 	s := memory(t)
 	var told []bus.Body
