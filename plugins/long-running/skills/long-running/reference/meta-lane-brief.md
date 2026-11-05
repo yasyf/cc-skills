@@ -58,10 +58,10 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    never an ask; send back an ask that carries a defect and no lane. Write its body to a file:
    the deliverable, the owner's words verbatim, and each owner order it delivers as `m<row>`.
    Keep the contract below in another file. Launch it with
-   `lr launch lane <lane> --title <title> --body-file <body> --contract <contract> --topics <subjects> --drive <drive> --lane meta`,
+   `lr launch lane <lane> --title <title> --body <body> --contract <contract> --topics <subjects> --drive <drive> --lane meta`,
    which writes `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:`, `ccx:` and
-   `Owner orders:` lines and starts it on opus at xhigh; `--scale`, `--place` and a model and
-   effort after the name change those. A
+   `Owner orders:` lines and starts it on opus at xhigh; `--scale`, `--place`, `--ccx`, `--model`
+   and `--effort` change those, and `--body -` takes the body on stdin. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
    subagent. A question over transcripts, records or logs too big for your window goes
    through `lr bulk read <lane> --drive <drive> --launcher <you>`; its triage files the fix

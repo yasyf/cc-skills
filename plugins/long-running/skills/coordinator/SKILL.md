@@ -26,14 +26,18 @@ That subscribe keeps every other record off your tool calls: they reach you as b
 from your one wait, so a turn handles a batch and never a single record:
 
 ```sh
-lr coordinator next --drive <drive> --cursor <state dir>/root/next.cursor
+lr coordinator next --width 400 --lines 40 --watch <the PRs you hold>
 ```
 
-Run it as a foreground Bash call with `timeout: 590000`. It returns within 5 minutes
+Run it as a foreground Bash call with `timeout: 590000`; the drive and cursor default to this
+session's, and it fits one read, so you write no script around it. It returns within 5 minutes
 with every record addressed to the coordinator, of any kind and holds first, and at once for anything from `owner-relay`, an
-incident, a mechanism, a fix-live or an urgent. A record's body of up to 4000 bytes prints
-in the batch, so it needs no `cci show`; a longer one prints as a path for lane `chores` to
-read. Post every reply to a batch in one call, then run it again. Never wait with a Monitor, `cci watch` or `sleep`.
+incident, a mechanism, a fix-live or an urgent. `--watch` closes the batch with each PR's queue
+state and its LANDED and OVERRIDE-WARNING records. A record `lr coordinator mute add` keeps off
+the batch is counted in a `muted` line that names the whole batch's file, and costs no wake. A
+cut record names its read; a body past 4000 bytes prints
+as a path for lane `chores` to read. Post every reply to a batch in one `cci post --lane root
+--batch -`, then run it again. Never wait with a Monitor, `cci watch` or `sleep`.
 
 Post that `cci me` line to the communicator as a `report` to `owner-relay`. A claim refused as
 a second binder of `root` means another live window still holds the lane; report it to

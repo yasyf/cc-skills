@@ -45,7 +45,7 @@ Under O16 in `reference/orca-desk-brief.md`:
 |---|---|
 | none, or `place=remote` | A Sprite, on the orca desk. Without `orca.sprite` the launch fails with `LAUNCH-FAILED`; a failed Sprite launch never starts locally. |
 | `place=local why=<word>` | The Mac, at any load. |
-| `incident=none place=local why=mac-inputs`, the stamp `lr launch lane --body-file` writes | The Mac at any load, but a Sprite when Orca is out of terminals on the Mac. The lane's pointer tells it to post `blocked` to its launcher if the work truly needs the Mac. |
+| `incident=none place=local why=mac-inputs`, the stamp `lr launch lane --body` writes | The Mac at any load, but a Sprite when Orca is out of terminals on the Mac. The lane's pointer tells it to post `blocked` to its launcher if the work truly needs the Mac. |
 | `place=local` with no `why=` | A Sprite, except `role=read`. |
 | `role=read`, or `why=predecessor-worked-here` | Prefers the Mac, but starts on a Sprite while the Mac's one-minute load average is above `orca.load_limit`, which defaults to its core count, or while Orca is out of terminals on the Mac. |
 

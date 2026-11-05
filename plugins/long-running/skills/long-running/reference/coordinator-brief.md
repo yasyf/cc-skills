@@ -66,11 +66,30 @@ lane, never to you or a lane you spawn; send a meta change there in the turn it 
 you hit as `cci post --lane root --drive <drive> --kind report --to
 owner-relay --text 'for meta: <the defect, any refusal verbatim>'`, keep the work moving
 on the hand path, and the communicator forwards it.
-Run forever in a foreground `lr coordinator next --drive <drive> --cursor <state
-dir>/root/next.cursor` loop, a Bash call with `timeout: 590000`, one turn per batch of
-records. Handle each batch in one message: one script holding every post, any task calls,
-and the next wait, as parallel tool calls, so a batch costs one model call. Your turn never
-ends while the drive is open.
+A wake is: run this, act. Run forever in one foreground Bash call with `timeout: 590000`:
+
+    lr coordinator next --width 400 --lines 40 --watch <the PRs you hold>
+
+It prints one batch for one read, holds first, so you write no script, redirect no output and
+read nothing back. Handle each batch in one message, as parallel tool calls, so a batch costs
+one model call: every post, any launch or task call, and the next wait. Your turn never ends
+while the drive is open.
+
+Your tree needs no `cd`, `--drive`, `--config` or hunting for the newest `lr`: bare `lr` and
+`cci` read the drive this session carries. The one flag left is `--lane root` on a post, which
+never defaults to root:
+
+    cci post --lane root --batch - <<'EOF'
+    [{"kind": "answer", "re": "447252", "to": ["lane-a"], "text": "pick 1"},
+     {"kind": "report", "resolves": "447388", "text": "lane-a owns it"}]
+    EOF
+
+Keep what you do not read off the batch for good, instead of filtering it:
+`lr coordinator mute add --kind state --why <why>`, or `--text <regexp>` over the line as it
+prints; `mute ls` and `mute rm <id>` read and undo it. The `muted` line counts what each mute
+hid and names the file holding the whole batch, and no mute hides a hold, an OVERRIDE-WARNING
+or anything that closes the window at once. A cut record names the read that shows the rest,
+which prints that record's text and nothing else. `--full <kind>` prints a kind's bodies whole when you always need them.
 
 You decide five things and nothing else:
 
@@ -111,11 +130,26 @@ on the routing table's model for that task, and you read its answer, never its s
 go on a PR goes to the drive's `landing.go_lanes` lane, which reads the grades first. You
 keep launches, holds, finder and fidelity overrides, incidents and rulings.
 
-Launch lanes through the supervisor and Orca (`lr launch`), never with `Agent`.
+Launch lanes through the supervisor and Orca, never with `Agent`, keeping only the body text:
+
+    lr launch lane <lane> --title <title> --model opus --effort xhigh --scale small \
+      --ccx role=build,place=local,why=<reason> --timeout-seconds 3 --body - <<'EOF'
+    <the body>
+    EOF
+
+It writes `<state dir>/<lane>/brief.md` with the header and your standing lines from
+`<state dir>/root/brief-lines.txt`, the runner refreshes the register slice, and it prints the
+verdict. A later verdict arrives as a `desk-runner` record. Model and effort default to opus
+xhigh; a launch beside a live lane holding the work takes `--now`.
 
 The task list is yours. Run `TaskCreate` the turn you spawn a lane or an ask arrives,
 complete a task only after consuming the deliverable, and reconcile the list against the
 registry at every handoff.
+
+A progress doc is `lr handoff generate --program <program> --plan <path>`, which writes it from
+the registry, the tasks and the open asks and prints its id, file and restore digest. You add
+only what those sources lack, in a `progress:<slug>` doc ([compaction.md](compaction.md)). After
+a compaction, `lr handoff standing` prints the live standing rules.
 
 The supervisor's registry changes only through `lr request`, never a decide's prose.
 Retire a lane with `lr request done <lane>`, move a PR with `lr request owner <lane>
@@ -145,9 +179,9 @@ one exception: it runs under launchd on the Mac, because it drives the Mac's Orc
 cuts Mac worktrees.
 
 Read in this order before acting: the plan <path>; the active progress doc
-`ccn doc show <id>`; the standing register `ccn doc show <id>`; the owner's words
+`ccn doc show <id>`; the standing rules `lr handoff standing`; the owner's words
 verbatim in <rulings file>, which owner-relay appends to and you never guess at;
-then `cci tail --drive <drive> --reader root --since <seq> --oldest`.
+then `cci tail --reader root --since <seq> --oldest`.
 
 A ruling of his that changes a data model, a namespace layout, an embedding model, or
 storage, retention or eviction across machines routes to a lane as a design order, with no
