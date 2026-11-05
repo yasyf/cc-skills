@@ -420,6 +420,9 @@ func (w *workerLaunch) carryBrief() error {
 		notes = w.checkout
 	}
 	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox, Vars: map[string]string{carry.DriveDir: w.Env(workerDriveDir)}}
+	if entry := w.driveEntry(); entry != nil {
+		carrier.Drive = ccDrive(entry)
+	}
 	rewritten, left, err := carrier.Carry(w.ctx, string(raw))
 	if err != nil {
 		return refuse("brief %s names what no Sprite can receive: %v; nothing was prepared", w.brief, err)
@@ -711,17 +714,25 @@ func (w *workerLaunch) fetchNotes(workspace string) error {
 	return w.receipt(notesReceipt, said)
 }
 
-func (w *workerLaunch) carryDrive(workspace string) error {
-	entry := currentDriveEntry(w.Env)
-	if entry == nil {
-		entry = driveOfRun(w.Env, w.run)
+func (w *workerLaunch) driveEntry() *drive.Entry {
+	if entry := currentDriveEntry(w.Env); entry != nil {
+		return entry
 	}
+	return driveOfRun(w.Env, w.run)
+}
+
+func ccDrive(entry *drive.Entry) string {
+	return cmp.Or(entry.CCIDrive, filepath.Base(entry.StateDir))
+}
+
+func (w *workerLaunch) carryDrive(workspace string) error {
+	entry := w.driveEntry()
 	if entry == nil {
 		return nil
 	}
 	carried, err := json.Marshal(drive.Entry{
 		Drive:    entry.Drive,
-		CCIDrive: cmp.Or(entry.CCIDrive, filepath.Base(entry.StateDir)),
+		CCIDrive: ccDrive(entry),
 		Program:  cmp.Or(entry.Program, filepath.Base(entry.StateDir)),
 		Ledger:   entry.Ledger,
 		Repo:     entry.Repo,

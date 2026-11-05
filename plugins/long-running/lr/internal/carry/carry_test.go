@@ -369,3 +369,88 @@ func TestAPathOutsideTheQuotedRowsIsStillChecked(t *testing.T) {
 		t.Fatal(left)
 	}
 }
+
+const drive = "durable-agents-rebuild"
+
+func TestARecordTheBriefCitesIsCarriedFromTheMacInEveryFormBriefsUse(t *testing.T) {
+	c, fake := carrier(t)
+	c.Drive = drive
+	fake.Reply("@5:32 AM\n451308 note card-host\nthe first record\n", "cci", "show", "--drive", drive, "451308")
+	fake.Reply("451335 note card-host\nthe second record\n", "cci", "show", "--drive", drive, "451335")
+	fake.Reply("487 note notes-store-v5\nan origin-tagged record\n", "cci", "show", "--drive", drive, "487@32fde6d5")
+	fake.Reply(`{"origin_seq":489273,"lane":"root","to":["owner-relay"]}`+"\n", "cci", "show", "--drive", drive, "--json", "489273")
+	fake.Reply("489273 report root\nthe record beside a lane\n", "cci", "show", "--drive", drive, "489273")
+	fake.Reply(`{"origin_seq":106361,"lane":"bk-desk","to":["root"]}`+"\n", "cci", "show", "--drive", drive, "--json", "106361")
+	brief := "Read `cci show 451308`, record 451335 and #487@32fde6d5, then root's 489273 (PR #50456, build 106361).\n"
+
+	out := carried(t, c, brief)
+
+	record := func(id string) string { return box + "/cci/record-" + id + ".md" }
+	want := "Read `" + record("451308") + "`, record " + record("451335") + " and " + record("487@32fde6d5") + ", then root's " + record("489273") + " (PR #50456, build 106361).\n"
+	if out != want {
+		t.Fatalf("rewritten brief:\n%s\nwant:\n%s", out, want)
+	}
+	if got := landed(t, c, record("451308")); got != "@5:32 AM\n451308 note card-host\nthe first record\n" {
+		t.Fatalf("record copy holds %q", got)
+	}
+	if got := landed(t, c, record("489273")); got != "489273 report root\nthe record beside a lane\n" {
+		t.Fatalf("lane-cited record copy holds %q", got)
+	}
+}
+
+func TestSeveralRecordsOneShowNamesTravelTogetherAndItsFlagsDrop(t *testing.T) {
+	c, fake := carrier(t)
+	fake.Reply("first\n", "cci", "show", "451308")
+	fake.Reply("second\n", "cci", "show", "451335")
+
+	out := carried(t, c, "Run cci show --body --budget 100 451308 '#451335' to read them.\n")
+
+	if want := "Run " + box + "/cci/record-451308.md " + box + "/cci/record-451335.md to read them.\n"; out != want {
+		t.Fatalf("rewritten brief %q, want %q", out, want)
+	}
+}
+
+func TestARecordTheMacCannotShowWarnsNamingItAndLeavesItsReferenceAlone(t *testing.T) {
+	c, fake := carrier(t)
+	fake.Fail(1, "cci: show: 451308: no record has this number", "cci")
+	brief := "Read `cci show 451308` and record 451308 first.\n"
+
+	out, left, err := c.Carry(context.Background(), brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if out != brief {
+		t.Fatalf("rewritten brief %q, want it unchanged", out)
+	}
+	if len(left) != 1 || !strings.Contains(left[0], "`cci show 451308` failed") || !strings.Contains(left[0], "no record has this number") {
+		t.Fatalf("warnings %q, want one naming the record", left)
+	}
+}
+
+func TestANumberNoRecordOfTheNamedLaneHoldsIsNeverRewritten(t *testing.T) {
+	c, fake := carrier(t)
+	fake.Fail(1, "no record has this number", "cci", "show", "--json")
+	brief := "Wait for build 106361 and the 13551 bytes of this brief.\n"
+
+	out, left, err := c.Carry(context.Background(), brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if out != brief || len(left) != 0 {
+		t.Fatalf("rewrote %q with warnings %q", out, left)
+	}
+}
+
+func TestRecordsInTheQuotedRegisterSliceAreNotCarried(t *testing.T) {
+	c, fake := carrier(t)
+	brief := "Register slice: lane=x step=all\n- dbdf2c0 see #7630@10283a3d and record 451308\nslice-hash: 50dbc362b0e7\n"
+
+	if out := carried(t, c, brief); out != brief {
+		t.Fatalf("rewrote the quoted rows: %q", out)
+	}
+	if calls := fake.Calls(); len(calls) != 0 {
+		t.Fatalf("ran %v for records quoted from the register", calls)
+	}
+}
