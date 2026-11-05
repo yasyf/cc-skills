@@ -2234,3 +2234,33 @@ func TestAReplyAskingAboutAnExemptPRNeverSaysHeTappedIt(t *testing.T) {
 		})
 	}
 }
+
+func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
+	ready := store.ReviewRow{ReadyForTap: true}
+	for name, tc := range map[string]struct {
+		row     store.ReviewRow
+		reply   Reply
+		refused bool
+	}{
+		"a fix waiting on his tap, with no prs":         {ready, Reply{Title: "Dashboard serve flake", MD: "#2196 is green and waits on your tap."}, true},
+		"a list of PRs waiting on another card":         {ready, Reply{Title: "Six PRs wait only on your answer to a card already on your board", MD: "#2196 and five more."}, true},
+		"a PR proven green, listed but tapped":          {store.ReviewRow{ReadyForTap: true, Tapped: true}, Reply{Title: "Fork side-chat bug", MD: "#2196 is proven green and waits on your approval.", PRs: []string{landPR}}, true},
+		"a count whose fixes wait on him, PR not ready": {store.ReviewRow{WaitsOn: "CI"}, Reply{Title: "Brittleness, the count", MD: "Three fixes are ready for your approval.", PRs: []string{landPR}}, true},
+		"a title that opens with Tap":                   {ready, Reply{Title: "Tap: #2196, approval cards work again", MD: "It passed."}, true},
+		"a ready PR listed in prs":                      {ready, Reply{Title: "Tap: #2196", MD: "It passed.", PRs: []string{landPR}}, false},
+		"a question with picks":                         {ready, Reply{Title: "Which fix?", MD: "Both wait on your answer.", Picks: []string{"A", "B"}}, false},
+		"his answer recorded":                           {ready, Reply{Title: "Port of #2196", MD: "Your pick is recorded, and the port state follows."}, false},
+		"a PR in the queue on his approval":             {ready, Reply{Title: "#2196 is in the merge queue on your approval", MD: "It lands next."}, false},
+		"a wait on something else, said plainly":        {store.ReviewRow{WaitsOn: "CI"}, Reply{Title: "#2196 waits on CI", MD: "It needs a green build first."}, false},
+		"a hidden cite that reads as an ask":            {ready, Reply{Title: "Fix is live", MD: "It is live. <!-- waits on your tap -->"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, tc.row)
+			err := f.nothingToTap(tc.reply)
+			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "NOTHING TO TAP") {
+				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
+			}
+		})
+	}
+}

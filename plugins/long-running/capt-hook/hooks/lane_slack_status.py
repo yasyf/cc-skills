@@ -18,7 +18,7 @@ CLI = CommandSchema(
     "cc-slack",
     operands=(Operand("words", count="*"),),
     options=(
-        *(Option(name, (f"--{name}",)) for name in ("about", "agent", "blocks", "card", "channel", "cwd", "file", "session", "text", "text-file", "thread", "ts", "url", "user")),
+        *(Option(name, (f"--{name}",)) for name in ("about", "agent", "blocks", "card", "channel", "cwd", "file", "session", "tap-pr", "text", "text-file", "thread", "ts", "url", "user")),
         *(Option(name, (f"--{name}",), bool) for name in ("broadcast", "mirrored", "root-only")),
     ),
 )

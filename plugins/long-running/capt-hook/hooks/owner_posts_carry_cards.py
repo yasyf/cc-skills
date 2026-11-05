@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import re
 
-from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Tool, Warn, on
 
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
 from .gate5_release import OWNER_LANES
-from .lane_slack_status import CC_SLACK, WRITE_TOOLS
+from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .owner_facing import HIDDEN_CITE, post_values, posted_text
 from .owner_returns import DM_CARD, REPLY, dm_posts
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -20,8 +20,10 @@ UPCOMING_RELEASE = re.compile(r"\b(?:next|future|upcoming|later)\s+releases?\b",
 RELEASE_NAME = re.compile(r"(?i)\b(?:[\w-]+-releas\w*(?:-[\w-]+)*|releas\w*-[\w-]+|release lanes?)\b")
 PLATY_CARD = re.compile(r"/archives/C0B75AL4XEW/p\d{16}")
 RELEASE_BUILD = "/release/builds/"
+ASKS_TAP = re.compile(r"(?im)^\s*(?:tap|approve)\b|\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)")
 BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
 NO_PLATY_CARD = "Warning, nothing was blocked: A release word to the owner gives what users get in plain words and links the Platy release card. Add the card's #releases permalink, which the build's `release-slack-root` annotation names."
+NOTHING_TO_TAP = "A message to the owner that asks him to tap, approve or answer carries the button to do it, so he never opens one with nothing to tap. Send it through `lr reply` with its picks or the ready PR in `prs`, pass each ready PR as `--tap-pr <url>` (`tap_prs`), draw it as a waiting card, or say what it waits on without asking him."
 UNCARDED_RECORD = "Warning, nothing was blocked: A release record carries the Platy release card, so the relay can show it to the owner. Add `--attr card=<permalink>`, read from the build's `release-slack-root` annotation."
 
 LANE = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "flaky-tests-1"}
@@ -151,3 +153,36 @@ def release_records(evt: BaseHookEvent) -> list[str]:
 )
 def release_records_carry_the_platy_card(evt: BaseHookEvent) -> HookResult | None:
     return evt.context(UNCARDED_RECORD) if any(not PLATY_CARD.search(text) for text in release_records(evt)) else None
+
+
+def carries_tap_cards(evt: BaseHookEvent) -> bool:
+    if evt.tool_name != "Bash":
+        return bool(evt._tool_input.get("tap_prs"))
+    return any(CLI.bind(call).values.get("tap-pr") for call in evt.command.calls("cc-slack"))
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash", *WRITE_TOOLS)],
+    tests={
+        sent("#50921 is green and waits on your tap."): Block(pattern=r"^A message to the owner that asks him to tap.*`--tap-pr <url>`"),
+        sent("Six PRs wait only on your answer to a card already on your board."): Block(),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": {"title": "Fork side-chat bug", "body": "#50644 is proven green and waits on your approval."}}, env=LANE): Block(),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": {"title": "Brittleness, the count", "body": "Three fixes are ready for your approval."}}, env=LANE): Block(),
+        Input(command="cc-slack dm-status 'Tap: #51168, the run grant answers 503'", env=LANE): Block(),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": {"title": "Tap: #51168", "body": "It passed."}, "tap_prs": [PR_LINK]}, env=LANE): Allow(),
+        Input(command=f"cc-slack dm-status --tap-pr {PR_LINK} 'Tap: #50026, it passed'", env=LANE): Allow(),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": {"title": "Which fix?", "body": "Both wait on your answer.", "options": ["A", "B"], "waits": "card-x"}}, env=LANE): Allow(),
+        sent("Your pick is recorded, and the port state follows."): Allow(),
+        sent("#50346 is in the merge queue on your approval."): Allow(),
+        sent("#50026 waits on CI, then it lands."): Allow(),
+        sent("It is live. <!-- waits on your tap -->"): Allow(),
+        sent("#50921 waits on your tap.", channel="C0RELEASES1"): Allow(),
+        Input(command="ls", env=LANE): Allow(),
+    },
+)
+def tap_asks_carry_the_button(evt: BaseHookEvent) -> HookResult | None:
+    if carries_tap_cards(evt):
+        return None
+    asks = any(ASKS_TAP.search(HIDDEN_CITE.sub(" ", words)) and not posted.get("waits") for words, posted in dm_posts(evt))
+    return evt.block(NOTHING_TO_TAP) if asks else None

@@ -146,13 +146,14 @@ The tool's description owns the checklist a caller reads before sending. A misse
 
 | Missed | What the hook or tool does |
 |---|---|
-| A line with tap, card, waits on you, your yes, no, pick, answer or word, and no card | Warns and posts; edit it with its `id` |
+| A reply asking him to tap, approve or answer, with no picks and no PR in `prs` ready for his tap and untapped | Refused with `NOTHING TO TAP`, and nothing posts; add the picks or the ready PR, or say what it waits on without asking him. `tap_asks_carry_the_button` refuses the same ask on a cc-slack post to his DM that has no `--tap-pr` and is not a waiting card |
+| Any other line with card, your yes, no, pick or word, and no card | Warns and posts; edit it with its `id` |
 | A release word with no Platy card | Warns and posts; a lane's name or `the release lane` is no release word |
 | An abstract change or an unanswered first question | Warns and posts, naming the sentence and the question; edit it with its `id`, and a sentence opening `Unproven:` counts as answered |
 | A bare cci record number in `md` | Moved to a hidden cite, and the result says so |
 | Any other bare id, or a bare `Sentry <n>` | Warns and posts |
 | A notebook link with no title | Warns and posts |
-| A PR in `prs` not ready for his tap, on a reply with no picks | Warns `NO BUTTON` and posts a link with nothing to tap; live-primitives owns drawing the button |
+| A PR in `prs` not ready for his tap, on a reply with no picks that asks nothing of him | Warns `NO BUTTON` and posts a link with nothing to tap; live-primitives owns drawing the button |
 | An open bug named, its fix PR not in `prs` | Adds the fix PR to `prs` by itself; warns and posts where it cannot, as under Card shape |
 | `by` or `routed` off a progress or info reply to an order with no picks | Left off with a warning |
 | A PNG on `display.artifact` | The Talk surface fails and the result names it; live-primitives owns the artifact design |
