@@ -26,9 +26,11 @@ any cwd, repo or not), feeds the plugin's `AGENTS.md` via
 ccx inside lanes — so every run arrives knowing the house reply shape),
 mounts the Datadog and Sentry MCP servers when `config.toml` enables them, plus
 any `--mcp` names, runs `--disable plugins`
-(invalid plugin MCP config fails before `-c` overrides apply), unsets `OPENAI_API_KEY` so codex always
+(invalid plugin MCP config fails before `-c` overrides apply), unsets `OPENAI_API_KEY` so codex
 authenticates via the ChatGPT-plan OAuth login (the ambient key is
-billing-capped and never mounts the hosted `image_gen` tool), and keeps every
+billing-capped and never mounts the hosted `image_gen` tool), hands that key to
+`codex exec` as `CODEX_API_KEY` instead on a host where `codex login status`
+fails, such as a Sprite, and keeps every
 run's state under one fixed per-user base — `${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` —
 where any session can rediscover it (see Run Inventory). The plugin also ships
 a guard hook that blocks hand-rolled `codex exec` and backgrounded `codex-ask`
@@ -407,7 +409,8 @@ skill; it works with non-interactive `codex exec`.
 ChatGPT plan -- check `codex login status`. With API-key auth it never mounts,
 and codex will quietly fake the image by drawing it with PIL/ImageMagick instead.
 `codex-ask` unsets `OPENAI_API_KEY` for exactly this reason, so the login
-state from `codex login status` is what counts. Two defenses, use both:
+state from `codex login status` is what counts; a host with no login, such as
+a Sprite, runs on API-key auth and never has `image_gen`. Two defenses, use both:
 
 1. **Pass `--image`** so codex cannot draw -- it adds `--disable shell_tool`,
    and with no shell codex either calls `image_gen` or reports the tool
