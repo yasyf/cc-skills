@@ -191,6 +191,19 @@ func TestTwoPostersAtOnceNeverShareAKey(t *testing.T) {
 	}
 }
 
+func TestASessionTheRegistryDoesNotListFindsItsDriveByTheDriveItCarries(t *testing.T) {
+	f := newPosterFixture(t)
+	f.env[sessionEnv] = "a-later-session"
+	if _, err := f.poster.Entry(); err == nil {
+		t.Fatal("a session carrying no drive found one")
+	}
+	f.env[driveEnv] = "prog"
+	entry, err := f.poster.Entry()
+	if err != nil || entry.Drive != "prog" {
+		t.Fatalf("entry %+v, %v", entry, err)
+	}
+}
+
 func TestALaunchPostsAnAddressedLineWithNoClockAndPrintsItsVerdict(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "brief-of-a.md", "work\n"+briefLines)

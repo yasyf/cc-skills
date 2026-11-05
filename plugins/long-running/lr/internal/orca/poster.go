@@ -74,14 +74,16 @@ type Poster struct {
 }
 
 func (p Poster) Entry() (*drive.Entry, error) {
-	session := p.Env(sessionEnv)
+	if p.Drive == "" {
+		if entry := currentDriveEntry(p.Env); entry != nil {
+			return entry, nil
+		}
+		return nil, fmt.Errorf("no drive in the registry is bound to session %s, so its orca desk runner is unknown and nothing is posted", p.Env(sessionEnv))
+	}
 	for _, entry := range allDrives(p.Env) {
-		if entry.Bus() == p.Drive || (p.Drive == "" && slices.Contains(entry.Sessions, session)) {
+		if entry.Bus() == p.Drive {
 			return &entry, nil
 		}
-	}
-	if p.Drive == "" {
-		return nil, fmt.Errorf("no drive in the registry is bound to session %s, so its orca desk runner is unknown and nothing is posted", session)
 	}
 	return nil, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", p.Drive)
 }

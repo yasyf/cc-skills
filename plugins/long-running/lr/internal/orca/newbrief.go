@@ -3,6 +3,7 @@ package orca
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,13 +18,20 @@ const (
 	placeLocal        = "local"
 	placeRemote       = "remote"
 	workerAttempt     = "brief.worker"
+	standingFile      = "brief-lines.txt"
+	bodyFromStdin     = "-"
 )
 
-var ownerRow = regexp.MustCompile(`\bm[0-9]{1,3}\b`)
+var (
+	ownerRow    = regexp.MustCompile(`\bm[0-9]{1,3}\b`)
+	ccxPairGlue = regexp.MustCompile(`,\s*([a-z-]+=)`)
+)
 
 type NewBrief struct {
-	Title, BodyFile, Contract, Scale, Place string
-	Topics                                  []string
+	Title, BodyFile, Contract, Scale, Place, CCX string
+	Topics                                       []string
+	StandingDir                                  string
+	Stdin                                        io.Reader
 }
 
 func (n NewBrief) Write(stateDir, lane string) (string, error) {
@@ -47,15 +55,15 @@ func (n NewBrief) Write(stateDir, lane string) (string, error) {
 
 func (n NewBrief) text(lane string) (string, error) {
 	if n.Title == "" {
-		return "", errors.New("--body-file needs --title")
+		return "", errors.New("--body needs --title")
 	}
-	body, err := os.ReadFile(n.BodyFile)
+	body, err := n.body()
 	if err != nil {
-		return "", fmt.Errorf("--body-file: %w", err)
+		return "", fmt.Errorf("--body: %w", err)
 	}
 	said := strings.TrimSpace(string(body))
 	if said == "" {
-		return "", fmt.Errorf("--body-file: %s is empty", n.BodyFile)
+		return "", fmt.Errorf("--body: %s is empty", n.BodyFile)
 	}
 	ccxLine, err := n.ccxLine()
 	if err != nil {
@@ -77,6 +85,13 @@ func (n NewBrief) text(lane string) (string, error) {
 		sections = append(sections, strings.TrimSpace(string(contract)))
 	}
 	sections = append(sections, said)
+	standing, err := os.ReadFile(filepath.Join(n.StandingDir, standingFile))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("standing lines: %w", err)
+	}
+	if lines := strings.TrimSpace(string(standing)); lines != "" {
+		sections = append(sections, lines)
+	}
 	if rows := ownerRow.FindAllString(said, -1); len(rows) > 0 {
 		slices.Sort(rows)
 		sections = append(sections, "Owner orders: owner:"+strings.Join(slices.Compact(rows), " owner:"))
@@ -84,7 +99,21 @@ func (n NewBrief) text(lane string) (string, error) {
 	return strings.Join(sections, "\n\n") + "\n", nil
 }
 
+func (n NewBrief) body() ([]byte, error) {
+	if n.BodyFile == bodyFromStdin {
+		return io.ReadAll(n.Stdin)
+	}
+	return os.ReadFile(n.BodyFile)
+}
+
 func (n NewBrief) ccxLine() (string, error) {
+	if n.CCX != "" {
+		line := "ccx: " + ccxPairGlue.ReplaceAllString(n.CCX, " $1")
+		if !briefIncident.MatchString(line) {
+			line += " incident=none"
+		}
+		return line, nil
+	}
 	switch n.Place {
 	case placeLocal:
 		return "ccx: role=build incident=none place=local why=" + whyMacInputs, nil

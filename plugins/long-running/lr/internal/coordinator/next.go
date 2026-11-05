@@ -1,11 +1,12 @@
 package coordinator
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
@@ -23,6 +26,9 @@ const (
 	bodyShown    = 4000
 	cutMark      = "…"
 	stallWatch   = "stall-watch"
+	cursorFile   = "next.cursor"
+	kindHold     = "hold"
+	kindLanded   = "landed"
 )
 
 var pacific = mustZone("America/Los_Angeles")
@@ -44,54 +50,82 @@ type record struct {
 	Topic string
 	To    []string
 	Re    int64
+	PRs   []int
 	Refs  struct {
 		Path string
 	}
 }
 
-func Command(*app.App) *cobra.Command {
+func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "coordinator",
 		Short: "What the drive's coordinator session runs instead of waking on every record",
 		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(nextCommand())
+	cmd.AddCommand(nextCommand(a), muteCommand())
 	return cmd
 }
 
-func nextCommand() *cobra.Command {
+func nextCommand(a *app.App) *cobra.Command {
 	var driveName, cursor string
 	var every time.Duration
+	var shape view
 	cmd := &cobra.Command{
 		Use:   "next",
 		Short: "Block until the coordinator's next batch of records is due, print it, and advance its cursor",
 		Long: `Block until the coordinator's next batch of records is due, print it, and advance its cursor.
 
-Every kind addressed to the coordinator prints, holds first. The batch closes every --every. Anything from the communicator, an incident, a mechanism, a fix-live or an urgent closes it at once. A stall-watch urgent waits for the window, and repeats of one stall-watch alarm print as one line. A window with no records keeps waiting, for at most 570 s, so one Bash call of 590000 ms always covers it.`,
+Every kind addressed to the coordinator prints, holds first. The batch closes every --every. Anything from the communicator, an incident, a mechanism, a fix-live or an urgent closes it at once. A stall-watch urgent waits for the window, and repeats of one stall-watch alarm print as one line. A window with no records keeps waiting, for at most 570 s, so one Bash call of 590000 ms always covers it.
+
+The drive defaults to this session's and the cursor to <state dir>/root/next.cursor. The flags shape the batch for one read: --width cuts a record at that many bytes and names the read that shows the rest, --lines stops at that many lines with holds and what cannot wait first, --full prints whole bodies of a kind up to 32000 bytes, and --watch closes with each pull request's queue state and its LANDED and OVERRIDE-WARNING records. Records lr coordinator mute hides are counted in a muted line and do not end a window by themselves. Whatever is muted or cut stays in batch-last.txt beside the cursor, and the batch names that file.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if driveName == "" || cursor == "" || len(shape.watch) > 0 {
+				entry, err := drive.Named(driveName)
+				if err != nil {
+					return err
+				}
+				driveName = cmp.Or(driveName, entry.Bus())
+				cursor = cmp.Or(cursor, filepath.Join(entry.StateDir, lanes.Root, cursorFile))
+				a.ConfigPath = cmp.Or(a.ConfigPath, entry.Config())
+			}
+			kept := filepath.Dir(cursor)
 			since, err := readCursor(cursor)
 			if err != nil {
+				return err
+			}
+			if shape.mutes, err = loadMutes(filepath.Join(kept, mutesFile)); err != nil {
 				return err
 			}
 			ctx, stop := context.WithCancel(cmd.Context())
 			defer stop()
 			records, failure := follow(ctx, driveName, since)
-			batch := collect(ctx, records, every, longestWait, settle)
+			batch := collect(ctx, records, every, longestWait, settle, shape.wakes)
 			stop()
-			printBatch(cmd.OutOrStdout(), batch)
-			if err := saveCursor(cursor, batch); err != nil {
-				return err
-			}
-			return <-failure
+			statuses, unread := watched(cmd.Context(), a, shape.watch, batch)
+			printing := shape.print(cmd.OutOrStdout(), batch, statuses, filepath.Join(kept, wholeBatchFile), a.Now())
+			return errors.Join(printing, saveCursor(cursor, batch), unread, <-failure)
 		},
 	}
-	cmd.Flags().StringVar(&driveName, "drive", "", "the drive whose reader coordinator this session is")
-	cmd.Flags().StringVar(&cursor, "cursor", "", "file holding the last seq printed; created on the first batch")
+	cmd.Flags().StringVar(&driveName, "drive", "", "the drive whose reader coordinator this session is; default this session's drive")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "file holding the last seq printed, created on the first batch; default <state dir>/root/next.cursor")
 	cmd.Flags().DurationVar(&every, "every", defaultEvery, "how long one batch stays open")
-	_ = cmd.MarkFlagRequired("drive")
-	_ = cmd.MarkFlagRequired("cursor")
+	cmd.Flags().IntSliceVar(&shape.watch, "watch", nil, "pull requests whose queue state and LANDED and OVERRIDE-WARNING records close the batch")
+	cmd.Flags().StringSliceVar(&shape.full, "full", nil, "record kinds whose bodies print whole, up to 32000 bytes")
+	cmd.Flags().IntVar(&shape.width, "width", 0, "cut each record at this many bytes, naming the read that shows the rest")
+	cmd.Flags().IntVar(&shape.lines, "lines", 0, "stop after this many lines, naming how many records were cut")
 	return cmd
+}
+
+func watched(ctx context.Context, a *app.App, numbers []int, batch []record) ([]ccx.PRStatus, error) {
+	if len(numbers) == 0 || len(batch) == 0 {
+		return nil, nil
+	}
+	cfg, err := a.Config()
+	if err != nil {
+		return nil, err
+	}
+	return a.CCXFrom(cfg.Checkout).PRStatus(ctx, cfg.Repo, numbers)
 }
 
 func readCursor(path string) (int64, error) {
@@ -119,6 +153,9 @@ func follow(ctx context.Context, driveName string, since int64) (<-chan record, 
 		defer close(records)
 		err := client.Follow(ctx, client.Watch{Drive: driveName, Reader: lanes.Root, After: since, Kinds: []string{"incident"}}, func(r client.Record) error {
 			next := record{Seq: r.Seq, Lane: r.Lane, Kind: string(r.Kind), At: r.At, Text: r.Text, Topic: r.Topic, To: r.To, Re: r.Re}
+			for _, pr := range r.Refs.PRs {
+				next.PRs = append(next.PRs, pr.Number)
+			}
 			next.Refs.Path = r.Refs.Path
 			select {
 			case records <- next:
@@ -135,8 +172,9 @@ func follow(ctx context.Context, driveName string, since int64) (<-chan record, 
 	return records, failure
 }
 
-func collect(ctx context.Context, records <-chan record, every, limit, soon time.Duration) []record {
+func collect(ctx context.Context, records <-chan record, every, limit, soon time.Duration, wakes func(record) bool) []record {
 	var batch []record
+	woken := false
 	due := time.After(every)
 	giveUp := time.After(limit)
 	for {
@@ -146,11 +184,15 @@ func collect(ctx context.Context, records <-chan record, every, limit, soon time
 				return batch
 			}
 			batch = append(batch, r)
+			if !wakes(r) {
+				continue
+			}
+			woken = true
 			if due == nil || closesAtOnce(r) {
 				due = time.After(soon)
 			}
 		case <-due:
-			if len(batch) > 0 {
+			if woken {
 				return batch
 			}
 			due = nil
@@ -203,22 +245,11 @@ func fold(batch []record) []line {
 	return lines
 }
 
-func printBatch(w io.Writer, batch []record) {
-	if len(batch) == 0 {
-		_, _ = fmt.Fprintln(w, "no records; run lr coordinator next again")
-		return
-	}
-	lines := fold(batch)
-	for _, holds := range []bool{true, false} {
-		for _, l := range lines {
-			if (l.Kind == "hold") == holds {
-				_, _ = fmt.Fprintln(w, l.render())
-			}
-		}
-	}
+func (l line) render() string {
+	return l.head() + ": " + l.whole() + l.repeats()
 }
 
-func (l line) render() string {
+func (l line) head() string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "#%d %s %s %s", l.Seq, l.At.In(pacific).Format("3:04 PM"), strings.ToUpper(l.Kind), l.Lane)
 	if l.Re != 0 {
@@ -227,14 +258,21 @@ func (l line) render() string {
 	if others := l.alsoTo(); len(others) > 0 {
 		fmt.Fprintf(&out, " -> %s", strings.Join(others, ","))
 	}
-	fmt.Fprintf(&out, ": %s", l.whole())
-	if l.seen > 1 {
-		fmt.Fprintf(&out, " (seen %d times)", l.seen)
-	}
 	return out.String()
 }
 
+func (l line) repeats() string {
+	if l.seen > 1 {
+		return fmt.Sprintf(" (seen %d times)", l.seen)
+	}
+	return ""
+}
+
 func (r record) whole() string {
+	return r.upTo(bodyShown)
+}
+
+func (r record) upTo(limit int) string {
 	if r.Refs.Path == "" {
 		return r.Text
 	}
@@ -242,7 +280,7 @@ func (r record) whole() string {
 	if err != nil {
 		return fmt.Sprintf("%s (body %s)", r.Text, r.Refs.Path)
 	}
-	if len(raw) > bodyShown {
+	if len(raw) > limit {
 		return fmt.Sprintf("%s (body %s, %d bytes)", r.Text, r.Refs.Path, len(raw))
 	}
 	body := strings.TrimSpace(string(raw))

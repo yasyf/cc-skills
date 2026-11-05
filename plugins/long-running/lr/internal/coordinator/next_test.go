@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
@@ -20,6 +22,8 @@ const (
 	short     = 20 * time.Millisecond
 	forever   = time.Hour
 )
+
+func always(record) bool { return true }
 
 func at(seq int64, lane, kind string) record {
 	return record{Seq: seq, Lane: lane, Kind: kind, Text: "t", At: time.Date(2026, 11, 3, 5, 5, 0, 0, time.UTC)}
@@ -35,7 +39,7 @@ func arriving(rs ...record) <-chan record {
 
 func TestAWindowHoldsEveryRoutineRecordUntilItCloses(t *testing.T) {
 	started := time.Now()
-	batch := collect(context.Background(), arriving(at(1, "lane-a", "answer"), at(2, "lane-b", "done"), at(3, "lane-a", "blocker")), 50*time.Millisecond, forever, short)
+	batch := collect(context.Background(), arriving(at(1, "lane-a", "answer"), at(2, "lane-b", "done"), at(3, "lane-a", "blocker")), 50*time.Millisecond, forever, short, always)
 	if len(batch) != 3 {
 		t.Fatalf("batch holds %d records, want 3", len(batch))
 	}
@@ -46,7 +50,7 @@ func TestAWindowHoldsEveryRoutineRecordUntilItCloses(t *testing.T) {
 
 func TestARecordThatCannotWaitClosesTheWindowAndBringsTheRestAlong(t *testing.T) {
 	for _, urgent := range []record{at(2, "owner-relay", "ask"), at(2, "root", "decide"), at(2, "lane-a", "incident"), at(2, "lane-a", "mechanism"), at(2, "lane-a", "fix-live"), at(2, "lane-a", "urgent")} {
-		batch := collect(context.Background(), arriving(at(1, "lane-b", "answer"), urgent), forever, forever, short)
+		batch := collect(context.Background(), arriving(at(1, "lane-b", "answer"), urgent), forever, forever, short, always)
 		if len(batch) != 2 || batch[1].Seq != 2 {
 			t.Fatalf("%s %s: batch %+v, want both records", urgent.Lane, urgent.Kind, batch)
 		}
@@ -62,7 +66,7 @@ func TestAStallWatchUrgentWaitsForTheWindow(t *testing.T) {
 func TestAnEmptyWindowEndsOnTheFirstLaterRecord(t *testing.T) {
 	records := make(chan record)
 	got := make(chan []record)
-	go func() { got <- collect(context.Background(), records, short, forever, short) }()
+	go func() { got <- collect(context.Background(), records, short, forever, short, always) }()
 	time.Sleep(3 * short)
 	records <- at(1, "lane-a", "answer")
 	if batch := <-got; len(batch) != 1 {
@@ -71,7 +75,7 @@ func TestAnEmptyWindowEndsOnTheFirstLaterRecord(t *testing.T) {
 }
 
 func TestAQuietDriveGivesUpInsideOneBashCall(t *testing.T) {
-	if batch := collect(context.Background(), make(chan record), short, 2*short, short); len(batch) != 0 {
+	if batch := collect(context.Background(), make(chan record), short, 2*short, short, always); len(batch) != 0 {
 		t.Fatalf("batch %+v, want none", batch)
 	}
 }
@@ -165,10 +169,15 @@ func cursorAfterNow(t *testing.T) string {
 
 func runNext(t *testing.T, cursor string) string {
 	t.Helper()
+	return runNextWith(t, "--drive", testDrive, "--cursor", cursor, "--every", (5 * short).String())
+}
+
+func runNextWith(t *testing.T, args ...string) string {
+	t.Helper()
 	var out bytes.Buffer
-	cmd := nextCommand()
+	cmd := nextCommand(app.New(io.Discard))
 	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"--drive", testDrive, "--cursor", cursor, "--every", (5 * short).String()})
+	cmd.SetArgs(args)
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +221,9 @@ func TestEveryKindAddressedToRootPrints(t *testing.T) {
 
 func TestAHoldPrintsAboveTheRecordsThatArrivedBeforeIt(t *testing.T) {
 	var out bytes.Buffer
-	printBatch(&out, []record{at(1, "lane-a", "answer"), at(2, "owner-relay", "hold"), at(3, "lane-b", "ask")})
+	if err := (view{}).print(&out, []record{at(1, "lane-a", "answer"), at(2, "owner-relay", "hold"), at(3, "lane-b", "ask")}, nil, "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 3 || !strings.HasPrefix(lines[0], "#2 ") || !strings.HasPrefix(lines[1], "#1 ") || !strings.HasPrefix(lines[2], "#3 ") {
 		t.Fatalf("batch printed %q, want the hold first", out.String())
@@ -226,7 +237,7 @@ func TestAWatchThatFailsSurfacesInsteadOfWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CCI_HOME", notADirectory)
-	cmd := nextCommand()
+	cmd := nextCommand(app.New(io.Discard))
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--drive", testDrive, "--cursor", filepath.Join(dir, "c"), "--every", forever.String()})
