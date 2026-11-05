@@ -61,7 +61,7 @@ func TestEachUnmetConditionKeepsARowFromReadyAndSaysWhy(t *testing.T) {
 		{"conflict", func(r *store.ReviewRow) { r.Mergeable = string(machine.MergeableConflict) }, "mergeability is conflict"},
 		{"unsafe body", func(r *store.ReviewRow) { r.UnsafeWait = "this waits on the cutover pick" }, "waits to go live"},
 		{"no for users", func(r *store.ReviewRow) { r.ForUsers = "" }, "no Summary"},
-		{"no plan", func(r *store.ReviewRow) { r.PlanRow = "" }, "no plan row"},
+		{"no plan", func(r *store.ReviewRow) { r.PlanRow = "" }, "names no plan: open a line with"},
 		{"no risk", func(r *store.ReviewRow) { r.Risk = "" }, "no Risk profile"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -695,6 +695,29 @@ func TestAPlanLineIsNeverReadFromTheRiskProfile(t *testing.T) {
 	ApplyBody(&row, "## Summary\n\nFor a user.\n\n## Risk profile\n\n- **Threat model:** plan 12 changes nothing.\n\n## Design\n\nNo reference here.\n")
 	if row.PlanLine != "" || !strings.Contains(row.Risk, "Threat model") {
 		t.Fatalf("row = %+v, want the risk kept and no plan line taken from it", row)
+	}
+}
+
+func TestAPlanLineIsAnyFormALaneWritesItIn(t *testing.T) {
+	const incident = "Plan: replace timeout-only ticket mint options with one key per logical invocation and the existing timeout, verify recovery at ticket populations of 1 and 1,000, then release the merged fix and observe AIG smoke. The ingress client recovers the same invocation after losing its response. Plan and acceptance record: cc-notes task `ed1b77de02898e932acb9d8cb5a8f7dc1656d321`, implementing the smoke-flake-fix-1 incident brief (owner:m835)."
+	for name, tc := range map[string]struct{ body, want string }{
+		"an incident brief": {"## Summary\n\n" + incident + "\n\n## Risk profile\n\nLow.\n", incident},
+		"a bulleted plan":   {"## Summary\n\nFor a user.\n\n- **Plan:** carries the sweep.\n", "- **Plan:** carries the sweep."},
+		"an owner order":    {"## Summary\n\nFor a user.\n\nCarries owner:m31, no timestamps in records.\n", "Carries owner:m31, no timestamps in records."},
+		"a task id":         {"## Summary\n\nFor a user.\n\nRecorded in cc-notes task ed1b77de0289.\n", "Recorded in cc-notes task ed1b77de0289."},
+		"a plan step":       {"## Summary\n\nFor a user.\n\nThis carries plan step 1.\n", "This carries plan step 1."},
+		"the planner":       {"## Summary\n\nFor a user.\n\n## Design\n\nThe planner's choice is not guaranteed, so the old plan keeps serving.\n", ""},
+		"a mid-line Plan:":  {"## Summary\n\nFor a user.\n\nThe Plan: is elsewhere.\n", ""},
+		"an owner: no row":  {"## Summary\n\nFor a user.\n\nThe owner: asked nothing.\n", ""},
+		"no line":           {"## Summary\n\nFor a user.\n", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var row store.ReviewRow
+			ApplyBody(&row, tc.body)
+			if row.PlanLine != clip(tc.want, fieldChars) {
+				t.Fatalf("plan line = %q, want %q", row.PlanLine, clip(tc.want, fieldChars))
+			}
+		})
 	}
 }
 

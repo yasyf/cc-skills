@@ -60,7 +60,7 @@ var (
 	holdNoise   = regexp.MustCompile(`(?i)\s*\((?:record #\d+|replaces [^)]*|[0-9a-f]{7,40}|\d{5,}(?:@[0-9a-f]+)?)\)`)
 	holdLeadIn  = regexp.MustCompile(`(?i)^(?:\d{1,2}:\d{2} [AP]M )?(?:[\w-]+ holds?|hold(?: on)?) (?:#?\d+|this PR|PR \d+)(?: widened)?[ :,]*`)
 	sentenceEnd = regexp.MustCompile(`[.!?](?:\s|$)`)
-	planLine    = regexp.MustCompile(`(?im)^.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix)\b.*$`)
+	planLine    = regexp.MustCompile(`(?im)^(?:[\s>*-]*plan:.*|.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix|owner:m\d+|cc-notes task\W+[0-9a-f]{8,})\b.*)$`)
 )
 
 func Terminal(state string) bool {
@@ -163,7 +163,7 @@ func firstUnmet(row store.ReviewRow) string {
 	case row.ForUsers == "":
 		return "its PR body has no Summary"
 	case row.PlanRow == "":
-		return "its PR body names no plan row"
+		return `its PR body names no plan: open a line with "Plan:", or name plan step N, owner:m<row> or a cc-notes task id`
 	case row.Risk == "":
 		return "its PR body has no Risk profile"
 	}
