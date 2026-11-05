@@ -836,6 +836,47 @@ func TestAPRWithNoOpenedRecordHasNoRowAndNoReadPosts(t *testing.T) {
 	}
 }
 
+func TestAChildsParentIsTheOpenPROnItsBaseBranchNotAClosedOneThatUsedTheBranchBefore(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	closed := cleanRead(1, headA)
+	closed.Closed = true
+	if err := f.PostReads(context.Background(), []machine.Facts{closed}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: "lane-8", Kind: "opened", Text: "opened", PRs: []string{testRepo + "#3"},
+		Attrs: map[string]string{"repo": testRepo, "branch": "branch-1", "base": "dev", "head": strings.Repeat("c", 40)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	postOpened(t, 2, headB, "branch-1", fullBody)
+	for range 16 {
+		if row := folded(t, f, 2); row.Parent != "#3" || row.ParentState != ParentOpen {
+			t.Fatalf("child = %+v, want it waiting on the open #3, which reuses closed #1's branch", row)
+		}
+	}
+}
+
+func TestAChildsParentFollowsARestackThatMovesItsGitHubBase(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	postOpened(t, 3, strings.Repeat("c", 40), "dev", fullBody)
+	postOpened(t, 2, headB, "branch-1", fullBody)
+	if row := folded(t, f, 2); row.Parent != "#1" {
+		t.Fatalf("child before the restack = %+v, want it on #1", row)
+	}
+	restacked := cleanRead(2, headB)
+	restacked.Base = "branch-3"
+	if err := f.PostReads(context.Background(), []machine.Facts{restacked}); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := folded(t, f, 2); row.Parent != "#3" || row.ParentState != ParentOpen {
+		t.Fatalf("child after the restack = %+v, want it waiting on #3, its new GitHub base", row)
+	}
+}
+
 func TestAChildIsNotReadyBeforeItsParentLands(t *testing.T) {
 	f, s := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)
