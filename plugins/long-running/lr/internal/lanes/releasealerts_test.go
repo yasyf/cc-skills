@@ -129,9 +129,13 @@ func TestAWatchPostNamesItsMonitorReleaseAndJob(t *testing.T) {
 
 func TestARedPostOnAThreadWithAnIncidentOpensNothing(t *testing.T) {
 	thread := "https://forge.slack.com/archives/C0B75AL4XEW/p1793740168770509"
+	linked := client.Record{Kind: "incident", Text: "SCOPE watch-executor-plat-6f015c-fix: active yes"}
+	linked.Refs.URL = thread
 	for name, opened := range map[string]client.Record{
-		"launch record on the thread": {Kind: kindSpawn, Text: "ALERT-LAUNCHED something " + thread},
-		"incident naming the thread":  {Kind: "incident", Text: "incident declared, see " + thread},
+		"launch record on the thread":                          {Kind: kindSpawn, Text: "ALERT-LAUNCHED something " + thread},
+		"incident naming the thread":                           {Kind: "incident", Text: "incident declared, see " + thread},
+		"lanes opened for the same message under another name": {Kind: kindSpawn, Text: "ALERT-LAUNCHED watch-executor-plat-6f015c; alert message https://poetic-technology.slack.com/archives/C0B75AL4XEW/p1793740168770509?thread_ts=1793740168.770509"},
+		"a record carrying the message as its link":            linked,
 	} {
 		t.Run(name, func(t *testing.T) {
 			channel, bus := realReleaseChannel(t), &fakeBus{tail: []client.Record{opened}}
