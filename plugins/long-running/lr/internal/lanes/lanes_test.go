@@ -85,6 +85,7 @@ type fake struct {
 	tokens      map[string]int
 	posts       []Post
 	launches    []string
+	keys        []string
 	costs       map[string]Cost
 	briefs      map[string]string
 	withdrawn   []string
@@ -131,7 +132,8 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 			return fmt.Sprintf("/projects/x/%s/subagents/agent-%s.jsonl", row.Session, row.Agent)
 		},
 		Post: func(p Post) error { f.posts = append(f.posts, p); return nil },
-		Launch: func(name, model, effort, brief string) error {
+		Launch: func(name, model, effort, brief, key string) error {
+			f.keys = append(f.keys, key)
 			f.launches = append(f.launches, name)
 			f.costs[name] = Cost{model, effort}
 			text, err := os.ReadFile(brief)

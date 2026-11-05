@@ -245,7 +245,7 @@ func decideLanes(given Input) (Decided, error) {
 		Tokens:     func(lanes.Row) int { return 0 },
 		Transcript: func(lanes.Row) string { return "" },
 		Post:       func(post lanes.Post) error { posts = append(posts, post); return nil },
-		Launch:     func(string, string, string, string) error { return nil },
+		Launch:     func(string, string, string, string, string) error { return nil },
 		Withdraw:   func(string) error { return nil },
 		Wake: func(name string, _ lanes.Row, _ map[string]any) (bool, error) {
 			woken[name] = true

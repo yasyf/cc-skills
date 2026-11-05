@@ -51,8 +51,8 @@ var (
 )
 
 type Order struct {
-	Lane, Model, Effort, Role, Brief string
-	Now                              bool
+	Lane, Model, Effort, Role, Brief, ID string
+	Now                                  bool
 }
 
 func (o Order) Line() string {
@@ -184,6 +184,13 @@ func macInputsOnly(lane, model, text string) bool {
 
 func stampedMacInputs(text string) bool {
 	return placedLocal(text) && briefNoIncident.MatchString(text) && slices.Equal(submatches(briefWhy, text), []string{whyMacInputs})
+}
+
+func unreasonedLocal(lane, model, text string) string {
+	if !placedLocal(text) || macRequired(lane, model, text) || macPreferred(text) || macInputsOnly(lane, model, text) {
+		return ""
+	}
+	return fmt.Sprintf("%s's brief says place=local but names no why=<need>, so it launches on a Sprite; a lane that needs the Mac names why=<what it needs there> on its ccx line", lane)
 }
 
 func macPreferred(text string) bool {

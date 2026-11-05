@@ -31,6 +31,8 @@ const (
 	runner          = "desk-runner"
 	mainLane        = "main"
 	CursorName      = "lanes"
+	launchKey       = "supervisor-launch:"
+	owedLaunch      = "launch-owed:"
 	hourCursor      = "lanes.hour"
 	orderSaidCursor = "lanes.order-said."
 	owedSubject     = "owed-deletions"

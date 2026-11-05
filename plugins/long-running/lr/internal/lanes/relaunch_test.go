@@ -2,6 +2,8 @@ package lanes
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -20,8 +22,8 @@ func deadWithMetaDesk(t *testing.T, s *store.Store) *fake {
 
 func refusing(f *fake, times int) {
 	launch := f.deps.Launch
-	f.deps.Launch = func(name, model, effort, brief string) error {
-		if err := launch(name, model, effort, brief); err != nil {
+	f.deps.Launch = func(name, model, effort, brief, key string) error {
+		if err := launch(name, model, effort, brief, key); err != nil {
 			return err
 		}
 		if len(f.launches) > times {
@@ -238,4 +240,137 @@ func TestUnreadOrdersAreRelayedThroughTheDeskFromAMacLaneAndASpriteLaneAlike(t *
 			contains(t, sent[0].Text, "orca-desk: relay to "+lane2+": Orders addressed to you are unread: root's ask #2, the oldest for 11 min")
 		})
 	}
+}
+
+func stoodDownFor(t *testing.T, s *store.Store, brief string) *fake {
+	t.Helper()
+	f := adopted(t, s, brief, "9f3c2e1", 46001)
+	f.feed = append(f.feed, ask(2, "stand-down", lane2, t0, nil, "", map[string]string{"successor": "conflicts-3", "last-read": "1"}))
+	f.peers = nil
+	return f
+}
+
+func runnerLines(f *fake) []string {
+	return slices.Compact(slices.Sorted(slices.Values(f.keys)))
+}
+
+func TestAStandDownNamingASuccessorLaunchesItOnceFromTheBriefItsBlockerNames(t *testing.T) {
+	s := memory(t)
+	f := stoodDownFor(t, s, writeBrief(t))
+
+	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, []any{f.launches, f.keys, row(t, s, "conflicts-3").State}, []any{[]string{"conflicts-3"}, []string{"supervisor-launch:conflicts-3"}, store.LaneLaunching})
+	contains(t, f.briefs["conflicts-3"], "Replaces: conflicts-2")
+	contains(t, f.briefs["conflicts-3"], "because conflicts-2 was stood down for it by record #2")
+}
+
+func TestASuccessorOwedWhenTheSupervisorRestartsBeforeItsLaunchLaunchesOnceAfterIt(t *testing.T) {
+	s := memory(t)
+	f := stoodDownFor(t, s, writeBrief(t))
+	launch := f.deps.Launch
+	f.deps.Launch = func(string, string, string, string, string) error {
+		do(errors.New("the supervisor re-executed"))
+		return nil
+	}
+	if _, err := Tick(s, f.deps, t0, 1); err == nil {
+		t.Fatal("a tick whose launch died returned no error")
+	}
+	f.deps.Launch = launch
+
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, []any{f.launches, runnerLines(f)}, []any{[]string{"conflicts-3"}, []string{"supervisor-launch:conflicts-3"}})
+}
+
+func TestASuccessorWhoseLaunchPostedJustBeforeARestartReachesTheRunnerOnce(t *testing.T) {
+	s := memory(t)
+	f := stoodDownFor(t, s, writeBrief(t))
+	launch := f.deps.Launch
+	f.deps.Launch = func(name, model, effort, brief, key string) error {
+		do(launch(name, model, effort, brief, key))
+		do(errors.New("the supervisor re-executed"))
+		return nil
+	}
+	if _, err := Tick(s, f.deps, t0, 1); err == nil {
+		t.Fatal("a tick whose launch died returned no error")
+	}
+	f.deps.Launch = launch
+
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, []any{f.launches, runnerLines(f)}, []any{[]string{"conflicts-3", "conflicts-3"}, []string{"supervisor-launch:conflicts-3"}})
+}
+
+func TestASuccessorAlreadyListedIsNeverLaunchedAgain(t *testing.T) {
+	s := memory(t)
+	f := stoodDownFor(t, s, writeBrief(t))
+	f.peers = []Row{who("conflicts-3", true, t0)}
+
+	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, len(f.launches), 0)
+}
+
+func TestAStandingDesksRefusedSuccessorReachesRootByNameInTheSameTick(t *testing.T) {
+	s := memory(t)
+	brief := filepath.Join(t.TempDir(), "brief.md")
+	do(os.WriteFile(brief, []byte("# conflicts-2: restack desk\nStanding: restack every approved stack\n"), 0o600))
+	f := stoodDownFor(t, s, brief)
+	refusing(f, 2)
+
+	out := tick(t, s, f, t0)
+
+	equal(t, []any{f.launches, out.Held, row(t, s, "conflicts-3").State}, []any{[]string{"conflicts-3", "conflicts-3"}, []string{"conflicts-3"}, store.LaneHeld})
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	equal(t, blockers[0].To, []string{Root})
+	contains(t, blockers[0].Text, "lane:conflicts-3: held, not launched: conflicts-3 is standing in for conflicts-2")
+}
+
+func TestASuccessorOfADeskThatNeedsTheMacKeepsItsNeedSoItNeverLandsOnASprite(t *testing.T) {
+	s := memory(t)
+	brief := filepath.Join(t.TempDir(), "brief.md")
+	do(os.WriteFile(brief, []byte("# conflicts-2: restack desk\nccx: role=desk place=local why=serves-previews incident=none\n"), 0o600))
+	f := stoodDownFor(t, s, brief)
+
+	tick(t, s, f, t0)
+
+	successor := f.briefs["conflicts-3"]
+	contains(t, successor, "Replaces: conflicts-2\nccx: role=desk place=local why=serves-previews incident=none\n")
+	if strings.Contains(successor, "predecessor-worked-here") {
+		t.Fatalf("a Mac desk's successor brief turned its need into a preference:\n%s", successor)
+	}
+}
+
+func TestAStandDownNamingItsSuccessorByStemPointsAtTheStemsLiveLaneAndLaunchesNothing(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := adopted(t, s, brief, "", 46001)
+	f.feed = append(f.feed, spawned(2, "restack-1", brief, t0, nil), ask(3, "stand-down", lane2, t0, nil, "", map[string]string{"successor": "restack", "last-read": "1"}))
+	f.peers = []Row{who("restack-1", true, t0)}
+
+	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(16)))
+
+	equal(t, []any{len(f.launches), row(t, s, lane2).RetiredBy, len(f.ofKind("blocker"))}, []any{0, "restack-1", 0})
+	if _, found := laneOf(s, "restack"); found {
+		t.Fatal("a stand-down by stem registered a second row for a lane already live")
+	}
+}
+
+func TestAStemSuccessorWhoseLaneOnlyCCIListsIsStartedWithNoLaunchAndNoAlarm(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46001)
+	f.feed = append(f.feed, ask(2, "stand-down", lane2, t0, nil, "", map[string]string{"successor": "restack", "last-read": "1"}))
+	f.peers = []Row{who("restack-1", true, t0)}
+
+	tick(t, s, f, t0)
+	f.peers = []Row{who("restack-1", true, t0.Add(mins(16)))}
+	tick(t, s, f, t0.Add(mins(16)))
+
+	equal(t, []any{len(f.launches), row(t, s, "restack").State, row(t, s, "restack").RetiredBy, len(f.ofKind("blocker"))}, []any{0, store.LaneRetired, "restack-1", 0})
 }

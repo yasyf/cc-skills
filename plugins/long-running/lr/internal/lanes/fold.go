@@ -94,7 +94,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		}
 		do(s.Own(name, numbers))
 	case verb == "stand-down" && known:
-		successor := r.Attr("successor")
+		successor := heirOf(s, r.Attr("successor"), name)
 		if !fresh && isLive(row.State) {
 			if why := unreadBy(s, r, name, cited); why != "" {
 				out.unread = append(out.unread, unread{name, why})
@@ -116,7 +116,8 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		}
 		if successor != "" {
 			cost := successorCost(row)
-			must(s.WantLane(store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing}, at))
+			heir := store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing}
+			wantHeir(s, heir, r.Seq, fresh, at)
 			do(s.Own(successor, row.PRs))
 		} else {
 			do(s.Own(Root, row.PRs))
@@ -125,6 +126,29 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			out.stood = append(out.stood, stoodDown{name, successor, row.PRs, r.Seq})
 		}
 	}
+}
+
+func heirOf(s *store.Store, named string, standingDown ...string) string {
+	if named == "" || numbered.MatchString(named) {
+		return named
+	}
+	heir, newestNumber := named, 0
+	for _, lane := range must(s.Lanes(live...)) {
+		if stem, number := family(lane.Name); numbered.MatchString(lane.Name) && stem == named && number > newestNumber && !slices.Contains(standingDown, lane.Name) {
+			heir, newestNumber = lane.Name, number
+		}
+	}
+	return heir
+}
+
+func wantHeir(s *store.Store, heir store.Lane, seq int64, fresh bool, at time.Time) {
+	if _, known := laneOf(s, heir.Name); known || fresh {
+		must(s.WantLane(heir, at))
+		return
+	}
+	heir.Reason = fmt.Sprintf("was stood down for it by record #%d", seq)
+	do(s.Probe(owedLaunch+heir.Name, at))
+	must(s.WantLane(heir, at))
 }
 
 func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string, d Deps) folded {
@@ -808,6 +832,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 			}
 		}
 	}
+	successor = heirOf(s, successor, slices.Collect(maps.Keys(named))...)
 	if len(named) == 0 {
 		for _, to := range r.To {
 			named[to] = true
@@ -857,7 +882,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		}
 		if successor != "" && gone.State != store.LaneRetired {
 			cost := successorCost(gone)
-			must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, at))
+			wantHeir(s, store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, r.Seq, fresh, at)
 			continue
 		}
 		if successor == "" {

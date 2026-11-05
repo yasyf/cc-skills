@@ -166,7 +166,7 @@ printf '%s|%s|%s|%s|%s|%s' "$CLAUDE_LONG_RUNNING_LANE" "$LR_LANE" "$CCI_AGENT_ID
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Launch("lane-a", "opus", "high", "/briefs/lane-a.md"); err != nil {
+	if err := deps.Launch("lane-a", "opus", "high", "/briefs/lane-a.md", "supervisor-launch:lane-a"); err != nil {
 		t.Fatal(err)
 	}
 

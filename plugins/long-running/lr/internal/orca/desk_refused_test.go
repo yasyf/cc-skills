@@ -84,3 +84,22 @@ func TestABriefNamingADropClassLaunchesAndWarnsQuotingTheRuling(t *testing.T) {
 		t.Fatal(w.spawns)
 	}
 }
+
+func TestABriefPlacedLocalWithNoNeedLaunchesWarnedThatItLandsOnASprite(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief(testLane, testBrief+"ccx: role=desk place=local incident=none\n")
+	w.lines()
+	w.line(launchText(testLane, brief))
+	w.lines()
+	warned := w.wantEscalation("PLACE-UNREASONED ")
+	wantContains(t, warned, "lane-a's brief says place=local but names no why=<need>, so it launches on a Sprite")
+}
+
+func TestABriefNamingWhyItNeedsTheMacLaunchesUnwarned(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief(testLane, testBrief+"ccx: role=desk place=local why=serves-previews incident=none\n")
+	w.lines()
+	w.line(launchText(testLane, brief))
+	w.lines()
+	w.noEscalation("PLACE-UNREASONED ")
+}

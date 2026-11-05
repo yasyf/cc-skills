@@ -195,10 +195,13 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	if missing := order.sliceWarning(string(raw)); missing != "" {
 		warnings = append(warnings, missing)
 	}
+	if sprite := unreasonedLocal(order.Lane, order.Model, string(raw)); sprite != "" {
+		warnings = append(warnings, sprite)
+	}
 	for _, warning := range warnings {
 		fmt.Fprintln(p.Out, "WARN "+warning)
 	}
-	stored, err := p.post(ctx, bus, order.Lane, order.Line(), incident.LaunchAttempt(order.Lane, p.Now()))
+	stored, err := p.post(ctx, bus, order.Lane, order.Line(), or(order.ID, incident.LaunchAttempt(order.Lane, p.Now())))
 	if err != nil {
 		return "", err
 	}
