@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -34,17 +35,11 @@ func putRows(t *testing.T, f *linkFixture, rows ...store.ReviewRow) {
 	}
 }
 
-func readyPass(t *testing.T, f *linkFixture, named ...int) {
+func readyPass(t *testing.T, f *linkFixture) {
 	t.Helper()
 	cards := f.Cards
 	cards.Session = "board-1"
-	r := ReadyCards{Cards: cards, Repo: readyRepo, Lane: "supervisor", Named: func(context.Context) (map[int]bool, error) {
-		found := map[int]bool{}
-		for _, number := range named {
-			found[number] = true
-		}
-		return found, nil
-	}}
+	r := ReadyCards{Cards: cards, Repo: readyRepo, Lane: "supervisor"}
 	if err := r.Pass(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -119,48 +114,273 @@ func TestAQuestionCardNamingTheRowIsNotItsTapCard(t *testing.T) {
 	}
 }
 
-func TestOnlyTenTapCardsAreLiveAndTheNextDrawsAsHeAnswersOne(t *testing.T) {
+func TestARowDrawsItsCardWhileEarlierCardsStandUnanswered(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)
-	var rows []store.ReviewRow
 	for number := 100; number < 112; number++ {
-		rows = append(rows, tapRow(number))
-	}
-	putRows(t, f, rows...)
-	readyPass(t, f)
-	f.run(t)
-	if calls := askCalls(f); len(calls) != liveTapCards {
-		t.Fatalf("asks = %d, want %d", len(calls), liveTapCards)
-	}
-	readyPass(t, f)
-	f.run(t)
-	if calls := askCalls(f); len(calls) != liveTapCards {
-		t.Fatalf("with ten live, asks = %d, want still %d", len(calls), liveTapCards)
-	}
-	rows[0].Tapped = true
-	putRows(t, f, rows[0])
-	readyPass(t, f)
-	f.run(t)
-	if _, drawn := f.shell.drawn["card-tap-110-fa8217f"]; !drawn || len(askCalls(f)) != liveTapCards+1 {
-		t.Fatalf("after one answer, asks = %d and #110 drawn %v", len(askCalls(f)), drawn)
-	}
-	if _, drawn := f.shell.drawn["card-tap-111-fa8217f"]; drawn {
-		t.Fatal("#111 drew past the limit")
+		row := tapRow(number)
+		putRows(t, f, row)
+		readyPass(t, f)
+		f.run(t)
+		if _, drawn := f.shell.drawn[tapCardID(row)]; !drawn {
+			t.Fatalf("#%d turned ready with %d cards standing unanswered and drew none", number, number-100)
+		}
 	}
 }
 
-func TestTheLimitDrawsAnOrderedPRFirstThenTheOneFreeingMostLanes(t *testing.T) {
-	due := []store.ReviewRow{tapRow(100), tapRow(200), tapRow(300)}
-	above := tapRow(201)
-	above.Parent, above.ReadyForTap = "#200", false
-	inTapOrder(due, append(slices.Clone(due), above), map[int]bool{300: true})
-	got := []int{due[0].Number, due[1].Number, due[2].Number}
-	if !slices.Equal(got, []int{300, 200, 100}) {
+func parkedRow(t *testing.T, f *linkFixture, number int, lane, headAt string) store.ReviewRow {
+	t.Helper()
+	row := tapRow(number)
+	row.Lane, row.HeadAt = lane, headAt
+	if _, err := f.Cards.Store.PutFact(readyRepo, number, row.Head, gates.MissingFact, onlyNoTap, cardsNow); err != nil {
+		t.Fatal(err)
+	}
+	return row
+}
+
+type listRow struct {
+	ID      string
+	Buttons []string
+	PR      SlackPRRow
+	PRCard  bool `json:"pr_card"`
+}
+
+type listPost struct {
+	Status string
+	Title  string
+	Group  string
+	Rows   []listRow
+}
+
+func listPosts(t *testing.T, f *linkFixture) []listPost {
+	t.Helper()
+	var posts []listPost
+	for _, call := range f.shell.seen() {
+		_, body, found := strings.Cut(call, "--card ")
+		if !found {
+			continue
+		}
+		var post listPost
+		if err := json.Unmarshal([]byte(strings.TrimSuffix(body, " <")), &post); err != nil {
+			t.Fatalf("%s: %v", body, err)
+		}
+		posts = append(posts, post)
+	}
+	return posts
+}
+
+func burst(t *testing.T, f *linkFixture, count int) []store.ReviewRow {
+	t.Helper()
+	rows := make([]store.ReviewRow, 0, count)
+	for at := range count {
+		rows = append(rows, parkedRow(t, f, 100+at, "some-lane", fmt.Sprintf("2026-11-04T%02d:00:00Z", at%24)))
+	}
+	putRows(t, f, rows...)
+	return rows
+}
+
+func TestABurstArrivesAsOneListWithNoPostPerRow(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	if _, err := f.Cards.Store.PutFact(readyRepo, tapListNumber, "trunk-head", "trunk-read", "not a list", cardsNow); err != nil {
+		t.Fatal(err)
+	}
+	rows := burst(t, f, 3)
+	alert := rows[len(rows)-1]
+	alert.Lane = "sentry-7829830715-fix-opus"
+	putRows(t, f, alert)
+	readyPass(t, f)
+	f.run(t)
+	if calls := askCalls(f); len(calls) != 0 {
+		t.Fatalf("asks = %v, want none for a burst", calls)
+	}
+	posts := listPosts(t, f)
+	if len(posts) != 1 || len(posts[0].Rows) != len(rows) || posts[0].Status != "needs_you" || posts[0].Group != listName(1) {
+		t.Fatalf("posts = %+v, want one list of %d, the first, with no other fact read as a list", posts, len(rows))
+	}
+	row := posts[0].Rows[0]
+	if row.ID != MergeWaits(alert.Number, readyHead) || !row.PRCard || !slices.Equal(row.Buttons, []string{approveLabel, holdLabel}) || row.PR.Change == "" || row.PR.Plan == "" || row.PR.Blocks == "" {
+		t.Fatalf("row = %+v, want its Approve, what it does, its plan and what it waits on", row)
+	}
+	readyPass(t, f)
+	f.run(t)
+	if got := listPosts(t, f); len(got) != 1 {
+		t.Fatalf("a second pass with nothing moved posted %d lists, want still one", len(got))
+	}
+}
+
+func TestAListPastSlacksLimitSplitsIntoAFewPosts(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	burst(t, f, 2*listRowsPerPost+1)
+	readyPass(t, f)
+	posts := listPosts(t, f)
+	if len(posts) != 3 || len(posts[0].Rows) != listRowsPerPost || len(posts[2].Rows) != 1 || posts[0].Group == posts[1].Group {
+		t.Fatalf("posts = %+v, want %d, %d and 1 rows on three groups", posts, listRowsPerPost, listRowsPerPost)
+	}
+	if listRowsPerPost*listRowBlocks+listFrameBlocks > slackMessageBlocks {
+		t.Fatalf("%d rows draw past Slack's %d blocks", listRowsPerPost, slackMessageBlocks)
+	}
+	words := strings.Repeat("every word counts here ", 100)
+	row := tapRow(900)
+	row.Title, row.ForUsers, row.PlanRow, row.PlanLine, row.WaitsOn = words, words, words, words, words
+	r := ReadyCards{Cards: f.Cards, Repo: readyRepo}
+	card := r.listCard(context.Background(), listName(1), slices.Repeat([]store.ReviewRow{row}, listRowsPerPost))
+	encoded, err := json.Marshal(card["rows"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var drawn []struct{ PR SlackPRRow }
+	if err := json.Unmarshal(encoded, &drawn); err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, one := range drawn {
+		total += len([]rune(one.PR.Title + one.PR.Change + one.PR.Plan + one.PR.Blocks))
+	}
+	if total+listRowsPerPost*listRowFrameChars > cardVisibleChars {
+		t.Fatalf("a full list of the longest rows carries %d characters of words, past %d", total, cardVisibleChars)
+	}
+}
+
+func TestIncidentFixesLeadThenTheOldest(t *testing.T) {
+	due := []store.ReviewRow{
+		{Number: 3, Lane: "some-lane", HeadAt: "2026-11-04T01:00:00Z"},
+		{Number: 1, Lane: "other-lane", HeadAt: "2026-11-04T03:00:00Z"},
+		{Number: 2, Lane: "sentry-7829830715-fix-opus", HeadAt: "2026-11-04T09:00:00Z"},
+		{Number: 4, Lane: "dd-331844288-fix", HeadAt: "2026-11-04T08:00:00Z"},
+		{Number: 5, Lane: "some-lane", HeadAt: "2026-11-04T01:00:00Z"},
+	}
+	inTapOrder(due)
+	got := make([]int, len(due))
+	for at, row := range due {
+		got[at] = row.Number
+	}
+	if !slices.Equal(got, []int{4, 2, 3, 5, 1}) {
 		t.Fatalf("order = %v", got)
 	}
 }
 
-func TestARefusedDrawAlarmsOnceNamingThePRAndFreesItsPlace(t *testing.T) {
+func TestAListIsEditedAsRowsLeaveAndARowOnANewHeadDrawsItsOwnCard(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	rows := burst(t, f, 4)
+	readyPass(t, f)
+	f.run(t)
+	tapped := rows[0]
+	tapped.Tapped = true
+	moved := rows[1]
+	moved.Head = nextHead
+	putRows(t, f, tapped, moved)
+	readyPass(t, f)
+	f.run(t)
+	posts := listPosts(t, f)
+	if len(posts) != 2 || posts[1].Group != posts[0].Group || len(posts[1].Rows) != len(rows)-2 {
+		t.Fatalf("posts = %+v, want the same list edited down to %d", posts, len(rows)-2)
+	}
+	if _, drawn := f.shell.drawn[tapCardID(moved)]; !drawn {
+		t.Fatalf("drawn = %v, want the new head's own card", f.shell.drawn)
+	}
+	rest := make([]store.ReviewRow, 0, len(rows)-2)
+	for _, row := range rows[2:] {
+		row.Tapped = true
+		rest = append(rest, row)
+	}
+	putRows(t, f, rest...)
+	readyPass(t, f)
+	f.run(t)
+	posts = listPosts(t, f)
+	if last := posts[len(posts)-1]; len(last.Rows) != 0 || last.Status != "done" || last.Group != posts[0].Group {
+		t.Fatalf("last post = %+v, want the list closed in place", last)
+	}
+	readyPass(t, f)
+	if again := listPosts(t, f); len(again) != len(posts) {
+		t.Fatalf("a closed list posted again: %d after %d", len(again), len(posts))
+	}
+}
+
+func TestARowTurningReadyAfterAListDrawsItsOwnCard(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	burst(t, f, 3)
+	readyPass(t, f)
+	f.run(t)
+	late := parkedRow(t, f, 900, "some-lane", "2026-11-05T01:00:00Z")
+	putRows(t, f, late)
+	readyPass(t, f)
+	f.run(t)
+	if _, drawn := f.shell.drawn[tapCardID(late)]; !drawn {
+		t.Fatal("a row turning ready after the list drew no card")
+	}
+	if posts := listPosts(t, f); len(posts) != 1 {
+		t.Fatalf("lists = %d, want the first alone", len(posts))
+	}
+}
+
+func TestARowNotParkedOnlyOnHisApprovalStaysOffTheListAndStillDraws(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	burst(t, f, 3)
+	other := tapRow(900)
+	if _, err := f.Cards.Store.PutFact(readyRepo, other.Number, other.Head, gates.MissingFact, `["no tap","mergeable"]`, cardsNow); err != nil {
+		t.Fatal(err)
+	}
+	putRows(t, f, other)
+	readyPass(t, f)
+	f.run(t)
+	posts := listPosts(t, f)
+	if len(posts) != 1 || slices.ContainsFunc(posts[0].Rows, func(row listRow) bool { return strings.HasPrefix(row.ID, "merge:900:") }) {
+		t.Fatalf("posts = %+v, want #900 off the list", posts)
+	}
+	if _, drawn := f.shell.drawn[tapCardID(other)]; !drawn {
+		t.Fatal("a row left off the list drew no card, so nothing shows it to him")
+	}
+}
+
+func TestAFailedListPostStopsThePassAndNoRowReadsAsShown(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	rows := burst(t, f, 3)
+	f.shell.refuse = "cc-slack refused it"
+	cards := f.Cards
+	cards.Session = "board-1"
+	if err := (ReadyCards{Cards: cards, Repo: readyRepo, Lane: "supervisor"}).Pass(context.Background()); err == nil {
+		t.Fatal("a refused list post read as a clean pass, so nothing raises it")
+	}
+	facts, err := f.Cards.Store.FactsAtRowHeads(readyRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if said := facts[rows[0].Number][FactTapCard]; said != "" {
+		t.Fatalf("fact = %q, want none, so the next pass lists it again", said)
+	}
+	readyPass(t, f)
+	if posts := listPosts(t, f); len(posts) == 0 || posts[len(posts)-1].Group != "tap-list-1" {
+		t.Fatalf("posts = %+v, want the next pass to send the list", posts)
+	}
+}
+
+func TestARowWhoseCardStandsInSlackDrawsNothingAgain(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	rows := []store.ReviewRow{tapRow(100), tapRow(101)}
+	for _, row := range rows {
+		if _, err := f.Cards.Store.PutFact(readyRepo, row.Number, row.Head, gates.MissingFact, onlyNoTap, cardsNow); err != nil {
+			t.Fatal(err)
+		}
+		if err := MarkShown(f.Cards.Store, readyRepo, rows, []SlackShown{{SlackPR{readyRepo, row.Number}, MergeWaits(row.Number, row.Head)}}, cardsNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	putRows(t, f, rows...)
+	readyPass(t, f)
+	f.run(t)
+	if calls, posts := askCalls(f), listPosts(t, f); len(calls) != 0 || len(posts) != 0 {
+		t.Fatalf("asks = %v and lists = %+v, want no second post for a card that stands", calls, posts)
+	}
+}
+
+func TestARefusedDrawAlarmsOnceNamingThePR(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)
 	f.shell.refuse = "the daemon is down"
