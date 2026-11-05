@@ -863,6 +863,9 @@ func (l *launch) listedWorktree() error {
 		if ok {
 			return nil
 		}
+		if waited == 0 {
+			l.rescanWorktrees()
+		}
 		if waited >= l.worktreeWait {
 			return l.fail("worktree register: Orca does not list %s after %ds (%s)", l.wt, l.worktreeWait, orcaError(said))
 		}
@@ -870,6 +873,15 @@ func (l *launch) listedWorktree() error {
 			return err
 		}
 		waited += int(startPoll / time.Second)
+	}
+}
+
+// Orca has no rescan verb and can serve its old worktree rows for up to five
+// minutes after a raw git worktree add. Any metadata write on the repo drops
+// that cache; marking the main checkout read is the write that changes least.
+func (l *launch) rescanWorktrees() {
+	if said, code := l.tool("orca", "worktree", "set", "--worktree", "path:"+l.main, "--read", "--json"); code != 0 {
+		fmt.Fprintf(l.Stderr, "%s could not make Orca rescan its worktrees: %s\n", l.lane, orcaError(said))
 	}
 }
 

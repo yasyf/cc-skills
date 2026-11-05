@@ -1427,8 +1427,46 @@ func TestAWorktreeOrcaListsLateIsAwaitedAndThenNamed(t *testing.T) {
 	h.healthyClaude()
 	h.reply("worktree show", missing, missing, h.registeredReply())
 	h.launched()
-	if !slices.Equal(h.sleeps[:2], []time.Duration{startPoll, startPoll}) || len(h.orcaCalls("worktree set")) != 1 {
+	if !slices.Equal(h.sleeps[:2], []time.Duration{startPoll, startPoll}) {
 		t.Fatal(h.sleeps)
+	}
+}
+
+func TestAWorktreeOrcaDoesNotListYetMakesOrcaRescanOnceThroughTheMainCheckout(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.reply("worktree show", missing, missing, missing, h.registeredReply())
+	wantLine(t, h.launched(), readyLine(h))
+	sets := h.orcaCalls("worktree set")
+	want := [][]string{
+		{"worktree", "set", "--worktree", "path:" + h.main, "--read", "--json"},
+		{"worktree", "set", "--worktree", "path:" + h.worktree(), "--display-name", "v3-lane-a-1-1", "--parent-worktree", "path:" + h.parent, "--json"},
+	}
+	if !reflect.DeepEqual(sets, want) {
+		t.Fatalf("got %v", sets)
+	}
+}
+
+func TestARescanOrcaRefusesStillWaitsForTheListingAndSaysSo(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.reply("worktree set", reply{rc: 1, out: object{"ok": false, "error": object{"code": "runtime_unavailable", "message": "runtime_unavailable"}}}, sent)
+	h.reply("worktree show", missing, h.registeredReply())
+	wantLine(t, h.launched(), readyLine(h))
+	if !strings.Contains(h.stderr.String(), "lane-a could not make Orca rescan its worktrees: runtime_unavailable") {
+		t.Fatal(h.stderr.String())
+	}
+}
+
+func TestARelaunchIntoATreeOrcaNoLongerListsMakesOrcaRescan(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.checkOut()
+	h.reply("worktree show", missing, h.registeredReply())
+	h.launched()
+	want := [][]string{{"worktree", "set", "--worktree", "path:" + h.main, "--read", "--json"}}
+	if sets := h.orcaCalls("worktree set"); !reflect.DeepEqual(sets, want) {
+		t.Fatalf("got %v", sets)
 	}
 }
 

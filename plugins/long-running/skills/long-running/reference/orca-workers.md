@@ -69,6 +69,7 @@ orca worktree set --worktree "path:<wt>" --display-name "<lane>-<run>-<n>" \
 - It runs no Orca setup hook. `ORCA_LAUNCH_PREPARE` runs in the sparse checkout, and defaults to `tools/hooks/warm-lane.sh` where the worktree has it.
 - It widens each cone directory inside a Go module to that module, and adds the module's local `replace` targets, followed through their own `go.mod`s. With a package's siblings missing, `go build` walks the module graph and stops at the first absent `replace` target. `lr sparse add <dir>` does the same when a lane widens later.
 - It prints the cone and the widen command on stderr, `cd <wt> && lr sparse add <dir>`, and the worker's pointer says "This lane is sparse: widen with `lr sparse add <dir>` before reading outside it." `git sparse-checkout disable` restores the full tree.
+- Orca is not told about a `git worktree add` and can serve its old list for up to five minutes, so when `orca worktree show` first misses the worktree, the script runs `orca worktree set --worktree "path:<main checkout>" --read --json` once. That write makes Orca rescan, and the worktree shows up in under a minute.
 - A sparse launch that fails before `worker-start` hands its worktree to `ccx vcs worktree rm --path <wt> --force` and deletes the branch it created.
 
 ### Parent worktree and brief pointer
