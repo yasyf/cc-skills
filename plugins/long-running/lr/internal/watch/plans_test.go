@@ -67,7 +67,8 @@ func TestADeadlineCarryingAnOwnerAndATimedStepEachIsSilent(t *testing.T) {
 		{"owner and timed steps", map[string]string{"owner": "memoryschema-1", "step:1": "2:30 AM open the PR", "step:2": "3:00 AM merge on green"}, 0},
 		{"no owner", map[string]string{"step:1": "2:30 AM open the PR"}, 1},
 		{"no steps", map[string]string{"owner": "memoryschema-1"}, 1},
-		{"a step without a time", map[string]string{"owner": "memoryschema-1", "step:1": "2:30 AM open the PR", "step:2": "merge on green"}, 1},
+		{"a later step waiting on an answer", map[string]string{"owner": "memoryschema-1", "step:1": "2:30 AM open the PR", "step:2": "after his answer merge on green"}, 0},
+		{"no timed step", map[string]string{"owner": "memoryschema-1", "step:1": "open the PR"}, 1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

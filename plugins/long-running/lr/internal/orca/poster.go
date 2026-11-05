@@ -189,6 +189,9 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	if doubled := doubledCCXWarning(order.Brief, string(raw)); doubled != "" {
 		warnings = append(warnings, doubled)
 	}
+	if missing := order.sliceWarning(string(raw)); missing != "" {
+		warnings = append(warnings, missing)
+	}
 	for _, warning := range warnings {
 		fmt.Fprintln(p.Out, "WARN "+warning)
 	}

@@ -66,7 +66,7 @@ cci post --drive <drive> --lane <desk> --kind blocker --topic <pr> --to <lane> -
 
 ### Deadline records
 
-A record that names a deadline (a clock time after `by`, `before`, `until` or `due`, or a `deadline` attr) carries its plan as attrs: `--attr owner=<lane>` and one `--attr step:<n>=<clock> <what>` per step. Each step leads with its Pacific time and holds no comma. A reply carrying those attrs, or a record that resolves the deadline, settles it too. A record that answers or cites another for the same clock restates it and owes nothing; the record it cites owes the plan. His own words, and a hold, go or lift, owe none either.
+A record that names a deadline (a clock time after `by`, `before`, `until` or `due`, or a `deadline` attr) carries its plan as attrs: `--attr owner=<lane>` and one `--attr step:<n>=<clock> <what>` per step. At least one step leads with its Pacific time, a later step may wait on an event instead, and no step holds a comma. A reply carrying those attrs, or a record that resolves the deadline, settles it too. A record that answers or cites another for the same clock restates it and owes nothing; the record it cites owes the plan. His own words, and a hold, go or lift, owe none either.
 
 - The `deadline_plans` hook warns on a Bash `cci post` or a cci post tool call that names a deadline without them, unless the post answers or cites a record.
 - The board text gate flags a card that names a deadline beside no lane.

@@ -161,17 +161,11 @@ func planned(record client.Record) bool {
 		return true
 	}
 	attrs := record.Fields.Attrs
-	steps := 0
+	timed := false
 	for key, step := range attrs {
-		if !strings.HasPrefix(key, stepAttr) {
-			continue
-		}
-		if !leadingClock.MatchString(step) {
-			return false
-		}
-		steps++
+		timed = timed || strings.HasPrefix(key, stepAttr) && leadingClock.MatchString(step)
 	}
-	return attrs[ownerAttr] != "" && steps > 0
+	return attrs[ownerAttr] != "" && timed
 }
 
 func settled(records []client.Record, seq int64) bool {

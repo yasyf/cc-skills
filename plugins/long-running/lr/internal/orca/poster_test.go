@@ -296,11 +296,24 @@ func TestALaunchOnAnotherNodeWaitsOnTheKeyEveryNodeNamesItsRecordBy(t *testing.T
 	}
 }
 
-func TestABriefMissingBothLinesIsRefusedBeforeAnyCallNamingBoth(t *testing.T) {
+func TestABriefWithNoSliceLinePostsWithAWarning(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, "plain-brief.md", "Do the thing.\nScale: no N\n")
+	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief, Now: true}, time.Minute)
+	if err != nil || label != verdictLaunched {
+		t.Fatal(label, err)
+	}
+	if want := "WARN brief " + brief + " has no `Register slice: lane=<name> step=<n>` line; new-lane launches anyway"; !strings.Contains(f.out.String(), want) {
+		t.Fatalf("output lacks %q:\n%s", want, f.out)
+	}
+}
+
+func TestABriefWithNoScaleLineIsRefusedBeforeAnyCall(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "plain-brief.md", "Do the thing.\n")
 	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
-	if err == nil || !strings.Contains(err.Error(), "`Register slice: lane=<name> step=<n>`") || !strings.Contains(err.Error(), "`Scale:`") {
+	if err == nil || !strings.Contains(err.Error(), "`Scale:`") || strings.Contains(err.Error(), "Register slice") {
 		t.Fatal(err)
 	}
 	if len(f.bus.calls) != 0 {
@@ -315,7 +328,7 @@ func TestEveryFaultOfALaunchIsNamedAtOnceBeforeAnyCall(t *testing.T) {
 	if err == nil {
 		t.Fatal("the launch passed")
 	}
-	for _, fault := range []string{"gemini is not a model", "hard is not an effort", "is lane other-lane's", "`Register slice:", "`Scale:`"} {
+	for _, fault := range []string{"gemini is not a model", "hard is not an effort", "is lane other-lane's", "`Scale:`"} {
 		if !strings.Contains(err.Error(), fault) {
 			t.Errorf("%q lacks %q", err, fault)
 		}
@@ -391,6 +404,7 @@ func TestWhatALaunchOwesFollowsItsLaneItsBriefAndItsModel(t *testing.T) {
 	}{
 		{name: "a plain lane owes both", order: Order{Lane: "new-lane", Model: "opus"}, text: "work\n", written: newBrief, slice: true, scale: true},
 		{name: "the incident route owes neither", order: Order{Lane: "inc-fix", Model: agentIncident}, text: "work\n", written: newBrief},
+		{name: "the incident-opus route owes neither", order: Order{Lane: "inc-comms", Model: modelIncidentOpus, Role: "comms"}, text: "ccx: role=comms\n", written: newBrief},
 		{name: "a brief naming an incident owes neither", order: Order{Lane: "inc-fix", Model: "opus"}, text: "ccx: incident=outage\n", written: newBrief},
 		{name: "a brief naming no incident owes both", order: Order{Lane: "inc-fix", Model: "opus"}, text: "ccx: incident=none\n", written: newBrief, slice: true, scale: true},
 		{name: "role=incident owes neither", order: Order{Lane: "inc-fix", Model: "opus"}, text: "ccx: role=incident\n", written: newBrief},
@@ -406,7 +420,7 @@ func TestWhatALaunchOwesFollowsItsLaneItsBriefAndItsModel(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			c.order.Effort, c.order.Brief = "high", "/briefs/b.md"
-			slice := len(c.order.launchFaults(c.text, true)) > 0
+			slice := c.order.sliceWarning(c.text) != ""
 			scale := c.order.scaleFault(c.text, c.written) != ""
 			if slice != c.slice || scale != c.scale {
 				t.Fatalf("slice %v, scale %v", slice, scale)

@@ -359,9 +359,9 @@ func TestFileRefusesAListTheLauncherCouldNotUse(t *testing.T) {
 			return nil
 		}, "not a model"},
 		"brief the runner refuses": {func(t *testing.T, _ *Job, l *FixLane) []FixLane {
-			writeFile(t, l.Brief, "Scale: no N\nccx: place=local\n")
+			writeFile(t, l.Brief, "Register slice: lane=fix-a step=all\nccx: place=local\n")
 			return nil
-		}, "Register slice:"},
+		}, "`Scale:`"},
 		"brief of another lane": {func(_ *testing.T, _ *Job, l *FixLane) []FixLane {
 			l.Lane = "fix-b"
 			return nil
