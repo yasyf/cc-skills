@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -37,6 +38,7 @@ const (
 
 var (
 	unfixedLine    = regexp.MustCompile("(?m)^[ \\t>*-]*(?:`UNFIXED ([\\w.-]+):[ \\t]*(\\S.*?)`|UNFIXED ([\\w.-]+):[ \\t]*(\\S.*?))[ \\t]*$")
+	unfixedNone    = regexp.MustCompile(`(?i)^` + namesNothing + `\b\s*(?:$|[(:;,.—–-])`)
 	unknownCause   = regexp.MustCompile(`\bUNKNOWN\b`)
 	handedBack     = regexp.MustCompile(`(?i)^(?:[\w-]+:\s*)?(?:NOT-OURS|stood down|stopped)\b`)
 	lineage        = regexp.MustCompile(`(?:-opus|-case\d+)+$`)
@@ -887,12 +889,12 @@ func (d *Desk) holderOf(ctx context.Context, container, other, lane string, keys
 	return other + ": " + held, nil
 }
 
-func unfixedCasesOf(text, lane string) ([]string, map[string]string) {
+func unfixedCasesOf(text, lane string, dropped []config.Refusal) ([]string, map[string]string) {
 	var order []string
 	cases := map[string]string{}
 	for _, found := range unfixedLine.FindAllStringSubmatch(text, -1) {
 		named, written := found[1]+found[3], found[2]+found[4]
-		if named != lane || strings.ToLower(strings.TrimRight(written, ".")) == namesNothing {
+		if _, _, ruled := config.RefusedLine(dropped, written); named != lane || unfixedNone.MatchString(written) || ruled {
 			continue
 		}
 		known := collapsed(written)
@@ -910,7 +912,7 @@ func isHandedBack(message orcaMessage) bool {
 }
 
 func (d *Desk) unfixed(ctx context.Context, lane string, message orcaMessage) error {
-	known, cases := unfixedCasesOf(message.Body, lane)
+	known, cases := unfixedCasesOf(message.Body, lane, d.Config.RefusedBriefs)
 	exists, err := d.store.Exists(laneBook(lane))
 	if err != nil || len(known) == 0 || isHandedBack(message) || !exists {
 		return err

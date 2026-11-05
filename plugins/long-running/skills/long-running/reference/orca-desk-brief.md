@@ -460,7 +460,7 @@ INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at <time>, limit 
 
 ### Launch case lanes from `UNFIXED` lines
 
-- Fix lanes close their `ready:` and `fix-live:` Run statuses with one `UNFIXED <lane>: <case>` line per uncovered case, or `UNFIXED <lane>: none`. Only a line that names the reporting lane counts, and `UNFIXED <lane>: none` launches nothing.
+- Fix lanes close their `ready:` and `fix-live:` Run statuses with one `UNFIXED <lane>: <case>` line per uncovered case, or `UNFIXED <lane>: none`. Only a line that names the reporting lane counts. A case that opens with `none`, such as `none (excluded by owner ruling ff7fca1: …)`, launches nothing, and neither does a case naming a phrase of a `drop-class` ruling.
 - Only `ready:` and `fix-live:` statuses launch case lanes; `worker_done`, `NOT-OURS`, `STOPPED`, or a report opening with `NOT-OURS`, `stood down`, or `Stopped` launches nothing.
 - Each unique case across a lane, its `-opus` fallback, and its case lanes launches `<first>-case<n>` once on `incident xhigh` in the same pass, where `<first>` strips trailing `-opus` and `-case<n>`, and `<n>` is the lowest unused container index.
 - The relay fills [reference/unfixed-case-brief.md](unfixed-case-brief.md) with the case verbatim, the reporting lane, the path of that lane's brief, and the PRs its cci `opened` records name. It attaches `<first>-case<n>.full.md`, clocks the new lane, and logs:
