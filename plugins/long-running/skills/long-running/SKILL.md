@@ -237,10 +237,10 @@ spawns the Slack lane and the doing lane that turn in one batch, and one `report
 communicator names both. Nobody reads Slack or writes Slack copy outside the Slack lane.
 
 **R21.** Whoever drafts for the owner answers, in the same message, the first question he will ask. A change
-names its concrete things: which fields and where, which chats or users, before and after. Anything named is a link.
+names its concrete things: which fields and where, which chats or users, before and after. A public API added or changed comes unprompted with its signature, the alternatives weighed, the choice and why. Anything named is a link.
 From every lane on every surface, a line saying something waits on his yes or no carries that card with its buttons; no card, no such line. Nothing asks him what a lane can read for itself: whether a card drew is read from the posted message's blocks and attachments through the Slack API, never from his glance, and his yes on a render is about how it should look, never whether it drew. [Terms](reference/communicator-brief.md).
 
-**R22.** Every brief quotes the owner's design verbatim with the entry point at `file:line`; the lane
+**R22.** A change does what its request names and nothing else: behavior the request does not name stays, and a lane that thinks it must go brings that as a pick and never removes it. Every brief quotes the owner's design verbatim with the entry point at `file:line`; the lane
 posts a `contract` before `READY-FOR-SHIP`; the design ships whole or holds, never split. A ruling
 that changes a data model, namespace layout or embedding model is a design order: first a one-pager
 with its open choices as specific cards, and building only after he has read it or said build.
