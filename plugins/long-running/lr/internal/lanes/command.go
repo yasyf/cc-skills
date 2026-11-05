@@ -150,9 +150,10 @@ func adoptMetaCommand(a *app.App) *cobra.Command {
 }
 
 func StopSpritesCommand(a *app.App) *cobra.Command {
-	return &cobra.Command{
+	var leave string
+	cmd := &cobra.Command{
 		Use:   "stop-sprites",
-		Short: "Stop the Sprite of each lane that ended with cc-remote orca stop, up to three tries; the last failure posts one blocker to the coordinator",
+		Short: "Stop the Sprite of each lane that ended with cc-remote orca stop; a 5xx or a timeout is tried every pass until it stops, is gone or --leave names it, under one blocker and one closing line",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, state, err := Loaded(a)
@@ -172,9 +173,15 @@ func StopSpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return (&SpriteStops{Env: env, Store: s, CcRemote: *remote, Log: a.Log}).Check(cmd.Context(), a.Now())
+			stops := &SpriteStops{Env: env, Store: s, CcRemote: *remote, Log: a.Log}
+			if leave != "" {
+				return stops.Leave(cmd.Context(), leave, a.Now())
+			}
+			return stops.Check(cmd.Context(), a.Now())
 		},
 	}
+	cmd.Flags().StringVar(&leave, "leave", "", "stop retrying the failed stop of this lane's Sprite, as a person's decision to leave it")
+	return cmd
 }
 
 func DoneCheckCommand(a *app.App) *cobra.Command {

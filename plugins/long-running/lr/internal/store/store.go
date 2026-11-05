@@ -459,16 +459,55 @@ func (s *Store) StopSprite(lane string, at time.Time) (bool, error) {
 	return changed(result, err)
 }
 
-func (s *Store) FailSpriteStop(lane string, tries int) (exhausted bool, err error) {
+type SpriteStopFailure struct {
+	Blocker int64
+	Retries bool
+	Left    bool
+}
+
+func (s *Store) FailSpriteStop(lane string, tries int, transient bool) (SpriteStopFailure, error) {
+	counted := 1
+	if transient {
+		counted = 0
+	}
 	var failures int
-	if err := s.db.QueryRow("INSERT INTO sprite_stop_failures (lane, failures) VALUES (?, 1) ON CONFLICT (lane) DO UPDATE SET failures = failures + 1 RETURNING failures", lane).Scan(&failures); err != nil {
-		return false, err
+	var blocker sql.NullInt64
+	var left sql.NullString
+	if err := s.db.QueryRow("INSERT INTO sprite_stop_failures (lane, failures) VALUES (?1, ?2) ON CONFLICT (lane) DO UPDATE SET failures = failures + ?2 RETURNING failures, blocker, left_at", lane, counted).Scan(&failures, &blocker, &left); err != nil {
+		return SpriteStopFailure{}, err
 	}
-	if failures >= tries {
-		return true, nil
+	failure := SpriteStopFailure{Blocker: blocker.Int64, Retries: !left.Valid && failures < tries, Left: left.Valid}
+	if !failure.Retries {
+		return failure, nil
 	}
-	_, err = s.db.Exec("DELETE FROM sprite_stops WHERE lane = ?", lane)
-	return false, err
+	_, err := s.db.Exec("DELETE FROM sprite_stops WHERE lane = ?", lane)
+	return failure, err
+}
+
+func (s *Store) SpriteStopBlocked(lane string, blocker int64) error {
+	_, err := s.db.Exec("UPDATE sprite_stop_failures SET blocker = ? WHERE lane = ?", blocker, lane)
+	return err
+}
+
+func (s *Store) SpriteStopBlocker(lane string) (int64, error) {
+	var blocker sql.NullInt64
+	err := s.db.QueryRow("SELECT blocker FROM sprite_stop_failures WHERE lane = ?", lane).Scan(&blocker)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return blocker.Int64, err
+}
+
+func (s *Store) LeaveSpriteStop(lane string, at time.Time) (blocker int64, err error) {
+	var held sql.NullInt64
+	if err := s.db.QueryRow("UPDATE sprite_stop_failures SET left_at = ? WHERE lane = ? RETURNING blocker", Stamp(at), lane).Scan(&held); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("no failed Sprite stop is recorded for lane %s", lane)
+		}
+		return 0, err
+	}
+	_, err = s.StopSprite(lane, at)
+	return held.Int64, err
 }
 
 func (s *Store) Escalations(subject string) ([]Escalation, error) {

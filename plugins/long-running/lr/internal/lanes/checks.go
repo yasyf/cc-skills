@@ -54,6 +54,7 @@ const (
 )
 
 var (
+	stopTransient  = regexp.MustCompile(`sprites api answered 5\d\d|timed out|deadline exceeded`)
 	alertURL       = regexp.MustCompile(`app\.datadoghq\.com/monitors/(\d+)|sentry\.io/\S*?issues/(\d+)`)
 	alertLink      = regexp.MustCompile(`https?://[\w.-]*(?:datadoghq\.com/monitors|sentry\.io/\S*?issues)/\d+`)
 	alertMessage   = regexp.MustCompile(`https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s|>)]*)?`)
@@ -548,37 +549,82 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 		running, unlisted = c.Env.sprites(ctx)
 	}
 	for i, lane := range ended {
-		if stopped[i] == nil {
-			c.Log.Info("sprite stopped", "lane", lane, "why", why[lane])
-			continue
-		}
 		sprite := spriteOf(c.Env.receipts(), lane)
-		if unlisted == nil && !running[sprite] {
+		switch {
+		case stopped[i] == nil:
+			c.Log.Info("sprite stopped", "lane", lane, "why", why[lane])
+			err = c.closeBlocker(ctx, lane, fmt.Sprintf("SPRITE-STOPPED %s: the stop of its Sprite %s went through", lane, sprite))
+		case unlisted == nil && !running[sprite]:
 			c.Log.Info("sprite is already gone, so its failed stop closes", "lane", lane, "sprite", sprite, "err", stopped[i])
-			continue
+			err = c.closeBlocker(ctx, lane, fmt.Sprintf("SPRITE-STOPPED %s: `sprite list` no longer shows its Sprite %s", lane, sprite))
+		default:
+			err = c.failed(ctx, lane, sprite, why[lane], stopped[i], unlisted)
 		}
-		exhausted, err := c.Store.FailSpriteStop(lane, stopTries)
 		if err != nil {
 			return err
-		}
-		if !exhausted {
-			c.Log.Warn("sprite stop failed, the next pass tries again", "lane", lane, "err", stopped[i])
-			continue
-		}
-		to, err := NoticeTo(c.Store, lane)
-		if err != nil {
-			return err
-		}
-		state := fmt.Sprintf("`sprite list` shows its Sprite %s still there", sprite)
-		if unlisted != nil {
-			state = fmt.Sprintf("`sprite list` failed too, so its Sprite %s may still run: %s", sprite, truncated(unlisted.Error(), 300))
-		}
-		text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | %s, and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why[lane], lane, stopTries, truncated(stopped[i].Error(), 300), state, c.CcRemote.Binary, lane, c.CcRemote.Config)
-		if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{to}, ID: "sprite-stop:" + lane, Text: text}); err != nil {
-			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 		}
 	}
 	return nil
+}
+
+func (c *SpriteStops) failed(ctx context.Context, lane, sprite, why string, stop error, unlisted error) error {
+	transient := errors.Is(stop, context.DeadlineExceeded) || stopTransient.MatchString(stop.Error())
+	failure, err := c.Store.FailSpriteStop(lane, stopTries, transient)
+	if err != nil || failure.Left {
+		return err
+	}
+	if failure.Retries {
+		c.Log.Warn("sprite stop failed, the next pass tries again", "lane", lane, "err", stop)
+		if !transient || failure.Blocker != 0 {
+			return nil
+		}
+	}
+	to, err := NoticeTo(c.Store, lane)
+	if err != nil {
+		return err
+	}
+	state := fmt.Sprintf("`sprite list` shows its Sprite %s still there", sprite)
+	if unlisted != nil {
+		state = fmt.Sprintf("`sprite list` failed too, so its Sprite %s may still run: %s", sprite, truncated(unlisted.Error(), 300))
+	}
+	id := "sprite-stop:" + lane
+	text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | %s, and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why, lane, stopTries, truncated(stop.Error(), 300), state, c.CcRemote.Binary, lane, c.CcRemote.Config)
+	if failure.Retries {
+		id = "sprite-stop-retrying:" + lane
+		text = fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s`, and it failed: %s | %s. The supervisor tries again every pass until it stops or is gone, and posts one closing line; to leave it, run `lr stop-sprites --leave %s`", lane, why, lane, truncated(stop.Error(), 300), state, lane)
+	}
+	stored, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{to}, ID: id, Resolves: failure.Blocker, Text: text})
+	if err != nil {
+		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+	}
+	return c.Store.SpriteStopBlocked(lane, stored.Seq)
+}
+
+func (c *SpriteStops) closeBlocker(ctx context.Context, lane, text string) error {
+	blocker, err := c.Store.SpriteStopBlocker(lane)
+	if err != nil || blocker == 0 {
+		return err
+	}
+	return c.postClose(ctx, lane, blocker, text)
+}
+
+func (c *SpriteStops) postClose(ctx context.Context, lane string, blocker int64, text string) error {
+	to, err := NoticeTo(c.Store, lane)
+	if err != nil {
+		return err
+	}
+	if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: "note", To: []string{to}, ID: "sprite-stop-closed:" + lane, Resolves: blocker, Text: text}); err != nil {
+		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+	}
+	return nil
+}
+
+func (c *SpriteStops) Leave(ctx context.Context, lane string, now time.Time) error {
+	blocker, err := c.Store.LeaveSpriteStop(lane, now)
+	if err != nil || blocker == 0 {
+		return err
+	}
+	return c.postClose(ctx, lane, blocker, fmt.Sprintf("SPRITE-STOP-LEFT %s: a person said to leave its Sprite, so the supervisor stops trying", lane))
 }
 
 func (e Env) sprites(ctx context.Context) (map[string]bool, error) {
