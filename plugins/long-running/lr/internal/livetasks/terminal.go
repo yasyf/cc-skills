@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 var armedWait = regexp.MustCompile(`(?:^|\s)LR_WAIT_ARMED=1(?:\s|$)`)
@@ -48,7 +49,16 @@ func Terminal(ctx context.Context, runner shell.Runner, handle, claude string, n
 			agent, kind = pid, name
 		}
 	}
-	rest := Rest{Read: fmt.Sprintf("%d armed lr wait processes bear terminal %s", len(waits), handle)}
+	recorded, err := wait.ArmedFor(handle)
+	if err != nil {
+		return Rest{}, err
+	}
+	for _, armed := range recorded {
+		if pid := strconv.Itoa(armed.PID); !slices.Contains(waits, pid) {
+			waits = append(waits, pid)
+		}
+	}
+	rest := Rest{Read: fmt.Sprintf("%d armed lr wait processes bear or record terminal %s", len(waits), handle)}
 	if len(waits) > 0 {
 		rest.Tasks = append(rest.Tasks, "- `lr wait --wake` armed as pid "+strings.Join(waits, ", "))
 	}
