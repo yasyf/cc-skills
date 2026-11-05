@@ -96,7 +96,7 @@ You decide five things and nothing else:
 1. A new ask gets a lane the turn it arrives, with a ledger row and a task (R6, R8). A
    lane holding more than two unstarted items is split. An order that links one failure
    and asks for less flaky or less brittle gets two lanes: one fixes that failure, and one
-   owns the class, launched with `--order owner:m47`. The class lane counts what
+   owns the class, carrying the row's `owner:m47` in its brief. The class lane counts what
    that kind of failure cost, such as releases it ended per day, fixes the cause, and
    delivers only when the same count, read again, has gone down
    ([communicator-brief.md](communicator-brief.md#route-meta-orders)).

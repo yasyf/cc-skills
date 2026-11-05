@@ -98,9 +98,9 @@ Rules for the route:
 - The turn ends only once the message has gone to the meta lane or a tooling lane was launched for it. The Stop hook in `owner_returns.py` refuses the stop until then.
 
 Delivery of an order:
-- A reply or a route is not a delivery. The lane that delivers an order is launched with `--order owner:m47`.
+- A reply or a route is not a delivery. The lane that delivers an order carries `owner:m47` in its brief.
 - An order that links one failure and asks for less flaky or less brittle has two parts on one row, each with its own owner: that failure fixed, and that kind of failure made rarer. Each failure he links is usually a different test, so fixing it does nothing for the next one.
-  - Only the class part's lane is launched with `--order owner:m47`, since a live lane assigned it takes the row off the audit and would hide a class part nobody owns. The lane on the one failure names the order in words.
+  - Only the class part's lane carries `owner:m47` in its brief, since a live lane carrying it takes the row off the audit and would hide a class part nobody owns. The lane on the one failure names the order in words.
   - The class part is delivered by a number going down, such as releases ended by that kind of failure per day, read before and after. Only that lane posts `delivered`, and the report's text gives the number, its window and both readings. A merged or live fix of the one failure never credits the row.
   - Naming the lane on that one failure does not answer who owns the class. A row with no class lane stays open on the audit and is restarted like any other.
 - `lr owner audit` lists every order with no live lane whose brief names its token, no open PR of such a lane, and no record whose `delivered` attr names it. A due row ends with the newest record another lane addressed to you about it since its routed seq, named by its token, `row` attr, `--re` to that seq or a PR its text names, so an answer already in hand shows beside the clock it would otherwise chase.

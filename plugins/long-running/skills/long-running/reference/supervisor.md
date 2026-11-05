@@ -126,7 +126,7 @@ A lane cannot retire while its line owns an open `owed-deletion` task whose code
 
 ### Owner orders a lane carries
 
-A lane cannot retire while an order it was assigned, through `lr launch lane --order owner:m<row>`, is one `lr owner audit` still owes, with no record carrying `delivered=owner:m<row>`. The launch writes each as the brief's `Assigned orders:` line, and the supervisor and the audit read only that line: a row the brief quotes, bare, as `owner:m<row>` or on a brief's older `Owner orders:` line, is background and holds nothing. A row only quoted stays on the audit until a lane assigned it carries it or a record delivers it.
+A lane cannot retire while its brief names an `owner:m<row>` that `lr owner audit` still owes, with no record carrying `delivered=owner:m<row>`.
 - Every end that an owed deletion holds holds it too, with one `defect` to the coordinator and the lane naming each row. A coordinator stand-down that names a successor hands the brief, and its orders, to that successor.
 - An `owner` record addressed to a lane that is retired or held, or that retires in the same pass before it reads the record, goes on in that pass: one `ask` to the live end of the lane's successor chain, or to the coordinator when there is none, names the record and the lane. A stem such as `spinner-pictures` resolves to its newest numbered lane, live or not.
 
