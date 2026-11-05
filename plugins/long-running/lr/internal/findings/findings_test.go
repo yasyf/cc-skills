@@ -17,6 +17,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const ledgerID = "l1"
@@ -378,6 +379,51 @@ func TestCitedReadsRecordsOnceHoweverManyPicksItIsAskedAbout(t *testing.T) {
 	}
 	if one, many := reads(1), reads(1000); one != 1 || many != 1 {
 		t.Fatalf("reads: n=1 %d, n=1000 %d", one, many)
+	}
+}
+
+func TestALandPickIsCarriedOnceItsRowReadsTappedAtOrAfterIt(t *testing.T) {
+	picked := time.Date(2026, 11, 5, 11, 53, 50, 0, time.UTC)
+	cases := []struct {
+		name    string
+		tapped  bool
+		at      time.Time
+		carried bool
+	}{
+		{"his tap in the row, as #50690 read for 471534", true, picked, true},
+		{"a row not tapped", false, time.Time{}, false},
+		{"a tap from before the pick", true, picked.Add(-time.Hour), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t, 100)
+			w.book.Entry.Repo = "acme/app"
+			w.bus.add(10, "owner", "board-watch", "Owner on board d1, Approve #7? (card-x-pick): picked “Approve, land it” at acme/app#7 abc1234", func(r *client.Record) {
+				r.At = picked
+				r.Fields.Attrs = map[string]string{"event": "choice.selected", "block": "card-x-pick", "picked": "o1", "heads": "acme/app#7=abc1234"}
+			})
+			s, err := store.Open(w.book.Entry.Store())
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := store.ReviewRow{Repo: "acme/app", Number: 7, Head: "abc1234", Tapped: c.tapped}
+			if c.tapped {
+				row.TappedAt = store.Stamp(c.at)
+			}
+			if err := s.Update(func(tx *store.Tx) error { return tx.PutReviewRows([]store.ReviewRow{row}) }); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			found, err := w.book.Cited(context.Background(), map[int64]string{10: "card-x-pick"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := len(found) == 1 && found[0] == 10; got != c.carried {
+				t.Fatalf("carried = %v, want %v", found, c.carried)
+			}
+		})
 	}
 }
 

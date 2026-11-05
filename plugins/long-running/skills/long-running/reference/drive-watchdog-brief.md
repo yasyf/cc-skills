@@ -21,7 +21,7 @@ The coordinator starts `drive-watchdog` remote with `lr desks start`, model opus
 - A finding stays open until a later `head` or `landed` record names its PR or seq, which marks it fixed.
 - A pick ends the same way on its card's name, its box id or its seq, and also on a `claim`, on root's `decide`, and on a record whose `delivered=owner:<row>` attr names the owner ledger row of that pick. `undelivered=owner:<row>` reopens it. Another lane's `decide` does not end a pick, because it only relays or asks.
 - An answer or a resolve without a fix marks a row routed and still live, because a finding never waits on a card.
-- `lr findings cited <seq>=<box>` answers whether any record, of any kind and from anyone but board-watch, has named a pick since. `board_watch.py` asks it before repeating an UNCITED pick, so naming the card in a report stops the repeats without ending the row.
+- `lr findings cited <seq>=<box>` answers whether a pick is carried: any record, of any kind and from anyone but board-watch, has named it since, or it is a land pick whose PR row reads tapped at or after it. `board_watch.py` asks it before repeating an UNCITED pick, so naming the card in a report stops the repeats without ending the row.
 - `lr findings open` prints the open and routed rows by sweep. `lr findings track <seq>` adds an older record. `lr findings sync --since <seq>` settles the live rows against an older window. `lr findings close --why` settles a one-shot pick no lane builds.
 - A lane that builds a pick names the pick's seq or card in its `HEAD` record.
 - The fidelity pipeline ([fidelity-desk-brief.md](fidelity-desk-brief.md)) grades a head `missing` with no model call while its PR has an open finding.
