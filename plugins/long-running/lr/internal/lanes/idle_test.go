@@ -141,7 +141,7 @@ func retiredLanes(t *testing.T, s *store.Store, env Env, lanes ...retiredLane) *
 		if _, err := s.WantLane(row, t0); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetLaneState(lane.name, cmp.Or(lane.state, store.LaneRetired), t0, cmp.Or(lane.retiredBy, Root), ""); err != nil {
+		if err := s.SetLaneState(lane.name, cmp.Or(lane.state, store.LaneRetired), t0, cmp.Or(lane.retiredBy, retiredSilent), ""); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.LaneHeard(lane.name, t0.Add(-lane.silent), lane.last, 1); err != nil {
@@ -202,6 +202,8 @@ func TestStaleRetiredNamesALaneThatEndedItselfAfterAQuarterHourAndAnyOtherAfterT
 		retiredLane{name: "asking-1", brief: ordinary, last: "stopped", retiredBy: retiredStopped, silent: 20 * time.Minute},
 		retiredLane{name: "stood-down-1", brief: ordinary, last: "report", retiredBy: retiredStopped, silent: 20 * time.Minute},
 		retiredLane{name: "done-1", brief: ordinary, last: "report", retiredBy: "done", silent: 20 * time.Minute},
+		retiredLane{name: "coordinator-1", brief: ordinary, last: "report", retiredBy: Root, silent: 20 * time.Minute},
+		retiredLane{name: "succeeded-1", brief: ordinary, last: "report", retiredBy: "wanted-1", silent: 20 * time.Minute},
 		retiredLane{name: "settled-1", brief: ordinary, last: kindLanded, silent: 3 * time.Hour, status: "completed"},
 		retiredLane{name: "closed-1", brief: ordinary, last: kindLanded, silent: 20 * time.Minute, closed: true},
 		retiredLane{name: "settled-silent-1", brief: ordinary, last: "report", silent: 3 * time.Hour, status: "completed"},
@@ -222,12 +224,14 @@ func TestStaleRetiredNamesALaneThatEndedItselfAfterAQuarterHourAndAnyOtherAfterT
 		named = append(named, fmt.Sprintf("%s %s ended=%v settled=%v", lane.name, lane.dispatch, lane.ended, lane.settled))
 	}
 	equal(t, named, []string{
+		"coordinator-1 ctx_coordinator-1 ended=true settled=false",
 		"done-1 ctx_done-1 ended=true settled=false",
 		"landed-1 ctx_landed-1 ended=true settled=false",
 		"settled-1 ctx_settled-1 ended=true settled=true",
 		"silent-1 ctx_silent-1 ended=false settled=false",
 		"stood-down-1 ctx_stood-down-1 ended=true settled=false",
 		"stopped-1 ctx_stopped-1 ended=true settled=false",
+		"succeeded-1 ctx_succeeded-1 ended=true settled=false",
 	})
 }
 
@@ -250,9 +254,9 @@ func TestEveryCloseOfAFinishedLanePostsARecordNamingItWithTheDaysCount(t *testin
 	bus := &fakeBus{tail: []client.Record{{Topic: closedTopic}, {Topic: ReapTopic}}}
 	env := Env{Bus: bus, Runner: runner, Config: config.Config{Drive: testDrive, OrcaRun: "run_1", Checkout: "/checkout"}, State: t.TempDir(), Claude: t.TempDir(), Local: t.TempDir()}
 	fleet = retiredLanes(t, s, env,
-		retiredLane{name: "landed-1", brief: brief, last: kindLanded, silent: 20 * time.Minute},
-		retiredLane{name: "held-1", brief: brief, last: "stopped", silent: 20 * time.Minute},
-		retiredLane{name: "settled-1", brief: brief, last: "done", silent: 20 * time.Minute, status: "completed"},
+		retiredLane{name: "landed-1", brief: brief, last: kindLanded, retiredBy: Root, silent: 20 * time.Minute},
+		retiredLane{name: "held-1", brief: brief, last: "stopped", retiredBy: Root, silent: 20 * time.Minute},
+		retiredLane{name: "settled-1", brief: brief, last: "done", retiredBy: Root, silent: 20 * time.Minute, status: "completed"},
 	)
 	check := &SettledGC{Env: env, Store: s, Log: slog.Default()}
 	if err := check.Check(context.Background(), t0); err != nil {

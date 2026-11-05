@@ -1030,8 +1030,14 @@ func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([
 	for _, r := range open {
 		asking[r.Lane] = true
 	}
+	registry := make(map[string]bool, len(registered))
+	for _, lane := range registered {
+		registry[lane.Name] = true
+	}
 	for i, lane := range candidates {
-		candidates[i].ended = !asking[lane.name] && (slices.Contains(laneEnds, lane.last) || lane.last == kindLanded || slices.Contains([]string{"done", retiredStopped, retiredWorkerDone}, lane.retiredBy))
+		endedItself := slices.Contains(laneEnds, lane.last) || slices.Contains(settled, lane.last) || lane.last == kindLanded
+		retiredForGood := slices.Contains([]string{"done", retiredStopped, retiredWorkerDone, Root}, lane.retiredBy) || registry[lane.retiredBy]
+		candidates[i].ended = !asking[lane.name] && (endedItself || retiredForGood)
 	}
 	candidates = slices.DeleteFunc(candidates, func(lane staleLane) bool { return !lane.ended && now.Sub(lane.heard) < staleSilence })
 	if len(candidates) == 0 {
