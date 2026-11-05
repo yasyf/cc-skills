@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Rewrite, Runs, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Rewrite, Runs, T, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, CompactionState, drive_entry, script
@@ -25,6 +25,11 @@ ROUTE_TIMEOUT_SECONDS = 10
 class DriveActive:
     def check(self, evt: BaseHookEvent) -> bool:
         return CompactionState.load(evt).active
+
+
+class MessagesItsOwnTeammate:
+    def check(self, evt: BaseHookEvent) -> bool:
+        return evt.ctx.t.tool_calls.named("Agent").where_input(name=evt.input.raw.get("to")).any()
 
 
 def route(lane: str, to: str, state: str = "retired", standing: str = "", meta: bool = False) -> dict:
@@ -54,7 +59,11 @@ def mentions_stand_down(message: object) -> bool:
 @on(
     Event.PreToolUse,
     only_if=[Bound(), Tool("SendMessage")],
+    skip_if=[MessagesItsOwnTeammate()],
     tests={
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired"), transcript=[T.assistant(T.tool("Agent", name="desk", prompt="read x"))]): Allow(),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "restack-desk"), transcript=[T.assistant(T.tool("Agent", name="desk", prompt="read x"))]): Allow(),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired"), transcript=[T.assistant(T.tool("Agent", name="desk-reader", prompt="read x"))]): Rewrite(None, to="desk-3"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "restack-desk")): Rewrite(None, to="restack-desk"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired")): Rewrite(None, to="desk-3"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "done: #12 merged"}, agent_id="a1b2c3", env=DRIVE_CONFIG, commands=route("desk", "desk-3")): Rewrite(None, to="desk-3"),
