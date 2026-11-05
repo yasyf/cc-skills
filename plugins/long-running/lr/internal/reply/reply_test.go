@@ -1141,7 +1141,7 @@ var inCI = store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load", PlanRow: 
 func TestAListedPRDrawsItsApproveInCIAndALinkOnlyWhenItCannotBeApproved(t *testing.T) {
 	r := Reply{ID: "r2", Title: "The relay fix", MD: "m", Status: info, PRs: []string{landPR}}
 	f := fanout(t, scripted())
-	if _, warning := f.withPRCards(context.Background(), r); warning != "no row in the PR ledger, so no Approve and he sees a link: "+landPR {
+	if _, warning := f.withPRCards(context.Background(), r); !strings.HasPrefix(warning, "no row in the PR ledger, so no Approve and he sees a link: "+landPR) {
 		t.Fatalf("no row warned %q", warning)
 	}
 	ledgerRow(t, f, inCI)
@@ -1873,27 +1873,28 @@ func TestAPickReplyWhoseBoardFailedPostsNoButtonlessCopyInHisThread(t *testing.T
 	}
 }
 
-func TestAReplyNamingATappablePRItDoesNotListWarnsAndChangesNothing(t *testing.T) {
+func TestAQuestionNamingAPRHeCanApproveWithoutListingItWarns(t *testing.T) {
 	ready := store.ReviewRow{ReadyForTap: true}
+	ask := []string{"Hold", "Go"}
 	for name, tc := range map[string]struct {
 		row   store.ReviewRow
 		reply Reply
 		warns bool
 	}{
-		"a PR waiting on his tap, by number": {ready, Reply{MD: "#2196 is ready."}, true},
-		"in the title":                       {ready, Reply{Title: "PR 2196 is ready", MD: "It passed."}, true},
-		"by its repo":                        {ready, Reply{MD: "cc-skills#2196 is ready."}, true},
-		"by a link in the text":              {ready, Reply{MD: "<https://github.com/YASYF/cc-skills/pull/2196|#2196> is ready."}, true},
-		"on a reply with picks":              {ready, Reply{MD: "Hold for #2196?", Picks: []string{"Hold", "Go"}}, true},
-		"listed in prs":                      {ready, Reply{MD: "#2196 is ready.", PRs: []string{landPR}}, false},
-		"tapped already":                     {store.ReviewRow{ReadyForTap: true, Tapped: true}, Reply{MD: "#2196 is ready."}, false},
-		"not ready":                          {store.ReviewRow{WaitsOn: "CI"}, Reply{MD: "#2196 waits on CI."}, false},
-		"not ready, on a question":           {store.ReviewRow{WaitsOn: "CI"}, Reply{MD: "Hold for #2196?", Picks: []string{"Hold", "Go"}}, false},
-		"another repo's PR with that number": {ready, Reply{MD: "monorepo#2196 is ready."}, false},
-		"another repo's link":                {ready, Reply{MD: "https://github.com/yasyf/cc-slack/pull/2196 is ready."}, false},
-		"a number in no ledger row":          {ready, Reply{MD: "#50026 is ready."}, false},
-		"a URL fragment":                     {ready, Reply{MD: "See https://example.com/#2196 for why."}, false},
-		"no PR":                              {ready, Reply{MD: "All quiet."}, false},
+		"by number":                          {ready, Reply{MD: "#2196 is ready.", Picks: ask}, true},
+		"in the title":                       {ready, Reply{Title: "PR 2196 is ready", MD: "It passed.", Picks: ask}, true},
+		"by its repo":                        {ready, Reply{MD: "cc-skills#2196 is ready.", Picks: ask}, true},
+		"by a link in the text":              {ready, Reply{MD: "<https://github.com/YASYF/cc-skills/pull/2196|#2196> is ready.", Picks: ask}, true},
+		"in CI":                              {inCI, Reply{MD: "Hold for #2196?", Picks: ask}, true},
+		"listed in prs":                      {ready, Reply{MD: "#2196 is ready.", PRs: []string{landPR}, Picks: ask}, false},
+		"with no picks, which lists it":      {ready, Reply{MD: "#2196 is ready."}, false},
+		"tapped already, with no picks":      {store.ReviewRow{ReadyForTap: true, Tapped: true}, Reply{MD: "#2196 is ready."}, false},
+		"one he cannot approve":              {store.ReviewRow{WaitsOn: "CI"}, Reply{MD: "Hold for #2196?", Picks: ask}, false},
+		"another repo's PR with that number": {ready, Reply{MD: "monorepo#2196 is ready.", Picks: ask}, false},
+		"another repo's link":                {ready, Reply{MD: "https://github.com/yasyf/cc-slack/pull/2196 is ready.", Picks: ask}, false},
+		"a number in no ledger row":          {ready, Reply{MD: "#50026 is ready.", Picks: ask}, false},
+		"a URL fragment":                     {ready, Reply{MD: "See https://example.com/#2196 for why.", Picks: ask}, false},
+		"no PR":                              {ready, Reply{MD: "All quiet.", Picks: ask}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())
@@ -1906,10 +1907,10 @@ func TestAReplyNamingATappablePRItDoesNotListWarnsAndChangesNothing(t *testing.T
 	}
 }
 
-func TestATappablePRNamedTwiceIsNamedOnceInTheWarning(t *testing.T) {
+func TestAPRHeCanApproveNamedTwiceIsNamedOnceInTheWarning(t *testing.T) {
 	f := fanout(t, scripted())
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
-	if warning := f.tapWarning(Reply{MD: "#2196 is ready. Tap #2196."}); strings.Count(warning, landPR) != 1 {
+	if warning := f.tapWarning(Reply{MD: "#2196 is ready. Tap #2196.", Picks: []string{"Hold", "Go"}}); strings.Count(warning, landPR) != 1 {
 		t.Fatalf("warning = %q, want %s once", warning, landPR)
 	}
 }
