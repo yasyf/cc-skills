@@ -38,13 +38,14 @@ type hostedTasks interface {
 }
 
 type SpriteRoll struct {
-	Runner shell.Runner
-	Orca   runWorkers
-	Fleet  hostedTasks
-	Store  *store.Store
-	Host   string
-	Now    func() time.Time
-	Out    io.Writer
+	Runner  shell.Runner
+	Orca    runWorkers
+	Fleet   hostedTasks
+	Store   *store.Store
+	Host    string
+	Graders []string
+	Now     func() time.Time
+	Out     io.Writer
 }
 
 func FollowPins(ctx context.Context, runner shell.Runner, s *store.Store, claude, path string, now func() time.Time, out io.Writer) error {
@@ -63,7 +64,7 @@ func RollGraders(ctx context.Context, runner shell.Runner, s *store.Store, path 
 	if err != nil {
 		return err
 	}
-	graders := slices.Compact(slices.Sorted(slices.Values(slices.Concat(file.Finder.Sprite, file.Fidelity.Sprite))))
+	graders := file.graders()
 	if len(graders) == 0 {
 		return nil
 	}
@@ -180,6 +181,8 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			boxes = append(boxes, sprite.Workspace)
 		}
 	}
+	r.Graders = slices.DeleteFunc(slices.Clone(r.Graders), func(box string) bool { return slices.Contains(boxes, box) })
+	boxes = append(boxes, r.Graders...)
 	if r.Host != "" && !slices.Contains(boxes, r.Host) {
 		boxes = append(boxes, r.Host)
 	}
@@ -187,7 +190,7 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 	if probe != "" {
 		at := slices.Index(boxes, probe)
 		if at < 0 {
-			return refuse("nothing rolled: %s hosts no live worker of Run %s", probe, run)
+			return refuse("nothing rolled: %s hosts no live worker of Run %s and runner.json names it no grader", probe, run)
 		}
 		boxes = slices.Concat([]string{probe}, slices.Delete(boxes, at, at+1))
 		if probeOnly {
@@ -202,8 +205,11 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 	var hostStayed error
 	for done, box := range boxes {
 		boxPins := pins
-		if box == r.Host {
+		switch {
+		case box == r.Host:
 			boxPins = pins.forHost()
+		case slices.Contains(r.Graders, box):
+			boxPins = pins.only(graderTools...)
 		}
 		result, err := r.Runner.Run(ctx, shell.Command{Argv: boxPins.installArgv(box, nil), Timeout: spriteInstallTimeout})
 		installed := installedTools(result.Stdout)
@@ -223,7 +229,7 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 			continue
 		}
 		if err != nil {
-			return r.failed(box, pins, installed, result, len(boxes)-done-1)
+			return r.failed(box, boxPins, installed, result, len(boxes)-done-1)
 		}
 		fmt.Fprintf(r.Out, "lr sprites roll: %s runs %s\n", box, censusOf(installed))
 	}
@@ -346,7 +352,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	var probeOnly bool
 	roll := &cobra.Command{
 		Use:   "roll",
-		Short: "Install runner.json's Sprite pins on the desk host and every Sprite with a live worker in the drive's Run, the probe Sprite first; a pin that fails is marked bad, stops the roll, and is never rolled again",
+		Short: "Install runner.json's Sprite pins on the desk host, every Sprite with a live worker in the drive's Run, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin that fails is marked bad, stops the roll, and is never rolled again",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, run, state, err := opened()
@@ -366,7 +372,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Host: file.Host.Sprite, Now: a.Now, Out: cmd.OutOrStdout()}
+			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Host: file.Host.Sprite, Graders: file.graders(), Now: a.Now, Out: cmd.OutOrStdout()}
 			if probeOnly && probe == "" {
 				return errors.New("--probe-only needs --probe, so it names the one Sprite to install on")
 			}

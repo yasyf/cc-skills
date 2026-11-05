@@ -3,6 +3,7 @@ package orca
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -970,6 +971,44 @@ func TestTheToolInstallUnpacksEveryCCIBinaryAndNoDocs(t *testing.T) {
 	bin := filepath.Join(home, ".local", "bin")
 	if !present(filepath.Join(bin, "cci-core")) || present(filepath.Join(bin, "README.md")) {
 		t.Fatal("the install must unpack cci-core beside cci and leave the docs out")
+	}
+}
+
+func TestACCIInstallThatDiesMidArchiveLeavesTheRunningCCIInPlace(t *testing.T) {
+	dir := t.TempDir()
+	noise := make([]byte, 1<<20)
+	if _, err := rand.Read(noise); err != nil {
+		t.Fatal(err)
+	}
+	cciURL, _ := tarball(t, dir, "cci.tgz", map[string]string{"cci": string(noise), "cci-core": "core"})
+	archive := strings.TrimPrefix(cciURL, "file://")
+	whole, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := whole[:len(whole)/2]
+	if err := os.WriteFile(archive, cut, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho 9.9.9\n"})
+	home := t.TempDir()
+	cci := filepath.Join(home, ".local", "bin", "cci")
+	if err := os.MkdirAll(filepath.Dir(cci), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	running := "#!/bin/sh\necho 0.49.58\n"
+	if err := os.WriteFile(cci, []byte(running), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+
+	run := exec.Command("sh", "-c", installTools, "sh", cciURL, hexSum(string(cut)), lrURL, lrSHA, "lr", "--")
+	run.Env = append(os.Environ(), "HOME="+home)
+	if out, err := run.CombinedOutput(); err == nil {
+		t.Fatal("a cut archive installed", string(out))
+	}
+
+	if kept, err := os.ReadFile(cci); err != nil || string(kept) != running {
+		t.Fatalf("the running cci was written over by a cut archive: %v, %d bytes", err, len(kept))
 	}
 }
 

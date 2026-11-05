@@ -113,6 +113,10 @@ type runnerFile struct {
 	Fidelity graderRoute `json:"fidelity"`
 }
 
+func (f runnerFile) graders() []string {
+	return slices.Compact(slices.Sorted(slices.Values(slices.Concat(f.Finder.Sprite, f.Fidelity.Sprite))))
+}
+
 type graderRoute struct {
 	Sprite   spriteNames `json:"sprite"`
 	Checkout string      `json:"checkout"`
