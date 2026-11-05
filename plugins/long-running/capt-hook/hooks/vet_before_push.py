@@ -43,7 +43,8 @@ REFUSAL = (
     "A lane runs `go build` and `go vet` over the Go packages it touched, and the typecheck over its TypeScript, after its last edit and before it pushes; a run the host load gate refused counts, and CI still runs every test."
     " Run these, then push again:\n```\n{commands}\n```"
 )
-SPARSE_GO = "`lr sparse add <dir>` to reach its Go"
+SPARSE_GO = "the checkout is sparse: `lr sparse add <dir>` before its Go checks, `node_modules/.bin/tsgo` for its TypeScript"
+SPARSE_TS = "Warning, nothing was refused: `yarn tsc:*` cannot run in this sparse checkout, so this push goes ahead; from its top, typecheck with `{commands}`."
 UNREAD = "Warning, nothing was refused: {why}, so this push goes ahead unchecked. Run `go build`, `go vet` and the typecheck over what it touched where they can run."
 
 
@@ -230,7 +231,7 @@ def typecheck_command(top: Path, project: Path) -> str:
 
 def sparse_typecheck_command(top: Path, project: Path, files: list[Path]) -> str:
     touched = " ".join(f"-e {path.relative_to(top)}" for path in files)
-    return f"cd {top} && node_modules/.bin/tsgo --noEmit -p {project.relative_to(top)} --preserveSymlinks false --composite false | grep -F {touched}"
+    return f"node_modules/.bin/tsgo --noEmit -p {project.relative_to(top)} --preserveSymlinks false --composite false | grep -F {touched}"
 
 
 def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path], sparse: bool = False) -> list[str]:
@@ -260,18 +261,19 @@ def branch_diff(evt: BaseHookEvent, call: Call, *flags: str) -> tuple[Path, str]
 
 def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     if isinstance(diffed := branch_diff(evt, call, "--name-only"), str):
-        return diffed
+        return UNREAD.format(why=diffed)
     top, names = diffed
     changed = [top / line for line in names.splitlines() if line.strip()]
     if not any(path.suffix == ".go" or path.suffix in TS_SUFFIXES for path in changed):
         return []
     sparse = run_quietly(["git", "config", "--bool", "--default", "false", "core.sparseCheckout"], str(top))
     if not sparse or sparse.returncode or sparse.stdout.strip() == "true":
-        owed = [SPARSE_GO] if any(path.suffix == ".go" for path in changed) else []
-        owed += [f"`{command}` for its TypeScript, since `yarn tsc:*` cannot run here" for command in ts_commands(evt, top, changed, sparse=True)]
-        return f"the checkout is sparse; run {' and '.join(owed)}" if owed else []
+        if any(path.suffix == ".go" for path in changed):
+            return UNREAD.format(why=SPARSE_GO)
+        typechecks = ts_commands(evt, top, changed, sparse=True)
+        return SPARSE_TS.format(commands="` and `".join(typechecks)) if typechecks else []
     go = go_commands(evt, top, changed)
-    return go if isinstance(go, str) else go + ts_commands(evt, top, changed)
+    return UNREAD.format(why=go) if isinstance(go, str) else go + ts_commands(evt, top, changed)
 
 
 @on(  # capt-hook: no-escape the owner ordered a hook rather than goodwill, and every misread fails open with a warning
@@ -292,8 +294,8 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n.github/workflows/ci.yml\n"}): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"go env GOROOT": (127, "go: not found")}): Warn(pattern=r"^Warning, nothing was refused: no Go toolchain"),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: the checkout is sparse; run `lr sparse add <dir>` to reach its Go, so"),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF | SPARSE): Warn(pattern=r"`cd \S+ && node_modules/\.bin/tsgo --noEmit -p api --preserveSymlinks false --composite false \| grep -F -e api/src/a\.ts` for its TypeScript, since `yarn tsc:\*` cannot run here"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: the checkout is sparse: `lr sparse add <dir>` before its Go checks, `node_modules/\.bin/tsgo` for its TypeScript, so"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: `yarn tsc:\*` cannot run in this sparse checkout[\s\S]*typecheck with `node_modules/\.bin/tsgo --noEmit -p api --preserveSymlinks false --composite false \| grep -F -e api/src/a\.ts`\.$"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF | SPARSE, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n"} | SPARSE): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": (128, "fatal: bad revision 'origin/HEAD'")}): Warn(pattern=r"`origin/HEAD` did not read"),
@@ -313,6 +315,6 @@ def lanes_vet_before_they_push(evt: BaseHookEvent) -> HookResult | None:
     commands: list[str] = []
     for call in calls:
         if isinstance(found := unchecked(evt, call), str):
-            return evt.context(UNREAD.format(why=found))
+            return evt.context(found)
         commands += found
     return evt.block(REFUSAL.format(commands="\n".join(dict.fromkeys(commands)))) if commands else None
