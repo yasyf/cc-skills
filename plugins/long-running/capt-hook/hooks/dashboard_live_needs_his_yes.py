@@ -9,7 +9,7 @@ from captain_hook.util import reqenv
 
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
-from .meta_records import posts
+from .meta_records import Post, post_records
 from .owner_facing import fenced
 
 DASHBOARD = "plugins/long-running/dashboard"
@@ -19,6 +19,7 @@ NOT_INSTALLED = re.compile(r"\bmerged,? not installed\b", re.IGNORECASE)
 NOT_LIVE = re.compile(r"\bnot live\b", re.IGNORECASE)
 PR = re.compile(r"(?P<repo>[\w.-]*(?:/[\w.-]+)?)(?:#|/pull/)(?P<number>\d{1,5})\b")
 CC_SKILLS = frozenset({"", "pr", "cc-skills", "yasyf/cc-skills"})
+REPLIED_RECORD = re.compile(r"#?(?P<number>\d+)(?:@[0-9a-f]+)?")
 CITE = re.compile(r"\b(?:card:(?P<card>[\w.-]+)|owner:(?P<row>m\d+))\b")
 YES = re.compile(r"^\W*(?:approved|(?:picked\W+)?(?:yes|yep|yeah|lgtm|looks (?:good|right)|ship it))\b", re.IGNORECASE)
 READ_TIMEOUT_SECONDS = 20
@@ -36,6 +37,8 @@ PICKED_LOOKS_RIGHT = {"ccn answer list --label from:owner --label board-card:cha
 PICKED_NO = {"ccn answer list --label from:owner --label board-card:chat-drop": json.dumps([{"body": "picked “Take it back off”\nBoard question: Keep it?"}])}
 PACK_PR = {"gh pr view 2618": "plugins/long-running/capt-hook/hooks/release_cards.py\n"}
 SAME_NUMBER_PR = {"gh pr view 817": f"{DASHBOARD}/app/chat.js\n"}
+RECORD_NUMBER_PR = {"gh pr view 984": f"{DASHBOARD}/app/review.js\n", "gh pr view 50515": ""}
+SAND_RELEASED = "bug-regressions-2 fix for #984, per bugs-comms 504796: #50515 is live in Sand 0.162.3525 (release 13367, 2:11 PM), not pending. Both halves of one writer per chat are on Macs; pick 435401 stays closed."
 GO_LANE = "go-cli-fix-1"
 
 
@@ -51,10 +54,11 @@ def read(evt: BaseHookEvent, *argv: str) -> subprocess.CompletedProcess[str] | N
         return None
 
 
-def touches_dashboard(evt: BaseHookEvent, text: str) -> bool:
-    if DASHBOARD in text:
+def touches_dashboard(evt: BaseHookEvent, post: Post) -> bool:
+    if DASHBOARD in post.text:
         return True
-    for number in dict.fromkeys(found["number"] for found in PR.finditer(text) if found["repo"].lower() in CC_SKILLS):
+    replied = {found["number"] for ref in post.replies_to if (found := REPLIED_RECORD.fullmatch(ref))}
+    for number in dict.fromkeys(found["number"] for found in PR.finditer(post.text) if found["repo"].lower() in CC_SKILLS and (found["repo"] or found["number"] not in replied)):
         files = read(evt, "gh", "pr", "view", number, "-R", "yasyf/cc-skills", "--json", "files", "--jq", ".files[].path")
         if files and files.returncode == 0 and DASHBOARD in files.stdout:
             return True
@@ -73,18 +77,18 @@ def his_yes(evt: BaseHookEvent, text: str) -> bool:
 
 def unseen_claims(evt: BaseHookEvent) -> list[str]:
     found = []
-    for lane, _, kind, text, _, _ in posts(evt):
-        kinds = set(kind.lower().split(","))
-        live = "live" in kinds or bool(LIVE.search(NOT_LIVE.sub("", text)))
-        if NOT_LIVE.search(text) and not live:
+    for post in post_records(evt):
+        kinds = set(post.kind.lower().split(","))
+        live = "live" in kinds or bool(LIVE.search(NOT_LIVE.sub("", post.text)))
+        if NOT_LIVE.search(post.text) and not live:
             continue
         if not (live or "landed" in kinds):
             continue
-        ui = touches_dashboard(evt, text)
-        if not (ui or UI_LANE.match(lane)) or not (live or ui or not NOT_INSTALLED.search(text)):
+        ui = touches_dashboard(evt, post)
+        if not (ui or UI_LANE.match(post.lane)) or not (live or ui or not NOT_INSTALLED.search(post.text)):
             continue
-        if not his_yes(evt, text):
-            found.append(text)
+        if not his_yes(evt, post.text):
+            found.append(post.text)
     return found
 
 
@@ -117,6 +121,10 @@ def unseen_claims(evt: BaseHookEvent) -> list[str]:
         post("Fixed the Chat tab", lane=GO_LANE, pr="817", commands=SAME_NUMBER_PR): Block(),
         post("Fixed the Chat tab", lane=GO_LANE, pr="https://github.com/yasyf/cc-skills/pull/817", commands=SAME_NUMBER_PR): Block(),
         post("yasyf/cc-context#900 is out and so is #817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
+        Input(command=f"cci post --kind correction --re '#984@2e1ef26e' --to root \"{SAND_RELEASED}\" 2>&1 | tail -1", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Allow(),
+        Input(command=f"cci post --kind correction --re '#983@2e1ef26e' --to root \"{SAND_RELEASED}\" 2>&1 | tail -1", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Block(),
+        Input(tool=POST_TOOL, tool_input={"lane": "bug-regressions-2", "kind": "correction", "re": "#984@2e1ef26e", "text": SAND_RELEASED}, env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Allow(),
+        post("Live: cc-skills#984 draws every reviewer-bot diagram", lane="bug-regressions-2", kind="correction", commands=RECORD_NUMBER_PR, re="#984@2e1ef26e"): Block(),
         Input(tool=POST_TOOL, tool_input={"lane": "owner-apps-1", "kind": "live", "text": "The Review tab now lists PRs only"}, env={"CLAUDE_LONG_RUNNING_LANE": "owner-apps-1"}): Block(),
     },
 )
