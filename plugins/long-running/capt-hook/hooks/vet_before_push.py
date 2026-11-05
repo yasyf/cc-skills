@@ -6,7 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on
-from captain_hook.util.builds import LOAD_PER_CORE, is_local_build
+from captain_hook.util.builds import LOAD_PER_CORE, HostLoad, is_local_build
 from pydantic import BaseModel
 
 from .call_dir import UnknownDirectory, unknown_dir
@@ -166,7 +166,8 @@ def note_attempted_checks(evt: BaseHookEvent) -> None:
     gated = [call for call in evt.command.calls() if call.name == "go" and is_local_build(call)]
     if not in_lane(evt) or not gated:
         return
-    record(evt, [check for call in gated for check in compiles(evt, call)])
+    refused = HostLoad.sample().saturated
+    record(evt, [(each, root, recursive) for call in gated for kind, root, recursive in compiles(evt, call) for each in (GO_KINDS if refused else (kind,))])
 
 
 def record(evt: BaseHookEvent, found: list[tuple[str, Path, bool]]) -> None:
