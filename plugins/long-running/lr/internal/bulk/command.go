@@ -53,7 +53,7 @@ Exit 0 when the reader launched or the runner is alive and still settling it, 1 
 			caller := os.Getenv(lanes.LaneEnv)
 			author := cmp.Or(caller, launcher)
 			send := newPoster(cmd, a, driveName, author)
-			entry, err := send.Entry()
+			entry, err := send.Entry(cmd.Context())
 			if err != nil {
 				return err
 			}

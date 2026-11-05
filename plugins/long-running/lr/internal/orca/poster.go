@@ -73,19 +73,26 @@ type Poster struct {
 	Author string
 }
 
-func (p Poster) Entry() (*drive.Entry, error) {
-	if p.Drive == "" {
+func (p Poster) Entry(ctx context.Context) (*drive.Entry, error) {
+	name := p.Drive
+	if name == "" {
 		if entry := currentDriveEntry(p.Env); entry != nil {
 			return entry, nil
 		}
-		return nil, fmt.Errorf("no drive in the registry is bound to session %s, so its orca desk runner is unknown and nothing is posted", p.Env(sessionEnv))
+		me, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"cci", "me"}})
+		if err != nil {
+			return nil, err
+		}
+		if name = drive.BoundInCCI(me.Stdout); name == "" {
+			return nil, fmt.Errorf("no drive in the registry is bound to session %s and cci me names none, so its orca desk runner is unknown and nothing is posted", p.Env(sessionEnv))
+		}
 	}
 	for _, entry := range allDrives(p.Env) {
-		if entry.Bus() == p.Drive {
+		if entry.Bus() == name {
 			return &entry, nil
 		}
 	}
-	return nil, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", p.Drive)
+	return nil, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", name)
 }
 
 func (p Poster) runnerFault(ctx context.Context, bus string) (string, error) {
@@ -115,7 +122,7 @@ func (p Poster) post(ctx context.Context, bus, topic, text, attempt string) (cli
 }
 
 func (p Poster) Line(ctx context.Context, topic, text string) error {
-	entry, err := p.Entry()
+	entry, err := p.Entry(ctx)
 	if err != nil {
 		return err
 	}
@@ -127,7 +134,7 @@ func (p Poster) Line(ctx context.Context, topic, text string) error {
 }
 
 func (p Poster) Faults(ctx context.Context, order Order) ([]string, error) {
-	entry, err := p.Entry()
+	entry, err := p.Entry(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +146,7 @@ func (p Poster) Numbered(ctx context.Context, lane string) (string, error) {
 	if client.Stem(lane) != lane {
 		return lane, nil
 	}
-	entry, err := p.Entry()
+	entry, err := p.Entry(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -165,7 +172,7 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 		return "", err
 	}
 	order.Brief = brief
-	entry, err := p.Entry()
+	entry, err := p.Entry(ctx)
 	if err != nil {
 		return "", err
 	}

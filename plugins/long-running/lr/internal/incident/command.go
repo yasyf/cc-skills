@@ -45,7 +45,7 @@ func runCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			return DeskLaunch{
-				Bus: CCI{}, Drive: drive, Author: lane, Name: args[0], FixBrief: fixBrief, EvidenceBrief: evidenceBrief, CommsBrief: commsBrief, Alert: alert,
+				Bus: CCI{}, Runner: a.Runner, Drive: drive, Author: lane, Name: args[0], FixBrief: fixBrief, EvidenceBrief: evidenceBrief, CommsBrief: commsBrief, Alert: alert,
 				Claude: claude, Timeout: time.Duration(timeout * float64(time.Second)), Poll: verdictPoll, Now: a.Now, Out: cmd.OutOrStdout(),
 			}.Run(cmd.Context())
 		},

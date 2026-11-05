@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/yasyf/cc-interact/procs"
 )
@@ -107,6 +108,15 @@ func entries() ([]Entry, error) {
 		found = append(found, entry)
 	}
 	return found, nil
+}
+
+func BoundInCCI(me string) string {
+	for word := range strings.FieldsSeq(me) {
+		if name, found := strings.CutPrefix(word, "drive="); found {
+			return name
+		}
+	}
+	return ""
 }
 
 func Live() ([]Entry, error) {

@@ -55,7 +55,7 @@ The lane runs on a Sprite, which has no Slack and no Mac transcripts; --mac runs
 				return err
 			}
 			send := orca.Poster{Bus: orca.CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: cmd.ErrOrStderr(), Drive: driveName, Author: asker}
-			entry, err := send.Entry()
+			entry, err := send.Entry(cmd.Context())
 			if err != nil {
 				return err
 			}

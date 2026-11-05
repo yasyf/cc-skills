@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
@@ -67,6 +69,7 @@ func mustZone(name string) *time.Location {
 
 type DeskLaunch struct {
 	Bus           Bus
+	Runner        shell.Runner
 	Drive         string
 	Author        string
 	Name          string
@@ -97,13 +100,14 @@ func (e driveEntry) cciDrive() string {
 	return cmp.Or(e.CCIDrive, e.Program, filepath.Base(e.StateDir))
 }
 
-func (d DeskLaunch) entry() (driveEntry, error) {
+func (d DeskLaunch) entry(ctx context.Context) (driveEntry, error) {
 	paths, err := filepath.Glob(filepath.Join(d.Claude, "long-running", "drives", "*.json"))
 	if err != nil {
 		return driveEntry{}, err
 	}
 	slices.Sort(paths)
 	session := os.Getenv(sessionEnv)
+	entries := make([]driveEntry, 0, len(paths))
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -116,11 +120,22 @@ func (d DeskLaunch) entry() (driveEntry, error) {
 		if entry.cciDrive() == d.Drive || (d.Drive == "" && slices.Contains(entry.Sessions, session)) {
 			return entry, nil
 		}
+		entries = append(entries, entry)
 	}
-	if d.Drive == "" {
-		return driveEntry{}, fmt.Errorf("no drive in the registry is bound to session %s, so its orca desk runner is unknown and nothing is posted", session)
+	name := d.Drive
+	if name == "" {
+		me, err := d.Runner.Run(ctx, shell.Command{Argv: []string{"cci", "me"}})
+		if err != nil {
+			return driveEntry{}, err
+		}
+		if name = drive.BoundInCCI(me.Stdout); name == "" {
+			return driveEntry{}, fmt.Errorf("no drive in the registry is bound to session %s and cci me names none, so its orca desk runner is unknown and nothing is posted", session)
+		}
+		if i := slices.IndexFunc(entries, func(entry driveEntry) bool { return entry.cciDrive() == name }); i >= 0 {
+			return entries[i], nil
+		}
 	}
-	return driveEntry{}, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", d.Drive)
+	return driveEntry{}, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", name)
 }
 
 func filled(template, lane, alert string) (string, error) {
@@ -324,7 +339,7 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	entry, err := d.entry()
+	entry, err := d.entry(ctx)
 	if err != nil {
 		return err
 	}
