@@ -206,6 +206,7 @@ SLICE_CAP = 40_000
 SLICE_TAIL = 1_000
 ANSWERS_CAP = 16_000
 MATCHED_BODY_CAP = 1_500
+SIBLING_BRIEFS = 20
 TEMPLATED_WORDS = re.compile(r"^Alert: .*\n|^The case, in the words of .*\n(?:.+\n)+|^Drive facts:\n(?:.+\n)+", re.MULTILINE)
 REPEAT_MARKERS = re.compile(
     r"\bi\b\W+(?:\w+\W+){0,2}?t[oi]ld you\b|\bi have said this\b|\bhow many times\b|\bwhy are you ignoring\b|\bwe already said\b",
@@ -511,6 +512,8 @@ class Register:
     ledger: str
     rows: dict[str, dict[str, str]]
     drive_ledger: str = ""
+    drive: str | None = None
+    runtime: Runtime | None = None
 
     @cached_property
     def brief_paths(self) -> list[Path]:
@@ -534,7 +537,8 @@ class Register:
         repo = repo or register_repo(args)
         state = state_dir(args, args.runtime.drives, args.runtime.scratch)
         identity, rows = register_reads.load(shell.run, args.runtime.lock, args.runtime.held, repo, program, state, last, kept_any)
-        return cls(shell, repo, program, state, identity, rows, (entry_of(args) or {}).get("ledger", ""))
+        entry = entry_of(args) or {}
+        return cls(shell, repo, program, state, identity, rows, entry.get("ledger", ""), entry.get("drive"), args.runtime)
 
     def write(self, key: str, **fields: object) -> None:
         values = {name: stored(value) for name, value in fields.items()}
@@ -921,6 +925,12 @@ def read_plan(plan: Path | None) -> list[str]:
     return plan.read_text().splitlines() if plan and plan.is_file() else []
 
 
+@dataclass(frozen=True)
+class Named:
+    bearing: list[dict] = field(default_factory=list)
+    unread: list[dict] = field(default_factory=list)
+
+
 @dataclass
 class Selection:
     """The rows a lane's slice carries: its want with the open PRs the drive's ledger gives it, ranked against its plan step."""
@@ -939,7 +949,29 @@ class Selection:
         return {key: rank for key, fields in rows.items() if (rank := self.want.rank(fields, self.step_text)) is not None}
 
 
-def lane_slice(loaded: Register, want: Want, plan: Path | None, brief_text: str = "") -> str:
+def sibling_briefs(loaded: Register, lane: str) -> list[str]:
+    base = grades.LANE_NUMBER.fullmatch(lane)[1]
+    others = (path for path in loaded.state.glob("*/brief.md") if grades.LANE_NUMBER.fullmatch(path.parent.name)[1] != base)
+    return [path.read_text() for path in sorted(others, key=lambda path: path.stat().st_mtime, reverse=True)[:SIBLING_BRIEFS]]
+
+
+def bearing_answers(loaded: Register, words: str) -> Named:
+    near = [answer | {"body": (answer.get("body") or "")[:MATCHED_BODY_CAP]} for answer in answer_search.matched(partial(ccn_text, loaded.shell, loaded.repo), words)]
+    blocks = {answer["id"][:7]: rendered(answer) for answer in near if not answer.get("phrase")}
+    kept = loaded.state / "judge" / "bearing" / f"{hashlib.sha256(json.dumps([words, blocks], sort_keys=True).encode()).hexdigest()[:24]}.json"
+    if not blocks:
+        yes = []
+    elif kept.is_file():
+        yes = json.loads(kept.read_text())
+    else:
+        yes = judge.bearing(blocks, words, drive=loaded.drive, env=loaded.runtime.env, run=loaded.runtime.run, checkpoint=loaded.runtime.checkpoint)
+        if yes is None:
+            return Named([answer for answer in near if answer.get("phrase")], [answer for answer in near if not answer.get("phrase")])
+        write_atomic(kept, json.dumps(yes))
+    return Named([answer for answer in near if answer.get("phrase") or answer["id"][:7] in yes], [])
+
+
+def lane_slice(loaded: Register, want: Want, plan: Path | None, named: Named = Named()) -> str:
     rulings = loaded.rulings()
     doc = register(loaded.shell, loaded.repo, loaded.program)
     plan_lines = read_plan(plan)
@@ -952,8 +984,12 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None, brief_text: str 
     ])
     tail = []
     out.add(["", "## Step one: his answers on this lane's topics and paths"])
-    if named := answer_search.matched(partial(ccn_text, loaded.shell, loaded.repo), brief_text):
-        out.add([f"His answers this brief's own words name, the best {answer_search.MATCHED} by match. Where one rules this work out, stop and report that:", *(line for answer in named for line in rendered(answer | {"body": (answer.get("body") or "")[:MATCHED_BODY_CAP]}).splitlines())])
+    if named.bearing:
+        out.add(["His answers a judge read as bearing on this brief's own words. Where one rules this work out, stop and report that:"])
+        if left := [answer["id"][:7] for answer in named.bearing if not out.add(rendered(answer).splitlines())]:
+            tail.append(f"Answers bearing on this brief that pass the {SLICE_CAP // 1000} KB cap, read each with `ccn answer show <id>`: {', '.join(left)}.")
+    if named.unread:
+        out.add(["The judge did not answer, so nothing read these against this brief; they are only its closest words. Read the ones its work touches with `ccn answer show <id>`:", *(f"- {answer['id'][:7]} {answer['title']}" for answer in named.unread)])
     topics = lane_topics(partial(ccn_text, loaded.shell, loaded.repo), loaded.program, want.topics, want.paths)
     if searches := answer_search.commands(topics, want.paths):
         found = answer_search.hits(partial(ccn_text, loaded.shell, loaded.repo), topics, want.paths, branch_of(loaded.shell, loaded.repo) if want.paths else "")
@@ -1163,7 +1199,9 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
     old = None
     if (stamp := SLICE_HASH.search(text, header.end())) and not SLICE_HEADER.search(text, header.end(), stamp.start()):
         old, end = stamp["hash"], stamp.end()
-    fresh = lane_slice(loaded, Want.parse(header), plan, "".join(found[0] for found in TEMPLATED_WORDS.finditer(text)) or text[: header.start()] + text[end:])
+    want = Want.parse(header)
+    words = "".join(found[0] for found in TEMPLATED_WORDS.finditer(text)) or answer_search.own_words(text[: header.start()] + text[end:], sibling_briefs(loaded, want.lane))
+    fresh = lane_slice(loaded, want, plan, bearing_answers(loaded, words))
     new = SLICE_HASH.search(fresh)["hash"]
     if old == new and text[header.start() : end] == fresh.rstrip("\n"):
         return f"fresh {brief} slice-hash {new}"

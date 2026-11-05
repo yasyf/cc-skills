@@ -241,6 +241,39 @@ Answer "yes" when the card fails either way, and say in your sentence which, and
 }
 
 
+BEARING_SECONDS = 30
+BEARING_KIND = "bearing"
+BEARING_PROMPT = """Below are durable answers of the owner's, each the question it answered and then his answer, and then a lane's brief: the work that lane is about to do.
+
+{answers}
+
+The brief:
+~~~~~~~~
+{brief}
+~~~~~~~~
+
+For each answer, by its seven-character id: would a lane that read his answer do a step of this brief differently than one that did not?
+Answer "yes" only when you can name that step and what changes in it, in `changes`: his answer decides something this brief leaves open, orders or forbids something this brief does, or states a rule whose words reach this work even though he said it about something else.
+Answer "no", with `changes` empty, when the two only share a word, a tool, a system or a subject; when his answer settled one past case, such as one pull request, one release, one version, one machine or one card, and says nothing beyond it; or when it is a general rule on merging, installing or reporting and this brief's work is not that process.
+Answer every id."""
+BEARING_SCHEMA = json.dumps(
+    {
+        "type": "object",
+        "properties": {
+            "answers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}, "verdict": {"type": "string", "enum": ["yes", "no"]}, "changes": {"type": "string"}},
+                    "required": ["id", "verdict", "changes"],
+                },
+            },
+        },
+        "required": ["answers"],
+    }
+)
+
+
 class Run(Protocol):
     def __call__(self, argv: list[str], *, input: str | None = None, timeout: float, env: Mapping[str, str] | None = None, cwd: Path | None = None) -> str: ...
 
@@ -517,18 +550,23 @@ def confirmed(second: Verdict, first: Verdict) -> Verdict:
     return Verdict("unsure", first.artifact_phrase or second.artifact_phrase, first.evidence_phrase, second.sentence)
 
 
-def batch(kind: str, prompt: str, schema: str, *, drive: str | None = None, timeout: float = JUDGE_SECONDS, env: Mapping[str, str] | None = None) -> dict | None:
+def batch(kind: str, prompt: str, schema: str, *, drive: str | None = None, timeout: float = JUDGE_SECONDS, env: Mapping[str, str] | None = None, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> dict | None:
     """Ask Sonnet one prompt carrying many questions, answered through `schema`; `None` when the call failed, so every question keeps the answer it had without a judge.
 
     A batch has no yes to ask twice and no unsure for Jev to settle, so it always asks Sonnet once, whatever `LONG_RUNNING_JUDGE` names."""
     try:
-        answer, seconds, cost, tokens = claude(prompt, BATCH_SYSTEM, schema, timeout, env)
+        answer, seconds, cost, tokens = claude(prompt, BATCH_SYSTEM, schema, timeout, env, run=run, checkpoint=checkpoint)
         summary = {"seconds": round(seconds, 1), "cost_usd": round(cost, 4), "tokens": tokens, "asks": 1, "p_yes": None, "error": ""}
     except (subprocess.SubprocessError, OSError, ValueError, KeyError) as exc:
         answer, summary = None, {"seconds": 0.0, "cost_usd": 0.0, "tokens": 0, "asks": 0, "p_yes": None, "error": f"{type(exc).__name__}: {exc}"[:300]}
     if drive:
-        record(drive, kind, "sonnet", "answered" if answer is not None else "error", summary)
+        record(drive, kind, "sonnet", "answered" if answer is not None else "error", summary, env=env, checkpoint=checkpoint)
     return answer
+
+
+def bearing(blocks: dict[str, str], brief: str, **call: object) -> list[str] | None:
+    answered = batch(BEARING_KIND, BEARING_PROMPT.format(answers="\n".join(blocks.values()), brief=brief[:ARTIFACT_CHARS]), BEARING_SCHEMA, timeout=BEARING_SECONDS, **call)
+    return None if answered is None else [verdict["id"] for verdict in answered["answers"] if verdict["verdict"] == "yes" and verdict["id"] in blocks]
 
 
 def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[str, str] | None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> tuple[dict, float, float, int]:
