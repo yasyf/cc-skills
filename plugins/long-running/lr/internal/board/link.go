@@ -43,7 +43,6 @@ type cardBody struct {
 	Reason  string          `json:"reason,omitempty"`
 	Until   string          `json:"until,omitempty"`
 	Ask     int64           `json:"ask,omitempty"`
-	Thread  string          `json:"thread,omitempty"`
 	TapOf   string          `json:"tap_of,omitempty"`
 	TapHead string          `json:"tap_head,omitempty"`
 }
@@ -182,7 +181,7 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 		}
 	}
 	_, _, asks := asksTitle(card.Block)
-	drawn, err := cards.Runner.Run(ctx, presentCommand(card.Block, cards, lane, asks, card.Thread))
+	drawn, err := cards.Runner.Run(ctx, presentCommand(card.Block, cards, lane, asks))
 	if err != nil {
 		return "", err
 	}
@@ -238,16 +237,12 @@ func askingLane(ctx context.Context, cards Cards, lane string, ask int64, card s
 	return asked[0].Lane, nil
 }
 
-func presentCommand(block json.RawMessage, cards Cards, lane string, asks bool, thread string) shell.Command {
+func presentCommand(block json.RawMessage, cards Cards, lane string, asks bool) shell.Command {
 	verb := "update-block"
 	if asks {
 		verb = "ask"
 	}
-	argv := []string{"cc-present", verb, "-", "--session", cards.Session, "--lane", lane}
-	if thread != "" {
-		argv = append(argv, "--slack", thread)
-	}
-	return shell.Command{Argv: argv, Stdin: string(block), Dir: cards.Checkout}
+	return shell.Command{Argv: []string{"cc-present", verb, "-", "--session", cards.Session, "--lane", lane}, Stdin: string(block), Dir: cards.Checkout}
 }
 
 func (l Link) refuse(ctx context.Context, cards Cards, record client.Record, card cardBody, said string) error {

@@ -5,13 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -26,11 +22,8 @@ const (
 	tapCardOnBoard = "on the board"
 	tapCardInSlack = "in slack"
 	tapCardRefused = "refused"
-	repliesDir     = "replies"
 	newVersionWhy  = "a new version replaced it, and its own card asks again"
 )
-
-var pullNumber = regexp.MustCompile(`/([^/]+/[^/]+)/pull/(\d+)`)
 
 type ReadyCards struct {
 	Cards Cards
@@ -86,13 +79,9 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	threads, err := prThreads(filepath.Join(r.Cards.StateDir, repliesDir), r.Repo)
-	if err != nil {
-		return err
-	}
 	inTapOrder(drawable, rows, named)
 	for _, row := range drawable[:min(liveTapCards-live, len(drawable))] {
-		if err := r.draw(ctx, row, shown, threads[row.Number]); err != nil {
+		if err := r.draw(ctx, row, shown); err != nil {
 			return fmt.Errorf("#%d: %w", row.Number, err)
 		}
 	}
@@ -131,7 +120,7 @@ func lanesFreed(row store.ReviewRow, rows []store.ReviewRow) int {
 	return len(lanes)
 }
 
-func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCard, thread string) error {
+func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCard) error {
 	for _, card := range shown {
 		if strings.HasPrefix(card.ID, tapCardPrefix(row.Number)) {
 			if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, "tap-off-"+card.ID, cardBody{Remove: card.ID, Reason: newVersionWhy}); err != nil {
@@ -144,7 +133,7 @@ func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCa
 		return err
 	}
 	pr := fmt.Sprintf("%s#%d", r.Repo, row.Number)
-	if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, tapCardID(row), cardBody{Block: block, Until: KindPR + ":" + pr, Thread: thread, TapOf: pr, TapHead: row.Head}); err != nil {
+	if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, tapCardID(row), cardBody{Block: block, Until: KindPR + ":" + pr, TapOf: pr, TapHead: row.Head}); err != nil {
 		return err
 	}
 	return r.mark(row, tapCardDrawn)
@@ -222,46 +211,4 @@ func (c Cards) tapCards(ctx context.Context) ([]tapCard, error) {
 		return nil, fmt.Errorf("cc-present outcomes: %w", err)
 	}
 	return slices.DeleteFunc(outcomes.Doc.Blocks, func(card tapCard) bool { return card.Type != "card" }), nil
-}
-
-func prThreads(replies, repo string) (map[int]string, error) {
-	paths, err := filepath.Glob(filepath.Join(replies, "*.json"))
-	if err != nil {
-		return nil, err
-	}
-	threads := map[int]string{}
-	newest := map[int]time.Time{}
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		var sent struct {
-			Reply struct {
-				PRs    []string `json:"prs"`
-				Thread string   `json:"thread"`
-			} `json:"reply"`
-			At time.Time `json:"at"`
-		}
-		if err := json.Unmarshal(data, &sent); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-		if sent.Reply.Thread == "" {
-			continue
-		}
-		for _, pr := range sent.Reply.PRs {
-			named := pullNumber.FindStringSubmatch(pr)
-			if named == nil || !strings.EqualFold(named[1], repo) {
-				continue
-			}
-			number, err := strconv.Atoi(named[2])
-			if err != nil {
-				return nil, err
-			}
-			if sent.At.After(newest[number]) {
-				threads[number], newest[number] = sent.Reply.Thread, sent.At
-			}
-		}
-	}
-	return threads, nil
 }

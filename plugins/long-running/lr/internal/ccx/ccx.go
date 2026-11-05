@@ -61,6 +61,7 @@ type Client interface {
 
 type CLI struct {
 	Runner shell.Runner
+	Dir    string
 }
 
 func (c CLI) PRStatus(ctx context.Context, repo string, numbers []int) ([]PRStatus, error) {
@@ -68,7 +69,7 @@ func (c CLI) PRStatus(ctx context.Context, repo string, numbers []int) ([]PRStat
 		return nil, nil
 	}
 	var rows []PRStatus
-	err := c.decode(ctx, "", &rows, append([]string{"vcs", "pr", "status", "--repo", repo, "--json"}, words(numbers)...)...)
+	err := c.decode(ctx, c.Dir, &rows, append([]string{"vcs", "pr", "status", "--repo", repo, "--json"}, words(numbers)...)...)
 	return rows, err
 }
 
@@ -81,7 +82,7 @@ func (c CLI) PRState(ctx context.Context, repo, maxAge string, numbers []int, la
 		args = append(args, "--lane-prefix", prefix)
 	}
 	var state PRState
-	err := c.decode(ctx, "", &state, args...)
+	err := c.decode(ctx, c.Dir, &state, args...)
 	return state, err
 }
 

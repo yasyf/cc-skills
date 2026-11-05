@@ -204,26 +204,21 @@ func TestANewHeadTakesTheOldCardDownAndDrawsItsOwn(t *testing.T) {
 	}
 }
 
-func TestACardDrawsInTheThreadARowAlreadyHas(t *testing.T) {
+func TestATapCardDrawsAtHisDMRootEvenWhenAReplyNamedItsPRInAThread(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)
-	replies := filepath.Join(f.state, repliesDir)
+	replies := filepath.Join(f.state, "replies")
 	if err := os.MkdirAll(replies, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, sent := range map[string]string{
-		"old":   `{"reply":{"prs":["https://github.com/o/r/pull/50287"],"thread":"1.1"},"at":"2026-11-04T10:00:00Z"}`,
-		"new":   `{"reply":{"prs":["https://github.com/o/r/pull/50287"],"thread":"2.2"},"at":"2026-11-04T11:00:00Z"}`,
-		"other": `{"reply":{"prs":["https://github.com/x/y/pull/50287"],"thread":"3.3"},"at":"2026-11-04T12:00:00Z"}`,
-	} {
-		if err := os.WriteFile(filepath.Join(replies, name+".json"), []byte(sent), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	sent := `{"reply":{"prs":["https://github.com/o/r/pull/50287"],"thread":"2.2"},"at":"2026-11-04T11:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(replies, "testers.json"), []byte(sent), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	putRows(t, f, tapRow(50287))
 	readyPass(t, f)
 	f.run(t)
-	if calls := askCalls(f); len(calls) != 1 || !strings.Contains(calls[0], "--slack 2.2") {
-		t.Fatalf("asks = %v, want one in thread 2.2", calls)
+	if calls := askCalls(f); len(calls) != 1 || strings.Contains(calls[0], "--slack") {
+		t.Fatalf("asks = %v, want one at the root, naming no thread", calls)
 	}
 }

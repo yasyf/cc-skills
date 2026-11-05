@@ -73,7 +73,7 @@ func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout
 	if err != nil {
 		return err
 	}
-	heads, err := currentHeads(ctx, a.CCX, cfg.Repo, numbers, flags.head)
+	heads, err := currentHeads(ctx, a.CCXFrom(cfg.Checkout), cfg.Repo, numbers, flags.head)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards}
 	port, claimed := gates.PortAt(claim, records)
 	if claimed {
-		sources, err := a.CCX.PRStatus(ctx, cfg.Repo, []int{port.Source})
+		sources, err := a.CCXFrom(cfg.Checkout).PRStatus(ctx, cfg.Repo, []int{port.Source})
 		if err != nil {
 			return false, err
 		}

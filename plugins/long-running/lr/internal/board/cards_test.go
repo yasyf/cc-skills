@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -308,5 +310,26 @@ func TestSweepKeepsAnAnsweredCardWhoseAnswerHasNoCcnRow(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "PROBLEM card-unrowed: the owner's answer on card-unrowed-choice has no ccn answer row") {
 		t.Fatalf("out = %s", out.String())
+	}
+}
+
+type launchdShell struct{ checkout string }
+
+func (s launchdShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	if c.Dir != s.checkout {
+		return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: "ccx: pr status: / is not a checkout of Forge-AI/monorepo"}
+	}
+	return shell.Result{Stdout: `[{"number":50129,"state":"OPEN"}]`}, nil
+}
+
+func TestTheSweepReadsAPRCardsEndFromTheDrivesCheckoutUnderLaunchd(t *testing.T) {
+	runner := launchdShell{checkout: "/co"}
+	cards := CardsOf(&app.App{Runner: runner, CCX: ccx.CLI{Runner: runner}, Now: time.Now}, drive.Entry{Checkout: "/co", StateDir: t.TempDir()}, "s1", nil)
+	facts, err := cards.facts(context.Background(), map[string]End{"card-tap-50129-655dbb7": {Kind: KindPR, Value: "Forge-AI/monorepo#50129"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts.PRs["Forge-AI/monorepo#50129"] != "OPEN" {
+		t.Fatalf("PRs = %v, want #50129 read open", facts.PRs)
 	}
 }
