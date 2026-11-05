@@ -305,7 +305,7 @@ def post_owner_reply(evt: BaseHookEvent, dm: dict) -> None:
 
 
 def capture(prompt: dict) -> dict:
-    kept = {key: prompt[key] for key in ("relayed_from", "answer") if key in prompt}
+    kept = {key: prompt[key] for key in ("relayed_from", "answer", "ts", "thread", "channel") if key in prompt}
     return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])} | kept
 
 
