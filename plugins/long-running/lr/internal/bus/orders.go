@@ -43,6 +43,7 @@ var (
 	rowValues      = map[string]string{"approved": tappedValue, "rejected": heldValue, "cleared": heldValue}
 	approvalValues = map[string]string{"approved": tappedValue, "rejected": heldValue}
 	pickedLabel    = regexp.MustCompile(`picked “([^”]*)”`)
+	typedLabel     = regexp.MustCompile(`^Owner: "([^"]*)"`)
 	landLabel      = regexp.MustCompile(`(?i)^\W*(?:yes\W+)?(?:land|merge|approve|ship)\b`)
 	holdLabel      = regexp.MustCompile(`(?i)^\W*hold\b`)
 	namedPR        = regexp.MustCompile(`([\w./-]*)#(\d+)\b`)
@@ -176,6 +177,10 @@ func ReadsAsLand(label string) bool {
 
 func cardValue(attrs map[string]string, text string) string {
 	switch attrs["event"] {
+	case "":
+		if said := typedLabel.FindStringSubmatch(text); said != nil && landLabel.MatchString(said[1]) {
+			return tappedValue
+		}
 	case "decision.created":
 		return approvalValues[attrs["verdict"]]
 	case "choice.selected":

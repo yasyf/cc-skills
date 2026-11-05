@@ -54,3 +54,26 @@ func TestALabelLessPickEscalatesUnlessItIsASlackPermissionAnswer(t *testing.T) {
 		}
 	}
 }
+
+func TestHisTypedAnswerToACardOrdersOnlyWhenItIsALandWordNamingOnePR(t *testing.T) {
+	for _, tt := range []struct {
+		name, text string
+		pr         int
+		ordered    bool
+	}{
+		{"the option's own label", `Owner: "Land this now" #51241`, 51241, true},
+		{"a label that is not a land word", `Owner: "One call per 8 segments" #50807`, 0, false},
+		{"a label that only mentions landing", `Owner: "Wait, do not land" #51241`, 0, false},
+		{"a land word naming no PR", `Owner: "Land this now"`, 0, false},
+		{"a land word naming two PRs", `Owner: "Land this now" #51241 #51242`, 0, false},
+		{"a land word on another repository's PR", `Owner: "Land this now" other/repo#51241`, 0, false},
+		{"words with no quoted label", "Owner in thread: merge #51241", 0, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ordered := bus.OrderOf(legacyRecord(t, "owner", "owner-relay", tt.text, nil, nil), repo)
+			if ordered != tt.ordered || ordered && (got.PR != tt.pr || got.Head != "" || got.Value != "tapped") {
+				t.Fatalf("OrderOf = %+v, %v", got, ordered)
+			}
+		})
+	}
+}
