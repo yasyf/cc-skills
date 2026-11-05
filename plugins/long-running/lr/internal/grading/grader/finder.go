@@ -181,13 +181,13 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if spec.Prior != nil && NamesHead(spec.Prior.Head, head) {
 		return s.replayed(view, head, nil)
 	}
-	var slicing *future[string]
-	if len(s.earlierHeads()) == 0 {
-		slicing = s.sliceRows(head, view.BaseRefName)
-	}
 	base, trunk, err := s.checkedOut(view)
 	if err != nil {
 		return FinderOutcome{}, err
+	}
+	var slicing *future[string]
+	if len(s.earlierHeads()) == 0 {
+		slicing = s.sliceRows(head, view.BaseRefName)
 	}
 	last, err := s.reviewed()
 	if err != nil {

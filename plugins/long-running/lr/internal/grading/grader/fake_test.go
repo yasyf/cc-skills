@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -190,12 +191,29 @@ func (f *fakeShell) claude(argv []string) (string, error) {
 	}
 	answer := f.replies[0]
 	f.replies = f.replies[1:]
+	if exit, failed := answer.(*ExitError); failed {
+		return "", exit
+	}
 	data, err := json.Marshal(answer)
 	if err != nil {
 		return "", err
 	}
 	out, err := json.Marshal(map[string]string{"result": "```json\n" + string(data) + "\n```"})
 	return string(out), err
+}
+
+func (f *fakeShell) refuseSliceBeforeFetch(t *testing.T) {
+	t.Helper()
+	var fetched atomic.Bool
+	f.before = func(command Command) {
+		if command.Argv[0] == "git" && command.Argv[1] == "fetch" {
+			time.Sleep(50 * time.Millisecond)
+			fetched.Store(true)
+		}
+		if command.Argv[0] == rulingsPath && command.Argv[1] == "slice" && !fetched.Load() {
+			t.Error("the slice read the checkout before the head's fetch landed it")
+		}
+	}
 }
 
 func (f *fakeShell) readers() [][]string {
