@@ -26,7 +26,7 @@ var (
 	registerFile = regexp.MustCompile(`^design-docs/[^/]+/registers\.json$`)
 	onePagerFile = regexp.MustCompile(`^one-pagers/[^/]+/index\.html$`)
 	stillOpen    = regexp.MustCompile(`(?i)\b(?:choice|pick) is still open\b`)
-	onePagerAsk  = regexp.MustCompile(`(?i)\b(?:owner pick|your pick|your call|for you to pick)\b`)
+	onePagerAsk  = regexp.MustCompile(`(?i)\b(?:owner pick|your call|for you to pick)\b`)
 	namedCard    = regexp.MustCompile(`\bcard-[a-z0-9-]+`)
 	htmlTag      = regexp.MustCompile(`<[^>]*>`)
 )

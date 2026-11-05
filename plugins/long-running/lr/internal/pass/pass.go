@@ -1,6 +1,7 @@
 package pass
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -489,15 +490,29 @@ func stuckBecause(s *store.Store, base machine.Facts, now time.Time) (string, er
 	if err != nil {
 		return "", err
 	}
+	row := rowWaitsOn(base)
 	if len(open) == 0 {
+		if row != "" {
+			return "it waits on " + row, nil
+		}
 		return "nobody drives it", nil
 	}
 	for _, item := range open {
 		if !now.Before(item.Deadline) {
-			return fmt.Sprintf("its %s waits on the %s past its deadline", item.Kind, item.Mover), nil
+			return fmt.Sprintf("its %s waits on %s past its deadline", item.Kind, cmp.Or(row, "the "+string(item.Mover))), nil
 		}
 	}
 	return "", nil
+}
+
+func rowWaitsOn(base machine.Facts) string {
+	switch {
+	case base.Hold != "" && !base.HoldAwaitsTap:
+		return fmt.Sprintf("%s's hold #%d", base.Hold, base.HoldSeq)
+	case !base.RowClear():
+		return "what its row names: " + base.RowWait
+	}
+	return ""
 }
 
 func escalateUngraded(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, route Route, owner Owner, out *Outcome) error {

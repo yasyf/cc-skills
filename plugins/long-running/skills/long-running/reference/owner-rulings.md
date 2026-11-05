@@ -183,7 +183,7 @@ lr ask-owner --title '<question>?' --background '<what he needs to decide it>' -
 - A correction card cannot reorder a settled owner order: fixes go on top of it, and the gap is a one-line risk.
 - A tapped PR never returns to the board for a restack. A re-ask is only for a named behavior change, and its first line names what changed.
 - A pick of a mechanism does not authorize reading a secret store. Put the key step to the owner on the first card instead of briefing a lane to read Keychain keys.
-- The supervisor's choices check lists what misses this path: a `CARD` record open past an hour, a waiting card with no Slack copy past an hour, an owner item in a recent design doc's open list naming no card, prose reading as the owner's choice, and a lane blocked on the owner's pick with nothing built. It sends each once, to `board-refresher` for a `CARD:` ask or to the lane for prose and parking, as warnings that never block. A read that fails says nothing.
+- The supervisor's choices check lists what misses this path: a `CARD` record open past an hour, a waiting card with no Slack copy past an hour, an owner item in a recent design doc's open list naming no card (a one-pager's `your pick` line records his answer, so it is never an open item; a doc reaches the desk again only when it names an item it has not named before), prose reading as the owner's choice, and a lane blocked on the owner's pick with nothing built. It sends each once, to `board-refresher` for a `CARD:` ask or to the lane for prose and parking, as warnings that never block. A read that fails says nothing.
 
 ### Before a card is drawn
 
@@ -212,7 +212,7 @@ Settle a route, grade a timer or state a design count only from the owner's word
 
 ## Audit contracts and relays with `judge_watch.py`
 
-Contracts, read-backs and `DECIDE` records never narrow an owner row or stretch it past its purpose. The relay runs `judge_watch.py` once every minute. It calls the drive's judge asynchronously after each post, so writers never block.
+Contracts, read-backs and `DECIDE` records never narrow an owner row or stretch it past its purpose. The relay runs `judge_watch.py` once every minute. It calls the drive's judge asynchronously after each post, so writers never block. Each artifact is judged once: a pass saves its place after each record it acts on, so a pass the supervisor stops at its 15-minute limit resumes after the last record it judged.
 
 | Artifact | What `judge_watch.py` asks the judge |
 | --- | --- |

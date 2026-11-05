@@ -277,11 +277,11 @@ func docsFake(now time.Time, register string) *shelltest.Fake {
 	fake.Reply("design-docs/x/registers.json\ndesign-docs/x/index.html\ndesign-docs/old/registers.json\none-pagers/y/index.html\n", "git", "-C", "/docs", "ls-tree")
 	fake.Reply(register, "git", "-C", "/docs", "show", ref+"design-docs/x/registers.json")
 	fake.Reply(fmt.Sprintf(`{"meta":{"date":%q},"open":[{"g":"owner","id":"Q9","t":"Long gone"}]}`, now.Add(-60*24*time.Hour).Format(time.DateOnly)), "git", "-C", "/docs", "show", ref+"design-docs/old/registers.json")
-	fake.Reply("<p>nothing here</p>\n<p>Your pick: keep it or drop it</p>\n<p>Your call on card-z</p>", "git", "-C", "/docs", "show", ref+"one-pagers/y/index.html")
+	fake.Reply("<p>nothing here</p>\n<p>Your pick: keep it</p>\n<p>Your call: keep it or drop it</p>\n<p>Your call on card-z</p>", "git", "-C", "/docs", "show", ref+"one-pagers/y/index.html")
 	return fake
 }
 
-func TestADesignDocsOpenChoiceWithNoCardReachesTheDeskOnceUntilTheListChanges(t *testing.T) {
+func TestADesignDocsOpenChoiceWithNoCardReachesTheDeskOnceAndOnlyANewOneSaysMore(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	now := time.Now()
 	register := fmt.Sprintf(`{"meta":{"date":%q},
@@ -297,20 +297,28 @@ func TestADesignDocsOpenChoiceWithNoCardReachesTheDeskOnceUntilTheListChanges(t 
 		t.Fatalf("said %+v", records)
 	}
 	text := records[0].Text
-	if !strings.Contains(text, "x (Q1, DQ1)") || !strings.Contains(text, "y (Your pick: keep it or drop it.)") {
+	if !strings.Contains(text, "x (Q1, DQ1)") || !strings.Contains(text, "y (Your call: keep it or drop it.)") {
 		t.Fatalf("said %q", text)
 	}
-	for _, closed := range []string{"Q2", "Q3", "V1", "DQ2", "DQ3", "Q9", "card-z"} {
+	for _, closed := range []string{"Q2", "Q3", "V1", "DQ2", "DQ3", "Q9", "card-z", "Your pick"} {
 		if strings.Contains(text, closed) {
 			t.Errorf("named %s in %q", closed, text)
 		}
 	}
 
-	moved := strings.ReplaceAll(register, `"id":"Q1"`, `"id":"Q7"`)
-	check.Docs = &choices.Docs{Runner: docsFake(now, moved), Dir: "/docs"}
+	closedOne := strings.ReplaceAll(register, `"t":"Pick the route"`, `"t":"Pick the route","s":"resolved"`)
+	check.Docs = &choices.Docs{Runner: docsFake(now, closedOne), Dir: "/docs"}
 	passTwice(t, check)
-	if records := said(t); len(records) != 2 {
-		t.Fatalf("said %d records after the list changed, want two", len(records))
+	if records := said(t); len(records) != 1 {
+		t.Fatalf("said %d records after a choice closed, want the first alone", len(records))
+	}
+
+	added := strings.ReplaceAll(register, `{"g":"spikes"`, `{"g":"owner","id":"Q7","t":"Pick the store"},{"g":"spikes"`)
+	check.Docs = &choices.Docs{Runner: docsFake(now, added), Dir: "/docs"}
+	passTwice(t, check)
+	records = said(t)
+	if len(records) != 2 || !strings.Contains(records[1].Text, "x (Q7)") || strings.Contains(records[1].Text, "Q1") || strings.Contains(records[1].Text, "keep it") {
+		t.Fatalf("said %+v after a choice was added, want a second record naming Q7 alone", records)
 	}
 }
 

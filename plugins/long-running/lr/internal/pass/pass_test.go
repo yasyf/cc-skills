@@ -829,6 +829,34 @@ func TestAStackBasePastItsDeadlineTellsRootOnceWhatItHolds(t *testing.T) {
 	}
 }
 
+func TestAStackBaseUnderAHoldOrARowWaitNamesThatWaitAndNoLane(t *testing.T) {
+	for name, tc := range map[string]struct {
+		wait  func(f *machine.Facts)
+		cause string
+	}{
+		"held by root":  {func(f *machine.Facts) { f.Hold, f.HoldSeq = machine.MoverRoot, 450329 }, "its fix-red waits on root's hold #450329 past its deadline"},
+		"row waits":     {func(f *machine.Facts) { f.RowWait = "his card card-49305-rollback-stale" }, "its fix-red waits on what its row names: his card card-49305-rollback-stale past its deadline"},
+		"neither, lane": {func(*machine.Facts) {}, "its fix-red waits on the lane past its deadline"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			below := facts(45469, func(f *machine.Facts) { f.Branch, f.CI = "below", machine.CIFailure; tc.wait(f) })
+			above := facts(45470, func(f *machine.Facts) { f.Branch, f.Base = "above", "below" })
+			if _, err := s.WantLane(store.Lane{Name: below.Lane, State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
+
+			run(t, s, r, t0, all, below, above)
+			late := run(t, s, r, t0.Add(machine.LaneClock), all, below, above)
+
+			want := []pass.Escalated{{Subject: "org/repo#45469", Cause: "stack base stuck; " + tc.cause + " at e718a7434f and holds #45470 above it", To: "root"}}
+			if got := toRoot(late); !reflect.DeepEqual(got, want) {
+				t.Fatalf("escalated = %+v", got)
+			}
+		})
+	}
+}
+
 func TestAStackBaseNobodyDrivesTellsRootWhatItHolds(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	below := facts(45469, func(f *machine.Facts) { f.Branch, f.Lane, f.Tap = "below", "", "" })

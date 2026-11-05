@@ -191,3 +191,38 @@ def test_the_job_on_the_sprite_writes_the_verdict_and_summary(tmp_path, monkeypa
     written = json.loads((tmp_path / "result.json").read_text())
     assert written["verdict"]["verdict"] == "no" and written["summary"]["asks"] == 0
 
+
+def test_a_pass_stopped_partway_resumes_after_the_last_record_it_judged_and_flags_nothing_twice(watch, monkeypatch):
+    """Coordinator #458576: judge-watch re-flagged relays #374518 and #374519 every pass, since a pass the supervisor stopped at its time limit never saved its cursor."""
+    relays = [{"seq": seq, "lane": "root", "kind": "decide", "text": "lane-a: one process per key. rule/a201ee6", "refs": {}} for seq in (101, 102, 103)]
+    stops = [TimeoutError("the supervisor stopped the pass")]
+
+    def verdict(*args, subject, **kwargs):
+        if subject.startswith("cci:103") and stops:
+            raise stops.pop()
+        return MISREAD
+
+    monkeypatch.setattr(judge_watch.judge, "judge", verdict)
+    monkeypatch.setattr(judge_watch.judge, "said", lambda row, state, env=None: [{"at": row["at"], "words": row["words"], "answered": None}])
+    monkeypatch.setattr(judge_watch.cci, "records", lambda cli, drive, *filters, since=0: [record for record in relays if record["seq"] > int(since)] if str(since).isdigit() else relays)
+
+    with pytest.raises(TimeoutError):
+        Scripted(watch, relays, []).run()
+    resumed = Scripted(watch, relays, [])
+    resumed.run()
+
+    assert json.loads(watch.state.read_text())["cursor"] == 103
+    assert [flag["re"] for flag in posted(resumed)] == ["103"]
+
+
+def test_an_answer_on_a_relays_flag_from_the_appeals_lane_reaches_root_as_its_dispute(watch, run):
+    """Coordinator #458576: grader-appeals answered judge-watch's flags on root's relays, and judge-watch read nothing, since it counted a reply only from the relay's writer."""
+    first = run(Scripted(watch, [{"seq": 103, "lane": "root", "kind": "decide", "text": "lane-a: one process per key. rule/a201ee6", "refs": {}}], [MISREAD]))
+    flag_seq = next(iter(first.saved.flags))
+    appeal = {"seq": 300, "lane": "grader-appeals-1", "kind": "answer", "re": int(flag_seq), "text": "The override stands on his words in 28f6ade.", "refs": {}}
+
+    [ask] = posted(run(Scripted(watch, [appeal], [])))
+
+    assert ask["kind"] == "ask" and ask["to"] == ["root"] and ask["re"] == "300"
+    card = (watch.drive_state / "judge" / "disputes" / f"{flag_seq}.md").read_text()
+    assert f"The writer's reading, grader-appeals-1: {appeal['text']}" in card
