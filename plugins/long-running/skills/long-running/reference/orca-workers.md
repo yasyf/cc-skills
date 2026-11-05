@@ -86,7 +86,9 @@ orca worktree set --worktree "path:<wt>" --parent-worktree "path:<coordinator wo
 Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
 
 - The coordinator runs Fable 5.1 on the Mac. Ordinary Claude implementation workers default to Opus, and subdesks use Opus or Sonnet according to the routing table.
-- Beyond the coordinator, Fable is for exceptional, highly sensitive local implementation only; auth, migrations, concurrency, or error-prone code alone do not qualify. Never use Fable as a general fallback or set `fallbackModel`.
+- Beyond the coordinator, Fable runs only where the owner named it for the work. Never use Fable as a general fallback or set `fallbackModel`.
+- Every lane starts at effort `high`. A Fable or astra model, or effort `xhigh` or `max`, starts only on the owner's words for that work: the brief's `Owner pick: owner:m<row>` line, which `lr launch lane --owner-pick owner:m<row>` writes, and `lr launch claude --owner-pick` for a raw start. `lr launch` checks it on every path, posted, Mac, desk-runner and Sprite, and refuses the launch otherwise with the exact fix. Incident lanes keep `xhigh` on their own tier rule.
+- Every Claude session `lr launch` starts, root and its subagents included, runs with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=333000` and compacts at 300k tokens; a codex lane gets `-c model_auto_compact_token_limit=300000`, written to the Sprite's `config.toml` before its worker starts. A raw `claude` start in a drive session is rewritten to `lr launch claude`, which sets the same. The communicator's own window is exempt. A running window keeps its effort and limit until it is relaunched.
 - Visual design goes to gpt-6.1-sol through codex, with a Fable pass beside it on a page redesign; "A design lane's part" in [orca-lane-brief.md](orca-lane-brief.md#a-design-lanes-part) has the rule.
 
 | Alias | Model id |
@@ -97,14 +99,14 @@ Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
 | `sol`, `codex` | `gpt-6.1-sol` on Orca's codex agent, standard tier |
 | `incident` | `gpt-6.1-sol` in its own terminal, fast tier |
 | `incident-opus` | `claude-opus-5-5` in Claude fast mode, the incident fallback |
-| `astra` | `gpt-6-astra` on Orca's codex agent, exceptional cases only |
+| `astra` | `gpt-6-astra` on Orca's codex agent, only on the owner's pick |
 
 ### Standard Codex workers
 
-A lane routed to Codex runs Codex directly in its own terminal, never as a Claude worker calling the codex skill. `lr launch start <lane> sol xhigh <brief>`, where `codex` is the same alias, creates the worktree and a terminal running this command, then passes `--terminal` to `worker-start`:
+A lane routed to Codex runs Codex directly in its own terminal, never as a Claude worker calling the codex skill. `lr launch start <lane> sol high <brief>`, where `codex` is the same alias, creates the worktree and a terminal running this command, then passes `--terminal` to `worker-start`:
 
 ```sh
-codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_reasoning_effort=xhigh <codexLaneConfig> -c mcp_servers={} -c mcp_servers.<name>.enabled=false ...
+codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_reasoning_effort=high -c model_auto_compact_token_limit=300000 <codexLaneConfig> -c mcp_servers={} -c mcp_servers.<name>.enabled=false ...
 ```
 
 `worker-start --agent codex` takes no launch flags, so it could not carry this list. `codexLaneConfig` in `lr/internal/orca/lane_env.go` turns off plugins, the remote plugin catalog, memories, apps, skill search, analytics, feedback, `notify`, history, and TUI notifications and animations. Every server in `config.toml` is off except `datadog`, `sentry`, and whatever `ORCA_LAUNCH_CODEX_MCP` names.

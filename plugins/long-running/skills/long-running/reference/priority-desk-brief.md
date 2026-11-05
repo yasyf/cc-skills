@@ -29,7 +29,7 @@
 
 **P4. Dispatch unclaimed work at the PR deadline.**
 
-- Pushed heads with no PR after 10 minutes: check the owning lane's active work, then dispatch `<lane>-submit` (sonnet xhigh, in its own worktree). It does PR mechanics only and submits those exact heads as one linear stack.
+- Pushed heads with no PR after 10 minutes: check the owning lane's active work, then dispatch `<lane>-submit` (sonnet high, in its own worktree). It does PR mechanics only and submits those exact heads as one linear stack.
 - Unbuilt owed item with no PR after 15 minutes: dispatch a separate implementation lane only when no live lane is working on it.
 - Keep the original session and never duplicate its active work.
 
@@ -132,7 +132,7 @@ Do, in this order, every iteration:
      - For pushed heads with no PR, tell the lane to submit those exact heads
        as one linear stack in this turn and report the numbers. If it has not
        opened them within 10 minutes, check the lane's active work before launching
-       <lane>-submit, sonnet xhigh, in its own worktree. It does PR mechanics only
+       <lane>-submit, sonnet high, in its own worktree. It does PR mechanics only
        and submits those heads; never duplicate an active submission.
      - Give a named item a 15-minute PR deadline. If it is still unbuilt with
        no PR at that deadline, launch a separate implementation lane in its own

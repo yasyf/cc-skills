@@ -85,7 +85,7 @@ Read only the row you are doing. Each file states its rules in full.
 ## Hooks and refusals
 
 - Hooks warn. They block only on trust: a merge without the owner's approval, a change to who approves landings, a revert without his word, a runner or desk started from the communicator, a lane driving his signed-in browser on production, edits to the installed hook files and the session-protection guards. A failed read only warns; `tests/test_fail_open.py` enforces it and lists the exceptions, and the Slack permission hook fails open ([slack-lane-brief.md](reference/slack-lane-brief.md)).
-- A hook that blocks your work gets a fix lane the turn it blocks you, and you keep working on what it does not block. The blocked session launches it, whether lane, desk, coordinator or communicator, with no ask to `root` and no meta lane: `lr launch lane hook-fix-<hook> opus xhigh <brief> --drive <drive> --lane <you>`, unless `lr lanes hook-fix-<hook>` shows one live.
+- A hook that blocks your work gets a fix lane the turn it blocks you, and you keep working on what it does not block. The blocked session launches it, whether lane, desk, coordinator or communicator, with no ask to `root` and no meta lane: `lr launch lane hook-fix-<hook> opus high <brief> --drive <drive> --lane <you>`, unless `lr lanes hook-fix-<hook>` shows one live.
 - Hooks live in `plugins/long-running/capt-hook/hooks/` in yasyf/cc-skills and in `captain_hook/builtin_packs/` in yasyf/captain-hook, and every change follows `captain-hook:authoring-hooks`, whose lint and test run in that repo's CI. The fix lane fixes the hook's real defect with a regression test, ships it, installs it where the blocked session runs, and its proof is the refused call going through ([orca-lane-brief.md](reference/orca-lane-brief.md#who-spawns-asks-and-reads)).
 - Fixing is not routing around: while a refusal stands nobody runs the blocked thing through a wrapper, `cc-sudo` or a script. The owner's safety rules stay as written: merge, Slack, load tests and the process guard. A hook guarding one of them that misfires gets its misfire fixed with a regression test, and the rule itself changes only on his word. The one hook disabled before its fix is one that blocks the communicator's every stop: comment it out in the pack source with a TODO naming its fix lane, in a PR merged at once, since an edit to the installed cache lasts only until the next install, which this Mac runs within minutes.
 - A hook that blocks nothing and could be better goes to the meta lane as one `cci post --kind note --to meta-desk`. Any other tool's refusal goes to the meta lane the same turn and the work proceeds on its hand path. No refusal is an excuse or a question for the owner, and neither is the platform: a record that blames a Sprite, a host or a shared tool for a wait or a failure names the lane fixing its root cause and that fix's clock, and with no such lane it asks the coordinator for one that turn. Replacing a machine is a stopgap and never the answer.
@@ -328,7 +328,7 @@ every desk run on Sprites. A brief whose duty the drive keeps for good carries `
   subagents and short read lanes, under an hour and with no `Standing:` line.
 - A lane never spawns with `Agent`; it writes the brief and posts
   `cci post --kind ask --to root --text 'spawn <name> brief=<path> model=<model>'`. The meta lane launches
-  its own implementers with `lr launch lane <name> opus xhigh <brief> --lane meta`.
+  its own implementers with `lr launch lane <name> opus high <brief> --lane meta`.
 - A question that needs a search goes to `lr ask-lane '<question>'`, with `--mac` when it needs Slack or a
   session transcript, which no Sprite has. A question that takes more than a few reads of transcripts,
   records or logs goes through `lr bulk read` (the `bulk-read` skill), so no window reads the corpus itself.
@@ -398,7 +398,7 @@ lr launch chores <state dir>/chores/brief.md
 | Session | Lane | Model and effort | Brief |
 |---|---|---|---|
 | `coordinator` | `root` | `fable high` | [coordinator-brief.md](reference/coordinator-brief.md) |
-| `meta` | `meta` | `opus xhigh` | [meta-lane-brief.md](reference/meta-lane-brief.md) |
+| `meta` | `meta` | `opus high` | [meta-lane-brief.md](reference/meta-lane-brief.md) |
 | `signal` | `signal` | `sonnet low` | [signal-lane-brief.md](reference/signal-lane-brief.md) |
 | `chores` | `chores` | `sonnet low` | [chores-lane-brief.md](reference/chores-lane-brief.md) |
 

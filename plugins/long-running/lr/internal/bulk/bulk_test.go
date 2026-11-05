@@ -166,7 +166,7 @@ func TestStartLaunchesOnlyTheSonnetReader(t *testing.T) {
 	if err := job.Start(context.Background(), h.send); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"orca-desk: launch " + testReader + " sonnet xhigh brief=" + job.brief(testReader)}
+	want := []string{"orca-desk: launch " + testReader + " sonnet high brief=" + job.brief(testReader)}
 	if got := h.postTexts(); !slices.Equal(got, want) {
 		t.Fatalf("posted %q, want %q", got, want)
 	}
@@ -310,7 +310,7 @@ func TestStartTriageLaunchesOpusFromCitedFindings(t *testing.T) {
 	if err := job.StartTriage(context.Background(), h.send); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"orca-desk: launch " + testTriage + " opus xhigh brief=" + job.brief(testTriage)}
+	want := []string{"orca-desk: launch " + testTriage + " opus high brief=" + job.brief(testTriage)}
 	if got := h.postTexts(); !slices.Equal(got, want) {
 		t.Fatalf("posted %q, want %q", got, want)
 	}

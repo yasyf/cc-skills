@@ -28,6 +28,7 @@ func LaunchCommand(a *app.App) *cobra.Command {
 	cmd.AddCommand(
 		startCommand(a),
 		workerCommand(a),
+		claudeCommand(),
 		laneCommand(a),
 		incidentCommand(a),
 		RelayCommand(a),
@@ -118,7 +119,7 @@ func laneCommand(a *app.App) *cobra.Command {
 
 Exit 0 when the lane launched, or when no verdict came within --timeout-seconds while the runner is alive, since its verdict then arrives as a desk-runner record; 1 when the runner refused it or a check did; and 2 when no verdict came and the runner has posted no orca alive record in five minutes. A drive whose orca runner posted no orca alive record in five minutes posts nothing.
 
-With --body, a file or - for stdin, the launch writes the brief itself, to <state dir>/<lane>/brief.md, from --title, the register slice line, --scale, --ccx or --place, the --contract file, the body, the posting lane's <state dir>/<lane>/brief-lines.txt and an Owner orders line naming each m<row> the body cites; it takes no BRIEF, and the model and effort default to opus xhigh. The runner refreshes the register slice at launch.`,
+With --body, a file or - for stdin, the launch writes the brief itself, to <state dir>/<lane>/brief.md, from --title, the register slice line, --scale, --ccx or --place, the --contract file, the body, the posting lane's <state dir>/<lane>/brief-lines.txt and an Owner orders line naming each m<row> the body cites; it takes no BRIEF, and the model and effort default to opus high. A Fable or astra model, or effort xhigh or max, needs --owner-pick naming the owner row whose words asked for it, which writes the brief's Owner pick line. The runner refreshes the register slice at launch.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if written.BodyFile == "" {
 				return cobra.ExactArgs(4)(cmd, args)
@@ -161,6 +162,7 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 	cmd.Flags().StringVar(&written.BodyFile, "body", "", "write the brief from this file, or - for stdin, instead of taking BRIEF")
 	cmd.Flags().StringVar(&model, "model", defaultLaneModel, "with --body, the lane's model")
 	cmd.Flags().StringVar(&effort, "effort", defaultLaneEffort, "with --body, the lane's effort")
+	cmd.Flags().StringVar(&written.OwnerPick, "owner-pick", "", "with --body, owner:m<row>, the owner row whose words asked for a Fable or astra model or an effort above high")
 	cmd.Flags().StringVar(&written.Contract, "contract", "", "with --body, a file the brief carries above the body, such as a desk's helper contract")
 	cmd.Flags().StringVar(&written.Scale, "scale", "medium", "with --body, the brief's Scale line")
 	cmd.Flags().StringVar(&written.Place, "place", placeLocal, "with --body, where the lane runs: local, on this Mac, or remote")

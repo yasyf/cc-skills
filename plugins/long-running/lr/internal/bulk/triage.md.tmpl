@@ -30,7 +30,7 @@ Read `{{.Findings}}` in full. Do not read the corpus again. Check a claim at its
    {"lane": "<name>", "deliverable": "<what exists when it is done>", "due": "<RFC3339 time>", "model": "opus", "effort": "high", "brief": "<absolute path>"}
    ```
 
-   Route by the work: `opus` `high` for a bounded change, `opus` `xhigh` for a decision-dense one, `sol` `xhigh` for a sweep or a diagnosis. An empty array is right when nothing needs a lane.
+   Route by the work: `opus` `high` for a change, `sol` `high` for a sweep or a diagnosis; `xhigh` and Fable need the owner's words. An empty array is right when nothing needs a lane.
 
 3. **The one-pager**, `{{.OnePager}}`: `# Title`, then one paragraph that leads with the answer, then `##` sections. In plain words for someone who has not read the findings: what was asked, what was found, each lane and what it changes for a user, and what needs no work. Each sentence saying why something happened cites, in it or the sentence before, the record, PR, build, `file:line`, monitor, notebook or ccn id that proves it, or opens with `Unproven:`; `explain` refuses the page otherwise. Publish it:
 

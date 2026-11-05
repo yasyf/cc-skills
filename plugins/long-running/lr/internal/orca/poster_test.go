@@ -167,7 +167,7 @@ func TestTwoPostersAtOnceNeverShareAKey(t *testing.T) {
 		racing.Go(func() {
 			poster := f.poster
 			poster.Out = outs[i]
-			label, err := poster.Launch(context.Background(), Order{Lane: lane, Model: "sol", Effort: "xhigh", Brief: brief}, time.Minute)
+			label, err := poster.Launch(context.Background(), Order{Lane: lane, Model: "sol", Effort: "high", Brief: brief}, time.Minute)
 			if err != nil {
 				t.Error(err)
 			}
@@ -228,12 +228,12 @@ func TestALaunchPostsAnAddressedLineWithNoClockAndPrintsItsVerdict(t *testing.T)
 	f := newPosterFixture(t)
 	brief := f.brief(t, "brief-of-a.md", "work\n"+briefLines)
 	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
-	label, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief, Now: true}, time.Minute)
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "high", Brief: brief, Now: true}, time.Minute)
 	if err != nil || label != verdictLaunched {
 		t.Fatal(label, err)
 	}
 	post := f.bus.posts[0]
-	if post.Text != "orca-desk: launch new-lane NOW opus xhigh brief="+brief || !slices.Equal(post.To, []string{deskLane}) || post.Kind != kindGo || post.Topic != "new-lane" || post.Drive != "prog" || post.Lane != coordinatorLane {
+	if post.Text != "orca-desk: launch new-lane NOW opus high brief="+brief || !slices.Equal(post.To, []string{deskLane}) || post.Kind != kindGo || post.Topic != "new-lane" || post.Drive != "prog" || post.Lane != coordinatorLane {
 		t.Fatalf("%+v", post)
 	}
 	if !strings.Contains(f.out.String(), "new-lane R102 LAUNCHED R102 new-lane: dispatch ctx_l terminal term_l\n") {
@@ -294,7 +294,7 @@ func TestALaunchWarnsOnABriefWithASecondCCXLine(t *testing.T) {
 			f := newPosterFixture(t)
 			brief := f.brief(t, "brief-of-a.md", "Register slice: lane=new-lane step=all\nScale: no N\n"+tt.ccx)
 			f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
-			if _, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief, Now: true}, time.Minute); err != nil {
+			if _, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "high", Brief: brief, Now: true}, time.Minute); err != nil {
 				t.Fatal(err)
 			}
 			if got := strings.Contains(f.out.String(), "WARN brief "+brief+" has 2 `ccx:` lines"); got != tt.warned {
@@ -308,7 +308,7 @@ func TestALaunchTheRunnerRefusesReturnsItsVerdict(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "b.md", "work\n"+briefLines)
 	f.bus.verdicts["R102"] = "LAUNCH-FAILED desk-lane-%[1]s/R102 %[1]s: lr launch start exited 1"
-	label, err := f.poster.Launch(context.Background(), Order{Lane: "inc-x-fix", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "inc-x-fix", Model: "opus", Effort: "high", Brief: brief}, time.Minute)
 	if err != nil || label != "LAUNCH-FAILED" {
 		t.Fatal(label, err)
 	}
@@ -321,7 +321,7 @@ func TestADuplicateLaunchIsAVerdictThatFails(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "b.md", "work\n"+briefLines)
 	f.bus.verdicts["R102"] = "LAUNCH-DUPLICATE R102 %[1]s: lane-b already holds this work; relay to it"
-	err := f.poster.LaunchOrExit(context.Background(), Order{Lane: "dup-lane", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	err := f.poster.LaunchOrExit(context.Background(), Order{Lane: "dup-lane", Model: "opus", Effort: "high", Brief: brief}, time.Minute)
 	var exit *wait.ExitError
 	if !errors.As(err, &exit) || exit.Code != failedExit {
 		t.Fatal(err)
@@ -344,7 +344,7 @@ func TestAnElapsedWaitExitsZeroWhileTheRunnerIsAliveAndTwoOnceItIsStale(t *testi
 			now := time.Now()
 			f.poster.Now = func() time.Time { return now }
 			f.poster.Sleep = func(time.Duration) { now = now.Add(tt.pause) }
-			err := f.poster.LaunchOrExit(context.Background(), Order{Lane: "slow-restore", Model: "sol", Effort: "xhigh", Brief: brief}, time.Minute)
+			err := f.poster.LaunchOrExit(context.Background(), Order{Lane: "slow-restore", Model: "sol", Effort: "high", Brief: brief}, time.Minute)
 			code := 0
 			var exit *wait.ExitError
 			if errors.As(err, &exit) {
@@ -367,7 +367,7 @@ func TestALaunchOnAnotherNodeWaitsOnTheKeyEveryNodeNamesItsRecordBy(t *testing.T
 	brief := f.brief(t, "b.md", "work\n"+briefLines)
 	f.bus.node = "@8d2775d4"
 	f.bus.verdicts["R102@8d2775d4"] = "LAUNCHED desk-lane-%[1]s/R102@8d2775d4 %[1]s: dispatch ctx_r terminal term_r"
-	label, err := f.poster.Launch(context.Background(), Order{Lane: "next-lane", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "next-lane", Model: "opus", Effort: "high", Brief: brief}, time.Minute)
 	if err != nil || label != verdictLaunched {
 		t.Fatal(label, err)
 	}
@@ -380,7 +380,7 @@ func TestABriefWithNoSliceLinePostsWithAWarning(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "plain-brief.md", "Do the thing.\nScale: no N\n")
 	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
-	label, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief, Now: true}, time.Minute)
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "high", Brief: brief, Now: true}, time.Minute)
 	if err != nil || label != verdictLaunched {
 		t.Fatal(label, err)
 	}
@@ -392,7 +392,7 @@ func TestABriefWithNoSliceLinePostsWithAWarning(t *testing.T) {
 func TestABriefWithNoScaleLineIsRefusedBeforeAnyCall(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "plain-brief.md", "Do the thing.\n")
-	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "high", Brief: brief}, time.Minute)
 	if err == nil || !strings.Contains(err.Error(), "`Scale:`") || strings.Contains(err.Error(), "Register slice") {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func TestEveryFaultOfALaunchIsNamedAtOnceBeforeAnyCall(t *testing.T) {
 
 func TestAMissingBriefIsRefusedBeforeAnyCall(t *testing.T) {
 	f := newPosterFixture(t)
-	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "xhigh", Brief: filepath.Join(f.dir, "missing.md")}, time.Minute)
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "high", Brief: filepath.Join(f.dir, "missing.md")}, time.Minute)
 	if err == nil || !strings.Contains(err.Error(), "is not a file") || len(f.bus.calls) != 0 {
 		t.Fatal(err, f.bus.calls)
 	}
@@ -429,7 +429,7 @@ func TestAMissingBriefIsRefusedBeforeAnyCall(t *testing.T) {
 func TestADeskBriefWaitingOnItsOwnMailboxIsRefusedNamingItsCCIWait(t *testing.T) {
 	f := newPosterFixture(t)
 	stale := f.brief(t, filepath.Join("landing-desk-4", briefFile), briefLines+"`lr wait 50 cci:d:landing-desk mailbox:landing-desk=<cursor> -- ccx vcs pr watch`\n")
-	_, err := f.poster.Launch(context.Background(), Order{Lane: "landing-desk-4", Model: "opus", Effort: "xhigh", Brief: stale}, time.Minute)
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "landing-desk-4", Model: "opus", Effort: "high", Brief: stale}, time.Minute)
 	if err == nil || !strings.Contains(err.Error(), "waits on `mailbox:landing-desk`") || !strings.Contains(err.Error(), "wait on `cci:<drive>:landing-desk-4`") || len(f.bus.calls) != 0 {
 		t.Fatal(err, f.bus.calls)
 	}
@@ -438,7 +438,7 @@ func TestADeskBriefWaitingOnItsOwnMailboxIsRefusedNamingItsCCIWait(t *testing.T)
 		"landing-desk-6": "Spawn shard-a with Agent; it waits with `lr wait 540 cci:d:shard-a mailbox:shard-a=<cursor>`.",
 	} {
 		brief := f.brief(t, filepath.Join(lane, briefFile), briefLines+wait+"\n")
-		if _, err := f.poster.Launch(context.Background(), Order{Lane: lane, Model: "opus", Effort: "xhigh", Brief: brief}, 0); err != nil {
+		if _, err := f.poster.Launch(context.Background(), Order{Lane: lane, Model: "opus", Effort: "high", Brief: brief}, 0); err != nil {
 			t.Fatal(lane, err)
 		}
 	}
@@ -454,13 +454,13 @@ func TestABriefNamingACredentialIsRefusedOnlyWhenTheLaneMayLeaveTheMacAndAMissin
 		t.Fatal(err)
 	}
 	away := f.brief(t, "away.md", "Read "+gone+".\n"+briefLines)
-	_, err := f.poster.Launch(context.Background(), Order{Lane: "a", Model: "opus", Effort: "xhigh", Brief: away}, 0)
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "a", Model: "opus", Effort: "high", Brief: away}, 0)
 	if err == nil || !strings.Contains(err.Error(), "names what no Sprite can receive: "+gone+" is a credential path") || len(f.bus.posts) != 0 {
 		t.Fatal(err)
 	}
 	missing := filepath.Join(f.env["HOME"], ".claude", "scratch", "gone.md")
 	warned := f.brief(t, "warned.md", "Read "+missing+".\n"+briefLines)
-	if _, err := f.poster.Launch(context.Background(), Order{Lane: "w", Model: "opus", Effort: "xhigh", Brief: warned}, 0); err != nil {
+	if _, err := f.poster.Launch(context.Background(), Order{Lane: "w", Model: "opus", Effort: "high", Brief: warned}, 0); err != nil {
 		t.Fatal(err)
 	}
 	if want := "WARN brief " + warned + " names what stays behind on a Sprite: " + missing + " does not exist on this Mac\n"; !strings.Contains(f.out.String(), want) {
@@ -468,7 +468,8 @@ func TestABriefNamingACredentialIsRefusedOnlyWhenTheLaneMayLeaveTheMacAndAMissin
 	}
 	f.bus.posts = nil
 	local := f.brief(t, "local.md", "ccx: role=build place=local why=test\nRead "+gone+".\n"+briefLines)
-	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "xhigh", Brief: local}, {Lane: "a", Model: "fable", Effort: "xhigh", Brief: away}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}} {
+	picked := f.brief(t, "picked.md", "Read "+gone+".\nOwner pick: owner:m836\n"+briefLines)
+	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "high", Brief: local}, {Lane: "a", Model: "fable", Effort: "high", Brief: picked}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}} {
 		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {
 			t.Fatal(order, err)
 		}
@@ -479,7 +480,7 @@ func TestTheCoordinatorsLaunchWalksNoSpritePayloadWhateverItsBriefSays(t *testin
 	f := newPosterFixture(t)
 	gone := filepath.Join(f.env["HOME"], ".claude", "skills")
 	brief := f.brief(t, filepath.Join(coordinatorLane, briefFile), "ccx: incident=none\nRead "+gone+".\n"+briefLines)
-	if _, err := f.poster.Launch(context.Background(), Order{Lane: coordinatorLane, Model: "opus", Effort: "xhigh", Brief: brief}, 0); err != nil {
+	if _, err := f.poster.Launch(context.Background(), Order{Lane: coordinatorLane, Model: "opus", Effort: "high", Brief: brief}, 0); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.bus.posts) != 1 {
@@ -627,7 +628,7 @@ func TestADriveWhoseRunnerIsNotBeatingRefusesInOneLineNamingWhatToDoInstead(t *t
 		}
 		check(f.poster.Line(context.Background(), "lane-a", "relay to lane-a: go"), nothingPosted)
 		brief := f.brief(t, "b.md", "work\n"+briefLines)
-		_, err := f.poster.Launch(context.Background(), Order{Lane: "solo", Model: "opus", Effort: "xhigh", Brief: brief}, 0)
+		_, err := f.poster.Launch(context.Background(), Order{Lane: "solo", Model: "opus", Effort: "high", Brief: brief}, 0)
 		check(err, "spawn an Agent named `solo` instead")
 		if len(f.bus.posts) != 0 {
 			t.Fatal(f.bus.posts)
@@ -669,7 +670,7 @@ func TestALaunchWarnsOfALaneAlreadyClaimingItsWorkAndClaimsItOnceLaunched(t *tes
 	}}
 	f.poster.Runner = runner
 	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
-	label, err := f.poster.Launch(context.Background(), Order{Lane: "beside", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute)
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "beside", Model: "opus", Effort: "high", Brief: brief}, time.Minute)
 	if err != nil || label != verdictLaunched {
 		t.Fatal(label, err)
 	}
@@ -691,7 +692,7 @@ func TestABriefClaimingNoSlackGrantWarnsUnlessItQuotesAnAnswerSearch(t *testing.
 		f := newPosterFixture(t)
 		brief := f.brief(t, "grant/brief.md", text+briefLines)
 		f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
-		if _, err := f.poster.Launch(context.Background(), Order{Lane: "grant", Model: "opus", Effort: "xhigh", Brief: brief}, time.Minute); err != nil {
+		if _, err := f.poster.Launch(context.Background(), Order{Lane: "grant", Model: "opus", Effort: "high", Brief: brief}, time.Minute); err != nil {
 			t.Fatal(err)
 		}
 		if got := strings.Contains(f.out.String(), "WARN brief "+brief+" says no Slack grant covers its work"); got != warns || len(f.bus.posts) != 1 {

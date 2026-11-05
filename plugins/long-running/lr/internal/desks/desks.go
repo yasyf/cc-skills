@@ -37,11 +37,11 @@ type owing struct {
 
 var (
 	standing = []desk{
-		{"fidelity-desk", "opus", "xhigh"},
+		{"fidelity-desk", "opus", "high"},
 		{"red-sweep", "opus", "high"},
 		{"alerts-desk", "sonnet", "low"},
-		{watchdog, "opus", "xhigh"},
-		{"board-refresher", "opus", "xhigh"},
+		{watchdog, "opus", "high"},
+		{"board-refresher", "opus", "high"},
 	}
 	placedLocal = regexp.MustCompile(`(?m)^ccx:(.* )?place=local(\s|$)`)
 	up          = []store.LaneState{store.LaneLaunching, store.LaneDesired}

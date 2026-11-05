@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultLaneModel  = "opus"
-	defaultLaneEffort = "xhigh"
+	defaultLaneEffort = "high"
 	placeLocal        = "local"
 	placeRemote       = "remote"
 	workerAttempt     = "brief.worker"
@@ -28,10 +28,10 @@ var (
 )
 
 type NewBrief struct {
-	Title, BodyFile, Contract, Scale, Place, CCX string
-	Topics                                       []string
-	StandingDir                                  string
-	Stdin                                        io.Reader
+	Title, BodyFile, Contract, Scale, Place, CCX, OwnerPick string
+	Topics                                                  []string
+	StandingDir                                             string
+	Stdin                                                   io.Reader
 }
 
 func (n NewBrief) Write(stateDir, lane string) (string, error) {
@@ -95,6 +95,12 @@ func (n NewBrief) text(lane string) (string, error) {
 	if rows := ownerRow.FindAllString(said, -1); len(rows) > 0 {
 		slices.Sort(rows)
 		sections = append(sections, "Owner orders: owner:"+strings.Join(slices.Compact(rows), " owner:"))
+	}
+	if n.OwnerPick != "" {
+		if !ownerPick.MatchString(n.OwnerPick) {
+			return "", fmt.Errorf("--owner-pick takes owner:m<row>, the owner row whose words asked for this model or effort, not %q", n.OwnerPick)
+		}
+		sections = append(sections, ownerPickLine+" "+n.OwnerPick)
 	}
 	return strings.Join(sections, "\n\n") + "\n", nil
 }

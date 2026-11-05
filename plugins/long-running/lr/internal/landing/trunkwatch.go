@@ -666,7 +666,7 @@ func (w *TrunkWatch) launchFlakeLane(ctx context.Context) (string, error) {
 	if err := os.WriteFile(brief, []byte(strings.NewReplacer("<stem>", stem, "<drive>", w.Drive, "<self>", self).Replace(flakeBrief)), 0o600); err != nil {
 		return "", err
 	}
-	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "go", To: []string{orcaDesk}, Topic: stem, ID: "flake-launch:" + lane, Text: fmt.Sprintf("%s: launch %s opus xhigh role=fix brief=%s", orcaDesk, lane, brief)})
+	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "go", To: []string{orcaDesk}, Topic: stem, ID: "flake-launch:" + lane, Text: fmt.Sprintf("%s: launch %s opus high role=fix brief=%s", orcaDesk, lane, brief)})
 	return lane, err
 }
 

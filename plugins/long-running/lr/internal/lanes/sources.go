@@ -36,10 +36,11 @@ const (
 	measureEvery      = 5 * time.Minute
 	openEvery         = 10 * time.Minute
 	prBatch           = 50
-	contextWindow     = 1_000_000
+	laneWindow        = 333_000
 	outputReserve     = 20_000
 	autocompactBuffer = 13_000
 	rotatePercent     = 70
+	rotateAt          = (laneWindow - outputReserve - autocompactBuffer) * rotatePercent / 100
 	wakeSender        = "long-running"
 	adoptWindow       = 72 * time.Hour
 )
@@ -716,26 +717,6 @@ func (e Env) held(ctx context.Context) (map[int]bool, error) {
 	return holds, nil
 }
 
-func rotateAt(settings string) (int, error) {
-	window := contextWindow
-	data, err := os.ReadFile(settings)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return 0, err
-	}
-	if err == nil {
-		var parsed struct {
-			AutoCompactWindow int `json:"autoCompactWindow"`
-		}
-		if err := json.Unmarshal(data, &parsed); err != nil {
-			return 0, fmt.Errorf("%s: %w", settings, err)
-		}
-		if parsed.AutoCompactWindow > 0 {
-			window = min(parsed.AutoCompactWindow, contextWindow)
-		}
-	}
-	return (window - outputReserve - autocompactBuffer) * rotatePercent / 100, nil
-}
-
 func attach(log string, argv ...string) error {
 	output, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -870,10 +851,6 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 	if err := os.MkdirAll(briefs, 0o750); err != nil {
 		return Deps{}, err
 	}
-	at, err := rotateAt(filepath.Join(e.Claude, "settings.json"))
-	if err != nil {
-		return Deps{}, err
-	}
 	projects := filepath.Join(e.Claude, "projects")
 	tokens := &tokenReader{projects: projects, clock: e.Now, measured: map[string]tokenRead{}}
 	states := &prReader{env: e, ctx: ctx, read: map[int]prRead{}}
@@ -918,7 +895,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Orders: func(s *store.Store) ([]owner.Row, error) {
 			return OpenOrders(ctx, e.Bus, s, e.Config.Drive, e.Config.Repo, e.State)
 		},
-		RotateAt:              at,
+		RotateAt:              rotateAt,
 		RetireAfter:           e.Config.RetireSilent,
 		Repo:                  e.Config.Repo,
 		OpenBranches:          func(s *store.Store) (map[string][]int, error) { return openBranches(s, e.Config.Repo) },

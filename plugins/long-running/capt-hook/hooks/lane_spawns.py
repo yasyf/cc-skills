@@ -13,7 +13,7 @@ SHIP = "ship-pr"
 ADMITTED = frozenset({SHIP, "long-running:orca-doctor", "orca:orca-doctor"})
 REFUSAL = (
     "A lane never spawns a sub-worker with Agent, since `{lane}` would wait inside it. "
-    "Post `cci post --lane {lane} --kind ask --to root --text 'spawn <name> brief=<path> model=<model>'` and keep working, or for a hook blocking you run `lr launch lane hook-fix-<hook> opus xhigh <brief>`."
+    "Post `cci post --lane {lane} --kind ask --to root --text 'spawn <name> brief=<path> model=<model>'` and keep working, or for a hook blocking you run `lr launch lane hook-fix-<hook> opus high <brief>`."
 )
 
 
@@ -21,7 +21,7 @@ REFUSAL = (
     Event.PreToolUse,
     only_if=[Bound(), Tool("Agent"), DriveActive()],
     tests={
-        Input(tool="Agent", tool_input=SPAWN, agent_id=LANE, state=ACTIVE): Block(pattern=r"^A lane never spawns a sub-worker with Agent, since `tooling-misc-3` would wait inside it\..*--lane tooling-misc-3 --kind ask --to root.*`lr launch lane hook-fix-<hook> opus xhigh <brief>`"),
+        Input(tool="Agent", tool_input=SPAWN, agent_id=LANE, state=ACTIVE): Block(pattern=r"^A lane never spawns a sub-worker with Agent, since `tooling-misc-3` would wait inside it\..*--lane tooling-misc-3 --kind ask --to root.*`lr launch lane hook-fix-<hook> opus high <brief>`"),
         Input(tool="Agent", tool_input=SPAWN, env={"CLAUDE_LONG_RUNNING_LANE": "orca-lane-2"}, state=ACTIVE): Block(pattern=r"`orca-lane-2` would wait"),
         Input(tool="Agent", tool_input=SPAWN, state=ACTIVE): Allow(),
         Input(tool="Agent", tool_input=SPAWN, agent_id="a0123456789abcdef", state=ACTIVE): Allow(),

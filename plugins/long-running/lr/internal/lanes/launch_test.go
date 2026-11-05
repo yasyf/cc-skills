@@ -20,7 +20,7 @@ var startSequence = []struct {
 	role                         []string
 }{
 	{"coordinator", "root", "fable", "high", nil},
-	{"meta", "meta", "opus", "xhigh", []string{"--role", "meta"}},
+	{"meta", "meta", "opus", "high", []string{"--role", "meta"}},
 	{"signal", "signal", "sonnet", "low", nil},
 	{"chores", "chores", "sonnet", "low", nil},
 }
@@ -166,7 +166,7 @@ printf '%s|%s|%s|%s|%s|%s' "$CLAUDE_LONG_RUNNING_LANE" "$LR_LANE" "$CCI_AGENT_ID
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Launch("lane-a", "opus", "xhigh", "/briefs/lane-a.md"); err != nil {
+	if err := deps.Launch("lane-a", "opus", "high", "/briefs/lane-a.md"); err != nil {
 		t.Fatal(err)
 	}
 
