@@ -192,7 +192,7 @@ func TestABoardThatCannotBeReadIsAnError(t *testing.T) {
 
 func TestACardAnotherSessionPostedIsNamedByTheEventWithNoBoardRead(t *testing.T) {
 	var word threadWord
-	message := `{"channel_id":"D0B6Z","thread_ts":"1793000000.000001","ts":"1793818260.000100","text":"why this one?","thread_owner":{"session":"lane-session","card":"card-lane","title":"Which one?"}}`
+	message := `{"channel_id":"D0B6Z","thread_ts":"1793000000.000001","ts":"1793818260.000100","text":"2 this one","thread_owner":{"session":"lane-session","card":"card-lane","title":"Which one?"}}`
 	if err := json.Unmarshal([]byte(message), &word); err != nil {
 		t.Fatal(err)
 	}
@@ -209,14 +209,14 @@ func TestACardAnotherSessionPostedIsNamedByTheEventWithNoBoardRead(t *testing.T)
 	if !slices.Contains(labels, "board-card:card-lane") || !slices.Contains(labels, "board-session:lane-session") {
 		t.Fatalf("labels = %q, want the card and session the event names", labels)
 	}
-	if !strings.HasPrefix(argsAfter(book.rows[0], "--body")[0], "why this one?\n") {
-		t.Fatalf("row = %q, want a question stays his words on the card, unjudged", book.rows[0])
+	if !strings.HasPrefix(argsAfter(book.rows[0], "--body")[0], "2 this one\n") {
+		t.Fatalf("row = %q, want his words on the card, unjudged", book.rows[0])
 	}
 }
 
 func TestAThreadAnotherSessionPostedWithNoCardWritesNoRow(t *testing.T) {
 	var word threadWord
-	message := `{"channel_id":"D0B6Z","thread_ts":"1793000000.000001","ts":"1793818260.000100","text":"thanks","thread_owner":{"session":"lane-session"}}`
+	message := `{"channel_id":"D0B6Z","thread_ts":"1793000000.000001","ts":"1793818260.000100","text":"1","thread_owner":{"session":"lane-session"}}`
 	if err := json.Unmarshal([]byte(message), &word); err != nil {
 		t.Fatal(err)
 	}
