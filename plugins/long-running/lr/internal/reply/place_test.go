@@ -165,3 +165,52 @@ func TestARowWithNoPlaceRefusesNothingThatPostsNothingNew(t *testing.T) {
 		}
 	})
 }
+
+func TestAnIncidentLineThreadsUnderItsAlertsFirstPost(t *testing.T) {
+	f, fake := fanout(t, nil), scripted()
+	ledgerHolds(t, f.Entry, terminalRow)
+	spawn := map[string]any{"id": "spawn", "status": incident, "alert": "sentry-7830378865", "unprompted": true}
+	if text, failed := throughTheTool(t, f.Entry, fake, spawn); failed {
+		t.Fatalf("spawn refused: %s", text)
+	}
+	mechanism := map[string]any{"id": "mechanism", "status": incident, "alert": "sentry-7830378865-fix", "order": "m741"}
+	if text, failed := throughTheTool(t, f.Entry, fake, mechanism); failed {
+		t.Fatalf("mechanism refused: %s", text)
+	}
+	other := map[string]any{"id": "other", "status": incident, "alert": "dd-338724738", "unprompted": true}
+	if text, failed := throughTheTool(t, f.Entry, fake, other); failed {
+		t.Fatalf("another alert refused: %s", text)
+	}
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 3 {
+		t.Fatalf("cc-slack calls = %+v, want three posts", posted)
+	}
+	if slices.Contains(posted[0].Argv, "--thread") || slices.Contains(posted[2].Argv, "--thread") {
+		t.Fatalf("each alert's first post went under a thread, want his DM root: %v, %v", posted[0].Argv, posted[2].Argv)
+	}
+	if got := flag(t, posted[1].Argv, "--thread"); got != owner.MessageTS(permalink) {
+		t.Fatalf("mechanism posted in %s, want the spawn post's thread %s", got, owner.MessageTS(permalink))
+	}
+	data, err := os.ReadFile(filepath.Join(f.Entry.StateDir, storeDir, "mechanism.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved delivery
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Reply.On != "reply:spawn" {
+		t.Fatalf("mechanism on = %q, want it under reply:spawn on Chat", saved.Reply.On)
+	}
+}
+
+func TestAnIncidentLineWithNoAlertPostsAndSaysWhatToAdd(t *testing.T) {
+	f, fake := fanout(t, nil), scripted()
+	text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"status": incident, "unprompted": true})
+	if failed || !strings.Contains(text, "names no alert") || !strings.Contains(text, "pass alert") {
+		t.Fatalf("reply = %q, failed %v; want it posted with a warning naming alert", text, failed)
+	}
+	if posted := calls(fake, "cc-slack"); len(posted) != 1 {
+		t.Fatalf("cc-slack calls = %+v, want one post", posted)
+	}
+}
