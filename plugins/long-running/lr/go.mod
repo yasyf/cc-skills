@@ -6,6 +6,8 @@ toolchain go1.26.10
 
 require (
 	github.com/BurntSushi/toml v1.5.0
+	github.com/chromedp/cdproto v0.159.0
+	github.com/chromedp/chromedp v0.22.1
 	github.com/coder/websocket v1.8.15
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
@@ -24,6 +26,7 @@ require (
 	github.com/brutella/dnssd v1.2.14 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

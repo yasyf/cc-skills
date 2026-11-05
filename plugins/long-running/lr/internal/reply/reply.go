@@ -135,6 +135,8 @@ type Reply struct {
 	On      string            `json:"on,omitempty"`
 
 	Words map[string]string `json:"words,omitempty"`
+
+	artifacts []cardArtifact
 }
 
 type Outcome struct {
@@ -163,6 +165,7 @@ type Fanout struct {
 	Entry  drive.Entry
 	Now    func() time.Time
 	Judge  board.Judge
+	Shoot  func(ctx context.Context, dashboard string, diagram json.RawMessage, png string) error
 }
 
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
@@ -173,7 +176,8 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	for pick, said := range seen.Words {
 		seen.Words[pick] = hiddenCite.ReplaceAllString(said, "")
 	}
-	told := seen.diagramNoted()
+	_, diagram := f.diagramPage(r)
+	told := seen.diagramNoted(diagram)
 	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
 	case r.quiet():
@@ -457,9 +461,13 @@ func (r Reply) typed() Reply {
 	return r
 }
 
-func (r Reply) diagramNoted() Reply {
-	if len(r.Diagram) > 0 {
+func (r Reply) diagramNoted(link string) Reply {
+	switch {
+	case len(r.Diagram) == 0:
+	case link == "":
 		r.MD += "\n\n" + diagramNote
+	default:
+		r.MD += "\n\n[" + diagramLead + r.diagramTitle() + "](" + link + ")"
 	}
 	return r
 }
@@ -910,7 +918,9 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		return []Outcome{{Surface: "slack", Error: "the earlier reply did not read, so nothing was posted or edited: " + err.Error()}}
 	}
 	if own := was.ownMessage(r); own.Ref != "" {
-		return []Outcome{f.edit(ctx, r, own, r.withPickLink(r.MD, drawn))}
+		r, shown := f.pictured(ctx, r)
+		defer shown.remove()
+		return []Outcome{shown.told(f.edit(ctx, r, own, r.withPickLink(r.MD, drawn)))}
 	}
 	if surface(was.Surfaces, "slack").Ref != "" || len(r.Picks) > 0 && drawn.Ref == "" {
 		return nil
@@ -921,11 +931,13 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if drawn.Surface != "" || r.quiet() || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
 	}
+	r, shown := f.pictured(ctx, r)
+	defer shown.remove()
 	card, err := f.statusCard(r, r.MD, "")
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
-	return f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)
+	return []Outcome{shown.told(f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)[0])}
 }
 
 func (d delivery) ownMessage(r Reply) Outcome {
@@ -1044,14 +1056,15 @@ func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
 		key = ""
 	}
 	card, err := json.Marshal(struct {
-		Key      string `json:"key,omitempty"`
-		Status   string `json:"status"`
-		Title    string `json:"title"`
-		Body     string `json:"body"`
-		Drive    string `json:"drive"`
-		Links    []Link `json:"links,omitempty"`
-		Replaces string `json:"replaces,omitempty"`
-	}{key, cmp.Or(r.Status, "info"), r.Title, body, f.Entry.Bus(), buttons, replaces})
+		Key       string         `json:"key,omitempty"`
+		Status    string         `json:"status"`
+		Title     string         `json:"title"`
+		Body      string         `json:"body"`
+		Drive     string         `json:"drive"`
+		Links     []Link         `json:"links,omitempty"`
+		Artifacts []cardArtifact `json:"artifacts,omitempty"`
+		Replaces  string         `json:"replaces,omitempty"`
+	}{key, cmp.Or(r.Status, "info"), r.Title, body, f.Entry.Bus(), buttons, r.artifacts, replaces})
 	return string(card), err
 }
 
