@@ -45,8 +45,9 @@ PLAIN_PICK = "Warning, nothing was blocked: A pick for the owner is never plain 
 PICK = "Two ways to fix the relay:\n\nA) Keep one shared replica\nB) Give each chat its own\n\nWhich do you want?"
 REMINDER = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
-    " Yes when he reminds the assistant of something it should already have done, repeats an instruction or ruling he gave before, or corrects how it works: something missed, forgotten, still happening, done wrong or not followed."
-    " No for a new request, a question, an answer to a question, a pick, an approval or thanks that points at nothing the assistant failed to do."
+    " Yes only when his words themselves say the assistant's own conduct fell short of something he already told it or expected of it: he reminds it of something it should already have done, repeats an instruction or ruling he gave before, or objects to how it behaves."
+    " No when his words give an order or report a problem without faulting how the assistant behaved, even when the order is sharp, urgent or names a bug: a new request, a link to act on, a defect in the product or a tool, a question about state, an answer, a pick, an approval or thanks."
+    " A passage he quotes from elsewhere is what he is pointing at, not his complaint."
 )
 ASKED_WHY = re.compile(r"\bwhy\b|\bhow come\b|\bhow (?:does|do|did|is|are|was|were)\b|\bwhat happened\b", re.IGNORECASE)
 UNROUTED_REMINDER = (
@@ -100,6 +101,7 @@ WHY = "The relay dropped your message because both chats shared one replica, so 
 PAGE = "https://mac.tail1.ts.net:8665/one-pagers/relay-replicas/"
 CALM = {"reminder": NO}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
+ORDER_WITH_A_LINK = "https://acme.slack.com/archives/C0B/p1793845625453279\n\neverything the reviewer said, plus the empty status line"
 HIS_1_34_AM = (
     "every tjme i need to remknd you to do skemtjjng, hou need to spawn a meta tooling lane foe thay (includkng tbis)."
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
@@ -290,8 +292,8 @@ def pathed(reply: str) -> Input:
     return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, decide=CALM)
 
 
-def reminded(*calls: dict, decide: dict = REMINDED, asks: str | tuple = "", opening: tuple = (), posted: str | tuple = "") -> Input:
-    return Input(transcript=[*opening, T.user(HIS_1_34_AM), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={ASKS: asks, "cci post": posted}, decide=decide)
+def reminded(*calls: dict, said: str = HIS_1_34_AM, decide: dict = REMINDED, asks: str | tuple = "", opening: tuple = (), posted: str | tuple = "") -> Input:
+    return Input(transcript=[*opening, T.user(said), *calls, T.assistant("On it.")], state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={ASKS: asks, "cci post": posted}, decide=decide)
 
 
 def woken(*said: dict) -> Input:
@@ -335,6 +337,7 @@ def ask_to(*to: str) -> str:
         reminded(*T.tool_turn("Bash", result="R1", command="lr launch meta /drive/meta/brief.md")): Allow(),
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
+        reminded(said=ORDER_WITH_A_LINK, decide=CALM, asks=ask_to("slack-bugs", "root")): Allow(),
         reminded(decide=CALM | {"reminder": Refused()}): Allow(),
         woken(RESUMED, CCI_WAKE, NO_OUTPUT): Allow(),
         woken(RESUMED, NO_OUTPUT, REMINDER_FEEDBACK): Allow(),

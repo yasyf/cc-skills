@@ -616,3 +616,43 @@ def test_a_decide_that_reached_no_meta_lane_forwards_nothing(communicator: Windo
     monkeypatch.setattr(owner_returns, "read", routed_to("root"))
 
     assert not owner_returns.forwarded(communicator.event(StopEvent))
+
+
+def judged_route(communicator: Window, monkeypatch: pytest.MonkeyPatch, *records: dict, reminds: bool) -> list[list[str]]:
+    posts: list[list[str]] = []
+
+    def read(argv: list[str]) -> str:
+        if "post" in argv:
+            posts.append(argv)
+            return ""
+        return "\n".join(json.dumps(record) for record in records)
+
+    monkeypatch.setattr(owner_returns, "read", read)
+    monkeypatch.setattr(owner_returns, "reminds", lambda evt, words: reminds)
+    owner_returns.route_reminder(communicator.event(StopEvent))
+    return posts
+
+
+def test_an_order_sent_to_its_own_lane_posts_nothing_when_the_judge_reads_no(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued(owner_returns.ORDER_WITH_A_LINK)
+
+    assert judged_route(communicator, monkeypatch, {"to": ["slack-bugs", "root"], "text": f"verbatim: {owner_returns.ORDER_WITH_A_LINK}"}, reminds=False) == []
+
+
+def test_a_reminder_no_lane_was_sent_reaches_meta(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued("you keep asking me to tap a card that has no buttons")
+
+    posts = judged_route(communicator, monkeypatch, reminds=True)
+
+    assert len(posts) == 1
+    assert posts[0][posts[0].index("--to") + 1] == "meta-desk"
+    assert "you keep asking me to tap a card that has no buttons" in posts[0][-1]
+
+
+def test_a_reminder_quoted_only_to_a_fix_lane_still_reaches_meta(communicator: Window, monkeypatch: pytest.MonkeyPatch) -> None:
+    communicator.queued("you need to speak more clearly")
+
+    posts = judged_route(communicator, monkeypatch, {"to": ["compaction-fix"], "text": "verbatim: you need to speak more clearly"}, reminds=True)
+
+    assert len(posts) == 1
+    assert posts[0][posts[0].index("--to") + 1] == "meta-desk"
