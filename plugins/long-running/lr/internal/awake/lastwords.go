@@ -41,7 +41,7 @@ func LastWords(samples string) string {
 			}
 		}
 	}
-	said := "no kernel error on " + homeDisk
+	said := "no kernel error"
 	if len(trouble) > 0 {
 		said = strings.Join(trouble[max(0, len(trouble)-lastKernelKept):], "; ")
 	}

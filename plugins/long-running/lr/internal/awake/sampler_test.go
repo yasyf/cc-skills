@@ -129,9 +129,9 @@ func TestABoxWithNoAgentSaysSoSoTheAgentsExitShowsAgainstUptime(t *testing.T) {
 	}
 }
 
-func TestAKernelLineOnTheHomeDiskIsRecordedOnceAndOtherLinesNever(t *testing.T) {
+func TestAKernelLineOnTheHomeDiskOrAtErrorLevelIsRecordedOnceAndOtherLinesNever(t *testing.T) {
 	s := sprite(t)
-	log := "<6>[ 1.000] nbd0: detected capacity change\n<4>[ 2.000] audit: unrelated\n<3>[ 1453.196886] block nbd0: Send data failed (result -11)\n"
+	log := "<6>[ 1.000] nbd0: detected capacity change\n<4>[ 2.000] audit: unrelated\n<3>[ 1453.100000] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:\n<3>[ 1453.196886] block nbd0: Send data failed (result -11)\n"
 	s.Kernel = func() ([]byte, error) { return []byte(log), nil }
 	for range 2 {
 		if err := s.append(); err != nil {
@@ -143,7 +143,7 @@ func TestAKernelLineOnTheHomeDiskIsRecordedOnceAndOtherLinesNever(t *testing.T) 
 		t.Fatal(err)
 	}
 	got := samplesIn(t, s.Path)
-	want := []string{"<6>[ 1.000] nbd0: detected capacity change", "<3>[ 1453.196886] block nbd0: Send data failed (result -11)"}
+	want := []string{"<6>[ 1.000] nbd0: detected capacity change", "<3>[ 1453.100000] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:", "<3>[ 1453.196886] block nbd0: Send data failed (result -11)"}
 	if !reflect.DeepEqual(got[0].Kernel, want) || got[1].Kernel != nil {
 		t.Fatalf("first %q, second %q", got[0].Kernel, got[1].Kernel)
 	}
@@ -367,7 +367,7 @@ func TestLastWordsReadTheBootThatStoppedAndNotTheWakeThatReadsIt(t *testing.T) {
 
 func TestLastWordsSayWhenNoKernelErrorOrNoSampleWasLeft(t *testing.T) {
 	quiet := sampleLine(t, Sample{Time: "t", UptimeSeconds: 1331, Load: "7.26 5 2", Kernel: []string{"<6>[ 3.2] EXT4-fs (nbd0): mounted filesystem"}})
-	if got := LastWords(quiet); !strings.HasSuffix(got, "; no kernel error on nbd0") {
+	if got := LastWords(quiet); !strings.HasSuffix(got, "; no kernel error") {
 		t.Error(got)
 	}
 	if got := LastWords(""); !strings.Contains(got, "left no sample") {
