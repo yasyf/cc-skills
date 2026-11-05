@@ -208,6 +208,8 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 		}
 		if must(s.WantLane(store.Lane{Name: name, Brief: spawn.Brief, Model: spawn.Model, Effort: spawn.Effort, Role: or(role, "lane"), State: state, Placement: spawn.Placement, Launcher: r.Lane, Standing: duty}, at)) {
 			out.adopted = append(out.adopted, name)
+		} else {
+			do(s.SetLaneLaunch(name, spawn.Model, spawn.Effort, spawn.Placement))
 		}
 	}
 }
