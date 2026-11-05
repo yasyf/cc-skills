@@ -30,6 +30,7 @@ class Post(NamedTuple):
     inline: bool
     attrs: dict[str, str]
     topic: str
+    heads: tuple[str, ...] = ()
 
 
 def post_records(evt: BaseHookEvent) -> Iterator[Post]:
@@ -48,7 +49,7 @@ def post_records(evt: BaseHookEvent) -> Iterator[Post]:
         inline = not (values.get("path") or values.get("body-file") or "-" in values.get("text", ())) and "\n" not in text
         recipients = [to for value in values.get("to", ()) for to in str(value).split(",")]
         pairs = (pair.partition("=") for value in values.get("attr", ()) for pair in str(value).split(","))
-        yield Post(str((values.get("lane") or (drive_lane(evt) or "",))[0]), recipients, ",".join(values.get("kind", ())), text, inline, {key: value for key, _, value in pairs}, str((values.get("topic") or ("",))[0]))
+        yield Post(str((values.get("lane") or (drive_lane(evt) or "",))[0]), recipients, ",".join(values.get("kind", ())), text, inline, {key: value for key, _, value in pairs}, str((values.get("topic") or ("",))[0]), tuple(str(head) for head in values.get("head", ())))
 
 
 def posts(evt: BaseHookEvent) -> Iterator[tuple[str, list[str], str, str, bool, dict[str, str]]]:

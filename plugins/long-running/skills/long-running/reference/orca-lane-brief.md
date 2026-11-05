@@ -487,7 +487,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `--to desk-runner,fidelity-pipeline,finder-desk` and never to the coordinator, as are your
   `state` records. A restack that moves several PRs posts one record carrying every head,
   `cci post --kind head --head <pr>=<was>..<sha> --head <pr>=<was>..<sha> ... --attr delta=<class>`, with a
-  note after the sha such as `patch-identical` when the range-diff says so, never one record per PR.
+  note after the sha such as `patch-identical` when the range-diff says so, never one record per PR. Each
+  `<sha>` is the full 40 characters: a short one leaves the row at its old head until the next read.
   The class says what the push did, and it decides whether the owner's tap stays: `rebase`,
   `review-fix` or `ordered-fix` keep it, and `behavior` or `scope` send the PR back to him, the note
   saying what changed. `reference/landing.md`, tap carry, has the rule. PRs that differ in class take
