@@ -145,10 +145,17 @@ func backfillCommand(a *app.App, opened func() (drive.Entry, string, error)) *co
 
 func readCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {
 	return &cobra.Command{
-		Use:   "read",
-		Short: "Read GitHub once for every open drive PR and post each read the rows fold, from any host and beside a running landing host; it opens, queues and merges nothing",
-		Args:  cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
+		Use:   "read [PR...]",
+		Short: "Read GitHub for every open drive PR, or only the PRs named, in one query per 25 and post each read the rows fold, from any host and beside a running landing host; it opens, queues and merges nothing",
+		RunE: func(c *cobra.Command, args []string) error {
+			named := make([]int, len(args))
+			for at, arg := range args {
+				number, err := strconv.Atoi(strings.TrimPrefix(arg, "#"))
+				if err != nil {
+					return err
+				}
+				named[at] = number
+			}
 			entry, _, err := opened()
 			if err != nil {
 				return err
@@ -162,7 +169,7 @@ func readCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			read, err := lrfacts.New(a, cfg, s).ReadOnce(c.Context())
+			read, err := lrfacts.New(a, cfg, s).ReadOnce(c.Context(), named)
 			if err != nil {
 				return err
 			}
