@@ -83,7 +83,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info", Title: fmt.Sprintf("#%d at %s", row.Number, at),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Description: row.Description,
+			Change: prrow.ChangeWords(row), Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Description: row.Description,
 		}},
 	}
 	if row.State == prrow.StateLanded {
@@ -125,10 +125,11 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 	return child
 }
 
-// PlanWords is the row's plan line and plan row, a sentence they share said once.
+// PlanWords is the row's plan line and plan row said once, since a plan row
+// opens with the line it checked.
 func PlanWords(row store.ReviewRow) string {
-	if row.PlanLine == row.PlanRow {
-		return row.PlanLine
+	if strings.HasPrefix(row.PlanRow, row.PlanLine) {
+		return row.PlanRow
 	}
 	return strings.TrimSpace(row.PlanLine + " " + row.PlanRow)
 }

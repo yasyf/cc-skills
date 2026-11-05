@@ -209,7 +209,7 @@ func (r ReadyCards) listCard(ctx context.Context, name string, rows []store.Revi
 	for _, row := range rows {
 		pr := SlackPRRow{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, row.Number), Title: clipWords(row.Title, listTitle), Head: row.Head,
-			Change: clipWords(row.ForUsers, listChange), Plan: clipWords(said.Said(ctx, PlanWords(row)), listPlan), Blocks: clipWords(prrow.BlocksWords(row), listBlocks),
+			Change: clipWords(prrow.ChangeWords(row), listChange), Plan: clipWords(said.Said(ctx, PlanWords(row)), listPlan), Blocks: clipWords(prrow.BlocksWords(row), listBlocks),
 		}
 		listed = append(listed, map[string]any{"id": MergeWaits(row.Number, row.Head), "buttons": []string{approveLabel, holdLabel}, "pr": pr, "pr_card": true})
 	}
@@ -320,7 +320,7 @@ func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number)
 	return json.Marshal(map[string]any{
 		"id": id, "type": "card", "title": fmt.Sprintf("Tap: #%d, %s", row.Number, row.Title),
-		"summary": fmt.Sprintf("[#%d](%s) at %s is green, approved and graded, and waits only on your tap. %s", row.Number, url, row.Head[:min(waitsSHA, len(row.Head))], strings.Join(strings.Fields(row.ForUsers), " ")),
+		"summary": fmt.Sprintf("[#%d](%s) at %s is green, approved and graded, and waits only on your tap. %s", row.Number, url, row.Head[:min(waitsSHA, len(row.Head))], strings.Join(strings.Fields(prrow.ChangeWords(row)), " ")),
 		"children": []map[string]any{
 			{"id": id + "-choice", "type": "choice", "options": []map[string]any{
 				{"id": id + "-approve", "label": approveLabel, "recommended": true},
