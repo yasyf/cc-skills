@@ -16,7 +16,7 @@ func TestADocMergeAskCarriesTheDocsRenderedPage(t *testing.T) {
 		"a doc merge ask with its Pages link":     {merge + "\nRead it at https://docs.poetic.design/design-docs/sandsql-per-database-sharding/", false},
 		"a doc merge ask with its PR preview":     {merge + "\nhttps://docs.poetic.design/previews/pr-332/design-docs/sandsql-per-database-sharding/", false},
 		"a doc merge ask with a github.io link":   {merge + "\nhttps://forge-ai.github.io/design-docs/sandsql-per-database-sharding/", false},
-		"a doc merge ask with a tailnet link":     {merge + "\nhttp://yasyf-forge-studio.tail71af5d.ts.net:61713/design-docs/sandsql-per-database-sharding/", true},
+		"a doc merge ask with a local render":     {merge + "\nhttp://yasyf-forge-studio.tail71af5d.ts.net:61713/design-docs/sandsql-per-database-sharding/", false},
 		"a question about a doc, merging nothing": {"Which way does design-docs#332 shard, by table or by run?", false},
 		"a code PR merge ask":                     {"Merge [#51418](https://github.com/Forge-AI/monorepo/pull/51418)?", false},
 	} {

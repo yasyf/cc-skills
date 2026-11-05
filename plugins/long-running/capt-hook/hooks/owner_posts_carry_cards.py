@@ -25,12 +25,12 @@ TAP_ORDER = re.compile(r"(?i)^\s*(?:tap|approve)\b")
 ASKS_TAP = re.compile(r"(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)")
 DESCRIBES_TAP = re.compile(r"(?i)\b(?:refus\w*|buttons?)\b")
 DOC_PR = re.compile(r"(?i)\bdesign-docs(?:/pull/|#)\d+")
-DOC_PAGE = re.compile(r"https://(?:docs\.poetic\.design|[\w-]+\.github\.io)/")
+DOC_PAGE = re.compile(r"https://(?:docs\.poetic\.design|[\w-]+\.github\.io)/|https?://[\w.-]+\.ts\.net(?::\d+)?/")
 MERGE_ASK = re.compile(r"(?i)\b(?:merg|approv)\w*")
 BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
 NO_PLATY_CARD = "Warning, nothing was blocked: A release word to the owner gives what users get in plain words and links the Platy release card. Add the card's #releases permalink, which the build's `release-slack-root` annotation names."
 NOTHING_TO_TAP = "A message to the owner that asks him to tap, approve or answer carries the button to do it. Send it through `lr reply` with its picks or the ready PR in `prs`, pass each ready PR as `--tap-pr <url>` (`tap_prs`), draw it as a waiting card, or say what it waits on without asking him."
-UNSHOWN_DOC = "A card to the owner that asks him to merge or approve a design doc or retro links its rendered page. Add the doc's GitHub Pages link, https://docs.poetic.design/design-docs/<slug>/ or /incident-retros/<slug>/ for a retro, or before it merges its preview, https://docs.poetic.design/previews/pr-<n>/design-docs/<slug>/."
+UNSHOWN_DOC = "A card to the owner that asks him to merge or approve a design doc or retro links its rendered page. Add the doc's GitHub Pages link, https://docs.poetic.design/design-docs/<slug>/ or /incident-retros/<slug>/ for a retro, or before it merges its preview, https://docs.poetic.design/previews/pr-<n>/design-docs/<slug>/, or a local render's tailnet link such as `lr explain` serves."
 UNCARDED_RECORD ="Warning, nothing was blocked: A release record carries the Platy release card, so the relay can show it to the owner. Add `--attr card=<permalink>`, read from the build's `release-slack-root` annotation."
 
 LANE = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "flaky-tests-1"}
@@ -214,6 +214,7 @@ DOC_PAGE_LINK = "https://docs.poetic.design/design-docs/sandsql-per-database-sha
         Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD}, env=LANE): Block(pattern=r"^A card to the owner that asks him to merge or approve a design doc.*docs\.poetic\.design"),
         Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD | {"body": f"{DOC_CARD['body']} Read it: {DOC_PAGE_LINK}"}}, env=LANE): Allow(),
         Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD | {"body": f"{DOC_CARD['body']} <!-- {DOC_PAGE_LINK} -->"}}, env=LANE): Block(),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD | {"body": f"{DOC_CARD['body']} Rendered here: https://yasyf-forge-studio.tail71af5d.ts.net:8443/sandsql-per-database-sharding/"}}, env=LANE): Allow(),
         Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD | {"title": "Merge #51418?", "body": f"{PR_LINK} is green."}}, env=LANE): Allow(),
         sent("design-docs#332 merged; the lane posts its page next."): Allow(),
     },
