@@ -19,15 +19,20 @@ const (
 	baseLine     = "BASE"
 	conflictLine = "CONFLICT"
 	replayLine   = "REPLAY-FAILED"
+	carriesLine  = "CARRIES"
+	openLimit    = "10000"
 	shortSHA     = 10
 	detailBytes  = 400
-	pullFields   = "number,headRefName,baseRefName"
+	pullFields   = "number,headRefName,baseRefName,headRefOid"
 )
 
 //go:embed restack.sh
 var restackScript string
 
-var ErrConflict = errors.New("only a lane can resolve this restack")
+var (
+	ErrConflict = errors.New("only a lane can resolve this restack")
+	ErrCarries  = errors.New("only a lane can put it back on its real base")
+)
 
 type Remote struct {
 	Runner   shell.Runner
@@ -42,6 +47,7 @@ type pull struct {
 	Number int    `json:"number"`
 	Head   string `json:"headRefName"`
 	Base   string `json:"baseRefName"`
+	Oid    string `json:"headRefOid"`
 }
 
 func (r Remote) Restack(ctx context.Context, number int, _, _ string) (string, error) {
@@ -56,13 +62,16 @@ func (r Remote) Restack(ctx context.Context, number int, _, _ string) (string, e
 }
 
 func (r Remote) Run(ctx context.Context, number int) (string, error) {
-	base, pulls, err := r.chain(ctx, number)
+	base, pulls, outside, err := r.chain(ctx, number)
 	if err != nil {
 		return "", err
 	}
 	stdin, err := r.credentials(ctx)
 	if err != nil {
 		return "", err
+	}
+	for oid := range outside {
+		stdin += oid + "\n"
 	}
 	branches := make([]string, 0, len(pulls))
 	numbers := make(map[string]int, len(pulls))
@@ -76,27 +85,33 @@ func (r Remote) Run(ctx context.Context, number int) (string, error) {
 		Timeout: passTimeout,
 	})
 	if err != nil {
-		return done.Stdout, r.failure(number, done)
+		return done.Stdout, r.failure(number, done, outside)
 	}
 	return done.Stdout, r.postHeads(ctx, done.Stdout, base, numbers)
 }
 
-func (r Remote) chain(ctx context.Context, number int) (string, []pull, error) {
-	var top pull
-	if err := r.read(ctx, &top, "gh", "pr", "view", strconv.Itoa(number), "--repo", r.Repo, "--json", pullFields); err != nil {
-		return "", nil, err
+func (r Remote) chain(ctx context.Context, number int) (string, []pull, map[string]int, error) {
+	var open []pull
+	if err := r.read(ctx, &open, "gh", "pr", "list", "--repo", r.Repo, "--state", "open", "--limit", openLimit, "--json", pullFields); err != nil {
+		return "", nil, nil, err
 	}
-	pulls := []pull{top}
-	for {
-		var below []pull
-		if err := r.read(ctx, &below, "gh", "pr", "list", "--repo", r.Repo, "--state", "open", "--head", pulls[0].Base, "--json", pullFields); err != nil {
-			return "", nil, err
-		}
-		if len(below) == 0 {
-			return pulls[0].Base, pulls, nil
-		}
-		pulls = slices.Insert(pulls, 0, below[0])
+	at := slices.IndexFunc(open, func(p pull) bool { return p.Number == number })
+	if at < 0 {
+		return "", nil, nil, fmt.Errorf("remote-restack: #%d is not an open pull request", number)
 	}
+	byBranch := make(map[string]pull, len(open))
+	outside := make(map[string]int, len(open))
+	for _, p := range open {
+		byBranch[p.Head], outside[p.Oid] = p, p.Number
+	}
+	pulls := []pull{open[at]}
+	for below, found := byBranch[pulls[0].Base]; found; below, found = byBranch[pulls[0].Base] {
+		pulls = slices.Insert(pulls, 0, below)
+	}
+	for _, p := range pulls {
+		delete(outside, p.Oid)
+	}
+	return pulls[0].Base, pulls, outside, nil
 }
 
 func (r Remote) read(ctx context.Context, into any, argv ...string) error {
@@ -137,8 +152,18 @@ func (r Remote) where() string {
 	return r.Sprite
 }
 
-func (r Remote) failure(number int, done shell.Result) error {
+func (r Remote) failure(number int, done shell.Result, outside map[string]int) error {
 	summary := fmt.Sprintf("remote-restack: #%d on %s pushed nothing", number, r.where())
+	var carried []int
+	for line := range strings.Lines(done.Stdout) {
+		if oid, found := strings.CutPrefix(strings.TrimSpace(line), carriesLine+" "); found {
+			carried = append(carried, outside[oid])
+		}
+	}
+	if len(carried) > 0 {
+		slices.Sort(carried)
+		return fmt.Errorf("%s: its branch holds the heads of %s, open PRs outside its stack, so %w", summary, numbered(slices.Compact(carried)), ErrCarries)
+	}
 	if strings.Contains("\n"+done.Stdout, "\n"+conflictLine+" ") || strings.Contains("\n"+done.Stdout, "\n"+replayLine+" ") {
 		return fmt.Errorf("%s: %w", summary, ErrConflict)
 	}

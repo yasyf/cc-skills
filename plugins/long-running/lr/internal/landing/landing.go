@@ -143,6 +143,8 @@ func dequeued(f machine.Facts, said string) Said {
 		answer.Text = "the queue held an older head"
 	case f.Hold != "":
 		answer.Text = "an open hold names it"
+	case len(f.Carries) > 0:
+		answer.Text = fmt.Sprintf("its branch holds the heads of %s, open PRs of their own, so this head would land them too; put it back on its real base", numbered(f.Carries))
 	case !f.Admitted():
 		answer.Accepted, answer.Refused, answer.Alarm = "UNTAPPED-DEQUEUED", "UNTAPPED-DEQUEUE-REFUSED", true
 		if f.TapFrom != "" {

@@ -6,19 +6,25 @@ IFS= read -r GIT_COMMITTER_EMAIL
 export GH_TOKEN GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 clone=$1 base=$2
 shift 2
+tag=restack-$$-$(date +%s)
+trap 'rm -f "$clone.$tag.log" "$clone.$tag.heads"; git -C "$clone" for-each-ref --format="delete %(refname)" "refs/heads/$tag/" | git -C "$clone" update-ref --stdin' EXIT
+cat >"$clone.$tag.heads"
 auth() {
   git -C "$clone" -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' "$@"
 }
 refspecs="+refs/heads/$base:refs/remotes/origin/$base"
 for branch in "$@"; do refspecs="$refspecs +refs/heads/$branch:refs/remotes/origin/$branch"; done
 (flock 9 && auth fetch --quiet origin $refspecs) 9>"$clone.fetch.lock"
-tag=restack-$$-$(date +%s)
-trap 'rm -f "$clone.$tag.log"; git -C "$clone" for-each-ref --format="delete %(refname)" "refs/heads/$tag/" | git -C "$clone" update-ref --stdin' EXIT
 for branch in "$@"; do git -C "$clone" update-ref "refs/heads/$tag/$branch" "refs/remotes/origin/$branch"; done
 eval "top=\${$#}"
 if git -C "$clone" merge-base --is-ancestor "refs/remotes/origin/$base" "refs/heads/$tag/$1"; then
   echo "BASE $base $(git -C "$clone" rev-parse "refs/remotes/origin/$base")"
   exit 0
+fi
+carried=$(git -C "$clone" rev-list "refs/remotes/origin/$base..refs/heads/$tag/$top" | grep -Fxf "$clone.$tag.heads" || true)
+if [ -n "$carried" ]; then
+  printf 'CARRIES %s\n' $carried
+  exit 1
 fi
 if ! moves=$(auth replay --contained --onto "refs/remotes/origin/$base" "refs/remotes/origin/$base..refs/heads/$tag/$top" 2>"$clone.$tag.log"); then
   tip=$(git -C "$clone" rev-parse "refs/remotes/origin/$base")

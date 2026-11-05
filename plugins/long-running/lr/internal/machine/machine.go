@@ -299,13 +299,13 @@ func classify(f Facts) Verdict {
 		if f.Undriven() {
 			return Verdict{StatePushed, MoverNobody, ActionNone, 0}
 		}
-		if f.QueuedHead != f.Head || f.Hold != "" || !f.Admitted() && !f.PersonQueued {
+		if f.QueuedHead != f.Head || f.Hold != "" || len(f.Carries) > 0 || !f.Admitted() && !f.PersonQueued {
 			return Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, SupervisorClock}
 		}
 		return Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, QueueClock}
 	}
 	if f.Restackable() {
-		if (f.Admitted() || f.Port && !f.Draft) && f.Hold == "" {
+		if (f.Admitted() || f.Port && !f.Draft) && f.Hold == "" && len(f.Carries) == 0 {
 			return Verdict{StateNeedsRestack, MoverSupervisor, ActionRestack, SupervisorClock}
 		}
 		return Verdict{StateNeedsRestack, MoverLane, ActionRestack, LaneClock}

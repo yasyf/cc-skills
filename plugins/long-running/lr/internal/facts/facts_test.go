@@ -108,6 +108,20 @@ func memberReply(prs []recordedPR) string {
 	return string(encoded)
 }
 
+func openReply(prs []recordedPR) string {
+	nodes := make([]map[string]any, 0, len(prs))
+	for _, pr := range prs {
+		if pr.state == "" || pr.state == "OPEN" {
+			nodes = append(nodes, map[string]any{"number": pr.number, "headRefOid": pr.head})
+		}
+	}
+	encoded, err := json.Marshal([]any{map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}}}})
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
+}
+
 func status(number int, overrides ...func(*statusRow)) statusRow {
 	row := statusRow{ccx.PRStatus{Number: number, Head: head, Base: "dev", State: "OPEN", Queue: "not queued", Mergeability: "notQueued", Verdict: "landable", Approval: ccx.Check{State: "approved"}}, ciRow{State: "green"}}
 	for _, override := range overrides {
@@ -139,6 +153,7 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 		t.Fatal(err)
 	}
 	runner := &shelltest.Fake{}
+	runner.Reply(openReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate")
 	runner.Reply(memberReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
@@ -267,6 +282,7 @@ func TestANumberGitHubCannotResolveEndsItsRowAndThePassGoesOn(t *testing.T) {
 	}
 	partial := `{"data":{"repository":{"r99999":null,"r1":{"number":1,"state":"OPEN","headRefOid":"` + head + `"}}},"errors":[{"type":"NOT_FOUND","message":"Could not resolve"}]}`
 	runner := &shelltest.Fake{}
+	runner.Reply(openReply(nil), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate")
 	runner.FailOut(1, partial, "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
@@ -903,7 +919,7 @@ func TestTheMemberReadAsksByNumberInBatchesGitHubAnswers(t *testing.T) {
 
 	var batches, asked int
 	for _, call := range h.runner.Calls() {
-		if !slices.Contains(call.Argv, "graphql") || strings.Contains(call.Argv[len(call.Argv)-1], "search(") {
+		if !slices.Contains(call.Argv, "graphql") || slices.Contains(call.Argv, "--paginate") || strings.Contains(call.Argv[len(call.Argv)-1], "search(") {
 			continue
 		}
 		batches++
@@ -924,7 +940,7 @@ func TestEveryReadRunsFromTheCheckoutNamingItsRepositoryAndCaller(t *testing.T) 
 	h.snapshot(t)
 
 	calls := h.runner.Calls()
-	if len(calls) != 4 {
+	if len(calls) != 5 {
 		t.Fatalf("calls = %+v", calls)
 	}
 	for _, call := range calls {
@@ -1078,6 +1094,20 @@ func TestABranchCarryingASiblingsHeadIsMarkedWhateverGitHubSaysItsBaseIs(t *test
 	}
 	if machine.Classify(by[45799]).State != machine.StateNeedsRestack {
 		t.Errorf("a carrying branch classified %v", machine.Classify(by[45799]).State)
+	}
+}
+
+func TestABranchCarryingAnOpenPRThisStoreHasNoRowForIsStillMarked(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 48611, head: head, login: "drive-bot", commits: []string{head2, head3, head}},
+		{number: 48159, head: head2, login: "drive-bot", unopened: true},
+		{number: 48479, head: head3, login: "drive-bot", unopened: true},
+	}, status(48611))
+
+	by := h.snapshot(t)
+
+	if !slices.Equal(by[48611].Carries, []int{48159, 48479}) {
+		t.Fatalf("carries = %v, want the open PRs whose heads its branch holds", by[48611].Carries)
 	}
 }
 
