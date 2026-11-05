@@ -486,3 +486,21 @@ func TestHisApprovalPostKeepsTheMinuteItFirstReachedHimAtAHead(t *testing.T) {
 		t.Fatalf("shown at %q, %v, want %s, the first time it reached him", stored[gates.ShownFact], err, store.Stamp(t0))
 	}
 }
+
+func TestACardShownAtAHeadTheStoreHasNotReadStillRecordsItAtThatHead(t *testing.T) {
+	row := readyRow(nil)
+	moved := readyRow(func(r *store.ReviewRow) { r.Head = "bbbbbbb0123456789012345678901234567890ab" })
+	cardAt := MergeWaits(row.Number, row.Head)
+	for name, rows := range map[string][]store.ReviewRow{"a row at another head": {moved}, "no row": nil} {
+		t.Run(name, func(t *testing.T) {
+			s := withLedger(t, moved)
+			if err := MarkShown(s, repo, rows, []SlackShown{{SlackPR{repo, row.Number}, cardAt}}, t0); err != nil {
+				t.Fatal(err)
+			}
+			facts, err := s.HeadFacts(repo, row.Number, []string{gates.ShownFact})
+			if err != nil || len(facts) != 1 || facts[0].Head != cardHead(cardAt) {
+				t.Fatalf("shown facts = %+v, %v, want one at the card's own head", facts, err)
+			}
+		})
+	}
+}

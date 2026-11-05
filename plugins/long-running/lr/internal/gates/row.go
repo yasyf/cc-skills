@@ -3,6 +3,7 @@ package gates
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -53,15 +54,15 @@ func RowReadAt(s *store.Store, repo string, number int, head string) (string, er
 }
 
 func TapCardShownAt(s *store.Store, repo string, number int, head string) (string, error) {
-	facts, err := s.Facts(repo, number, head)
+	shown, err := s.HeadFacts(repo, number, []string{ShownFact})
 	if err != nil {
 		return "", err
 	}
-	if facts[ShownFact] != "" {
+	if slices.ContainsFunc(shown, func(fact store.HeadFact) bool { return sameHead(fact.Head, head) }) {
 		return fmt.Sprintf("his tap card for it was shown at %s, so it lands on his tap whatever its class", short(head)), nil
 	}
-	shown, err := s.FactsOfKind(repo, ShownFact)
-	if err != nil || len(shown) > 0 {
+	anywhere, err := s.FactsOfKind(repo, ShownFact)
+	if err != nil || len(anywhere) > 0 {
 		return "", err
 	}
 	return NoTapCards, nil

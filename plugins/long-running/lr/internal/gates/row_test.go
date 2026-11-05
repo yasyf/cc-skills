@@ -105,6 +105,7 @@ func TestAHeadWhoseTapCardWasShownTakesNoExemptGoWhateverItsClassAndAStoreThatNe
 		{"a card shown at this head", []shown{{1, newHead}}, "his tap card for it was shown at e718a74, so it lands on his tap whatever its class"},
 		{"a card shown at an older head only", []shown{{1, oldHead}}, ""},
 		{"a card shown for another PR", []shown{{2, newHead}}, ""},
+		{"a card shown at this head under its card's short sha", []shown{{1, newHead[:10]}}, "his tap card for it was shown at e718a74, so it lands on his tap whatever its class"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s, err := store.Memory()
