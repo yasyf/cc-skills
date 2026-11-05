@@ -36,6 +36,8 @@ type ownersBoard struct {
 func (b *ownersBoard) Run(_ context.Context, c shell.Command) (shell.Result, error) {
 	argv := strings.Join(c.Argv, " ")
 	switch {
+	case strings.Contains(argv, "ledger list --json"):
+		return shell.Result{Stdout: "[]"}, nil
 	case strings.Contains(argv, "ledger add"):
 		return shell.Result{Stdout: `{"id":"c4rd5"}`}, nil
 	case strings.Contains(argv, "outcomes --all"):

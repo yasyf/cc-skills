@@ -129,7 +129,11 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return CardsOf(a, entry, board, s), func() { _ = s.Close() }, nil
 	}
-	cmd.AddCommand(wakeCommand(a, cards), waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, PackJudge(a.Runner)), rowsCommand(opened), portsCommand(opened), backfillCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened, PackJudge(a.Runner)), picksCommand(opened))
+	unstored := func() (Cards, error) {
+		entry, board, err := opened()
+		return CardsOf(a, entry, board, nil), err
+	}
+	cmd.AddCommand(wakeCommand(a, cards), waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, unstored, PackJudge(a.Runner)), rowsCommand(opened), portsCommand(opened), backfillCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened, PackJudge(a.Runner)), picksCommand(opened))
 	return cmd
 }
 
@@ -279,7 +283,7 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 	return waits
 }
 
-func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Command {
+func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, error), judge Judge) *cobra.Command {
 	var until, owner, lane, pick, said string
 	var on, paths []string
 	cmd := &cobra.Command{Use: "cards", Short: "The event that ends each question card on the owner's board, and what each card depends on"}
@@ -362,14 +366,13 @@ func cardsCommand(cards func() (Cards, func(), error), judge Judge) *cobra.Comma
 	}
 	cmd.AddCommand(record, &cobra.Command{
 		Use:   "paths",
-		Short: "Print as JSON each card on the board with its design paths, the prefixes where a drive lane's PR waits for his pick",
+		Short: "Print as JSON each open card in the drive's card ledger with its design paths, the prefixes where a drive lane's PR waits for his pick",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			board, done, err := cards()
+			board, err := unstored()
 			if err != nil {
 				return err
 			}
-			defer done()
 			gated, err := board.Paths(c.Context())
 			if err != nil {
 				return err

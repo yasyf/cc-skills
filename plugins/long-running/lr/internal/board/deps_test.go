@@ -48,6 +48,8 @@ func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error)
 	switch {
 	case strings.Contains(argv, "ledger list --label register --label program:brook"):
 		return shell.Result{Stdout: fmt.Sprintf(`[{"id":%q,"updated_at":"2026-11-03T08:00:00Z"}]`, registerID)}, nil
+	case strings.Contains(argv, "ledger list --json"):
+		return shell.Result{Stdout: "[]"}, nil
 	case strings.Contains(argv, "ledger add"):
 		return shell.Result{Stdout: `{"id":"c4rd5"}`}, nil
 	case strings.Contains(argv, "outcomes --block"):
