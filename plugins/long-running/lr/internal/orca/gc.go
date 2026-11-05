@@ -244,7 +244,7 @@ func unsaved(ctx context.Context, checkout Checkout, remote Remote) (string, err
 	if checkout.OnTrunk || remote.Heads[checkout.Head] {
 		return "", nil
 	}
-	landed, err := remote.Landed.Landed(ctx, checkout.Head)
+	landed, err := remote.Landed.Landed(ctx, checkout)
 	var refused githubRefusal
 	if errors.As(err, &refused) {
 		return refused.Error(), nil
@@ -588,7 +588,7 @@ func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liv
 	if read.Found == nil {
 		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: read.Refusal, Unheld: true}, nil
 	}
-	held, err := unsaved(ctx, *read.Found, g.Fleet.Remote(*read.Found))
+	held, err := unsaved(ctx, *read.Found, g.Fleet.Remote(sprite))
 	if err != nil {
 		return Action{}, err
 	}

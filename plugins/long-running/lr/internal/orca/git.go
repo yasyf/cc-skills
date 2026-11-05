@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,6 +28,11 @@ const (
 )
 
 const spriteCheckout = `git -C "$1" remote get-url origin && git -C "$1" rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && git -C "$1" worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e "$tree" ] || git -C "$tree" status --porcelain || echo unreadable; done | wc -l && git -C "$1" status --porcelain=v2 --branch`
+
+const (
+	squashCopy       = `tree=$(git -C "$1" merge-tree --write-tree "$2^" "$3") && [ "$tree" = "$(git -C "$1" rev-parse "$2^{tree}")" ]`
+	spriteSquashCopy = `git -C "$1" fetch --quiet origin "$2" && ` + squashCopy
+)
 
 const spriteHolders = `for p in /proc/[0-9]*; do
   pid=${p#/proc/}
@@ -63,7 +69,7 @@ type CheckoutRead struct {
 }
 
 type Landings interface {
-	Landed(ctx context.Context, head string) (bool, error)
+	Landed(ctx context.Context, checkout Checkout) (bool, error)
 }
 
 type Remote struct {
@@ -235,6 +241,9 @@ func (g *Git) Remote(ctx context.Context, repository string) (Remote, error) {
 type closedPull struct {
 	Number int    `json:"number"`
 	Head   string `json:"headRefOid"`
+	Merge  struct {
+		OID string `json:"oid"`
+	} `json:"mergeCommit"`
 }
 
 type PullRequests struct {
@@ -243,24 +252,57 @@ type PullRequests struct {
 	Squashed map[int]bool
 }
 
-func (p PullRequests) Landed(ctx context.Context, head string) (bool, error) {
-	command := githubCommand("pr", "list", "--repo", p.Origin, "--state", "closed", "--search", head, "--json", "number,headRefOid")
+func (p PullRequests) Landed(ctx context.Context, checkout Checkout) (bool, error) {
+	pulls, err := p.closed(ctx, "--state", "closed", "--search", checkout.Head, "--json", "number,headRefOid")
+	if err != nil {
+		return false, err
+	}
+	if slices.ContainsFunc(pulls, func(pull closedPull) bool {
+		return p.Squashed[pull.Number] && pull.Head == checkout.Head
+	}) {
+		return true, nil
+	}
+	if checkout.Branch == "" {
+		return false, nil
+	}
+	pulls, err = p.closed(ctx, "--state", "merged", "--head", checkout.Branch, "--json", "number,mergeCommit")
+	if err != nil {
+		return false, err
+	}
+	for _, pull := range pulls {
+		if !p.Squashed[pull.Number] {
+			continue
+		}
+		same, err := replaysToSquash(ctx, p.Runner, shell.Command{Argv: []string{"sh", "-c", squashCopy, "sh", checkout.Repository, pull.Merge.OID, checkout.Head}})
+		if err != nil || same {
+			return same, err
+		}
+	}
+	return false, nil
+}
+
+func (p PullRequests) closed(ctx context.Context, query ...string) ([]closedPull, error) {
+	command := githubCommand(slices.Concat([]string{"pr", "list", "--repo", p.Origin}, query)...)
 	command.Idempotent = true
 	result, err := p.Runner.Run(ctx, command)
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
-		return false, githubRefusal{describeExit(result.Stderr, "gh exited %d", result.Code)}
+		return nil, githubRefusal{describeExit(result.Stderr, "gh exited %d", result.Code)}
 	}
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	var pulls []closedPull
-	if err := json.Unmarshal([]byte(result.Stdout), &pulls); err != nil {
-		return false, err
+	return pulls, json.Unmarshal([]byte(result.Stdout), &pulls)
+}
+
+func replaysToSquash(ctx context.Context, runner shell.Runner, replay shell.Command) (bool, error) {
+	_, err := runner.Run(ctx, replay)
+	var differs *shell.ExitError
+	if errors.As(err, &differs) {
+		return false, nil
 	}
-	return slices.ContainsFunc(pulls, func(pull closedPull) bool {
-		return p.Squashed[pull.Number] && pull.Head == head
-	}), nil
+	return err == nil, err
 }
 
 var githubRead = []string{"ccx", "vcs", "gh", "--max-age", "10m", "--"}
@@ -288,7 +330,7 @@ type SpriteKey struct {
 type SpriteFleet interface {
 	Sprites() (map[SpriteKey]Sprite, error)
 	Checkout(ctx context.Context, sprite Sprite) (CheckoutRead, error)
-	Remote(checkout Checkout) Remote
+	Remote(sprite Sprite) Remote
 	Holder(ctx context.Context, sprite Sprite) (string, error)
 	Destroy(ctx context.Context, sprite Sprite) (string, error)
 	CloseTunnel(ctx context.Context, sprite Sprite) string
@@ -453,39 +495,61 @@ func (c CCRemote) onTrunk(ctx context.Context, head, slug string) (bool, error) 
 	return found && (compared.Status == "behind" || compared.Status == "identical"), err
 }
 
-func (c CCRemote) Remote(checkout Checkout) Remote {
-	return Remote{Landed: githubLandings{c, checkout.Repository}}
+func (c CCRemote) Remote(sprite Sprite) Remote {
+	return Remote{Landed: githubLandings{c, sprite}}
 }
 
 type githubLandings struct {
-	fleet CCRemote
-	slug  string
+	fleet  CCRemote
+	sprite Sprite
 }
 
-func (l githubLandings) Landed(ctx context.Context, head string) (bool, error) {
+type githubPull struct {
+	Merged string `json:"merged_at"`
+	Squash string `json:"merge_commit_sha"`
+	Head   struct {
+		SHA string `json:"sha"`
+	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
+}
+
+func (l githubLandings) Landed(ctx context.Context, checkout Checkout) (bool, error) {
+	slug, head := checkout.Repository, checkout.Head
 	var branches []struct{}
-	if _, err := l.fleet.github(ctx, fmt.Sprintf("repos/%s/commits/%s/branches-where-head", l.slug, head), &branches); err != nil || len(branches) > 0 {
+	if _, err := l.fleet.github(ctx, fmt.Sprintf("repos/%s/commits/%s/branches-where-head", slug, head), &branches); err != nil || len(branches) > 0 {
 		return len(branches) > 0, err
 	}
-	trunk, err := l.fleet.trunk(ctx, l.slug)
+	trunk, err := l.fleet.trunk(ctx, slug)
 	if err != nil {
 		return false, err
 	}
-	var pulls []struct {
-		Merged string `json:"merged_at"`
-		Head   struct {
-			SHA string `json:"sha"`
-		} `json:"head"`
-		Base struct {
-			Ref string `json:"ref"`
-		} `json:"base"`
-	}
-	if _, err := l.fleet.github(ctx, fmt.Sprintf("repos/%s/commits/%s/pulls", l.slug, head), &pulls); err != nil {
+	var pulls []githubPull
+	if _, err := l.fleet.github(ctx, fmt.Sprintf("repos/%s/commits/%s/pulls", slug, head), &pulls); err != nil {
 		return false, err
 	}
 	for _, pull := range pulls {
 		if pull.Merged != "" && pull.Head.SHA == head && pull.Base.Ref == trunk {
 			return true, nil
+		}
+	}
+	if checkout.Branch == "" {
+		return false, nil
+	}
+	owner, _, _ := strings.Cut(slug, "/")
+	var own []githubPull
+	if _, err := l.fleet.github(ctx, fmt.Sprintf("repos/%s/pulls?state=closed&per_page=100&head=%s", slug, url.QueryEscape(owner+":"+checkout.Branch)), &own); err != nil {
+		return false, err
+	}
+	for _, pull := range own {
+		if pull.Merged == "" || pull.Base.Ref != trunk {
+			continue
+		}
+		replay := shell.Command{Argv: spriteExec(l.sprite, "sh", "-c", spriteSquashCopy, "sh", l.sprite.Root, pull.Squash, head), Timeout: spriteReadTimeout}
+		same, err := replaysToSquash(ctx, l.fleet.Runner, replay)
+		if err != nil || same {
+			return same, err
 		}
 	}
 	return false, nil

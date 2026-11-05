@@ -457,7 +457,7 @@ lr gc --run <run> --done <ctx>
 ```
 
 - `--done` runs `orca orchestration worker-stop` on the Dispatch, which fences it and closes an Orca-owned agent terminal. When Orca already revoked the Dispatch, so worker-stop reads `dispatch_inactive` and the Dispatch reads `dispatched` forever, `--done` runs `worker-abandon` instead, which settles it as failed.
-- Any terminal still open is closed without waiting for an idle prompt. Then the worktree is removed when it is clean and its HEAD is on origin or landed. A worktree with uncommitted or unpushed work stays.
+- Any terminal still open is closed without waiting for an idle prompt. Then the worktree is removed when it is clean and its HEAD is on origin or landed. A head also counts as landed when replaying it onto the parent of a merged PR of its own branch gives exactly that PR's squash tree, so the copy left by a rebase before the merge does not hold a tree. A worktree with uncommitted or unpushed work stays.
 - Add `--dry-run` to print the plan first.
 - A Dispatch that already settled through `worker_done` gets the same sweep without the stop: `lr gc --run <run> --dispatch <ctx>` closes its idle terminal and reclaims its worktree.
 
