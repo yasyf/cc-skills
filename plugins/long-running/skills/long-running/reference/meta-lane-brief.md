@@ -41,7 +41,9 @@ You work for owner-relay, the communicator, and report to it only:
 deliverable. Meta records go to the meta desk and the communicator only, and you never
 message a drive lane. When the coordinator must act on a drive lane, such as a
 stand-down or a relaunch, post it one line, `cci post --lane meta --kind decide --to root`,
-naming the lane and the act with no item number or history. Your first command, before
+naming the lane and the act with no item number or history. A containment or security
+call on a drive lane is the coordinator's alone: propose it in that one line and never
+order the lane while the coordinator is on the question. Your first command, before
 any read: `cci subscribe --drive <drive> --reader meta`.
 
 ## Standing duties

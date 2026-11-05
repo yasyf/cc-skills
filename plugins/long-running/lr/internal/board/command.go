@@ -493,7 +493,9 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 			if lacks := board.Lacks(c.Context(), judge, data); lacks != "" {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING %s\n", lacks)
 			}
-			if steps := cardtext.StepsForHim(data); steps != "" {
+			if signIn := cardtext.AWSSignInForHim(data); signIn != "" {
+				fmt.Fprintf(c.OutOrStdout(), "WARNING this card asks him to sign in to AWS (%q). An AWS read runs on this Mac's machine profile, never his sign-in: run it with AWS_PROFILE=\"$DEVBOX_AWS_PROFILE\" after `aws sts get-caller-identity` answers on it, and when that profile lacks a grant, card the reviewed IaC PR that adds the exact permission instead.\n", signIn)
+			} else if steps := cardtext.StepsForHim(data); steps != "" {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING this card hands him steps (%q). An agent does sign-ins and browser steps itself with cookiesync, through the agent-browser-with-cookies skill: his login, one Touch ID tap. Do them, and card only what only he can decide.\n", steps)
 			}
 			return nil
