@@ -63,7 +63,6 @@ KEPT_REFUSALS = KEPT | {
     "owner_answers.only_his_answer_closes_a_card": "the owner ordered the refusal (cci 455004): a warning lands after the card has already lost his buttons",
     "lane_slack_status.lanes_post_no_release_status": "a Slack post cannot be unsent, and the Slack permission rule stays (answer 8f1682a)",
     "lane_landing.hand_landings_meet_the_runner_checks": "card-hand-merge-rule (answer fd9233e): the owner picked a block for a hand landing with no tap at its head, since a merge cannot be recalled",
-    "lane_spawns.lanes_never_spawn": "the lane waits inside the Agent call, so a warning lands too late",
     "local_builds.no_local_builds_in_a_drive": "the run already saturates the Mac when a warning lands (answer 7e82747)",
     "mechanism_lines_cite.mechanism_lines_cite": "the owner ordered the refusal: he reads an uncited mechanism sentence as fact",
     "mechanism_lines_cite.mechanism_replies_cite": STOP.format(what="the owner would read an uncited mechanism as fact"),

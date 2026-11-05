@@ -197,7 +197,7 @@ func written(entry driveEntry, lane plannedLane, alert string) (string, error) {
 }
 
 func (d DeskLaunch) fallback(planned []plannedLane) string {
-	text := fmt.Sprintf("spawn an Agent named `%s`", planned[0].lane)
+	text := fmt.Sprintf("spawn a background Agent (run_in_background) named `%s`", planned[0].lane)
 	for _, lane := range planned[1:] {
 		text += fmt.Sprintf(" and one named `%s`", lane.lane)
 	}
