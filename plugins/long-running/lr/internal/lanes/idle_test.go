@@ -54,7 +54,7 @@ func TestSettledGCRunsANewPassEveryFiveMinutesFromTheCheckoutWithTheDrivesCCRemo
 		t.Fatalf("ran %d passes", len(passes))
 	}
 	got := passes[0]
-	equal(t, got.Argv, []string{filepath.Join(claude, "long-running", "current", "bin", "lr"), "gc", "--run", "run_1", "--keep", "ctx_wanted", "--new"})
+	equal(t, got.Argv, []string{filepath.Join(claude, "long-running", "current", "bin", "lr"), "gc", "--run", "run_1", "--keep", "ctx_wanted", "--new", "--shells", "--other-runs"})
 	equal(t, got.Dir, "/checkout")
 	equal(t, got.Env, []string{"WORKER_CC_REMOTE=/pin/cc-remote", "CC_REMOTE_CONFIG=/pin/config.yaml"})
 }
@@ -222,7 +222,7 @@ func TestEveryCloseOfAFinishedLanePostsARecordNamingItWithTheDaysCount(t *testin
 		t.Fatal(err)
 	}
 	gc := slices.IndexFunc(runner.commands, func(c shell.Command) bool { return slices.Contains(c.Argv, "gc") })
-	equal(t, runner.commands[gc].Argv[4:], []string{"--finished", "ctx_held-1", "--stale", "ctx_held-1", "--finished", "ctx_landed-1", "--stale", "ctx_landed-1", "--finished", "ctx_settled-1", "--new"})
+	equal(t, runner.commands[gc].Argv[4:], []string{"--finished", "ctx_held-1", "--stale", "ctx_held-1", "--finished", "ctx_landed-1", "--stale", "ctx_landed-1", "--finished", "ctx_settled-1", "--new", "--shells", "--other-runs"})
 	equal(t, bus.query.Since, time.Date(2026, 10, 31, 0, 0, 0, 0, pacificZone))
 	closed := slices.DeleteFunc(slices.Clone(bus.posted), func(d client.Draft) bool { return d.Topic != closedTopic })
 	said := make([]string, 0, len(closed))

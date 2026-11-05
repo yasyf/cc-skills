@@ -41,6 +41,7 @@ func environmentKey(name string) *regexp.Regexp {
 type Processes struct {
 	Runner shell.Runner
 	Home   string
+	Dev    string
 }
 
 func (p Processes) stdout(ctx context.Context, argv ...string) (string, error) {

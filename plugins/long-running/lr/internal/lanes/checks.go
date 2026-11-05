@@ -1132,7 +1132,7 @@ func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
 		}
 	}
 	before, uncounted := g.Env.headcount(ctx)
-	result, err := g.Env.gc(ctx, slices.Concat(keep, staleArgs, []string{"--new"})...)
+	result, err := g.Env.gc(ctx, slices.Concat(keep, staleArgs, []string{"--new", "--shells", "--other-runs"})...)
 	if err != nil {
 		g.Log.Warn("lr gc --new did not finish", "err", err, "said", strings.TrimSpace(result.Stderr))
 		return nil

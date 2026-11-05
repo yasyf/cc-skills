@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/screen"
 )
 
 const (
@@ -103,6 +105,7 @@ type Terminal struct {
 	Handle       string `json:"handle"`
 	Agent        string `json:"agentIdentity"`
 	Title        string `json:"title"`
+	Worktree     string `json:"worktreePath"`
 	LastOutputMS int64  `json:"lastOutputAt"`
 	Tab          string `json:"tabId"`
 	Leaf         string `json:"leafId"`
@@ -135,16 +138,20 @@ type TerminalList struct {
 
 type terminalShow struct {
 	Terminal struct {
-		Connected bool     `json:"connected"`
-		Worktree  string   `json:"worktreePath"`
-		Tab       string   `json:"tabId"`
-		Tail      []string `json:"tail"`
+		Connected    bool     `json:"connected"`
+		Worktree     string   `json:"worktreePath"`
+		Tab          string   `json:"tabId"`
+		Tail         []string `json:"tail"`
+		LastOutputMS int64    `json:"lastOutputAt"`
 	} `json:"terminal"`
 }
 
 func idleScreen(tail []string) bool {
 	lines := make([]string, 0, len(tail))
 	for _, line := range tail {
+		if screen.Running(line) {
+			return false
+		}
 		for _, marker := range busyMarkers {
 			if strings.Contains(line, marker) {
 				return false
@@ -212,6 +219,10 @@ func idleFromRefusal(reply Reply) Idleness {
 	return IdleBusy
 }
 
+func timedOutInSilence(probe Reply, lastOutputMS int64) bool {
+	return probe.Error.Code == codeTimedOut && lastOutputMS > 0 && NowMS()-lastOutputMS > quietMS
+}
+
 func (c Client) Idle(ctx context.Context, terminal, environment string) (Idleness, error) {
 	reply, err := c.show(ctx, terminal, environment)
 	if err != nil {
@@ -231,29 +242,31 @@ func (c Client) Idle(ctx context.Context, terminal, environment string) (Idlenes
 	if err != nil {
 		return IdleUnknown, err
 	}
-	if !probe.OK {
+	if !probe.OK && !timedOutInSilence(probe, shown.Terminal.LastOutputMS) {
 		return idleFromRefusal(probe), nil
 	}
-	var waited struct {
-		Wait struct {
-			Satisfied bool `json:"satisfied"`
-		} `json:"wait"`
+	if probe.OK {
+		var waited struct {
+			Wait struct {
+				Satisfied bool `json:"satisfied"`
+			} `json:"wait"`
+		}
+		if err := probe.Into(&waited); err != nil {
+			return IdleUnknown, err
+		}
+		if !waited.Wait.Satisfied {
+			return IdleBusy, nil
+		}
 	}
-	if err := probe.Into(&waited); err != nil {
-		return IdleUnknown, err
-	}
-	if !waited.Wait.Satisfied {
-		return IdleBusy, nil
-	}
-	screen, err := c.Call(ctx, append([]string{"terminal", "read", "--terminal", terminal, "--screen", "--limit", strconv.Itoa(screenLines)}, on(environment)...)...)
+	shownScreen, err := c.Call(ctx, append([]string{"terminal", "read", "--terminal", terminal, "--screen", "--limit", strconv.Itoa(screenLines)}, on(environment)...)...)
 	if err != nil {
 		return IdleUnknown, err
 	}
-	if !screen.OK {
-		return idleFromRefusal(screen), nil
+	if !shownScreen.OK {
+		return idleFromRefusal(shownScreen), nil
 	}
 	var read terminalShow
-	if err := screen.Into(&read); err != nil {
+	if err := shownScreen.Into(&read); err != nil {
 		return IdleUnknown, err
 	}
 	if idleScreen(read.Terminal.Tail) {
@@ -278,6 +291,47 @@ func (c Client) Presence(ctx context.Context, terminal, environment string) (str
 		return connected, nil
 	}
 	return disconnected, nil
+}
+
+func (c Client) Terminals(ctx context.Context) ([]Terminal, error) {
+	reply, err := c.Call(ctx, "terminal", "list", "--limit", terminalPageSize)
+	if err != nil {
+		return nil, err
+	}
+	var listed struct {
+		Terminals []Terminal `json:"terminals"`
+		Truncated bool       `json:"truncated"`
+	}
+	if err := reply.Into(&listed); err != nil {
+		return nil, err
+	}
+	if listed.Truncated {
+		return nil, fmt.Errorf("orca terminal list stopped at %s terminals, so it proves no terminal absent", terminalPageSize)
+	}
+	return listed.Terminals, nil
+}
+
+func (c Client) Runs(ctx context.Context) ([]Run, error) {
+	var runs []Run
+	var cursor []string
+	for {
+		reply, err := c.Call(ctx, append([]string{orchestration, "run-list", "--limit", workerPageLimit}, cursor...)...)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Runs []Run  `json:"runs"`
+			Next string `json:"nextCursor"`
+		}
+		if err := reply.Into(&page); err != nil {
+			return nil, err
+		}
+		runs = append(runs, page.Runs...)
+		if page.Next == "" {
+			return runs, nil
+		}
+		cursor = []string{"--cursor", page.Next}
+	}
 }
 
 func (c Client) TerminalsIn(ctx context.Context, worktree, environment string) (TerminalList, error) {
