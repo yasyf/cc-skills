@@ -243,9 +243,9 @@ func TestAPickItsBoardCouldNotLabelEscalatesOnceAndWritesNoOrder(t *testing.T) {
 	}
 }
 
-func TestALandPickNamingNoOnePREscalatesOnceAndOtherPicksDoNot(t *testing.T) {
+func TestALandPickNamingSeveralPRsEscalatesOnceAndOtherPicksDoNot(t *testing.T) {
 	h := surfaceHarness(t)
-	ownerRecord(t, "Owner on board b, Land the invite fix? (no-pr): picked “Land the fix now”", map[string]string{"event": "choice.selected", "block": "no-pr", "picked": "no-pr-1"})
+	ownerRecord(t, "Owner on board b, Should next notice a stopped devhost by holding a connection? (no-pr): picked “Land the held connection”", map[string]string{"event": "choice.selected", "block": "no-pr", "picked": "no-pr-1"})
 	ownerRecord(t, "Owner on board b, Land #4242 or #4243? (two-prs): picked “Land both”", map[string]string{"event": "choice.selected", "block": "two-prs", "picked": "two-prs-1"})
 	ownerRecord(t, "Owner on board b, Which? (not-land): picked “Keep the 30-day rule”", map[string]string{"event": "choice.selected", "block": "not-land", "picked": "not-land-1"})
 
@@ -259,7 +259,7 @@ func TestALandPickNamingNoOnePREscalatesOnceAndOtherPicksDoNot(t *testing.T) {
 	said := func(block string) bool {
 		return slices.ContainsFunc(found, func(r client.Record) bool { return strings.Contains(r.Text, "("+block+")") })
 	}
-	if len(found) != 2 || !said("no-pr") || !said("two-prs") || len(orders(t)) != 0 {
+	if len(found) != 1 || said("no-pr") || !said("two-prs") || len(orders(t)) != 0 {
 		t.Fatalf("escalated = %+v, orders = %+v", found, orders(t))
 	}
 }
