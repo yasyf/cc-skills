@@ -202,7 +202,7 @@ func TestAnOverrideInASpilledBodyOfManyLinesCounts(t *testing.T) {
 	}
 }
 
-func TestABodyRewrittenAfterPostingIsNotTheRecordsText(t *testing.T) {
+func TestABodyThatDoesNotContinueTheClippedTextIsReadAfterIt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "body.txt")
 	if err := os.WriteFile(path, []byte("rewritten. finder-override #9 at e718a74"), 0o600); err != nil {
 		t.Fatal(err)
@@ -210,20 +210,18 @@ func TestABodyRewrittenAfterPostingIsNotTheRecordsText(t *testing.T) {
 	record := legacyRecord(t, "decide", "root", "the original words…", []int{9}, nil)
 	record.Refs.Path = path
 
-	if got := bus.LegacyFacts(record, repo, nil); got != nil {
-		t.Fatalf("LegacyFacts = %+v, want none", got)
+	if got := bus.Overrides(record); len(got) != 1 || got[0].PR != 9 {
+		t.Fatalf("Overrides = %+v, want the override the body names", got)
 	}
 }
 
-func TestAWholeTextIsTheBodyItOpensOrTheTextThenItsBody(t *testing.T) {
+func TestAWholeTextIsTheRecordsTextJoinedToItsBodyAsCCIShowReadsIt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "body.md")
 	if err := os.WriteFile(path, []byte("the whole of it"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for text, want := range map[string]string{
-		"the whole":  "the whole of it",
 		"the whole…": "the whole of it",
-		"rewritten…": "rewritten…",
 		"Owner: #7":  "Owner: #7\nthe whole of it",
 	} {
 		record := client.Record{Text: text}
@@ -232,10 +230,14 @@ func TestAWholeTextIsTheBodyItOpensOrTheTextThenItsBody(t *testing.T) {
 			t.Errorf("FullText(%q) = %q, want %q", text, got, want)
 		}
 	}
-	gone := client.Record{Text: "kept"}
-	gone.Refs.Path = filepath.Join(t.TempDir(), "gone.md")
-	if got := bus.FullText(gone); got != "kept" {
-		t.Errorf("got %q", got)
+}
+
+func TestABodyThatCannotBeReadCountsAsAbsentNotAsTheClippedText(t *testing.T) {
+	unreadable := client.Record{Text: "the original words…", Lane: "root", Seq: 7}
+	unreadable.Refs.Path = t.TempDir()
+
+	if got := bus.FullText(unreadable); got != "" {
+		t.Fatalf("FullText = %q, want the text to count as absent", got)
 	}
 }
 
