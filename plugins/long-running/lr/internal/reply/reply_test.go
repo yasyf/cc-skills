@@ -252,6 +252,36 @@ func TestASlackFailureStillReachesTheOtherSurfacesAndNamesItself(t *testing.T) {
 	}
 }
 
+func TestACardSlackDroppedIsToldAsAWarningAndTheReplyStillPostsOnce(t *testing.T) {
+	const dropped = "Slack dropped this post's card: Message metadata was incorrectly formatted."
+	fake := &shelltest.Fake{}
+	fake.Reply(`{"channel_id":"D0B6Z","thread_ts":"1793635190.051179","ts":"1793635190.051179","permalink":"`+permalink+`","warning":"`+dropped+`"}`, "cc-slack", "dm-status")
+	scriptedOver(fake)
+	f := fanout(t, fake)
+	r := Reply{ID: "r1", Title: "It landed", MD: "The PR is in.", PRs: []string{landPR}}
+
+	sent := f.Send(context.Background(), r)
+
+	got := surface(sent, "slack")
+	if got.Ref != permalink || got.Error != "" || got.Warning != dropped {
+		t.Fatalf("slack outcome = %+v, want the message posted with Slack's warning and no error", got)
+	}
+	text := receipt(r, sent)
+	if strings.Contains(text, "FAILED") || !strings.Contains(text, "- slack: "+permalink) || !strings.Contains(text, "never resend it: "+dropped) {
+		t.Fatalf("window text reads as a failed post or hides the warning:\n%s", text)
+	}
+
+	sent = f.Send(context.Background(), Reply{ID: "r1", Title: "It landed", MD: "The PR is in, edited.", PRs: []string{landPR}})
+
+	tried := calls(fake, "cc-slack")
+	if len(tried) != 2 || slack(t, tried[1]).Replaces != permalink {
+		t.Fatalf("cc-slack calls = %+v, want the same id to edit the first message, never post again", tried)
+	}
+	if got := surface(sent, "slack"); got.Ref != permalink || got.Error != "" || got.Warning != dropped {
+		t.Fatalf("edit outcome = %+v, want the edit's warning told too", got)
+	}
+}
+
 func TestAPickRendersOneButtonPerOptionWithTheRecommendedOneMarked(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
@@ -1076,9 +1106,8 @@ type ccPresentPR struct {
 	Row     json.RawMessage `json:"row,omitempty"`
 }
 
-func TestAPRChildDecodesUnderCCPresentsFieldsAndCarriesItsLedgerRow(t *testing.T) {
-	row := store.ReviewRow{Repo: "acme/app", Number: 41, Title: "Relay fix", CI: "green", Approvers: "poetic-svc", State: "open"}
-	child := Reply{PRCards: []prCard{{URL: landPR, Head: "abc1234", Title: "Relay fix", Review: "CI green", Lines: Lines{"Chats load", "Nothing differed", "Low", "Your tap"}, Row: &row}}}.prChild("r1", landPR)
+func TestAPRChildDecodesUnderCCPresentsFieldsAndCarriesNoLedgerRow(t *testing.T) {
+	child := Reply{PRCards: []prCard{{URL: landPR, Head: "abc1234", Title: "Relay fix", Review: "CI green", Lines: Lines{"Chats load", "Nothing differed", "Low", "Your tap"}}}}.prChild("r1", landPR)
 	raw, err := json.Marshal(child)
 	if err != nil {
 		t.Fatal(err)
@@ -1089,12 +1118,8 @@ func TestAPRChildDecodesUnderCCPresentsFieldsAndCarriesItsLedgerRow(t *testing.T
 	if err := decoder.Decode(&pr); err != nil {
 		t.Fatalf("cc-present refuses %s: %v", raw, err)
 	}
-	var carried store.ReviewRow
-	if err := json.Unmarshal(pr.Row, &carried); err != nil {
-		t.Fatal(err)
-	}
-	if carried != row {
-		t.Fatalf("row = %+v, want the ledger row %+v", carried, row)
+	if len(pr.Row) != 0 {
+		t.Fatalf("child = %s, want no ledger row now cards draw from their lines", raw)
 	}
 }
 

@@ -105,7 +105,6 @@ type prCard struct {
 	Title  string `json:"title,omitempty"`
 	Review string `json:"review,omitempty"`
 	Lines
-	Row *store.ReviewRow `json:"row,omitempty"`
 }
 
 type Reply struct {
@@ -139,6 +138,7 @@ type Outcome struct {
 	Surface string `json:"surface"`
 	Ref     string `json:"ref,omitempty"`
 	Error   string `json:"error,omitempty"`
+	Warning string `json:"warning,omitempty"`
 }
 
 type delivery struct {
@@ -622,7 +622,7 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
 			continue
 		}
-		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{row.ForUsers, board.PlanWords(row), row.Risk, row.WaitsOn}, Row: &row}
+		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{row.ForUsers, board.PlanWords(row), row.Risk, row.WaitsOn}}
 		var missing []string
 		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {row.PlanRow, "the plan row"}, {row.Risk, "the risk"}} {
 			if field.said == "" {
@@ -655,7 +655,7 @@ func (r Reply) prChild(id, pr string) map[string]any {
 		return child
 	}
 	card := r.PRCards[at]
-	return board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, Risk: card.Risk, Blocks: card.Blocks, Row: card.Row})
+	return board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, Risk: card.Risk, Blocks: card.Blocks})
 }
 
 func (r Reply) markdown() string {
@@ -892,9 +892,11 @@ func (f Fanout) edit(ctx context.Context, r Reply, message Outcome, body string)
 		edited.Error = editFailed(message.Ref, err.Error())
 		return edited
 	}
-	if done := f.dmStatus(ctx, "--card", card)[0]; done.Error != "" {
+	done := f.dmStatus(ctx, "--card", card)[0]
+	if done.Error != "" {
 		edited.Error = editFailed(message.Ref, done.Error)
 	}
+	edited.Warning = done.Warning
 	return edited
 }
 
@@ -1007,11 +1009,12 @@ func (f Fanout) dmStatus(ctx context.Context, args ...string) []Outcome {
 	}
 	var posted struct {
 		Permalink string `json:"permalink"`
+		Warning   string `json:"warning"`
 	}
 	if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
 		return []Outcome{{Surface: "slack", Error: "cc-slack dm-status named no posted message: " + strings.TrimSpace(done.Stdout)}}
 	}
-	return []Outcome{{Surface: "slack", Ref: posted.Permalink}}
+	return []Outcome{{Surface: "slack", Ref: posted.Permalink, Warning: posted.Warning}}
 }
 
 func (f Fanout) record(ctx context.Context, r Reply, _ []Outcome) []Outcome {
@@ -1118,6 +1121,9 @@ func receipt(r Reply, sent []Outcome) string {
 			continue
 		}
 		lines = append(lines, "- "+o.Surface+": "+o.Ref)
+		if o.Warning != "" {
+			lines = append(lines, "- "+o.Surface+" posted with a warning, so never resend it: "+o.Warning)
+		}
 	}
 	return strings.Join(lines, "\n")
 }

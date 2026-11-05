@@ -3,15 +3,11 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
-	"strconv"
-	"strings"
 	"time"
 )
 
 const (
 	ReviewRowsCursor = "review-rows"
-	cardHostRepo     = "Forge-AI/monorepo"
-	cardHostPull     = "https://oncall.poetic.com/pr/"
 )
 
 const reviewRowColumns = "repo, number, title, lane, branch, base, parent, parent_state, head, head_at, read_head, for_users, plan_line, plan_row, risk, description, unsafe_wait, ci, approvers, review, grade, grade_findings, mergeable, queue, hold, awaits_tap, superseded_by, waits_on, ready_for_tap, state, tapped, tap_refused, tapped_at, tapped_by, landed_at, last_record, written_at"
@@ -54,18 +50,6 @@ type ReviewRow struct {
 	LandedAt      string `json:"landed_at"`
 	LastRecord    int64  `json:"last_record"`
 	WrittenAt     string `json:"written_at"`
-}
-
-func (r ReviewRow) MarshalJSON() ([]byte, error) {
-	type plain ReviewRow
-	cardURL := ""
-	if strings.EqualFold(r.Repo, cardHostRepo) {
-		cardURL = cardHostPull + strconv.Itoa(r.Number)
-	}
-	return json.Marshal(struct {
-		plain
-		CardURL string `json:"card_url,omitempty"`
-	}{plain(r), cardURL})
 }
 
 func (r *ReviewRow) columns() []any {
