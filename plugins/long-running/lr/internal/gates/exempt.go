@@ -142,6 +142,17 @@ func FlakeAt(c Claim, records []client.Record) bool {
 	})
 }
 
+func FlakeClaimLands(c Claim, r Read) bool {
+	if FlakeAt(c, r.Records) {
+		return false
+	}
+	claim := client.Record{Kind: headKind}
+	claim.Fields.Attrs = map[string]string{headKind: c.Head, FlakeFixAttr: "unnamed"}
+	r.Records = append(slices.Clone(r.Records), claim)
+	_, _, refusals := ExemptGo(c, r)
+	return len(refusals) == 0
+}
+
 func claimRecord(record client.Record) bool {
 	return string(record.Kind) == headKind || bus.CarriedClaim(record)
 }

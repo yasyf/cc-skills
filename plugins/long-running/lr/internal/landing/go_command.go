@@ -28,15 +28,16 @@ import (
 )
 
 const (
-	kindGo      = "go"
-	openPR      = "OPEN"
-	mergedPR    = "MERGED"
-	filesJQ     = ".[] | [.filename, .patch] | @json"
-	goReader    = "desk-runner"
-	goUnread    = "go-unread"
-	sweepTip    = "refs/lr/sweep/"
-	goProbe     = "go-refused:"
-	sweepCursor = "go-sweep"
+	kindGo         = "go"
+	openPR         = "OPEN"
+	mergedPR       = "MERGED"
+	filesJQ        = ".[] | [.filename, .patch] | @json"
+	goReader       = "desk-runner"
+	goUnread       = "go-unread"
+	flakeUnclaimed = "flake-unclaimed"
+	sweepTip       = "refs/lr/sweep/"
+	goProbe        = "go-refused:"
+	sweepCursor    = "go-sweep"
 )
 
 type goFlags struct {
@@ -258,10 +259,20 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	}
 	if len(refusals) > 0 {
 		fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
-		if flags.sweep {
-			return true, lapses, sayGoRefused(ctx, cfg, claim, flags.owner, standing, records, refusals)
+		unclaimed := ""
+		if gates.FlakeClaimLands(claim, read) {
+			unclaimed = fmt.Sprintf("FLAKE-UNCLAIMED #%d at %s: a flake-fix claim lands it untapped, as the gate reads every changed file as test or fixture code. If it fixes a flaking test, claim it: cci post --drive %s --lane <your lane> --kind head --head %s#%d=%s --attr %s=<the test that flaked>", number, head[:7], cfg.Drive, cfg.Repo, number, head, bus.FlakeFixAttr)
+			fmt.Fprintln(stdout, unclaimed)
 		}
-		return true, lapses, nil
+		if !flags.sweep {
+			return true, lapses, nil
+		}
+		if unclaimed != "" && flags.owner != "" {
+			if _, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: bus.SweepLane, Kind: "note", To: []string{flags.owner}, ID: fmt.Sprintf("%s:%d:%s", flakeUnclaimed, number, head), PRs: []string{fmt.Sprintf("%s#%d", cfg.Repo, number)}, Text: unclaimed}); err != nil {
+				return true, lapses, err
+			}
+		}
+		return true, lapses, sayGoRefused(ctx, cfg, claim, flags.owner, standing, records, refusals)
 	}
 	if flags.lane == "" {
 		fmt.Fprintf(stdout, "GO #%d at %s (dry): %s\n", number, head[:7], text)
