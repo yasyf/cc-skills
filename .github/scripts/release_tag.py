@@ -1,7 +1,8 @@
 # /// script
 # requires-python = ">=3.13"
 # ///
-"""Tag and release every push to the default branch of a binary-pinned repo.
+"""Tag and release a default-branch commit of a binary-pinned repo when it
+changed the binary's sources since the latest v* tag.
 
 A tag pushed with the workflow's GITHUB_TOKEN starts no workflow, so the
 release workflow is dispatched on the new tag instead.
@@ -9,6 +10,8 @@ release workflow is dispatched on the new tag instead.
 Env contract:
   RELEASE_WORKFLOW   release workflow file the new tag is dispatched to
   RELEASE_DRY_RUN    "true"/"false" — plan only, never tag or dispatch
+  RELEASE_PATHS      newline-separated pathspecs of the binary's sources; only
+                     commits touching them release and set the bump (empty: all)
   GITHUB_ACTIONS     "true" in CI; tagging needs this or RELEASE_FORCE
   RELEASE_FORCE      "1" to allow tagging outside CI (deliberate local use)
   GITHUB_STEP_SUMMARY  optional path to append the verdict
@@ -47,8 +50,8 @@ def version_tags(repo: Path) -> list[tuple[int, int, int]]:
     return sorted(versions)
 
 
-def released_subjects(repo: Path, latest: str) -> list[str]:
-    subjects = _git_out(repo, "log", "--first-parent", "--format=%s", f"{latest}..HEAD").splitlines()
+def released_subjects(repo: Path, latest: str, paths: list[str]) -> list[str]:
+    subjects = _git_out(repo, "log", "--first-parent", "--format=%s", f"{latest}..HEAD", "--", *paths).splitlines()
     return [s for s in subjects if not RELEASE_SUBJECT.match(s)]
 
 
@@ -61,16 +64,16 @@ def next_version(current: tuple[int, int, int], subjects: list[str]) -> tuple[in
     return (major, minor, patch + 1)
 
 
-def plan(repo: Path) -> Plan:
+def plan(repo: Path, paths: list[str]) -> Plan:
     if tagged := _git_out(repo, "tag", "--points-at", "HEAD", "--list", "v*"):
         return Plan(None, f"HEAD is already released as {tagged.split()[0]}")
     versions = version_tags(repo)
     if not versions:
         return Plan(None, "no v* tag to version from; push the first release tag by hand")
     latest = "v%d.%d.%d" % versions[-1]
-    subjects = released_subjects(repo, latest)
+    subjects = released_subjects(repo, latest, paths)
     if not subjects:
-        return Plan(None, f"nothing landed since {latest} beyond release bookkeeping")
+        return Plan(None, f"nothing to release since {latest}")
     return Plan("v%d.%d.%d" % next_version(versions[-1], subjects), f"{len(subjects)} change(s) since {latest}")
 
 
@@ -92,7 +95,7 @@ def main() -> int:
     in_ci = os.environ.get("GITHUB_ACTIONS", "").strip().lower() == "true"
     forced = os.environ.get("RELEASE_FORCE", "").strip() == "1"
 
-    p = plan(repo)
+    p = plan(repo, os.environ.get("RELEASE_PATHS", "").split())
     if p.tag is None:
         line = f"release: not tagging — {p.reason}"
     elif dry_run or not (in_ci or forced):

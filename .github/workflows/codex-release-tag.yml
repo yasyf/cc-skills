@@ -1,0 +1,26 @@
+name: codex release tag
+
+on:
+  workflow_run:
+    workflows: [codex CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  release:
+    uses: ./.github/workflows/plugin-release-tag.yml
+    with:
+      release-workflow: codex-release.yml
+      paths: |
+        plugins/codex/*.go
+        plugins/codex/go.mod
+        plugins/codex/go.sum
+        plugins/codex/AGENTS.md
+        plugins/codex/lanes
+        plugins/codex/schemas
+        .goreleaser.yaml
+        :(exclude)plugins/codex/*_test.go

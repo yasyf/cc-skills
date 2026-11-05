@@ -1,5 +1,6 @@
-"""release_tag: the next version from commit subjects since the latest v* tag,
-the skip verdicts, and the tag push plus release dispatch."""
+"""release_tag: the next version from the subjects of commits touching the
+release paths since the latest v* tag, the skip verdicts, and the tag push
+plus release dispatch."""
 
 from __future__ import annotations
 
@@ -32,6 +33,13 @@ def _commit(repo: Path, msg: str) -> None:
     _run(repo, "commit", "--allow-empty", "-m", msg)
 
 
+def _commit_file(repo: Path, path: str, msg: str) -> None:
+    (repo / path).parent.mkdir(parents=True, exist_ok=True)
+    (repo / path).write_text(msg)
+    _run(repo, "add", path)
+    _run(repo, "commit", "-m", msg)
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     work = tmp_path / "work"
@@ -48,19 +56,19 @@ def repo(tmp_path: Path) -> Path:
 
 def test_patch_bump_for_a_plain_change(repo: Path) -> None:
     _commit(repo, "cli: 🐛 fix the lease")
-    assert release_tag.plan(repo) == release_tag.Plan("v1.4.3", "1 change(s) since v1.4.2")
+    assert release_tag.plan(repo, []) == release_tag.Plan("v1.4.3", "1 change(s) since v1.4.2")
 
 
 def test_sparkles_bump_minor(repo: Path) -> None:
     _commit(repo, "cli: 🐛 fix the lease")
     _commit(repo, "cli: ✨ add stack rebase")
-    assert release_tag.plan(repo).tag == "v1.5.0"
+    assert release_tag.plan(repo, []).tag == "v1.5.0"
 
 
 def test_collision_bumps_major(repo: Path) -> None:
     _commit(repo, "cli: ✨ add stack rebase")
     _commit(repo, "cli: 💥 drop the old verb")
-    assert release_tag.plan(repo).tag == "v2.0.0"
+    assert release_tag.plan(repo, []).tag == "v2.0.0"
 
 
 def test_latest_tag_is_the_highest_version_not_the_newest(repo: Path) -> None:
@@ -68,23 +76,36 @@ def test_latest_tag_is_the_highest_version_not_the_newest(repo: Path) -> None:
     _commit(repo, "cli: 🐛 fix")
     _run(repo, "tag", "v1.9.9")
     _commit(repo, "cli: 🐛 fix again")
-    assert release_tag.plan(repo).tag == "v1.10.1"
+    assert release_tag.plan(repo, []).tag == "v1.10.1"
 
 
 def test_release_bookkeeping_alone_is_not_a_release(repo: Path) -> None:
     _commit(repo, "chore(release): sync ccx.binrun + manifest")
     _commit(repo, "chore(plugins): bump cc-context to 0.72.24")
-    assert release_tag.plan(repo).tag is None
+    assert release_tag.plan(repo, []).tag is None
+
+
+def test_a_change_outside_the_release_paths_is_not_a_release(repo: Path) -> None:
+    _commit_file(repo, "docs/guide.md", "docs: 📝 explain the lease")
+    _commit_file(repo, "internal/lease_test.go", "lease: ✅ cover expiry")
+    assert release_tag.plan(repo, ["internal", ":(exclude,glob)**/*_test.go"]).tag is None
+
+
+def test_only_source_commits_set_the_bump(repo: Path) -> None:
+    _commit_file(repo, "docs/guide.md", "docs: ✨ add a guide")
+    _commit_file(repo, "internal/lease.go", "lease: 🐛 renew before expiry")
+    _commit_file(repo, "README.md", "readme: 💥 rename the project")
+    assert release_tag.plan(repo, ["internal"]) == release_tag.Plan("v1.4.3", "1 change(s) since v1.4.2")
 
 
 def test_already_tagged_head_is_skipped(repo: Path) -> None:
-    assert release_tag.plan(repo) == release_tag.Plan(None, "HEAD is already released as v1.4.2")
+    assert release_tag.plan(repo, []) == release_tag.Plan(None, "HEAD is already released as v1.4.2")
 
 
 def test_no_version_tag_is_skipped(repo: Path) -> None:
     _run(repo, "tag", "-d", "v1.4.2")
     _commit(repo, "cli: 🐛 fix")
-    assert release_tag.plan(repo).tag is None
+    assert release_tag.plan(repo, []).tag is None
 
 
 def test_ci_run_pushes_the_tag_and_dispatches_the_release(repo: Path, tmp_path: Path, monkeypatch) -> None:
