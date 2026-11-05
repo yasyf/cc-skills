@@ -278,7 +278,7 @@ func awaitLink(ctx context.Context, bus, lane, change string, after int64) (stri
 func AskCommand(a *app.App) *cobra.Command {
 	var ask Ask
 	var driveName, session, lane, until, by, file, withdraw, reason string
-	var forAsk int64
+	var forAsk, handed int64
 	cmd := &cobra.Command{
 		Use:   "ask-owner",
 		Short: "Put your question on the owner's main board and in his Slack DM with you as its owner, and wake you when he answers",
@@ -294,7 +294,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 
 --by TIME records the clock a card promises him something by, such as a report by 6:40 PM, on the card's row with its lane. The lane cannot retire until a record carries delivered=card:<id>, and when the clock passes first, the lane and owner-relay hear once with what he waits on. A card naming a clock in its words without --by draws with a warning.
 
---diagram FILE puts one architecture doc (arch/v1) on the card, drawn live on his board and dashboard and as its picture on the card in Slack. --port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself. --withdraw ID takes your own card down when its question has gone away.`,
+--diagram FILE puts one architecture doc (arch/v1) on the card, drawn live on his board and dashboard and as its picture on the card in Slack. --port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself. --withdraw ID takes your own card down when its question has gone away. --take-over SEQ redraws a card another lane owns, when record SEQ, posted by another lane, is addressed to yours and names the card's id: your lane owns the card from then on, his answer wakes it, and the board records whom it was taken from.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if lane == "" {
@@ -316,8 +316,8 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 					return err
 				}
 			}
-			key := changeKey(block, []byte(remove), []byte(until), []byte(by), []byte(session), []byte(strconv.FormatInt(forAsk, 10)))
-			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, cardBody{Session: session, Block: block, Remove: remove, Reason: reason, Until: until, By: by, Ask: forAsk})
+			key := changeKey(block, []byte(remove), []byte(until), []byte(by), []byte(session), []byte(strconv.FormatInt(forAsk, 10)), []byte(strconv.FormatInt(handed, 10)))
+			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, cardBody{Session: session, Block: block, Remove: remove, Reason: reason, Until: until, By: by, Ask: forAsk, Handed: handed})
 			if err != nil {
 				return err
 			}
@@ -348,6 +348,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags.StringVar(&lane, "lane", os.Getenv("CLAUDE_LONG_RUNNING_LANE"), "the lane that owns the card and is woken by his answer")
 	flags.StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
 	flags.Int64Var(&forAsk, "for-ask", 0, "the seq of the lane's ask you are drawing this for: that lane owns the card, and the ask gets one card")
+	flags.Int64Var(&handed, "take-over", 0, "SEQ, the record another lane addressed to yours that hands you this card: redraw it though another lane owns it, and own it from then on")
 	flags.StringVar(&session, "session", "", "the board's session, for a scratch board; default the drive's coordinator")
 	return cmd
 }

@@ -792,3 +792,43 @@ func TestAskFlagsAreRefusedSayingWhatToChange(t *testing.T) {
 }
 
 func everyPR(prs []SlackPR) ([]SlackPR, error) { return prs, nil }
+
+func TestALaneHandedACardTakesItOverAndOneNotHandedItIsRefused(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	ctx := context.Background()
+	successor := "serve-null-position-1"
+	handed, err := client.Post(ctx, client.Draft{Drive: linkDrive, Lane: "owner-relay", Kind: "note", Force: true, To: []string{"serve-null-position"}, Text: "Redraw " + askedID + " yourself, in place."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := client.Post(ctx, client.Draft{Drive: linkDrive, Lane: "owner-relay", Kind: "note", Force: true, To: []string{"other-lane"}, Text: "Redraw " + askedID + " yourself, in place."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := askedCard(strings.NewReader(""), Ask{
+		Title: "Which number do you accept for the test job?", Background: "It takes 100 s now and a warm change waits 3 min 45 s.",
+		Options: []string{"Accept it :: The bar moves to what is measured.", "Keep 3 minutes :: A shared compile cache, landed by Friday."}, NothingToBuild: "a choice of target",
+	}, "", "yasyf/cc-skills", everyPR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, seq := range map[string]int64{"handed": handed.Seq, "elsewhere": elsewhere.Seq} {
+		if _, err := DrawCard(ctx, linkDrive, successor, key, cardBody{Block: block, Until: "at:3d", Handed: seq}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.run(t)
+
+	calls := f.shell.seen()
+	if len(calls) != 1 || !strings.HasPrefix(calls[0], "cc-present ask - --session board-1 --lane "+successor+" --take-over <") {
+		t.Fatalf("calls %q, want one take-over write by the handed lane", calls)
+	}
+	said, err := awaitLink(ctx, linkDrive, successor, "handed", busStart)
+	if err != nil || !strings.Contains(said, fmt.Sprintf("%s owns it now, handed it by #%d", successor, handed.Seq)) {
+		t.Fatalf("handed: said %q, err %v", said, err)
+	}
+	if _, err := awaitLink(ctx, linkDrive, successor, "elsewhere", busStart); err == nil || !strings.Contains(err.Error(), "no record another lane addressed to "+successor) {
+		t.Fatalf("a record addressed to another lane: err = %v, want the take-over refused", err)
+	}
+}

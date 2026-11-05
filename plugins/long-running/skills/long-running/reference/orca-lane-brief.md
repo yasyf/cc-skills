@@ -221,7 +221,10 @@ what it shows'` adds a real screenshot; a path is read on the board's Mac, so a 
 gives a URL. `--diagram FILE` takes one architecture doc (arch/v1), drawn live on his board and
 dashboard and, from a picture the board's Mac draws, on the Slack card. A card with
 records goes as `--card FILE|-`, a whole cc-present card,
-and `--withdraw ID` takes yours down when its question goes away.
+and `--withdraw ID` takes yours down when its question goes away. A card another lane owns,
+such as one board-refresher drew for you or one root or owner-relay handed you, you redraw
+in place with `--take-over SEQ`, where SEQ is the record another lane addressed to you naming
+the card's id; you own it from then on and his answer wakes you.
 
 The command prints the card's link, or exits 1 with what to change. It refuses a card with
 no background, one whose question a card on his board already asks or he already answered,
