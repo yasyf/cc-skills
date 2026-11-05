@@ -132,7 +132,7 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := s.readGitHub(ctx, rows, held, s.trunkStatuses)
+	snapshot, err := s.readMoved(ctx, rows, held, s.trunkStatuses)
 	if err != nil || unread == "" {
 		return snapshot, err
 	}
@@ -167,11 +167,7 @@ func (s Source) readRows(ctx context.Context, rows []store.ReviewRow, held map[i
 	if err != nil {
 		return err
 	}
-	snapshot, err := s.readGitHub(ctx, rows, held, s.graphStatuses)
-	if err != nil {
-		return err
-	}
-	if err := s.Rows().PostReads(ctx, snapshot); err != nil || unread == "" {
+	if _, err := s.readMoved(ctx, rows, held, s.graphStatuses); err != nil || unread == "" {
 		return err
 	}
 	return s.Rows().PostTrunkRead(ctx, unread, nil)
@@ -222,14 +218,6 @@ func (s Source) foldRecords(ctx context.Context) (map[int]hold, []store.ReviewRo
 		return nil, nil, fmt.Errorf("fold the review rows: %w", err)
 	}
 	return held, rows, nil
-}
-
-func (s Source) readGitHub(ctx context.Context, rows []store.ReviewRow, held map[int]hold, statusesOf statusRead) ([]machine.Facts, error) {
-	itemed, err := s.itemed()
-	if err != nil {
-		return nil, err
-	}
-	return s.readNumbers(ctx, readable(rows, itemed), itemed, rows, held, statusesOf)
 }
 
 func readable(rows []store.ReviewRow, itemed map[int]bool) []int {
@@ -432,7 +420,7 @@ func factsOfRow(repo string, row store.ReviewRow, stored map[string]string) (mac
 		ForeignAuthor: stored[prrow.FactForeign], Draft: stored[prrow.FactDraft] == "yes",
 		Closed: prrow.Terminal(row.State), Merged: row.State == prrow.StateLanded,
 		CI: prrow.CIFromWords(row.CI), Approved: row.Approvers != prrow.None, Mergeable: machine.Mergeable(row.Mergeable), Queue: queue,
-		UnsafeWait: row.UnsafeWait,
+		UnsafeWait: row.UnsafeWait, Body: row.Description,
 	}
 	if row.Approvers != prrow.None {
 		f.Approvers = strings.Split(row.Approvers, ", ")

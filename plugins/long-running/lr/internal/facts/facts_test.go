@@ -2903,3 +2903,170 @@ func TestTheMinuteHisPostReachedHimCarriesToARestackAndRestartsOnARealChange(t *
 		})
 	}
 }
+
+func (h harness) statusReads() [][]string {
+	var reads [][]string
+	for _, call := range h.runner.Calls() {
+		if slices.Equal(call.Argv[:5], []string{"ccx", "vcs", "pr", "status", "--repo"}) {
+			reads = append(reads, call.Argv[slices.Index(call.Argv, "--json")+1:])
+		}
+	}
+	return reads
+}
+
+func readOnce(t *testing.T, h *harness, now *time.Time) {
+	t.Helper()
+	h.source.Now = func() time.Time { return *now }
+	first, err := h.source.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.source.WriteRows(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readHarness(t *testing.T, n, answered int, now *time.Time) harness {
+	t.Helper()
+	prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, answered)
+	for i := 1; i <= n; i++ {
+		sha := fmt.Sprintf("%040x", i)
+		prs = append(prs, recordedPR{number: i, head: sha, login: "drive-bot", commits: []string{sha}})
+		if i <= answered {
+			rows = append(rows, status(i, func(row *statusRow) { row.Head = sha }))
+		}
+	}
+	h := newHarness(t, prs, rows...)
+	h.source.Now = func() time.Time { return *now }
+	seeded := make([]store.ReviewRow, 0, n)
+	for _, pr := range prs {
+		seeded = append(seeded, store.ReviewRow{Repo: repo, Number: pr.number, Head: pr.head, ReadHead: pr.head, State: prrow.StateOpen})
+		if _, err := h.store.PutFact(repo, pr.number, pr.head, "read-mergeable", string(machine.MergeableClean), *now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.store.PutReviewRows(seeded); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.Advance("github-read-all", now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestAPassWithNoRecordReadsNoPRWhateverThePRCount(t *testing.T) {
+	calls := map[int]int{}
+	for _, n := range []int{1, 100} {
+		now := time.Now()
+		h := readHarness(t, n, n, &now)
+		now = now.Add(3 * time.Minute)
+		idle, err := h.source.Snapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(idle) != n || !idle[0].FromRow {
+			t.Fatalf("n=%d: idle pass has %d rows, first %+v, want every row from the store", n, len(idle), idle[0])
+		}
+		calls[n] = len(h.runner.Calls())
+		if reads := h.statusReads(); len(reads) != 0 {
+			t.Fatalf("n=%d: an idle pass read %v", n, reads)
+		}
+	}
+	if calls[1] != calls[100] {
+		t.Fatalf("an idle pass's commands at 1 and 100 PRs = %d, %d, want the same", calls[1], calls[100])
+	}
+}
+
+func TestARecordNarrowsThePassToItsPRAndTheSlowReadStillCoversEveryOne(t *testing.T) {
+	now := time.Now()
+	h := readHarness(t, 3, 1, &now)
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "github", Lane: "github", Kind: "github", Text: "reviewed", Topic: "review", PRs: []string{repo + "#1"}}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(3 * time.Minute)
+	named, err := h.source.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.source.WriteRows(context.Background(), named); err != nil {
+		t.Fatal(err)
+	}
+	if reads := h.statusReads(); len(reads) != 1 || !slices.Equal(reads[0], []string{"1"}) {
+		t.Fatalf("status reads %v, want one read of #1 alone", reads)
+	}
+	for _, number := range []int{2, 3} {
+		records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"github"}, PR: fmt.Sprintf("%s#%d", repo, number)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(records) != 0 {
+			t.Fatalf("#%d, unread, posted %d reads", number, len(records))
+		}
+	}
+
+	now = now.Add(facts.ReadAllEvery)
+	h.snapshot(t)
+	if reads := h.statusReads(); !slices.Equal(reads[len(reads)-1], []string{"1", "2", "3"}) {
+		t.Fatalf("the slow read asked for %v, want every live PR", reads[len(reads)-1])
+	}
+}
+
+func TestATrunkPushRereadsTheRowsOnTrunk(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	now := time.Now()
+	readOnce(t, &h, &now)
+	reads := len(h.statusReads())
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "github-pr", Lane: "github", Kind: "github", Text: "pushed", Topic: "push", Attrs: map[string]string{"repo": repo, "branch": "dev"}}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(3 * time.Minute)
+	h.snapshot(t)
+	if got := len(h.statusReads()); got != reads+1 {
+		t.Fatalf("status reads = %d, want %d: GitHub sends no event for mergeability, so a trunk push asks for a read", got, reads+1)
+	}
+}
+
+func TestATappedRowIsReadEveryPass(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	now := time.Now()
+	readOnce(t, &h, &now)
+	post(t, "owner", bus.Tap{PR: 1, Head: head, Value: string(machine.TapTapped), By: "owner"})
+	now = now.Add(3 * time.Minute)
+	h.snapshot(t)
+	reads := len(h.statusReads())
+	now = now.Add(3 * time.Minute)
+	row := h.snapshot(t)[1]
+	if got := len(h.statusReads()); got != reads+1 || row.FromRow {
+		t.Fatalf("status reads = %d, want %d, and the row from GitHub, got FromRow=%v: a landing decision reads GitHub's own answer", got, reads+1, row.FromRow)
+	}
+}
+
+func TestAnUnreadRowCarriesItsBody(t *testing.T) {
+	now := time.Now()
+	h := readHarness(t, 1, 1, &now)
+	described := store.ReviewRow{Repo: repo, Number: 1, Head: fmt.Sprintf("%040x", 1), ReadHead: fmt.Sprintf("%040x", 1), State: prrow.StateOpen, Description: "Waits on card-rmw1abc."}
+	if err := h.store.PutReviewRows([]store.ReviewRow{described}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(3 * time.Minute)
+	if row := h.snapshot(t)[1]; !row.FromRow || row.Body != described.Description {
+		t.Fatalf("unread row = %+v, want its stored body %q so an open owner card it names still refuses a go", row, described.Description)
+	}
+}
+
+func TestASnapshotNobodyWritesStillPostsWhatItRead(t *testing.T) {
+	now := time.Now()
+	h := readHarness(t, 2, 2, &now)
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "github", Lane: "github", Kind: "github", Text: "reviewed", Topic: "review", PRs: []string{repo + "#1"}}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(3 * time.Minute)
+	h.snapshot(t)
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"github"}, PR: repo + "#1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) == 0 {
+		t.Fatal("a snapshot with no WriteRows after it, as lr board reds takes, read #1 for a review record and posted nothing, so the next pass would skip #1 until the slow read")
+	}
+}

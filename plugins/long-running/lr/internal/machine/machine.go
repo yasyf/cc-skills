@@ -201,6 +201,8 @@ type Facts struct {
 	RowWait          string
 	TapRefused       string
 	Stuck            string
+	FromRow          bool
+	Posted           bool
 }
 
 func (f Facts) Green() bool {
