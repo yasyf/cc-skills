@@ -287,7 +287,7 @@ def test_an_unnamed_lane_registers_as_its_brief_lane_once_and_a_worker_on_its_pa
 
     first = bash(session, main, "a1", "cd /repo && cci me")
     assert first.action == "rewrite"
-    assert first.updated_input["command"] == "cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null\ncd /repo && cci me"
+    assert first.updated_input["command"] == "cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ncd /repo && cci me"
     bash(session, main, "a1", first.updated_input["command"], PostToolUseEvent)
     assert bash(session, main, "a1", "git status") is None
     assert bash(session, main, "a2", "ls") is None
