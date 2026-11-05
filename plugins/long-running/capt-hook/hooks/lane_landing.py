@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, TranscriptFixture, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, TranscriptFixture, Warn, Word, on
 from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
+from captain_hook.bindings import Resolved
 from captain_hook.util import reqenv
 
 from .call_dir import run_dir, unknown_dir
@@ -71,6 +72,10 @@ ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hol
 REFUSAL = (
     "Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
     "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the coordinator's holds."
+)
+UNREAD_REPO = (
+    "Warning, nothing was blocked: This hook could not tell whether `{verb}` lands on the landing desk's repo, where lanes never enqueue. "
+    "On that repo, report the PR with `ledger.py report --drive <drive>`; on any other, go ahead."
 )
 RULINGS_ADVICE = (
     "`rulings.py check-pr` names {causes} for #{pr} at {head}. These are warnings: the landing desk holds no head for them (4236611), "
@@ -200,6 +205,24 @@ def repo_flag(call: Call) -> str | None:
     return next((arg.split("=", 1)[1] for arg in args if arg.startswith(("--repo=", "-R="))), None)
 
 
+def named_repos(call: Call) -> tuple[str, ...] | None:
+    words = call.command.words[1:]
+    for flag, word in zip((None, *words), words, strict=False):
+        if flag is not None and flag.value in REPO_FLAGS:
+            return word_values(call, word)
+        if (word.value or word.raw).startswith(("--repo=", "-R=")):
+            values = word_values(call, word)
+            return None if values is None else tuple(value.split("=", 1)[1] for value in values)
+    return next(((found["api"] or found["url"],) for arg in call.args if (found := REPO_IN_ARG.search(arg))), ())
+
+
+def word_values(call: Call, word: Word) -> tuple[str, ...] | None:
+    if word.value is not None:
+        return (word.value,)
+    resolved = call.resolve(word)
+    return resolved.candidates if isinstance(resolved, Resolved) else None
+
+
 def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool:
     if entry is None:
         return False
@@ -211,13 +234,16 @@ def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bo
     return done.returncode == 0 and done.stdout.strip() != entry["git_common_dir"]
 
 
-def outside_landing_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool:
-    if entry is not None or not (landing_repo := reqenv.getenv(LANDING_REPO_ENV)):
-        return outside_drive_repo(evt, call, entry)
-    if (repo := named_repo(call)) is None and unknown_dir(evt, call):
-        return False
-    repo = repo or origin_repo(run_dir(evt, call))
-    return repo is not None and repo.casefold() != landing_repo.casefold()
+def on_landing_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool | None:
+    if not (landing_repo := entry["repo"] if entry else reqenv.getenv(LANDING_REPO_ENV)):
+        return True
+    if (repos := named_repos(call)) is None or not repos and unknown_dir(evt, call):
+        return None
+    if repos:
+        return any(repo.casefold() == landing_repo.casefold() for repo in repos)
+    if entry:
+        return not outside_drive_repo(evt, call, entry)
+    return (origin := origin_repo(run_dir(evt, call))) is None or origin.casefold() == landing_repo.casefold()
 
 
 def origin_repo(cwd: str) -> str | None:
@@ -377,6 +403,11 @@ def landing_verb(call: Call) -> str | None:
         landing(command="gh stack merge 36023 --yes --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `gh stack merge`"),
         landing(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE, cwd=SLACK_CHECKOUT): Allow(),
         Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
+        landing(command='for r in yasyf/cc-review yasyf/cc-orchestrate; do gh pr merge 5 -R "$r" --squash --admin; done', agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command='for r in yasyf/cc-review Forge-AI/monorepo; do gh pr merge 5 --repo="$r" --squash; done', agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `gh pr merge`"),
+        landing(command='gh pr merge "$2" -R "yasyf/$1" --squash --admin', agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: This hook could not tell whether `gh pr merge` lands on the landing desk's repo"),
+        landing(command='cd "$D" && gh pr merge 81 --squash --admin', agent_id=LANE, state=ACTIVE): Warn(pattern=r"could not tell whether `gh pr merge`"),
+        landing(command='gh pr merge "$2" -R "yasyf/$1" --squash', agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
     },
 )
 def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
@@ -385,17 +416,21 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     entry = drive_entry(evt)
-    landings = [(call, verb) for call in evt.cmd.calls() if (verb := landing_verb(call)) and not outside_landing_repo(evt, call, entry)]
-    if not landings:
-        return None
-    verbs = [verb for _, verb in landings]
     incident = incident_lane(evt, lane)
+    readings = [(call, verb, on_landing_repo(evt, call, entry)) for call in evt.cmd.calls() if (verb := landing_verb(call))]
+    if refusal := landing_refusal(lane, incident, [(call, verb) for call, verb, on in readings if on]):
+        return evt.context(refusal)
+    unread = [(call, verb) for call, verb, on in readings if on is None]
+    return evt.context(UNREAD_REPO.format(verb=unread[0][1])) if landing_refusal(lane, incident, unread) else None
+
+
+def landing_refusal(lane: str, incident: bool, landings: list[tuple[Call, str]]) -> str | None:
     if incident and (admin := next((verb for call, verb in landings if verb in MERGERS and "--admin" in call.args), None)):
-        return evt.context(ADMIN_MERGE_REFUSAL.format(lane=lane, verb=admin))
-    verb = next((verb for verb in verbs if verb in ENQUEUERS or not incident), None)
+        return ADMIN_MERGE_REFUSAL.format(lane=lane, verb=admin)
+    verb = next((verb for _, verb in landings if verb in ENQUEUERS or not incident), None)
     if verb and incident:
-        return evt.context(INCIDENT_REFUSAL.format(lane=lane))
-    return evt.context(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
+        return INCIDENT_REFUSAL.format(lane=lane)
+    return REFUSAL.format(lane=lane or "unnamed", verb=verb) if verb else None
 
 
 def gate_args(call: Call) -> list[str]:
