@@ -2062,10 +2062,9 @@ func TestASpriteWhoseHooksAllLoadPostsNoBlocker(t *testing.T) {
 	}
 }
 
-func TestASpriteThatInstalledOnlineReachesTheMetaDeskOnceForEachSetOfDifferences(t *testing.T) {
+func TestASpriteThatInstalledOnlineIsNotedToTheWatchdogOnceForEachSetOfDifferences(t *testing.T) {
 	w := newDeskWorld(t)
 	spriteConfig(w)
-	w.register(store.Lane{Name: "meta-desk-2", Role: lanes.RoleMeta})
 	offline := "cc-remote: the resident packages did not install offline, so they install online once, and the packages on this machine differ from the base its payload captured them against (-payload +machine); rebuild the payload on this base:\n"
 	baseDrifts := func() []client.Draft {
 		var found []client.Draft
@@ -2088,7 +2087,7 @@ func TestASpriteThatInstalledOnlineReachesTheMetaDeskOnceForEachSetOfDifferences
 	skew := offline + "+tmux=3.6a-2ubuntu0.1\n-tmux=3.6a-2ubuntu0.2\ntime=now level=INFO msg=timing\n"
 	launch("lane-b", skew)
 	found := baseDrifts()
-	if len(found) != 1 || found[0].Kind != kindBlocker || !slices.Equal(found[0].To, []string{"meta-desk-2"}) {
+	if len(found) != 1 || found[0].Kind != kindState || !slices.Equal(found[0].To, []string{watchdogLane + "@" + w.desk.Config.Drive}) {
 		t.Fatal(found)
 	}
 	wantContains(t, found[0].Text, "+tmux=3.6a-2ubuntu0.1 -tmux=3.6a-2ubuntu0.2")

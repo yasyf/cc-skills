@@ -646,7 +646,7 @@ func (d *Desk) raiseDrift(lane, attempt string) error {
 		if err != nil || key == "" {
 			return err
 		}
-		text := "a Sprite's packages differ from the base its payload captured, so they installed online once and the launch took longer; rebuild the payload on this base: " + clipRunes(differs, 250)
+		text := "a Sprite's packages differ from the base its payload captured (-payload +machine) and installed online once, about 10 seconds; machine side older is a stale Sprite and owes nothing, machine side newer on every new Sprite means the base moved and the payload needs a rebuild: " + clipRunes(differs, 200)
 		_, _, err = tx.AcceptDue(escalationPref+key, kindEscalation, escalationLine("BASE-DRIFT", key, lane, text), deskRunner, d.Now(), time.Time{})
 		return err
 	})

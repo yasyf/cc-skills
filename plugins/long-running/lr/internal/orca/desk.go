@@ -55,10 +55,10 @@ var (
 		"PREFIX": kindBlocker, "CARRIES": kindBlocker, "DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": kindState, "UNBOUND": kindBlocker,
 		"UNOWNED": kindBlocker, "CLASS-UNOWNED": kindBlocker, "UNACKED": kindBlocker, "NOT-DELIVERED": kindBlocker, "INCIDENT-CLOCK": kindBlocker, "LOAD-HIGH": kindBlocker, "CUT-SILENT": kindBlocker,
 		"RELEASE-HELD-AFTER-LANDING": kindBlocker, "LAUNCH-STALLED": kindBlocker, "LAUNCH-DUPLICATE": kindBlocker, "UNGRADED-30": kindBlocker, "SLICE-UNREAD": kindBlocker,
-		"GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": kindBlocker, "GO-TAP-MISSING": kindBlocker, "HOOK-DRIFT": kindBlocker, "BASE-DRIFT": kindBlocker, "OVERRIDE-REFUSED": kindBlocker, "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident",
+		"GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": kindBlocker, "GO-TAP-MISSING": kindBlocker, "HOOK-DRIFT": kindBlocker, "BASE-DRIFT": kindState, "OVERRIDE-REFUSED": kindBlocker, "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident",
 	}
 	deferrable = []string{"DEADLINE", "NOT-DELIVERED", "UNACKED", "STALE-MAIL", "RECLAIM"}
-	noAction   = []string{"RELAYED", "ORCA-BACK", "PARKED", "RESTING"}
+	noAction   = []string{"RELAYED", "ORCA-BACK", "PARKED", "RESTING", "BASE-DRIFT"}
 	poster     = regexp.MustCompile("\\bcci post\\b[^`\\n]*?--lane[= ]['\"]?([\\w.-]+)")
 )
 
@@ -568,7 +568,7 @@ func (d *Desk) flush(ctx context.Context) error {
 	for _, action := range pending {
 		words := strings.Fields(action.Target)
 		to, err := lanes.NoticeTo(d.Registry, strings.TrimSuffix(words[2], ":"))
-		if words[0] == "HOOK-DRIFT" || words[0] == "BASE-DRIFT" || words[0] == "REPLAYED" {
+		if words[0] == "HOOK-DRIFT" || words[0] == "REPLAYED" {
 			to, err = lanes.MetaDesk(d.Registry)
 		}
 		if err != nil {

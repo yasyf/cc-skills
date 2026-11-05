@@ -16,7 +16,7 @@ The communicator launches one meta lane per drive at drive start, as a sibling O
 
 Notices:
 - The orca runner and the lane supervisor send each notice about the meta lane, and about every lane launched under it, to that lane's launcher, never `root`.
-- Each `HOOK-DRIFT` and `BASE-DRIFT` blocker goes to the meta desk.
+- Each `HOOK-DRIFT` blocker goes to the meta desk.
 
 ## Who hears from the meta lane
 
