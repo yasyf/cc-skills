@@ -486,7 +486,10 @@ func holdsNothing(lane store.Lane) bool {
 }
 
 func settledLane(lane store.Lane) bool {
-	return lane.Last != "handoff" && slices.Contains(settled, lane.Last) && (lane.Last != "done" || !isStanding(lane))
+	if lane.Last == "handoff" {
+		return !lane.Flushed.IsZero() && !lane.Flushed.Before(lane.Heard)
+	}
+	return slices.Contains(settled, lane.Last) && (lane.Last != "done" || !isStanding(lane))
 }
 
 func isStanding(lane store.Lane) bool {

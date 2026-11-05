@@ -373,7 +373,8 @@ func TestALiveOrcaRowAloneNeverCountsAsReadingAnOrder(t *testing.T) {
 func TestALaneWhoseNewestRecordSettlesItIsNeverWokenForAnOrder(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
-	f.feed = append(f.feed, rec(2, refresher, "handoff", t0.Add(-mins(5)), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}), rec(3, Root, "ask", t0, "run it", refresher))
+	do(s.SetLaneAsked(refresher, t0.Add(-mins(10))))
+	f.feed = append(f.feed, rec(2, refresher, "handoff", t0.Add(-mins(5)), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}).withRe(1), rec(3, Root, "ask", t0, "run it", refresher))
 	f.peers = orcaPeers(refresher, t0.Add(-mins(5)), t0.Add(time.Minute))
 
 	out := tick(t, s, f, t0.Add(time.Minute))

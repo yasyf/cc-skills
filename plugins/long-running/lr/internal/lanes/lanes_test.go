@@ -1566,7 +1566,6 @@ func TestAHeadRelayedToThePRsOwnerLeavesTheOwnerInPlace(t *testing.T) {
 func TestRotateReadsActivityFromTheLanesOwnRecordsNeverItsCCIWhoRow(t *testing.T) {
 	for name, last := range map[string]Record{
 		"in-process-row-fresh-but-records-old": rec(2, lane2, "state", t0.Add(-2*time.Hour), "restacking"),
-		"last-record-a-handoff":                rec(2, lane2, "handoff", t0.Add(-mins(3)), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
@@ -1671,7 +1670,8 @@ func TestARootDecideToTheSupervisorNamingNoRegistryVerbRaisesNoDefect(t *testing
 func TestALaneWhoseNewestRecordSettlesItIsNeverWoken(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46475)
-	f.feed = append(f.feed, rec(2, lane2, "handoff", t0.Add(-2*time.Hour), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}), stall(3, t0.Add(-time.Hour), "STALL red #46475", 46475, ""))
+	do(s.SetLaneAsked(lane2, t0.Add(-3*time.Hour)))
+	f.feed = append(f.feed, rec(2, lane2, "handoff", t0.Add(-2*time.Hour), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}).withRe(1), stall(3, t0.Add(-time.Hour), "STALL red #46475", 46475, ""))
 	f.peers = []Row{onRoster(who(lane2, true, t0))}
 
 	out := tick(t, s, f, t0)
@@ -2119,7 +2119,7 @@ func TestOnlyAStandingLaneStaysUnsettledOnItsOwnDone(t *testing.T) {
 func TestARootStandDownNamingNoSuccessorKeepsAStandingLaneAndAsksRootOnce(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
-	f.feed = append(f.feed, rec(2, Root, "stand-down", t0, "stand down", refresher))
+	f.feed = append(f.feed, rec(2, Root, "stand-down", t0, "stand down, last-read=1", refresher))
 	f.peers = []Row{who(refresher, true, t0)}
 
 	tick(t, s, f, t0.Add(mins(1)))
@@ -2135,7 +2135,7 @@ func TestARootStandDownNamingNoSuccessorKeepsAStandingLaneAndAsksRootOnce(t *tes
 func TestEveryLaneARootStandDownRetiresIsReportedToTheCommunicator(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
-	f.feed = append(f.feed, rec(2, Root, "stand-down", t0, "stand down", lane2))
+	f.feed = append(f.feed, rec(2, Root, "stand-down", t0, "stand down, last-read=1", lane2))
 	f.peers = []Row{who(lane2, true, t0)}
 
 	tick(t, s, f, t0.Add(mins(1)))

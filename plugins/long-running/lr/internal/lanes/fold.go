@@ -632,7 +632,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	}
 	if kind == "handoff" && known && r.Refs.CCN != "" {
 		flushed := time.Time{}
-		if !row.Asked.IsZero() {
+		if !row.Asked.IsZero() && r.Re != 0 {
 			flushed = at
 		}
 		do(s.SetLaneHandoff(name, r.Refs.CCN, flushed))
