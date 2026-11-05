@@ -433,7 +433,7 @@ func TestAStoppedHeadTellsTheDesksAndItsLaneOnce(t *testing.T) {
 }
 
 func TestALastFailedFidelityAttemptTellsItsHumanDesks(t *testing.T) {
-	f := newPool(t, map[string]any{"landing": map[string]any{"fidelity_lane": []string{"fidelity-desk-4", grader.FidelityLane}}, "fidelity": map[string]any{}})
+	f := newPool(t, map[string]any{"fidelity": map[string]any{}})
 	for range maxAttempts {
 		f.started(t, GraderFidelity)
 		f.shell.exitAll()
@@ -444,7 +444,7 @@ func TestALastFailedFidelityAttemptTellsItsHumanDesks(t *testing.T) {
 	}
 
 	defects := recordsOf(t, kindDefect)
-	if len(defects) != 1 || !strings.HasPrefix(defects[0].Text, "FIDELITY-FAILED ") || !slices.Contains(defects[0].To, "fidelity-desk-4") {
+	if len(defects) != 1 || !strings.HasPrefix(defects[0].Text, "FIDELITY-FAILED ") || !slices.Contains(defects[0].To, "fidelity-desk") || !slices.Contains(defects[0].To, rootLane) || slices.Contains(defects[0].To, grader.FidelityLane) {
 		t.Fatalf("defects = %+v", defects)
 	}
 }

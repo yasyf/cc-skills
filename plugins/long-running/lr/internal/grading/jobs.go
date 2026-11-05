@@ -136,15 +136,11 @@ func jobRecords(records []client.Record) []grader.Record {
 func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, sprite, directory string, live livePR) (job, error) {
 	pr := strconv.Itoa(facts.Number)
 	pull := facts.Repo + "#" + pr
-	lanes := slices.Clone([]string(p.landing.FidelityLane))
-	if !slices.Contains(lanes, grader.FidelityLane) {
-		lanes = append(lanes, grader.FidelityLane)
-	}
 	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview, kindHead}, PR: pull})
 	if err != nil {
 		return job{}, err
 	}
-	lanes = withSuccessors(lanes, found)
+	lanes := withSuccessors(bus.FidelityLanes(), found)
 	grades := fidelityGrades(found, lanes, facts.Repo, pr)
 	sent := slices.DeleteFunc(slices.Clone(found), func(r client.Record) bool {
 		return r.Kind != kindReview || r.Lane != grader.FidelityLane || !strings.HasPrefix(r.Text, fidelityReader)

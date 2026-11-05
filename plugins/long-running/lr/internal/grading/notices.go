@@ -175,10 +175,7 @@ func (p *JobPool) exhausted(ctx context.Context, d desk, directory string) error
 			subject, spec.Lane, spec.PR, head, maxAttempts, why, logPath, grader.FinderLane, spec.PR)
 		return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindDefect, Text: text, To: []string{rootLane}, Topic: subject, ID: subject})
 	}
-	readers := slices.DeleteFunc(slices.Clone([]string(p.landing.FidelityLane)), func(lane string) bool { return lane == grader.FidelityLane })
-	if len(readers) == 0 {
-		readers = []string{rootLane}
-	}
+	readers := append(slices.DeleteFunc(bus.FidelityLanes(), func(lane string) bool { return lane == grader.FidelityLane }), rootLane)
 	subject := "fidelity:" + spec.PR + ":" + spec.Head
 	text := fmt.Sprintf("FIDELITY-FAILED %s %s: #%s %s: the fidelity pass failed on the last of its %d attempts: %s; its log is %s; a fidelity desk grades it by hand, and the next head record for #%s queues the pass again",
 		subject, spec.Lane, spec.PR, head, maxAttempts, why, logPath, spec.PR)

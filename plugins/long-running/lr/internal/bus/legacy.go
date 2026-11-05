@@ -70,6 +70,10 @@ func (b Bus) ReadLegacy(ctx context.Context, since int64, now time.Time) ([]clie
 	return client.Tail(ctx, query)
 }
 
+func FidelityLanes() []string {
+	return slices.Clone(fidelityLanes)
+}
+
 func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	kind := string(record.Kind)
 	switch {

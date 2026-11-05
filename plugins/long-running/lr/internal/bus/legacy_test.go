@@ -375,3 +375,13 @@ func TestTheLandingPassesCarriedOverrideCounts(t *testing.T) {
 		t.Fatalf("LegacyFacts = %+v, want %+v", got, want)
 	}
 }
+
+func TestEveryListedFidelityLaneAndItsSuccessorWritesAGradeFact(t *testing.T) {
+	want := []bus.Fact{{PR: 1, Head: head, Kind: "fidelity", Value: "pass"}}
+	for _, lane := range append(bus.FidelityLanes(), "fidelity-desk-29", "fidelity-shard-5") {
+		record := legacyRecord(t, "review", lane, "fidelity: ok "+head+" reads", []int{1}, nil)
+		if got := bus.LegacyFacts(record, repo, nil); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: LegacyFacts = %+v, want %+v", lane, got, want)
+		}
+	}
+}
