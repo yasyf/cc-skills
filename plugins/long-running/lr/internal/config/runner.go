@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
 type RunnerDeadlines struct {
@@ -105,7 +107,7 @@ type Runner struct {
 }
 
 func LoadRunner(path string) (Runner, error) {
-	data, err := os.ReadFile(path)
+	data, err := drive.ReadMacOnly(path)
 	if err != nil {
 		return Runner{}, err
 	}

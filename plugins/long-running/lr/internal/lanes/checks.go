@@ -25,6 +25,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/terminalcap"
@@ -501,7 +502,7 @@ type CcRemote struct {
 }
 
 func CcRemoteOf(state string) (*CcRemote, error) {
-	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
+	data, err := drive.ReadMacOnly(filepath.Join(state, "runner.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -742,7 +743,7 @@ type RunnerLanding struct {
 }
 
 func ReadRunnerLanding(state string) (RunnerLanding, error) {
-	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
+	data, err := drive.ReadMacOnly(filepath.Join(state, "runner.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return RunnerLanding{}, nil
 	}

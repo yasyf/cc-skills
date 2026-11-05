@@ -1,25 +1,57 @@
 package board
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
+const rowsRead = "board rows"
+
+type rowsQuery struct {
+	json, all, outside bool
+}
+
+func (q *rowsQuery) flags(fs *pflag.FlagSet) {
+	fs.BoolVar(&q.json, "json", false, "print the rows as one JSON array")
+	fs.BoolVar(&q.all, "all", false, "include landed, closed and superseded rows; an old-tree row whose port is owed is listed without it")
+	fs.BoolVar(&q.outside, "outside", false, "list the old-tree PRs no drive lane opened in place of the drive's rows, each with its port; without --all, only those whose port is owed")
+}
+
+func (q rowsQuery) ask() string {
+	read := []string{rowsRead}
+	for _, flag := range []struct {
+		name string
+		on   bool
+	}{{"--json", q.json}, {"--all", q.all}, {"--outside", q.outside}} {
+		if flag.on {
+			read = append(read, flag.name)
+		}
+	}
+	return strings.Join(read, " ")
+}
+
 func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
-	var asJSON, all, outside bool
+	var q rowsQuery
 	cmd := &cobra.Command{
 		Use:   "rows",
 		Short: "Every drive PR from the landing store with all its fields and what it waits on: the one record the review tab, status lines and asks read",
@@ -29,47 +61,72 @@ func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), c.ErrOrStderr())
-			if err != nil {
-				return err
+			if entry.OnSprite() {
+				return askdesk.AskMac(c.Context(), askdesk.LiveCCI{}, entry.Bus(), os.Getenv(lanes.LaneEnv), q.ask(), c.OutOrStdout())
 			}
-			s, err := store.Open(entry.Store())
-			if err != nil {
-				return err
-			}
-			defer func() { _ = s.Close() }()
-			if outside {
-				return printOutside(c, s, cfg.Repo, asJSON, all)
-			}
-			rows, err := s.ReviewRows(cfg.Repo)
-			if err != nil {
-				return err
-			}
-			if !all {
-				rows = slices.DeleteFunc(rows, func(row store.ReviewRow) bool {
-					return (prrow.Terminal(row.State) || row.State == prrow.StateSuperseded) && !strings.HasPrefix(row.Port, prrow.PortOwed)
-				})
-			}
-			if asJSON {
-				return json.NewEncoder(c.OutOrStdout()).Encode(rows)
-			}
-			for _, row := range rows {
-				port := ""
-				if row.Port != prrow.None {
-					port = "; port: " + row.Port
-				}
-				fmt.Fprintf(c.OutOrStdout(), "#%d at %s (%s, %s): %s: %s%s\n", row.Number, abbreviate(row.Head), row.Lane, row.State, row.Title, row.WaitsOn, port)
-			}
-			return nil
+			return printRows(entry, q, c.OutOrStdout(), c.ErrOrStderr())
 		},
 	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print the rows as one JSON array")
-	cmd.Flags().BoolVar(&all, "all", false, "include landed, closed and superseded rows; an old-tree row whose port is owed is listed without it")
-	cmd.Flags().BoolVar(&outside, "outside", false, "list the old-tree PRs no drive lane opened in place of the drive's rows, each with its port; without --all, only those whose port is owed")
+	q.flags(cmd.Flags())
 	return cmd
 }
 
-func printOutside(c *cobra.Command, s *store.Store, repo string, asJSON, all bool) error {
+func RowsRead(driveName string) askdesk.Serve {
+	return func(_ context.Context, args []string, out, errs io.Writer) error {
+		var q rowsQuery
+		parsed := pflag.NewFlagSet(rowsRead, pflag.ContinueOnError)
+		parsed.SetOutput(io.Discard)
+		q.flags(parsed)
+		if err := parsed.Parse(args); err != nil {
+			return err
+		}
+		if parsed.NArg() != 0 {
+			return errors.New(rowsRead + " takes no arguments")
+		}
+		entry, err := drive.Named(driveName)
+		if err != nil {
+			return err
+		}
+		return printRows(entry, q, out, errs)
+	}
+}
+
+func printRows(entry drive.Entry, q rowsQuery, out, errs io.Writer) error {
+	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), errs)
+	if err != nil {
+		return err
+	}
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.Close() }()
+	if q.outside {
+		return printOutside(out, s, cfg.Repo, q.json, q.all)
+	}
+	rows, err := s.ReviewRows(cfg.Repo)
+	if err != nil {
+		return err
+	}
+	if !q.all {
+		rows = slices.DeleteFunc(rows, func(row store.ReviewRow) bool {
+			return (prrow.Terminal(row.State) || row.State == prrow.StateSuperseded) && !strings.HasPrefix(row.Port, prrow.PortOwed)
+		})
+	}
+	if q.json {
+		return json.NewEncoder(out).Encode(rows)
+	}
+	for _, row := range rows {
+		port := ""
+		if row.Port != prrow.None {
+			port = "; port: " + row.Port
+		}
+		fmt.Fprintf(out, "#%d at %s (%s, %s): %s: %s%s\n", row.Number, abbreviate(row.Head), row.Lane, row.State, row.Title, row.WaitsOn, port)
+	}
+	return nil
+}
+
+func printOutside(out io.Writer, s *store.Store, repo string, asJSON, all bool) error {
 	admitted, err := s.OutsidePRs(repo)
 	if err != nil {
 		return err
@@ -79,10 +136,10 @@ func printOutside(c *cobra.Command, s *store.Store, repo string, asJSON, all boo
 		prs = slices.DeleteFunc(prs, func(pr store.OutsidePR) bool { return !strings.HasPrefix(pr.Port, prrow.PortOwed) })
 	}
 	if asJSON {
-		return json.NewEncoder(c.OutOrStdout()).Encode(prs)
+		return json.NewEncoder(out).Encode(prs)
 	}
 	for _, pr := range prs {
-		fmt.Fprintf(c.OutOrStdout(), "#%d at %s (%s): %s; port: %s\n", pr.Number, abbreviate(pr.Head), pr.State, pr.Title, pr.Port)
+		fmt.Fprintf(out, "#%d at %s (%s): %s; port: %s\n", pr.Number, abbreviate(pr.Head), pr.State, pr.Title, pr.Port)
 	}
 	return nil
 }

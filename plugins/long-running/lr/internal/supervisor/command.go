@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -272,6 +273,10 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 		Squash:    squashFixes,
 		Log:       a.Log,
 	}
+	deps.Followers = append(deps.Followers, askdesk.Desk{
+		Lane: askdesk.StoreDesk, Drive: env.Config.Drive, Bodies: filepath.Join(env.State, askdesk.StoreDesk), Now: a.Now, Log: a.Stderr,
+		Read: askdesk.StoreReads(map[string]askdesk.Serve{"grade queue": grading.QueueRead(a, env.Config.Drive), "board rows": board.RowsRead(env.Config.Drive)}),
+	}.Follow)
 	deps.Checks = append(deps.Checks, (&background{name: "review-rows", every: TickEvery, run: prfacts.New(a, env.Config, s).FoldRows, store: s, post: post, log: a.Log}).Check)
 	deps.Checks = append(deps.Checks, (&background{name: "tap-orders", every: TickEvery, run: prfacts.New(a, env.Config, s).WriteOrders, store: s, post: post, log: a.Log}).Check)
 	if slices.Contains(env.Config.Movers, config.MoverGrading) {

@@ -313,6 +313,9 @@ func (m Manager) loaded(ctx context.Context, entry drive.Entry) (items []item, l
 }
 
 func (m Manager) List(ctx context.Context) ([]string, error) {
+	if err := drive.MacOnly(filepath.Join(m.Env.State, lanes.StoreFile)); err != nil {
+		return nil, err
+	}
 	open, err := drive.Children(m.Env.Config.Drive)
 	if err != nil {
 		return nil, err

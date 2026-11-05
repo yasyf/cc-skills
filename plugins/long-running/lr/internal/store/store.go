@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	_ "modernc.org/sqlite"
 )
@@ -16,13 +16,9 @@ import (
 const (
 	StaleAfter = 15 * time.Minute
 	stampForm  = "2006-01-02T15:04:05Z"
-	OnMac      = ".on-mac"
 )
 
-var (
-	ErrStaleGeneration = errors.New("stale generation")
-	ErrOnMac           = errors.New("is the drive's registry, which only the supervisor on the Mac writes, and this Sprite holds no copy, so lr lanes, board rows and cards are not read here; until a cci read serves them, ask the Mac's coordinator with `cci post --kind ask --to root \"<the lr command>\"`")
-)
+var ErrStaleGeneration = errors.New("stale generation")
 
 type LaneState string
 
@@ -129,8 +125,8 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	if _, err := os.Stat(path + OnMac); err == nil {
-		return nil, fmt.Errorf("%s %w", path, ErrOnMac)
+	if err := drive.MacOnly(path); err != nil {
+		return nil, err
 	}
 	return open(path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 }

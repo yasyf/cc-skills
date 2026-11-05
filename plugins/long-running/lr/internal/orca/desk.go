@@ -21,6 +21,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -141,7 +142,7 @@ type spriteRoute struct {
 }
 
 func readRunnerFile(path string) (runnerFile, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := drive.ReadMacOnly(path)
 	if err != nil {
 		return runnerFile{}, err
 	}

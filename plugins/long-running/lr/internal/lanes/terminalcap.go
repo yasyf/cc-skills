@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/terminalcap"
@@ -47,7 +48,7 @@ func newTerminalCap(e Env, s *store.Store) (*TerminalCap, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(e.State, "runner.json"))
+	data, err := drive.ReadMacOnly(filepath.Join(e.State, "runner.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return &TerminalCap{Env: e, Store: s, Home: home}, nil
 	}
