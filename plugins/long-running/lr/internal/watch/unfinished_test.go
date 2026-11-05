@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 )
 
@@ -131,4 +132,30 @@ func TestADayOfUnfinishedRowsIsNotARepeatedDefect(t *testing.T) {
 
 	want(t, len(first), 3)
 	want(t, len(second), 0)
+}
+
+func TestAPickNamingAPRThatWaitsOnHisTapDoesNotEscalateToRoot(t *testing.T) {
+	now := at(t, "2026-11-03T08:00:00Z")
+	row := func(key, text string) ledger.Row {
+		return ledger.Row{Key: key, Updated: now.Add(-48 * time.Hour), Fields: map[string]string{"state": "routed", "kind": "pick", "owner": "root", "text": text}}
+	}
+	l := Ledgers{
+		Findings: []ledger.Row{
+			row("pick/1", "Chat tab is live; one storage pick on #49722: keep 30 days"),
+			row("pick/2", "Which one on #49999?: A"),
+			row("pick/3", "Which one?: A"),
+		},
+		Waits: []board.Wait{{Kind: "tap", PR: "49722"}, {Kind: "pick", Block: "card-a", Subject: "choice-a"}},
+	}
+
+	waits, err := Unfinished(l, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	keys := make([]string, 0, len(waits))
+	for _, wait := range waits {
+		keys = append(keys, wait.subject())
+	}
+	want(t, strings.Join(keys, " "), "pick/2 pick/3")
 }

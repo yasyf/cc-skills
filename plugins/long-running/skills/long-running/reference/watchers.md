@@ -29,7 +29,7 @@
 | CI | 2 hours |
 | The owner | 12 hours |
 
-**`lr watch` covers the waits no PR state carries.** It runs on the supervisor's tick and reads open asks, gates, repeated defects, unfinished ledger rows (retro rows, owner asks, sweep findings and picks), `meta/items.md` and records that name a deadline with no plan. `lr watch deadlines` runs one pass by hand.
+**`lr watch` covers the waits no PR state carries.** It runs on the supervisor's tick and reads open asks, gates, repeated defects, unfinished ledger rows (retro rows, owner asks, sweep findings and picks; a pick naming a PR that waits on his tap is his wait and never reaches root), `meta/items.md` and records that name a deadline with no plan. `lr watch deadlines` runs one pass by hand.
 
 **The red register is `lr board reds`.** It prints one line per open drive PR whose build reads red: head, failing checks, class, owner, red since and last action. The class comes from the newest `red` record that names the head; a head with none reads `unclassed`. A red head's `fix-red` item goes to the coordinator past the lane's 20 minutes, classed or not, so no red depends on a `red-sweep` lane being live.
 
