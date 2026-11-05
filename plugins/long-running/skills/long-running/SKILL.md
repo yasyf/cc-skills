@@ -409,12 +409,8 @@ runs its own subscribe line (R9), then `lr desks start` before any lane: the Run
 desk its brief names, each desk with a `Standing:` line. The communicator's lines above start no runner and
 no desk. Every lane registers its branch prefix at spawn with `ledger.py register`.
 
-`lr owner start` subscribes the communicator: the owner's taps, asks, decides, blocks and incidents wake it
-on arrival, and reports, notes, answers and other routine kinds reach it together, at most every five minutes
-and at once ahead of any other record. Every incident launch, by `lr incident run` or the supervisor, addresses
-the communicator once on the alert's topic, and from then on each `mechanism`, `fix-live` and `not-ours` record
-any lane posts on that topic wakes it on arrival, so an incident's results reach the owner with no line in a
-brief and no hand relay.
+`lr owner start` subscribes the communicator: the owner's taps, asks, decides, blocks and incidents wake it on arrival, and reports, notes, answers and other routine kinds reach it together, at most every five minutes and at once ahead of any other record.
+Every incident launch, by `lr incident run` or the supervisor, addresses the communicator once on the alert's topic, so each `mechanism`, `fix-live` and `not-ours` record any lane posts on that topic wakes it on arrival, with no line in a brief and no hand relay.
 
 A resumed communicator joins with `drive.py start --drive <id> --ledger <id>` and checks the standing sessions
 with `lr lanes root meta signal`; SessionStart brings back any lane's own subscription and watches, says so,

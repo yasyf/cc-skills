@@ -1,7 +1,7 @@
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "long-running" / "SKILL.md"
-CEILING = 426
+CEILING = 425
 
 
 def test_the_skill_stays_at_or_under_its_ceiling():
