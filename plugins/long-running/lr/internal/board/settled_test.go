@@ -31,7 +31,8 @@ var (
 		Body:    `Owner, verbatim: "nvm dont store it anywhere". The old build persists nothing from a conversion attempt. Any conversion attempt runs only in the background and lazily, when a chat is opened on the new build.`,
 		Updated: "2026-11-04T05:37:55Z",
 	}
-	sonnetPool = ownerAnswer{ID: "5a5a5a5", Title: "Which pool should Sonnet bill to?", Body: "The shared pool.", Updated: "2026-11-04T05:40:00Z"}
+	sonnetPool   = ownerAnswer{ID: "5a5a5a5", Title: "Which pool should Sonnet bill to?", Body: "The shared pool.", Updated: "2026-11-04T05:40:00Z"}
+	answeredHere = answeredWith(boardCardLabel + oldChatCard)
 )
 
 var oldChatUp = []any{oldChatBlock()}
@@ -104,6 +105,7 @@ func settledBoardFirst(t *testing.T, first func(*shelltest.Fake), board []any, a
 			return nil
 		},
 		Reports: func(context.Context) ([]ownerAnswer, error) { return nil, nil },
+		Report:  func(context.Context, string, []string, string, string) error { return nil },
 	}
 	return cards, fake, &withdrawn
 }
@@ -158,8 +160,8 @@ func TestADrawStaysUnrefusedWhenTheJudgeIsUnsureOrFails(t *testing.T) {
 	}
 }
 
-func TestASweepTakesDownAnOpenCardHisAnswerSettlesWithAPlainWhy(t *testing.T) {
-	cards, fake, withdrawn := settledBoard(t, oldChatUp, sonnetPool, upgradeOnce)
+func TestASweepTakesDownAnOpenCardHisAnswerToItSettlesWithAPlainWhy(t *testing.T) {
+	cards, fake, withdrawn := settledBoard(t, oldChatUp, sonnetPool, answeredHere)
 	var out bytes.Buffer
 
 	if err := cards.Unask(context.Background(), "board-refresher", (&judgeCalls{verdict: "yes"}).judge, &out); err != nil {
@@ -175,6 +177,85 @@ func TestASweepTakesDownAnOpenCardHisAnswerSettlesWithAPlainWhy(t *testing.T) {
 	}
 	if len(*withdrawn) != 1 || !strings.Contains(out.String(), "WITHDRAWN "+oldChatCard) {
 		t.Fatalf("withdrawn %q, out %q", *withdrawn, out.String())
+	}
+}
+
+type laneReport struct{ by, to, topic, text string }
+
+func TestASweepKeepsACardHisAnswerToAnotherQuestionSettlesAndTellsTheLaneThatDrewIt(t *testing.T) {
+	for name, tc := range map[string]struct{ drew, told string }{
+		"a lane drew it":      {"owner-apps-1", "owner-apps-1"},
+		"no lane is recorded": {"", "board-refresher"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cards, fake, withdrawn := settledBoard(t, oldChatUp, upgradeOnce)
+			if tc.drew != "" {
+				if _, err := cards.Until(context.Background(), oldChatCard, "at:3d", tc.drew); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var reports []laneReport
+			cards.Report = func(_ context.Context, by string, to []string, topic, text string) error {
+				reports = append(reports, laneReport{by, strings.Join(to, ","), topic, text})
+				return nil
+			}
+			var out bytes.Buffer
+
+			for range 2 {
+				if err := cards.Unask(context.Background(), "board-refresher", (&judgeCalls{verdict: "yes"}).judge, &out); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if removed := removedBlocks(fake); len(removed) != 0 || len(*withdrawn) != 0 {
+				t.Fatalf("removed %q, withdrew %q; his answer was to another question", removed, *withdrawn)
+			}
+			if len(reports) != 1 || reports[0].to != tc.told || reports[0].topic != oldChatCard {
+				t.Fatalf("reports %+v, want one to %s about %s", reports, tc.told, oldChatCard)
+			}
+			for _, named := range []string{upgradeOnce.Title, "29b2e59", "one background upgrade attempt", "lr ask-owner --withdraw " + oldChatCard} {
+				if !strings.Contains(reports[0].text, named) {
+					t.Fatalf("report %q does not carry %q", reports[0].text, named)
+				}
+			}
+			if !strings.Contains(out.String(), "KEPT "+oldChatCard+": told "+tc.told) {
+				t.Fatalf("out = %q", out.String())
+			}
+		})
+	}
+}
+
+func TestASweepPrefersHisAnswerToTheCardItselfOverOneToAnotherQuestion(t *testing.T) {
+	cards, fake, _ := settledBoard(t, oldChatUp, upgradeOnce, answeredHere)
+	var reports []string
+	cards.Report = func(_ context.Context, _ string, _ []string, _, text string) error {
+		reports = append(reports, text)
+		return nil
+	}
+
+	if err := cards.Unask(context.Background(), "board-refresher", (&judgeCalls{verdict: "yes"}).judge, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if removed := removedBlocks(fake); len(removed) != 1 || len(reports) != 0 {
+		t.Fatalf("removed %q, reported %q; want the card withdrawn on his answer to it", removed, reports)
+	}
+}
+
+func TestASweepTakesDownACardHisAnswerToTheSameQuestionSettles(t *testing.T) {
+	same := upgradeOnce
+	same.Title = "  an old chat will not open on the new build: is that the expected you meant?   What should happen to chats like this?"
+	cards, fake, _ := settledBoard(t, oldChatUp, same)
+	decides := func(context.Context, string, string, string) (*Judgment, error) {
+		return &Judgment{Verdict: "yes", Sentence: "Old chats show the can't-open screen."}, nil
+	}
+
+	if err := cards.Unask(context.Background(), "board-refresher", decides, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if removed := removedBlocks(fake); len(removed) != 1 {
+		t.Fatalf("removed %q, want the card his answer to its own question settles", removed)
 	}
 }
 
@@ -288,17 +369,17 @@ func answeredWith(tags ...string) ownerAnswer {
 
 func TestOnlyHisAnswerToACardSettlesItWhenItShowsARender(t *testing.T) {
 	cases := []struct {
-		name   string
-		card   map[string]any
-		answer ownerAnswer
-		settle bool
+		name             string
+		card             map[string]any
+		answer           ownerAnswer
+		settle, withdraw bool
 	}{
-		{"a screenshot child and an older answer stays up", renderBlock(screenshotChild), answeredWith("from:owner"), false},
-		{"a screenshot on an option and an older answer stays up", renderBlock(screenshotVisual), answeredWith("from:owner"), false},
-		{"his answer to the card before it stays up", renderBlock(screenshotChild), answeredWith("card:card-chat-live", "board-card:card-chat-live"), false},
-		{"his Slack tap on it settles", renderBlock(screenshotChild), answeredWith(cardLabel + oldChatCard), true},
-		{"his board pick on it settles", renderBlock(screenshotVisual), answeredWith(boardCardLabel + oldChatCard), true},
-		{"no screenshot and an older answer settles", oldChatBlock(), answeredWith("from:owner"), true},
+		{"a screenshot child and an older answer stays up", renderBlock(screenshotChild), answeredWith("from:owner"), false, false},
+		{"a screenshot on an option and an older answer stays up", renderBlock(screenshotVisual), answeredWith("from:owner"), false, false},
+		{"his answer to the card before it stays up", renderBlock(screenshotChild), answeredWith("card:card-chat-live", "board-card:card-chat-live"), false, false},
+		{"his Slack tap on it settles", renderBlock(screenshotChild), answeredWith(cardLabel + oldChatCard), true, true},
+		{"his board pick on it settles", renderBlock(screenshotVisual), answeredWith(boardCardLabel + oldChatCard), true, true},
+		{"no screenshot and an older answer to another question refuses a draw and leaves a drawn card up", oldChatBlock(), answeredWith("from:owner"), true, false},
 	}
 	for _, tc := range cases {
 		t.Run("sweep: "+tc.name, func(t *testing.T) {
@@ -310,8 +391,8 @@ func TestOnlyHisAnswerToACardSettlesItWhenItShowsARender(t *testing.T) {
 			if err := cards.Unask(context.Background(), "board-refresher", (&judgeCalls{verdict: "yes"}).judge, &bytes.Buffer{}); err != nil {
 				t.Fatal(err)
 			}
-			if removed := removedBlocks(fake); (len(removed) == 1) != tc.settle || (len(*withdrawn) == 1) != tc.settle {
-				t.Fatalf("removed %q, withdrew %q, want settled = %v", removed, *withdrawn, tc.settle)
+			if removed := removedBlocks(fake); (len(removed) == 1) != tc.withdraw || (len(*withdrawn) == 1) != tc.withdraw {
+				t.Fatalf("removed %q, withdrew %q, want withdrawn = %v", removed, *withdrawn, tc.withdraw)
 			}
 		})
 		t.Run("draw: "+tc.name, func(t *testing.T) {
@@ -402,7 +483,7 @@ func touchedAt(t *testing.T, at time.Time) func(*shelltest.Fake) {
 }
 
 func TestASweepLeavesACardHeTouchedInTheLastTwoMinutes(t *testing.T) {
-	cards, fake, withdrawn := settledBoardFirst(t, touchedAt(t, cardsNow.Add(-time.Minute)), oldChatUp, upgradeOnce)
+	cards, fake, withdrawn := settledBoardFirst(t, touchedAt(t, cardsNow.Add(-time.Minute)), oldChatUp, answeredHere)
 	var out bytes.Buffer
 
 	if err := cards.Unask(context.Background(), "supervisor", (&judgeCalls{verdict: "yes"}).judge, &out); err != nil {
@@ -419,7 +500,7 @@ func TestASweepLeavesACardHeTouchedInTheLastTwoMinutes(t *testing.T) {
 
 func TestASweepKeepsGoingWhenTheBoardHoldsACardHeTouched(t *testing.T) {
 	refusal := "refusing to remove block: the human's choice.selected holds it for 30 minutes unless the round is submitted"
-	cards, _, withdrawn := settledBoardFirst(t, func(fake *shelltest.Fake) { fake.Fail(1, refusal, "cc-present", "remove-block") }, oldChatUp, upgradeOnce)
+	cards, _, withdrawn := settledBoardFirst(t, func(fake *shelltest.Fake) { fake.Fail(1, refusal, "cc-present", "remove-block") }, oldChatUp, answeredHere)
 	var out bytes.Buffer
 
 	if err := cards.Unask(context.Background(), "supervisor", (&judgeCalls{verdict: "yes"}).judge, &out); err != nil {
@@ -432,7 +513,7 @@ func TestASweepKeepsGoingWhenTheBoardHoldsACardHeTouched(t *testing.T) {
 }
 
 func TestASweepTakesDownACardHeTouchedLongerAgo(t *testing.T) {
-	cards, fake, _ := settledBoardFirst(t, touchedAt(t, cardsNow.Add(-3*time.Minute)), oldChatUp, upgradeOnce)
+	cards, fake, _ := settledBoardFirst(t, touchedAt(t, cardsNow.Add(-3*time.Minute)), oldChatUp, answeredHere)
 
 	if err := cards.Unask(context.Background(), "supervisor", (&judgeCalls{verdict: "yes"}).judge, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)

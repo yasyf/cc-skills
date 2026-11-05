@@ -42,9 +42,10 @@ type ownerAnswer struct {
 }
 
 type Settling struct {
-	Answer   ownerAnswer
-	Why      string
-	Finished bool
+	Answer       ownerAnswer
+	Why          string
+	Finished     bool
+	SameQuestion bool
 }
 
 type settlingSource struct {
@@ -69,7 +70,15 @@ func (s Settling) Line() string {
 }
 
 func (s Settling) Refusal() error {
-	return fmt.Errorf("refused: %s (cc-notes answer %s); apply his answer instead of asking him again", s.Line(), s.Answer.ID[:min(len(s.Answer.ID), 7)])
+	return fmt.Errorf("refused: %s (cc-notes answer %s); apply his answer instead of asking him again", s.Line(), s.shortID())
+}
+
+func (s Settling) Extension(card string) string {
+	return fmt.Sprintf("Card %s stays on the owner's board: the settled check reads his answer to %q (cc-notes answer %s) as settling it, though he answered a different question: %s. Withdraw it with `lr ask-owner --withdraw %s` if his answer covers it, or reply to this record saying why it stays.", card, strings.TrimSpace(s.Answer.Title), s.shortID(), strings.TrimSuffix(strings.TrimSpace(s.Why), "."), card)
+}
+
+func (s Settling) shortID() string {
+	return s.Answer.ID[:min(len(s.Answer.ID), 7)]
 }
 
 func (c Cards) answers(ctx context.Context) ([]ownerAnswer, error) {
@@ -142,9 +151,16 @@ func answersThatCanSettle(card json.RawMessage, answers []ownerAnswer) []ownerAn
 	if !render {
 		return answers
 	}
-	return slices.DeleteFunc(slices.Clone(answers), func(answer ownerAnswer) bool {
-		return !slices.Contains(answer.Tags, cardLabel+id) && !slices.Contains(answer.Tags, boardCardLabel+id)
-	})
+	return slices.DeleteFunc(slices.Clone(answers), func(answer ownerAnswer) bool { return !answersCard(answer, id) })
+}
+
+func answersCard(answer ownerAnswer, id string) bool {
+	return slices.Contains(answer.Tags, cardLabel+id) || slices.Contains(answer.Tags, boardCardLabel+id)
+}
+
+func asksSame(card json.RawMessage, answer ownerAnswer) bool {
+	id, title, _ := asksTitle(card)
+	return answersCard(answer, id) || sameText(answer.Title, title)
 }
 
 func settles(ctx context.Context, judge Judge, source settlingSource, card json.RawMessage, question string, answers []ownerAnswer, since string) (*Settling, error) {
@@ -161,10 +177,18 @@ func settles(ctx context.Context, judge Judge, source settlingSource, card json.
 		})
 	}
 	wg.Wait()
+	var settled *Settling
 	for i, verdict := range verdicts {
-		if verdictOf(verdict) == "yes" {
-			return &Settling{found[i], verdict.Sentence, source.finished}, nil
+		if verdictOf(verdict) != "yes" {
+			continue
 		}
+		same := asksSame(card, found[i])
+		if settled == nil || same && !settled.SameQuestion {
+			settled = &Settling{found[i], verdict.Sentence, source.finished, same}
+		}
+	}
+	if settled != nil {
+		return settled, nil
 	}
 	return nil, errors.Join(failed...)
 }
@@ -329,13 +353,19 @@ func (c Cards) takeDown(ctx context.Context, lane string, judge Judge, source se
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if settled != nil {
+		switch {
+		case settled != nil && (settled.Finished || settled.SameQuestion):
 			if err := c.sweepOff(ctx, lane, ask.ID, fields, settled.Line(), settled.Line(), out); err != nil {
 				return err
 			}
 			continue
-		}
-		if err != nil {
+		case settled != nil:
+			drew := cmp.Or(fields[laneField], lane)
+			if err := c.Report(ctx, lane, []string{drew}, ask.ID, settled.Extension(ask.ID)); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "KEPT %s: told %s that %s\n", ask.ID, drew, settled.Line())
+		case err != nil:
 			fmt.Fprintf(out, "WARNING %s stays up: its check against %s failed and runs again next pass: %s\n", ask.ID, source.unread, strings.ReplaceAll(err.Error(), "\n", "; "))
 			continue
 		}
