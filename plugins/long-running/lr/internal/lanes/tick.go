@@ -177,6 +177,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 		do(d.Post(Post{Kind: "report", To: []string{to}, Text: fmt.Sprintf("RETIRED for owning no PR, holding no standing duty, and posting nothing for %d minutes or more: %s.", int(d.RetireAfter.Minutes()), strings.Join(retiredTo[to], "; "))}))
 	}
 	claimBranches(s, d, now)
+	reachRetired(s, d, taken, now, &out)
 	openAnswered(s, d, found, taken, now, &out)
 	keepDuties(s, d, found, taken, now, &out)
 	hourly(s, d, now)
@@ -563,6 +564,58 @@ func coordinatorBrief(old store.Lane, why string, d Deps, transcript string) (st
 }
 
 func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why, partial string, taken map[string]bool, now time.Time, out *Outcome) string {
+	return launchHeir(s, d, old, found, why, partial, spentRelaunches(s, old, why, now), taken, now, out)
+}
+
+func reachRetired(s *store.Store, d Deps, taken map[string]bool, now time.Time, out *Outcome) {
+	var waiting []store.Lane
+	var names []string
+	pages := must(s.Pages())
+	for _, name := range slices.Sorted(maps.Keys(pages)) {
+		if pageText(pages[name], "topic") != retiredMailTopic {
+			continue
+		}
+		if lane, found := laneOf(s, name); found && lane.State == store.LaneRetired {
+			waiting, names = append(waiting, lane), append(names, name)
+		}
+	}
+	if len(waiting) == 0 {
+		return
+	}
+	rows := must(d.Who(names))
+	for i := range rows {
+		rows[i].Lane = Canonical(d.Drive, rows[i].Lane)
+	}
+	found := Peers(rows)
+	for _, lane := range waiting {
+		peer := peerOf(found, lane.Name)
+		if peer != nil && answersAWake(peer.Row) {
+			if must(d.Wake(lane.Name, peer.Row, lane.Page)) {
+				do(s.SetLanePage(lane.Name, nil))
+				out.Woken = append(out.Woken, lane.Name)
+			}
+			continue
+		}
+		launchHeir(s, d, lane, found, pageText(lane.Page, "why"), retiredMailBrief(lane), "", taken, now, out)
+		do(s.SetLanePage(lane.Name, nil))
+	}
+}
+
+func answersAWake(row Row) bool {
+	reachable := row.Dispatch != "" || row.Roster != ""
+	return reachable && (row.Live || (row.Unverified != "" && !row.HostGone))
+}
+
+func retiredMailBrief(lane store.Lane) string {
+	seqs := pageSeqs(lane.Page)
+	shows := make([]string, len(seqs))
+	for i, seq := range seqs {
+		shows[i] = fmt.Sprintf("`cci show %d`", seq)
+	}
+	return fmt.Sprintf("Act on what reached %s while it was gone; any record of yours naming a card here acknowledges his answer to it, and %s prints each one whole:\n%s\nIts worktree may be gone, since gc removes one that is clean and pushed: its records name each branch and PR it pushed, so cut a fresh worktree from those.", lane.Name, strings.Join(shows, " and "), pageText(lane.Page, "text"))
+}
+
+func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why, partial, spent string, taken map[string]bool, now time.Time, out *Outcome) string {
 	if old.Name == Root {
 		relaunchCoordinator(s, d, old, found, why, now, out)
 		return Root
@@ -586,7 +639,7 @@ func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why
 		out.Held = append(out.Held, old.Name)
 		return ""
 	}
-	if spent := spentRelaunches(s, old, why, now); spent != "" {
+	if spent != "" {
 		hold(s, old.Name, why, now)
 		to := noticeTo(s, old.Name)
 		if isStanding(old) {

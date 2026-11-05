@@ -27,7 +27,7 @@ const (
 	askKind        = "ask"
 	claimKind      = "claim"
 	lateKind       = "report"
-	wakeTopic      = "card-wake:"
+	wakeTopic      = lanes.CardWakeTopic
 	lateTopic      = "card-wake-late:"
 	needsLaneTopic = "needs-lane:"
 	laneField      = "lane"
@@ -67,7 +67,7 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 		if err != nil || routed {
 			return err
 		}
-		return w.needsLane(ctx, a, "", communicator, "No lane asked for this card, so route his answer, or launch a lane whose brief carries it")
+		return w.needsLane(ctx, a)
 	}
 	asker, err = lanes.Holder(w.Cards.Store, "", asker)
 	if err != nil {
@@ -77,9 +77,6 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 	if err != nil {
 		return err
 	}
-	if lane.State == store.LaneRetired {
-		return w.needsLane(ctx, a, asker, metaDesk, fmt.Sprintf("%s asked for it and is retired with no live heir, so launch its successor with this answer in its brief; the retired lane's brief is %s", asker, lane.Brief))
-	}
 	text := fmt.Sprintf("WAKE %s: the owner answered your card: %s. Act on it now; any record of yours naming %s acknowledges it.", a.Card, a.Said[:min(len(a.Said), saidLimit)], a.Card)
 	if _, err := w.Post(ctx, client.Draft{
 		Drive: w.Cards.Bus, Lane: w.Lane, Kind: wakeKind, ID: wakeTopic + a.Key, Topic: wakeTopic + a.Card, To: []string{asker}, Re: a.OwnerSeq, Text: text, Force: true,
@@ -87,7 +84,7 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 	}); err != nil {
 		return err
 	}
-	if lane.Placement != orcaPlacement {
+	if lane.Placement != orcaPlacement || lane.State == store.LaneRetired {
 		return nil
 	}
 	if err := w.Relay(ctx, asker, strings.Join(strings.Fields(text), " ")); err != nil {
@@ -142,11 +139,11 @@ func namesAny(names ...string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)(?:^|[^\w-])#?(?:` + strings.Join(quoted, "|") + `)(?:[^\w-]|$)`)
 }
 
-func (w Waker) needsLane(ctx context.Context, a CardAnswer, lane, to, what string) error {
+func (w Waker) needsLane(ctx context.Context, a CardAnswer) error {
 	_, err := w.Post(ctx, client.Draft{
-		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: needsLaneTopic + a.Key, Topic: needsLaneTopic + a.Card, To: []string{to}, Re: a.OwnerSeq, Force: true,
-		Text:  fmt.Sprintf("NEEDS-LANE %s on board %s: the owner answered: %s. %s.", a.Card, w.Cards.Session, a.Said, what),
-		Attrs: map[string]string{"session": w.Cards.Session, "card": a.Card, "block": a.Block, laneField: lane},
+		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: needsLaneTopic + a.Key, Topic: needsLaneTopic + a.Card, To: []string{communicator}, Re: a.OwnerSeq, Force: true,
+		Text:  fmt.Sprintf("NEEDS-LANE %s on board %s: the owner answered: %s. No lane asked for this card, so route his answer, or launch a lane whose brief carries it.", a.Card, w.Cards.Session, a.Said),
+		Attrs: map[string]string{"session": w.Cards.Session, "card": a.Card, "block": a.Block},
 	})
 	return err
 }
@@ -172,14 +169,16 @@ func (w Waker) Late(ctx context.Context) error {
 	}
 	woken := make([]string, len(due))
 	for i, record := range due {
-		woken[i] = record.Fields.Attrs[laneField]
+		if woken[i], err = lanes.Holder(w.Cards.Store, "", record.Fields.Attrs[laneField]); err != nil {
+			return err
+		}
 	}
 	heard, err := w.Tail(ctx, client.Query{Drive: w.Cards.Bus, Lanes: woken, After: due[0].Seq})
 	if err != nil {
 		return err
 	}
-	for _, wake := range due {
-		if acknowledged(wake, heard) {
+	for i, wake := range due {
+		if acknowledged(wake, woken[i], heard) {
 			continue
 		}
 		attrs, topic := wake.Fields.Attrs, lateTopic+strconv.FormatInt(wake.Seq, 10)
@@ -193,7 +192,7 @@ func (w Waker) Late(ctx context.Context) error {
 	return nil
 }
 
-func acknowledged(wake client.Record, heard []client.Record) bool {
+func acknowledged(wake client.Record, holder string, heard []client.Record) bool {
 	attrs := wake.Fields.Attrs
 	names := []string{attrs["card"], attrs["block"], strconv.FormatInt(wake.Seq, 10)}
 	if wake.Re != 0 {
@@ -201,7 +200,7 @@ func acknowledged(wake client.Record, heard []client.Record) bool {
 	}
 	naming := namesAny(names...)
 	return slices.ContainsFunc(heard, func(record client.Record) bool {
-		return record.Lane == attrs[laneField] && record.Seq > wake.Seq &&
+		return record.Lane == holder && record.Seq > wake.Seq &&
 			(record.Re == wake.Seq || (wake.Re != 0 && record.Re == wake.Re) || record.Topic == attrs["card"] || naming.MatchString(record.Text))
 	})
 }
@@ -222,7 +221,7 @@ func wakeCommand(a *app.App, cards func() (Cards, func(), error)) *cobra.Command
 	}
 	cmd := &cobra.Command{
 		Use:   "wake CARD",
-		Short: "Wake the lane whose ask drew a card with the owner's answer, or ask meta-desk for a lane when it is retired with no live heir",
+		Short: "Address the owner's answer to the lane whose ask drew a card, which the supervisor relaunches if that lane is gone",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if answer.Key == "" {
