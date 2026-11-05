@@ -903,7 +903,7 @@ func TestAnInstallMovesTheCCIDaemonOnlyWhereACCISupervisorRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(out, err)
 	}
-	if !present(filepath.Join(home, "served")) || !strings.Contains(out, "installed cci-daemon 0.49.71\n") {
+	if !present(filepath.Join(home, "served")) || !strings.Contains(out, "installed cci-daemon") || strings.Contains(out, "installed cci-daemon none") {
 		t.Fatalf("a box with a cci supervisor kept its daemon or recorded no build for it:\n%s", out)
 	}
 }

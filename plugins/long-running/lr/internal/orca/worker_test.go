@@ -1123,7 +1123,7 @@ func TestTheBeforeWorkerScriptRunsTheInstallWithItsQuotedPinsAndMergesItsOutput(
 	if !errors.As(err, &exit) || exit.ExitCode() != toolsMissing {
 		t.Fatal(string(out), err)
 	}
-	if !strings.Contains(string(out), "installed cci 0.49.36\ninstalled lr 9.9.9\nmissing: no-such-drive-tool\n") {
+	if !strings.Contains(string(out), "installed cci 0.49.36\ninstalled lr 9.9.9\ninstalled cci-daemon none\nmissing: no-such-drive-tool\n") {
 		t.Fatal(string(out))
 	}
 	trust, err := os.ReadFile(filepath.Join(home, ".config", "mise", "conf.d", "cc-remote-trust.toml"))
