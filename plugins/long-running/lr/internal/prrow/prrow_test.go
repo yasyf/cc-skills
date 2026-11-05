@@ -1568,6 +1568,19 @@ func TestAPushGitHubReportsMovesTheRowsHeadAndKeepsItsLane(t *testing.T) {
 	}
 }
 
+func TestAnEditedDescriptionRefreshesTheRowAndAPushWithoutOneKeepsIt(t *testing.T) {
+	edited := gitHubPull(t, 1, "edited", headA, time.Now())
+	body, err := BodyRecord("## Summary\n\nthe new words a user sees\n\n## Risk profile\n\nnone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited.Body = body
+	got := followed(t, readyRow(), edited, gitHubPull(t, 1, "synchronize", headB, time.Now().Add(time.Second)))[1]
+	if got.ForUsers != "the new words a user sees" || got.Risk != "none" {
+		t.Fatalf("row for_users %q risk %q, want the edited description's", got.ForUsers, got.Risk)
+	}
+}
+
 func TestAPushOlderThanTheRowsHeadLeavesTheHead(t *testing.T) {
 	headAt := time.Now()
 	row := readyRow()
