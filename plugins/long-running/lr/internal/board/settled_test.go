@@ -185,8 +185,9 @@ type laneReport struct{ by, to, topic, text string }
 
 func TestASweepKeepsACardHisAnswerToAnotherQuestionSettlesAndTellsTheLaneThatDrewIt(t *testing.T) {
 	for name, tc := range map[string]struct{ drew, told string }{
-		"a lane drew it":      {"owner-apps-1", "owner-apps-1"},
-		"no lane is recorded": {"", "board-refresher"},
+		"a lane drew it":               {"owner-apps-1", "owner-apps-1"},
+		"no lane is recorded":          {"", ""},
+		"the sweep's own lane drew it": {"board-refresher", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cards, fake, withdrawn := settledBoard(t, oldChatUp, upgradeOnce)
@@ -211,16 +212,24 @@ func TestASweepKeepsACardHisAnswerToAnotherQuestionSettlesAndTellsTheLaneThatDre
 			if removed := removedBlocks(fake); len(removed) != 0 || len(*withdrawn) != 0 {
 				t.Fatalf("removed %q, withdrew %q; his answer was to another question", removed, *withdrawn)
 			}
-			if len(reports) != 1 || reports[0].to != tc.told || reports[0].topic != oldChatCard {
-				t.Fatalf("reports %+v, want one to %s about %s", reports, tc.told, oldChatCard)
+			report := out.String()
+			if tc.told == "" {
+				if len(reports) != 0 || strings.Count(report, "KEPT "+oldChatCard+": Card "+oldChatCard+" stays") != 1 {
+					t.Fatalf("reports %+v, out %q; the sweep's own lane reads the report printed, never posted to itself", reports, report)
+				}
+			} else {
+				if len(reports) != 1 || reports[0].to != tc.told || reports[0].topic != oldChatCard {
+					t.Fatalf("reports %+v, want one to %s about %s", reports, tc.told, oldChatCard)
+				}
+				if !strings.Contains(report, "KEPT "+oldChatCard+": told "+tc.told) {
+					t.Fatalf("out = %q", report)
+				}
+				report = reports[0].text
 			}
 			for _, named := range []string{upgradeOnce.Title, "29b2e59", "one background upgrade attempt", "lr ask-owner --withdraw " + oldChatCard} {
-				if !strings.Contains(reports[0].text, named) {
-					t.Fatalf("report %q does not carry %q", reports[0].text, named)
+				if !strings.Contains(report, named) {
+					t.Fatalf("report %q does not carry %q", report, named)
 				}
-			}
-			if !strings.Contains(out.String(), "KEPT "+oldChatCard+": told "+tc.told) {
-				t.Fatalf("out = %q", out.String())
 			}
 		})
 	}

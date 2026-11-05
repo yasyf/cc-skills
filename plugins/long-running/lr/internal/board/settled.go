@@ -359,8 +359,10 @@ func (c Cards) takeDown(ctx context.Context, lane string, judge Judge, source se
 				return err
 			}
 			continue
+		case settled != nil && cmp.Or(fields[laneField], lane) == lane:
+			fmt.Fprintf(out, "KEPT %s: %s\n", ask.ID, settled.Extension(ask.ID))
 		case settled != nil:
-			drew := cmp.Or(fields[laneField], lane)
+			drew := fields[laneField]
 			if err := c.Report(ctx, lane, []string{drew}, ask.ID, settled.Extension(ask.ID)); err != nil {
 				return err
 			}

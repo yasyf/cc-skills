@@ -14,7 +14,7 @@ from captain_hook.util import reqenv
 
 from .call_dir import unknown_dir
 from .compaction_handoff import Bound, CompactionState, drive_entry, judged, rulings, script, script_module
-from .lane_landing import DRIVE_ENV, HELP_FLAGS, LANDERS, lane_name, named_repo, without_repo
+from .lane_landing import DRIVE_ENV, HELP_FLAGS, LANDERS, lane_name, named_repos, without_repo
 from .register_injection import drive_args
 from .ruling_judge import MATCH_COMMAND, candidate_rows
 from .ruling_misread import CLAUDE, FLAGGED, answer
@@ -52,6 +52,7 @@ from .tests.rulings_consumers import separate
 
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = "alane-a-0123456789abcdef"
+SERVICE_DIFF = sources(NEW_SENTINEL) | {"gh pr diff": "", "gh pr diff 101 -R acme/service": NEW_SENTINEL}
 READ_TIMEOUT_SECONDS = 20
 SHOWN = 12
 TEXT_SHOWN = 160
@@ -212,7 +213,7 @@ def stdin_file(call: Call) -> str | None:
     return next((redirect.target for redirect in call.redirects if redirect.op == "<" and redirect.fd in (None, 0)), None)
 
 
-def request(evt: BaseHookEvent, call: Call) -> Request | None:
+def request(evt: BaseHookEvent, call: Call, repo: str | None) -> Request | None:
     if unknown_dir(evt, call):
         return None
     cwd = call.cwd or evt.cwd
@@ -223,16 +224,16 @@ def request(evt: BaseHookEvent, call: Call) -> Request | None:
             stdin=stdin_file(call),
         )
     argv = without_repo((call.name, *call.args)) if call.name == "gh" else ()
-    repo = ("-R", found) if (found := named_repo(call)) else ()
+    gh = ("-R", repo) if repo else ()
     if argv[:3] == ("gh", "pr", "create"):
         base, head = values(argv, ("--base", "-B")), values(argv, GH_HEAD)
         return Request(
-            str(evt.command), cwd, repo, base[0] if base else None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), None, False,
+            str(evt.command), cwd, gh, base[0] if base else None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), None, False,
             head=head[0] if head else None, stdin=stdin_file(call),
         )
     if argv[:3] == ("gh", "pr", "edit") and (values(argv, GH_BODY) or values(argv, GH_BODY_FILE)):
         return Request(
-            str(evt.command), cwd, repo, None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), selector(argv[3:]), False,
+            str(evt.command), cwd, gh, None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), selector(argv[3:]), False,
             stdin=stdin_file(call),
         )
     return None
@@ -242,7 +243,9 @@ def lane_prs(evt: BaseHookEvent) -> list[Request]:
     lane = lane_name(evt)
     if (lane and LANDERS.match(lane)) or not (lane or drive_entry(evt)):
         return []
-    return [found for call in evt.cmd.calls() if (found := request(evt, call))]
+    return [
+        found for call in evt.cmd.calls() if (repos := named_repos(call)) is not None for repo in repos or (None,) if (found := request(evt, call, repo))
+    ]
 
 
 def added(diff: str) -> Iterator[tuple[str, int, str]]:
@@ -483,6 +486,9 @@ def ship(command: str, verdict: dict = FLAGGED, **extra: object) -> Input:
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Warn(),
         ship(f"gh pr create --base main --title 'page a stalled launch' --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
         ship(f"gh pr edit 101 -R acme/service --body-file {UNCITED}", commands=sources(NEW_SENTINEL)): Warn(),
+        ship(f'for r in acme/service; do gh pr edit 101 -R "$r" --body-file {UNCITED}; done', commands=SERVICE_DIFF): Warn(pattern=r"view\.go:4 refusal kind errReadOnly"),
+        ship(f'for r in acme/other; do gh pr edit 101 -R "$r" --body-file {UNCITED}; done', commands=SERVICE_DIFF): Allow(),
+        ship(f'gh pr edit 101 -R "$1" --body-file {UNCITED}', commands=sources(NEW_SENTINEL)): Allow(),
         ship("gh pr edit 101 --add-label docs", commands=sources(NEW_SENTINEL)): Allow(),
         ship(f"git diff && echo {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED) | {CLAUDE: (1, "model unavailable")}): Allow(),

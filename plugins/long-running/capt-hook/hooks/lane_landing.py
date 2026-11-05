@@ -194,18 +194,13 @@ def incident_fix_slice(evt: BaseHookEvent, lane: str) -> bool:
     return lane.endswith("-fix") and INCIDENT_SLICE.format(lane=lane) in header_lines(dispatch_prompt(evt))
 
 
-def named_repo(call: Call) -> str | None:
-    return repo_flag(call) or next((found["api"] or found["url"] for arg in call.args if (found := REPO_IN_ARG.search(arg))), None)
-
-
-def repo_flag(call: Call) -> str | None:
-    args = call.args
-    if repo := next((value for flag, value in zip(args, args[1:], strict=False) if flag in REPO_FLAGS), None):
-        return repo
-    return next((arg.split("=", 1)[1] for arg in args if arg.startswith(("--repo=", "-R="))), None)
-
-
 def named_repos(call: Call) -> tuple[str, ...] | None:
+    if (repos := flagged_repos(call)) != ():
+        return repos
+    return next(((found["api"] or found["url"],) for arg in call.args if (found := REPO_IN_ARG.search(arg))), ())
+
+
+def flagged_repos(call: Call) -> tuple[str, ...] | None:
     words = call.command.words[1:]
     for flag, word in zip((None, *words), words, strict=False):
         if flag is not None and flag.value in REPO_FLAGS:
@@ -213,7 +208,7 @@ def named_repos(call: Call) -> tuple[str, ...] | None:
         if (word.value or word.raw).startswith(("--repo=", "-R=")):
             values = word_values(call, word)
             return None if values is None else tuple(value.split("=", 1)[1] for value in values)
-    return next(((found["api"] or found["url"],) for arg in call.args if (found := REPO_IN_ARG.search(arg))), ())
+    return ()
 
 
 def word_values(call: Call, word: Word) -> tuple[str, ...] | None:
@@ -226,8 +221,10 @@ def word_values(call: Call, word: Word) -> tuple[str, ...] | None:
 def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool:
     if entry is None:
         return False
-    if repo := named_repo(call):
-        return repo.casefold() != entry["repo"].casefold()
+    if (repos := named_repos(call)) is None:
+        return True
+    if repos:
+        return all(repo.casefold() != entry["repo"].casefold() for repo in repos)
     if unknown_dir(evt, call):
         return False
     done = subprocess.run(["git", "-C", run_dir(evt, call), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True)
@@ -524,7 +521,7 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
             unread.append(f"`{verb}` runs after a `cd` this hook cannot follow")
             continue
         cwd = run_dir(evt, call)
-        if (args := landed_prs(call, verb, named_repo(call) or entry["repo"], cwd)) is None:
+        if (args := landed_prs(call, verb, entry["repo"], cwd)) is None:
             unread.append(f"`{verb}` names no PR that reads")
             continue
         if not args:
@@ -586,7 +583,7 @@ def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] |
 
 def merge_causes(call: Call, entry: dict, cwd: str, incident: bool, *, evt: BaseHookEvent) -> tuple[str, str, str] | None:
     """The PR, head and joined refusals `rulings.py check-pr` prints for one `gh pr merge` or `ccx vcs merge` call; None when it prints none or anything does not read."""
-    repo = named_repo(call) or entry["repo"]
+    repo = entry["repo"]
     if (merged := merged_pr(call, repo, cwd)) is None:
         return None
     pr, head = merged
