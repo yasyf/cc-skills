@@ -1199,8 +1199,19 @@ def test_the_dashboard_never_shows_its_own_url_and_keeps_every_other_link(page):
         assert drop(kept) == kept
 
 
+def test_a_phone_reads_an_owed_row_from_the_left(page):
+    context = page.context.browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    phone = context.new_page()
+    phone.goto(page.url.split("#")[0] + "#/replies")
+    phone.wait_for_selector(".cw .conversation")
+    phone.evaluate("""() => { $('#cw-owed').innerHTML = `<details class="ct-owed" open><summary>1 thing owed to you</summary><ol class="hs ev-rows"><li><details><summary><b>6 asks still open</b></summary></details></li></ol></details>`; }""")
+    assert phone.evaluate("getComputedStyle(document.querySelector('.ct-owed .ev-rows summary')).textAlign") != "right"
+    context.close()
+
+
 def test_a_reply_reads_angle_brackets_and_no_reply_id(page):
     now(page)
+    assert page.evaluate("plain('Recorded (ccn 57967b6) and with the lane.')") == "Recorded and with the lane."
     assert page.evaluate("plain('one sessions-&lt;session&gt; database')") == "one sessions-<session> database"
     assert page.evaluate("plain('Your order has its count (rmw35v9u3): 234 cuts.')") == "Your order has its count: 234 cuts."
     assert page.evaluate("replyTitle({ title: 'Four items, two on your tap (#50590), and more' })") == "Four items, two on your tap, and more"
@@ -1269,6 +1280,29 @@ def test_a_phone_strip_leads_with_what_waits_on_him(page):
     shown = page.evaluate("[...document.querySelectorAll('#tabs .tab')].sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left).map((tab) => tab.textContent.replace(/\\d+/g, '').trim())")
     assert shown[:4] == ["Now", "Needs me", "Review", "Chat"]
     page.set_viewport_size(LAPTOP)
+    now(page)
+
+
+def test_one_message_recorded_twice_is_one_ask_holding_every_answer(page):
+    open_chat(page)
+    page.evaluate("""() => {
+      const row = (m, iso, text) => ({ m, iso, text, state: 'asked', ack: 'routed', lanes: [], prs: [] });
+      const post = (id, order) => ({ reply: { id, title: `Post ${id}`, md: 'Words', type: 'explanation', status: 'info', order }, at: '2026-11-03T20:00:00Z', surfaces: [] });
+      state.model.owner_asks.messages = [
+        row('8.1', '2026-11-03T22:48:00-08:00', 'both parts of what he typed'),
+        row('9.1', '2026-11-03T22:49:00-08:00', 'both parts of what he typed'),
+        row('9.2', '2026-11-03T22:49:00-08:00', 'and the line he added'),
+        row('10', '2026-11-03T23:30:00-08:00', 'both parts of what he typed'),
+      ];
+      state.model.replies = [post('first', 'm8.1'), post('second', 'm9.2')];
+      state.model.board.cards = [];
+      render();
+    }""")
+    assert page.locator(".cw .thread .ask-head").count() == 2
+    merged = page.locator('.cw .thread[data-k="line:m8"]')
+    assert merged.locator(".decision-card").count() == 2
+    assert "and the line he added" in merged.locator(".ask-detail").text_content()
+    page.reload()
     now(page)
 
 

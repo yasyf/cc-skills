@@ -355,6 +355,7 @@ def test_a_card_of_words_a_picture_a_table_and_a_pull_request_draws_on_the_dashb
     assert out["parts"][1] == {"kind": "image", "id": block["children"][1]["id"], "src": "/asset/" + "a" * 64, "alt": "the page today"}
     assert out["parts"][2]["rows"] == [{"q": "one"}]
     assert (out["parts"][3]["repo"], out["parts"][3]["number"]) == ("o/r", 7)
+    assert out["prs"] == [7]
 
 
 def test_a_note_on_a_card_also_reaches_the_lanes_parked_on_it_and_a_card_with_none_only_the_board(monkeypatch):

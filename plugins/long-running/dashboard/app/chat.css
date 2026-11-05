@@ -387,7 +387,7 @@
   .cw .ct-owed-slot { margin-top: -48px; }
   .cw .ct-owed-slot:empty { margin-top: 0; }
   .cw .ct-owed { margin-bottom: 4px; }
-  .cw .ct-owed summary { text-align: right; line-height: 44px; list-style-position: inside; }
+  .cw .ct-owed > summary { text-align: right; line-height: 44px; list-style-position: inside; }
   .cw .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding-bottom: 12px; margin-bottom: 12px; }
   .cw .filter, .cw .filter.active { min-height: 44px; padding: 0; font-size: 12px; }
   .cw .filter small { display: none; }

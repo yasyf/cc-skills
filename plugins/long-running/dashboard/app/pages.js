@@ -593,6 +593,7 @@ const NOISE = [
   [/&amp;/g, '&'],
   [/<!--[\s\S]*?-->/g, ''],
   [/\s*\(?\brm[a-z0-9]{7}\b\)?/g, ''],
+  [/\s*\(ccn\b[^()]*\)/gi, ''],
   [/\s*\([^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
   [/\brecords?\s+#*\d[\dx]*\b/gi, ''],
   [/\bowner table\s+[0-9a-f]{6,}\b/gi, ''],

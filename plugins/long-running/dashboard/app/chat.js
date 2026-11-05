@@ -17,6 +17,7 @@ const RAIL_SHOWN = 6;
 const SIMPLE_PICK = 50;
 const BARE_ASK_MINUTES = 60;
 const CLAMP_CHARS = 340;
+const RESENT_MS = 5 * 60 * 1000;
 const PR_CHIPS_SHOWN = 6;
 const DONE_LEAD = /^Done, nothing for you[.:]?\s*/i;
 const DASHBOARD_URL = String.raw`https?://([\w.-]+)(?::\d+)?/?(#[^\s)]*?)?`;
@@ -63,11 +64,20 @@ function typedRow(at, text) {
 function chatThreads() {
   const m = state.model;
   const threads = new Map();
-  const askKey = (row) => `line:m${String(row.m).split('.')[0]}`;
+  const resentAs = new Map();
+  const lineKey = (row) => `line:m${String(row.m).split('.')[0]}`;
+  const askKey = (row) => resentAs.get(lineKey(row)) ?? lineKey(row);
+  let newest = null;
   for (const row of m.owner_asks.messages) {
+    const same = newest?.rows.findIndex((part) => part.text === row.text && new Date(row.iso) - new Date(part.iso) < RESENT_MS) ?? -1;
+    if (same >= 0) {
+      if (newest.key !== lineKey(row)) resentAs.set(lineKey(row), newest.key);
+      newest.rows[same] = row;
+      continue;
+    }
     const key = askKey(row);
     if (threads.has(key)) threads.get(key).rows.push(row);
-    else threads.set(key, { key, at: row.iso, rows: [row], replies: [], said: [] });
+    else threads.set(key, newest = { key, at: row.iso, rows: [row], replies: [], said: [] });
   }
   const home = new Map();
   for (const line of m.chat_lines.filter((row) => !row.on)) {
@@ -85,7 +95,7 @@ function chatThreads() {
   for (const entry of [...m.replies].reverse()) {
     const r = entry.reply;
     const key = `reply:${r.id}`;
-    const parent = threads.get(askKeyOf(r)) ?? threads.get(home.get(r.on));
+    const parent = threads.get(resentAs.get(askKeyOf(r)) ?? askKeyOf(r)) ?? threads.get(home.get(r.on));
     if (parent) {
       parent.replies.push(entry);
       home.set(key, parent.key);
@@ -289,7 +299,7 @@ function replyObject(entry, t) {
   if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r), r.status === 'progress')}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
   const label = picked ? 'Decision' : kind.label;
   const pickLine = picked ? `<p class="obj-picked">${chatIcon('check')}<span>You picked <b>${esc(picked)}</b></span></p>` : r.picks?.length ? '<p class="ct-closed">This pick is no longer open.</p>' : '';
-  const done = !picked && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>` : '';
+  const done = !picked && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Got it</button></div>` : '';
   return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r))}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
 }
 function whoHasIt(t) {
@@ -590,7 +600,7 @@ document.addEventListener('click', (e) => {
     return liveChatBox(key)?.focus();
   }
   const done = e.target.closest('[data-chat-done]');
-  if (done) return chatSend(done.dataset.chatDone, done.dataset.about, 'Done');
+  if (done) return chatSend(done.dataset.chatDone, done.dataset.about, 'Got it');
   const pin = e.target.closest('[data-q-pin]');
   if (pin) {
     cw.pinned = cw.pinned === pin.dataset.qPin ? null : pin.dataset.qPin;
