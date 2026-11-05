@@ -181,7 +181,7 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	for pick, said := range seen.Words {
 		seen.Words[pick] = hiddenCite.ReplaceAllString(said, "")
 	}
-	_, diagram := f.diagramPage(r)
+	_, diagram := f.diagramPage(ctx, r)
 	told := seen.diagramNoted(diagram)
 	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {

@@ -42,6 +42,10 @@ func (l Link) pictured(ctx context.Context, block json.RawMessage) (json.RawMess
 		if err != nil {
 			return nil, linkRefusal{"refused: diagram " + id + " needs the drive's dashboard to draw it, and its address did not read: " + err.Error()}
 		}
+		named, err := arch.DashboardLink(ctx, l.Runner, l.State)
+		if err != nil {
+			return nil, linkRefusal{"refused: diagram " + id + " needs the dashboard's tailnet name for its link, and it did not read: " + err.Error()}
+		}
 		png := filepath.Join(l.State, diagramDir, id+".png")
 		if err := os.MkdirAll(filepath.Dir(png), 0o750); err != nil {
 			return nil, err
@@ -49,7 +53,7 @@ func (l Link) pictured(ctx context.Context, block json.RawMessage) (json.RawMess
 		if err := l.Draw(ctx, dashboard, doc, png); err != nil {
 			return nil, linkRefusal{"refused: diagram " + id + " did not draw, so the card was not drawn; send it again: " + err.Error()}
 		}
-		for field, value := range map[string]string{"picture": png, "link": dashboard + "#/question/" + top.ID, "title": arch.Title(doc)} {
+		for field, value := range map[string]string{"picture": png, "link": named + "#/question/" + top.ID, "title": arch.Title(doc)} {
 			if child[field], err = json.Marshal(value); err != nil {
 				return nil, err
 			}

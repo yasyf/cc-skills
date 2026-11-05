@@ -16,7 +16,8 @@ const (
 	asset      = "arch-kit/arch-doc.js"
 	validator  = "arch-kit/vendor/arch-map.js"
 	drawScript = `(async () => {
-		document.documentElement.innerHTML = "<head><style>html,body{margin:0;background:#fff}arch-doc{display:block}</style></head><body></body>";
+		document.documentElement.innerHTML = "<head><style>html,body{margin:0;background:#fff}arch-doc{display:block}.arch-key,.smap-readout{display:none!important}</style></head><body></body>";
+		document.documentElement.setAttribute("data-print", "");
 		const src = "data:application/json;base64,%s";
 		const problems = (await import("/` + validator + `")).validate(await (await fetch(src)).json());
 		if (problems.length) return problems;

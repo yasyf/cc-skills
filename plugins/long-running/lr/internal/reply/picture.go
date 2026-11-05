@@ -41,7 +41,7 @@ func (p picture) told(o Outcome) Outcome {
 	return o
 }
 
-func (f Fanout) diagramPage(r Reply) (string, string) {
+func (f Fanout) diagramPage(ctx context.Context, r Reply) (string, string) {
 	if len(r.Diagram) == 0 {
 		return "", ""
 	}
@@ -49,7 +49,11 @@ func (f Fanout) diagramPage(r Reply) (string, string) {
 	if err != nil {
 		return "", ""
 	}
-	return dashboard, dashboard + diagramKind + "/" + r.ID
+	named, err := arch.DashboardLink(ctx, f.Runner, f.Entry.StateDir)
+	if err != nil {
+		return "", ""
+	}
+	return dashboard, named + diagramKind + "/" + r.ID
 }
 
 func (r Reply) diagramTitle() string {
@@ -67,7 +71,7 @@ func (r Reply) pictureFlags() []string {
 }
 
 func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, picture) {
-	dashboard, link := f.diagramPage(r)
+	dashboard, link := f.diagramPage(ctx, r)
 	if link == "" {
 		return r, picture{}
 	}
