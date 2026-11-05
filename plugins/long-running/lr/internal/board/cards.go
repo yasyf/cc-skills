@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
@@ -266,9 +267,10 @@ func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, map[stri
 				ID       string `json:"id"`
 				Type     string `json:"type"`
 				Children []struct {
-					Type   string `json:"type"`
-					Repo   string `json:"repo"`
-					Number int    `json:"number"`
+					Type    string       `json:"type"`
+					Repo    string       `json:"repo"`
+					Number  int          `json:"number"`
+					Options []cardOption `json:"options"`
 				} `json:"children"`
 			} `json:"blocks"`
 		} `json:"doc"`
@@ -278,20 +280,26 @@ func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, map[stri
 	}
 	var cards []string
 	questions := map[string]bool{}
-	shows := map[string][]End{}
+	lands := map[string][]End{}
 	for _, block := range outcomes.Doc.Blocks {
 		if block.Type != "card" || block.ID == mergeTriage {
 			continue
 		}
 		cards = append(cards, block.ID)
+		var shown []End
+		offersLand := false
 		for _, child := range block.Children {
 			questions[block.ID] = questions[block.ID] || child.Type == "choice"
+			offersLand = offersLand || child.Type == "choice" && slices.ContainsFunc(child.Options, func(option cardOption) bool { return bus.ReadsAsLand(option.Label) })
 			if child.Type == "pr" {
-				shows[block.ID] = append(shows[block.ID], End{KindPR, fmt.Sprintf("%s#%d", child.Repo, child.Number)})
+				shown = append(shown, End{KindPR, fmt.Sprintf("%s#%d", child.Repo, child.Number)})
 			}
 		}
+		if offersLand {
+			lands[block.ID] = shown
+		}
 	}
-	return cards, questions, shows, nil
+	return cards, questions, lands, nil
 }
 
 func (c Cards) Until(ctx context.Context, card, condition, lane string, paths ...string) (End, error) {
@@ -544,15 +552,15 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	cards, questions, shows, err := c.onBoard(ctx)
+	cards, questions, lands, err := c.onBoard(ctx)
 	if err != nil {
 		return err
 	}
 	now := c.Now()
 	waiting := map[string]End{}
 	for _, card := range cards {
-		for n, pr := range shows[card] {
-			waiting[fmt.Sprintf("%s shows %d", card, n)] = pr
+		for n, pr := range lands[card] {
+			waiting[fmt.Sprintf("%s lands %d", card, n)] = pr
 		}
 		fields, recorded := known[card]
 		if !recorded {
@@ -573,7 +581,7 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 		return err
 	}
 	for _, card := range cards {
-		if ended := facts.allReached(shows[card], now); ended != "" {
+		if ended := facts.allReached(lands[card], now); ended != "" {
 			if err := c.sweepOff(ctx, lane, card, known[card], ended, ended, out); err != nil {
 				return err
 			}

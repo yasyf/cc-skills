@@ -30,6 +30,7 @@ type cardShell struct {
 	ancestors map[string]bool
 	answers   map[string]bool
 	questions map[string]bool
+	offers    map[string][]string
 	shows     map[string][]int
 	repos     map[string]string
 	rowed     map[string]bool
@@ -55,8 +56,12 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		for _, card := range f.cards {
 			block := map[string]any{"id": card, "type": "card"}
 			var children []map[string]any
-			if f.questions[card] {
-				children = append(children, map[string]any{"id": card + "-choice", "type": "choice"})
+			if f.questions[card] || f.offers[card] != nil {
+				var options []map[string]any
+				for _, label := range f.offers[card] {
+					options = append(options, map[string]any{"label": label})
+				}
+				children = append(children, map[string]any{"id": card + "-choice", "type": "choice", "options": options})
 			}
 			for _, number := range f.shows[card] {
 				children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%d", card, number), "type": "pr", "repo": cmp.Or(f.repos[card], defaultRepo), "number": number})
@@ -100,11 +105,13 @@ type prStatus struct {
 	ccx.Client
 	states  map[int]string
 	reads   int
+	repos   []string
 	missing string
 }
 
 func (p *prStatus) PRStatus(_ context.Context, repo string, numbers []int) ([]ccx.PRStatus, error) {
 	p.reads++
+	p.repos = append(p.repos, repo)
 	if repo == p.missing {
 		return nil, fmt.Errorf("ccx vcs pr status --repo %s --json 1 exited 1: prstate: ghapi: graphql: Could not resolve to a Repository with the name '%s'", repo, repo)
 	}
@@ -282,10 +289,20 @@ func TestSweepWithdrawsEachCardWhoseEventHappenedAndNamesTheOutcome(t *testing.T
 	}
 }
 
-func TestABuildLinkReadAsAPROnOneCardStopsNoOtherCardsSweep(t *testing.T) {
-	on := &cardShell{cards: []string{"card-watch-unread-end", "card-pick-merged"}, shows: map[string][]int{"card-watch-unread-end": {1}, "card-pick-merged": {2}}, repos: map[string]string{"card-watch-unread-end": "builds/13033"}}
+func TestTheSweepReadsNoBuildLinkAsAPRAndOneUnreadableRepoStopsNoOtherCard(t *testing.T) {
+	watch, gone, merged := "card-watch-unread-end", "card-land-gone-repo", "card-pick-merged"
+	on := &cardShell{
+		cards: []string{watch, gone, merged},
+		offers: map[string][]string{
+			watch:  {"Keep reading up to 5 more minutes", "Grade on the last good read", "Pass with a warning", "Leave it as it is"},
+			gone:   {"Approve"},
+			merged: {"Approve, land it"},
+		},
+		shows: map[string][]int{watch: {1}, gone: {1}, merged: {2}},
+		repos: map[string]string{watch: "builds/13033", gone: "acme/gone"},
+	}
 	f := newCards(t, on, map[int]string{2: "MERGED"})
-	f.status.missing = "builds/13033"
+	f.status.missing = "acme/gone"
 	ctx := context.Background()
 	for _, card := range on.cards {
 		if _, err := f.Until(ctx, card, "at:30d", ""); err != nil {
@@ -296,10 +313,13 @@ func TestABuildLinkReadAsAPROnOneCardStopsNoOtherCardsSweep(t *testing.T) {
 	if err := f.Sweep(ctx, "board-lane", &out); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"card-pick-merged"}; !reflect.DeepEqual(on.removed, want) {
+	if want := []string{merged}; !reflect.DeepEqual(on.removed, want) {
 		t.Fatalf("removed = %v, want %v", on.removed, want)
 	}
-	if !strings.Contains(out.String(), "WARNING each card waiting on a builds/13033 PR stays up") {
+	if slices.Contains(f.status.repos, "builds/13033") {
+		t.Fatalf("PR status read %v, want no read of the Buildkite build drawn as a PR block", f.status.repos)
+	}
+	if !strings.Contains(out.String(), "WARNING each card waiting on a acme/gone PR stays up") || strings.Contains(out.String(), "builds/13033") {
 		t.Fatalf("out = %s", out.String())
 	}
 }
@@ -326,10 +346,11 @@ func TestSweepNeverTakesAnUnansweredQuestionDownOnATimeAlone(t *testing.T) {
 	}
 }
 
-func TestSweepWithdrawsACardOnceEveryPRItShowsMergedOrClosedWhateverItsEnd(t *testing.T) {
+func TestSweepWithdrawsACardAskingToLandOnceEveryPRItShowsMergedOrClosedWhateverItsEnd(t *testing.T) {
 	on := &cardShell{
 		cards:     []string{"card-pick-merged", "card-tap-closed", "card-two-one-open", "card-pick-open", "card-no-pr"},
-		questions: map[string]bool{"card-pick-merged": true, "card-two-one-open": true, "card-pick-open": true, "card-no-pr": true},
+		questions: map[string]bool{"card-no-pr": true},
+		offers:    map[string][]string{"card-pick-merged": {"Approve, land it"}, "card-tap-closed": {"Approve", "Hold"}, "card-two-one-open": {"Merge both"}, "card-pick-open": {"Yes, land it"}},
 		shows:     map[string][]int{"card-pick-merged": {1}, "card-tap-closed": {2}, "card-two-one-open": {1, 3}, "card-pick-open": {3}},
 	}
 	f := newCards(t, on, map[int]string{1: "MERGED", 2: "CLOSED"})
@@ -351,6 +372,31 @@ func TestSweepWithdrawsACardOnceEveryPRItShowsMergedOrClosedWhateverItsEnd(t *te
 	}
 	if f.status.reads != 1 {
 		t.Fatalf("status reads = %d, want one read for every card's PRs", f.status.reads)
+	}
+}
+
+func TestAReleaseOrderCardShowingAMergedPRStaysUpWhileItsTapCardComesDown(t *testing.T) {
+	order, tap := "card-order-51296", "card-tap-51296-af4ce96"
+	on := &cardShell{
+		cards: []string{order, tap},
+		offers: map[string][]string{
+			order: {"Start the Mac release now, with the full cut after it", "Keep the dashboard out of full cuts until a Mac release ships"},
+			tap:   {"Approve", "Hold"},
+		},
+		shows: map[string][]int{order: {51296}, tap: {51296}},
+	}
+	f := newCards(t, on, map[int]string{51296: "MERGED"})
+	ctx := context.Background()
+	for card, until := range map[string]string{order: "at:12h", tap: "pr:Forge-AI/monorepo#51296"} {
+		if _, err := f.Until(ctx, card, until, "release-6"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.Sweep(ctx, "board-refresher", &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{tap}; !reflect.DeepEqual(on.removed, want) {
+		t.Fatalf("removed = %v, want only %s: %s asks about the release, which outlives the merge", on.removed, tap, order)
 	}
 }
 
