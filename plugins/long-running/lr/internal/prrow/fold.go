@@ -308,6 +308,12 @@ func (f Fold) follow(t *store.Tx, rows map[int]store.ReviewRow, record client.Re
 				pushed.State = StateOpen
 			}
 			row = pushed
+		case "edited":
+			body, carried := bodyOf(record)
+			if !carried {
+				continue
+			}
+			ApplyBody(&row, body)
 		case stateMerged:
 			row = landed(row, record.At)
 		case StateClosed:
