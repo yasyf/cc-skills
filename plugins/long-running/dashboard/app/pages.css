@@ -364,7 +364,7 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 #chatmodal { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 0; overflow-y: auto; border: 1px solid var(--surface-3); border-radius: 14px; background: var(--surface); color: var(--ink); }
 #chatmodal::backdrop { background: rgba(0, 0, 0, .55); }
 #chatmodal header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
-#chatmodal header b { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
+#chatmodal header b { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 #chatmodal > .rp-md { padding: 14px 16px 0; }
 #chatmodal > .nsent { display: block; padding: 0 16px 16px; }
 #chatmodal iframe { display: block; width: 100%; min-height: 320px; border: 0; }
