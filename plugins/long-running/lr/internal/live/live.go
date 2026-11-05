@@ -411,7 +411,7 @@ func terminal(row store.ReviewRow) bool {
 
 func rowItem(row store.ReviewRow) Item {
 	item := Item{
-		Ref: Ref(fmt.Sprintf("pr:%s#%d", row.Repo, row.Number)), Title: row.Title, State: StateBlocked, Says: "Waits on " + row.WaitsOn, Actions: []string{ApproveAction, HoldAction},
+		Ref: Ref(fmt.Sprintf("pr:%s#%d", row.Repo, row.Number)), Title: row.Title, State: StateBlocked, Says: prrow.BlocksWords(row), Actions: []string{ApproveAction, HoldAction},
 		Cells: map[string]string{"number": strconv.Itoa(row.Number), "lane": row.Lane, "change": row.ForUsers, "risk": row.Risk, "ci": row.CI, "head": row.Head},
 	}
 	switch {

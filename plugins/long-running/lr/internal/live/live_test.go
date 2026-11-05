@@ -71,7 +71,7 @@ func TestARowSaysWhatItWaitsOnFromItsState(t *testing.T) {
 	want := []struct {
 		ref, state, says string
 		buttons          int
-	}{{"pr:1", StateWaits, "Your approval", 2}, {"pr:3", StateBlocked, "Waits on its parent", 2}, {"pr:4", StateSettled, "Landed", 0}, {"pr:2", StateSettled, "You approved it", 0}}
+	}{{"pr:1", StateWaits, "Your approval", 2}, {"pr:3", StateBlocked, "Its parent.", 2}, {"pr:4", StateSettled, "Landed", 0}, {"pr:2", StateSettled, "You approved it", 0}}
 	for i, w := range want {
 		if string(got[i].Ref) != w.ref || got[i].State != w.state || got[i].Says != w.says || len(got[i].Actions) != w.buttons {
 			t.Fatalf("row %d: got %+v, want %+v", i, got[i], w)
