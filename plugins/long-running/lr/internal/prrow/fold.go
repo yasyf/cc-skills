@@ -191,7 +191,7 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		}
 		branches := make(map[string]store.ReviewRow, len(rows))
 		for _, row := range rows {
-			if row.Branch != "" {
+			if kept, found := branches[row.Branch]; row.Branch != "" && (!found || holdsBranchOver(row, kept)) {
 				branches[row.Branch] = row
 			}
 		}
@@ -910,6 +910,13 @@ func gradeOf(facts map[string]string) (string, string) {
 		said[1] = waits
 	}
 	return GradeFail, strings.Join(said, "; ")
+}
+
+func holdsBranchOver(row, kept store.ReviewRow) bool {
+	if Terminal(row.State) != Terminal(kept.State) {
+		return Terminal(kept.State)
+	}
+	return row.Number > kept.Number
 }
 
 func parentOf(row store.ReviewRow, branches map[string]store.ReviewRow, trunk string) (string, string) {
