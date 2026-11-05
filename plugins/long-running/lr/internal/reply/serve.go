@@ -77,7 +77,7 @@ func Tool(a *app.App) channel.Tool {
 			"Before sending:\n" +
 			"- Saying something waits on his yes, no, pick or tap? Pass it in picks or prs; with neither, any such word warns.\n" +
 			"- A release word? Say what users get and link its Platy #releases permalink, or it warns. A lane's name is no release word.\n" +
-			"- Describing a change? Name the concrete things and answer his first question, or open a line with Unproven: for a fact nobody has yet. A flagged reply is held once; your next send on that order goes through.\n" +
+			"- Describing a change? Name the concrete things and answer his first question, or open a line with Unproven: for a fact nobody has yet. A flagged reply posts with a warning naming the question; edit it with its id.\n" +
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
 			"- by and routed need order, no picks and status progress or info.\n" +
 			"- prs draws a button only for a PR ready for his tap; otherwise the result says NO BUTTON and he sees a link, so say in md what he can do.\n" +
