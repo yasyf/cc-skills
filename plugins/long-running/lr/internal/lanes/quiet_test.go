@@ -96,6 +96,31 @@ func TestAParkedLaneWithADeadProcessGetsNoSuccessorUntilItsGateFires(t *testing.
 	}
 }
 
+func TestALaneParkedOnAClockIsLeftAloneByReleasesAndPagedOverdueOnceItRunsOut(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	parked := rec(2, lane2, "blocked", t0.Add(-mins(10)), "lr wait --wake on the canary log")
+	parked.Fields.Attrs = map[string]string{"until": "45m"}
+	f.feed = append(f.feed, parked)
+	f.peers = []Row{who(lane2, false, t0.Add(-mins(10)))}
+
+	waiting := tick(t, s, f, t0)
+	equal(t, len(waiting.Relaunched)+len(f.launches), 0)
+	equal(t, row(t, s, lane2).Waiting, int64(2))
+
+	f.feed = append(f.feed, rec(3, "release-5", "release", t0.Add(mins(1)), "released api").withRefs(Refs{Targets: []string{"api"}}))
+	cut := tick(t, s, f, t0.Add(mins(2)))
+	equal(t, []any{len(cut.Woken), len(f.launches), row(t, s, lane2).Waiting, row(t, s, lane2).Page == nil}, []any{0, 0, int64(2), true})
+
+	tick(t, s, f, t0.Add(mins(34)))
+	equal(t, row(t, s, lane2).Waiting, int64(2))
+
+	tick(t, s, f, t0.Add(mins(35)))
+	equal(t, row(t, s, lane2).Waiting, int64(0))
+	contains(t, pageText(row(t, s, lane2).Page, "why"), "you are overdue")
+	equal(t, len(f.launches), 0)
+}
+
 func TestAFiredGateWakesALiveParkedLane(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")

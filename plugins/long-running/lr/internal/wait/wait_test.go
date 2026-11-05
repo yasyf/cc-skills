@@ -477,7 +477,7 @@ func TestARecordAfterARepeatPrintsUnderItsOwnMinute(t *testing.T) {
 	}
 }
 
-func TestARecordFromBeforeTheWaitStaysHeldUntilANewOneWakesIt(t *testing.T) {
+func TestARecordThatArrivedWhileNoWaiterRanWakesTheWait(t *testing.T) {
 	s := &stream{emit: make(chan struct{}, 1)}
 	server := httptest.NewServer(s)
 	t.Cleanup(server.Close)
@@ -487,21 +487,14 @@ func TestARecordFromBeforeTheWaitStaysHeldUntilANewOneWakesIt(t *testing.T) {
 
 	runner.deliver("@8:10 PM\n3 ask sender old ask\n")
 	s.emit <- struct{}{}
-	select {
-	case <-r.done:
-		t.Fatalf("a record from before the wait woke it: %q", r.out.String())
-	case <-time.After(armed):
-	}
-	runner.deliver("@9:00 PM\n5 note api fresh reply\n")
-	s.emit <- struct{}{}
 	r.wait(t)
 
-	if want := "@8:10 PM\n3 ask sender old ask\n@9:00 PM\n5 note api fresh reply\n"; r.code != 0 || r.out.String() != want {
-		t.Fatalf("got %d %q, want the held record and then the one that woke the wait", r.code, r.out.String())
+	if want := "@8:10 PM\n3 ask sender old ask\n"; r.code != 0 || r.out.String() != want {
+		t.Fatalf("got %d %q, want the unread record to wake the wait", r.code, r.out.String())
 	}
 }
 
-func TestARecordFromBeforeTheWaitPrintsAtTheDeadline(t *testing.T) {
+func TestATrailerWithNoRecordPrintsOnlyAtTheDeadline(t *testing.T) {
 	s := &stream{emit: make(chan struct{}, 1)}
 	server := httptest.NewServer(s)
 	t.Cleanup(server.Close)
@@ -509,12 +502,12 @@ func TestARecordFromBeforeTheWaitPrintsAtTheDeadline(t *testing.T) {
 	r := start(t, Options{Seconds: 1, Sources: []string{"cci:dar:desk"}, Runner: runner, Stream: server.URL, Now: ninePM})
 	time.Sleep(armed)
 
-	runner.deliver("#3 Nov 2 8:10 PM ASK sender -> desk old ask\n")
+	runner.deliver("... 2 more; resume with cci tail\n")
 	s.emit <- struct{}{}
 	r.wait(t)
 
-	if r.code != 0 || !strings.HasPrefix(r.out.String(), "#3 Nov 2 8:10 PM ASK sender -> desk old ask\nQUIET ") {
-		t.Fatalf("got %d %q, want the held record and then QUIET", r.code, r.out.String())
+	if r.code != 0 || !strings.HasPrefix(r.out.String(), "... 2 more; resume with cci tail\nQUIET ") {
+		t.Fatalf("got %d %q, want the trailer and then QUIET", r.code, r.out.String())
 	}
 }
 

@@ -350,6 +350,9 @@ func gatesOf(r Record) []string {
 	for _, lane := range r.Refs.Lanes {
 		gates = append(gates, "lane:"+lane)
 	}
+	if span, err := time.ParseDuration(r.Attr("until")); r.Kind == "blocked" && err == nil {
+		gates = append(gates, clockGate+store.Stamp(r.At.Add(span)))
+	}
 	if cardOnOwner(r) {
 		for _, found := range card.FindAllString(r.Text, -1) {
 			if !slices.Contains(gates, found) {
