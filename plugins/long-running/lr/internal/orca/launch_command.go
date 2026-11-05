@@ -167,7 +167,7 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 	cmd.Flags().StringVar(&written.Contract, "contract", "", "with --body, a file the brief carries above the body, such as a desk's helper contract")
 	cmd.Flags().StringVar(&written.Scale, "scale", "medium", "with --body, the brief's Scale line")
 	cmd.Flags().StringVar(&written.Place, "place", placeLocal, "with --body, where the lane runs: local, on this Mac, or remote")
-	cmd.Flags().StringVar(&written.CCX, "ccx", "", "with --body, the brief's whole ccx line in place of --place, as role=read,place=local,why=<reason>; incident=none unless it names one")
+	cmd.Flags().StringVar(&written.CCX, "ccx", "", "with --body, the brief's whole ccx line in place of --place, as role=read,place=local,why=<reason>; place=local with no why= launches on a Sprite unless its role is read; incident=none unless it names one")
 	cmd.MarkFlagsMutuallyExclusive("ccx", "place")
 	cmd.Flags().StringSliceVar(&written.Topics, "topics", nil, "with --body, the subjects the lane decides on, for the register slice's owner answers")
 	cmd.Flags().BoolVar(&now, "now", false, "owner-directed: launch beside a live lane already holding this work")
