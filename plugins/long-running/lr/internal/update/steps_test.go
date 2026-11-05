@@ -3,11 +3,17 @@ package update
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -155,6 +161,70 @@ func TestTheStepWatchTellsRootOnceWhenAStepLosesItsOwnerAndClosesItWhenOneTakesI
 	pass()
 	if len(b.posted) != 4 || b.posted[3].Resolves != 103 || !strings.HasPrefix(b.posted[3].Text, "STEP-CLOSED ") {
 		t.Fatalf("posted = %+v, want a done step to close its open blocker #103", b.posted)
+	}
+}
+
+func TestALaneAttachedToAStepAfterLaunchOwnsItAndClosesItsStepUnowned(t *testing.T) {
+	s := memoryStore(t)
+	brief := filepath.Join(t.TempDir(), "telemetry-1.brief.md")
+	if err := os.WriteFile(brief, []byte("Register slice: lane=telemetry-1 step=all\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WantLane(store.Lane{Name: "telemetry-1", Brief: brief, Model: "opus", Effort: "xhigh", Role: "lane", State: store.LaneDesired}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Advance(lanes.CursorName, 1); err != nil {
+		t.Fatal(err)
+	}
+	at := now
+	b := &stepBus{}
+	w := b.watch(s, []*plans.Plan{rebuild("4")}, nil, &at)
+	w.Lanes = func(context.Context) ([]Lane, error) { return registry(s) }
+	if err := w.Pass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.posted) != 1 || !strings.HasPrefix(b.posted[0].Text, "STEP-UNOWNED ") || !strings.Contains(b.posted[0].Text, "lr request step <lane> --step 4") {
+		t.Fatalf("posted = %+v, want one STEP-UNOWNED naming the attach verb for a lane launched without --step", b.posted)
+	}
+	attach := lanes.Request{Verb: "step", Lane: "telemetry-1", Step: "4", By: root}.Draft(testDrive)
+	feed := []lanes.Record{
+		{Seq: 2, Lane: "telemetry-1", Kind: "state", At: now, Text: "telemetry-1 running"},
+		{Seq: 3, Lane: attach.Lane, Kind: attach.Kind, At: now, Text: attach.Text, To: attach.To, Fields: lanes.Fields{Attrs: attach.Attrs}},
+	}
+	deps := lanes.Deps{
+		Drive: testDrive, Checkout: t.TempDir(), Briefs: t.TempDir(), RetireAfter: time.Hour,
+		Records: func(since int64) ([]lanes.Record, error) {
+			return slices.DeleteFunc(slices.Clone(feed), func(r lanes.Record) bool { return r.Seq <= since }), nil
+		},
+		Who:          func([]string) ([]lanes.Row, error) { return nil, nil },
+		Tokens:       func(lanes.Row) int { return 0 },
+		Transcript:   func(lanes.Row) string { return "" },
+		Post:         func(lanes.Post) error { return nil },
+		Launch:       func(string, string, string, string, string) error { return nil },
+		Withdraw:     func(string) error { return nil },
+		Wake:         func(string, lanes.Row, map[string]any) (bool, error) { return false, nil },
+		PRStates:     func([]int) (map[int]string, error) { return map[int]string{}, nil },
+		Held:         func() (map[int]bool, error) { return nil, nil },
+		Desks:        func() (map[string]string, error) { return nil, nil },
+		OpenBranches: func(*store.Store) (map[string][]int, error) { return nil, nil },
+		OpenWork:     func() ([]lanes.Record, error) { return nil, nil },
+		Owed:         func() ([]deletions.Owed, error) { return nil, nil },
+		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
+		PublishNotes: func(string) error { return nil },
+		Gaps:         func() ([]string, error) { return nil, nil },
+		Orders:       func(*store.Store) ([]owner.Row, error) { return nil, nil },
+		Undelivered:  func() ([]owner.Row, error) { return nil, nil },
+		Promises:     func() ([]lanes.Promise, error) { return nil, nil },
+	}
+	if _, err := lanes.Tick(s, deps, now, 1); err != nil {
+		t.Fatal(err)
+	}
+	at = at.Add(time.Minute)
+	if err := w.Pass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.posted) != 2 || b.posted[1].Resolves != 101 || !strings.HasPrefix(b.posted[1].Text, "STEP-OWNED Durable agents rebuild: the plan, step 4 (Telemetry and the watch): telemetry-") {
+		t.Fatalf("posted = %+v, want the attached lane to close STEP-UNOWNED #101", b.posted)
 	}
 }
 

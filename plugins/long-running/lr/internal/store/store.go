@@ -111,6 +111,7 @@ type Lane struct {
 	StoppedOn   int64
 	Launcher    string
 	Standing    string
+	Step        string
 }
 
 type Probe struct {
@@ -702,7 +703,7 @@ func advance(db execer, source string, position int64) error {
 	return err
 }
 
-const laneColumns = "name, brief, model, effort, role, state, since, handoff, predecessor, reason, asked, flushed, retired_by, waiting, answered, page, awaits, placement, stopped_on, launcher, standing"
+const laneColumns = "name, brief, model, effort, role, state, since, handoff, predecessor, reason, asked, flushed, retired_by, waiting, answered, page, awaits, placement, stopped_on, launcher, standing, step"
 
 func (s *Store) WantLane(lane Lane, at time.Time) (bool, error) {
 	added, err := changed(insertLane(s.db, lane, at))
@@ -745,10 +746,10 @@ func insertLane(db execer, lane Lane, at time.Time) (sql.Result, error) {
 		return nil, err
 	}
 	return db.Exec(
-		"INSERT INTO lanes ("+laneColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
+		"INSERT INTO lanes ("+laneColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
 		lane.Name, lane.Brief, lane.Model, lane.Effort, lane.Role, string(lane.State), Stamp(at),
 		text(lane.Handoff), text(lane.Predecessor), text(lane.Reason), when(lane.Asked), when(lane.Flushed), text(lane.RetiredBy),
-		whole(lane.Waiting), when(lane.Answered), page, text(lane.Awaits), text(lane.Placement), whole(lane.StoppedOn), text(lane.Launcher), text(lane.Standing),
+		whole(lane.Waiting), when(lane.Answered), page, text(lane.Awaits), text(lane.Placement), whole(lane.StoppedOn), text(lane.Launcher), text(lane.Standing), text(lane.Step),
 	)
 }
 
@@ -820,7 +821,7 @@ func scanLane(rows *sql.Rows) (Lane, error) {
 		&lane.Name, &lane.Brief, &lane.Model, &lane.Effort, &lane.Role, &lane.State, moment{&lane.Since},
 		nullable[string]{&lane.Handoff}, nullable[string]{&lane.Predecessor}, nullable[string]{&lane.Reason},
 		moment{&lane.Asked}, moment{&lane.Flushed}, nullable[string]{&lane.RetiredBy}, nullable[int64]{&lane.Waiting}, moment{&lane.Answered},
-		nullable[string]{&page}, nullable[string]{&lane.Awaits}, nullable[string]{&lane.Placement}, nullable[int64]{&lane.StoppedOn}, nullable[string]{&lane.Launcher}, nullable[string]{&lane.Standing},
+		nullable[string]{&page}, nullable[string]{&lane.Awaits}, nullable[string]{&lane.Placement}, nullable[int64]{&lane.StoppedOn}, nullable[string]{&lane.Launcher}, nullable[string]{&lane.Standing}, nullable[string]{&lane.Step},
 	)
 	if err != nil || page == "" {
 		return lane, err
@@ -1133,6 +1134,11 @@ func (s *Store) SetLaneRole(name, role string) error {
 
 func (s *Store) SetLaneStanding(name, duty string) error {
 	_, err := s.db.Exec("UPDATE lanes SET standing = ? WHERE name = ?", text(duty), name)
+	return err
+}
+
+func (s *Store) SetLaneStep(name, step string) error {
+	_, err := s.db.Exec("UPDATE lanes SET step = ? WHERE name = ?", text(step), name)
 	return err
 }
 

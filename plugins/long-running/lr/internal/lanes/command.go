@@ -269,6 +269,9 @@ func RequestCommand(a *app.App) *cobra.Command {
 			if !slices.Contains(Verbs, request.Verb) {
 				return fmt.Errorf("unknown request %q, want one of %s", request.Verb, strings.Join(Verbs, ", "))
 			}
+			if request.Verb == "step" && request.Step == "" {
+				return errors.New("a step request names the plan step the lane owns: lr request step LANE --step <n>")
+			}
 			s, cfg, err := requestScope(a)
 			if err != nil {
 				return err
@@ -311,6 +314,7 @@ func RequestCommand(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&request.Successor, "successor", "", "the lane that takes over")
 	cmd.Flags().StringVar(&request.LastRead, "last-read", "", "the lane's newest record you have read")
 	cmd.Flags().StringVar(&request.Open, "open", "", "a desk's open items its stand-down hands on, or none")
+	cmd.Flags().StringVar(&request.Step, "step", "", "the plan step the lane owns from now on, the field lr launch lane --step sets at launch")
 	cmd.Flags().IntSliceVar(&request.PRs, "pr", nil, "a PR the request moves; repeatable")
 	cmd.Flags().StringVar(&request.By, "by", "", "the lane asking; defaults to the lane bound to this session")
 	return cmd
