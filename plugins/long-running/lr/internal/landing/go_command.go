@@ -172,11 +172,11 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		return false, lapses, err
 	}
 	if flags.before == 0 {
-		row, found, err := s.ReviewRow(cfg.Repo, number)
+		unread, err := gates.RowReadAt(s, cfg.Repo, number, head)
 		if err != nil {
 			return false, lapses, err
 		}
-		if unread := gates.RowRead(row, found, head); unread != "" {
+		if unread != "" {
 			refusals, lapses = append(refusals, unread), time.Time{}
 		}
 	}

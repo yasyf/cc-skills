@@ -116,6 +116,12 @@ func (s *Store) ReviewRow(repo string, number int) (ReviewRow, bool, error) {
 	return row, err == nil, err
 }
 
+func (s *Store) HoldsReviewRows(repo string) (bool, error) {
+	var held bool
+	err := s.db.QueryRow("SELECT EXISTS (SELECT 1 FROM review_rows WHERE repo = ?)", repo).Scan(&held)
+	return held, err
+}
+
 func (s *Store) FactsAtRowHeads(repo string) (map[int]map[string]string, error) {
 	return factsAtRowHeads(s.db, repo)
 }

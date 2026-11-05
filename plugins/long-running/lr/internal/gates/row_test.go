@@ -62,6 +62,35 @@ func TestATapIsReadAtTheHeadItNames(t *testing.T) {
 	}
 }
 
+func TestAMissingRowSaysWhenTheBoxHoldsNoLandingStore(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		rows []store.ReviewRow
+		want string
+	}{
+		{"no rows at all", nil, NoStore},
+		{"another repo's rows", []store.ReviewRow{{Repo: "o/other", Number: 1, Head: newHead}}, NoStore},
+		{"another PR's row", []store.ReviewRow{{Repo: repo, Number: 2, Head: newHead}}, NoRow},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, err := store.Memory()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			if err := s.PutReviewRows(c.rows); err != nil {
+				t.Fatal(err)
+			}
+			if _, refusal, err := TapAt(s, repo, bus.Tap{PR: 1, Head: newHead}); err != nil || refusal != c.want {
+				t.Errorf("TapAt refusal = %q, %v, want %q", refusal, err, c.want)
+			}
+			if unread, err := RowReadAt(s, repo, 1, newHead); err != nil || unread != c.want {
+				t.Errorf("RowReadAt = %q, %v, want %q", unread, err, c.want)
+			}
+		})
+	}
+}
+
 func TestMissingAddsTheRowsWaitOnlyWhenNoOtherGateSaysWhy(t *testing.T) {
 	tapped := green
 	tapped.Tap = machine.TapTapped

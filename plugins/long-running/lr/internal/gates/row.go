@@ -11,6 +11,7 @@ import (
 
 const (
 	NoRow       = "it has no review row in the landing store"
+	NoStore     = "this box has no landing store: it holds no review row for any PR, so read the row on the landing host"
 	notReadyYet = "its review row is not ready"
 )
 
@@ -39,9 +40,29 @@ func TapAt(s *store.Store, repo string, tap bus.Tap) (head, refusal string, err 
 	if err != nil {
 		return "", "", err
 	}
+	if !found {
+		refusal, err = noRowIn(s, repo)
+		return tap.Head, refusal, err
+	}
 	head = tap.Head
-	if found && strings.HasPrefix(row.Head, tap.Head) {
+	if strings.HasPrefix(row.Head, tap.Head) {
 		head = row.Head
 	}
 	return head, RowWait(row, found, head), nil
+}
+
+func RowReadAt(s *store.Store, repo string, number int, head string) (string, error) {
+	row, found, err := s.ReviewRow(repo, number)
+	if err != nil || found {
+		return RowRead(row, found, head), err
+	}
+	return noRowIn(s, repo)
+}
+
+func noRowIn(s *store.Store, repo string) (string, error) {
+	held, err := s.HoldsReviewRows(repo)
+	if err != nil || held {
+		return NoRow, err
+	}
+	return NoStore, nil
 }

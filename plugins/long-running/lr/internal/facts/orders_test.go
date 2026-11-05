@@ -383,6 +383,7 @@ func TestATapAtAHeadTheRowMovedOffIsRefusedNamingBothHeads(t *testing.T) {
 
 func TestATapOnAPRWithNoRowIsRefused(t *testing.T) {
 	h := unreadHarness(t)
+	drawReady(t, h.store, surfacePR+1, surfaceHead)
 	ownerRecord(t, landOnCard, pickAttrs)
 
 	writeOrders(t, h)

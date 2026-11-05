@@ -30,6 +30,7 @@ NOT_PACKAGES = frozenset({"testdata", "vendor"})
 NOT_LANES = frozenset({None, "", ROOT_LANE, COMMUNICATOR_LANE})
 FIXTURE = Path(__file__).parent / "tests" / "fixtures" / "vet-push"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}
+SPARSE = {"git config --bool --default false core.sparseCheckout": "true\n"}
 SATURATED = LANE_ENV | {LOAD_PER_CORE: "0"}
 HEALTHY = LANE_ENV | {LOAD_PER_CORE: "1000000"}
 SHIP = "ccx vcs ship -m 'sand: 🐛 fix the vm'"
@@ -42,6 +43,8 @@ REFUSAL = (
     "A lane runs `go build` and `go vet` over the Go packages it touched, and the typecheck over its TypeScript, after its last edit and before it pushes; a run the host load gate refused counts, and CI still runs every test."
     " Run these, then push again:\n```\n{commands}\n```"
 )
+SPARSE_GO = "the checkout is sparse: `lr sparse add <dir>` before its Go checks, `node_modules/.bin/tsgo` for its TypeScript"
+SPARSE_TS = "Warning, nothing was refused: `yarn tsc:*` cannot run in this sparse checkout, so this push goes ahead; from its top, typecheck with `{commands}`."
 UNREAD = "Warning, nothing was refused: {why}, so this push goes ahead unchecked. Run `go build`, `go vet` and the typecheck over what it touched where they can run."
 
 
@@ -110,7 +113,7 @@ def scripts_at(base: Path) -> tuple[Path, dict[str, str]]:
 
 def typecheck_checks(base: Path, call: Call) -> list[tuple[str, Path, bool]]:
     words = [arg for arg in call.args if arg != "run"]
-    if call.name in TYPECHECKERS or call.name in LAUNCHERS and words[:1] and words[0] in TYPECHECKERS:
+    if Path(call.name).name in TYPECHECKERS or call.name in LAUNCHERS and words[:1] and words[0] in TYPECHECKERS:
         dirs = projects(base, {}, [call.name, *call.args])
     elif call.name in RUNNERS and words[:1] and words[0] in TYPECHECKERS:
         dirs = projects(base, {}, list(call.args))
@@ -144,6 +147,7 @@ def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
         Input(command="go -C go/sand vet ./...", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="cd go/sand && go build ./internal/vm", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="yarn tsc:api", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
+        Input(command="node_modules/.bin/tsgo --noEmit -p ./api --preserveSymlinks false --composite false | grep -F -e api/src/a.ts", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="python3 ~/.claude/plugins/long-running/skills/long-running/scripts/remote-vet.py --config /s/lr.json --lane lane-a .", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="git status", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
     },
@@ -225,11 +229,22 @@ def typecheck_command(top: Path, project: Path) -> str:
     return f"npx tsc --noEmit -p {project}"
 
 
-def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]:
+def sparse_typecheck_command(top: Path, project: Path, files: list[Path]) -> str:
+    touched = " ".join(f"-e {path.relative_to(top)}" for path in files)
+    return f"node_modules/.bin/tsgo --noEmit -p {project.relative_to(top)} --preserveSymlinks false --composite false | grep -F {touched}"
+
+
+def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path], sparse: bool = False) -> list[str]:
     files = [path for path in changed if path.suffix in TS_SUFFIXES and "node_modules" not in path.parts]
-    projects_edited = latest(files, lambda path: ancestor_with("tsconfig.json", path.parent, top))
+
+    def project_of(path: Path) -> Path | None:
+        return ancestor_with("tsconfig.json", path.parent, top)
+
     checks = CompileChecks.load(evt).checks
-    return [typecheck_command(top, project) for project, edited in sorted(projects_edited.items()) if not covered(checks, TYPECHECK, project, edited)]
+    owed = [project for project, edited in sorted(latest(files, project_of).items()) if not covered(checks, TYPECHECK, project, edited)]
+    if sparse:
+        return [sparse_typecheck_command(top, project, [path for path in files if project_of(path) == project]) for project in owed]
+    return [typecheck_command(top, project) for project in owed]
 
 
 def branch_diff(evt: BaseHookEvent, call: Call, *flags: str) -> tuple[Path, str] | str:
@@ -246,16 +261,19 @@ def branch_diff(evt: BaseHookEvent, call: Call, *flags: str) -> tuple[Path, str]
 
 def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     if isinstance(diffed := branch_diff(evt, call, "--name-only"), str):
-        return diffed
+        return UNREAD.format(why=diffed)
     top, names = diffed
     changed = [top / line for line in names.splitlines() if line.strip()]
     if not any(path.suffix == ".go" or path.suffix in TS_SUFFIXES for path in changed):
         return []
     sparse = run_quietly(["git", "config", "--bool", "--default", "false", "core.sparseCheckout"], str(top))
     if not sparse or sparse.returncode or sparse.stdout.strip() == "true":
-        return "sparse checkout: `lr sparse add <dir>`; TypeScript: `node_modules/.bin/tsgo --noEmit -p <project> --preserveSymlinks false --composite false`"
+        if any(path.suffix == ".go" for path in changed):
+            return UNREAD.format(why=SPARSE_GO)
+        typechecks = ts_commands(evt, top, changed, sparse=True)
+        return SPARSE_TS.format(commands="` and `".join(typechecks)) if typechecks else []
     go = go_commands(evt, top, changed)
-    return go if isinstance(go, str) else go + ts_commands(evt, top, changed)
+    return UNREAD.format(why=go) if isinstance(go, str) else go + ts_commands(evt, top, changed)
 
 
 @on(  # capt-hook: no-escape the owner ordered a hook rather than goodwill, and every misread fails open with a warning
@@ -276,8 +294,10 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n.github/workflows/ci.yml\n"}): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"go env GOROOT": (127, "go: not found")}): Warn(pattern=r"^Warning, nothing was refused: no Go toolchain"),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"git config --bool --default false core.sparseCheckout": "true\n"}): Warn(pattern=r"sparse checkout"),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n", "git config --bool --default false core.sparseCheckout": "true\n"}): Allow(),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: the checkout is sparse: `lr sparse add <dir>` before its Go checks, `node_modules/\.bin/tsgo` for its TypeScript, so"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: `yarn tsc:\*` cannot run in this sparse checkout[\s\S]*typecheck with `node_modules/\.bin/tsgo --noEmit -p api --preserveSymlinks false --composite false \| grep -F -e api/src/a\.ts`\.$"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF | SPARSE, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n"} | SPARSE): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": (128, "fatal: bad revision 'origin/HEAD'")}): Warn(pattern=r"`origin/HEAD` did not read"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "tools/loose/main.go\n"}): Warn(pattern=r"has no `go.mod`"),
         Input(command=f". /env.sh; cd $A; {SHIP}", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF): Warn(pattern=r"`cd` this hook cannot follow"),
@@ -295,6 +315,6 @@ def lanes_vet_before_they_push(evt: BaseHookEvent) -> HookResult | None:
     commands: list[str] = []
     for call in calls:
         if isinstance(found := unchecked(evt, call), str):
-            return evt.context(UNREAD.format(why=found))
+            return evt.context(found)
         commands += found
     return evt.block(REFUSAL.format(commands="\n".join(dict.fromkeys(commands)))) if commands else None
