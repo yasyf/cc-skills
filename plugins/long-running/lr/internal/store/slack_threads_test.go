@@ -49,3 +49,36 @@ func TestAThreadReadUsesTheKeyAtAThousandRows(t *testing.T) {
 		t.Fatalf("plan = %q, want a key lookup", plan)
 	}
 }
+
+func TestAnAlertKeepsItsFirstPost(t *testing.T) {
+	s := memory(t)
+	if _, found, err := s.AlertThreadOf("sentry-1"); err != nil || found {
+		t.Fatalf("found %v, err %v before any post", found, err)
+	}
+	for _, posted := range []AlertThread{{Reply: "r1", TS: "1.0"}, {Reply: "r2", TS: "1.0"}, {Reply: "r3", TS: "2.0"}} {
+		if err := s.PutAlertThread("sentry-1", posted); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, found, err := s.AlertThreadOf("sentry-1")
+	if err != nil || !found || got != (AlertThread{Reply: "r1", TS: "1.0"}) {
+		t.Fatalf("first post = %+v, found %v, err %v; want r1 at 1.0", got, found, err)
+	}
+}
+
+func TestAnAlertReadUsesTheKeyAtAThousandAlerts(t *testing.T) {
+	s := memory(t)
+	for i := range 1000 {
+		if err := s.PutAlertThread(fmt.Sprintf("sentry-%d", i), AlertThread{Reply: "r", TS: "1.0"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var id, parent, unused int
+	var plan string
+	if err := s.db.QueryRow("EXPLAIN QUERY PLAN "+alertThreadRead, "sentry-7").Scan(&id, &parent, &unused, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan, "USING INDEX") {
+		t.Fatalf("plan = %q, want a key lookup", plan)
+	}
+}

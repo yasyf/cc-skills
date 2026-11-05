@@ -6,7 +6,10 @@ import (
 	"errors"
 )
 
-const threadRead = "SELECT reply, card, lane, ledger_row, question, options FROM slack_threads WHERE ts = ?"
+const (
+	threadRead      = "SELECT reply, card, lane, ledger_row, question, options FROM slack_threads WHERE ts = ?"
+	alertThreadRead = "SELECT reply, ts FROM alert_threads WHERE alert = ?"
+)
 
 type SlackThread struct {
 	TS       string   `json:"-"`
@@ -51,4 +54,23 @@ func (s *Store) SlackThreadAt(ts string) (SlackThread, bool, error) {
 		return thread, err == nil, err
 	}
 	return thread, true, json.Unmarshal([]byte(options), &thread.Options)
+}
+
+type AlertThread struct {
+	Reply string
+	TS    string
+}
+
+func (s *Store) PutAlertThread(alert string, first AlertThread) error {
+	_, err := s.db.Exec("INSERT INTO alert_threads (alert, reply, ts) VALUES (?, ?, ?) ON CONFLICT (alert) DO NOTHING", alert, first.Reply, first.TS)
+	return err
+}
+
+func (s *Store) AlertThreadOf(alert string) (AlertThread, bool, error) {
+	var first AlertThread
+	err := s.db.QueryRow(alertThreadRead, alert).Scan(&first.Reply, &first.TS)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AlertThread{}, false, nil
+	}
+	return first, err == nil, err
 }

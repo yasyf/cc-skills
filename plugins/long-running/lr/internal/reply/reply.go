@@ -77,6 +77,7 @@ var (
 	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
 	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
 	slackStamp = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\?|$)`)
+	laneRole   = regexp.MustCompile(`-(?:fix|evidence|comms)$`)
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 )
 
@@ -123,6 +124,7 @@ type Reply struct {
 	OpenPicks   []string `json:"-"`
 	Thread      string   `json:"thread,omitempty"`
 	Order       string   `json:"order,omitempty"`
+	Alert       string   `json:"alert,omitempty"`
 	Unprompted  bool     `json:"unprompted,omitempty"`
 	Action      string   `json:"action,omitempty"`
 	By          string   `json:"by,omitempty"`
@@ -198,6 +200,12 @@ func (f Fanout) indexThreads(r Reply, sent []Outcome) []Outcome {
 			continue
 		}
 		if err := s.PutSlackThread(owner.ReplyThread(o.Ref, r.ID, r.Order, r.Title, r.Picks)); err != nil {
+			missed = append(missed, Outcome{Surface: threadIndex, Error: err.Error()})
+		}
+		if r.Alert == "" {
+			continue
+		}
+		if err := s.PutAlertThread(r.Alert, store.AlertThread{Reply: r.ID, TS: owner.ThreadRoot(o.Ref)}); err != nil {
 			missed = append(missed, Outcome{Surface: threadIndex, Error: err.Error()})
 		}
 	}
@@ -371,6 +379,28 @@ func (f Fanout) aliased(r Reply) Reply {
 	return r
 }
 
+func (f Fanout) underAlert(r Reply) (Reply, string) {
+	if r.Alert == "" {
+		if r.Status == incident || r.Type == incident {
+			return r, "this incident line names no alert, so it posted on its own and no later line threads under it; pass alert, the incident id its lanes are named for, such as sentry-7830378865 for sentry-7830378865-fix, on every line of that incident"
+		}
+		return r, ""
+	}
+	s, err := store.Open(f.Entry.Store())
+	if err != nil {
+		return r, "the store did not open, so this did not look up its alert's first post and posted where it would without one: " + err.Error()
+	}
+	defer func() { _ = s.Close() }()
+	first, found, err := s.AlertThreadOf(r.Alert)
+	if err != nil {
+		return r, "the alert's first post did not read, so this posted where it would without one: " + err.Error()
+	}
+	if found && first.Reply != r.ID {
+		r.Thread, r.On = first.TS, cmp.Or(r.On, "reply:"+first.Reply)
+	}
+	return r, ""
+}
+
 func (f Fanout) placed(r Reply) (Reply, error) {
 	if r.Thread == owner.AtRoot {
 		r.Thread = ""
@@ -469,6 +499,7 @@ func (r Reply) mended() (Reply, []string) {
 		warn("order %q is not a ledger row such as m347, so it marks nothing", r.Order)
 		r.Order = ""
 	}
+	r.Alert = laneRole.ReplaceAllString(strings.TrimSpace(r.Alert), "")
 	if r.Action != "" && r.Order == "" {
 		warn("action names what he must do about an order, and this reply names no order, so it was left off")
 		r.Action = ""
