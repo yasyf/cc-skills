@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
@@ -40,7 +41,11 @@ func root(a *app.App) *cobra.Command {
 }
 
 func execute(cmd *cobra.Command, args []string) error {
-	if verb, rest, err := cmd.Find(args); err == nil && verb.HasSubCommands() && !verb.Runnable() && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	verb, rest, err := cmd.Find(args)
+	if err == nil {
+		ccx.Caller = strings.ReplaceAll(verb.CommandPath(), " ", "-")
+	}
+	if err == nil && verb.HasSubCommands() && !verb.Runnable() && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		return fmt.Errorf("%s has no verb %s; see %s --help", verb.CommandPath(), rest[0], verb.CommandPath())
 	}
 	cmd.SetArgs(args)
