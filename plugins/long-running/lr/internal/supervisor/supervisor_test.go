@@ -514,7 +514,7 @@ func TestTheSupervisorMovesToANewerInstallWithoutReadingOrReplayingHistory(t *te
 		t.Fatalf("upgrade launched a command: %v", argv)
 		return shell.Result{}, nil
 	})}
-	upgrade := &Upgrade{Env: env, Running: "0.7.820", Read: time.Now(), Holding: nothingHolds}
+	upgrade := &Upgrade{Env: env, Running: "0.7.820", Read: time.Now(), Holding: nothingHolds, Yield: func(bool) {}}
 	for _, step := range []struct {
 		version string
 		stale   bool
@@ -553,7 +553,7 @@ func TestABumpThatKeepsTheBinaryMovesTheLeaseWithoutARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	upgrade := &Upgrade{
-		Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: configs(t)}, Running: "0.7.820", Binary: "0.390.1", Read: time.Now(), Holding: nothingHolds,
+		Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: configs(t)}, Running: "0.7.820", Binary: "0.390.1", Read: time.Now(), Holding: nothingHolds, Yield: func(bool) {},
 		Serve: func(version string) error { return s.ServeVersion("d", 42, version) },
 	}
 
@@ -586,14 +586,24 @@ func TestARestartWaitsForTheCleanupPassItWouldCut(t *testing.T) {
 	claude := t.TempDir()
 	state := configs(t)
 	holding := true
-	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now(), Holding: func() bool { return holding }}
-	link(t, claude, "0.7.821")
+	yielding := false
+	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now(), Holding: func() bool { return holding }, Yield: func(yield bool) { yielding = yield }}
+	link(t, claude, "0.7.820")
 
 	stale, err := upgrade.Stale(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	equal(t, stale, false)
+	equal(t, yielding, false)
+
+	link(t, claude, "0.7.821")
+	stale, err = upgrade.Stale(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, stale, false)
+	equal(t, yielding, true)
 
 	holding = false
 	stale, err = upgrade.Stale(context.Background())
@@ -601,6 +611,19 @@ func TestARestartWaitsForTheCleanupPassItWouldCut(t *testing.T) {
 		t.Fatal(err)
 	}
 	equal(t, stale, true)
+	equal(t, yielding, true)
+}
+
+func TestAConfigEditYieldsTheNextCleanupPassToo(t *testing.T) {
+	claude := t.TempDir()
+	state := configs(t)
+	link(t, claude, "0.7.820")
+	yielding := false
+	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now().Add(-time.Hour), Holding: func() bool { return true }, Yield: func(yield bool) { yielding = yield }}
+	if _, err := upgrade.Stale(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, yielding, true)
 }
 
 func configs(t *testing.T) string {
@@ -635,7 +658,7 @@ func TestAMovedPinOrTheSameBytesNeverRestartTheSupervisorAndAChangedSettingDoes(
 	if err != nil {
 		t.Fatal(err)
 	}
-	upgrade := &Upgrade{Env: lanes.Env{Bus: b, Claude: t.TempDir(), State: state, Config: config.Config{Drive: "d1"}}, Running: "0.7.820", Read: read, Settings: settings, Holding: nothingHolds}
+	upgrade := &Upgrade{Env: lanes.Env{Bus: b, Claude: t.TempDir(), State: state, Config: config.Config{Drive: "d1"}}, Running: "0.7.820", Read: read, Settings: settings, Holding: nothingHolds, Yield: func(bool) {}}
 
 	for minutes, text := range []string{
 		fmt.Sprintf(pinned, 15, "s1", "u1", "0.7.1"),

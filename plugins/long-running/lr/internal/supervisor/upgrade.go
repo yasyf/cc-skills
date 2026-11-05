@@ -50,6 +50,7 @@ type Upgrade struct {
 	Read     time.Time
 	Settings map[string]string
 	Holding  func() bool
+	Yield    func(bool)
 	Serve    func(version string) error
 }
 
@@ -65,10 +66,34 @@ func readSettings(state string) (map[string]string, error) {
 	return settings, nil
 }
 
+func (u *Upgrade) restartOwed() bool {
+	for _, name := range []string{configFile, runnerFile} {
+		info, err := os.Stat(filepath.Join(u.Env.State, name))
+		if err == nil && info.ModTime().After(u.Read) {
+			return true
+		}
+	}
+	if !Behind(u.Running, Installed(u.Env.Claude)) {
+		return false
+	}
+	pinned := u.Env.PinnedBinary()
+	return pinned == "" || pinned != u.Binary
+}
+
 func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
 	if u.Holding() {
+		u.Yield(u.restartOwed())
 		return false, nil
 	}
+	u.Yield(true)
+	stale, err := u.restartDue(ctx)
+	if !stale {
+		u.Yield(false)
+	}
+	return stale, err
+}
+
+func (u *Upgrade) restartDue(ctx context.Context) (bool, error) {
 	if changed, err := u.configChanged(ctx); changed || err != nil {
 		return changed, err
 	}
