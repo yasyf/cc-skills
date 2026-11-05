@@ -117,7 +117,7 @@ const (
 
 var (
 	ErrUnread = errors.New("source did not answer")
-	Verbs     = []string{"stand-down", "park", "unpark", "owner", "done"}
+	Verbs     = []string{"stand-down", "park", "unpark", "owner", "done", "revive"}
 	live      = []store.LaneState{store.LaneLaunching, store.LaneDesired}
 
 	helperRoles = []string{"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"}
@@ -639,7 +639,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 	if peer != nil {
 		heard = newer(peer.Seen, lane.Heard)
 	}
-	duty := must(BriefOf(lane.Brief)).Standing
+	duty := dutyOf(lane)
 	aliveNow := alive(peer, heard, now) && (duty == "" || peer != nil && peer.Live || now.Sub(heard) < unownedAfter)
 	if lane.State == store.LaneLaunching {
 		if aliveNow && (peer != nil || lane.Heard.After(lane.Since)) {

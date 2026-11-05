@@ -1992,6 +1992,68 @@ func TestARetiredStandingLaneStillPostingHasAnOwner(t *testing.T) {
 	equal(t, len(f.ofKind("blocker")), 0)
 }
 
+func TestASameStemSuccessorStaysStandingThroughItsOwnDoneOnlyWhenItsPredecessorStood(t *testing.T) {
+	for name, tc := range map[string]struct {
+		standing  bool
+		retiredBy string
+		duty      string
+	}{
+		"successor of a standing lane": {true, "", "refresh the owner's board every pass"},
+		"successor of a one-shot lane": {false, "done", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			old, f := lane2, (*fake)(nil)
+			if tc.standing {
+				f, _ = standingLane(t, s)
+				old = refresher
+			} else {
+				f = adopted(t, s, writeBrief(t), "")
+			}
+			heir := SuccessorName(old, nil)
+			f.feed = append(f.feed, spawned(10, heir, writeBrief(t), t0, nil), rec(11, heir, "done", t0.Add(mins(1)), "this pass is finished", Root))
+			f.peers = []Row{who(heir, true, t0.Add(mins(1)))}
+
+			tick(t, s, f, t0.Add(mins(2)))
+
+			got := row(t, s, heir)
+			equal(t, []any{got.RetiredBy, got.Standing}, []any{tc.retiredBy, tc.duty})
+		})
+	}
+}
+
+func TestACoordinatorsDoneEndsTheDutyASuccessorInheritedAndNothingRelaunchesIt(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	heir := SuccessorName(refresher, nil)
+	f.feed = append(f.feed, spawned(10, heir, writeBrief(t), t0, nil), rec(11, heir, "done", t0.Add(mins(1)), "this pass is finished", Root), ask(12, "done", heir, t0.Add(mins(2)), nil, "", nil))
+	f.peers = nil
+
+	tick(t, s, f, t0.Add(mins(3)))
+	tick(t, s, f, t0.Add(mins(40)))
+
+	got := row(t, s, heir)
+	equal(t, []any{got.RetiredBy, got.Standing, len(f.launches), len(f.ofKind("blocker"))}, []any{"done", "", 0, 0})
+}
+
+func TestARevivedLaneIsLiveAgainAndTakesTheDutyOfTheStandingLaneItSucceeds(t *testing.T) {
+	s := memory(t)
+	for _, lane := range []store.Lane{
+		{Name: "go-desk-2", Brief: standingBrief(t, "go-desk-2"), Model: "opus", Effort: "high", Role: "lane", State: store.LaneRetired, RetiredBy: "go-desk-8"},
+		{Name: "go-desk-8", Brief: writeBrief(t), Model: "opus", Effort: "high", Role: "lane", State: store.LaneRetired, RetiredBy: "done"},
+	} {
+		if _, err := s.WantLane(lane, t0.Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := newFake(t, []Record{ask(1, "revive", "go-desk-8", t0, nil, "", nil)}, []Row{who("go-desk-8", true, t0)})
+
+	tick(t, s, f, t0.Add(mins(1)))
+
+	got := row(t, s, "go-desk-8")
+	equal(t, []any{got.State, got.RetiredBy, got.Standing}, []any{store.LaneDesired, "", "refresh the owner's board every pass"})
+}
+
 func TestAStandingLaneStoppedWithNoSuccessorReachesRootOnceAfterTenMinutes(t *testing.T) {
 	s := memory(t)
 	f, path := standingLane(t, s)
