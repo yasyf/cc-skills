@@ -247,6 +247,8 @@ Once `worker-start` succeeds, the launch creates the `worker-awake` Sprite servi
 
 **Tunnel.** The Mac also holds an ssh tunnel to each lane's Sprite, opened when the lane starts, and an open tunnel keeps the box running with or without an agent. `lr gc` closes it, with `ssh -O exit` on that lane's own control path, when it keeps a settled lane's Sprite for unsaved work, an unreadable checkout or a refused destroy, so the kept box can sleep. A live dispatch or a busy terminal keeps its tunnel.
 
+**Local disk.** A Sprite's local disk holds 20 GB, about 18.6 GB of it usable, and a grader wrote about 4 GB a day to its home. So each `lr grade` on a Sprite runs `binrun gc` and deletes codex session files older than a day. A failure there is logged and never fails the pass. Those two were 5.5 GB of a 14 GB home after 2.5 days, read on dar-fleet-23.
+
 **Samples.** The same service appends one JSON line every 10 seconds to `/tmp/cc-remote-samples.log`, fsynced, because a stop can reboot the kernel and wipe its counters. `/tmp` is the Sprite's local disk, which survives a stop. Home is `nbd0`, a network disk whose connection can die, and a write to it hangs first, so a sample written there stops before the event it should record.
 
 - Each line has the time, kernel uptime, `MemAvailable`, swap in use, the balloon's net size, the kernel's `oom_kill` count, `/proc/loadavg`, the count of processes waiting on a disk, the top 3 processes by RSS with their command lines, each `claude` or `codex` with its parent, `memory.events` when readable, and any new kernel line at error level or naming `nbd0`.

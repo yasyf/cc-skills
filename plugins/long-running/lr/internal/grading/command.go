@@ -3,6 +3,7 @@ package grading
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -52,6 +53,17 @@ func gradeVerb(a *app.App, name, short string, grade func(context.Context, strin
 				}
 				if err := startMoveOffHome(spec.Checkout, spriteLocalDisk); err != nil {
 					return err
+				}
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return err
+				}
+				plugin, err := pluginRoot()
+				if err != nil {
+					return err
+				}
+				if err := pruneLocalDisk(cmd.Context(), home, plugin, time.Now()); err != nil {
+					fmt.Fprintln(cmd.ErrOrStderr(), "lr grade: pruning the local disk:", err)
 				}
 			}
 			deps, err := liveDeps(a)
