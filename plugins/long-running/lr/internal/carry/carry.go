@@ -2,6 +2,7 @@ package carry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -22,6 +23,7 @@ import (
 const (
 	maxBytes = 64 << 20
 	notesDir = "ccn"
+	cciDir   = "cci"
 	pathStop = `\s` + "`" + `'"<>()\[\]{},;:|*?$`
 	template = "<{$*"
 	joined   = `\w./~-`
@@ -30,7 +32,13 @@ const (
 )
 
 var (
-	reference     = regexp.MustCompile(`ccn (doc|plan|task) show ([0-9A-Za-z][\w-]*)|\$\{?([A-Z_][A-Z0-9_]*)\}?/[^` + pathStop + `]+|(?:~/|/)[^` + pathStop + `]+`)
+	recordNumber = `\d+(?:@[0-9a-f]{6,16})?`
+	showToken    = regexp.MustCompile(`--drive +[\w-]+|--budget +\d+|-[\w-]+(?:=\S+)?|['"]?#?(` + recordNumber + `)['"]?`)
+	reference    = regexp.MustCompile(`ccn (doc|plan|task) show ([0-9A-Za-z][\w-]*)|\$\{?([A-Z_][A-Z0-9_]*)\}?/[^` + pathStop + `]+|(?:~/|/)[^` + pathStop + `]+` +
+		`|cci show(?P<shown>(?: +(?:` + showToken.String() + `))+)` +
+		`|\brecords? +#?(?P<recorded>\d{4,}(?:@[0-9a-f]{6,16})?)\b` +
+		`|\b(?P<tagged>\d+@[0-9a-f]{6,16})\b` +
+		`|\b(?P<lane>[A-Za-z]\w*(?:-\w+)*)(?:'s)? +(?P<bare>\d{5,})\b`)
 	assigned      = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
 	joinedByte    = regexp.MustCompile(`[` + joined + `]`)
 	quotedRows    = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
@@ -39,8 +47,13 @@ var (
 )
 
 type source struct {
-	kind, id string
-	variable bool
+	kind, id, lane string
+	variable       bool
+}
+
+type record struct {
+	Lane string   `json:"lane"`
+	To   []string `json:"to"`
 }
 
 type Carrier struct {
@@ -49,6 +62,7 @@ type Carrier struct {
 	Repo   string
 	Into   string
 	Box    string
+	Drive  string
 	Vars   map[string]string
 }
 
@@ -56,7 +70,7 @@ func Command(a *app.App) *cobra.Command {
 	c := Carrier{Runner: a.Runner, Vars: map[string]string{}}
 	cmd := &cobra.Command{
 		Use:   "carry BRIEF",
-		Short: "Copy each file under this home and each ccn doc, plan or task a brief names into --into, which lands at --box on a Sprite, and print the brief with every reference rewritten to its copy",
+		Short: "Copy each file under this home, each ccn doc, plan or task and each cci record a brief names into --into, which lands at --box on a Sprite, and print the brief with every reference rewritten to its copy",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			brief, err := os.ReadFile(args[0])
@@ -115,27 +129,31 @@ func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]st
 		if slices.ContainsFunc(quoted, func(rows []int) bool { return rows[0] <= match[0] && match[0] < rows[1] }) {
 			continue
 		}
-		named, end, ok := c.named(brief, match, vars)
+		named, start, end, ok := c.named(brief, match, vars)
 		if !ok {
 			continue
 		}
-		copied, seen := copies[named]
-		if !seen {
-			var err error
-			if copied, err = c.carry(ctx, named); err != nil {
-				faults = append(faults, err)
-			}
-			copies[named] = copied
-			if err == nil && isBrief(named.id) {
-				if err := c.follow(ctx, named.id, copies); err != nil {
+		copied := make([]string, 0, len(named))
+		for _, one := range named {
+			onBox, seen := copies[one]
+			if !seen {
+				var err error
+				if onBox, err = c.carry(ctx, one); err != nil {
 					faults = append(faults, err)
 				}
+				copies[one] = onBox
+				if err == nil && isBrief(one.id) {
+					if err := c.follow(ctx, one.id, copies); err != nil {
+						faults = append(faults, err)
+					}
+				}
 			}
+			copied = append(copied, onBox)
 		}
-		if copied == "" {
+		if slices.Contains(copied, "") {
 			continue
 		}
-		rewritten.WriteString(brief[last:match[0]] + copied)
+		rewritten.WriteString(brief[last:start] + strings.Join(copied, " "))
 		last = end
 	}
 	return rewritten.String() + brief[last:], faults
@@ -182,17 +200,20 @@ func (c Carrier) varsOf(brief string) map[string]string {
 	return vars
 }
 
-func (c Carrier) named(brief string, match []int, vars map[string]string) (source, int, bool) {
+func (c Carrier) named(brief string, match []int, vars map[string]string) ([]source, int, int, bool) {
 	if match[2] >= 0 {
-		return source{kind: brief[match[2]:match[3]], id: brief[match[4]:match[5]]}, match[1], true
+		return []source{{kind: brief[match[2]:match[3]], id: brief[match[4]:match[5]]}}, match[0], match[1], true
+	}
+	if cited, start, ok := c.cited(brief, match); ok {
+		return cited, start, match[1], true
 	}
 	start, end := match[0], match[1]
 	token := brief[start:end]
 	if start > 0 && joinedByte.MatchString(brief[start-1:start]) || end < len(brief) && strings.ContainsRune(template, rune(brief[end])) {
-		return source{}, 0, false
+		return nil, 0, 0, false
 	}
 	if strings.Contains(token, "…") || strings.HasSuffix(token, "..") {
-		return source{}, 0, false
+		return nil, 0, 0, false
 	}
 	token = strings.TrimSuffix(token, ".")
 	name := token
@@ -200,19 +221,55 @@ func (c Carrier) named(brief string, match []int, vars map[string]string) (sourc
 	if variable {
 		value, known := vars[brief[match[6]:match[7]]]
 		if !known {
-			return source{}, 0, false
+			return nil, 0, 0, false
 		}
 		name = value + token[strings.Index(token, "/"):]
 	} else if rest, ok := strings.CutPrefix(token, "~/"); ok {
 		name = c.Home + "/" + rest
 	}
 	if !strings.HasPrefix(name, c.Home+"/") || name == c.Home+"/" {
-		return source{}, 0, false
+		return nil, 0, 0, false
 	}
-	return source{id: name, variable: variable}, start + len(token), true
+	return []source{{id: name, variable: variable}}, start, start + len(token), true
+}
+
+func (c Carrier) cited(brief string, match []int) ([]source, int, bool) {
+	span := func(name string) (string, int) {
+		i := reference.SubexpIndex(name)
+		if match[2*i] < 0 {
+			return "", 0
+		}
+		return brief[match[2*i]:match[2*i+1]], match[2*i]
+	}
+	if shown, _ := span("shown"); shown != "" {
+		var cited []source
+		for _, token := range showToken.FindAllStringSubmatch(shown, -1) {
+			if token[1] != "" {
+				cited = append(cited, source{kind: cciDir, id: token[1]})
+			}
+		}
+		return cited, match[0], len(cited) > 0
+	}
+	if id, start := span("recorded"); id != "" {
+		return []source{{kind: cciDir, id: id}}, start, true
+	}
+	if id, start := span("tagged"); id != "" {
+		if start > 0 && brief[start-1] == '#' {
+			start--
+		}
+		return []source{{kind: cciDir, id: id}}, start, true
+	}
+	if id, start := span("bare"); id != "" {
+		lane, _ := span("lane")
+		return []source{{kind: cciDir, id: id, lane: lane}}, start, true
+	}
+	return nil, 0, false
 }
 
 func (c Carrier) carry(ctx context.Context, named source) (string, error) {
+	if named.kind == cciDir {
+		return c.record(ctx, named)
+	}
 	if named.kind != "" {
 		return c.note(ctx, named.kind, named.id)
 	}
@@ -229,6 +286,43 @@ func (c Carrier) note(ctx context.Context, kind, id string) (string, error) {
 	}
 	name := path.Join(notesDir, kind+"-"+id+".md")
 	if err := write(filepath.Join(c.Into, name), []byte(shown.Stdout), 0o600); err != nil {
+		return "", err
+	}
+	return path.Join(c.Box, name), nil
+}
+
+func (c Carrier) show(ctx context.Context, id string, flags ...string) (string, error) {
+	argv := []string{"cci", "show"}
+	if c.Drive != "" {
+		argv = append(argv, "--drive", c.Drive)
+	}
+	shown, err := c.Runner.Run(ctx, shell.Command{Argv: append(append(argv, flags...), id), Idempotent: true})
+	if err != nil {
+		return "", fmt.Errorf("`cci show %s` failed: %w", id, err)
+	}
+	return shown.Stdout, nil
+}
+
+func (c Carrier) record(ctx context.Context, named source) (string, error) {
+	if named.lane != "" {
+		header, err := c.show(ctx, named.id, "--json")
+		if err != nil {
+			return "", nil
+		}
+		var cited record
+		if err := json.Unmarshal([]byte(strings.SplitN(header, "\n", 2)[0]), &cited); err != nil {
+			return "", fmt.Errorf("`cci show --json %s` printed no record: %w", named.id, err)
+		}
+		if !strings.EqualFold(cited.Lane, named.lane) && !slices.ContainsFunc(cited.To, func(to string) bool { return strings.EqualFold(to, named.lane) }) {
+			return "", nil
+		}
+	}
+	shown, err := c.show(ctx, named.id)
+	if err != nil {
+		return "", err
+	}
+	name := path.Join(cciDir, "record-"+named.id+".md")
+	if err := write(filepath.Join(c.Into, name), []byte(shown), 0o600); err != nil {
 		return "", err
 	}
 	return path.Join(c.Box, name), nil
