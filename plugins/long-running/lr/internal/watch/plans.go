@@ -15,9 +15,15 @@ import (
 
 const (
 	PlanNamespace = "deadline"
+	StepNamespace = "step"
 
 	planKind       = "deadline"
 	unplannedClass = "deadline with no plan"
+	stepKind       = "step"
+	missedClass    = "step clock passed"
+	ownerRelay     = "owner-relay"
+	rowAttr        = "row"
+	deliveredAttr  = "delivered"
 	ownerAttr      = "owner"
 	deadlineAttr   = "deadline"
 	stepAttr       = "step:"
@@ -172,4 +178,109 @@ func settled(records []client.Record, seq int64) bool {
 	return slices.ContainsFunc(records, func(later client.Record) bool {
 		return later.Resolves == seq || slices.Contains(later.AlsoResolves, seq) || later.Re == seq && planned(later)
 	})
+}
+
+type step struct {
+	name, clock, what string
+	due               time.Time
+}
+
+func MissedSteps(records []client.Record, now time.Time) []Wait {
+	var waits []Wait
+	for _, record := range records {
+		owner := record.Fields.Attrs[ownerAttr]
+		if owner == "" || record.Status == "closed" || settled(records, record.Seq) {
+			continue
+		}
+		since := record.At
+		for _, step := range timedSteps(record) {
+			if step.due.After(now) {
+				break
+			}
+			if !answered(records, record, owner, since) {
+				for _, to := range slices.Compact([]string{owner, ownerRelay}) {
+					waits = append(waits, Wait{
+						Kind: stepKind, Repo: StepNamespace, Number: int(record.Seq), Head: step.name, Mover: machine.MoverLane, Since: step.due, To: to, Key: step.name + " " + to,
+						Cause: fmt.Sprintf("%s: %s%s %s=%s %s from %s, owned by %s, passed its clock with no record from %s answering it since %s; %s owes a record with --re %d saying what is done and what is next, or one resolving it", missedClass, record.Name(), rowOf(record), step.name, step.clock, step.what, record.Lane, owner, owner, since.In(pacific).Format("3:04 PM"), owner, record.Seq),
+					})
+				}
+			}
+			since = step.due
+		}
+	}
+	return waits
+}
+
+func NextStep(records []client.Record, now time.Time) time.Time {
+	var next time.Time
+	for _, record := range records {
+		if record.Fields.Attrs[ownerAttr] == "" || record.Status == "closed" || settled(records, record.Seq) {
+			continue
+		}
+		for _, step := range timedSteps(record) {
+			if step.due.After(now) && (next.IsZero() || step.due.Before(next)) {
+				next = step.due
+			}
+		}
+	}
+	return next
+}
+
+func timedSteps(record client.Record) []step {
+	var steps []step
+	for key, value := range record.Fields.Attrs {
+		clock := leadingClock.FindString(value)
+		at, ok := parsedClock(clock)
+		if !strings.HasPrefix(key, stepAttr) || !ok {
+			continue
+		}
+		rest := strings.TrimSpace(value[len(clock):])
+		steps = append(steps, step{name: key, clock: clock, what: rest, due: stepDue(at, rest, record.At)})
+	}
+	slices.SortFunc(steps, func(a, b step) int { return a.due.Compare(b.due) })
+	return steps
+}
+
+func stepDue(at time.Time, rest string, written time.Time) time.Time {
+	written = written.In(pacific)
+	if named := monthDay.FindStringSubmatch(" " + rest); named != nil {
+		if date, err := time.Parse("Jan 2", named[1][:3]+" "+named[2]); err == nil {
+			due := time.Date(written.Year(), date.Month(), date.Day(), at.Hour(), at.Minute(), 0, 0, pacific)
+			if written.Sub(due) > dateWrap {
+				due = due.AddDate(1, 0, 0)
+			}
+			return due
+		}
+	}
+	due := time.Date(written.Year(), written.Month(), written.Day(), at.Hour(), at.Minute(), 0, 0, pacific)
+	if due.Before(written.Truncate(time.Minute)) {
+		due = due.AddDate(0, 0, 1)
+	}
+	return due
+}
+
+func answered(records []client.Record, record client.Record, owner string, since time.Time) bool {
+	seq, row := record.Seq, record.Fields.Attrs[rowAttr]
+	return slices.ContainsFunc(records, func(later client.Record) bool {
+		delivered := strings.FieldsFunc(later.Fields.Attrs[deliveredAttr], func(r rune) bool { return r == ',' || r == ' ' })
+		return later.Seq > seq && later.At.After(since) && sameLane(later.Lane, owner) && (later.Re == seq || later.Resolves == seq || slices.Contains(later.AlsoResolves, seq) || row != "" && slices.Contains(delivered, "owner:"+row))
+	})
+}
+
+func rowOf(record client.Record) string {
+	if row := record.Fields.Attrs[rowAttr]; row != "" {
+		return " row " + row
+	}
+	return ""
+}
+
+func sameLane(a, b string) bool {
+	return laneBase(a) == laneBase(b)
+}
+
+func laneBase(name string) string {
+	if found := numberedLane.FindStringSubmatch(name); found != nil {
+		return found[1]
+	}
+	return name
 }

@@ -71,6 +71,7 @@ A record that names a deadline (a clock time after `by`, `before`, `until` or `d
 - The `deadline_plans` hook warns on a Bash `cci post` or a cci post tool call that names a deadline without them, unless the post answers or cites a record.
 - The board text gate flags a card that names a deadline beside no lane.
 - The stall watch pages the lane that posted a deadline record that slips through, once, naming the record, its deadline and that lane, and closes that page when the plan arrives.
+- A step's clock can pass with no record from the owner lane answering the record since the step before it. The stall watch then tells the owner lane and `owner-relay` once per step, within a minute of the clock, naming the record, its row and the step. An answer is a record from that lane replying to or resolving the record, or one carrying `delivered=owner:<row>` for its row.
 
 ## Delivery and cursors
 
