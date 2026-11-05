@@ -1076,10 +1076,9 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	if err != nil {
 		return nil, err
 	}
+	rowLanes := make(map[int]string, len(known))
 	for _, row := range known {
-		if owners[row.Number] == "" {
-			owners[row.Number] = row.Lane
-		}
+		rowLanes[row.Number] = row.Lane
 	}
 	enqueuedAt, err := s.Store.FactsOfKind(s.Repo, "enqueued")
 	if err != nil {
@@ -1104,6 +1103,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		if err != nil {
 			return nil, err
 		}
+		f.Lane = cmp.Or(f.Lane, rowLanes[row.Number])
 		f.PersonQueued = f.Queue == machine.QueueQueued && !enqueued[f.Number]
 		held[row.Number].onto(&f)
 		f.Carries = open.carries[row.Number]
