@@ -358,6 +358,7 @@ func (f Fold) headOf(record client.Record, number int) string {
 func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, head string) (store.ReviewRow, error) {
 	at := store.Stamp(record.At)
 	if head != "" {
+		head = fullHead(head, row)
 		replaced := ""
 		if at >= row.HeadAt && !sameHead(row.Head, head) {
 			replaced = row.Head
@@ -520,6 +521,15 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 
 func sameHead(a, b string) bool {
 	return a != "" && b != "" && (strings.HasPrefix(a, b) || strings.HasPrefix(b, a))
+}
+
+func fullHead(head string, row store.ReviewRow) string {
+	for _, known := range []string{row.ReadHead, row.Head} {
+		if strings.HasPrefix(known, head) {
+			return known
+		}
+	}
+	return head
 }
 
 func longer(a, b string) string {
@@ -709,7 +719,7 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 			failed = append(failed, err)
 			continue
 		}
-		if facts[factValues] == valuesOf(attrs) && sameHead(row.Head, pr.Head) {
+		if facts[factValues] == valuesOf(attrs) && row.Head == pr.Head {
 			continue
 		}
 		var body json.RawMessage
