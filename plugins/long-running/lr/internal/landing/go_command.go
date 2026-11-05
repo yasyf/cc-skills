@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -121,11 +122,10 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards}
 	port, claimed := gates.PortAt(claim, records)
 	if claimed {
-		sources, err := a.CCXFrom(cfg.Checkout).PRStatus(ctx, cfg.Repo, []int{port.Source})
+		read.PortSourceMerged, err = sourceLanded(ctx, a, cfg, port.Source)
 		if err != nil {
 			return false, err
 		}
-		read.PortSourceMerged = slices.ContainsFunc(sources, func(source ccx.PRStatus) bool { return source.State == mergedPR })
 	}
 	standing := claimed && !port.Interacts || gates.FlakeAt(claim, records)
 	if flags.sweep {
@@ -152,7 +152,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
 	}
 	text, refusals := gates.ExemptGo(claim, read)
-	if err := noteStandingRefused(s, claim, flags.sweep && standing, refusals, a.Now()); err != nil {
+	if err := noteStandingRefused(s, claim, standing && flags.before == 0 && (flags.sweep || len(refusals) == 0), refusals, a.Now()); err != nil {
 		return false, err
 	}
 	if flags.before == 0 {
@@ -195,12 +195,31 @@ func changedFiles(lines string) ([]string, map[string]*string, error) {
 }
 
 func noteStandingRefused(s *store.Store, claim gates.Claim, standing bool, refusals []string, at time.Time) error {
-	if !standing || len(refusals) == 0 {
+	if !standing {
 		return nil
 	}
 	return s.Update(func(t *store.Tx) error {
 		return t.PutFact(claim.Repo, claim.PR, claim.Head, gates.StandingRefused, strings.Join(refusals, "; "), at)
 	})
+}
+
+func sourceLanded(ctx context.Context, a *app.App, cfg config.Config, source int) (bool, error) {
+	rows, err := a.CCXFrom(cfg.Checkout).PRStatus(ctx, cfg.Repo, []int{source})
+	if err != nil {
+		return false, err
+	}
+	if slices.ContainsFunc(rows, func(row ccx.PRStatus) bool { return row.State == mergedPR }) {
+		return true, nil
+	}
+	if _, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "fetch", "-q", "origin", cfg.Trunk}, Timeout: gitLimit}); err != nil {
+		return false, err
+	}
+	named := fmt.Sprintf("(#%d)", source)
+	log, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "log", "origin/" + cfg.Trunk, "--format=%s", "--fixed-strings", "--grep=" + named}, Timeout: gitLimit})
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(strings.Split(log.Stdout, "\n"), func(subject string) bool { return strings.HasSuffix(subject, named) }), nil
 }
 
 func notePortRead(s *store.Store, claim gates.Claim, read gates.Read, at time.Time) error {

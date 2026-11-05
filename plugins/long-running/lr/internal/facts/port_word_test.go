@@ -51,6 +51,7 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 	}{
 		"#48819, a clean port the first grader calls a twin":        {[]string{twin, purePort}, clean, true, []string{iris}, prrow.PortLands, ""},
 		"#50285, a clean port the first grader calls test-only":     {[]string{testOnly, purePort}, clean, true, []string{testFile}, prrow.PortLands, ""},
+		"#50292, a clean port whose only fidelity is an override":   {[]string{"fidelity: missing " + surfaceHead + " a doc line", "fidelity-override #4242 at abc1234: 3. Port of #48435."}, clean, true, []string{iris}, prrow.PortLands, ""},
 		"a port its record says interacts lands on his tap":         {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435", gates.PortInteractsAttr: "yes"}, true, []string{iris}, "", "port-interacts=no"},
 		"a port silent on interaction lands on his tap":             {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435"}, true, []string{iris}, "", "port-interacts=no"},
 		"a port whose source never merged lands on his tap":         {[]string{purePort}, clean, false, []string{iris}, "", "its source #48435 is not a merged pull request"},
@@ -71,7 +72,11 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 			records := make([]client.Record, 0, 2+len(c.grades))
 			records = append(records, busRecord(t, 1, "finder-desk", "review", "finder: ok "+surfaceHead+" no majors", nil), busRecord(t, 2, "port-x", "head", "HEAD", headAttrs))
 			for at, grade := range c.grades {
-				records = append(records, busRecord(t, 3+at, []string{"fidelity-pipeline", "fidelity-desk"}[at], "review", grade, nil))
+				lane, kind := []string{"fidelity-pipeline", "fidelity-desk"}[at], "review"
+				if strings.HasPrefix(grade, "fidelity-override") {
+					lane, kind = "root", "decide"
+				}
+				records = append(records, busRecord(t, 3+at, lane, kind, grade, nil))
 			}
 			patch := "+retry()"
 			patches := map[string]*string{}
