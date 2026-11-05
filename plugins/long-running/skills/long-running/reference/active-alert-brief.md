@@ -229,6 +229,7 @@ When a second outage hits the same area, stop fixing one at a time: halt, re-ent
 - Incident fixes ship by regular release, not hotfix; the fix lane still merges directly.
 - Never stack a follow-up on an incident fix that awaits its merge: a child in the native stack refuses the fix's plain merge and cannot reopen. Open the follow-up on the default branch after the merge.
 - A fix for a live user-facing break opens as a PR with the code change alone and no tests. The lane squashes it the moment CI is green and the PR is approved, then ships the regression and CI tests as a follow-up PR from the same lane right after the fix is live.
+- Incident mode never buys the owner's identity: the rule in [orca-lane-brief.md](orca-lane-brief.md#who-spawns-asks-and-reads) holds for every incident lane, and a coordinator asking for a scratch proof names a test identity or a no-write probe.
 - The record that resolves the incident ends incident mode.
 
 ## Incident clocks
@@ -384,6 +385,11 @@ Authority: implement the fix and open its PR through <submit skill>.
   log in the same turn, for this and every other state-changing production
   command you run:
   `ccn log append "$(ccn log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
+  This authority never covers the owner's identity: never call production as him
+  or drive his signed-in browser, Orca tab or session, read or write. A proof that
+  needs his identity is a pick to him through `lr ask-owner`; a scratch proof with
+  no named identity means a test identity or no write. Codex runs no hooks, so
+  this line is the only guard on a Codex lane.
   Any delete or replace stops for the owner, unless he ordered this release: start
   that one with `--order <answer id>`, and its gate passes itself.
   A break-glass profile refused with ForbiddenException on GetRoleCredentials
@@ -599,6 +605,8 @@ Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
 Owner: the coordinator <coordinator agent name> for incident <incident id>.
 Authority: read-only evidence. Feed <fix lane name> and the coordinator.
   You gate nothing. Never ask the fix lane to wait for diagnosis.
+  Read-only never covers the owner's identity: never call production as him or
+  drive his signed-in browser, Orca tab or session, reads included.
 
 Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>
