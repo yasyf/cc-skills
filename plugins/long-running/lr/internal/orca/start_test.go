@@ -1154,7 +1154,7 @@ func TestAWorkerStartsOnlyTheMCPServersItsLaunchNames(t *testing.T) {
 }
 
 func TestOnlyABriefAskingForSlackStartsTheSlackServer(t *testing.T) {
-	for brief, want := range map[string]bool{"ccx: role=reader place=local why=mac-question mcp=slack\nScale: one\n": true, "ccx: role=reader place=local why=mac-question\nScale: one\n": false} {
+	for brief, want := range map[string]bool{"ccx: role=reader place=local why=mac-state mcp=slack\nScale: one\n": true, "ccx: role=reader place=local why=mac-state\nScale: one\n": false} {
 		h := newHarness(t)
 		h.healthyClaude()
 		h.env["ORCA_LAUNCH_SLACK_MCP_CONFIG"] = "/briefs/slack-only.json"
@@ -2502,7 +2502,8 @@ func TestAWorkerStartThatPrintedADispatchBesideARefusalRollsNothingBack(t *testi
 func TestAMacBriefNamesWhyOrTheLaneGoesToASprite(t *testing.T) {
 	cases := map[string]bool{
 		"ccx: role=build place=local incident=none\n":                    false,
-		"ccx: role=build place=local why=orca-terminals incident=none\n": true,
+		"ccx: role=build place=local why=mac-state incident=none\n":      true,
+		"ccx: role=build place=local why=orca-terminals incident=none\n": false,
 		"ccx: role=build place=remote\n":                                 false,
 		"ccx: role=read place=local incident=none\n":                     true,
 		"ccx: role=read place=remote\n":                                  false,

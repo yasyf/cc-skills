@@ -43,14 +43,14 @@ Under O16 in `reference/orca-desk-brief.md`:
 
 | `ccx:` flags | Where the lane runs |
 |---|---|
-| none, or `place=remote` | A Sprite, on the orca desk. Without `orca.sprite` the launch fails with `LAUNCH-FAILED`; a failed Sprite launch never starts locally. |
-| `place=local why=<word>` | The Mac, at any load. |
-| `incident=none place=local why=mac-inputs`, the stamp `lr launch lane --body` writes | The Mac at any load, but a Sprite when Orca is out of terminals on the Mac. The lane's pointer tells it to post `blocked` to its launcher if the work truly needs the Mac. |
+| none, or `place=remote`, which `lr launch lane --body` writes unless `--place local --why <need>` is passed | A Sprite, on the orca desk. Without `orca.sprite` the launch fails with `LAUNCH-FAILED`; a failed Sprite launch never starts locally. |
+| `place=local why=<need>`, a need from the list below | The Mac, at any load. Over `orca.load_limit`, its `LAUNCHED` line names the load, as in `on this Mac: Mac load 64 over 32`. |
+| `place=local why=<anything else>` | Refused before it posts and by the runner, with a line naming the needs that qualify, unless the lane is an incident lane, which starts on a Sprite, or it also says `role=read` or `why=predecessor-worked-here`. |
 | `place=local` with no `why=` | A Sprite, except `role=read`. |
 | `role=read`, or `why=predecessor-worked-here` | Prefers the Mac, but starts on a Sprite while the Mac's one-minute load average is above `orca.load_limit`, which defaults to its core count, or while Orca is out of terminals on the Mac. |
 
 - Write `place=remote` when the lane can work inside the Sprite's limits below, with every fact in the brief by value and everything it builds on already pushed.
-- Write `place=local why=<word>` when the lane reads a worktree or branch only the Mac has, needs a Mac-only credential, or drives something on the Mac itself.
+- Write `place=local why=<need>` only for a need a Sprite cannot meet: `sentry` or `datadog` to read evidence, `signed-in` for a proof in a signed-in session, `cc-present` to serve the owner's board or another page he opens on this Mac, `mac-build` for a build or install only this Mac runs, `mac-state` to read or change this Mac's own stores, worktrees or processes, or `devbox` to claim a devbox or EC2 Mac box with this Mac's AWS identity.
 - A `role=read` lane prefers the Mac because its answers need the Mac's whole record history and stores, and a Sprite's cci store starts at its launch.
 - A file or ccn entity the brief names is no reason for `place=local`: the launch carries it to the box.
 - A lane that needs a devbox or an EC2 Mac box is `place=local why=devbox`, since a Sprite holds no AWS identity or devbox CLI, so it cannot claim a box or reach one. An alert's fix lane is the exception: it stays on its Sprite and asks its evidence lane on the Mac for each devbox repro, which runs it and posts the results back (`alert-fix-brief.md`, `alert-evidence-brief.md`). Its brief names the command `AWS_PROFILE="$DEVBOX_AWS_PROFILE" tools/ci devbox claim --gh`, and the same prefix on `tools/ci mac-box`. The Mac's local config sets `DEVBOX_AWS_PROFILE` to a profile that needs no sign-in, and `--gh` settles the clone credential. No lane asks the owner to sign in or to pick a clone credential; a refusal from that command is a blocker to the coordinator, carrying its error. The `Compute:` lines below carry the rest of the devbox rules.

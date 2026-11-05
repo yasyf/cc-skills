@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -29,10 +30,10 @@ var (
 )
 
 type NewBrief struct {
-	Title, BodyFile, Contract, Scale, Place, CCX, OwnerPick string
-	Topics, Orders                                          []string
-	StandingDir                                             string
-	Stdin                                                   io.Reader
+	Title, BodyFile, Contract, Scale, Place, Why, CCX, OwnerPick string
+	Topics, Orders                                               []string
+	StandingDir                                                  string
+	Stdin                                                        io.Reader
 }
 
 func (n NewBrief) Write(stateDir, lane string) (string, error) {
@@ -128,11 +129,15 @@ func (n NewBrief) ccxLine() (string, error) {
 		}
 		return line, nil
 	}
-	switch n.Place {
-	case placeLocal:
-		return "ccx: role=build incident=none place=local why=" + whyMacInputs, nil
-	case placeRemote:
+	switch {
+	case n.Place == placeRemote && n.Why == "":
 		return "ccx: role=build incident=none", nil
+	case n.Place == placeRemote:
+		return "", fmt.Errorf("--why %s keeps a lane on this Mac, so it takes --place %s", n.Why, placeLocal)
+	case n.Place == placeLocal && slices.Contains(lanes.MacNeeds, n.Why):
+		return "ccx: role=build incident=none place=local why=" + n.Why, nil
+	case n.Place == placeLocal:
+		return "", fmt.Errorf("--place %s takes --why naming a need only this Mac meets: %s", placeLocal, lanes.MacNeedsLine)
 	}
-	return "", fmt.Errorf("--place %s: choose %s or %s", n.Place, placeLocal, placeRemote)
+	return "", fmt.Errorf("--place %s: choose %s or %s", n.Place, placeRemote, placeLocal)
 }

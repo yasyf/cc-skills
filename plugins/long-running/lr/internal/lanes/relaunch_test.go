@@ -335,16 +335,27 @@ func TestAStandingDesksRefusedSuccessorReachesRootByNameInTheSameTick(t *testing
 func TestASuccessorOfADeskThatNeedsTheMacKeepsItsNeedSoItNeverLandsOnASprite(t *testing.T) {
 	s := memory(t)
 	brief := filepath.Join(t.TempDir(), "brief.md")
-	do(os.WriteFile(brief, []byte("# conflicts-2: restack desk\nccx: role=desk place=local why=serves-previews incident=none\n"), 0o600))
+	do(os.WriteFile(brief, []byte("# conflicts-2: restack desk\nccx: role=desk place=local why=cc-present incident=none\n"), 0o600))
 	f := stoodDownFor(t, s, brief)
 
 	tick(t, s, f, t0)
 
 	successor := f.briefs["conflicts-3"]
-	contains(t, successor, "Replaces: conflicts-2\nccx: role=desk place=local why=serves-previews incident=none\n")
+	contains(t, successor, "Replaces: conflicts-2\nccx: role=desk place=local why=cc-present incident=none\n")
 	if strings.Contains(successor, "predecessor-worked-here") {
 		t.Fatalf("a Mac desk's successor brief turned its need into a preference:\n%s", successor)
 	}
+}
+
+func TestASuccessorOfALaneWhoseWhyNamesNoMacNeedOnlyPrefersTheMac(t *testing.T) {
+	s := memory(t)
+	brief := filepath.Join(t.TempDir(), "brief.md")
+	do(os.WriteFile(brief, []byte("# conflicts-2: restack desk\nccx: role=build incident=none place=local why=mac-inputs\n"), 0o600))
+	f := stoodDownFor(t, s, brief)
+
+	tick(t, s, f, t0)
+
+	contains(t, f.briefs["conflicts-3"], "Replaces: conflicts-2\nccx: place=local why=predecessor-worked-here\n")
 }
 
 func TestAStandDownNamingItsSuccessorByStemPointsAtTheStemsLiveLaneAndLaunchesNothing(t *testing.T) {

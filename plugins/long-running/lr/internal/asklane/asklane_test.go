@@ -107,7 +107,7 @@ func TestStartPinsAMacQuestionToTheMac(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(text), "ccx: role=reader incident=none place=local why=mac-question mcp=slack") {
+	if !strings.Contains(string(text), "ccx: role=reader incident=none place=local why=mac-state mcp=slack") {
 		t.Fatalf("brief is not placed on the Mac:\n%s", text)
 	}
 }

@@ -1,4 +1,4 @@
-ccx: lane={lane} role=release place=local why=release-tools incident=none effort=high
+ccx: lane={lane} role=release place=local why=mac-build incident=none effort=high
 
 # {lane}: cut and publish {component} now, by hand if the standard start refuses
 

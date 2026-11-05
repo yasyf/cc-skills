@@ -24,6 +24,7 @@ func TestNewBriefWritesWhatTheLaunchChecksRead(t *testing.T) {
 		Contract: writeFixture(t, "contract.md", "- Report to meta-desk only.\n"),
 		Scale:    "medium",
 		Place:    placeLocal,
+		Why:      "mac-build",
 		Topics:   []string{"verbs", "scratch"},
 		Orders:   []string{"owner:m7", "owner:m35.2"},
 	}
@@ -43,7 +44,7 @@ func TestNewBriefWritesWhatTheLaunchChecksRead(t *testing.T) {
 		"# desk-verbs-1: the desk's scripts become verbs\n",
 		"Register slice: lane=desk-verbs-1 step=all topics=verbs,scratch\n",
 		"Scale: medium\n",
-		"ccx: role=build incident=none place=local why=mac-inputs\n",
+		"ccx: role=build incident=none place=local why=mac-build\n",
 		"- Report to meta-desk only.\n\n## Why",
 		"Assigned orders: owner:m7 owner:m35.2\n",
 	} {
@@ -103,7 +104,7 @@ func TestNewBriefReadsItsBodyFromStdinAndAppendsThePostersStandingLines(t *testi
 	if err := os.WriteFile(filepath.Join(standing, standingFile), []byte("A standing line.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	n := NewBrief{Title: "t", BodyFile: bodyFromStdin, Stdin: strings.NewReader("Owner owner:m35 said so.\n"), Scale: "small", Place: placeLocal, StandingDir: standing}
+	n := NewBrief{Title: "t", BodyFile: bodyFromStdin, Stdin: strings.NewReader("Owner owner:m35 said so.\n"), Scale: "small", Place: placeRemote, StandingDir: standing}
 	text, err := n.text("lane-a")
 	if err != nil {
 		t.Fatal(err)
@@ -114,13 +115,24 @@ func TestNewBriefReadsItsBodyFromStdinAndAppendsThePostersStandingLines(t *testi
 }
 
 func TestNewBriefWithNoStandingFileWritesOnlyItsBody(t *testing.T) {
-	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal, StandingDir: t.TempDir()}
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote, StandingDir: t.TempDir()}
 	text, err := n.text("lane-a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasSuffix(text, "\n\nplain\n") {
 		t.Errorf("brief:\n%s", text)
+	}
+}
+
+func TestABriefLrLaunchLaneWritesWithItsDefaultPlaceStartsOnASprite(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: laneCommand(nil).Flags().Lookup("place").DefValue}
+	text, err := n.text("lane-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placedLocal(text) || !strings.Contains(text, "ccx: role=build incident=none\n") {
+		t.Errorf("the default brief does not start on a Sprite:\n%s", text)
 	}
 }
 
@@ -148,11 +160,14 @@ func TestNewBriefRefusals(t *testing.T) {
 		n    NewBrief
 		want string
 	}{
-		{"no title", NewBrief{BodyFile: body, Place: placeLocal}, "--title"},
-		{"empty body", NewBrief{Title: "t", BodyFile: writeFixture(t, "empty.md", " \n"), Place: placeLocal}, "is empty"},
-		{"missing body", NewBrief{Title: "t", BodyFile: filepath.Join(t.TempDir(), "gone.md"), Place: placeLocal}, "--body"},
-		{"missing contract", NewBrief{Title: "t", BodyFile: body, Contract: filepath.Join(t.TempDir(), "gone.md"), Place: placeLocal}, "--contract"},
+		{"no title", NewBrief{BodyFile: body, Place: placeRemote}, "--title"},
+		{"empty body", NewBrief{Title: "t", BodyFile: writeFixture(t, "empty.md", " \n"), Place: placeRemote}, "is empty"},
+		{"missing body", NewBrief{Title: "t", BodyFile: filepath.Join(t.TempDir(), "gone.md"), Place: placeRemote}, "--body"},
+		{"missing contract", NewBrief{Title: "t", BodyFile: body, Contract: filepath.Join(t.TempDir(), "gone.md"), Place: placeRemote}, "--contract"},
 		{"unknown place", NewBrief{Title: "t", BodyFile: body, Place: "moon"}, "--place moon"},
+		{"the Mac with no need", NewBrief{Title: "t", BodyFile: body, Place: placeLocal}, "--place local takes --why naming a need only this Mac meets: why=sentry"},
+		{"the Mac for a need it does not hold alone", NewBrief{Title: "t", BodyFile: body, Place: placeLocal, Why: "mac-inputs"}, "--place local takes --why"},
+		{"a need on a Sprite", NewBrief{Title: "t", BodyFile: body, Place: placeRemote, Why: "sentry"}, "--why sentry keeps a lane on this Mac, so it takes --place local"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := tt.n.Write(t.TempDir(), "lane-a"); err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -168,7 +183,7 @@ func TestNewBriefKeepsABriefThatReachedWorkerStart(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, workerAttempt), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal}
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote}
 	if _, err := n.Write(state, "lane-a"); err == nil || !strings.Contains(err.Error(), "next number") {
 		t.Fatalf("err = %v, want the attempt refused", err)
 	}
@@ -178,7 +193,7 @@ func TestNewBriefKeepsABriefThatReachedWorkerStart(t *testing.T) {
 }
 
 func TestNewBriefWritesTheOwnersPickTheCostGateReads(t *testing.T) {
-	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal, OwnerPick: "owner:m836"}
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote, OwnerPick: "owner:m836"}
 	text, err := n.text("lane-a")
 	if err != nil {
 		t.Fatal(err)

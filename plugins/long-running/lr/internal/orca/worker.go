@@ -869,9 +869,6 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if briefRead.Match(raw) && placedLocal(string(raw)) {
 		read = readOnSprite
 	}
-	if stampedMacInputs(string(raw)) {
-		read = macInputsOnSprite
-	}
 	if w.incident || incidentBrief(w.lane, string(raw)) {
 		read += incidentOnSprite
 	}

@@ -165,7 +165,7 @@ func TestAStalledLaunchLeavesARelayLineReadInTheSamePass(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	w.register(store.Lane{Name: "lane-b", Role: "lane", Launcher: coordinatorLane})
-	brief := w.brief("lane-b", "Register slice: lane=lane-b step=all\nScale: no N\nccx: place=local why=test\n")
+	brief := w.brief("lane-b", "Register slice: lane=lane-b step=all\nScale: no N\nccx: place=local why=mac-build\n")
 	w.process = &fakeProcess{}
 	if err := w.desk.Run(context.Background(), true); err != nil {
 		t.Fatal(err)

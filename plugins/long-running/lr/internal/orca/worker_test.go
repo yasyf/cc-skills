@@ -784,19 +784,6 @@ func TestAReadLaneTheMacsLoadSentToASpriteIsToldItsStoreStartsAtLaunch(t *testin
 	}
 }
 
-func TestAHelperStampedWithMacInputsIsToldItMayReportBlockedFromItsSprite(t *testing.T) {
-	for header, want := range map[string]bool{"ccx: role=build incident=none place=local why=mac-inputs": true, "ccx: role=build incident=none place=remote": false} {
-		f := newWorkerFixture(t)
-		text := "# Lane A\n" + header + "\nRead what the drive recorded.\n"
-		f.write(f.brief, text, 0o600)
-		f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
-		f.launched()
-		if strings.HasSuffix(f.startedSpec(), macInputsOnSprite) != want {
-			t.Fatal(header, f.startedSpec())
-		}
-	}
-}
-
 func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogsTheKey(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
