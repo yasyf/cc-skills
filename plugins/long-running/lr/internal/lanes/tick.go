@@ -57,6 +57,7 @@ type Deps struct {
 	OpenWork              func() ([]Record, error)
 	Owed                  func() ([]deletions.Owed, error)
 	Present               func(rows []deletions.Owed) ([]deletions.Owed, error)
+	PublishNotes          func(lane string) error
 	Gaps                  func() ([]string, error)
 	Orders                func(s *store.Store) ([]owner.Row, error)
 	RotateAt              int
@@ -138,6 +139,9 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	said := fold(s, records, adoptable, d.Briefs, d)
 	out.Adopted = append(said.adopted, adoptStanding(s, d, found, now)...)
 	announce(s, d, said)
+	if !fresh {
+		publishWritten(s, d, records, now)
+	}
 	for _, one := range said.refused {
 		refusedRelaunch(s, d, one, now, &out)
 	}

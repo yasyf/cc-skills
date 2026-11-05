@@ -224,6 +224,7 @@ func decideLanes(given Input) (Decided, error) {
 		OpenWork:     func() ([]lanes.Record, error) { return nil, nil },
 		Owed:         func() ([]deletions.Owed, error) { return nil, nil },
 		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
+		PublishNotes: func(string) error { return nil },
 		Gaps:         func() ([]string, error) { return nil, nil },
 		Orders:       func(*store.Store) ([]owner.Row, error) { return nil, nil },
 		Records: func(since int64) ([]lanes.Record, error) {

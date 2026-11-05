@@ -100,7 +100,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 				return
 			}
 		}
-		if successor == "" && row.State != store.LaneRetired && !out.owesNothing(s, name, fresh, at) {
+		if successor == "" && row.State != store.LaneRetired && !out.orderedOff(s, name, fresh, at) {
 			return
 		}
 		if successor == "" && !fresh {
@@ -782,7 +782,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 				continue
 			}
 		}
-		if successor == "" && gone.State != store.LaneRetired && !out.owesNothing(s, old, fresh, at) {
+		if successor == "" && gone.State != store.LaneRetired && !out.orderedOff(s, old, fresh, at) {
 			continue
 		}
 		if successor == "" && !fresh {

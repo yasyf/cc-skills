@@ -179,6 +179,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 		OpenWork:     func() ([]Record, error) { return nil, nil },
 		Owed:         func() ([]deletions.Owed, error) { return nil, nil },
 		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
+		PublishNotes: func(string) error { return nil },
 		Gaps:         func() ([]string, error) { return nil, nil },
 		Orders:       func(*store.Store) ([]owner.Row, error) { return nil, nil },
 		Records: func(since int64) ([]Record, error) {
