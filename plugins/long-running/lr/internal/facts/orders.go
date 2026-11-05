@@ -92,7 +92,7 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 		if err := orders.PostRefusal(ctx, s.Repo, tap, refusal); err != nil {
 			return err
 		}
-		s.escalate(ctx, record, fmt.Sprintf("tap-refused:%d", record.Seq), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("His approval %s of #%d at %s was refused and lands nothing: %s. Tell him what stops it; once that is lifted, his approval needs a new tap.", record.Name(), tap.PR, tap.Head[:min(12, len(tap.Head))], refusal))
+		s.escalate(ctx, record, fmt.Sprintf("tap-refused:%d", record.Seq), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("His approval %s of #%d at %s was refused and lands nothing: %s. Tell him what stops it.", record.Name(), tap.PR, tap.Head[:min(12, len(tap.Head))], refusal))
 		return nil
 	}
 	if _, err := orders.PostOrder(ctx, tap, record); err != nil {

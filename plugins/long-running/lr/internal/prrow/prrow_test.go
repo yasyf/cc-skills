@@ -95,7 +95,9 @@ func TestHisApprovalStandsBehindAPendingCheckAndOnlyTheRowsStandingRefusesIt(t *
 		{"superseded", func(r *store.ReviewRow) { r.SupersededBy = "replaced by #9" }, "Nothing: superseded, replaced by #9"},
 		{"draft", func(r *store.ReviewRow) { r.State = StateDraft }, "it is a draft"},
 		{"closed", func(r *store.ReviewRow) { r.State = StateClosed }, "Nothing: it was closed without landing."},
-		{"no Summary", func(r *store.ReviewRow) { r.ForUsers = "" }, "its PR body has no Summary"},
+		{"no Summary", func(r *store.ReviewRow) { r.ForUsers = "" }, ""},
+		{"no plan", func(r *store.ReviewRow) { r.PlanRow = "" }, ""},
+		{"no Risk", func(r *store.ReviewRow) { r.Risk = "" }, ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			row := readyRow()
@@ -106,6 +108,19 @@ func TestHisApprovalStandsBehindAPendingCheckAndOnlyTheRowsStandingRefusesIt(t *
 				t.Fatalf("TapAt = %q, %q, %v, want %q refused %q", head, refusal, err, headA, tt.refuses)
 			}
 		})
+	}
+}
+
+func TestAnApprovalThroughAMissingBodyLineWaitsForItAndNeedsNoNewTap(t *testing.T) {
+	row := readyRow()
+	row.PlanRow, row.Tapped = "", true
+	row = Decide(row)
+	if row.ReadyForTap || !strings.Contains(row.WaitsOn, "names no plan") || LandsOnce(row) != "its PR body names its plan" {
+		t.Fatalf("row = %+v, lands once %q, want it waiting on the plan line", row, LandsOnce(row))
+	}
+	row.PlanRow = "plan step 3"
+	if row = Decide(row); !row.ReadyForTap || row.WaitsOn != tappedWaits {
+		t.Fatalf("row = %+v, want it ready and tapped once the body names a plan", row)
 	}
 }
 

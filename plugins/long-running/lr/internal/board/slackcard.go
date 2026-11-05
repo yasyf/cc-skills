@@ -246,10 +246,25 @@ func Respond(s *store.Store, repo string, hooks Hooks, rows []store.ReviewRow, n
 	if found < 0 {
 		return refuseCard(hooks, number, waits, fmt.Sprintf("#%d has no row in the PR ledger", number))
 	}
-	if now := MergeWaits(number, rows[found].Head); now != waits {
-		return refuseCard(hooks, number, waits, fmt.Sprintf("#%d moved to %s since the card asked %s; its new card asks again", number, short(rows[found].Head), waits))
+	if verdict == verdictApproved && MergeWaits(number, rows[found].Head) != waits {
+		return tapShownHead(s, repo, hooks, number, cardHead(waits), at)
 	}
 	return Answer(s, repo, hooks, rows[found], verdict, at)
+}
+
+func tapShownHead(s *store.Store, repo string, hooks Hooks, number int, shown string, at time.Time) error {
+	head, err := s.FullHead(repo, number, shown)
+	if err != nil {
+		return err
+	}
+	if err := prrow.Tap(s, repo, number, head, byOwner, at); err != nil {
+		return err
+	}
+	return hooks.Tap(TapRecord{number, head, byOwner, machine.TapTapped})
+}
+
+func cardHead(waits string) string {
+	return waits[strings.LastIndex(waits, ":")+1:]
 }
 
 func MarkShown(s *store.Store, repo string, rows []store.ReviewRow, shown []SlackShown, at time.Time) error {
@@ -276,8 +291,7 @@ func MarkShown(s *store.Store, repo string, rows []store.ReviewRow, shown []Slac
 }
 
 func refuseCard(hooks Hooks, number int, waits, reason string) error {
-	cardHead := waits[strings.LastIndex(waits, ":")+1:]
-	if err := hooks.Refuse(TapRecord{number, cardHead, byOwner, machine.TapTapped}, reason); err != nil {
+	if err := hooks.Refuse(TapRecord{number, cardHead(waits), byOwner, machine.TapTapped}, reason); err != nil {
 		return err
 	}
 	return errors.New(reason)

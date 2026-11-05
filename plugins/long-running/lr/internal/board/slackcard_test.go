@@ -51,6 +51,7 @@ func TestOnlyALedgerRowReadyAndUntappedWaitsOnHim(t *testing.T) {
 		"another PR":     {readyRow(func(r *store.ReviewRow) { r.Number = number + 1 }), false, true},
 		"held":           {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.Hold = false, "root:until #49305 lands" }), false, false},
 		"its own word":   {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.WaitsOn = false, prrow.FlakeLands }), false, false},
+		"no plan line":   {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.PlanRow = false, "" }), false, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			found, err := waitingRows(withLedger(t, c.row), repo, []int{number})
@@ -180,17 +181,54 @@ func TestMergeOnTheCardTapsTheRowAndHoldHoldsIt(t *testing.T) {
 	}
 }
 
-func TestACardAnswerForAMovedHeadOrAnotherLabelIsRefused(t *testing.T) {
+func TestATapOnACardItsRowHasMovedPastCountsAtTheHeadTheCardShowed(t *testing.T) {
+	s, hooks := withLedger(t, readyRow(nil)), &recorded{}
+	if _, err := s.PutFact(repo, number, moved, "ci", "green", t0); err != nil {
+		t.Fatal(err)
+	}
+	found, err := ledgerRows(s, repo, []int{number})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, moved), "Approve", t0); err != nil {
+		t.Fatal(err)
+	}
+	if want := []TapRecord{{number, moved, "owner", machine.TapTapped}}; !reflect.DeepEqual(hooks.taps, want) || len(hooks.refused) != 0 {
+		t.Fatalf("taps = %+v, refused = %+v, want his tap at the head the card showed", hooks.taps, hooks.refused)
+	}
+	shown, err := s.Facts(repo, number, moved)
+	if err != nil || shown["tap"] != string(machine.TapTapped) {
+		t.Fatalf("facts at the shown head = %v, %v, want his tap", shown, err)
+	}
+	row, ok, err := s.ReviewRow(repo, number)
+	if err != nil || !ok || row.Tapped {
+		t.Fatalf("row = %+v, %v, %v; tap carry decides whether it reaches the row's head", row, ok, err)
+	}
+}
+
+func TestAHoldOnACardItsRowHasMovedPastHoldsTheRowsHead(t *testing.T) {
 	s, hooks := withLedger(t, readyRow(nil)), &recorded{}
 	found, err := ledgerRows(s, repo, []int{number})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for label, said := range map[string]string{"Approve": "moved to e718a7434fa0", "Merge": "moved to e718a7434fa0", "Ship it": `not "Ship it"`} {
-		err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, moved), label, t0)
-		if err == nil || !strings.Contains(err.Error(), said) {
-			t.Fatalf("%s: err = %v, want it to say %q", label, err, said)
-		}
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, moved), "Hold", t0); err != nil {
+		t.Fatal(err)
+	}
+	if want := []Key{{number, head}}; !reflect.DeepEqual(hooks.holds, want) || len(hooks.refused) != 0 {
+		t.Fatalf("holds = %+v, refused = %+v", hooks.holds, hooks.refused)
+	}
+}
+
+func TestACardAnswerWithAnotherLabelIsRefused(t *testing.T) {
+	s, hooks := withLedger(t, readyRow(nil)), &recorded{}
+	found, err := ledgerRows(s, repo, []int{number})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Ship it", t0)
+	if err == nil || !strings.Contains(err.Error(), `not "Ship it"`) {
+		t.Fatalf("err = %v", err)
 	}
 	if len(hooks.taps)+len(hooks.holds) != 0 {
 		t.Fatalf("taps = %+v, holds = %+v", hooks.taps, hooks.holds)
@@ -199,17 +237,10 @@ func TestACardAnswerForAMovedHeadOrAnotherLabelIsRefused(t *testing.T) {
 
 func TestARefusedCardAnswerLeavesARecordNamingWhy(t *testing.T) {
 	s, hooks := withLedger(t, readyRow(nil)), &recorded{}
-	found, err := ledgerRows(s, repo, []int{number})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, moved), "Approve", t0); err == nil {
-		t.Fatal("a tap on a moved head was not refused")
-	}
 	if err := Respond(s, repo, hooks.hooks(), nil, number, MergeWaits(number, head), "Approve", t0); err == nil {
 		t.Fatal("a tap on a PR with no row was not refused")
 	}
-	if len(hooks.refused) != 2 || !strings.Contains(hooks.refused[0], "moved to") || !strings.Contains(hooks.refused[1], "no row") {
+	if len(hooks.refused) != 1 || !strings.Contains(hooks.refused[0], "no row") {
 		t.Fatalf("refused = %+v", hooks.refused)
 	}
 }
