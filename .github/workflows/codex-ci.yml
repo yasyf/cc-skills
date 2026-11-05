@@ -111,6 +111,7 @@ jobs:
           cat > "$stub/codex" <<'EOF'
           #!/bin/sh
           [ "$1" = mcp ] && { printf '[]'; exit 0; }
+          [ "$1" = login ] && exit 0
           out=""; prev=""
           for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done
           cat > /dev/null

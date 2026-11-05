@@ -175,6 +175,7 @@ func canonicalScope(t *testing.T) string {
 
 func writeStub(t *testing.T, dir, script string) {
 	t.Helper()
+	script = strings.Replace(script, "\n", "\n[ \"$1\" = login ] && exit \"${STUB_CODEX_LOGIN:-0}\"\n", 1)
 	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0o755); err != nil { //nolint:gosec // test stub must be executable
 		t.Fatal(err)
 	}

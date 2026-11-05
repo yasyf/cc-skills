@@ -25,7 +25,7 @@ func ApprovedCommand(a *app.App) *cobra.Command {
 		Short: "The PRs whose newest board verdict approves them, split into not open and still open, from one record read and one batched PR read; backfilled verdicts excluded",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, state, err := Loaded(a)
+			cfg, state, err := sessionScope(a)
 			if err != nil {
 				return err
 			}

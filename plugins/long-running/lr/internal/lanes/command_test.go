@@ -426,6 +426,20 @@ func TestARequestFromASpriteWhoseDriveHasNoConfigPostsItsRecord(t *testing.T) {
 	equal(t, []any{r.Lane, r.Attr("verb"), r.Attr("lane"), r.PRs()}, []any{"replicator-land-5", "owner", "conflicts-3", []int{46001}})
 }
 
+func TestApprovedFromASpriteWhoseDriveHasNoConfigReadsTheDrivesRecords(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	claude := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claude)
+	t.Setenv(drive.Env, testDrive)
+	writeJSON(t, filepath.Join(claude, "long-running", "drives", testDrive+".json"), map[string]any{"drive": testDrive, "repo": "o/r", "state_dir": t.TempDir(), "sessions": []string{"d50e80e8"}, "host": "sprite"})
+
+	out, err := execute(t, ApprovedCommand(&app.App{Now: func() time.Time { return t0 }}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, out, "approved: none\nnot open: none\nstill open: none\n")
+}
+
 func TestASessionInNoDriveIsRefusedInOneLine(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(drive.Env, "")

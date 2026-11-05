@@ -30,7 +30,8 @@ any `--mcp` names, runs `--disable plugins`
 authenticates via the ChatGPT-plan OAuth login (the ambient key is
 billing-capped and never mounts the hosted `image_gen` tool), hands that key to
 `codex exec` as `CODEX_API_KEY` instead on a host where `codex login status`
-fails, such as a Sprite, and keeps every
+fails, such as a Sprite, refusing at once with exit 3 and "no codex credential" when
+that host holds neither a login nor a key, and keeps every
 run's state under one fixed per-user base — `${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` —
 where any session can rediscover it (see Run Inventory). The plugin also ships
 a guard hook that blocks hand-rolled `codex exec` and backgrounded `codex-ask`
