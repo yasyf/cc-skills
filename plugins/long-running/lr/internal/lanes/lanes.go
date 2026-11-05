@@ -544,7 +544,7 @@ func (o owing) owes() string {
 		owed = append(owed, fmt.Sprintf("it owes %d deletions whose code is still on trunk: %s", len(o.rows), strings.Join(rows, "; ")))
 	}
 	if len(o.orders) > 0 {
-		owed = append(owed, fmt.Sprintf("its brief carries %d owner orders with no delivered proof: %s", len(o.orders), owner.Tokens(o.orders)))
+		owed = append(owed, fmt.Sprintf("it was assigned %d owner orders with no delivered proof: %s", len(o.orders), owner.Tokens(o.orders)))
 	}
 	if len(o.promises) > 0 {
 		owed = append(owed, "its cards promise him something by a clock, with no delivered proof: "+promiseCards(o.promises))

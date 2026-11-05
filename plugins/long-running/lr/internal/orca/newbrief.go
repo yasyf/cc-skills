@@ -8,11 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 )
 
 const (
@@ -25,11 +23,14 @@ const (
 	bodyFromStdin     = "-"
 )
 
-var ccxPairGlue = regexp.MustCompile(`,\s*([a-z-]+=)`)
+var (
+	ccxPairGlue   = regexp.MustCompile(`,\s*([a-z-]+=)`)
+	assignedOrder = regexp.MustCompile(`^owner:m\d+(?:\.\d+)?$`)
+)
 
 type NewBrief struct {
 	Title, BodyFile, Contract, Scale, Place, CCX, OwnerPick string
-	Topics                                                  []string
+	Topics, Orders                                          []string
 	StandingDir                                             string
 	Stdin                                                   io.Reader
 }
@@ -92,9 +93,16 @@ func (n NewBrief) text(lane string) (string, error) {
 	if lines := strings.TrimSpace(string(standing)); lines != "" {
 		sections = append(sections, lines)
 	}
-	if rows := owner.Orders(said); len(rows) > 0 {
-		slices.Sort(rows)
-		sections = append(sections, "Owner orders: owner:"+strings.Join(rows, " owner:"))
+	if lanes.BriefAssignedOrders.MatchString(strings.Join(sections, "\n")) {
+		return "", fmt.Errorf("the body, contract or standing lines carry an %s line; name each order the lane delivers with --order owner:m<row> instead", lanes.AssignedOrdersLine)
+	}
+	if len(n.Orders) > 0 {
+		for _, order := range n.Orders {
+			if !assignedOrder.MatchString(order) {
+				return "", fmt.Errorf("--order takes owner:m<row>, an owner row this lane delivers, not %q", order)
+			}
+		}
+		sections = append(sections, lanes.AssignedOrdersLine+" "+strings.Join(n.Orders, " "))
 	}
 	if n.OwnerPick != "" {
 		if !ownerPick.MatchString(n.OwnerPick) {

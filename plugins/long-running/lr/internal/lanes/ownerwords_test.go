@@ -11,8 +11,13 @@ import (
 
 func briefCarrying(t *testing.T, orders string) string {
 	t.Helper()
+	return briefSaying(t, "Assigned orders: "+orders)
+}
+
+func briefSaying(t *testing.T, lines string) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "brief-conflicts-2.md")
-	if err := os.WriteFile(path, []byte("# conflicts-2: run the four spinner options again\nRegister slice: lane=conflicts-2 step=all\n\nOwner orders: "+orders+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("# conflicts-2: run the four spinner options again\nRegister slice: lane=conflicts-2 step=all\n\n"+lines+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -37,7 +42,7 @@ func TestALaneWhoseBriefCarriesAnUndeliveredOwnerOrderIsHeldThroughItsOwnEnd(t *
 			defects := f.ofKind("defect")
 			equal(t, len(defects), 1)
 			equal(t, defects[0].To, []string{Root, lane2})
-			contains(t, defects[0].Text, "its brief carries 2 owner orders with no delivered proof: owner:m876, owner:m877")
+			contains(t, defects[0].Text, "it was assigned 2 owner orders with no delivered proof: owner:m876, owner:m877")
 			contains(t, defects[0].Text, "delivered=owner:<row>")
 		})
 	}
@@ -47,6 +52,9 @@ func TestALaneRetiresOnItsDoneWhenNoOrderItsBriefCarriesIsUndelivered(t *testing
 	for name, brief := range map[string]func(*testing.T) string{
 		"its orders delivered":  func(t *testing.T) string { return briefCarrying(t, "owner:m876") },
 		"a brief with no order": writeBrief,
+		"a brief only quoting rows": func(t *testing.T) string {
+			return briefSaying(t, "His owner:m5 ruling is background.\n\nOwner orders: owner:m5")
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
