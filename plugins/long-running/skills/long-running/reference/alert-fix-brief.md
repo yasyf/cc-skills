@@ -42,9 +42,10 @@ Standing orders, fixed in this template:
     `lr wait --wake <output file> <seconds> <source>... [-- <command>]` (or `-- <command>` with no source), which wakes
     this lane when it ends. Never post its completion as a record: no desk, root or
     supervisor acts on it.
-  - A hook that blocks your work gets a fix lane you launch that turn,
+  - A hook that misfires on your work gets a fix lane you launch that turn,
     `lr launch lane hook-fix-<hook> opus high <brief>`, and the fix goes on through what the
-    hook does not block; nothing runs the refused thing through a wrapper, `cc-sudo` or a script.
+    hook does not block. A refusal that is right, such as the production identity guard, gets
+    no fix lane: take the path it names; nothing runs the refused thing through a wrapper, `cc-sudo` or a script.
   - Any other tooling failure goes to the meta lane the same turn, as one `defect` record to
     the coordinator opening `for meta:` with any refusal verbatim, plus the hand path; it never
     stops the fix.
@@ -227,11 +228,17 @@ Do:
      A monitor you add pages no one unless the owner approved that page: land it
      notify-only, and the coordinator puts "page on this?" to him later as a card.
      Once GitHub's required checks are green and the PR is approved, post READY
-     with the exact head; the landing desk owns enqueue. Accept each reviewer-bot
+     with the exact head. An incident fix lands by plain squash, never the queue:
+     the supervisor's incident squash merges it in the pass its head is approved
+     and green. When `ccx vcs pr status <n>` still reads it open five minutes after
+     READY, land it yourself with `gh pr merge <n> --squash --match-head-commit <head>`,
+     or `gh stack merge <n> --yes --squash` when GitHub answers that a stack member
+     must use the asynchronous merge API; a ready fix never waits on a pass that
+     is not running. Never run stack-enqueue. Accept each reviewer-bot
      finding with `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`
      and push nothing for it, since a push restarts CI; push only for a finding
-     that says the fix itself is wrong, ending the push with `# fix-is-wrong: <slug>`. Never run stack-enqueue,
-     rebase, or push a queued branch. A red check the branch rules do not require
+     that says the fix itself is wrong, ending the push with `# fix-is-wrong: <slug>`. Never rebase or push a
+     queued branch. A red check the branch rules do not require
      is read for its content and never waited on.
   4. Before READY, reproduce the reporter's own case, the exact thread, run,
      request, or monitor query the report named. Show it failing before the fix

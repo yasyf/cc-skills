@@ -351,3 +351,31 @@ func TestAFixRootTookOffTheIncidentPathTellsItsLaneOnce(t *testing.T) {
 		t.Fatalf("records = %+v", records)
 	}
 }
+
+func TestANativeStackMemberIncidentFixLandsThroughGhStackMerge(t *testing.T) {
+	f := newSquash(t)
+	stacked := &shelltest.Fake{}
+	stacked.Reply("", squashTool, "check-pr")
+	stacked.Reply("0\n", "ccx", "vcs", "gh")
+	stacked.Fail(1, "GraphQL: Pull request is part of a stack and must be merged using the asynchronous merge REST API", "gh", "pr", "merge")
+	stacked.Reply("", "gh", "stack", "merge")
+	f.fake = stacked
+	f.squash.Runner, f.squash.CCX = stacked, ccx.CLI{Runner: stacked}
+
+	f.admit(fixFacts(nil))
+
+	want := []string{"gh pr merge 7 --repo " + monorepo + " --squash --match-head-commit " + squashFirst, "gh stack merge 7 --yes --squash"}
+	if merges := f.merges(); !slices.Equal(merges, want) {
+		t.Fatalf("merges = %v, want %v", merges, want)
+	}
+	if calls := stacked.Calls(); !slices.Contains(calls[len(calls)-1].Env, "GH_REPO="+monorepo) {
+		t.Fatalf("gh stack merge env = %v", calls[len(calls)-1].Env)
+	}
+	blockers, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"blocker"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockers) != 0 {
+		t.Fatalf("blockers = %+v", blockers)
+	}
+}

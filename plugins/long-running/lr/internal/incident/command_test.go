@@ -165,8 +165,11 @@ func TestAnIncidentTrioPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testin
 			if err := desk.Run(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			if len(bus.drafts) != 3 {
+			if len(bus.drafts) != 4 {
 				t.Fatalf("drafts %+v", bus.drafts)
+			}
+			if held := bus.drafts[3]; held.Kind != "state" || !reflect.DeepEqual(held.To, []string{"owner-relay"}) || held.Topic != "inc-app-origin" {
+				t.Fatalf("the communicator holds no topic: %+v", held)
 			}
 			for i, want := range []string{
 				"orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief=" + desk.FixBrief,
@@ -229,13 +232,13 @@ func TestARetriedIncidentRunGivesEachLaunchItsOwnAttemptKey(t *testing.T) {
 	if err := desk.Run(context.Background()); err == nil {
 		t.Fatal("the refused launch succeeded")
 	}
-	bus.verdicts["R104"] = "LAUNCHED R104 {lane}: dispatch ctx_l terminal term_l"
+	bus.verdicts["R105"] = "LAUNCHED R105 {lane}: dispatch ctx_l terminal term_l"
 
 	if err := desk.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
-	first, second := bus.drafts[0], bus.drafts[1]
+	first, second := bus.drafts[0], bus.drafts[2]
 	if first.Text != second.Text || first.ID == "" || first.ID == second.ID {
 		t.Fatalf("attempts share a key the bus dedups on: %q and %q", first.ID, second.ID)
 	}
@@ -323,6 +326,15 @@ func TestAnAlertHoldingItsOwnAngleBracketsStillFillsAndPosts(t *testing.T) {
 	}
 	if got := readFile(t, filepath.Join(dir, "prog", "run-queue-fix", "brief.md")); !strings.Contains(got, "Alert: "+alert+"\n") {
 		t.Fatalf("brief:\n%s", got)
+	}
+}
+
+func TestAnAlertLineCarryingSlackMarkupIsNoPlaceholder(t *testing.T) {
+	desk, bus, dir, _ := deskFixture(t)
+	desk.Name, desk.FixBrief = "watch-executor", briefFile(t, dir, "watch-executor-fix/brief.md", "# watch-executor-fix\n\nAlert: :warning: dazzling-almahrus is running, 1 target failed · <@U05FTPXU8PP> via `claude` <https://buildkite.com/forge/release/builds/1|build> in <#C0B75AL4XEW> <!here>\n")
+	bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
+	if err := desk.Run(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

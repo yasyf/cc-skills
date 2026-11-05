@@ -30,6 +30,7 @@ const (
 	effortXHigh     = "xhigh"
 	deskLane        = "orca-desk"
 	deskRunner      = "desk-runner"
+	communicator    = "owner-relay"
 	kindGo          = "go"
 	kindState       = "state"
 	topicOrca       = "orca"
@@ -55,7 +56,7 @@ var (
 	rootLines       = regexp.MustCompile(`(?m)^Root:.*\n`)
 	alertLine       = regexp.MustCompile(`(?m)^Alert:.*$`)
 	rootPlaceholder = regexp.MustCompile(`<(?:lane|state|\.\.\.)>`)
-	anyPlaceholder  = regexp.MustCompile(`<[^>]+>`)
+	anyPlaceholder  = regexp.MustCompile(`<[^>@#!:|]+>`)
 	extraBlankLines = regexp.MustCompile(`\n{3,}`)
 )
 
@@ -363,21 +364,28 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 	if err := d.requireRunner(ctx, drive, planned); err != nil {
 		return err
 	}
+	topic := strings.TrimSuffix(d.Name, fixAlias)
 	keys := make(map[string]string, len(planned))
+	names := make([]string, 0, len(planned))
 	first := int64(0)
 	for _, lane := range planned {
 		brief, err := filepath.Abs(lane.brief)
 		if err != nil {
 			return err
 		}
-		stored, err := d.post(ctx, drive, strings.TrimSuffix(d.Name, fixAlias), launchDirective(lane, brief), LaunchAttempt(lane.lane, d.Now()))
+		stored, err := d.post(ctx, drive, topic, launchDirective(lane, brief), LaunchAttempt(lane.lane, d.Now()))
 		if err != nil {
 			return err
 		}
 		keys["R"+strings.TrimPrefix(stored.Name(), "#")] = lane.lane
+		names = append(names, lane.lane)
 		if first == 0 {
 			first = stored.Seq
 		}
+	}
+	held := fmt.Sprintf("INCIDENT-LANES %s: %s launched on topic %s", topic, strings.Join(names, ", "), topic)
+	if _, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindState, To: []string{communicator}, Topic: topic, ID: LaunchAttempt(topic, d.Now()), Text: held}); err != nil {
+		return err
 	}
 	settled, stages, err := d.wait(ctx, drive, first-1, keys)
 	if err != nil {

@@ -60,6 +60,7 @@ var (
 	stopTransient  = regexp.MustCompile(`sprites api answered 5\d\d|timed out|deadline exceeded`)
 	alertURL       = regexp.MustCompile(`app\.datadoghq\.com/monitors/(\d+)|sentry\.io/\S*?issues/(\d+)`)
 	alertLink      = regexp.MustCompile(`https?://[\w.-]*(?:datadoghq\.com/monitors|sentry\.io/\S*?issues)/\d+`)
+	slackMessageID = regexp.MustCompile(`/p\d{16}\b`)
 	alertMessage   = regexp.MustCompile(`https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s|>)]*)?`)
 	recoveredAlert = regexp.MustCompile(`(?i)^\W*(?:Recovered|Resolved)\b`)
 	redWatch       = regexp.MustCompile(`The Watch failed for (.+?) on (\S+?): ("[^"]+"(?:, "[^"]+")*) crossed`)
@@ -339,8 +340,9 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		}
 		a.isOpened = true
 	}
+	thread := slackMessageID.FindString(card.Permalink)
 	for _, incident := range a.opened {
-		onThread := alert.red != "" && strings.Contains(incident.Text, card.Permalink)
+		onThread := thread != "" && (strings.Contains(incident.Text, thread) || strings.Contains(incident.Refs.URL, thread))
 		if onThread || !incident.At.Before(fired) && strings.Contains(incident.Text, alert.name) {
 			return nil
 		}
@@ -367,6 +369,9 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 			a.launched = map[string]bool{}
 		}
 		a.launched[alert.slug] = true
+		if alert.red != "" {
+			a.launched[alert.red] = true
+		}
 		a.opened = append(a.opened, client.Record{Kind: kindSpawn, Text: card.Permalink})
 		draft.Kind, draft.ID, draft.To = kindSpawn, "alert-launched:"+channel+":"+message.TS, []string{Root, OwnerRelay}
 		draft.LaneRefs = []string{alert.slug + "-fix"}

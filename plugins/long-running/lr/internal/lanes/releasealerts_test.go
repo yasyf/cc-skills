@@ -129,9 +129,13 @@ func TestAWatchPostNamesItsMonitorReleaseAndJob(t *testing.T) {
 
 func TestARedPostOnAThreadWithAnIncidentOpensNothing(t *testing.T) {
 	thread := "https://forge.slack.com/archives/C0B75AL4XEW/p1793740168770509"
+	linked := client.Record{Kind: "incident", Text: "SCOPE watch-executor-plat-6f015c-fix: active yes"}
+	linked.Refs.URL = thread
 	for name, opened := range map[string]client.Record{
-		"launch record on the thread": {Kind: kindSpawn, Text: "ALERT-LAUNCHED something " + thread},
-		"incident naming the thread":  {Kind: "incident", Text: "incident declared, see " + thread},
+		"launch record on the thread":                          {Kind: kindSpawn, Text: "ALERT-LAUNCHED something " + thread},
+		"incident naming the thread":                           {Kind: "incident", Text: "incident declared, see " + thread},
+		"lanes opened for the same message under another name": {Kind: kindSpawn, Text: "ALERT-LAUNCHED watch-executor-plat-6f015c; alert message https://poetic-technology.slack.com/archives/C0B75AL4XEW/p1793740168770509?thread_ts=1793740168.770509"},
+		"a record carrying the message as its link":            linked,
 	} {
 		t.Run(name, func(t *testing.T) {
 			channel, bus := realReleaseChannel(t), &fakeBus{tail: []client.Record{opened}}
@@ -272,4 +276,22 @@ func TestReleaseChannelLinesThatAreNotARedWatchOrSmokeAreNotAlerts(t *testing.T)
 			t.Errorf("%q is an alert", text)
 		}
 	}
+}
+
+func TestARedPostAfterItsComponentsWatchLaunchedOpensNothing(t *testing.T) {
+	channel := &releaseChannel{threads: map[string]string{}, history: `{"messages":[` +
+		`{"ts":"1793742500.000100","permalink":"https://forge.slack.com/archives/C0B75AL4XEW/p1793742500000100","text":":x: The Watch failed for Executor on AIG: \"Linear case sync stalled\" crossed its monitor's bound since the release started."},` +
+		`{"ts":"1793742550.000100","permalink":"https://forge.slack.com/archives/C0B75AL4XEW/p1793742550000100","text":":rotating_light: Executor went red on AIG after dazzling-almahrus"}]}`}
+	var launched []string
+	check := releaseAlerts(t, channel, &fakeBus{}, func(_ context.Context, fired Fired) (string, error) {
+		launched = append(launched, fired.Slug)
+		return "/state/lanes/" + fired.Slug + "-fix.brief.md", nil
+	})
+
+	if err := check.Check(context.Background(), releaseNow); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(launched), 1)
+	contains(t, launched[0], "watch-executor-aig-")
 }
