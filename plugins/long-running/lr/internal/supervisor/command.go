@@ -178,7 +178,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			(&background{name: "judge-watch", every: judgeEvery, run: func(ctx context.Context) error {
 				_, err := a.Runner.Run(ctx, shell.Command{Argv: []string{filepath.Join(env.Claude, "long-running", "current", "bin", "judge_watch.py"), "--config", filepath.Join(env.State, runnerFile)}, Timeout: judgeLimit})
 				return err
-			}, store: s, post: post, log: a.Log}).Check,
+			}, store: s, post: post, log: a.Log, forgiven: 1}).Check,
 		)
 	}
 	if slices.Contains(env.Config.Movers, moverLanes) {
@@ -209,9 +209,9 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 				(&background{name: "landing-gate-inputs", every: landing.InputsEvery, run: inputs.Pass, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "card-sweep", every: sweepEvery, run: func(ctx context.Context) error {
 					return cards.Pass(ctx, lanes.Self, board.PackJudge(a.Runner), sweepLog{a.Log, "card sweep"})
-				}, store: s, post: post, log: a.Log}).Check,
-				(&background{name: "findings", every: findingsEvery, run: findings.New(a, entry).Pass, store: s, post: post, log: a.Log}).Check,
-				(&background{name: "ready-cards", every: PassEvery, run: board.ReadyCards{Cards: cards, Repo: env.Config.Repo, Lane: lanes.Self}.Pass, store: s, post: post, log: a.Log, to: board.Communicator}).Check,
+				}, store: s, post: post, log: a.Log, forgiven: 1}).Check,
+				(&background{name: "findings", every: findingsEvery, run: findings.New(a, entry).Pass, store: s, post: post, log: a.Log, forgiven: 1}).Check,
+				(&background{name: "ready-cards", every: PassEvery, run: board.ReadyCards{Cards: cards, Repo: env.Config.Repo, Lane: lanes.Self}.Pass, store: s, post: post, log: a.Log, to: board.Communicator, forgiven: 1}).Check,
 			)
 		}
 		orcaRunner, err := config.LoadRunner(filepath.Join(env.State, runnerFile))
@@ -283,7 +283,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return Deps{}, err
 	}
 	if runner.Ledger != "" {
-		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: (&prLedger{env: env, store: s, id: runner.Ledger}).pass, store: s, post: post, log: a.Log}).Check)
+		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: (&prLedger{env: env, store: s, id: runner.Ledger}).pass, store: s, post: post, log: a.Log, forgiven: 1}).Check)
 	}
 	if runner.TrunkCheck != "" {
 		trunk := &landing.TrunkWatch{
@@ -301,7 +301,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		if runner.Ledger != "" {
 			trunk.Asks = &asks.Mirror{Source: ledger.CLI{Runner: a.Runner, Repo: env.Config.Checkout}, Store: s, Ledger: runner.Ledger, Now: a.Now}
 		}
-		deps.Checks = append(deps.Checks, (&background{name: "trunk-watch", every: PassEvery, run: trunk.Pass, store: s, post: post, log: a.Log}).Check)
+		deps.Checks = append(deps.Checks, (&background{name: "trunk-watch", every: PassEvery, run: trunk.Pass, store: s, post: post, log: a.Log, forgiven: 1}).Check)
 	}
 	queue := landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
 	if runner.CIBuild != "" {
