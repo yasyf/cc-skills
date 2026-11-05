@@ -31,7 +31,9 @@ that ruling. Otherwise the pass asks the coordinator alone, never a board lane, 
 the writer's in `judge/disputes/<flag seq>.md`. An owner pick on a `judge-dispute-<flag seq>` card the coordinator puts
 on his board writes the case to `judge/owner/` with the verdict he chose. A failed judge call posts nothing.
 A coordinator answer or ruling in reply to a flag, or sent to the judge, that names the flag, the artifact or one of its
-PRs closes the artifact: it is never judged again, by a new pass or a recheck.
+PRs closes the artifact: it is never judged again, by a new pass or a recheck. An artifact holding an open flag is never
+judged again either, and each flag is saved as it posts, so a pass that dies partway through a recheck and reruns it
+flags nothing twice.
 State lives in `judge-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. A pass saves
 its cursor after each record it acts on, so a pass the supervisor stops at its time limit never judges those again.
 """
@@ -190,7 +192,7 @@ class Pass:
         return "".join([text, *(f"\n\nThe record it cites, {source['lane']} #{source['seq']}, whole:\n{body(source)}" for source in sources)])
 
     def judge_record(self, record: dict, kind: str, recheck: str | None = None) -> None:
-        if record["seq"] in self.saved.closed:
+        if record["seq"] in self.saved.closed or record["seq"] in {flag["seq"] for flag in self.saved.flags.values()}:
             return
         text = self.whole(record)
         if kind == "contract":
@@ -265,6 +267,7 @@ class Pass:
         posted = self.post("review", line, to, re=record["seq"])
         if posted is not None:
             self.saved.flags[str(posted)] = {"lane": record["lane"], "kind": kind, "key": key, "said": said, "artifact": text, "reading": verdict.sentence, "seq": record["seq"], "prs": (record.get("refs") or {}).get("prs", [])}
+            self.save()
 
     def dispute(self, reply: dict) -> None:
         flag = self.saved.flags[str(reply["re"])]

@@ -215,6 +215,30 @@ def test_a_pass_stopped_partway_resumes_after_the_last_record_it_judged_and_flag
     assert [flag["re"] for flag in posted(resumed)] == ["103"]
 
 
+def test_a_recheck_flags_each_relay_once_though_its_pass_dies_partway_and_the_row_is_extended_again(watch, monkeypatch):
+    """Root #479056: judge-watch posted the same recheck verdict on relay #431168 six times in 13 minutes, each worded differently."""
+    relays = [{"seq": seq, "lane": "root", "kind": "decide", "text": "lane-a: one process per key. rule/a201ee6", "refs": {}} for seq in (101, 102)]
+    bus = [{"seq": seq, "lane": "root", "kind": "decision", "text": "Register classify, 1 rows: extended rule/a201ee6.", "refs": {}} for seq in (400, 401)]
+    stops = [TimeoutError("the pass died")]
+
+    def verdict(*args, subject, **kwargs):
+        if subject.startswith("cci:102") and stops:
+            raise stops.pop()
+        return MISREAD
+
+    monkeypatch.setattr(judge_watch.judge, "judge", verdict)
+    monkeypatch.setattr(judge_watch.judge, "said", lambda row, state, env=None: [{"at": row["at"], "words": row["words"], "answered": None}])
+    monkeypatch.setattr(judge_watch.cci, "records", lambda cli, drive, *filters, since=0: relays if filters else [record for record in bus if record["seq"] > int(since)] if str(since).isdigit() else bus)
+
+    died = Scripted(watch, bus, [])
+    with pytest.raises(TimeoutError):
+        died.run()
+    rerun = Scripted(watch, bus, [])
+    rerun.run()
+
+    assert [flag["re"] for flag in posted(died) + posted(rerun)] == ["101", "102"]
+
+
 def test_an_answer_on_a_relays_flag_from_the_appeals_lane_reaches_root_as_its_dispute(watch, run):
     """Coordinator #458576: grader-appeals answered judge-watch's flags on root's relays, and judge-watch read nothing, since it counted a reply only from the relay's writer."""
     first = run(Scripted(watch, [{"seq": 103, "lane": "root", "kind": "decide", "text": "lane-a: one process per key. rule/a201ee6", "refs": {}}], [MISREAD]))
