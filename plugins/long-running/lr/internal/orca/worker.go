@@ -85,7 +85,7 @@ type workerLaunch struct {
 	ctx context.Context
 
 	lane, effort, brief, run, ref, expect, tier   string
-	fastMode                                      bool
+	fastMode, incident                            bool
 	modelID, kind, route, dir, stem, attempt, sha string
 	checkout, ccRemote, config                    string
 	pins                                          spritePins
@@ -223,12 +223,12 @@ func (w *workerLaunch) resolveRoute(model string) error {
 	if id, aliased := modelAliases[model]; aliased {
 		w.modelID = id
 	}
-	incident := w.Env("WORKER_INCIDENT") == "1"
+	w.incident = w.Env("WORKER_INCIDENT") == "1"
 	switch model {
 	case agentIncident:
-		w.modelID, w.tier, incident = "gpt-6.1-sol", "fast", true
+		w.modelID, w.tier, w.incident = "gpt-6.1-sol", "fast", true
 	case modelIncidentOpus:
-		w.modelID, w.fastMode, incident = "claude-opus-5-5", true, true
+		w.modelID, w.fastMode, w.incident = "claude-opus-5-5", true, true
 	}
 	switch {
 	case strings.HasPrefix(w.modelID, "claude-"):
@@ -241,7 +241,7 @@ func (w *workerLaunch) resolveRoute(model string) error {
 	if w.tier != "" && w.kind != agentCodex {
 		return refuse("WORKER_SERVICE_TIER is a codex setting, and claude runs %s; nothing launched", w.modelID)
 	}
-	if w.tier == "fast" && !incident {
+	if w.tier == "fast" && !w.incident {
 		return refuse("WORKER_SERVICE_TIER=fast is for incident lanes only; set WORKER_INCIDENT=1 for an incident lane; nothing launched")
 	}
 	switch w.Env("WORKER_LOCAL") {
@@ -840,6 +840,9 @@ func (w *workerLaunch) startSprite() (string, error) {
 	}
 	if stampedMacInputs(string(raw)) {
 		read = macInputsOnSprite
+	}
+	if w.incident || incidentBrief(w.lane, string(raw)) {
+		read += incidentOnSprite
 	}
 	path, _ := textOf(table(task["brief"])["path"])
 	environment, _ := textOf(task["environment"])
