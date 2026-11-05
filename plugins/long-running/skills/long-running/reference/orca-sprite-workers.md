@@ -489,8 +489,10 @@ The destroy runs `WORKER_CC_REMOTE` with `CC_REMOTE_CONFIG` when set, otherwise 
 A lane that ended has its Sprite stopped without the coordinator. Every five minutes the lane supervisor runs `lr stop-sprites`, which picks each retired registry lane placed on a Sprite whose Orca dispatch reads completed or failed. When the Run lists no dispatch for the lane, its `done` record or a withdrawal must have retired it. A lane that is live or held, or whose dispatch is unsettled, keeps its Sprite.
 
 - For each ended lane, lr runs `cc-remote orca stop <lane>` with the `WORKER_CC_REMOTE` and `CC_REMOTE_CONFIG` of `runner.json`'s `orca.sprite.env`. That stop closes the forward and stops every service, so the Sprite goes cold with its disk kept. It refuses a warm pool workspace's own name. The gc pause below does not hold it.
-- When a stop fails, lr runs `sprite list` once for the pass and looks for the Sprite named in the lane's launch receipt. A Sprite the list no longer shows closes the stop with a log line and no blocker.
-- Any other failed stop is tried again on the next pass, up to three tries. The third failure posts one `SPRITE-STOP-FAILED` blocker to the coordinator with the error and what the list said, and lr never runs that lane's stop again.
+- When a stop fails, lr runs `sprite list` once for the pass and looks for the Sprite named in the lane's launch receipt. A Sprite the list no longer shows closes the stop.
+- A stop that failed on a 5xx from the Sprites API or a timeout is tried again every pass, one call per stuck Sprite. Its first failure posts one `SPRITE-STOP-FAILED` blocker to the coordinator with the error and what the list said. When the Sprite stops or is gone, one `SPRITE-STOPPED` note closes that blocker.
+- A person ends those retries through `lr stop-sprites`, whose blocker line names the flag; it posts one `SPRITE-STOP-LEFT` note. Resolving the blocker does not end them, because a record that only routes the blocker also resolves it.
+- Any other failed stop is tried again on the next pass, up to three tries. The third failure posts one `SPRITE-STOP-FAILED` blocker, and lr never runs that lane's stop again.
 - Before any stop, lr asks that CLI its `version`. A release older than 0.27.4, the first whose `orca stop` works on a finished lane's Sprite, skips the pass with one warning in the supervisor log. The ended lanes stay unmarked, and lr stops them on the next pass after the checkout's pin reaches 0.27.4.
 
 ### Pause and resume gc
