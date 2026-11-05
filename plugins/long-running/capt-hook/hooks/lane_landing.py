@@ -77,11 +77,11 @@ PINNED_MERGE = "gh pr merge 44717 --squash --match-head-commit 0123456789abcdef0
 ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hold 30082"
 REFUSAL = (
     "Warning, nothing was blocked: Lanes never enqueue: the landing pass is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
-    "Report the PR with `ledger.py report --drive <drive>`, and the landing pass enqueues it against the coordinator's holds."
+    "Hand the PR to the landing pass with `cci post --kind ready --pr <n>`, and it enqueues it against the coordinator's holds."
 )
 UNREAD_REPO = (
     "Warning, nothing was blocked: This hook could not tell whether `{verb}` lands on the landing desk's repo, where lanes never enqueue. "
-    "On that repo, report the PR with `ledger.py report --drive <drive>`; on any other, go ahead."
+    "On that repo, hand the PR to the landing pass with `cci post --kind ready --pr <n>`; on any other, go ahead."
 )
 RULINGS_ADVICE = (
     "`rulings.py check-pr` names {causes} for #{pr} at {head}. These are warnings: the landing desk holds no head for them (4236611), "
@@ -107,25 +107,28 @@ HAND_ENQUEUE_TAP_REFUSAL = (
 )
 HAND_ENQUEUE_ADMITTED = (
     "The go sweep admits the heads below, so no tap is owed and the landing pass queues each once its go posts. "
-    "A hand `stack-enqueue` adds nothing, so report the PR with `ledger.py report` and wait."
+    "A hand `stack-enqueue` adds nothing, so post `cci post --kind ready --pr <n>` and wait."
 )
 NO_GO_YET = "NO-GO-YET"
 TAP_REFUSAL = "TAP-REQUIRED"
 GATE_UNREAD = "Warning, nothing was refused:"
 HAND_LANDING_REFUSAL = (
     "A hand landing needs the owner's tap at its head, and the runner's read finds none on the heads below. "
-    "Ask him for it with a board card at that head, or report the PR with `ledger.py report` for the runner to land."
+    "Ask him for it with a board card at that head, or hand the PR to the landing pass with `cci post --kind ready --pr <n>`."
 )
 SPRITE_LANDING_REFUSAL = (
     "A hand landing needs the owner's tap at its head, and this Sprite cannot read it: the drive's `lr.json` is not at `{config}`. "
-    "Report the PR with `ledger.py report` for the runner to land it."
+    "Hand the PR to the landing pass with `cci post --kind ready --pr <n>` instead."
 )
 QUEUE_UNTESTED = "QUEUE-UNTESTED"
 HAND_MERGE_UNTESTED = (
     "Warning, nothing was blocked: A merge outside the queue lands untested, and the queue has not passed these heads: {lines}. "
-    "Report the PR with `ledger.py report` for the runner to queue it."
+    "Hand the PR to the landing pass with `cci post --kind ready --pr <n>` to queue it."
 )
-TAP_UNREAD = "Warning, nothing was blocked: the owner's tap did not read for this landing, so it goes ahead unchecked for it: {failure}"
+TAP_UNREAD = (
+    "Warning, nothing was blocked: the owner's tap did not read for this landing, so it goes ahead unchecked for the reasons below. "
+    "Hand the PR to the landing pass with `cci post --kind ready --pr <n>` instead."
+)
 ADMIN_MERGE_REFUSAL = (
     "Warning, nothing was blocked: Incident fixes merge by plain squash once approved and green, never past review, so lane `{lane}` may not run `{verb} --admin`. "
     "Wait for the approval and the required checks, then run `{verb} <N> --squash`."
@@ -514,14 +517,24 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
         Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": REFUSED_SHAPE}): Block(pattern=r"go #9 by root is not counted at this head"),
         Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": ADMITTED_SHAPE}): Warn(pattern=r"^The go sweep admits the heads below, so no tap is owed[\s\S]*#7 0123456789 NO-GO-YET "),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_DIRECT_GATE: ADMITTED_SHAPE}): Allow(),
-        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": (0, '{"level":"WARN"}\nWarning, nothing was refused: no inputs')}): Warn(pattern=r"^Warning, nothing was blocked: the owner's tap did not read"),
+        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": (0, '{"level":"WARN"}\nWarning, nothing was refused: no inputs')}): Warn(
+            pattern=r"^Warning, nothing was blocked: the owner's tap did not read for this landing, .*\. Hand the PR to the landing pass with `cci post --kind ready --pr <n>` instead\.[\s\S]*Warning, nothing was refused: no inputs"
+        ),
+        Input(
+            command=f"{ENQUEUER} 7 --fast",
+            agent_id=LANE,
+            env=MONOREPO_ENV,
+            commands={f"{MONOREPO_GATE} 7 --partial": (0, "Warning, nothing was refused: lr landing gate could not read the drive's pull requests: tools/ci: aws: command not found")},
+        ): Warn(pattern=r"goes ahead unchecked[\s\S]*`cci post --kind ready --pr <n>`[\s\S]*tools/ci: aws: command not found"),
+        Input(command="stack-enqueue 7", agent_id=DESK, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": (2, "lr: the store is locked")}): Allow(),
+        Input(command="gh pr merge feature-x -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={"gh pr view": (1, "no pull requests found for branch feature-x")}): Warn(pattern=r"`gh pr merge` names no PR that reads"),
         Input(command='"$S" 7', agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": REFUSED_SHAPE}): Allow(),
         Input(command=f"S={ENQUEUER}; ls -la $S", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: REFUSED_SHAPE}): Allow(),
         Input(command="stack-enqueue 7 --check", env=DRIVE_ENV): Allow(),
         Input(command="stack-enqueue 7 --dequeue", env=DRIVE_ENV): Allow(),
         Input(command=ENQUEUE): Allow(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(
-            pattern=r"^A hand landing needs the owner's tap at its head.*\. Ask him for it with a board card at that head, or report the PR[\s\S]*#7 0123456789 TAP-REQUIRED "
+            pattern=r"^A hand landing needs the owner's tap at its head.*\. Ask him for it with a board card at that head, or hand the PR to the landing pass with `cci post --kind ready --pr <n>`\.[\s\S]*#7 0123456789 TAP-REQUIRED "
         ),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(),
         Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": ""}): Allow(),
@@ -538,7 +551,7 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
         Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash --admin", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTAPPED}): Allow(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id="adesk-runner-0123456789abcdef", env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTAPPED}): Allow(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: (2, "lr: the store is locked")}): Warn(
-            pattern=r"^Warning, nothing was blocked: the owner's tap did not read for this landing, .*: `lr landing gate` exited 2: lr: the store is locked"
+            pattern=r"^Warning, nothing was blocked: the owner's tap did not read for this landing, .*goes ahead unchecked[\s\S]*`lr landing gate` exited 2: lr: the store is locked"
         ),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", commands={MONOREPO_GATE: UNTAPPED}): Allow(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_DIRECT_GATE: UNTESTED}): Warn(pattern=r"^Warning, nothing was blocked: A merge outside the queue lands untested.*: #7 0123456789 QUEUE-UNTESTED "),
@@ -549,7 +562,7 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
         Input(command="gh pr merge 44811 -R Forge-AI/monorepo --squash", agent_id=FIX_LANE, env=MONOREPO_ENV, transcript=sliced_brief("inc-fixruns-fix", "incident"), commands={MONOREPO_GATE: UNTESTED}): Allow(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id="adesk-runner-0123456789abcdef", env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTESTED}): Allow(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", env=SPRITE_MONOREPO_ENV | {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}, transcript=sprite_dispatch("lane-a", "sprite-lane.md")): Block(
-            pattern=r"^A hand landing needs the owner's tap at its head, and this Sprite cannot read it: the drive's `lr\.json` is not at `/home/sprite/\.claude/scratch/durable-agents-rebuild/lr\.json`\. Report the PR"
+            pattern=r"^A hand landing needs the owner's tap at its head, and this Sprite cannot read it: the drive's `lr\.json` is not at `/home/sprite/\.claude/scratch/durable-agents-rebuild/lr\.json`\. Hand the PR to the landing pass with `cci post --kind ready --pr <n>` instead\."
         ),
         Input(
             command="stack-enqueue 7",
@@ -613,7 +626,7 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
         return evt.block(naming_heads(HAND_LANDING_REFUSAL, untapped))
     if untapped:
         return evt.context(naming_heads(HAND_ENQUEUE_TAP_REFUSAL, untapped))
-    notes = [TAP_UNREAD.format(failure=failure) for failure in unread] if blocking else []
+    notes = [naming_heads(TAP_UNREAD, unread)] if unread and blocking else []
     notes += [HAND_MERGE_UNTESTED.format(lines="; ".join(untested))] if untested and blocking else []
     notes += [HAND_ENQUEUE_WARNING.format(lines="; ".join(failing))] if failing else []
     notes += [naming_heads(HAND_ENQUEUE_ADMITTED, admitted)] if admitted else []
