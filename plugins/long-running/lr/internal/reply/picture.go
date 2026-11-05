@@ -16,13 +16,6 @@ const (
 	diagramLead = "Diagram: "
 )
 
-type cardArtifact struct {
-	Title string `json:"title"`
-	Kind  string `json:"kind"`
-	URL   string `json:"url"`
-	Image string `json:"image,omitempty"`
-}
-
 type picture struct {
 	dir     string
 	warning string
@@ -71,12 +64,12 @@ func (r Reply) pictureFlags() []string {
 }
 
 func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, picture) {
+	r.artifacts = r.Artifacts
 	dashboard, link := f.diagramPage(ctx, r)
 	if link == "" {
 		return r, picture{}
 	}
-	shown := cardArtifact{Title: r.diagramTitle(), Kind: diagramKind, URL: link}
-	r.artifacts = []cardArtifact{shown}
+	r.artifacts = append([]Artifact{{Title: r.diagramTitle(), Kind: diagramKind, URL: link}}, r.Artifacts...)
 	dir, err := os.MkdirTemp("", "lr-diagram-")
 	if err != nil {
 		return r, picture{warning: "the diagram's picture was not drawn, so its Slack card has none: " + err.Error()}
@@ -85,7 +78,6 @@ func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, picture) {
 	if err := f.Shoot(ctx, dashboard, r.Diagram, png); err != nil {
 		return r, picture{dir: dir, warning: "the diagram's picture was not drawn, so its Slack card has none: " + err.Error()}
 	}
-	shown.Image = png
-	r.artifacts = []cardArtifact{shown}
+	r.artifacts[0].Image = png
 	return r, picture{dir: dir}
 }

@@ -134,6 +134,7 @@ type Reply struct {
 	Action      string           `json:"action,omitempty"`
 	By          string           `json:"by,omitempty"`
 	Routed      int              `json:"routed,omitempty"`
+	Artifacts   []Artifact       `json:"artifacts,omitempty"`
 
 	Blocks  []json.RawMessage `json:"blocks,omitempty"`
 	Diagram json.RawMessage   `json:"diagram,omitempty"`
@@ -141,7 +142,7 @@ type Reply struct {
 
 	Words map[string]string `json:"words,omitempty"`
 
-	artifacts []cardArtifact
+	artifacts []Artifact
 }
 
 type Outcome struct {
@@ -182,7 +183,7 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 		seen.Words[pick] = hiddenCite.ReplaceAllString(said, "")
 	}
 	_, diagram := f.diagramPage(ctx, r)
-	told := seen.diagramNoted(diagram)
+	told := seen.diagramNoted(diagram).artifactsLinked()
 	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
 	case r.quiet():
@@ -537,6 +538,10 @@ func (f Fanout) aliased(r Reply) Reply {
 	for n, block := range r.Blocks {
 		r.Blocks[n] = json.RawMessage(aliases.In(string(block)))
 	}
+	r.Artifacts = slices.Clone(r.Artifacts)
+	for n, artifact := range r.Artifacts {
+		r.Artifacts[n].Title = aliases.In(artifact.Title)
+	}
 	return r
 }
 
@@ -701,6 +706,11 @@ func (r Reply) mended() (Reply, []string) {
 		return link.Label != "" && (strings.HasPrefix(link.URL, "https://") || strings.HasPrefix(link.URL, "http://"))
 	})
 	r.PRs = kept(r.PRs, maxPRs, "PRs", &warned, pullURL.MatchString)
+	room := maxArtifacts
+	if len(r.Diagram) > 0 {
+		room--
+	}
+	r.Artifacts = kept(r.Artifacts, room, "artifacts", &warned, Artifact.wellFormed)
 	r.Blocks = kept(r.Blocks, maxBlocks, "blocks", &warned, func(raw json.RawMessage) bool {
 		var block struct {
 			Type string `json:"type"`
@@ -897,11 +907,14 @@ func (r Reply) markdown() string {
 		}
 		lines = append(lines, "- "+pick)
 	}
-	if len(r.Links)+len(r.PRs) > 0 {
+	if len(r.Links)+len(r.PRs)+len(r.Artifacts) > 0 {
 		lines = append(lines, "")
 	}
 	for _, link := range r.Links {
 		lines = append(lines, "- ["+link.Label+"]("+link.URL+")")
+	}
+	for _, artifact := range r.Artifacts {
+		lines = append(lines, "- ["+artifact.Title+"]("+artifact.URL+")")
 	}
 	for _, pr := range r.PRs {
 		lines = append(lines, "- "+pr)
@@ -1087,7 +1100,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		defer shown.remove()
 		return []Outcome{shown.told(f.inThread(ctx, r)[0])}
 	}
-	if drawn.Surface != "" || r.quiet() || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
+	if drawn.Surface != "" || r.quiet() || len(r.Links) == 0 && len(r.PRs) == 0 && len(r.Artifacts) == 0 && r.Status == "" {
 		return nil
 	}
 	r, shown := f.pictured(ctx, r)
@@ -1219,14 +1232,14 @@ func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
 		key = ""
 	}
 	card, err := json.Marshal(struct {
-		Key       string         `json:"key,omitempty"`
-		Status    string         `json:"status"`
-		Title     string         `json:"title"`
-		Body      string         `json:"body"`
-		Drive     string         `json:"drive"`
-		Links     []Link         `json:"links,omitempty"`
-		Artifacts []cardArtifact `json:"artifacts,omitempty"`
-		Replaces  string         `json:"replaces,omitempty"`
+		Key       string     `json:"key,omitempty"`
+		Status    string     `json:"status"`
+		Title     string     `json:"title"`
+		Body      string     `json:"body"`
+		Drive     string     `json:"drive"`
+		Links     []Link     `json:"links,omitempty"`
+		Artifacts []Artifact `json:"artifacts,omitempty"`
+		Replaces  string     `json:"replaces,omitempty"`
 	}{key, cmp.Or(r.Status, "info"), r.Title, body, f.Entry.Bus(), buttons, r.artifacts, replaces})
 	return string(card), err
 }
