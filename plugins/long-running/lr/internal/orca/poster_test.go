@@ -411,14 +411,29 @@ func TestADeskBriefWaitingOnItsOwnMailboxIsRefusedNamingItsCCIWait(t *testing.T)
 	}
 }
 
-func TestABriefNamingWhatNoSpriteCanReceiveIsRefusedOnlyWhenTheLaneMayLeaveTheMac(t *testing.T) {
+func TestABriefNamingACredentialIsRefusedOnlyWhenTheLaneMayLeaveTheMacAndAMissingPathWarns(t *testing.T) {
 	f := newPosterFixture(t)
-	gone := filepath.Join(f.env["HOME"], ".claude", "scratch", "gone.md")
-	away := f.brief(t, "away.md", "Read "+gone+".\n"+briefLines)
-	_, err := f.poster.Launch(context.Background(), Order{Lane: "a", Model: "opus", Effort: "xhigh", Brief: away}, 0)
-	if err == nil || !strings.Contains(err.Error(), "names what no Sprite can receive: "+gone+" does not exist on this Mac") || len(f.bus.posts) != 0 {
+	gone := filepath.Join(f.env["HOME"], ".ssh", "id")
+	if err := os.MkdirAll(filepath.Dir(gone), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(gone, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	away := f.brief(t, "away.md", "Read "+gone+".\n"+briefLines)
+	_, err := f.poster.Launch(context.Background(), Order{Lane: "a", Model: "opus", Effort: "xhigh", Brief: away}, 0)
+	if err == nil || !strings.Contains(err.Error(), "names what no Sprite can receive: "+gone+" is a credential path") || len(f.bus.posts) != 0 {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(f.env["HOME"], ".claude", "scratch", "gone.md")
+	warned := f.brief(t, "warned.md", "Read "+missing+".\n"+briefLines)
+	if _, err := f.poster.Launch(context.Background(), Order{Lane: "w", Model: "opus", Effort: "xhigh", Brief: warned}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if want := "WARN brief " + warned + " names what stays behind on a Sprite: " + missing + " does not exist on this Mac\n"; !strings.Contains(f.out.String(), want) {
+		t.Fatal(f.out)
+	}
+	f.bus.posts = nil
 	local := f.brief(t, "local.md", "ccx: role=build place=local why=test\nRead "+gone+".\n"+briefLines)
 	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "xhigh", Brief: local}, {Lane: "a", Model: "fable", Effort: "xhigh", Brief: away}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}} {
 		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {

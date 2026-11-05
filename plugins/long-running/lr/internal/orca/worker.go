@@ -399,9 +399,13 @@ func (w *workerLaunch) carryBrief() error {
 		notes = w.checkout
 	}
 	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox, Vars: map[string]string{carry.DriveDir: w.Env(workerDriveDir)}}
-	rewritten, err := carrier.Carry(w.ctx, string(raw))
+	rewritten, left, err := carrier.Carry(w.ctx, string(raw))
 	if err != nil {
 		return refuse("brief %s names what no Sprite can receive: %v; nothing was prepared", w.brief, err)
+	}
+	for _, behind := range left {
+		fmt.Fprintf(w.Stderr, "warning: brief %s names what stays behind: %s\n", w.brief, behind)
+		w.stages.say(w.ctx, "stays behind on the Mac: "+behind)
 	}
 	w.brief = filepath.Join(w.attempt, briefFile)
 	return os.WriteFile(w.brief, []byte(rewritten), 0o600)

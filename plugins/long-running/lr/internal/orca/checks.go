@@ -192,19 +192,24 @@ func placedLocal(text string) bool {
 	return placed != nil && placed[1] == "local"
 }
 
-func carryFault(ctx context.Context, runner shell.Runner, home, repo, driveDir, brief, text string) (string, error) {
+func carryFault(ctx context.Context, runner shell.Runner, home, repo, driveDir, brief, text string) (string, []string, error) {
 	into, err := os.MkdirTemp("", "lr-carry")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer func() { _ = os.RemoveAll(into) }()
-	if _, err := (carry.Carrier{Runner: runner, Home: home, Repo: repo, Into: into, Box: into, Vars: map[string]string{carry.DriveDir: driveDir}}).Carry(ctx, text); err != nil {
-		return fmt.Sprintf("brief %s names what no Sprite can receive: %v", brief, err), nil
+	_, left, err := (carry.Carrier{Runner: runner, Home: home, Repo: repo, Into: into, Box: into, Vars: map[string]string{carry.DriveDir: driveDir}}).Carry(ctx, text)
+	warnings := make([]string, 0, len(left))
+	for _, behind := range left {
+		warnings = append(warnings, fmt.Sprintf("brief %s names what stays behind on a Sprite: %s", brief, behind))
 	}
-	return "", nil
+	if err != nil {
+		return fmt.Sprintf("brief %s names what no Sprite can receive: %v", brief, err), warnings, nil
+	}
+	return "", warnings, nil
 }
 
-func (o Order) faults(ctx context.Context, runner shell.Runner, home, repo, driveDir string) ([]string, error) {
+func (o Order) faults(ctx context.Context, runner shell.Runner, home, repo, driveDir string) ([]string, []string, error) {
 	raw, readErr := os.ReadFile(o.Brief)
 	text := string(raw)
 	faults := o.launchFaults(text, readErr == nil)
@@ -212,24 +217,24 @@ func (o Order) faults(ctx context.Context, runner shell.Runner, home, repo, driv
 		faults = append(faults, wrong)
 	}
 	if readErr != nil {
-		return faults, nil
+		return faults, nil, nil
 	}
 	info, err := os.Stat(o.Brief)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if scale := o.scaleFault(text, info.ModTime()); scale != "" {
 		faults = append(faults, scale)
 	}
 	if macPinned(o.Lane, o.Model, text) {
-		return faults, nil
+		return faults, nil, nil
 	}
-	carried, err := carryFault(ctx, runner, home, repo, driveDir, o.Brief, text)
+	carried, warnings, err := carryFault(ctx, runner, home, repo, driveDir, o.Brief, text)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if carried != "" {
 		faults = append(faults, carried)
 	}
-	return faults, nil
+	return faults, warnings, nil
 }

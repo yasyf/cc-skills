@@ -30,10 +30,12 @@ const (
 )
 
 var (
-	reference   = regexp.MustCompile(`ccn (doc|plan|task) show ([0-9A-Za-z][\w-]*)|\$\{?([A-Z_][A-Z0-9_]*)\}?/[^` + pathStop + `]+|(?:~/|/)[^` + pathStop + `]+`)
-	assigned    = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
-	joinedByte  = regexp.MustCompile(`[` + joined + `]`)
-	credentials = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc"}
+	reference     = regexp.MustCompile(`ccn (doc|plan|task) show ([0-9A-Za-z][\w-]*)|\$\{?([A-Z_][A-Z0-9_]*)\}?/[^` + pathStop + `]+|(?:~/|/)[^` + pathStop + `]+`)
+	assigned      = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
+	joinedByte    = regexp.MustCompile(`[` + joined + `]`)
+	quotedRows    = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
+	errCredential = errors.New("a credential path, which never leaves this Mac")
+	credentials   = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc"}
 )
 
 type source struct {
@@ -67,9 +69,12 @@ func Command(a *app.App) *cobra.Command {
 			if config, err := a.ConfigFile(); err == nil {
 				c.Vars[DriveDir] = filepath.Dir(config)
 			}
-			rewritten, err := c.Carry(cmd.Context(), string(brief))
+			rewritten, left, err := c.Carry(cmd.Context(), string(brief))
 			if err != nil {
 				return fmt.Errorf("brief %s names what no Sprite can receive: %w", args[0], err)
+			}
+			for _, behind := range left {
+				fmt.Fprintf(cmd.ErrOrStderr(), "brief %s names what stays behind: %s\n", args[0], behind)
 			}
 			_, err = fmt.Fprint(cmd.OutOrStdout(), rewritten)
 			return err
@@ -84,20 +89,32 @@ func Command(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func (c Carrier) Carry(ctx context.Context, brief string) (string, error) {
+func (c Carrier) Carry(ctx context.Context, brief string) (string, []string, error) {
 	rewritten, faults := c.rewrite(ctx, brief, map[source]string{})
-	if len(faults) > 0 {
-		return "", errors.New(strings.Join(faults, "; "))
+	var refused, left []string
+	for _, fault := range faults {
+		if errors.Is(fault, errCredential) {
+			refused = append(refused, fault.Error())
+			continue
+		}
+		left = append(left, fault.Error())
 	}
-	return rewritten, nil
+	if len(refused) > 0 {
+		return "", left, errors.New(strings.Join(refused, "; "))
+	}
+	return rewritten, left, nil
 }
 
-func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]string) (string, []string) {
+func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]string) (string, []error) {
 	var rewritten strings.Builder
-	var faults []string
+	var faults []error
 	last := 0
 	vars := c.varsOf(brief)
+	quoted := quotedRows.FindAllStringIndex(brief, -1)
 	for _, match := range reference.FindAllStringSubmatchIndex(brief, -1) {
+		if slices.ContainsFunc(quoted, func(rows []int) bool { return rows[0] <= match[0] && match[0] < rows[1] }) {
+			continue
+		}
 		named, end, ok := c.named(brief, match, vars)
 		if !ok {
 			continue
@@ -106,12 +123,12 @@ func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]st
 		if !seen {
 			var err error
 			if copied, err = c.carry(ctx, named); err != nil {
-				faults = append(faults, err.Error())
+				faults = append(faults, err)
 			}
 			copies[named] = copied
 			if err == nil && isBrief(named.id) {
 				if err := c.follow(ctx, named.id, copies); err != nil {
-					faults = append(faults, err.Error())
+					faults = append(faults, err)
 				}
 			}
 		}
@@ -219,7 +236,7 @@ func (c Carrier) note(ctx context.Context, kind, id string) (string, error) {
 
 func (c Carrier) file(name string) (string, error) {
 	if c.credential(name) {
-		return "", fmt.Errorf("%s is a credential path, which never leaves this Mac", name)
+		return "", fmt.Errorf("%s is %w", name, errCredential)
 	}
 	resolved, err := filepath.EvalSymlinks(name)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -229,7 +246,7 @@ func (c Carrier) file(name string) (string, error) {
 		return "", err
 	}
 	if c.credential(resolved) {
-		return "", fmt.Errorf("%s links to %s, a credential path, which never leaves this Mac", name, resolved)
+		return "", fmt.Errorf("%s links to %s, %w", name, resolved, errCredential)
 	}
 	var size int64
 	var entries []string
