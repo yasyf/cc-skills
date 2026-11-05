@@ -99,7 +99,6 @@ type landing struct {
 	Repo         string   `json:"repo"`
 	Ledger       string   `json:"ledger"`
 	Checkout     string   `json:"checkout"`
-	FidelityLane names    `json:"fidelity_lane"`
 	PortPhrase   string   `json:"port_phrase"`
 	ExemptGrades []string `json:"exempt_grades"`
 	GoClasses    []string `json:"go_classes"`

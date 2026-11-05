@@ -282,7 +282,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 ## Fidelity, finder, and rulings checks
 
 **Fidelity check.**
-- `landing.fidelity_lane` in `runner.json` names one lane or a list; the runner re-reads it on every use, and the landing desk refuses to start without it and posts `FIDELITY-LANE-UNSET`.
+- The lanes whose fidelity grades count are one list in the `lr` code, `bus.FidelityLanes`, and a numbered successor of a listed lane counts, so hosts cannot disagree. A new base name needs a one-line PR and an `lr` release. `landing.fidelity_lane` in `runner.json` is read now only by `rulings.py` and the board text hook, until they move to Go.
 - The runner reads cci `review` records from those lanes that match `--pr <owner/repo>#<n>` or bare `#<n>`, whose text starts `fidelity: ok` or `fidelity: missing`, and whose first short sha is the PR's current head, such as `fidelity: ok <id> at <head7>`. Each lane's newest grade at the head stands for that lane.
 - A `missing` blocks until that same lane grades the head `ok`, a coordinator record about the PR resolves it, or a coordinator record reads `fidelity-override #<n> at <sha>`. Here `#` and `at` are optional, and any record id, `<seq>@<head8>`, or the drive copy's seq may follow the colon.
 - An `ok` counts once posted; register rows added later never void it.
@@ -303,7 +303,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 - Each head retries up to 3 times before posting `FINDER-FAILED #<n>` to the coordinator and `to`. A desk with pending heads and no completion for 15 minutes posts `FINDER-DESK-STALLED`.
 - A coordinator record reading `finder: whole` switches the desk to whole-program mode (`reference/finder-desk-brief.md`).
 
-**Runner-side fidelity pipeline.** It runs when `runner.json` carries `"fidelity": {"model": "sol", "concurrent": 6, "baseline": "<live old-app baseline>", "to": ["<lane>"], "timeout_minutes": 60}` and `landing.fidelity_lane` includes `fidelity-pipeline`; it starts a pass on each `head` and `opened` record (`reference/fidelity-desk-brief.md`, `reference/fidelity-job-brief.md`).
+**Runner-side fidelity pipeline.** It runs when `runner.json` carries `"fidelity": {"model": "sol", "concurrent": 6, "baseline": "<live old-app baseline>", "to": ["<lane>"], "timeout_minutes": 60}`; it starts a pass on each `head` and `opened` record (`reference/fidelity-desk-brief.md`, `reference/fidelity-job-brief.md`).
 - The `fidelity` object's optional `service_touches` list holds `{"service": "<name>", "path": "<glob>", "added": "<regexp>"}` entries. An added non-test line under a path whose leading directories match `path` and whose text matches `added` makes the pass grade `old-app: CHANGES` and name that file, line and service, whatever the read said. An entry whose glob or regexp does not compile is logged and skipped. An entry `{"service": "old-app pages", "path": "dashboard/src/iris/durable", "added": "\\S"}` covers the directory old pages run in `Forge-AI/monorepo`.
 - A `reader` verdict on a head whose old-app line names such touches posts `fidelity: reader <head> OLD-APP-PENDING: <why>` to the lane and `to` only, never to every fidelity desk. The head holds in grading until a fidelity desk posts a grade at that head.
 - A coordinator `decide` reading `class wrong` re-runs the classifier. A `fidelity: reader <head> <why>` record grades a reader PR. Three failed attempts post `FIDELITY-FAILED #<n>` to the coordinator and `to`.

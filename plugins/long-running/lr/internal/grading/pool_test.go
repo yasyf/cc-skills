@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
@@ -307,7 +308,7 @@ func TestAHeadAFinderRecordAlreadyGradedStartsNoPass(t *testing.T) {
 
 func TestAFidelityJobCarriesGradesOldAppsRulingsContractAndSources(t *testing.T) {
 	f := newPool(t, map[string]any{
-		"landing":  map[string]any{"checkout": "/srv/main", "fidelity_lane": "fidelity-desk-4", "port_phrase": "plain port"},
+		"landing":  map[string]any{"checkout": "/srv/main", "port_phrase": "plain port"},
 		"fidelity": map[string]any{"baseline": "base-1", "sources": map[string]any{"docs": map[string]any{"lane-*": []string{"abc123456"}, "other": []string{"unread"}}, "records": map[string]any{"*": []int64{}}}},
 	})
 	f.shell.docs["abc123456"] = `{"id":"abc123456789","title":"Grounds","body":"  the grounds  "}`
@@ -323,8 +324,8 @@ func TestAFidelityJobCarriesGradesOldAppsRulingsContractAndSources(t *testing.T)
 
 	directory := filepath.Join(f.pool.root, grader.FidelityLane, jobDir)
 	spec := readJob[grader.FidelityJob](t, directory)
-	sameStrings(t, spec.Lanes, []string{"fidelity-desk-4", grader.FidelityLane})
-	sameStrings(t, spec.Readers, []string{"fidelity-desk-4"})
+	sameStrings(t, spec.Lanes, append(bus.FidelityLanes(), "fidelity-desk-4"))
+	sameStrings(t, spec.Readers, slices.DeleteFunc(append(bus.FidelityLanes(), "fidelity-desk-4"), func(lane string) bool { return lane == grader.FidelityLane }))
 	if len(spec.Grades) != 1 || spec.Grades[0].Seq != grade || !strings.Contains(spec.Grades[0].Text, "old-app: unchanged") {
 		t.Errorf("grades = %+v", spec.Grades)
 	}
@@ -384,7 +385,7 @@ func TestAFidelityJobNamesTheHeadHeTappedOnlyWhileHisTapAwaitsProofThere(t *test
 		"tapped at this head":  {func(*machine.Facts) {}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main", "fidelity_lane": "fidelity-desk-4"}, "fidelity": map[string]any{"baseline": "base-1"}})
+			f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{"baseline": "base-1"}})
 
 			if _, err := f.pool.Dispatch(context.Background(), GraderFidelity, facts(head, c.change)); err != nil {
 				t.Fatal(err)
@@ -400,7 +401,7 @@ func TestAFidelityJobNamesTheHeadHeTappedOnlyWhileHisTapAwaitsProofThere(t *test
 func TestAFidelityJobOffersEveryClassTheGateAcceptsAndTheClassesLanesClaimedAtThisHead(t *testing.T) {
 	const regression = "class regression, fixes shipped production code"
 	f := newPool(t, map[string]any{
-		"landing":  map[string]any{"checkout": "/srv/main", "fidelity_lane": "fidelity-desk-4", "go_classes": []string{regression, "class ci-tooling"}},
+		"landing":  map[string]any{"checkout": "/srv/main", "go_classes": []string{regression, "class ci-tooling"}},
 		"fidelity": map[string]any{"baseline": "base-1"},
 	})
 	post(t, client.Draft{Lane: "go-sweep-9", Kind: kindGo, Text: "go #45489 at " + head[:7] + " on green [exempt: regression]", PRs: []string{pull}})
@@ -416,15 +417,28 @@ func TestAFidelityJobOffersEveryClassTheGateAcceptsAndTheClassesLanesClaimedAtTh
 	sameStrings(t, spec.Claims, []string{"regression"})
 }
 
-func TestAGradeFromANumberedSuccessorOfAConfiguredDeskStartsNoPass(t *testing.T) {
+func TestAGradeFromAListedLanesSuccessorStartsNoPass(t *testing.T) {
+	for _, lane := range []string{"fidelity-desk-22", "fidelity-shard-5"} {
+		t.Run(lane, func(t *testing.T) {
+			f := newPool(t, map[string]any{"fidelity": map[string]any{}})
+			post(t, client.Draft{Lane: lane, Kind: kindReview, Text: "fidelity: ok " + head[:7] + " reads", PRs: []string{pull}})
+
+			if _, err := f.dispatch(t, GraderFidelity); !errors.Is(err, ErrAnswered) {
+				t.Fatalf("err = %v, want ErrAnswered", err)
+			}
+		})
+	}
+}
+
+func TestALaneOnlyAStaleConfigKeyNamesAnswersNoHead(t *testing.T) {
 	f := newPool(t, map[string]any{
-		"landing":  map[string]any{"fidelity_lane": []string{"fidelity-desk", "fidelity-desk-21"}},
+		"landing":  map[string]any{"fidelity_lane": []string{"old-desk"}},
 		"fidelity": map[string]any{},
 	})
-	post(t, client.Draft{Lane: "fidelity-desk-22", Kind: kindReview, Text: "fidelity: ok " + head[:7] + " reads", PRs: []string{pull}})
+	post(t, client.Draft{Lane: "old-desk", Kind: kindReview, Text: "fidelity: ok " + head[:7] + " reads", PRs: []string{pull}})
 
-	if _, err := f.dispatch(t, GraderFidelity); !errors.Is(err, ErrAnswered) {
-		t.Fatalf("err = %v, want ErrAnswered", err)
+	if _, err := f.dispatch(t, GraderFidelity); errors.Is(err, ErrAnswered) {
+		t.Fatalf("err = %v, a lane the fact writer ignores answered the head", err)
 	}
 }
 
