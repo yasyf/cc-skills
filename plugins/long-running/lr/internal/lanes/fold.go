@@ -502,10 +502,24 @@ func isMail(r Record) bool {
 
 func foldUnread(s *store.Store, r Record, addressed map[string]bool, at time.Time) {
 	for target := range addressed {
-		if lane, found := laneOf(s, target); found && target != r.Lane && target != Root && isLive(lane.State) {
-			do(s.AddUnread(store.Unread{Lane: target, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))
+		lane, found := laneOf(s, target)
+		if !found && r.Kind == "owner" {
+			lane, found = lastOfFamily(s, target)
+		}
+		if found && lane.Name != r.Lane && lane.Name != Root && (isLive(lane.State) || r.Kind == "owner") {
+			do(s.AddUnread(store.Unread{Lane: lane.Name, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))
 		}
 	}
+}
+
+func lastOfFamily(s *store.Store, stem string) (store.Lane, bool) {
+	last, newestNumber := "", 0
+	for _, name := range must(s.Names()) {
+		if base, number := family(name); base == stem && number > newestNumber {
+			last, newestNumber = name, number
+		}
+	}
+	return laneOf(s, last)
 }
 
 func foldToRetired(s *store.Store, r Record, addressed map[string]bool) {

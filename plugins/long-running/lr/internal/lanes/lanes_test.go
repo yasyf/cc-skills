@@ -99,6 +99,7 @@ type fake struct {
 	published   []string
 	gaps        []string
 	orders      []owner.Row
+	undelivered []owner.Row
 	branches    map[string][]int
 	branchReads int
 	hosts       map[string]Host
@@ -160,6 +161,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		PublishNotes: func(lane string) error { f.published = append(f.published, lane); return f.notes[lane] },
 		Gaps:         func() ([]string, error) { return f.gaps, nil },
 		Orders:       func(*store.Store) ([]owner.Row, error) { return f.orders, nil },
+		Undelivered:  func() ([]owner.Row, error) { return f.undelivered, nil },
 		RotateAt:     600_000,
 		RetireAfter:  time.Hour,
 		OpenBranches: func(*store.Store) (map[string][]int, error) { f.branchReads++; return f.branches, nil },
@@ -2467,6 +2469,17 @@ func TestBriefParsing(t *testing.T) {
 	said := parseBrief("# x\nRegister slice: lane=x step=B13\nStanding: keep it up   \n\n**Deliverable:**\n  the thing\n")
 	equal(t, said, Brief{Step: "B13", Standing: "keep it up", Deliverable: "the thing"})
 	equal(t, parseBrief("nothing"), Brief{})
+}
+
+func TestAStandingLineOfNoneIsNoDuty(t *testing.T) {
+	for text, duty := range map[string]string{
+		"Standing: none; ends when the report lands\n":  "",
+		"Standing: None.\n":                             "",
+		"Standing: yes\n":                               "yes",
+		"Standing: nonetheless keep the queue moving\n": "nonetheless keep the queue moving",
+	} {
+		equal(t, parseBrief("# x\n"+text).Standing, duty)
+	}
 }
 
 func coordinator(t *testing.T, s *store.Store, brief string) *fake {

@@ -16,6 +16,7 @@ var (
 	macBrief    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=local(?:\s|$)`)
 	sliceStep   = regexp.MustCompile(`(?m)^Register slice: lane=\S+ step=(\S+)`)
 	standing    = regexp.MustCompile(`(?m)^Standing: *(\S.*?)[ \t]*$`)
+	noDuty      = regexp.MustCompile(`(?i)^none\b`)
 	deliverable = regexp.MustCompile(`(?m)^(?:#+ *)?(?:\*\*)?Deliverables?\b[^\n:]*:?\**[ \t]*([^\n]*)(?:\n\s*([^\n]*))?`)
 )
 
@@ -42,7 +43,7 @@ func parseBrief(text string) Brief {
 	if found := sliceStep.FindStringSubmatch(text); found != nil {
 		said.Step = found[1]
 	}
-	if found := standing.FindStringSubmatch(text); found != nil {
+	if found := standing.FindStringSubmatch(text); found != nil && !noDuty.MatchString(found[1]) {
 		said.Standing = found[1]
 	}
 	if found := deliverable.FindStringSubmatch(text); found != nil {

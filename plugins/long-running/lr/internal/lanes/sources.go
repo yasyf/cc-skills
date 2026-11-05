@@ -905,6 +905,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Orders: func(s *store.Store) ([]owner.Row, error) {
 			return OpenOrders(ctx, e.Bus, s, e.Config.Drive, e.Config.Repo, e.State)
 		},
+		Undelivered:           func() ([]owner.Row, error) { return UndeliveredOrders(ctx, e.Bus, e.Config.Drive, e.State) },
 		RotateAt:              rotateAt,
 		RetireAfter:           e.Config.RetireSilent,
 		Repo:                  e.Config.Repo,
