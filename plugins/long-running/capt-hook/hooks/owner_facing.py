@@ -76,8 +76,8 @@ PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+|```[^`]*\bl
 PUBLISH_FROM_MEMORY = "Warning, nothing was blocked: quote the RELEASED record or run `tools/ci release live`; never from memory"
 RECORD_IDS = re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")
 PLAIN_WORDS = (
-    "Warning, nothing was blocked: Owner-facing text must read in plain words."
-    " Replace each term below, or gloss it in the owner's own words, then post again."
+    "Warning, nothing was blocked: Owner-facing text must read in plain words and give the answers it promises."
+    " Replace each phrase below, gloss it in the owner's own words, or write the answer it promises, then post again."
 )
 QUOTED_TERM = re.compile(r'"([^"\n]+)"')
 SLACK_CARD = "mcp__plugin_cc-slack_cc-slack__slack_dm_status"
@@ -723,6 +723,12 @@ def status_card(phrase: str = "", **card: object) -> Input:
     tests=separate("owner_facing.plain_words_in_owner_questions", communicator_tests({
         status_card("slice", title="Merge the slice for lane p1a?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(pattern=r'plain words, "slice"'),
         status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge #42301", "Hold"]): Allow(),
+        status_card(
+            "is the lane's next answer to you",
+            title="Which chats move first?",
+            body="Which chats move first is the lane's next answer to you.",
+        ): Warn(pattern=r'plain words, "is the lane\'s next answer to you"'),
+        status_card(title="Which chats move first?", body="Chats over 64 turns move first; the rest move tonight."): Allow(),
         Input(
             command="""cc-slack dm-status --card '{"title": "Ship the sidecar change?", "body": "Ready."}'""",
             state=PROGRAM_ACTIVE,
