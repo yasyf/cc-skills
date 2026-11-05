@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	docsRef      = "refs/remotes/origin/main"
+	docsRef      = "refs/lr/docs/main"
 	docsMain     = "+refs/heads/main:" + docsRef
 	docsWait     = 2 * time.Minute
 	docsFresh    = 30 * 24 * time.Hour
@@ -49,7 +49,7 @@ func (d *Docs) git(ctx context.Context, args ...string) (string, error) {
 }
 
 func (d *Docs) Open(ctx context.Context, now time.Time) []DocChoices {
-	if _, err := d.git(ctx, "fetch", "--quiet", "origin", docsMain); err != nil {
+	if _, err := d.git(ctx, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", docsMain); err != nil {
 		return d.open
 	}
 	head, err := d.git(ctx, "rev-parse", docsRef)

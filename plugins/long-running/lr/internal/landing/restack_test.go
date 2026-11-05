@@ -134,6 +134,29 @@ func TestARemoteRestackReplaysTheChainOntoItsBaseOnTheSpriteAndPostsEachNewHead(
 	}
 }
 
+func TestARemoteRestackReadsTheFreshBaseWithoutMovingTheClonesTrackingRefs(t *testing.T) {
+	origin, clone := stacked(t, false)
+	stale := git(t, clone, "rev-parse", "refs/remotes/origin/dev")
+	work := filepath.Join(filepath.Dir(origin), "work")
+	commit(t, work, "dev.txt", "three\n")
+	git(t, work, "push", "-q", "origin", "dev")
+	remote := landing.Remote{Runner: &host{}, PostHead: (&heads{}).post, Repo: "o/r", Clone: clone, Sprite: sprite}
+
+	if _, err := remote.Restack(context.Background(), 2, git(t, origin, "rev-parse", "b"), "a"); err != nil {
+		t.Fatal(err)
+	}
+
+	if dev := git(t, origin, "rev-parse", "dev"); git(t, origin, "rev-parse", "a~1") != dev {
+		t.Fatalf("a did not move onto the fresh dev %s", dev)
+	}
+	if got := git(t, clone, "rev-parse", "refs/remotes/origin/dev"); got != stale {
+		t.Fatalf("origin/dev moved to %s, outside the fetch every other tool shares", got)
+	}
+	if left := git(t, clone, "for-each-ref", "refs/lr/"); left != "" {
+		t.Fatalf("the restack left %s", left)
+	}
+}
+
 func TestAConflictPushesNothingAndNamesTheBranchAndPaths(t *testing.T) {
 	origin, clone := stacked(t, true)
 	wasA, wasB := git(t, origin, "rev-parse", "a"), git(t, origin, "rev-parse", "b")

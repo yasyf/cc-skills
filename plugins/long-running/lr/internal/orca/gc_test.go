@@ -1589,6 +1589,41 @@ func TestGitReadsTheTrunkAndHeadsOfTheCheckoutsOwnOrigin(t *testing.T) {
 	}
 }
 
+func TestGitReadsTheFreshTrunkWithoutMovingTheSharedTrackingRef(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	realGit(t, base, "init", "--quiet", "--bare", "-b", "main", "origin.git")
+	realGit(t, base, "clone", "--quiet", filepath.Join(base, "origin.git"), "clone")
+	clone := filepath.Join(base, "clone")
+	realGit(t, clone, "commit", "--allow-empty", "-m", "base")
+	realGit(t, clone, "push", "--quiet", "origin", "main")
+	stale := realGit(t, clone, "rev-parse", "origin/main")
+	realGit(t, base, "clone", "--quiet", filepath.Join(base, "origin.git"), "other")
+	other := filepath.Join(base, "other")
+	realGit(t, other, "commit", "--allow-empty", "-m", "the lane's work (#7)")
+	realGit(t, other, "push", "--quiet", "origin", "main")
+	landed := realGit(t, other, "rev-parse", "HEAD")
+	git := &Git{Runner: shell.Exec{}}
+	ctx := context.Background()
+	repository := filepath.Join(clone, ".git")
+	onTrunk, err := git.OnTrunk(ctx, landed, repository)
+	if err != nil || !onTrunk {
+		t.Fatalf("on trunk %v, err %v", onTrunk, err)
+	}
+	remote, err := git.Remote(ctx, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if squashed := remote.Landed.(PullRequests).Squashed; !squashed[7] {
+		t.Fatalf("squashed %v", squashed)
+	}
+	if got := realGit(t, clone, "rev-parse", "origin/main"); got != stale {
+		t.Fatalf("origin/main moved to %s, outside the fetch every other tool shares", got)
+	}
+}
+
 func clientFor(reply func(argv []string) (string, string, int)) (Client, *scripted) {
 	runner := &scripted{reply: reply}
 	return Client{Runner: runner}, runner

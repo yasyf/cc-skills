@@ -7,28 +7,29 @@ export GH_TOKEN GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 clone=$1 base=$2
 shift 2
 tag=restack-$$-$(date +%s)
-trap 'rm -f "$clone.$tag.log" "$clone.$tag.heads"; git -C "$clone" for-each-ref --format="delete %(refname)" "refs/heads/$tag/" | git -C "$clone" update-ref --stdin' EXIT
+fetched=refs/lr/$tag
+trap 'rm -f "$clone.$tag.log" "$clone.$tag.heads"; git -C "$clone" for-each-ref --format="delete %(refname)" "refs/heads/$tag/" "$fetched/" | git -C "$clone" update-ref --stdin' EXIT
 cat >"$clone.$tag.heads"
 auth() {
   git -C "$clone" -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' "$@"
 }
-refspecs="+refs/heads/$base:refs/remotes/origin/$base"
-for branch in "$@"; do refspecs="$refspecs +refs/heads/$branch:refs/remotes/origin/$branch"; done
-(flock 9 && auth fetch --quiet origin $refspecs) 9>"$clone.fetch.lock"
-for branch in "$@"; do git -C "$clone" update-ref "refs/heads/$tag/$branch" "refs/remotes/origin/$branch"; done
+refspecs="+refs/heads/$base:$fetched/$base"
+for branch in "$@"; do refspecs="$refspecs +refs/heads/$branch:$fetched/$branch"; done
+(flock 9 && auth fetch --quiet --no-tags --refmap= origin $refspecs) 9>"$clone.fetch.lock"
+for branch in "$@"; do git -C "$clone" update-ref "refs/heads/$tag/$branch" "$fetched/$branch"; done
 eval "top=\${$#}"
-if git -C "$clone" merge-base --is-ancestor "refs/remotes/origin/$base" "refs/heads/$tag/$1"; then
-  echo "BASE $base $(git -C "$clone" rev-parse "refs/remotes/origin/$base")"
+if git -C "$clone" merge-base --is-ancestor "$fetched/$base" "refs/heads/$tag/$1"; then
+  echo "BASE $base $(git -C "$clone" rev-parse "$fetched/$base")"
   exit 0
 fi
-carried=$(git -C "$clone" rev-list "refs/remotes/origin/$base..refs/heads/$tag/$top" | grep -Fxf "$clone.$tag.heads" || true)
+carried=$(git -C "$clone" rev-list "$fetched/$base..refs/heads/$tag/$top" | grep -Fxf "$clone.$tag.heads" || true)
 if [ -n "$carried" ]; then
   printf 'CARRIES %s\n' $carried
   exit 1
 fi
-if ! moves=$(auth replay --contained --onto "refs/remotes/origin/$base" "refs/remotes/origin/$base..refs/heads/$tag/$top" 2>"$clone.$tag.log"); then
-  tip=$(git -C "$clone" rev-parse "refs/remotes/origin/$base")
-  for commit in $(git -C "$clone" rev-list --reverse --topo-order "refs/remotes/origin/$base..refs/heads/$tag/$top"); do
+if ! moves=$(auth replay --contained --onto "$fetched/$base" "$fetched/$base..refs/heads/$tag/$top" 2>"$clone.$tag.log"); then
+  tip=$(git -C "$clone" rev-parse "$fetched/$base")
+  for commit in $(git -C "$clone" rev-list --reverse --topo-order "$fetched/$base..refs/heads/$tag/$top"); do
     if tree=$(git -C "$clone" merge-tree --write-tree --merge-base "$commit^" "$tip" "$commit" 2>/dev/null); then
       tip=$(git -C "$clone" -c user.name=remote-restack -c user.email=remote-restack@localhost commit-tree "$tree" -p "$tip" -m "$commit")
       continue
@@ -45,11 +46,11 @@ fi
 printf '%s\n' "$moves" | grep "^update refs/heads/$tag/" | git -C "$clone" update-ref --stdin
 pushes=""
 for branch in "$@"; do
-  old=$(git -C "$clone" rev-parse "refs/remotes/origin/$branch")
+  old=$(git -C "$clone" rev-parse "$fetched/$branch")
   new=$(git -C "$clone" rev-parse "refs/heads/$tag/$branch")
   [ "$old" = "$new" ] && continue
   pushes="$pushes --force-with-lease=refs/heads/$branch:$old refs/heads/$tag/$branch:refs/heads/$branch"
   echo "MOVED $branch $old $new"
 done
 [ -z "$pushes" ] || auth push --quiet --atomic origin $pushes
-echo "BASE $base $(git -C "$clone" rev-parse "refs/remotes/origin/$base")"
+echo "BASE $base $(git -C "$clone" rev-parse "$fetched/$base")"
