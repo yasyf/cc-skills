@@ -83,6 +83,7 @@ func DrawCard(ctx context.Context, driveName, lane, key string, change cardBody)
 
 type Link struct {
 	Drive  string
+	Repo   string
 	State  string
 	Cards  func(session string) (Cards, func(), error)
 	Judge  Judge
@@ -127,6 +128,9 @@ func SeedCursor(ctx context.Context, bus, state string) error {
 }
 
 func (l Link) apply(ctx context.Context, record client.Record) error {
+	if string(record.Kind) == landedKind {
+		return l.retireLanded(ctx, record)
+	}
 	if string(record.Kind) != cardKind {
 		return nil
 	}
@@ -151,6 +155,33 @@ func (l Link) apply(ctx context.Context, record client.Record) error {
 		return err
 	}
 	return l.tell(ctx, record, linkAnswerKind, said)
+}
+
+func (l Link) retireLanded(ctx context.Context, record client.Record) error {
+	cards, done, err := l.Cards("")
+	if err != nil {
+		return err
+	}
+	defer done()
+	shown, err := cards.tapCards(ctx)
+	if err != nil {
+		return err
+	}
+	var asking []string
+	for _, pr := range record.Refs.PRs {
+		if pr.Repo != "" && !strings.EqualFold(pr.Repo, l.Repo) {
+			continue
+		}
+		for _, card := range shown {
+			if card.asksFor(pr.Number) {
+				asking = append(asking, card.ID)
+			}
+		}
+	}
+	if len(asking) == 0 {
+		return nil
+	}
+	return cards.Retire(ctx, LinkLane, landedReason, slices.Compact(asking), io.Discard)
 }
 
 func (l Link) change(ctx context.Context, cards Cards, lane string, card cardBody) (string, error) {
@@ -360,6 +391,13 @@ func (l Link) refuse(ctx context.Context, cards Cards, record client.Record, car
 	if _, err := cards.Store.PutFact(repo, number, card.TapHead, FactTapCard, tapCardRefused, cards.Now()); err != nil {
 		return err
 	}
+	tapped, err := unansweredTaps(ctx, l.Drive, repo, cards.Now())
+	if err != nil {
+		return err
+	}
+	if tapped[number] {
+		return l.tell(ctx, record, linkRefusalKind, said)
+	}
 	text := fmt.Sprintf("The tap card for %s did not draw, so nothing asks him for it; draw it by hand: %s", card.TapOf, said)
 	_, err = client.Post(ctx, client.Draft{
 		Drive: l.Drive, Lane: LinkLane, Kind: linkRefusalKind, ID: "tap-card-alarm/" + record.Fields.Attrs[changeAttr],
@@ -406,7 +444,7 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 			if err != nil {
 				return err
 			}
-			return Link{Drive: entry.Bus(), State: entry.StateDir, Judge: judge, Draw: arch.Draw, Runner: a.Runner, Cards: func(named string) (Cards, func(), error) {
+			return Link{Drive: entry.Bus(), Repo: entry.Repo, State: entry.StateDir, Judge: judge, Draw: arch.Draw, Runner: a.Runner, Cards: func(named string) (Cards, func(), error) {
 				current, session, err := opened()
 				if err != nil {
 					return Cards{}, nil, err

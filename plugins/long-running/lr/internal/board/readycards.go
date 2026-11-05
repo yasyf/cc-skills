@@ -13,7 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -25,6 +28,11 @@ const (
 	FactTapCard    = "tap_card"
 	Communicator   = communicator
 	factChangeTold = "change_told"
+
+	tapOrderKind    = "lr.tap"
+	tapAnswerWindow = time.Hour
+	landedKind      = "landed"
+	landedReason    = "it landed, so nothing waits on your tap"
 
 	slackMessageBlocks = 50
 	listFrameBlocks    = 3
@@ -118,6 +126,9 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if len(drawable) == 0 {
 		return nil
 	}
+	if drawable, err = r.stillAsked(ctx, drawable, facts); err != nil || len(drawable) == 0 {
+		return err
+	}
 	inTapOrder(drawable)
 	if len(drawable) > 1 {
 		var parked []store.ReviewRow
@@ -136,6 +147,77 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// stillAsked reads GitHub and the bus rather than the rows, since a store that has not folded the merge or his tap yet still reads the row as waiting on him.
+func (r ReadyCards) stillAsked(ctx context.Context, rows []store.ReviewRow, facts map[int]map[string]string) ([]store.ReviewRow, error) {
+	numbers := make([]int, len(rows))
+	for i, row := range rows {
+		numbers[i] = row.Number
+	}
+	read, err := r.Cards.CCX.PRStatus(ctx, r.Repo, numbers)
+	if err != nil {
+		return nil, err
+	}
+	open := make(map[int]bool, len(read))
+	for _, pr := range read {
+		open[pr.Number] = pr.State == stateOpen
+	}
+	tapped, err := unansweredTaps(ctx, r.Cards.Bus, r.Repo, r.Cards.Now())
+	if err != nil {
+		return nil, err
+	}
+	asked := rows[:0]
+	for _, row := range rows {
+		if !open[row.Number] || tapped[row.Number] {
+			continue
+		}
+		carried, err := r.carriesHisTap(row, facts[row.Number])
+		if err != nil {
+			return nil, err
+		}
+		if !carried {
+			asked = append(asked, row)
+		}
+	}
+	return asked, nil
+}
+
+func unansweredTaps(ctx context.Context, drive, repo string, now time.Time) (map[int]bool, error) {
+	records, err := client.Tail(ctx, client.Query{Drive: drive, Since: now.Add(-tapAnswerWindow), Kinds: []string{ownerKind, tapOrderKind, bus.TapRefusedKind}})
+	if err != nil {
+		return nil, err
+	}
+	tapped := map[int]bool{}
+	for _, record := range records {
+		if tap, ordered := bus.OrderOf(record, repo); ordered && tap.Value == string(machine.TapTapped) {
+			tapped[tap.PR] = true
+		}
+		if string(record.Kind) == ownerKind {
+			continue
+		}
+		for _, pr := range record.Refs.PRs {
+			delete(tapped, pr.Number)
+		}
+	}
+	return tapped, nil
+}
+
+func (r ReadyCards) carriesHisTap(row store.ReviewRow, atHead map[string]string) (bool, error) {
+	tapped, err := r.Cards.Store.StandingTap(r.Repo, row.Number)
+	if err != nil || tapped == "" || strings.HasPrefix(row.Head, tapped) {
+		return false, err
+	}
+	atTap, err := r.Cards.Store.Facts(r.Repo, row.Number, tapped)
+	if err != nil {
+		return false, err
+	}
+	deltas, err := r.Cards.Store.HeadFacts(r.Repo, row.Number, gates.DeltaFacts)
+	if err != nil {
+		return false, err
+	}
+	by, _ := gates.CarriedBy(tapped, row.Head, atTap, atHead, deltas)
+	return by != "", nil
 }
 
 // followDrawn redraws in place each post whose row now draws differently, and
@@ -457,15 +539,20 @@ type tapCard struct {
 }
 
 func (c tapCard) asksAt(row store.ReviewRow) bool {
-	if c.ID == MergeWaits(row.Number, row.Head) {
-		return true
-	}
+	return c.ID == MergeWaits(row.Number, row.Head) || c.asks(row.Number, func(head string) bool { return head == "" || strings.HasPrefix(row.Head, head) })
+}
+
+func (c tapCard) asksFor(number int) bool {
+	return strings.HasPrefix(c.ID, fmt.Sprintf("merge:%d:", number)) || c.asks(number, func(string) bool { return true })
+}
+
+func (c tapCard) asks(number int, at func(head string) bool) bool {
 	offers, names := false, false
 	for _, child := range c.Children {
 		offers = offers || slices.ContainsFunc(child.Options, func(option cardOption) bool {
 			return option.Label == approveLabel || option.Label == mergeLabel
 		})
-		names = names || child.Type == "pr" && child.Number == row.Number && (child.Head == "" || strings.HasPrefix(row.Head, child.Head))
+		names = names || child.Type == "pr" && child.Number == number && at(child.Head)
 	}
 	return offers && names
 }

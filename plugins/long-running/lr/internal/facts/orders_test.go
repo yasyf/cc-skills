@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strconv"
@@ -127,6 +128,29 @@ func refusals(t *testing.T) []client.Record {
 		t.Fatal(err)
 	}
 	return written
+}
+
+func blockers(t *testing.T) []client.Record {
+	t.Helper()
+	written, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"blocker"}, Lanes: []string{facts.OrderLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return written
+}
+
+func pendingTaps(t *testing.T) []client.Record {
+	t.Helper()
+	written, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{bus.TapPendingKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return written
+}
+
+func drawHeadless(t *testing.T, s *store.Store) {
+	t.Helper()
+	drawWaiting(t, s, surfacePR, "", func(*store.ReviewRow) {})
 }
 
 func ownerRecord(t *testing.T, text string, attrs map[string]string) client.Record {
@@ -266,6 +290,7 @@ func TestALandPickNamingSeveralPRsEscalatesOnceAndOtherPicksDoNot(t *testing.T) 
 	ownerRecord(t, "Owner on board b, Should next notice a stopped devhost by holding a connection? (no-pr): picked “Land the held connection”", map[string]string{"event": "choice.selected", "block": "no-pr", "picked": "no-pr-1"})
 	ownerRecord(t, "Owner on board b, Land #4242 or #4243? (two-prs): picked “Land both”", map[string]string{"event": "choice.selected", "block": "two-prs", "picked": "two-prs-1"})
 	ownerRecord(t, "Owner on board b, Which? (not-land): picked “Keep the 30-day rule”", map[string]string{"event": "choice.selected", "block": "not-land", "picked": "not-land-1"})
+	h.source.Now = func() time.Time { return time.Now().Add(facts.OrderGrace + time.Second) }
 
 	writeOrders(t, h)
 	writeOrders(t, h)
@@ -279,6 +304,135 @@ func TestALandPickNamingSeveralPRsEscalatesOnceAndOtherPicksDoNot(t *testing.T) 
 	}
 	if len(found) != 1 || said("no-pr") || !said("two-prs") || len(orders(t)) != 0 {
 		t.Fatalf("escalated = %+v, orders = %+v", found, orders(t))
+	}
+}
+
+func TestAPickOnSeveralPRsTheRelayCarriedOnePRAtATimePostsNoBlocker(t *testing.T) {
+	h := unreadHarness(t)
+	numbers := []int{surfacePR, surfacePR + 1, surfacePR + 2}
+	for _, number := range numbers {
+		drawReady(t, h.store, number, surfaceHead)
+	}
+	pick := ownerRecord(t, "Owner on board b, Approve #4242, #4243 and #4244? (four-choice): picked “Approve all four”", map[string]string{"event": "choice.selected", "block": "four-choice", "picked": "four-choice-1"})
+	for _, number := range numbers {
+		ownerRecord(t, fmt.Sprintf(`Owner: "Approve all four" #%d`, number), nil)
+	}
+	h.source.Now = func() time.Time { return pick.At.Add(4 * time.Minute) }
+
+	writeOrders(t, h)
+
+	if told, written := blockers(t), orders(t); len(told) != 0 || len(written) != len(numbers) {
+		t.Fatalf("blockers = %+v, orders = %+v", told, written)
+	}
+}
+
+func TestAPickOnSeveralPRsNotEachCarriedTellsTheRelayOnceAfterTheGrace(t *testing.T) {
+	h := surfaceHarness(t)
+	pick := ownerRecord(t, "Owner on board b, Approve #4242 and #4243? (two-choice): picked “Approve both”", map[string]string{"event": "choice.selected", "block": "two-choice", "picked": "two-choice-1"})
+	ownerRecord(t, `Owner: "Approve both" #4242`, nil)
+	h.source.Now = func() time.Time { return pick.At.Add(facts.OrderGrace / 2) }
+	writeOrders(t, h)
+	if told := blockers(t); len(told) != 0 {
+		t.Fatalf("told inside the grace: %+v", told)
+	}
+
+	h.source.Now = func() time.Time { return pick.At.Add(2 * facts.OrderGrace) }
+	writeOrders(t, h)
+	writeOrders(t, h)
+
+	if told := blockers(t); len(told) != 1 || !strings.Contains(told[0].Text, "(two-choice)") {
+		t.Fatalf("blockers = %+v", told)
+	}
+}
+
+func TestHisTapOnAPRWhoseHeadRecordComesLaterWaitsAndIsOrderedAtThatHead(t *testing.T) {
+	h := unreadHarness(t)
+	drawHeadless(t, h.store)
+	word := ownerRecord(t, `Owner: "Approve" #4242`, nil)
+	h.source.Now = func() time.Time { return word.At.Add(4 * time.Minute) }
+
+	writeOrders(t, h)
+	writeOrders(t, h)
+
+	if written, refused, told, waiting := orders(t), refusals(t), blockers(t), pendingTaps(t); len(written)+len(refused)+len(told) != 0 || len(waiting) != 1 {
+		t.Fatalf("orders = %+v, refusals = %+v, blockers = %+v, pending = %+v", written, refused, told, waiting)
+	}
+	if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || cursor >= word.Seq {
+		t.Fatalf("cursor = %d, %v, want it held before %d", cursor, err, word.Seq)
+	}
+
+	drawReady(t, h.store, surfacePR, surfaceHead)
+	h.source.Now = func() time.Time { return word.At.Add(6 * time.Minute) }
+	writeOrders(t, h)
+
+	if written, refused, told := orders(t), refusals(t), blockers(t); len(written) != 1 || !strings.Contains(written[0].Text, surfaceHead[:12]) || len(refused)+len(told) != 0 {
+		t.Fatalf("orders = %+v, refusals = %+v, blockers = %+v", written, refused, told)
+	}
+	if row := h.snapshot(t)[surfacePR]; !row.Admitted() {
+		t.Fatalf("row = %+v", row)
+	}
+	if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || cursor < word.Seq {
+		t.Fatalf("cursor = %d, %v, want it past %d", cursor, err, word.Seq)
+	}
+}
+
+func TestHisTapAtTheHeadHisCardNamedWaitsForTheHeadRecordAndStandsThereWhateverHeadItNames(t *testing.T) {
+	for name, recorded := range map[string]string{"the head his card named": surfaceHead, "another head": head} {
+		t.Run(name, func(t *testing.T) {
+			h := unreadHarness(t)
+			drawHeadless(t, h.store)
+			tapAt(t, surfaceHead)
+			writeOrders(t, h)
+			if waiting := pendingTaps(t); len(orders(t)) != 0 || len(waiting) != 1 || waiting[0].Fields.Attrs["head"] != surfaceHead {
+				t.Fatalf("orders = %+v, pending = %+v", orders(t), waiting)
+			}
+
+			drawReady(t, h.store, surfacePR, recorded)
+			writeOrders(t, h)
+
+			if written, refused := orders(t), refusals(t); len(written) != 1 || !strings.Contains(written[0].Text, surfaceHead[:12]) || len(refused) != 0 {
+				t.Fatalf("orders = %+v, refusals = %+v", written, refused)
+			}
+		})
+	}
+}
+
+func TestATapStillWaitingForItsHeadRecordAfterTheHourTellsTheRelayOnce(t *testing.T) {
+	h := unreadHarness(t)
+	drawHeadless(t, h.store)
+	before := ownerRecord(t, "Owner on board b, Which? (not-land): picked “Keep the 30-day rule”", map[string]string{"event": "choice.selected", "block": "not-land", "picked": "not-land-1"})
+	word := ownerRecord(t, `Owner: "Approve" #4242`, nil)
+	if err := h.store.Advance(facts.OrderCursor, before.Seq); err != nil {
+		t.Fatal(err)
+	}
+	h.source.Now = func() time.Time { return word.At.Add(facts.OrderWindow - 5*time.Minute) }
+	writeOrders(t, h)
+	if told := blockers(t); len(told) != 0 {
+		t.Fatalf("told inside the hour: %+v", told)
+	}
+
+	h.source.Now = func() time.Time { return word.At.Add(facts.OrderWindow + 5*time.Minute) }
+	writeOrders(t, h)
+	writeOrders(t, h)
+
+	if told := blockers(t); len(told) != 1 || !strings.Contains(told[0].Text, prrow.NoHeadYet) || !slices.Contains(told[0].To, "owner-relay") {
+		t.Fatalf("blockers = %+v", told)
+	}
+}
+
+func TestARefusalOfATapNamingNoHeadLeavesNoEmptyHeadInItsText(t *testing.T) {
+	h := unreadHarness(t)
+	drawReady(t, h.store, surfacePR+1, surfaceHead)
+	ownerRecord(t, `Owner: "Approve" #4242`, nil)
+
+	writeOrders(t, h)
+
+	refused, told := refusals(t), blockers(t)
+	if len(refused) != 1 || refused[0].Text != "tap on #4242 refused: "+gates.NoRow {
+		t.Fatalf("refusals = %+v", refused)
+	}
+	if len(told) != 1 || !strings.Contains(told[0].Text, "of #4242 was refused") || strings.Contains(told[0].Text, "at  ") {
+		t.Fatalf("blockers = %+v", told)
 	}
 }
 
@@ -362,19 +516,42 @@ func TestATapOnARowWhoseStandingRefusesItIsRefusedWithTheReasonAndNeverOrdered(t
 	}
 }
 
-func TestATapOnALandedRowPostsNoOrderNoRefusalAndNoBlocker(t *testing.T) {
-	h := unreadHarness(t)
-	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.State = prrow.StateLanded })
-	ownerRecord(t, landOnCard, pickAttrs)
+func TestATapOnALandedOrClosedRowPostsNoOrderNoRefusalAndNoBlocker(t *testing.T) {
+	for _, state := range []string{prrow.StateLanded, prrow.StateClosed} {
+		t.Run(state, func(t *testing.T) {
+			h := unreadHarness(t)
+			drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.State = state })
+			ownerRecord(t, landOnCard, pickAttrs)
 
-	writeOrders(t, h)
+			writeOrders(t, h)
 
-	told, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"blocker"}, Lanes: []string{facts.OrderLane}})
-	if err != nil {
-		t.Fatal(err)
+			if written, refused, told := orders(t), refusals(t), blockers(t); len(written)+len(refused)+len(told) != 0 {
+				t.Fatalf("orders = %+v, refusals = %+v, told = %+v", written, refused, told)
+			}
+		})
 	}
-	if written, refused := orders(t), refusals(t); len(written)+len(refused)+len(told) != 0 {
-		t.Fatalf("orders = %+v, refusals = %+v, told = %+v", written, refused, told)
+}
+
+func TestATapBeforeTheFirstFoldWaitsQuietlyAndOneOnAMergedPRIsDropped(t *testing.T) {
+	for name, c := range map[string]struct {
+		state string
+		waits bool
+	}{"open": {"OPEN", true}, "merged": {"MERGED", false}, "closed": {"CLOSED", false}} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: surfacePR, head: surfaceHead, login: "drive-bot", unopened: true}}, status(surfacePR, func(r *statusRow) { r.Head, r.State = surfaceHead, c.state }))
+			word := ownerRecord(t, `Owner: "Approve" #4242`, nil)
+			h.source.Now = func() time.Time { return word.At.Add(4 * time.Minute) }
+
+			writeOrders(t, h)
+			writeOrders(t, h)
+
+			if written, refused, told := orders(t), refusals(t), blockers(t); len(written)+len(refused)+len(told) != 0 {
+				t.Fatalf("orders = %+v, refusals = %+v, blockers = %+v", written, refused, told)
+			}
+			if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || (cursor < word.Seq) != c.waits {
+				t.Fatalf("cursor = %d, %v, want it held before %d only while the PR is open", cursor, err, word.Seq)
+			}
+		})
 	}
 }
 

@@ -26,6 +26,7 @@ const (
 	WriterAttr     = "writer"
 	TapRefusedKind = "tap.refused"
 	TapRefusedFact = "tap-refused"
+	TapPendingKind = "tap.pending"
 	GoRefusedKind  = "go.refused"
 	GoRefusedFact  = "standing-refused"
 	StuckKind      = "landing.stuck"
@@ -86,7 +87,7 @@ func (b Bus) postOwnerTap(ctx context.Context, repo string, tap Tap, id, where s
 		ID:    id,
 		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
 		Attrs: attrs,
-		Text:  fmt.Sprintf("Owner %s: #%d approved at %s", where, tap.PR, tap.Head[:min(12, len(tap.Head))]),
+		Text:  fmt.Sprintf("Owner %s: #%d approved%s", where, tap.PR, At(tap.Head)),
 	})
 	return err
 }
@@ -98,9 +99,29 @@ func (b Bus) PostRefusal(ctx context.Context, repo string, tap Tap, reason strin
 		ID:    fmt.Sprintf("%s/%d/%s/%s", TapRefusedKind, tap.PR, tap.Head, hex.EncodeToString(sum[:keyedReason])),
 		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
 		Attrs: map[string]string{refusedHead: tap.Head, refusalAttr: reason},
-		Text:  fmt.Sprintf("tap on #%d at %s refused: %s", tap.PR, tap.Head[:min(12, len(tap.Head))], reason),
+		Text:  fmt.Sprintf("tap on #%d%s refused: %s", tap.PR, At(tap.Head), reason),
 	})
 	return err
+}
+
+// PostPending says his tap waits for a record naming the PR's head. It is keyed by the PR, the head his card named and his record, so each pass that reads the tap again writes nothing.
+func (b Bus) PostPending(ctx context.Context, repo string, tap Tap, from client.Record) error {
+	_, err := client.Post(ctx, client.Draft{
+		Drive: b.Drive, Lane: b.Lane, Kind: TapPendingKind,
+		ID:    fmt.Sprintf("%s/%d/%s/%s", TapPendingKind, tap.PR, tap.Head, cmp.Or(from.ID, from.Name())),
+		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
+		Attrs: map[string]string{refusedHead: tap.Head},
+		Text:  fmt.Sprintf("tap on #%d%s waits for a record naming its head", tap.PR, At(tap.Head)),
+	})
+	return err
+}
+
+// At names a head as " at <sha>" for a record's text, and nothing when no head is known.
+func At(head string) string {
+	if head == "" {
+		return ""
+	}
+	return " at " + head[:min(12, len(head))]
 }
 
 func RefusedHead(record client.Record) string {
@@ -174,6 +195,33 @@ func UnnamedLand(record client.Record, repo string) bool {
 		return false
 	}
 	return attrs["heads"] != "" || len(namedPRs(record.Text, repo)) > 0
+}
+
+// CarriedEach says a later record orders every PR of repo a pick names, with the order the pick gives, as when the relay carries a pick on several PRs one PR at a time.
+func CarriedEach(pick client.Record, later []client.Record, repo string) bool {
+	value, named := cardValue(pick.Fields.Attrs, pick.Text), pickedPRs(pick, repo)
+	return len(named) > 0 && !slices.ContainsFunc(named, func(number int) bool {
+		return !slices.ContainsFunc(later, func(record client.Record) bool {
+			tap, ordered := OrderOf(record, repo)
+			return ordered && tap.PR == number && tap.Value == value
+		})
+	})
+}
+
+func pickedPRs(pick client.Record, repo string) []int {
+	heads := pick.Fields.Attrs["heads"]
+	if heads == "" {
+		return namedPRs(pick.Text, repo)
+	}
+	var numbers []int
+	for entry := range strings.SplitSeq(heads, ",") {
+		pr, _, _ := strings.Cut(entry, "=")
+		owner, digits, _ := strings.Cut(pr, "#")
+		if number, err := strconv.Atoi(digits); err == nil && (repo == "" || strings.EqualFold(owner, repo)) {
+			numbers = append(numbers, number)
+		}
+	}
+	return numbers
 }
 
 func ReadsAsLand(label string) bool {

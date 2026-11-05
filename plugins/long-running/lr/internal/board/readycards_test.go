@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
@@ -83,6 +85,94 @@ func TestARowTurningReadyDrawsOneCardAndASecondPassDrawsNothing(t *testing.T) {
 	f.run(t)
 	if calls := askCalls(f); len(calls) != 1 {
 		t.Fatalf("after a second pass, asks = %v, want still one", calls)
+	}
+}
+
+func TestNoTapCardAsksForAPRThatMergedOrThatHeTappedBeforeTheStoreFoldedIt(t *testing.T) {
+	post := func(t *testing.T, kind, text string, prs ...string) {
+		t.Helper()
+		if _, err := client.Post(context.Background(), client.Draft{Drive: linkDrive, Lane: "owner-relay", Kind: kind, Text: text, PRs: prs}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, c := range map[string]struct {
+		given func(t *testing.T, f *linkFixture)
+		asks  int
+	}{
+		"merged on GitHub":         {func(_ *testing.T, f *linkFixture) { f.Cards.CCX = &prStatus{states: map[int]string{51516: "MERGED"}} }, 0},
+		"his tap not yet answered": {func(t *testing.T, _ *linkFixture) { post(t, ownerKind, `Owner: "Approve" #51516`) }, 0},
+		"his tap refused": {func(t *testing.T, _ *linkFixture) {
+			post(t, ownerKind, `Owner: "Approve" #51516`)
+			post(t, bus.TapRefusedKind, "tap on #51516 refused: held", readyRepo+"#51516")
+		}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			liveDrive(t)
+			f := newLink(t)
+			c.given(t, f)
+			putRows(t, f, tapRow(51516))
+			readyPass(t, f)
+			f.run(t)
+			if calls := askCalls(f); len(calls) != c.asks {
+				t.Fatalf("asks = %v, want %d", calls, c.asks)
+			}
+		})
+	}
+}
+
+func TestNoTapCardAsksAtAHeadHisEarlierTapCarriesTo(t *testing.T) {
+	for name, c := range map[string]struct {
+		delta string
+		asks  int
+	}{
+		"a review fix since his tap":     {gates.DeltaReviewFix, 0},
+		"an unjudged push since his tap": {"", 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			liveDrive(t)
+			f := newLink(t)
+			putRows(t, f, tapRow(51506))
+			stored := map[string]map[string]string{nextHead: {"tap": "tapped"}, readyHead: {gates.DeltaFromFact: nextHead}}
+			if c.delta != "" {
+				stored[readyHead][gates.DeltaFact] = c.delta
+			}
+			for head, kinds := range stored {
+				for kind, value := range kinds {
+					if _, err := f.Cards.Store.PutFact(readyRepo, 51506, head, kind, value, cardsNow); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			readyPass(t, f)
+			f.run(t)
+			if calls := askCalls(f); len(calls) != c.asks {
+				t.Fatalf("asks = %v, want %d", calls, c.asks)
+			}
+		})
+	}
+}
+
+func TestATapCardLeavesTheBoardTheMomentItsPRLands(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	row := tapRow(51506)
+	putRows(t, f, row)
+	readyPass(t, f)
+	f.run(t)
+	if _, drawn := f.shell.drawn[tapCardID(row)]; !drawn {
+		t.Fatalf("no card was drawn: %v", f.shell.drawn)
+	}
+	landed, err := client.Post(context.Background(), client.Draft{Drive: linkDrive, Lane: "pr-unblock", Kind: landedKind, Text: "LANDED #51506 at fa8217f", PRs: []string{readyRepo + "#51506"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.link().apply(context.Background(), landed); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, drawn := f.shell.drawn[tapCardID(row)]; drawn {
+		t.Fatal("the card for a PR that landed is still on the board")
 	}
 }
 
@@ -379,6 +469,30 @@ func TestARowWhoseCardStandsInSlackDrawsNothingAgain(t *testing.T) {
 	f.run(t)
 	if calls, posts := askCalls(f), listPosts(t, f); len(calls) != 0 || len(posts) != 0 {
 		t.Fatalf("asks = %v and lists = %+v, want no second post for a card that stands", calls, posts)
+	}
+}
+
+func TestARefusedDrawOfACardHeAlreadyAnsweredRaisesNoAlarm(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	row := tapRow(51159)
+	putRows(t, f, row)
+	if _, err := client.Post(context.Background(), client.Draft{Drive: linkDrive, Lane: "owner-relay", Kind: ownerKind, Text: `Owner: "Approve" #51159`, PRs: []string{readyRepo + "#51159"}}); err != nil {
+		t.Fatal(err)
+	}
+	block, err := TapCard(readyRepo, row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.shell.refuse = "refused: he already answered " + tapCardID(row)
+	if _, err := DrawCard(context.Background(), linkDrive, "supervisor", tapCardID(row), cardBody{Block: block, Until: KindPR + ":" + readyRepo + "#51159", TapOf: readyRepo + "#51159", TapHead: row.Head}); err != nil {
+		t.Fatal(err)
+	}
+
+	f.run(t)
+
+	if alarms := addressedTo(t, linkRefusalKind, communicator); len(alarms) != 0 {
+		t.Fatalf("alarms = %+v, want none for a card he answered", alarms)
 	}
 }
 

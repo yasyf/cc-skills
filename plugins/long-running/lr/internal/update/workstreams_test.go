@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 
@@ -186,6 +187,19 @@ func TestAnUnreadWorkstreamListIsOneLineInTheUpdateNotAFailedCollect(t *testing.
 	report := Render(in)
 	if section := sectionOf(t, report.Text, workstreamsTitle); !strings.Contains(section, "- the workstream list is unread, so a workstream may be missing: workstreams.md: header") {
 		t.Fatalf("section = %s", section)
+	}
+}
+
+func TestARowWhoseTapWaitsForItsHeadRecordSaysTappedUntilAnOrderOrRefusalFollows(t *testing.T) {
+	rows := func() []store.ReviewRow { return []store.ReviewRow{{Number: 51511, WaitsOn: prrow.NoHeadYet}} }
+	waiting := Record{Kind: bus.TapPendingKind, PRs: []string{"Forge-AI/monorepo#51511"}}
+	if got := withPendingTaps(rows(), []Record{waiting})[0]; prWord(got) != "tapped" || got.WaitsOn != headWaits {
+		t.Fatalf("row = %+v, word = %q", got, prWord(got))
+	}
+	for _, kind := range []string{kindTapOrder, bus.TapRefusedKind} {
+		if got := withPendingTaps(rows(), []Record{waiting, {Kind: kind, PRs: []string{"51511"}}})[0]; got.Tapped || got.WaitsOn != prrow.NoHeadYet {
+			t.Fatalf("after %s, row = %+v", kind, got)
+		}
 	}
 }
 
