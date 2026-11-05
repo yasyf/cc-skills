@@ -12,7 +12,7 @@ import (
 
 const (
 	staleTopic      = "stale-card:"
-	staleCursor     = "board-card-corrections"
+	staleCursor     = "board-card-corrections:"
 	correctionsRead = 24 * time.Hour
 )
 
@@ -23,11 +23,16 @@ func (c Cards) RecordAsk(ctx context.Context, card string, ask int64) error {
 }
 
 func (c Cards) Corrected(ctx context.Context, lane string) error {
-	after, err := c.Store.Cursor(staleCursor)
+	cursor := staleCursor + c.Session
+	after, err := c.Store.Cursor(cursor)
 	if err != nil {
 		return err
 	}
-	fresh, err := c.Tail(ctx, client.Query{Drive: c.Bus, After: after, Since: c.Now().Add(-correctionsRead), Kinds: answeringKinds})
+	query := client.Query{Drive: c.Bus, After: after, Kinds: answeringKinds}
+	if after == 0 {
+		query.Since = c.Now().Add(-correctionsRead)
+	}
+	fresh, err := c.Tail(ctx, query)
 	if err != nil || len(fresh) == 0 {
 		return err
 	}
@@ -37,7 +42,7 @@ func (c Cards) Corrected(ctx context.Context, lane string) error {
 		return err
 	}
 	if len(drawnFrom) == 0 {
-		return c.Store.Advance(staleCursor, read)
+		return c.Store.Advance(cursor, read)
 	}
 	for _, record := range fresh {
 		sources, err := c.reaches(ctx, record, drawnFrom, oldest)
@@ -52,7 +57,7 @@ func (c Cards) Corrected(ctx context.Context, lane string) error {
 			}
 		}
 	}
-	return c.Store.Advance(staleCursor, read)
+	return c.Store.Advance(cursor, read)
 }
 
 func (c Cards) drawnFrom(ctx context.Context) (map[int64][]string, int64, error) {
@@ -84,13 +89,23 @@ func (c Cards) drawnFrom(ctx context.Context) (map[int64][]string, int64, error)
 
 func (c Cards) reaches(ctx context.Context, record client.Record, drawnFrom map[int64][]string, oldest int64) ([]int64, error) {
 	var sources []int64
+	walked := map[int64]bool{record.Seq: true}
 	for up := answered(record, oldest); len(up) > 0; {
+		var unwalked []int64
 		for _, seq := range up {
-			if _, drawn := drawnFrom[seq]; drawn && !slices.Contains(sources, seq) {
+			if walked[seq] {
+				continue
+			}
+			walked[seq] = true
+			unwalked = append(unwalked, seq)
+			if _, drawn := drawnFrom[seq]; drawn {
 				sources = append(sources, seq)
 			}
 		}
-		found, err := c.Among(ctx, c.Bus, up)
+		if len(unwalked) == 0 {
+			break
+		}
+		found, err := c.Among(ctx, c.Bus, unwalked)
 		if err != nil {
 			return nil, err
 		}

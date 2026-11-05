@@ -76,7 +76,10 @@ func TestACorrectionWhoseThreadReachesTheAskACardWasDrawnFromFlagsItStaleToTheCo
 		t.Fatalf("flag text = %q", flagged.Text)
 	}
 
-	f.bus = append(f.bus, client.Record{Seq: 474300, Lane: "monitor-flap-fix-1", Kind: "head", Re: 471222, Text: "HEAD #50930 32023834eca5"})
+	f.bus = append(f.bus,
+		client.Record{Seq: 474300, Lane: "monitor-flap-fix-1", Kind: "head", Re: 471222, Text: "HEAD #50930 32023834eca5"},
+		client.Record{Seq: 474301, Lane: "monitor-flap-fix-1", Kind: "head", Re: 474301, Text: "HEAD #50931 answering itself"},
+	)
 	if err := f.Corrected(ctx, "supervisor"); err != nil {
 		t.Fatal(err)
 	}
