@@ -84,6 +84,7 @@ type child struct {
 	Number  int    `json:"number"`
 	Options []struct {
 		Label       string `json:"label"`
+		Md          string `json:"md"`
 		Recommended bool   `json:"recommended"`
 		Build       *Build `json:"build"`
 	} `json:"options"`
@@ -419,6 +420,35 @@ func TestAStatusReplyNamesItsPRsInTheSlackCardTextForCCSlackToLinkAndCard(t *tes
 	}
 	if card := slack(t, posted[0]); card.Body != "Checks passed.\n"+landPR || len(card.Refs) != 0 {
 		t.Fatalf("card = %+v, want the PR in its text and no refs", card)
+	}
+}
+
+func TestAPickSaysWhatPickingItDoesOnItsCard(t *testing.T) {
+	asked := Reply{ID: "r8", Title: "How do we fix the relay?", MD: "Each chat keeps its own replica, or they share one.", Picks: []string{"Give each chat its own :: A chat keeps working when another's replica fails.", "Keep one shared"}, Recommended: "Give each chat its own :: A chat keeps working when another's replica fails."}
+	mended, warned := asked.mended()
+	if !slices.Equal(mended.Picks, []string{"Give each chat its own", "Keep one shared"}) || mended.Recommended != "Give each chat its own" {
+		t.Fatalf("mended to picks %q, recommended %q; want the labels alone", mended.Picks, mended.Recommended)
+	}
+	if len(warned) != 1 || !strings.Contains(warned[0], `"Keep one shared" does not say what picking it does`) {
+		t.Fatalf("warned %q, want the pick with no words named", warned)
+	}
+	fake := scripted()
+	fanout(t, fake).Send(context.Background(), mended)
+	card := drawnCard(t, calls(fake, "cc-present")[0])
+	choice := slices.IndexFunc(card.Children, func(c child) bool { return c.Type == "choice" })
+	options := card.Children[choice].Options
+	if options[0].Md != "A chat keeps working when another's replica fails." || options[1].Md != "" {
+		t.Fatalf("options %+v, want the first with its words and the second with none", options)
+	}
+	if got := mended.markdown(); !strings.Contains(got, "- Give each chat its own (recommended): A chat keeps working") || !strings.Contains(got, "- Keep one shared") {
+		t.Fatalf("markdown = %q", got)
+	}
+}
+
+func TestAColonPairInsideALabelIsNotASplit(t *testing.T) {
+	got, _ := Reply{ID: "r9", Title: "t", MD: "m", Picks: []string{"Rename thread::chapter :: Callers move in one PR.", "Keep thread::chapter :: Nothing moves."}, Recommended: "Keep thread::chapter"}.mended()
+	if !slices.Equal(got.Picks, []string{"Rename thread::chapter", "Keep thread::chapter"}) || got.Words["Keep thread::chapter"] != "Nothing moves." || got.Recommended != "Keep thread::chapter" {
+		t.Fatalf("mended to %+v", got)
 	}
 }
 
