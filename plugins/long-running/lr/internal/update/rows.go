@@ -567,9 +567,13 @@ func (v view) askRow(ask asks.Graded) Row {
 	return Row{name, clip(rest), string(ask.State), w.who, w.blocks, w.unblock, w.wrong, ask.State == asks.Live}
 }
 
+func (v view) prLanes(row store.ReviewRow) []string {
+	return slices.DeleteFunc([]string{v.ownerOfPR(row.Number), row.Lane}, func(lane string) bool { return lane == "" })
+}
+
 func (v view) prRow(row store.ReviewRow, held map[string]int64) Row {
 	state := prWord(row)
-	w := v.workOf(slices.DeleteFunc([]string{v.ownerOfPR(row.Number), row.Lane}, func(lane string) bool { return lane == "" }))
+	w := v.workOf(v.prLanes(row))
 	number := strconv.Itoa(row.Number)
 	switch seq, isHeld := held[number]; {
 	case isHeld:
