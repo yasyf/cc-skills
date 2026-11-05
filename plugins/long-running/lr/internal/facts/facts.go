@@ -27,6 +27,8 @@ import (
 
 const (
 	BusCursor      = "bus"
+	lostGrades     = "lost-grades"
+	lostGradesSpan = 14 * 24 * time.Hour
 	caller         = "lr-facts"
 	trunkFailed    = "trunk-failed"
 	trunkCancelled = "trunk-cancelled"
@@ -95,6 +97,9 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	}
 	if err := s.ingestLegacy(ctx); err != nil {
 		return nil, fmt.Errorf("read today's records: %w", err)
+	}
+	if err := s.readLostGrades(ctx); err != nil {
+		return nil, fmt.Errorf("read the grades behind the cursor: %w", err)
 	}
 	held, err := s.holds(ctx)
 	if err != nil {
@@ -424,6 +429,37 @@ func (s Source) ingestLegacy(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// TODO: delete once every drive's store has advanced this cursor; it reads the fidelity-shard grades the legacy cursor passed before they counted.
+func (s Source) readLostGrades(ctx context.Context) error {
+	read, err := s.Store.Cursor(lostGrades)
+	if err != nil || read != 0 {
+		return err
+	}
+	records, err := client.Tail(ctx, client.Query{Drive: s.Drive, Kinds: []string{"review"}, Since: s.Now().Add(-lostGradesSpan)})
+	if err != nil {
+		return err
+	}
+	for _, record := range slices.Backward(records) {
+		facts := bus.LegacyFacts(record, s.Repo, s.GoLanes)
+		for _, fact := range append(facts, graderWords(facts, record.Text)...) {
+			if fact.Kind != "fidelity" && fact.Kind != prrow.SaidFact("fidelity") {
+				continue
+			}
+			stored, err := s.Store.Facts(s.Repo, fact.PR, fact.Head)
+			if err != nil {
+				return err
+			}
+			if stored[fact.Kind] != "" {
+				continue
+			}
+			if _, err := s.Store.PutFact(s.Repo, fact.PR, fact.Head, fact.Kind, fact.Value, record.At.UTC()); err != nil {
+				return err
+			}
+		}
+	}
+	return s.Store.Advance(lostGrades, 1)
 }
 
 func graderWords(facts []bus.Fact, text string) []bus.Fact {
@@ -950,6 +986,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 	f.Tap, f.Condition = machine.Tap(stored["tap"]), stored["condition"]
 	f.GradeStopped = stored[machine.GradeStoppedFact]
 	f.TapRefused = stored[bus.TapRefusedFact]
+	f.Stuck = stored[bus.StuckFact]
 	f.FinderOverride, f.FidelityOverride = machine.OverridesOf(stored)
 	_, f.Exempt = stored["exempt"]
 	f.StandingWord, _ = gates.LandsOnWord(stored)

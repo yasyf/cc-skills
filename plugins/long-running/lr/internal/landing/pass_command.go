@@ -81,6 +81,14 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	if err := CarryTaps(ctx, cfg.Drive, out.Carried); err != nil {
 		return fmt.Errorf("a tap did not carry: %w", err)
 	}
+	for _, f := range snapshot {
+		if why := out.Stuck[f.Number]; why != "" {
+			fmt.Fprintf(stdout, "%s STUCK #%d at %s: %s\n", store.Stamp(now), f.Number, shortHead(f.Head), why)
+		}
+	}
+	if err := SayStuck(ctx, s, cfg.Drive, snapshot, out.Stuck); err != nil {
+		return fmt.Errorf("a stuck head's reason went unposted: %w", err)
+	}
 	remote, err := NewRemote(a, filepath.Join(dir, runnerFile), self, "")
 	if err != nil {
 		return err

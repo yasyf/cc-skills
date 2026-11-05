@@ -120,9 +120,6 @@ func OverridesOf(stored map[string]string) (finder, fidelity bool) {
 
 func GradesOf(stored map[string]string) (Finder, Fidelity) {
 	finder, fidelity := Finder(stored["finder"]), Fidelity(stored["fidelity"])
-	if stored[GradeStoppedFact] == "" {
-		return finder, fidelity
-	}
 	if finder == "" && stored[OverrideFact("finder")] != "" {
 		finder = FinderClear
 	}
@@ -183,6 +180,7 @@ type Facts struct {
 	GradeStopped     string
 	RowWait          string
 	TapRefused       string
+	Stuck            string
 }
 
 func (f Facts) Green() bool {

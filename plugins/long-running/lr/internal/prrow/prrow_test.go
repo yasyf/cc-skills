@@ -1049,3 +1049,23 @@ func TestAnOldOverrideIsReadBackFromItsOwnRecordOnce(t *testing.T) {
 		t.Fatalf("cursor = %d, %v, want it advanced so the read runs once", read, err)
 	}
 }
+
+func TestATappedRowSaysWhyTheLandingPassCannotMoveIt(t *testing.T) {
+	const why = "the landing pass reads it as grading"
+	row := store.ReviewRow{Number: 1, Head: headA, Hold: None, SupersededBy: None, State: StateOpen}
+	facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass), bus.StuckFact: why}
+
+	if got := Materialize(row, facts, Held{}, nil, "dev"); strings.Contains(got.WaitsOn, why) {
+		t.Fatalf("an untapped row says %q", got.WaitsOn)
+	}
+
+	facts["exempt"] = "regression"
+	if got := Materialize(row, facts, Held{}, nil, "dev"); !strings.HasSuffix(got.WaitsOn, "; "+why) {
+		t.Fatalf("a tapped row says %q, want it to end on the reason", got.WaitsOn)
+	}
+
+	facts[bus.StuckFact] = ""
+	if got := Materialize(row, facts, Held{}, nil, "dev"); strings.Contains(got.WaitsOn, ";") {
+		t.Fatalf("a cleared reason still reads %q", got.WaitsOn)
+	}
+}
