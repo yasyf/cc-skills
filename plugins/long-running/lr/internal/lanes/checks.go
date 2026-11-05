@@ -1022,32 +1022,32 @@ func (e Env) keepWanted(s *store.Store) ([]string, error) {
 }
 
 type staleLane struct {
-	name, dispatch, last, retiredBy, brief string
-	heard                                  time.Time
-	ended, settled                         bool
+	name, dispatch, terminal, run, last, retiredBy, brief string
+	heard                                                 time.Time
+	ended                                                 bool
 }
 
-func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([]staleLane, error) {
+func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([]staleLane, []string, error) {
 	registered, err := s.AllLanes()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var candidates []staleLane
 	for _, lane := range registered {
 		if lane.State != store.LaneRetired || lane.Name == Root || lane.Name == OwnerRelay || slices.Contains(standingRoles, lane.Role) || lane.Standing != "" || lane.Heard.IsZero() || now.Sub(lane.Heard) < endedQuiet {
 			continue
 		}
-		if dispatch := dispatchOf(e.receipts(), lane.Name); dispatch != "" {
-			candidates = append(candidates, staleLane{name: lane.Name, dispatch: dispatch, last: lane.Last, retiredBy: lane.RetiredBy, brief: lane.Brief, heard: lane.Heard})
+		if receipt := receiptOf(e.receipts(), lane.Name); receipt.Result.DispatchID != "" {
+			candidates = append(candidates, staleLane{name: lane.Name, dispatch: receipt.Result.DispatchID, terminal: receipt.agentTerminal(), run: receipt.Result.RunID, last: lane.Last, retiredBy: lane.RetiredBy, brief: lane.Brief, heard: lane.Heard})
 		}
 	}
 	if len(candidates) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	// TODO: once resting-lanes-gone's relaunch wakes a closed lane on his answer, a lane with an open ask or card may close at endedQuiet too.
 	open, err := e.Bus.Open(ctx, e.Config.Drive, "ask", "blocker", "decide")
 	if err != nil {
-		return nil, fmt.Errorf("%w: cci open: %w", ErrUnread, err)
+		return nil, nil, fmt.Errorf("%w: cci open: %w", ErrUnread, err)
 	}
 	asking := map[string]bool{}
 	for _, r := range open {
@@ -1064,25 +1064,24 @@ func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([
 	}
 	candidates = slices.DeleteFunc(candidates, func(lane staleLane) bool { return !lane.ended && now.Sub(lane.heard) < staleSilence })
 	if len(candidates) == 0 {
-		return nil, nil
-	}
-	statuses, err := e.dispatchStatuses(ctx)
-	if err != nil {
-		return nil, err
+		return nil, nil, nil
 	}
 	terminals, err := terminalcap.List(ctx, e.Runner)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	openTerminals := make(map[string]bool, len(terminals))
 	for _, terminal := range terminals {
 		openTerminals[terminal.Handle] = true
 	}
 	var due []staleLane
+	var misread []string
 	for _, lane := range candidates {
-		read, known := statuses[lane.dispatch]
-		lane.settled = slices.Contains(settledDispatch, read.Status)
-		if !known || !openTerminals[read.Terminal] || (!lane.ended && lane.settled) {
+		if !openTerminals[lane.terminal] {
+			continue
+		}
+		if lane.run != e.Config.OrcaRun {
+			misread = append(misread, fmt.Sprintf("%s: its launch receipt names Orca Run %q, not the drive's %s, so its session stays open", lane.name, lane.run, e.Config.OrcaRun))
 			continue
 		}
 		if _, err := os.Stat(lane.brief); err != nil {
@@ -1092,7 +1091,7 @@ func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([
 			due = append(due, lane)
 		}
 	}
-	return due, nil
+	return due, misread, nil
 }
 
 type headcount struct {
@@ -1185,19 +1184,20 @@ func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
 		g.Log.Warn("lr gc --new did not read the registry", "err", err)
 		return nil
 	}
-	stale, err := g.Env.staleRetired(ctx, g.Store, now)
+	stale, misread, err := g.Env.staleRetired(ctx, g.Store, now)
 	if err != nil {
-		g.Log.Warn("lr gc --new did not read which retired lanes are stale", "err", err)
-		stale = nil
+		g.Log.Warn("lr gc --new did not read which retired lanes are stale, so this pass ends and the next one reads them again", "err", err)
+		return nil
+	}
+	for _, why := range misread {
+		g.Log.Warn("lr gc --new leaves a retired lane out", "why", why)
 	}
 	var staleArgs []string
 	for _, lane := range stale {
 		if lane.ended {
 			staleArgs = append(staleArgs, "--finished", lane.dispatch)
 		}
-		if !lane.settled {
-			staleArgs = append(staleArgs, "--stale", lane.dispatch)
-		}
+		staleArgs = append(staleArgs, "--stale", lane.dispatch)
 	}
 	before, uncounted := g.Env.headcount(ctx)
 	result, err := g.Env.gc(ctx, slices.Concat(keep, staleArgs, []string{"--new", "--shells", "--other-runs"})...)

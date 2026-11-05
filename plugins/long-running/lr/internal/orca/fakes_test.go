@@ -3,6 +3,7 @@ package orca
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -131,6 +132,8 @@ type fakeOrca struct {
 	listed        []Terminal
 	emptyShells   []map[string]bool
 	runs          []Run
+	workerReads   int
+	timedOut      map[string]bool
 }
 
 func newOrca(rows ...Worker) *fakeOrca {
@@ -156,6 +159,7 @@ func (f *fakeOrca) record(call ...string) {
 func (f *fakeOrca) Workers(context.Context, string) ([]Worker, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.workerReads++
 	return slices.Clone(f.rows), nil
 }
 
@@ -175,6 +179,9 @@ func (f *fakeOrca) Idle(_ context.Context, terminal, _ string) (Idleness, error)
 func (f *fakeOrca) Presence(_ context.Context, terminal, _ string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.timedOut[terminal] {
+		return "", errors.New("orca refused: runtime_timeout: timed out waiting for the Orca runtime to respond")
+	}
 	switch {
 	case f.stale[terminal]:
 		return CodeStaleHandle, nil

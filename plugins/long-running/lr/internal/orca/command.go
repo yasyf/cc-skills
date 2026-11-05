@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,7 +44,9 @@ A settled dispatch's worktree is removed with orca worktree rm when no unsettled
 
 A dispatch on a paired Orca server goes through that server's --environment; one on a server Orca no longer knows has nothing left to reach, so gc skips it and says nothing. A dispatch whose worktree and terminal a cc-remote Sprite task records has its Sprite destroyed once no unsettled dispatch shares the workspace, its terminal reads idle twice or, with its Orca runtime down, sprite exec finds no claude or codex process on the machine and none with a working directory in its checkout (both skipped under --done), and its checkout and every other checkout lr sprites hold recorded on it, read through sprite exec, are clean with HEAD on origin or landed; right before the destroy, gc deletes from each checkout's origin the refs/lr/work/* refs that checkout holds, and a delete that fails keeps the Sprite. What sprite exec cannot read keeps the Sprite. A destroy runs WORKER_CC_REMOTE with CC_REMOTE_CONFIG when set, otherwise the bin/cc-remote and config.yaml under tools/cc-remote of the checkout gc runs from, otherwise cc-remote from PATH with its own config lookup.
 
---finished names a dispatch whose lane the supervisor found finished by its own record. Closing a terminal loses nothing on disk, so for such a dispatch unsaved work in its tree keeps the tree, untouched, and not its terminal: the terminal of a settled one closes under the idle and agent-process proof above, and a --stale one is proved without the clean-and-pushed read. A tree git cannot read still keeps the terminal.
+--finished names a dispatch whose lane the supervisor found finished by its own record. Closing a terminal loses nothing on disk, so for such a dispatch unsaved work in its tree keeps the tree, untouched, and not its terminal: the terminal of a settled one closes under the idle and agent-process proof above, and a --stale one is proved without the clean-and-pushed read. A tree git cannot read still keeps the terminal. Settled --finished terminals close first in a pass, before any --stale proof, --new selection or shell close; when Orca fails one lane's read, the other lanes still close and the pass then ends with that error, so the next pass retries the lane.
+
+gc reads the Run's worker list once a pass, and again only after a stop changes it.
 
 --new sweeps up to forty settled dispatches a pass, those no pass has swept first, newest first, then those swept longest ago, and records the order under the state directory. The lane supervisor runs it every five minutes, with --keep for the dispatch of every lane the registry still wants, so a dispatch is reclaimed soon after it settles and its lane retires, and what a pass kept is read again on a later one. A --new pass removes at most three worktrees and never waits on the removal lock: what it defers stays first in line for the next pass, and each dispatch is recorded as swept as its last step finishes, so a pass killed at its deadline does not repeat its work.
 
@@ -54,6 +57,9 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 --plan takes a dry run's output; gc plans again first and refuses, printing the difference, unless the two match. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed exists. --dry-run reads through a pause and runs every read a removal runs, the live-process scan included, so its lines name what a real run would do. Prints one line per action, skipped action or kept resource, then the tally.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if run == "" {
+				return errors.New("--run names no Orca Run")
+			}
 			state, err := stateHome()
 			if err != nil {
 				return err
@@ -93,6 +99,10 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 					return &wait.ExitError{Code: planRefused}
 				}
 			}
+			tally, err := gc.CloseFinished(cmd.Context(), run, dispatches)
+			if err != nil {
+				return err
+			}
 			ledger := Swept{Path: filepath.Join(state, "orca-gc", "swept-"+run+".json")}
 			proven, err := gc.proveStale(cmd.Context(), run, stale)
 			if err != nil {
@@ -104,10 +114,13 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 					return err
 				}
 			}
-			tally := Tally{}
 			if shells {
-				if tally, err = gc.Shells(cmd.Context()); err != nil {
+				shut, err := gc.Shells(cmd.Context())
+				if err != nil {
 					return err
+				}
+				for verb, count := range shut {
+					tally[verb] += count
 				}
 			}
 			gc.Bounded = fresh
