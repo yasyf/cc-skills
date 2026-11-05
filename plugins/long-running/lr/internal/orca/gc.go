@@ -804,6 +804,17 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		tally[skipped.Verb]++
 		return tally, nil
 	}
+	closedEarly := map[string]bool{}
+	if !g.DryRun {
+		early, err := g.closeFinished(ctx, run, dispatches)
+		if err != nil {
+			return nil, err
+		}
+		for _, action := range early {
+			tally[action.Verb]++
+			closedEarly[action.Target] = action.Verb == verbClosed
+		}
+	}
 	ended := map[string]string{}
 	for _, dispatch := range slices.Sorted(slices.Values(ending)) {
 		outcome, err := g.stop(ctx, dispatch)
@@ -890,6 +901,9 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		}
 	}
 	verdicts, err := parallel(finished, func(worker Worker) (*Action, error) {
+		if closedEarly[worker.Terminal] {
+			return nil, nil
+		}
 		return terminalAction(ctx, worker, liveTerminals, g.Orca, ended, sessions)
 	})
 	if err != nil {
@@ -995,6 +1009,54 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 	}
 	count(slices.Concat(reaped...))
 	return tally, nil
+}
+
+func (g *GC) closeFinished(ctx context.Context, run string, dispatches []string) ([]Action, error) {
+	if len(g.Finished) == 0 {
+		return nil, nil
+	}
+	workers, err := g.Orca.Workers(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	sprites, err := g.Fleet.Sprites()
+	if err != nil {
+		return nil, err
+	}
+	live := map[string]bool{}
+	var due []Worker
+	for _, worker := range workers {
+		_, hosted := sprites[SpriteKey{worker.Workspace, worker.Terminal}]
+		switch {
+		case !worker.Settled() || g.Keep[worker.Dispatch]:
+			live[worker.Terminal] = true
+		case g.Finished[worker.Dispatch] && !hosted && worker.Environment == "" && worker.Worktree != "" && (len(dispatches) == 0 || slices.Contains(dispatches, worker.Dispatch)):
+			due = append(due, worker)
+		}
+	}
+	if len(due) == 0 {
+		return nil, nil
+	}
+	sessions, err := g.Orca.Sessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	closes, err := parallel(due, func(worker Worker) (*Action, error) {
+		action, err := terminalAction(ctx, worker, live, g.Orca, map[string]string{}, sessions)
+		if err != nil || action == nil || action.Verb != verbClose {
+			return nil, err
+		}
+		read, err := g.Git.Checkout(ctx, worker.Worktree)
+		if err != nil || read.Found == nil {
+			return nil, err
+		}
+		return action, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	closes = slices.DeleteFunc(closes, func(action *Action) bool { return action == nil })
+	return parallel(closes, func(action *Action) (Action, error) { return g.act(ctx, *action) })
 }
 
 type reclaimed struct {
@@ -1179,6 +1241,8 @@ func (g *GC) due(ctx context.Context, run string, ledger Swept) ([]string, error
 			due = append(due, dispatch)
 		}
 	}
+	first := slices.DeleteFunc(slices.Clone(due), func(dispatch string) bool { return !g.Finished[dispatch] })
+	due = append(first, slices.DeleteFunc(due, func(dispatch string) bool { return g.Finished[dispatch] })...)
 	return due[:min(len(due), sweptBatch)], nil
 }
 

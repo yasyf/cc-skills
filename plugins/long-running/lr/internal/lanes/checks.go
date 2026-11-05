@@ -26,6 +26,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/terminalcap"
 	"golang.org/x/mod/semver"
 )
 
@@ -998,9 +999,9 @@ func (e Env) keepWanted(s *store.Store) ([]string, error) {
 }
 
 type staleLane struct {
-	name, dispatch, last, retiredBy string
-	heard                           time.Time
-	ended, settled                  bool
+	name, dispatch, last, retiredBy, brief string
+	heard                                  time.Time
+	ended, settled                         bool
 }
 
 func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([]staleLane, error) {
@@ -1013,15 +1014,8 @@ func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([
 		if lane.State != store.LaneRetired || lane.Name == Root || lane.Name == OwnerRelay || slices.Contains(standingRoles, lane.Role) || lane.Standing != "" || lane.Heard.IsZero() || now.Sub(lane.Heard) < endedQuiet {
 			continue
 		}
-		if _, err := os.Stat(lane.Brief); err != nil {
-			continue
-		}
-		brief, err := BriefOf(lane.Brief)
-		if err != nil || brief.Standing != "" {
-			continue
-		}
 		if dispatch := dispatchOf(e.receipts(), lane.Name); dispatch != "" {
-			candidates = append(candidates, staleLane{name: lane.Name, dispatch: dispatch, last: lane.Last, retiredBy: lane.RetiredBy, heard: lane.Heard})
+			candidates = append(candidates, staleLane{name: lane.Name, dispatch: dispatch, last: lane.Last, retiredBy: lane.RetiredBy, brief: lane.Brief, heard: lane.Heard})
 		}
 	}
 	if len(candidates) == 0 {
@@ -1047,11 +1041,25 @@ func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([
 	if err != nil {
 		return nil, err
 	}
+	terminals, err := terminalcap.List(ctx, e.Runner)
+	if err != nil {
+		return nil, err
+	}
+	openTerminals := make(map[string]bool, len(terminals))
+	for _, terminal := range terminals {
+		openTerminals[terminal.Handle] = true
+	}
 	var due []staleLane
 	for _, lane := range candidates {
 		read, known := statuses[lane.dispatch]
 		lane.settled = slices.Contains(settledDispatch, read.Status)
-		if known && (lane.ended || !lane.settled) {
+		if !known || !openTerminals[read.Terminal] || (!lane.ended && lane.settled) {
+			continue
+		}
+		if _, err := os.Stat(lane.brief); err != nil {
+			continue
+		}
+		if brief, err := BriefOf(lane.brief); err == nil && brief.Standing == "" {
 			due = append(due, lane)
 		}
 	}
@@ -1139,15 +1147,15 @@ func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
 	}
 	before, uncounted := g.Env.headcount(ctx)
 	result, err := g.Env.gc(ctx, slices.Concat(keep, staleArgs, []string{"--new", "--shells", "--other-runs"})...)
+	said := strings.TrimSpace(result.Stdout)
+	if named := g.nameClosed(ctx, stale, said, now); named != nil {
+		return named
+	}
 	if err != nil {
 		g.Log.Warn("lr gc --new did not finish", "err", err, "said", strings.TrimSpace(result.Stderr))
 		return nil
 	}
-	said := strings.TrimSpace(result.Stdout)
 	g.Log.Info("lr gc --new", "said", said)
-	if err := g.nameClosed(ctx, stale, said, now); err != nil {
-		return err
-	}
 	if uncounted != nil {
 		g.Log.Warn("lr gc --new did not count before its pass", "err", uncounted)
 		return nil

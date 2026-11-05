@@ -2330,6 +2330,35 @@ func TestAKeptDispatchIsTreatedAsLiveWhateverOrcaSaysOfIt(t *testing.T) {
 	}
 }
 
+func TestDueTakesAFinishedLanesDispatchesBeforeAnyOther(t *testing.T) {
+	ledger := Swept{Path: filepath.Join(t.TempDir(), "orca-gc", "swept-run_x.json")}
+	if err := ledger.record([]string{"ctx_swept_finished"}); err != nil {
+		t.Fatal(err)
+	}
+	gc := &GC{Orca: newOrca(row("ctx_new"), row("ctx_swept_finished"), row("ctx_new_finished")), Finished: map[string]bool{"ctx_swept_finished": true, "ctx_new_finished": true}}
+	got, err := gc.due(context.Background(), "run_x", ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"ctx_new_finished", "ctx_swept_finished", "ctx_new"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestAFinishedLanesTerminalClosesBeforeAnyStopOrWorktreeRemoval(t *testing.T) {
+	other := "/w/monorepo/v3-other-base"
+	orca := newOrca(row("ctx_a"), row("ctx_b", in(other)))
+	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
+	tally, out := runGC(t, orca, newGit(checkout(testWT, dirtyTree), checkout(other)), gcOptions{finished: map[string]bool{"ctx_a": true}})
+	closed, removed := strings.Index(out, "closed term_ctx_a"), strings.Index(out, "removed "+other)
+	if closed < 0 || removed < 0 || closed > removed {
+		t.Fatalf("output %q", out)
+	}
+	if orca.count("close", "term_ctx_a") != 1 || tally[verbClosed] < 1 {
+		t.Fatalf("calls %v, tally %v", orca.calls, tally)
+	}
+}
+
 func TestDueTakesNeverSweptDispatchesFirstThenThoseSweptLongestAgoAndKeepsCycling(t *testing.T) {
 	ledger := Swept{Path: filepath.Join(t.TempDir(), "orca-gc", "swept-run_x.json")}
 	if err := ledger.record([]string{"ctx_old", "ctx_older_gone", "ctx_recent"}); err != nil {
