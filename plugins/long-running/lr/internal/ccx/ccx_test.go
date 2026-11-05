@@ -110,3 +110,24 @@ func TestPRReadsRunFromTheCheckoutTheClientHolds(t *testing.T) {
 		}
 	}
 }
+
+func TestCallerNamesTheVerbUnlessAParentAlreadyNamedOne(t *testing.T) {
+	t.Setenv("CCX_CALLER", "")
+	Caller = "lr-board-rows"
+	t.Cleanup(func() { Caller = "" })
+	fake := &shelltest.Fake{}
+	fake.Reply("out", "ccx", "vcs", "gh")
+	if _, err := (CLI{Runner: fake}).GH(context.Background(), MaxAgeFresh, "pr", "list"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.Calls()[0].Env; !slices.Contains(got, "CCX_CALLER=lr-board-rows") {
+		t.Fatalf("env = %v", got)
+	}
+	t.Setenv("CCX_CALLER", "progress-desk-4")
+	if _, err := (CLI{Runner: fake}).GH(context.Background(), MaxAgeFresh, "pr", "list"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.Calls()[1].Env; len(got) != 0 {
+		t.Fatalf("env = %v, want the parent's caller left alone", got)
+	}
+}

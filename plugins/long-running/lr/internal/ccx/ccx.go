@@ -3,6 +3,7 @@ package ccx
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strconv"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -12,6 +13,8 @@ const (
 	MaxAgeFresh  = "0s"
 	MaxAgeCached = "5m"
 )
+
+var Caller string
 
 type Check struct {
 	State string `json:"state"`
@@ -87,7 +90,7 @@ func (c CLI) PRState(ctx context.Context, repo, maxAge string, numbers []int, la
 }
 
 func (c CLI) GH(ctx context.Context, maxAge string, args ...string) (string, error) {
-	result, err := c.Runner.Run(ctx, shell.Command{Argv: append([]string{"ccx", "vcs", "gh", "--max-age", maxAge, "--"}, args...)})
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: append([]string{"ccx", "vcs", "gh", "--max-age", maxAge, "--"}, args...), Env: callerEnv()})
 	return result.Stdout, err
 }
 
@@ -98,11 +101,18 @@ func (c CLI) StackList(ctx context.Context, dir string) (Stack, error) {
 }
 
 func (c CLI) decode(ctx context.Context, dir string, into any, args ...string) error {
-	result, err := c.Runner.Run(ctx, shell.Command{Argv: append([]string{"ccx"}, args...), Dir: dir})
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: append([]string{"ccx"}, args...), Dir: dir, Env: callerEnv()})
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal([]byte(result.Stdout), into)
+}
+
+func callerEnv() []string {
+	if Caller == "" || os.Getenv("CCX_CALLER") != "" {
+		return nil
+	}
+	return []string{"CCX_CALLER=" + Caller}
 }
 
 func words(numbers []int) []string {
