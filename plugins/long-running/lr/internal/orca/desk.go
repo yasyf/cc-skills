@@ -114,7 +114,8 @@ type runnerFile struct {
 }
 
 type graderRoute struct {
-	Sprite spriteNames `json:"sprite"`
+	Sprite   spriteNames `json:"sprite"`
+	Checkout string      `json:"checkout"`
 }
 
 type spriteNames []string
