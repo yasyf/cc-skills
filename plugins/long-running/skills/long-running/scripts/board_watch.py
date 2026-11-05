@@ -61,7 +61,8 @@ option, so the Slack permission hook reads his newest tap as his grant or revoca
 remove-block, push or update-block that takes it off, and `lr board cards sweep` leaves it up.
 
 A pick, write-in or pack pick that `lr findings cited` finds no record naming, of any kind and from
-anyone but this watcher, by its card, block id or owner record's seq, 30 minutes after that record is posted again as an `ask` to `meta-desk` on topic `uncited:<block>`, and at 60 minutes as a
+anyone but this watcher, by its card, block id or owner record's seq, and that no PR row carries (a land pick whose
+row reads tapped since, landed, or at a newer head), 30 minutes after that record is posted again as an `ask` to `meta-desk` on topic `uncited:<block>`, and at 60 minutes as a
 `blocker` to `meta-desk`, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
 
 Each answer also runs `lr board wake`, which addresses a wake to the lane whose ask drew the card, the

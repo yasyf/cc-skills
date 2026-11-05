@@ -24,6 +24,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -299,7 +300,8 @@ func (b Book) Track(ctx context.Context, seqs []int64) error {
 
 // Cited returns which picks are carried, reading records once for them all: a
 // record has named the pick since, or the pick is a land order whose PR row
-// reads tapped at or after it. picks maps each pick's seq to its box id.
+// reads tapped at or after it, landed, or at a head newer than the tapped one.
+// picks maps each pick's seq to its box id.
 func (b Book) Cited(ctx context.Context, picks map[int64]string) ([]int64, error) {
 	oldest := int64(math.MaxInt64)
 	for seq := range picks {
@@ -349,7 +351,9 @@ func (b Book) tapped(picks map[int64]string, records []client.Record) ([]int64, 
 	}
 	var carried []int64
 	for seq, tap := range orders {
-		if row, known := byNumber[tap.PR]; known && row.Tapped && row.TappedAt >= at[seq] {
+		row, known := byNumber[tap.PR]
+		movedOn := tap.Head != "" && !strings.HasPrefix(row.Head, tap.Head) && row.HeadAt >= at[seq]
+		if known && (row.Tapped && row.TappedAt >= at[seq] || row.State == prrow.StateLanded || movedOn) {
 			carried = append(carried, seq)
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -383,17 +384,19 @@ func TestCitedReadsRecordsOnceHoweverManyPicksItIsAskedAbout(t *testing.T) {
 	}
 }
 
-func TestALandPickIsCarriedOnceItsRowReadsTappedAtOrAfterIt(t *testing.T) {
+func TestALandPickIsCarriedOnceItsRowReadsTappedLandedOrAtANewerHead(t *testing.T) {
 	picked := time.Date(2026, 11, 5, 11, 53, 50, 0, time.UTC)
 	cases := []struct {
 		name    string
-		tapped  bool
-		at      time.Time
+		row     store.ReviewRow
 		carried bool
 	}{
-		{"his tap in the row, as #50690 read for 471534", true, picked, true},
-		{"a row not tapped", false, time.Time{}, false},
-		{"a tap from before the pick", true, picked.Add(-time.Hour), false},
+		{"his tap in the row, as #50690 read for 471534", store.ReviewRow{Head: "abc1234", Tapped: true, TappedAt: store.Stamp(picked)}, true},
+		{"a row not tapped", store.ReviewRow{Head: "abc1234"}, false},
+		{"a tap from before the pick", store.ReviewRow{Head: "abc1234", Tapped: true, TappedAt: store.Stamp(picked.Add(-time.Hour))}, false},
+		{"its PR merged on the tap, as #51297 did for 494784", store.ReviewRow{Head: "abc1234", State: prrow.StateLanded, LandedAt: store.Stamp(picked.Add(-14 * time.Minute))}, true},
+		{"a newer head on its row, as #50584 had for 486606", store.ReviewRow{Head: "def5678", HeadAt: store.Stamp(picked.Add(time.Hour))}, true},
+		{"a row behind the tapped head", store.ReviewRow{Head: "0ld0000", HeadAt: store.Stamp(picked.Add(-time.Hour))}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -407,10 +410,8 @@ func TestALandPickIsCarriedOnceItsRowReadsTappedAtOrAfterIt(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			row := store.ReviewRow{Repo: "acme/app", Number: 7, Head: "abc1234", Tapped: c.tapped}
-			if c.tapped {
-				row.TappedAt = store.Stamp(c.at)
-			}
+			row := c.row
+			row.Repo, row.Number = "acme/app", 7
 			if err := s.Update(func(tx *store.Tx) error { return tx.PutReviewRows([]store.ReviewRow{row}) }); err != nil {
 				t.Fatal(err)
 			}
