@@ -418,7 +418,7 @@ func TestARunnerWithNoRecentAliveRecordRefusesNamingTheAgentFallback(t *testing.
 			if strings.Contains(err.Error(), "(never)") != (age == 0) {
 				t.Fatalf("got %v", err)
 			}
-			if !strings.HasSuffix(err.Error(), "nothing reads orca-desk lines; spawn an Agent named `inc-x-fix` and one named `inc-x-evidence` and one named `inc-x-comms` instead") {
+			if !strings.HasSuffix(err.Error(), "nothing reads orca-desk lines; spawn a background Agent (run_in_background) named `inc-x-fix` and one named `inc-x-evidence` and one named `inc-x-comms` instead") {
 				t.Fatalf("got %v", err)
 			}
 			if len(bus.drafts) != 0 {
@@ -448,7 +448,7 @@ func TestAStuckPassRefusesAnIncidentLaunchAndALongOneDoesNot(t *testing.T) {
 				return
 			}
 			err = desk.Run(context.Background())
-			if err == nil || !strings.HasPrefix(err.Error(), "refused: the orca desk runner on cci drive prog is alive but stuck: pass 3 has run 20 minutes, at step deliver, so nothing reads orca-desk lines; spawn an Agent named `inc-x-fix`") {
+			if err == nil || !strings.HasPrefix(err.Error(), "refused: the orca desk runner on cci drive prog is alive but stuck: pass 3 has run 20 minutes, at step deliver, so nothing reads orca-desk lines; spawn a background Agent (run_in_background) named `inc-x-fix`") {
 				t.Fatalf("got %v", err)
 			}
 			if len(bus.drafts) != 0 {

@@ -652,7 +652,7 @@ func TestADriveWhoseRunnerIsNotBeatingRefusesInOneLineNamingWhatToDoInstead(t *t
 		check(f.poster.Line(context.Background(), "lane-a", "relay to lane-a: go"), nothingPosted)
 		brief := f.brief(t, "b.md", "work\n"+briefLines)
 		_, err := f.poster.Launch(context.Background(), Order{Lane: "solo", Model: "opus", Effort: "high", Brief: brief}, 0)
-		check(err, "spawn an Agent named `solo` instead")
+		check(err, "spawn a background Agent (run_in_background) named `solo` instead")
 		if len(f.bus.posts) != 0 {
 			t.Fatal(f.bus.posts)
 		}

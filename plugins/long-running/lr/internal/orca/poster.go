@@ -182,7 +182,7 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 		return "", fmt.Errorf("refused, nothing was posted: %s", strings.Join(faults, "; "))
 	}
 	bus := entry.Bus()
-	if err := p.requireRunner(ctx, bus, "spawn an Agent named `"+order.Lane+"` instead"); err != nil {
+	if err := p.requireRunner(ctx, bus, "spawn a background Agent (run_in_background) named `"+order.Lane+"` instead"); err != nil {
 		return "", err
 	}
 	raw, err := os.ReadFile(order.Brief)

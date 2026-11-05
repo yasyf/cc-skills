@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Tool, on
+from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 
 from .compaction_handoff import Bound, CompactionState
 from .lane_landing import lane_name
@@ -9,30 +9,28 @@ from .lane_rotation import DriveActive
 ACTIVE = [CompactionState(active=True, coordinator=True)]
 LANE = "atooling-misc-3-0123456789abcdef"
 SPAWN = {"name": "hook-fix", "description": "fix a hook", "prompt": "Fix the hook."}
-SHIP = "ship-pr"
-ADMITTED = frozenset({SHIP, "long-running:orca-doctor", "orca:orca-doctor"})
-REFUSAL = (
-    "A lane never spawns a sub-worker with Agent, since `{lane}` would wait inside it. "
-    "Post `cci post --lane {lane} --kind ask --to root --text 'spawn <name> brief=<path> model=<model>'` and keep working, or for a hook blocking you run `lr launch lane hook-fix-<hook> opus high <brief>`."
+BACKGROUND = {**SPAWN, "run_in_background": True}
+WARNING = (
+    "Warning, nothing was blocked: `{lane}` waits inside a foreground sub-worker. "
+    "Prefer `lr launch lane <name> opus high <brief>` or an Agent with `run_in_background`."
 )
 
 
-@on(  # capt-hook: no-escape the coordinator spawns every sub-worker, coordinator #235843; the submit-pr skill's ship-pr agent is one ship call, coordinator #336914; orca-doctor only reads a stuck lane and reports
+@on(
     Event.PreToolUse,
     only_if=[Bound(), Tool("Agent"), DriveActive()],
     tests={
-        Input(tool="Agent", tool_input=SPAWN, agent_id=LANE, state=ACTIVE): Block(pattern=r"^A lane never spawns a sub-worker with Agent, since `tooling-misc-3` would wait inside it\..*--lane tooling-misc-3 --kind ask --to root.*`lr launch lane hook-fix-<hook> opus high <brief>`"),
-        Input(tool="Agent", tool_input=SPAWN, env={"CLAUDE_LONG_RUNNING_LANE": "orca-lane-2"}, state=ACTIVE): Block(pattern=r"`orca-lane-2` would wait"),
+        Input(tool="Agent", tool_input=SPAWN, agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: `tooling-misc-3` waits inside a foreground sub-worker\..*`lr launch lane <name> opus high <brief>`.*`run_in_background`"),
+        Input(tool="Agent", tool_input=SPAWN, env={"CLAUDE_LONG_RUNNING_LANE": "orca-lane-2"}, state=ACTIVE): Warn(pattern=r"`orca-lane-2` waits"),
+        Input(tool="Agent", tool_input=SPAWN, env={"CLAUDE_LONG_RUNNING_LANE": "root"}, state=ACTIVE): Warn(pattern=r"`root` waits"),
+        Input(tool="Agent", tool_input=BACKGROUND, env={"CLAUDE_LONG_RUNNING_LANE": "root"}, state=ACTIVE): Allow(),
+        Input(tool="Agent", tool_input=BACKGROUND, agent_id=LANE, state=ACTIVE): Allow(),
         Input(tool="Agent", tool_input=SPAWN, state=ACTIVE): Allow(),
         Input(tool="Agent", tool_input=SPAWN, agent_id="a0123456789abcdef", state=ACTIVE): Allow(),
         Input(tool="Agent", tool_input=SPAWN, agent_id=LANE): Allow(),
-        Input(tool="Agent", tool_input={**SPAWN, "subagent_type": SHIP}, agent_id=LANE, state=ACTIVE): Allow(),
-        Input(tool="Agent", tool_input={**SPAWN, "subagent_type": "long-running:orca-doctor"}, agent_id=LANE, state=ACTIVE): Allow(),
-        Input(tool="Agent", tool_input={**SPAWN, "subagent_type": "orca:orca-doctor"}, env={"CLAUDE_LONG_RUNNING_LANE": "orca-lane-2"}, state=ACTIVE): Allow(),
-        Input(tool="Agent", tool_input={**SPAWN, "subagent_type": "long-running:lane"}, agent_id=LANE, state=ACTIVE): Block(pattern=r"^A lane never spawns a sub-worker"),
     },
 )
 def lanes_never_spawn(evt: BaseHookEvent) -> HookResult | None:
-    if not (lane := lane_name(evt)) or evt.input.raw.get("subagent_type") in ADMITTED:
+    if not (lane := lane_name(evt)) or evt.input.raw.get("run_in_background"):
         return None
-    return evt.block(REFUSAL.format(lane=lane))
+    return evt.warn(WARNING.format(lane=lane))
