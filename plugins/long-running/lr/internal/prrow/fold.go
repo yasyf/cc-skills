@@ -51,6 +51,7 @@ const (
 	foldWindow  = 72 * time.Hour
 	bodyBytes   = 60_000
 	readKind    = "github"
+	pullsDrive  = "github-pr"
 	readRecord  = "pr.read"
 	readLane    = "pr-read"
 	readReader  = "supervisor"
@@ -99,15 +100,11 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 	if err := f.readOldOverrides(ctx); err != nil {
 		return nil, err
 	}
-	after, err := f.Store.Cursor(store.ReviewRowsCursor)
+	records, err := f.tail(ctx, f.Drive, store.ReviewRowsCursor, foldKinds)
 	if err != nil {
 		return nil, err
 	}
-	query := client.Query{Drive: f.Drive, After: after, Kinds: foldKinds}
-	if after == 0 {
-		query.Since = f.Now().Add(-foldWindow)
-	}
-	records, err := client.Tail(ctx, query)
+	pulls, err := f.tail(ctx, pullsDrive, store.PullRequestsCursor, []string{readKind})
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +138,24 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 				return err
 			}
 			if err := t.Advance(store.ReviewRowsCursor, record.Seq); err != nil {
+				return err
+			}
+		}
+		if err := t.Advance(store.PullRequestsCursor, 0); err != nil {
+			return err
+		}
+		pulled, err := t.Cursor(store.PullRequestsCursor)
+		if err != nil {
+			return err
+		}
+		for _, record := range pulls {
+			if record.Seq <= pulled {
+				continue
+			}
+			if err := f.follow(t, rows, record); err != nil {
+				return err
+			}
+			if err := t.Advance(store.PullRequestsCursor, record.Seq); err != nil {
 				return err
 			}
 		}
@@ -258,6 +273,51 @@ func (f Fold) readOldOverrides(ctx context.Context) error {
 		}
 	}
 	return f.Store.Advance(oldOverridesCursor, 1)
+}
+
+func (f Fold) tail(ctx context.Context, drive, cursor string, kinds []string) ([]client.Record, error) {
+	after, err := f.Store.Cursor(cursor)
+	if err != nil {
+		return nil, err
+	}
+	query := client.Query{Drive: drive, After: after, Kinds: kinds}
+	if after == 0 {
+		query.Since = f.Now().Add(-foldWindow)
+	}
+	return client.Tail(ctx, query)
+}
+
+func (f Fold) follow(t *store.Tx, rows map[int]store.ReviewRow, record client.Record) error {
+	for _, number := range bus.HeldBy(record, f.Repo) {
+		row, known := rows[number]
+		if !known {
+			continue
+		}
+		switch record.Fields.Outcome {
+		case "opened", "reopened", "synchronize":
+			pushed, err := f.pushed(t, row, record, record.Fields.Commit)
+			if err != nil {
+				return err
+			}
+			pushed.Lane = row.Lane
+			if record.Fields.Outcome == "reopened" && pushed.State == StateClosed {
+				pushed.State = StateOpen
+			}
+			row = pushed
+		case stateMerged:
+			row = landed(row, record.At)
+		case StateClosed:
+			if row.State == StateLanded {
+				continue
+			}
+			row.State = StateClosed
+			row = Decide(row)
+		default:
+			continue
+		}
+		rows[number] = row
+	}
+	return nil
 }
 
 func values(rows map[int]store.ReviewRow) []store.ReviewRow {

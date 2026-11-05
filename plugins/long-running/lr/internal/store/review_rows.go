@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	ReviewRowsCursor = "review-rows"
+	ReviewRowsCursor   = "review-rows"
+	PullRequestsCursor = "pull-requests"
 )
 
 const reviewRowColumns = "repo, number, title, lane, branch, base, parent, parent_state, head, head_at, read_head, for_users, plan_line, plan_row, risk, description, unsafe_wait, ci, approvers, review, grade, grade_findings, mergeable, queue, hold, awaits_tap, superseded_by, waits_on, ready_for_tap, state, tapped, tap_refused, tapped_at, tapped_by, landed_at, last_record, written_at, port, moved_at, merges_at"

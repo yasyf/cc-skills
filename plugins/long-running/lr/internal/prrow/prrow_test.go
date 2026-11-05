@@ -1534,3 +1534,71 @@ func TestAFoldClearsAnExemptTapFromALandedRowAndKeepsHisOwn(t *testing.T) {
 		}
 	}
 }
+
+func gitHubPull(t *testing.T, number int, outcome, head string, at time.Time) client.Record {
+	t.Helper()
+	var record client.Record
+	raw := fmt.Sprintf(`{"seq":1,"drive":"github-pr","lane":"github","kind":"github","at":%q,"topic":"pull_request","refs":{"prs":["%s#%d"]},"fields":{"outcome":%q,"commit":%q}}`,
+		at.Format(time.RFC3339Nano), testRepo, number, outcome, head)
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func followed(t *testing.T, row store.ReviewRow, records ...client.Record) map[int]store.ReviewRow {
+	t.Helper()
+	f, s := foldFor(t)
+	rows := map[int]store.ReviewRow{row.Number: row}
+	for _, record := range records {
+		if err := s.Update(func(tx *store.Tx) error { return f.follow(tx, rows, record) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return rows
+}
+
+func TestAPushGitHubReportsMovesTheRowsHeadAndKeepsItsLane(t *testing.T) {
+	pushedAt := time.Now()
+	row := readyRow()
+	row.Lane, row.HeadAt = "lane-7", store.Stamp(pushedAt.Add(-time.Hour))
+	got := followed(t, row, gitHubPull(t, 1, "synchronize", headB, pushedAt))[1]
+	if got.Head != headB || got.HeadAt != store.Stamp(pushedAt) || got.Lane != "lane-7" {
+		t.Fatalf("row = head %s at %s lane %q, want head %s at %s on lane-7", got.Head, got.HeadAt, got.Lane, headB, store.Stamp(pushedAt))
+	}
+}
+
+func TestAPushOlderThanTheRowsHeadLeavesTheHead(t *testing.T) {
+	headAt := time.Now()
+	row := readyRow()
+	row.HeadAt = store.Stamp(headAt)
+	if got := followed(t, row, gitHubPull(t, 1, "synchronize", headB, headAt.Add(-time.Minute)))[1]; got.Head != headA {
+		t.Fatalf("head = %s after an older push, want %s kept", got.Head, headA)
+	}
+}
+
+func TestAMergeGitHubReportsLandsTheRowAndALaterCloseLeavesItLanded(t *testing.T) {
+	at := time.Now()
+	got := followed(t, readyRow(), gitHubPull(t, 1, stateMerged, headA, at), gitHubPull(t, 1, StateClosed, headA, at.Add(time.Second)))[1]
+	if got.State != StateLanded || got.LandedAt != store.Stamp(at) {
+		t.Fatalf("row = %s landed at %s, want landed at %s", got.State, got.LandedAt, store.Stamp(at))
+	}
+}
+
+func TestACloseClosesTheRowAndAReopenOpensIt(t *testing.T) {
+	at := time.Now()
+	row := readyRow()
+	if got := followed(t, row, gitHubPull(t, 1, StateClosed, headA, at))[1]; got.State != StateClosed {
+		t.Fatalf("state = %s after a close, want closed", got.State)
+	}
+	if got := followed(t, row, gitHubPull(t, 1, StateClosed, headA, at), gitHubPull(t, 1, "reopened", headA, at.Add(time.Second)))[1]; got.State != StateOpen {
+		t.Fatalf("state = %s after a reopen, want open", got.State)
+	}
+}
+
+func TestAPullRequestEventMakesNoRowForAPRTheDriveDoesNotHold(t *testing.T) {
+	rows := followed(t, readyRow(), gitHubPull(t, 2, "opened", headB, time.Now()))
+	if _, made := rows[2]; made || len(rows) != 1 {
+		t.Fatalf("rows = %v, want only #1", slices.Collect(maps.Keys(rows)))
+	}
+}
