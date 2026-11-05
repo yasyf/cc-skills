@@ -13,7 +13,6 @@ from captain_hook.util import reqenv
 from .compaction_handoff import Bound, LR
 from .owner_facing import REPLY_WINDOW
 from .owner_messages_get_eyes import ACTIVE, delivered, HIS, tagged
-from .owner_returns import RowThreads
 from .register_capture import CREDENTIAL, OPERATOR, owner_messages_heard, queued_prompts, REDACTED
 from .register_gates import blocker, cause
 from .register_injection import drive_args
@@ -67,7 +66,7 @@ def words_heard(evt: BaseHookEvent) -> list[dict]:
 
 def write_row(evt: BaseHookEvent, message: dict, which: list[str]) -> None:
     try:
-        done = subprocess.run(
+        subprocess.run(
             [str(LR), "owner", "thread-word", *which, "--session", evt.session_id],
             input=json.dumps(message | {"text": CREDENTIAL.sub(REDACTED, message["text"])}),
             capture_output=True,
@@ -78,10 +77,6 @@ def write_row(evt: BaseHookEvent, message: dict, which: list[str]) -> None:
         )
     except (OSError, subprocess.SubprocessError) as error:
         blocker(evt, f"thread-word:{message['ts']}", UNWRITTEN.format(thread=message["thread_ts"], ts=message["ts"], why=cause(error)), to="meta")
-        return
-    if done.stdout.strip() and message["thread_ts"] != message["ts"]:
-        with RowThreads.mutate(evt) as state:
-            state.threads |= {key: message["thread_ts"] for row in json.loads(done.stdout)["rows"] for key in (row, row.split(".")[0])}
 
 
 @on(

@@ -1,7 +1,7 @@
 package owner
 
 import (
-	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,12 +58,20 @@ var (
 )
 
 type wordRows struct {
-	TS   string   `json:"ts"`
-	Rows []string `json:"rows"`
+	TS     string   `json:"ts"`
+	Thread string   `json:"thread,omitempty"`
+	Rows   []string `json:"rows"`
 }
 
 func (w threadWord) owed() bool {
 	return w.Text != "" && (strings.HasPrefix(w.Channel, dmPrefix) || w.Thread != w.TS)
+}
+
+func (w threadWord) dmThread() string {
+	if !strings.HasPrefix(w.Channel, dmPrefix) {
+		return ""
+	}
+	return cmp.Or(w.Thread, w.TS)
 }
 
 func (w threadWord) rows(ctx context.Context, runner shell.Runner, entry drive.Entry) ([]string, error) {
@@ -128,7 +136,7 @@ func (w threadWord) write(path string, at time.Time) ([]string, map[string]strin
 		added[id] = fresh[i]
 	}
 	all := append(carriers, ids...)
-	return all, added, rememberRows(path, wordRows{TS: w.TS, Rows: all})
+	return all, added, rememberRows(path, wordRows{TS: w.TS, Thread: w.dmThread(), Rows: all})
 }
 
 func carrierOf(rows []Row, ask, ts string, at time.Time) string {
@@ -161,25 +169,16 @@ func overlapping(left, right string) bool {
 }
 
 func writtenRows(path, ts string) ([]string, error) {
-	file, err := os.Open(filepath.Join(filepath.Dir(path), wordsFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
+	written, err := allWordRows(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-	lines := bufio.NewScanner(file)
-	for lines.Scan() {
-		var written wordRows
-		if err := json.Unmarshal(lines.Bytes(), &written); err != nil {
-			return nil, fmt.Errorf("%s: %w", wordsFile, err)
-		}
-		if written.TS == ts {
-			return written.Rows, nil
+	for _, word := range written {
+		if word.TS == ts {
+			return word.Rows, nil
 		}
 	}
-	return nil, lines.Err()
+	return nil, nil
 }
 
 func rememberRows(path string, written wordRows) error {

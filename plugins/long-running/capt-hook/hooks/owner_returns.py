@@ -11,7 +11,7 @@ from pathlib import Path
 
 from spawnllm import Binary, BinaryAnswer, Refused
 
-from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Or, Rewrite, T, Tool, Warn, WorkflowState, hook, on, workflow_state
+from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Or, T, Tool, Warn, WorkflowState, hook, on, workflow_state
 from captain_hook.util import reqenv
 
 from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, ROOT_LANE
@@ -79,7 +79,6 @@ UNWATCHED = f"The owner's Slack watch is not running, so his next message waits 
 WATCHING = [{"id": "w1", "type": "shell", "status": "running", "description": OWNER_WATCH, "command": WATCH_COMMAND}]
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
-IN_THREAD = "He asked in a Slack thread, so this reply posts in that thread."
 THREAD_READ = "The communicator reads only the Slack thread it is answering, one the owner wrote in. Ask a lane with `lr ask-lane '<question>'` for any other thread, and its answer arrives as a record."
 EXPLAINER = re.compile(r"https?://[^\s/]+/(?:one-pagers|design-docs)/[\w.-]+/")
 TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
@@ -119,11 +118,6 @@ CCI_WAKE = T.user('<channel source="plugin:cc-inbox:cci" kind="correction" lane=
 TEAMMATE_WAKE = T.user('Another Claude session sent a message:\n<teammate-message teammate_id="spot-pool" color="green" summary="Correction">You missed the m11 tip again.</teammate-message>')
 NO_OUTPUT = T.user("[Your previous response had no visible output. Please continue and produce a user-visible response.]", isMeta=True)
 REMINDER_FEEDBACK = T.user(f"Stop hook feedback:\n{UNROUTED_REMINDER}", isMeta=True)
-
-
-@workflow_state("long_running_row_threads")
-class RowThreads(WorkflowState):
-    threads: dict[str, str] = {}
 
 
 @workflow_state("long_running_owner_returns")
@@ -229,12 +223,6 @@ def watch_delivered(thread: str) -> list:
 
 def waiting(replies: str | tuple) -> Input:
     return Input(session_id=HOLDER, command="ls", transcript=delivered(), state=[CompactionState(active=True, communicator=True)], env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
-
-
-def answering(transcript: list, owed: tuple = (), threads: dict | None = None, **given: object) -> Input:
-    replies = json.dumps({"replies": list(owed), "holder_session": HOLDER})
-    state = [CompactionState(active=True, communicator=True), RowThreads(threads=threads or {})]
-    return Input(session_id=HOLDER, tool=REPLY, tool_input={"title": "Yes, it is on the board", "md": "It is the third card."} | given, transcript=transcript, state=state, env=DRIVE_CONFIG, commands={f"{SHIPPED_CC_SLACK} dm-owed": replies})
 
 
 def reading(transcript: list, owed: str | tuple, tool: str = f"{CC_SLACK}slack_thread", **given: object) -> Input:
@@ -548,44 +536,6 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
         handed_off = any(hands_off(use) for use in calls)
         waiting = [reply for reply in owed["replies"] if reply["thread_ts"] != reply["ts"] or not (handed_off or reply["ts"] in state.marked_replies)]
     return UNANSWERED.format(replies="\n".join(f'{reply["permalink"]}: {reply["text"]}' for reply in waiting)) if waiting else None
-
-
-@on(
-    Event.PreToolUse,
-    only_if=[Communicator(), Tool(REPLY)],
-    skip_if=[FromSubagent()],
-    tests=communicator_tests({
-        answering(delivered()): Allow(),
-        answering(delivered(thread=OWED_REPLY["ts"])): Allow(),
-        answering([T.user("where are we")], owed=(OWED_REPLY,)): Allow(),
-        answering(delivered(), owed=(OWED_REPLY,), title="Alert: FlightSQL rejections", status="incident"): Allow(),
-        answering([T.user("where are we")], owed=(OWED_REPLY | {"thread_ts": OWED_REPLY["ts"]},)): Allow(),
-        answering(delivered(), thread="1793600000.000001"): Allow(),
-        answering(delivered(), owed=(OWED_REPLY,), threads={"m12": OWED_REPLY["thread_ts"]}, thread="1793600000.000001", order="m12"): Allow(),
-        answering([T.user("where are we")]): Allow(),
-        answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, order="m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
-        answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, on="line:m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
-        answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}, order="m11"): Allow(),
-        answering(delivered(), owed=(OWED_REPLY,), order="m11"): Allow(),
-        answering(delivered(), on="reply:r1"): Allow(),
-        answering(watch_queued(OWED_REPLY["thread_ts"]), threads={"m12": OWED_REPLY["thread_ts"]}, order="m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
-        answering(watch_queued(OWED_REPLY["thread_ts"])): Allow(),
-        answering(watch_delivered(OWED_REPLY["thread_ts"]), threads={"m12": OWED_REPLY["thread_ts"]}, order="m12"): Rewrite(None, thread=OWED_REPLY["thread_ts"]),
-        answering(watch_delivered(OWED_REPLY["thread_ts"]), threads={"m12": OWED_REPLY["thread_ts"]}, order="m11"): Allow(),
-        answering(delivered(), threads={"m12.1": "1793600000.000001", "m12": "1793600000.000001"}, thread="1793600000.000001"): Rewrite(None, order="m12"),
-        answering(delivered(), threads={"m12": OWED_REPLY["thread_ts"]}): Allow(),
-        answering(delivered(), threads={"m12": "1793600000.000001"}, thread="1793600000.000001", unprompted=True): Allow(),
-    }),
-)
-def answers_go_in_his_thread(evt: BaseHookEvent) -> HookResult | None:
-    raw = evt.input.raw
-    rows = RowThreads.load(evt).threads
-    if named := raw.get("order") or raw.get("on"):
-        if raw.get("thread") or not (thread := rows.get(named.removeprefix("line:"))):
-            return None
-        return evt.rewrite(raw | {"thread": thread}, note=IN_THREAD)
-    its_rows = [row for row, at in rows.items() if at == raw.get("thread") and "." not in row]
-    return evt.rewrite(raw | {"order": its_rows[-1]}, note=IN_THREAD) if its_rows and not raw.get("unprompted") else None
 
 
 class ReadsAnsweredThread:

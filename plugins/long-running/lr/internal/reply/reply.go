@@ -56,6 +56,7 @@ const (
 	typeQuestion    = "question"
 
 	threadIndex = "thread index"
+	linePrefix  = "line:"
 
 	diagramNote = "The diagram is on the Chat page of your dashboard."
 )
@@ -351,6 +352,45 @@ func (f Fanout) aliased(r Reply) Reply {
 		r.Blocks[n] = json.RawMessage(aliases.In(string(block)))
 	}
 	return r
+}
+
+func (f Fanout) placed(r Reply) (Reply, error) {
+	if r.Thread == owner.AtRoot {
+		r.Thread = ""
+		return r, nil
+	}
+	if r.Thread != "" {
+		if r.Order != "" || r.On != "" || r.Unprompted {
+			return r, nil
+		}
+		order, err := owner.RowIn(f.Entry.StateDir, r.Thread)
+		r.Order = order
+		return r, err
+	}
+	line, _ := strings.CutPrefix(r.On, linePrefix)
+	row := cmp.Or(r.Order, line)
+	if row == "" || r.Order == "" && !strings.HasPrefix(r.On, linePrefix) {
+		return r, nil
+	}
+	place, err := owner.PlaceOf(f.Entry.StateDir, row)
+	if err != nil {
+		return r, err
+	}
+	switch place {
+	case owner.AtRoot:
+		return r, nil
+	case "":
+		was, err := f.delivered(r.ID)
+		if err != nil {
+			return r, err
+		}
+		if r.quiet() || was.ownMessage(r).Ref != "" || surface(was.Surfaces, "slack").Ref != "" {
+			return r, nil
+		}
+		return r, fmt.Errorf(`%s has no recorded place, so this posted nothing, since he would not see it where he asked; pass thread with the ts of the Slack DM thread he asked in, or thread "root" if he asked anywhere else`, row)
+	}
+	r.Thread = place
+	return r, nil
 }
 
 func (r Reply) typed() Reply {
