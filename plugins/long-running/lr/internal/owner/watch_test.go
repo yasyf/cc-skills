@@ -3,6 +3,7 @@ package owner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -121,5 +122,169 @@ func TestAWatchThatDiesEndsTheMonitorWithItsCause(t *testing.T) {
 
 	if err == nil || !strings.Contains(fmt.Sprint(err), "daemon gone") {
 		t.Fatalf("err = %v, want the watch's cause", err)
+	}
+}
+
+func fitsAMonitorEvent(t *testing.T, event any, target any) string {
+	t.Helper()
+	raw, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := watch(context.Background(), watched(string(raw)), noThreads, noRows, &out); err != nil {
+		t.Fatal(err)
+	}
+	printed := strings.TrimSuffix(strings.TrimPrefix(out.String(), started), "\n")
+	if len(printed) > eventChars {
+		t.Fatalf("line is %d bytes, want at most %d: %s", len(printed), eventChars, printed)
+	}
+	if err := json.Unmarshal([]byte(printed), target); err != nil {
+		t.Fatalf("line %s: %v", printed, err)
+	}
+	return printed
+}
+
+func realTap(label string) map[string]any {
+	question := "Would a faster disk shorten production runs, and which of these should the next change measure first?"
+	return map[string]any{
+		"type": "slack.action", "watch_id": 719, "channel_id": "D0C4HQWPLCC", "thread_ts": "1793816299.111929", "ts": "1793816299.111929", "action_ts": "1793819436.927939",
+		"label": label, "id": "card-faster-disk-runs", "waits": true, "question": question,
+		"options":   []string{"Keep gp3 and measure write waits first", "Raise gp3's limits", "Move journals to io2", "Move to local NVMe nodes"},
+		"capture":   `Yasyf answered "` + question + `" with "` + label + `" at 2026-11-04T23:43:21Z on https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1793816299111929`,
+		"permalink": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1793816299111929",
+	}
+}
+
+type tapLine struct {
+	TS       string   `json:"ts"`
+	Thread   string   `json:"thread_ts"`
+	Channel  string   `json:"channel_id"`
+	Label    string   `json:"label"`
+	ID       string   `json:"id"`
+	Question string   `json:"question"`
+	Options  []string `json:"options"`
+	Capture  string   `json:"capture"`
+	Cut      bool     `json:"cut"`
+}
+
+func TestATapKeepsItsCardAndAnswerWholeAndDropsItsRepeatedWordsFirst(t *testing.T) {
+	var line tapLine
+
+	fitsAMonitorEvent(t, realTap("Keep gp3 and measure write waits first"), &line)
+
+	if line.ID != "card-faster-disk-runs" || line.Label != "Keep gp3 and measure write waits first" || line.Cut {
+		t.Fatalf("line = %+v, want the card id and the answer whole", line)
+	}
+	if line.Thread != "1793816299.111929" || line.TS != "1793816299.111929" || line.Channel != "D0C4HQWPLCC" {
+		t.Fatalf("line = %+v, want where the card is", line)
+	}
+	if line.Capture != "" || line.Options != nil {
+		t.Fatalf("line = %+v, want the capture and options gone before the question", line)
+	}
+	if !strings.HasPrefix(line.Question, "Would a faster disk") {
+		t.Fatalf("line = %+v, want the question kept when it fits", line)
+	}
+}
+
+func TestATapWithALongQuestionStillFitsAndNamesItsCard(t *testing.T) {
+	tap := realTap("Yes")
+	tap["question"] = strings.Repeat("why ", 200)
+	var line tapLine
+
+	fitsAMonitorEvent(t, tap, &line)
+
+	if line.ID != "card-faster-disk-runs" || line.Label != "Yes" || line.Question != "" || line.Cut {
+		t.Fatalf("line = %+v, want the question gone and the answer whole", line)
+	}
+}
+
+func TestATypedAnswerTooLongForAnEventIsCutAndSaysSo(t *testing.T) {
+	typed := strings.Repeat("port it first ", 60)
+	tap := realTap(typed)
+	tap["other"] = true
+	var line tapLine
+
+	fitsAMonitorEvent(t, tap, &line)
+
+	if line.ID != "card-faster-disk-runs" || !line.Cut || !strings.HasPrefix(typed, line.Label) || len(line.Label) < 200 {
+		t.Fatalf("line = %+v, want the card id whole and as much of his answer as fits, marked cut", line)
+	}
+}
+
+func TestATeammatesLongMessageFits(t *testing.T) {
+	said := strings.Repeat("a teammate says ", 60)
+	var line struct {
+		TS   string `json:"ts"`
+		Text string `json:"text"`
+		Cut  bool   `json:"cut"`
+	}
+
+	fitsAMonitorEvent(t, map[string]any{"type": "slack.message", "watch_id": 574, "kind": "thread", "channel_id": "C1", "thread_ts": "1.0", "ts": "1.3", "user": "U2", "user_name": "Ria", "from_claude": false, "text": said, "permalink": "https://acme.slack.com/archives/C1/p13"}, &line)
+
+	if line.TS != "1.3" || !line.Cut || !strings.HasPrefix(said, line.Text) {
+		t.Fatalf("line = %+v", line)
+	}
+}
+
+func TestALongWatchErrorFitsAndNamesItsWatch(t *testing.T) {
+	var line struct {
+		Watch int64  `json:"watch_id"`
+		Error string `json:"error"`
+		Cut   bool   `json:"cut"`
+	}
+
+	fitsAMonitorEvent(t, map[string]any{"type": "slack.watch_error", "watch_id": 742, "kind": "thread", "channel_id": "C1", "thread_ts": "1.0", "error": strings.Repeat("channel_not_found ", 60)}, &line)
+
+	if line.Watch != 742 || !line.Cut || !strings.HasPrefix(line.Error, "channel_not_found") {
+		t.Fatalf("line = %+v", line)
+	}
+}
+
+func TestAStoppedOwnerWithManyWatchesFitsAndSaysSomeAreGone(t *testing.T) {
+	watches := make([]map[string]any, 0, 12)
+	for range 12 {
+		watches = append(watches, map[string]any{"watch_id": 742, "kind": "thread", "channel_id": "C0B75AL4XEW", "thread_ts": "1793774674.452900"})
+	}
+	var line struct {
+		Agent   string `json:"agent_id"`
+		Watches []struct {
+			Watch int64 `json:"watch_id"`
+		} `json:"watches"`
+		Cut bool `json:"cut"`
+	}
+
+	fitsAMonitorEvent(t, map[string]any{"type": "slack.owner_stopped", "agent_id": "a1b2", "watches": watches}, &line)
+
+	if line.Agent != "a1b2" || !line.Cut || len(line.Watches) == 0 || len(line.Watches) == len(watches) {
+		t.Fatalf("line = %+v", line)
+	}
+}
+
+func TestARelayLineStaysAsCcSlackPrintedIt(t *testing.T) {
+	var line map[string]any
+
+	printed := fitsAMonitorEvent(t, map[string]any{"agent_id": "a1b2", "type": "agent.relay"}, &line)
+
+	if printed != `{"agent_id":"a1b2","type":"agent.relay"}` {
+		t.Fatalf("printed %s", printed)
+	}
+}
+
+func TestAFailureLongerThanAnEventIsClippedAndHisMessageStillArrives(t *testing.T) {
+	long := errors.New(strings.Repeat("channel_not_found ", 60))
+	var out strings.Builder
+	rows := func(context.Context, threadWord) ([]string, error) { return nil, long }
+
+	if err := watch(context.Background(), watched(hisEvent), noThreads, rows, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	failure, delivered, ok := strings.Cut(strings.TrimPrefix(out.String(), started), "\n")
+	if !ok || !strings.HasPrefix(failure, "his message 1.1 wrote no ledger row") || len(failure) != eventChars {
+		t.Fatalf("failure line is %d bytes: %q", len(failure), failure)
+	}
+	if strings.TrimSpace(delivered) != hisEvent {
+		t.Fatalf("printed %q, want his message after the failure", delivered)
 	}
 }

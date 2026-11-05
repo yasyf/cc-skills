@@ -35,7 +35,15 @@ const (
 	linkedField   = "linked"
 	permalinkName = "permalink"
 	textField     = "text"
+	labelField    = "label"
+	errorField    = "error"
+	watchesField  = "watches"
+	captureField  = "capture"
+	optionsField  = "options"
+	questionField = "question"
 )
+
+var cutFields = map[string]string{slackMessage: textField, slackAction: labelField, slackWatchError: errorField, slackOwnerStopped: watchesField}
 
 var (
 	paragraphBreak = regexp.MustCompile(`\n\s*\n`)
@@ -304,7 +312,7 @@ func fitted(raw []byte, rows []string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, shrink := range []func(map[string]any){withoutCardWords, withoutLinkedWords, withoutPermalink} {
+	for _, shrink := range []func(map[string]any){withoutCardPicks, withoutCardWords, withoutLinkedWords, withoutPermalink} {
 		if len(encoded) <= eventChars {
 			return encoded, nil
 		}
@@ -313,23 +321,47 @@ func fitted(raw []byte, rows []string) ([]byte, error) {
 			return nil, err
 		}
 	}
-	if len(encoded) <= eventChars {
+	kind, _ := line["type"].(string)
+	field, cuttable := cutFields[kind]
+	if len(encoded) <= eventChars || !cuttable {
 		return encoded, nil
 	}
 	line[cutField] = true
 	if encoded, err = json.Marshal(line); err != nil {
 		return nil, err
 	}
-	text, _ := line[textField].(string)
-	said := []rune(text)
-	line[textField] = string(said[:max(0, len(said)-(len(encoded)-eventChars))])
+	if watches, ok := line[field].([]any); ok {
+		return withoutLastWatches(line, watches)
+	}
+	words, _ := line[field].(string)
+	said := []rune(words)
+	line[field] = string(said[:max(0, len(said)-(len(encoded)-eventChars))])
 	return json.Marshal(line)
 }
 
-func withoutCardWords(line map[string]any) {
+func withoutLastWatches(line map[string]any, watches []any) ([]byte, error) {
+	for {
+		encoded, err := json.Marshal(line)
+		if err != nil || len(encoded) <= eventChars || len(watches) == 0 {
+			return encoded, err
+		}
+		watches = watches[:len(watches)-1]
+		line[watchesField] = watches
+	}
+}
+
+func withoutCardPicks(line map[string]any) {
+	delete(line, captureField)
+	delete(line, optionsField)
 	if answers, ok := line[answersField].(map[string]any); ok {
-		delete(answers, "question")
-		delete(answers, "options")
+		delete(answers, optionsField)
+	}
+}
+
+func withoutCardWords(line map[string]any) {
+	delete(line, questionField)
+	if answers, ok := line[answersField].(map[string]any); ok {
+		delete(answers, questionField)
 	}
 }
 
@@ -342,4 +374,9 @@ func withoutLinkedWords(line map[string]any) {
 
 func withoutPermalink(line map[string]any) {
 	delete(line, permalinkName)
+}
+
+func clippedLine(text string) string {
+	said := []rune(text)
+	return string(said[:min(len(said), eventChars)])
 }

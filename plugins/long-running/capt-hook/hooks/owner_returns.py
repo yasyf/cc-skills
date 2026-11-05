@@ -17,7 +17,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, ROOT_LANE
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
-from .register_capture import OPERATOR, OWNER_WATCH, owner_messages_heard, queued_prompts, slack_dms
+from .register_capture import OPERATOR, OWNER_WATCH, owner_messages_heard, owner_tap_threads, queued_prompts, slack_dms
 from .register_gates import blocker, cause
 from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, runs_verb, SLACK_THREAD_TOOLS, typed_words
 from .root_replies import owner_message, REPLY_WINDOW
@@ -202,6 +202,25 @@ def watch_queued(thread: str) -> list:
     notified = f'<task-notification>\n<task-id>bi4wzi4te</task-id>\n<summary>Monitor event: "{OWNER_WATCH}"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>'
     queued = {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": notified, "commandMode": "task-notification"}}
     return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), queued]
+
+
+def tap_queued(prompt: str) -> list:
+    return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "queued_command", "prompt": prompt, "commandMode": "task-notification"}}]
+
+
+def tap_on_watch(thread: str, channel: str = "D0B6Z") -> list:
+    payload = {"action_ts": "1793600001.000001", "channel_id": channel, "id": "card-x", "label": "Explain more", "thread_ts": thread, "ts": thread, "type": "slack.action", "waits": True, "watch_id": 742}
+    return tap_queued(f'<task-notification>\n<summary>Monitor event: "{OWNER_WATCH}"</summary>\n<event>{json.dumps(payload)}</event>\n</task-notification>')
+
+
+def tap_in_channel_tag(thread: str) -> list:
+    payload = {"type": "slack.action", "channel_id": "D0B6Z", "thread_ts": thread, "ts": thread, "label": "Explain more", "id": "card-x"}
+    return tap_queued(f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.action">\n{json.dumps(payload)}\n</channel>')
+
+
+def tap_in_directive(card: str) -> list:
+    steering = f"Directives from the cc-slack steering channel (operator-authorized):\n- [human #1460] Slack tap from Yasyf, your operator, on your status card posted 2:38pm (https://acme.slack.com/archives/D0B6Z/p{card}): Ack."
+    return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), {"type": "attachment", "timestamp": "2026-11-03T17:00:00Z", "attachment": {"type": "hook_additional_context", "hookName": "PreToolUse", "hookEvent": "PreToolUse", "toolUseID": "toolu_1", "content": [steering]}}]
 
 
 def watch_delivered(thread: str) -> list:
@@ -580,8 +599,9 @@ class ReadsAnsweredThread:
 
 
 def owner_dm_threads(evt: BaseHookEvent) -> set[str]:
-    heard = owner_messages_heard([*queued_prompts(evt.ctx.t.events), evt.user_prompt or ""])
-    return {ts for message in heard if message["channel_id"].startswith("D") for ts in (message["thread_ts"], message["ts"])}
+    prompts = [*queued_prompts(evt.ctx.t.events), evt.user_prompt or ""]
+    heard = owner_messages_heard(prompts)
+    return {ts for message in heard if message["channel_id"].startswith("D") for ts in (message["thread_ts"], message["ts"])} | owner_tap_threads(prompts, evt.ctx.t.events)
 
 
 NONE_OWED = json.dumps({"replies": [], "holder_session": HOLDER})
@@ -596,6 +616,14 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
     tests=communicator_tests({
         reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"], limit=6): Allow(),
         reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Block(pattern=r"^The communicator reads only the Slack thread it is answering"),
+        reading(tap_on_watch("1793600000.000001"), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Allow(),
+        reading(tap_on_watch("1793600000.000001"), NONE_OWED, "Bash", command="cc-slack thread --url D0B6Z/p1793600000000001 --limit 6"): Allow(),
+        reading(tap_on_watch("1793600000.000001"), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000002", limit=6): Block(),
+        reading(tap_on_watch("1793600000.000001", channel="C0B"), NONE_OWED, channel_id="C0B", thread_ts="1793600000.000001", limit=6): Block(),
+        reading(tap_on_watch(""), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000002", limit=6): Block(),
+        reading(tap_in_channel_tag("1793600000.000001"), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Allow(),
+        reading(tap_in_directive("1793600000000001"), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Allow(),
+        reading(tap_in_directive("1793600000000001"), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000002", limit=6): Block(),
         reading([T.user("where are we")], OWED_HERE, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"], limit=1000): Allow(),
         reading([T.user("where are we")], OWED_HERE, "Bash", command="cc-slack thread --url D0B6Z/p1793684147131059"): Allow(),
         reading([T.user("where are we")], OWED_HERE, "Bash", command=f"cc-slack thread --url '{OWED_REPLY['permalink']}'"): Allow(),
