@@ -208,7 +208,7 @@ lr ask-owner --title '<the question>?' --background '<what it is for, what it to
 
 It puts the card on his main board and at the root of his Slack direct message with you as
 its owner, and his answer wakes you. Nobody draws it for you: never ask owner-relay or
-board-refresher. The first option is the recommended one, two to four in all. `--until` is
+board-refresher, save for a choice between designs, below. The first option is the recommended one, two to four in all. `--until` is
 at:TIME or a span such as at:3d, pr:N, release:STACK@ENV:COMMIT or record:SEQ. `--from` names
 the plan step and date, his ruling id, or whose PR it ports. `--shot 'PATH or https URL ::
 what it shows'` adds a real screenshot; a path is read on the board's Mac, so a Sprite lane
@@ -220,7 +220,14 @@ no background, one whose question a card on his board already asks or he already
 one offering only ways to live with a failure and no fix for its cause, and one naming a
 loss with no plan beside it. It draws but warns on an option acting on a set it does not name,
 such as "all four ready fixes" with no four listed: edit the card so its body names every
-member, each with its PR link and what it does for a user, or draw one card per item. Its text answers the first question he will
+member, each with its PR link and what it does for a user, or draw one card per item. It
+also draws but warns on a card whose answers are architecture designs with no architecture
+diagram comparing them. Such a question always carries one, drawn with the component and
+never a picture or mermaid: an arch/v1 doc as [communicator-brief.md](communicator-brief.md#what-a-reply-may-say)
+shapes it, one top-level node per design. `lr ask-owner` draws none yet, so post that
+question to owner-relay as an `ask` with the doc in `--body-file`, and owner-relay sends it
+as its own reply, with your options as `picks` and that doc as `diagram`. Any explanation to him of a system
+with several parts carries one too. Its text answers the first question he will
 ask, and a change it describes names its concrete things: which fields and where they
 live, which chats or users, and what happens before and after. Anything it names, such
 as a Sentry issue, build or PR, is a link, and it never names a cci record (R21). A settled
