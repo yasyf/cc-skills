@@ -476,7 +476,7 @@ func (l *launch) readEnv() error {
 func (l *launch) resolveRun() error {
 	l.run = l.Env("ORCA_LAUNCH_RUN")
 	if l.run == "" {
-		if entry := currentDriveEntry(l.Env); entry != nil {
+		if entry := currentDriveEntry(l.ctx, l.Env, l.Runner); entry != nil {
 			l.run = entry.OrcaRun
 		}
 	}
@@ -514,7 +514,7 @@ func (l *launch) resolveLaunch() error {
 	if err := l.resolveRepo(); err != nil {
 		return err
 	}
-	l.drive = driveName(l.Env, l.Env("ORCA_LAUNCH_RUN"))
+	l.drive = driveName(l.ctx, l.Env, l.Runner, l.Env("ORCA_LAUNCH_RUN"))
 	l.slackMCP = briefSlack.MatchString(text)
 	if err := l.composeCommand(); err != nil {
 		return err

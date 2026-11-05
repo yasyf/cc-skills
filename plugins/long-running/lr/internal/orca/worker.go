@@ -582,7 +582,7 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 		return nil, err
 	}
 	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker), "--env", laneEnv + "=" + w.lane}
-	if drive := driveName(w.Env, w.run); drive != "" {
+	if drive := driveName(w.ctx, w.Env, w.Runner, w.run); drive != "" {
 		argv = append(argv, "--env", driveEnv+"="+drive)
 	}
 	if repo := w.Env(workerLandingRepo); repo != "" {
@@ -679,7 +679,7 @@ func (w *workerLaunch) fetchNotes(workspace string) error {
 }
 
 func (w *workerLaunch) carryDrive(workspace string) error {
-	entry := currentDriveEntry(w.Env)
+	entry := currentDriveEntry(w.ctx, w.Env, w.Runner)
 	if entry == nil {
 		entry = driveOfRun(w.Env, w.run)
 	}
@@ -710,7 +710,7 @@ func (w *workerLaunch) carryDrive(workspace string) error {
 }
 
 func (w *workerLaunch) seedDesk(workspace string) error {
-	drive := driveName(w.Env, w.run)
+	drive := driveName(w.ctx, w.Env, w.Runner, w.run)
 	if drive == "" {
 		return nil
 	}

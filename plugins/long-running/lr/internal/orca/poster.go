@@ -74,25 +74,18 @@ type Poster struct {
 }
 
 func (p Poster) Entry(ctx context.Context) (*drive.Entry, error) {
-	name := p.Drive
-	if name == "" {
-		if entry := currentDriveEntry(p.Env); entry != nil {
+	if p.Drive == "" {
+		if entry := currentDriveEntry(ctx, p.Env, p.Runner); entry != nil {
 			return entry, nil
 		}
-		me, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"cci", "me"}})
-		if err != nil {
-			return nil, err
-		}
-		if name = drive.BoundInCCI(me.Stdout); name == "" {
-			return nil, fmt.Errorf("no drive in the registry is bound to session %s and cci me names none, so its orca desk runner is unknown and nothing is posted", p.Env(sessionEnv))
-		}
+		return nil, fmt.Errorf("no drive in the registry is bound to session %s and cci me names none, so its orca desk runner is unknown and nothing is posted", p.Env(sessionEnv))
 	}
 	for _, entry := range allDrives(p.Env) {
-		if entry.Bus() == name {
+		if entry.Bus() == p.Drive {
 			return &entry, nil
 		}
 	}
-	return nil, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", name)
+	return nil, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", p.Drive)
 }
 
 func (p Poster) runnerFault(ctx context.Context, bus string) (string, error) {

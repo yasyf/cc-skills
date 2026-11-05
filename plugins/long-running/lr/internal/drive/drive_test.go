@@ -158,3 +158,15 @@ func TestASessionFindsOnlyTheDriveItCarriesAndNoDriveIsOnePlainRefusal(t *testin
 		t.Fatalf("a session in no drive = %v", err)
 	}
 }
+
+func TestTheDriveCCIBindsIsTheDriveWordOfItsMeLine(t *testing.T) {
+	for me, want := range map[string]string{
+		"monorepo-8a lane drive=durable-agents-rebuild lane=root branch=dev busy now session=e0ae64c1\n": "durable-agents-rebuild",
+		"monorepo-8a lane lane=root branch=dev busy now\n":                                               "",
+		"": "",
+	} {
+		if got := BoundInCCI(me); got != want {
+			t.Errorf("BoundInCCI(%q) = %q, want %q", me, got, want)
+		}
+	}
+}

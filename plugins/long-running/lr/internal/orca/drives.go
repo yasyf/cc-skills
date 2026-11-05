@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
@@ -61,16 +63,24 @@ func namedDrive(env func(string) string, name string) *drive.Entry {
 	return entry
 }
 
-func currentDriveEntry(env func(string) string) *drive.Entry {
+func currentDriveEntry(ctx context.Context, env func(string) string, runner shell.Runner) *drive.Entry {
 	if name := env(driveEnv); name != "" {
 		return namedDrive(env, name)
 	}
-	session := env(sessionEnv)
-	if session == "" {
+	if session := env(sessionEnv); session != "" {
+		for _, entry := range allDrives(env) {
+			if slices.Contains(entry.Sessions, session) {
+				return &entry
+			}
+		}
+	}
+	me, err := runner.Run(ctx, shell.Command{Argv: []string{"cci", "me"}})
+	if err != nil {
 		return nil
 	}
+	name := drive.BoundInCCI(me.Stdout)
 	for _, entry := range allDrives(env) {
-		if slices.Contains(entry.Sessions, session) {
+		if name != "" && entry.Bus() == name {
 			return &entry
 		}
 	}
@@ -89,11 +99,11 @@ func driveOfRun(env func(string) string, run string) *drive.Entry {
 	return nil
 }
 
-func driveName(env func(string) string, run string) string {
+func driveName(ctx context.Context, env func(string) string, runner shell.Runner, run string) string {
 	if name := env(driveEnv); name != "" {
 		return name
 	}
-	if entry := currentDriveEntry(env); entry != nil {
+	if entry := currentDriveEntry(ctx, env, runner); entry != nil {
 		return entry.Drive
 	}
 	if entry := driveOfRun(env, run); entry != nil {
