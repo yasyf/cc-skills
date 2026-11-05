@@ -142,6 +142,11 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	if err != nil {
 		return false, err
 	}
+	if claimed && flags.before == 0 {
+		if err := notePortRead(s, claim, read, a.Now()); err != nil {
+			return false, err
+		}
+	}
 	read.Body, err = a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body")
 	if err != nil {
 		fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
@@ -195,6 +200,17 @@ func noteStandingRefused(s *store.Store, claim gates.Claim, standing bool, refus
 	}
 	return s.Update(func(t *store.Tx) error {
 		return t.PutFact(claim.Repo, claim.PR, claim.Head, gates.StandingRefused, strings.Join(refusals, "; "), at)
+	})
+}
+
+func notePortRead(s *store.Store, claim gates.Claim, read gates.Read, at time.Time) error {
+	return s.Update(func(t *store.Tx) error {
+		for kind, value := range gates.PortEvidence(read.PortSourceMerged, read.Files) {
+			if err := t.PutFact(claim.Repo, claim.PR, claim.Head, kind, value, at); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

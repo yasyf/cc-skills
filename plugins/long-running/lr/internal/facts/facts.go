@@ -919,6 +919,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 	f.TapRefused = stored[bus.TapRefusedFact]
 	_, f.Verdict = stored["verdict"]
 	_, f.Exempt = stored["exempt"]
+	f.StandingWord, _ = gates.LandsOnWord(stored)
 	return nil
 }
 

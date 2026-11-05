@@ -814,6 +814,12 @@ func TestACarryReachesTheRowThroughTheRead(t *testing.T) {
 	}
 }
 
+func portRead(sourceMerged bool, files []string) map[string]string {
+	facts := gates.PortEvidence(sourceMerged, files)
+	facts[gates.PortOfAttr], facts[gates.PortInteractsAttr] = "49000", gates.PortCleanWord
+	return facts
+}
+
 func TestAPortAsksHimOnlyWhenItSaysItInteractsOrTheGateRefusesIt(t *testing.T) {
 	const reason = "port: infra/rows/x.ts is outside go/sand/next/, so it is no pure port and lands on his tap"
 	clean := map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord}
@@ -822,13 +828,16 @@ func TestAPortAsksHimOnlyWhenItSaysItInteractsOrTheGateRefusesIt(t *testing.T) {
 		ready bool
 		waits string
 	}{
-		"a clean port waits on nothing of his":                 {clean, false, PortLands},
-		"a port that interacts asks him":                       {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: "yes"}, true, onlyHim},
-		"a port silent on interaction asks him":                {map[string]string{gates.PortOfAttr: "49000"}, true, onlyHim},
-		"a head with no port claim asks him":                   {nil, true, onlyHim},
-		"a clean claim the gate refused asks him and says why": {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, gates.StandingRefused: reason}, true, "Only your approval; the gate refused it: " + reason},
-		"a flake fix waits on nothing of his":                  {map[string]string{gates.FlakeFixAttr: "TestChatStream"}, false, flakeLands},
-		"a clean port with its go is ready to land":            {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, "exempt": gates.OldTreePortClass}, true, tappedWaits},
+		"a clean port waits on nothing of his":                        {clean, false, PortLands},
+		"a port that interacts asks him":                              {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: "yes"}, true, onlyHim},
+		"a port silent on interaction asks him":                       {map[string]string{gates.PortOfAttr: "49000"}, true, onlyHim},
+		"a head with no port claim asks him":                          {nil, true, onlyHim},
+		"a clean claim the gate refused asks him and says why":        {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, gates.StandingRefused: reason}, true, "Only your approval; the gate refused it: " + reason},
+		"a clean claim whose source the go read as unmerged asks him": {portRead(false, nil), true, "Only your approval; the gate refused it: port: its source #49000 is not a merged pull request"},
+		"a clean claim the go read as outside the tree asks him":      {portRead(true, []string{"infra/rows/x.ts"}), true, "Only your approval; the gate refused it: " + reason},
+		"a clean claim the go read as clean waits on nothing of his":  {portRead(true, []string{"go/sand/next/a.go"}), false, PortLands},
+		"a flake fix waits on nothing of his":                         {map[string]string{gates.FlakeFixAttr: "TestChatStream"}, false, FlakeLands},
+		"a clean port with its go is ready to land":                   {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, "exempt": gates.OldTreePortClass}, true, tappedWaits},
 	} {
 		t.Run(name, func(t *testing.T) {
 			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
@@ -857,6 +866,27 @@ func TestAPortHeadRecordReachesTheRowsFactsAtItsHead(t *testing.T) {
 	}
 	if facts[gates.PortOfAttr] != "49000" || facts[gates.PortInteractsAttr] != gates.PortCleanWord {
 		t.Fatalf("facts = %v, want the head record's port claim", facts)
+	}
+}
+
+func TestANewerHeadRecordSilentOnInteractionUndoesAnOlderCleanClaim(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	for _, attrs := range []map[string]string{
+		{"head:1": headA, gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord},
+		{"head:1": headA, gates.PortOfAttr: "49000"},
+	} {
+		if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "head", Text: "HEAD #1", PRs: []string{testRepo + "#1"}, Attrs: attrs}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	folded(t, f, 1)
+	facts, err := s.Facts(testRepo, 1, headA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if class, _ := gates.LandsOnWord(facts); class != "" {
+		t.Fatalf("facts = %v read as landing on %q, want no word, as PortAt reads the newest record", facts, class)
 	}
 }
 

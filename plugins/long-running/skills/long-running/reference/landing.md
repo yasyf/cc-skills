@@ -406,11 +406,11 @@ Until cutover, every old-tree PR that lands on `dev` and is not the rebuild's ow
 - **The words.** A port says so first, everywhere he reads it: `port of #<n>` is the first line of the PR body, opens each card and opens each reply naming it. The finder takes `follow-up:` only on a body that opens that way. `lr ask-owner --port-of <n>` titles the card. `lr reply` opens with it from the row's `port-of`. Any other post gets a warning from the first-question hook when it names a port and leaves the words out.
 - **What proves a PR is a port.** A word in its title proves nothing. The lane says so on the `head` record of every push, `--head <pr>=<was>..<sha> --attr port-of=<old PR> --attr port-interacts=no|yes`, and the record at the exact head decides. The newest such record wins. A restack with the same diff keeps its go, as any go does, but a new head with no port attributes reads as no claim and asks him, so a restack posts them too.
 - **A clean port needs no tap.** `lr landing go` posts `[exempt: old-tree-port]` past `landing.tap_rules` when all of these hold at the head:
-  - Fidelity's `ok` names `class old-tree-port` or `pure port, no interaction`.
+  - A grader's newest fidelity at the head is `ok`, whichever class it names, and no grader's newest is `missing`.
   - The head record says `port-of=<n>` and `port-interacts=no`; a record silent on interaction counts as interacting.
   - `#<n>` is a merged pull request.
   - Every changed file is under `go/sand/next/`.
-  Its row reads `ready_for_tap` false from the head record on, says it lands on his standing word, and no drawer offers it. If the sweep's gate refuses the claim, the row turns ready for his tap and says why.
+  `gates.LandsOnWord` and `gates.PortRefusals` are the one read of this: the row's fold, the go, `lr landing gate` and the tap path all read them, so they cannot disagree. The go records what it read of the source and the files as facts at the head. Its row reads `ready_for_tap` false from the head record on, says it lands on his standing word, and no drawer offers it; `lr landing gate` prints `NO-GO-YET` rather than `TAP-REQUIRED`, and the go clears that line. If the go's read or the sweep's gate refuses the claim, the row turns ready for his tap and says why, and the gate prints `TAP-REQUIRED`.
 - **Everything else stays.** CI, approval, holds, open cards and the row's other waits apply to a port like any PR, and the finder and fidelity grade it as above. A port with one file outside the tree lands on his tap.
 
 ### Test-flake fixes

@@ -221,7 +221,10 @@ func sameHead(a, b string) bool {
 	return a != "" && (strings.HasPrefix(a, b) || strings.HasPrefix(b, a))
 }
 
-const NoTap = "no tap"
+const (
+	NoTap = "no tap"
+	NoGo  = "NO-GO-YET no tap is owed: it lands on his standing word, and its go comes next"
+)
 
 func Missing(f machine.Facts) []string {
 	var out []string
@@ -248,6 +251,8 @@ func Missing(f machine.Facts) []string {
 	}
 	if f.Tap == machine.TapConditional {
 		out = append(out, "tap given "+f.Condition)
+	} else if f.StandingWord != "" && !f.Tapped() && !f.HoldAwaitsTap {
+		out = append(out, NoGo)
 	} else if !f.Tapped() || f.HoldAwaitsTap {
 		out = append(out, NoTap)
 	}
