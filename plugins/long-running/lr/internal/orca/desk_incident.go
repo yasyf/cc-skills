@@ -1276,7 +1276,7 @@ func (d *Desk) sliced(ctx context.Context, key, lane, text string) (string, erro
 	if err := os.WriteFile(brief, []byte(text), 0o600); err != nil {
 		return "", err
 	}
-	if err := d.refreshSlice(ctx, key, lane, brief); err != nil {
+	if err := d.refreshSlice(ctx, key, lane, brief, stepIncident); err != nil {
 		return "", err
 	}
 	raw, err := os.ReadFile(brief)

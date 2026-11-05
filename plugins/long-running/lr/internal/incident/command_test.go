@@ -193,6 +193,34 @@ func TestAnIncidentTrioPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testin
 	}
 }
 
+func TestARefusedCommsLaneDoesNotFailAnIncidentWhoseFixLaneStands(t *testing.T) {
+	cases := []struct {
+		name       string
+		fixVerdict bool
+		timeout    time.Duration
+		commsKey   string
+	}{
+		{"the fix lane launched", true, time.Minute, "R104"},
+		{"the fix lane's verdict is still pending", false, time.Millisecond, "R103"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			desk, bus, dir, out := deskFixture(t)
+			desk.Name, desk.FixBrief, desk.CommsBrief, desk.Timeout = "inc-x", briefFile(t, dir, "fix.md", "fix"), briefFile(t, dir, "comms.md", "comms"), c.timeout
+			if c.fixVerdict {
+				bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
+			}
+			bus.verdicts[c.commsKey] = "LAUNCH-FAILED " + c.commsKey + " {lane}: refused"
+			if err := desk.Run(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if want := "inc-x-comms " + c.commsKey + " LAUNCH-FAILED " + c.commsKey + " inc-x-comms: refused"; !strings.Contains(out.String(), want) {
+				t.Fatalf("output lacks %q:\n%s", want, out)
+			}
+		})
+	}
+}
+
 func TestALaunchTheRunnerRefusesFailsWithItsLine(t *testing.T) {
 	desk, bus, dir, out := deskFixture(t)
 	desk.Name, desk.FixBrief = "inc-x", briefFile(t, dir, "fix.md", "fix")

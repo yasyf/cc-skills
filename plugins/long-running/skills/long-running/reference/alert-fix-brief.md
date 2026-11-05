@@ -1,4 +1,4 @@
-ccx: lane={lane} role=incident effort=xhigh{incident}
+ccx: lane={lane} role=incident effort=xhigh incident={incident}
 
 # {lane}: fix the production alert {slug}, opened {onset}
 

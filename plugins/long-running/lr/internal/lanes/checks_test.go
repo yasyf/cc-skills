@@ -861,7 +861,14 @@ func TestAnAlertLaunchStartsItsEvidenceLaneAndItsSlackWriter(t *testing.T) {
 		if unfilled := regexp.MustCompile(`\{(?:lane|slug|what|link|onset|facts|drive)\}`).FindString(string(text)); unfilled != "" {
 			t.Fatalf("%s still holds %s", brief, unfilled)
 		}
+		role := strings.TrimSuffix(strings.TrimPrefix(brief, "--"), "-brief")
+		contains(t, string(text), "\nRegister slice: lane=dd-1-"+role+" step=incident\n")
 	}
+	fix, err := os.ReadFile(argv[slices.Index(argv, "--fix-brief")+1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, string(fix), "ccx: lane=dd-1-fix role=incident effort=xhigh incident=dd-1\n")
 }
 
 func TestTwoFiringsOfOneMonitorInAPassLaunchOnce(t *testing.T) {

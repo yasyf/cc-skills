@@ -986,7 +986,47 @@ func TestALaunchIsRefusedWhileTheRunnerIsUnbound(t *testing.T) {
 	wantContains(t, w.wantEscalation("LAUNCH-FAILED "), "an unbound runner")
 }
 
-func TestABriefWithNoSliceOwesOneAndAScaleLessBriefStillLaunches(t *testing.T) {
+func TestABriefWithNoSliceLaunchesWarnedWithStepAllWritten(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief(testLane, "Do the thing.\nScale: no N\nccx: place=local why=test\n")
+	w.lines()
+	w.line(launchText(testLane, brief))
+	w.lines()
+	wantContains(t, w.wantEscalation("SLICE-MISSING "), "lane-a launches anyway")
+	w.noEscalation("LAUNCH-FAILED ")
+	raw, err := os.ReadFile(brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantContains(t, string(raw), "Register slice: lane=lane-a step=all\n")
+	w.step(w.desk.deliver)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns)
+	}
+}
+
+func TestAnIncidentCommsBriefWithNoSliceOrScaleLaunchesUnwarnedWithStepIncident(t *testing.T) {
+	w := newDeskWorld(t)
+	lane := "dd-1-comms"
+	brief := w.brief(lane, "ccx: lane=dd-1-comms role=comms effort=xhigh\nPost the notices.\n")
+	w.lines()
+	w.line("orca-desk: launch " + lane + " NOW incident-opus xhigh role=comms brief=" + brief)
+	w.lines()
+	w.noEscalation("LAUNCH-FAILED ")
+	w.noEscalation("SLICE-MISSING ")
+	w.noEscalation("SCALE-MISSING ")
+	raw, err := os.ReadFile(brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantContains(t, string(raw), "Register slice: lane=dd-1-comms step=incident\n")
+	w.step(w.desk.deliver)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns)
+	}
+}
+
+func TestAScaleLessBriefStillLaunches(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, "Register slice: lane=lane-a step=all\nccx: place=local why=test\n")
 	w.lines()

@@ -21,6 +21,8 @@ const (
 	roleFix        = "fix"
 	briefFile      = "brief.md"
 	sliceLine      = "Register slice:"
+	stepAll        = "all"
+	stepIncident   = "incident"
 	handoffLane    = "-handoff"
 	whyPredecessor = "predecessor-worked-here"
 	whyMacInputs   = "mac-inputs"
@@ -91,6 +93,24 @@ func (o Order) incidentFix(text string) bool {
 	return o.Model == agentIncident || slices.Contains(roles, agentIncident) || named
 }
 
+func (o Order) incidentLane(text string) bool {
+	return o.Model == agentIncident || o.Model == modelIncidentOpus || o.Role == agentIncident || o.incidentFix(text)
+}
+
+func (o Order) sliceStep(text string) string {
+	if o.incidentLane(text) {
+		return stepIncident
+	}
+	return stepAll
+}
+
+func (o Order) sliceWarning(text string) string {
+	if briefSlice.MatchString(text) || o.incidentLane(text) {
+		return ""
+	}
+	return fmt.Sprintf("brief %s has no `%s lane=<name> step=<n>` line; %s launches anyway with `step=%s` written for it, so name its plan step if it has one", o.Brief, sliceLine, o.Lane, stepAll)
+}
+
 func (o Order) launchFaults(text string, readable bool) []string {
 	var faults []string
 	if _, _, known := modelRoute(o.Model); !known {
@@ -101,9 +121,6 @@ func (o Order) launchFaults(text string, readable bool) []string {
 	}
 	if !readable {
 		return append(faults, "brief "+o.Brief+" is not a file")
-	}
-	if !briefSlice.MatchString(text) && o.Model != agentIncident && !o.incidentFix(text) {
-		faults = append(faults, fmt.Sprintf("brief %s has no `%s lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh %s`", o.Brief, sliceLine, o.Brief))
 	}
 	role := o.Lane
 	if numbered := successorLane.FindStringSubmatch(o.Lane); numbered != nil {
@@ -139,7 +156,7 @@ func owesScale(lane, text string, written time.Time) bool {
 }
 
 func (o Order) scaleFault(text string, written time.Time) string {
-	if o.Model == agentIncident || o.Role == agentIncident || o.incidentFix(text) || !owesScale(o.Lane, text, written) {
+	if o.incidentLane(text) || !owesScale(o.Lane, text, written) {
 		return ""
 	}
 	return "brief " + o.Brief + " has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`"

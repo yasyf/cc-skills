@@ -352,7 +352,7 @@ func (d DeskLaunch) outcome(ctx context.Context, drive string, keys map[string]s
 		return ErrUnsettled
 	}
 	for _, key := range slices.Sorted(maps.Keys(keys)) {
-		if verdict, done := settled[key]; done && verdict.label != verdictLaunched {
+		if verdict, done := settled[key]; done && verdict.label != verdictLaunched && strings.HasSuffix(keys[key], fixAlias) {
 			return fmt.Errorf("%s did not launch: %s", keys[key], verdict.text)
 		}
 	}

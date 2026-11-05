@@ -361,6 +361,8 @@ Do:
 Do NOT touch: production, fix or evidence worktrees, or Slack posts.
 Worktree: <design-docs-checkout>, exclusive to this lane.
 Finish: after resolution, final sync, merge, and handoff of the checked RENDERED: URL.
+
+Register slice: lane=<lane> step=incident
 ```
 
 ## Fix lane brief
@@ -584,6 +586,8 @@ Finish: when the PR is noted and any production apply is verified, report to
   preamble's Orca worker_done command. Your
   completion settles this assignment; the coordinator owns the incident until its
   final reply. Never report live from a mute.
+
+Register slice: lane=<lane> step=incident
 ```
 
 ## Evidence lane brief
@@ -638,4 +642,6 @@ Worktree: <absolute path, read-only>.
 Finish: send <fix lane name> the diagnosis, onset, evidence pointers, and remaining
   gaps on the bus. Use the bus when unsupervised, otherwise the preamble's Orca send
   and worker_done commands. You gate nothing.
+
+Register slice: lane=<lane> step=incident
 ```

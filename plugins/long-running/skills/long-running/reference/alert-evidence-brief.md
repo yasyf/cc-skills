@@ -30,3 +30,5 @@ Do:
 
 Do not touch code, monitor configuration, production state, deploys or applies.
 Finish: send `{slug}-fix` the diagnosis, onset, evidence pointers and remaining gaps on the bus.
+
+Register slice: lane={lane} step=incident

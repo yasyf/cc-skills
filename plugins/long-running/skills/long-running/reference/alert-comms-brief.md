@@ -40,3 +40,5 @@ Do:
      verbatim, as one `defect`.
 
 Finish: after the resolved line is posted, or on the fix lane's `NOT-OURS` or `STOPPED`.
+
+Register slice: lane={lane} step=incident

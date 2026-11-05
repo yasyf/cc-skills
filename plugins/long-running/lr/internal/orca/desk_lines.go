@@ -688,8 +688,13 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
 				return err
 			}
 		}
+		if missing := order.sliceWarning(text); missing != "" {
+			if err := d.escalate("slice-missing:"+key, "SLICE-MISSING", order.Lane, missing); err != nil {
+				return err
+			}
+		}
 	}
-	if err := d.refreshSlice(ctx, key, order.Lane, order.Brief); err != nil {
+	if err := d.refreshSlice(ctx, key, order.Lane, order.Brief, order.sliceStep(text)); err != nil {
 		return err
 	}
 	_, _, err = d.acceptLaunch(key, order.Lane, launchTarget{Model: order.Model, Effort: order.Effort, Brief: order.Brief, Role: order.Role, By: by})
@@ -766,13 +771,13 @@ func (d *Desk) launchRefusal(ctx context.Context, key string, order Order) (stri
 	return "", nil
 }
 
-func (d *Desk) refreshSlice(ctx context.Context, key, lane, brief string) error {
+func (d *Desk) refreshSlice(ctx context.Context, key, lane, brief, step string) error {
 	raw, err := os.ReadFile(brief)
 	if err != nil {
 		return err
 	}
 	if !briefSlice.Match(raw) {
-		text := strings.TrimRight(string(raw), " \t\r\n") + "\n\n" + sliceLine + " lane=" + lane + " step=incident\n"
+		text := strings.TrimRight(string(raw), " \t\r\n") + "\n\n" + sliceLine + " lane=" + lane + " step=" + step + "\n"
 		if err := os.WriteFile(brief, []byte(text), 0o600); err != nil {
 			return err
 		}
