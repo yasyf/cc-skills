@@ -546,6 +546,47 @@ func TestACardAboutAPortOpensWithItAndCarriesItsSource(t *testing.T) {
 	}
 }
 
+func TestACardLinksEachNumberItNamesAndCarriesThatPR(t *testing.T) {
+	block, err := Ask{
+		Title: "Land the port?", PortOf: 50350, NothingToBuild: "a pick",
+		Background: "#50459 ports #50350, and [#7](https://github.com/o/r/pull/7) came first.",
+		Options:    []string{"Land :: #50459 goes out.", "Hold :: Nothing moves."},
+	}.Block("Forge-AI/monorepo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		Summary  string `json:"summary"`
+		Children []struct {
+			Type    string `json:"type"`
+			Repo    string `json:"repo"`
+			Number  int    `json:"number"`
+			Options []struct {
+				Md string `json:"md"`
+			} `json:"options"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	const port = "[#50459](https://github.com/Forge-AI/monorepo/pull/50459)"
+	if want := port + " ports [#50350](https://github.com/Forge-AI/monorepo/pull/50350), and [#7](https://github.com/o/r/pull/7) came first."; card.Summary != want {
+		t.Fatalf("summary = %q, want %q", card.Summary, want)
+	}
+	var prs []string
+	for _, child := range card.Children {
+		if child.Type == "choice" && child.Options[0].Md != port+" goes out." {
+			t.Fatalf("option = %q", child.Options[0].Md)
+		}
+		if child.Type == "pr" {
+			prs = append(prs, fmt.Sprintf("%s#%d", child.Repo, child.Number))
+		}
+	}
+	if want := []string{"Forge-AI/monorepo#50459", "Forge-AI/monorepo#50350", "o/r#7"}; !slices.Equal(prs, want) {
+		t.Fatalf("prs = %v, want %v", prs, want)
+	}
+}
+
 func TestAskFlagsAreRefusedSayingWhatToChange(t *testing.T) {
 	good := Ask{Title: "Which one?", Background: "Why it matters.", Options: []string{"One :: It does one.", "Two :: It does two."}, NothingToBuild: "a pick"}
 	for name, tc := range map[string]struct {
@@ -559,7 +600,6 @@ func TestAskFlagsAreRefusedSayingWhatToChange(t *testing.T) {
 		"nothing built":       {func(a *Ask) { a.NothingToBuild = "" }, "--nothing-to-build REASON"},
 		"both built":          {func(a *Ask) { a.Branch = "o/r:b" }, "--nothing-to-build REASON"},
 		"a bad branch":        {func(a *Ask) { a.NothingToBuild, a.Branch = "", "just-a-branch" }, "not OWNER/NAME:BRANCH"},
-		"a change number":     {func(a *Ask) { a.Background = "Fold it into #45306." }, "the card names #45306"},
 		"an unexplained shot": {func(a *Ask) { a.Shots = []string{"/x.png"} }, "does not say what it shows"},
 	} {
 		ask := good

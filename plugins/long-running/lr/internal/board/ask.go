@@ -35,7 +35,7 @@ const (
 )
 
 var (
-	numberedChange  = regexp.MustCompile(`(?:^|[^\w&])(#\d+)\b`)
+	numberedChange  = regexp.MustCompile(`(^|[^\w&\[])(#(\d+))\b`)
 	prNamed         = regexp.MustCompile(`github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+/[\w.-]+)#(\d+)|\bPR (\d+)\b`)
 	slugWord        = regexp.MustCompile(`[a-z0-9]+`)
 	errLinkAnswered = errors.New("the board link answered")
@@ -74,12 +74,13 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 		if label == "" || does == "" {
 			return nil, fmt.Errorf("refused: --option %q does not say what picking it does; write it as 'LABEL :: what picking it does'", option)
 		}
-		options[i] = askOption{ID: fmt.Sprintf("%s-%d", slug, i+1), Label: label, Md: does}
+		options[i] = askOption{ID: fmt.Sprintf("%s-%d", slug, i+1), Label: label, Md: linkedNumbers(does, repo)}
 	}
 	options[0].Recommended, options[0].Build = true, build
-	said := append([]string{a.Title, a.Background}, a.Options...)
-	if found := numbered(said); len(found) > 0 {
-		return nil, fmt.Errorf("refused: the card names %s; say what each is in plain words, and name the old-tree PR a port copies with --port-of", strings.Join(found, ", "))
+	background := linkedNumbers(a.Background, repo)
+	said := []string{linkedNumbers(a.Title, repo), background}
+	for _, option := range a.Options {
+		said = append(said, linkedNumbers(option, repo))
 	}
 	title, from := a.Title, cmp.Or(a.From, noPlanFrom)
 	if a.PortOf != 0 {
@@ -97,7 +98,7 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	for _, pr := range namedPRs(said, repo) {
 		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%d", slug, pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
 	}
-	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": a.Background, "children": children})
+	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": background, "children": children})
 }
 
 func (a Ask) build() (map[string]any, error) {
@@ -139,14 +140,8 @@ func firstWords(title string) []string {
 	return words[:min(len(words), slugWords)]
 }
 
-func numbered(said []string) []string {
-	var found []string
-	for _, text := range said {
-		for _, hit := range numberedChange.FindAllStringSubmatch(text, -1) {
-			found = append(found, hit[1])
-		}
-	}
-	return found
+func linkedNumbers(text, repo string) string {
+	return numberedChange.ReplaceAllString(text, "${1}[${2}](https://github.com/"+repo+"/pull/${3})")
 }
 
 func namedPRs(said []string, repo string) []SlackPR {
