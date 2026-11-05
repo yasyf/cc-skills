@@ -17,6 +17,7 @@ fetch() {
     exit 1
   fi
 }
+packs=
 supervise_on() {
   recipe="$HOME/.cc-remote/services/$1"
   [ -f "$recipe" ] || return 0
@@ -104,6 +105,9 @@ while [ "$1" != -- ]; do
       fi
       mv "$dir.new" "$dir"
     fi
+    if [ -x "$dir/scripts/binrun.sh" ]; then
+      packs="$packs $dir"
+    fi
     now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
     if ! jq -e --arg id "$name" '.plugins | has($id)' "$plugins/installed_plugins.json" > /dev/null; then
       plugin=${name%@*} marketplace=${name#*@}
@@ -144,6 +148,19 @@ while [ "$1" != -- ]; do
   if [ "$name" = codex-ask ]; then
     supervise_on "$name" "$version"
   fi
+done
+for dir in $packs; do
+  for descriptor in "$dir"/bin/*.binrun; do
+    if ! said=$("$dir/scripts/binrun.sh" -- fetch "$descriptor" 2>&1); then
+      case $said in
+      *mismatch*)
+        echo "refused: $said"
+        exit 1
+        ;;
+      esac
+      echo "warning: $descriptor was not pre-fetched: $said"
+    fi
+  done
 done
 shift
 if pgrep -f "$bin/cci supervise" > /dev/null; then
