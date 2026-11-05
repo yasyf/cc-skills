@@ -259,6 +259,27 @@ func TestAnIncidentBriefFillsEveryPlaceholderAndFallsBackToTheDrivesCopy(t *test
 	equal(t, string(said), "evidence dd-1-evidence\n")
 }
 
+func TestOnlyATemplatesOwnFieldsReadAsUnfilled(t *testing.T) {
+	text := "Post `CANDIDATE {lane}: <files> <sha>` to {slug}-evidence; run `cci post --lane \"${lane:?}\" --drive ${drive}` in <your worktree>, quote {{lane}} as text, keep {literal}, {\"a\": 1}, x{3} and {lane,slug} as they are, then {lane} again and {facts}.\n"
+	equal(t, UnfilledFields(text), []string{"{lane}", "{slug}", "{facts}"})
+	equal(t, UnfilledFields("Run `ci oncall say <page id> --state <your worktree>/oncall.json --text \"MUTE <ids> until <RFC3339>\"` as <lane>.\n"), []string(nil))
+}
+
+func TestEveryFieldOfTheShippedIncidentTemplatesIsGuarded(t *testing.T) {
+	for _, name := range []string{"alert-fix-brief.md", "alert-evidence-brief.md", "alert-comms-brief.md", "unfixed-case-brief.md"} {
+		text, err := os.ReadFile(filepath.Join("..", "..", "..", "skills", "long-running", "reference", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		guarded := UnfilledFields(string(text))
+		for _, field := range regexp.MustCompile(`\{[a-z_]+\}`).FindAllString(string(text), -1) {
+			if !slices.Contains(guarded, field) {
+				t.Errorf("%s fills %s, which lr launch does not refuse unfilled", name, field)
+			}
+		}
+	}
+}
+
 func TestAnIncidentCarriesEachAlertLinkItWasHandedOnce(t *testing.T) {
 	const message, issue, monitor = "https://acme.slack.com/archives/C1/p1793833513167859", "https://acme.sentry.io/issues/4821", "https://app.datadoghq.com/monitors/7"
 	for name, c := range map[string]struct {

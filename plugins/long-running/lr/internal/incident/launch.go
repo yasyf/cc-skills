@@ -18,6 +18,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -94,6 +95,7 @@ type driveEntry struct {
 	Drive    string   `json:"drive"`
 	CCIDrive string   `json:"cci_drive"`
 	Program  string   `json:"program"`
+	Checkout string   `json:"checkout"`
 	Sessions []string `json:"sessions"`
 	StateDir string   `json:"state_dir"`
 }
@@ -140,14 +142,14 @@ func (d DeskLaunch) entry(ctx context.Context) (driveEntry, error) {
 	return driveEntry{}, fmt.Errorf("no drive in the registry is cci drive %s, so its orca desk runner is unknown and nothing is posted", name)
 }
 
-func filled(template, lane, alert string) (string, error) {
+func filled(template, lane, repo, drive string, fired lanes.Fired, now time.Time) (string, error) {
 	text := strings.ReplaceAll(rootLines.ReplaceAllString(template, ""), "<lane>", lane)
 	location := alertLine.FindStringIndex(text)
 	if location == nil {
 		return "", fmt.Errorf("the template for %s has no Alert: line for --alert to fill, so nothing is posted", lane)
 	}
-	text = text[:location[0]] + "Alert: " + alert + text[location[1]:]
-	return extraBlankLines.ReplaceAllString(text, "\n\n"), nil
+	text = text[:location[0]] + "Alert: {what}" + text[location[1]:]
+	return extraBlankLines.ReplaceAllString(lanes.FillIncidentBrief(text, lane, repo, drive, fired, now), "\n\n"), nil
 }
 
 func unfilled(text, alert string) string {
@@ -179,12 +181,12 @@ func (d DeskLaunch) plan() ([]plannedLane, error) {
 	return planned, nil
 }
 
-func written(entry driveEntry, lane plannedLane, alert string) (string, error) {
+func written(entry driveEntry, drive string, lane plannedLane, fired lanes.Fired, now time.Time) (string, error) {
 	template, err := os.ReadFile(lane.brief)
 	if err != nil {
 		return "", err
 	}
-	text, err := filled(string(template), lane.lane, alert)
+	text, err := filled(string(template), lane.lane, entry.Checkout, drive, fired, now)
 	if err != nil {
 		return "", err
 	}
@@ -349,9 +351,11 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 		return err
 	}
 	drive := cmp.Or(d.Drive, entry.cciDrive())
+	topic := strings.TrimSuffix(d.Name, fixAlias)
 	if d.Alert != "" {
+		fired := lanes.HandFired(topic, d.Alert, d.Now())
 		for i, lane := range planned {
-			if planned[i].brief, err = written(entry, lane, d.Alert); err != nil {
+			if planned[i].brief, err = written(entry, drive, lane, fired, d.Now()); err != nil {
 				return err
 			}
 		}
@@ -361,6 +365,9 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if fields := lanes.UnfilledFields(string(text)); len(fields) > 0 {
+			return fmt.Errorf("brief %s for %s still holds the template fields %s, which nothing filled, so nothing is posted; pass its template with --alert, which fills them", lane.brief, lane.lane, strings.Join(fields, ", "))
+		}
 		if line := unfilled(string(text), d.Alert); line != "" {
 			return fmt.Errorf("brief %s for %s still holds a placeholder the coordinator fills, so nothing is posted: %s", lane.brief, lane.lane, line)
 		}
@@ -368,7 +375,6 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 	if err := d.requireRunner(ctx, drive, planned); err != nil {
 		return err
 	}
-	topic := strings.TrimSuffix(d.Name, fixAlias)
 	keys := make(map[string]string, len(planned))
 	names := make([]string, 0, len(planned))
 	first := int64(0)
