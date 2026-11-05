@@ -39,15 +39,19 @@ func TestTheGateCountsGoClassesBesideTheExemptGradesTheRunnerAdmitsAlone(t *test
 	}
 }
 
-func TestTheSweepGatesOnlyAGreenApprovedGradedHeadWithNoGoHoldOrTap(t *testing.T) {
+func TestTheSweepGatesOnlyAGreenApprovedHeadWithNoGoHoldOrTap(t *testing.T) {
 	ready := machine.Facts{Number: 1, Head: "abc1234", CI: machine.CISuccess, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
 	if !goReady(ready) {
 		t.Fatalf("%+v should be gated", ready)
 	}
+	ungraded := ready
+	ungraded.Finder = ""
+	if !goReady(ungraded) {
+		t.Fatalf("%+v should be gated: the gate reads its grades from the bus, which a grade reaches before the landing store does", ungraded)
+	}
 	for name, change := range map[string]func(*machine.Facts){
 		"red":        func(f *machine.Facts) { f.CI = "" },
 		"unapproved": func(f *machine.Facts) { f.Approved = false },
-		"ungraded":   func(f *machine.Facts) { f.Fidelity = "" },
 		"has a go":   func(f *machine.Facts) { f.Exempt = true },
 		"held":       func(f *machine.Facts) { f.Hold = "landing" },
 		"draft":      func(f *machine.Facts) { f.Draft = true },
@@ -115,6 +119,60 @@ func TestTheSweepReadsAsMuchForAThousandReadyHeadsAsForOneAndOnlyForWhatChanged(
 	}
 	if oneChanged != 1 || manyChanged != oneChanged {
 		t.Fatalf("a sweep after one PR's record made %d reads at N=1 and %d at N=1000, want that PR's one read at both", oneChanged, manyChanged)
+	}
+}
+
+func TestALaneGoOnAHeadTheSweepDoesNotGateGetsOneRefusalSayingWhy(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	now := time.Now().UTC()
+	for _, draft := range []client.Draft{
+		{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{}`}},
+		{Drive: "d", Lane: "fixer", Kind: kindGo, PRs: []string{"o/r#1"}, Text: "go #1 at abc1234 on green [exempt: test-only-or-ci-only]: fidelity ok #1, finder ok #2"},
+		{Drive: "d", Lane: "root", Kind: kindGo, PRs: []string{"o/r#2"}, Text: "go #2 at bcd2345 on green [exempt: test-only-or-ci-only]: fidelity ok #1, finder ok #2"},
+		{Drive: "d", Lane: "fixer", Kind: kindGo, PRs: []string{"o/r#3"}, Text: "go #3 at 0000000 on green [exempt: test-only-or-ci-only]: fidelity ok #1, finder ok #2"},
+	} {
+		if _, err := client.Post(ctx, draft); err != nil {
+			t.Fatal(err)
+		}
+	}
+	red := func(number int, head string) machine.Facts {
+		return machine.Facts{Repo: "o/r", Number: number, Head: head, Lane: "owner-1", CI: machine.CIPending, Approved: true}
+	}
+	a := app.New(io.Discard)
+	a.Runner, a.Now = &shelltest.Fake{}, func() time.Time { return now }
+
+	for range 2 {
+		if _, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{red(1, "abc1234def"), red(2, "bcd2345efa"), red(3, "cde3456fab")}, now, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	refused, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{bus.GoRefusedKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refused) != 1 || !strings.HasPrefix(refused[0].Text, "no go for #1 at abc1234def: CI is not green") || !slices.Equal(refused[0].To, []string{"fixer", "owner-1"}) {
+		t.Fatalf("refusals = %+v, want one for #1's lane go, to its lane and owner, naming its CI", refused)
+	}
+}
+
+func TestAGoTheSweepPostsClearsItsHeadForTheRestOfThePass(t *testing.T) {
+	ungraded := machine.Facts{Number: 1, Head: "abc1234", CI: machine.CISuccess, Approved: true}
+	other := machine.Facts{Number: 2, Head: "bcd2345", CI: machine.CISuccess, Approved: true}
+
+	marked := Exempted([]machine.Facts{ungraded, other}, []int{1})
+
+	if !marked[0].Exempt || !marked[0].Cleared() {
+		t.Fatalf("%+v: a head the sweep's go admitted should read exempt and cleared this pass, whatever the landing store held at the snapshot", marked[0])
+	}
+	if marked[1].Exempt || marked[1].Graded() {
+		t.Fatalf("%+v: a head with no posted go should be unchanged", marked[1])
 	}
 }
 
