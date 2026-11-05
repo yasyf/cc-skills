@@ -34,6 +34,7 @@ CLAUDE_PID = "CLAUDE_PID"
 PARENT_SESSION = " CLAUDE_CODE_SESSION_ID="
 STARTED_TIMEOUT_SECONDS = 5
 REGISTERED = "registered at its first command"
+HELD_LANE_EXIT = 76
 ROOT_THREAD = "root"
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
@@ -400,9 +401,9 @@ def own_lane(evt: BaseHookEvent) -> str | None:
 
 
 def registration(lane: str, *, window: bool = False) -> str:
-    """The first command's registration post; a window's own lane, which its launcher named in `CLAUDE_LONG_RUNNING_LANE`, is claimed explicitly first, so a lane an earlier post bound it to never wins."""
+    """The first command's registration post, which ends the command when cci refuses the lane because another live thread holds it; a window's own lane, which its launcher named in `CLAUDE_LONG_RUNNING_LANE`, is claimed explicitly first, so a lane an earlier post bound it to never wins."""
     claim = f"cci announce --lane {shlex.quote(lane)} >/dev/null && " if window else ""
-    return f"{claim}cci post --lane {shlex.quote(lane)} --kind state {shlex.quote(f'{lane}: {REGISTERED}')} >/dev/null"
+    return f"{claim}cci post --lane {shlex.quote(lane)} --kind state {shlex.quote(f'{lane}: {REGISTERED}')} >/dev/null; [ $? -ne {HELD_LANE_EXIT} ] || exit {HELD_LANE_EXIT}"
 
 
 def registers(command: str, lane: str) -> bool:
@@ -420,15 +421,15 @@ DESK_LOOP_CLAUDE = {CLAUDE_STARTED: "claude -p --model claude-sonnet-5-5 'answer
     only_if=[Bound(), Tool("Bash")],
     skip_if=[Annotated("raw")],
     tests=separate("register_injection.register_lane_at_first_command", {
-        Input(command="git status", env=ORCA_LANE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null\ngit status"),
-        Input(command="git status", env={DRIVE_ENV: "brook-drive", LANE_ENV: "root"}): Rewrite("cci announce --lane root >/dev/null && cci post --lane root --kind state 'root: registered at its first command' >/dev/null\ngit status"),
+        Input(command="git status", env=ORCA_LANE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
+        Input(command="git status", env={DRIVE_ENV: "brook-drive", LANE_ENV: "root"}): Rewrite("cci announce --lane root >/dev/null && cci post --lane root --kind state 'root: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
         Input(command="cci post --lane lane-a --kind state 'lane-a: started'", env=ORCA_LANE): Allow(),
         Input(command="git status", env=ORCA_LANE, state=[LaneRegistrations(threads=[ROOT_THREAD])]): Allow(),
         Input(command="git status", env={DRIVE_ENV: "brook-drive"}): Allow(),
         Input(command="git status", env={LANE_ENV: "lane-a"}): Allow(),
         Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands=NESTED_CLAUDE): Allow(),
-        Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands=DESK_LOOP_CLAUDE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null\ngit status"),
-        Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands={CLAUDE_STARTED: (1, "")}): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null\ngit status"),
+        Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands=DESK_LOOP_CLAUDE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
+        Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands={CLAUDE_STARTED: (1, "")}): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
     }),
 )
 def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
