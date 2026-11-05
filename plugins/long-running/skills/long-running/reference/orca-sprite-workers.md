@@ -303,6 +303,7 @@ The same service carries the lane's work off the box, so a Sprite the provider l
 
 - **GitHub** is `gh`. Each worker's environment holds `GH_TOKEN` (cc-remote's `keys.github`), so `gh api` and `gh pr` work with no stored login; `gh auth status` prints "not logged in" because nothing is stored, which is not a fault.
 - **Slack** has no tool on a Sprite. Claude-hosted connectors would carry the owner's claude.ai sign-in onto the box, which his identity rule forbids, so no Sprite gets the connector gateway and a lane never waits on one. A lane reads a thread through the cci records addressed to it, or asks root to read it, and sends Slack only by asking `owner-relay` over cci.
+- **Gemini** has no key on a Sprite either: Keychain items feed the keys a worker receives, and the only Gemini key on record is a CI test parameter, which must not be copied into one. A Sprite lane writes its own PR text and hands any long-form copy that would go to gemini-4-argon (docs, retros, Slack copy) as facts to `owner-relay` or a Mac lane, which runs `gemini` on the Mac.
 - The launch spec says this to each new worker in place of "Slack stays off."
 
 ## Read the merge queue from a Sprite
