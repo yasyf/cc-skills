@@ -31,6 +31,7 @@ func payload(t *testing.T, command string) []byte {
 
 func fake() *shelltest.Fake {
 	runner := &shelltest.Fake{}
+	runner.Reply("shape-box\nother-box\n", boxesRead...)
 	runner.Reply("app.example.test\n", "git", "config")
 	runner.Reply(tabs, "orca", "tab", "list")
 	runner.Reply(current, "orca", "tab", "current")
@@ -66,12 +67,28 @@ func TestRefusals(t *testing.T) {
 		{"ci mac-box ssh box-1 -- iris status", false},
 		{"echo 'orca tab create --url https://app.example.test/'", false},
 		{"if (((", false},
+		{"ci mac-box ssh shape-box -- open -a Iris", true},
+		{`AWS_PROFILE="$DEVBOX_AWS_PROFILE" tools/ci mac-box ssh other-box -- 'open -a "Iris"'`, true},
+		{"ci mac-box ssh shape-box -- open /Applications/Iris.app", true},
+		{"ci mac-box ssh shape-box -- '/Applications/Iris.app/Contents/MacOS/Iris &'", true},
+		{"ci mac-box ssh shape-box -- ~/rel/sand iris exec --prompt hi", true},
+		{"ci mac-box ssh shape-box <<'EOF'\nopen -a Iris\nEOF", true},
+		{"ssh -i ~/.config/mac-box/shape-box/id_ed25519 ec2-user@10.0.0.4 'open -a Iris'", true},
+		{"ci mac-box ssh shape-box -- IRIS_PLANE=staging sand iris exec --prompt hi", false},
+		{"ci mac-box ssh fresh-box -- open -a Iris", false},
+		{"ci mac-box ssh shape-box-2 -- open -a Iris", false},
+		{"ci mac-box ssh shape-box -- ls ~/rel ~/.iris", false},
+		{"ci mac-box ssh shape-box -- pkill -x Iris", false},
+		{"ci mac-box ssh shape-box -- ls /Applications/Iris.app/Contents/MacOS/", false},
+		{"ci mac-box ssh shape-box -- 'echo open -a Iris'", false},
+		{"ci mac-box list", false},
+		{"open -a Iris", false},
 	}
 	for _, c := range cases {
 		t.Run(c.command, func(t *testing.T) {
-			got := Guard{Runner: fake(), Getenv: lane}.Refuses(context.Background(), payload(t, c.command))
+			got := Guard{Runner: fake(), Getenv: lane}.Refusal(context.Background(), payload(t, c.command)) != ""
 			if got != c.refused {
-				t.Fatalf("Refuses(%q) = %v, want %v", c.command, got, c.refused)
+				t.Fatalf("Refusal(%q) refused = %v, want %v", c.command, got, c.refused)
 			}
 		})
 	}
@@ -79,7 +96,7 @@ func TestRefusals(t *testing.T) {
 
 func TestPassesOutsideALane(t *testing.T) {
 	none := func(string) string { return "" }
-	if (Guard{Runner: fake(), Getenv: none}).Refuses(context.Background(), payload(t, "orca tab create --url https://app.example.test/")) {
+	if (Guard{Runner: fake(), Getenv: none}).Refusal(context.Background(), payload(t, "orca tab create --url https://app.example.test/")) != "" {
 		t.Fatal("refused a session that is no lane")
 	}
 }
@@ -89,24 +106,47 @@ func TestFailedReadsPass(t *testing.T) {
 	eval := "orca eval --page p1 --expression 'document.title'"
 	noHosts := &shelltest.Fake{}
 	noHosts.Fail(1, "unset", "git", "config")
-	if (Guard{Runner: noHosts, Getenv: lane}).Refuses(context.Background(), payload(t, create)) {
+	if (Guard{Runner: noHosts, Getenv: lane}).Refusal(context.Background(), payload(t, create)) != "" {
 		t.Fatal("refused with no hosts configured")
 	}
 	noTabs := &shelltest.Fake{}
 	noTabs.Reply("app.example.test\n", "git", "config")
 	noTabs.Fail(1, "orca is down", "orca", "tab")
-	if (Guard{Runner: noTabs, Getenv: lane}).Refuses(context.Background(), payload(t, eval)) {
+	if (Guard{Runner: noTabs, Getenv: lane}).Refusal(context.Background(), payload(t, eval)) != "" {
 		t.Fatal("refused when the tab read failed")
 	}
-	if (Guard{Runner: fake(), Getenv: lane}).Refuses(context.Background(), []byte("not json")) {
+	if (Guard{Runner: fake(), Getenv: lane}).Refusal(context.Background(), []byte("not json")) != "" {
 		t.Fatal("refused an unreadable call")
 	}
 }
 
 func TestReadsOnlyForAPageVerb(t *testing.T) {
 	runner := fake()
-	Guard{Runner: runner, Getenv: lane}.Refuses(context.Background(), payload(t, "git status && orca tab list --json"))
+	Guard{Runner: runner, Getenv: lane}.Refusal(context.Background(), payload(t, "git status && orca tab list --json"))
 	if calls := runner.Calls(); len(calls) != 0 {
 		t.Fatalf("read on a call that drives no page: %v", calls)
+	}
+}
+
+func TestATestMacRefusalNamesTheFreshBox(t *testing.T) {
+	said := Guard{Runner: fake(), Getenv: lane}.Refusal(context.Background(), payload(t, "ci mac-box ssh shape-box -- open -a Iris"))
+	if said != irisRefusal {
+		t.Fatalf("Refusal = %q, want the test Mac refusal", said)
+	}
+}
+
+func TestAFailedBoxReadPasses(t *testing.T) {
+	noBoxes := &shelltest.Fake{}
+	noBoxes.Fail(1, "unset", "git", "config")
+	if (Guard{Runner: noBoxes, Getenv: lane}).Refusal(context.Background(), payload(t, "ci mac-box ssh shape-box -- open -a Iris")) != "" {
+		t.Fatal("refused with no boxes configured")
+	}
+}
+
+func TestReadsNoBoxesForACallThatLaunchesNoIris(t *testing.T) {
+	runner := fake()
+	Guard{Runner: runner, Getenv: lane}.Refusal(context.Background(), payload(t, "ci mac-box ssh shape-box -- ls ~/rel"))
+	if calls := runner.Calls(); len(calls) != 0 {
+		t.Fatalf("read on a call that launches no Iris: %v", calls)
 	}
 }

@@ -42,24 +42,34 @@ type hookCall struct {
 	} `json:"tool_input"`
 }
 
-func (g Guard) Refuses(ctx context.Context, payload []byte) bool {
+func (g Guard) Refusal(ctx context.Context, payload []byte) string {
 	if g.Getenv("CLAUDE_LONG_RUNNING_LANE") == "" && g.Getenv("CLAUDE_LONG_RUNNING_DRIVE") == "" {
-		return false
+		return ""
 	}
 	var call hookCall
 	if json.Unmarshal(payload, &call) != nil {
-		return false
+		return ""
 	}
-	driving := pageCalls(call.ToolInput.Command)
+	if g.drivesProduction(ctx, call.ToolInput.Command, call.Cwd) {
+		return refusal
+	}
+	if g.launchesIrisAsHim(ctx, call.ToolInput.Command, call.Cwd) {
+		return irisRefusal
+	}
+	return ""
+}
+
+func (g Guard) drivesProduction(ctx context.Context, line, cwd string) bool {
+	driving := pageCalls(line)
 	if len(driving) == 0 {
 		return false
 	}
-	hosts := strings.Fields(g.read(ctx, hostsRead, call.Cwd))
+	hosts := strings.Fields(g.read(ctx, hostsRead, cwd))
 	if len(hosts) == 0 {
 		return false
 	}
 	for _, args := range driving {
-		if namesHost(args, hosts) || namesHost(g.pageURLs(ctx, args, call.Cwd), hosts) {
+		if namesHost(args, hosts) || namesHost(g.pageURLs(ctx, args, cwd), hosts) {
 			return true
 		}
 	}
@@ -199,10 +209,10 @@ func (g Guard) read(ctx context.Context, argv []string, cwd string) string {
 	return done.Stdout
 }
 
-func denial() any {
+func denial(reason string) any {
 	return map[string]any{"hookSpecificOutput": map[string]string{
 		"hookEventName":            "PreToolUse",
 		"permissionDecision":       "deny",
-		"permissionDecisionReason": refusal,
+		"permissionDecisionReason": reason,
 	}}
 }
