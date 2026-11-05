@@ -175,6 +175,38 @@ func TestAnExemptGoIsRefusedForABodyThatWaitsToGoLiveWithNoWayItIsSafeOnDev(t *t
 	}
 }
 
+func TestAnExemptGoWaitsOnAnOpenCardItsBodyNamesThoughTheCardNamesNoPR(t *testing.T) {
+	body := "Lands only on the owner's answer on card rmw3cuhus. Built ahead of that answer; not for merge before it.\n\n## Context\n"
+	pacing := Card{ID: "card-rmw3cuhus", Title: "Which pacing should a 429 with no team get?"}
+	other := Card{ID: "card-rmw38erwu", Title: "Open the chat window pack?"}
+	claim := Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}
+	read := func(cards ...Card) Read {
+		return Read{Records: recordsBefore(t, "48375", 356113), GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Body: body, Cards: cards}
+	}
+
+	text, refusals := ExemptGo(claim, read(pacing, other))
+	if want := "owner card card-rmw3cuhus is open"; text != "" || !slices.Equal(refusals, []string{want}) {
+		t.Fatalf("got go %q and refusals %q, want only %q", text, refusals, want)
+	}
+	if text, refusals := ExemptGo(claim, read(other)); !strings.HasPrefix(text, "go #48375 at 71bd0ab on green [exempt: owner-pick]") || len(refusals) > 0 {
+		t.Fatalf("with no open card its body names, got go %q and refusals %q", text, refusals)
+	}
+}
+
+func TestABodyNamesACardByItsWholeID(t *testing.T) {
+	cards := []Card{{ID: "card-memory-schema"}, {ID: "card-memory"}, {ID: "card-rmw3cuhus"}}
+	for body, want := range map[string][]string{
+		"Waits on card-memory-schema.":            {"owner card card-memory-schema is open"},
+		"Waits on Card rmw3cuhus, then lands.":    {"owner card card-rmw3cuhus is open"},
+		"Reads the memory schema the cards hold.": nil,
+		"Follows card-memory-schema-v2.":          nil,
+	} {
+		if got := OpenCards(50000, body, cards); !slices.Equal(got, want) {
+			t.Errorf("%q: got %q, want %q", body, got, want)
+		}
+	}
+}
+
 const (
 	portPR   = 49999
 	portHead = "abc1234def5678901234567890123456789012ab"
