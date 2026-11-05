@@ -78,7 +78,7 @@ const (
 )
 
 var (
-	foldKinds = []string{"opened", "head", "lr.head", readKind, "duplicate", "decide"}
+	foldKinds = []string{"opened", "head", "lr.head", readKind, "duplicate", "decide", "landed"}
 	anySHA    = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 )
 
@@ -318,6 +318,11 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, outside map[int]s
 				continue
 			}
 			err = t.PutFact(f.Repo, number, row.Head, NoPortAttr, attrs[NoPortAttr], record.At)
+		case "landed":
+			if !known {
+				continue
+			}
+			row = landed(row, record.At)
 		}
 		if err != nil {
 			return err
@@ -505,20 +510,27 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 	if body, carried := bodyOf(record); carried {
 		ApplyBody(&row, body)
 	}
-	switch attrs["state"] {
-	case stateMerged:
-		row.State, row.LandedAt = StateLanded, store.Stamp(record.At)
-	case StateClosed:
+	switch {
+	case attrs["state"] == stateMerged:
+		return landed(row, record.At), nil
+	case row.State == StateLanded:
+	case attrs["state"] == StateClosed:
 		row.State = StateClosed
-	default:
-		if Terminal(row.State) {
-			row.State = StateOpen
-		}
+	case row.State == StateClosed:
+		row.State = StateOpen
 	}
 	if Terminal(row.State) {
 		row = Decide(row)
 	}
 	return row, nil
+}
+
+func landed(row store.ReviewRow, at time.Time) store.ReviewRow {
+	if row.State != StateLanded {
+		row.State, row.LandedAt = StateLanded, store.Stamp(at)
+	}
+	row.Queue = string(machine.QueueNone)
+	return Decide(row)
 }
 
 func sameHead(a, b string) bool {

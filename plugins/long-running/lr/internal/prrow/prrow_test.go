@@ -762,6 +762,36 @@ func TestAChildIsNotReadyBeforeItsParentLands(t *testing.T) {
 	}
 }
 
+func TestALandedRecordLandsAQueuedRowAndAStaleReadLeavesItLanded(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	queued := cleanRead(1, headA)
+	queued.Queue, queued.QueuedHead = machine.QueueQueued, headA
+	if err := f.PostReads(context.Background(), []machine.Facts{queued}); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); row.State != StateQueued {
+		t.Fatalf("row = %+v, want queued", row)
+	}
+
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "landed", Text: "merged at " + headB, PRs: []string{testRepo + "#1"}}); err != nil {
+		t.Fatal(err)
+	}
+	row := folded(t, f, 1)
+	if row.State != StateLanded || row.LandedAt == NotYet || row.Queue != string(machine.QueueNone) {
+		t.Fatalf("row = %+v, want landed with its time and out of the queue", row)
+	}
+
+	queued.CI = machine.CIPending
+	if err := f.PostReads(context.Background(), []machine.Facts{queued}); err != nil {
+		t.Fatal(err)
+	}
+	if stale := folded(t, f, 1); stale.State != StateLanded || stale.LandedAt != row.LandedAt || stale.Queue != string(machine.QueueNone) {
+		t.Fatalf("row = %+v, want a read taken before the merge to leave it landed at %s", stale, row.LandedAt)
+	}
+}
+
 func TestASupersededPRLeavesAndANewHeadBringsItBack(t *testing.T) {
 	f, _ := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)
