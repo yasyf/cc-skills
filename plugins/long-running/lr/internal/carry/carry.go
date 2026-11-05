@@ -43,7 +43,7 @@ var (
 	joinedByte    = regexp.MustCompile(`[` + joined + `]`)
 	quotedRows    = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
 	errCredential = errors.New("a credential path, which never leaves this Mac")
-	credentials   = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc"}
+	credentials   = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc", ".iris"}
 )
 
 type source struct {
