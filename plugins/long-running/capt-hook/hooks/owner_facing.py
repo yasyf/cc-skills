@@ -86,6 +86,7 @@ UNREAD = "Warning, nothing was blocked: {hook} could not read what it checks, so
 SHOWN = frozenset({"title", "summary", "intro", "md", "prompt", "label", "hint", "value", "pros", "cons", "placeholder", "note", "body", "options"})
 URL = re.compile(r"https?://\S+")
 LINK = re.compile(r"<https?://[^|>\s]+(?:\|[^>\n]*)?>|\[[^\]\n]*\]\(https?://[^)\s]+\)")
+HIDDEN_CITE = re.compile(r"<!--.*?-->", re.DOTALL)
 LINK_LABEL = re.compile(r"\[([^\]\n]*)\]\(https?://[^)\s]+\)|<https?://[^|>\s]+\|([^>\n]*)>")
 PATH_CITE = re.compile(r"`?[\w./-]+:\d+(?:[-,]\d+)*`?\s*@\s*`?[0-9a-f]{7,40}\b`?")
 QUOTE_CITE = re.compile(r"[\"”]\s*\([^)\n]*\)")

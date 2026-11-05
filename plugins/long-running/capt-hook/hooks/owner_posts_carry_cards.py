@@ -9,13 +9,14 @@ from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
 from .gate5_release import OWNER_LANES
 from .lane_slack_status import CC_SLACK, WRITE_TOOLS
-from .owner_facing import post_values, posted_text
+from .owner_facing import HIDDEN_CITE, post_values, posted_text
 from .owner_returns import DM_CARD, REPLY, dm_posts
 from .tests.register_fixtures import DRIVE_CONFIG
 
 NAMED_PR = re.compile(r"(?:(?<![\w/#-])|(?<=monorepo))#(\d{5})\b|\bPRs? #?(\d{5})\b", re.IGNORECASE)
 LINKED_PR = re.compile(r"/monorepo/pull/(\d+)")
 RELEASE_WORD = re.compile(r"\breleas(?:e[sd]?|ing)\b", re.IGNORECASE)
+UPCOMING_RELEASE = re.compile(r"\b(?:next|future|upcoming|later)\s+releases?\b", re.IGNORECASE)
 PLATY_CARD = re.compile(r"/archives/C0B75AL4XEW/p\d{16}")
 RELEASE_BUILD = "/release/builds/"
 BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
@@ -52,7 +53,11 @@ def posted_words(evt: BaseHookEvent) -> list[str]:
 
 
 def names_bare_pr(words: str) -> bool:
-    return bool({first or second for first, second in NAMED_PR.findall(words)} - set(LINKED_PR.findall(words)))
+    return bool({first or second for first, second in NAMED_PR.findall(HIDDEN_CITE.sub(" ", words))} - set(LINKED_PR.findall(words)))
+
+
+def names_a_release(words: str) -> bool:
+    return bool(RELEASE_WORD.search(UPCOMING_RELEASE.sub(" ", HIDDEN_CITE.sub(" ", words))))
 
 
 @on(
@@ -67,6 +72,7 @@ def names_bare_pr(words: str) -> bool:
         sent("monorepo#50026 fixes the flaky test."): Warn(),
         sent("cc-skills#2890 fixes the flaky test."): Allow(),
         sent("Record #425825 says the flaky test is fixed."): Allow(),
+        sent("The flaky test is fixed. <!-- #50026 -->"): Allow(),
         sent("#50026 fixes the flaky test.", channel="C0RELEASES1"): Allow(),
         Input(tool=f"{CC_SLACK}slack_reply", tool_input={"url": DM_THREAD, "text": "#50026 fixes the flaky test."}, env=LANE): Warn(),
         Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": {"title": "Flaky tests", "body": "#50026 fixes them."}}, env=LANE): Warn(),
@@ -92,6 +98,9 @@ def posts_naming_a_pr_show_its_card(evt: BaseHookEvent) -> HookResult | None:
         sent(f"Iris can rebase a draft onto a moved build, live in release 12881: {CARD_LINK}"): Allow(),
         sent(f"Release 12881 is live: {OTHER_CHANNEL}"): Warn(),
         sent("The relay fix merged, so each chat keeps its own replica."): Allow(),
+        sent("The fix ships in the next release."): Allow(),
+        sent("Release 12881 is live, and the rest ships in the next release."): Warn(),
+        sent("The relay fix merged. <!-- release build 12890 -->"): Allow(),
         sent("Release 12881 live; 12890 cutting.", channel="C0RELEASES1"): Allow(),
         Input(command="cc-slack dm-status 'Release 12881 is live.'", env=LANE): Warn(),
         replied("Release 12881 is live."): Warn(pattern=r"A release word to the owner"),
@@ -100,7 +109,7 @@ def posts_naming_a_pr_show_its_card(evt: BaseHookEvent) -> HookResult | None:
     },
 )
 def release_words_link_the_platy_card(evt: BaseHookEvent) -> HookResult | None:
-    return evt.context(NO_PLATY_CARD) if any(RELEASE_WORD.search(words) and not PLATY_CARD.search(words) for words in posted_words(evt)) else None
+    return evt.context(NO_PLATY_CARD) if any(names_a_release(words) and not PLATY_CARD.search(words) for words in posted_words(evt)) else None
 
 
 def owes_card(values: dict[str, tuple]) -> bool:
