@@ -244,7 +244,9 @@ a card he touched stays until he submits the round, and nobody calls `AskUserQue
 A question that reaches his board has its recommended answer built on a branch as
 soon as the question is asked. Push the branch, open no PR for it until he answers,
 and name it with `--branch`, or give `--nothing-to-build REASON` when a pick such as a
-process choice has nothing to build. A card pushed to the board, a `reply` with `picks` or a
+process choice has nothing to build. Mark a held branch with
+`git config branch.<branch>.held-for card-<slug>` so the Stop hooks ask no PR of it, and
+unset the key once he picks. A card pushed to the board, a `reply` with `picks` or a
 Slack card carries that fact as `build` on its recommended option (a repo and branch, or
 `none` and why), and the card check warns, and still draws it, when that option needs code
 and names none. The branch is something he can try, not a provisional
