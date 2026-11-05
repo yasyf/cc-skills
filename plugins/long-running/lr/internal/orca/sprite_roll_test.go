@@ -36,6 +36,8 @@ type rollWorld struct {
 
 	probeOnly bool
 	host      string
+	graders   []string
+	argv      map[string][]string
 }
 
 func newRollWorld(t *testing.T) *rollWorld {
@@ -45,7 +47,7 @@ func newRollWorld(t *testing.T) *rollWorld {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	w := &rollWorld{t: t, store: s, replies: map[string]shell.Result{}}
+	w := &rollWorld{t: t, store: s, replies: map[string]shell.Result{}, argv: map[string][]string{}}
 	f := &workerFixture{t: t}
 	f.write(filepath.Join(root, "plugin", "bin", "lr.binrun"), lrPin("linux-x86_64"), 0o700)
 	w.env = map[string]string{"WORKER_CCI_URL": testCCIURL, "WORKER_CCI_SHA256": testCCISHA, "BINRUN_PLUGIN_ROOT": filepath.Join(root, "plugin"), "WORKER_TOOLS": rollTools}
@@ -81,6 +83,7 @@ func (w *rollWorld) Workers(_ context.Context, run string) ([]Worker, error) {
 func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error) {
 	box := c.Argv[3]
 	w.boxes = append(w.boxes, box)
+	w.argv[box] = c.Argv
 	if want := (spritePins{}).installArgv(box, nil); !slices.Equal(c.Argv[:10], want[:10]) || c.Argv[len(c.Argv)-1] != "--" {
 		w.t.Fatal(c.Argv)
 	}
@@ -97,7 +100,7 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 func (w *rollWorld) roll(probe string) string {
 	w.t.Helper()
 	w.out.Reset()
-	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Host: w.host, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
+	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Host: w.host, Graders: w.graders, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
 	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe, w.probeOnly)
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -136,6 +139,72 @@ func TestARollInstallsOnTheDeskHostThoughItHostsNoWorker(t *testing.T) {
 	}
 	if census := w.census(); census["desk-host"]["long-running@skills"] != rollPack {
 		t.Fatal(census)
+	}
+}
+
+const rollGraderTools = `[{"kind":"plugin","name":"long-running@skills","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"` + rollPack + `"},{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"` + rollCCX + `"},{"kind":"raw","name":"ccn","url":"https://example.test/ccn","sha256":"` + testCCISHA + `","version":"0.75.17"},{"kind":"binary","name":"codex-ask","url":"https://example.test/c.tgz","sha256":"` + testCCISHA + `","version":"1.14.29"}]`
+
+func TestARollGivesAGraderTheGraderPinsAndALiveSpriteThatGradesTheWholeSet(t *testing.T) {
+	w := newRollWorld(t)
+	w.env["WORKER_TOOLS"] = rollGraderTools
+	w.graders = []string{"fleet-1", "pool-a"}
+	w.replies["fleet-1"] = shell.Result{Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\ninstalled ccx " + rollCCX + "\ninstalled ccn 0.75.17\ninstalled codex-ask 1.14.29\n"}
+
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+
+	if !slices.Equal(w.boxes, []string{"fleet-1", "pool-a", "pool-b", "pool-c"}) {
+		t.Fatal("the roll did not visit the grader and each live Sprite once", w.boxes)
+	}
+	for _, tool := range graderTools {
+		if !slices.Contains(w.argv["fleet-1"], tool) {
+			t.Fatal("the grader went without", tool, w.argv["fleet-1"])
+		}
+	}
+	if slices.Contains(w.argv["fleet-1"], "long-running@skills") {
+		t.Fatal("a grader took the pack a live worker runs", w.argv["fleet-1"])
+	}
+	if !slices.Contains(w.argv["pool-a"], "long-running@skills") {
+		t.Fatal("a grader hosting a live worker lost the pack its worker runs", w.argv["pool-a"])
+	}
+	if census := w.census()["fleet-1"]; census["ccx"] != rollCCX || census["codex-ask"] != "1.14.29" || census["lr"] != "9.9.9" {
+		t.Fatal(census)
+	}
+}
+
+func TestAProbeOnlyRollCanStartOnAGrader(t *testing.T) {
+	w := newRollWorld(t)
+	w.graders = []string{"fleet-1"}
+	w.probeOnly = true
+	w.replies["fleet-1"] = shell.Result{Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n"}
+
+	if refused := w.roll("fleet-1"); refused != "" {
+		t.Fatal(refused)
+	}
+
+	if !slices.Equal(w.boxes, []string{"fleet-1"}) {
+		t.Fatal(w.boxes)
+	}
+}
+
+func TestAGraderFailureMarksBadThePinItTriedNotOneItNeverTook(t *testing.T) {
+	w := newRollWorld(t)
+	w.env["WORKER_TOOLS"] = rollGraderTools
+	w.graders = []string{"fleet-1"}
+	said := "refused: ccx from that download prints 0.0.1 for --version, not " + rollCCX
+	w.replies["fleet-1"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n" + said + "\n"}
+
+	refused := w.roll("")
+
+	if want := "lr sprites roll: ccx " + rollCCX + " failed on fleet-1 and is marked bad, so 3 more Sprites keep what they run: " + said; refused != want {
+		t.Fatalf("refused\n%s\nwant\n%s", refused, want)
+	}
+	if !slices.Equal(w.boxes, []string{"fleet-1"}) {
+		t.Fatal("the roll went past a failed grader", w.boxes)
+	}
+	if why, err := w.store.BadTool("long-running@skills", rollPack); err != nil || why != "" {
+		t.Fatal("a pin the grader never took was marked bad:", why, err)
 	}
 }
 
@@ -395,7 +464,7 @@ func TestACensusWithNoSpriteSaysSoInsteadOfPrintingNothing(t *testing.T) {
 
 func TestAProbeWithNoLiveWorkerRollsNothing(t *testing.T) {
 	w := newRollWorld(t)
-	if refused := w.roll("pool-done"); refused != "nothing rolled: pool-done hosts no live worker of Run "+rollRun || len(w.boxes) != 0 {
+	if refused := w.roll("pool-done"); refused != "nothing rolled: pool-done hosts no live worker of Run "+rollRun+" and runner.json names it no grader" || len(w.boxes) != 0 {
 		t.Fatal(refused, w.boxes)
 	}
 }

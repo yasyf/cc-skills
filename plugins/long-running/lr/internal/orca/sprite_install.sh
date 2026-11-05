@@ -16,7 +16,10 @@ fetch() {
   fi
 }
 fetch "$1" "$2" /tmp/cci.tgz
-tar -xzf /tmp/cci.tgz -C "$bin" --exclude='*.md'
+staged=$(mktemp -d "$bin/.cci.XXXXXX")
+tar -xzf /tmp/cci.tgz -C "$staged" --exclude='*.md'
+mv -f "$staged"/* "$bin"
+rmdir "$staged"
 echo "installed cci $(said "$bin/cci")"
 fetch "$3" "$4" /tmp/lr.tgz
 tar -xzOf /tmp/lr.tgz "$5" > "$bin/lr.new"
