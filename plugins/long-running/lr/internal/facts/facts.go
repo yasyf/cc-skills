@@ -796,7 +796,11 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 	if err != nil {
 		return err
 	}
-	if tapped == "" && goHead == "" && len(overrides) == 0 {
+	claims, err := s.Store.HeadFacts(s.Repo, f.Number, []string{gates.PortOfAttr, gates.FlakeFixAttr})
+	if err != nil {
+		return err
+	}
+	if tapped == "" && goHead == "" && len(overrides) == 0 && len(claims) == 0 {
 		return nil
 	}
 	if err := s.hashDiff(ctx, *f, stored); err != nil {
@@ -824,7 +828,26 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 		}
 		f.Exempt = gates.SameDiff(atGo, stored)
 	}
+	if err := s.carryClaim(ctx, *f, stored, claims); err != nil {
+		return err
+	}
 	return s.carryOverrides(ctx, *f, stored, overrides)
+}
+
+func (s Source) carryClaim(ctx context.Context, f machine.Facts, stored map[string]string, claims []store.HeadFact) error {
+	for _, from := range gates.OverrideHeads(claims, f.Head) {
+		atFrom, err := s.Store.Facts(s.Repo, f.Number, from)
+		if err != nil {
+			return err
+		}
+		attrs, text := gates.CarriedClaim(from, f.Head, atFrom, stored)
+		if attrs == nil {
+			continue
+		}
+		_, err = client.Post(ctx, client.Draft{Drive: s.Drive, Lane: bus.SweepLane, Kind: "decide", ID: fmt.Sprintf("claim-carried/%d/%s", f.Number, f.Head), PRs: []string{strconv.Itoa(f.Number)}, Attrs: attrs, Text: text})
+		return err
+	}
+	return nil
 }
 
 func (s Source) carryOverrides(ctx context.Context, f machine.Facts, stored map[string]string, overrides []store.HeadFact) error {

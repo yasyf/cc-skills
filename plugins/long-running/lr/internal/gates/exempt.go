@@ -28,15 +28,15 @@ const (
 	TestOnlyGrade = "test-only or CI-only, no non-test code"
 
 	OldTreePortClass  = "old-tree-port"
-	PortOfAttr        = "port-of"
-	PortInteractsAttr = "port-interacts"
+	PortOfAttr        = bus.PortOfAttr
+	PortInteractsAttr = bus.PortInteractsAttr
 	PortCleanWord     = "no"
 	PortSourceFact    = "port-source"
 	PortOutsideFact   = "port-outside"
 	portSourceMerged  = "merged"
 	portSourceOpen    = "not merged"
 	FlakeFixClass     = "flake-fix"
-	FlakeFixAttr      = "flake-fix"
+	FlakeFixAttr      = bus.FlakeFixAttr
 	StandingRefused   = bus.GoRefusedFact
 	portTree          = "go/sand/next/"
 	headKind          = "head"
@@ -122,7 +122,7 @@ func ExemptGo(c Claim, r Read) (string, []string) {
 
 func PortAt(c Claim, records []client.Record) (PortClaim, bool) {
 	for _, record := range slices.Backward(records) {
-		if string(record.Kind) != headKind || !namesHead(record, c) {
+		if !claimRecord(record) || !namesHead(record, c) {
 			continue
 		}
 		source, err := strconv.Atoi(record.Fields.Attrs[PortOfAttr])
@@ -136,8 +136,28 @@ func PortAt(c Claim, records []client.Record) (PortClaim, bool) {
 
 func FlakeAt(c Claim, records []client.Record) bool {
 	return slices.ContainsFunc(records, func(record client.Record) bool {
-		return string(record.Kind) == headKind && record.Fields.Attrs[FlakeFixAttr] != "" && namesHead(record, c)
+		return claimRecord(record) && record.Fields.Attrs[FlakeFixAttr] != "" && namesHead(record, c)
 	})
+}
+
+func claimRecord(record client.Record) bool {
+	return string(record.Kind) == headKind || bus.CarriedClaim(record)
+}
+
+func CarriedClaim(from, head string, atFrom, atHead map[string]string) (map[string]string, string) {
+	if atHead[PortOfAttr] != "" || atHead[FlakeFixAttr] != "" || !SameDiff(atFrom, atHead) {
+		return nil, ""
+	}
+	attrs := map[string]string{headKind: head}
+	for _, attr := range []string{PortOfAttr, PortInteractsAttr, FlakeFixAttr} {
+		if value := atFrom[attr]; value != "" {
+			attrs[attr] = value
+		}
+	}
+	if len(attrs) == 1 {
+		return nil, ""
+	}
+	return attrs, fmt.Sprintf("Claim at %s carried from %s, whose own diff is the same.", short(head), short(from))
 }
 
 func flakeRefusals(r Read) []string {

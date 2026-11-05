@@ -1626,6 +1626,54 @@ func TestAnOverrideCarriesToANewHeadOnlyWhenItsOwnDiffIsTheSame(t *testing.T) {
 	}
 }
 
+func TestAStandingClaimCarriesToANewHeadOnlyWhenItsOwnDiffIsTheSame(t *testing.T) {
+	restacked := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,3 +10,4", "-42,3 +44,4").Replace(ownDiff)
+	respaced := strings.Replace(ownDiff, `"a b"`, `"ab"`, 1)
+	port := map[string]string{gates.PortOfAttr: "48435", gates.PortInteractsAttr: gates.PortCleanWord}
+	flake := map[string]string{gates.FlakeFixAttr: "TestChatStream"}
+	for name, tc := range map[string]struct {
+		claim map[string]string
+		diff  string
+		class string
+	}{
+		"a clean port restacked with the same patch":     {port, restacked, gates.OldTreePortClass},
+		"a flake fix restacked with the same patch":      {flake, restacked, gates.FlakeFixClass},
+		"a clean port whose patch changed gates in full": {port, respaced, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			for attr, value := range tc.claim {
+				putFact(t, s, 1, head2, attr, value, tappedAt)
+			}
+			on(t, s, recordedPR{number: 1, head: head2, login: "drive-bot", diff: ownDiff}).snapshot(t)
+
+			moved := on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: tc.diff})
+			moved.snapshot(t)
+			moved.snapshot(t)
+
+			stored, err := s.Facts(repo, 1, head)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if class, refused := gates.LandsOnWord(stored); class != tc.class || refused != "" {
+				t.Fatalf("the new head reads %q, refused %q, want %q: %v", class, refused, tc.class, stored)
+			}
+			posted, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"decide"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			claim := gates.Claim{Repo: repo, PR: 1, Head: head}
+			_, claimed := gates.PortAt(claim, posted)
+			if claimed != (tc.class == gates.OldTreePortClass) || gates.FlakeAt(claim, posted) != (tc.class == gates.FlakeFixClass) {
+				t.Fatalf("the go reads port %v, flake %v from %+v, want %q", claimed, gates.FlakeAt(claim, posted), posted, tc.class)
+			}
+			if tc.class != "" && len(posted) != 1 {
+				t.Fatalf("posted = %+v, want one carried claim across two passes", posted)
+			}
+		})
+	}
+}
+
 func TestAHostCountsTheCountedRecordAndNeverReadsAnOwnerRowForAnAppeal(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	putFact(t, h.store, 1, head, "finder", "ask", tappedAt)
