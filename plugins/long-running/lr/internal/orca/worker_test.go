@@ -1468,12 +1468,13 @@ func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 	}
 }
 
-func TestASpriteWorkerInsideADriveCarriesTheLaneAndTheDriveToItsAgent(t *testing.T) {
+func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAgent(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), `{"drive":"brook","orca_run":"`+workerRun+`"}`, 0o600)
+	f.env[workerLandingRepo] = "Forge-AI/monorepo"
 	f.sprite()
 	f.launched()
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook")}, f.startCalls(prepared()), [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, f.startCalls(prepared()), [][]string{holdCall(workerWorkspace)})...)
 }
 
 func TestAnEmptyPoolCreatesTheRequestedLaneOnce(t *testing.T) {

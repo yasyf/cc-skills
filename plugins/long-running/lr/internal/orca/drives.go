@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	driveEnv   = "CLAUDE_LONG_RUNNING_DRIVE"
-	sessionEnv = "CLAUDE_CODE_SESSION_ID"
+	driveEnv       = "CLAUDE_LONG_RUNNING_DRIVE"
+	landingRepoEnv = "CLAUDE_LONG_RUNNING_LANDING_REPO"
+	sessionEnv     = "CLAUDE_CODE_SESSION_ID"
 )
 
 func drivesDir(env func(string) string) string {

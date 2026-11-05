@@ -1932,6 +1932,7 @@ func TestAWarmSpriteWithNoInstallLogStillSettlesItsLaunch(t *testing.T) {
 
 func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *testing.T) {
 	w := newDeskWorld(t)
+	w.desk.Config.LandingRepo = "Forge-AI/monorepo"
 	launcher := spriteConfig(w)
 	brief := w.brief(testLane, testBrief)
 	w.lines()
@@ -1944,7 +1945,7 @@ func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *tes
 	if len(w.spawns) != 1 || w.spawns[0].argv[0] != launcher || w.spawns[0].argv[2] != "claude-opus-5-5" {
 		t.Fatal(w.spawns)
 	}
-	if !slices.Contains(w.spawns[0].env, "WORKER_RELAY_SPONSOR=sponsor-1") || !slices.Contains(w.spawns[0].env, "WORKER_RUN="+testRun) || !slices.Contains(w.spawns[0].env, "WORKER_LOCAL=") || !slices.Contains(w.spawns[0].env, "WORKER_TOOLS=["+deskToolPin+"]") {
+	if !slices.Contains(w.spawns[0].env, "WORKER_RELAY_SPONSOR=sponsor-1") || !slices.Contains(w.spawns[0].env, "WORKER_RUN="+testRun) || !slices.Contains(w.spawns[0].env, "WORKER_LOCAL=") || !slices.Contains(w.spawns[0].env, "WORKER_TOOLS=["+deskToolPin+"]") || !slices.Contains(w.spawns[0].env, "WORKER_LANDING_REPO=Forge-AI/monorepo") {
 		t.Fatal(w.spawns[0].env)
 	}
 	attempt := spriteAttempt(brief)

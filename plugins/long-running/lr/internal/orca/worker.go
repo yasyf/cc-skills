@@ -38,6 +38,7 @@ const (
 	sponsorEnv        = "WORKER_RELAY_SPONSOR"
 	joinReceipt       = "relay-join.log"
 	workerDriveDir    = "WORKER_DRIVE_DIR"
+	workerLandingRepo = "WORKER_LANDING_REPO"
 	seedReceipt       = "store-seed.log"
 	seedCopy          = "store-seed.gz"
 	lrPlatform        = "linux-x86_64"
@@ -572,6 +573,9 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker), "--env", laneEnv + "=" + w.lane}
 	if drive := driveName(w.Env, w.run); drive != "" {
 		argv = append(argv, "--env", driveEnv+"="+drive)
+	}
+	if repo := w.Env(workerLandingRepo); repo != "" {
+		argv = append(argv, "--env", landingRepoEnv+"="+repo)
 	}
 	if w.ref != "" {
 		argv = append(argv, "--ref", w.ref)
