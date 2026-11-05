@@ -40,7 +40,7 @@ var (
 		tabled("fidelity-desk"),
 		tabled("red-sweep"),
 		tabled("alerts-desk"),
-		{watchdog, "opus", "high"},
+		tabled(watchdog),
 		tabled("board-refresher"),
 	}
 	placedLocal = regexp.MustCompile(`(?m)^ccx:(.* )?place=local(\s|$)`)
