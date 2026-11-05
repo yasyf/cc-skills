@@ -264,7 +264,7 @@ status=0
 wait "$job_pid" || status=$?
 kill "$tender" 2>/dev/null || true
 archive=$(mktemp)
-if sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" || exit 2; find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./job.log ! -path ./result.json | tar -cz --no-recursion -T -; [ $? -le 1 ]' sh "$dir" >"$archive" &&
+if sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" || exit 2; find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./job.log ! -path ./result.json ! -path ./cards.md | tar -cz --no-recursion -T -; [ $? -le 1 ]' sh "$dir" >"$archive" &&
   tar -tzf "$archive" >/dev/null && tar -xz -m -f "$archive" -C "$dir"; then
   rm -f "$archive"
 else

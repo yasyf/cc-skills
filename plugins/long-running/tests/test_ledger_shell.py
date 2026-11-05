@@ -80,6 +80,11 @@ def test_an_object_check_larger_than_any_pipe_buffer_answers_every_head(tmp_path
     assert ledger.absent_heads(ledger.Shell(), tmp_path, heads) == frozenset(heads)
 
 
+def test_a_failed_command_says_what_its_stderr_said():
+    with pytest.raises(subprocess.CalledProcessError, match="could not parse commit"):
+        ledger.Shell.once(["sh", "-c", "echo 'error: could not parse commit abc' >&2; exit 255"], None)
+
+
 def test_a_command_past_the_timeout_is_killed(monkeypatch):
     monkeypatch.setattr(ledger, "COMMAND_TIMEOUT_SECONDS", 0.2)
 

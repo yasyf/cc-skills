@@ -153,7 +153,7 @@ func answersOwed(ctx context.Context, runner shell.Runner, reader *quotes.Reader
 	if err := json.Unmarshal([]byte(view.Stdout), &pr); err != nil {
 		return nil, fmt.Errorf("%s: %w", pull, err)
 	}
-	return reader.ForPR(ctx, program, pr)
+	return reader.ForPR(ctx, program, pr, "")
 }
 
 func pickCommand(a *app.App, opened func() (*store.Store, error)) *cobra.Command {

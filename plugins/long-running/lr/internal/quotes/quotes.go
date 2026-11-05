@@ -323,9 +323,9 @@ func citedIDs(text string) []string {
 	return ids
 }
 
-func (r *Reader) ForPR(ctx context.Context, program string, pr PR) ([]Answer, error) {
+func (r *Reader) ForPR(ctx context.Context, program string, pr PR, alsoCited string) ([]Answer, error) {
 	text := pr.text()
-	found, err := r.Answers(ctx, citedIDs(text), strings.TrimSuffix(prScope.FindString(pr.Title), ":"))
+	found, err := r.Answers(ctx, citedIDs(text+"\n"+alsoCited), strings.TrimSuffix(prScope.FindString(pr.Title), ":"))
 	if err != nil {
 		return nil, err
 	}

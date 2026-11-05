@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -27,12 +30,19 @@ const (
 	runnerLane    = bus.RunnerLane
 	defaultModel  = "sol"
 	optionsBranch = "options/"
+	ownerPrompts  = "owner-prompts.jsonl"
+	keptCards     = "judge/cards"
+	tapSource     = "board"
+	cardChars     = 4000
+	cardTimeout   = 10 * time.Second
 	docChars      = 7
 )
 
 type job struct {
 	spec    any
 	sources string
+	cited   string
+	cards   string
 	answers []quotes.Answer
 	landed  []grader.LandedRow
 }
@@ -123,7 +133,7 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 	if err != nil {
 		return job{}, err
 	}
-	return job{landed: landed, spec: grader.FinderJob{
+	return job{landed: landed, cited: recordTexts(ruled), spec: grader.FinderJob{
 		Job:      p.baseJob(d, facts, sprite, settled),
 		Since:    last,
 		Prior:    prior,
@@ -133,7 +143,7 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 	}}, nil
 }
 
-func (p *JobPool) answersOwed(ctx context.Context, live livePR) ([]quotes.Answer, error) {
+func (p *JobPool) answersOwed(ctx context.Context, live livePR, cited string) ([]quotes.Answer, error) {
 	if live.Title == "" {
 		return nil, errors.New("the PR did not read, so the answers its grade owes cannot be read")
 	}
@@ -144,7 +154,7 @@ func (p *JobPool) answersOwed(ctx context.Context, live livePR) ([]quotes.Answer
 	reader := &quotes.Reader{Runner: p.Runner, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: p.briefs}, nil }}
 	reading, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
-	return reader.ForPR(reading, program, live.PR)
+	return reader.ForPR(reading, program, live.PR, cited)
 }
 
 func (p *JobPool) landedRows() ([]grader.LandedRow, error) {
@@ -162,6 +172,94 @@ func (p *JobPool) landedRows() ([]grader.LandedRow, error) {
 	return landed, nil
 }
 
+type tapCapture struct {
+	Digest     string   `json:"digest"`
+	Source     string   `json:"source"`
+	Block      string   `json:"block"`
+	Session    string   `json:"session"`
+	Supersedes []string `json:"supersedes"`
+}
+
+func (p *JobPool) tapCards(ctx context.Context) (string, error) {
+	state, err := grader.DriveState(p.Config, p.drive)
+	if err != nil || state == "" {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(state, ownerPrompts))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var taps []tapCapture
+	gone := map[string]bool{}
+	for line := range strings.Lines(string(data)) {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var capture tapCapture
+		if err := json.Unmarshal([]byte(line), &capture); err != nil {
+			return "", fmt.Errorf("%s: %w", ownerPrompts, err)
+		}
+		for _, digest := range capture.Supersedes {
+			gone[digest] = true
+		}
+		if capture.Source == tapSource && capture.Block != "" {
+			taps = append(taps, capture)
+		}
+	}
+	var cards strings.Builder
+	for _, tap := range taps {
+		if gone[tap.Digest] {
+			continue
+		}
+		card, err := p.tapCard(ctx, state, tap)
+		if err != nil {
+			return "", err
+		}
+		if card != "" {
+			fmt.Fprintf(&cards, "## card %s\n%s\n\n", tap.Digest, card)
+		}
+	}
+	return cards.String(), nil
+}
+
+func (p *JobPool) tapCard(ctx context.Context, state string, tap tapCapture) (string, error) {
+	kept := filepath.Join(state, keptCards, tap.Digest+".txt")
+	data, err := os.ReadFile(kept)
+	if err == nil {
+		return string(data), nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) || p.cardUnread[tap.Digest] {
+		return "", nil
+	}
+	shown, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "block", "show", tap.Block, "--session", tap.Session}, Timeout: cardTimeout})
+	if err != nil {
+		if p.cardUnread == nil {
+			p.cardUnread = map[string]bool{}
+		}
+		p.cardUnread[tap.Digest] = true
+		return "", nil
+	}
+	card := strings.TrimSpace(shown.Stdout)
+	if len(card) > cardChars {
+		card = card[:cardChars] + "\n… the rest of the card left out"
+	}
+	if err := os.MkdirAll(filepath.Dir(kept), 0o750); err != nil {
+		return "", err
+	}
+	return card, os.WriteFile(kept, []byte(card), 0o600)
+}
+
+func recordTexts(records []client.Record) string {
+	texts := make([]string, 0, len(records))
+	for _, r := range records {
+		texts = append(texts, fullText(r))
+	}
+	return strings.Join(texts, "\n")
+}
+
 func jobRecords(records []client.Record) []grader.Record {
 	listed := make([]grader.Record, 0, len(records))
 	for _, r := range records {
@@ -171,7 +269,8 @@ func jobRecords(records []client.Record) []grader.Record {
 }
 
 type regrading struct {
-	report []string
+	report  []string
+	attempt int
 }
 
 func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, sprite, directory string, live livePR, again *regrading) (job, error) {
@@ -228,7 +327,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		spec.Since = facts.TapFrom
 	}
 	if again != nil {
-		spec.Regrade, spec.Grades, spec.Since = true, nil, ""
+		spec.Regrade, spec.Grades, spec.Since = again.attempt, nil, ""
 		if len(again.report) > 0 {
 			spec.To = again.report
 		}
@@ -236,7 +335,11 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if sources != "" {
 		spec.Sources = filepath.Join(directory, sourcesFile)
 	}
-	return job{spec: spec, sources: sources}, nil
+	cards, err := p.tapCards(ctx)
+	if err != nil {
+		return job{}, err
+	}
+	return job{spec: spec, sources: sources, cards: cards, cited: strings.Join([]string{recordTexts(rulings), contract, sources}, "\n")}, nil
 }
 
 func (p *JobPool) contract(ctx context.Context, lane, repo, pr string) (string, error) {

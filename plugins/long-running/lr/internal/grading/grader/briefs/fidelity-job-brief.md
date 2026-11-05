@@ -22,8 +22,10 @@ PR's own commits add or change, as new-file line ranges:
 {hunks}
 
 The rows you grade against are in {rows}. Each holds the owner's words verbatim, oldest
-first, and for a tap the board card it answered, agent-written apart from what he picked or
-typed. His answers in that file are the ones this PR cites, the topics it names and the top-ranked on its title's scope, not everything he has said, and this machine holds no others: `ccn` finds nothing here, so its silence never shows an answer of his absent. A grade that turns on words of his this file lacks is `reader`.
+first. A tap row names the line of cards.md, beside {rows}, holding the board card it answered,
+agent-written apart from what he picked or typed. Open a card whenever the head's diff bears on
+its row, since a tap's words alone do not say what he passed over. A tap row whose card could not
+be found says so; where the grade turns on what that card offered, that is `reader`. His answers in that file are the ones this PR cites, the topics it names and the top-ranked on its title's scope, not everything he has said, and this machine holds no others: `ccn` finds nothing here, so its silence never shows an answer of his absent. A grade that turns on words of his this file lacks is `reader`.
 Read his words for what he meant, given what they answered, never word for word:
 - A tap picks one option and rules out the others on its card, so a head that builds an
   option he passed over breaks the row. The card's wording is ours: where an option says

@@ -211,10 +211,10 @@ func TestASpriteFidelityReturnsItsGradeForCoordinatorPosting(t *testing.T) {
 }
 
 func TestARegradesGradeIsANewRecordBesideTheOneItReplaces(t *testing.T) {
-	directory := fidelityDir(t, map[string]any{"regrade": true})
+	directory := fidelityDir(t, map[string]any{"regrade": 2})
 	shell, _ := newFidelityFake(t, nil, fidelityReplyOf(nil))
 	mustFidelity(t, directory, shell)
-	equal(t, shell.posted[0]["--id"], fmt.Sprintf("fidelity:%s#43299:%s:0:regrade", repoName, shaHead))
+	equal(t, shell.posted[0]["--id"], fmt.Sprintf("fidelity:%s#43299:%s:0:regrade-2", repoName, shaHead))
 }
 
 func TestAPassPrintsItsRowsFromTheAnswersItsJobCarries(t *testing.T) {

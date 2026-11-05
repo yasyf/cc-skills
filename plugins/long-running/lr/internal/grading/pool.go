@@ -142,6 +142,8 @@ type JobPool struct {
 	executors int
 	firsts    map[string]bool
 	picks     []store.Rule
+
+	cardUnread map[string]bool
 }
 
 type Spawn func(ctx context.Context, argv []string, env map[string]string, log string) (int, error)
@@ -212,15 +214,8 @@ func (p *JobPool) Scale(queued int, now time.Time) error {
 	if limit == 0 {
 		return nil
 	}
-	path := filepath.Join(p.root, capacityFile)
-	pool := capacity.Pool{}
-	data, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		if err := json.Unmarshal(data, &pool); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-	case !errors.Is(err, fs.ErrNotExist):
+	pool, err := p.plannedCapacity()
+	if err != nil {
 		return err
 	}
 	pool.Limit, pool.Concurrency = limit, defaultConcurrent
@@ -229,7 +224,23 @@ func (p *JobPool) Scale(queued int, now time.Time) error {
 	}
 	planned := capacity.Plan(pool, float64(queued)*machine.GradeClock.Minutes(), now)
 	p.executors = planned.Executors
-	return writeAtomic(path, planned)
+	return writeAtomic(filepath.Join(p.root, capacityFile), planned)
+}
+
+func (p *JobPool) plannedCapacity() (capacity.Pool, error) {
+	path := filepath.Join(p.root, capacityFile)
+	pool := capacity.Pool{}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return pool, nil
+	}
+	if err != nil {
+		return pool, err
+	}
+	if err := json.Unmarshal(data, &pool); err != nil {
+		return pool, fmt.Errorf("%s: %w", path, err)
+	}
+	return pool, nil
 }
 
 func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Facts) (string, error) {
@@ -259,8 +270,13 @@ func (p *JobPool) Regrade(ctx context.Context, facts machine.Facts, report []str
 	if err != nil {
 		return "", err
 	}
+	planned, err := p.plannedCapacity()
+	if err != nil {
+		return "", err
+	}
+	p.executors = planned.Executors
 	base := strconv.Itoa(facts.Number) + "-" + short(facts.Head) + regradeMark
-	return p.nextPass(ctx, GraderFidelity, d, workers, facts, base, &regrading{report})
+	return p.nextPass(ctx, GraderFidelity, d, workers, facts, base, &regrading{report: report})
 }
 
 func (p *JobPool) nextPass(ctx context.Context, grading string, d desk, workers []store.Worker, facts machine.Facts, base string, again *regrading) (string, error) {
@@ -275,8 +291,14 @@ func (p *JobPool) nextPass(ctx context.Context, grading string, d desk, workers 
 	if plan.held {
 		return "", ErrAnswered
 	}
+	if tried := p.triedAttempts(d, base); again != nil && plan.settled != "" && tried < maxAttempts {
+		plan = attemptPlan{number: tried + 1}
+	}
 	if plan.done {
 		return "", p.answered(ctx, plan)
+	}
+	if again != nil {
+		again.attempt = plan.number
 	}
 	sprite, err := p.place(d, workers, p.firsts[pr])
 	if err != nil {
@@ -300,7 +322,7 @@ func (p *JobPool) nextPass(ctx context.Context, grading string, d desk, workers 
 	if err != nil {
 		return "", err
 	}
-	if built.answers, err = p.answersOwed(ctx, live); err != nil {
+	if built.answers, err = p.answersOwed(ctx, live, built.cited); err != nil {
 		return "", err
 	}
 	return p.start(ctx, grading, d, sprite, directory, built)
@@ -366,6 +388,9 @@ func (p *JobPool) start(ctx context.Context, grading string, d desk, sprite, dir
 		if err := os.WriteFile(filepath.Join(directory, sourcesFile), []byte(built.sources), 0o600); err != nil {
 			return "", err
 		}
+	}
+	if err := os.WriteFile(filepath.Join(directory, grader.CardsFile), []byte(built.cards), 0o600); err != nil {
+		return "", err
 	}
 	if err := writeAtomic(filepath.Join(directory, grader.AnswersFile), built.answers); err != nil {
 		return "", err

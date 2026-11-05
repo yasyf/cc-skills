@@ -210,7 +210,7 @@ func TestForPRReadsCitedTopicAndScopeAnswersOnceEachNewestFirstAndNeverAURLFragm
 	pr.Files = append(pr.Files, struct {
 		Path string `json:"path"`
 	}{"go/kernel/run.go"})
-	found, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).ForPR(context.Background(), "brook", pr)
+	found, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).ForPR(context.Background(), "brook", pr, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,6 +220,19 @@ func TestForPRReadsCitedTopicAndScopeAnswersOnceEachNewestFirstAndNeverAURLFragm
 	}
 	if want := []string{"8ae07a000", "c47347100", "33d842800", "d0d0d0d00", "b0b0b0b00"}; !reflect.DeepEqual(ids, want) {
 		t.Fatalf("ids = %v, want %v", ids, want)
+	}
+}
+
+func TestForPRReadsAnAnswerOnlyACoordinatorRulingCites(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(`{"id":"6e7a34600","title":"writers","body":"goroutines","updated_at":"2026-11-03"}`, "ccn", "-R", "/repo", "answer", "show", "6e7a346", "--json")
+	fake.Reply(`[]`, "ccn", "-R", "/repo", "ledger", "list", "--label", "answer-topics", "--label", "program:brook", "--json")
+	found, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).ForPR(context.Background(), "brook", PR{Title: "no scope here"}, "finder-override: Answer 6e7a346 settles it.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || found[0].ID != "6e7a34600" {
+		t.Fatalf("found = %+v", found)
 	}
 }
 
