@@ -76,7 +76,6 @@ var (
 	orderRow   = regexp.MustCompile(`^m\d+(?:\.\d+)?$`)
 	replyID    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
-	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
 	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
 	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
 	cardLink   = regexp.MustCompile(`\[([^\]\n]*)\]\(card:([^\s)]+)\)`)
@@ -176,10 +175,10 @@ type Fanout struct {
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	r = f.aliased(r).typed()
 	seen := r
-	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
+	seen.MD = cardtext.HiddenCite.ReplaceAllString(r.MD, "")
 	seen.Words = maps.Clone(r.Words)
 	for pick, said := range seen.Words {
-		seen.Words[pick] = hiddenCite.ReplaceAllString(said, "")
+		seen.Words[pick] = cardtext.HiddenCite.ReplaceAllString(said, "")
 	}
 	_, diagram := f.diagramPage(ctx, r)
 	told := seen.diagramNoted(diagram)

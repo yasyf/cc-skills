@@ -106,7 +106,7 @@ func TestAskOwnerCarriesItsDiagramFileToTheLink(t *testing.T) {
 	if err := os.WriteFile(path, []byte(relayDoc), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	block, err := Ask{Title: "Which relay?", Background: "The relay drops one in ten.", Options: []string{"Fix it :: drops none", "Keep it :: drops one in ten"}, NothingToBuild: "a process pick", Diagram: path}.Block("acme/app")
+	block, err := Ask{Title: "Which relay?", Background: "The relay drops one in ten.", Options: []string{"Fix it :: drops none", "Keep it :: drops one in ten"}, NothingToBuild: "a process pick", Diagram: path}.Block("acme/app", everyPR)
 	if err != nil {
 		t.Fatal(err)
 	}

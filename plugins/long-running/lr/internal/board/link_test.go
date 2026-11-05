@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx/ccxtest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -116,6 +118,7 @@ type linkFixture struct {
 	Cards Cards
 	shell *linkShell
 	state string
+	judge Judge
 }
 
 func newLink(t *testing.T) *linkFixture {
@@ -132,11 +135,11 @@ func newLink(t *testing.T) *linkFixture {
 		Now:      func() time.Time { return cardsNow },
 		Withdraw: func(context.Context, string, string, string) error { return nil },
 		Report:   func(context.Context, string, []string, string, string) error { return nil },
-	}, shell: on, state: state}
+	}, shell: on, state: state, judge: judgedNo}
 }
 
 func (f *linkFixture) link() Link {
-	return Link{Drive: linkDrive, State: f.state, Judge: judgedNo, Cards: func(session string) (Cards, func(), error) {
+	return Link{Drive: linkDrive, State: f.state, Judge: f.judge, Cards: func(session string) (Cards, func(), error) {
 		cards := f.Cards
 		cards.Session = cmp.Or(session, "board-1")
 		return cards, func() {}, nil
@@ -196,7 +199,7 @@ func askCard(t *testing.T, lane string) client.Record {
 	block, err := askedCard(strings.NewReader(""), Ask{
 		Title: "Which number do you accept for the test job?", Background: "It takes 100 s now and a warm change waits 3 min 45 s.",
 		Options: []string{"Accept it :: The bar moves to what is measured.", "Keep 3 minutes :: A shared compile cache, landed by Friday."}, NothingToBuild: "a choice of target",
-	}, "", "yasyf/cc-skills")
+	}, "", "yasyf/cc-skills", everyPR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,12 +310,12 @@ func TestOneAskGetsOneCardOwnedByTheLaneThatAsked(t *testing.T) {
 }
 
 func TestACallWithNoBackgroundIsRefusedAndSaysWhatToAdd(t *testing.T) {
-	_, err := askedCard(strings.NewReader(""), Ask{Title: "Which one?", Options: []string{"One :: It does one.", "Two :: It does two."}, NothingToBuild: "a pick"}, "", "yasyf/cc-skills")
+	_, err := askedCard(strings.NewReader(""), Ask{Title: "Which one?", Options: []string{"One :: It does one.", "Two :: It does two."}, NothingToBuild: "a pick"}, "", "yasyf/cc-skills", everyPR)
 	if err == nil || !strings.Contains(err.Error(), "--background") {
 		t.Fatalf("err = %v, want a refusal naming --background", err)
 	}
 	whole := `{"id":"card-x","type":"card","title":"Which one?","children":[{"id":"from","type":"markdown","md":"**From:** New."},{"id":"pick","type":"choice","options":[{"id":"a","label":"A"}]}]}`
-	if _, err := askedCard(strings.NewReader(whole), Ask{}, "-", "yasyf/cc-skills"); err == nil || !strings.Contains(err.Error(), "--background") {
+	if _, err := askedCard(strings.NewReader(whole), Ask{}, "-", "yasyf/cc-skills", everyPR); err == nil || !strings.Contains(err.Error(), "--background") {
 		t.Fatalf("a whole card with only its From line: err = %v, want the same refusal", err)
 	}
 }
@@ -486,7 +489,7 @@ func TestACardFromAskFlagsRecommendsItsFirstOptionAndCarriesItsPRs(t *testing.T)
 		Title: "Land PR 2190 tonight?", Background: "It is yasyf/cc-skills#2196 rebased.", From: "owner m31",
 		Options: []string{"Land :: It goes out tonight.", "Hold :: It waits for the morning."}, Branch: "yasyf/cc-skills:land",
 		Shots: []string{"https://x.test/a.png :: The fixed screen."},
-	}.Block("Forge-AI/monorepo")
+	}.Block("Forge-AI/monorepo", everyPR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +536,7 @@ func TestACardAboutAPortOpensWithItAndLinksItsSourceWithNoCardForIt(t *testing.T
 	block, err := Ask{
 		Title: "Keep the old encoder?", Background: "The client sends numbers as strings.", PortOf: 49412,
 		Options: []string{"Keep :: Nothing changes.", "Switch :: Numbers arrive as numbers."}, NothingToBuild: "a pick",
-	}.Block("Forge-AI/monorepo")
+	}.Block("Forge-AI/monorepo", everyPR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +570,7 @@ func TestACardLinksEachNumberItNamesAndCarriesThatPR(t *testing.T) {
 		Title: "Land the port?", PortOf: 50350, NothingToBuild: "a pick",
 		Background: "#50459 ports #50350, and [#7](https://github.com/o/r/pull/7) came first.",
 		Options:    []string{"Land :: #50459 goes out.", "Hold :: Nothing moves."},
-	}.Block("Forge-AI/monorepo")
+	}.Block("Forge-AI/monorepo", everyPR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,12 +606,86 @@ func TestACardLinksEachNumberItNamesAndCarriesThatPR(t *testing.T) {
 	}
 }
 
+func TestACitedRecordDrawsNoPRBlockAndStaysUnlinked(t *testing.T) {
+	const cites = "The card drew twice. <!-- cci #471653 --> Both blocks came off by hand. <!-- cci #471321 -->"
+	read := &ccxtest.Fake{}
+	block, err := Ask{
+		Title: "Keep the built shape?", Background: cites, NothingToBuild: "a pick",
+		Options: []string{"Keep :: It stays. <!-- cci #471653 -->", "Drop :: It goes."},
+	}.Block("Forge-AI/monorepo", realPRs(context.Background(), read, io.Discard))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		Summary  string `json:"summary"`
+		Children []struct {
+			Type string `json:"type"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	if card.Summary != cites {
+		t.Fatalf("summary = %q, want the citations kept as written", card.Summary)
+	}
+	for _, child := range card.Children {
+		if child.Type == "pr" {
+			t.Fatalf("children %+v, want no PR block for a cited record", card.Children)
+		}
+	}
+	if calls := read.Calls(); len(calls) != 0 {
+		t.Fatalf("PR reads = %v, want none for a card naming no PR", calls)
+	}
+}
+
+func TestANumberThatIsNoPullRequestDrawsNoPRBlock(t *testing.T) {
+	read := &ccxtest.Fake{Statuses: []ccx.PRStatus{
+		{Number: 471653, Unread: "Forge-AI/monorepo has no pull request #471653"},
+		{Number: 471321, Unread: "Forge-AI/monorepo has no pull request #471321"},
+		{Number: 50459, State: "OPEN"},
+	}}
+	var warned strings.Builder
+	block, err := Ask{
+		Title: "Land #50459?", Background: "It follows #471653 and #471321.", NothingToBuild: "a pick",
+		Options: []string{"Land :: It goes out.", "Hold :: Nothing moves."},
+	}.Block("Forge-AI/monorepo", realPRs(context.Background(), read, &warned))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		Children []struct {
+			Type   string `json:"type"`
+			Number int    `json:"number"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	var drawn []int
+	for _, child := range card.Children {
+		if child.Type == "pr" {
+			drawn = append(drawn, child.Number)
+		}
+	}
+	if !slices.Equal(drawn, []int{50459}) {
+		t.Fatalf("PR blocks = %v, want only the real PR", drawn)
+	}
+	for _, seq := range []string{"471653", "471321"} {
+		if !strings.Contains(warned.String(), "no pull request #"+seq) {
+			t.Fatalf("warned %q, want it to name #%s", warned.String(), seq)
+		}
+	}
+	if calls := read.Calls(); len(calls) != 1 {
+		t.Fatalf("PR reads = %v, want one per repo", calls)
+	}
+}
+
 func TestABackgroundInParagraphsListsItsFirstLineAndShowsTheRestOnTheCard(t *testing.T) {
 	block, err := Ask{
 		Title: "How do runs recover?", NothingToBuild: "a pick",
 		Background: "Nine runs stopped today.\n\nThe account has room for twice its limit.\n\n- one waits\n- one retries\n",
 		Options:    []string{"Wait :: A refused call resumes.", "Raise :: Fewer refusals."},
-	}.Block("o/r")
+	}.Block("o/r", everyPR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +715,7 @@ func TestAPRNamedByLinkAndByNumberDrawsOneBlockForEachPR(t *testing.T) {
 		Title: "Keep the gate?", NothingToBuild: "a pick",
 		Background: "[cc-slack #114](https://github.com/yasyf/cc-slack/pull/114) fixes the read. #114 ports it, and yasyf/cc-skills#114 is another.",
 		Options:    []string{"Keep :: [PR #114](https://github.com/yasyf/cc-slack/pull/114) lands.", "Drop :: Nothing moves."},
-	}.Block("Forge-AI/monorepo")
+	}.Block("Forge-AI/monorepo", everyPR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,8 +768,10 @@ func TestAskFlagsAreRefusedSayingWhatToChange(t *testing.T) {
 		ask := good
 		ask.Options = slices.Clone(good.Options)
 		tc.change(&ask)
-		if _, err := ask.Block("o/r"); err == nil || !strings.Contains(err.Error(), tc.says) {
+		if _, err := ask.Block("o/r", everyPR); err == nil || !strings.Contains(err.Error(), tc.says) {
 			t.Errorf("%s: err = %v, want it to say %q", name, err, tc.says)
 		}
 	}
 }
+
+func everyPR(prs []SlackPR) ([]SlackPR, error) { return prs, nil }
