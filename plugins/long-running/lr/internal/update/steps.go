@@ -122,7 +122,7 @@ func (w *StepWatch) Pass(ctx context.Context) error {
 		if owners := stepOwners(registry, step); len(owners) > 0 {
 			err = w.close(ctx, key, fmt.Sprintf("STEP-OWNED %s: %s holds it", stepName(plan, step), strings.Join(namesOf(owners), ", ")))
 		} else {
-			err = w.raise(ctx, key, fmt.Sprintf("STEP-UNOWNED %s: no lane holds it; %s. | coordinator: launch its owner with `lr launch lane <lane> --step %s --title <title> --body <file>`, or relaunch the last lane on it", stepName(plan, step), lastHolder(registry, step), step.Number), now)
+			err = w.raise(ctx, key, fmt.Sprintf("STEP-UNOWNED %s: no lane holds it; %s. | coordinator: attach the live lane working it with `lr request step <lane> --step %s`, launch its owner with `lr launch lane <lane> --step %[3]s --title <title> --body <file>`, or relaunch the last lane on it", stepName(plan, step), lastHolder(registry, step), step.Number), now)
 		}
 		if err != nil {
 			return err

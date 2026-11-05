@@ -733,7 +733,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 		to = must(MetaDesk(s))
 	}
 	retire(s, old.Name, name, now)
-	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: cost.Model, Effort: cost.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher, Standing: old.Standing}, now))
+	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: cost.Model, Effort: cost.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher, Standing: old.Standing, Step: old.Step}, now))
 	do(d.Post(Post{Kind: "report", To: []string{to}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 	return name

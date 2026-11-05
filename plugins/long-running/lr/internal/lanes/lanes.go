@@ -120,7 +120,7 @@ const (
 
 var (
 	ErrUnread = errors.New("source did not answer")
-	Verbs     = []string{"stand-down", "park", "unpark", "owner", "done", "revive"}
+	Verbs     = []string{"stand-down", "park", "unpark", "owner", "done", "revive", "step"}
 	live      = []store.LaneState{store.LaneLaunching, store.LaneDesired}
 
 	helperRoles = []string{"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"}

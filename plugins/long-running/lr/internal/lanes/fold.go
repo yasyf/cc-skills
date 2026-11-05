@@ -79,6 +79,8 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	case verb == "revive" && known && row.State == store.LaneRetired:
 		do(s.ReviveLane(name, at))
 		do(s.SetLaneStanding(name, or(row.Standing, inheritedDuty(s, name, row.Brief, ""))))
+	case verb == "step" && known:
+		do(s.SetLaneStep(name, r.Attr("step")))
 	case verb == "owner":
 		numbers := r.PRs()
 		if !fresh {
@@ -124,7 +126,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		}
 		if successor != "" {
 			cost := successorCost(row)
-			heir := store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing}
+			heir := store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing, Step: row.Step}
 			wantHeir(s, heir, r.Seq, fresh, at)
 			do(s.Own(successor, row.PRs))
 		} else {
@@ -906,7 +908,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		}
 		if successor != "" && gone.State != store.LaneRetired {
 			cost := successorCost(gone)
-			wantHeir(s, store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, r.Seq, fresh, at)
+			wantHeir(s, store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing, Step: gone.Step}, r.Seq, fresh, at)
 			continue
 		}
 		if successor == "" {

@@ -72,7 +72,7 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 		if lane, ok := registered[name]; ok {
 			said := must(BriefOf(lane.Brief))
 			row.Live = isLive(lane.State)
-			row.State, row.Step, row.Standing, row.Deliverable, row.Orders = string(lane.State), said.Step, dutyOf(lane), said.Deliverable, said.Orders
+			row.State, row.Step, row.Standing, row.Deliverable, row.Orders = string(lane.State), or(lane.Step, said.Step), dutyOf(lane), said.Deliverable, said.Orders
 			row.Handoff, row.RetiredBy, row.Placement, row.Predecessor, row.Brief = nullable(lane.Handoff), nullable(lane.RetiredBy), nullable(lane.Placement), nullable(lane.Predecessor), nullable(lane.Brief)
 			if !lane.Answered.IsZero() {
 				row.Woke = nullable(store.Stamp(lane.Answered))
@@ -168,6 +168,7 @@ type Request struct {
 	Successor string
 	LastRead  string
 	Open      string
+	Step      string
 	PRs       []int
 	By        string
 }
@@ -175,6 +176,10 @@ type Request struct {
 func (r Request) Draft(drive string) client.Draft {
 	attrs := map[string]string{"verb": r.Verb, "lane": r.Lane}
 	words := []string{r.Verb, r.Lane}
+	if r.Step != "" {
+		attrs["step"] = r.Step
+		words = append(words, "to step "+r.Step)
+	}
 	if r.Successor != "" {
 		attrs["successor"] = r.Successor
 		words = append(words, "for "+r.Successor)
@@ -200,6 +205,9 @@ func (r Request) Command() string {
 	words = append(words, "lr", "request", r.Verb, r.Lane)
 	for _, pr := range r.PRs {
 		words = append(words, "--pr", strconv.Itoa(pr))
+	}
+	if r.Step != "" {
+		words = append(words, "--step", r.Step)
 	}
 	if r.Successor != "" {
 		words = append(words, "--successor", r.Successor)
