@@ -233,6 +233,20 @@ func ChangeOwner(s *store.Store, drive, pusher string, pr int) (string, error) {
 	return Running(s, drive, named[pr])
 }
 
+func ItemOwner(s *store.Store, drive, pusher string, pr int) (owner string, err error) {
+	defer recovered(&err)
+	if owner = must(ChangeOwner(s, drive, pusher, pr)); owner != Root {
+		return owner, nil
+	}
+	named := must(s.OwnerOf([]int{pr}))
+	for _, name := range []string{pusher, named[pr]} {
+		if lane, found := newest(s, Canonical(drive, name)); found && lane.State == store.LaneRetired && restedOnItsOwnEnd(lane) {
+			return lane.Name, nil
+		}
+	}
+	return Root, nil
+}
+
 func family(name string) (string, int) {
 	if found := numbered.FindStringSubmatch(name); found != nil {
 		n, _ := strconv.Atoi(found[2])

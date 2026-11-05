@@ -129,6 +129,8 @@ func TestWhichRecordsReachAGoneLane(t *testing.T) {
 		{"a report tells it nothing to do", rec(3, "install-desk", "report", t0.Add(mins(5)), "Installed.", lane2), nil},
 		{"a note tells it nothing to do", rec(3, "meta-desk-3", "note", t0.Add(mins(5)), "FYI.", lane2), nil},
 		{"the supervisor's own stand-down", rec(3, Self, "stand-down", t0.Add(mins(5)), "stopped, so mail to it passes on", lane2), nil},
+		{"the supervisor asking for an overdue item", rec(3, Self, "ask", t0.Add(mins(5)), "org/repo#7 row-wait overdue", lane2), []string{heir}},
+		{"the supervisor's report", rec(3, Self, "report", t0.Add(mins(5)), "RETIRED for owning no PR.", lane2), nil},
 		{"the board link saying the card drew", rec(3, boardLink, "answer", t0.Add(mins(5)), "card-chat is on his board", lane2), nil},
 		{"a record to another lane", rec(3, "meta-desk-3", "answer", t0.Add(mins(5)), "Yes.", "other-1"), nil},
 	} {
@@ -162,6 +164,26 @@ func TestALaneThatFinishedIsRelaunchedForHisAnswerButNotForOtherMail(t *testing.
 	f.feed = append(f.feed, cardWake(3, lane2, "picked Combined", t0.Add(mins(5))))
 	tick(t, s, f, t0.Add(mins(5)))
 	equal(t, f.launches, []string{heir})
+}
+
+func TestAnOverdueItemAsksALaneThatStoppedItselfAndRootForOneThatFinished(t *testing.T) {
+	s := memory(t)
+	stoppedOnACard(t, s)
+	owner, err := ItemOwner(s, testDrive, lane2, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, owner, lane2)
+
+	s = memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "done", t0, "Delivered."))
+	f.peers = nil
+	tick(t, s, f, t0)
+	if owner, err = ItemOwner(s, testDrive, lane2, 7); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, owner, Root)
 }
 
 func TestAStandingDeskIsLeftToItsOwnDutyCheck(t *testing.T) {

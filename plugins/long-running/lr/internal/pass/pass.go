@@ -74,9 +74,10 @@ var (
 		machine.ActionGrade:   GraderDesk,
 		machine.ActionVerdict: GraderDesk,
 	}
-	rootOwns = []machine.Action{machine.ActionEnqueue, machine.ActionDequeue, machine.ActionWatchQueue, machine.ActionWaitCI, machine.ActionLift}
-	lanesOwn = []machine.Action{machine.ActionFixRed, machine.ActionRestack, machine.ActionReview}
-	samePass = []machine.Action{
+	rootOwns      = []machine.Action{machine.ActionEnqueue, machine.ActionDequeue, machine.ActionWatchQueue, machine.ActionWaitCI, machine.ActionLift}
+	lanesOwn      = []machine.Action{machine.ActionFixRed, machine.ActionRestack, machine.ActionReview, machine.ActionRowWait}
+	waitOnTheBase = []machine.Action{machine.ActionEnqueue, machine.ActionRowWait}
+	samePass      = []machine.Action{
 		machine.ActionEnqueue, machine.ActionDequeue, machine.ActionRestack,
 		machine.ActionWaitCI, machine.ActionWatchQueue,
 	}
@@ -181,7 +182,7 @@ func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Fa
 		_, err := s.CloseItems(f.Repo, f.Number, now, "")
 		return err
 	}
-	if _, waits := blockerBelow(f, byBranch); verdict.Action == machine.ActionEnqueue && waits {
+	if _, waits := blockerBelow(f, byBranch); waits && slices.Contains(waitOnTheBase, verdict.Action) {
 		return closeOthers(s, f, "", now)
 	}
 	if err := closeOthers(s, f, verdict.Action, now); err != nil {
@@ -239,17 +240,22 @@ func HeldInQueue(snapshot []machine.Facts) []Act {
 }
 
 func blockerBelow(f machine.Facts, byBranch map[string]machine.Facts) (machine.Facts, bool) {
+	var blocker machine.Facts
+	blocked := false
 	for range len(byBranch) + 1 {
 		below, open := byBranch[f.Base]
 		if !open {
-			return machine.Facts{}, false
+			break
 		}
 		if !below.ClearsAbove() {
-			return below, true
+			blocker, blocked = below, true
+			if machine.Classify(below).Action != machine.ActionRowWait {
+				break
+			}
 		}
 		f = below
 	}
-	return machine.Facts{}, false
+	return blocker, blocked
 }
 
 func heldBelow(f machine.Facts, byBranch map[string]machine.Facts) bool {
@@ -403,7 +409,7 @@ func escalateStuckBases(s *store.Store, snapshot []machine.Facts, byBranch map[s
 		byNumber[f.Number] = f
 	}
 	for _, f := range snapshot {
-		if out.Verdicts[f.Number].Action != machine.ActionEnqueue {
+		if !slices.Contains(waitOnTheBase, out.Verdicts[f.Number].Action) {
 			continue
 		}
 		base, waits := blockerBelow(f, byBranch)
