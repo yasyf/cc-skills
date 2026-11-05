@@ -49,8 +49,6 @@ type SlackPRRow struct {
 	Blocks string `json:"blocks"`
 
 	Description string `json:"description,omitempty"`
-
-	Row *store.ReviewRow `json:"row,omitempty"`
 }
 
 type SlackPR struct {
@@ -79,7 +77,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info", Title: fmt.Sprintf("#%d at %s", row.Number, at),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: row.WaitsOn, Description: row.Description, Row: &row,
+			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: row.WaitsOn, Description: row.Description,
 		}},
 	}
 	if row.State == prrow.StateLanded {
@@ -111,9 +109,6 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 	}
 	if len(summary) > 0 {
 		child["summary"] = strings.Join(summary, "\n\n")
-	}
-	if row.Row != nil {
-		child["row"] = row.Row
 	}
 	if row.Head != "" {
 		child["head"] = row.Head
