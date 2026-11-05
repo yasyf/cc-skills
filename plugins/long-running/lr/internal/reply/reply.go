@@ -83,7 +83,10 @@ var (
 	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
 	slackStamp = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\?|$)`)
 	laneRole   = regexp.MustCompile(`-(?:fix|evidence|comms)$`)
-	asksTap    = regexp.MustCompile(`(?im)^\s*(?:tap|approve)\b|\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
+	sentence   = regexp.MustCompile(`[.!?](?:\s+|$)|\n`)
+	tapOrder   = regexp.MustCompile(`(?i)^\s*(?:tap|approve)\b`)
+	asksTap    = regexp.MustCompile(`(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
+	describes  = regexp.MustCompile(`(?i)\b(?:refus\w*|buttons?)\b`)
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 )
 
@@ -303,7 +306,10 @@ func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 }
 
 func (f Fanout) nothingToTap(r Reply) error {
-	if len(r.Picks) > 0 || !asksTap.MatchString(cardtext.HiddenCite.ReplaceAllString(r.Title+"\n"+r.MD, " ")) {
+	asks := slices.ContainsFunc(sentence.Split(cardtext.HiddenCite.ReplaceAllString(r.Title+"\n"+r.MD, " "), -1), func(said string) bool {
+		return tapOrder.MatchString(said) || asksTap.MatchString(said) && !describes.MatchString(said)
+	})
+	if len(r.Picks) > 0 || !asks {
 		return nil
 	}
 	numbers := make([]int, len(r.PRs))
