@@ -609,7 +609,7 @@ func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liv
 			held += " in " + paths[i]
 		}
 		if held != "" {
-			return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: held, Unheld: true}, nil, nil
+			return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: held, Unheld: true, Unproven: read.Found != nil}, nil, nil
 		}
 		saved = append(saved, *read.Found)
 	}
@@ -881,22 +881,30 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		return nil, err
 	}
 	count(closedTerminals)
-	reaped, err := bounded(spriteReads, hosted, func(pair hostedSprite) (Action, error) {
+	reaped, err := bounded(spriteReads, hosted, func(pair hostedSprite) ([]Action, error) {
 		action, saved, err := g.spriteAction(ctx, pair.worker, pair.sprite, liveWorkspaces, ended)
 		if err != nil {
-			return Action{}, err
+			return nil, err
 		}
 		if !g.DryRun {
 			if action, err = g.reap(ctx, action, pair.worker, pair.sprite, ended, saved); err != nil {
-				return Action{}, err
+				return nil, err
 			}
 		}
-		return g.report(g.release(ctx, action, pair.sprite)), nil
+		var done []Action
+		if action.Unproven && g.Finished[pair.worker.Dispatch] {
+			closed, err := g.act(ctx, Action{Verb: verbClose, Target: pair.worker.Terminal, Reason: "dispatch " + pair.worker.Dispatch + ", its Sprite kept", Environment: pair.sprite.Environment})
+			if err != nil {
+				return nil, err
+			}
+			done = append(done, closed)
+		}
+		return append(done, g.report(g.release(ctx, action, pair.sprite))), nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	count(reaped)
+	count(slices.Concat(reaped...))
 	return tally, nil
 }
 
