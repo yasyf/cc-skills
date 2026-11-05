@@ -11,7 +11,7 @@ from captain_hook.app import _state
 from captain_hook.testing import helpers
 
 from hooks.compaction_handoff import CompactionState
-from hooks.lines_name_a_ruling import RULED
+from hooks.lines_name_a_ruling import RULED, RulingsShown
 from hooks.owner_facing import SLACK_CARD
 from hooks.tests.handoff_fixtures import reply_transcript
 from hooks.tests.register_fixtures import DRIVE_CONFIG
@@ -26,10 +26,16 @@ AKAMAI = {
     "body": "No. Never a lane, a read, a report, a line to him.",
     "phrase": "gsk edge",
 }
+FASTMODE = {
+    "id": "ef96341aa8d31efc64b4eb588b5b168d4a86534c",
+    "title": "cc-patch's fastmode pack is repaired but not installed on this machine. Install it when the release lands?",
+    "body": "Leave it uninstalled",
+}
 MATCH = "ccn -R /repo answer match"
 HIT = {MATCH: json.dumps([AKAMAI])}
 MISS = {MATCH: "[]"}
 DOWN = {MATCH: (1, "unknown command")}
+SHARED_WORDS = "merged, not installed: the pack reads the release once it lands"
 SHOWN = rf"^{RULED}[\s\S]*ff7fca1 Do we chase Akamai edge 403s[\s\S]*Never a lane"
 
 
@@ -41,6 +47,15 @@ def drive_home(tmp_path: Path) -> dict[str, str]:
     (drives / f"{DRIVE}.json").write_text(json.dumps({"drive": DRIVE, "sessions": [], "state_dir": str(state), "checkout": "/repo"}))
     shutil.copytree(Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / "plugins", tmp_path / "plugins")
     return {"CLAUDE_CONFIG_DIR": str(tmp_path), "CLAUDE_LONG_RUNNING_DRIVE": DRIVE}
+
+
+def judged(verdict: str, *answers: dict) -> dict:
+    answer = {"verdict": verdict, "artifact_phrase": "", "evidence_phrase": "", "sentence": "He said to leave that pack uninstalled."}
+    return {
+        MATCH: json.dumps(list(answers or [FASTMODE])),
+        "uv run --no-project --quiet": json.dumps({"p_yes": 0.9 if verdict == "yes" else 0.1, "tokens": 2}),
+        "claude -p": json.dumps({"structured_output": answer, "total_cost_usd": 0.01, "usage": {}}),
+    }
 
 
 def expect(handler: str, inp: Input, expected: object) -> None:
@@ -90,6 +105,32 @@ def test_a_record_from_a_file_that_is_not_there_yet_says_nothing(tmp_path: Path)
 
 def test_a_matcher_that_does_not_answer_says_nothing(tmp_path: Path):
     expect("lines_name_a_ruling", record(drive_home(tmp_path), DOWN), Allow())
+
+
+def shared(env: dict[str, str], commands: dict, **fields) -> Input:
+    return Input(command=f"cci post --kind landed --text '{SHARED_WORDS}'", env=env, commands=commands, **fields)
+
+
+def test_a_ranked_match_the_judge_clears_says_nothing(tmp_path: Path):
+    expect("lines_name_a_ruling", shared(drive_home(tmp_path), judged("no")), Allow())
+
+
+def test_a_ranked_match_the_judge_flags_warns_with_the_ruling(tmp_path: Path):
+    expect("lines_name_a_ruling", shared(drive_home(tmp_path), judged("yes")), Warn(pattern=rf"^{RULED}[\s\S]*ef96341 cc-patch's fastmode[\s\S]*Leave it uninstalled"))
+
+
+def test_a_judge_that_does_not_answer_says_nothing(tmp_path: Path):
+    expect("lines_name_a_ruling", shared(drive_home(tmp_path), {**judged("yes"), "uv run --no-project --quiet": (1, "overloaded"), "claude -p": (1, "overloaded")}), Allow())
+
+
+def test_a_ruling_already_shown_is_not_judged_and_the_next_one_is(tmp_path: Path):
+    commands = judged("yes", FASTMODE, AKAMAI | {"phrase": ""})
+    seen = [RulingsShown(ids=[FASTMODE["id"]])]
+    expect("lines_name_a_ruling", shared(drive_home(tmp_path), commands, state=seen), Warn(pattern=r"ff7fca1 Do we chase Akamai"))
+
+
+def test_a_communicator_reply_the_judge_clears_says_nothing(tmp_path: Path):
+    expect("replies_name_a_ruling", Input(transcript=reply_transcript(SHARED_WORDS), state=ACTIVE, env=drive_home(tmp_path), commands=judged("no")), Allow())
 
 
 def test_a_communicator_reply_naming_the_ruled_class_warns(tmp_path: Path):
