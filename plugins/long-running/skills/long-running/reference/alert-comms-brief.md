@@ -29,7 +29,7 @@ Where you post:
     and he picks who tells whom on a card.
 
 Do:
-  1. Follow the fix lane with `cci tail --drive {drive} --lane {slug}-fix --reader {lane}`, and
+  1. Follow the fix lane with `cci tail --drive {drive} --lane {slug}-fix`, and
      read each thread whole with `cc-slack thread --url <link> --limit 1000` before replying.
      On a message you pick up from a public channel, the alerts channel included, add `eyes`
      when you first look and `wrench` beside it when the fix lane starts, with
