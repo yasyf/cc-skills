@@ -651,14 +651,34 @@ func TestAHeadWhoseEveryMissingPointAnOwnerPickAnswersGradesOk(t *testing.T) {
 	holdsAll(t, shell.texts()[0], "fidelity: ok "+shaHead, "Every missing point is settled by owner picks: rule/abc")
 }
 
-func TestAHeadCodexCannotSettleGoesToTheHumanFidelityDesks(t *testing.T) {
+func TestAHeadCodexHandsToAReaderComesBackGradedByTheOpusReaderInTheSamePass(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
-	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "deletes the eviction path, a reserved row no answer authorizes", "touches": []string{"rule/949e6be"}}))
+	shell, _ := newFidelityFake(t, samePatch,
+		fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "deletes the eviction path, a reserved row no answer authorizes", "touches": []string{"rule/949e6be"}}),
+		fidelityReplyOf(map[string]any{"summary": "The eviction path goes with the reserved row his answer retired.", "touches": []string{"rule/949e6be"}}),
+	)
 	mustFidelity(t, directory, shell)
-	reader, touches := shell.posted[0], shell.posted[1]
-	equal(t, reader["--text"], fidelityReader+" "+shaHead+" deletes the eviction path, a reserved row no answer authorizes")
-	equal(t, reader["--to"], "p8a-step9,desk-runner,board-refresher-2,fidelity-desk-4,fidelity-desk-5")
-	equal(t, touches["--to"], "p8a-step9,desk-runner,board-refresher-2")
+	readers := shell.readers()
+	equal(t, len(readers), 1)
+	holdsAll(t, strings.Join(readers[0], " "), "--model "+readerModel, "--effort "+readerEffort)
+	holdsAll(t, readText(t, directory, readerQuestion), "because deletes the eviction path, a reserved row no answer authorizes", "never `reader`")
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" The eviction path goes with the reserved row his answer retired.")
+	for _, text := range shell.texts() {
+		holdsNone(t, text, fidelityReader)
+	}
+	holdsAll(t, readText(t, directory, ResultFile), `"verdict":"ok"`)
+}
+
+func TestAReaderThatHandsTheHeadOnAgainFailsThePass(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
+	handed := fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "the eviction path needs a human read"})
+	shell, _ := newFidelityFake(t, samePatch, handed, handed)
+	var failed *JobFailed
+	if err := Fidelity(context.Background(), directory, shell.deps()); !errors.As(err, &failed) {
+		t.Fatalf("err = %v, want JobFailed", err)
+	}
+	holdsAll(t, resultOf(t, directory)["error"].(string), "verdict reader from the reader itself")
+	equal(t, len(shell.posted), 0)
 }
 
 func TestAReplyThatNamesMissingRowsUnderAnotherVerdictGradesMissingAndStillReachesTheReaders(t *testing.T) {

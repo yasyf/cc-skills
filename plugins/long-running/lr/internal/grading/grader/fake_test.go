@@ -124,6 +124,8 @@ func (f *fakeShell) route(command Command) (string, error) {
 		return planPath + "\n", nil
 	case argv[0] == "codex-ask":
 		return f.codex(argv)
+	case argv[0] == "claude":
+		return f.claude(argv)
 	}
 	return "", fmt.Errorf("unexpected call %v", argv)
 }
@@ -180,6 +182,30 @@ func (f *fakeShell) codex(argv []string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("REPLY_FILE: %s\nLOG_FILE: %s.log\nAWAIT: codex-ask --await %s\n", path, path, argv[slices.Index(argv, "-s")+1]), nil
+}
+
+func (f *fakeShell) claude(argv []string) (string, error) {
+	if len(f.replies) == 0 {
+		return "", fmt.Errorf("no reply left for %v", argv)
+	}
+	answer := f.replies[0]
+	f.replies = f.replies[1:]
+	data, err := json.Marshal(answer)
+	if err != nil {
+		return "", err
+	}
+	out, err := json.Marshal(map[string]string{"result": "```json\n" + string(data) + "\n```"})
+	return string(out), err
+}
+
+func (f *fakeShell) readers() [][]string {
+	var argvs [][]string
+	for _, call := range f.calls {
+		if call.Argv[0] == "claude" {
+			argvs = append(argvs, call.Argv)
+		}
+	}
+	return argvs
 }
 
 func (f *fakeShell) post(_ context.Context, draft client.Draft) (client.Record, error) {

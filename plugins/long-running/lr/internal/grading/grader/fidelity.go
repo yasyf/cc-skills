@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
@@ -28,6 +29,10 @@ const (
 	behaviorLine    = "behavior:"
 	findingChars    = 160
 	fidelityTimeout = 3600 * time.Second
+	readerModel     = "opus"
+	readerEffort    = "medium"
+	readerTools     = "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+	readerQuestion  = "reader-question.md"
 	deletionKey     = "owner/deletion"
 	answerKey       = "answer/"
 	rubricFile      = "fidelity-desk-brief.md"
@@ -271,6 +276,11 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 			break
 		}
 		view = now
+	}
+	if reply.Verdict == "reader" {
+		if reply, err = s.readHandedOff(view, frame, keys, reply.Reader); err != nil {
+			return FidelityOutcome{}, err
+		}
 	}
 	if reply, err = s.unsettled(reply); err != nil {
 		return FidelityOutcome{}, err
@@ -936,6 +946,48 @@ func (s *fidelityPassState) askFidelity(question string, attempt int) (fidelityR
 	}
 	if len(reply.Missing) > 0 {
 		reply.Verdict = "missing"
+	}
+	return reply, nil
+}
+
+func (s *fidelityPassState) readHandedOff(view pullRequest, frame promptFrame, keys []string, why string) (fidelityReply, error) {
+	question, err := s.prompt(view, frame)
+	if err != nil {
+		return fidelityReply{}, err
+	}
+	question = fmt.Sprintf("%s\nA first read handed this head to you, its reader, because %s. Grade it yourself: `verdict` is `ok` or `missing`, never `reader`. Reply with the JSON object alone, in the shape this schema gives:\n%s\n", question, squeezed(why), fidelitySchema)
+	if err := os.WriteFile(filepath.Join(s.dir, readerQuestion), []byte(question), 0o600); err != nil {
+		return fidelityReply{}, err
+	}
+	out, err := s.execute(shell.Command{
+		Argv:    []string{"claude", "-p", "--model", readerModel, "--effort", readerEffort, "--output-format", "json", "--add-dir", s.dir, "--allowedTools", readerTools},
+		Dir:     s.job.Checkout,
+		Stdin:   question,
+		Timeout: fidelityTimeout,
+	})
+	if err != nil {
+		return fidelityReply{}, err
+	}
+	var said struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(out), &said); err != nil {
+		return fidelityReply{}, err
+	}
+	start, end := strings.Index(said.Result, "{"), strings.LastIndex(said.Result, "}")
+	var reply fidelityReply
+	if start < 0 || end < start || json.Unmarshal([]byte(said.Result[start:end+1]), &reply) != nil {
+		return fidelityReply{}, &JobFailed{"the reader's reply holds no grade JSON: " + squeezed(said.Result)}
+	}
+	if len(reply.Missing) > 0 {
+		reply.Verdict = "missing"
+	}
+	gaps := fidelityShortfalls(keys, s.job.Since, reply)
+	if reply.Verdict == "reader" {
+		gaps = append(gaps, "verdict reader from the reader itself")
+	}
+	if len(gaps) > 0 {
+		return fidelityReply{}, &JobFailed{"the reader's reply gave " + strings.Join(gaps, "; and ")}
 	}
 	return reply, nil
 }
