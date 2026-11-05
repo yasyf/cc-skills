@@ -108,7 +108,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	if row.State == prrow.StateLanded {
 		card.Status = "done"
 	}
-	if !offersApproval(row) {
+	if !OffersApproval(row) {
 		return card
 	}
 	card.Status, card.Title = "needs_you", fmt.Sprintf("%sApprove #%d at %s?", opening, row.Number, at)
@@ -122,7 +122,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	return card
 }
 
-func offersApproval(row store.ReviewRow) bool {
+func OffersApproval(row store.ReviewRow) bool {
 	return !row.Tapped && row.State != prrow.StateExempt && prrow.TapRefusal(row) == ""
 }
 

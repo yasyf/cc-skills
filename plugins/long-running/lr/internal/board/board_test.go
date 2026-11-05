@@ -138,6 +138,10 @@ func TestApprovedOnARowWaitingOnlyOnCIBecomesATapFactAndATapRecord(t *testing.T)
 	if stored(t, s)["tap"] != "tapped" || len(hooks.taps) != 1 || len(hooks.refused) != 0 {
 		t.Fatalf("facts = %v, taps = %+v, refused = %+v", stored(t, s), hooks.taps, hooks.refused)
 	}
+	tapped, found, err := s.ReviewRow(repo, number)
+	if err != nil || !found || !tapped.Tapped || tapped.Head != head || tapped.ReadyForTap {
+		t.Fatalf("row = %+v, %v, %v; want his tap at %s and no landing until CI is green", tapped, found, err, head)
+	}
 }
 
 func TestApprovedOnAHeldRowIsRefusedWithItsReasonAndTapsNothing(t *testing.T) {

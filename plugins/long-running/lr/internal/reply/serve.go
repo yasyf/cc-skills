@@ -31,7 +31,7 @@ var schema = map[string]any{
 		"build":       map[string]any{"type": "object", "properties": map[string]any{"repo": map[string]any{"type": "string"}, "branch": map[string]any{"type": "string"}, "none": map[string]any{"type": "string"}}, "description": "The branch the recommended pick is built on, as repo OWNER/NAME and branch, or none with the reason it has nothing to build; his board and Slack card show it under that pick."},
 		"blocks":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Up to 8 live cc-present blocks drawn on Talk beneath md, such as a table with filter, sort, rowKey, details and actions, a chart, a diagram or a display.artifact, which takes kind html or svg and a source, never a PNG. Your window and Slack get md alone, so md must still say the answer."},
 		"links":       map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string"}, "url": map[string]any{"type": "string"}}, "required": []string{"label", "url"}}, "description": "Up to 5 links, such as a hosted one-pager; an https link is a button in Slack, an http one a line of the card."},
-		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls, the only way a reply asks for a tap card: a PR named in the md alone draws none, and one waiting on his tap warns. A PR on a reply with picks, or one whose PR ledger row is ready for his tap, draws as a PR card from that row alone: title, what it changes for a user, the plan row, the risk and what it waits on. A missing field is left out and this call's result names it in one warning line; its lane fixes the PR body, never the reply."},
+		"prs":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 10 GitHub pull request urls. On a reply with no picks, every open PR it names here or in md joins prs by itself and draws his Approve at once, in CI or not: his tap is stored at that head, and landing still waits for green checks, the approving review and grades. A PR landed, closed, held or already tapped shows as a link. A PR on a reply with picks, or one he can approve, draws as a PR card from its ledger row alone: title, what it changes for a user, the plan row, the risk and what it waits on. A missing field is left out and this call's result names it in one warning line; its lane fixes the PR body, never the reply."},
 		"artifacts":   map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string", "description": "One line, the heading he reads it under."}, "kind": map[string]any{"type": "string", "enum": artifactKinds, "description": "code keeps the file's bytes with line numbers, for code, logs and plain text. transcript takes cc-transcript show --json output and keeps its turns. For a session's thinking pass --thinking and leave off --signal, which drops it."}, "file": map[string]any{"type": "string", "description": "Absolute path on this host, read once when the reply goes out and copied, so a wiped scratch dir breaks no link."}, "language": map[string]any{"type": "string", "description": "For code, the label shown; the default is the file's extension."}}, "required": []string{"title", "kind", "file"}}, "description": "Up to 5 files he reads whole, 4 with a diagram, such as a transcript, code or a session's thinking, when a line of text cannot carry them. Each opens in a window on his Chat page and from a card or link in Slack, on his tailnet only; Slack gets the title, kind and size and never the body. An edit that leaves one off deletes its copy."},
 		"thread":      map[string]any{"type": "string", "description": "The ts of the Slack DM thread this reply answers, or root for his DM root. The row an order or on names sets it: a row from a Slack thread posts in that thread, and a terminal, board or Talk row at his DM root. A row with no recorded place refuses until this names one. Otherwise name it only to answer a thread whose row the reply does not name."},
 		"order":       map[string]any{"type": "string", "description": "The ledger row, such as m347, of the owner order this reply answers. The tool leads the reply with action when he must act; write md without that lead. A reply without action, picks or not, reads as its own text."},
@@ -85,7 +85,7 @@ func Tool(a *app.App) channel.Tool {
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
 			"- by and routed need order, no picks and status progress or info.\n" +
 			"- Picks drawn from a lane's ask or record? Pass its seq in ask, so a correction to it reaches you before he taps.\n" +
-			"- prs draws a button only for a PR ready for his tap; otherwise the result says NO BUTTON and he sees a link, so say in md what he can do.\n" +
+			"- Every open PR you name draws his Approve now, in CI or not; never tell him a button comes later.\n" +
 			"- Naming an open bug? Its fix PRs join prs by themselves; a line in the result names any it could not draw.\n" +
 			"- The first reply after he has been away an hour opens with the dashboard link on line one.",
 		InputSchema: schema,
@@ -122,6 +122,10 @@ func Tool(a *app.App) channel.Tool {
 				r.ID = "r" + strconv.FormatInt(a.Now().UnixMilli(), 36)
 			}
 			r, warning = fanout.withBugFixes(ctx, r)
+			if warning != "" {
+				warned = append(warned, warning)
+			}
+			r, warning = fanout.withNamedPRs(r)
 			if warning != "" {
 				warned = append(warned, warning)
 			}

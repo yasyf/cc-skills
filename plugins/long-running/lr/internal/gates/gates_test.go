@@ -201,6 +201,14 @@ func TestMissingNamesTheConditionATapWaitsOn(t *testing.T) {
 	}
 }
 
+func TestATapGivenWhileCIRunsLandsNothingUntilChecksAndGradesPass(t *testing.T) {
+	early := green
+	early.CI, early.Finder = machine.CIPending, ""
+	if got := Missing(early); !slices.Equal(got, []string{"CI is not green", "not graded"}) || early.Landable() {
+		t.Fatalf("missing %v, landable %v; want his tap to wait on CI and the grade", got, early.Landable())
+	}
+}
+
 func TestAnUngradedHeadSaysSo(t *testing.T) {
 	f := green
 	f.Finder = ""
