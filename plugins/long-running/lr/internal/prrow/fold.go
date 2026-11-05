@@ -602,7 +602,7 @@ func withStandingWord(row store.ReviewRow, facts map[string]string) store.Review
 	class, refused := gates.LandsOnWord(facts)
 	switch {
 	case refused != "":
-		row.WaitsOn = strings.TrimSuffix(row.WaitsOn, ".") + "; the gate refused it: " + clip(refused, fieldChars)
+		row.WaitsOn = strings.TrimSuffix(row.WaitsOn, ".") + ": " + strings.TrimSuffix(clip(gates.RefusalWords(refused), fieldChars), ".") + "."
 	case class == gates.FlakeFixClass:
 		row.ReadyForTap, row.WaitsOn = false, FlakeLands
 	case class == gates.OldTreePortClass:

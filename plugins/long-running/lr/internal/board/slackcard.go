@@ -49,6 +49,7 @@ type SlackPRRow struct {
 	Risk   string `json:"risk"`
 	Blocks string `json:"blocks"`
 	Lands  string `json:"lands,omitempty"`
+	Port   string `json:"port,omitempty"`
 
 	Description string `json:"description,omitempty"`
 }
@@ -81,11 +82,15 @@ type SlackPRCard struct {
 
 func Card(repo string, row store.ReviewRow) SlackCard {
 	at := row.Head[:min(waitsSHA, len(row.Head))]
+	opening := ""
+	if source, port := strings.CutPrefix(row.Port, prrow.PortOf); port {
+		opening = "Port of #" + source + ": "
+	}
 	card := SlackCard{
-		Status: "info", Title: fmt.Sprintf("#%d at %s", row.Number, at),
+		Status: "info", Title: fmt.Sprintf("%s#%d at %s", opening, row.Number, at),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Description: row.Description,
+			Change: prrow.ChangeWords(row), Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
 		}},
 	}
 	if row.State == prrow.StateLanded {
@@ -94,7 +99,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	if !offersApproval(row) {
 		return card
 	}
-	card.Status, card.Title = "needs_you", fmt.Sprintf("Approve #%d at %s?", row.Number, at)
+	card.Status, card.Title = "needs_you", fmt.Sprintf("%sApprove #%d at %s?", opening, row.Number, at)
 	card.Options, card.Recommended, card.Waits = []string{approveLabel, holdLabel}, approveLabel, MergeWaits(row.Number, row.Head)
 	if !row.ReadyForTap {
 		card.PRs[0].Blocks, card.PRs[0].Lands = "", prrow.LandsOnce(row)
@@ -118,8 +123,26 @@ func waitsOnHim(row store.ReviewRow) bool {
 	return row.ReadyForTap && !row.Tapped
 }
 
+func portLine(repo string, row store.ReviewRow) string {
+	source, port := strings.CutPrefix(row.Port, prrow.PortOf)
+	if !port {
+		return ""
+	}
+	return fmt.Sprintf("Port of [#%s](https://github.com/%s/pull/%s)", source, repo, source)
+}
+
+func portOpening(repo string, row store.ReviewRow) string {
+	if line := portLine(repo, row); line != "" {
+		return line + ". "
+	}
+	return ""
+}
+
 func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 	var summary []string
+	if row.Port != "" {
+		summary = append(summary, "**"+row.Port+".**")
+	}
 	for _, line := range []struct{ key, label, said string }{
 		{"change", "What changes", row.Change}, {"plan", "Against the plan", row.Plan}, {"risk", "Risk", row.Risk}, {"blocker", "Blocks landing", row.Blocks},
 	} {
@@ -143,10 +166,11 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 	return child
 }
 
-// PlanWords is the row's plan line and plan row, a sentence they share said once.
+// PlanWords is the row's plan line and plan row said once, since a plan row
+// opens with the line it checked.
 func PlanWords(row store.ReviewRow) string {
-	if row.PlanLine == row.PlanRow {
-		return row.PlanLine
+	if strings.HasPrefix(row.PlanRow, row.PlanLine) {
+		return row.PlanRow
 	}
 	return strings.TrimSpace(row.PlanLine + " " + row.PlanRow)
 }

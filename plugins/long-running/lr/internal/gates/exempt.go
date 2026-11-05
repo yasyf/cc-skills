@@ -240,6 +240,30 @@ func PortRefusals(facts map[string]string) []string {
 	return out
 }
 
+var refusalWords = []struct {
+	refusal *regexp.Regexp
+	words   string
+}{
+	{regexp.MustCompile(`^port: its source #(\d+) is not a merged pull request.*`), "its source #$1 has not merged yet, and your approval lands this port anyway"},
+	{regexp.MustCompile(`^port: (.+) is outside \S+, so it is no pure port.*`), "it changes $1 outside the old tree, so it is no pure port and lands on your approval"},
+	{regexp.MustCompile(`^port: its head record does not read .*`), "its lane did not say it touches nothing past its old-tree change, so it lands on your approval"},
+}
+
+// RefusalWords says a standing-word refusal as he reads it beside his
+// approval: each port refusal in plain words, any other as the gate said it.
+func RefusalWords(refused string) string {
+	parts := strings.Split(refused, "; ")
+	for at, part := range parts {
+		for _, known := range refusalWords {
+			if known.refusal.MatchString(part) {
+				parts[at] = known.refusal.ReplaceAllString(part, known.words)
+				break
+			}
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
 func PortSourceLanded(facts map[string]string) bool {
 	return facts[PortSourceFact] == portSourceMerged
 }
