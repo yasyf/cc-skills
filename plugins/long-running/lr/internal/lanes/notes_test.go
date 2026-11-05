@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -161,15 +163,26 @@ func TestALaneWhoseSpriteIsGoneRetiresAndSaysItsNotesAreLost(t *testing.T) {
 	contains(t, blockers[0].Text, notesSprite)
 }
 
-func TestARecordFromALiveLanePublishesItsNotesOnceAndAFailureBlocksOnce(t *testing.T) {
+func publish(t *testing.T, s *store.Store, f *fake, at time.Time) {
+	t.Helper()
+	if err := (&NotesPublish{Store: s, Deps: f.deps}).Check(context.Background(), at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestARecordFromALiveLanePublishesItsNotesOffTheTickOnceAndAFailureBlocksOnce(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
+	publish(t, s, f, t0)
 	f.published = nil
 	f.notes = map[string]error{lane2: errors.New("Storage not ready")}
 	f.feed = append(f.feed, rec(2, lane2, "report", t0, "report, ccn a24d471", Root), rec(3, lane2, "note", t0, "and another", Root))
 	f.peers = []Row{who(lane2, true, t0)}
 
 	tick(t, s, f, t0.Add(mins(1)))
+	equal(t, len(f.published), 0)
+	equal(t, len(f.ofKind("blocker")), 0)
+	publish(t, s, f, t0.Add(mins(1)))
 
 	equal(t, f.published, []string{lane2})
 	equal(t, row(t, s, lane2).State, store.LaneDesired)
@@ -178,26 +191,90 @@ func TestARecordFromALiveLanePublishesItsNotesOnceAndAFailureBlocksOnce(t *testi
 
 	f.feed = append(f.feed, rec(4, lane2, "report", t0.Add(mins(2)), "still at it", Root))
 	tick(t, s, f, t0.Add(mins(3)))
+	publish(t, s, f, t0.Add(mins(3)))
 	equal(t, len(f.ofKind("blocker")), 1)
 
 	f.notes = nil
 	f.feed = append(f.feed, rec(5, lane2, "report", t0.Add(mins(4)), "fixed", Root))
 	tick(t, s, f, t0.Add(mins(5)))
+	publish(t, s, f, t0.Add(mins(5)))
 	f.notes = map[string]error{lane2: errors.New("Storage not ready")}
 	f.feed = append(f.feed, rec(6, lane2, "report", t0.Add(mins(6)), "broken again", Root))
 	tick(t, s, f, t0.Add(mins(7)))
+	publish(t, s, f, t0.Add(mins(7)))
 	equal(t, len(f.ofKind("blocker")), 2)
+}
+
+func TestNotesPublishWaitsForTheTickToFoldARecord(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	publish(t, s, f, t0)
+	f.published = nil
+	f.peers = []Row{who(lane2, true, t0)}
+	f.feed = append(f.feed, rec(2, lane2, "report", t0, "report, ccn a24d471", Root))
+
+	publish(t, s, f, t0.Add(mins(1)))
+	equal(t, len(f.published), 0)
+
+	tick(t, s, f, t0.Add(mins(1)))
+	publish(t, s, f, t0.Add(mins(1)))
+	publish(t, s, f, t0.Add(mins(2)))
+	equal(t, f.published, []string{lane2})
+}
+
+func TestARecordTheFirstTickFoldsBeforeTheFirstCheckIsStillPublished(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	notes, err := NewNotesPublish(s, f.deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.published = nil
+	f.peers = []Row{who(lane2, true, t0)}
+	f.feed = append(f.feed, rec(2, lane2, "report", t0, "report, ccn a24d471", Root))
+
+	tick(t, s, f, t0.Add(mins(1)))
+	if err := notes.Check(context.Background(), t0.Add(mins(1))); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, f.published, []string{lane2})
 }
 
 func TestATickWithNoRecordsPublishesNothing(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
+	publish(t, s, f, t0)
 	f.published = nil
 	f.peers = []Row{who(lane2, true, t0)}
 
 	tick(t, s, f, t0.Add(mins(1)))
+	publish(t, s, f, t0.Add(mins(1)))
 
 	equal(t, len(f.published), 0)
+}
+
+func TestOnePublishAtATimeReachesALane(t *testing.T) {
+	locks := &laneLocks{held: map[string]*sync.Mutex{}}
+	release := locks.hold(lane2)
+	other := make(chan struct{})
+	go func() {
+		defer locks.hold("lane-3")()
+		close(other)
+	}()
+	<-other
+	second := make(chan struct{})
+	go func() {
+		defer locks.hold(lane2)()
+		close(second)
+	}()
+	select {
+	case <-second:
+		t.Fatal("a second publish reached a lane while the first held it")
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	<-second
 }
 
 func notesRepo(t *testing.T) string {

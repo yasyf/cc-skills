@@ -864,6 +864,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		token, err := e.Run(ctx, "gh", "auth", "token")
 		return strings.TrimSpace(token), err
 	})
+	publishing := &laneLocks{held: map[string]*sync.Mutex{}}
 	waker := &Waker{Drive: e.Config.Drive, Clock: e.Now, Send: func(dispatch, subject, body string) error {
 		return e.sendDispatch(ctx, dispatch, subject, body)
 	}, Unread: func(lane, subject string) (bool, error) {
@@ -893,15 +894,18 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Withdraw: func(name string) error {
 			return detach(filepath.Join(briefs, name+".launch.log"), launcher, "withdraw", name, "--drive", e.Config.Drive, "--lane", Self)
 		},
-		Wake:         waker.Wake,
-		PRStates:     states.states,
-		Held:         func() (map[int]bool, error) { return e.held(ctx) },
-		Desks:        desks.all,
-		OpenWork:     func() ([]Record, error) { return e.openWork(ctx) },
-		Owed:         func() ([]deletions.Owed, error) { return trunk.List(ctx) },
-		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return trunk.Present(ctx, rows) },
-		PublishNotes: func(lane string) error { return e.publishNotes(ctx, notesToken, lane) },
-		Gaps:         func() ([]string, error) { return trunk.Gaps(ctx, e.tool("rulings.py"), e.Config.Drive) },
+		Wake:     waker.Wake,
+		PRStates: states.states,
+		Held:     func() (map[int]bool, error) { return e.held(ctx) },
+		Desks:    desks.all,
+		OpenWork: func() ([]Record, error) { return e.openWork(ctx) },
+		Owed:     func() ([]deletions.Owed, error) { return trunk.List(ctx) },
+		Present:  func(rows []deletions.Owed) ([]deletions.Owed, error) { return trunk.Present(ctx, rows) },
+		PublishNotes: func(lane string) error {
+			defer publishing.hold(lane)()
+			return e.publishNotes(ctx, notesToken, lane)
+		},
+		Gaps: func() ([]string, error) { return trunk.Gaps(ctx, e.tool("rulings.py"), e.Config.Drive) },
 		Orders: func(s *store.Store) ([]owner.Row, error) {
 			return OpenOrders(ctx, e.Bus, s, e.Config.Drive, e.Config.Repo, e.State)
 		},

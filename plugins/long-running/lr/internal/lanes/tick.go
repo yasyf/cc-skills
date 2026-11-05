@@ -151,9 +151,6 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	said := fold(s, records, adoptable, d.Briefs, d)
 	out.Adopted = append(said.adopted, adoptStanding(s, d, found, now)...)
 	announce(s, d, said)
-	if !fresh {
-		publishWritten(s, d, records, now)
-	}
 	for _, one := range said.refused {
 		refusedRelaunch(s, d, one, now, &out)
 	}

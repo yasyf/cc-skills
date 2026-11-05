@@ -1587,6 +1587,47 @@ func TestSettleKeepsARunningJobAndPostsASettledJobsRecordsAgain(t *testing.T) {
 	}
 }
 
+func TestASettledPassWhoseRecordsTheStoreRefusesStaysAWorkerUntilTheyPost(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	name := f.started(t, GraderFinder)
+	f.shell.exitAll()
+	directory := f.finderDir(jobDir)
+	writeResult(t, directory, `{"verdict":"ok"}`, f.now)
+	argv, err := json.Marshal([]string{"cci", "post", "--drive", testDrive, "--lane", grader.FinderLane, "--kind", kindReview, "--pr", pull, "--id", "finder:kept", "--text", "finder: ok " + head[:7], "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, grader.PostsFile), append(argv, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := os.Getenv("CCI_HOME")
+	unreachable := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(unreachable, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CCI_HOME", unreachable)
+
+	live, err := f.pool.Settle(context.Background(), []string{name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !live[name] {
+		t.Fatalf("live = %v, want the pass kept while its grade is unposted", live)
+	}
+
+	t.Setenv("CCI_HOME", home)
+	live, err = f.pool.Settle(context.Background(), []string{name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live[name] {
+		t.Fatalf("live = %v, want it released once its grade posted", live)
+	}
+	if got := recordsOf(t, kindReview); len(got) != 1 || got[0].ID != "finder:kept" {
+		t.Fatalf("records = %+v", got)
+	}
+}
+
 func TestANewerHeadCancelsARunningFinderOfThatPRAndNoOther(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
 	stale := localBox + "/" + grader.FinderLane + "/45489-" + older[:headChars]
@@ -1632,6 +1673,9 @@ func TestActDrivesTheJobPoolFromADispatchToARelease(t *testing.T) {
 	f.shell.exitAll()
 	writeResult(t, f.finderDir(jobDir), `{"verdict":"ok"}`, t0)
 	writeResult(t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir), `{"verdict":"ok"}`, t0)
+	if err := Settle(context.Background(), f.store, f.pool, t0.Add(time.Minute), 1); err != nil {
+		t.Fatal(err)
+	}
 
 	again, err := Act(context.Background(), f.store, f.pool, items(t, f.store), graded, t0.Add(time.Minute), 1)
 	if err != nil {

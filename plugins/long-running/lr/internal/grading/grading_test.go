@@ -120,6 +120,9 @@ func items(t *testing.T, s *store.Store) []store.Item {
 
 func act(t *testing.T, s *store.Store, pool Pool, open []store.Item, f machine.Facts, at time.Time) []Dispatched {
 	t.Helper()
+	if err := Settle(context.Background(), s, pool, at, 1); err != nil {
+		t.Fatal(err)
+	}
 	dispatched, err := Act(context.Background(), s, pool, open, map[int]machine.Facts{number: f}, at, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -367,18 +370,48 @@ func TestALiveWorkerStaysFreshPastTheStaleWindowOfALongPass(t *testing.T) {
 	}
 }
 
-func TestAPassSettlesEveryWorkerInOneCallAndScalesToWhatIsMissing(t *testing.T) {
+func TestAPassScalesToWhatIsMissing(t *testing.T) {
 	s, pool := memory(t), &fakePool{box: "sprite-1"}
 	onlyFidelity := facts(head, func(f *machine.Facts) { f.Finder = machine.FinderClear })
 
 	act(t, s, pool, opened(t, s, head), onlyFidelity, t0)
 	act(t, s, pool, items(t, s), onlyFidelity, t0.Add(time.Minute))
 
-	if pool.settles != 2 {
-		t.Fatalf("settles = %d, want one per pass", pool.settles)
-	}
 	if want := []int{1, 1}; !reflect.DeepEqual(pool.queued, want) {
 		t.Fatalf("queued = %v, want %v", pool.queued, want)
+	}
+}
+
+func TestOnlySettleReleasesAWorkerAndTheNextPassDispatchesForItsItem(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1"}
+	dispatched, err := Act(context.Background(), s, pool, opened(t, s, head), map[int]machine.Facts{number: facts(head)}, t0, 1)
+	if err != nil || len(dispatched) != 2 {
+		t.Fatalf("dispatched = %v, %v", dispatched, err)
+	}
+	pool.gone = map[string]bool{"sprite-1/finder/45489": true, "sprite-1/fidelity/45489": true}
+
+	held, err := Act(context.Background(), s, pool, items(t, s), map[int]machine.Facts{number: facts(head)}, t0.Add(time.Minute), 1)
+	if err != nil || len(held) != 0 || len(workerNames(t, s)) != 2 {
+		t.Fatalf("held = %v, workers = %v, %v, want a pass to leave its workers to Settle", held, workerNames(t, s), err)
+	}
+	readBefore := items(t, s)
+	if err := Settle(context.Background(), s, pool, t0.Add(2*time.Minute), 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := workerNames(t, s); len(got) != 0 {
+		t.Fatalf("workers = %v, want both released by Settle", got)
+	}
+	pool.box = "sprite-2"
+	again, err := Act(context.Background(), s, pool, readBefore, map[int]machine.Facts{number: facts(head)}, t0.Add(2*time.Minute), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := graders(again), []string{GraderFinder, GraderFidelity}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("again = %v, want %v from items read before the release", got, want)
+	}
+	if pool.settles != 1 {
+		t.Fatalf("settles = %d, want Settle alone to settle", pool.settles)
 	}
 }
 
