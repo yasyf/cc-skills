@@ -58,8 +58,8 @@ func runOrder(ctx context.Context, a *app.App, number int, seq int64, stdout io.
 	if len(records) == 0 {
 		return fmt.Errorf("no record #%d on drive %s", seq, cfg.Drive)
 	}
-	if !holdsOwnerWord(records[0], number) {
-		return fmt.Errorf("record #%d, a %s from lane %s, is no owner word naming #%d; post his words, then run this on that record: cci post --drive %s --lane owner-relay --kind %s --pr %s#%d \"Owner: <his words> #%d\"", seq, records[0].Kind, records[0].Lane, number, cfg.Drive, ownerWordKind, cfg.Repo, number, number)
+	if gap := ownerWordGap(records[0], number); gap != "" {
+		return fmt.Errorf("record #%d is no owner word naming #%d: %s; an order needs a %s record from lane %s whose own text or body names #%d, and a --pr field alone does not count; post his words naming it, then run this on that record: cci post --drive %s --lane owner-relay --kind %s --pr %s#%d \"Owner: <his words> #%d\"", seq, number, gap, ownerWordKind, strings.Join(ownerWordLanes, " or "), number, cfg.Drive, ownerWordKind, cfg.Repo, number, number)
 	}
 	s, err := store.Open(filepath.Join(filepath.Dir(a.ConfigPath), storeFile))
 	if err != nil {
@@ -90,7 +90,14 @@ func writeOrder(ctx context.Context, s *store.Store, repo string, orders bus.Bus
 	return nil
 }
 
-func holdsOwnerWord(record client.Record, number int) bool {
-	names := regexp.MustCompile(`#` + strconv.Itoa(number) + `\b`)
-	return string(record.Kind) == ownerWordKind && slices.Contains(ownerWordLanes, client.Stem(record.Lane)) && names.MatchString(bus.FullText(record))
+func ownerWordGap(record client.Record, number int) string {
+	switch {
+	case string(record.Kind) != ownerWordKind:
+		return fmt.Sprintf("it is a %s", record.Kind)
+	case !slices.Contains(ownerWordLanes, client.Stem(record.Lane)):
+		return fmt.Sprintf("it is from lane %s", record.Lane)
+	case !regexp.MustCompile(`#` + strconv.Itoa(number) + `\b`).MatchString(bus.FullText(record)):
+		return fmt.Sprintf("neither its text nor its body names #%d", number)
+	}
+	return ""
 }

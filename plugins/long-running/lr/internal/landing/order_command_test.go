@@ -42,7 +42,7 @@ func TestOnlyTheOwnersOwnWordNamingThePROrdersIt(t *testing.T) {
 			if err := json.Unmarshal(raw, &record); err != nil {
 				t.Fatal(err)
 			}
-			if got := holdsOwnerWord(record, 7); got != tt.want {
+			if got := ownerWordGap(record, 7) == ""; got != tt.want {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
@@ -72,14 +72,45 @@ func TestAWordReadsWholePastItsClip(t *testing.T) {
 	word := read("owner")
 	report := read("report")
 
-	if !holdsOwnerWord(word, 7) {
+	if ownerWordGap(word, 7) != "" {
 		t.Fatal("his word naming #7 past the clip was refused")
 	}
-	if holdsOwnerWord(word, 8) {
+	if ownerWordGap(word, 8) == "" {
 		t.Fatal("his word on #7 ordered #8")
 	}
-	if holdsOwnerWord(report, 7) {
+	if ownerWordGap(report, 7) == "" {
 		t.Fatal("a relay report naming #7 past the clip ordered it")
+	}
+}
+
+func TestAWordNamingThePRInItsTextOrdersItWhateverItsBodySays(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	body := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(body, []byte("His tap on the card. ci-speed runs lr landing order 50346 --record with this seq at the graded head."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func(text string) client.Record {
+		t.Helper()
+		posted, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", To: []string{"ci-speed"}, Text: text, PRs: []string{"o/r#50346"}, Path: body})
+		if err != nil {
+			t.Fatal(err)
+		}
+		records, err := client.Among(ctx, "d", []int64{posted.Seq})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(records) != 1 || records[0].Refs.Path == "" {
+			t.Fatalf("records = %+v, want one with its body apart", records)
+		}
+		return records[0]
+	}
+
+	if ownerWordGap(read(`Owner: "ship #50346" #50346`), 50346) != "" {
+		t.Fatal("his word naming #50346 in its text was refused for a body that names it bare")
+	}
+	if ownerWordGap(read(`Owner: "ship #50347" #50347`), 50346) == "" {
+		t.Fatal("his word on #50347 ordered #50346")
 	}
 }
 
@@ -98,8 +129,10 @@ func TestARefusedRecordNamesTheOneToPostAndWritesNothing(t *testing.T) {
 	var out bytes.Buffer
 	err = runOrder(ctx, &app.App{ConfigPath: config}, 7, owed.Seq, &out)
 
-	if want := "cci post --drive d --lane owner-relay --kind owner --pr o/r#7"; err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("err = %v, want it to name %q", err, want)
+	for _, want := range []string{"it is a report", "cci post --drive d --lane owner-relay --kind owner --pr o/r#7"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want it to name %q", err, want)
+		}
 	}
 	written, err := client.Tail(ctx, client.Query{Drive: "d", After: owed.Seq})
 	if err != nil {

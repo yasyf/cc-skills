@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -47,7 +48,7 @@ func (p *JobPool) Rank(ctx context.Context, items []store.Item, snapshot map[int
 	}
 	p.firsts = map[string]bool{}
 	for _, decide := range decides {
-		for _, pr := range namedFirst(fullText(decide)) {
+		for _, pr := range namedFirst(bus.FullText(decide)) {
 			p.firsts[pr] = true
 		}
 	}

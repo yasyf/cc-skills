@@ -49,7 +49,7 @@ func (p *JobPool) Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([
 		return nil, p.Cursors.Advance(cursorAnswers, newest)
 	}
 	var grades []client.Record
-	if slices.ContainsFunc(answers, func(r client.Record) bool { return len(cardsNamed(fullText(r))) > 0 }) {
+	if slices.ContainsFunc(answers, func(r client.Record) bool { return len(cardsNamed(bus.FullText(r))) > 0 }) {
 		if grades, err = client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview}}); err != nil {
 			return nil, err
 		}
@@ -58,7 +58,7 @@ func (p *JobPool) Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([
 	for _, answer := range answers {
 		for _, number := range slices.Sorted(maps.Keys(snapshot)) {
 			facts := snapshot[number]
-			grade, card, waits := awaitedGrade(grades, facts, cardsNamed(fullText(answer)))
+			grade, card, waits := awaitedGrade(grades, facts, cardsNamed(bus.FullText(answer)))
 			if !waits {
 				continue
 			}
@@ -151,7 +151,7 @@ func waitLine(records []client.Record, grade client.Record, cards []string, now 
 	after := slices.DeleteFunc(slices.Clone(records), func(r client.Record) bool { return r.Seq <= grade.Seq })
 	for _, card := range cards {
 		if slices.ContainsFunc(after, func(r client.Record) bool {
-			return string(r.Kind) == kindOwner && slices.Contains(cardsNamed(fullText(r)), card)
+			return string(r.Kind) == kindOwner && slices.Contains(cardsNamed(bus.FullText(r)), card)
 		}) {
 			return ""
 		}
