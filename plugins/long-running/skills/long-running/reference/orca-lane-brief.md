@@ -338,7 +338,7 @@ Worktree and VCS:
   typecheck over the TypeScript you touched. On a Mac, `remote-vet.py --config <runner config>
   --lane <lane>` from your worktree does the Go part on a build machine: it formats the Go and
   Rust you changed, applies the formatting back into your worktree, then builds and vets only
-  the packages and crates you touched. Rust locally is `cargo check -p <crate>` and nothing wider, never `gofmt` or `cargo fmt`, and
+  the packages and crates you touched. Rust locally is `cargo check -p <crate>` or `cargo clippy -p <crate>` and nothing wider, never `gofmt` or `cargo fmt`, and
   tests run only in CI. Exit 3 means every build machine is busy: push and let CI grade. A
   red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile,
   such as one missing generated bindings, never holds a push, and neither does a load-gate
