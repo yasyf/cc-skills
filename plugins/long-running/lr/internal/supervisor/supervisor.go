@@ -89,15 +89,16 @@ func Tick(ctx context.Context, s *store.Store, drive string, generation int64, d
 	}
 	if slices.Contains(d.Movers, moverLanes) {
 		moved, err := d.Lanes(now, generation)
+		took := d.Clock().Sub(now).Round(time.Second)
 		switch {
 		case errors.Is(err, lanes.ErrUnread):
-			d.Log.Warn("lanes tick skipped", "err", err)
+			d.Log.Warn("lanes tick skipped", "took", took, "err", err)
 		case err != nil:
 			return report, err
 		default:
 			report.Relaunched = len(moved.Relaunched)
 			if !reflect.DeepEqual(moved, lanes.Outcome{}) {
-				d.Log.Info("lanes acted", "relaunched", moved.Relaunched, "asked", moved.Asked, "held", moved.Held, "adopted", moved.Adopted, "withdrawn", moved.Withdrawn, "woken", moved.Woken)
+				d.Log.Info("lanes acted", "took", took, "relaunched", moved.Relaunched, "asked", moved.Asked, "held", moved.Held, "adopted", moved.Adopted, "withdrawn", moved.Withdrawn, "woken", moved.Woken)
 			}
 		}
 		return report, nil

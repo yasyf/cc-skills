@@ -48,8 +48,8 @@
 **Poll every terminal in the drive registry.**
 - The coordinator's terminal is `root_terminal`, which `drive.py start` and the hook record from `ORCA_TERMINAL_HANDLE`. A prompt raised by an in-process lane appears here.
 - Each standing desk is recorded with `drive.py desk --name <lane> --terminal <handle>`, plus `--environment <name>` for a desk on a remote host.
-- The workers are every in-progress dispatch of the drive's Run, local or remote, from `orca orchestration worker-list --include-remote`. With no `orca_run` in the registry, the watch uses the Run bound to `root_terminal`, or none when that terminal is unbound.
-- While `worker-list` fails, no worker's prompt is closed; each worker keeps its record and reads `unknown` or `unreachable` until the list answers again.
+- The workers are every in-progress dispatch of the drive's Run, local or remote. The watch the supervisor runs reads them from its [worker roster](supervisor.md#the-worker-roster) when the registry's `orca_run` is the supervisor's; any other watch pages `orca orchestration worker-list --run <orca_run> --include-remote` each poll. With no `orca_run` in the registry, the watch pages the Run bound to `root_terminal`, or watches no worker when that terminal is unbound.
+- While the roster is stale or missing, or that bound `worker-list` fails, no worker's prompt is closed; each worker keeps its record and reads `unknown` or `unreachable` until the list reads again.
 
 **Classify each terminal from its rendered screen.** Orca's `agentWait` only indicates where to look; it stays set after a prompt is answered, so it never raises a record and never authorizes an answer. The watch reads the screen with `orca terminal read --screen` and puts each terminal in one state:
 

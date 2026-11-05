@@ -15,6 +15,9 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 )
 
 const (
@@ -136,6 +139,7 @@ type GC struct {
 
 	Bounded bool
 	Record  func(dispatches []string) error
+	Rosters map[string]string
 
 	writing   sync.Mutex
 	removing  sync.Mutex
@@ -146,6 +150,7 @@ type GC struct {
 
 	listing     sync.Mutex
 	listed      map[string][]Worker
+	paging      bool
 	closedEarly map[string]bool
 }
 
@@ -155,7 +160,17 @@ func (g *GC) workers(ctx context.Context, run string) ([]Worker, error) {
 	if workers, read := g.listed[run]; read {
 		return slices.Clone(workers), nil
 	}
-	workers, err := g.Orca.Workers(ctx, run)
+	var workers []Worker
+	var err error
+	if path, rostered := g.Rosters[run]; rostered && !g.paging {
+		var rows []json.RawMessage
+		if err := roster.Read(path, time.UnixMilli(g.Orca.NowMS()), &rows); err != nil {
+			return nil, err
+		}
+		workers, err = workersOf(rows)
+	} else {
+		workers, err = g.Orca.Workers(ctx, run)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +184,7 @@ func (g *GC) workers(ctx context.Context, run string) ([]Worker, error) {
 func (g *GC) forgetWorkers() {
 	g.listing.Lock()
 	defer g.listing.Unlock()
-	g.listed = nil
+	g.listed, g.paging = nil, true
 }
 
 func (g *GC) say(line string) {

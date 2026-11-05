@@ -35,6 +35,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/profile"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/replay"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talk"
@@ -138,6 +139,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 	var dropStale func(context.Context, []machine.Facts) error
 	var laneDeps lanes.Deps
 	var squashFixes func(context.Context, []machine.Facts) error
+	env.Rostered = writesRoster(env.Config)
 	if slices.Contains(env.Config.Movers, moverLanes) {
 		monitorLane, err := orca.MonitorLane(a)
 		if err != nil {
@@ -166,6 +168,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 		report := waste.Poster{Sources: waste.Live(env.Bus, a.Runner, s, running), Config: wasteConfig, Store: s, Drive: env.Config, Now: a.Now, Post: post}
 		rejoin := orca.Rejoin{Runner: a.Runner, Store: s, Config: filepath.Join(env.State, runnerFile), Sleep: time.Sleep, Out: os.Stderr}
 		promptWatch := prompts.NewWatch(a, env.Config.Drive)
+		promptWatch.Roster = env.Config.OrcaRun
 		checks = append(checks,
 			(&background{name: "waste-report", every: wasteEvery, run: report.Pass, store: s, post: post, log: a.Log, to: wasteConfig.Lane}).Check,
 			(&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check,
@@ -187,6 +190,17 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 				return err
 			}, store: s, post: post, log: a.Log, forgiven: 1}).Check,
 		)
+		if env.Rostered {
+			run := env.Config.OrcaRun
+			checks = append(checks, (&background{name: "worker-roster", every: PassEvery, run: func(ctx context.Context) error {
+				began := a.Now()
+				rows, err := orca.Client{Runner: a.Runner}.WorkerRows(ctx, run)
+				if err != nil {
+					return err
+				}
+				return roster.Write(roster.Path(env.Local, run), run, began, rows)
+			}, store: s, post: post, log: a.Log, forgiven: 1}).Check)
+		}
 	}
 	if slices.Contains(env.Config.Movers, moverLanes) {
 		entry, err := drive.Named(env.Config.Drive)
@@ -406,6 +420,7 @@ func Install(cmd *cobra.Command, a *app.App) error {
 	if err != nil {
 		return err
 	}
+	env.Rostered = writesRoster(cfg)
 	agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
 	if err != nil {
 		return err
@@ -445,8 +460,13 @@ func installLink(ctx context.Context, agents launchd.Launchd, env lanes.Env) err
 	return agents.Restart(ctx, board.LinkLabel(env.Config.Drive))
 }
 
+func writesRoster(cfg config.Config) bool {
+	return slices.Contains(cfg.Movers, moverLanes) && cfg.OrcaRun != ""
+}
+
 func agentOf(env lanes.Env) Agent {
 	return Agent{
+		Roster: env.Rostered,
 		Drive:  env.Config.Drive,
 		Config: filepath.Join(env.State, configFile),
 		Binary: filepath.Join(env.Claude, "long-running", "current", "bin", "lr"),

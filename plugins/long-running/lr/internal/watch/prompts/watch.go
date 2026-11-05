@@ -1,6 +1,7 @@
 package prompts
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -17,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/screen"
 )
@@ -40,6 +42,7 @@ const (
 	codeTimeout            = "timeout"
 	hostUnavailable        = "host_unavailable"
 	codeUnparseable        = "unparseable"
+	codeRosterUnread       = "roster_unread"
 	inProgress             = "in_progress"
 	terminalEnv            = "ORCA_TERMINAL_HANDLE"
 	turnStarted            = "turn_started"
@@ -80,6 +83,7 @@ type Watch struct {
 	Now    func() time.Time
 	Sleep  func(time.Duration)
 	Reshow time.Duration
+	Roster string
 
 	receipts  receiptCache
 	successor *os.File
@@ -246,49 +250,19 @@ type workerList struct {
 }
 
 func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]subject, error) {
-	if e.OrcaRun == "" && e.RootTerminal == "" {
-		return nil, nil
-	}
-	scope := []string{}
-	var env []string
-	if e.OrcaRun != "" {
-		scope = []string{"--run", e.OrcaRun}
-	} else {
-		env = []string{terminalEnv + "=" + e.RootTerminal}
+	listed, run, failure := w.listWorkers(ctx, e)
+	if failure != nil {
+		return []subject{{key: roleWorkers, role: roleWorkers, name: "worker-list", failure: failure}}, nil
 	}
 	var dispatches []string
 	signatures := map[string]string{}
 	hostless := map[string]bool{}
-	var cursor []string
-	var run string
-	for {
-		argv := slices.Concat([]string{"orchestration", "worker-list"}, scope, []string{"--include-remote"}, cursor)
-		listed := w.orca(ctx, "", env, argv...)
-		if !listed.OK {
-			return []subject{{key: roleWorkers, role: roleWorkers, name: "worker-list", failure: listed.Error}}, nil
+	for _, worker := range listed {
+		if worker.Projection.Outcome == inProgress {
+			dispatches = append(dispatches, worker.DispatchID)
+			signatures[worker.DispatchID] = worker.signature()
+			hostless[worker.DispatchID] = worker.Projection.Liveness.Reason == hostUnavailable
 		}
-		var result workerList
-		if err := json.Unmarshal(listed.Result, &result); err != nil {
-			return []subject{{key: roleWorkers, role: roleWorkers, name: "worker-list", failure: &orcaError{codeUnparseable, err.Error()}}}, nil
-		}
-		if e.OrcaRun == "" && result.Scope.Source != "bound" {
-			return nil, nil
-		}
-		run = result.Scope.Run
-		for _, worker := range result.Workers {
-			if worker.Projection.Outcome == inProgress {
-				dispatches = append(dispatches, worker.DispatchID)
-				signatures[worker.DispatchID] = worker.signature()
-				hostless[worker.DispatchID] = worker.Projection.Liveness.Reason == hostUnavailable
-			}
-		}
-		if !result.Page.HasMore {
-			break
-		}
-		cursor = []string{"--cursor", result.Page.NextCursor}
-	}
-	if e.OrcaRun != "" {
-		run = e.OrcaRun
 	}
 	found, err := w.namedWorkers(dispatches, run, rows)
 	if err != nil {
@@ -301,6 +275,47 @@ func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]s
 		}
 	}
 	return found, nil
+}
+
+func (w *Watch) listWorkers(ctx context.Context, e Entry) ([]listedWorker, string, *orcaError) {
+	var listed []listedWorker
+	if e.OrcaRun != "" && e.OrcaRun == w.Roster {
+		state, err := stateHome()
+		if err != nil {
+			return nil, "", &orcaError{codeRosterUnread, err.Error()}
+		}
+		if err := roster.Read(roster.Path(state, e.OrcaRun), w.Now(), &listed); err != nil {
+			return nil, "", &orcaError{codeRosterUnread, err.Error()}
+		}
+		return listed, e.OrcaRun, nil
+	}
+	if e.OrcaRun == "" && e.RootTerminal == "" {
+		return nil, "", nil
+	}
+	scope := []string{"--run", e.OrcaRun}
+	var env []string
+	if e.OrcaRun == "" {
+		scope, env = nil, []string{terminalEnv + "=" + e.RootTerminal}
+	}
+	var cursor []string
+	for {
+		reply := w.orca(ctx, "", env, slices.Concat([]string{"orchestration", "worker-list"}, scope, []string{"--include-remote"}, cursor)...)
+		if !reply.OK {
+			return nil, "", reply.Error
+		}
+		var result workerList
+		if err := json.Unmarshal(reply.Result, &result); err != nil {
+			return nil, "", &orcaError{codeUnparseable, err.Error()}
+		}
+		if e.OrcaRun == "" && result.Scope.Source != "bound" {
+			return nil, "", nil
+		}
+		listed = append(listed, result.Workers...)
+		if !result.Page.HasMore {
+			return listed, cmp.Or(e.OrcaRun, result.Scope.Run), nil
+		}
+		cursor = []string{"--cursor", result.Page.NextCursor}
+	}
 }
 
 func (w *Watch) namedWorkers(dispatches []string, run string, rows map[string]*Row) ([]subject, error) {

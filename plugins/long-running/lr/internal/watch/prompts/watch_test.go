@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -95,6 +97,7 @@ type fake struct {
 	keys      [][]string
 	onKeys    map[string]string
 	mail      []map[string]string
+	rosterLag time.Duration
 }
 
 func newFake(t *testing.T) *fake {
@@ -183,7 +186,36 @@ func (f *fake) post(_ context.Context, n Notice) (int64, error) {
 }
 
 func (f *fake) watch() *Watch {
-	return &Watch{Runner: f, Post: f.post, Now: func() time.Time { return f.clock }, Sleep: func(d time.Duration) { f.clock = f.clock.Add(d) }}
+	return &Watch{Runner: f, Post: f.post, Now: func() time.Time { return f.clock }, Sleep: func(d time.Duration) { f.clock = f.clock.Add(d) }, Roster: run}
+}
+
+func (f *fake) check(w *Watch, e Entry) error {
+	f.t.Helper()
+	f.supervise()
+	return w.Check(context.Background(), e)
+}
+
+func (f *fake) supervise() {
+	f.t.Helper()
+	listed, scripted := f.orca[workerListKey]
+	if !scripted {
+		return
+	}
+	var page struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Workers []json.RawMessage `json:"workers"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(listed), &page); err != nil {
+		f.t.Fatal(err)
+	}
+	if !page.OK {
+		return
+	}
+	if err := roster.Write(roster.Path(os.Getenv("XDG_STATE_HOME"), run), run, f.clock.Add(-f.rosterLag), page.Result.Workers); err != nil {
+		f.t.Fatal(err)
+	}
 }
 
 func (f *fake) to(lane string) []Notice {
@@ -289,7 +321,7 @@ func workersUp(t *testing.T, f *fake, localState string) Entry {
 func poll(t *testing.T, f *fake, e Entry, times int) map[string]*Row {
 	t.Helper()
 	for range times {
-		if err := f.watch().Check(context.Background(), e); err != nil {
+		if err := f.check(f.watch(), e); err != nil {
 			t.Fatal(err)
 		}
 		f.clock = f.clock.Add(pollInterval)
@@ -685,7 +717,7 @@ func TestAnUnchangedClearWorkerIsReadAgainOnlyOnChangeOrAfterTheWindow(t *testin
 	w.Reshow = reshowEvery
 	check := func(shown int) {
 		t.Helper()
-		if err := w.Check(context.Background(), e); err != nil {
+		if err := f.check(w, e); err != nil {
 			t.Fatal(err)
 		}
 		f.clock = f.clock.Add(pollInterval)
@@ -725,7 +757,7 @@ func TestAWorkerTheListSaysHasNoHostIsNotReadUntilTheHostReturns(t *testing.T) {
 	w.Reshow = reshowEvery
 	check := func() map[string]*Row {
 		t.Helper()
-		if err := w.Check(context.Background(), e); err != nil {
+		if err := f.check(w, e); err != nil {
 			t.Fatal(err)
 		}
 		f.clock = f.clock.Add(pollInterval)
@@ -761,7 +793,7 @@ func TestAWaitingWorkerIsReadEveryPoll(t *testing.T) {
 	w.Reshow = reshowEvery
 
 	for shown := range 3 {
-		if err := w.Check(context.Background(), e); err != nil {
+		if err := f.check(w, e); err != nil {
 			t.Fatal(err)
 		}
 		f.clock = f.clock.Add(pollInterval)
@@ -1179,68 +1211,100 @@ func TestAWorkerThatSettlesWhileAtAPromptHasItsRecordResolved(t *testing.T) {
 	want(t, unblock.Text, "CLEARED bake (worker) terminal="+localTerm+": the terminal left the watch")
 }
 
-func TestAWorkerListThatFailsClosesNoPromptAndTheSamePromptIsNotRaisedAgain(t *testing.T) {
-	cases := []struct {
-		page   string
-		cursor string
-		state  State
-	}{
-		{"error.remote-runtime-unavailable", "", Unreachable},
-		{"error.terminal-handle-stale", "c2", Unknown},
+func TestAStaleRosterClosesNoPromptAndTheSamePromptIsNotRaisedAgain(t *testing.T) {
+	f := newFake(t)
+	e := workersUp(t, f, "waiting")
+	f.orca[readKey(localTerm, "")] = fixture(t, "screen.coordinator.approval")
+	poll(t, f, e, 1)
+	f.rosterLag = roster.Fresh
+
+	rows := poll(t, f, e, 2)
+
+	row := rows["dispatch:"+local]
+	want(t, row.State, Unknown)
+	if !strings.HasPrefix(row.Detail, "last read approval; worker-list failed with roster_unread: the supervisor's worker roster of "+run+" is stale") {
+		t.Fatalf("detail = %q", row.Detail)
 	}
-	for _, c := range cases {
-		t.Run(c.page, func(t *testing.T) {
-			f := newFake(t)
-			e := workersUp(t, f, "waiting")
-			f.orca[readKey(localTerm, "")] = fixture(t, "screen.coordinator.approval")
-			poll(t, f, e, 1)
-			failing := workerListKey
-			if c.cursor != "" {
-				f.orca[workerListKey] = edited(t, "worker-list", func(doc map[string]any) {
-					page := doc["result"].(map[string]any)["page"].(map[string]any)
-					page["hasMore"], page["nextCursor"] = true, c.cursor
-				})
-				failing += " --cursor " + c.cursor
-			}
-			f.orca[failing] = fixture(t, c.page)
-
-			rows := poll(t, f, e, 2)
-
-			row := rows["dispatch:"+local]
-			want(t, row.State, c.state)
-			if !strings.HasPrefix(row.Detail, "last read approval; worker-list failed with ") {
-				t.Fatalf("detail = %q", row.Detail)
-			}
-			want(t, row.Alerts["root"].Seq, f.seqs[0])
-			if !strings.HasPrefix(rows["dispatch:"+remote].Detail, "last read clear; ") {
-				t.Fatalf("remote detail = %q", rows["dispatch:"+remote].Detail)
-			}
-			want(t, rows["workers"].State, c.state)
-			wantSlice(t, f.kinds("bake"), "blocker")
-			f.orca[workerListKey] = fixture(t, "worker-list")
-
-			rows = poll(t, f, e, 1)
-
-			want(t, rows["dispatch:"+local].State, Approval)
-			if rows["workers"] != nil {
-				t.Fatal("workers row kept")
-			}
-			wantSlice(t, f.kinds("bake"), "blocker")
-		})
+	want(t, row.Alerts["root"].Seq, f.seqs[0])
+	if !strings.HasPrefix(rows["dispatch:"+remote].Detail, "last read clear; ") {
+		t.Fatalf("remote detail = %q", rows["dispatch:"+remote].Detail)
 	}
+	want(t, rows["workers"].State, Unknown)
+	wantSlice(t, f.kinds("bake"), "blocker")
+	f.rosterLag = 0
+
+	rows = poll(t, f, e, 1)
+
+	want(t, rows["dispatch:"+local].State, Approval)
+	if rows["workers"] != nil {
+		t.Fatal("workers row kept")
+	}
+	wantSlice(t, f.kinds("bake"), "blocker")
+	want(t, listCalls(f), 0)
 }
 
-func TestAWorkerListThatFlapsReportsOnceAndReadsAgainAfterThreeAnsweredPolls(t *testing.T) {
+func listCalls(f *fake) int {
+	lists := 0
+	for _, call := range f.calls {
+		if slices.Contains(call, "worker-list") {
+			lists++
+		}
+	}
+	return lists
+}
+
+func TestAPollReadsTheSupervisorsRosterAndListsNoWorkerAtOneAndAtManyWorkers(t *testing.T) {
+	calls := func(workers int) []int {
+		f := newFake(t)
+		e := workersUp(t, f, "clear")
+		f.orca[workerListKey] = edited(t, "worker-list", func(doc map[string]any) {
+			result := doc["result"].(map[string]any)
+			listed := result["workers"].([]any)[:1]
+			for i := range workers - 1 {
+				listed = append(listed, map[string]any{"dispatchId": fmt.Sprintf("ctx_settled_%d", i), "projection": map[string]any{"outcome": "succeeded"}})
+			}
+			result["workers"] = listed
+		})
+		rows := poll(t, f, e, 1)
+		want(t, rows["dispatch:"+local].State, Clear)
+		return []int{listCalls(f), len(f.calls)}
+	}
+	one, many := calls(1), calls(scaletest.N())
+	want(t, one[0], 0)
+	wantSlice(t, many, one...)
+}
+
+func TestAWatchWithNoSupervisorRosterPagesItsRunsWorkerListEachPoll(t *testing.T) {
+	f := newFake(t)
+	e := workersUp(t, f, "clear")
+	f.rosterLag = roster.Fresh
+	w := f.watch()
+	w.Roster = ""
+	for range 2 {
+		if err := f.check(w, e); err != nil {
+			t.Fatal(err)
+		}
+		f.clock = f.clock.Add(pollInterval)
+	}
+	rows := rowsOf(t, e)
+	want(t, rows["dispatch:"+local].State, Clear)
+	if rows["workers"] != nil {
+		t.Fatal("a workers row with no roster to read")
+	}
+	want(t, listCalls(f), 2)
+}
+
+func TestAStaleRosterThatFlapsReportsOnceAndReadsAgainAfterThreeAnsweredPolls(t *testing.T) {
 	f := newFake(t)
 	e := workersUp(t, f, "clear")
 	for _, step := range []struct {
-		page  string
+		lag   time.Duration
 		times int
-	}{{"error.timeout", 3}, {"worker-list", 1}, {"error.timeout", 3}} {
-		f.orca[workerListKey] = fixture(t, step.page)
+	}{{roster.Fresh, 3}, {0, 1}, {roster.Fresh, 3}} {
+		f.rosterLag = step.lag
 		poll(t, f, e, step.times)
 	}
-	f.orca[workerListKey] = fixture(t, "worker-list")
+	f.rosterLag = 0
 	rows := poll(t, f, e, 2)
 	want(t, rows["workers"].State, Clear)
 	want(t, rows["workers"].Reported, Unknown)
@@ -1257,7 +1321,7 @@ func TestAWorkerListThatFlapsReportsOnceAndReadsAgainAfterThreeAnsweredPolls(t *
 		}
 	}
 	wantSlice(t, lines,
-		"UNKNOWN worker-list (workers) terminal=unresolved: timeout: timeout; unread for 3 polls, so whether it waits on a prompt is not known",
+		"UNKNOWN worker-list (workers) terminal=unresolved: roster_unread: the supervisor's worker roster of "+run+" is stale: its read began 15m0s ago, and one older than 15m0s is not used; unread for 3 polls, so whether it waits on a prompt is not known",
 		"READABLE worker-list (workers) terminal=unresolved: read for 3 polls in a row since the watch reported it unknown",
 	)
 }
@@ -1293,8 +1357,14 @@ func TestAnOrcaAppDownWhileWorkersAreInProgressIsOneReportAndOneReadable(t *test
 	f.orca[workerKey(gone)] = fixture(t, "worker-show.local.clear")
 	poll(t, f, e, 1)
 	orcaDown(f, workerListKey)
+	for _, dispatch := range []string{local, remote, gone} {
+		f.orca[workerKey(dispatch)] = fixture(t, "error.timeout")
+	}
 	poll(t, f, e, 5)
 	f.orca[workerListKey] = fixture(t, "worker-list")
+	f.orca[workerKey(local)] = fixture(t, "worker-show.local.clear")
+	f.orca[workerKey(remote)] = fixture(t, "worker-show.remote")
+	f.orca[workerKey(gone)] = fixture(t, "worker-show.local.clear")
 	coordinatorAt(f, "clear", "coordinator.answered")
 
 	rows := poll(t, f, e, 3)
@@ -1417,7 +1487,7 @@ func TestAStateFileThatDoesNotParseFailsTheCheckAndTheNextCheckRunsOnceItIsGone(
 	if err := os.WriteFile(e.statePath(), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.watch().Check(context.Background(), e); err == nil {
+	if err := f.check(f.watch(), e); err == nil {
 		t.Fatal("no error from an unparseable state file")
 	}
 	if err := os.Remove(e.statePath()); err != nil {
@@ -1442,7 +1512,7 @@ func TestACheckWhileAnotherWatchHoldsTheLockReadsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := f.watch().Check(context.Background(), e); !errors.Is(err, ErrHeld) {
+	if err := f.check(f.watch(), e); !errors.Is(err, ErrHeld) {
 		t.Fatalf("err = %v", err)
 	}
 	want(t, len(f.calls), 0)
@@ -1513,7 +1583,7 @@ func TestACheckQueuesAsSuccessorUntilTheHolderLetsGoThenPolls(t *testing.T) {
 	watch := f.watch()
 
 	for range 2 {
-		if err := watch.Check(context.Background(), e); !errors.Is(err, ErrHeld) {
+		if err := f.check(watch, e); !errors.Is(err, ErrHeld) {
 			t.Fatalf("err = %v", err)
 		}
 		want(t, queued(), true)
@@ -1521,7 +1591,7 @@ func TestACheckQueuesAsSuccessorUntilTheHolderLetsGoThenPolls(t *testing.T) {
 	want(t, len(f.calls), 0)
 
 	held.Close()
-	if err := watch.Check(context.Background(), e); err != nil {
+	if err := f.check(watch, e); err != nil {
 		t.Fatal(err)
 	}
 	want(t, len(f.calls) > 0, true)

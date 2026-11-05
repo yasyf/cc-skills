@@ -126,14 +126,21 @@ func Bind(name, terminal string, cards bool) error {
 	return writeAtomic(path, fields)
 }
 
+func stateHome() (string, error) {
+	if state := os.Getenv("XDG_STATE_HOME"); state != "" {
+		return state, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "state"), nil
+}
+
 func launchReceipts(run string) (string, error) {
-	state := os.Getenv("XDG_STATE_HOME")
-	if state == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		state = filepath.Join(home, ".local", "state")
+	state, err := stateHome()
+	if err != nil {
+		return "", err
 	}
 	return filepath.Join(state, "long-running", "orca-launch", run), nil
 }

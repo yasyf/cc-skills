@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -2427,6 +2429,62 @@ func TestAPassReadsTheWorkerListOnceForAHundredFinishedLanesAsForOne(t *testing.
 		if orca.workerReads != 1 || closed[verbClosed] != lanes {
 			t.Fatalf("%d finished lanes: %d worker-list reads, closed %v", lanes, orca.workerReads, closed)
 		}
+	}
+}
+
+func writeWorkerRoster(t *testing.T, path string, at time.Time, workers []Worker) {
+	t.Helper()
+	rows := make([]json.RawMessage, 0, len(workers))
+	for _, worker := range workers {
+		raw, err := json.Marshal(map[string]any{
+			"dispatchId": worker.Dispatch, "dispatchStatus": worker.Status, "terminalState": worker.TerminalState, "agentTerminalHandle": worker.Terminal,
+			"resource": map[string]string{"worktreeId": worker.Workspace, "ownershipState": worker.Ownership, "retainedReason": worker.RetainedReason, "ownerDispatchId": worker.Owner},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows = append(rows, raw)
+	}
+	if err := roster.Write(path, "run_x", at, rows); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAPassReadsItsRunsRosterAtOneLaneAndAtManyAndPagesTheListOnlyAfterAStop(t *testing.T) {
+	for _, lanes := range []int{1, scaletest.N()} {
+		orca, gc, dispatches := finishedLanes(t, lanes)
+		path := filepath.Join(t.TempDir(), "roster.json")
+		writeWorkerRoster(t, path, time.UnixMilli(fakeNow), orca.rows)
+		gc.Rosters = map[string]string{"run_x": path}
+		ctx := context.Background()
+		closed, err := gc.CloseFinished(ctx, "run_x", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := gc.proveStale(ctx, "run_x", dispatches); err != nil {
+			t.Fatal(err)
+		}
+		if orca.workerReads != 0 || closed[verbClosed] != lanes {
+			t.Fatalf("%d finished lanes: %d worker-list reads, closed %v", lanes, orca.workerReads, closed)
+		}
+		gc.forgetWorkers()
+		if _, err := gc.workers(ctx, "run_x"); err != nil {
+			t.Fatal(err)
+		}
+		if orca.workerReads != 1 {
+			t.Fatalf("a read after a stop paged the list %d times", orca.workerReads)
+		}
+	}
+}
+
+func TestAStaleRosterFailsThePassAndPagesNothing(t *testing.T) {
+	orca, gc, _ := finishedLanes(t, 1)
+	path := filepath.Join(t.TempDir(), "roster.json")
+	writeWorkerRoster(t, path, time.UnixMilli(fakeNow).Add(-roster.Fresh), orca.rows)
+	gc.Rosters = map[string]string{"run_x": path}
+	_, err := gc.CloseFinished(context.Background(), "run_x", nil)
+	if err == nil || !strings.Contains(err.Error(), "worker roster of run_x is stale") || orca.workerReads != 0 {
+		t.Fatalf("err %v, %d worker-list reads", err, orca.workerReads)
 	}
 }
 

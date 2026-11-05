@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -52,18 +53,56 @@ func TestRootRepliesToManyLanesCostTheLineReadNoMoreOrcaCallsThanOne(t *testing.
 	}
 }
 
-func TestOnePassSharesOneWorkerListAcrossTheSweepAndTheDeadlines(t *testing.T) {
+func TestAPassReadsTheSupervisorsRosterAndListsNoWorkerAtOneAndAtManyWorkers(t *testing.T) {
+	lists := func(workers int) int {
+		w := newDeskWorld(t)
+		for i := range workers {
+			w.live(fmt.Sprintf("lane-%d", i), fmt.Sprintf("ctx_%d", i), fmt.Sprintf("term_%d", i))
+		}
+		w.dispatches["ctx_0"].status = statusCompleted
+		w.desk.startPass()
+		w.step(w.desk.sweep)
+		w.desk.settled = nil
+		status, err := w.desk.settledStatus(context.Background(), "ctx_0")
+		if err != nil || status != statusCompleted {
+			t.Fatal(status, err)
+		}
+		return len(w.orcaCalls("orchestration worker-list"))
+	}
+	if one, many := lists(1), lists(scaletest.N()); one != 0 || many != 0 {
+		t.Fatalf("a pass listed the workers %d times at 1 worker and %d at %d", one, many, scaletest.N())
+	}
+}
+
+func TestARunnerWithNoSupervisorRosterListsTheWorkersOncePerPass(t *testing.T) {
 	w := newDeskWorld(t)
+	w.desk.Config.Roster = ""
 	w.live(testLane, testDispatch, testTerminal)
 	w.dispatches[testDispatch].status = statusCompleted
 	w.desk.startPass()
 	w.step(w.desk.sweep)
 	w.desk.settled = nil
-	if _, err := w.desk.settledStatus(context.Background(), testDispatch); err != nil {
-		t.Fatal(err)
+	status, err := w.desk.settledStatus(context.Background(), testDispatch)
+	if err != nil || status != statusCompleted {
+		t.Fatal(status, err)
 	}
 	if lists := w.orcaCalls("orchestration worker-list"); len(lists) != 1 {
-		t.Fatalf("one pass listed the workers %d times", len(lists))
+		t.Fatalf("one pass with no supervisor roster listed the workers %d times", len(lists))
+	}
+}
+
+func TestAStaleRosterReadsNoWorkerAndListsNone(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.roster()
+	w.now = w.now.Add(roster.Fresh)
+	w.desk.startPass()
+	err := w.desk.sweep(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "worker roster of "+testRun+" is stale") {
+		t.Fatal(err)
+	}
+	if lists := w.orcaCalls("orchestration worker-list"); len(lists) != 0 {
+		t.Fatalf("a stale roster listed the workers %d times", len(lists))
 	}
 }
 
@@ -97,10 +136,15 @@ func TestAWorkerThatResumedMidPassKeepsItsRelayOpen(t *testing.T) {
 	w.desk.startPass()
 	w.step(w.desk.sweep)
 	w.dispatches[testDispatch].status = "running"
-	w.step(w.desk.deadlines)
+	if err := w.desk.deadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	w.noEscalation("RELAY-CLOSED ")
 	if status := w.relayStatus("R2"); status != incident.ActionAccepted {
 		t.Fatal(status)
+	}
+	if lists := w.orcaCalls("orchestration worker-list"); len(lists) != 1 {
+		t.Fatalf("the relay's close was confirmed by %d worker lists, not one fresh one", len(lists))
 	}
 }
 

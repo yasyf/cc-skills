@@ -556,7 +556,7 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 	if err != nil || len(hosted) == 0 {
 		return err
 	}
-	statuses, err := c.Env.dispatchStatuses(ctx)
+	statuses, err := c.Env.dispatchStatuses(ctx, now)
 	if err != nil {
 		c.Log.Warn("sprite stops did not read the Run", "err", err)
 		return nil
@@ -1039,6 +1039,9 @@ func (e Env) gc(ctx context.Context, args ...string) (shell.Result, error) {
 	remote, err := CcRemoteOf(e.State)
 	if err != nil {
 		return shell.Result{}, err
+	}
+	if e.Rostered {
+		args = append(args, "--roster")
 	}
 	command := shell.Command{Argv: append([]string{e.tool("lr"), "gc", "--run", e.Config.OrcaRun}, args...), Dir: e.Config.Checkout, Timeout: gcTimeout}
 	if remote != nil {

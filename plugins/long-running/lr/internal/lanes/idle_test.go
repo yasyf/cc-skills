@@ -105,6 +105,21 @@ func TestTheCleanupPassKeepsARetiredLaneThatStillHoldsAStandingDutyUntilASuccess
 	equal(t, kept, []string{"ctx_desk-1", "ctx_duty-brief-1", "ctx_duty-row-1", "ctx_handed-2", "ctx_parked-1", "ctx_replaced-desk-2", "ctx_wanted-1"})
 }
 
+func TestOnlyTheSupervisorsGCReadsTheRoster(t *testing.T) {
+	for _, rostered := range []bool{false, true} {
+		runner := &recordingRunner{reply: func(shell.Command) (shell.Result, error) { return shell.Result{}, nil }}
+		env := Env{Runner: runner, Config: config.Config{OrcaRun: "run_1"}, State: t.TempDir(), Claude: t.TempDir(), Rostered: rostered}
+		if _, err := env.gc(context.Background(), "--done", "ctx_a"); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"gc", "--run", "run_1", "--done", "ctx_a"}
+		if rostered {
+			want = append(want, "--roster")
+		}
+		equal(t, runner.commands[0].Argv[1:], want)
+	}
+}
+
 func TestSettledGCStartsNoPassWhileARestartWaitsForOne(t *testing.T) {
 	runner := &recordingRunner{reply: func(shell.Command) (shell.Result, error) {
 		return shell.Result{Stdout: "closed=1\n"}, nil

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/screen"
@@ -396,12 +397,18 @@ type deskWorker struct {
 
 func (d *Desk) workers(ctx context.Context) ([]deskWorker, error) {
 	d.reads.mu.Lock()
-	kept, found := d.reads.workers, d.reads.listed
+	kept, found, paging := d.reads.workers, d.reads.listed, d.reads.paging
 	d.reads.mu.Unlock()
 	if found {
 		return kept, nil
 	}
-	rows, err := d.listWorkers(ctx)
+	var rows []deskWorker
+	var err error
+	if paging || d.Config.Roster == "" {
+		rows, err = d.listWorkers(ctx)
+	} else {
+		err = roster.Read(d.Config.Roster, d.Now(), &rows)
+	}
 	if err != nil {
 		return nil, err
 	}

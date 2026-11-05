@@ -147,9 +147,17 @@ A card drawn with `lr ask-owner --by TIME` carries the clock it promises him som
 - When the clock passes first, the lane, or the live end of its successor chain once it has retired, and owner-relay each get one `blocker` naming the card and the question he waits on, with the card and its clock as `card` and `by` attrs.
 - A card whose words name a clock, such as 6:40 PM, and that carries no `--by` draws with a `WARNING` and is not refused.
 
+### The worker roster
+
+A lanes supervisor with an `orca_run` pages that Run's whole worker list for every reader on its host. Its `worker-roster` check pages `orca orchestration worker-list --run <run> --include-remote` and writes every row to `$XDG_STATE_HOME/long-running/orca-roster/<run>.json`, with the run and the time the read began. It reads at most once per 3-minute pass, and a read slower than that starts the next one 30 seconds after it ends.
+- Only readers the supervisor runs or starts read that file: its own tick and Sprite stops, its prompt watch, `lr gc` with the `--roster` it passes, and the orca desk runner its relay job starts with `--roster` when `runner.json` names the same Run. Each pages nothing for that Run.
+- Every other reader pages the list itself, once a pass: `lr watch prompts` run by hand, `lr gc` without `--roster`, such as the gc a sub-drive's teardown asks for, a runner on another Run or host, and `lr stop-sprites` run by hand. `lr gc --other-runs` pages the one other Run a pass reads.
+- A roster whose read began 15 minutes ago or more is stale. A reader the supervisor started treats a stale or missing roster like a failed `worker-list` and never pages the list to replace it.
+- The supervisor's `lr gc` pages the list itself only after a stop in its pass changes it, and the orca desk runner only right before it fails a relay whose worker read settled, so a worker that resumed mid-pass keeps its relay.
+
 ## Dead lanes
 
-A lane reads live only while its agent is alive. Liveness comes from the agent, not the dispatch: the tick's one `orca orchestration worker-list --include-remote` read carries each worker's `projection.liveness` verdict, which Orca gets from the Sprite.
+A lane reads live only while its agent is alive. Liveness comes from the agent, not the dispatch: each worker's row in the worker roster carries its `projection.liveness` verdict, which Orca gets from the Sprite.
 
 | Verdict | Meaning |
 | --- | --- |
@@ -187,7 +195,7 @@ A coordinator reading unverifiable, and a lane with no process row, are held wit
 - The same loss covers a Sprite lane whose host Orca has reported `host_unavailable` for 10 minutes, and one with no record 15 minutes after its launch that Orca does not report live. A quiet lane Orca reports live is left alone, unless it is a standing desk with an order unread for 30 minutes.
 - A lane that recovers before the relaunch is never relaunched. One that recovers after is stood down for its successor, so the stem's newest lane wins.
 - A Sprite successor's brief carries only what the bus holds: its predecessor's records, handoff and pushed PRs, never a path on the lost box or the Mac.
-- A Sprite lane reads Orca mail only at a tool call, so a resting one is woken by typing: any unread record gets one `WAKE` typed into its terminal on the first tick 30 seconds or more after it, through the environment that one `worker-list` read names. A question open on its screen leaves the wake for the next tick. At 10 minutes an unread order takes the same relay as a Mac lane, which posts the record and types a wake.
+- A Sprite lane reads Orca mail only at a tool call, so a resting one is woken by typing: any unread record gets one `WAKE` typed into its terminal on the first tick 30 seconds or more after it, through the environment the worker roster names. A question open on its screen leaves the wake for the next tick. At 10 minutes an unread order takes the same relay as a Mac lane, which posts the record and types a wake.
 - A standing desk other than the meta lane, anywhere, with an order unread for 30 minutes and no record or tool call since is lost whatever Orca reports: the same `LANE-LOST` report and relaunch as above. A live row alone proves nothing about a desk, because a desk idle at its prompt after its wake died reads live.
 
 **A refused launch** (before it posts, or by a runner verdict such as `LAUNCH-DUPLICATE`) is retried once. A second refusal holds the lane with one blocker to the meta desk naming it. No `RELAUNCHED` report goes out for a launch the launcher did not post.

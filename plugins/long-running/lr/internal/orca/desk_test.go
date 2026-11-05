@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -103,7 +104,7 @@ func newDeskWorld(t *testing.T) *deskWorld {
 	}
 	config := DeskConfig{
 		Source: filepath.Join(home, "state", "runner.json"), Store: filepath.Join(home, "store", "incidents"), Drive: testDrive, DeskInbox: filepath.Join(home, "state", "inbox", "orca-desk.md"), Run: testRun,
-		Receipts: filepath.Join(home, "receipts"), CCRemote: filepath.Join(home, "cc-remote"), BriefsRepo: filepath.Join(home, "repo"), BriefsLog: "log_1", StartMinutes: 10, LaunchMinutes: 15, HoldMinutes: 15, CaseLanes: 2, LoadLimit: 32,
+		Receipts: filepath.Join(home, "receipts"), CCRemote: filepath.Join(home, "cc-remote"), Roster: filepath.Join(home, "roster.json"), BriefsRepo: filepath.Join(home, "repo"), BriefsLog: "log_1", StartMinutes: 10, LaunchMinutes: 15, HoldMinutes: 15, CaseLanes: 2, LoadLimit: 32,
 	}
 	w.write(config.Source, `{"drive":"brook","orca":{"run":"run_1"}}`)
 	registry, err := store.Memory()
@@ -345,6 +346,7 @@ func (w *deskWorld) terminalReply(argv []string) (shell.Result, error) {
 func (w *deskWorld) orchestrationReply(argv []string) (shell.Result, error) {
 	switch argv[2] {
 	case "run-show":
+		w.roster()
 		return orcaOK(object{"run": object{"coordinator_handle": "term_root", "consumer_generation": 3}}), nil
 	case "run-current":
 		return orcaOK(object{"run": object{"id": w.coordinate}}), nil
@@ -422,7 +424,26 @@ func (w *deskWorld) inboxReply(argv []string) (shell.Result, error) {
 
 func (w *deskWorld) step(run func(context.Context) error) {
 	w.t.Helper()
+	w.roster()
 	if err := run(context.Background()); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func (w *deskWorld) roster() {
+	w.t.Helper()
+	if w.desk.Config.Roster == "" {
+		return
+	}
+	rows := make([]json.RawMessage, 0, len(w.dispatches))
+	for id, entry := range w.dispatches {
+		raw, err := json.Marshal(object{"dispatchId": id, "dispatchStatus": entry.status, "agentTerminalHandle": entry.terminal})
+		if err != nil {
+			w.t.Fatal(err)
+		}
+		rows = append(rows, raw)
+	}
+	if err := roster.Write(w.desk.Config.Roster, testRun, w.now, rows); err != nil {
 		w.t.Fatal(err)
 	}
 }

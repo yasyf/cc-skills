@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/profile"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
@@ -399,7 +400,7 @@ func (deskCCI) Among(ctx context.Context, drive string, seqs []int64) ([]client.
 	return client.Among(ctx, drive, seqs)
 }
 
-func newDesk(a *app.App) (*Desk, error) {
+func newDesk(a *app.App, rostered bool) (*Desk, error) {
 	cfg, state, err := lanes.Loaded(a)
 	if err != nil {
 		return nil, err
@@ -411,6 +412,9 @@ func newDesk(a *app.App) (*Desk, error) {
 	env, err := lanes.NewEnv(a.Runner, cfg, state, a.Now)
 	if err != nil {
 		return nil, err
+	}
+	if rostered && cfg.OrcaRun == config.Run {
+		config.Roster = roster.Path(env.Local, config.Run)
 	}
 	registry, err := store.Open(filepath.Join(state, lanes.StoreFile))
 	if err != nil {
@@ -429,7 +433,7 @@ func newDesk(a *app.App) (*Desk, error) {
 }
 
 func FixLanes(a *app.App) (func(lane string) (bool, error), error) {
-	desk, err := newDesk(a)
+	desk, err := newDesk(a, false)
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +445,7 @@ func FixLanes(a *app.App) (func(lane string) (bool, error), error) {
 }
 
 func MonitorLane(a *app.App) (func(ctx context.Context, monitor, lane string) (string, error), error) {
-	desk, err := newDesk(a)
+	desk, err := newDesk(a, false)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +459,7 @@ func MonitorLane(a *app.App) (func(ctx context.Context, monitor, lane string) (s
 }
 
 func LiveClocks(a *app.App) (func() ([]string, error), error) {
-	desk, err := newDesk(a)
+	desk, err := newDesk(a, false)
 	if err != nil {
 		return nil, err
 	}
@@ -464,13 +468,13 @@ func LiveClocks(a *app.App) (func() ([]string, error), error) {
 }
 
 func relayRunCommand(a *app.App) *cobra.Command {
-	var once bool
+	var once, rostered bool
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Read orca-desk lines, deliver relays, start launches and settle them, one pass after another",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			desk, err := newDesk(a)
+			desk, err := newDesk(a, rostered)
 			if err != nil {
 				return err
 			}
@@ -480,6 +484,7 @@ func relayRunCommand(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&once, "once", false, "run one pass and stop")
+	cmd.Flags().BoolVar(&rostered, "roster", false, "read the Run's worker list from this host's supervisor roster when lr.json's orca_run is the runner's Run; the supervisor's relay job passes it")
 	return cmd
 }
 
@@ -489,7 +494,7 @@ func relayRebindCommand(a *app.App) *cobra.Command {
 		Short: "Bind the Run to this Orca terminal, so launches start from it",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			desk, err := newDesk(a)
+			desk, err := newDesk(a, false)
 			if err != nil {
 				return err
 			}

@@ -126,4 +126,9 @@ func TestTheRelayIsItsOwnJobSoASupervisorReexecNeverTouchesIt(t *testing.T) {
 	if job.Log != "/state/inbox/lr-relay.log" {
 		t.Fatal(job.Log)
 	}
+	rostered := agent()
+	rostered.Roster = true
+	if args := rostered.RelayJob("/state/inbox/orca.md").Arguments; args[len(args)-1] != "--roster" {
+		t.Fatal(args)
+	}
 }

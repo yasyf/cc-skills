@@ -65,7 +65,7 @@ var (
 
 type DeskConfig struct {
 	Source, Store, Drive, DeskInbox, Run, Receipts, BriefsRepo, BriefsLog, GC, AlertFacts, LandingRepo, LandingCheckout string
-	Launches, CCRemote                                                                                                  string
+	Launches, CCRemote, Roster                                                                                          string
 	LaunchEnv                                                                                                           map[string]string
 	RefusedBriefs                                                                                                       []config.Refusal
 	IncidentMechanismMinutes, IncidentPRMinutes, IncidentReadyMinutes                                                   int

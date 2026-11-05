@@ -23,7 +23,7 @@ const (
 	testDrive    = "d1"
 	testCheckout = "/work/monorepo"
 	lane2        = "conflicts-2"
-	roster       = "/teams/session-d50e80e8"
+	teamRoster   = "/teams/session-d50e80e8"
 )
 
 func mins(n int) time.Duration { return time.Duration(n) * time.Minute }
@@ -74,7 +74,7 @@ func who(lane string, live bool, seen time.Time) Row {
 }
 
 func onRoster(row Row) Row {
-	row.Roster = roster
+	row.Roster = teamRoster
 	return row
 }
 

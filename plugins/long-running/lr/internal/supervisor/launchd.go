@@ -17,6 +17,7 @@ func RelayLabel(drive string) string {
 }
 
 type Agent struct {
+	Roster bool
 	Drive  string
 	Config string
 	Binary string
@@ -34,10 +35,14 @@ func (a Agent) Job() launchd.Job {
 }
 
 func (a Agent) RelayJob(inbox string) launchd.Job {
+	arguments := []string{a.Binary, "relay", "run", "--config", a.Config}
+	if a.Roster {
+		arguments = append(arguments, "--roster")
+	}
 	return launchd.Job{
 		Label:     RelayLabel(a.Drive),
 		Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", a.Drive}, {lanes.LaneEnv, relayLane}, {"PATH", a.Path}},
-		Arguments: []string{a.Binary, "relay", "run", "--config", a.Config},
+		Arguments: arguments,
 		Log:       relayLog(inbox),
 	}
 }
