@@ -218,7 +218,9 @@ and `--withdraw ID` takes yours down when its question goes away.
 The command prints the card's link, or exits 1 with what to change. It refuses a card with
 no background, one whose question a card on his board already asks or he already answered,
 one offering only ways to live with a failure and no fix for its cause, and one naming a
-loss with no plan beside it. Its text answers the first question he will
+loss with no plan beside it. It draws but warns on an option acting on a set it does not name,
+such as "all four ready fixes" with no four listed: edit the card so its body names every
+member, each with its PR link and what it does for a user, or draw one card per item. Its text answers the first question he will
 ask, and a change it describes names its concrete things: which fields and where they
 live, which chats or users, and what happens before and after. Anything it names, such
 as a Sentry issue, build or PR, is a link, and it never names a cci record (R21). A settled

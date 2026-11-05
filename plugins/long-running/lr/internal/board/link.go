@@ -205,6 +205,11 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 			return "", err
 		}
 	}
+	if card.TapOf == "" {
+		if unnamed := cards.UnnamedSet(ctx, l.Judge, card.Block); unnamed != "" {
+			said += "; WARNING " + unnamed
+		}
+	}
 	if unchecked != nil {
 		said += "; WARNING it drew unchecked: " + strings.ReplaceAll(unchecked.Error(), "\n", "; ")
 	}

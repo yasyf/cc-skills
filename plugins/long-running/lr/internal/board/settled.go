@@ -34,6 +34,8 @@ const (
 	threadProof        = "proof:slack-thread:"
 	writeIn            = "wrote “"
 	optionsKind        = "options"
+	setOptionsKind     = "set-options"
+	drawnForHim        = "A coding agent drew this card on the owner's board for him to answer."
 )
 
 type ownerAnswer struct {
@@ -253,7 +255,7 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 			return fmt.Errorf("refused: %s already asks him %q; change that card instead of drawing a second", ask.ID, strings.TrimSpace(ask.Title)), nil
 		}
 	}
-	confirm, err := judge(ctx, confirmKind, "A coding agent drew this card on the owner's board for him to answer.", string(card))
+	confirm, err := judge(ctx, confirmKind, drawnForHim, string(card))
 	if verdictOf(confirm) == "yes" {
 		return fmt.Errorf("refused: this card asks him to grade a reading of his own words, and no such card is drawn: %s", confirm.Sentence), nil
 	}
@@ -271,7 +273,7 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 	if err != nil {
 		failed = append(failed, err)
 	}
-	offered, err := judge(ctx, optionsKind, "A coding agent drew this card on the owner's board for him to answer.", string(card))
+	offered, err := judge(ctx, optionsKind, drawnForHim, string(card))
 	if verdictOf(offered) == "yes" {
 		return fmt.Errorf("refused: %s", offered.Sentence), nil
 	}
@@ -279,6 +281,22 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 		failed = append(failed, fmt.Errorf("the judge did not read whether its options fix the cause and name a fix beside any loss: %w", cmp.Or(err, errors.New("no verdict"))))
 	}
 	return nil, errors.Join(failed...)
+}
+
+func (c Cards) UnnamedSet(ctx context.Context, judge Judge, card json.RawMessage) string {
+	id, title, asks := asksTitle(card)
+	if !asks {
+		return ""
+	}
+	open, err := c.OpenAsks(ctx)
+	if err != nil || slices.ContainsFunc(open, func(ask OpenAsk) bool { return ask.ID == id && sameText(ask.Title, title) }) {
+		return ""
+	}
+	named, err := judge(ctx, setOptionsKind, drawnForHim, string(card))
+	if err != nil || verdictOf(named) != "yes" {
+		return ""
+	}
+	return "an option acts on a set this card does not name: " + named.Sentence
 }
 
 func (c Cards) SettledByHim(ctx context.Context, judge Judge, open []OpenCard) (map[string]*Settling, error) {

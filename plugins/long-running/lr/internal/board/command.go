@@ -447,7 +447,7 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 		},
 	}, &cobra.Command{
 		Use:   "check CARD_FILE|-",
-		Short: "Refuse a card whose background or Explain more is only a link, that asks what a card on his board already asks, asks him to grade a reading of his words, or that one of his ccn answers settles, naming that answer, where a card showing an image settles only on his answer to that card; print a WARNING and pass it when a check could not run",
+		Short: "Refuse a card whose background or Explain more is only a link, that asks what a card on his board already asks, asks him to grade a reading of his words, or that one of his ccn answers settles, naming that answer, where a card showing an image settles only on his answer to that card; print a WARNING and pass it when a check could not run or an option acts on a set it does not name",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			board, done, err := cards()
@@ -472,6 +472,9 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 				fmt.Fprintf(c.OutOrStdout(), "WARNING the card draws unchecked against his answers: %s\n", strings.ReplaceAll(err.Error(), "\n", "; "))
 			}
 			warnUnnamedProcess(c.OutOrStdout(), data)
+			if unnamed := board.UnnamedSet(c.Context(), judge, data); unnamed != "" {
+				fmt.Fprintf(c.OutOrStdout(), "WARNING %s\n", unnamed)
+			}
 			if steps := cardtext.StepsForHim(data); steps != "" {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING this card hands him steps (%q). An agent does sign-ins and browser steps itself with cookiesync, through the agent-browser-with-cookies skill: his login, one Touch ID tap. Do them, and card only what only he can decide.\n", steps)
 			}

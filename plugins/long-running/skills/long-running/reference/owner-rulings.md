@@ -69,7 +69,7 @@ It warns when a card re-asks a settled question or offers an option narrower or 
 - the `confirm` judge reads it as asking the owner to grade a reading of the owner's own words, in any wording; or
 - the `decided` judge reads one of the owner's ccn answers sharing its subject as deciding everything it asks.
 
-The refusal names that answer by its question, in plain words, and its id.
+The refusal names that answer by its question, in plain words, and its id. The same draws print a `WARNING` saying what to list, and still draw, when the `set-options` judge reads an option as acting on a set whose members the card does not each name with a PR link and what it does for a user.
 
 - A card's background or Explain more embeds the write-up's section in the card, using cc-present's `display.designdoc` block or the architecture diagram component where one exists. A link may only sit under that text. The same check refuses a card that is only a URL or "see <link>", on `lr reply` as well.
 - A lane that reads the owner's words acts on its reading and says what it did.
