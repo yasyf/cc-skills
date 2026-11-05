@@ -1199,8 +1199,19 @@ def test_the_dashboard_never_shows_its_own_url_and_keeps_every_other_link(page):
         assert drop(kept) == kept
 
 
+def test_a_phone_reads_an_owed_row_from_the_left(page):
+    context = page.context.browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    phone = context.new_page()
+    phone.goto(page.url.split("#")[0] + "#/replies")
+    phone.wait_for_selector(".cw .conversation")
+    phone.evaluate("""() => { $('#cw-owed').innerHTML = `<details class="ct-owed" open><summary>1 thing owed to you</summary><ol class="hs ev-rows"><li><details><summary><b>6 asks still open</b></summary></details></li></ol></details>`; }""")
+    assert phone.evaluate("getComputedStyle(document.querySelector('.ct-owed .ev-rows summary')).textAlign") != "right"
+    context.close()
+
+
 def test_a_reply_reads_angle_brackets_and_no_reply_id(page):
     now(page)
+    assert page.evaluate("plain('Recorded (ccn 57967b6) and with the lane.')") == "Recorded and with the lane."
     assert page.evaluate("plain('one sessions-&lt;session&gt; database')") == "one sessions-<session> database"
     assert page.evaluate("plain('Your order has its count (rmw35v9u3): 234 cuts.')") == "Your order has its count: 234 cuts."
     assert page.evaluate("replyTitle({ title: 'Four items, two on your tap (#50590), and more' })") == "Four items, two on your tap, and more"
