@@ -15,6 +15,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -47,6 +48,7 @@ const (
 	subjectShare   = 0.6
 	subjectWord    = 4
 	whoColumn      = 3
+	portStall      = time.Hour
 )
 
 var (
@@ -428,7 +430,7 @@ func Render(in Inputs) Report {
 	found := draft{
 		header:     fmt.Sprintf("# Owner update: %s, %s", in.Drive, pacific(in.Now)),
 		lead:       lead,
-		overdue:    overdueLines(in.Overdue),
+		overdue:    slices.Concat(overdueLines(in.Overdue), stalledPortLines(in.PRRows, in.Now)),
 		orders:     orderLines(in.Orders),
 		sinceTitle: fmt.Sprintf("%s (%s)", sinceTitle, pacificText(in.Before.At)),
 		since:      pacificText(in.Before.At),
@@ -496,6 +498,20 @@ func reapLines(records []Record) []string {
 		}
 	}
 	return lines[max(0, len(lines)-reapPasses):]
+}
+
+func stalledPortLines(rows []store.ReviewRow, now time.Time) []string {
+	var lines []string
+	for _, row := range openPRRows(rows) {
+		moved := dueOf(row.MovedAt)
+		if strings.HasPrefix(row.Port, prrow.PortOf) && now.Sub(moved) >= portStall {
+			lines = append(lines, fmt.Sprintf("- #%d, %s, has had no new head, grade or queue move since %s; it waits on %s", row.Number, row.Port, pacific(moved), row.WaitsOn))
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return append([]string{"", fmt.Sprintf("Forward ports with no move in an hour (%d):", len(lines))}, lines...)
 }
 
 func overdueLines(items []store.Item) []string {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -281,7 +282,7 @@ func TestAConflictIsRestackedMechanicallyAndTheNewHeadRecorded(t *testing.T) {
 	}
 }
 
-func TestASemanticConflictIsTriedOnceThenLeftToTheLane(t *testing.T) {
+func TestASemanticConflictIsTriedOnceThenToldToTheLane(t *testing.T) {
 	s, r := newStore(t), &restacker{}
 	given := facts(45580, conflict)
 
@@ -290,6 +291,9 @@ func TestASemanticConflictIsTriedOnceThenLeftToTheLane(t *testing.T) {
 
 	if !slices.Equal(first.Conflicts, []int{45580}) || len(second.Conflicts) != 0 || len(r.calls) != 1 {
 		t.Fatalf("first = %+v, second = %+v, calls = %+v", first, second, r.calls)
+	}
+	if len(first.Said) != 1 || first.Said[0].Refused != "RESTACK-CONFLICT" || !strings.Contains(first.Said[0].Text, "resolving it is yours") || len(second.Said) != 0 {
+		t.Fatalf("first said = %+v, second said = %+v", first.Said, second.Said)
 	}
 	if got := fact(t, s, 45580, landing.RestackedFact); got != "conflict" {
 		t.Fatalf("restacked fact = %q", got)

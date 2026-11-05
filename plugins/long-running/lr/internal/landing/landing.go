@@ -236,6 +236,7 @@ func restack(ctx context.Context, s *store.Store, restacker Restacker, f machine
 	}
 	if moved == "" {
 		done.Conflicts = append(done.Conflicts, f.Number)
+		done.Said = append(done.Said, Said{Facts: f, Accepted: "RESTACKED", Refused: "RESTACK-CONFLICT", Text: fmt.Sprintf("replaying it onto %s conflicts, so the supervisor pushed nothing and resolving it is yours", f.Base)})
 		return nil
 	}
 	done.Restacked = append(done.Restacked, Move{f.Number, f.Head, moved})
