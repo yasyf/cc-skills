@@ -488,7 +488,7 @@ func TestACardReplacingAnotherTakesTheOldOneDownLinkingTheNewOne(t *testing.T) {
 	f.run(t)
 
 	calls := f.shell.seen()
-	want := "cc-present remove-block " + askedID + " --reason " + newVersionWhy + " at " + dmURL + " --lane " + asker + " --take-over --session board-1 <"
+	want := "cc-present remove-block " + askedID + " --reason " + newVersionAsks + " --lane " + asker + " --take-over --replaced-by " + dmURL + " --session board-1 <"
 	if len(calls) != 3 || !strings.HasPrefix(calls[1], "cc-present ask - ") || calls[2] != want {
 		t.Fatalf("calls %q, want the new card drawn and then %q", calls, want)
 	}

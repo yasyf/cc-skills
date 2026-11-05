@@ -48,6 +48,7 @@ const (
 	tapCardInSlack = "in slack"
 	tapCardRefused = "refused"
 	newVersionWhy  = "a new version replaced it, and its own card asks again"
+	newVersionAsks = "a new version asks again in its own card"
 )
 
 const listPostLimit = time.Minute

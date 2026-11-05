@@ -604,6 +604,14 @@ func (c Cards) sweepOff(ctx context.Context, lane, card string, prior map[string
 }
 
 func (c Cards) Retire(ctx context.Context, lane, reason string, named []string, out io.Writer) error {
+	return c.retire(ctx, lane, reason, named, out)
+}
+
+func (c Cards) Replace(ctx context.Context, lane, reason, replacedBy string, named []string, out io.Writer) error {
+	return c.retire(ctx, lane, reason, named, out, "--replaced-by", replacedBy)
+}
+
+func (c Cards) retire(ctx context.Context, lane, reason string, named []string, out io.Writer, removeFlags ...string) error {
 	known, err := c.ends(ctx)
 	if err != nil {
 		return err
@@ -617,7 +625,7 @@ func (c Cards) Retire(ctx context.Context, lane, reason string, named []string, 
 			fmt.Fprintf(out, "UNCHANGED %s: not on the owner's board\n", card)
 			continue
 		}
-		if err := c.close(ctx, lane, card, known[card], reason, reason, out); err != nil {
+		if err := c.close(ctx, lane, card, known[card], reason, reason, out, removeFlags...); err != nil {
 			return err
 		}
 		if err := c.freeTapRow(card); err != nil {
@@ -627,7 +635,7 @@ func (c Cards) Retire(ctx context.Context, lane, reason string, named []string, 
 	return nil
 }
 
-func (c Cards) close(ctx context.Context, lane, card string, prior map[string]string, outcome, why string, out io.Writer) error {
+func (c Cards) close(ctx context.Context, lane, card string, prior map[string]string, outcome, why string, out io.Writer, removeFlags ...string) error {
 	owed, err := c.unrowed(ctx, card)
 	if err != nil {
 		return err
@@ -636,7 +644,7 @@ func (c Cards) close(ctx context.Context, lane, card string, prior map[string]st
 		fmt.Fprintf(out, "PROBLEM %s: the owner's answer on %s has no ccn answer row; run board_watch.py backfill --session %s --program %s before it leaves the board\n", card, strings.Join(owed, ", "), c.Session, c.Bus)
 		return nil
 	}
-	if _, err := c.present(ctx, "remove-block", card, "--reason", why, "--lane", lane, "--take-over"); err != nil {
+	if _, err := c.present(ctx, append([]string{"remove-block", card, "--reason", why, "--lane", lane, "--take-over"}, removeFlags...)...); err != nil {
 		return err
 	}
 	if err := c.Withdraw(ctx, lane, card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", card, why)); err != nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -206,14 +207,13 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	if err := cards.MarkDrawn(ctx, []string{top.ID}); err != nil {
 		return "", err
 	}
-	said, replacedWhy := top.ID+" is on his board", newVersionWhy
+	said, dm := top.ID+" is on his board", ""
 	if url := slackLine.FindStringSubmatch(drawn.Stdout); url != nil {
-		said += " and in his DM, " + url[1]
-		replacedWhy += " at " + url[1]
+		said, dm = said+" and in his DM, "+url[1], url[1]
 	}
 	if len(card.Replaces) > 0 {
 		var retired strings.Builder
-		if err := cards.Retire(ctx, lane, replacedWhy, card.Replaces, &retired); err != nil {
+		if err := cards.replace(ctx, lane, dm, card.Replaces, &retired); err != nil {
 			return "", err
 		}
 		said += "; " + strings.ReplaceAll(strings.TrimSpace(retired.String()), "\n", "; ")
@@ -412,4 +412,11 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 	}
 	cmd.AddCommand(serve, install)
 	return cmd
+}
+
+func (c Cards) replace(ctx context.Context, lane, dm string, replaced []string, out io.Writer) error {
+	if dm == "" {
+		return c.Retire(ctx, lane, newVersionWhy, replaced, out)
+	}
+	return c.Replace(ctx, lane, newVersionAsks, dm, replaced, out)
 }
