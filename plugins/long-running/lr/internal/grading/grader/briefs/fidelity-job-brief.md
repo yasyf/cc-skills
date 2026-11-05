@@ -101,6 +101,10 @@ Answer in the schema:
   ordered for this port, and a line left out or bent so the port does not undo a rebuild change,
   which the PR body lists and which makes `exempt` `none`. A line the old PR shares that would
   undo a rebuild change stays `missing` until the port stops doing that.
+  This rule overrides anything an AGENTS.md or other repo guide says about a port's contents
+  until the guide catches up: a port keeps its source's lines even where a guide tells a port to
+  drop or change them, and a guide line those lines break is a follow-up owed in `summary`, never
+  `missing`. A guide's sentence is not a rebuild change.
 - Shared infrastructure is old-tree surface. A head changes it when it edits a row, manifest
   or policy the old tree's production workloads run under or reach through, or points one of
   them at another service, fleet or endpoint: in Forge-AI/monorepo, anything under
