@@ -12,6 +12,9 @@ on:
       ci-workflow:
         type: string
         default: ""
+      min-interval:
+        type: number
+        default: 0
       dry-run:
         type: boolean
         default: false
@@ -84,5 +87,6 @@ jobs:
           RELEASE_WORKFLOW: ${{ inputs.release-workflow }}
           RELEASE_DRY_RUN: ${{ inputs.dry-run }}
           RELEASE_PATHS: ${{ inputs.paths }}
+          RELEASE_MIN_INTERVAL: ${{ github.event_name != 'workflow_dispatch' && inputs.min-interval || 0 }}
           GH_TOKEN: ${{ github.token }}
         run: uv run .autobump-src/.github/scripts/release_tag.py

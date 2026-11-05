@@ -8,6 +8,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -96,6 +97,24 @@ def test_only_source_commits_set_the_bump(repo: Path) -> None:
     _commit_file(repo, "internal/lease.go", "lease: 🐛 renew before expiry")
     _commit_file(repo, "README.md", "readme: 💥 rename the project")
     assert release_tag.plan(repo, ["internal"]) == release_tag.Plan("v1.4.3", "1 change(s) since v1.4.2")
+
+
+def test_a_release_waits_for_the_latest_tag_to_age(repo: Path) -> None:
+    _commit(repo, "cli: 🐛 fix the lease")
+    assert release_tag.plan(repo, [], min_interval=60).tag is None
+
+
+def test_an_aged_tag_lets_the_next_release_through(repo: Path) -> None:
+    _run(repo, "tag", "-d", "v1.4.2")
+    hour_ago = f"@{int(time.time()) - 3700} +0000"
+    subprocess.run(
+        ["git", "tag", "-a", "v1.4.2", "-m", "v1.4.2"],
+        cwd=repo,
+        check=True,
+        env={**os.environ, "GIT_COMMITTER_DATE": hour_ago},
+    )
+    _commit(repo, "cli: 🐛 fix the lease")
+    assert release_tag.plan(repo, [], min_interval=60).tag == "v1.4.3"
 
 
 def test_already_tagged_head_is_skipped(repo: Path) -> None:
