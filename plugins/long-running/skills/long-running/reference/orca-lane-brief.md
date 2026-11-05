@@ -148,13 +148,15 @@ When the pointer would pass 500 characters, `lr launch start` symlinks the brief
 
 Only the communicator's short read lanes and a lane's own bounded helpers run in-process, because a lane never spawns with `Agent`. Everything a lane must follow is in `common.md` and `<lane>.md`; a helper's brief is only this. Its `Scale: no N` line keeps the spawn hook quiet.
 
+The spawner picks the helper's `.md` path, and its basename never starts with report, summary, findings or analysis, in any case. Claude Code's Write tool refuses an `Agent` subagent any basename matching `/^(REPORT|SUMMARY|FINDINGS|ANALYSIS).*\.md$/i`, and no setting turns that off: `proof/report.md` is refused, `proof/proof-report.md` is written. The refusal binds `Agent` subagents only. A top-level Orca lane's Write of `report.md` went through on 2.1.318, so the `findings.md` an `lr bulk read` reader lane writes stands.
+
 ```
 You are <name>, a bounded helper for <spawner>. Deliver: <the question to answer or the deliverable, and the condition that ends it>.
 Scale: no N
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
-Read: <the files, records and paths it may read>. Write: <the one path it may write, or "nothing">.
+Read: <the files, records and paths it may read>. Write: <the one path it may write, its basename not starting with report, summary, findings or analysis, or "nothing">.
 You must not: open a PR, push, post to Slack, spawn an agent or a lane, contact the owner, or post to cci for anyone but <spawner>.
-Answer: <the reply file path, or a reply of at most 10 lines to <spawner>>. Lead with the verdict and point to evidence by file:line, sha or path; never paste a log, diff or thread.
+Answer: <the reply file path, or a reply of at most 10 lines to <spawner>>. Lead with the verdict and point to evidence by file:line, sha or path; never paste a log, diff or thread. Name a file as written only after its Write has returned, never in the step that calls it; a refused Write is your answer's first line.
 Run codex in the foreground (blocking), or end the turn and let the Agent notification wake you; never a shell loop on its reply file.
 Escalate early, do not improvise: a scope surprise, an assumption the code refutes, a decision this brief does not settle, or two failed approaches. Stop and return your findings with 2-4 options.
 ```
@@ -287,7 +289,8 @@ Shell text: Claude Code holds any Bash command holding `$$(`, `$${` or `$$[` on 
 "Dangerous rm operation not ruled out" dialog, even inside a quoted heredoc. Write such a
 file with the Write tool and run it with a Bash command free of them.
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never paste
-a diff, log, PR body, or thread into a message. Write it to disk and send the path.
+a diff, log, PR body, or thread into a message. Write it to disk and send the path once the
+Write has returned, never in the step that calls it.
 
 Runner actions: every guidance relay names its key and thread id. Before acting,
 send the preamble's status command with your own dispatch and that thread:
