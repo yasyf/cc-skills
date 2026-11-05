@@ -142,6 +142,13 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		snapshot = landing.Exempted(snapshot, posted)
 	}
 	swept := d.Clock()
+	if slices.Contains(d.Movers, "landing") {
+		read, err := landing.Evictions{Store: s, Queue: d.Queue, Drive: drive, Now: d.Clock}.Pass(ctx, snapshot)
+		if err != nil {
+			d.Log.Warn("an eviction went unread or untold", "err", err)
+		}
+		snapshot = read
+	}
 	route, err := watch.Desks(s)
 	if err != nil {
 		return report, err

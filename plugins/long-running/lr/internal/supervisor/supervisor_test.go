@@ -19,6 +19,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -54,7 +55,13 @@ func (q *queue) Reenter(ctx context.Context, number int) (string, error) {
 
 func (q *queue) Dequeue(context.Context, int) (string, error) { return "", nil }
 
-func (q *queue) LastFailure(context.Context, int) string { return "" }
+func (q *queue) LastFailure(context.Context, int) (landing.Failure, error) {
+	return landing.Failure{}, nil
+}
+
+func (q *queue) States(context.Context, []int) (map[int]landing.QueueEntry, error) {
+	return nil, nil
+}
 
 type restacker struct{}
 

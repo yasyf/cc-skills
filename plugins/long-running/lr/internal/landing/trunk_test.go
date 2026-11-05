@@ -108,23 +108,72 @@ func TestDequeuePassesTheFlag(t *testing.T) {
 	}
 }
 
-func TestLastFailureIsTheNewestFailedEntrysReason(t *testing.T) {
+func TestLastFailureReadsTheAttemptsCheckAndWhichBatchMatesFellWithIt(t *testing.T) {
 	fake := &shelltest.Fake{}
 	queue, _ := trunk(t, fake)
-	fake.Reply(`[{"state":"failed","reason":"TEST_RUN_REQUIRED_STATUS_FAILED"},{"state":"testsPassed","reason":"TEST_RUN_PASSED"},{"state":"failed","reason":"GITHUB_API_MERGE_PR_FAILED"},{"state":"notReady","reason":"API_REQUESTED"}]`, queue.Checkout+"/tools/ci")
+	ci := queue.Checkout + "/tools/ci"
+	fake.Reply(`[
+		{"state":"failed","changedAt":"old","reason":"TEST_RUN_TIMEOUT","failed":{"failureCausingChecks":[{"name":"stale","url":"stale-url"}]}},
+		{"state":"notReady","changedAt":"t0","reason":"API_REQUESTED"},
+		{"state":"testing","changedAt":"t1","verificationRunId":"run-1"},
+		{"state":"pendingFailure","changedAt":"t2","verificationRunId":"run-1","pendingFailure":{"failureCausingChecks":[{"name":"buildkite/test","url":"https://buildkite.com/forge/test/builds/113284"}]}},
+		{"state":"failed","changedAt":"t3","reason":"TEST_RUN_FAILED_BY_OPTIMIZATION","failed":{"failureCausingChecks":[]}}
+	]`, ci, "trunk", "history", "7")
+	fake.Reply(`{"id":"run-1","testedPullRequests":[{"number":7},{"number":8},{"number":9}]}`, ci, "trunk", "verification", "7", "--run", "run-1")
+	fake.Reply(`{"8":{"sha":"a","queueEntry":{"state":"failed","stateChangedAt":"t3"}},"9":{"sha":"b","queueEntry":{"state":"merged","stateChangedAt":"t3"}}}`, ci, "trunk", "status", "8", "9")
+	queue.Logs = func(context.Context, string) (string, string, string) { return "sand-next-tests", "TestRead", "" }
 
-	if got := queue.LastFailure(context.Background(), 7); got != "GITHUB_API_MERGE_PR_FAILED" {
-		t.Fatalf("failure = %q", got)
+	got, err := queue.LastFailure(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.At != "t3" || got.Reason != "TEST_RUN_FAILED_BY_OPTIMIZATION" || got.Check != "buildkite/test" || got.Run != "run-1" || got.Test != "TestRead" {
+		t.Fatalf("failure = %+v", got)
+	}
+	if !slices.Equal(got.MatesFailed, []int{8}) {
+		t.Fatalf("mates failed = %v, want only the one Trunk reads failed", got.MatesFailed)
 	}
 }
 
-func TestAnUnreadHistoryNamesNoFailure(t *testing.T) {
+func TestACanceledEntryIsTheNewestEndAndReadsNoLog(t *testing.T) {
+	fake := &shelltest.Fake{}
+	queue, _ := trunk(t, fake)
+	fake.Reply(`[{"state":"failed","changedAt":"t0","reason":"TEST_RUN_TIMEOUT"},{"state":"cancelled","changedAt":"t1","reason":"USER_REQUESTED"}]`, queue.Checkout+"/tools/ci", "trunk", "history", "7")
+	queue.Logs = func(context.Context, string) (string, string, string) {
+		t.Fatal("a canceled attempt has no failed job to read")
+		return "", "", ""
+	}
+
+	got, err := queue.LastFailure(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != "cancelled" || got.Reason != "USER_REQUESTED" {
+		t.Fatalf("failure = %+v", got)
+	}
+}
+
+func TestAnUnreadHistoryIsAnErrorNotAnEmptyFailure(t *testing.T) {
 	fake := &shelltest.Fake{}
 	queue, _ := trunk(t, fake)
 	fake.Fail(1, "429 Too Many Requests", queue.Checkout+"/tools/ci")
 
-	if got := queue.LastFailure(context.Background(), 7); got != "" {
-		t.Fatalf("failure = %q", got)
+	if got, err := queue.LastFailure(context.Background(), 7); err == nil {
+		t.Fatalf("failure = %+v, want the read's error", got)
+	}
+}
+
+func TestStatesReadsEveryNumberInOneCallAndSkipsAPullWithNoEntry(t *testing.T) {
+	fake := &shelltest.Fake{}
+	queue, _ := trunk(t, fake)
+	fake.Reply(`{"7":{"sha":"abc","queueEntry":{"state":"notReady","stateChangedAt":"t0","readiness":{"mergeability":"conflict"}}},"8":{"sha":"def","queueEntry":null}}`, queue.Checkout+"/tools/ci", "trunk", "status", "7", "8")
+
+	got, err := queue.States(context.Background(), []int{7, 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[7].State != "notReady" || got[7].Head != "abc" || !strings.Contains(got[7].Readiness, "conflict") {
+		t.Fatalf("states = %+v", got)
 	}
 }
 

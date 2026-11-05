@@ -15,6 +15,7 @@
   "Approved": true,
   "Mergeable": "clean",
   "Queue": "evicted",
+  "Eviction": "Trunk canceled it at t0 (RESTACK)",
   "Finder": "clear",
   "Fidelity": "pass",
   "Exempt": true

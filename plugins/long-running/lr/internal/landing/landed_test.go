@@ -198,7 +198,7 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 	}
 }
 
-func TestAnUntappedDequeueIsABlockerToItsLaneAndTheMetaDesk(t *testing.T) {
+func TestAnUntappedDequeueIsABlockerToItsLaneOwnerRelayAndTheMetaDesk(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	ctx := context.Background()
 	s := storeWith(t, "meta-desk-3", "ssql-5")
@@ -216,7 +216,7 @@ func TestAnUntappedDequeueIsABlockerToItsLaneAndTheMetaDesk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{"ssql-5", "meta-desk-3"}) || !strings.HasPrefix(posted[0].Text, "UNTAPPED-DEQUEUED #46927") {
+	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{"ssql-5", "owner-relay", "meta-desk-3"}) || !strings.HasPrefix(posted[0].Text, "UNTAPPED-DEQUEUED #46927") {
 		t.Fatalf("posted = %+v", posted)
 	}
 

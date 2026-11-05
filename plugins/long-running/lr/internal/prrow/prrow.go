@@ -22,6 +22,7 @@ const (
 	StateDraft      = "draft"
 	StateTapped     = "tapped"
 	StateQueued     = "queued"
+	StateEvicted    = "evicted"
 	StateLanded     = "landed"
 	StateClosed     = "closed"
 	StateSuperseded = "superseded"

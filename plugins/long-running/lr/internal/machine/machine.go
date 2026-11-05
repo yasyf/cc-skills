@@ -111,6 +111,8 @@ const (
 const (
 	GradeStoppedFact  = "grade-stopped"
 	FidelityWaitsFact = "fidelity-waits"
+	EvictionFact      = "eviction"
+	EvictionOwnFact   = "eviction-own"
 )
 
 func OverrideFact(grader string) string {
@@ -163,6 +165,8 @@ type Facts struct {
 	Queue            Queue
 	QueuedHead       string
 	Resubmitted      int
+	Eviction         string
+	EvictionOwn      bool
 	Finder           Finder
 	Fidelity         Fidelity
 	FinderOverride   bool
@@ -246,6 +250,14 @@ func (v Verdict) OpensItem() bool {
 }
 
 func Classify(f Facts) Verdict {
+	verdict := classify(f)
+	if f.Queue == QueueEvicted && verdict.OpensItem() && verdict.State != StateRed {
+		verdict.State = StateEvicted
+	}
+	return verdict
+}
+
+func classify(f Facts) Verdict {
 	if f.Merged {
 		return Verdict{StateLanded, MoverNobody, ActionNone, 0}
 	}
@@ -258,9 +270,15 @@ func Classify(f Facts) Verdict {
 	if f.CI == CIFailure {
 		return Verdict{StateRed, MoverLane, ActionFixRed, LaneClock}
 	}
+	if f.Queue == QueueEvicted && f.EvictionOwn {
+		return Verdict{StateEvicted, MoverLane, ActionFixRed, LaneClock}
+	}
 	if f.Queue == QueueEvicted && f.Landable() {
-		if f.Resubmitted >= 1 {
+		switch {
+		case f.Resubmitted >= 1:
 			return Verdict{StateRed, MoverLane, ActionFixRed, LaneClock}
+		case f.Eviction == "":
+			return Verdict{StateEvicted, MoverSupervisor, ActionWatchQueue, QueueClock}
 		}
 		return Verdict{StateEvicted, MoverSupervisor, ActionEnqueue, SupervisorClock}
 	}

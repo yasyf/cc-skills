@@ -23,13 +23,12 @@ const (
 	freeRetries     = 3
 )
 
-var notItsOwnFailures = []string{"GITHUB_API_MERGE_PR_FAILED", "START_TEST_RUN_RETRY_EXHAUSTED", "TEST_RUN_FAILED_BY_OPTIMIZATION"}
-
 type Queue interface {
 	Enqueue(ctx context.Context, number int, head string) (string, error)
 	Reenter(ctx context.Context, number int) (string, error)
 	Dequeue(ctx context.Context, number int) (string, error)
-	LastFailure(ctx context.Context, number int) string
+	LastFailure(ctx context.Context, number int) (Failure, error)
+	States(ctx context.Context, numbers []int) (map[int]QueueEntry, error)
 }
 
 type Restacker interface {
@@ -144,6 +143,9 @@ func dequeued(f machine.Facts, said string) Said {
 		if f.TapFrom != "" {
 			answer.Text = fmt.Sprintf("his tap at %s does not carry to this head: %s; ", f.TapFrom[:min(10, len(f.TapFrom))], f.TapReturned)
 		}
+		if f.TapRefused != "" {
+			answer.Text += "his tap was refused: " + f.TapRefused + "; "
+		}
 		answer.Text += "it was queued with no owner tap and no go naming an exempt class at this head; a class on fidelity's ok admits it only through the go sweep, which posts its go on the next pass and needs no ask, and the pass queues it; lr landing go prints why the sweep refuses; an incident fix asks for nothing and lands by plain squash once approved and green"
 	default:
 		answer.Text = "an open hold names a PR below it"
@@ -168,7 +170,6 @@ func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 }
 
 func reenter(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, now time.Time, done *Done) error {
-	failure := queue.LastFailure(ctx, f.Number)
 	said, err := queue.Reenter(ctx, f.Number)
 	if err != nil {
 		return err
@@ -185,11 +186,16 @@ func reenter(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 		return fmt.Errorf("#%d %s: %w", f.Number, FreeRetriesFact, err)
 	}
 	fact, value := ResubmittedFact, strconv.Itoa(f.Resubmitted+1)
-	if free < freeRetries && (slices.Contains(notItsOwnFailures, failure) || !strings.HasPrefix(said, "exit 0")) {
+	if free < freeRetries && !strings.HasPrefix(said, "exit 0") {
 		fact, value = FreeRetriesFact, strconv.Itoa(free+1)
 	}
 	if _, err := s.PutFact(f.Repo, f.Number, f.Head, fact, value, now); err != nil {
 		return err
+	}
+	if fact == ResubmittedFact {
+		if err := forgetEviction(s, f); err != nil {
+			return err
+		}
 	}
 	done.Resubmitted = append(done.Resubmitted, Head{f.Number, f.Head})
 	return nil

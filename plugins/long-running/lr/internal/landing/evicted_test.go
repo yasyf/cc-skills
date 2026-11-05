@@ -1,0 +1,236 @@
+package landing_test
+
+import (
+	"context"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+)
+
+const evictionDrive = "d"
+
+var (
+	batchFailure = landing.Failure{State: "failed", At: "t1", Reason: "TEST_RUN_FAILED_BY_OPTIMIZATION", Check: "buildkite/test", URL: "https://b/1", MatesFailed: []int{8}}
+	ownFailure   = landing.Failure{State: "failed", At: "t1", Reason: "TEST_RUN_REQUIRED_STATUS_FAILED", Check: "buildkite/test", URL: "https://b/1", Job: "sand-next-tests", Test: "TestRead"}
+)
+
+func fellOut(f *machine.Facts) { f.Queue = machine.QueueEvicted }
+
+func evictions(s *store.Store, q *queue) landing.Evictions {
+	return landing.Evictions{Store: s, Queue: q, Drive: evictionDrive, Now: func() time.Time { return t0 }}
+}
+
+func settle(t *testing.T, s *store.Store, q *queue, snapshot ...machine.Facts) []machine.Facts {
+	t.Helper()
+	read, err := evictions(s, q).Pass(context.Background(), snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return read
+}
+
+func told(t *testing.T) []client.Record {
+	t.Helper()
+	records, err := client.Tail(context.Background(), client.Query{Drive: evictionDrive, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return records
+}
+
+func TestAnEvictedHeadPostsOneRecordAndMovesItsRowOnce(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, q := storeWith(t, "lane-7"), &queue{failure: ownFailure}
+
+	first := settle(t, s, q, facts(45711, fellOut))[0]
+	second := settle(t, s, q, first)[0]
+
+	records := told(t)
+	if len(records) != 1 || q.failureReads != 1 {
+		t.Fatalf("records = %+v, failure reads = %d, want one of each over two passes", records, q.failureReads)
+	}
+	for _, want := range []string{"EVICTED #45711", "TEST_RUN_REQUIRED_STATUS_FAILED", "buildkite/test https://b/1", "FAIL TestRead"} {
+		if !strings.Contains(records[0].Text, want) {
+			t.Errorf("record %q does not name %q", records[0].Text, want)
+		}
+	}
+	if !slices.Contains(records[0].To, "lane-7") || !slices.Contains(records[0].To, "owner-relay") {
+		t.Errorf("record goes to %v, want its lane and owner-relay", records[0].To)
+	}
+	if got := machine.Classify(second).State; got != machine.StateEvicted {
+		t.Errorf("state = %q", got)
+	}
+	if got := fact(t, s, 45711, machine.EvictionFact); !strings.Contains(got, "buildkite/test") {
+		t.Errorf("row's reason = %q", got)
+	}
+}
+
+func TestABatchFailureReentersOnceAndASecondEvictionStaysOut(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, q := storeWith(t, "lane-7"), &queue{failure: batchFailure}
+
+	read := settle(t, s, q, facts(45711, fellOut))
+	if read[0].EvictionOwn || !strings.Contains(told(t)[0].Text, "#8") {
+		t.Fatalf("facts = %+v, record = %q", read[0], told(t)[0].Text)
+	}
+	act(t, s, q, &restacker{}, t0, read...)
+	if !slices.Equal(q.reentered, []int{45711}) || fact(t, s, 45711, machine.EvictionFact) != "" {
+		t.Fatalf("reentered = %v, eviction fact = %q", q.reentered, fact(t, s, 45711, machine.EvictionFact))
+	}
+
+	q.failure.At = "t2"
+	again := settle(t, s, q, facts(45711, func(f *machine.Facts) {
+		f.Queue, f.Resubmitted = machine.QueueEvicted, 1
+	}))
+	act(t, s, q, &restacker{}, t0, again...)
+
+	if len(q.reentered) != 1 {
+		t.Fatalf("reentered = %v, want one re-entry at this head", q.reentered)
+	}
+	if !again[0].EvictionOwn || len(told(t)) != 2 {
+		t.Fatalf("facts = %+v, records = %+v", again[0], told(t))
+	}
+}
+
+func TestItsOwnRedCheckGoesToItsLaneAndNeverReenters(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, q := storeWith(t, "lane-7"), &queue{failure: ownFailure}
+
+	read := settle(t, s, q, facts(45711, fellOut))
+	done := act(t, s, q, &restacker{}, t0, read...)
+
+	if len(q.reentered) != 0 || len(done.Resubmitted) != 0 {
+		t.Fatalf("reentered = %v, done = %+v", q.reentered, done)
+	}
+	if got := machine.Classify(read[0]); got.Mover != machine.MoverLane || got.Action != machine.ActionFixRed {
+		t.Fatalf("verdict = %+v", got)
+	}
+	if records := told(t); string(records[0].Kind) != "blocker" {
+		t.Fatalf("kind = %q", records[0].Kind)
+	}
+}
+
+func TestEvidenceDecidesWhetherAFailureIsItsOwn(t *testing.T) {
+	for name, c := range map[string]struct {
+		failure landing.Failure
+		own     bool
+	}{
+		"a lone run's red check":       {ownFailure, true},
+		"optimized away, no evidence":  {landing.Failure{State: "failed", At: "t", Reason: "TEST_RUN_FAILED_BY_OPTIMIZATION"}, true},
+		"a mate fell in the same run":  {batchFailure, false},
+		"trunk's own step failed":      {landing.Failure{State: "failed", At: "t", Reason: "GITHUB_API_MERGE_PR_FAILED"}, false},
+		"the log reads infrastructure": {landing.Failure{State: "failed", At: "t", Job: "j", Infra: "no space left on device"}, false},
+		"canceled, not failed":         {landing.Failure{State: "cancelled", At: "t", Reason: "USER_REQUESTED"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			s, q := storeWith(t, "lane-7"), &queue{failure: c.failure}
+
+			if got := settle(t, s, q, facts(45711, fellOut))[0].EvictionOwn; got != c.own {
+				t.Fatalf("own = %v, want %v", got, c.own)
+			}
+		})
+	}
+}
+
+func TestAFailureAnOpenFlakeNamesIsNotItsOwn(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	if _, err := client.Post(context.Background(), client.Draft{Drive: evictionDrive, Lane: "supervisor", Kind: "defect", To: []string{"flakes"}, Topic: "dev-red", ID: "flake:one", Force: true, Attrs: map[string]string{"flake": "TestRead"}, Text: "flake TestRead"}); err != nil {
+		t.Fatal(err)
+	}
+	s, q := storeWith(t, "lane-7"), &queue{failure: ownFailure}
+
+	if got := settle(t, s, q, facts(45711, fellOut))[0].EvictionOwn; got {
+		t.Fatal("a failure an open flake names read as its own")
+	}
+}
+
+func TestARowReadingQueuedThatTrunkFailedReadsEvicted(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s := storeWith(t, "lane-7")
+	q := &queue{failure: batchFailure, states: map[int]landing.QueueEntry{45711: {State: "failed", Head: head}}}
+	queued := facts(45711, func(f *machine.Facts) { f.Queue, f.QueuedHead = machine.QueueQueued, head })
+
+	read := settle(t, s, q, queued)
+
+	if read[0].Queue != machine.QueueEvicted || read[0].Eviction == "" || len(told(t)) != 1 {
+		t.Fatalf("facts = %+v, records = %+v", read[0], told(t))
+	}
+}
+
+func TestANotReadyEntryPastTheQueueClockIsToldOnce(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s := storeWith(t, "lane-7")
+	stale := t0.Add(-machine.QueueClock - time.Minute).Format(time.RFC3339)
+	fresh := t0.Add(-time.Minute).Format(time.RFC3339)
+	q := &queue{states: map[int]landing.QueueEntry{
+		1: {State: "notReady", Head: head, ChangedAt: stale, Readiness: `{"mergeability":"conflict"}`},
+		2: {State: "notReady", Head: head, ChangedAt: fresh},
+	}}
+	queued := func(f *machine.Facts) { f.Queue, f.QueuedHead = machine.QueueQueued, head }
+
+	settle(t, s, q, facts(1, queued), facts(2, queued))
+	settle(t, s, q, facts(1, queued), facts(2, queued))
+
+	records := told(t)
+	if len(records) != 1 || !strings.Contains(records[0].Text, "NOT-READY #1") || !strings.Contains(records[0].Text, "conflict") {
+		t.Fatalf("records = %+v", records)
+	}
+}
+
+func TestAReenteredRowForgetsItsEviction(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, q := storeWith(t, "lane-7"), &queue{failure: ownFailure}
+	read := settle(t, s, q, facts(45711, fellOut))
+	read[0].Queue, read[0].QueuedHead = machine.QueueQueued, head
+
+	again := settle(t, s, q, read...)
+
+	if again[0].Eviction != "" || fact(t, s, 45711, machine.EvictionFact) != "" || fact(t, s, 45711, machine.EvictionOwnFact) != "" {
+		t.Fatalf("facts = %+v", again[0])
+	}
+}
+
+func TestQueueReadsStayFlatWithTheRowCount(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	reads := func(rows int) (status, failure int) {
+		s, q := storeWith(t, "lane-7"), &queue{failure: ownFailure}
+		snapshot := make([]machine.Facts, rows)
+		for at := range snapshot {
+			snapshot[at] = facts(at+1, func(f *machine.Facts) { f.Queue, f.QueuedHead = machine.QueueQueued, head })
+		}
+		settle(t, s, q, snapshot...)
+		return q.statusReads, q.failureReads
+	}
+
+	oneStatus, oneFailure := reads(1)
+	manyStatus, manyFailure := reads(1000)
+
+	if oneStatus != 1 || manyStatus != 1 || oneFailure != 0 || manyFailure != 0 {
+		t.Fatalf("N=1 read %d, %d; N=1000 read %d, %d; want one status call and no failure read at each", oneStatus, oneFailure, manyStatus, manyFailure)
+	}
+}
+
+func TestADequeueAlarmReachesOwnerRelayAndNamesHisRefusedTap(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, q := storeWith(t, "lane-7"), &queue{}
+	queued := facts(50160, func(f *machine.Facts) {
+		f.Queue, f.QueuedHead, f.Tap, f.TapRefused = machine.QueueQueued, head, "", "a grade needs a verdict"
+	})
+
+	done := act(t, s, q, &restacker{}, t0, queued)
+	if err := landing.Settle(context.Background(), s, evictionDrive, done.Said); err != nil {
+		t.Fatal(err)
+	}
+
+	records := told(t)
+	if len(records) != 1 || !slices.Contains(records[0].To, "owner-relay") || !strings.Contains(records[0].Text, "his tap was refused: a grade needs a verdict") {
+		t.Fatalf("records = %+v", records)
+	}
+}
