@@ -1602,3 +1602,67 @@ func TestAPullRequestEventMakesNoRowForAPRTheDriveDoesNotHold(t *testing.T) {
 		t.Fatalf("rows = %v, want only #1", slices.Collect(maps.Keys(rows)))
 	}
 }
+
+func gitHubCheck(t *testing.T, repo, head, check, outcome, required string) client.Record {
+	t.Helper()
+	var record client.Record
+	raw := fmt.Sprintf(`{"seq":1,"drive":"github-pr","lane":"github","kind":"github","at":%q,"topic":"check","fields":{"outcome":%q,"commit":%q,"attrs":{"repo":%q,"check":%q,"required":%q}}}`,
+		time.Now().Format(time.RFC3339Nano), outcome, head, repo, check, required)
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func checkedCI(t *testing.T, records ...client.Record) string {
+	t.Helper()
+	f, s := foldFor(t)
+	rows := map[int]store.ReviewRow{1: readyRow()}
+	for _, record := range records {
+		if err := s.Update(func(tx *store.Tx) error { return f.follow(tx, rows, record) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	facts, err := s.Facts(testRepo, 1, headA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return facts[factCI]
+}
+
+func TestTheOnlyRequiredCheckPassingAtTheHeadReadsGreen(t *testing.T) {
+	if ci := checkedCI(t, gitHubCheck(t, testRepo, headA, "buildkite/test", "success", "buildkite/test")); ci != CIGreen {
+		t.Fatalf("ci = %q, want green", ci)
+	}
+}
+
+func TestARowWaitsForEveryRequiredCheckBeforeGreen(t *testing.T) {
+	first := gitHubCheck(t, testRepo, headA, "test", "success", "test,lint")
+	if ci := checkedCI(t, first); ci != "" {
+		t.Fatalf("ci = %q with one of two required checks passed, want it left to the read", ci)
+	}
+	if ci := checkedCI(t, first, gitHubCheck(t, testRepo, headA, "lint", "skipped", "test,lint")); ci != CIGreen {
+		t.Fatalf("ci = %q with both required checks passed, want green", ci)
+	}
+}
+
+func TestARequiredFailureReadsRedAndARerunThatPassesReadsGreen(t *testing.T) {
+	failed := gitHubCheck(t, testRepo, headA, "test", "failure", "test")
+	if ci := checkedCI(t, failed); ci != CIRed {
+		t.Fatalf("ci = %q after a required failure, want red", ci)
+	}
+	if ci := checkedCI(t, failed, gitHubCheck(t, testRepo, headA, "test", "success", "test")); ci != CIGreen {
+		t.Fatalf("ci = %q after the rerun passed, want green", ci)
+	}
+}
+
+func TestACheckOnAnotherHeadOrRepoLeavesTheRow(t *testing.T) {
+	for _, record := range []client.Record{
+		gitHubCheck(t, testRepo, headB, "test", "failure", "test"),
+		gitHubCheck(t, "o/other", headA, "test", "failure", "test"),
+	} {
+		if ci := checkedCI(t, record); ci != "" {
+			t.Fatalf("ci = %q from %+v, want the row untouched", ci, record.Fields)
+		}
+	}
+}
