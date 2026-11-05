@@ -51,6 +51,13 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 		return fmt.Errorf("pass skipped: %w", err)
 	}
 	now := a.Now()
+	if slices.Contains(cfg.Movers, config.MoverLanding) {
+		posted, err := SweepGos(ctx, a, cfg, s, snapshot, now, stdout)
+		if err != nil {
+			return fmt.Errorf("the go sweep stopped: %w", err)
+		}
+		snapshot = Exempted(snapshot, posted)
+	}
 	b := bus.Bus{Drive: cfg.Drive, Lane: self}
 	post := func(to []string, body bus.Body) error {
 		_, err := b.Post(ctx, to, body)
@@ -87,9 +94,6 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "%s landing enqueued=%d resubmitted=%d dequeued=%d restacked=%d conflicts=%d\n", store.Stamp(now), len(done.Enqueued), len(done.Resubmitted), len(done.Dequeued), len(done.Restacked), len(done.Conflicts))
 	if err != nil {
 		return fmt.Errorf("movers stopped mid-pass: %w", err)
-	}
-	if err := SweepGos(ctx, a, cfg, s, snapshot, now, stdout); err != nil {
-		return fmt.Errorf("the go sweep stopped: %w", err)
 	}
 	return nil
 }

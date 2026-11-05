@@ -113,7 +113,7 @@ func ExemptGo(c Claim, r Read) (string, []string) {
 	if (class == FlakeFixClass || isPortClass(class)) && len(classRefused) == 0 {
 		rules = nil
 	}
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), openCards(c, r), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), OpenCards(c.PR, r.Cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", refusals
 	}
@@ -227,6 +227,10 @@ func PortRefusals(facts map[string]string) []string {
 		out = append(out, fmt.Sprintf("port: %s is outside %s, so it is no pure port and lands on his tap", outside, portTree))
 	}
 	return out
+}
+
+func PortSourceLanded(facts map[string]string) bool {
+	return facts[PortSourceFact] == portSourceMerged
 }
 
 func PortEvidence(sourceMerged bool, files []string) map[string]string {
@@ -404,10 +408,10 @@ func openHolds(c Claim, records []client.Record, lifts map[int64]bool) []string 
 	return out
 }
 
-func openCards(c Claim, r Read) []string {
-	names := regexp.MustCompile(`(?:^|\D)` + strconv.Itoa(c.PR) + `(?:\D|$)`)
+func OpenCards(pr int, cards []Card) []string {
+	names := regexp.MustCompile(`(?:^|\D)` + strconv.Itoa(pr) + `(?:\D|$)`)
 	var out []string
-	for _, card := range r.Cards {
+	for _, card := range cards {
 		if names.MatchString(card.ID) || names.MatchString(card.Title) {
 			out = append(out, fmt.Sprintf("owner card %s is open", card.ID))
 		}

@@ -2,6 +2,7 @@ package landing
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -61,20 +62,56 @@ func TestTheSweepGatesOnlyAGreenApprovedGradedHeadWithNoGoHoldOrTap(t *testing.T
 	}
 }
 
-func TestARefusedHeadIsNotGatedAgainWithinTenMinutesSoThePassMakesNoReadsForIt(t *testing.T) {
+func sweepReads(t *testing.T, heads int) (unchanged, oneChanged int) {
+	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
 	s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	now := time.Date(2026, 11, 4, 18, 0, 0, 0, time.UTC)
-	ready := machine.Facts{Number: 7, Head: "abc1234", CI: machine.CISuccess, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
-	if err := s.Probe(goProbe(ready.Number), now); err != nil {
-		t.Fatal(err)
+	now := time.Now().UTC()
+	post := func(draft client.Draft) {
+		if _, err := client.Post(ctx, draft); err != nil {
+			t.Fatal(err)
+		}
 	}
+	post(client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{}`}})
+	snapshot := make([]machine.Facts, heads)
+	for i := range snapshot {
+		number, head := i+1, fmt.Sprintf("%040x", i+1)
+		post(client.Draft{Drive: "d", Lane: "lane-1", Kind: "head", Text: fmt.Sprintf("HEAD #%d", number), PRs: []string{fmt.Sprintf("o/r#%d", number)}, Attrs: map[string]string{fmt.Sprintf("head:%d", number): head, gates.PortOfAttr: "40810"}})
+		snapshot[i] = machine.Facts{Repo: "o/r", Number: number, Head: head, Base: "dev", Lane: "lane-1", CI: machine.CISuccess, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
+	}
+	runner := &shelltest.Fake{}
+	runner.Reply(`[{"number":40810,"state":"MERGED"}]`, "ccx", "vcs", "pr", "status")
+	a := app.New(io.Discard)
+	a.Runner, a.Now = runner, func() time.Time { return now }
+	sweep := func() int {
+		before := len(runner.Calls())
+		if _, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, snapshot, now, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		return len(runner.Calls()) - before
+	}
+	if first := sweep(); first != heads {
+		t.Fatalf("the first sweep made %d reads for %d new heads, want one port-source read each", first, heads)
+	}
+	unchanged = sweep()
+	post(client.Draft{Drive: "d", Lane: "lane-1", Kind: "note", Text: "rebased onto dev", PRs: []string{"o/r#1"}})
+	return unchanged, sweep()
+}
 
-	if err := SweepGos(context.Background(), nil, config.Config{}, s, []machine.Facts{ready}, now.Add(goRegate-time.Second), io.Discard); err != nil {
-		t.Fatalf("the sweep read the gate for a head refused within %s: %v", goRegate, err)
+func TestTheSweepReadsAsMuchForAThousandReadyHeadsAsForOneAndOnlyForWhatChanged(t *testing.T) {
+	oneUnchanged, oneChanged := sweepReads(t, 1)
+	manyUnchanged, manyChanged := sweepReads(t, 1000)
+
+	if oneUnchanged != 0 || manyUnchanged != oneUnchanged {
+		t.Fatalf("a sweep with nothing changed made %d reads at N=1 and %d at N=1000, want none at either", oneUnchanged, manyUnchanged)
+	}
+	if oneChanged != 1 || manyChanged != oneChanged {
+		t.Fatalf("a sweep after one PR's record made %d reads at N=1 and %d at N=1000, want that PR's one read at both", oneChanged, manyChanged)
 	}
 }
 
@@ -247,7 +284,7 @@ func TestAHeadWhoseReadFailsIsSkippedWithOneRecordWhileTheSweepGatesTheRest(t *t
 	var out strings.Builder
 
 	for range 2 {
-		if err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready(1, port), ready(2, plain)}, now, &out); err != nil {
+		if _, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready(1, port), ready(2, plain)}, now, &out); err != nil {
 			t.Fatalf("the sweep stopped on one head's failed read: %v", err)
 		}
 	}

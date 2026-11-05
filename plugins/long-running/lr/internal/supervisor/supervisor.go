@@ -56,7 +56,7 @@ type Deps struct {
 	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
 	DropStale func(ctx context.Context, snapshot []machine.Facts) error
 	Unstick   func(ctx context.Context, snapshot []machine.Facts) error
-	SweepGos  func(ctx context.Context, snapshot []machine.Facts) error
+	SweepGos  func(ctx context.Context, snapshot []machine.Facts) ([]int, error)
 	Pool      grading.Pool
 	Stale     func(ctx context.Context) (bool, error)
 	Log       *slog.Logger
@@ -115,7 +115,9 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 	if err := s.Advance(passedName, now.Unix()); err != nil {
 		return report, err
 	}
+	began := d.Clock()
 	snapshot, err := d.Snapshot(ctx)
+	read := d.Clock()
 	if err != nil {
 		d.Log.Warn("pass skipped", "err", err)
 		if err := tellUnread(s, d.Post, err, now); err != nil {
@@ -132,6 +134,14 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 			}
 		}
 	}
+	if d.SweepGos != nil && slices.Contains(d.Movers, "landing") {
+		posted, err := d.SweepGos(ctx, snapshot)
+		if err != nil {
+			d.Log.Warn("the go sweep stopped", "err", err)
+		}
+		snapshot = landing.Exempted(snapshot, posted)
+	}
+	swept := d.Clock()
 	route, err := watch.Desks(s)
 	if err != nil {
 		return report, err
@@ -164,6 +174,7 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 			logDropped(d.Log, acts, admitted, "a gate refused it or a PR below it")
 			acts = admitted
 		}
+		gated := d.Clock()
 		if err := s.RenewLease(drive, generation, d.Clock().UTC()); err != nil {
 			return report, err
 		}
@@ -171,6 +182,7 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		if err != nil {
 			d.Log.Warn("landing stopped mid-pass", "err", err)
 		}
+		acted := d.Clock()
 		for _, said := range landed.Said {
 			d.Log.Info("the queue answered", "pr", said.Facts.Number, "head", said.Facts.Head, "said", said.Text)
 		}
@@ -183,11 +195,7 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 				d.Log.Warn("a PR stuck on an unknown mergeability was not retried", "err", err)
 			}
 		}
-		if d.SweepGos != nil {
-			if err := d.SweepGos(ctx, snapshot); err != nil {
-				d.Log.Warn("the go sweep stopped", "err", err)
-			}
-		}
+		d.Log.Info("a landing pass ended", "prs", len(snapshot), "enqueued", report.Enqueued, "read", read.Sub(began).String(), "sweep", swept.Sub(read).String(), "admit", gated.Sub(swept).String(), "act", acted.Sub(gated).String(), "total", d.Clock().Sub(began).String())
 	}
 	if slices.Contains(d.Movers, "grading") {
 		items, err := s.OpenItems("", 0)
