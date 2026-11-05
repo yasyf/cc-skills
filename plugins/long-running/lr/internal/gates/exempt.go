@@ -366,12 +366,18 @@ func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string
 }
 
 func countedOverride(c Claim, r Read, grader string, cited func(client.Record, string) bool) (client.Record, bool) {
+	withdrawn := map[bus.Override]bool{}
+	for _, record := range r.Records {
+		for _, override := range bus.WithdrawnOverrides(record, r.Records) {
+			withdrawn[override] = true
+		}
+	}
 	for _, record := range slices.Backward(r.Records) {
 		if string(record.Kind) != kindDecide || record.Lane != rootLane && record.Lane != bus.SweepLane {
 			continue
 		}
 		if slices.ContainsFunc(bus.Overrides(record), func(o bus.Override) bool {
-			return o.Grader == grader && o.PR == c.PR && strings.HasPrefix(c.Head, o.Head) && cited(record, o.Cites)
+			return o.Grader == grader && o.PR == c.PR && strings.HasPrefix(c.Head, o.Head) && !withdrawn[o] && cited(record, o.Cites)
 		}) {
 			return record, true
 		}

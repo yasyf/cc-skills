@@ -119,6 +119,10 @@ func OverrideFact(grader string) string {
 	return "override-" + grader
 }
 
+func WithdrawnOverrideFact(grader string) string {
+	return "withdrawn-" + OverrideFact(grader)
+}
+
 func OverridesOf(stored map[string]string) (finder, fidelity bool) {
 	return stored[OverrideFact("finder")] != "", stored[OverrideFact("fidelity")] != ""
 }

@@ -161,6 +161,9 @@ WHERE r.repo = ? ORDER BY f.posted, f.kind LIKE 'override-%', length(f.head)`, r
 		}
 		foldFact(at[one.number], one.kind, one.value)
 	}
+	for _, facts := range at {
+		dropWithdrawn(facts)
+	}
 	return at, nil
 }
 
