@@ -232,6 +232,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			if err := installLink(ctx, agents, env); err != nil {
 				a.Log.Warn("the board link's launchd job is not installed, so no lane's card reaches his board", "err", err)
 			}
+			if _, hosted := orcaRunner.Sections["host"]; hosted {
+				if err := agents.Install(ctx, agentOf(env).DeskCredsJob(orcaRunner.Source)); err != nil {
+					a.Log.Warn("the desk-creds launchd job is not installed, so a restarted desk host waits for a push by hand", "err", err)
+				}
+			}
 			checks = append(checks, NewRelayKeeper(env.State, orcaRunner.Orca.DeskInbox, s, post, a.Log).Check)
 		}
 	}
@@ -380,6 +385,11 @@ func Install(cmd *cobra.Command, a *app.App) error {
 		}
 		if err := installLink(cmd.Context(), agents, env); err != nil {
 			return err
+		}
+		if _, hosted := runner.Sections["host"]; hosted {
+			if err := agents.Install(cmd.Context(), agent.DeskCredsJob(runner.Source)); err != nil {
+				return err
+			}
 		}
 	}
 	return agents.Install(cmd.Context(), agent.Job())
