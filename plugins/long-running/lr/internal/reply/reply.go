@@ -83,6 +83,7 @@ var (
 	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
 	slackStamp = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\?|$)`)
 	laneRole   = regexp.MustCompile(`-(?:fix|evidence|comms)$`)
+	asksTap    = regexp.MustCompile(`(?im)^\s*(?:tap|approve)\b|\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 )
 
@@ -297,6 +298,25 @@ func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 		r.MD = strings.Join(opening, ", ") + "\n\n" + r.MD
 	}
 	return r, ""
+}
+
+func (f Fanout) nothingToTap(r Reply) error {
+	if len(r.Picks) > 0 || !asksTap.MatchString(cardtext.HiddenCite.ReplaceAllString(r.Title+"\n"+r.MD, " ")) {
+		return nil
+	}
+	numbers := make([]int, len(r.PRs))
+	for n, pr := range r.PRs {
+		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
+	}
+	if len(numbers) > 0 {
+		_, rows, err := board.Rows(f.Entry, numbers)
+		if err != nil || slices.ContainsFunc(rows, func(row store.ReviewRow) bool {
+			return slices.Contains(numbers, row.Number) && row.ReadyForTap && !row.Tapped && prrow.TapRefusal(row) == ""
+		}) {
+			return nil
+		}
+	}
+	return errors.New("NOTHING TO TAP: this asks him to tap, approve or answer, and it carries no picks and no PR in prs that is ready for his tap, so he would get a message with nothing to tap and nothing went out; add the picks, list the ready PR in prs, or say what it waits on without asking him")
 }
 
 func (f Fanout) tapWarning(r Reply) string {
