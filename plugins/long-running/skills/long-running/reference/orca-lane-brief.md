@@ -439,7 +439,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   Dry-run a bulk poster before it posts.
 - In a public repo, PR bodies, commits, review comments and docs paraphrase the owner and
   cite answer ids; his words stay in cci and cc-notes. A Forge-AI/monorepo PR body quotes
-  his words, since the finder grades a paraphrase as missing the row. Run `gh pr` verbs directly, never through a
+  his words, since the finder grades a paraphrase as missing the row. A PR adding or changing a public API
+  says, in its body and its lines to him: the signature, the alternatives weighed, the choice and why. Run `gh pr` verbs directly, never through a
   script file that hides them from the hooks. Correct an open PR's body unasked with
   `gh pr edit <n> --body-file <file>` when it turns out false or when evidence a grader
   reads arrives; rework that leaves it true goes in one PR comment.
@@ -464,6 +465,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   new codex pass, and posts `finder: ok` when the second fix was its one major. A port names no
   class: a body that opens `port of #<n>` draws no second-fix major, and the class fix is a
   follow-up its `finder: ok` lists.
+
+A change does what its request names and nothing else: behavior the request does not name stays, and a lane that thinks it must go brings that as a pick and never removes it.
 
 Escalate early, never improvise: scope surprise, an assumption the code refutes, an
 auth or approval gate, or two failed approaches. Ask with 2-4 options.
