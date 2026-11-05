@@ -39,7 +39,9 @@ const (
 	gcEvery      = 5 * time.Minute
 	gcTimeout    = 10 * time.Minute
 	staleSilence = 2 * time.Hour
+	endedQuiet   = StaleAfter
 	ReapTopic    = "session-reap"
+	closedTopic  = "terminal-closed"
 	stopTimeout  = 5 * time.Minute
 	stopRelease  = "v0.27.4"
 	stopTries    = 3
@@ -995,19 +997,20 @@ func (e Env) keepWanted(s *store.Store) ([]string, error) {
 	return keep, nil
 }
 
-func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([]string, error) {
+type staleLane struct {
+	name, dispatch, last, retiredBy string
+	heard                           time.Time
+	ended, settled                  bool
+}
+
+func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([]staleLane, error) {
 	registered, err := s.AllLanes()
 	if err != nil {
 		return nil, err
 	}
-	heard, err := s.Heard()
-	if err != nil {
-		return nil, err
-	}
-	var candidates []string
+	var candidates []staleLane
 	for _, lane := range registered {
-		at, known := heard[lane.Name]
-		if lane.State != store.LaneRetired || lane.Name == Root || lane.Name == OwnerRelay || !known || now.Sub(at) < staleSilence {
+		if lane.State != store.LaneRetired || lane.Name == Root || lane.Name == OwnerRelay || slices.Contains(standingRoles, lane.Role) || lane.Heard.IsZero() || now.Sub(lane.Heard) < endedQuiet {
 			continue
 		}
 		if _, err := os.Stat(lane.Brief); err != nil {
@@ -1018,9 +1021,25 @@ func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([
 			continue
 		}
 		if dispatch := dispatchOf(e.receipts(), lane.Name); dispatch != "" {
-			candidates = append(candidates, dispatch)
+			candidates = append(candidates, staleLane{name: lane.Name, dispatch: dispatch, last: lane.Last, retiredBy: lane.RetiredBy, heard: lane.Heard})
 		}
 	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	// TODO: once resting-lanes-gone's relaunch wakes a closed lane on his answer, a lane with an open ask or card may close at endedQuiet too.
+	open, err := e.Bus.Open(ctx, e.Config.Drive, "ask", "blocker", "decide")
+	if err != nil {
+		return nil, fmt.Errorf("%w: cci open: %w", ErrUnread, err)
+	}
+	asking := map[string]bool{}
+	for _, r := range open {
+		asking[r.Lane] = true
+	}
+	for i, lane := range candidates {
+		candidates[i].ended = !asking[lane.name] && (slices.Contains(laneEnds, lane.last) || lane.last == kindLanded || slices.Contains([]string{"done", retiredStopped, retiredWorkerDone}, lane.retiredBy))
+	}
+	candidates = slices.DeleteFunc(candidates, func(lane staleLane) bool { return !lane.ended && now.Sub(lane.heard) < staleSilence })
 	if len(candidates) == 0 {
 		return nil, nil
 	}
@@ -1028,13 +1047,15 @@ func (e Env) staleRetired(ctx context.Context, s *store.Store, now time.Time) ([
 	if err != nil {
 		return nil, err
 	}
-	var stale []string
-	for _, dispatch := range candidates {
-		if read, known := statuses[dispatch]; known && !slices.Contains(settledDispatch, read.Status) {
-			stale = append(stale, "--stale", dispatch)
+	var due []staleLane
+	for _, lane := range candidates {
+		read, known := statuses[lane.dispatch]
+		lane.settled = slices.Contains(settledDispatch, read.Status)
+		if known && (lane.ended || !lane.settled) {
+			due = append(due, lane)
 		}
 	}
-	return stale, nil
+	return due, nil
 }
 
 type headcount struct {
@@ -1101,14 +1122,26 @@ func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
 		g.Log.Warn("lr gc --new did not read which retired lanes are stale", "err", err)
 		stale = nil
 	}
+	var staleArgs []string
+	for _, lane := range stale {
+		if lane.ended {
+			staleArgs = append(staleArgs, "--finished", lane.dispatch)
+		}
+		if !lane.settled {
+			staleArgs = append(staleArgs, "--stale", lane.dispatch)
+		}
+	}
 	before, uncounted := g.Env.headcount(ctx)
-	result, err := g.Env.gc(ctx, slices.Concat(keep, stale, []string{"--new"})...)
+	result, err := g.Env.gc(ctx, slices.Concat(keep, staleArgs, []string{"--new"})...)
 	if err != nil {
 		g.Log.Warn("lr gc --new did not finish", "err", err, "said", strings.TrimSpace(result.Stderr))
 		return nil
 	}
 	said := strings.TrimSpace(result.Stdout)
 	g.Log.Info("lr gc --new", "said", said)
+	if err := g.nameClosed(ctx, stale, said, now); err != nil {
+		return err
+	}
 	if uncounted != nil {
 		g.Log.Warn("lr gc --new did not count before its pass", "err", uncounted)
 		return nil
@@ -1125,6 +1158,42 @@ func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
 	_, err = g.Env.Bus.Post(ctx, client.Draft{Drive: g.Env.Config.Drive, Lane: Self, Kind: "state", Topic: ReapTopic, ID: fmt.Sprintf("%s:%d", ReapTopic, now.Unix()), Text: reapText(before, after, tally)})
 	if err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+	}
+	return nil
+}
+
+func (g *SettledGC) nameClosed(ctx context.Context, stale []staleLane, said string, now time.Time) error {
+	closedBy := map[string]bool{}
+	for line := range strings.SplitSeq(said, "\n") {
+		fields := strings.Fields(line)
+		switch {
+		case len(fields) == 3 && fields[0] == "stopped":
+			closedBy[fields[1]] = true
+		case len(fields) >= 4 && fields[0] == "closed" && fields[2] == "dispatch":
+			closedBy[fields[3]] = true
+		}
+	}
+	closed := slices.DeleteFunc(slices.Clone(stale), func(lane staleLane) bool { return !closedBy[lane.dispatch] })
+	if len(closed) == 0 {
+		return nil
+	}
+	year, month, day := now.In(pacificZone).Date()
+	today, err := g.Env.Bus.Tail(ctx, client.Query{Drive: g.Env.Config.Drive, Since: time.Date(year, month, day, 0, 0, 0, 0, pacificZone), Kinds: []string{"state"}, Lanes: []string{Self}})
+	if err != nil {
+		return fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
+	}
+	count := 0
+	for _, r := range today {
+		if r.Topic == closedTopic {
+			count++
+		}
+	}
+	for _, lane := range closed {
+		count++
+		text := fmt.Sprintf("%s's terminal closed: its last record was %s and the registry retired it (%s); lr gc found it at an empty prompt under the agent process it launched. Dispatch %s. Lane terminals closed today: %d.", lane.name, lane.last, lane.retiredBy, lane.dispatch, count)
+		if _, err := g.Env.Bus.Post(ctx, client.Draft{Drive: g.Env.Config.Drive, Lane: Self, Kind: "state", Topic: closedTopic, ID: closedTopic + ":" + lane.dispatch, Text: text}); err != nil {
+			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+		}
 	}
 	return nil
 }

@@ -243,6 +243,30 @@ func TestATreeHoldingUnsavedWorkKeepsItsSessionOpen(t *testing.T) {
 	}
 }
 
+func TestAFinishedLanesUnsavedTreeKeepsTheTreeAsItIsAndClosesItsTerminal(t *testing.T) {
+	for name, tree := range map[string]Checkout{"uncommitted changes": checkout(testWT, dirtyTree), "unpushed commits on v3/lane": checkout(testWT, withHead(headD))} {
+		t.Run(name, func(t *testing.T) {
+			orca := newOrca(row("ctx_a"))
+			orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
+			tally, out := runGC(t, orca, newGit(tree), gcOptions{finished: map[string]bool{"ctx_a": true}})
+			wantTally(t, tally, Tally{verbKeep: 1, verbClosed: 1})
+			wantCalls(t, orca, []string{"close", "term_ctx_a"})
+			wantSaid(t, out, "keep "+testWT+" "+name, "closed term_ctx_a dispatch ctx_a")
+		})
+	}
+}
+
+func TestAFinishedLanesTreeGitCannotReadKeepsItsTerminal(t *testing.T) {
+	orca := newOrca(row("ctx_a"))
+	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
+	git := newGit()
+	git.reads[testWT] = CheckoutRead{Refusal: "git cannot read it: fatal: not a git repository"}
+	tally, out := runGC(t, orca, git, gcOptions{finished: map[string]bool{"ctx_a": true}})
+	wantTally(t, tally, Tally{verbKeep: 2})
+	wantCalls(t, orca)
+	wantSaid(t, out, "keep term_ctx_a its worktree is kept: git cannot read it")
+}
+
 func TestASettledSessionIdleAtItsPromptWithACleanPushedTreeIsClosedAndRemoved(t *testing.T) {
 	orca := newOrca(row("ctx_a"))
 	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
@@ -594,9 +618,9 @@ func TestADryRunReadsTheLiveProcessScan(t *testing.T) {
 	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
 	orca.holders[testWT] = heldOpenInside
 	tally, out := runGC(t, orca, newGit(checkout(testWT)), gcOptions{dryRun: true})
-	wantTally(t, tally, Tally{verbKeep: 1})
+	wantTally(t, tally, Tally{verbKeep: 1, verbClose: 1})
 	wantCalls(t, orca)
-	wantSaid(t, out, "keep "+testWT+" "+heldOpenInside)
+	wantSaid(t, out, "keep "+testWT+" "+heldOpenInside, "would close term_ctx_a")
 	if strings.Contains(out, "would remove") {
 		t.Fatalf("output %q plans a removal a real run refuses", out)
 	}
@@ -612,15 +636,27 @@ func TestATreeALiveProcessHoldsIsKept(t *testing.T) {
 	wantSaid(t, out, "keep "+testWT+" live process script /s/runner.zsh names it")
 }
 
-func TestARemovalALiveProcessRefusesLeavesItsAgentTerminalOpen(t *testing.T) {
+func TestAProcessOutsideTheLanesTerminalHoldingItsSavedTreeKeepsTheTreeAndClosesTheTerminal(t *testing.T) {
 	orca := newOrca(row("ctx_a"))
 	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
 	orca.holders[testWT] = heldOpenInside
 	tally, out := runGC(t, orca, newGit(checkout(testWT)), gcOptions{})
-	wantTally(t, tally, Tally{verbKeep: 1})
-	wantCalls(t, orca)
-	if strings.Contains(out, "closed term_ctx_a") {
-		t.Fatalf("output %q closed the terminal", out)
+	wantTally(t, tally, Tally{verbKeep: 1, verbClosed: 1})
+	wantCalls(t, orca, []string{"close", "term_ctx_a"})
+	wantSaid(t, out, "keep "+testWT+" "+heldOpenInside, "closed term_ctx_a dispatch ctx_a")
+}
+
+func TestAHolderThatMayRunInsideTheLanesTerminalLeavesItOpen(t *testing.T) {
+	for _, held := range []string{heldByCommand, "live process script /s/runner.zsh names it"} {
+		orca := newOrca(row("ctx_a"))
+		orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a")}
+		orca.holders[testWT] = held
+		tally, out := runGC(t, orca, newGit(checkout(testWT)), gcOptions{})
+		wantTally(t, tally, Tally{verbKeep: 1})
+		wantCalls(t, orca)
+		if strings.Contains(out, "closed term_ctx_a") {
+			t.Fatalf("%s: output %q closed the terminal", held, out)
+		}
 	}
 }
 
@@ -2207,6 +2243,16 @@ func TestProveStaleEndsOnlyAVerifiedSessionAtAnEmptyPrompt(t *testing.T) {
 			wantSaid(t, out.String(), c.said)
 			wantCalls(t, orca)
 		})
+	}
+}
+
+func TestProveStaleProvesAFinishedLaneWhoseTreeHoldsUnsavedWork(t *testing.T) {
+	orca := newOrca(staleRow("ctx_s"))
+	var out bytes.Buffer
+	gc := &GC{Orca: orca, Git: newGit(checkout(testWT, dirtyTree)), Out: &out, Keep: map[string]bool{}, Finished: map[string]bool{"ctx_s": true}}
+	got, err := gc.proveStale(context.Background(), "run_x", []string{"ctx_s"})
+	if err != nil || !slices.Equal(got, []string{"ctx_s"}) {
+		t.Fatalf("proved %v, err %v, said %q", got, err, out.String())
 	}
 }
 

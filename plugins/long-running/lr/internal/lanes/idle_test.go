@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -97,7 +98,47 @@ func TestAPassThatOnlyKeptPostsNothing(t *testing.T) {
 	}
 }
 
-func TestStaleRetiredNamesOnlyASilentRetiredUnsettledLaneWithAnOrdinaryBrief(t *testing.T) {
+type retiredLane struct {
+	name, brief, role, last, status, retiredBy string
+	silent                                     time.Duration
+	state                                      store.LaneState
+	foreign                                    bool
+}
+
+func retiredLanes(t *testing.T, s *store.Store, env Env, lanes ...retiredLane) map[string]string {
+	t.Helper()
+	statuses := map[string]string{"ctx_not-ours": "dispatched"}
+	for _, lane := range lanes {
+		row := storeLane(lane.name)
+		row.Brief, row.Role = lane.brief, cmp.Or(lane.role, row.Role)
+		if _, err := s.WantLane(row, t0); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetLaneState(lane.name, cmp.Or(lane.state, store.LaneRetired), t0, cmp.Or(lane.retiredBy, Root), ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.LaneHeard(lane.name, t0.Add(-lane.silent), lane.last, 1); err != nil {
+			t.Fatal(err)
+		}
+		if lane.foreign {
+			continue
+		}
+		writeJSON(t, filepath.Join(env.receipts(), lane.name+".json"), map[string]any{"result": map[string]string{"dispatchId": "ctx_" + lane.name}})
+		statuses["ctx_"+lane.name] = cmp.Or(lane.status, "dispatched")
+	}
+	return statuses
+}
+
+func workerList(statuses map[string]string) string {
+	rows := make([]map[string]string, 0, len(statuses))
+	for dispatch, status := range statuses {
+		rows = append(rows, map[string]string{"dispatchId": dispatch, "dispatchStatus": status})
+	}
+	raw, _ := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"workers": rows}})
+	return string(raw)
+}
+
+func TestStaleRetiredNamesALaneThatEndedItselfAfterAQuarterHourAndAnyOtherAfterTwoHours(t *testing.T) {
 	_, s := driveState(t)
 	dir := t.TempDir()
 	brief := func(name, text string) string {
@@ -107,46 +148,91 @@ func TestStaleRetiredNamesOnlyASilentRetiredUnsettledLaneWithAnOrdinaryBrief(t *
 		}
 		return path
 	}
-	statuses := map[string]string{}
+	var statuses map[string]string
 	runner := &recordingRunner{reply: func(shell.Command) (shell.Result, error) {
-		rows := make([]map[string]string, 0, len(statuses))
-		for dispatch, status := range statuses {
-			rows = append(rows, map[string]string{"dispatchId": dispatch, "dispatchStatus": status})
-		}
-		raw, err := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"workers": rows}})
-		return shell.Result{Stdout: string(raw)}, err
+		return shell.Result{Stdout: workerList(statuses)}, nil
 	}}
-	env := Env{Runner: runner, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, State: t.TempDir(), Claude: t.TempDir(), Local: t.TempDir()}
-	lane := func(name, briefPath, status string, silent time.Duration, state store.LaneState) {
-		t.Helper()
-		row := storeLane(name)
-		row.Brief = briefPath
-		if _, err := s.WantLane(row, t0); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.SetLaneState(name, state, t0, "done", ""); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.LaneHeard(name, t0.Add(-silent), "report", 1); err != nil {
-			t.Fatal(err)
-		}
-		writeJSON(t, filepath.Join(env.receipts(), name+".json"), map[string]any{"result": map[string]string{"dispatchId": "ctx_" + name}})
-		statuses["ctx_"+name] = status
-	}
+	bus := &fakeBus{open: []client.Record{{Lane: "asking-1", Kind: "decide"}}}
+	env := Env{Bus: bus, Runner: runner, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, State: t.TempDir(), Claude: t.TempDir(), Local: t.TempDir()}
 	ordinary := brief("ordinary", "Step: 1\n")
-	lane("stale-1", ordinary, "dispatched", 3*time.Hour, store.LaneRetired)
-	lane("recent-1", ordinary, "dispatched", time.Hour, store.LaneRetired)
-	lane("settled-1", ordinary, "completed", 3*time.Hour, store.LaneRetired)
-	lane("wanted-1", ordinary, "dispatched", 3*time.Hour, store.LaneDesired)
-	lane("standing-1", brief("standing", "Standing: landing desk\n"), "dispatched", 3*time.Hour, store.LaneRetired)
-	lane("no-brief-1", filepath.Join(dir, "absent.md"), "dispatched", 3*time.Hour, store.LaneRetired)
-	lane(Root, ordinary, "dispatched", 3*time.Hour, store.LaneRetired)
-	lane(OwnerRelay, ordinary, "dispatched", 3*time.Hour, store.LaneRetired)
+	statuses = retiredLanes(t, s, env,
+		retiredLane{name: "silent-1", brief: ordinary, last: "report", silent: 3 * time.Hour},
+		retiredLane{name: "quiet-1", brief: ordinary, last: "report", silent: time.Hour},
+		retiredLane{name: "landed-1", brief: ordinary, last: kindLanded, silent: 20 * time.Minute},
+		retiredLane{name: "stopped-1", brief: ordinary, last: "stopped", silent: 20 * time.Minute},
+		retiredLane{name: "just-landed-1", brief: ordinary, last: kindLanded, silent: 5 * time.Minute},
+		retiredLane{name: "asking-1", brief: ordinary, last: "stopped", retiredBy: retiredStopped, silent: 20 * time.Minute},
+		retiredLane{name: "stood-down-1", brief: ordinary, last: "report", retiredBy: retiredStopped, silent: 20 * time.Minute},
+		retiredLane{name: "done-1", brief: ordinary, last: "report", retiredBy: "done", silent: 20 * time.Minute},
+		retiredLane{name: "settled-1", brief: ordinary, last: kindLanded, silent: 3 * time.Hour, status: "completed"},
+		retiredLane{name: "settled-silent-1", brief: ordinary, last: "report", silent: 3 * time.Hour, status: "completed"},
+		retiredLane{name: "wanted-1", brief: ordinary, last: kindLanded, silent: 3 * time.Hour, state: store.LaneDesired},
+		retiredLane{name: "standing-1", brief: brief("standing", "Standing: landing desk\n"), last: kindLanded, silent: 3 * time.Hour},
+		retiredLane{name: "desk-1", brief: ordinary, role: roleDesk, last: kindLanded, silent: 3 * time.Hour},
+		retiredLane{name: "foreign-1", brief: ordinary, last: kindLanded, silent: 3 * time.Hour, foreign: true},
+		retiredLane{name: "no-brief-1", brief: filepath.Join(dir, "absent.md"), last: kindLanded, silent: 3 * time.Hour},
+		retiredLane{name: Root, brief: ordinary, last: kindLanded, silent: 3 * time.Hour},
+		retiredLane{name: OwnerRelay, brief: ordinary, last: kindLanded, silent: 3 * time.Hour},
+	)
 	got, err := env.staleRetired(context.Background(), s, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, got, []string{"--stale", "ctx_stale-1"})
+	named := make([]string, 0, len(got))
+	for _, lane := range got {
+		named = append(named, fmt.Sprintf("%s %s ended=%v settled=%v", lane.name, lane.dispatch, lane.ended, lane.settled))
+	}
+	equal(t, named, []string{
+		"done-1 ctx_done-1 ended=true settled=false",
+		"landed-1 ctx_landed-1 ended=true settled=false",
+		"settled-1 ctx_settled-1 ended=true settled=true",
+		"silent-1 ctx_silent-1 ended=false settled=false",
+		"stood-down-1 ctx_stood-down-1 ended=true settled=false",
+		"stopped-1 ctx_stopped-1 ended=true settled=false",
+	})
+}
+
+func TestEveryCloseOfAFinishedLanePostsARecordNamingItWithTheDaysCount(t *testing.T) {
+	_, s := driveState(t)
+	brief := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(brief, []byte("Step: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var statuses map[string]string
+	runner := &recordingRunner{reply: func(c shell.Command) (shell.Result, error) {
+		switch {
+		case c.Argv[0] == "ps":
+			return shell.Result{Stdout: "claude\n"}, nil
+		case c.Argv[0] == "orca" && c.Argv[1] == "orchestration":
+			return shell.Result{Stdout: workerList(statuses)}, nil
+		case c.Argv[0] == "orca":
+			return shell.Result{Stdout: `{"result":{"totalCount":3}}`}, nil
+		}
+		return shell.Result{Stdout: "keep ctx_held-1 stale but its screen does not read as an empty prompt\nstopped ctx_landed-1 stopped\nclosed term-1 dispatch ctx_landed-1 is done\nkeep /w/settled uncommitted changes\nclosed term-2 dispatch ctx_settled-1\nclosed=2 keep=2 stopped=1\n"}, nil
+	}}
+	bus := &fakeBus{tail: []client.Record{{Topic: closedTopic}, {Topic: ReapTopic}}}
+	env := Env{Bus: bus, Runner: runner, Config: config.Config{Drive: testDrive, OrcaRun: "run_1", Checkout: "/checkout"}, State: t.TempDir(), Claude: t.TempDir(), Local: t.TempDir()}
+	statuses = retiredLanes(t, s, env,
+		retiredLane{name: "landed-1", brief: brief, last: kindLanded, silent: 20 * time.Minute},
+		retiredLane{name: "held-1", brief: brief, last: "stopped", silent: 20 * time.Minute},
+		retiredLane{name: "settled-1", brief: brief, last: "done", silent: 20 * time.Minute, status: "completed"},
+	)
+	check := &SettledGC{Env: env, Store: s, Log: slog.Default()}
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	gc := slices.IndexFunc(runner.commands, func(c shell.Command) bool { return slices.Contains(c.Argv, "gc") })
+	equal(t, runner.commands[gc].Argv[4:], []string{"--finished", "ctx_held-1", "--stale", "ctx_held-1", "--finished", "ctx_landed-1", "--stale", "ctx_landed-1", "--finished", "ctx_settled-1", "--new"})
+	equal(t, bus.query.Since, time.Date(2026, 10, 31, 0, 0, 0, 0, pacificZone))
+	closed := slices.DeleteFunc(slices.Clone(bus.posted), func(d client.Draft) bool { return d.Topic != closedTopic })
+	said := make([]string, 0, len(closed))
+	for _, d := range closed {
+		said = append(said, d.ID+" "+d.Text)
+	}
+	equal(t, said, []string{
+		closedTopic + ":ctx_landed-1 landed-1's terminal closed: its last record was landed and the registry retired it (root); lr gc found it at an empty prompt under the agent process it launched. Dispatch ctx_landed-1. Lane terminals closed today: 2.",
+		closedTopic + ":ctx_settled-1 settled-1's terminal closed: its last record was done and the registry retired it (root); lr gc found it at an empty prompt under the agent process it launched. Dispatch ctx_settled-1. Lane terminals closed today: 3.",
+	})
 }
 
 func TestAFailedSettledPassIsLoggedAndTheSupervisorContinues(t *testing.T) {

@@ -115,14 +115,15 @@ func (p Pause) Skip(target, verb string) Action {
 }
 
 type GC struct {
-	Orca   API
-	Git    Repositories
-	Fleet  SpriteFleet
-	Pause  Pause
-	Lock   string
-	Out    io.Writer
-	DryRun bool
-	Keep   map[string]bool
+	Orca     API
+	Git      Repositories
+	Fleet    SpriteFleet
+	Pause    Pause
+	Lock     string
+	Out      io.Writer
+	DryRun   bool
+	Keep     map[string]bool
+	Finished map[string]bool
 
 	writing sync.Mutex
 }
@@ -858,12 +859,18 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		}
 	}
 	var closes []Action
+	finishedTerminals := map[string]bool{}
+	for _, worker := range finished {
+		if g.Finished[worker.Dispatch] {
+			finishedTerminals[worker.Terminal] = true
+		}
+	}
 	for _, target := range closingOrder {
 		action := closing[target]
 		if action.Verb != verbClose || stoppedTerminals[target] {
 			continue
 		}
-		if held, kept := worktrees.unproven[action.Tree]; kept {
+		if held, kept := worktrees.unproven[action.Tree]; kept && (!finishedTerminals[target] || !worktrees.unsaved[action.Tree]) {
 			tally[g.report(Action{Verb: verbKeep, Target: target, Reason: "its worktree is kept: " + held}).Verb]++
 			continue
 		}
@@ -896,6 +903,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 type reclaimed struct {
 	done     []Action
 	unproven map[tree]string
+	unsaved  map[tree]bool
 }
 
 func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[string]Action) (reclaimed, map[string]bool, error) {
@@ -922,7 +930,7 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 	if err != nil {
 		return reclaimed{}, nil, err
 	}
-	result := reclaimed{unproven: map[tree]string{}}
+	result := reclaimed{unproven: map[tree]string{}, unsaved: map[tree]bool{}}
 	var checkouts []Checkout
 	var missing []string
 	for i, found := range read {
@@ -991,10 +999,14 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 	for i, done := range actions {
 		if done.Unproven {
 			result.unproven[tree{checkouts[i].Environment, checkouts[i].Path}] = done.Reason
+			result.unsaved[tree{checkouts[i].Environment, checkouts[i].Path}] = true
 		}
 	}
 	stopped := map[string]bool{}
 	for _, done := range result.done {
+		if done.Verb == verbKeep && done.Reason == heldOpenInside {
+			continue
+		}
 		for _, agent := range done.Agents {
 			stopped[agent.Target] = true
 		}
@@ -1123,13 +1135,15 @@ func (g *GC) staleHeld(ctx context.Context, worker Worker, sessions Sessions) (s
 	if read.Found == nil {
 		return "its worktree cannot be read", nil
 	}
-	remote, err := g.Git.Remote(ctx, read.Found.Repository)
-	if err != nil {
-		return "", err
-	}
-	held, err := unsaved(ctx, *read.Found, remote)
-	if err != nil || held != "" {
-		return held, err
+	if !g.Finished[worker.Dispatch] {
+		remote, err := g.Git.Remote(ctx, read.Found.Repository)
+		if err != nil {
+			return "", err
+		}
+		held, err := unsaved(ctx, *read.Found, remote)
+		if err != nil || held != "" {
+			return held, err
+		}
 	}
 	same, err := g.Orca.StillRuns(ctx, session)
 	if err != nil {
@@ -1168,7 +1182,7 @@ func Drift(planned, replanned string) []string {
 
 func (g *GC) Replan(ctx context.Context, run string, dispatches, ending []string) (string, error) {
 	var out bytes.Buffer
-	dry := &GC{Orca: g.Orca, Git: g.Git, Fleet: g.Fleet, Pause: g.Pause, Lock: g.Lock, Out: &out, DryRun: true, Keep: g.Keep}
+	dry := &GC{Orca: g.Orca, Git: g.Git, Fleet: g.Fleet, Pause: g.Pause, Lock: g.Lock, Out: &out, DryRun: true, Keep: g.Keep, Finished: g.Finished}
 	if _, err := dry.Run(ctx, run, dispatches, ending); err != nil {
 		return "", err
 	}
