@@ -1,6 +1,7 @@
 package update
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -104,6 +105,26 @@ func TestARootCloseNamingTheIncidentEndsItWhoeverItIsAddressedToAndGivesItsReaso
 		if row.Name == "creds" && !row.Done {
 			t.Fatalf("lr update still lists creds as open: %+v", row)
 		}
+	}
+}
+
+func TestARootRecordOfAnyKindLeadingWithTheCloseEndsTheIncidentAndOneQuotingItDoesNot(t *testing.T) {
+	lanes, records := incidentFixture()
+	quoting := record(9, root, "report", "for meta: api reads open though I posted INCIDENT api CLOSED earlier", 6)
+	closing := record(10, root, "report", "INCIDENT creds CLOSED: rotation succeeds again", 5)
+	in, err := Collect(context.Background(), src(lanes, append(records, quoting, closing), nil, nil), testDrive, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]string{}
+	for _, i := range viewOf(lanes, in.Incidents, nil).incidents(in.Incidents, testDrive) {
+		states[i.Name] = i.state()
+	}
+	if want := "closed by #10 with no fix-live record: rotation succeeds again"; states["creds"] != want {
+		t.Fatalf("creds state = %q, want %q", states["creds"], want)
+	}
+	if !strings.HasPrefix(states["api"], "open") {
+		t.Fatalf("a report quoting the close ended api: %q", states["api"])
 	}
 }
 
