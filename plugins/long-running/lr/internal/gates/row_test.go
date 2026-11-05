@@ -3,6 +3,7 @@ package gates
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -85,6 +86,40 @@ func TestMissingAddsTheRowsWaitOnlyWhenNoOtherGateSaysWhy(t *testing.T) {
 			c.change(&f)
 			if got := Missing(f); !slices.Equal(got, c.want) {
 				t.Errorf("Missing = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAHeadWhoseTapCardWasShownTakesNoExemptGoWhateverItsClassAndAStoreThatNeverSawACardCannotSay(t *testing.T) {
+	type shown struct {
+		number int
+		head   string
+	}
+	for _, c := range []struct {
+		name  string
+		facts []shown
+		want  string
+	}{
+		{"a store that never recorded a card shown", nil, NoTapCards},
+		{"a card shown at this head", []shown{{1, newHead}}, "his tap card for it was shown at e718a74, so it lands on his tap whatever its class"},
+		{"a card shown at an older head only", []shown{{1, oldHead}}, ""},
+		{"a card shown for another PR", []shown{{2, newHead}}, ""},
+		{"a card shown at this head under its card's short sha", []shown{{1, newHead[:10]}}, "his tap card for it was shown at e718a74, so it lands on his tap whatever its class"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, err := store.Memory()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			for _, fact := range c.facts {
+				if _, err := s.PutFact(repo, fact.number, fact.head, ShownFact, "1", time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got, err := TapCardShownAt(s, repo, 1, newHead); err != nil || got != c.want {
+				t.Errorf("TapCardShownAt = %q, %v, want %q", got, err, c.want)
 			}
 		})
 	}

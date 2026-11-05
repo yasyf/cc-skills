@@ -576,7 +576,7 @@ func TestACodexOkPostsTheGradeWithItsExemptPhraseThenTouchesAndOldApp(t *testing
 		"touches": []string{"prompt/1026-105052"},
 		"old_app": map[string]string{"grade": "changes", "why": "go/sand/next only"},
 	}))
-	repo.names = "go/sand/next/replica/follow_test.go\n.buildkite/pipeline.yml\n"
+	repo.names = "go/sand/next/replica/follow_test.go\ninfra/ci/src/pipelines/ci-go.ts\n"
 	mustFidelity(t, directory, shell)
 	sameList(t, shell.texts(), []string{
 		"fidelity: ok " + shaHead + " " + testOnly + ": Resubscribes from the fetched position after a cut.",
@@ -813,10 +813,11 @@ func TestAnOkNamesTheClassItsChangedPathsDecideWhateverTheModelSaid(t *testing.T
 		exempt string
 		said   string
 	}{
-		"#49240's tooling pin with no class from the model": {"mise.toml\ntools/cc-remote/config.yaml\ntools/versions.toml\n", "none", tooling + ": "},
-		"tooling over a class the model judged":             {"go/remote-builder/cli/rb/exec.go\ntools/remote-builder/README.md\n", "regression", tooling + ": "},
-		"a product path keeps the model's judgment":         {"go/sand/next/replica/follow.go\n", "regression", regressionPhrase + ": "},
-		"a product path names no path class the model gave": {"go/sand/next/replica/follow.go\ngo/sand/next/replica/follow_test.go\n", "test-only", ""},
+		"#49240's cc-remote files with no class from the model": {"tools/cc-remote/agents-payload.json\ntools/cc-remote/config.yaml\n", "none", tooling + ": "},
+		"the shared toolchain pins name no path class":          {"mise.toml\ntools/cc-remote/config.yaml\ntools/versions.toml\n", "none", ""},
+		"tooling over a class the model judged":                 {"go/remote-builder/cli/rb/exec.go\ntools/remote-builder/README.md\n", "regression", tooling + ": "},
+		"a product path keeps the model's judgment":             {"go/sand/next/replica/follow.go\n", "regression", regressionPhrase + ": "},
+		"a product path names no path class the model gave":     {"go/sand/next/replica/follow.go\ngo/sand/next/replica/follow_test.go\n", "test-only", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": pathClasses, "exempt_grades": grades})

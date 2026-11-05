@@ -320,6 +320,9 @@ func TestAHandTypedExemptGoLandsOnlyWhenTheGateFindsItsClassAtItsHead(t *testing
 			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 1, Head: head, ReadyForTap: true}}); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := s.PutFact("o/r", 99, head, gates.ShownFact, "1", time.Now()); err != nil {
+				t.Fatal(err)
+			}
 			runner := &shelltest.Fake{}
 			runner.Reply("[\"rust/crates/sandsql-server/tests/handoff_e2e.rs\",\"@@ +1 @@\\n+wait_log\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/1/files")
 			a := app.New(io.Discard)
@@ -492,6 +495,9 @@ func TestTheHandGateAndTheGoAnswerTheSameOnEachShape(t *testing.T) {
 				}
 			}
 			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: c.number, Head: c.head, ReadyForTap: true}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.PutFact("o/r", 99, c.head, gates.ShownFact, "1", time.Now()); err != nil {
 				t.Fatal(err)
 			}
 			runner := &shelltest.Fake{}

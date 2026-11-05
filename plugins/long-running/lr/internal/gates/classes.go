@@ -12,27 +12,23 @@ var (
 		`|(?:^|/)tests?\.\w+$|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e)\.\w+$|(?:^|/)(?:fake|mock)s?_[^/]*$|_(?:fake|mock)s?\.\w+$|(?:^|/)[^/]*test-timings\.json$`)
 	latestDir    = regexp.MustCompile(`[a-z0-9_-]*latest/`)
 	toolingGlobs = regexp.MustCompile(`^(?:\.agents/skills/.*/scripts/.*|\.agents/skills/.*/tests/.*|\.agents/skills/.*\.md|\.config/nextest.*|.*/\.config/nextest.*)$`)
-	devTooling   = regexp.MustCompile(`^(?:go/remote-builder/|tools/remote-builder/|tools/cc-remote/)|^(?:mise\.toml|tools/versions\.toml)$`)
+	devTooling   = regexp.MustCompile(`^(?:go/remote-builder/|tools/remote-builder/|tools/cc-remote/)`)
 	tomlSection  = regexp.MustCompile(`^\s*\[+([^\]]+)\]+\s*$`)
 	jsonSection  = regexp.MustCompile(`^\s*"([^"]+)":\s*\{\s*$`)
 	jsonClose    = regexp.MustCompile(`^\s*\},?\s*$`)
 
-	testDirs     = []string{"__tests__", "testdata", "fixtures", "docs"}
-	ciPrefixes   = []string{".buildkite/", ".github/", "tools/ci/", "go/ci/", "infra/ci/"}
-	productionCI = []string{
-		"go/ci/release", "go/ci/internal/release/", "go/ci/internal/contract/release.go", "go/ci/bakedispatch.go",
-		"go/ci/internal/deploy/", "go/ci/internal/rollout/", "go/ci/dashboard.go", "go/ci/internal/dashboard/",
-		"go/ci/desktoprelease.go", "go/ci/internal/desktoprelease/", "go/ci/internal/envs/", "go/ci/envnew.go", "go/ci/envsettings.go",
-		"go/ci/tenant", "go/ci/escapehatch", "go/ci/reco",
-		"go/ci/breakglass.go", "go/ci/internal/breakglass/",
-		"go/ci/restate.go", "go/ci/internal/restate/", "go/ci/sandsqlverb.go", "go/ci/internal/sandsql/",
-		"go/ci/bucketrestore.go", "go/ci/internal/bucketrestore/", "go/ci/internal/coredb/",
-		"go/ci/aioncall", "go/ci/oncall", "go/ci/internal/aioncall/",
-		"infra/ci/src/pipelines/release.ts", "infra/ci/src/lib/release-reads.ts", "infra/ci/src/contract/release",
-		"infra/ci/src/pipelines/break-glass/", "infra/ci/src/contract/breakGlass.ts",
-		"infra/ci/src/pipelines/escape-hatch/", "infra/ci/src/contract/tenant", "infra/ci/src/contract/recoScaffold.ts",
-		"infra/ci/src/ops/core-db.ts", "infra/ci/src/lib/core-db-target.ts", "infra/ci/src/contract/core-db.ts",
+	testDirs  = []string{"__tests__", "testdata", "fixtures", "docs"}
+	ciTrees   = []string{".buildkite/", ".github/", "tools/ci/", "go/ci/", "infra/ci/"}
+	ciTooling = []string{
+		"tools/ci/", ".github/codeql/",
+		".buildkite/scripts/check-iris-windows.py", ".buildkite/scripts/verify-desktop-packaging-commands.sh",
+		"infra/ci/src/cache/", "infra/ci/src/pipelines/ci-go.ts",
+		"go/ci/bkverb.go", "go/ci/cached.go", "go/ci/citiming.go", "go/ci/coverage.go", "go/ci/jobtime.go", "go/ci/pipelinecoverage.go",
+		"go/ci/prune.go", "go/ci/shardtimings.go", "go/ci/timings.go", "go/ci/trunkdynamicci.go", "go/ci/trunkimpacted.go", "go/ci/trunktests",
+		"go/ci/internal/cache/", "go/ci/internal/jobtime/", "go/ci/internal/prune/", "go/ci/internal/shardtimings/", "go/ci/internal/timing/", "go/ci/internal/timings/",
 	}
+	gateScripts    = []string{".agents/skills/submit-pr/scripts/", ".agents/skills/escape-hatch-new-tenant/scripts/"}
+	ciScript       = regexp.MustCompile(`^\.buildkite/v2/scripts/[a-z0-9-]*(?:test|shard)[a-z0-9.-]*$`)
 	lintConfigs    = []string{"clippy.toml", ".clippy.toml", "deny.toml", "rustfmt.toml", ".rustfmt.toml", ".golangci.yml", ".golangci.yaml", "ruff.toml", ".ruff.toml", "biome.json", ".eslintrc.json", "eslint.config.js", "eslint.config.mjs"}
 	manifests      = []string{"Cargo.toml", "package.json"}
 	lockfiles      = []string{"Cargo.lock", "yarn.lock", "package-lock.json", "pnpm-lock.yaml"}
@@ -93,18 +89,14 @@ func testOrCIFile(name string) bool {
 }
 
 func isTestOrCI(name string) bool {
-	if prefixedBy(ciPrefixes, name) && !prefixedBy(productionCI, name) {
+	if prefixedBy(ciTooling, name) || ciScript.MatchString(name) {
 		return true
 	}
-	if testPath(name) || toolingGlobs.MatchString(name) {
+	if testPath(name) || toolingGlobs.MatchString(name) && !prefixedBy(gateScripts, name) {
 		return true
 	}
 	parts := strings.Split(name, "/")
-	if slices.ContainsFunc(parts[:len(parts)-1], func(part string) bool { return slices.Contains(testDirs, part) }) {
-		return true
-	}
-	suffix := suffixOf(name)
-	return (suffix == ".yml" || suffix == ".yaml") && strings.Contains(path.Base(name), "buildkite")
+	return slices.ContainsFunc(parts[:len(parts)-1], func(part string) bool { return slices.Contains(testDirs, part) })
 }
 
 func suffixOf(name string) string {

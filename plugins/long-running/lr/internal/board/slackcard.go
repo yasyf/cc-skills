@@ -298,6 +298,11 @@ func cardHead(waits string) string {
 func MarkShown(s *store.Store, repo string, rows []store.ReviewRow, shown []SlackShown, at time.Time) error {
 	for _, card := range shown {
 		found := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == card.Number })
+		if found < 0 || MergeWaits(card.Number, rows[found].Head) != card.Waits {
+			if err := markShownAtCardHead(s, repo, card, at); err != nil {
+				return err
+			}
+		}
 		if found < 0 {
 			continue
 		}
@@ -326,6 +331,19 @@ func MarkShown(s *store.Store, repo string, rows []store.ReviewRow, shown []Slac
 		}
 	}
 	return nil
+}
+
+func markShownAtCardHead(s *store.Store, repo string, card SlackShown, at time.Time) error {
+	named := mergeCard.FindStringSubmatch(card.Waits)
+	if named == nil || named[1] != strconv.Itoa(card.Number) {
+		return nil
+	}
+	stored, err := s.Facts(repo, card.Number, named[2])
+	if err != nil || stored[gates.ShownFact] != "" {
+		return err
+	}
+	_, err = s.PutFact(repo, card.Number, named[2], gates.ShownFact, store.Stamp(at), at)
+	return err
 }
 
 func refuseCard(hooks Hooks, number int, waits, reason string) error {

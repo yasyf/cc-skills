@@ -3,6 +3,7 @@ package gates
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -11,6 +12,7 @@ import (
 const (
 	NoRow       = "it has no review row in the landing store"
 	NoStore     = "this box has no landing store: it holds no review row for any PR, so read the row on the landing host"
+	NoTapCards  = "this box's landing store has never recorded a tap card shown, so it cannot say whether his card for this head is open; read it on the landing host"
 	notReadyYet = "its review row is not ready"
 	exemptSays  = "Exempt as "
 )
@@ -49,6 +51,21 @@ func RowReadAt(s *store.Store, repo string, number int, head string) (string, er
 		return RowRead(row, found, head), err
 	}
 	return NoRowIn(s, repo)
+}
+
+func TapCardShownAt(s *store.Store, repo string, number int, head string) (string, error) {
+	shown, err := s.HeadFacts(repo, number, []string{ShownFact})
+	if err != nil {
+		return "", err
+	}
+	if slices.ContainsFunc(shown, func(fact store.HeadFact) bool { return sameHead(fact.Head, head) }) {
+		return fmt.Sprintf("his tap card for it was shown at %s, so it lands on his tap whatever its class", short(head)), nil
+	}
+	anywhere, err := s.FactsOfKind(repo, ShownFact)
+	if err != nil || len(anywhere) > 0 {
+		return "", err
+	}
+	return NoTapCards, nil
 }
 
 func NoRowIn(s *store.Store, repo string) (string, error) {

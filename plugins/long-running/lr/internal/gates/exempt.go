@@ -166,7 +166,7 @@ func flakeRefusals(r Read, graded bool) []string {
 	var out []string
 	for _, file := range r.Files {
 		patch := r.Patches[file]
-		readerJudged := graded && !testOrCIFile(file)
+		readerJudged := graded && !testOrCIFile(file) && !prefixedBy(ciTrees, file)
 		switch {
 		case !testCode(file) && !readerJudged:
 			out = append(out, fmt.Sprintf("flake fix: %s is not test or fixture code, so it lands on his tap", file))
