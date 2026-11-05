@@ -421,6 +421,8 @@ func rowItem(row store.ReviewRow) Item {
 		item.State, item.Says, item.Actions = StateSettled, "You approved it", nil
 	case waitsOnHim(row):
 		item.State, item.Says = StateWaits, "Your approval"
+	case row.Hold != prrow.None:
+		item.Actions = nil
 	}
 	return item
 }

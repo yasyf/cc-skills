@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -32,7 +33,7 @@ func sources(rows []store.ReviewRow, cards []Card, n *counts) Sources {
 }
 
 func row(number int, ready, tapped bool, state string) store.ReviewRow {
-	return store.ReviewRow{Repo: repo, Number: number, Title: "t" + strconv.Itoa(number), ReadyForTap: ready, Tapped: tapped, State: state, WaitsOn: "its parent"}
+	return store.ReviewRow{Repo: repo, Number: number, Title: "t" + strconv.Itoa(number), ReadyForTap: ready, Tapped: tapped, State: state, WaitsOn: "its parent", Hold: prrow.None}
 }
 
 func read(t *testing.T, src Sources, bindings ...Binding) []Result {
@@ -76,6 +77,20 @@ func TestARowSaysWhatItWaitsOnFromItsState(t *testing.T) {
 		if string(got[i].Ref) != w.ref || got[i].State != w.state || got[i].Says != w.says || len(got[i].Actions) != w.buttons {
 			t.Fatalf("row %d: got %+v, want %+v", i, got[i], w)
 		}
+	}
+}
+
+func TestAHeldRowSaysWhatHoldsItAndOffersNoApprove(t *testing.T) {
+	held := row(5, false, false, "open")
+	held.Hold, held.WaitsOn = "root:until #49305 lands", "held, root:until #49305 lands"
+	checks := row(6, false, false, "open")
+	checks.Hold, checks.WaitsOn = prrow.None, prrow.NotGraded
+	got := read(t, sources([]store.ReviewRow{held, checks}, nil, &counts{}), Binding{View: ViewEmbed, Refs: []Ref{"pr:5", "pr:6"}})[0].Items
+	if got[0].Actions != nil || !strings.HasPrefix(got[0].Says, "Held: ") {
+		t.Fatalf("a tap under a hold never lands, so a held row asks for none: %+v", got[0])
+	}
+	if len(got[1].Actions) != 2 {
+		t.Fatalf("a row waiting on checks keeps its Approve: %+v", got[1])
 	}
 }
 
