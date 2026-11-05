@@ -26,6 +26,14 @@ ENV_HOLDING_KINDS = frozenset(
 )
 WHOLE_OBJECT_OUTPUT = re.compile(r"(?:^|\s)(?:-o[=\s]?|--output[=\s])(?:json|yaml)(?:\s|$)")
 ENV_DUMP = re.compile(r"(?:^|[\s;|&(])(?:env(?!\s+\w+=)(?=\s|$|[;|&)])|printenv\b)|/environ\b")
+DEVICE_CODE = re.compile(r"\b[A-Z0-9]{4}-[A-Z0-9]{4}\b")
+DEVICE_LINK = re.compile(r"awsapps\.com/start/#/device|device\.sso\.[\w-]+\.amazonaws\.com|github\.com/login/device|microsoft\.com/devicelogin")
+RECORD_WRITES = (("cci", "post"), ("ccn", "doc", "add"))
+DEVICE_SIGN_IN = (
+    "A device code and its sign-in link are a credential until they expire, and a record keeps both. "
+    "Send them to him on a card with `lr ask-owner`, and post only that a sign-in waits on him."
+)
+SIGN_IN_LINK = "https://d-0000000000.awsapps.com/start/#/device"
 WHOLE_OBJECT = "A whole object or an env dump prints every env value, and a pod env var can hold a token, which a transcript cannot give back. Read the fields you need with `kubectl get <kind> <name> -o jsonpath=...`, or with custom-columns, name or wide."
 
 
@@ -133,3 +141,20 @@ def prints_env_values(args: tuple[str, ...]) -> bool:
         return bool(ENV_DUMP.search(" ".join(after[after.index("--") + 1 :] if "--" in after else after)))
     names_kind = any(kind.split(".")[0] in ENV_HOLDING_KINDS for word in after if not word.startswith("-") for kind in word.split("/")[0].split(","))
     return names_kind and (verb == "describe" or bool(WHOLE_OBJECT_OUTPUT.search(" ".join(args))))
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash")],
+    tests={
+        Input(command=f"cci post --kind blocker --to meta-desk --text 'sign in at {SIGN_IN_LINK} with code WXYZ-QRST'", env=LANE): Warn(pattern=r"^A device code and its sign-in link"),
+        Input(command=f"ccn doc add --title progress --body 'SSO waits: {SIGN_IN_LINK}, code WXYZ-QRST'", env=LANE): Warn(),
+        Input(command="cci post --kind note --to meta-desk --text 'ENG-1234 tracks it; Slack ref ABCD-EFGH'", env=LANE): Allow(),
+        Input(command=f"cci post --kind blocker --to meta-desk --text 'a sign-in at {SIGN_IN_LINK} waits on him'", env=LANE): Allow(),
+        Input(command=f"echo 'sign in at {SIGN_IN_LINK} with code WXYZ-QRST'", env=LANE): Allow(),
+        Input(command=f"cci post --text 'sign in at {SIGN_IN_LINK} with code WXYZ-QRST'", env={}): Allow(),
+    },
+)
+def device_codes_stay_off_records(evt: BaseHookEvent) -> HookResult | None:
+    writes = [" ".join(call.args) for call in evt.command.calls() if any((call.name, *call.args[: len(verb) - 1]) == verb for verb in RECORD_WRITES)]
+    return evt.context(DEVICE_SIGN_IN) if any(DEVICE_CODE.search(text) and DEVICE_LINK.search(text) for text in writes) else None

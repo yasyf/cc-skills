@@ -8,7 +8,7 @@ from captain_hook.util import reqenv
 
 from .call_dir import run_dir, unknown_dir
 from .compaction_handoff import Bound, CompactionState, bus_name, drive_entry
-from .lane_landing import DRIVE_ENV, landing_verb, lane_name, merge_target, repo_flag
+from .lane_landing import DRIVE_ENV, flagged_repos, landing_verb, lane_name, merge_target
 from .tests.merge_fixtures import BASE_UNREAD, BROADCAST, INHERITED, OWN, PENDING, UNREAD, own_red
 
 BOUND = [CompactionState(active=True, coordinator=True)]
@@ -19,6 +19,7 @@ LR_TIMEOUT_SECONDS = 180
 OWN_LINE = "OWN-RED"
 BASE_UNREAD_LINE = "BASE-UNREAD"
 UNFOLLOWED = "`{verb}` runs after a `cd` this hook cannot follow, so nothing read its PR's red checks. Run `gh pr checks` on that PR."
+UNREAD_REPO = "`{verb}` names a repo this hook cannot read, so nothing read its PR's red checks. Run `gh pr checks` on that PR."
 UNREAD_LINE = "UNREAD"
 MAIL_LINE = "MAIL"
 LANE_ENV = DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "fix-lane-1"}
@@ -69,6 +70,14 @@ BROADCAST_NOTE = r"^The merge read these records for `fix-lane-1` on its way:\n`
         Input(command=". /env.sh; cd $A; gh pr merge 5 --squash --admin", cwd="/", commands=own_red("5", said=OWN), state=BOUND): Warn(pattern=r"`cd` this hook cannot follow"),
         Input(command="cd /; gh pr merge 5 --squash --admin", cwd="/", commands=own_red("5", said=OWN), state=BOUND): Block(),
         Input(command="gh pr view 5 --json url", commands=own_red("5", said=OWN), state=BOUND): Allow(),
+        Input(command='for r in acme/app; do gh pr merge 5 -R "$r" --squash; done', commands=own_red("--repo", "acme/app", "5", said=OWN), state=BOUND): Block(pattern=OWN_FINDING),
+        Input(
+            command='for r in acme/lib acme/app; do gh pr merge 5 --repo="$r" --squash; done',
+            commands={**own_red("--repo", "acme/lib", "5", said=PENDING), **own_red("--repo", "acme/app", "5", said=OWN)},
+            state=BOUND,
+        ): Block(pattern=OWN_FINDING),
+        Input(command='for r in acme/app; do gh pr merge 5 -R "$r" --squash; done', commands=own_red("--repo", "acme/app", "5", said=PENDING), state=BOUND): Allow(),
+        Input(command='gh pr merge "$2" -R "acme/$1" --squash', commands=own_red("5", said=OWN), state=BOUND): Warn(pattern=r"^`gh pr merge` names a repo this hook cannot read"),
     },
 )
 def merge_never_lands_past_its_own_red(evt: BaseHookEvent) -> HookResult | None:
@@ -86,13 +95,16 @@ def merge_never_lands_past_its_own_red(evt: BaseHookEvent) -> HookResult | None:
         if unknown_dir(evt, call):
             unfollowed.append(UNFOLLOWED.format(verb=landing_verb(call)))
             continue
+        if (repos := flagged_repos(call)) is None:
+            unfollowed.append(UNREAD_REPO.format(verb=landing_verb(call)))
+            continue
         target, _ = merge_target(call)
-        repo = repo_flag(call)
-        argv = [str(LR), "own-red", *merge_set, *(("--repo", repo) if repo else ()), *read, *((target,) if target else ())]
-        said = subprocess.run(argv, capture_output=True, text=True, timeout=LR_TIMEOUT_SECONDS, cwd=run_dir(evt, call), env=dict(reqenv.env_map()), check=True).stdout
-        for line in said.splitlines():
-            kind, _, finding = line.partition(" ")
-            {OWN_LINE: own, BASE_UNREAD_LINE: base_unread, UNREAD_LINE: unread, MAIL_LINE: mail}.get(kind, inherited).append(finding)
+        for repo in repos or (None,):
+            argv = [str(LR), "own-red", *merge_set, *(("--repo", repo) if repo else ()), *read, *((target,) if target else ())]
+            said = subprocess.run(argv, capture_output=True, text=True, timeout=LR_TIMEOUT_SECONDS, cwd=run_dir(evt, call), env=dict(reqenv.env_map()), check=True).stdout
+            for line in said.splitlines():
+                kind, _, finding = line.partition(" ")
+                {OWN_LINE: own, BASE_UNREAD_LINE: base_unread, UNREAD_LINE: unread, MAIL_LINE: mail}.get(kind, inherited).append(finding)
     if unread:
         return evt.block(UNREAD_MAIL.format(lane=lane, records="\n".join(unread + mail)))
     if own:

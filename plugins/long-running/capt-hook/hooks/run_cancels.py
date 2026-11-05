@@ -8,6 +8,7 @@ from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, T
 from .buildkite_budget import MAX_SCRIPT_BYTES, SCRIPT_LANGS, executed_words, script_path
 from .call_dir import run_dir, unknown_dir
 from .compaction_handoff import Bound, CompactionState
+from .lane_landing import named_repos
 
 BOUND = [CompactionState(active=True, coordinator=True)]
 
@@ -31,21 +32,13 @@ def cancel_call(call: Call) -> bool:
     return call.name == "gh" and (args[:2] == ["run", "cancel"] or (args[:1] == ["api"] and any(arg.endswith("/cancel") for arg in args)))
 
 
-def call_repo(call: Call) -> str | None:
-    args = list(call.args)
-    for flag in ("-R", "--repo"):
-        if flag in args and args.index(flag) + 1 < len(args):
-            return args[args.index(flag) + 1]
-    return next(("/".join(arg.removeprefix("/").split("/")[1:3]) for arg in args if arg.removeprefix("/").startswith("repos/")), None)
-
-
 def inline_unscoped(evt: BaseHookEvent) -> bool:
     calls = list(evt.command.calls())
     cancels = [call for call in calls if cancel_call(call)]
     if not cancels:
         return False
     events = {arg for call in calls if call.name == "gh" for arg in call.args}
-    return any(call_repo(call) != SCOPED_REPO for call in cancels) or not any(PULL_REQUEST in arg for arg in events)
+    return any(set(named_repos(call) or ()) != {SCOPED_REPO} for call in cancels) or not any(PULL_REQUEST in arg for arg in events)
 
 
 def scripts_unscoped(evt: BaseHookEvent) -> bool:
@@ -66,6 +59,10 @@ def scripts_unscoped(evt: BaseHookEvent) -> bool:
         Input(command=f"zsh {FIXTURES / 'every-repo.sh'}", state=BOUND): Warn(pattern=r"^A run canceller"),
         Input(command=f"zsh {FIXTURES / 'cc-skills-prs.sh'}", state=BOUND): Allow(),
         Input(command="gh run view 41435515365 -R yasyf/cc-context --log-failed", state=BOUND): Allow(),
+        Input(command='gh run list -R yasyf/cc-skills --event pull_request; for r in yasyf/cc-skills; do gh run cancel -R "$r" 41435515365; done', state=BOUND): Allow(),
+        Input(command='gh run list -R yasyf/cc-skills --event pull_request; for r in yasyf/cc-skills yasyf/cc-context; do gh run cancel -R "$r" 1; done', state=BOUND): Warn(
+            pattern=r"^A run canceller"
+        ),
     },
 )
 def run_cancels_stay_on_cc_skills_prs(evt: BaseHookEvent) -> HookResult | None:
