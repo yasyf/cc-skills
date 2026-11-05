@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -47,6 +48,7 @@ type cardBody struct {
 	Until   string          `json:"until,omitempty"`
 	By      string          `json:"by,omitempty"`
 	Ask     int64           `json:"ask,omitempty"`
+	Handed  int64           `json:"handed,omitempty"`
 	TapOf   string          `json:"tap_of,omitempty"`
 	TapHead string          `json:"tap_head,omitempty"`
 }
@@ -173,6 +175,11 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	if err != nil {
 		return "", err
 	}
+	if card.Handed != 0 {
+		if err := handedTo(ctx, cards.Bus, lane, top.ID, card.Handed); err != nil {
+			return "", err
+		}
+	}
 	answered, err := cards.answeredBlocks(ctx, top.ID)
 	if err != nil {
 		return "", err
@@ -191,7 +198,7 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 		}
 	}
 	_, _, asks := asksTitle(card.Block)
-	drawn, err := cards.Runner.Run(ctx, presentCommand(card.Block, cards, lane, asks))
+	drawn, err := cards.Runner.Run(ctx, presentCommand(card.Block, cards, lane, asks, card.Handed != 0))
 	if err != nil {
 		return "", err
 	}
@@ -201,6 +208,9 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	said := top.ID + " is on his board"
 	if url := slackLine.FindStringSubmatch(drawn.Stdout); url != nil {
 		said += " and in his DM, " + url[1]
+	}
+	if card.Handed != 0 {
+		said += fmt.Sprintf("; %s owns it now, handed it by #%d", lane, card.Handed)
 	}
 	if card.Until != "" {
 		if _, err := cards.Until(ctx, top.ID, card.Until, lane); err != nil {
@@ -270,12 +280,28 @@ func askingLane(ctx context.Context, cards Cards, lane string, ask int64, card s
 	return asked[0].Lane, nil
 }
 
-func presentCommand(block json.RawMessage, cards Cards, lane string, asks bool) shell.Command {
+func handedTo(ctx context.Context, bus, lane, card string, seq int64) error {
+	handed, err := client.Among(ctx, bus, []int64{seq})
+	if err != nil {
+		return err
+	}
+	addressed := func(to string) bool { return to == lane || to == client.Stem(lane) }
+	if len(handed) == 0 || handed[0].Lane == lane || !slices.ContainsFunc(handed[0].To, addressed) || !strings.Contains(handed[0].Text, card) {
+		return linkRefusal{fmt.Sprintf("refused: --take-over %d is no record another lane addressed to %s naming %s; pass the seq of the record that handed you this card", seq, lane, card)}
+	}
+	return nil
+}
+
+func presentCommand(block json.RawMessage, cards Cards, lane string, asks, takeOver bool) shell.Command {
 	verb := "update-block"
 	if asks {
 		verb = "ask"
 	}
-	return shell.Command{Argv: []string{"cc-present", verb, "-", "--session", cards.Session, "--lane", lane}, Stdin: string(block), Dir: cards.Checkout}
+	argv := []string{"cc-present", verb, "-", "--session", cards.Session, "--lane", lane}
+	if takeOver {
+		argv = append(argv, "--take-over")
+	}
+	return shell.Command{Argv: argv, Stdin: string(block), Dir: cards.Checkout}
 }
 
 func (l Link) refuse(ctx context.Context, cards Cards, record client.Record, card cardBody, said string) error {
