@@ -2,6 +2,7 @@ package lanes
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,11 @@ func TestAParkedLaneWithADeadProcessGetsNoSuccessorUntilItsGateFires(t *testing.
 			fires:  rec(3, "lr-go-lanes-1", "done", t0.Add(mins(1)), "cutover merged"),
 			other:  rec(3, "lr-go-lanes-2", "done", t0.Add(mins(1)), "something else"),
 		},
+		"a fix lane's fix-live the coordinator files": {
+			parked: rec(2, lane2, "blocked", t0.Add(-3*time.Hour), "held to the dd-1 fix").withRefs(Refs{Lanes: []string{"dd-1-fix"}}),
+			fires:  rec(3, Root, "fix-live", t0.Add(mins(1)), "FIX-LIVE dd-1 by dd-1-fix", "dd-1-fix"),
+			other:  rec(3, Root, "fix-live", t0.Add(mins(1)), "FIX-LIVE dd-2 by dd-2-fix", "dd-2-fix"),
+		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -86,7 +92,7 @@ func TestAParkedLaneWithADeadProcessGetsNoSuccessorUntilItsGateFires(t *testing.
 			f.feed = append(f.feed, c.fires)
 			tick(t, s, f, t0.Add(mins(3)))
 			equal(t, row(t, s, lane2).Waiting, int64(0))
-			contains(t, pageText(row(t, s, lane2).Page, "why"), "what you parked on happened")
+			contains(t, pageText(row(t, s, lane2).Page, "why"), fmt.Sprintf("%s's %s fired %s, the gate you parked on, as record #4 says: %s", c.fires.Lane, c.fires.Kind, strings.Join(gatesOf(c.parked), " "), c.fires.Text))
 			equal(t, len(f.launches), 0)
 
 			resumed := tick(t, s, f, t0.Add(mins(3)+StaleAfter))
@@ -119,6 +125,20 @@ func TestALaneParkedOnAClockIsLeftAloneByReleasesAndPagedOverdueOnceItRunsOut(t 
 	equal(t, row(t, s, lane2).Waiting, int64(0))
 	contains(t, pageText(row(t, s, lane2).Page, "why"), "you are overdue")
 	equal(t, len(f.launches), 0)
+}
+
+func TestTheCoordinatorFilingAFixLanesFixLiveLeavesALaneParkedOnTheCoordinatorParked(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "blocked", t0.Add(-time.Hour), "waits on the coordinator's relaunch").withRefs(Refs{Lanes: []string{Root}}))
+	f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0, Dispatch: "ctx_af31953664f5"}}
+	tick(t, s, f, t0)
+
+	f.feed = append(f.feed, rec(3, Root, "fix-live", t0.Add(mins(1)), "FIX-LIVE dd-1 by dd-1-fix", "dd-1-fix"))
+	out := tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, len(out.Woken), 0)
+	equal(t, row(t, s, lane2).Waiting, int64(2))
 }
 
 func TestAFiredGateWakesALiveParkedLane(t *testing.T) {

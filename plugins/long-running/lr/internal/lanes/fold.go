@@ -432,9 +432,18 @@ func firedBy(s *store.Store, r Record) []string {
 		}
 	}
 	if slices.Contains(laneEnds, r.Kind) && !closesAnItem(s, r) {
-		gates = append(gates, "lane:"+r.Lane)
+		for _, lane := range endedBy(r) {
+			gates = append(gates, "lane:"+lane)
+		}
 	}
 	return gates
+}
+
+func endedBy(r Record) []string {
+	if r.Lane == Root && r.Kind == "fix-live" {
+		return r.To
+	}
+	return []string{r.Lane}
 }
 
 func closesAnItem(s *store.Store, r Record) bool {
@@ -448,14 +457,15 @@ func foldGates(s *store.Store, r Record, fresh bool, at time.Time) {
 		return
 	}
 	for _, waiter := range must(s.Lanes(live...)) {
-		if waiter.Name == r.Lane || !intersect(fired, strings.Fields(waiter.Awaits)) {
+		gates := slices.DeleteFunc(strings.Fields(waiter.Awaits), func(gate string) bool { return !slices.Contains(fired, gate) })
+		if waiter.Name == r.Lane || len(gates) == 0 {
 			continue
 		}
 		if fresh {
 			do(s.SetLaneWaiting(waiter.Name, 0, at, ""))
 			continue
 		}
-		resume(s, waiter.Name, fmt.Sprintf("gate:%d", r.Seq), "what you parked on happened: "+strings.Join(fired, " "), r, at)
+		resume(s, waiter.Name, fmt.Sprintf("gate:%d", r.Seq), fmt.Sprintf("%s's %s fired %s, the gate you parked on", r.Lane, r.Kind, strings.Join(gates, " ")), r, at)
 	}
 }
 
