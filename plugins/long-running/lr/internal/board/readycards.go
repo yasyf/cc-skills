@@ -176,7 +176,7 @@ func (r ReadyCards) followDrawn(ctx context.Context, rows []store.ReviewRow) (ma
 func (r ReadyCards) tellChangeOwed(ctx context.Context, rows []store.ReviewRow, facts map[int]map[string]string) error {
 	for _, row := range rows {
 		flaw := prrow.ChangeFlaw(row.ForUsers)
-		if flaw == "" || row.State != prrow.StateOpen || row.Tapped || facts[row.Number][factChangeTold] != "" {
+		if flaw == "" || row.ReadHead == "" || row.State != prrow.StateOpen || row.Tapped || facts[row.Number][factChangeTold] != "" {
 			continue
 		}
 		at := row.Head[:min(waitsSHA, len(row.Head))]
