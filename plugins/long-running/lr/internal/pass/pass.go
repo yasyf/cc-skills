@@ -477,7 +477,7 @@ func escalateTappedHolds(s *store.Store, snapshot []machine.Facts, now time.Time
 			continue
 		}
 		subject := itemSubject(f.Repo, f.Number, f.Head)
-		cause := fmt.Sprintf("DECIDE: the owner tapped this head while hold #%d stands; lift the hold, or tell the owner why not", f.HoldSeq)
+		cause := fmt.Sprintf("DECIDE: the owner tapped this head while hold %s stands; lift the hold, or tell the owner why not", f.HoldRecord)
 		if err := escalate(s, subject, cause, "", root, now, post, out); err != nil {
 			return err
 		}
@@ -537,7 +537,7 @@ func stuckBecause(s *store.Store, base machine.Facts, now time.Time) (string, er
 func rowWaitsOn(base machine.Facts) string {
 	switch {
 	case base.Held():
-		return fmt.Sprintf("%s's hold #%d", base.Hold, base.HoldSeq)
+		return fmt.Sprintf("%s's hold %s", base.Hold, base.HoldRecord)
 	case !base.RowClear():
 		return "what its row names: " + base.RowWait
 	}

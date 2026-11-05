@@ -181,7 +181,7 @@ func (u Unstick) move(ctx context.Context, f machine.Facts, chain []machine.Fact
 		return err
 	}
 	stdout, err := u.Move(ctx, f.Number)
-	if err != nil && !errors.Is(err, ErrConflict) {
+	if err != nil && !errors.Is(err, ErrConflict) && !errors.Is(err, ErrCarries) {
 		return fmt.Errorf("#%d rebase: %w", f.Number, err)
 	}
 	outcome, said := moveOutcome(f, stdout, err)
@@ -211,6 +211,9 @@ func (u Unstick) move(ctx context.Context, f machine.Facts, chain []machine.Fact
 }
 
 func moveOutcome(f machine.Facts, stdout string, err error) (string, string) {
+	if errors.Is(err, ErrCarries) {
+		return carriesValue, err.Error()
+	}
 	if err != nil {
 		return conflictValue, "that rebase conflicts and pushed nothing, so resolving it is yours: " + firstLine(stdout)
 	}

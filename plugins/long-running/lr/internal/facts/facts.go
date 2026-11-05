@@ -39,6 +39,7 @@ const (
 	queueUnknown    = "queue-unknown"
 	graphiteCheck   = "Graphite / mergeability_check"
 	diffRefs        = "refs/lr/diff/"
+	openHeadsQuery  = `query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(states: OPEN, first: 100, after: $endCursor) { nodes { number headRefOid } pageInfo { hasNextPage endCursor } } } }`
 	memberFields    = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus reviewDecision tip: commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion startedAt databaseId checkSuite { databaseId workflowRun { workflow { databaseId } } } } ... on StatusContext { context state } } } } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
@@ -678,7 +679,6 @@ func (s Source) clearWithdrawn(ctx context.Context, record client.Record) error 
 }
 
 type memberRead struct {
-	carries map[int][]int
 	prs     map[int]pullRequest
 	authors map[int]string
 	missing map[int]bool
@@ -917,7 +917,7 @@ func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, err
 		authors[pr.Number] = pr.Author.Login
 		byNumber[pr.Number] = pr
 	}
-	return memberRead{carried(prs), byNumber, authors, missing}, nil
+	return memberRead{byNumber, authors, missing}, nil
 }
 
 func (s Source) ReadMergeable(ctx context.Context, numbers []int) (map[int]string, error) {
@@ -963,8 +963,34 @@ func aliasedQuery(numbers []int, fields string) string {
 	return "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + aliases.String() + "} }"
 }
 
-func carried(prs []pullRequest) map[int][]int {
-	byHead := make(map[string]int, len(prs))
+func (s Source) openHeads(ctx context.Context) (map[string]int, error) {
+	out, err := s.graphQL(ctx, openHeadsQuery, "--paginate", "--slurp")
+	if err != nil {
+		return nil, err
+	}
+	var pages []struct {
+		Data struct {
+			Repository struct {
+				PullRequests struct {
+					Nodes []pullRequest `json:"nodes"`
+				} `json:"pullRequests"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &pages); err != nil {
+		return nil, err
+	}
+	heads := make(map[string]int)
+	for _, page := range pages {
+		for _, pr := range page.Data.Repository.PullRequests.Nodes {
+			heads[pr.HeadRefOid] = pr.Number
+		}
+	}
+	return heads, nil
+}
+
+func carried(prs map[int]pullRequest, open map[string]int) map[int][]int {
+	byHead := maps.Clone(open)
 	for _, pr := range prs {
 		byHead[pr.HeadRefOid] = pr.Number
 	}
@@ -981,17 +1007,17 @@ func carried(prs []pullRequest) map[int][]int {
 }
 
 type hold struct {
-	by      machine.Mover
-	seq     int64
-	why     string
-	asks    []string
-	asksSeq int64
+	by         machine.Mover
+	record     string
+	why        string
+	asks       []string
+	asksRecord string
 }
 
 func (h hold) onto(f *machine.Facts) {
-	f.Hold, f.HoldSeq = h.by, h.seq
+	f.Hold, f.HoldRecord = h.by, h.record
 	if h.by == "" && len(h.asks) > 0 {
-		f.Hold, f.HoldSeq, f.HoldAwaitsTap = machine.MoverRoot, h.asksSeq, true
+		f.Hold, f.HoldRecord, f.HoldAwaitsTap = machine.MoverRoot, h.asksRecord, true
 	}
 }
 
@@ -1002,7 +1028,7 @@ var (
 
 func holdSaid(record client.Record) string {
 	line, _, _ := strings.Cut(record.Text, "\n")
-	return fmt.Sprintf("%s (record #%d)", holdOpening.ReplaceAllString(line, ""), record.Seq)
+	return fmt.Sprintf("%s (record %s)", holdOpening.ReplaceAllString(line, ""), record.Name())
 }
 
 func holdWhy(record client.Record, by machine.Mover) string {
@@ -1052,11 +1078,11 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 			one := held[pr]
 			switch {
 			case bus.HoldsUntilTap(record):
-				one.asks, one.asksSeq = append(one.asks, holdSaid(record)), record.Seq
+				one.asks, one.asksRecord = append(one.asks, holdSaid(record)), record.Name()
 			case byOwner:
-				one.by, one.seq, one.why = machine.MoverOwner, record.Seq, holdWhy(record, machine.MoverOwner)
+				one.by, one.record, one.why = machine.MoverOwner, record.Name(), holdWhy(record, machine.MoverOwner)
 			case !bus.GoLifts(gos, record, pr) && one.by != machine.MoverOwner:
-				one.by, one.seq, one.why = machine.MoverRoot, record.Seq, holdWhy(record, machine.MoverRoot)
+				one.by, one.record, one.why = machine.MoverRoot, record.Name(), holdWhy(record, machine.MoverRoot)
 			}
 			held[pr] = one
 		}
@@ -1100,6 +1126,11 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	for key := range enqueuedAt {
 		enqueued[key.Number] = true
 	}
+	heads, err := s.openHeads(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read the open pull requests' heads: %w", err)
+	}
+	carries := carried(open.prs, heads)
 	out := make([]machine.Facts, 0, len(rows))
 	var diffUnread []machine.Facts
 	for _, row := range rows {
@@ -1118,7 +1149,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		f.Lane = cmp.Or(f.Lane, rowLanes[row.Number])
 		f.PersonQueued = f.Queue == machine.QueueQueued && !enqueued[f.Number]
 		held[row.Number].onto(&f)
-		f.Carries = open.carries[row.Number]
+		f.Carries = carries[row.Number]
 		if author := open.authors[row.Number]; author != s.Author {
 			f.ForeignAuthor = author
 		}

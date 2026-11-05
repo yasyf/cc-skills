@@ -698,8 +698,8 @@ func TestAHoldOverdueReachesRootOnceLandingIsLive(t *testing.T) {
 func TestATappedHeadUnderAHoldAsksTheCoordinatorOnceAndAnUntappedOneWaitsOnTheOwner(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	supervisor := []machine.Mover{machine.MoverSupervisor}
-	tapped := facts(48401, func(f *machine.Facts) { f.Hold, f.HoldSeq = machine.MoverRoot, 372915 })
-	untapped := facts(48402, func(f *machine.Facts) { f.Hold, f.HoldSeq, f.Tap = machine.MoverRoot, 372916, "" })
+	tapped := facts(48401, func(f *machine.Facts) { f.Hold, f.HoldRecord = machine.MoverRoot, "#372915" })
+	untapped := facts(48402, func(f *machine.Facts) { f.Hold, f.HoldRecord, f.Tap = machine.MoverRoot, "#372916", "" })
 	pushed := tapped
 	pushed.Head = newHead
 
@@ -930,7 +930,7 @@ func TestAStackBaseUnderAHoldOrARowWaitNamesThatWaitAndNoLane(t *testing.T) {
 		wait  func(f *machine.Facts)
 		cause string
 	}{
-		"held by root":  {func(f *machine.Facts) { f.Hold, f.HoldSeq = machine.MoverRoot, 450329 }, "its fix-red waits on root's hold #450329 past its deadline"},
+		"held by root":  {func(f *machine.Facts) { f.Hold, f.HoldRecord = machine.MoverRoot, "#450329" }, "its fix-red waits on root's hold #450329 past its deadline"},
 		"row waits":     {func(f *machine.Facts) { f.RowWait = "his card card-49305-rollback-stale" }, "its fix-red waits on what its row names: his card card-49305-rollback-stale past its deadline"},
 		"neither, lane": {func(*machine.Facts) {}, "its fix-red waits on the lane past its deadline"},
 	} {
@@ -1077,7 +1077,9 @@ func TestAHeldGreenHeadThatTakesNoGradeTellsNoOneItIsUngraded(t *testing.T) {
 	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
 		t.Fatal(err)
 	}
-	given := facts(48967, func(f *machine.Facts) { f.Finder, f.Approved, f.Hold, f.HoldSeq = "", false, machine.MoverRoot, 481773 })
+	given := facts(48967, func(f *machine.Facts) {
+		f.Finder, f.Approved, f.Hold, f.HoldRecord = "", false, machine.MoverRoot, "#481773"
+	})
 
 	for _, after := range []time.Duration{0, time.Hour, 3 * time.Hour} {
 		run(t, s, r, t0.Add(after), all, given)
