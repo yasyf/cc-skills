@@ -692,7 +692,7 @@ func TestARunnerThatIsAliveButGetsNoAnswerFromOrcaRefusesAtOnceAndNamesTheAgentF
 	f.bus.records = slices.Insert(f.bus.records[1:], 0, beat)
 	brief := f.brief(t, "b.md", "work\n"+briefLines)
 	_, err := f.poster.Launch(context.Background(), Order{Lane: "solo", Model: "opus", Effort: "high", Brief: brief}, 0)
-	want := "refused: the orca desk runner on cci drive prog is alive but Orca does not answer it: runtime_timeout, so nothing reads orca-desk lines; spawn an Agent named `solo` instead"
+	want := "refused: the orca desk runner on cci drive prog is alive but Orca does not answer it: runtime_timeout, so nothing reads orca-desk lines; spawn a background Agent (run_in_background) named `solo` instead"
 	if err == nil || err.Error() != want {
 		t.Fatalf("got %v, want %s", err, want)
 	}
