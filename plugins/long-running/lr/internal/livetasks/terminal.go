@@ -52,11 +52,11 @@ func Terminal(ctx context.Context, runner shell.Runner, handle, claude string, n
 	if len(waits) > 0 {
 		rest.Tasks = append(rest.Tasks, "- `lr wait --wake` armed as pid "+strings.Join(waits, ", "))
 	}
-	switch {
-	case kind == "":
+	switch kind {
+	case "":
 		rest.Read += ", and no claude or codex process does"
 		return rest, nil
-	case kind == "codex":
+	case "codex":
 		rest.Read += fmt.Sprintf("; codex pid %s keeps no transcript lr reads, so only an armed lr wait counts", agent)
 		return rest, nil
 	}
