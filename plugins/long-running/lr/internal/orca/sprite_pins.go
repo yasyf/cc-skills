@@ -166,6 +166,16 @@ func installFault(said string) string {
 	return fault
 }
 
+func installWarnings(stdout string) []string {
+	var warnings []string
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(line, "warning: ") {
+			warnings = append(warnings, line)
+		}
+	}
+	return warnings
+}
+
 func installedTools(stdout string) map[string]string {
 	installed := map[string]string{}
 	for _, line := range strings.Split(stdout, "\n") {

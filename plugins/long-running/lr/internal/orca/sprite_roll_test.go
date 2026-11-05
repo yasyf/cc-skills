@@ -191,6 +191,24 @@ func TestARollGivesAGraderTheGraderPinsAndALiveSpriteThatGradesTheWholeSet(t *te
 	}
 }
 
+func TestARollNamesEachWarningABoxsInstallPrints(t *testing.T) {
+	w := newRollWorld(t)
+	w.graders = []string{"fleet-1"}
+	const warning = "warning: this grader runs a cci supervisor, which no grader should; the install left its daemon alone"
+	w.replies["fleet-1"] = shell.Result{Stdout: rollAll + warning + "\n"}
+
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+
+	if !strings.Contains(w.out.String(), "lr sprites roll: fleet-1: "+warning+"\n") {
+		t.Fatalf("the roll kept a box's warning to itself:\n%s", w.out.String())
+	}
+	if strings.Contains(w.out.String(), "pool-a: warning") {
+		t.Fatalf("a box that printed no warning was named:\n%s", w.out.String())
+	}
+}
+
 func TestAProbeOnlyRollCanStartOnAGrader(t *testing.T) {
 	w := newRollWorld(t)
 	w.graders = []string{"fleet-1"}
