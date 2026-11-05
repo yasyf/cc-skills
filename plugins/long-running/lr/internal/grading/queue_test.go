@@ -2,6 +2,8 @@ package grading
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -144,6 +147,44 @@ func TestAQueueRowSaysWhatPassStandsAtItsHeadAndWhetherAReaderOwesIt(t *testing.
 				t.Fatalf("rows = %+v, want pass %s owed %v", rows, c.pass, c.owed)
 			}
 		})
+	}
+}
+
+func TestALivePassReadsRunningWhenTheStateDirectoryIsReachedThroughASymlink(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	state, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "state")
+	if err := os.Symlink(state, link); err != nil {
+		t.Fatal(err)
+	}
+	runner := `{"drive": "d", "orca": {"desk_inbox": "/i", "run": "r", "briefs": {"repo": "/b"}}, "fidelity": {}}`
+	if err := os.WriteFile(filepath.Join(state, runnerConfig), []byte(runner), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(state, grader.FidelityLane, "7-e718a7434fa0")
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, pidFile), []byte("41"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shell := &poolShell{running: map[int]string{41: "sprite-job.sh dar-1 fidelity " + directory}}
+	a := &app.App{Runner: shell, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: time.Now}
+	pool, err := readingPool(a, link, memory(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := pool.Queue(context.Background(), GraderFidelity, nil, map[int]lrfacts.Pushed{7: pushedAt(7, nil)}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) != 1 || rows[0].Pipeline != PassRunning {
+		t.Fatalf("rows = %+v, want the live pass read as running", rows)
 	}
 }
 

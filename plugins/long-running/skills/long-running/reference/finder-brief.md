@@ -12,6 +12,8 @@ With a `finder` object in `runner.json`, the relay runs the pass on every `head`
 
 A lane never runs its own pass. It posts an `ask` to `finder-desk` naming the PR and head, and the desk starts that pass ahead of every other head.
 
+`lr grade queue finder` prints every pushed head still owing a finder grade, in the pool's own order, with the pass there; [fidelity-desk-brief.md](fidelity-desk-brief.md#the-pipeline) reads its fields.
+
 ## What the finder receives
 
 Codex does not read the hooks or the register, so the prompt carries everything by value:

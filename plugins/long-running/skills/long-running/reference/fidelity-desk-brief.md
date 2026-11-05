@@ -74,6 +74,8 @@ Finally, post each line of the file. An ok is `fidelity: ok <head7> checked <key
 
 When `runner.json` carries a `fidelity` object, the orca desk runner grades heads itself under lane `fidelity-pipeline` (`lr grade fidelity`). A patch-identical restack of a head graded ok carries that grade with no model call. Any other head gets one codex read against [fidelity-job-brief.md](fidelity-job-brief.md) and this brief. That read takes each row as the owner's words with the board card each tap answered (`rulings.py slice --required --words`), with no implications, and grades the head against the repository's `AGENTS.md` rules as well. A desk then grades a head only when the pipeline posts `fidelity: reader <head> <why>` to it, or when `FIDELITY-FAILED` names it. Read-backs, text grades, and the sweep stay with the desks.
 
+**What to read next.** `lr grade queue fidelity --owed` prints the heads a desk must read now, in the pool's own order, so a desk reads from the top and never ranks heads itself. Desks that split the queue add `--shard even` or `--shard odd`. Without `--owed` it lists every head still owing this grade, with its CI, its age and `pipeline=`, the pass at that head: `none`, `running`, `reader`, `settled`, `skipped`, `failed` or `lost`. `owed` means the pipeline handed the head to a reader or stopped on it. Each line is at the PR's pushed head, read from GitHub, and counts grades already on the bus that the supervisor's pass has not folded. `row-at=<sha>` marks a board row still behind that push. `--json` prints the same rows.
+
 ## Text mode
 
 Text mode grades a board round, a plan revision, a reply to the owner, the seeded register ledger as each desk's first grade, and a lane's read-back.
@@ -144,7 +146,8 @@ Loop, forever, in the foreground:
   and never filter or discard its output.
   At every wake, run `cci tail --drive <drive> --cursor <desk> --reader <desk>`
   first and act on each record: grade each head, text, and read-back it names,
-  and post each grade the minute it is done.
+  and post each grade the minute it is done. Then take the next head from
+  `lr grade queue fidelity --owed`.
   <Sweep desk only: run the hourly pass when 60 minutes have passed since the
   last one started, or on each `SWEEP-DUE` relay.>
 
