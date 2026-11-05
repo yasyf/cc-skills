@@ -13,6 +13,7 @@ Load the version-matched guides first: `orca skills get orca-cli` and `orca skil
 - [Keep Sprites current](#keep-sprites-current)
 - [Keep a Sprite awake while its agent runs](#keep-a-sprite-awake-while-its-agent-runs)
 - [Read Buildkite from a Sprite](#read-buildkite-from-a-sprite)
+- [Read the merge queue from a Sprite](#read-the-merge-queue-from-a-sprite)
 - [Prepare and attach separately](#prepare-and-attach-separately)
 - [Keep one Run owner and one inbox consumer](#keep-one-run-owner-and-one-inbox-consumer)
 - [Diagnose the saved Dispatch](#diagnose-the-saved-dispatch)
@@ -272,6 +273,10 @@ Once `worker-start` succeeds, the launch creates the `worker-awake` Sprite servi
 - `cci post` cannot carry these off the box when it matters, because cci's store is on home and hangs with it. The supervisor reads the file instead: its `LANE-LOST` for a stopped Sprite states the last sample before the stop and any kernel error, from one `sprite exec`.
 - The file keeps about 2 hours. A failed read writes no line, warns, and leaves the hold running.
 - To tell which went first, compare the last line naming an agent with the last line of the kernel's uptime: an agent gone while uptime keeps climbing means the agent died before the box.
+
+## Read the merge queue from a Sprite
+
+`scripts/stack-enqueue --check` and `--status` run `tools/ci trunk`, which fetches the `ci` binary from the ci cache bucket. Adding the aws CLI does not help: a Sprite holds no AWS identity, so the read stops at `Unable to locate credentials`. `ccx vcs pr status <n>` answers the same question with no bucket, from GitHub and the `TRUNK_MERGE_API_KEY` the launch gives each worker. Run it from a checkout of the repository, or the queue reads unknown.
 
 ## Read Buildkite from a Sprite
 
