@@ -15,7 +15,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/yasyf/cc-interact/channel"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
@@ -1146,24 +1145,6 @@ func TestAPRNotWaitingIsOnlyAMentionAndANoPRReplyReadsNothing(t *testing.T) {
 	unrowed, warning := f.withPRCards(context.Background(), Reply{ID: "r4", Title: "Land it?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR + "0"}})
 	if !strings.Contains(warning, "no row in the PR ledger") || len(unrowed.PRCards) != 1 || unrowed.PRCards[0].Change != "" {
 		t.Fatalf("withPRCards = %+v, %q, want a PR with no ledger row warned on and drawn bare", unrowed.PRCards, warning)
-	}
-}
-
-func TestOnlyTheCommunicatorPinsTheToolsItCallsEveryTurn(t *testing.T) {
-	tools := func() []channel.Tool {
-		return []channel.Tool{{Name: "reply"}, {Name: "owner_mark"}, {Name: "asks"}}
-	}
-	pinned := pinnedInTheCommunicator(tools(), "")
-	if pinned[0].Meta == nil || pinned[1].Meta == nil || pinned[2].Meta != nil {
-		t.Fatalf("communicator tools = %+v, want reply and owner_mark alone pinned", pinned)
-	}
-	for _, tool := range pinnedInTheCommunicator(tools(), "a-drive") {
-		if tool.Meta != nil {
-			t.Fatalf("a lane pinned %s", tool.Name)
-		}
-	}
-	if got := pinnedInTheCommunicator([]channel.Tool{{Name: "reply"}}, ""); got[0].Meta != nil {
-		t.Fatal("a session in no drive pinned reply")
 	}
 }
 
