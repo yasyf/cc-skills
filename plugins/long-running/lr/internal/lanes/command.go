@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -44,6 +46,20 @@ func opened(a *app.App) (*store.Store, config.Config, error) {
 	}
 	s, err := store.Open(filepath.Join(state, StoreFile))
 	return s, cfg, err
+}
+
+func requestScope(a *app.App) (*store.Store, config.Config, error) {
+	named := a.ConfigPath != ""
+	s, cfg, err := opened(a)
+	if named || !errors.Is(err, fs.ErrNotExist) {
+		return s, cfg, err
+	}
+	entry, err := drive.Session()
+	if err != nil {
+		return nil, cfg, err
+	}
+	s, err = store.Memory()
+	return s, config.Config{Drive: entry.Drive}, err
 }
 
 func Command(a *app.App) *cobra.Command {
@@ -253,7 +269,7 @@ func RequestCommand(a *app.App) *cobra.Command {
 			if !slices.Contains(Verbs, request.Verb) {
 				return fmt.Errorf("unknown request %q, want one of %s", request.Verb, strings.Join(Verbs, ", "))
 			}
-			s, cfg, err := opened(a)
+			s, cfg, err := requestScope(a)
 			if err != nil {
 				return err
 			}
