@@ -392,6 +392,60 @@ func TestAHostWithoutTheLandingMoverActsOnNoRowTheLandingHostHasNotRead(t *testi
 	}
 }
 
+func TestReadOnceFromAHostWithoutTheLandingMoverPostsReadsAndMakesNoLandingAct(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot", approvers: []string{"a"}, merge: "MERGEABLE"},
+		{number: 2, head: head2, login: "drive-bot", state: "MERGED"},
+	}, status(1))
+	a := app.New(io.Discard)
+	a.Runner = h.runner
+	away := landingConfig
+	away.Movers = []string{"lanes", "grading"}
+
+	read, err := facts.New(a, away, h.store).ReadOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if read != 1 {
+		t.Fatalf("read %d, want the one open PR", read)
+	}
+	reads := []string{"ccx vcs gh ", "ccx vcs pr status ", "git fetch ", "git merge-base ", "git diff "}
+	for _, call := range h.runner.Calls() {
+		if ran := strings.Join(call.Argv, " "); !slices.ContainsFunc(reads, func(read string) bool { return strings.HasPrefix(ran, read) }) {
+			t.Errorf("it ran %v, which reads nothing from GitHub", call.Argv)
+		}
+		if slices.ContainsFunc(call.Argv, func(arg string) bool { return strings.Contains(arg, "mutation") }) {
+			t.Errorf("it wrote to GitHub: %v", call.Argv)
+		}
+	}
+	items, err := h.store.OpenItems(repo, 0)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("items = %+v, %v, want none opened", items, err)
+	}
+	posted, err := client.Tail(context.Background(), client.Query{Drive: "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) == 0 {
+		t.Fatal("it posted no read")
+	}
+	for _, record := range posted {
+		if record.Lane != "pr-read" || record.Fields.Attrs["record"] != "pr.read" {
+			t.Errorf("it posted %s from %s, want only pr.read records", record.Kind, record.Lane)
+		}
+	}
+	if err := facts.New(a, away, h.store).FoldRows(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for number, want := range map[int]string{1: prrow.StateOpen, 2: prrow.StateLanded} {
+		row, known, err := h.store.ReviewRow(repo, number)
+		if err != nil || !known || row.State != want {
+			t.Errorf("#%d = %+v, %v, %v, want state %s", number, row, known, err, want)
+		}
+	}
+}
+
 func TestACutoverHoldComesThroughWithItsReason(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 49428, head: head, login: "drive-bot"}, {number: 49307, head: head2, login: "drive-bot"}}, status(49428), status(49307))
 	for lane, text := range map[string]string{

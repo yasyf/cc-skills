@@ -142,3 +142,32 @@ func backfillCommand(a *app.App, opened func() (drive.Entry, string, error)) *co
 		},
 	}
 }
+
+func readCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {
+	return &cobra.Command{
+		Use:   "read",
+		Short: "Read GitHub once for every open drive PR and post each read the rows fold, from any host and beside a running landing host; it opens, queues and merges nothing",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			entry, _, err := opened()
+			if err != nil {
+				return err
+			}
+			cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), c.ErrOrStderr())
+			if err != nil {
+				return err
+			}
+			s, err := store.Open(entry.Store())
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			read, err := lrfacts.New(a, cfg, s).ReadOnce(c.Context())
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(c.OutOrStdout(), "read %d open PRs\n", read)
+			return nil
+		},
+	}
+}
