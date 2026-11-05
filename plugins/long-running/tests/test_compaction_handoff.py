@@ -760,7 +760,7 @@ SCOPE_WORDS = (
     "da49cb1: nothing is deleted from cloud storage",
     "f765046: stream paths never poll",
 )
-SWEEP_LINE = "Run `rulings.py sweep --drive b7` before the first plan or card edit."
+SWEEP_LINE = "Run `~/.claude/long-running/current/bin/rulings.py sweep --drive b7` before the first plan or card edit."
 RECORDING_CCI = """#!/usr/bin/env python3
 import json, os, sys
 with open(os.path.join(os.environ["FAKE_CCN"], "cci-calls"), "a") as calls:
@@ -875,7 +875,7 @@ def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
         [
             "post", "--drive", "brook-drive", "--lane", "supervisor", "--kind", "blocker", "--to", "root", "--text",
             f"The coordinator's register slice did not load at SessionStart {source}: {reason}. "
-            "Run `rulings.py slice --root --drive b7` and read it before the first plan or card edit.",
+            "Run `~/.claude/long-running/current/bin/rulings.py slice --root --drive b7` and read it before the first plan or card edit.",
         ]
     ]
 

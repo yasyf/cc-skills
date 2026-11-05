@@ -24,7 +24,7 @@ LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 ASK = "cci post --drive d --lane lane-a --kind ask --to meta-desk --text 'which store holds the topics? A) a ledger B) labels only'"
 SEARCHED_FIRST = (
     "Warning, nothing was blocked: Search his answers before asking him to choose or opening a PR."
-    " Run `ccn answer search <topic>` per subject and `ccn relevant <path>` per changed path, or `rulings.py answers`, and cite any answer that settles it instead of asking."
+    " Run `ccn answer search <topic>` per subject and `ccn relevant <path>` per changed path, or `~/.claude/long-running/current/bin/rulings.py answers`, and cite any answer that settles it instead of asking."
 )
 
 

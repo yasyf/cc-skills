@@ -174,7 +174,7 @@ def test_unclassified_owner_captures_of_one_pass_post_one_blocker_listing_each(r
     assert option(blocker, "--text") == (
         f'2 owner captures have no row in register brook: {UNCLASSIFIED} "keep the nightly report"; '
         f'1f2e3d4c5b6a7980 "{long[:80]}". '
-        f"Classify them with `rulings.py classify` before the next key moment.{note}"
+        f"Classify them with `~/.claude/long-running/current/bin/rulings.py classify` before the next key moment.{note}"
     )
 
     later = {"digest": "0a9b8c7d6e5f4321", "at": "Oct 23 4:30 AM", "session": SESSION, "source": "prompt", "text": "drop the beta flag"}
