@@ -12,13 +12,14 @@ import (
 )
 
 const (
+	MoverLanes   = "lanes"
 	MoverLanding = "landing"
 	MoverGrading = "grading"
 )
 
 const RetireSilent = time.Hour
 
-var Movers = []string{"lanes", MoverLanding, "grading", "items"}
+var Movers = []string{MoverLanes, MoverLanding, "grading", "items"}
 
 type Config struct {
 	Repo                  string
