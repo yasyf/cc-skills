@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import logging
 import re
 import subprocess
@@ -11,7 +12,9 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, Warn, WorkflowState, hook, on, workflow_state
 from captain_hook.util import reqenv
 
+from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, COMMUNICATOR_LANE, Bound, Communicator, CompactionState, bus_name, communicator_tests, drive_entry
+from .meta_records import posts
 from .register_capture import CREDENTIAL, REDACTED, overlaps
 from .register_gates import folded, written_paths
 from .root_context import PACIFIC, OwnerPrompt, answers, message_label, ruling_body, typed_words
@@ -46,6 +49,9 @@ RULINGS = "root/rulings/*.md"
 LR = Path(__file__).parents[2] / "bin" / "lr"
 AUDIT = f"{LR} owner audit --drive brook-drive"
 AUDIT_SECONDS = 60
+UNREAD = f"{LR} owner unread"
+ROW_TOKEN = re.compile(r"\b(?:owner:|row=)(m\d+(?:\.\d+)?)\b")
+PR_FLAG = re.compile(r"(?:--pr[= ]|\"pr\": ?\")(?:\S*?(?:#|/pull/))?(\d+)\b")
 ANSWER_ATTEMPTS = 3
 ANSWER_RETRY_SECONDS = 20
 CARRY = "Every order below is still owed, and a reply or a route does not close one. Carry each into the summary by its row id.\n\n```\n{orders}\n```"
@@ -325,3 +331,32 @@ def a_compacted_communicator_reads_the_open_orders_first(evt: BaseHookEvent) -> 
     if evt._raw.get("source") != "compact" or not (entry := drive_entry(evt)):
         return None
     return evt.context(REREAD.format(drive=entry["drive"]))
+
+
+def asked_about(evt: BaseHookEvent) -> list[str]:
+    if not any(lane == COMMUNICATOR_LANE and kind == "ask" for lane, _, kind, *_ in posts(evt)):
+        return []
+    carried = json.dumps(evt._tool_input) if evt.tool_name == POST_TOOL else evt.command.raw
+    return list(dict.fromkeys(ROW_TOKEN.findall(carried) + PR_FLAG.findall(carried)))
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Communicator(), Tool("Bash", POST_TOOL)],
+    skip_if=[FromSubagent()],
+    tests=communicator_tests({
+        Input(command="cci post --lane owner-relay --kind ask --to explain-48311 --pr Forge-AI/monorepo#48311 --attr row=m848 --text 'post what you have now'", state=ACTIVE, env=DRIVE_CONFIG, commands={UNREAD: "warning: m848 already has an answer addressed to owner-relay that you have posted nothing about since, a report from explain-48311. Read it with `cci show 459505 --body` before asking again or promising a clock.\n"}): Warn(pattern=r"^warning: m848 already has an answer[\s\S]*a report from explain-48311\. Read it with `cci show 459505 --body`"),
+        Input(tool=POST_TOOL, tool_input={"lane": "owner-relay", "kind": "ask", "to": ["explain-48311"], "text": "owner:m848 post what you have now"}, state=ACTIVE, env=DRIVE_CONFIG, commands={UNREAD: "warning: m848 already has an answer\n"}): Warn(pattern=r"^warning: m848 already has an answer"),
+        Input(command="cci post --lane owner-relay --kind ask --to explain-48311 --text 'owner:m848 post what you have now'", state=ACTIVE, env=DRIVE_CONFIG, commands={UNREAD: ""}): Allow(),
+        Input(command="cci post --lane owner-relay --kind ask --to explain-48311 --text 'owner:m848 post what you have now'", state=ACTIVE, env=DRIVE_CONFIG, commands={UNREAD: (1, "no drive")}): Warn(pattern=r"lr owner unread failed: no drive"),
+        Input(command="cci post --lane owner-relay --kind report --to root --text 'owner:m848 told him'", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+        Input(command="cci post --lane owner-relay --kind ask --to root --text 'which lane holds the release?'", state=ACTIVE, env=DRIVE_CONFIG): Allow(),
+        Input(command="cci post --lane owner-relay --kind ask --to explain-48311 --text 'owner:m848 post it'", state=ACTIVE, env=DRIVE_CONFIG, agent_id="a1b2c3"): Allow(),
+    }),
+)
+def an_ask_names_the_answer_already_waiting(evt: BaseHookEvent) -> HookResult | None:
+    if not (about := asked_about(evt)) or not (entry := drive_entry(evt)):
+        return None
+    done = subprocess.run([str(LR), "owner", "unread", *about, "--drive", entry["drive"]], capture_output=True, text=True, timeout=AUDIT_SECONDS, env=dict(reqenv.env_map()))
+    said = done.stdout.strip() if done.returncode == 0 else f"lr owner unread failed: {(done.stderr or done.stdout).strip()}"
+    return evt.warn(said) if said else None
