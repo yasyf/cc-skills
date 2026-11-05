@@ -14,6 +14,10 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx/ccxtest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
@@ -162,14 +166,14 @@ func TestAWordGivenAgainAtOneHeadIsANewOrder(t *testing.T) {
 
 	var out bytes.Buffer
 	orders := bus.Bus{Drive: "d", Lane: "tap-orders"}
-	if err := writeOrder(ctx, s, "o/r", orders, 7, first, &out); err != nil {
+	if err := writeOrder(ctx, s, "o/r", orders, 7, first, "ci-speed", &out); err != nil {
 		t.Fatal(err)
 	}
 	second, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", Text: "Owner in thread: merge #7 after all"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeOrder(ctx, s, "o/r", orders, 7, second, &out); err != nil {
+	if err := writeOrder(ctx, s, "o/r", orders, 7, second, "ci-speed", &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -205,7 +209,7 @@ func TestOneWordOrdersEachPRAndEachHeadItCovers(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		if err := writeOrder(ctx, s, "o/r", orders, number, word, &out); err != nil {
+		if err := writeOrder(ctx, s, "o/r", orders, number, word, "ci-speed", &out); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -257,7 +261,7 @@ func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 			}
 
 			var out bytes.Buffer
-			err = writeOrder(ctx, s, "o/r", bus.Bus{Drive: "d", Lane: "tap-orders"}, 7, word, &out)
+			err = writeOrder(ctx, s, "o/r", bus.Bus{Drive: "d", Lane: "tap-orders"}, 7, word, "ci-speed", &out)
 
 			var exit *wait.ExitError
 			if got := errors.As(err, &exit); got != tt.refused {
@@ -277,5 +281,74 @@ func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 				t.Fatalf("out = %s", out.String())
 			}
 		})
+	}
+}
+
+func driveWithNoLandStore(t *testing.T) {
+	t.Helper()
+	config := t.TempDir()
+	registry := filepath.Join(config, "long-running", "drives")
+	if err := os.MkdirAll(registry, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := json.Marshal(drive.Entry{Drive: "d", CCIDrive: "d", Repo: "o/r", StateDir: t.TempDir(), Sessions: []string{"root"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(registry, "d.json"), entry, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	t.Setenv(drive.Env, "d")
+	t.Setenv(lanes.LaneEnv, "sprite-lane")
+	t.Setenv("CCI_HOME", t.TempDir())
+}
+
+func TestAnOrderFromABoxWithNoLandStoreGoesToTheHostAtTheFullHeadNamingItsWriter(t *testing.T) {
+	const head = "2fd57ee43ba97bf1e8f71036797365920d50d1af"
+	driveWithNoLandStore(t)
+	ctx := context.Background()
+	word, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", Text: "Owner in thread: merge #7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	err = runOrder(ctx, &app.App{CCX: &ccxtest.Fake{Statuses: []ccx.PRStatus{{Number: 7, Head: head, State: "OPEN"}}}}, 7, word.Seq, &out)
+	if err != nil {
+		t.Fatalf("err = %v, out = %s", err, out.String())
+	}
+	written, err := client.Tail(ctx, client.Query{Drive: "d", After: word.Seq})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 1 || written[0].Fields.Attrs[bus.WriterAttr] != "sprite-lane" {
+		t.Fatalf("written = %+v", written)
+	}
+	if tap, ordered := bus.OrderOf(written[0], "o/r"); !ordered || tap.PR != 7 || tap.Head != head {
+		t.Fatalf("the landing host reads = %+v, %v", tap, ordered)
+	}
+}
+
+func TestAnOrderFromABoxWithNoLandStorePostsNothingForAPRNoLongerOpen(t *testing.T) {
+	driveWithNoLandStore(t)
+	ctx := context.Background()
+	word, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", Text: "Owner in thread: merge #7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	err = runOrder(ctx, &app.App{CCX: &ccxtest.Fake{Statuses: []ccx.PRStatus{{Number: 7, Head: "2fd57ee43ba97bf1e8f71036797365920d50d1af", State: "MERGED"}}}}, 7, word.Seq, &out)
+
+	if err == nil || !strings.Contains(err.Error(), "no open PR") {
+		t.Fatalf("err = %v", err)
+	}
+	written, err := client.Tail(ctx, client.Query{Drive: "d", After: word.Seq})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 0 {
+		t.Fatalf("written = %+v", written)
 	}
 }
