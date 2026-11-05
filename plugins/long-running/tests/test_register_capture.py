@@ -234,6 +234,23 @@ def test_an_owner_message_from_both_the_channel_and_the_watch_lands_once(root):
     assert [entry["digest"] for entry in root.captures()] == [digest("1793159602.693499")]
 
 
+def test_an_owner_message_the_watch_cut_to_fit_its_event_lands_whole(root):
+    said = "Keep the nightly report through cutover, and when the export moves to the new box, " * 4
+    cut = {"type": "slack.message", "channel_id": "D0DIRECT001", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": register_capture.OPERATOR, "from_claude": False, "text": said[:170], "cut": True}
+    cc_slack = root.home / "config" / register_capture.CC_SLACK_CACHE / "0.4.27" / "bin" / "cc-slack"
+    cc_slack.parent.mkdir(parents=True)
+    cc_slack.touch()
+    root.routes[(str(cc_slack), "thread")] = json.dumps({"thread_ts": "1792842193.708029", "messages": [{"ts": "1792842193.708029", "text": "Status card"}, {"ts": "1793159602.693499", "text": said}]})
+    root.queued(f'<task-notification>\n<summary>Monitor event: "owner Slack watch"</summary>\n<event>{json.dumps(cut)}</event>\n</task-notification>', "2026-10-28T03:53:26.695Z")
+
+    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+    root.fire(StopEvent)
+
+    assert [entry["text"] for entry in root.captures()] == [said]
+    [post] = [call for call in root.calls if call[:2] == ("cci", "post") and "owner" in call]
+    assert post[post.index("--quoted") + 1] == said
+
+
 def test_a_message_that_is_not_the_owners_posts_no_record(root):
     root.queued(slack_message(from_claude=True), "2026-10-28T03:53:25.695Z")
 
