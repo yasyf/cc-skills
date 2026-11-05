@@ -500,8 +500,9 @@ def judge(
 
 def ask(kind: str, evidence: str, artifact: str, *, backend: Backend, timeout: float, env: Mapping[str, str] | None, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> Call:
     what, question = KINDS[kind]
-    prompt = PROMPT.format(evidence=evidence, artifact=what, text=artifact[:ARTIFACT_CHARS], question=question)
-    state = f"{evidence}\n\nThe artifact is {what}:\n~~~~~~~~\n{artifact[:ARTIFACT_CHARS]}\n~~~~~~~~"
+    artifact = artifact if len(artifact) <= ARTIFACT_CHARS else f"{artifact[:ARTIFACT_CHARS]}\n… the rest of the artifact left out"
+    prompt = PROMPT.format(evidence=evidence, artifact=what, text=artifact, question=question)
+    state = f"{evidence}\n\nThe artifact is {what}:\n~~~~~~~~\n{artifact}\n~~~~~~~~"
     call = Call()
 
     def asked(answer: Answer) -> Verdict:
