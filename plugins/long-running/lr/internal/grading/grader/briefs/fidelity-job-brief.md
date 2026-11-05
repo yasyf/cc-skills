@@ -97,7 +97,9 @@ Answer in the schema:
   `summary` as a follow-up owed. A line that fixes, adds or cleans up past the source is
   `missing`, keyed by the nearest plan line, with a line starting "past its source #<n>:" that
   says what to split into the follow-up. Moving imports and paths and using the next tree's names
-  for the same things is no departure. Two departures stand: one his own answer in the rows
+  for the same things is no departure. Comments are no departure either way, whatever a repo guide
+  says: a comment the source has may stay or go, and neither is `missing`; only a comment the
+  source lacks counts as past its source. Two departures stand: one his own answer in the rows
   ordered for this port, and a line left out or bent so the port does not undo a rebuild change,
   which the PR body lists and which makes `exempt` `none`. A line the old PR shares that would
   undo a rebuild change stays `missing` until the port stops doing that.
