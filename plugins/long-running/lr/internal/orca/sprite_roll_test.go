@@ -376,19 +376,19 @@ func TestAFailureBeforeAnyPinMarksNothingBad(t *testing.T) {
 	}
 }
 
-func TestAFailureOfTheBoxOrNetworkMarksNoPinBad(t *testing.T) {
+func TestAFailureThatShowsNoPinAtFaultMarksNoPinBad(t *testing.T) {
 	for _, said := range []string{
 		"sh: 51: cannot create /tmp/capt-hookd.new: Text file busy",
 		"tar: ccx: Cannot write: No space left on device",
 		"curl: (6) Could not resolve host: github.com",
-		"curl: (56) OpenSSL SSL_read: Connection reset by peer",
+		"context deadline exceeded",
 	} {
 		w := newRollWorld(t)
 		w.replies["pool-a"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: said + "\n"}
 
 		refused := w.roll("")
 
-		if want := "lr sprites roll: the box or the network stopped the install on pool-a, so 2 more Sprites keep what they run and no pin is marked bad: " + said; refused != want {
+		if want := "lr sprites roll: nothing shows a pin at fault for the failed install on pool-a, so 2 more Sprites keep what they run and no pin is marked bad: " + said; refused != want {
 			t.Fatalf("refused\n%s\nwant\n%s", refused, want)
 		}
 		for _, tool := range [][2]string{{"ccx", rollCCX}, {"long-running@skills", rollPack}} {
@@ -396,6 +396,19 @@ func TestAFailureOfTheBoxOrNetworkMarksNoPinBad(t *testing.T) {
 				t.Fatal(said, "marked", tool[0], "bad:", why, err)
 			}
 		}
+	}
+}
+
+func TestARollReachesItsGradersBeforeAStopOnALiveSpriteCanStrandThem(t *testing.T) {
+	w := newRollWorld(t)
+	w.host = "desk-host"
+	w.graders = []string{"sdf-1", "sdf-2"}
+	w.replies["pool-a"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\nrefused: https://example.test/ccx.tgz is not the archive with SHA-256 " + testCCISHA + "\n"}
+
+	w.roll("")
+
+	if !slices.Equal(w.boxes, []string{"sdf-1", "sdf-2", "desk-host", "pool-a"}) {
+		t.Fatal("the graders did not go first", w.boxes)
 	}
 }
 

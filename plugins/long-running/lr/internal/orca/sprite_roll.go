@@ -30,7 +30,7 @@ import (
 
 const spriteInstallTimeout = 15 * time.Minute
 
-var notThePin = regexp.MustCompile(`Text file busy|No space left on device|curl: \((6|7|18|28|35|52|56)\)`)
+var pinAtFault = regexp.MustCompile(`^refused: |curl: \(22\)|Not found in archive`)
 
 type runWorkers interface {
 	Workers(ctx context.Context, run string) ([]Worker, error)
@@ -184,12 +184,12 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			boxes = append(boxes, sprite.Workspace)
 		}
 	}
-	r.Graders = slices.DeleteFunc(slices.Clone(r.Graders), func(box string) bool { return slices.Contains(boxes, box) })
-	boxes = append(boxes, r.Graders...)
+	r.Graders = slices.DeleteFunc(slices.Clone(r.Graders), func(box string) bool { return slices.Contains(boxes, box) || box == r.Host })
 	if r.Host != "" && !slices.Contains(boxes, r.Host) {
 		boxes = append(boxes, r.Host)
 	}
 	slices.Sort(boxes)
+	boxes = slices.Concat(r.Graders, boxes)
 	if probe != "" {
 		at := slices.Index(boxes, probe)
 		if at < 0 {
@@ -261,8 +261,8 @@ func (r SpriteRoll) failed(box string, pins spritePins, installed map[string]str
 	if installed["cci"] == "" || installed["lr"] == "" || failed < 0 {
 		return refuse("lr sprites roll: the cci or lr install failed on %s, so %d more Sprites keep what they run: %s", box, left, said)
 	}
-	if notThePin.MatchString(said) {
-		return refuse("lr sprites roll: the box or the network stopped the install on %s, so %d more Sprites keep what they run and no pin is marked bad: %s", box, left, said)
+	if !pinAtFault.MatchString(said) {
+		return refuse("lr sprites roll: nothing shows a pin at fault for the failed install on %s, so %d more Sprites keep what they run and no pin is marked bad: %s", box, left, said)
 	}
 	tool := pins.tools[failed]
 	if err := r.Store.MarkBadTool(tool.Name, tool.Version, fmt.Sprintf("its install failed on %s: %s", box, said), r.Now()); err != nil {
