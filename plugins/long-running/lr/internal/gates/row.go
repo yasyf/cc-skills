@@ -51,6 +51,14 @@ func RowReadAt(s *store.Store, repo string, number int, head string) (string, er
 	return NoRowIn(s, repo)
 }
 
+func TapCardShownAt(s *store.Store, repo string, number int, head string) (string, error) {
+	facts, err := s.Facts(repo, number, head)
+	if err != nil || facts[ShownFact] == "" {
+		return "", err
+	}
+	return fmt.Sprintf("his tap card for it was shown at %s, so it lands on his tap whatever its class", short(head)), nil
+}
+
 func NoRowIn(s *store.Store, repo string) (string, error) {
 	held, err := s.HoldsReviewRows(repo)
 	if err != nil || held {

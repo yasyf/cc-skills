@@ -174,6 +174,13 @@ func (g goGate) answer(ctx context.Context, f machine.Facts) ([]string, error) {
 	if unread != "" {
 		refusals = append(refusals, unread)
 	}
+	shown, err := gates.TapCardShownAt(g.s, g.cfg.Repo, f.Number, f.Head)
+	if err != nil {
+		return nil, err
+	}
+	if shown != "" {
+		refusals = append(refusals, shown)
+	}
 	if len(refusals) == 0 {
 		return nil, nil
 	}
@@ -240,6 +247,13 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		}
 		if unread != "" {
 			refusals, lapses = append(refusals, unread), time.Time{}
+		}
+		shown, err := gates.TapCardShownAt(s, cfg.Repo, number, head)
+		if err != nil {
+			return false, lapses, err
+		}
+		if shown != "" {
+			refusals = append(refusals, shown)
 		}
 	}
 	if len(refusals) > 0 {
