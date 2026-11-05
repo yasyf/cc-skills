@@ -6,7 +6,7 @@ from .compaction_handoff import Bound, CompactionState
 
 COMMANDS = frozenset({"tsc", "pytest", "jest", "vitest", "eslint", "mypy", "pyright", "xcodebuild"})
 VERBS = {
-    "cargo": frozenset({"build", "check", "test", "clippy", "nextest", "bench"}),
+    "cargo": frozenset({"build", "check", "test", "nextest", "bench"}),
     "just": frozenset({"vet", "build", "test", "lint", "check", "typecheck"}),
     "buck2": frozenset({"build", "test"}),
     "swift": frozenset({"build", "test"}),
@@ -14,12 +14,12 @@ VERBS = {
     "biome": frozenset({"check", "lint", "ci"}),
     "ty": frozenset({"check"}),
     "capt-hook": frozenset({"test", "lint"}),
-    "golangci-lint": frozenset({"run"}),
 }
 MAKE_TARGETS = frozenset({"all", "build", "test", "check", "lint", "vet", "typecheck"})
 SCRIPTS = frozenset({"tsc", "build", "test", "lint", "typecheck"})
 VALUE_FLAGS = {
     "go": frozenset({"-C", "-run", "-tags", "-timeout", "-count", "-p"}),
+    "golangci-lint": frozenset({"-c", "--config", "--timeout", "-E", "--enable", "-D", "--disable"}),
     "cargo": frozenset({"--manifest-path", "--config", "-Z", "--color", "-p", "--package"}),
     "just": frozenset({"-f", "--justfile", "-d", "--working-directory"}),
     "make": frozenset({"-C", "-f", "--file", "--directory"}),
@@ -81,7 +81,9 @@ def runs(name: str, args: tuple[str, ...]) -> bool:
             return not golden(args)
         case "go", ["build" | "vet", *packages]:
             return "./..." in packages
-        case "cargo", ["check", *_]:
+        case "golangci-lint", ["run", *packages]:
+            return not packages or "./..." in packages
+        case "cargo", ["check" | "clippy", *_]:
             return not one_crate(args)
         case tool, [verb, *_] if verb in VERBS.get(tool, ()):
             return True
@@ -148,6 +150,12 @@ def builds(call: Call) -> bool:
         Input(command="uv run ruff check", env=LANE_ENV): Block(),
         Input(command="ruff check --fix .", env=LANE_ENV): Block(),
         Input(command="golangci-lint run ./...", env=LANE_ENV): Block(),
+        Input(command="golangci-lint run", env=LANE_ENV): Block(),
+        Input(command="golangci-lint run --config .golangci.yml", env=LANE_ENV): Block(),
+        Input(command="golangci-lint run ./internal/orca ./internal/livetasks", env=LANE_ENV): Allow(),
+        Input(command="cargo clippy", env=LANE_ENV): Block(),
+        Input(command="cargo clippy --workspace -p lr", env=LANE_ENV): Block(),
+        Input(command="cargo clippy -p lr", env=LANE_ENV): Allow(),
         Input(command="golangci-lint version", env=LANE_ENV): Allow(),
         Input(command="golangci-lint --version", env=LANE_ENV): Allow(),
         Input(command="xcodebuild -version", env=LANE_ENV): Allow(),
