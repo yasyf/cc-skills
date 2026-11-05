@@ -1,5 +1,69 @@
 {
-  "set-options-pending-bugs": {
+  "set-options-all-named": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.26
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.22
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.22
+        ]
+      }
+    ]
+  },
+  "set-options-designs-diagram": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.09
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.08
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.09
+        ]
+      }
+    ]
+  },
+  "set-options-designs-no-diagram": {
     "expect": "yes",
     "runs": [
       {
@@ -8,7 +72,39 @@
           "yes"
         ],
         "jev": [
+          0.91
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.91
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
           0.92
+        ]
+      }
+    ]
+  },
+  "set-options-designs-picture": {
+    "expect": "yes",
+    "runs": [
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.94
         ]
       },
       {
@@ -26,7 +122,7 @@
           "yes"
         ],
         "jev": [
-          0.92
+          0.93
         ]
       }
     ]
@@ -36,55 +132,93 @@
     "runs": [
       {
         "sonnet": [
+          "no",
           "no"
         ],
         "jev": [
-          0.07
+          0.38
         ]
       },
       {
         "sonnet": [
+          "no",
           "no"
         ],
         "jev": [
-          0.07
+          0.32
         ]
       },
       {
         "sonnet": [
+          "no",
           "no"
         ],
         "jev": [
-          0.07
+          0.36
         ]
       }
     ]
   },
-  "set-options-all-named": {
+  "set-options-pending-bugs": {
+    "expect": "yes",
+    "runs": [
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.95
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.95
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.95
+        ]
+      }
+    ]
+  },
+  "set-options-timing": {
     "expect": "no",
     "runs": [
       {
         "sonnet": [
+          "no",
           "no"
         ],
         "jev": [
-          0.15
+          0.09
         ]
       },
       {
         "sonnet": [
+          "no",
           "no"
         ],
         "jev": [
-          0.16
+          0.09
         ]
       },
       {
         "sonnet": [
+          "no",
           "no"
         ],
         "jev": [
-          0.15
+          0.09
         ]
       }
     ]

@@ -69,7 +69,7 @@ It warns when a card re-asks a settled question or offers an option narrower or 
 - the `confirm` judge reads it as asking the owner to grade a reading of the owner's own words, in any wording; or
 - the `decided` judge reads one of the owner's ccn answers sharing its subject as deciding everything it asks.
 
-The refusal names that answer by its question, in plain words, and its id. The same draws print a `WARNING` saying what to list, and still draw, when the `set-options` judge reads an option as acting on a set whose members the card does not each name with a PR link and what it does for a user.
+The refusal names that answer by its question, in plain words, and its id. The same draws print a `WARNING` saying what is missing, and still draw, when the `set-options` judge reads an option as acting on a set whose members the card does not each name with a PR link and what it does for a user, or reads the card as having him choose between architecture designs with no architecture doc (arch/v1) drawing them side by side. A picture, a mermaid block or a link to a page is no such diagram.
 
 - A card's background or Explain more embeds the write-up's section in the card, using cc-present's `display.designdoc` block or the architecture diagram component where one exists. A link may only sit under that text. The same check refuses a card that is only a URL or "see <link>", on `lr reply` as well.
 - A lane that reads the owner's words acts on its reading and says what it did.
@@ -172,8 +172,8 @@ lr ask-owner --title '<question>?' --background '<what he needs to decide it>' -
 ```
 
 - The lane draws its own card, on his main board and at the root of his Slack direct message, and owns it. The call waits for the board link on the Mac and prints the card's link, or exits 1 with what to change.
-- Until a lane is on the verb, board-refresher alone draws a lane's `CARD:` ask, through `lr ask-owner --card <file> --for-ask <seq> --until <end>`, so the asking lane owns the card and that ask gets one card. A second card for the same ask is refused naming the first.
-- owner-relay draws only the cards of its own replies, and never a lane's `CARD:` ask. board-refresher also redraws and withdraws stale cards.
+- Until a lane is on the verb, board-refresher alone draws a lane's `CARD:` ask, through `lr ask-owner --card <file> --for-ask <seq> --until <end>`, so the asking lane owns the card and that ask gets one card. A second card for the same ask is refused naming the first. A `CARD:` ask whose answers are architecture designs is not drawn there, since that card draws no diagram: board-refresher sends it to owner-relay with the lane's arch/v1 doc, as the next line says, and asks the lane for the doc when the ask has none.
+- owner-relay draws only the cards of its own replies, and never a lane's `CARD:` ask. A lane's choice between architecture designs reaches it as an `ask` carrying the arch/v1 doc, which it sends as its own reply with the doc as `diagram`, since `lr reply` is the one card route that draws the diagram. board-refresher also redraws and withdraws stale cards.
 - A missing background, a repeat of a card on his board, a card he already answered, only ways to live with a failure and no fix for its cause, and a loss with no plan beside it are all refused at the link.
 - The owner's answer wakes that lane through `lr board wake` the moment board-watch records it. The wake reaches any lane that is not retired, and `lr board wake late` raises one that never answers. A retired lane whose process is still there is woken; one whose process is gone is relaunched by the supervisor from its brief, once, with the answer in the new lane's brief, and a second answer goes to that new lane. A pick no lane asked for goes to owner-relay.
 - Any record of the lane naming the card within ten minutes is the acknowledgement. Past that, meta-desk and the communicator hear once and nothing blocks.

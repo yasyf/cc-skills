@@ -211,8 +211,8 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 		}
 	}
 	if card.TapOf == "" {
-		if unnamed := cards.UnnamedSet(ctx, l.Judge, card.Block); unnamed != "" {
-			said += "; WARNING " + unnamed
+		if lacks := cards.Lacks(ctx, l.Judge, card.Block); lacks != "" {
+			said += "; WARNING " + lacks
 		}
 	}
 	if unchecked != nil {
