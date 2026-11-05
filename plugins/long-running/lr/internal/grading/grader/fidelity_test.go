@@ -1164,3 +1164,63 @@ func TestAFidelityQuestionCarriesTheReportOfTheBugItemItsJobNames(t *testing.T) 
 		})
 	}
 }
+
+func TestAHeadPastAnOkTheSonnetReadCallsUnchangedCarriesTheOkWithNoCodexPass(t *testing.T) {
+	why := "The amend renames a local in follow.go and leaves the resubscribe the grade judged as it was."
+	directory := fidelityDir(t, nil)
+	shell, _ := newFidelityFake(t, otherPatch)
+	shell.judged = []any{regradeAnswer{carryAnswer, why}}
+	mustFidelity(t, directory, shell)
+	equal(t, len(shell.asks()), 0)
+	judges := shell.judges()
+	equal(t, len(judges), 1)
+	holdsAll(t, strings.Join(judges[0], " "), "--model sonnet", "--effort high")
+	holdsAll(t, readText(t, directory, regradeQuestion),
+		"`git range-diff "+shaOldOwn+"^.."+shaOld+" "+shaOwn+"^.."+shaHead+"`", "Amended commits: "+shaOwn[:7]+".",
+		"- cci #170001 from fidelity-desk-5: "+deskOK["text"].(string), fidelityMeans, "sand: 🐛 a cut signal resubscribes",
+	)
+	texts := shell.texts()
+	equal(t, texts[0], "fidelity: ok "+shaHead+" "+portPhrase+": carried from "+shaOld[:7]+" (cci #170001), judged unchanged in meaning by sonnet over its range-diff: "+strings.TrimSuffix(why, ".")+".")
+	equal(t, texts[1], "old-app: unchanged "+shaHead[:7]+" baseline "+baselineName+"; go/sand/next only")
+	outcome := resultOf(t, directory)
+	if !reflect.DeepEqual(outcome, map[string]any{"verdict": "carried", "from": shaOld, "posted": []any{"#150002", "#150003"}, "regrade": "carry: " + why}) {
+		t.Errorf("outcome = %v", outcome)
+	}
+}
+
+func TestAHeadPastAnOkTheSonnetReadSendsToSolGetsTheCodexDeltaAndKeepsTheReadsAnswer(t *testing.T) {
+	why := "The amend adds a retry loop around the resubscribe, which the grade never read."
+	directory := fidelityDir(t, nil)
+	shell, _ := newFidelityFake(t, otherPatch, fidelityReplyOf(nil))
+	shell.judged = []any{regradeAnswer{solAnswer, why}}
+	mustFidelity(t, directory, shell)
+	equal(t, len(shell.judges()), 1)
+	equal(t, len(shell.asks()), 1)
+	holdsAll(t, readText(t, directory, "question-1.md"), "only the hunks the range-diff shows for its pair ("+shaOwn[:7]+")")
+	if !strings.HasPrefix(shell.texts()[0], "fidelity: ok "+shaHead+" Resubscribes") {
+		t.Errorf("posted %q", shell.texts()[0])
+	}
+	equal(t, resultOf(t, directory)["regrade"].(string), "sol: "+why)
+}
+
+func TestAHeadWithNoHeadEveryLaneGradedOkNeverAsksTheSonnetRead(t *testing.T) {
+	oneMissing := gradeOf(170005, "fidelity-desk-4", "fidelity: missing "+shaOld+" rule/949e6be polls the signal")
+	cases := []struct {
+		name    string
+		changes map[string]any
+	}{
+		{"no earlier grade", map[string]any{"grades": []any{}}},
+		{"one lane missing", map[string]any{"grades": []any{deskOK, oneMissing}}},
+		{"past his tap", map[string]any{"since": shaOld}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			directory := fidelityDir(t, c.changes)
+			shell, _ := newFidelityFake(t, otherPatch, fidelityReplyOf(map[string]any{"behavior": "same"}))
+			mustFidelity(t, directory, shell)
+			equal(t, len(shell.judges()), 0)
+			equal(t, len(shell.asks()), 1)
+			wantNoFile(t, directory, regradeQuestion)
+		})
+	}
+}

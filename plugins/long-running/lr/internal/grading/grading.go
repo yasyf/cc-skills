@@ -55,7 +55,7 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 			continue
 		}
 		graded[item.ID] = true
-		if facts.Head == item.Head {
+		if facts.Head == item.Head && !facts.Held() {
 			queued += len(Missing(facts))
 		}
 	}
@@ -75,7 +75,7 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 	var dispatched []Dispatched
 	for _, item := range ranked {
 		facts := snapshot[item.Number]
-		if !graded[item.ID] || facts.Head != item.Head || (held[item.Worker] && item.Deadline.After(now)) {
+		if !graded[item.ID] || facts.Head != item.Head || facts.Held() || (held[item.Worker] && item.Deadline.After(now)) {
 			continue
 		}
 		missing := Missing(facts)

@@ -223,6 +223,10 @@ func (f Facts) Undriven() bool {
 	return f.Draft || !f.Ours()
 }
 
+func (f Facts) Held() bool {
+	return f.Hold != "" && !f.HoldAwaitsTap
+}
+
 func (f Facts) Admitted() bool {
 	return f.Tap == TapTapped || f.Exempt
 }

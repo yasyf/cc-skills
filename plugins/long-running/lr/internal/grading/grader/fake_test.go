@@ -71,6 +71,7 @@ type fakeShell struct {
 	dir       string
 	config    string
 	replies   []any
+	judged    []any
 	state     string
 	title     string
 	body      string
@@ -125,6 +126,8 @@ func (f *fakeShell) route(command Command) (string, error) {
 		return planPath + "\n", nil
 	case argv[0] == "codex-ask":
 		return f.codex(argv)
+	case argv[0] == "claude" && argv[slices.Index(argv, "--model")+1] == regradeModel:
+		return f.judge()
 	case argv[0] == "claude":
 		return f.claude(argv)
 	}
@@ -202,6 +205,26 @@ func (f *fakeShell) claude(argv []string) (string, error) {
 	return string(out), err
 }
 
+func (f *fakeShell) judge() (string, error) {
+	answer := any(regradeAnswer{solAnswer, "the fake judge sends every head to its full pass"})
+	if len(f.judged) > 0 {
+		answer, f.judged = f.judged[0], f.judged[1:]
+	}
+	if exit, failed := answer.(*ExitError); failed {
+		return "", exit
+	}
+	said, raw := answer.(string)
+	if !raw {
+		data, err := json.Marshal(answer)
+		if err != nil {
+			return "", err
+		}
+		said = string(data)
+	}
+	out, err := json.Marshal(map[string]string{"result": said})
+	return string(out), err
+}
+
 func (f *fakeShell) refuseSliceBeforeFetch(t *testing.T) {
 	t.Helper()
 	var fetched atomic.Bool
@@ -217,9 +240,17 @@ func (f *fakeShell) refuseSliceBeforeFetch(t *testing.T) {
 }
 
 func (f *fakeShell) readers() [][]string {
+	return f.claudes(func(model string) bool { return model != regradeModel })
+}
+
+func (f *fakeShell) judges() [][]string {
+	return f.claudes(func(model string) bool { return model == regradeModel })
+}
+
+func (f *fakeShell) claudes(wanted func(model string) bool) [][]string {
 	var argvs [][]string
 	for _, call := range f.calls {
-		if call.Argv[0] == "claude" {
+		if call.Argv[0] == "claude" && wanted(call.Argv[slices.Index(call.Argv, "--model")+1]) {
 			argvs = append(argvs, call.Argv)
 		}
 	}
