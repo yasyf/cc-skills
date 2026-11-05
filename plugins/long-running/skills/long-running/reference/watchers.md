@@ -176,6 +176,7 @@ A numbered spawn such as `desk-4` takes over `desk-3` only when its launch names
 **A stand-down of a live lane, or an `owner` request that takes every PR a live lane holds, carries `--last-read <seq>`,** the newest record of that lane the coordinator read with `cci tail --lane <lane> --since <its wake seq> --oldest`. An `owner` that leaves the lane a PR needs none.
 - `lr request` runs the same check before it posts: on an unread lane it posts nothing, exits non-zero, and prints that lane's unread records with the command to run again.
 - The supervisor still refuses one that reaches it citing none, or one older than the lane's newest record, since a lane can post between the two. It holds the lane with its PRs and posts a `defect` to the coordinator and the lane. A held lane is never relaunched or retired, and its next record makes it live again.
+- A request the lane posts about itself, such as a desk standing itself down for its successor, passes this check: the lane has read every record it wrote, including the request.
 
 **Stop an ended lane's Sprite.** Every five minutes `lr stop-sprites` runs `cc-remote orca stop <lane>` for each retired Sprite lane whose dispatch settled. A lane the Run lists no dispatch for qualifies when its `done` record or a withdrawal retired it.
 - A cc-remote older than 0.27.4, the first whose `orca stop` works on a finished lane's Sprite, skips the pass, and its ended lanes wait for the pin to reach that release.

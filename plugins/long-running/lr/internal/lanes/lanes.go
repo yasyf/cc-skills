@@ -572,7 +572,7 @@ func (o owing) post(s *store.Store, d Deps) {
 
 func unreadBy(s *store.Store, r Record, name, cited string) string {
 	read, _ := unseen(s, name, cited)
-	if read == "" {
+	if read == "" || r.Lane == name {
 		return ""
 	}
 	return fmt.Sprintf("the coordinator's %s #%d would stand %s%s%s", r.Kind, r.Seq, name, unreadMark, read)
