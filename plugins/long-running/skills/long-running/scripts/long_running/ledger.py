@@ -181,7 +181,7 @@ ASK_OVERRIDES = {"backlog": ASK_BACKLOG, "live": ASK_LIVE, "lost": ASK_LOST}
 ASK_STATES = (*ASK_OVERRIDES, ASK_OPEN)
 ASK_ANSWERED = "answered"
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
-UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled")
+UNROUTED_REFUSALS = ("moved", "held", "labelled")
 QUEUE_BOTS = frozenset({"graphite-app[bot]", "trunk-io[bot]"})
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
@@ -265,7 +265,6 @@ REFUSAL = {
     "status": "commit status {state} on {head}; only success is labelled",
     "checks": "failed check runs on {head}: {names}",
     "conflict": "{head} conflicts with {base} on {paths}; route the rebase, never label",
-    "fetched": "refs/pull/{pr}/head is {fetched} on the forge, not {head}",
     "unapproved": "#{pr} has no approval in force: a reviewer's latest decision must be APPROVED, never dismissed or withdrawn, and mergeable_state is no proxy",
     "reviewing": "ai-review still reviewing {head}; retry once its latest run completes",
     "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
@@ -1170,13 +1169,9 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, tip: str, pr: str, 
     return sha, stamp(parse_iso(landed_at).astimezone(timezone.utc))
 
 
-def merge_conflicts(shell: Shell, checkout: Path, pr: str, base: str, head: str) -> Refused | None:
+def merge_conflicts(shell: Shell, checkout: Path, base: str, head: str) -> Refused | None:
     git = ["git", "-C", str(checkout)]
-    pull = f"refs/desk/pr{pr}"
-    shell.run(git + ["fetch", "-q", "--refmap=", "origin", f"+refs/pull/{pr}/head:{pull}"])
-    fetched = shell.run(git + ["rev-parse", pull]).strip()
-    if fetched != head:
-        return refusal("fetched", pr=pr, fetched=fetched[:9], head=head[:9])
+    shell.run(git + ["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", head])
     tip = f"refs/desk/base/{base}"
     shell.run(git + ["fetch", "-q", "--refmap=", "origin", f"+refs/heads/{base}:{tip}"])
     try:
@@ -1987,7 +1982,7 @@ def guard(
     if children:
         raise refusal("children", pr=pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=trunk)
     if checkout:
-        conflict = merge_conflicts(shell, checkout, pr, base, head)
+        conflict = merge_conflicts(shell, checkout, base, head)
         if conflict:
             raise conflict
     return approved
@@ -2271,7 +2266,7 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
         for pr, record in merged.items():
             if record["headRefOid"] in absent:
                 try:
-                    shell.run(git + ["fetch", "-q", "--refmap=", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
+                    shell.run(git + ["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", record["headRefOid"]])
                 except subprocess.CalledProcessError as failure:
                     failures[pr] = failure
     updates: dict[str, dict[str, str]] = {}
