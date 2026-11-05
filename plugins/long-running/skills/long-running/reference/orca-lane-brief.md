@@ -308,7 +308,10 @@ line in every handoff. `cci who --pr <n>` names the session that owns a PR and
 Orient on a new lane with `cci digest --drive <drive>`.
 Your PRs are the rows of `lr board rows`; keep no list of your own, and put a PR's state in its
 records rather than asking anyone for a board entry.
-Read `date` in the same call as any stamped text, such as a record, row or clock time.
+A record, row or report carries no clock time of its own: cci stamps each record with its
+post time and readers print it, and `{at}` in `--text` prints that time where the words need it.
+A time it gives for an event is copied from the record or log line it cites, with that seq
+beside it. Read `date` in the same call only for a deadline you compute from now.
 Read your whole brief, including its tail and any correction the coordinator appended, before
 your first edit and again before you ship. Read your own lane's records, not a successor hook's
 view of the old lane, before a ruling-level edit, and read records whole before acting on them.
