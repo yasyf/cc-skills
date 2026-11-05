@@ -62,6 +62,9 @@ func Command(a *app.App) *cobra.Command {
 		&cobra.Command{Use: "uninstall", Short: "Boot this drive's launchd agent out and remove it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			return Uninstall(cmd, a)
 		}},
+		&cobra.Command{Use: "status", Short: "Print the running supervisor's binary, the pin, the served and installed pack, and why it has not re-executed", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+			return Status(cmd, a)
+		}},
 	)
 	return cmd
 }
