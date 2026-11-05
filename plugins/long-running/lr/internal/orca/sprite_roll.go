@@ -102,7 +102,8 @@ func RollGraders(ctx context.Context, runner shell.Runner, s *store.Store, path 
 			behind = append(behind, box)
 		}
 	}
-	return roll.install(ctx, pins, behind, "")
+	_, err = roll.install(ctx, pins, behind, "")
+	return err
 }
 
 func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path string, now func() time.Time, out io.Writer) error {
@@ -126,7 +127,11 @@ func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path str
 	if err != nil || level {
 		return err
 	}
-	return roll.install(ctx, pins, []string{file.Host.Sprite}, file.Host.Sprite)
+	unreached, err := roll.install(ctx, pins, []string{file.Host.Sprite}, "")
+	if err != nil || len(unreached) == 0 {
+		return err
+	}
+	return refuse("lr sprites roll: the desk host %s is down, so it keeps what it runs until a pass reaches it", file.Host.Sprite)
 }
 
 func (r SpriteRoll) runs(box string, pins spritePins) (bool, error) {
@@ -231,10 +236,11 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			boxes = boxes[:1]
 		}
 	}
-	return r.install(ctx, pins, boxes, probe)
+	_, err = r.install(ctx, pins, boxes, probe)
+	return err
 }
 
-func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string, probe string) error {
+func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string, probe string) ([]string, error) {
 	proven := map[string]bool{}
 	var unreached, failed []string
 	said := map[string]string{}
@@ -244,12 +250,12 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 		boxPins := r.pinsOn(box, pins)
 		try, err := r.installOn(ctx, box, boxPins)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		result, installed := try.result, try.installed
 		if try.failed != nil && len(installed) == 0 && spriteUnreached(result) {
 			if box == probe {
-				return refuse("lr sprites roll: could not reach the probe %s, so %d more Sprites keep what they run: %s", box, len(boxes)-done-1, lastSaid(result))
+				return nil, refuse("lr sprites roll: could not reach the probe %s, so %d more Sprites keep what they run: %s", box, len(boxes)-done-1, lastSaid(result))
 			}
 			fmt.Fprintf(r.Out, "lr sprites roll: could not reach %s: %s\n", box, lastSaid(result))
 			unreached = append(unreached, box)
@@ -265,7 +271,7 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 			continue
 		}
 		if box != r.Host && !proven[failedTool(boxPins, installed)] {
-			return r.failed(box, boxPins, installed, result, len(boxes)-done-1)
+			return nil, r.failed(box, boxPins, installed, result, len(boxes)-done-1)
 		}
 		failed = append(failed, box)
 		said[box] = lastSaid(result)
@@ -275,14 +281,14 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 		streak++
 		fmt.Fprintf(r.Out, "lr sprites roll: %s failed, the roll goes on and tries it again at the end: %s\n", box, said[box])
 		if streak == sameFailureStop {
-			return refuse("lr sprites roll: %d Sprites in a row failed the same way, so a pin is likely at fault though none is marked bad, and %d more Sprites keep what they run: %s", streak, len(boxes)-done-1, said[box])
+			return nil, refuse("lr sprites roll: %d Sprites in a row failed the same way, so a pin is likely at fault though none is marked bad, and %d more Sprites keep what they run: %s", streak, len(boxes)-done-1, said[box])
 		}
 	}
 	var stayed []string
 	for _, box := range failed {
 		try, err := r.installOn(ctx, box, r.pinsOn(box, pins))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if try.failed == nil {
 			fmt.Fprintf(r.Out, "lr sprites roll: %s runs %s on its second try\n", box, censusOf(try.installed))
@@ -292,15 +298,15 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 		stayed = append(stayed, box)
 	}
 	if err := r.reportStayed(stayed, said); err != nil {
-		return err
+		return nil, err
 	}
 	if len(unreached) > 0 {
 		fmt.Fprintf(r.Out, "lr sprites roll: never reached: %s\n", strings.Join(unreached, " "))
 	}
 	if len(stayed) > 0 {
-		return refuse("lr sprites roll: %d of %d Sprites failed twice and keep what they hold, and no pin is marked bad: %s", len(stayed), len(boxes), strings.Join(stayed, " "))
+		return unreached, refuse("lr sprites roll: %d of %d Sprites failed twice and keep what they hold, and no pin is marked bad: %s", len(stayed), len(boxes), strings.Join(stayed, " "))
 	}
-	return nil
+	return unreached, nil
 }
 
 func (r SpriteRoll) pinsOn(box string, pins spritePins) spritePins {
