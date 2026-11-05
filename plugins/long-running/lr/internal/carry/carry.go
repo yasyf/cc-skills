@@ -44,6 +44,7 @@ var (
 	quotedRows    = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
 	errCredential = errors.New("a credential path, which never leaves this Mac")
 	credentials   = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc", ".iris"}
+	carriedRoots  = []string{".local/state/lr-scratch", ".claude/scratch", ".vcache/scratch", ".claude/plans", "handoffs", ".claude/plugins/cache"}
 )
 
 type source struct {
@@ -342,6 +343,9 @@ func (c Carrier) file(name string) (string, error) {
 	if c.credential(resolved) {
 		return "", fmt.Errorf("%s links to %s, %w", name, resolved, errCredential)
 	}
+	if !c.carries(resolved) {
+		return "", fmt.Errorf("%s lies outside the drive's state dir and the scratch, plan, handoff and plugin-cache directories a launch carries", name)
+	}
 	var size int64
 	var entries []string
 	err = filepath.WalkDir(resolved, func(walked string, entry fs.DirEntry, err error) error {
@@ -376,6 +380,22 @@ func (c Carrier) file(name string) (string, error) {
 func (c Carrier) credential(name string) bool {
 	rel, ok := strings.CutPrefix(name, c.Home+"/")
 	return ok && slices.ContainsFunc(credentials, func(dir string) bool { return rel == dir || strings.HasPrefix(rel, dir+"/") })
+}
+
+func (c Carrier) carries(resolved string) bool {
+	roots := []string{c.Vars[DriveDir]}
+	for _, root := range carriedRoots {
+		roots = append(roots, filepath.Join(c.Home, root))
+	}
+	return slices.ContainsFunc(roots, func(root string) bool {
+		if root == "" {
+			return false
+		}
+		if real, err := filepath.EvalSymlinks(root); err == nil {
+			root = real
+		}
+		return resolved == root || strings.HasPrefix(resolved, root+"/")
+	})
 }
 
 func copyEntry(from, to string) error {

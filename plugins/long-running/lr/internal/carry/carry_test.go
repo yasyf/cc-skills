@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -148,7 +149,7 @@ func TestACredentialPathNeverLeavesTheMac(t *testing.T) {
 
 func TestADirectoryTravelsWholeAndOneOverTheCapStaysBehind(t *testing.T) {
 	c, _ := carrier(t)
-	logs := filepath.Join(c.Home, "logs")
+	logs := filepath.Join(c.Home, ".claude/scratch/logs")
 	put(t, filepath.Join(logs, "a.log"), "a\n")
 	put(t, filepath.Join(logs, "nested/b.log"), "b\n")
 
@@ -161,13 +162,59 @@ func TestADirectoryTravelsWholeAndOneOverTheCapStaysBehind(t *testing.T) {
 		t.Fatalf("nested copy holds %q", got)
 	}
 
-	big := filepath.Join(c.Home, "big")
+	big := filepath.Join(c.Home, ".claude/scratch/big")
 	put(t, filepath.Join(big, "small.txt"), "x")
 	if err := os.Truncate(filepath.Join(big, "small.txt"), maxBytes+1); err != nil {
 		t.Fatal(err)
 	}
 	if left := leftBehind(t, c, "See "+big+"\n"); !strings.Contains(left, big+" holds 65 MiB, over the 64 MiB a launch carries") {
 		t.Fatalf("warning %q", left)
+	}
+}
+
+func TestAPathOutsideTheCarriedDirectoriesStaysBehindNamedEvenThroughALink(t *testing.T) {
+	c, _ := carrier(t)
+	config := filepath.Join(c.Home, ".claude.json")
+	slack := filepath.Join(c.Home, ".config/cc-slack/drive.toml")
+	put(t, config, "{}\n")
+	put(t, slack, "token\n")
+	link := filepath.Join(c.Home, ".claude/scratch/slack.toml")
+	if err := os.Symlink(slack, link); err != nil {
+		t.Fatal(err)
+	}
+	brief := "Read " + config + ", ~/.config/cc-slack/drive.toml and " + link + ".\n"
+
+	out, left, err := c.Carry(context.Background(), brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{config, slack, link} {
+		if !slices.ContainsFunc(left, func(fault string) bool { return strings.HasPrefix(fault, name+" lies outside") }) {
+			t.Errorf("warnings %q do not name %s", left, name)
+		}
+	}
+	if out != brief {
+		t.Errorf("rewritten brief %q, want it unchanged", out)
+	}
+	if entries, _ := os.ReadDir(c.Into); len(entries) != 0 {
+		t.Errorf("copied %d entries from outside the carried directories", len(entries))
+	}
+}
+
+func TestTheDrivesPlanDirectoryTravelsWhole(t *testing.T) {
+	c, _ := carrier(t)
+	plan := filepath.Join(c.Home, "handoffs/durable-agents-rebuild/plan")
+	put(t, plan+"/HASH.txt", "9f2c\n")
+	put(t, plan+"/steps/01.md", "step one\n")
+
+	out := carried(t, c, "Follow ~/handoffs/durable-agents-rebuild/plan/ step by step.\n")
+
+	if out != "Follow "+box+plan+"/ step by step.\n" {
+		t.Fatalf("rewritten brief %q", out)
+	}
+	if got := landed(t, c, box+plan+"/steps/01.md"); got != "step one\n" {
+		t.Fatalf("plan step holds %q", got)
 	}
 }
 
@@ -207,14 +254,14 @@ func TestAHelperNamedThroughAVariableTravelsAndItsReferenceReadsTheCopy(t *testi
 	c.Vars = map[string]string{DriveDir: drive}
 	put(t, drive+"/go-desk-2/carry.py", "print('carried')")
 	put(t, drive+"/fg/bin.zsh", "echo fg")
-	put(t, c.Home+"/notes.md", "notes")
+	put(t, c.Home+"/handoffs/notes.md", "notes")
 
-	rewritten, _, err := c.Carry(context.Background(), `python3 "$DRIVE_DIR/go-desk-2/carry.py" --post; ${DRIVE_DIR}/fg/bin.zsh; cat $HOME/notes.md`)
+	rewritten, _, err := c.Carry(context.Background(), `python3 "$DRIVE_DIR/go-desk-2/carry.py" --post; ${DRIVE_DIR}/fg/bin.zsh; cat $HOME/handoffs/notes.md`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := `python3 "` + box + drive + `/go-desk-2/carry.py" --post; ` + box + drive + `/fg/bin.zsh; cat ` + box + c.Home + `/notes.md`
+	want := `python3 "` + box + drive + `/go-desk-2/carry.py" --post; ` + box + drive + `/fg/bin.zsh; cat ` + box + c.Home + `/handoffs/notes.md`
 	if rewritten != want {
 		t.Fatalf("rewritten %q, want %q", rewritten, want)
 	}
@@ -225,7 +272,7 @@ func TestAHelperNamedThroughAVariableTravelsAndItsReferenceReadsTheCopy(t *testi
 
 func TestAVariableTheBriefAssignsItselfExpands(t *testing.T) {
 	c, _ := carrier(t)
-	root := filepath.Join(c.Home, "lane")
+	root := filepath.Join(c.Home, ".claude/scratch/lane")
 	put(t, root+"/items.md", "items")
 
 	rewritten, _, err := c.Carry(context.Background(), "Read `$B/items.md` once.\nexport B="+root+"/\n")
@@ -331,7 +378,7 @@ func TestHisIrisSignInNeverTravelsWhetherABriefOrABriefItCarriesNamesIt(t *testi
 
 func TestBriefsNamingEachOtherCarryOnceAndEnd(t *testing.T) {
 	c, _ := carrier(t)
-	one, two := c.Home+"/a/one.brief.md", c.Home+"/b/two.brief.md"
+	one, two := c.Home+"/handoffs/a/one.brief.md", c.Home+"/handoffs/b/two.brief.md"
 	put(t, one, "then "+two+"\n")
 	put(t, two, "back to "+one+"\n")
 
@@ -344,9 +391,9 @@ func TestBriefsNamingEachOtherCarryOnceAndEnd(t *testing.T) {
 
 func TestAMissingPathInTheBriefItselfWarnsWhileANestedOneStaysInTheLog(t *testing.T) {
 	c, _ := carrier(t)
-	put(t, c.Home+"/a/one.brief.md", "old "+c.Home+"/gone.txt\n")
+	put(t, c.Home+"/handoffs/a/one.brief.md", "old "+c.Home+"/gone.txt\n")
 
-	if left := leftBehind(t, c, "Read "+c.Home+"/a/one.brief.md\n"); left != "" {
+	if left := leftBehind(t, c, "Read "+c.Home+"/handoffs/a/one.brief.md\n"); left != "" {
 		t.Fatal(left)
 	}
 	if left := leftBehind(t, c, "Read "+c.Home+"/gone.txt\n"); !strings.Contains(left, "does not exist") {
@@ -356,7 +403,7 @@ func TestAMissingPathInTheBriefItselfWarnsWhileANestedOneStaysInTheLog(t *testin
 
 func TestARegisterRowTheToolQuotedIsNeitherCarriedNorChecked(t *testing.T) {
 	c, fake := carrier(t)
-	kept := filepath.Join(c.Home, "kept.md")
+	kept := filepath.Join(c.Home, "handoffs/kept.md")
 	put(t, kept, "kept\n")
 	put(t, c.Home+"/.ssh/id", "secret")
 	rows := "Register slice: lane=a step=all\n  > HAR is at " + c.Home + "/Downloads/gone.har\n  > see " + kept + ", " + c.Home + "/.ssh/id and `ccn task show t-9`\nslice-hash: 0c81c2cb1fc0\n"
