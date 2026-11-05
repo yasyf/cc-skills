@@ -2021,7 +2021,7 @@ func TestAnExemptHeadLandsAndReadsNotTappedAndAHeadHeTappedReadsTapped(t *testin
 
 	exempt := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	graded(exempt)
-	goRecord(t, "root", "go #1 at "+head+" on green [exempt: regression]")
+	gatedGo(t, "root", "go #1 at "+head+" on green [exempt: owner-pick]")
 	admitted := exempt.snapshot(t)[1]
 	if !admitted.Exempt || !admitted.Landable() || machine.Classify(admitted).Action != machine.ActionEnqueue {
 		t.Fatalf("an exempt head does not land: %+v, verdict %+v", admitted, machine.Classify(admitted))
@@ -2052,7 +2052,7 @@ func TestAHoldOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
 		putFact(t, h.store, 1, head, kind, value, tappedAt)
 	}
 	hold(t, "root", "hold #1 for now", repo+"#1")
-	goRecord(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: owner-pick]")
+	gatedGo(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: owner-pick]")
 
 	row := h.snapshot(t)[1]
 
