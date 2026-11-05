@@ -270,7 +270,10 @@ func TestASuccessorOwedWhenTheSupervisorRestartsBeforeItsLaunchLaunchesOnceAfter
 	s := memory(t)
 	f := stoodDownFor(t, s, writeBrief(t))
 	launch := f.deps.Launch
-	f.deps.Launch = func(string, string, string, string, string) error { panic("the supervisor re-executed") }
+	f.deps.Launch = func(string, string, string, string, string) error {
+		do(errors.New("the supervisor re-executed"))
+		return nil
+	}
 	if _, err := Tick(s, f.deps, t0, 1); err == nil {
 		t.Fatal("a tick whose launch died returned no error")
 	}
@@ -288,7 +291,8 @@ func TestASuccessorWhoseLaunchPostedJustBeforeARestartReachesTheRunnerOnce(t *te
 	launch := f.deps.Launch
 	f.deps.Launch = func(name, model, effort, brief, key string) error {
 		do(launch(name, model, effort, brief, key))
-		panic("the supervisor re-executed")
+		do(errors.New("the supervisor re-executed"))
+		return nil
 	}
 	if _, err := Tick(s, f.deps, t0, 1); err == nil {
 		t.Fatal("a tick whose launch died returned no error")

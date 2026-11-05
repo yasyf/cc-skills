@@ -732,6 +732,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 }
 
 func launchOwedHeirs(s *store.Store, d Deps, found map[string]Peer, now time.Time, out *Outcome) {
+	posted := must(s.Heard())
 	for _, key := range slices.Sorted(maps.Keys(must(s.Probes()))) {
 		name, owed := strings.CutPrefix(key, owedLaunch)
 		if !owed {
@@ -739,7 +740,8 @@ func launchOwedHeirs(s *store.Store, d Deps, found map[string]Peer, now time.Tim
 		}
 		heir, known := laneOf(s, name)
 		_, listed := found[name]
-		if !known || heir.State != store.LaneLaunching || listed {
+		_, up := posted[name]
+		if !known || heir.State != store.LaneLaunching || listed || up {
 			do(s.Unprobe(key))
 			continue
 		}
