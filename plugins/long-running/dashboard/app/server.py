@@ -248,8 +248,6 @@ def activity(records, now, prs):
 def pr_state(pr, row, go_head, active, now):
     if pr.get("state") == "landed":
         return "landed"
-    if row and pr.get("head") and not pr["head"].startswith(row["head"][:7]):
-        row = None
     if row and row["state"] == "you":
         return "you"
     if pr.get("test_state") == "failure":
@@ -865,8 +863,14 @@ def review_rows(stored, verdicts):
             "verdict": None if was_refused(row) else verdicts.get(MERGE_BLOCK, {}).get(str(row["number"])),
             "tapped": tapped,
             "ready": ready,
+            "branch": row["branch"],
+            "base": row["base"],
         })
     return rows
+
+
+def with_open_rows(prs, rows):
+    return {**prs, **{str(row["number"]): {**prs.get(str(row["number"]), {}), "state": "open", "head": row["head"], "branch": row["branch"], "base": row["base"], "title": row["title"], "lane": row["group"]} for row in rows}}
 
 
 def merge_needs(rows, board_url):
@@ -876,7 +880,7 @@ def merge_needs(rows, board_url):
         group["rows"].append({key: row.get(key) for key in ROW_FACTS})
     items = []
     for group in groups.values():
-        waiting = [row for row in group["rows"] if row["state"] == "you"]
+        waiting = taps.waits_on_him(group["rows"])
         if not waiting:
             continue
         count = f"{len(waiting)} pull request{'' if len(waiting) == 1 else 's'}"
@@ -886,7 +890,7 @@ def merge_needs(rows, board_url):
             "group": group["group"],
             "relation": group["relation"],
             "prs": waiting,
-            "others": [row for row in group["rows"] if row["state"] != "you"],
+            "others": [row for row in group["rows"] if row not in waiting],
             "why": f"The merge board waits on your tap for {count} in “{group['group']}”; each merges only at the commit shown, and it is due now.",
             "source": {"label": f"Merge board: {group['group']}", "href": board_url},
         })
@@ -950,8 +954,8 @@ def unanswered(cards, words):
     return [card for card in cards if card["id"] not in answered]
 
 
-def needs(rows, cards, asks, board_url, landed):
-    return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards if card["decides"]), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
+def needs(rows, cards, asks, board_url):
+    return [*merge_needs(rows, board_url), *(card_need(card, board_url) for card in cards if card["decides"]), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
 
 
 def typed_in_chat(record):
@@ -1687,6 +1691,7 @@ class Drive:
 
     def live(self, model):
         board = self.board()
+        model = {**model, "prs": with_open_rows(model["prs"], board["rows"])}
         self.check_gos(board["rows"])
         pushes = [record for record in model["records"] if record["kind"] in ("head", "opened")]
         board["rows"] = awaiting_reply(board["rows"], model["asks"])
@@ -1705,7 +1710,7 @@ class Drive:
         queue = self.tap_queue(board, model, drive, now)
         board["rows"] = taps.in_queue_order(queue, board["rows"], lambda row: f"land-{row['number']}")
         board["cards"] = taps.in_queue_order(queue, board["cards"], lambda card: card["id"])
-        need_items = needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"})
+        need_items = needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"])
         return {
             **model,
             "board": board,

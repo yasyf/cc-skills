@@ -784,6 +784,24 @@ def test_a_click_anywhere_on_a_tap_row_opens_its_window_and_a_button_stays_a_but
     now(page)
 
 
+def test_a_change_he_asked_about_leaves_the_review_count_and_says_why_under_not_ready(page):
+    now(page)
+    out = page.evaluate("""() => {
+      const row = (number, awaiting) => ({ number, key: String(number), head: 'abc1234', title: `T${number}`, change: 'C', plan: 'P', risk: 'R', review: 'V', blocker: 'your approval', meta: [], block: 'b', state: 'you', ready: true, tapped: false, awaiting });
+      const m = structuredClone(state.model);
+      m.board.rows = [row(1, null), row(2, 991)];
+      m.needs = [{ kind: 'prs', key: 'k', group: 'G', relation: '', prs: [row(1, null), row(2, 991)], others: [], why: '', source: { label: 'L', href: null } }];
+      m.asks = { 2: [{ seq: 991, answered: false, at: '2026-11-03T12:00:00Z', text: 'why?' }] };
+      settle(m);
+      const kept = state.model;
+      state.model = m;
+      const out = { waiting: prsWaiting(), listed: m.needs[0].prs.map((r) => r.number), said: reviewScreen('not-ready').includes('Waiting on the reply to your question') };
+      state.model = kept;
+      return out;
+    }""")
+    assert out == {"waiting": 1, "listed": [1], "said": True}
+
+
 def test_review_lists_pull_requests_only_and_its_count_leaves_out_questions(page):
     now(page)
     page.evaluate("""() => {
