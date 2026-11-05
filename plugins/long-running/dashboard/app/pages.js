@@ -551,7 +551,8 @@ function tapRow(t, at) {
   const post = t.text ? `<details class="fm-thread" data-id="${esc(textId)}"${state.open.has(textId) ? ' open' : ''}><summary>Read the post</summary><div class="fm-open fm-post">${esc(t.text)}</div></details>` : '';
   const more = t.subject || kept ? '' : explainMore(c, cardAsk(c));
   const freed = summary && t.frees && !kept ? `<p class="fm-freed">${esc(tapWords(t.line))}</p>` : '';
-  return tapShell(t, at, lead, why, `${freed}${pick}${post}${more}`, kept);
+  const figures = t.subject || kept ? '' : cardFigures(c);
+  return tapShell(t, at, lead, why, `${freed}${figures}${pick}${post}${more}`, kept);
 }
 function tapShell(t, at, lead, why, body, kept) {
   return `<article class="fm${kept ? ' done' : t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${kept ? '✓' : at + 1}</span><div class="fm-main">

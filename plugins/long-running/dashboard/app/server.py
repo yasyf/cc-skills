@@ -937,6 +937,8 @@ def card_part(child, answer):
         return {"kind": "page", "id": child["id"], "md": child.get("md", "")}
     if kind == "image":
         return {"kind": "image", "id": child["id"], "src": ASSET_REF.sub(r"/asset/\1", child.get("src", "")), "alt": child.get("alt", "")}
+    if kind == "lr.arch":
+        return {"kind": "arch", "id": child["id"], "title": child.get("title", ""), "doc": child["doc"]}
     if kind == "pr":
         return {"kind": "pr", "id": child["id"], "repo": child.get("repo", ""), "number": child.get("number")}
     if kind == "table":
