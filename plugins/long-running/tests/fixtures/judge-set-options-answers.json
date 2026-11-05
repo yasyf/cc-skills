@@ -1,0 +1,92 @@
+{
+  "set-options-pending-bugs": {
+    "expect": "yes",
+    "runs": [
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.92
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.93
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.92
+        ]
+      }
+    ]
+  },
+  "set-options-one-pr": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no"
+        ],
+        "jev": [
+          0.07
+        ]
+      },
+      {
+        "sonnet": [
+          "no"
+        ],
+        "jev": [
+          0.07
+        ]
+      },
+      {
+        "sonnet": [
+          "no"
+        ],
+        "jev": [
+          0.07
+        ]
+      }
+    ]
+  },
+  "set-options-all-named": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no"
+        ],
+        "jev": [
+          0.15
+        ]
+      },
+      {
+        "sonnet": [
+          "no"
+        ],
+        "jev": [
+          0.16
+        ]
+      },
+      {
+        "sonnet": [
+          "no"
+        ],
+        "jev": [
+          0.15
+        ]
+      }
+    ]
+  }
+}

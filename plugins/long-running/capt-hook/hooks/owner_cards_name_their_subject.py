@@ -71,6 +71,15 @@ WAITS_ON_HIM = "The support reply is separate and waits on your Yes or No."
 THIRD_PARTY = "The new prompt asks the user yes or no before it deletes a chat, and the sidebar shows the result."
 STATUS_POST = f"/plugins/cc-slack/bin/cc-slack dm-status --thread 1793829658.340949 --agent claude '{WAITS_ON_HIM}' 2>&1 | head -5"
 SENTRY_LINK = "https://poetic.sentry.io/issues/4821"
+SET_OPTIONS = "set-options"
+SET_EVIDENCE = "A coding agent is about to send this card to the owner. Each url in `prs` draws on the card with its title and what it changes for a user."
+SET_UNNAMED = "Warning, nothing was blocked: an option on this card acts on a set the card does not name. List each member in its body with its PR link and what it does for a user, or draw one card per item."
+BUGS_TITLE = "Pending next-tree bugs: what each needs from you"
+BUGS_BODY = "Seven things wait on you, and the old-chat blocker waits on lanes."
+BUGS_OPTIONS = ["Tap all four ready fixes", "Tap them after the old-chat fixes land", "Hold all of them"]
+BUGS_PICKS = {"picks": BUGS_OPTIONS, "recommended": BUGS_OPTIONS[0]}
+BUGS_CARD = json.dumps({"title": BUGS_TITLE, "body": BUGS_BODY, "options": BUGS_OPTIONS})
+UNNAMED_SET = judged(BUGS_OPTIONS[0], "Name each of the four ready fixes, with its pull request link and what it does for a user.")
 
 
 def sonnet_says(verdict: str, evidence: str = "") -> dict[str, str]:
@@ -304,6 +313,38 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
     if verdict is None or not (verdict.flagged or verdict.verdict == "unsure" and describes_change(text)):
         return evt.context(reads.warning("posts_answer_his_first_question")) if reads.failures else None
     return evt.context(fenced(UNANSWERED, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"]))
+
+
+def asking_card(evt: BaseHookEvent, reads: Reads) -> dict | None:
+    if evt.tool_name == REPLY:
+        return evt._tool_input if evt._tool_input.get("picks") else None
+    card = reads.read("the status card", lambda: slack_card(evt))
+    return card if card and card.get("options") else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD)],
+    tests={
+        reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands=UNNAMED_SET): Warn(pattern=r"^Warning, nothing was blocked: an option on this card[\s\S]*Tap all four ready fixes[\s\S]*Name each of the four ready fixes"),
+        Input(tool=SLACK_CARD, tool_input={"card": json.loads(BUGS_CARD)}, env=HOOK_ENV, commands=UNNAMED_SET): Warn(pattern=r"Tap all four ready fixes"),
+        Input(command=f"cc-slack dm-status --card '{BUGS_CARD}'", env=LANE_ENV, commands=UNNAMED_SET): Warn(pattern=r"Tap all four ready fixes"),
+        reply("Land the relay fix?", "It stops a dropped reply when a chat reconnects.", given={"prs": [LAND_PR], **PICKS}, commands=judged()): Allow(),
+        reply("Land the two relay fixes?", f"[#2196]({LAND_PR}) stops a dropped reply. [#2197](https://github.com/yasyf/cc-skills/pull/2197) shows the retry button.", given={"picks": ["Land both", "Hold both"], "recommended": "Land both"}, commands=judged()): Allow(),
+        reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands={"uv run --no-project --quiet": (1, "overloaded")}): Allow(),
+        reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands={**UNNAMED_SET, "claude -p": (1, "claude: overloaded")}): Allow(),
+        reply(BUGS_TITLE, BUGS_BODY, commands=UNNAMED_SET): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": BUGS_TITLE, "body": BUGS_BODY}}, env=HOOK_ENV, commands=UNNAMED_SET): Allow(),
+        Input(tool=REPLY, tool_input={"title": BUGS_TITLE, "md": BUGS_BODY, **BUGS_PICKS}, commands=UNNAMED_SET): Allow(),
+        Input(command="ls -la", env=HOOK_ENV, commands=UNNAMED_SET): Allow(),
+    },
+)
+def options_name_their_set(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)) or not (card := asking_card(evt, Reads(evt, which))):
+        return None
+    env = reqenv.env_map()
+    verdict = judge_call(JUDGE, SET_OPTIONS, SET_EVIDENCE, json.dumps(card), backend=JUDGE.backend_from(env), drive=which[1], timeout=reqenv.clamp_timeout(FOREGROUND_JUDGE_SECONDS), env=env)
+    return evt.context(fenced(SET_UNNAMED, [f'option: "{verdict.artifact_phrase}"', verdict.sentence])) if verdict and verdict.flagged else None
 
 
 @on(

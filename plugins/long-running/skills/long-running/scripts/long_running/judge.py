@@ -128,7 +128,12 @@ FIRST_QUESTION = """Would this post make him ask something back before he can ac
 A plain fact with no change in it, such as a landing, a time or the answer to what he asked, is a no. So is a reference to something an earlier update or his board already showed him, detail he could ask for but does not need in order to act, a fact the post itself marks as still open in a sentence opening with Unproven:, and a question a url, a link or a pick in the post already answers.
 Judge the post by itself: the evidence holds none of his words and needs none, so the evidence phrase stays empty.
 Answer "yes" when either holds, quote the sentence it rests on, and make your sentence the first question he would ask that the post does not answer. Answer "unsure" the same way, with the sentence and the question."""
-JUDGED_BY_ITSELF = frozenset({"first-question"})
+SET_OPTIONS = """Does an option on this card act on a group of separate things he has to know one by one, while the card does not name each of them? Read what picking each option does. An option acts on such a group when it lands, taps, approves, holds, sends or decides several pull requests, fixes, items or asks together, whether it counts them, as in "all four ready fixes", or points at them, as in "them", "the rest" or "everything waiting".
+A member is named only when the card's own title, background, options or pull requests say which one it is and what it does for a user, with its pull request link when it is a pull request. A count with no list, a list shorter than its count, and a bare number or link with no words beside it name nothing.
+A card about one thing is a no, however long its background. So is a card that lists every member of the group in those words, and options that choose between ways of doing one thing or that mention the parts of one change. So is a group of data, such as chats, sessions or database rows, that what they have in common defines and nobody needs a list of, such as every old chat, all chats over 64 turns or the forks that point at those sessions.
+Judge the card by itself: the evidence holds none of his words and needs none, so the evidence phrase stays empty.
+Answer "yes" when an option acts on an unnamed group, quote that option, and make your sentence name the group and what the card must list for each member: which one it is, its pull request link and what it does for a user."""
+JUDGED_BY_ITSELF = frozenset({"first-question", "set-options"})
 
 KINDS: dict[str, tuple[str, str]] = {
     "contract": ("a lane's contract: what it promises to build from his words", MISREAD),
@@ -185,6 +190,7 @@ Answer "yes" when the card asks him to grade a reading, and say in your sentence
         """Does the card fail him in either of two ways? First, it asks how to handle a failure or a defect and every option only lives with it, such as retrying, skipping, waiting, raising a limit or accepting the loss, when a change that removes the cause could be offered. A question with nothing broken, such as a taste, scope or timing pick, never fails this way. Second, the background or an option names something that breaks or is lost and says nothing of the plan that fixes it. Judge the card by itself: the evidence holds none of his words and needs none, and the evidence phrase stays empty.
 Answer "yes" when the card fails either way, and say in your sentence which, and what to add: the option that fixes the cause, or the plan beside that loss.""",
     ),
+    "set-options": ("a card an agent is about to draw for him, with every option it offers", SET_OPTIONS),
     "plain": ("text the owner reads: a card, a board block, a question, a plan or a reply", PLAIN),
     "first-question": ("a post the owner is about to read: a reply, a card or a board block", FIRST_QUESTION),
     "mechanism": (

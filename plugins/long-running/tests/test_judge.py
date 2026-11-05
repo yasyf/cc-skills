@@ -16,6 +16,7 @@ NO = judge.Verdict("no", "", "", "It carries what he said.")
 UNSURE = judge.Verdict("unsure", "per key", "per Mac", "Cannot tell.")
 ANSWERS = json.loads((Path(__file__).parent / "fixtures" / "judge-answers.json").read_text())
 PLAIN_ANSWERS = json.loads((Path(__file__).parent / "fixtures" / "judge-plain-answers.json").read_text())
+SET_OPTIONS_ANSWERS = json.loads((Path(__file__).parent / "fixtures" / "judge-set-options-answers.json").read_text())
 
 
 def scripted(*verdicts: judge.Verdict):
@@ -165,6 +166,7 @@ def test_a_kind_judged_by_itself_keeps_a_yes_whatever_evidence_it_quotes_and_the
     assert verdict.flagged
     [row] = judge.calls(tmp_path, datetime.now(timezone.utc) - timedelta(minutes=1))
     assert (row["verdict"], row["answers"]) == ("yes", ["yes", "yes"])
+    assert judge.judge("set-options", "A coding agent drew this card.", "Tap all four ready fixes", backend="sonnet", drive="d1").flagged
 
 
 def test_a_split_after_a_classifier_keeps_the_model_answers_quote():
@@ -255,6 +257,10 @@ def test_the_sonnet_first_plain_words_judge_flags_under_one_in_ten_clean_texts_o
 
     assert false_flags * 10 < clean
     assert missed * 10 < jargon
+
+
+def test_the_set_judge_refuses_a_count_with_no_members_and_passes_one_pr_or_a_full_list_on_its_recorded_answers():
+    assert replayed(judge.DEFAULT_BACKEND, SET_OPTIONS_ANSWERS) == (9, 0, 0)
 
 
 def test_a_tap_carries_the_card_it_answered_and_a_typed_prompt_carries_none(tmp_path, monkeypatch):

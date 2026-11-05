@@ -61,6 +61,9 @@ func (j *judgeCalls) judge(_ context.Context, kind, evidence, _ string) (*Judgme
 	if kind == optionsKind {
 		return &Judgment{Verdict: cmp.Or(j.options, "no"), Sentence: "It offers only a retry or a skip; add the option that fixes the cause."}, j.err
 	}
+	if kind == setOptionsKind {
+		return &Judgment{Verdict: "no"}, j.err
+	}
 	j.evidence = append(j.evidence, evidence)
 	if j.err != nil {
 		return nil, j.err
@@ -838,5 +841,54 @@ func TestACardOfferingOnlyWaysToLiveWithAFailureIsRefusedSayingWhatToAdd(t *test
 	refused, err := cards.Check(context.Background(), (&judgeCalls{options: "yes"}).judge, block)
 	if err != nil || refused == nil || !strings.Contains(refused.Error(), "add the option that fixes the cause") {
 		t.Fatalf("Check = %v, %v; want a refusal saying what to add", refused, err)
+	}
+}
+
+const pendingBugsCard = `{"id":"card-next-bugs-seven","type":"card","title":"Pending next-tree bugs: what each needs from you?","summary":"Seven things wait on you, and the old-chat blocker waits on lanes.","children":[{"id":"pick","type":"choice","options":[{"id":"a","label":"Tap all four ready fixes"},{"id":"b","label":"Tap them after the old-chat fixes land"},{"id":"c","label":"Hold all of them"}]}]}`
+
+func setOptionsJudge(verdict string, failure error, read *string) Judge {
+	return func(_ context.Context, kind, _, artifact string) (*Judgment, error) {
+		if kind != setOptionsKind {
+			return &Judgment{Verdict: "no"}, nil
+		}
+		*read = artifact
+		if failure != nil {
+			return nil, failure
+		}
+		return &Judgment{Verdict: verdict, Sentence: "Name each of the four ready fixes, with its pull request link and what it does for a user."}, nil
+	}
+}
+
+func TestACardWhoseOptionActsOnASetItDoesNotNameWarnsSayingWhatToList(t *testing.T) {
+	cards, _, _ := settledBoard(t, nil)
+	var read string
+	warned := cards.UnnamedSet(context.Background(), setOptionsJudge("yes", nil, &read), json.RawMessage(pendingBugsCard))
+	if !strings.Contains(warned, "Name each of the four ready fixes") {
+		t.Fatalf("warned %q; want it to say what to list", warned)
+	}
+	for _, option := range []string{"Tap all four ready fixes", "Tap them after the old-chat fixes land", "Hold all of them"} {
+		if !strings.Contains(read, option) {
+			t.Fatalf("the judge read %q, without the option %q", read, option)
+		}
+	}
+	if refused, unchecked := cards.Check(context.Background(), setOptionsJudge("yes", nil, &read), json.RawMessage(pendingBugsCard)); refused != nil || unchecked != nil {
+		t.Fatalf("Check = %v, %v; a set it does not name never refuses the card", refused, unchecked)
+	}
+}
+
+func TestACardNamingItsWholeSetDrawsWithNoWarning(t *testing.T) {
+	cards, _, _ := settledBoard(t, nil)
+	var read string
+	block := json.RawMessage(`{"id":"card-relay-fixes","type":"card","title":"Land the two relay fixes tonight?","summary":"[#50123](https://github.com/Forge-AI/monorepo/pull/50123) stops a dropped reply when a chat reconnects. [#50124](https://github.com/Forge-AI/monorepo/pull/50124) shows the retry button again.","children":[{"id":"pick","type":"choice","options":[{"id":"a","label":"Land both"},{"id":"b","label":"Hold both"}]}]}`)
+	if warned := cards.UnnamedSet(context.Background(), setOptionsJudge("no", nil, &read), block); warned != "" || read == "" {
+		t.Fatalf("warned %q after the judge read %q; want it judged and silent", warned, read)
+	}
+}
+
+func TestACardDrawsSilentlyWhenTheJudgeOfItsSetIsDown(t *testing.T) {
+	cards, _, _ := settledBoard(t, nil)
+	var read string
+	if warned := cards.UnnamedSet(context.Background(), setOptionsJudge("", errors.New("claude: overloaded"), &read), json.RawMessage(pendingBugsCard)); warned != "" || read == "" {
+		t.Fatalf("warned %q after the judge read %q; want it asked and silent", warned, read)
 	}
 }
