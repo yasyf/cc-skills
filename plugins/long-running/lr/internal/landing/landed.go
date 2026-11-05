@@ -80,8 +80,8 @@ func Settle(ctx context.Context, s *store.Store, drive string, answers []Said) e
 			if err != nil {
 				return err
 			}
-			if !slices.Contains(to, meta) {
-				to = append(to, meta)
+			if to, err = rowAudience(s, drive, f, holder, meta); err != nil {
+				return err
 			}
 			kind, id = "blocker", ""
 		}

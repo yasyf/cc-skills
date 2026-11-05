@@ -28,10 +28,12 @@ var cases = []struct {
 	want  Verdict
 }{
 	{"a green graded head without an approving review asks its lane for one", facts(func(f *Facts) { f.Approved = false }), Verdict{StateGrading, MoverLane, ActionReview, 20 * time.Minute}},
-	{"evicted and green again gets one enqueue the same pass", facts(func(f *Facts) { f.Queue = QueueEvicted }), Verdict{StateEvicted, MoverSupervisor, ActionEnqueue, 10 * time.Minute}},
+	{"evicted and green again gets one enqueue the same pass", facts(func(f *Facts) { f.Queue, f.Eviction = QueueEvicted, "a batch failed" }), Verdict{StateEvicted, MoverSupervisor, ActionEnqueue, 10 * time.Minute}},
+	{"evicted with its failure unread stays out of the queue and on the supervisor", facts(func(f *Facts) { f.Queue = QueueEvicted }), Verdict{StateEvicted, MoverSupervisor, ActionWatchQueue, 30 * time.Minute}},
+	{"evicted by its own change goes to its lane and stays out of the queue", facts(func(f *Facts) { f.Queue, f.Eviction, f.EvictionOwn = QueueEvicted, "its test failed", true }), Verdict{StateEvicted, MoverLane, ActionFixRed, 20 * time.Minute}},
 	{"evicted a second time on a green head is red for its lane", facts(func(f *Facts) { f.Queue, f.Resubmitted = QueueEvicted, 1 }), Verdict{StateRed, MoverLane, ActionFixRed, 20 * time.Minute}},
 	{"evicted for its own red check is red for its lane", facts(func(f *Facts) { f.Queue, f.CI = QueueEvicted, CIFailure }), Verdict{StateRed, MoverLane, ActionFixRed, 20 * time.Minute}},
-	{"evicted while the tap is missing waits on the owner, not the queue", facts(func(f *Facts) { f.Queue, f.Tap = QueueEvicted, "" }), Verdict{StateAwaitingTap, MoverOwner, ActionTap, 12 * time.Hour}},
+	{"evicted while the tap is missing reads evicted and waits on the owner, not the queue", facts(func(f *Facts) { f.Queue, f.Tap = QueueEvicted, "" }), Verdict{StateEvicted, MoverOwner, ActionTap, 12 * time.Hour}},
 	{"landable base with no row and no queue entry is enqueued", facts(nil), Verdict{StateReady, MoverSupervisor, ActionEnqueue, 10 * time.Minute}},
 	{"landable base without a tap opens the owner's row", facts(func(f *Facts) { f.Tap = "" }), Verdict{StateAwaitingTap, MoverOwner, ActionTap, 12 * time.Hour}},
 	{"a withdrawn tap reopens the owner's row", facts(func(f *Facts) { f.Tap = TapWithdrawn }), Verdict{StateAwaitingTap, MoverOwner, ActionTap, 12 * time.Hour}},

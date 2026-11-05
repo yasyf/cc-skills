@@ -51,6 +51,21 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 		return fmt.Errorf("pass skipped: %w", err)
 	}
 	now := a.Now()
+	trunk := Trunk{Runner: a.Runner, Checkout: cfg.Checkout, Branch: cfg.Trunk, Script: cfg.QueueScript, KeyCommand: cfg.QueueKey}
+	if slices.Contains(cfg.Movers, config.MoverLanding) {
+		landingRunner, err := lanes.ReadRunnerLanding(dir)
+		if err != nil {
+			return err
+		}
+		if landingRunner.CIBuild != "" {
+			trunk.Logs = TrunkWatch{Runner: a.Runner, Checkout: cfg.Checkout, Config: TrunkConfig{CIBuild: landingRunner.CIBuild, TokenCommand: landingRunner.CITokenCommand}}.FailedJob
+		}
+		read, err := Evictions{Store: s, Queue: trunk, Drive: cfg.Drive, Now: a.Now}.Pass(ctx, snapshot)
+		if err != nil {
+			fmt.Fprintf(stdout, "%s an eviction went unread or untold: %v\n", store.Stamp(now), err)
+		}
+		snapshot = read
+	}
 	if slices.Contains(cfg.Movers, config.MoverLanding) {
 		posted, err := SweepGos(ctx, a, cfg, s, snapshot, now, stdout)
 		if err != nil {
@@ -93,7 +108,6 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	trunk := Trunk{Runner: a.Runner, Checkout: cfg.Checkout, Branch: cfg.Trunk, Script: cfg.QueueScript, KeyCommand: cfg.QueueKey}
 	gates, err := NewGates(a, s, cfg, filepath.Join(dir, runnerFile))
 	if err != nil {
 		return err

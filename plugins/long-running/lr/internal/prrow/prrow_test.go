@@ -1156,3 +1156,18 @@ func TestAFidelityGradeParkedOnACardSaysOnItsRowWhatItWaitsOn(t *testing.T) {
 		t.Errorf("grade %q, waits %q", got.Grade, got.WaitsOn)
 	}
 }
+
+func TestAnEvictedRowReadsEvictedWithItsReasonUntilTheQueueHoldsItAgain(t *testing.T) {
+	const why = "Trunk failed it at t1 (TEST_RUN_REQUIRED_STATUS_FAILED); failing check buildkite/test"
+	evicted := map[string]string{factCI: CIGreen, factQueue: string(machine.QueueEvicted), machine.EvictionFact: why, "tap": string(machine.TapTapped)}
+
+	row := Materialize(store.ReviewRow{Number: 1, Head: headA}, evicted, Held{}, nil, "dev")
+	if row.State != StateEvicted || !strings.Contains(row.WaitsOn, why) {
+		t.Fatalf("state = %q, waits on %q", row.State, row.WaitsOn)
+	}
+
+	evicted[factQueue] = string(machine.QueueQueued)
+	if row := Materialize(store.ReviewRow{Number: 1, Head: headA}, evicted, Held{}, nil, "dev"); row.State != StateQueued {
+		t.Fatalf("a row the queue holds again reads %q", row.State)
+	}
+}

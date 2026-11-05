@@ -110,7 +110,7 @@ func passWords(read rowRead, facts map[string]string) string {
 
 func noLiveLane(read rowRead) bool {
 	row := read.row
-	open := row.State == prrow.StateOpen || row.State == prrow.StateTapped
+	open := row.State == prrow.StateOpen || row.State == prrow.StateTapped || row.State == prrow.StateEvicted
 	return open && read.ownerGone && row.Hold == prrow.None && !row.ReadyForTap && row.ParentState != prrow.ParentOpen && row.SupersededBy == prrow.None
 }
 

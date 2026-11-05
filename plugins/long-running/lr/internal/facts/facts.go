@@ -1014,6 +1014,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 		return fmt.Errorf("#%d resubmitted: %w", f.Number, err)
 	}
 	f.Resubmitted = resubmitted
+	f.Eviction, f.EvictionOwn = stored[machine.EvictionFact], stored[machine.EvictionOwnFact] != ""
 	f.Finder, f.Fidelity = machine.GradesOf(stored)
 	f.Tap, f.Condition = machine.Tap(stored["tap"]), stored["condition"]
 	f.GradeStopped = stored[machine.GradeStoppedFact]

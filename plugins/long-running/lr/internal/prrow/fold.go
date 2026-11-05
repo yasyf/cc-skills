@@ -443,6 +443,16 @@ func longer(a, b string) string {
 }
 
 func Materialize(row store.ReviewRow, facts map[string]string, held Held, branches map[string]store.ReviewRow, trunk string) store.ReviewRow {
+	row = materialized(row, facts, held, branches, trunk)
+	why := facts[machine.EvictionFact]
+	if why == "" || Terminal(row.State) || row.State == StateQueued || row.SupersededBy != None {
+		return row
+	}
+	row.State, row.WaitsOn = StateEvicted, "It fell out of the merge queue: "+clip(why, fieldChars)
+	return row
+}
+
+func materialized(row store.ReviewRow, facts map[string]string, held Held, branches map[string]store.ReviewRow, trunk string) store.ReviewRow {
 	row.Lane = client.Stem(row.Lane)
 	row.CI, row.Approvers = orElse(facts[factCI], CIPending), orElse(facts[factApprovers], None)
 	row.Review = noReview

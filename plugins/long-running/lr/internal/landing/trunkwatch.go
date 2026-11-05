@@ -43,6 +43,7 @@ const (
 	landingBuilds   = "?per_page=30"
 	trunkReadLimit  = 5 * time.Minute
 	flakyNoticeRead = "20"
+	failedJobReads  = 3
 	trunkQuery      = `query($owner: String!, $name: String!, $tip: String!) { repository(owner: $owner, name: $name) { object(expression: $tip) { ... on Commit { history(first: 50) { nodes { oid committedDate message status { contexts { context state targetUrl } } } } } } } }`
 )
 
@@ -442,6 +443,34 @@ func (w *TrunkWatch) failure(ctx context.Context, build, job string) (test, infr
 	return "", line[:min(200, len(line))]
 }
 
+func (w TrunkWatch) FailedJob(ctx context.Context, url string) (job, test, infra string) {
+	w.builds, w.token = map[string]*trunkBuild{}, bkread.Token{Command: w.Config.TokenCommand}
+	build, err := w.build(ctx, url)
+	if err != nil {
+		return "", "", ""
+	}
+	read := 0
+	for _, failed := range build.Jobs {
+		if !failed.failed() || failed.SoftFailed || failed.SignalReason == agentStop {
+			continue
+		}
+		if job == "" {
+			job = failed.step()
+		}
+		if read++; read > failedJobReads {
+			break
+		}
+		named, line := w.failure(ctx, url, failed.ID)
+		if named != "" {
+			return failed.step(), named, ""
+		}
+		if line != "" && infra == "" {
+			job, infra = failed.step(), line
+		}
+	}
+	return job, "", infra
+}
+
 func (w *TrunkWatch) watchNotices(ctx context.Context) error {
 	if w.Config.Channel == "" {
 		return nil
@@ -544,7 +573,11 @@ func (w *TrunkWatch) postFlake(ctx context.Context, found flakeFound, key string
 }
 
 func (w *TrunkWatch) openFlakes(ctx context.Context) ([]client.Record, error) {
-	open, err := client.Open(ctx, w.Drive, "defect")
+	return openFlakes(ctx, w.Drive)
+}
+
+func openFlakes(ctx context.Context, drive string) ([]client.Record, error) {
+	open, err := client.Open(ctx, drive, "defect")
 	return slices.DeleteFunc(open, func(r client.Record) bool { return r.Lane != self || r.Fields.Attrs[flakeAttr] == "" }), err
 }
 
