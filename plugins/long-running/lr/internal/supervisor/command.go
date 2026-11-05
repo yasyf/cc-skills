@@ -263,7 +263,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 				return err
 			}
 			return grading.Settle(ctx, s, pool, env.Now(), lease.Generation)
-		}, store: s, post: post, log: a.Log}).Check)
+		}, store: s, post: post, log: a.Log, forgiven: 1}).Check)
 	}
 	if slices.Contains(env.Config.Movers, moverLanes) {
 		deps.Checks = append(deps.Checks, (&lanes.NotesPublish{Store: s, Deps: laneDeps}).Check)
