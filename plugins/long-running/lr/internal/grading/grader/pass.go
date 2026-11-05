@@ -26,6 +26,7 @@ const (
 	ResultFile  = "result.json"
 	AnswersFile = "answers.json"
 	LandedFile  = "landed.json"
+	CardsFile   = "cards.md"
 	bodyFile    = "record.md"
 	rowsFile    = "rows.md"
 	readTimeout = 120 * time.Second

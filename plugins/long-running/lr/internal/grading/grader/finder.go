@@ -868,6 +868,14 @@ func DriveProgram(config, drive string) (string, error) {
 	return cmp.Or(entry.Program, filepath.Base(entry.StateDir)), nil
 }
 
+func DriveState(config, drive string) (string, error) {
+	entry, err := driveOf(config, drive)
+	if errors.Is(err, errNoDrive) {
+		return "", nil
+	}
+	return entry.StateDir, err
+}
+
 func RootSession(config, drive string) (string, error) {
 	entry, err := driveOf(config, drive)
 	if errors.Is(err, errNoDrive) {

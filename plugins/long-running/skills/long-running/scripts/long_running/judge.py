@@ -38,6 +38,7 @@ CARDS = Path("judge") / "cards"
 CARD_SECONDS = 10
 CARD_CHARS = 4000
 BOARD_PROOF = re.compile(r"proof:board:([0-9a-f]{16})\b")
+CARD_HEADING = re.compile(r"## card ([0-9a-f]{16})")
 RECORDS = 40
 RECORD_CHARS = 500
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -359,6 +360,27 @@ def answered_card(state: Path, owner: dict[str, dict], proof: str, env: Mapping[
     return card
 
 
+def card_lines(path: Path) -> dict[str, int]:
+    """The line of `path`, a job's cards.md, where each tap's card starts, by the tap's digest."""
+    return {found[1]: number for number, line in enumerate(path.read_text().splitlines(), 1) if (found := CARD_HEADING.fullmatch(line))}
+
+
+def said_with_card_lines(row: dict, path: Path, lines: dict[str, int]) -> list[dict]:
+    """`said` for a grader that holds no board: each tap names its line of the job's cards.md instead of carrying its card."""
+    items = [{"at": row.get("at", ""), "words": row["words"], "proof": row.get("proof", "")}, *json.loads(row.get("repeats") or "[]")]
+    return [{"at": item.get("at", ""), "words": item["words"], "card_at": card_at(item.get("proof", ""), path, lines)} for item in items if item["words"]]
+
+
+def card_at(proof: str, path: Path, lines: dict[str, int]) -> str | None:
+    digests = BOARD_PROOF.findall(proof)
+    if not digests:
+        return None
+    found = next((lines[digest] for digest in digests if digest in lines), None)
+    if found is None:
+        return "That was a tap on a board card that could not be found, so what he passed over is unknown here."
+    return f"That was a tap on the card at {path}:{found}, agent-written apart from what he picked or typed."
+
+
 def owner_words(key: str, said: list[dict]) -> str:
     """The evidence for a question about the owner's words: his words on one ruling verbatim, oldest first, each tap with the card it answered, from `said`."""
     lines = []
@@ -367,6 +389,8 @@ def owner_words(key: str, said: list[dict]) -> str:
         if item.get("answered"):
             card = "\n".join(f"    {line}" for line in item["answered"].splitlines())
             lines.append(f"  That was a tap on this card, agent-written apart from what he picked or typed:\n{card}")
+        if item.get("card_at"):
+            lines.append(f"  {item['card_at']}")
     return f"His words on ruling {key}, verbatim, oldest first:\n" + "\n".join(lines)
 
 

@@ -20,6 +20,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/capacity"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
@@ -537,11 +538,107 @@ func TestARegradeRunsAHeadAGradeNamesAndCarriesNoEarlierGrade(t *testing.T) {
 	}
 
 	spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir+regradeMark))
-	if !spec.Regrade || len(spec.Grades) != 0 {
+	if spec.Regrade != 1 || len(spec.Grades) != 0 {
 		t.Errorf("regrade = %v, grades = %v", spec.Regrade, spec.Grades)
 	}
 	if !slices.Contains(spec.To, "lane-7") {
 		t.Errorf("to = %v", spec.To)
+	}
+}
+
+func TestASecondRegradeOfASettledHeadIsANewAttemptWithItsOwnNumber(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{}})
+	if _, err := f.pool.Regrade(context.Background(), facts(head), nil); err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(f.pool.root, grader.FidelityLane, jobDir+regradeMark)
+	writeResult(t, first, `{"verdict":"reader"}`, f.now)
+	f.shell.exitAll()
+
+	if _, err := f.pool.Regrade(context.Background(), facts(head), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if attempt := readJob[grader.FidelityJob](t, first+"-2").Regrade; attempt != 2 {
+		t.Errorf("attempt = %d", attempt)
+	}
+}
+
+func TestAFidelityJobCarriesEachTapsCardAndFetchesOneNoJudgeKept(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{}})
+	state := t.TempDir()
+	registry := filepath.Join(f.pool.Config, "long-running", "drives")
+	if err := os.MkdirAll(registry, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	entry := fmt.Sprintf(`{"cci_drive":%q,"state_dir":%q,"sessions":[]}`, testDrive, state)
+	if err := os.WriteFile(filepath.Join(registry, "d.json"), []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	captures := `{"digest":"aaaaaaaaaaaaaaaa","source":"board","block":"kept","session":"s"}
+{"digest":"bbbbbbbbbbbbbbbb","source":"board","block":"fresh","session":"s"}
+{"digest":"cccccccccccccccc","source":"board","block":"replaced","session":"s"}
+{"digest":"dddddddddddddddd","source":"prompt","supersedes":["cccccccccccccccc"]}
+`
+	if err := os.WriteFile(filepath.Join(state, ownerPrompts), []byte(captures), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cards := filepath.Join(state, keptCards)
+	if err := os.MkdirAll(cards, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cards, "aaaaaaaaaaaaaaaa.txt"), []byte("the kept card"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.shell.card = "the fresh card\n"
+
+	f.started(t, GraderFidelity)
+
+	data, err := os.ReadFile(filepath.Join(f.pool.root, grader.FidelityLane, jobDir, grader.CardsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "## card aaaaaaaaaaaaaaaa\nthe kept card\n\n## card bbbbbbbbbbbbbbbb\nthe fresh card\n\n"; string(data) != want {
+		t.Errorf("cards = %q, want %q", data, want)
+	}
+	kept, err := os.ReadFile(filepath.Join(cards, "bbbbbbbbbbbbbbbb.txt"))
+	if err != nil || string(kept) != "the fresh card" {
+		t.Errorf("kept = %q, %v", kept, err)
+	}
+}
+
+func TestARegradePlacesAcrossTheBoxesTheRunnerPlannedThoughItsPoolNeverScaled(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{"sprite": []string{"grader-a", "grader-b"}}})
+	if err := writeAtomic(filepath.Join(f.pool.root, capacityFile), capacity.Pool{Executors: 2}); err != nil {
+		t.Fatal(err)
+	}
+	placed := make([]string, 0, 2)
+	for _, number := range []int{7, 8} {
+		name, err := f.pool.Regrade(context.Background(), facts(head, func(facts *machine.Facts) { facts.Number = number }), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.store.Heartbeat(store.Worker{Name: name, Heartbeat: f.now}); err != nil {
+			t.Fatal(err)
+		}
+		placed = append(placed, refOf(name).box)
+	}
+	sameStrings(t, placed, []string{"grader-a", "grader-b"})
+}
+
+func TestAFidelityJobCarriesAnAnswerOnlyACoordinatorRulingCites(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{}})
+	f.shell.answers = map[string]string{"6e7a346": `{"id":"6e7a34600","title":"writers","body":"goroutines","updated_at":"2026-11-03"}`}
+	post(t, client.Draft{Lane: rootLane, Kind: kindDecide, Text: "finder-override: Answer 6e7a346 settles it.", PRs: []string{pull}})
+
+	f.started(t, GraderFidelity)
+
+	data, err := os.ReadFile(filepath.Join(f.pool.root, grader.FidelityLane, jobDir, grader.AnswersFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "6e7a34600") {
+		t.Errorf("answers = %s", data)
 	}
 }
 

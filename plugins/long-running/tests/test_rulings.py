@@ -2068,6 +2068,24 @@ def test_a_pr_with_no_scope_and_no_unknown_id_reads_no_answer_by_id(home: Path, 
     assert shell.answer_reads == []
 
 
+def test_a_graders_tap_row_names_its_line_in_cards_md_and_says_so_when_its_card_is_gone(tmp_path: Path) -> None:
+    cards = tmp_path / "cards.md"
+    cards.write_text("## card aaaaaaaaaaaaaaaa\nfirst card\n\n## card bbbbbbbbbbbbbbbb\nsecond card\n\n")
+    lines = rulings.judge.card_lines(cards)
+    row = {
+        "at": "Oct 21",
+        "words": "In relay-journal",
+        "proof": "proof:board:bbbbbbbbbbbbbbbb",
+        "repeats": json.dumps([{"at": "Oct 22", "words": "Still in relay-journal", "proof": "proof:board:cccccccccccccccc"}, {"at": "Oct 23", "words": "Yes", "proof": "cci 12"}]),
+    }
+
+    words = rulings.judge.owner_words("rule/aaaaaaa", rulings.judge.said_with_card_lines(row, cards, lines))
+
+    assert f"That was a tap on the card at {cards}:4," in words
+    assert "That was a tap on a board card that could not be found" in words
+    assert words.count("That was a tap") == 2
+
+
 def test_the_worded_required_slice_carries_his_words_and_the_card_a_tap_answered_and_never_an_implication(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
     card = "card-relay: Where does relay code live?\n  - relay-journal: In relay-journal (recommended)\n  - relay-server: In relay-server"
     taps = {"Relay code lives in relay-journal. Never in relay-server.": card}

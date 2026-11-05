@@ -82,7 +82,7 @@ type FidelityJob struct {
 	Rulings        []Ruling          `json:"rulings"`
 	Contract       string            `json:"contract"`
 	Sources        string            `json:"sources"`
-	Regrade        bool              `json:"regrade,omitempty"`
+	Regrade        int               `json:"regrade,omitempty"`
 	Exempt         map[string]string `json:"exempt"`
 	ExemptGrades   []string          `json:"exempt_grades"`
 	Baseline       string            `json:"baseline"`
@@ -184,7 +184,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	}
 	var slicing *future[string]
 	if len(heads) == 0 {
-		slicing = s.sliceRows(head, view.BaseRefName, "--words")
+		slicing = s.sliceRows(head, view.BaseRefName, "--words", "--cards", filepath.Join(s.dir, CardsFile))
 	}
 	base, trunk, err := s.checkedOut(view)
 	if err != nil {
@@ -231,7 +231,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	}
 	rowsPath := filepath.Join(s.dir, rowsFile)
 	if slicing == nil {
-		slicing = s.sliceRows(head, view.BaseRefName, "--words")
+		slicing = s.sliceRows(head, view.BaseRefName, "--words", "--cards", filepath.Join(s.dir, CardsFile))
 	}
 	rows, err := slicing.result()
 	if err != nil {
@@ -1091,8 +1091,8 @@ func (s *fidelityPassState) writeGradeBody(body string, lines []gradeLine, reply
 
 func (s *fidelityPassState) gradeID(index int) string {
 	id := fmt.Sprintf("fidelity:%s:%s:%d", s.job.pull(), s.job.Head, index)
-	if s.job.Regrade {
-		return id + ":regrade"
+	if s.job.Regrade > 0 {
+		return fmt.Sprintf("%s:regrade-%d", id, s.job.Regrade)
 	}
 	return id
 }

@@ -582,12 +582,12 @@ class Register:
         return words
 
 
-def worded_row(key: str, fields: dict[str, str], state: Path) -> list[str]:
+def worded_row(key: str, fields: dict[str, str], state: Path, cards: tuple[Path, dict[str, int]] | None = None) -> list[str]:
     """A row as a grader of his words reads it: his words and repeats verbatim, each tap with the card it answered, and the plan's text of a design row or exception labelled as the coordinator's; never the register's implications or summaries."""
     if fields.get("kind") in PLAN_KINDS:
         lines = [row_heading(key, fields), "The plan's text for this row, the coordinator's words his answers approve, not his own:", *(f"> {line}" for line in (fields.get("words") or "").splitlines())]
     else:
-        lines = [row_heading(key, fields), judge.owner_words(key, judge.said(fields, state))]
+        lines = [row_heading(key, fields), judge.owner_words(key, judge.said_with_card_lines(fields, *cards) if cards else judge.said(fields, state))]
     lines += [f"This row supersedes {old}, which no longer binds." for old in listed(fields.get("supersedes"))]
     if anchors := row_anchors(fields):
         lines += ["The coordinator's reading of where this row bears, not his words:", *anchors]
@@ -1135,15 +1135,15 @@ def required_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, 
     return hashed(lines + section("Every global, pending and touched row", rows) + section("Rows the PR cites by id", cited) + pr_answers(loaded, diff, text, title, unknown, carried))
 
 
-def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]]) -> list[list[str]]:
+def worded_rows(loaded: Register, rows: list[tuple[str, dict[str, str]]], cards: tuple[Path, dict[str, int]] | None = None) -> list[list[str]]:
     with ThreadPoolExecutor(CARD_READERS) as pool:
-        return list(pool.map(lambda item: worded_row(*item, loaded.state), rows))
+        return list(pool.map(lambda item: worded_row(*item, loaded.state, cards), rows))
 
 
-def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str, carried: str | None) -> str:
+def worded_slice(loaded: Register, diff: Diff, pr: str, head: str, text: str, title: str, carried: str | None, cards: str | None) -> str:
     rows = required_rows(loaded, diff)
     cited, unknown = cited_rows(loaded, text, rows)
-    worded = worded_rows(loaded, [*rows, *cited])
+    worded = worded_rows(loaded, [*rows, *cited], (Path(cards), judge.card_lines(Path(cards))) if cards else None)
     lines = [
         f"Required rows for {pr} at {head}",
         f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Each row is the owner's words verbatim, oldest first, with the board card each tap answered; the register's implications and summaries are left out.",
@@ -1899,7 +1899,10 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
         view = json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "author,baseRefName,body,comments,title", max_age=ghread.FRESH)))
         text = "\n".join([view["body"], *(comment["body"] for comment in view["comments"] if comment["author"]["login"] == view["author"]["login"])])
         diff = pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)
-        args.stdout.write((worded_slice if args.words else required_slice)(loaded, diff, f"{repo}#{number}", args.head, text, view["title"], args.answers))
+        if args.words:
+            args.stdout.write(worded_slice(loaded, diff, f"{repo}#{number}", args.head, text, view["title"], args.answers, args.cards))
+        else:
+            args.stdout.write(required_slice(loaded, diff, f"{repo}#{number}", args.head, text, view["title"], args.answers))
     elif args.root:
         args.stdout.write(root_slice(loaded))
     elif args.refresh:
@@ -3153,6 +3156,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     sliced.add_argument("--root", action="store_true")
     sliced.add_argument("--refresh", metavar="BRIEF")
     sliced.add_argument("--required", action="store_true")
+    sliced.add_argument("--cards", metavar="FILE", help="with --words, the cards.md a grader's pass carries: each tap row names its line there instead of printing the card")
     sliced.add_argument("--answers", metavar="FILE", help="with --required, the answers the coordinator read for this PR, as JSON, read instead of this checkout's cc-notes")
     sliced.add_argument("--words", action="store_true", help="with --required, each row as his words and the cards his taps answered, without implications")
     sliced.add_argument("--pr", metavar="[OWNER/NAME#]N")

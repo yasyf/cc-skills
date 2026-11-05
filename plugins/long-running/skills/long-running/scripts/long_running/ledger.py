@@ -146,6 +146,7 @@ REF_LOCK_ATTEMPTS = 5
 REF_LOCK_BACKOFF_SECONDS = 0.2
 REF_LOCK_RACE = "cannot lock ref"
 COMMAND_TIMEOUT_SECONDS = 600
+STDERR_SHOWN = 600
 LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
@@ -299,6 +300,11 @@ def is_git_fetch(argv: list[str]) -> bool:
     return argv[0] == "git" and "fetch" in argv[1:4]
 
 
+class CommandFailed(subprocess.CalledProcessError):
+    def __str__(self) -> str:
+        return f"{super().__str__()}: {(self.stderr or '').strip()[-STDERR_SHOWN:]}"
+
+
 class Shell:
     """The single subprocess boundary: `gh`, `bk`, `git`, `ccx`, and `ccn` all pass through here.
 
@@ -358,7 +364,7 @@ class Shell:
         if child.returncode == -signal.SIGALRM:
             raise subprocess.TimeoutExpired(argv, COMMAND_TIMEOUT_SECONDS, out, err)
         if child.returncode:
-            raise subprocess.CalledProcessError(child.returncode, argv, out, err)
+            raise CommandFailed(child.returncode, argv, out, err)
         return out
 
 
