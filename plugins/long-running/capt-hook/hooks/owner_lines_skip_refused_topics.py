@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 
-from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, on
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 
 from .compaction_handoff import Bound, Communicator, communicator_tests
 from .owner_answers import read
@@ -14,7 +14,7 @@ from .register_capture import OPERATOR
 from .register_injection import drive_args
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
-from .urgent_lines_name_the_harm import ACTIVE, DM_TOOLS, owner_lines
+from .urgent_lines_name_the_harm import ACTIVE, DM_TOOLS, START_DRAFT, WRITE_DRAFT, owner_lines
 
 REFUSED = "The owner ruled this class is never reported to him. Drop each line below and send the rest."
 DROP_CLASS = "drop-class"
@@ -64,6 +64,8 @@ def lane_dm_lines(evt: BaseHookEvent, reads: Reads) -> list[str]:
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "An edge-vendor 403 on the tenant host."}, state=ACTIVE, env=DRIVE_CONFIG, commands=NO_CLASSES): Allow(),
         Input(command="cc-present reply --block skew --body 'An edge-vendor 403 on the tenant host.'", env=DRIVE_CONFIG, commands=NO_CLASSES): Allow(),
         Input(command="ls", env=DRIVE_CONFIG): Allow(),
+        Input(command=WRITE_DRAFT + START_DRAFT, env=DRIVE_CONFIG): Allow(),
+        Input(command=START_DRAFT, env=DRIVE_CONFIG): Warn(pattern=r"^Warning, nothing was blocked: owner_lines_skip_refused_topics could not read what it checks"),
     },
 )
 def owner_lines_skip_refused_topics(evt: BaseHookEvent) -> HookResult | None:

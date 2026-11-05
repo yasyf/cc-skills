@@ -16,7 +16,7 @@ from .register_injection import INCIDENT_NAME, drive_args
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
 
-URGENT = re.compile(r"(?i:(?<![\w-])(?:urgent(?:ly)?|urgency|asap|immediately|critical(?:ly)?|time[- ]sensitive|right (?:now|away)|emergency|top priority)(?![\w-]))|(?<![\w-])NOW(?![\w-])")
+URGENT = re.compile(r"(?i:(?<![\w-])(?:urgent(?:ly)?|urgency|asap|immediately(?!\s+(?:\w+ing|after|before|upon|once|when)\b)|critical(?:ly)?|time[- ]sensitive|right (?:now|away)|emergency|top priority)(?![\w-]))|(?<![\w-])NOW(?![\w-])")
 HARM = re.compile(r"\b(?:los[est]s?|losing|lost|delet\w*|drop\w*|break\w*|broke\w*|down|outage|fail\w*|wipe\w*|corrupt\w*|bricked|gone|stuck|blocked|miss\w*)\b", re.IGNORECASE)
 WHO = re.compile(r"(?i:\b(?:customers?|teams?|clusters?|tenants?|users?|people|everyone|you|your|he|his|him|she|her|they|their|them)\b)|(?<=\s)[A-Z][a-z]\w*")
 UNDONE = re.compile(r"\b(?:(?:ir)?revers\w*|permanent\w*|undo\w*|undone|restor\w*|recover\w*|lost|roll(?:s|ed|ing)? ?back|for good)\b", re.IGNORECASE)
@@ -60,6 +60,9 @@ WHOSE = "\n".join(
 WHOSE_STUB = {f"{LR} facts whose": WHOSE}
 ESCALATED = "URGENT: 12401 is resuming now and runs #46018's column drop on SoFi and AIG; cancel it."
 HIS_HARM = "Urgent: Andrew's resume of #46018 drops the four teams columns on SoFi for good, so their chats lose that history unless he cancels first."
+DRAFT = "/tmp/drafted-board.json"
+WRITE_DRAFT = f"cat > {DRAFT} <<'EOF'\n{{\"blocks\": []}}\nEOF\n"
+START_DRAFT = f"cc-present start --session s1 --doc {DRAFT}"
 
 
 def sentences(text: str) -> list[str]:
@@ -190,6 +193,9 @@ def updated(block: dict) -> str:
         Input(command="cci post --kind ask --to owner-relay --text 'The release resumed. <!-- #46018 -->'", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="cci post --lane incident-sofi-1 --kind urgent --to owner-relay --text 'CRITICAL: SandSQL Below-Floor Database Count on SoFi, now.'", env=DRIVE_CONFIG): Allow(),
         card(title=UNEXPLAINED, body=NAMED): Allow(),
+        card(title="Why did the grade time out?", body="Immediately repeating the same locations took a median of 0.1 ms."): Allow(),
+        card(title="Why did the grade time out?", body="The cache emptied immediately after the restart."): Allow(),
+        card(title=UNEXPLAINED, body="Cancel the release immediately."): Block(pattern=r"Cancel the release immediately\."),
         card(title="Did the SoFi alert clear?", body='The "CRITICAL: sandsql latency" alert fired and cleared on its own.'): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": UNEXPLAINED, "body": "This is urgent."}}): Allow(),
         Input(command=updated({"type": "card", "id": "resume-12414", "title": "Cancel the resumed release?", "summary": RESUMING}), env=DRIVE_CONFIG): Block(pattern=r"12401 IS RESUMING NOW"),
@@ -200,6 +206,9 @@ def updated(block: dict) -> str:
         card(title="Merge the urgent-harm-1 hook?", body="Its checks passed."): Allow(),
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "Andrew's deploy is urgent."}, state=ACTIVE, env=DRIVE_CONFIG): Block(),
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "Andrew's deploy is urgent."}, env=DRIVE_CONFIG): Allow(),
+        Input(command=WRITE_DRAFT + START_DRAFT, env=DRIVE_CONFIG): Allow(),
+        Input(command=f"cat > /tmp/drafted-card.json <<'EOF'\n{{\"title\": \"Ship it?\"}}\nEOF\ncc-slack dm-status --card @/tmp/drafted-card.json", env=DRIVE_CONFIG): Allow(),
+        Input(command=START_DRAFT, env=DRIVE_CONFIG): Warn(pattern=r"^Warning, nothing was blocked: urgent_lines_name_the_harm could not read what it checks[\s\S]*the started board"),
     },
 )
 def urgent_lines_name_the_harm(evt: BaseHookEvent) -> HookResult | None:
