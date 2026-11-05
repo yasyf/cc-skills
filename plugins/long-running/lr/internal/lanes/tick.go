@@ -252,6 +252,20 @@ func announce(s *store.Store, d Deps, said folded) {
 		}
 		do(d.Post(Post{Kind: "stand-down", To: []string{one.name}, Text: fmt.Sprintf("%s stood down%s by record #%d.", one.name, how, one.seq), Successor: one.successor, Re: one.seq, PRs: one.prs}))
 	}
+	for _, one := range said.kept {
+		successor, done := Request{Verb: "stand-down", Lane: one.name, Successor: "<successor>", Open: "<item>; <item>"}, Request{Verb: "done", Lane: one.name}
+		do(d.Post(Post{Kind: "ask", To: []string{Root}, LaneRef: one.name, Re: one.seq, Text: fmt.Sprintf("%s is a standing lane and stand-down #%d names no successor, so the supervisor kept it live. Name a successor with `%s`, or say the lane is done with `%s`.", one.name, one.seq, successor.Command(), done.Command())}))
+	}
+	if len(said.ended) > 0 {
+		lines := make([]string, len(said.ended))
+		for i, one := range said.ended {
+			lines[i] = fmt.Sprintf("%s by stand-down #%d, its PRs to the coordinator", one.name, one.seq)
+			if one.successor != "" {
+				lines[i] = fmt.Sprintf("%s by stand-down #%d, for %s", one.name, one.seq, one.successor)
+			}
+		}
+		do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, Text: "RETIRED " + strings.Join(lines, "; ") + "."}))
+	}
 	verbs := slices.Sorted(slices.Values(Verbs))
 	for _, seq := range said.untyped {
 		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("The coordinator's decide #%d carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
@@ -479,6 +493,9 @@ func holdsNothing(lane store.Lane) bool {
 }
 
 func settledLane(lane store.Lane) bool {
+	if lane.Last == "handoff" {
+		return !lane.Flushed.IsZero() && !lane.Flushed.Before(lane.Heard)
+	}
 	return slices.Contains(settled, lane.Last) && (lane.Last != "done" || !isStanding(lane))
 }
 
@@ -923,7 +940,7 @@ func wakeOnUnread(s *store.Store, d Deps, lane store.Lane, peer Peer, records []
 	if len(due) == 0 {
 		return false
 	}
-	if why := unwakeable(lane, peer); why != "" {
+	if why := unwakeable(lane, peer, due); why != "" {
 		logDeclined(s, lane, why, due)
 		return false
 	}
@@ -934,13 +951,13 @@ func wakeOnUnread(s *store.Store, d Deps, lane store.Lane, peer Peer, records []
 	return true
 }
 
-func unwakeable(lane store.Lane, peer Peer) string {
+func unwakeable(lane store.Lane, peer Peer, due []store.Unread) string {
 	switch {
 	case !peer.Live:
 		return "no live process"
 	case peer.Row.Roster == "" && peer.Row.Dispatch == "":
 		return "no dispatch or roster to reach it"
-	case settledLane(lane):
+	case settledLane(lane) && !slices.ContainsFunc(due, func(record store.Unread) bool { return record.Kind == "owner" }):
 		return "its last record ended it"
 	}
 	return ""

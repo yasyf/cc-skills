@@ -300,6 +300,22 @@ func TestAnOwnerRecordWakesADeskInATickAndIsRelayedAtTenMinutes(t *testing.T) {
 	contains(t, sent[0].Text, orderAuthor+"'s owner #2, the oldest for 10 min")
 }
 
+func TestALaneWhoseLastRecordIsACompactionHandoffIsWokenForAnOwnerRecord(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	idle := t0.Add(-mins(12))
+	f.feed = append(f.feed,
+		rec(2, refresher, "handoff", idle, refresher+" wrote its handoff before compacting: doc 9a1b2c3").withRefs(Refs{CCN: "9a1b2c3"}),
+		rec(3, OwnerRelay, "owner", t0, "build the match now", refresher),
+	)
+
+	f.peers = orcaPeers(refresher, idle, t0.Add(40*time.Second))
+	woken := tick(t, s, f, t0.Add(40*time.Second))
+
+	equal(t, woken.Woken, []string{refresher})
+	equal(t, row(t, s, refresher).State, store.LaneDesired)
+}
+
 func TestAFailedWakeTriesAgainOnTheNextTick(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
@@ -357,7 +373,8 @@ func TestALiveOrcaRowAloneNeverCountsAsReadingAnOrder(t *testing.T) {
 func TestALaneWhoseNewestRecordSettlesItIsNeverWokenForAnOrder(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
-	f.feed = append(f.feed, rec(2, refresher, "handoff", t0.Add(-mins(5)), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}), rec(3, Root, "ask", t0, "run it", refresher))
+	do(s.SetLaneAsked(refresher, t0.Add(-mins(10))))
+	f.feed = append(f.feed, rec(2, refresher, "handoff", t0.Add(-mins(5)), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}).withRe(1), rec(3, Root, "ask", t0, "run it", refresher))
 	f.peers = orcaPeers(refresher, t0.Add(-mins(5)), t0.Add(time.Minute))
 
 	out := tick(t, s, f, t0.Add(time.Minute))

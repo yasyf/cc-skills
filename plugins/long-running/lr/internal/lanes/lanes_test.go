@@ -793,7 +793,7 @@ func TestALaneWhoseHeadsTakeEveryPROfASuccessorThatNeverLaunchedRetiresIt(t *tes
 
 	tick(t, s, f, t0.Add(mins(20)))
 
-	equal(t, f.kinds(), []string{"stand-down:conflicts-2"})
+	equal(t, f.kinds(), []string{"stand-down:conflicts-2", "report:" + OwnerRelay})
 	equal(t, len(f.launches), 0)
 	heir := row(t, s, "conflicts-3")
 	equal(t, []any{heir.State, heir.RetiredBy}, []any{store.LaneRetired, "n-enum11-restack"})
@@ -912,7 +912,7 @@ func TestDoneAndARootStandDownRetireALane(t *testing.T) {
 	tick(t, s, f, t0.Add(mins(30)))
 
 	equal(t, len(f.launches), 0)
-	equal(t, f.kinds(), []string{"stand-down:red-sweep-3", "stand-down:" + lane2})
+	equal(t, f.kinds(), []string{"stand-down:red-sweep-3", "report:" + OwnerRelay, "stand-down:" + lane2})
 	equal(t, row(t, s, lane2).RetiredBy, "done")
 	equal(t, row(t, s, "red-sweep-3").RetiredBy, Root)
 }
@@ -1191,7 +1191,7 @@ func TestARootStandDownCitingAReadAsNewAsTheLanesNewestRecordRetiresIt(t *testin
 	tick(t, s, f, t0)
 
 	equal(t, row(t, s, lane2).State, store.LaneRetired)
-	equal(t, f.kinds(), []string{"stand-down:conflicts-2"})
+	equal(t, f.kinds(), []string{"stand-down:conflicts-2", "report:" + OwnerRelay})
 }
 
 func TestTheOwnerHearsOneLineAnHourAndOnlyWhenALaneRestarted(t *testing.T) {
@@ -1568,7 +1568,6 @@ func TestAHeadRelayedToThePRsOwnerLeavesTheOwnerInPlace(t *testing.T) {
 func TestRotateReadsActivityFromTheLanesOwnRecordsNeverItsCCIWhoRow(t *testing.T) {
 	for name, last := range map[string]Record{
 		"in-process-row-fresh-but-records-old": rec(2, lane2, "state", t0.Add(-2*time.Hour), "restacking"),
-		"last-record-a-handoff":                rec(2, lane2, "handoff", t0.Add(-mins(3)), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
@@ -1673,7 +1672,8 @@ func TestARootDecideToTheSupervisorNamingNoRegistryVerbRaisesNoDefect(t *testing
 func TestALaneWhoseNewestRecordSettlesItIsNeverWoken(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46475)
-	f.feed = append(f.feed, rec(2, lane2, "handoff", t0.Add(-2*time.Hour), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}), stall(3, t0.Add(-time.Hour), "STALL red #46475", 46475, ""))
+	do(s.SetLaneAsked(lane2, t0.Add(-3*time.Hour)))
+	f.feed = append(f.feed, rec(2, lane2, "handoff", t0.Add(-2*time.Hour), "flushed", Root).withRefs(Refs{CCN: "9a1b2c3"}).withRe(1), stall(3, t0.Add(-time.Hour), "STALL red #46475", 46475, ""))
 	f.peers = []Row{onRoster(who(lane2, true, t0))}
 
 	out := tick(t, s, f, t0)
@@ -2116,6 +2116,36 @@ func TestOnlyAStandingLaneStaysUnsettledOnItsOwnDone(t *testing.T) {
 	equal(t, settledLane(store.Lane{Name: refresher, Brief: brief, Last: "done"}), false)
 	equal(t, settledLane(store.Lane{Name: refresher, Brief: brief, Last: "stopped"}), true)
 	equal(t, settledLane(store.Lane{Name: lane2, Last: "done"}), true)
+}
+
+func TestARootStandDownNamingNoSuccessorKeepsAStandingLaneAndAsksRootOnce(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	f.feed = append(f.feed, rec(2, Root, "stand-down", t0, "stand down, last-read=1", refresher))
+	f.peers = []Row{who(refresher, true, t0)}
+
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, row(t, s, refresher).State, store.LaneDesired)
+	equal(t, f.kinds(), []string{"ask:" + Root})
+	equal(t, f.posts[0].Re, int64(2))
+	contains(t, f.posts[0].Text, "stand-down #2 names no successor, so the supervisor kept it live")
+	contains(t, f.posts[0].Text, "`lr request done "+refresher+"`")
+}
+
+func TestEveryLaneARootStandDownRetiresIsReportedToTheCommunicator(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, Root, "stand-down", t0, "stand down, last-read=1", lane2))
+	f.peers = []Row{who(lane2, true, t0)}
+
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, row(t, s, lane2).RetiredBy, Root)
+	reports := f.ofKind("report")
+	equal(t, len(reports), 1)
+	equal(t, []any{reports[0].To, reports[0].Text}, []any{[]string{OwnerRelay}, "RETIRED conflicts-2 by stand-down #2, its PRs to the coordinator."})
 }
 
 func TestAStandingLaneStoodDownForALiveSuccessorRaisesNothing(t *testing.T) {
