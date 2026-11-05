@@ -30,6 +30,7 @@ const (
 	claudeFastSettings     = `"fastMode":true`
 	startPoll              = 4 * time.Second
 	stallRetry             = 30 * time.Second
+	worktreeCacheSeconds   = 300
 	coordinatorLane        = "root"
 	coordinatorDenied      = ",Workflow,ScheduleWakeup,ReportFindings,ListAgents,Monitor,SendMessage,TaskGet"
 	coordinatorListing     = `"skillListingBudgetFraction":0.001`
@@ -212,11 +213,15 @@ func (l *launch) fail(format string, args ...any) error {
 }
 
 func (l *launch) pause(reason string) error {
+	return l.pauseWithin(reason, l.stall)
+}
+
+func (l *launch) pauseWithin(reason string, ceiling int) error {
 	now := l.Now().Unix()
 	if reason != l.waitFor {
 		l.waitFor, l.waitStart, l.said = reason, now, now
 	}
-	if now-l.waitStart >= int64(l.stall) {
+	if now-l.waitStart >= int64(ceiling) {
 		l.stalled = fmt.Sprintf("%s for %ds", reason, now-l.waitStart)
 		return l.fail("LAUNCH-FAILED: %s", l.stalled)
 	}
@@ -857,31 +862,13 @@ func (l *launch) start() (string, error) {
 }
 
 func (l *launch) listedWorktree() error {
-	waited := 0
 	for {
-		said, ok := l.saved(".worktree.json", "orca", "worktree", "show", "--worktree", "path:"+l.wt, "--json")
-		if ok {
+		if _, ok := l.saved(".worktree.json", "orca", "worktree", "show", "--worktree", "path:"+l.wt, "--json"); ok {
 			return nil
 		}
-		if waited == 0 {
-			l.rescanWorktrees()
-		}
-		if waited >= l.worktreeWait {
-			return l.fail("worktree register: Orca does not list %s after %ds (%s)", l.wt, l.worktreeWait, orcaError(said))
-		}
-		if err := l.pause("Orca does not list worktree " + l.wt + " yet"); err != nil {
+		if err := l.pauseWithin("Orca does not list worktree "+l.wt+" yet", l.stall+worktreeCacheSeconds); err != nil {
 			return err
 		}
-		waited += int(startPoll / time.Second)
-	}
-}
-
-// Orca has no rescan verb and can serve its old worktree rows for up to five
-// minutes after a raw git worktree add. Any metadata write on the repo drops
-// that cache; marking the main checkout read is the write that changes least.
-func (l *launch) rescanWorktrees() {
-	if said, code := l.tool("orca", "worktree", "set", "--worktree", "path:"+l.main, "--read", "--json"); code != 0 {
-		fmt.Fprintf(l.Stderr, "%s could not make Orca rescan its worktrees: %s\n", l.lane, orcaError(said))
 	}
 }
 
