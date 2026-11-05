@@ -6,9 +6,11 @@ import (
 	"errors"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -513,5 +515,183 @@ func TestAProbeWithNoLiveWorkerRollsNothing(t *testing.T) {
 	w := newRollWorld(t)
 	if refused := w.roll("pool-done"); refused != "nothing rolled: pool-done hosts no live worker of Run "+rollRun+" and runner.json names it no grader" || len(w.boxes) != 0 {
 		t.Fatal(refused, w.boxes)
+	}
+}
+
+const fakeServiceSupervisor = `recipe=$1
+while :; do
+  text=$(cat "$recipe")
+  sh -c "$text" &
+  child=$!
+  while [ "$(cat "$recipe")" = "$text" ]; do sleep 0.05; done
+  kill "$child"
+  wait "$child" 2> /dev/null
+done
+`
+
+func fakeSupervisedBinary(version string) string {
+	return "#!/bin/sh\nif [ \"$1\" = --version ]; then echo " + version + "; exit 0; fi\nwhile :; do sleep 0.05; done\n"
+}
+
+func supervisedRunning(path string) bool {
+	return exec.Command("pgrep", "-f", path+" supervise").Run() == nil
+}
+
+func waitFor(t *testing.T, what string, done func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if done() {
+			return
+		}
+	}
+	t.Fatal("never saw " + what)
+}
+
+type supervisedInstall struct {
+	t              *testing.T
+	cciURL, cciSHA string
+	lrURL, lrSHA   string
+	dir            string
+}
+
+func newSupervisedInstall(t *testing.T) *supervisedInstall {
+	s := &supervisedInstall{t: t, dir: t.TempDir()}
+	s.cciURL, s.cciSHA = s.archive("cci", "cci", "#!/bin/sh\necho cci 0.49.68\n")
+	s.lrURL, s.lrSHA = s.archive("lr", "lr", "#!/bin/sh\necho lr 9.9.9\n")
+	return s
+}
+
+func (s *supervisedInstall) archive(version, name, text string) (string, string) {
+	s.t.Helper()
+	at := filepath.Join(s.dir, version)
+	if err := os.MkdirAll(at, 0o750); err != nil {
+		s.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(at, name), []byte(text), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		s.t.Fatal(err)
+	}
+	tgz := filepath.Join(at, name+".tgz")
+	if out, err := exec.Command("tar", "-C", at, "-czf", tgz, name).CombinedOutput(); err != nil {
+		s.t.Fatal(string(out), err)
+	}
+	raw, err := os.ReadFile(tgz)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	return "file://" + tgz, hexSum(string(raw))
+}
+
+func (s *supervisedInstall) tool(name, version string) []string {
+	url, sha := s.archive(version, name, fakeSupervisedBinary(version))
+	return []string{"binary", name, url, sha, version}
+}
+
+func (s *supervisedInstall) run(home, path string, tools ...string) (string, error) {
+	s.t.Helper()
+	args := slices.Concat([]string{"-c", installTools, "sh", s.cciURL, s.cciSHA, s.lrURL, s.lrSHA, "lr"}, tools, []string{"--"})
+	run := exec.Command("sh", args...)
+	run.Env = append(os.Environ(), "HOME="+home, "PATH="+path)
+	out, err := run.CombinedOutput()
+	return string(out), err
+}
+
+func (s *supervisedInstall) home(service, image string) (string, string) {
+	s.t.Helper()
+	home := s.t.TempDir()
+	services := filepath.Join(home, ".cc-remote", "services")
+	if err := os.MkdirAll(services, 0o750); err != nil {
+		s.t.Fatal(err)
+	}
+	recipe := filepath.Join(services, service)
+	if err := os.WriteFile(recipe, []byte("exec '"+image+"' 'supervise'\n"), 0o600); err != nil {
+		s.t.Fatal(err)
+	}
+	return home, recipe
+}
+
+func TestAnInstallOfCodexAskLeavesItsSuperviseServiceOnThatVersion(t *testing.T) {
+	s := newSupervisedInstall(t)
+	image := filepath.Join(t.TempDir(), "image-codex-ask")
+	if err := os.WriteFile(image, []byte(fakeSupervisedBinary("1.14.24")), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+	home, recipe := s.home("codex-ask", image)
+	supervisor := exec.Command("sh", "-c", fakeServiceSupervisor, "sh", recipe)
+	supervisor.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := supervisor.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-supervisor.Process.Pid, syscall.SIGKILL)
+		_ = supervisor.Wait()
+	})
+	waitFor(t, "the image's supervise running", func() bool { return supervisedRunning(image) })
+
+	path := os.Getenv("PATH")
+	tools := filepath.Join(home, ".local", "share", "cc-remote", "tools")
+	out, err := s.run(home, path, s.tool("codex-ask", "1.14.32")...)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	first := filepath.Join(tools, "codex-ask-1.14.32", "codex-ask")
+	if !strings.Contains(out, "installed codex-ask-supervise 1.14.32\n") || !supervisedRunning(first) {
+		t.Fatalf("the service did not move to what the install laid down:\n%s", out)
+	}
+	waitFor(t, "the image's supervise stop", func() bool { return !supervisedRunning(image) })
+
+	out, err = s.run(home, path, s.tool("codex-ask", "1.14.33")...)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	second := filepath.Join(tools, "codex-ask-1.14.33", "codex-ask")
+	if !strings.Contains(out, "installed codex-ask-supervise 1.14.33\n") || !supervisedRunning(second) {
+		t.Fatalf("the next version did not move the service:\n%s", out)
+	}
+	waitFor(t, "the last version's supervise stop", func() bool { return !supervisedRunning(first) })
+	if present(filepath.Dir(first)) {
+		t.Fatal("the last version's copy stayed after the service left it")
+	}
+}
+
+func TestAnInstallTouchesNoServiceABoxDoesNotHaveOrTheRequestDoesNotName(t *testing.T) {
+	s := newSupervisedInstall(t)
+	path := os.Getenv("PATH")
+
+	bare := t.TempDir()
+	out, err := s.run(bare, path, s.tool("codex-ask", "1.14.32")...)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	if strings.Contains(out, "codex-ask-supervise") || present(filepath.Join(bare, ".local", "share", "cc-remote", "tools")) {
+		t.Fatalf("a box with no codex-ask service got one:\n%s", out)
+	}
+
+	const image = "/payload/cc-present"
+	home, recipe := s.home("cc-present", image)
+	out, err = s.run(home, path, s.tool("cc-present", "0.54.30")...)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	if raw, err := os.ReadFile(recipe); err != nil || string(raw) != "exec '"+image+"' 'supervise'\n" {
+		t.Fatalf("another tool's service moved: %q %v", raw, err)
+	}
+}
+
+func TestASuperviseThatNeverStartsFailsTheInstallWithoutBlamingThePin(t *testing.T) {
+	s := newSupervisedInstall(t)
+	home, _ := s.home("codex-ask", "/payload/codex-ask")
+	instant := t.TempDir()
+	if err := os.WriteFile(filepath.Join(instant, "sleep"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+	out, err := s.run(home, instant+":"+os.Getenv("PATH"), s.tool("codex-ask", "1.14.32")...)
+	if err == nil {
+		t.Fatalf("no service ever ran the new binary, and the install passed:\n%s", out)
+	}
+	if strings.Contains(out, "codex-ask-supervise") || !strings.Contains(out, "installed codex-ask 1.14.32\n") {
+		t.Fatalf("the install claimed a service it never saw:\n%s", out)
+	}
+	if last := lastSaid(shell.Result{Stdout: out}); pinAtFault.MatchString(last) {
+		t.Fatalf("a service that did not start would mark the pin bad: %s", last)
 	}
 }

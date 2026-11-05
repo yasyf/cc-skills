@@ -17,6 +17,30 @@ fetch() {
     exit 1
   fi
 }
+supervise_on() {
+  recipe="$HOME/.cc-remote/services/$1"
+  [ -f "$recipe" ] || return 0
+  tools="$HOME/.local/share/cc-remote/tools"
+  dir="$tools/$1-$2"
+  mkdir -p "$dir"
+  cp "$bin/$1" "$dir/$1.new"
+  mv "$dir/$1.new" "$dir/$1"
+  printf "exec '%s' 'supervise'\n" "$dir/$1" > "$recipe.new"
+  mv "$recipe.new" "$recipe"
+  waited=0
+  until pgrep -f "$dir/$1 supervise" > /dev/null; do
+    if [ "$waited" -ge 60 ]; then
+      echo "the $1 service never started $dir/$1"
+      exit 1
+    fi
+    waited=$((waited + 1))
+    sleep 1
+  done
+  for old in "$tools/$1"-*; do
+    [ "$old" = "$dir" ] || rm -rf "$old"
+  done
+  echo "installed $1-supervise $2"
+}
 fetch "$1" "$2" /tmp/cci.tgz
 staged=$(mktemp -d "$bin/.cci.XXXXXX")
 tar -xzf /tmp/cci.tgz -C "$staged" --exclude='*.md'
@@ -117,6 +141,9 @@ while [ "$1" != -- ]; do
   esac
   rm -f /tmp/tool.tgz
   echo "installed $name $version"
+  if [ "$name" = codex-ask ]; then
+    supervise_on "$name" "$version"
+  fi
 done
 shift
 export PATH="$bin:$PATH"
