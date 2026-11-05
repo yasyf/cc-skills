@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -28,7 +30,15 @@ const (
 	answerRow      = "board-answer"
 	blockLabel     = "board-block:"
 	pathsField     = "paths"
+	byField        = "by"
+	questionField  = "question"
+	metField       = "met"
+	deliveredAttr  = "delivered"
+	promiseToken   = "card:"
+	mirrorFresh    = 10 * time.Minute
 )
+
+var proofKinds = []string{"landed", "done", "report"}
 
 type Cards struct {
 	Runner   shell.Runner
@@ -161,6 +171,85 @@ func (c Cards) record(ctx context.Context, card string, fields map[string]string
 		merged[name] = value
 	}
 	return c.Ledger.Sync(ctx, id, []ledger.Row{{Key: cardPrefix + card, Fields: merged}})
+}
+
+func (c Cards) mirrored(ctx context.Context, card string, fields map[string]string) error {
+	if err := c.record(ctx, card, fields); err != nil {
+		return err
+	}
+	id, err := c.ledgerID(ctx)
+	if err != nil {
+		return err
+	}
+	merged, _, err := c.Store.LedgerRow(id, cardPrefix+card)
+	if err != nil {
+		return err
+	}
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, fields)
+	return c.Store.PutLedgerRow(id, cardPrefix+card, merged, c.Now())
+}
+
+func (c Cards) Promises(ctx context.Context) ([]lanes.Promise, error) {
+	id, err := c.ledgerID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	synced, err := c.Store.LedgerSynced(id)
+	if err != nil {
+		return nil, err
+	}
+	if c.Now().Sub(synced) >= mirrorFresh {
+		rows, err := c.Ledger.Rows(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		byKey := make(map[string]map[string]string, len(rows))
+		for _, row := range rows {
+			byKey[row.Key] = row.Fields
+		}
+		if err := c.Store.PutLedgerRows(id, byKey, c.Now()); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := c.Store.LedgerRows(id)
+	if err != nil {
+		return nil, err
+	}
+	open := map[string]lanes.Promise{}
+	for key, fields := range rows {
+		card, isCard := strings.CutPrefix(key, cardPrefix)
+		if !isCard || fields[byField] == "" || fields[metField] != "" {
+			continue
+		}
+		by, err := time.Parse(stampForm, fields[byField])
+		if err != nil {
+			return nil, fmt.Errorf("card %s by %q: %w", card, fields[byField], err)
+		}
+		open[card] = lanes.Promise{Card: card, Lane: fields[laneField], Question: fields[questionField], By: by}
+	}
+	if len(open) == 0 {
+		return nil, nil
+	}
+	proofs, err := client.Tail(ctx, client.Query{Drive: c.Bus, Kinds: proofKinds})
+	if err != nil {
+		return nil, err
+	}
+	for _, proof := range proofs {
+		for _, token := range strings.FieldsFunc(proof.Fields.Attrs[deliveredAttr], func(r rune) bool { return r == ',' || r == ' ' }) {
+			card, named := strings.CutPrefix(token, promiseToken)
+			if _, owed := open[card]; !named || !owed {
+				continue
+			}
+			if err := c.mirrored(ctx, card, map[string]string{metField: strconv.FormatInt(proof.Seq, 10)}); err != nil {
+				return nil, err
+			}
+			delete(open, card)
+		}
+	}
+	return slices.SortedFunc(maps.Values(open), func(a, b lanes.Promise) int { return a.By.Compare(b.By) }), nil
 }
 
 func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, error) {

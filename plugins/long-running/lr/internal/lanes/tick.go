@@ -61,6 +61,7 @@ type Deps struct {
 	Gaps                  func() ([]string, error)
 	Orders                func(s *store.Store) ([]owner.Row, error)
 	Undelivered           func() ([]owner.Row, error)
+	Promises              func() ([]Promise, error)
 	RotateAt              int
 	RetireAfter           time.Duration
 	OpenBranches          func(s *store.Store) (map[string][]int, error)
@@ -105,6 +106,11 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	d.Undelivered = func() ([]owner.Row, error) {
 		rows, err := undelivered()
 		return slices.Clone(rows), err
+	}
+	promises := sync.OnceValues(d.Promises)
+	d.Promises = func() ([]Promise, error) {
+		promised, err := promises()
+		return slices.Clone(promised), err
 	}
 	cursor := must(s.Cursor(CursorName))
 	fresh := cursor == 0
@@ -193,6 +199,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	keepDuties(s, d, found, taken, now, &out)
 	hourly(s, d, now)
 	alarmRowWaits(s, d, now)
+	missedPromises(s, d, now)
 	woken, err := chaseUnread(s, d, found, out.Woken, taken, now, &out)
 	if err != nil {
 		slog.Warn("unread orders not chased this tick", "err", err)

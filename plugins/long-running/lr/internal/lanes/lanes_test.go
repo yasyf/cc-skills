@@ -100,6 +100,7 @@ type fake struct {
 	gaps        []string
 	orders      []owner.Row
 	undelivered []owner.Row
+	promises    []Promise
 	branches    map[string][]int
 	branchReads int
 	hosts       map[string]Host
@@ -162,6 +163,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		Gaps:         func() ([]string, error) { return f.gaps, nil },
 		Orders:       func(*store.Store) ([]owner.Row, error) { return f.orders, nil },
 		Undelivered:  func() ([]owner.Row, error) { return f.undelivered, nil },
+		Promises:     func() ([]Promise, error) { return f.promises, nil },
 		RotateAt:     600_000,
 		RetireAfter:  time.Hour,
 		OpenBranches: func(*store.Store) (map[string][]int, error) { f.branchReads++; return f.branches, nil },

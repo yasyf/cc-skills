@@ -22,7 +22,7 @@ The supervisor makes a quiet lane structurally impossible; it does not report on
 
 | The lane's newest record | What it means | Who resumes the work |
 | --- | --- | --- |
-| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A `done` is refused while the lane owns an open PR, so it posts `blocked --pr <n>` instead; a PR it still owns after a `stopped` or `stand-down` goes to the coordinator if it breaks. A lane that still owes a deletion or carries an owner order with no delivered proof is held instead (see Owed deletions and Owner orders a lane carries) |
+| `done`, `stopped`, `stand-down` | The lane ended on purpose | Nobody. The row retires, a retired row never gets a successor, and nothing the lane posts afterwards revives it. A `done` is refused while the lane owns an open PR, so it posts `blocked --pr <n>` instead; a PR it still owns after a `stopped` or `stand-down` goes to the coordinator if it breaks. A lane that still owes a deletion, carries an owner order with no delivered proof, or owns a card whose clock has no delivered proof is held instead (see Owed deletions, Owner orders a lane carries and Clocks a lane's cards promise) |
 | `ask`, `blocker`, or `blocked` to a lane | It waits on that lane's answer | The answer, through the supervisor |
 | `blocked` naming a gate: `--pr`, `--target`, `--lane-ref`, or a `card-` id in the text | It waits on an event | That event, through the supervisor |
 | Anything else | The turn has open work | Stopping is refused, and the refusal prints the commands |
@@ -127,6 +127,13 @@ A lane cannot retire while its line owns an open `owed-deletion` task whose code
 A lane cannot retire while its brief names an `owner:m<row>` that `lr owner audit` still owes, with no record carrying `delivered=owner:m<row>`.
 - Every end that an owed deletion holds holds it too, with one `defect` to the coordinator and the lane naming each row. A coordinator stand-down that names a successor hands the brief, and its orders, to that successor.
 - An `owner` record addressed to a lane that is retired or held, or that retires in the same pass before it reads the record, goes on in that pass: one `ask` to the live end of the lane's successor chain, or to the coordinator when there is none, names the record and the lane. A stem such as `spinner-pictures` resolves to its newest numbered lane, live or not.
+
+### Clocks a lane's cards promise
+
+A card can carry the clock it promises him something by. The board link saves the clock, the lane and the card's question on the card's row in the board-cards ledger, and writes the row through to the supervisor store's mirror of that ledger, which `lr` resyncs from the ledger when it is ten minutes old, as `lr asks` does.
+- A lane cannot retire while it owns such a card and no `landed`, `done` or `report` record carries `delivered=card:<card id>`. Every end an owed order holds holds it too, with one `defect` naming each card. The first record that delivers it marks the row met, so it stays met.
+- When the clock passes first, the lane, or the live end of its successor chain once it has retired, and owner-relay each get one `blocker` naming the card and the question he waits on, with the card and its clock as `card` and `by` attrs.
+- A card whose words name a clock, such as 6:40 PM, and that carries no `--by` draws with a `WARNING` and is not refused.
 
 ## Dead lanes
 

@@ -227,6 +227,7 @@ func decideLanes(given Input) (Decided, error) {
 		PublishNotes: func(string) error { return nil },
 		Gaps:         func() ([]string, error) { return nil, nil },
 		Orders:       func(*store.Store) ([]owner.Row, error) { return nil, nil },
+		Promises:     func() ([]lanes.Promise, error) { return nil, nil },
 		Records: func(since int64) ([]lanes.Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {

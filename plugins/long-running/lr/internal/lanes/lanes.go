@@ -439,11 +439,12 @@ func hold(s *store.Store, name, why string, at time.Time) {
 }
 
 type owing struct {
-	name   string
-	rows   []deletions.Owed
-	orders []owner.Row
-	err    error
-	notes  error
+	name     string
+	rows     []deletions.Owed
+	orders   []owner.Row
+	promises []Promise
+	err      error
+	notes    error
 }
 
 func owingOf(s *store.Store, d Deps, name string) (owing, bool) {
@@ -452,6 +453,9 @@ func owingOf(s *store.Store, d Deps, name string) (owing, bool) {
 		return one, true
 	}
 	if one.orders, one.err = carriedOrders(s, d, name); one.err != nil || len(one.orders) > 0 {
+		return one, true
+	}
+	if one.promises, one.err = promisedBy(d, name); one.err != nil || len(one.promises) > 0 {
 		return one, true
 	}
 	one.notes = notesOwed(s, d, name)
@@ -542,6 +546,9 @@ func (o owing) owes() string {
 	if len(o.orders) > 0 {
 		owed = append(owed, fmt.Sprintf("its brief carries %d owner orders with no delivered proof: %s", len(o.orders), owner.Tokens(o.orders)))
 	}
+	if len(o.promises) > 0 {
+		owed = append(owed, "its cards promise him something by a clock, with no delivered proof: "+promiseCards(o.promises))
+	}
 	return strings.Join(owed, ", and ")
 }
 
@@ -556,6 +563,9 @@ func (o owing) post(s *store.Store, d Deps) {
 	}
 	if o.err != nil || len(o.orders) > 0 {
 		remedies = append(remedies, "deliver each order and post `cci post --kind report --attr delivered=owner:<row>` once he has it")
+	}
+	if o.err != nil || len(o.promises) > 0 {
+		remedies = append(remedies, "deliver what each card promised and post `cci post --kind report --attr delivered=card:<card>` once he has it")
 	}
 	do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: %s; coordinator: relaunch it or reassign its tasks.", o.name, o.owes(), o.name, o.name, strings.Join(remedies, "; "))}))
 }

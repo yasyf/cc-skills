@@ -241,7 +241,7 @@ func awaitLink(ctx context.Context, bus, lane, change string, after int64) (stri
 
 func AskCommand(a *app.App) *cobra.Command {
 	var ask Ask
-	var driveName, session, lane, until, file, withdraw, reason string
+	var driveName, session, lane, until, by, file, withdraw, reason string
 	var forAsk int64
 	cmd := &cobra.Command{
 		Use:   "ask-owner",
@@ -255,6 +255,8 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
     --option 'Wait durably :: A refused call waits and resumes, so no run stops on it. Built on the branch.' \
     --option 'Raise the limit :: Fewer refusals at the same cost, and a run still stops on the next one.' \
     --branch Forge-AI/monorepo:durable-wait --until pr:4521
+
+--by TIME records the clock a card promises him something by, such as a report by 6:40 PM, on the card's row with its lane. The lane cannot retire until a record carries delivered=card:<id>, and when the clock passes first, the lane and owner-relay hear once with what he waits on. A card naming a clock in its words without --by draws with a warning.
 
 --diagram FILE puts one architecture doc (arch/v1) on the card, drawn live on his board and dashboard and as its picture on the card in Slack. --port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself. --withdraw ID takes your own card down when its question has gone away.`,
 		Args: cobra.NoArgs,
@@ -274,9 +276,12 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 				if why := Refusal(until, a.Now()); why != "" {
 					return fmt.Errorf("refused: --until: %s; name the event after which his answer no longer matters", why)
 				}
+				if by, err = promiseClock(by, a.Now()); err != nil {
+					return err
+				}
 			}
-			key := changeKey(block, []byte(remove), []byte(until), []byte(session), []byte(strconv.FormatInt(forAsk, 10)))
-			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, cardBody{Session: session, Block: block, Remove: remove, Reason: reason, Until: until, Ask: forAsk})
+			key := changeKey(block, []byte(remove), []byte(until), []byte(by), []byte(session), []byte(strconv.FormatInt(forAsk, 10)))
+			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, cardBody{Session: session, Block: block, Remove: remove, Reason: reason, Until: until, By: by, Ask: forAsk})
 			if err != nil {
 				return err
 			}
@@ -300,6 +305,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags.IntVar(&ask.PortOf, "port-of", 0, "the old-tree PR this card's port copies: the card's title opens with port of #N")
 	flags.StringVar(&ask.ID, "id", "", "the card's id after card-; default the title's first words")
 	flags.StringVar(&until, "until", KindAnswered, "the event after which his answer no longer matters: pr:N, release:STACK@ENV:COMMIT, record:SEQ, or at:TIME or a span such as at:3d for a real expiry; the sweep never takes an unanswered question down on a time alone, so a question with no such event keeps the default, answered")
+	flags.StringVar(&by, "by", "", "the clock the card promises him something by, an ISO 8601 time or a span such as 90m: the card's lane cannot retire until a record carries delivered=card:<id>, and when the clock passes first, the lane and owner-relay hear once")
 	flags.StringVar(&file, "card", "", "a whole cc-present card as JSON, FILE or -, in place of the question flags")
 	flags.StringVar(&withdraw, "withdraw", "", "take this card of yours down instead of drawing one")
 	flags.StringVar(&reason, "reason", "its question has gone away", "with --withdraw, why")
@@ -328,4 +334,15 @@ func askedCard(stdin io.Reader, ask Ask, file, repo string) (json.RawMessage, er
 		return nil, errors.New("refused: this card carries no background, and he decides from the card alone; pass --background with what happened, what it costs and what each way forward rests on, in plain words")
 	}
 	return block, nil
+}
+
+func promiseClock(by string, now time.Time) (string, error) {
+	if by == "" {
+		return "", nil
+	}
+	if why := Refusal(KindAt+":"+by, now, KindAt); why != "" {
+		return "", fmt.Errorf("refused: --by: %s; give the clock the card promises him something by", why)
+	}
+	end, err := ParseEnd(KindAt+":"+by, now)
+	return end.Value, err
 }
