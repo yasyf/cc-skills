@@ -182,6 +182,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 		PublishNotes: func(string) error { return nil },
 		Gaps:         func() ([]string, error) { return nil, nil },
 		Orders:       func(*store.Store) ([]owner.Row, error) { return nil, nil },
+		Promises:     func() ([]Promise, error) { return nil, nil },
 		Records: func(since int64) ([]Record, error) {
 			start := shown
 			for shown < len(feed) && !feed[shown].At.After(now) {

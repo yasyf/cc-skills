@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -43,6 +44,7 @@ type cardBody struct {
 	Remove  string          `json:"remove,omitempty"`
 	Reason  string          `json:"reason,omitempty"`
 	Until   string          `json:"until,omitempty"`
+	By      string          `json:"by,omitempty"`
 	Ask     int64           `json:"ask,omitempty"`
 	TapOf   string          `json:"tap_of,omitempty"`
 	TapHead string          `json:"tap_head,omitempty"`
@@ -154,7 +156,8 @@ func (l Link) change(ctx context.Context, cards Cards, lane string, card cardBod
 
 func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody) (string, error) {
 	var top struct {
-		ID string `json:"id"`
+		ID    string `json:"id"`
+		Title string `json:"title"`
 	}
 	if err := json.Unmarshal(card.Block, &top); err != nil || top.ID == "" {
 		return "", linkRefusal{"this block has no id: send a cc-present block with an id"}
@@ -209,6 +212,15 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 		if err := cards.record(ctx, top.ID, map[string]string{askField: strconv.FormatInt(card.Ask, 10)}); err != nil {
 			return "", err
 		}
+	}
+	switch named := cardtext.NamesAClock(card.Block); {
+	case card.By != "":
+		if err := cards.mirrored(ctx, top.ID, map[string]string{byField: card.By, laneField: lane, questionField: top.Title}); err != nil {
+			return "", err
+		}
+		said += fmt.Sprintf("; %s cannot retire until a record carries delivered=card:%s", lane, top.ID)
+	case named != "":
+		said += fmt.Sprintf("; WARNING it names the clock %q and no --by, so nothing holds %s to it: redraw it with --by", named, lane)
 	}
 	if card.TapOf == "" {
 		if lacks := cards.Lacks(ctx, l.Judge, card.Block); lacks != "" {

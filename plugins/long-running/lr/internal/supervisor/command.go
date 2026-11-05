@@ -185,6 +185,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		entry, err := drive.Named(env.Config.Drive)
 		if err != nil {
 			a.Log.Warn("the choices check is off", "err", err)
+			laneDeps.Promises = func() ([]lanes.Promise, error) { return nil, err }
 		} else {
 			fixLanes, err := orca.FixLanes(a)
 			if err != nil {
@@ -196,6 +197,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 			}
 			inputs := &landing.InputsPublisher{Runner: a.Runner, Store: s, FixLane: fixLanes, LiveClocks: liveClocks, Session: entry.Root(), Config: a.ConfigPath, Now: a.Now}
 			cards := board.CardsOf(a, entry, entry.Root(), s)
+			laneDeps.Promises = func() ([]lanes.Promise, error) { return cards.Promises(ctx) }
 			dropStale = board.StaleTaps{Runner: a.Runner, Session: entry.Root(), Say: func(ctx context.Context, tap board.DroppedTap) error {
 				return sayDropped(ctx, env.Config.Drive, env.Config.Repo, tap)
 			}, Retire: func(ctx context.Context, card, why string) error {

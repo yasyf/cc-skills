@@ -208,10 +208,18 @@ lr ask-owner --title '<the question>?' --background '<what it is for, what it to
 
 It puts the card on his main board and at the root of his Slack direct message with you as
 its owner, and his answer wakes you. Nobody draws it for you: never ask owner-relay or
+<<<<<<< HEAD
 board-refresher, save for a choice between designs, below. The first option is the recommended one, two to four in all. A question ends
 only when he answers it, the default, so give it no invented date. `--until` names a real event
 after which his answer stops mattering: pr:N, release:STACK@ENV:COMMIT, record:SEQ, or at:TIME
 for a real expiry. The sweep never takes an unanswered question down on a time alone. `--from` names
+=======
+board-refresher, save for a choice between designs, below. The first option is the recommended one, two to four in all. `--until` is
+at:TIME or a span such as at:3d, pr:N, release:STACK@ENV:COMMIT or record:SEQ. A card that
+promises him something by a clock, such as a report by 6:40 PM, takes `--by TIME`, an ISO 8601
+time or a span such as 90m: you cannot retire until a record carries `delivered=card:<card id>`,
+and when the clock passes first you and owner-relay hear once. `--from` names
+>>>>>>> 168cfbc1c (long-running: ✨ a clock printed on his card is a typed fact its lane owns, so it cannot pass in silence)
 the plan step and date, his ruling id, or whose PR it ports. `--shot 'PATH or https URL ::
 what it shows'` adds a real screenshot; a path is read on the board's Mac, so a Sprite lane
 gives a URL. `--diagram FILE` takes one architecture doc (arch/v1), drawn live on his board and
