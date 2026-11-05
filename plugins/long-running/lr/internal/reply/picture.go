@@ -3,37 +3,17 @@ package reply
 import (
 	"cmp"
 	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/chromedp/chromedp"
-
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
 const (
-	diagramKind  = "diagram"
-	diagramLead  = "Diagram: "
-	diagramAsset = "arch-kit/arch-doc.js"
-	diagramDraw  = `(async () => {
-		document.documentElement.innerHTML = "<head><style>html,body{margin:0;background:#fff}arch-doc{display:block}</style></head><body></body>";
-		await import("/` + diagramAsset + `");
-		const doc = document.createElement("arch-doc");
-		const drawn = new Promise((done) => doc.addEventListener("arch-ready", done, { once: true }));
-		doc.setAttribute("src", "data:application/json;base64,%s");
-		document.body.append(doc);
-		await drawn;
-		return true;
-	})()`
-	pictureWidth   = 1400
-	pictureHeight  = 900
-	pictureScale   = 2
-	pictureTimeout = 45 * time.Second
+	diagramKind = "diagram"
+	diagramLead = "Diagram: "
 )
 
 type cardArtifact struct {
@@ -73,11 +53,7 @@ func (f Fanout) diagramPage(r Reply) (string, string) {
 }
 
 func (r Reply) diagramTitle() string {
-	var doc struct {
-		Title string `json:"title"`
-	}
-	_ = json.Unmarshal(r.Diagram, &doc)
-	return shortened(cmp.Or(doc.Title, r.Title), maxTitle)
+	return shortened(cmp.Or(arch.Title(r.Diagram), r.Title), maxTitle)
 }
 
 func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, picture) {
@@ -98,28 +74,4 @@ func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, picture) {
 	shown.Image = png
 	r.artifacts = []cardArtifact{shown}
 	return r, picture{dir: dir}
-}
-
-func shootDiagram(ctx context.Context, dashboard string, diagram json.RawMessage, png string) error {
-	ctx, cancel := context.WithTimeout(ctx, pictureTimeout)
-	defer cancel()
-	ctx, cancel = chromedp.NewExecAllocator(ctx, append(chromedp.DefaultExecAllocatorOptions[:], chromedp.WindowSize(pictureWidth, pictureHeight))...)
-	defer cancel()
-	ctx, cancel = chromedp.NewContext(ctx)
-	defer cancel()
-	err := chromedp.Do(ctx,
-		chromedp.EmulateViewport(pictureWidth, pictureHeight, chromedp.EmulateScale(pictureScale)),
-		chromedp.Navigate(dashboard+diagramAsset),
-	)
-	if err == nil {
-		_, err = chromedp.Run(ctx, chromedp.Evaluate[bool](fmt.Sprintf(diagramDraw, base64.StdEncoding.EncodeToString(diagram)), chromedp.EvalAwaitPromise))
-	}
-	var shot []byte
-	if err == nil {
-		shot, err = chromedp.Run(ctx, chromedp.Screenshot(chromedp.CSS("arch-doc")))
-	}
-	if err != nil {
-		return fmt.Errorf("drawing the diagram in Chrome from %s: %w", dashboard, err)
-	}
-	return os.WriteFile(png, shot, 0o600)
 }

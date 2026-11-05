@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -74,6 +75,7 @@ type Link struct {
 	State string
 	Cards func(session string) (Cards, func(), error)
 	Judge Judge
+	Draw  func(ctx context.Context, dashboard string, doc json.RawMessage, png string) error
 }
 
 func (l Link) Serve(ctx context.Context) error {
@@ -172,6 +174,9 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	}
 	if len(answered) > 0 {
 		return "", linkRefusal{fmt.Sprintf("refused: he already answered %s; act on his answer, which `cc-present block show %s --session %s` prints, and give a new question a new --id", top.ID, top.ID, cards.Session)}
+	}
+	if card.Block, err = l.pictured(ctx, card.Block); err != nil {
+		return "", err
 	}
 	var unchecked error
 	if card.TapOf == "" {
@@ -308,7 +313,7 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 			if err != nil {
 				return err
 			}
-			return Link{Drive: entry.Bus(), State: entry.StateDir, Judge: judge, Cards: func(named string) (Cards, func(), error) {
+			return Link{Drive: entry.Bus(), State: entry.StateDir, Judge: judge, Draw: arch.Draw, Cards: func(named string) (Cards, func(), error) {
 				current, session, err := opened()
 				if err != nil {
 					return Cards{}, nil, err

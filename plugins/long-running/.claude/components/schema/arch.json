@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "lr.arch",
+  "type": "object",
+  "required": ["id", "type", "doc"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "lr.arch" },
+    "title": { "type": "string", "minLength": 1 },
+    "doc": { "type": "object", "required": ["arch", "name", "title", "nodes"] },
+    "picture": { "type": "string", "minLength": 1 },
+    "link": { "type": "string", "minLength": 1 }
+  }
+}

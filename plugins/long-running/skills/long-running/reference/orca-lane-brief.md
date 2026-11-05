@@ -212,7 +212,9 @@ board-refresher. The first option is the recommended one, two to four in all. `-
 at:TIME or a span such as at:3d, pr:N, release:STACK@ENV:COMMIT or record:SEQ. `--from` names
 the plan step and date, his ruling id, or whose PR it ports. `--shot 'PATH or https URL ::
 what it shows'` adds a real screenshot; a path is read on the board's Mac, so a Sprite lane
-gives a URL. A card with diagrams or records goes as `--card FILE|-`, a whole cc-present card,
+gives a URL. `--diagram FILE` takes one architecture doc (arch/v1), drawn live on his board and
+dashboard and, from a picture the board's Mac draws, on the Slack card. A card with
+records goes as `--card FILE|-`, a whole cc-present card,
 and `--withdraw ID` takes yours down when its question goes away.
 
 The command prints the card's link, or exits 1 with what to change. It refuses a card with
