@@ -92,6 +92,33 @@ func TestEveryWayAnInstallDiffersFromItsTagIsNamed(t *testing.T) {
 	}
 }
 
+func TestBuildOutputsTheReleaseIgnoresAreNotHeldButAnUntrackedSourceIs(t *testing.T) {
+	origin, install := releasedTree(t)
+	for _, root := range []string{filepath.Join(origin, "plugins", "p"), install} {
+		write(t, filepath.Join(root, "components", ".gitignore"), "node_modules/\n!dist/\ndist/.cc-present-build.json\n")
+		write(t, filepath.Join(root, "components", "dist", "pack.js"), "bundle\n")
+	}
+	git(t, origin, "add", ".")
+	git(t, origin, "commit", "-q", "-m", "components")
+	git(t, origin, "tag", "-f", "p--v1")
+	write(t, filepath.Join(install, "components", "node_modules", ".bin", "esbuild"), "built in place\n")
+	write(t, filepath.Join(install, "components", "node_modules", "nanoid", "index.js"), "built in place\n")
+	write(t, filepath.Join(install, "components", "dist", ".cc-present-build.json"), `{"digest":"0"}`)
+
+	if faults := faultsOf(t, origin, install); len(faults) != 0 {
+		t.Fatalf("faults %v", faults)
+	}
+
+	write(t, filepath.Join(install, "components", "src", "extra.ts"), "added past the tag\n")
+	got := strings.Join(faultsOf(t, origin, install), "\n")
+
+	for _, want := range []string{"the install holds 6 files where the release holds 5", "components/src/extra.ts is not in the release"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("no %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestATagThatWillNotFetchIsAFaultNotACrash(t *testing.T) {
 	origin, install := releasedTree(t)
 	faults, err := treeFaults(context.Background(), shell.Exec{}, install, origin, "p--v9", "plugins/p", filepath.Join(t.TempDir(), "releases.git"))
