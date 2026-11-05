@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +16,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
+
+var co = filepath.Join(os.TempDir(), "lr-ledger-co")
 
 const (
 	ledgerTool = "/claude/long-running/current/bin/ledger.py"
@@ -27,8 +31,8 @@ func ledgerUnder(t *testing.T, runner *shelltest.Fake) (*prLedger, *store.Store)
 	if err := s.PutLedgerRows("L", map[string]map[string]string{"8": {"lane": "lane-8"}}, t0); err != nil {
 		t.Fatal(err)
 	}
-	runner.Reply("", "git", "-C", "/co")
-	env := lanes.Env{Bus: lanes.CCI{}, Runner: runner, Config: config.Config{Repo: "org/repo", Drive: "d", Checkout: "/co", Trunk: "dev"}, Claude: "/claude", Now: time.Now}
+	runner.Reply("", "git", "-C", co)
+	env := lanes.Env{Bus: lanes.CCI{}, Runner: runner, Config: config.Config{Repo: "org/repo", Drive: "d", Checkout: co, Trunk: "dev"}, Claude: "/claude", Now: time.Now}
 	return &prLedger{env: env, store: s, id: "L"}, s
 }
 
@@ -87,7 +91,7 @@ func TestALedgerPassRegistersEachNewPRTheHeadRecordsNameThenRefreshesAndReconcil
 
 func TestACheckoutThatWillNotFastForwardReachesRootAndTheLedgerStillRuns(t *testing.T) {
 	runner := &shelltest.Fake{}
-	runner.Fail(1, "fatal: Not possible to fast-forward", "git", "-C", "/co", "merge")
+	runner.Fail(1, "fatal: Not possible to fast-forward", "git", "-C", co, "merge")
 	runner.Reply("", ledgerTool)
 	l, _ := ledgerUnder(t, runner)
 
@@ -101,7 +105,7 @@ func TestACheckoutThatWillNotFastForwardReachesRootAndTheLedgerStillRuns(t *test
 
 func TestARegisterTheLedgerRefusesStillRefreshesAndIsNotRetriedForever(t *testing.T) {
 	runner := &shelltest.Fake{}
-	runner.Fail(1, "no such pull request", ledgerTool, "-C", "/co", "register")
+	runner.Fail(1, "no such pull request", ledgerTool, "-C", co, "register")
 	runner.Reply("", ledgerTool)
 	l, _ := ledgerUnder(t, runner)
 	postHead(t, "lane-7", "org/repo#7")
@@ -181,9 +185,9 @@ func TestAPassDropsARetiredLaneWithNoOpenPRAndKeepsEveryLaneWithOne(t *testing.T
 
 func limitedRunner() *shelltest.Fake {
 	runner := &shelltest.Fake{}
-	runner.Fail(ledgerLimited, "forge rate limited, wrote nothing", ledgerTool, "-C", "/co", "refresh")
+	runner.Fail(ledgerLimited, "forge rate limited, wrote nothing", ledgerTool, "-C", co, "refresh")
 	runner.Reply("", ledgerTool)
-	runner.Reply("", "git", "-C", "/co")
+	runner.Reply("", "git", "-C", co)
 	runner.Reply("", "ccn")
 	return runner
 }
@@ -238,7 +242,7 @@ func TestALimitThatOutlastsTheOutageWindowReachesRootOnceUntilItRecovers(t *test
 
 	recovered := &shelltest.Fake{}
 	recovered.Reply("", ledgerTool)
-	recovered.Reply("", "git", "-C", "/co")
+	recovered.Reply("", "git", "-C", co)
 	recovered.Reply("", "ccn")
 	l.env.Runner = recovered
 	if err := pass(15 * time.Minute); err != nil {
@@ -256,7 +260,7 @@ func TestALimitThatOutlastsTheOutageWindowReachesRootOnceUntilItRecovers(t *test
 
 func TestARefreshFailingForAnotherReasonReachesRootAtOnce(t *testing.T) {
 	runner := &shelltest.Fake{}
-	runner.Fail(1, "forge unreachable, wrote nothing: shallow checkout", ledgerTool, "-C", "/co", "refresh")
+	runner.Fail(1, "forge unreachable, wrote nothing: shallow checkout", ledgerTool, "-C", co, "refresh")
 	runner.Reply("", ledgerTool)
 	l, _ := ledgerUnder(t, runner)
 

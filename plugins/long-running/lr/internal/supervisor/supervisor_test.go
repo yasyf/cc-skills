@@ -206,24 +206,21 @@ func TestASecondSupervisorTakesTheLeaseAndTheFirstExitsOnItsNextTick(t *testing.
 	}
 }
 
-func TestRunEndsByItselfWhenItsGenerationIsTaken(t *testing.T) {
-	s, c := memory(t), &clock{t0}
-	d := deps(c, &queue{}, &pool{})
-	stolen := false
+func TestRunEndsBeforeItEnqueuesOnceItsGenerationIsTakenMidPass(t *testing.T) {
+	s, c, q := memory(t), &clock{t0}, &queue{}
+	d := deps(c, q, &pool{})
 	d.Snapshot = func(context.Context) ([]machine.Facts, error) {
-		if !stolen {
-			stolen = true
-			if _, err := s.AcquireLease("d", "0.8.1", 202, c.read()); err != nil {
-				t.Fatal(err)
-			}
+		if _, err := s.AcquireLease("d", "0.8.1", 202, c.read()); err != nil {
+			t.Fatal(err)
 		}
-		return nil, nil
+		return []machine.Facts{prFacts(1, nil)}, nil
 	}
 
 	reports, ended := runLoop(t, s, "0.8.0", 101, d, 0)
 
-	equal(t, len(reports), 1)
+	equal(t, len(reports), 0)
 	equal(t, ended, EndedGeneration)
+	equal(t, q.enqueued, []int(nil))
 }
 
 func TestRunEndsAtTheTickBoundaryOnceANewerReleaseIsInstalled(t *testing.T) {
@@ -829,4 +826,27 @@ func TestAPassThatCannotReadItsPRsTellsRootOncePerCause(t *testing.T) {
 
 	prefix := "the PR read failed, so this pass moved nothing and the next one reads again: "
 	equal(t, said, []string{"root: " + prefix + "ccx exited 1 at 04:01:02", "root: " + prefix + "gh: not found"})
+}
+
+func TestThePassLogsWhyEachClearedHeadDoesNotEnqueue(t *testing.T) {
+	s, c, q, p := memory(t), &clock{t0}, &queue{}, &pool{}
+	lower := prFacts(1, func(f *machine.Facts) { f.Branch, f.CI = "b1", machine.CIPending })
+	upper := prFacts(2, func(f *machine.Facts) { f.Branch, f.Base = "b2", "b1" })
+	orphan := prFacts(3, func(f *machine.Facts) { f.Branch, f.Base = "b3", "merged-away" })
+	var logged bytes.Buffer
+	d := deps(c, q, p, lower, upper, orphan)
+	d.Log = slog.New(slog.NewJSONHandler(&logged, nil))
+
+	runLoop(t, s, "0.8.0", 1, d, 1)
+
+	equal(t, q.enqueued, []int(nil))
+	for _, want := range []string{
+		`"msg":"a cleared head waits","pr":1,"head":"` + head + `","why":"its CI is not green"`,
+		`"msg":"a cleared head waits","pr":2,"head":"` + head + `","why":"a PR below it is not clear to land"`,
+		`"msg":"an enqueue was dropped","pr":3,"head":"` + head + `","why":"its base is not trunk or an open PR of the drive"`,
+	} {
+		if !strings.Contains(logged.String(), want) {
+			t.Fatalf("log = %s, want a line holding %s", logged.String(), want)
+		}
+	}
 }

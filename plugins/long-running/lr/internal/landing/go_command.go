@@ -19,6 +19,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -30,6 +31,8 @@ const (
 	mergedPR = "MERGED"
 	filesJQ  = ".[] | [.filename, .patch] | @json"
 	goReader = "desk-runner"
+	goUnread = "go-unread"
+	sweepTip = "refs/lr/sweep/"
 )
 
 type goFlags struct {
@@ -236,11 +239,12 @@ func sourceLanded(ctx context.Context, a *app.App, cfg config.Config, source int
 	if slices.ContainsFunc(rows, func(row ccx.PRStatus) bool { return row.State == mergedPR }) {
 		return true, nil
 	}
-	if _, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "fetch", "-q", "origin", cfg.Trunk}, Timeout: gitLimit}); err != nil {
+	tip := sweepTip + cfg.Trunk
+	if _, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/" + cfg.Trunk + ":" + tip}, Timeout: gitLimit}); err != nil {
 		return false, err
 	}
 	named := fmt.Sprintf("(#%d)", source)
-	log, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "log", "origin/" + cfg.Trunk, "--format=%s", "--fixed-strings", "--grep=" + named}, Timeout: gitLimit})
+	log, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "log", tip, "--format=%s", "--fixed-strings", "--grep=" + named}, Timeout: gitLimit})
 	if err != nil {
 		return false, err
 	}
@@ -288,7 +292,13 @@ func SweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store
 	for _, f := range ready {
 		refused, err := gate.one(ctx, f.Number, f.Head, goFlags{lane: bus.SweepLane, owner: f.Lane, sweep: true})
 		if err != nil {
-			return err
+			if ctx.Err() != nil {
+				return err
+			}
+			if err := sayUnread(ctx, s, cfg.Drive, f, err, stdout); err != nil {
+				return err
+			}
+			continue
 		}
 		mark := s.Unprobe(goProbe(f.Number))
 		if refused {
@@ -299,6 +309,21 @@ func SweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store
 		}
 	}
 	return nil
+}
+
+func sayUnread(ctx context.Context, s *store.Store, drive string, f machine.Facts, unread error, stdout io.Writer) error {
+	fmt.Fprintf(stdout, "UNREAD #%d at %s: %v\n", f.Number, f.Head[:7], unread)
+	holder, err := lanes.ChangeOwner(s, drive, f.Lane, f.Number)
+	if err != nil {
+		return err
+	}
+	_, err = client.Post(ctx, client.Draft{
+		Drive: drive, Lane: bus.SweepLane, Kind: "note", To: []string{holder},
+		ID:   fmt.Sprintf("%s:%d:%s", goUnread, f.Number, f.Head),
+		PRs:  []string{pullRef(f)},
+		Text: fmt.Sprintf("GO-UNREAD #%d at %s: the go sweep could not read it, so it posts no go for it this pass and reads it again next pass: %v", f.Number, f.Head[:7], unread),
+	})
+	return err
 }
 
 type landingConfig struct {
