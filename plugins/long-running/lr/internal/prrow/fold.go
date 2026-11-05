@@ -27,6 +27,8 @@ const (
 	headGrace             = 5 * time.Minute
 	oldOverridesCursor    = "old-overrides"
 	oldOverrideWindow     = 14 * 24 * time.Hour
+	mislandedCursor       = "mislanded-rows"
+	landingDesk           = "supervisor"
 )
 
 const (
@@ -103,6 +105,9 @@ type Held struct {
 
 func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, error) {
 	if err := f.readOldOverrides(ctx); err != nil {
+		return nil, err
+	}
+	if err := f.reopenMislanded(ctx); err != nil {
 		return nil, err
 	}
 	records, err := f.tail(ctx, f.Drive, store.ReviewRowsCursor, foldKinds)
@@ -301,6 +306,48 @@ func (f Fold) readOldOverrides(ctx context.Context) error {
 	return f.Store.Advance(oldOverridesCursor, 1)
 }
 
+// TODO: delete once every drive's store has advanced this cursor; it reopens the rows a landed record from a lane that neither lands nor owns the PR closed out before landsRow refused such records.
+func (f Fold) reopenMislanded(ctx context.Context) error {
+	read, err := f.Store.Cursor(mislandedCursor)
+	if err != nil || read != 0 {
+		return err
+	}
+	records, err := client.Tail(ctx, client.Query{Drive: f.Drive, Kinds: []string{"landed"}, Since: f.Now().Add(-foldWindow)})
+	if err != nil {
+		return err
+	}
+	return f.Store.Update(func(t *store.Tx) error {
+		stored, err := t.ReviewRows(f.Repo)
+		if err != nil {
+			return err
+		}
+		rows := make(map[int]store.ReviewRow, len(stored))
+		for _, row := range stored {
+			rows[row.Number] = row
+		}
+		var reopened []store.ReviewRow
+		for _, record := range records {
+			for _, number := range bus.HeldBy(record, f.Repo) {
+				row, known := rows[number]
+				if !known || row.State != StateLanded || row.LandedAt != store.Stamp(record.At) || landsRow(record, row) {
+					continue
+				}
+				row.State, row.LandedAt = StateOpen, NotYet
+				reopened = append(reopened, row)
+			}
+		}
+		if err := t.PutReviewRows(reopened); err != nil {
+			return err
+		}
+		return t.Advance(mislandedCursor, 1)
+	})
+}
+
+func landsRow(record client.Record, row store.ReviewRow) bool {
+	lane := client.Stem(record.Lane)
+	return lane == landingDesk || lane == client.Stem(row.Lane)
+}
+
 func (f Fold) tail(ctx context.Context, drive, cursor string, kinds []string) ([]client.Record, error) {
 	after, err := f.Store.Cursor(cursor)
 	if err != nil {
@@ -479,7 +526,7 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, outside map[int]s
 			}
 			err = t.PutFact(f.Repo, number, row.Head, NoPortAttr, attrs[NoPortAttr], record.At)
 		case "landed":
-			if !known {
+			if !known || !landsRow(record, row) {
 				continue
 			}
 			row = landed(row, record.At)

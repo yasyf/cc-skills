@@ -897,6 +897,49 @@ func TestALandedRecordLandsAQueuedRowAndAStaleReadLeavesItLanded(t *testing.T) {
 	}
 }
 
+func TestALandedRecordLandsARowOnlyFromTheLandingDeskOrThePRsOwnLane(t *testing.T) {
+	for lane, want := range map[string]string{"lane-7": StateLanded, landingDesk: StateLanded, "host-tap-fold": StateOpen} {
+		t.Run(lane, func(t *testing.T) {
+			f, _ := foldFor(t)
+			postOpened(t, 1, headA, "dev", fullBody)
+			folded(t, f, 1)
+
+			if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "landed", Text: "yasyf/cc-skills#3409 merged", PRs: []string{"yasyf/cc-skills#3409", "1"}}); err != nil {
+				t.Fatal(err)
+			}
+
+			if row := folded(t, f, 1); row.State != want {
+				t.Fatalf("row = %+v, want %s after %s's landed record", row, want, lane)
+			}
+		})
+	}
+}
+
+func TestARowALandedRecordFromAnotherLaneClosedOutReopensOnTheFirstFoldAndAnOwnersLandingStands(t *testing.T) {
+	f, s := foldFor(t)
+	cited, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "host-tap-fold", Kind: "landed", Text: "yasyf/cc-skills#3409 merged", PRs: []string{"yasyf/cc-skills#3409", "1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "landed", Text: "merged", PRs: []string{testRepo + "#2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutReviewRows([]store.ReviewRow{
+		{Repo: testRepo, Number: 1, Head: headA, Lane: "lane", Base: "dev", State: StateLanded, LandedAt: store.Stamp(cited.At)},
+		{Repo: testRepo, Number: 2, Head: headB, Lane: "lane", Base: "dev", State: StateLanded, LandedAt: store.Stamp(owned.At)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := folded(t, f, 1); row.State != StateOpen || row.LandedAt != NotYet {
+		t.Fatalf("#1 = %+v, want it open again", row)
+	}
+	if row := folded(t, f, 2); row.State != StateLanded || row.LandedAt != store.Stamp(owned.At) {
+		t.Fatalf("#2 = %+v, want its owner's landing to stand", row)
+	}
+}
+
 func TestASupersededPRLeavesAndANewHeadBringsItBack(t *testing.T) {
 	f, _ := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)
