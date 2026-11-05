@@ -36,7 +36,7 @@ DEVICE_SIGN_IN = (
 )
 AWS_SIGN_IN = (
     "An AWS read never waits on his sign-in, and a device code in a record is a credential. "
-    'Run the read with `AWS_PROFILE="$DEVBOX_AWS_PROFILE"`, and when that profile lacks a grant, card the IaC PR that adds the exact permission.'
+    "Run it with `AWS_PROFILE` set to `$CI_AWS_PROFILE` for the CI account or `$DEVBOX_AWS_PROFILE` for plat-dev, and card the IaC PR for any grant that profile lacks."
 )
 SIGN_IN_LINK = "https://d-0000000000.awsapps.com/start/#/device"
 GITHUB_SIGN_IN_LINK = "https://github.com/login/device"

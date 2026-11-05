@@ -86,7 +86,7 @@ A wait is a row: `Waiting` and `Awaits` hold the gate. The matching event clears
 | Another lane's work | `blocked --lane-ref L` | L's `done`, `stopped` or `fix-live`; a `fix-live` the coordinator files is the work of the lanes it is addressed to, never its own |
 | Head and go (green at a new head with an old go) | `blocked --pr N` | The landing mover owns the go at the new head. A `blocker` naming N pages the lane and overrides the wait |
 | Expired credential other than AWS, case unrecovered | `blocked` or `ask` | The answer |
-| AWS grant the machine profile lacks (an expired AWS sign-in never parks: the read reruns on the machine profile) | `blocked --pr N` on the reviewed IaC PR adding the permission | A `landed` record naming N |
+| AWS grant the target account's machine-sourced profile lacks (an expired AWS sign-in never parks: the read reruns on that profile) | `blocked --pr N` on the reviewed IaC PR adding the permission | A `landed` record naming N |
 
 An unrelated record fires no gate. The page names the record that fired, its lane and kind, and the gate it matched.
 
