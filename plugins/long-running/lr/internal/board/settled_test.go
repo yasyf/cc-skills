@@ -32,7 +32,7 @@ var (
 		Updated: "2026-11-04T05:37:55Z",
 	}
 	sonnetPool   = ownerAnswer{ID: "5a5a5a5", Title: "Which pool should Sonnet bill to?", Body: "The shared pool.", Updated: "2026-11-04T05:40:00Z"}
-	answeredHere = answeredWith(boardCardLabel + oldChatCard)
+	answeredHere = answeredWith(boardCardLabel+oldChatCard, ownerLabel)
 )
 
 var oldChatUp = []any{oldChatBlock()}
@@ -252,20 +252,75 @@ func TestASweepPrefersHisAnswerToTheCardItselfOverOneToAnotherQuestion(t *testin
 	}
 }
 
-func TestASweepTakesDownACardHisAnswerToTheSameQuestionSettles(t *testing.T) {
+func alwaysSettles(context.Context, string, string, string) (*Judgment, error) {
+	return &Judgment{Verdict: "yes", Sentence: "Old chats show the can't-open screen."}, nil
+}
+
+func TestASweepKeepsACardWhoseQuestionAnAnswerOffItReadsTheSame(t *testing.T) {
 	same := upgradeOnce
 	same.Title = "  an old chat will not open on the new build: is that the expected you meant?   What should happen to chats like this?"
 	cards, fake, _ := settledBoard(t, oldChatUp, same)
-	decides := func(context.Context, string, string, string) (*Judgment, error) {
-		return &Judgment{Verdict: "yes", Sentence: "Old chats show the can't-open screen."}, nil
-	}
+	var out bytes.Buffer
 
-	if err := cards.Unask(context.Background(), "board-refresher", decides, &bytes.Buffer{}); err != nil {
+	if err := cards.Unask(context.Background(), "board-refresher", alwaysSettles, &out); err != nil {
 		t.Fatal(err)
 	}
 
-	if removed := removedBlocks(fake); len(removed) != 1 {
-		t.Fatalf("removed %q, want the card his answer to its own question settles", removed)
+	if removed := removedBlocks(fake); len(removed) != 0 || !strings.Contains(out.String(), "KEPT "+oldChatCard) {
+		t.Fatalf("removed %q, out %q; no tap on this card stands behind it", removed, out.String())
+	}
+}
+
+func TestOnlyHisTapOrNumberedReplyOrARelayRecordOnACardClosesIt(t *testing.T) {
+	onThisCard := boardCardLabel + oldChatCard
+	inThread := threadProof + "1793861669.537559"
+	tapped := "proof:board-watch:key"
+	for name, tc := range map[string]struct {
+		tags   []string
+		body   string
+		closes bool
+	}{
+		"his question in its thread":     {[]string{ownerLabel, "board-answer", onThisCard, inThread}, "what does that word mean?\nBoard question: x", false},
+		"his typed words with no number": {[]string{ownerLabel, "board-answer", onThisCard, inThread}, "also fix the markdown\nBoard question: x", false},
+		"his complaint listed by number": {[]string{ownerLabel, "board-answer", onThisCard, inThread}, "1. this line is not needed, 2) there is no button here\nBoard question: x", false},
+		"a lane's reply recorded on it":  {[]string{cardLabel + oldChatCard}, "It means the Description panel.", false},
+		"his write-in with no number":    {[]string{ownerLabel, "board-answer", onThisCard, tapped}, "wrote “why this one?”\nBoard question: x", false},
+		"his tap on another card":        {[]string{ownerLabel, "board-answer", boardCardLabel + "card-another", tapped}, "picked “Show the can't-open screen”\nBoard question: x", false},
+		"his tap":                        {[]string{ownerLabel, "board-answer", onThisCard, tapped}, "picked “Show the can't-open screen”\nBoard question: x", true},
+		"his write-in naming an option":  {[]string{ownerLabel, "board-answer", onThisCard, tapped}, "wrote “1 but say why”\nBoard question: x", true},
+		"his numbered reply":             {[]string{ownerLabel, "board-answer", onThisCard, inThread}, "I pick 1\nBoard question: x", true},
+		"a relay's record of his words":  {[]string{ownerLabel, cardLabel + oldChatCard}, "Owner 10:59 PM in the card's thread: \"keep it\".", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			row := ownerAnswer{ID: "153ea56635c28aa4", Title: oldChatTitle, Body: tc.body, Updated: "2026-11-05T06:54:31Z", Tags: tc.tags}
+			cards, fake, withdrawn := settledBoard(t, oldChatUp, row)
+			if _, err := cards.Until(context.Background(), oldChatCard, "at:3d", "owner-apps-1"); err != nil {
+				t.Fatal(err)
+			}
+			var reports []laneReport
+			cards.Report = func(_ context.Context, by string, to []string, topic, text string) error {
+				reports = append(reports, laneReport{by, strings.Join(to, ","), topic, text})
+				return nil
+			}
+
+			if err := cards.Unask(context.Background(), "board-refresher", alwaysSettles, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+
+			removed := removedBlocks(fake)
+			if tc.closes {
+				if len(removed) != 1 || len(*withdrawn) != 1 || len(reports) != 0 {
+					t.Fatalf("removed %q, withdrew %q, reports %+v; want the card closed", removed, *withdrawn, reports)
+				}
+				return
+			}
+			if len(removed) != 0 || len(*withdrawn) != 0 {
+				t.Fatalf("removed %q, withdrew %q; want the card left open with its buttons", removed, *withdrawn)
+			}
+			if len(reports) != 1 || reports[0].to != "owner-apps-1" || reports[0].topic != oldChatCard {
+				t.Fatalf("reports %+v, want one to the lane that drew it", reports)
+			}
+		})
 	}
 }
 
@@ -387,8 +442,8 @@ func TestOnlyHisAnswerToACardSettlesItWhenItShowsARender(t *testing.T) {
 		{"a screenshot child and an older answer stays up", renderBlock(screenshotChild), answeredWith("from:owner"), false, false},
 		{"a screenshot on an option and an older answer stays up", renderBlock(screenshotVisual), answeredWith("from:owner"), false, false},
 		{"his answer to the card before it stays up", renderBlock(screenshotChild), answeredWith("card:card-chat-live", "board-card:card-chat-live"), false, false},
-		{"his Slack tap on it settles", renderBlock(screenshotChild), answeredWith(cardLabel + oldChatCard), true, true},
-		{"his board pick on it settles", renderBlock(screenshotVisual), answeredWith(boardCardLabel + oldChatCard), true, true},
+		{"his Slack tap on it settles", renderBlock(screenshotChild), answeredWith(cardLabel+oldChatCard, ownerLabel), true, true},
+		{"his board pick on it settles", renderBlock(screenshotVisual), answeredWith(boardCardLabel+oldChatCard, ownerLabel), true, true},
 		{"no screenshot and an older answer to another question refuses a draw and leaves a drawn card up", oldChatBlock(), answeredWith("from:owner"), true, false},
 	}
 	for _, tc := range cases {
@@ -604,21 +659,31 @@ func finishedJudge(verdict string, judged *[]string) Judge {
 	}
 }
 
-func TestASweepTakesDownACardALaneReportsFinished(t *testing.T) {
+func TestASweepLeavesUpACardALaneReportsFinishedAndTellsTheLaneThatDrewIt(t *testing.T) {
 	cards, fake, withdrawn := settledBoard(t, oldChatUp)
+	if _, err := cards.Until(context.Background(), oldChatCard, "at:3d", "owner-apps-1"); err != nil {
+		t.Fatal(err)
+	}
 	cards.Reports = func(context.Context) ([]ownerAnswer, error) { return []ownerAnswer{stepsDone}, nil }
+	var told []laneReport
+	cards.Report = func(_ context.Context, by string, to []string, topic, text string) error {
+		told = append(told, laneReport{by, strings.Join(to, ","), topic, text})
+		return nil
+	}
 	var judged []string
 
 	if err := cards.Finished(context.Background(), "supervisor", finishedJudge("yes", &judged), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 
-	removed := removedBlocks(fake)
-	if len(removed) != 1 || !strings.HasPrefix(removed[0], oldChatCard+" a lane already finished what it asks: The lane finished all three steps") {
-		t.Fatalf("removed %q", removed)
+	if removed := removedBlocks(fake); len(removed) != 0 || len(*withdrawn) != 0 {
+		t.Fatalf("removed %q, withdrew %q; a lane's report never closes his card", removed, *withdrawn)
 	}
-	if len(judged) != 1 || !strings.Contains(judged[0], stepsDone.Body) || len(*withdrawn) != 1 {
-		t.Fatalf("judged %q, withdrew %q", judged, *withdrawn)
+	if len(judged) != 1 || !strings.Contains(judged[0], stepsDone.Body) {
+		t.Fatalf("judged %q", judged)
+	}
+	if len(told) != 1 || told[0].to != "owner-apps-1" || !strings.Contains(told[0].text, "The lane finished all three steps") || !strings.Contains(told[0].text, "lr ask-owner --withdraw "+oldChatCard) {
+		t.Fatalf("told %+v, want the drawing lane told why it may withdraw", told)
 	}
 }
 

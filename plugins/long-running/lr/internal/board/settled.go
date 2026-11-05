@@ -30,6 +30,9 @@ const (
 	askedField         = "settled-asked"
 	cardLabel          = "card:"
 	boardCardLabel     = "board-card:"
+	ownerLabel         = "from:owner"
+	threadProof        = "proof:slack-thread:"
+	writeIn            = "wrote “"
 	optionsKind        = "options"
 )
 
@@ -42,10 +45,10 @@ type ownerAnswer struct {
 }
 
 type Settling struct {
-	Answer       ownerAnswer
-	Why          string
-	Finished     bool
-	SameQuestion bool
+	Answer   ownerAnswer
+	Why      string
+	Finished bool
+	Closes   bool
 }
 
 type settlingSource struct {
@@ -74,7 +77,11 @@ func (s Settling) Refusal() error {
 }
 
 func (s Settling) Extension(card string) string {
-	return fmt.Sprintf("Card %s stays on the owner's board: the settled check reads his answer to %q (cc-notes answer %s) as settling it, though he answered a different question: %s. Withdraw it with `lr ask-owner --withdraw %s` if his answer covers it, or reply to this record saying why it stays.", card, strings.TrimSpace(s.Answer.Title), s.shortID(), strings.TrimSuffix(strings.TrimSpace(s.Why), "."), card)
+	read := fmt.Sprintf("the settled check reads his words under %q (cc-notes answer %s) as settling it", strings.TrimSpace(s.Answer.Title), s.shortID())
+	if s.Finished {
+		read = fmt.Sprintf("the finished check reads the lane's %q as finishing what it asks", strings.TrimSpace(s.Answer.Title))
+	}
+	return fmt.Sprintf("Card %s stays on the owner's board, since only his tap, his numbered reply or a relay's record of his words on this card closes it: %s: %s. Withdraw it with `lr ask-owner --withdraw %s` if nothing is left to ask, or reply to this record saying why it stays.", card, read, strings.TrimSuffix(strings.TrimSpace(s.Why), "."), card)
 }
 
 func (s Settling) shortID() string {
@@ -158,9 +165,16 @@ func answersCard(answer ownerAnswer, id string) bool {
 	return slices.Contains(answer.Tags, cardLabel+id) || slices.Contains(answer.Tags, boardCardLabel+id)
 }
 
-func asksSame(card json.RawMessage, answer ownerAnswer) bool {
-	id, title, _ := asksTitle(card)
-	return answersCard(answer, id) || sameText(answer.Title, title)
+func closesCard(answer ownerAnswer, id string) bool {
+	if !answersCard(answer, id) || !slices.Contains(answer.Tags, ownerLabel) {
+		return false
+	}
+	said, _, _ := strings.Cut(answer.Body, "\n")
+	inThread := slices.ContainsFunc(answer.Tags, func(tag string) bool { return strings.HasPrefix(tag, threadProof) })
+	if !inThread && !strings.HasPrefix(said, writeIn) {
+		return true
+	}
+	return cardtext.NumberedPick(strings.TrimSuffix(strings.TrimPrefix(said, writeIn), "”"))
 }
 
 func settles(ctx context.Context, judge Judge, source settlingSource, card json.RawMessage, question string, answers []ownerAnswer, since string) (*Settling, error) {
@@ -177,14 +191,15 @@ func settles(ctx context.Context, judge Judge, source settlingSource, card json.
 		})
 	}
 	wg.Wait()
+	id, _, _ := asksTitle(card)
 	var settled *Settling
 	for i, verdict := range verdicts {
 		if verdictOf(verdict) != "yes" {
 			continue
 		}
-		same := asksSame(card, found[i])
-		if settled == nil || same && !settled.SameQuestion {
-			settled = &Settling{found[i], verdict.Sentence, source.finished, same}
+		closes := !source.finished && closesCard(found[i], id)
+		if settled == nil || closes && !settled.Closes {
+			settled = &Settling{found[i], verdict.Sentence, source.finished, closes}
 		}
 	}
 	if settled != nil {
@@ -354,8 +369,8 @@ func (c Cards) takeDown(ctx context.Context, lane string, judge Judge, source se
 			return ctx.Err()
 		}
 		switch {
-		case settled != nil && (settled.Finished || settled.SameQuestion):
-			if err := c.sweepOff(ctx, lane, ask.ID, fields, settled.Line(), settled.Line(), out); err != nil {
+		case settled != nil && settled.Closes:
+			if err := c.sweepOff(ctx, lane, ask.ID, fields, fmt.Sprintf("%s (cc-notes answer %s)", settled.Line(), settled.shortID()), settled.Line(), out); err != nil {
 				return err
 			}
 			continue

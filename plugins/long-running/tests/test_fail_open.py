@@ -60,6 +60,7 @@ KEPT_REFUSALS = KEPT | {
     "incident_commands.release_undo_cites_its_cause": "trust: a rollback without the owner's word",
     "landing_approval.Only the owner changes who approves landin": "trust: a change to who approves landings",
     "lane_rotation.stand_downs_go_through_the_registry": "trust: session protection",
+    "owner_answers.only_his_answer_closes_a_card": "the owner ordered the refusal (cci 455004): a warning lands after the card has already lost his buttons",
     "lane_slack_status.lanes_post_no_release_status": "a Slack post cannot be unsent, and the Slack permission rule stays (answer 8f1682a)",
     "lane_landing.hand_landings_meet_the_runner_checks": "card-hand-merge-rule (answer fd9233e): the owner picked a block for a hand landing with no tap at its head, since a merge cannot be recalled",
     "lane_spawns.lanes_never_spawn": "the lane waits inside the Agent call, so a warning lands too late",

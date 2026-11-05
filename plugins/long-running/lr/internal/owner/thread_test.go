@@ -103,14 +103,15 @@ func TestHisWordsInACardsThreadWriteTheRowTheLiveGateReads(t *testing.T) {
 
 func TestOnlyANumberedReplyOnACardWritesAnAnswerRow(t *testing.T) {
 	cases := map[string]int{
-		`what is a "job"?`:    0,
-		"Sounds good do that": 0,
-		"why not 1?":          0,
-		"":                    0,
-		"1":                   1,
-		"I pick 1":            1,
-		"Option 2":            1,
-		"1 but port it first": 1,
+		"what does that word mean?":  0,
+		"Sounds good do that":        0,
+		"why not 1?":                 0,
+		"1. this line is not needed": 0,
+		"":                           0,
+		"1":                          1,
+		"I pick 1":                   1,
+		"Option 2":                   1,
+		"1 but port it first":        1,
 	}
 	for text, want := range cases {
 		t.Run(text, func(t *testing.T) {

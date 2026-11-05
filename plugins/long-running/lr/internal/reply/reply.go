@@ -227,8 +227,8 @@ func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 	for _, card := range cards {
 		if found := settled[card.ID]; found != nil {
 			then := "run `lr board cards sweep` to take it down"
-			if !found.SameQuestion {
-				then = "he answered a different question, so the next `lr board cards sweep` tells the lane that drew it to withdraw it or say why it stays"
+			if !found.Closes {
+				then = "no tap or numbered reply of his closes it, so the next `lr board cards sweep` tells the lane that drew it to withdraw it or say why it stays"
 			}
 			warned = append(warned, fmt.Sprintf("%s is not linked because %s; take the words off this reply, and %s", card.ID, found.Line(), then))
 			continue

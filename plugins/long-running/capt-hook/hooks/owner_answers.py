@@ -34,11 +34,21 @@ UNROWED = (
 )
 APPROVED = "Warning, nothing was blocked: the owner already approved these PRs at their current heads, so they need no new board row. Withdraw them from this order.\n```\n{lines}\n```"
 
+NOT_ANSWERED = (
+    "Only his tap, numbered reply or a relay's record of his words closes a card as answered. "
+    "Record his words with `ccn answer add --label from:owner --label card:<card>`, or leave the card up and tell the lane that drew it.\n```\n{cards}\n```"
+)
+SAYS_HE_ANSWERED = re.compile(r"\b(?:you|he)(?: already)? answered\b", re.IGNORECASE)
+NUMBERED_PICK = re.compile(r"^(?:(?:i )?pick |option )?\d+(?:\.?$|[\s,:;-])", re.IGNORECASE)
+THREAD_PROOF = "proof:slack-thread:"
+WRITE_IN_WORDS = "wrote “"
 ANSWER_ROWS = script_module("long_running.answer_rows")
 CARD_SHOWN = "cc-present outcomes --block card-a --session s"
 LIVE = "cc-present outcomes --all --no-doc --session s"
 ROW_LIST = "ccn -R /repo answer list"
 WRITE_IN = {"type": "choice.selected", "origin": "human", "at": "2026-11-02T04:44:04-08:00", "round": 3, "payload": {"blockId": "q1", "optionIds": [], "other": "flush them at startup", "type": "choice.selected"}}
+TAPPED = {"type": "choice.selected", "origin": "human", "at": "2026-11-02T04:44:04-08:00", "round": 3, "payload": {"blockId": "q1", "optionIds": ["q1-1"], "type": "choice.selected"}}
+REMOVED_AS_ANSWERED = "cc-present remove-block card-a --session s --reason 'you answered this'"
 CARD_A = {"id": "card-a", "type": "card", "title": "Cache?", "children": [{"id": "q1", "type": "choice"}]}
 
 NOW = datetime.now(UTC)
@@ -91,6 +101,21 @@ def ran(prefix: list[str], argv: list[str]) -> str:
 
 def shown_card(answers: list[dict], on_board: bool = True) -> str:
     return json.dumps({"doc": {"blocks": [CARD_A]}, "onBoard": on_board, "answers": answers})
+
+
+def row_closes(row: dict) -> bool:
+    said = (row.get("body") or "").split("\n", 1)[0]
+    if not said.startswith(WRITE_IN_WORDS) and not any(tag.startswith(THREAD_PROOF) for tag in row.get("tags") or ()):
+        return True
+    words = said.removeprefix(WRITE_IN_WORDS).removesuffix("”").strip()
+    return bool(NUMBERED_PICK.match(words)) and not words.endswith("?")
+
+
+def answer_stands(present, ccn, session: str, card: str) -> bool:
+    shown = json.loads(present(["outcomes", "--block", card, "--session", session]))
+    if any(answer["origin"] == "human" and answer["payload"].get("optionIds") for answer in shown.get("answers") or []):
+        return True
+    return any(row_closes(row) for label in ("card:", "board-card:") for row in json.loads(ccn(["answer", "list", "--label", "from:owner", "--label", label + card, "--limit", "0", "--full", "--json"]) or "[]"))
 
 
 def leaving(values: dict[str, tuple], read_board, session: str) -> list[tuple[str, set[str] | None]]:
@@ -222,6 +247,42 @@ def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
         return None
     lines = [item["line"] for item in found if item.get("head") and f"approved it at {item['head'][:7]}" in item["line"]]
     return evt.context(APPROVED.format(lines="\n".join(lines))) if lines else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash")],
+    skip_if=[Annotated("raw")],
+    tests={
+        Input(command=REMOVED_AS_ANSWERED, env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([]), ROW_LIST: "[]"}): Block(pattern=r"Only his tap[\s\S]*card-a"),
+        Input(command=REMOVED_AS_ANSWERED, env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([]), ROW_LIST: json.dumps([{"tags": ["from:owner", THREAD_PROOF + "1"], "body": "what does that word mean?\nBoard question: Cache?"}])}): Block(pattern=r"Only his tap"),
+        Input(command=REMOVED_AS_ANSWERED, env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([]), ROW_LIST: json.dumps([{"tags": ["from:owner", THREAD_PROOF + "1"], "body": "1. this line is not needed, 2) there is no button here\nBoard question: Cache?"}])}): Block(pattern=r"Only his tap"),
+        Input(command=REMOVED_AS_ANSWERED, env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([]), ROW_LIST: json.dumps([{"tags": ["from:owner", THREAD_PROOF + "1"], "body": "I pick 1\nBoard question: Cache?"}])}): Allow(),
+        Input(command=REMOVED_AS_ANSWERED, env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([]), ROW_LIST: json.dumps([{"tags": ["from:owner", "card:card-a"], "body": "Owner, in the card's thread: keep it."}])}): Allow(),
+        Input(command=REMOVED_AS_ANSWERED, env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([TAPPED]), ROW_LIST: "[]"}): Allow(),
+        Input(command=REMOVED_AS_ANSWERED, env=DRIVE_CONFIG, commands={CARD_SHOWN: (1, "cc-present: daemon down")}): Allow(),
+        Input(command="cc-present remove-block card-a --session s --reason 'being redone after review'", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([]), ROW_LIST: "[]"}): Allow(),
+        Input(command=REMOVED_AS_ANSWERED, commands={CARD_SHOWN: shown_card([]), ROW_LIST: "[]"}): Allow(),
+    },
+)
+def only_his_answer_closes_a_card(evt: BaseHookEvent) -> HookResult | None:
+    """A hand `cc-present remove-block` whose reason says the owner answered runs only when his tap, numbered reply or a relay's record of his words stands behind the card."""
+    if not (entry := drive_entry(evt)):
+        return None
+    ccn, present = partial(ran, ["ccn", "-R", entry["checkout"]]), partial(ran, ["cc-present"])
+    unanswered = []
+    try:
+        for _, values, _, _ in board_sources(evt):
+            says = next(iter(values.get("reason", ())), "")
+            if next(iter(values.get("verb", ())), None) != "remove-block" or not SAYS_HE_ANSWERED.search(says):
+                continue
+            card = next(iter(values.get("words", ())))
+            session = next(iter(values.get("session", ())), None) or evt.session_id
+            if not answer_stands(present, ccn, session, card):
+                unanswered.append(card)
+    except (Unread, OSError, ValueError, KeyError, AttributeError, TypeError, StopIteration, subprocess.SubprocessError):
+        return None
+    return evt.block(NOT_ANSWERED.format(cards="\n".join(unanswered))) if unanswered else None
 
 
 @on(

@@ -44,8 +44,6 @@ type Moved struct {
 
 func (m Moved) Line() string {
 	switch m.How {
-	case "withdrew":
-		return fmt.Sprintf("withdrew %s, because %s", m.Card.Card, m.Why)
 	case "redrew":
 		return fmt.Sprintf("redrew %s on the new premise: %s", m.Card.Card, m.Why)
 	}
@@ -382,7 +380,7 @@ func (r Recheck) move(ctx context.Context, refs []store.CardRef, boards map[stri
 		if done == nil {
 			continue
 		}
-		if done.How != "redrew" && done.How != "withdrew" && one.ref.Lane != "" {
+		if done.How != "redrew" && one.ref.Lane != "" {
 			if err := r.Cards.Report(ctx, r.Lane, []string{one.ref.Lane}, one.ref.Card, done.laneReport(cause)); err != nil {
 				return nil, err
 			}
@@ -440,8 +438,6 @@ func (r Recheck) apply(ctx context.Context, one judged) (*Moved, error) {
 		return &Moved{one.ref, "flagged", sentenceOf(one.premise)}, nil
 	}
 	switch verdictOf(one.decided) {
-	case "yes":
-		return r.withdraw(ctx, one.cards, one.ref, one.decided.Sentence)
 	case "no":
 		return r.redraw(ctx, one.cards, one.ref, one.shown, one.rev, one.premise.Sentence)
 	}
@@ -460,27 +456,6 @@ func sentenceOf(v *Judgment) string {
 		return "the judge did not answer"
 	}
 	return v.Sentence
-}
-
-func (r Recheck) withdraw(ctx context.Context, cards Cards, ref store.CardRef, why string) (*Moved, error) {
-	why = strings.TrimSuffix(why, ".")
-	owed, err := cards.unrowed(ctx, ref.Card)
-	if err != nil {
-		return nil, err
-	}
-	if len(owed) > 0 {
-		return &Moved{ref, "held", fmt.Sprintf("the judge would withdraw it because %s, but the owner's answer on %s has no ccn answer row yet", why, strings.Join(owed, ", "))}, nil
-	}
-	if _, err := cards.present(ctx, "remove-block", ref.Card, "--reason", why, "--lane", r.Lane, "--take-over"); err != nil {
-		return refused(ref, "withdraw it because "+why, err)
-	}
-	if err := cards.Withdraw(ctx, r.Lane, ref.Card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", ref.Card, why)); err != nil {
-		return nil, err
-	}
-	if err := cards.record(ctx, ref.Card, map[string]string{"withdrawn": stamp(cards.Now()), "outcome": why}); err != nil {
-		return nil, err
-	}
-	return &Moved{ref, "withdrew", why}, cards.Store.DropCardDeps(ref)
 }
 
 func (r Recheck) redraw(ctx context.Context, cards Cards, ref store.CardRef, shown json.RawMessage, rev int64, premise string) (*Moved, error) {
