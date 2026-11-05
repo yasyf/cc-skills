@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -261,6 +264,27 @@ def test_a_record_past_its_timeout_finishes_detached_and_tells_the_lane_nothing(
     argv, kwargs = spawned[0]
     assert argv[1].endswith("drive.py") and argv[2] == "record"
     assert kwargs["start_new_session"] is True
+
+
+def test_a_record_ends_its_own_commands_at_its_deadline_then_finishes_detached(tmp_path, monkeypatch):
+    from hooks import pr_ledger
+
+    ran, spawned = [], []
+
+    def alarmed(argv, **kwargs):
+        ran.append(kwargs)
+        return subprocess.CompletedProcess(argv, -signal.SIGALRM, "", "drive.py reached the deadline its caller set")
+
+    monkeypatch.setattr(pr_ledger.subprocess, "run", alarmed)
+    monkeypatch.setattr(pr_ledger.subprocess, "Popen", lambda argv, **kwargs: spawned.append(argv))
+    monkeypatch.setattr(pr_ledger, "DETACHED_LOG", tmp_path / "detached.log")
+
+    assert pr_ledger.ledger_note(event(tmp_path), opened_prs((FIXTURES / "ccx-ship-gt.txt").read_text())) is None
+
+    caller, _, deadline = ran[0]["env"]["LONG_RUNNING_DEADLINE"].partition(":")
+    assert caller == str(os.getpid())
+    assert float(deadline) - time.time() <= pr_ledger.RECORD_TIMEOUT_SECONDS + 0.001 < ran[0]["timeout"]
+    assert len(spawned) == 1 and spawned[0][2] == "record"
 
 
 def test_a_record_that_cannot_detach_still_names_the_unrecorded_prs(tmp_path, monkeypatch):

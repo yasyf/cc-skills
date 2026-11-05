@@ -137,6 +137,7 @@ def fixture(name: str) -> str:
 
 class FakeShell(ledger.Shell):
     def __init__(self, rows=None, routes=None, pages=None):
+        super().__init__()
         self.stores = {LEDGER: {"id": LEDGER, "title": "open PRs", "columns": [], "created_at": LEDGER_CREATED, "rows": deepcopy(list(rows or []))}}
         self.login = "yasyf"
         self.pulls: dict[str, dict] = {}

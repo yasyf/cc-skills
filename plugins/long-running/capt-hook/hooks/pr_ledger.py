@@ -14,7 +14,7 @@ from pathlib import Path
 from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, HookResult, Input, Or, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import Bound, drive_entry, script
+from .compaction_handoff import Bound, drive_entry, run_script, script
 from .lane_landing import outside_drive_repo
 from .session_tree import drive_lane
 from .tests.ledger_fixtures import FIXTURES
@@ -117,7 +117,7 @@ NOT_OPEN = {"gh pr view": (1, 'no pull requests found for branch "lane/fix"')}
 
 def run_drive(argv: list[str], *, detach_on_timeout: bool = False) -> tuple[subprocess.CompletedProcess[str] | None, str]:
     try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS)
+        done = run_script(argv, RECORD_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         return finish_detached(argv) if detach_on_timeout else (None, f"drive.py timed out after {RECORD_TIMEOUT_SECONDS}s")
     except OSError as failure:

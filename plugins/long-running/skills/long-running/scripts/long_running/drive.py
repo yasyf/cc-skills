@@ -560,25 +560,30 @@ def cmd_record(args: argparse.Namespace, shell: ledger.Shell) -> int:
         return 0
     specs = [match for match in args.pr if (match["repo"] or entry["repo"]).lower() == entry["repo"].lower()]
     os.chdir(args.cwd)
-    for spec in specs:
-        argv = ["register", "--ledger", entry["ledger"], "--lane", args.lane, "--pr", spec["pr"]]
-        argv += ["--head", spec["head"]] if spec["head"] else []
-        try:
-            ledger.main(argv, shell)
-        except (subprocess.CalledProcessError, SystemExit, OSError) as failure:
-            reason = (getattr(failure, "stderr", "") or str(failure)).strip().splitlines()[-1:] or ["no reason given"]
-            print(
-                f"PR #{spec['pr']} was not recorded in ledger {entry['ledger']}: {reason[0]} — run "
-                f"`ledger.py {' '.join(argv)}` from {args.cwd}",
-                file=sys.stderr,
-            )
-            return 1
-        if args.opened:
-            shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "opened", "--pr", spec["pr"], "--text", f"opened #{spec['pr']}"])
-        if spec["head"]:
-            ref = f"{entry['repo']}#{spec['pr']}"
-            shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "head", "--id", f"row-head:{ref}:{spec['head']}:", "--head", f"{ref}={spec['head']}", "--pr", ref, "--text", f"#{spec['pr']} at {spec['head'][:9]}"])
-    return 0
+    try:
+        for spec in specs:
+            argv = ["register", "--ledger", entry["ledger"], "--lane", args.lane, "--pr", spec["pr"]]
+            argv += ["--head", spec["head"]] if spec["head"] else []
+            try:
+                ledger.main(argv, shell, sync=False)
+            except (subprocess.CalledProcessError, SystemExit, OSError) as failure:
+                reason = (getattr(failure, "stderr", "") or str(failure)).strip().splitlines()[-1:] or ["no reason given"]
+                print(
+                    f"PR #{spec['pr']} was not recorded in ledger {entry['ledger']}: {reason[0]} — run "
+                    f"`ledger.py {' '.join(argv)}` from {args.cwd}",
+                    file=sys.stderr,
+                )
+                return 1
+            if args.opened:
+                shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "opened", "--pr", spec["pr"], "--text", f"opened #{spec['pr']}"])
+            if spec["head"]:
+                ref = f"{entry['repo']}#{spec['pr']}"
+                shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "head", "--id", f"row-head:{ref}:{spec['head']}:", "--head", f"{ref}={spec['head']}", "--pr", ref, "--text", f"#{spec['pr']} at {spec['head'][:9]}"])
+        return 0
+    finally:
+        if specs:
+            shell.written.add(entry["ledger"])
+        ledger.converge(shell)
 
 
 def cmd_release(args: argparse.Namespace, shell: ledger.Shell) -> int:

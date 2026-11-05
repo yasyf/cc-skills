@@ -706,35 +706,38 @@ def test_show_renders_pr_rows_only(capsys):
     assert HEAD[:9] in printed
 
 
+@pytest.mark.parametrize("reads", [1, 100])
 @pytest.mark.parametrize("synced", [True, False])
-def test_a_ledger_command_syncs_only_its_ledger_ref_before_a_read_and_after_a_write(capsys, monkeypatch, synced):
-    """Coordinator #339762: the landing desk on dar-desk-1 wrote its own ledger copy while the Mac read another, so stall-watch paged on PRs already landed."""
+def test_reads_never_sync_the_ledger_and_a_write_syncs_its_ref_once(capsys, monkeypatch, reads, synced):
     if synced:
         monkeypatch.setenv(ledger.LEDGER_SYNC, "1")
     shell = desk_shell()
+
     report(shell)
+    for read in range(reads):
+        run(shell, *(("show", "--ledger", LEDGER) if read % 2 else ("list", "--ledger", LEDGER, "--repo", REPO, "--json")))
+
     assert shell.ccn_syncs == ([f"refs/cc-notes/ledgers/{LEDGER}"] if synced else [])
-    shell.ccn_syncs.clear()
-    start = len(shell.calls)
 
-    run(shell, "show", "--ledger", LEDGER)
 
-    ran = [call[:3] for call in shell.calls[start:] if call[0] == "ccn"]
-    assert ran[: 2 if synced else 1] == ([["ccn", "sync", "--prefix"]] if synced else []) + [["ccn", "ledger", "show"]]
+def test_a_command_that_writes_no_row_starts_no_sync(capsys, monkeypatch):
+    monkeypatch.setenv(ledger.LEDGER_SYNC, "1")
+    shell = reconcile_shell()
+
+    assert reconcile(shell, "--dry-run") == 0
+
+    assert shell.ccn_syncs == []
 
 
 def test_a_ledger_sync_that_fails_warns_and_keeps_the_commands_result(capsys, monkeypatch):
     monkeypatch.setenv(ledger.LEDGER_SYNC, "1")
     shell = desk_shell()
     shell.ccn_sync_error = "fatal: unable to access remote"
-    report(shell)
-    capsys.readouterr()
 
-    assert run(shell, "show", "--ledger", LEDGER) == 0
+    assert report(shell) == 0
 
-    captured = capsys.readouterr()
-    assert f"#{PR}" in captured.out
-    assert f"ledger {LEDGER[:8]} did not sync: fatal: unable to access remote" in captured.err
+    assert f"ledger {LEDGER[:8]} did not sync: fatal: unable to access remote" in capsys.readouterr().err
+    assert shell.fields(PR)["reported_head"] == HEAD
 
 
 def test_init_creates_the_ledger_and_prints_its_id(capsys):

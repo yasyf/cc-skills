@@ -26,7 +26,7 @@ READ_TIMEOUT_SECONDS = 20
 AWAY_READ_SECONDS = 180
 LR = Path(__file__).parents[2] / "bin" / "lr"
 CCN_NOT_FOUND = 3
-NOTES_REFS = "+refs/cc-notes/*:refs/cc-notes/*"
+ANSWERS_PREFIX = "refs/cc-notes/answers/"
 NOTES_FETCH_SECONDS = 60
 RECORD_REF = re.compile(r"#(\d{3,})\b")
 ANSWER_REF = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
@@ -105,10 +105,10 @@ def shown_answer(evt: BaseHookEvent, ref: str) -> dict | bool | None:
     show = ["ccn", "-R", entry["checkout"], "answer", "show", ref, "--json"]
     done = run(show)
     if done is not None and done.returncode == CCN_NOT_FOUND and on_sprite(evt):
-        fetched = run(["git", "-C", entry["checkout"], "fetch", "--quiet", "origin", NOTES_REFS], NOTES_FETCH_SECONDS)
-        if fetched is None or fetched.returncode != 0:
-            return None
+        synced = run(["ccn", "-R", entry["checkout"], "sync", "--prefix", ANSWERS_PREFIX], NOTES_FETCH_SECONDS)
         done = run(show)
+        if (done is None or done.returncode == CCN_NOT_FOUND) and (synced is None or synced.returncode != 0):
+            return None
     if done is None or done.returncode not in (0, CCN_NOT_FOUND):
         return None
     return False if done.returncode == CCN_NOT_FOUND else json.loads(done.stdout)
@@ -224,11 +224,11 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210", commands={"cci grep": SAND_CAUSE}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found")}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (2, "not a git repository")}): Allow(),
-        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found"), "git -C /home/sprite/monorepo fetch": ""}): Block(),
-        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found"), "git -C /home/sprite/monorepo fetch": (128, "could not read from remote")}): Warn(
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found"), "ccn -R /home/sprite/monorepo sync": ""}): Block(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found"), "ccn -R /home/sprite/monorepo sync": (128, "could not read from remote")}): Warn(
             pattern=r"^Warning, nothing was blocked: the owner answer `a9e1075b` did not read on this Sprite"
         ),
-        cancel("tools/ci release rollback sand --to 906  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER, "git -C /home/sprite/monorepo fetch": ""}): Block(),
+        cancel("tools/ci release rollback sand --to 906  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER, "ccn -R /home/sprite/monorepo sync": ""}): Block(),
         cancel(
             "tools/ci release rollback web --to 77 && tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b",
             commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER},

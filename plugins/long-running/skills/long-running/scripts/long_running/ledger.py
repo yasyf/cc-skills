@@ -326,6 +326,9 @@ class Shell:
 
     trace = False
 
+    def __init__(self) -> None:
+        self.written: set[str] = set()
+
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         if not self.trace:
             return self.attempts(argv, stdin, cwd)
@@ -599,16 +602,20 @@ class Notes:
 
     def sync(self, rows: list[dict]) -> None:
         stored = [dict(row, key=self.store(row["key"])) for row in rows]
-        self.shell.run(["ccn", "ledger", "sync", self.ledger, "--file", "-"], stdin=json.dumps(stored))
+        self.write(["ccn", "ledger", "sync", self.ledger, "--file", "-"], json.dumps(stored))
 
     def set_fields(self, key: str, fields: dict[str, str]) -> None:
         argv = ["ccn", "ledger", "row", "set", self.ledger, "--key", self.store(key)]
         for name, value in fields.items():
             argv += ["--field", f"{name}={value}"]
-        self.shell.run(argv)
+        self.write(argv)
 
     def remove(self, key: str) -> None:
-        self.shell.run(["ccn", "ledger", "row", "rm", self.ledger, "--key", self.store(key)])
+        self.write(["ccn", "ledger", "row", "rm", self.ledger, "--key", self.store(key)])
+
+    def write(self, argv: list[str], stdin: str | None = None) -> None:
+        self.shell.run(argv, stdin=stdin)
+        self.shell.written.add(self.ledger)
 
 
 @dataclass
@@ -2906,14 +2913,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def converge(shell: Shell, ledger_id: str) -> None:
-    try:
-        shell.run(["ccn", "sync", "--prefix", f"refs/cc-notes/ledgers/{ledger_id}"])
-    except subprocess.CalledProcessError as failed:
-        print(f"ledger {ledger_id[:8]} did not sync: {(failed.stderr or failed.stdout or '').strip()[-300:]}", file=sys.stderr)
+def converge(shell: Shell) -> None:
+    written, shell.written = shell.written, set()
+    if os.environ.get(LEDGER_SYNC) != "1":
+        return
+    for ledger_id in sorted(written):
+        try:
+            shell.run(["ccn", "sync", "--prefix", f"refs/cc-notes/ledgers/{ledger_id}"])
+        except subprocess.CalledProcessError as failed:
+            print(f"ledger {ledger_id[:8]} did not sync: {(failed.stderr or failed.stdout or '').strip()[-300:]}", file=sys.stderr)
 
 
-def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
+def main(argv: list[str] | None = None, shell: Shell | None = None, *, sync: bool = True) -> int:
     args = build_parser().parse_args(argv)
     shell = shell or Shell()
     shell.trace = argv is None and args.handler is cmd_register
@@ -2928,14 +2939,10 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         checkout = vars(args).get("checkout")
         args.repo = args.repo or (origin_repo(shell, checkout) if checkout else default)
         args.scope = Scope(args.repo, default)
-    synced = os.environ.get(LEDGER_SYNC) == "1" and vars(args).get("ledger")
-    reads = args.handler in (cmd_show, cmd_list, cmd_summary, cmd_stale, cmd_held)
     try:
-        if synced and reads:
-            converge(shell, synced)
         code = args.handler(args, shell)
-        if synced and not reads:
-            converge(shell, synced)
+        if sync:
+            converge(shell)
         return code
     except QuotaExhausted as exhausted:
         print(f"forge rate limited, wrote nothing: {exhausted}", file=sys.stderr)
