@@ -106,6 +106,7 @@ DROP TABLE IF EXISTS queue;
 `
 
 var addedColumns = []struct{ table, column, kind string }{
+	{"unread", "declined", "INTEGER NOT NULL DEFAULT 0"},
 	{"lanes", "waiting", "INTEGER"},
 	{"lanes", "answered", "TEXT"},
 	{"lanes", "page", "TEXT"},

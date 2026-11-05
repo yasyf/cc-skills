@@ -555,6 +555,9 @@ func Peers(rows []Row) map[string]Peer {
 			have = Peer{Lane: row.Lane, Live: row.Live, Seen: row.SeenAt.UTC(), Row: row}
 		}
 		have.LastCall = lastCall
+		if row.Unverified != "" && !row.HostGone {
+			have.Row.Dispatch = row.Dispatch
+		}
 		found[row.Lane] = have
 	}
 	return found
