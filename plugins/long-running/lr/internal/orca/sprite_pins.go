@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,9 +32,11 @@ type spriteTool struct {
 }
 
 const (
-	graderTool = "codex-ask"
-	cciURLEnv  = "WORKER_CCI_URL"
-	cciSHAEnv  = "WORKER_CCI_SHA256"
+	graderTool        = "codex-ask"
+	cciURLEnv         = "WORKER_CCI_URL"
+	cciSHAEnv         = "WORKER_CCI_SHA256"
+	installStep       = "install step: "
+	installStepFailed = "install step failed: "
 )
 
 var cciVersion = regexp.MustCompile(`/v(\d+\.\d+\.\d+)/`)
@@ -133,7 +136,7 @@ func (p spritePins) installScript(needs []string) string {
 	for i, word := range words {
 		words[i] = shellQuote(word)
 	}
-	return "exec 2>&1\nset -- " + strings.Join(words, " ") + "\n" + installTools
+	return "set -- " + strings.Join(words, " ") + "\n" + installTools
 }
 
 func (p spritePins) installWords(needs []string) []string {
@@ -146,6 +149,21 @@ func (p spritePins) installWords(needs []string) []string {
 		words = append(words, "no-cci-daemon")
 	}
 	return slices.Concat(words, needs)
+}
+
+func installFault(said string) string {
+	var step, fault string
+	var output []string
+	for _, line := range strings.Split(said, "\n") {
+		if name, found := strings.CutPrefix(line, installStep); found {
+			step, output = name, nil
+		} else if exit, found := strings.CutPrefix(line, installStepFailed); found {
+			fault = fmt.Sprintf("%s failed with %s: %s", step, exit, strings.Join(output, "; "))
+		} else if line != "" {
+			output = append(output, line)
+		}
+	}
+	return fault
 }
 
 func installedTools(stdout string) map[string]string {

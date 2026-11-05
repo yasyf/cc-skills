@@ -889,6 +889,40 @@ func TestAToolInstallThatFailsInPrepareStartsNoWorkerAndIsNeverRetried(t *testin
 	}
 }
 
+func TestAFailedInstallRefusesNamingItsStepAndWhatItSaidNotTheEchoedScript(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	echoed := "ssh pool-a sh -c 'exec 2>&1\nstep() {\n  echo \"install step: $1\" >&2\n}\nif [ -n \"$missing\" ]; then\n  echo \"missing:$missing\" >&2\nfi\n'"
+	said := "/home/sprite/.bashrc: line 22: bind: warning: line editing not enabled\ninstall step: install cci\ninstall step: install golangci-lint 2.15.0\ntar: golangci-lint: Not found in archive\ntar: Exiting with failure status due to previous errors\ninstall step failed: exit 2\n"
+	f.reply("cc-remote orca prepare", workerReply{code: 1, err: "the --before-worker-file script failed, so no worker started: " + echoed + ": exit 2: " + said})
+	f.refusedWith(fmt.Sprintf("the Sprite's install golangci-lint 2.15.0 failed with exit 2: tar: golangci-lint: Not found in archive; tar: Exiting with failure status due to previous errors, so no worker started; %s/prepare.err keeps its output", f.attempt), versionCall, currentRunCall, f.prepareCall())
+}
+
+func TestAToolWhoseArchiveLacksItFailsTheInstallAtThatToolsStep(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 9.9.9\n"})
+	toolURL, toolSHA := tarball(t, dir, "tool.tgz", map[string]string{"README.md": "docs\n"})
+	run := exec.Command("sh", "-c", spritePins{ccURL: cciURL, ccSHA: cciSHA, lrURL: lrURL, lrSHA: lrSHA, lrMember: "lr", tools: []spriteTool{{Kind: "binary", Name: "absent-tool", URL: toolURL, SHA256: toolSHA, Version: "1.2.3"}}}.installScript(nil))
+	run.Env = append(os.Environ(), "HOME="+t.TempDir())
+	var failure bytes.Buffer
+	run.Stderr = &failure
+	if out, err := run.Output(); err == nil {
+		t.Fatal("an archive without its tool installed", string(out))
+	}
+	fault := installFault(failure.String())
+	if !strings.HasPrefix(fault, "install absent-tool 1.2.3 failed with exit ") || !strings.Contains(fault, "Not found in archive") {
+		t.Fatalf("fault %q from %q", fault, failure.String())
+	}
+}
+
+func TestARollOrGraderReadsAFailedInstallAsItsStepAndWhatItSaid(t *testing.T) {
+	result := shell.Result{Code: 22, Stdout: "installed cci 0.49.36\n", Stderr: "install step: install cci\ninstall step: install ccx 1.2.3\ncurl: (22) The requested URL returned error: 404\ninstall step failed: exit 22\n"}
+	if got, want := lastSaid(result), "install ccx 1.2.3 failed with exit 22: curl: (22) The requested URL returned error: 404"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestTheInstallOutputInTheTaskRecordIsKeptForTheCensus(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.spriteWith(overlaid(prepared(), object{"beforeWorker": "installed cci 0.49.42\ninstalled ccx 0.91.69\n"}))
@@ -1092,7 +1126,7 @@ func TestALaunchCarriesEachToolPinIntoTheInstallAndRefusesAMalformedPinBeforeAny
 	f.sprite()
 	f.launched()
 	want := "binary ccx https://example.test/ccx.tgz " + testCCISHA + " 0.91.68 plugin long-running@skills https://example.test/pack.tgz " + testLRSHA + " 0.7.1199 --"
-	if script := f.receiptText("before-worker.sh"); !strings.Contains(strings.SplitN(script, "\n", 3)[1], want) {
+	if script := f.receiptText("before-worker.sh"); !strings.Contains(strings.SplitN(script, "\n", 2)[0], want) {
 		t.Fatalf("install\n%v\nwant\n%v", script, want)
 	}
 	for name, pin := range map[string]string{
@@ -1130,20 +1164,25 @@ func tarball(t *testing.T, dir, name string, files map[string]string) (string, s
 	return "file://" + tgz, hexSum(string(raw))
 }
 
-func TestTheBeforeWorkerScriptRunsTheInstallWithItsQuotedPinsAndMergesItsOutput(t *testing.T) {
+func TestTheBeforeWorkerScriptKeepsTheCensusOnStdoutAndTheFailingStepOnStderr(t *testing.T) {
 	dir := t.TempDir()
 	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
 	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr member": "#!/bin/sh\necho lr version 9.9.9\n"})
 	home := t.TempDir()
 	run := exec.Command("sh", "-c", spritePins{ccURL: cciURL, ccSHA: cciSHA, lrURL: lrURL, lrSHA: lrSHA, lrMember: "lr member"}.installScript([]string{"no-such-drive-tool"}))
 	run.Env = append(os.Environ(), "HOME="+home)
+	var failure bytes.Buffer
+	run.Stderr = &failure
 	out, err := run.Output()
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != toolsMissing {
-		t.Fatal(string(out), err)
+		t.Fatal(string(out), failure.String(), err)
 	}
-	if !strings.Contains(string(out), "installed cci 0.49.36\ninstalled lr 9.9.9\ninstalled cci-daemon none\nmissing: no-such-drive-tool\n") {
+	if string(out) != "installed cci 0.49.36\ninstalled lr 9.9.9\ninstalled cci-daemon none\n" {
 		t.Fatal(string(out))
+	}
+	if !strings.HasSuffix(failure.String(), "install step: check the tools the brief runs\nmissing: no-such-drive-tool\ninstall step failed: exit 3\n") {
+		t.Fatal(failure.String())
 	}
 	trust, err := os.ReadFile(filepath.Join(home, ".config", "mise", "conf.d", "cc-remote-trust.toml"))
 	if err != nil || !strings.Contains(string(trust), `trusted_config_paths = ["~"]`) {
