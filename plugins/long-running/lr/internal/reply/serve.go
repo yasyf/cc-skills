@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -15,8 +14,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
-
-var everyTurn = []string{"reply", "owner_mark"}
 
 var schema = map[string]any{
 	"type": "object",
@@ -49,14 +46,10 @@ func Command(a *app.App, commands func() *cobra.Command) *cobra.Command {
 	var resumed bool
 	serve := &cobra.Command{
 		Use:   "serve",
-		Short: "Serve the reply tool over MCP on stdio, and in a drive's session the owner ledger, explain, ask-lane and asks verbs; a frame that arrives after a newer lr is installed moves the server to it on the same stdio",
+		Short: "Serve the reply tool and the owner ledger, explain, ask-lane and asks verbs over MCP on stdio; a frame that arrives after a newer lr is installed moves the server to it on the same stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			tools := []channel.Tool{Tool(a)}
-			if _, err := drive.Session(); err == nil {
-				tools = append(tools, VerbTools(commands)...)
-			}
-			tools = pinnedInTheCommunicator(tools, os.Getenv(drive.Env))
+			tools := append([]channel.Tool{Tool(a)}, VerbTools(commands)...)
 			stdin, err := newHandoff(cmd.Context(), a.Runner, a.Log, cmd.InOrStdin())
 			if err != nil {
 				return err
@@ -71,18 +64,6 @@ func Command(a *app.App, commands func() *cobra.Command) *cobra.Command {
 	serve.Flags().BoolVar(&resumed, "resumed", false, "take over a session an older lr already initialized on this stdio")
 	reply.AddCommand(serve)
 	return reply
-}
-
-func pinnedInTheCommunicator(tools []channel.Tool, laneDrive string) []channel.Tool {
-	if laneDrive != "" || len(tools) == 1 {
-		return tools
-	}
-	for i, tool := range tools {
-		if slices.Contains(everyTurn, tool.Name) {
-			tools[i].Meta = map[string]any{"anthropic/alwaysLoad": true}
-		}
-	}
-	return tools
 }
 
 func Tool(a *app.App) channel.Tool {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from cc_transcript import AttachmentEvent, DeferredToolsDelta
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Warn, on
+from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, Communicator, Coordinator, shared_tests
 from .owner_facing import CCI_POST
@@ -20,13 +21,16 @@ class PostTheToolCarries:
         return bool(posts) and all(not args.unread and {name for name, value in args.values.items() if value} <= CARRIED for args in posts)
 
 
-class ListsThePostTool:
+class HasThePostTool:
     def check(self, evt: BaseHookEvent) -> bool:
-        listed = False
+        listed = None
         for event in evt.ctx.t.events:
             if isinstance(event, AttachmentEvent) and isinstance(found := event.detail, DeferredToolsDelta):
-                listed = POST_TOOL in found.added_names or (listed and POST_TOOL not in found.removed_names)
-        return listed
+                if POST_TOOL in found.added_names:
+                    listed = True
+                elif POST_TOOL in found.removed_names:
+                    listed = False
+        return not reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE") if listed is None else listed
 
 
 POST_THROUGH_THE_TOOL = f"Warning, nothing was blocked: This session lists the cci post tool, so post through `{POST_TOOL}`, never a Bash `cci post`. Pass the same fields as arguments; a post that needs a flag the tool lacks, such as --owned-by, still runs in Bash."
@@ -34,12 +38,13 @@ POST_THROUGH_THE_TOOL = f"Warning, nothing was blocked: This session lists the c
 
 @on(
     Event.PreToolUse,
-    only_if=[Bound(), Or(Coordinator(), Communicator()), PostTheToolCarries(), ListsThePostTool()],
+    only_if=[Bound(), Or(Coordinator(), Communicator()), PostTheToolCarries(), HasThePostTool()],
     tests=shared_tests({
         Input(command=POST, transcript=LISTED, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: This session lists the cci post tool, so post through `mcp__plugin_cc-inbox_cci__post`"),
         Input(command=f"cci tail --drive d --reader root --since 9 && {POST}", transcript=LISTED, state=ACTIVE): Warn(),
         Input(command="cci post --drive d --lane root --kind report --to owner-relay --path - <<'EOF'\nmerged #9\nEOF", transcript=LISTED, state=ACTIVE): Warn(),
-        Input(command=POST, state=ACTIVE): Allow(),
+        Input(command=POST, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: This session lists the cci post tool"),
+        Input(command=POST, state=ACTIVE, env={"CLAUDE_LONG_RUNNING_DRIVE": "d"}): Allow(),
         Input(command=POST, transcript=DROPPED, state=ACTIVE): Allow(),
         Input(command="cci tail --drive d --reader root --since 9", transcript=LISTED, state=ACTIVE): Allow(),
         Input(command="cci post --drive d --lane root --kind decide --owned-by desk-runner --to stall-watch --text 'desk-runner owns stall-watch'", transcript=LISTED, state=ACTIVE): Allow(),

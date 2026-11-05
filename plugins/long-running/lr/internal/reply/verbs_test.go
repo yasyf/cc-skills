@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -134,22 +132,11 @@ func listed(t *testing.T) []string {
 	return names
 }
 
-func TestOnlyADrivesSessionSeesTheVerbTools(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", config)
+func TestASessionInNoDriveYetListsEveryToolInItsFirstListing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(drive.Env, "")
-	if names := listed(t); !slices.Equal(names, []string{"reply"}) {
-		t.Fatalf("a session in no drive lists %v", names)
-	}
-	dir := filepath.Join(config, "long-running", "drives")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "d.json"), []byte(`{"drive":"d","state_dir":"/s","sessions":["root"]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(drive.Env, "d")
-	if names := listed(t); !slices.Equal(names, []string{"reply", "owner_add", "owner_mark", "owner_rule", "explain", "ask_lane", "asks"}) {
-		t.Fatalf("a drive's session lists %v", names)
+	want := []string{"reply", "owner_add", "owner_mark", "owner_rule", "explain", "ask_lane", "asks"}
+	if names := listed(t); !slices.Equal(names, want) {
+		t.Fatalf("a session in no drive lists %v, want %v", names, want)
 	}
 }
