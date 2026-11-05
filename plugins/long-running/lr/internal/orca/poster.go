@@ -200,7 +200,7 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 		return "", err
 	}
 	key := "R" + strings.TrimPrefix(stored.Name(), "#")
-	label, err := p.settle(ctx, bus, stored.Seq-1, key, order.Lane, timeout)
+	label, stage, err := p.settle(ctx, bus, stored, key, order.Lane, timeout)
 	if label == verdictLaunched {
 		p.claim(ctx, bus, order.Lane, claims)
 	}
@@ -213,30 +213,38 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	}
 	if fault == "" {
 		fmt.Fprintf(p.Out, "%s %s posted with no verdict after %.0fs; the orca runner is alive, so its verdict arrives as a %s record\n", order.Lane, key, timeout.Seconds(), deskRunner)
+		fmt.Fprintln(p.Out, incident.StageWait(order.Lane, key, bus, stage))
 		return verdictPosted, nil
 	}
 	fmt.Fprintf(p.Out, "%s %s unsettled after %.0fs: %s; check it with `cci tail --drive %s --lane %s --kind state --topic %s -n 1`\n", order.Lane, key, timeout.Seconds(), fault, bus, deskRunner, runnerTopic)
 	return "", nil
 }
 
-func (p Poster) settle(ctx context.Context, bus string, since int64, key, lane string, timeout time.Duration) (string, error) {
+func (p Poster) settle(ctx context.Context, bus string, posted client.Record, key, lane string, timeout time.Duration) (string, *incident.LaunchStage, error) {
 	deadline := p.Now().Add(timeout)
+	since := posted.Seq - 1
+	var last *incident.LaunchStage
 	for p.Now().Before(deadline) {
 		records, err := p.Bus.Tail(ctx, client.Query{Drive: bus, After: since, Lanes: []string{deskRunner}})
 		if err != nil {
-			return "", err
+			return "", last, err
 		}
 		for _, record := range records {
 			since = max(since, record.Seq)
+			if stage, found := incident.StageOf(record, posted.At); found && stage.Key == key && stage.Lane == lane {
+				fmt.Fprintln(p.Out, stage)
+				last = &stage
+				continue
+			}
 			match := launchVerdict.FindStringSubmatch(record.Text)
 			if record.Lane == deskRunner && match != nil && match[2] == key && match[3] == lane {
 				fmt.Fprintf(p.Out, "%s %s %s\n", lane, key, record.Text)
-				return match[1], nil
+				return match[1], last, nil
 			}
 		}
 		p.Sleep(verdictPoll)
 	}
-	return "", nil
+	return "", last, nil
 }
 
 func incidentOrders(name, fixBrief, evidenceBrief, commsBrief string) []Order {

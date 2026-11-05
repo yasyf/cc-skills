@@ -168,7 +168,7 @@ func sortedStrings(values map[string]string) []string {
 
 func (d *Desk) launchLocal(container, lane string, action incident.Action, spec launchTarget) error {
 	env := append(envPairs(d.Config.LaunchEnv), d.sender...)
-	env = append(env, "ORCA_LAUNCH_STATE="+d.Config.Receipts, "LAUNCH_ROLE="+spec.Role, laneEnv+"="+or(spec.By, coordinatorLane))
+	env = append(env, "ORCA_LAUNCH_STATE="+d.Config.Receipts, "LAUNCH_ROLE="+spec.Role, laneEnv+"="+or(spec.By, coordinatorLane), stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive)
 	process, err := d.Spawn([]string{d.tool("lr"), "launch", "start", lane, spec.Model, spec.Effort, spec.Brief}, d.launchLog(container, action.ActionID), env)
 	if err != nil {
 		return err
@@ -191,7 +191,7 @@ func (d *Desk) launchSprite(container, lane string, action incident.Action, spec
 		return err
 	}
 	env := append(envPairs(d.Config.LaunchEnv), d.sender...)
-	env = append(env, "WORKER_RUN="+d.Config.Run)
+	env = append(env, "WORKER_RUN="+d.Config.Run, stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive)
 	env = append(env, envPairs(sprite.Env)...)
 	tools, err := json.Marshal(sprite.Tools)
 	if err != nil {

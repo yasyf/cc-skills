@@ -51,6 +51,7 @@ const (
 	terminalListAttempts   = 3
 	terminalCreateAttempts = 3
 	saidEvery              = 30
+	spritePreamble         = " The dispatch preamble's line against posting to GitHub or other channels means status chatter, so the brief's PR steps stand; Slack stays off."
 	spriteBuildkite        = " tools/ci bk does not run on this Sprite. To read Buildkite, post `cci post --kind ask --to bk-desk \"bk build <pipeline> <number>\"`, or `bk log <pipeline> <number> <job>`, or `bk api <path>`; the answer arrives within about two minutes and `cci show <seq>` prints its body. Ask once per need, never in a polling loop."
 	standingDesk           = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc. Mail reaches you only between tool calls, so no foreground command runs over five minutes: run a long read in the background and report it by record."
 	noPRLine               = " This brief orders no PR: push the work as a branch and never open a PR for it."
@@ -123,6 +124,7 @@ type launch struct {
 	created, made, lost, startup  bool
 	owned, terminal, undone, kept string
 	stalled                       string
+	stages                        launchStages
 	waitFor                       string
 	waitStart, said               int64
 	listed, before                []string
@@ -431,7 +433,8 @@ func (l *launch) stateHome() string {
 }
 
 func (s *Starter) Run(ctx context.Context, lane, model, effort, brief string) (string, error) {
-	first := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief}
+	stages := stagesOf(s.Env, s.Bus, lane, s.Stderr)
+	first := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief, stages: stages}
 	line, err := first.start()
 	if first.stalled == "" || first.startTries > 0 || first.kept != "" {
 		return line, err
@@ -440,7 +443,7 @@ func (s *Starter) Run(ctx context.Context, lane, model, effort, brief string) (s
 	if first.agent != agentIncident {
 		s.Sleep(stallRetry)
 	}
-	retry := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief}
+	retry := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief, stages: stages}
 	line, err = retry.start()
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -812,6 +815,7 @@ func (l *launch) start() (string, error) {
 		l.parentArgs = []string{"--no-parent"}
 	}
 	l.rollingBack = true
+	l.stages.say(l.ctx, "making a worktree")
 	if err := l.placeWorktree(); err != nil {
 		return "", err
 	}
@@ -830,12 +834,14 @@ func (l *launch) start() (string, error) {
 	if err := l.composeSpec(); err != nil {
 		return "", l.fail("spec: %v", err)
 	}
+	l.stages.say(l.ctx, "opening a terminal and booting the agent")
 	if err := l.openTerminal(); err != nil {
 		return "", err
 	}
 	if err := l.awaitAgent(); err != nil {
 		return "", err
 	}
+	l.stages.say(l.ctx, "starting the worker")
 	return l.startWorker()
 }
 

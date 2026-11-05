@@ -32,6 +32,7 @@ type Command struct {
 	Timeout    time.Duration
 	Idempotent bool
 	Stdout     io.Writer
+	Stderr     io.Writer
 }
 
 type Result struct {
@@ -95,6 +96,9 @@ func once(ctx context.Context, c Command) (Result, error) {
 		cmd.Stdout = c.Stdout
 	}
 	cmd.Stderr = &stderr
+	if c.Stderr != nil {
+		cmd.Stderr = io.MultiWriter(&stderr, c.Stderr)
+	}
 	cmd.WaitDelay = killGrace
 	if len(c.Env) > 0 {
 		cmd.Env = append(os.Environ(), c.Env...)

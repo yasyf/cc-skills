@@ -409,7 +409,7 @@ func relayCalls(workspace string) [][]string {
 
 func (f *workerFixture) startCalls(task object) [][]string {
 	brief := task["brief"].(object)
-	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spriteBuildkite)
+	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spritePreamble, spriteBuildkite)
 	return slices.Concat([][]string{{"gh", "auth", "token"}, notesCall(task["environment"].(string))}, relayCalls(task["environment"].(string)), [][]string{
 		slices.Concat([]string{"orca", "orchestration", "worker-start", "--run", workerRun, "--spec", spec, "--task-title", workerLane, "--on", task["environment"].(string), "--worktree", "id:" + task["worktreeId"].(string), "--terminal", task["terminal"].(string)}, []string{"--timeout-ms", "600000", "--full", "--json"}),
 	})
@@ -700,7 +700,7 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 	f.launched()
 	spec := f.startedSpec()
-	if !strings.HasSuffix(spec, "then follow it exactly."+spriteBuildkite+standingDesk) {
+	if !strings.HasSuffix(spec, "then follow it exactly."+spritePreamble+spriteBuildkite+standingDesk) {
 		t.Fatal(spec)
 	}
 }
@@ -753,7 +753,7 @@ func TestABriefThatOrdersNoPRSaysSoInTheSpriteSpec(t *testing.T) {
 		f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 		f.launched()
 		spec := f.startedSpec()
-		if strings.HasSuffix(spec, "then follow it exactly."+spriteBuildkite+" This brief orders no PR: push the work as a branch and never open a PR for it.") != want {
+		if strings.HasSuffix(spec, "then follow it exactly."+spritePreamble+spriteBuildkite+" This brief orders no PR: push the work as a branch and never open a PR for it.") != want {
 			t.Fatal(header, spec)
 		}
 	}

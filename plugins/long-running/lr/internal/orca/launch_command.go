@@ -112,7 +112,7 @@ func laneCommand(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lane LANE MODEL EFFORT BRIEF | lane LANE [MODEL EFFORT] --title TITLE --body-file FILE",
 		Short: "Post one lane's launch to the orca runner and wait for its verdict; a stem launches as its next number",
-		Long: `Run every check the runner applies, post the launch, and print the runner's verdict.
+		Long: `Run every check the runner applies, post the launch, print each stage the launch reaches with its seconds since the post, and print the runner's verdict.
 
 Exit 0 when the lane launched, or when no verdict came within --timeout-seconds while the runner is alive, since its verdict then arrives as a desk-runner record; 1 when the runner refused it or a check did; and 2 when no verdict came and the runner has posted no orca alive record in five minutes. A drive whose orca runner posted no orca alive record in five minutes posts nothing.
 
@@ -236,7 +236,7 @@ func workerCommand(a *app.App) *cobra.Command {
   WORKER_BASE_BRANCH    the base of a local worktree, default origin/dev`,
 		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			starter := &WorkerStarter{Runner: a.Runner, Env: os.Getenv, Sleep: time.Sleep, Stderr: cmd.ErrOrStderr(), Spawn: SpawnDetached}
+			starter := &WorkerStarter{Runner: a.Runner, Env: os.Getenv, Sleep: time.Sleep, Stderr: cmd.ErrOrStderr(), Spawn: SpawnDetached, Bus: CCI{}}
 			line, err := starter.Run(cmd.Context(), args[0], args[1], args[2], args[3])
 			var failed *Failed
 			if errors.As(err, &failed) {
