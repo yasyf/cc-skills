@@ -105,11 +105,10 @@ func ExemptGo(c Claim, r Read) (string, []string) {
 	switch {
 	case class == FlakeFixClass:
 		classRefused = flakeRefusals(r)
-	case isPortClass(class):
+	case isPortClass(class) && !claimed:
+		classRefused = []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr)}
+	case isPortClass(class) || claimed && !port.Interacts:
 		classRefused = PortRefusals(portFacts)
-		if !claimed {
-			classRefused = []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr)}
-		}
 	}
 	if (class == FlakeFixClass || isPortClass(class)) && len(classRefused) == 0 {
 		rules = nil
@@ -202,7 +201,7 @@ func PortRefusals(facts map[string]string) []string {
 		out = append(out, fmt.Sprintf("port: its head record does not read %s=%s, so it goes to the owner on one card and lands on his tap", PortInteractsAttr, PortCleanWord))
 	}
 	if source := facts[PortSourceFact]; source != "" && source != portSourceMerged {
-		out = append(out, fmt.Sprintf("port: its source #%s is not a merged pull request", facts[PortOfAttr]))
+		out = append(out, fmt.Sprintf("port: its source #%s is not a merged pull request, and no commit on trunk names it", facts[PortOfAttr]))
 	}
 	if outside := facts[PortOutsideFact]; outside != "" {
 		out = append(out, fmt.Sprintf("port: %s is outside %s, so it is no pure port and lands on his tap", outside, portTree))
@@ -303,10 +302,14 @@ func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string
 			class, cite = word, "fidelity ok "+grade.record.Name()
 		}
 	}
+	override, overridden := countedOverride(c, r, fidelityKind, func(string) bool { return true })
+	if class == "" && word != "" && overridden {
+		class, cite = word, "fidelity-override "+override.Name()
+	}
 	if class == "" {
 		refusals = append(refusals, fmt.Sprintf("fidelity: no ok grade at %s names an exempt class (%s)", short(c.Head), strings.Join(exempt, "; ")))
 	}
-	if _, overridden := countedOverride(c, r, fidelityKind, func(string) bool { return true }); len(missing) > 0 && !overridden {
+	if len(missing) > 0 && !overridden {
 		refusals = append(refusals, fmt.Sprintf("fidelity: %s at %s, and no counted decide reads fidelity-override #%d at %s", strings.Join(missing, ", "), short(c.Head), c.PR, short(c.Head)))
 	}
 	return class, cite, refusals

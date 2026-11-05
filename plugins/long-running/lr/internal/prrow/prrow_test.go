@@ -833,7 +833,7 @@ func TestAPortAsksHimOnlyWhenItSaysItInteractsOrTheGateRefusesIt(t *testing.T) {
 		"a port silent on interaction asks him":                       {map[string]string{gates.PortOfAttr: "49000"}, true, onlyHim},
 		"a head with no port claim asks him":                          {nil, true, onlyHim},
 		"a clean claim the gate refused asks him and says why":        {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, gates.StandingRefused: reason}, true, "Only your approval; the gate refused it: " + reason},
-		"a clean claim whose source the go read as unmerged asks him": {portRead(false, nil), true, "Only your approval; the gate refused it: port: its source #49000 is not a merged pull request"},
+		"a clean claim whose source the go read as unmerged asks him": {portRead(false, nil), true, "Only your approval; the gate refused it: port: its source #49000 is not a merged pull request, and no commit on trunk names it"},
 		"a clean claim the go read as outside the tree asks him":      {portRead(true, []string{"infra/rows/x.ts"}), true, "Only your approval; the gate refused it: " + reason},
 		"a clean claim the go read as clean waits on nothing of his":  {portRead(true, []string{"go/sand/next/a.go"}), false, PortLands},
 		"a flake fix waits on nothing of his":                         {map[string]string{gates.FlakeFixAttr: "TestChatStream"}, false, FlakeLands},

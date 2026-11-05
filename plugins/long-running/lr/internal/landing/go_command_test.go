@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -102,6 +104,60 @@ func TestOnlyARefusedStandingClaimTurnsItsRowBackToHim(t *testing.T) {
 		if got := facts[gates.StandingRefused]; got != each.want {
 			t.Fatalf("#%d: fact %q, want %q", each.number, got, each.want)
 		}
+	}
+}
+
+func TestAStandingRefusalClearsWhenTheGoNextAdmitsTheHead(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	now := time.Date(2026, 11, 4, 18, 0, 0, 0, time.UTC)
+	claim := gates.Claim{Repo: "o/r", PR: 1, Head: "abc1234"}
+	if err := noteStandingRefused(s, claim, true, []string{"port: its source #9 is not a merged pull request"}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := noteStandingRefused(s, claim, true, nil, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	facts, err := s.Facts("o/r", 1, "abc1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if class, refused := gates.LandsOnWord(map[string]string{gates.StandingRefused: facts[gates.StandingRefused], gates.PortOfAttr: "9", gates.PortInteractsAttr: gates.PortCleanWord}); class != gates.OldTreePortClass || refused != "" {
+		t.Fatalf("class %q, refused %q, want the port landing on his word", class, refused)
+	}
+}
+
+func TestAPortSourceLandedWhenGitHubSaysMergedOrACommitNamingItIsOnTrunk(t *testing.T) {
+	const source = 40810
+	for name, c := range map[string]struct {
+		state string
+		log   string
+		want  bool
+	}{
+		"merged on GitHub":                            {"MERGED", "", true},
+		"closed by the queue, its commit on trunk":    {"CLOSED", "sand: publish a thread's task outline (#40810)\n", true},
+		"closed with no commit on trunk":              {"CLOSED", "", false},
+		"closed, and only a later commit mentions it": {"CLOSED", "sand: port of the outline (#40810) again (#50303)\n", false},
+		"closed, and only a revert names it":          {"CLOSED", "Revert \"sand: outline (#40810)\" (#41000)\n", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &shelltest.Fake{}
+			runner.Reply(`[{"number":40810,"state":"`+c.state+`"}]`, "ccx", "vcs", "pr", "status")
+			runner.Reply("", "git", "-C", "/checkout", "fetch")
+			runner.Reply(c.log, "git", "-C", "/checkout", "log")
+			a := app.New(io.Discard)
+			a.Runner = runner
+			got, err := sourceLanded(context.Background(), a, config.Config{Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != c.want {
+				t.Fatalf("sourceLanded = %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 

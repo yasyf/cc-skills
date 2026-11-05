@@ -214,22 +214,23 @@ func TestAPortLandsWithNoTapOnlyWhenItsHeadRecordProvesItCleanAndEveryOtherGateH
 		source bool
 		want   string
 	}{
-		"a clean port lands past the tap rule":                          {"class old-tree-port", portHead, clean, next, true, ""},
-		"a clean port lands whichever class its grade names":            {"class twin", portHead, clean, next, true, ""},
-		"a clean port lands on an ok that names no class":               {"looks fine", portHead, clean, next, true, ""},
-		"a moved head record names the head it moved to":                {"class old-tree-port", portBase + ".." + portHead + " rebase", clean, next, true, ""},
-		"the older default port phrase counts too":                      {PortGrade, portHead, clean, next, true, ""},
-		"a grade naming two classes reads as the port it proves":        {"class regression: class old-tree-port", portHead, clean, next, true, ""},
-		"the same shape with no head record needs his tap":              {"class old-tree-port", "", "", next, true, "port: no head record at abc1234 carries port-of"},
-		"a head record with no port-of proves nothing":                  {"class old-tree-port", portHead, `,"port-interacts":"no"`, next, true, "port: no head record"},
-		"a head record at an older head proves nothing here":            {"class old-tree-port", portBase, clean, next, true, "port: no head record"},
-		"an unclean port graded as another class stays on the tap rule": {"class owner-pick", portHead, `,"port-of":"49000","port-interacts":"yes"`, next, true, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go"},
-		"a PR with no port claim stays on the tap rule":                 {"class owner-pick", portHead, "", next, true, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go"},
-		"a port marked interacting needs his tap":                       {"class old-tree-port", portHead, `,"port-of":"49000","port-interacts":"yes"`, next, true, "port-interacts=no, so it goes to the owner on one card"},
-		"a port silent on interaction counts as interacting":            {"class old-tree-port", portHead, `,"port-of":"49000"`, next, true, "port-interacts=no"},
-		"a source that never merged is no port":                         {"class old-tree-port", portHead, clean, next, false, "its source #49000 is not a merged pull request"},
-		"a file outside the next tree is no pure port":                  {"class old-tree-port", portHead, clean, append([]string{"infra/rows/x.ts"}, next...), true, "infra/rows/x.ts is outside go/sand/next/"},
-		"a missing fidelity class stays refused for an unclean port":    {"looks fine", portHead, `,"port-of":"49000"`, next, true, "fidelity: no ok grade at abc1234 names an exempt class"},
+		"a clean port lands past the tap rule":                            {"class old-tree-port", portHead, clean, next, true, ""},
+		"a clean port lands whichever class its grade names":              {"class twin", portHead, clean, next, true, ""},
+		"a clean claim the go disproves names why, not only the tap rule": {"class owner-pick", portHead, clean, next, false, "its source #49000 is not a merged pull request"},
+		"a clean port lands on an ok that names no class":                 {"looks fine", portHead, clean, next, true, ""},
+		"a moved head record names the head it moved to":                  {"class old-tree-port", portBase + ".." + portHead + " rebase", clean, next, true, ""},
+		"the older default port phrase counts too":                        {PortGrade, portHead, clean, next, true, ""},
+		"a grade naming two classes reads as the port it proves":          {"class regression: class old-tree-port", portHead, clean, next, true, ""},
+		"the same shape with no head record needs his tap":                {"class old-tree-port", "", "", next, true, "port: no head record at abc1234 carries port-of"},
+		"a head record with no port-of proves nothing":                    {"class old-tree-port", portHead, `,"port-interacts":"no"`, next, true, "port: no head record"},
+		"a head record at an older head proves nothing here":              {"class old-tree-port", portBase, clean, next, true, "port: no head record"},
+		"an unclean port graded as another class stays on the tap rule":   {"class owner-pick", portHead, `,"port-of":"49000","port-interacts":"yes"`, next, true, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go"},
+		"a PR with no port claim stays on the tap rule":                   {"class owner-pick", portHead, "", next, true, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go"},
+		"a port marked interacting needs his tap":                         {"class old-tree-port", portHead, `,"port-of":"49000","port-interacts":"yes"`, next, true, "port-interacts=no, so it goes to the owner on one card"},
+		"a port silent on interaction counts as interacting":              {"class old-tree-port", portHead, `,"port-of":"49000"`, next, true, "port-interacts=no"},
+		"a source that never merged is no port":                           {"class old-tree-port", portHead, clean, next, false, "its source #49000 is not a merged pull request"},
+		"a file outside the next tree is no pure port":                    {"class old-tree-port", portHead, clean, append([]string{"infra/rows/x.ts"}, next...), true, "infra/rows/x.ts is outside go/sand/next/"},
+		"a missing fidelity class stays refused for an unclean port":      {"looks fine", portHead, `,"port-of":"49000"`, next, true, "fidelity: no ok grade at abc1234 names an exempt class"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -244,6 +245,34 @@ func TestAPortLandsWithNoTapOnlyWhenItsHeadRecordProvesItCleanAndEveryOtherGateH
 			}
 			if len(refusals) > 0 || !strings.Contains(text, "[exempt: ") {
 				t.Fatalf("got go %q and refusals %q, want a go", text, refusals)
+			}
+		})
+	}
+}
+
+func TestACleanPortWhoseOnlyFidelityIsACountedOverrideLands(t *testing.T) {
+	missing := []client.Record{
+		decoded(t, `{"seq":1,"lane":"finder-desk","kind":"review","text":"finder: ok `+portHead+`","refs":{"prs":[49999]}}`),
+		decoded(t, `{"seq":2,"lane":"fidelity-pipeline","kind":"review","text":"fidelity: missing `+portHead+` a doc line","refs":{"prs":[49999]}}`),
+	}
+	override := client.Record{Seq: 4, Lane: "root", Kind: "decide", Text: "fidelity-override #49999 at abc1234: 2. Port of #49000."}
+	clean := `,"port-of":"49000","port-interacts":"no"`
+	for name, c := range map[string]struct {
+		records []client.Record
+		want    string
+	}{
+		"overridden, it lands":                               {append(slices.Clone(missing), headRecord(t, portHead, clean), override), ""},
+		"not overridden, the grade stands":                   {append(slices.Clone(missing), headRecord(t, portHead, clean)), "fidelity: no ok grade at abc1234"},
+		"overridden with no port claim, the tap rule stands": {append(slices.Clone(missing), override), "tap rule rule/82317b0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: c.records, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})
+			if c.want != "" {
+				refusedWith(t, text, refusals, c.want)
+				return
+			}
+			if want := "[exempt: old-tree-port]: fidelity-override #4,"; len(refusals) > 0 || !strings.Contains(text, want) {
+				t.Fatalf("got go %q and refusals %q, want %q", text, refusals, want)
 			}
 		})
 	}
