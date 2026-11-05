@@ -193,7 +193,8 @@ Answer "yes" when the card fails either way, and say in your sentence which, and
         " A general order, such as port everything or make it work, names no particular mechanism, and an allowance never outweighs a ban: a plan line or ruling that says no reader polls, reopens or waits rules out the loop an allowance seems to permit."
         " When his later words question how earlier words were read, apply the reason behind the question: a mechanism built on the reading he questioned is not named, even where his earlier words seem to ask for it, and the same reason covers work he did not list."
         " The body's own account, such as calling a wait not a timer, names nothing. A constant that only bounds one call, such as a read timeout, adds no mechanism."
-        " Answer yes when a line adds one nobody named, and say which line and what it makes wait, retry or refuse.",
+        " Answer yes when a line adds one nobody named, and say which line and what it makes wait, retry or refuse."
+        " When nothing in the evidence names it, the evidence holds nothing your yes rests on, so the evidence phrase is the empty string: never copy the pull request's own lines into it.",
     ),
     "pr-body": (
         "a pull request's body, as it is about to be opened or edited",
