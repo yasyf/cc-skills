@@ -207,8 +207,9 @@ without being told. A fix for drive tooling that is actively causing harm ships 
 merged and installed before any other tooling change. No new Python enters the pack apart from capt-hook hooks; a fix to a Python script is a Go verb.
 
 **R15.** CI is the verifier and runs every test. Before it pushes, a lane runs `go build` and `go vet` over the Go packages
-it touched and the typecheck over the TypeScript it touched, which the `vet_before_push` hook enforces; the `local_builds`
-hook refuses every other local test, build and lint. Batch jobs run on in-region compute. Machine load never holds a remote
+it touched and the typecheck over the TypeScript it touched, which the `vet_before_push` hook enforces, and the same hook
+warns, never refuses, when `gofmt -l` lists a Go file the change touched; the `local_builds` hook refuses every other
+local test and build, and every lint over more than the packages it touched. Batch jobs run on in-region compute. Machine load never holds a remote
 build or an owner-directed apply. A wrapper that runs a build or check remotely fails with a clear error when no remote
 builder answers, and never falls back to the local toolchain.
 

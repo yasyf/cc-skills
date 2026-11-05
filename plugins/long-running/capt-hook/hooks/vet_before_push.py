@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -34,7 +35,7 @@ SPARSE = {"git config --bool --default false core.sparseCheckout": "true\n"}
 SATURATED = LANE_ENV | {LOAD_PER_CORE: "0"}
 HEALTHY = LANE_ENV | {LOAD_PER_CORE: "1000000"}
 SHIP = "ccx vcs ship -m 'sand: 🐛 fix the vm'"
-REPO = {"git rev-parse --show-toplevel": f"{FIXTURE}\n", "git config --bool --default false core.sparseCheckout": "false\n", "go env GOROOT": "/usr/local/go\n"}
+REPO = {"git rev-parse --show-toplevel": f"{FIXTURE}\n", "git config --bool --default false core.sparseCheckout": "false\n", "go env GOROOT": "/usr/local/go\n", "gofmt -l": ""}
 GO_DIFF = REPO | {"git diff": "go/sand/internal/vm/vm.go\ndocs/vm.md\n"}
 GO_SET_DIFF = REPO | {"git diff": "go/sand/internal/proxy/proxy.go\ngo/sand/internal/vm/vm.go\n"}
 TS_DIFF = REPO | {"git diff": "api/src/a.ts\n"}
@@ -45,6 +46,7 @@ REFUSAL = (
 )
 SPARSE_GO = "the checkout is sparse: `lr sparse add <dir>` before its Go checks, `node_modules/.bin/tsgo` for its TypeScript"
 SPARSE_TS = "Warning, nothing was refused: `yarn tsc:*` cannot run in this sparse checkout, so this push goes ahead; from its top, typecheck with `{commands}`."
+UNFORMATTED = "Warning, nothing was refused: `gofmt -l` lists Go files this change leaves unformatted, so this push goes ahead and CI grades it red. Run `gofmt -w {files}` and commit them."
 UNREAD = "Warning, nothing was refused: {why}, so this push goes ahead unchecked. Run `go build`, `go vet` and the typecheck over what it touched where they can run."
 
 
@@ -220,6 +222,13 @@ def go_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]
     return [" && ".join([f"cd {module}", *(f"go {kind} {' '.join(names)}" for kind in GO_KINDS if kind in stale)]) for module, names in modules.items()] if stale else []
 
 
+def unformatted(top: Path, changed: list[Path]) -> list[str] | str:
+    files = [path for path in changed if path.suffix == ".go" and path.is_file() and not NOT_PACKAGES & set(path.relative_to(top).parts)]
+    listed = run_quietly(["gofmt", "-l", *map(str, files)], str(top)) if files else None
+    names = listed.stdout.split() if listed and not listed.returncode else []
+    return UNFORMATTED.format(files=" ".join(os.path.relpath(name, top) for name in names)) if names else []
+
+
 def typecheck_command(top: Path, project: Path, files: list[Path]) -> str:
     runner = "yarn" if (top / "yarn.lock").is_file() else "npm run"
     root, scripts = scripts_at(top)
@@ -274,7 +283,9 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         typechecks = ts_commands(evt, top, changed, sparse=True)
         return SPARSE_TS.format(commands="` and `".join(typechecks)) if typechecks else []
     go = go_commands(evt, top, changed)
-    return UNREAD.format(why=go) if isinstance(go, str) else go + ts_commands(evt, top, changed)
+    if isinstance(go, str):
+        return UNREAD.format(why=go)
+    return (go + ts_commands(evt, top, changed)) or unformatted(top, changed)
 
 
 @on(  # capt-hook: no-escape the owner ordered a hook rather than goodwill, and every misread fails open with a warning
@@ -292,6 +303,9 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF, state=[fresh(TYPECHECK, root="tools/own", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand")]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand/internal/vm", recursive=False)]): Allow(),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": "go/sand/internal/vm/vm.go\n"}, state=[fresh("build", "vet", root="go/sand")]): Warn(pattern=r"^Warning, nothing was refused: `gofmt -l` lists Go files[\s\S]*`gofmt -w go/sand/internal/vm/vm\.go`"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": f"{FIXTURE}/go/sand/internal/vm/vm.go\n"}, state=[fresh("build", "vet", root="go/sand")]): Warn(pattern=r"`gofmt -w go/sand/internal/vm/vm\.go`"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": "go/sand/internal/vm/vm.go\n"}): Block(pattern=r"^A lane runs `go build` and `go vet`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n.github/workflows/ci.yml\n"}): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"go env GOROOT": (127, "go: not found")}): Warn(pattern=r"^Warning, nothing was refused: no Go toolchain"),
