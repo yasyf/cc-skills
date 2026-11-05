@@ -526,6 +526,22 @@ func TestATapBeforeTheFirstRowsAreFoldedWaitsAndIsOrderedOnceTheyAre(t *testing.
 	}
 }
 
+func TestHisTypedLandWordOnACardOrdersThePRAndAnotherTypedWordDoesNot(t *testing.T) {
+	h := surfaceHarness(t)
+	ownerRecord(t, `Owner: "One call per 8 segments" #4242`, nil)
+	writeOrders(t, h)
+	if written := orders(t); len(written) != 0 {
+		t.Fatalf("orders = %+v", written)
+	}
+
+	ownerRecord(t, `Owner: "Land this now" #4242`, nil)
+	writeOrders(t, h)
+
+	if written, refused := orders(t), refusals(t); len(written) != 1 || len(refused) != 0 {
+		t.Fatalf("orders = %+v, refusals = %+v", written, refused)
+	}
+}
+
 func TestAHoldIsWrittenWhateverTheRowSays(t *testing.T) {
 	h := unreadHarness(t)
 	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Grade = prrow.GradePending })
