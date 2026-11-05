@@ -136,6 +136,9 @@ func Tool(a *app.App) channel.Tool {
 			if err := fanout.nothingToTap(r); err != nil {
 				return "reply: " + err.Error(), true
 			}
+			if err := r.unshownDoc(); err != nil {
+				return "reply: " + err.Error(), true
+			}
 			if warning := fanout.tapWarning(r); warning != "" {
 				warned = append(warned, warning)
 			}

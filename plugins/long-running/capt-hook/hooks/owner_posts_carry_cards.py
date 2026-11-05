@@ -20,11 +20,18 @@ UPCOMING_RELEASE = re.compile(r"\b(?:next|future|upcoming|later)\s+releases?\b",
 RELEASE_NAME = re.compile(r"(?i)\b(?:[\w-]+-releas\w*(?:-[\w-]+)*|releas\w*-[\w-]+|release lanes?)\b")
 PLATY_CARD = re.compile(r"/archives/C0B75AL4XEW/p\d{16}")
 RELEASE_BUILD = "/release/builds/"
-ASKS_TAP = re.compile(r"(?im)^\s*(?:tap|approve)\b|\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)")
+SENTENCE = re.compile(r"[.!?](?:\s+|$)|\n")
+TAP_ORDER = re.compile(r"(?i)^\s*(?:tap|approve)\b")
+ASKS_TAP = re.compile(r"(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)")
+DESCRIBES_TAP = re.compile(r"(?i)\b(?:refus\w*|buttons?)\b")
+DOC_PR = re.compile(r"(?i)\bdesign-docs(?:/pull/|#)\d+")
+DOC_PAGE = re.compile(r"https://(?:docs\.poetic\.design|[\w-]+\.github\.io)/|https?://[\w.-]+\.ts\.net(?::\d+)?/")
+MERGE_ASK = re.compile(r"(?i)\b(?:merg|approv)\w*")
 BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
 NO_PLATY_CARD = "Warning, nothing was blocked: A release word to the owner gives what users get in plain words and links the Platy release card. Add the card's #releases permalink, which the build's `release-slack-root` annotation names."
 NOTHING_TO_TAP = "A message to the owner that asks him to tap, approve or answer carries the button to do it. Send it through `lr reply` with its picks or the ready PR in `prs`, pass each ready PR as `--tap-pr <url>` (`tap_prs`), draw it as a waiting card, or say what it waits on without asking him."
-UNCARDED_RECORD = "Warning, nothing was blocked: A release record carries the Platy release card, so the relay can show it to the owner. Add `--attr card=<permalink>`, read from the build's `release-slack-root` annotation."
+UNSHOWN_DOC = "A card asking him to merge or approve a design doc or retro links the rendered doc: its docs.poetic.design page or PR preview (/previews/pr-<n>/...), or a local render's tailnet link. Add one outside any hidden cite."
+UNCARDED_RECORD ="Warning, nothing was blocked: A release record carries the Platy release card, so the relay can show it to the owner. Add `--attr card=<permalink>`, read from the build's `release-slack-root` annotation."
 
 LANE = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "flaky-tests-1"}
 PR_LINK = "https://github.com/Forge-AI/monorepo/pull/50026"
@@ -155,6 +162,10 @@ def release_records_carry_the_platy_card(evt: BaseHookEvent) -> HookResult | Non
     return evt.context(UNCARDED_RECORD) if any(not PLATY_CARD.search(text) for text in release_records(evt)) else None
 
 
+def asks_his_tap(words: str) -> bool:
+    return any(TAP_ORDER.search(said) or ASKS_TAP.search(said) and not DESCRIBES_TAP.search(said) for said in SENTENCE.split(HIDDEN_CITE.sub(" ", words)))
+
+
 def carries_tap_cards(evt: BaseHookEvent) -> bool:
     if evt.tool_name != "Bash":
         return bool(evt._tool_input.get("tap_prs"))
@@ -177,6 +188,10 @@ def carries_tap_cards(evt: BaseHookEvent) -> bool:
         sent("#50346 is in the merge queue on your approval."): Allow(),
         sent("#50026 waits on CI, then it lands."): Allow(),
         sent("It is live. <!-- waits on your tap -->"): Allow(),
+        sent("Since 1:10 PM a message from me that asks for your approval with no button is refused before it posts."): Allow(),
+        sent("Since 1:10 PM a message that reads as waiting on you and carries no button is refused before it posts."): Allow(),
+        sent("A message with no button is refused now. #50921 is green and needs your tap."): Block(),
+        sent("It passed. Tap the button on the card above."): Block(),
         sent("#50921 waits on your tap.", channel="C0RELEASES1"): Allow(),
         Input(command="ls", env=LANE): Allow(),
     },
@@ -184,5 +199,26 @@ def carries_tap_cards(evt: BaseHookEvent) -> bool:
 def tap_asks_carry_the_button(evt: BaseHookEvent) -> HookResult | None:
     if carries_tap_cards(evt):
         return None
-    asks = any(ASKS_TAP.search(HIDDEN_CITE.sub(" ", words)) and not posted.get("waits") for words, posted in dm_posts(evt))
+    asks = any(asks_his_tap(words) and not posted.get("waits") for words, posted in dm_posts(evt))
     return evt.block(NOTHING_TO_TAP) if asks else None
+
+
+DOC_CARD = {"title": "SandSQL sharding doc, revision 4: merge it?", "body": "Revision 4 is on https://github.com/Forge-AI/design-docs/pull/332 with green checks.", "options": ["Merge the doc", "Not yet"]}
+DOC_PAGE_LINK = "https://docs.poetic.design/design-docs/sandsql-per-database-sharding/"
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash", *WRITE_TOOLS)],
+    tests={
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD}, env=LANE): Block(pattern=r"^A card asking him to merge or approve a design doc.*docs\.poetic\.design"),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD | {"body": f"{DOC_CARD['body']} Read it: {DOC_PAGE_LINK}"}}, env=LANE): Allow(),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD | {"body": f"{DOC_CARD['body']} <!-- {DOC_PAGE_LINK} -->"}}, env=LANE): Block(),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD | {"body": f"{DOC_CARD['body']} Rendered here: https://yasyf-forge-studio.tail71af5d.ts.net:8443/sandsql-per-database-sharding/"}}, env=LANE): Allow(),
+        Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": DOC_CARD | {"title": "Merge #51418?", "body": f"{PR_LINK} is green."}}, env=LANE): Allow(),
+        sent("design-docs#332 merged; the lane posts its page next."): Allow(),
+    },
+)
+def doc_merge_cards_link_the_page(evt: BaseHookEvent) -> HookResult | None:
+    unshown = any(posted.get("options") and DOC_PR.search(said) and MERGE_ASK.search(said) and not DOC_PAGE.search(said) for said, posted in ((HIDDEN_CITE.sub(" ", words), posted) for words, posted in dm_posts(evt)))
+    return evt.block(UNSHOWN_DOC) if unshown else None

@@ -242,6 +242,9 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage, rep
 	if !asks {
 		return nil, nil
 	}
+	if err := cardtext.UnshownDoc(string(card)); err != nil {
+		return fmt.Errorf("refused: %w", err), nil
+	}
 	var failed []error
 	open, err := c.OpenAsks(ctx)
 	if err != nil {

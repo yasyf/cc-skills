@@ -2268,6 +2268,33 @@ func TestAReplyAskingAboutAnExemptPRNeverSaysHeTappedIt(t *testing.T) {
 	}
 }
 
+func TestADocMergePickCarriesTheDocsPage(t *testing.T) {
+	merge := Reply{
+		Title:       "SandSQL sharding doc, revision 4: merge it?",
+		MD:          "SandSQL sharding doc, one pick needed. Revision 4 is on [design-docs#332](https://github.com/Forge-AI/design-docs/pull/332) with green checks. It is a new doc, so your standing grant for doc revisions does not cover it and it waits on your word. <!-- cci #499307 -->",
+		Picks:       []string{"Merge the doc :: The lane merges revision 4 and you get the rendered page link.", "Not yet :: The doc stays open for your comments, and nothing merges."},
+		Recommended: "Merge the doc",
+	}
+	page := []Link{{Label: "Read revision 4", URL: "https://docs.poetic.design/design-docs/sandsql-per-database-sharding/"}}
+	for name, tc := range map[string]struct {
+		reply   Reply
+		refused bool
+	}{
+		"the m1270 card, its PR link alone":    {merge, true},
+		"the same card with its Pages link":    {Reply{Title: merge.Title, MD: merge.MD, Picks: merge.Picks, Links: page}, false},
+		"its Pages link only in a hidden cite": {Reply{Title: merge.Title, MD: merge.MD + " <!-- " + page[0].URL + " -->", Picks: merge.Picks}, true},
+		"the same words with no pick to tap":   {Reply{Title: merge.Title, MD: merge.MD}, false},
+		"a code PR's merge pick":               {Reply{Title: "Merge #51418?", MD: "[#51418](https://github.com/Forge-AI/monorepo/pull/51418) is green.", Picks: merge.Picks}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := tc.reply.unshownDoc()
+			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "NO DOC PAGE") {
+				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
+			}
+		})
+	}
+}
+
 func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
 	ready := store.ReviewRow{ReadyForTap: true}
 	for name, tc := range map[string]struct {
@@ -2287,6 +2314,10 @@ func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
 		"a PR in the queue on his approval":             {ready, Reply{Title: "#2196 is in the merge queue on your approval", MD: "It lands next."}, false},
 		"a wait on something else, said plainly":        {store.ReviewRow{WaitsOn: "CI"}, Reply{Title: "#2196 waits on CI", MD: "It needs a green build first."}, false},
 		"a hidden cite that reads as an ask":            {ready, Reply{Title: "Fix is live", MD: "It is live. <!-- waits on your tap -->"}, false},
+		"the refusal described, asking for approval":    {ready, Reply{Title: "Buttons on approval messages: the refusal is live in this session", MD: "Buttons on approval messages: the fix is live here, and I was wrong at 1:27 PM to say it had not reached this session. Since 1:10 PM a message from me that asks for your approval with no button is refused before it posts, and it ran on my 1:23, 1:24 and 1:28 PM cards."}, false},
+		"the refusal described, waiting on him":         {ready, Reply{Title: "Messages with nothing to tap are now refused before they post", MD: "The fix you asked for here is live in this session, and I was wrong at 1:27 PM to say it had not reached it. Since 1:10 PM a message that reads as waiting on you and carries no button is refused before it posts. I just saw it refuse one of mine at 1:33 PM."}, false},
+		"an ask beside a described refusal":             {ready, Reply{Title: "Refusal is live", MD: "A message with no button is refused now. #2196 is green and needs your tap."}, true},
+		"an order to tap a button elsewhere":            {ready, Reply{Title: "Fork side-chat bug", MD: "It passed. Tap the button on the card above."}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())
