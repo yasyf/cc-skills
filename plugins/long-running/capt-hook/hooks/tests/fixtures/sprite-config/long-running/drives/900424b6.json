@@ -1,0 +1,15 @@
+{
+  "drive": "900424b6",
+  "cci_drive": "release-v3",
+  "program": "release-v3",
+  "ledger": "829f980d0bb4bdc308a2d0cc217dc9bb6ef0cddd",
+  "repo": "o/r",
+  "git_common_dir": "/home/sprite/monorepo/.git",
+  "checkout": "/home/sprite/monorepo",
+  "orca_run": "",
+  "state_dir": "/home/sprite/.claude/scratch/900424b6",
+  "sessions": ["900424b6-7393"],
+  "started_at": "",
+  "updated_at": "",
+  "host": "sprite"
+}

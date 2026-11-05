@@ -1468,13 +1468,73 @@ func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 	}
 }
 
+func driveCall(drive string) []string {
+	return []string{"sprite", "exec", "-s", workerWorkspace, "--", "sh", "-c", writeDriveEntry, "sh", remoteRoot, drive}
+}
+
 func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAgent(t *testing.T) {
 	f := newWorkerFixture(t)
-	f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), `{"drive":"brook","orca_run":"`+workerRun+`"}`, 0o600)
+	f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), `{"drive":"brook","orca_run":"`+workerRun+`","state_dir":"/Users/o/.claude/scratch/brook"}`, 0o600)
 	f.env[workerLandingRepo] = "Forge-AI/monorepo"
 	f.sprite()
 	f.launched()
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, f.startCalls(prepared()), [][]string{holdCall(workerWorkspace)})...)
+	started := f.startCalls(prepared())
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:2], [][]string{driveCall("brook")}, started[2:], [][]string{holdCall(workerWorkspace)})...)
+}
+
+func TestASpriteWorkerWritesItsDriveEntryOnTheBoxWithItsOwnPathsAndNoMacOnes(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), rendered(object{
+		"drive": "brook", "program": "release-v3", "ledger": "829f980d", "repo": "Forge-AI/monorepo",
+		"git_common_dir": "/Users/o/monorepo/.git", "checkout": "/Users/o/monorepo", "orca_run": workerRun,
+		"state_dir": "/Users/o/.claude/scratch/release-v3", "sessions": []string{"root-1", "root-2"},
+		"root_terminal": "term_root", "register_lane": "register-desk", "facts": object{"incident": "inc-1"},
+	}), 0o600)
+	f.sprite()
+	f.launched()
+	sent := f.stdins[strings.Join(driveCall("brook"), " ")]
+	if strings.Contains(sent, "/Users/") || strings.Contains(sent, "term_root") || strings.Contains(sent, "inc-1") {
+		t.Fatal(sent)
+	}
+	box := t.TempDir()
+	checkout := filepath.Join(box, "monorepo")
+	if out, err := exec.Command("git", "init", "-q", checkout).CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	write := exec.Command("sh", "-c", writeDriveEntry, "sh", checkout, "brook")
+	write.Env = append(os.Environ(), "HOME="+box, "CLAUDE_CONFIG_DIR=")
+	write.Stdin = strings.NewReader(sent)
+	if out, err := write.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	raw, err := os.ReadFile(filepath.Join(box, ".claude", "long-running", "drives", "brook.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written map[string]any
+	if err := json.Unmarshal(raw, &written); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"drive": "brook", "cci_drive": "release-v3", "program": "release-v3", "ledger": "829f980d", "repo": "Forge-AI/monorepo",
+		"git_common_dir": filepath.Join(checkout, ".git"), "checkout": remoteRoot, "orca_run": "",
+		"state_dir": filepath.Join(box, ".claude", "scratch", "brook"), "sessions": []any{"root-1", "root-2"},
+		"started_at": "", "updated_at": "", "host": "sprite",
+	}
+	if !reflect.DeepEqual(written, want) {
+		t.Fatalf("wrote\n%v\nwant\n%v", written, want)
+	}
+}
+
+func TestASpriteWhoseDriveEntryFailsToWriteStillStartsItsLaneAndSaysSo(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), `{"drive":"brook","orca_run":"`+workerRun+`","state_dir":"/Users/o/.claude/scratch/brook"}`, 0o600)
+	f.sprite()
+	f.reply("sprite exec", workerReply{}, workerReply{code: 1, err: "jq: not found\n"}, workerReply{}, workerReply{}, workerReply{})
+	f.launched()
+	if !strings.Contains(f.stderr.String(), "holds no entry for drive brook, so lane lane-a runs without the drive's hooks") || !strings.Contains(f.receiptText(driveReceipt), "jq: not found") {
+		t.Fatal(f.stderr.String())
+	}
 }
 
 func TestAnEmptyPoolCreatesTheRequestedLaneOnce(t *testing.T) {

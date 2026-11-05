@@ -9,7 +9,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, Communicator, CompactionState, judged
-from .lane_landing import DRIVE_ENV, drive_entry, lane_name
+from .lane_landing import DRIVE_ENV, SPRITE_ENV, drive_entry, lane_name
 from .owner_facing import incident_sources, open_incidents
 from .tests.incident_fixtures import BARE_INCIDENT, CLOSED_0820, EARLIER_CLOSEOUT, INCIDENT_CLOSED, SAND_NOT_MIGRATED
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -26,6 +26,8 @@ READ_TIMEOUT_SECONDS = 20
 AWAY_READ_SECONDS = 180
 LR = Path(__file__).parents[2] / "bin" / "lr"
 CCN_NOT_FOUND = 3
+NOTES_REFS = "+refs/cc-notes/*:refs/cc-notes/*"
+NOTES_FETCH_SECONDS = 60
 RECORD_REF = re.compile(r"#(\d{3,})\b")
 ANSWER_REF = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 REVERT = re.compile(r"\b(?:revert(?:s|ed|ing)?|roll(?:s|ed|ing)?[ -]?back|rollback|back(?:ing)? out)\b", re.IGNORECASE)
@@ -39,6 +41,10 @@ UNCAUSED_UNDO = (
 UNORDERED_ROLLBACK = (
     "A release rollback runs only on an owner answer that orders it, and a suspected regression is fixed forward."
     " Cite the answer, as in `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
+)
+UNREAD_ON_SPRITE = (
+    "Warning, nothing was blocked: the owner answer {refs} did not read on this Sprite, so this undo goes ahead unchecked."
+    " Stop if he has not ordered it."
 )
 MISORDERED = (
     "Warning, nothing was blocked: a judge reads the owner answer this undo cites as not ordering this exact undo."
@@ -89,10 +95,20 @@ def names_target(text: str, target: str) -> bool:
     return bool(ANSWER_REF.fullmatch(target)) and any(target.startswith(ref) or ref.startswith(target) for ref in ANSWER_REF.findall(text))
 
 
+def on_sprite(evt: BaseHookEvent) -> bool:
+    return (drive_entry(evt) or {}).get("host") == "sprite"
+
+
 def shown_answer(evt: BaseHookEvent, ref: str) -> dict | bool | None:
     if (entry := drive_entry(evt)) is None:
         return None
-    done = run(["ccn", "-R", entry["checkout"], "answer", "show", ref, "--json"])
+    show = ["ccn", "-R", entry["checkout"], "answer", "show", ref, "--json"]
+    done = run(show)
+    if done is not None and done.returncode == CCN_NOT_FOUND and on_sprite(evt):
+        fetched = run(["git", "-C", entry["checkout"], "fetch", "--quiet", "origin", NOTES_REFS], NOTES_FETCH_SECONDS)
+        if fetched is None or fetched.returncode != 0:
+            return None
+        done = run(show)
     if done is None or done.returncode not in (0, CCN_NOT_FOUND):
         return None
     return False if done.returncode == CCN_NOT_FOUND else json.loads(done.stdout)
@@ -129,16 +145,19 @@ def order_cited(evt: BaseHookEvent, text: str, act: re.Pattern[str], targets: tu
 
 def misordered(evt: BaseHookEvent, calls: list[Call], texts: list[str]) -> HookResult | None:
     drive = (drive_entry(evt) or {}).get("drive")
+    unread = []
     for call in calls:
         if not (call.args[1] == "rollback" or open_incidents(evt)):
             continue
         for ref in (ref for text in texts for ref in cited_refs(text, undo_targets(call))):
-            if not isinstance(answer := shown_answer(evt, ref), dict):
+            if (answer := shown_answer(evt, ref)) is None and on_sprite(evt):
+                unread.append(ref)
+            if not isinstance(answer, dict):
                 continue
             said = f"The owner answer the command cites, verbatim:\nQuestion: {answer.get('title') or ''}\nAnswer: {answer.get('body') or ''}"
             if found := judged("undo", said, str(evt.command), drive):
                 return evt.context(f"{MISORDERED}\n{found}")
-    return None
+    return evt.context(UNREAD_ON_SPRITE.format(refs=", ".join(f"`{ref}`" for ref in dict.fromkeys(unread)))) if unread else None
 
 
 def cause_cited(text: str, target: str | None) -> bool:
@@ -172,7 +191,7 @@ def judge_answer(verdict: dict) -> str:
 
 def cancel(command: str, *stored: dict, **extra: object) -> Input:
     commands = incident_sources(*stored) | {CLAUDE: judge_answer(ORDERED)} | extra.pop("commands", {})
-    return Input(command=command, state=ACTIVE, env=DRIVE_ENV, commands=commands, **extra)
+    return Input(command=command, state=ACTIVE, env=extra.pop("env", DRIVE_ENV), commands=commands, **extra)
 
 
 @on(
@@ -205,6 +224,11 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210", commands={"cci grep": SAND_CAUSE}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found")}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (2, "not a git repository")}): Allow(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found"), "git -C /home/sprite/monorepo fetch": ""}): Block(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found"), "git -C /home/sprite/monorepo fetch": (128, "could not read from remote")}): Warn(
+            pattern=r"^Warning, nothing was blocked: the owner answer `a9e1075b` did not read on this Sprite"
+        ),
+        cancel("tools/ci release rollback sand --to 906  # MECHANISM #500210 owner a9e1075b", env=SPRITE_ENV, commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER, "git -C /home/sprite/monorepo fetch": ""}): Block(),
         cancel(
             "tools/ci release rollback web --to 77 && tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b",
             commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER},

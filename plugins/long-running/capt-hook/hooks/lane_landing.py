@@ -46,6 +46,7 @@ RULING_KINDS = frozenset({"ready", "go", "decide", "decision"})
 READY_TEXT = re.compile(r"^\W*READY\b")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
+SPRITE_ENV = DRIVE_ENV | {"CLAUDE_CONFIG_DIR": str(FIXTURES / "sprite-config")}
 MONOREPO = "forge-ai/monorepo"
 MONOREPO_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "5c0e81aa", "CLAUDE_CONFIG_DIR": str(FIXTURES / "gate5-config")}
 LANDING_ENV = {LANDING_REPO_ENV: "Forge-AI/monorepo"}
