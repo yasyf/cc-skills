@@ -204,6 +204,7 @@ func TestARecordTheMachineWroteOrOneNotAddressedToTheLaneNeverWakesIt(t *testing
 		"lr.note":         rec(2, orderAuthor, "lr.note", t0, "tick", lane2),
 		"a passing grade": rec(2, orderAuthor, "review", t0, "finder: clean", lane2),
 		"the supervisor":  rec(2, Self, "note", t0, "tick", lane2),
+		"the board watch": rec(2, boardWatch, "owner", t0, "tapped approve", lane2),
 		"the runner":      rec(2, runner, "report", t0, "launched", lane2),
 		"the stall watch": rec(2, "stall-watch", "blocker", t0, "STALL red #50231", lane2),
 		"its own record":  rec(2, lane2, "note", t0, "to myself", lane2),
@@ -241,6 +242,26 @@ func TestAReportToADeskWaitsFiveMinutesAndNeitherRelaysNorRelaunches(t *testing.
 	equal(t, woken.Woken, []string{refresher})
 	equal(t, len(late.Relaunched), 0)
 	equal(t, len(relays(f)), 0)
+}
+
+func TestAnOwnerRecordWakesADeskInATickAndIsRelayedAtTenMinutes(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	idle := t0.Add(-mins(12))
+	f.feed = append(f.feed, rec(2, orderAuthor, "owner", t0, "build the match now", refresher))
+
+	f.peers = orcaPeers(refresher, idle, t0.Add(10*time.Second))
+	before := tick(t, s, f, t0.Add(10*time.Second))
+	f.peers = orcaPeers(refresher, idle, t0.Add(40*time.Second))
+	woken := tick(t, s, f, t0.Add(40*time.Second))
+	f.peers = orcaPeers(refresher, idle, t0.Add(mins(10)))
+	tick(t, s, f, t0.Add(mins(10)))
+
+	equal(t, len(before.Woken), 0)
+	equal(t, woken.Woken, []string{refresher})
+	sent := relays(f)
+	equal(t, len(sent), 1)
+	contains(t, sent[0].Text, orderAuthor+"'s owner #2, the oldest for 10 min")
 }
 
 func TestAFailedWakeTriesAgainOnTheNextTick(t *testing.T) {
