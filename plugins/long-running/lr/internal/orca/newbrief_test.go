@@ -25,6 +25,7 @@ func TestNewBriefWritesWhatTheLaunchChecksRead(t *testing.T) {
 		Scale:    "medium",
 		Place:    placeLocal,
 		Topics:   []string{"verbs", "scratch"},
+		Orders:   []string{"owner:m7", "owner:m35.2"},
 	}
 	path, err := n.Write(state, "desk-verbs-1")
 	if err != nil {
@@ -44,7 +45,7 @@ func TestNewBriefWritesWhatTheLaunchChecksRead(t *testing.T) {
 		"Scale: medium\n",
 		"ccx: role=build incident=none place=local why=mac-inputs\n",
 		"- Report to meta-desk only.\n\n## Why",
-		"Owner orders: owner:m35 owner:m7\n",
+		"Assigned orders: owner:m7 owner:m35.2\n",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("brief lacks %q:\n%s", want, text)
@@ -68,8 +69,32 @@ func TestNewBriefRemotePlaceAndNoOwnerOrders(t *testing.T) {
 	if strings.Contains(text, "place=local") || !strings.Contains(text, "ccx: role=build incident=none\n") {
 		t.Errorf("remote brief names a local place:\n%s", text)
 	}
-	if strings.Contains(text, "Owner orders") {
-		t.Errorf("a body naming no owner:m<row> carries an Owner orders line:\n%s", text)
+	if strings.Contains(text, "orders:") {
+		t.Errorf("a launch with no --order carries an orders line:\n%s", text)
+	}
+}
+
+func TestNewBriefAssignsNoOrderTheBodyQuotes(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "His owner:m835 ruling is background.\n"), Scale: "small", Place: placeRemote}
+	text, err := n.text("lane-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "orders:") {
+		t.Errorf("a quoted owner:m<row> became an orders line:\n%s", text)
+	}
+}
+
+func TestNewBriefRefusesAnAssignmentItDidNotWrite(t *testing.T) {
+	for name, n := range map[string]NewBrief{
+		"a body writing the line":   {Title: "t", BodyFile: writeFixture(t, "body.md", "plain\nAssigned orders: owner:m835\n"), Scale: "small", Place: placeRemote},
+		"an --order that is no row": {Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote, Orders: []string{"m835"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if text, err := n.text("lane-a"); err == nil {
+				t.Errorf("wrote a brief:\n%s", text)
+			}
+		})
 	}
 }
 
@@ -83,7 +108,7 @@ func TestNewBriefReadsItsBodyFromStdinAndAppendsThePostersStandingLines(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, "Owner owner:m35 said so.\n\nA standing line.\n\nOwner orders: owner:m35\n") {
+	if !strings.HasSuffix(text, "Owner owner:m35 said so.\n\nA standing line.\n") {
 		t.Errorf("brief:\n%s", text)
 	}
 }

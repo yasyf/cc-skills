@@ -56,12 +56,12 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 2. Give each item one implementer, the turn it arrives. A defect reported for meta by the
    coordinator or any lane becomes a lane with a deliverable and a due time that same turn,
    never an ask; send back an ask that carries a defect and no lane. Write its body to a file:
-   the deliverable, the owner's words verbatim, and each owner order it delivers as `owner:m<row>`;
-   a bare `m<row>` cites a row as background and orders nothing.
+   the deliverable and the owner's words verbatim. Name each owner order it delivers with
+   `--order owner:m<row>` on the launch; a row the body names, bare or as `owner:m<row>`, is background and orders nothing.
    Keep the contract below in another file. Launch it with
-   `lr launch lane <lane> --title <title> --body <body> --contract <contract> --topics <subjects> --drive <drive> --lane meta`,
+   `lr launch lane <lane> --title <title> --body <body> --contract <contract> --topics <subjects> [--order owner:m<row>] --drive <drive> --lane meta`,
    which writes `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:`, `ccx:` and
-   `Owner orders:` lines and starts it on opus at high; `--scale`, `--place`, `--ccx`, `--model`
+   `Assigned orders:` lines and starts it on opus at high; `--scale`, `--place`, `--ccx`, `--model`
    and `--effort` change those, and `--body -` takes the body on stdin. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
    subagent. A question over transcripts, records or logs too big for your window goes

@@ -18,7 +18,11 @@ var (
 	standing    = regexp.MustCompile(`(?m)^Standing: *(\S.*?)[ \t]*$`)
 	noDuty      = regexp.MustCompile(`(?i)^none\b`)
 	deliverable = regexp.MustCompile(`(?m)^(?:#+ *)?(?:\*\*)?Deliverables?\b[^\n:]*:?\**[ \t]*([^\n]*)(?:\n\s*([^\n]*))?`)
+
+	BriefAssignedOrders = regexp.MustCompile(`(?m)^` + AssignedOrdersLine + `(.*)$`)
 )
+
+const AssignedOrdersLine = "Assigned orders:"
 
 type Brief struct {
 	Step        string
@@ -49,7 +53,9 @@ func parseBrief(text string) Brief {
 	if found := deliverable.FindStringSubmatch(text); found != nil {
 		said.Deliverable = strings.TrimSpace(or(found[1], found[2]))
 	}
-	said.Orders = owner.Orders(text)
+	if found := BriefAssignedOrders.FindStringSubmatch(text); found != nil {
+		said.Orders = owner.Orders(found[1])
+	}
 	said.OwnerPicked = BriefOwnerPick.MatchString(text)
 	return said
 }

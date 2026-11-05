@@ -2936,7 +2936,7 @@ func TestTheHourlyTickNamesEachUndeliveredOwnerOrderToTheCommunicatorOnce(t *tes
 	tick(t, s, f, at)
 
 	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
-	equal(t, f.posts[0].Text, "2 owner asks newly open, orders with no live lane, no open PR and no landed or carried record and questions nobody answered: owner:m2, owner:m85. Answer each question and mark its row, restart each order, or mark a row that orders nothing no-order with `mcp__plugin_long-running_lr__owner_mark`; a lane delivering an order names its owner:<row> token in its brief. 1 owner orders newly in progress, landed or carried with no live lane and no delivered proof: owner:m38. Post `cci post --kind report --attr delivered=owner:<row>` once he has what the row asked for, or restart the order. Each row is named once; `lr owner audit` lists them all.")
+	equal(t, f.posts[0].Text, "2 owner asks newly open, orders with no live lane, no open PR and no landed or carried record and questions nobody answered: owner:m2, owner:m85. Answer each question and mark its row, restart each order, or mark a row that orders nothing no-order with `mcp__plugin_long-running_lr__owner_mark`; a lane delivering an order is launched with `lr launch lane --order owner:<row>`. 1 owner orders newly in progress, landed or carried with no live lane and no delivered proof: owner:m38. Post `cci post --kind report --attr delivered=owner:<row>` once he has what the row asked for, or restart the order. Each row is named once; `lr owner audit` lists them all.")
 
 	f.posts = nil
 	at = at.Add(mins(60))

@@ -35,9 +35,14 @@ func ownerLedger(t *testing.T, rows int) string {
 
 func carrier(t *testing.T, s *store.Store, name, orders string, state store.LaneState, prs ...int) {
 	t.Helper()
+	laneSaying(t, s, name, "Assigned orders: "+orders, state, prs...)
+}
+
+func laneSaying(t *testing.T, s *store.Store, name, lines string, state store.LaneState, prs ...int) {
+	t.Helper()
 	lane := storeLane(name)
 	lane.Brief = filepath.Join(t.TempDir(), name+".md")
-	if err := os.WriteFile(lane.Brief, []byte("# "+name+"\nCarries "+orders+".\n"), 0o600); err != nil {
+	if err := os.WriteFile(lane.Brief, []byte("# "+name+"\n"+lines+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.WantLane(lane, t0); err != nil {
@@ -94,6 +99,21 @@ func TestOpenOrdersListsEveryOrderNoLaneOrOpenPRCarriesAndADoneRecordLeavesItInP
 	equal(t, owner.Tokens(orders), "owner:m3, owner:m4, owner:m5")
 	equal(t, []string{orders[0].Status, orders[1].Status, orders[2].Status}, []string{owner.Open, owner.Open, owner.InProgress})
 	equal(t, bus.query, client.Query{Drive: testDrive, Kinds: []string{"landed", "done", "report"}})
+}
+
+func TestARowALiveLaneOnlyQuotesStaysOpenWithNoLane(t *testing.T) {
+	s := memory(t)
+	state := ownerLedger(t, 2)
+	laneSaying(t, s, "quoting-1", "His owner:m1 ruling is background.\n\nOwner orders: owner:m1 owner:m2", store.LaneDesired)
+	carrier(t, s, "assigned-1", "owner:m2", store.LaneDesired)
+
+	orders, err := OpenOrders(context.Background(), &fakeBus{}, s, testDrive, ordersRepo, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, owner.Tokens(orders), "owner:m1")
+	equal(t, []string{orders[0].Status, orders[0].Lane}, []string{owner.Open, ""})
 }
 
 func TestOpenOrdersReadsTheBusOnceWhateverTheLedgerHolds(t *testing.T) {
