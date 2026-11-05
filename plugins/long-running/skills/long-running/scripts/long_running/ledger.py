@@ -274,7 +274,7 @@ REFUSAL = {
     "foreign": "#{pr} is in #{tip}'s stack, but no drive lane registered it in the ledger, by name or by a branch prefix or stack its branch is on, and it carries no drive label; the desk never enqueues a PR the drive did not admit",
     "stack": "the stack {stack} enqueues as one entry, so {refused} refuses all of it; nothing was labelled",
     "enqueue": "stack-enqueue refused #{pr} (stack tip #{tip}): {detail}",
-    "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
+    "shallow": "{checkout} is a shallow clone whose trunk history begins after {since}, when the earliest merged PR being settled opened, so its squash may be cut off; settle from a clone holding the trunk since then",
     "fetch": "fetching {ref} failed, so this pass has graded nothing: {detail}",
     "checkout": "{checkout} is not a usable git checkout, so this pass has graded nothing: {detail}",
 }
@@ -373,6 +373,10 @@ class ForgeUnreachable(RuntimeError):
 
 class QuotaExhausted(ForgeUnreachable):
     """The shared GraphQL quota is spent; PR states cannot be read until it resets."""
+
+
+class CheckoutUnusable(ForgeUnreachable):
+    pass
 
 
 class Refused(Exception):
@@ -723,7 +727,7 @@ def is_shallow(shell: Shell, checkout: Path) -> bool:
     try:
         return shell.run(["git", "-C", str(checkout), "rev-parse", "--is-shallow-repository"]).strip() != "false"
     except subprocess.CalledProcessError as error:
-        raise ForgeUnreachable(REFUSAL["checkout"].format(checkout=checkout, detail=(error.stderr or "").strip())) from error
+        raise CheckoutUnusable(REFUSAL["checkout"].format(checkout=checkout, detail=(error.stderr or "").strip())) from error
 
 
 def fetch(shell: Shell, checkout: Path, *refs: str) -> None:
@@ -2198,10 +2202,16 @@ def cmd_requeue(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def sync_trunk(shell: Shell, checkout: Path, trunk: str) -> None:
-    if is_shallow(shell, checkout):
-        raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=checkout))
+def sync_trunk(shell: Shell, checkout: Path, trunk: str) -> bool:
+    shallow = is_shallow(shell, checkout)
     fetch(shell, checkout, f"+refs/heads/{trunk}:refs/desk/base/{trunk}")
+    return shallow
+
+
+def require_trunk_since(shell: Shell, checkout: Path, trunk: str, since: str) -> None:
+    walk = shell.run(["git", "-C", str(checkout), "rev-list", "--parents", f"--since={since}", f"refs/desk/base/{trunk}"])
+    if any(" " not in line for line in walk.splitlines()):
+        raise CheckoutUnusable(REFUSAL["shallow"].format(checkout=checkout, since=since))
 
 
 def absent_heads(shell: Shell, checkout: Path, heads: list[str]) -> frozenset[str]:
@@ -2261,7 +2271,8 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
     merged = {pr: record for pr, record in closed.items() if record["state"] == "MERGED"}
     failures: dict[str, subprocess.CalledProcessError] = {}
     if merged:
-        sync_trunk(shell, checkout, trunk)
+        if sync_trunk(shell, checkout, trunk):
+            require_trunk_since(shell, checkout, trunk, min(record["createdAt"] for record in merged.values()))
         absent = absent_heads(shell, checkout, [record["headRefOid"] for record in merged.values()])
         for pr, record in merged.items():
             if record["headRefOid"] in absent:
@@ -2929,6 +2940,9 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     except QuotaExhausted as exhausted:
         print(f"forge rate limited, wrote nothing: {exhausted}", file=sys.stderr)
         return FORGE_LIMITED_EXIT
+    except CheckoutUnusable as unusable:
+        print(f"checkout refused, wrote nothing: {unusable}", file=sys.stderr)
+        return 1
     except ForgeUnreachable as unreachable:
         print(f"forge unreachable, wrote nothing: {unreachable}", file=sys.stderr)
         return 1

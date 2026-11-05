@@ -147,7 +147,7 @@ class FakeShell(ledger.Shell):
         self.diffed: dict[tuple[str, ...], str] = {}
         self.objects: set[str] = set()
         self.closed_by: dict[str, str] = {}
-        self.shallow = False
+        self.shallow_from = ""
         self.broken_checkout = False
         self.fetch_fails = ""
         self.deleted_refs: set[str] = set()
@@ -461,7 +461,11 @@ class FakeShell(ledger.Shell):
         if verb == "rev-parse" and "--is-shallow-repository" in argv and self.broken_checkout:
             raise subprocess.CalledProcessError(128, argv, stderr="fatal: not a git repository")
         if verb == "rev-parse" and "--is-shallow-repository" in argv:
-            return ("true" if self.shallow else "false") + "\n"
+            return ("true" if self.shallow_from else "false") + "\n"
+        if verb == "rev-list" and "--parents" in argv:
+            since = next(ledger.parse_iso(arg.removeprefix("--since=")) for arg in argv if arg.startswith("--since="))
+            cut = self.shallow_from and ledger.parse_iso(self.shallow_from) >= since
+            return "tip parent\n" + ("graft\n" if cut else "")
         if verb == "rev-parse":
             return self.fetched + "\n"
         if verb == "merge-tree":

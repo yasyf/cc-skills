@@ -910,15 +910,27 @@ def test_label_refuses_a_parent_whose_branch_is_still_a_base(capsys):
     assert "BEFORE labelling" in out
 
 
-def test_reconcile_refuses_to_grade_from_a_shallow_clone(capsys, tmp_path):
-    """Trunk traversal truncates at a depth that moves with every fetch."""
+def test_a_shallow_clone_holding_the_trunk_since_the_pr_opened_settles_its_landing(tmp_path):
+    shell = desk_shell(**MERGED)
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
+    shell.trunk_log = [f"{SQUASH} 2026-09-17T03:04:05+02:00 ci: 🐛 retry buildkite reads (#{PR})"]
+    shell.shallow_from = "2026-08-20T00:00:00Z"
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
+    assert shell.fields(PR)["landed_sha"] == SQUASH
+
+
+def test_a_shallow_clone_cut_after_the_pr_opened_refuses_and_writes_nothing(capsys, tmp_path):
     shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
-    shell.shallow = True
+    shell.shallow_from = "2026-09-10T00:00:00Z"
 
     assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 1
-    assert "shallow clone" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert err.startswith("checkout refused, wrote nothing:")
+    assert "begins after 2026-09-01T00:00:00Z" in err
     assert shell.fields(PR).get("state") is None
 
 
