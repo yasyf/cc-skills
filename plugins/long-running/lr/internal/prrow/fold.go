@@ -22,7 +22,6 @@ import (
 )
 
 const (
-	unknownGrace          = 10 * time.Minute
 	portInteractsUnstated = "unstated"
 	headGrace             = 5 * time.Minute
 )
@@ -594,7 +593,7 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 	return errors.Join(failed...)
 }
 
-// steadyMergeable keeps a head's last known mergeability through the minutes GitHub recomputes it after its base moves, so one landing does not empty his tab. Landing and stack-enqueue keep reading GitHub's own answer.
+// steadyMergeable keeps a head's last known mergeability until GitHub answers for that head, so dev moving does not empty his tab however long the recompute runs. Landing and stack-enqueue keep reading GitHub's own answer.
 func (f Fold) steadyMergeable(attrs map[string]string, pr machine.Facts, facts map[string]string) error {
 	since := facts[FactUnknownSince]
 	if attrs["mergeable"] != string(machine.MergeableUnknown) {
@@ -608,15 +607,13 @@ func (f Fold) steadyMergeable(attrs map[string]string, pr machine.Facts, facts m
 		}
 		return nil
 	}
-	began, err := time.Parse(time.RFC3339, since)
-	if err != nil {
-		began = f.Now()
-		if _, err := f.Store.PutFact(f.Repo, pr.Number, pr.Head, FactUnknownSince, began.Format(time.RFC3339), began); err != nil {
+	if since == "" {
+		now := f.Now()
+		if _, err := f.Store.PutFact(f.Repo, pr.Number, pr.Head, FactUnknownSince, now.Format(time.RFC3339), now); err != nil {
 			return err
 		}
 	}
-	known := facts[factMergeable]
-	if known != "" && known != string(machine.MergeableUnknown) && f.Now().Sub(began) < unknownGrace {
+	if known := facts[factMergeable]; known != "" {
 		attrs["mergeable"] = known
 	}
 	return nil
