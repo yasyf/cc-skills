@@ -32,6 +32,8 @@ class FakeShell:
                     self.rows[row["key"]] = {**self.rows.get(row["key"], {}), **row["fields"]}
                 return ""
         if argv[:2] == ["cci", "grep"]:
+            if "--lane" not in argv:
+                return ""
             lane = argv[argv.index("--lane") + 1]
             return json.dumps({"lane": lane, "kind": self.heard[lane]}) + "\n" if lane in self.heard else ""
         raise AssertionError(f"unexpected call {argv}")
