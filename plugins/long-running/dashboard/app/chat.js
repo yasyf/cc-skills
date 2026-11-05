@@ -17,6 +17,7 @@ const RAIL_SHOWN = 6;
 const SIMPLE_PICK = 50;
 const BARE_ASK_MINUTES = 60;
 const CLAMP_CHARS = 340;
+const RESENT_MS = 5 * 60 * 1000;
 const PR_CHIPS_SHOWN = 6;
 const DONE_LEAD = /^Done, nothing for you[.:]?\s*/i;
 const DASHBOARD_URL = String.raw`https?://([\w.-]+)(?::\d+)?/?(#[^\s)]*?)?`;
@@ -63,11 +64,20 @@ function typedRow(at, text) {
 function chatThreads() {
   const m = state.model;
   const threads = new Map();
-  const askKey = (row) => `line:m${String(row.m).split('.')[0]}`;
+  const resentAs = new Map();
+  const lineKey = (row) => `line:m${String(row.m).split('.')[0]}`;
+  const askKey = (row) => resentAs.get(lineKey(row)) ?? lineKey(row);
+  let newest = null;
   for (const row of m.owner_asks.messages) {
+    const same = newest?.rows.findIndex((part) => part.text === row.text && new Date(row.iso) - new Date(part.iso) < RESENT_MS) ?? -1;
+    if (same >= 0) {
+      if (newest.key !== lineKey(row)) resentAs.set(lineKey(row), newest.key);
+      newest.rows[same] = row;
+      continue;
+    }
     const key = askKey(row);
     if (threads.has(key)) threads.get(key).rows.push(row);
-    else threads.set(key, { key, at: row.iso, rows: [row], replies: [], said: [] });
+    else threads.set(key, newest = { key, at: row.iso, rows: [row], replies: [], said: [] });
   }
   const home = new Map();
   for (const line of m.chat_lines.filter((row) => !row.on)) {
@@ -85,7 +95,7 @@ function chatThreads() {
   for (const entry of [...m.replies].reverse()) {
     const r = entry.reply;
     const key = `reply:${r.id}`;
-    const parent = threads.get(askKeyOf(r)) ?? threads.get(home.get(r.on));
+    const parent = threads.get(resentAs.get(askKeyOf(r)) ?? askKeyOf(r)) ?? threads.get(home.get(r.on));
     if (parent) {
       parent.replies.push(entry);
       home.set(key, parent.key);
