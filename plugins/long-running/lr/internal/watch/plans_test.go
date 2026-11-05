@@ -332,9 +332,27 @@ func TestAReplyToTheOwnerOwesNoPlanForTheDeadlineItRepeats(t *testing.T) {
 	want(t, len(Unplanned([]client.Record{reply}, said)), 0)
 }
 
+func liveLanes(t *testing.T, s *store.Store, now time.Time, lanes ...store.Lane) {
+	t.Helper()
+	for _, lane := range lanes {
+		lane.Brief, lane.Model, lane.Effort, lane.Role, lane.State = "b", "opus", "xhigh", "desk", store.LaneDesired
+		if _, err := s.WantLane(lane, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func retireLane(t *testing.T, s *store.Store, name, by string, now time.Time) {
+	t.Helper()
+	if err := s.SetLaneState(name, store.LaneRetired, now, by, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAStepClockPassingWithNothingFromItsOwnerTellsThatLaneAndTheCommunicatorOnce(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	said := at(t, "2026-11-05T05:00:00Z")
+	liveLanes(t, s, said, store.Lane{Name: "tap-rows"})
 	row := withAttrs(client.Record{Seq: 912, Lane: "owner-board", Kind: "posted", At: said, Text: "Received, with the coordinator"}, map[string]string{"row": "m912", "owner": "tap-rows", "step:1": "9:15 PM answer his question"})
 
 	early := planSweep(t, s, r, said.Add(14*time.Minute), row)
@@ -357,6 +375,7 @@ func TestAStepClockPassingWithNothingFromItsOwnerTellsThatLaneAndTheCommunicator
 func TestOnlyTheStepNoRecordFromItsOwnerAnswersGoesOverdue(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	said := at(t, "2026-11-05T05:00:00Z")
+	liveLanes(t, s, said, store.Lane{Name: "tap-rows-1"})
 	plan := withAttrs(client.Record{Seq: 50, Lane: "tap-rows-1", Kind: "report", At: said, Text: "the rows land tonight"}, map[string]string{"owner": "tap-rows", "step:1": "9:30 PM open the PR", "step:2": "10:00 PM land it"})
 	stranger := client.Record{Seq: 51, Lane: "meta-desk-3", Kind: "note", At: said.Add(10 * time.Minute), Re: 50, Text: "seen"}
 	opened := client.Record{Seq: 52, Lane: "tap-rows-1", Kind: "report", At: said.Add(25 * time.Minute), Re: 50, Text: "opened"}
@@ -367,7 +386,8 @@ func TestOnlyTheStepNoRecordFromItsOwnerAnswersGoesOverdue(t *testing.T) {
 	atSecond := planSweep(t, s, r, said.Add(time.Hour), records...)
 
 	want(t, len(atFirst), 0)
-	want(t, len(atSecond), 2)
+	want(t, len(atSecond), 1)
+	want(t, atSecond[0].To, "tap-rows")
 	if !strings.Contains(atSecond[0].Cause, "step:2=10:00 PM land it") {
 		t.Fatalf("cause %q", atSecond[0].Cause)
 	}
@@ -379,7 +399,64 @@ func TestAResolvedOrDeliveredStepRecordStaysSilent(t *testing.T) {
 	delivered := withAttrs(client.Record{Seq: 870, Lane: "owner-relay-2", Kind: "report", At: said.Add(5 * time.Minute)}, map[string]string{"delivered": "owner:m864"})
 	resolved := client.Record{Seq: 871, Lane: "root", Kind: "answer", At: said.Add(5 * time.Minute), Resolves: 864}
 
-	want(t, len(MissedSteps([]client.Record{row, delivered}, said.Add(time.Hour))), 0)
-	want(t, len(MissedSteps([]client.Record{row, resolved}, said.Add(time.Hour))), 0)
-	want(t, len(MissedSteps([]client.Record{row}, said.Add(time.Hour))), 1)
+	relay := []store.Lane{{Name: "owner-relay-2", State: store.LaneDesired}}
+
+	want(t, len(MissedSteps([]client.Record{row, delivered}, relay, said.Add(time.Hour))), 0)
+	want(t, len(MissedSteps([]client.Record{row, resolved}, relay, said.Add(time.Hour))), 0)
+	want(t, len(MissedSteps([]client.Record{row}, relay, said.Add(time.Hour))), 1)
+}
+
+func TestAStepOwnedByARetiredLaneWakesNobody(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-05T05:00:00Z")
+	liveLanes(t, s, said, store.Lane{Name: "tap-rows-1"})
+	retireLane(t, s, "tap-rows-1", "root", said.Add(5*time.Minute))
+	row := withAttrs(client.Record{Seq: 912, Lane: "owner-board", Kind: "posted", At: said}, map[string]string{"row": "m912", "owner": "tap-rows", "step:1": "9:15 PM answer his question"})
+
+	want(t, len(planSweep(t, s, r, said.Add(20*time.Minute), row)), 0)
+	want(t, len(r.posts), 0)
+}
+
+func TestAStepOnARecordOlderThanItsOwnersRelaunchWakesNobodyWhileANewerOneWakesTheSuccessor(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-05T05:00:00Z")
+	liveLanes(t, s, said, store.Lane{Name: "tap-rows-1"})
+	relaunched := said.Add(5 * time.Minute)
+	retireLane(t, s, "tap-rows-1", "tap-rows-2", relaunched)
+	liveLanes(t, s, relaunched, store.Lane{Name: "tap-rows-2", Predecessor: "tap-rows-1"})
+	before := withAttrs(client.Record{Seq: 60, Lane: "root", Kind: "report", At: said}, map[string]string{"owner": "tap-rows", "step:1": "9:15 PM open the PR"})
+	after := withAttrs(client.Record{Seq: 61, Lane: "root", Kind: "report", At: relaunched.Add(time.Minute)}, map[string]string{"owner": "tap-rows", "step:1": "9:15 PM land it"})
+
+	escalated := planSweep(t, s, r, said.Add(20*time.Minute), before, after)
+
+	want(t, len(escalated), 1)
+	want(t, escalated[0].Subject, "step#61")
+	want(t, escalated[0].To, "tap-rows")
+}
+
+func TestAStepWhoseClockPassedBeforeThePlanWindowIsHistoryAndWakesNobody(t *testing.T) {
+	said := at(t, "2026-11-05T05:00:00Z")
+	plan := withAttrs(client.Record{Seq: 70, Lane: "root", Kind: "report", At: said}, map[string]string{"owner": "tap-rows", "step:1": "9:15 PM open the PR"})
+	live := []store.Lane{{Name: "tap-rows", State: store.LaneDesired}}
+
+	want(t, len(MissedSteps([]client.Record{plan}, live, said.Add(15*time.Minute+planWindow))), 1)
+	want(t, len(MissedSteps([]client.Record{plan}, live, said.Add(16*time.Minute+planWindow))), 0)
+}
+
+func TestTheCommunicatorHearsOnlyOfStepsAddressedToItOrOnOwnerRowsInOneLine(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	said := at(t, "2026-11-05T05:00:00Z")
+	liveLanes(t, s, said, store.Lane{Name: "tap-rows"}, store.Lane{Name: "landing-desk-3"})
+	rowed := withAttrs(client.Record{Seq: 80, Lane: "owner-board", Kind: "posted", At: said}, map[string]string{"row": "m80", "owner": "tap-rows", "step:1": "9:15 PM answer his question"})
+	addressed := withAttrs(client.Record{Seq: 81, Lane: "root", Kind: "report", At: said, To: []string{"owner-relay", "landing-desk"}}, map[string]string{"owner": "landing-desk", "step:1": "9:15 PM land it"})
+	asides := withAttrs(client.Record{Seq: 82, Lane: "root", Kind: "report", At: said, To: []string{"tap-rows"}}, map[string]string{"owner": "tap-rows", "step:1": "9:15 PM open the PR"})
+
+	escalated := planSweep(t, s, r, said.Add(20*time.Minute), rowed, addressed, asides)
+
+	relayed := slices.DeleteFunc(slices.Clone(escalated), func(each pass.Escalated) bool { return each.To != "owner-relay" })
+	want(t, len(escalated), 5)
+	want(t, len(relayed), 2)
+	i := slices.IndexFunc(r.posts, func(p posted) bool { return slices.Contains(p.to, "owner-relay") })
+	want(t, r.posts[i].body.Cause, "2 step clocks passed with no answer from their owners, each told: landing-desk 1, tap-rows 1")
+	want(t, r.posts[i].body.Detail, "")
 }

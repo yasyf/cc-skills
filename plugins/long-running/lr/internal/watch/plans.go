@@ -11,6 +11,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -47,13 +48,14 @@ var (
 )
 
 func Unplanned(records []client.Record, now time.Time) []Wait {
+	replies := repliesIn(records)
 	var waits []Wait
 	for _, record := range records {
 		if record.Fields.Attrs[deadlineAttr] == "" && !namedDeadline.MatchString(record.Text) {
 			continue
 		}
 		deadline := deadlineOf(record, restatedClocks(records, record))
-		if deadline == "" || slices.Contains(record.To, "owner") || record.Kind == "escalation" || slices.Contains(kindsOwingNoPlan, string(record.Kind)) || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || planned(record) || settled(records, record.Seq) {
+		if deadline == "" || slices.Contains(record.To, "owner") || record.Kind == "escalation" || slices.Contains(kindsOwingNoPlan, string(record.Kind)) || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || planned(record) || replies.settled(record.Seq) {
 			continue
 		}
 		waits = append(waits, Wait{
@@ -177,10 +179,40 @@ func planned(record client.Record) bool {
 	return attrs[ownerAttr] != "" && timed
 }
 
-func settled(records []client.Record, seq int64) bool {
-	return slices.ContainsFunc(records, func(later client.Record) bool {
+type replies struct {
+	to        map[int64][]client.Record
+	delivered map[string][]client.Record
+}
+
+func repliesIn(records []client.Record) replies {
+	r := replies{to: map[int64][]client.Record{}, delivered: map[string][]client.Record{}}
+	for _, record := range records {
+		for _, seq := range slices.Compact(slices.Sorted(slices.Values(append([]int64{record.Re, record.Resolves}, record.AlsoResolves...)))) {
+			if seq != 0 {
+				r.to[seq] = append(r.to[seq], record)
+			}
+		}
+		for _, delivered := range strings.FieldsFunc(record.Fields.Attrs[deliveredAttr], func(c rune) bool { return c == ',' || c == ' ' }) {
+			if row, ok := strings.CutPrefix(delivered, "owner:"); ok {
+				r.delivered[row] = append(r.delivered[row], record)
+			}
+		}
+	}
+	return r
+}
+
+func (r replies) settled(seq int64) bool {
+	return slices.ContainsFunc(r.to[seq], func(later client.Record) bool {
 		return later.Resolves == seq || slices.Contains(later.AlsoResolves, seq) || later.Re == seq && planned(later)
 	})
+}
+
+func (r replies) answered(record client.Record, owner string, since time.Time) bool {
+	fromOwner := func(later client.Record) bool {
+		return later.Seq > record.Seq && later.At.After(since) && sameLane(later.Lane, owner)
+	}
+	row := record.Fields.Attrs[rowAttr]
+	return slices.ContainsFunc(r.to[record.Seq], fromOwner) || row != "" && slices.ContainsFunc(r.delivered[row], fromOwner)
 }
 
 type step struct {
@@ -188,22 +220,28 @@ type step struct {
 	due               time.Time
 }
 
-func MissedSteps(records []client.Record, now time.Time) []Wait {
+func MissedSteps(records []client.Record, registered []store.Lane, now time.Time) []Wait {
+	replies, began := repliesIn(records), generations(registered)
 	var waits []Wait
 	for _, record := range records {
 		owner := record.Fields.Attrs[ownerAttr]
-		if owner == "" || record.Status == "closed" || settled(records, record.Seq) {
+		generation, live := began[laneBase(owner)]
+		if !live || record.At.Before(generation) || record.Status == "closed" || replies.settled(record.Seq) {
 			continue
+		}
+		to := []string{owner}
+		if !sameLane(owner, ownerRelay) && (slices.Contains(record.To, ownerRelay) || record.Fields.Attrs[rowAttr] != "") {
+			to = append(to, ownerRelay)
 		}
 		since := record.At
 		for _, step := range timedSteps(record) {
 			if step.due.After(now) {
 				break
 			}
-			if !answered(records, record, owner, since) {
-				for _, to := range slices.Compact([]string{owner, ownerRelay}) {
+			if now.Sub(step.due) <= planWindow && !replies.answered(record, owner, since) {
+				for _, each := range to {
 					waits = append(waits, Wait{
-						Kind: stepKind, Repo: StepNamespace, Number: int(record.Seq), Head: step.name, Mover: machine.MoverLane, Since: step.due, To: to, Key: step.name + " " + to,
+						Kind: stepKind, Repo: StepNamespace, Number: int(record.Seq), Head: step.name, Mover: machine.MoverLane, Since: step.due, To: each, Owner: owner, Key: step.name + " " + each,
 						Cause: fmt.Sprintf("%s: %s%s %s=%s %s from %s, owned by %s, passed its clock with no record from %s answering it since %s; %s owes a record with --re %d saying what is done and what is next, or one resolving it", missedClass, record.Name(), rowOf(record), step.name, step.clock, step.what, record.Lane, owner, owner, since.In(pacific).Format("3:04 PM"), owner, record.Seq),
 					})
 				}
@@ -214,10 +252,31 @@ func MissedSteps(records []client.Record, now time.Time) []Wait {
 	return waits
 }
 
+func generations(registered []store.Lane) map[string]time.Time {
+	retired := map[string]time.Time{}
+	for _, lane := range registered {
+		if lane.State == store.LaneRetired {
+			retired[lane.Name] = lane.Since
+		}
+	}
+	began := map[string]time.Time{}
+	for _, lane := range registered {
+		if lane.State == store.LaneRetired {
+			continue
+		}
+		family, launched := laneBase(lane.Name), retired[lane.Predecessor]
+		if earlier, ok := began[family]; !ok || launched.Before(earlier) {
+			began[family] = launched
+		}
+	}
+	return began
+}
+
 func NextStep(records []client.Record, now time.Time) time.Time {
+	replies := repliesIn(records)
 	var next time.Time
 	for _, record := range records {
-		if record.Fields.Attrs[ownerAttr] == "" || record.Status == "closed" || settled(records, record.Seq) {
+		if record.Fields.Attrs[ownerAttr] == "" || record.Status == "closed" || replies.settled(record.Seq) {
 			continue
 		}
 		for _, step := range timedSteps(record) {
@@ -260,14 +319,6 @@ func stepDue(at time.Time, rest string, written time.Time) time.Time {
 		due = due.AddDate(0, 0, 1)
 	}
 	return due
-}
-
-func answered(records []client.Record, record client.Record, owner string, since time.Time) bool {
-	seq, row := record.Seq, record.Fields.Attrs[rowAttr]
-	return slices.ContainsFunc(records, func(later client.Record) bool {
-		delivered := strings.FieldsFunc(later.Fields.Attrs[deliveredAttr], func(r rune) bool { return r == ',' || r == ' ' })
-		return later.Seq > seq && later.At.After(since) && sameLane(later.Lane, owner) && (later.Re == seq || later.Resolves == seq || slices.Contains(later.AlsoResolves, seq) || row != "" && slices.Contains(delivered, "owner:"+row))
-	})
 }
 
 func rowOf(record client.Record) string {
