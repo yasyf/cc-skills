@@ -77,7 +77,7 @@
    ],
    "escalations": [
     {
-     "Subject": "org/repo#48000",
+     "Subject": "org/repo#48000 at bbbbbbb",
      "Cause": "enqueue overdue",
      "To": "root"
     }

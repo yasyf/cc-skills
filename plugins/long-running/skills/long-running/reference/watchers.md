@@ -31,7 +31,11 @@
 
 **`lr watch` covers the waits no PR state carries.** It runs on the supervisor's tick and reads open asks, gates, repeated defects, unfinished ledger rows (retro rows, owner asks, sweep findings and picks; a pick naming a PR that waits on his tap is his wait and never reaches root), `meta/items.md` and records that name a deadline with no plan. `lr watch deadlines` runs one pass by hand.
 
-**The red register is `lr board reds`.** It prints one line per open drive PR whose build reads red: head, failing checks, class, owner, red since and last action. The class comes from the newest `red` record that names the head; a head with none reads `unclassed`. A red head's `fix-red` item goes to the coordinator past the lane's 20 minutes, classed or not, so no red depends on a `red-sweep` lane being live.
+**The red register is `lr board reds`.** It prints one line per open drive PR whose build reads red, with its head, failing checks, class, owner, red since and last action. A PR on the owner's tap list also says whether he tapped it or its card waits on him. The header counts those, so owner-relay reads the reds on his list from one call. The class comes from the newest `red` record that names the head; a head with none reads `unclassed`.
+
+**A red wakes its owner in the pass that reads it.** The `fix-red` item, like every lane item, goes to the PR's lane or the live end of its successor chain, the same route its escalation takes. When no lane of that chain runs, root hears `UNOWNED, <lane> is not running: fix-red` in that pass, not 20 minutes later. Past the lane's 20 minutes the item escalates to the same owner, classed or not, so no red depends on a `red-sweep` lane being live. An escalation's subject names the PR and its head, so each new red head escalates once; a PR escalated at an earlier head is never silent at the next one.
+
+**A red PR leaves his board.** The ready-cards pass takes down the tap card of an untapped PR that reads red at its newest head, including a card drawn at an earlier head, and says that the lane was told. A new card asks once CI is green.
 
 **`lr board waits --pr <n>` says what a PR waits on,** including the PR below it when an unlandable parent is the reason.
 

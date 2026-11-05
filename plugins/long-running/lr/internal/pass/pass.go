@@ -118,7 +118,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 		return out, err
 	}
 	for _, f := range snapshot {
-		if err := classifyOne(s, f, byBranch, now, tell, live, &out); err != nil {
+		if err := classifyOne(s, f, byBranch, now, tell, live, owner, &out); err != nil {
 			return out, fmt.Errorf("#%d: %w", f.Number, err)
 		}
 		if row, seen := known[f.Number]; seen && row.State != machine.StateLanded && out.Verdicts[f.Number].State == machine.StateLanded {
@@ -173,7 +173,7 @@ func knownRows(s *store.Store, snapshot []machine.Facts) (map[int]store.PR, erro
 	return known, nil
 }
 
-func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, live []machine.Mover, out *Outcome) error {
+func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, live []machine.Mover, owner Owner, out *Outcome) error {
 	verdict := verdictOf(f, byBranch)
 	out.Verdicts[f.Number] = verdict
 	if err := s.PutPR(store.PR{Repo: f.Repo, Number: f.Number, Head: f.Head, Base: f.Base, Lane: f.Lane, State: verdict.State, ReadAt: now}); err != nil {
@@ -205,6 +205,14 @@ func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Fa
 	if item.Created.Equal(now) {
 		out.Opened = append(out.Opened, item)
 		if to := audience(verdict, f); verdict.Mover != machine.MoverSupervisor && slices.Contains(live, verdict.Mover) && to != "" {
+			if verdict.Mover == machine.MoverLane && to != root {
+				if to, err = owner(f.Lane, f.Number); err != nil {
+					return err
+				}
+				if to == root {
+					return escalate(s, itemSubject(f.Repo, f.Number, f.Head), "UNOWNED, "+f.Lane+" is not running: "+string(verdict.Action), "", root, now, post, out)
+				}
+			}
 			body := bus.Item{Item: item.ID, Action: string(verdict.Action), PR: f.Number, Head: f.Head, Mover: string(verdict.Mover), Deadline: store.Stamp(item.Deadline)}
 			if err := post([]string{to}, body); err != nil {
 				return err
@@ -324,7 +332,7 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 				cause = "UNOWNED, " + lane + " is not running: " + cause
 			}
 		}
-		subject := fmt.Sprintf("%s#%d", item.Repo, item.Number)
+		subject := itemSubject(item.Repo, item.Number, item.Head)
 		body := bus.Overdue(to, subject, cause+said)
 		if !deskOwns && !rootOwned && to != root {
 			body = bus.Ask{Text: subject + " " + cause + said}
@@ -447,7 +455,7 @@ func escalateTappedHolds(s *store.Store, snapshot []machine.Facts, now time.Time
 		if out.Verdicts[f.Number].State != machine.StateHeld {
 			continue
 		}
-		subject := fmt.Sprintf("%s#%d at %s", f.Repo, f.Number, f.Head[:min(10, len(f.Head))])
+		subject := itemSubject(f.Repo, f.Number, f.Head)
 		cause := fmt.Sprintf("DECIDE: the owner tapped this head while hold #%d stands; lift the hold, or tell the owner why not", f.HoldSeq)
 		if err := escalate(s, subject, cause, "", root, now, post, out); err != nil {
 			return err
@@ -542,7 +550,7 @@ func escalateUngraded(s *store.Store, snapshot []machine.Facts, now time.Time, p
 }
 
 func tellUngraded(s *store.Store, f machine.Facts, waited time.Duration, now time.Time, post Post, route Route, owner Owner, out *Outcome) error {
-	subject := fmt.Sprintf("%s#%d at %s", f.Repo, f.Number, f.Head[:min(10, len(f.Head))])
+	subject := itemSubject(f.Repo, f.Number, f.Head)
 	detail := ": no " + strings.Join(grading.Missing(f), " or ") + " grade"
 	switch {
 	case waited >= ungradedRoot && !f.Approved:
@@ -657,4 +665,8 @@ func audience(verdict machine.Verdict, f machine.Facts) string {
 		return f.Lane
 	}
 	return string(verdict.Mover)
+}
+
+func itemSubject(repo string, number int, head string) string {
+	return fmt.Sprintf("%s#%d at %s", repo, number, head[:min(10, len(head))])
 }

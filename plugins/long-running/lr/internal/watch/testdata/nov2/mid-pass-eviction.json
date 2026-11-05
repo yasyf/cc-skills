@@ -73,7 +73,7 @@
    ],
    "escalations": [
     {
-     "Subject": "org/repo#48274",
+     "Subject": "org/repo#48274 at b555140",
      "Cause": "watch-queue overdue",
      "To": "root"
     }

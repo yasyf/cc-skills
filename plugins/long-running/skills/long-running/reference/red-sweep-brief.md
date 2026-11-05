@@ -8,7 +8,7 @@ The coordinator starts `red-sweep` remote with `lr desks start`, model opus, eff
 
 A lane classes a red head with `cci post --kind red --pr <n> --text "class=<inherited|flake|real|stale> head=<sha> owner=<lane> <what was done>"`. A head with no such record reads `unclassed`, and every new head starts unclassed.
 
-A red head opens a `fix-red` item for the PR's lane with a 20-minute clock, and past it the item goes to the coordinator, whether or not a `red-sweep` lane is live.
+A red head opens a `fix-red` item with a 20-minute clock and wakes the PR's lane, or the live end of its successor chain, in the same pass; with no live lane it reaches the coordinator as UNOWNED at once. Past the clock the item escalates to that owner, whether or not a `red-sweep` lane is live.
 
 A red or conflicting PR that stays stalled after its first alert is re-alerted at a fixed interval until it is green or closed, and each stalled-red alert is routed to its owner in the same turn it arrives.
 

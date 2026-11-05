@@ -39,7 +39,7 @@
    ],
    "escalations": [
     {
-     "Subject": "org/repo#48317",
+     "Subject": "org/repo#48317 at b555140",
      "Cause": "fix-red overdue",
      "To": "conflicts-2"
     }

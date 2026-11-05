@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"regexp"
 	"slices"
@@ -49,6 +50,7 @@ const (
 	tapCardRefused = "refused"
 	newVersionWhy  = "a new version replaced it, and its own card asks again"
 	newVersionAsks = "a new version asks again in its own card"
+	redWhy         = "CI went red at its newest version and the lane that owns it was told; a new card asks once CI is green"
 )
 
 const listPostLimit = time.Minute
@@ -74,6 +76,9 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 		return err
 	}
 	if err := r.tellChangeOwed(ctx, rows, facts); err != nil {
+		return err
+	}
+	if err := r.retireRed(ctx, rows); err != nil {
 		return err
 	}
 	lists, err := r.tapLists()
@@ -186,6 +191,40 @@ func (r ReadyCards) tellChangeOwed(ctx context.Context, rows []store.ReviewRow, 
 			return fmt.Errorf("#%d: %w", row.Number, err)
 		}
 		if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, factChangeTold, flaw, r.Cards.Now()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r ReadyCards) retireRed(ctx context.Context, rows []store.ReviewRow) error {
+	drawn, err := r.Cards.Store.LatestFacts(r.Repo, FactTapCard)
+	if err != nil {
+		return err
+	}
+	red := slices.DeleteFunc(slices.Clone(rows), func(row store.ReviewRow) bool {
+		return row.CI != prrow.CIRed || row.Tapped || row.State != prrow.StateOpen || !slices.Contains([]string{tapCardDrawn, tapCardOnBoard}, drawn[row.Number])
+	})
+	if len(red) == 0 {
+		return nil
+	}
+	shown, err := r.Cards.tapCards(ctx)
+	if err != nil {
+		return err
+	}
+	var cards []string
+	for _, row := range red {
+		for _, card := range shown {
+			if strings.HasPrefix(card.ID, tapCardPrefix(row.Number)) || card.asksAt(row) {
+				cards = append(cards, card.ID)
+			}
+		}
+	}
+	if err := r.Cards.Retire(ctx, r.Lane, redWhy, cards, io.Discard); err != nil {
+		return err
+	}
+	for _, row := range red {
+		if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, FactTapCard, "", r.Cards.Now()); err != nil {
 			return err
 		}
 	}

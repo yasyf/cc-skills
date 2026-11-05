@@ -425,6 +425,82 @@ func TestANewHeadTakesTheOldCardDownAndDrawsItsOwn(t *testing.T) {
 	}
 }
 
+func redRow(row store.ReviewRow) store.ReviewRow {
+	row.CI, row.ReadyForTap, row.WaitsOn = prrow.CIRed, false, prrow.RedAtHead
+	return row
+}
+
+func TestARedHeadTakesItsTapCardDownAndTurningGreenDrawsItAgain(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	row := tapRow(50485)
+	putRows(t, f, row)
+	readyPass(t, f)
+	f.run(t)
+	putRows(t, f, redRow(row))
+	readyPass(t, f)
+	f.run(t)
+	if _, onBoard := f.shell.drawn[tapCardID(row)]; onBoard {
+		t.Fatal("a red PR's tap card stayed on the board")
+	}
+	putRows(t, f, row)
+	readyPass(t, f)
+	f.run(t)
+	if calls := askCalls(f); len(calls) != 2 {
+		t.Fatalf("asks = %v, want the first draw and one once green", calls)
+	}
+	if _, onBoard := f.shell.drawn[tapCardID(row)]; !onBoard {
+		t.Fatalf("drawn = %v, want the card back", f.shell.drawn)
+	}
+}
+
+func TestARedNewHeadTakesTheOldHeadsCardDownAndDrawsNone(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	row := tapRow(49059)
+	putRows(t, f, row)
+	readyPass(t, f)
+	f.run(t)
+	pushed := redRow(row)
+	pushed.Head, pushed.ReadHead = nextHead, nextHead
+	putRows(t, f, pushed)
+	readyPass(t, f)
+	f.run(t)
+	if len(f.shell.drawn) != 0 {
+		t.Fatalf("drawn = %v, want no card for a red head", f.shell.drawn)
+	}
+	readyPass(t, f)
+	if calls := askCalls(f); len(calls) != 1 {
+		t.Fatalf("asks = %v, want only the first draw", calls)
+	}
+}
+
+func TestOneRedRowAmongReadyRowsReadsTheBoardOnceAtOneRowOrAThousand(t *testing.T) {
+	for _, n := range []int{1, 1000} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			liveDrive(t)
+			f := newLink(t)
+			rows := []store.ReviewRow{tapRow(1)}
+			for number := 2; number <= n; number++ {
+				row := tapRow(number)
+				row.Tapped = true
+				rows = append(rows, row)
+			}
+			putRows(t, f, rows...)
+			readyPass(t, f)
+			f.run(t)
+			rows[0] = redRow(rows[0])
+			putRows(t, f, rows...)
+			before := len(f.shell.seen())
+			readyPass(t, f)
+			calls := slices.DeleteFunc(f.shell.seen()[before:], func(call string) bool { return !strings.HasPrefix(call, "cc-present ") })
+			if len(calls) != 1 || !strings.HasPrefix(calls[0], "cc-present remove-block "+tapCardID(rows[0])) {
+				t.Fatalf("board writes = %v, want one removal", calls)
+			}
+		})
+	}
+}
+
 func TestATapCardDrawsAtHisDMRootEvenWhenAReplyNamedItsPRInAThread(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)
