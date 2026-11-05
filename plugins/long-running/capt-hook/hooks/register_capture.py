@@ -10,6 +10,7 @@ from itertools import dropwhile, takewhile
 from pathlib import Path
 
 from cc_transcript import AttachmentEvent, UserEvent
+from cc_transcript.models import HookAdditionalContext
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, WorkflowState, on, workflow_state
 from captain_hook.util import reqenv
 
@@ -32,6 +33,8 @@ TRIGGERS = (
 )
 TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*|[?.!,;:\n]")
 SLACK_MESSAGE = re.compile(r'<channel source="plugin:cc-slack:cc-slack"[^>]*type="slack\.message">\s*(?P<payload>\{.*\})\s*</channel>', re.DOTALL)
+SLACK_TAP = re.compile(r'<channel source="plugin:cc-slack:cc-slack"[^>]*type="slack\.action">\s*(?P<payload>\{.*?\})\s*</channel>', re.DOTALL)
+TAP_DIRECTIVE = re.compile(r"Slack tap from [^\n(]*, your operator,[^\n(]*\(https://\S+?/archives/D\w+/p(?P<seconds>\d+)(?P<micros>\d{6})\b")
 OPERATOR = "U05FTPXU8PP"
 FALLBACK_POST = "_(Yasyf's Claude)_"
 OWNER_WATCH = "owner Slack watch"
@@ -240,10 +243,20 @@ def owner_slack_messages(prompts: Iterable[str]) -> list[dict]:
     return [message for message in messages if his_message(message)]
 
 
+def watch_lines(prompts: Sequence[str]) -> list[dict]:
+    return [json.loads(line) for prompt in prompts for found in WATCH_EVENT.finditer(prompt) for line in found["lines"].splitlines() if line.startswith("{") and not line.endswith(MONITOR_CUT)]
+
+
 def owner_messages_heard(prompts: Sequence[str]) -> list[dict]:
-    watched = (json.loads(line) for prompt in prompts for found in WATCH_EVENT.finditer(prompt) for line in found["lines"].splitlines() if line.startswith("{") and not line.endswith(MONITOR_CUT))
-    heard = [*owner_slack_messages(prompts), *(event for event in watched if event.get("type") == "slack.message" and his_message(event))]
+    heard = [*owner_slack_messages(prompts), *(event for event in watch_lines(prompts) if event.get("type") == "slack.message" and his_message(event))]
     return sorted({message["ts"]: message for message in heard}.values(), key=lambda message: float(message["ts"]))
+
+
+def owner_tap_threads(prompts: Sequence[str], events: Iterable[object]) -> set[str]:
+    tagged = (json.loads(found["payload"]) for prompt in prompts for found in SLACK_TAP.finditer(prompt))
+    tapped = [*tagged, *(event for event in watch_lines(prompts) if event.get("type") == "slack.action")]
+    directed = (found for event in events if isinstance(event, AttachmentEvent) and isinstance(event.detail, HookAdditionalContext) for found in TAP_DIRECTIVE.finditer("\n".join(event.detail.content)))
+    return {ts for tap in tapped if tap["channel_id"].startswith("D") for ts in (tap["thread_ts"], tap["ts"]) if ts} | {f"{found['seconds']}.{found['micros']}" for found in directed}
 
 
 def dm_digest(evt: BaseHookEvent, ts: str) -> str:

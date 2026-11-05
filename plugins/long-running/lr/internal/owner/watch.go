@@ -16,12 +16,15 @@ import (
 )
 
 const (
-	slackMessage  = "slack.message"
-	fallbackPost  = "_(Yasyf's Claude)_"
-	lookingAt     = "eyes"
-	slackCall     = 15 * time.Second
-	maxSlackEvent = 4 << 20
-	watching      = "owner Slack watch running for %s: each of his messages gets :eyes: and wakes this window"
+	slackMessage      = "slack.message"
+	slackAction       = "slack.action"
+	slackWatchError   = "slack.watch_error"
+	slackOwnerStopped = "slack.owner_stopped"
+	fallbackPost      = "_(Yasyf's Claude)_"
+	lookingAt         = "eyes"
+	slackCall         = 15 * time.Second
+	maxSlackEvent     = 4 << 20
+	watching          = "owner Slack watch running for %s: each of his messages gets :eyes: and wakes this window"
 )
 
 type slackEvent struct {
@@ -93,28 +96,30 @@ func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows row
 		if event.fromBot() {
 			return nil
 		}
+		var written []string
 		if event.Type == slackMessage && event.User == me.User {
 			if _, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "react", "--channel", event.Channel, "--ts", event.TS, "--name", lookingAt}, Timeout: slackCall}); err != nil {
-				fmt.Fprintf(out, "%s did not land on his message %s: %v\n", lookingAt, event.TS, err)
+				fmt.Fprintln(out, clippedLine(fmt.Sprintf("%s did not land on his message %s: %v", lookingAt, event.TS, err)))
 			}
 			var word threadWord
 			if err := json.Unmarshal(line, &word); err != nil {
 				return fmt.Errorf("cc-slack watch printed %q: %w", line, err)
 			}
-			written, err := rows(ctx, word)
-			if err != nil {
-				fmt.Fprintf(out, "his message %s wrote no ledger row: %v\n", event.TS, err)
+			var err error
+			if written, err = rows(ctx, word); err != nil {
+				fmt.Fprintln(out, clippedLine(fmt.Sprintf("his message %s wrote no ledger row: %v", event.TS, err)))
 			}
 			var missed []string
 			line, missed = joined(ctx, runner, threads, line, event)
 			for _, miss := range missed {
-				fmt.Fprintln(out, miss)
-			}
-			if line, err = fitted(line, written); err != nil {
-				return err
+				fmt.Fprintln(out, clippedLine(miss))
 			}
 		}
-		_, err := fmt.Fprintln(out, string(line))
+		line, err := fitted(line, written)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, string(line))
 		return err
 	})
 }
