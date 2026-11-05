@@ -1298,6 +1298,30 @@ func TestACarriedSecondFixMajorIsReadAgainstTheBodyAsItStandsNow(t *testing.T) {
 	}
 }
 
+func TestABodyEditAtTheHeadAMajorReadReadsTheWholePRAgainWithItsNewBody(t *testing.T) {
+	graded := "finder: major " + shaHead[:7] + " 1 open " + wholeRecord + ": api/src/modules/ProjectScheduleEvaluator.ts:294 a new schedule has no current cursor, so its first run is never prewarmed"
+	for name, c := range map[string]struct {
+		edited bool
+		asks   int
+		want   string
+	}{
+		"a body edit asks the finder again":            {true, 1, "finder: ok " + shaHead + " "},
+		"a repeat pass at that head carries the major": {false, 0, "finder: major " + shaHead[:7] + " carried from #502773"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := finderJobDir(t, map[string]any{"prior": map[string]any{"seq": 502773, "lane": "finder-desk", "head": shaHead[:7], "text": graded}, "body_edited": c.edited})
+			shell, _ := newFinderFake(t, replyOf())
+			shell.body = summaryBody + "\n\nAccepted: ProjectScheduleEvaluator.ts:294 seeds every new schedule's cursor at create, so its first run is prewarmed."
+			mustFinder(t, directory, shell)
+			equal(t, len(shell.asks()), c.asks)
+			if !strings.HasPrefix(shell.posted[0]["--text"], c.want) {
+				t.Errorf("posted %q, want it to open %q", shell.posted[0]["--text"], c.want)
+			}
+			equal(t, shell.posted[0]["--id"], "finder:"+repoName+"#43299:"+shaHead+":after-502773")
+		})
+	}
+}
+
 func TestAPortOwesItsSecondFixAsAFollowUpAndAnyOtherBodyKeepsTheMajor(t *testing.T) {
 	cite := "go/sand/internal/replica/follow.go:40"
 	owed := "follow-ups owed after this port: " + cite + " " + classFixOwed + ". #47001 ("

@@ -201,7 +201,7 @@ func TestABodyEditHeadRecordRechecksTheMajorAtThatHeadAndNothingGradedOk(t *test
 				return
 			}
 			spec := readJob[grader.FinderJob](t, f.finderDir("45489"+wholeMark+strconv.FormatInt(edit, 10)))
-			if spec.Full || spec.Head != head || spec.Prior == nil || spec.Prior.Seq != graded || spec.Lane != "lane-7" {
+			if spec.Full || !spec.BodyEdited || spec.Head != head || spec.Prior == nil || spec.Prior.Seq != graded || spec.Lane != "lane-7" {
 				t.Errorf("job = %+v", spec)
 			}
 		})
@@ -229,7 +229,7 @@ func TestABodyEditTheGitHubReadSeesRechecksAnOpenMajorAtThatHeadAndNothingClear(
 				return
 			}
 			spec := readJob[grader.FinderJob](t, f.finderDir("45489"+wholeMark+strconv.FormatInt(read, 10)))
-			if spec.Full || spec.Head != head || spec.Prior == nil || spec.Prior.Seq != graded || spec.Lane != "lane-7" {
+			if spec.Full || !spec.BodyEdited || spec.Head != head || spec.Prior == nil || spec.Prior.Seq != graded || spec.Lane != "lane-7" {
 				t.Errorf("job = %+v", spec)
 			}
 		})
