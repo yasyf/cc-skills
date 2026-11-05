@@ -3,6 +3,7 @@ package grading
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -73,6 +74,7 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 	}
 	full := map[string]bool{}
 	var dispatched []Dispatched
+	var failed []error
 	for _, item := range ranked {
 		facts := snapshot[item.Number]
 		if !graded[item.ID] || facts.Head != item.Head || facts.Held() || (held[item.Worker] && item.Deadline.After(now)) {
@@ -98,7 +100,8 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 				continue
 			}
 			if err != nil {
-				return dispatched, err
+				failed = append(failed, fmt.Errorf("#%d %s: %w", facts.Number, grader, err))
+				continue
 			}
 			if err := s.Heartbeat(store.Worker{Name: name, Generation: generation, Heartbeat: now, Item: item.ID}); err != nil {
 				return dispatched, err
@@ -135,7 +138,7 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 			return dispatched, err
 		}
 	}
-	return dispatched, nil
+	return dispatched, errors.Join(failed...)
 }
 
 func markParked(s *store.Store, snapshot map[int]machine.Facts, parked map[int]string, now time.Time) error {

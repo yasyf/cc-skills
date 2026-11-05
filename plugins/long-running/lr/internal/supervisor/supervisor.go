@@ -237,11 +237,10 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 			byNumber[facts.Number] = facts
 		}
 		dispatched, err := grading.Act(ctx, s, d.Pool, items, byNumber, now, generation)
-		if err != nil {
-			d.Log.Warn("movers stopped mid-pass", "err", err)
-			return report, nil
-		}
 		report.Dispatched = len(dispatched)
+		if err != nil {
+			d.Log.Warn("the grading pass met an error", "err", err)
+		}
 	}
 	return report, nil
 }

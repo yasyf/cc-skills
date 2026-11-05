@@ -23,13 +23,14 @@ const (
 var t0 = time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
 
 type fakePool struct {
-	jobs    []Dispatched
-	box     string
-	gone    map[string]bool
-	refuse  map[string]error
-	refused []string
-	queued  []int
-	settles int
+	jobs     []Dispatched
+	box      string
+	gone     map[string]bool
+	refuse   map[string]error
+	refusePR map[int]error
+	refused  []string
+	queued   []int
+	settles  int
 
 	reversed bool
 	wholes   []string
@@ -77,6 +78,9 @@ func (p *fakePool) Settle(_ context.Context, workers []string) (map[string]bool,
 func (p *fakePool) Dispatch(_ context.Context, grader string, f machine.Facts) (string, error) {
 	if err := p.refuse[grader]; err != nil {
 		p.refused = append(p.refused, grader)
+		return "", err
+	}
+	if err := p.refusePR[f.Number]; err != nil {
 		return "", err
 	}
 	p.jobs = append(p.jobs, Dispatched{grader, f.Number, f.Head})
@@ -370,14 +374,25 @@ func TestAnAnsweredGraderHoldsNoWorkerAndTheOtherStillRuns(t *testing.T) {
 	}
 }
 
-func TestAnyOtherDispatchFailureStopsThePass(t *testing.T) {
-	broken := errors.New("job not written")
-	s, pool := memory(t), &fakePool{box: "sprite-1", refuse: map[string]error{GraderFinder: broken}}
+func TestOnePRsFailedDispatchLeavesEveryOtherPRDispatchedInThatPass(t *testing.T) {
+	broken := errors.New("the PR did not read, so the answers its grade owes cannot be read")
+	s, pool := memory(t), &fakePool{box: "sprite-1", refusePR: map[int]error{51253: broken}}
+	snapshot := map[int]machine.Facts{}
+	for _, pr := range []int{51253, 49927, 50961} {
+		if _, err := s.OpenItem(store.NewItem{Kind: ItemKind, Repo: repo, Number: pr, Head: head, Mover: machine.MoverPool, Deadline: machine.GradeClock}, t0); err != nil {
+			t.Fatal(err)
+		}
+		snapshot[pr] = facts(head, func(f *machine.Facts) { f.Number = pr })
+	}
 
-	_, err := Act(context.Background(), s, pool, opened(t, s, head), map[int]machine.Facts{number: facts(head)}, t0, 1)
+	dispatched, err := Act(context.Background(), s, pool, items(t, s), snapshot, t0, 1)
 
 	if !errors.Is(err, broken) {
-		t.Fatalf("err = %v, want %v", err, broken)
+		t.Fatalf("err = %v, want #51253's %v", err, broken)
+	}
+	want := []Dispatched{{GraderFinder, 49927, head}, {GraderFidelity, 49927, head}, {GraderFinder, 50961, head}, {GraderFidelity, 50961, head}}
+	if !reflect.DeepEqual(dispatched, want) {
+		t.Fatalf("dispatched = %v, want both graders for #49927 and #50961 though #51253 failed first", dispatched)
 	}
 }
 
