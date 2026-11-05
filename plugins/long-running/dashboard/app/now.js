@@ -63,7 +63,7 @@ function nowScreen() {
 
 function fyiFeed() {
   const fyi = (state.model.fyi ?? []).map((f) => ({ id: `fy-${f.at}`, iso: f.at, at: clock(f.at), word: 'Decided', tone: 'you', title: f.text, why: f.group }));
-  const events = (curated('history')?.entries ?? []).filter((e) => KEY_EVENTS.has(e.kind)).map((e) => ({ id: `hs-${e.at}-${e.title}`, iso: sinceClock(e.at), at: e.at, word: HISTORY_WORD[e.kind], tone: HISTORY_TONE[e.kind], title: e.title, more: e.detail.trim() && `<p>${esc(e.detail)}</p>` }));
+  const events = (curated('history')?.entries ?? []).filter((e) => KEY_EVENTS.has(e.kind)).map((e) => ({ id: `hs-${e.at}-${e.title}`, iso: sinceClock(e.at), at: e.at, word: HISTORY_WORD[e.kind], tone: HISTORY_TONE[e.kind], title: e.title, said: e.detail.trim() }));
   const rows = newestFirst([...fyi, ...events]);
   if (!rows.length) return '';
   const earlier = rows.length - EVENTS_AT_REST;
@@ -82,14 +82,7 @@ function band(b) {
   return `${incident}<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
 }
 function approvalLine(prs) {
-  const features = new Map();
-  for (const { item } of prs) {
-    const feature = rewritten('groups', item.key)?.title ?? item.group;
-    features.set(feature, (features.get(feature) ?? 0) + 1);
-  }
-  const listed = [...features].sort((x, y) => y[1] - x[1]);
-  const split = [...listed.slice(0, 3).map(([feature, count]) => `${feature} ${count}`), ...(listed.length > 3 ? [`${listed.length - 3} more groups`] : [])].join(' · ');
-  return `<div class="nl"><span class="what">${prs.length} changes wait on your approval<span class="sub">${esc(split)}</span></span><span class="acts"><a class="nbtn pri" href="#/review">Review them</a></span></div>`;
+  return `<div class="nl"><span class="what">${prs.length} changes wait on your approval</span><span class="acts"><a class="nbtn pri" href="#/review">Review them</a></span></div>`;
 }
 function needLine(item) {
   const line = (what, why, acts, sub) => `<div class="nl"><span class="what"${why ? ` title="${esc(why)}"` : ''}>${esc(what)}${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span><span class="acts">${acts}</span></div>`;

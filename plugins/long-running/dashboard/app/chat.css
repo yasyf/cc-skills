@@ -139,15 +139,6 @@
 .cw .attention-kind { font-size:10px;color:#97855c;display:flex;align-items:center;gap:5px;margin-bottom:5px }
 .cw .attention-kind .ico { width:11px;height:11px }
 .cw .attention-item p { font-size:11px;color:#646069;line-height:1.7;margin:5px 0 0 }
-.cw .mini-progress { height:3px;border-radius:2px;background:#2f2c27;overflow:hidden;display:flex;margin:11px 0 }
-.cw .mini-progress i { display:block;height:100% }
-.cw .mini-progress i:nth-child(1) { background:#596d5e;width:29% }
-.cw .mini-progress i:nth-child(2) { background:#3c3f66;width:43% }
-.cw .mini-progress i:nth-child(3) { background:#504b3d;width:28% }
-.cw .legend { display:flex;gap:12px;font-size:10px;color:#656167 }
-.cw .legend i { height:5px;width:5px;background:#596d5e;display:inline-block;border-radius:50%;margin-right:4px }
-.cw .legend span:nth-child(2) i { background:#3c3f66 }
-.cw .legend span:nth-child(3) i { background:#504b3d }
 .cw .composer { position:sticky;bottom:16px;border:1px solid #2c2933;background:#0e0e0e;border-radius:10px;padding:12px 15px;box-shadow:0 8px 25px #b7b7cd10;z-index:10;margin-top:18px }
 .cw .compose-context { font-size:11px;color:#605b6b;margin-bottom:6px;display:flex;justify-content:space-between }
 .cw .composer textarea { display:block;width:100%;min-height:38px;max-height:150px;resize:vertical;font-size:12px;padding:0;border:0;outline:none!important;background:transparent;color:#aba7b1 }
@@ -156,6 +147,13 @@
 .cw .compose-bottom button { background:var(--violet);border-radius:6px;color:#0e0e0e;padding:6px 9px;display:flex;align-items:center;gap:6px;font-size:11px }
 .cw .compose-bottom .ico { width:13px;height:13px }
 .cw .empty { padding:65px 20px;border:1px dashed #393731;border-radius:8px;text-align:center;font-size:13px;color:#736d78 }
+@media (min-width:721px) {
+  .cw .composer { padding:9px 15px }
+  .cw .composer textarea { height:20px;min-height:0;resize:none }
+  .cw .compose-context, .cw .compose-bottom { display:none }
+  .cw .composer:is(:focus-within, :has(textarea:not(:placeholder-shown))) textarea { height:auto;min-height:38px;resize:vertical }
+  .cw .composer:is(:focus-within, :has(textarea:not(:placeholder-shown))) :is(.compose-context, .compose-bottom) { display:flex }
+}
 @media(min-width:1600px) {
   .cw .diagram-trigger iframe { transform:scale(.4) }
 }
@@ -293,6 +291,7 @@
 .cw .obj-text { color: #bcc4cf; font-size: 13px; line-height: 1.6; }
 .cw .obj-text > :last-child { margin-bottom: 0; }
 .cw .obj-text.clamped { max-height: 7.4em; overflow: hidden; mask-image: linear-gradient(#000 55%, transparent); }
+.cw .obj-text.folded.clamped { display: none; }
 .cw .obj-text a { color: var(--violet); }
 .cw .obj-picked { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; color: var(--green); font-size: 13px; }
 .cw .obj-picked b { font-weight: 600; }
