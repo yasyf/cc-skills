@@ -159,8 +159,6 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 	flags.bind(cmd)
 	cmd.Flags().StringVar(&written.Title, "title", "", "with --body, the brief's title")
 	cmd.Flags().StringVar(&written.BodyFile, "body", "", "write the brief from this file, or - for stdin, instead of taking BRIEF")
-	cmd.Flags().StringVar(&written.BodyFile, "body-file", "", "the name --body had")
-	_ = cmd.Flags().MarkHidden("body-file")
 	cmd.Flags().StringVar(&model, "model", defaultLaneModel, "with --body, the lane's model")
 	cmd.Flags().StringVar(&effort, "effort", defaultLaneEffort, "with --body, the lane's effort")
 	cmd.Flags().StringVar(&written.Contract, "contract", "", "with --body, a file the brief carries above the body, such as a desk's helper contract")
