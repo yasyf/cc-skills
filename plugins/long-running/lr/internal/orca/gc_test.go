@@ -1123,6 +1123,43 @@ func TestOnlyASettledLanesKeptSpriteLosesItsTunnel(t *testing.T) {
 	}
 }
 
+func TestAFinishedLanesSpriteKeptForUnsavedWorkStaysWhileItsTerminalCloses(t *testing.T) {
+	dirty := checkout(testSprite.Root, dirtyTree)
+	unreadable := CheckoutRead{Refusal: "sprite exec on pool-abc could not read it"}
+	cases := []struct {
+		name     string
+		read     CheckoutRead
+		idle     []Idleness
+		finished bool
+		closes   bool
+	}{
+		{name: "a finished lane's unsaved box", read: CheckoutRead{Found: &dirty}, finished: true, closes: true},
+		{name: "an unfinished lane's unsaved box", read: CheckoutRead{Found: &dirty}},
+		{name: "a finished lane's unreadable box", read: unreadable, finished: true},
+		{name: "a finished lane whose terminal wakes before the close", read: CheckoutRead{Found: &dirty}, idle: []Idleness{IdleQuiet, IdleBusy}, finished: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			orca := newOrca(spriteRow("ctx_s"))
+			if c.idle != nil {
+				orca.idle["term_sprite"] = c.idle
+			}
+			fleet := hostedFleet()
+			fleet.reads["pool-abc"] = c.read
+			_, out := runGC(t, orca, newGit(), gcOptions{fleet: fleet, finished: map[string]bool{"ctx_s": c.finished}})
+			if len(fleet.destroyed) != 0 {
+				t.Fatalf("destroyed %v", fleet.destroyed)
+			}
+			if closed := orca.count("close", "term_sprite", "env_abc") == 1; closed != c.closes {
+				t.Fatalf("closed %v, want %v: %q", closed, c.closes, out)
+			}
+			if c.closes {
+				wantSaid(t, out, "closed term_sprite dispatch ctx_s, its Sprite kept", "keep pool-abc uncommitted changes; no tunnel holds it")
+			}
+		})
+	}
+}
+
 func TestADryRunClosesNoTunnelAndARefusedCloseIsSaid(t *testing.T) {
 	dirty := checkout(testSprite.Root, dirtyTree)
 	fleet := hostedFleet()
