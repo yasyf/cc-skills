@@ -264,7 +264,12 @@ func previousHead(found []client.Record, repo, pr, head string) string {
 }
 
 func withSuccessors(lanes []string, found []client.Record) []string {
+	read := map[string]bool{}
 	for _, r := range found {
+		if read[r.Lane] {
+			continue
+		}
+		read[r.Lane] = true
 		succeeds := func(lane string) bool { return delegated(r.Lane, lane) }
 		if !slices.Contains(lanes, r.Lane) && slices.ContainsFunc(lanes, succeeds) {
 			lanes = append(lanes, r.Lane)

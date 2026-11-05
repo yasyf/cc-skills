@@ -313,19 +313,31 @@ func TestAFailedSettledPassIsLoggedAndTheSupervisorContinues(t *testing.T) {
 
 func TestACleanupPassHoldsARestartOnlyWhileItRuns(t *testing.T) {
 	var during bool
+	var since time.Time
+	_, s := driveState(t)
 	runner := &recordingRunner{reply: func(c shell.Command) (shell.Result, error) {
 		if slices.Contains(c.Argv, "gc") {
 			during = GCPassRunning()
+			read, err := GCPassSince(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			since = read
 		}
 		return shell.Result{}, nil
 	}}
-	_, s := driveState(t)
 	check := &SettledGC{Env: Env{Runner: runner, Config: config.Config{OrcaRun: "run_1"}, State: t.TempDir(), Claude: t.TempDir()}, Store: s, Log: slog.Default()}
 	if err := check.Check(context.Background(), t0); err != nil {
 		t.Fatal(err)
 	}
 	if !during || GCPassRunning() {
 		t.Fatalf("running during the pass %v, after it %v", during, GCPassRunning())
+	}
+	if !since.Equal(t0) {
+		t.Fatalf("status read the pass as running since %v, want %v", since, t0)
+	}
+	if after, err := GCPassSince(s); err != nil || !after.IsZero() {
+		t.Fatalf("status reads a finished pass as running since %v: %v", after, err)
 	}
 }
 

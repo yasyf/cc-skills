@@ -111,10 +111,11 @@ func run(ctx context.Context, a *app.App, binary string) error {
 		defer stop()
 	}
 	version := Installed(env.Claude)
-	upgrade := &Upgrade{Env: env, Running: version, Binary: binary, Read: read, Settings: settings, Holding: lanes.GCPassRunning, Yield: lanes.YieldGC, Serve: func(installed string) error {
+	upgrade := &Upgrade{Env: env, Running: version, Binary: binary, Read: read, Settings: settings, Holding: lanes.GCPassRunning, Yield: lanes.YieldGC, Sleep: time.Sleep, Serve: func(installed string) error {
 		return s.ServeVersion(cfg.Drive, os.Getpid(), installed)
 	}}
 	deps.Stale = upgrade.Stale
+	deps.Checks = append(deps.Checks, upgrade.YieldOnceOwed)
 	_, ended, err := Run(ctx, s, cfg.Drive, version, os.Getpid(), deps, 0)
 	if err != nil {
 		return err

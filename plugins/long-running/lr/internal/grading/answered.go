@@ -48,21 +48,23 @@ func (p *JobPool) Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([
 		}
 		return nil, p.Cursors.Advance(cursorAnswers, newest)
 	}
-	var grades []client.Record
+	var picks []ownerPickWait
 	if slices.ContainsFunc(answers, func(r client.Record) bool { return len(cardsNamed(bus.FullText(r))) > 0 }) {
-		if grades, err = client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview}}); err != nil {
+		grades, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview}})
+		if err != nil {
 			return nil, err
 		}
+		picks = ownerPickWaits(grades, snapshot)
 	}
 	var started []string
 	for _, answer := range answers {
-		for _, number := range slices.Sorted(maps.Keys(snapshot)) {
-			facts := snapshot[number]
-			grade, card, waits := awaitedGrade(grades, facts, cardsNamed(bus.FullText(answer)))
-			if !waits {
+		answered := cardsNamed(bus.FullText(answer))
+		for _, pick := range picks {
+			at := slices.IndexFunc(pick.cards, func(card string) bool { return slices.Contains(answered, card) })
+			if at < 0 {
 				continue
 			}
-			name, err := p.Regrade(ctx, facts, nil)
+			name, err := p.Regrade(ctx, pick.facts, nil)
 			if errors.Is(err, ErrNoCapacity) {
 				return started, p.Cursors.Advance(cursorAnswers, answer.Seq-1)
 			}
@@ -73,7 +75,7 @@ func (p *JobPool) Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([
 				return started, err
 			}
 			started = append(started, name)
-			if err := p.tellReopened(ctx, facts, answer, grade, card, name); err != nil {
+			if err := p.tellReopened(ctx, pick.facts, answer, pick.grade, pick.cards[at], name); err != nil {
 				return started, err
 			}
 		}
@@ -93,25 +95,30 @@ func cardsNamed(text string) []string {
 	return unique(cards)
 }
 
-func awaitedGrade(records []client.Record, facts machine.Facts, answered []string) (client.Record, string, bool) {
-	grade, cards, parked := ownerPickGrade(records, facts)
-	if !parked {
-		return client.Record{}, "", false
-	}
-	for _, card := range cards {
-		if slices.Contains(answered, card) {
-			return grade, card, true
-		}
-	}
-	return client.Record{}, "", false
+type ownerPickWait struct {
+	facts machine.Facts
+	grade client.Record
+	cards []string
 }
 
-func ownerPickGrade(records []client.Record, facts machine.Facts) (client.Record, []string, bool) {
+func ownerPickWaits(records []client.Record, snapshot map[int]machine.Facts) []ownerPickWait {
+	lanes := withSuccessors(bus.FidelityLanes(), records)
+	var picks []ownerPickWait
+	for _, number := range slices.Sorted(maps.Keys(snapshot)) {
+		facts := snapshot[number]
+		if grade, cards, parked := ownerPickGrade(records, lanes, facts); parked {
+			picks = append(picks, ownerPickWait{facts, grade, cards})
+		}
+	}
+	return picks
+}
+
+func ownerPickGrade(records []client.Record, lanes []string, facts machine.Facts) (client.Record, []string, bool) {
 	if facts.Fidelity != machine.FidelityFail {
 		return client.Record{}, nil, false
 	}
 	pr := strconv.Itoa(facts.Number)
-	grades := fidelityGrades(records, withSuccessors(bus.FidelityLanes(), records), facts.Repo, pr)
+	grades := fidelityGrades(records, lanes, facts.Repo, pr)
 	grades = slices.DeleteFunc(grades, func(r client.Record) bool {
 		return !grader.NamesHead(shortSHA.FindString(r.Text), facts.Head)
 	})
@@ -135,13 +142,9 @@ func (p *JobPool) Parked(ctx context.Context, snapshot map[int]machine.Facts) (m
 		return nil, err
 	}
 	waits := map[int]string{}
-	for number, facts := range snapshot {
-		grade, cards, parked := ownerPickGrade(found, facts)
-		if !parked {
-			continue
-		}
-		if line := waitLine(found, grade, cards, p.Now()); line != "" {
-			waits[number] = line
+	for _, pick := range ownerPickWaits(found, snapshot) {
+		if line := waitLine(found, pick.grade, pick.cards, p.Now()); line != "" {
+			waits[pick.facts.Number] = line
 		}
 	}
 	return waits, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -54,6 +55,38 @@ func TestHisAnswerToTheCardAnOwnerPickGradeWaitsOnRegradesItOnceAndWakesItsDesk(
 	posted := wakes(t)
 	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{oddDesk}) || !strings.Contains(posted[0].Text, "card rmw37abc") {
 		t.Errorf("wakes = %+v", posted)
+	}
+}
+
+func TestSuccessorLanesCostTheSameAtOneRecordAndAThousand(t *testing.T) {
+	cost := func(records int) float64 {
+		found := slices.Repeat([]client.Record{{Lane: "owner-relay-3"}}, records)
+		return testing.AllocsPerRun(5, func() { withSuccessors([]string{grader.FidelityLane}, found) })
+	}
+	if one, thousand := cost(1), cost(1000); thousand > 3*one {
+		t.Fatalf("allocations at 1 record %v, at 1000 %v", one, thousand)
+	}
+}
+
+func TestOneAnswerNamingTwoParkedPRsRegradesBoth(t *testing.T) {
+	f, snapshot := parkedOnACard(t)
+	const other = number + 2
+	otherHead := strings.Repeat("c", 40)
+	otherFacts := facts(otherHead, func(f *machine.Facts) {
+		f.Number = other
+		f.Fidelity = machine.FidelityFail
+	})
+	snapshot[other] = otherFacts
+	post(t, client.Draft{Lane: grader.FidelityLane, Kind: kindReview, Text: "fidelity: missing " + otherHead[:7] + " class owner-pick: the chapter title waits on his answer to card rmw37abc", PRs: []string{otherFacts.Repo + "#" + strconv.Itoa(other)}})
+	post(t, client.Draft{Lane: "owner-relay", Kind: kindOwner, Text: `Owner: tapped "Keep chapter(title)" on the question "Chapter title" (card rmw37abc)`})
+
+	started, err := f.pool.Reopen(context.Background(), snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(started) != 2 || len(wakes(t)) != 2 {
+		t.Errorf("started = %v, wakes = %+v", started, wakes(t))
 	}
 }
 

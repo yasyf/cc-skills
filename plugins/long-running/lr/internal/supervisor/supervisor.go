@@ -27,6 +27,7 @@ const (
 	checkStopWait = 30 * time.Second
 	checkStagger  = time.Second
 	passedName    = "pass"
+	tickEnded     = "tick-ended"
 	moverLanes    = "lanes"
 
 	unreadSubject    = "STATUS-READ-FAILED"
@@ -340,6 +341,9 @@ func Run(ctx context.Context, s *store.Store, drive, version string, pid int, d 
 			return done, EndedGeneration, nil
 		}
 		if err != nil {
+			return done, "", err
+		}
+		if err := s.Advance(tickEnded, d.Clock().UnixMicro()); err != nil {
 			return done, "", err
 		}
 		if ticks == 0 {

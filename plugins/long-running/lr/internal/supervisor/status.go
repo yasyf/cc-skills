@@ -39,6 +39,10 @@ func Status(cmd *cobra.Command, a *app.App) error {
 	if err != nil {
 		return err
 	}
+	ticking, gcFor, err := holding(s, lease, a.Now())
+	if err != nil {
+		return err
+	}
 	ctx := cmd.Context()
 	running := ""
 	alive := processAlive(lease.PID)
@@ -48,9 +52,21 @@ func Status(cmd *cobra.Command, a *app.App) error {
 		}
 	}
 	writeStatus(cmd.OutOrStdout(), statusFacts{
-		Lease: lease, Alive: alive, Running: running, Pinned: env.PinnedBinary(), Installed: Installed(env.Claude), Age: a.Now().Sub(lease.Renewed).Round(time.Second),
+		Lease: lease, Alive: alive, Running: running, Pinned: env.PinnedBinary(), Installed: Installed(env.Claude), Age: a.Now().Sub(lease.Renewed).Round(time.Second), Ticking: ticking, GCFor: gcFor,
 	})
 	return nil
+}
+
+func holding(s *store.Store, lease store.Lease, now time.Time) (bool, time.Duration, error) {
+	ended, err := s.Cursor(tickEnded)
+	if err != nil {
+		return false, 0, err
+	}
+	gcSince, err := lanes.GCPassSince(s)
+	if err != nil || gcSince.IsZero() {
+		return lease.Renewed.UnixMicro() > ended, 0, err
+	}
+	return lease.Renewed.UnixMicro() > ended, now.Sub(gcSince).Round(time.Second), nil
 }
 
 type statusFacts struct {
@@ -58,6 +74,8 @@ type statusFacts struct {
 	Alive                      bool
 	Running, Pinned, Installed string
 	Age                        time.Duration
+	Ticking                    bool
+	GCFor                      time.Duration
 }
 
 func writeStatus(w io.Writer, f statusFacts) {
@@ -85,7 +103,19 @@ func notReexecuted(f statusFacts) string {
 	case f.Pinned == f.Running:
 		return "nothing to re-execute: it runs the pinned binary and serves a newer pack in place"
 	}
-	return "re-execute owed: the pin moved, so it re-executes at its next tick unless a gc pass holds it; the lease renews as a tick starts and again before it enqueues, so a renewal up to one pass old is a pass in flight, and the log's newest \"a landing pass ended\" line says how long a pass runs"
+	return "re-execute owed: the pin moved; " + heldBy(f)
+}
+
+func heldBy(f statusFacts) string {
+	switch {
+	case f.Ticking && f.GCFor > 0:
+		return fmt.Sprintf("held by the tick in flight, %s since the lease renewed, and an lr gc pass running %s; it re-executes once both end, and no tick or gc pass starts first", f.Age, f.GCFor)
+	case f.Ticking:
+		return fmt.Sprintf("held by the tick in flight, %s since the lease renewed; it re-executes when that tick ends", f.Age)
+	case f.GCFor > 0:
+		return fmt.Sprintf("held by an lr gc pass running %s; it re-executes when that pass ends, and no tick or gc pass starts first", f.GCFor)
+	}
+	return fmt.Sprintf("nothing holds it, so it re-executes within %s", TickEvery)
 }
 
 func processAlive(pid int) bool {
