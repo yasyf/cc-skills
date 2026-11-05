@@ -1248,6 +1248,8 @@ def test_a_reply_reads_angle_brackets_and_no_reply_id(page):
     assert page.evaluate("plain('Recorded (ccn 57967b6) and with the lane.')") == "Recorded and with the lane."
     assert page.evaluate("plain('one sessions-&lt;session&gt; database')") == "one sessions-<session> database"
     assert page.evaluate("plain('Your order has its count (rmw35v9u3): 234 cuts.')") == "Your order has its count: 234 cuts."
+    assert page.evaluate("plain('Plan: the head-follows-push brief (task_cc58418e6042), which asks for it.')") == "Plan: the head-follows-push brief, which asks for it."
+    assert page.evaluate("plain('The Dispatch ctx_c218d8722c67 is still open.')") == "The Dispatch is still open."
     assert page.evaluate("replyTitle({ title: 'Four items, two on your tap (#50590), and more' })") == "Four items, two on your tap, and more"
 
 
