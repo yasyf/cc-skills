@@ -70,3 +70,42 @@ func TestAWhyNamingAnIDIsRefused(t *testing.T) {
 		t.Fatalf("removed = %v", on.removed)
 	}
 }
+
+func TestWithdrawingAPRAlsoTakesDownItsTapCardAndNothingRedrawsIt(t *testing.T) {
+	f, on, s := tapCards(t)
+	card := tapCardID(readyRow(nil))
+	on.cards = append(on.cards, card)
+	if _, err := s.PutFact(repo, number, head, FactTapCard, tapCardDrawn, cardsNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Pull(context.Background(), "meta-desk", "#45583", why, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{MergeWaits(number, head), card}; !reflect.DeepEqual(on.removed, want) {
+		t.Fatalf("removed = %v, want %v", on.removed, want)
+	}
+	if stored, err := s.Facts(repo, number, head); err != nil || stored[FactTapCard] != tapCardDrawn {
+		t.Fatalf("tap card fact = %q, %v, want it kept so no card comes back", stored[FactTapCard], err)
+	}
+}
+
+func TestWithdrawingATapCardByIDFreesItsRowOnlyWhenNoSlackCardStands(t *testing.T) {
+	for how, wantKept := range map[string]bool{tapCardDrawn: false, tapCardOnBoard: false, tapCardInSlack: true} {
+		f, on, s := tapCards(t)
+		card := tapCardID(readyRow(nil))
+		on.cards = []string{card}
+		if _, err := s.PutFact(repo, number, head, FactTapCard, how, cardsNow); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Pull(context.Background(), "meta-desk", card, why, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+		stored, err := s.Facts(repo, number, head)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kept := stored[FactTapCard] != ""; kept != wantKept {
+			t.Errorf("fact %q: kept = %v, want %v", how, kept, wantKept)
+		}
+	}
+}

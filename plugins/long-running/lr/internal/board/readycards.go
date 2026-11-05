@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,8 @@ const (
 	tapCardRefused = "refused"
 	newVersionWhy  = "a new version replaced it, and its own card asks again"
 )
+
+var tapCardName = regexp.MustCompile(`^card-tap-(\d+)-[0-9a-f]+$`)
 
 type ReadyCards struct {
 	Cards Cards
@@ -79,9 +82,13 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	_, known, err := r.Cards.rows(ctx)
+	if err != nil {
+		return err
+	}
 	inTapOrder(drawable, rows, named)
 	for _, row := range drawable[:min(liveTapCards-live, len(drawable))] {
-		if err := r.draw(ctx, row, shown); err != nil {
+		if err := r.draw(ctx, row, shown, known[tapCardID(row)]["withdrawn"]); err != nil {
 			return fmt.Errorf("#%d: %w", row.Number, err)
 		}
 	}
@@ -120,7 +127,7 @@ func lanesFreed(row store.ReviewRow, rows []store.ReviewRow) int {
 	return len(lanes)
 }
 
-func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCard) error {
+func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCard, withdrawn string) error {
 	for _, card := range shown {
 		if strings.HasPrefix(card.ID, tapCardPrefix(row.Number)) {
 			if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, "tap-off-"+card.ID, cardBody{Remove: card.ID, Reason: newVersionWhy}); err != nil {
@@ -133,7 +140,11 @@ func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCa
 		return err
 	}
 	pr := fmt.Sprintf("%s#%d", r.Repo, row.Number)
-	if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, tapCardID(row), cardBody{Block: block, Until: KindPR + ":" + pr, TapOf: pr, TapHead: row.Head}); err != nil {
+	key := tapCardID(row)
+	if withdrawn != "" {
+		key += "@" + withdrawn
+	}
+	if _, err := DrawCard(ctx, r.Cards.Bus, r.Lane, key, cardBody{Block: block, Until: KindPR + ":" + pr, TapOf: pr, TapHead: row.Head}); err != nil {
 		return err
 	}
 	return r.mark(row, tapCardDrawn)
@@ -142,6 +153,37 @@ func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCa
 func (r ReadyCards) mark(row store.ReviewRow, how string) error {
 	_, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, FactTapCard, how, r.Cards.Now())
 	return err
+}
+
+func (c Cards) freeTapRow(card string) error {
+	named := tapCardName.FindStringSubmatch(card)
+	if named == nil {
+		return nil
+	}
+	number, err := strconv.Atoi(named[1])
+	if err != nil {
+		return err
+	}
+	rows, err := c.Store.NumberedReviewRows([]int{number})
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if tapCardID(row) != card {
+			continue
+		}
+		stored, err := c.Store.Facts(row.Repo, row.Number, row.Head)
+		if err != nil {
+			return err
+		}
+		if stored[FactWithdrawn] != "" || stored[FactTapCard] == tapCardInSlack {
+			continue
+		}
+		if err := c.Store.DeleteFact(row.Repo, row.Number, row.Head, FactTapCard); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func tapCardPrefix(number int) string {

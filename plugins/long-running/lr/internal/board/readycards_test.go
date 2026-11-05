@@ -222,3 +222,25 @@ func TestATapCardDrawsAtHisDMRootEvenWhenAReplyNamedItsPRInAThread(t *testing.T)
 		t.Fatalf("asks = %v, want one at the root, naming no thread", calls)
 	}
 }
+
+func TestARowRedrawsAfterItsTapCardIsWithdrawnByID(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	row := tapRow(50287)
+	putRows(t, f, row)
+	readyPass(t, f)
+	f.run(t)
+	cards := f.Cards
+	cards.Session = "board-1"
+	if err := cards.Retire(context.Background(), "owner-relay", "it landed in the wrong place", []string{tapCardID(row)}, &strings.Builder{}); err != nil {
+		t.Fatal(err)
+	}
+	readyPass(t, f)
+	f.run(t)
+	if calls := askCalls(f); len(calls) != 2 {
+		t.Fatalf("asks = %v, want the first draw and a redraw", calls)
+	}
+	if _, onBoard := f.shell.drawn[tapCardID(row)]; !onBoard {
+		t.Fatalf("drawn = %v, want the card back", f.shell.drawn)
+	}
+}
