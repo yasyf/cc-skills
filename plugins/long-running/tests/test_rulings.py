@@ -10,6 +10,7 @@ import re
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -2611,16 +2612,23 @@ def transcript(home: Path, *entries: dict) -> None:
     path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
 
 
-def card_posted(body: str, label: str = "Merge", action_id: str = "merge-12") -> list[dict]:
+def card_posted(body: str, label: str = "Merge", action_id: str = "merge-12", tapped: Callable[[dict], str] | None = None) -> list[dict]:
     tool = {"type": "tool_use", "id": "toolu_1", "name": "mcp__plugin_cc-slack_cc-slack__slack_dm_status", "input": {"card": {"title": "Merge #12?", "body": body}}}
     result = {"type": "tool_result", "tool_use_id": "toolu_1", "content": json.dumps({"ok": True, "ts": CARD_TS})}
     action = {"type": "slack.action", "ts": CARD_TS, "action_ts": TAP_TS, "label": label, "id": action_id}
-    channel = f'<channel source="plugin:cc-slack:cc-slack" type="slack.action">\n{json.dumps(action, separators=(",", ":"))}\n</channel>'
     return [
         {"type": "assistant", "message": {"content": [tool]}},
         {"type": "user", "message": {"content": [result]}},
-        {"type": "queue-operation", "operation": "enqueue", "content": channel},
+        {"type": "queue-operation", "operation": "enqueue", "content": (tapped or in_channel_tag)(action)},
     ]
+
+
+def in_channel_tag(action: dict) -> str:
+    return f'<channel source="plugin:cc-slack:cc-slack" type="slack.action">\n{json.dumps(action, separators=(",", ":"))}\n</channel>'
+
+
+def on_watch(action: dict) -> str:
+    return f'<task-notification>\n<summary>Monitor event: "Slack watch"</summary>\n<event>{json.dumps(action, separators=(",", ":"), sort_keys=True)}</event>\n</task-notification>'
 
 
 def test_authorize_labels_the_answer_for_a_tap_on_a_card_quoting_the_row(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
@@ -2629,6 +2637,22 @@ def test_authorize_labels_the_answer_for_a_tap_on_a_card_quoting_the_row(home: P
 
     assert ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--action", TAP_TS) == (0, "authorized rule/aaaaaaa by 1111111\n")
     assert shell.answers[0]["tags"] == ["from:owner", "program:brook", "authorizes:rule/aaaaaaa"]
+
+
+def test_authorize_reads_a_tap_that_reached_the_window_on_its_slack_watch(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    transcript(home, *card_posted(QUOTING_CARD, tapped=on_watch))
+    shell = RegisterShell(seeded(package), answers=[OWNER_TAP])
+
+    assert ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--action", TAP_TS) == (0, "authorized rule/aaaaaaa by 1111111\n")
+    assert shell.answers[0]["tags"] == ["from:owner", "program:brook", "authorizes:rule/aaaaaaa"]
+
+
+def test_authorize_skips_a_watch_line_the_monitor_cut(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    transcript(home, *card_posted(QUOTING_CARD, tapped=lambda action: on_watch(action).replace("}</event>", ',"capture":"The owner answered...(truncated)</event>')))
+
+    code, out = ran(capsys, RegisterShell(seeded(package), answers=[OWNER_TAP]), "authorize", "--row", "rule/aaaaaaa", "--action", TAP_TS)
+
+    assert (code, out.split(" ", 1)[0]) == (1, "AUTHORIZE-NO-TAP")
 
 
 def test_authorize_refuses_a_go_with_no_tap_a_card_or_answer_naming_no_row_and_an_unrelated_prompt(
