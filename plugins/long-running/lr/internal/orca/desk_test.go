@@ -1013,6 +1013,7 @@ func TestABriefWithNoSliceLaunchesWarnedWithStepAllWritten(t *testing.T) {
 
 func TestAnIncidentCommsBriefWithNoSliceOrScaleLaunchesUnwarnedWithStepIncident(t *testing.T) {
 	w := newDeskWorld(t)
+	spriteConfig(w)
 	lane := "dd-1-comms"
 	brief := w.brief(lane, "ccx: lane=dd-1-comms role=comms effort=xhigh\nPost the notices.\n")
 	w.lines()
@@ -2396,8 +2397,8 @@ func TestOnlyAHelperStampedWithMacInputsCanLeaveTheMacWhenOrcaIsFull(t *testing.
 		{"the launch's stamp", "helper-1", "opus", stamp, true},
 		{"the coordinator", coordinatorLane, "opus", stamp, false},
 		{"a Fable lane", "helper-1", "fable", stamp, false},
-		{"an incident model", "helper-1", agentIncident, stamp, false},
-		{"an incident-opus model", "helper-1", modelIncidentOpus, stamp, false},
+		{"an incident model", "helper-1", agentIncident, stamp, true},
+		{"an incident-opus model", "helper-1", modelIncidentOpus, stamp, true},
 		{"a brief under an incident", "helper-1", "opus", "ccx: role=build incident=dd-1 place=local why=mac-inputs\n", false},
 		{"another need", "helper-1", "opus", "ccx: role=build incident=none place=local why=devbox\n", false},
 		{"a brief placed remotely", "helper-1", "opus", "ccx: role=build incident=none\n", false},
@@ -2411,7 +2412,7 @@ func TestOnlyAHelperStampedWithMacInputsCanLeaveTheMacWhenOrcaIsFull(t *testing.
 func TestAnIncidentLaunchOverLoadStartsAnywayAndTellsTheWatchdog(t *testing.T) {
 	w := newDeskWorld(t)
 	w.busy = "3.0"
-	brief := w.brief(testLane, testBrief)
+	brief := w.brief(testLane, testBrief+macIncident)
 	w.lines()
 	w.line("orca-desk: launch lane-a NOW incident xhigh brief=" + brief)
 	w.lines()
@@ -4347,16 +4348,25 @@ func TestASearchLaneNamingAPRIsNoDuplicateButAFixLaneNamingItStillIs(t *testing.
 	}
 }
 
+const macIncident = "ccx: role=fix incident=sentry-1 place=local why=devbox\n"
+
 const capRefused = " failed terminal create: runtime_error: The host is already running as many terminals as Orca allows. Close a terminal you no longer need, then try again.\n"
 
+const worktreeStalled = " failed LAUNCH-FAILED: Orca does not list worktree /Users/yasyf/.orca/workspaces/monorepo/dar-lane-a yet for 181s; rollback left branch=yasyf/dar-lane-a\n"
+
 func (w *deskWorld) refusedAtTheCap(model, ccx string) string {
+	w.t.Helper()
+	return w.failedOnTheMac(model, ccx, capRefused)
+}
+
+func (w *deskWorld) failedOnTheMac(model, ccx, failure string) string {
 	w.t.Helper()
 	t := w.t
 	t.Setenv("HOME", t.TempDir())
 	brief := w.brief(testLane, testBrief+ccx+"\n")
 	w.lines()
 	line := w.line("orca-desk: launch " + testLane + " NOW " + model + " high brief=" + brief)
-	w.launchOut[testLane] = testLane + capRefused
+	w.launchOut[testLane] = testLane + failure
 	w.lines()
 	w.step(w.desk.deliver)
 	if len(w.spawns) != 1 || w.spawns[0].argv[1] != "launch" {
@@ -4367,8 +4377,8 @@ func (w *deskWorld) refusedAtTheCap(model, ccx string) string {
 
 func TestALaunchOrcaRefusesAtItsCapRelaunchesOnceOnASpriteWithItsModelAndBrief(t *testing.T) {
 	for _, tt := range []struct{ model, ccx, onSprite string }{
-		{agentIncident, "ccx: role=fix incident=sentry-1", agentIncident},
-		{modelIncidentOpus, "ccx: role=fix incident=sentry-1", modelIncidentOpus},
+		{agentIncident, macIncident, agentIncident},
+		{modelIncidentOpus, macIncident, modelIncidentOpus},
 		{"opus", "ccx: role=build incident=none place=local why=mac-inputs", "claude-opus-5-5"},
 	} {
 		t.Run(tt.model, func(t *testing.T) {
@@ -4399,7 +4409,7 @@ func TestALaunchOrcaRefusesAtItsCapRelaunchesOnceOnASpriteWithItsModelAndBrief(t
 func TestASpriteThatFailsAfterTheCapRefusalFailsPlainlyAndLaunchesNoThirdLane(t *testing.T) {
 	w := newDeskWorld(t)
 	spriteConfig(w)
-	key := w.refusedAtTheCap(agentIncident, "ccx: role=fix incident=sentry-1")
+	key := w.refusedAtTheCap(agentIncident, macIncident)
 	w.step(w.desk.reap)
 	w.step(w.desk.reap)
 	w.step(w.desk.reap)
@@ -4449,6 +4459,115 @@ func TestEveryLaneButTheCoordinatorFableAndANamedMacNeedLeavesTheMacAtTheCap(t *
 		{"a Fable lane", Order{Lane: "helper-1", Model: "fable"}, "", false},
 	} {
 		if got := capFallsBack(tt.o, tt.text); got != tt.want {
+			t.Errorf("%s: %v", tt.name, got)
+		}
+	}
+}
+
+func TestAnIncidentLaunchStartsOnASpriteUnlessItsBriefNamesTheMac(t *testing.T) {
+	for _, model := range []string{agentIncident, modelIncidentOpus} {
+		for name, tt := range map[string]struct {
+			ccx      string
+			onSprite bool
+		}{
+			"no place":     {"ccx: role=fix incident=sentry-1\n", true},
+			"place=remote": {"ccx: role=fix incident=sentry-1 place=remote\n", true},
+			"a Mac need":   {macIncident, false},
+		} {
+			t.Run(model+"/"+name, func(t *testing.T) {
+				w := newDeskWorld(t)
+				launcher := spriteConfig(w)
+				brief := w.brief(testLane, testBrief+tt.ccx)
+				w.lines()
+				w.line("orca-desk: launch " + testLane + " NOW " + model + " xhigh brief=" + brief)
+				w.lines()
+				w.step(w.desk.deliver)
+				if len(w.spawns) != 1 || (w.spawns[0].argv[0] == launcher) != tt.onSprite {
+					t.Fatal(w.spawns)
+				}
+				if tt.onSprite && w.spawns[0].argv[2] != model {
+					t.Fatal(w.spawns)
+				}
+			})
+		}
+	}
+}
+
+func TestAnAlertLaunchThatFailsOnTheMacRelaunchesOnceOnASpriteAndSaysSo(t *testing.T) {
+	for _, model := range []string{agentIncident, modelIncidentOpus} {
+		t.Run(model, func(t *testing.T) {
+			w := newDeskWorld(t)
+			launcher := spriteConfig(w)
+			key := w.failedOnTheMac(model, macIncident, worktreeStalled)
+			w.launchOut[testLane] = `{"task":"t","dispatch":"ctx_s","terminal":"term_s","worktree":"/box/w","workspace":"pool-1"}` + "\n"
+			w.step(w.desk.reap)
+			if len(w.spawns) != 2 || w.spawns[1].argv[0] != launcher || w.spawns[1].argv[2] != model || w.spawns[1].argv[4] != w.spawns[0].argv[6] {
+				t.Fatal(w.spawns)
+			}
+			attempt := spriteAttempt(w.spawns[1].argv[4])
+			w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
+			w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
+			w.step(w.desk.reap)
+			w.step(w.desk.reap)
+			if len(w.spawns) != 2 {
+				t.Fatal(w.spawns)
+			}
+			if action := w.action(testLane, key); action.Status != incident.ActionVerified {
+				t.Fatal(action)
+			}
+			wantContains(t, w.wantEscalation("LAUNCHED "+key), "on Sprite pool-1: its launch on this Mac failed (")
+		})
+	}
+}
+
+func TestASpriteThatFailsAfterAnAlertLaunchFailedOnTheMacLaunchesNoThirdLane(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	key := w.failedOnTheMac(agentIncident, macIncident, worktreeStalled)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	if len(w.spawns) != 2 {
+		t.Fatal(w.spawns)
+	}
+	if action := w.action(testLane, key); action.Status != incident.ActionFailed {
+		t.Fatal(action)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "a Sprite that never started a worker")
+}
+
+func TestAMacLaunchOfAnOrdinaryLaneThatFailsStaysFailed(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	key := w.failedOnTheMac("opus", "ccx: role=build incident=none place=local why=devbox", worktreeStalled)
+	w.step(w.desk.reap)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns)
+	}
+	if action := w.action(testLane, key); action.Status != incident.ActionFailed {
+		t.Fatal(action)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "Orca does not list worktree")
+}
+
+func TestOnlyAnAlertLaneLeavesTheMacWhenItsLaunchFails(t *testing.T) {
+	const devbox = "ccx: role=build incident=none place=local why=devbox\n"
+	for _, tt := range []struct {
+		name string
+		o    Order
+		text string
+		want bool
+	}{
+		{"an incident model", Order{Lane: "helper-1", Model: agentIncident}, devbox, true},
+		{"an incident-opus fallback", Order{Lane: "helper-1", Model: modelIncidentOpus}, devbox, true},
+		{"an incident role", Order{Lane: "helper-1", Model: "opus", Role: agentIncident}, devbox, true},
+		{"a brief under an incident", Order{Lane: "helper-1", Model: "opus"}, "ccx: role=build incident=dd-1 place=local why=devbox\n", true},
+		{"a helper naming its need", Order{Lane: "helper-1", Model: "opus"}, devbox, false},
+		{"a helper placed remotely", Order{Lane: "helper-1", Model: "opus"}, "ccx: role=build incident=none\n", false},
+		{"the coordinator", Order{Lane: coordinatorLane, Model: agentIncident}, devbox, false},
+		{"a Fable lane", Order{Lane: "incident-db", Model: "fable"}, devbox, false},
+	} {
+		if got := failureFallsBack(tt.o, tt.text); got != tt.want {
 			t.Errorf("%s: %v", tt.name, got)
 		}
 	}

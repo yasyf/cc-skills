@@ -2248,9 +2248,12 @@ func TestNoClaudeAliasButIncidentOpusTurnsOnFastMode(t *testing.T) {
 	}
 }
 
-func TestAnIncidentOpusLaneIsPinnedToTheMacAndPassesTheModelCheck(t *testing.T) {
-	if !macPinned("api-fix-opus", modelIncidentOpus, "") {
-		t.Fatal("incident-opus can leave the Mac")
+func TestAnIncidentOpusLaneLeavesTheMacUnlessItsBriefNamesANeedAndPassesTheModelCheck(t *testing.T) {
+	if macPinned("api-fix-opus", modelIncidentOpus, "") || macPinned("api-fix", agentIncident, "ccx: role=fix incident=sentry-1 place=remote\n") {
+		t.Fatal("an incident lane with no named need is pinned to the Mac")
+	}
+	if !macPinned("api-fix-opus", modelIncidentOpus, "ccx: role=fix incident=sentry-1 place=local why=devbox\n") {
+		t.Fatal("an incident lane naming a need can leave the Mac")
 	}
 	order := Order{Lane: "api-fix-opus", Model: modelIncidentOpus, Effort: "xhigh", Brief: "/b.md"}
 	if faults := order.launchFaults("Register slice: lane=api-fix-opus step=all\n", true); len(faults) != 0 {
