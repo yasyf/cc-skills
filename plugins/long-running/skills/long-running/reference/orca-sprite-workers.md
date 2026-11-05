@@ -52,6 +52,13 @@ Run it from the terminal that already owns the named native Run. The script chec
 
 **Orca server.** Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca 1.4.224 serves it on its managed server, `orcad`. The prepared task records that server's build as `managedServer`, read from the ready event `orca serve --json` prints. A missing field means Orca fell back to Electron, and the script starts nothing; Orca's reason is the `[serve]` line in `~/.cc-remote/orca/serve.log` on the Sprite.
 
+**Publishing notes.** With no credential on the box, a lane's `ccn` writes stay on its Sprite until the supervisor on the Mac publishes them, and its background sync cannot help. Each tick, for every live lane that posted a record, the supervisor runs `ccn sync --prefix` on that lane's Sprite for each ref holding a commit its origin tracking copy lacks, with the token on stdin. It costs one `sprite exec` per lane and no process stays on the box. A whole-namespace `ccn sync` is not used: on a Sprite that has drifted behind origin it can run past five minutes or fail on the authority lock.
+
+- A failed sync posts one blocker to the lane and its coordinator, naming each ref that failed. It clears on the next clean sync.
+- A note a local default keeps off origin, such as one with a `lane-brief` label or a `*.log` attachment, counts as a failure. Publish it with `ccn local unmark <id>`, or keep it deliberately with `ccn local mark <id>`.
+- Before a lane retires, the supervisor syncs once more. A failure holds the lane and posts a blocker, as an owed deletion does.
+- A stand-down by order retires the lane anyway and posts the blocker, since the order wins. A Sprite no longer listed retires the lane with a blocker saying its unpublished notes are lost.
+
 **Relay join.** `WORKER_RELAY_SPONSOR` names a Sprite that holds an enrolled cci service key. The script joins the new Sprite to this Mac's default relay mesh for the mesh's routed drives, with a 24-hour delegation and this Mac's node as owner. It starts `cci supervise` as a Sprite service, so the worker's records push without a manual `cci relay push`. The key travels from the sponsor to the new Sprite over stdin and is never written to the Mac.
 
 - Without the join, a worker's cci records stay on its Sprite, so a launch with no sponsor refuses before it prepares anything.

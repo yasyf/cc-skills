@@ -94,6 +94,8 @@ type fake struct {
 	desks       map[string]string
 	work        []Record
 	owed        []deletions.Owed
+	notes       map[string]error
+	published   []string
 	gaps        []string
 	orders      []owner.Row
 	branches    map[string][]int
@@ -153,6 +155,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		OpenWork:     func() ([]Record, error) { return f.work, nil },
 		Owed:         func() ([]deletions.Owed, error) { return slices.Clone(f.owed), nil },
 		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
+		PublishNotes: func(lane string) error { f.published = append(f.published, lane); return f.notes[lane] },
 		Gaps:         func() ([]string, error) { return f.gaps, nil },
 		Orders:       func(*store.Store) ([]owner.Row, error) { return f.orders, nil },
 		RotateAt:     600_000,

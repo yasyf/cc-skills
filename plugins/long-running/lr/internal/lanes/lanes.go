@@ -438,12 +438,22 @@ func hold(s *store.Store, name, why string, at time.Time) {
 }
 
 type owing struct {
-	name string
-	rows []deletions.Owed
-	err  error
+	name  string
+	rows  []deletions.Owed
+	err   error
+	notes error
 }
 
 func owingOf(s *store.Store, d Deps, name string) (owing, bool) {
+	one, owes := deletionsOwed(s, d, name)
+	if owes {
+		return one, true
+	}
+	one.notes = notesOwed(s, d, name)
+	return one, one.notes != nil
+}
+
+func deletionsOwed(s *store.Store, d Deps, name string) (owing, bool) {
 	listed, err := d.Owed()
 	if err != nil {
 		return owing{name: name, err: err}, true
@@ -500,6 +510,9 @@ func refusedOwing(s *store.Store, d Deps, name string, now time.Time) bool {
 }
 
 func (o owing) owes() string {
+	if o.notes != nil {
+		return "its cc-notes did not reach origin: " + o.notes.Error()
+	}
 	if o.err != nil {
 		return "the deletions it owes did not read: " + o.err.Error()
 	}
@@ -511,6 +524,10 @@ func (o owing) owes() string {
 }
 
 func (o owing) post(s *store.Store, d Deps) {
+	if o.notes != nil {
+		do(d.Post(Post{Kind: "blocker", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s would retire, but %s. The supervisor holds %s, never relaunched or retired, and tries again when it posts. Standing it down by order accepts leaving those notes on its Sprite.", o.name, o.owes(), o.name)}))
+		return
+	}
 	do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: delete the code, or hand each task to a live lane with `ccn task edit <id> --assignee <lane>`; coordinator: relaunch it or reassign its tasks.", o.name, o.owes(), o.name, o.name)}))
 }
 
