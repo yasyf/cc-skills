@@ -388,6 +388,7 @@ var fixLiveLine = regexp.MustCompile(`^(\d{1,2}:\d{2} [AP]M )?FIX-LIVE\b`)
 
 type FixLiveGC struct {
 	Env       Env
+	Store     *store.Store
 	Log       *slog.Logger
 	read      time.Time
 	reclaimed map[string]bool
@@ -434,6 +435,9 @@ func (g *FixLiveGC) reclaim(ctx context.Context, lane string, seq int64, heard, 
 	if dispatch == "" || g.reclaimed[dispatch] || now.Sub(heard) < fixLiveIdle {
 		return nil
 	}
+	if owns, err := g.ownsWork(lane); owns || err != nil {
+		return err
+	}
 	if g.reclaimed == nil {
 		g.reclaimed = map[string]bool{}
 	}
@@ -452,6 +456,15 @@ func (g *FixLiveGC) reclaim(ctx context.Context, lane string, seq int64, heard, 
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 	}
 	return nil
+}
+
+func (g *FixLiveGC) ownsWork(name string) (bool, error) {
+	lane, found, err := g.Store.Lane(name)
+	if err != nil || !found {
+		return false, err
+	}
+	brief, err := BriefOf(lane.Brief)
+	return len(lane.PRs) > 0 || len(brief.Orders) > 0 || isStanding(lane), err
 }
 
 type CcRemote struct {
@@ -1275,7 +1288,7 @@ func (e Env) Checks(ctx context.Context, s *store.Store, log *slog.Logger) ([]Ch
 		if err != nil {
 			return nil, err
 		}
-		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check, terminals.Check)
+		checks = append(checks, (&FixLiveGC{Env: e, Store: s, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check, terminals.Check)
 	}
 	if len(landing.Pages.Channels) > 0 {
 		checks = append(checks, (&PageWatch{Env: e, Store: s, Channels: landing.Pages.Channels, BuildCLI: landing.Pages.Build, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log, Refused: refused}).Check)

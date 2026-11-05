@@ -273,7 +273,12 @@ func TestAnOrcaFixLaneIdleThirtyMinutesPastFixLiveIsReclaimedWithOneReportToRoot
 				return shell.Result{Stdout: "stopped ctx_fix1\nclosed=1 removed=1\n"}, nil
 			})}
 			writeJSON(t, filepath.Join(env.receipts(), fix+".json"), map[string]any{"result": map[string]string{"dispatchId": "ctx_fix1"}})
-			gc := &FixLiveGC{Env: env, Log: slog.Default()}
+			s, err := store.Memory()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			gc := &FixLiveGC{Env: env, Store: s, Log: slog.Default()}
 
 			if err := gc.Check(context.Background(), t0); err != nil {
 				t.Fatal(err)
@@ -290,6 +295,47 @@ func TestAnOrcaFixLaneIdleThirtyMinutesPastFixLiveIsReclaimedWithOneReportToRoot
 					t.Fatal(bus.posted[0].Text)
 				}
 			}
+		})
+	}
+}
+
+func TestAFixLiveLeavesALaneThatStillOwnsPRsOrOwnerOrdersRunning(t *testing.T) {
+	cases := map[string]struct {
+		prs    []int
+		orders string
+	}{
+		"open PRs":     {prs: []int{49830, 49445}},
+		"owner orders": {orders: "Assigned orders: owner:m8 owner:m194\n"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			lane := "release-followups-1"
+			fixLive := client.Record{Seq: 481315, Lane: lane, Kind: "fix-live", At: t0.Add(-mins(31)), To: []string{Root}, Text: "FIX-LIVE m209"}
+			bus := &fakeBus{tail: []client.Record{fixLive}}
+			var gcs [][]string
+			env := Env{Bus: bus, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, Local: t.TempDir(), Claude: t.TempDir(), Runner: scripted(func(argv []string) (shell.Result, error) {
+				gcs = append(gcs, argv)
+				return shell.Result{Stdout: "stopped ctx_rel1\n"}, nil
+			})}
+			writeJSON(t, filepath.Join(env.receipts(), lane+".json"), map[string]any{"result": map[string]string{"dispatchId": "ctx_rel1"}})
+			brief := filepath.Join(t.TempDir(), "brief.md")
+			if err := os.WriteFile(brief, []byte("# release-followups\n"+c.orders), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			s, err := store.Memory()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			if _, err := s.WantLane(store.Lane{Name: lane, Brief: brief, Model: "opus", Effort: "high", State: store.LaneDesired, PRs: c.prs}, t0.Add(-time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := (&FixLiveGC{Env: env, Store: s, Log: slog.Default()}).Check(context.Background(), t0); err != nil {
+				t.Fatal(err)
+			}
+
+			equal(t, []any{len(gcs), len(bus.posted)}, []any{0, 0})
 		})
 	}
 }
