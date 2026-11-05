@@ -1112,3 +1112,35 @@ func TestATappedRowSaysWhyTheLandingPassCannotMoveIt(t *testing.T) {
 		t.Fatalf("a cleared reason still reads %q", got.WaitsOn)
 	}
 }
+
+func TestBlocksWordsSaysWhatStopsARowWithNoRecordOfIt(t *testing.T) {
+	for name, tc := range map[string]struct{ waits, hold, want string }{
+		"his post": {
+			"", "root:Hold on #50160 until he or owner-relay lifts it: his 2:30 PM word (72a4a5f) holds it until compaction-time marker insertion is out. The code writes none, tests enforce that, and he has been told. Replaces 440473, which closed itself when it resolved 439442. (record #440500)",
+			"Held: until he or owner-relay lifts it: his 2:30 PM word holds it until compaction-time marker insertion is out.",
+		},
+		"a lane's hold": {
+			"", "cutover:cutover-deletion-sweep-3 holds #48841: lands only once plan 12.0 reads true and the owner promotes. (record #361725)",
+			"Held: lands only once plan 12.0 reads true and the owner promotes.",
+		},
+		"a clocked hold": {
+			"", "cutover:2:51 PM hold #48173 widened (replaces 324972): lands only when the cutover has deleted the old tree. orphan-pr",
+			"Held: lands only when the cutover has deleted the old tree.",
+		},
+		"grade running":  {NotGraded, None, "Its review grade is still running at this version."},
+		"grade verdict":  {"a grade needs a verdict: finder: ok f3123c0 luna over 1b73703", None, "A review grade needs a verdict at this version."},
+		"below a parent": {"the change below it, #48034, has not landed", None, "The change below it, #48034, has not landed."},
+		"already a line": {"Only your approval.", None, "Only your approval."},
+		"landed":         {"Nothing: it landed.", None, "Nothing: it landed."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			row := store.ReviewRow{WaitsOn: tc.waits, Hold: tc.hold}
+			if tc.waits == "" {
+				row.WaitsOn = heldLead + tc.hold
+			}
+			if got := BlocksWords(row); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

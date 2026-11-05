@@ -77,7 +77,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info", Title: fmt.Sprintf("#%d at %s", row.Number, at),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: row.WaitsOn, Description: row.Description,
+			Change: row.ForUsers, Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Description: row.Description,
 		}},
 	}
 	if row.State == prrow.StateLanded {
@@ -256,13 +256,16 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				for i, pr := range held {
 					numbers[i] = pr.Number
 				}
+				words := NewAnswerWords(a.Runner, entry.Checkout)
 				if err := withRows(c, entry, numbers, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
 					for _, pr := range held {
 						at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == pr.Number })
 						if at < 0 {
 							continue
 						}
-						cards = append(cards, SlackPRCard{pr, Card(repository, rows[at])})
+						card := Card(repository, rows[at])
+						card.PRs[0].Plan = words.Said(c.Context(), card.PRs[0].Plan)
+						cards = append(cards, SlackPRCard{pr, card})
 						if !waitsOnHim(rows[at]) {
 							continue
 						}

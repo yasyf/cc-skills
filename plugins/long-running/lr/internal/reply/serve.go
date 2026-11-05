@@ -129,7 +129,7 @@ func Tool(a *app.App) channel.Tool {
 			if warning != "" {
 				warned = append(warned, warning)
 			}
-			r, warning = fanout.withPRCards(r)
+			r, warning = fanout.withPRCards(ctx, r)
 			if warning != "" {
 				warned = append(warned, warning)
 			}

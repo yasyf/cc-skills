@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -40,6 +42,8 @@ const (
 	NotGraded = "not graded at this head"
 	RedAtHead = "CI is red at this head"
 
+	heldLead       = "held, "
+	verdictLead    = "a grade needs a verdict"
 	onlyHim        = "Only your approval."
 	tapEndsHold    = "Only your approval at this head, which ends the hold: "
 	tappedWaits    = "You approved it; the landing desk lands it next."
@@ -51,8 +55,12 @@ const (
 )
 
 var (
-	heading  = regexp.MustCompile(`(?m)^#{1,3}\s+(.+?)\s*$`)
-	planLine = regexp.MustCompile(`(?im)^.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix)\b.*$`)
+	heading     = regexp.MustCompile(`(?m)^#{1,3}\s+(.+?)\s*$`)
+	holdLane    = regexp.MustCompile(`^[a-z][\w-]*:`)
+	holdNoise   = regexp.MustCompile(`(?i)\s*\((?:record #\d+|replaces [^)]*|[0-9a-f]{7,40}|\d{5,}(?:@[0-9a-f]+)?)\)`)
+	holdLeadIn  = regexp.MustCompile(`(?i)^(?:\d{1,2}:\d{2} [AP]M )?(?:[\w-]+ holds?|hold(?: on)?) (?:#?\d+|this PR|PR \d+)(?: widened)?[ :,]*`)
+	sentenceEnd = regexp.MustCompile(`[.!?](?:\s|$)`)
+	planLine    = regexp.MustCompile(`(?im)^.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix)\b.*$`)
 )
 
 func Terminal(state string) bool {
@@ -127,7 +135,7 @@ func firstUnmet(row store.ReviewRow) string {
 	case row.State == StateDraft:
 		return "it is a draft"
 	case row.Hold != None:
-		return "held, " + row.Hold
+		return heldLead + row.Hold
 	case row.State == StateQueued:
 		return "it is in the merge queue"
 	case row.ParentState == ParentOpen:
@@ -160,6 +168,33 @@ func firstUnmet(row store.ReviewRow) string {
 		return "its PR body has no Risk profile"
 	}
 	return ""
+}
+
+// BlocksWords is what stands between a row and landing, as he reads it on a
+// card. WaitsOn stays the record of it that gates and lanes read.
+func BlocksWords(row store.ReviewRow) string {
+	switch {
+	case row.Hold != None && strings.HasPrefix(row.WaitsOn, heldLead):
+		return strings.TrimSpace("Held: " + heldWords(row.Hold))
+	case row.WaitsOn == NotGraded:
+		return "Its review grade is still running at this version."
+	case strings.HasPrefix(row.WaitsOn, verdictLead):
+		return "A review grade needs a verdict at this version."
+	}
+	first, size := utf8.DecodeRuneInString(row.WaitsOn)
+	if !unicode.IsLower(first) {
+		return row.WaitsOn
+	}
+	return string(unicode.ToUpper(first)) + strings.TrimSuffix(row.WaitsOn[size:], ".") + "."
+}
+
+func heldWords(hold string) string {
+	said := holdNoise.ReplaceAllString(holdLane.ReplaceAllString(hold, ""), "")
+	said = holdLeadIn.ReplaceAllString(strings.TrimSpace(said), "")
+	if end := sentenceEnd.FindStringIndex(said); end != nil {
+		said = said[:end[0]+1]
+	}
+	return said
 }
 
 func ApplyBody(row *store.ReviewRow, body string) {

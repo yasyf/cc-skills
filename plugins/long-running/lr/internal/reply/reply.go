@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,7 +36,7 @@ const (
 	storeDir     = "replies"
 	postTimeout  = 30 * time.Second
 	maxTitle     = 140
-	maxPick      = 61
+	maxPick      = 200
 	maxPicks     = 4
 	pickSplit    = " :: "
 	maxLinks     = 5
@@ -166,6 +167,10 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	r = f.aliased(r).typed()
 	seen := r
 	seen.MD = hiddenCite.ReplaceAllString(r.MD, "")
+	seen.Words = maps.Clone(r.Words)
+	for pick, said := range seen.Words {
+		seen.Words[pick] = hiddenCite.ReplaceAllString(said, "")
+	}
 	told := seen.diagramNoted()
 	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
@@ -512,12 +517,16 @@ func (r Reply) mendedPicks(warned []string) (Reply, []string) {
 	var picks []string
 	words := map[string]string{}
 	for _, pick := range r.Picks {
-		label, said, _ := strings.Cut(pick, pickSplit)
-		label = shortened(strings.TrimSpace(label), maxPick)
+		whole, said, _ := strings.Cut(pick, pickSplit)
+		whole = strings.TrimSpace(whole)
+		label := shortened(whole, maxPick)
 		if label == "" || slices.Contains(picks, label) {
 			continue
 		}
 		picks = append(picks, label)
+		if label != whole {
+			said = whole + " " + said
+		}
 		if said = strings.TrimSpace(said); said != "" {
 			words[label] = said
 		}
@@ -596,10 +605,11 @@ func (r Reply) bareExplainMore() error {
 // its card to carry. The reply posts whatever it finds: the second result is
 // one warning line naming what is missing, or empty. A PR that does not wait on
 // his tap, on a reply with no picks, is only a mention.
-func (f Fanout) withPRCards(r Reply) (Reply, string) {
+func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 	if len(r.PRs) == 0 {
 		return r, ""
 	}
+	said := board.NewAnswerWords(f.Runner, f.Entry.Checkout)
 	numbers := make([]int, len(r.PRs))
 	for n, pr := range r.PRs {
 		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
@@ -622,7 +632,7 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
 			continue
 		}
-		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{row.ForUsers, board.PlanWords(row), row.Risk, row.WaitsOn}}
+		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{row.ForUsers, said.Said(ctx, board.PlanWords(row)), row.Risk, prrow.BlocksWords(row)}}
 		var missing []string
 		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {row.PlanRow, "the plan row"}, {row.Risk, "the risk"}} {
 			if field.said == "" {

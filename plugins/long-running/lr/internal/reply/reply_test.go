@@ -1033,7 +1033,7 @@ func TestAPRCardMissingALedgerFieldPostsAndWarnsInOneLine(t *testing.T) {
 			fake := scripted()
 			f := fanout(t, fake)
 			ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load"})
-			got, warning := f.withPRCards(r)
+			got, warning := f.withPRCards(context.Background(), r)
 			if !strings.Contains(warning, "the plan row, the risk") || strings.Contains(warning, "what it changes") || strings.Contains(warning, "\n") {
 				t.Fatalf("warning = %q, want one line naming the two missing fields", warning)
 			}
@@ -1054,7 +1054,7 @@ func TestAMissingLineIsLeftOffThePRChild(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load"})
-	r, _ := f.withPRCards(Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	r, _ := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
 	f.Send(context.Background(), r)
 	var card struct {
 		Children []map[string]any `json:"children"`
@@ -1073,7 +1073,7 @@ func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "Low", WaitsOn: "Your tap", Title: "Relay fix"})
-	r, warning := f.withPRCards(Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	r, warning := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
 	if warning != "" {
 		t.Fatalf("warning = %q on a PR with every line", warning)
 	}
@@ -1136,14 +1136,14 @@ func TestAPRNotWaitingIsOnlyAMentionAndANoPRReplyReadsNothing(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, Tapped: true, ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "Low"})
-	mention, warning := f.withPRCards(Reply{ID: "r2", Title: "The relay fix landed", MD: "m", Status: "done", PRs: []string{landPR}})
+	mention, warning := f.withPRCards(context.Background(), Reply{ID: "r2", Title: "The relay fix landed", MD: "m", Status: "done", PRs: []string{landPR}})
 	if warning != "" || len(mention.PRCards) != 0 {
 		t.Fatalf("withPRCards = %+v, %q, want a PR nothing waits on left a plain mention", mention.PRCards, warning)
 	}
-	if plain, warning := f.withPRCards(Reply{ID: "r3", Title: "t", MD: "m"}); warning != "" || plain.PRCards != nil {
+	if plain, warning := f.withPRCards(context.Background(), Reply{ID: "r3", Title: "t", MD: "m"}); warning != "" || plain.PRCards != nil {
 		t.Fatalf("a reply naming no PR read the store: %+v, %q", plain, warning)
 	}
-	unrowed, warning := f.withPRCards(Reply{ID: "r4", Title: "Land it?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR + "0"}})
+	unrowed, warning := f.withPRCards(context.Background(), Reply{ID: "r4", Title: "Land it?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR + "0"}})
 	if !strings.Contains(warning, "no row in the PR ledger") || len(unrowed.PRCards) != 1 || unrowed.PRCards[0].Change != "" {
 		t.Fatalf("withPRCards = %+v, %q, want a PR with no ledger row warned on and drawn bare", unrowed.PRCards, warning)
 	}
@@ -1993,5 +1993,23 @@ func TestAReplyAskingAboutAPRHeAlreadyTappedWarns(t *testing.T) {
 				t.Fatalf("warning = %q, want warns %v", warning, tc.warns)
 			}
 		})
+	}
+}
+
+func TestALongPickKeepsItsWholeLabelAndItsEffect(t *testing.T) {
+	long := strings.TrimSpace(strings.Repeat("Keep the chapter shape as it is ", 8))
+	r, warned := Reply{Title: "Which?", MD: "m", Picks: []string{long + " :: It stays.", "Hold :: It waits."}, Recommended: "Hold"}.mended()
+	if len(warned) != 0 {
+		t.Fatalf("warned %q", warned)
+	}
+	if len([]rune(r.Picks[0])) > maxPick {
+		t.Fatalf("label %q runs past %d", r.Picks[0], maxPick)
+	}
+	if r.Words[r.Picks[0]] != long+" It stays." {
+		t.Fatalf("words = %q, want the whole label before the effect", r.Words[r.Picks[0]])
+	}
+	exact := strings.Repeat("x", 150)
+	if r, _ := (Reply{Title: "Which?", MD: "m", Picks: []string{exact + " :: A.", "No :: B."}}).mended(); r.Picks[0] != exact || r.Words[exact] != "A." {
+		t.Fatalf("a label of 150 characters changed: %q, %q", r.Picks[0], r.Words[exact])
 	}
 }

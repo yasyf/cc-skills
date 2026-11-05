@@ -135,6 +135,8 @@ func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCa
 			}
 		}
 	}
+	plan := NewAnswerWords(r.Cards.Runner, r.Cards.Checkout).Said(ctx, PlanWords(row))
+	row.PlanLine, row.PlanRow = plan, plan
 	block, err := TapCard(r.Repo, row)
 	if err != nil {
 		return err
