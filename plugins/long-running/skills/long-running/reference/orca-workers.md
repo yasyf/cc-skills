@@ -236,7 +236,8 @@ A failed launch prints `<lane> failed <step and reason>` and exits 1; invalid us
 
 ### Stall retry
 
-- A stalled launch retries once. One wait outlasting `ORCA_LAUNCH_STALL_SECONDS` fails a launch with `LAUNCH-FAILED: <wait> for <n>s`.
+- A stalled launch retries once. One wait outlasting `ORCA_LAUNCH_STALL_SECONDS` fails a launch with `LAUNCH-FAILED: <wait> for <n>s`. A `terminal create` Orca refuses is not a stall: it fails at once, with no retry, as `terminal create: <Orca's message>`, and only a create that timed out waits to adopt the terminal.
+- A rollback whose `ccx vcs worktree rm` only queued the removal names the worktree and branch under `rollback left`, since git still registers the tree and holds the branch. The next launch cuts a new name.
 - When that happens before any `worker-start` call and the rollback left nothing behind, the same process starts the lane again under the next worktree name. An `incident` lane retries at once, and any other lane after 30 seconds.
 - Stderr says `<lane> retries once after a stall: <wait>`, and only a second failure prints a failure line, which ends `; this was its one retry`.
 - A refusal, a failure after `worker-start`, and a rollback that kept anything never retry.

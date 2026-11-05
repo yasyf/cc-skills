@@ -1106,7 +1106,11 @@ func (e Env) Checks(ctx context.Context, s *store.Store, log *slog.Logger) ([]Ch
 		checks = append(checks, builds.Check)
 	}
 	if e.Config.OrcaRun != "" {
-		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check)
+		terminals, err := newTerminalCap(e, s)
+		if err != nil {
+			return nil, err
+		}
+		checks = append(checks, (&FixLiveGC{Env: e, Log: log}).Check, (&SettledGC{Env: e, Store: s, Log: log}).Check, terminals.Check)
 	}
 	if len(landing.Pages.Channels) > 0 {
 		checks = append(checks, (&PageWatch{Env: e, Store: s, Channels: landing.Pages.Channels, BuildCLI: landing.Pages.Build, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log, Refused: refused}).Check)

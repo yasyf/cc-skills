@@ -45,8 +45,9 @@ Under O16 in `reference/orca-desk-brief.md`:
 |---|---|
 | none, or `place=remote` | A Sprite, on the orca desk. Without `orca.sprite` the launch fails with `LAUNCH-FAILED`; a failed Sprite launch never starts locally. |
 | `place=local why=<word>` | The Mac, at any load. |
+| `incident=none place=local why=mac-inputs`, the stamp `lr launch lane --body-file` writes | The Mac at any load, but a Sprite when Orca is out of terminals on the Mac. The lane's pointer tells it to post `blocked` to its launcher if the work truly needs the Mac. |
 | `place=local` with no `why=` | A Sprite, except `role=read`. |
-| `role=read`, or `why=predecessor-worked-here` | Prefers the Mac, but starts on a Sprite while the Mac's one-minute load average is above `orca.load_limit`, which defaults to its core count. |
+| `role=read`, or `why=predecessor-worked-here` | Prefers the Mac, but starts on a Sprite while the Mac's one-minute load average is above `orca.load_limit`, which defaults to its core count, or while Orca is out of terminals on the Mac. |
 
 - Write `place=remote` when the lane can work inside the Sprite's limits below, with every fact in the brief by value and everything it builds on already pushed.
 - Write `place=local why=<word>` when the lane reads a worktree or branch only the Mac has, needs a Mac-only credential, or drives something on the Mac itself.

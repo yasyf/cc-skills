@@ -54,7 +54,9 @@ const (
 	spriteBuildkite        = " tools/ci bk does not run on this Sprite. To read Buildkite, post `cci post --kind ask --to bk-desk \"bk build <pipeline> <number>\"`, or `bk log <pipeline> <number> <job>`, or `bk api <path>`; the answer arrives within about two minutes and `cci show <seq>` prints its body. Ask once per need, never in a polling loop."
 	standingDesk           = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc. Mail reaches you only between tool calls, so no foreground command runs over five minutes: run a long read in the background and report it by record."
 	noPRLine               = " This brief orders no PR: push the work as a branch and never open a PR for it."
-	readOnSprite           = " The Mac was over its load limit, so this read lane runs on a Sprite whose cci store starts at its launch: check on the Mac before you report anything absent."
+	createTimedOut         = "Timed out"
+	macInputsOnSprite      = " Orca was out of terminals on the Mac, so this lane runs on a Sprite though its brief named Mac inputs. If the work truly needs the Mac, post a `blocked` record to the lane that launched you naming what it needs, and stop: it relaunches you on the Mac."
+	readOnSprite           = " The Mac was over its load limit or out of Orca terminals, so this read lane runs on a Sprite whose cci store starts at its launch: check on the Mac before you report anything absent."
 )
 
 var (
@@ -338,13 +340,19 @@ func (l *launch) undo() {
 		l.kept += " worktree=" + l.wt + " branch=" + l.branch + " (it holds commits not on " + l.base + ")"
 		return
 	}
+	queued := false
 	switch {
 	case l.made || (l.lost && l.registered()):
-		if l.removed() {
+		switch {
+		case !l.removed():
+			l.kept += " worktree=" + l.wt + " (its removal failed: " + l.path(".rm.log") + ")"
+		case l.removalQueued():
+			queued = true
+			_ = os.Remove(l.path(".worktree"))
+			l.kept += " worktree=" + l.wt + " (its removal is queued: " + l.path(".rm.log") + ")"
+		default:
 			_ = os.Remove(l.path(".worktree"))
 			l.undone += " worktree=" + l.wt
-		} else {
-			l.kept += " worktree=" + l.wt + " (its removal failed: " + l.path(".rm.log") + ")"
 		}
 	case l.lost && isDir(l.wt) && !l.isCheckout():
 		if err := os.RemoveAll(l.wt); err == nil {
@@ -354,15 +362,31 @@ func (l *launch) undo() {
 		}
 	}
 	if l.created && l.gitQuiet(l.main, "show-ref", "--verify", "--quiet", "refs/heads/"+l.branch) {
-		if said, code := l.git(l.main, "branch", "-D", l.branch); code == 0 {
-			l.undone += " branch=" + l.branch
-		} else {
-			l.kept += " branch=" + l.branch + " (" + tailLines(strings.TrimSpace(said), 1) + ")"
-		}
+		l.undoBranch(queued)
 	}
 	if !l.isCheckout() {
 		_ = os.Remove(l.path(".worktree"))
 	}
+}
+
+func (l *launch) undoBranch(queued bool) {
+	if queued {
+		l.kept += " branch=" + l.branch + " (its worktree's removal is queued)"
+		return
+	}
+	if said, code := l.git(l.main, "branch", "-D", l.branch); code != 0 {
+		l.kept += " branch=" + l.branch + " (" + tailLines(strings.TrimSpace(said), 1) + ")"
+		return
+	}
+	l.undone += " branch=" + l.branch
+}
+
+func (l *launch) removalQueued() bool {
+	if !l.sparseLanes {
+		return false
+	}
+	listed, _ := l.output(shell.Command{Argv: []string{"git", "-C", l.main, "worktree", "list", "--porcelain"}})
+	return slices.Contains(strings.Split(listed, "\n"), "worktree "+resolved(l.wt))
 }
 
 func (l *launch) holdsCommits() bool {
@@ -1217,11 +1241,24 @@ func (l *launch) openTerminal() error {
 		if l.terminal != "" {
 			break
 		}
+		if createRefused(stdout) {
+			return l.fail("terminal create: %s", orcaError(stdout, stderr))
+		}
 		if err := l.adopt(); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func createRefused(raw string) bool {
+	var reply struct {
+		OK    *bool `json:"ok"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	return json.Unmarshal([]byte(raw), &reply) == nil && reply.OK != nil && !*reply.OK && !strings.HasPrefix(reply.Error.Message, createTimedOut)
 }
 
 func (l *launch) screenLacksAgent(marker string) bool {
