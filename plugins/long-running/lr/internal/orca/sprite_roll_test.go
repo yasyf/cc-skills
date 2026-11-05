@@ -546,6 +546,20 @@ func TestAPinWhoseDownloadIsGoneIsStillMarkedBad(t *testing.T) {
 	}
 }
 
+func TestADownloadTheServerFailedTransientlyMarksNoPinBad(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-a"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n", Stderr: "curl: (22) The requested URL returned error: 504\n"}
+
+	refused := w.roll("")
+
+	if !strings.Contains(refused, "no pin is marked bad") {
+		t.Fatal(refused)
+	}
+	if why, err := w.store.BadTool("ccx", rollCCX); err != nil || why != "" {
+		t.Fatal("a gateway timeout marked the pin bad:", why, err)
+	}
+}
+
 func TestAnInstallThatRunsOutOfTimeMarksNoPinBad(t *testing.T) {
 	w := newRollWorld(t)
 	w.replies["pool-a"] = shell.Result{Code: shell.CodeTimedOut, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n"}
