@@ -765,7 +765,7 @@ func TestNamedSchemaMaterializesInLane(t *testing.T) {
 
 // TestSchemaStagingIsPerDispatch proves a reused --scratch lane stages a fresh
 // schema each generation rather than inheriting the previous one: the stale sweep
-// clears only status/pid/lstart/meta/cmd/register.
+// clears only status/pid/started/meta/cmd/register.
 func TestSchemaStagingIsPerDispatch(t *testing.T) {
 	sdir := filepath.Join(mustTempDir(t), "lane-a")
 	runs := mustTempDir(t)

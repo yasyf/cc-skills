@@ -15,7 +15,7 @@ import (
 // detachWorker: Go can't fork() mid-process, so mirror the Python double-fork with
 // a re-exec. StartProcess a setsid'd middle (its own session escapes the pgroup
 // kill); the middle re-execs the worker and exits at once, orphaning it to PID 1
-// (escapes the ps-walked descendant kill). The parent records lstart THEN pid,
+// (escapes the ps-walked descendant kill). The parent records the start THEN pid,
 // closing the window where a reader sees a pid with no recycle guard.
 func detachWorker(sdir string) {
 	r, w, err := os.Pipe()
@@ -50,7 +50,7 @@ func detachWorker(sdir string) {
 		_ = atomicWrite(join(sdir, "status"), "126\n")
 		return
 	}
-	_ = atomicWrite(join(sdir, "lstart"), procLstart(gpid)+"\n")
+	_ = atomicWrite(join(sdir, "started"), procStart(gpid)+"\n")
 	_ = atomicWrite(join(sdir, "pid"), strconv.Itoa(gpid)+"\n")
 }
 
@@ -85,7 +85,7 @@ func runWorker(sdir string) {
 	sid, owned := readPid(join(sdir, "sid"))
 	if owned {
 		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
+		signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
 		go func() {
 			<-sigs
 			reapOwnSession(sid)

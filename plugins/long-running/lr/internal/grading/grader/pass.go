@@ -782,13 +782,18 @@ func writeResult(dir string, outcome any) error {
 
 type failedResult struct {
 	Error string `json:"error"`
+	Lost  bool   `json:"no_result,omitempty"`
 }
+
+const codexWorkerLost = 75
 
 func settle[T any](dir string, outcome T, err error) error {
 	if err == nil {
 		return writeResult(dir, outcome)
 	}
-	if written := writeResult(dir, failedResult{err.Error()}); written != nil {
+	var exit *ExitError
+	lost := errors.As(err, &exit) && exit.Argv[0] == "codex-ask" && exit.Code == codexWorkerLost
+	if written := writeResult(dir, failedResult{err.Error(), lost}); written != nil {
 		return errors.Join(err, written)
 	}
 	return err
