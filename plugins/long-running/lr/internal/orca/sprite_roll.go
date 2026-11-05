@@ -34,7 +34,7 @@ const (
 	sameFailureStop      = 3
 )
 
-var pinAtFault = regexp.MustCompile(`^refused: |curl: \(22\)|Not found in archive`)
+var pinAtFault = regexp.MustCompile(`^refused: |curl: \(22\) .*\berror: 4\d\d\b|Not found in archive`)
 
 type runWorkers interface {
 	Workers(ctx context.Context, run string) ([]Worker, error)
