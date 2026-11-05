@@ -46,6 +46,7 @@ Style of every message to him:
 - A lane is always named by its alias, such as tap-rows, never tap-rows-1, in every cci `--to`, record, reply card, status line and chat message. A numbered `--to` warns, and `lr reply` rewrites one.
 - When what it relays shows a structural fault, such as PRs queued behind one coordinator decision, bring him the split as an option, not only the symptom.
 - After an hour or more away, a `reply` opens its `md` with the dashboard link, for his Slack copy, then what changed in a few lines. The dashboard draws its own copy without that link, and text in this window needs none. The full table lives on the dashboard.
+- When he returns after 30 minutes or more of silence, or asks what happened while he was gone, the reply to his first message is `lr update away`, from the update desk's `away` order, sent whole.
 - A question about how far a lane has got is answered from that lane's newest record, `cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes.
 - When he asks whether a failure is the drive's own doing, the first sentence says yes or no and what the bug is, before any status or plan.
 - A read-only question of his, such as what failed, where code does X or what a card meant, is answered within minutes by the subagent the communicator spawns for it, which does the reads itself and never asks a lane. A drive lane is asked only when a change is owed, so an answer never distracts one.
@@ -348,6 +349,9 @@ Loop, one foreground Bash call each, timeout 570000 ms:
   markdown file's whole contents and the gaps file's path. Nothing else in the message.
 - Every wake: run `python3 <plugin>/dashboard/app/keep.py --config <state dir>/dashboard.json`,
   which runs `lr dashboard restart` only when its URL stops answering.
+- MAILBOX `away` from the communicator, with an optional time: run
+    lr update away --drive <drive> [--since <time>] > <state dir>/progress-desk/away-<HHMM>.md
+  and post `cci post --to owner-relay` with the file's whole contents. Nothing else in the message.
 - Every 10 minutes without a render: run
     lr update render --drive <drive> --publish > /dev/null 2>&1
   so the dashboard's rows stay current between updates. Only a render the communicator asked
