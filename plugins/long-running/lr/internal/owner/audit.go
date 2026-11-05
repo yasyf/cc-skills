@@ -110,7 +110,7 @@ func (r Row) Line() string {
 		text = strings.TrimSpace(string(runes[:lineChars])) + "…"
 	}
 	if r.Answer != "" {
-		text += " [newest answer " + r.Answer + "]"
+		text += " [newest answer: " + r.Answer + "]"
 	}
 	switch r.Status {
 	case Late:
@@ -262,7 +262,7 @@ func Answers(rows []Row, records []client.Record) ([]Row, error) {
 			return nil, err
 		}
 		if answer.Seq != 0 {
-			rows[i].Answer = fmt.Sprintf("#%d from %s", answer.Seq, answer.Lane)
+			rows[i].Answer = fmt.Sprintf("%s from %s, `cci show %d --body`", answer.Kind, answer.Lane, answer.Seq)
 		}
 	}
 	return rows, nil

@@ -234,7 +234,7 @@ func TestADueRowShowsTheNewestAnswerAnotherLaneAddressedToTheCommunicatorAboutIt
 	}
 
 	got := []string{rows[0].Answer, rows[1].Answer, rows[2].Answer}
-	if want := []string{"#459505 from explain-48311", "#459480 from fix-stop", ""}; !reflect.DeepEqual(got, want) {
+	if want := []string{"report from explain-48311, `cci show 459505 --body`", "report from fix-stop, `cci show 459480 --body`", ""}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
