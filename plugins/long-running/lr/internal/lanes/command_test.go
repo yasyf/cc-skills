@@ -195,6 +195,37 @@ func TestEveryVerbTakesAStemForTheLaneThatHoldsIt(t *testing.T) {
 	equal(t, recordOf(records[0]).Attr("lane"), "desk-3")
 }
 
+func TestARouteToAnAliasNoLaneHoldsAnswersForItsNewestGeneration(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	a, s := driveState(t)
+	for _, lane := range []string{"desk-2", "desk-10"} {
+		if _, err := s.WantLane(storeLane(lane), t0); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetLaneState(lane, store.LaneRetired, t0, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Post(context.Background(), client.Draft{Drive: testDrive, Lane: lane, Kind: "state", Text: lane + " up"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Post(context.Background(), client.Draft{Drive: testDrive, Lane: "root", Kind: "stand-down", To: []string{lane}, Text: lane + " is done"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	route, err := execute(t, RouteCommand(a), "desk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, strings.TrimSpace(route), `{"lane":"desk","route":"root","state":"retired","standing":"","meta":false}`)
+
+	route, err = execute(t, RouteCommand(a), "nobody")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, strings.TrimSpace(route), `{"lane":"nobody","route":"nobody","state":"unregistered","standing":"","meta":false}`)
+}
+
 func TestANumberedLaneStaysItselfThoughANewerLaneHoldsItsStem(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	a, s := driveState(t)
