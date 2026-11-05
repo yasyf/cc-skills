@@ -6,12 +6,15 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -23,6 +26,7 @@ const (
 	tapRequired   = "TAP-REQUIRED no approval on the owner's board at this head"
 	queueUntested = "QUEUE-UNTESTED"
 	queuePassed   = "success"
+	gateUnread    = "Warning, nothing was refused:"
 )
 
 func gateCommand(a *app.App) *cobra.Command {
@@ -43,7 +47,7 @@ func gateCommand(a *app.App) *cobra.Command {
 func runGate(ctx context.Context, a *app.App, args []string, partial, direct bool, stdout io.Writer) error {
 	lines, err := gateLines(ctx, a, args, partial, direct)
 	if err != nil {
-		fmt.Fprintf(a.Stderr, "Warning, nothing was refused: lr landing gate could not read the drive's pull requests: %v\n", err)
+		fmt.Fprintf(a.Stderr, "%s lr landing gate could not read the drive's pull requests: %v\n", gateUnread, err)
 		return nil
 	}
 	for _, line := range lines {
@@ -74,7 +78,19 @@ func gateLines(ctx context.Context, a *app.App, args []string, partial, direct b
 	if err != nil {
 		return nil, err
 	}
+	g.GoAnswer, g.Stderr = sweepAnswer(ctx, a, cfg, s), a.Stderr
 	return g.HandEnqueueLines(ctx, snapshot, args, partial, direct), nil
+}
+
+func sweepAnswer(ctx context.Context, a *app.App, cfg config.Config, s *store.Store) func(context.Context, machine.Facts) ([]string, error) {
+	inputs := sync.OnceValues(func() (gateInputs, error) { return readGateInputs(ctx, cfg.Drive, a.Now()) })
+	return func(ctx context.Context, f machine.Facts) ([]string, error) {
+		read, err := inputs()
+		if err != nil {
+			return nil, err
+		}
+		return goGate{a: a, cfg: cfg, s: s, inputs: read, stdout: a.Stderr}.answer(ctx, f)
+	}
 }
 
 func (g *Gates) HandEnqueueLines(ctx context.Context, snapshot []machine.Facts, named []string, partial, direct bool) []string {
@@ -97,13 +113,31 @@ func (g *Gates) HandEnqueueLines(ctx context.Context, snapshot []machine.Facts, 
 	}
 	for _, f := range snapshot {
 		if below[f.Branch] || !partial && downstackMeets(f, byBranch, below) {
-			lines = append(append(lines, GateLines(f)...), g.refusalLines(ctx, f)...)
+			lines = append(append(lines, g.tapLines(ctx, f)...), g.refusalLines(ctx, f)...)
 			if direct {
 				lines = append(lines, g.untestedLines(ctx, f)...)
 			}
 		}
 	}
 	return lines
+}
+
+func (g *Gates) tapLines(ctx context.Context, f machine.Facts) []string {
+	missing := gates.Missing(f)
+	if !goReady(f) {
+		return missingLines(f, missing)
+	}
+	missing = slices.DeleteFunc(missing, func(gate string) bool { return gate == gates.NoTap || gate == gates.NoGo })
+	refusals, err := g.GoAnswer(ctx, f)
+	switch {
+	case err != nil:
+		fmt.Fprintf(g.Stderr, "%s lr landing gate could not read the go sweep's answer on #%d: %v\n", gateUnread, f.Number, err)
+	case len(refusals) > 0:
+		missing = append(missing, tapRequired+", and the go sweep refuses it: "+strings.Join(refusals, "; "))
+	default:
+		missing = append(missing, gates.NoGo)
+	}
+	return missingLines(f, missing)
 }
 
 func (g *Gates) refusalLines(ctx context.Context, f machine.Facts) []string {
@@ -150,7 +184,10 @@ func (g *Gates) untestedLines(ctx context.Context, f machine.Facts) []string {
 }
 
 func GateLines(f machine.Facts) []string {
-	missing := gates.Missing(f)
+	return missingLines(f, gates.Missing(f))
+}
+
+func missingLines(f machine.Facts, missing []string) []string {
 	lines := make([]string, 0, len(missing))
 	for _, gate := range missing {
 		if gate == gates.NoTap {

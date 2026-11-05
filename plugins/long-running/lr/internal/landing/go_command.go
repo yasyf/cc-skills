@@ -112,31 +112,98 @@ type goGate struct {
 	stdout io.Writer
 }
 
-func (g goGate) one(ctx context.Context, number int, head string, flags goFlags) (refused bool, lapses time.Time, err error) {
-	a, cfg, s, inputs, stdout := g.a, g.cfg, g.s, g.inputs, g.stdout
-	records, err := client.Tail(ctx, client.Query{Drive: cfg.Drive, PR: fmt.Sprintf("%s#%d", cfg.Repo, number)})
+type headRead struct {
+	claim   gates.Claim
+	read    gates.Read
+	records []client.Record
+	port    gates.PortClaim
+	claimed bool
+	lapses  time.Time
+}
+
+func (g goGate) readHead(ctx context.Context, number int, head string, before int64) (headRead, error) {
+	records, err := client.Tail(ctx, client.Query{Drive: g.cfg.Drive, PR: fmt.Sprintf("%s#%d", g.cfg.Repo, number)})
 	if err != nil {
-		return false, lapses, err
+		return headRead{}, err
 	}
-	if flags.before != 0 {
-		records = slices.DeleteFunc(records, func(record client.Record) bool { return record.Seq >= flags.before })
+	if before != 0 {
+		records = slices.DeleteFunc(records, func(record client.Record) bool { return record.Seq >= before })
 	}
-	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, cfg.Drive, seqs) })
+	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, g.cfg.Drive, seqs) })
 	if err != nil {
-		fmt.Fprintf(stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
+		fmt.Fprintf(g.stdout, "WARNING #%d: could not read what its holds resolve, so each counts as a lift: %v\n", number, err)
 	}
-	claim := gates.Claim{Repo: cfg.Repo, PR: number, Head: head}
-	read := gates.Read{Lifts: lifts, Records: records, GoLanes: inputs.GoLanes, Exempt: inputs.Exempt, TapRules: inputs.TapRules, Cards: inputs.Cards}
-	port, claimed := gates.PortAt(claim, records)
-	if claimed {
-		read.PortSourceMerged, err = g.portLanded(ctx, claim, port.Source)
+	r := headRead{claim: gates.Claim{Repo: g.cfg.Repo, PR: number, Head: head}, records: records}
+	r.read = gates.Read{Lifts: lifts, Records: records, GoLanes: g.inputs.GoLanes, Exempt: g.inputs.Exempt, TapRules: g.inputs.TapRules, Cards: g.inputs.Cards}
+	r.port, r.claimed = gates.PortAt(r.claim, records)
+	if r.claimed {
+		r.read.PortSourceMerged, err = g.portLanded(ctx, r.claim, r.port.Source)
 		if err != nil {
-			return false, lapses, err
+			return r, err
 		}
 	}
-	if !claimed || read.PortSourceMerged {
-		lapses = earliestExpiry(records)
+	if !r.claimed || r.read.PortSourceMerged {
+		r.lapses = earliestExpiry(records)
 	}
+	return r, nil
+}
+
+func (g goGate) readDiff(ctx context.Context, number int, read *gates.Read) error {
+	files, err := g.a.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", g.cfg.Repo, number), "--jq", filesJQ)
+	if err != nil {
+		return err
+	}
+	read.Files, read.Patches, err = changedFiles(files)
+	return err
+}
+
+func (g goGate) answer(ctx context.Context, f machine.Facts) ([]string, error) {
+	r, err := g.readHead(ctx, f.Number, f.Head, 0)
+	if err != nil {
+		return nil, err
+	}
+	r.read.Body = f.Body
+	if err := g.readDiff(ctx, f.Number, &r.read); err != nil {
+		return nil, err
+	}
+	_, refusals := gates.ExemptGo(r.claim, r.read)
+	unread, err := gates.RowReadAt(g.s, g.cfg.Repo, f.Number, f.Head)
+	if err != nil {
+		return nil, err
+	}
+	if unread != "" {
+		refusals = append(refusals, unread)
+	}
+	if len(refusals) == 0 {
+		return nil, nil
+	}
+	return append(refusals, uncountedGos(r.claim, r.records, g.inputs.GoLanes)...), nil
+}
+
+func uncountedGos(c gates.Claim, records []client.Record, goLanes []string) []string {
+	var out []string
+	for _, record := range records {
+		if string(record.Kind) == kindGo && !countsAt(record, c, goLanes) {
+			out = append(out, fmt.Sprintf("go %s by %s is not counted at this head", record.Name(), record.Lane))
+		}
+	}
+	return out
+}
+
+func countsAt(record client.Record, c gates.Claim, goLanes []string) bool {
+	return slices.ContainsFunc(bus.LegacyFacts(record, c.Repo, goLanes), func(fact bus.Fact) bool {
+		return fact.Kind == "exempt" && fact.PR == c.PR && strings.HasPrefix(c.Head, fact.Head)
+	})
+}
+
+func (g goGate) one(ctx context.Context, number int, head string, flags goFlags) (refused bool, lapses time.Time, err error) {
+	a, cfg, s, inputs, stdout := g.a, g.cfg, g.s, g.inputs, g.stdout
+	r, err := g.readHead(ctx, number, head, flags.before)
+	if err != nil {
+		return false, r.lapses, err
+	}
+	claim, read, records, claimed, port := r.claim, r.read, r.records, r.claimed, r.port
+	lapses = r.lapses
 	standing := claimed && !port.Interacts || gates.FlakeAt(claim, records)
 	if flags.sweep {
 		read.Body = flags.body
@@ -148,12 +215,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 			return true, lapses, noteStandingRefused(s, claim, standing, refusals, a.Now())
 		}
 	}
-	files, err := a.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", cfg.Repo, number), "--jq", filesJQ)
-	if err != nil {
-		return false, lapses, err
-	}
-	read.Files, read.Patches, err = changedFiles(files)
-	if err != nil {
+	if err := g.readDiff(ctx, number, &read); err != nil {
 		return false, lapses, err
 	}
 	if claimed && flags.before == 0 {
