@@ -110,7 +110,7 @@ Each incident has one actor. When `tools/ci oncall incidents` shows an open ai-o
 
 **The supervisor and the coordinator launch incident lanes with `lr launch incident`.**
 
-- The fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`.
+- The fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. The fix lane starts on a Sprite, which has no AWS identity, Sentry or Datadog; the evidence lane starts on the Mac (`place=local why=sentry`), runs `tools/ci oncall incidents` first and posts its output to the fix lane, and answers the fix lane's Sentry, Datadog and `oncall` asks over cci. When the evidence lane's Mac launch stalls, it relaunches once on the Mac and then reports `LAUNCH-FAILED`; the fix lane goes on from code and GitHub and says what it could not read.
 - The comms lane runs as Claude on `incident-opus`, because a codex lane cannot post to Slack: no hook runs there to mint the ticket every `cc-slack` write spends. The fix lane still owns the incident and what is said, so an incident has two agents only for this reason.
 - Only the `incident` alias runs fast; plain `sol` is the standard tier and never an incident route.
 - Claude never takes the fix or evidence role. Fable and astra never run.
@@ -612,7 +612,7 @@ Register slice: lane=<lane> step=incident
 ## Evidence lane brief
 
 ```text
-ccx: role=evidence
+ccx: role=evidence place=local why=sentry
 You are <evidence lane name>, reading telemetry, logs, and the deploy timeline for the active production alert.
 Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
 Owner: the coordinator <coordinator agent name> for incident <incident id>.
@@ -631,6 +631,12 @@ Verified facts, do not re-derive:
     (cc-notes, on the drive checkout)
 
 If you were launched unsupervised, report through the bus; Orca carries no worker_done for you.
+
+You run on the Mac, which holds Sentry, Datadog and the AWS identity `tools/ci oncall` needs;
+<fix lane name> runs on a Sprite and holds none of them. Run `tools/ci oncall incidents` first and
+post its whole output to <fix lane name>, then answer each ask it posts to you (`sentry issue <id>`,
+`datadog monitor <id>`, `datadog logs <query>`, `datadog metric <query>`, `oncall <verb and arguments>`)
+with a `report` to it carrying the output, reads only.
 
 Do:
   1. Send the first finding within about 10 minutes, with evidence and gaps.

@@ -4457,6 +4457,7 @@ func TestEveryLaneButTheCoordinatorFableAndANamedMacNeedLeavesTheMacAtTheCap(t *
 		{"an x-fix lane on a plan step", Order{Lane: "api-500-fix", Model: "opus"}, "Register slice: lane=api-500-fix step=3\n" + devbox, false},
 		{"the coordinator", Order{Lane: coordinatorLane, Model: "opus"}, "", false},
 		{"a Fable lane", Order{Lane: "helper-1", Model: "fable"}, "", false},
+		{"an evidence lane reading Sentry", Order{Lane: "api-evidence", Model: agentIncident}, "ccx: lane=api-evidence role=evidence effort=xhigh place=local why=sentry\n", false},
 	} {
 		if got := capFallsBack(tt.o, tt.text); got != tt.want {
 			t.Errorf("%s: %v", tt.name, got)
@@ -4569,9 +4570,28 @@ func TestOnlyAnAlertLaneLeavesTheMacWhenItsLaunchFails(t *testing.T) {
 		{"a helper placed remotely", Order{Lane: "helper-1", Model: "opus"}, "ccx: role=build incident=none\n", false},
 		{"the coordinator", Order{Lane: coordinatorLane, Model: agentIncident}, devbox, false},
 		{"a Fable lane", Order{Lane: "incident-db", Model: "fable"}, devbox, false},
+		{"an evidence lane reading Sentry", Order{Lane: "api-evidence", Model: agentIncident}, "ccx: lane=api-evidence role=evidence effort=xhigh place=local why=sentry\n", false},
 	} {
 		if got := failureFallsBack(tt.o, tt.text); got != tt.want {
 			t.Errorf("%s: %v", tt.name, got)
 		}
 	}
+}
+
+func TestAnEvidenceLaneReadingSentryStartsOnTheMacAndFailsThereWithNoSpriteRelaunch(t *testing.T) {
+	const evidence = "ccx: lane=lane-a role=evidence effort=xhigh place=local why=sentry\n"
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	key := w.failedOnTheMac(agentIncident, evidence, worktreeStalled)
+	if slices.Contains(w.spawns[0].env, fallbackEnv+"=1") {
+		t.Fatal(w.spawns[0].env)
+	}
+	w.step(w.desk.reap)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns)
+	}
+	if action := w.action(testLane, key); action.Status != incident.ActionFailed {
+		t.Fatal(action)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "Orca does not list worktree")
 }

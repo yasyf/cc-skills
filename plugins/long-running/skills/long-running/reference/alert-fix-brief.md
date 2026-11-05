@@ -34,7 +34,10 @@ Standing orders, fixed in this template:
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - Never ask a reporter or anyone else for evidence; read telemetry and Sentry
-    yourself.
+    yourself. You run on a Sprite, which has no AWS identity, Sentry or Datadog, so read
+    them through `{slug}-evidence`, which runs on the Mac: `cci post --drive {drive} --lane {lane} --kind ask --to {slug}-evidence --text "<sentry issue <id> | datadog monitor <id> | datadog logs <query> | datadog metric <query>>"`.
+    Its answer is a record to you, usually within two minutes. When its launch failed and no
+    answer comes, say what you could not read on the lane's records and go on from code and GitHub.
   - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile, such as one missing generated bindings, never holds a push, and neither does a load-gate refusal: push, and CI compiles it; never generate code just to satisfy the local build.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
@@ -53,8 +56,13 @@ Standing orders, fixed in this template:
     unless the owner's words in this brief name that credential. A mute, an ack
     or a monitor change goes through ai-oncall's verb (step 0b) or an ask in the
     page thread, never through a Datadog or other key you fetched.
-  - ONE ACTOR PER INCIDENT. Before anything else, run `tools/ci oncall incidents`
-    in the monorepo checkout. When an open ai-oncall incident covers this alert, its
+  - ONE ACTOR PER INCIDENT. `tools/ci oncall incidents` and every `ci oncall` verb below
+    fail on a Sprite with `aws: command not found`, so `{slug}-evidence` runs them on the Mac.
+    Before anything else, read its first record (`cci tail --drive {drive} --lane {slug}-evidence`),
+    which carries the output of `tools/ci oncall incidents`, and wherever this brief says
+    to run `tools/ci oncall ...` or `ci oncall ...`, ask it: `cci post --drive {drive} --lane {lane} --kind ask --to {slug}-evidence --text "oncall <verb and arguments>"`.
+    When no record has arrived after 5 minutes, post `NO-EVIDENCE {lane}: <what is missing>`
+    to the coordinator and go on from code and GitHub. When an open ai-oncall incident covers this alert, its
     commander, Wadsworth, is that incident's one actor, and you route through it:
     run `ci oncall connect <incident id> --state <your worktree>/oncall.json --label {lane}`
     under a persistent Monitor (it waits while a new page's commander starts) and hand

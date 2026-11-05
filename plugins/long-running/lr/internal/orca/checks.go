@@ -206,7 +206,7 @@ func macPreferred(text string) bool {
 }
 
 func capFallsBack(o Order, text string) bool {
-	if !canLeaveMac(o) {
+	if !canLeaveMac(o, text) {
 		return false
 	}
 	needs := placedLocal(text) && slices.ContainsFunc(submatches(briefWhy, text), func(why string) bool { return why != whyPredecessor && why != whyMacInputs })
@@ -214,11 +214,11 @@ func capFallsBack(o Order, text string) bool {
 }
 
 func failureFallsBack(o Order, text string) bool {
-	return canLeaveMac(o) && incidentLaunch(o, text)
+	return canLeaveMac(o, text) && incidentLaunch(o, text)
 }
 
-func canLeaveMac(o Order) bool {
-	return o.Lane != coordinatorLane && !fableModel.MatchString(o.Model)
+func canLeaveMac(o Order, text string) bool {
+	return o.Lane != coordinatorLane && !fableModel.MatchString(o.Model) && !slices.Contains(submatches(briefWhy, text), whySentry)
 }
 
 func incidentLaunch(o Order, text string) bool {
