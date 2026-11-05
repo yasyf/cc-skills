@@ -160,6 +160,34 @@ func TestCIFaultReadsTheNewestAttemptOnTheCommitTheTagWasBumpedFrom(t *testing.T
 	}
 }
 
+func TestACancelledBaseRunDefersToTheNewestFinishedMainRunAfterIt(t *testing.T) {
+	const finishedPath = "api repos/o/r/actions/workflows/long-running-ci.yml/runs?branch=main&status=completed&per_page=100"
+	cases := map[string]struct {
+		finished string
+		compared string
+		want     string
+	}{
+		"green descendant": {`{"workflow_runs":[{"head_sha":"c0","conclusion":"cancelled"},{"head_sha":"d1","conclusion":"success","html_url":"u2"}]}`, `{"status":"ahead"}`, ""},
+		"red descendant":   {`{"workflow_runs":[{"head_sha":"d1","conclusion":"failure","html_url":"u2"}]}`, `{"status":"ahead"}`, "was cancelled (u1), and the newest finished main run after it, on d1, ended failure: u2"},
+		"only older runs":  {`{"workflow_runs":[{"head_sha":"d1","conclusion":"success","html_url":"u2"}]}`, `{"status":"behind"}`, "was cancelled (u1), and no main run after it has finished"},
+		"none finished":    {`{"workflow_runs":[{"head_sha":"c0","conclusion":"cancelled"}]}`, `{"status":"ahead"}`, "was cancelled (u1), and no main run after it has finished"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			checks := cachedChecks(t, map[string]string{
+				"api repos/o/r/commits/long-running--v1.2.3": parentOfTag,
+				runsPath:     `{"workflow_runs":[{"name":"long-running CI","run_attempt":1,"status":"completed","conclusion":"cancelled","html_url":"u1"}]}`,
+				finishedPath: tc.finished,
+				"api repos/o/r/compare/abcdef0123456789...d1": tc.compared,
+			})
+			got := checks.CIFault(context.Background(), "1.2.3")
+			if tc.want == "" && got != "" || tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAnUncachedInstallHasNoReleaseToCompare(t *testing.T) {
 	checks := Checks{Installs: t.TempDir()}
 	if faults := checks.ReleaseFaults(context.Background(), "1.2.3"); faults != nil {

@@ -18,13 +18,14 @@ import (
 )
 
 const (
-	ciWorkflow    = "long-running CI"
-	pluginName    = "long-running"
-	pinEnv        = "LONG_RUNNING_PIN"
-	probeTimeout  = 2 * time.Minute
-	readTimeout   = time.Minute
-	shownFaults   = 5
-	lastLineLimit = 300
+	ciWorkflow     = "long-running CI"
+	ciWorkflowFile = "long-running-ci.yml"
+	pluginName     = "long-running"
+	pinEnv         = "LONG_RUNNING_PIN"
+	probeTimeout   = 2 * time.Minute
+	readTimeout    = time.Minute
+	shownFaults    = 5
+	lastLineLimit  = 300
 )
 
 var (
@@ -285,10 +286,45 @@ func (c Checks) CIFault(ctx context.Context, version string) string {
 	if run.Status != "completed" {
 		return fmt.Sprintf("the %s run on %s, the commit %s was bumped from, is %s: %s", ciWorkflow, short, tagName, run.Status, run.URL)
 	}
+	if run.Conclusion == "cancelled" {
+		return c.supersededFault(ctx, repo, merged, fmt.Sprintf("the %s run on %s, the commit %s was bumped from, was cancelled (%s)", ciWorkflow, short, tagName, run.URL))
+	}
 	if run.Conclusion != "success" {
 		return fmt.Sprintf("the %s run on %s, the commit %s was bumped from, ended %s: %s", ciWorkflow, short, tagName, run.Conclusion, run.URL)
 	}
 	return ""
+}
+
+func (c Checks) supersededFault(ctx context.Context, repo, base, cancelled string) string {
+	var finished struct {
+		Runs []struct {
+			SHA        string `json:"head_sha"`
+			Conclusion string `json:"conclusion"`
+			URL        string `json:"html_url"`
+		} `json:"workflow_runs"`
+	}
+	if err := c.read(ctx, fmt.Sprintf("repos/%s/actions/workflows/%s/runs?branch=main&status=completed&per_page=100", repo, ciWorkflowFile), &finished); err != nil {
+		return err.Error()
+	}
+	for _, run := range finished.Runs {
+		if run.Conclusion == "cancelled" {
+			continue
+		}
+		var compared struct {
+			Status string `json:"status"`
+		}
+		if err := c.read(ctx, fmt.Sprintf("repos/%s/compare/%s...%s", repo, base, run.SHA), &compared); err != nil {
+			return err.Error()
+		}
+		if compared.Status != "ahead" && compared.Status != "identical" {
+			break
+		}
+		if run.Conclusion != "success" {
+			return fmt.Sprintf("%s, and the newest finished main run after it, on %s, ended %s: %s", cancelled, run.SHA[:min(10, len(run.SHA))], run.Conclusion, run.URL)
+		}
+		return ""
+	}
+	return cancelled + ", and no main run after it has finished"
 }
 
 func (c Checks) read(ctx context.Context, path string, into any) error {
