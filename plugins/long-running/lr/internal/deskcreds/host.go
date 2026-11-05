@@ -26,7 +26,8 @@ type Host struct {
 }
 
 type Runner struct {
-	Host Host `json:"host"`
+	Drive string `json:"drive"`
+	Host  Host   `json:"host"`
 }
 
 type Env struct {
@@ -72,17 +73,17 @@ func (e Env) Push(ctx context.Context, config string, port int) error {
 	if err != nil {
 		return err
 	}
-	host, failed := runner.Host, false
+	host, failed := runner.Host, []string{}
 	for _, profile := range host.AWSProfiles {
 		exported, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"aws", "configure", "export-credentials", "--profile", profile, "--format", "process"}, Timeout: stepTimeout})
 		if err != nil {
 			_, _ = fmt.Fprintf(e.Err, "desk-creds push: %s did not export: %s\n", profile, tail(err))
-			failed = true
+			failed = append(failed, profile)
 			continue
 		}
 		if err := e.send(ctx, host.Sprite, port, profile, exported.Stdout); err != nil {
 			_, _ = fmt.Fprintf(e.Err, "desk-creds push: %s did not reach %s: %s\n", profile, host.Sprite, tail(err))
-			failed = true
+			failed = append(failed, profile)
 			continue
 		}
 		var until struct {
@@ -99,7 +100,7 @@ func (e Env) Push(ctx context.Context, config string, port int) error {
 		value := strings.TrimSpace(printed.Stdout)
 		if err != nil || value == "" {
 			_, _ = fmt.Fprintf(e.Err, "desk-creds push: %s's command printed nothing, exit %d\n", name, printed.Code)
-			failed = true
+			failed = append(failed, name)
 			continue
 		}
 		body, err := json.Marshal(map[string]string{"Value": value, expiration: until})
@@ -108,13 +109,13 @@ func (e Env) Push(ctx context.Context, config string, port int) error {
 		}
 		if err := e.send(ctx, host.Sprite, port, secretPrefix+name, string(body)); err != nil {
 			_, _ = fmt.Fprintf(e.Err, "desk-creds push: %s did not reach %s: %s\n", name, host.Sprite, tail(err))
-			failed = true
+			failed = append(failed, name)
 			continue
 		}
 		_, _ = fmt.Fprintf(e.Out, "desk-creds push: %s on %s until %s\n", name, host.Sprite, until)
 	}
-	if failed {
-		return errors.New("desk-creds push: a credential did not reach the host")
+	if len(failed) > 0 {
+		return fmt.Errorf("desk-creds push: %s did not reach %s", strings.Join(failed, ", "), host.Sprite)
 	}
 	return nil
 }

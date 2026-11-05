@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/awake"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -26,6 +28,10 @@ const (
 	headerTimeout = 10 * time.Second
 	stderrLimit   = 300
 	expiration    = "Expiration"
+	PushLane      = "desk-creds-push"
+	serveLane     = "desk-creds"
+	askKind       = "ask"
+	EscalateAfter = 2 * time.Minute
 )
 
 var (
@@ -36,10 +42,11 @@ var (
 type Held = map[string]json.RawMessage
 
 type server struct {
-	mu   sync.Mutex
-	held map[string]Held
-	now  func() time.Time
-	log  io.Writer
+	mu      sync.Mutex
+	held    map[string]Held
+	changed chan struct{}
+	now     func() time.Time
+	log     io.Writer
 }
 
 func expired(credentials Held, now time.Time) bool {
@@ -52,7 +59,7 @@ func expired(credentials Held, now time.Time) bool {
 }
 
 func Handler(now func() time.Time, log io.Writer) http.Handler {
-	s := &server{held: map[string]Held{}, now: now, log: log}
+	s := &server{held: map[string]Held{}, changed: make(chan struct{}), now: now, log: log}
 	return s
 }
 
@@ -61,7 +68,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusMethodNotAllowed
 	switch r.Method {
 	case http.MethodGet:
-		status = s.get(w, key)
+		status = s.get(w, r, key)
 	case http.MethodPut:
 		status = s.put(w, r, key)
 	default:
@@ -70,14 +77,28 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(s.log, "desk-creds: %s /%s %d\n", r.Method, key, status)
 }
 
-func (s *server) get(w http.ResponseWriter, key string) int {
-	s.mu.Lock()
-	credentials := s.held[key]
-	s.mu.Unlock()
-	if credentials == nil || expired(credentials, s.now()) {
-		http.Error(w, "no unexpired credentials were pushed for this profile", http.StatusNotFound)
-		return http.StatusNotFound
+func (s *server) get(w http.ResponseWriter, r *http.Request, key string) int {
+	wait := r.URL.Query().Has("wait")
+	for {
+		s.mu.Lock()
+		credentials, changed := s.held[key], s.changed
+		s.mu.Unlock()
+		if credentials != nil && !expired(credentials, s.now()) {
+			return s.answer(w, credentials)
+		}
+		if !wait {
+			http.Error(w, "no unexpired credentials were pushed for this profile", http.StatusNotFound)
+			return http.StatusNotFound
+		}
+		select {
+		case <-changed:
+		case <-r.Context().Done():
+			return http.StatusRequestTimeout
+		}
 	}
+}
+
+func (s *server) answer(w http.ResponseWriter, credentials Held) int {
 	body, err := json.Marshal(credentials)
 	if err != nil {
 		http.Error(w, "the held credentials did not encode", http.StatusInternalServerError)
@@ -114,25 +135,49 @@ func (s *server) put(w http.ResponseWriter, r *http.Request, key string) int {
 		return refuse()
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.held[key] = kept
+	close(s.changed)
+	s.changed = make(chan struct{})
+	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 	return http.StatusNoContent
 }
 
-func Serve(ctx context.Context, runner shell.Runner, port int, log io.Writer) error {
+func Serve(ctx context.Context, runner shell.Runner, port int, drive string, log io.Writer) error {
 	go awake.Holder{Runner: runner, Task: awakeTask, Every: awake.Every, Log: slog.New(slog.NewTextHandler(log, nil)), Wanted: awake.Always}.Run(ctx)
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return err
 	}
+	go func() {
+		if err := AskForPush(ctx, drive, time.Now()); err != nil {
+			_, _ = fmt.Fprintf(log, "desk-creds: the ask for a push did not post: %v\n", err)
+		}
+	}()
 	return (&http.Server{Handler: Handler(time.Now, log), ReadHeaderTimeout: headerTimeout}).Serve(listener)
+}
+
+func AskForPush(ctx context.Context, drive string, started time.Time) error {
+	host, err := os.Hostname()
+	if err != nil {
+		return err
+	}
+	_, err = client.Post(ctx, client.Draft{
+		Drive: drive, Lane: serveLane, Kind: askKind, To: []string{PushLane}, Force: true,
+		ID:   fmt.Sprintf("desk-creds-start/%s/%d", host, started.UnixNano()),
+		Text: fmt.Sprintf("desk-creds on %s started holding nothing: push its credentials", host),
+	})
+	return err
 }
 
 func Fetch(ctx context.Context, key string, port int) (Held, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/%s", port, key), http.NoBody)
+	return fetch(ctx, fmt.Sprintf("http://127.0.0.1:%d/%s", port, key))
+}
+
+func fetch(ctx context.Context, url string) (Held, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +201,39 @@ func Get(ctx context.Context, profile, field string, port int, out io.Writer) er
 	if err != nil {
 		return fmt.Errorf("desk-creds get: no credentials for %s on port %d: %w", profile, port, err)
 	}
+	return printHeld(held, profile, field, out)
+}
+
+func Wait(ctx context.Context, profile, field string, port int, drive string, patience time.Duration, log, out io.Writer) error {
+	held, err := Fetch(ctx, profile, port)
+	if err == nil {
+		return printHeld(held, profile, field, out)
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(log, "desk-creds get: waiting on %s, which desk-creds on port %d does not hold\n", profile, port)
+	url := fmt.Sprintf("http://127.0.0.1:%d/%s?wait", port, profile)
+	patient, cancel := context.WithTimeout(ctx, patience)
+	held, err = fetch(patient, url)
+	cancel()
+	if err != nil {
+		if _, err := client.Post(ctx, client.Draft{
+			Drive: drive, Lane: serveLane, Kind: "blocker", To: []string{"root"}, Force: true,
+			ID:   fmt.Sprintf("desk-creds-wait/%s/%s/%d", host, profile, os.Getpid()),
+			Text: fmt.Sprintf("A service on %s is stopped waiting on %s from desk-creds, which nothing has pushed in %s; the Mac's lr desk-creds keep pushes it", host, profile, patience),
+		}); err != nil {
+			return err
+		}
+		if held, err = fetch(ctx, url); err != nil {
+			return fmt.Errorf("desk-creds get: no credentials for %s on port %d: %w", profile, port, err)
+		}
+	}
+	return printHeld(held, profile, field, out)
+}
+
+func printHeld(held Held, profile, field string, out io.Writer) error {
 	if field == "" {
 		encoded, err := json.Marshal(held)
 		if err != nil {
@@ -170,10 +248,10 @@ func Get(ctx context.Context, profile, field string, port int, out io.Writer) er
 	}
 	var text string
 	if json.Unmarshal(value, &text) == nil {
-		_, err = fmt.Fprintln(out, text)
+		_, err := fmt.Fprintln(out, text)
 		return err
 	}
-	_, err = fmt.Fprintln(out, string(value))
+	_, err := fmt.Fprintln(out, string(value))
 	return err
 }
 
