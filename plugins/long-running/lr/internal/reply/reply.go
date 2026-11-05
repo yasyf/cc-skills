@@ -862,8 +862,8 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if surface(was.Surfaces, "slack").Ref != "" || len(r.Picks) > 0 && drawn.Ref == "" {
 		return nil
 	}
-	if r.Thread != "" && (drawn.Surface == "" || len(r.Picks) > 0) {
-		return f.inThread(ctx, r, drawn)
+	if r.Thread != "" && drawn.Surface == "" {
+		return f.inThread(ctx, r)
 	}
 	if drawn.Surface != "" || r.quiet() || len(r.Links) == 0 && len(r.PRs) == 0 && r.Status == "" {
 		return nil
@@ -909,7 +909,7 @@ func (r Reply) withPickLink(body string, drawn Outcome) string {
 	return body + "\n<" + drawn.Ref + "|" + pickLink + ">"
 }
 
-func (f Fanout) inThread(ctx context.Context, r Reply, drawn Outcome) []Outcome {
+func (f Fanout) inThread(ctx context.Context, r Reply) []Outcome {
 	body := mdLink.ReplaceAllString(r.MD, "<$2|$1>")
 	for _, pr := range r.PRs {
 		body += "\n" + pr
@@ -917,11 +917,7 @@ func (f Fanout) inThread(ctx context.Context, r Reply, drawn Outcome) []Outcome 
 	for _, link := range r.Links {
 		body += "\n<" + link.URL + "|" + link.Label + ">"
 	}
-	posted := f.dmStatus(ctx, slices.Concat([]string{"--thread", r.Thread}, r.tapFlags(), []string{"*" + r.Title + "*\n" + body})...)
-	if drawn.Surface != "" {
-		posted[0].Surface = "slack thread"
-	}
-	return posted
+	return f.dmStatus(ctx, slices.Concat([]string{"--thread", r.Thread}, r.tapFlags(), []string{"*" + r.Title + "*\n" + body})...)
 }
 
 func (r Reply) tapFlags() []string {
@@ -953,19 +949,27 @@ func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outco
 	for _, card := range cards {
 		done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "card-copy", "--url", card, "--thread", thread}, Timeout: postTimeout})
 		if err != nil {
-			copies = append(copies, failed(cardCopySurface, err))
+			copies = append(copies, f.linkInPlaceOfCopy(ctx, thread, card, failed(cardCopySurface, err).Error))
 			continue
 		}
 		var posted struct {
 			Permalink string `json:"permalink"`
 		}
 		if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
-			copies = append(copies, Outcome{Surface: cardCopySurface, Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
+			copies = append(copies, f.linkInPlaceOfCopy(ctx, thread, card, "cc-slack card-copy named no posted message: "+strings.TrimSpace(done.Stdout)))
 			continue
 		}
 		copies = append(copies, Outcome{Surface: cardCopySurface, Ref: posted.Permalink})
 	}
 	return copies
+}
+
+func (f Fanout) linkInPlaceOfCopy(ctx context.Context, thread, card, why string) Outcome {
+	linked := f.dmStatus(ctx, "--thread", thread, "<"+card+"|"+pickLink+">")[0]
+	if linked.Error != "" {
+		why += "; the link to the card did not post either: " + strings.TrimSuffix(linked.Error, resendOnce)
+	}
+	return Outcome{Surface: cardCopySurface, Ref: linked.Ref, Error: why}
 }
 
 func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
