@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"maps"
 	"net/url"
@@ -36,14 +37,16 @@ const (
 	tokenWait   = time.Minute
 	replyLimit  = 16 << 10
 	bodiesDir   = "bk-desk"
-	buildsPage  = 100
+	perPage     = 100
 	buildsUsage = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
-	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk log <pipeline> <number> <job>, bk grep <pipeline> <number> <job> <regex>, or bk api <path>"
+	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key>, bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path>"
 )
 
 var (
 	request     = regexp.MustCompile(`\bbk\s+(\S+)(.*)`)
 	logEscapes  = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b_bk;t=\d+\x07`)
+	htmlTags    = regexp.MustCompile(`<[^>]*>`)
+	jobID       = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	unlistedJob = []string{"passed", "skipped", "broken", "not_run"}
 )
 
@@ -189,9 +192,16 @@ func parse(text string) ([]string, string) {
 		return nil, "jobs takes <pipeline> <number>"
 	case "builds":
 		return parseBuilds(rest)
+	case "annotations":
+		if len(rest) == 2 || len(rest) == 3 {
+			if _, err := strconv.Atoi(rest[1]); err == nil {
+				return append([]string{"annotations"}, rest...), ""
+			}
+		}
+		return nil, "annotations takes <pipeline> <number> [<context>]"
 	case "grep":
 		if len(rest) < 4 {
-			return nil, "grep takes <pipeline> <number> <job> <regex>"
+			return nil, "grep takes <pipeline> <number> <job id or step key> <regex>"
 		}
 		pattern := strings.Join(rest[3:], " ")
 		if _, err := regexp.Compile(pattern); err != nil {
@@ -202,13 +212,15 @@ func parse(text string) ([]string, string) {
 		if len(rest) == 3 {
 			return append([]string{"log"}, rest...), ""
 		}
-		return nil, "log takes <pipeline> <number> <job>"
+		return nil, "log takes <pipeline> <number> <job id or step key>"
 	case "api":
 		if len(rest) != 1 || strings.HasPrefix(rest[0], "-") {
-			return nil, "api reads one path with GET, and takes no -X or -d"
+			return nil, "api reads one path with GET and answers its raw JSON, so it takes no flag such as -X, -d or --jq"
 		}
-		if strings.HasPrefix("/"+strings.TrimPrefix(rest[0], "/"), "/organizations/") {
-			return nil, "api reads only this desk's own organization; drop the /organizations/<org> prefix"
+		path := "/" + strings.TrimPrefix(rest[0], "/")
+		if inOrg, found := strings.CutPrefix(path, "/organizations/"); found {
+			_, own, _ := strings.Cut(inOrg, "/")
+			return nil, "api reads only this desk's own organization, so drop the /organizations/<org> prefix: bk api /" + own
 		}
 		return []string{"api", rest[0]}, ""
 	}
@@ -259,14 +271,16 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 			return *failure
 		}
 		return everyJob(said)
+	case "annotations":
+		return d.annotations(ctx, args[1], args[2], args[3:])
 	case "grep":
-		said, failure := d.run(ctx, "log", args[1], args[2], args[3])
+		said, failure := d.jobLog(ctx, args[1], args[2], args[3])
 		if failure != nil {
 			return *failure
 		}
 		return matching(logEscapes.ReplaceAllString(said, ""), regexp.MustCompile(args[4]))
 	case "log":
-		said, failure := d.run(ctx, args...)
+		said, failure := d.jobLog(ctx, args[1], args[2], args[3])
 		if failure != nil {
 			return *failure
 		}
@@ -301,6 +315,93 @@ func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
 	return "", &reply{head: "the read did not run", body: err.Error()}
 }
 
+func (d *Desk) jobLog(ctx context.Context, pipeline, number, job string) (string, *reply) {
+	if jobID.MatchString(job) {
+		return d.run(ctx, "log", pipeline, number, job)
+	}
+	said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+pipeline+"/builds/"+number)
+	if failure != nil {
+		return "", failure
+	}
+	var read build
+	if err := json.Unmarshal([]byte(said), &read); err != nil {
+		return "", &reply{head: "the build did not parse", body: firstBytes(said, replyLimit)}
+	}
+	var keyed strings.Builder
+	var only string
+	count := 0
+	for _, step := range read.Jobs {
+		if step.StepKey == job && !step.Retried {
+			count++
+			only = step.ID
+			fmt.Fprintf(&keyed, "%s job=%s %s\n", step.State, step.ID, step.Name)
+		}
+	}
+	if count != 1 {
+		return "", &reply{
+			head: fmt.Sprintf("%d jobs of build %s carry step key %s, so name one job id; bk jobs %s %s lists them", count, number, job, pipeline, number),
+			body: firstBytes(keyed.String(), replyLimit),
+		}
+	}
+	return d.run(ctx, "log", pipeline, number, only)
+}
+
+type annotation struct {
+	Context  string `json:"context"`
+	Style    string `json:"style"`
+	BodyHTML string `json:"body_html"`
+}
+
+func (a annotation) text() string {
+	return strings.TrimSpace(html.UnescapeString(htmlTags.ReplaceAllString(a.BodyHTML, "")))
+}
+
+func (d *Desk) annotations(ctx context.Context, pipeline, number string, wanted []string) reply {
+	var every []annotation
+	for page := 1; ; page++ {
+		said, failure := d.run(ctx, "api", "-no-wait", fmt.Sprintf("/pipelines/%s/builds/%s/annotations?page=%d&per_page=%d", pipeline, number, page, perPage))
+		if failure != nil {
+			return *failure
+		}
+		var read []annotation
+		if err := json.Unmarshal([]byte(said), &read); err != nil {
+			return reply{head: "the annotations did not parse", body: firstBytes(said, replyLimit)}
+		}
+		every = append(every, read...)
+		if len(read) < perPage {
+			break
+		}
+	}
+	var lines strings.Builder
+	if len(wanted) == 1 {
+		for _, found := range every {
+			if found.Context == wanted[0] {
+				text := found.text()
+				return reply{head: fmt.Sprintf("%s, %d bytes", found.Style, len(text)), body: firstBytes(text, replyLimit)}
+			}
+		}
+		for _, found := range every {
+			fmt.Fprintf(&lines, "%s %s\n", found.Style, found.Context)
+		}
+		return reply{head: fmt.Sprintf("none of its %d annotations has that context", len(every)), body: lines.String()}
+	}
+	pointed := 0
+	for _, found := range every {
+		text := found.text()
+		entry := fmt.Sprintf("── %s %s\n%s\n\n", found.Style, found.Context, text)
+		if lines.Len()+len(entry) > replyLimit {
+			pointed++
+			entry = fmt.Sprintf("── %s %s: %d bytes, so bk annotations %s %s %s reads it\n\n", found.Style, found.Context, len(text), pipeline, number, found.Context)
+		}
+		lines.WriteString(entry)
+	}
+	head := fmt.Sprintf("%d annotations", len(every))
+	if pointed > 0 {
+		head += fmt.Sprintf(", %d too long to fit and named by context", pointed)
+	}
+	return reply{head: head, body: firstBytes(lines.String(), replyLimit)}
+}
+
 type build struct {
 	Number int    `json:"number"`
 	State  string `json:"state"`
@@ -320,10 +421,12 @@ type job struct {
 	State      string `json:"state"`
 	ExitStatus *int   `json:"exit_status"`
 	SoftFailed bool   `json:"soft_failed"`
+	StepKey    string `json:"step_key"`
+	Retried    bool   `json:"retried"`
 }
 
 func (d *Desk) listBuilds(ctx context.Context, pipeline string, filters []string) reply {
-	query := url.Values{"per_page": {strconv.Itoa(buildsPage)}, "exclude_jobs": {"true"}, "exclude_pipeline": {"true"}}
+	query := url.Values{"per_page": {strconv.Itoa(perPage)}, "exclude_jobs": {"true"}, "exclude_pipeline": {"true"}}
 	for _, filter := range filters {
 		name, value, _ := strings.Cut(filter, "=")
 		query.Set(name, value)
@@ -348,7 +451,7 @@ func (d *Desk) listBuilds(ctx context.Context, pipeline string, filters []string
 			lines.WriteString(entry)
 			listed++
 		}
-		if len(read) < buildsPage {
+		if len(read) < perPage {
 			return reply{head: fmt.Sprintf("%d builds", listed), body: lines.String()}
 		}
 	}
