@@ -1137,15 +1137,15 @@ func TestAPRListedWithNoButtonToDrawSaysSoInTheResult(t *testing.T) {
 	r := Reply{ID: "r2", Title: "The relay fix", MD: "m", Status: info, PRs: []string{landPR}}
 	fake := scripted()
 	f := fanout(t, fake)
-	if _, warning := f.withPRCards(r); !strings.Contains(warning, "NO BUTTON: "+landPR+" has no row") {
+	if _, warning := f.withPRCards(context.Background(), r); !strings.Contains(warning, "NO BUTTON: "+landPR+" has no row") {
 		t.Fatalf("no row warned %q", warning)
 	}
 	ledgerRow(t, f, store.ReviewRow{WaitsOn: "CI", Title: "Relay fix"})
-	if _, warning := f.withPRCards(r); !strings.Contains(warning, "NO BUTTON: "+landPR+" is not ready for his tap: CI") || !strings.Contains(warning, "nothing to tap") {
+	if _, warning := f.withPRCards(context.Background(), r); !strings.Contains(warning, "NO BUTTON: "+landPR+" is not ready for his tap: CI") || !strings.Contains(warning, "nothing to tap") {
 		t.Fatalf("a row not ready warned %q", warning)
 	}
 	r.Picks, r.Recommended = []string{"Land", "Hold"}, "Land"
-	if _, warning := f.withPRCards(r); strings.Contains(warning, "NO BUTTON") {
+	if _, warning := f.withPRCards(context.Background(), r); strings.Contains(warning, "NO BUTTON") {
 		t.Fatalf("a pick reply carries its buttons, warned %q", warning)
 	}
 }
