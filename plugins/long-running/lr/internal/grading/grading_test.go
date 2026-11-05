@@ -56,6 +56,10 @@ func (p *fakePool) Whole(context.Context, map[int]machine.Facts) ([]string, erro
 	return started, nil
 }
 
+func (p *fakePool) Reopen(context.Context, map[int]machine.Facts) ([]string, error) {
+	return nil, nil
+}
+
 func (p *fakePool) Settle(_ context.Context, workers []string) (map[string]bool, error) {
 	p.settles++
 	live := make(map[string]bool, len(workers))
