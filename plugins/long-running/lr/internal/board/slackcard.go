@@ -56,9 +56,15 @@ type SlackPR struct {
 	Number int    `json:"number"`
 }
 
+type SlackShown struct {
+	SlackPR
+	Waits string `json:"waits"`
+}
+
 type slackAsk struct {
-	PRs     []SlackPR `json:"prs"`
-	Numbers []int     `json:"numbers"`
+	PRs     []SlackPR    `json:"prs"`
+	Numbers []int        `json:"numbers"`
+	Shown   []SlackShown `json:"shown"`
 	Answer  *struct {
 		SlackPR
 		Waits string `json:"waits"`
@@ -228,6 +234,19 @@ func Respond(s *store.Store, repo string, hooks Hooks, rows []store.ReviewRow, n
 	return Answer(s, repo, hooks, rows[found], verdict, at)
 }
 
+func MarkShown(s *store.Store, repo string, rows []store.ReviewRow, shown []SlackShown, at time.Time) error {
+	for _, card := range shown {
+		found := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == card.Number })
+		if found < 0 || MergeWaits(card.Number, rows[found].Head) != card.Waits {
+			continue
+		}
+		if _, err := s.PutFact(repo, card.Number, rows[found].Head, FactTapCard, tapCardInSlack, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func refuseCard(hooks Hooks, number int, waits, reason string) error {
 	cardHead := waits[strings.LastIndex(waits, ":")+1:]
 	if err := hooks.Refuse(TapRecord{number, cardHead, byOwner, machine.TapTapped}, reason); err != nil {
@@ -240,7 +259,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 	var lane string
 	cmd := &cobra.Command{
 		Use:   "card",
-		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]} or {\"answer\": {...}} on stdin: print the card of each PR with a ledger row, its Approve and Hold only while it waits on the owner, every drive PR holding each number, or apply his Approve or Hold",
+		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]}, {\"shown\": [...]} or {\"answer\": {...}} on stdin: print the card of each PR with a ledger row, its Approve and Hold only while it waits on the owner, every drive PR holding each number, record a card that now stands, or apply his Approve or Hold",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			var ask slackAsk
@@ -259,6 +278,24 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				return withRows(c, live[at], []int{k.Number}, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
 					return Respond(s, repository, postHooks(c.Context(), live[at].Bus(), lane, repository), rows, k.Number, k.Waits, k.Label, a.Now())
 				})
+			}
+			if len(ask.Shown) > 0 {
+				for _, entry := range live {
+					shown := slices.DeleteFunc(slices.Clone(ask.Shown), func(card SlackShown) bool { return !strings.EqualFold(card.Repo, entry.Repo) })
+					if len(shown) == 0 {
+						continue
+					}
+					numbers := make([]int, len(shown))
+					for i, card := range shown {
+						numbers[i] = card.Number
+					}
+					if err := withRows(c, entry, numbers, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
+						return MarkShown(s, repository, rows, shown, a.Now())
+					}); err != nil {
+						return err
+					}
+				}
+				return json.NewEncoder(c.OutOrStdout()).Encode(map[string]int{"shown": len(ask.Shown)})
 			}
 			if len(ask.Numbers) > 0 {
 				held := []SlackPR{}
@@ -286,7 +323,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 					numbers[i] = pr.Number
 				}
 				words := NewAnswerWords(a.Runner, entry.Checkout)
-				if err := withRows(c, entry, numbers, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
+				if err := withRows(c, entry, numbers, ledgerRows, func(_ *store.Store, repository string, rows []store.ReviewRow) error {
 					for _, pr := range held {
 						at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == pr.Number })
 						if at < 0 {
@@ -295,12 +332,6 @@ func slackCardCommand(a *app.App) *cobra.Command {
 						card := Card(repository, rows[at])
 						card.PRs[0].Plan = words.Said(c.Context(), card.PRs[0].Plan)
 						cards = append(cards, SlackPRCard{pr, card})
-						if !waitsOnHim(rows[at]) {
-							continue
-						}
-						if _, err := s.PutFact(repository, pr.Number, rows[at].Head, FactTapCard, tapCardInSlack, a.Now()); err != nil {
-							return err
-						}
 					}
 					return nil
 				}); err != nil {

@@ -5,12 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -18,7 +22,24 @@ const (
 	FactTapCard  = "tap_card"
 	Communicator = communicator
 
-	liveTapCards   = 10
+	slackMessageBlocks = 50
+	listFrameBlocks    = 3
+	listRowBlocks      = 3
+	listRowsPerPost    = (slackMessageBlocks - listFrameBlocks) / listRowBlocks
+	cardVisibleChars   = 9000
+	listRowFrameChars  = 160
+	listRowChars       = cardVisibleChars/listRowsPerPost - listRowFrameChars
+	listTitle          = 90
+	listPlan           = 90
+	listBlocks         = 60
+	listChange         = listRowChars - listTitle - listPlan - listBlocks
+
+	tapListNumber = 0
+	tapListsHead  = "tap-lists"
+	tapListNone   = "none"
+	tapListPrefix = "tap-list-"
+	onlyNoTap     = `["no tap"]`
+
 	tapCardDrawn   = "drawn"
 	tapCardOnBoard = "on the board"
 	tapCardInSlack = "in slack"
@@ -26,13 +47,17 @@ const (
 	newVersionWhy  = "a new version replaced it, and its own card asks again"
 )
 
-var tapCardName = regexp.MustCompile(`^card-tap-(\d+)-[0-9a-f]+$`)
+const listPostLimit = time.Minute
+
+var (
+	tapCardName = regexp.MustCompile(`^card-tap-(\d+)-[0-9a-f]+$`)
+	alertLane   = regexp.MustCompile(`^(?:incident|outage|sentry-\d+|dd-\d+)-`)
+)
 
 type ReadyCards struct {
 	Cards Cards
 	Repo  string
 	Lane  string
-	Named func(context.Context) (map[int]bool, error)
 }
 
 func (r ReadyCards) Pass(ctx context.Context) error {
@@ -44,20 +69,20 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	live, due := 0, []store.ReviewRow{}
+	lists, err := r.tapLists()
+	if err != nil {
+		return err
+	}
+	if err := r.refreshLists(ctx, rows, facts, lists); err != nil {
+		return err
+	}
+	due := []store.ReviewRow{}
 	for _, row := range rows {
-		if !waitsOnHim(row) || row.State != prrow.StateOpen {
-			continue
-		}
-		switch facts[row.Number][FactTapCard] {
-		case "":
+		if waitsOnHim(row) && row.State == prrow.StateOpen && facts[row.Number][FactTapCard] == "" {
 			due = append(due, row)
-		case tapCardRefused:
-		default:
-			live++
 		}
 	}
-	if len(due) == 0 || live >= liveTapCards {
+	if len(due) == 0 {
 		return nil
 	}
 	shown, err := r.Cards.tapCards(ctx)
@@ -73,21 +98,23 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 		if err := r.mark(row, tapCardOnBoard); err != nil {
 			return err
 		}
-		live++
 	}
-	if live >= liveTapCards || len(drawable) == 0 {
+	if len(drawable) == 0 {
 		return nil
 	}
-	named, err := r.Named(ctx)
-	if err != nil {
-		return err
+	inTapOrder(drawable)
+	if len(drawable) > 1 {
+		var parked []store.ReviewRow
+		parked, drawable = splitParked(drawable, facts)
+		if err := r.list(ctx, parked, len(lists)); err != nil {
+			return err
+		}
 	}
 	_, known, err := r.Cards.rows(ctx)
 	if err != nil {
 		return err
 	}
-	inTapOrder(drawable, rows, named)
-	for _, row := range drawable[:min(liveTapCards-live, len(drawable))] {
+	for _, row := range drawable {
 		if err := r.draw(ctx, row, shown, known[tapCardID(row)]["withdrawn"]); err != nil {
 			return fmt.Errorf("#%d: %w", row.Number, err)
 		}
@@ -95,36 +122,128 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	return nil
 }
 
-func inTapOrder(due, rows []store.ReviewRow, named map[int]bool) {
-	freed := make(map[int]int, len(due))
-	for _, row := range due {
-		freed[row.Number] = lanesFreed(row, rows)
-	}
+func inTapOrder(due []store.ReviewRow) {
 	slices.SortStableFunc(due, func(one, other store.ReviewRow) int {
-		if named[one.Number] != named[other.Number] {
-			if named[one.Number] {
+		if alertLane.MatchString(one.Lane) != alertLane.MatchString(other.Lane) {
+			if alertLane.MatchString(one.Lane) {
 				return -1
 			}
 			return 1
 		}
-		return cmp.Or(cmp.Compare(freed[other.Number], freed[one.Number]), cmp.Compare(one.Number, other.Number))
+		return cmp.Or(cmp.Compare(one.HeadAt, other.HeadAt), cmp.Compare(one.Number, other.Number))
 	})
 }
 
-func lanesFreed(row store.ReviewRow, rows []store.ReviewRow) int {
-	lanes := map[string]bool{row.Lane: true}
-	below := []int{row.Number}
-	for len(below) > 0 {
-		number := "#" + strconv.Itoa(below[0])
-		below = below[1:]
-		for _, above := range rows {
-			if above.Parent == number && above.State == prrow.StateOpen {
-				lanes[above.Lane] = true
-				below = append(below, above.Number)
+func splitParked(rows []store.ReviewRow, facts map[int]map[string]string) (parked, rest []store.ReviewRow) {
+	for _, row := range rows {
+		if facts[row.Number][gates.MissingFact] == onlyNoTap {
+			parked = append(parked, row)
+		} else {
+			rest = append(rest, row)
+		}
+	}
+	return parked, rest
+}
+
+func (r ReadyCards) tapLists() (map[string]string, error) {
+	stored, err := r.Cards.Store.PRFacts(r.Repo, tapListNumber)
+	if err != nil {
+		return nil, err
+	}
+	maps.DeleteFunc(stored, func(kind, _ string) bool { return !strings.HasPrefix(kind, tapListPrefix) })
+	return stored, nil
+}
+
+func (r ReadyCards) list(ctx context.Context, rows []store.ReviewRow, existing int) error {
+	page := existing
+	for chunk := range slices.Chunk(rows, listRowsPerPost) {
+		page++
+		name := listName(page)
+		if err := r.sendList(ctx, name, chunk); err != nil {
+			return err
+		}
+		for _, row := range chunk {
+			if err := r.mark(row, name); err != nil {
+				return err
 			}
 		}
 	}
-	return len(lanes)
+	return nil
+}
+
+func (r ReadyCards) refreshLists(ctx context.Context, rows []store.ReviewRow, facts map[int]map[string]string, lists map[string]string) error {
+	for _, name := range slices.Sorted(maps.Keys(lists)) {
+		held := slices.DeleteFunc(slices.Clone(rows), func(row store.ReviewRow) bool {
+			return facts[row.Number][FactTapCard] != name || !waitsOnHim(row) || row.State != prrow.StateOpen
+		})
+		inTapOrder(held)
+		if listKey(held) == lists[name] {
+			continue
+		}
+		if err := r.sendList(ctx, name, held); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r ReadyCards) sendList(ctx context.Context, name string, rows []store.ReviewRow) error {
+	card, err := json.Marshal(r.listCard(ctx, name, rows))
+	if err != nil {
+		return err
+	}
+	if _, err := r.Cards.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "dm-status", "--session", r.Cards.Session, "--card", string(card)}, Timeout: listPostLimit}); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	_, err = r.Cards.Store.PutFact(r.Repo, tapListNumber, tapListsHead, name, listKey(rows), r.Cards.Now())
+	return err
+}
+
+func (r ReadyCards) listCard(ctx context.Context, name string, rows []store.ReviewRow) map[string]any {
+	card := map[string]any{"status": "done", "title": "Nothing left on this list", "body": "Every PR it held was answered, landed or moved to a new version.", "group": name, "drive": r.Cards.Bus}
+	if len(rows) == 0 {
+		return card
+	}
+	said := NewAnswerWords(r.Cards.Runner, r.Cards.Checkout)
+	listed := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		pr := SlackPRRow{
+			URL: fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, row.Number), Title: clipWords(row.Title, listTitle), Head: row.Head,
+			Change: clipWords(row.ForUsers, listChange), Plan: clipWords(said.Said(ctx, PlanWords(row)), listPlan), Blocks: clipWords(prrow.BlocksWords(row), listBlocks),
+		}
+		listed = append(listed, map[string]any{"id": MergeWaits(row.Number, row.Head), "buttons": []string{approveLabel, holdLabel}, "pr": pr, "pr_card": true})
+	}
+	card["status"], card["title"], card["rows"] = "needs_you", fmt.Sprintf("%d waiting only on your approval", len(rows)), listed
+	card["body"] = "These were already waiting: incident fixes first, then oldest. Approve lands one, Hold keeps it out, and this post shrinks as you answer. The PR link has the whole story; a PR that turns ready from now on gets its own post."
+	return card
+}
+
+func listName(page int) string {
+	return tapListPrefix + strconv.Itoa(page)
+}
+
+func listKey(rows []store.ReviewRow) string {
+	if len(rows) == 0 {
+		return tapListNone
+	}
+	heads := make([]string, len(rows))
+	for i, row := range rows {
+		heads[i] = strconv.Itoa(row.Number) + "@" + row.Head
+	}
+	return strings.Join(heads, ",")
+}
+
+func clipWords(text string, limit int) string {
+	words := strings.Join(strings.Fields(text), " ")
+	runes := []rune(words)
+	if len(runes) <= limit {
+		return words
+	}
+	cut := string(runes[:limit])
+	if space := strings.LastIndex(cut, " "); space > 0 {
+		cut = cut[:space]
+	}
+	return strings.TrimRight(cut, " ,;:") + "…"
 }
 
 func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCard, withdrawn string) error {

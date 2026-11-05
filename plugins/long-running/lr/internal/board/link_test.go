@@ -74,6 +74,9 @@ func (f *linkShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		f.refuse = ""
 		return shell.Result{}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: refused}
 	}
+	if c.Argv[0] == "cc-slack" {
+		return shell.Result{}, nil
+	}
 	if c.Argv[1] == "remove-block" {
 		delete(f.drawn, c.Argv[2])
 		return shell.Result{}, nil
@@ -139,6 +142,9 @@ func (f *linkFixture) run(t *testing.T) {
 	records, err := client.Tail(context.Background(), client.Query{Drive: linkDrive, Kinds: []string{cardKind}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(records) == 0 {
+		return
 	}
 	last := strconv.FormatInt(records[len(records)-1].Seq, 10)
 	ctx, stop := context.WithCancel(context.Background())

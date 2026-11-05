@@ -223,6 +223,69 @@ func (c *countedShell) Run(context.Context, shell.Command) (shell.Result, error)
 	return shell.Result{}, fmt.Errorf("the card ran a command")
 }
 
+func TestReadingACardMarksNoRowShownAndOnlyACardThatStandsAtItsHeadDoes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	registry, state := filepath.Join(home, "long-running", "drives"), filepath.Join(home, "running")
+	for _, dir := range []string{registry, state} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := fmt.Sprintf(`{"repo":%q,"drive":"running","checkout":"/c","author":"a","label":"l","movers":["lanes"]}`, repo)
+	entry := fmt.Sprintf(`{"drive":"running","repo":%q,"state_dir":%q,"sessions":["s"]}`, repo, state)
+	for path, body := range map[string]string{filepath.Join(state, configFile): cfg, filepath.Join(registry, "running.json"): entry} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row := readyRow(nil)
+	s, err := store.Open(filepath.Join(state, "lr.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
+		t.Fatal(err)
+	}
+	send := func(ask any) {
+		t.Helper()
+		body, err := json.Marshal(ask)
+		if err != nil {
+			t.Fatal(err)
+		}
+		counted := &countedShell{}
+		cmd := Command(&app.App{Runner: counted, CCX: ccx.CLI{Runner: counted}, Now: func() time.Time { return t0 }})
+		cmd.SetArgs([]string{"card", "--drive", "running", "--lane", "board-watch"})
+		cmd.SetIn(strings.NewReader(string(body)))
+		cmd.SetOut(&strings.Builder{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	said := func() string {
+		t.Helper()
+		stored, err := s.Facts(repo, row.Number, row.Head)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored[FactTapCard]
+	}
+	pr := SlackPR{repo, row.Number}
+	send(map[string]any{"prs": []SlackPR{pr}})
+	if got := said(); got != "" {
+		t.Fatalf("reading its card marked the row %q, so a render hides it from him", got)
+	}
+	send(map[string]any{"shown": []SlackShown{{pr, MergeWaits(row.Number, "0000000")}}})
+	if got := said(); got != "" {
+		t.Fatalf("a card at another head marked the row %q", got)
+	}
+	send(map[string]any{"shown": []SlackShown{{pr, MergeWaits(row.Number, row.Head)}}})
+	if got := said(); got != tapCardInSlack {
+		t.Fatalf("a card that stands at its head reads %q, want %q", got, tapCardInSlack)
+	}
+}
+
 func TestTheCardReadsNothingButTheStoreAtOneAndAThousandPRs(t *testing.T) {
 	for _, n := range []int{1, 1000} {
 		t.Run(strconv.Itoa(n), func(t *testing.T) {
