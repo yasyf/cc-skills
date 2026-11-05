@@ -156,6 +156,7 @@ type Facts struct {
 	Draft            bool
 	Closed           bool
 	Merged           bool
+	MergedBy         string
 	CI               CI
 	Failing          []string
 	Approved         bool

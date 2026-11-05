@@ -36,7 +36,7 @@ const (
 	memberBatch    = 25
 	queueUnknown   = "queue-unknown"
 	diffRefs       = "refs/lr/diff/"
-	memberFields   = `number state title isDraft headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
+	memberFields   = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
 var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
@@ -581,6 +581,9 @@ type pullRequest struct {
 			} `json:"commit"`
 		} `json:"nodes"`
 	} `json:"reviews"`
+	MergedBy struct {
+		Login string `json:"login"`
+	} `json:"mergedBy"`
 }
 
 func (pr pullRequest) approversAt(head string) []string {
@@ -987,6 +990,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Draft:      pr.IsDraft,
 		Closed:     row.State != "OPEN",
 		Merged:     row.State == "MERGED" || row.Queue == "landed" || row.Queue == "unknown" && pr.labelled(trunkMerged),
+		MergedBy:   pr.MergedBy.Login,
 		CI:         ci,
 		Failing:    row.CI.Failing,
 		Approved:   row.Approval.State == "approved",
