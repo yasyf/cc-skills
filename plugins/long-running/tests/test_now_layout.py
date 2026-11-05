@@ -1681,6 +1681,17 @@ def test_a_row_delta_rebuilds_the_lists_the_browser_holds_in_their_new_order(pag
     assert rebuilt == {"version": 8, "records": [2, 3, 4], "brief": "new", "drive": {"prs": ["a", "c"], "at": "new"}}
 
 
+def test_a_link_sits_inside_its_card_and_only_the_newest_ask_in_a_thread_takes_got_it(page):
+    asked = dt.datetime.now(dt.timezone.utc).isoformat()
+    older = {"reply": {"id": "older", "title": "Step one", "md": "Paste the code.", "type": "for_you", "order": "m3", "links": [{"label": "Alert thread", "url": "https://example.com/thread"}]}, "at": asked, "surfaces": []}
+    newer = {"reply": {"id": "newer", "title": "Step two", "md": "Unlock the screen.", "type": "for_you", "order": "m3"}, "at": asked, "surfaces": []}
+    chat_with(page, [newer, older], [ask(3, "Sign in again")])
+    assert page.locator("#rp-older .decision-tail .embedded-ref").inner_text().strip() == "Alert thread"
+    assert page.locator("#rp-older [data-chat-done]").count() == 0
+    assert page.locator("#rp-newer [data-chat-done]").count() == 1
+    now(page)
+
+
 def test_a_note_with_no_message_above_it_is_not_open_work_and_only_an_undelivered_order_is(page):
     news = {"reply": {"id": "news", "title": "9:00 PM update", "md": "What moved", "type": "update", "status": "progress"}, "at": "2026-11-03T13:00:00Z", "surfaces": []}
     chat_with(page, [news], [

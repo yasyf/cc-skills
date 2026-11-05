@@ -207,9 +207,13 @@ function docCard(l, deck, kind = 'One-pager', icon = 'doc') {
 function replyLinks(r) {
   const links = (r.links ?? []).filter((l) => dashboardLinksHere(l.url) === l.url);
   const deck = firstClause(plain(dashboardLinksHere(r.md)).replace(DONE_LEAD, '').replace(/[*`#]+/g, ''));
-  const chips = links.filter((l) => !isOnePager(l.url) && !ownPrNumber(l.url)).map(linkTile).join('');
   const diagram = r.diagram ? docCard({ label: r.diagram.title, url: `${location.origin}/diagram/${r.id}` }, deck, 'Diagram', 'diagram') : '';
-  return `${diagram}${links.filter((l) => isOnePager(l.url)).map((l) => docCard(l, deck)).join('')}${chips ? `<div class="decision-tail">${chips}</div>` : ''}`;
+  return `${diagram}${links.filter((l) => isOnePager(l.url)).map((l) => docCard(l, deck)).join('')}`;
+}
+function replyTiles(r) {
+  const tiles = (r.links ?? []).filter((l) => dashboardLinksHere(l.url) === l.url && !isOnePager(l.url) && !ownPrNumber(l.url)).map(linkTile);
+  const others = (r.prs ?? []).filter((url) => !url.includes(`github.com/${state.model.repo}/`)).map((url) => `<a class="embedded-ref" href="${esc(url)}" target="_blank" rel="noopener">${chatIcon('pr')}A tooling change</a>`);
+  return tiles.length || others.length ? `<div class="decision-tail">${[...tiles, ...others].join('')}</div>` : '';
 }
 function ownPrNumber(url) {
   const found = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(url);
@@ -240,10 +244,6 @@ function prObjects(numbers) {
   const chips = fresh.filter((n) => !cards.includes(n) && (state.model.prs[n] || boardRow(n)));
   const shown = chips.slice(0, PR_CHIPS_SHOWN).map(prChip).join('');
   return `${cards.map(prCard).join('')}${shown ? `<div class="decision-tail">${shown}${chips.length > PR_CHIPS_SHOWN ? `<span class="embedded-ref">${chips.length - PR_CHIPS_SHOWN} more</span>` : ''}</div>` : ''}`;
-}
-function replyOthers(r) {
-  const others = (r.prs ?? []).filter((url) => !url.includes(`github.com/${state.model.repo}/`));
-  return others.length ? `<div class="decision-tail">${others.map((url) => `<a class="embedded-ref" href="${esc(url)}" target="_blank" rel="noopener">${chatIcon('pr')}A tooling change</a>`).join('')}</div>` : '';
 }
 function chatReplyBox(on, about, placeholder) {
   const failed = rp.failed.get(on);
@@ -288,19 +288,21 @@ function replyObject(entry, t) {
   const key = `reply:${r.id}`;
   const about = `reply ${r.id} "${r.title}"`;
   const card = replyCard(r);
-  const links = `${replyLinks(r)}${replyOthers(r)}${prObjects(prNumbers(r))}`;
+  const tiles = replyTiles(r);
+  const links = `${replyLinks(r)}${prObjects(prNumbers(r))}`;
   const picked = cardAnswered(`card-${r.id}`);
   if (card?.decides && !picked) {
     const foot = t.rows.length ? '' : `<div class="thread-foot"><span></span><button data-chat-thread="${esc(key)}">${chatIcon('reply')} Reply</button></div>${objectReplyBox(key, about)}`;
-    return `${questionObject(card, r.id)}${links}${foot}`;
+    return `${questionObject(card, r.id)}${tiles}${links}${foot}`;
   }
   const kind = REPLY_KIND[r.type];
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<p class="ct-failed">${esc(SURFACE_WORD[s.surface])} failed: ${esc(s.error)}</p>`).join('');
-  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r), r.status === 'progress')}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
+  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r), r.status === 'progress')}${failed}${objectReplyBox(key, about)}</div></div>${tiles}${links}`;
   const label = picked ? 'Decision' : kind.label;
   const pickLine = picked ? `<p class="obj-picked">${chatIcon('check')}<span>You picked <b>${esc(picked)}</b></span></p>` : r.picks?.length ? '<p class="ct-closed">This pick is no longer open.</p>' : '';
-  const done = !picked && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Got it</button></div>` : '';
-  return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r))}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
+  const newestForYou = t.replies.findLast((other) => other.reply.type === 'for_you');
+  const done = !picked && entry === newestForYou && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Got it</button></div>` : '';
+  return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r))}${tiles}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
 }
 function whoHasIt(t) {
   const owed = t.rows.map((part) => part.owed).find(Boolean);
