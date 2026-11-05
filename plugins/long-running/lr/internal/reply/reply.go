@@ -36,6 +36,7 @@ const (
 	maxTitle     = 140
 	maxPick      = 61
 	maxPicks     = 4
+	pickSplit    = " :: "
 	maxLinks     = 5
 	maxPRs       = 10
 	maxBlocks    = 8
@@ -127,6 +128,8 @@ type Reply struct {
 	Blocks  []json.RawMessage `json:"blocks,omitempty"`
 	Diagram json.RawMessage   `json:"diagram,omitempty"`
 	On      string            `json:"on,omitempty"`
+
+	Words map[string]string `json:"words,omitempty"`
 }
 
 type Outcome struct {
@@ -341,7 +344,13 @@ func (f Fanout) aliased(r Reply) Reply {
 	r.Title, r.MD, r.Action = aliases.In(r.Title), aliases.In(r.MD), aliases.In(r.Action)
 	picks := aliases.AllIn(r.Picks)
 	if len(slices.Compact(slices.Sorted(slices.Values(picks)))) == len(picks) {
-		r.Picks, r.Recommended = picks, aliases.In(r.Recommended)
+		words := make(map[string]string, len(r.Words))
+		for n, pick := range r.Picks {
+			if said := r.Words[pick]; said != "" {
+				words[picks[n]] = aliases.In(said)
+			}
+		}
+		r.Picks, r.Words, r.Recommended = picks, words, aliases.In(r.Recommended)
 	}
 	r.PRCards = slices.Clone(r.PRCards)
 	for n, card := range r.PRCards {
@@ -504,10 +513,16 @@ func (r Reply) mended() (Reply, []string) {
 
 func (r Reply) mendedPicks(warned []string) (Reply, []string) {
 	var picks []string
+	words := map[string]string{}
 	for _, pick := range r.Picks {
-		pick = shortened(strings.TrimSpace(pick), maxPick)
-		if pick != "" && !slices.Contains(picks, pick) {
-			picks = append(picks, pick)
+		label, said, _ := strings.Cut(pick, pickSplit)
+		label = shortened(strings.TrimSpace(label), maxPick)
+		if label == "" || slices.Contains(picks, label) {
+			continue
+		}
+		picks = append(picks, label)
+		if said = strings.TrimSpace(said); said != "" {
+			words[label] = said
 		}
 	}
 	if len(picks) > maxPicks {
@@ -518,8 +533,14 @@ func (r Reply) mendedPicks(warned []string) (Reply, []string) {
 		warned = append(warned, fmt.Sprintf("one pick is no choice, so %q was left off", picks[0]))
 		picks = nil
 	}
-	r.Picks = picks
-	r.Recommended = shortened(r.Recommended, maxPick)
+	for _, pick := range picks {
+		if words[pick] == "" {
+			warned = append(warned, fmt.Sprintf("pick %q does not say what picking it does; write it as 'LABEL%swhat picking it does'", pick, pickSplit))
+		}
+	}
+	r.Picks, r.Words = picks, words
+	recommended, _, _ := strings.Cut(r.Recommended, pickSplit)
+	r.Recommended = shortened(strings.TrimSpace(recommended), maxPick)
 	if len(picks) > 0 && !slices.Contains(picks, r.Recommended) {
 		warned = append(warned, "no pick is recommended")
 		r.Recommended = ""
@@ -646,6 +667,7 @@ func (r Reply) markdown() string {
 		lines = append(lines, "")
 	}
 	for _, pick := range r.Picks {
+		said := r.Words[pick]
 		switch {
 		case pick != r.Recommended:
 		case r.Build == nil:
@@ -654,6 +676,9 @@ func (r Reply) markdown() string {
 			pick += " (recommended; nothing to build: " + r.Build.None + ")"
 		default:
 			pick += " (recommended; built on " + r.Build.Repo + " " + r.Build.Branch + ")"
+		}
+		if said != "" {
+			pick += ": " + said
 		}
 		lines = append(lines, "- "+pick)
 	}
@@ -677,6 +702,9 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	options := make([]map[string]any, len(r.Picks))
 	for n, pick := range r.Picks {
 		options[n] = map[string]any{"id": fmt.Sprintf("%s-%d", r.ID, n+1), "label": pick}
+		if said := r.Words[pick]; said != "" {
+			options[n]["md"] = said
+		}
 		if pick == r.Recommended {
 			options[n]["recommended"] = true
 			if r.Build != nil {
