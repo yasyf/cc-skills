@@ -122,6 +122,23 @@ func TestADiagramPostsToSlackAsItsPictureAndEverySurfaceLinksItsDashboardPage(t 
 	}
 }
 
+func TestADiagramLinksItsDashboardByTailnetNameWhileChromeDrawsFromTheDashboardAddress(t *testing.T) {
+	fake := scripted()
+	f, shots := onDashboard(t, fanout(t, fake), nil)
+	if err := os.WriteFile(filepath.Join(f.Entry.StateDir, "dashboard.json"), []byte(`{"host":"100.64.0.1","port":61210}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.Send(context.Background(), Reply{ID: "d1", Title: "How the relay runs", MD: "The relay in one picture.", Status: info, Diagram: json.RawMessage(drawnDiagram)})
+
+	if len(*shots) != 1 || (*shots)[0].dashboard != "http://100.64.0.1:61210/" {
+		t.Fatalf("shots = %+v, want the diagram drawn from the dashboard's own address", *shots)
+	}
+	card := postedCard(t, calls(fake, "cc-slack")[0].Argv)
+	if len(card.Artifacts) != 1 || card.Artifacts[0].URL != testDiagramPage || !strings.Contains(card.Body, testDiagramPage) {
+		t.Fatalf("card = %+v, want its link on the tailnet name %s, which Slack can open", card, testDiagramPage)
+	}
+}
+
 func TestADiagramWhosePictureDoesNotDrawStillPostsItsCardAndSaysWhy(t *testing.T) {
 	fake := scripted()
 	f, _ := onDashboard(t, fanout(t, fake), errors.New("no Chrome on this Mac"))

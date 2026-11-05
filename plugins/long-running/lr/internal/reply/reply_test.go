@@ -46,6 +46,7 @@ func scriptedOver(fake *shelltest.Fake) *shelltest.Fake {
 	fake.Reply(posted, "cci", "post")
 	fake.Reply(`{"doc":{}}`, "cc-present", "outcomes")
 	fake.Reply(`[]`, "ccn")
+	fake.Reply(`{"Self":{"DNSName":"mac.tail1.ts.net."}}`, "tailscale", "status")
 	return fake
 }
 

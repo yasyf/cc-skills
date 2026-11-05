@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
 
 const relayDoc = `{"arch":1,"name":"relay","title":"The relay","nodes":[{"id":"a","kind":"service","name":"A","role":"sends"},{"id":"b","kind":"service","name":"B","role":"takes"}],"edges":[{"from":"a","to":"b"}]}`
@@ -15,11 +17,13 @@ const relayDoc = `{"arch":1,"name":"relay","title":"The relay","nodes":[{"id":"a
 func drawingLink(t *testing.T, failed error) (Link, *[]string) {
 	t.Helper()
 	state := t.TempDir()
-	if err := os.WriteFile(filepath.Join(state, "dashboard.json"), []byte(`{"host":"mac.tail1.ts.net","port":61210}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(state, "dashboard.json"), []byte(`{"host":"100.64.0.1","port":61210}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	tailnet := &shelltest.Fake{}
+	tailnet.Reply(`{"Self":{"DNSName":"mac.tail1.ts.net."}}`, "tailscale", "status")
 	var drawn []string
-	return Link{State: state, Draw: func(_ context.Context, dashboard string, doc json.RawMessage, png string) error {
+	return Link{State: state, Runner: tailnet, Draw: func(_ context.Context, dashboard string, doc json.RawMessage, png string) error {
 		drawn = append(drawn, dashboard+" "+string(doc))
 		if failed != nil {
 			return failed
@@ -38,7 +42,7 @@ func TestADiagramOnACardStaysLiveAndGainsThePictureAndLinkItsSlackCardShows(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(*drawn) != 1 || (*drawn)[0] != "http://mac.tail1.ts.net:61210/ "+relayDoc {
+	if len(*drawn) != 1 || (*drawn)[0] != "http://100.64.0.1:61210/ "+relayDoc {
 		t.Fatalf("drawn = %q, want the one diagram drawn from the dashboard", *drawn)
 	}
 	var card struct {

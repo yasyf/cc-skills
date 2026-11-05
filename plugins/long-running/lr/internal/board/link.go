@@ -73,11 +73,12 @@ func DrawCard(ctx context.Context, driveName, lane, key string, change cardBody)
 }
 
 type Link struct {
-	Drive string
-	State string
-	Cards func(session string) (Cards, func(), error)
-	Judge Judge
-	Draw  func(ctx context.Context, dashboard string, doc json.RawMessage, png string) error
+	Drive  string
+	State  string
+	Cards  func(session string) (Cards, func(), error)
+	Judge  Judge
+	Draw   func(ctx context.Context, dashboard string, doc json.RawMessage, png string) error
+	Runner shell.Runner
 }
 
 func (l Link) Serve(ctx context.Context) error {
@@ -326,7 +327,7 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 			if err != nil {
 				return err
 			}
-			return Link{Drive: entry.Bus(), State: entry.StateDir, Judge: judge, Draw: arch.Draw, Cards: func(named string) (Cards, func(), error) {
+			return Link{Drive: entry.Bus(), State: entry.StateDir, Judge: judge, Draw: arch.Draw, Runner: a.Runner, Cards: func(named string) (Cards, func(), error) {
 				current, session, err := opened()
 				if err != nil {
 					return Cards{}, nil, err
