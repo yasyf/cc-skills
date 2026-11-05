@@ -1788,3 +1788,40 @@ func TestAFidelityGradeBehindTheCursorReachesTheStoreOnceAndFillsOnlyAHole(t *te
 		t.Fatalf("the read ran twice: %+v", row)
 	}
 }
+
+func TestANewHoldReadsOnlyTheHeldAndQueuedPRsHoweverManyRowsExist(t *testing.T) {
+	for _, rows := range []int{1, 1000} {
+		h := newHarness(t, []recordedPR{{number: 7, head: head, login: "drive-bot"}, {number: 9, head: head2, login: "drive-bot"}},
+			status(7, func(row *statusRow) { row.Queue = "queued" }), status(9, func(row *statusRow) { row.Queue = "queued"; row.Head = head2 }))
+		seeded := make([]store.ReviewRow, 0, rows+2)
+		seeded = append(seeded,
+			store.ReviewRow{Repo: repo, Number: 9, Head: head2, State: prrow.StateOpen, Queue: string(machine.QueueQueued)},
+			store.ReviewRow{Repo: repo, Number: 11, Head: head3, State: prrow.StateLanded, Queue: string(machine.QueueQueued)},
+		)
+		for number := range rows {
+			seeded = append(seeded, store.ReviewRow{Repo: repo, Number: 100 + number, Head: head, State: prrow.StateOpen})
+		}
+		if err := h.store.PutReviewRows(seeded); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #7 stop it", PRs: []string{"7"}}); err != nil {
+			t.Fatal(err)
+		}
+
+		read, err := h.source.HeldAndQueued(context.Background(), []int{7})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got := h.statusNumbers(t); !slices.Equal(got, []string{"7", "9"}) {
+			t.Fatalf("%d rows: status read = %v, want the held PR and the live queued row", rows, got)
+		}
+		by := map[int]machine.Facts{}
+		for _, f := range read {
+			by[f.Number] = f
+		}
+		if by[7].Hold != machine.MoverRoot || !by[7].Queued() || by[9].Hold != "" || !by[9].Queued() {
+			t.Fatalf("%d rows: read = %+v", rows, by)
+		}
+	}
+}

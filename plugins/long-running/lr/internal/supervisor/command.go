@@ -311,6 +311,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	}
 	deps.Queue = landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
 	deps.Restacker = restacker
+	deps.Followers = append(deps.Followers, (&landing.HoldWatch{Store: s, Drive: env.Config.Drive, Repo: env.Config.Repo, Trunk: env.Config.Trunk, Read: prfacts.New(a, env.Config, s).HeldAndQueued, Queue: deps.Queue, Now: a.Now, Log: a.Log}).Run)
 	deps.Unstick = landing.Unstick{Runner: a.Runner, Read: prfacts.New(a, env.Config, s).ReadMergeable, Move: restacker.Run, Store: s, Drive: env.Config.Drive, Trunk: env.Config.Trunk, Now: a.Now, Log: a.Log}.Pass
 	gates, err := landing.NewGates(a, s, env.Config, filepath.Join(env.State, runnerFile))
 	if err != nil {
