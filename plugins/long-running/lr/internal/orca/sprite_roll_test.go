@@ -270,6 +270,46 @@ func TestRollHostLeavesAHostAlreadyOnThePinsAlone(t *testing.T) {
 	}
 }
 
+func TestRollHostRollsAgainAHostWhoseCCIDaemonDidNotMove(t *testing.T) {
+	w := newRollWorld(t)
+	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
+	runner := filepath.Join(t.TempDir(), "runner.json")
+	raw := `{"host":{"sprite":"desk-host"},"orca":{"sprite":{"env":{"WORKER_CCI_URL":"` + testCCIURL + `","WORKER_CCI_SHA256":"` + testCCISHA + `"},"tools":` + rollTools + `}}}`
+	if err := os.WriteFile(runner, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w.first["desk-host"] = shell.Result{Stdout: rollAll + "installed cci-daemon 0.49.30\n"}
+	w.replies["desk-host"] = shell.Result{Stdout: rollAll + "installed cci-daemon 0.49.36\n"}
+	now := func() time.Time { return time.Date(2026, 11, 5, 3, 0, 0, 0, time.UTC) }
+	for range 3 {
+		if err := RollHost(context.Background(), w, w.store, runner, now, &w.out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !slices.Equal(w.boxes, []string{"desk-host", "desk-host"}) {
+		t.Fatal("a host whose cci daemon lagged its command was not rolled until the daemon moved", w.boxes)
+	}
+}
+
+func TestACensusSaysWhenABoxsCCIDaemonRunsAnotherBuildThanItsCommand(t *testing.T) {
+	at := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	writeCensus(&out, []store.SpriteTool{
+		{Sprite: "dar-desk-1", Name: "cci", Version: "0.49.70", At: at},
+		{Sprite: "dar-desk-1", Name: "cci-daemon", Version: "0.49.50", At: at},
+		{Sprite: "pool-a", Name: "cci", Version: "0.49.70", At: at},
+		{Sprite: "pool-a", Name: "cci-daemon", Version: "0.49.70", At: at},
+		{Sprite: "pool-b", Name: "cci", Version: "0.49.70", At: at},
+	})
+	stamp := store.Stamp(at)
+	want := "dar-desk-1 cci=0.49.70 cci-daemon=0.49.50 at " + stamp + "; its cci daemon runs 0.49.50, not yet moved to cci 0.49.70\n" +
+		"pool-a cci=0.49.70 cci-daemon=0.49.70 at " + stamp + "\n" +
+		"pool-b cci=0.49.70 at " + stamp + "\n"
+	if out.String() != want {
+		t.Fatalf("census:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
 func TestRollGradersInstallsCodexAskOnEachGraderSpriteUntilItRunsThePin(t *testing.T) {
 	w := newRollWorld(t)
 	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
@@ -794,5 +834,53 @@ func TestASuperviseThatNeverStartsFailsTheInstallWithoutBlamingThePin(t *testing
 	}
 	if last := lastSaid(shell.Result{Stdout: out}); pinAtFault.MatchString(last) {
 		t.Fatalf("a service that did not start would mark the pin bad: %s", last)
+	}
+}
+
+const fakeServingCCI = `#!/bin/sh
+case $1 in
+serve)
+  mkdir -p "$HOME/.daemonkit/bin"
+  cp "$0" "$HOME/.daemonkit/bin/com.yasyf.cc-inbox"
+  touch "$HOME/served"
+  sh "$HOME/.daemonkit/bin/com.yasyf.cc-inbox" daemon run > /dev/null 2>&1 < /dev/null &
+  until pgrep -f "$HOME/.daemonkit/bin/com.yasyf.cc-inbox daemon run" > /dev/null; do sleep 0.01; done
+  ;;
+daemon) while :; do sleep 0.05; done ;;
+*) echo cci 0.49.71 ;;
+esac
+`
+
+func TestAnInstallMovesTheCCIDaemonOnlyWhereACCISupervisorRuns(t *testing.T) {
+	s := newSupervisedInstall(t)
+	s.cciURL, s.cciSHA = s.archive("serving-cci", "cci", fakeServingCCI)
+	path := os.Getenv("PATH")
+
+	bare := t.TempDir()
+	out, err := s.run(bare, path)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	if present(filepath.Join(bare, "served")) || strings.Contains(out, "cci-daemon") {
+		t.Fatalf("a box with no cci supervisor was asked to serve:\n%s", out)
+	}
+
+	home := t.TempDir()
+	supervisor := exec.Command("sh", "-c", "while :; do sleep 0.05; done", filepath.Join(home, ".local", "bin", "cci")+" supervise")
+	supervisor.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := supervisor.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-supervisor.Process.Pid, syscall.SIGKILL)
+		_ = supervisor.Wait()
+		_ = exec.Command("pkill", "-f", filepath.Join(home, ".daemonkit")).Run()
+	})
+	out, err = s.run(home, path)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	if !present(filepath.Join(home, "served")) || !strings.Contains(out, "installed cci-daemon") {
+		t.Fatalf("a box with a cci supervisor kept its daemon or recorded no build for it:\n%s", out)
 	}
 }
