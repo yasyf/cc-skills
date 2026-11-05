@@ -1632,6 +1632,9 @@ func TestActDrivesTheJobPoolFromADispatchToARelease(t *testing.T) {
 	f.shell.exitAll()
 	writeResult(t, f.finderDir(jobDir), `{"verdict":"ok"}`, t0)
 	writeResult(t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir), `{"verdict":"ok"}`, t0)
+	if err := Settle(context.Background(), f.store, f.pool, t0.Add(time.Minute), 1); err != nil {
+		t.Fatal(err)
+	}
 
 	again, err := Act(context.Background(), f.store, f.pool, items(t, f.store), graded, t0.Add(time.Minute), 1)
 	if err != nil {

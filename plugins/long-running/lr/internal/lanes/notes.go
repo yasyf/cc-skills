@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 )
 
 const (
+	notesCursor        = "notes-published"
 	notesSyncTimeout   = 2 * time.Minute
 	publishNotesScript = `IFS= read -r NOTES_TOKEN
 export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper
@@ -104,6 +106,46 @@ func (r launchReceipt) worktree() (string, bool) {
 		}
 	}
 	return "", false
+}
+
+type NotesPublish struct {
+	Store *store.Store
+	Deps  Deps
+}
+
+func (n *NotesPublish) Check(_ context.Context, now time.Time) (err error) {
+	defer recovered(&err)
+	folded := must(n.Store.Cursor(CursorName))
+	from := must(n.Store.Cursor(notesCursor))
+	if from == 0 {
+		return n.Store.Advance(notesCursor, folded)
+	}
+	if folded <= from {
+		return nil
+	}
+	records := slices.DeleteFunc(must(n.Deps.Records(from)), func(r Record) bool { return r.Seq > folded })
+	for i := range records {
+		records[i].Lane = Canonical(n.Deps.Drive, records[i].Lane)
+	}
+	publishWritten(n.Store, n.Deps, records, now.UTC().Truncate(time.Second))
+	return n.Store.Advance(notesCursor, folded)
+}
+
+type laneLocks struct {
+	guard sync.Mutex
+	held  map[string]*sync.Mutex
+}
+
+func (l *laneLocks) hold(lane string) func() {
+	l.guard.Lock()
+	one, found := l.held[lane]
+	if !found {
+		one = &sync.Mutex{}
+		l.held[lane] = one
+	}
+	l.guard.Unlock()
+	one.Lock()
+	return one.Unlock
 }
 
 func notesOwed(s *store.Store, d Deps, name string) error {

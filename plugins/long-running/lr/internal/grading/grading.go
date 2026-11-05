@@ -59,9 +59,13 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 			queued += len(Missing(facts))
 		}
 	}
-	gone, err := settleWorkers(ctx, s, pool, now, generation)
+	working, err := s.Workers()
 	if err != nil {
 		return nil, err
+	}
+	held := make(map[string]bool, len(working))
+	for _, worker := range working {
+		held[worker.Name] = true
 	}
 	ranked, err := pool.Plan(ctx, items, snapshot, queued, now)
 	if err != nil {
@@ -71,7 +75,7 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 	var dispatched []Dispatched
 	for _, item := range ranked {
 		facts := snapshot[item.Number]
-		if !graded[item.ID] || facts.Head != item.Head || (!gone[item.ID] && item.Worker != "" && item.Deadline.After(now)) {
+		if !graded[item.ID] || facts.Head != item.Head || (held[item.Worker] && item.Deadline.After(now)) {
 			continue
 		}
 		missing := Missing(facts)
@@ -161,10 +165,10 @@ func markParked(s *store.Store, snapshot map[int]machine.Facts, parked map[int]s
 	return nil
 }
 
-func settleWorkers(ctx context.Context, s *store.Store, pool Pool, now time.Time, generation int64) (map[int64]bool, error) {
+func Settle(ctx context.Context, s *store.Store, pool Pool, now time.Time, generation int64) error {
 	workers, err := s.Workers()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	workers = slices.DeleteFunc(workers, func(worker store.Worker) bool { return refOf(worker.Name).lane == "" })
 	names := make([]string, 0, len(workers))
@@ -173,23 +177,21 @@ func settleWorkers(ctx context.Context, s *store.Store, pool Pool, now time.Time
 	}
 	live, err := pool.Settle(ctx, names)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	gone := map[int64]bool{}
 	for _, worker := range workers {
 		if live[worker.Name] {
 			worker.Generation, worker.Heartbeat = generation, now
 			if err := s.Heartbeat(worker); err != nil {
-				return nil, err
+				return err
 			}
 			continue
 		}
 		if _, err := s.ReleaseWorker(worker.Name); err != nil {
-			return nil, err
+			return err
 		}
-		gone[worker.Item] = true
 	}
-	return gone, nil
+	return nil
 }
 
 func CarryGrades(s *store.Store, repo string, number int, oldHead, newHead string, patchIDs map[string]string, at time.Time) ([]string, error) {
