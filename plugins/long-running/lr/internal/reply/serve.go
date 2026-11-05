@@ -27,6 +27,7 @@ var schema = map[string]any{
 		"diagram":     map[string]any{"type": "object", "description": "One architecture doc (arch/v1, the format of an arch fence for lr explain), drawn on his Chat page with no one-pager. Board, terminal and Slack link its dashboard page, and a Slack card with no picks or a reply in his Slack thread shows it as its picture."},
 		"picks":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "2 to 4 answers he picks from, each 'Keep it :: what picking it does', one tap button on his board and in Slack with those words beside it. A label is a short sentence-case phrase, never capitals, and the words after :: always draw beside it."},
 		"recommended": map[string]any{"type": "string", "description": "The pick you recommend; required with picks."},
+		"ask":         map[string]any{"type": "integer", "description": "With picks, the seq of the lane's ask or other cci record the card is drawn from. The card's row records it, and a later correction or head record whose re or resolves chain reaches it sends you a STALE ask to redraw or withdraw the card before he taps."},
 		"build":       map[string]any{"type": "object", "properties": map[string]any{"repo": map[string]any{"type": "string"}, "branch": map[string]any{"type": "string"}, "none": map[string]any{"type": "string"}}, "description": "The branch the recommended pick is built on, as repo OWNER/NAME and branch, or none with the reason it has nothing to build; his board and Slack card show it under that pick."},
 		"blocks":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Up to 8 live cc-present blocks drawn on Talk beneath md, such as a table with filter, sort, rowKey, details and actions, a chart, a diagram or a display.artifact, which takes kind html or svg and a source, never a PNG. Your window and Slack get md alone, so md must still say the answer."},
 		"links":       map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string"}, "url": map[string]any{"type": "string"}}, "required": []string{"label", "url"}}, "description": "Up to 5 links, such as a hosted one-pager; an https link is a button in Slack, an http one a line of the card."},
@@ -83,6 +84,7 @@ func Tool(a *app.App) channel.Tool {
 			"- Describing a change? Name the concrete things and answer his first question, or open a line with Unproven: for a fact nobody has yet. A flagged reply posts with a warning naming the question; edit it with its id.\n" +
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
 			"- by and routed need order, no picks and status progress or info.\n" +
+			"- Picks drawn from a lane's ask or record? Pass its seq in ask, so a correction to it reaches you before he taps.\n" +
 			"- prs draws a button only for a PR ready for his tap; otherwise the result says NO BUTTON and he sees a link, so say in md what he can do.\n" +
 			"- Naming an open bug? Its fix PRs join prs by themselves; a line in the result names any it could not draw.\n" +
 			"- The first reply after he has been away an hour opens with the dashboard link on line one.",
@@ -97,7 +99,7 @@ func Tool(a *app.App) channel.Tool {
 			if err != nil {
 				return "reply: " + err.Error(), true
 			}
-			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw}
+			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw, Cards: board.CardsOf(a, entry, entry.Root(), nil)}
 			r, warning := fanout.underAlert(r)
 			if warning != "" {
 				warned = append(warned, warning)

@@ -15,8 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
+
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -101,9 +104,15 @@ func settledBoardFirst(t *testing.T, first func(*shelltest.Fake), board []any, a
 	fake.Reply(string(all), "cc-present", "outcomes", "--all")
 	fake.Reply(string(one), "cc-present", "outcomes", "--block")
 	fake.Reply("", "cc-present", "remove-block")
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
 	var withdrawn []string
 	cards := Cards{
-		Runner: fake, Ledger: &ledgertest.Fake{}, Bus: "d", Checkout: "/co", Session: "s1", StateDir: t.TempDir(), Program: "p", Now: func() time.Time { return cardsNow },
+		Runner: fake, Ledger: &ledgertest.Fake{}, Bus: "d", Checkout: "/co", Session: "s1", StateDir: t.TempDir(), Program: "p", Store: s, Now: func() time.Time { return cardsNow },
+		Tail: func(context.Context, client.Query) ([]client.Record, error) { return nil, nil },
 		Withdraw: func(_ context.Context, _, card, text string) error {
 			withdrawn = append(withdrawn, card+": "+text)
 			return nil

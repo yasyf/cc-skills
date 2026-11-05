@@ -159,6 +159,9 @@ func CardsOf(a *app.App, entry drive.Entry, session string, s *store.Store) Card
 			_, err := client.Post(ctx, client.Draft{Drive: entry.Bus(), Lane: lane, Kind: "report", Topic: topic, To: to, Text: text})
 			return err
 		},
+		Tail:  client.Tail,
+		Among: client.Among,
+		Post:  client.Post,
 	}
 }
 
@@ -349,7 +352,7 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 	}
 	sweep := &cobra.Command{
 		Use:   "sweep",
-		Short: "Withdraw every card whose end has happened or that his tap, numbered reply or a relay's record of his words on it answers, once the board's hold on a card he touched has passed, tell the drawing lane of any other answer or report that reads as settling a card, judging only cards and answers newer than a card's last check, and name each card with no end",
+		Short: "Withdraw every card whose end has happened or that his tap, numbered reply or a relay's record of his words on it answers, once the board's hold on a card he touched has passed, tell the drawing lane of any other answer or report that reads as settling a card, judging only cards and answers newer than a card's last check, name each card with no end, and ask the communicator to redraw each card whose ask a new correction or head record answers",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			board, done, err := cards()
