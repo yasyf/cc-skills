@@ -238,7 +238,10 @@ a card he touched stays until he submits the round, and nobody calls `AskUserQue
 A question that reaches his board has its recommended answer built on a branch as
 soon as the question is asked. Push the branch, open no PR for it until he answers,
 and name it with `--branch`, or give `--nothing-to-build REASON` when a pick such as a
-process choice has nothing to build. The branch is something he can try, not a provisional
+process choice has nothing to build. A card pushed to the board, a `reply` with `picks` or a
+Slack card carries that fact as `build` on its recommended option (a repo and branch, or
+`none` and why), and the card check warns, and still draws it, when that option needs code
+and names none. The branch is something he can try, not a provisional
 pick: nothing lands from it before his answer, and a branch he rejects is deleted. Prose
 naming his pick is flagged as an untyped choice.
 
