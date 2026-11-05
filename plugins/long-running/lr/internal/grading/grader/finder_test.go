@@ -729,22 +729,17 @@ func TestAReplyThatMiscountsTheRowsIsAskedOnceMoreAndTwoSuchRepliesPostNothing(t
 	equal(t, resultOf(t, again)["error"].(string), "JobFailed: two replies gave `rows checked: 1` where the rows file holds 2 rows")
 }
 
-func TestASliceOverTheBigSliceBoundRunsOnSolWhateverModelTheJobNames(t *testing.T) {
+func TestAWholeSliceOfManyRowsRunsOnTheModelTheJobNames(t *testing.T) {
 	var rows strings.Builder
-	for index := range bigSlice + 1 {
+	for index := range 151 {
 		fmt.Fprintf(&rows, "### rule/%07x | scope | in-force | said 1 | 2026-10-22\n> row %d\n\n", index, index)
 	}
 	directory := finderJobDir(t, map[string]any{"model": "luna"})
-	shell, _ := newFinderFake(t, replySwept(fmt.Sprintf("%srows checked: %d", reasons, bigSlice+1)))
+	shell, _ := newFinderFake(t, replySwept(reasons+"rows checked: 151"))
 	shell.rows = rows.String()
 	mustFinder(t, directory, shell)
-	equal(t, shell.asks()[0][2], "sol")
-	equal(t, len(shell.posted), 1)
-
-	small := finderJobDir(t, map[string]any{"model": "luna"})
-	shell, _ = newFinderFake(t, replyOf())
-	mustFinder(t, small, shell)
 	equal(t, shell.asks()[0][2], "luna")
+	equal(t, len(shell.posted), 1)
 }
 
 func TestAReplyWithNoReasoningIsAskedOnceMoreAndTwoSuchRepliesPostNothing(t *testing.T) {

@@ -24,7 +24,6 @@ const (
 	wholeRead     = "over whole "
 	censusPrefix  = "census:"
 	followUpWord  = "follow-up:"
-	bigSlice      = 150
 	solModel      = "sol"
 	solEffort     = "medium"
 	outputCap     = "max_output_tokens"
@@ -257,9 +256,6 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 			return FinderOutcome{}, err
 		}
 		keys = rowKeys(rows)
-	}
-	if len(keys) > bigSlice {
-		spec.Model = solModel
 	}
 	planned, err := planOnThisBox(plan)
 	if err != nil {
