@@ -111,6 +111,10 @@ func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path str
 	if err != nil || file.Host.Sprite == "" {
 		return err
 	}
+	return RollHostPins(ctx, runner, s, path, file.Host.Sprite, "the desk host", now, out)
+}
+
+func RollHostPins(ctx context.Context, runner shell.Runner, s *store.Store, path, box, called string, now func() time.Time, out io.Writer) error {
 	env, err := runnerEnv(path)
 	if err != nil {
 		return err
@@ -119,19 +123,19 @@ func RollHost(ctx context.Context, runner shell.Runner, s *store.Store, path str
 	if err != nil {
 		return err
 	}
-	roll := SpriteRoll{Runner: runner, Store: s, Host: file.Host.Sprite, Now: now, Out: out}
+	roll := SpriteRoll{Runner: runner, Store: s, Host: box, Now: now, Out: out}
 	if err := roll.notBad(pins.forHost()); err != nil {
 		return err
 	}
-	level, err := roll.runs(file.Host.Sprite, pins.forHost())
+	level, err := roll.runs(box, pins.forHost())
 	if err != nil || level {
 		return err
 	}
-	unreached, err := roll.install(ctx, pins, []string{file.Host.Sprite}, "")
+	unreached, err := roll.install(ctx, pins, []string{box}, "")
 	if err != nil || len(unreached) == 0 {
 		return err
 	}
-	return refuse("lr sprites roll: the desk host %s is down, so it keeps what it runs until a pass reaches it", file.Host.Sprite)
+	return refuse("lr sprites roll: %s %s is down, so it keeps what it runs until a pass reaches it", called, box)
 }
 
 func (r SpriteRoll) runs(box string, pins spritePins) (bool, error) {
@@ -487,7 +491,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	var probe string
+	var probe, sprite string
 	var probeOnly bool
 	var skip []string
 	roll := &cobra.Command{
@@ -500,6 +504,12 @@ func SpritesCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
+			if sprite != "" {
+				if probe != "" || probeOnly || len(skip) > 0 {
+					return errors.New("--sprite installs on the one Sprite it names, so it takes no --probe, --probe-only or --skip")
+				}
+				return refusalExit(cmd, RollHostPins(cmd.Context(), a.Runner, s, filepath.Join(state, "runner.json"), sprite, "the Sprite", a.Now, cmd.OutOrStdout()))
+			}
 			env, err := runnerEnv(filepath.Join(state, "runner.json"))
 			if err != nil {
 				return err
@@ -521,6 +531,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	}
 	roll.Flags().StringVar(&probe, "probe", "", "the Sprite to install on first; default the first by name")
 	roll.Flags().BoolVar(&probeOnly, "probe-only", false, "install on the --probe Sprite and stop, so a person can check it before the rest")
+	roll.Flags().StringVar(&sprite, "sprite", "", "install the desk host's pins on this one Sprite alone, such as a standby host that is neither runner.json's host.sprite nor a live worker's box")
 	roll.Flags().StringSliceVar(&skip, "skip", nil, "a Sprite the roll leaves alone and names, never counting it a failure; repeat or comma-separate for more")
 	pin := &cobra.Command{
 		Use:   "pin",
