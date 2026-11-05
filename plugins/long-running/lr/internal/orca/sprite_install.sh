@@ -62,7 +62,7 @@ while [ "$1" != -- ]; do
     if [ "$kind" = raw ]; then
       cp /tmp/tool.tgz "$bin/$name.new"
     else
-      tar -xzOf /tmp/tool.tgz "$name" > "$bin/$name.new"
+      tar -xzOf /tmp/tool.tgz --wildcards --no-anchored "$name" > "$bin/$name.new"
     fi
     chmod 755 "$bin/$name.new"
     printed=$(said "$bin/$name.new")

@@ -983,6 +983,25 @@ func TestTheToolInstallUnpacksEveryCCIBinaryAndNoDocs(t *testing.T) {
 	}
 }
 
+func TestTheToolInstallTakesABinaryFromADirectoryInsideItsArchive(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.58\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho 9.9.9\n"})
+	lintURL, lintSHA := tarball(t, dir, "lint.tgz", map[string]string{
+		"golangci-lint-2.15.0-linux-amd64/golangci-lint": "#!/bin/sh\necho golangci-lint has version 2.15.0 built with go1.27.0 from 25c5369a on 2026-10-16T11:03:09Z\n",
+		"golangci-lint-2.15.0-linux-amd64/README.md":     "docs",
+	})
+	home := t.TempDir()
+	run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "binary", "golangci-lint", lintURL, lintSHA, "2.15.0", "--", "golangci-lint")
+	run.Env = append(os.Environ(), "HOME="+home)
+	if out, err := run.CombinedOutput(); err != nil || !strings.Contains(string(out), "installed golangci-lint 2.15.0\n") {
+		t.Fatal(string(out), err)
+	}
+	if bin := filepath.Join(home, ".local", "bin"); !present(filepath.Join(bin, "golangci-lint")) || present(filepath.Join(bin, "README.md")) {
+		t.Fatal("the install must put golangci-lint on the path and leave the rest of its archive out")
+	}
+}
+
 func TestACCIInstallThatDiesMidArchiveLeavesTheRunningCCIInPlace(t *testing.T) {
 	dir := t.TempDir()
 	noise := make([]byte, 1<<20)

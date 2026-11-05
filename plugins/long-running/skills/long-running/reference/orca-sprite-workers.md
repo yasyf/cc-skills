@@ -201,7 +201,7 @@ A pin is `{kind, name, url, sha256, version}`. Each archive is checked against i
 
 | Kind | Install |
 | --- | --- |
-| `binary` | Extract the member `name` to `~/.local/bin/<name>.new`, run it with `--version`, and move it over `~/.local/bin/<name>` only when the last version-shaped word printed, less a leading `v`, is the pinned version |
+| `binary` | Extract the member `name`, at the top of the archive or in a directory below it, to `~/.local/bin/<name>.new`, run it with `--version`, and move it over `~/.local/bin/<name>` only when the last version-shaped word printed, less a leading `v`, is the pinned version |
 | `raw` | The download itself is the executable, for a tool whose release ships a bare binary, such as `ccn` |
 | `package` | Such as `capt-hookd`. Stage the member, check that `version` reports the pinned `build`, run its `package-install` (which upgrades a live daemon under its own install lock), and check the installed `version` again |
 | `plugin` | Such as `long-running@skills`. Unpack into Claude Code's plugin cache at `<marketplace>/<plugin>/<version>.new`, check that tree's `.claude-plugin/plugin.json` version, move it into place, and point that plugin's `installed_plugins.json` entries at it |
