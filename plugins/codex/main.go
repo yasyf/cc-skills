@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -56,7 +57,12 @@ var (
 
 func main() {
 	// The ambient OPENAI_API_KEY is billing-capped and blocks the hosted image_gen
-	// tool, so every mode drops it and codex OAuth-auths.
+	// tool, so every mode drops it and codex OAuth-auths. A host with no codex
+	// login, such as a Sprite, has no OAuth to fall back on, so there codex exec
+	// takes the key as CODEX_API_KEY.
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" && exec.Command("codex", "login", "status").Run() != nil {
+		_ = os.Setenv("CODEX_API_KEY", key)
+	}
 	_ = os.Unsetenv("OPENAI_API_KEY")
 	initSelf()
 
