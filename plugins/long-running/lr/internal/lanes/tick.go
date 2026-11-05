@@ -9,12 +9,15 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -37,6 +40,7 @@ type Deps struct {
 	Checkout              string
 	State                 string
 	Briefs                string
+	Bin                   string
 	HandoffBrief          string
 	Records               func(since int64) ([]Record, error)
 	Who                   func(names []string) ([]Row, error)
@@ -657,11 +661,10 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 	start := handoffStart(old, d, transcript)
 	before := []string{
 		"Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):",
-		fmt.Sprintf("  1. From %s, run `drive.py lane-status %s --held`. Each line is a worktree %s made, with its branch, dirty files, push state, and PR; `no worktree found` means it made none.", checkout, old.Name, old.Name),
-		fmt.Sprintf("  2. From %s, never from inside one of those worktrees, run for each worktree path it printed:", checkout),
-		`     lsof -n -d cwd 2>/dev/null | awk -v w='<worktree>' '$NF == w || index($NF, w "/") == 1'`,
-		fmt.Sprintf("  3. If any line printed, write nothing: post `cci post --drive %s --lane %s --kind blocker --to root --text \"LIVE %s: <worktree> pids <pids>\"` and stop. Never stop or signal those processes.", drive, name, old.Name),
-		fmt.Sprintf("  4. With no live process in any worktree, continue in %s's worktree and branch from the state lane-status shows; the trees of the PRs it only named print without `--held`.", old.Name),
+		fmt.Sprintf("  1. From %s, run `%s lane-status %s --held`. Each line is a worktree %s made, with its branch, dirty files, push state, and PR; `no worktree found` means it made none.", checkout, filepath.Join(d.Bin, "drive.py"), old.Name, old.Name),
+		fmt.Sprintf("  2. Run `cci who --drive %s --lane %s --json --fields live,status,status_at`. It prints %s's session, if one is still live, with its harness status.", drive, old.Name, old.Name),
+		fmt.Sprintf("  3. If it prints a live session whose status is not `idle`, %s has a turn running and may still write: write nothing, post `cci post --drive %s --lane %s --kind blocker --to root --text \"LIVE %s: status <status> since <status_at>\"` and stop. Never stop, signal or close that session or its terminal.", old.Name, drive, name, old.Name),
+		fmt.Sprintf("  4. An idle session or none writes nothing, even with its claude and shell still open in its worktree: continue in %s's worktree and branch from the state lane-status shows; the trees of the PRs it only named print without `--held`.", old.Name),
 	}
 	if old.Placement == placedOnSprite {
 		start = fmt.Sprintf("Before anything else, read %s's records with `cci tail --drive %s --lane %s --oldest`.", old.Name, drive, old.Name)
@@ -736,8 +739,34 @@ func wake(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]P
 	if now.Sub(wokeAt) < PageAnswer || now.Sub(peer.Seen) < PageAnswer {
 		return
 	}
+	if parked := pageText(page, "parked"); parked != "" && now.Before(must(store.Parse(parked))) {
+		return
+	}
+	if until := parkedUntil(d.Transcript(peer.Row), now); now.Before(until) {
+		do(s.SetLanePage(lane.Name, with(page, "parked", store.Stamp(until))))
+		return
+	}
 	do(s.SetLanePage(lane.Name, nil))
 	relaunch(s, d, lane, found, fmt.Sprintf("has made no tool call in the %d min since it was woken because %s", int(now.Sub(wokeAt).Minutes()), truncated(pageText(page, "why"), 240)), "", taken, now, out)
+}
+
+var lrWait = regexp.MustCompile(`(?:^|[\s/])lr wait (\d+)\b`)
+
+func parkedUntil(transcript string, now time.Time) time.Time {
+	var until time.Time
+	if transcript == "" {
+		return until
+	}
+	tasks, err := livetasks.Read(transcript, now)
+	if err != nil {
+		return until
+	}
+	for _, task := range tasks {
+		if wait := lrWait.FindStringSubmatch(task.Command); task.Kind == "Bash" && wait != nil {
+			until = newer(until, task.At.Add(time.Duration(must(strconv.Atoi(wait[1])))*time.Second))
+		}
+	}
+	return until
 }
 
 func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string, taken map[string]bool, now time.Time, out *Outcome) (woken []string, err error) {

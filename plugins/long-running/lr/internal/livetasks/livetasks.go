@@ -35,6 +35,8 @@ type Task struct {
 	Kind        string
 	ID          string
 	Description string
+	Command     string
+	At          time.Time
 	Rearm       string
 }
 
@@ -265,7 +267,7 @@ func (s *started) expired(now time.Time) bool {
 }
 
 func (s *started) render() Task {
-	task := Task{Kind: s.kind, ID: s.task, Description: firstOf(s.call.Description, s.call.Name, s.call.Command)}
+	task := Task{Kind: s.kind, ID: s.task, Description: firstOf(s.call.Description, s.call.Name, s.call.Command), Command: s.call.Command, At: s.at}
 	switch s.kind {
 	case "Bash":
 		task.Rearm = "`Bash` with `run_in_background: true` and `" + s.raw + "`"

@@ -218,7 +218,7 @@ Every desk, and the coordinator, checking whether a lane is at work runs `drive_
 - A `ccx:` line that keeps the old lane's placement: `place=local why=...` when its brief pinned it to the Mac, `place=remote` otherwise.
 - A `Register slice:` line for the new name.
 - The newest handoff doc, or the order to spawn `<lane>-handoff` from [handoff-subagent-brief.md](handoff-subagent-brief.md) when none exists.
-- The `drive.py lane-status --held` live-process check before any write, followed by the old brief.
+- Before any write, `drive.py lane-status --held` by its installed path for the worktrees, then `cci who` for the predecessor's session: only a live session whose status is not `idle` stops the successor. Then the old brief.
 
 The supervisor launches the successor with `lr launch lane` and posts one `RELAUNCHED` report. Once the successor appears in `cci who`, one `stand-down --successor` record carrying the PRs moves the old name's mail to it. A `SPAWNED` record for that name from another brief, such as a lane the coordinator spawned by hand, withdraws the supervisor's launch.
 

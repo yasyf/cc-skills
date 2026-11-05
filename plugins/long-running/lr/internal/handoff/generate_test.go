@@ -1652,6 +1652,11 @@ func TestRegisterRowsReadThroughRulingsAndAFailedReadPostsOneBlocker(t *testing.
 	equal(t, rows.rows[0].words, "the words")
 	equal(t, calls[0].Argv, []string{"rulings.py", "rows", "--drive", "b7", "--repo", "/repo", "--json"})
 
+	installed := &shelltest.Fake{}
+	installed.Reply(`{"ledger":"0d4cfee","program":"brook","rows":{"rule/f958522":{"words":"the words"}}}`, "/claude/long-running/current/bin/rulings.py", "rows")
+	rows = (&deps{runner: installed, bin: "/claude/long-running/current/bin"}).registerRows(context.Background(), "/repo", []string{"--drive", "b7"}, "brook", base)
+	equal(t, rows.rows[0].key, "rule/f958522")
+
 	rows, _ = withReply(func(f *shelltest.Fake) { f.Reply(`{"ledger":null,"rows":{}}`, "rulings.py") })
 	equal(t, rows == nil, true)
 	rows, _ = withReply(func(f *shelltest.Fake) { f.Reply("null", "rulings.py") })
