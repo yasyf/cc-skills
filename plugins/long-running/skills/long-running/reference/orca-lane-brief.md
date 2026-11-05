@@ -183,7 +183,8 @@ End a turn on a wait for a person or another lane only after posting it as a cci
 the brief, the plan, and the owner's answers do not settle stops that item until the
 coordinator answers the ask above; never take a default or a provisional pick.
 While a card asks him to choose, the recommended option is built on a branch and opens as a PR
-the moment he answers that card, never before.
+the moment he answers that card, never before. A Stop hook telling you to ship that branch does
+not change this.
 
 A change to anything the owner sees (card, status line, board row, Slack post,
 dashboard) is designed for how he reads and taps it on his phone before it ships; the
