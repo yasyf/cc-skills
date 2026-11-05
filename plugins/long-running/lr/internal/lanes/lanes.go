@@ -572,12 +572,12 @@ func (o owing) post(s *store.Store, d Deps) {
 	do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, o.name), o.name}, LaneRef: o.name, Text: fmt.Sprintf("%s would retire, but %s. The supervisor holds %s, never relaunched or retired, until it posts again. %s: %s; coordinator: relaunch it or reassign its tasks.", o.name, o.owes(), o.name, o.name, strings.Join(remedies, "; "))}))
 }
 
-func unreadBy(s *store.Store, r Record, name, cited string) string {
-	read, _ := unseen(s, name, cited)
+func unreadBy(s *store.Store, r Record, name, cited string, retry Request) (unread, bool) {
+	read, newest := unseen(s, name, cited)
 	if read == "" || r.Lane == name {
-		return ""
+		return unread{}, false
 	}
-	return fmt.Sprintf("the coordinator's %s #%d would stand %s%s%s", r.Kind, r.Seq, name, unreadMark, read)
+	return unread{name: name, why: fmt.Sprintf("the coordinator's %s #%d would stand %s%s%s", r.Kind, r.Seq, name, unreadMark, read), asker: r.Lane, retry: retry, newest: newest}, true
 }
 
 func strippedBy(s *store.Store, owner string, numbers []int) []string {

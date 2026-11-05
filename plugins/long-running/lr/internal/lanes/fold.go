@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -21,8 +22,11 @@ type stoodDown struct {
 }
 
 type unread struct {
-	name string
-	why  string
+	name   string
+	why    string
+	asker  string
+	retry  Request
+	newest int64
 }
 
 type refusal struct {
@@ -80,11 +84,15 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		if !fresh {
 			var refused []unread
 			for _, stripped := range strippedBy(s, name, numbers) {
-				if why := unreadBy(s, r, stripped, cited); why != "" {
-					refused = append(refused, unread{stripped, why})
+				if one, found := unreadBy(s, r, stripped, cited, Request{Verb: verb, Lane: name, PRs: numbers}); found {
+					refused = append(refused, one)
 				}
 			}
 			if len(refused) > 0 {
+				newest := slices.MaxFunc(refused, func(a, b unread) int { return cmp.Compare(a.newest, b.newest) }).newest
+				for i := range refused {
+					refused[i].newest = newest
+				}
 				out.unread = append(out.unread, refused...)
 				for _, one := range refused {
 					hold(s, one.name, one.why, at)
@@ -96,9 +104,9 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	case verb == "stand-down" && known:
 		successor := heirOf(s, r.Attr("successor"), name)
 		if !fresh && isLive(row.State) {
-			if why := unreadBy(s, r, name, cited); why != "" {
-				out.unread = append(out.unread, unread{name, why})
-				hold(s, name, why, at)
+			if one, found := unreadBy(s, r, name, cited, Request{Verb: verb, Lane: name, Successor: r.Attr("successor"), Open: r.Attr("open")}); found {
+				out.unread = append(out.unread, one)
+				hold(s, name, one.why, at)
 				return
 			}
 		}
@@ -865,9 +873,9 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 			continue
 		}
 		if !fresh && isLive(gone.State) {
-			if why := unreadBy(s, r, old, citedIn(r)); why != "" {
-				out.unread = append(out.unread, unread{old, why})
-				hold(s, old, why, at)
+			if one, found := unreadBy(s, r, old, citedIn(r), Request{Verb: "stand-down", Lane: old, Successor: successor}); found {
+				out.unread = append(out.unread, one)
+				hold(s, old, one.why, at)
 				continue
 			}
 		}

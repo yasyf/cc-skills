@@ -269,7 +269,12 @@ func announce(s *store.Store, d Deps, said folded) {
 		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("The coordinator's decide #%d carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
 	}
 	for _, one := range said.unread {
-		do(d.Post(Post{Kind: "defect", To: []string{noticeTo(s, one.name), one.name}, LaneRef: one.name, Text: fmt.Sprintf("%s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. Coordinator: read %s with `cci tail --lane %s --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", one.why, one.name, one.name, one.name, one.name, one.name)}))
+		to := []string{noticeTo(s, one.name), one.name}
+		if !slices.Contains(to, one.asker) {
+			to = append(to, one.asker)
+		}
+		one.retry.LastRead = strconv.FormatInt(one.newest, 10)
+		do(d.Post(Post{Kind: "defect", To: to, LaneRef: one.name, Text: fmt.Sprintf("%s, so the supervisor refused it and holds %s with its PRs, never relaunched or retired, until %s posts again; %s, keep working. %s: read %s with `cci tail --lane %s --since <its wake seq> --oldest` through #%d, then run `%s`.", one.why, one.name, one.name, one.name, one.asker, one.name, one.name, one.newest, one.retry.Command())}))
 	}
 	for _, one := range said.owing {
 		one.post(s, d)

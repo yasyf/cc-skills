@@ -1128,6 +1128,30 @@ func TestARootRecordStandingDownALaneItHasNotReadSinceItsNewestRecordIsRefusedAn
 	}
 }
 
+func TestAnUnreadRequestFromAnotherLaneIsRefusedToThatLaneWithTheRetryCitingTheNewestRecord(t *testing.T) {
+	const asker = "stopped-lanes-1"
+	cases := []struct {
+		request Record
+		retry   string
+	}{
+		{ask(4, "owner", "restack-children-2", t0, []int{46001}, asker, nil), "lr request owner restack-children-2 --pr 46001 --last-read 3"},
+		{ask(4, "stand-down", lane2, t0, nil, asker, map[string]string{"successor": "restack-children-2", "last-read": "2"}), "lr request stand-down conflicts-2 --successor restack-children-2 --last-read 3"},
+	}
+	for _, c := range cases {
+		s, brief := memory(t), writeBrief(t)
+		f := adopted(t, s, brief, "", 46001)
+		f.feed = append(f.feed, spawned(2, "restack-children-2", brief, t0, nil), rec(3, lane2, "head", t0, "#46001 e590637").withRefs(prs(46001)), c.request)
+		f.peers = append(f.peers, who("restack-children-2", true, t0))
+
+		tick(t, s, f, t0)
+
+		equal(t, row(t, s, lane2).PRs, []int{46001})
+		equal(t, len(f.posts), 1)
+		equal(t, f.posts[0].To, []string{Root, lane2, asker})
+		contains(t, f.posts[0].Text, asker+": read conflicts-2 with `cci tail --lane conflicts-2 --since <its wake seq> --oldest` through #3, then run `"+c.retry+"`.")
+	}
+}
+
 func TestAnOwnerDecideTakingSomeOfALiveLanesPRsMovesThemWithNoLastRead(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	f := adopted(t, s, brief, "", 46001, 46002)
