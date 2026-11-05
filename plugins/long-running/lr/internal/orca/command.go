@@ -26,7 +26,7 @@ func stateHome() (string, error) {
 
 func GCCommand(a *app.App) *cobra.Command {
 	var run, plan string
-	var dispatches, done, keep, stale []string
+	var dispatches, done, keep, stale, finished []string
 	var dryRun, fresh bool
 	cmd := &cobra.Command{
 		Use:   "gc",
@@ -43,6 +43,8 @@ A settled dispatch's worktree is removed with orca worktree rm when no unsettled
 
 A dispatch on a paired Orca server goes through that server's --environment; one on a server Orca no longer knows has nothing left to reach, so gc skips it and says nothing. A dispatch whose worktree and terminal a cc-remote Sprite task records has its Sprite destroyed once no unsettled dispatch shares the workspace, its terminal reads idle twice or, with its Orca runtime down, sprite exec finds no claude or codex process on the machine and none with a working directory in its checkout (both skipped under --done), and its checkout, read through sprite exec, is clean with its HEAD on origin or landed. What sprite exec cannot read keeps the Sprite. A destroy runs WORKER_CC_REMOTE with CC_REMOTE_CONFIG when set, otherwise the bin/cc-remote and config.yaml under tools/cc-remote of the checkout gc runs from, otherwise cc-remote from PATH with its own config lookup.
 
+--finished names a dispatch whose lane the supervisor found finished by its own record. Closing a terminal loses nothing on disk, so for such a dispatch unsaved work in its tree keeps the tree, untouched, and not its terminal: the terminal of a settled one closes under the idle and agent-process proof above, and a --stale one is proved without the clean-and-pushed read. A tree git cannot read still keeps the terminal.
+
 --new sweeps up to forty settled dispatches a pass, those no pass has swept first, newest first, then those swept longest ago, and records the order under the state directory. The lane supervisor runs it every five minutes, with --keep for the dispatch of every lane the registry still wants, so a dispatch is reclaimed soon after it settles and its lane retires, and what a pass kept is read again on a later one.
 
 --plan takes a dry run's output; gc plans again first and refuses, printing the difference, unless the two match. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed exists. --dry-run reads through a pause and runs every read a removal runs, the live-process scan included, so its lines name what a real run would do. Prints one line per action, skipped action or kept resource, then the tally.`,
@@ -57,17 +59,21 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 				return err
 			}
 			gc := &GC{
-				Orca:   Live{Client{Runner: a.Runner}, Processes{Runner: a.Runner, Home: home}},
-				Git:    &Git{Runner: a.Runner},
-				Fleet:  CCRemote{Runner: a.Runner, State: filepath.Join(state, "cc-remote")},
-				Pause:  Pause{Resumed: filepath.Join(state, "orca-gc", "resumed")},
-				Lock:   filepath.Join(state, "orca-gc", "remove.lock"),
-				Out:    cmd.OutOrStdout(),
-				DryRun: dryRun,
-				Keep:   map[string]bool{},
+				Orca:     Live{Client{Runner: a.Runner}, Processes{Runner: a.Runner, Home: home}},
+				Git:      &Git{Runner: a.Runner},
+				Fleet:    CCRemote{Runner: a.Runner, State: filepath.Join(state, "cc-remote")},
+				Pause:    Pause{Resumed: filepath.Join(state, "orca-gc", "resumed")},
+				Lock:     filepath.Join(state, "orca-gc", "remove.lock"),
+				Out:      cmd.OutOrStdout(),
+				DryRun:   dryRun,
+				Keep:     map[string]bool{},
+				Finished: map[string]bool{},
 			}
 			for _, dispatch := range keep {
 				gc.Keep[dispatch] = true
+			}
+			for _, dispatch := range finished {
+				gc.Finished[dispatch] = true
 			}
 			if plan != "" {
 				planned, err := os.ReadFile(plan)
@@ -116,6 +122,7 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 	cmd.Flags().StringVar(&plan, "plan", "", "a dry run's output; gc plans again first and refuses, printing the difference, unless the new plan prints the same lines")
 	cmd.Flags().StringArrayVar(&keep, "keep", nil, "treat this dispatch as live, so its terminal and worktree stay, whatever Orca says of it; repeatable")
 	cmd.Flags().StringArrayVar(&stale, "stale", nil, "treat this unsettled dispatch as --done once its screen sits at an empty prompt, one verified agent process names its terminal and its tree is clean and pushed; repeatable")
+	cmd.Flags().StringArrayVar(&finished, "finished", nil, "this dispatch's lane finished by its own record, so unsaved work in its tree keeps the tree, left as it is, but not its terminal, which closes under the same idle and agent-process proof; repeatable")
 	cmd.Flags().BoolVar(&fresh, "new", false, "settled dispatches no pass swept yet, newest first, then those swept longest ago, up to forty a pass")
 	cmd.MarkFlagsMutuallyExclusive("new", "dispatch")
 	cmd.MarkFlagsMutuallyExclusive("new", "done")
