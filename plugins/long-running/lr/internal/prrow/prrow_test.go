@@ -1307,14 +1307,23 @@ func TestAnOldTreePRsRowSaysItsPortIsOwedUntilAPortOrANoPortReasonNamesIt(t *tes
 		t.Fatalf("merged old-tree fix with no port: state %q, port %q, want it still owed", row.State, row.Port)
 	}
 
-	postOpened(t, 50849, headB, "dev", fullBody)
 	post(50849, "head", map[string]string{gates.PortOfAttr: "50525", gates.PortInteractsAttr: gates.PortCleanWord})
+	read()
+	postOpened(t, 50849, headB, "dev", fullBody)
 	read(cleanRead(50849, headB))
 	if row := folded(t, f, 50525); row.Port != "port #50849, open" {
 		t.Fatalf("old-tree fix once its port opened: port %q", row.Port)
 	}
 	if row := folded(t, f, 50849); row.Port != PortOf+"50525" {
 		t.Fatalf("the port itself: port %q, want %q", row.Port, PortOf+"50525")
+	}
+
+	postOpened(t, 48967, headA, "dev", fullBody)
+	both := oldTree(48967, headA)
+	both.NextTree = "go/sand/next/internal/steptree/tree.go"
+	read(both)
+	if row := folded(t, f, 48967); row.Port != PortInPR+": it changes go/sand/next/internal/steptree/tree.go in the next tree too" {
+		t.Fatalf("an old-tree fix that changes the next tree too: port %q, want it ported in the same PR", row.Port)
 	}
 
 	postOpened(t, 2, headA, "dev", fullBody)

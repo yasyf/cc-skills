@@ -255,6 +255,13 @@ func PortEvidence(sourceMerged bool, files []string) map[string]string {
 	return evidence
 }
 
+func NextTreeFile(files []string) string {
+	if file := slices.IndexFunc(files, func(file string) bool { return strings.HasPrefix(file, portTree) }); file >= 0 {
+		return files[file]
+	}
+	return ""
+}
+
 func OldTreeFile(files []string) string {
 	if file := slices.IndexFunc(files, func(file string) bool {
 		return strings.HasPrefix(file, oldTree) && !strings.HasPrefix(file, portTree)

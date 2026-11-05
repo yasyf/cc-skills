@@ -37,10 +37,12 @@ const (
 	FactTapBy     = "tap-by"
 	FactTapAt     = "tap-at"
 
-	FactOldTree = "read-old-tree"
-	NoPortAttr  = "no-port"
-	PortOwed    = "owed"
-	PortOf      = "port of #"
+	FactOldTree  = "read-old-tree"
+	FactNextTree = "read-next-tree"
+	NoPortAttr   = "no-port"
+	PortOwed     = "owed"
+	PortOf       = "port of #"
+	PortInPR     = "in this PR"
 
 	FactUnknownSince = "unknown-since"
 	FactBumps        = "mergeable-bumps"
@@ -68,6 +70,7 @@ const (
 
 	deltaAttr       = "delta"
 	oldTreeAttr     = "old-tree"
+	nextTreeAttr    = "next-tree"
 	carriedByAttr   = "carried_by"
 	tapFromAttr     = "tap_from"
 	tapReturnedAttr = "tap_returned"
@@ -126,11 +129,15 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 			rows[row.Number] = row
 		}
 		before := maps.Clone(rows)
+		outside, err := t.OutsidePRs(f.Repo)
+		if err != nil {
+			return err
+		}
 		for _, record := range records {
 			if record.Seq <= position {
 				continue
 			}
-			if err := f.apply(t, rows, record); err != nil {
+			if err := f.apply(t, rows, outside, record); err != nil {
 				return err
 			}
 			if err := t.Advance(store.ReviewRowsCursor, record.Seq); err != nil {
@@ -171,6 +178,20 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 			row.MovedAt = movedAt(before[number], row, written)
 			rows[number] = row
 		}
+		for number, pr := range outside {
+			if _, driven := rows[number]; driven {
+				delete(outside, number)
+				if err := t.DeleteOutsidePR(f.Repo, number); err != nil {
+					return err
+				}
+				continue
+			}
+			pr.Port = portState(map[string]string{FactOldTree: pr.OldTree, NoPortAttr: pr.NoPort}, ports[number])
+			outside[number] = pr
+		}
+		if err := t.PutOutsidePRs(outside); err != nil {
+			return err
+		}
 		out = values(rows)
 		return t.PutReviewRows(out)
 	})
@@ -206,6 +227,8 @@ func portState(facts map[string]string, port store.ReviewRow) string {
 		return None
 	case port.Number != 0:
 		return fmt.Sprintf("port #%d, %s", port.Number, port.State)
+	case facts[FactNextTree] != "":
+		return fmt.Sprintf("%s: it changes %s in the next tree too", PortInPR, facts[FactNextTree])
 	case facts[NoPortAttr] != "":
 		return "no port: " + clip(facts[NoPortAttr], fieldChars)
 	}
@@ -244,7 +267,7 @@ func values(rows map[int]store.ReviewRow) []store.ReviewRow {
 	return out
 }
 
-func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Record) error {
+func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, outside map[int]store.OutsidePR, record client.Record) error {
 	attrs := record.Fields.Attrs
 	if repo := attrs["repo"]; repo != "" && !strings.EqualFold(repo, f.Repo) {
 		return nil
@@ -260,6 +283,12 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Rec
 			row, err = f.pushed(t, row, record, attrs["head"])
 		case "head":
 			if !known {
+				if head := f.headOf(record, number); head != "" {
+					err = f.putClaims(t, number, record, head)
+				}
+				if err != nil {
+					return err
+				}
 				continue
 			}
 			row, err = f.pushed(t, row, record, f.headOf(record, number))
@@ -279,6 +308,10 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Rec
 			}
 			err = t.PutFact(f.Repo, number, row.Head, FactWithdrawn, "replaced by #"+attrs["superseded_by"], record.At)
 		case "decide":
+			if pr, admitted := outside[number]; admitted && attrs[NoPortAttr] != "" {
+				pr.NoPort = attrs[NoPortAttr]
+				outside[number] = pr
+			}
 			if !known || attrs[NoPortAttr] == "" {
 				continue
 			}
@@ -438,7 +471,7 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 	for kind, value := range map[string]string{
 		factCI: attrs["ci"], factApprovers: attrs["approvers"], factMergeable: attrs["mergeable"], factQueue: attrs["queue"],
 		FactFailing: attrs["failing"], FactDraft: attrs["draft"], FactForeign: attrs["foreign"], factValues: valuesOf(attrs), factBody: attrs["body"],
-		factCarriedBy: attrs[carriedByAttr], factTapFrom: attrs[tapFromAttr], factReturned: attrs[tapReturnedAttr], FactOldTree: attrs[oldTreeAttr],
+		factCarriedBy: attrs[carriedByAttr], factTapFrom: attrs[tapFromAttr], factReturned: attrs[tapReturnedAttr], FactOldTree: attrs[oldTreeAttr], FactNextTree: attrs[nextTreeAttr],
 	} {
 		if err := t.PutFact(f.Repo, row.Number, head, kind, value, record.At); err != nil {
 			return row, err
@@ -761,6 +794,9 @@ func readAttrs(repo string, pr machine.Facts) map[string]string {
 	}
 	if pr.CarriedBy != "" {
 		attrs[carriedByAttr] = pr.CarriedBy
+	}
+	if pr.NextTree != "" {
+		attrs[nextTreeAttr] = pr.NextTree
 	}
 	if pr.OldTree != "" {
 		attrs[oldTreeAttr] = pr.OldTree

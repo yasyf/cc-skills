@@ -248,7 +248,7 @@ func TestAnEndedPRCostsNoStatusReadAndLeavesTheRowsWithItsState(t *testing.T) {
 	calls := len(h.runner.Calls())
 	h.snapshot(t)
 	if got := h.runner.Calls()[calls:]; !slices.ContainsFunc(got, func(call shell.Command) bool {
-		return slices.Contains(call.Argv, "graphql") && !strings.Contains(call.Argv[len(call.Argv)-1], "r2: pullRequest")
+		return slices.Contains(call.Argv, "graphql") && strings.Contains(call.Argv[len(call.Argv)-1], "pullRequest(number:") && !strings.Contains(call.Argv[len(call.Argv)-1], "r2: pullRequest")
 	}) {
 		t.Fatalf("the next pass still read a landed row: %+v", got)
 	}
@@ -524,8 +524,8 @@ func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
 
 		calls[n] = len(h.runner.Calls())
 	}
-	if calls[1] != 3 || calls[1000] != 3+39 {
-		t.Fatalf("command runs at 1 and 1,000 PRs = %d, %d, want 3 and 42: one status read, one rules read, one read per page of 25", calls[1], calls[1000])
+	if calls[1] != 4 || calls[1000] != 4+39 {
+		t.Fatalf("command runs at 1 and 1,000 PRs = %d, %d, want 4 and 43: one status read, one rules read, one search, one read per page of 25", calls[1], calls[1000])
 	}
 }
 
@@ -598,7 +598,7 @@ func TestTheMemberReadAsksByNumberInBatchesGitHubAnswers(t *testing.T) {
 
 	var batches, asked int
 	for _, call := range h.runner.Calls() {
-		if !slices.Contains(call.Argv, "graphql") {
+		if !slices.Contains(call.Argv, "graphql") || strings.Contains(call.Argv[len(call.Argv)-1], "search(") {
 			continue
 		}
 		batches++
@@ -619,7 +619,7 @@ func TestEveryReadRunsFromTheCheckoutNamingItsRepositoryAndCaller(t *testing.T) 
 	h.snapshot(t)
 
 	calls := h.runner.Calls()
-	if len(calls) != 3 {
+	if len(calls) != 4 {
 		t.Fatalf("calls = %+v", calls)
 	}
 	for _, call := range calls {
@@ -1886,5 +1886,69 @@ func TestANewHoldReadsOnlyTheHeldAndQueuedPRsHoweverManyRowsExist(t *testing.T) 
 		if by[7].Hold != machine.MoverRoot || !by[7].Queued() || by[9].Hold != "" || !by[9].Queued() {
 			t.Fatalf("%d rows: read = %+v", rows, by)
 		}
+	}
+}
+
+type searched struct {
+	shell.Runner
+	reply string
+}
+
+func (s *searched) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if strings.Contains(c.Argv[len(c.Argv)-1], "search(") {
+		return shell.Result{Stdout: s.reply}, nil
+	}
+	return s.Runner.Run(ctx, c)
+}
+
+func TestAnOldTreePRNoDriveLaneOpenedIsAdmittedOutsideTheRowsAndOwesItsPort(t *testing.T) {
+	const steptree = "go/sand/internal/steptree/tree.go"
+	node := func(number int, at, state string, paths ...string) string {
+		files := make([]string, len(paths))
+		for i, path := range paths {
+			files[i] = fmt.Sprintf(`{"path":%q}`, path)
+		}
+		return fmt.Sprintf(`{"number":%d,"state":%q,"title":"fix %d","headRefOid":%q,"updatedAt":"2026-11-05T10:00:00Z","files":{"nodes":[%s]}}`, number, state, number, at, strings.Join(files, ","))
+	}
+	reply := func(nodes ...string) string {
+		return `{"data":{"search":{"nodes":[` + strings.Join(nodes, ",") + `]}}}`
+	}
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	runner := &searched{h.runner, reply(node(50525, head, "OPEN", steptree), node(50526, head, "MERGED", "go/sand/next/vm.go"), node(1, head, "OPEN", steptree), node(48967, head, "OPEN", steptree, "go/sand/next/internal/steptree/tree.go"))}
+	a := app.New(io.Discard)
+	a.Runner = runner
+	source := facts.New(a, landingConfig, h.store)
+	admitted := func(passes int) map[int]store.OutsidePR {
+		t.Helper()
+		for range passes {
+			if _, err := source.Snapshot(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		prs, err := h.store.OutsidePRs(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return prs
+	}
+
+	prs := admitted(2)
+	if len(prs) != 1 || prs[50525].State != prrow.StateOpen || !strings.HasPrefix(prs[50525].Port, prrow.PortOwed+": it changes "+steptree) {
+		t.Fatalf("admitted = %+v, want only #50525, open and owed; a drive row, a next-tree PR and a PR changing both trees stay out", prs)
+	}
+	if rows, err := h.store.ReviewRows(repo); err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %+v, %v, want only the drive's own row", rows, err)
+	}
+
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "old-tree-port-desk", Kind: "decide", PRs: []string{repo + "#50525"}, Attrs: map[string]string{prrow.NoPortAttr: "old-only"}, Text: "#50525: no port owed"}); err != nil {
+		t.Fatal(err)
+	}
+	if prs := admitted(1); prs[50525].Port != "no port: old-only" {
+		t.Fatalf("port = %q after a no-port decide", prs[50525].Port)
+	}
+
+	runner.reply = reply(node(50525, head2, "MERGED", steptree))
+	if prs := admitted(2); prs[50525].State != prrow.StateLanded || !strings.HasPrefix(prs[50525].Port, prrow.PortOwed) {
+		t.Fatalf("admitted = %+v, want a new merged head owed again", prs[50525])
 	}
 }
