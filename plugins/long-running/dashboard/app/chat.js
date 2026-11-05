@@ -200,7 +200,8 @@ function prNumbers(r) {
   });
   return [...new Set([...named, ...[...r.md.matchAll(/#(\d{5})\b/g)].map((found) => Number(found[1]))])];
 }
-function prCard(n) {
+function prCard(n, item) {
+  if (item) return liveCard(item);
   const row = boardRow(n);
   const pr = state.model.prs[n] ?? {};
   const words = rowWords(row);
@@ -219,7 +220,7 @@ function prObjects(numbers) {
   const cards = fresh.filter(open).slice(0, PR_CARDS_SHOWN);
   const chips = fresh.filter((n) => !cards.includes(n) && (state.model.prs[n] || boardRow(n)));
   const shown = chips.slice(0, PR_CHIPS_SHOWN).map(prChip).join('');
-  return `${cards.map(prCard).join('')}${shown ? `<div class="decision-tail">${shown}${chips.length > PR_CHIPS_SHOWN ? `<span class="embedded-ref">${chips.length - PR_CHIPS_SHOWN} more</span>` : ''}</div>` : ''}`;
+  return `${cards.map((n) => prCard(n)).join('')}${shown ? `<div class="decision-tail">${shown}${chips.length > PR_CHIPS_SHOWN ? `<span class="embedded-ref">${chips.length - PR_CHIPS_SHOWN} more</span>` : ''}</div>` : ''}`;
 }
 function replyOthers(r) {
   const others = (r.prs ?? []).filter((url) => !url.includes(`github.com/${state.model.repo}/`));
@@ -252,7 +253,7 @@ function isSimple(c) {
   const options = c.parts?.find((p) => p.id === c.choice)?.options ?? c.options;
   return options.length <= 2 && options.every((o) => !o.hint && (o.title || o.label).length <= SIMPLE_PICK);
 }
-function questionObject(c, id) {
+function questionObject(c, id, live = '') {
   const title = rewritten('cards', c.key)?.question ?? c.title;
   const summary = c.summary || rewritten('cards', c.key)?.means || '';
   const simple = isSimple(c);
@@ -261,26 +262,27 @@ function questionObject(c, id) {
   const summaryRow = `<span class="question-mark">?</span><span class="question-copy"><small>Open question</small><span class="question-title">${esc(tapWords(title))}</span></span>`;
   const head = simple ? `<div class="question-summary">${summaryRow}${inlineButtons}</div>${sentNote(c.choice)}` : `<button class="question-summary" aria-expanded="false" data-q-pin="${esc(c.id)}">${summaryRow}<span class="question-hint">Hover to decide ${chatIcon('arrow')}</span></button>`;
   const more = explainMore(c, cardAsk(c));
-  return `<div class="artifact question${simple ? ' simple' : ''}" data-question="${esc(c.id)}"${id ? ` id="rp-${esc(id)}"` : ''}>${head}${simple ? (more ? `<div class="simple-more">${more}</div>` : '') : `<div class="choices">${summary ? `<p class="choice-context">${inline(tapWords(summary))}</p>` : ''}${cardChoices(c)}${more}</div>`}</div>`;
+  return `<div class="artifact question${simple ? ' simple' : ''}" data-question="${esc(c.id)}"${id ? ` id="rp-${esc(id)}"` : ''}>${head}${live}${simple ? (more ? `<div class="simple-more">${more}</div>` : '') : `<div class="choices">${summary ? `<p class="choice-context">${inline(tapWords(summary))}</p>` : ''}${cardChoices(c)}${more}</div>`}</div>`;
 }
 function replyObject(entry, t) {
   const r = entry.reply;
   const key = `reply:${r.id}`;
   const about = `reply ${r.id} "${r.title}"`;
   const card = replyCard(r);
-  const links = `${replyLinks(r)}${replyOthers(r)}${prObjects(prNumbers(r))}`;
+  const live = liveParts(r.live);
+  const links = `${replyLinks(r)}${replyOthers(r)}${live ? '' : prObjects(prNumbers(r))}`;
   const picked = cardAnswered(`card-${r.id}`);
   if (card?.decides && !picked) {
     const foot = t.rows.length ? '' : `<div class="thread-foot"><span></span><button data-chat-thread="${esc(key)}">${chatIcon('reply')} Reply</button></div>${objectReplyBox(key, about)}`;
-    return `${questionObject(card, r.id)}${links}${foot}`;
+    return `${questionObject(card, r.id, live)}${links}${foot}`;
   }
   const kind = REPLY_KIND[r.type];
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<p class="ct-failed">${esc(SURFACE_WORD[s.surface])} failed: ${esc(s.error)}</p>`).join('');
-  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
+  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${live}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
   const label = picked ? 'Decision' : kind.label;
   const pickLine = picked ? `<p class="obj-picked">${chatIcon('check')}<span>You picked <b>${esc(picked)}</b></span></p>` : r.picks?.length ? '<p class="ct-closed">This pick is no longer open.</p>' : '';
   const done = !picked && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>` : '';
-  return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r))}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
+  return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}${live ? ' has-live' : ''}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r))}${live}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
 }
 function whoHasIt(t) {
   const owed = t.rows.map((part) => part.owed).find(Boolean);

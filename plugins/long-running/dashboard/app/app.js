@@ -1,4 +1,8 @@
 const PACIFIC = 'America/Los_Angeles';
+const liveParams = new URLSearchParams(location.search);
+const liveOn = liveParams.get('live') !== 'off';
+document.documentElement.classList.add(`group-${liveParams.get('group') ?? 'carousel'}`, `table-${liveParams.get('table') ?? 'fold'}`);
+const liveSlides = new Map();
 const LATE_MS = 3 * 60 * 1000;
 const clockFmt = new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, hour: 'numeric', minute: '2-digit' });
 const dayFmt = new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, weekday: 'short' });
@@ -210,9 +214,80 @@ function boardCard(item) {
   const c = item.card;
   const said = rewritten('cards', c.key);
   const answers = c.embed ? `<div class="bq-acts"><button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button></div>` : pickSet(c, { said, other: true });
-  return `<article class="mr bq" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span></header>
-    ${c.summary ? `<p class="mr-why">${inline(c.summary)}</p>` : said ? `<p class="mr-why">${esc(said.means)}</p>` : ''}${answers}${explainMore(c)}${cardAsk(c)}</article>`;
+  const live = liveParts(state.model.board.cards.find((card) => card.id === c.id)?.live);
+  const summary = c.summary || said?.means;
+  const why = live && summary?.length > 240 ? `<details class="live-summary"><summary><span>${inline(summary.replace(/<!--[^]*?-->/g, ''))}</span><small class="live-read">Read all</small></summary></details>` : summary ? `<p class="mr-why">${inline(live ? summary.replace(/<!--[^]*?-->/g, '') : summary)}</p>` : '';
+  return `<article class="mr bq${live ? ' has-live' : ''}" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span></header>${why}${live}${answers}${explainMore(c)}${cardAsk(c)}</article>`;
 }
+function liveSettled(item) {
+  return ['answered', 'landed'].includes(item.state);
+}
+function liveActions(item) {
+  if (liveSettled(item)) return '';
+  const busy = item.kind === 'pr' && pending.number === item.number && !pending.error;
+  return item.actions.map((label, at) => {
+    let attrs;
+    if (item.kind === 'pr') {
+      attrs = { Approve: `data-approve="${item.number}" data-head="${esc(boardRow(item.number).head)}"`, Hold: `data-hold-row="${item.number}"` }[label];
+    } else {
+      const card = openQuestion(item.id).card;
+      const option = (card.parts?.find((part) => part.id === card.choice)?.options ?? card.options).find((o) => o.title === label || o.label.replace(RECOMMENDED_LABEL, '') === label);
+      attrs = `data-choice="${esc(card.choice)}" data-choose="${esc(option.id)}"`;
+    }
+    return `<button class="btn${at === 0 ? ' pri' : ''}" ${attrs}${busy ? ' disabled' : ''}>${esc(label)}</button>`;
+  }).join('');
+}
+function liveSays(item) {
+  return item.says.length > 160 ? `<details class="live-says live-long"><summary><span>${esc(item.says)}</span><small class="live-read">Read all</small></summary></details>` : `<p class="live-says">${esc(item.says)}</p>`;
+}
+function liveCard(item) {
+  const settled = liveSettled(item);
+  const change = !settled && item.change ? `<details class="live-change"><summary><span>${inline(item.change)}</span><small class="live-read">Read all</small></summary>${item.risk ? `<div class="live-risk">${markdown(item.risk)}</div>` : ''}</details>` : '';
+  const error = item.kind === 'pr' && pending.number === item.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : '';
+  return `<article class="artifact pr-card live-item${settled ? ' live-settled' : ''}" data-live-ref="${esc(item.ref)}"><div class="artifact-top">${chatIcon(item.kind === 'pr' ? 'pr' : 'spark')}${item.number ? `<a class="live-number" href="${esc(item.href)}">#${item.number}</a>` : ''}<span class="live-state ${esc(item.state)}">${esc(item.state)}</span></div><div class="pr-heading"><h3><a href="${esc(item.href)}" title="${esc(item.title)}">${esc(item.title)}</a></h3></div>${change}${liveSays(item)}${item.actions.length && !settled ? `<div class="pr-bottom">${liveActions(item)}</div>` : ''}${error}</article>`;
+}
+function liveObject(item) {
+  return item.kind === 'pr' ? prCard(item.number, item) : liveCard(item);
+}
+function liveGroup(part) {
+  const items = [...part.items.filter((item) => !liveSettled(item)), ...part.items.filter(liveSettled)];
+  return `<section class="live-group" data-live-group="${esc(part.id)}"><div class="live-navigation"><output aria-live="polite">1 of ${items.length}</output><div class="live-dots">${items.map((item, at) => `<button data-live-to="${at}" aria-label="${esc(item.title)}"${at === 0 ? ' aria-current="true"' : ''}></button>`).join('')}</div><span class="live-arrows"><button data-live-step="-1" aria-label="Previous item" disabled>‹</button><button data-live-step="1" aria-label="Next item"${items.length < 2 ? ' disabled' : ''}>›</button></span></div><div class="live-track">${items.map(liveObject).join('')}</div></section>`;
+}
+function liveTable(part) {
+  const cell = (item, col) => col.key === 'title' ? `<a href="${esc(item.href)}" title="${esc(item.title)}">${item.number ? `<span class="live-number">#${item.number}</span>` : ''}<span>${esc(item.title)}</span></a>` : col.key === 'state' ? `<span class="live-state ${esc(item.state)}">${esc(item.state)}</span>` : esc(item[col.key]);
+  return `<div class="live-table" tabindex="0" role="region" aria-label="${esc(part.label ?? 'Related items')}"><table><thead><tr>${part.columns.map((col) => `<th scope="col">${esc(col.label)}</th>`).join('')}${part.columns.some((col) => col.key === 'state') ? '' : '<th scope="col">State</th>'}</tr></thead><tbody>${part.items.map((item) => `<tr>${part.columns.map((col) => `<td data-label="${esc(col.label)}" class="live-cell-${esc(col.key)}">${cell(item, col)}</td>`).join('')}${part.columns.some((col) => col.key === 'state') ? '' : `<td class="live-cell-state"><span class="live-state ${esc(item.state)}">${esc(item.state)}</span></td>`}</tr>`).join('')}</tbody></table></div>`;
+}
+function liveParts(parts) {
+  if (!liveOn || !parts?.length) return '';
+  return `<div class="live-parts">${parts.map((part) => {
+    if (part.view === 'embed') return `<div class="live-embed">${part.items.map(liveObject).join('')}</div>`;
+    if (part.view === 'group') return liveGroup(part);
+    if (part.view === 'table') return liveTable(part);
+    if (part.view === 'count') return `<a class="live-count" href="${esc(part.href)}"><strong>${esc(part.value)}</strong><span>${esc(part.label)}</span>${chatIcon('arrow')}</a>`;
+  }).join('')}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const button = e.target.closest('[data-live-to], [data-live-step]');
+  if (!button) return;
+  const group = button.closest('.live-group');
+  const track = group.querySelector('.live-track');
+  const at = Number(group.dataset.liveAt ?? 0);
+  const to = button.dataset.liveTo === undefined ? at + Number(button.dataset.liveStep) : Number(button.dataset.liveTo);
+  track.scrollTo({ left: track.children[to].offsetLeft - track.children[0].offsetLeft, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+});
+document.addEventListener('scroll', (e) => {
+  const track = e.target;
+  if (!track.classList?.contains('live-track')) return;
+  const group = track.closest('.live-group');
+  const items = [...track.children];
+  const at = items.reduce((best, item, i) => Math.abs(item.offsetLeft - items[0].offsetLeft - track.scrollLeft) < Math.abs(items[best].offsetLeft - items[0].offsetLeft - track.scrollLeft) ? i : best, 0);
+  group.dataset.liveAt = at;
+  liveSlides.set(group.dataset.liveGroup, at);
+  group.querySelector('output').textContent = `${at + 1} of ${items.length}`;
+  group.querySelectorAll('[data-live-to]').forEach((dot, i) => dot.setAttribute('aria-current', String(i === at)));
+  group.querySelector('[data-live-step="-1"]').disabled = at === 0;
+  group.querySelector('[data-live-step="1"]').disabled = at === items.length - 1;
+}, true);
 const RECOMMENDED_LABEL = /\s*\(Recommended\)\s*$/i;
 const PLAIN_FROM_ITS_MARK = /^(?:for|against|good|bad)$/i;
 const FACT_MARK = { good: '✓', bad: '✕' };
@@ -524,6 +599,13 @@ function render() {
     state.shown = location.hash;
   }
   restoreBoxes();
+  if (document.documentElement.classList.contains('group-carousel')) {
+    for (const group of document.querySelectorAll('.live-group')) {
+      const track = group.querySelector('.live-track');
+      const at = Math.min(liveSlides.get(group.dataset.liveGroup) ?? 0, track.children.length - 1);
+      track.scrollLeft = track.children[at].offsetLeft - track.children[0].offsetLeft;
+    }
+  }
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1] && !el.closest('[inert]') && el.checkVisibility());
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   if (spot) refocus(spot, spotRoot);
