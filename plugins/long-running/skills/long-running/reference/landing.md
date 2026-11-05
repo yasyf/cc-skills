@@ -425,7 +425,8 @@ Until cutover, every old-tree PR that lands on `dev` and is not the rebuild's ow
 A PR whose whole change fixes a test flake needs no tap. The owner gave that as a standing word, and this class sits beside the port class.
 
 - **What proves it.** The lane names the test that flaked on the `head` record of every push whose patch changed, `--attr flake-fix=<test or red record>`; the supervisor carries it across a patch-identical restack, as for a port. A test-only PR without that record is not a flake fix: it keeps its own class and stays under `landing.tap_rules`.
-- **What the gate checks at the head.** Every changed file is test or fixture code, which CI config is not, and no added line names a timeout or deadline. A file GitHub returned no patch for counts as unproven. The go reads `[exempt: flake-fix]`.
+- **What the gate checks at the head.** Every changed file is test or fixture code, which CI config is not, and no added line names a timeout or deadline. A file GitHub returned no patch for counts as unproven. The go reads `[exempt: flake-fix]`, past any `landing.tap_rules` row.
+- **A helper the paths miss.** The gate reads paths, and a test helper package can sit where the paths read product code. Its `ok` grade naming the test-only class supplies the read: a reader checked that no product binary links the file. The pipeline names that class on a head carrying the `flake-fix` record, so a clean helper needs no desk. A file the paths read as CI, docs or lint config never passes this way, since a test-only grade over those comes from the paths alone.
 - **Everything else stays.** CI, approval, finder, fidelity's `ok`, holds and open cards apply. A fix that touches product code lands on his tap.
 - **The row.** Same as a clean port: `ready_for_tap` false, saying it lands on his standing word, until the gate posts its go or refuses, and a refused row returns to him with the reason.
 

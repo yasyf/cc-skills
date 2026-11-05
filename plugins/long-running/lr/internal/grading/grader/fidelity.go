@@ -985,12 +985,16 @@ func (s *fidelityPassState) classGaps(reply fidelityReply) (wrong, unnamed []str
 func (s *fidelityPassState) classList() string {
 	classes := make([]string, 0, len(s.job.Exempt))
 	for _, class := range slices.Sorted(maps.Keys(s.job.Exempt)) {
-		if gates.PathDecided(s.job.Exempt[class]) {
+		if !s.modelNames(s.job.Exempt[class]) {
 			continue
 		}
 		classes = append(classes, fmt.Sprintf("`%s` (\"%s\")", class, s.job.Exempt[class]))
 	}
 	return strings.Join(classes, ", ")
+}
+
+func (s *fidelityPassState) modelNames(phrase string) bool {
+	return !gates.PathDecided(phrase) || gates.TestOnlyClass(phrase) && slices.Contains(s.job.Claims, gates.FlakeFixClass)
 }
 
 func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
@@ -1004,7 +1008,7 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 		switch phrase := spec.Exempt[reply.Exempt]; {
 		case s.class != "":
 			said = s.class + ": "
-		case reply.Exempt != "none" && !gates.PathDecided(phrase):
+		case reply.Exempt != "none" && s.modelNames(phrase):
 			said = phrase + ": "
 		}
 		lines = append(lines, gradeLine{text: fmt.Sprintf("%s %s %s%s", fidelityOK, head, said, squeezed(reply.Summary))})

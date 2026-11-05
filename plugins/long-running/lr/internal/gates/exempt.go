@@ -104,7 +104,7 @@ func ExemptGo(c Claim, r Read) (string, []string) {
 	var classRefused []string
 	switch {
 	case class == FlakeFixClass:
-		classRefused = flakeRefusals(r)
+		classRefused = flakeRefusals(r, gradedTestOnly(c, r))
 	case isPortClass(class) && !claimed:
 		classRefused = []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr)}
 	case isPortClass(class) || claimed && !port.Interacts:
@@ -160,12 +160,13 @@ func CarriedClaim(from, head string, atFrom, atHead map[string]string) (map[stri
 	return attrs, fmt.Sprintf("Claim at %s carried from %s, whose own diff is the same.", short(head), short(from))
 }
 
-func flakeRefusals(r Read) []string {
+func flakeRefusals(r Read, graded bool) []string {
 	var out []string
 	for _, file := range r.Files {
 		patch := r.Patches[file]
+		readerJudged := graded && !testOrCIFile(file)
 		switch {
-		case !testCode(file):
+		case !testCode(file) && !readerJudged:
 			out = append(out, fmt.Sprintf("flake fix: %s is not test or fixture code, so it lands on his tap", file))
 		case patch == nil:
 			out = append(out, fmt.Sprintf("flake fix: GitHub returned no patch for %s, so no timeout bump can be ruled out", file))
@@ -174,6 +175,14 @@ func flakeRefusals(r Read) []string {
 		}
 	}
 	return out
+}
+
+func gradedTestOnly(c Claim, r Read) bool {
+	testOnly := slices.DeleteFunc(slices.Clone(r.Exempt), func(phrase string) bool { return !TestOnlyClass(phrase) })
+	lanes, standing := fidelityStanding(c, r.Records)
+	return slices.ContainsFunc(lanes, func(lane string) bool {
+		return standing[lane].ok && exemptPhrase(standing[lane].record.Text, testOnly) != ""
+	})
 }
 
 func addsTimeout(patch string) bool {
@@ -298,8 +307,7 @@ func finderCite(c Claim, r Read) (string, string) {
 	return "", fmt.Sprintf("finder: %s at %s, and no counted decide reads finder-override #%d at %s citing a record that exists", said, short(c.Head), c.PR, short(c.Head))
 }
 
-func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string, []string) {
-	records := r.Records
+func fidelityStanding(c Claim, records []client.Record) ([]string, map[string]standingGrade) {
 	var lanes []string
 	standing := map[string]standingGrade{}
 	for _, record := range records {
@@ -313,6 +321,11 @@ func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string
 			standing[record.Lane] = standingGrade{record, fact.Value == string(machine.FidelityPass)}
 		}
 	}
+	return lanes, standing
+}
+
+func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string, []string) {
+	lanes, standing := fidelityStanding(c, r.Records)
 	class, cite := "", ""
 	var missing, refusals []string
 	for _, lane := range lanes {
