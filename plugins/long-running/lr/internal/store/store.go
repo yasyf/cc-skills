@@ -164,6 +164,15 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
+	var unmoved bool
+	if err := s.db.QueryRow("SELECT EXISTS (SELECT 1 FROM escalations WHERE " + escalatedNotices + ")").Scan(&unmoved); err != nil {
+		return err
+	}
+	if unmoved {
+		if _, err := s.db.Exec("INSERT OR IGNORE INTO notices (subject, at) SELECT subject, raised FROM escalations WHERE " + escalatedNotices + "; DELETE FROM escalations WHERE " + escalatedNotices); err != nil {
+			return err
+		}
+	}
 	for _, added := range addedColumns {
 		var present int
 		if err := s.db.QueryRow("SELECT count(*) FROM pragma_table_info(?) WHERE name = ?", added.table, added.column).Scan(&present); err != nil {

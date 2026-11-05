@@ -487,6 +487,49 @@ func TestOpeningACurrentStoreAgainChangesNothing(t *testing.T) {
 	}
 }
 
+func TestACurrentStoreOpensAndReadsWhileAnotherProcessHoldsItsWriteLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lr.sqlite")
+	s := must[*Store](t)(Open(path))
+	must[bool](t)(s.WantLane(Lane{Name: "l-1", Brief: "/b.md", Model: "opus", Effort: "xhigh", Role: "lane", State: LaneDesired}, t0))
+	ok(t, s.Close())
+	writer := must[*sql.DB](t)(sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)"))
+	defer writer.Close()
+	writing := must[*sql.Tx](t)(writer.Begin())
+	defer func() { _ = writing.Rollback() }()
+	must[sql.Result](t)(writing.Exec("INSERT INTO cursors (source, position) VALUES ('held', 1)"))
+
+	reader, err := Open(path)
+	if err != nil {
+		t.Fatalf("opening a current store waited on another process's write: %v", err)
+	}
+	defer reader.Close()
+	if _, found, err := reader.Lane("l-1"); err != nil || !found {
+		t.Fatalf("found %v, err %v", found, err)
+	}
+}
+
+func TestTheRowHeadFactsReadLooksUpEachRowsFactsByItsNumber(t *testing.T) {
+	s := memory(t)
+	for number := range 50 {
+		must[bool](t)(s.PutFact(repo, number, head, "finder", "clear", t0))
+	}
+	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+rowHeadFacts, repo, `[{"number": 7, "head": "`+head+`"}]`)
+	ok(t, err)
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		ok(t, rows.Scan(&id, &parent, &unused, &detail))
+		plan = append(plan, detail)
+	}
+	joined := strings.Join(plan, "; ")
+	rowsRead, factsRead := strings.Index(joined, "SCAN r"), strings.Index(joined, "SEARCH f USING INDEX sqlite_autoindex_facts_1 (repo=? AND number=?)")
+	if rowsRead < 0 || factsRead < rowsRead {
+		t.Fatalf("the read walks the facts and parses every row's head for each one, which held the fold's write lock for a minute at 667 rows and 108,000 facts: %s", joined)
+	}
+}
+
 func TestALaneRoundTripsEveryColumn(t *testing.T) {
 	s := memory(t)
 	want := Lane{
