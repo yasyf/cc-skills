@@ -264,16 +264,15 @@ func (d *Desk) spriteRefusal(ctx context.Context, key, lane string, spec launchT
 }
 
 func (d *Desk) onSprite(ctx context.Context, key, lane, model, text string) (string, bool, error) {
-	read := d.overLoadOrFull
 	switch {
 	case macInputsOnly(lane, model, text):
-		read = d.noTerminalRoom
 	case macRequired(lane, model, text):
-		return "", false, nil
+		_, err := d.macOverload(ctx, key, d.overLoad)
+		return "", false, err
 	case !macPreferred(text):
 		return "", true, nil
 	}
-	over, err := d.macOverload(ctx, key, read)
+	over, err := d.macOverload(ctx, key, d.overLoadOrFull)
 	return over, over != "", err
 }
 
@@ -303,14 +302,23 @@ func (d *Desk) macOverload(ctx context.Context, key string, read func(context.Co
 }
 
 func (d *Desk) overLoadOrFull(ctx context.Context) string {
-	said, _, err := d.capture(ctx, nil, "sysctl", "-n", "vm.loadavg")
-	if found := loadAverage.FindStringSubmatch(said); err == nil && found != nil {
-		load, _ := strconv.ParseFloat(found[1], 64)
-		if load > float64(d.Config.LoadLimit) {
-			return fmt.Sprintf("Mac load %.0f over %d", load, d.Config.LoadLimit)
-		}
+	if over := d.overLoad(ctx); over != "" {
+		return over
 	}
 	return d.noTerminalRoom(ctx)
+}
+
+func (d *Desk) overLoad(ctx context.Context) string {
+	said, _, err := d.capture(ctx, nil, "sysctl", "-n", "vm.loadavg")
+	found := loadAverage.FindStringSubmatch(said)
+	if err != nil || found == nil {
+		return ""
+	}
+	load, _ := strconv.ParseFloat(found[1], 64)
+	if load <= float64(d.Config.LoadLimit) {
+		return ""
+	}
+	return fmt.Sprintf("Mac load %.0f over %d", load, d.Config.LoadLimit)
 }
 
 func (d *Desk) noTerminalRoom(ctx context.Context) string {
@@ -743,16 +751,16 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	}); err != nil {
 		return err
 	}
+	reading, err := os.ReadFile(d.loadPath(key))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	on := ""
 	if box != "" {
 		on = " on Sprite " + box
-		raw, err := os.ReadFile(d.loadPath(key))
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		if len(raw) > 0 {
-			on += ": " + string(raw)
-		}
+	}
+	if len(reading) > 0 {
+		on = or(on, " on this Mac") + ": " + string(reading)
 	}
 	if err := d.recordTo(ctx, escalationPref+container+"/"+key+":launched", fmt.Sprintf("LAUNCHED %s %s: dispatch %s terminal %s%s", key, lane, dispatch, terminal, on), verdictTo(spec.By)); err != nil {
 		return err

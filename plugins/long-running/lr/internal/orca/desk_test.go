@@ -2374,22 +2374,77 @@ func TestWithOrcaOutOfTerminalsALaneThatOnlyPrefersTheMacTakesASpriteAndSaysWhy(
 	}
 }
 
-func TestOverTheMacsLoadAHelperStampedWithMacInputsStaysLocal(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	w := newDeskWorld(t)
-	w.load, w.ptys, w.terminals = "41.20", "511", 3
-	launcher := spriteConfig(w)
-	brief := w.brief(testLane, testBrief+"ccx: role=build incident=none place=local why=mac-inputs\n")
-	w.lines()
-	w.line(launchText(testLane, brief))
-	w.lines()
-	w.step(w.desk.deliver)
-	if len(w.spawns) != 1 || w.spawns[0].argv[0] == launcher {
-		t.Fatal(w.spawns)
+func TestOverTheMacsLoadAHelperStampedWithMacInputsTakesASpriteAndSaysWhy(t *testing.T) {
+	for _, tt := range []struct {
+		load, want string
+	}{
+		{"41.20", "sprite"},
+		{"31.90", "start"},
+	} {
+		t.Run(tt.load, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			w := newDeskWorld(t)
+			w.load, w.ptys, w.terminals = tt.load, "511", 3
+			launcher := spriteConfig(w)
+			brief := w.brief(testLane, testBrief+"ccx: role=build incident=none place=local why=mac-inputs\n")
+			w.lines()
+			line := w.line(launchText(testLane, brief))
+			key := "R" + strings.TrimPrefix(line.Name(), "#")
+			w.launchOut[testLane] = `{"task":"t","dispatch":"ctx_s","terminal":"term_s","worktree":"/box/w","workspace":"pool-1"}` + "\n"
+			w.lines()
+			w.step(w.desk.deliver)
+			if len(w.spawns) != 1 {
+				t.Fatal(w.spawns)
+			}
+			got := "sprite"
+			if w.spawns[0].argv[0] != launcher {
+				got = w.spawns[0].argv[2]
+			}
+			if got != tt.want {
+				t.Fatal(w.spawns)
+			}
+			if tt.want != "sprite" {
+				return
+			}
+			attempt := spriteAttempt(brief)
+			w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
+			w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
+			w.step(w.desk.reap)
+			wantContains(t, w.wantEscalation("LAUNCHED "+key), "on Sprite pool-1: Mac load 41 over 32")
+		})
 	}
 }
 
-func TestOnlyAHelperStampedWithMacInputsCanLeaveTheMacWhenOrcaIsFull(t *testing.T) {
+func TestALaneThatNeedsTheMacStartsThereAtAnyLoadAndItsLaunchedLineNamesALoadOverTheLimit(t *testing.T) {
+	for _, tt := range []struct {
+		load, want string
+	}{
+		{"41.20", "dispatch ctx_a terminal term_a on this Mac: Mac load 41 over 32"},
+		{"31.90", "dispatch ctx_a terminal term_a"},
+	} {
+		t.Run(tt.load, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.load = tt.load
+			launcher := spriteConfig(w)
+			brief := w.brief(testLane, testBrief+"ccx: role=build place=local why=devbox\n")
+			w.lines()
+			line := w.line(launchText(testLane, brief))
+			key := "R" + strings.TrimPrefix(line.Name(), "#")
+			w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+			w.lines()
+			w.step(w.desk.deliver)
+			if len(w.spawns) != 1 || w.spawns[0].argv[0] == launcher {
+				t.Fatal(w.spawns)
+			}
+			w.step(w.desk.reap)
+			if launched := w.wantEscalation("LAUNCHED " + key); !strings.HasSuffix(launched, tt.want) {
+				t.Fatalf("%q does not end in %q", launched, tt.want)
+			}
+		})
+	}
+}
+
+func TestOnlyAHelperStampedWithMacInputsCanLeaveTheMacUnderLoadOrWhenOrcaIsFull(t *testing.T) {
 	const stamp = "ccx: role=build incident=none place=local why=mac-inputs\n"
 	for _, tt := range []struct {
 		name, lane, model, text string
