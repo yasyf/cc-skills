@@ -190,6 +190,7 @@ func TestALaneHeardNeverWhoseSpriteWentColdIsReportedLostAndRelaunchedFromItsBri
 	equal(t, []any{f.launches, f.hostReads, row(t, s, lane2).State}, []any{[]string{"conflicts-3"}, 0, store.LaneRetired})
 	brief := strings.Split(f.briefs["conflicts-3"], "\n")
 	contains(t, brief[0], "Partial work: conflicts-2 was lost mid-task, since it "+why)
+	contains(t, brief[0], "any edit it made after its Sprite last pushed its work to `refs/lr/work/conflicts-2` stays on that Sprite")
 	equal(t, brief[1], "Replaces: conflicts-2")
 	reports := lostReports(f)
 	equal(t, len(reports), 1)

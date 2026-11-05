@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/awake"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
@@ -382,7 +383,11 @@ func lost(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, verdic
 	if seq := must(s.NewestSeq(lane.Name)); seq != 0 {
 		newestSeq = fmt.Sprintf("#%d", seq)
 	}
-	partial := fmt.Sprintf("Partial work: %s was lost mid-task, since it %s; it left PRs %s, handoff %s and newest record %s, and any edit it never pushed stays on that Sprite.", lane.Name, verdict.Why, or(numberList(lane.PRs), "none"), or(lane.Handoff, "none"), newestSeq)
+	kept := "any edit it never pushed stays on that Sprite"
+	if lane.Placement == placedOnSprite {
+		kept = "any edit it made after its Sprite last pushed its work to `" + awake.WorkRefs + lane.Name + "` stays on that Sprite"
+	}
+	partial := fmt.Sprintf("Partial work: %s was lost mid-task, since it %s; it left PRs %s, handoff %s and newest record %s, and %s.", lane.Name, verdict.Why, or(numberList(lane.PRs), "none"), or(lane.Handoff, "none"), newestSeq, kept)
 	successor := relaunch(s, d, lane, found, verdict.Why, partial, taken, now, out)
 	if successor == "" {
 		report("held, not relaunched; its lane:" + lane.Name + " record says why")
@@ -725,7 +730,8 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 		if old.Handoff != "" {
 			start = fmt.Sprintf("Your handoff is `ccn doc show %s`; read it first, then %s's records with `cci tail --drive %s --lane %s --oldest`.", old.Handoff, old.Name, drive, old.Name)
 		}
-		before = []string{fmt.Sprintf("%s's worktree and transcript stayed on its Sprite: continue from its pushed branches and PRs, and redo any edit it never pushed.", old.Name)}
+		ref := awake.WorkRefs + old.Name
+		before = []string{fmt.Sprintf("%s's worktree and transcript stayed on its Sprite, which pushed each checkout's unpushed commits and uncommitted edits to `%s` on that checkout's origin every 5 minutes they changed, on %s and on each repo it cloned. In a fresh clone of each, run `git fetch origin %s:%s`; a repo where that ref is missing held no unpushed work. The commit's message names each branch it carried and that branch's tip, its first parent is the HEAD it had, and its tree is its working tree with the edits it never committed. Continue from that ref and its pushed branches and PRs, keep its edits off any branch until you commit them yourself, and redo only what neither holds.", old.Name, ref, d.Repo, ref, ref)}
 	}
 	owned := "none recorded"
 	if len(old.PRs) > 0 {

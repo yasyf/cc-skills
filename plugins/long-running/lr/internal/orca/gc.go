@@ -565,9 +565,9 @@ func (g *GC) spriteInUse(ctx context.Context, worker Worker, sprite Sprite) (str
 	return "", nil
 }
 
-func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liveWorkspaces map[string]bool, ended map[string]string) (Action, error) {
-	keep := func(reason string) (Action, error) {
-		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: reason}, nil
+func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liveWorkspaces map[string]bool, ended map[string]string) (Action, []Checkout, error) {
+	keep := func(reason string) (Action, []Checkout, error) {
+		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: reason}, nil, nil
 	}
 	if liveWorkspaces[worker.Workspace] {
 		return keep("serves an unsettled dispatch")
@@ -575,7 +575,7 @@ func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liv
 	if _, done := ended[worker.Dispatch]; !done {
 		held, err := g.spriteInUse(ctx, worker, sprite)
 		if err != nil {
-			return Action{}, err
+			return Action{}, nil, err
 		}
 		if held != "" {
 			return keep(held)
@@ -583,22 +583,39 @@ func (g *GC) spriteAction(ctx context.Context, worker Worker, sprite Sprite, liv
 	}
 	read, err := g.Fleet.Checkout(ctx, sprite)
 	if err != nil {
-		return Action{}, err
+		return Action{}, nil, err
 	}
-	if read.Found == nil {
-		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: read.Refusal, Unheld: true}, nil
+	reads, paths := []CheckoutRead{read}, []string{sprite.Root}
+	for _, path := range read.Recorded {
+		if path == sprite.Root {
+			continue
+		}
+		clone, err := g.Fleet.Checkout(ctx, Sprite{Workspace: sprite.Workspace, Host: sprite.Host, Root: path, Environment: sprite.Environment})
+		if err != nil {
+			return Action{}, nil, err
+		}
+		reads, paths = append(reads, clone), append(paths, path)
 	}
-	held, err := unsaved(ctx, *read.Found, g.Fleet.Remote(sprite))
-	if err != nil {
-		return Action{}, err
+	var saved []Checkout
+	for i, read := range reads {
+		held := read.Refusal
+		if read.Found != nil {
+			if held, err = unsaved(ctx, *read.Found, g.Fleet.Remote(sprite)); err != nil {
+				return Action{}, nil, err
+			}
+		}
+		if held != "" && i > 0 {
+			held += " in " + paths[i]
+		}
+		if held != "" {
+			return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: held, Unheld: true}, nil, nil
+		}
+		saved = append(saved, *read.Found)
 	}
-	if held != "" {
-		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: held, Unheld: true}, nil
-	}
-	return Action{Verb: verbDestroy, Target: sprite.Workspace, Reason: "dispatch " + worker.Dispatch}, nil
+	return Action{Verb: verbDestroy, Target: sprite.Workspace, Reason: "dispatch " + worker.Dispatch}, saved, nil
 }
 
-func (g *GC) reap(ctx context.Context, action Action, worker Worker, sprite Sprite, ended map[string]string) (Action, error) {
+func (g *GC) reap(ctx context.Context, action Action, worker Worker, sprite Sprite, ended map[string]string, saved []Checkout) (Action, error) {
 	if action.Verb != verbDestroy {
 		return action, nil
 	}
@@ -617,7 +634,14 @@ func (g *GC) reap(ctx context.Context, action Action, worker Worker, sprite Spri
 	if g.Pause.Held() {
 		return g.Pause.Skip(action.Target, action.Verb), nil
 	}
-	refusal, err := g.Fleet.Destroy(ctx, sprite)
+	refusal, err := g.Fleet.Prune(ctx, saved)
+	if err != nil {
+		return Action{}, err
+	}
+	if refusal != "" {
+		return Action{Verb: verbKeep, Target: sprite.Workspace, Reason: "its work refs stayed: " + refusal, Unheld: true}, nil
+	}
+	refusal, err = g.Fleet.Destroy(ctx, sprite)
 	if err != nil {
 		return Action{}, err
 	}
@@ -851,12 +875,12 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 	}
 	count(closedTerminals)
 	reaped, err := bounded(spriteReads, hosted, func(pair hostedSprite) (Action, error) {
-		action, err := g.spriteAction(ctx, pair.worker, pair.sprite, liveWorkspaces, ended)
+		action, saved, err := g.spriteAction(ctx, pair.worker, pair.sprite, liveWorkspaces, ended)
 		if err != nil {
 			return Action{}, err
 		}
 		if !g.DryRun {
-			if action, err = g.reap(ctx, action, pair.worker, pair.sprite, ended); err != nil {
+			if action, err = g.reap(ctx, action, pair.worker, pair.sprite, ended, saved); err != nil {
 				return Action{}, err
 			}
 		}

@@ -375,6 +375,7 @@ type fakeFleet struct {
 	holders   []string
 	refusal   string
 	destroyed []string
+	pruned    [][]Checkout
 	unheld    []string
 	tunnel    string
 }
@@ -396,6 +397,9 @@ func (f *fakeFleet) Sprites() (map[SpriteKey]Sprite, error) {
 func (*fakeFleet) Remote(Sprite) Remote { return defaultRemote() }
 
 func (f *fakeFleet) Checkout(_ context.Context, sprite Sprite) (CheckoutRead, error) {
+	if read, ok := f.reads[sprite.Root]; ok {
+		return read, nil
+	}
 	if read, ok := f.reads[sprite.Workspace]; ok {
 		return read, nil
 	}
@@ -419,6 +423,16 @@ func (f *fakeFleet) Destroy(_ context.Context, sprite Sprite) (string, error) {
 	defer f.mu.Unlock()
 	f.destroyed = append(f.destroyed, sprite.Workspace)
 	return f.refusal, nil
+}
+
+func (f *fakeFleet) Prune(_ context.Context, checkouts []Checkout) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.destroyed) > 0 {
+		return "pruned after a destroy", nil
+	}
+	f.pruned = append(f.pruned, checkouts)
+	return "", nil
 }
 
 type gcOptions struct {
