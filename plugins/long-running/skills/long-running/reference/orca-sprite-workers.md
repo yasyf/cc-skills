@@ -314,9 +314,10 @@ cci post --kind ask --to bk-desk "bk build <pipeline> <number>"
 | `bk build <pipeline> <number>` | The build's state, branch, commit and URL, then one line per job not passed with its state, exit status and job id |
 | `bk jobs <pipeline> <number>` | One line per script job, passed ones included, with its state, job id and name |
 | `bk builds <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]` | Newest first, each build's number, state, branch and creation time, then its whole message, up to 16 KiB of whole builds. The desk reads every page itself and the answer's line says when older builds did not fit |
-| `bk log <pipeline> <number> <job>` | The last 16 KiB of the job's log, with terminal escapes removed |
-| `bk grep <pipeline> <number> <job> <regex>` | The lines of the whole log that match, up to 16 KiB |
-| `bk api <path>` | The first 16 KiB of a GET inside the organization |
+| `bk annotations <pipeline> <number> [<context>]` | Each annotation's style and context, then its text with the HTML removed, up to 16 KiB; one too long to fit is named with the context that reads it alone |
+| `bk log <pipeline> <number> <job id or step key>` | The last 16 KiB of the job's log, with terminal escapes removed. A step key reads that step's current job, and a key that names no job or several answers with their ids instead |
+| `bk grep <pipeline> <number> <job id or step key> <regex>` | The lines of the whole log that match, up to 16 KiB |
+| `bk api <path>` | The first 16 KiB of a GET inside the organization, its path given without the `/organizations/<org>` prefix and with no flag |
 
 - The answer is a record addressed to the lane that closes the ask, usually within seconds and at worst in about two minutes, since the host's `tools/ci` refreshes its published `ci` about once an hour before it reads. Its line carries the state or size, and `cci show <seq>` prints the body.
 - Any other text, a write included, gets a refusal, and nothing runs.

@@ -24,6 +24,7 @@ const (
 	lane      = "chat-list-1"
 	checkout  = "/drive/checkout"
 	readToken = "bk-token-never-in-a-record"
+	failedJob = "01a1acec-8921-462e-be74-64ca11399168"
 )
 
 var started = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
@@ -246,6 +247,10 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk api /pipelines/test/builds/12 extra",
 		"bk api /organizations/other/pipelines",
 		"bk api organizations/other/pipelines",
+		"bk api /pipelines/test/builds/12/annotations --jq .[].context",
+		"bk annotations test",
+		"bk annotations test twelve",
+		"bk annotations test 12 one two",
 		"bk log test 12",
 		"bk log test 12 job extra",
 		"bk build test",
@@ -331,7 +336,7 @@ func TestALogReplyKeepsItsTailWithoutTerminalEscapes(t *testing.T) {
 	runner := &fakeRunner{reply: shell.Result{Stdout: log}}
 	desk, _ := newDesk(t, runner)
 
-	read := desk.read(context.Background(), "bk log test 12 j-fail")
+	read := desk.read(context.Background(), "bk log test 12 "+failedJob)
 
 	if len(read.body) > replyLimit+100 {
 		t.Fatalf("body is %d bytes, over the %d limit", len(read.body), replyLimit)
@@ -462,7 +467,7 @@ func TestAGrepReadsTheWholeLogNotItsTail(t *testing.T) {
 	needle := "--- PASS: TestTheNewTest (0.01s)\n"
 	runner := &fakeRunner{reply: shell.Result{Stdout: needle + strings.Repeat("noise\n", replyLimit) + "\x1b[32m--- PASS: TestTheOtherTest (0.02s)\n"}}
 	desk, _ := newDesk(t, runner)
-	ask(t, "bk grep test 12 job-1 --- PASS: Test")
+	ask(t, "bk grep test 12 "+failedJob+" --- PASS: Test")
 
 	firstPass(t, desk)
 
@@ -470,7 +475,7 @@ func TestAGrepReadsTheWholeLogNotItsTail(t *testing.T) {
 	if len(found) != 1 {
 		t.Fatalf("answers = %d, want 1", len(found))
 	}
-	if want := []string{"tools/ci", "bk", "log", "test", "12", "job-1"}; !slices.Equal(runner.calls[0].Argv, want) {
+	if want := []string{"tools/ci", "bk", "log", "test", "12", failedJob}; !slices.Equal(runner.calls[0].Argv, want) {
 		t.Fatalf("ran %v, want %v", runner.calls[0].Argv, want)
 	}
 	if body := bodyOf(t, found[0]); body != needle+"--- PASS: TestTheOtherTest (0.02s)\n" {
@@ -495,6 +500,112 @@ func TestJobsListsPassedJobsTooSoAPassCanBeProven(t *testing.T) {
 	}
 	if body := bodyOf(t, found[0]); body != "passed job=job-1 go tests\nfailed job=job-2 lint\n" {
 		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestAnOrganizationPathIsRefusedWithTheReadToSendInstead(t *testing.T) {
+	desk, _ := newDesk(t, &fakeRunner{})
+
+	read := desk.read(context.Background(), "bk api organizations/forge/pipelines/release/builds/13303/annotations")
+
+	if read.head != "bk read refused" || !strings.HasSuffix(read.body, ": bk api /pipelines/release/builds/13303/annotations") {
+		t.Fatalf("reply = %+v", read)
+	}
+}
+
+func releaseAnnotations(t *testing.T) string {
+	t.Helper()
+	raw, err := json.Marshal([]annotation{
+		{Context: "release-slack-root", Style: "info", BodyHTML: `<p><a href="https://slack.example/p1">Posted in #releases</a></p>`},
+		{Context: "release-summary", Style: "warning", BodyHTML: "<p>" + strings.Repeat("🔴 rsw-cp/plat-usw2-prod delete Deployment<br>\n", replyLimit/40) + "</p>"},
+		{Context: "retire-control-plane-restate", Style: "warning", BodyHTML: "<p>Left 1 control-plane generation(s) in place, not retired:</p>\n<ul>\n<li>\n<code>rsw-cp-bf72b7d</code> &mdash; unstarted invocations &amp; more [restate_generation_busy]</li>\n</ul>"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func TestAReleaseBuildsAnnotationsAnswerAsTextWithTheLongOnesNamed(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: releaseAnnotations(t)}}
+	desk, _ := newDesk(t, runner)
+	ask(t, "bk annotations release 13303")
+
+	firstPass(t, desk)
+
+	if want := []string{"tools/ci", "bk", "api", "-no-wait", "/pipelines/release/builds/13303/annotations?page=1&per_page=100"}; len(runner.calls) != 1 || !slices.Equal(runner.calls[0].Argv, want) {
+		t.Fatalf("ran %v, want only %v", runner.calls, want)
+	}
+	found := answers(t)
+	if len(found) != 1 || found[0].Text != "bk annotations release 13303: 3 annotations, 1 too long to fit and named by context" {
+		t.Fatalf("answers = %+v", found)
+	}
+	body := bodyOf(t, found[0])
+	for _, shown := range []string{
+		"── info release-slack-root\nPosted in #releases\n",
+		"── warning release-summary: ",
+		"bytes, so bk annotations release 13303 release-summary reads it\n",
+		"── warning retire-control-plane-restate\nLeft 1 control-plane generation(s) in place, not retired:\n\n\nrsw-cp-bf72b7d — unstarted invocations & more [restate_generation_busy]\n",
+	} {
+		if !strings.Contains(body, shown) {
+			t.Fatalf("body misses %q:\n%s", shown, body)
+		}
+	}
+	if strings.Contains(body, "<") || strings.Contains(body, "delete Deployment") {
+		t.Fatalf("body carries markup or the long annotation's text:\n%s", body)
+	}
+}
+
+func TestOneAnnotationIsReadByItsContext(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: releaseAnnotations(t)}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk annotations release 13303 release-summary")
+	missing := desk.read(context.Background(), "bk annotations release 13303 retire-go-restate-store")
+
+	if !strings.HasPrefix(read.head, "bk annotations release 13303 release-summary: warning, ") || !strings.HasPrefix(read.body, "🔴 rsw-cp/plat-usw2-prod delete Deployment\n") || !strings.Contains(read.body, "… cut: the first") {
+		t.Fatalf("reply = %q, body starts %q", read.head, read.body[:60])
+	}
+	if missing.head != "bk annotations release 13303 retire-go-restate-store: none of its 3 annotations has that context" || !strings.Contains(missing.body, "warning retire-control-plane-restate\n") {
+		t.Fatalf("reply = %+v", missing)
+	}
+}
+
+func TestALogNamedByStepKeyReadsThatStepsCurrentJob(t *testing.T) {
+	build := `{"number":13303,"state":"failed","jobs":[` +
+		`{"id":"01a1acea-0000-4000-8000-000000000001","type":"script","name":"Delete what rsw-cp left","state":"failed","step_key":"retire-rsw-cp--plat-usw2-prod","retried":true},` +
+		`{"id":"` + failedJob + `","type":"script","name":"Delete what rsw-cp left","state":"passed","step_key":"retire-rsw-cp--plat-usw2-prod"},` +
+		`{"id":"01a1ace4-307c-4975-99ba-4d7e6c9100f7","type":"script","name":"Plan restate","state":"passed","step_key":"plan-restate--plat-usw2-prod"}]}`
+	runner := &fakeRunner{replies: map[string]string{"/pipelines/release/builds/13303": build, failedJob: "retired 2 generations\n"}}
+	desk, _ := newDesk(t, runner)
+	ask(t, "bk log release 13303 retire-rsw-cp--plat-usw2-prod")
+
+	firstPass(t, desk)
+
+	want := [][]string{
+		{"tools/ci", "bk", "api", "-no-wait", "/pipelines/release/builds/13303"},
+		{"tools/ci", "bk", "log", "release", "13303", failedJob},
+	}
+	if len(runner.calls) != len(want) || !slices.Equal(runner.calls[0].Argv, want[0]) || !slices.Equal(runner.calls[1].Argv, want[1]) {
+		t.Fatalf("ran %v, want %v", runner.calls, want)
+	}
+	found := answers(t)
+	if len(found) != 1 || bodyOf(t, found[0]) != "retired 2 generations\n" {
+		t.Fatalf("answers = %+v", found)
+	}
+}
+
+func TestAStepKeyNoJobCarriesIsAnsweredWithoutALogRead(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: `{"number":13303,"jobs":[{"id":"` + failedJob + `","type":"script","state":"passed","step_key":"plan-restate--plat-usw2-prod"}]}`}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk grep release 13303 apply-restate--plat-usw2-prod error")
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("ran %v, want only the build read", runner.calls)
+	}
+	if read.head != "bk grep release 13303 apply-restate--plat-usw2-prod error: 0 jobs of build 13303 carry step key apply-restate--plat-usw2-prod, so name one job id; bk jobs release 13303 lists them" {
+		t.Fatalf("head = %q", read.head)
 	}
 }
 
@@ -547,7 +658,7 @@ func TestABuildListingPagesAtTheDeskUntilAShortPage(t *testing.T) {
 	desk, _ := newDesk(t, runner)
 	first := "/pipelines/test/builds?exclude_jobs=true&exclude_pipeline=true&page=1&per_page=100"
 	second := "/pipelines/test/builds?exclude_jobs=true&exclude_pipeline=true&page=2&per_page=100"
-	runner.replies[first] = listedBuilds(103, buildsPage, 0)
+	runner.replies[first] = listedBuilds(103, perPage, 0)
 	runner.replies[second] = listedBuilds(3, 3, 0)
 
 	read := desk.read(context.Background(), "bk builds test")
@@ -561,7 +672,7 @@ func TestABuildListingPagesAtTheDeskUntilAShortPage(t *testing.T) {
 }
 
 func TestABuildListingStopsReadingOnceTheAnswerIsFull(t *testing.T) {
-	runner := &fakeRunner{reply: shell.Result{Stdout: listedBuilds(100, buildsPage, 1000)}}
+	runner := &fakeRunner{reply: shell.Result{Stdout: listedBuilds(100, perPage, 1000)}}
 	desk, _ := newDesk(t, runner)
 
 	read := desk.read(context.Background(), "bk builds test")
