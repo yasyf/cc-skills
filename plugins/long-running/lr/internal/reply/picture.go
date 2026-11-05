@@ -56,6 +56,16 @@ func (r Reply) diagramTitle() string {
 	return shortened(cmp.Or(arch.Title(r.Diagram), r.Title), maxTitle)
 }
 
+func (r Reply) pictureFlags() []string {
+	var flags []string
+	for _, a := range r.artifacts {
+		if a.Image != "" {
+			flags = append(flags, "--file", a.Image)
+		}
+	}
+	return flags
+}
+
 func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, picture) {
 	dashboard, link := f.diagramPage(r)
 	if link == "" {
