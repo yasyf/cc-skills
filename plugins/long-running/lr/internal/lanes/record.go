@@ -104,6 +104,10 @@ func (r Record) resolved() []int64 {
 	return append(seqs, r.AlsoResolves...)
 }
 
+func (r Record) answersAnother() bool {
+	return r.Re != 0 || r.Resolves != 0 || len(r.AlsoResolves) > 0
+}
+
 type Spawn struct {
 	Name        string
 	Brief       string
