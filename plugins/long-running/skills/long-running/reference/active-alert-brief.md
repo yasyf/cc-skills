@@ -110,7 +110,7 @@ Each incident has one actor. When `tools/ci oncall incidents` shows an open ai-o
 
 **The supervisor and the coordinator launch incident lanes with `lr launch incident`.**
 
-- The fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. The fix lane starts on a Sprite, which has no AWS identity, Sentry or Datadog; the evidence lane starts on the Mac (`place=local why=sentry`), runs `tools/ci oncall incidents` first and posts its output to the fix lane, and answers the fix lane's Sentry, Datadog and `oncall` asks over cci. When the evidence lane's Mac launch stalls, it relaunches once on the Mac and then reports `LAUNCH-FAILED`; the fix lane goes on from code and GitHub and says what it could not read.
+- The fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. The fix lane starts on a Sprite, which has no AWS identity, Sentry or Datadog; the evidence lane starts on the Mac (`place=local why=sentry`), runs `tools/ci oncall incidents` first and posts its output to the fix lane, and answers the fix lane's Sentry, Datadog, `oncall` and `devbox` asks over cci, running each devbox repro on a Namespace devbox it makes from the Mac. When the evidence lane's Mac launch stalls, it relaunches once on the Mac and then reports `LAUNCH-FAILED`; the fix lane goes on from code and GitHub and says what it could not read.
 - The comms lane runs as Claude on `incident-opus`, because a codex lane cannot post to Slack: no hook runs there to mint the ticket every `cc-slack` write spends. The fix lane still owns the incident and what is said, so an incident has two agents only for this reason.
 - Only the `incident` alias runs fast; plain `sol` is the standard tier and never an incident route.
 - Claude never takes the fix or evidence role. Fable and astra never run.
@@ -554,7 +554,11 @@ Do:
      reviewer, ask the coordinator for a human review in the same turn.
   6. Before you call the fix ready, reproduce the reporter's own case, the exact
      thread, run, request, or monitor query the report named. Show it failing
-     before the fix and passing on the build that carries the fix. A fix proven
+     before the fix and passing on the build that carries the fix. A repro the
+     owner wants on a devbox runs through <evidence lane name>: ask it
+     `devbox <base sha> <fix head> <repro command and what it shows>` and quote
+     both results; a lane on a Sprite never runs `lr devbox create`,
+     `tools/ci devbox` or `ci mac-box`. A fix proven
      only on a synthetic or neighbouring case is not ready, and no release ships
      before that case passes at the candidate head.
   7. When the PR is green and that case passes, say so on cci:
@@ -633,11 +637,15 @@ Verified facts, do not re-derive:
 
 If you were launched unsupervised, report through the bus; Orca carries no worker_done for you.
 
-You run on the Mac, which holds Sentry, Datadog and the AWS identity `tools/ci oncall` needs;
-<fix lane name> runs on a Sprite and holds none of them. Run `tools/ci oncall incidents` first and
+You run on the Mac, which holds Sentry, Datadog, the devbox CLI and the AWS identity `tools/ci oncall`
+needs; <fix lane name> runs on a Sprite and holds none of them. Run `tools/ci oncall incidents` first and
 post its whole output to <fix lane name>, then answer each ask it posts to you (`sentry issue <id>`,
-`datadog monitor <id>`, `datadog logs <query>`, `datadog metric <query>`, `oncall <verb and arguments>`)
-with a `report` to it carrying the output, reads only.
+`datadog monitor <id>`, `datadog logs <query>`, `datadog metric <query>`, `oncall <verb and arguments>`,
+`devbox <shas> <repro command and what it shows>`) with a `report` to it carrying the output, reads
+and repros only. A `devbox` ask runs on one box you make with
+`lr devbox create --drive <bus id> --lane <evidence lane name> -- --platform linux/amd64 --size s`,
+at each sha it names through `devbox exec <evidence lane name> -- <command>`; remove the box with
+`devbox expire <evidence lane name> --force` when you finish.
 
 Do:
   1. Send the first finding within about 10 minutes, with evidence and gaps.
