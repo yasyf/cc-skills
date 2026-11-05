@@ -17,6 +17,10 @@ import (
 )
 
 const (
+	PortOfAttr        = "port-of"
+	PortInteractsAttr = "port-interacts"
+	FlakeFixAttr      = "flake-fix"
+
 	LegacyCursor = "legacy"
 	legacyWindow = 72 * time.Hour
 	rootLane     = "root"
@@ -74,7 +78,25 @@ func FidelityLanes() []string {
 	return slices.Clone(fidelityLanes)
 }
 
+func CarriedClaim(record client.Record) bool {
+	attrs := record.Fields.Attrs
+	return string(record.Kind) == "decide" && delegated(record.Lane, []string{SweepLane}) && (attrs[PortOfAttr] != "" || attrs[FlakeFixAttr] != "")
+}
+
+func carriedClaimFacts(record client.Record, repo string) []Fact {
+	var out []Fact
+	for _, attr := range []string{PortOfAttr, PortInteractsAttr, FlakeFixAttr} {
+		if value := record.Fields.Attrs[attr]; value != "" {
+			out = append(out, factsPerPR(record, repo, record.Fields.Attrs[refusedHead], attr, value)...)
+		}
+	}
+	return out
+}
+
 func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
+	if CarriedClaim(record) {
+		return carriedClaimFacts(record, repo)
+	}
 	kind := string(record.Kind)
 	switch {
 	case kind == "withdraw" || kind == "correction" || kind == ownerKind:
