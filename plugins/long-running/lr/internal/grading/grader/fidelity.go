@@ -277,7 +277,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 		}
 		view = now
 	}
-	if reply.Verdict == "reader" {
+	if _, pending := s.touchedOldApp(); reply.Verdict == "reader" && !pending {
 		if reply, err = s.readHandedOff(view, frame, keys, reply.Reader); err != nil {
 			return FidelityOutcome{}, err
 		}
