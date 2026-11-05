@@ -60,6 +60,9 @@ var (
 	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log", notesReceipt, joinReceipt})...)
 	relayFailure   = "cci: relay: 500 internal: the relay failed; retry\n"
 	localKept      = sorted(startKept, "request.json")
+	stopKept       = []string{"stop.err", "stop.json", spriteStop}
+	stopCall       = []string{"cc-remote", "orca", "stop", workerLane, "--provider", "sprites", "--profile", "agents"}
+	stopSaid       = "; cc-remote orca stop " + workerLane + " stopped that worker, so the lane can launch again"
 )
 
 func sorted(base []string, more ...string) []string {
@@ -245,6 +248,7 @@ func (f *workerFixture) spriteAllocated(response any) {
 	f.reply("orca orchestration run-current", boundWorker)
 	f.reply("cc-remote orca prepare", workerReply{out: response, err: "prepared on sprites\n"})
 	f.reply("orca orchestration worker-start", workerReply{out: startedReceipt})
+	f.reply("cc-remote orca stop", workerReply{out: object{"lane": workerLane, "workspace": workerWorkspace}})
 	f.reply("cci relay status", workerReply{out: []object{{"mesh": "other", "url": "https://elsewhere.test/", "routes": []string{"x"}}, {"mesh": "default", "url": relayURL, "routes": []string{"drive-a", "drive-b"}}}})
 	f.reply("cci node", workerReply{out: object{"id": "n1", "public_key": ownerKey}})
 	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{})
@@ -837,7 +841,7 @@ func TestRepeatedRelayFailuresRefuseTheLaunchNamingTheReasonAndStartNoWorker(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf("Sprite %s did not join the cci relay with %s's service key: 4 tries, the last saying cci: relay: 500 internal: the relay failed; retry; nothing started, because a worker with no relay posts nothing anyone reads; %s/%s keeps the output, and the prepared worker stays idle and unattached", workerWorkspace, sponsorBox, f.attempt, joinReceipt)
+	want := fmt.Sprintf("Sprite %s did not join the cci relay with %s's service key: 4 tries, the last saying cci: relay: 500 internal: the relay failed; retry; nothing started, because a worker with no relay posts nothing anyone reads; %s/%s keeps the output, and the prepared worker never got its task", workerWorkspace, sponsorBox, f.attempt, joinReceipt) + stopSaid
 	if failed != want {
 		t.Fatalf("failed\n%s\nwant\n%s", failed, want)
 	}
@@ -1582,14 +1586,26 @@ func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 	}
 }
 
-func TestAnExpectedBaseMismatchLeavesThePreparedWorkerIdle(t *testing.T) {
+func TestAnExpectedBaseMismatchStopsThePreparedWorker(t *testing.T) {
 	expected := strings.Repeat("3", 64)
 	f := newWorkerFixture(t)
 	f.env["WORKER_EXPECT_BASE"] = expected
 	f.sprite()
-	f.refusedWith(fmt.Sprintf("the Sprite checked out %s, not WORKER_EXPECT_BASE %s, so the prepared worker stays idle and unattached, and nothing is prepared again", remoteBase, expected), versionCall, currentRunCall, f.prepareCall())
-	if kept := f.kept(); !slices.Equal(kept, prepareKept) {
+	f.refusedWith(fmt.Sprintf("the Sprite checked out %s, not WORKER_EXPECT_BASE %s, so the prepared worker never got its task, and nothing is prepared again", remoteBase, expected)+stopSaid, versionCall, currentRunCall, f.prepareCall(), stopCall)
+	if kept := f.kept(); !slices.Equal(kept, sorted(prepareKept, stopKept...)) || f.receiptText(spriteStop) != "0\n" {
 		t.Fatal(kept)
+	}
+}
+
+func TestAStopThatFailsSaysThePreparedWorkerMayStillHoldItsSprite(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env["WORKER_EXPECT_BASE"] = strings.Repeat("3", 64)
+	f.sprite()
+	f.reply("cc-remote orca stop", workerReply{code: 1, err: "cc-remote: sprites api answered 503\n"})
+	_, failed, err := f.launch(workerLane, "opus", "high")
+	want := fmt.Sprintf("; cc-remote orca stop %s exited 1, so that worker may still hold its Sprite; %s/stop.err keeps its output", workerLane, f.attempt)
+	if err != nil || !strings.HasSuffix(failed, want) || f.receiptText(spriteStop) != "1\n" || f.receiptText("stop.err") != "cc-remote: sprites api answered 503\n" {
+		t.Fatalf("failed\n%s\nwant a suffix\n%s", failed, want)
 	}
 }
 
@@ -1650,8 +1666,8 @@ func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 	for _, c := range cases {
 		f := newWorkerFixture(t)
 		f.spriteWith(c.allocated)
-		f.refusedWith(fmt.Sprintf("%s/allocation.json holds %s, so the prepared worker stays idle and unattached", f.attempt, c.reason), versionCall, currentRunCall, f.prepareCall())
-		if kept := f.kept(); !slices.Equal(kept, allocationKept) {
+		f.refusedWith(fmt.Sprintf("%s/allocation.json holds %s, so the prepared worker never got its task", f.attempt, c.reason)+stopSaid, versionCall, currentRunCall, f.prepareCall(), stopCall)
+		if kept := f.kept(); !slices.Equal(kept, sorted(allocationKept, stopKept...)) {
 			t.Fatal(c.reason, kept)
 		}
 	}
@@ -1757,7 +1773,7 @@ func TestAnAllocationMustBindTheRequestedLaneAndActualTask(t *testing.T) {
 		f := newWorkerFixture(t)
 		f.env["WORKER_REF"] = "dev"
 		f.spriteAllocated(allocationOf(task, c.allocated))
-		f.refusedWith(fmt.Sprintf("%s/allocation.json holds %s, so the prepared worker stays idle and unattached", f.attempt, c.reason), versionCall, currentRunCall, f.prepareCall("--ref", "dev"))
+		f.refusedWith(fmt.Sprintf("%s/allocation.json holds %s, so the prepared worker never got its task", f.attempt, c.reason)+stopSaid, versionCall, currentRunCall, f.prepareCall("--ref", "dev"), stopCall)
 	}
 }
 
@@ -1958,7 +1974,7 @@ func TestARawPinInstallsTheDownloadedFileWithItsDigestAndVersion(t *testing.T) {
 	}
 }
 
-func TestAFailedCopyLeavesTheWorkerIdle(t *testing.T) {
+func TestAFailedCopyStopsThePreparedWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	plan := filepath.Join(f.home, ".claude", "scratch", "plan.md")
 	f.write(plan, "the plan\n", 0o600)
@@ -1967,8 +1983,8 @@ func TestAFailedCopyLeavesTheWorkerIdle(t *testing.T) {
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(sent), "bytes": len(sent)}}))
 	f.reply("sprite exec", workerReply{code: 1})
 	_, failed, err := f.launch(workerLane, "opus", "high")
-	if err != nil || !strings.HasPrefix(failed, "copying the files the brief names") {
-		t.Fatal(failed, err)
+	if err != nil || !strings.HasPrefix(failed, "copying the files the brief names") || !strings.HasSuffix(failed, stopSaid) || !slices.Equal(f.calls[len(f.calls)-1], stopCall) {
+		t.Fatal(failed, err, f.calls)
 	}
 	if exists(filepath.Join(f.attempt, "worker-start.json")) {
 		t.Fatal("the worker started")

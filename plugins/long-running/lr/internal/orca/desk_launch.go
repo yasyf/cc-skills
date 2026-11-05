@@ -29,6 +29,7 @@ const (
 	launchStall   = 60 * time.Second
 	spriteReceipt = "worker-start.json"
 	spritePrepare = "prepare.status"
+	spriteStop    = "stop.status"
 	spriteMade    = "allocation.json"
 	laneEnv       = "CLAUDE_LONG_RUNNING_LANE"
 )
@@ -525,7 +526,8 @@ func neverStarted(attempt string, exited bool) bool {
 	}
 	raw, _ := os.ReadFile(filepath.Join(attempt, spritePrepare))
 	prepared := strings.TrimSpace(string(raw))
-	return (prepared != "" && prepared != "0") || (exited && prepared == "")
+	stopped, _ := os.ReadFile(filepath.Join(attempt, spriteStop))
+	return (prepared != "" && prepared != "0") || (exited && prepared == "") || strings.TrimSpace(string(stopped)) == "0"
 }
 
 func spriteStartedAs(receipt string) string {

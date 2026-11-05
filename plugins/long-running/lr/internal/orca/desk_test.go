@@ -2099,11 +2099,13 @@ func TestARefusedDriftPostLeavesTheSpriteLaunchSettled(t *testing.T) {
 
 func TestASpriteThatNeverStartedAWorkerIsRefusedAndOneThatMayRunIsUnverifiable(t *testing.T) {
 	for _, tt := range []struct {
-		name, prepare, receipt, want string
-		status                       incident.ActionStatus
+		name, prepare, stop, receipt, want string
+		status                             incident.ActionStatus
 	}{
-		{"prepare failed", "1\n", "", "LAUNCH-FAILED ", incident.ActionFailed},
-		{"worker-start opened", "0\n", `{"result":{"taskId":"t1","dispatchId":"ctx_s"}}`, "SPRITE-UNVERIFIABLE ", incident.ActionUnverifiable},
+		{"prepare failed", "1\n", "", "", "LAUNCH-FAILED ", incident.ActionFailed},
+		{"prepared, then stopped before worker-start", "0\n", "0\n", "", "LAUNCH-FAILED ", incident.ActionFailed},
+		{"prepared, and its stop failed", "0\n", "1\n", "", "SPRITE-UNVERIFIABLE ", incident.ActionUnverifiable},
+		{"worker-start opened", "0\n", "", `{"result":{"taskId":"t1","dispatchId":"ctx_s"}}`, "SPRITE-UNVERIFIABLE ", incident.ActionUnverifiable},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newDeskWorld(t)
@@ -2117,6 +2119,9 @@ func TestASpriteThatNeverStartedAWorkerIsRefusedAndOneThatMayRunIsUnverifiable(t
 			w.step(w.desk.deliver)
 			attempt := spriteAttempt(brief)
 			w.write(filepath.Join(attempt, spritePrepare), tt.prepare)
+			if tt.stop != "" {
+				w.write(filepath.Join(attempt, spriteStop), tt.stop)
+			}
 			if tt.receipt != "" {
 				w.write(filepath.Join(attempt, spriteReceipt), tt.receipt)
 			}
