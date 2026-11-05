@@ -443,6 +443,18 @@ func TestAStepWhoseClockPassedBeforeThePlanWindowIsHistoryAndWakesNobody(t *test
 	want(t, len(MissedSteps([]client.Record{plan}, live, said.Add(16*time.Minute+planWindow))), 0)
 }
 
+func TestAStepOnTheOwnersApprovedOrderReachesTheCommunicatorThoughOnlyTheSenderIsAddressed(t *testing.T) {
+	said := at(t, "2026-11-05T22:37:48Z")
+	approved := withAttrs(client.Record{Seq: 504273, Lane: "owner-relay", Kind: "owner", At: said, To: []string{"handover-option-a", "root"}, Text: "Owner tapped \"Send it\": send exactly this DM"}, map[string]string{"owner": "handover-option-a", "step:1": "2:50 PM DM sent, permalink to owner-relay"})
+	live := []store.Lane{{Name: "handover-option-a", State: store.LaneDesired}}
+
+	waits := MissedSteps([]client.Record{approved}, live, said.Add(15*time.Minute))
+
+	want(t, len(waits), 2)
+	want(t, waits[0].To, "handover-option-a")
+	want(t, waits[1].To, "owner-relay")
+}
+
 func TestTheCommunicatorHearsOnlyOfStepsAddressedToItOrOnOwnerRowsInOneLine(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	said := at(t, "2026-11-05T05:00:00Z")

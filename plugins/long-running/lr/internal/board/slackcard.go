@@ -484,11 +484,15 @@ func tellUnheard(a *app.App, c *cobra.Command, live []drive.Entry, lane string, 
 
 func unheardOnDrive(ctx context.Context, wakers []Waker, u SlackUnheard) error {
 	for _, w := range wakers {
-		asker, err := w.asker(ctx, CardAnswer{Card: u.Card})
+		_, rows, err := w.Cards.rows(ctx)
 		if err != nil {
 			return err
 		}
-		if asker != "" {
+		asker, err := w.asker(ctx, CardAnswer{Card: u.Card}, rows)
+		if err != nil {
+			return err
+		}
+		if asker != "" || rows[u.Card][sendsField] != "" {
 			return w.Unheard(ctx, u)
 		}
 	}
