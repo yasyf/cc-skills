@@ -137,7 +137,7 @@ Answer "yes" when any holds, and quote the option it rests on. For an unnamed se
 NAMES_BUG = """Does this post to him name the bug the evidence's pull requests fix, so that he reads it as being about that bug? A post names it when it says the bug is open, still there, being fixed or holding something up, in any words: its symptom, where it shows up or what it breaks.
 A post about another bug, one that shares only the product area or a word with these pull requests, or one that names no bug at all is a no.
 Answer "yes" when it names the bug, quote the artifact words that name it and the evidence words they match, and make your sentence say which bug it names in plain words."""
-JUDGED_BY_ITSELF = frozenset({"first-question", "set-options"})
+JUDGED_BY_ITSELF = frozenset({"first-question", "promised-clock", "set-options"})
 
 KINDS: dict[str, tuple[str, str]] = {
     "contract": ("a lane's contract: what it promises to build from his words", MISREAD),
@@ -196,6 +196,11 @@ Answer "yes" when the card fails either way, and say in your sentence which, and
     ),
     "set-options": ("a card an agent is about to draw for him, with every option it offers", SET_OPTIONS),
     "names-bug": ("a post an agent is about to send him", NAMES_BUG),
+    "promised-clock": (
+        "a card an agent is about to draw on his board, with every option it offers",
+        """Does the card promise him something by the clock time the evidence names, such as a report, a fix or an answer that is to arrive by then? A clock that says when something already happened, or that only dates a past event, is a no. Judge the card by itself: the evidence holds only that clock time.
+Answer "yes" when the card promises him something by that time, and say in your sentence what it promises.""",
+    ),
     "plain": ("text the owner reads: a card, a board block, a question, a plan or a reply", PLAIN),
     "first-question": ("a post the owner is about to read: a reply, a card or a board block", FIRST_QUESTION),
     "mechanism": (

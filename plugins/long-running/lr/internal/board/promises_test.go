@@ -73,23 +73,41 @@ func TestADeliveredRecordMeetsACardsPromiseForGood(t *testing.T) {
 	}
 }
 
-func TestACardNamingAClockWithoutByDrawsWithAWarning(t *testing.T) {
-	for wait, warns := range map[string]bool{
-		"Wait for the 6:40 PM report": true,
-		"Wait for the report":         false,
+func TestACardPromisingAClockWithoutByDrawsWithAWarning(t *testing.T) {
+	for _, tc := range []struct {
+		wait, clock string
+		promise     bool
+	}{
+		{"Wait for the 6:40 PM report", "6:40 PM", true},
+		{"The run crashed at 4:08 AM", "4:08 AM", false},
+		{"Wait for the report", "", false},
 	} {
-		t.Run(wait, func(t *testing.T) {
+		t.Run(tc.wait, func(t *testing.T) {
 			liveDrive(t)
 			f := newLink(t)
-			promiseCard(t, "clock", "", wait)
+			var asked []string
+			f.judge = func(_ context.Context, kind, evidence, _ string) (*Judgment, error) {
+				if kind != promisedClockKind {
+					return &Judgment{Verdict: "no"}, nil
+				}
+				asked = append(asked, evidence)
+				if tc.promise {
+					return &Judgment{Verdict: "yes"}, nil
+				}
+				return &Judgment{Verdict: "no"}, nil
+			}
+			promiseCard(t, "clock", "", tc.wait)
 			f.run(t)
 
 			said, err := awaitLink(context.Background(), linkDrive, asker, "clock", busStart)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := strings.Contains(said, `WARNING it names the clock "6:40 PM" and no --by`); got != warns {
-				t.Fatalf("awaitLink = %q; want the clock warning %v", said, warns)
+			if got := strings.Contains(said, "WARNING it names the clock"); got != tc.promise {
+				t.Fatalf("awaitLink = %q; want the clock warning %v", said, tc.promise)
+			}
+			if want := slices.DeleteFunc([]string{tc.clock}, func(clock string) bool { return clock == "" }); !slices.Equal(asked, want) {
+				t.Fatalf("judge asked about %q, want %q", asked, want)
 			}
 			if promised, err := f.Cards.Promises(context.Background()); err != nil || len(promised) != 0 {
 				t.Fatalf("Promises = %+v, %v; want none without --by", promised, err)

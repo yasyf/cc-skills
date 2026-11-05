@@ -118,6 +118,7 @@ type linkFixture struct {
 	Cards Cards
 	shell *linkShell
 	state string
+	judge Judge
 }
 
 func newLink(t *testing.T) *linkFixture {
@@ -134,11 +135,11 @@ func newLink(t *testing.T) *linkFixture {
 		Now:      func() time.Time { return cardsNow },
 		Withdraw: func(context.Context, string, string, string) error { return nil },
 		Report:   func(context.Context, string, []string, string, string) error { return nil },
-	}, shell: on, state: state}
+	}, shell: on, state: state, judge: judgedNo}
 }
 
 func (f *linkFixture) link() Link {
-	return Link{Drive: linkDrive, State: f.state, Judge: judgedNo, Cards: func(session string) (Cards, func(), error) {
+	return Link{Drive: linkDrive, State: f.state, Judge: f.judge, Cards: func(session string) (Cards, func(), error) {
 		cards := f.Cards
 		cards.Session = cmp.Or(session, "board-1")
 		return cards, func() {}, nil
