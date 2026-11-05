@@ -410,7 +410,7 @@ desk its brief names, each desk with a `Standing:` line. The communicator's line
 no desk. Every lane registers its branch prefix at spawn with `ledger.py register`.
 
 `lr owner start` subscribes the communicator: the owner's taps, asks, decides, blocks and incidents wake it on arrival, and reports, notes, answers and other routine kinds reach it together, at most every five minutes and at once ahead of any other record.
-Every incident launch, by `lr incident run` or the supervisor, addresses the communicator once on the alert's topic, the topic whose `mechanism`, `fix-live` and `not-ours` records reach it with no line in a brief and no hand relay.
+Every incident launch, by `lr incident run` or the supervisor, addresses the communicator once on the alert's topic, and `cci subscribe --topic-kinds` wakes it on arrival with each `mechanism`, `fix-live` and `not-ours` record any lane posts on that topic, with no line in a brief and no hand relay.
 
 A resumed communicator joins with `drive.py start --drive <id> --ledger <id>` and checks the standing sessions
 with `lr lanes root meta signal`; SessionStart brings back any lane's own subscription and watches, says so,
