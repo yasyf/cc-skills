@@ -17,7 +17,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, ROOT_LANE
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
-from .register_capture import OPERATOR, OWNER_WATCH, owner_messages_heard, owner_tap_threads, queued_prompts, slack_dms
+from .register_capture import CC_SLACK_CACHE, OPERATOR, OWNER_WATCH, owner_messages_heard, owner_tap_threads, queued_prompts, shipped_cc_slack, slack_dms
 from .register_gates import blocker, cause
 from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, runs_verb, SLACK_THREAD_TOOLS, typed_words
 from .root_replies import owner_message, REPLY_WINDOW
@@ -63,8 +63,6 @@ FILE_PATH = (
     " Link the dashboard section that shows it on the tailnet instead, and say what it shows in plain words."
 )
 SCRATCH_ROOTS = (".claude/scratch/", "progress-desk/")
-CC_SLACK_CACHE = Path("plugins") / "cache" / "cc-slack" / "cc-slack"
-VERSION = re.compile(r"\d+(?:\.\d+)*")
 SHIPPED_CC_SLACK = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / CC_SLACK_CACHE / "0.4.27" / "bin" / "cc-slack"
 CC_SLACK_UNREAD = "The communicator could not run `cc-slack {verb}` from the plugin ({why}), so the owner's DM replies go unwatched or unchecked until it works."
 UNANSWERED = (
@@ -466,14 +464,6 @@ def dm_posts(evt: BaseHookEvent) -> list[tuple[str, dict]]:
 
 def dm_words(text: str, posted: dict) -> tuple[str, dict]:
     return "\n".join([text, str(posted.get("title") or ""), str(posted.get("body") or ""), *map(str, posted.get("options") or [])]), posted
-
-
-def shipped_cc_slack() -> Path:
-    cache = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser() / CC_SLACK_CACHE
-    installs = [path for path in cache.glob("*/bin/cc-slack") if VERSION.fullmatch(path.parents[1].name) and not (path.parents[1] / ".orphaned_at").exists()]
-    if not installs:
-        raise FileNotFoundError(f"no cc-slack plugin under {cache}")
-    return max(installs, key=lambda path: [int(part) for part in path.parents[1].name.split(".")])
 
 
 def cc_slack(evt: BaseHookEvent, *args: str) -> str | None:

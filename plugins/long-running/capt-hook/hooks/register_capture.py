@@ -39,6 +39,9 @@ OPERATOR = "U05FTPXU8PP"
 FALLBACK_POST = "_(Yasyf's Claude)_"
 OWNER_WATCH = "owner Slack watch"
 MONITOR_CUT = "...(truncated)"
+CC_SLACK_CACHE = Path("plugins") / "cache" / "cc-slack" / "cc-slack"
+VERSION = re.compile(r"\d+(?:\.\d+)*")
+THREAD_READ = "200"
 WATCH_EVENT = re.compile(rf'<summary>Monitor event: "{OWNER_WATCH}"</summary>\s*<event>(?P<lines>.*?)</event>', re.DOTALL)
 PASTED_IMAGE = re.compile(r"\[Image #\d+\]")
 ENDS = frozenset({"?", ".", "!", ",", ";", ":", "\n", "and", "or", "but", "wtf"})
@@ -273,10 +276,26 @@ def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
             "text": message["text"],
             "ts": message["ts"],
             "thread": message["thread_ts"],
+            "channel": message["channel_id"],
+            "cut": message.get("cut", False),
         }
         for message in owner_messages_heard(queued_prompts(events))
         if message["channel_id"].startswith("D")
     ]
+
+
+def shipped_cc_slack() -> Path:
+    cache = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser() / CC_SLACK_CACHE
+    installs = [path for path in cache.glob("*/bin/cc-slack") if VERSION.fullmatch(path.parents[1].name) and not (path.parents[1] / ".orphaned_at").exists()]
+    if not installs:
+        raise FileNotFoundError(f"no cc-slack plugin under {cache}")
+    return max(installs, key=lambda path: [int(part) for part in path.parents[1].name.split(".")])
+
+
+def whole_text(channel: str, thread: str, ts: str) -> str:
+    argv = [str(shipped_cc_slack()), "thread", "--channel", channel, "--thread", thread or ts, "--limit", THREAD_READ]
+    shown = subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, check=True)
+    return {found["ts"]: found["text"] for found in json.loads(shown.stdout)["messages"]}[ts]
 
 
 def post_owner_reply(evt: BaseHookEvent, dm: dict) -> None:
@@ -324,7 +343,8 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
         try:
             path = captures(read_register(evt, which))
             earlier = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
-            fresh = list({dm["digest"]: dm for dm in dms if dm["digest"] not in {entry["digest"] for entry in earlier}}.values())
+            unseen = {dm["digest"]: dm for dm in dms if dm["digest"] not in {entry["digest"] for entry in earlier}}.values()
+            fresh = [dm | ({"text": whole_text(dm["channel"], dm["thread"], dm["ts"])} if dm["cut"] else {}) for dm in unseen]
             landed += [capture(dm) for dm in fresh]
             if not landed:
                 return None

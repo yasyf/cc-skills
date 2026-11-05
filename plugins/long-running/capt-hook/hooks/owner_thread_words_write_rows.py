@@ -13,8 +13,8 @@ from captain_hook.util import reqenv
 from .compaction_handoff import Bound, LR
 from .owner_facing import REPLY_WINDOW
 from .owner_messages_get_eyes import ACTIVE, delivered, HIS, tagged
-from .register_capture import CREDENTIAL, OPERATOR, owner_messages_heard, queued_prompts, REDACTED
-from .register_gates import blocker, cause
+from .register_capture import CREDENTIAL, OPERATOR, owner_messages_heard, queued_prompts, REDACTED, whole_text
+from .register_gates import blocker, cause, READ_ERRORS
 from .register_injection import drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -66,16 +66,17 @@ def words_heard(evt: BaseHookEvent) -> list[dict]:
 
 def write_row(evt: BaseHookEvent, message: dict, which: list[str]) -> None:
     try:
+        said = whole_text(message["channel_id"], message["thread_ts"], message["ts"]) if message.get("cut") else message["text"]
         subprocess.run(
             [str(LR), "owner", "thread-word", *which, "--session", evt.session_id],
-            input=json.dumps(message | {"text": CREDENTIAL.sub(REDACTED, message["text"])}),
+            input=json.dumps(message | {"text": CREDENTIAL.sub(REDACTED, said)}),
             capture_output=True,
             text=True,
             timeout=WRITE_TIMEOUT_SECONDS,
             env=dict(reqenv.env_map()),
             check=True,
         )
-    except (OSError, subprocess.SubprocessError) as error:
+    except READ_ERRORS as error:
         blocker(evt, f"thread-word:{message['ts']}", UNWRITTEN.format(thread=message["thread_ts"], ts=message["ts"], why=cause(error)), to="meta")
 
 
