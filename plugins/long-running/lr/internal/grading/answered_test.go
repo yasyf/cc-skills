@@ -70,3 +70,21 @@ func TestHisAnswerToAnotherCardLeavesTheGradeParked(t *testing.T) {
 		t.Errorf("started = %v, wakes = %+v", started, wakes(t))
 	}
 }
+
+func TestAGradeOnACardTakenOffHisBoardSaysSoAndNothingElseDoes(t *testing.T) {
+	f, snapshot := parkedOnACard(t)
+	post(t, client.Draft{Lane: "root", Kind: kindWithdraw, Topic: "rmw37abc", Text: "its question has gone away"})
+
+	waits, err := f.pool.Parked(context.Background(), snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if line := waits[number]; !strings.Contains(line, "card rmw37abc") || !strings.Contains(line, "taken off his board") {
+		t.Errorf("waits = %v", waits)
+	}
+	post(t, client.Draft{Lane: "owner-relay", Kind: kindOwner, Text: `Owner: tapped "Keep chapter(title)" (card rmw37abc)`})
+	if waits, err := f.pool.Parked(context.Background(), snapshot); err != nil || len(waits) != 0 {
+		t.Errorf("after his answer: waits = %v, err = %v", waits, err)
+	}
+}

@@ -1144,3 +1144,15 @@ func TestBlocksWordsSaysWhatStopsARowWithNoRecordOfIt(t *testing.T) {
 		})
 	}
 }
+
+func TestAFidelityGradeParkedOnACardSaysOnItsRowWhatItWaitsOn(t *testing.T) {
+	row := store.ReviewRow{Number: 1, Head: headA, Hold: None, SupersededBy: None, State: StateOpen}
+	waits := "fidelity waits on his answer to card rmw37abc, and that card was taken off his board before he answered, so nothing will answer it: root redraws the card or settles the grade"
+	parked := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityFail), "fidelity-said": "fidelity: missing " + headA[:7] + " class owner-pick", machine.FidelityWaitsFact: waits}
+
+	got := Materialize(row, parked, Held{}, nil, "dev")
+
+	if got.Grade != GradeFail || !strings.HasSuffix(got.WaitsOn, waits) {
+		t.Errorf("grade %q, waits %q", got.Grade, got.WaitsOn)
+	}
+}
