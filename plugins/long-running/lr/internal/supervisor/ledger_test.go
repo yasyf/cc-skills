@@ -89,6 +89,27 @@ func TestALedgerPassRegistersEachNewPRTheHeadRecordsNameThenRefreshesAndReconcil
 	}
 }
 
+func TestTheLedgerReadsBuildkiteWithTheHostsReadTokenInTheEnvironmentOfItsOwnRun(t *testing.T) {
+	runner := &shelltest.Fake{}
+	runner.Reply("tok\n", "/bin/token")
+	runner.Reply("", ledgerTool)
+	l, _ := ledgerUnder(t, runner)
+	l.token.Command = []string{"/bin/token"}
+
+	if err := l.run(context.Background(), "refresh"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, call := range runner.Calls() {
+		if call.Argv[0] == ledgerTool && !slices.Contains(call.Env, "BUILDKITE_TOKEN=tok") {
+			t.Fatalf("ledger env = %v, want the token the host's command printed", call.Env)
+		}
+		if call.Argv[0] == "/bin/token" && len(call.Env) != 0 {
+			t.Fatalf("the token command ran with env %v", call.Env)
+		}
+	}
+}
+
 func TestACheckoutThatWillNotFastForwardReachesRootAndTheLedgerStillRuns(t *testing.T) {
 	runner := &shelltest.Fake{}
 	runner.Fail(1, "fatal: Not possible to fast-forward", "git", "-C", co, "merge")

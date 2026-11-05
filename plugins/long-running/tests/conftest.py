@@ -188,8 +188,8 @@ class FakeShell(ledger.Shell):
             return self._cci(argv)
         if argv[0] == "gh":
             return self._gh(argv, stdin)
-        if argv[0] == "bk":
-            return self._bk(argv)
+        if argv[:2] == ["tools/ci", "bk"]:
+            return self._bk(argv[1:])
         if argv[0] == "ccn":
             return self._ccn(argv, stdin)
         if argv[0] == "git":
@@ -398,9 +398,9 @@ class FakeShell(ledger.Shell):
         raise AssertionError(f"no listed PR {number}")
 
     def _bk(self, argv):
-        if argv[1:3] == ["build", "view"]:
+        if argv[1] == "api":
             return fixture("build-view.json")
-        if argv[1:3] == ["job", "log"]:
+        if argv[1] == "log":
             return fixture(self.routes.get(f"log:{argv[-1]}", "job-log.txt"))
         raise AssertionError(f"unexpected bk call: {argv}")
 

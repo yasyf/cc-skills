@@ -22,19 +22,34 @@ type Token struct {
 	value   string
 }
 
-func (t *Token) Run(ctx context.Context, runner shell.Runner, read shell.Command) (shell.Result, error) {
+func (t *Token) Env(ctx context.Context, runner shell.Runner) (string, error) {
 	if t.value == "" {
 		value, err := t.print(ctx, runner)
 		if err != nil {
-			return shell.Result{}, err
+			return "", err
 		}
 		t.value = value
 	}
-	read.Env = append(slices.Clone(read.Env), "BUILDKITE_TOKEN="+t.value)
+	return "BUILDKITE_TOKEN=" + t.value, nil
+}
+
+func (t *Token) Refused(err error) bool {
+	if err == nil || !refused401.MatchString(err.Error()) {
+		return false
+	}
+	t.value = ""
+	return true
+}
+
+func (t *Token) Run(ctx context.Context, runner shell.Runner, read shell.Command) (shell.Result, error) {
+	token, err := t.Env(ctx, runner)
+	if err != nil {
+		return shell.Result{}, err
+	}
+	read.Env = append(slices.Clone(read.Env), token)
 	read.Idempotent = true
 	result, err := runner.Run(ctx, read)
-	if err != nil && refused401.MatchString(err.Error()) {
-		t.value = ""
+	if t.Refused(err) {
 		return result, fmt.Errorf("%w: %w", ErrRefused, err)
 	}
 	return result, err

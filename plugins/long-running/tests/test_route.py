@@ -111,7 +111,7 @@ def test_explicit_job_routes_one_pr_without_reading_the_forge(capsys):
     printed = route(shell, capsys, "--pr", "20993", "--job", "plan comment missing for this head")
 
     assert printed.startswith("to p5-cut:\nDESK #20993 aa9123696: plan comment missing for this head\n")
-    assert not [argv for argv in shell.calls if argv[0] in ("gh", "bk")]
+    assert not [argv for argv in shell.calls if argv[0] == "gh" or argv[:2] == ["tools/ci", "bk"]]
     assert shell.fields("20993")["routed_job"] == "plan comment missing for this head"
 
 
@@ -139,7 +139,7 @@ def test_dirty_row_gets_a_rebase_instruction_without_reading_a_log(capsys):
 
     assert "to p2-edge-rows:\nDESK #20961 ab0de038c: rebase onto dev" in printed
     assert "Rebase it onto the base branch" in printed
-    assert not [argv for argv in shell.calls if argv[0] == "bk"]
+    assert not [argv for argv in shell.calls if argv[:2] == ["tools/ci", "bk"]]
 
 
 def test_blocked_row_names_the_held_requirement(capsys):
@@ -181,7 +181,7 @@ def test_job_id_comes_from_the_build_when_the_url_carries_none(capsys, red_route
     shell = FakeShell(rows=[RED], routes=routes)
     printed = route(shell, capsys)
 
-    assert [argv for argv in shell.calls if argv[1:3] == ["build", "view"]]
+    assert [argv for argv in shell.calls if argv[:3] == ["tools/ci", "bk", "api"]]
     assert ERROR in printed
 
 

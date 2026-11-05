@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -36,6 +37,7 @@ type prLedger struct {
 	id      string
 	limited time.Time
 	told    bool
+	token   bkread.Token
 }
 
 func (l *prLedger) pass(ctx context.Context) error {
@@ -177,10 +179,19 @@ func (l *prLedger) register(ctx context.Context) error {
 
 func (l *prLedger) run(ctx context.Context, argv ...string) error {
 	tool := filepath.Join(l.env.Claude, "long-running", "current", "bin", "ledger.py")
+	env := []string{"CLAUDE_LONG_RUNNING_DRIVE=" + l.env.Config.Drive}
+	if len(l.token.Command) > 0 {
+		token, err := l.token.Env(ctx, l.env.Runner)
+		if err != nil {
+			return err
+		}
+		env = append(env, token)
+	}
 	_, err := l.env.Runner.Run(ctx, shell.Command{
 		Argv:    append([]string{tool, "-C", l.env.Config.Checkout}, argv...),
-		Env:     []string{"CLAUDE_LONG_RUNNING_DRIVE=" + l.env.Config.Drive},
+		Env:     env,
 		Timeout: ledgerLimit,
 	})
+	l.token.Refused(err)
 	return err
 }

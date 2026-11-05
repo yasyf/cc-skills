@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/choices"
@@ -313,7 +314,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return Deps{}, err
 	}
 	if runner.Ledger != "" {
-		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: (&prLedger{env: env, store: s, id: runner.Ledger}).pass, store: s, post: post, log: a.Log, forgiven: 1}).Check)
+		deps.Checks = append(deps.Checks, (&background{name: "pr-ledger", every: ledgerEvery, run: (&prLedger{env: env, store: s, id: runner.Ledger, token: bkread.Token{Command: runner.CITokenCommand}}).pass, store: s, post: post, log: a.Log, forgiven: 1}).Check)
 	}
 	if runner.TrunkCheck != "" {
 		trunk := &landing.TrunkWatch{

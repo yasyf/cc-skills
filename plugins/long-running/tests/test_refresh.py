@@ -164,10 +164,10 @@ def test_a_stored_probe_error_is_read_again_once_and_then_kept():
     stored = json.dumps([{"name": "buildkite/test", "url": url, "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404"}])
     shell = FakeShell()
     first = json.loads(ledger.with_errors(shell, json.dumps([{"name": "buildkite/test", "url": url}]), stored))
-    assert [call[:3] for call in shell.calls if call[0] == "bk"] == [["bk", "build", "view"], ["bk", "job", "log"]]
+    assert [call[:3] for call in shell.calls if call[:2] == ["tools/ci", "bk"]] == [["tools/ci", "bk", "api"], ["tools/ci", "bk", "log"]]
     again = FakeShell()
     assert json.loads(ledger.with_errors(again, json.dumps([{"name": "buildkite/test", "url": url}]), json.dumps(first))) == first
-    assert [call for call in again.calls if call[0] == "bk"] == []
+    assert [call for call in again.calls if call[:2] == ["tools/ci", "bk"]] == []
 
 
 def test_ai_review_absent_when_no_such_check_run(lock):
@@ -519,7 +519,7 @@ def test_a_red_buildkite_check_carries_its_first_error_line_read_once_per_url():
     assert "job" not in first[1] and "error" not in first[1]
     again = FakeShell()
     assert json.loads(ledger.with_errors(again, checks, json.dumps(first))) == first
-    assert [call for call in again.calls if call[0] == "bk"] == []
+    assert [call for call in again.calls if call[:2] == ["tools/ci", "bk"]] == []
 
 
 def test_an_empty_ledger_refreshes_without_reading_the_cache(lock):

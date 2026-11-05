@@ -305,7 +305,7 @@ class CommandFailed(subprocess.CalledProcessError):
 
 
 class Shell:
-    """The single subprocess boundary: `gh`, `bk`, `git`, `ccx`, and `ccn` all pass through here.
+    """The single subprocess boundary: `gh`, `tools/ci bk`, `git`, `ccx`, and `ccn` all pass through here.
 
     A `ccn ledger show` exits non-zero while another desk is writing the same ledger, so
     reads retry with a short backoff; writes never do, because a retried write can land twice.
@@ -1014,7 +1014,7 @@ def buildkite_targets(status: dict, checks: dict) -> list[re.Match]:
 
 
 def failed_job(shell: Shell, pipeline: str, build: str, job_id: str | None) -> dict:
-    jobs = json.loads(shell.run(["bk", "build", "view", "-p", pipeline, build]))["jobs"]
+    jobs = json.loads(shell.run(["tools/ci", "bk", "api", "-no-wait", f"/pipelines/{pipeline}/builds/{build}"]))["jobs"]
     return next(job for job in jobs if job["id"] == job_id) if job_id else next(job for job in jobs if job["state"] == "failed" and not job["soft_failed"])
 
 
@@ -1039,7 +1039,7 @@ def resolve_error(shell: Shell, target: re.Match) -> tuple[str, str]:
     """The failed job's name and its log's first error line."""
     pipeline, build = target["pipeline"], target["build"]
     job = failed_job(shell, pipeline, build, target["job"])
-    return job["name"], first_error_line(shell.run(["bk", "job", "log", "-p", pipeline, "-b", build, job["id"]]))
+    return job["name"], first_error_line(shell.run(["tools/ci", "bk", "log", pipeline, build, job["id"]]))
 
 
 def route_verdict(shell: Shell, gh: Github, fields: dict[str, str]) -> tuple[str, str]:
