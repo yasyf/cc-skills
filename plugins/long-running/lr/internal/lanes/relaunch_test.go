@@ -342,3 +342,31 @@ func TestASuccessorOfADeskThatNeedsTheMacKeepsItsNeedSoItNeverLandsOnASprite(t *
 		t.Fatalf("a Mac desk's successor brief turned its need into a preference:\n%s", successor)
 	}
 }
+
+func TestAStandDownNamingItsSuccessorByStemPointsAtTheStemsLiveLaneAndLaunchesNothing(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := adopted(t, s, brief, "", 46001)
+	f.feed = append(f.feed, spawned(2, "restack-1", brief, t0, nil), ask(3, "stand-down", lane2, t0, nil, "", map[string]string{"successor": "restack", "last-read": "1"}))
+	f.peers = []Row{who("restack-1", true, t0)}
+
+	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(16)))
+
+	equal(t, []any{len(f.launches), row(t, s, lane2).RetiredBy, len(f.ofKind("blocker"))}, []any{0, "restack-1", 0})
+	if _, found := laneOf(s, "restack"); found {
+		t.Fatal("a stand-down by stem registered a second row for a lane already live")
+	}
+}
+
+func TestAStemSuccessorWhoseLaneOnlyCCIListsIsStartedWithNoLaunchAndNoAlarm(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46001)
+	f.feed = append(f.feed, ask(2, "stand-down", lane2, t0, nil, "", map[string]string{"successor": "restack", "last-read": "1"}))
+	f.peers = []Row{who("restack-1", true, t0)}
+
+	tick(t, s, f, t0)
+	f.peers = []Row{who("restack-1", true, t0.Add(mins(16)))}
+	tick(t, s, f, t0.Add(mins(16)))
+
+	equal(t, []any{len(f.launches), row(t, s, "restack").State, row(t, s, "restack").RetiredBy, len(f.ofKind("blocker"))}, []any{0, store.LaneRetired, "restack-1", 0})
+}

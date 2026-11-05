@@ -743,6 +743,11 @@ func launchOwedHeirs(s *store.Store, d Deps, found map[string]Peer, now time.Tim
 			do(s.Unprobe(key))
 			continue
 		}
+		if alias := liveAlias(found, name, heir.Predecessor, now); alias != "" {
+			retire(s, name, alias, now)
+			do(s.Unprobe(key))
+			continue
+		}
 		old, _ := laneOf(s, heir.Predecessor)
 		path := filepath.Join(d.Briefs, name+".brief.md")
 		err := fmt.Errorf("its predecessor's brief %s is gone", old.Brief)
@@ -767,6 +772,19 @@ func launchOwedHeirs(s *store.Store, d Deps, found map[string]Peer, now time.Tim
 		escalateTo(s, d, "lane:"+name, fmt.Sprintf("held, not launched: %s is standing in for %s, which %s, and its launch failed: %s", name, old.Name, heir.Reason, err), to, now)
 		out.Held = append(out.Held, name)
 	}
+}
+
+func liveAlias(found map[string]Peer, stem, predecessor string, now time.Time) string {
+	if numbered.MatchString(stem) {
+		return ""
+	}
+	for _, name := range slices.Sorted(maps.Keys(found)) {
+		peer := found[name]
+		if base, _ := family(name); base == stem && name != predecessor && numbered.MatchString(name) && alive(&peer, peer.Seen, now) {
+			return name
+		}
+	}
+	return ""
 }
 
 func launchOrRetry(d Deps, name, model, effort, brief string) error {
