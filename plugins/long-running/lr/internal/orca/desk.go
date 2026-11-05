@@ -232,6 +232,7 @@ type Desk struct {
 	unreachable int
 	refused     []time.Time
 	swept       time.Time
+	deadlinedTo string
 	rosterAt    time.Time
 	settled     map[string]string
 	unreadSeen  map[string]unreadCheck

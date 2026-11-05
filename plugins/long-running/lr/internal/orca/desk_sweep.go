@@ -23,6 +23,7 @@ const (
 	foldedPrefix   = "folded into "
 	foldedSuffix   = ", which the lane has not answered yet"
 	reclaimNamed   = 10
+	deadlineBudget = 20 * time.Second
 	heartbeatGrace = 30 * time.Minute
 	kindWake       = "wake"
 	kindReclaim    = "reclaim"
@@ -282,11 +283,21 @@ func (d *Desk) deadlines(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	first := slices.IndexFunc(books, func(book string) bool { return book > d.deadlinedTo })
+	if first < 0 {
+		first = 0
+	}
+	began := d.Now()
 	var settled []settledRelay
-	for _, container := range books {
+	for i := range books {
+		if i > 0 && d.Now().Sub(began) >= deadlineBudget {
+			break
+		}
+		container := books[(first+i)%len(books)]
 		if err := d.overdue(ctx, container, strings.TrimPrefix(container, lanePrefix), &settled); err != nil {
 			return err
 		}
+		d.deadlinedTo = container
 	}
 	return d.closeSettled(ctx, settled)
 }
