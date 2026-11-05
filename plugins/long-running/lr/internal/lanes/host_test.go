@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -393,6 +394,11 @@ func TestAStandingDeskRelaunchedAndDeadThreeTimesInAnHourStopsWithOneBlockerNami
 	equal(t, len(blockers), 1)
 	equal(t, blockers[0].To, []string{"meta-desk-3"})
 	contains(t, blockers[0].Text, "died 3 times within 60 min")
+	heir := filepath.Join(f.deps.Briefs, "go-desk-5.brief.md")
+	contains(t, blockers[0].Text, "launching its successor from "+heir)
+	if text, err := os.ReadFile(heir); err != nil || !strings.HasPrefix(string(text), "Replaces: go-desk-4\nccx: place=remote\n") {
+		t.Fatalf("the held desk's blocker names %s, which holds %q (%v), not a successor brief", heir, text, err)
+	}
 }
 
 func TestAStandingLaneEndedByADoneRecordNeverRelaunchesAndItsBlockerNamesTheBrief(t *testing.T) {

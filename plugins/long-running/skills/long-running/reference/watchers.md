@@ -234,8 +234,9 @@ The supervisor launches the successor with `lr launch lane` and posts one `RELAU
 **Keep every standing duty owned.** A brief's `Standing: <duty>` line marks work the drive keeps for good.
 - A lane quiet for ten minutes is checked at its host, never read as dead from its silence. A Sprite still running its worker is left alone, so a same-family launch never stands a live desk down.
 - On proof it is gone, or when its worker ended with the duty open, the supervisor relaunches it from its brief with no model and no root step, and logs one `RELAUNCHED` record to the meta desk.
-- A desk that comes back and dies three times within an hour is held with one `blocker` to the meta desk naming the cause.
-- A lane retired by a `done` or `stopped` record, or stood down on an order, never relaunches: its duty ended, and one `blocker` names its brief.
+- A desk that comes back and dies three times within an hour is held with one `blocker` to the meta desk naming the cause and a successor brief to launch from once the cause is read.
+- A lane retired by a `done` or `stopped` record, or stood down on an order, never relaunches: its duty ended, and one `blocker` names a successor brief to launch from if the duty is still open.
+- Either brief is the one a relaunch would write, at `<briefs>/<successor>.brief.md`: it keeps its predecessor's Mac need on its `ccx:` line, or says `place=local why=predecessor-worked-here` for a predecessor whose `why=` names none, so `lr launch` accepts it. A lane whose own brief is gone gets no successor brief, and its blocker says so.
 - A lane launched as the successor of a standing lane, by `--successor` or by the next number of its name, holds that duty in its registry row whatever its brief says, so its own `done` record leaves it live. A coordinator's `lr request done <lane>` ends that duty with the lane.
 - `lanes` prints the duty on the row. A stand-down of a standing lane without a successor is refused at post time. Deleting the brief's `Standing:` line ends the duty its brief declares.
 - `lr request revive <lane>` sets a retired lane back to live, and the revived lane takes the standing duty of the lane whose name it succeeds.

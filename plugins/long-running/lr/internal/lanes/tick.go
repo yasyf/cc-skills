@@ -389,7 +389,7 @@ func askState(s *store.Store, d Deps, lane store.Lane, why string, now time.Time
 
 func unanswered(s *store.Store, d Deps, lane store.Lane, peer *Peer, found map[string]Peer, proof Verdict, silent time.Duration, taken map[string]bool, now time.Time, out *Outcome) {
 	do(s.Unprobe(relayProbe(lane.Name)))
-	failed := spentRelaunches(s, lane, proof.Why, now)
+	failed := spentRelaunches(s, d, lane, found, proof.Why, taken, now)
 	if failed == "" && !briefExists(lane.Brief) {
 		failed = fmt.Sprintf("its brief %s is gone, and it %s", lane.Brief, proof.Why)
 	}
@@ -410,7 +410,7 @@ func lost(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, verdic
 	report := func(outcome string) {
 		do(d.Post(Post{Kind: "report", To: to, LaneRef: lane.Name, Text: fmt.Sprintf("LANE-LOST %s: it %s, and its dispatch never settled; %s.", lane.Name, verdict.Why, outcome)}))
 	}
-	if spent := spentRelaunches(s, lane, verdict.Why, now); spent != "" {
+	if spent := spentRelaunches(s, d, lane, found, verdict.Why, taken, now); spent != "" {
 		hold(s, lane.Name, verdict.Why, now)
 		out.Held = append(out.Held, lane.Name)
 		report("held, not relaunched: " + spent)
@@ -620,7 +620,7 @@ func coordinatorBrief(old store.Lane, why string, d Deps, transcript string) (st
 }
 
 func relaunch(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why, partial string, taken map[string]bool, now time.Time, out *Outcome) string {
-	return launchHeir(s, d, old, found, why, partial, spentRelaunches(s, old, why, now), taken, now, out)
+	return launchHeir(s, d, old, found, why, partial, spentRelaunches(s, d, old, found, why, taken, now), taken, now, out)
 }
 
 func reachRetired(s *store.Store, d Deps, taken map[string]bool, now time.Time, out *Outcome) {
@@ -714,13 +714,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 	}
 	name := SuccessorName(old.Name, taken)
 	taken[name] = true
-	path := filepath.Join(d.Briefs, name+".brief.md")
-	do(os.MkdirAll(d.Briefs, 0o750))
-	transcript := ""
-	if peer, ok := found[old.Name]; ok {
-		transcript = d.Transcript(peer.Row)
-	}
-	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, partial, d, transcript))), 0o600))
+	path := writeSuccessorBrief(d, old, found, name, why, partial)
 	cost := successorCost(old)
 	if err := launchOrRetry(d, name, cost.Model, cost.Effort, path); err != nil {
 		hold(s, old.Name, why, now)
@@ -759,16 +753,9 @@ func launchOwedHeirs(s *store.Store, d Deps, found map[string]Peer, now time.Tim
 			continue
 		}
 		old, _ := laneOf(s, heir.Predecessor)
-		path := filepath.Join(d.Briefs, name+".brief.md")
 		err := fmt.Errorf("its predecessor's brief %s is gone", old.Brief)
 		if briefExists(old.Brief) {
-			do(os.MkdirAll(d.Briefs, 0o750))
-			transcript := ""
-			if peer, ok := found[old.Name]; ok {
-				transcript = d.Transcript(peer.Row)
-			}
-			do(os.WriteFile(path, []byte(must(successorBrief(old, name, heir.Reason, "", d, transcript))), 0o600))
-			err = launchOrRetry(d, name, heir.Model, heir.Effort, path)
+			err = launchOrRetry(d, name, heir.Model, heir.Effort, writeSuccessorBrief(d, old, found, name, heir.Reason, ""))
 		}
 		do(s.Unprobe(key))
 		if err == nil {
@@ -820,6 +807,24 @@ func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out
 	hold(s, lane.Name, refused.why, now)
 	escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not launched: the runner refused the supervisor's relaunch as %s twice, last with %s; brief %s", lane.Name, refused.why, path), must(MetaDesk(s)), now)
 	out.Held = append(out.Held, lane.Name)
+}
+
+func writeSuccessorBrief(d Deps, old store.Lane, found map[string]Peer, name, why, partial string) string {
+	path := filepath.Join(d.Briefs, name+".brief.md")
+	do(os.MkdirAll(d.Briefs, 0o750))
+	transcript := ""
+	if peer, ok := found[old.Name]; ok {
+		transcript = d.Transcript(peer.Row)
+	}
+	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, partial, d, transcript))), 0o600))
+	return path
+}
+
+func handLaunchedSuccessor(d Deps, old store.Lane, found map[string]Peer, why string, taken map[string]bool) string {
+	if !briefExists(old.Brief) {
+		return fmt.Sprintf("a brief you write, since its brief %s is gone", old.Brief)
+	}
+	return writeSuccessorBrief(d, old, found, SuccessorName(old.Name, taken), why, "")
 }
 
 func successorBrief(old store.Lane, name, why, partial string, d Deps, transcript string) (string, error) {
@@ -1239,14 +1244,14 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 		}
 		why := fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
 		if head.RetiredBy == "stand-down" || head.RetiredBy == "done" {
-			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. Launch its successor from %s if the duty is still open%s.", name, dutyOf(head), why, head.Brief, dutyEnd(head)), now)
+			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. If the duty is still open, launch its successor from %s%s.", name, dutyOf(head), why, handLaunchedSuccessor(d, head, found, why, taken), dutyEnd(head)), now)
 			continue
 		}
 		relaunch(s, d, head, found, why, "", taken, now, out)
 	}
 }
 
-func spentRelaunches(s *store.Store, lane store.Lane, why string, now time.Time) string {
+func spentRelaunches(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, why string, taken map[string]bool, now time.Time) string {
 	if !isStanding(lane) {
 		if lane.Predecessor != "" && lane.Reason != "" {
 			return fmt.Sprintf("the supervisor already relaunched it once, when %s %s, and now it %s; brief %s", lane.Predecessor, lane.Reason, why, lane.Brief)
@@ -1262,7 +1267,7 @@ func spentRelaunches(s *store.Store, lane store.Lane, why string, now time.Time)
 	if strikes < deskStrikes {
 		return ""
 	}
-	return fmt.Sprintf("it came back from the supervisor's relaunch and died %d times within %d min, and now it %s; read why before launching its successor from %s", strikes, int(deskStrikeWindow.Minutes()), why, lane.Brief)
+	return fmt.Sprintf("it came back from the supervisor's relaunch and died %d times within %d min, and now it %s; read why before launching its successor from %s", strikes, int(deskStrikeWindow.Minutes()), why, handLaunchedSuccessor(d, lane, found, why, taken))
 }
 
 func unsaid(s *store.Store, orders []owner.Row) []owner.Row {
