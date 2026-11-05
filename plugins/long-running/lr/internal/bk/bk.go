@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,7 +36,9 @@ const (
 	tokenWait   = time.Minute
 	replyLimit  = 16 << 10
 	bodiesDir   = "bk-desk"
-	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk log <pipeline> <number> <job>, bk grep <pipeline> <number> <job> <regex>, or bk api <path>"
+	buildsPage  = 100
+	buildsUsage = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
+	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk log <pipeline> <number> <job>, bk grep <pipeline> <number> <job> <regex>, or bk api <path>"
 )
 
 var (
@@ -183,6 +187,8 @@ func parse(text string) ([]string, string) {
 			}
 		}
 		return nil, "jobs takes <pipeline> <number>"
+	case "builds":
+		return parseBuilds(rest)
 	case "grep":
 		if len(rest) < 4 {
 			return nil, "grep takes <pipeline> <number> <job> <regex>"
@@ -209,8 +215,38 @@ func parse(text string) ([]string, string) {
 	return nil, fmt.Sprintf("bk %s is no read; %s", match[1], usage)
 }
 
+func parseBuilds(rest []string) ([]string, string) {
+	if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
+		return nil, buildsUsage
+	}
+	flags := flag.NewFlagSet("builds", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	branch := flags.String("branch", "", "")
+	since := flags.String("since", "", "")
+	if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 {
+		return nil, buildsUsage
+	}
+	args := []string{"builds", rest[0]}
+	if *branch != "" {
+		args = append(args, "branch="+*branch)
+	}
+	if *since == "" {
+		return args, ""
+	}
+	from, err := time.Parse(time.DateOnly, *since)
+	if err != nil {
+		from, err = time.Parse(time.RFC3339, *since)
+	}
+	if err != nil {
+		return nil, buildsUsage
+	}
+	return append(args, "created_from="+from.UTC().Format(time.RFC3339)), ""
+}
+
 func (d *Desk) fetch(ctx context.Context, args []string) reply {
 	switch args[0] {
+	case "builds":
+		return d.listBuilds(ctx, args[1], args[2:])
 	case "build":
 		said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+args[1]+"/builds/"+args[2])
 		if failure != nil {
@@ -272,6 +308,9 @@ type build struct {
 	Commit string `json:"commit"`
 	WebURL string `json:"web_url"`
 	Jobs   []job  `json:"jobs"`
+
+	Message   string `json:"message"`
+	CreatedAt string `json:"created_at"`
 }
 
 type job struct {
@@ -281,6 +320,38 @@ type job struct {
 	State      string `json:"state"`
 	ExitStatus *int   `json:"exit_status"`
 	SoftFailed bool   `json:"soft_failed"`
+}
+
+func (d *Desk) listBuilds(ctx context.Context, pipeline string, filters []string) reply {
+	query := url.Values{"per_page": {strconv.Itoa(buildsPage)}, "exclude_jobs": {"true"}, "exclude_pipeline": {"true"}}
+	for _, filter := range filters {
+		name, value, _ := strings.Cut(filter, "=")
+		query.Set(name, value)
+	}
+	var lines strings.Builder
+	listed := 0
+	for page := 1; ; page++ {
+		query.Set("page", strconv.Itoa(page))
+		said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+pipeline+"/builds?"+query.Encode())
+		if failure != nil {
+			return *failure
+		}
+		var read []build
+		if err := json.Unmarshal([]byte(said), &read); err != nil {
+			return reply{head: "the builds did not parse", body: firstBytes(said, replyLimit)}
+		}
+		for _, found := range read {
+			entry := fmt.Sprintf("%d %s %s %s\n  %s\n", found.Number, found.State, found.Branch, found.CreatedAt, strings.ReplaceAll(strings.TrimSpace(found.Message), "\n", "\n  "))
+			if lines.Len()+len(entry) > replyLimit {
+				return reply{head: fmt.Sprintf("the newest %d builds; older ones did not fit, so narrow with --branch or --since", listed), body: lines.String()}
+			}
+			lines.WriteString(entry)
+			listed++
+		}
+		if len(read) < buildsPage {
+			return reply{head: fmt.Sprintf("%d builds", listed), body: lines.String()}
+		}
+	}
 }
 
 func summary(said string) reply {
