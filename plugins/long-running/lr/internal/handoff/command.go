@@ -39,7 +39,7 @@ func liveTasksCommand(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "live-tasks",
 		Short: "List the Monitors and background tasks a session's transcript shows started and never ended, each with the call that starts it again",
-		Long:  "With --terminal, read on this host what will wake the agent of that Orca terminal once its turn has ended: the armed `lr wait --wake` processes bearing the handle and, for a Claude agent, the live tasks of the transcript cci who names for it. Prints one JSON object with the tasks found and a line naming what was read.",
+		Long:  "With --terminal, read on this host what will wake the agent of that Orca terminal once its turn has ended: the armed `lr wait --wake` processes bearing the handle or recorded for it under `$XDG_STATE_HOME/lr/waits` and, for a Claude agent, the live tasks of the transcript cci who names for it. Prints one JSON object with the tasks found and a line naming what was read.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if terminal != "" {

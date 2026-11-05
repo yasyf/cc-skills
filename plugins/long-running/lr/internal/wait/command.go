@@ -76,6 +76,9 @@ A Codex lane waits this way, since nothing else wakes an idle Codex terminal.`,
 			}
 			code := Run(cmd.Context(), options)
 			if output != "" {
+				if err := disarm(os.Getpid()); err != nil {
+					return err
+				}
 				if err := Wake(cmd.Context(), a.Runner, terminal, output, code); err != nil {
 					return err
 				}

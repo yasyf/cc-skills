@@ -35,6 +35,9 @@ func Arm(o Options, executable string, args []string, output string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	if err := recordArmed(Armed{PID: cmd.Process.Pid, Terminal: os.Getenv(terminalKey), Output: output}); err != nil {
+		return err
+	}
 	fmt.Fprintf(o.Stdout, "ARMED %d %s\n", cmd.Process.Pid, output)
 	return cmd.Process.Release()
 }

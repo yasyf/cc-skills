@@ -2,7 +2,9 @@ package livetasks
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +20,7 @@ const (
 
 func terminal(t *testing.T, processes string, transcript ...string) Rest {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	claude := t.TempDir()
 	if len(transcript) > 0 {
 		path := filepath.Join(claude, "projects", "-h-repo", session+".jsonl")
@@ -72,9 +75,40 @@ func TestTerminalWithNothingArmedNamesWhatItRead(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			rest := terminal(t, c.processes, c.transcript...)
-			if len(rest.Tasks) != 0 || !strings.HasPrefix(rest.Read, "0 armed lr wait processes bear terminal term_a"+c.read) {
+			if len(rest.Tasks) != 0 || !strings.HasPrefix(rest.Read, "0 armed lr wait processes bear or record terminal term_a"+c.read) {
 				t.Fatal(rest)
 			}
 		})
+	}
+}
+
+func TestTerminalCountsAWaitItsRecordNamesThoughPsShowsNoEnvironment(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	gone := exec.Command("true")
+	if err := gone.Run(); err != nil {
+		t.Fatal(err)
+	}
+	waits := filepath.Join(state, "lr", "waits")
+	if err := os.MkdirAll(waits, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for pid, terminal := range map[int]string{os.Getpid(): handle, gone.Process.Pid: handle} {
+		record := fmt.Sprintf(`{"pid":%d,"terminal":%q,"output":"/tmp/wait.out"}`, pid, terminal)
+		if err := os.WriteFile(filepath.Join(waits, fmt.Sprintf("%d.json", pid)), []byte(record), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &shelltest.Fake{}
+	runner.Reply("5100 codex exec ORCA_TERMINAL_HANDLE=term_a\n"+fmt.Sprintf("%d /h/.local/bin/lr wait 540 mailbox:x=/c --wake\n", os.Getpid()), "ps")
+	rest, err := Terminal(context.Background(), runner, handle, t.TempDir(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("- `lr wait --wake` armed as pid %d", os.Getpid()); len(rest.Tasks) != 1 || rest.Tasks[0] != want {
+		t.Fatalf("tasks = %q, want %q", rest.Tasks, want)
+	}
+	if _, err := os.Stat(filepath.Join(waits, fmt.Sprintf("%d.json", gone.Process.Pid))); !os.IsNotExist(err) {
+		t.Fatalf("the record of a wait whose process ended stayed: %v", err)
 	}
 }
