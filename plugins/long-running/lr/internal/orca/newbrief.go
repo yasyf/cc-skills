@@ -25,9 +25,7 @@ const (
 	bodyFromStdin     = "-"
 )
 
-var (
-	ccxPairGlue = regexp.MustCompile(`,\s*([a-z-]+=)`)
-)
+var ccxPairGlue = regexp.MustCompile(`,\s*([a-z-]+=)`)
 
 type NewBrief struct {
 	Title, BodyFile, Contract, Scale, Place, CCX, OwnerPick string
