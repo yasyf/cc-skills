@@ -445,6 +445,16 @@ func (w *deskWorld) escalations() []string {
 	return found
 }
 
+func (w *deskWorld) registered() [][]string {
+	var calls [][]string
+	for _, call := range w.calls {
+		if filepath.Base(call[0]) == "drive.py" && call[1] == "spawned" {
+			calls = append(calls, call)
+		}
+	}
+	return calls
+}
+
 func (w *deskWorld) wantEscalation(prefix string) string {
 	w.t.Helper()
 	for _, line := range w.escalations() {
@@ -773,6 +783,9 @@ func TestALaunchIsStartedThroughLrLaunchStartAndSettlesFromItsLine(t *testing.T)
 		t.Fatal(action)
 	}
 	wantContains(t, w.wantEscalation("LAUNCHED "+key+" lane-a"), "dispatch ctx_a terminal term_a")
+	if registered := w.registered(); len(registered) != 1 || !slices.Contains(registered[0], placeOrca) || !slices.Contains(registered[0], "meta-desk-1") {
+		t.Fatal(registered)
+	}
 	header, err := w.desk.store.Header(laneBook(testLane))
 	if err != nil {
 		t.Fatal(err)
@@ -1087,6 +1100,9 @@ func TestALaunchWithdrawnWhileStartingIsStoppedOnceItLogsLaunched(t *testing.T) 
 		t.Fatal(w.calls)
 	}
 	w.wantEscalation("WITHDRAWN " + key + " lane-a: by R9; dispatch ctx_a stopped (stopped)")
+	if registered := w.registered(); len(registered) != 0 {
+		t.Fatal("a launch withdrawn while it started posted SPAWNED, which retires the lane it succeeds:", registered)
+	}
 	by, err := w.desk.withdrawnBy(testLane)
 	if err != nil {
 		t.Fatal(err)
@@ -1902,6 +1918,54 @@ func TestAWarmSpriteWithNoInstallLogStillSettlesItsLaunch(t *testing.T) {
 		t.Fatal(census, err)
 	}
 	w.wantEscalation("LAUNCHED " + key)
+}
+
+func TestASpriteLaunchRegistersItsLaneOnlyWhenNoWithdrawCameWhileItStarted(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		withdrawn bool
+	}{
+		{name: "withdrawn while starting", withdrawn: true},
+		{name: "not withdrawn"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			spriteConfig(w)
+			brief := w.brief(testLane, testBrief)
+			w.process = &fakeProcess{}
+			w.lines()
+			line := w.line(launchText(testLane, brief))
+			key := "R" + strings.TrimPrefix(line.Name(), "#")
+			w.launchOut[testLane] = `{"task":"t","dispatch":"ctx_s","terminal":"term_s","worktree":"/box/w","workspace":"pool-1"}` + "\n"
+			w.lines()
+			w.step(w.desk.deliver)
+			if tt.withdrawn {
+				w.line("R9 (5:02 PM) orca-desk: withdraw " + key)
+				w.lines()
+				w.wantEscalation("WITHDRAW-PENDING " + key)
+			}
+			attempt := spriteAttempt(brief)
+			w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
+			w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
+			w.dispatches["ctx_s"] = &fakeDispatch{status: "running", terminal: "term_s", observation: "live"}
+			w.process.exited = true
+
+			w.step(w.desk.reap)
+
+			registered := w.registered()
+			w.wantEscalation("LAUNCHED " + key)
+			if tt.withdrawn {
+				if len(registered) != 0 {
+					t.Fatal("a launch withdrawn while it started posted SPAWNED, which retires the lane it succeeds:", registered)
+				}
+				w.wantEscalation("WITHDRAWN " + key + " lane-a: by R9; dispatch ctx_s stopped")
+				return
+			}
+			if len(registered) != 1 || !slices.Contains(registered[0], placeSprite) {
+				t.Fatal(registered)
+			}
+		})
+	}
 }
 
 func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *testing.T) {

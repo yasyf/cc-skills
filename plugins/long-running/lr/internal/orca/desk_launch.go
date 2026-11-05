@@ -32,6 +32,8 @@ const (
 	spriteStop    = "stop.status"
 	spriteMade    = "allocation.json"
 	laneEnv       = "CLAUDE_LONG_RUNNING_LANE"
+	placeOrca     = "orca"
+	placeSprite   = "sprite"
 )
 
 var (
@@ -509,7 +511,7 @@ func (d *Desk) reapOne(ctx context.Context, container, lane string, action incid
 	if sprite {
 		return d.settleSprite(ctx, container, lane, action, process != nil)
 	}
-	return d.settleLaunch(ctx, container, lane, action, "")
+	return d.settleLaunch(ctx, container, lane, action, placeOrca, "")
 }
 
 func spriteAttempt(brief string) string {
@@ -572,7 +574,7 @@ func (d *Desk) settleSprite(ctx context.Context, container, lane string, action 
 	}
 	out := strings.TrimSpace(string(raw))
 	if out == "" {
-		return d.settleLaunch(ctx, container, lane, action, "")
+		return d.settleLaunch(ctx, container, lane, action, placeSprite, "")
 	}
 	spec, err := launchOf(action)
 	if err != nil {
@@ -602,20 +604,7 @@ func (d *Desk) settleSprite(ctx context.Context, container, lane string, action 
 	if err := os.WriteFile(d.launchLog(container, action.ActionID), []byte(line+"\n"), 0o600); err != nil {
 		return err
 	}
-	argv := []string{d.tool("drive.py"), "spawned", "--lane", lane, "--brief", spec.Brief, "--model", spec.Model, "--effort", spec.Effort, "--placement", "sprite"}
-	if spec.Role != "" {
-		argv = append(argv, "--role", spec.Role)
-	}
-	said, code, err := d.capture(ctx, envPairs(d.Config.LaunchEnv), append(argv, "--by", or(spec.By, coordinatorLane))...)
-	if err != nil {
-		return err
-	}
-	if code != 0 {
-		if err := d.escalate(container+"/"+action.ActionID+":spawned", "SPAWN-UNRECORDED", lane, fmt.Sprintf("%s runs on a Sprite with no registry row, so the lane supervisor does not keep it alive: drive.py spawned exited %d: %.300s", action.ActionID, code, strings.TrimSpace(said))); err != nil {
-			return err
-		}
-	}
-	if err := d.settleLaunch(ctx, container, lane, action, ready.Workspace); err != nil {
+	if err := d.settleLaunch(ctx, container, lane, action, placeSprite, ready.Workspace); err != nil {
 		return err
 	}
 	installed, err := os.ReadFile(filepath.Join(attempt, "install.log"))
@@ -703,7 +692,7 @@ func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, acti
 	return d.escalateTo(ctx, container+"/"+action.ActionID+":sprite", "SPRITE-UNVERIFIABLE", lane, fmt.Sprintf("%s does not launch locally: its Sprite launch is unverified and a remote worker may be running%s; receipts in %s, nothing retried or cleaned up: %s", action.ActionID, started, attempt, reason), verdictTo(spec.By))
 }
 
-func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action incident.Action, box string) error {
+func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action incident.Action, placement, box string) error {
 	key := action.ActionID
 	raw, err := os.ReadFile(d.launchLog(container, key))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -752,6 +741,27 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	}); err != nil {
 		return err
 	}
+	value, marked, err := d.factOf(container, withdrawPending)
+	if err != nil {
+		return err
+	}
+	pending, _ := value.(map[string]any)
+	withdrawing := marked && pending[kindLaunch] == key
+	if !withdrawing {
+		argv := []string{d.tool("drive.py"), "spawned", "--lane", lane, "--brief", spec.Brief, "--model", spec.Model, "--effort", spec.Effort, "--placement", placement}
+		if spec.Role != "" {
+			argv = append(argv, "--role", spec.Role)
+		}
+		said, code, err := d.capture(ctx, envPairs(d.Config.LaunchEnv), append(argv, "--by", or(spec.By, coordinatorLane))...)
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			if err := d.escalate(container+"/"+key+":spawned", "SPAWN-UNRECORDED", lane, fmt.Sprintf("%s runs with no registry row, so the lane supervisor does not keep it alive: drive.py spawned exited %d: %.300s", key, code, strings.TrimSpace(said))); err != nil {
+				return err
+			}
+		}
+	}
 	reading, err := os.ReadFile(d.loadPath(key))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -774,7 +784,14 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 			return err
 		}
 	}
-	return d.stopPendingWithdraw(ctx, container, lane, key, dispatch)
+	if !withdrawing {
+		return nil
+	}
+	if err := d.store.Edit(container, func(tx *incident.Tx) error { return tx.DropFact(withdrawPending) }); err != nil {
+		return err
+	}
+	by, _ := pending["by"].(string)
+	return d.stopWithdrawn(ctx, "escalation:withdraw:"+container+"/"+key, by, key, lane, dispatch)
 }
 
 func (d *Desk) briefText(brief string) string {
@@ -820,20 +837,4 @@ func (d *Desk) failedLaunch(ctx context.Context, container, lane, key, reason, t
 		return err
 	}
 	return d.escalateTo(ctx, container+"/"+key, "LAUNCH-FAILED", lane, reason, to)
-}
-
-func (d *Desk) stopPendingWithdraw(ctx context.Context, container, lane, key, dispatch string) error {
-	value, found, err := d.factOf(container, withdrawPending)
-	if err != nil || !found {
-		return err
-	}
-	pending, _ := value.(map[string]any)
-	if pending[kindLaunch] != key {
-		return nil
-	}
-	if err := d.store.Edit(container, func(tx *incident.Tx) error { return tx.DropFact(withdrawPending) }); err != nil {
-		return err
-	}
-	by, _ := pending["by"].(string)
-	return d.stopWithdrawn(ctx, "escalation:withdraw:"+container+"/"+key, by, key, lane, dispatch)
 }
