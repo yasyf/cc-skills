@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -1202,6 +1203,49 @@ func TestAPluginPinInstallsOnABoxWithNoPluginStateYet(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"))
 	if err != nil || !strings.Contains(string(raw), `"version": "0.7.1199"`) {
 		t.Fatal(string(raw), err)
+	}
+}
+
+func TestAPackInstallPreFetchesItsDescriptorsAndOnlyAChecksumMismatchRefuses(t *testing.T) {
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 9.9.9\n"})
+	packURL, packSHA := tarball(t, dir, "pack.tgz", map[string]string{
+		".claude-plugin/plugin.json": `{"version":"0.7.1199"}`,
+		"bin/lr.binrun":              "descriptor\n",
+		"scripts/binrun.sh":          "#!/bin/sh\necho \"$*\" >> \"$HOME/fetched\"\necho \"$FETCH_SAID\" >&2\nexit \"$FETCH_CODE\"\n",
+	})
+	install := func(said string, code int) (string, string, error) {
+		home := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		run := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "plugin", "long-running@skills", packURL, packSHA, "0.7.1199", "--")
+		run.Env = append(os.Environ(), "HOME="+home, "FETCH_SAID="+said, "FETCH_CODE="+strconv.Itoa(code))
+		out, err := run.CombinedOutput()
+		return home, string(out), err
+	}
+
+	home, out, err := install("", 0)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	fetched, err := os.ReadFile(filepath.Join(home, "fetched"))
+	if want := "-- fetch " + filepath.Join(home, ".claude", "plugins", "cache", "skills", "long-running", "0.7.1199", "bin", "lr.binrun") + "\n"; err != nil || string(fetched) != want {
+		t.Fatal(string(fetched), want, err)
+	}
+
+	_, out, err = install("download: 504 Gateway Timeout", 1)
+	if err != nil || !strings.Contains(out, "was not pre-fetched: download: 504 Gateway Timeout") || !strings.Contains(out, "installed long-running@skills 0.7.1199") {
+		t.Fatal(out, err)
+	}
+
+	_, out, err = install("artifact checksum mismatch", 1)
+	if err == nil || !strings.Contains(out, "refused: artifact checksum mismatch") {
+		t.Fatal(out, err)
 	}
 }
 
