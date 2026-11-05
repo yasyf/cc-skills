@@ -341,7 +341,7 @@ func TestADiagramBesideAWholeCardIsDrawnOnItAboveItsChoice(t *testing.T) {
 	if err := json.Unmarshal(block, &card); err != nil {
 		t.Fatal(err)
 	}
-	var kinds []string
+	kinds := make([]string, 0, len(card.Children))
 	for _, child := range card.Children {
 		kinds = append(kinds, child.ID+":"+child.Type)
 	}
