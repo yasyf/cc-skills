@@ -868,18 +868,18 @@ func TestAFetchThatReadsARefARestartFilledWithNulsDropsItBeforeItsRetry(t *testi
 	equal(t, len(shell.gitCalls("fetch")), 2)
 }
 
-func TestAWholePassReadsBothTipsInOneLsRemoteAndRunsTheSliceAndPlanWhileTheHeadFetches(t *testing.T) {
-	started := map[string]chan struct{}{"slice": make(chan struct{}), "plan": make(chan struct{})}
+func TestAWholePassReadsBothTipsInOneLsRemoteAndRunsThePlanWhileTheHeadFetches(t *testing.T) {
+	planning := make(chan struct{})
 	overlapped := false
 	directory := finderJobDir(t, nil)
 	shell, _ := newFinderFake(t, replyOf())
 	shell.before = func(command Command) {
-		if command.Argv[0] == rulingsPath {
-			close(started[command.Argv[1]])
+		if command.Argv[0] == rulingsPath && command.Argv[1] == "plan" {
+			close(planning)
 			return
 		}
 		if command.Argv[0] == "git" && command.Argv[1] == "fetch" {
-			overlapped = waited(started["slice"]) && waited(started["plan"])
+			overlapped = waited(planning)
 		}
 	}
 	mustFinder(t, directory, shell)
@@ -889,6 +889,13 @@ func TestAWholePassReadsBothTipsInOneLsRemoteAndRunsTheSliceAndPlanWhileTheHeadF
 	lists := shell.gitCalls("ls-remote")
 	equal(t, len(lists), 1)
 	sameList(t, lists[0], []string{"git", "ls-remote", "origin", "HEAD", "refs/heads/dev"})
+}
+
+func TestAFinderSliceStartsOnlyOnceTheHeadsFetchHasLandedItsTree(t *testing.T) {
+	directory := finderJobDir(t, nil)
+	shell, _ := newFinderFake(t, replyOf())
+	shell.refuseSliceBeforeFetch(t)
+	mustFinder(t, directory, shell)
 }
 
 func waited(done chan struct{}) bool {

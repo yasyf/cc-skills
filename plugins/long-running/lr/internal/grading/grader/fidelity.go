@@ -6,6 +6,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -187,13 +188,13 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	if spec.Since == "" {
 		heads = s.candidates()
 	}
-	var slicing *future[string]
-	if len(heads) == 0 {
-		slicing = s.sliceRows(head, view.BaseRefName, "--words", "--cards", filepath.Join(s.dir, CardsFile))
-	}
 	base, trunk, err := s.checkedOut(view)
 	if err != nil {
 		return FidelityOutcome{}, err
+	}
+	var slicing *future[string]
+	if len(heads) == 0 {
+		slicing = s.sliceRows(head, view.BaseRefName, "--words", "--cards", filepath.Join(s.dir, CardsFile))
 	}
 	own, err := s.beyond([]string{base, trunk}, head)
 	if err != nil {
@@ -965,11 +966,15 @@ func (s *fidelityPassState) readHandedOff(view pullRequest, frame promptFrame, k
 		Stdin:   question,
 		Timeout: fidelityTimeout,
 	})
-	if err != nil {
-		return fidelityReply{}, err
-	}
 	var said struct {
 		Result string `json:"result"`
+	}
+	var exit *ExitError
+	if errors.As(err, &exit) && json.Unmarshal([]byte(exit.Stdout), &said) == nil && said.Result != "" {
+		return fidelityReply{}, &JobFailed{"the reader exited " + strconv.Itoa(exit.Code) + ": " + squeezed(said.Result)}
+	}
+	if err != nil {
+		return fidelityReply{}, err
 	}
 	if err := json.Unmarshal([]byte(out), &said); err != nil {
 		return fidelityReply{}, err

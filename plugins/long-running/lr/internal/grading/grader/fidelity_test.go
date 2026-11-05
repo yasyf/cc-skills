@@ -669,6 +669,26 @@ func TestAHeadCodexHandsToAReaderComesBackGradedByTheOpusReaderInTheSamePass(t *
 	holdsAll(t, readText(t, directory, ResultFile), `"verdict":"ok"`)
 }
 
+func TestAFidelitySliceStartsOnlyOnceTheHeadsFetchHasLandedItsTree(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(nil))
+	shell.refuseSliceBeforeFetch(t)
+	mustFidelity(t, directory, shell)
+}
+
+func TestAReaderThatExitsNonZeroFailsThePassNamingWhatItsJSONSaid(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
+	notLoggedIn := &ExitError{Code: 1, Stdout: `{"is_error":true,"result":"Not logged in · Please run /login"}`, Stderr: "Ignoring 12 permissions.allow entries from .claude/settings.json: this workspace has not been trusted."}
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "the eviction path needs a human read"}), notLoggedIn)
+	err := Fidelity(context.Background(), directory, shell.deps())
+	var failed *JobFailed
+	if !errors.As(err, &failed) {
+		t.Fatalf("err = %v, want JobFailed", err)
+	}
+	holdsAll(t, readText(t, directory, ResultFile), "the reader exited 1: Not logged in")
+	holdsNone(t, readText(t, directory, ResultFile), "permissions.allow")
+}
+
 func TestAReaderThatHandsTheHeadOnAgainFailsThePass(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
 	handed := fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "the eviction path needs a human read"})
