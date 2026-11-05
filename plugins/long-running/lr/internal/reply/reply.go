@@ -37,6 +37,7 @@ const (
 	communicator = "owner-relay"
 	storeDir     = "replies"
 	postTimeout  = 30 * time.Second
+	tapTimeout   = 90 * time.Second
 	maxTitle     = 140
 	maxPick      = 200
 	maxPicks     = 4
@@ -1128,7 +1129,7 @@ func (f Fanout) edit(ctx context.Context, r Reply, message Outcome, body string)
 		edited.Error = editFailed(message.Ref, err.Error())
 		return edited
 	}
-	done := f.dmStatus(ctx, "--card", card)[0]
+	done := f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)[0]
 	if done.Error != "" {
 		edited.Error = editFailed(message.Ref, done.Error)
 	}
@@ -1244,7 +1245,11 @@ func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
 }
 
 func (f Fanout) dmStatus(ctx context.Context, args ...string) []Outcome {
-	done, err := f.Runner.Run(ctx, shell.Command{Argv: append([]string{"cc-slack", "dm-status"}, args...), Timeout: postTimeout})
+	timeout := postTimeout
+	if slices.Contains(args, "--tap-pr") {
+		timeout = tapTimeout
+	}
+	done, err := f.Runner.Run(ctx, shell.Command{Argv: append([]string{"cc-slack", "dm-status"}, args...), Timeout: timeout})
 	if err != nil {
 		return []Outcome{failed("slack", err)}
 	}
