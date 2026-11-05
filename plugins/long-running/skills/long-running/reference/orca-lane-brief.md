@@ -257,7 +257,11 @@ process choice has nothing to build. Mark a held branch with
 unset the key once he picks. A card pushed to the board, a `reply` with `picks` or a
 Slack card carries that fact as `build` on its recommended option (a repo and branch, or
 `none` and why), and the card check warns, and still draws it, when that option needs code
-and names none. The branch is something he can try, not a provisional
+and names none. It warns the same way when that option splits, merges or shares out a
+thing the card never says the purpose of, or breaks the purpose it states: say in the
+background what the thing is for, from the paragraph of the repo's model doc (in the
+monorepo, `docs/object-hierarchy.md`) or your design doc's own section on it, and
+recommend no option that breaks it. The branch is something he can try, not a provisional
 pick: nothing lands from it before his answer, and a branch he rejects is deleted. Prose
 naming his pick is flagged as an untyped choice, and so is an ask with options addressed
 to root, the communicator or no one; one addressed to any other lane is that lane's question.

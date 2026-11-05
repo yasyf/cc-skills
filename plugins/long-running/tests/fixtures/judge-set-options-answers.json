@@ -249,5 +249,229 @@
         ]
       }
     ]
+  },
+  "set-options-purpose-broken": {
+    "expect": "yes",
+    "runs": [
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.6
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.67
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.58
+        ]
+      }
+    ]
+  },
+  "set-options-purpose-disk-design": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.19
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.18
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.2
+        ]
+      }
+    ]
+  },
+  "set-options-purpose-kept": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.55
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.48
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.46
+        ]
+      }
+    ]
+  },
+  "set-options-purpose-replica-kept": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.27
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.28
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.29
+        ]
+      }
+    ]
+  },
+  "set-options-purpose-search-unstated": {
+    "expect": "yes",
+    "runs": [
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.5
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.5
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.47
+        ]
+      }
+    ]
+  },
+  "set-options-purpose-timing": {
+    "expect": "no",
+    "runs": [
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.17
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.15
+        ]
+      },
+      {
+        "sonnet": [
+          "no",
+          "no"
+        ],
+        "jev": [
+          0.17
+        ]
+      }
+    ]
+  },
+  "set-options-purpose-unstated": {
+    "expect": "yes",
+    "runs": [
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.54
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.61
+        ]
+      },
+      {
+        "sonnet": [
+          "yes",
+          "yes"
+        ],
+        "jev": [
+          0.62
+        ]
+      }
+    ]
   }
 }

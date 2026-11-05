@@ -259,8 +259,8 @@ def test_the_sonnet_first_plain_words_judge_flags_under_one_in_ten_clean_texts_o
     assert missed * 10 < jargon
 
 
-def test_the_set_judge_flags_a_count_with_no_members_or_designs_with_no_diagram_and_passes_one_pr_a_full_list_a_drawn_diagram_or_a_timing_on_its_recorded_answers():
-    assert replayed(judge.DEFAULT_BACKEND, SET_OPTIONS_ANSWERS) == (23, 0, 0)
+def test_the_set_judge_flags_a_count_with_no_members_designs_with_no_diagram_or_a_split_store_whose_purpose_is_unsaid_or_broken_and_passes_one_pr_a_full_list_a_drawn_diagram_a_kept_purpose_or_a_timing_on_its_recorded_answers():
+    assert replayed(judge.DEFAULT_BACKEND, SET_OPTIONS_ANSWERS) == (43, 1, 0)
 
 
 def test_a_tap_carries_the_card_it_answered_and_a_typed_prompt_carries_none(tmp_path, monkeypatch):
