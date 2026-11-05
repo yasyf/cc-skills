@@ -1136,20 +1136,56 @@ func TestAnOrderNamesARowOrASubRow(t *testing.T) {
 	}
 }
 
-func TestAPRListedWithNoButtonToDrawSaysSoInTheResult(t *testing.T) {
+var inCI = store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "Low", State: prrow.StateOpen, Hold: prrow.None, SupersededBy: prrow.None, CI: prrow.CIPending, WaitsOn: "CI is running or not read yet at this head"}
+
+func TestAListedPRDrawsItsApproveInCIAndALinkOnlyWhenItCannotBeApproved(t *testing.T) {
 	r := Reply{ID: "r2", Title: "The relay fix", MD: "m", Status: info, PRs: []string{landPR}}
-	fake := scripted()
-	f := fanout(t, fake)
-	if _, warning := f.withPRCards(context.Background(), r); !strings.Contains(warning, "NO BUTTON: "+landPR+" has no row") {
+	f := fanout(t, scripted())
+	if _, warning := f.withPRCards(context.Background(), r); warning != "no row in the PR ledger, so no Approve and he sees a link: "+landPR {
 		t.Fatalf("no row warned %q", warning)
 	}
-	ledgerRow(t, f, store.ReviewRow{WaitsOn: "CI", Title: "Relay fix", Hold: "root:until the migration lands"})
-	if _, warning := f.withPRCards(context.Background(), r); !strings.Contains(warning, "NO BUTTON: "+landPR+" has no Approve: ") || !strings.Contains(warning, "nothing to tap") {
-		t.Fatalf("a row not ready warned %q", warning)
+	ledgerRow(t, f, inCI)
+	if _, warning := f.withPRCards(context.Background(), r); warning != "" {
+		t.Fatalf("a PR in CI warned %q, want its Approve drawn with nothing to say", warning)
 	}
-	r.Picks, r.Recommended = []string{"Land", "Hold"}, "Land"
-	if _, warning := f.withPRCards(context.Background(), r); strings.Contains(warning, "NO BUTTON") {
-		t.Fatalf("a pick reply carries its buttons, warned %q", warning)
+	if flags := r.tapFlags(); !slices.Equal(flags, []string{"--tap-pr", landPR}) {
+		t.Fatalf("tap flags = %q, want the PR in CI asked for its Approve", flags)
+	}
+	held := inCI
+	held.Hold = "root:until the migration lands"
+	ledgerRow(t, f, held)
+	if _, warning := f.withPRCards(context.Background(), r); warning != "" {
+		t.Fatalf("a held PR warned %q, want a link and nothing to say", warning)
+	}
+}
+
+func TestEveryOpenPRANoPickReplyNamesJoinsPRsForItsApprove(t *testing.T) {
+	landed := inCI
+	landed.State = prrow.StateLanded
+	tapped := inCI
+	tapped.Tapped = true
+	named := Reply{ID: "r1", Title: "Stuck Working tab", MD: "[#2196](" + landPR + ") makes the dashboard reread once the stream catches up; it is in CI.", Status: info}
+	for name, tc := range map[string]struct {
+		row   store.ReviewRow
+		reply Reply
+		prs   []string
+	}{
+		"in CI, named in md":          {inCI, named, []string{landPR}},
+		"named by its bare number":    {inCI, Reply{Title: "Relay", MD: "#2196 is in CI."}, []string{landPR}},
+		"already listed":              {inCI, Reply{Title: "Relay", MD: "#2196 is in CI.", PRs: []string{landPR}}, []string{landPR}},
+		"landed":                      {landed, named, nil},
+		"already tapped":              {tapped, named, nil},
+		"named only in a hidden cite": {inCI, Reply{Title: "Relay", MD: "It is fixed. <!-- #2196 -->"}, nil},
+		"a question with picks":       {inCI, Reply{Title: "Which fix?", MD: "#2196 is in CI.", Picks: []string{"A", "B"}}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, tc.row)
+			r, warning := f.withNamedPRs(tc.reply)
+			if !slices.Equal(r.PRs, tc.prs) || warning != "" {
+				t.Fatalf("prs %q, warning %q; want %q", r.PRs, warning, tc.prs)
+			}
+		})
 	}
 }
 
@@ -2162,7 +2198,7 @@ func TestABugsFixPRIsDrawnOrWarnedOnAsTheToolCanResolveIt(t *testing.T) {
 		"not named":                        {ready, about, "no", nil, nil, "", true},
 		"maybe named":                      {ready, about, "unsure", nil, nil, "this may name a bug these PRs fix; if it does, edit the reply with them in prs: " + landPR, true},
 		"judge down":                       {ready, about, "", errors.New("timed out"), nil, "the judge did not read, so a bug this names in words may lack its fix PR's tap card: timed out", true},
-		"not ready, with no picks":         {waiting, about, "yes", nil, nil, "this names a bug whose fix PR is not ready for his tap, so it carries no tap card yet: " + landPR + " waits on CI is running at this head", true},
+		"in CI, with no picks":             {waiting, about, "yes", nil, []string{landPR}, "", true},
 		"not ready, on a pick card":        {waiting, asking, "yes", nil, []string{landPR}, "", true},
 		"beside an approving pick":         {ready, approving, "yes", nil, nil, "this names a bug whose fix PR waits on his tap, and its card beside an approving pick would tie that pick to no one PR, so send the fix in its own reply with it in prs: " + landPR, true},
 		"already listed":                   {ready, listed, "", nil, []string{landPR}, "", false},
@@ -2246,6 +2282,7 @@ func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
 		"a ready PR listed in prs":                      {ready, Reply{Title: "Tap: #2196", MD: "It passed.", PRs: []string{landPR}}, false},
 		"a question with picks":                         {ready, Reply{Title: "Which fix?", MD: "Both wait on your answer.", Picks: []string{"A", "B"}}, false},
 		"his answer recorded":                           {ready, Reply{Title: "Port of #2196", MD: "Your pick is recorded, and the port state follows."}, false},
+		"a PR in CI listed in prs":                      {inCI, Reply{Title: "Stuck Working tab", MD: "#2196 is in CI and waits on your tap.", PRs: []string{landPR}}, false},
 		"a PR in the queue on his approval":             {ready, Reply{Title: "#2196 is in the merge queue on your approval", MD: "It lands next."}, false},
 		"a wait on something else, said plainly":        {store.ReviewRow{WaitsOn: "CI"}, Reply{Title: "#2196 waits on CI", MD: "It needs a green build first."}, false},
 		"a hidden cite that reads as an ask":            {ready, Reply{Title: "Fix is live", MD: "It is live. <!-- waits on your tap -->"}, false},

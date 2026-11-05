@@ -313,12 +313,12 @@ func (f Fanout) nothingToTap(r Reply) error {
 	if len(numbers) > 0 {
 		_, rows, err := board.Rows(f.Entry, numbers)
 		if err != nil || slices.ContainsFunc(rows, func(row store.ReviewRow) bool {
-			return slices.Contains(numbers, row.Number) && row.ReadyForTap && !row.Tapped && prrow.TapRefusal(row) == ""
+			return slices.Contains(numbers, row.Number) && board.OffersApproval(row)
 		}) {
 			return nil
 		}
 	}
-	return errors.New("NOTHING TO TAP: this asks him to tap, approve or answer, and it carries no picks and no PR in prs that is ready for his tap, so he would get a message with nothing to tap and nothing went out; add the picks, list the ready PR in prs, or say what it waits on without asking him")
+	return errors.New("NOTHING TO TAP: this asks him to tap, approve or answer, and it carries no picks and no open PR he can approve, so he would get a message with nothing to tap and nothing went out; add the picks, name the open PR, or say what it waits on without asking him")
 }
 
 func (f Fanout) tapWarning(r Reply) string {
@@ -345,7 +345,7 @@ func (f Fanout) tapWarning(r Reply) string {
 			standing = append(standing, url)
 		case rows[at].State == prrow.StateExempt && len(r.Picks) > 0 && !slices.Contains(exempt, url):
 			exempt = append(exempt, url)
-		case rows[at].ReadyForTap && !rows[at].Tapped && !slices.ContainsFunc(r.PRs, listed) && !slices.Contains(missing, url):
+		case len(r.Picks) > 0 && board.OffersApproval(rows[at]) && !slices.ContainsFunc(r.PRs, listed) && !slices.Contains(missing, url):
 			missing = append(missing, url)
 		}
 	}
@@ -360,9 +360,44 @@ func (f Fanout) tapWarning(r Reply) string {
 		warned = append(warned, "this asks him to pick on a PR that lands exempt with no tap, so take it off the question: "+strings.Join(exempt, ", "))
 	}
 	if len(missing) > 0 {
-		warned = append(warned, "this names a PR waiting on his tap and does not list it, so it carries no tap card; edit the reply with it in prs: "+strings.Join(missing, ", "))
+		warned = append(warned, "this question names a PR he can approve and does not list it, so its card carries no Approve; edit the reply with it in prs: "+strings.Join(missing, ", "))
 	}
 	return strings.Join(warned, "; ")
+}
+
+func (f Fanout) withNamedPRs(r Reply) (Reply, string) {
+	if len(r.Picks) > 0 {
+		return r, ""
+	}
+	seen := r
+	seen.MD = cardtext.HiddenCite.ReplaceAllString(r.MD, " ")
+	said, numbers := seen.namedPRs()
+	if len(numbers) == 0 {
+		return r, ""
+	}
+	repo, rows, err := board.Rows(f.Entry, numbers)
+	if err != nil {
+		return r, fmt.Sprintf("the PR ledger did not read, so no PR this names drew its Approve: %v", err)
+	}
+	var over []string
+	for n, found := range said {
+		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] })
+		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])
+		switch {
+		case at < 0 || !inRepo(repo, found) || !board.OffersApproval(rows[at]):
+		case slices.ContainsFunc(r.PRs, func(pr string) bool { return strings.EqualFold(pr, url) }):
+		case len(r.PRs) >= maxPRs:
+			if !slices.Contains(over, url) {
+				over = append(over, url)
+			}
+		default:
+			r.PRs = append(r.PRs, url)
+		}
+	}
+	if len(over) > 0 {
+		return r, fmt.Sprintf("this names more PRs than the %d a reply carries, so these draw no Approve: %s", maxPRs, strings.Join(over, ", "))
+	}
+	return r, ""
 }
 
 func (f Fanout) withBugFixes(ctx context.Context, r Reply) (Reply, string) {
@@ -418,15 +453,13 @@ func (f Fanout) withBugFixes(ctx context.Context, r Reply) (Reply, string) {
 			}
 		}
 	}
-	var untying, waiting, over []string
+	var untying, over []string
 	for _, row := range drawn {
 		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number)
 		switch {
 		case slices.ContainsFunc(r.PRs, func(pr string) bool { return strings.EqualFold(pr, url) }):
 		case approves:
 			untying = append(untying, url)
-		case len(r.Picks) == 0 && !row.ReadyForTap:
-			waiting = append(waiting, url+" waits on "+cmp.Or(row.WaitsOn, "nothing its row names"))
 		case len(r.PRs) >= maxPRs:
 			over = append(over, url)
 		default:
@@ -439,7 +472,6 @@ func (f Fanout) withBugFixes(ctx context.Context, r Reply) (Reply, string) {
 		found []string
 	}{
 		{"this names a bug whose fix PR waits on his tap, and its card beside an approving pick would tie that pick to no one PR, so send the fix in its own reply with it in prs: ", untying},
-		{"this names a bug whose fix PR is not ready for his tap, so it carries no tap card yet: ", waiting},
 		{fmt.Sprintf("this names a bug whose fix PR did not fit, since a reply carries at most %d PRs: ", maxPRs), over},
 		{"this may name a bug these PRs fix; if it does, edit the reply with them in prs: ", unsure},
 		{"the judge did not read, so a bug this names in words may lack its fix PR's tap card: ", unjudged},
@@ -835,8 +867,8 @@ func (r Reply) bareExplainMore() error {
 
 // withPRCards reads each PR the reply names from the drive's PR ledger, for
 // its card to carry. The reply posts whatever it finds: the second result is
-// one warning line naming what is missing, or empty. A PR that does not wait on
-// his tap, on a reply with no picks, is only a mention.
+// one warning line naming what is missing, or empty. A PR he cannot approve,
+// on a reply with no picks, is only a mention.
 func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 	if len(r.PRs) == 0 {
 		return r, ""
@@ -847,7 +879,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
 	}
 	repo, rows, read := board.Rows(f.Entry, numbers)
-	var short, noButton []string
+	var short, unrowed []string
 	cards := make([]prCard, 0, len(r.PRs))
 	for n, pr := range r.PRs {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool {
@@ -859,14 +891,11 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 				cards = append(cards, prCard{URL: pr})
 				continue
 			}
-			noButton = append(noButton, pr+" has no row in the PR ledger")
+			unrowed = append(unrowed, pr)
 			continue
 		}
 		row := rows[at]
-		if refusal := prrow.TapRefusal(row); len(r.Picks) == 0 && !row.Tapped && refusal != "" {
-			noButton = append(noButton, pr+" has no Approve: "+refusal)
-		}
-		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
+		if len(r.Picks) == 0 && !board.OffersApproval(row) {
 			continue
 		}
 		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), said.Said(ctx, board.PlanWords(row)), row.Risk, prrow.BlocksWords(row)}}
@@ -885,8 +914,8 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 		r.PRCards = cards
 	}
 	var warned []string
-	if len(noButton) > 0 {
-		warned = append(warned, "NO BUTTON: "+strings.Join(noButton, "; ")+"; he sees where it stands with nothing to tap, so say in md what he can do, or take it out of prs")
+	if len(unrowed) > 0 {
+		warned = append(warned, "no row in the PR ledger, so no Approve and he sees a link: "+strings.Join(unrowed, ", "))
 	}
 	if len(short) > 0 {
 		warned = append(warned, strings.Join(short, "; ")+", so its lane fixes the PR body's Summary, plan reference or Risk profile, and this reply is edited once the row has them")
