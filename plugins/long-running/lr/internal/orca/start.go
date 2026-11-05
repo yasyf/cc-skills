@@ -596,6 +596,13 @@ func (l *launch) composeCommand() error {
 	if config := l.Env("ORCA_LAUNCH_SLACK_MCP_CONFIG"); config != "" && l.slackMCP {
 		command += " --mcp-config " + config
 	}
+	if l.model == modelIncidentOpus {
+		config, err := alertTelemetryMCP(l.Env)
+		if err != nil {
+			return l.fail("alert telemetry: %v", err)
+		}
+		command += " --mcp-config " + shellQuote(config)
+	}
 	if args := l.Env("ORCA_LAUNCH_CLAUDE_ARGS"); args != "" {
 		command += " " + args
 	}
