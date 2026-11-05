@@ -288,7 +288,11 @@ func untyped(record client.Record) bool {
 		return true
 	}
 	kind := string(record.Kind)
-	return (kind == kindAsk || kind == kindDecide) && optionWords.MatchString(record.Text)
+	return (kind == kindAsk || kind == kindDecide) && toHim(record.To) && optionWords.MatchString(record.Text)
+}
+
+func toHim(to []string) bool {
+	return len(to) == 0 || slices.Contains(to, lanes.Root) || slices.Contains(to, communicator)
 }
 
 func (c *Check) repeated(ctx context.Context, order client.Record) Finding {

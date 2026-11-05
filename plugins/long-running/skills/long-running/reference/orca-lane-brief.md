@@ -249,7 +249,8 @@ Slack card carries that fact as `build` on its recommended option (a repo and br
 `none` and why), and the card check warns, and still draws it, when that option needs code
 and names none. The branch is something he can try, not a provisional
 pick: nothing lands from it before his answer, and a branch he rejects is deleted. Prose
-naming his pick is flagged as an untyped choice.
+naming his pick is flagged as an untyped choice, and so is an ask with options addressed
+to root, the communicator or no one; one addressed to any other lane is that lane's question.
 
 A concrete rule inside his design order ships only with his pick, cited in the PR body
 as `owner:m<N>` or a ccn answer id. So does a change to where data lives or how long
