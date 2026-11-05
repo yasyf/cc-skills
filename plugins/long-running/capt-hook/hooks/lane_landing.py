@@ -201,7 +201,7 @@ def repo_flag(call: Call) -> str | None:
 
 def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool:
     if entry is None:
-        return outside_landing_repo(evt, call)
+        return False
     if repo := named_repo(call):
         return repo.casefold() != entry["repo"].casefold()
     if unknown_dir(evt, call):
@@ -210,9 +210,9 @@ def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bo
     return done.returncode == 0 and done.stdout.strip() != entry["git_common_dir"]
 
 
-def outside_landing_repo(evt: BaseHookEvent, call: Call) -> bool:
-    if not (landing_repo := reqenv.getenv(LANDING_REPO_ENV)):
-        return True
+def outside_landing_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool:
+    if entry is not None or not (landing_repo := reqenv.getenv(LANDING_REPO_ENV)):
+        return outside_drive_repo(evt, call, entry)
     if (repo := named_repo(call)) is None and unknown_dir(evt, call):
         return False
     repo = repo or origin_repo(run_dir(evt, call))
@@ -375,7 +375,7 @@ def landing_verb(call: Call) -> str | None:
         landing(command="gh pr merge 36023 --squash --admin", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `gh pr merge`"),
         landing(command="gh stack merge 36023 --yes --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `gh stack merge`"),
         landing(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE, cwd=SLACK_CHECKOUT): Allow(),
-        Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
     },
 )
 def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
@@ -384,7 +384,7 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     entry = drive_entry(evt)
-    landings = [(call, verb) for call in evt.cmd.calls() if (verb := landing_verb(call)) and not outside_drive_repo(evt, call, entry)]
+    landings = [(call, verb) for call in evt.cmd.calls() if (verb := landing_verb(call)) and not outside_landing_repo(evt, call, entry)]
     if not landings:
         return None
     verbs = [verb for _, verb in landings]
