@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import statistics
 import subprocess
 import zlib
@@ -189,7 +190,7 @@ class FakeShell(ledger.Shell):
             return self._cci(argv)
         if argv[0] == "gh":
             return self._gh(argv, stdin)
-        if argv[0] == "bk":
+        if argv[:2] == ["tools/ci", "bk"]:
             return self._bk(argv)
         if argv[0] == "ccn":
             return self._ccn(argv, stdin)
@@ -399,11 +400,11 @@ class FakeShell(ledger.Shell):
         raise AssertionError(f"no listed PR {number}")
 
     def _bk(self, argv):
-        if argv[1:3] == ["build", "view"]:
+        if argv[2:4] == ["api", "-no-wait"] and re.fullmatch(r"/pipelines/[^/]+/builds/\d+", argv[4]):
             return fixture("build-view.json")
-        if argv[1:3] == ["job", "log"]:
+        if argv[2] == "log":
             return fixture(self.routes.get(f"log:{argv[-1]}", "job-log.txt"))
-        raise AssertionError(f"unexpected bk call: {argv}")
+        raise AssertionError(f"unexpected tools/ci bk call: {argv}")
 
     def _ccn(self, argv, stdin):
         if self.fail_ccn_writes and argv[1:4] == ["ledger", "row", "set"]:

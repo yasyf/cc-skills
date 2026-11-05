@@ -89,6 +89,50 @@ func TestALedgerPassRegistersEachNewPRTheHeadRecordsNameThenRefreshesAndReconcil
 	}
 }
 
+func TestOnlyTheRefreshGetsTheLandingHostsBuildkiteToken(t *testing.T) {
+	runner := &shelltest.Fake{}
+	runner.Reply("bk-read-token\n", "desk-creds")
+	runner.Reply("", ledgerTool)
+	l, _ := ledgerUnder(t, runner)
+	l.tokenCommand = []string{"desk-creds", "get", "secret/BUILDKITE_TOKEN", "Value"}
+	postHead(t, "lane-7", "org/repo#7")
+
+	if err := l.pass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	tokens := map[string][]string{}
+	for _, call := range runner.Calls() {
+		if call.Argv[0] == ledgerTool {
+			tokens[call.Argv[3]] = slices.DeleteFunc(slices.Clone(call.Env), func(entry string) bool { return !strings.HasPrefix(entry, "BUILDKITE_TOKEN=") })
+		}
+	}
+	if want := map[string][]string{"register": {}, "refresh": {"BUILDKITE_TOKEN=bk-read-token"}, "reconcile": {}}; !maps.EqualFunc(tokens, want, slices.Equal[[]string]) {
+		t.Fatalf("Buildkite tokens by verb = %v, want %v", tokens, want)
+	}
+}
+
+func TestARefreshWhoseTokenCommandFailsStillRunsAndSaysWhy(t *testing.T) {
+	runner := &shelltest.Fake{}
+	runner.Fail(1, "desk-creds: no such secret", "desk-creds")
+	runner.Reply("", ledgerTool)
+	l, _ := ledgerUnder(t, runner)
+	l.tokenCommand = []string{"desk-creds", "get", "secret/BUILDKITE_TOKEN", "Value"}
+	l.limited, l.told = t0, true
+
+	err := l.pass(context.Background())
+
+	if err == nil || !strings.Contains(err.Error(), "refresh ran with no Buildkite token") {
+		t.Fatalf("pass = %v, want the missing token named", err)
+	}
+	if got, want := verbs(runner), []string{"refresh", "reconcile"}; !slices.Equal(got, want) {
+		t.Fatalf("verbs = %v, want %v", got, want)
+	}
+	if !l.limited.IsZero() || l.told {
+		t.Fatalf("limited %v told %v after a refresh that ran, want the rate-limit outage cleared so the next one reaches root", l.limited, l.told)
+	}
+}
+
 func TestACheckoutThatWillNotFastForwardReachesRootAndTheLedgerStillRuns(t *testing.T) {
 	runner := &shelltest.Fake{}
 	runner.Fail(1, "fatal: Not possible to fast-forward", "git", "-C", co, "merge")

@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from long_running import ledger
 import pytest
-from conftest import DIRTY_HEAD, LEDGER, LISTED_HEAD, MOVED_HEAD, FakeShell
+from conftest import DIRTY_HEAD, FIXTURES, LEDGER, LISTED_HEAD, MOVED_HEAD, FakeShell, fixture
 
 
 def refresh(shell, lock, lane=(), pr=()):
@@ -164,10 +164,43 @@ def test_a_stored_probe_error_is_read_again_once_and_then_kept():
     stored = json.dumps([{"name": "buildkite/test", "url": url, "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404"}])
     shell = FakeShell()
     first = json.loads(ledger.with_errors(shell, json.dumps([{"name": "buildkite/test", "url": url}]), stored))
-    assert [call[:3] for call in shell.calls if call[0] == "bk"] == [["bk", "build", "view"], ["bk", "job", "log"]]
+    assert [call[:3] for call in shell.calls if call[0] == "tools/ci"] == [["tools/ci", "bk", "api"], ["tools/ci", "bk", "log"]]
     again = FakeShell()
     assert json.loads(ledger.with_errors(again, json.dumps([{"name": "buildkite/test", "url": url}]), json.dumps(first))) == first
-    assert [call for call in again.calls if call[0] == "bk"] == []
+    assert [call for call in again.calls if call[0] == "tools/ci"] == []
+
+
+class BuildkiteThroughToolsCi(FakeShell):
+    def run(self, argv, stdin=None, cwd=None):
+        if argv[0] != "tools/ci":
+            return super().run(argv, stdin, cwd)
+        self.calls.append(argv)
+        return ledger.Shell.run(self, argv, stdin, cwd)
+
+    def _record(self, repo, number):
+        record = super()._record(repo, number)
+        record["rollup"]["contexts"]["nodes"].append({"__typename": "StatusContext", "context": "buildkite/test", "state": "FAILURE", "targetUrl": "https://buildkite.com/forge/test/builds/8794"})
+        return record
+
+
+def test_a_refresh_on_a_host_with_no_bk_reads_the_failed_job_through_the_checkouts_tools_ci(tmp_path, monkeypatch, red_routes):
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    (checkout / "tools").mkdir()
+    ci = checkout / "tools" / "ci"
+    ci.write_text(f'#!/bin/sh\n[ "$1 $2 $3" = "bk api -no-wait" ] && exec /bin/cat {FIXTURES / "build-view.json"}\n[ "$1 $2" = "bk log" ] && exec /bin/cat {FIXTURES / "job-log.txt"}\nexit 2\n')
+    ci.chmod(0o755)
+    (checkout / "go").mkdir()
+    monkeypatch.chdir(checkout / "go")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    shell = BuildkiteThroughToolsCi(routes=red_routes)
+
+    refresh(shell, tmp_path / "ledger.lock", pr=["21052"])
+
+    checks = [check for check in json.loads(shell.fields("21052")["failing_checks"]) if ledger.BUILDKITE_URL.match(check["url"])]
+    assert checks
+    assert {(check["job"], check["error"]) for check in checks} == {("Gate sand build timing", ledger.first_error_line(fixture("job-log.txt")))}
+    assert {tuple(call[:3]) for call in shell.calls if call[0] == "tools/ci"} == {("tools/ci", "bk", "api"), ("tools/ci", "bk", "log")}
 
 
 def test_ai_review_absent_when_no_such_check_run(lock):
@@ -519,7 +552,7 @@ def test_a_red_buildkite_check_carries_its_first_error_line_read_once_per_url():
     assert "job" not in first[1] and "error" not in first[1]
     again = FakeShell()
     assert json.loads(ledger.with_errors(again, checks, json.dumps(first))) == first
-    assert [call for call in again.calls if call[0] == "bk"] == []
+    assert [call for call in again.calls if call[0] == "tools/ci"] == []
 
 
 def test_an_empty_ledger_refreshes_without_reading_the_cache(lock):

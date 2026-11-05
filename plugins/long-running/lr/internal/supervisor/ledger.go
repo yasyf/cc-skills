@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -31,11 +33,12 @@ const (
 var ledgerPRKey = regexp.MustCompile(`^(?:[\w.-]+/[\w.-]+#)?\d+$`)
 
 type prLedger struct {
-	env     lanes.Env
-	store   *store.Store
-	id      string
-	limited time.Time
-	told    bool
+	env          lanes.Env
+	store        *store.Store
+	id           string
+	tokenCommand []string
+	limited      time.Time
+	told         bool
 }
 
 func (l *prLedger) pass(ctx context.Context) error {
@@ -45,11 +48,17 @@ func (l *prLedger) pass(ctx context.Context) error {
 	if fresh {
 		dropped = l.dropRetired(ctx)
 	}
-	return errors.Join(advanced, registered, refreshed, dropped, l.run(ctx, "reconcile", "--repo", l.env.Config.Repo, "--ledger", l.id, "--checkout", l.env.Config.Checkout))
+	return errors.Join(advanced, registered, refreshed, dropped, l.run(ctx, nil, "reconcile", "--repo", l.env.Config.Repo, "--ledger", l.id, "--checkout", l.env.Config.Checkout))
 }
 
-func (l *prLedger) refresh(ctx context.Context) (fresh bool, err error) {
-	err = l.run(ctx, "refresh", "--repo", l.env.Config.Repo, "--ledger", l.id)
+func (l *prLedger) refresh(ctx context.Context) (bool, error) {
+	env, unread := l.buildkite(ctx)
+	fresh, err := l.refreshWith(ctx, env)
+	return fresh, errors.Join(unread, err)
+}
+
+func (l *prLedger) refreshWith(ctx context.Context, env []string) (fresh bool, err error) {
+	err = l.run(ctx, env, "refresh", "--repo", l.env.Config.Repo, "--ledger", l.id)
 	var exit *shell.ExitError
 	if !errors.As(err, &exit) || exit.Code != ledgerLimited {
 		l.limited, l.told = time.Time{}, false
@@ -168,18 +177,29 @@ func (l *prLedger) register(ctx context.Context) error {
 				continue
 			}
 			named[number] = true
-			failed = append(failed, l.run(ctx, "register", "--ledger", l.id, "--repo", l.env.Config.Repo, "--lane", record.Lane, "--pr", number))
+			failed = append(failed, l.run(ctx, nil, "register", "--ledger", l.id, "--repo", l.env.Config.Repo, "--lane", record.Lane, "--pr", number))
 		}
 		failed = append(failed, l.store.Advance(ledgerCursor, record.Seq))
 	}
 	return errors.Join(failed...)
 }
 
-func (l *prLedger) run(ctx context.Context, argv ...string) error {
+func (l *prLedger) buildkite(ctx context.Context) ([]string, error) {
+	if len(l.tokenCommand) == 0 {
+		return nil, nil
+	}
+	value, err := (&bkread.Token{Command: l.tokenCommand}).Value(ctx, l.env.Runner)
+	if err != nil {
+		return nil, fmt.Errorf("refresh ran with no Buildkite token, so failing checks carry no job or error line: %w", err)
+	}
+	return []string{"BUILDKITE_TOKEN=" + value}, nil
+}
+
+func (l *prLedger) run(ctx context.Context, env []string, argv ...string) error {
 	tool := filepath.Join(l.env.Claude, "long-running", "current", "bin", "ledger.py")
 	_, err := l.env.Runner.Run(ctx, shell.Command{
 		Argv:    append([]string{tool, "-C", l.env.Config.Checkout}, argv...),
-		Env:     []string{"CLAUDE_LONG_RUNNING_DRIVE=" + l.env.Config.Drive},
+		Env:     append([]string{"CLAUDE_LONG_RUNNING_DRIVE=" + l.env.Config.Drive}, env...),
 		Timeout: ledgerLimit,
 	})
 	return err
