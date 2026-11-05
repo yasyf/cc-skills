@@ -30,8 +30,9 @@ const (
 	fidelityTimeout = 3600 * time.Second
 	readerModel     = "opus"
 	readerEffort    = "medium"
-	readerTools     = "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+	readerTools     = "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git cat-file:*),Bash(git --no-lazy-fetch cat-file:*),Bash(git ls-files:*),Bash(git ls-remote:*),Bash(git fetch --no-write-fetch-head:*)"
 	readerQuestion  = "reader-question.md"
+	readerReply     = "reader-reply.md"
 	deletionKey     = "owner/deletion"
 	answerKey       = "answer/"
 	rubricFile      = "fidelity-desk-brief.md"
@@ -293,7 +294,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 		view = now
 	}
 	if _, pending := s.touchedOldApp(); reply.Verdict == "reader" && !pending {
-		if reply, err = s.readHandedOff(view, frame, keys, reply.Reader); err != nil {
+		if reply, err = s.readHandedOff(view, frame, keys, reply); err != nil {
 			return FidelityOutcome{}, err
 		}
 	}
@@ -965,12 +966,12 @@ func (s *fidelityPassState) askFidelity(question string, attempt int) (fidelityR
 	return reply, nil
 }
 
-func (s *fidelityPassState) readHandedOff(view pullRequest, frame promptFrame, keys []string, why string) (fidelityReply, error) {
+func (s *fidelityPassState) readHandedOff(view pullRequest, frame promptFrame, keys []string, first fidelityReply) (fidelityReply, error) {
 	question, err := s.prompt(view, frame)
 	if err != nil {
 		return fidelityReply{}, err
 	}
-	question = fmt.Sprintf("%s\nA first read handed this head to you, its reader, because %s. Grade it yourself: `verdict` is `ok` or `missing`, never `reader`. Reply with the JSON object alone, in the shape this schema gives:\n%s\n", question, squeezed(why), fidelitySchema)
+	question = fmt.Sprintf("%s\nA first read handed this head to you, its reader, because %s. Grade it yourself: `verdict` is `ok` or `missing`, never `reader`. Run git as plain `git <command>`, never with `-C` or after a `cd`: every Bash call starts in %s, and only that form is allowed. The first read's `checked` stands beside yours, so your `checked` lists the rows you read. Reply with the JSON object alone, in the shape this schema gives:\n%s\n", question, squeezed(first.Reader), s.job.Checkout, fidelitySchema)
 	if err := os.WriteFile(filepath.Join(s.dir, readerQuestion), []byte(question), 0o600); err != nil {
 		return fidelityReply{}, err
 	}
@@ -978,11 +979,15 @@ func (s *fidelityPassState) readHandedOff(view pullRequest, frame promptFrame, k
 	if err != nil {
 		return fidelityReply{}, err
 	}
+	if err := os.WriteFile(filepath.Join(s.dir, readerReply), []byte(said), 0o600); err != nil {
+		return fidelityReply{}, err
+	}
 	start, end := strings.Index(said, "{"), strings.LastIndex(said, "}")
 	var reply fidelityReply
 	if start < 0 || end < start || json.Unmarshal([]byte(said[start:end+1]), &reply) != nil {
 		return fidelityReply{}, &JobFailed{"the reader's reply holds no grade JSON: " + squeezed(said)}
 	}
+	reply.Checked = slices.Compact(slices.Sorted(slices.Values(slices.Concat(first.Checked, reply.Checked))))
 	if len(reply.Missing) > 0 {
 		reply.Verdict = "missing"
 	}
