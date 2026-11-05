@@ -15,6 +15,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -460,7 +461,7 @@ func TestAnUnsettledDispatchWithNoAgentVerdictIsAnUnreadSource(t *testing.T) {
 	}
 }
 
-func TestOrcaLivenessIsOneWorkerListReadAtOneLaneAndAtAThousand(t *testing.T) {
+func TestOrcaLivenessIsOneWorkerListReadAtOneLaneAndAtMany(t *testing.T) {
 	reads := func(n int) int {
 		env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir(), Now: func() time.Time { return t0 }}
 		dispatches := map[string]string{}
@@ -485,7 +486,7 @@ func TestOrcaLivenessIsOneWorkerListReadAtOneLaneAndAtAThousand(t *testing.T) {
 		equal(t, len(rows), n)
 		return calls
 	}
-	equal(t, reads(1000), reads(1))
+	equal(t, reads(scaletest.N()), reads(1))
 }
 
 func prNode(t *testing.T, text string) *PRNode {

@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -110,15 +111,15 @@ func sweepReads(t *testing.T, heads int) (unchanged, oneChanged int) {
 	return unchanged, sweep()
 }
 
-func TestTheSweepReadsAsMuchForAThousandReadyHeadsAsForOneAndOnlyForWhatChanged(t *testing.T) {
+func TestTheSweepReadsAsMuchForManyReadyHeadsAsForOneAndOnlyForWhatChanged(t *testing.T) {
 	oneUnchanged, oneChanged := sweepReads(t, 1)
-	manyUnchanged, manyChanged := sweepReads(t, 1000)
+	manyUnchanged, manyChanged := sweepReads(t, scaletest.N())
 
 	if oneUnchanged != 0 || manyUnchanged != oneUnchanged {
-		t.Fatalf("a sweep with nothing changed made %d reads at N=1 and %d at N=1000, want none at either", oneUnchanged, manyUnchanged)
+		t.Fatalf("a sweep with nothing changed made %d reads at N=1 and %d at N=%d, want none at either", oneUnchanged, manyUnchanged, scaletest.N())
 	}
 	if oneChanged != 1 || manyChanged != oneChanged {
-		t.Fatalf("a sweep after one PR's record made %d reads at N=1 and %d at N=1000, want that PR's one read at both", oneChanged, manyChanged)
+		t.Fatalf("a sweep after one PR's record made %d reads at N=1 and %d at N=%d, want that PR's one read at both", oneChanged, manyChanged, scaletest.N())
 	}
 }
 

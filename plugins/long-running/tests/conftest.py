@@ -88,12 +88,12 @@ def shard_plan(files: dict[str, float], slow: dict[str, float], count: int) -> l
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Under LR_TEST_SHARD `i/n`, plan shard `i` from the seconds in LR_TEST_DURATIONS, so each CI matrix job collects only its own files; LR_TEST_SCALE=skip leaves the scale tests out of the plan and the run."""
+    """Under LR_TEST_SHARD `i/n`, plan shard `i` from the seconds in LR_TEST_DURATIONS, so each CI matrix job collects only its own files; the scale tests join the plan and the run only under LR_TEST_SCALE=run."""
     config.addinivalue_line("markers", "scale: parametrized at fleet or history scale; pull requests skip it, main and nightly run it")
     if not (shard := os.environ.get("LR_TEST_SHARD")):
         return
     index, count = map(int, shard.split("/"))
-    scale = os.environ.get("LR_TEST_SCALE") != "skip"
+    scale = os.environ.get("LR_TEST_SCALE") == "run"
     recorded = json.loads(Path(os.environ["LR_TEST_DURATIONS"]).read_text())
     names = sorted({path.name for pattern in config.getini("python_files") for path in FIXTURES.parent.glob(pattern)})
     known = {name: plain + scaled_seconds * scale for name, (plain, scaled_seconds) in recorded["files"].items() if name in names}
@@ -111,7 +111,7 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Mark the scale tests, record them in the junit report for lr_durations.py, and keep only this shard's tests."""
     shard = config.stash.get(SHARD, None)
-    skip = os.environ.get("LR_TEST_SCALE") == "skip"
+    skip = os.environ.get("LR_TEST_SCALE") != "run"
     kept, dropped = [], []
     for item in items:
         if scale := scaled(item.nodeid):

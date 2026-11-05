@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -362,8 +363,8 @@ func TestReadingACardMarksNoRowShownAndOnlyACardThatStandsAtItsHeadDoes(t *testi
 	}
 }
 
-func TestTheCardReadsNothingButTheStoreAtOneAndAThousandPRs(t *testing.T) {
-	for _, n := range []int{1, 1000} {
+func TestTheCardReadsNothingButTheStoreAtOneAndManyPRs(t *testing.T) {
+	for _, n := range []int{1, scaletest.N()} {
 		t.Run(strconv.Itoa(n), func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", home)

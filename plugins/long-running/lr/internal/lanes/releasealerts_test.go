@@ -15,6 +15,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -241,7 +242,7 @@ func TestSlackReadsPerTickStayFlatAsTheReleasesChannelGrows(t *testing.T) {
 		return len(channel.reads)
 	}
 
-	equal(t, reads(1), reads(1000))
+	equal(t, reads(1), reads(scaletest.N()))
 	equal(t, reads(1), 1)
 }
 

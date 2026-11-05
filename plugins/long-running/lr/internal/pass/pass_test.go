@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -525,8 +526,8 @@ func TestARedOrAConflictWakesItsRunningLaneThroughTheDeskAtOnceAndAgainPastItsDe
 	}
 }
 
-func TestOneRedAmongOpenRowsCostsOneOwnerReadAndOneWakeAtOneRowOrAThousand(t *testing.T) {
-	for _, n := range []int{1, 1000} {
+func TestOneRedAmongOpenRowsCostsOneOwnerReadAndOneWakeAtOneRowOrMany(t *testing.T) {
+	for _, n := range []int{1, scaletest.N()} {
 		t.Run(strconv.Itoa(n), func(t *testing.T) {
 			s, r := newStore(t), &recorder{}
 			if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {

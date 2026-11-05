@@ -8,6 +8,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -58,7 +59,7 @@ func TestWhoseReadsEachAuthorOnceAcrossPosts(t *testing.T) {
 		}
 		return len(runner.Calls())
 	}
-	if one, thousand := reads(1), reads(1000); one != 2 || thousand != one {
-		t.Fatalf("GitHub reads at 1 post = %d, at 1,000 posts = %d; want 2 for both, one per pull request", one, thousand)
+	if one, many := reads(1), reads(scaletest.N()); one != 2 || many != one {
+		t.Fatalf("GitHub reads at 1 post = %d, at %d posts = %d; want 2 for both, one per pull request", one, scaletest.N(), many)
 	}
 }

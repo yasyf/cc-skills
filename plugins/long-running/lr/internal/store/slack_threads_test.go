@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 )
 
 func TestAThreadRowMergesEachPostAndKeepsTheLaneThatDrewIt(t *testing.T) {
@@ -32,9 +34,9 @@ func TestAThreadNoPostNamedHasNoRow(t *testing.T) {
 	}
 }
 
-func TestAThreadReadUsesTheKeyAtAThousandRows(t *testing.T) {
+func TestAThreadReadUsesTheKeyAtManyRows(t *testing.T) {
 	s := memory(t)
-	for i := range 1000 {
+	for i := range scaletest.N() {
 		if err := s.PutSlackThread(SlackThread{TS: fmt.Sprintf("%d.0", i), Reply: "r"}); err != nil {
 			t.Fatal(err)
 		}
@@ -66,9 +68,9 @@ func TestAnAlertKeepsItsFirstPost(t *testing.T) {
 	}
 }
 
-func TestAnAlertReadUsesTheKeyAtAThousandAlerts(t *testing.T) {
+func TestAnAlertReadUsesTheKeyAtManyAlerts(t *testing.T) {
 	s := memory(t)
-	for i := range 1000 {
+	for i := range scaletest.N() {
 		if err := s.PutAlertThread(fmt.Sprintf("sentry-%d", i), AlertThread{Reply: "r", TS: "1.0"}); err != nil {
 			t.Fatal(err)
 		}

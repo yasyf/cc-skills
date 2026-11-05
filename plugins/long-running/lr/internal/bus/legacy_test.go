@@ -15,6 +15,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 )
 
 const repo = "org/repo"
@@ -336,7 +337,7 @@ func TestAGoPostedOnThisNodeLiftsAHoldPostedHereByItsSeq(t *testing.T) {
 }
 
 func TestHoldLiftsReadsOnceForAnyNumberOfHolds(t *testing.T) {
-	for _, n := range []int64{1, 1000} {
+	for _, n := range []int64{1, int64(scaletest.N())} {
 		records := make([]client.Record, n)
 		for i := range n {
 			records[i] = client.Record{Seq: 2000 + i, Kind: "hold", Resolves: i + 1}

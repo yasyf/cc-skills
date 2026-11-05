@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -309,7 +310,7 @@ func TestATurnKilledByAnAPIErrorResumesTheSameLane(t *testing.T) {
 	equal(t, len(out.Relaunched), 0)
 }
 
-func TestATickReadsTheSameAtOneLaneAndAtAThousand(t *testing.T) {
+func TestATickReadsTheSameAtOneLaneAndAtMany(t *testing.T) {
 	counts := func(n int) [3]int {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
@@ -330,5 +331,5 @@ func TestATickReadsTheSameAtOneLaneAndAtAThousand(t *testing.T) {
 		tick(t, s, f, t0)
 		return [3]int{who, records, states}
 	}
-	equal(t, counts(1000), counts(1))
+	equal(t, counts(scaletest.N()), counts(1))
 }

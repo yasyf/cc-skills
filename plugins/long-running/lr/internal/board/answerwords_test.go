@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -51,7 +52,7 @@ func TestTextWithNoCiteReadsNothing(t *testing.T) {
 }
 
 func TestOneReadPerAnswerAtAnyNumberOfRows(t *testing.T) {
-	for _, rows := range []int{1, 1000} {
+	for _, rows := range []int{1, scaletest.N()} {
 		runner := &answerShell{answers: map[string]string{"02cd8a5": `{"title":"Fork?","body":""}`}}
 		words := NewAnswerWords(runner, "/co")
 		for range rows {

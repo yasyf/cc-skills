@@ -18,6 +18,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -596,10 +597,10 @@ func crowded(t *testing.T, lanes int) *world {
 	return w
 }
 
-func TestOutputStaysUnderTheCapWithFlatReadsAtOneAndAThousandLanes(t *testing.T) {
-	one, thousand := crowded(t, 1), crowded(t, 1000)
+func TestOutputStaysUnderTheCapWithFlatReadsAtOneAndManyLanes(t *testing.T) {
+	one, many := crowded(t, 1), crowded(t, scaletest.N())
 	small := one.read(t, Window)
-	large := thousand.read(t, Window)
+	large := many.read(t, Window)
 
 	for _, report := range []Report{small, large} {
 		text, shown := Render(report.Findings, report.note())
@@ -610,11 +611,11 @@ func TestOutputStaysUnderTheCapWithFlatReadsAtOneAndAThousandLanes(t *testing.T)
 			t.Fatal("nothing fit under the cap")
 		}
 	}
-	equal(t, []int{thousand.bus.tails, thousand.bus.whos, thousand.runner.lists}, []int{one.bus.tails, one.bus.whos, one.runner.lists})
+	equal(t, []int{many.bus.tails, many.bus.whos, many.runner.lists}, []int{one.bus.tails, one.bus.whos, one.runner.lists})
 	equal(t, one.runner.shows, 1)
-	equal(t, thousand.runner.shows, thousand.cfg.Transcripts)
+	equal(t, many.runner.shows, many.cfg.Transcripts)
 	text, _ := Render(large.Findings, large.note())
-	if !strings.Contains(text, "read the 50 largest of 1000 changed transcripts") || !strings.Contains(text, " more\n") {
+	if !strings.Contains(text, fmt.Sprintf("read the 50 largest of %d changed transcripts", scaletest.N())) || !strings.Contains(text, " more\n") {
 		t.Fatalf("the report does not say what it left out:\n%s", text)
 	}
 }

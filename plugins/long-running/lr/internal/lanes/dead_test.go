@@ -7,6 +7,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -132,7 +133,7 @@ func TestAnIdleRosteredTeammateHoldingNothingRetiresPastTheThresholdAndOneWithAP
 	}
 }
 
-func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtAThousand(t *testing.T) {
+func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtMany(t *testing.T) {
 	counts := func(n int) [6]int {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
@@ -158,7 +159,7 @@ func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtAThousand(t *testi
 		equal(t, len(retired), n)
 		return [6]int{peers, records, states, owed, len(f.launches), len(f.ofKind("report"))}
 	}
-	equal(t, counts(1000), counts(1))
+	equal(t, counts(scaletest.N()), counts(1))
 }
 
 func TestAWorkerDoneFromALaneNoRecordOfWhichReachedTheBusIsHeldForRoot(t *testing.T) {
@@ -232,7 +233,7 @@ func TestOpenBranchesComeFromTheRowsAndLeaveOutEndedOnes(t *testing.T) {
 	equal(t, branches, map[string][]int{"open-one": {1, 2}})
 }
 
-func TestTheBranchReadIsOnePerTickAtOneRetiredLaneAndAtAThousand(t *testing.T) {
+func TestTheBranchReadIsOnePerTickAtOneRetiredLaneAndAtMany(t *testing.T) {
 	reads := func(n int) int {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
@@ -249,7 +250,7 @@ func TestTheBranchReadIsOnePerTickAtOneRetiredLaneAndAtAThousand(t *testing.T) {
 		equal(t, len(f.ofKind("report")[0].PRs), n)
 		return f.branchReads
 	}
-	equal(t, reads(1000), reads(1))
+	equal(t, reads(scaletest.N()), reads(1))
 }
 
 func TestADeskMetaOrReleaseLaneIsStandingSoItsDeathRelaunchesItWithNoStandingLine(t *testing.T) {

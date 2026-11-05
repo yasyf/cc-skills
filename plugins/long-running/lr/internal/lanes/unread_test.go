@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -67,7 +68,7 @@ func TestASpriteLaneHoldingAnyMailIsWokenOnTheFirstTickPastThirtySecondsAndOnlyO
 	equal(t, woken.Woken, []string{lane2})
 }
 
-func TestOneTickWakesOnlyTheSpriteLaneHoldingMailAtOneLaneAndAtAThousand(t *testing.T) {
+func TestOneTickWakesOnlyTheSpriteLaneHoldingMailAtOneLaneAndAtMany(t *testing.T) {
 	wakes := func(n int) int {
 		s := memory(t)
 		f := onSprite(t, s)
@@ -82,7 +83,7 @@ func TestOneTickWakesOnlyTheSpriteLaneHoldingMailAtOneLaneAndAtAThousand(t *test
 		tick(t, s, f, now)
 		return len(f.wakes)
 	}
-	equal(t, wakes(1000), wakes(1))
+	equal(t, wakes(scaletest.N()), wakes(1))
 	equal(t, wakes(1), 1)
 }
 
@@ -526,7 +527,7 @@ func TestARelayThatFailsToPostLeavesTheTickRunningAndPostsOnceLater(t *testing.T
 
 func TestManyOrdersToOneLaneCostOneWakeAndOneRelay(t *testing.T) {
 	counts := map[int][2]int{}
-	for _, orders := range []int{1, 1000} {
+	for _, orders := range []int{1, scaletest.N()} {
 		s := memory(t)
 		f, _ := standingLane(t, s)
 		for seq := range orders {
@@ -539,6 +540,6 @@ func TestManyOrdersToOneLaneCostOneWakeAndOneRelay(t *testing.T) {
 
 		counts[orders] = [2]int{len(f.wakes), len(relays(f))}
 	}
-	equal(t, counts[1000], counts[1])
+	equal(t, counts[scaletest.N()], counts[1])
 	equal(t, counts[1], [2]int{1, 1})
 }

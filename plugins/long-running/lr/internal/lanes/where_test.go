@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -206,7 +207,7 @@ func TestAFailedLiveReadPrintsUnknownWithWhyAndKeepsWhatItCouldRead(t *testing.T
 }
 
 func TestAPassReadsTheReleaseOnceHoweverManyChangesItLocates(t *testing.T) {
-	for _, changes := range []int{1, 1000} {
+	for _, changes := range []int{1, scaletest.N()} {
 		reads := whereReads{live: jsonList(deployRow("api", "plat-usw2-prod", carryingCommit, "2026-11-03T21:30:00Z")), status: jsonList(chatVersionCut("running"), settledCut)}
 		read := reads.read(whereNow)
 		view := read.View(context.Background())

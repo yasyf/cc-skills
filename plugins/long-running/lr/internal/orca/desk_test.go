@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
@@ -2965,7 +2966,7 @@ func TestTheReplayRelaysDroppedMailOnceAndMailAlreadyRelayedNever(t *testing.T) 
 	}
 }
 
-func TestTheRelayReadsRunHomeAsOftenAtAThousandLanesAsAtOne(t *testing.T) {
+func TestTheRelayReadsRunHomeAsOftenAtManyLanesAsAtOne(t *testing.T) {
 	reads := func(count int) int {
 		w := newDeskWorld(t)
 		for i := range count {
@@ -2976,8 +2977,8 @@ func TestTheRelayReadsRunHomeAsOftenAtAThousandLanesAsAtOne(t *testing.T) {
 		w.checked(message)
 		return len(w.calls)
 	}
-	if one, thousand := reads(1), reads(1000); one != thousand {
-		t.Fatal(one, thousand)
+	if one, many := reads(1), reads(scaletest.N()); one != many {
+		t.Fatal(one, many)
 	}
 }
 

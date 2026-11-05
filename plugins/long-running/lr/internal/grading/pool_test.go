@@ -25,6 +25,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -1281,8 +1282,8 @@ func TestAPidTheSystemHandedToAnotherProcessReadsAsAJobThatEnded(t *testing.T) {
 	}
 }
 
-func TestSettleReadsOneProcessListAtOneWorkerAndAtAThousand(t *testing.T) {
-	for _, workers := range []int{1, 1000} {
+func TestSettleReadsOneProcessListAtOneWorkerAndAtMany(t *testing.T) {
+	for _, workers := range []int{1, scaletest.N()} {
 		f := newPool(t, map[string]any{"finder": map[string]any{}})
 		names := make([]string, 0, workers)
 		for index := range workers {
@@ -1544,8 +1545,8 @@ func TestALocalPassIsReadHereAndItsOwnGroupIsKilled(t *testing.T) {
 	}
 }
 
-func TestQuietPassesAreReadOncePerSpriteAtOnePassAndAtAThousand(t *testing.T) {
-	for _, passes := range []int{1, 1000} {
+func TestQuietPassesAreReadOncePerSpriteAtOnePassAndAtMany(t *testing.T) {
+	for _, passes := range []int{1, scaletest.N()} {
 		f := newPool(t, map[string]any{"finder": map[string]any{"sprite": []string{"dar-1", "dar-2"}}})
 		names := make([]string, 0, passes)
 		for index := range passes {

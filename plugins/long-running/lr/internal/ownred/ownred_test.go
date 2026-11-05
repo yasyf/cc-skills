@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ownred"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
@@ -408,9 +409,9 @@ func TestAMergeOutsideAnyLaneNeverReadsTheBus(t *testing.T) {
 	}
 }
 
-func TestTheLaneReadTakesTheSameCallsAtOneRecordAndAtAThousand(t *testing.T) {
+func TestTheLaneReadTakesTheSameCallsAtOneRecordAndAtMany(t *testing.T) {
 	counts := map[int]int{}
-	for _, n := range []int{1, 1000} {
+	for _, n := range []int{1, scaletest.N()} {
 		records := make([]map[string]any, 0, n)
 		for seq := range n {
 			records = append(records, map[string]any{"seq": seq + 1, "lane": "root", "kind": "note", "text": "dev is green", "to": []string{"fix-1"}})
@@ -422,7 +423,7 @@ func TestTheLaneReadTakesTheSameCallsAtOneRecordAndAtAThousand(t *testing.T) {
 		}
 		counts[n] = len(fake.Calls())
 	}
-	if counts[1] != counts[1000] {
+	if counts[1] != counts[scaletest.N()] {
 		t.Fatalf("calls grew with the bus: %v", counts)
 	}
 }
