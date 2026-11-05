@@ -31,6 +31,7 @@ type cardShell struct {
 	answers   map[string]bool
 	questions map[string]bool
 	shows     map[string][]int
+	repos     map[string]string
 	rowed     map[string]bool
 	removed   []string
 	reasons   []string
@@ -58,7 +59,7 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 				children = append(children, map[string]any{"id": card + "-choice", "type": "choice"})
 			}
 			for _, number := range f.shows[card] {
-				children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%d", card, number), "type": "pr", "repo": defaultRepo, "number": number})
+				children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%d", card, number), "type": "pr", "repo": cmp.Or(f.repos[card], defaultRepo), "number": number})
 			}
 			if children != nil {
 				block["children"] = children
@@ -97,12 +98,16 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 
 type prStatus struct {
 	ccx.Client
-	states map[int]string
-	reads  int
+	states  map[int]string
+	reads   int
+	missing string
 }
 
-func (p *prStatus) PRStatus(_ context.Context, _ string, numbers []int) ([]ccx.PRStatus, error) {
+func (p *prStatus) PRStatus(_ context.Context, repo string, numbers []int) ([]ccx.PRStatus, error) {
 	p.reads++
+	if repo == p.missing {
+		return nil, fmt.Errorf("ccx vcs pr status --repo %s --json 1 exited 1: prstate: ghapi: graphql: Could not resolve to a Repository with the name '%s'", repo, repo)
+	}
 	out := make([]ccx.PRStatus, len(numbers))
 	for i, number := range numbers {
 		state := p.states[number]
@@ -277,6 +282,28 @@ func TestSweepWithdrawsEachCardWhoseEventHappenedAndNamesTheOutcome(t *testing.T
 	}
 }
 
+func TestABuildLinkReadAsAPROnOneCardStopsNoOtherCardsSweep(t *testing.T) {
+	on := &cardShell{cards: []string{"card-watch-unread-end", "card-pick-merged"}, shows: map[string][]int{"card-watch-unread-end": {1}, "card-pick-merged": {2}}, repos: map[string]string{"card-watch-unread-end": "builds/13033"}}
+	f := newCards(t, on, map[int]string{2: "MERGED"})
+	f.status.missing = "builds/13033"
+	ctx := context.Background()
+	for _, card := range on.cards {
+		if _, err := f.Until(ctx, card, "at:30d", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := f.Sweep(ctx, "board-lane", &out); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"card-pick-merged"}; !reflect.DeepEqual(on.removed, want) {
+		t.Fatalf("removed = %v, want %v", on.removed, want)
+	}
+	if !strings.Contains(out.String(), "WARNING each card waiting on a builds/13033 PR stays up") {
+		t.Fatalf("out = %s", out.String())
+	}
+}
+
 func TestSweepNeverTakesAnUnansweredQuestionDownOnATimeAlone(t *testing.T) {
 	on := &cardShell{cards: []string{"question-past", "question-merged", "question-answered", "notice-past"}, questions: map[string]bool{"question-past": true, "question-merged": true, "question-answered": true}}
 	f := newCards(t, on, map[int]string{1: "MERGED"})
@@ -428,7 +455,7 @@ func (s launchdShell) Run(_ context.Context, c shell.Command) (shell.Result, err
 func TestTheSweepReadsAPRCardsEndFromTheDrivesCheckoutUnderLaunchd(t *testing.T) {
 	runner := launchdShell{checkout: "/co"}
 	cards := CardsOf(&app.App{Runner: runner, CCX: ccx.CLI{Runner: runner}, Now: time.Now}, drive.Entry{Checkout: "/co", StateDir: t.TempDir()}, "s1", nil)
-	facts, err := cards.facts(context.Background(), map[string]End{"card-tap-50129-655dbb7": {Kind: KindPR, Value: "Forge-AI/monorepo#50129"}})
+	facts, err := cards.facts(context.Background(), map[string]End{"card-tap-50129-655dbb7": {Kind: KindPR, Value: "Forge-AI/monorepo#50129"}}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}

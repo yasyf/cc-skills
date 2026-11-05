@@ -123,7 +123,7 @@ func unfinishedWait(key, what, quiet, text, step string, moved, due, now time.Ti
 	}
 	return Wait{
 		Kind: unfinishedKind, Repo: UnfinishedNamespace, Head: key, Mover: machine.MoverRoot, Since: since, Within: within, To: root,
-		Cause: fmt.Sprintf("unfinished: %s, %s: %s; still standing %s; %s", what, state, clip(text), now.In(pacific).Format("Jan 2"), step),
+		Cause: fmt.Sprintf("unfinished: %s, %s: %s; still standing %s; %s", what, state, oneLine(text), now.In(pacific).Format("Jan 2"), step),
 	}
 }
 

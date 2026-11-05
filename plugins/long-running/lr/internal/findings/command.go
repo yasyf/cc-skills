@@ -87,6 +87,22 @@ it routed, which is still live. The supervisor syncs on its tick.`,
 	shown.Flags().StringVar(&openPR, "pr", "", "only this PR")
 	shown.Flags().BoolVar(&asJSON, "json", false, "one JSON row per line")
 
+	show := &cobra.Command{Use: "show SEQ...", Short: "Sync, then print each named row whole, in any state, as one JSON row per line", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		b, seqs, err := withSeqs(book, args)
+		if err != nil {
+			return err
+		}
+		rows, err := b.Sync(cmd.Context(), "")
+		if err != nil {
+			return err
+		}
+		named, err := Named(rows, seqs)
+		if err != nil {
+			return err
+		}
+		return printRows(cmd.OutOrStdout(), named, true)
+	}}
+
 	track := &cobra.Command{Use: "track SEQ...", Short: "Add the named records to the ledger", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		b, seqs, err := withSeqs(book, args)
 		if err != nil {
@@ -134,7 +150,7 @@ it routed, which is still live. The supervisor syncs on its tick.`,
 		return nil
 	}}
 
-	cmd.AddCommand(post, sync, shown, track, closed, citing)
+	cmd.AddCommand(post, sync, shown, show, track, closed, citing)
 	return cmd
 }
 

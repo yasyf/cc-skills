@@ -50,7 +50,23 @@ INSTALL_RULING = {
     "updated_at": STAMP,
 }
 PROMPT_KEY = "prompt/1023-053000"
-RECORDED = "4444444" + "0" * 33
+CLOUD_AGENT_KEY = "prompt/1028-185722"
+CLOUD_AGENT_ROW = {
+    CLOUD_AGENT_KEY: {
+        "kind": "scope",
+        "status": "in-force",
+        "global": "yes",
+        "words": "cloud agents shpudlnt be under a user, they are just under an env/project",
+        "at": "Oct 28 6:57 PM PT",
+        "said": "1",
+        "implications": json.dumps([{"n": n, "text": f"Cloud agent line {n}.", "direction": "removes", "state": "proposed", "proof": "1028185"} for n in range(1, 7)]),
+        "names": '["cloud agent", "durable agent", "sub-agents"]',
+        "steps": '["all"]',
+        "lanes": '["all"]',
+        "paths": "none",
+    }
+}
+RECORDED ="4444444" + "0" * 33
 LIVE = [
     {"lane": "lane-a", "kind": "head", "text": "lane-a 1234567"},
     {"lane": "root", "kind": "decision", "text": "lane-b: go"},
@@ -888,23 +904,29 @@ def test_one_shared_plain_word_is_no_repeat_so_classify_adds_the_row_and_notes_t
     assert json.loads(shell.rows["rule/9999999"].get("repeats") or "[]") == []
 
 
-def test_plain_word_names_of_one_row_are_no_repeat_but_a_phrase_name_is(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
-    plain = "the sync loop and its replication lag stay on the follow-up list"
-    captured(state, capture("7", plain))
-    shell = RegisterShell(seeded(package) | SYNC_ROW | {"rule/9999999": SYNC_ROW["rule/9999999"] | {"names": '["remote syncing", "sync", "replication", "local experience"]'}})
+def test_a_new_order_naming_a_full_scope_row_gets_its_own_row_with_every_implication(
+    home: Path, package: Path, state: Path, tmp_path: Path, capsys
+) -> None:
+    session_types = "a durable agent has one session type per surface, and the desktop session is one of them"
+    central_inbox = "sub-agents post to the central inbox under their own durable agent, never their parent's"
+    captured(state, capture("7", session_types) | {"at": "2026-11-05T21:57:00Z"}, capture("8", central_inbox) | {"at": "2026-11-05T22:41:00Z"})
+    shell = RegisterShell(seeded(package) | CLOUD_AGENT_ROW)
+    two = [{"text": "One more line.", "direction": "requires"}, {"text": "Another line.", "direction": "removes"}]
 
-    code, out = classify(tmp_path, capsys, shell, {"digest": "7" * 16, "kind": "order", "words": plain})
+    code, out = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "7" * 16, "kind": "order", "words": session_types, "implications": two},
+        {"digest": "8" * 16, "kind": "order", "words": central_inbox, "implications": two},
+    )
 
     assert code == 0, out
-    assert json.loads(out.splitlines()[0])["repeat_candidates"] == ["rule/9999999"]
-
-    words = "the sync loop must not hurt the local experience"
-    captured(state, capture("8", words))
-
-    three = [{"text": f"Line {n}.", "direction": "removes"} for n in range(3)]
-    code, out = classify(tmp_path, capsys, RegisterShell(seeded(package) | SYNC_ROW), {"digest": "8" * 16, "kind": "scope", "words": words, "names": ["sync loop"], "implications": three})
-
-    assert (code, out.strip()) == (1, f"REPEAT {'8' * 16}: the words carry names of rule/9999999; extend rule/9999999 with extends=<key>, never a second row")
+    for key, words in (("prompt/1105-135700", session_types), ("prompt/1105-144100", central_inbox)):
+        assert shell.rows[key]["words"] == words
+        assert len(json.loads(shell.rows[key]["implications"])) == 2
+        assert json.loads(shell.rows[key]["repeat_candidates"]) == [CLOUD_AGENT_KEY]
+    assert shell.rows[CLOUD_AGENT_KEY] == CLOUD_AGENT_ROW[CLOUD_AGENT_KEY]
 
 
 def test_classify_refuses_two_new_rows_under_one_key_in_one_batch(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
@@ -923,7 +945,7 @@ def test_classify_refuses_two_new_rows_under_one_key_in_one_batch(home: Path, pa
     assert shell.writes() == []
 
 
-def test_classify_refuses_a_restated_mechanism_and_a_supersede_that_names_nothing_it_covers(
+def test_classify_refuses_a_supersede_that_names_nothing_it_covers_and_not_a_row_that_shares_a_name(
     home: Path, package: Path, state: Path, tmp_path: Path, capsys
 ) -> None:
     captured(state, capture("1", "keep the parked worker off the desktop app"), capture("2", "drain only on shutdown"))
@@ -938,10 +960,7 @@ def test_classify_refuses_a_restated_mechanism_and_a_supersede_that_names_nothin
     )
 
     assert code == 1
-    assert out.splitlines() == [
-        f"REPEAT {'1' * 16}: the words carry names of rule/aaaaaaa; extend rule/aaaaaaa with extends=<key>, never a second row",
-        f"SUPERSEDES-UNNAMED {'2' * 16}: only owner words naming what rule/aaaaaaa covers supersede it",
-    ]
+    assert out.splitlines() == [f"SUPERSEDES-UNNAMED {'2' * 16}: only owner words naming what rule/aaaaaaa covers supersede it"]
 
 
 def test_classify_counts_implications_across_extensions_in_one_batch(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:

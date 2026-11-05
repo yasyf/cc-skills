@@ -385,7 +385,7 @@ func undrawn(fields map[string]string) bool {
 	return fields["drawn"] == "" || fields["withdrawn"] > fields["drawn"]
 }
 
-func (c Cards) facts(ctx context.Context, waiting map[string]End) (EndFacts, error) {
+func (c Cards) facts(ctx context.Context, waiting map[string]End, out io.Writer) (EndFacts, error) {
 	byRepo := map[string][]int{}
 	var seqs []string
 	release := false
@@ -411,7 +411,8 @@ func (c Cards) facts(ctx context.Context, waiting map[string]End) (EndFacts, err
 	for repo, numbers := range byRepo {
 		rows, err := c.CCX.PRStatus(ctx, repo, numbers)
 		if err != nil {
-			return EndFacts{}, err
+			fmt.Fprintf(out, "WARNING each card waiting on a %s PR stays up, since its PRs did not read: %v\n", repo, err)
+			continue
 		}
 		for _, row := range rows {
 			facts.PRs[fmt.Sprintf("%s#%d", repo, row.Number)] = row.State
@@ -567,7 +568,7 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 		}
 		waiting[card] = end
 	}
-	facts, err := c.facts(ctx, waiting)
+	facts, err := c.facts(ctx, waiting, out)
 	if err != nil {
 		return err
 	}

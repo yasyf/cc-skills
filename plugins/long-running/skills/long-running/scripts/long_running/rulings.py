@@ -1381,20 +1381,16 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict, batch: Ba
         found.append(f"IMPLICATION {item}: each implication is one plain sentence marked removes, requires or permits")
     markers = repeat_markers(loaded, words)
     supersedes = entry.get("supersedes")
-    strong, _ = named_rows(loaded, words)
-    repeated = [key for key in strong if kind != "pick" and key != supersedes]
     placement = PLACEMENT.search(words)
     unfolded = [] if extends else markers
-    named_keys = [] if extends else strong
-    if kind == "order" and (unfolded or placement or named_keys):
-        because = ", ".join(unfolded) or (f"a placement rule ({placement.group(0)})" if placement else f"names of {', '.join(named_keys)}")
+    if kind == "order" and (unfolded or placement):
+        because = ", ".join(unfolded) or f"a placement rule ({placement.group(0)})"
         found.append(f"ORDER-IS-SCOPE {item}: the words carry {because}; a repeat extends its row and a placement is a scope row")
     if extends and extends not in loaded.rulings():
         found.append(f"EXTENDS {item}: {extends} is no in-force row")
-    if (markers or repeated) and not extends:
-        candidates = ", ".join(strong) or "the row it repeats"
-        because = ", ".join(markers) or f"names of {', '.join(repeated)}"
-        found.append(f"REPEAT {item}: the words carry {because}; extend {candidates} with extends=<key>, never a second row")
+    if markers and not extends:
+        candidates = ", ".join(named_rows(loaded, words)[0]) or "the row it repeats"
+        found.append(f"REPEAT {item}: the words carry {', '.join(markers)}; extend {candidates} with extends=<key>, never a second row")
     if not extends:
         key = new_key(entry, captured[item])
         if key in loaded.rows or key in batch.keys:
@@ -1628,7 +1624,7 @@ def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Cal
         if kind == "reserved":
             fields |= {"ops": "pending", "checks": "none"}
         supersedes = entry.get("supersedes")
-        if candidates := [key for key in named_rows(loaded, words)[1] if key != supersedes]:
+        if candidates := [key for keys in named_rows(loaded, words) for key in keys if key != supersedes]:
             fields["repeat_candidates"] = candidates
         loaded.write(key, **fields)
         if supersedes:

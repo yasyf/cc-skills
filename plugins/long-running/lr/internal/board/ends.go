@@ -144,7 +144,7 @@ func (f EndFacts) Reached(end End, now time.Time) string {
 			return fmt.Sprintf("its time %s passed", end.Value)
 		}
 	case KindPR:
-		if state := f.PRs[end.Value]; state != stateOpen {
+		if state, read := f.PRs[end.Value]; read && state != "" && state != stateOpen {
 			return fmt.Sprintf("%s is %s", end.Value, strings.ToLower(state))
 		}
 	case KindRelease:

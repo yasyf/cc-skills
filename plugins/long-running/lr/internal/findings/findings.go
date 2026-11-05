@@ -399,6 +399,24 @@ func (b Book) Post(ctx context.Context, sweep, lane, verdict, pr, line, text str
 	})
 }
 
+// Named returns the rows of the given seqs, whole and in any state, in the
+// order asked.
+func Named(rows Rows, seqs []int64) ([]Fields, error) {
+	bySeq := make(map[int64]Fields, len(rows))
+	for _, row := range rows {
+		bySeq[seqOf(row)] = row
+	}
+	named := make([]Fields, len(seqs))
+	for i, seq := range seqs {
+		row, ok := bySeq[seq]
+		if !ok {
+			return nil, fmt.Errorf("no finding or pick #%d in the ledger", seq)
+		}
+		named[i] = row
+	}
+	return named, nil
+}
+
 // Live lists the open and routed rows by sweep and seq, narrowed when sweep or
 // pr is given.
 func Live(rows Rows, sweep, pr string) []Fields {

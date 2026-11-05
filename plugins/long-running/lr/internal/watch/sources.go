@@ -57,8 +57,12 @@ var (
 	deskLane  = regexp.MustCompile(`^(?:.+-)?desk(?:-\d{1,2})?$`)
 )
 
+func oneLine(text string) string {
+	return strings.Join(strings.Fields(text), " ")
+}
+
 func clip(text string) string {
-	text = strings.Join(strings.Fields(text), " ")
+	text = oneLine(text)
 	if runes := []rune(text); len(runes) > quoteChars {
 		return string(runes[:quoteChars-1]) + "…"
 	}
