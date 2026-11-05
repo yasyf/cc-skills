@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
 func writeFixture(t *testing.T, name, text string) string {
@@ -14,6 +16,21 @@ func writeFixture(t *testing.T, name, text string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func TestALaunchWithAStepNamesItInTheSliceTheOwnerUpdateReads(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote, Step: "4"}
+	path, err := n.Write(t.TempDir(), "telemetry-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	said, err := lanes.BriefOf(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if said.Step != "4" {
+		t.Fatalf("the registry reads step %q from the brief at %s", said.Step, path)
+	}
 }
 
 func TestNewBriefWritesWhatTheLaunchChecksRead(t *testing.T) {

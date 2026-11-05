@@ -475,7 +475,7 @@ func TestARestartedCheckKeepsTheTargetsItAlreadyResolved(t *testing.T) {
 	}
 	equal(t, landed[47799].targets, []string{"sand"})
 
-	later := t0.Add(notLiveSpan + time.Hour)
+	later := t0.Add(NotLiveSpan + time.Hour)
 	if _, err := restarted.landings(context.Background(), later); err != nil {
 		t.Fatal(err)
 	}
@@ -493,22 +493,37 @@ func TestALandingATargetDoesNotRunAfterAnHourDrawsOneBlockerNamingItsRelease(t *
 	if err := check.Check(context.Background(), t0); err != nil {
 		t.Fatal(err)
 	}
-	if err := check.Check(context.Background(), t0.Add(notLiveEvery)); err != nil {
+	if err := check.Check(context.Background(), t0.Add(NotLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
 
 	equal(t, len(bus.posted), 2)
 	state, blocker := bus.posted[0], bus.posted[1]
-	equal(t, []string{state.Kind, state.Topic, state.Text}, []string{"state", notLiveTopic, "LANDED-NOT-LIVE sand: #47799"})
+	equal(t, []string{state.Kind, state.Topic, state.Text}, []string{"state", NotLiveTopic, "LANDED-NOT-LIVE sand: #47799"})
 	equal(t, blocker.Kind, blockerKind)
 	equal(t, blocker.Text, "LANDED-NOT-LIVE sand: #47799. The oldest landed 120 minutes ago, and no live release, running release build or release that found its target unchanged carries them; each ships with the next release that picks its target, and the owner starts that release")
+}
+
+func TestNotLiveOfReadsBackEachPRAndTargetTheCheckPosts(t *testing.T) {
+	owed, found := NotLiveOf("LANDED-NOT-LIVE api: #48377, #48400; sand: #47799, #48377")
+	if !found {
+		t.Fatal("the check's own record did not read")
+	}
+	equal(t, owed, map[int][]string{48377: {"api", "sand"}, 48400: {"api"}, 47799: {"sand"}})
+	none, found := NotLiveOf("LANDED-NOT-LIVE none")
+	if !found || len(none) != 0 {
+		t.Fatalf("none = %v, %v", none, found)
+	}
+	if _, found := NotLiveOf("LANDED #48377 at abc"); found {
+		t.Fatal("another record read as the check's")
+	}
 }
 
 func TestARootHoldOnATargetKeepsItsLandingQuietUntilTheHoldEnds(t *testing.T) {
 	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
 	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}, `[{"target":"sand","commit":"c1"}]`, false)
 	var hold client.Record
-	body := fmt.Sprintf(`{"seq":9,"lane":"root","kind":"hold","status":"open","at":%q,"text":"routine cuts wait for the morning","refs":{"targets":["sand"]},"fields":{"attrs":{"until":%q}}}`, t0.Add(-time.Hour).Format(time.RFC3339), t0.Add(notLiveEvery).Format(time.RFC3339))
+	body := fmt.Sprintf(`{"seq":9,"lane":"root","kind":"hold","status":"open","at":%q,"text":"routine cuts wait for the morning","refs":{"targets":["sand"]},"fields":{"attrs":{"until":%q}}}`, t0.Add(-time.Hour).Format(time.RFC3339), t0.Add(NotLiveEvery).Format(time.RFC3339))
 	if err := json.Unmarshal([]byte(body), &hold); err != nil {
 		t.Fatal(err)
 	}
@@ -519,7 +534,7 @@ func TestARootHoldOnATargetKeepsItsLandingQuietUntilTheHoldEnds(t *testing.T) {
 	}
 	equal(t, len(bus.posted), 0)
 
-	if err := check.Check(context.Background(), t0.Add(notLiveEvery)); err != nil {
+	if err := check.Check(context.Background(), t0.Add(NotLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, len(bus.posted), 2)
@@ -570,7 +585,7 @@ func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
 	}
 	check.holds = map[[2]string]bool{{"c1", "abc"}: true}
 
-	if err := check.Check(context.Background(), t0.Add(notLiveEvery)); err != nil {
+	if err := check.Check(context.Background(), t0.Add(NotLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -611,7 +626,7 @@ func TestAFailedReleaseBuildPutsItsLandingBackInTheCount(t *testing.T) {
 	}
 	feed = releasingFeed("failed")
 
-	if err := check.Check(context.Background(), t0.Add(notLiveEvery)); err != nil {
+	if err := check.Check(context.Background(), t0.Add(NotLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -621,7 +636,7 @@ func TestAFailedReleaseBuildPutsItsLandingBackInTheCount(t *testing.T) {
 }
 
 func TestANewLandingOnATargetAddsOneRecordNamingEveryTarget(t *testing.T) {
-	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q},{"pr":"48377","state":"landed","title":"api: one","landed_sha":"def","landed_at":%q},{"pr":"48400","state":"landed","title":"api: two","landed_sha":"ghi","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(notLiveEvery-notLiveOwed).Format(time.RFC3339))
+	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q},{"pr":"48377","state":"landed","title":"api: one","landed_sha":"def","landed_at":%q},{"pr":"48400","state":"landed","title":"api: two","landed_sha":"ghi","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(NotLiveEvery-NotLiveOwed).Format(time.RFC3339))
 	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "api/src/one.ts\n", "ghi": "api/src/two.ts\n"}, `[{"target":"sand","commit":"c1"},{"target":"api","commit":"c2"}]`, false)
 	blockers := func() []client.Draft {
 		return slices.DeleteFunc(slices.Clone(bus.posted), func(d client.Draft) bool { return d.Kind != blockerKind })
@@ -635,7 +650,7 @@ func TestANewLandingOnATargetAddsOneRecordNamingEveryTarget(t *testing.T) {
 	equal(t, first.PRs, []string{"48377", "47799"})
 	contains(t, first.Text, "LANDED-NOT-LIVE api: #48377; sand: #47799. ")
 
-	if err := check.Check(context.Background(), t0.Add(notLiveEvery)); err != nil {
+	if err := check.Check(context.Background(), t0.Add(NotLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, len(blockers()), 2)
@@ -645,7 +660,7 @@ func TestANewLandingOnATargetAddsOneRecordNamingEveryTarget(t *testing.T) {
 	contains(t, second.Text, "LANDED-NOT-LIVE api: #48377, #48400; sand: #47799. ")
 
 	posted := len(bus.posted)
-	if err := check.Check(context.Background(), t0.Add(2*notLiveEvery)); err != nil {
+	if err := check.Check(context.Background(), t0.Add(2*NotLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, len(bus.posted), posted)

@@ -284,8 +284,8 @@ func TestTheUpdateOpensWithWhatMovedAndHisWordsEndsWithItsGapsAndPublishesTheSna
 	report := Render(in)
 
 	titles := headings(report.Text)
-	want := []string{"## " + workstreamsTitle, "## Since you last looked (" + pacific(ago(120)) + ")", "## Decisions made for you (FYI)", "## Your words since the last update", "## Unowned work", "## Pinned for you"}
-	if !reflect.DeepEqual(titles[:6], want) {
+	want := []string{"## " + unownedStepsTitle, "## " + workstreamsTitle, "## Since you last looked (" + pacific(ago(120)) + ")", "## Decisions made for you (FYI)", "## Your words since the last update", "## Unowned work", "## Pinned for you"}
+	if !reflect.DeepEqual(titles[:len(want)], want) {
 		t.Fatalf("titles = %v", titles)
 	}
 	if titles[len(titles)-1] != "## Gaps in this update" || !strings.Contains(report.Text, "- owner words no record carries: #13") {

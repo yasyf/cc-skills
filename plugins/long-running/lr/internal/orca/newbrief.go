@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -30,10 +31,10 @@ var (
 )
 
 type NewBrief struct {
-	Title, BodyFile, Contract, Scale, Place, Why, CCX, OwnerPick string
-	Topics, Orders                                               []string
-	StandingDir                                                  string
-	Stdin                                                        io.Reader
+	Title, BodyFile, Contract, Scale, Place, Why, CCX, OwnerPick, Step string
+	Topics, Orders                                                     []string
+	StandingDir                                                        string
+	Stdin                                                              io.Reader
 }
 
 func (n NewBrief) Write(stateDir, lane string) (string, error) {
@@ -71,7 +72,7 @@ func (n NewBrief) text(lane string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	slice := fmt.Sprintf("%s lane=%s step=all", sliceLine, lane)
+	slice := fmt.Sprintf("%s lane=%s step=%s", sliceLine, lane, cmp.Or(n.Step, stepAll))
 	if len(n.Topics) > 0 {
 		slice += " topics=" + strings.Join(n.Topics, ",")
 	}

@@ -328,11 +328,7 @@ func (v view) planSections(list []*plans.Plan, lanes []Lane) planned {
 				out.steps = append(out.steps, v.stepEntry(title, found.key(), row, nil))
 				continue
 			}
-			names := namesOf(mine)
-			if owner := v.ownerOfStep(step.Number); owner != "" {
-				names = append(names, owner)
-			}
-			out.add(v, section{title: title, step: true, group: group}, v.stepRow(name, title, step, names), mine)
+			out.add(v, section{title: title, step: true, group: group}, v.stepRow(name, title, step, namesOf(mine)), mine)
 		}
 		if len(doneSteps) > 0 {
 			out.doneLines = append(out.doneLines, fmt.Sprintf("- %s: %s", group, strings.Join(doneSteps, "; ")))
@@ -368,6 +364,7 @@ func (v view) laneRows(lanes []Lane) []Row {
 type draft struct {
 	header     string
 	lead       []Row
+	steps      []string
 	overdue    []string
 	orders     []string
 	sinceTitle string
@@ -426,10 +423,12 @@ func Render(in Inputs) Report {
 	words, gaps := ownerWords(recordsFrom(in.All, in.Before.At))
 	lists := v.listSections(in, lanes, plan.doneLines)
 	lead := leadRows(in)
+	unownedSteps := unownedStepLines(in.Plans, in.Lanes)
 	streams, streamGaps := v.workstreamLines(in, lanes)
 	found := draft{
 		header:     fmt.Sprintf("# Owner update: %s, %s", in.Drive, pacific(in.Now)),
 		lead:       lead,
+		steps:      unownedSteps,
 		overdue:    slices.Concat(overdueLines(in.Overdue), stalledPortLines(in.PRRows, in.Now)),
 		orders:     orderLines(in.Orders),
 		sinceTitle: fmt.Sprintf("%s (%s)", sinceTitle, pacificText(in.Before.At)),
@@ -451,6 +450,9 @@ func Render(in Inputs) Report {
 	}
 	if len(lead) > 0 {
 		needs = append(needs, Need{leadTitle, leadTitle})
+	}
+	if len(unownedSteps) > 0 {
+		needs = append(needs, Need{unownedStepsTitle, unownedStepsTitle})
 	}
 	for _, row := range lead {
 		needs = append(needs, Need{row.Name, row.Delivers})

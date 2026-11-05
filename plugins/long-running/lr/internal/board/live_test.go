@@ -75,6 +75,14 @@ func TestAPickWaitsUntilTheOwnerPicksOrWritesAnAnswer(t *testing.T) {
 	}
 }
 
+func TestAPickCarriesTheSlackMessageItsButtonsAreOnAndEachButtonsLabel(t *testing.T) {
+	doc := `{"doc":{"blocks":[{"id":"card-a","type":"card","title":"Which one?","slack":{"url":"https://slack.example/p1"},"children":[{"id":"open","type":"choice","options":[{"id":"a","label":"Two in 30 days","recommended":true},{"id":"b","label":"One bad verdict"}]}]}]},"interactions":{}}`
+	live := liveOf(t, doc)
+	if len(live.Picks) != 1 || live.Picks[0].URL != "https://slack.example/p1" || !slices.Equal(live.Picks[0].Options, []string{"Two in 30 days (recommended)", "One bad verdict"}) {
+		t.Fatalf("picks = %+v", live.Picks)
+	}
+}
+
 func TestAWaitIsDatedByTheFirstOfTheUnbrokenRunOfSnapshotsThatShowIt(t *testing.T) {
 	at := func(hour int) time.Time { return time.Date(2026, 11, 3, hour, 0, 0, 0, time.UTC) }
 	kept, gone := `{"cards":[["card-a",[]]]}`, `{"cards":[["card-b",[]]]}`

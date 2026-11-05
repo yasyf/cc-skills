@@ -193,6 +193,27 @@ func TestAPRRowsOwnerIsTheNewestLanePushingItEvenWhenTheLedgerNamesAnotherAndNoD
 	}
 }
 
+func TestAPRClaimedFromAnotherNodeUnderALaneAliasIsOwnedByThatAliasesLiveLane(t *testing.T) {
+	alias := Lane{Name: "spa-edge-role", State: "unregistered", PRs: []int{50150, 50212}}
+	sprite := heard("spa-edge-role-1", "desired", 2)
+	older := heard("spa-edge-role-0", "desired", 30)
+	v := viewOf(
+		[]Lane{alias, older, sprite, heard("ship-2", "desired", 5)},
+		[]Record{
+			record(1, "ship-2", "note", "#50212 rebased onto dev", 40),
+			{Seq: 4465, Drive: testDrive, Lane: "spa-edge-role", Kind: "claim", Text: "live on Sprite pool-7yt, owns #50212 and #50150", PRs: []string{"Forge-AI/monorepo#50212"}, At: ago(20), To: []string{root}},
+		},
+		nil,
+	)
+	row := v.prRow(store.ReviewRow{Number: 50212, State: "open", Title: "the edge role"}, nil)
+	if row.Who != "spa-edge-role" {
+		t.Fatalf("who = %q, want the lane whose claim from the Sprite names the PR", row.Who)
+	}
+	if row.Wrong != noneRecorded || !strings.Contains(row.Unblock, "next record due by "+pacific(sprite.Heard.Add(store.StaleAfter))) {
+		t.Fatalf("wrong = %q, unblock = %q; want the alias answered by its newest live lane", row.Wrong, row.Unblock)
+	}
+}
+
 func TestAPRRowSaysWhatHoldsItFromItsLedgerRow(t *testing.T) {
 	v := viewOf(nil, nil, nil)
 	held := v.prRow(store.ReviewRow{Number: 7, State: "open", CI: "red", WaitsOn: "CI is red at this head"}, map[string]int64{"7": 91})
@@ -217,16 +238,6 @@ func TestTheOpenPRSectionListsLedgerRowsAndNoOtherStore(t *testing.T) {
 	rows := openPRRows([]store.ReviewRow{{Number: 1, State: "open"}, {Number: 2, State: "landed"}, {Number: 3, State: "superseded"}, {Number: 4, State: "queued"}})
 	if len(rows) != 2 || rows[0].Number != 1 || rows[1].Number != 4 {
 		t.Fatalf("open rows = %+v, want the open and queued rows alone", rows)
-	}
-}
-
-func TestAStepsOwnerIsTheNewestLaneRecordNamingTheStep(t *testing.T) {
-	v := viewOf([]Lane{heard("ship-2", "desired", 5)}, []Record{record(1, "ship-2", "report", "Step 7.2 landed; step 17 next", 10)}, nil)
-	if owner := v.ownerOfStep("7"); owner != "ship-2" {
-		t.Fatalf("owner of 7 = %q", owner)
-	}
-	if owner := v.ownerOfStep("1"); owner != "" {
-		t.Fatalf("owner of 1 = %q", owner)
 	}
 }
 
