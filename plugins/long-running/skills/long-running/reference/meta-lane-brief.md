@@ -168,7 +168,11 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 - The PR has a real body: what it changes for a user, a paraphrase of the owner's words it
   carries out, never the words themselves, its risk, and the design section it changes. Never a draft. Merge under the repo's
   standing merge rule once CI is green on your head; a red check on your own change is
-  fixed first, and a moved base is rebased.
+  fixed first. Wait on one check with `ccx vcs pr watch <repo>#<n> --job lr-go`, never piped:
+  a watch of all checks exits only on landing, and a `tail` hides its green line. Rebase on
+  main before the last `lr-go`, since two PRs that each pass can fail vet together. A red
+  `lr-go` first reads whether main is red: a run that started while main was red tests broken
+  code and fails whatever the PR does.
 - You never install a pack. Say "merged, not installed" in your report.
 - A hook that blocks your work: launch its fix lane that turn,
   `lr launch lane hook-fix-<hook> opus xhigh <brief>`, which edits it in `plugins/long-running/capt-hook/hooks/` through
