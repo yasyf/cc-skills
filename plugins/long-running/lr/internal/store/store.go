@@ -369,7 +369,16 @@ func (s *Store) Facts(repo string, number int, head string) (map[string]string, 
 	for _, pair := range found {
 		foldFact(facts, pair[0], pair[1])
 	}
+	dropWithdrawn(facts)
 	return facts, nil
+}
+
+func dropWithdrawn(facts map[string]string) {
+	for _, grader := range []string{"finder", "fidelity"} {
+		if override := machine.OverrideFact(grader); facts[override] != "" && facts[override] == facts[machine.WithdrawnOverrideFact(grader)] {
+			delete(facts, override)
+		}
+	}
 }
 
 func foldFact(facts map[string]string, kind, value string) {

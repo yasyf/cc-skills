@@ -446,3 +446,39 @@ func TestAnOldTreeFileIsUnderGoSandAndOutsideTheNextTree(t *testing.T) {
 		}
 	}
 }
+
+func TestAnOverrideItsLaneWithdrewStopsCountingInEveryCopy(t *testing.T) {
+	graded := []client.Record{
+		decoded(t, `{"seq":1,"lane":"finder-desk","kind":"review","text":"finder: major `+portHead+` a plan row","refs":{"prs":[49999]}}`),
+		decoded(t, `{"seq":2,"lane":"fidelity-pipeline","kind":"review","text":"fidelity: missing `+portHead+` plan:116","refs":{"prs":[49999]}}`),
+	}
+	const overrides = "fidelity-override #49999 at abc1234: 2. finder-override #49999 at abc1234: 1. Row rule/29f3c70 grounds it"
+	appeal := client.Record{Seq: 10, Lane: "grader-appeals-1", Kind: "decide", Text: overrides}
+	repost := client.Record{Seq: 11, Lane: "root", Kind: "decide", Text: overrides + " (grader-appeals-1 #10)"}
+	counted := client.Record{Seq: 12, Lane: bus.SweepLane, Kind: "decide", Text: overrides + ". Counted from grader-appeals-1's cci #10, whose owner rows exist."}
+	withdraw := func(lane string) client.Record {
+		return client.Record{Seq: 13, Lane: lane, Kind: "withdraw", Re: 10, Text: "takes back 10 on #49999"}
+	}
+	reposted := client.Record{Seq: 14, Lane: "root", Kind: "decide", Text: overrides}
+	for name, c := range map[string]struct {
+		records []client.Record
+		counts  bool
+	}{
+		"root's repost and the sweep's count stand before any withdraw": {[]client.Record{appeal, repost, counted}, true},
+		"the appeal lane's withdraw drops both copies":                  {[]client.Record{appeal, repost, counted, withdraw("grader-appeals-1")}, false},
+		"a repost after the withdraw does not bring it back":            {[]client.Record{appeal, repost, withdraw("grader-appeals-1"), reposted}, false},
+		"a withdraw from another lane drops nothing":                    {[]client.Record{appeal, repost, withdraw("go-sweep-8")}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, refusals := gate(slices.Concat(graded, c.records), portPR, portHead)
+			for _, grader := range []string{"finder", "fidelity"} {
+				uncounted := slices.ContainsFunc(refusals, func(refusal string) bool {
+					return strings.Contains(refusal, "no counted decide reads "+grader+"-override #49999 at abc1234")
+				})
+				if uncounted == c.counts {
+					t.Fatalf("%s override counted %v, want %v: %q", grader, !uncounted, c.counts, refusals)
+				}
+			}
+		})
+	}
+}

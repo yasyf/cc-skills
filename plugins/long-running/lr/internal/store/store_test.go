@@ -204,6 +204,39 @@ func TestAnOverrideStopsClearingOnceAGradeFailsAfterItAndARepeatClearsAgain(t *t
 	}
 }
 
+func TestAWithdrawnOverrideStopsStandingAtItsHeadWhicheverCopyCameLast(t *testing.T) {
+	s := memory(t)
+	short := head[:7]
+	put := func(kind, value string, offset time.Duration) {
+		t.Helper()
+		must[bool](t)(s.PutFact(repo, 49933, short, kind, value, t0.Add(offset)))
+	}
+	ok(t, s.PutReviewRows([]ReviewRow{{Repo: repo, Number: 49933, Head: head}}))
+	standing := func() string {
+		t.Helper()
+		atHead := must[map[string]string](t)(s.Facts(repo, 49933, head))[machine.OverrideFact("fidelity")]
+		if atRow := must[map[int]map[string]string](t)(s.FactsAtRowHeads(repo))[49933][machine.OverrideFact("fidelity")]; atRow != atHead {
+			t.Fatalf("the row reads override %q where the head reads %q", atRow, atHead)
+		}
+		return atHead
+	}
+
+	put("fidelity", "fail", 0)
+	put(machine.OverrideFact("fidelity"), "103949@bbaa4532", time.Minute)
+	put(machine.WithdrawnOverrideFact("fidelity"), "103949@bbaa4532", 2*time.Minute)
+	if got := standing(); got != "" {
+		t.Fatalf("the withdrawn override still stands: %q", got)
+	}
+	put(machine.OverrideFact("fidelity"), "103949@bbaa4532", 3*time.Minute)
+	if got := standing(); got != "" {
+		t.Fatalf("a repost of the withdrawn override brought it back: %q", got)
+	}
+	put(machine.OverrideFact("fidelity"), "466700", 4*time.Minute)
+	if got := standing(); got != "466700" {
+		t.Fatalf("a new override citing another row got %q, want it standing", got)
+	}
+}
+
 func TestFactsArePerHead(t *testing.T) {
 	s := memory(t)
 	must[bool](t)(s.PutFact(repo, 45744, "aa11bb22cc33dd44ee55ff6677889900aabbccdd", "tap", "tapped", t0))

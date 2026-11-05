@@ -1,6 +1,7 @@
 package facts
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -505,15 +506,19 @@ func graderWords(facts []bus.Fact, text string) []bus.Fact {
 }
 
 func (s Source) clearWithdrawn(ctx context.Context, record client.Record) error {
-	seqs := bus.ClosedGos(record, s.GoLanes)
-	if len(seqs) == 0 {
+	gos := bus.ClosedGos(record, s.GoLanes)
+	withdrawn := bus.Withdraws(record)
+	if len(gos) == 0 && len(withdrawn) == 0 {
 		return nil
 	}
-	closed, err := client.Among(ctx, s.Drive, seqs)
+	closed, err := client.Among(ctx, s.Drive, slices.Concat(gos, withdrawn))
 	if err != nil {
 		return err
 	}
 	for _, closedGo := range closed {
+		if !slices.Contains(gos, closedGo.Seq) {
+			continue
+		}
 		for _, fact := range bus.LegacyFacts(closedGo, s.Repo, s.GoLanes) {
 			if fact.Kind != "exempt" {
 				continue
@@ -521,6 +526,11 @@ func (s Source) clearWithdrawn(ctx context.Context, record client.Record) error 
 			if err := s.Store.ClearExempt(s.Repo, fact.PR, record.At.UTC()); err != nil {
 				return err
 			}
+		}
+	}
+	for _, override := range bus.WithdrawnOverrides(record, closed) {
+		if _, err := s.Store.PutFact(s.Repo, override.PR, override.Head, machine.WithdrawnOverrideFact(override.Grader), cmp.Or(override.Cites, "accept"), record.At.UTC()); err != nil {
+			return err
 		}
 	}
 	return nil

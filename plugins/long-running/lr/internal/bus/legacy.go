@@ -383,6 +383,27 @@ func ClosedGos(record client.Record, goLanes []string) []int64 {
 	return slices.DeleteFunc(closes(record), func(seq int64) bool { return seq == 0 })
 }
 
+func WithdrawnOverrides(withdraw client.Record, targets []client.Record) []Override {
+	if string(withdraw.Kind) != "withdraw" {
+		return nil
+	}
+	withdrawn := slices.Concat([]int64{withdraw.Re, withdraw.Resolves}, withdraw.AlsoResolves)
+	var out []Override
+	for _, target := range targets {
+		if target.Seq != 0 && slices.Contains(withdrawn, target.Seq) && client.Stem(target.Lane) == client.Stem(withdraw.Lane) {
+			out = append(out, Overrides(target)...)
+		}
+	}
+	return out
+}
+
+func Withdraws(record client.Record) []int64 {
+	if string(record.Kind) != "withdraw" {
+		return nil
+	}
+	return slices.DeleteFunc(slices.Concat([]int64{record.Re, record.Resolves}, record.AlsoResolves), func(seq int64) bool { return seq == 0 })
+}
+
 func closes(record client.Record) []int64 {
 	seqs := append([]int64{record.Resolves}, record.AlsoResolves...)
 	kind := string(record.Kind)
