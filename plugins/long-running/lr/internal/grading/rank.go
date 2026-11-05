@@ -32,6 +32,15 @@ func (p *JobPool) Plan(ctx context.Context, items []store.Item, snapshot map[int
 	if err := p.Scale(queued, now); err != nil {
 		return nil, err
 	}
+	picks, err := p.Picks()
+	if err != nil {
+		return nil, err
+	}
+	p.picks = picks
+	return p.Rank(ctx, items, snapshot, now)
+}
+
+func (p *JobPool) Rank(ctx context.Context, items []store.Item, snapshot map[int]machine.Facts, now time.Time) ([]store.Item, error) {
 	decides, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindDecide, kindAsk}, Lanes: []string{rootLane}, Since: now.Add(-rootFirstHorizon)})
 	if err != nil {
 		return nil, err
@@ -41,9 +50,6 @@ func (p *JobPool) Plan(ctx context.Context, items []store.Item, snapshot map[int
 		for _, pr := range namedFirst(fullText(decide)) {
 			p.firsts[pr] = true
 		}
-	}
-	if p.picks, err = p.Picks(); err != nil {
-		return nil, err
 	}
 	rows, err := p.ledgerRows()
 	if err != nil {

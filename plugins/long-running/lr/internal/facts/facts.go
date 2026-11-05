@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -553,35 +554,22 @@ type graphError struct {
 }
 
 func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, error) {
+	repository, err := s.readAliased(ctx, numbers, memberBatch, memberFields)
+	if err != nil {
+		return memberRead{}, err
+	}
 	prs := make([]pullRequest, 0, len(numbers))
 	missing := make(map[int]bool)
-	for batch := range slices.Chunk(numbers, memberBatch) {
-		out, err := s.graphQL(ctx, membersQuery(batch))
-		var reply struct {
-			Data struct {
-				Repository map[string]*pullRequest `json:"repository"`
-			} `json:"data"`
-			Errors []graphError `json:"errors"`
+	for alias, pr := range repository {
+		if pr != nil {
+			prs = append(prs, *pr)
+			continue
 		}
-		decoded := json.Unmarshal([]byte(out), &reply)
-		notFound := len(reply.Errors) > 0 && !slices.ContainsFunc(reply.Errors, func(one graphError) bool { return one.Type != "NOT_FOUND" })
-		if err != nil && !notFound {
+		number, err := strconv.Atoi(strings.TrimPrefix(alias, "r"))
+		if err != nil {
 			return memberRead{}, err
 		}
-		if decoded != nil {
-			return memberRead{}, decoded
-		}
-		for alias, pr := range reply.Data.Repository {
-			if pr != nil {
-				prs = append(prs, *pr)
-				continue
-			}
-			number, err := strconv.Atoi(strings.TrimPrefix(alias, "r"))
-			if err != nil {
-				return memberRead{}, err
-			}
-			missing[number] = true
-		}
+		missing[number] = true
 	}
 	authors := make(map[int]string, len(prs))
 	byNumber := make(map[int]pullRequest, len(prs))
@@ -604,10 +592,33 @@ func (s Source) ReadMergeable(ctx context.Context, numbers []int) (map[int]strin
 	return read, nil
 }
 
-func membersQuery(numbers []int) string {
+func (s Source) readAliased(ctx context.Context, numbers []int, batch int, fields string) (map[string]*pullRequest, error) {
+	repository := make(map[string]*pullRequest, len(numbers))
+	for chunk := range slices.Chunk(numbers, batch) {
+		out, err := s.graphQL(ctx, aliasedQuery(chunk, fields))
+		var reply struct {
+			Data struct {
+				Repository map[string]*pullRequest `json:"repository"`
+			} `json:"data"`
+			Errors []graphError `json:"errors"`
+		}
+		decoded := json.Unmarshal([]byte(out), &reply)
+		notFound := len(reply.Errors) > 0 && !slices.ContainsFunc(reply.Errors, func(one graphError) bool { return one.Type != "NOT_FOUND" })
+		if err != nil && !notFound {
+			return nil, err
+		}
+		if decoded != nil {
+			return nil, decoded
+		}
+		maps.Copy(repository, reply.Data.Repository)
+	}
+	return repository, nil
+}
+
+func aliasedQuery(numbers []int, fields string) string {
 	var aliases strings.Builder
 	for _, number := range numbers {
-		fmt.Fprintf(&aliases, "r%d: pullRequest(number: %d) { %s } ", number, number, memberFields)
+		fmt.Fprintf(&aliases, "r%d: pullRequest(number: %d) { %s } ", number, number, fields)
 	}
 	return "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + aliases.String() + "} }"
 }
