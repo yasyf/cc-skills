@@ -20,7 +20,7 @@ const (
 		{"id":"card-chat","type":"card","title":"Put Chat live?","slack":{"url":"https://acme.slack.com/archives/D0B6Z/p1793817344717479"},
 		 "children":[{"id":"card-chat-why","type":"markdown"},{"id":"card-chat-pick","type":"choice"}]}
 	]}}`
-	yesWords = "Yes, ship this one"
+	yesWords = "1, ship this one"
 )
 
 type answerBook struct {
@@ -98,6 +98,34 @@ func TestHisWordsInACardsThreadWriteTheRowTheLiveGateReads(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("body = %q, want %q", body, want)
 		}
+	}
+}
+
+func TestOnlyANumberedReplyOnACardWritesAnAnswerRow(t *testing.T) {
+	cases := map[string]int{
+		`what is a "job"?`:    0,
+		"Sounds good do that": 0,
+		"why not 1?":          0,
+		"":                    0,
+		"1":                   1,
+		"I pick 1":            1,
+		"Option 2":            1,
+		"1 but port it first": 1,
+	}
+	for text, want := range cases {
+		t.Run(text, func(t *testing.T) {
+			book, entry := booked(t)
+			word := wordOn("1793817344.717479")
+			word.Text = text
+
+			if err := word.record(context.Background(), book, noThreads, entry, "s1"); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(book.rows) != want {
+				t.Errorf("rows = %q, want %d", book.rows, want)
+			}
+		})
 	}
 }
 
