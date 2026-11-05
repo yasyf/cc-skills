@@ -487,7 +487,7 @@ func Exempted(snapshot []machine.Facts, posted []int) []machine.Facts {
 }
 
 func goPrint(f machine.Facts, inputs gateInputs) (string, error) {
-	read, err := json.Marshal([]any{f.Head, f.Base, f.Body, gates.OpenCards(f.Number, inputs.Cards), inputs.GoLanes, inputs.Exempt, inputs.TapRules})
+	read, err := json.Marshal([]any{f.Head, f.Base, f.Body, gates.OpenCards(f.Number, f.Body, inputs.Cards), inputs.GoLanes, inputs.Exempt, inputs.TapRules})
 	if err != nil {
 		return "", err
 	}

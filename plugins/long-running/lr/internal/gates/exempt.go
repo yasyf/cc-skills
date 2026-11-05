@@ -46,6 +46,7 @@ const (
 var (
 	DefaultExemptGrades = []string{PortGrade, TestOnlyGrade}
 	timeoutWord         = regexp.MustCompile(`(?i)time_?out|deadline`)
+	cardNamed           = regexp.MustCompile(`(?i)(?:^|[^\w-])card[ -]([\w-]+)`)
 )
 
 type Claim struct {
@@ -114,7 +115,7 @@ func ExemptGo(c Claim, r Read) (string, []string) {
 	if (class == FlakeFixClass || isPortClass(class)) && len(classRefused) == 0 {
 		rules = nil
 	}
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), OpenCards(c.PR, r.Cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), OpenCards(c.PR, r.Body, r.Cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", refusals
 	}
@@ -431,11 +432,15 @@ func openHolds(c Claim, records []client.Record, lifts map[int64]bool) []string 
 	return out
 }
 
-func OpenCards(pr int, cards []Card) []string {
+func OpenCards(pr int, body string, cards []Card) []string {
 	names := regexp.MustCompile(`(?:^|\D)` + strconv.Itoa(pr) + `(?:\D|$)`)
+	inBody := map[string]bool{}
+	for _, found := range cardNamed.FindAllStringSubmatch(body, -1) {
+		inBody[strings.TrimPrefix(strings.ToLower(found[1]), "card-")] = true
+	}
 	var out []string
 	for _, card := range cards {
-		if names.MatchString(card.ID) || names.MatchString(card.Title) {
+		if names.MatchString(card.ID) || names.MatchString(card.Title) || inBody[strings.TrimPrefix(card.ID, "card-")] {
 			out = append(out, fmt.Sprintf("owner card %s is open", card.ID))
 		}
 	}
