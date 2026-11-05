@@ -266,6 +266,9 @@ func (o Order) faults(ctx context.Context, runner shell.Runner, home, repo, driv
 	if readErr != nil {
 		return faults, nil, nil
 	}
+	if fields := lanes.UnfilledFields(text); len(fields) > 0 {
+		faults = append(faults, fmt.Sprintf("brief %s still holds the template fields %s, which nothing filled; fill them, launch an incident template with `lr launch incident --alert`, or write a field the brief quotes as text doubled, as {{lane}}", o.Brief, strings.Join(fields, ", ")))
+	}
 	info, err := os.Stat(o.Brief)
 	if err != nil {
 		return nil, nil, err

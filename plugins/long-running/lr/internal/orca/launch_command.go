@@ -187,7 +187,7 @@ func incidentCommand(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "incident NAME FIX_BRIEF [EVIDENCE_BRIEF [COMMS_BRIEF]]",
 		Short: "Post NAME-fix, NAME-evidence and NAME-comms NOW on the incident route and wait for their verdicts",
-		Long:  "With --alert each brief is a template: its Coordinator: lines go, every <lane> becomes that lane's name, its Alert: line becomes Alert: TEXT, and the result is written to <state dir>/<lane>/brief.md. A brief still holding a placeholder the coordinator fills posts nothing.",
+		Long:  "With --alert each brief is a template: its Root: lines go, every <lane> becomes that lane's name, its Alert: line becomes Alert: TEXT, every {field} of reference/alert-*-brief.md is filled as the supervisor fills it, and the result is written to <state dir>/<lane>/brief.md. A brief still holding a placeholder the coordinator fills, or a {field}, posts nothing.",
 		Args:  cobra.RangeArgs(2, 4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			evidence, comms := "", ""

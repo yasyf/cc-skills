@@ -441,6 +441,19 @@ func TestEveryFaultOfALaunchIsNamedAtOnceBeforeAnyCall(t *testing.T) {
 	}
 }
 
+func TestAShippedIncidentTemplateLaunchedUnrenderedIsRefusedNamingEachFieldBeforeAnyCall(t *testing.T) {
+	f := newPosterFixture(t)
+	template, err := os.ReadFile(filepath.Join("..", "..", "..", "skills", "long-running", "reference", "alert-fix-brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := f.brief(t, filepath.Join("sofi-team-runs-fix", briefFile), string(template))
+	_, err = f.poster.Launch(context.Background(), Order{Lane: "sofi-team-runs-fix", Model: "incident", Effort: "xhigh", Role: "fix", Brief: brief, Now: true}, time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "still holds the template fields {lane}, {incident}, {slug}, {onset}, {what}, {link}, {links}, {drive}, {facts}, {reported}, {due}, {repo}, which nothing filled") || len(f.bus.calls) != 0 {
+		t.Fatal(err, f.bus.calls)
+	}
+}
+
 func TestAMissingBriefIsRefusedBeforeAnyCall(t *testing.T) {
 	f := newPosterFixture(t)
 	_, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: "opus", Effort: "high", Brief: filepath.Join(f.dir, "missing.md")}, time.Minute)

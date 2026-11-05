@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -72,6 +73,7 @@ var (
 	releaseAuthor  = regexp.MustCompile(`<@(U[A-Z0-9]+)>`)
 	jobLink        = regexp.MustCompile(`<(https://buildkite\.com/[^|>]+)`)
 	notSlug        = regexp.MustCompile(`[^a-z0-9]+`)
+	templateField  = regexp.MustCompile(`(\$?)(\{+)(lane|incident|slug|links?|what|onset|reported|due|repo|drive|facts|parent|case|parent_brief|prs|log)(\}+)`)
 )
 
 type Check func(ctx context.Context, now time.Time) error
@@ -125,6 +127,30 @@ type alert struct {
 	red   string
 }
 
+func HandFired(slug, what string, now time.Time) Fired {
+	return Fired{Slug: slug, What: what, Link: cmp.Or(alertMessage.FindString(what), alertLink.FindString(what)), At: now}
+}
+
+func FillIncidentBrief(template, lane, repo, drive string, fired Fired, now time.Time) string {
+	reported := now.In(pacificZone)
+	return strings.NewReplacer(
+		"{{", "{", "}}", "}", "{lane}", lane, "{incident}", fired.Slug, "{slug}", fired.Slug, "{link}", fired.Link, "{links}", fired.links(), "{what}", fired.What,
+		"{onset}", pacific(fired.At), "{reported}", reported.Format("15:04"), "{due}", reported.Add(incidentBar).Format("15:04"),
+		"{repo}", repo, "{drive}", drive, "{facts}", strings.Join(append([]string{"drive " + drive}, fired.Facts...), "\n"),
+	).Replace(template)
+}
+
+func UnfilledFields(text string) []string {
+	var fields []string
+	for _, match := range templateField.FindAllStringSubmatch(text, -1) {
+		field := "{" + match[3] + "}"
+		if match[1] == "" && match[2] == "{" && match[4] == "}" && !slices.Contains(fields, field) {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
 func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
 	text, err := os.ReadFile(filepath.Join(e.plugin(), "skills", "long-running", "reference", template))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -133,12 +159,7 @@ func (e Env) incidentBrief(lane, template string, fired Fired) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	reported := e.Now().In(pacificZone)
-	rendered := strings.NewReplacer(
-		"{{", "{", "}}", "}", "{lane}", lane, "{incident}", fired.Slug, "{slug}", fired.Slug, "{link}", fired.Link, "{links}", fired.links(), "{what}", fired.What,
-		"{onset}", pacific(fired.At), "{reported}", reported.Format("15:04"), "{due}", reported.Add(incidentBar).Format("15:04"),
-		"{repo}", e.Config.Checkout, "{drive}", e.Config.Drive, "{facts}", strings.Join(append([]string{"drive " + e.Config.Drive}, fired.Facts...), "\n"),
-	).Replace(string(text))
+	rendered := FillIncidentBrief(string(text), lane, e.Config.Checkout, e.Config.Drive, fired, e.Now())
 	dir := filepath.Join(e.State, "lanes")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err

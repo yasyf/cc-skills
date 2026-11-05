@@ -51,7 +51,7 @@ func runCommand(a *app.App) *cobra.Command {
 		},
 	}
 	flags := cmd.Flags()
-	flags.StringVar(&alert, "alert", "", "the Alert line; each brief is then a template this fills")
+	flags.StringVar(&alert, "alert", "", "the Alert line; each brief is then a template this fills, its <lane>, Alert: line and every {field}")
 	flags.StringVar(&fixBrief, "fix-brief", "", "the fix lane's brief, or its template with --alert")
 	flags.StringVar(&evidenceBrief, "evidence-brief", "", "the evidence lane's brief, or its template with --alert")
 	flags.StringVar(&commsBrief, "comms-brief", "", "the comms lane's brief, or its template with --alert")

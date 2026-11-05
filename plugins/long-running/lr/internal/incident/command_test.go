@@ -18,6 +18,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -121,7 +122,7 @@ func deskFixture(t *testing.T) (DeskLaunch, *fakeBus, string, *bytes.Buffer) {
 	if err := os.MkdirAll(filepath.Join(claude, "long-running", "drives"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := json.Marshal(map[string]any{"drive": "abc", "sessions": []string{"s1"}, "state_dir": state})
+	entry, err := json.Marshal(map[string]any{"drive": "abc", "sessions": []string{"s1"}, "state_dir": state, "checkout": "/checkout"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,6 +336,69 @@ func TestAnAlertLineCarryingSlackMarkupIsNoPlaceholder(t *testing.T) {
 	bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
 	if err := desk.Run(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func shippedTemplate(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join("..", "..", "..", "skills", "long-running", "reference", name)
+}
+
+func TestAnAlertFillsEveryFieldOfTheShippedIncidentTemplates(t *testing.T) {
+	desk, bus, dir, _ := deskFixture(t)
+	alert := "https://poetic-technology.slack.com/archives/C0C5SEUJK5L/p1793919731222729 Team runs failing far above their baseline for SoFi since about 3:00 PM Nov 5"
+	desk.Name, desk.Alert = "sofi-team-runs", alert
+	desk.FixBrief, desk.EvidenceBrief, desk.CommsBrief = shippedTemplate(t, "alert-fix-brief.md"), shippedTemplate(t, "alert-evidence-brief.md"), shippedTemplate(t, "alert-comms-brief.md")
+	bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
+	bus.verdicts["R104"] = "LAUNCHED R104 {lane}: dispatch ctx_ev terminal term_ev"
+	bus.verdicts["R106"] = "LAUNCHED R106 {lane}: dispatch ctx_co terminal term_co"
+	if err := desk.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, lane := range []string{"sofi-team-runs-fix", "sofi-team-runs-evidence", "sofi-team-runs-comms"} {
+		got := readFile(t, filepath.Join(dir, "prog", lane, "brief.md"))
+		if fields := lanes.UnfilledFields(got); len(fields) > 0 {
+			t.Fatalf("%s still holds %v:\n%s", lane, fields, got)
+		}
+		for _, want := range []string{"# " + lane + ": ", " the production alert sofi-team-runs, opened ", "\nAlert: " + alert + "\n", "\nLink: https://poetic-technology.slack.com/archives/C0C5SEUJK5L/p1793919731222729\n", "Drive facts:\ndrive prog\n"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s lacks %q:\n%s", lane, want, got)
+			}
+		}
+	}
+	fix := readFile(t, filepath.Join(dir, "prog", "sofi-team-runs-fix", "brief.md"))
+	for _, want := range []string{"ccx: lane=sofi-team-runs-fix role=incident effort=xhigh incident=sofi-team-runs\n", "`sofi-team-runs-evidence`", "ccn -R /checkout log show"} {
+		if !strings.Contains(fix, want) {
+			t.Fatalf("fix brief lacks %q:\n%s", want, fix)
+		}
+	}
+}
+
+func TestAMultilineAlertFillsAFieldTemplateOnce(t *testing.T) {
+	desk, bus, dir, _ := deskFixture(t)
+	desk.Name, desk.FixBrief, desk.Alert = "run-queue", briefFile(t, dir, "t.md", "# {lane}\n\nAlert: {what}\nLink: {link}\n"), "monitor 339599887 fires\nOwner words, verbatim: fix asap"
+	bus.verdicts["R102"] = "LAUNCHED R102 {lane}: dispatch ctx_fix terminal term_fix"
+	if err := desk.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := readFile(t, filepath.Join(dir, "prog", "run-queue-fix", "brief.md")), "# run-queue-fix\n\nAlert: monitor 339599887 fires\nOwner words, verbatim: fix asap\nLink: \n"; got != want {
+		t.Fatalf("brief:\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestAShippedIncidentTemplateLaunchedUnfilledPostsNothingAndNamesEachField(t *testing.T) {
+	desk, bus, dir, _ := deskFixture(t)
+	template, err := os.ReadFile(shippedTemplate(t, "alert-fix-brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk.Name, desk.FixBrief = "sofi-team-runs", briefFile(t, dir, "sofi-team-runs-fix/brief.md", strings.Replace(string(template), "Alert: {what}", "Alert: https://poetic-technology.slack.com/archives/C0C5SEUJK5L/p1793919731222729 SoFi team runs failing", 1))
+	err = desk.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "still holds the template fields {lane}, {incident}, {slug}, {onset}, {link}, {links}, {drive}, {facts}, {reported}, {due}, {repo}, which nothing filled") {
+		t.Fatalf("got %v", err)
+	}
+	if len(bus.drafts) != 0 {
+		t.Fatalf("drafts %+v", bus.drafts)
 	}
 }
 
