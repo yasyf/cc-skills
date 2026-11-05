@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ type Wait struct {
 	Since  time.Time
 	Within time.Duration
 	To     string
+	Owner  string
 	Key    string
 	Cause  string
 }
@@ -113,5 +115,21 @@ func overdueBody(class waitClass, waits []Wait) (string, bus.Body) {
 	detail := strings.Join(lines, "\n\n") + "\n"
 	sum := sha256.Sum256([]byte(detail))
 	subject := fmt.Sprintf("%s/%d/%s", class.kind, len(waits), hex.EncodeToString(sum[:])[:8])
+	if class == (waitClass{stepKind, ownerRelay}) {
+		return subject, bus.Overdue(class.to, subject, fmt.Sprintf("%d step clocks passed with no answer from their owners, each told: %s", len(waits), owing(waits)))
+	}
 	return subject, bus.OverdueClass(class.to, subject, fmt.Sprintf("%d overdue at once; the body names each id and what moves it", len(waits)), detail)
+}
+
+func owing(waits []Wait) string {
+	counts := map[string]int{}
+	for _, wait := range waits {
+		counts[wait.Owner]++
+	}
+	owners := slices.Sorted(maps.Keys(counts))
+	named := make([]string, len(owners))
+	for i, owner := range owners {
+		named[i] = fmt.Sprintf("%s %d", owner, counts[owner])
+	}
+	return strings.Join(named, ", ")
 }

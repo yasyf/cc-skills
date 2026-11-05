@@ -60,8 +60,12 @@ func Sweep(s *store.Store, records, asks []client.Record, unfinished []Wait, now
 	if err != nil {
 		return nil, err
 	}
+	registered, err := s.AllLanes()
+	if err != nil {
+		return nil, err
+	}
 	watched := slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return !slices.Contains(Kinds, string(record.Kind)) })
-	standing := slices.Concat(unfinished, OpenAsks(asks, watched, now), LandedWaits(watched), Unplanned(records, now), MissedSteps(records, now), Repeats(escalations, now), PortCensusWaits(records, now))
+	standing := slices.Concat(unfinished, OpenAsks(asks, watched, now), LandedWaits(watched), Unplanned(records, now), MissedSteps(records, registered, now), Repeats(escalations, now), PortCensusWaits(records, now))
 	return Apply(s, Namespaces, standing, now, post)
 }
 
