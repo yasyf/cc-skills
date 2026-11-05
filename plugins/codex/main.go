@@ -16,7 +16,8 @@ const (
 	modelAstra = "gpt-6-astra"
 	modelSol   = "gpt-6.1-sol"
 	modelLuna  = "gpt-5.6-luna"
-	effort     = "xhigh"
+
+	defaultEffort = "xhigh"
 
 	pruneAgeS = 7 * 24 * 3600
 
@@ -38,7 +39,9 @@ const (
 	turnFailedMarker    = `"type":"turn.failed"`
 )
 
-const usageStr = "usage: codex-ask [-m sol|luna|astra] [--incident] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane CONTRACT] [--schema NAME|FILE] " +
+var efforts = []string{"low", "medium", "high", "xhigh"}
+
+const usageStr = "usage: codex-ask [-m sol|luna|astra] [--effort low|medium|high|xhigh] [--incident] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane CONTRACT] [--schema NAME|FILE] " +
 	"[--mcp NAMES] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT] | --cancel RUN_DIR | --ps [RUN[/LANE] | ABS_DIR]..."
 
 var terminal = []string{"completed", "failed", "no-run"}

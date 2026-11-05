@@ -916,6 +916,37 @@ func TestDefaultModelIsSolAndAstraStaysSelectable(t *testing.T) {
 	}
 }
 
+func TestEffortFlagSetsTheReasoningEffort(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"default", nil, "xhigh"},
+		{"medium", []string{"--effort", "medium"}, "medium"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sdir := filepath.Join(mustTempDir(t), "lane-"+tc.name)
+			args := append([]string{"-s", sdir}, tc.flags...)
+			_, stderr, code := askRun(t, mustTempDir(t), stubCodexSleep, append(args, "--dispatch", "ping")...)
+			if code != 0 {
+				t.Fatalf("dispatch exit %d\nstderr: %s", code, stderr)
+			}
+			t.Cleanup(func() { killLane(sdir) })
+			if argv := cmdArgv(t, sdir); !contains(argv, "model_reasoning_effort="+tc.want) {
+				t.Fatalf("argv = %v, want model_reasoning_effort=%s", argv, tc.want)
+			}
+		})
+	}
+}
+
+func TestEffortFlagRefusesAnUnknownLevel(t *testing.T) {
+	_, stderr, code := askRun(t, mustTempDir(t), stubCodexSleep, "--effort", "extreme", "ping")
+	if code != 2 || !strings.Contains(stderr, "--effort takes") {
+		t.Fatalf("exit %d, stderr %q, want exit 2 naming --effort", code, stderr)
+	}
+}
+
 func TestFastTierOnlyUnderIncident(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
