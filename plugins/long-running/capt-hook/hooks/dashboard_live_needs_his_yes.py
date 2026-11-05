@@ -17,7 +17,7 @@ UI_LANE = re.compile(r"^(?:dashboard|tap-queue|owner-apps|owner-board|chat-desig
 LIVE = re.compile(r"(?:^|[.;:]\s*)live\b|\b(?:is|are|went|now|all)\s+live\b|\blive on\b|\bserved (?:at|on)\b", re.IGNORECASE)
 NOT_INSTALLED = re.compile(r"\bmerged,? not installed\b", re.IGNORECASE)
 NOT_LIVE = re.compile(r"\bnot live\b", re.IGNORECASE)
-PR = re.compile(r"(?P<repo>[\w.-]*(?:/[\w.-]+)?)(?:#|/pull/)(?P<number>\d{1,5})\b")
+PR = re.compile(r"(?P<repo>[\w.-]*(?:/[\w.-]+)?)(?:#|/pull/)(?P<number>\d{1,5})\b(?!@[0-9a-f])")
 CC_SKILLS = frozenset({"", "pr", "cc-skills", "yasyf/cc-skills"})
 REPLIED_RECORD = re.compile(r"#?(?P<number>\d+)(?:@[0-9a-f]+)?")
 CITE = re.compile(r"\b(?:card:(?P<card>[\w.-]+)|owner:(?P<row>m\d+))\b")
@@ -125,6 +125,7 @@ def unseen_claims(evt: BaseHookEvent) -> list[str]:
         Input(command=f"cci post --kind correction --re '#983@2e1ef26e' --to root \"{SAND_RELEASED}\" 2>&1 | tail -1", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Block(),
         Input(tool=POST_TOOL, tool_input={"lane": "bug-regressions-2", "kind": "correction", "re": "#984@2e1ef26e", "text": SAND_RELEASED}, env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Allow(),
         Input(command="cci post --kind correction --re '#984@2e1ef26e' --to root \"Live: cc-skills#984 draws every reviewer-bot diagram\"", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Block(),
+        Input(command=f"cci post --kind correction --to root \"{SAND_RELEASED.replace('#984,', '#984@2e1ef26e,')}\"", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Allow(),
         Input(tool=POST_TOOL, tool_input={"lane": "owner-apps-1", "kind": "live", "text": "The Review tab now lists PRs only"}, env={"CLAUDE_LONG_RUNNING_LANE": "owner-apps-1"}): Block(),
     },
 )
