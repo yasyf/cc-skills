@@ -1652,3 +1652,18 @@ func TestAHostCountsTheCountedRecordAndNeverReadsAnOwnerRowForAnAppeal(t *testin
 		t.Fatalf("the counted override did not clear the grade: %+v", row)
 	}
 }
+
+func TestAShardsGradeReachesTheStoreSoItsRowReadsGraded(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	putFact(t, h.store, 1, head, "finder", "clear", tappedAt)
+	if row := h.snapshot(t)[1]; row.Graded() {
+		t.Fatalf("graded with no fidelity grade: %+v", row)
+	}
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "fidelity-shard-5", Kind: "review", PRs: []string{repo + "#1"}, Text: "fidelity: ok " + head + " class regression: carries my ok at a2fdafc (438794)."}); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := h.snapshot(t)[1]; row.Fidelity != machine.FidelityPass || !row.Cleared() {
+		t.Fatalf("the shard's ok did not reach the row: %+v", row)
+	}
+}
