@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	wholeRead   = "over whole "
 	pendingDir  = "pending"
 	kindAsk     = "ask"
+	kindRead    = "github"
 	cursorAsks  = "grading-whole-asks"
 	cursorBegun = int64(1)
 )
@@ -105,6 +107,15 @@ func edited(r client.Record, repo string) map[string]string {
 	return heads
 }
 
+func bodyEdit(r client.Record, repo string, snapshot map[int]machine.Facts) (machine.Facts, bool) {
+	if !prrow.ReadsNewBody(r) || len(r.Refs.PRs) != 1 || r.Refs.PRs[0].Repo != "" && !strings.EqualFold(r.Refs.PRs[0].Repo, repo) {
+		return machine.Facts{}, false
+	}
+	facts, open := snapshot[r.Refs.PRs[0].Number]
+	head := r.Fields.Attrs["head"]
+	return facts, open && head != "" && strings.HasPrefix(facts.Head, head) && facts.Finder == machine.FinderAsk
+}
+
 func unique(list []string) []string {
 	kept := make([]string, 0, len(list))
 	for _, entry := range list {
@@ -115,12 +126,12 @@ func unique(list []string) []string {
 	return kept
 }
 
-func (p *JobPool) readAsks(ctx context.Context) error {
+func (p *JobPool) readAsks(ctx context.Context, snapshot map[int]machine.Facts) error {
 	cursor, err := p.Cursors.Cursor(cursorAsks)
 	if err != nil {
 		return err
 	}
-	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindAsk, kindDecide, kindDefect, kindHead}, After: cursor})
+	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindAsk, kindDecide, kindDefect, kindHead, kindRead}, After: cursor})
 	if err != nil {
 		return err
 	}
@@ -138,6 +149,11 @@ func (p *JobPool) readAsks(ctx context.Context) error {
 		}
 		for pr, head := range edited(r, p.repo()) {
 			if err := p.queueWhole(wholeAsk{PR: pr, Lane: r.Lane, Key: key, Head: head}); err != nil {
+				return err
+			}
+		}
+		if facts, answers := bodyEdit(r, p.repo(), snapshot); answers {
+			if err := p.queueWhole(wholeAsk{PR: strconv.Itoa(facts.Number), Lane: facts.Lane, Key: key, Head: facts.Head}); err != nil {
 				return err
 			}
 		}
@@ -185,7 +201,7 @@ func (p *JobPool) Whole(ctx context.Context, snapshot map[int]machine.Facts) ([]
 	if !on {
 		return nil, nil
 	}
-	if err := p.readAsks(ctx); err != nil {
+	if err := p.readAsks(ctx, snapshot); err != nil {
 		return nil, err
 	}
 	if err := p.postBeats(ctx); err != nil {
