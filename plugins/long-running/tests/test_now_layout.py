@@ -1208,13 +1208,29 @@ def test_a_change_an_open_question_holds_says_it_waits_on_his_answer(page):
 
 def test_the_dashboard_never_shows_its_own_url_and_keeps_every_other_link(page):
     now(page)
-    page.evaluate("state.model.own_hosts = ['studio', 'studio.tail.ts.net', '100.1.2.3']")
+    page.evaluate("Object.assign(state.model, { own_hosts: ['studio', 'studio.tail.ts.net', '100.1.2.3'], own_ports: ['61210', '61211'] })")
     drop = lambda md: page.evaluate("(md) => dashboardLinksHere(md)", md)
     assert drop("https://studio.tail.ts.net:61211/\n\nThree merged.") == "Three merged."
-    assert drop("Your taps: https://studio.tail.ts.net:61211/#/needs.") == "Your taps: [here](#/needs)."
-    assert drop("Live at http://100.1.2.3:61210/ since 4:55 PM.") == "Live [here](#/) since 4:55 PM."
-    for kept in ("https://studio.tail.ts.net:8665/one-pagers/relay/", "https://buildkite.com/", "http://elsewhere:61211/#/needs"):
+    assert drop("Your taps: https://studio.tail.ts.net:61211/#/needs.") == "Your taps: [](#/needs)."
+    assert drop("Live at http://100.1.2.3:61210/ since 4:55 PM.") == "Live [](#/) since 4:55 PM."
+    for kept in ("https://studio.tail.ts.net:8665/one-pagers/relay/", "https://buildkite.com/", "http://elsewhere:61211/#/needs", "http://studio.tail.ts.net:61299/#/needs"):
         assert drop(kept) == kept
+
+
+def test_a_link_opens_where_he_reads_it_and_a_link_to_this_page_draws_nothing(page):
+    now(page)
+    page.evaluate("""() => { Object.assign(state.model, { own_hosts: ['studio.tail.ts.net'], own_ports: ['61211'] }); state.model.board.card_posts = {'D0C4HQWPLCC/1792757664513719': 'card-rmw22zsnx'}; }""")
+    draw = lambda md: page.evaluate("(md) => inline(md)", md)
+    opened = '<a href="#/question/card-rmw22zsnx">the old-chat question</a>'
+    assert draw("[the old-chat question](card:card-rmw22zsnx)") == opened
+    assert draw("[the old-chat question](https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1792757664513719?thread_ts=1792754650.703799&cid=D0C4HQWPLCC)") == opened
+    assert draw("[a fix](pr:yasyf/elsewhere#12)") == '<a href="https://github.com/yasyf/elsewhere/pull/12" target="_blank" rel="noopener">a fix</a>'
+    assert draw("[another post](https://poetic-technology.slack.com/archives/C01/p2)") == '<a href="https://poetic-technology.slack.com/archives/C01/p2" target="_blank" rel="noopener">another post</a>'
+    assert draw("[Now](https://studio.tail.ts.net:61211/#/)") == "Now"
+    assert draw("Live [](#/) since 4:55 PM.") == "Live  since 4:55 PM."
+    assert draw("[Chat](https://studio.tail.ts.net:61211/#/replies)") == '<a href="#/replies">Chat</a>'
+    assert draw("[Try it](https://studio.tail.ts.net:61299/#/)") == '<a href="https://studio.tail.ts.net:61299/#/" target="_blank" rel="noopener">Try it</a>'
+    assert page.evaluate("plain('See [q](card:card-rmw22zsnx) and [p](pr:yasyf/cc-skills#3130).')") == "See [q](card:card-rmw22zsnx) and [p](pr:yasyf/cc-skills#3130)."
 
 
 def test_a_phone_reads_an_owed_row_from_the_left(page):
