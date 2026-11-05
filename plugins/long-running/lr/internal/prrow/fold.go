@@ -36,6 +36,10 @@ const (
 	FactTapBy     = "tap-by"
 	FactTapAt     = "tap-at"
 
+	FactOldTree = "read-old-tree"
+	NoPortAttr  = "no-port"
+	PortOwed    = "owed"
+
 	FactUnknownSince = "unknown-since"
 	FactBumps        = "mergeable-bumps"
 
@@ -61,6 +65,7 @@ const (
 	saidSuffix    = "-said"
 
 	deltaAttr       = "delta"
+	oldTreeAttr     = "old-tree"
 	carriedByAttr   = "carried_by"
 	tapFromAttr     = "tap_from"
 	tapReturnedAttr = "tap_returned"
@@ -68,7 +73,7 @@ const (
 )
 
 var (
-	foldKinds = []string{"opened", "head", "lr.head", readKind, "duplicate"}
+	foldKinds = []string{"opened", "head", "lr.head", readKind, "duplicate", "decide"}
 	anySHA    = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 )
 
@@ -157,10 +162,41 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 			row.WrittenAt = store.Stamp(written)
 			rows[number] = row
 		}
+		ports := portsOf(rows, atHeads)
+		for number, row := range rows {
+			row.Port = portState(atHeads[number], ports[number])
+			rows[number] = row
+		}
 		out = values(rows)
 		return t.PutReviewRows(out)
 	})
 	return out, err
+}
+
+func portsOf(rows map[int]store.ReviewRow, atHeads map[int]map[string]string) map[int]store.ReviewRow {
+	ports := map[int]store.ReviewRow{}
+	for number, row := range rows {
+		source, err := strconv.Atoi(atHeads[number][gates.PortOfAttr])
+		if err != nil || row.State == StateClosed || row.State == StateSuperseded {
+			continue
+		}
+		if known, found := ports[source]; !found || number < known.Number {
+			ports[source] = row
+		}
+	}
+	return ports
+}
+
+func portState(facts map[string]string, port store.ReviewRow) string {
+	switch {
+	case facts[FactOldTree] == "":
+		return None
+	case port.Number != 0:
+		return fmt.Sprintf("port #%d, %s", port.Number, port.State)
+	case facts[NoPortAttr] != "":
+		return "no port: " + clip(facts[NoPortAttr], fieldChars)
+	}
+	return fmt.Sprintf("%s: it changes %s in the old tree, and no port PR's head record or no-port decide names it", PortOwed, facts[FactOldTree])
 }
 
 // TODO: delete once every drive's store has advanced this cursor; it reads the overrides posted before each one named its grader.
@@ -229,6 +265,11 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, record client.Rec
 				continue
 			}
 			err = t.PutFact(f.Repo, number, row.Head, FactWithdrawn, "replaced by #"+attrs["superseded_by"], record.At)
+		case "decide":
+			if !known || attrs[NoPortAttr] == "" {
+				continue
+			}
+			err = t.PutFact(f.Repo, number, row.Head, NoPortAttr, attrs[NoPortAttr], record.At)
 		}
 		if err != nil {
 			return err
@@ -384,7 +425,7 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 	for kind, value := range map[string]string{
 		factCI: attrs["ci"], factApprovers: attrs["approvers"], factMergeable: attrs["mergeable"], factQueue: attrs["queue"],
 		FactFailing: attrs["failing"], FactDraft: attrs["draft"], FactForeign: attrs["foreign"], factValues: valuesOf(attrs), factBody: attrs["body"],
-		factCarriedBy: attrs[carriedByAttr], factTapFrom: attrs[tapFromAttr], factReturned: attrs[tapReturnedAttr],
+		factCarriedBy: attrs[carriedByAttr], factTapFrom: attrs[tapFromAttr], factReturned: attrs[tapReturnedAttr], FactOldTree: attrs[oldTreeAttr],
 	} {
 		if err := t.PutFact(f.Repo, row.Number, head, kind, value, record.At); err != nil {
 			return row, err
@@ -707,6 +748,9 @@ func readAttrs(repo string, pr machine.Facts) map[string]string {
 	}
 	if pr.CarriedBy != "" {
 		attrs[carriedByAttr] = pr.CarriedBy
+	}
+	if pr.OldTree != "" {
+		attrs[oldTreeAttr] = pr.OldTree
 	}
 	if pr.TapReturned != "" {
 		attrs[tapReturnedAttr] = pr.TapReturned

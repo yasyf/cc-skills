@@ -36,7 +36,7 @@ const (
 	memberBatch    = 25
 	queueUnknown   = "queue-unknown"
 	diffRefs       = "refs/lr/diff/"
-	memberFields   = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
+	memberFields   = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
 var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
@@ -214,7 +214,7 @@ func (s Source) splitEnded(numbers []int, members memberRead, itemed map[int]boo
 		}
 		ended = append(ended, machine.Facts{
 			Repo: s.Repo, Number: number, Title: pr.Title, Head: pr.HeadRefOid, Branch: pr.HeadRefName, Base: pr.BaseRefName,
-			Closed: true, Merged: pr.State == "MERGED" || pr.labelled(trunkMerged),
+			Closed: true, Merged: pr.State == "MERGED" || pr.labelled(trunkMerged), OldTree: pr.oldTree(),
 			CI: machine.CIPending, Mergeable: machine.MergeableUnknown, Queue: machine.QueueNone,
 		})
 	}
@@ -559,6 +559,11 @@ type pullRequest struct {
 			} `json:"commit"`
 		} `json:"nodes"`
 	} `json:"commits"`
+	Files struct {
+		Nodes []struct {
+			Path string `json:"path"`
+		} `json:"nodes"`
+	} `json:"files"`
 	Mergeable        string `json:"mergeable"`
 	MergeStateStatus string `json:"mergeStateStatus"`
 	Tip              struct {
@@ -601,6 +606,14 @@ func (pr pullRequest) approversAt(head string) []string {
 	}
 	slices.Sort(approvers)
 	return approvers
+}
+
+func (pr pullRequest) oldTree() string {
+	paths := make([]string, len(pr.Files.Nodes))
+	for at, file := range pr.Files.Nodes {
+		paths[at] = file.Path
+	}
+	return gates.OldTreeFile(paths)
 }
 
 func (pr pullRequest) labelled(names ...string) bool {
@@ -1027,6 +1040,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		Queue:      queue,
 		UnsafeWait: gates.UnsafeWait(pr.Body),
 		Body:       pr.Body,
+		OldTree:    pr.oldTree(),
 	}
 	if queue == machine.QueueQueued {
 		f.QueuedHead = row.Head

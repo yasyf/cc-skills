@@ -445,7 +445,7 @@ func TestARowFromTheRecordsCarriesEveryFieldAndComesReady(t *testing.T) {
 		Repo: testRepo, Number: 1, Title: "the title", Lane: "lane", Branch: "branch-1", Base: "dev", Parent: None, ParentState: None, Head: headA,
 		ForUsers: "A user sees it.", PlanLine: "This carries plan step 1.", PlanRow: "This carries plan step 1. " + planChecked, Risk: "Low.",
 		CI: CIGreen, Approvers: "a, b", Review: "approved by a, b", Grade: GradePass, GradeFindings: None, Mergeable: "clean", Queue: "none",
-		Hold: None, SupersededBy: None, WaitsOn: onlyHim, ReadyForTap: true, State: StateOpen, TapRefused: None, TappedAt: NotYet, TappedBy: NotYet, LandedAt: NotYet,
+		Hold: None, SupersededBy: None, WaitsOn: onlyHim, ReadyForTap: true, State: StateOpen, TapRefused: None, TappedAt: NotYet, TappedBy: NotYet, LandedAt: NotYet, Port: None,
 	}
 	got := row
 	got.HeadAt, got.ReadHead, got.Description, got.LastRecord, got.WrittenAt = "", "", "", 0, ""
@@ -1261,5 +1261,70 @@ func TestAnEvictedRowReadsEvictedWithItsReasonUntilTheQueueHoldsItAgain(t *testi
 	evicted[factQueue] = string(machine.QueueQueued)
 	if row := Materialize(store.ReviewRow{Number: 1, Head: headA}, evicted, Held{}, nil, "dev"); row.State != StateQueued {
 		t.Fatalf("a row the queue holds again reads %q", row.State)
+	}
+}
+
+func TestAnOldTreePRsRowSaysItsPortIsOwedUntilAPortOrANoPortReasonNamesIt(t *testing.T) {
+	const steptree = "go/sand/internal/steptree/tree.go"
+	f, _ := foldFor(t)
+	oldTree := func(number int, head string) machine.Facts {
+		pr := cleanRead(number, head)
+		pr.OldTree = steptree
+		return pr
+	}
+	read := func(prs ...machine.Facts) {
+		t.Helper()
+		if _, err := f.Pass(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.PostReads(context.Background(), prs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post := func(number int, kind string, attrs map[string]string) {
+		t.Helper()
+		if _, err := client.Post(context.Background(), client.Draft{
+			Drive: "d", Lane: "port-lane", Kind: kind, Text: fmt.Sprintf("%s #%d %s", kind, number, headB), PRs: []string{fmt.Sprintf("%s#%d", testRepo, number)}, Attrs: attrs,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	postOpened(t, 50525, headA, "dev", fullBody)
+	postOpened(t, 1, headA, "dev", fullBody)
+	read(oldTree(50525, headA), cleanRead(1, headA))
+	if row := folded(t, f, 50525); !strings.HasPrefix(row.Port, PortOwed+": it changes "+steptree) {
+		t.Fatalf("open old-tree fix with no port: port %q, want it owed", row.Port)
+	}
+	if row := folded(t, f, 1); row.Port != None {
+		t.Fatalf("a PR outside the old tree: port %q, want %q", row.Port, None)
+	}
+
+	merged := oldTree(50525, headA)
+	merged.Merged, merged.Closed = true, true
+	read(merged)
+	if row := folded(t, f, 50525); row.State != StateLanded || !strings.HasPrefix(row.Port, PortOwed) {
+		t.Fatalf("merged old-tree fix with no port: state %q, port %q, want it still owed", row.State, row.Port)
+	}
+
+	postOpened(t, 50849, headB, "dev", fullBody)
+	post(50849, "head", map[string]string{gates.PortOfAttr: "50525", gates.PortInteractsAttr: gates.PortCleanWord})
+	read(cleanRead(50849, headB))
+	if row := folded(t, f, 50525); row.Port != "port #50849, open" {
+		t.Fatalf("old-tree fix once its port opened: port %q", row.Port)
+	}
+	if row := folded(t, f, 50849); row.Port != None {
+		t.Fatalf("the port itself: port %q, want %q", row.Port, None)
+	}
+
+	postOpened(t, 2, headA, "dev", fullBody)
+	read(oldTree(2, headA))
+	post(2, "decide", map[string]string{NoPortAttr: "old-only: the next tree has no steptree wrapper"})
+	if row := folded(t, f, 2); row.Port != "no port: old-only: the next tree has no steptree wrapper" {
+		t.Fatalf("old-tree PR with a recorded reason: port %q", row.Port)
+	}
+	read(oldTree(2, headB))
+	if row := folded(t, f, 2); !strings.HasPrefix(row.Port, PortOwed) {
+		t.Fatalf("a new head past the reason: port %q, want it owed again", row.Port)
 	}
 }

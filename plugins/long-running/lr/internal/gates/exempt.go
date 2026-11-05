@@ -39,6 +39,7 @@ const (
 	FlakeFixAttr      = bus.FlakeFixAttr
 	StandingRefused   = bus.GoRefusedFact
 	portTree          = "go/sand/next/"
+	oldTree           = "go/sand/"
 	headKind          = "head"
 )
 
@@ -251,6 +252,15 @@ func PortEvidence(sourceMerged bool, files []string) map[string]string {
 		evidence[PortOutsideFact] = files[file]
 	}
 	return evidence
+}
+
+func OldTreeFile(files []string) string {
+	if file := slices.IndexFunc(files, func(file string) bool {
+		return strings.HasPrefix(file, oldTree) && !strings.HasPrefix(file, portTree)
+	}); file >= 0 {
+		return files[file]
+	}
+	return ""
 }
 
 func claimFacts(port PortClaim, r Read) map[string]string {
