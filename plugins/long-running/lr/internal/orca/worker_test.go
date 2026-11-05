@@ -25,6 +25,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -830,6 +831,9 @@ func TestAStandingDeskCarriesItsDrivesLrJSONToWhereLrReadsTheDriveOnTheSprite(t 
 	}
 	if loaded.Checkout != remoteRoot || loaded.Repo != "Forge-AI/monorepo" || loaded.OrcaRun != workerRun {
 		t.Fatalf("carried %+v", loaded)
+	}
+	if registry, err := store.Open(entry.Store()); !errors.Is(err, store.ErrOnMac) {
+		t.Fatalf("lr on the Sprite opened the drive's registry %v instead of naming the Mac: %v", registry, err)
 	}
 }
 

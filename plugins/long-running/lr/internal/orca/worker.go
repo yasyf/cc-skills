@@ -22,7 +22,9 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -58,7 +60,7 @@ const (
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
 	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && exec ccn sync --prefix "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
-	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
+	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" "$config/scratch/$2" && touch "$config/scratch/$2/` + lanes.StoreFile + store.OnMac + `" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
 	writeDriveConfig  = `umask 077; state=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scratch/$1 && mkdir -p "$state" && cat > "$state/lr.json.new" && mv "$state/lr.json.new" "$state/lr.json"`
 	seedStore         = `cci relay export --drive "$1" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-seed.gz" -- sh -c 'sprite-env services create store-seed --cmd sh --args "-c,$HOME/.local/bin/cci relay seed --drive $1 < /tmp/store-seed.gz; rm /tmp/store-seed.gz; sprite-env services delete store-seed" --no-stream' sh "$1"; rm -f "$3"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
