@@ -9,6 +9,9 @@ on:
       paths:
         type: string
         default: ""
+      ci-workflow:
+        type: string
+        default: ""
       dry-run:
         type: boolean
         default: false
@@ -22,7 +25,8 @@ jobs:
       (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == github.event.repository.default_branch)
+      github.event.workflow_run.head_branch == github.event.repository.default_branch) ||
+      (inputs.ci-workflow != '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     env:
       # TODO: drop once this job runs green on CPython 3.15; uv 0.13.0 defaults to 3.15.
@@ -34,9 +38,26 @@ jobs:
       contents: write
       actions: write
     steps:
+      - name: Resolve the green commit to release
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_WORKFLOW: ${{ inputs.ci-workflow }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GRADED: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ] || [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+            echo "sha=$GRADED" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sha="$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$CI_WORKFLOW" --branch "$DEFAULT_BRANCH" \
+            --event push --status success --limit 1 --json headSha --jq '.[0].headSha')"
+          test -n "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ steps.commit.outputs.sha }}
           fetch-depth: 0
 
       - name: Resolve pinned script ref
