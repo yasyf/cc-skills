@@ -31,6 +31,7 @@ class Post(NamedTuple):
     attrs: dict[str, str]
     topic: str
     heads: tuple[str | None, ...] = ()
+    replies_to: tuple[str, ...] = ()
 
 
 def post_records(evt: BaseHookEvent) -> Iterator[Post]:
@@ -39,7 +40,7 @@ def post_records(evt: BaseHookEvent) -> Iterator[Post]:
         lane = str(given.get("lane") or drive_lane(evt) or "")
         for record in [given, *(given.get("records") or ())]:
             text = str(record.get("text") or "")
-            yield Post(str(record.get("lane") or lane), [str(to) for to in record.get("to") or ()], str(record.get("kind") or ""), text, not record.get("path") and "\n" not in text, {str(key): str(value) for key, value in (record.get("attrs") or given.get("attrs") or {}).items()}, str(record.get("topic") or ""), (str(record["head"]),) if record.get("head") else ())
+            yield Post(str(record.get("lane") or lane), [str(to) for to in record.get("to") or ()], str(record.get("kind") or ""), text, not record.get("path") and "\n" not in text, {str(key): str(value) for key, value in (record.get("attrs") or given.get("attrs") or {}).items()}, str(record.get("topic") or ""), (str(record["head"]),) if record.get("head") else (), (str(record["re"]),) if record.get("re") else ())
         return
     for call in evt.command.calls("cci"):
         values = post_values(evt, call)
@@ -49,7 +50,7 @@ def post_records(evt: BaseHookEvent) -> Iterator[Post]:
         inline = not (values.get("path") or values.get("body-file") or "-" in values.get("text", ())) and "\n" not in text
         recipients = [to for value in values.get("to", ()) for to in str(value).split(",")]
         pairs = (pair.partition("=") for value in values.get("attr", ()) for pair in str(value).split(","))
-        yield Post(str((values.get("lane") or (drive_lane(evt) or "",))[0]), recipients, ",".join(values.get("kind", ())), text, inline, {key: value for key, _, value in pairs}, str((values.get("topic") or ("",))[0]), tuple(values.get("head", ())))
+        yield Post(str((values.get("lane") or (drive_lane(evt) or "",))[0]), recipients, ",".join(values.get("kind", ())), text, inline, {key: value for key, _, value in pairs}, str((values.get("topic") or ("",))[0]), tuple(values.get("head", ())), tuple(str(value) for value in values.get("re", ())))
 
 
 def posts(evt: BaseHookEvent) -> Iterator[tuple[str, list[str], str, str, bool, dict[str, str]]]:
