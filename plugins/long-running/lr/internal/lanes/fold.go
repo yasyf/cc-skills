@@ -285,6 +285,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if !fresh && (isOrder(kind, text) || isMail(r)) {
 		foldUnread(s, r, addressed, at)
 	}
+	foldCardTaker(s, r, addressed)
 	if !fresh {
 		foldToRetired(s, r, addressed)
 	}
@@ -527,6 +528,34 @@ func lastOfFamily(s *store.Store, stem string) (store.Lane, bool) {
 	return laneOf(s, last)
 }
 
+func foldCardTaker(s *store.Store, r Record, addressed map[string]bool) {
+	cards := card.FindAllString(r.Text, -1)
+	if len(cards) == 0 {
+		return
+	}
+	taker := ""
+	if r.Lane == Root {
+		named := maps.Clone(addressed)
+		for _, word := range laneWord.FindAllString(r.Text, -1) {
+			named[word] = true
+		}
+		for _, name := range slices.Sorted(maps.Keys(named)) {
+			if lane, found := laneOf(s, name); found && isLive(lane.State) && !slices.Contains([]string{Root, OwnerRelay, Self}, name) {
+				taker = name
+				break
+			}
+		}
+	} else if lane, found := laneOf(s, r.Lane); found && lane.Launcher == Root {
+		taker = r.Lane
+	}
+	if taker == "" {
+		return
+	}
+	for _, named := range cards {
+		do(s.TakeCard(named, taker))
+	}
+}
+
 func foldToRetired(s *store.Store, r Record, addressed map[string]bool) {
 	answer := strings.HasPrefix(r.Topic, CardWakeTopic)
 	if !answer && !asksOfALane(r) {
@@ -535,6 +564,11 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool) {
 	for _, target := range slices.Sorted(maps.Keys(addressed)) {
 		lane, found := newest(s, target)
 		if !found || lane.Name == r.Lane || lane.State != store.LaneRetired || (!answer && !restedOnItsOwnEnd(lane)) {
+			continue
+		}
+		answered := strings.TrimPrefix(r.Topic, CardWakeTopic)
+		if taker, took := newest(s, must(s.CardTaker(answered))); answer && took && isLive(taker.State) && taker.Name != lane.Name {
+			do(s.SetLanePage(taker.Name, map[string]any{"topic": r.Topic, "why": fmt.Sprintf("the owner answered %s, which root gave you after %s drew it: %s", answered, lane.Name, truncated(r.Text, 240)), "text": fmt.Sprintf("#%d from %s: %s", r.Seq, r.Lane, r.Text), "seqs": []int64{r.Seq}}))
 			continue
 		}
 		said := fmt.Sprintf("#%d from %s: %s", r.Seq, r.Lane, r.Text)
