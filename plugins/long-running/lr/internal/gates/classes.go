@@ -12,7 +12,7 @@ var (
 		`|(?:^|/)tests?\.\w+$|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e)\.\w+$|(?:^|/)(?:fake|mock)s?_[^/]*$|_(?:fake|mock)s?\.\w+$|(?:^|/)[^/]*test-timings\.json$`)
 	latestDir    = regexp.MustCompile(`[a-z0-9_-]*latest/`)
 	toolingGlobs = regexp.MustCompile(`^(?:\.agents/skills/.*/scripts/.*|\.agents/skills/.*/tests/.*|\.agents/skills/.*\.md|\.config/nextest.*|.*/\.config/nextest.*)$`)
-	devTooling   = regexp.MustCompile(`^(?:go/remote-builder/|tools/remote-builder/|tools/cc-remote/)|^(?:mise\.toml|tools/versions\.toml)$`)
+	devTooling   = regexp.MustCompile(`^(?:go/remote-builder/|tools/remote-builder/|tools/cc-remote/)`)
 	tomlSection  = regexp.MustCompile(`^\s*\[+([^\]]+)\]+\s*$`)
 	jsonSection  = regexp.MustCompile(`^\s*"([^"]+)":\s*\{\s*$`)
 	jsonClose    = regexp.MustCompile(`^\s*\},?\s*$`)
@@ -27,6 +27,7 @@ var (
 		"go/ci/prune.go", "go/ci/shardtimings.go", "go/ci/timings.go", "go/ci/trunkdynamicci.go", "go/ci/trunkimpacted.go", "go/ci/trunktests",
 		"go/ci/internal/cache/", "go/ci/internal/jobtime/", "go/ci/internal/prune/", "go/ci/internal/shardtimings/", "go/ci/internal/timing/", "go/ci/internal/timings/",
 	}
+	gateScripts    = []string{".agents/skills/submit-pr/scripts/", ".agents/skills/escape-hatch-new-tenant/scripts/"}
 	ciScript       = regexp.MustCompile(`^\.buildkite/v2/scripts/[a-z0-9-]*(?:test|shard)[a-z0-9.-]*$`)
 	lintConfigs    = []string{"clippy.toml", ".clippy.toml", "deny.toml", "rustfmt.toml", ".rustfmt.toml", ".golangci.yml", ".golangci.yaml", "ruff.toml", ".ruff.toml", "biome.json", ".eslintrc.json", "eslint.config.js", "eslint.config.mjs"}
 	manifests      = []string{"Cargo.toml", "package.json"}
@@ -91,7 +92,7 @@ func isTestOrCI(name string) bool {
 	if prefixedBy(ciTooling, name) || ciScript.MatchString(name) {
 		return true
 	}
-	if testPath(name) || toolingGlobs.MatchString(name) {
+	if testPath(name) || toolingGlobs.MatchString(name) && !prefixedBy(gateScripts, name) {
 		return true
 	}
 	parts := strings.Split(name, "/")

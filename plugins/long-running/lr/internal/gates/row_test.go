@@ -91,15 +91,20 @@ func TestMissingAddsTheRowsWaitOnlyWhenNoOtherGateSaysWhy(t *testing.T) {
 	}
 }
 
-func TestAHeadWhoseTapCardWasShownTakesNoExemptGoWhateverItsClass(t *testing.T) {
+func TestAHeadWhoseTapCardWasShownTakesNoExemptGoWhateverItsClassAndAStoreThatNeverSawACardCannotSay(t *testing.T) {
+	type shown struct {
+		number int
+		head   string
+	}
 	for _, c := range []struct {
 		name  string
-		facts map[string]map[string]string
+		facts []shown
 		want  string
 	}{
-		{"no card shown", map[string]map[string]string{newHead: {}}, ""},
-		{"a card shown at this head", map[string]map[string]string{newHead: {ShownFact: "1"}}, "his tap card for it was shown at e718a74, so it lands on his tap whatever its class"},
-		{"a card shown at an older head", map[string]map[string]string{oldHead: {ShownFact: "1"}, newHead: {}}, ""},
+		{"a store that never recorded a card shown", nil, NoTapCards},
+		{"a card shown at this head", []shown{{1, newHead}}, "his tap card for it was shown at e718a74, so it lands on his tap whatever its class"},
+		{"a card shown at an older head only", []shown{{1, oldHead}}, ""},
+		{"a card shown for another PR", []shown{{2, newHead}}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s, err := store.Memory()
@@ -107,11 +112,9 @@ func TestAHeadWhoseTapCardWasShownTakesNoExemptGoWhateverItsClass(t *testing.T) 
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = s.Close() })
-			for head, facts := range c.facts {
-				for kind, value := range facts {
-					if _, err := s.PutFact(repo, 1, head, kind, value, time.Now()); err != nil {
-						t.Fatal(err)
-					}
+			for _, fact := range c.facts {
+				if _, err := s.PutFact(repo, fact.number, fact.head, ShownFact, "1", time.Now()); err != nil {
+					t.Fatal(err)
 				}
 			}
 			if got, err := TapCardShownAt(s, repo, 1, newHead); err != nil || got != c.want {

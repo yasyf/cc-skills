@@ -11,6 +11,7 @@ import (
 const (
 	NoRow       = "it has no review row in the landing store"
 	NoStore     = "this box has no landing store: it holds no review row for any PR, so read the row on the landing host"
+	NoTapCards  = "this box's landing store has never recorded a tap card shown, so it cannot say whether his card for this head is open; read it on the landing host"
 	notReadyYet = "its review row is not ready"
 	exemptSays  = "Exempt as "
 )
@@ -53,10 +54,17 @@ func RowReadAt(s *store.Store, repo string, number int, head string) (string, er
 
 func TapCardShownAt(s *store.Store, repo string, number int, head string) (string, error) {
 	facts, err := s.Facts(repo, number, head)
-	if err != nil || facts[ShownFact] == "" {
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("his tap card for it was shown at %s, so it lands on his tap whatever its class", short(head)), nil
+	if facts[ShownFact] != "" {
+		return fmt.Sprintf("his tap card for it was shown at %s, so it lands on his tap whatever its class", short(head)), nil
+	}
+	shown, err := s.FactsOfKind(repo, ShownFact)
+	if err != nil || len(shown) > 0 {
+		return "", err
+	}
+	return NoTapCards, nil
 }
 
 func NoRowIn(s *store.Store, repo string) (string, error) {

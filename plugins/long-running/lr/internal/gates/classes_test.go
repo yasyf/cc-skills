@@ -40,7 +40,15 @@ func TestAClassThePathsAloneDecideIsNamedOnlyWhenEveryChangedFileFitsIt(t *testi
 		want  string
 	}{
 		{"#49101 remote-builder", []string{"go/remote-builder/AGENTS.md", "go/remote-builder/cli/rb/exec.go", "go/remote-builder/cli/rb/exec_test.go", "tools/remote-builder/README.md"}, "class ci-tooling"},
-		{"#49240 cc-remote pin", []string{"mise.toml", "tools/cc-remote/agents-payload.json", "tools/cc-remote/config.yaml", "tools/versions.toml"}, "class ci-tooling"},
+		{"#49240 cc-remote pin, whose shared pin files hold the pulumi and kubectl pins a release uses", []string{"mise.toml", "tools/cc-remote/agents-payload.json", "tools/cc-remote/config.yaml", "tools/versions.toml"}, ""},
+		{"cc-remote alone", []string{"tools/cc-remote/agents-payload.json", "tools/cc-remote/config.yaml"}, "class ci-tooling"},
+		{"the toolchain pins alone", []string{"tools/versions.toml"}, ""},
+		{"the landing enqueue script", []string{".agents/skills/submit-pr/scripts/stack-enqueue"}, ""},
+		{"the landing check list", []string{".agents/skills/submit-pr/scripts/merge-check.json"}, ""},
+		{"the queue watch wrapper", []string{".agents/skills/submit-pr/scripts/queue-watch.sh"}, ""},
+		{"a tenant script that writes to a bucket", []string{".agents/skills/escape-hatch-new-tenant/scripts/verify-chain.sh"}, ""},
+		{"the landing scripts' tests", []string{".agents/skills/submit-pr/scripts/stack_enqueue_test.py"}, "class ci-tooling"},
+		{"a skill script that decides no gate", []string{".agents/skills/iris-desktop-cdp-preview/scripts/iris-stack.sh"}, "class ci-tooling"},
 		{"#49370 remote-builder routes", []string{"go/remote-builder/AGENTS.md", "go/remote-builder/cli/rb/exec.go", "go/remote-builder/cli/rb/root.go", "go/remote-builder/cli/rb/routes.go", "tools/remote-builder/shims/remote-builder"}, "class ci-tooling"},
 		{"tests and CI only", []string{"go/sand/internal/vm/run_test.go", "infra/ci/src/pipelines/ci-go.ts"}, TestOnlyGrade},
 		{"#49353 sand install pins", []string{"go/sand/internal/sandsql/local/pin_test.go", "go/sand/internal/sandsql/local/pin_unix.go", "go/sand/next/internal/sandsql/local/pin_test.go", "go/sand/next/internal/sandsql/local/pin_unix.go"}, ""},
