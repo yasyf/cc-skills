@@ -862,7 +862,7 @@ func TestADesksStoreCopyMakesTheSameCallsAtOneOriginAndAThousandAndCarriesEveryO
 			"cci":    `echo "cci $*" >> "$CALLS"; i=0; while [ "$i" -lt "$ORIGINS" ]; do echo "{\"origin\":\"node-$i\",\"origin_seq\":1}"; i=$((i + 1)); done`,
 			"sprite": `echo "sprite $1 $2 $3" >> "$CALLS"; for arg; do case $arg in *:/tmp/store-seed.gz) wc -l < "${arg%%:*}" > "$CALLS.uploaded" ;; esac; done`,
 		} {
-			if err := os.WriteFile(filepath.Join(stubs, name), []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+			if err := os.WriteFile(filepath.Join(stubs, name), []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // the stub has to execute
 				t.Fatal(err)
 			}
 		}
@@ -1976,13 +1976,20 @@ func TestAMacFileTheBriefNamesIsOnTheBoxAtThePathTheWorkerReadsBeforeItStarts(t 
 	}
 }
 
-func TestABriefNamingACredentialRefusesNamingItAndPreparesNothing(t *testing.T) {
+func TestABriefWhoseRuleNamesTheIrisSignInLaunchesAndLeavesItBehind(t *testing.T) {
 	f := newWorkerFixture(t)
-	key := filepath.Join(f.home, ".ssh", "id")
-	f.write(key, "secret", 0o600)
-	f.write(f.brief, "Read "+key+".\n", 0o600)
-	f.sprite()
-	f.refusedWith(fmt.Sprintf("brief %s names what no Sprite can receive: %s is a credential path, which never leaves this Mac; nothing was prepared", f.brief, key), versionCall, currentRunCall)
+	iris := filepath.Join(f.home, ".iris", "credentials.json")
+	f.write(iris, "secret", 0o600)
+	text := "Never read ~/.iris/credentials.json.\n"
+	f.write(f.brief, text, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+	f.launched()
+	if want := fmt.Sprintf("warning: brief %s names what stays behind: %s lies outside", f.brief, iris); !strings.Contains(f.stderr.String(), want) {
+		t.Fatal(f.stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(f.attempt, "carried", iris)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the Iris sign-in was carried", err)
+	}
 }
 
 func TestABriefNamingAMissingPathWarnsAndStillStartsItsWorker(t *testing.T) {

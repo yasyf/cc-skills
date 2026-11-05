@@ -449,10 +449,7 @@ func (w *workerLaunch) carryBrief() error {
 	if entry := w.driveEntry(); entry != nil {
 		carrier.Drive = ccDrive(entry)
 	}
-	rewritten, left, err := carrier.Carry(w.ctx, string(raw))
-	if err != nil {
-		return refuse("brief %s names what no Sprite can receive: %v; nothing was prepared", w.brief, err)
-	}
+	rewritten, left := carrier.Carry(w.ctx, string(raw))
 	for _, behind := range left {
 		fmt.Fprintf(w.Stderr, "warning: brief %s names what stays behind: %s\n", w.brief, behind)
 		w.stages.say(w.ctx, "stays behind on the Mac: "+behind)

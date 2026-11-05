@@ -467,19 +467,26 @@ func TestADeskBriefWaitingOnItsOwnMailboxIsRefusedNamingItsCCIWait(t *testing.T)
 	}
 }
 
-func TestABriefNamingACredentialIsRefusedOnlyWhenTheLaneMayLeaveTheMacAndAMissingPathWarns(t *testing.T) {
+func TestABriefWhoseRuleNamesACredentialLaunchesOnEveryRouteAndWarnsThatItAndAMissingPathStayBehind(t *testing.T) {
 	f := newPosterFixture(t)
-	gone := filepath.Join(f.env["HOME"], ".ssh", "id")
-	if err := os.MkdirAll(filepath.Dir(gone), 0o700); err != nil {
+	iris := filepath.Join(f.env["HOME"], ".iris", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(iris), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(gone, []byte("secret"), 0o600); err != nil {
+	if err := os.WriteFile(iris, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	away := f.brief(t, "away.md", "Read "+gone+".\n"+briefLines)
-	_, err := f.poster.Launch(context.Background(), Order{Lane: "a", Model: "opus", Effort: "high", Brief: away}, 0)
-	if err == nil || !strings.Contains(err.Error(), "names what no Sprite can receive: "+gone+" is a credential path") || len(f.bus.posts) != 0 {
-		t.Fatal(err)
+	rule := "Never read ~/.iris/credentials.json.\n" + briefLines
+	away := f.brief(t, "away.md", rule)
+	local := f.brief(t, "local.md", "ccx: role=build place=local why=mac-build\n"+rule)
+	picked := f.brief(t, "picked.md", "Owner pick: owner:m836\n"+rule)
+	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "high", Brief: away}, {Lane: "a", Model: "opus", Effort: "high", Brief: local}, {Lane: "a", Model: "fable", Effort: "high", Brief: picked}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}} {
+		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {
+			t.Fatal(order, err)
+		}
+	}
+	if want := "WARN brief " + away + " names what stays behind on a Sprite: " + iris + " lies outside"; !strings.Contains(f.out.String(), want) {
+		t.Fatal(f.out)
 	}
 	missing := filepath.Join(f.env["HOME"], ".claude", "scratch", "gone.md")
 	warned := f.brief(t, "warned.md", "Read "+missing+".\n"+briefLines)
@@ -488,17 +495,6 @@ func TestABriefNamingACredentialIsRefusedOnlyWhenTheLaneMayLeaveTheMacAndAMissin
 	}
 	if want := "WARN brief " + warned + " names what stays behind on a Sprite: " + missing + " does not exist on this Mac\n"; !strings.Contains(f.out.String(), want) {
 		t.Fatal(f.out)
-	}
-	f.bus.posts = nil
-	local := f.brief(t, "local.md", "ccx: role=build place=local why=mac-build\nRead "+gone+".\n"+briefLines)
-	picked := f.brief(t, "picked.md", "Read "+gone+".\nOwner pick: owner:m836\n"+briefLines)
-	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "high", Brief: local}, {Lane: "a", Model: "fable", Effort: "high", Brief: picked}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: local}} {
-		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {
-			t.Fatal(order, err)
-		}
-	}
-	if _, err := f.poster.Launch(context.Background(), Order{Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}, 0); err == nil || !strings.Contains(err.Error(), "is a credential path") {
-		t.Fatal(err)
 	}
 }
 
