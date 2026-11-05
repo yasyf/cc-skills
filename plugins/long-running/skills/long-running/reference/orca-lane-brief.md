@@ -178,6 +178,8 @@ that does not depend on the answer.
 End a turn on a wait for a person or another lane only after posting it as a cci `ask` or `blocked` record to whoever acts on it. Any record a person or lane then addresses to you by name, whatever its kind and whatever you parked on, wakes you within 5 minutes, so that wait needs no `lr wait` on your mail. A wait on a process, a build or a clock ends the turn on `lr wait --wake` below and posts nothing. AskUserQuestion is unavailable. A decision
 the brief, the plan, and the owner's answers do not settle stops that item until the
 coordinator answers the ask above; never take a default or a provisional pick.
+While a card asks him to choose, the recommended option is built on a branch and opens as a PR
+the moment he answers that card, never before.
 
 A change to anything the owner sees (card, status line, board row, Slack post,
 dashboard) is designed for how he reads and taps it on his phone before it ships; the
