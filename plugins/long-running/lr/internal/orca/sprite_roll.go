@@ -322,6 +322,9 @@ type installTry struct {
 func (r SpriteRoll) installOn(ctx context.Context, box string, pins spritePins) (installTry, error) {
 	result, failed := r.Runner.Run(ctx, shell.Command{Argv: pins.installArgv(box, nil), Timeout: spriteInstallTimeout})
 	try := installTry{result: result, installed: installedTools(result.Stdout), failed: failed}
+	for _, warning := range installWarnings(result.Stdout) {
+		fmt.Fprintf(r.Out, "lr sprites roll: %s: %s\n", box, warning)
+	}
 	return try, r.Store.RecordSpriteTools(box, try.installed, r.Now())
 }
 

@@ -85,6 +85,9 @@ func (g *GraderMaker) Make(ctx context.Context, runner string, boxes []string) e
 
 func (g *GraderMaker) make(ctx context.Context, box string, plan graderPlan) error {
 	installed, err := g.step(ctx, box, "install pins", shell.Command{Argv: plan.pins.installArgv(box, graderNeeds), Timeout: spriteInstallTimeout})
+	for _, warning := range installWarnings(installed.Stdout) {
+		g.say("%s: %s", box, warning)
+	}
 	if recorded := g.Store.RecordSpriteTools(box, installedTools(installed.Stdout), g.Now()); recorded != nil {
 		return recorded
 	}
