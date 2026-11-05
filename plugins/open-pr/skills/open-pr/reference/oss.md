@@ -12,6 +12,8 @@ The repo is the user's when any row holds:
 
 `ccx vcs lane --json` already computes this as `github.mine`; recompute only when lane output is unavailable. Anything else is someone else's repo: the passes below apply, and ship will have silently left the gt lane — stacked-PR mechanics don't reach a repo you can't push branches to.
 
+On a repo where `viewerPermission` is `READ` or `TRIAGE`, `ccx vcs ship` pushes to your fork and opens the PR cross-repo from `owner:branch` onto the default branch, so a manual `git push` and `gh pr create --head` are never the route. The fork is `branch.<name>.pushRemote`, then `remote.pushDefault`, else the one remote whose URL you own; with none, ship refuses and names `gh repo fork --remote --remote-name fork`.
+
 ## The politeness register
 
 Direct about the change, deferential about the decision. The diff's facts are yours to state; the repo's direction is the maintainer's to call.
