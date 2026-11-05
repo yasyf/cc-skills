@@ -26,6 +26,7 @@ const (
 	handoffLane    = "-handoff"
 	whyPredecessor = "predecessor-worked-here"
 	whyMacInputs   = "mac-inputs"
+	whySentry      = "sentry"
 )
 
 var (
@@ -191,6 +192,13 @@ func unreasonedLocal(lane, model, text string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s's brief says place=local but names no why=<need>, so it launches on a Sprite; a lane that needs the Mac names why=<what it needs there> on its ccx line", lane)
+}
+
+func claudeWithoutSentry(lane, model, text string) string {
+	if agent, _, _ := modelRoute(model); agent != agentClaude || !slices.Contains(submatches(briefWhy, text), whySentry) {
+		return ""
+	}
+	return fmt.Sprintf("%s's brief says why=%s, but a Claude lane has no Sentry tools; launch it with --model sol", lane, whySentry)
 }
 
 func macPreferred(text string) bool {

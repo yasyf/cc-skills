@@ -82,7 +82,8 @@ Under O16 in `reference/orca-desk-brief.md`:
 | `long-running:lane-ship` | Implementation lanes that ship a PR or call a skill such as `submit-pr`, `open-pr`, or `codex` | `ToolSearch`, every `mcp__*` tool except `cc-slack`'s, `mcp__sentry__*`, and the Datadog read tools, the deferred-tool list |
 | `general-purpose` | Any lane that posts to Slack, so it carries every Slack surface under R20 in `SKILL.md` | Nothing |
 
-- Pass the routing table's `model` for in-process subagents. An incident lane of either lane type reads Sentry and Datadog itself.
+- Pass the routing table's `model` for in-process subagents. A codex lane reads Sentry and Datadog itself. No Claude session mounts a Sentry server, though both lane types list `mcp__sentry__*`.
+- A lane whose work reads Sentry runs on sol, as `lr launch lane <lane> sol <effort> <brief>`, with `place=local why=sentry` on its `ccx:` line, since a Sprite has no Sentry sign-in either. `lr launch lane` warns when a Claude lane's brief says `why=sentry`. A brief that only names a Sentry issue, such as the one its fix ends, reads nothing from Sentry and needs neither.
 - Both lane types default to Opus and carry the 1h prompt cache a nine-minute poll needs; set a different model explicitly when the assignment calls for it.
 - The coordinator runs Fable 5.1 on the Mac. Beyond it, Fable is only for exceptional cases such as the most sensitive local implementation; ordinary workers and subdesks never run Fable.
 - If a `long-running:lane` needs a skill, give that operation to a separately named `long-running:lane-ship` with a scoped brief, and keep the original lane running without duplicating its active work.
