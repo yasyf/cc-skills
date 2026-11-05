@@ -245,6 +245,19 @@ func TestFactsArePerHead(t *testing.T) {
 	}
 }
 
+func TestFullHeadExpandsAShortShaItsFactsHoldAndLeavesAnUnknownOne(t *testing.T) {
+	s := memory(t)
+	must[bool](t)(s.PutFact(repo, 46000, head, "diff", "h1", t0))
+	for short, want := range map[string]string{head[:7]: head, "1234567": "1234567"} {
+		if got := must[string](t)(s.FullHead(repo, 46000, short)); got != want {
+			t.Fatalf("FullHead(%s) = %q, want %q", short, got, want)
+		}
+	}
+	if got := must[string](t)(s.FullHead(repo, 46001, head[:7])); got != head[:7] {
+		t.Fatalf("another PR's head = %q", got)
+	}
+}
+
 func TestAShortShaReadsTheFactsItsFullHeadCarries(t *testing.T) {
 	s := memory(t)
 	must[bool](t)(s.PutFact(repo, 46000, head, "diff", "h1", t0))

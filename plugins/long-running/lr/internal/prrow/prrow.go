@@ -133,7 +133,7 @@ func firstUnmet(row store.ReviewRow) string {
 }
 
 // TapAt names the head his approval stands at and what refuses it. A check
-// still running or failing refuses nothing, since the landing pass lands only a
+// still running or failing, or a line missing from the PR body, refuses nothing, since the landing pass lands only a
 // row that is both ready and tapped; a head the row has moved past keeps his
 // approval there, for the fold's carry rule to judge.
 func TapAt(s *store.Store, repo string, tap bus.Tap) (head, refusal string, err error) {
@@ -185,6 +185,12 @@ func LandsOnce(row store.ReviewRow) string {
 		return "its review grade gets a verdict"
 	case row.Mergeable != string(machine.MergeableClean):
 		return "it can merge cleanly"
+	case row.ForUsers == "":
+		return "its PR body has a Summary"
+	case row.PlanRow == "":
+		return "its PR body names its plan"
+	case row.Risk == "":
+		return "its PR body has a Risk profile"
 	}
 	return "its checks pass"
 }
@@ -225,11 +231,11 @@ func unmet(row store.ReviewRow, checks bool) string {
 		return "mergeability is " + row.Mergeable
 	case row.UnsafeWait != "":
 		return gates.UnsafeOnDev(row.UnsafeWait)
-	case row.ForUsers == "":
+	case checks && row.ForUsers == "":
 		return "its PR body has no Summary"
-	case row.PlanRow == "":
+	case checks && row.PlanRow == "":
 		return `its PR body names no plan: open a line with "Plan:", or name plan step N, owner:m<row> or a cc-notes task id`
-	case row.Risk == "":
+	case checks && row.Risk == "":
 		return "its PR body has no Risk profile"
 	}
 	return ""

@@ -355,6 +355,19 @@ func (s *Store) DeleteFact(repo string, number int, head, kind string) error {
 	return err
 }
 
+func (s *Store) FullHead(repo string, number int, short string) (string, error) {
+	rows, err := s.db.Query("SELECT head FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) = 40 AND substr(head, 1, length(?3)) = ?3 LIMIT 1", repo, number, short)
+	found, err := collect(rows, err, func(rows *sql.Rows) (string, error) {
+		var head string
+		err := rows.Scan(&head)
+		return head, err
+	})
+	if err != nil || len(found) == 0 {
+		return short, err
+	}
+	return found[0], nil
+}
+
 func (s *Store) Facts(repo string, number int, head string) (map[string]string, error) {
 	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3) ORDER BY posted, kind LIKE 'override-%', length(head)", repo, number, head)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
