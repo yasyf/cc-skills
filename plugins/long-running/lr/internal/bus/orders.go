@@ -26,6 +26,8 @@ const (
 	TapRefusedFact = "tap-refused"
 	GoRefusedKind  = "go.refused"
 	GoRefusedFact  = "standing-refused"
+	StuckKind      = "landing.stuck"
+	StuckFact      = "landing-stuck"
 	refusalAttr    = "reason"
 	refusedHead    = "head"
 	keyedReason    = 8
@@ -103,6 +105,15 @@ func (b Bus) PostGoRefused(ctx context.Context, repo string, pr int, head string
 		Attrs: map[string]string{refusedHead: head, refusalAttr: reason},
 		Text:  fmt.Sprintf("no go for #%d at %s: %s", pr, head[:min(12, len(head))], reason),
 	})
+	return err
+}
+
+func (b Bus) PostStuck(ctx context.Context, repo string, pr int, head string, to []string, why string) error {
+	attrs, text := map[string]string{refusedHead: head}, fmt.Sprintf("#%d at %s can move again", pr, head[:min(12, len(head))])
+	if why != "" {
+		attrs[refusalAttr], text = why, fmt.Sprintf("#%d at %s cannot move: %s", pr, head[:min(12, len(head))], why)
+	}
+	_, err := client.Post(ctx, client.Draft{Drive: b.Drive, Lane: b.Lane, Kind: StuckKind, To: to, PRs: []string{fmt.Sprintf("%s#%d", repo, pr)}, Attrs: attrs, Text: text})
 	return err
 }
 

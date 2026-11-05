@@ -47,6 +47,7 @@ type Outcome struct {
 	Escalated []Escalated
 	Released  map[string][]store.Item
 	Unposted  []error
+	Stuck     map[int]string
 }
 
 const (
@@ -139,6 +140,9 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 			return out, err
 		}
 		if err := escalateUnreadRows(s, snapshot, now, tell, &out); err != nil {
+			return out, err
+		}
+		if out.Stuck, err = stuckHeads(s, snapshot, now, live, out.Verdicts); err != nil {
 			return out, err
 		}
 	}
@@ -503,6 +507,32 @@ func tellUngraded(s *store.Store, f machine.Facts, waited time.Duration, now tim
 		return escalate(s, subject, "UNOWNED, "+f.Lane+" is not running: "+cause, detail, root, now, post, out)
 	}
 	return nil
+}
+
+func stuckHeads(s *store.Store, snapshot []machine.Facts, now time.Time, live []machine.Mover, verdicts map[int]machine.Verdict) (map[int]string, error) {
+	overdue, err := s.Overdue(now)
+	if err != nil {
+		return nil, err
+	}
+	unserved := make(map[int]store.Item, len(overdue))
+	for _, item := range overdue {
+		if !slices.Contains(live, gateOf(item.Mover)) {
+			unserved[item.Number] = item
+		}
+	}
+	stuck := map[int]string{}
+	for _, f := range snapshot {
+		item, waits := unserved[f.Number]
+		if !waits || item.Head != f.Head || !f.Tapped() {
+			continue
+		}
+		why := fmt.Sprintf("the landing pass reads it as %s: its %s waits on the %s past its deadline, and the %s does not run on the landing host", verdicts[f.Number].State, item.Kind, item.Mover, item.Mover)
+		if missing := grading.Missing(f); len(missing) > 0 {
+			why += "; no " + strings.Join(missing, " or ") + " grade or override reached the landing store"
+		}
+		stuck[f.Number] = why
+	}
+	return stuck, nil
 }
 
 func gateOf(mover machine.Mover) machine.Mover {

@@ -1039,3 +1039,37 @@ func TestAnExemptPRWithNoRowLandsUnderItsRuleAndTellsNobody(t *testing.T) {
 		t.Fatalf("out = %+v, posts = %+v", out, r.posts)
 	}
 }
+
+func TestATappedHeadOverdueOnAMoverThisHostDoesNotRunSaysWhy(t *testing.T) {
+	landing := []machine.Mover{machine.MoverSupervisor}
+	ungraded := func(f *machine.Facts) { f.Fidelity, f.Tap, f.Exempt = "", "", true }
+	late := t0.Add(machine.GradeClock + time.Minute)
+	for name, test := range map[string]struct {
+		change func(*machine.Facts)
+		live   []machine.Mover
+		at     time.Time
+		stuck  bool
+	}{
+		"a go's head past the deadline":      {ungraded, landing, late, true},
+		"before the deadline":                {ungraded, landing, t0.Add(time.Minute), false},
+		"a head nobody tapped":               {func(f *machine.Facts) { f.Fidelity, f.Tap = "", "" }, landing, late, false},
+		"on a host that runs the mover":      {ungraded, all, late, false},
+		"a head the landing pass moves here": {nil, landing, late, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			f := facts(1, test.change)
+			run(t, s, r, t0, test.live, f)
+
+			out := run(t, s, r, test.at, test.live, f)
+
+			why := out.Stuck[1]
+			if test.stuck != (why != "") {
+				t.Fatalf("stuck = %q, want stuck %v", why, test.stuck)
+			}
+			if test.stuck && (!strings.Contains(why, "grading") || !strings.Contains(why, "no fidelity grade")) {
+				t.Fatalf("why = %q names neither the state nor the missing grade", why)
+			}
+		})
+	}
+}

@@ -472,6 +472,9 @@ func Materialize(row store.ReviewRow, facts map[string]string, held Held, branch
 		return row
 	}
 	row = withStandingWord(row, facts)
+	if row.State == StateTapped && facts[bus.StuckFact] != "" {
+		row.WaitsOn = strings.TrimSuffix(row.WaitsOn, ".") + "; " + clip(facts[bus.StuckFact], fieldChars)
+	}
 	if tappedHere || row.SupersededBy != None {
 		return row
 	}

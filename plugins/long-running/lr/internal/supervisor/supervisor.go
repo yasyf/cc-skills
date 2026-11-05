@@ -161,6 +161,9 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		if err := landing.CarryTaps(ctx, drive, out.Carried); err != nil {
 			d.Log.Warn("a tap did not carry", "err", err)
 		}
+		if err := landing.SayStuck(ctx, s, drive, snapshot, out.Stuck); err != nil {
+			d.Log.Warn("a stuck head's reason went unposted", "err", err)
+		}
 		if d.DropStale != nil {
 			if err := d.DropStale(ctx, snapshot); err != nil {
 				d.Log.Warn("a stale tap stayed on the board", "err", err)
@@ -222,6 +225,10 @@ func logWaits(log *slog.Logger, snapshot []machine.Facts, out pass.Outcome) {
 		acting[act.Facts.Number] = true
 	}
 	for _, f := range snapshot {
+		if stuck := out.Stuck[f.Number]; stuck != "" {
+			log.Warn("a tapped head cannot move", "pr", f.Number, "head", f.Head, "why", stuck)
+			continue
+		}
 		verdict := out.Verdicts[f.Number]
 		why := "its CI is not green"
 		switch {

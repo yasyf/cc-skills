@@ -1719,23 +1719,72 @@ func TestAShardsGradeReachesTheStoreSoItsRowReadsGraded(t *testing.T) {
 	}
 }
 
-func TestAStoppedReportLetsAnOverrideClearAHeadWithNoGradeOnAHostThatDidNotGradeIt(t *testing.T) {
+func TestAnOverrideClearsAHeadWithNoGradeOnAHostThatNeverHeardItStopped(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	putFact(t, h.store, 1, head, "finder", "clear", tappedAt)
+	if row := h.snapshot(t)[1]; row.Graded() {
+		t.Fatalf("a head with no fidelity grade read graded: %+v", row)
+	}
 	override := client.Draft{Drive: "d", Lane: bus.SweepLane, Kind: "decide", PRs: []string{"1"}, Text: "fidelity-override #1 at " + head[:7] + ": 439849. Counted from grader-appeals-1's cci #7, whose owner rows exist."}
 	if _, err := client.Post(context.Background(), override); err != nil {
 		t.Fatal(err)
 	}
-	if row := h.snapshot(t)[1]; row.Graded() {
-		t.Fatalf("an override alone graded a head nothing stopped: %+v", row)
-	}
 
+	if row := h.snapshot(t)[1]; row.Fidelity != machine.FidelityPass || !row.Cleared() {
+		t.Fatalf("the override did not clear it: %+v", row)
+	}
+}
+
+func TestAStoppedReportReachesAHostThatDidNotGradeIt(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	stopped := client.Draft{Drive: "d", Lane: bus.RunnerLane, Kind: "report", PRs: []string{repo + "#1"}, Text: "GRADE-STOPPED #1", Attrs: map[string]string{bus.GradeStoppedWhyAttr: "fidelity: its pass ended without a grade", bus.GradeStoppedHeadAttr: head}}
 	if _, err := client.Post(context.Background(), stopped); err != nil {
 		t.Fatal(err)
 	}
 
-	if row := h.snapshot(t)[1]; row.Fidelity != machine.FidelityPass || !row.Cleared() {
-		t.Fatalf("the stopped head's override did not clear it: %+v", row)
+	if row := h.snapshot(t)[1]; row.GradeStopped == "" {
+		t.Fatalf("the stop did not reach this host: %+v", row)
+	}
+}
+
+func TestAFidelityGradeBehindTheCursorReachesTheStoreOnceAndFillsOnlyAHole(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head, login: "drive-bot"}}, status(1), status(2))
+	grade := func(number int, word string) int64 {
+		t.Helper()
+		posted, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "fidelity-shard-5", Kind: "review", PRs: []string{repo + "#" + strconv.Itoa(number)}, Text: "fidelity: " + word + " " + head + " read by a shard"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return posted.Seq
+	}
+	putFact(t, h.store, 2, head, "fidelity", "fail", tappedAt)
+	grade(1, "missing")
+	grade(1, "ok")
+	passed := grade(2, "ok")
+	if err := h.store.Advance(bus.LegacyCursor, passed); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := h.snapshot(t)
+
+	if rows[1].Fidelity != machine.FidelityPass {
+		t.Fatalf("the newest lost grade did not reach the store: %+v", rows[1])
+	}
+	if rows[2].Fidelity != machine.FidelityFail {
+		t.Fatalf("a lost grade overwrote a stored one: %+v", rows[2])
+	}
+	stored, err := h.store.Facts(repo, 1, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if said := stored[prrow.SaidFact("fidelity")]; !strings.HasPrefix(said, "fidelity: ok") {
+		t.Fatalf("the grader's words = %q", said)
+	}
+
+	if err := h.store.DeleteFact(repo, 1, head, "fidelity"); err != nil {
+		t.Fatal(err)
+	}
+	if row := h.snapshot(t)[1]; row.Fidelity != "" {
+		t.Fatalf("the read ran twice: %+v", row)
 	}
 }

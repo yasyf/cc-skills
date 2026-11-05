@@ -182,13 +182,16 @@ func TestLandableReadsEveryGate(t *testing.T) {
 	}
 }
 
-func TestAnOverrideCountsAsAGradeOnlyForTheGraderThatStoppedAtItsHead(t *testing.T) {
-	stopped := map[string]string{"finder": "clear", GradeStoppedFact: "fidelity: its pass ended without a grade", OverrideFact("fidelity"): "accept"}
-	if finder, fidelity := GradesOf(stopped); finder != FinderClear || fidelity != FidelityPass {
-		t.Errorf("stopped and overridden read %q and %q", finder, fidelity)
+func TestAnOverrideCountsAsItsOwnGradersGradeWhetherOrNotThisHostLearnedItStopped(t *testing.T) {
+	for name, stored := range map[string]map[string]string{
+		"stopped": {"finder": "clear", GradeStoppedFact: "fidelity: its pass ended without a grade", OverrideFact("fidelity"): "accept"},
+		"no stop": {"finder": "clear", OverrideFact("fidelity"): "accept"},
+	} {
+		if finder, fidelity := GradesOf(stored); finder != FinderClear || fidelity != FidelityPass {
+			t.Errorf("%s: overridden read %q and %q", name, finder, fidelity)
+		}
 	}
 	for name, stored := range map[string]map[string]string{
-		"no stop":              {"finder": "clear", OverrideFact("fidelity"): "accept"},
 		"no override":          {"finder": "clear", GradeStoppedFact: "fidelity"},
 		"the other's override": {"finder": "clear", GradeStoppedFact: "fidelity", OverrideFact("finder"): "accept"},
 	} {
@@ -220,5 +223,19 @@ func TestEachGraderClearsOnlyOnItsOwnPassOrItsOwnOverride(t *testing.T) {
 				t.Fatalf("Cleared() = %v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestAGoNamedHeadWhoseOnlyFidelityIsAnOverrideGetsItsEnqueue(t *testing.T) {
+	f := facts(func(f *Facts) { f.Tap, f.Exempt, f.Fidelity = "", true, "" })
+	if got := Classify(f); got.Action != ActionGrade {
+		t.Fatalf("with no grade and no override it reads %+v, want a grade item", got)
+	}
+
+	f.Finder, f.Fidelity = GradesOf(map[string]string{"finder": "clear", OverrideFact("fidelity"): "439107"})
+	f.FinderOverride, f.FidelityOverride = OverridesOf(map[string]string{OverrideFact("fidelity"): "439107"})
+
+	if got := Classify(f); got.Action != ActionEnqueue {
+		t.Fatalf("with the override it reads %+v, want an enqueue", got)
 	}
 }
