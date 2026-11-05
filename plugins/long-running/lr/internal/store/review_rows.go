@@ -139,6 +139,12 @@ func (t *Tx) FactsAtRowHeads(repo string, held []ReviewRow) (map[int]map[string]
 	return factsAtRowHeads(t.tx, repo, held)
 }
 
+const rowHeadFacts = `WITH r AS MATERIALIZED (SELECT json_extract(value, '$.number') AS number, json_extract(value, '$.head') AS head FROM json_each(?2))
+SELECT r.number, f.kind, f.value FROM r
+CROSS JOIN facts f ON f.repo = ?1 AND f.number = r.number AND length(f.head) >= 7 AND length(r.head) >= 7
+  AND (substr(r.head, 1, length(f.head)) = f.head OR substr(f.head, 1, length(r.head)) = r.head)
+ORDER BY f.posted, f.kind LIKE 'override-%', length(f.head)`
+
 func factsAtRowHeads(db rowReader, repo string, held []ReviewRow) (map[int]map[string]string, error) {
 	heads := make([]map[string]any, 0, len(held))
 	for _, row := range held {
@@ -148,11 +154,7 @@ func factsAtRowHeads(db rowReader, repo string, held []ReviewRow) (map[int]map[s
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`WITH r AS (SELECT json_extract(value, '$.number') AS number, json_extract(value, '$.head') AS head FROM json_each(?2))
-SELECT r.number, f.kind, f.value FROM r
-JOIN facts f ON f.repo = ?1 AND f.number = r.number AND length(f.head) >= 7 AND length(r.head) >= 7
-  AND (substr(r.head, 1, length(f.head)) = f.head OR substr(f.head, 1, length(r.head)) = r.head)
-ORDER BY f.posted, f.kind LIKE 'override-%', length(f.head)`, repo, string(given))
+	rows, err := db.Query(rowHeadFacts, repo, string(given))
 	type fact struct {
 		number      int
 		kind, value string

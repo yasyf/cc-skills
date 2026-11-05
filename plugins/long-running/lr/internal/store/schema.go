@@ -26,8 +26,6 @@ CREATE TABLE IF NOT EXISTS escalations (
   PRIMARY KEY (subject, cause)
 );
 CREATE TABLE IF NOT EXISTS notices (subject TEXT PRIMARY KEY, at TEXT NOT NULL);
-INSERT OR IGNORE INTO notices (subject, at) SELECT subject, raised FROM escalations WHERE cause IN ('appeal-counted', 'override-owner', 'claim', 'launch') OR subject LIKE 'override-warning:%';
-DELETE FROM escalations WHERE cause IN ('appeal-counted', 'override-owner', 'claim', 'launch') OR subject LIKE 'override-warning:%';
 CREATE TABLE IF NOT EXISTS workers (
   name TEXT PRIMARY KEY, generation INTEGER NOT NULL, heartbeat TEXT NOT NULL,
   item INTEGER, context_left INTEGER
@@ -115,6 +113,8 @@ DROP TABLE IF EXISTS changes;
 DROP TABLE IF EXISTS behaviors;
 DROP TABLE IF EXISTS queue;
 `
+
+const escalatedNotices = "cause IN ('appeal-counted', 'override-owner', 'claim', 'launch') OR subject LIKE 'override-warning:%'"
 
 var addedColumns = []struct{ table, column, kind string }{
 	{"unread", "declined", "INTEGER NOT NULL DEFAULT 0"},
