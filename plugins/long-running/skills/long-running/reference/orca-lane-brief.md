@@ -211,7 +211,11 @@ its owner, and his answer wakes you. Nobody draws it for you: never ask owner-re
 board-refresher, save for a choice between designs, below. The first option is the recommended one, two to four in all. A question ends
 only when he answers it, the default, so give it no invented date. `--until` names a real event
 after which his answer stops mattering: pr:N, release:STACK@ENV:COMMIT, record:SEQ, or at:TIME
-for a real expiry. The sweep never takes an unanswered question down on a time alone. `--from` names
+for a real expiry. The sweep never takes an unanswered question down on a time alone. A card that
+promises him something by a clock carries it as `--by TIME`, an ISO 8601 time or a span such as
+`90m`: you cannot retire until a record carries `delivered=card:<card id>`, and if the clock passes
+first you and owner-relay are told. A card naming a clock in its words with no `--by` draws with a
+warning. `--from` names
 the plan step and date, his ruling id, or whose PR it ports. `--shot 'PATH or https URL ::
 what it shows'` adds a real screenshot; a path is read on the board's Mac, so a Sprite lane
 gives a URL. `--diagram FILE` takes one architecture doc (arch/v1), drawn live on his board and
