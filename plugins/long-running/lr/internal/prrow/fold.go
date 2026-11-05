@@ -377,14 +377,19 @@ func (f Fold) checked(t *store.Tx, rows map[int]store.ReviewRow, record client.R
 }
 
 func requiredCI(required []string, facts map[string]string) (string, bool) {
-	passed := 0
+	passed, running := 0, false
 	for _, check := range required {
 		switch facts[requiredCheck+check] {
 		case "success", "neutral", "skipped":
 			passed++
 		case "failure", "error", "cancelled", "timed_out", "action_required", "startup_failure":
 			return CIRed, true
+		case "pending", "queued", "in_progress":
+			running = true
 		}
+	}
+	if running {
+		return CIPending, true
 	}
 	return CIGreen, passed == len(required)
 }

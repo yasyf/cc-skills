@@ -1755,6 +1755,17 @@ func TestARequiredFailureReadsRedAndARerunThatPassesReadsGreen(t *testing.T) {
 	}
 }
 
+func TestARerunAtTheSameHeadReadsPendingUntilItsResult(t *testing.T) {
+	passed := gitHubCheck(t, testRepo, headA, "test", "success", "test")
+	rerun := gitHubCheck(t, testRepo, headA, "test", "pending", "test")
+	if ci := checkedCI(t, passed, rerun); ci != CIPending {
+		t.Fatalf("ci = %q while the rerun runs, want pending", ci)
+	}
+	if ci := checkedCI(t, passed, rerun, gitHubCheck(t, testRepo, headA, "test", "failure", "test")); ci != CIRed {
+		t.Fatalf("ci = %q after the rerun failed, want red", ci)
+	}
+}
+
 func TestACheckOnAnotherHeadOrRepoLeavesTheRow(t *testing.T) {
 	for _, record := range []client.Record{
 		gitHubCheck(t, testRepo, headB, "test", "failure", "test"),
