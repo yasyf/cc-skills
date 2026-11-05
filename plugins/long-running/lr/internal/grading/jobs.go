@@ -42,9 +42,7 @@ const (
 	recordsDir    = "records"
 )
 
-var (
-	errNoOutput = errors.New("it printed nothing")
-)
+var errNoOutput = errors.New("it printed nothing")
 
 type job struct {
 	spec    any
