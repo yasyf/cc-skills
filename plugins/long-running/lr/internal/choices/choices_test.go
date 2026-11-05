@@ -270,6 +270,17 @@ func TestARepeatedOrderNothingSharesStillAsksRoot(t *testing.T) {
 	}
 }
 
+func TestTheCommunicatorsOwnReplyToHimIsNoRepeatOfHisOrder(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	post(t, client.Draft{Lane: "owner-relay", Kind: "note", To: []string{"owner"}, Text: "The test that catches a repeat of the Gemini outage is green."})
+
+	passTwice(t, newCheck(time.Now()))
+
+	if records := said(t); len(records) != 0 {
+		t.Fatalf("said %+v", records)
+	}
+}
+
 func docsFake(now time.Time, register string) *shelltest.Fake {
 	const ref = "refs/remotes/origin/main:"
 	fake := &shelltest.Fake{}
