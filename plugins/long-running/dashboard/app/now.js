@@ -1,4 +1,6 @@
 const VIEWS = { progress: 'journey', diagram: 'end-state' };
+const PHONE_WIDTH = matchMedia('(max-width: 759px)');
+PHONE_WIDTH.addEventListener('change', () => render());
 const NODE_WORD = { fixing: 'Being fixed', you: 'Needs you', nobody: 'No one assigned', waiting: 'Waiting', done: 'Done' };
 const PR_TONE = { Landed: 'st-passed', 'In the merge queue': 'st-rolling-out', 'Cleared to land': 'st-ready-to-merge', 'Refused by the queue': 'st-stuck', Held: 'st-ready-for-you', 'Graded clean': 'st-passed', Grading: 'st-testing', 'On your board': 'st-ready-for-you' };
 const MARK_WORD = { progress: 'Progress', finding: 'Found', stuck: 'Stuck', done: 'Done' };
@@ -9,7 +11,7 @@ const feed = { item: null };
 const lastPaint = { events: new Map(), next: new Map(), stops: null };
 
 function view(key) {
-  return new URLSearchParams(location.search).get(key) ?? state.model.views?.[key] ?? VIEWS[key];
+  return new URLSearchParams(location.search).get(key) ?? state.model.views?.[key] ?? (key === 'progress' && PHONE_WIDTH.matches ? 'compact' : VIEWS[key]);
 }
 function workItem(item) {
   const work = state.model.pages?.work;
@@ -280,7 +282,7 @@ function compact(b) {
     <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
     ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.waits ? `, ${esc(next.waits)}` : ''}.</p>` : ''}
     ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}, ${esc(s.waits)}.</p>`).join('')}
-    <p class="nw-code"><a href="?progress=journey${location.hash}">All ${list.length} milestones ›</a></p></div>`;
+    <p class="nw-code"><a href="#/plan">All ${list.length} milestones ›</a></p></div>`;
 }
 
 function unfinished(path) {

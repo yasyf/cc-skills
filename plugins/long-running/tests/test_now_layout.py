@@ -63,7 +63,7 @@ def page():
 
 def now(page):
     page.goto(page.url.split("#")[0] + "#/")
-    page.wait_for_selector(".nw-spine")
+    page.wait_for_selector(".nw-spine, .nw-seg")
 
 
 def open_first_question(page):
@@ -1206,6 +1206,50 @@ def test_a_reply_reads_angle_brackets_and_no_reply_id(page):
     assert page.evaluate("replyTitle({ title: 'Four items, two on your tap (#50590), and more' })") == "Four items, two on your tap, and more"
 
 
+def test_a_phone_never_slides_sideways_on_a_long_url_or_a_long_code_line(page):
+    open_chat(page)
+    long = "https://example.slack.com/archives/C0B75AL4XEW/" + "p" * 80
+    page.evaluate("(long) => { state.model.replies[0].reply.md = long; render(); }", long)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth") <= 390
+    page.evaluate("(long) => { $('#cw-list').insertAdjacentHTML('afterbegin', `<div class=\"md\"><pre><code>${long}</code></pre></div>`); }", long)
+    assert page.evaluate("document.documentElement.scrollWidth") <= 390
+    page.set_viewport_size(LAPTOP)
+    now(page)
+
+
+def test_a_phone_reads_milestones_as_a_list_and_a_laptop_as_the_rail(page):
+    now(page)
+    assert page.locator(".nw-journey").count() == 1
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_selector(".nw-seg")
+    assert page.locator(".nw-journey").count() == 0
+    assert page.locator(".nw-code a").get_attribute("href") == "#/plan"
+    assert page.evaluate("document.documentElement.scrollWidth") <= 390
+    page.set_viewport_size(LAPTOP)
+    page.wait_for_selector(".nw-spine")
+
+
+def test_a_phone_reads_a_status_row_whole_and_its_tabs_on_one_line(page):
+    now(page)
+    page.evaluate("""() => {
+      const part = { id: 'a', name: 'New code kept current', delivers: 'What it delivers', label: 'Moving', state: 'doing', blocks: 'What blocks it, in full', doing: 'What we are doing' };
+      state.model.pages = { ...state.model.pages, plan: { at: new Date().toISOString(), summary: 'Short', parts: [part] } };
+      state.model.step_records = {};
+      location.hash = '#/status';
+    }""")
+    page.wait_for_selector(".st-six .pg-cells")
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_function("getComputedStyle(document.querySelector('.st-six .pg-cells > :nth-child(2)')).display === 'none'")
+    shown = page.evaluate("[...document.querySelector('.st-six .pg-cells').children].filter((cell) => getComputedStyle(cell).display !== 'none').map((cell) => cell.getBoundingClientRect().width)")
+    tops = page.evaluate("new Set([...document.querySelector('.pg-filters').children].map((a) => a.getBoundingClientRect().top)).size")
+    page.set_viewport_size(LAPTOP)
+    page.reload()
+    now(page)
+    assert len(shown) == 3 and min(shown) > 300
+    assert tops == 1
+
+
 def test_a_change_named_in_a_reply_is_a_small_card_with_real_approve_and_hold(page):
     open_chat(page)
     card = page.locator("#pr-77001")
@@ -1452,7 +1496,7 @@ def test_a_phone_keeps_chat_clear_until_he_writes_and_reply_send_above_the_new_a
     chat_with(phone, [news], [ask(3, "Delivered")])
     heading = phone.locator(".page-heading").bounding_box()
     assert phone.locator("#cw-list").bounding_box()["y"] - heading["y"] <= 170
-    tops = [chip.bounding_box()["y"] for chip in phone.locator(".filter").all()]
+    tops = phone.evaluate("[...document.querySelectorAll('.filter')].map((chip) => chip.getBoundingClientRect().y)")
     assert max(tops) - min(tops) <= 1
     assert phone.locator(".filter small:visible").count() == 1
     assert phone.evaluate("document.documentElement.scrollWidth") <= 390

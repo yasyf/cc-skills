@@ -117,6 +117,8 @@
 .cw .decision-tail { margin-top:11px;display:flex;gap:7px;flex-wrap:wrap }
 .cw .embedded-ref { display:flex;align-items:center;gap:6px;border:1px solid #1f1e24;background:#121212;border-radius:4px;padding:5px 7px;font-size:11px;color:#7b7f8d;text-align:left;white-space:normal }
 .cw .embedded-ref .ico { width:12px;height:12px }
+.cw .artifact, .cw .update-row, .cw .embedded-ref { overflow-wrap:anywhere;white-space:normal;max-width:100% }
+.cw .tablewrap { overflow-wrap:normal }
 .cw .thread-foot { margin:10px 0 0 40px;display:flex;align-items:center;gap:13px;color:#5e5b63;font-size:11px }
 .cw .thread-foot button { display:flex;gap:4px;align-items:center;font-size:11px;color:#635f6c;padding:0 }
 .cw .thread-foot .ico { width:11px;height:11px }
