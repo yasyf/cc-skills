@@ -1009,9 +1009,23 @@ func (e Env) keepWanted(s *store.Store) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	names := make(map[string]bool, len(registered))
+	succeeded := map[string]bool{}
+	for _, lane := range registered {
+		names[lane.Name] = true
+		succeeded[lane.Predecessor] = true
+	}
 	var keep []string
 	for _, lane := range registered {
-		if !isLive(lane.State) {
+		wanted := isLive(lane.State) || lane.State == store.LaneHeld
+		if lane.State == store.LaneRetired && !succeeded[lane.Name] && (lane.RetiredBy == Root || !names[lane.RetiredBy]) {
+			wanted = slices.Contains(standingRoles, lane.Role) || lane.Standing != ""
+			if !wanted {
+				brief, err := BriefOf(lane.Brief)
+				wanted = err != nil || brief.Standing != ""
+			}
+		}
+		if !wanted {
 			continue
 		}
 		if dispatch := dispatchOf(e.receipts(), lane.Name); dispatch != "" {

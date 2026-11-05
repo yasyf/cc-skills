@@ -59,6 +59,52 @@ func TestSettledGCRunsANewPassEveryFiveMinutesFromTheCheckoutWithTheDrivesCCRemo
 	equal(t, got.Env, []string{"WORKER_CC_REMOTE=/pin/cc-remote", "CC_REMOTE_CONFIG=/pin/config.yaml"})
 }
 
+func TestTheCleanupPassKeepsARetiredLaneThatStillHoldsAStandingDutyUntilASuccessorTakesIt(t *testing.T) {
+	_, s := driveState(t)
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir()}
+	dutyBrief := filepath.Join(t.TempDir(), "duty.md")
+	if err := os.WriteFile(dutyBrief, []byte("Standing: owner of the sand-next gate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lanes := []struct {
+		name, role, standing, brief, retiredBy, predecessor string
+		state                                               store.LaneState
+	}{
+		{name: "wanted-1", state: store.LaneDesired},
+		{name: "parked-1", state: store.LaneHeld},
+		{name: "duty-row-1", standing: "owner of item 40", retiredBy: "done"},
+		{name: "duty-brief-1", brief: dutyBrief, retiredBy: "done"},
+		{name: "desk-1", role: roleDesk, retiredBy: Root},
+		{name: "plain-1", retiredBy: "done"},
+		{name: "replaced-desk-1", role: roleDesk, retiredBy: "replaced-desk-2"},
+		{name: "replaced-desk-2", role: roleDesk, state: store.LaneDesired},
+		{name: "handed-1", standing: "owner of the m551 row", retiredBy: "done"},
+		{name: "handed-2", standing: "owner of the m551 row", predecessor: "handed-1", state: store.LaneDesired},
+	}
+	for _, lane := range lanes {
+		row := storeLane(lane.name)
+		row.Role, row.Standing, row.Predecessor = cmp.Or(lane.role, row.Role), lane.standing, lane.predecessor
+		row.Brief = cmp.Or(lane.brief, filepath.Join(t.TempDir(), "absent.md"))
+		if _, err := s.WantLane(row, t0); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetLaneState(lane.name, cmp.Or(lane.state, store.LaneRetired), t0, lane.retiredBy, ""); err != nil {
+			t.Fatal(err)
+		}
+		writeJSON(t, filepath.Join(env.receipts(), lane.name+".json"), map[string]any{"result": map[string]string{"dispatchId": "ctx_" + lane.name}})
+	}
+	keep, err := env.keepWanted(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for i := 1; i < len(keep); i += 2 {
+		kept = append(kept, keep[i])
+	}
+	slices.Sort(kept)
+	equal(t, kept, []string{"ctx_desk-1", "ctx_duty-brief-1", "ctx_duty-row-1", "ctx_handed-2", "ctx_parked-1", "ctx_replaced-desk-2", "ctx_wanted-1"})
+}
+
 func TestSettledGCStartsNoPassWhileARestartWaitsForOne(t *testing.T) {
 	runner := &recordingRunner{reply: func(shell.Command) (shell.Result, error) {
 		return shell.Result{Stdout: "closed=1\n"}, nil
