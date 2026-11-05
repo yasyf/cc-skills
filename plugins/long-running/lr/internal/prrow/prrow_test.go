@@ -448,12 +448,12 @@ func TestARowFromTheRecordsCarriesEveryFieldAndComesReady(t *testing.T) {
 		Hold: None, SupersededBy: None, WaitsOn: onlyHim, ReadyForTap: true, State: StateOpen, TapRefused: None, TappedAt: NotYet, TappedBy: NotYet, LandedAt: NotYet, Port: None,
 	}
 	got := row
-	got.HeadAt, got.ReadHead, got.Description, got.LastRecord, got.WrittenAt = "", "", "", 0, ""
+	got.HeadAt, got.ReadHead, got.Description, got.LastRecord, got.WrittenAt, got.MovedAt = "", "", "", 0, "", ""
 	if got != want {
 		t.Fatalf("row =\n%+v\nwant\n%+v", got, want)
 	}
-	if row.Description == "" || row.WrittenAt == "" || row.LastRecord == 0 || row.ReadHead != headA {
-		t.Fatalf("row = %+v, want description, written_at, last_record and read_head", row)
+	if row.Description == "" || row.WrittenAt == "" || row.MovedAt != row.WrittenAt || row.LastRecord == 0 || row.ReadHead != headA {
+		t.Fatalf("row = %+v, want description, written_at, moved_at at written_at, last_record and read_head", row)
 	}
 }
 
@@ -1313,8 +1313,8 @@ func TestAnOldTreePRsRowSaysItsPortIsOwedUntilAPortOrANoPortReasonNamesIt(t *tes
 	if row := folded(t, f, 50525); row.Port != "port #50849, open" {
 		t.Fatalf("old-tree fix once its port opened: port %q", row.Port)
 	}
-	if row := folded(t, f, 50849); row.Port != None {
-		t.Fatalf("the port itself: port %q, want %q", row.Port, None)
+	if row := folded(t, f, 50849); row.Port != PortOf+"50525" {
+		t.Fatalf("the port itself: port %q, want %q", row.Port, PortOf+"50525")
 	}
 
 	postOpened(t, 2, headA, "dev", fullBody)
@@ -1326,5 +1326,34 @@ func TestAnOldTreePRsRowSaysItsPortIsOwedUntilAPortOrANoPortReasonNamesIt(t *tes
 	read(oldTree(2, headB))
 	if row := folded(t, f, 2); !strings.HasPrefix(row.Port, PortOwed) {
 		t.Fatalf("a new head past the reason: port %q, want it owed again", row.Port)
+	}
+}
+
+func TestARowsMovedAtHoldsUntilItsHeadGradeOrQueueChanges(t *testing.T) {
+	f, _ := foldFor(t)
+	now := time.Date(2026, 11, 5, 18, 0, 0, 0, time.UTC)
+	f.Now = func() time.Time { return now }
+	read := func(pr machine.Facts) store.ReviewRow {
+		t.Helper()
+		if _, err := f.Pass(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.PostReads(context.Background(), []machine.Facts{pr}); err != nil {
+			t.Fatal(err)
+		}
+		return folded(t, f, 50849)
+	}
+
+	postOpened(t, 50849, headA, "dev", fullBody)
+	read(cleanRead(50849, headA))
+	opened := store.Stamp(now)
+	now = now.Add(2 * time.Hour)
+	if row := read(cleanRead(50849, headA)); row.MovedAt != opened {
+		t.Fatalf("an unchanged row two hours on: moved at %q, want %q", row.MovedAt, opened)
+	}
+	queued := cleanRead(50849, headA)
+	queued.Queue, queued.QueuedHead = machine.QueueQueued, headA
+	if row := read(queued); row.MovedAt != store.Stamp(now) {
+		t.Fatalf("a row that entered the queue: moved at %q, want %q", row.MovedAt, store.Stamp(now))
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/plans"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -369,5 +370,23 @@ func TestAnOpenStepWithNoLiveLaneNamesTheLastLaneThatWorkedItAndWhen(t *testing.
 	}
 	if done := v.stepRow("Step 7", "7. Done", &plans.Step{Number: "7", Tasks: []plans.Task{{Title: "Write", State: plans.Done}}}, nil); done.State != "1 of 1 tasks done, 0 in progress, 0 blocked" {
 		t.Fatalf("done state = %q", done.State)
+	}
+}
+
+func TestAForwardPortWithNoMoveInAnHourLeadsTheUpdateWithWhatItWaitsOn(t *testing.T) {
+	in := inputs(t)
+	in.PRRows = []store.ReviewRow{
+		{Number: 50849, Title: "steptree wrapper port", State: "open", Port: prrow.PortOf + "50525", WaitsOn: "port-lane: resolve the restack conflict", MovedAt: store.Stamp(in.Now.Add(-90 * time.Minute))},
+		{Number: 50850, Title: "a fresh port", State: "open", Port: prrow.PortOf + "50526", WaitsOn: "CI", MovedAt: store.Stamp(in.Now.Add(-10 * time.Minute))},
+		{Number: 50851, Title: "a still fix", State: "open", Port: prrow.None, WaitsOn: "CI", MovedAt: store.Stamp(in.Now.Add(-3 * time.Hour))},
+	}
+
+	report := Render(in)
+
+	if !strings.Contains(report.Text, "Forward ports with no move in an hour (1):\n- #50849, port of #50525, has had no new head, grade or queue move since") || !strings.Contains(report.Text, "it waits on port-lane: resolve the restack conflict") {
+		t.Fatalf("the stalled port is missing from the update:\n%s", report.Text)
+	}
+	if strings.Contains(report.Text, "- #50850, port of") || strings.Contains(report.Text, "- #50851,") {
+		t.Fatalf("a moving port or a PR that is no port is listed as stalled:\n%s", report.Text)
 	}
 }

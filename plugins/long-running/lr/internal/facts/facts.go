@@ -1067,6 +1067,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 	f.Stuck = stored[bus.StuckFact]
 	f.FinderOverride, f.FidelityOverride = machine.OverridesOf(stored)
 	_, f.Exempt = stored["exempt"]
+	f.Port = stored[gates.PortOfAttr] != ""
 	f.StandingWord, _ = gates.LandsOnWord(stored)
 	return nil
 }

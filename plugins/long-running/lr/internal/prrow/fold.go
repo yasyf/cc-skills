@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -39,6 +40,7 @@ const (
 	FactOldTree = "read-old-tree"
 	NoPortAttr  = "no-port"
 	PortOwed    = "owed"
+	PortOf      = "port of #"
 
 	FactUnknownSince = "unknown-since"
 	FactBumps        = "mergeable-bumps"
@@ -123,6 +125,7 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		for _, row := range stored {
 			rows[row.Number] = row
 		}
+		before := maps.Clone(rows)
 		for _, record := range records {
 			if record.Seq <= position {
 				continue
@@ -165,6 +168,7 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		ports := portsOf(rows, atHeads)
 		for number, row := range rows {
 			row.Port = portState(atHeads[number], ports[number])
+			row.MovedAt = movedAt(before[number], row, written)
 			rows[number] = row
 		}
 		out = values(rows)
@@ -187,8 +191,17 @@ func portsOf(rows map[int]store.ReviewRow, atHeads map[int]map[string]string) ma
 	return ports
 }
 
+func movedAt(before, after store.ReviewRow, now time.Time) string {
+	if before.MovedAt != "" && before.Head == after.Head && before.Grade == after.Grade && before.Queue == after.Queue {
+		return before.MovedAt
+	}
+	return store.Stamp(now)
+}
+
 func portState(facts map[string]string, port store.ReviewRow) string {
 	switch {
+	case facts[FactOldTree] == "" && facts[gates.PortOfAttr] != "":
+		return PortOf + facts[gates.PortOfAttr]
 	case facts[FactOldTree] == "":
 		return None
 	case port.Number != 0:

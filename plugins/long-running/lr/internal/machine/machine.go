@@ -187,6 +187,7 @@ type Facts struct {
 	UnsafeWait       string
 	Body             string
 	OldTree          string
+	Port             bool
 	GradeStopped     string
 	RowWait          string
 	TapRefused       string
@@ -295,7 +296,7 @@ func classify(f Facts) Verdict {
 		return Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, QueueClock}
 	}
 	if f.Restackable() {
-		if f.Tapped() && f.Hold == "" {
+		if (f.Tapped() || f.Port && !f.Draft) && f.Hold == "" {
 			return Verdict{StateNeedsRestack, MoverSupervisor, ActionRestack, SupervisorClock}
 		}
 		return Verdict{StateNeedsRestack, MoverLane, ActionRestack, LaneClock}
