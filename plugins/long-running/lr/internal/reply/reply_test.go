@@ -2012,6 +2012,20 @@ func TestOnlyAPickFreeReplyAsksForTheTapCardsOfItsPRs(t *testing.T) {
 	}
 }
 
+func TestEditingATapNoticeAsksForItsTapCardsAgain(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	notice := Reply{ID: "r1", Title: "t", MD: "m", Status: info, PRs: []string{landPR}}
+	f.Send(context.Background(), notice)
+	notice.MD = "m, now at its new head"
+	f.Send(context.Background(), notice)
+	posts := slices.DeleteFunc(calls(fake, "cc-slack"), func(call shell.Command) bool { return call.Argv[1] != "dm-status" })
+	edit := posts[len(posts)-1].Argv
+	if len(posts) != 2 || !strings.Contains(flag(t, edit, "--card"), `"replaces"`) || flag(t, edit, "--tap-pr") != landPR {
+		t.Fatalf("dm-status calls = %+v, want the edit to replace the notice and carry %s's tap card again", posts, landPR)
+	}
+}
+
 func TestAPickNamingAPRThatLandsOnHisWordWarns(t *testing.T) {
 	for name, tc := range map[string]struct {
 		reply Reply
