@@ -104,6 +104,10 @@ func IsRule(line string) bool {
 	return ruled.MatchString(strings.TrimSpace(line))
 }
 
+func Running(line string) bool {
+	return running.MatchString(line)
+}
+
 func IdlePrompt(t Terminal) bool {
 	if t.drafted() || t.Source != rendered {
 		return false

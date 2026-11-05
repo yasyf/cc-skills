@@ -45,6 +45,9 @@ type API interface {
 	Idle(ctx context.Context, terminal, environment string) (Idleness, error)
 	Presence(ctx context.Context, terminal, environment string) (string, error)
 	TerminalsIn(ctx context.Context, worktree, environment string) (TerminalList, error)
+	Terminals(ctx context.Context) ([]Terminal, error)
+	Runs(ctx context.Context) ([]Run, error)
+	EmptyShells(ctx context.Context) (map[string]bool, error)
 	Stop(ctx context.Context, dispatch string) (string, string, error)
 	Abandon(ctx context.Context, dispatch string) (string, string, error)
 	Release(ctx context.Context, dispatch string) (string, string, error)
@@ -124,6 +127,7 @@ type GC struct {
 	DryRun   bool
 	Keep     map[string]bool
 	Finished map[string]bool
+	SkipRuns map[string]bool
 
 	writing sync.Mutex
 }

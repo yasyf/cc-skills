@@ -128,6 +128,9 @@ type fakeOrca struct {
 	beforeListing func(string)
 	sessions      Sessions
 	restarted     map[string]bool
+	listed        []Terminal
+	emptyShells   []map[string]bool
+	runs          []Run
 }
 
 func newOrca(rows ...Worker) *fakeOrca {
@@ -277,6 +280,28 @@ func (f *fakeOrca) Servers(context.Context) (map[string]bool, error) {
 }
 
 func (f *fakeOrca) NowMS() int64 { return fakeNow }
+
+func (f *fakeOrca) Terminals(context.Context) ([]Terminal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.listed), nil
+}
+
+func (f *fakeOrca) Runs(context.Context) ([]Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.runs), nil
+}
+
+func (f *fakeOrca) EmptyShells(context.Context) (map[string]bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	reads := f.emptyShells[0]
+	if len(f.emptyShells) > 1 {
+		f.emptyShells = f.emptyShells[1:]
+	}
+	return reads, nil
+}
 
 func (f *fakeOrca) Holder(_ context.Context, worktree string, panes map[string]bool) (string, error) {
 	if f.onHolder != nil {

@@ -1616,6 +1616,54 @@ func TestIdleReads(t *testing.T) {
 			t.Fatalf("got %v, err %v", got, err)
 		}
 	})
+	timedOut := func(lastOutput string, tail []string) func([]string) (string, string, int) {
+		lines, err := json.Marshal(tail)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return func(argv []string) (string, string, int) {
+			switch argv[2] {
+			case "wait":
+				return `{"ok":false,"error":{"code":"timeout","message":"timeout"}}`, "", 1
+			case "read":
+				return `{"ok":true,"result":{"terminal":{"tail":` + string(lines) + `}}}`, "", 0
+			}
+			return `{"ok":true,"result":{"terminal":{"connected":true` + lastOutput + `}}}`, "", 0
+		}
+	}
+	lastOutputAgo := func(ms int64) string {
+		return `,"lastOutputAt":` + strconv.FormatInt(NowMS()-ms, 10)
+	}
+	t.Run("a tui-idle timeout over a silent empty prompt is idle", func(t *testing.T) {
+		client, _ := clientFor(timedOut(lastOutputAgo(quietMS+60_000), claudeDone))
+		if got, err := client.Idle(context.Background(), "term_a", ""); err != nil || got != IdleQuiet {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a tui-idle timeout on a terminal still printing is busy", func(t *testing.T) {
+		client, _ := clientFor(timedOut(lastOutputAgo(1_000), claudeDone))
+		if got, err := client.Idle(context.Background(), "term_a", ""); err != nil || got != IdleBusy {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a tui-idle timeout with no output time is busy", func(t *testing.T) {
+		client, _ := clientFor(timedOut("", claudeDone))
+		if got, err := client.Idle(context.Background(), "term_a", ""); err != nil || got != IdleBusy {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a tui-idle timeout over a silent running turn is busy", func(t *testing.T) {
+		client, _ := clientFor(timedOut(lastOutputAgo(quietMS+60_000), append([]string{"✶ Baking… (esc to interrupt)"}, claudeDone[2:]...)))
+		if got, err := client.Idle(context.Background(), "term_a", ""); err != nil || got != IdleBusy {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
+	t.Run("a tui-idle timeout over a timed thinking row above an empty prompt is busy", func(t *testing.T) {
+		client, _ := clientFor(timedOut(lastOutputAgo(quietMS+60_000), append([]string{"· Timing the fetch… (14s · still thinking with xhigh effort)"}, claudeDone[2:]...)))
+		if got, err := client.Idle(context.Background(), "term_a", ""); err != nil || got != IdleBusy {
+			t.Fatalf("got %v, err %v", got, err)
+		}
+	})
 	t.Run("a Sprite whose Orca runtime is down reads as unknown, not busy", func(t *testing.T) {
 		client, _ := clientFor(constant(`{"ok":false,"error":{"code":"remote_runtime_unavailable","message":"Could not connect to the remote Orca runtime."}}`))
 		if got, err := client.Idle(context.Background(), "term_a", "env_abc"); err != nil || got != IdleUnknown {

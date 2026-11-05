@@ -27,7 +27,7 @@ func stateHome() (string, error) {
 func GCCommand(a *app.App) *cobra.Command {
 	var run, plan string
 	var dispatches, done, keep, stale, finished []string
-	var dryRun, fresh bool
+	var dryRun, fresh, shells, otherRuns bool
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Reclaim what an Orca Run's settled dispatches left behind",
@@ -46,6 +46,10 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 --finished names a dispatch whose lane the supervisor found finished by its own record. Closing a terminal loses nothing on disk, so for such a dispatch unsaved work in its tree keeps the tree, untouched, and not its terminal: the terminal of a settled one closes under the idle and agent-process proof above, and a --stale one is proved without the clean-and-pushed read. A tree git cannot read still keeps the terminal.
 
 --new sweeps up to forty settled dispatches a pass, those no pass has swept first, newest first, then those swept longest ago, and records the order under the state directory. The lane supervisor runs it every five minutes, with --keep for the dispatch of every lane the registry still wants, so a dispatch is reclaimed soon after it settles and its lane retires, and what a pass kept is read again on a later one.
+
+--shells also closes up to forty shell terminals, one at a time, that no dispatch records: a login shell with no child, nothing else carrying its terminal handle, three quiet days on its tty, and no agent terminal in its worktree. It closes the terminal only and leaves the worktree.
+
+--other-runs also sweeps one other Run a pass, in rotation, when the terminal that coordinated it no longer exists: only its settled dispatches whose terminal is still open, by the same rules. A Run whose coordinator lives belongs to someone and is left alone, and so is any Run named by the multi-valued git config lr.gcSkipRun.
 
 --plan takes a dry run's output; gc plans again first and refuses, printing the difference, unless the two match. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed exists. --dry-run reads through a pause and runs every read a removal runs, the live-process scan included, so its lines name what a real run would do. Prints one line per action, skipped action or kept resource, then the tally.`,
 		Args: cobra.NoArgs,
@@ -99,14 +103,33 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 				if dispatches, err = gc.due(cmd.Context(), run, ledger); err != nil {
 					return err
 				}
-				if len(dispatches) == 0 && len(done) == 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), Tally{})
-					return nil
+			}
+			tally := Tally{}
+			if shells {
+				if tally, err = gc.Shells(cmd.Context()); err != nil {
+					return err
 				}
 			}
-			tally, err := gc.Run(cmd.Context(), run, dispatches, done)
-			if err != nil {
-				return err
+			if !fresh || len(dispatches) > 0 || len(done) > 0 {
+				swept, err := gc.Run(cmd.Context(), run, dispatches, done)
+				if err != nil {
+					return err
+				}
+				for verb, count := range swept {
+					tally[verb] += count
+				}
+			}
+			if otherRuns {
+				if gc.SkipRuns, err = skippedRuns(cmd.Context(), a.Runner); err != nil {
+					return err
+				}
+				orphaned, err := gc.OrphanedRun(cmd.Context(), run)
+				if err != nil {
+					return err
+				}
+				for verb, count := range orphaned {
+					tally[verb] += count
+				}
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), tally)
 			if fresh && !dryRun && !gc.Pause.Held() {
@@ -124,6 +147,10 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 	cmd.Flags().StringArrayVar(&stale, "stale", nil, "treat this unsettled dispatch as --done once its screen sits at an empty prompt, one verified agent process names its terminal and its tree is clean and pushed; repeatable")
 	cmd.Flags().StringArrayVar(&finished, "finished", nil, "this dispatch's lane finished by its own record, so unsaved work in its tree keeps the tree, left as it is, but not its terminal, which closes under the same idle and agent-process proof; repeatable")
 	cmd.Flags().BoolVar(&fresh, "new", false, "settled dispatches no pass swept yet, newest first, then those swept longest ago, up to forty a pass")
+	cmd.Flags().BoolVar(&shells, "shells", false, "also close up to forty empty shell terminals that no dispatch records and that have been quiet for three days")
+	cmd.Flags().BoolVar(&otherRuns, "other-runs", false, "also sweep one Run a pass whose coordinator terminal no longer exists")
+	cmd.MarkFlagsMutuallyExclusive("shells", "plan")
+	cmd.MarkFlagsMutuallyExclusive("other-runs", "plan")
 	cmd.MarkFlagsMutuallyExclusive("new", "dispatch")
 	cmd.MarkFlagsMutuallyExclusive("new", "done")
 	cmd.MarkFlagsMutuallyExclusive("new", "plan")

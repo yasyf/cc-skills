@@ -14,6 +14,7 @@ import (
 const (
 	CodeUnregistered = "selector_not_found"
 	CodeStaleHandle  = "terminal_handle_stale"
+	codeTimedOut     = "timeout"
 	CodeFenced       = "dispatch_inactive"
 	hostUnavailable  = "host_unavailable"
 	CodeRuntimeDown  = "remote_runtime_unavailable"
