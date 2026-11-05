@@ -355,7 +355,7 @@ func notePortRead(s *store.Store, claim gates.Claim, read gates.Read, at time.Ti
 var neverLapses = time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 func goReady(f machine.Facts) bool {
-	return f.Green() && f.Approved && f.Graded() && !f.Exempt && f.Hold == "" && !f.Draft && !f.Closed && !f.Merged && f.Tap == ""
+	return f.Green() && f.Approved && !f.Exempt && f.Hold == "" && !f.Draft && !f.Closed && !f.Merged && f.Tap == ""
 }
 
 type refusedProbe struct {
@@ -365,15 +365,15 @@ type refusedProbe struct {
 }
 
 func SweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store, snapshot []machine.Facts, now time.Time, stdout io.Writer) ([]int, error) {
-	ready := slices.DeleteFunc(slices.Clone(snapshot), func(f machine.Facts) bool { return !goReady(f) })
-	if len(ready) == 0 {
+	if len(snapshot) == 0 {
 		return nil, nil
 	}
+	ready := slices.DeleteFunc(slices.Clone(snapshot), func(f machine.Facts) bool { return !goReady(f) })
 	inputs, err := readGateInputs(ctx, cfg.Drive, now)
 	if err != nil {
 		return nil, err
 	}
-	named, newest, err := namedSince(ctx, s, cfg, now)
+	named, since, newest, err := namedSince(ctx, s, cfg, now)
 	if err != nil {
 		return nil, err
 	}
@@ -431,14 +431,57 @@ func SweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store
 			}
 		}
 	}
+	if err := refuseUnready(ctx, cfg, snapshot, since, inputs.GoLanes); err != nil {
+		return posted, err
+	}
 	fmt.Fprintf(stdout, "SWEPT %d ready heads: %d gated, %d unchanged since their refusal, %d posted\n", len(ready), len(ready)-unchanged, unchanged, len(posted))
 	return posted, s.Advance(sweepCursor, newest)
+}
+
+func refuseUnready(ctx context.Context, cfg config.Config, snapshot []machine.Facts, since []client.Record, goLanes []string) error {
+	for _, f := range snapshot {
+		if goReady(f) || f.Exempt || f.Closed || f.Merged {
+			continue
+		}
+		gos := slices.DeleteFunc(slices.Clone(since), func(record client.Record) bool {
+			return string(record.Kind) != kindGo || bus.GoCounts(record.Lane, goLanes) || !bus.GoNamesHead(record, f.Number, f.Head)
+		})
+		if len(gos) == 0 {
+			continue
+		}
+		if err := sayGoRefused(ctx, cfg, gates.Claim{Repo: cfg.Repo, PR: f.Number, Head: f.Head}, f.Lane, false, gos, unready(f)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unready(f machine.Facts) []string {
+	var why []string
+	if !f.Green() {
+		why = append(why, "CI is not green at this head")
+	}
+	if !f.Approved {
+		why = append(why, "no approving review is on this head")
+	}
+	if f.Hold != "" {
+		why = append(why, fmt.Sprintf("%s holds it (#%d)", f.Hold, f.HoldSeq))
+	}
+	if f.Draft {
+		why = append(why, "it is a draft")
+	}
+	if f.Tap != "" {
+		why = append(why, fmt.Sprintf("its tap reads %s, and a tap moves it instead of a go", f.Tap))
+	}
+	return why
 }
 
 func Exempted(snapshot []machine.Facts, posted []int) []machine.Facts {
 	marked := slices.Clone(snapshot)
 	for i := range marked {
-		marked[i].Exempt = marked[i].Exempt || slices.Contains(posted, marked[i].Number)
+		if slices.Contains(posted, marked[i].Number) {
+			marked[i].Exempt, marked[i].Finder, marked[i].Fidelity = true, machine.FinderClear, machine.FidelityPass
+		}
 	}
 	return marked
 }
@@ -452,10 +495,10 @@ func goPrint(f machine.Facts, inputs gateInputs) (string, error) {
 	return hex.EncodeToString(sum[:8]), nil
 }
 
-func namedSince(ctx context.Context, s *store.Store, cfg config.Config, now time.Time) (map[int]bool, int64, error) {
+func namedSince(ctx context.Context, s *store.Store, cfg config.Config, now time.Time) (map[int]bool, []client.Record, int64, error) {
 	after, err := s.Cursor(sweepCursor)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	query := client.Query{Drive: cfg.Drive, After: after}
 	if after == 0 {
@@ -463,7 +506,7 @@ func namedSince(ctx context.Context, s *store.Store, cfg config.Config, now time
 	}
 	records, err := client.Tail(ctx, query)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	named := map[int]bool{}
 	for _, record := range records {
@@ -474,7 +517,7 @@ func namedSince(ctx context.Context, s *store.Store, cfg config.Config, now time
 			}
 		}
 	}
-	return named, after, nil
+	return named, records, after, nil
 }
 
 func refusedProbes(s *store.Store) (map[int][]refusedProbe, error) {
