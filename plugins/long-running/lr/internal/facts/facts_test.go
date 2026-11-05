@@ -1060,6 +1060,28 @@ func TestATapWhoseDiffWillNotReadSkipsThatPRAndThePassMovesOn(t *testing.T) {
 	}
 }
 
+func TestAPortWhoseDiffWillNotReadStillCarriesItsBodyToItsRow(t *testing.T) {
+	const body = "port of #50266\n\n## Summary\n\nA memory id search returns that memory."
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", diff: ownDiff, body: body}}, status(1))
+	putFact(t, h.store, 1, head, gates.PortOfAttr, "50266", tappedAt)
+	a := app.New(io.Discard)
+	a.Runner = goneRef{h.runner, head}
+	source := facts.New(a, landingConfig, h.store)
+
+	rows, err := source.Snapshot(context.Background())
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("rows = %+v, %v, want the port left out of the classified pass", rows, err)
+	}
+	if err := source.FoldRows(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	row, _, err := h.store.ReviewRow(repo, 1)
+	if err != nil || row.ForUsers != "A memory id search returns that memory." || row.ReadHead != head {
+		t.Fatalf("row = %+v, %v, want the body's Summary read at %s", row, err, head)
+	}
+}
+
 func TestATapTheOldCarryLeftOnTheCurrentHeadStandsThereAndAnchorsTheNextHead(t *testing.T) {
 	s := memory(t)
 	putFact(t, s, 1, head2, "tap", "tapped", tappedAt)
