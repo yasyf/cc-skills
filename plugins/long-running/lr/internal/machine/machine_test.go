@@ -45,7 +45,7 @@ var cases = []struct {
 	{"a branch carrying other open PRs' commits is restacked, never landed", facts(func(f *Facts) { f.Carries = []int{45501, 45583} }), Verdict{StateNeedsRestack, MoverSupervisor, ActionRestack, 10 * time.Minute}},
 	{"a bot finding with no verdict is the lane's with a 20-minute clock", facts(func(f *Facts) { f.Finder = FinderAsk }), Verdict{StateNeedsVerdict, MoverLane, ActionVerdict, 20 * time.Minute}},
 	{"a failed plan check with no verdict is the lane's", facts(func(f *Facts) { f.Fidelity = FidelityFail }), Verdict{StateNeedsVerdict, MoverLane, ActionVerdict, 20 * time.Minute}},
-	{"a verdict on the finding clears it", facts(func(f *Facts) { f.Finder, f.Verdict = FinderAsk, true }), Verdict{StateReady, MoverSupervisor, ActionEnqueue, 10 * time.Minute}},
+	{"a finder override clears the finding", facts(func(f *Facts) { f.Finder, f.FinderOverride = FinderAsk, true }), Verdict{StateReady, MoverSupervisor, ActionEnqueue, 10 * time.Minute}},
 	{"red CI is the lane's to fix", facts(func(f *Facts) { f.CI = CIFailure }), Verdict{StateRed, MoverLane, ActionFixRed, 20 * time.Minute}},
 	{"a fresh head with nothing graded is pushed and goes to the pool", facts(func(f *Facts) { f.CI, f.Finder, f.Fidelity = CIPending, "", "" }), Verdict{StatePushed, MoverPool, ActionGrade, 10 * time.Minute}},
 	{"a head missing one grade is grading on the pool", facts(func(f *Facts) { f.Fidelity = "" }), Verdict{StateGrading, MoverPool, ActionGrade, 10 * time.Minute}},
@@ -198,5 +198,27 @@ func TestAnOverrideCountsAsAGradeOnlyForTheGraderThatStoppedAtItsHead(t *testing
 	}
 	if _, fidelity := GradesOf(map[string]string{"fidelity": "fail", GradeStoppedFact: "fidelity", OverrideFact("fidelity"): "accept"}); fidelity != FidelityFail {
 		t.Errorf("an override rewrote a failing grade to %q", fidelity)
+	}
+}
+
+func TestEachGraderClearsOnlyOnItsOwnPassOrItsOwnOverride(t *testing.T) {
+	for name, test := range map[string]struct {
+		edit func(*Facts)
+		want bool
+	}{
+		"a finder override leaves a failed fidelity failed": {func(f *Facts) { f.Finder, f.Fidelity, f.FinderOverride = FinderAsk, FidelityFail, true }, false},
+		"a fidelity override leaves an open finder open":    {func(f *Facts) { f.Finder, f.Fidelity, f.FidelityOverride = FinderAsk, FidelityFail, true }, false},
+		"a finder override with a clean fidelity clears":    {func(f *Facts) { f.Finder, f.FinderOverride = FinderAsk, true }, true},
+		"a fidelity override with a clean finder clears":    {func(f *Facts) { f.Fidelity, f.FidelityOverride = FidelityFail, true }, true},
+		"both overrides clear": {func(f *Facts) {
+			f.Finder, f.Fidelity, f.FinderOverride, f.FidelityOverride = FinderAsk, FidelityFail, true, true
+		}, true},
+		"a fidelity override does not answer an open finder": {func(f *Facts) { f.Finder, f.FidelityOverride = FinderAsk, true }, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := facts(test.edit).Cleared(); got != test.want {
+				t.Fatalf("Cleared() = %v, want %v", got, test.want)
+			}
+		})
 	}
 }

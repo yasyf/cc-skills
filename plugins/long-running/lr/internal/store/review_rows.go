@@ -126,7 +126,7 @@ func factsAtRowHeads(db rowReader, repo string) (map[int]map[string]string, erro
 	rows, err := db.Query(`SELECT r.number, f.kind, f.value FROM review_rows r
 JOIN facts f ON f.repo = r.repo AND f.number = r.number AND length(f.head) >= 7 AND length(r.head) >= 7
   AND (substr(r.head, 1, length(f.head)) = f.head OR substr(f.head, 1, length(r.head)) = r.head)
-WHERE r.repo = ? ORDER BY f.posted, f.kind = 'verdict', length(f.head)`, repo)
+WHERE r.repo = ? ORDER BY f.posted, f.kind LIKE 'override-%', length(f.head)`, repo)
 	type fact struct {
 		number      int
 		kind, value string

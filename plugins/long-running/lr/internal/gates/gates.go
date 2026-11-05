@@ -19,7 +19,6 @@ const (
 	DiffFact     = "diff"
 	BehaviorFact = "behavior"
 	SinceFact    = "behavior-since"
-	verdictFact  = "verdict"
 	ChangedFact  = "what-changed"
 	MissingFact  = "gates-missing"
 	fidelityFact = "fidelity"
@@ -91,11 +90,14 @@ func SameDiff(atFrom, atHead map[string]string) bool {
 }
 
 func CarriedOverrides(atFrom, atHead map[string]string) []string {
-	if atHead[verdictFact] != "" || !SameDiff(atFrom, atHead) {
+	if !SameDiff(atFrom, atHead) {
 		return nil
 	}
 	var carried []string
 	for _, grader := range []string{finderKind, fidelityKind} {
+		if atHead[machine.OverrideFact(grader)] != "" {
+			continue
+		}
 		if atFrom[machine.OverrideFact(grader)] != "" {
 			carried = append(carried, grader)
 		} else if grade := cmp.Or(atHead[grader], atFrom[grader]); grade != string(machine.FinderClear) && grade != string(machine.FidelityPass) {
@@ -136,7 +138,7 @@ func CarriedBy(tapped, head string, atTap, atHead map[string]string, deltas []st
 	if by := since.carrying(); by != "" {
 		return by, ""
 	}
-	if sameHead(atHead[SinceFact], tapped) && atHead[BehaviorFact] == BehaviorSame && (atHead[fidelityFact] == string(machine.FidelityPass) || atHead[verdictFact] != "") {
+	if sameHead(atHead[SinceFact], tapped) && atHead[BehaviorFact] == BehaviorSame && (atHead[fidelityFact] == string(machine.FidelityPass) || atHead[machine.OverrideFact(fidelityKind)] != "") {
 		return ByFidelity, ""
 	}
 	return "", unjudged

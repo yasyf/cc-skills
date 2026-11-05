@@ -39,6 +39,18 @@ func TestLrPostWritesOneTypedRecord(t *testing.T) {
 	}
 }
 
+func TestLrPostRefusesAVerdictThatCannotNameItsGrader(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+
+	_, err := lrPost(t, "verdict", "--drive", "d", "--as", "root", "--pr", "45821", "--head", head, "--verdict", "accept", "--to", "supervisor")
+
+	wantRefused(t, err, "a verdict cannot name the grader it answers, so it clears nothing; root posts a decide record reading finder-override #<pr> at <sha>: <cite>, or fidelity-override")
+	rows, err := client.Tail(context.Background(), client.Query{Drive: "d"})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("Tail = %+v, %v", rows, err)
+	}
+}
+
 func TestLrPostPrintsTheCorrectedCommandAndStoresNothing(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 

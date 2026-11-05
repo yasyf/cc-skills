@@ -80,7 +80,7 @@ func TestATapStaysAtItsHeadAndLeavesWhenTheHeadMovesOrAGradeGoesBad(t *testing.T
 		"its own head and clean grades":     {graded(1, shownHead+"000", nil), true},
 		"carried to a patch-identical head": {graded(1, "bbbbbbb", func(f *machine.Facts) { f.CarriedBy = "same-diff" }), true},
 		"not graded yet":                    {graded(1, shownHead, func(f *machine.Facts) { f.Finder, f.Fidelity = "", "" }), true},
-		"a bad grade with a verdict":        {graded(1, shownHead, func(f *machine.Facts) { f.Finder, f.Verdict = machine.FinderAsk, true }), true},
+		"a bad grade with an override":      {graded(1, shownHead, func(f *machine.Facts) { f.Finder, f.FinderOverride = machine.FinderAsk, true }), true},
 		"the head moved":                    {graded(1, "bbbbbbb", nil), false},
 		"the finder asks":                   {graded(1, shownHead, func(f *machine.Facts) { f.Finder = machine.FinderAsk }), false},
 		"the fidelity grade failed":         {graded(1, shownHead, func(f *machine.Facts) { f.Fidelity = machine.FidelityFail }), false},
