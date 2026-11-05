@@ -20,7 +20,7 @@ const CLAMP_CHARS = 340;
 const RESENT_MS = 5 * 60 * 1000;
 const PR_CHIPS_SHOWN = 6;
 const DONE_LEAD = /^Done, nothing for you[.:]?\s*/i;
-const DASHBOARD_URL = String.raw`https?://([\w.-]+)(?::\d+)?/?(#[^\s)]*?)?`;
+const DASHBOARD_URL = String.raw`https?://([\w.-]+)(?::(\d+))?/?(#[^\s)]*?)?`;
 const DASHBOARD_LINE = new RegExp(String.raw`^[ \t]*${DASHBOARD_URL}[ \t]*$\n*`, 'gm');
 const DASHBOARD_WORD = new RegExp(String.raw`(\bat )?${DASHBOARD_URL}(?=[.,;:!?)]*(?:\s|$))`, 'g');
 const SCREENSHOT = /\[Image #\d+\]/g;
@@ -183,10 +183,12 @@ function bodyAfterTitle(words, title) {
   return lead && title.toLowerCase().startsWith(lead[0].replace(/[.\s]+$/, '').toLowerCase()) ? words.slice(lead[0].length) : words;
 }
 function dashboardLinksHere(md) {
-  const own = new Set(state.model.own_hosts);
   return md
-    .replace(DASHBOARD_LINE, (line, host) => (own.has(host) ? '' : line))
-    .replace(DASHBOARD_WORD, (url, at, host, hash) => (own.has(host) ? `[here](${hash ?? '#/'})` : url));
+    .replace(DASHBOARD_LINE, (line, host, port, hash) => (ownHash(host, port, hash) ? '' : line))
+    .replace(DASHBOARD_WORD, (url, at, host, port, hash) => {
+      const here = ownHash(host, port, hash);
+      return here ? `[](${here})` : url;
+    });
 }
 function chatBody(id, md, title = '', folded = false) {
   const words = bodyAfterTitle(plain(namedChanges(dashboardLinksHere(md))).replace(DONE_LEAD, ''), title);

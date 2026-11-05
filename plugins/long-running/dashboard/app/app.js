@@ -139,13 +139,39 @@ function sourceLink(all, pre, path, from, to) {
   const span = `${from}${to ? `-${to}` : ''}`;
   return `${pre}<a class="ln-src" href="https://github.com/${state.model.repo}/blob/HEAD/${path}#L${from}${to ? `-L${to}` : ''}" target="_blank" rel="noopener" data-ghfile="${path}" data-line="${from}" data-to="${to ?? from}">${path.split('/').pop()}:${span}</a>`;
 }
+const SLACK_POST = /^https:\/\/[\w-]+\.slack\.com\/archives\/(\w+)\/p(\d+)/;
+const OWN_URL = /^https?:\/\/([\w.-]+)(?::(\d+))?\/?(#\S*)?$/;
+function ownHash(host, port, hash) {
+  return state.model.own_hosts.includes(host) && state.model.own_ports.includes(port) ? hash ?? '#/' : null;
+}
+function linkHref(target) {
+  const [, kind, key] = /^(card|pr):(.+)$/.exec(target) ?? [];
+  const pr = kind === 'pr' && /^(?:([\w.-]+\/[\w.-]+)#)?(\d+)$/.exec(key);
+  const post = SLACK_POST.exec(target);
+  const own = OWN_URL.exec(target);
+  const here = own && ownHash(own[1], own[2], own[3]);
+  const card = kind === 'card' ? key : post && state.model.board.card_posts[`${post[1]}/${post[2]}`];
+  const to = card ? `#/question/${encodeURIComponent(card)}`
+    : pr ? (pr[1] && pr[1].toLowerCase() !== state.model.repo.toLowerCase() ? `https://github.com/${pr[1]}/pull/${pr[2]}` : prHref(pr[2]))
+    : here ? here
+    : target;
+  return to.startsWith('#') && !drawerSeg(to) && route(to).screen === pageRoute().screen ? null : to;
+}
+function link(all, label, target) {
+  const to = linkHref(target);
+  if (to === null) return label;
+  const pr = /^pr:(?:[\w.-]+\/[\w.-]+#)?(\d+)$/.exec(target);
+  if (!label && pr && to === prHref(pr[1])) return /^\d{5}$/.test(pr[1]) ? `#${pr[1]}` : prLink(pr[1]);
+  const card = target.startsWith('card:') && state.model.board.cards.find((c) => c.id === target.slice(5));
+  const named = label || (card ? esc(words(card.title)) : to.startsWith('#') ? 'here' : to);
+  return `<a href="${to}"${to.startsWith('#') ? '' : ' target="_blank" rel="noopener"'}>${named}</a>`;
+}
 function inline(md) {
   return esc(words(md))
     .replace(SOURCE_CITE, sourceLink)
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    .replace(/\[([^\]]+)\]\((#[^)\s]*)\)/g, '<a href="$2">$1</a>')
+    .replace(/\[([^\]]*)\]\(((?:card|pr):[^)\s]+|https?:[^)\s]+|#[^)\s]*)\)/g, link)
     .replace(/#(\d{5})\b/g, (_, n) => prLink(n))
     .replace(/(\d) (ms|s|min|h|KB|MB|GB)\b/g, '$1&nbsp;$2');
 }

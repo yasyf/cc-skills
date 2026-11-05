@@ -63,6 +63,7 @@ DRIVE_LIGHT = ("number", "state", "part", "step", "tree")
 LANE_NAME = re.compile(r'"([a-z][a-z0-9]*(?:-[a-z0-9]+)+)"')
 WORD_BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner")
 PR_NAMED = re.compile(r"#(\d{5})(?!\d)")
+SLACK_POST = re.compile(r"slack\.com/archives/(\w+)/p(\d+)")
 SLOW_REFRESH = 300
 OWED_KINDS = ("ask", "owner", "defect", "done", "report", "answer")
 OWED_WINDOW = dt.timedelta(days=7)
@@ -1021,6 +1022,7 @@ class Drive:
         self.listening = Counter()
         self.secure_url = None
         self.own_hosts = []
+        self.own_ports = []
         self.served = None
         self.live_model = None
         self.watchers = 0
@@ -1748,6 +1750,7 @@ class Drive:
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
             "own_hosts": self.own_hosts,
+            "own_ports": self.own_ports,
             "views": self.config.get("views", {}),
         }
 
@@ -1870,6 +1873,7 @@ class Drive:
         interactions = board["interactions"]
         retired = set(board.get("retired") or [])
         cards, answered = [], {}
+        posts = {"/".join(found.groups()): block["id"] for block in board["doc"]["blocks"] if block["type"] == "card" and (found := SLACK_POST.search(block.get("slack", {}).get("url", "")))}
         for block in board["doc"]["blocks"]:
             if block["type"] != "card" or block["id"] in retired:
                 continue
@@ -1898,7 +1902,7 @@ class Drive:
                 "thread": self.board_threads.get(block["id"], []),
                 "embed": f"{self.config['board_url']}?{urllib.parse.urlencode({'block': block['id'], 'theme': 'dark'})}" if embed else None,
             })
-        return {"cards": cards, "answered": answered, "url": self.config["board_url"]}
+        return {"cards": cards, "answered": answered, "card_posts": posts, "url": self.config["board_url"]}
 
 
 def own_names(host):
@@ -2256,6 +2260,7 @@ def main():
         threading.Thread(target=drive.followed, args=(target, *rest), daemon=True).start()
     names = own_names(config["host"])
     drive.own_hosts = sorted(names)
+    drive.own_ports = [str(config[key]) for key in ("port", "tls_port") if key in config]
     app = handler(drive, config["tailnet_owner"], names)
     if "tls_port" in config:
         threading.Thread(target=serve_tls, args=(drive, config, app, args.config.parent), daemon=True).start()
