@@ -101,6 +101,7 @@ const (
 	unreadAfter      = 10 * time.Minute
 	deskLostAfter    = 30 * time.Minute
 	wakeAfter        = 30 * time.Second
+	mailAfter        = unreadAfter / 2
 	strikeWindow     = 2 * StaleAfter
 	deskStrikes      = 3
 	deskStrikeWindow = time.Hour
@@ -119,9 +120,14 @@ var (
 	claims      = []string{"blocked", "ready"}
 	builders    = []string{"build", "fix"}
 	waits       = []string{"ask", "blocked", "blocker"}
-	settled     = []string{"handoff", "done", "stand-down", "stopped"}
-	laneEnds    = []string{"done", "stopped", "fix-live"}
-	shipped     = []string{"release", "applied", "fix-live"}
+
+	askingKinds    = []string{"ask", "lr.ask", kindRequest}
+	machineAuthors = []string{Self, runner, boardWatch, "pr-read", "prompt-watch", "stall-watch"}
+	machineKinds   = []string{"head", "state", "opened", "heartbeat", "github", "review", "claim", kindSpawn, "board.card", "queue"}
+
+	settled  = []string{"handoff", "done", "stand-down", "stopped"}
+	laneEnds = []string{"done", "stopped", "fix-live"}
+	shipped  = []string{"release", "applied", "fix-live"}
 
 	settledDispatch = []string{"completed", "failed"}
 	agentVerdicts   = []string{agentLive, agentExited, agentUnverifiable}

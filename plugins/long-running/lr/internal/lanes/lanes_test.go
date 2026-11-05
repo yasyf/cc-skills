@@ -1303,7 +1303,7 @@ func TestEveryLaneThatPostsIsInTheLivenessAnswerWithThePRsItLastCarried(t *testi
 	}
 }
 
-func TestALaneParkedOnAnOwnerCardWaitsThroughRootsReplyAndWakesOnceWithTheOwnersPick(t *testing.T) {
+func TestALaneParkedOnAnOwnerCardWakesOnceForRootsReplyAndOnceWithTheOwnersPick(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
 	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour)))}
@@ -1317,10 +1317,12 @@ func TestALaneParkedOnAnOwnerCardWaitsThroughRootsReplyAndWakesOnceWithTheOwners
 	picked := tick(t, s, f, t0.Add(mins(2)))
 	after := tick(t, s, f, t0.Add(mins(10)))
 
-	equal(t, len(waiting.Woken)+len(after.Woken), 0)
+	equal(t, waiting.Woken, []string{lane2})
+	contains(t, pageText(f.pages[0], "why"), "root's decide #3")
+	equal(t, len(after.Woken), 0)
 	equal(t, row(t, s, lane2).Awaits, "")
 	equal(t, picked.Woken, []string{lane2})
-	if why := pageText(f.pages[0], "why"); !strings.HasPrefix(why, "the owner answered card-cleanup-daemon-restart, the card you wait on: Owner on board") {
+	if why := pageText(f.pages[1], "why"); !strings.HasPrefix(why, "the owner answered card-cleanup-daemon-restart, the card you wait on: Owner on board") {
 		t.Fatal(why)
 	}
 }

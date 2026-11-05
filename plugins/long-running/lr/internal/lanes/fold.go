@@ -253,8 +253,8 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if !fresh && (kind == "blocker" || (kind == "ask" && name == Root)) {
 		foldPage(s, r, name, addressed)
 	}
-	if !fresh && (kind == "ask" || kind == "lr.ask" || kind == kindRequest || failedGrade(kind, text)) {
-		foldOrder(s, r, addressed, at)
+	if !fresh && (isOrder(kind, text) || isMail(r)) {
+		foldUnread(s, r, addressed, at)
 	}
 	if kind == "red" {
 		foldRedClass(s, r, out.deps.Repo, at)
@@ -457,7 +457,15 @@ func failedGrade(kind, text string) bool {
 	return kind == "review" && (strings.HasPrefix(text, "finder: major") || strings.HasPrefix(text, "fidelity: missing"))
 }
 
-func foldOrder(s *store.Store, r Record, addressed map[string]bool, at time.Time) {
+func isOrder(kind, text string) bool {
+	return slices.Contains(askingKinds, kind) || failedGrade(kind, text)
+}
+
+func isMail(r Record) bool {
+	return !slices.Contains(machineAuthors, r.Lane) && !slices.Contains(machineKinds, r.Kind) && !strings.HasPrefix(r.Kind, "lr.")
+}
+
+func foldUnread(s *store.Store, r Record, addressed map[string]bool, at time.Time) {
 	for target := range addressed {
 		if lane, found := laneOf(s, target); found && target != r.Lane && target != Root && isLive(lane.State) {
 			do(s.AddUnread(store.Unread{Lane: target, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))

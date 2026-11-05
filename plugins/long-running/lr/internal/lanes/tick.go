@@ -754,9 +754,10 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 		orders := slices.DeleteFunc(held[lane.Name], func(order store.Unread) bool { return order.At.Before(read.Truncate(time.Second)) })
 		if slices.Contains(already, lane.Name) {
 			do(s.MarkUnreadWoken(lane.Name))
-		} else if wakeOnOrders(s, d, lane, peer, orders, now) {
+		} else if wakeOnUnread(s, d, lane, peer, orders, now) {
 			woken = append(woken, lane.Name)
 		}
+		orders = slices.DeleteFunc(orders, func(order store.Unread) bool { return !unreadOrder(order) })
 		if isStanding(lane) && lane.Role != RoleMeta && len(orders) > 0 && now.Sub(orders[0].At) >= deskLostAfter {
 			lost(s, d, lane, found, Verdict{Lost, fmt.Sprintf("is a standing desk that took none of its %d orders, %s, the oldest for %d min", len(orders), orderWords(orders), int(now.Sub(orders[0].At).Minutes()))}, taken, now, out)
 			continue
@@ -776,23 +777,27 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 	return woken, nil
 }
 
-func wakeOnOrders(s *store.Store, d Deps, lane store.Lane, peer Peer, orders []store.Unread, now time.Time) bool {
+func wakeOnUnread(s *store.Store, d Deps, lane store.Lane, peer Peer, records []store.Unread, now time.Time) bool {
 	if !peer.Live || (peer.Row.Roster == "" && peer.Row.Dispatch == "") || settledLane(lane) {
 		return false
 	}
-	patience := wakeAfter
-	if !isStanding(lane) {
-		if lane.Awaits != "" {
-			return false
+	standing := isStanding(lane)
+	due := slices.DeleteFunc(slices.Clone(records), func(record store.Unread) bool {
+		patience := mailAfter
+		if standing && unreadOrder(record) {
+			patience = wakeAfter
 		}
-		patience = unreadAfter / 2
-	}
-	due := slices.DeleteFunc(slices.Clone(orders), func(order store.Unread) bool { return order.Woke || now.Sub(order.At) < patience })
-	if len(due) == 0 || !must(d.Wake(lane.Name, peer.Row, map[string]any{"why": fmt.Sprintf("orders addressed to you are unread: %s.", orderWords(due))})) {
+		return record.Woke || now.Sub(record.At) < patience
+	})
+	if len(due) == 0 || !must(d.Wake(lane.Name, peer.Row, map[string]any{"why": fmt.Sprintf("records addressed to you are unread: %s.", orderWords(due))})) {
 		return false
 	}
 	do(s.MarkUnreadWoken(lane.Name))
 	return true
+}
+
+func unreadOrder(record store.Unread) bool {
+	return record.Kind == "review" || slices.Contains(askingKinds, record.Kind)
 }
 
 func orderWords(orders []store.Unread) string {
