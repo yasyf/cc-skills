@@ -395,6 +395,9 @@ Authority: implement the fix and open its PR through <submit skill>.
   named identity means a test identity or no write. `lr codex-guard check`
   refuses the Orca browser shape on a production host and Iris launched on a
   test Mac signed in as him; this line binds every other route.
+  This authority covers no production secret, pod or database read: each takes
+  his tap on that exact read, and `production_reads` refuses one without his
+  owner record cited as `# ccx:owner-approval=<seq>`.
   Any delete or replace stops for the owner, unless he ordered this release: start
   that one with `--order <answer id>`, and its gate passes itself.
   A break-glass profile refused with ForbiddenException on GetRoleCredentials
