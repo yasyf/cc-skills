@@ -351,7 +351,6 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 - When he says he is going to sleep, every lane keeps shipping: the exempt classes land on go records all night, and every other green, graded PR waits as a tap row for his return.
 - [Tap carry](#tap-carry-and-blanket-approval) decides whether his tap stays with a later head. A head it does not cover returns to his board saying what changed.
 - The row in `lr board rows --json` is the only list of drive PRs; no lane keeps its own. A PR waits on him only when its row says `ready_for_tap`, and a line saying otherwise is refused. `lr board waits --pr <n>` reads what a PR waits on. A PR's state changes by posting its record, never by asking for a hand entry.
-- Rows read only from the landing host's pass. When that host is down and rows say CI is unread while GitHub has them green, `lr board read` on any host reads GitHub once for every open row and posts each read, which the fold takes over an older one. It opens no item, queues nothing and merges nothing, so it is safe beside a running landing host. It is a verb someone runs, never a timer or mover.
 - Anything else waiting on him is what `cci owner-waits` prints, never a runner note.
 - Every `gh` write posts under his GitHub login, so an approval or a tap verdict a drive posts must cite `board verdict #<seq>`, the `owner` record of his verdict on that PR's row at its current head, or the `owner_login_verdicts` hook refuses it.
 
