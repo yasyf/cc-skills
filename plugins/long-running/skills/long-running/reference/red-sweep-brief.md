@@ -14,7 +14,7 @@ A red or conflicting PR that stays stalled after its first alert is re-alerted a
 
 ## Fix flakes and dev reds together
 
-Never fix flakes and dev reds one at a time. Build a complete seven-day census from merge-queue flaky analytics, CI retries and red-sweep classes, then run one cause-fix lane per class. A fix changes code or harness, never test expectations; a retry, rerun, resume, sleep, or flake flag is no fix. A flaky test the owner names is fixed at its cause the same turn.
+Never fix flakes and dev reds one at a time. Build a complete seven-day census from merge-queue flaky analytics, CI retries and red-sweep classes, then run one cause-fix lane per class. A fix changes code or harness, never test expectations; a retry, rerun, resume, sleep, or flake flag is no fix. A flaky test the owner names is fixed at its cause the same turn. When his order also asks for less flaky, that fix is its first part only; the class part is a number going down ([communicator-brief.md](communicator-brief.md#route-meta-orders)).
 
 ## Spawn brief
 

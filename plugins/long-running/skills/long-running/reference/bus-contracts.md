@@ -56,7 +56,7 @@ A record has a `seq`, `drive`, `lane`, `kind`, `at` and `text`, with optional `t
 - Cite a cci seq only after the post returns it, copied from the reply, never guessed.
 - A text read prints one line per record, `<seq> <kind> <lane>[><to>] [^<re>] [x<closed>] <text>`, under an `@<clock>` line each time the minute changes. It marks an answered ask `[ANSWERED #n]` and a withdrawn record `[WITHDRAWN #n]`, where `n` is the reply's seq. JSON reads have no reply marks.
 
-**Closing records.** An `answer`, `go` or `withdraw` closes an ask. A `withdraw`, `answer` or `done` closes a blocker. Pair the later record with `--re` or the same `--topic` in the same drive. A new head alone does not close a blocker.
+**Closing records.** An `answer`, `go` or `withdraw` closes an ask. A `withdraw`, `answer` or `done` closes a blocker. Pair the later record with `--re` or the same `--topic` in the same drive. A new head alone does not close a blocker. Closing a record does not settle what it asked: the asker reads the answer against its question and asks again that turn for any part left uncovered.
 
 The desk posts each `route` line in the pass that prints it, so a red reaches an idle lane at its next wake:
 

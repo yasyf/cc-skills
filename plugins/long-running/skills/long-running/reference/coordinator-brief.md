@@ -94,13 +94,19 @@ which prints that record's text and nothing else. `--full <kind>` prints a kind'
 You decide five things and nothing else:
 
 1. A new ask gets a lane the turn it arrives, with a ledger row and a task (R6, R8). A
-   lane holding more than two unstarted items is split.
+   lane holding more than two unstarted items is split. An order that links one failure
+   and asks for less flaky or less brittle gets two lanes: one fixes that failure, and one
+   owns the class, carrying the row's `owner:m47` in its brief. The class lane counts what
+   that kind of failure cost, such as releases it ended per day, fixes the cause, and
+   delivers only when the same count, read again, has gone down
+   ([communicator-brief.md](communicator-brief.md#route-meta-orders)).
 2. An owner ruling is applied to every live lane and artifact the turn it is read (R17,
    R18, R19b). A settled question is never re-asked (R19).
 3. An escalation gets one answer. The supervisor, the landing pass, the stall watch and
    the update generator reach you only with a `decide`, `ask`, `blocker` or `incident`
-   record; answer each with one record naming the lane that acts. A resolution naming no
-   fixer, no `FIX-LIVE` and no reason is refused by the pack.
+   record; answer each with one record naming the lane that acts on what it asks. The lane
+   on one red does not answer a question about the class of that red. A resolution naming
+   no fixer, no `FIX-LIVE` and no reason is refused by the pack.
 4. A conflict between two owner rules is settled in one `report` to the communicator,
    naming the rule applied.
 5. A desk's output is relayed unchanged: a milestone as a `report` to the communicator, a

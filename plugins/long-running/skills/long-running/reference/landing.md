@@ -574,7 +574,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 - A trunk job that fails and passes on retry, or a flaky notice in `landing.flaky_channel`, posts one `FLAKE` defect naming the failing test, or the job when no test failed. A job whose log shows a GitHub quota or rate-limit refusal and no failing test posts `INFRA` instead, so it is never called a flaky test.
 - The defect goes to the live lane of the `flake_lane` stem. With none live, the supervisor writes the stem's standing brief to `<state>/<stem>/brief.md` and launches the next number from it, and root gets one `note` it need not act on.
 - The fix is due in two hours. Each pass, an open record with no live lane on it gets the next lane of the stem, handed over in a `note`.
-- A repeat failure of the same test or job attaches to the open record as a `note`. A resolver that names no merged PR reopens the record to the same owner.
+- A repeat failure of the same test or job attaches to the open record as a `note`. A resolver that names no merged PR reopens the record to the same owner. A merged PR closes that record only, never the class part of an owner order ([communicator-brief.md](communicator-brief.md#route-meta-orders)).
 - An open record past its due time, or with no live lane on it, becomes an ask in the program ledger, so it shows in the owner update and on the Your asks page.
 - Automatic retries stay, and a retry that turns the build green never closes the flake.
 
