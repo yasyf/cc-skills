@@ -37,6 +37,7 @@ const (
 var (
 	incidentLane    = regexp.MustCompile(`^(?:incident|outage)-`)
 	incidentClose   = regexp.MustCompile(`\bINCIDENT (?:\S+ CLOSED|CLOSED \S+)\b|\bis a closed incident\b`)
+	stackMember     = regexp.MustCompile(`asynchronous merge REST API`)
 	incidentCleared = regexp.MustCompile(`(?i)not an incident fix|off the incident path|no release is owed`)
 	clearingKinds   = []string{"go", "hold", "lift", "decide", "decision", "release"}
 	incidentChecks  = []string{"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"}
@@ -241,11 +242,16 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 	if moved {
 		return nil
 	}
-	merged, err := q.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "merge", number, "--repo", f.Repo, "--squash", "--match-head-commit", f.Head}, Timeout: mergeLimit})
+	argv := []string{"gh", "pr", "merge", number, "--repo", f.Repo, "--squash", "--match-head-commit", f.Head}
+	merged, err := q.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: mergeLimit})
+	if err != nil && stackMember.MatchString(merged.Stderr+merged.Stdout) {
+		argv = []string{"gh", "stack", "merge", number, "--yes", "--squash"}
+		merged, err = q.Runner.Run(ctx, shell.Command{Argv: argv, Env: []string{"GH_REPO=" + f.Repo}, Timeout: mergeLimit})
+	}
 	outcome := squashMerged
 	if err != nil {
 		outcome = strings.TrimSpace(merged.Stderr + merged.Stdout)
-		q.tell(ctx, f, "blocker", "land:"+number+":"+f.Head, fmt.Sprintf("SQUASH-FAILED #%d: gh pr merge --squash refused the approved, green incident fix at %s: %s", f.Number, shortHead(f.Head), outcome))
+		q.tell(ctx, f, "blocker", "land:"+number+":"+f.Head, fmt.Sprintf("SQUASH-FAILED #%d: %s refused the approved, green incident fix at %s: %s", f.Number, strings.Join(argv[:3], " "), shortHead(f.Head), outcome))
 	}
 	_, err = q.Store.PutFact(f.Repo, f.Number, f.Head, squashedFact, outcome, q.Now())
 	return err
