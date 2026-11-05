@@ -1435,6 +1435,123 @@ def test_a_change_named_in_a_reply_is_a_small_card_with_real_approve_and_hold(pa
     now(page)
 
 
+PREVIEWED_ROW = """(number) => {
+  const row = boardRow(number);
+  Object.assign(row, { change: 'Keeps what he typed. '.repeat(60), plan: '', risk: '- **Threat model:** none (cci 339345).\\n- **Data:** see #49001 for it.\\n- **Why:** decided on card rmw2iowg9 (e34cc77), cci 424586.' });
+  patchChat();
+}"""
+
+
+def test_a_pr_card_previews_three_lines_of_its_row_and_says_when_one_is_empty(page):
+    open_chat(page)
+    page.evaluate(PREVIEWED_ROW, 77001)
+    card = page.locator("#pr-77001")
+    assert card.locator(".pr-previews dt").all_inner_texts() == ["FOR USERS", "PLAN", "RISK"]
+    said = card.locator(".pr-previews dd")
+    assert said.nth(1).inner_text() == "Nothing written yet."
+    assert said.nth(0).evaluate("(el) => el.getBoundingClientRect().height <= 2.2 * parseFloat(getComputedStyle(el).lineHeight)")
+    assert said.nth(0).evaluate("(el) => el.scrollHeight > el.clientHeight")
+    risk = said.nth(2).inner_text()
+    assert "Threat model: none. Data: see" in risk and "**" not in risk
+    assert not any(word in risk for word in ("cci", "rmw2iowg9", "e34cc77", "()"))
+    now(page)
+
+
+def test_a_pr_card_fits_a_phone_beside_a_card_with_a_long_link(page):
+    open_chat(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.evaluate("""() => {
+      const card = document.querySelector('#pr-77001');
+      card.insertAdjacentHTML('beforebegin', `<div class="artifact" style="white-space:nowrap">${'x'.repeat(600)}</div>`);
+    }""")
+    box = page.locator("#pr-77001").bounding_box()
+    assert box["x"] + box["width"] <= 390
+    page.set_viewport_size(LAPTOP)
+    now(page)
+
+
+def test_any_part_of_a_pr_card_opens_what_view_change_opens_and_its_controls_do_not(page):
+    open_chat(page)
+    page.evaluate(PREVIEWED_ROW, 77001)
+    card = page.locator("#pr-77001")
+    view_change = card.locator(".source-link").get_attribute("href")
+    card.locator(".pr-previews dt").first.click()
+    page.wait_for_selector(".pr-drawer.front")
+    assert page.evaluate("location.hash") == view_change
+    open_chat(page)
+    page.evaluate(PREVIEWED_ROW, 77001)
+    page.route("**/api/verdict", lambda route: route.fulfill(json={}))
+    with page.expect_request("**/api/verdict"):
+        card.locator("[data-hold-row]").click()
+    assert "review/" not in page.evaluate("location.hash")
+    page.unroute("**/api/verdict")
+    page.evaluate("pending.number = null; pending.error = null; boardRow(77001).state = 'you'; patchChat()")
+    assert card.locator(".pr-previews a").count() == 1
+    card.focus()
+    card.press("Enter")
+    assert page.evaluate("location.hash") == view_change
+    now(page)
+
+
+def test_a_review_row_previews_its_row_and_opens_whole_while_its_question_box_does_not(page):
+    page.goto(page.url.split("#")[0] + "#/review/decided")
+    row = page.locator('.mr[data-peek="49001"]')
+    assert row.locator(".pr-previews dt").all_inner_texts() == ["FOR USERS", "PLAN", "RISK"]
+    assert row.locator(".mr-f").count() == 1
+    row.locator("[data-change] input").click()
+    assert "~review/" not in page.evaluate("location.hash")
+    row.locator(".pr-previews dt").first.click()
+    page.wait_for_selector(".pr-drawer.front .mr-f")
+    assert page.evaluate("location.hash").endswith("~review/49001")
+    assert page.locator(".pr-drawer.front .mr-f dt", has_text="Review").count() == 1
+    page.goto(page.url.split("#")[0] + "#/review/decided")
+    row.focus()
+    row.press("Enter")
+    assert page.evaluate("location.hash").endswith("~review/49001")
+    now(page)
+
+
+def test_a_review_row_and_its_drawer_read_the_plain_title_chat_reads(page):
+    page.goto(page.url.split("#")[0] + "#/review/decided")
+    page.evaluate("""() => {
+      state.model.prs[49001] = { ...state.model.prs[49001], title: 'iris: ✨ a side chat opens' };
+      boardRow(49001).title = 'iris: ✨ a side chat opens';
+      render();
+    }""")
+    row = page.locator('.mr[data-peek="49001"]')
+    assert row.locator(".mr-t").inner_text() == "A side chat opens"
+    row.locator(".pr-previews dt").first.click()
+    assert page.locator(".pr-drawer.front h1").inner_text() == "A side chat opens"
+    now(page)
+
+
+def test_a_landing_tap_on_needs_me_previews_its_row_and_opens_whole_and_a_pick_does_not_change(page):
+    now(page)
+    tap = {**TAP_QUEUE[0], "id": "land-49903", "number": 49903}
+    row = {**TAP_ROW, "number": 49903, "key": "tq3"}
+    pick = {**TAP_QUEUE[1], "id": "card-tq3", "card": "card-tq3", "choice": "tq3-pick"}
+    card = {**TAP_CARD, "id": "card-tq3", "key": "tq3c", "choice": "tq3-pick"}
+    page.evaluate("""([tap, row, pick, card]) => {
+      state.model.taps = [tap, pick];
+      state.model.board.rows.push(row);
+      state.model.board.cards.push(card);
+      location.hash = '#/needs';
+    }""", [tap, row, pick, card])
+    land = page.locator('[data-tap="land-49903"]')
+    land.wait_for()
+    assert land.locator(".pr-previews dt").all_inner_texts() == ["FOR USERS", "PLAN", "RISK"]
+    other = page.locator('[data-tap="card-tq3"]')
+    assert other.count() == 1 and other.locator(".pr-previews").count() == 0 and other.get_attribute("tabindex") is None
+    land.focus()
+    land.press("Enter")
+    assert page.evaluate("location.hash").endswith("~review/49903")
+    page.evaluate("location.hash = '#/needs'")
+    land.wait_for()
+    land.locator(".pr-previews dt").first.click()
+    assert page.evaluate("location.hash").endswith("~review/49903")
+    now(page)
+
+
 def test_a_one_pager_previews_small_reads_full_on_hover_and_opens_in_the_window(page):
     page.route("https://example.ts.net:8665/**", lambda route: route.fulfill(body="<h1>Doc</h1>", content_type="text/html"))
     open_chat(page)

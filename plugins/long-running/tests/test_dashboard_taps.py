@@ -163,6 +163,11 @@ def test_the_review_page_and_the_board_take_the_queue_order_and_keep_the_rest_in
     assert [item["number"] for item in taps.in_queue_order(order, rows, lambda item: f"land-{item['number']}")] == [2, 1, 9, 8]
 
 
+def test_a_landing_tap_reads_the_plain_title():
+    tap = queue([row(1, title="sandsql: 🐛 a stalled sync logs what holds it")], prs=[entry(1)])[0]
+    assert tap["title"] == "A stalled sync logs what holds it"
+
+
 def test_a_pull_request_title_loses_its_scope_and_emoji():
     assert taps.plain_title("sandsql: 🐛 a stalled sync logs what holds it") == "A stalled sync logs what holds it"
     assert taps.plain_title("api, dashboard: ✨ one credential") == "One credential"

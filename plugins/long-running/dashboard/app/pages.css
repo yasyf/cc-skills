@@ -90,6 +90,8 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 .mr-f { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 9px 16px; margin: 10px 0 0; font-size: 13.5px; line-height: 1.5; }
 .mr-f dt { color: var(--ink-3); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding-top: 3px; }
 .mr-f dd { margin: 0; color: var(--ink); max-width: 900px; overflow-wrap: anywhere; }
+.mr-f dd.dim { color: var(--ink-3); }
+.mr[data-peek] { cursor: pointer; }
 .mr-why { margin: 6px 0 0; color: var(--ink-2); font-size: 13.5px; }
 .mr-waits { margin: 8px 0 0; color: var(--ink-2); font-size: 13.5px; }
 .mr-waits .pg-state { margin-right: 6px; }
@@ -121,6 +123,7 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
   .hs summary b, .hs-line b { grid-column: 1 / -1; }
   .hs p { padding-left: 10px; }
   .mr > header { flex-wrap: wrap; }
+  .mr[data-peek] .mr-t { flex-basis: 100%; }
   .mr-f { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .mr-f dt { padding-top: 6px; }
   .wk-helpers li { grid-template-columns: 1fr; gap: 2px; }

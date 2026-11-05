@@ -141,7 +141,7 @@ def land_tap(row, above, lanes, title_of):
     prs = set(above.get(number, []))
     waiting = set(lanes.get(number, set())).union(*(lanes.get(pr, set()) for pr in prs))
     words = freed_words(prs, waiting, title_of)
-    return {"kind": LAND, "id": f"land-{number}", "number": number, "title": row.get("title") or title_of(number), "frees": len(prs) + len(waiting), "line": words or f"Nothing else waits on it. {first_sentence(row.get('change'))}".strip(), "recommended": "Approve"}
+    return {"kind": LAND, "id": f"land-{number}", "number": number, "title": plain_title(row.get("title") or title_of(number)), "frees": len(prs) + len(waiting), "line": words or f"Nothing else waits on it. {first_sentence(row.get('change'))}".strip(), "recommended": "Approve"}
 
 
 def card_tap(card, kind, above, lanes, named, entries, title_of):

@@ -45,7 +45,7 @@
 .cw .step.passed em { background:#86a798;border-color:#86a798;color:white }
 .cw .step.current { color:#8284ba }
 .cw .step.current em { border-color:#8e8ec1 }
-.cw .responses { margin:15px 0 0 40px;display:grid;gap:10px;position:relative }
+.cw .responses { margin:15px 0 0 40px;display:grid;grid-template-columns:minmax(0,1fr);gap:10px;position:relative }
 .cw .responses:before { content:"";position:absolute;top:0;bottom:0;left:-26px;width:1px;background:#333029 }
 .cw .artifact { border:1px solid #242529;background:#0e0e0e;border-radius:9px;box-shadow:0 2px 3px #bcc1cd02;position:relative }
 .cw .artifact:hover { border-color:#30303b }
@@ -98,7 +98,8 @@
 .cw .answered-note .choice-text { flex:1 }
 .cw .answered-note small { display:block;color:#6e746f;font-size:10px;margin-top:2px }
 .cw .answered-note button { font-size:11px;color:#727179 }
-.cw .pr-card { padding:16px 18px }
+.cw .pr-card { padding:16px 18px;cursor:pointer }
+.cw .pr-previews { margin:0 0 13px }
 .cw .pr-heading { display:flex;gap:10px;align-items:start;margin-bottom:8px }
 .cw .pr-heading h3 { font-size:14px;line-height:1.55;letter-spacing:-.15px;margin:0;font-weight:600;flex:1 }
 .cw .pr-number { font-size:11px;font-family:ui-monospace,SFMono-Regular,monospace;color:#676572;padding-top:2px }
