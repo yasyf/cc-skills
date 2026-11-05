@@ -37,6 +37,20 @@ func TestUncitedPassesAMechanismThatCitesItsProofOrIsLabelledUnproven(t *testing
 	}
 }
 
+func TestUncitedSkipsALanesTextQuotedInBlockquotesAndLintsTheSameTextAsThePagesOwn(t *testing.T) {
+	design := "Option 1 is recommended because it drops the copy. The fallback fails because the server copies the whole run."
+	quoted := "The browser-run lane's design reads:\n\n> " + strings.ReplaceAll(design, ". ", ".\n> ") + "\n\nOption 1 is the pick."
+	if got := Uncited([]byte(quoted)); len(got) != 0 {
+		t.Errorf("Uncited(%q) = %q, want none", quoted, got)
+	}
+	if got := Uncited([]byte(design)); len(got) != 2 {
+		t.Errorf("Uncited(%q) = %q, want both sentences", design, got)
+	}
+	if !strings.Contains(refuse([]string{design}).Error(), "Text quoted from another lane goes in `>` lines") {
+		t.Errorf("the refusal never says how to quote another lane")
+	}
+}
+
 func TestUncitedNamesAPRBlamedForARedUntilARecordProvesIt(t *testing.T) {
 	blamed := "#49475 broke dev's sand-next vet job."
 	if got := Uncited([]byte(blamed)); len(got) != 1 || got[0] != blamed {
