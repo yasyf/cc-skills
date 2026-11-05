@@ -1067,16 +1067,18 @@ func TestAServiceTouchOnTheDurableReaderPathMarksAnyAddedLineThereAsAnOldAppChan
 }
 
 func TestAFidelityQuestionCarriesTheReportOfTheBugItemItsJobNames(t *testing.T) {
-	report := map[string]any{"seq": 450055, "lane": "slack-bugs-2", "text": "slack-bugs-2 NEW, item 52: Josh said the session is offline"}
+	report := map[string]any{"seq": 450055, "lane": "slack-bugs-2", "text": "Josh said the session is offline"}
 	for name, c := range map[string]struct {
-		items []any
-		want  string
+		items   []any
+		unknown []any
+		want    string
 	}{
-		"named": {[]any{report}, "- cci #450055 from slack-bugs-2: slack-bugs-2 NEW, item 52: Josh said the session is offline"},
-		"none":  {nil, "this PR's body names:\n(none)"},
+		"named":   {[]any{report}, nil, "- cci #450055 from slack-bugs-2: Josh said the session is offline"},
+		"unknown": {[]any{report}, []any{"7"}, "- item 7: no report carries this number, so it grounds nothing"},
+		"none":    {nil, nil, "this PR's body names:\n(none)"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			directory := fidelityDir(t, map[string]any{"items": c.items})
+			directory := fidelityDir(t, map[string]any{"items": c.items, "unknown_items": c.unknown})
 			shell, _ := newFidelityFake(t, nil, fidelityReplyOf(nil))
 			mustFidelity(t, directory, shell)
 			question := readText(t, directory, "question-1.md")

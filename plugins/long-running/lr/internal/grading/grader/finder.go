@@ -530,6 +530,15 @@ func listed(records []Record) string {
 	return text.String()
 }
 
+func (b BugItems) itemsText() string {
+	var text strings.Builder
+	text.WriteString(listed(b.Items))
+	for _, number := range b.UnknownItems {
+		fmt.Fprintf(&text, "- item %s: no report carries this number, so it grounds nothing\n", number)
+	}
+	return text.String()
+}
+
 func (s *finderPassState) priorText() string {
 	text := ""
 	if len(s.job.History) > 0 {
@@ -606,7 +615,7 @@ func (s *finderPassState) prompt(view pullRequest, base string, own []string, la
 		"fetch":     spec.Head + " " + base,
 		"scope":     scope(spec.Head, own, last, pairs, changed),
 		"prior":     s.priorText(),
-		"items":     orNone(listed(spec.Items)),
+		"items":     orNone(spec.itemsText()),
 		"rows_step": step,
 		"hunks":     diff.lines(),
 		"plan":      plan,

@@ -82,7 +82,12 @@ type Job struct {
 	Settled  map[string]int64 `json:"settled"`
 	Sprite   string           `json:"sprite"`
 	Picks    []store.Rule     `json:"picks"`
-	Items    []Record         `json:"items"`
+	BugItems
+}
+
+type BugItems struct {
+	Items        []Record `json:"items"`
+	UnknownItems []string `json:"unknown_items"`
 }
 
 func (j *Job) pull() string {

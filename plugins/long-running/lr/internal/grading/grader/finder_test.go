@@ -1428,17 +1428,19 @@ func TestACancelDuringARateLimitPauseStartsNoFurtherCodexRun(t *testing.T) {
 }
 
 func TestAFinderQuestionCarriesTheReportOfTheBugItemItsJobNames(t *testing.T) {
-	report := map[string]any{"seq": 450055, "lane": "slack-bugs-2", "text": "slack-bugs-2 NEW, item 52: Josh said the session is offline"}
+	report := map[string]any{"seq": 450055, "lane": "slack-bugs-2", "text": "Josh said the session is offline"}
 	for name, c := range map[string]struct {
-		items []any
-		want  string
+		items   []any
+		unknown []any
+		want    string
 	}{
-		"named": {[]any{report}, "- cci #450055 from slack-bugs-2: slack-bugs-2 NEW, item 52: Josh said the session is offline"},
-		"none":  {nil, "The\n   items this PR's body names:\n(none)"},
+		"named":   {[]any{report}, nil, "- cci #450055 from slack-bugs-2: Josh said the session is offline"},
+		"unknown": {[]any{report}, []any{"7"}, "- item 7: no report carries this number, so it grounds nothing"},
+		"none":    {nil, nil, "The\n   items this PR's body names:\n(none)"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			shell, _ := newFinderFake(t, replyOf())
-			directory := finderJobDir(t, map[string]any{"items": c.items})
+			directory := finderJobDir(t, map[string]any{"items": c.items, "unknown_items": c.unknown})
 			mustFinder(t, directory, shell)
 			question := readText(t, directory, "question-1.md")
 			holdsAll(t, question, c.want)

@@ -314,7 +314,7 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 		return job{}, err
 	}
 	base := p.baseJob(d, facts, sprite, settled)
-	base.Lane, base.Items = ask.Lane, items
+	base.Lane, base.BugItems = ask.Lane, items
 	return job{spec: grader.FinderJob{Job: base, History: jobRecords(named), Ruled: jobRecords(ruled), Full: true}}, nil
 }
 
@@ -344,6 +344,6 @@ func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, a
 		return job{}, err
 	}
 	base := p.baseJob(d, facts, sprite, settled)
-	base.Head, base.Lane, base.Items = ask.Head, ask.Lane, items
+	base.Head, base.Lane, base.BugItems = ask.Head, ask.Lane, items
 	return job{spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Lane: last.Lane, Head: last.head, Text: last.Text}, History: jobRecords(named)}}, nil
 }

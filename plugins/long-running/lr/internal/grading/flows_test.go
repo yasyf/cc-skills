@@ -130,7 +130,7 @@ func TestAnAskArrivingAfterAFirstReadThatFoundNoneIsNotLost(t *testing.T) {
 func TestAWholeAskCarriesTheBugItemThePRBodyNames(t *testing.T) {
 	f := newPool(t, map[string]any{"landing": map[string]any{"repo": repo, "checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}})
 	f.shell.view = `{"title":"a change","body":"Bug item 52.","headRefName":"lane-7"}`
-	post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Text: "slack-bugs-2 NEW, item 52: a report"})
+	post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Attrs: map[string]string{"item": "52"}, Text: "Josh said the session is offline"})
 	beginAsks(t, f)
 	ask := askPosted(t, client.Draft{Lane: "lane-7", Kind: kindAsk, Text: "finder: whole on #45489 please", PRs: []string{pull}})
 
@@ -139,7 +139,7 @@ func TestAWholeAskCarriesTheBugItemThePRBodyNames(t *testing.T) {
 	}
 
 	spec := readJob[grader.FinderJob](t, f.finderDir("45489"+wholeMark+strconv.FormatInt(ask, 10)))
-	if len(spec.Items) != 1 || spec.Items[0].Text != "slack-bugs-2 NEW, item 52: a report" {
+	if len(spec.Items) != 1 || spec.Items[0].Text != "Josh said the session is offline" {
 		t.Errorf("whole items = %+v", spec.Items)
 	}
 }
@@ -185,7 +185,7 @@ func TestABodyEditHeadRecordRechecksTheMajorAtThatHeadAndNothingGradedOk(t *test
 func TestARecheckCarriesTheBugItemThePRBodyNames(t *testing.T) {
 	f := newPool(t, map[string]any{"landing": map[string]any{"repo": repo, "checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}})
 	f.shell.view = `{"title":"a change","body":"Bug item 52.","headRefName":"lane-7"}`
-	post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Text: "slack-bugs-2 NEW, item 52: a report"})
+	post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Attrs: map[string]string{"item": "52"}, Text: "Josh said the session is offline"})
 	beginAsks(t, f)
 	post(t, client.Draft{Lane: "lane-7", Kind: kindHead, Text: "#45489 " + head, PRs: []string{pull}})
 	post(t, client.Draft{Lane: grader.FinderLane, Kind: kindReview, Text: "finder: major " + head[:7] + " 1 open over whole abc1234^.." + head[:7] + ": follow.go:40 second fix", PRs: []string{pull}})
@@ -196,7 +196,7 @@ func TestARecheckCarriesTheBugItemThePRBodyNames(t *testing.T) {
 	}
 
 	spec := readJob[grader.FinderJob](t, f.finderDir("45489"+wholeMark+strconv.FormatInt(edit, 10)))
-	if len(spec.Items) != 1 || spec.Items[0].Text != "slack-bugs-2 NEW, item 52: a report" {
+	if len(spec.Items) != 1 || spec.Items[0].Text != "Josh said the session is offline" {
 		t.Errorf("recheck items = %+v", spec.Items)
 	}
 }

@@ -33,6 +33,7 @@ const (
 	kindContract     = "contract"
 	kindDefect       = "defect"
 	kindIncident     = "incident"
+	kindCorrection   = "correction"
 )
 
 var (

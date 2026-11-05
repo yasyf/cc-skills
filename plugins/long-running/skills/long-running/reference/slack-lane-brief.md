@@ -7,6 +7,7 @@
 - [Permission and grants](#permission-and-grants)
 - [Agent types, surfaces, and fallbacks](#agent-types-surfaces-and-fallbacks)
 - [Reporter threads](#reporter-threads)
+- [The bug list](#the-bug-list)
 - [The updates channel and milestone posts](#the-updates-channel-and-milestone-posts)
 - [Automated Slack posts and the coordinator status card](#automated-slack-posts-and-the-coordinator-status-card)
 - [Owner questions on the board](#owner-questions-on-the-board)
@@ -110,6 +111,16 @@ Every lane that writes in a thread where a person reported a break follows these
 - **Prove the architecture path before naming a client cause.** Before any message names a cause on a reporter's machine, the lane states which component served the failing request and shows that the request reached the reporter's client. The cloud serves a cloud run. Every unproven cause is labeled "suspected" both to the owner and in the thread. Bug-thread comms post only confirmed causes: hold the post until the cause is confirmed, and never post a cause that flips or a machine-side workaround.
 - **Post to a person only when they must act or the fix they reported is live, once per fix.** A test, progress, or "a follow-up" is never a post, and a coordinator-directed line obeys the same rule. Hold the fix's one post until the fix is verified live, then put the result and whatever they must do in it, such as starting a new run. A correction or a gap is edited into that post. An answer to the reporter's question is always allowed, once per question. An incident's notices in a page thread, `#outage` or an account channel keep the events [active-alert-brief.md](active-alert-brief.md#incident-comms) names and post nothing between them. Before you post, name which of these it is; when it is none, post nothing.
 - **Keep one writer per thread.** One lane writes in a thread; all other lanes route through it. If a Claude post appears in the thread that is not from this drive, it belongs to another session: the writer stops posting at once and posts a `cci` record to the coordinator, which tells the owner that turn which thread and which post.
+
+## The bug list
+
+The lane watching the users' bug channels numbers every report it opens and owns the list. It opens each item with one record that stamps the number:
+
+```bash
+cci post --kind incident --attr item=<n> --to root,bugs-comms --text "<reporter, permalink, their words>"
+```
+
+The stamp is what a grader reads. When a PR body names `item <n>`, the coordinator carries the `incident` or `correction` records stamped with that number into the grader's job, and the grader reads the report there. A number no record stamps says so in the job, and the PR grades as if it named no item. Words in a record's text open nothing. An item opened without the stamp gets one `--kind correction --attr item=<n> --re <seq>` record carrying the report's words. Each record stamps one number, so a report that opens two items gets two records.
 
 ## The updates channel and milestone posts
 

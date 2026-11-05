@@ -509,23 +509,26 @@ func TestAPassCarriesTheAnswersItsPRCitesSoAGraderNeedsNoNotes(t *testing.T) {
 	}
 }
 
-func TestAPassCarriesTheReportOfEachBugItemItsPRBodyNamesAndNoOther(t *testing.T) {
+func TestAPassCarriesTheReportOfEachStampedBugItemItsPRBodyNamesAndSaysWhichHaveNone(t *testing.T) {
 	for _, grading := range []string{GraderFinder, GraderFidelity} {
 		t.Run(grading, func(t *testing.T) {
 			f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}, "fidelity": map[string]any{"sprite": "dar-1"}})
 			f.shell.view = `{"title":"a change","body":"Bug item 52, and items 51 and 36, and item 7, in the bug channel.","headRefName":"lane-7"}`
-			for _, text := range []string{
-				"slack-bugs-2 NEW, item 5: not this one",
-				"slack-bugs-2 NEW, item 52, same session as 51: Josh said the session is offline",
-				"slack-bugs-2 NEW, item 51: Josh saw a login form in the panel",
-				"slack-bugs-2 NEW, item 520: not this one either",
-				"slack-bugs-2 NEW, low severity, item 36: Alex said the browser is tiny",
-				"slack-bugs-2 NEW, no owner: Andrew saw item 52 again",
-				"item 7 came up again, with no report in this record",
+			for _, report := range []struct{ kind, item, text string }{
+				{kindIncident, "5", "not this one"},
+				{kindIncident, "52", "Josh said the session is offline"},
+				{kindIncident, "520", "not this one either"},
+				{kindCorrection, "51", "Josh saw a login form in the panel"},
+				{kindIncident, "36", "Alex said the browser is tiny"},
+				{kindNote, "7", "a note is no report"},
+				{kindIncident, "", "NEW, item 7: words open no item without the stamp"},
 			} {
-				post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Text: text})
+				draft := client.Draft{Lane: "slack-bugs-2", Kind: report.kind, Text: report.text}
+				if report.item != "" {
+					draft.Attrs = map[string]string{"item": report.item}
+				}
+				post(t, draft)
 			}
-			post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindNote, Text: "slack-bugs-2 NEW, item 7: a note is no report"})
 
 			f.started(t, grading)
 
@@ -539,10 +542,11 @@ func TestAPassCarriesTheReportOfEachBugItemItsPRBodyNamesAndNoOther(t *testing.T
 				got = append(got, item.Text)
 			}
 			sameStrings(t, got, []string{
-				"slack-bugs-2 NEW, item 52, same session as 51: Josh said the session is offline",
-				"slack-bugs-2 NEW, item 51: Josh saw a login form in the panel",
-				"slack-bugs-2 NEW, low severity, item 36: Alex said the browser is tiny",
+				"Josh said the session is offline",
+				"Josh saw a login form in the panel",
+				"Alex said the browser is tiny",
 			})
+			sameStrings(t, spec.UnknownItems, []string{"7"})
 		})
 	}
 }
@@ -550,12 +554,13 @@ func TestAPassCarriesTheReportOfEachBugItemItsPRBodyNamesAndNoOther(t *testing.T
 func TestAPRBodyThatNamesNoBugItemCarriesNoReport(t *testing.T) {
 	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}})
 	f.shell.view = `{"title":"a change","body":"Fixes the 52 items on the list.","headRefName":"lane-7"}`
-	post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Text: "slack-bugs-2 NEW, item 52: a report"})
+	post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Attrs: map[string]string{"item": "52"}, Text: "a report"})
 
 	f.started(t, GraderFinder)
 
-	if spec := readJob[grader.FinderJob](t, f.finderDir(jobDir)); len(spec.Items) != 0 {
-		t.Errorf("items = %+v", spec.Items)
+	spec := readJob[grader.FinderJob](t, f.finderDir(jobDir))
+	if len(spec.Items) != 0 || len(spec.UnknownItems) != 0 {
+		t.Errorf("items = %+v, unknown = %v", spec.Items, spec.UnknownItems)
 	}
 }
 
