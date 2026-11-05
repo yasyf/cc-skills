@@ -231,7 +231,9 @@ The supervisor launches the successor with `lr launch lane` and posts one `RELAU
 - On proof it is gone, or when its worker ended with the duty open, the supervisor relaunches it from its brief with no model and no root step, and logs one `RELAUNCHED` record to the meta desk.
 - A desk that comes back and dies three times within an hour is held with one `blocker` to the meta desk naming the cause.
 - A lane retired by a `done` or `stopped` record, or stood down on an order, never relaunches: its duty ended, and one `blocker` names its brief.
-- `lanes` prints the duty on the row. A stand-down of a standing lane without a successor is refused at post time. Deleting the brief's `Standing:` line ends the duty.
+- A lane launched as the successor of a standing lane, by `--successor` or by the next number of its name, holds that duty in its registry row whatever its brief says, so its own `done` record leaves it live. A coordinator's `lr request done <lane>` ends that duty with the lane.
+- `lanes` prints the duty on the row. A stand-down of a standing lane without a successor is refused at post time. Deleting the brief's `Standing:` line ends the duty its brief declares.
+- `lr request revive <lane>` sets a retired lane back to live, and the revived lane takes the standing duty of the lane whose name it succeeds.
 
 ### What the supervisor does without the coordinator
 

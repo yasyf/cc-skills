@@ -158,7 +158,7 @@ only what those sources lack, in a `progress:<slug>` doc ([compaction.md](compac
 a compaction, `lr handoff standing` prints the live standing rules.
 
 The supervisor's registry changes only through `lr request`, never a decide's prose.
-Retire a lane with `lr request done <lane>`, move a PR with `lr request owner <lane>
+Retire a lane with `lr request done <lane>`, set a retired one back to live with `lr request revive <lane>`, move a PR with `lr request owner <lane>
 --pr <n>`, and replace a lane with `lr request stand-down <old> --successor <new>
 --last-read <seq>`. A desk's stand-down also names what it leaves open, every owner order,
 ask, PR and card, with `--open '<item>; <item>'`, or says `--open none`. An `owner` that takes every PR a live lane holds needs `--last-read`
