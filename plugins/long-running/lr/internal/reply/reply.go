@@ -587,7 +587,7 @@ func (f Fanout) withPRCards(r Reply) (Reply, string) {
 
 func (r Reply) prChild(id, pr string) map[string]any {
 	named := pullURL.FindStringSubmatch(pr)
-	child := map[string]any{"id": id + "-pr-" + named[2], "type": "pr", "repo": named[1], "number": json.Number(named[2])}
+	child := map[string]any{"id": id + "-pr-" + strings.ReplaceAll(named[1], "/", "-") + "-" + named[2], "type": "pr", "repo": named[1], "number": json.Number(named[2])}
 	at := slices.IndexFunc(r.PRCards, func(card prCard) bool { return card.URL == pr })
 	if at < 0 {
 		return child
