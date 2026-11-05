@@ -4186,7 +4186,7 @@ func (w *deskWorld) refusedAtTheCap(model, ccx string) string {
 	t.Setenv("HOME", t.TempDir())
 	brief := w.brief(testLane, testBrief+ccx+"\n")
 	w.lines()
-	line := w.line("orca-desk: launch " + testLane + " NOW " + model + " xhigh brief=" + brief)
+	line := w.line("orca-desk: launch " + testLane + " NOW " + model + " high brief=" + brief)
 	w.launchOut[testLane] = testLane + capRefused
 	w.lines()
 	w.step(w.desk.deliver)

@@ -398,7 +398,7 @@ lr launch chores <state dir>/chores/brief.md
 | Session | Lane | Model and effort | Brief |
 |---|---|---|---|
 | `coordinator` | `root` | `fable high` | [coordinator-brief.md](reference/coordinator-brief.md) |
-| `meta` | `meta` | `opus high` | [meta-lane-brief.md](reference/meta-lane-brief.md) |
+| `meta` | `meta` | `opus medium` | [meta-lane-brief.md](reference/meta-lane-brief.md) |
 | `signal` | `signal` | `sonnet low` | [signal-lane-brief.md](reference/signal-lane-brief.md) |
 | `chores` | `chores` | `sonnet low` | [chores-lane-brief.md](reference/chores-lane-brief.md) |
 

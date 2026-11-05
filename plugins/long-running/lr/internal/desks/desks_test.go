@@ -186,7 +186,7 @@ func TestADownDeskRelaunchesUnderItsNextNameFromItsRecordedBrief(t *testing.T) {
 				t.Fatal(err)
 			}
 			successor := filepath.Join(state, "fidelity-desk-4", "brief.md")
-			want := fmt.Sprintf("desk-launch.py lane fidelity-desk-4 opus high %s --drive %s --lane %s", successor, testDrive, lanes.Root)
+			want := fmt.Sprintf("desk-launch.py lane fidelity-desk-4 opus medium %s --drive %s --lane %s", successor, testDrive, lanes.Root)
 			if launched := m.lines("desk-launch.py lane fidelity-desk"); !slices.Equal(launched, []string{want}) {
 				t.Fatalf("launched %q, want %q", launched, want)
 			}

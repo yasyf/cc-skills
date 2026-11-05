@@ -1549,7 +1549,7 @@ func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 		{overlaid(task, object{"provider": "namespace"}), workspace},
 		{overlaid(task, object{"profile": "tests"}), workspace},
 		{overlaid(task, object{"agent": overlaid(base, object{"kind": "codex"})}), anAgent},
-		{overlaid(task, object{"agent": overlaid(base, object{"effort": "high"})}), anAgent},
+		{overlaid(task, object{"agent": overlaid(base, object{"effort": "medium"})}), anAgent},
 		{overlaid(task, object{"agent": overlaid(base, object{"serviceTier": "fast"})}), anAgent},
 		{overlaid(task, object{"brief": overlaid(brief, object{"sha256": strings.Repeat("0", 64)})}), briefFault},
 		{overlaid(task, object{"brief": overlaid(brief, object{"bytes": workerBytes + 1})}), briefFault},

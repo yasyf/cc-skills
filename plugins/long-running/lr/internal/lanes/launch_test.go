@@ -20,7 +20,7 @@ var startSequence = []struct {
 	role                         []string
 }{
 	{"coordinator", "root", "fable", "high", nil},
-	{"meta", "meta", "opus", "high", []string{"--role", "meta"}},
+	{"meta", "meta", "opus", "medium", []string{"--role", "meta"}},
 	{"signal", "signal", "sonnet", "low", nil},
 	{"chores", "chores", "sonnet", "low", nil},
 }
