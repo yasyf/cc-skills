@@ -24,6 +24,13 @@ mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
 sys.exit(subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode)
 """
 
+COPY_BACK = SPRITE.replace("sys.exit(subprocess.run(", "copying = any('find . -mindepth' in arg for arg in args)\nran = subprocess.run(").replace(", stdin=stdin).returncode)\n", ", stdin=stdin, stdout=subprocess.PIPE if copying else None)\n")
+COPY_FAILURES = {
+    "copy-refused": "sys.exit(61 if copying else ran.returncode)\n",
+    "copy-truncated": "if copying:\n    sys.stdout.buffer.write(ran.stdout[: len(ran.stdout) // 2])\nsys.exit(ran.returncode)\n",
+    "copy-file-vanished": "if copying:\n    sys.stdout.buffer.write(ran.stdout)\nsys.exit(2 if copying else ran.returncode)\n",
+}
+
 RESTARTED_JOB = """import json, pathlib, sys
 job = pathlib.Path(sys.argv[1])
 (job / "job.json").write_text("")
@@ -57,12 +64,14 @@ def plugin_with_job(mac: Path, job: str) -> Path:
     return scripts / "sprite-job.sh"
 
 
-def test_a_finished_job_returns_without_waiting_out_the_tender_sleep(tmp_path: Path) -> None:
+@pytest.mark.parametrize("grader", ["finder", "fidelity"])
+@pytest.mark.parametrize("failure", [None, *COPY_FAILURES])
+def test_a_grader_returns_its_spool_and_body_without_a_local_cci_replica(tmp_path: Path, grader: str, failure: str | None) -> None:
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45682-c051a2816b25", mac / "config"
-    job_script, grader = plugin_with_job(mac, RESTARTED_JOB), "finder"
-    executable(mac / "bin" / "sprite", SPRITE)
-    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    job_script = plugin_with_job(mac, RESTARTED_JOB + '(job / "posts.jsonl").write_text("grade spool\\n")\n(job / "record.md").write_text("whole grade body\\n")\nimport os\n(job / "filler").write_bytes(os.urandom(1 << 16))\n')
+    executable(mac / "bin" / "sprite", COPY_BACK + COPY_FAILURES[failure] if failure else SPRITE)
+    executable(mac / "bin" / "cci", '#!/bin/sh\necho "$*" >> "$CCI_CALLS"\n')
     executable(mac / "bin" / "sleep", '#!/bin/sh\n[ "$1" = 60 ] && exec /bin/sleep 300\nexec /bin/sleep 0.05\n')
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
@@ -70,10 +79,22 @@ def test_a_finished_job_returns_without_waiting_out_the_tender_sleep(tmp_path: P
     (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
     subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
 
-    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
-    subprocess.run(["sh", str(job_script), "vet4", grader, str(directory)], env=env, check=True, capture_output=True, timeout=60)
+    calls = mac / "cci-calls"
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "CCI_CALLS": str(calls)}
+    ran = subprocess.run(["sh", str(job_script), "vet4", grader, str(directory)], env=env, capture_output=True, timeout=60)
 
-    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+    assert not calls.exists()
+    outcome = json.loads((directory / "result.json").read_text())
+    if failure is None:
+        assert ran.returncode == 0, ran.stderr
+        assert outcome == {"verdict": "ok"}
+        assert (directory / "posts.jsonl").read_text() == "grade spool\n"
+        assert (directory / "record.md").read_text() == "whole grade body\n"
+    else:
+        assert ran.returncode != 0
+        assert outcome["no_result"] is True
+        assert not (directory / "posts.jsonl").exists()
+        assert not (directory / "record.md").exists()
 
 
 @pytest.mark.parametrize("relay", ["#!/bin/sh\n", "#!/bin/sh\necho 'cci: database is locked (5) (SQLITE_BUSY)' >&2\nexit 1\n"], ids=["relay-pushes", "relay-locked"])

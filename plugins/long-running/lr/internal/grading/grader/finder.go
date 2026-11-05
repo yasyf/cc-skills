@@ -626,16 +626,15 @@ func (s *finderPassState) post(text, body string) (string, error) {
 	if to := s.audience(); to != "" {
 		argv = append(argv, "--to", to)
 	}
-	argv, err := s.logged(append(argv, "--text", clipped(text), "--json"))
-	if err != nil {
-		return "", err
-	}
-	return s.posted(argv)
+	return s.posted(append(argv, "--text", clipped(text), "--json"))
 }
 
 func (s *finderPassState) recordCensus(census []finding) (string, error) {
 	spec := s.job
 	path := filepath.Join(filepath.Dir(s.dir), "census-"+dated(s.Now())+".md")
+	if spec.Sprite != "" {
+		path = filepath.Join(s.dir, "census.md")
+	}
 	var lines strings.Builder
 	for _, f := range census {
 		fmt.Fprintf(&lines, "- %s %s %s: %s\n", spec.pull(), short(spec.Head, 12), squeezed(f.Cite), squeezed(strings.TrimPrefix(f.Defect, censusPrefix)))
@@ -649,7 +648,11 @@ func (s *finderPassState) recordCensus(census []finding) (string, error) {
 		return "", err
 	}
 	text := fmt.Sprintf("finder census: %d dev-only findings on #%s appended to %s", len(census), spec.PR, path)
-	return s.posted([]string{"cci", "post", "--drive", spec.Drive, "--lane", FinderLane, "--kind", "note", "--to", s.audience(), "--pr", spec.pull(), "--id", "finder-census:" + spec.pull() + ":" + spec.Head, "--text", text, "--json"})
+	argv := []string{"cci", "post", "--drive", spec.Drive, "--lane", FinderLane, "--kind", "note", "--to", s.audience(), "--pr", spec.pull(), "--id", "finder-census:" + spec.pull() + ":" + spec.Head, "--text", text, "--json"}
+	if spec.Sprite != "" {
+		argv = append(argv, "--path", path)
+	}
+	return s.posted(argv)
 }
 
 func (s *finderPassState) settledBy(from *Record) int64 {

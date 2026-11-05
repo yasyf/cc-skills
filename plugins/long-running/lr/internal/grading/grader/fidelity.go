@@ -1096,11 +1096,7 @@ func (s *fidelityPassState) post(lines []gradeLine, body string) ([]string, erro
 		if to := s.audience(line.also...); to != "" {
 			argv = append(argv, "--to", to)
 		}
-		argv, err := s.logged(append(argv, "--text", clipped(line.text), "--json"))
-		if err != nil {
-			return nil, err
-		}
-		receipt, err := s.posted(argv)
+		receipt, err := s.posted(append(argv, "--text", clipped(line.text), "--json"))
 		if err != nil {
 			return nil, err
 		}

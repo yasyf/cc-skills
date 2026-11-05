@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -18,22 +17,19 @@ import (
 const (
 	graderHome      = "/home/sprite"
 	graderCheckout  = "/home/sprite/monorepo"
-	graderSeed      = "/tmp/store-seed.gz"
 	linkGrader      = `set -e; sudo -n mkdir -p "$(dirname "$1")"; sudo -n ln -sfn ` + graderHome + ` "$1"; shift; for checkout; do mkdir -p "$(dirname "$checkout")"; ln -sfn ` + graderCheckout + ` "$checkout"; done`
 	unshallowGrader = `set -eu; IFS= read -r GH_TOKEN; export GH_TOKEN GIT_TERMINAL_PROMPT=0; [ "$(git -C "$1" rev-parse --is-shallow-repository)" = false ] || git -C "$1" -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --quiet --unshallow origin`
-	seedGrader      = `trap 'rm -f "$2"' EXIT; ~/.local/bin/cci relay seed --drive "$1" < "$2"`
 )
 
 var (
 	graderTools = []string{"ccx", "ccn", graderTool}
-	graderNeeds = slices.Concat([]string{"lr", "cci", "codex", "git"}, graderTools)
+	graderNeeds = slices.Concat([]string{"lr", "codex", "git"}, graderTools)
 )
 
 type GraderMaker struct {
 	Runner shell.Runner
 	Store  *store.Store
 	Home   string
-	Sleep  func(time.Duration)
 	Now    func() time.Time
 	Out    io.Writer
 
@@ -44,9 +40,6 @@ type graderPlan struct {
 	pins      spritePins
 	checkouts []string
 	token     string
-	sponsor   string
-	drive     string
-	seed      string
 }
 
 func (g *GraderMaker) Make(ctx context.Context, runner string, boxes []string) error {
@@ -58,10 +51,7 @@ func (g *GraderMaker) Make(ctx context.Context, runner string, boxes []string) e
 	if err != nil {
 		return err
 	}
-	plan := graderPlan{sponsor: env(sponsorEnv), drive: file.Drive}
-	if plan.sponsor == "" {
-		return refuse("lr sprites grader: set orca.sprite.env.%s in %s to the Sprite holding the drive's enrolled cci service key; no grader was made", sponsorEnv, runner)
-	}
+	var plan graderPlan
 	if plan.pins, err = readPins(env); err != nil {
 		return err
 	}
@@ -76,21 +66,6 @@ func (g *GraderMaker) Make(ctx context.Context, runner string, boxes []string) e
 		return refuse("lr sprites grader: no token for %s to fetch the checkout's history: %s; no grader was made", file.Landing.Repo, cmp.Or(lastSaid(token), err.Error()))
 	}
 	plan.token = strings.TrimSpace(token.Stdout) + "\n"
-	seed, err := os.CreateTemp("", "grader-seed-*.gz")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(seed.Name()) }()
-	start := g.Now()
-	exported, err := g.Runner.Run(ctx, shell.Command{Argv: []string{"cci", "relay", "export", "--drive", plan.drive}, Stdout: seed})
-	if closed := seed.Close(); err == nil {
-		err = closed
-	}
-	if err != nil {
-		return refuse("lr sprites grader: cci relay export --drive %s failed: %s; no grader was made", plan.drive, cmp.Or(lastSaid(exported), err.Error()))
-	}
-	plan.seed = seed.Name()
-	g.say("lr sprites grader: exported %s once for %d Sprites in %s", plan.drive, len(boxes), g.since(start))
 	failed := make([]string, len(boxes))
 	var made sync.WaitGroup
 	for i, box := range boxes {
@@ -122,14 +97,7 @@ func (g *GraderMaker) make(ctx context.Context, box string, plan graderPlan) err
 	if _, err := g.step(ctx, box, "whole history", shell.Command{Argv: []string{"sprite", "exec", "-s", box, "--", "sh", "-c", unshallowGrader, "sh", graderCheckout}, Stdin: plan.token}); err != nil {
 		return err
 	}
-	start := g.Now()
-	w := &workerLaunch{WorkerStarter: &WorkerStarter{Runner: g.Runner, Sleep: g.Sleep}, ctx: ctx}
-	if _, err := w.join(box, plan.sponsor); err != nil {
-		return refuse("lr sprites grader: %s did not join the cci relay with %s's service key: %v", box, plan.sponsor, err)
-	}
-	g.say("%s: relay join in %s", box, g.since(start))
-	_, err = g.step(ctx, box, "store seed", shell.Command{Argv: []string{"sprite", "exec", "-s", box, "--no-stdin", "--file", plan.seed + ":" + graderSeed, "--", "sh", "-c", seedGrader, "sh", plan.drive, graderSeed}})
-	return err
+	return nil
 }
 
 func (g *GraderMaker) step(ctx context.Context, box, name string, c shell.Command) (shell.Result, error) {

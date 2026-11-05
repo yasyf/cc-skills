@@ -235,15 +235,15 @@ The script prints one `installed <name> <version>` line per tool, cci and lr inc
 
 ### `lr sprites grader`
 
-`lr sprites grader NAME...` makes each named Sprite a grader the `finder` and `fidelity` desks can list. It reads the sponsor from `orca.sprite.env.WORKER_RELAY_SPONSOR` in `runner.json`, and refuses before touching any Sprite when that is unset. It exports the drive's store once for every name, then makes the Sprites at the same time, each in this order:
+`lr sprites grader NAME...` makes each named Sprite a grader the `finder` and `fidelity` desks can list. It makes the Sprites at the same time, each in this order:
 
-1. Install the cci, lr, ccx, ccn and codex-ask pins, recorded for `lr sprites roll`.
+1. Install the lr, ccx, ccn and codex-ask pins, recorded for `lr sprites roll`. The install script also lays down the cci binary, which nothing on a grader runs.
 2. Link this Mac's home to `/home/sprite`, and each of the `landing`, `finder` and `fidelity` checkouts to the Sprite's checkout, so a job's Mac paths resolve there.
 3. Fetch the checkout's whole history with a `ccx vcs auth token` for the landing repo.
-4. Join the cci relay with the sponsor's service key and start `cci supervise`. The daemon renews the 24-hour delegation within 2 hours of its expiry, so a grader keeps the relay with no further step.
-5. Seed the drive's store from the export.
 
-A Sprite that fails stops at that step alone, and the verb ends by naming every Sprite it did not make. A second run on a made Sprite stops at the relay join, since its `cci` service already exists. Adding the Sprite to `finder.sprite` or `fidelity.sprite` in `runner.json` is a separate edit.
+A grader holds no copy of the drive's store and runs no `cci` service. A pass reads its inputs from `job.json`, Git and the copied register and plan files, and writes its records to `posts.jsonl`. The coordinator publishes those records when the job's files return. The wrapper checks the whole archive before it extracts anything, so an incomplete copy leaves nothing to publish and fails the pass as a lost result for retry. A Python job through `sprite-job.sh` still pushes through the Sprite's relay, so a box named in `judge.sprite` keeps its `cci` service.
+
+This verb does not stop a `cci` service an older `lr sprites grader` started. A Sprite that fails stops at that step alone, and the verb ends by naming every Sprite it did not make. Adding the Sprite to `finder.sprite` or `fidelity.sprite` in `runner.json` is a separate edit.
 
 ## Keep a Sprite awake while its agent runs
 

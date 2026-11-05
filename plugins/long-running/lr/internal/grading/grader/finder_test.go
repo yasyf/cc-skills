@@ -480,6 +480,35 @@ func TestAPostTheStoreRefusedFailsThePass(t *testing.T) {
 	holdsAll(t, readText(t, directory, ResultFile), "this lane may not post here")
 }
 
+func TestASpriteFinderReturnsItsReviewAndCensusForCoordinatorPosting(t *testing.T) {
+	directory := finderJobDir(t, map[string]any{"sprite": "grader-a"})
+	shell, _ := newFinderFake(t, replyOf(findingOf("minor", "go/poll.go:9", "census: the poll interval predates this PR")))
+	deps := shell.deps()
+	deps.Post = nil
+	if err := Finder(context.Background(), directory, deps); err != nil {
+		t.Fatal(err)
+	}
+	holdsAll(t, readText(t, directory, ResultFile), `"verdict":"ok"`)
+	if len(shell.posted) != 0 {
+		t.Fatal("the Sprite posted to a local replica", shell.posted)
+	}
+	if err := Repost(context.Background(), directory, shell.post); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(shell.posted), 2)
+	equal(t, shell.posted[0]["--id"], "finder:"+repoName+"#43299:"+shaHead)
+	holdsAll(t, shell.posted[0]["--text"], "finder: ok "+shaHead)
+	equal(t, shell.posted[1]["--id"], "finder-census:"+repoName+"#43299:"+shaHead)
+	equal(t, shell.posted[1]["--path"], filepath.Join(directory, "census.md"))
+	holdsAll(t, readText(t, directory, "census.md"), "go/poll.go:9: the poll interval predates this PR")
+	for _, post := range shell.posted {
+		if filepath.Dir(post["--path"]) != directory {
+			t.Fatal("a record body would be left on the Sprite", post)
+		}
+		readText(t, directory, filepath.Base(post["--path"]))
+	}
+}
+
 func TestAHeadThatCarriesNoCommitTheBaseLacksRunsNoFinder(t *testing.T) {
 	directory := finderJobDir(t, nil)
 	shell, repo := newFinderFake(t)

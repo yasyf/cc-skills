@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,8 +14,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
-
-const graderMesh = `[{"mesh":"default","url":"https://relay.example.test/","routes":["drive-g"]}]`
 
 type graderWorld struct {
 	t      *testing.T
@@ -51,18 +48,11 @@ func (w *graderWorld) Run(_ context.Context, c shell.Command) (shell.Result, err
 	defer w.mu.Unlock()
 	w.calls = append(w.calls, c.Argv)
 	line := strings.Join(c.Argv, " ")
-	switch {
-	case strings.HasPrefix(line, "ccx vcs auth token Org/repo"):
+	if strings.HasPrefix(line, "ccx vcs auth token Org/repo") {
 		return shell.Result{Stdout: "token-x"}, nil
-	case strings.HasPrefix(line, "cci relay export --drive drive-g"):
-		_, err := io.WriteString(c.Stdout, "rows")
-		return shell.Result{}, err
-	case line == "cci relay status --json":
-		return shell.Result{Stdout: graderMesh}, nil
-	case line == "cci node --json":
-		return shell.Result{Stdout: `{"public_key":"owner-pub"}`}, nil
-	case strings.HasSuffix(line, "cat "+sponsorKey):
-		return shell.Result{Stdout: "key of " + c.Argv[3]}, nil
+	}
+	if len(c.Argv) < 4 || c.Argv[0] != "sprite" {
+		w.t.Fatalf("a grader needed a CCI replica: %v", c.Argv)
 	}
 	box := c.Argv[3]
 	w.stdins[box] = append(w.stdins[box], c.Stdin)
@@ -77,7 +67,7 @@ func (w *graderWorld) Run(_ context.Context, c shell.Command) (shell.Result, err
 
 func (w *graderWorld) make(boxes ...string) string {
 	w.t.Helper()
-	maker := &GraderMaker{Runner: w, Store: w.store, Home: "/Users/me", Sleep: func(time.Duration) {}, Now: func() time.Time { return time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC) }, Out: &w.out}
+	maker := &GraderMaker{Runner: w, Store: w.store, Home: "/Users/me", Now: func() time.Time { return time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC) }, Out: &w.out}
 	err := maker.Make(context.Background(), w.runner, boxes)
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -103,24 +93,14 @@ func (w *graderWorld) ran(prefix ...string) [][]string {
 	return matched
 }
 
-func TestGradersJoinWithTheSponsorRunnerJSONNamesAndShareOneExport(t *testing.T) {
-	w := newGraderWorld(t, "sponsor-7")
+func TestGradersNeedNoSponsorHistoryReplicaOrRelayService(t *testing.T) {
+	w := newGraderWorld(t, "")
 
 	if refused := w.make("grader-a", "grader-b"); refused != "" {
 		t.Fatal(refused)
 	}
 
-	if exports := w.ran("cci", "relay", "export"); len(exports) != 1 {
-		t.Fatal("each grader exported the store again", exports)
-	}
-	keys := w.ran("sprite", "exec", "-s", "sponsor-7", "--no-stdin", "--", "cat", sponsorKey)
-	if len(keys) != 2 {
-		t.Fatal("the service key did not come from WORKER_RELAY_SPONSOR", w.calls)
-	}
 	for _, box := range []string{"grader-a", "grader-b"} {
-		if !slices.Contains(w.stdins[box], "key of sponsor-7") {
-			t.Fatal(box, "joined without the sponsor's key", w.stdins[box])
-		}
 		if !slices.Contains(w.stdins[box], "token-x\n") {
 			t.Fatal(box, "fetched its history without one token line", w.stdins[box])
 		}
@@ -131,9 +111,10 @@ func TestGradersJoinWithTheSponsorRunnerJSONNamesAndShareOneExport(t *testing.T)
 		if census := w.census()[box]; census["ccx"] != rollCCX {
 			t.Fatal(box, "has no recorded ccx for a roll to compare", census)
 		}
-	}
-	if len(w.ran("sprite", "exec", "-s", "grader-a", "--no-stdin", "--file")) != 1 {
-		t.Fatal("grader-a was not seeded once", w.calls)
+		calls := w.ran("sprite", "exec", "-s", box)
+		if len(calls) != 3 || !slices.Contains(calls[1], linkGrader) || !slices.Contains(calls[2], unshallowGrader) {
+			t.Fatal(box, "needed more than install, links and Git history", calls)
+		}
 	}
 }
 
@@ -147,19 +128,6 @@ func TestAGraderLinksEachGradingCheckoutOnce(t *testing.T) {
 	links := slices.IndexFunc(w.calls, func(argv []string) bool { return slices.Contains(argv, linkGrader) })
 	if got := w.calls[links][slices.Index(w.calls[links], linkGrader)+2:]; !slices.Equal(got, []string{"/Users/me", "/Users/me/runner"}) {
 		t.Fatal(got)
-	}
-}
-
-func TestNoSponsorRefusesBeforeAnySpriteIsTouched(t *testing.T) {
-	w := newGraderWorld(t, "")
-
-	refused := w.make("grader-a")
-
-	if !strings.Contains(refused, "set orca.sprite.env.WORKER_RELAY_SPONSOR") {
-		t.Fatal(refused)
-	}
-	if len(w.calls) != 0 {
-		t.Fatal("a grader with no sponsor ran", w.calls)
 	}
 }
 
@@ -178,7 +146,7 @@ func TestAFailedInstallStopsOnlyItsOwnGrader(t *testing.T) {
 	if len(w.stdins["grader-a"]) != 1 {
 		t.Fatal("grader-a went on past its failed install", w.stdins["grader-a"])
 	}
-	if !slices.Contains(w.stdins["grader-b"], "key of sponsor-7") || len(w.ran("sprite", "exec", "-s", "grader-b", "--no-stdin", "--file")) != 1 {
+	if len(w.ran("sprite", "exec", "-s", "grader-b")) != 3 {
 		t.Fatal("grader-b stopped with grader-a", w.calls)
 	}
 	if census := w.census()["grader-a"]; census["cci"] != "0.49.36" {

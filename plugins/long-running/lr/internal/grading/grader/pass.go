@@ -643,24 +643,30 @@ func (p *pass) audience(also ...string) string {
 	return strings.Join(names, ",")
 }
 
-func (p *pass) logged(argv []string) ([]string, error) {
-	line, err := json.Marshal(argv)
-	if err != nil {
-		return nil, err
-	}
-	posts, err := os.OpenFile(filepath.Join(p.dir, PostsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	defer posts.Close()
-	_, err = posts.Write(append(line, '\n'))
-	return argv, err
-}
-
 func (p *pass) posted(argv []string) (string, error) {
 	draft, err := draftOf(argv)
 	if err != nil {
 		return "", err
+	}
+	line, err := json.Marshal(argv)
+	if err != nil {
+		return "", err
+	}
+	posts, err := os.OpenFile(filepath.Join(p.dir, PostsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	defer posts.Close()
+	if _, err := posts.Write(append(line, '\n')); err != nil {
+		return "", err
+	}
+	if p.job.Sprite != "" {
+		body, err := os.Open(draft.Path)
+		if err != nil {
+			return "", err
+		}
+		defer body.Close()
+		return "", errors.Join(body.Sync(), posts.Sync())
 	}
 	stored, err := p.Post(p.ctx, draft)
 	var down *client.BusDown
