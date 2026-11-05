@@ -51,7 +51,7 @@ An incident is its records on the drive's cci bus:
 
 - The coordinator's `INCIDENT OPEN <slug>: <what fired>`.
 - The fix lane's `SCOPE`, `MECHANISM`, `FIX-LIVE` or `NOT-OURS` records. `SCOPE`, `MECHANISM` and `FIX-LIVE` end with the alert's Slack message permalink and its Sentry or Datadog issue URL, as bare URLs, whichever exist; the owner's incident line reads them from there.
-- The coordinator's `INCIDENT <slug> CLOSED` once a `FIX-LIVE` or `NOT-OURS` record cites the evidence.
+- The coordinator's `INCIDENT <slug> CLOSED: <reason>` once a `FIX-LIVE` or `NOT-OURS` record cites the evidence. It ends the incident whoever it is addressed to; a close with neither record reads closed with no fix-live record, followed by its reason.
 
 `lr incident run <slug> --fix-brief <file>` launches the lanes. `lr incident status <slug>` prints what fired, the live lane on it, its newest scope, mechanism and fix-live records with their seqs, and what closes it. `lr incident list` prints every incident since midnight Pacific, unowned first, from the same reader as `lr update`.
 

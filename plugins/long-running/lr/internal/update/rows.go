@@ -270,14 +270,19 @@ func incidentName(record Record) string {
 	return record.Lane
 }
 
+func incidentKey(record Record) string {
+	return incidentRole.ReplaceAllString(incidentName(record), "")
+}
+
 func closesIncident(record Record) bool {
 	return record.Lane == root && incidentClose.MatchString(record.Text)
 }
 
 func openIncidents(records []Record) map[int64]bool {
-	closed := map[string]int64{}
+	closed, ended := map[string]int64{}, map[string]int64{}
 	for _, record := range records {
 		if closesIncident(record) {
+			ended[incidentKey(record)] = max(ended[incidentKey(record)], record.Seq)
 			for _, lane := range record.To {
 				closed[client.Stem(lane)] = max(closed[client.Stem(lane)], record.Seq)
 			}
@@ -285,7 +290,7 @@ func openIncidents(records []Record) map[int64]bool {
 	}
 	open := map[int64]bool{}
 	for _, record := range records {
-		if record.Kind != "incident" || record.Status != "open" || closesIncident(record) {
+		if record.Kind != "incident" || record.Status != "open" || closesIncident(record) || ended[incidentKey(record)] > record.Seq {
 			continue
 		}
 		lanes := slices.DeleteFunc(append([]string{record.Lane}, record.To...), func(lane string) bool { return lane == root })

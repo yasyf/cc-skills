@@ -87,6 +87,26 @@ func TestARowCallsAnIncidentFixedOnlyWithAFixLiveSeq(t *testing.T) {
 	}
 }
 
+func TestARootCloseNamingTheIncidentEndsItWhoeverItIsAddressedToAndGivesItsReason(t *testing.T) {
+	lanes, records := incidentFixture()
+	closing := opened(9, root, "INCIDENT creds CLOSED: rotation succeeds again. The class fix is still open.", 5, "owner-relay")
+	closing.To = append(closing.To, "bugs-comms")
+	records = append(records, closing)
+	v := viewOf(lanes, records, nil)
+	states := map[string]string{}
+	for _, i := range v.incidents(records, testDrive) {
+		states[i.Name] = i.state()
+	}
+	if want := "closed by #9 with no fix-live record: rotation succeeds again"; states["creds"] != want {
+		t.Fatalf("creds state = %q, want %q", states["creds"], want)
+	}
+	for _, row := range v.incidentRows(records, testDrive) {
+		if row.Name == "creds" && !row.Done {
+			t.Fatalf("lr update still lists creds as open: %+v", row)
+		}
+	}
+}
+
 func TestAStandingLanesIncidentRecordWithNoSlugMakesNoRow(t *testing.T) {
 	lanes, records := incidentFixture()
 	records = append(records,

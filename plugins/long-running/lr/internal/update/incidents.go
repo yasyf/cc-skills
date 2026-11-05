@@ -26,7 +26,7 @@ const (
 var (
 	milestoneLine = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?(MECHANISM|FIX-LIVE|NOT-OURS)\b`)
 	scopeLine     = regexp.MustCompile(`\bSCOPE\b`)
-	recordLead    = regexp.MustCompile(`^(?:\d{1,2}:\d{2}(?: [AP]M)?:? )?(?:GO fix lane \S+ for class \S+|(?i:INCIDENT) (?:OPEN |REOPENED )?\S+|MECHANISM(?: \S+)?)?\s*:?\s*`)
+	recordLead    = regexp.MustCompile(`^(?:\d{1,2}:\d{2}(?: [AP]M)?:? )?(?:GO fix lane \S+ for class \S+|(?i:INCIDENT) (?:OPEN |REOPENED |CLOSED )?\S+(?: CLOSED)?|MECHANISM(?: \S+)?)?\s*:?\s*`)
 	sentenceEnd   = regexp.MustCompile(`\. | \| `)
 	workNotCause  = regexp.MustCompile(`\blane\b`)
 	noDescription = regexp.MustCompile(`^orca-desk:|\bSCOPE\b|\blaunch(?:ed)?\b`)
@@ -151,6 +151,9 @@ func (i Incident) state() string {
 	case i.NotOurs.Seq != 0:
 		return fmt.Sprintf("closed as not ours by #%d, %s", i.NotOurs.Seq, closed)
 	}
+	if reason := firstSentence(i.Closed.Text); reason != "" {
+		return fmt.Sprintf("%s with no fix-live record: %s", closed, reason)
+	}
 	return closed + " with no fix-live record"
 }
 
@@ -247,7 +250,7 @@ func describeIncident(records []Record, name string) string {
 		if rank >= best || noDescription.MatchString(record.Text) {
 			continue
 		}
-		if incidentRole.ReplaceAllString(record.Topic, "") != name && incidentRole.ReplaceAllString(incidentName(record), "") != name {
+		if incidentRole.ReplaceAllString(record.Topic, "") != name && incidentKey(record) != name {
 			continue
 		}
 		if sentence := firstSentence(record.Text); sentence != "" && !workNotCause.MatchString(sentence) {
