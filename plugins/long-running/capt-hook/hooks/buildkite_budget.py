@@ -50,7 +50,7 @@ POLL_MESSAGE = (
 
 GH_POLL_MESSAGE = (
     "Warning, nothing was blocked: Polling GitHub more often than every 5 minutes spends the quota the merge process and every lane share."
-    " Read PR state from cci records, or sleep 300 s between calls; `gh run watch` and `gh pr checks --watch` take `--interval 300`."
+    " Wait on every check of a head with `ccx vcs pr watch <repo>#<n> --until ci`, or use `gh pr checks --watch --interval 300`."
 )
 
 
@@ -539,6 +539,7 @@ def no_fast_buildkite_polls(evt: BaseHookEvent) -> HookResult | None:
         Input(command="gh run watch 123 --exit-status", state=BOUND): Warn(),
         Input(command="ccx vcs gh -- run watch 123 --exit-status --interval 30", state=BOUND): Warn(),
         Input(command="gh pr checks 7 --watch", state=BOUND): Warn(),
+        Input(command="gh pr checks 9 --watch", state=BOUND): Warn(pattern="--until ci"),
         Input(
             command=(
                 "python3 -c \"import subprocess, time\nwhile True:\n"
