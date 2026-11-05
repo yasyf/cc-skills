@@ -345,6 +345,20 @@ sprite exec -s <host> -- sprite-env services create bk-desk \
 
 - The desk reads the token once at start, so restart the service after rotating it.
 - An answer that fails is logged, its ask stays open, and the desk goes on to the next ask. A restart answers any ask from the last hour that is still open.
+
+### Keep the desk host's credentials
+
+`lr desk-creds serve` holds the host's AWS profiles and secrets in memory only, so a restart of the host empties it. Run it with the host's `lr.json`, and start every service that reads it with `--needs desk-creds`:
+
+```sh
+sprite exec -s <host> -- sprite-env services create desk-creds \
+  --cmd /home/sprite/.local/bin/lr --args desk-creds,serve,--config,<lr.json> --no-stream
+```
+
+- Once it listens, serve posts one `ask` to `desk-creds-push`: it holds nothing and wants a push.
+- On the Mac, launchd job `com.long-running.<drive>.desk-creds` runs `lr desk-creds keep --config <runner.json>`, which the supervisor installs when `runner.json` has a `host` section. It pushes at start, every 15 minutes, and on each of those asks, so a restarted host holds its credentials again seconds after its serve is back. It answers the ask, or, when the push fails, posts one `blocker` to root naming each credential that did not arrive.
+- A service that needs a secret before it starts reads it with `lr desk-creds get --wait --config <lr.json> <key> [field]`. The get waits until serve holds the key, says on its log what it waits on, and posts one `blocker` to root if nothing pushes the key within two minutes. A plain `get`, the one an AWS `credential_process` runs, still fails at once.
+- No value reaches a file, a record, an argument or a service's environment: the push carries each one over `sprite exec`'s standard input, and the records name only keys.
 - It needs the host joined to the relay and nothing else: no tailnet route, no open port and no credential on a lane.
 
 ## Prepare and attach separately
