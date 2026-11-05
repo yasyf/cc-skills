@@ -281,7 +281,7 @@ MODEL is opus, sonnet, fable, a claude-* model id, sol or codex (gpt-6.1-sol on 
 Only the terminal bound to the Run may call worker-start, so a launch from any other terminal creates nothing and names the rebind command.
 
   ORCA_LAUNCH_RUN            orchestration Run id, default the Run of this session's drive
-  ORCA_LAUNCH_STALL_SECONDS  give up with LAUNCH-FAILED once one wait lasts this long, default 180
+  ORCA_LAUNCH_STALL_SECONDS  give up with LAUNCH-FAILED once one wait lasts this long, default 180; waiting for Orca to list a new worktree lasts this plus 300
   ORCA_LAUNCH_REPO           Orca repo id, default the repo at the parent's main checkout
   ORCA_LAUNCH_PARENT         coordinator worktree path, default the current directory
   ORCA_LAUNCH_NO_PARENT      1 creates a top-level worktree, as incident always does
@@ -294,7 +294,7 @@ Only the terminal bound to the Run may call worker-start, so a launch from any o
   ORCA_LAUNCH_SLACK_MCP_CONFIG  --mcp-config value for a brief whose ccx: line says mcp=slack, default none
   ORCA_LAUNCH_CODEX_MCP      inline TOML table for an incident worker's mcp_servers, default {}
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the waits for a terminal, its agent and its first turn, default 180
-  ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the waits for a worktree to register and check out, default 180
+  ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the waits for a failed create to register and its checkout to fill, default 180
   ORCA_LAUNCH_PREPARE        shell command run in each worktree this launch creates, before its worker starts, default tools/hooks/warm-lane.sh where the worktree has it
   ORCA_LAUNCH_PREPARE_SECONDS  ceiling on that command, default 120
   ORCA_LAUNCH_SPARSE         1 adds each new worktree by git worktree add

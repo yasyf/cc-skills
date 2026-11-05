@@ -115,6 +115,7 @@ type harness struct {
 	calls      [][]string
 	sleeps     []time.Duration
 	onSleep    func()
+	elapsed    *time.Duration
 	ccxRefuses bool
 	ccxQueues  bool
 	posted     []client.Draft
@@ -214,6 +215,10 @@ func (h *harness) worktree() string {
 
 func (h *harness) registeredReply() reply {
 	return okResult(object{"worktree": object{"path": h.worktree()}})
+}
+
+func (h *harness) tickOnSleep() {
+	h.elapsed = new(time.Duration)
 }
 
 func (h *harness) reply(command string, replies ...reply) {
@@ -413,6 +418,9 @@ func (h *harness) launchAs(lane, model, effort, brief string) (string, int) {
 		Sleep: func(d time.Duration) {
 			h.mu.Lock()
 			h.sleeps = append(h.sleeps, d)
+			if h.elapsed != nil {
+				*h.elapsed += d
+			}
 			hook := h.onSleep
 			h.onSleep = nil
 			h.mu.Unlock()
@@ -420,7 +428,14 @@ func (h *harness) launchAs(lane, model, effort, brief string) (string, int) {
 				hook()
 			}
 		},
-		Now:    time.Now,
+		Now: func() time.Time {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			if h.elapsed == nil {
+				return time.Now()
+			}
+			return time.Unix(fakeNow, 0).Add(*h.elapsed)
+		},
 		Stderr: &h.stderr,
 	}
 	line, err := starter.Run(context.Background(), lane, model, effort, brief)
@@ -1355,6 +1370,7 @@ func TestARelaunchAfterTheRecordedTaskCompletedStartsAFreshTask(t *testing.T) {
 func TestALaunchThatStallsTwiceFailsOnceWithLaunchFailedNamingTheSecondWait(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
+	h.tickOnSleep()
 	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
 	h.reply("worktree show", missing)
 	line, code := h.launch()
@@ -1362,12 +1378,12 @@ func TestALaunchThatStallsTwiceFailsOnceWithLaunchFailedNamingTheSecondWait(t *t
 		t.Fatal(line)
 	}
 	retried := filepath.Join(filepath.Dir(h.parent), "v3-lane-a-1-2")
-	wantLine(t, line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+retried+" yet for 0s; rolled back worktree="+retried+" branch=yasyf/v3-lane-a-1-2; this was its one retry")
-	if strings.Count(h.stderr.String(), "lane-a retries once after a stall: Orca does not list worktree "+h.worktree()+" yet for 0s\n") != 1 {
+	wantLine(t, line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+retried+" yet for 300s; rolled back worktree="+retried+" branch=yasyf/v3-lane-a-1-2; this was its one retry")
+	if strings.Count(h.stderr.String(), "lane-a retries once after a stall: Orca does not list worktree "+h.worktree()+" yet for 300s\n") != 1 {
 		t.Fatal(h.stderr.String())
 	}
 	wantNoCalls(t, h, "terminal create")
-	if !slices.Equal(h.sleeps, []time.Duration{stallRetry}) {
+	if len(slices.DeleteFunc(slices.Clone(h.sleeps), func(d time.Duration) bool { return d != stallRetry })) != 1 {
 		t.Fatal(h.sleeps)
 	}
 	for _, wt := range []string{h.worktree(), retried} {
@@ -1380,8 +1396,9 @@ func TestALaunchThatStallsTwiceFailsOnceWithLaunchFailedNamingTheSecondWait(t *t
 func TestALaunchThatStallsOnceRetriesUnderTheSameLaneAndStartsOneWorker(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
+	h.tickOnSleep()
 	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
-	h.reply("worktree show", missing, sent)
+	h.reply("worktree show", append(slices.Repeat([]reply{missing}, 76), sent)...)
 	retried := filepath.Join(filepath.Dir(h.parent), "v3-lane-a-1-2")
 	wantLine(t, h.launched(), "lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree="+retried)
 	if starts := h.orcaCalls("orchestration worker-start"); len(starts) != 1 {
@@ -1432,41 +1449,30 @@ func TestAWorktreeOrcaListsLateIsAwaitedAndThenNamed(t *testing.T) {
 	}
 }
 
-func TestAWorktreeOrcaDoesNotListYetMakesOrcaRescanOnceThroughTheMainCheckout(t *testing.T) {
+func TestAWorktreeOrcaListsOnlyAfterItsCacheExpiresIsAwaitedPastTheStallLimit(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
-	h.reply("worktree show", missing, missing, missing, h.registeredReply())
+	h.tickOnSleep()
+	listsAfter := (180+worktreeCacheSeconds)/int(startPoll/time.Second) - 1
+	h.reply("worktree show", append(slices.Repeat([]reply{missing}, listsAfter), h.registeredReply())...)
 	wantLine(t, h.launched(), readyLine(h))
-	sets := h.orcaCalls("worktree set")
-	want := [][]string{
-		{"worktree", "set", "--worktree", "path:" + h.main, "--read", "--json"},
-		{"worktree", "set", "--worktree", "path:" + h.worktree(), "--display-name", "v3-lane-a-1-1", "--parent-worktree", "path:" + h.parent, "--json"},
+	if len(h.sleeps) != listsAfter || *h.elapsed <= 180*time.Second {
+		t.Fatal(len(h.sleeps), *h.elapsed)
 	}
-	if !reflect.DeepEqual(sets, want) {
-		t.Fatalf("got %v", sets)
+	if sets := h.orcaCalls("worktree set"); len(sets) != 1 || flag(sets[0], "--worktree") != "path:"+h.worktree() {
+		t.Fatal(sets)
 	}
 }
 
-func TestARescanOrcaRefusesStillWaitsForTheListingAndSaysSo(t *testing.T) {
+func TestAWorktreeOrcaNeverListsFailsOnceItsCacheCouldHaveExpired(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
-	h.reply("worktree set", reply{rc: 1, out: object{"ok": false, "error": object{"code": "runtime_unavailable", "message": "runtime_unavailable"}}}, sent)
-	h.reply("worktree show", missing, h.registeredReply())
-	wantLine(t, h.launched(), readyLine(h))
-	if !strings.Contains(h.stderr.String(), "lane-a could not make Orca rescan its worktrees: runtime_unavailable") {
-		t.Fatal(h.stderr.String())
-	}
-}
-
-func TestARelaunchIntoATreeOrcaNoLongerListsMakesOrcaRescan(t *testing.T) {
-	h := newHarness(t)
-	h.healthyClaude()
-	h.checkOut()
-	h.reply("worktree show", missing, h.registeredReply())
-	h.launched()
-	want := [][]string{{"worktree", "set", "--worktree", "path:" + h.main, "--read", "--json"}}
-	if sets := h.orcaCalls("worktree set"); !reflect.DeepEqual(sets, want) {
-		t.Fatalf("got %v", sets)
+	h.tickOnSleep()
+	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "60"
+	h.reply("worktree show", missing)
+	line, code := h.launch()
+	if code != 1 || !strings.Contains(line, "LAUNCH-FAILED: Orca does not list worktree ") || !strings.Contains(line, " yet for 360s") {
+		t.Fatal(line)
 	}
 }
 
