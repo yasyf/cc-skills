@@ -68,7 +68,7 @@ var (
 	briefRole        = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=([\w-]+)`)
 	briefReplaces    = regexp.MustCompile("(?m)^Replaces: `?([\\w.-]+)`?\\s*$")
 	whitespace       = regexp.MustCompile(`\s+`)
-	baseCone         = []string{".agents", ".claude", "tools", "infra/ci/hooks/lib", "infra/ci/src", "release", "infra/envs"}
+	baseCone         = []string{".agents", ".claude", "tools", "infra/ci/hooks/lib", "infra/ci/src", "release", "infra/envs", "infra/rows/ci-infra/ci"}
 	rollbackRefusals = []string{refusalFenced, "invalid_argument", "task_not_found", "worker_prompt_too_large", "runtime_unavailable", refusalUnconfigured}
 )
 
