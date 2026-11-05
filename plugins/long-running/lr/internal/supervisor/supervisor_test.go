@@ -389,11 +389,11 @@ func TestALandingPassSweepsGosOverItsSnapshotAndAPassWithoutLandingDoesNot(t *te
 		d := deps(c, &queue{}, &pool{}, prFacts(7, nil))
 		d.Movers = []string{movers}
 		var swept []int
-		d.SweepGos = func(_ context.Context, snapshot []machine.Facts) error {
+		d.SweepGos = func(_ context.Context, snapshot []machine.Facts) ([]int, error) {
 			for _, f := range snapshot {
 				swept = append(swept, f.Number)
 			}
-			return errors.New("the gate inputs are stale")
+			return nil, errors.New("the gate inputs are stale")
 		}
 
 		reports, _ := runLoop(t, s, "0.8.0", 1, d, 1)
@@ -401,6 +401,17 @@ func TestALandingPassSweepsGosOverItsSnapshotAndAPassWithoutLandingDoesNot(t *te
 		equal(t, swept, want)
 		equal(t, reports[0].PRs, 1)
 	}
+}
+
+func TestAHeadTheSweepPostsAGoForEnqueuesInThatSamePass(t *testing.T) {
+	s, c, q := memory(t), &clock{t0}, &queue{}
+	untapped := prFacts(7, func(f *machine.Facts) { f.Tap = "" })
+	d := deps(c, q, &pool{}, untapped, prFacts(8, func(f *machine.Facts) { f.Tap = "" }))
+	d.SweepGos = func(context.Context, []machine.Facts) ([]int, error) { return []int{7}, nil }
+
+	runLoop(t, s, "0.8.0", 1, d, 1)
+
+	equal(t, q.enqueued, []int{7})
 }
 
 func TestAPassWhoseSourcesDoNotAnswerActsOnNothing(t *testing.T) {

@@ -85,7 +85,7 @@ func notReexecuted(f statusFacts) string {
 	case f.Pinned == f.Running:
 		return "nothing to re-execute: it runs the pinned binary and serves a newer pack in place"
 	}
-	return "re-execute owed: the pin moved, so it re-executes at its next tick unless a gc pass holds it; an old renewal means the tick itself is stuck"
+	return "re-execute owed: the pin moved, so it re-executes at its next tick unless a gc pass holds it; the lease renews as a tick starts and again before it enqueues, so a renewal up to one pass old is a pass in flight, and the log's newest \"a landing pass ended\" line says how long a pass runs"
 }
 
 func processAlive(pid int) bool {

@@ -204,6 +204,7 @@ D24 sits at the end of this section.
 - A queued head whose head moved, or that sits under an open hold, leaves the queue top first with every PR stacked on it.
 - An ejected head gets one resubmit, then goes to its lane as a red item.
 - The pass renews the supervisor's lease right before it enqueues, so a supervisor another one has replaced enqueues nothing.
+- One `a landing pass ended` log line per pass gives how long it spent reading facts, sweeping gos, gating and enqueuing, and in total.
 - Its log says why each cleared head did not enqueue: a PR below it is not clear, its base is not trunk or an open drive PR, a named gate refused it, its CI is red, GitHub has not computed its mergeability, or its merge-queue state did not read. It also logs the queue's answer for each head it enqueued.
 
 **The runner checkout.** The pass and the supervisor's background checks share one checkout. Two of them write its tree, the enqueue and the PR ledger's fast-forward, and each holds `<checkout>.tree.lock` while it does. The enqueue fetches trunk into `refs/lr/queue/<trunk>` and checks that ref out. The pass's diff read, the sweep's port read and `ledger.py` fetch into their own refs under `refs/lr/` and `refs/desk/`, so no fetch there writes `refs/remotes/origin/*` and nothing reads `FETCH_HEAD`.
@@ -428,7 +429,8 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 
 ### Exempt go gate
 
-- The landing pass runs this gate itself, as lane `supervisor`, over every open head that is green, approved and graded with no go, hold or tap, and gates a refused PR again ten minutes later; no desk has to be alive for a clean head to get its go.
+- The landing pass runs this gate itself, as lane `supervisor`, over every open head that is green, approved and graded with no go, hold or tap; no desk has to be alive for a clean head to get its go. It runs right after the pass reads its facts and before it classifies, gates and enqueues, so a head it posts a go for enters the queue in that same pass.
+- The sweep reads what the pass already holds: the PR's body from the pass's read, a port source the store already records as merged, and one read of every record posted since the last sweep. A refused head keeps its verdict, and is not read again, until something its gate read changes: a record naming the PR, its head, base or body, an owner card naming it, the runner's classes or tap rules, or a record the gate read expiring. A port whose source has not merged, and a head its review row has not read, are gated every pass. Its `SWEPT` line counts the heads it gated, the ones left unchanged, and the gos it posted.
 - A head whose read fails, such as its port source's status or its changed files, is skipped that pass with one `GO-UNREAD` note to its lane, and the sweep goes on to the next head.
 - A lane posts an exempt go only through `lr landing go <pr>... --lane <lane>`, never by hand or from its own script. Without `--lane` the call is a dry pass: it prints, for the PR at its exact head, every reason the gate refuses an exempt go, and posts nothing. A lane writing an exempt go runs the dry pass first and reads the class from the files, never from a grade's words or a guess.
 - The gate reads each PR's records once and posts only when all of these hold at the PR's current head on GitHub:
@@ -542,7 +544,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 
 ## Go to queue
 
-- A green PR a coordinator `go` names at its head enters the merge queue within five minutes of that `go`. Only a go from root, the supervisor or `go_lanes` counts. `lr landing go --lane` from any other lane says so when it runs: the gate admits, this record does not move it, and the sweep posts the go that counts. When the sweep will not post a go for a head on a standing word, or a head a lane posted a go for, it posts one `go.refused` record per reason to the PR's lane and the go's lane, and both stores fold it into the row.
+- A green PR a coordinator `go` names at its head enters the merge queue in the next pass after that `go`, and a head the supervisor's sweep gives a go enters it in the pass that posts the go. Only a go from root, the supervisor or `go_lanes` counts. `lr landing go --lane` from any other lane says so when it runs: the gate admits, this record does not move it, and the sweep posts the go that counts. When the sweep will not post a go for a head on a standing word, or a head a lane posted a go for, it posts one `go.refused` record per reason to the PR's lane and the go's lane, and both stores fold it into the row.
 - Every head a `go` or exemption admits gets, from the pass that admits it, one `QUEUED` or `REFUSED` record per change of outcome. `REFUSED` names the gate line or check, `REFUSED unsettled:` with the last branch if unsettled, or `gating off: <why>` when gating is off.
 - When the bot's newest `ai-review` run reads `Held`, the line states the bot holds it on N blocking findings and routes one record per head to the owning lane to fix or accept them. `Waiting for restack` reads as waiting for a restack push. Neither is a missing verdict.
 

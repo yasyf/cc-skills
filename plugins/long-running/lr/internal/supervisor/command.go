@@ -346,7 +346,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	}
 	deps.Trunk = env.Config.Trunk
 	deps.DropStale = dropStale
-	deps.SweepGos = func(ctx context.Context, snapshot []machine.Facts) error {
+	deps.SweepGos = func(ctx context.Context, snapshot []machine.Facts) ([]int, error) {
 		return landing.SweepGos(ctx, a, env.Config, s, snapshot, a.Now(), sweepLog{a.Log, "go sweep"})
 	}
 	return deps, nil
