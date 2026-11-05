@@ -189,11 +189,9 @@ func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, error) {
 			continue
 		}
 		cards = append(cards, block.ID)
-		questions[block.ID] = slices.ContainsFunc(block.Children, func(child struct {
-			Type string `json:"type"`
-		}) bool {
-			return child.Type == "choice"
-		})
+		for _, child := range block.Children {
+			questions[block.ID] = questions[block.ID] || child.Type == "choice"
+		}
 	}
 	return cards, questions, nil
 }
