@@ -411,16 +411,16 @@ func terminal(row store.ReviewRow) bool {
 
 func rowItem(row store.ReviewRow) Item {
 	item := Item{
-		Ref: Ref(fmt.Sprintf("pr:%s#%d", row.Repo, row.Number)), Title: row.Title, State: StateBlocked, Says: "Waits on " + row.WaitsOn,
+		Ref: Ref(fmt.Sprintf("pr:%s#%d", row.Repo, row.Number)), Title: row.Title, State: StateBlocked, Says: "Waits on " + row.WaitsOn, Actions: []string{ApproveAction, HoldAction},
 		Cells: map[string]string{"number": strconv.Itoa(row.Number), "lane": row.Lane, "change": row.ForUsers, "risk": row.Risk, "ci": row.CI, "head": row.Head},
 	}
 	switch {
 	case terminal(row):
-		item.State, item.Says = StateSettled, strings.ToUpper(row.State[:1])+row.State[1:]
+		item.State, item.Says, item.Actions = StateSettled, strings.ToUpper(row.State[:1])+row.State[1:], nil
 	case row.Tapped:
-		item.State, item.Says = StateSettled, "You approved it"
+		item.State, item.Says, item.Actions = StateSettled, "You approved it", nil
 	case waitsOnHim(row):
-		item.State, item.Says, item.Actions = StateWaits, "Your approval", []string{ApproveAction, HoldAction}
+		item.State, item.Says = StateWaits, "Your approval"
 	}
 	return item
 }
