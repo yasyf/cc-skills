@@ -448,7 +448,7 @@ func Materialize(row store.ReviewRow, facts map[string]string, held Held, branch
 	if facts[gates.BehaviorFact] == gates.BehaviorChanged {
 		row.Review += fmt.Sprintf("; changed since the head he tapped, %s: %s", facts[gates.SinceFact], facts[gates.ChangedFact])
 	}
-	row.PlanRow = planRow(row.PlanLine, machine.Fidelity(facts["fidelity"]))
+	row.PlanRow = planRow(row.PlanLine, machine.Fidelity(facts["fidelity"]), facts[machine.OverrideFact("fidelity")])
 	row.Hold, row.AwaitsTap = orElse(held.Why, None), held.AwaitsTap
 	row.SupersededBy = orElse(facts[FactWithdrawn], None)
 	row.Parent, row.ParentState = parentOf(row, branches, trunk)
