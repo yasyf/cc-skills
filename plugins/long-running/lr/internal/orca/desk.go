@@ -58,13 +58,13 @@ var (
 		"GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": kindBlocker, "GO-TAP-MISSING": kindBlocker, "HOOK-DRIFT": kindBlocker, "BASE-DRIFT": kindBlocker, "OVERRIDE-REFUSED": kindBlocker, "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident",
 	}
 	deferrable = []string{"DEADLINE", "NOT-DELIVERED", "UNACKED", "STALE-MAIL", "RECLAIM"}
-	noAction   = []string{"RELAYED", "ORCA-BACK", "PARKED"}
+	noAction   = []string{"RELAYED", "ORCA-BACK", "PARKED", "RESTING"}
 	poster     = regexp.MustCompile("\\bcci post\\b[^`\\n]*?--lane[= ]['\"]?([\\w.-]+)")
 )
 
 type DeskConfig struct {
 	Source, Store, Drive, DeskInbox, Run, Receipts, BriefsRepo, BriefsLog, GC, AlertFacts, LandingRepo, LandingCheckout string
-	Launches                                                                                                            string
+	Launches, CCRemote                                                                                                  string
 	LaunchEnv                                                                                                           map[string]string
 	RefusedBriefs                                                                                                       []config.Refusal
 	IncidentMechanismMinutes, IncidentPRMinutes, IncidentReadyMinutes                                                   int
@@ -188,7 +188,7 @@ func LoadDeskConfig(path string, env func(string) string) (DeskConfig, error) {
 	}
 	return DeskConfig{
 		Source: resolved(source), Store: root, Drive: file.Drive, DeskInbox: expandHome(file.Orca.DeskInbox, home), Run: file.Orca.Run, Launches: file.Orca.Launches,
-		Receipts:   filepath.Join(state, "long-running", "orca-launch", file.Orca.Run),
+		Receipts: filepath.Join(state, "long-running", "orca-launch", file.Orca.Run), CCRemote: filepath.Join(state, "cc-remote"),
 		BriefsRepo: expandHome(file.Orca.Briefs.Repo, home), BriefsLog: file.Orca.Briefs.Log, GC: file.Orca.GC, AlertFacts: expandHome(file.Alert.Facts, home),
 		LandingRepo: file.Landing.Repo, LandingCheckout: file.Landing.Checkout, LaunchEnv: file.Orca.LaunchEnv,
 		StartMinutes: orDefault(file.Deadlines.Start, 10), LaunchMinutes: orDefault(file.Deadlines.Launch, 15), HoldMinutes: orDefault(file.Deadlines.Hold, 15), CaseLanes: orDefault(file.Incident.CaseLanes, 2), LoadLimit: orDefault(file.Orca.LoadLimit, runtime.NumCPU()),
