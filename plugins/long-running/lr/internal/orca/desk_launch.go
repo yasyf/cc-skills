@@ -40,6 +40,7 @@ var (
 	spriteModels = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
 	cpuIdle      = regexp.MustCompile(`([\d.]+)% idle`)
 	loadAverage  = regexp.MustCompile(`^\{ (\d+(?:\.\d+)?) `)
+	capRefusal   = regexp.MustCompile(` failed terminal create: \S+ The host is already running as many terminals as Orca allows\b`)
 )
 
 type detached struct{ done atomic.Bool }
@@ -708,6 +709,8 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	switch {
 	case found != nil && found[1] == lane:
 		proofLine, dispatch, terminal = found[0], found[3], found[4]
+	case capRefusal.MatchString(failure) && capFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
+		return d.capFallback(ctx, container, lane, action, spec, failure)
 	case failure != "":
 		return d.failedLaunch(ctx, container, lane, key, failure, verdictTo(spec.By))
 	case receipt != "" && receipt != spec.Prior:
@@ -758,6 +761,32 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 		}
 	}
 	return d.stopPendingWithdraw(ctx, container, lane, key, dispatch)
+}
+
+func (d *Desk) briefText(brief string) string {
+	raw, _ := os.ReadFile(brief)
+	return string(raw)
+}
+
+func (d *Desk) capFallback(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, failure string) error {
+	fault, err := d.spriteFault(ctx, lane)
+	if err != nil {
+		return err
+	}
+	if fault != "" {
+		return d.failedLaunch(ctx, container, lane, action.ActionID, failure+"; no Sprite took it instead: "+fault, verdictTo(spec.By))
+	}
+	log := d.launchLog(container, action.ActionID)
+	if err := os.Rename(log, strings.TrimSuffix(log, ".out")+".refused.out"); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(d.loadPath(action.ActionID)), 0o750); err != nil {
+		return err
+	}
+	if err := os.WriteFile(d.loadPath(action.ActionID), []byte("Orca refused it a terminal on this Mac, which runs as many as Orca allows"), 0o600); err != nil {
+		return err
+	}
+	return d.launchSprite(container, lane, action, spec)
 }
 
 func failureLine(out, lane string) string {

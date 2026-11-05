@@ -1992,3 +1992,59 @@ func TestAWorkerStartRefusalThatMeansNoIsNeverReplayed(t *testing.T) {
 		t.Fatalf("failed %q, err %v, %d worker-starts, slept %v", failed, err, len(f.workerStarts()), f.slept)
 	}
 }
+
+func TestAnIncidentModelStartsOnASpriteAsAnIncidentLaneOnItsFastTier(t *testing.T) {
+	for _, tt := range []struct {
+		model, kind, modelID string
+		tier                 []string
+		fastMode             bool
+	}{
+		{agentIncident, "codex", "gpt-6.1-sol", []string{"--service-tier", "fast"}, false},
+		{modelIncidentOpus, "claude", "claude-opus-5-5", nil, true},
+	} {
+		t.Run(tt.model, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			agent := object{"kind": tt.kind, "model": tt.modelID, "effort": "xhigh"}
+			if tt.tier != nil {
+				agent["serviceTier"] = "fast"
+			}
+			task := overlaid(prepared(), object{"agent": agent})
+			f.spriteAllocated(allocationOf(task, nil))
+			if _, failed, err := f.launch(workerLane, tt.model, "xhigh"); err != nil || failed != "" {
+				t.Fatal(failed, err)
+			}
+			f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, tt.kind, tt.modelID, "xhigh", tt.tier...)}, f.startCalls(task), [][]string{holdCall(workerWorkspace)})...)
+			if got := strings.HasSuffix(f.receiptText(beforeWorker), claudeFastMode); got != tt.fastMode {
+				t.Fatalf("fast mode in the before-worker script = %v, want %v", got, tt.fastMode)
+			}
+		})
+	}
+}
+
+func TestTheFastModeStepTurnsOnFastModeAndKeepsTheSettingsAlreadyThere(t *testing.T) {
+	for _, existing := range []string{"", `{"model":"opus"}`} {
+		home := t.TempDir()
+		settings := filepath.Join(home, ".claude", "settings.json")
+		if existing != "" {
+			if err := os.MkdirAll(filepath.Dir(settings), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(settings, []byte(existing), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run := exec.Command("sh", "-c", claudeFastMode)
+		run.Env = append(os.Environ(), "HOME="+home, "CLAUDE_CONFIG_DIR=")
+		if out, err := run.CombinedOutput(); err != nil {
+			t.Fatal(string(out), err)
+		}
+		raw, err := os.ReadFile(settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil || got["fastMode"] != true || existing != "" && got["model"] != "opus" {
+			t.Fatalf("%s: %s %v", existing, raw, err)
+		}
+	}
+}

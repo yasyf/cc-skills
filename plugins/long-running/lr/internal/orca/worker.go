@@ -53,6 +53,7 @@ const (
 	workerAwake       = "worker-awake"
 	holdReceipt       = "awake.log"
 	holdTimeout       = time.Minute
+	claudeFastMode    = `settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json && mkdir -p "${settings%/*}" && { [ -s "$settings" ] || echo '{}' > "$settings"; } && jq '.fastMode = true' "$settings" > "$settings.new" && mv "$settings.new" "$settings"` + "\n"
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
 	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN; exec git -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f' -C "$1" fetch --quiet origin "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
@@ -84,6 +85,7 @@ type workerLaunch struct {
 	ctx context.Context
 
 	lane, effort, brief, run, ref, expect, tier   string
+	fastMode                                      bool
 	modelID, kind, route, dir, stem, attempt, sha string
 	checkout, ccRemote, config                    string
 	pins                                          spritePins
@@ -221,6 +223,13 @@ func (w *workerLaunch) resolveRoute(model string) error {
 	if id, aliased := modelAliases[model]; aliased {
 		w.modelID = id
 	}
+	incident := w.Env("WORKER_INCIDENT") == "1"
+	switch model {
+	case agentIncident:
+		w.modelID, w.tier, incident = "gpt-6.1-sol", "fast", true
+	case modelIncidentOpus:
+		w.modelID, w.fastMode, incident = "claude-opus-5-5", true, true
+	}
 	switch {
 	case strings.HasPrefix(w.modelID, "claude-"):
 		w.kind = agentClaude
@@ -232,7 +241,7 @@ func (w *workerLaunch) resolveRoute(model string) error {
 	if w.tier != "" && w.kind != agentCodex {
 		return refuse("WORKER_SERVICE_TIER is a codex setting, and claude runs %s; nothing launched", w.modelID)
 	}
-	if w.tier == "fast" && w.Env("WORKER_INCIDENT") != "1" {
+	if w.tier == "fast" && !incident {
 		return refuse("WORKER_SERVICE_TIER=fast is for incident lanes only; set WORKER_INCIDENT=1 for an incident lane; nothing launched")
 	}
 	switch w.Env("WORKER_LOCAL") {
@@ -578,7 +587,11 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 		needs = append(needs, string(match[1]))
 	}
 	slices.Sort(needs)
-	if err := w.receipt(beforeWorker, w.pins.installScript(slices.Compact(needs))); err != nil {
+	script := w.pins.installScript(slices.Compact(needs))
+	if w.fastMode {
+		script += claudeFastMode
+	}
+	if err := w.receipt(beforeWorker, script); err != nil {
 		return nil, err
 	}
 	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker), "--env", laneEnv + "=" + w.lane}
