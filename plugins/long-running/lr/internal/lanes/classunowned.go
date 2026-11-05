@@ -54,7 +54,7 @@ func (c *ClassUnowned) Check(ctx context.Context, now time.Time) error {
 			continue
 		}
 		keys := classKeys(record)
-		if len(keys) == 0 || now.Sub(record.At) < classOwnedWithin || fixOrdered(records, record.Seq, keys) {
+		if len(keys) == 0 || now.Sub(record.At) < classOwnedWithin || fixOrdered(records, record, keys) {
 			continue
 		}
 		if err := c.raise(ctx, record, keys, now); err != nil {
@@ -76,11 +76,23 @@ func (c *ClassUnowned) raise(ctx context.Context, record client.Record, keys []s
 	return nil
 }
 
-func fixOrdered(records []client.Record, after int64, keys []string) bool {
+func fixOrdered(records []client.Record, class client.Record, keys []string) bool {
+	if fixLaneOf(class.Lane, keys) {
+		return true
+	}
 	return slices.ContainsFunc(records, func(record client.Record) bool {
-		return (record.Lane == Root || record.Lane == Self) && record.Seq > after && slices.Contains(orderKinds, string(record.Kind)) && fixOrder.MatchString(record.Text) &&
+		if spawned, found := strings.CutPrefix(record.Text, "SPAWNED "); found && record.Lane == Self && string(record.Kind) == "state" {
+			lane, _, _ := strings.Cut(spawned, " ")
+			return fixLaneOf(lane, keys)
+		}
+		return (record.Lane == Root || record.Lane == Self) && record.Seq > class.Seq && slices.Contains(orderKinds, string(record.Kind)) && fixOrder.MatchString(record.Text) &&
 			slices.ContainsFunc(incidentKeys(record.Topic, record.Text), func(key string) bool { return slices.Contains(keys, key) })
 	})
+}
+
+func fixLaneOf(lane string, keys []string) bool {
+	slug, found := strings.CutSuffix(lane, "-fix")
+	return found && slices.Contains(keys, "topic:"+slug)
 }
 
 func classKeys(record client.Record) []string {

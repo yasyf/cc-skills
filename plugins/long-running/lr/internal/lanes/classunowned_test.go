@@ -40,6 +40,8 @@ func TestAClassThatNeedsNoAlarmDrawsNone(t *testing.T) {
 		"not a class":                          {{Seq: 5, Lane: "a", Kind: "report", At: t0.Add(-mins(11)), Topic: "dd-325", Text: "CLASSIC outage"}},
 		"resolved":                             {incident, {Seq: 6, Lane: "root", Kind: "note", At: t0, Resolves: 5}},
 		"a fix order names it":                 {incident, {Seq: 6, Lane: "root", Kind: "go", At: t0, Topic: "dd-325", Text: "launch the fix lane"}},
+		"its own fix lane posted it":           {{Seq: 5, Lane: "dd-325-fix", Kind: "incident", At: t0.Add(-mins(11)), Topic: "dd-325", Text: "SCOPE dd-325-fix: active yes"}},
+		"its fix lane spawned before it":       {{Seq: 4, Lane: Self, Kind: "state", At: t0.Add(-mins(12)), Topic: "spawn:dd-325-fix", Text: "SPAWNED dd-325-fix /state/lanes/dd-325-fix.brief.md"}, incident},
 		"the supervisor launched its fix lane": {{Seq: 5, Lane: Self, Kind: "incident", At: t0.Add(-mins(11)), Topic: "dev-red", Text: "DEV-RED for 11 min"}, {Seq: 6, Lane: Self, Kind: "go", At: t0.Add(-mins(10)), Topic: "dev-red", Text: "orca-desk: incident dev-red-abc https://b :: red; fix it"}},
 	}
 	for name, records := range cases {
@@ -54,9 +56,11 @@ func TestAClassThatNeedsNoAlarmDrawsNone(t *testing.T) {
 func TestAnOrderWithoutTheWordFixOrFromAnotherLaneOwnsNothing(t *testing.T) {
 	incident := client.Record{Seq: 5, Lane: "a", Kind: "incident", At: t0.Add(-mins(11)), Topic: "dd-325"}
 	for name, order := range map[string]client.Record{
-		"no fix":   {Seq: 6, Lane: "root", Kind: "go", At: t0, Topic: "dd-325", Text: "look at it"},
-		"not root": {Seq: 6, Lane: "other", Kind: "go", At: t0, Topic: "dd-325", Text: "fix it"},
-		"before":   {Seq: 4, Lane: "root", Kind: "go", At: t0, Topic: "dd-325", Text: "fix it"},
+		"no fix":                    {Seq: 6, Lane: "root", Kind: "go", At: t0, Topic: "dd-325", Text: "look at it"},
+		"not root":                  {Seq: 6, Lane: "other", Kind: "go", At: t0, Topic: "dd-325", Text: "fix it"},
+		"before":                    {Seq: 4, Lane: "root", Kind: "go", At: t0, Topic: "dd-325", Text: "fix it"},
+		"another lane spawned":      {Seq: 4, Lane: Self, Kind: "state", At: t0, Topic: "spawn:dd-326-fix", Text: "SPAWNED dd-326-fix /state/lanes/dd-326-fix.brief.md"},
+		"its evidence lane spawned": {Seq: 4, Lane: Self, Kind: "state", At: t0, Topic: "spawn:dd-325-evidence", Text: "SPAWNED dd-325-evidence /state/lanes/dd-325-evidence.brief.md"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if posted := classCheck(t, incident, order); len(posted) != 1 {
