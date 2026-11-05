@@ -4,13 +4,12 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"os"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -134,7 +133,7 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	}
 	var out []Fact
 	if delegated(record.Lane, []string{rootLane, SweepLane}) {
-		out = overrides(fullText(record))
+		out = overrides(FullText(record))
 	}
 	class := record.Fields.Attrs[ExemptClassAttr]
 	if class == "" || !isGo(record) {
@@ -147,7 +146,7 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 }
 
 func ExemptClaims(record client.Record) []Fact {
-	claimed := exemptClass.FindStringSubmatch(fullText(record))
+	claimed := exemptClass.FindStringSubmatch(FullText(record))
 	if claimed == nil || !isGo(record) {
 		return nil
 	}
@@ -253,26 +252,12 @@ func finderGrade(text string) string {
 }
 
 func FullText(record client.Record) string {
-	return fullText(record)
-}
-
-func fullText(record client.Record) string {
-	if record.Refs.Path == "" {
-		return record.Text
+	text, err := client.WholeText(record)
+	if err != nil {
+		slog.Warn("a record's body could not be read, so its text counts as absent", "seq", record.Seq, "lane", record.Lane, "path", record.Refs.Path, "err", err)
+		return ""
 	}
-	spilled, err := os.ReadFile(record.Refs.Path)
-	if err != nil || !utf8.Valid(spilled) {
-		return record.Text
-	}
-	whole := string(spilled)
-	clipped, isClipped := strings.CutSuffix(record.Text, "…")
-	switch {
-	case strings.HasPrefix(strings.Join(strings.Fields(whole), " "), strings.Join(strings.Fields(clipped), " ")):
-		return whole
-	case isClipped:
-		return record.Text
-	}
-	return record.Text + "\n" + whole
+	return text
 }
 
 type Override struct {
@@ -291,7 +276,7 @@ func (o Override) Line(why string) string {
 }
 
 func Overrides(record client.Record) []Override {
-	return overridesIn(fullText(record))
+	return overridesIn(FullText(record))
 }
 
 func overridesIn(text string) []Override {
@@ -318,7 +303,7 @@ func Appeal(record client.Record) bool {
 }
 
 func UnreadOverrides(record client.Record) []string {
-	text := quotedSpan.ReplaceAllString(quotedBlock.ReplaceAllString(fullText(record), ""), "")
+	text := quotedSpan.ReplaceAllString(quotedBlock.ReplaceAllString(FullText(record), ""), "")
 	var unread []string
 	for _, span := range overrideNamed.FindAllStringIndex(text, -1) {
 		if !clauseStart.MatchString(text[:span[0]]) {
