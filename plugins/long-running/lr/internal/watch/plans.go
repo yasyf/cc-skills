@@ -132,8 +132,11 @@ func restatedClocks(records []client.Record, reply client.Record) []string {
 
 func restates(reply, earlier client.Record, cited []int64) bool {
 	cites := earlier.Seq == reply.Re || slices.Contains(cited, earlier.Seq)
+	if !cites && (reply.Re == 0 || earlier.Re != reply.Re) {
+		return false
+	}
 	if planned(earlier) {
-		return cites || reply.Re != 0 && earlier.Re == reply.Re
+		return true
 	}
 	return cites && !slices.Contains(kindsOwingNoPlan, string(earlier.Kind))
 }
