@@ -1206,6 +1206,72 @@ def test_a_reply_reads_angle_brackets_and_no_reply_id(page):
     assert page.evaluate("replyTitle({ title: 'Four items, two on your tap (#50590), and more' })") == "Four items, two on your tap, and more"
 
 
+NEEDS_MODEL = """() => {
+  const fact = (kind, text) => ({ kind, text });
+  state.model.board.cards = [{ id: 'card-a', key: 'a', title: 'Pick a way', summary: 'Why it matters', chips: [], prs: [], parts: [], decides: true, choice: 'a-choice', options: [{ id: 'a-1', label: 'One', hint: 'Same words as its facts', facts: [fact('gain', 'Faster')] }, { id: 'a-2', label: 'Two', hint: 'Only this says it' }] }];
+  state.model.board.answered = {};
+  state.model.taps = [
+    { kind: 'pick', id: 'card-a', card: 'card-a', title: 'Pick a way', frees: 3, line: 'Frees 3 changes: the fix and the docs. 1 worker stopped until you tap.', choice: 'a-choice' },
+    { kind: 'land', id: 'land-77001', number: 77001, title: 'Land the box fix', frees: 0, line: 'Nothing else waits on it.' },
+  ];
+  location.hash = '#/needs';
+  render();
+}"""
+
+
+def test_needs_me_sorts_by_kind_says_what_a_tap_frees_and_says_each_option_once(page):
+    open_chat(page)
+    page.evaluate(NEEDS_MODEL)
+    page.wait_for_selector(".fm")
+    assert page.locator(".pg-filters a").all_inner_texts() == ["All 2", "Your picks 1", "To land 1", "Slack posts 0"]
+    assert "1 worker stopped until you tap" in page.locator(".fm-freed").inner_text()
+    assert page.locator(".pk-hint").all_inner_texts() == ["Only this says it"]
+    page.evaluate("location.hash = '#/needs/land'")
+    page.wait_for_function("document.querySelectorAll('.fm').length === 1")
+    assert "Land the box fix" in page.locator(".fm").inner_text()
+    page.reload()
+    now(page)
+
+
+def test_now_says_what_was_decided_and_names_no_internal_group(page):
+    now(page)
+    page.evaluate("state.model.pages = { ...state.model.pages, history: { at: new Date().toISOString(), since: '12:00 AM', summary: [], entries: [{ at: '10:48 PM', kind: 'decision', title: 'You asked where tables live', detail: 'Each inbox gets its own table.', changes: [] }] } }; render()")
+    assert page.locator(".nw-fyi .ev-more").inner_text() == "Each inbox gets its own table."
+    assert page.locator(".nw-fyi .ev-more").is_visible()
+    assert page.locator(".nw-band .sub").count() == 0
+    page.evaluate("location.hash = '#/history'")
+    page.wait_for_selector(".hs p")
+    assert page.locator(".hs p").first.is_visible() and page.locator(".hs details").count() == 0
+    page.reload()
+    now(page)
+
+
+def test_a_phone_reads_a_change_inside_its_panel_with_no_key_hints(page):
+    context = page.context.browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    phone = context.new_page()
+    phone.goto(page.url.split("#")[0] + "#/review")
+    phone.wait_for_function("typeof state !== 'undefined' && state.model?.board?.rows?.length > 0")
+    phone.evaluate("location.hash = `#/review~review/${state.model.board.rows[0].number}`")
+    phone.wait_for_selector(".pr-drawer.front .mr-f dd")
+    fits = phone.evaluate("""() => {
+      const dd = document.querySelector('.pr-drawer.front .mr-f dd');
+      dd.textContent = 'x'.repeat(300);
+      return dd.getBoundingClientRect().right <= document.querySelector('.pr-drawer.front').getBoundingClientRect().right;
+    }""")
+    assert fits
+    assert phone.evaluate("[...document.querySelectorAll('kbd')].every((key) => key.getBoundingClientRect().width === 0)")
+    context.close()
+
+
+def test_a_phone_strip_leads_with_what_waits_on_him(page):
+    now(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    shown = page.evaluate("[...document.querySelectorAll('#tabs .tab')].sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left).map((tab) => tab.textContent.replace(/\\d+/g, '').trim())")
+    assert shown[:4] == ["Now", "Needs me", "Review", "Chat"]
+    page.set_viewport_size(LAPTOP)
+    now(page)
+
+
 def test_a_routed_update_is_one_line_until_he_opens_it(page):
     open_chat(page)
     row = page.locator(".update-row#rp-routed")

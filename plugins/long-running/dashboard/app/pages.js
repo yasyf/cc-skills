@@ -358,12 +358,12 @@ function workScreen() {
   const running = p.running.filter((w) => w.item === lead).map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, [sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : '', wordAt(workWord(w.item)).replace(/^l/, 'L')].filter(Boolean).join('<br>')));
   const byStatus = groupBy(p.running.filter((w) => w.item !== lead), (w) => w.status).map(([status, list]) => {
     const latest = list.map((w) => ({ w, word: workWord(w.item) })).sort((x, y) => new Date(y.word?.at ?? 0) - new Date(x.word?.at ?? 0))[0];
-    return { id: `wk-${status}`, iso: latest.word?.at ?? 0, at: latest.word ? clock(latest.word.at) : '', word: status, tone: WORK_TONE[status] ?? 'acc', title: list.length === 1 ? list[0].title : `${list.length} ${status.toLowerCase()}`, why: list.length === 1 ? '' : `latest: ${latest.w.title}`, side: list.length === 1 ? '' : countPill(list.length), more: `<div class="pg-list">${list.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, wordAt(workWord(w.item)).replace(/^l/, 'L'))).join('')}</div>` };
+    return { id: `wk-${status}`, iso: latest.word?.at ?? 0, at: latest.word ? clock(latest.word.at) : '', word: status, tone: WORK_TONE[status] ?? 'acc', title: list.length === 1 ? list[0].title : `${list.length} ${status.toLowerCase()}`, why: list.length === 1 ? '' : `newest is on: ${latest.w.title}`, more: `<div class="pg-list">${list.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} <span class="wk-latest">${esc(w.latest)}</span>`, wordAt(workWord(w.item)).replace(/^l/, 'L'))).join('')}</div>` };
   });
   const prRows = groupBy(open, (x) => prGroup(x.state)[0]).map(([label, list]) => {
     const [, word, tone] = prGroup(list[0].state);
     const dated = [...list].sort((x, y) => new Date(y.since) - new Date(x.since));
-    return { id: `wk-pr-${label}`, iso: dated[0].since, at: clock(dated[0].since), word, tone, title: list.length === 1 ? plainTitle(list[0].pr) : `${list.length} ${label}`, side: list.length === 1 ? '' : `oldest ${spanFor(dated.at(-1).since).replace(/^for /, '')} ${countPill(list.length)}`, more: `<div class="pg-list">${list.map(stackLine).join('')}</div>` };
+    return { id: `wk-pr-${label}`, iso: dated[0].since, at: clock(dated[0].since), word, tone, title: list.length === 1 ? plainTitle(list[0].pr) : `${list.length} ${label}`, side: list.length === 1 ? '' : `oldest ${spanFor(dated.at(-1).since).replace(/^for /, '')}`, more: `<div class="pg-list">${list.map(stackLine).join('')}</div>` };
   });
   const finished = p.finished.map((w) => row(w, `${w.outcome === 'stopped' ? `${dotted('Stopped', 'warn')} ` : ''}${esc(w.result)}`, `${w.outcome === 'stopped' ? 'Stopped' : 'Done'} ${esc(w.at)}`));
   const m = state.model;
@@ -469,7 +469,7 @@ function eventRow(e) {
   const line = `<time>${esc(e.at)}</time>${dotted(e.word, e.tone)}<b>${esc(e.title)}${e.why ? `<span class="ev-why">${esc(e.why)}</span>` : ''}</b><span class="ev-side">${e.side ?? ''}</span>`;
   return e.more
     ? `<li><details data-id="${esc(e.id)}"${state.open.has(e.id) ? ' open' : ''}><summary>${line}</summary><div class="ev-more">${e.more}</div></details></li>`
-    : `<li><div class="hs-line">${line}</div></li>`;
+    : `<li><div class="hs-line">${line}</div>${e.said ? `<div class="ev-more"><p>${esc(e.said)}</p></div>` : ''}</li>`;
 }
 function eventList(rows) {
   return `<ol class="hs ev-rows">${rows.map(eventRow).join('')}</ol>`;
@@ -486,11 +486,8 @@ function rowFold(id, cells, rows) {
   return `<details class="pg-rows" data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary class="pg-row"><span class="pg-cells">${cells.join('')}</span></summary>${rows.join('')}</details>`;
 }
 function historyEntry(e) {
-  const id = `hs-${e.at}-${e.title}`;
   const line = `<time>${esc(e.at)}</time>${dotted(HISTORY_WORD[e.kind], HISTORY_TONE[e.kind])}<b>${esc(e.title)}</b>`;
-  return e.detail.trim()
-    ? `<li><details data-id="${esc(id)}"${state.open.has(id) ? ' open' : ''}><summary>${line}</summary><p>${esc(e.detail)}</p></details></li>`
-    : `<li><div class="hs-line">${line}</div></li>`;
+  return `<li><div class="hs-line">${line}</div>${e.detail.trim() ? `<p>${esc(e.detail)}</p>` : ''}</li>`;
 }
 function historyScreen(filter) {
   const p = curated('history');
@@ -514,6 +511,7 @@ document.addEventListener('click', (e) => {
 });
 
 const TAP_WORD = { land: 'Land it', pick: 'Your pick', slack: 'Slack post' };
+const TAP_FILTER = { pick: 'Your picks', land: 'To land', slack: 'Slack posts' };
 const PICKED_SHOWN_MINUTES = 30;
 function tapWords(text) {
   return plain(text).replace(/\s*\(?#\d{4,5}\)?,?/g, '');
@@ -552,7 +550,8 @@ function tapRow(t, at) {
   const textId = `tap-text-${t.id}`;
   const post = t.text ? `<details class="fm-thread" data-id="${esc(textId)}"${state.open.has(textId) ? ' open' : ''}><summary>Read the post</summary><div class="fm-open fm-post">${esc(t.text)}</div></details>` : '';
   const more = t.subject || kept ? '' : explainMore(c, cardAsk(c));
-  return tapShell(t, at, lead, why, `${pick}${post}${more}`, kept);
+  const freed = summary && t.frees && !kept ? `<p class="fm-freed">${esc(tapWords(t.line))}</p>` : '';
+  return tapShell(t, at, lead, why, `${freed}${pick}${post}${more}`, kept);
 }
 function tapShell(t, at, lead, why, body, kept) {
   return `<article class="fm${kept ? ' done' : t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${kept ? '✓' : at + 1}</span><div class="fm-main">
@@ -563,15 +562,17 @@ function tapShell(t, at, lead, why, body, kept) {
 function feedDivider(word) {
   return `<h2 class="fd-div"><span>${word}</span></h2>`;
 }
-function needsScreen() {
+function needsScreen(kind = '') {
   const waiting = openTaps().length;
-  const taps = shownTaps();
+  const all = shownTaps();
+  const taps = all.filter((t) => !kind || t.kind === kind);
+  const strip = `<nav class="pg-filters"><a href="#/needs" class="${kind ? '' : 'on'}">All <b>${all.length}</b></a>${Object.entries(TAP_FILTER).map(([id, label]) => `<a href="#/needs/${id}" class="${id === kind ? 'on' : ''}">${label} <b>${all.filter((t) => t.kind === id).length}</b></a>`).join('')}</nav>`;
   const incidents = taps.filter((t) => t.urgent);
   const freeing = taps.filter((t) => !t.urgent && t.frees);
   const rest = taps.filter((t) => !t.urgent && !t.frees);
   const lead = waiting ? `${plural(waiting, 'tap')} wait on you, the most downstream work first.` : 'Nothing waits on your tap.';
   const notes = state.model.board.cards.filter((c) => !c.decides);
-  return `<div class="pg fd"><header class="fd-h"><h1>${lead}</h1></header>
+  return `<div class="pg fd"><header class="fd-h"><h1>${lead}</h1></header>${strip}
     ${incidents.length ? `${feedDivider('Live incidents')}${incidents.map(tapRow).join('')}` : ''}
     ${freeing.length ? `${feedDivider('These free other work')}${freeing.map((t, at) => tapRow(t, at + incidents.length)).join('')}` : ''}
     ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + incidents.length + freeing.length)).join('')}` : ''}
