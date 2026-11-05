@@ -58,6 +58,7 @@ const (
 	stateMerged = "merged"
 
 	factCI        = "read-ci"
+	requiredCheck = "required-check:"
 	factApprovers = "read-approvers"
 	factMergeable = "read-mergeable"
 	factQueue     = "read-queue"
@@ -288,6 +289,9 @@ func (f Fold) tail(ctx context.Context, drive, cursor string, kinds []string) ([
 }
 
 func (f Fold) follow(t *store.Tx, rows map[int]store.ReviewRow, record client.Record) error {
+	if record.Topic == "check" {
+		return f.checked(t, rows, record)
+	}
 	for _, number := range bus.HeldBy(record, f.Repo) {
 		row, known := rows[number]
 		if !known {
@@ -318,6 +322,46 @@ func (f Fold) follow(t *store.Tx, rows map[int]store.ReviewRow, record client.Re
 		rows[number] = row
 	}
 	return nil
+}
+
+func (f Fold) checked(t *store.Tx, rows map[int]store.ReviewRow, record client.Record) error {
+	attrs := record.Fields.Attrs
+	if !strings.EqualFold(attrs["repo"], f.Repo) {
+		return nil
+	}
+	for number, row := range rows {
+		if !sameHead(row.Head, record.Fields.Commit) {
+			continue
+		}
+		if err := t.PutFact(f.Repo, number, row.Head, requiredCheck+attrs["check"], record.Fields.Outcome, record.At); err != nil {
+			return err
+		}
+		facts, err := t.Facts(f.Repo, number, row.Head)
+		if err != nil {
+			return err
+		}
+		ci, decided := requiredCI(strings.Split(attrs["required"], ","), facts)
+		if !decided {
+			continue
+		}
+		if err := t.PutFact(f.Repo, number, row.Head, factCI, ci, record.At); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requiredCI(required []string, facts map[string]string) (string, bool) {
+	passed := 0
+	for _, check := range required {
+		switch facts[requiredCheck+check] {
+		case "success", "neutral", "skipped":
+			passed++
+		case "failure", "error", "cancelled", "timed_out", "action_required", "startup_failure":
+			return CIRed, true
+		}
+	}
+	return CIGreen, passed == len(required)
 }
 
 func values(rows map[int]store.ReviewRow) []store.ReviewRow {

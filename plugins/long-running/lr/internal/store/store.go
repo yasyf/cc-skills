@@ -369,7 +369,19 @@ func (s *Store) FullHead(repo string, number int, short string) (string, error) 
 }
 
 func (s *Store) Facts(repo string, number int, head string) (map[string]string, error) {
-	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3) ORDER BY posted, kind LIKE 'override-%', length(head)", repo, number, head)
+	return factsAt(s.db, repo, number, head)
+}
+
+func (t *Tx) Facts(repo string, number int, head string) (map[string]string, error) {
+	return factsAt(t.tx, repo, number, head)
+}
+
+type querier interface {
+	Query(string, ...any) (*sql.Rows, error)
+}
+
+func factsAt(db querier, repo string, number int, head string) (map[string]string, error) {
+	rows, err := db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3) ORDER BY posted, kind LIKE 'override-%', length(head)", repo, number, head)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
 		var pair [2]string
 		err := rows.Scan(&pair[0], &pair[1])
