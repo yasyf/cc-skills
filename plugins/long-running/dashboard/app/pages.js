@@ -587,7 +587,11 @@ const SURFACE_WORD = { board: 'Board', talk: 'Talk', slack: 'Slack', record: 'Re
 const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
 const rp = { sort: new Map(), sent: [], failed: new Map(), modal: null };
 const NOISE = [
+  [/&lt;/g, '<'],
+  [/&gt;/g, '>'],
+  [/&amp;/g, '&'],
   [/<!--[\s\S]*?-->/g, ''],
+  [/\s*\(?\brm[a-z0-9]{7}\b\)?/g, ''],
   [/\s*\([^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
   [/\brecords?\s+#*\d[\dx]*\b/gi, ''],
   [/\bowner table\s+[0-9a-f]{6,}\b/gi, ''],

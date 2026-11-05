@@ -17,9 +17,11 @@ const RAIL_SHOWN = 6;
 const SIMPLE_PICK = 50;
 const BARE_ASK_MINUTES = 60;
 const CLAMP_CHARS = 340;
-const PR_CARDS_SHOWN = 3;
 const PR_CHIPS_SHOWN = 6;
 const DONE_LEAD = /^Done, nothing for you[.:]?\s*/i;
+const DASHBOARD_URL = String.raw`https?://([\w.-]+)(?::\d+)?/?(#[^\s)]*?)?`;
+const DASHBOARD_LINE = new RegExp(String.raw`^[ \t]*${DASHBOARD_URL}[ \t]*$\n*`, 'gm');
+const DASHBOARD_WORD = new RegExp(String.raw`(\bat )?${DASHBOARD_URL}(?=[.,;:!?)]*(?:\s|$))`, 'g');
 const SCREENSHOT = /\[Image #\d+\]/g;
 const chatDraft = (on) => `draft:chat:${on}:`;
 const chatIcon = (name, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${CHAT_ICONS[name]}"></path></svg>`;
@@ -163,15 +165,21 @@ function chatRows() {
 }
 
 function replyTitle(r) {
-  const words = plain(r.title).replace(DONE_LEAD, '').replace(/#\d{4,5}\b,? ?/g, '').trim();
+  const words = plain(r.title).replace(DONE_LEAD, '').replace(/\s*\(#\d{4,5}\)|#\d{4,5}\b,? ?/g, '').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 function bodyAfterTitle(words, title) {
   const lead = /^[^.\n]{12,}[.\n]\s*/.exec(words);
   return lead && title.toLowerCase().startsWith(lead[0].replace(/[.\s]+$/, '').toLowerCase()) ? words.slice(lead[0].length) : words;
 }
+function dashboardLinksHere(md) {
+  const own = new Set(state.model.own_hosts);
+  return md
+    .replace(DASHBOARD_LINE, (line, host) => (own.has(host) ? '' : line))
+    .replace(DASHBOARD_WORD, (url, at, host, hash) => (own.has(host) ? `[here](${hash ?? '#/'})` : url));
+}
 function chatBody(id, md, title = '') {
-  const words = bodyAfterTitle(plain(namedChanges(md)).replace(DONE_LEAD, ''), title);
+  const words = bodyAfterTitle(plain(namedChanges(dashboardLinksHere(md))).replace(DONE_LEAD, ''), title);
   const body = `<div class="rp-md prose obj-text" data-clamp="${esc(id)}">${replyMarkdown(id, words)}</div>`;
   return words.length > CLAMP_CHARS ? `${body}<button class="text-button" data-read="${esc(id)}">Read all</button>` : body;
 }
@@ -187,8 +195,8 @@ function docCard(l, deck, kind = 'One-pager', icon = 'doc') {
   return `<div class="artifact document-card"><div class="artifact-top">${chatIcon(icon)} ${kind}</div><div class="document-body${preview ? '' : ' plain'}"><div><h3 class="document-title">${esc(label)}</h3><p class="document-deck">${esc(deck)}</p></div>${preview}</div><div class="doc-footer"><span></span>${framed ? `<button data-doc-open="${esc(l.url)}" data-doc-title="${esc(label)}">Read it ${chatIcon('arrow')}</button>` : `<a href="${esc(l.url)}" target="_blank" rel="noopener">Read it ${chatIcon('arrow')}</a>`}</div></div>`;
 }
 function replyLinks(r) {
-  const links = r.links ?? [];
-  const deck = firstClause(plain(r.md).replace(DONE_LEAD, '').replace(/[*`#]+/g, ''));
+  const links = (r.links ?? []).filter((l) => dashboardLinksHere(l.url) === l.url);
+  const deck = firstClause(plain(dashboardLinksHere(r.md)).replace(DONE_LEAD, '').replace(/[*`#]+/g, ''));
   const chips = links.filter((l) => !isOnePager(l.url)).map(linkTile).join('');
   const diagram = r.diagram ? docCard({ label: r.diagram.title, url: `${location.origin}/diagram/${r.id}` }, deck, 'Diagram', 'diagram') : '';
   return `${diagram}${links.filter((l) => isOnePager(l.url)).map((l) => docCard(l, deck)).join('')}${chips ? `<div class="decision-tail">${chips}</div>` : ''}`;
@@ -205,9 +213,10 @@ function prCard(n) {
   const pr = state.model.prs[n] ?? {};
   const words = rowWords(row);
   const stage = prState(n);
+  const heldBy = state.model.board.cards.some((c) => c.decides && c.prs.includes(Number(n)) && !cardAnswered(c.id));
   const checks = [pr.test_state && `Checks ${pr.test_state}`, pr.ai_review && `Review ${pr.ai_review}`, pr.changed_files && plural(Number(pr.changed_files), 'file')].filter(Boolean);
   const failed = pending.number === Number(n) && pending.error ? `<em class="nsent bad">Not recorded: ${esc(pending.error)}. Try again.</em>` : '';
-  return `<div class="artifact pr-card" id="pr-${n}"><div class="artifact-top">${chatIcon('pr')} Pull request<span class="right">${esc(STATE_WORD[stage] ?? '')}</span></div><div class="pr-heading"><h3>${esc(plainTitle(n))}</h3></div>${words.change ? `<p class="pr-desc">${inline(plain(words.change))}</p>` : ''}${words.blocker && verdictState(row) === 'you' ? `<p class="pr-desc pr-blocks">${inline(plain(words.blocker))}</p>` : ''}<div class="pr-checks">${checks.map((c) => `<span><i class="dot"></i>${esc(c)}</span>`).join('')}</div><div class="pr-bottom">${rowActs(row)}${failed}<a class="source-link" href="#/replies~review/${n}">View change ${chatIcon('arrow')}</a></div></div>`;
+  return `<div class="artifact pr-card" id="pr-${n}"><div class="artifact-top">${chatIcon('pr')} Pull request<span class="right">${esc(heldBy ? 'Waits on your answer' : STATE_WORD[stage] ?? '')}</span></div><div class="pr-heading"><h3>${esc(plainTitle(n))}</h3></div>${words.change ? `<p class="pr-desc">${inline(plain(words.change))}</p>` : ''}${words.blocker && verdictState(row) === 'you' ? `<p class="pr-desc pr-blocks">${inline(plain(words.blocker))}</p>` : ''}<div class="pr-checks">${checks.map((c) => `<span><i class="dot"></i>${esc(c)}</span>`).join('')}</div><div class="pr-bottom">${rowActs(row)}${failed}<a class="source-link" href="#/replies~review/${n}">View change ${chatIcon('arrow')}</a></div></div>`;
 }
 function prChip(n) {
   return `<a class="embedded-ref" href="#/replies~review/${n}">${chatIcon('pr')}${esc(changeWords(n))}${state.model.prs[n] ? ` · ${esc(STATE_WORD[prState(n)] ?? '')}` : ''}</a>`;
@@ -216,7 +225,7 @@ function prObjects(numbers) {
   const fresh = numbers.filter((n) => !cw.seen.has(n));
   for (const n of fresh) cw.seen.add(n);
   const open = (n) => boardRow(n) && !['landed', 'closed'].includes(prState(n));
-  const cards = fresh.filter(open).slice(0, PR_CARDS_SHOWN);
+  const cards = fresh.filter(open);
   const chips = fresh.filter((n) => !cards.includes(n) && (state.model.prs[n] || boardRow(n)));
   const shown = chips.slice(0, PR_CHIPS_SHOWN).map(prChip).join('');
   return `${cards.map(prCard).join('')}${shown ? `<div class="decision-tail">${shown}${chips.length > PR_CHIPS_SHOWN ? `<span class="embedded-ref">${chips.length - PR_CHIPS_SHOWN} more</span>` : ''}</div>` : ''}`;
@@ -309,6 +318,7 @@ function saidLines(t) {
   return t.said.map((line) => `<p class="reply-receipt">${chatIcon('reply')}<span>${esc(line.text)}<small>${line.sending ? 'Sending…' : clock(line.at)}</small></span></p>`).join('');
 }
 function threadBody({ t, stage }) {
+  cw.seen = new Set();
   if (t.card) return `<div class="responses loose">${questionObject(t.card)}</div>`;
   const objects = t.replies.map((entry) => replyObject(entry, t)).join('');
   const said = saidLines(t);
@@ -396,7 +406,6 @@ function chatKeyed(parent, items) {
 }
 function patchChat() {
   if (!state.model.owner_asks) return;
-  cw.seen = new Set();
   const { all, lines, count, hidden, attention } = chatRows();
   const list = $('#cw-list');
   if (!list) return;
