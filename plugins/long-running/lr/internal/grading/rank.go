@@ -42,12 +42,17 @@ func (p *JobPool) Plan(ctx context.Context, items []store.Item, snapshot map[int
 }
 
 func (p *JobPool) Rank(ctx context.Context, items []store.Item, snapshot map[int]machine.Facts, now time.Time) ([]store.Item, error) {
-	decides, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindDecide, kindAsk, kindFirst}, Lanes: []string{rootLane, firstLane}, Since: now.Add(-rootFirstHorizon)})
+	since := now.Add(-rootFirstHorizon)
+	decides, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindDecide, kindAsk}, Lanes: []string{rootLane}, Since: since})
+	if err != nil {
+		return nil, err
+	}
+	asked, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindFirst}, Since: since})
 	if err != nil {
 		return nil, err
 	}
 	p.firsts = map[string]bool{}
-	for _, decide := range decides {
+	for _, decide := range append(decides, asked...) {
 		for _, pr := range namedFirst(bus.FullText(decide)) {
 			p.firsts[pr] = true
 		}
