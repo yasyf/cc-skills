@@ -2,8 +2,6 @@ package grading
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"testing"
@@ -125,32 +123,6 @@ func TestAReviewNamingNoShaGradesTheHeadPostedBeforeIt(t *testing.T) {
 	}
 	if graded := gradedReviews(reviews); len(graded) != 1 || graded[0].Seq != early {
 		t.Errorf("graded = %+v", graded)
-	}
-}
-
-func TestAWholeBodyIsReadUnlessItNoLongerOpensWithTheClippedText(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "body.md")
-	if err := os.WriteFile(path, []byte("the whole of it"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	record := func(text string) client.Record {
-		r := client.Record{Text: text}
-		r.Refs.Path = path
-		return r
-	}
-	if got := fullText(record("the whole")); got != "the whole of it" {
-		t.Errorf("got %q", got)
-	}
-	if got := fullText(record("the whole" + clipMark)); got != "the whole of it" {
-		t.Errorf("got %q", got)
-	}
-	if got := fullText(record("rewritten" + clipMark)); got != "rewritten"+clipMark {
-		t.Errorf("got %q", got)
-	}
-	r := client.Record{Text: "kept"}
-	r.Refs.Path = filepath.Join(t.TempDir(), "gone.md")
-	if got := fullText(r); got != "kept" {
-		t.Errorf("got %q", got)
 	}
 }
 

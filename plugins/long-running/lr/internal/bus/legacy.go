@@ -249,10 +249,14 @@ func fullText(record client.Record) string {
 		return record.Text
 	}
 	whole := string(spilled)
-	if clipped, isClipped := strings.CutSuffix(record.Text, "…"); isClipped && !strings.HasPrefix(strings.Join(strings.Fields(whole), " "), clipped) {
+	clipped, isClipped := strings.CutSuffix(record.Text, "…")
+	switch {
+	case strings.HasPrefix(strings.Join(strings.Fields(whole), " "), strings.Join(strings.Fields(clipped), " ")):
+		return whole
+	case isClipped:
 		return record.Text
 	}
-	return whole
+	return record.Text + "\n" + whole
 }
 
 type Override struct {

@@ -2,12 +2,10 @@ package grading
 
 import (
 	"context"
-	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -65,20 +63,6 @@ type review struct {
 type headEntry struct {
 	commit string
 	was    string
-}
-
-func fullText(r client.Record) string {
-	if r.Refs.Path == "" {
-		return r.Text
-	}
-	data, err := os.ReadFile(r.Refs.Path)
-	if err != nil || !utf8.Valid(data) {
-		return r.Text
-	}
-	if clipped, isClipped := strings.CutSuffix(r.Text, clipMark); isClipped && !strings.HasPrefix(string(data), clipped) {
-		return r.Text
-	}
-	return string(data)
 }
 
 func refsName(r client.Record, repo, pr string) bool {
@@ -295,7 +279,7 @@ func fidelityGrades(found []client.Record, lanes []string, repo, pr string) []cl
 		if r.Kind != kindReview || !slices.Contains(lanes, r.Lane) || !startsWithAny(r.Text, []string{fidelityOK, fidelityMissing}) || !refsName(r, repo, pr) {
 			continue
 		}
-		r.Text = fullText(r)
+		r.Text, r.Refs.Path = bus.FullText(r), ""
 		grades = append(grades, r)
 	}
 	return grades
@@ -315,7 +299,7 @@ func oldApps(found []client.Record, lanes []string, repo, pr string) []grader.Ol
 		if r.Kind != kindReview || !slices.Contains(lanes, r.Lane) {
 			continue
 		}
-		line := oldAppGrade.FindString(fullText(r))
+		line := oldAppGrade.FindString(bus.FullText(r))
 		head := headNamed(r, heads, repo, pr)
 		if line == "" || head == "" {
 			continue
@@ -328,13 +312,13 @@ func oldApps(found []client.Record, lanes []string, repo, pr string) []grader.Ol
 func newestContract(contracts []client.Record, repo, pr string) string {
 	for _, r := range slices.Backward(contracts) {
 		if aboutPR(r, repo, pr) {
-			return fullText(r)
+			return bus.FullText(r)
 		}
 	}
 	if len(contracts) == 0 {
 		return ""
 	}
-	return fullText(contracts[len(contracts)-1])
+	return bus.FullText(contracts[len(contracts)-1])
 }
 
 func resolves(r client.Record, seq int64) bool {
@@ -415,7 +399,7 @@ func rootSettled(ctx context.Context, drive, repo, pr string, named []client.Rec
 		return nil, err
 	}
 	for _, decide := range decides {
-		text := fullText(decide)
+		text := bus.FullText(decide)
 		for _, r := range named {
 			key := strconv.FormatInt(r.Seq, 10)
 			if _, done := settled[key]; !done && decideSettles(decide, text, repo, pr, r) {
@@ -439,7 +423,7 @@ func settleByCountedOverrides(ctx context.Context, drive, pull, pr string, oldes
 		return err
 	}
 	for _, decide := range decides {
-		text := fullText(decide)
+		text := bus.FullText(decide)
 		for _, r := range named {
 			if !hasSettled(settled, r.Seq) && r.Seq < decide.Seq && overrideNames(text, pr, r.Text) {
 				settled[strconv.FormatInt(r.Seq, 10)] = decide.Seq
@@ -466,7 +450,7 @@ func settleByRebuttals(ctx context.Context, drive, repo, pr, pull string, oldest
 			continue
 		}
 		rebuttals = append(rebuttals, r)
-		cited = append(cited, citedSeqs(fullText(r))...)
+		cited = append(cited, citedSeqs(bus.FullText(r))...)
 	}
 	if len(cited) == 0 {
 		return nil
@@ -487,7 +471,7 @@ func settleByRebuttals(ctx context.Context, drive, repo, pr, pull string, oldest
 
 func applyRebuttals(rebuttals []client.Record, rulings map[int64]bool, settled map[string]int64) {
 	for _, r := range rebuttals {
-		for _, seq := range citedSeqs(fullText(r)) {
+		for _, seq := range citedSeqs(bus.FullText(r)) {
 			if rulings[seq] && !hasSettled(settled, r.Re) {
 				settled[strconv.FormatInt(r.Re, 10)] = seq
 			}

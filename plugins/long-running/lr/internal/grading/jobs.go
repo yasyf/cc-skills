@@ -196,7 +196,7 @@ func (p *JobPool) bugItems(ctx context.Context, body string) (grader.BugItems, e
 	var items grader.BugItems
 	for _, r := range found {
 		if number := r.Fields.Attrs[itemAttr]; named[number] {
-			items.Items = append(items.Items, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: fullText(r)})
+			items.Items = append(items.Items, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: bus.FullText(r)})
 			delete(unknown, number)
 		}
 	}
@@ -302,7 +302,7 @@ func (p *JobPool) tapCard(ctx context.Context, state string, tap tapCapture) (st
 func recordTexts(records []client.Record) string {
 	texts := make([]string, 0, len(records))
 	for _, r := range records {
-		texts = append(texts, fullText(r))
+		texts = append(texts, bus.FullText(r))
 	}
 	return strings.Join(texts, "\n")
 }
@@ -524,7 +524,7 @@ func corrected(rulings []client.Record) []int64 {
 func jobRulings(rulings []client.Record) []grader.Ruling {
 	listed := make([]grader.Ruling, 0, len(rulings))
 	for _, r := range rulings {
-		listed = append(listed, grader.Ruling{Seq: r.Seq, Text: fullText(r)})
+		listed = append(listed, grader.Ruling{Seq: r.Seq, Text: bus.FullText(r)})
 	}
 	return listed
 }
@@ -544,7 +544,7 @@ func (p *JobPool) fidelitySources(ctx context.Context, spec Spec, lane string, l
 		if slices.Contains(cited, r.Seq) && (r.Lane != rootLane || (r.Kind != kindDefect && r.Kind != kindDecide && r.Kind != kindAnswer)) {
 			continue
 		}
-		sections = append(sections, fmt.Sprintf("## cci #%d, %s from %s\n\n%s", r.Seq, r.Kind, r.Lane, fullText(r)))
+		sections = append(sections, fmt.Sprintf("## cci #%d, %s from %s\n\n%s", r.Seq, r.Kind, r.Lane, bus.FullText(r)))
 	}
 	card, unreadCard, err := p.boardCard(ctx, live.HeadRefName)
 	if err != nil {

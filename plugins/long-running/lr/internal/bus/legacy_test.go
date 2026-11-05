@@ -213,6 +213,30 @@ func TestABodyRewrittenAfterPostingIsNotTheRecordsText(t *testing.T) {
 	}
 }
 
+func TestAWholeTextIsTheBodyItOpensOrTheTextThenItsBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "body.md")
+	if err := os.WriteFile(path, []byte("the whole of it"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for text, want := range map[string]string{
+		"the whole":  "the whole of it",
+		"the whole…": "the whole of it",
+		"rewritten…": "rewritten…",
+		"Owner: #7":  "Owner: #7\nthe whole of it",
+	} {
+		record := client.Record{Text: text}
+		record.Refs.Path = path
+		if got := bus.FullText(record); got != want {
+			t.Errorf("FullText(%q) = %q, want %q", text, got, want)
+		}
+	}
+	gone := client.Record{Text: "kept"}
+	gone.Refs.Path = filepath.Join(t.TempDir(), "gone.md")
+	if got := bus.FullText(gone); got != "kept" {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestTheFirstReadStartsThreeDaysBackAndLaterReadsFromTheCursor(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	b := bus.Bus{Drive: "d", Lane: "finder-desk"}
