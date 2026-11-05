@@ -1272,6 +1272,29 @@ def test_a_phone_strip_leads_with_what_waits_on_him(page):
     now(page)
 
 
+def test_one_message_recorded_twice_is_one_ask_holding_every_answer(page):
+    open_chat(page)
+    page.evaluate("""() => {
+      const row = (m, iso, text) => ({ m, iso, text, state: 'asked', ack: 'routed', lanes: [], prs: [] });
+      const post = (id, order) => ({ reply: { id, title: `Post ${id}`, md: 'Words', type: 'explanation', status: 'info', order }, at: '2026-11-03T20:00:00Z', surfaces: [] });
+      state.model.owner_asks.messages = [
+        row('8.1', '2026-11-03T22:48:00-08:00', 'both parts of what he typed'),
+        row('9.1', '2026-11-03T22:49:00-08:00', 'both parts of what he typed'),
+        row('9.2', '2026-11-03T22:49:00-08:00', 'and the line he added'),
+        row('10', '2026-11-03T23:30:00-08:00', 'both parts of what he typed'),
+      ];
+      state.model.replies = [post('first', 'm8.1'), post('second', 'm9.2')];
+      state.model.board.cards = [];
+      render();
+    }""")
+    assert page.locator(".cw .thread .ask-head").count() == 2
+    merged = page.locator('.cw .thread[data-k="line:m8"]')
+    assert merged.locator(".decision-card").count() == 2
+    assert "and the line he added" in merged.locator(".ask-detail").text_content()
+    page.reload()
+    now(page)
+
+
 def test_a_routed_update_is_one_line_until_he_opens_it(page):
     open_chat(page)
     row = page.locator(".update-row#rp-routed")
