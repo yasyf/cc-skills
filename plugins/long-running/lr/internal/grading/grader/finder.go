@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ import (
 const (
 	FinderLane    = "finder-desk"
 	CancelledFile = "cancelled"
+	findingsState = "findings.json"
 	wholeRead     = "over whole "
 	censusPrefix  = "census:"
 	followUpWord  = "follow-up:"
@@ -159,6 +161,9 @@ func (s *finderPassState) reviewed() (string, error) {
 
 func (s *finderPassState) grade() (FinderOutcome, error) {
 	spec := s.job
+	if err := spec.inputsArrived(); err != nil {
+		return FinderOutcome{}, err
+	}
 	pull := spec.pull()
 	plan := s.planRead()
 	view, err := s.viewPR()
@@ -243,11 +248,11 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if len(keys) > bigSlice {
 		spec.Model = bigSliceModel
 	}
-	planned, err := plan.result()
+	planned, err := planOnThisBox(plan)
 	if err != nil {
 		return FinderOutcome{}, err
 	}
-	question := s.prompt(view, base, own, last, pairs, changed, rowsPath, strings.TrimSpace(planned), diff)
+	question := s.prompt(view, base, own, last, pairs, changed, rowsPath, planned, diff)
 	questionPath := filepath.Join(s.dir, "question-1.md")
 	if err := os.WriteFile(questionPath, []byte(question), 0o600); err != nil {
 		return FinderOutcome{}, err
@@ -791,7 +796,7 @@ func (s *finderPassState) landedFixes() ([]landedFix, error) {
 	if len(shas) == 0 {
 		return nil, nil
 	}
-	log, err := s.gitFed(lines(shas), "log", "--ignore-missing", "--no-walk=unsorted", "--no-renames", "--name-only", "--format=@%H", "--stdin")
+	log, err := s.gitFed(lines(shas), "log", "--no-walk=unsorted", "--no-renames", "--name-only", "--format=@%H", "--stdin")
 	if err != nil {
 		return nil, err
 	}
@@ -876,6 +881,21 @@ func DriveProgram(config, drive string) (string, error) {
 		return "", err
 	}
 	return cmp.Or(entry.Program, filepath.Base(entry.StateDir)), nil
+}
+
+func BookedDrive(config, drive string) (string, error) {
+	entry, err := driveOf(config, drive)
+	if errors.Is(err, errNoDrive) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	_, err = os.Stat(filepath.Join(entry.StateDir, findingsState))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	return entry.Drive, err
 }
 
 func DriveState(config, drive string) (string, error) {

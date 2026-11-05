@@ -264,17 +264,18 @@ func (p *JobPool) startWhole(ctx context.Context, d desk, ask wholeAsk, snapshot
 	}
 	facts := snapshot[number]
 	facts.Repo, facts.Number, facts.Head = p.repo(), number, ""
-	built, err := p.wholeJob(ctx, d, facts, ask, sprite)
+	directory := filepath.Join(p.root, d.lane, attemptBase(base, plan.number))
+	built, err := p.wholeJob(ctx, d, facts, ask, sprite, directory)
 	if errors.Is(err, ErrAnswered) {
 		return "", p.finishWhole(ask)
 	}
 	if err != nil {
 		return "", err
 	}
-	return p.start(ctx, GraderFinder, d, sprite, filepath.Join(p.root, d.lane, attemptBase(base, plan.number)), built)
+	return p.start(ctx, GraderFinder, d, sprite, directory, built)
 }
 
-func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask wholeAsk, sprite string) (job, error) {
+func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask wholeAsk, sprite, directory string) (job, error) {
 	pr := strconv.Itoa(facts.Number)
 	pull := facts.Repo + "#" + pr
 	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview, kindHead}, PR: pull})
@@ -283,7 +284,7 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 	}
 	reviews := finderReviews(found, facts.Repo, pr)
 	if ask.Head != "" {
-		return p.recheckJob(ctx, d, facts, ask, sprite, reviews)
+		return p.recheckJob(ctx, d, facts, ask, sprite, directory, reviews)
 	}
 	moved := int64(0)
 	for _, r := range found {
@@ -309,16 +310,28 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 	if err != nil {
 		return job{}, err
 	}
-	items, err := p.bugItems(ctx, p.readPR(ctx, facts.Repo, pr).Body)
+	live := p.readPR(ctx, facts.Repo, pr)
+	items, err := p.bugItems(ctx, live.Body)
 	if err != nil {
 		return job{}, err
 	}
+	landed, err := p.landedRows()
+	if err != nil {
+		return job{}, err
+	}
+	answers, err := p.answersOwed(ctx, live, recordTexts(ruled))
+	if err != nil {
+		return job{}, err
+	}
+	bodies := map[string][]byte{}
+	history, unreadHistory := jobRecords(named, directory, bodies)
+	rulings, unreadRulings := jobRecords(ruled, directory, bodies)
 	base := p.baseJob(d, facts, sprite, settled)
-	base.Lane, base.BugItems = ask.Lane, items
-	return job{spec: grader.FinderJob{Job: base, History: jobRecords(named), Ruled: jobRecords(ruled), Full: true}}, nil
+	base.Lane, base.BugItems, base.Unread = ask.Lane, items, slices.Concat(unreadHistory, unreadRulings)
+	return job{landed: landed, answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, History: history, Ruled: rulings, Full: true}}, nil
 }
 
-func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, ask wholeAsk, sprite string, reviews []review) (job, error) {
+func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, ask wholeAsk, sprite, directory string, reviews []review) (job, error) {
 	asked, err := strconv.ParseInt(ask.Key, 10, 64)
 	if err != nil {
 		return job{}, err
@@ -343,7 +356,9 @@ func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, a
 	if err != nil {
 		return job{}, err
 	}
+	bodies := map[string][]byte{}
+	history, unread := jobRecords(named, directory, bodies)
 	base := p.baseJob(d, facts, sprite, settled)
-	base.Head, base.Lane, base.BugItems = ask.Head, ask.Lane, items
-	return job{spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Lane: last.Lane, Head: last.head, Text: last.Text}, History: jobRecords(named)}}, nil
+	base.Head, base.Lane, base.BugItems, base.Unread = ask.Head, ask.Lane, items, unread
+	return job{bodies: bodies, spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Lane: last.Lane, Head: last.head, Text: last.Text}, History: history}}, nil
 }

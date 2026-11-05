@@ -19,6 +19,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
@@ -38,11 +39,13 @@ const (
 	cardTimeout   = 10 * time.Second
 	docChars      = 7
 	itemAttr      = "item"
+	recordsDir    = "records"
 )
 
 var (
-	itemList   = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
-	itemNumber = regexp.MustCompile(`\d+`)
+	itemList    = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
+	itemNumber  = regexp.MustCompile(`\d+`)
+	errNoOutput = errors.New("it printed nothing")
 )
 
 type job struct {
@@ -52,6 +55,7 @@ type job struct {
 	cards   string
 	answers []quotes.Answer
 	landed  []grader.LandedRow
+	bodies  map[string][]byte
 }
 
 type livePR struct {
@@ -107,7 +111,7 @@ func (p *JobPool) baseJob(d desk, facts machine.Facts, sprite string, settled ma
 	}
 }
 
-func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sprite string, live livePR) (job, error) {
+func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sprite, directory string, live livePR) (job, error) {
 	pr := strconv.Itoa(facts.Number)
 	pull := facts.Repo + "#" + pr
 	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview, kindHead}, PR: pull})
@@ -144,15 +148,19 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 	if err != nil {
 		return job{}, err
 	}
+	bodies := map[string][]byte{}
+	history, unreadHistory := jobRecords(named, directory, bodies)
+	rulings, unreadRulings := jobRecords(ruled, directory, bodies)
 	base := p.baseJob(d, facts, sprite, settled)
 	base.BugItems = items
-	return job{landed: landed, cited: recordTexts(ruled), spec: grader.FinderJob{
+	base.Unread = slices.Concat(unreadHistory, unreadRulings)
+	return job{landed: landed, bodies: bodies, cited: recordTexts(ruled), spec: grader.FinderJob{
 		Job:      base,
 		Since:    last,
 		Prior:    prior,
 		Previous: previous,
-		History:  jobRecords(named),
-		Ruled:    jobRecords(ruled),
+		History:  history,
+		Ruled:    rulings,
 	}}, nil
 }
 
@@ -299,12 +307,23 @@ func recordTexts(records []client.Record) string {
 	return strings.Join(texts, "\n")
 }
 
-func jobRecords(records []client.Record) []grader.Record {
+func jobRecords(records []client.Record, directory string, bodies map[string][]byte) ([]grader.Record, []string) {
 	listed := make([]grader.Record, 0, len(records))
+	var unread []string
 	for _, r := range records {
-		listed = append(listed, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: r.Text, Path: r.Refs.Path})
+		record := grader.Record{Seq: r.Seq, Lane: r.Lane, Text: r.Text}
+		if r.Refs.Path != "" {
+			body, err := os.ReadFile(r.Refs.Path)
+			if err != nil {
+				unread = append(unread, fmt.Sprintf("the whole of cci #%d: %v", r.Seq, err))
+				continue
+			}
+			record.Path = filepath.Join(directory, recordsDir, strconv.FormatInt(r.Seq, 10)+".md")
+			bodies[record.Path] = body
+		}
+		listed = append(listed, record)
 	}
-	return listed
+	return listed, unread
 }
 
 type regrading struct {
@@ -339,10 +358,12 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if err != nil {
 		return job{}, err
 	}
-	sources, err := p.fidelitySources(ctx, d.spec, facts.Lane, live)
+	sources, unread, err := p.fidelitySources(ctx, d.spec, facts.Lane, live)
 	if err != nil {
 		return job{}, err
 	}
+	findings, unreadFindings := p.openFindings(ctx, pr)
+	owed, unreadOwed := p.owedDeletions(ctx)
 	gos, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindGo}, PR: pull})
 	if err != nil {
 		return job{}, err
@@ -353,6 +374,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	}
 	base := p.baseJob(d, facts, sprite, settled)
 	base.BugItems = items
+	base.Unread = slices.Concat(unread, unreadFindings, unreadOwed)
 	spec := grader.FidelityJob{
 		Job:            base,
 		Readers:        slices.DeleteFunc(slices.Clone(lanes), func(lane string) bool { return lane == grader.FidelityLane }),
@@ -367,6 +389,8 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		Baseline:       d.spec.Baseline,
 		Claims:         claimedClasses(gos, facts),
 		ServiceTouches: d.spec.ServiceTouches,
+		Findings:       findings,
+		OwedDeletions:  owed,
 	}
 	if !facts.Tapped() {
 		spec.Since = facts.TapFrom
@@ -385,6 +409,57 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		return job{}, err
 	}
 	return job{spec: spec, sources: sources, cards: cards, cited: strings.Join([]string{recordTexts(rulings), contract, sources}, "\n")}, nil
+}
+
+func (p *JobPool) openFindings(ctx context.Context, pr string) ([]grader.FindingRow, []string) {
+	named, err := grader.BookedDrive(p.Config, p.drive)
+	if err == nil && named == "" {
+		return nil, nil
+	}
+	var rows []grader.FindingRow
+	if err == nil {
+		rows, err = p.findingRows(ctx, named, pr)
+	}
+	if err != nil {
+		return nil, []string{fmt.Sprintf("the open findings on #%s: %v", pr, err)}
+	}
+	return rows, nil
+}
+
+func (p *JobPool) findingRows(ctx context.Context, named, pr string) ([]grader.FindingRow, error) {
+	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{p.Self, "findings", "--drive", named, "open", "--pr", pr, "--json"}, Timeout: readTimeout})
+	if err != nil {
+		return nil, err
+	}
+	var rows []grader.FindingRow
+	for line := range strings.Lines(result.Stdout) {
+		var row grader.FindingRow
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (p *JobPool) owedDeletions(ctx context.Context) ([]string, []string) {
+	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", p.briefs, "task", "list", "--all-branches", "--json", "--label", deletions.Label}, Timeout: readTimeout})
+	var tasks []struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Assignee string `json:"assignee"`
+	}
+	if err == nil {
+		err = json.Unmarshal([]byte(result.Stdout), &tasks)
+	}
+	if err != nil {
+		return nil, []string{fmt.Sprintf("the open owed-deletion tasks: %v", err)}
+	}
+	lines := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		lines = append(lines, fmt.Sprintf("- task %s, owner %s: %s", task.ID[:min(docChars, len(task.ID))], cmp.Or(task.Assignee, "nobody"), task.Title))
+	}
+	return lines, nil
 }
 
 func (p *JobPool) contract(ctx context.Context, lane, repo, pr string) (string, error) {
@@ -450,16 +525,16 @@ func jobRulings(rulings []client.Record) []grader.Ruling {
 	return listed
 }
 
-func (p *JobPool) fidelitySources(ctx context.Context, spec Spec, lane string, live livePR) (string, error) {
-	sections, err := p.docSections(ctx, laneSources(spec.Sources.Docs, lane))
+func (p *JobPool) fidelitySources(ctx context.Context, spec Spec, lane string, live livePR) (string, []string, error) {
+	sections, unread, err := p.docSections(ctx, laneSources(spec.Sources.Docs, lane))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	named := laneSources(spec.Sources.Records, lane)
 	cited := slices.DeleteFunc(citedSeqs(live.Body), func(seq int64) bool { return slices.Contains(named, seq) })
 	records, err := client.Among(ctx, p.drive, append(slices.Clone(named), cited...))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	for _, r := range records {
 		if slices.Contains(cited, r.Seq) && (r.Lane != rootLane || (r.Kind != kindDefect && r.Kind != kindDecide && r.Kind != kindAnswer)) {
@@ -467,22 +542,26 @@ func (p *JobPool) fidelitySources(ctx context.Context, spec Spec, lane string, l
 		}
 		sections = append(sections, fmt.Sprintf("## cci #%d, %s from %s\n\n%s", r.Seq, r.Kind, r.Lane, fullText(r)))
 	}
-	card, err := p.boardCard(ctx, live.HeadRefName)
+	card, unreadCard, err := p.boardCard(ctx, live.HeadRefName)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if card != "" {
 		sections = append(sections, card)
 	}
-	return strings.Join(sections, "\n\n"), nil
+	return strings.Join(sections, "\n\n"), slices.Concat(unread, unreadCard), nil
 }
 
-func (p *JobPool) docSections(ctx context.Context, idents []string) ([]string, error) {
+func (p *JobPool) docSections(ctx context.Context, idents []string) ([]string, []string, error) {
 	sections := make([]string, 0, len(idents))
+	var unread []string
 	for _, ident := range idents {
 		result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", p.briefs, "doc", "show", ident, "--json"}, Timeout: readTimeout})
-		if err != nil || strings.TrimSpace(result.Stdout) == "" {
-			p.Log.Warn("the graders did not read a cc-notes source", "doc", ident, "error", err)
+		if err == nil && strings.TrimSpace(result.Stdout) == "" {
+			err = errNoOutput
+		}
+		if err != nil {
+			unread = append(unread, fmt.Sprintf("cc-notes doc %s: %v", ident, err))
 			continue
 		}
 		var doc struct {
@@ -491,30 +570,32 @@ func (p *JobPool) docSections(ctx context.Context, idents []string) ([]string, e
 			Body  string `json:"body"`
 		}
 		if err := json.Unmarshal([]byte(result.Stdout), &doc); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		sections = append(sections, fmt.Sprintf("## cc-notes doc %s: %s\n\n%s", doc.ID[:min(docChars, len(doc.ID))], doc.Title, strings.TrimSpace(doc.Body)))
 	}
-	return sections, nil
+	return sections, unread, nil
 }
 
-func (p *JobPool) boardCard(ctx context.Context, branch string) (string, error) {
+func (p *JobPool) boardCard(ctx context.Context, branch string) (string, []string, error) {
 	name, onOption := strings.CutPrefix(branch, optionsBranch)
 	at := strings.LastIndex(name, "-")
 	if !onOption || at < 0 {
-		return "", nil
+		return "", nil, nil
 	}
 	session, err := grader.RootSession(p.Config, p.drive)
-	if err != nil || session == "" {
-		return "", err
+	if err != nil {
+		return "", nil, err
+	}
+	if session == "" {
+		return "", []string{fmt.Sprintf("board card %s: the drive names no root session to read it from", name[:at])}, nil
 	}
 	card, option := name[:at], name[at+1:]
 	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "block", "show", card, "--session", session}, Timeout: readTimeout})
 	if err != nil {
-		p.Log.Warn("the graders did not read a board card", "card", card, "error", err)
-		return "", nil
+		return "", []string{fmt.Sprintf("board card %s: %v", card, err)}, nil
 	}
-	return fmt.Sprintf("## Board card %s, whose option %s this branch builds\n\n%s", card, option, strings.TrimSpace(result.Stdout)), nil
+	return fmt.Sprintf("## Board card %s, whose option %s this branch builds\n\n%s", card, option, strings.TrimSpace(result.Stdout)), nil, nil
 }
 
 func laneSources[T comparable](table map[string][]T, lane string) []T {

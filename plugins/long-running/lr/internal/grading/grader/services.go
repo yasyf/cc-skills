@@ -20,16 +20,15 @@ type serviceRule struct {
 	added *regexp.Regexp
 }
 
-func (s *fidelityPassState) serviceTouches(start string) []string {
+func (s *fidelityPassState) serviceTouches(start string) ([]string, error) {
 	if len(s.job.ServiceTouches) == 0 {
-		return nil
+		return nil, nil
 	}
 	diff, err := s.git("diff", "--unified=0", "--no-color", "--no-ext-diff", start, s.job.Head)
 	if err != nil {
-		s.Log.Warn("the service-touch check is skipped, since the head's diff did not read", "error", err)
-		return nil
+		return nil, err
 	}
-	return addedTouches(diff, s.job.ServiceTouches, s.Log)
+	return addedTouches(diff, s.job.ServiceTouches, s.Log), nil
 }
 
 func addedTouches(diff string, entries []ServiceTouch, log *slog.Logger) []string {

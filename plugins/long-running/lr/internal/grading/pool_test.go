@@ -49,6 +49,10 @@ type poolShell struct {
 	docs       map[string]string
 	answers    map[string]string
 	card       string
+	cardError  error
+	docError   error
+	findings   string
+	tasks      string
 	calls      [][]string
 	spawns     []spawned
 	ages       map[string]int
@@ -108,11 +112,13 @@ func (f *poolShell) Run(_ context.Context, command shell.Command) (shell.Result,
 		return shell.Result{Stdout: f.view}, nil
 	case "ccn":
 		if command.Argv[3] == "doc" {
-			return shell.Result{Stdout: f.docs[command.Argv[5]]}, nil
+			return shell.Result{Stdout: f.docs[command.Argv[5]]}, f.docError
 		}
 		return f.notes(command.Argv[3:])
 	case "cc-present":
-		return shell.Result{Stdout: f.card}, nil
+		return shell.Result{Stdout: f.card}, f.cardError
+	case "/plugin/bin/lr":
+		return shell.Result{Stdout: f.findings}, nil
 	case "codex-ask":
 		return shell.Result{}, nil
 	}
@@ -125,6 +131,9 @@ func (f *poolShell) notes(argv []string) (shell.Result, error) {
 			return shell.Result{Stdout: answer}, nil
 		}
 		return shell.Result{}, &shell.ExitError{Argv: argv, Code: 3}
+	}
+	if argv[0] == "task" && f.tasks != "" {
+		return shell.Result{Stdout: f.tasks}, nil
 	}
 	return shell.Result{Stdout: "[]"}, nil
 }
@@ -482,6 +491,125 @@ func TestABranchOfABoardOptionGroundsItsGradeOnTheCardAndTheRootsSession(t *test
 	}
 	if want := "## Board card card-night-design, whose option 2 this branch builds\n\nthe card"; string(sources) != want {
 		t.Errorf("sources = %q, want %q", sources, want)
+	}
+}
+
+func TestASourceTheCoordinatorCouldNotReadGoesInTheJobAsUnread(t *testing.T) {
+	cases := map[string]struct {
+		view  string
+		fails func(*poolShell)
+		named string
+	}{
+		"a doc that fails":   {`{"title":"a change","body":"","headRefName":"lane-7"}`, func(f *poolShell) { f.docError = errors.New("ccn exited 3") }, "cc-notes doc abc123456: ccn exited 3"},
+		"a doc with no text": {`{"title":"a change","body":"","headRefName":"lane-7"}`, func(*poolShell) {}, "cc-notes doc abc123456: it printed nothing"},
+		"a board card": {`{"title":"an option","body":"","headRefName":"options/card-night-design-2"}`, func(f *poolShell) {
+			f.docs["abc123456"] = `{"id":"abc123456789","title":"Grounds","body":"the grounds"}`
+			f.cardError = errors.New("no such block")
+		}, "board card card-night-design: no such block"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newPool(t, map[string]any{"fidelity": map[string]any{"sources": map[string]any{"docs": map[string]any{"lane-*": []string{"abc123456"}}}}})
+			registry := filepath.Join(f.pool.Config, "long-running", "drives")
+			if err := os.MkdirAll(registry, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(registry, "one.json"), []byte(`{"cci_drive":"d","sessions":["newest"]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.shell.view = c.view
+			c.fails(f.shell)
+
+			f.started(t, GraderFidelity)
+
+			spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir))
+			sameStrings(t, spec.Unread, []string{c.named})
+		})
+	}
+}
+
+func TestAFidelityJobCarriesThePRsOpenFindingsAndTheOpenOwedDeletions(t *testing.T) {
+	f := newPool(t, map[string]any{"fidelity": map[string]any{}})
+	state := t.TempDir()
+	if err := os.WriteFile(filepath.Join(state, "findings.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry := filepath.Join(f.pool.Config, "long-running", "drives")
+	if err := os.MkdirAll(registry, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(registry, "one.json"), fmt.Appendf(nil, `{"drive":"one","cci_drive":"d","state_dir":%q}`, state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.shell.findings = `{"seq":"205428","sweep":"local-state-sweep-1","owner":"naming-diet-2","text":"a route in a JSON file","pr":"45489","state":"open"}` + "\n"
+	f.shell.tasks = `[{"id":"c4015d7aaaa","title":"Owed deletion: the old reader","assignee":"lane-9"}]`
+
+	f.started(t, GraderFidelity)
+
+	spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir))
+	if want := []grader.FindingRow{{Seq: "205428", Sweep: "local-state-sweep-1", Owner: "naming-diet-2", Text: "a route in a JSON file"}}; !slices.Equal(spec.Findings, want) {
+		t.Errorf("findings = %+v, want %+v", spec.Findings, want)
+	}
+	sameStrings(t, spec.OwedDeletions, []string{"- task c4015d7, owner lane-9: Owed deletion: the old reader"})
+	if len(spec.Unread) != 0 {
+		t.Errorf("unread = %v", spec.Unread)
+	}
+	if !slices.ContainsFunc(f.shell.calls, func(call []string) bool {
+		return slices.Equal(call, []string{"/plugin/bin/lr", "findings", "--drive", "one", "open", "--pr", "45489", "--json"})
+	}) {
+		t.Errorf("calls = %v", f.shell.calls)
+	}
+}
+
+func TestAFinderJobCarriesEachRecordsWholeBodySoAGraderReadsIt(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	whole := filepath.Join(t.TempDir(), "answer.md")
+	if err := os.WriteFile(whole, []byte("the whole answer"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	answer := post(t, client.Draft{Lane: grader.FinderLane, Kind: kindReview, Text: "finder: major " + older[:7] + " 1 open", PRs: []string{pull}, Path: whole})
+	ruled := post(t, client.Draft{Lane: rootLane, Kind: kindDecide, Text: "a ruling", PRs: []string{pull}, Path: whole})
+
+	f.started(t, GraderFinder)
+
+	directory := f.finderDir(jobDir)
+	spec := readJob[grader.FinderJob](t, directory)
+	if len(spec.History) != 1 || spec.History[0].Seq != answer || len(spec.Ruled) != 1 || spec.Ruled[0].Seq != ruled {
+		t.Fatalf("history %+v ruled %+v", spec.History, spec.Ruled)
+	}
+	for _, record := range []grader.Record{spec.History[0], spec.Ruled[0]} {
+		if filepath.Dir(filepath.Dir(record.Path)) != directory {
+			t.Errorf("%d names %q, outside its job %q", record.Seq, record.Path, directory)
+		}
+		body, err := os.ReadFile(record.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != "the whole answer" {
+			t.Errorf("%d body = %q", record.Seq, body)
+		}
+	}
+	if len(spec.Unread) != 0 {
+		t.Errorf("unread = %v", spec.Unread)
+	}
+}
+
+func TestARecordWhoseBodyIsGoneGoesInTheFinderJobAsUnread(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	whole := filepath.Join(t.TempDir(), "answer.md")
+	if err := os.WriteFile(whole, []byte("the whole answer"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	answer := post(t, client.Draft{Lane: rootLane, Kind: kindDecide, Text: "a ruling", PRs: []string{pull}, Path: whole})
+	if err := os.Remove(whole); err != nil {
+		t.Fatal(err)
+	}
+
+	f.started(t, GraderFinder)
+
+	spec := readJob[grader.FinderJob](t, f.finderDir(jobDir))
+	if len(spec.Unread) != 1 || !strings.Contains(spec.Unread[0], "the whole of cci #"+strconv.FormatInt(answer, 10)) || !strings.Contains(spec.Unread[0], whole) {
+		t.Errorf("unread = %v", spec.Unread)
 	}
 }
 

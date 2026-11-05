@@ -31,12 +31,38 @@ const (
 	shaMoved    = "8a6c4e2f0b9d7a5c3e1f8b6d4a2c0e9f7b5d3a1c"
 	binDir      = "/plugin/bin"
 	rulingsPath = binDir + "/rulings.py"
-	planPath    = "/plans/durable/plan/plan.md"
 )
 
 type Command = shell.Command
 
-var t0 = time.Date(2026, 11, 2, 21, 0, 0, 0, time.UTC)
+var (
+	t0       = time.Date(2026, 11, 2, 21, 0, 0, 0, time.UTC)
+	planPath string
+)
+
+func TestMain(m *testing.M) {
+	code, err := runWithPlan(m)
+	if err != nil {
+		panic(err)
+	}
+	os.Exit(code)
+}
+
+func runWithPlan(m *testing.M) (int, error) {
+	root, err := os.MkdirTemp("", "plans")
+	if err != nil {
+		return 0, err
+	}
+	defer os.RemoveAll(root)
+	planPath = filepath.Join(root, "durable", "plan", "plan.md")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o750); err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(planPath, []byte("# plan\n"), 0o600); err != nil {
+		return 0, err
+	}
+	return m.Run(), nil
+}
 
 type fakeShell struct {
 	postError error
@@ -50,9 +76,9 @@ type fakeShell struct {
 	heads     []string
 	comments  [][]map[string]any
 	rows      string
+	plan      string
 	counting  bool
 	failures  int
-	findings  string
 	gitFn     func(argv []string) (string, error)
 	before    func(Command)
 	calls     []Command
@@ -92,11 +118,12 @@ func (f *fakeShell) route(command Command) (string, error) {
 		if argv[1] == "slice" {
 			return f.rows, nil
 		}
+		if f.plan != "" {
+			return f.plan + "\n", nil
+		}
 		return planPath + "\n", nil
 	case argv[0] == "codex-ask":
 		return f.codex(argv)
-	case argv[0] == binDir+"/lr" && argv[1] == "findings":
-		return f.findings, nil
 	}
 	return "", fmt.Errorf("unexpected call %v", argv)
 }
