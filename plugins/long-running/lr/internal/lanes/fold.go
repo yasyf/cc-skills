@@ -110,7 +110,8 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			retire(s, name, or(successor, Root), at)
 		}
 		if successor != "" {
-			must(s.WantLane(store.Lane{Name: successor, Brief: row.Brief, Model: row.Model, Effort: row.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing}, at))
+			cost := successorCost(row)
+			must(s.WantLane(store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing}, at))
 			do(s.Own(successor, row.PRs))
 		} else {
 			do(s.Own(Root, row.PRs))
@@ -791,7 +792,8 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		if gone.State != store.LaneRetired {
 			retire(s, old, or(successor, Root), at)
 			if successor != "" {
-				must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: gone.Model, Effort: gone.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, at))
+				cost := successorCost(gone)
+				must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, at))
 				continue
 			}
 		} else if slices.Contains(unprovenEnds, gone.RetiredBy) {
