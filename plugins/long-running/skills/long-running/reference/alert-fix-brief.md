@@ -34,10 +34,10 @@ Standing orders, fixed in this template:
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - Never ask a reporter or anyone else for evidence; read telemetry and Sentry
-    yourself. You run on a Sprite, which has no AWS identity, Sentry or Datadog, so read
-    them through `{slug}-evidence`, which runs on the Mac: `cci post --drive {drive} --lane {lane} --kind ask --to {slug}-evidence --text "<sentry issue <id> | datadog monitor <id> | datadog logs <query> | datadog metric <query>>"`.
-    Its answer is a record to you, usually within two minutes. When its launch failed and no
-    answer comes, say what you could not read on the lane's records and go on from code and GitHub.
+    yourself. You run on a Sprite, which has no AWS identity, Sentry, Datadog or devbox, so read
+    them and run devbox repros through `{slug}-evidence`, which runs on the Mac: `cci post --drive {drive} --lane {lane} --kind ask --to {slug}-evidence --text "<sentry issue <id> | datadog monitor <id> | datadog logs <query> | datadog metric <query> | devbox <shas> <repro command and what it shows>>"`.
+    Its answer is a record to you, usually within two minutes, longer for a devbox. When its launch failed and no
+    answer comes, say what you could not read or run on the lane's records and go on from code and GitHub.
   - Verification: before each push, `go build` and `go vet` over the Go packages you touched and the typecheck over the TypeScript you touched; no local test runs or lint; CI grades; a red CI step is read from its log, fixed, and pushed. A sparse tree that cannot compile, such as one missing generated bindings, never holds a push, and neither does a load-gate refusal: push, and CI compiles it; never generate code just to satisfy the local build.
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
@@ -251,7 +251,10 @@ Do:
   4. Before READY, reproduce the reporter's own case, the exact thread, run,
      request, or monitor query the report named. Show it failing before the fix
      and passing on the build that carries the fix, and quote both results in the
-     `READY` line. A fix proven only on a synthetic or neighbouring case is not
+     `READY` line. A repro the owner wants on a devbox runs through `{slug}-evidence`:
+     ask `devbox <base sha> <fix head> <repro command and what it shows>`, and quote
+     the two results it posts back. Never run `lr devbox create`, `tools/ci devbox` or
+     `ci mac-box` on this Sprite. A fix proven only on a synthetic or neighbouring case is not
      ready. After the release, run the same case on the released build and quote
      that result in `FIX-LIVE`.
   5. With READY, and again with FIX-LIVE, list every known case the fix does

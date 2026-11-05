@@ -6,7 +6,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on
+from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, PostToolUseEvent, Tool, Warn, WorkflowState, on
 from captain_hook.util.builds import LOAD_PER_CORE, HostLoad, is_local_build
 from pydantic import BaseModel
 
@@ -40,6 +40,7 @@ GO_DIFF = REPO | {"git diff": "go/sand/internal/vm/vm.go\ndocs/vm.md\n"}
 GO_SET_DIFF = REPO | {"git diff": "go/sand/internal/proxy/proxy.go\ngo/sand/internal/vm/vm.go\n"}
 TS_DIFF = REPO | {"git diff": "api/src/a.ts\n"}
 OWN_TS_DIFF = REPO | {"git diff": "tools/own/src/a.ts\n"}
+NO_MODULES_TS_DIFF = REPO | {"git rev-parse --show-toplevel": f"{FIXTURE}/tools/own\n", "git diff": "src/a.ts\n"}
 REFUSAL = (
     "A lane runs `go build` and `go vet` over the Go packages it touched, and the typecheck over its TypeScript, after its last edit and before it pushes; a run the host load gate refused counts, and CI still runs every test."
     " Run these, then push again:\n```\n{commands}\n```"
@@ -48,6 +49,7 @@ SPARSE_GO = "the checkout is sparse: `lr sparse add <dir>` before its Go checks,
 SPARSE_TS = "Warning, nothing was refused: `yarn tsc:*` cannot run in this sparse checkout, so this push goes ahead; from its top, typecheck with `{commands}`."
 UNFORMATTED = "Warning, nothing was refused: `gofmt -l` lists Go files this change leaves unformatted, so this push goes ahead and CI grades it red. Run `gofmt -w {files}` and commit them."
 UNREAD = "Warning, nothing was refused: {why}, so this push goes ahead unchecked. Run `go build`, `go vet` and the typecheck over what it touched where they can run."
+NO_MODULES = "Warning, nothing was refused: this checkout has no `node_modules`, so no typecheck can run on this host and CI grades the TypeScript this push touched."
 
 
 class Check(BaseModel):
@@ -149,13 +151,15 @@ def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
         Input(command="go -C go/sand vet ./...", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="cd go/sand && go build ./internal/vm", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="yarn tsc:api", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
-        Input(command="node_modules/.bin/tsgo --noEmit -p ./api --preserveSymlinks false --composite false | grep -F -e api/src/a.ts", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
+        Input(command="! node_modules/.bin/tsgo --noEmit -p ./api --preserveSymlinks false --composite false | grep -F -e api/src/a.ts", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
+        Input(command="yarn tsc:api", env=LANE_ENV, cwd=str(FIXTURE), error="zsh: command not found: yarn"): Allow(),
         Input(command="python3 ~/.claude/plugins/long-running/skills/long-running/scripts/remote-vet.py --config /s/lr.json --lane lane-a .", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="git status", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
     },
 )
 def note_compile_checks(evt: BaseHookEvent) -> None:
-    if in_lane(evt) and (found := [check for call in evt.command.calls() for check in compiles(evt, call)]):
+    passed = isinstance(evt, PostToolUseEvent)
+    if in_lane(evt) and (found := [check for call in evt.command.calls() for check in compiles(evt, call) if passed or check[0] != TYPECHECK]):
         record(evt, found)
 
 
@@ -240,7 +244,7 @@ def typecheck_command(top: Path, project: Path, files: list[Path]) -> str:
 
 def sparse_typecheck_command(top: Path, project: Path, files: list[Path]) -> str:
     touched = " ".join(f"-e {path.relative_to(top)}" for path in files)
-    return f"node_modules/.bin/tsgo --noEmit -p {project.relative_to(top)} --preserveSymlinks false --composite false | grep -F {touched}"
+    return f"! node_modules/.bin/tsgo --noEmit -p {project.relative_to(top)} --preserveSymlinks false --composite false | grep -F {touched}"
 
 
 def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path], sparse: bool = False) -> list[str]:
@@ -276,16 +280,19 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     changed = [top / line for line in names.splitlines() if line.strip()]
     if not any(path.suffix == ".go" or path.suffix in TS_SUFFIXES for path in changed):
         return []
-    sparse = run_quietly(["git", "config", "--bool", "--default", "false", "core.sparseCheckout"], str(top))
-    if not sparse or sparse.returncode or sparse.stdout.strip() == "true":
-        if any(path.suffix == ".go" for path in changed):
-            return UNREAD.format(why=SPARSE_GO)
-        typechecks = ts_commands(evt, top, changed, sparse=True)
-        return SPARSE_TS.format(commands="` and `".join(typechecks)) if typechecks else []
-    go = go_commands(evt, top, changed)
+    config = run_quietly(["git", "config", "--bool", "--default", "false", "core.sparseCheckout"], str(top))
+    sparse = not config or bool(config.returncode) or config.stdout.strip() == "true"
+    if sparse and any(path.suffix == ".go" for path in changed):
+        return UNREAD.format(why=SPARSE_GO)
+    go = [] if sparse else go_commands(evt, top, changed)
     if isinstance(go, str):
         return UNREAD.format(why=go)
-    return (go + ts_commands(evt, top, changed)) or unformatted(top, changed)
+    typechecks = ts_commands(evt, top, changed, sparse=sparse)
+    if typechecks and not (top / "node_modules").is_dir():
+        return go or NO_MODULES
+    if typechecks and sparse:
+        return SPARSE_TS.format(commands="` and `".join(typechecks))
+    return (go + typechecks) or unformatted(top, changed)
 
 
 @on(  # capt-hook: no-escape the owner ordered a hook rather than goodwill, and every misread fails open with a warning
@@ -298,7 +305,7 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_SET_DIFF, state=[fresh("build", "vet", root="go/sand")]): Allow(),
         Input(command="git push origin HEAD", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("vet", root="go/sand")]): Block(pattern=r"cd \S+ && go build \./internal/vm\n```$"),
         Input(command="gt submit --stack", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand", at=0.0)]): Block(),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF): Block(pattern=r"\nyarn tsc:api\n# or, where a step of `tsc:api` cannot run on this host, this run counts:\nnode_modules/\.bin/tsgo --noEmit -p api --preserveSymlinks false --composite false \| grep -F -e api/src/a\.ts\n```$"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF): Block(pattern=r"\nyarn tsc:api\n# or, where a step of `tsc:api` cannot run on this host, this run counts:\n! node_modules/\.bin/tsgo --noEmit -p api --preserveSymlinks false --composite false \| grep -F -e api/src/a\.ts\n```$"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF): Block(pattern=r"\nnpx tsc --noEmit -p \S+/tools/own\n"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF, state=[fresh(TYPECHECK, root="tools/own", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand")]): Allow(),
@@ -306,10 +313,12 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": f"{FIXTURE}/go/sand/internal/vm/vm.go\n"}, state=[fresh("build", "vet", root="go/sand")]): Warn(pattern=r"^Warning, nothing was refused: `gofmt -l` lists Go files[\s\S]*`gofmt -w go/sand/internal/vm/vm\.go`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": "go/sand/internal/vm/vm.go\n"}): Block(pattern=r"^A lane runs `go build` and `go vet`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=NO_MODULES_TS_DIFF): Warn(pattern=r"^Warning, nothing was refused: this checkout has no `node_modules`"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=NO_MODULES_TS_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: this checkout has no `node_modules`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n.github/workflows/ci.yml\n"}): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"go env GOROOT": (127, "go: not found")}): Warn(pattern=r"^Warning, nothing was refused: no Go toolchain"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: the checkout is sparse: `lr sparse add <dir>` before its Go checks, `node_modules/\.bin/tsgo` for its TypeScript, so"),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: `yarn tsc:\*` cannot run in this sparse checkout[\s\S]*typecheck with `node_modules/\.bin/tsgo --noEmit -p api --preserveSymlinks false --composite false \| grep -F -e api/src/a\.ts`\.$"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: `yarn tsc:\*` cannot run in this sparse checkout[\s\S]*typecheck with `! node_modules/\.bin/tsgo --noEmit -p api --preserveSymlinks false --composite false \| grep -F -e api/src/a\.ts`\.$"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF | SPARSE, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n"} | SPARSE): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": (128, "fatal: bad revision 'origin/HEAD'")}): Warn(pattern=r"`origin/HEAD` did not read"),

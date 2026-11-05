@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 from cc_transcript.query import Session
-from captain_hook.events import PreToolUseEvent
+from captain_hook.events import PostToolUseEvent, PostToolUseFailureEvent, PreToolUseEvent, ToolHookEvent
 from captain_hook.testing.helpers import build_context
 from captain_hook.util.builds import LOAD_PER_CORE
 
 from hooks import vet_before_push
-from hooks.vet_before_push import compiles, go_commands, note_attempted_checks, record, ts_commands
+from hooks.vet_before_push import compiles, go_commands, note_attempted_checks, note_compile_checks, record, ts_commands
 
 
 def touched_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, list[Path]]:
@@ -24,11 +24,11 @@ def touched_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pat
     return module, changed
 
 
-def event(tmp_path: Path, command: str) -> PreToolUseEvent:
+def event(tmp_path: Path, command: str, kind: type[ToolHookEvent] = PreToolUseEvent, **outcome: str) -> ToolHookEvent:
     transcript = tmp_path / "lane.jsonl"
     transcript.touch()
-    raw = {"session_id": "0123456789abcdef", "transcript_path": str(transcript), "cwd": str(tmp_path), "tool_name": "Bash", "tool_input": {"command": command}}
-    return PreToolUseEvent(_raw=raw, ctx=build_context(transcript=Session.from_path(transcript), session_dir=tmp_path / "session"))
+    raw = {"session_id": "0123456789abcdef", "transcript_path": str(transcript), "cwd": str(tmp_path), "tool_name": "Bash", "tool_input": {"command": command}} | outcome
+    return kind(_raw=raw, ctx=build_context(transcript=Session.from_path(transcript), session_dir=tmp_path / "session"))
 
 
 def test_one_refused_line_counts_for_every_touched_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,3 +70,17 @@ def test_a_build_the_load_gate_refuses_counts_for_the_vet_of_the_same_push(tmp_p
     note_attempted_checks(event(tmp_path, f"cd {module} && go build ./a ./b ./c"))
 
     assert go_commands(event(tmp_path, "ccx vcs ship"), tmp_path, changed) == ([f"cd {module} && go vet ./a ./b ./c"] if vet_owed else [])
+
+
+@pytest.mark.parametrize(("kind", "outcome", "owed"), [(PostToolUseFailureEvent, {"error": "zsh: command not found: yarn"}, True), (PostToolUseEvent, {"tool_response": ""}, False)])
+def test_only_a_typecheck_that_exited_zero_discharges_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: type[ToolHookEvent], outcome: dict[str, str], owed: bool) -> None:
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "lane-a")
+    (tmp_path / "package.json").write_text('{"scripts": {"tsc:api": "tsgo --noEmit -p ./api"}}')
+    source = tmp_path / "api" / "src" / "a.ts"
+    source.parent.mkdir(parents=True)
+    source.touch()
+    (tmp_path / "api" / "tsconfig.json").touch()
+
+    note_compile_checks(event(tmp_path, "yarn tsc:api", kind, **outcome))
+
+    assert bool(ts_commands(event(tmp_path, "ccx vcs ship"), tmp_path, [source])) == owed
