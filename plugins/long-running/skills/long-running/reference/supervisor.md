@@ -130,7 +130,7 @@ A lane cannot retire while its brief names an `owner:m<row>` that `lr owner audi
 
 ### Clocks a lane's cards promise
 
-A card drawn with `lr ask-owner --by TIME` promises him something by that clock. The board link saves the clock, the lane and the card's question on the card's row in the board-cards ledger, and writes the row through to the supervisor store's mirror of that ledger, which `lr` resyncs from the ledger when it is ten minutes old, as `lr asks` does.
+A card can carry the clock it promises him something by. The board link saves the clock, the lane and the card's question on the card's row in the board-cards ledger, and writes the row through to the supervisor store's mirror of that ledger, which `lr` resyncs from the ledger when it is ten minutes old, as `lr asks` does.
 - A lane cannot retire while it owns such a card and no `landed`, `done` or `report` record carries `delivered=card:<card id>`. Every end an owed order holds holds it too, with one `defect` naming each card. The first record that delivers it marks the row met, so it stays met.
 - When the clock passes first, the lane, or the live end of its successor chain once it has retired, and owner-relay each get one `blocker` naming the card and the question he waits on, with the card and its clock as `card` and `by` attrs.
 - A card whose words name a clock, such as 6:40 PM, and that carries no `--by` draws with a `WARNING` and is not refused.
