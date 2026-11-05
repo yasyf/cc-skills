@@ -377,7 +377,7 @@ function workScreen() {
 
 function rowWords(row) {
   const rewrite = rewritten('rows', row.key);
-  return { ...Object.fromEntries(ROW_FIELDS.map((k) => [k, (rewrite ? rewrite[k] : row[k]) ?? ''])), title: prTitle(row.number) };
+  return { ...Object.fromEntries(ROW_FIELDS.map((k) => [k, (rewrite ? rewrite[k] : row[k]) ?? ''])), title: plainTitle(row.number) };
 }
 function verdictPill(row) {
   const when = row.verdict?.at ? ` at ${clock(row.verdict.at)}` : '';
@@ -388,6 +388,14 @@ function rowFacts(row) {
   const w = rowWords(row);
   if (row.md && !row.change) return `<div class="md">${markdown(row.md)}</div>`;
   return `<dl class="mr-f"><dt>For users</dt><dd class="md">${markdown(w.change)}</dd><dt>Plan</dt><dd class="md">${markdown(w.plan)}</dd><dt>Risk</dt><dd class="md">${markdown(w.risk)}</dd><dt>Review</dt><dd>${esc(w.review)}</dd>${(row.meta ?? []).map(([label, value]) => `<dt>${esc(label)}</dt>${label === 'Description' ? `<dd class="md">${markdown(value)}</dd>` : `<dd>${esc(value)}</dd>`}`).join('')}<dt>Written at</dt><dd>${esc(state.model.board.rows_at)}</dd></dl>`;
+}
+function prPreviews(row) {
+  const w = rowWords(row);
+  const preview = (md) => {
+    const text = plain(md).replace(/^\s*(?:[-*+]|\d+\.|#+)\s+/gm, '').replace(/\s*\n\s*/g, ' ').trim();
+    return text ? `<dd class="st-clip">${inline(text)}</dd>` : '<dd class="dim">Nothing written yet.</dd>';
+  };
+  return `<dl class="mr-f pr-previews"><dt>For users</dt>${preview(w.change)}<dt>Plan</dt>${preview(w.plan)}<dt>Risk</dt>${preview(w.risk)}</dl>`;
 }
 function waitLine(row, w) {
   const since = waitingSince(row.number);
@@ -415,7 +423,7 @@ function mergeRow(row) {
   const w = rowWords(row);
   const waits = waitLine(row, w);
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
-  return `<article class="mr t-${verdictState(row)}" data-peek="${row.number}"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${rowActs(row)}<a class="btn ghost" href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${rowFacts(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}${changeBox(row.number, row.head)}${prPeek(row.number)}</article>`;
+  return `<article class="mr t-${verdictState(row)}" data-peek="${row.number}" tabindex="0"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${rowActs(row)}<a class="btn ghost" data-opens href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${prPreviews(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}${changeBox(row.number, row.head)}${prPeek(row.number)}</article>`;
 }
 const peek = { n: null, at: 0 };
 for (const kind of ['pointerover', 'focusin']) {
@@ -534,10 +542,10 @@ function shownTaps() {
 }
 function landButtons(t) {
   const failed = pending.number === t.number && pending.error ? `<em class="nsent bad">Not recorded: ${esc(pending.error)}. Try again.</em>` : '';
-  return `${rowActs(boardRow(t.number))}<a class="btn ghost" href="#/review/${t.number}">Details</a>${failed}`;
+  return `${rowActs(boardRow(t.number))}<a class="btn ghost" data-opens href="#/review/${t.number}">Details</a>${failed}`;
 }
 function tapRow(t, at) {
-  if (t.kind === 'land') return tapShell(t, at, esc(tapWords(t.title)), esc(tapWords(t.line)), `<div class="fm-acts">${landButtons(t)}</div>`);
+  if (t.kind === 'land') return tapShell(t, at, esc(tapWords(t.title)), esc(tapWords(t.line)), `${prPreviews(boardRow(t.number))}<div class="fm-acts">${landButtons(t)}</div>`);
   const kept = ov.kept.get(t.id);
   const c = kept?.card ?? tapCard(t);
   const question = `#/question/${encodeURIComponent(c.id)}`;
@@ -554,7 +562,7 @@ function tapRow(t, at) {
   return tapShell(t, at, lead, why, `${freed}${pick}${post}${more}`, kept);
 }
 function tapShell(t, at, lead, why, body, kept) {
-  return `<article class="fm${kept ? ' done' : t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"><span class="fm-icon">${kept ? '✓' : at + 1}</span><div class="fm-main">
+  return `<article class="fm${kept ? ' done' : t.urgent ? ' bad' : t.frees ? ' you' : ''}" data-tap="${esc(t.id)}"${t.kind === 'land' ? ' tabindex="0"' : ''}><span class="fm-icon">${kept ? '✓' : at + 1}</span><div class="fm-main">
     <header><b>${TAP_WORD[t.kind]}</b>${t.frees && !kept ? `<span class="fm-frees" title="${esc(tapWords(t.line))}">Frees ${t.frees}</span>` : ''}</header>
     <p class="fm-lead">${lead}</p>
     ${kept ? '' : `<p class="fm-why">${why}</p>`}${body}</div></article>`;
@@ -578,10 +586,14 @@ function needsScreen(kind = '') {
     ${rest.length ? `${feedDivider('Nothing recorded waits on these')}${rest.map((t, at) => tapRow(t, at + incidents.length + freeing.length)).join('')}` : ''}
     ${notes.length ? `${feedDivider('For your information')}<div class="mr-list">${notes.map(noteCard).join('')}</div>` : ''}</div>`;
 }
+const PR_CARD = '.pr-card, .mr[data-peek], .fm[data-tap^="land-"]';
 document.addEventListener('click', (e) => {
-  const row = e.target.closest('.fm[data-tap], .nl');
+  const row = e.target.closest(`.fm[data-tap], .nl, ${PR_CARD}`);
   if (!row || e.target.closest('a, button, summary, details, form, .pk') || String(getSelection())) return;
-  row.querySelector('a[href*="question/"], a[href*="review/"]')?.click();
+  (row.querySelector('[data-opens]') ?? row.querySelector('a[href*="question/"], a[href*="review/"]'))?.click();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.matches?.(PR_CARD)) e.target.querySelector('[data-opens]').click();
 });
 
 const SURFACE_WORD = { board: 'Board', talk: 'Talk', slack: 'Slack', record: 'Record' };
@@ -592,12 +604,14 @@ const NOISE = [
   [/&gt;/g, '>'],
   [/&amp;/g, '&'],
   [/<!--[\s\S]*?-->/g, ''],
+  [/\bcard rmw[a-z0-9]+\b/g, 'the card'],
   [/\s*\(?(?<!card-)\brm[a-z0-9]{7}\b\)?/g, ''],
   [/\s*\(ccn\b[^()]*\)/gi, ''],
-  [/\s*\((?!card:)[^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
+  [/\s*\((?!card:)[^()]*\b(?:records?|cci|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
   [/\brecords?\s+#*\d[\dx]*\b/gi, ''],
   [/\bowner table\s+[0-9a-f]{6,}\b/gi, ''],
   [/(?<!card:)\bcard-[a-z0-9-]+\b/g, 'the card'],
+  [/\bcci \d+\b/g, ''],
   [/#+\d{6}\b|#\d{3}xxx\b/g, ''],
   [/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g, ''],
   [/(?<!pr:[\w./-]*)\b[\w.-]+(?:\/[\w.-]+)?#\d+\b/g, 'a tooling change'],
@@ -605,7 +619,7 @@ const NOISE = [
 function plain(text) {
   const workers = (state.model?.lanes ?? []).map((row) => row.lane).filter((lane) => lane && /-/.test(lane) && /\d/.test(lane));
   const scrubbed = NOISE.reduce((out, [pattern, word]) => out.replace(pattern, word), text);
-  return workers.reduce((out, lane) => out.replaceAll(lane, 'a worker'), scrubbed).replace(/ +([,.;:])/g, '$1').replace(/ {2,}/g, ' ');
+  return workers.reduce((out, lane) => out.replaceAll(lane, 'a worker'), scrubbed).replace(/ +\(\s*\)/g, '').replace(/ +([,.;:])/g, '$1').replace(/ {2,}/g, ' ');
 }
 function changeWords(n) {
   return state.model.prs[n] || boardRow(n) ? plainTitle(n).replace(/[[\]|]/g, '') : 'this change';
