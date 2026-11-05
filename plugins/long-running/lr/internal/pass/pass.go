@@ -34,6 +34,8 @@ type Route func(desk string) string
 
 type Owner func(lane string, pr int) (string, error)
 
+type Wake func(lane, text string) error
+
 type Landing struct {
 	Facts    machine.Facts
 	LastOpen time.Time
@@ -100,11 +102,17 @@ func Live(movers []string) []machine.Mover {
 	return live
 }
 
-func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route, owner Owner) (Outcome, error) {
+func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route, owner Owner, wake Wake) (Outcome, error) {
 	out := Outcome{Verdicts: map[int]machine.Verdict{}, Released: map[string][]store.Item{}}
 	now = now.UTC().Truncate(time.Second)
 	tell := func(to []string, body bus.Body) error {
 		if err := post(to, body); err != nil {
+			out.Unposted = append(out.Unposted, err)
+		}
+		return nil
+	}
+	rouse := func(lane, text string) error {
+		if err := wake(lane, text); err != nil {
 			out.Unposted = append(out.Unposted, err)
 		}
 		return nil
@@ -118,7 +126,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 		return out, err
 	}
 	for _, f := range snapshot {
-		if err := classifyOne(s, f, byBranch, now, tell, live, owner, &out); err != nil {
+		if err := classifyOne(s, f, byBranch, now, tell, rouse, live, owner, &out); err != nil {
 			return out, fmt.Errorf("#%d: %w", f.Number, err)
 		}
 		if row, seen := known[f.Number]; seen && row.State != machine.StateLanded && out.Verdicts[f.Number].State == machine.StateLanded {
@@ -128,7 +136,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 			out.Carried = append(out.Carried, f)
 		}
 	}
-	if err := escalateOverdue(s, snapshot, now, tell, live, route, owner, &out); err != nil {
+	if err := escalateOverdue(s, snapshot, now, tell, rouse, live, route, owner, &out); err != nil {
 		return out, err
 	}
 	if slices.Contains(live, machine.MoverSupervisor) {
@@ -173,7 +181,7 @@ func knownRows(s *store.Store, snapshot []machine.Facts) (map[int]store.PR, erro
 	return known, nil
 }
 
-func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, live []machine.Mover, owner Owner, out *Outcome) error {
+func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, wake Wake, live []machine.Mover, owner Owner, out *Outcome) error {
 	verdict := verdictOf(f, byBranch)
 	out.Verdicts[f.Number] = verdict
 	if err := s.PutPR(store.PR{Repo: f.Repo, Number: f.Number, Head: f.Head, Base: f.Base, Lane: f.Lane, State: verdict.State, ReadAt: now}); err != nil {
@@ -215,6 +223,12 @@ func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Fa
 			}
 			body := bus.Item{Item: item.ID, Action: string(verdict.Action), PR: f.Number, Head: f.Head, Mover: string(verdict.Mover), Deadline: store.Stamp(item.Deadline)}
 			if err := post([]string{to}, body); err != nil {
+				return err
+			}
+			if verdict.Mover != machine.MoverLane {
+				return nil
+			}
+			if err := wake(to, fmt.Sprintf("%s reads %s, so %s is yours now", itemSubject(f.Repo, f.Number, f.Head), verdict.State, verdict.Action)); err != nil {
 				return err
 			}
 		}
@@ -300,7 +314,7 @@ func closeOthers(s *store.Store, f machine.Facts, keep machine.Action, now time.
 	return nil
 }
 
-func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, live []machine.Mover, route Route, owner Owner, out *Outcome) error {
+func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, wake Wake, live []machine.Mover, route Route, owner Owner, out *Outcome) error {
 	overdue, err := s.Overdue(now)
 	if err != nil {
 		return err
@@ -333,11 +347,18 @@ func escalateOverdue(s *store.Store, snapshot []machine.Facts, now time.Time, po
 			}
 		}
 		subject := itemSubject(item.Repo, item.Number, item.Head)
-		body := bus.Overdue(to, subject, cause+said)
+		body, send := bus.Overdue(to, subject, cause+said), post
 		if !deskOwns && !rootOwned && to != root {
-			body = bus.Ask{Text: subject + " " + cause + said}
+			text := subject + " " + cause + said
+			body = bus.Ask{Text: text}
+			send = func(to []string, body bus.Body) error {
+				if err := post(to, body); err != nil {
+					return err
+				}
+				return wake(to[0], text)
+			}
 		}
-		if err := raise(s, subject, cause, said, to, now, body, post, out); err != nil {
+		if err := raise(s, subject, cause, said, to, now, body, send, out); err != nil {
 			return err
 		}
 	}

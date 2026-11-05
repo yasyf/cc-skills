@@ -67,12 +67,22 @@ type posted struct {
 	body bus.Body
 }
 
-type recorder struct{ posts []posted }
+type recorder struct {
+	posts []posted
+	woke  []string
+}
 
 func (r *recorder) post(to []string, body bus.Body) error {
 	r.posts = append(r.posts, posted{to, body})
 	return nil
 }
+
+func (r *recorder) wake(lane, text string) error {
+	r.woke = append(r.woke, lane+": "+text)
+	return nil
+}
+
+func asleep(string, string) error { return nil }
 
 func (r *recorder) of(kind string) []posted {
 	kept := make([]posted, 0, len(r.posts))
@@ -86,7 +96,7 @@ func (r *recorder) of(kind string) []posted {
 
 func run(t *testing.T, s *store.Store, r *recorder, now time.Time, live []machine.Mover, snapshot ...machine.Facts) pass.Outcome {
 	t.Helper()
-	out, err := pass.Run(s, snapshot, now, r.post, live, func(desk string) string { return desk + "-3" }, running(s))
+	out, err := pass.Run(s, snapshot, now, r.post, live, func(desk string) string { return desk + "-3" }, running(s), r.wake)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,11 +249,11 @@ func TestAFailedPostNeverStopsThePassAndIsReported(t *testing.T) {
 	given := []machine.Facts{facts(45470, finderAsks), facts(45471, finderAsks)}
 	post := func([]string, bus.Body) error { return &bus.Refused{Message: "never reaches this lane"} }
 	route := func(desk string) string { return desk + "-3" }
-	if _, err := pass.Run(s, given, t0, post, all, route, running(s)); err != nil {
+	if _, err := pass.Run(s, given, t0, post, all, route, running(s), asleep); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := pass.Run(s, given, t0.Add(20*time.Minute), post, all, route, running(s))
+	out, err := pass.Run(s, given, t0.Add(20*time.Minute), post, all, route, running(s), asleep)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,10 +494,44 @@ func TestARedOnAStoppedLaneReachesRootWhenItOpensAndEachNewRedHeadEscalatesAgain
 	}
 }
 
+func TestARedOrAConflictWakesItsRunningLaneThroughTheDeskAtOnceAndAgainPastItsDeadline(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		change        func(*machine.Facts)
+		state, action string
+	}{
+		{"red CI", func(f *machine.Facts) { f.CI = machine.CIFailure }, "red", "fix-red"},
+		{"a conflict on a PR waiting on his tap", func(f *machine.Facts) { f.Mergeable, f.Tap = machine.MergeableConflict, "" }, "needs-restack", "restack"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
+			given := facts(50456, tt.change)
+
+			for _, at := range []time.Duration{0, time.Minute, machine.LaneClock, machine.LaneClock + time.Minute} {
+				run(t, s, r, t0.Add(at), all, given)
+			}
+
+			want := []string{
+				"lane-7: org/repo#50456 at e718a7434f reads " + tt.state + ", so " + tt.action + " is yours now",
+				"lane-7: org/repo#50456 at e718a7434f " + tt.action + " overdue",
+			}
+			if !slices.Equal(r.woke, want) {
+				t.Fatalf("wakes = %q", r.woke)
+			}
+		})
+	}
+}
+
 func TestOneRedAmongOpenRowsCostsOneOwnerReadAndOneWakeAtOneRowOrAThousand(t *testing.T) {
 	for _, n := range []int{1, 1000} {
 		t.Run(strconv.Itoa(n), func(t *testing.T) {
 			s, r := newStore(t), &recorder{}
+			if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
 			snapshot := []machine.Facts{facts(1, func(f *machine.Facts) { f.CI = machine.CIFailure })}
 			for number := 2; number <= n; number++ {
 				snapshot = append(snapshot, facts(number, nil))
@@ -498,12 +542,12 @@ func TestOneRedAmongOpenRowsCostsOneOwnerReadAndOneWakeAtOneRowOrAThousand(t *te
 				return lanes.ChangeOwner(s, "d", lane, pr)
 			}
 
-			if _, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk }, owner); err != nil {
+			if _, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk }, owner, r.wake); err != nil {
 				t.Fatal(err)
 			}
 
-			if reads != 1 || len(r.posts) != 1 {
-				t.Fatalf("owner reads = %d, posts = %+v; want one of each", reads, r.posts)
+			if reads != 1 || len(r.posts) != 1 || len(r.woke) != 1 {
+				t.Fatalf("owner reads = %d, posts = %+v, wakes = %q; want one of each", reads, r.posts, r.woke)
 			}
 		})
 	}
@@ -711,7 +755,7 @@ func TestAQueuedPRAboveAHeldOneLeavesTheQueueWithIt(t *testing.T) {
 		queued(4, "other", "dev", ""),
 	}
 
-	out, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk }, running(s))
+	out, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk }, running(s), r.wake)
 	if err != nil {
 		t.Fatal(err)
 	}
