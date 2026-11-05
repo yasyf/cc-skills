@@ -138,7 +138,9 @@ The signal lane ([signal-lane-brief.md](signal-lane-brief.md)) tails the coordin
 
 Every message for him goes out through one call, the `reply` tool on the plugin's `lr` MCP server (`lr reply serve`). A running server moves itself to the installed lr at the next frame it receives once nothing is in flight, on the same stdio, so a fix to this tool reaches a live session with no restart.
 
-It takes a one-line `title`, the reply as markdown in `md`, and, when the content has them, `picks`, each `Keep it :: what picking it does`, with one `recommended`, `links`, `prs`, a `status`, and up to 8 live cc-present `blocks`, such as a table he can filter and open. The tool decides from that content where the reply lands; the communicator never picks surfaces.
+It takes a one-line `title`, the reply as markdown in `md`, and, when the content has them, `picks`, each `Keep it :: what picking it does`, with one `recommended`, `links`, `prs`, `artifacts`, a `status`, and up to 8 live cc-present `blocks`, such as a table he can filter and open. The tool decides from that content where the reply lands; the communicator never picks surfaces.
+
+When he would otherwise follow a transcript, code, a log or a session's thinking in a line of text, pass it in `artifacts`, each `{title, kind, file}`: `code` keeps the file's bytes and `transcript` takes `cc-transcript show --json` output and keeps its turns. It opens in a window on Chat and from a card or link in Slack, on his tailnet only, and the file stays on this Mac until an edit of the reply leaves it off.
 
 The tool's description owns the checklist a caller reads before sending. A missed item does this:
 
