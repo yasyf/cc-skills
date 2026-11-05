@@ -140,6 +140,18 @@ func treeFaults(ctx context.Context, runner shell.Runner, install, url, tagName,
 	if err != nil {
 		return nil, err
 	}
+	ignored, err := git("", "--work-tree="+install, "ls-files", "-z", "--others", "--ignored", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	built := map[string]bool{}
+	for relative := range strings.SplitSeq(ignored.Stdout, "\x00") {
+		built[relative] = true
+	}
+	held = slices.DeleteFunc(held, func(relative string) bool {
+		_, tracked := rows[relative]
+		return built[relative] && !tracked
+	})
 	var missing, blobs, paths []string
 	for _, relative := range sortedKeys(rows) {
 		row := rows[relative]
