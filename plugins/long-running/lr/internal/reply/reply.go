@@ -275,7 +275,7 @@ func inRepo(repo string, found []string) bool {
 
 func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 	said, numbers := r.namedPRs()
-	if len(numbers) == 0 {
+	if len(slices.Compact(slices.Sorted(slices.Values(numbers)))) != 1 {
 		return r, ""
 	}
 	repo, ports, err := board.Ports(f.Entry, numbers)
@@ -1211,27 +1211,19 @@ func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outco
 	for _, card := range cards {
 		done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "card-copy", "--url", card, "--thread", thread}, Timeout: postTimeout})
 		if err != nil {
-			copies = append(copies, f.linkInPlaceOfCopy(ctx, thread, card, failed(cardCopySurface, err).Error))
+			copies = append(copies, failed(cardCopySurface, err))
 			continue
 		}
 		var posted struct {
 			Permalink string `json:"permalink"`
 		}
 		if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
-			copies = append(copies, f.linkInPlaceOfCopy(ctx, thread, card, "cc-slack card-copy named no posted message: "+strings.TrimSpace(done.Stdout)))
+			copies = append(copies, Outcome{Surface: cardCopySurface, Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
 			continue
 		}
 		copies = append(copies, Outcome{Surface: cardCopySurface, Ref: posted.Permalink})
 	}
 	return copies
-}
-
-func (f Fanout) linkInPlaceOfCopy(ctx context.Context, thread, card, why string) Outcome {
-	linked := f.dmStatus(ctx, "--thread", thread, "<"+card+"|"+pickLink+">")[0]
-	if linked.Error != "" {
-		why += "; the link to the card did not post either: " + strings.TrimSuffix(linked.Error, resendOnce)
-	}
-	return Outcome{Surface: cardCopySurface, Ref: linked.Ref, Error: why}
 }
 
 func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
