@@ -326,7 +326,7 @@ def test_his_words_after_a_paste_with_no_fence_open_a_row_marked_as_pasted(commu
 
 def test_a_paste_with_nothing_typed_opens_one_row_that_says_so_and_registers_no_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
     body = "Your three messages are all in motion"
-    marked = f'[pasted {len(body)} chars, no words of his own: "{body}"]'
+    marked = f'[pasted {len(body)} chars, nothing typed beside it: "{body}"]'
     communicator.prompt(f"```\n\n\n{pasted(body)}\n\n```\n")
 
     [row] = communicator.rows()
