@@ -528,6 +528,47 @@ func TestAFinderJobCarriesTheLandedRowsItsSecondFixCheckReads(t *testing.T) {
 	}
 }
 
+func TestARegradeRunsAHeadAGradeNamesAndCarriesNoEarlierGrade(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{}})
+	post(t, client.Draft{Lane: grader.FidelityLane, Kind: kindReview, Text: "fidelity: ok " + head[:7] + " reads", PRs: []string{pull}})
+
+	if _, err := f.pool.Regrade(context.Background(), facts(head), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir+regradeMark))
+	if !spec.Regrade || len(spec.Grades) != 0 {
+		t.Errorf("regrade = %v, grades = %v", spec.Regrade, spec.Grades)
+	}
+	if !slices.Contains(spec.To, "lane-7") {
+		t.Errorf("to = %v", spec.To)
+	}
+}
+
+func TestARegradeOfAClosedPRGoesOnlyToWhoAskedAndAnOpenHeadThatMovedIsRefused(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{}})
+
+	landed, report, err := regradeFacts("acme/app", 7, head[:7], machine.Facts{}, []string{"asker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Regrade(context.Background(), landed, report); err != nil {
+		t.Fatal(err)
+	}
+	spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, "7-"+head[:7]+regradeMark))
+	sameStrings(t, spec.To, []string{"asker"})
+	if spec.Lane != "" {
+		t.Errorf("lane = %q", spec.Lane)
+	}
+
+	if _, _, err := regradeFacts("acme/app", 7, head[:7], machine.Facts{}, nil); err == nil {
+		t.Error("a closed PR's regrade ran with no one to report to")
+	}
+	if _, _, err := regradeFacts("acme/app", 7, head[:7], machine.Facts{Repo: "acme/app", Head: "f00d" + head[4:]}, nil); err == nil {
+		t.Error("a head that moved was regraded")
+	}
+}
+
 func TestAProofPRStartsNoPass(t *testing.T) {
 	for name, view := range map[string]string{
 		"title": `{"title":"proof: the red build","body":"","headRefName":"b"}`,

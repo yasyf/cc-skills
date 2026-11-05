@@ -170,7 +170,11 @@ func jobRecords(records []client.Record) []grader.Record {
 	return listed
 }
 
-func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, sprite, directory string, live livePR) (job, error) {
+type regrading struct {
+	report []string
+}
+
+func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, sprite, directory string, live livePR, again *regrading) (job, error) {
 	pr := strconv.Itoa(facts.Number)
 	pull := facts.Repo + "#" + pr
 	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview, kindHead}, PR: pull})
@@ -182,7 +186,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	sent := slices.DeleteFunc(slices.Clone(found), func(r client.Record) bool {
 		return r.Kind != kindReview || r.Lane != grader.FidelityLane || !strings.HasPrefix(r.Text, fidelityReader)
 	})
-	if anyNaming(grades, facts.Head) || anyNaming(sent, facts.Head) {
+	if again == nil && (anyNaming(grades, facts.Head) || anyNaming(sent, facts.Head)) {
 		return job{}, ErrAnswered
 	}
 	contract, err := p.contract(ctx, facts.Lane, facts.Repo, pr)
@@ -222,6 +226,12 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	}
 	if !facts.Tapped() {
 		spec.Since = facts.TapFrom
+	}
+	if again != nil {
+		spec.Regrade, spec.Grades, spec.Since = true, nil, ""
+		if len(again.report) > 0 {
+			spec.To = again.report
+		}
 	}
 	if sources != "" {
 		spec.Sources = filepath.Join(directory, sourcesFile)

@@ -32,6 +32,7 @@ const (
 	sourcesFile           = "sources.md"
 	capacityFile          = "grader-capacity.json"
 	repostedFile          = "reposted"
+	regradeMark           = "-regrade"
 	failuresDir           = "sprite-failures"
 	defaultConcurrent     = 8
 	defaultTimeoutMinutes = 60
@@ -246,7 +247,24 @@ func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Fa
 			return "", err
 		}
 	}
-	base := pr + "-" + short(facts.Head)
+	return p.nextPass(ctx, grading, d, workers, facts, pr+"-"+short(facts.Head), nil)
+}
+
+func (p *JobPool) Regrade(ctx context.Context, facts machine.Facts, report []string) (string, error) {
+	d, on := p.desks[GraderFidelity]
+	if !on {
+		return "", ErrNoCapacity
+	}
+	workers, err := p.Workers()
+	if err != nil {
+		return "", err
+	}
+	base := strconv.Itoa(facts.Number) + "-" + short(facts.Head) + regradeMark
+	return p.nextPass(ctx, GraderFidelity, d, workers, facts, base, &regrading{report})
+}
+
+func (p *JobPool) nextPass(ctx context.Context, grading string, d desk, workers []store.Worker, facts machine.Facts, base string, again *regrading) (string, error) {
+	pr := strconv.Itoa(facts.Number)
 	plan, err := p.nextAttempt(ctx, d, base)
 	if err != nil {
 		return "", err
@@ -274,7 +292,7 @@ func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Fa
 	case GraderFinder:
 		built, err = p.finderJob(ctx, d, facts, sprite)
 	case GraderFidelity:
-		built, err = p.fidelityJob(ctx, d, facts, sprite, directory, live)
+		built, err = p.fidelityJob(ctx, d, facts, sprite, directory, live, again)
 	}
 	if errors.Is(err, ErrAnswered) {
 		return "", &Stopped{"a record already names this head and no grade reached the store"}
