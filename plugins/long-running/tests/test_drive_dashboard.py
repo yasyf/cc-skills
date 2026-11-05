@@ -23,7 +23,7 @@ from pages import stamp
 from review_assistant import ReviewAssistant
 from screens import screen_kind
 import server
-from server import QUEUED_NEXT, Drive, changed_since, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state
+from server import changed_since, Drive, drive_prs, drive_workers, hold_reasons, journeys, needs, NOW_DRAWS, open_findings, parse_plan, paths_current, plan_prs, QUEUED_NEXT, release_path, step_rows, verdict_state
 
 TAILNET_OWNER = "owner@example.test"
 OWNER_WHOIS = {"Node": {"Name": "owners-mac."}, "UserProfile": {"LoginName": TAILNET_OWNER}}
@@ -1946,3 +1946,18 @@ def test_a_line_he_types_reaches_the_lean_model_the_page_reads(monkeypatch):
     assert before["chat_lines"][2] != after["chat_lines"][2]
     assert json.loads(after["chat_lines"][1])[0]["text"] == "a new ask"
 
+
+def test_a_restart_keeps_one_pagers_past_the_record_window_and_reads_a_snapshot_from_before_them(tmp_path):
+    page = {"at": "2026-10-01T12:00:00Z", "url": "https://mac.ts.net:8665/one-pagers/old/", "title": "Old", "lede": "Still listed"}
+    empty = {**dict.fromkeys(NOW_DRAWS, []), "version": 1, "prs": {}, "pr_state": {}, "history": {}, "drive": {"prs": []}, "records": []}
+    snapshot = tmp_path / "served-model.json.gz"
+
+    snapshot.write_bytes(gzip.compress(json.dumps({**empty, "one_pagers": [page]}).encode()))
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.restore(snapshot)
+    assert drive.published_pages == [page]
+
+    snapshot.write_bytes(gzip.compress(json.dumps(empty).encode()))
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.restore(snapshot)
+    assert drive.published_pages == []

@@ -128,9 +128,10 @@ def clipped(title):
 def freed_words(prs, lanes, title_of):
     said = []
     if prs:
-        titles = [clipped(title_of(number)) for number in sorted(prs)[:TITLES_NAMED]]
+        titles = [clipped(title) for title in map(title_of, sorted(prs)) if title][:TITLES_NAMED]
         rest = len(prs) - len(titles)
-        said.append(f"Frees {plural(len(prs), 'change')}: {'; '.join(titles)}{f'; and {rest} more' if rest else ''}.")
+        named = f": {'; '.join(titles)}{f'; and {rest} more' if rest else ''}" if titles else ""
+        said.append(f"Frees {plural(len(prs), 'change')}{named}.")
     if lanes:
         said.append(f"{plural(len(lanes), 'worker')} stopped until you tap.")
     return " ".join(said)

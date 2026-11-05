@@ -171,3 +171,8 @@ def test_a_landing_tap_reads_the_plain_title():
 def test_a_pull_request_title_loses_its_scope_and_emoji():
     assert taps.plain_title("sandsql: 🐛 a stalled sync logs what holds it") == "A stalled sync logs what holds it"
     assert taps.plain_title("api, dashboard: ✨ one credential") == "One credential"
+
+
+def test_a_change_with_no_title_still_reads_as_a_sentence():
+    assert taps.freed_words({1}, set(), lambda number: "") == "Frees 1 change."
+    assert taps.freed_words({1, 2, 3}, set(), {1: "", 2: "Second", 3: "Third"}.get) == "Frees 3 changes: Second; Third; and 1 more."

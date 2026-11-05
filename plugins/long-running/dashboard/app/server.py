@@ -973,6 +973,17 @@ def stored_replies(read, store):
     return sorted((read(str(path)) for path in store.glob("*.json")), key=lambda entry: at(entry["at"]), reverse=True)
 
 
+def published_page(record):
+    attrs = (record.get("fields") or {}).get("attrs") or {}
+    return {"at": record["at"], "url": attrs["one-pager-url"], "title": attrs["one-pager-title"], "lede": attrs["one-pager-lede"]} if "one-pager-url" in attrs else None
+
+
+def one_pagers(published, replies):
+    sent = [{"at": entry["at"], "url": link["url"], "title": link["label"], "lede": entry["reply"]["title"]} for entry in replies for link in entry["reply"].get("links") or [] if "/one-pagers/" in link["url"]]
+    pages = {page["url"].rstrip("/").rpartition("/")[2]: page for page in sorted(sent, key=lambda page: at(page["at"])) + published}
+    return sorted(pages.values(), key=lambda page: at(page["at"]), reverse=True)
+
+
 def drive_alerts(replies, cards):
     newest = [entry["reply"] for entry in replies[:ALERTS_SENT]]
     waiting = [entry["reply"] for entry in replies if entry["reply"].get("status") in ("needs_you", "incident") or entry["reply"].get("picks")][:ALERTS_SENT]
@@ -1013,6 +1024,7 @@ class Drive:
         self.latest_words = {}
         self.milestone_cache = None
         self.evidence = {}
+        self.published_pages = []
         self.version = 0
         self.model = {}
         self.serving = threading.Condition()
@@ -1259,7 +1271,9 @@ class Drive:
             return dict(self.evidence)
 
     def load_records(self):
-        self.records.extend(self.read_records(TIMELINE_KINDS, dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW))
+        recent = self.read_records(TIMELINE_KINDS, dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW)
+        self.published_pages = [*self.published_pages, *(page for record in recent if (page := published_page(record)))]
+        self.records.extend(recent)
         self.chat_lines = [chat_line(record) for record in self.read_records(["owner"], dt.datetime.now(dt.timezone.utc) - CHAT_WINDOW) if typed_in_chat(record)]
         for record in self.records:
             self.note_word(record)
@@ -1281,6 +1295,8 @@ class Drive:
                             if typed_in_chat(record):
                                 self.chat_lines = [*self.chat_lines, chat_line(record)]
                             self.note_evidence(record)
+                            if page := published_page(record):
+                                self.published_pages = [*self.published_pages, page]
                             with self.lock:
                                 self.records.append(record)
                             self.lanes_due = True
@@ -1472,6 +1488,7 @@ class Drive:
             zipped = snapshot.read_bytes()
             lean = gzip.decompress(zipped)
             view = json.loads(lean)
+            self.published_pages = view.get("one_pagers", [])
             cut = json.dumps(now_view(view)).encode()
             self.served = {"version": view["version"], "sig": None, "live": None, "views": {}, "bodies": {("lean",): (lean, zipped), ("now",): (cut, gzip.compress(cut, 5))}}
 
@@ -1743,6 +1760,7 @@ class Drive:
             **self.owed,
             "owner_asks": titled_asks(self.owed["owner_asks"], self.pages["asks"].brief),
             "replies": self.replies,
+            "one_pagers": one_pagers(self.published_pages, self.replies),
             "chat_lines": self.chat_lines,
             "register_log": "register" in self.config,
             "latest_words": self.words(),

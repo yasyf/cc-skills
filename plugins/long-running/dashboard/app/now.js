@@ -7,7 +7,6 @@ const MARK_WORD = { progress: 'Progress', finding: 'Found', stuck: 'Stuck', done
 const NODE_TONE = { fixing: 'acc', you: 'you', nobody: 'bad', waiting: '', done: 'ok' };
 const hover = { at: null, timer: 0, hold: 0, scrolled: 0 };
 const story = { item: null, es: null, lines: [], draft: null, status: null, open: false };
-const feed = { item: null };
 const lastPaint = { events: new Map(), next: new Map(), stops: null };
 
 function view(key) {
@@ -42,34 +41,29 @@ function storyHref(item) {
 }
 
 function nowScreen() {
-  const m = state.model;
-  const b = m.brief;
-  if (!b) return `<div class="nw"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p>${diagramSlot()}</div>`;
-  const html = `<div class="nw">
-    ${band(b)}
-    <h1 class="nw-head">${esc(b.headline)}</h1>
-    <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
+  const b = state.model.brief;
+  if (!b) return `<div class="nw"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p></div>`;
+  const html = `<div class="nw pg-flow pg-now">${band(b)}
+    <header class="pg-now-head"><h1 class="nw-head">${esc(b.headline)}</h1><p class="nw-sub">As of ${clock(b.at)} <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p></header>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     ${fyiFeed()}
-    ${liveFeed(b)}
-    ${preventions()}
-    ${diagramSlot()}
   </div>`;
   lastPaint.events = lastPaint.next;
   lastPaint.next = new Map();
   return html;
 }
-
+const DAY_MINUTES = 1440;
 function fyiFeed() {
   const fyi = (state.model.fyi ?? []).map((f) => ({ id: `fy-${f.at}`, iso: f.at, at: clock(f.at), word: 'Decided', tone: 'you', title: f.text, why: f.group }));
   const events = (curated('history')?.entries ?? []).filter((e) => KEY_EVENTS.has(e.kind)).map((e) => ({ id: `hs-${e.at}-${e.title}`, iso: sinceClock(e.at), at: e.at, word: HISTORY_WORD[e.kind], tone: HISTORY_TONE[e.kind], title: e.title, said: e.detail.trim() }));
-  const rows = newestFirst([...fyi, ...events]);
+  const overdue = newestFirst(failureRows().filter((e) => e.word === 'Past due'));
+  const late = overdue.length ? [{ id: 'now-overdue', iso: overdue[0].iso, at: overdue[0].at, word: 'Past due', tone: 'bad', title: `${notLive().filter((p) => p.problems.some((x) => x.startsWith('past due'))).length} fixes are past due`, side: '<a href="#/status">On Status ›</a>' }] : [];
+  const featured = [...late, ...onePagerEvents().filter((e) => minutesSince(e.iso) < DAY_MINUTES).slice(0, 1)];
+  const rows = newestFirst([...newestFirst([...fyi, ...events]).slice(0, EVENTS_AT_REST - featured.length), ...featured]);
   if (!rows.length) return '';
-  const earlier = rows.length - EVENTS_AT_REST;
-  return `<section class="nw-fyi"><h2 class="nw-h">Decided for you, and what changed</h2>${eventList(rows.slice(0, EVENTS_AT_REST))}${earlier > 0 ? `<a class="ev-all" href="#/history">Earlier today ${countPill(earlier)} ›</a>` : ''}</section>`;
+  return `<section class="nw-fyi"><div class="pg-section-head"><h2>What changed</h2><a href="#/history">All history ›</a></div>${eventList(rows)}</section>`;
 }
-
 function band(b) {
   const m = state.model;
   const incident = b.band.kind === 'incident' ? `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>` : '';
@@ -95,19 +89,6 @@ function needLine(item) {
   return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/needs">Details</a>');
 }
 
-function liveFeed(b) {
-  if (feed.item && workItem(feed.item) && !workOpen()) return `<section class="nw-live"><h2 class="nw-h">Live story <button class="linkish" data-feed-all>‹ All work</button></h2><div class="nw-story-col"><div class="nw-story-host">${storyBody(feed.item)}</div></div></section>`;
-  if (!b.work.length) return '';
-  const rank = (w) => ({ 'Ready for you': 0, Stuck: 1 })[statusOf(w).word] ?? 2;
-  const rows = newestFirst(b.work.map(workEvent)).sort((x, y) => rank(x.w) - rank(y.w));
-  return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${eventList(rows)}</section>`;
-}
-function workEvent(w) {
-  const st = statusOf(w);
-  const said = /^(\d{1,2}:\d{2} [AP]M)/.exec(w.latest ?? '')?.[1] ?? w.since;
-  const line = (st.when ?? w.latest ?? '').replace(/^\d{1,2}:\d{2} [AP]M: /, '').replace(/^./, (c) => c.toUpperCase());
-  return { w, id: `wr-${w.item}`, iso: sinceClock(said), at: said, word: st.word, tone: WORK_TONE[st.word] ?? (st.word === 'Cleared to land' ? 'ok' : 'acc'), title: w.title, side: lasted(w.since), more: `<p>${esc(line)}</p>${stuck(w) ? `<p>${unblockLine(historyOf(rowKeys(w.item))?.unblocking)}</p>` : ''}<button class="linkish" data-feed="${esc(w.item)}">Live story ›</button>` };
-}
 const PREVENT_WORD = { building: 'Being built', open: 'Fix open', merged: 'Merged', live: 'Live' };
 const FAILED_VERB = { 'Past due': 'past due', 'Broken row': 'with fields missing', Merged: 'merged, not live yet' };
 const FAILED_TONE = { 'Past due': 'bad', 'Broken row': 'bad', 'Fix open': 'warn', Merged: '' };
@@ -156,9 +137,6 @@ function picksRow() {
   const dated = rows.map((f) => f.at).sort();
   const items = groupBy(picks, (p) => p.title).map(([title, list]) => `<li><b>${esc(title)}</b> <small>${esc(workerName(list[0].owner))}</small>${list.map((p) => `<span>${list.length > 1 ? `${esc(p.question)} ` : ''}${p.answer ? `You said: ${esc(p.answer)}` : ''}</span>`).join('')}</li>`).join('');
   return [{ id: 'pv-picks', iso: dated.at(-1), at: clock(dated.at(-1)), word: 'Not done', tone: 'bad', title: `${rows.length} of your picks have no record they were carried out`, side: `oldest ${spanFor(dated[0]).replace(/^for /, '')} ${countPill(rows.length)}`, more: `<ul>${items}</ul>` }];
-}
-function workOpen() {
-  return stackOf().length > 0 && route().screen === 'work';
 }
 function stops() {
   return state.model.milestone_state;
@@ -464,8 +442,6 @@ function mountNow() {
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-story-more]')) { story.open = true; paintStory(); }
-  const row = e.target.closest('[data-feed]');
-  if (row || e.target.closest('[data-feed-all]')) { feed.item = row?.dataset.feed ?? null; render(); }
 });
 window.addEventListener('scroll', () => {
   hover.scrolled = Date.now();
