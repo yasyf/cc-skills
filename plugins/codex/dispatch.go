@@ -19,6 +19,7 @@ import (
 
 func askMode(args []string) {
 	model := modelSol
+	effort := defaultEffort
 	incident := false
 	scratch := ""
 	laneName := ""
@@ -62,6 +63,12 @@ loop:
 				die("codex-ask: -l takes LANE or RUN/LANE", 2)
 			}
 			laneName = nxt
+			i += 2
+		case a == "--effort":
+			if !slices.Contains(efforts, nxt) {
+				die("codex-ask: --effort takes "+strings.Join(efforts, ", "), 2)
+			}
+			effort = nxt
 			i += 2
 		case a == "--incident":
 			incident = true

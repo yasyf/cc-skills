@@ -18,8 +18,8 @@ substituted to a real path in this skill's text. The plugin's `bin/` also rides
 the Bash tool's PATH, but bare `codex-ask` resolves by PATH order, where a
 brew-installed binary can shadow the plugin's symlink. The
 script owns every mechanic: it pins `-c model=gpt-6.1-sol
--c model_reasoning_effort=xhigh` on the standard tier (`--incident` adds
-`-c service_tier=fast`), runs
+-c model_reasoning_effort=xhigh` on the standard tier (`--effort LEVEL` sets
+another effort, `--incident` adds `-c service_tier=fast`), runs
 `--sandbox danger-full-access` with `--skip-git-repo-check` (runs work from
 any cwd, repo or not), feeds the plugin's `AGENTS.md` via
 `-c developer_instructions` (browser rules, the § Replies reply contract, no
