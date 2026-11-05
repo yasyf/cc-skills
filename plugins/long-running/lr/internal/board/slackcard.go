@@ -143,6 +143,35 @@ func Rows(entry drive.Entry, numbers []int) (string, []store.ReviewRow, error) {
 	return cfg.Repo, rows, err
 }
 
+func BugFixes(entry drive.Entry) (string, map[string][]store.ReviewRow, error) {
+	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), io.Discard)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil, nil
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = s.Close() }()
+	rows, err := s.ReviewRows(cfg.Repo)
+	if err != nil {
+		return "", nil, err
+	}
+	fixes := map[string][]store.ReviewRow{}
+	for _, row := range rows {
+		if prrow.Terminal(row.State) || row.State == prrow.StateSuperseded || row.State == prrow.StateDraft || row.Tapped || prrow.LandsOnHisWord(row) {
+			continue
+		}
+		for _, item := range prrow.Items(row.Description) {
+			fixes[item] = append(fixes[item], row)
+		}
+	}
+	return cfg.Repo, fixes, nil
+}
+
 func Ports(entry drive.Entry, numbers []int) (string, map[int]int, error) {
 	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), io.Discard)
 	if err != nil {

@@ -472,6 +472,7 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 				fmt.Fprintf(c.OutOrStdout(), "WARNING the card draws unchecked against his answers: %s\n", strings.ReplaceAll(err.Error(), "\n", "; "))
 			}
 			warnUnnamedProcess(c.OutOrStdout(), data)
+			warnUntiedLand(c.OutOrStdout(), data)
 			if lacks := board.Lacks(c.Context(), judge, data); lacks != "" {
 				fmt.Fprintf(c.OutOrStdout(), "WARNING %s\n", lacks)
 			}
@@ -482,6 +483,34 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 		},
 	}, sweep, recheck)
 	return cmd
+}
+
+func warnUntiedLand(w io.Writer, card []byte) {
+	var block struct {
+		Children []struct {
+			Type    string `json:"type"`
+			Options []struct {
+				Label string `json:"label"`
+			} `json:"options"`
+		} `json:"children"`
+	}
+	if json.Unmarshal(card, &block) != nil {
+		return
+	}
+	var landing string
+	for _, child := range block.Children {
+		if child.Type == KindPR {
+			return
+		}
+		for _, option := range child.Options {
+			if child.Type == "choice" && landing == "" && bus.ReadsAsLand(option.Label) {
+				landing = option.Label
+			}
+		}
+	}
+	if landing != "" {
+		fmt.Fprintf(w, "WARNING pick %q reads as landing a PR, and this card links none, so he cannot see what he lands and his pick writes no tap. Name the PR it lands: a pr child on a board card, or its number in an ask-owner card's words, which draws it.\n", landing)
+	}
 }
 
 func warnUnnamedProcess(w io.Writer, card []byte) {

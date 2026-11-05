@@ -220,6 +220,7 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	}
 	var warned strings.Builder
 	warnUnnamedProcess(&warned, card.Block)
+	warnUntiedLand(&warned, card.Block)
 	return said + strings.TrimRight("; "+warned.String(), "; \n"), nil
 }
 

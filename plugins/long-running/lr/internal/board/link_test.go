@@ -517,7 +517,7 @@ func TestACardFromAskFlagsRecommendsItsFirstOptionAndCarriesItsPRs(t *testing.T)
 	}
 }
 
-func TestACardAboutAPortOpensWithItAndCarriesItsSource(t *testing.T) {
+func TestACardAboutAPortOpensWithItAndLinksItsSourceWithNoCardForIt(t *testing.T) {
 	block, err := Ask{
 		Title: "Keep the old encoder?", Background: "The client sends numbers as strings.", PortOf: 49412,
 		Options: []string{"Keep :: Nothing changes.", "Switch :: Numbers arrive as numbers."}, NothingToBuild: "a pick",
@@ -540,9 +540,13 @@ func TestACardAboutAPortOpensWithItAndCarriesItsSource(t *testing.T) {
 	if card.Title != "port of #49412: Keep the old encoder?" || card.ID != "card-keep-the-old-encoder" {
 		t.Fatalf("title %q, id %q", card.Title, card.ID)
 	}
-	last := card.Children[len(card.Children)-1]
-	if card.Children[0].Md != "**From:** port of #49412" || last.Type != "pr" || last.Number != 49412 {
-		t.Fatalf("children %+v", card.Children)
+	if card.Children[0].Md != "**From:** port of [#49412](https://github.com/Forge-AI/monorepo/pull/49412)" {
+		t.Fatalf("from = %q, want the source linked", card.Children[0].Md)
+	}
+	for _, child := range card.Children {
+		if child.Type == "pr" {
+			t.Fatalf("children %+v, want no PR card for the source, since a pick on it would land the source", card.Children)
+		}
 	}
 }
 
@@ -582,7 +586,7 @@ func TestACardLinksEachNumberItNamesAndCarriesThatPR(t *testing.T) {
 			prs = append(prs, fmt.Sprintf("%s#%d", child.Repo, child.Number))
 		}
 	}
-	if want := []string{"Forge-AI/monorepo#50459", "Forge-AI/monorepo#50350", "o/r#7"}; !slices.Equal(prs, want) {
+	if want := []string{"Forge-AI/monorepo#50459", "o/r#7"}; !slices.Equal(prs, want) {
 		t.Fatalf("prs = %v, want %v", prs, want)
 	}
 }

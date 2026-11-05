@@ -11,7 +11,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -42,11 +42,7 @@ const (
 	recordsDir    = "records"
 )
 
-var (
-	itemList    = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
-	itemNumber  = regexp.MustCompile(`\d+`)
-	errNoOutput = errors.New("it printed nothing")
-)
+var errNoOutput = errors.New("it printed nothing")
 
 type job struct {
 	spec    any
@@ -180,10 +176,8 @@ func (p *JobPool) answersOwed(ctx context.Context, live livePR, cited string) ([
 
 func (p *JobPool) bugItems(ctx context.Context, body string) (grader.BugItems, error) {
 	unknown := map[string]bool{}
-	for _, list := range itemList.FindAllString(body, -1) {
-		for _, number := range itemNumber.FindAllString(list, -1) {
-			unknown[number] = true
-		}
+	for _, number := range prrow.Items(body) {
+		unknown[number] = true
 	}
 	if len(unknown) == 0 {
 		return grader.BugItems{}, nil
