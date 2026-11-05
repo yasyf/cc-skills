@@ -212,7 +212,7 @@ def unended(reads: Reads, item: Published, found: list[tuple[dict, dict | None]]
     if not cards:
         return []
     missing = reads.read("the cards' end conditions", lambda: ran([str(LR), "board", "cards", *reads.which, "--session", item.session, "missing", *cards]).split())
-    return [f"{card}: no end condition, so nothing takes it down once its event passes; once it is on the board, run `lr board cards until {card} --until <at:TIME|pr:N|release:STACK@ENV:COMMIT|record:SEQ> --lane <your lane>`, which also records the PRs and register names it rests on" for card in missing or []]
+    return [f"{card}: no end condition, so nothing takes it down once its event passes; once it is on the board, run `lr board cards until {card} --until <answered|at:TIME|pr:N|release:STACK@ENV:COMMIT|record:SEQ> --lane <your lane>`, which also records the PRs and register names it rests on" for card in missing or []]
 
 
 def unbuilt(reads: Reads, item: Published, found: list[tuple[dict, dict | None]]) -> list[str]:

@@ -163,29 +163,37 @@ func (c Cards) record(ctx context.Context, card string, fields map[string]string
 	return c.Ledger.Sync(ctx, id, []ledger.Row{{Key: cardPrefix + card, Fields: merged}})
 }
 
-func (c Cards) onBoard(ctx context.Context) ([]string, error) {
+func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, error) {
 	shown, err := c.present(ctx, "outcomes", "--all")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var outcomes struct {
 		Doc struct {
 			Blocks []struct {
-				ID   string `json:"id"`
-				Type string `json:"type"`
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Children []struct {
+					Type string `json:"type"`
+				} `json:"children"`
 			} `json:"blocks"`
 		} `json:"doc"`
 	}
 	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
-		return nil, fmt.Errorf("cc-present outcomes: %w", err)
+		return nil, nil, fmt.Errorf("cc-present outcomes: %w", err)
 	}
 	var cards []string
+	questions := map[string]bool{}
 	for _, block := range outcomes.Doc.Blocks {
-		if block.Type == "card" && block.ID != mergeTriage {
-			cards = append(cards, block.ID)
+		if block.Type != "card" || block.ID == mergeTriage {
+			continue
+		}
+		cards = append(cards, block.ID)
+		for _, child := range block.Children {
+			questions[block.ID] = questions[block.ID] || child.Type == "choice"
 		}
 	}
-	return cards, nil
+	return cards, questions, nil
 }
 
 func (c Cards) Until(ctx context.Context, card, condition, lane string, paths ...string) (End, error) {
@@ -227,7 +235,7 @@ func (c Cards) Missing(ctx context.Context, named []string) ([]string, error) {
 		return nil, err
 	}
 	if len(named) == 0 {
-		if named, err = c.onBoard(ctx); err != nil {
+		if named, _, err = c.onBoard(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -421,7 +429,7 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	cards, err := c.onBoard(ctx)
+	cards, questions, err := c.onBoard(ctx)
 	if err != nil {
 		return err
 	}
@@ -436,6 +444,9 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 		end, err := ParseEnd(fields["until"], now)
 		if err != nil {
 			return fmt.Errorf("card %s: %w", card, err)
+		}
+		if end.Kind == KindAt && questions[card] {
+			continue
 		}
 		waiting[card] = end
 	}
@@ -492,7 +503,7 @@ func (c Cards) Retire(ctx context.Context, lane, reason string, named []string, 
 	if err != nil {
 		return err
 	}
-	cards, err := c.onBoard(ctx)
+	cards, _, err := c.onBoard(ctx)
 	if err != nil {
 		return err
 	}

@@ -254,7 +254,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
     --background 'Nine runs were refused a model call today and stopped; the account has room for twice its limit.' \
     --option 'Wait durably :: A refused call waits and resumes, so no run stops on it. Built on the branch.' \
     --option 'Raise the limit :: Fewer refusals at the same cost, and a run still stops on the next one.' \
-    --branch Forge-AI/monorepo:durable-wait --until at:3d
+    --branch Forge-AI/monorepo:durable-wait --until pr:4521
 
 --diagram FILE puts one architecture doc (arch/v1) on the card, drawn live on his board and dashboard and as its picture on the card in Slack. --port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself. --withdraw ID takes your own card down when its question has gone away.`,
 		Args: cobra.NoArgs,
@@ -299,7 +299,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags.StringVar(&ask.From, "from", "", "the plan step and date, his ruling id, or whose PR it ports; default "+noPlanFrom)
 	flags.IntVar(&ask.PortOf, "port-of", 0, "the old-tree PR this card's port copies: the card's title opens with port of #N")
 	flags.StringVar(&ask.ID, "id", "", "the card's id after card-; default the title's first words")
-	flags.StringVar(&until, "until", "", "the event after which his answer no longer matters: at:TIME or a span such as at:3d, pr:N, release:STACK@ENV:COMMIT or record:SEQ")
+	flags.StringVar(&until, "until", KindAnswered, "the event after which his answer no longer matters: pr:N, release:STACK@ENV:COMMIT, record:SEQ, or at:TIME or a span such as at:3d for a real expiry; the sweep never takes an unanswered question down on a time alone, so a question with no such event keeps the default, answered")
 	flags.StringVar(&file, "card", "", "a whole cc-present card as JSON, FILE or -, in place of the question flags")
 	flags.StringVar(&withdraw, "withdraw", "", "take this card of yours down instead of drawing one")
 	flags.StringVar(&reason, "reason", "its question has gone away", "with --withdraw, why")
