@@ -202,7 +202,7 @@ from any host:
 
 ```
 lr ask-owner --title '<the question>?' --background '<what it is for, what it touches, what each answer changes>' \
-  --option 'LABEL :: what picking it does' --option 'LABEL :: what picking it does' \
+  --option 'Keep it :: what picking it does' --option 'Keep it :: what picking it does' \
   --branch OWNER/NAME:BRANCH --until at:3d
 ```
 
