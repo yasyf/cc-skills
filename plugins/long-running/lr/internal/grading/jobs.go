@@ -37,12 +37,12 @@ const (
 	cardChars     = 4000
 	cardTimeout   = 10 * time.Second
 	docChars      = 7
+	itemAttr      = "item"
 )
 
 var (
 	itemList   = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
 	itemNumber = regexp.MustCompile(`\d+`)
-	itemOpened = regexp.MustCompile(`\bNEW\b[^:]*?\bitem (\d+)\b`)
 )
 
 type job struct {
@@ -145,7 +145,7 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 		return job{}, err
 	}
 	base := p.baseJob(d, facts, sprite, settled)
-	base.Items = items
+	base.BugItems = items
 	return job{landed: landed, cited: recordTexts(ruled), spec: grader.FinderJob{
 		Job:      base,
 		Since:    last,
@@ -170,26 +170,29 @@ func (p *JobPool) answersOwed(ctx context.Context, live livePR, cited string) ([
 	return reader.ForPR(reading, program, live.PR, cited)
 }
 
-func (p *JobPool) bugItems(ctx context.Context, body string) ([]grader.Record, error) {
-	named := map[string]bool{}
+func (p *JobPool) bugItems(ctx context.Context, body string) (grader.BugItems, error) {
+	unknown := map[string]bool{}
 	for _, list := range itemList.FindAllString(body, -1) {
 		for _, number := range itemNumber.FindAllString(list, -1) {
-			named[number] = true
+			unknown[number] = true
 		}
 	}
-	if len(named) == 0 {
-		return nil, nil
+	if len(unknown) == 0 {
+		return grader.BugItems{}, nil
 	}
-	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindIncident}})
+	named := maps.Clone(unknown)
+	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindIncident, kindCorrection}})
 	if err != nil {
-		return nil, err
+		return grader.BugItems{}, err
 	}
-	var items []grader.Record
+	var items grader.BugItems
 	for _, r := range found {
-		if opened := itemOpened.FindStringSubmatch(r.Text); opened != nil && named[opened[1]] {
-			items = append(items, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: fullText(r)})
+		if number := r.Fields.Attrs[itemAttr]; named[number] {
+			items.Items = append(items.Items, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: fullText(r)})
+			delete(unknown, number)
 		}
 	}
+	items.UnknownItems = slices.Sorted(maps.Keys(unknown))
 	return items, nil
 }
 
@@ -349,7 +352,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		return job{}, err
 	}
 	base := p.baseJob(d, facts, sprite, settled)
-	base.Items = items
+	base.BugItems = items
 	spec := grader.FidelityJob{
 		Job:            base,
 		Readers:        slices.DeleteFunc(slices.Clone(lanes), func(lane string) bool { return lane == grader.FidelityLane }),

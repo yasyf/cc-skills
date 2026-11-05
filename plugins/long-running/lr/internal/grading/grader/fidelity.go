@@ -697,7 +697,7 @@ func (s *fidelityPassState) prompt(view pullRequest, frame promptFrame) (string,
 		"settled":      orNone(settled.String()),
 		"root_rulings": orNone(rulings.String()),
 		"since":        cmp.Or(spec.Since, "none"),
-		"items":        orNone(listed(spec.Items)),
+		"items":        orNone(spec.itemsText()),
 	}), nil
 }
 
