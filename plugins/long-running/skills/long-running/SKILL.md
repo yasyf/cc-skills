@@ -236,7 +236,7 @@ recorded verbatim, confirmed with him and applied to every live artifact at once
 spawns the Slack lane and the doing lane that turn in one batch, and one `report` to the
 communicator names both. Nobody reads Slack or writes Slack copy outside the Slack lane.
 
-**R21.** Whoever drafts for the owner gives, in the same message, the answer to the first question he will ask; a promise of a later answer is a defect. It uses no term he has not been shown and names every mechanism by what it does to him, and the communicator rewrites a lane's phrase rather than relaying it. A change
+**R21.** Whoever drafts for the owner opens with its topic in his terms, saying whether it is the same thing he is tracking or a separate one and whether he must act. It gives, in the same message, the answer to the first question he will ask; a promise of a later answer is a defect. It uses no term he has not been shown and names every mechanism by what it does to him, and the communicator rewrites a lane's phrase rather than relaying it. A change
 names its concrete things: which fields and where, which chats or users, before and after. A public API added or changed comes unprompted with its signature, the alternatives weighed, the choice and why. Anything named is a link.
 From every lane on every surface, a line saying something waits on his yes or no carries that card with its buttons; no card, no such line. Nothing asks him what a lane can read for itself: whether a card drew is read from the posted message's blocks and attachments through the Slack API, never from his glance, and his yes on a render is about how it should look, never whether it drew. [Terms](reference/communicator-brief.md).
 
