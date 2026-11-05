@@ -61,6 +61,9 @@ function boardRow(n) {
 function verdictState(row) {
   return row.state;
 }
+function waitsOnHim(row) {
+  return row.state === 'you' && !row.awaiting;
+}
 const ASK_PARTS = new Set(['choice', 'approval', 'input']);
 function tapped(tap) {
   state.taps.push(tap);
@@ -103,8 +106,8 @@ function settle(model) {
     if (item.kind === 'card') return open(item.card) ? [item] : [];
     if (item.kind !== 'prs') return [item];
     const rows = [...item.prs, ...item.others].map((r) => ({ ...r, state: live(r) }));
-    const prs = rows.filter((r) => r.state === 'you');
-    return prs.length ? [{ ...item, prs, others: rows.filter((r) => r.state !== 'you') }] : [];
+    const prs = rows.filter(waitsOnHim);
+    return prs.length ? [{ ...item, prs, others: rows.filter((r) => !waitsOnHim(r)) }] : [];
   });
 }
 function driveEntry(n) {

@@ -437,7 +437,7 @@ function holdPeek() {
 function reviewScreen(list) {
   const m = state.model;
   const decided = m.board.rows.filter((r) => ['approved', 'held'].includes(verdictState(r)));
-  const notReady = m.board.rows.filter((r) => verdictState(r) === 'not-ready');
+  const notReady = m.board.rows.filter((r) => verdictState(r) === 'not-ready' || (verdictState(r) === 'you' && r.awaiting));
   const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${prsWaiting()}</b></a><a href="#/review/not-ready" class="${list === 'not-ready' ? 'on' : ''}">Not ready yet <b>${notReady.length}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
   if (list === 'not-ready') return `<div class="pg">${reviewHead()}${chips}<p class="pg-lead">Not yours to approve yet. Each row names what it still waits on, and it moves to Waiting on you when nothing but your approval is left.</p><div class="mr-list">${notReady.map(mergeRow).join('') || '<p class="pg-none">Every open change is ready for you.</p>'}</div></div>`;
   if (list === 'decided') return `<div class="pg">${reviewHead()}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;

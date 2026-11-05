@@ -90,7 +90,7 @@ def stored_row(number, head, **change):
     return {
         "number": number, "head": head, "lane": "lane-7", "title": "T", "for_users": "Chats open faster.", "plan_row": "Plan step 7.", "risk": "Low.", "review": "approved by a bot", "waits_on": "Only your approval.",
         "ready_for_tap": 1, "tapped": 0, "state": "open", "written_at": "2026-11-04T09:40:00Z", "description": "D", "ci": "green", "approvers": "a bot", "grade": "pass", "grade_findings": "none", "mergeable": "clean", "queue": "none",
-        "hold": "none", "superseded_by": "none", "branch": "b", "parent": "none", "tapped_at": "not yet", "tapped_by": "not yet", "tap_refused": "none", "landed_at": "not yet",
+        "hold": "none", "superseded_by": "none", "branch": "b", "base": "dev", "parent": "none", "tapped_at": "not yet", "tapped_by": "not yet", "tap_refused": "none", "landed_at": "not yet",
         **change,
     }
 
@@ -432,7 +432,6 @@ def test_every_drive_pull_request_is_one_light_and_closed_ones_are_none():
         ({"state": "open"}, None, "hhhhhhh", "queued"),
         ({"state": "open"}, None, "aaaaaaa", "waiting"),
         ({"state": "open", "test_state": "pending"}, None, None, "doing"),
-        ({"state": "open", "head": "bbbbbbbb"}, "approved", None, "waiting"),
     ],
 )
 def test_each_pull_request_takes_the_first_state_in_precedence(fields, row_state, go, state):
@@ -755,7 +754,7 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
     )
     stamp({"rows": rows, "cards": []})
 
-    out = needs(rows, [], [], "http://board/p/x", set())
+    out = needs(rows, [], [], "http://board/p/x")
 
     assert [(item["group"], item["relation"]) for item in out] == [("Faster tools", "Four tooling changes; none reaches a user."), ("Release 1 waits on this", "The first release cannot start without it.")]
     assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "meta": None, "md": "M", "block": "merge-prs", "state": "you", "key": rows[1]["key"], "ci_fix_go": None, "checked_at": None, "awaiting": None}]
@@ -778,20 +777,12 @@ def test_a_restack_that_keeps_the_file_count_reuses_the_cached_paths(cached, pr,
     assert paths_current(cached, pr) is current
 
 
-def test_a_landed_pull_request_with_a_stale_tap_row_is_not_a_need():
-    rows = merge_rows(("tools", "Faster tools", "Two tooling changes.", [board_row(43246, "you"), board_row(43247, "you")]))
-
-    out = needs(rows, [], [], "http://board/p/x", {43246})
-
-    assert [row["number"] for row in out[0]["prs"]] == [43247]
-
-
 def test_a_board_row_missing_a_fact_still_reaches_needs_you():
     row = board_row(43250, "you")
     del row["risk"], row["review"]
     rows = merge_rows(("gate", "Release 1 waits on this", "The first release cannot start without it.", [row]))
 
-    out = needs(rows, [], [], "http://board/p/x", set())
+    out = needs(rows, [], [], "http://board/p/x")
 
     assert out[0]["prs"][0]["number"] == 43250
     assert out[0]["prs"][0]["risk"] is None
@@ -801,7 +792,7 @@ def test_an_ask_carries_the_lane_and_record_that_raised_it_and_an_unsourced_ask_
     record = {"seq": 140321, "lane": "release-plan-2", "at": "2026-10-27T09:16:23Z", "text": "Where is that key kept?"}
     asks = [{"what": "Say where the key is kept", "why": "The flag read needs it.", "record": record}, {"what": "Rotate a key", "why": "It sat in chat."}, {"what": "Resume", "why": "W", "optional": True}]
 
-    out = needs([], [{"id": "card-a", "title": "Pick one", "summary": "Two ways.", "recommended": "A", "decides": True}, {"id": "card-b", "title": "Nothing to decide: what blocks the new app", "summary": "", "recommended": None, "decides": False}], asks, "http://board/p/x", set())
+    out = needs([], [{"id": "card-a", "title": "Pick one", "summary": "Two ways.", "recommended": "A", "decides": True}, {"id": "card-b", "title": "Nothing to decide: what blocks the new app", "summary": "", "recommended": None, "decides": False}], asks, "http://board/p/x")
 
     assert [item["kind"] for item in out] == ["card", "ask", "ask"]
     assert out[0]["source"] == {"label": "Board card: Pick one", "href": "http://board/p/x"}
@@ -1099,6 +1090,29 @@ def test_a_head_record_names_its_pull_request_at_its_commit_and_a_dump_says_why_
     assert (parsed["prs"], parsed["heads"], parsed["commits"], parsed["records"], parsed["urls"]) == ([47760], {47760: "eebb3a105452"}, ["bd2bdc0c", "0ecc726"], [308001], ["https://buildkite.com/forge/builds/9"])
     assert "<dt>Not parsed</dt><dd>It is JSON data, not sentences.</dd>" in page
     assert "<dt>Says</dt>" not in page and "<dt>Details</dt>" not in page
+
+
+def test_review_and_needs_me_list_the_same_rows():
+    stored = [stored_row(1, "aaaaaaa"), stored_row(2, "bbbbbbb"), stored_row(3, "ccccccc"), stored_row(4, "ddddddd", tapped=1), stored_row(5, "eeeeeee", ready_for_tap=0, waits_on="CI is not green")]
+    rows = server.review_rows(stored, {})
+    for row in rows:
+        row.update(key=str(row["number"]), go_head=row["head"] if row["tapped"] else None, state="approved" if row["tapped"] else "you" if row["ready"] else "not-ready", awaiting=991 if row["number"] == 3 else None, md="", meta=[])
+    on_review = [row["number"] for need in server.merge_needs(rows, "u") for row in need["prs"]]
+    prs = list(listed(server.with_open_rows({"1": {"state": "open", "head": "0000000"}}, rows), rows).values())
+    on_needs_me = [tap["number"] for tap in server.taps.tap_queue(rows, [], [], prs, [], str)]
+    assert sorted(on_needs_me) == on_review == [1, 2]
+
+
+def test_the_row_store_is_the_head_and_the_stack_of_an_open_change_the_ledger_misses_or_reads_old():
+    rows = server.review_rows([stored_row(1, "aaaaaaa", branch="one"), stored_row(2, "bbbbbbb", branch="two", base="one"), stored_row(3, "ccccccc", branch="three", ready_for_tap=0)], {})
+    prs = server.with_open_rows({"1": {"state": "open", "head": "0000000", "test_state": "success"}, "9": {"state": "landed", "head": "9999999"}}, rows)
+    assert prs["1"] == {"state": "open", "head": "aaaaaaa", "branch": "one", "base": "dev", "title": "T", "lane": "lane", "test_state": "success"}
+    assert prs["9"]["state"] == "landed"
+    for row, state in zip(rows, ("you", "you", "not-ready")):
+        row["state"] = state
+    entries = listed(prs, rows)
+    assert {number: (entry["state"], entry["base"]) for number, entry in entries.items() if number != 9} == {1: ("you", None), 2: ("you", 1), 3: ("waiting", None)}
+    assert next(tap for tap in server.taps.tap_queue(rows, [], [], list(entries.values()), [], str) if tap["number"] == 1)["frees"] == 1
 
 
 def test_every_row_waiting_on_the_owner_stays_on_the_deck():

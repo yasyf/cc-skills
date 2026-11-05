@@ -58,15 +58,13 @@ def test_urgent_comes_before_anything_it_frees():
 
 
 def test_only_a_tap_he_can_make_now_is_a_row():
-    prs = [entry(number) for number in (1, 2, 3)] + [entry(4, state="landed")]
-    rows = [row(1), row(2, awaiting=991), row(3, blocker="Conflicts with its base, so it cannot land until its worker rebases it."), row(4), row(5), row(6, state="approved")]
-    assert [tap["number"] for tap in queue(rows, prs=prs)] == [1]
+    rows = [row(1), row(2, awaiting=991), row(3, state="not-ready"), row(4, state="approved")]
+    assert [tap["number"] for tap in queue(rows)] == [1]
 
 
-def test_a_row_leaves_the_queue_when_its_head_moves_unless_a_carry_covers_it():
-    prs = [{**entry(1), "head": "bbbbbbb"}, {**entry(2), "head": "abc1234"}, {**entry(3), "head": "bbbbbbb"}]
-    rows = [row(1), row(2), row(3, carried=["abc1234"])]
-    assert [tap["number"] for tap in queue(rows, prs=prs)] == [2, 3]
+def test_a_row_the_ledger_misses_or_reads_at_an_old_head_stays_in_the_queue():
+    prs = [{**entry(1), "head": "bbbbbbb"}]
+    assert [tap["number"] for tap in queue([row(1), row(2)], prs=prs)] == [1, 2]
 
 
 def test_a_card_thread_keeps_his_words_and_each_answer_in_order_and_skips_the_boards_own_lines():
