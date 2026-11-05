@@ -4,6 +4,7 @@ Every update the owner gets, whether a status answer, a milestone report or the 
 
 Contents:
 - [When one goes out](#when-one-goes-out)
+- [The away update](#the-away-update)
 - [Sections, in order](#sections-in-order)
 - [You asked more than once](#you-asked-more-than-once)
 - [Workstreams](#workstreams)
@@ -18,29 +19,44 @@ Contents:
 ## When one goes out
 
 - When he asks for status in any words, within two minutes.
-- When he returns after 30 minutes or more of silence, as the reply to his first message.
+- When he returns after 30 minutes or more of silence, as the reply to his first message: `lr update away`, described [below](#the-away-update).
 - At a milestone: a plan step lands or goes live, a release goes live or fails, an incident opens or closes.
 - Before every compaction, inside the progress record ([compaction.md](compaction.md)).
 - Never on a clock and never to Slack.
 
+## The away update
+
+`lr update away --drive <drive> [--since <time>]` prints the update for his return, from the same sources as the render, with nothing typed by hand. It reads from the update he was last sent, or from `--since`: an RFC 3339 time, a duration such as `8h`, or a Pacific clock time such as `11:30 PM`, the latest one before now. It never folds, so every item since then is in it.
+
+1. A title with the window and one line of counts: what waits on him, what landed and how much of it is live or releasing, what broke, and the plan steps with no owner.
+2. **Plan steps nobody owns**, when any are.
+3. **Waits on you**, by workstream: each pick with its card's button labels, the recommended one marked, and the Slack message that carries the buttons; each PR ready for his tap with its link. A board that did not read says so first.
+4. One section per workstream of `progress-desk/workstreams.md`, then **Everything else** for what no workstream holds. Each says what it delivers and who is on it by alias, then:
+   - **Landed**: each drive PR that landed in the window, linked, with what it does for users and where its release stands. A PR the newest `LANDED-NOT-LIVE` record names is not live yet on its targets. One it leaves out, once the supervisor's landed-not-live check has had its hour and five minutes, is live or in a running release, since that check also skips a target a running release carries. Before that the line says when the check reads it.
+   - **Broke**: each incident that fired in the window or is still open, with its state and the lane on it, and each open PR whose head is red or refused, held or not, with its owner. An incident with no record in the last day is not in it.
+5. **The plan**: each plan, a draft marked, each open step with its task counts and its owner by alias, or **nobody** and the last lane on it; done steps on one line.
+
+The communicator's update desk runs it on the communicator's `away` order and posts it whole; nobody edits it.
+
 ## Sections, in order
 
 1. **You asked more than once** ([below](#you-asked-more-than-once)), first of all under the title.
-2. A line counting the coordinator's own items in the drive's store that are past due when the render runs, then one line per item, oldest due first, naming it and its due time. With none past due it prints nothing.
-3. **Workstreams** ([below](#workstreams)).
-4. **Since you last looked.** Each row that is new, whose owner, blocker or doneness moved, or that left its table because a PR landed, an ask was answered or an incident closed, since the last update he was sent.
-5. **Decisions made for you (FYI).** The communicator's own FYIs since the last update, grouped. Each is a plain-words synthesis of something the coordinator decided or solved, or of what is going right or wrong. Each is a `note` record from `owner-relay` on topic `fyi`, and the group is the words before its first colon. The render never turns coordinator records into FYIs.
-6. **Your words since the last update.** Each message the communicator queued, quoted whole, with the record that carries it: a later record that answers it with `--re` or resolves it. A record that only names its number does not count, since `#<n>` is also a PR.
-7. **Unowned work.** Every open row with nobody on it, as a table. Each also sits in its own section.
-8. **Pinned for you** ([below](#pinned-for-you)).
-9. **Standing duties.** One row per duty at the newest lane of its successor chain.
-10. **Drive tooling.** One row per meta program (the cci token cut, the coordinator kept minimal for Fable, hook tiers, the dashboard, Sprites, launch latency, the Go loop and any other) with its state, its blocker and what comes next, in plain words. The rows come only from the meta lane's `<state dir>/meta/programs.md`, a table headed `| Program | State | Blocker | Next |`, one row per program. A program nothing blocks says `nothing`.
-11. **The plan.** One heading per plan, in plain words. Under it a step with no changed row since the last update he was sent is one line, and a step with a changed row gets its own table, step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out. An open step no live lane holds names the last lane that worked it and when.
-12. **Lanes by workstream.** One table per other step a brief names in words, then the lanes on no step, which include any lane whose brief names a raw code such as `S5` or a step the plan lacks.
-13. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
-14. Registry lanes quiet over a day, what waits on the coordinator, one line linking his open taps on the dashboard's Needs me tab, and what lanes delivered in the last two hours.
-15. **Gaps in this update.** Present only when one of these holds: a message of his has no record carrying it; a live lane is in no workstream; the workstream list is missing, empty or unreadable; a tooling program has no blocker; or the meta lane's list has no programs.
-16. **One closing line.** Present only when the render folded or dropped something, and it names each thing it folded or dropped.
+2. **Plan steps nobody owns**, next, whenever an open step of an approved or executing plan lacks a live owner. Each line names the plan and step and the last lane on it. The supervisor's step watch tells the coordinator the same within a minute ([supervisor.md](supervisor.md#plan-step-owners)), and the line never folds, so the progress record carries it.
+3. A line counting the coordinator's own items in the drive's store that are past due when the render runs, then one line per item, oldest due first, naming it and its due time. With none past due it prints nothing.
+4. **Workstreams** ([below](#workstreams)).
+5. **Since you last looked.** Each row that is new, whose owner, blocker or doneness moved, or that left its table because a PR landed, an ask was answered or an incident closed, since the last update he was sent.
+6. **Decisions made for you (FYI).** The communicator's own FYIs since the last update, grouped. Each is a plain-words synthesis of something the coordinator decided or solved, or of what is going right or wrong. Each is a `note` record from `owner-relay` on topic `fyi`, and the group is the words before its first colon. The render never turns coordinator records into FYIs.
+7. **Your words since the last update.** Each message the communicator queued, quoted whole, with the record that carries it: a later record that answers it with `--re` or resolves it. A record that only names its number does not count, since `#<n>` is also a PR.
+8. **Unowned work.** Every open row with nobody on it, as a table. Each also sits in its own section.
+9. **Pinned for you** ([below](#pinned-for-you)).
+10. **Standing duties.** One row per duty at the newest lane of its successor chain.
+11. **Drive tooling.** One row per meta program (the cci token cut, the coordinator kept minimal for Fable, hook tiers, the dashboard, Sprites, launch latency, the Go loop and any other) with its state, its blocker and what comes next, in plain words. The rows come only from the meta lane's `<state dir>/meta/programs.md`, a table headed `| Program | State | Blocker | Next |`, one row per program. A program nothing blocks says `nothing`.
+12. **The plan.** One heading per plan, in plain words. Under it a step with no changed row since the last update he was sent is one line, and a step with a changed row gets its own table, step row first and then its lanes. A plan with no numbered steps whose title lists pieces, such as the five services, gets one table per piece, so no piece can drop out. An open step no live lane holds names the last lane that worked it and when.
+13. **Lanes by workstream.** One table per other step a brief names in words, then the lanes on no step, which include any lane whose brief names a raw code such as `S5` or a step the plan lacks.
+14. **Owner asks, Incidents today, Releases today, Open PRs.** One row each; landed-but-not-live asks come first.
+15. Registry lanes quiet over a day, what waits on the coordinator, one line linking his open taps on the dashboard's Needs me tab, and what lanes delivered in the last two hours.
+16. **Gaps in this update.** Present only when one of these holds: a message of his has no record carrying it; a live lane is in no workstream; the workstream list is missing, empty or unreadable; a tooling program has no blocker; or the meta lane's list has no programs.
+17. **One closing line.** Present only when the render folded or dropped something, and it names each thing it folded or dropped.
 
 ## You asked more than once
 
@@ -112,7 +128,7 @@ If that is still over, the render drops whole lines from the end of the body, ke
 | Row | What it delivers | State | Who is on it right now | What blocks it | What we are doing to unblock it, and by when | What went wrong or slowed it |
 |---|---|---|---|---|---|---|
 
-- **Who is on it right now**: each lane on the work that was heard within two hours, or **nobody**.
+- **Who is on it right now**: each lane on the work that was heard within two hours, or **nobody**. A plan step's lanes are those whose brief's `Register slice:` line names it, which `lr launch lane --step <n>` writes; a lane whose records only mention the step never owns it. A PR's lane is the newest one whose `head`, `opened` or `claim` record names it, or its ledger lane. A Sprite lane posts under its alias, so an alias with no live row of its own counts as live through the newest live lane it names, as `cci who --pr` reads it.
 - **State** of a plan step: its task counts. With **nobody** on it, its tasks in progress count as stale, and the cell names the last lane whose record named the step, with that record's kind and time. A standing desk is never on a plan step, by its brief's step or by its records.
 - **What blocks it**: each such lane's open ask or blocker to the coordinator, with its seq and time, or a plan task's wait. Every status row carries how long it has been blocked; a state without its duration is a defect. Write "blocked N min since <time> on <what>".
 - **What we are doing to unblock it, and by when**: each lane's newest record, and the time its next record is due by the supervisor's stale line. With nobody on it, it says the coordinator starts a lane this turn.

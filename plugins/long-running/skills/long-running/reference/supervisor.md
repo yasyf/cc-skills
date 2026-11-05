@@ -131,6 +131,14 @@ A lane cannot retire while an order it was assigned, through `lr launch lane --o
 - Every end that an owed deletion holds holds it too, with one `defect` to the coordinator and the lane naming each row. A coordinator stand-down that names a successor hands the brief, and its orders, to that successor.
 - An `owner` record addressed to a lane that is retired or held, or that retires in the same pass before it reads the record, goes on in that pass: one `ask` to the live end of the lane's successor chain, or to the coordinator when there is none, names the record and the lane. A stem such as `spinner-pictures` resolves to its newest numbered lane, live or not.
 
+### Plan step owners
+
+Every open step of an approved or executing plan has an owner: a live lane, heard within two hours, whose brief's `Register slice:` line names the step. `lr launch lane --step <n>` writes that line, and a successor's brief carries its predecessor's step. A standing desk never owns a step, and a record that only mentions a step owns nothing.
+- Each minute the `step-owners` pass reads the registry, and every 15 minutes the program's plans. A step that has no owner draws one `STEP-UNOWNED` blocker to the coordinator, naming the plan, the step, the last lane on it and the launch that gives it an owner. The escalation keeps it from repeating while the step stays unowned.
+- When a lane takes the step on, one `STEP-OWNED` note resolves that blocker; when the step is done or leaves every open plan, read at the next plan read, one `STEP-CLOSED` note does. A later loss draws a new one.
+- The blocker's id and the seq it resolves are keyed to that one loss, so a supervisor restart mid-pass never posts either twice.
+- The owner update leads with the same steps under "Plan steps nobody owns", so the progress record carries them ([owner-report-table.md](owner-report-table.md)).
+
 ### Clocks a lane's cards promise
 
 A card drawn with `lr ask-owner --by TIME` carries the clock it promises him something by. The board link saves the clock, the lane and the card's question on the card's row in the board-cards ledger, and writes the row through to the supervisor store's mirror of that ledger, which `lr` resyncs from the ledger when it is ten minutes old, as `lr asks` does.
