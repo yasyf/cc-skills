@@ -20,6 +20,7 @@ const (
 	FreeRetriesFact = "free-retries"
 	RestackedFact   = "restacked"
 	conflictValue   = "conflict"
+	carriesValue    = "carries"
 	restacksPerPass = 2
 	freeRetries     = 3
 )
@@ -143,6 +144,8 @@ func dequeued(f machine.Facts, said string) Said {
 		answer.Text = "the queue held an older head"
 	case f.Hold != "":
 		answer.Text = "an open hold names it"
+	case len(f.Carries) > 0:
+		answer.Text = fmt.Sprintf("its branch holds the heads of %s, open PRs of their own, so this head would land them too; put it back on its real base", numbered(f.Carries))
 	case !f.Admitted():
 		answer.Accepted, answer.Refused, answer.Alarm = "UNTAPPED-DEQUEUED", "UNTAPPED-DEQUEUE-REFUSED", true
 		if f.TapFrom != "" {
@@ -227,6 +230,13 @@ func restack(ctx context.Context, s *store.Store, restacker Restacker, f machine
 		return nil
 	}
 	moved, err := restacker.Restack(ctx, f.Number, f.Head, f.Base)
+	if errors.Is(err, ErrCarries) {
+		if _, err := s.PutFact(f.Repo, f.Number, f.Head, RestackedFact, carriesValue, now); err != nil {
+			return err
+		}
+		done.Said = append(done.Said, Said{Facts: f, Accepted: "RESTACKED", Refused: "RESTACK-REFUSED", Text: err.Error()})
+		return nil
+	}
 	if err != nil {
 		return err
 	}

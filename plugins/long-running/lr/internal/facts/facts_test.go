@@ -111,6 +111,20 @@ func memberReply(prs []recordedPR) string {
 	return string(encoded)
 }
 
+func openReply(prs []recordedPR) string {
+	nodes := make([]map[string]any, 0, len(prs))
+	for _, pr := range prs {
+		if pr.state == "" || pr.state == "OPEN" {
+			nodes = append(nodes, map[string]any{"number": pr.number, "headRefOid": pr.head})
+		}
+	}
+	encoded, err := json.Marshal([]any{map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}}}})
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
+}
+
 func status(number int, overrides ...func(*statusRow)) statusRow {
 	row := statusRow{ccx.PRStatus{Number: number, Head: head, Base: "dev", State: "OPEN", Queue: "not queued", Mergeability: "notQueued", Verdict: "landable", Approval: ccx.Check{State: "approved"}}, ciRow{State: "green"}}
 	for _, override := range overrides {
@@ -142,6 +156,7 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 		t.Fatal(err)
 	}
 	runner := &shelltest.Fake{}
+	runner.Reply(openReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate")
 	runner.Reply(memberReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
@@ -208,8 +223,8 @@ func TestOnlyAPROpenedOnTheRecordIsRead(t *testing.T) {
 		t.Fatalf("status read = %v, want the rows only and never a PR no record opened", got)
 	}
 	for _, call := range h.runner.Calls() {
-		if slices.ContainsFunc(call.Argv, func(arg string) bool { return strings.Contains(arg, "pullRequests(") }) {
-			t.Fatalf("a read listed GitHub's open PRs: %v", call.Argv)
+		if !slices.Contains(call.Argv, "--paginate") && slices.ContainsFunc(call.Argv, func(arg string) bool { return strings.Contains(arg, "pullRequests(") }) {
+			t.Fatalf("a member read listed GitHub's open PRs: %v", call.Argv)
 		}
 	}
 }
@@ -270,6 +285,7 @@ func TestANumberGitHubCannotResolveEndsItsRowAndThePassGoesOn(t *testing.T) {
 	}
 	partial := `{"data":{"repository":{"r99999":null,"r1":{"number":1,"state":"OPEN","headRefOid":"` + head + `"}}},"errors":[{"type":"NOT_FOUND","message":"Could not resolve"}]}`
 	runner := &shelltest.Fake{}
+	runner.Reply(openReply(nil), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate")
 	runner.FailOut(1, partial, "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
@@ -507,8 +523,8 @@ func TestABoardReadAsksGitHubOncePerPageOfRowsWhateverThePRCount(t *testing.T) {
 		}
 		calls[n] = len(h.runner.Calls())
 	}
-	if calls[1] != 2 || calls[manyPRs] != 1+manyPRs/pageSize {
-		t.Fatalf("command runs at 1 and %d PRs = %d, %d, want 2 and %d: one rules read and one query per page of %d", manyPRs, calls[1], calls[manyPRs], 1+manyPRs/pageSize, pageSize)
+	if calls[1] != 3 || calls[manyPRs] != 2+manyPRs/pageSize {
+		t.Fatalf("command runs at 1 and %d PRs = %d, %d, want 3 and %d: one rules read, one open-heads read and one query per page of %d", manyPRs, calls[1], calls[manyPRs], 2+manyPRs/pageSize, pageSize)
 	}
 }
 
@@ -742,8 +758,8 @@ func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
 
 		calls[n] = len(h.runner.Calls())
 	}
-	if calls[1] != 4 || calls[manyPRs] != 3+manyPRs/pageSize {
-		t.Fatalf("command runs at 1 and %d PRs = %d, %d, want 4 and %d: one status read, one rules read, one search, one read per page of %d", manyPRs, calls[1], calls[manyPRs], 3+manyPRs/pageSize, pageSize)
+	if calls[1] != 5 || calls[manyPRs] != 4+manyPRs/pageSize {
+		t.Fatalf("command runs at 1 and %d PRs = %d, %d, want 5 and %d: one status read, one rules read, one search, one open-heads read, one read per page of %d", manyPRs, calls[1], calls[manyPRs], 4+manyPRs/pageSize, pageSize)
 	}
 }
 
@@ -906,7 +922,7 @@ func TestTheMemberReadAsksByNumberInBatchesGitHubAnswers(t *testing.T) {
 
 	var batches, asked int
 	for _, call := range h.runner.Calls() {
-		if !slices.Contains(call.Argv, "graphql") || strings.Contains(call.Argv[len(call.Argv)-1], "search(") {
+		if !slices.Contains(call.Argv, "graphql") || slices.Contains(call.Argv, "--paginate") || strings.Contains(call.Argv[len(call.Argv)-1], "search(") {
 			continue
 		}
 		batches++
@@ -927,7 +943,7 @@ func TestEveryReadRunsFromTheCheckoutNamingItsRepositoryAndCaller(t *testing.T) 
 	h.snapshot(t)
 
 	calls := h.runner.Calls()
-	if len(calls) != 4 {
+	if len(calls) != 5 {
 		t.Fatalf("calls = %+v", calls)
 	}
 	for _, call := range calls {
@@ -1081,6 +1097,20 @@ func TestABranchCarryingASiblingsHeadIsMarkedWhateverGitHubSaysItsBaseIs(t *test
 	}
 	if machine.Classify(by[45799]).State != machine.StateNeedsRestack {
 		t.Errorf("a carrying branch classified %v", machine.Classify(by[45799]).State)
+	}
+}
+
+func TestABranchCarryingAnOpenPRThisStoreHasNoRowForIsStillMarked(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 48611, head: head, login: "drive-bot", commits: []string{head2, head3, head}},
+		{number: 48159, head: head2, login: "drive-bot", unopened: true},
+		{number: 48479, head: head3, login: "drive-bot", unopened: true},
+	}, status(48611))
+
+	by := h.snapshot(t)
+
+	if !slices.Equal(by[48611].Carries, []int{48159, 48479}) {
+		t.Fatalf("carries = %v, want the open PRs whose heads its branch holds", by[48611].Carries)
 	}
 }
 
@@ -1802,8 +1832,8 @@ func TestARootGoNeverLiftsTheOwnersHoldAndTheRowNamesTheOwnersRecord(t *testing.
 	hold(t, "root", "hold #1 too", repo+"#1")
 	goRecord(t, "root", "go #1 at e718a74")
 
-	if row := h.snapshot(t)[1]; row.Hold != machine.MoverOwner || row.HoldSeq != owner.Seq {
-		t.Fatalf("hold = %q at #%d, want owner at #%d", row.Hold, row.HoldSeq, owner.Seq)
+	if row := h.snapshot(t)[1]; row.Hold != machine.MoverOwner || !strings.HasPrefix(row.HoldRecord+"@", fmt.Sprintf("#%d@", owner.Seq)) {
+		t.Fatalf("hold = %q at %s, want owner at #%d", row.Hold, row.HoldRecord, owner.Seq)
 	}
 }
 

@@ -17,7 +17,10 @@ import (
 
 const sprite = "vet4"
 
+const chain = `[{"number":1,"headRefName":"a","baseRefName":"dev","headRefOid":"a1"},{"number":2,"headRefName":"b","baseRefName":"a","headRefOid":"b2"}]`
+
 type host struct {
+	open        string
 	sprited     int
 	spriteFails shell.Result
 	sawStdin    string
@@ -27,13 +30,11 @@ func (h *host) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
 	switch {
 	case slices.Equal(c.Argv[:2], []string{"gh", "auth"}):
 		return shell.Result{Stdout: "token\n"}, nil
-	case slices.Equal(c.Argv[:3], []string{"gh", "pr", "view"}):
-		return shell.Result{Stdout: `{"number":2,"headRefName":"b","baseRefName":"a"}`}, nil
 	case slices.Equal(c.Argv[:3], []string{"gh", "pr", "list"}):
-		if c.Argv[slices.Index(c.Argv, "--head")+1] == "a" {
-			return shell.Result{Stdout: `[{"number":1,"headRefName":"a","baseRefName":"dev"}]`}, nil
+		if h.open == "" {
+			return shell.Result{Stdout: chain}, nil
 		}
-		return shell.Result{Stdout: `[]`}, nil
+		return shell.Result{Stdout: h.open}, nil
 	case slices.Equal(c.Argv[:2], []string{"git", "config"}):
 		return shell.Result{Stdout: map[string]string{"user.name": "Lane\n", "user.email": "lane@example.com\n"}[c.Argv[2]]}, nil
 	case c.Argv[0] == "sprite":
@@ -149,6 +150,23 @@ func TestAConflictPushesNothingAndNamesTheBranchAndPaths(t *testing.T) {
 	}
 	if git(t, origin, "rev-parse", "a") != wasA || git(t, origin, "rev-parse", "b") != wasB || len(posted.texts) != 0 {
 		t.Fatal("a conflict moved a head or posted one")
+	}
+}
+
+func TestABranchOnDevHoldingAnOpenParentsHeadPushesNothingAndNamesTheParent(t *testing.T) {
+	origin, clone := stacked(t, false)
+	wasA, wasB := git(t, origin, "rev-parse", "a"), git(t, origin, "rev-parse", "b")
+	posted := &heads{}
+	machine := &host{open: fmt.Sprintf(`[{"number":1,"headRefName":"a","baseRefName":"dev","headRefOid":%q},{"number":2,"headRefName":"b","baseRefName":"dev","headRefOid":%q}]`, wasA, wasB)}
+	remote := landing.Remote{Runner: machine, PostHead: posted.post, Repo: "o/r", Clone: clone, Sprite: sprite}
+
+	moved, err := remote.Restack(context.Background(), 2, wasB, "dev")
+
+	if !errors.Is(err, landing.ErrCarries) || moved != "" || !strings.Contains(err.Error(), "its branch holds the heads of #1, open PRs outside its stack") {
+		t.Fatalf("moved = %q, err = %v", moved, err)
+	}
+	if git(t, origin, "rev-parse", "a") != wasA || git(t, origin, "rev-parse", "b") != wasB || len(posted.texts) != 0 {
+		t.Fatal("a branch carrying an open parent was moved onto dev")
 	}
 }
 

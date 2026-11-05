@@ -282,6 +282,22 @@ func TestAConflictIsRestackedMechanicallyAndTheNewHeadRecorded(t *testing.T) {
 	}
 }
 
+func TestARestackRefusedForCarryingOpenPRsIsToldOnceAndNotRetried(t *testing.T) {
+	s := newStore(t)
+	r := &restacker{err: fmt.Errorf("remote-restack: #48611 on dar-desk-2 pushed nothing: its branch holds the heads of #48159, open PRs outside its stack, so %w", landing.ErrCarries)}
+	given := facts(48611, conflict)
+
+	first := act(t, s, &queue{}, r, t0, given)
+	second := act(t, s, &queue{}, r, t0.Add(5*time.Minute), given)
+
+	if len(r.calls) != 1 || len(first.Restacked) != 0 || len(first.Said) != 1 || first.Said[0].Refused != "RESTACK-REFUSED" || !strings.Contains(first.Said[0].Text, "holds the heads of #48159") || len(second.Said) != 0 {
+		t.Fatalf("calls = %+v, first = %+v, second = %+v", r.calls, first, second)
+	}
+	if got := fact(t, s, 48611, landing.RestackedFact); got != "carries" {
+		t.Fatalf("restacked fact = %q", got)
+	}
+}
+
 func TestASemanticConflictIsTriedOnceThenToldToTheLane(t *testing.T) {
 	s, r := newStore(t), &restacker{}
 	given := facts(45580, conflict)

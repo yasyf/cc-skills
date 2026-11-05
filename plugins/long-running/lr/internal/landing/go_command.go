@@ -483,7 +483,7 @@ func unready(f machine.Facts) []string {
 		why = append(why, "no approving review is on this head")
 	}
 	if f.Hold != "" {
-		why = append(why, fmt.Sprintf("%s holds it (#%d)", f.Hold, f.HoldSeq))
+		why = append(why, fmt.Sprintf("%s holds it (%s)", f.Hold, f.HoldRecord))
 	}
 	if f.Draft {
 		why = append(why, "it is a draft")

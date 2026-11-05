@@ -179,9 +179,9 @@ func TestAHeldHeadTakesNoGraderUntilTheHoldLiftsUnlessItHoldsForHisTap(t *testin
 		hold func(*machine.Facts)
 		want []Dispatched
 	}{
-		{"root hold", func(f *machine.Facts) { f.Hold, f.HoldSeq = machine.MoverRoot, 481773 }, nil},
-		{"owner hold", func(f *machine.Facts) { f.Hold, f.HoldSeq = machine.MoverOwner, 481773 }, nil},
-		{"held for his tap", func(f *machine.Facts) { f.Hold, f.HoldSeq, f.HoldAwaitsTap = machine.MoverRoot, 481773, true }, []Dispatched{{GraderFinder, number, head}, {GraderFidelity, number, head}}},
+		{"root hold", func(f *machine.Facts) { f.Hold, f.HoldRecord = machine.MoverRoot, "#481773" }, nil},
+		{"owner hold", func(f *machine.Facts) { f.Hold, f.HoldRecord = machine.MoverOwner, "#481773" }, nil},
+		{"held for his tap", func(f *machine.Facts) { f.Hold, f.HoldRecord, f.HoldAwaitsTap = machine.MoverRoot, "#481773", true }, []Dispatched{{GraderFinder, number, head}, {GraderFidelity, number, head}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

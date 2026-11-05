@@ -48,6 +48,7 @@ D24 sits at the end of this section.
 - The moment a PR is green, the lane reports `"READY"` with `--verdict clean` on `ledger.py report --drive <drive>` and keeps `ccx vcs pr watch` on the stack.
 - On ejection or conflict, the lane restacks at once with `lr landing restack --runner <runner config> --lane <lane> <top PR>`, which replays the stack on a Sprite, pushes, and posts each new head. The lane resolves by hand only a conflict that tool reports; the runner re-enqueues.
 - When a coordinator `go` names the conflicting head, the landing pass runs that same restack under the lane's name, once per head; the lane hears of the conflict only when the replay moved nothing.
+- A branch that holds the head of another open PR outside its stack, such as one whose GitHub base reads `dev` while its unlanded parents are still in it, is never restacked or queued by the landing host. Each pass reads every open PR's head from GitHub, so a host with a fresh store sees it too. The restack pushes nothing and posts `RESTACK-REFUSED` naming those PRs, a queued head is pulled with the same reason, and its lane puts it back on its real base.
 - A lane is not finished until its squash `(#N)` is on the base branch. After a bottom prefix lands, it restacks the PRs above it the same way, with no ruling needed.
 - A lane may restack its PR onto the current trunk proactively; no ruling is needed.
 - Never push to a tapped PR the desk may enqueue: the queue rebuilds on dev anyway, so a rebase for an inherited red after the enqueue is pointless.
