@@ -793,7 +793,7 @@ func TestAMovedPinOrTheSameBytesNeverRestartTheSupervisorAndAChangedSettingDoes(
 }
 
 func TestTheSupervisorNamesEveryToolAndKeyItStartsWithout(t *testing.T) {
-	cfg := config.Config{OrcaRun: "run_1", Movers: []string{config.MoverLanding}, QueueKey: "security find-generic-password -w -s trunk"}
+	cfg := config.Config{OrcaRun: "run_1", Movers: []string{config.MoverLanes, config.MoverLanding}, QueueKey: "security find-generic-password -w -s trunk"}
 	keys := map[string]string{"gh auth token": "token\n", cfg.QueueKey: ""}
 	runner := scripted(func(argv []string) (shell.Result, error) {
 		return shell.Result{Stdout: keys[argv[len(argv)-1]]}, nil
@@ -808,6 +808,11 @@ func TestTheSupervisorNamesEveryToolAndKeyItStartsWithout(t *testing.T) {
 
 	equal(t, missing(context.Background(), runner, look, cfg), []string{
 		"orca is not on PATH",
+		"the queue key is unreadable: `security find-generic-password -w -s trunk` printed nothing",
+	})
+
+	cfg.Movers = []string{config.MoverLanding}
+	equal(t, missing(context.Background(), runner, look, cfg), []string{
 		"the queue key is unreadable: `security find-generic-password -w -s trunk` printed nothing",
 	})
 
