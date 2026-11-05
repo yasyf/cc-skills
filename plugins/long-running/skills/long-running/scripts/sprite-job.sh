@@ -12,12 +12,11 @@ the same there. The Sprite mirrors this machine's home at its own path, has
 codex, codex-ask, ccx, ccn and cci installed, is joined to the drive's cci relay,
 and holds a clone at the job's checkout whose remotes fetch the branches and
 cc-notes refs the job reads, cc-notes from an unfiltered remote when the clone
-is partial. `lr grade` moves that clone's .git to the Sprite's local disk on the
-first pass that finds it on the network disk home lives on, takes the clone's
-whole history when it is shallow, since a shallow trunk reads every commit behind
-a head as the head's own, and starts one background move of the clone's worktree and the tools a pass reads. <dir> and each
-copy this script ships land on the local disk too, behind a link at the same path,
-and <dir> goes once it is copied back.
+is partial. `lr grade` takes the clone's whole history when it is shallow, since
+a shallow trunk reads every commit behind a head as the head's own. cc-remote
+keeps the Sprite's home on its local disk, so the clone, <dir> and each copy
+this script ships land there at the same paths, and <dir> goes once it is
+copied back.
 
 SPRITE_JOB_KEYS, a JSON object of environment names to the commands that print
 their values, such as {"GH_TOKEN": ["gh", "auth", "token"]}, is run here at
@@ -46,9 +45,7 @@ on the Sprite reads instead of rebuilding the register cold with ccn, and the pl
 register names, the directory holding plan/plan.md, whenever a file in it was
 added, removed or changed since the Sprite's copy. The job's checkout drops the
 loose refs a Sprite restart leaves empty or filled with NULs, which every fetch
-reads as the zero object. Once `lr grade` has moved its .git to the local disk, it fetches every remote unless a fetch
-that began after this job asked for one already did; before that it fetches nothing, since a stale clone's catch-up
-on the network disk holds the lock `lr grade` needs for the move, for an hour on dar-fleet-4. The job runs there. <dir> is then copied
+reads as the zero object. It fetches every remote unless a fetch that began after this job asked for one already did. The job runs there. <dir> is then copied
 back, job.json, pid and job.log left as this machine wrote them and result.json last,
 adopted through long_running/desk_result.py only when it parses, so the runner
 settles the pass from this process and its files as it does a local one. Every
@@ -122,10 +119,6 @@ ship() {
   if [ "$(sprite exec -s "$sprite" --no-stdin -- sh -c 'mkdir -p "$(dirname "$1")"; [ ! -d "$1/" ] || cat "$1.digest" 2>/dev/null' sh "$1")" != "$sum" ]; then
     tar --no-xattrs --exclude=__pycache__ --exclude=.in_use --exclude=.orphaned_at -C "$1" -cz . | sprite exec -s "$sprite" -- flock "$1.lock" sh -c '
       if [ -d "$1/" ] && [ "$(cat "$1.digest" 2>/dev/null)" = "$2" ]; then exec cat >/dev/null; fi
-      if [ ! -e "$1.d" ]; then
-        kept=/tmp/lr-ship/$(printf %s "$1" | sha256sum | cut -c1-16)
-        mkdir -p "$kept" && ln -sfn "$kept" "$1.d" || exit 1
-      fi
       next="$1.d/$2"
       if [ -d "$next" ]; then
         cat >/dev/null
@@ -139,12 +132,12 @@ ship() {
         [ -d "$old" ] && [ "$old" != "$next" ] && flock -n -x "$old.lock" rm -rf "$old" "$old.lock"
       done
       for other in "$(dirname "$1")"/*.d; do
-        [ -L "$other" ] && [ "$other" != "$1.d" ] && [ -n "$(find "$other/" -maxdepth 0 -mmin +60)" ] || continue
+        [ "$other" != "$1.d" ] && [ -n "$(find "$other/" -maxdepth 0 -mmin +60)" ] || continue
         for old in "$other"/*/; do
           old=${old%/}
           [ -d "$old" ] && flock -n -x "$old.lock" rm -rf "$old" "$old.lock"
         done
-        rmdir "$(readlink "$other")" 2>/dev/null && rm -f "$other" "${other%.d}" "${other%.d}.digest" "${other%.d}.lock"
+        rmdir "$other" 2>/dev/null && rm -f "${other%.d}" "${other%.d}.digest" "${other%.d}.lock"
       done
       true' sh "$1" "$sum"
   fi
@@ -153,10 +146,7 @@ ship() {
 ship "$plugin"
 took "the plugin copy"
 tar --no-xattrs -C "$dir" -cz . | sprite exec -s "$sprite" -- sh -c '
-  if [ ! -e "$1" ]; then
-    mkdir -p "$(dirname "$1")" /tmp/lr-scratch && ln -sfn "$(mktemp -d /tmp/lr-scratch/XXXXXXXX)" "$1" || exit 1
-  fi
-  tar -xz -m -C "$1"' sh "$dir"
+  mkdir -p "$1" && tar -xz -m -C "$1"' sh "$dir"
 took "the job copy"
 python3 -c 'import json, sys; entry = json.load(open(sys.argv[1])); entry["checkout"] = sys.argv[2]; print(json.dumps(entry))' "$registry" "$checkout" |
   sprite exec -s "$sprite" -- sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1.$$" && mv "$1.$$" "$1"' sh "$registry"
@@ -210,21 +200,19 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   started=$(date +%s)
   find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f ! -name "*.lock" -exec grep -LE "^([0-9a-f]{40}|ref: .+)$" {} + | xargs rm -f
   echo "sprite-job: the ref cleanup took $(($(date +%s) - started)) s" >&2
-  if [ -L "$3/.git" ]; then
+  started=$(date +%s)
+  asked=$(date +%s%N)
+  exec 9>"$3.fetch.lock"
+  flock 9
+  echo "sprite-job: waiting on the fetch lock took $(($(date +%s) - started)) s" >&2
+  if [ "$(cat "$3.fetched" 2>/dev/null || echo 0)" -lt "$asked" ]; then
+    began=$(date +%s%N)
     started=$(date +%s)
-    asked=$(date +%s%N)
-    exec 9>"$3.fetch.lock"
-    flock 9
-    echo "sprite-job: waiting on the fetch lock took $(($(date +%s) - started)) s" >&2
-    if [ "$(cat "$3.fetched" 2>/dev/null || echo 0)" -lt "$asked" ]; then
-      began=$(date +%s%N)
-      started=$(date +%s)
-      git -C "$3" fetch --quiet --all
-      echo "sprite-job: git fetch --all took $(($(date +%s) - started)) s" >&2
-      printf %s "$began" >"$3.fetched"
-    fi
-    exec 9>&-
+    git -C "$3" fetch --quiet --all || exit 1
+    echo "sprite-job: git fetch --all took $(($(date +%s) - started)) s" >&2
+    printf %s "$began" >"$3.fetched"
   fi
+  exec 9>&-
   real=$(readlink "$4")
   export SPRITE_TOOLS_PATH="$PATH"
   [ -z "${GH_TOKEN:-}" ] || export PATH="$real/skills/long-running/scripts/sprite-fresh-token:$PATH"
@@ -262,7 +250,7 @@ kill "$tender" 2>/dev/null || true
 sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./job.log ! -path ./result.json | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir" || true
 sprite exec -s "$sprite" --no-stdin -- cat "$dir/result.json" | python3 "$results" adopt "$dir"
 no_result "$status"
-sprite exec -s "$sprite" --no-stdin -- sh -c '[ ! -L "$1" ] || rm -rf "$(readlink "$1")" "$1"' sh "$dir" || true
+sprite exec -s "$sprite" --no-stdin -- rm -rf "$dir" || true
 for pause in 2 5 10 20 ""; do
   if sprite exec -s "$sprite" --no-stdin -- cci relay push >/dev/null; then
     break
