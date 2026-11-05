@@ -30,6 +30,7 @@ func Command(a *app.App) *cobra.Command {
 		gradeVerb(a, GraderFidelity, "One fidelity grade of one drive head", grader.Fidelity),
 		moveOffHomeCommand(),
 		queueCommand(a),
+		regradeCommand(a),
 	)
 	return cmd
 }

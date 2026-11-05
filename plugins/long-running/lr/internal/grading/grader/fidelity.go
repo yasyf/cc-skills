@@ -82,6 +82,7 @@ type FidelityJob struct {
 	Rulings        []Ruling          `json:"rulings"`
 	Contract       string            `json:"contract"`
 	Sources        string            `json:"sources"`
+	Regrade        bool              `json:"regrade,omitempty"`
 	Exempt         map[string]string `json:"exempt"`
 	ExemptGrades   []string          `json:"exempt_grades"`
 	Baseline       string            `json:"baseline"`
@@ -1088,11 +1089,19 @@ func (s *fidelityPassState) writeGradeBody(body string, lines []gradeLine, reply
 	return os.WriteFile(body, []byte(text), 0o600)
 }
 
+func (s *fidelityPassState) gradeID(index int) string {
+	id := fmt.Sprintf("fidelity:%s:%s:%d", s.job.pull(), s.job.Head, index)
+	if s.job.Regrade {
+		return id + ":regrade"
+	}
+	return id
+}
+
 func (s *fidelityPassState) post(lines []gradeLine, body string) ([]string, error) {
 	spec := s.job
 	posted := make([]string, 0, len(lines))
 	for index, line := range lines {
-		argv := []string{"cci", "post", "--drive", spec.Drive, "--lane", FidelityLane, "--kind", "review", "--pr", spec.pull(), "--id", fmt.Sprintf("fidelity:%s:%s:%d", spec.pull(), spec.Head, index), "--path", body}
+		argv := []string{"cci", "post", "--drive", spec.Drive, "--lane", FidelityLane, "--kind", "review", "--pr", spec.pull(), "--id", s.gradeID(index), "--path", body}
 		if to := s.audience(line.also...); to != "" {
 			argv = append(argv, "--to", to)
 		}
