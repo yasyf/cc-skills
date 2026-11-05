@@ -170,6 +170,9 @@ func sortedStrings(values map[string]string) []string {
 func (d *Desk) launchLocal(container, lane string, action incident.Action, spec launchTarget) error {
 	env := append(envPairs(d.Config.LaunchEnv), d.sender...)
 	env = append(env, "ORCA_LAUNCH_STATE="+d.Config.Receipts, "LAUNCH_ROLE="+spec.Role, laneEnv+"="+or(spec.By, coordinatorLane), stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive)
+	if failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) {
+		env = append(env, fallbackEnv+"=1")
+	}
 	process, err := d.Spawn([]string{d.tool("lr"), "launch", "start", lane, spec.Model, spec.Effort, spec.Brief}, d.launchLog(container, action.ActionID), env)
 	if err != nil {
 		return err
@@ -710,7 +713,9 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	case found != nil && found[1] == lane:
 		proofLine, dispatch, terminal = found[0], found[3], found[4]
 	case capRefusal.MatchString(failure) && capFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
-		return d.capFallback(ctx, container, lane, action, spec, failure)
+		return d.spriteFallback(ctx, container, lane, action, spec, failure, "Orca refused it a terminal on this Mac, which runs as many as Orca allows")
+	case failure != "" && failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
+		return d.spriteFallback(ctx, container, lane, action, spec, failure, "its launch on this Mac failed ("+clipRunes(collapsed(failure), 200)+"), so it relaunched once on a Sprite")
 	case failure != "":
 		return d.failedLaunch(ctx, container, lane, key, failure, verdictTo(spec.By))
 	case receipt != "" && receipt != spec.Prior:
@@ -768,7 +773,7 @@ func (d *Desk) briefText(brief string) string {
 	return string(raw)
 }
 
-func (d *Desk) capFallback(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, failure string) error {
+func (d *Desk) spriteFallback(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, failure, reason string) error {
 	fault, err := d.spriteFault(ctx, lane)
 	if err != nil {
 		return err
@@ -783,7 +788,7 @@ func (d *Desk) capFallback(ctx context.Context, container, lane string, action i
 	if err := os.MkdirAll(filepath.Dir(d.loadPath(action.ActionID)), 0o750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(d.loadPath(action.ActionID), []byte("Orca refused it a terminal on this Mac, which runs as many as Orca allows"), 0o600); err != nil {
+	if err := os.WriteFile(d.loadPath(action.ActionID), []byte(reason), 0o600); err != nil {
 		return err
 	}
 	return d.launchSprite(container, lane, action, spec)

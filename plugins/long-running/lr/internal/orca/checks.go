@@ -176,7 +176,7 @@ func macRequired(lane, model, text string) bool {
 }
 
 func alwaysOnMac(lane, model string) bool {
-	return lane == coordinatorLane || fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus
+	return lane == coordinatorLane || fableModel.MatchString(model)
 }
 
 func macInputsOnly(lane, model, text string) bool {
@@ -206,11 +206,23 @@ func macPreferred(text string) bool {
 }
 
 func capFallsBack(o Order, text string) bool {
-	if o.Lane == coordinatorLane || fableModel.MatchString(o.Model) {
+	if !canLeaveMac(o) {
 		return false
 	}
 	needs := placedLocal(text) && slices.ContainsFunc(submatches(briefWhy, text), func(why string) bool { return why != whyPredecessor && why != whyMacInputs })
-	return !needs || o.incidentLane(text) || incidentBrief(o.Lane, text)
+	return !needs || incidentLaunch(o, text)
+}
+
+func failureFallsBack(o Order, text string) bool {
+	return canLeaveMac(o) && incidentLaunch(o, text)
+}
+
+func canLeaveMac(o Order) bool {
+	return o.Lane != coordinatorLane && !fableModel.MatchString(o.Model)
+}
+
+func incidentLaunch(o Order, text string) bool {
+	return o.incidentLane(text) || incidentBrief(o.Lane, text)
 }
 
 func incidentBrief(lane, text string) bool {

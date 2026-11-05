@@ -12,7 +12,7 @@
 
 ## Choose the remote or local worker route
 
-**Default ordinary implementation and test workers to a Sprite.** Under O16 in [reference/orca-desk-brief.md](orca-desk-brief.md), `lr launch worker`, described in [orca-sprite-workers.md](orca-sprite-workers.md), defaults to Sprite prepare+attach. The local Mac route is for the coordinator, Fable, incident lanes, incident clock fallbacks, and standing desks (`role=desk` or `role=watch`).
+**Default ordinary implementation and test workers to a Sprite.** Under O16 in [reference/orca-desk-brief.md](orca-desk-brief.md), `lr launch worker`, described in [orca-sprite-workers.md](orca-sprite-workers.md), defaults to Sprite prepare+attach. The local Mac route is for the coordinator, Fable, lanes whose brief names a need of the Mac with `place=local why=`, and standing desks (`role=desk` or `role=watch`). Incident lanes and incident clock fallbacks start on a Sprite.
 - Preserve the requested model, effort, and Codex service tier.
 - Give the worker the repository's complete VM brief and the [source-return contract](orca-sprite-workers.md#return-source-for-coordinator-review), so it returns a patch or report that the coordinator collects, reviews, and ships.
 - Remote API keys stay in the worker process; local Fable uses the Mac's interactive authentication.

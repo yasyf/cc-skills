@@ -1367,6 +1367,21 @@ func TestARelaunchAfterTheRecordedTaskCompletedStartsAFreshTask(t *testing.T) {
 	}
 }
 
+func TestALaunchTheDeskRelaunchesOnASpriteFailsAtItsFirstStallWithNoRetry(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
+	h.env[fallbackEnv] = "1"
+	h.reply("worktree show", missing)
+	line, code := h.launch()
+	if code != 1 || !strings.Contains(line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+h.worktree()+" yet for 0s") || strings.Contains(line, "one retry") {
+		t.Fatal(line)
+	}
+	if strings.Contains(h.stderr.String(), "retries once") || len(h.sleeps) != 0 {
+		t.Fatal(h.stderr.String(), h.sleeps)
+	}
+}
+
 func TestALaunchThatStallsTwiceFailsOnceWithLaunchFailedNamingTheSecondWait(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
@@ -2254,9 +2269,12 @@ func TestNoClaudeAliasButIncidentOpusTurnsOnFastMode(t *testing.T) {
 	}
 }
 
-func TestAnIncidentOpusLaneIsPinnedToTheMacAndPassesTheModelCheck(t *testing.T) {
-	if !macPinned("api-fix-opus", modelIncidentOpus, "") {
-		t.Fatal("incident-opus can leave the Mac")
+func TestAnIncidentOpusLaneLeavesTheMacUnlessItsBriefNamesANeedAndPassesTheModelCheck(t *testing.T) {
+	if macPinned("api-fix-opus", modelIncidentOpus, "") || macPinned("api-fix", agentIncident, "ccx: role=fix incident=sentry-1 place=remote\n") {
+		t.Fatal("an incident lane with no named need is pinned to the Mac")
+	}
+	if !macPinned("api-fix-opus", modelIncidentOpus, "ccx: role=fix incident=sentry-1 place=local why=devbox\n") {
+		t.Fatal("an incident lane naming a need can leave the Mac")
 	}
 	order := Order{Lane: "api-fix-opus", Model: modelIncidentOpus, Effort: "xhigh", Brief: "/b.md"}
 	if faults := order.launchFaults("Register slice: lane=api-fix-opus step=all\n", true); len(faults) != 0 {

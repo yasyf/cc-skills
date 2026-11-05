@@ -492,10 +492,13 @@ func TestABriefNamingACredentialIsRefusedOnlyWhenTheLaneMayLeaveTheMacAndAMissin
 	f.bus.posts = nil
 	local := f.brief(t, "local.md", "ccx: role=build place=local why=test\nRead "+gone+".\n"+briefLines)
 	picked := f.brief(t, "picked.md", "Read "+gone+".\nOwner pick: owner:m836\n"+briefLines)
-	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "high", Brief: local}, {Lane: "a", Model: "fable", Effort: "high", Brief: picked}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}} {
+	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "high", Brief: local}, {Lane: "a", Model: "fable", Effort: "high", Brief: picked}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: local}} {
 		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {
 			t.Fatal(order, err)
 		}
+	}
+	if _, err := f.poster.Launch(context.Background(), Order{Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}, 0); err == nil || !strings.Contains(err.Error(), "is a credential path") {
+		t.Fatal(err)
 	}
 }
 
