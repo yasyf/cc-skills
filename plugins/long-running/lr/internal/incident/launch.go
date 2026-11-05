@@ -383,7 +383,7 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 			first = stored.Seq
 		}
 	}
-	held := fmt.Sprintf("INCIDENT-LANES %s: %s launched; their mechanism, fix-live and not-ours records on topic %s reach %s as they post", topic, strings.Join(names, ", "), topic, communicator)
+	held := fmt.Sprintf("INCIDENT-LANES %s: %s launched on topic %s", topic, strings.Join(names, ", "), topic)
 	if _, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindState, To: []string{communicator}, Topic: topic, ID: LaunchAttempt(topic, d.Now()), Text: held}); err != nil {
 		return err
 	}

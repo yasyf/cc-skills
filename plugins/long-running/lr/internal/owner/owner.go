@@ -50,8 +50,6 @@ const (
 // arrival, so a kind nobody listed never waits.
 var batchedKinds = []string{"report", "note", "answer", "done", "head", "state", "serving", "release", "evidence", "decision"}
 
-var topicResults = []string{"mechanism", "fix-live", "not-ours"}
-
 var (
 	contentAsk = regexp.MustCompile(`(?i)\b(?:recap|report|summary|(?:up|ip)d\w{0,2}t\w?)\b`)
 	rowID      = regexp.MustCompile(`(?m)^\| m(\d+)(?:\.\d+)? \|`)
@@ -439,7 +437,7 @@ func Command(a *app.App) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, err := a.Runner.Run(cmd.Context(), shell.Command{
-				Argv:    []string{"cci", "subscribe", "--drive", driveName, "--reader", communicator, "--kind", broadcastsHeard, "--batch-kinds", strings.Join(batchedKinds, ","), "--topic-kinds", strings.Join(topicResults, ",")},
+				Argv:    []string{"cci", "subscribe", "--drive", driveName, "--reader", communicator, "--kind", broadcastsHeard, "--batch-kinds", strings.Join(batchedKinds, ",")},
 				Timeout: subscribeWait,
 			})
 			if err != nil {
