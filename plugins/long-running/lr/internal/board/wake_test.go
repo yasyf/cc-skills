@@ -11,6 +11,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -144,9 +145,9 @@ func TestAWorkerOffOrcaGetsTheRecordAloneSinceTheRelayReadsOnlyOrcaLanes(t *test
 	}
 }
 
-func TestARetiredLaneDrawsOneNeedsLaneToMetaDeskWithItsBriefAndNeverRoot(t *testing.T) {
+func TestARetiredLanesAnswerIsAddressedToItForTheSupervisorWithNoRelayAndNoNeedsLane(t *testing.T) {
 	f := newWaker(t)
-	f.want(t, store.Lane{Name: "owner-apps", State: store.LaneDesired, Brief: "/briefs/owner-apps.md"})
+	f.want(t, store.Lane{Name: "owner-apps", State: store.LaneDesired, Placement: orcaPlacement, Brief: "/briefs/owner-apps.md"})
 	if err := f.Cards.Store.SetLaneState("owner-apps", store.LaneRetired, cardsNow, "root", "finished"); err != nil {
 		t.Fatal(err)
 	}
@@ -156,13 +157,29 @@ func TestARetiredLaneDrawsOneNeedsLaneToMetaDeskWithItsBriefAndNeverRoot(t *test
 		t.Fatal(err)
 	}
 
-	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"meta-desk"}) || f.posts[0].Kind != askKind {
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"owner-apps"}) || f.posts[0].Kind != wakeKind || !strings.HasPrefix(f.posts[0].Topic, lanes.CardWakeTopic) {
 		t.Fatalf("posts = %+v", f.posts)
 	}
-	for _, carried := range []string{"NEEDS-LANE card-chat", "picked Combined", "/briefs/owner-apps.md"} {
-		if !strings.Contains(f.posts[0].Text, carried) {
-			t.Fatalf("%q lacks %q", f.posts[0].Text, carried)
-		}
+	if !strings.Contains(f.posts[0].Text, "picked Combined") || len(f.relayed) != 0 {
+		t.Fatalf("wake = %+v, relayed = %q", f.posts[0], f.relayed)
+	}
+}
+
+func TestTheHeirsRecordAcknowledgesAWakeAddressedToTheLaneItReplaced(t *testing.T) {
+	f := newWaker(t)
+	f.want(t, store.Lane{Name: "owner-apps-1", State: store.LaneDesired, Brief: "/b.md"})
+	if err := f.Cards.Store.SetLaneState("owner-apps-1", store.LaneRetired, cardsNow, "owner-apps-2", ""); err != nil {
+		t.Fatal(err)
+	}
+	f.want(t, store.Lane{Name: "owner-apps-2", State: store.LaneDesired, Brief: "/b.md"})
+	f.bus = []client.Record{wakeRecord(10, "owner-apps-1", 20*time.Minute), {Seq: 11, Lane: "owner-apps-2", Kind: "report", Text: "Building card-chat.", At: cardsNow.Add(-5 * time.Minute)}}
+
+	if err := f.Late(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 0 {
+		t.Fatalf("posts = %+v", f.posts)
 	}
 }
 

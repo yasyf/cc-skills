@@ -260,6 +260,9 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if !fresh && (isOrder(kind, text) || isMail(r)) {
 		foldUnread(s, r, addressed, at)
 	}
+	if !fresh {
+		foldToRetired(s, r, addressed)
+	}
 	if kind == "red" {
 		foldRedClass(s, r, out.deps.Repo, at)
 	}
@@ -483,6 +486,37 @@ func foldUnread(s *store.Store, r Record, addressed map[string]bool, at time.Tim
 			do(s.AddUnread(store.Unread{Lane: target, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))
 		}
 	}
+}
+
+func foldToRetired(s *store.Store, r Record, addressed map[string]bool) {
+	answer := strings.HasPrefix(r.Topic, CardWakeTopic)
+	if !answer && !asksOfALane(r) {
+		return
+	}
+	for _, target := range slices.Sorted(maps.Keys(addressed)) {
+		lane, found := newest(s, target)
+		if !found || lane.Name == r.Lane || lane.State != store.LaneRetired || (!answer && !restedOnItsOwnEnd(lane)) {
+			continue
+		}
+		said := fmt.Sprintf("#%d from %s: %s", r.Seq, r.Lane, r.Text)
+		page := map[string]any{"topic": retiredMailTopic, "why": fmt.Sprintf("got %s's %s #%d after it retired: %s", r.Lane, r.Kind, r.Seq, truncated(r.Text, 240)), "text": said}
+		var seqs []int64
+		if pageText(lane.Page, "topic") == retiredMailTopic {
+			page = maps.Clone(lane.Page)
+			page["text"] = pageText(lane.Page, "text") + "\n" + said
+			seqs = pageSeqs(lane.Page)
+		}
+		page["seqs"] = append(seqs, r.Seq)
+		do(s.SetLanePage(lane.Name, page))
+	}
+}
+
+func asksOfALane(r Record) bool {
+	return r.Lane != boardLink && !slices.Contains(machineAuthors, r.Lane) && (isOrder(r.Kind, r.Text) || slices.Contains(replies, r.Kind))
+}
+
+func restedOnItsOwnEnd(lane store.Lane) bool {
+	return !isStanding(lane) && (lane.RetiredBy == retiredSilent || (lane.RetiredBy == retiredStopped && lane.Last == "stopped"))
 }
 
 func foldOwnerPick(s *store.Store, r Record, fresh bool, at time.Time) {

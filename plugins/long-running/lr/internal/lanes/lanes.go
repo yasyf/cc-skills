@@ -51,6 +51,9 @@ const (
 	retiredWorkerDone = "worker-done"
 	retiredSilent     = "silent"
 	retiredStopped    = "stand-down"
+	retiredMailTopic  = "retired-mail"
+	boardLink         = "board-link"
+	CardWakeTopic     = "card-wake:"
 	unheardDone       = "reported worker_done, but none of its records ever reached the bus"
 	workerSucceeded   = "succeeded"
 	agentLive         = "live"
@@ -122,6 +125,7 @@ var (
 	claims      = []string{"blocked", "ready"}
 	builders    = []string{"build", "fix"}
 	waits       = []string{"ask", "blocked", "blocker"}
+	replies     = []string{"answer", "decide"}
 
 	askingKinds    = []string{"ask", "lr.ask", kindRequest}
 	machineAuthors = []string{Self, runner, boardWatch, "pr-read", "prompt-watch", "stall-watch"}
