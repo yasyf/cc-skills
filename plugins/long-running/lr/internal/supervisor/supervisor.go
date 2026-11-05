@@ -51,6 +51,7 @@ type Deps struct {
 	Snapshot  func(ctx context.Context) ([]machine.Facts, error)
 	WriteRows func(ctx context.Context, snapshot []machine.Facts) error
 	Post      pass.Post
+	Wake      func(ctx context.Context, lane, text string) error
 	Queue     landing.Queue
 	Restacker landing.Restacker
 	Trunk     string
@@ -172,7 +173,7 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 	if err != nil {
 		return report, err
 	}
-	out, err := pass.Run(s, snapshot, now, d.Post, pass.Live(d.Movers), route, func(lane string, pr int) (string, error) { return lanes.ItemOwner(s, drive, lane, pr) })
+	out, err := pass.Run(s, snapshot, now, d.Post, pass.Live(d.Movers), route, func(lane string, pr int) (string, error) { return lanes.ItemOwner(s, drive, lane, pr) }, func(lane, text string) error { return d.Wake(ctx, lane, text) })
 	if err != nil {
 		return report, err
 	}

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -13,6 +15,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
@@ -82,7 +85,9 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	out, err := pass.Run(s, snapshot, now, post, pass.Live(cfg.Movers), route, func(lane string, pr int) (string, error) { return lanes.ItemOwner(s, cfg.Drive, lane, pr) })
+	out, err := pass.Run(s, snapshot, now, post, pass.Live(cfg.Movers), route, func(lane string, pr int) (string, error) { return lanes.ItemOwner(s, cfg.Drive, lane, pr) }, func(lane, text string) error {
+		return orca.Poster{Bus: orca.CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: stdout, Drive: cfg.Drive, Author: self}.Relay(ctx, lane, text)
+	})
 	if err != nil {
 		return err
 	}

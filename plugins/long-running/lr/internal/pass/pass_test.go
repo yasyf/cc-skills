@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -66,12 +67,22 @@ type posted struct {
 	body bus.Body
 }
 
-type recorder struct{ posts []posted }
+type recorder struct {
+	posts []posted
+	woke  []string
+}
 
 func (r *recorder) post(to []string, body bus.Body) error {
 	r.posts = append(r.posts, posted{to, body})
 	return nil
 }
+
+func (r *recorder) wake(lane, text string) error {
+	r.woke = append(r.woke, lane+": "+text)
+	return nil
+}
+
+func asleep(string, string) error { return nil }
 
 func (r *recorder) of(kind string) []posted {
 	kept := make([]posted, 0, len(r.posts))
@@ -85,7 +96,7 @@ func (r *recorder) of(kind string) []posted {
 
 func run(t *testing.T, s *store.Store, r *recorder, now time.Time, live []machine.Mover, snapshot ...machine.Facts) pass.Outcome {
 	t.Helper()
-	out, err := pass.Run(s, snapshot, now, r.post, live, func(desk string) string { return desk + "-3" }, running(s))
+	out, err := pass.Run(s, snapshot, now, r.post, live, func(desk string) string { return desk + "-3" }, running(s), r.wake)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +131,9 @@ func TestALandablePRGetsOneEnqueueItemTheSupervisorActsOnItself(t *testing.T) {
 
 func TestAFindingWithoutAVerdictIsPostedToTheOwningLaneWithItsDeadline(t *testing.T) {
 	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 
 	run(t, s, r, t0, all, facts(45470, finderAsks))
 
@@ -235,11 +249,11 @@ func TestAFailedPostNeverStopsThePassAndIsReported(t *testing.T) {
 	given := []machine.Facts{facts(45470, finderAsks), facts(45471, finderAsks)}
 	post := func([]string, bus.Body) error { return &bus.Refused{Message: "never reaches this lane"} }
 	route := func(desk string) string { return desk + "-3" }
-	if _, err := pass.Run(s, given, t0, post, all, route, running(s)); err != nil {
+	if _, err := pass.Run(s, given, t0, post, all, route, running(s), asleep); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := pass.Run(s, given, t0.Add(20*time.Minute), post, all, route, running(s))
+	out, err := pass.Run(s, given, t0.Add(20*time.Minute), post, all, route, running(s), asleep)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,11 +271,11 @@ func TestAnOverdueVerdictGoesOnceToTheGraderDeskNeverRoot(t *testing.T) {
 	late := run(t, s, r, t0.Add(20*time.Minute), all, given)
 	later := run(t, s, r, t0.Add(40*time.Minute), all, given)
 
-	want := []pass.Escalated{{Subject: "org/repo#45470", Cause: "verdict overdue", To: "grader-appeals-3"}}
+	want := []pass.Escalated{{Subject: "org/repo#45470 at e718a7434f", Cause: "verdict overdue", To: "grader-appeals-3"}}
 	if !reflect.DeepEqual(late.Escalated, want) || len(later.Escalated) != 0 {
 		t.Fatalf("late = %+v, later = %+v", late.Escalated, later.Escalated)
 	}
-	body := bus.Note{Text: "org/repo#45470 verdict overdue"}
+	body := bus.Note{Text: "org/repo#45470 at e718a7434f verdict overdue"}
 	if !reflect.DeepEqual(r.of("note"), []posted{{[]string{"grader-appeals-3"}, body}}) {
 		t.Fatalf("posts = %+v", r.of("note"))
 	}
@@ -277,8 +291,8 @@ func TestAnOverdueGradeGoesToTheGraderDeskAndAnOverdueTapToTheBoardDesk(t *testi
 	got := out.Escalated
 	sort.Slice(got, func(a, b int) bool { return got[a].Subject < got[b].Subject })
 	want := []pass.Escalated{
-		{Subject: "org/repo#1", Cause: "grade overdue", To: "grader-appeals-3"},
-		{Subject: "org/repo#2", Cause: "tap overdue", To: "board-refresher-3"},
+		{Subject: "org/repo#1 at e718a7434f", Cause: "grade overdue", To: "grader-appeals-3"},
+		{Subject: "org/repo#2 at e718a7434f", Cause: "tap overdue", To: "board-refresher-3"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("escalated = %+v", got)
@@ -384,10 +398,10 @@ func TestAnOverdueRedReachesOnlyARunningOwnerOrItsNamedSuccessorElseRootAsUnowne
 		name, state, retiredBy string
 		want                   posted
 	}{
-		{"the owner runs", string(store.LaneDesired), "", posted{[]string{"lane-7"}, bus.Ask{Text: "org/repo#45470 fix-red overdue"}}},
-		{"the owner stood down for a named successor", string(store.LaneRetired), "lane-9", posted{[]string{"lane-9"}, bus.Ask{Text: "org/repo#45470 fix-red overdue"}}},
-		{"the owner stopped while a later lane of its stem runs", string(store.LaneRetired), "", posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470", Cause: "UNOWNED, lane-7 is not running: fix-red overdue"}}},
-		{"the owner is held", string(store.LaneHeld), "", posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470", Cause: "UNOWNED, lane-7 is not running: fix-red overdue"}}},
+		{"the owner runs", string(store.LaneDesired), "", posted{[]string{"lane-7"}, bus.Ask{Text: "org/repo#45470 at e718a7434f fix-red overdue"}}},
+		{"the owner stood down for a named successor", string(store.LaneRetired), "lane-9", posted{[]string{"lane-9"}, bus.Ask{Text: "org/repo#45470 at e718a7434f fix-red overdue"}}},
+		{"the owner stopped while a later lane of its stem runs", string(store.LaneRetired), "", posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470 at e718a7434f", Cause: "UNOWNED, lane-7 is not running: fix-red overdue"}}},
+		{"the owner is held", string(store.LaneHeld), "", posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470 at e718a7434f", Cause: "UNOWNED, lane-7 is not running: fix-red overdue"}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s, r := newStore(t), &recorder{}
@@ -415,7 +429,7 @@ func TestAnOverdueRedReachesOnlyARunningOwnerOrItsNamedSuccessorElseRootAsUnowne
 func TestTheOct31StallAlertsReachTheLastPusherThenTheCoordinatorsNaming(t *testing.T) {
 	const opener, later, carrier, chain, stoppedPusher, namedByRoot = "data-client-layer-3", "data-client-layer-4", "conflicts-5", "n-enumeration-11", "placement-build-3", "placement-build-4"
 	ask := func(to string, pr int) posted {
-		return posted{[]string{to}, bus.Ask{Text: fmt.Sprintf("org/repo#%d fix-red overdue", pr)}}
+		return posted{[]string{to}, bus.Ask{Text: fmt.Sprintf("org/repo#%d at e718a7434f fix-red overdue", pr)}}
 	}
 	for _, tt := range []struct {
 		name          string
@@ -427,7 +441,7 @@ func TestTheOct31StallAlertsReachTheLastPusherThenTheCoordinatorsNaming(t *testi
 		{"#46052, sent to a later lane of its opener's stem in cci 255356", 46052, carrier, opener, []string{opener}, ask(carrier, 46052)},
 		{"#46071, sent to a lane root never named for it in cci 255357", 46071, chain, carrier, nil, ask(chain, 46071)},
 		{"#45813, whose pusher stopped and whose new owner root named in cci 255401", 45813, stoppedPusher, namedByRoot, []string{stoppedPusher}, ask(namedByRoot, 45813)},
-		{"a stopped pusher and a stopped naming never fall to a later lane of the stem", 46052, carrier, opener, []string{carrier, opener}, posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#46052", Cause: "UNOWNED, conflicts-5 is not running: fix-red overdue"}}},
+		{"a stopped pusher and a stopped naming never fall to a later lane of the stem", 46052, carrier, opener, []string{carrier, opener}, posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#46052 at e718a7434f", Cause: "UNOWNED, conflicts-5 is not running: fix-red overdue"}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s, r := newStore(t), &recorder{}
@@ -457,6 +471,88 @@ func TestTheOct31StallAlertsReachTheLastPusherThenTheCoordinatorsNaming(t *testi
 	}
 }
 
+func TestARedOnAStoppedLaneReachesRootWhenItOpensAndEachNewRedHeadEscalatesAgain(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	red := facts(50485, func(f *machine.Facts) { f.CI, f.Lane = machine.CIFailure, "port-line" })
+	pushed := red
+	pushed.Head = newHead
+
+	run(t, s, r, t0, all, red)
+	run(t, s, r, t0.Add(machine.LaneClock), all, red)
+	run(t, s, r, t0.Add(2*machine.LaneClock), all, pushed)
+	run(t, s, r, t0.Add(3*machine.LaneClock), all, pushed)
+
+	unowned := "UNOWNED, port-line is not running: fix-red"
+	want := []posted{
+		{[]string{"root"}, bus.Escalation{Subject: "org/repo#50485 at e718a7434f", Cause: unowned}},
+		{[]string{"root"}, bus.Escalation{Subject: "org/repo#50485 at e718a7434f", Cause: unowned + " overdue"}},
+		{[]string{"root"}, bus.Escalation{Subject: "org/repo#50485 at aa11bb22cc", Cause: unowned}},
+		{[]string{"root"}, bus.Escalation{Subject: "org/repo#50485 at aa11bb22cc", Cause: unowned + " overdue"}},
+	}
+	if !reflect.DeepEqual(r.posts, want) {
+		t.Fatalf("posts = %+v", r.posts)
+	}
+}
+
+func TestARedOrAConflictWakesItsRunningLaneThroughTheDeskAtOnceAndAgainPastItsDeadline(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		change        func(*machine.Facts)
+		state, action string
+	}{
+		{"red CI", func(f *machine.Facts) { f.CI = machine.CIFailure }, "red", "fix-red"},
+		{"a conflict on a PR waiting on his tap", func(f *machine.Facts) { f.Mergeable, f.Tap = machine.MergeableConflict, "" }, "needs-restack", "restack"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
+			given := facts(50456, tt.change)
+
+			for _, at := range []time.Duration{0, time.Minute, machine.LaneClock, machine.LaneClock + time.Minute} {
+				run(t, s, r, t0.Add(at), all, given)
+			}
+
+			want := []string{
+				"lane-7: org/repo#50456 at e718a7434f reads " + tt.state + ", so " + tt.action + " is yours now",
+				"lane-7: org/repo#50456 at e718a7434f " + tt.action + " overdue",
+			}
+			if !slices.Equal(r.woke, want) {
+				t.Fatalf("wakes = %q", r.woke)
+			}
+		})
+	}
+}
+
+func TestOneRedAmongOpenRowsCostsOneOwnerReadAndOneWakeAtOneRowOrAThousand(t *testing.T) {
+	for _, n := range []int{1, 1000} {
+		t.Run(strconv.Itoa(n), func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
+			snapshot := []machine.Facts{facts(1, func(f *machine.Facts) { f.CI = machine.CIFailure })}
+			for number := 2; number <= n; number++ {
+				snapshot = append(snapshot, facts(number, nil))
+			}
+			reads := 0
+			owner := func(lane string, pr int) (string, error) {
+				reads++
+				return lanes.ChangeOwner(s, "d", lane, pr)
+			}
+
+			if _, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk }, owner, r.wake); err != nil {
+				t.Fatal(err)
+			}
+
+			if reads != 1 || len(r.posts) != 1 || len(r.woke) != 1 {
+				t.Fatalf("owner reads = %d, posts = %+v, wakes = %q; want one of each", reads, r.posts, r.woke)
+			}
+		})
+	}
+}
+
 func TestARedNoLaneOwnsWaitsForItsDeadlineToReachRoot(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	given := facts(45470, func(f *machine.Facts) { f.CI, f.Lane = machine.CIFailure, "" })
@@ -464,7 +560,7 @@ func TestARedNoLaneOwnsWaitsForItsDeadlineToReachRoot(t *testing.T) {
 	run(t, s, r, t0, all, given)
 	run(t, s, r, t0.Add(20*time.Minute), all, given)
 
-	want := []posted{{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470", Cause: "fix-red overdue"}}}
+	want := []posted{{[]string{"root"}, bus.Escalation{Subject: "org/repo#45470 at e718a7434f", Cause: "fix-red overdue"}}}
 	if !reflect.DeepEqual(r.posts, want) {
 		t.Fatalf("posts = %+v", r.posts)
 	}
@@ -499,7 +595,7 @@ func TestAnOverdueEnqueueNamesWhatTheQueueSaid(t *testing.T) {
 	}
 	run(t, s, r, t0.Add(10*time.Minute), all, facts(45583, nil))
 
-	want := []posted{{[]string{"root"}, bus.Overdue("root", "org/repo#45583", "enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending")}}
+	want := []posted{{[]string{"root"}, bus.Overdue("root", "org/repo#45583 at e718a7434f", "enqueue overdue; the queue said exit 1: #45583 BLOCKED required check pending")}}
 	if !reflect.DeepEqual(r.posts, want) {
 		t.Fatalf("posts = %+v", r.posts)
 	}
@@ -592,7 +688,7 @@ func TestAHoldOverdueReachesRootOnceLandingIsLive(t *testing.T) {
 	run(t, s, r, t0, []machine.Mover{machine.MoverSupervisor}, held)
 	run(t, s, r, t0.Add(machine.OwnerClock), []machine.Mover{machine.MoverSupervisor}, held)
 
-	overdue := bus.Overdue("root", "org/repo#48401", "lift overdue")
+	overdue := bus.Overdue("root", "org/repo#48401 at e718a7434f", "lift overdue")
 	want := []posted{{[]string{"root"}, overdue}}
 	if !reflect.DeepEqual(r.of(overdue.Kind()), want) {
 		t.Fatalf("posts = %+v", r.posts)
@@ -659,7 +755,7 @@ func TestAQueuedPRAboveAHeldOneLeavesTheQueueWithIt(t *testing.T) {
 		queued(4, "other", "dev", ""),
 	}
 
-	out, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk }, running(s))
+	out, err := pass.Run(s, snapshot, t0, r.post, all, func(desk string) string { return desk }, running(s), r.wake)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1089,6 +1185,9 @@ func TestOnlyAGreenOpenHeadThatCanBeGradedStartsTheUngradedClock(t *testing.T) {
 
 func TestATappedPRWhoseRowIsNotReadyIsNotQueuedAndItsLaneOwnsTheWait(t *testing.T) {
 	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 
 	out := run(t, s, r, t0, all, facts(1, func(f *machine.Facts) { f.RowWait = "not graded" }))
 
@@ -1116,7 +1215,7 @@ func TestRowsWaitingOnTheirLaneAskItAtTheDeadlineAndRootOnceAfterAnHour(t *testi
 	run(t, s, r, t0, all, snapshot...)
 	run(t, s, r, t0.Add(machine.LaneClock+time.Minute), all, snapshot...)
 	asked := r.of("ask")
-	if len(asked) != 3 || len(r.of("escalation")) != 0 || !slices.ContainsFunc(asked, func(p posted) bool { return p.body == bus.Ask{Text: "org/repo#2 row-wait overdue"} }) {
+	if len(asked) != 3 || len(r.of("escalation")) != 0 || !slices.ContainsFunc(asked, func(p posted) bool { return p.body == bus.Ask{Text: "org/repo#2 at e718a7434f row-wait overdue"} }) {
 		t.Fatalf("posts before the hour = %+v", r.posts)
 	}
 	for _, p := range asked {
@@ -1156,7 +1255,7 @@ func TestARowWaitingOnAStuckChangeBelowItAsksItsLaneNothingAndTheBaseNamesIt(t *
 			t.Fatalf("#%d opened %+v, %v", number, open, err)
 		}
 	}
-	if asked := r.of("ask"); len(asked) != 1 || asked[0].body != (bus.Ask{Text: "org/repo#45469 fix-red overdue"}) {
+	if asked := r.of("ask"); len(asked) != 1 || asked[0].body != (bus.Ask{Text: "org/repo#45469 at e718a7434f fix-red overdue"}) {
 		t.Fatalf("asked = %+v", asked)
 	}
 	want := []pass.Escalated{{Subject: "org/repo#45469", Cause: "stack base stuck; its fix-red waits on the lane past its deadline at e718a7434f and holds #45470, #45471, #45472 above it", To: "root"}}
@@ -1167,6 +1266,9 @@ func TestARowWaitingOnAStuckChangeBelowItAsksItsLaneNothingAndTheBaseNamesIt(t *
 
 func TestATappedPRWithNoRowLandsNothingAndMetaDeskHearsOnce(t *testing.T) {
 	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 	unread := func(f *machine.Facts) { f.RowWait = gates.NoRow }
 
 	first := run(t, s, r, t0, all, facts(1, unread), facts(2, unread))

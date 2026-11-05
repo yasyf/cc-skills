@@ -126,6 +126,11 @@ func (p Poster) Line(ctx context.Context, topic, text string) error {
 	return err
 }
 
+func (p Poster) Relay(ctx context.Context, lane, text string) error {
+	topic, line := relayLine([]string{lane, text})
+	return p.Line(ctx, topic, line)
+}
+
 func (p Poster) Faults(ctx context.Context, order Order) ([]string, error) {
 	entry, err := p.Entry(ctx)
 	if err != nil {

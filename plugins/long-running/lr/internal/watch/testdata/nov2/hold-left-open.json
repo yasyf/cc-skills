@@ -51,7 +51,7 @@
    ],
    "escalations": [
     {
-     "Subject": "org/repo#48401",
+     "Subject": "org/repo#48401 at b555140",
      "Cause": "lift overdue",
      "To": "root"
     }

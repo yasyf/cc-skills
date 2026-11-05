@@ -260,6 +260,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		Snapshot:  passSource.Snapshot,
 		WriteRows: prfacts.New(a, env.Config, s).WriteRows,
 		Post:      post,
+		Wake:      orca.Poster{Bus: orca.CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: io.Discard, Drive: env.Config.Drive, Author: "supervisor"}.Relay,
 		Squash:    squashFixes,
 		Log:       a.Log,
 	}

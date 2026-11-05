@@ -21,6 +21,9 @@ const (
 	redKind   = "red"
 	redWindow = 7 * 24 * time.Hour
 	unclassed = "unclassed"
+
+	tappedByHim    = "on his tap list: he tapped it"
+	cardWaitsOnHim = "on his tap list: its card waits on him"
 )
 
 type Red struct {
@@ -32,6 +35,7 @@ type Red struct {
 	Author string
 	Action string
 	Since  time.Time
+	Tap    string
 }
 
 func (r Red) Line() string {
@@ -47,10 +51,14 @@ func (r Red) Line() string {
 	if r.Author != "" {
 		owner += ", by " + r.Author
 	}
-	return fmt.Sprintf("#%d %s | %s | %s | %s | red since %s | %s", r.Number, r.Head[:min(prrow.ShortestRedHead, len(r.Head))], r.Checks, r.Class, owner, since, action)
+	line := fmt.Sprintf("#%d %s | %s | %s | %s | red since %s | %s", r.Number, r.Head[:min(prrow.ShortestRedHead, len(r.Head))], r.Checks, r.Class, owner, since, action)
+	if r.Tap != "" {
+		line += " | " + r.Tap
+	}
+	return line
 }
 
-func Reds(snapshot map[int]machine.Facts, classes []client.Record, since func(machine.Facts) time.Time) []Red {
+func Reds(snapshot map[int]machine.Facts, classes []client.Record, tapCards map[int]string, since func(machine.Facts) time.Time) []Red {
 	var reds []Red
 	for _, number := range slices.Sorted(maps.Keys(snapshot)) {
 		f := snapshot[number]
@@ -60,6 +68,12 @@ func Reds(snapshot map[int]machine.Facts, classes []client.Record, since func(ma
 		red := Red{Number: number, Head: f.Head, Checks: strings.Join(f.Failing, ", "), Class: unclassed, Owner: f.Lane, Author: f.ForeignAuthor, Since: since(f)}
 		if red.Checks == "" {
 			red.Checks = "a required check"
+		}
+		switch card := tapCards[number]; {
+		case f.Tap == machine.TapTapped:
+			red.Tap = tappedByHim
+		case card != "" && card != tapCardRefused:
+			red.Tap = cardWaitsOnHim
 		}
 		for _, record := range slices.Backward(classes) {
 			class, ok := prrow.ParseRedClass(record.Text)
@@ -100,8 +114,12 @@ func redsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.
 			if err != nil {
 				return err
 			}
+			tapCards, err := s.LatestFacts(repository, FactTapCard)
+			if err != nil {
+				return err
+			}
 			var unread error
-			reds := Reds(snapshot, classes, func(f machine.Facts) time.Time {
+			reds := Reds(snapshot, classes, tapCards, func(f machine.Facts) time.Time {
 				items, err := s.OpenItems(repository, f.Number)
 				if err != nil {
 					unread = err
@@ -123,13 +141,16 @@ func redsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.
 }
 
 func printReds(out io.Writer, reds []Red, now time.Time) error {
-	open := 0
+	open, tapped := 0, 0
 	for _, red := range reds {
 		if red.Class == unclassed {
 			open++
 		}
+		if red.Tap != "" {
+			tapped++
+		}
 	}
-	if _, err := fmt.Fprintf(out, "reds at %s: %d open PRs read red, %d unclassed\n", pacific(now), len(reds), open); err != nil {
+	if _, err := fmt.Fprintf(out, "reds at %s: %d open PRs read red, %d unclassed, %d on his tap list\n", pacific(now), len(reds), open, tapped); err != nil {
 		return err
 	}
 	for _, red := range reds {
