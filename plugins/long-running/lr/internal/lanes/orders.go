@@ -59,6 +59,16 @@ func readOrders(ctx context.Context, bus Bus, s *store.Store, drive, repo, state
 	open := append(late, slices.DeleteFunc(owner.Undelivered(parsed, carriers, proofs), func(order owner.Row) bool {
 		return slices.ContainsFunc(late, func(row owner.Row) bool { return row.ID == order.ID })
 	})...)
+	due := slices.DeleteFunc(slices.Clone(open), func(row owner.Row) bool { return !row.Due() })
+	if first := owner.FirstRouted(due); first != 0 {
+		since, err := bus.Tail(ctx, client.Query{Drive: drive, After: first})
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: cci tail: %w", ErrUnread, err)
+		}
+		if open, err = owner.Answers(open, since); err != nil {
+			return nil, nil, err
+		}
+	}
 	return open, owner.Carried(parsed, carriers), nil
 }
 
@@ -67,7 +77,7 @@ func AuditCommand() *cobra.Command {
 	audit := &cobra.Command{
 		Use:   "audit",
 		Short: "Print every owner ask nobody has delivered: each order with no live lane, no open PR and no delivered proof, marked in progress or parked, and each question still open; it advises and never blocks",
-		Long:  "Only a record's delivered attr credits an order, as `cci post --kind report --attr delivered=owner:m11` once he has what the row asked for. A live lane whose brief names owner:m<row>, or one with an open PR, keeps the row off the list while it works. A landed or done record naming the row or carried by its lane, or a report naming it, moves the row to in progress, never to delivered. A row whose last lane's latest record names a hold or a part left open shows as parked, with that hold and lane, and the supervisor sends the parked list to the progress desk every two hours. A board tap, a bare question and a row marked `lr owner mark <row> no-order` are not orders, and a bare question is listed until its row is marked. The ledger keeps one row per ask, so a message with several asks has rows m<N>.1, m<N>.2 and so on, and each row is marked and delivered by its own id.",
+		Long:  "Only a record's delivered attr credits an order, as `cci post --kind report --attr delivered=owner:m11` once he has what the row asked for. A live lane whose brief names owner:m<row>, or one with an open PR, keeps the row off the list while it works. A landed or done record naming the row or carried by its lane, or a report naming it, moves the row to in progress, never to delivered. A row whose last lane's latest record names a hold or a part left open shows as parked, with that hold and lane, and the supervisor sends the parked list to the progress desk every two hours. A due row with a routed seq shows the newest record another lane addressed to the communicator about it since that seq, named by the row, its routed seq or a PR its text names, from one cci read after the oldest such seq. A board tap, a bare question and a row marked `lr owner mark <row> no-order` are not orders, and a bare question is listed until its row is marked. The ledger keeps one row per ask, so a message with several asks has rows m<N>.1, m<N>.2 and so on, and each row is marked and delivered by its own id.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			entry, err := drive.Named(cmd.Flag("drive").Value.String())

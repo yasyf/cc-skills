@@ -206,3 +206,67 @@ func TestPRsNamedReadsEachWayHeNamesAPR(t *testing.T) {
 		t.Fatalf("named = %v, want %v", named, want)
 	}
 }
+
+const dueLedger = `| id | time | message | routed | state |
+|---|---|---|---|---|
+| m848 | Nov 5 12:32 AM | what does #48311 do, and does replicator-parks.db exist only for it? | 459400 | due Nov 5 1:00 AM |
+| m849 | Nov 5 12:40 AM | fix the stop hook | 459410 | due Nov 5 2:00 AM |
+| m850 | Nov 5 12:41 AM | mute that monitor |  | due Nov 5 2:00 AM |
+`
+
+func answered(seq int64, lane, text string, to ...string) client.Record {
+	return client.Record{Seq: seq, Lane: lane, Kind: "report", Text: text, To: to}
+}
+
+func TestADueRowShowsTheNewestAnswerAnotherLaneAddressedToTheCommunicatorAboutItsRowOrPR(t *testing.T) {
+	records := []client.Record{
+		answered(459300, "explain-48311", "owner:m848 an older answer", "owner-relay"),
+		answered(459450, "explain-48311", "owner:m848 first pass", "owner-relay"),
+		answered(459460, "fix-stop", "owner:m848 to root only", "root"),
+		answered(459470, "owner-relay", "owner:m848 asked again", "explain-48311"),
+		answered(459480, "fix-stop", "owner:m849 fixed", "owner-relay"),
+		aboutPR(answered(459505, "explain-48311", "Explain at d9a6a118", "owner-relay", "root"), 48311),
+	}
+
+	rows, err := Answers(Parse([]byte(dueLedger)), records)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := []string{rows[0].Answer, rows[1].Answer, rows[2].Answer}
+	if want := []string{"#459505 from explain-48311", "#459480 from fix-stop", ""}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAnAnswerIsUnreadUntilTheCommunicatorPostsAboutTheRowAfterIt(t *testing.T) {
+	row := Parse([]byte(dueLedger))[0]
+	answer := aboutPR(answered(459505, "explain-48311", "Explain at d9a6a118", "owner-relay"), 48311)
+	asked := client.Record{Seq: 459420, Lane: "owner-relay", Kind: "ask", Text: "explain #48311 for owner:m848", To: []string{"explain-48311"}}
+	relayed := aboutPR(answered(459600, "owner-relay", "told him what it does", "root"), 48311)
+
+	for _, c := range []struct {
+		records []client.Record
+		unread  bool
+	}{
+		{[]client.Record{asked}, false},
+		{[]client.Record{asked, answer}, true},
+		{[]client.Record{asked, answer, relayed}, false},
+	} {
+		got, unread, err := Unread(row, c.records)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if unread != c.unread || unread && got.Seq != answer.Seq {
+			t.Fatalf("records %d: got %d unread=%v, want unread=%v", len(c.records), got.Seq, unread, c.unread)
+		}
+	}
+}
+
+func aboutPR(record client.Record, number int) client.Record {
+	record.Refs.PRs = append(record.Refs.PRs, struct {
+		Repo   string
+		Number int
+	}{Number: number})
+	return record
+}
