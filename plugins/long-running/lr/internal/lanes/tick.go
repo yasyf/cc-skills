@@ -144,6 +144,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 		raiseUnheard(s, d, name, now)
 	}
 	ownedWork(s, d, now)
+	clocksRanOut(s, now)
 	for _, name := range said.hand {
 		do(d.Withdraw(name))
 		out.Withdrawn = append(out.Withdrawn, name)
@@ -977,6 +978,23 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 		}
 		text := fmt.Sprintf("you own %s, which still need work", numberList(work))
 		do(s.SetLanePage(name, map[string]any{"topic": "work:" + name, "why": text, "text": text, "prs": work}))
+	}
+}
+
+const clockGate = "clock:"
+
+func clocksRanOut(s *store.Store, now time.Time) {
+	for _, lane := range must(s.Lanes(live...)) {
+		ran := slices.ContainsFunc(strings.Fields(lane.Awaits), func(gate string) bool {
+			stamp, ok := strings.CutPrefix(gate, clockGate)
+			return ok && !now.Before(must(store.Parse(stamp)))
+		})
+		if !ran {
+			continue
+		}
+		why := fmt.Sprintf("you are overdue: the span your blocked record #%d named has run out and you have posted nothing since; read what that wait was for and post what happened", lane.Waiting)
+		do(s.SetLaneWaiting(lane.Name, 0, now, ""))
+		do(s.SetLanePage(lane.Name, map[string]any{"topic": fmt.Sprintf("clock:%d", lane.Waiting), "why": why, "text": why}))
 	}
 }
 

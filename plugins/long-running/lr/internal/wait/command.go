@@ -20,9 +20,12 @@ cci:<drive>:<lane>. The mailbox and file sources are followed through the file s
 source through the cci daemon's stream, so nothing polls. New file lines print clipped to 400
 characters and advance the count the cursor holds; unread mailbox entries print as MAILBOX <n>
 unread, then == <from> <timestamp> and the text, are marked read under the harness lock, and
-their keys join the cursor; cci records addressed to the lane past the <lane>-wake cursor print
-as cci tail prints them, and a first wait starts that cursor where the lane's own <lane> cursor
-stands, or at the newest record when the lane has none. At the deadline it prints QUIET <Pacific time>. A command after -- runs
+their keys join the cursor; cci records addressed to the lane print as cci tail --mail prints
+them and wake the wait. They are read through the thread's lane mail cursor, or the <lane>-wake
+cursor when the thread is not bound to the lane, and never from behind the lane's own <lane>
+cursor, so a record the lane already read never wakes it and one that arrived while no waiter
+ran does. A first wait for a lane with no <lane> cursor starts at the newest record. At the
+deadline it prints QUIET <Pacific time>. A command after -- runs
 in its own session and process group; its output and exit status pass through when it exits
 first, and a wake or the deadline ends the whole group with SIGTERM, then SIGKILL after 5 s.
 A wait with a command needs no source.
