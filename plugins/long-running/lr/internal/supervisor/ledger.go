@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -127,12 +128,17 @@ func (l *prLedger) dropLaneRow(ctx context.Context, key string) error {
 }
 
 func (l *prLedger) advance(ctx context.Context) error {
+	lock, err := landing.LockTree(l.env.Config.Checkout)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	git := []string{"git", "-C", l.env.Config.Checkout}
 	fetched := "refs/lr/ledger/" + l.env.Config.Trunk
 	if _, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(git), "fetch", "-q", "--no-tags", "--refmap=", "origin", "+refs/heads/"+l.env.Config.Trunk+":"+fetched), Timeout: ledgerLimit}); err != nil {
 		return err
 	}
-	_, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(git, "merge", "-q", "--ff-only", fetched), Timeout: ledgerLimit})
+	_, err = l.env.Runner.Run(ctx, shell.Command{Argv: append(git, "merge", "-q", "--ff-only", fetched), Timeout: ledgerLimit})
 	return err
 }
 

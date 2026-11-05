@@ -58,9 +58,11 @@ func (k Keeper) refuses(ctx context.Context, f machine.Facts, gate Gate) bool {
 		return false
 	}
 	if verdict.Held {
+		k.Log.Info("a gate holds a head", "gate", gate.Name, "pr", f.Number, "head", f.Head)
 		return true
 	}
 	if verdict.Refusal != "" {
+		k.Log.Info("a gate refused a head", "gate", gate.Name, "pr", f.Number, "head", f.Head, "cause", verdict.Cause)
 		if _, err := k.Store.PutFact(f.Repo, f.Number, f.Head, RefusedFact, verdict.Cause, k.Now()); err != nil {
 			k.Log.Warn("a gate did not keep its refusal", "gate", gate.Name, "pr", f.Number, "err", err)
 		}

@@ -33,6 +33,7 @@ const (
 	trunkMerged    = "trunk-merged"
 	memberBatch    = 25
 	queueUnknown   = "queue-unknown"
+	diffRefs       = "refs/lr/diff/"
 	memberFields   = `number state title isDraft headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } mergeable mergeStateStatus tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
@@ -876,9 +877,9 @@ func (s Source) hashDiff(ctx context.Context, f machine.Facts, stored map[string
 	if stored[gates.DiffFact] != "" {
 		return nil
 	}
-	fetch, below := []string{"git", "fetch", "--no-write-fetch-head", "-q", "origin", f.Head}, []string{"git", "merge-base", f.Head}
+	fetch, below := []string{"git", "fetch", "--no-write-fetch-head", "--refmap=", "-q", "origin", f.Head}, []string{"git", "merge-base", f.Head}
 	for _, branch := range slices.Compact([]string{f.Base, s.Trunk}) {
-		ref := "refs/remotes/origin/" + branch
+		ref := diffRefs + branch
 		fetch, below = append(fetch, "+refs/heads/"+branch+":"+ref), append(below, ref)
 	}
 	if _, err := s.Runner.Run(ctx, shell.Command{Argv: fetch}); err != nil {

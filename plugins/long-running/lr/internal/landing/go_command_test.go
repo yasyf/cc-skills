@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +216,51 @@ func TestChangedFilesKeepsAFileGitHubGaveNoPatchFor(t *testing.T) {
 	}
 	if !slices.Equal(files, []string{"a_test.go", "big_test.go"}) || *patches["a_test.go"] != "+x" || patches["big_test.go"] != nil {
 		t.Fatalf("files %q, patches %v", files, patches)
+	}
+}
+
+func TestAHeadWhoseReadFailsIsSkippedWithOneRecordWhileTheSweepGatesTheRest(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	now := time.Now().UTC()
+	const port, plain = "abc1234def", "fed4321cba"
+	for _, draft := range []client.Draft{
+		{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{}`}},
+		{Drive: "d", Lane: "port-1", Kind: "head", Text: "HEAD #1", PRs: []string{"o/r#1"}, Attrs: map[string]string{"head:1": port, gates.PortOfAttr: "40810", gates.PortInteractsAttr: gates.PortCleanWord}},
+	} {
+		if _, err := client.Post(ctx, draft); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &shelltest.Fake{}
+	runner.Fail(1, "ccx: pr status: /state is not a checkout", "ccx", "vcs", "pr", "status")
+	a := app.New(io.Discard)
+	a.Runner, a.Now = runner, func() time.Time { return now }
+	ready := func(number int, head string) machine.Facts {
+		return machine.Facts{Repo: "o/r", Number: number, Head: head, Lane: "lane-1", CI: machine.CISuccess, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
+	}
+	var out strings.Builder
+
+	for range 2 {
+		if err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready(1, port), ready(2, plain)}, now, &out); err != nil {
+			t.Fatalf("the sweep stopped on one head's failed read: %v", err)
+		}
+	}
+
+	if !strings.Contains(out.String(), "UNREAD #1 at abc1234") || !strings.Contains(out.String(), "REFUSED #2 at fed4321") {
+		t.Fatalf("sweep said %q, want #1 skipped as unread and #2 still gated", out.String())
+	}
+	notes, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"note"}, Lanes: []string{bus.SweepLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := slices.DeleteFunc(notes, func(record client.Record) bool { return record.Topic == gateInputsTopic })
+	if len(said) != 1 || !strings.HasPrefix(said[0].Text, "GO-UNREAD #1 at abc1234") {
+		t.Fatalf("records = %+v, want one GO-UNREAD for #1 across both passes", said)
 	}
 }

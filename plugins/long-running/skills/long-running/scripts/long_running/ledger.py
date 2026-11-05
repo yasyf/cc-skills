@@ -728,7 +728,7 @@ def fetch(shell: Shell, checkout: Path, *refs: str) -> None:
     after a failed fetch grades the previous state while reporting it as current.
     """
     try:
-        shell.run(["git", "-C", str(checkout), "fetch", "-q", "origin", *refs])
+        shell.run(["git", "-C", str(checkout), "fetch", "-q", "--refmap=", "origin", *refs])
     except subprocess.CalledProcessError as error:
         raise ForgeUnreachable(REFUSAL["fetch"].format(ref=" ".join(refs), detail=(error.stderr or "").strip())) from error
 
@@ -1167,12 +1167,12 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, tip: str, pr: str, 
 def merge_conflicts(shell: Shell, checkout: Path, pr: str, base: str, head: str) -> Refused | None:
     git = ["git", "-C", str(checkout)]
     pull = f"refs/desk/pr{pr}"
-    shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:{pull}"])
+    shell.run(git + ["fetch", "-q", "--refmap=", "origin", f"+refs/pull/{pr}/head:{pull}"])
     fetched = shell.run(git + ["rev-parse", pull]).strip()
     if fetched != head:
         return refusal("fetched", pr=pr, fetched=fetched[:9], head=head[:9])
     tip = f"refs/desk/base/{base}"
-    shell.run(git + ["fetch", "-q", "origin", f"+refs/heads/{base}:{tip}"])
+    shell.run(git + ["fetch", "-q", "--refmap=", "origin", f"+refs/heads/{base}:{tip}"])
     try:
         shell.run(git + ["merge-tree", "--write-tree", tip, head])
     except subprocess.CalledProcessError as failure:
@@ -2265,7 +2265,7 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
         for pr, record in merged.items():
             if record["headRefOid"] in absent:
                 try:
-                    shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
+                    shell.run(git + ["fetch", "-q", "--refmap=", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
                 except subprocess.CalledProcessError as failure:
                     failures[pr] = failure
     updates: dict[str, dict[str, str]] = {}

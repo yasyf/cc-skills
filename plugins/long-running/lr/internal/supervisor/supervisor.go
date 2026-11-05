@@ -156,13 +156,23 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 				d.Log.Warn("a stale tap stayed on the board", "err", err)
 			}
 		}
+		logWaits(d.Log, snapshot, out)
 		acts := landing.Clear(out.Acts, snapshot, d.Trunk)
+		logDropped(d.Log, out.Acts, acts, "its base is not trunk or an open PR of the drive")
 		if d.Admit != nil {
-			acts = d.Admit(ctx, acts, snapshot)
+			admitted := d.Admit(ctx, acts, snapshot)
+			logDropped(d.Log, acts, admitted, "a gate refused it or a PR below it")
+			acts = admitted
+		}
+		if err := s.RenewLease(drive, generation, d.Clock().UTC()); err != nil {
+			return report, err
 		}
 		landed, err := landing.Act(ctx, s, d.Queue, d.Restacker, acts, now)
 		if err != nil {
 			d.Log.Warn("landing stopped mid-pass", "err", err)
+		}
+		for _, said := range landed.Said {
+			d.Log.Info("the queue answered", "pr", said.Facts.Number, "head", said.Facts.Head, "said", said.Text)
 		}
 		if err := landing.Settle(ctx, s, drive, landed.Said); err != nil {
 			d.Log.Warn("a queue answer went unposted", "err", err)
@@ -196,6 +206,36 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		report.Dispatched = len(dispatched)
 	}
 	return report, nil
+}
+
+func logWaits(log *slog.Logger, snapshot []machine.Facts, out pass.Outcome) {
+	acting := make(map[int]bool, len(out.Acts))
+	for _, act := range out.Acts {
+		acting[act.Facts.Number] = true
+	}
+	for _, f := range snapshot {
+		verdict := out.Verdicts[f.Number]
+		why := "its CI is not green"
+		switch {
+		case verdict.Action == machine.ActionEnqueue && !acting[f.Number]:
+			why = "a PR below it is not clear to land"
+		case !f.Tapped() || verdict.Action != machine.ActionWaitCI:
+			continue
+		case f.Mergeable == machine.MergeableUnknown && !f.Uncomputed:
+			why = "its merge-queue state did not read, which reads as an unknown mergeability"
+		case f.Mergeable == machine.MergeableUnknown:
+			why = "GitHub has not computed its mergeability"
+		}
+		log.Info("a cleared head waits", "pr", f.Number, "head", f.Head, "why", why)
+	}
+}
+
+func logDropped(log *slog.Logger, from, kept []pass.Act, why string) {
+	for _, act := range from {
+		if act.Verdict.Action == machine.ActionEnqueue && !slices.ContainsFunc(kept, func(k pass.Act) bool { return k.Facts.Number == act.Facts.Number }) {
+			log.Info("an enqueue was dropped", "pr", act.Facts.Number, "head", act.Facts.Head, "why", why)
+		}
+	}
 }
 
 func tellUnwritten(s *store.Store, post pass.Post, unwritten error, now time.Time) error {
