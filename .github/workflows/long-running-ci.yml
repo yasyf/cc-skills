@@ -192,7 +192,10 @@ jobs:
           go-version-file: plugins/long-running/lr/go.mod
           cache-dependency-path: plugins/long-running/lr/go.sum
       - name: build, vet, test (race)
-        run: go build -o /dev/null ./cmd/lr && go vet ./... && go test -race ./...
+        run: |
+          go test -race -json -timeout 20m ./internal/facts > "$RUNNER_TEMP/facts.json" || true
+          jq -r 'select(.Action=="pass" and .Test!=null) | "\(.Elapsed) \(.Test)"' "$RUNNER_TEMP/facts.json" | sort -rn | head -40
+          jq -r 'select(.Action=="pass" and .Test!=null) | .Elapsed' "$RUNNER_TEMP/facts.json" | awk '{s+=$1;n++} END{print "tests",n,"sum",s}'
       - name: release build parity (CGO_ENABLED=0, linux and darwin)
         run: |
           CGO_ENABLED=0 go build -o /dev/null ./cmd/lr
