@@ -253,22 +253,34 @@ func (r *ReleaseOwed) incident(ctx context.Context, pr store.PR) (bool, error) {
 	return !cleared, err
 }
 
-func (r *ReleaseOwed) shipped(ctx context.Context, sha string, components []string) (bool, error) {
+type liveNode struct {
+	Component string `json:"target"`
+	Env       string `json:"env"`
+	Commit    string `json:"commit"`
+	Build     string `json:"build"`
+}
+
+func (r *ReleaseOwed) running(ctx context.Context) ([]liveNode, error) {
 	result, err := r.Token.Run(ctx, r.Runner, shell.Command{Argv: append(slices.Clone(r.CLI), "live", "--json"), Dir: r.Checkout, Timeout: trunkReadLimit})
 	if err != nil {
 		r.Log.Warn("what is live did not read", "err", err)
-		return false, nil
+		return nil, nil
 	}
-	var running []struct {
-		Target string `json:"target"`
-		Commit string `json:"commit"`
-	}
+	var running []liveNode
 	if err := json.Unmarshal([]byte(result.Stdout), &running); err != nil {
-		return false, fmt.Errorf("what is live: %w", err)
+		return nil, fmt.Errorf("what is live: %w", err)
+	}
+	return running, nil
+}
+
+func (r *ReleaseOwed) shipped(ctx context.Context, sha string, components []string) (bool, error) {
+	running, err := r.running(ctx)
+	if err != nil {
+		return false, err
 	}
 	read := map[string]bool{}
 	for _, deploy := range running {
-		if (len(components) > 0 && !slices.Contains(components, deploy.Target)) || read[deploy.Commit] {
+		if (len(components) > 0 && !slices.Contains(components, deploy.Component)) || read[deploy.Commit] {
 			continue
 		}
 		read[deploy.Commit] = true
@@ -564,23 +576,59 @@ func (r *ReleaseOwed) publish(ctx context.Context, landing owedLanding) error {
 		return nil
 	}
 	var live map[string]struct {
-		Live string `json:"live"`
+		Live     string `json:"live"`
+		Clusters []struct {
+			Env    string `json:"env"`
+			Behind bool   `json:"behind"`
+			Why    string `json:"why"`
+		} `json:"clusters"`
 	}
 	if err := json.Unmarshal([]byte(result.Stdout), &live); err != nil {
 		return fmt.Errorf("the live state of %s: %w", release, err)
 	}
-	number := strconv.Itoa(pr.Number)
-	argv := []string{"cci", "post", "--drive", r.Drive, "--lane", self, "--kind", fixLiveKind, "--to", rootLane, "--id", "release:" + number + ":live", "--topic", number, "--pr", r.Repo + "#" + number, "--build", build}
 	versions := make([]string, 0, len(components))
+	current := map[string][]string{}
 	for _, component := range components {
 		state, known := live[component]
 		if !known || state.Live == "" || state.Live == notLive {
 			return nil
 		}
 		versions = append(versions, component+" "+state.Live)
+		current[component] = []string{}
+		for _, cluster := range state.Clusters {
+			if !cluster.Behind && cluster.Why == "" {
+				current[component] = append(current[component], cluster.Env)
+			}
+		}
+	}
+	running, err := r.running(ctx)
+	if err != nil {
+		return err
+	}
+	var deployers []string
+	attributed := map[string]bool{}
+	for _, node := range running {
+		envs, owes := current[node.Component]
+		if !owes || node.Build == "" || len(envs) > 0 && !slices.Contains(envs, node.Env) {
+			continue
+		}
+		attributed[node.Component] = true
+		if !slices.Contains(deployers, node.Build) {
+			deployers = append(deployers, node.Build)
+		}
+	}
+	if len(attributed) < len(current) {
+		return nil
+	}
+	number := strconv.Itoa(pr.Number)
+	argv := []string{"cci", "post", "--drive", r.Drive, "--lane", self, "--kind", fixLiveKind, "--to", rootLane, "--id", "release:" + number + ":live", "--topic", number, "--pr", r.Repo + "#" + number}
+	for _, deployer := range deployers {
+		argv = append(argv, "--build", deployer)
+	}
+	for _, component := range components {
 		argv = append(argv, "--target", component)
 	}
-	argv = append(argv, "--text", fmt.Sprintf("RELEASED %s (%s)", strings.Join(versions, ", "), build))
+	argv = append(argv, "--text", fmt.Sprintf("RELEASED %s (%s)", strings.Join(versions, ", "), strings.Join(deployers, ", ")))
 	if _, err := r.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: gitLimit}); err != nil {
 		return err
 	}
