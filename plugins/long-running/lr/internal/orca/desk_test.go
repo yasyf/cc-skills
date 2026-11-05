@@ -88,6 +88,7 @@ type deskWorld struct {
 	refuseWithdrawal bool
 	gitReply         func(argv []string) (shell.Result, error)
 	tails            int
+	rest             string
 }
 
 func newDeskWorld(t *testing.T) *deskWorld {
@@ -101,7 +102,7 @@ func newDeskWorld(t *testing.T) *deskWorld {
 	}
 	config := DeskConfig{
 		Source: filepath.Join(home, "state", "runner.json"), Store: filepath.Join(home, "store", "incidents"), Drive: testDrive, DeskInbox: filepath.Join(home, "state", "inbox", "orca-desk.md"), Run: testRun,
-		Receipts: filepath.Join(home, "receipts"), BriefsRepo: filepath.Join(home, "repo"), BriefsLog: "log_1", StartMinutes: 10, LaunchMinutes: 15, HoldMinutes: 15, CaseLanes: 2, LoadLimit: 32,
+		Receipts: filepath.Join(home, "receipts"), CCRemote: filepath.Join(home, "cc-remote"), BriefsRepo: filepath.Join(home, "repo"), BriefsLog: "log_1", StartMinutes: 10, LaunchMinutes: 15, HoldMinutes: 15, CaseLanes: 2, LoadLimit: 32,
 	}
 	w.write(config.Source, `{"drive":"brook","orca":{"run":"run_1"}}`)
 	registry, err := store.Memory()
@@ -313,6 +314,11 @@ func (w *deskWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 		return w.gitReply(argv)
 	case argv[0] == "git":
 		return shell.Result{Stdout: "dev\n"}, nil
+	case strings.Contains(strings.Join(argv, " "), "handoff live-tasks"):
+		if w.rest == "" {
+			return shell.Result{Stdout: `{"tasks":null,"read":"0 armed lr wait processes bear terminal term_a"}`}, nil
+		}
+		return shell.Result{Stdout: w.rest}, nil
 	case filepath.Base(argv[0]) == "lr" && argv[1] == "watch":
 		return shell.Result{Stdout: `{"rows":[]}`}, nil
 	}
@@ -2529,6 +2535,91 @@ func TestARepeatStopOnOneTerminalCollapsesIntoItsOpenRecordUntilThatCloses(t *te
 	w.records[stop].Status = "closed"
 	w.checked(stopNotice("msg_s3", 3))
 	w.wantEscalation("DECIDE msg_s3 lane-a: ")
+}
+
+func TestAStopWithABackgroundTaskLiveRestsWithoutADecide(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.rest = `{"tasks":["- Monitor \"ci\" (task m1): ` + "`Monitor`" + `"],"read":"0 armed lr wait processes bear terminal term_a"}`
+	w.checked(stopNotice("msg_s", 1))
+	w.noEscalation("DECIDE msg_s ")
+	w.wantEscalation(`RESTING msg_s lane-a: ended its turn with - Monitor "ci" (task m1)`)
+}
+
+func TestAStopWithNothingArmedSaysWhatItRead(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.checked(stopNotice("msg_s", 1))
+	w.wantEscalation("DECIDE msg_s lane-a: Worker stopped without reporting; nothing armed found, on this host: 0 armed lr wait processes bear terminal term_a: ")
+}
+
+func TestAStopOnTheLanesOpenWaitRecordRests(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	blocked := w.add(object{"lane": testLane, "kind": kindBlocked, "status": recordOpen, "text": "waits on #50802's CI"})
+	w.add(object{"lane": testLane, "kind": kindHandoff, "text": "lane-a wrote its handoff before compacting"})
+	if _, err := w.desk.Registry.WantLane(store.Lane{Name: testLane, Brief: "/b", Model: "opus", Effort: "high", State: store.LaneDesired}, w.now); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.desk.Registry.SetLaneWaiting(testLane, 0, w.now.Add(time.Minute), ""); err != nil {
+		t.Fatal(err)
+	}
+	w.checked(stopNotice("msg_s", 1))
+	w.noEscalation("DECIDE msg_s ")
+	w.wantEscalation(fmt.Sprintf("RESTING msg_s lane-a: ended its turn with its open BLOCKED #%d", blocked.Seq))
+}
+
+func TestAStopOnTheTurnEndHooksOwnBlockerStillDecides(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.add(object{"id": "turn-end:lane-a:7", "lane": testLane, "kind": kindBlocker, "status": recordOpen, "text": "lane-a ended its turn twice with open work"})
+	w.checked(stopNotice("msg_s", 1))
+	w.wantEscalation("DECIDE msg_s lane-a: Worker stopped without reporting; nothing armed found, ")
+}
+
+func TestAStopOnASpriteIsReadOnThatSprite(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.write(filepath.Join(w.desk.Config.CCRemote, "workspaces", "pool-1.json"), "{}")
+	task, err := json.Marshal(object{"schemaVersion": ccRemoteTaskSchema, "provider": providerSprites, "workspace": "pool-1", "worktreeId": "wt", "terminal": testTerminal, "forward": object{"host": "pool-1-host"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.write(filepath.Join(w.desk.Config.CCRemote, "orca", "task.json"), string(task))
+	w.rest = `{"tasks":["- ` + "`lr wait --wake`" + ` armed as pid 41"],"read":"1 armed lr wait processes bear terminal term_a"}`
+	w.checked(stopNotice("msg_s", 1))
+	w.noEscalation("DECIDE msg_s ")
+	read := slices.IndexFunc(w.calls, func(argv []string) bool { return slices.Contains(argv, "pool-1-host") })
+	if read < 0 || !slices.Equal(w.calls[read][:4], []string{"sprite", "exec", "-s", "pool-1-host"}) || w.calls[read][len(w.calls[read])-1] != testTerminal {
+		t.Fatal(w.calls)
+	}
+}
+
+func TestAStopTheReadCannotMakeStillDecides(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.desk.Runner = refusingRead{w}
+	w.checked(stopNotice("msg_s", 1))
+	w.wantEscalation("DECIDE msg_s lane-a: Worker stopped without reporting; nothing armed found, lr handoff live-tasks failed on this host: unknown flag: --terminal: ")
+}
+
+func TestAnErroredStopDecidesWhateverIsArmed(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.rest = `{"tasks":["- Monitor \"ci\" (task m1)"],"read":""}`
+	stop := stopNotice("msg_s", 1)
+	stop.Subject = "Worker stopped on an error without reporting"
+	w.checked(stop)
+	w.wantEscalation("DECIDE msg_s lane-a: Worker stopped on an error without reporting: ")
+}
+
+type refusingRead struct{ *deskWorld }
+
+func (r refusingRead) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if slices.Contains(c.Argv, "live-tasks") {
+		return shell.Result{Code: 1, Stderr: "unknown flag: --terminal"}, &shell.ExitError{Argv: c.Argv, Code: 1}
+	}
+	return r.deskWorld.Run(ctx, c)
 }
 
 func TestARepeatOfAnEscalationThatIsNoStopIsNotCollapsed(t *testing.T) {

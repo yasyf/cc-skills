@@ -10,10 +10,13 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -23,6 +26,9 @@ const (
 	typeEscalation      = "escalation"
 	kindBlocked         = "blocked"
 	workerStopped       = "Worker stopped"
+	finishedStop        = "Worker stopped without reporting"
+	turnEndBlocker      = "turn-end:"
+	kindHandoff         = "handoff"
 	stopFact            = "worker-stop:"
 	recordOpen          = "open"
 	typeWorkerDone      = "worker_done"
@@ -32,12 +38,15 @@ const (
 	registryRequestKind = "decide"
 )
 
+const restReadTimeout = 30 * time.Second
+
 var (
 	ackSubject        = regexp.MustCompile(`(?s)^(started|done)\b[: ]*(.*)$`)
 	runRef            = regexp.MustCompile(`R\d+|\d+`)
 	relayRef          = regexp.MustCompile(`(?:^|cci#)(R?\d+)$`)
 	milestoneSubjects = []string{"fix-live:", "mechanism:", "ready:"}
 	askTypes          = []string{typeQuestion, typeEscalation, typeStatus}
+	restingKinds      = []string{kindAsk, kindBlocker, kindBlocked}
 )
 
 func (d *Desk) check(ctx context.Context) (bool, error) {
@@ -324,6 +333,17 @@ func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) 
 	if err != nil || open {
 		return err
 	}
+	subject := message.Subject
+	if subject == finishedStop {
+		rest, err := d.restOf(ctx, lane, message.FromHandle)
+		if err != nil {
+			return err
+		}
+		if len(rest.Tasks) > 0 {
+			return d.record("escalation:resting:"+message.ID, fmt.Sprintf("RESTING %s %s: ended its turn with %s", message.ID, lane, strings.Join(rest.Tasks, "; ")))
+		}
+		subject += "; nothing armed found, " + rest.Read
+	}
 	by, err := d.laneBy(lane)
 	if err != nil {
 		return err
@@ -334,7 +354,45 @@ func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) 
 	if err := d.setFact(deskRunner, stopFact+message.FromHandle, escalationPref+message.ID); err != nil {
 		return err
 	}
-	return d.escalateTo(ctx, message.ID, "DECIDE", lane, fmt.Sprintf("%s: %s", message.Subject, clipRunes(message.Body, 300)), by)
+	return d.escalateTo(ctx, message.ID, "DECIDE", lane, fmt.Sprintf("%s: %s", subject, clipRunes(message.Body, 300)), by)
+}
+
+func (d *Desk) restOf(ctx context.Context, lane, terminal string) (livetasks.Rest, error) {
+	records, err := d.laneRecords(ctx, lane)
+	if err != nil {
+		return livetasks.Rest{}, err
+	}
+	records = slices.DeleteFunc(records, func(record client.Record) bool { return string(record.Kind) == kindHandoff })
+	if len(records) > 0 {
+		newest := records[len(records)-1]
+		if slices.Contains(restingKinds, string(newest.Kind)) && newest.Status == recordOpen && !strings.HasPrefix(newest.ID, turnEndBlocker) {
+			return livetasks.Rest{Tasks: []string{fmt.Sprintf("its open %s #%d", strings.ToUpper(string(newest.Kind)), newest.Seq)}}, nil
+		}
+	}
+	sprites, err := CCRemote{Runner: d.Runner, State: d.Config.CCRemote}.Sprites()
+	if err != nil {
+		return livetasks.Rest{}, err
+	}
+	argv, host := []string{d.tool("lr"), "handoff", "live-tasks", "--terminal", terminal}, "this host"
+	for key, sprite := range sprites {
+		if key.Terminal == terminal {
+			argv, host = spriteExec(sprite, "sh", "-c", `"$HOME/.local/bin/lr" handoff live-tasks --terminal "$1"`, "sh", terminal), "Sprite "+sprite.Host
+		}
+	}
+	result, err := d.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: restReadTimeout})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) || errors.Is(err, context.DeadlineExceeded) {
+		return livetasks.Rest{Read: fmt.Sprintf("lr handoff live-tasks failed on %s: %s", host, describeExit(result.Stderr, "%v", err))}, nil
+	}
+	if err != nil {
+		return livetasks.Rest{}, err
+	}
+	var rest livetasks.Rest
+	if err := json.Unmarshal([]byte(result.Stdout), &rest); err != nil {
+		return livetasks.Rest{}, fmt.Errorf("lr handoff live-tasks on %s: %w", host, err)
+	}
+	rest.Read = "on " + host + ": " + rest.Read
+	return rest, nil
 }
 
 func (d *Desk) stopOpen(ctx context.Context, terminal string) (bool, error) {

@@ -3,6 +3,7 @@ package handoff
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -34,12 +35,24 @@ func Command(a *app.App) *cobra.Command {
 }
 
 func liveTasksCommand(a *app.App) *cobra.Command {
-	var transcript string
+	var transcript, terminal string
 	cmd := &cobra.Command{
 		Use:   "live-tasks",
 		Short: "List the Monitors and background tasks a session's transcript shows started and never ended, each with the call that starts it again",
+		Long:  "With --terminal, read on this host what will wake the agent of that Orca terminal once its turn has ended: the armed `lr wait --wake` processes bearing the handle and, for a Claude agent, the live tasks of the transcript cci who names for it. Prints one JSON object with the tasks found and a line naming what was read.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if terminal != "" {
+				claude, err := configDir()
+				if err != nil {
+					return err
+				}
+				rest, err := livetasks.Terminal(cmd.Context(), a.Runner, terminal, claude, a.Now())
+				if err != nil {
+					return err
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(rest)
+			}
 			tasks, err := livetasks.Read(transcript, a.Now())
 			if err != nil {
 				return err
@@ -51,7 +64,9 @@ func liveTasksCommand(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&transcript, "transcript", "", "the session's transcript")
-	_ = cmd.MarkFlagRequired("transcript")
+	cmd.Flags().StringVar(&terminal, "terminal", "", "an Orca terminal handle on this host")
+	cmd.MarkFlagsOneRequired("transcript", "terminal")
+	cmd.MarkFlagsMutuallyExclusive("transcript", "terminal")
 	return cmd
 }
 
