@@ -93,6 +93,7 @@ func settledBoardFirst(t *testing.T, first func(*shelltest.Fake), board []any, a
 	fake := &shelltest.Fake{}
 	first(fake)
 	fake.Reply(string(listed), "ccn", "-R", "/co", "answer", "list")
+	fake.Reply("[]", "ccn", "-R", "/co", "ledger", "list", "--json")
 	fake.Reply(`{"id":"c4rd5"}`, "ccn", "-R", "/co", "ledger", "add")
 	fake.Reply(string(all), "cc-present", "outcomes", "--all")
 	fake.Reply(string(one), "cc-present", "outcomes", "--block")

@@ -2,9 +2,11 @@ package board
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -23,6 +25,7 @@ const liveText = "api (platform) on plat-usw2-prod: outside a release at 0dfbd44
 var cardsNow = time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC)
 
 type cardShell struct {
+	ledgers   string
 	cards     []string
 	ancestors map[string]bool
 	answers   map[string]bool
@@ -34,6 +37,8 @@ type cardShell struct {
 func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
 	argv := strings.Join(c.Argv, " ")
 	switch {
+	case strings.Contains(argv, "ledger list"):
+		return shell.Result{Stdout: cmp.Or(f.ledgers, "[]")}, nil
 	case strings.Contains(argv, "ledger add"):
 		return shell.Result{Stdout: `{"id":"c4rd5"}`}, nil
 	case strings.Contains(argv, "outcomes --block"):
@@ -177,8 +182,8 @@ func TestMissingListsBoardCardsWithNoEndAndSkipsTheMergeList(t *testing.T) {
 	}
 }
 
-func TestPathsListsEachOpenCardsDesignPaths(t *testing.T) {
-	f := newCards(t, &cardShell{cards: []string{"card-storage", "card-plain", "card-done"}}, nil)
+func TestPathsListsEachOpenCardsDesignPathsFromTheLedgerAlone(t *testing.T) {
+	f := newCards(t, &cardShell{}, nil)
 	ctx := context.Background()
 	if _, err := f.Until(ctx, "card-storage", "pr:1", "", "go/sand/internal/cloudrunner", "infra/rows/cloudrunner"); err != nil {
 		t.Fatal(err)
@@ -199,9 +204,28 @@ func TestPathsListsEachOpenCardsDesignPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := f.Paths(ctx)
-	want := map[string][]string{"card-storage": {"go/sand/internal/cloudrunner", "infra/rows/cloudrunner"}}
+	want := map[string][]string{"card-storage": {"go/sand/internal/cloudrunner", "infra/rows/cloudrunner"}, "card-gone": {"api/src"}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("paths = %v, %v; want %v", got, err, want)
+	}
+}
+
+func TestPathsReadTheDrivesLedgerByTitleOnAHostWithoutItsStateDir(t *testing.T) {
+	shared := &ledgertest.Fake{}
+	if err := shared.SetRow(context.Background(), "mac-ledger", cardPrefix+"card-storage", map[string]string{"until": "pr:Forge-AI/monorepo#1", pathsField: "go/sand/internal/cloudrunner"}); err != nil {
+		t.Fatal(err)
+	}
+	f := newCards(t, &cardShell{ledgers: `[{"id":"other","title":"board cards: another-drive"},{"id":"mac-ledger","title":"board cards: brook-cci"}]`}, nil)
+	f.Ledger = shared
+	f.StateDir = filepath.Join(t.TempDir(), "never-made")
+	got, err := f.Paths(context.Background())
+	want := map[string][]string{"card-storage": {"go/sand/internal/cloudrunner"}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("paths = %v, %v; want %v", got, err, want)
+	}
+	f.shell.ledgers = ""
+	if again, err := f.ledgerID(context.Background()); err != nil || again != "mac-ledger" {
+		t.Fatalf("ledger = %q, %v; want the listed mac-ledger kept for the next read", again, err)
 	}
 }
 

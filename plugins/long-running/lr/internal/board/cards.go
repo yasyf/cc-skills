@@ -76,19 +76,42 @@ func (c Cards) ledgerID(ctx context.Context) (string, error) {
 	if state.Ledger != "" {
 		return state.Ledger, nil
 	}
-	created, err := c.ccn(ctx, "ledger", "add", "board cards: "+c.Bus, "--json")
+	title := "board cards: " + c.Bus
+	listed, err := c.ccn(ctx, "ledger", "list", "--json")
 	if err != nil {
 		return "", err
 	}
-	var row struct {
-		ID string `json:"id"`
+	var ledgers []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
 	}
-	if err := json.Unmarshal([]byte(created), &row); err != nil {
-		return "", fmt.Errorf("ccn ledger add: %w", err)
+	if err := json.Unmarshal([]byte(listed), &ledgers); err != nil {
+		return "", fmt.Errorf("ccn ledger list: %w", err)
 	}
-	state.Ledger = row.ID
+	for _, held := range ledgers {
+		if held.Title == title {
+			state.Ledger = held.ID
+			break
+		}
+	}
+	if state.Ledger == "" {
+		created, err := c.ccn(ctx, "ledger", "add", title, "--json")
+		if err != nil {
+			return "", err
+		}
+		var row struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(created), &row); err != nil {
+			return "", fmt.Errorf("ccn ledger add: %w", err)
+		}
+		state.Ledger = row.ID
+	}
 	encoded, err := json.Marshal(state)
 	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(c.StateDir, 0o700); err != nil {
 		return "", err
 	}
 	scratch := path + ".tmp"
@@ -188,13 +211,9 @@ func (c Cards) Paths(ctx context.Context) (map[string][]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	cards, err := c.onBoard(ctx)
-	if err != nil {
-		return nil, err
-	}
 	gated := map[string][]string{}
-	for _, card := range cards {
-		if paths := known[card][pathsField]; paths != "" {
+	for card, fields := range known {
+		if paths := fields[pathsField]; paths != "" {
 			gated[card] = strings.Split(paths, ",")
 		}
 	}
