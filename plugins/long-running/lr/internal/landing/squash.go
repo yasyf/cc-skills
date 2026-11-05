@@ -22,6 +22,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
 )
 
 const (
@@ -75,8 +76,13 @@ func NewSquash(a *app.App, s *store.Store, cfg config.Config, runnerPath string,
 	}, nil
 }
 
+func (q *Squash) Pass(ctx context.Context, snapshot []machine.Facts) error {
+	_, err := q.pass(ctx, snapshot, true)
+	return err
+}
+
 func (q *Squash) Admit(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act {
-	taken, err := q.pass(ctx, snapshot)
+	taken, err := q.pass(ctx, snapshot, false)
 	if err != nil {
 		q.Log.Warn("the incident squash pass did not read", "err", err)
 	}
@@ -90,7 +96,7 @@ func leftToSquash(act pass.Act) bool {
 	return act.Verdict.Action == machine.ActionDequeue && f.Queued() && f.Hold == "" && f.Fidelity == machine.FidelityPass
 }
 
-func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bool, error) {
+func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts, lands bool) (map[int]bool, error) {
 	named, err := q.tagged(snapshot)
 	if err != nil || len(named) == 0 {
 		return nil, err
@@ -119,10 +125,15 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts) (map[int]bo
 			return taken, err
 		}
 		if cleared {
-			q.tell(ctx, f, "report", "incident-tag-cleared:"+strconv.Itoa(f.Number), fmt.Sprintf("INCIDENT-TAG-CLEARED #%d: a coordinator record took it off the incident path, so the runner never squashes it and gates it as a normal row, landing it only through the queue once its go and the owner's tap name its head", f.Number))
+			if lands {
+				q.tell(ctx, f, "report", "incident-tag-cleared:"+strconv.Itoa(f.Number), fmt.Sprintf("INCIDENT-TAG-CLEARED #%d: a coordinator record took it off the incident path, so the runner never squashes it and gates it as a normal row, landing it only through the queue once its go and the owner's tap name its head", f.Number))
+			}
 			continue
 		}
 		taken[f.Number] = true
+		if !lands {
+			continue
+		}
 		open := openIncident(f, incidents, ended)
 		if open == nil && !slices.Contains(clocks, client.Stem(f.Lane)) && !f.Admitted() {
 			due, err := q.due(f)
@@ -282,13 +293,24 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 		argv = []string{"gh", "stack", "merge", number, "--yes", "--squash"}
 		merged, err = q.Runner.Run(ctx, shell.Command{Argv: argv, Env: []string{"GH_REPO=" + f.Repo}, Timeout: mergeLimit})
 	}
-	outcome := squashMerged
 	if err != nil {
-		outcome = strings.TrimSpace(merged.Stderr + merged.Stdout)
+		if state, read := q.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", number, "--repo", f.Repo, "--json", "state", "--jq", ".state"); read == nil && strings.TrimSpace(state) == "MERGED" {
+			_, err := q.Store.PutFact(f.Repo, f.Number, f.Head, squashedFact, squashMerged, q.Now())
+			return err
+		}
+		outcome := strings.TrimSpace(merged.Stderr + merged.Stdout)
 		q.tell(ctx, f, "blocker", "land:"+number+":"+f.Head, fmt.Sprintf("SQUASH-FAILED #%d: %s refused the approved, green incident fix at %s: %s", f.Number, strings.Join(argv[:3], " "), shortHead(f.Head), outcome))
+		_, err := q.Store.PutFact(f.Repo, f.Number, f.Head, squashedFact, outcome, q.Now())
+		return err
 	}
-	_, err = q.Store.PutFact(f.Repo, f.Number, f.Head, squashedFact, outcome, q.Now())
-	return err
+	if _, err := q.Store.PutFact(f.Repo, f.Number, f.Head, squashedFact, squashMerged, q.Now()); err != nil {
+		return err
+	}
+	route, err := watch.Desks(q.Store)
+	if err != nil {
+		return err
+	}
+	return postLanded(ctx, q.Store, q.Drive, q.Trunk, f, route)
 }
 
 func (q *Squash) tell(ctx context.Context, f machine.Facts, kind, id, text string) {

@@ -27,6 +27,7 @@ const (
 )
 
 type squashFixture struct {
+	t       *testing.T
 	squash  *landing.Squash
 	fake    *shelltest.Fake
 	restack []int
@@ -47,7 +48,7 @@ func newSquash(t *testing.T) *squashFixture {
 		t.Fatal(err)
 	}
 	fake := &shelltest.Fake{}
-	fixture := &squashFixture{fake: fake, now: t0}
+	fixture := &squashFixture{t: t, fake: fake, now: t0}
 	fixture.squash = &landing.Squash{
 		Runner: fake, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Trunk: "dev", Checkout: "/co", Rulings: squashTool,
 		FixLane:    func(lane string) (bool, error) { return lane == "dd-1-fix", nil },
@@ -98,6 +99,9 @@ func (s *squashFixture) admit(facts ...machine.Facts) []int {
 	acts := make([]pass.Act, 0, len(facts))
 	for _, f := range facts {
 		acts = append(acts, pass.Act{Facts: f, Verdict: machine.Verdict{Action: machine.ActionEnqueue}})
+	}
+	if err := s.squash.Pass(context.Background(), facts); err != nil {
+		s.t.Fatal(err)
 	}
 	kept := make([]int, 0, len(facts))
 	for _, act := range s.squash.Admit(context.Background(), acts, facts) {
@@ -355,8 +359,8 @@ func TestAFixRootTookOffTheIncidentPathTellsItsLaneOnce(t *testing.T) {
 	s := newSquash(t)
 	squashPost(t, "decide", "root", "#7 is not an incident fix", []string{"incident-api-fix"}, monorepo+"#7")
 
-	s.squash.Admit(context.Background(), nil, []machine.Facts{fixFacts(nil)})
-	s.squash.Admit(context.Background(), nil, []machine.Facts{fixFacts(nil)})
+	s.admit(fixFacts(nil))
+	s.admit(fixFacts(nil))
 
 	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"report"}, Lanes: []string{"supervisor"}})
 	if err != nil {
@@ -464,5 +468,68 @@ func TestHisApproveOrAnOpenIncidentLandsAnAlertFixWithoutWaitingItsHour(t *testi
 				t.Fatalf("merges = %v, want one at once", merges)
 			}
 		})
+	}
+}
+
+func TestTheLandingHostsAdmitKeepsAnIncidentFixFromTheQueueButNeverMergesOrPosts(t *testing.T) {
+	f := newSquash(t)
+	squashPost(t, "decide", "root", "#8 is not an incident fix", []string{"incident-api-fix"}, monorepo+"#8")
+	cleared := fixFacts(func(row *machine.Facts) { row.Number, row.Branch = 8, "eight" })
+	acts := []pass.Act{{Facts: fixFacts(nil), Verdict: machine.Verdict{Action: machine.ActionEnqueue}}, {Facts: cleared, Verdict: machine.Verdict{Action: machine.ActionEnqueue}}}
+
+	kept := f.squash.Admit(context.Background(), acts, []machine.Facts{fixFacts(nil), cleared})
+
+	if len(kept) != 1 || kept[0].Facts.Number != 8 {
+		t.Fatalf("kept %+v, want only the cleared #8", kept)
+	}
+	if merges := f.merges(); len(merges) != 0 {
+		t.Fatalf("the landing host merged %v", merges)
+	}
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("the landing host posted %+v", records)
+	}
+}
+
+func TestASquashMergePostsOneLandedRecordSoTheRowReadsLanded(t *testing.T) {
+	f := newSquash(t)
+
+	f.admit(fixFacts(nil))
+	f.admit(fixFacts(nil))
+
+	landed, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"landed"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(landed) != 1 || !strings.HasPrefix(landed[0].Text, "LANDED #7 at "+squashFirst[:10]) || !slices.Contains(landed[0].To, "incident-api-fix") {
+		t.Fatalf("landed = %+v", landed)
+	}
+}
+
+func TestAFixAnotherHostAlreadyMergedIsNeitherRetriedNorReportedAsAFailedSquash(t *testing.T) {
+	f := newSquash(t)
+	raced := &shelltest.Fake{}
+	raced.Reply("", squashTool, "check-pr")
+	raced.Reply("MERGED\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", "7")
+	raced.Reply("0\n", "ccx", "vcs", "gh")
+	raced.Fail(1, "GraphQL: Pull Request is not mergeable", "gh", "pr", "merge")
+	f.fake = raced
+	f.squash.Runner, f.squash.CCX = raced, ccx.CLI{Runner: raced}
+
+	f.admit(fixFacts(nil))
+	f.admit(fixFacts(nil))
+
+	if merges := f.merges(); len(merges) != 1 {
+		t.Fatalf("merges = %v, want the one refused try", merges)
+	}
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("posted %+v after another host merged it", records)
 	}
 }

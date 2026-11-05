@@ -55,6 +55,7 @@ type Deps struct {
 	Restacker landing.Restacker
 	Trunk     string
 	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
+	Squash    func(ctx context.Context, snapshot []machine.Facts) error
 	DropStale func(ctx context.Context, snapshot []machine.Facts) error
 	Unstick   func(ctx context.Context, snapshot []machine.Facts) error
 	SweepGos  func(ctx context.Context, snapshot []machine.Facts) ([]int, error)
@@ -145,6 +146,11 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 			if err := tellUnwritten(s, d.Post, err, now); err != nil {
 				d.Log.Warn("unwritten review rows could not say so", "err", err)
 			}
+		}
+	}
+	if d.Squash != nil {
+		if err := d.Squash(ctx, snapshot); err != nil {
+			d.Log.Warn("the incident squash stopped", "err", err)
 		}
 	}
 	if d.SweepGos != nil && slices.Contains(d.Movers, "landing") {

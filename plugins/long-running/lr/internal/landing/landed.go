@@ -46,22 +46,27 @@ func Announce(ctx context.Context, s *store.Store, drive, trunk string, landings
 		if _, known := said[number]; known {
 			continue
 		}
-		owner, _, err := reach(s, drive, f)
-		if err != nil {
-			return err
-		}
-		_, err = client.Post(ctx, client.Draft{
-			Drive: drive,
-			Lane:  self,
-			Kind:  landedKind,
-			To:    landedAudience(owner, route),
-			ID:    landedKind + ":" + number,
-			PRs:   []string{f.Repo + "#" + number},
-			Text:  fmt.Sprintf("LANDED #%d at %s: merged into %s", f.Number, f.Head[:min(10, len(f.Head))], trunk),
-		})
-		unposted = append(unposted, err)
+		unposted = append(unposted, postLanded(ctx, s, drive, trunk, f, route))
 	}
 	return errors.Join(unposted...)
+}
+
+func postLanded(ctx context.Context, s *store.Store, drive, trunk string, f machine.Facts, route pass.Route) error {
+	owner, _, err := reach(s, drive, f)
+	if err != nil {
+		return err
+	}
+	number := strconv.Itoa(f.Number)
+	_, err = client.Post(ctx, client.Draft{
+		Drive: drive,
+		Lane:  self,
+		Kind:  landedKind,
+		To:    landedAudience(owner, route),
+		ID:    landedKind + ":" + number,
+		PRs:   []string{f.Repo + "#" + number},
+		Text:  fmt.Sprintf("LANDED #%d at %s: merged into %s", f.Number, f.Head[:min(10, len(f.Head))], trunk),
+	})
+	return err
 }
 
 func warnUnqueued(ctx context.Context, s *store.Store, drive string, f machine.Facts) error {

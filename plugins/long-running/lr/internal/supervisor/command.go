@@ -136,6 +136,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 	var checks []lanes.Check
 	var dropStale func(context.Context, []machine.Facts) error
 	var laneDeps lanes.Deps
+	var squashFixes func(context.Context, []machine.Facts) error
 	if slices.Contains(env.Config.Movers, moverLanes) {
 		monitorLane, err := orca.MonitorLane(a)
 		if err != nil {
@@ -197,6 +198,11 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 				return Deps{}, err
 			}
 			inputs := &landing.InputsPublisher{Runner: a.Runner, Store: s, FixLane: fixLanes, LiveClocks: liveClocks, Session: entry.Root(), Config: a.ConfigPath, Now: a.Now}
+			if squasher, err := newSquash(a, env, s, fixLanes, liveClocks); err != nil {
+				a.Log.Warn("the incident squash is off", "err", err)
+			} else {
+				squashFixes = squasher.Pass
+			}
 			cards := board.CardsOf(a, entry, entry.Root(), s)
 			laneDeps.Promises = func() ([]lanes.Promise, error) { return cards.Promises(ctx) }
 			dropStale = board.StaleTaps{Runner: a.Runner, Session: entry.Root(), Say: func(ctx context.Context, tap board.DroppedTap) error {
@@ -252,6 +258,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		Snapshot:  prfacts.New(a, env.Config, s).Snapshot,
 		WriteRows: prfacts.New(a, env.Config, s).WriteRows,
 		Post:      post,
+		Squash:    squashFixes,
 		Log:       a.Log,
 	}
 	deps.Checks = append(deps.Checks, (&background{name: "review-rows", every: TickEvery, run: prfacts.New(a, env.Config, s).FoldRows, store: s, post: post, log: a.Log}).Check)
@@ -368,6 +375,15 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store) (Deps
 		return landing.SweepGos(ctx, a, env.Config, s, snapshot, a.Now(), sweepLog{a.Log, "go sweep"})
 	}
 	return deps, nil
+}
+
+func newSquash(a *app.App, env lanes.Env, s *store.Store, fixLane func(string) (bool, error), liveClocks func() ([]string, error)) (*landing.Squash, error) {
+	runner := filepath.Join(env.State, runnerFile)
+	restacker, err := landing.NewRemote(a, runner, lanes.Self, "")
+	if err != nil {
+		return nil, err
+	}
+	return landing.NewSquash(a, s, env.Config, runner, restacker, fixLane, liveClocks)
 }
 
 func Install(cmd *cobra.Command, a *app.App) error {
