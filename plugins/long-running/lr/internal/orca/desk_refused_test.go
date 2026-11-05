@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"path/filepath"
 	"regexp"
 	"testing"
 
@@ -82,6 +83,36 @@ func TestABriefNamingADropClassLaunchesAndWarnsQuotingTheRuling(t *testing.T) {
 	w.step(w.desk.deliver)
 	if len(w.spawns) != 1 {
 		t.Fatal(w.spawns)
+	}
+}
+
+func TestAnUnfixedCaseNamingADropClassLaunchesNoLaneAndItsNeighbourLaunches(t *testing.T) {
+	w := newDeskWorld(t)
+	refusals, err := config.RefusalsOf(`[{"id":"ff7fca14cc8d","body":"No. Never a lane.","tags":["drop-class","match:edge 403","match:gsk edge"]}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.desk.Config.RefusedBriefs = refusals
+	lane := "api-fix"
+	fixedLane(t, w, lane)
+	message := runMessage("msg_r", typeStatus, "term_fix", 1)
+	message.Subject = "ready: fixed"
+	message.Body = "UNFIXED api-fix: GSK's edge 403s the GET\nUNFIXED api-fix: the poller still retries the old row\n"
+	message.FromHandle = "term_fix"
+	w.write(filepath.Join(w.desk.Config.Receipts, lane+".terminal"), "term_fix\n")
+	w.write(filepath.Join(w.desk.Config.Receipts, lane+".json"), `{"result":{"dispatchId":"ctx_fix"}}`)
+	w.checked(message)
+	launches, err := w.desk.store.Actions(laneBook("api-fix-case1"), kindLaunch)
+	if err != nil || len(launches) != 1 {
+		t.Fatal(launches, err)
+	}
+	spec, err := launchOf(launches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantContains(t, readBrief(spec.Brief), "the poller still retries the old row")
+	if exists, _ := w.desk.store.Exists(laneBook("api-fix-case2")); exists {
+		t.Fatal("a case lane launched for his dropped class")
 	}
 }
 

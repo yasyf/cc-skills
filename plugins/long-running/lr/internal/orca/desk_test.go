@@ -3092,6 +3092,24 @@ func TestAReportThatHandsTheIncidentBackLaunchesNoCaseLane(t *testing.T) {
 	}
 }
 
+func TestAReadyReportRecordingNoneWithItsReasonLaunchesNoCaseLane(t *testing.T) {
+	w := newDeskWorld(t)
+	lane := "sentry-7831318608-fix"
+	fixedLane(t, w, lane)
+	message := runMessage("msg_r", typeStatus, "term_fix", 1)
+	message.Subject = "ready: fixed"
+	message.Body = "UNFIXED sentry-7831318608-fix: none (excluded by owner ruling ff7fca1: if GSK's edge 403s the GET, the read now fails as a named CustomerEdgeDeniedError, and no lane chases it)\n"
+	message.FromHandle = "term_fix"
+	w.write(filepath.Join(w.desk.Config.Receipts, lane+".terminal"), "term_fix\n")
+	w.write(filepath.Join(w.desk.Config.Receipts, lane+".json"), `{"result":{"dispatchId":"ctx_fix"}}`)
+	w.checked(message)
+	w.wantEscalation("READY msg_r " + lane + ": ready: fixed")
+	w.noEscalation("INCIDENT " + lane)
+	if exists, _ := w.desk.store.Exists(laneBook(lane + "-case1")); exists {
+		t.Fatal("a case lane launched for a case recorded as none")
+	}
+}
+
 func TestAnUnknownCauseOffersTheCasesInsteadOfLaunching(t *testing.T) {
 	w := newDeskWorld(t)
 	lane := "api-fix"
