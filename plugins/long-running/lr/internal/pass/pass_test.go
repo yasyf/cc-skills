@@ -1062,15 +1062,24 @@ func TestATappedPRWhoseRowIsNotReadyIsNotQueuedAndItsLaneOwnsTheWait(t *testing.
 	}
 }
 
-func TestRowsWaitingOnTheirLanesReachRootOnceAsOneRecord(t *testing.T) {
+func TestRowsWaitingOnTheirLaneAskItAtTheDeadlineAndRootOnceAfterAnHour(t *testing.T) {
 	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
 	waiting := func(f *machine.Facts) { f.RowWait = "its PR body has no Summary" }
 	snapshot := []machine.Facts{facts(1, waiting), facts(2, waiting), facts(3, waiting)}
 
 	run(t, s, r, t0, all, snapshot...)
 	run(t, s, r, t0.Add(machine.LaneClock+time.Minute), all, snapshot...)
-	if len(r.of("escalation")) != 0 || len(r.of("note")) != 0 {
-		t.Fatalf("told before the hour: %+v", r.posts)
+	asked := r.of("ask")
+	if len(asked) != 3 || len(r.of("escalation")) != 0 || !slices.ContainsFunc(asked, func(p posted) bool { return p.body == bus.Ask{Text: "org/repo#2 row-wait overdue"} }) {
+		t.Fatalf("posts before the hour = %+v", r.posts)
+	}
+	for _, p := range asked {
+		if !slices.Equal(p.to, []string{"lane-7"}) {
+			t.Fatalf("asked %+v", p)
+		}
 	}
 
 	late := run(t, s, r, t0.Add(time.Hour+time.Minute), all, snapshot...)
@@ -1079,6 +1088,37 @@ func TestRowsWaitingOnTheirLanesReachRootOnceAsOneRecord(t *testing.T) {
 	told := r.of("escalation")
 	if len(told) != 1 || !slices.Equal(told[0].to, []string{"root"}) || len(late.Escalated) != 1 || !strings.Contains(late.Escalated[0].Cause, "#1, #2, #3") {
 		t.Fatalf("told = %+v, escalated = %+v", told, late.Escalated)
+	}
+}
+
+func TestARowWaitingOnAStuckChangeBelowItAsksItsLaneNothingAndTheBaseNamesIt(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	below := facts(45469, func(f *machine.Facts) { f.Branch, f.CI = "below", machine.CIFailure })
+	stacked := func(number int, branch, base string) machine.Facts {
+		return facts(number, func(f *machine.Facts) {
+			f.Branch, f.Base, f.RowWait = branch, base, fmt.Sprintf("the change below it, %s, has not landed", base)
+		})
+	}
+	snapshot := []machine.Facts{below, stacked(45470, "above", "below"), stacked(45471, "top", "above"), stacked(45472, "side", "below")}
+
+	run(t, s, r, t0, all, snapshot...)
+	late := run(t, s, r, t0.Add(machine.LaneClock), all, snapshot...)
+	hour := run(t, s, r, t0.Add(time.Hour+time.Minute), all, snapshot...)
+
+	for _, number := range []int{45470, 45471, 45472} {
+		if open, err := s.OpenItems(repo, number); err != nil || len(open) != 0 {
+			t.Fatalf("#%d opened %+v, %v", number, open, err)
+		}
+	}
+	if asked := r.of("ask"); len(asked) != 1 || asked[0].body != (bus.Ask{Text: "org/repo#45469 fix-red overdue"}) {
+		t.Fatalf("asked = %+v", asked)
+	}
+	want := []pass.Escalated{{Subject: "org/repo#45469", Cause: "stack base stuck; its fix-red waits on the lane past its deadline at e718a7434f and holds #45470, #45471, #45472 above it", To: "root"}}
+	if !reflect.DeepEqual(toRoot(late), want) || len(toRoot(hour)) != 0 {
+		t.Fatalf("late = %+v, after the hour = %+v", toRoot(late), toRoot(hour))
 	}
 }
 

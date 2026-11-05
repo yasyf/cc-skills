@@ -67,7 +67,7 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	out, err := pass.Run(s, snapshot, now, post, pass.Live(cfg.Movers), route, func(lane string, pr int) (string, error) { return lanes.ChangeOwner(s, cfg.Drive, lane, pr) })
+	out, err := pass.Run(s, snapshot, now, post, pass.Live(cfg.Movers), route, func(lane string, pr int) (string, error) { return lanes.ItemOwner(s, cfg.Drive, lane, pr) })
 	if err != nil {
 		return err
 	}

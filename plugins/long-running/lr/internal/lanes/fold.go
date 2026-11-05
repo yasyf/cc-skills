@@ -512,7 +512,8 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool) {
 }
 
 func asksOfALane(r Record) bool {
-	return r.Lane != boardLink && !slices.Contains(machineAuthors, r.Lane) && (isOrder(r.Kind, r.Text) || slices.Contains(replies, r.Kind))
+	asker := r.Lane == Self && r.Kind == "ask" || !slices.Contains(machineAuthors, r.Lane)
+	return r.Lane != boardLink && asker && (isOrder(r.Kind, r.Text) || slices.Contains(replies, r.Kind))
 }
 
 func restedOnItsOwnEnd(lane store.Lane) bool {

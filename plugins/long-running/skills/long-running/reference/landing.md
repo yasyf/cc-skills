@@ -224,7 +224,7 @@ D24 sits at the end of this section.
 
 **Escalations to root.** Each landing pass groups the open items it already keeps by cause and reads nothing new, since its snapshot and store hold every fact.
 - Three or more PRs the queue refused with the same words (each PR's own number set aside) for 30 minutes, or that waited an hour on the supervisor, the grading pool or a reviewer, raise one escalation to root naming the cause and every PR, once while the oldest of them stays. Two alike refusals never raise it.
-- A ready PR held by a stack base whose item is past its deadline, or that no lane drives, raises one escalation to root per base head naming the base, what it waits on and the PRs it holds.
+- A ready PR, or one whose row waits only on the change below it, held by a stack base whose item is past its deadline, or that no lane drives, raises one escalation to root per base head naming the base, what it waits on and the PRs it holds. The PRs it holds open no item of their own, and the base is the lowest PR in the stack that waits on something other than its row.
 
 **Ungraded heads.**
 - A `blocked` or `ready` record from a live `build` or `fix` lane claims each PR it names that no lane owns, and never takes one from another lane.
@@ -366,7 +366,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 - Only the host with the landing mover answers a tap. A tap from any surface stands only when the PR's review row is ready for his tap at the head the tap names. Otherwise no `lr.tap` is written; one `tap.refused` record names the reason, and the reason shows on that row until a later tap stands. A Slack merge card tap on a head that moved or a PR with no row writes the same record, at the head the card named, so it never shows on the new head's row.
 - A refused tap never revives: when the row turns ready, the PR returns to Waiting on you and needs a new tap, so lifting an ordinary hold never lands something he tapped while it was held. An `until=tap` hold keeps its row ready, so his tap stands and ends it, under [Holds](#holds-priority-dequeue-and-requeue). A hold or an undo is always written.
 - The landing pass, `lr landing gate` and `lr landing go` read the same row: a PR lands only when its row is ready and it is tapped, or it is exempt under its rule. `lr landing go` still needs a row at that head.
-- A row not ready on a PR that passes every other gate opens a `row-wait` item for its lane, and `lr board rows` says what it waits on. Three or more still open after an hour tell root in one record.
+- A row not ready on a PR that passes every other gate opens a `row-wait` item for its lane, and `lr board rows` says what it waits on. Past its deadline the item asks that lane or its heir, as a red does. When the lane stopped itself or went silent, the ask goes to it and the supervisor relaunches it once from its brief; any other lane that is not running reaches root as UNOWNED. Three or more still open after an hour tell root in one record.
 - A tapped PR with no row lands nothing and tells `meta-desk` once.
 - A tap that carries lands when the row is ready at the new head.
 
