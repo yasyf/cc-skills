@@ -75,6 +75,7 @@ var (
 	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
 	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
 	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
+	cardLink   = regexp.MustCompile(`\[([^\]\n]*)\]\(card:([^\s)]+)\)`)
 	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
 	slackStamp = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\?|$)`)
 	laneRole   = regexp.MustCompile(`-(?:fix|evidence|comms)$`)
@@ -110,25 +111,25 @@ type prCard struct {
 }
 
 type Reply struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	MD          string   `json:"md"`
-	Status      string   `json:"status,omitempty"`
-	Type        string   `json:"type,omitempty"`
-	Picks       []string `json:"picks,omitempty"`
-	Recommended string   `json:"recommended,omitempty"`
-	Build       *Build   `json:"build,omitempty"`
-	Links       []Link   `json:"links,omitempty"`
-	PRs         []string `json:"prs,omitempty"`
-	PRCards     []prCard `json:"pr_cards,omitempty"`
-	OpenPicks   []string `json:"-"`
-	Thread      string   `json:"thread,omitempty"`
-	Order       string   `json:"order,omitempty"`
-	Alert       string   `json:"alert,omitempty"`
-	Unprompted  bool     `json:"unprompted,omitempty"`
-	Action      string   `json:"action,omitempty"`
-	By          string   `json:"by,omitempty"`
-	Routed      int      `json:"routed,omitempty"`
+	ID          string           `json:"id"`
+	Title       string           `json:"title"`
+	MD          string           `json:"md"`
+	Status      string           `json:"status,omitempty"`
+	Type        string           `json:"type,omitempty"`
+	Picks       []string         `json:"picks,omitempty"`
+	Recommended string           `json:"recommended,omitempty"`
+	Build       *Build           `json:"build,omitempty"`
+	Links       []Link           `json:"links,omitempty"`
+	PRs         []string         `json:"prs,omitempty"`
+	PRCards     []prCard         `json:"pr_cards,omitempty"`
+	OpenCards   []board.OpenCard `json:"-"`
+	Thread      string           `json:"thread,omitempty"`
+	Order       string           `json:"order,omitempty"`
+	Alert       string           `json:"alert,omitempty"`
+	Unprompted  bool             `json:"unprompted,omitempty"`
+	Action      string           `json:"action,omitempty"`
+	By          string           `json:"by,omitempty"`
+	Routed      int              `json:"routed,omitempty"`
 
 	Blocks  []json.RawMessage `json:"blocks,omitempty"`
 	Diagram json.RawMessage   `json:"diagram,omitempty"`
@@ -212,8 +213,9 @@ func (f Fanout) indexThreads(r Reply, sent []Outcome) []Outcome {
 	return missed
 }
 
-// withCardLinks links each open card the reply names to the Slack message he
-// taps it on, longest id first so no card's name is taken for a shorter one's.
+// withCardLinks links each open card the reply names as card:ID, longest id
+// first so no card's name is taken for a shorter one's; each surface resolves
+// the link when it draws, and inSlack resolves it to the Slack message.
 // The reply posts whatever it finds: the second result is one warning line when
 // the board did not read, or empty.
 func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
@@ -222,7 +224,7 @@ func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 		return r, fmt.Sprintf("the board did not read, so no card this names carries its Slack link: %v", err)
 	}
 	cards := slices.DeleteFunc(outcomes.OpenCards(), func(card board.OpenCard) bool {
-		return card.ID == cardPrefix+r.ID || linkedCard(r.MD, card) == r.MD && !strings.Contains(r.MD, card.URL)
+		return card.ID == cardPrefix+r.ID || linkedCard(r.MD, card) == r.MD && !strings.Contains(r.MD, card.URL) && !strings.Contains(r.MD, "(card:"+card.ID+")")
 	})
 	slices.SortFunc(cards, func(one, other board.OpenCard) int { return cmp.Compare(len(other.ID), len(one.ID)) })
 	checking, stop := context.WithTimeout(ctx, postTimeout)
@@ -242,7 +244,7 @@ func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 			continue
 		}
 		r.MD = linkedCard(r.MD, card)
-		r.OpenPicks = append(r.OpenPicks, card.URL)
+		r.OpenCards = append(r.OpenCards, card)
 	}
 	return r, strings.Join(warned, "; ")
 }
@@ -328,9 +330,11 @@ func (f Fanout) tapWarning(r Reply) string {
 }
 
 func linkedCard(md string, card board.OpenCard) string {
-	if strings.Contains(md, card.URL) {
-		return md
+	typed := "(card:" + card.ID + ")"
+	if strings.Contains(md, card.URL) || strings.Contains(md, typed) {
+		return strings.ReplaceAll(md, "("+card.URL+")", typed)
 	}
+	linked := cardLink.FindAllStringIndex(md, -1)
 	id := regexp.QuoteMeta(card.ID)
 	words := strings.ReplaceAll(regexp.QuoteMeta(strings.TrimPrefix(card.ID, cardPrefix)), "-", `[ -]`)
 	for _, name := range []struct{ pattern, label string }{
@@ -338,12 +342,26 @@ func linkedCard(md string, card board.OpenCard) string {
 		{`(?i)\bcard ` + words + `\b|\b` + words + ` card\b`, ""},
 		{`(?i)` + regexp.QuoteMeta(card.Title), ""},
 	} {
-		found := regexp.MustCompile(name.pattern).FindStringIndex(md)
-		if found != nil {
-			return md[:found[0]] + "[" + cmp.Or(name.label, md[found[0]:found[1]]) + "](" + card.URL + ")" + md[found[1]:]
+		for _, found := range regexp.MustCompile(name.pattern).FindAllStringIndex(md, -1) {
+			if !slices.ContainsFunc(linked, func(link []int) bool { return found[0] < link[1] && link[0] < found[1] }) {
+				return md[:found[0]] + "[" + cmp.Or(name.label, md[found[0]:found[1]]) + "]" + typed + md[found[1]:]
+			}
 		}
 	}
 	return md
+}
+
+// inSlack draws each card:ID link as the Slack message of the card, or as its
+// words alone when the reply links no open card by that id.
+func (r Reply) inSlack(md string) string {
+	return cardLink.ReplaceAllStringFunc(md, func(link string) string {
+		found := cardLink.FindStringSubmatch(link)
+		at := slices.IndexFunc(r.OpenCards, func(card board.OpenCard) bool { return card.ID == found[2] })
+		if at < 0 {
+			return found[1]
+		}
+		return "[" + cmp.Or(found[1], r.OpenCards[at].Title) + "](" + r.OpenCards[at].URL + ")"
+	})
 }
 
 func (f Fanout) aliased(r Reply) Reply {
@@ -965,7 +983,7 @@ func (r Reply) withPickLink(body string, drawn Outcome) string {
 }
 
 func (f Fanout) inThread(ctx context.Context, r Reply) []Outcome {
-	body := mdLink.ReplaceAllString(r.MD, "<$2|$1>")
+	body := mdLink.ReplaceAllString(r.inSlack(r.MD), "<$2|$1>")
 	for _, pr := range r.PRs {
 		body += "\n" + pr
 	}
@@ -988,7 +1006,10 @@ func (r Reply) tapFlags() []string {
 
 func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	drawn := surface(sent, "slack")
-	cards := r.OpenPicks
+	cards := make([]string, 0, 1+len(r.OpenCards))
+	for _, card := range r.OpenCards {
+		cards = append(cards, card.URL)
+	}
 	if len(r.Picks) > 0 && r.Thread != "" && drawn.Ref != "" {
 		cards = append([]string{drawn.Ref}, cards...)
 	}
@@ -1028,6 +1049,7 @@ func (f Fanout) linkInPlaceOfCopy(ctx context.Context, thread, card, why string)
 }
 
 func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
+	body = r.inSlack(body)
 	for _, pr := range r.PRs {
 		body += "\n" + pr
 	}
