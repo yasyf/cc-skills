@@ -30,6 +30,7 @@ var (
 	sentenceEnd   = regexp.MustCompile(`\. | \| `)
 	workNotCause  = regexp.MustCompile(`\blane\b`)
 	noDescription = regexp.MustCompile(`^orca-desk:|\bSCOPE\b|\blaunch(?:ed)?\b`)
+	closeLead     = regexp.MustCompile(`^(?:\d{1,2}:\d{2}(?: [AP]M)?:? )?INCIDENT (?:\S+ CLOSED|CLOSED \S+)\b`)
 )
 
 type Incident struct {
@@ -56,7 +57,7 @@ func milestone(record Record) string {
 }
 
 func incidentRecord(record Record) bool {
-	return record.Kind == kindIncident || (record.Kind == "decide" && closesIncident(record)) || milestone(record) != ""
+	return record.Kind == kindIncident || (closesIncident(record) && (record.Kind == "decide" || closeLead.MatchString(record.Text))) || milestone(record) != ""
 }
 
 func (v view) incidents(records []Record, drive string) []Incident {
