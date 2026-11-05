@@ -1117,6 +1117,10 @@ func TestTheBeforeWorkerScriptRunsTheInstallWithItsQuotedPinsAndMergesItsOutput(
 	if !strings.Contains(string(out), "installed cci 0.49.36\ninstalled lr 9.9.9\nmissing: no-such-drive-tool\n") {
 		t.Fatal(string(out))
 	}
+	trust, err := os.ReadFile(filepath.Join(home, ".config", "mise", "conf.d", "cc-remote-trust.toml"))
+	if err != nil || !strings.Contains(string(trust), `trusted_config_paths = ["~"]`) {
+		t.Fatalf("a fresh checkout under the Sprite's home must not need mise trust: %q, %v", trust, err)
+	}
 }
 
 func TestAPluginNewToAMarketplaceThePayloadHoldsJoinsAWritableCopyOfIt(t *testing.T) {

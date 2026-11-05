@@ -146,6 +146,8 @@ while [ "$1" != -- ]; do
   fi
 done
 shift
+mkdir -p "$HOME/.config/mise/conf.d"
+printf '[settings]\ntrusted_config_paths = ["~"]\n' > "$HOME/.config/mise/conf.d/cc-remote-trust.toml"
 export PATH="$bin:$PATH"
 missing=
 for tool; do command -v "$tool" > /dev/null || missing="$missing $tool"; done

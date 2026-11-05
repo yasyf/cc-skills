@@ -194,6 +194,7 @@ The launch installs into the Sprite, before `worker-start`:
 - **cci**, from `WORKER_CCI_URL`, checked against `WORKER_CCI_SHA256`.
 - **`lr`**: the `linux-x86_64` release that this pack's `bin/lr.binrun` pins, into `~/.local/bin`, checked against that file's SHA-256, so a Sprite lane runs the `lr` the launching drive runs.
 - **Each pin in `WORKER_TOOLS`**, which the desk fills from `runner.json`'s `orca.sprite.tools`, so a new Sprite runs the tools the Mac runs without a payload rebuild.
+- **A mise setting** that trusts every config under the Sprite's home, `~/.config/mise/conf.d/cc-remote-trust.toml`, so a hook that runs through mise works in a fresh checkout.
 
 A pin is `{kind, name, url, sha256, version}`. Each archive is checked against its SHA-256 before anything moves.
 

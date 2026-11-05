@@ -48,13 +48,13 @@ FRESH = "fresh "
 UNREAD = (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
 NO_SLICE = (
     "Warning, nothing was blocked: this drive lane's brief has no `Register slice: lane=<name> step=<n>` line."
-    " Add one and run `rulings.py slice --refresh {brief}` for the next spawn."
+    " Add one and run `~/.claude/long-running/current/bin/rulings.py slice --refresh {brief}`."
 )
-STALE_SLICE = "Warning, nothing was blocked: this spawn's register slice is stale or empty. Run `rulings.py slice --refresh {brief}` for the next spawn."
+STALE_SLICE = "Warning, nothing was blocked: this spawn's register slice is stale or empty. Run `~/.claude/long-running/current/bin/rulings.py slice --refresh {brief}` for the next spawn."
 MISSCALED = "Warning, nothing was blocked: a judge reads the `Scale:` line of {brief} as missing the N its paths run at. Fix the line for the next spawn."
 MISSCALED_STALE = (
     "Warning, nothing was blocked: a judge reads the `Scale:` line of {brief} as missing the N its paths run at, and its register slice is stale or empty."
-    " Fix the line and run `rulings.py slice --refresh` on the brief for the next spawn."
+    " Fix the line and run `~/.claude/long-running/current/bin/rulings.py slice --refresh` on the brief for the next spawn."
 )
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
 DRIVE_LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
@@ -194,7 +194,7 @@ def judge_answer(verdict: dict) -> str:
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
         spawn("lane-a", UNSCALED, commands=FRESH_SLICE): Allow(),
-        spawn("lane-a", SLICED, commands=STALE): Warn(pattern=r"stale or empty\. Run `rulings\.py slice --refresh <brief>`"),
+        spawn("lane-a", SLICED, commands=STALE): Warn(pattern=r"stale or empty\. Run `~/\.claude/long-running/current/bin/rulings\.py slice --refresh <brief>`"),
         spawn("lane-a", SLICED, scale=MISSED, commands=FRESH_SLICE): Warn(
             pattern=r"^Warning, nothing was blocked: a judge reads the `Scale:` line of <brief> as missing the N[\s\S]*once per team"
         ),

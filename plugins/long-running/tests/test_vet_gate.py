@@ -10,7 +10,7 @@ from captain_hook.testing.helpers import build_context
 from captain_hook.util.builds import LOAD_PER_CORE
 
 from hooks import vet_before_push
-from hooks.vet_before_push import compiles, go_commands, note_attempted_checks, record
+from hooks.vet_before_push import compiles, go_commands, note_attempted_checks, record, ts_commands
 
 
 def touched_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, list[Path]]:
@@ -40,6 +40,25 @@ def test_one_refused_line_counts_for_every_touched_package(tmp_path: Path, monke
     record(refused, [check for call in refused.command.calls() for check in compiles(refused, call)])
 
     assert go_commands(event(tmp_path, "ccx vcs ship"), tmp_path, changed) == []
+
+
+def test_the_tsgo_run_a_refusal_offers_discharges_the_typecheck(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text('{"scripts": {"tsc:seam": "node seam.mjs", "tsc:api": "yarn tsc:seam && tsgo --noEmit -p ./api"}}')
+    (tmp_path / "yarn.lock").touch()
+    source = tmp_path / "api" / "src" / "a.ts"
+    source.parent.mkdir(parents=True)
+    source.touch()
+    (tmp_path / "api" / "tsconfig.json").touch()
+
+    refused = ts_commands(event(tmp_path, "ccx vcs ship"), tmp_path, [source])
+    yarn, reason, tsgo = refused[0].split("\n")
+    assert yarn == "yarn tsc:api"
+    assert "cannot run on this host" in reason
+
+    run = event(tmp_path, tsgo)
+    record(run, [check for call in run.command.calls() for check in compiles(run, call)])
+
+    assert ts_commands(event(tmp_path, "ccx vcs ship"), tmp_path, [source]) == []
 
 
 @pytest.mark.parametrize(("load_per_core", "vet_owed"), [("0", False), ("1000000", True)])

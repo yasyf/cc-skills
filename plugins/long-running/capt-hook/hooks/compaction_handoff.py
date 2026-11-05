@@ -92,7 +92,7 @@ RESTORE_BUDGET = 2000
 SHORT = 7
 REGISTER_CONTEXT_CHARS = 9000
 REGISTER_FENCE = "~" * 12
-SWEEP_FIRST = "Run `rulings.py sweep --drive {drive}` before the first plan or card edit."
+SWEEP_FIRST = "Run `~/.claude/long-running/current/bin/rulings.py sweep --drive {drive}` before the first plan or card edit."
 ROOT_LANE = "root"
 COMMUNICATOR_LANE = "owner-relay"
 LR = Path(__file__).parents[2] / "bin" / "lr"
@@ -609,7 +609,7 @@ def queue_root_slice(state: CompactionState, evt: BaseHookEvent, reader: Registe
         post_blocker(
             evt,
             f"The coordinator's register slice did not load at SessionStart {evt.source}: {failure_of(failed)}. "
-            f"Run `rulings.py slice --root --drive {entry['drive']}` and read it before the first plan or card edit.",
+            f"Run `~/.claude/long-running/current/bin/rulings.py slice --root --drive {entry['drive']}` and read it before the first plan or card edit.",
         )
         return
     state.root_slice = f"{sliced}\n{SWEEP_FIRST.format(drive=entry['drive'])}" if sliced else None

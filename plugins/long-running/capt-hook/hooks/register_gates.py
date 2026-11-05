@@ -75,15 +75,15 @@ BLOCKERS = "register-blockers"
 READ_ERRORS = (subprocess.SubprocessError, OSError, ValueError, KeyError)
 UNROWED_ANSWER = (
     "Warning, nothing was blocked: this GO or DECIDE cites `{ids}`, and register `{program}` has no row for it. "
-    "Classify the owner's words with `rulings.py classify`."
+    "Classify the owner's words with `~/.claude/long-running/current/bin/rulings.py classify`."
 )
 UNCLASSIFIED = (
     'Owner capture {digest} has no row in register {program}: "{excerpt}". '
-    "Classify it with `rulings.py classify` before the next key moment."
+    "Classify it with `~/.claude/long-running/current/bin/rulings.py classify` before the next key moment."
 )
 UNCLASSIFIED_BATCH = (
     "{count} owner captures have no row in register {program}: {captures}. "
-    "Classify them with `rulings.py classify` before the next key moment."
+    "Classify them with `~/.claude/long-running/current/bin/rulings.py classify` before the next key moment."
 )
 BATCH_ENTRY = '{digest} "{excerpt}"'
 BATCH_EXCERPT = 80
@@ -143,7 +143,7 @@ ACCEPTED = "accepted "
 ACCEPTED_CHECK = f"{sys.executable} {script('rulings.py')} accepted"
 READBACK_MISSING = (
     "Warning, nothing was blocked: lane `{lane}` has no read-back a fidelity desk accepted yet."
-    " Post `rulings.py readback` as a `[readback]` contract so a desk grades it."
+    " Post `~/.claude/long-running/current/bin/rulings.py readback` as a `[readback]` contract so a desk grades it."
 )
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a", "CLAUDE_LONG_RUNNING_DRIVE": "brook-drive"}
 READY_REPORT = "python3 ledger.py report --ledger L1 --drive brook-drive --pr 42 --head abc1234 --lane lane-a --verdict clean --text 'READY #42 green'"

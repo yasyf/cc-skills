@@ -220,12 +220,12 @@ def go_commands(evt: BaseHookEvent, top: Path, changed: list[Path]) -> list[str]
     return [" && ".join([f"cd {module}", *(f"go {kind} {' '.join(names)}" for kind in GO_KINDS if kind in stale)]) for module, names in modules.items()] if stale else []
 
 
-def typecheck_command(top: Path, project: Path) -> str:
+def typecheck_command(top: Path, project: Path, files: list[Path]) -> str:
     runner = "yarn" if (top / "yarn.lock").is_file() else "npm run"
     root, scripts = scripts_at(top)
     name = next((name for name, line in scripts.items() if name.startswith("tsc:") and name != "tsc:all" and project in projects(root, {}, line.split())), None)
     if name:
-        return f"{runner} {name}"
+        return f"{runner} {name}\n# or, where a step of `{name}` cannot run on this host, this run counts:\n{sparse_typecheck_command(top, project, files)}"
     return f"npx tsc --noEmit -p {project}"
 
 
@@ -242,9 +242,10 @@ def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path], sparse: bool
 
     checks = CompileChecks.load(evt).checks
     owed = [project for project, edited in sorted(latest(files, project_of).items()) if not covered(checks, TYPECHECK, project, edited)]
+    touched = {project: [path for path in files if project_of(path) == project] for project in owed}
     if sparse:
-        return [sparse_typecheck_command(top, project, [path for path in files if project_of(path) == project]) for project in owed]
-    return [typecheck_command(top, project) for project in owed]
+        return [sparse_typecheck_command(top, project, touched[project]) for project in owed]
+    return [typecheck_command(top, project, touched[project]) for project in owed]
 
 
 def branch_diff(evt: BaseHookEvent, call: Call, *flags: str) -> tuple[Path, str] | str:
@@ -286,7 +287,7 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_SET_DIFF, state=[fresh("build", "vet", root="go/sand")]): Allow(),
         Input(command="git push origin HEAD", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("vet", root="go/sand")]): Block(pattern=r"cd \S+ && go build \./internal/vm\n```$"),
         Input(command="gt submit --stack", env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand", at=0.0)]): Block(),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF): Block(pattern=r"\nyarn tsc:api\n"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF): Block(pattern=r"\nyarn tsc:api\n# or, where a step of `tsc:api` cannot run on this host, this run counts:\nnode_modules/\.bin/tsgo --noEmit -p api --preserveSymlinks false --composite false \| grep -F -e api/src/a\.ts\n```$"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF): Block(pattern=r"\nnpx tsc --noEmit -p \S+/tools/own\n"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF, state=[fresh(TYPECHECK, root="tools/own", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand")]): Allow(),
