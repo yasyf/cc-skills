@@ -406,6 +406,26 @@ func TestTheStrandedPRBlockersCommandRunAsWrittenHandsThePRsToTheLaneItNames(t *
 	equal(t, owners(t, s, 45492, 46512), map[int]string{45492: "conflicts-3", 46512: "conflicts-3"})
 }
 
+func TestARequestFromASpriteWhoseDriveHasNoConfigPostsItsRecord(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	claude := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claude)
+	t.Setenv(drive.Env, testDrive)
+	writeJSON(t, filepath.Join(claude, "long-running", "drives", testDrive+".json"), map[string]any{"drive": testDrive, "state_dir": t.TempDir(), "sessions": []string{"d50e80e8"}, "host": "sprite"})
+
+	if _, err := execute(t, RequestCommand(&app.App{Now: func() time.Time { return t0 }}), "owner", "conflicts-3", "--pr", "46001", "--by", "replicator-land-5"); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{"decide"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(records), 1)
+	r := recordOf(records[0])
+	equal(t, []any{r.Lane, r.Attr("verb"), r.Attr("lane"), r.PRs()}, []any{"replicator-land-5", "owner", "conflicts-3", []int{46001}})
+}
+
 func TestASessionInNoDriveIsRefusedInOneLine(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(drive.Env, "")
