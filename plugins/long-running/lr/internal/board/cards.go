@@ -451,6 +451,9 @@ func (c Cards) Retire(ctx context.Context, lane, reason string, named []string, 
 		if err := c.close(ctx, lane, card, known[card], reason, reason, out); err != nil {
 			return err
 		}
+		if err := c.freeTapRow(card); err != nil {
+			return err
+		}
 	}
 	return nil
 }

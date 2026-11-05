@@ -48,7 +48,7 @@ func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer
 	}
 	pulled := false
 	for _, pr := range prs {
-		cards = append(cards, MergeWaits(pr.Number, pr.Head))
+		cards = append(cards, MergeWaits(pr.Number, pr.Head), tapCardID(pr))
 		stored, err := c.Store.Facts(pr.Repo, pr.Number, pr.Head)
 		if err != nil {
 			return false, err
