@@ -47,6 +47,8 @@ var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above th
 
 var trunkQueued = []string{"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"}
 
+var folding = make(chan struct{}, 1)
+
 type Source struct {
 	Repo      string
 	Drive     string
@@ -186,6 +188,12 @@ func (s Source) ReadOnce(ctx context.Context, named []int) (int, error) {
 }
 
 func (s Source) foldRecords(ctx context.Context) (map[int]hold, []store.ReviewRow, error) {
+	select {
+	case folding <- struct{}{}:
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
+	defer func() { <-folding }()
 	if err := s.ingestBus(ctx); err != nil {
 		return nil, nil, fmt.Errorf("read the bus: %w", err)
 	}
@@ -299,11 +307,7 @@ func (s Source) WriteRows(ctx context.Context, snapshot []machine.Facts) error {
 }
 
 func (s Source) FoldRows(ctx context.Context) error {
-	held, err := s.holds(ctx)
-	if err != nil {
-		return err
-	}
-	rows, err := s.Rows().Pass(ctx, heldWords(held))
+	held, rows, err := s.foldRecords(ctx)
 	if err != nil {
 		return err
 	}

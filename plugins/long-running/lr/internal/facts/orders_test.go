@@ -613,6 +613,25 @@ func TestALandableRowIsReadyAfterTheFoldAndATapOnItLands(t *testing.T) {
 	}
 }
 
+func TestATapAndAGradePostedWhileAPassRunsReachTheRowAtTheNextRowFoldNotTheNextPass(t *testing.T) {
+	h := unreadHarness(t)
+	drawLandable(t, h.store, surfacePR, surfaceHead)
+	post(t, "fidelity-desk", bus.Grade{PR: surfacePR, Head: surfaceHead, Grader: "fidelity", Verdict: "pass"})
+	h.snapshot(t)
+	post(t, "finder-desk", bus.Grade{PR: surfacePR, Head: surfaceHead, Grader: "finder", Verdict: "clear"})
+	ownerRecord(t, landOnCard, pickAttrs)
+	writeOrders(t, h)
+
+	if err := h.source.FoldRows(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	row, found, err := h.store.ReviewRow(repo, surfacePR)
+	if err != nil || !found || !row.Tapped || row.State != prrow.StateTapped || row.Grade != prrow.GradePass || !row.ReadyForTap {
+		t.Fatalf("row = %+v, %v, %v, want it tapped and graded before the next pass opens", row, found, err)
+	}
+}
+
 func TestThePassReadsTheRowItJustFoldedSoAPRThatTurnedReadyIsNotHeldAPass(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: surfacePR, head: surfaceHead, login: "drive-bot", approvers: []string{"reviewer"}}}, status(surfacePR, func(r *statusRow) { r.Head = surfaceHead }))
 	drawFilled(t, h.store, surfacePR, surfaceHead)
