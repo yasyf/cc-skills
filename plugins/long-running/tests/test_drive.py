@@ -272,6 +272,30 @@ def test_a_lane_in_the_root_session_records_its_pr_with_its_head(repo, capsys):
     assert capsys.readouterr().out.splitlines()[-1] == "registered deploy-experience #28534"
 
 
+def test_a_record_of_a_stack_syncs_the_ledger_once(repo, monkeypatch):
+    monkeypatch.setenv(drive.ledger.LEDGER_SYNC, "1")
+    started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
+
+    assert record(shell, repo, "--session", ROOT_SESSION, "--lane", "deploy-experience", "--pr", f"28534={HEAD}", "--pr", f"28535={NEW_HEAD}") == 0
+
+    assert [shell.fields(pr)["registered_head"] for pr in ("28534", "28535")] == [HEAD, NEW_HEAD]
+    assert shell.ccn_syncs == [f"refs/cc-notes/ledgers/{LEDGER}"]
+
+
+def test_a_rerun_record_that_writes_nothing_still_syncs_the_rows_its_killed_first_run_wrote(repo, monkeypatch):
+    monkeypatch.setenv(drive.ledger.LEDGER_SYNC, "1")
+    started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
+    argv = ["--session", ROOT_SESSION, "--lane", "deploy-experience", "--pr", f"28534={HEAD}"]
+    record(shell, repo, *argv)
+    shell.ccn_syncs.clear()
+
+    assert record(shell, repo, *argv) == 0
+
+    assert shell.ccn_syncs == [f"refs/cc-notes/ledgers/{LEDGER}"]
+
+
 def test_recording_the_same_head_twice_writes_once_and_a_repush_moves_only_the_head(repo):
     started(repo, "--cci-drive", DRIVE)
     shell = FakeShell()

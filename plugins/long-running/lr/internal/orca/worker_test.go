@@ -403,7 +403,7 @@ func compactEnvFor(kind string) []string {
 }
 
 func notesCall(workspace string) []string {
-	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", remoteRoot, notesRefs}
+	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", remoteRoot, notesPrefix}
 }
 
 func joinCall(workspace string) []string {
@@ -1888,12 +1888,17 @@ func TestTheNotesFetchTakesTheMacsTokenOnStdinAndWritesItNowhere(t *testing.T) {
 	}
 }
 
-func TestTheNotesFetchHandsGitTheTokenThroughACredentialHelperItsArgumentsDoNotHold(t *testing.T) {
+func TestTheNotesPullRunsThroughCcnSyncAndHandsGitTheTokenThroughACredentialHelperItsArgumentsDoNotHold(t *testing.T) {
 	dir := t.TempDir()
+	root := filepath.Join(dir, "root")
 	logged := filepath.Join(dir, "logged")
-	fake := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + logged + "\nprintf 'env=%s\\n' \"$NOTES_TOKEN\" >> " + logged + "\n"
-	newWorkerFixture(t).write(filepath.Join(dir, "git"), fake, 0o700)
-	run := exec.Command("sh", "-c", fetchNotesScript, "sh", "/box/root", notesRefs)
+	fake := "#!/bin/sh\npwd > " + logged + "\nprintf '%s\\n' \"$@\" \"$GIT_CONFIG_KEY_0=$GIT_CONFIG_VALUE_0\" \"$GIT_CONFIG_VALUE_1\" >> " + logged + "\nprintf 'env=%s\\n' \"$NOTES_TOKEN\" >> " + logged + "\n"
+	f := newWorkerFixture(t)
+	f.write(filepath.Join(dir, "ccn"), fake, 0o700)
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix)
 	run.Stdin = strings.NewReader(macGitLogin)
 	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	if out, err := run.CombinedOutput(); err != nil {
@@ -1905,14 +1910,14 @@ func TestTheNotesFetchHandsGitTheTokenThroughACredentialHelperItsArgumentsDoNotH
 	}
 	args, env, _ := strings.Cut(string(raw), "env=")
 	if strings.Contains(args, strings.TrimSpace(macGitLogin)) {
-		t.Fatal("git's arguments hold the token:", args)
+		t.Fatal("ccn's arguments hold the token:", args)
 	}
 	if strings.TrimSpace(env) != strings.TrimSpace(macGitLogin) {
-		t.Fatalf("git's environment holds %q", env)
+		t.Fatalf("ccn's environment holds %q", env)
 	}
-	for _, want := range []string{"credential.helper=\n", "password=$NOTES_TOKEN", "/box/root\nfetch\n--quiet\norigin\n" + notesRefs} {
+	for _, want := range []string{"root\nsync\n--prefix\n" + notesPrefix + "\ncredential.helper=\n", "password=$NOTES_TOKEN"} {
 		if !strings.Contains(args, want) {
-			t.Fatalf("git ran with\n%s\nwant %q", args, want)
+			t.Fatalf("ccn ran with\n%s\nwant %q", args, want)
 		}
 	}
 }

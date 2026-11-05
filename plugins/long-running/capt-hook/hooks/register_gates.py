@@ -69,7 +69,6 @@ BRIEF_LAUNCHERS = frozenset({"orca-launch.sh", "codex-ask"})
 NOT_FOUND = 3
 EXCERPT = 160
 GATE_READ_SECONDS = 5
-LEDGER_SYNC_ENV = "LONG_RUNNING_LEDGER_SYNC"
 GATE_LOCK_WAIT = "2s"
 BLOCKERS = "register-blockers"
 READ_ERRORS = (subprocess.SubprocessError, OSError, ValueError, KeyError)
@@ -828,7 +827,7 @@ def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
 
 def has_pr(entry: dict, lane: str) -> bool:
     argv = [sys.executable, str(script("ledger.py")), "-C", entry["checkout"], "list", "--ledger", entry["ledger"], "--repo", entry["repo"], "--lane", lane, "--json"]
-    done = subprocess.run(argv, capture_output=True, text=True, timeout=GATE_READ_SECONDS, env={**reqenv.env_map(), LEDGER_SYNC_ENV: "0", LOCK_WAIT_ENV: GATE_LOCK_WAIT})
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=GATE_READ_SECONDS, env={**reqenv.env_map(), LOCK_WAIT_ENV: GATE_LOCK_WAIT})
     done.check_returncode()
     return bool(json.loads(done.stdout))
 
