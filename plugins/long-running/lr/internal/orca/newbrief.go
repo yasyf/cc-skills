@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 )
 
 const (
@@ -25,7 +26,6 @@ const (
 )
 
 var (
-	ownerRow    = regexp.MustCompile(`\bm[0-9]{1,3}\b`)
 	ccxPairGlue = regexp.MustCompile(`,\s*([a-z-]+=)`)
 )
 
@@ -94,9 +94,9 @@ func (n NewBrief) text(lane string) (string, error) {
 	if lines := strings.TrimSpace(string(standing)); lines != "" {
 		sections = append(sections, lines)
 	}
-	if rows := ownerRow.FindAllString(said, -1); len(rows) > 0 {
+	if rows := owner.Orders(said); len(rows) > 0 {
 		slices.Sort(rows)
-		sections = append(sections, "Owner orders: owner:"+strings.Join(slices.Compact(rows), " owner:"))
+		sections = append(sections, "Owner orders: owner:"+strings.Join(rows, " owner:"))
 	}
 	if n.OwnerPick != "" {
 		if !ownerPick.MatchString(n.OwnerPick) {

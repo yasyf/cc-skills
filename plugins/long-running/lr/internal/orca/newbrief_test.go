@@ -20,7 +20,7 @@ func TestNewBriefWritesWhatTheLaunchChecksRead(t *testing.T) {
 	state := t.TempDir()
 	n := NewBrief{
 		Title:    "the desk's scripts become verbs",
-		BodyFile: writeFixture(t, "body.md", "## Why\n\nOwner m35 and m7 asked, and m35 again.\nNot um35 or m1234.\n"),
+		BodyFile: writeFixture(t, "body.md", "## Why\n\nOwner owner:m35 and owner:m7 asked, and owner:m35 again.\nNot um35 or m1234.\n"),
 		Contract: writeFixture(t, "contract.md", "- Report to meta-desk only.\n"),
 		Scale:    "medium",
 		Place:    placeLocal,
@@ -60,7 +60,7 @@ func TestNewBriefWritesWhatTheLaunchChecksRead(t *testing.T) {
 }
 
 func TestNewBriefRemotePlaceAndNoOwnerOrders(t *testing.T) {
-	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote}
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain, citing m876 and m829 as background\n"), Scale: "small", Place: placeRemote}
 	text, err := n.text("lane-a")
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestNewBriefRemotePlaceAndNoOwnerOrders(t *testing.T) {
 		t.Errorf("remote brief names a local place:\n%s", text)
 	}
 	if strings.Contains(text, "Owner orders") {
-		t.Errorf("a body citing no order carries an Owner orders line:\n%s", text)
+		t.Errorf("a body naming no owner:m<row> carries an Owner orders line:\n%s", text)
 	}
 }
 
@@ -78,12 +78,12 @@ func TestNewBriefReadsItsBodyFromStdinAndAppendsThePostersStandingLines(t *testi
 	if err := os.WriteFile(filepath.Join(standing, standingFile), []byte("A standing line.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	n := NewBrief{Title: "t", BodyFile: bodyFromStdin, Stdin: strings.NewReader("Owner m35 said so.\n"), Scale: "small", Place: placeLocal, StandingDir: standing}
+	n := NewBrief{Title: "t", BodyFile: bodyFromStdin, Stdin: strings.NewReader("Owner owner:m35 said so.\n"), Scale: "small", Place: placeLocal, StandingDir: standing}
 	text, err := n.text("lane-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, "Owner m35 said so.\n\nA standing line.\n\nOwner orders: owner:m35\n") {
+	if !strings.Contains(text, "Owner owner:m35 said so.\n\nA standing line.\n\nOwner orders: owner:m35\n") {
 		t.Errorf("brief:\n%s", text)
 	}
 }

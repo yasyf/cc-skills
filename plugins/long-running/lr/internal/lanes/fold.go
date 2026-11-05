@@ -36,6 +36,8 @@ type folded struct {
 	unread  []unread
 	owing   []owing
 	stood   []stoodDown
+	ended   []stoodDown
+	kept    []stoodDown
 	untyped []int64
 	unheard []string
 	refused []refusal
@@ -108,6 +110,9 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		}
 		if row.State != store.LaneRetired || successor != "" || slices.Contains(unprovenEnds, row.RetiredBy) {
 			retire(s, name, or(successor, Root), at)
+			if !fresh {
+				out.ended = append(out.ended, stoodDown{name, successor, row.PRs, r.Seq})
+			}
 		}
 		if successor != "" {
 			cost := successorCost(row)
@@ -797,21 +802,29 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 				continue
 			}
 		}
+		ends := gone.State != store.LaneRetired || slices.Contains(unprovenEnds, gone.RetiredBy)
+		if successor == "" && ends && isStanding(gone) {
+			if !fresh {
+				out.kept = append(out.kept, stoodDown{old, "", gone.PRs, r.Seq})
+			}
+			continue
+		}
 		if successor == "" && gone.State != store.LaneRetired && !out.orderedOff(s, old, fresh, at) {
 			continue
 		}
 		if successor == "" && !fresh {
 			dropQueuedLaunch(s, gone, at, out)
 		}
-		if gone.State != store.LaneRetired {
+		if ends {
 			retire(s, old, or(successor, Root), at)
-			if successor != "" {
-				cost := successorCost(gone)
-				must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, at))
-				continue
+			if !fresh {
+				out.ended = append(out.ended, stoodDown{old, successor, gone.PRs, r.Seq})
 			}
-		} else if slices.Contains(unprovenEnds, gone.RetiredBy) {
-			retire(s, old, or(successor, Root), at)
+		}
+		if successor != "" && gone.State != store.LaneRetired {
+			cost := successorCost(gone)
+			must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, at))
+			continue
 		}
 		if successor == "" {
 			do(s.Own(Root, gone.PRs))
