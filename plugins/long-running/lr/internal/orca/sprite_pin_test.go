@@ -248,6 +248,43 @@ func TestAVersionWithNoReleaseYetWaitsForTheNextPassWithoutFailing(t *testing.T)
 	}
 }
 
+func TestAPinFollowsTheReleaseAPluginInstalledAtACommitCarries(t *testing.T) {
+	w := newPinWorld(t)
+	w.macRuns(map[string]string{"orca@skills": "0.1.11-96b1d1d3d1bf"})
+	w.publish("/orca--v0.1.11/orca_0.1.11.tar.gz", "orca eleven", "checksums.txt")
+	w.pinned(spriteTool{Kind: "plugin", Name: "orca@skills", URL: w.server.URL + "/orca--v0.1.0/orca_0.1.0.tar.gz", SHA256: digestOf("old"), Version: "0.1.0"})
+
+	if err := w.move(); err != nil {
+		t.Fatal(err)
+	}
+
+	if tool := w.tools()[0]; tool.Version != "0.1.11" || tool.SHA256 != digestOf("orca eleven") {
+		t.Fatalf("%+v", tool)
+	}
+	if want := "lr sprites pin: orca@skills moved from 0.1.0 to 0.1.11\n"; w.out.String() != want {
+		t.Fatal(w.out.String())
+	}
+}
+
+func TestAChecksumFileThatDoesNotNameTheAssetYetWaitsWithoutFailing(t *testing.T) {
+	w := newPinWorld(t)
+	w.macRuns(map[string]string{"long-running@skills": "0.7.2"})
+	w.releases["/pack--v0.7.2/checksums.txt"] = digestOf("other") + "  ./other.tar.gz\n"
+	before := w.pack("0.7.1")
+	w.pinned(before)
+
+	if err := w.move(); err != nil {
+		t.Fatal(err)
+	}
+
+	if w.tools()[0] != before {
+		t.Fatal(w.tools()[0])
+	}
+	if want := "lr sprites pin: long-running@skills stays at 0.7.1: 0.7.2 has no published release yet\n"; w.out.String() != want {
+		t.Fatal(w.out.String())
+	}
+}
+
 func TestAPinTakesTheNewestVersionTheMacHasWithAReleaseWhenItsNewestIsStillPublishing(t *testing.T) {
 	w := newPinWorld(t)
 	w.macRuns(map[string]string{"long-running@skills": "0.7.12"})

@@ -112,13 +112,17 @@ func versionsToTry(claude, plugin, running, pinned string) ([]string, error) {
 	}
 	var older []string
 	for _, entry := range entries {
-		version := "v" + entry.Name()
+		version := "v" + release(entry.Name())
 		if semver.IsValid(version) && semver.Compare(version, "v"+running) < 0 && semver.Compare(version, "v"+pinned) > 0 {
-			older = append(older, entry.Name())
+			older = append(older, release(entry.Name()))
 		}
 	}
 	slices.SortFunc(older, func(a, b string) int { return semver.Compare("v"+b, "v"+a) })
-	return append([]string{running}, older...), nil
+	return append([]string{running}, slices.Compact(older)...), nil
+}
+
+func release(installed string) string {
+	return strings.TrimSuffix(installed, semver.Prerelease("v"+installed))
 }
 
 func macPlugins(claude string) (map[string]string, error) {
@@ -139,7 +143,7 @@ func macPlugins(claude string) (map[string]string, error) {
 	for id, entries := range installed.Plugins {
 		for _, entry := range entries {
 			if entry.Scope == "user" {
-				running[id] = entry.Version
+				running[id] = release(entry.Version)
 			}
 		}
 	}
@@ -192,7 +196,7 @@ func publishedDigest(ctx context.Context, dir, asset string) (string, error) {
 				return words[0], nil
 			}
 		}
-		return "", fmt.Errorf("%s%s names no %s", dir, name, asset)
+		return "", fmt.Errorf("%s%s names no %s yet: %w", dir, name, asset, errUnpublished)
 	}
 	return "", errUnpublished
 }
