@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import artifacts
 import plainwords
 from brief import COORDINATORS, ROOT, Curator
 from owed import CHAT_HOLDER, closed_asks, kept, order_replies, overdue_rows, owner_ask_rows, told_asks, trimmed
@@ -158,6 +159,7 @@ SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", 
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 PR_MENTION = re.compile(r"#(4\d{4})\b")
 DIAGRAM_ROUTE = re.compile(r"/diagram/([\w-]+)")
+ARTIFACT_ROUTE = re.compile(r"/artifact/([\w-]+)/(\d+)")
 DIAGRAM_PAGE = """<!doctype html><meta charset="utf-8"><title>{title}</title><script type="module" src="/arch-kit/arch-doc.js"></script><style>html,body{{margin:0;background:#12150f}}arch-doc{{display:block}}</style><arch-doc src="data:application/json;base64,{doc}"></arch-doc>"""
 FOLLOW_RESTART = 60
 STATIC = {"/arch-kit/arch-doc.js": ("arch-kit/arch-doc.js", "text/javascript"), "/arch-kit/vendor/arch-map.js": ("arch-kit/vendor/arch-map.js", "text/javascript"), "/arch-kit/vendor/system-map.js": ("arch-kit/vendor/system-map.js", "text/javascript"), "/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css"), "/chat.js": ("chat.js", "text/javascript"), "/chat.css": ("chat.css", "text/css"), "/theme.css": ("theme.css", "text/css")}
@@ -1967,6 +1969,15 @@ def handler(drive, tailnet_owner, names):
                     return self.send(404, "text/plain", b"no such diagram")
                 doc = base64.b64encode(json.dumps(reply["diagram"]).encode()).decode()
                 return self.send(200, "text/html; charset=utf-8", DIAGRAM_PAGE.format(title=html.escape(reply["title"]), doc=doc).encode())
+            if found := ARTIFACT_ROUTE.fullmatch(path):
+                if not self.owner_calling():
+                    return self.refuse()
+                reply = next((entry["reply"] for entry in drive.replies if entry["reply"]["id"] == found[1]), {})
+                shown = (reply.get("artifacts") or [])[int(found[2]) :]
+                if not shown:
+                    return self.send(404, "text/plain", b"no such artifact")
+                text = (Path(drive.config["replies"]) / found[1] / found[2]).read_text(errors="replace")
+                return self.send(200, "text/html; charset=utf-8", artifacts.page(shown[0], text).encode())
             if path == "/api/model":
                 kind = "full" if "full=1" in self.path else "now" if "tab=now" in self.path else "lean"
                 since = kind != "full" and re.search(r"since=(\d+)", self.path)

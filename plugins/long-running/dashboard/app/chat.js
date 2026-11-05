@@ -206,11 +206,18 @@ function docCard(l, deck, kind = 'One-pager', icon = 'doc') {
   const preview = framed ? `<div class="diagram-trigger" role="button" tabindex="0" aria-label="Read ${esc(label)}" data-doc-open="${esc(l.url)}" data-doc-title="${esc(label)}"><div class="mini-viewport"><iframe title="${esc(label)}" src="${esc(framed)}" loading="lazy" tabindex="-1"></iframe></div><span class="diagram-label">${chatIcon('expand')} Hover to read</span><div class="diagram-popover"><div class="popover-title">${esc(label)}</div><iframe title="${esc(label)}" data-src="${esc(framed)}"></iframe></div></div>` : '';
   return `<div class="artifact document-card"><div class="artifact-top">${chatIcon(icon)} ${kind}</div><div class="document-body${preview ? '' : ' plain'}"><div><h3 class="document-title">${esc(label)}</h3><p class="document-deck">${esc(deck)}</p></div>${preview}</div><div class="doc-footer"><span></span>${framed ? `<button data-doc-open="${esc(l.url)}" data-doc-title="${esc(label)}">Read it ${chatIcon('arrow')}</button>` : `<a href="${esc(l.url)}" target="_blank" rel="noopener">Read it ${chatIcon('arrow')}</a>`}</div></div>`;
 }
+const ARTIFACT_KINDS = { code: ['Code', 'code'], transcript: ['Transcript', 'chat'] };
+function artifactCard(r, a, n) {
+  const [kind, icon] = ARTIFACT_KINDS[a.kind];
+  const url = `${location.origin}/artifact/${r.id}/${n}`;
+  return `<div class="artifact document-card"><div class="artifact-top">${chatIcon(icon)} ${kind}</div><div class="document-body plain"><div><h3 class="document-title">${esc(plain(a.title))}</h3><p class="document-deck">${esc([a.language, a.size].filter(Boolean).join(' · '))}</p></div></div><div class="doc-footer"><span></span><button data-doc-open="${esc(url)}" data-doc-title="${esc(plain(a.title))}">Read it ${chatIcon('arrow')}</button></div></div>`;
+}
 function replyLinks(r) {
   const links = (r.links ?? []).filter((l) => dashboardLinksHere(l.url) === l.url);
   const deck = firstClause(plain(dashboardLinksHere(r.md)).replace(DONE_LEAD, '').replace(/[*`#]+/g, ''));
   const diagram = r.diagram ? docCard({ label: r.diagram.title, url: `${location.origin}/diagram/${r.id}` }, deck, 'Diagram', 'diagram') : '';
-  return `${diagram}${links.filter((l) => isOnePager(l.url)).map((l) => docCard(l, deck)).join('')}`;
+  const artifacts = (r.artifacts ?? []).map((a, n) => artifactCard(r, a, n)).join('');
+  return `${diagram}${artifacts}${links.filter((l) => isOnePager(l.url)).map((l) => docCard(l, deck)).join('')}`;
 }
 function replyTiles(r) {
   const tiles = (r.links ?? []).filter((l) => dashboardLinksHere(l.url) === l.url && !isOnePager(l.url) && !ownPrNumber(l.url)).map(linkTile);
