@@ -811,6 +811,14 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 			owners[row.Number] = row.Lane
 		}
 	}
+	enqueuedAt, err := s.Store.FactsOfKind(s.Repo, "enqueued")
+	if err != nil {
+		return nil, err
+	}
+	enqueued := make(map[int]bool, len(enqueuedAt))
+	for key := range enqueuedAt {
+		enqueued[key.Number] = true
+	}
 	out := make([]machine.Facts, 0, len(rows))
 	for _, row := range rows {
 		if row.State == "" {
@@ -825,6 +833,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		if err != nil {
 			return nil, err
 		}
+		f.PersonQueued = f.Queue == machine.QueueQueued && !enqueued[f.Number]
 		held[row.Number].onto(&f)
 		f.Carries = open.carries[row.Number]
 		if author := open.authors[row.Number]; author != s.Author {
@@ -839,8 +848,26 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		}
 		out = append(out, f)
 	}
+	queuedByTheDrive(out, enqueued)
 	readRows(out, known)
 	return out, nil
+}
+
+func queuedByTheDrive(snapshot []machine.Facts, enqueued map[int]bool) {
+	byBranch := make(map[string]machine.Facts, len(snapshot))
+	for _, f := range snapshot {
+		byBranch[f.Branch] = f
+	}
+	for i := range snapshot {
+		f := snapshot[i]
+		for range len(snapshot) {
+			below, open := byBranch[f.Base]
+			if !open || !snapshot[i].PersonQueued {
+				break
+			}
+			snapshot[i].PersonQueued, f = !enqueued[below.Number], below
+		}
+	}
 }
 
 func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]string) error {

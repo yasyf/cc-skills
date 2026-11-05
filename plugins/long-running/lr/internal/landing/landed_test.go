@@ -145,6 +145,37 @@ func TestAMergeOutsideTheQueueWarnsOwnerRelayOnceUnlessHisWordCoversThatHead(t *
 	}
 }
 
+func TestAPersonsUntappedQueueEntryWarnsOwnerRelayOncePerHead(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	queued := func(number int, word func(*machine.Facts)) machine.Facts {
+		f := machine.Facts{Repo: monorepo, Number: number, Head: "c04fc7c91aaa", Lane: "lane-7", Queue: machine.QueueQueued, QueuedHead: "c04fc7c91aaa", PersonQueued: true}
+		word(&f)
+		return f
+	}
+	snapshot := []machine.Facts{
+		queued(41, func(*machine.Facts) {}),
+		queued(42, func(f *machine.Facts) { f.PersonQueued = false }),
+		queued(43, func(f *machine.Facts) { f.Tap = machine.TapTapped }),
+		queued(44, func(f *machine.Facts) { f.Hold = machine.MoverRoot }),
+		queued(45, func(f *machine.Facts) { f.QueuedHead = "0ld0ld0ld0ld" }),
+	}
+
+	for range 2 {
+		if err := landing.WarnPersonQueued(ctx, "d", snapshot); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	posted, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"report"}, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 1 || !strings.HasPrefix(posted[0].Text, "PERSON-QUEUED #41 at c04fc7c91a:") || !slices.Equal(posted[0].To, []string{"owner-relay"}) {
+		t.Fatalf("posted = %+v, want one warning to owner-relay for #41 alone", posted)
+	}
+}
+
 func storeWith(t *testing.T, running ...string) *store.Store {
 	t.Helper()
 	s := newStore(t)

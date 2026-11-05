@@ -104,6 +104,9 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	if err := SayStuck(ctx, s, cfg.Drive, snapshot, out.Stuck); err != nil {
 		return fmt.Errorf("a stuck head's reason went unposted: %w", err)
 	}
+	if err := WarnPersonQueued(ctx, cfg.Drive, snapshot); err != nil {
+		return fmt.Errorf("a person's queue entry went unwarned: %w", err)
+	}
 	remote, err := NewRemote(a, filepath.Join(dir, runnerFile), self, "")
 	if err != nil {
 		return err
