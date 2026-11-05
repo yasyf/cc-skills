@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -65,6 +66,15 @@ type SlackShown struct {
 	Waits string `json:"waits"`
 }
 
+type SlackUnheard struct {
+	Card      string `json:"card"`
+	Label     string `json:"label"`
+	Question  string `json:"question"`
+	Other     bool   `json:"other"`
+	Permalink string `json:"permalink"`
+	Key       string `json:"key"`
+}
+
 type slackAsk struct {
 	PRs     []SlackPR    `json:"prs"`
 	Numbers []int        `json:"numbers"`
@@ -74,6 +84,7 @@ type slackAsk struct {
 		Waits string `json:"waits"`
 		Label string `json:"label"`
 	} `json:"answer"`
+	Unheard *SlackUnheard `json:"unheard"`
 }
 
 type SlackPRCard struct {
@@ -357,7 +368,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 	var lane string
 	cmd := &cobra.Command{
 		Use:   "card",
-		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]}, {\"shown\": [...]} or {\"answer\": {...}} on stdin: print the card of each PR with a ledger row, its Approve and Hold only while it waits on the owner, every drive PR holding each number, record a card that now stands, or apply his Approve or Hold",
+		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]}, {\"shown\": [...]}, {\"answer\": {...}} or {\"unheard\": {...}} on stdin: print the card of each PR with a ledger row, its Approve and Hold only while it waits on the owner, every drive PR holding each number, record a card that now stands, or apply his Approve or Hold",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			var ask slackAsk
@@ -367,6 +378,12 @@ func slackCardCommand(a *app.App) *cobra.Command {
 			live, err := cardDrives(c.Flag("drive").Value.String())
 			if err != nil {
 				return err
+			}
+			if u := ask.Unheard; u != nil {
+				if err := tellUnheard(a, c, live, lane, *u); err != nil {
+					return err
+				}
+				return json.NewEncoder(c.OutOrStdout()).Encode(map[string]bool{"heard": true})
 			}
 			if k := ask.Answer; k != nil {
 				at := slices.IndexFunc(live, func(entry drive.Entry) bool { return strings.EqualFold(entry.Repo, k.Repo) })
@@ -444,6 +461,38 @@ func slackCardCommand(a *app.App) *cobra.Command {
 		panic(err)
 	}
 	return cmd
+}
+
+func tellUnheard(a *app.App, c *cobra.Command, live []drive.Entry, lane string, u SlackUnheard) error {
+	if u.Card == "" || u.Key == "" {
+		return fmt.Errorf("an unheard answer needs its card and key, got %+v", u)
+	}
+	if len(live) == 0 {
+		return fmt.Errorf("no live drive to tell of the answer on %s", u.Card)
+	}
+	wakers := make([]Waker, len(live))
+	for i, entry := range live {
+		s, err := store.Open(entry.Store())
+		if err != nil {
+			return err
+		}
+		defer func() { _ = s.Close() }()
+		wakers[i] = wakerFor(a, c, CardsOf(a, entry, entry.Root(), s), lane)
+	}
+	return unheardOnDrive(c.Context(), wakers, u)
+}
+
+func unheardOnDrive(ctx context.Context, wakers []Waker, u SlackUnheard) error {
+	for _, w := range wakers {
+		asker, err := w.asker(ctx, CardAnswer{Card: u.Card})
+		if err != nil {
+			return err
+		}
+		if asker != "" {
+			return w.Unheard(ctx, u)
+		}
+	}
+	return wakers[0].Unheard(ctx, u)
 }
 
 func cardDrives(name string) ([]drive.Entry, error) {

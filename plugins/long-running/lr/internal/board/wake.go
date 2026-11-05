@@ -93,6 +93,21 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 	return nil
 }
 
+func (w Waker) Unheard(ctx context.Context, u SlackUnheard) error {
+	said := fmt.Sprintf("picked “%s”", u.Label)
+	if u.Other {
+		said = "wrote: " + u.Label
+	}
+	owner, err := w.Post(ctx, client.Draft{
+		Drive: w.Cards.Bus, Lane: w.Lane, Kind: ownerKind, ID: u.Key, Topic: u.Card, Force: true,
+		Text: fmt.Sprintf("Owner tap on %s, %q: %s. The session that posted the card has ended. %s", u.Card, u.Question, said, u.Permalink),
+	})
+	if err != nil {
+		return err
+	}
+	return w.Wake(ctx, CardAnswer{Card: u.Card, Said: said, Key: u.Key, OwnerSeq: owner.Seq, Unclaimed: true})
+}
+
 func (w Waker) asker(ctx context.Context, a CardAnswer) (string, error) {
 	_, rows, err := w.Cards.rows(ctx)
 	if err != nil {
@@ -205,20 +220,21 @@ func acknowledged(wake client.Record, holder string, heard []client.Record) bool
 	})
 }
 
+func wakerFor(a *app.App, c *cobra.Command, board Cards, lane string) Waker {
+	relay := func(ctx context.Context, to, text string) error {
+		lr, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		_, err = a.Runner.Run(ctx, shell.Command{Argv: []string{lr, "relay", to, text, "--drive", board.Bus, "--lane", lane}})
+		return err
+	}
+	return Waker{Cards: board, Lane: lane, Tail: client.Tail, Post: client.Post, Relay: relay, Warn: c.ErrOrStderr()}
+}
+
 func wakeCommand(a *app.App, cards func() (Cards, func(), error)) *cobra.Command {
 	var answer CardAnswer
 	var lane string
-	waker := func(c *cobra.Command, board Cards) Waker {
-		relay := func(ctx context.Context, to, text string) error {
-			lr, err := os.Executable()
-			if err != nil {
-				return err
-			}
-			_, err = a.Runner.Run(ctx, shell.Command{Argv: []string{lr, "relay", to, text, "--drive", board.Bus, "--lane", lane}})
-			return err
-		}
-		return Waker{Cards: board, Lane: lane, Tail: client.Tail, Post: client.Post, Relay: relay, Warn: c.ErrOrStderr()}
-	}
 	cmd := &cobra.Command{
 		Use:   "wake CARD",
 		Short: "Address the owner's answer to the lane whose ask drew a card, which the supervisor relaunches if that lane is gone",
@@ -233,7 +249,7 @@ func wakeCommand(a *app.App, cards func() (Cards, func(), error)) *cobra.Command
 			}
 			defer done()
 			answer.Card = args[0]
-			return waker(c, board).Wake(c.Context(), answer)
+			return wakerFor(a, c, board, lane).Wake(c.Context(), answer)
 		},
 	}
 	cmd.PersistentFlags().StringVar(&lane, "lane", "", "the lane the records post as")
@@ -255,7 +271,7 @@ func wakeCommand(a *app.App, cards func() (Cards, func(), error)) *cobra.Command
 				return err
 			}
 			defer done()
-			return waker(c, board).Late(c.Context())
+			return wakerFor(a, c, board, lane).Late(c.Context())
 		},
 	})
 	return cmd
