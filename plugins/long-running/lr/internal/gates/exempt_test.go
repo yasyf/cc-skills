@@ -378,6 +378,7 @@ func TestAFlakeFixLandsWithNoTapOnlyWhenItsWholeChangeIsTestCodeWithNoTimeoutBum
 		"a graded helper's timeout bump is not covered": {"class test-only", named, []string{helper}, map[string]*string{helper: patch("+\tdeadline := time.Minute")}, "adds a timeout line"},
 		"a graded helper with no record needs him":      {"class test-only", "", []string{helper}, map[string]*string{helper: patch("+uncounted")}, "tap rule rule/82317b0 names " + helper},
 		"CI config is not test code":                    {"class test-only", named, []string{"infra/ci/x.ts"}, map[string]*string{"infra/ci/x.ts": patch("+x")}, "infra/ci/x.ts is not test or fixture code"},
+		"a release file a reader called a helper":       {"class test-only", named, []string{next, "go/ci/internal/release/pipeline/cancel.go"}, map[string]*string{next: patch("+retry()"), "go/ci/internal/release/pipeline/cancel.go": patch("+x")}, "go/ci/internal/release/pipeline/cancel.go is not test or fixture code"},
 		"a timeout bump is not covered":                 {"class test-only", named, []string{next}, map[string]*string{next: patch(" keep\n+\tctx, cancel := context.WithTimeout(ctx, time.Minute)")}, "adds a timeout line"},
 		"a removed timeout is fine":                     {"class test-only", named, []string{next}, map[string]*string{next: patch("-\tWithTimeout(ctx, time.Minute)\n+\tretry()")}, ""},
 		"a patch GitHub withheld cannot be cleared":     {"class test-only", named, []string{next}, map[string]*string{next: nil}, "GitHub returned no patch"},

@@ -576,7 +576,7 @@ func TestACodexOkPostsTheGradeWithItsExemptPhraseThenTouchesAndOldApp(t *testing
 		"touches": []string{"prompt/1026-105052"},
 		"old_app": map[string]string{"grade": "changes", "why": "go/sand/next only"},
 	}))
-	repo.names = "go/sand/next/replica/follow_test.go\n.buildkite/pipeline.yml\n"
+	repo.names = "go/sand/next/replica/follow_test.go\ninfra/ci/src/pipelines/ci-go.ts\n"
 	mustFidelity(t, directory, shell)
 	sameList(t, shell.texts(), []string{
 		"fidelity: ok " + shaHead + " " + testOnly + ": Resubscribes from the fetched position after a cut.",
