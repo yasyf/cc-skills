@@ -4,6 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +17,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/choices"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
 
@@ -282,7 +288,7 @@ func TestTheCommunicatorsOwnReplyToHimIsNoRepeatOfHisOrder(t *testing.T) {
 }
 
 func docsFake(now time.Time, register string) *shelltest.Fake {
-	const ref = "refs/remotes/origin/main:"
+	const ref = "refs/lr/docs/main:"
 	fake := &shelltest.Fake{}
 	fake.Reply("", "git", "-C", "/docs", "fetch")
 	fake.Reply(register, "git", "-C", "/docs", "rev-parse")
@@ -291,6 +297,45 @@ func docsFake(now time.Time, register string) *shelltest.Fake {
 	fake.Reply(fmt.Sprintf(`{"meta":{"date":%q},"open":[{"g":"owner","id":"Q9","t":"Long gone"}]}`, now.Add(-60*24*time.Hour).Format(time.DateOnly)), "git", "-C", "/docs", "show", ref+"design-docs/old/registers.json")
 	fake.Reply("<p>nothing here</p>\n<p>Your pick: keep it</p>\n<p>Your call: keep it or drop it</p>\n<p>Your call on card-z</p>", "git", "-C", "/docs", "show", ref+"one-pagers/y/index.html")
 	return fake
+}
+
+func TestDesignDocsReadTheFreshMainWithoutMovingTheSharedTrackingRef(t *testing.T) {
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", slices.Concat([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	base := t.TempDir()
+	origin, writer, docs := filepath.Join(base, "origin.git"), filepath.Join(base, "writer"), filepath.Join(base, "docs")
+	git(base, "init", "-q", "--bare", "-b", "main", origin)
+	git(base, "clone", "-q", origin, writer)
+	git(writer, "commit", "-q", "--allow-empty", "-m", "base")
+	git(writer, "push", "-q", "origin", "main")
+	git(base, "clone", "-q", origin, docs)
+	stale := git(docs, "rev-parse", "refs/remotes/origin/main")
+	now := time.Now()
+	register := filepath.Join(writer, "design-docs", "x", "registers.json")
+	if err := os.MkdirAll(filepath.Dir(register), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(register, fmt.Appendf(nil, `{"meta":{"date":%q},"open":[{"g":"owner","id":"Q1","t":"Pick the route"}]}`, now.Format(time.DateOnly)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(writer, "add", "-A")
+	git(writer, "commit", "-q", "-m", "register")
+	git(writer, "push", "-q", "origin", "main")
+
+	open := (&choices.Docs{Runner: shell.Exec{}, Dir: docs}).Open(context.Background(), now)
+
+	if !reflect.DeepEqual(open, []choices.DocChoices{{Slug: "x", Items: []string{"Q1"}}}) {
+		t.Fatalf("open %+v", open)
+	}
+	if got := git(docs, "rev-parse", "refs/remotes/origin/main"); got != stale {
+		t.Fatalf("origin/main moved to %s, outside the fetch every other tool shares", got)
+	}
 }
 
 func TestADesignDocsOpenChoiceWithNoCardReachesTheDeskOnceAndOnlyANewOneSaysMore(t *testing.T) {

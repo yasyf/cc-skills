@@ -911,7 +911,7 @@ func (l *launch) fresh() error {
 func (l *launch) added() (string, bool) {
 	remote, branch, _ := strings.Cut(l.base, "/")
 	if l.gitQuiet(l.main, "remote", "get-url", remote) {
-		l.gitQuiet(l.main, "fetch", "--quiet", remote, branch)
+		l.exec(shell.Command{Argv: []string{"ccx", "vcs", "fetch", "--remote", remote, branch}, Dir: l.main})
 	}
 	said, code := l.git(l.main, "worktree", "add", "--no-checkout", "--no-track", "-b", l.branch, l.wt, l.base)
 	return said, code == 0

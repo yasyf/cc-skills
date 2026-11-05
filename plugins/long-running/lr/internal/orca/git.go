@@ -90,7 +90,7 @@ type Repositories interface {
 }
 
 type advertised struct {
-	trunk string
+	tip   string
 	heads map[string]bool
 }
 
@@ -179,7 +179,7 @@ func (g *Git) advertised(ctx context.Context, repository string) (advertised, er
 	if known, ok := g.cache[repository]; ok {
 		return known, nil
 	}
-	out, err := g.checked(ctx, repository, "ls-remote", "--symref", "origin", "HEAD", "refs/heads/*")
+	out, err := g.checked(ctx, repository, "ls-remote", "origin", "HEAD", "refs/heads/*")
 	if err != nil {
 		return advertised{}, err
 	}
@@ -188,14 +188,23 @@ func (g *Git) advertised(ctx context.Context, repository string) (advertised, er
 		ref, name, found := strings.Cut(strings.TrimRight(line, "\n"), "\t")
 		switch {
 		case !found:
-		case name == "HEAD" && strings.HasPrefix(ref, "ref: "):
-			read.trunk = strings.TrimPrefix(ref, "ref: refs/heads/")
+		case name == "HEAD":
+			read.tip = ref
 		case strings.HasPrefix(name, "refs/heads/"):
 			read.heads[ref] = true
 		}
 	}
-	if read.trunk == "" {
+	if read.tip == "" {
 		return advertised{}, fmt.Errorf("origin of %s advertises no HEAD", repository)
+	}
+	held, err := g.run(ctx, repository, "cat-file", "-e", read.tip+"^{commit}")
+	if err != nil {
+		return advertised{}, err
+	}
+	if held.Code != 0 {
+		if _, err := g.checked(ctx, repository, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", read.tip); err != nil {
+			return advertised{}, err
+		}
 	}
 	if g.cache == nil {
 		g.cache = map[string]advertised{}
@@ -209,7 +218,7 @@ func (g *Git) OnTrunk(ctx context.Context, head, repository string) (bool, error
 	if err != nil {
 		return false, err
 	}
-	done, err := g.run(ctx, repository, "merge-base", "--is-ancestor", head, "origin/"+read.trunk)
+	done, err := g.run(ctx, repository, "merge-base", "--is-ancestor", head, read.tip)
 	return done.Code == 0, err
 }
 
@@ -218,10 +227,7 @@ func (g *Git) Remote(ctx context.Context, repository string) (Remote, error) {
 	if err != nil {
 		return Remote{}, err
 	}
-	if _, err := g.run(ctx, repository, "fetch", "--quiet", "origin", read.trunk); err != nil {
-		return Remote{}, err
-	}
-	subjects, err := g.run(ctx, repository, "log", "origin/"+read.trunk, "--since=30.days", "--format=%s")
+	subjects, err := g.run(ctx, repository, "log", read.tip, "--since=30.days", "--format=%s")
 	if err != nil {
 		return Remote{}, err
 	}

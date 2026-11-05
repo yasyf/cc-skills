@@ -359,6 +359,9 @@ func (h *harness) ccxTool(ctx context.Context, c shell.Command) (shell.Result, e
 	h.calls = append(h.calls, slices.Clone(c.Argv))
 	refuses, queues := h.ccxRefuses, h.ccxQueues
 	h.mu.Unlock()
+	if c.Argv[2] == "fetch" {
+		return shell.Result{}, nil
+	}
 	if refuses {
 		return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1}
 	}
@@ -714,6 +717,24 @@ func TestAMainCheckoutOrcaDoesNotKnowFailsNamingItsPath(t *testing.T) {
 	}
 	wantLine(t, line, "lane-a failed repo: orca repo show finds no repo at path:"+h.main+" (selector_not_found: selector_not_found); set ORCA_LAUNCH_REPO, or register the main checkout with orca repo add --path")
 	wantNoCalls(t, h, "worktree set")
+}
+
+func TestALaunchLeavesMovingTheSharedBaseRefToCcxsFetch(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	h.gitIn(h.main, "clone", "-q", "--bare", h.main, origin)
+	moved := h.gitIn(h.main, "commit-tree", "-p", "HEAD", "-m", "dev moved on", "HEAD^{tree}")
+	h.gitIn(h.main, "push", "-q", origin, moved+":refs/heads/dev")
+	h.gitIn(h.main, "remote", "add", "origin", origin)
+	stale := h.gitIn(h.main, "rev-parse", "origin/dev")
+	h.launched()
+	if got := h.gitIn(h.main, "rev-parse", "origin/dev"); got != stale {
+		t.Fatalf("the launch moved origin/dev to %s itself, outside ccx's shared fetch", got)
+	}
+	if fetches := h.orcaCalls("ccx vcs"); !reflect.DeepEqual(fetches, [][]string{{"ccx", "vcs", "fetch", "--remote", "origin", "dev"}}) {
+		t.Fatal(fetches)
+	}
 }
 
 func TestLaunchCreatesAChildWorktreeAndABypassTerminal(t *testing.T) {
