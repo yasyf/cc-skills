@@ -141,7 +141,24 @@ func Command(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(render, check, status, away, pinCommand(&driveName))
+	owners := &cobra.Command{
+		Use:   "owners",
+		Short: "Print, as one JSON object, each open PR's live owner lanes as the update reads them, an alias claim from another node included, and every live lane name and alias",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			opened, err := open(a, driveName)
+			if err != nil {
+				return err
+			}
+			defer opened.store.Close()
+			found, err := ReadOwners(c.Context(), opened.src, a.Now())
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(c.OutOrStdout()).Encode(found)
+		},
+	}
+	cmd.AddCommand(render, check, status, away, owners, pinCommand(&driveName))
 	cmd.Args = cobra.NoArgs
 	cmd.Flags().BoolVar(&rendering, "render", false, "the render verb, under the flag owner_update.py callers name")
 	cmd.Flags().StringVar(&checking, "check", "", "the check verb on this file, under the flag owner_update.py callers name")
