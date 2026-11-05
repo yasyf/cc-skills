@@ -365,20 +365,20 @@ def card_lines(path: Path) -> dict[str, int]:
     return {found[1]: number for number, line in enumerate(path.read_text().splitlines(), 1) if (found := CARD_HEADING.fullmatch(line))}
 
 
-def said_with_card_lines(row: dict, path: Path, lines: dict[str, int]) -> list[dict]:
+def said_with_card_lines(row: dict, lines: dict[str, int]) -> list[dict]:
     """`said` for a grader that holds no board: each tap names its line of the job's cards.md instead of carrying its card."""
     items = [{"at": row.get("at", ""), "words": row["words"], "proof": row.get("proof", "")}, *json.loads(row.get("repeats") or "[]")]
-    return [{"at": item.get("at", ""), "words": item["words"], "card_at": card_at(item.get("proof", ""), path, lines)} for item in items if item["words"]]
+    return [{"at": item.get("at", ""), "words": item["words"], "card_at": card_at(item.get("proof", ""), lines)} for item in items if item["words"]]
 
 
-def card_at(proof: str, path: Path, lines: dict[str, int]) -> str | None:
+def card_at(proof: str, lines: dict[str, int]) -> str | None:
     digests = BOARD_PROOF.findall(proof)
     if not digests:
         return None
     found = next((lines[digest] for digest in digests if digest in lines), None)
     if found is None:
         return "That was a tap on a board card that could not be found, so what he passed over is unknown here."
-    return f"That was a tap on the card at {path}:{found}, agent-written apart from what he picked or typed."
+    return f"That was a tap on the card at cards.md:{found}."
 
 
 def owner_words(key: str, said: list[dict]) -> str:

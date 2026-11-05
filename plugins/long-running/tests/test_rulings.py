@@ -2079,9 +2079,9 @@ def test_a_graders_tap_row_names_its_line_in_cards_md_and_says_so_when_its_card_
         "repeats": json.dumps([{"at": "Oct 22", "words": "Still in relay-journal", "proof": "proof:board:cccccccccccccccc"}, {"at": "Oct 23", "words": "Yes", "proof": "cci 12"}]),
     }
 
-    words = rulings.judge.owner_words("rule/aaaaaaa", rulings.judge.said_with_card_lines(row, cards, lines))
+    words = rulings.judge.owner_words("rule/aaaaaaa", rulings.judge.said_with_card_lines(row, lines))
 
-    assert f"That was a tap on the card at {cards}:4," in words
+    assert "That was a tap on the card at cards.md:4." in words
     assert "That was a tap on a board card that could not be found" in words
     assert words.count("That was a tap") == 2
 

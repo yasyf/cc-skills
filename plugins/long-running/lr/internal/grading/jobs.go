@@ -329,7 +329,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if again != nil {
 		spec.Regrade, spec.Grades, spec.Since = again.attempt, nil, ""
 		if len(again.report) > 0 {
-			spec.To = again.report
+			spec.To, spec.ReportOnly = again.report, true
 		}
 	}
 	if sources != "" {
