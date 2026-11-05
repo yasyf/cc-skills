@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-interact/channel"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
@@ -94,7 +95,7 @@ func Tool(a *app.App) channel.Tool {
 			if err != nil {
 				return "reply: " + err.Error(), true
 			}
-			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner), Shoot: shootDiagram}
+			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw}
 			r, warning := fanout.underAlert(r)
 			if warning != "" {
 				warned = append(warned, warning)

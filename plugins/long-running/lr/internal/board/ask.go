@@ -43,9 +43,9 @@ var (
 )
 
 type Ask struct {
-	ID, Title, Background, From, Branch, NothingToBuild string
-	Options, Shots                                      []string
-	PortOf                                              int
+	ID, Title, Background, From, Branch, NothingToBuild, Diagram string
+	Options, Shots                                               []string
+	PortOf                                                       int
 }
 
 type askOption struct {
@@ -93,6 +93,13 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	children := []map[string]any{{"id": slug + "-from", "type": "markdown", "md": "**From:** " + from}}
 	if more = strings.TrimSpace(more); more != "" {
 		children = slices.Insert(children, 0, map[string]any{"id": slug + "-background", "type": "markdown", "md": more})
+	}
+	if a.Diagram != "" {
+		doc, err := os.ReadFile(a.Diagram)
+		if err != nil {
+			return nil, err
+		}
+		children = append(children, map[string]any{"id": slug + "-diagram", "type": diagramType, "doc": json.RawMessage(doc)})
 	}
 	shots, err := a.shots(slug)
 	if err != nil {
@@ -250,7 +257,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
     --option 'Raise the limit :: Fewer refusals at the same cost, and a run still stops on the next one.' \
     --branch Forge-AI/monorepo:durable-wait --until at:3d
 
---port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself. --withdraw ID takes your own card down when its question has gone away.`,
+--diagram FILE draws one architecture doc (arch/v1) into a picture above the picks, on his board, his dashboard and the card in Slack. --port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself. --withdraw ID takes your own card down when its question has gone away.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if lane == "" {
@@ -288,6 +295,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags.StringArrayVar(&ask.Options, "option", nil, "'Keep it :: what picking it does', 2 to 4, the recommended one first; a failure offers the fix for its cause, and a loss names its fix")
 	flags.StringVar(&ask.Branch, "branch", "", "OWNER/NAME:BRANCH, where the recommended option is built")
 	flags.StringVar(&ask.NothingToBuild, "nothing-to-build", "", "why the recommended option has no branch")
+	flags.StringVar(&ask.Diagram, "diagram", "", "FILE, one architecture doc (arch/v1) drawn on the Mac into a picture above the picks, on his board, his dashboard and the card in Slack")
 	flags.StringArrayVar(&ask.Shots, "shot", nil, "'PATH or https URL :: what it shows', a real screenshot, repeatable; a path is read on the board's Mac")
 	flags.StringVar(&ask.From, "from", "", "the plan step and date, his ruling id, or whose PR it ports; default "+noPlanFrom)
 	flags.IntVar(&ask.PortOf, "port-of", 0, "the old-tree PR this card's port copies: the card's title opens with port of #N")

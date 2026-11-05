@@ -19,11 +19,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/explain"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
@@ -574,7 +574,7 @@ func (r Reply) mended() (Reply, []string) {
 		r.Type = ""
 	}
 	if len(r.Diagram) > 0 {
-		if problems := explain.ArchProblems(r.Diagram); len(problems) > 0 {
+		if problems := arch.Problems(r.Diagram); len(problems) > 0 {
 			warn("the diagram does not draw, so it was left off: %s", strings.Join(problems, "; "))
 			r.Diagram = nil
 		}
