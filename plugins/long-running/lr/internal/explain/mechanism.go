@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 )
 
 const (
@@ -14,7 +16,6 @@ const (
 
 var (
 	fenced     = regexp.MustCompile("(?s)```.*?```")
-	hiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
 	citeAfter  = regexp.MustCompile(`(?s)([.!?])(\s*<!--.*?-->)`)
 	unsaid     = regexp.MustCompile("`[^`\n]+`|\"[^\"\n]*\"|“[^”\n]*”|https?://\\S+")
 	breaks     = regexp.MustCompile(`([.!?])\s+|\n+`)
@@ -52,7 +53,7 @@ func Uncited(source []byte) []string {
 
 // Visible is what he reads of a page: its hidden cites stay in the source on disk and never reach him.
 func Visible(source []byte) []byte {
-	return hiddenCite.ReplaceAll(source, nil)
+	return cardtext.HiddenCite.ReplaceAll(source, nil)
 }
 
 func refuse(claims []string) error {

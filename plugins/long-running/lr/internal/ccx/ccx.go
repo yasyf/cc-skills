@@ -31,6 +31,7 @@ type PRStatus struct {
 	Verdict      string `json:"verdict"`
 	CI           Check  `json:"ci"`
 	Approval     Check  `json:"approval"`
+	Unread       string `json:"unread"`
 }
 
 type PRState struct {

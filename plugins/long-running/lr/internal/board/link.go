@@ -24,16 +24,17 @@ import (
 )
 
 const (
-	LinkLane        = "board-link"
-	cardKind        = "board.card"
-	cursorFile      = "board-link.cursor"
-	firstRead       = 1
-	saidLimit       = 300
-	changeAttr      = "change"
-	linkAnswerKind  = "answer"
-	linkRefusalKind = "defect"
-	linkLog         = "board-link.log"
-	askField        = "ask"
+	LinkLane          = "board-link"
+	cardKind          = "board.card"
+	cursorFile        = "board-link.cursor"
+	firstRead         = 1
+	saidLimit         = 300
+	changeAttr        = "change"
+	linkAnswerKind    = "answer"
+	linkRefusalKind   = "defect"
+	linkLog           = "board-link.log"
+	askField          = "ask"
+	promisedClockKind = "promised-clock"
 )
 
 var slackLine = regexp.MustCompile(`(?m)^slack: (\S+)`)
@@ -223,7 +224,7 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 			return "", err
 		}
 		said += fmt.Sprintf("; %s cannot retire until a record carries delivered=card:%s", lane, top.ID)
-	case named != "":
+	case named != "" && l.promises(ctx, named, card.Block):
 		said += fmt.Sprintf("; WARNING it names the clock %q and no --by, so nothing holds %s to it: redraw it with --by", named, lane)
 	}
 	if card.TapOf == "" {
@@ -238,6 +239,11 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	warnUnnamedProcess(&warned, card.Block)
 	warnUntiedLand(&warned, card.Block)
 	return said + strings.TrimRight("; "+warned.String(), "; \n"), nil
+}
+
+func (l Link) promises(ctx context.Context, clock string, card json.RawMessage) bool {
+	promised, _ := l.Judge(ctx, promisedClockKind, clock, string(card))
+	return verdictOf(promised) != "no"
 }
 
 func askingLane(ctx context.Context, cards Cards, lane string, ask int64, card string) (string, error) {

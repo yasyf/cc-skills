@@ -15,11 +15,12 @@ const (
 )
 
 var (
-	Link     = regexp.MustCompile(`!?\[[^\]\n]*\]\([^)\n]*\)|<?https?://[^\s>)]+>?`)
-	word     = regexp.MustCompile(`[\p{L}\p{N}][\p{L}\p{N}'’-]*`)
-	section  = regexp.MustCompile(`(?im)^[ \t>*_#-]*(explain more|background)(?:\*\*|__)?[ \t]*:(?:\*\*|__)?`)
-	nextName = regexp.MustCompile(`(?m)^[ \t]*(?:\*\*|__)?[A-Za-z][\w' -]{0,40}:(?:\*\*|__)?(?:\s|$)`)
-	pointing = func() map[string]bool {
+	Link       = regexp.MustCompile(`!?\[[^\]\n]*\]\([^)\n]*\)|<?https?://[^\s>)]+>?`)
+	HiddenCite = regexp.MustCompile(`(?s)\s*<!--.*?-->`)
+	word       = regexp.MustCompile(`[\p{L}\p{N}][\p{L}\p{N}'’-]*`)
+	section    = regexp.MustCompile(`(?im)^[ \t>*_#-]*(explain more|background)(?:\*\*|__)?[ \t]*:(?:\*\*|__)?`)
+	nextName   = regexp.MustCompile(`(?m)^[ \t]*(?:\*\*|__)?[A-Za-z][\w' -]{0,40}:(?:\*\*|__)?(?:\s|$)`)
+	pointing   = func() map[string]bool {
 		words := map[string]bool{}
 		for _, each := range strings.Fields(`a above all an and at below click design details detail doc docs document explainer for
 			full go here in it its link linked more of on one-pager onepager open our page plan please read section see the this to whole write-up writeup`) {
