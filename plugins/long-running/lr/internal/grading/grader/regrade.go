@@ -80,6 +80,7 @@ func (p *pass) claudeRead(model, effort, tools, question string, timeout time.Du
 	out, err := p.execute(shell.Command{
 		Argv:    []string{"claude", "-p", "--model", model, "--effort", effort, "--output-format", "json", "--add-dir", p.dir, "--allowedTools", tools},
 		Dir:     p.job.Checkout,
+		Env:     []string{"CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1"},
 		Stdin:   question,
 		Timeout: timeout,
 	})

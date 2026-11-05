@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -667,6 +668,50 @@ func TestAHeadCodexHandsToAReaderComesBackGradedByTheOpusReaderInTheSamePass(t *
 		holdsNone(t, text, fidelityReader)
 	}
 	holdsAll(t, readText(t, directory, ResultFile), `"verdict":"ok"`)
+}
+
+func TestAReaderWhoseCheckedListsOnlyTheRowsItReadGradesOnTheFirstReadsChecked(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
+	shell, _ := newFidelityFake(t, samePatch,
+		fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "whether the owner's 100 not 1000 covers this test", "touches": []string{"rule/949e6be"}}),
+		fidelityReplyOf(map[string]any{"summary": "Its scale test at N=100 follows his later 100 not 1000.", "checked": []string{"rule/949e6be", "AGENTS.md:98"}, "touches": []string{"rule/949e6be"}}),
+	)
+	mustFidelity(t, directory, shell)
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" Its scale test at N=100 follows his later 100 not 1000.")
+	holdsAll(t, readText(t, directory, readerReply), `"checked":["rule/949e6be","AGENTS.md:98"]`)
+	holdsAll(t, readText(t, directory, bodyFile), "checked AGENTS.md:98,prompt/1026-105052,rule/949e6be ")
+}
+
+func TestTheReaderMayRunEveryGitReadItsBriefNamesFromTheCheckout(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
+	shell, _ := newFidelityFake(t, samePatch,
+		fidelityReplyOf(map[string]any{"verdict": "reader", "reader": "the eviction path needs a human read"}),
+		fidelityReplyOf(nil),
+	)
+	mustFidelity(t, directory, shell)
+	var reader Command
+	for _, call := range shell.snapshot() {
+		if call.Argv[0] == "claude" {
+			reader = call
+		}
+	}
+	holdsAll(t, strings.Join(reader.Env, " "), "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1")
+	var allowed []string
+	for _, tool := range strings.Split(reader.Argv[slices.Index(reader.Argv, "--allowedTools")+1], ",") {
+		if pattern, bash := strings.CutPrefix(tool, "Bash("); bash {
+			allowed = append(allowed, strings.TrimSuffix(pattern, ":*)"))
+		}
+	}
+	named := regexp.MustCompile("`(git [^`]+)`").FindAllStringSubmatch(fidelityBrief, -1)
+	if len(named) == 0 {
+		t.Fatal("the brief names no git command")
+	}
+	for _, command := range named {
+		if !slices.ContainsFunc(allowed, func(prefix string) bool { return strings.HasPrefix(squeezed(command[1]), prefix) }) {
+			t.Errorf("the brief tells the reader to run %q, which its tools %v refuse", squeezed(command[1]), allowed)
+		}
+	}
+	holdsAll(t, readText(t, directory, readerQuestion), "never with `-C` or after a `cd`")
 }
 
 func TestAFidelitySliceStartsOnlyOnceTheHeadsFetchHasLandedItsTree(t *testing.T) {
