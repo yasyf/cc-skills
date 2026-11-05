@@ -56,7 +56,7 @@ var (
 	bodyComment = regexp.MustCompile(`(?im)^(?:#{1,6}\s*|\*\*)?(?:Rulings|Regression tests|Caller trace|Body addendum)\b`)
 	rowKey      = regexp.MustCompile(`(?m)^### (\S+) \|`)
 	replyFile   = regexp.MustCompile(`(?m)^REPLY_FILE: (\S+)$`)
-	rateLimit   = regexp.MustCompile(`Rate limit reached .*?Please try again in (\d+(?:\.\d+)?)(ms|s)\b`)
+	rateLimit   = regexp.MustCompile(`Rate limit reached .*?Please try again in ((?:\d+(?:\.\d+)?(?:ms|s|m|h))+)\b`)
 )
 
 type Deps struct {
@@ -204,7 +204,7 @@ func anyFailure(*ExitError) bool {
 }
 
 func (p *pass) rateLimited(attempt func(retry int) (string, error)) (string, error) {
-	for retry, floor := range rateLimitFloors {
+	for retry := 0; ; retry++ {
 		out, err := attempt(retry)
 		if err == nil {
 			return out, nil
@@ -217,17 +217,12 @@ func (p *pass) rateLimited(attempt func(retry int) (string, error)) (string, err
 		if limit == nil {
 			return "", err
 		}
-		p.Sleep(max(delay(limit[1], limit[2]), floor))
+		told, err := time.ParseDuration(limit[1])
+		if err != nil {
+			return "", err
+		}
+		p.Sleep(max(told, rateLimitFloors[min(retry, len(rateLimitFloors)-1)]))
 	}
-	return attempt(len(rateLimitFloors))
-}
-
-func delay(amount, unit string) time.Duration {
-	value, _ := strconv.ParseFloat(amount, 64)
-	if unit == "ms" {
-		return time.Duration(value * float64(time.Millisecond))
-	}
-	return time.Duration(value * float64(time.Second))
 }
 
 func (p *pass) viewPR() (pullRequest, error) {

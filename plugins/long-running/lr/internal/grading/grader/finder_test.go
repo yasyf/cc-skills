@@ -1444,6 +1444,29 @@ func TestAModelRateLimitIsAskedAgainAfterTheDelayItNamesNeverFailingThePass(t *t
 	equal(t, len(shell.posted), 1)
 }
 
+func TestARateLimitThatOutlastsEveryFloorKeepsWaitingInsideThePass(t *testing.T) {
+	limited := &ExitError{Argv: []string{"codex-ask"}, Code: 1, Stdout: "Rate limit reached for gpt-6.1-sol. Please try again in 167ms."}
+	directory := finderJobDir(t, nil)
+	shell, _ := newFinderFake(t, limited, limited, limited, limited, limited, limited, limited, limited, replyOf())
+	mustFinder(t, directory, shell)
+	equal(t, len(shell.asks()), 9)
+	want := []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second}
+	if !slices.Equal(shell.slept, want) {
+		t.Errorf("slept %v, want %v", shell.slept, want)
+	}
+	equal(t, len(shell.posted), 1)
+}
+
+func TestARateLimitNamingMinutesWaitsThatLong(t *testing.T) {
+	limited := &ExitError{Argv: []string{"codex-ask"}, Code: 1, Stdout: "Rate limit reached for gpt-6.1-sol. Please try again in 1m30s."}
+	directory := finderJobDir(t, nil)
+	shell, _ := newFinderFake(t, limited, replyOf())
+	mustFinder(t, directory, shell)
+	if !slices.Equal(shell.slept, []time.Duration{90 * time.Second}) {
+		t.Errorf("slept %v", shell.slept)
+	}
+}
+
 func TestACancelDuringARateLimitPauseStartsNoFurtherCodexRun(t *testing.T) {
 	directory := finderJobDir(t, nil)
 	limited := &ExitError{Argv: []string{"codex-ask"}, Code: 1, Stdout: "Rate limit reached for gpt-6.1-sol. Please try again in 86ms."}
