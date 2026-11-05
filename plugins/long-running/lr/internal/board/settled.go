@@ -280,7 +280,7 @@ func (c Cards) SettledByHim(ctx context.Context, judge Judge, open []OpenCard) (
 		_, title, _ := asksTitle(card.Block)
 		settled, err := settles(ctx, judge, c.settledByHim(), card.Block, title, answers, "")
 		failed = append(failed, err)
-		if settled != nil && settled.SameQuestion {
+		if settled != nil {
 			found[card.ID] = settled
 		}
 	}
