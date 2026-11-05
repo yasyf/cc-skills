@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -127,6 +129,51 @@ func TestAStandingRefusalClearsWhenTheGoNextAdmitsTheHead(t *testing.T) {
 	}
 	if class, refused := gates.LandsOnWord(map[string]string{gates.StandingRefused: facts[gates.StandingRefused], gates.PortOfAttr: "9", gates.PortInteractsAttr: gates.PortCleanWord}); class != gates.OldTreePortClass || refused != "" {
 		t.Fatalf("class %q, refused %q, want the port landing on his word", class, refused)
+	}
+}
+
+func TestASweepRefusalSaysSoInOneRecordOnlyWhereSomeoneExpectsAGo(t *testing.T) {
+	refused := []string{"finder: no counted decide"}
+	head := "abc1234def"
+	laneGo := client.Record{Seq: 1, Lane: "port-x-1", Kind: kindGo, Text: "go #7 at abc1234 on green [exempt: old-tree-port]: fidelity ok #1, finder ok #2"}
+	for name, c := range map[string]struct {
+		standing bool
+		records  []client.Record
+		to       []string
+		posts    bool
+	}{
+		"a standing word tells its owner":  {true, nil, []string{"owner-1"}, true},
+		"a lane's go tells that lane too":  {false, []client.Record{laneGo}, []string{"owner-1", "port-x-1"}, true},
+		"no claim and no go posts nothing": {false, nil, nil, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			ctx := context.Background()
+			cfg := config.Config{Drive: "d", Repo: "o/r"}
+			claim := gates.Claim{Repo: "o/r", PR: 7, Head: head}
+			for range 2 {
+				if err := sayGoRefused(ctx, cfg, claim, "owner-1", c.standing, c.records, refused); err != nil {
+					t.Fatal(err)
+				}
+			}
+			posted, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{bus.GoRefusedKind}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !c.posts {
+				if len(posted) != 0 {
+					t.Fatalf("posted %+v, want nothing", posted)
+				}
+				return
+			}
+			if len(posted) != 1 || !slices.Equal(posted[0].To, c.to) {
+				t.Fatalf("posted %+v, want one record to %q", posted, c.to)
+			}
+			facts := bus.LegacyFacts(posted[0], "o/r", nil)
+			if len(facts) != 1 || facts[0].Kind != gates.StandingRefused || facts[0].PR != 7 || facts[0].Head != head || facts[0].Value != refused[0] {
+				t.Fatalf("facts = %+v, want the refusal at its head for every store's row", facts)
+			}
+		})
 	}
 }
 

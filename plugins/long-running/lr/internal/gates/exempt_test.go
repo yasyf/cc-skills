@@ -278,6 +278,34 @@ func TestACleanPortWhoseOnlyFidelityIsACountedOverrideLands(t *testing.T) {
 	}
 }
 
+func TestAFinderOverrideWrittenOnAnotherStoreCountsWithItsBareSeqCite(t *testing.T) {
+	major := decoded(t, `{"seq":1,"lane":"finder-desk","kind":"review","text":"finder: major `+portHead+` two rows","refs":{"prs":[49999]}}`)
+	fidelity := decoded(t, `{"seq":2,"lane":"fidelity-desk","kind":"review","text":"fidelity: ok `+portHead+` class old-tree-port: line for line","refs":{"prs":[49999]}}`)
+	head := headRecord(t, portHead, `,"port-of":"49000","port-interacts":"no"`)
+	override := func(num, cites string) client.Record {
+		return client.Record{Seq: 272617, Num: num, Lane: "root", Kind: "decide", Text: "finder-override #49999 at abc1234: " + cites + ". Port of #49000."}
+	}
+	for name, c := range map[string]struct {
+		override client.Record
+		want     string
+	}{
+		"#50254, another store's bare seq, unknown here":       {override("#436664", "430803"), ""},
+		"this store's bare seq naming no record stays refused": {override("", "430803"), "citing a record that exists"},
+		"another store's cite that is no seq stays refused":    {override("#436664", "nothing"), "citing a record that exists"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: []client.Record{major, fidelity, head, c.override}, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})
+			if c.want != "" {
+				refusedWith(t, text, refusals, c.want)
+				return
+			}
+			if len(refusals) > 0 {
+				t.Fatalf("got go %q and refusals %q, want a go", text, refusals)
+			}
+		})
+	}
+}
+
 func TestAPortGoNamesAClassTheBusReadsAsExempt(t *testing.T) {
 	records := append(graded(t, "class old-tree-port"), headRecord(t, portHead, `,"port-of":"49000","port-interacts":"no"`))
 	text, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"go/sand/next/a.go"}, PortSourceMerged: true})

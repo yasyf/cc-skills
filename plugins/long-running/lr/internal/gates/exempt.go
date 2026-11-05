@@ -37,7 +37,7 @@ const (
 	portSourceOpen    = "not merged"
 	FlakeFixClass     = "flake-fix"
 	FlakeFixAttr      = "flake-fix"
-	StandingRefused   = "standing-refused"
+	StandingRefused   = bus.GoRefusedFact
 	portTree          = "go/sand/next/"
 	headKind          = "head"
 )
@@ -262,7 +262,9 @@ func finderCite(c Claim, r Read) (string, string) {
 	if grade == string(machine.FinderClear) {
 		return "finder ok " + newest.Name(), ""
 	}
-	if override, found := countedOverride(c, r, finderKind, func(cites string) bool { return cites != "" && named(records, cites) }); found {
+	if override, found := countedOverride(c, r, finderKind, func(override client.Record, cites string) bool {
+		return cites != "" && (named(records, cites) || citesAnotherStore(override, cites))
+	}); found {
 		return "finder-override " + override.Name(), ""
 	}
 	said := "no finder-desk grade"
@@ -302,7 +304,7 @@ func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string
 			class, cite = word, "fidelity ok "+grade.record.Name()
 		}
 	}
-	override, overridden := countedOverride(c, r, fidelityKind, func(string) bool { return true })
+	override, overridden := countedOverride(c, r, fidelityKind, func(client.Record, string) bool { return true })
 	if class == "" && word != "" && overridden {
 		class, cite = word, "fidelity-override "+override.Name()
 	}
@@ -315,13 +317,13 @@ func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string
 	return class, cite, refusals
 }
 
-func countedOverride(c Claim, r Read, grader string, cited func(string) bool) (client.Record, bool) {
+func countedOverride(c Claim, r Read, grader string, cited func(client.Record, string) bool) (client.Record, bool) {
 	for _, record := range slices.Backward(r.Records) {
 		if string(record.Kind) != kindDecide || record.Lane != rootLane && record.Lane != bus.SweepLane {
 			continue
 		}
 		if slices.ContainsFunc(bus.Overrides(record), func(o bus.Override) bool {
-			return o.Grader == grader && o.PR == c.PR && strings.HasPrefix(c.Head, o.Head) && cited(o.Cites)
+			return o.Grader == grader && o.PR == c.PR && strings.HasPrefix(c.Head, o.Head) && cited(record, o.Cites)
 		}) {
 			return record, true
 		}
@@ -333,6 +335,11 @@ func named(records []client.Record, cites string) bool {
 	return slices.ContainsFunc(records, func(record client.Record) bool {
 		return record.Name() == "#"+cites || strconv.FormatInt(record.Seq, 10) == cites
 	})
+}
+
+func citesAnotherStore(override client.Record, cites string) bool {
+	_, notSeq := strconv.Atoi(cites)
+	return override.Num != "" && notSeq == nil
 }
 
 func exemptPhrase(text string, exempt []string) string {
