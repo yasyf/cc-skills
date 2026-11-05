@@ -307,7 +307,7 @@ func (f Fanout) tapWarning(r Reply) string {
 	if err != nil {
 		return fmt.Sprintf("the PR ledger did not read, so no PR this names was checked for a tap he owes: %v", err)
 	}
-	var missing, tapped, standing []string
+	var missing, tapped, standing, exempt []string
 	for n, found := range said {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] })
 		if at < 0 || !inRepo(repo, found) {
@@ -320,6 +320,8 @@ func (f Fanout) tapWarning(r Reply) string {
 			tapped = append(tapped, url)
 		case prrow.LandsOnHisWord(rows[at]) && len(r.Picks) > 0 && !slices.Contains(standing, url):
 			standing = append(standing, url)
+		case rows[at].State == prrow.StateExempt && len(r.Picks) > 0 && !slices.Contains(exempt, url):
+			exempt = append(exempt, url)
 		case rows[at].ReadyForTap && !rows[at].Tapped && !slices.ContainsFunc(r.PRs, listed) && !slices.Contains(missing, url):
 			missing = append(missing, url)
 		}
@@ -330,6 +332,9 @@ func (f Fanout) tapWarning(r Reply) string {
 	}
 	if len(standing) > 0 {
 		warned = append(warned, "this asks him to pick on a PR that lands on his standing word with no tap, so take it off the question: "+strings.Join(standing, ", "))
+	}
+	if len(exempt) > 0 {
+		warned = append(warned, "this asks him to pick on a PR that lands exempt with no tap, so take it off the question: "+strings.Join(exempt, ", "))
 	}
 	if len(missing) > 0 {
 		warned = append(warned, "this names a PR waiting on his tap and does not list it, so it carries no tap card; edit the reply with it in prs: "+strings.Join(missing, ", "))

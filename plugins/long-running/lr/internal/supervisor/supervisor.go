@@ -242,7 +242,7 @@ func logWaits(log *slog.Logger, snapshot []machine.Facts, out pass.Outcome) {
 		switch {
 		case verdict.Action == machine.ActionEnqueue && !acting[f.Number]:
 			why = "a PR below it is not clear to land"
-		case !f.Tapped() || verdict.Action != machine.ActionWaitCI:
+		case !f.Admitted() || verdict.Action != machine.ActionWaitCI:
 			continue
 		case f.Mergeable == machine.MergeableUnknown && !f.Uncomputed:
 			why = "its merge-queue state did not read, which reads as an unknown mergeability"

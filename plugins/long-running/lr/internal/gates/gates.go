@@ -258,9 +258,9 @@ func Missing(f machine.Facts) []string {
 	}
 	if f.Tap == machine.TapConditional {
 		out = append(out, "tap given "+f.Condition)
-	} else if f.StandingWord != "" && !f.Tapped() && !f.HoldAwaitsTap {
+	} else if f.StandingWord != "" && !f.Admitted() && !f.HoldAwaitsTap {
 		out = append(out, NoGo)
-	} else if !f.Tapped() || f.HoldAwaitsTap {
+	} else if !f.Admitted() || f.HoldAwaitsTap {
 		out = append(out, NoTap)
 	}
 	if f.Hold != "" && !f.HoldAwaitsTap {

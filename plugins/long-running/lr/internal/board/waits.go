@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -56,8 +57,13 @@ func (l Live) Explain(pr int, rows map[int]store.ReviewRow) PRWait {
 		return PRWait{pr, row.Head, true, fmt.Sprintf("%s: waits on your tap on the review tab", subject)}
 	}
 	fact := l.tapFact(strconv.Itoa(pr), row.Head, row)
-	if row.Tapped && l.Decided(strconv.Itoa(pr), row.Head) == "" {
-		fact = "a land order stands at " + abbreviate(row.Head)
+	if l.Decided(strconv.Itoa(pr), row.Head) == "" {
+		switch {
+		case row.Tapped:
+			fact = "a land order stands at " + abbreviate(row.Head)
+		case gates.LandsExempt(row):
+			fact = row.WaitsOn
+		}
 	}
 	return PRWait{pr, row.Head, false, fmt.Sprintf("%s: not waiting on you: %s", subject, fact)}
 }

@@ -952,10 +952,10 @@ func TestATapWritesItsByAndAtFactsSoTheNextFoldKeepsThem(t *testing.T) {
 	}
 }
 
-func TestAnotherPersonsPRLeavesTheRowsUnlessHeTappedIt(t *testing.T) {
+func TestAnotherPersonsPRLeavesTheRowsUnlessHeTappedItOrItIsExempt(t *testing.T) {
 	f, s := foldFor(t)
-	const theirs, tapped, ours = 1, 2, 3
-	for _, number := range []int{theirs, tapped, ours} {
+	const theirs, tapped, ours, exempted = 1, 2, 3, 4
+	for _, number := range []int{theirs, tapped, ours, exempted} {
 		postOpened(t, number, headA, "dev", "the body")
 	}
 	if _, err := f.Pass(context.Background(), nil); err != nil {
@@ -964,12 +964,15 @@ func TestAnotherPersonsPRLeavesTheRowsUnlessHeTappedIt(t *testing.T) {
 	if err := Tap(s, testRepo, tapped, headA, "owner", time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.PutFact(testRepo, exempted, headA, "exempt", "regression", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	foreign := func(number int) machine.Facts {
 		pr := cleanRead(number, headA)
 		pr.ForeignAuthor = "a-teammate"
 		return pr
 	}
-	if err := f.PostReads(context.Background(), []machine.Facts{foreign(theirs), foreign(tapped), cleanRead(ours, headA)}); err != nil {
+	if err := f.PostReads(context.Background(), []machine.Facts{foreign(theirs), foreign(tapped), cleanRead(ours, headA), foreign(exempted)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.Pass(context.Background(), nil); err != nil {
@@ -986,8 +989,8 @@ func TestAnotherPersonsPRLeavesTheRowsUnlessHeTappedIt(t *testing.T) {
 	for _, row := range rows {
 		kept = append(kept, row.Number)
 	}
-	if !slices.Equal(kept, []int{tapped, ours}) {
-		t.Fatalf("the pass returned rows %v, want the tapped PR and our own", kept)
+	if !slices.Equal(kept, []int{tapped, ours, exempted}) {
+		t.Fatalf("the pass returned rows %v, want the tapped PR, our own and the exempt one", kept)
 	}
 	if _, found, err := s.ReviewRow(testRepo, theirs); err != nil || found {
 		t.Fatalf("the store still holds another person's row: found=%v err=%v", found, err)
@@ -1111,7 +1114,7 @@ func TestAPortAsksHimOnlyWhenItSaysItInteractsOrTheGateRefusesIt(t *testing.T) {
 		"a clean claim the go read as outside the tree asks him":      {portRead(true, []string{"infra/rows/x.ts"}), true, outsideWords},
 		"a clean claim the go read as clean waits on nothing of his":  {portRead(true, []string{"go/sand/next/a.go"}), false, PortLands},
 		"a flake fix waits on nothing of his":                         {map[string]string{gates.FlakeFixAttr: "TestChatStream"}, false, FlakeLands},
-		"a clean port with its go is ready to land":                   {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, "exempt": gates.OldTreePortClass}, true, tappedWaits},
+		"a clean port with its go lands exempt":                       {map[string]string{gates.PortOfAttr: "49000", gates.PortInteractsAttr: gates.PortCleanWord, "exempt": gates.OldTreePortClass}, false, gates.ExemptWaits(gates.OldTreePortClass)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
@@ -1418,5 +1421,86 @@ func TestARowsMovedAtHoldsUntilItsHeadGradeOrQueueChanges(t *testing.T) {
 	queued.Queue, queued.QueuedHead = machine.QueueQueued, headA
 	if row := read(queued); row.MovedAt != store.Stamp(now) {
 		t.Fatalf("a row that entered the queue: moved at %q, want %q", row.MovedAt, store.Stamp(now))
+	}
+}
+
+func TestAnExemptHeadSaysItsClassAndOnlyHisTapReadsTapped(t *testing.T) {
+	const from = "aaaaaaaaaaaa"
+	for name, tc := range map[string]struct {
+		facts  map[string]string
+		held   Held
+		tapped bool
+		ready  bool
+		waits  string
+	}{
+		"exempt with no tap":       {map[string]string{"exempt": "regression"}, Held{}, false, false, "Exempt as regression; the landing desk lands it next."},
+		"exempt and tapped by him": {map[string]string{"exempt": "regression", "tap": string(machine.TapTapped)}, Held{}, true, true, tappedWaits},
+		"exempt with a tap carried": {
+			map[string]string{"exempt": "regression", factCarriedBy: "review-fix", factTapFrom: from},
+			Held{},
+			true, true,
+			strings.TrimSuffix(tappedWaits, ".") + "; your tap at aaaaaaa carried to this head: " + gates.CarryWhy("review-fix"),
+		},
+		"tapped by him":         {map[string]string{"tap": string(machine.TapTapped)}, Held{}, true, true, tappedWaits},
+		"exempt, until his tap": {map[string]string{"exempt": "regression"}, Held{AwaitsTap: "asks his tap"}, false, true, tapEndsHold + "asks his tap"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
+			maps.Copy(facts, tc.facts)
+			row := Materialize(readyRow(), facts, tc.held, nil, "dev")
+			if row.Tapped != tc.tapped || row.ReadyForTap != tc.ready || row.WaitsOn != tc.waits {
+				t.Fatalf("tapped %v, ready %v, waits %q; want %v, %v, %q", row.Tapped, row.ReadyForTap, row.WaitsOn, tc.tapped, tc.ready, tc.waits)
+			}
+			if !row.Tapped && (row.TappedBy != NotYet || row.TappedAt != NotYet) {
+				t.Fatalf("an untapped row names a tap: by %q at %q", row.TappedBy, row.TappedAt)
+			}
+			if exempt := !row.Tapped && !row.ReadyForTap; exempt != (row.State == StateExempt) {
+				t.Fatalf("state %q on a row tapped %v, ready %v", row.State, row.Tapped, row.ReadyForTap)
+			}
+			if refusal := TapRefusal(row); refusal != "" {
+				t.Fatalf("his tap on this row is refused: %q", refusal)
+			}
+			if wait := gates.RowWait(row, true, headA); wait != "" {
+				t.Fatalf("the row gate waits on %q, and an exempt head must pass it as it did", wait)
+			}
+		})
+	}
+}
+
+func TestAnExemptHeadWithAnUnmetGateSaysTheGate(t *testing.T) {
+	facts := map[string]string{factCI: CIRed, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass), "exempt": "regression"}
+	row := Materialize(readyRow(), facts, Held{}, nil, "dev")
+	if row.Tapped || row.WaitsOn != RedAtHead || gates.LandsExempt(row) {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestAFoldClearsAnExemptTapFromALandedRowAndKeepsHisOwn(t *testing.T) {
+	f, s := foldFor(t)
+	landed := func(number int, by string, facts map[string]string) {
+		t.Helper()
+		row := readyRow()
+		row.Number, row.State, row.Tapped, row.TappedAt, row.TappedBy = number, StateLanded, true, "2026-11-04T05:00:00Z", by
+		if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
+			t.Fatal(err)
+		}
+		for kind, value := range facts {
+			if _, err := s.PutFact(testRepo, number, headA, kind, value, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	landed(1, notRecorded, map[string]string{"exempt": "test-only-or-ci-only"})
+	landed(2, "owner", map[string]string{"exempt": "regression", "tap": string(machine.TapTapped)})
+	landed(3, "carried from aaaaaaa", map[string]string{"exempt": "regression", factCarriedBy: "review-fix"})
+	landed(4, "owner", map[string]string{"tap": string(machine.TapTapped)})
+
+	if row := folded(t, f, 1); row.Tapped || row.TappedBy != NotYet || row.TappedAt != NotYet || row.State != StateLanded {
+		t.Fatalf("exempt with no tap: row = %+v", row)
+	}
+	for _, number := range []int{2, 3, 4} {
+		if row := folded(t, f, number); !row.Tapped {
+			t.Fatalf("#%d lost its tap: row = %+v", number, row)
+		}
 	}
 }

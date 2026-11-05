@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -110,8 +111,8 @@ func passWords(read rowRead, facts map[string]string) string {
 
 func noLiveLane(read rowRead) bool {
 	row := read.row
-	open := row.State == prrow.StateOpen || row.State == prrow.StateTapped || row.State == prrow.StateEvicted
-	return open && read.ownerGone && row.Hold == prrow.None && !row.ReadyForTap && row.ParentState != prrow.ParentOpen && row.SupersededBy == prrow.None
+	open := row.State == prrow.StateOpen || row.State == prrow.StateTapped || row.State == prrow.StateExempt || row.State == prrow.StateEvicted
+	return open && read.ownerGone && row.Hold == prrow.None && !row.ReadyForTap && !gates.LandsExempt(row) && row.ParentState != prrow.ParentOpen && row.SupersededBy == prrow.None
 }
 
 func laneWaitLine(read rowRead) string {

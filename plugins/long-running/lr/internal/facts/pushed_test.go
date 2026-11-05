@@ -37,7 +37,7 @@ func TestARowBehindAPushReadsThePushedHeadAndNoneOfTheOldHeadsGrades(t *testing.
 	if row.Facts.Head != head2 || row.RowHead != head || row.HeadAt != "" {
 		t.Fatalf("row = %+v", row)
 	}
-	if row.Facts.Fidelity != "" || row.Facts.CI != machine.CIPending || row.Facts.Approved || row.Facts.Tapped() {
+	if row.Facts.Fidelity != "" || row.Facts.CI != machine.CIPending || row.Facts.Approved || row.Facts.Admitted() {
 		t.Fatalf("the old head's standing carried to the push: %+v", row.Facts)
 	}
 }

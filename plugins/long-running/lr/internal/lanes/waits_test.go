@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -309,4 +310,17 @@ func TestASpriteWorkersUnreadOrderIsRelayedOnceAndSendsNobodyToReadItsSprite(t *
 			t.Fatalf("a post still sends someone to the Sprite: %s", post.Text)
 		}
 	}
+}
+
+func TestAnExemptRowWhoseLaneIsGoneNeedsNoOwner(t *testing.T) {
+	s := memory(t)
+	f := waitFake(t, s)
+	row := waitingRow(49830, "chat-recovery-window-2", func(row *store.ReviewRow) { row.Grade = prrow.GradePass })
+	row.ReadyForTap, row.WaitsOn = false, gates.ExemptWaits("regression")
+	putRows(t, s, row)
+
+	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(120)))
+
+	equal(t, len(alarms(f)), 0)
 }

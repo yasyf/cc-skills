@@ -2200,3 +2200,23 @@ func TestAnApprovingPickDrawsTheOnePRItsWordsName(t *testing.T) {
 		})
 	}
 }
+
+func TestAReplyAskingAboutAnExemptPRNeverSaysHeTappedIt(t *testing.T) {
+	pick := Reply{MD: "Keep #2196?", Picks: []string{"Keep", "Revert"}}
+	for name, tc := range map[string]struct {
+		row   store.ReviewRow
+		warns bool
+	}{
+		"exempt and landing next": {store.ReviewRow{State: prrow.StateExempt, WaitsOn: "Exempt as regression; the landing desk lands it next."}, true},
+		"exempt and landed":       {store.ReviewRow{State: prrow.StateLanded, WaitsOn: "Nothing: it landed."}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, tc.row)
+			warning := f.tapWarning(pick)
+			if strings.Contains(warning, "already tapped") || tc.warns != strings.Contains(warning, "lands exempt") {
+				t.Fatalf("warning = %q, want warns %v", warning, tc.warns)
+			}
+		})
+	}
+}

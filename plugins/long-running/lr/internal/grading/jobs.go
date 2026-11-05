@@ -390,7 +390,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		Findings:       findings,
 		OwedDeletions:  owed,
 	}
-	if !facts.Tapped() {
+	if !facts.Admitted() {
 		spec.Since = facts.TapFrom
 	}
 	if again != nil {

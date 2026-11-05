@@ -38,7 +38,7 @@ func sayStuck(ctx context.Context, s *store.Store, drive string, f machine.Facts
 func WarnPersonQueued(ctx context.Context, drive string, snapshot []machine.Facts) error {
 	var failed []error
 	for _, f := range snapshot {
-		if !f.PersonQueued || f.Tapped() || f.Hold != "" || f.QueuedHead != f.Head {
+		if !f.PersonQueued || f.Admitted() || f.Hold != "" || f.QueuedHead != f.Head {
 			continue
 		}
 		_, err := client.Post(ctx, client.Draft{
