@@ -278,30 +278,45 @@ func TestAWithdrawnCardPushedAgainNeedsANewEnd(t *testing.T) {
 	}
 }
 
-func TestDrawnKeepsTheFirstDrawUntilASweepWithdrawsTheCard(t *testing.T) {
+func TestAFirstDrawStandsUntilASweepWithdrawsTheCard(t *testing.T) {
 	f := newCards(t, &cardShell{cards: []string{"merged-pr"}}, map[int]string{1: "MERGED"})
 	ctx := context.Background()
 	first := f.clock
-	drawnAt := func(want time.Time) {
+	marked := func(want time.Time) {
 		t.Helper()
+		if err := f.MarkDrawn(ctx, []string{"merged-pr"}); err != nil {
+			t.Fatal(err)
+		}
 		got, err := f.Drawn(ctx, []string{"merged-pr"})
 		if err != nil || !got["merged-pr"].Equal(want) {
 			t.Fatalf("drawn = %v, %v; want %s", got, err, want)
 		}
 	}
-	drawnAt(first)
+	marked(first)
 	f.clock = first.Add(2 * time.Hour)
 	if _, err := f.Until(ctx, "merged-pr", "pr:1", ""); err != nil {
 		t.Fatal(err)
 	}
-	drawnAt(first)
+	marked(first)
 	if err := f.Sweep(ctx, "board-lane", &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	f.clock = first.Add(3 * time.Hour)
-	drawnAt(f.clock)
+	marked(f.clock)
 	f.clock = first.Add(5 * time.Hour)
-	drawnAt(first.Add(3 * time.Hour))
+	marked(first.Add(3 * time.Hour))
+}
+
+func TestReadingWhenACardWasDrawnWritesNothing(t *testing.T) {
+	f := newCards(t, &cardShell{cards: []string{"merged-pr"}}, map[int]string{1: "MERGED"})
+	ctx := context.Background()
+	got, err := f.Drawn(ctx, []string{"merged-pr"})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("drawn = %v, %v; want no time for a card nothing marked", got, err)
+	}
+	if _, rows, err := f.rows(ctx); err != nil || rows["merged-pr"]["drawn"] != "" {
+		t.Fatalf("card row %v, %v; want the read to leave no stamp", rows["merged-pr"], err)
+	}
 }
 
 func TestRetroDueTimesReadThroughTheSameCheck(t *testing.T) {

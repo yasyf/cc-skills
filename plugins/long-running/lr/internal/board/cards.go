@@ -238,29 +238,45 @@ func (c Cards) Missing(ctx context.Context, named []string) ([]string, error) {
 }
 
 func (c Cards) Drawn(ctx context.Context, named []string) (map[string]time.Time, error) {
-	id, known, err := c.rows(ctx)
+	_, known, err := c.rows(ctx)
 	if err != nil {
 		return nil, err
 	}
-	now := stamp(c.Now())
 	drawn := make(map[string]time.Time, len(named))
-	var fresh []ledger.Row
 	for _, card := range named {
-		at := known[card]["drawn"]
-		if at == "" || known[card]["withdrawn"] > at {
-			at = now
-			fresh = append(fresh, ledger.Row{Key: cardPrefix + card, Fields: map[string]string{"drawn": at}})
+		if undrawn(known[card]) {
+			continue
 		}
+		at := known[card]["drawn"]
 		parsed, err := time.Parse(stampForm, at)
 		if err != nil {
 			return nil, fmt.Errorf("card %s drawn %q: %w", card, at, err)
 		}
 		drawn[card] = parsed
 	}
-	if len(fresh) == 0 {
-		return drawn, nil
+	return drawn, nil
+}
+
+func (c Cards) MarkDrawn(ctx context.Context, named []string) error {
+	id, known, err := c.rows(ctx)
+	if err != nil {
+		return err
 	}
-	return drawn, c.Ledger.Sync(ctx, id, fresh)
+	now := stamp(c.Now())
+	var fresh []ledger.Row
+	for _, card := range named {
+		if undrawn(known[card]) {
+			fresh = append(fresh, ledger.Row{Key: cardPrefix + card, Fields: map[string]string{"drawn": now}})
+		}
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+	return c.Ledger.Sync(ctx, id, fresh)
+}
+
+func undrawn(fields map[string]string) bool {
+	return fields["drawn"] == "" || fields["withdrawn"] > fields["drawn"]
 }
 
 func (c Cards) facts(ctx context.Context, waiting map[string]End) (EndFacts, error) {
