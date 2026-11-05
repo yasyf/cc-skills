@@ -108,7 +108,10 @@ const (
 	TapConditional Tap = "conditional"
 )
 
-const GradeStoppedFact = "grade-stopped"
+const (
+	GradeStoppedFact  = "grade-stopped"
+	FidelityWaitsFact = "fidelity-waits"
+)
 
 func OverrideFact(grader string) string {
 	return "override-" + grader

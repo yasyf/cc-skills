@@ -25,6 +25,7 @@ type Pool interface {
 	Dispatch(ctx context.Context, grader string, facts machine.Facts) (string, error)
 	Whole(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
 	Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
+	Parked(ctx context.Context, snapshot map[int]machine.Facts) (map[int]string, error)
 	TellStopped(ctx context.Context, facts machine.Facts, why string) error
 }
 
@@ -118,12 +119,46 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 	if err != nil {
 		return dispatched, err
 	}
+	parked, err := pool.Parked(ctx, snapshot)
+	if err != nil {
+		return dispatched, err
+	}
+	if err := markParked(s, snapshot, parked, now); err != nil {
+		return dispatched, err
+	}
 	for _, name := range append(started, reopened...) {
 		if err := s.Heartbeat(store.Worker{Name: name, Generation: generation, Heartbeat: now}); err != nil {
 			return dispatched, err
 		}
 	}
 	return dispatched, nil
+}
+
+func markParked(s *store.Store, snapshot map[int]machine.Facts, parked map[int]string, now time.Time) error {
+	repos := map[string]bool{}
+	for number, facts := range snapshot {
+		repos[facts.Repo] = true
+		if line := parked[number]; line != "" {
+			if _, err := s.PutFact(facts.Repo, number, facts.Head, machine.FidelityWaitsFact, line, now); err != nil {
+				return err
+			}
+		}
+	}
+	for repo := range repos {
+		marked, err := s.FactsOfKind(repo, machine.FidelityWaitsFact)
+		if err != nil {
+			return err
+		}
+		for key := range marked {
+			if facts, open := snapshot[key.Number]; open && facts.Head == key.Head && parked[key.Number] != "" {
+				continue
+			}
+			if err := s.DeleteFact(repo, key.Number, key.Head, machine.FidelityWaitsFact); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func settleWorkers(ctx context.Context, s *store.Store, pool Pool, now time.Time, generation int64) (map[int64]bool, error) {

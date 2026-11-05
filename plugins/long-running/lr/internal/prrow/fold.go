@@ -551,6 +551,9 @@ func gradeOf(facts map[string]string) (string, string) {
 	for _, grader := range []string{"finder", "fidelity"} {
 		said = append(said, orElse(facts[grader+saidSuffix], grader+": "+facts[grader]))
 	}
+	if waits := facts[machine.FidelityWaitsFact]; waits != "" {
+		said[1] = waits
+	}
 	return GradeFail, strings.Join(said, "; ")
 }
 

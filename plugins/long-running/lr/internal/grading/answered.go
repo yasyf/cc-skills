@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -22,6 +23,8 @@ const (
 	ownerPick     = "class owner-pick"
 	oddDesk       = "fidelity-desk"
 	evenDesk      = "fidelity-shard"
+	kindWithdraw  = "withdraw"
+	unansweredFor = time.Hour
 )
 
 var cardNamed = regexp.MustCompile(`\bcard[- ]([\w.-]*\w)`)
@@ -91,8 +94,21 @@ func cardsNamed(text string) []string {
 }
 
 func awaitedGrade(records []client.Record, facts machine.Facts, answered []string) (client.Record, string, bool) {
-	if facts.Fidelity != machine.FidelityFail || len(answered) == 0 {
+	grade, cards, parked := ownerPickGrade(records, facts)
+	if !parked {
 		return client.Record{}, "", false
+	}
+	for _, card := range cards {
+		if slices.Contains(answered, card) {
+			return grade, card, true
+		}
+	}
+	return client.Record{}, "", false
+}
+
+func ownerPickGrade(records []client.Record, facts machine.Facts) (client.Record, []string, bool) {
+	if facts.Fidelity != machine.FidelityFail {
+		return client.Record{}, nil, false
 	}
 	pr := strconv.Itoa(facts.Number)
 	grades := fidelityGrades(records, withSuccessors(bus.FidelityLanes(), records), facts.Repo, pr)
@@ -100,18 +116,57 @@ func awaitedGrade(records []client.Record, facts machine.Facts, answered []strin
 		return !grader.NamesHead(shortSHA.FindString(r.Text), facts.Head)
 	})
 	if len(grades) == 0 {
-		return client.Record{}, "", false
+		return client.Record{}, nil, false
 	}
 	grade := grades[len(grades)-1]
-	if !strings.HasPrefix(grade.Text, fidelityMissing) || !strings.Contains(grade.Text, ownerPick) {
-		return client.Record{}, "", false
+	cards := cardsNamed(grade.Text)
+	if !strings.HasPrefix(grade.Text, fidelityMissing) || !strings.Contains(grade.Text, ownerPick) || len(cards) == 0 {
+		return client.Record{}, nil, false
 	}
-	for _, card := range cardsNamed(grade.Text) {
-		if slices.Contains(answered, card) {
-			return grade, card, true
+	return grade, cards, true
+}
+
+func (p *JobPool) Parked(ctx context.Context, snapshot map[int]machine.Facts) (map[int]string, error) {
+	if _, on := p.desks[GraderFidelity]; !on || !slices.ContainsFunc(slices.Collect(maps.Values(snapshot)), func(f machine.Facts) bool { return f.Fidelity == machine.FidelityFail }) {
+		return nil, nil
+	}
+	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview, kindOwner, kindWithdraw}})
+	if err != nil {
+		return nil, err
+	}
+	waits := map[int]string{}
+	for number, facts := range snapshot {
+		grade, cards, parked := ownerPickGrade(found, facts)
+		if !parked {
+			continue
+		}
+		if line := waitLine(found, grade, cards, p.Now()); line != "" {
+			waits[number] = line
 		}
 	}
-	return client.Record{}, "", false
+	return waits, nil
+}
+
+func waitLine(records []client.Record, grade client.Record, cards []string, now time.Time) string {
+	after := slices.DeleteFunc(slices.Clone(records), func(r client.Record) bool { return r.Seq <= grade.Seq })
+	for _, card := range cards {
+		if slices.ContainsFunc(after, func(r client.Record) bool {
+			return string(r.Kind) == kindOwner && slices.Contains(cardsNamed(fullText(r)), card)
+		}) {
+			return ""
+		}
+	}
+	for _, card := range cards {
+		if slices.ContainsFunc(after, func(r client.Record) bool {
+			return string(r.Kind) == kindWithdraw && strings.TrimPrefix(r.Topic, "card-") == card
+		}) {
+			return fmt.Sprintf("fidelity waits on his answer to card %s, and that card was taken off his board before he answered, so nothing will answer it: root redraws the card or settles the grade", card)
+		}
+	}
+	if waited := now.Sub(grade.At); waited >= unansweredFor {
+		return fmt.Sprintf("fidelity waits on his answer to card %s, unanswered for %d hours", strings.Join(cards, " or card "), int(waited.Hours()))
+	}
+	return ""
 }
 
 func (p *JobPool) tellReopened(ctx context.Context, facts machine.Facts, answer, grade client.Record, card, pass string) error {

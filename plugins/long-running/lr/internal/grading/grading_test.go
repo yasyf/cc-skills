@@ -34,6 +34,7 @@ type fakePool struct {
 	reversed bool
 	wholes   []string
 	told     []string
+	parked   map[int]string
 }
 
 func (p *fakePool) TellStopped(_ context.Context, _ machine.Facts, why string) error {
@@ -58,6 +59,10 @@ func (p *fakePool) Whole(context.Context, map[int]machine.Facts) ([]string, erro
 
 func (p *fakePool) Reopen(context.Context, map[int]machine.Facts) ([]string, error) {
 	return nil, nil
+}
+
+func (p *fakePool) Parked(context.Context, map[int]machine.Facts) (map[int]string, error) {
+	return p.parked, nil
 }
 
 func (p *fakePool) Settle(_ context.Context, workers []string) (map[string]bool, error) {
@@ -486,5 +491,26 @@ func TestAnItemWithAPassStillToRunDoesNotStopForTheOtherGrader(t *testing.T) {
 	}
 	if got := graders(pool.jobs); !slices.Equal(got, []string{GraderFinder}) {
 		t.Fatalf("dispatched = %v", got)
+	}
+}
+
+func TestWhatAParkedGradeWaitsOnStaysAFactAtItsHeadUntilItStopsWaiting(t *testing.T) {
+	s, pool := memory(t), &fakePool{box: "sprite-1", parked: map[int]string{number: "fidelity waits on his answer to card rmw37abc"}}
+	parked := facts(head, func(f *machine.Facts) { f.Finder, f.Fidelity = machine.FinderClear, machine.FidelityFail })
+
+	act(t, s, pool, nil, parked, t0)
+	marked, err := s.Facts(repo, number, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.parked = nil
+	act(t, s, pool, nil, parked, t0.Add(3*time.Minute))
+	cleared, err := s.Facts(repo, number, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if marked[machine.FidelityWaitsFact] != "fidelity waits on his answer to card rmw37abc" || cleared[machine.FidelityWaitsFact] != "" {
+		t.Errorf("marked = %q, cleared = %q", marked[machine.FidelityWaitsFact], cleared[machine.FidelityWaitsFact])
 	}
 }
