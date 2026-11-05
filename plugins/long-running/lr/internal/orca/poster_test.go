@@ -304,6 +304,29 @@ func TestALaunchWarnsOnABriefWithASecondCCXLine(t *testing.T) {
 	}
 }
 
+func TestAClaudeLaunchWhoseBriefNeedsSentryWarnsToRunItOnSol(t *testing.T) {
+	for _, tt := range []struct {
+		name, model, ccx string
+		warned           bool
+	}{
+		{"claude reading sentry", "opus", "ccx: role=read place=local why=sentry", true},
+		{"sol reading sentry", "sol", "ccx: role=read place=local why=sentry", false},
+		{"claude naming sentry in prose", "opus", "ccx: role=build place=local why=mac-inputs\nThe fix ends a Sentry issue's events.", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newPosterFixture(t)
+			brief := f.brief(t, "brief-of-a.md", "Register slice: lane=new-lane step=all\nScale: no N\n"+tt.ccx+"\n")
+			f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+			if _, err := f.poster.Launch(context.Background(), Order{Lane: "new-lane", Model: tt.model, Effort: "high", Brief: brief, Now: true}, time.Minute); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(f.out.String(), "WARN new-lane's brief says why=sentry, but a Claude lane has no Sentry tools; launch it with --model sol\n"); got != tt.warned || len(f.bus.posts) != 1 {
+				t.Fatalf("warned = %v, want %v, posts %d:\n%s", got, tt.warned, len(f.bus.posts), f.out)
+			}
+		})
+	}
+}
+
 func TestALaunchTheRunnerRefusesReturnsItsVerdict(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, "b.md", "work\n"+briefLines)
