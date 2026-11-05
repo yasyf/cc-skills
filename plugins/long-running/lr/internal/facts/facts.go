@@ -993,6 +993,24 @@ func (s Source) openHeads(ctx context.Context) (map[string]int, error) {
 	return heads, nil
 }
 
+func (s Source) askReadOfReopened(rows []store.ReviewRow, open map[string]int) error {
+	reopened := make(map[int]bool, len(open))
+	for _, number := range open {
+		reopened[number] = true
+	}
+	return s.Store.Update(func(t *store.Tx) error {
+		for _, row := range rows {
+			if row.State != prrow.StateClosed || !reopened[row.Number] {
+				continue
+			}
+			if err := t.AskRead(s.Repo, row.Number); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func carried(prs map[int]pullRequest, open map[string]int) map[int][]int {
 	byHead := maps.Clone(open)
 	for _, pr := range prs {
@@ -1133,6 +1151,9 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	heads, err := s.openHeads(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read the open pull requests' heads: %w", err)
+	}
+	if err := s.askReadOfReopened(known, heads); err != nil {
+		return nil, err
 	}
 	carries := carried(open.prs, heads)
 	out := make([]machine.Facts, 0, len(rows))

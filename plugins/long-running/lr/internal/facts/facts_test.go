@@ -2446,6 +2446,31 @@ func TestAShortHeadRecordAsksForOneReadThatFillsTheRowOnAHostThatDoesNotRead(t *
 	}
 }
 
+func TestAPRReopenedAtTheHeadItClosedAtIsReadAgainAndItsRowReopens(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}}, status(1), status(2, func(row *statusRow) { row.Head = head2 }))
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "pr-read", Kind: "github", Text: "closed", To: []string{"supervisor"}, Force: true, PRs: []string{repo + "#1"}, Attrs: map[string]string{"record": "pr.read", "repo": repo, "head": head, "state": prrow.StateClosed}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.source.FoldRows(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if row, _, err := h.store.ReviewRow(repo, 1); err != nil || row.State != prrow.StateClosed {
+		t.Fatalf("row = %+v, %v, want it closed by the read", row, err)
+	}
+
+	h.snapshot(t)
+	for range 2 {
+		if err := h.source.FoldRows(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	row, _, err := h.store.ReviewRow(repo, 1)
+	if err != nil || row.State != prrow.StateOpen || row.Head != head {
+		t.Fatalf("row = %+v, %v, want it open again at %s once GitHub lists it open", row, err, head)
+	}
+}
+
 func TestARowTheLandingHostNeverReadStillOwesAGradeOnAHostThatDoesNotRead(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.Reads = false
