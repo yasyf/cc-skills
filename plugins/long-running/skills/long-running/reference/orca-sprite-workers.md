@@ -233,6 +233,18 @@ The script prints one `installed <name> <version>` line per tool, cci and lr inc
 - A roll does not wait for a lane to go idle. A binary is replaced by rename, so a running process keeps its old file. A plugin's old tree stays where the session loaded it. A lane in mid-turn sees the new hooks at its next hook call, and the new skills only in its next session.
 - The roll also installs on `host.sprite` from `runner.json`, the always-on desk host, which hosts no worker. `lr install` rolls that host right after it moves the pins, so the host follows the Mac without a separate roll. A failure there is logged and does not undo the Mac's install. On a box with a `~/.claude/long-running/current` link, installing the pack moves the link, and a supervisor running there re-executes onto it.
 
+### `lr sprites grader`
+
+`lr sprites grader NAME...` makes each named Sprite a grader the `finder` and `fidelity` desks can list. It reads the sponsor from `orca.sprite.env.WORKER_RELAY_SPONSOR` in `runner.json`, and refuses before touching any Sprite when that is unset. It exports the drive's store once for every name, then makes the Sprites at the same time, each in this order:
+
+1. Install the cci, lr, ccx, ccn and codex-ask pins, recorded for `lr sprites roll`.
+2. Link this Mac's home to `/home/sprite`, and each of the `landing`, `finder` and `fidelity` checkouts to the Sprite's checkout, so a job's Mac paths resolve there.
+3. Fetch the checkout's whole history with a `ccx vcs auth token` for the landing repo.
+4. Join the cci relay with the sponsor's service key and start `cci supervise`. The daemon renews the 24-hour delegation within 2 hours of its expiry, so a grader keeps the relay with no further step.
+5. Seed the drive's store from the export.
+
+A Sprite that fails stops at that step alone, and the verb ends by naming every Sprite it did not make. A second run on a made Sprite stops at the relay join, since its `cci` service already exists. Adding the Sprite to `finder.sprite` or `fidelity.sprite` in `runner.json` is a separate edit.
+
 ## Keep a Sprite awake while its agent runs
 
 A Sprite pauses about 30 seconds after its last activity, and a parked agent is not activity. A lane waiting on CI or a Monitor goes warm, then cold, and a cold Sprite has lost its processes.
