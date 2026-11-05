@@ -605,6 +605,44 @@ func TestAReadCorrectsARowAStaleHeadRecordMovedBackOnceTheGraceEnds(t *testing.T
 	}
 }
 
+func TestAShortHeadRecordAfterTheReadKeepsTheFullShaItNames(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headB)}); err != nil {
+		t.Fatal(err)
+	}
+	folded(t, f, 1)
+
+	postHead(t, 1, headB[:7])
+
+	if row := folded(t, f, 1); row.Head != headB {
+		t.Fatalf("head = %q, want the read's full %s", row.Head, headB)
+	}
+}
+
+func TestARowHoldingAShortHeadHealsFromTheNextRead(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headA)}); err != nil {
+		t.Fatal(err)
+	}
+	row := folded(t, f, 1)
+	row.Head = headA[:7]
+	if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headA)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := folded(t, f, 1); row.Head != headA || row.CI != CIGreen {
+		t.Fatalf("row = %+v, want the full head read back with its values unchanged", row)
+	}
+}
+
 func TestARowNamesTheLaneThatLastPushedItByAlias(t *testing.T) {
 	f, _ := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)
