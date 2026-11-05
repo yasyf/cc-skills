@@ -188,7 +188,7 @@ func TestDependRecordsThePRsAndRegisterNamesACardRestsOn(t *testing.T) {
 	}
 }
 
-func TestAPostgresRulingWithdrawsTheLookupsCardItDecidesAndTellsTheCommunicator(t *testing.T) {
+func TestAPostgresRulingThatReadsAsDecidingTheLookupsCardLeavesItUpAndTellsTheLaneThatDrewIt(t *testing.T) {
 	f := newDeps(t, lookupsDoc)
 	ctx := context.Background()
 	if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
@@ -201,15 +201,14 @@ func TestAPostgresRulingWithdrawsTheLookupsCardItDecidesAndTellsTheCommunicator(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moved) != 1 || moved[0].How != "withdrew" || !reflect.DeepEqual(f.shell.removed, []string{lookupsCard}) {
-		t.Fatalf("moved = %v, removed = %v", moved, f.shell.removed)
+	if len(moved) != 1 || moved[0].How != "flagged" || len(f.shell.removed) != 0 {
+		t.Fatalf("moved = %v, removed = %v; a ruling elsewhere is no tap on this card", moved, f.shell.removed)
 	}
-	report := f.posts[len(f.posts)-1]
-	if report.kind != "report" || !reflect.DeepEqual(report.to, []string{communicator}) || !strings.Contains(report.text, "withdrew card-48879, because his ruling moves lookups to Postgres") {
-		t.Fatalf("report = %+v", report)
+	if told := f.posts[0]; !reflect.DeepEqual(told.to, []string{"lane-a"}) || !strings.Contains(told.text, "his ruling moves lookups to Postgres") {
+		t.Fatalf("told = %+v", told)
 	}
-	if refs, err := f.Cards.Store.CardsDependingOn([]string{"lookups"}); err != nil || len(refs) != 0 {
-		t.Fatalf("a withdrawn card still depends: %v, %v", refs, err)
+	if refs, err := f.Cards.Store.CardsDependingOn([]string{"lookups"}); err != nil || len(refs) != 1 {
+		t.Fatalf("a card still up stops depending: %v, %v", refs, err)
 	}
 }
 
@@ -344,46 +343,21 @@ func TestAnUnsureJudgeKeepsTheCardAndFlagsItToItsLane(t *testing.T) {
 	}
 }
 
-func TestARefusedWithdrawKeepsTheCardAndFlagsIt(t *testing.T) {
+func TestARecheckWriteNamesItselfAndTakesTheCardOver(t *testing.T) {
 	f := newDeps(t, lookupsDoc)
 	ctx := context.Background()
 	if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
 		t.Fatal(err)
 	}
 	f.postgresRuling(t)
-	f.shell.refuse = "refusing to remove card-48879: the owner touched it 4 minutes ago"
 	f.says(lookupsCard, premiseKind, "yes", "Lookups now read Postgres.")
-	f.says(lookupsCard, decidedKind, "yes", "his ruling decides it")
-	moved, err := f.Ruling(ctx, []string{postgresRule})
-	if err != nil {
+	f.says(lookupsCard, decidedKind, "no", "whether to merge is open")
+	if _, err := f.Ruling(ctx, []string{postgresRule}); err != nil {
 		t.Fatal(err)
 	}
-	if len(moved) != 1 || moved[0].How != "held" || !strings.Contains(moved[0].Why, "the owner touched it") {
-		t.Fatalf("moved = %v", moved)
-	}
-	flag := f.posts[0]
-	if !reflect.DeepEqual(flag.to, []string{"lane-a"}) || !strings.Contains(flag.text, "withdraw it because his ruling decides it") || strings.Contains(flag.text, "could not settle") {
-		t.Fatalf("flag = %+v", flag)
-	}
-}
-
-func TestARecheckWriteNamesItselfAndTakesTheCardOver(t *testing.T) {
-	for verdict, write := range map[string]string{"yes": "remove-block", "no": "update-block"} {
-		f := newDeps(t, lookupsDoc)
-		ctx := context.Background()
-		if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
-			t.Fatal(err)
-		}
-		f.postgresRuling(t)
-		f.says(lookupsCard, premiseKind, "yes", "Lookups now read Postgres.")
-		f.says(lookupsCard, decidedKind, verdict, "whether to merge is settled or open")
-		if _, err := f.Ruling(ctx, []string{postgresRule}); err != nil {
-			t.Fatal(err)
-		}
-		i := slices.IndexFunc(f.shell.calls, func(call string) bool { return strings.Contains(call, write) })
-		if i < 0 || !strings.Contains(f.shell.calls[i], "--lane root --take-over") {
-			t.Fatalf("%s calls = %v, want --lane root --take-over", write, f.shell.calls)
-		}
+	i := slices.IndexFunc(f.shell.calls, func(call string) bool { return strings.Contains(call, "update-block") })
+	if i < 0 || !strings.Contains(f.shell.calls[i], "--lane root --take-over") {
+		t.Fatalf("calls = %v, want --lane root --take-over", f.shell.calls)
 	}
 }
 

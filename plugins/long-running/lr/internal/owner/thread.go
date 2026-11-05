@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -25,8 +25,6 @@ const (
 	noBoard     = "no cc-present artifact"
 	rowWait     = 30 * time.Second
 )
-
-var numberedPick = regexp.MustCompile(`(?i)^\s*(?:i pick |pick |option )?\d+\b`)
 
 type threadWord struct {
 	Channel string `json:"channel_id"`
@@ -85,7 +83,7 @@ func (w threadWord) record(ctx context.Context, runner shell.Runner, threads thr
 		return nil
 	}
 	card, found, err := w.card(ctx, runner, threads, entry, session)
-	if err != nil || !found || !numberedPick.MatchString(w.Text) {
+	if err != nil || !found || !cardtext.NumberedPick(w.Text) {
 		return err
 	}
 	seconds, err := strconv.ParseFloat(w.TS, 64)
