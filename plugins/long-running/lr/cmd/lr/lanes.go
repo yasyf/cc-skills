@@ -8,6 +8,7 @@ func init() {
 	register(lanes.RequestCommand)
 	register(lanes.DoneCheckCommand)
 	register(lanes.StopSpritesCommand)
+	register(lanes.RunnerCommand)
 	register(lanes.NscCommand)
 	register(lanes.DevboxCommand)
 	register(lanes.ApprovedCommand)
