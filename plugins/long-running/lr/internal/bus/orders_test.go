@@ -38,3 +38,17 @@ func TestAPickReadsItsOwnPRAndItsOwnHeadsRepository(t *testing.T) {
 		})
 	}
 }
+
+func TestALabelLessPickEscalatesUnlessItIsASlackPermissionAnswer(t *testing.T) {
+	for block, want := range map[string]bool{
+		"merge:50129:655dbb7-answer":      true,
+		"card-tap-50129-655dbb7-choice":   true,
+		"slack-80ad0fa34a9b-answer":       false,
+		"slack:C0C5SEUJK5L:1.2:ab-answer": false,
+	} {
+		pick := legacyRecord(t, "owner", "board-watch", "Backfilled from board 59e75579: the owner answered this choice", nil, map[string]string{"event": "choice.selected", "block": block, "picked": "yes"})
+		if got := bus.UnreadPick(pick); got != want {
+			t.Errorf("UnreadPick(%s) = %v, want %v", block, got, want)
+		}
+	}
+}

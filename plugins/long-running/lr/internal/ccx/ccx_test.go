@@ -16,7 +16,7 @@ const statusOutput = `[{"head": "754b02c186e7dd15bb6a1e3a1f7a4518acd79c7c", "num
 func TestPRStatusReadsOneCallForEveryNumber(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(statusOutput, "ccx", "vcs", "pr", "status")
-	rows, err := CLI{fake}.PRStatus(context.Background(), "org/repo", []int{1921, 1922})
+	rows, err := CLI{Runner: fake}.PRStatus(context.Background(), "org/repo", []int{1921, 1922})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,10 +32,10 @@ func TestPRStatusReadsOneCallForEveryNumber(t *testing.T) {
 
 func TestNoNumbersMakeNoCall(t *testing.T) {
 	fake := &shelltest.Fake{}
-	if rows, err := (CLI{fake}).PRStatus(context.Background(), "org/repo", nil); err != nil || rows != nil {
+	if rows, err := (CLI{Runner: fake}).PRStatus(context.Background(), "org/repo", nil); err != nil || rows != nil {
 		t.Fatalf("rows %v, err %v", rows, err)
 	}
-	if state, err := (CLI{fake}).PRState(context.Background(), "org/repo", MaxAgeCached, nil, nil); err != nil || state.Repo != "org/repo" {
+	if state, err := (CLI{Runner: fake}).PRState(context.Background(), "org/repo", MaxAgeCached, nil, nil); err != nil || state.Repo != "org/repo" {
 		t.Fatalf("state %+v, err %v", state, err)
 	}
 	if calls := fake.Calls(); len(calls) != 0 {
@@ -46,7 +46,7 @@ func TestNoNumbersMakeNoCall(t *testing.T) {
 func TestPRStateNamesItsNumbersAndLanePrefixes(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(`{"repo":"org/repo","trunk":"main","lanes":{},"prs":{"7":{"number":7}}}`, "ccx", "vcs", "pr", "state")
-	state, err := CLI{fake}.PRState(context.Background(), "org/repo", "2m", []int{7}, []string{"lr-", "go-"})
+	state, err := CLI{Runner: fake}.PRState(context.Background(), "org/repo", "2m", []int{7}, []string{"lr-", "go-"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestPRStateNamesItsNumbersAndLanePrefixes(t *testing.T) {
 func TestGHGoesThroughTheGateway(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply("out", "ccx", "vcs", "gh")
-	out, err := CLI{fake}.GH(context.Background(), MaxAgeFresh, "pr", "list")
+	out, err := CLI{Runner: fake}.GH(context.Background(), MaxAgeFresh, "pr", "list")
 	if err != nil || out != "out" {
 		t.Fatalf("out %q, err %v", out, err)
 	}
@@ -74,7 +74,7 @@ func TestGHGoesThroughTheGateway(t *testing.T) {
 func TestStackListRunsInTheWorktreeItReads(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(`{"root":"/w","branches":[{"branch":"b","path":"/w","current":true,"needs_restack":true,"needs_submit":false,"state":""}]}`, "ccx", "vcs", "stack", "list")
-	stack, err := CLI{fake}.StackList(context.Background(), "/w")
+	stack, err := CLI{Runner: fake}.StackList(context.Background(), "/w")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,9 +86,27 @@ func TestStackListRunsInTheWorktreeItReads(t *testing.T) {
 func TestARefusalReachesTheCaller(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Fail(1, "rate limit", "ccx")
-	_, err := CLI{fake}.PRStatus(context.Background(), "org/repo", []int{1})
+	_, err := CLI{Runner: fake}.PRStatus(context.Background(), "org/repo", []int{1})
 	var exit *shell.ExitError
 	if !errors.As(err, &exit) || exit.Stderr != "rate limit" {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPRReadsRunFromTheCheckoutTheClientHolds(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(`[]`, "ccx", "vcs", "pr", "status")
+	fake.Reply(`{}`, "ccx", "vcs", "pr", "state")
+	from := CLI{Runner: fake, Dir: "/co"}
+	if _, err := from.PRStatus(context.Background(), "org/repo", []int{1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := from.PRState(context.Background(), "org/repo", MaxAgeCached, []int{1}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range fake.Calls() {
+		if call.Dir != "/co" {
+			t.Fatalf("%v ran from %q, want /co", call.Argv, call.Dir)
+		}
 	}
 }

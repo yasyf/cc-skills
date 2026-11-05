@@ -40,6 +40,7 @@ var (
 	landLabel      = regexp.MustCompile(`(?i)^\W*(?:yes\W+)?(?:land|merge|approve|ship)\b`)
 	holdLabel      = regexp.MustCompile(`(?i)^\W*hold\b`)
 	namedPR        = regexp.MustCompile(`([\w./-]*)#(\d+)\b`)
+	slackAsk       = regexp.MustCompile(`^slack[-:]`)
 )
 
 func (b Bus) ReadOwner(ctx context.Context, since int64, floor time.Time) ([]client.Record, error) {
@@ -121,10 +122,10 @@ func OrderOf(record client.Record, repo string) (Tap, bool) {
 	return Tap{PR: number, Head: head, By: OwnerBy, Value: value}, named
 }
 
-// UnreadPick says a pick was recorded with option ids and no label because its board could not be read, so no one can tell a land pick from any other.
+// UnreadPick says a pick was recorded with option ids and no label, so no one can tell a land pick from any other. A Slack permission card asks whether to post, so its pick never lands a PR.
 func UnreadPick(record client.Record) bool {
 	attrs := record.Fields.Attrs
-	return string(record.Kind) == ownerKind && attrs["event"] == "choice.selected" && attrs["picked"] != "" && !pickedLabel.MatchString(record.Text)
+	return string(record.Kind) == ownerKind && attrs["event"] == "choice.selected" && attrs["picked"] != "" && !pickedLabel.MatchString(record.Text) && !slackAsk.MatchString(attrs["block"])
 }
 
 // UnnamedLand says a pick reads as a land or hold order but its card names no one PR, so no order can come from it.

@@ -39,6 +39,10 @@ func New(stderr io.Writer) *App {
 	}
 }
 
+func (a *App) CCXFrom(checkout string) ccx.Client {
+	return ccx.CLI{Runner: a.Runner, Dir: checkout}
+}
+
 func (a *App) Config() (config.Config, error) {
 	path, err := a.ConfigFile()
 	if err != nil {
