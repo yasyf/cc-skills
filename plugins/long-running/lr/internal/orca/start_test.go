@@ -116,6 +116,7 @@ type harness struct {
 	sleeps     []time.Duration
 	onSleep    func()
 	ccxRefuses bool
+	ccxQueues  bool
 	posted     []client.Draft
 	stderr     bytes.Buffer
 }
@@ -351,10 +352,13 @@ func (h *harness) defaultShow(args []string) (shell.Result, error) {
 func (h *harness) ccxTool(ctx context.Context, c shell.Command) (shell.Result, error) {
 	h.mu.Lock()
 	h.calls = append(h.calls, slices.Clone(c.Argv))
-	refuses := h.ccxRefuses
+	refuses, queues := h.ccxRefuses, h.ccxQueues
 	h.mu.Unlock()
 	if refuses {
 		return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1}
+	}
+	if queues {
+		return shell.Result{Stdout: "queued the daemon claims it when sessions are quiet\n"}, nil
 	}
 	return shell.Exec{}.Run(ctx, shell.Command{Argv: []string{"git", "worktree", "remove", "--force", flag(c.Argv, "--path")}, Dir: c.Dir})
 }
@@ -2237,6 +2241,41 @@ func TestARollbackCCXRefusesIsNamedInTheFailure(t *testing.T) {
 		t.Fatal(line)
 	}
 	wantLine(t, strings.TrimSpace(h.readReceipt("lane-a.worktree")), h.worktree())
+}
+
+func TestAQueuedWorktreeRemovalIsNamedAndKeepsItsBranch(t *testing.T) {
+	h := newHarness(t)
+	h.noAgent()
+	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+	h.ccxQueues = true
+	line, _ := h.launch()
+	if !strings.HasSuffix(line, "; rolled back terminal=term_a; rollback left worktree="+h.worktree()+" (its removal is queued: "+filepath.Join(h.receipts, "lane-a.rm.log")+") branch="+testBranch+" (its worktree's removal is queued)") {
+		t.Fatal(line)
+	}
+	if h.gitIn(h.main, "branch", "--list", testBranch) == "" {
+		t.Fatal("the branch under a queued removal was deleted")
+	}
+	if exists(filepath.Join(h.receipts, "lane-a.worktree")) {
+		t.Fatal("a relaunch would resume in a tree queued for removal")
+	}
+}
+
+func TestARefusedTerminalCreateFailsAtOnceWithOrcasMessage(t *testing.T) {
+	const refusal = "The host is already running as many terminals as Orca allows. Close a terminal you no longer need, then try again."
+	h := newHarness(t)
+	h.noAgent()
+	h.reply("terminal create", reply{rc: 1, out: object{"ok": false, "error": object{"code": "runtime_error", "message": refusal}}})
+	line, code := h.launch()
+	if code != 1 {
+		t.Fatal(line)
+	}
+	wantLine(t, line, "lane-a failed terminal create: runtime_error: "+refusal+"; rolled back worktree="+h.worktree()+" branch="+testBranch)
+	if creates := h.orcaCalls("terminal create"); len(creates) != 1 {
+		t.Fatal(creates)
+	}
+	if len(h.sleeps) != 0 || strings.Contains(h.stderr.String(), "retries once") {
+		t.Fatalf("sleeps %v, stderr %s", h.sleeps, h.stderr.String())
+	}
 }
 
 func TestNothingIsRolledBackOnceWorkerStartHasRun(t *testing.T) {

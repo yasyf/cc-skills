@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/terminalcap"
 )
 
 const (
@@ -259,13 +260,16 @@ func (d *Desk) spriteRefusal(ctx context.Context, key, lane string, spec launchT
 }
 
 func (d *Desk) onSprite(ctx context.Context, key, lane, model, text string) (string, bool, error) {
-	if macRequired(lane, model, text) {
+	read := d.overLoadOrFull
+	switch {
+	case macInputsOnly(lane, model, text):
+		read = d.noTerminalRoom
+	case macRequired(lane, model, text):
 		return "", false, nil
-	}
-	if !macPreferred(text) {
+	case !macPreferred(text):
 		return "", true, nil
 	}
-	over, err := d.macOverload(ctx, key)
+	over, err := d.macOverload(ctx, key, read)
 	return over, over != "", err
 }
 
@@ -273,19 +277,12 @@ func (d *Desk) loadPath(key string) string {
 	return filepath.Join(filepath.Dir(filepath.Dir(d.Config.DeskInbox)), "launch-load", key)
 }
 
-func (d *Desk) macOverload(ctx context.Context, key string) (string, error) {
+func (d *Desk) macOverload(ctx context.Context, key string, read func(context.Context) string) (string, error) {
 	path := d.loadPath(key)
 	if raw, err := os.ReadFile(path); !errors.Is(err, os.ErrNotExist) {
 		return string(raw), err
 	}
-	over := ""
-	said, _, err := d.capture(ctx, nil, "sysctl", "-n", "vm.loadavg")
-	if found := loadAverage.FindStringSubmatch(said); err == nil && found != nil {
-		load, _ := strconv.ParseFloat(found[1], 64)
-		if load > float64(d.Config.LoadLimit) {
-			over = fmt.Sprintf("Mac load %.0f over %d", load, d.Config.LoadLimit)
-		}
-	}
+	over := read(ctx)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return "", err
 	}
@@ -299,6 +296,29 @@ func (d *Desk) macOverload(ctx context.Context, key string) (string, error) {
 	}
 	raw, err := os.ReadFile(path)
 	return string(raw), err
+}
+
+func (d *Desk) overLoadOrFull(ctx context.Context) string {
+	said, _, err := d.capture(ctx, nil, "sysctl", "-n", "vm.loadavg")
+	if found := loadAverage.FindStringSubmatch(said); err == nil && found != nil {
+		load, _ := strconv.ParseFloat(found[1], 64)
+		if load > float64(d.Config.LoadLimit) {
+			return fmt.Sprintf("Mac load %.0f over %d", load, d.Config.LoadLimit)
+		}
+	}
+	return d.noTerminalRoom(ctx)
+}
+
+func (d *Desk) noTerminalRoom(ctx context.Context) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	reading, err := terminalcap.Read(ctx, d.Runner, home)
+	if err != nil || !reading.Full() {
+		return ""
+	}
+	return fmt.Sprintf("Orca holds all %d terminals it allows on this Mac", reading.Cap)
 }
 
 func (d *Desk) spriteFault(ctx context.Context, lane string) (string, error) {

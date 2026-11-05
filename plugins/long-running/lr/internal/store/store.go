@@ -445,6 +445,11 @@ func (s *Store) Escalate(subject, cause, toMover string, at time.Time) (bool, er
 	return changed(result, err)
 }
 
+func (s *Store) ClearEscalation(subject string) error {
+	_, err := s.db.Exec("DELETE FROM escalations WHERE subject = ?", subject)
+	return err
+}
+
 func (s *Store) UnstoppedSpriteLanes() ([]Lane, error) {
 	return s.registered("WHERE state = ? AND placement = 'sprite' AND name NOT IN (SELECT lane FROM sprite_stops)", string(LaneRetired))
 }

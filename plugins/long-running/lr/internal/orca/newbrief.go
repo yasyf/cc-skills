@@ -87,7 +87,7 @@ func (n NewBrief) text(lane string) (string, error) {
 func (n NewBrief) ccxLine() (string, error) {
 	switch n.Place {
 	case placeLocal:
-		return "ccx: role=build incident=none place=local why=mac-inputs", nil
+		return "ccx: role=build incident=none place=local why=" + whyMacInputs, nil
 	case placeRemote:
 		return "ccx: role=build incident=none", nil
 	}

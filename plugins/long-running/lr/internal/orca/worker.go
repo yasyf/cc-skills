@@ -768,6 +768,9 @@ func (w *workerLaunch) startSprite() (string, error) {
 	if briefRead.Match(raw) && placedLocal(string(raw)) {
 		read = readOnSprite
 	}
+	if stampedMacInputs(string(raw)) {
+		read = macInputsOnSprite
+	}
 	path, _ := textOf(table(task["brief"])["path"])
 	environment, _ := textOf(task["environment"])
 	worktreeID, _ := textOf(task["worktreeId"])

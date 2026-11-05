@@ -80,6 +80,8 @@ type deskWorld struct {
 	sentID           int
 	busy             string
 	load             string
+	ptys             string
+	terminals        int
 	ccnFails         bool
 	release          string
 	refuseTime       bool
@@ -291,6 +293,11 @@ func (w *deskWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 		return w.orchestrationReply(argv)
 	case argv[0] == "top":
 		return shell.Result{Stdout: "CPU usage: 1% user, 1% sys, " + w.busy + "% idle\n"}, nil
+	case argv[0] == "sysctl" && argv[2] == "kern.tty.ptmx_max":
+		if w.ptys == "" {
+			return shell.Result{Code: 1, Stderr: "sysctl: unknown oid"}, &shell.ExitError{Argv: argv, Code: 1}
+		}
+		return shell.Result{Stdout: w.ptys + "\n"}, nil
 	case argv[0] == "sysctl" && w.load == "":
 		return shell.Result{Code: 1, Stderr: "sysctl: unknown oid 'vm.loadavg'"}, &shell.ExitError{Argv: argv, Code: 1}
 	case argv[0] == "sysctl":
@@ -313,6 +320,9 @@ func (w *deskWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 }
 
 func (w *deskWorld) terminalReply(argv []string) (shell.Result, error) {
+	if argv[2] == "list" {
+		return orcaOK(object{"terminals": make([]object, w.terminals)}), nil
+	}
 	if argv[2] == "read" {
 		if w.codexScreen {
 			return orcaOK(object{"terminal": object{"source": "screen", "tail": []string{"  Worked for 5m 38s • 11:33 AM", "  1 background terminal running · /ps to view · /stop to close", "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh fast · ~/w"}}}), nil
@@ -2268,6 +2278,88 @@ func TestALaunchTheMacsLoadSentToASpriteSaysWhyInItsLaunchedLine(t *testing.T) {
 	w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
 	w.step(w.desk.reap)
 	wantContains(t, w.wantEscalation("LAUNCHED "+key), "on Sprite pool-1: Mac load 41 over 32")
+}
+
+func TestWithOrcaOutOfTerminalsALaneThatOnlyPrefersTheMacTakesASpriteAndSaysWhy(t *testing.T) {
+	for _, tt := range []struct {
+		name, ccx string
+		terminals int
+		want      string
+	}{
+		{"a read lane on a full host", "ccx: role=read place=local", 256, "sprite"},
+		{"a read lane with one terminal free", "ccx: role=read place=local", 255, "start"},
+		{"a lane naming its need on a full host", "ccx: role=build place=local why=devbox", 256, "start"},
+		{"a helper stamped mac-inputs on a full host", "ccx: role=build incident=none place=local why=mac-inputs", 256, "sprite"},
+		{"a helper stamped mac-inputs with one terminal free", "ccx: role=build incident=none place=local why=mac-inputs", 255, "start"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			w := newDeskWorld(t)
+			w.load, w.ptys, w.terminals = "1.00", "511", tt.terminals
+			launcher := spriteConfig(w)
+			brief := w.brief(testLane, testBrief+tt.ccx+"\n")
+			w.lines()
+			line := w.line(launchText(testLane, brief))
+			key := "R" + strings.TrimPrefix(line.Name(), "#")
+			w.launchOut[testLane] = `{"task":"t","dispatch":"ctx_s","terminal":"term_s","worktree":"/box/w","workspace":"pool-1"}` + "\n"
+			w.lines()
+			w.step(w.desk.deliver)
+			if len(w.spawns) != 1 {
+				t.Fatal(w.spawns)
+			}
+			got := "sprite"
+			if w.spawns[0].argv[0] != launcher {
+				got = w.spawns[0].argv[2]
+			}
+			if got != tt.want {
+				t.Fatal(w.spawns)
+			}
+			if tt.want != "sprite" {
+				return
+			}
+			attempt := spriteAttempt(brief)
+			w.write(filepath.Join(attempt, spriteReceipt), `{"result":{"dispatchId":"ctx_s"}}`)
+			w.write(filepath.Join(attempt, spriteMade), `{"workspace":"pool-1"}`)
+			w.step(w.desk.reap)
+			wantContains(t, w.wantEscalation("LAUNCHED "+key), "on Sprite pool-1: Orca holds all 256 terminals it allows on this Mac")
+		})
+	}
+}
+
+func TestOverTheMacsLoadAHelperStampedWithMacInputsStaysLocal(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	w := newDeskWorld(t)
+	w.load, w.ptys, w.terminals = "41.20", "511", 3
+	launcher := spriteConfig(w)
+	brief := w.brief(testLane, testBrief+"ccx: role=build incident=none place=local why=mac-inputs\n")
+	w.lines()
+	w.line(launchText(testLane, brief))
+	w.lines()
+	w.step(w.desk.deliver)
+	if len(w.spawns) != 1 || w.spawns[0].argv[0] == launcher {
+		t.Fatal(w.spawns)
+	}
+}
+
+func TestOnlyAHelperStampedWithMacInputsCanLeaveTheMacWhenOrcaIsFull(t *testing.T) {
+	const stamp = "ccx: role=build incident=none place=local why=mac-inputs\n"
+	for _, tt := range []struct {
+		name, lane, model, text string
+		want                    bool
+	}{
+		{"the launch's stamp", "helper-1", "opus", stamp, true},
+		{"the coordinator", coordinatorLane, "opus", stamp, false},
+		{"a Fable lane", "helper-1", "fable", stamp, false},
+		{"an incident model", "helper-1", agentIncident, stamp, false},
+		{"an incident-opus model", "helper-1", modelIncidentOpus, stamp, false},
+		{"a brief under an incident", "helper-1", "opus", "ccx: role=build incident=dd-1 place=local why=mac-inputs\n", false},
+		{"another need", "helper-1", "opus", "ccx: role=build incident=none place=local why=devbox\n", false},
+		{"a brief placed remotely", "helper-1", "opus", "ccx: role=build incident=none\n", false},
+	} {
+		if got := macInputsOnly(tt.lane, tt.model, tt.text); got != tt.want {
+			t.Errorf("%s: %v", tt.name, got)
+		}
+	}
 }
 
 func TestAnIncidentLaunchOverLoadStartsAnywayAndTellsTheWatchdog(t *testing.T) {

@@ -23,25 +23,27 @@ const (
 	sliceLine      = "Register slice:"
 	handoffLane    = "-handoff"
 	whyPredecessor = "predecessor-worked-here"
+	whyMacInputs   = "mac-inputs"
 )
 
 var (
-	scaleRule     = time.Date(2026, 10, 30, 13, 11, 35, 0, time.UTC)
-	briefSlice    = regexp.MustCompile(`(?m)^` + sliceLine)
-	briefScale    = regexp.MustCompile(`(?m)^[ \t>*_-]*Scale:`)
-	briefCCX      = regexp.MustCompile(`(?m)^ccx:.*$`)
-	briefIncident = regexp.MustCompile(`(?m)^ccx:.*\bincident=([\w.-]+)`)
-	briefStanding = regexp.MustCompile(`(?m)^Standing: *\S`)
-	briefSlack    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?mcp=slack(?:\s|$)`)
-	briefMonitor  = regexp.MustCompile(`(?m)^ccx:.*\bmonitor=(\d{4,})`)
-	briefPlace    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(remote|local)(?:\s|$)`)
-	briefWhy      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+)`)
-	briefRead     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=read(?:\s|$)`)
-	fableModel    = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
-	successorLane = regexp.MustCompile(`^.+-(\d+)$`)
-	notFixRoles   = []string{"evidence", "proof", "closeout", "desk", "audit"}
-	fixRoles      = []string{roleFix, agentIncident}
-	efforts       = []string{"low", "medium", "high", "xhigh", "max"}
+	scaleRule       = time.Date(2026, 10, 30, 13, 11, 35, 0, time.UTC)
+	briefSlice      = regexp.MustCompile(`(?m)^` + sliceLine)
+	briefScale      = regexp.MustCompile(`(?m)^[ \t>*_-]*Scale:`)
+	briefCCX        = regexp.MustCompile(`(?m)^ccx:.*$`)
+	briefIncident   = regexp.MustCompile(`(?m)^ccx:.*\bincident=([\w.-]+)`)
+	briefStanding   = regexp.MustCompile(`(?m)^Standing: *\S`)
+	briefSlack      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?mcp=slack(?:\s|$)`)
+	briefMonitor    = regexp.MustCompile(`(?m)^ccx:.*\bmonitor=(\d{4,})`)
+	briefPlace      = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(remote|local)(?:\s|$)`)
+	briefWhy        = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+)`)
+	briefNoIncident = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?incident=none(\s|$)`)
+	briefRead       = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=read(?:\s|$)`)
+	fableModel      = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
+	successorLane   = regexp.MustCompile(`^.+-(\d+)$`)
+	notFixRoles     = []string{"evidence", "proof", "closeout", "desk", "audit"}
+	fixRoles        = []string{roleFix, agentIncident}
+	efforts         = []string{"low", "medium", "high", "xhigh", "max"}
 )
 
 type Order struct {
@@ -149,7 +151,19 @@ func macPinned(lane, model, text string) bool {
 
 func macRequired(lane, model, text string) bool {
 	needs := slices.ContainsFunc(submatches(briefWhy, text), func(why string) bool { return why != whyPredecessor })
-	return lane == coordinatorLane || fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus || placedLocal(text) && needs
+	return alwaysOnMac(lane, model) || placedLocal(text) && needs
+}
+
+func alwaysOnMac(lane, model string) bool {
+	return lane == coordinatorLane || fableModel.MatchString(model) || model == agentIncident || model == modelIncidentOpus
+}
+
+func macInputsOnly(lane, model, text string) bool {
+	return !alwaysOnMac(lane, model) && stampedMacInputs(text)
+}
+
+func stampedMacInputs(text string) bool {
+	return placedLocal(text) && briefNoIncident.MatchString(text) && slices.Equal(submatches(briefWhy, text), []string{whyMacInputs})
 }
 
 func macPreferred(text string) bool {
