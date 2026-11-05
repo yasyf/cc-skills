@@ -275,13 +275,11 @@ while [ -z "$status" ]; do
   ticks=$((ticks - 1))
   if said=$(sprite exec -s "$sprite" --no-stdin -- sh -c '
     disk=$(readlink -f "$1")
-    if [ -e "$disk.status" ]; then
-      state=$(cat "$disk.status")
-    elif read -r pid start 2>/dev/null <"$1/job-process" && [ "$(cut -d" " -f22 "/proc/$pid/stat" 2>/dev/null)" = "$start" ]; then
+    state=gone
+    if read -r pid start 2>/dev/null <"$1/job-process" && [ "$(cut -d" " -f22 "/proc/$pid/stat" 2>/dev/null)" = "$start" ]; then
       state=running
-    else
-      state=gone
     fi
+    [ ! -e "$disk.status" ] || state=$(cat "$disk.status")
     tail -c +"$2" "$disk.out" 2>/dev/null
     echo "$state" >&2' sh "$dir" "$((offset + 1))" 2>&1 >"$delta"); then
     misses=0

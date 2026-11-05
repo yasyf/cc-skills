@@ -742,7 +742,7 @@ def test_a_job_drops_the_empty_loose_objects_an_unclean_stop_left_so_its_fetch_c
 RECORDING_JOB = """import json, os, pathlib, sys
 job = pathlib.Path(sys.argv[1])
 pid, start = (job / "job-process").read_text().split()
-(job / "result.json").write_text(json.dumps({"verdict": "ok", "pid": int(pid), "start": start, "parent": os.getppid()}))
+(job / "result.json").write_text(json.dumps({"verdict": "ok", "pid": int(pid), "start": start, "group": os.getpgid(0)}))
 """
 
 
@@ -753,5 +753,5 @@ def test_a_job_records_the_process_a_stall_kill_checks_before_it_signals_that_gr
     run()
 
     outcome = json.loads((directory / "result.json").read_text())
-    assert outcome["parent"] == outcome["pid"]
+    assert outcome["group"] == outcome["pid"]
     assert outcome["start"].isdigit()
