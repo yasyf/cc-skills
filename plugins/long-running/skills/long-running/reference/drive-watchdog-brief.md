@@ -1,6 +1,6 @@
 # The drive-watchdog lane
 
-The coordinator starts `drive-watchdog` remote with `lr desks start`, model opus, effort xhigh, beside the landing desk.
+The coordinator starts `drive-watchdog` remote with `lr desks start`, model opus, effort high, beside the landing desk.
 
 ## Contents
 

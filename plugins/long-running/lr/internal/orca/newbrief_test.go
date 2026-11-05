@@ -151,3 +151,18 @@ func TestNewBriefKeepsABriefThatReachedWorkerStart(t *testing.T) {
 		t.Errorf("a brief was written over a started lane: %v", err)
 	}
 }
+
+func TestNewBriefWritesTheOwnersPickTheCostGateReads(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal, OwnerPick: "owner:m836"}
+	text, err := n.text("lane-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if faults := (Order{Lane: "lane-a", Model: "fable", Effort: "xhigh"}).costFaults(text); len(faults) != 0 {
+		t.Errorf("%v\n%s", faults, text)
+	}
+	n.OwnerPick = "m836"
+	if _, err := n.text("lane-a"); err == nil || !strings.Contains(err.Error(), "--owner-pick takes owner:m<row>") {
+		t.Fatal(err)
+	}
+}

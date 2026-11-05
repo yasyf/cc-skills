@@ -621,21 +621,6 @@ func TestAPRItsLaneReportedHeldAtItsCurrentHeadOwesNoWork(t *testing.T) {
 	equal(t, holds, map[int]bool{46107: true, 46109: true, 47794: true})
 }
 
-func TestTheRotateLineFollowsTheAutoCompactWindow(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "settings.json")
-	at, err := rotateAt(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	equal(t, at, (1_000_000-33_000)*70/100)
-	writeJSON(t, path, map[string]int{"autoCompactWindow": 200_000})
-	at, err = rotateAt(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	equal(t, at, (200_000-33_000)*70/100)
-}
-
 func TestAFirstReadAdoptsTheLastThreeDaysAndALaterOneResumesFromItsCursor(t *testing.T) {
 	var stored client.Record
 	if err := json.Unmarshal([]byte(`{"seq":7,"lane":"a","kind":"state","at":"2026-10-31T17:00:00.000Z","text":"one","refs":{"prs":[1,"o/r#2"]},"fields":{"attrs":{"brief":"/b"}}}`), &stored); err != nil {

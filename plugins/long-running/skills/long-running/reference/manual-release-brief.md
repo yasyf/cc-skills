@@ -1,4 +1,4 @@
-ccx: lane={lane} role=release place=local why=release-tools incident=none effort=xhigh
+ccx: lane={lane} role=release place=local why=release-tools incident=none effort=high
 
 # {lane}: cut and publish {component} now, by hand if the standard start refuses
 

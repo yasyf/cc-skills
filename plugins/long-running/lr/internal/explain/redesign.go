@@ -25,7 +25,7 @@ const (
 	launched   = "LAUNCHED"
 	launchWait = 10 * time.Minute
 	designer   = "opus"
-	effort     = "xhigh"
+	effort     = "high"
 )
 
 var pullRequest = regexp.MustCompile(`^[\w.-]+/[\w.-]+#(\d+)$`)

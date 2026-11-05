@@ -96,7 +96,7 @@ func prepared() object {
 		"managedServer": "0.1.0+15ec2904eb00",
 		"repoId":        "repo-1",
 		"worktreeId":    "repo-1::" + remoteRoot,
-		"agent":         object{"kind": "claude", "model": "claude-opus-5-5", "effort": "xhigh"},
+		"agent":         object{"kind": "claude", "model": "claude-opus-5-5", "effort": "high"},
 		"terminal":      remoteTerminal,
 		"bootstrap":     []string{"trust"},
 		"prepared":      true,
@@ -251,6 +251,7 @@ func (f *workerFixture) spriteAllocated(response any) {
 
 func (f *workerFixture) local() {
 	f.env["WORKER_LOCAL"] = "1"
+	f.write(f.brief, workerBrief+"\nOwner pick: owner:m836\n", 0o600)
 	f.env["WORKER_REPO"] = localRepo
 	f.reply("orca orchestration run-current", boundWorker)
 	f.reply("orca worktree list", workerReply{out: object{"ok": true, "result": object{"worktrees": []object{}}}})
@@ -330,7 +331,7 @@ func (f *workerFixture) launch(lane, model, effort string) (string, string, erro
 
 func (f *workerFixture) launched() string {
 	f.t.Helper()
-	line, failed, err := f.launch(workerLane, "opus", "xhigh")
+	line, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil || failed != "" {
 		f.t.Fatal(failed, err)
 	}
@@ -339,7 +340,7 @@ func (f *workerFixture) launched() string {
 
 func (f *workerFixture) refusedWith(failed string, calls ...[]string) {
 	f.t.Helper()
-	line, got, err := f.launch(workerLane, "opus", "xhigh")
+	line, got, err := f.launch(workerLane, "opus", "high")
 	if err != nil || line != "" || got != failed {
 		f.t.Fatalf("line %q, err %v, failed\n%s\nwant\n%s", line, err, got, failed)
 	}
@@ -386,11 +387,18 @@ func (f *workerFixture) receiptText(name string) string {
 }
 
 func (f *workerFixture) prepareCall(extra ...string) []string {
-	return f.prepareCallFor(workerLane, "claude", "claude-opus-5-5", "xhigh", extra...)
+	return f.prepareCallFor(workerLane, "claude", "claude-opus-5-5", "high", extra...)
 }
 
 func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra ...string) []string {
-	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md"), "--before-worker-file", filepath.Join(f.attempt, "before-worker.sh"), "--env", "CLAUDE_LONG_RUNNING_LANE=" + lane}, extra)
+	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md"), "--before-worker-file", filepath.Join(f.attempt, "before-worker.sh"), "--env", "CLAUDE_LONG_RUNNING_LANE=" + lane}, compactEnvFor(kind), extra)
+}
+
+func compactEnvFor(kind string) []string {
+	if kind != agentClaude {
+		return nil
+	}
+	return []string{"--env", laneCompact}
 }
 
 func notesCall(workspace string) []string {
@@ -431,7 +439,7 @@ func (f *workerFixture) heldSpriteCalls() [][]string {
 }
 
 func (f *workerFixture) localCalls(model, effort, repo string) [][]string {
-	claude := "env " + claudeLaneEnv + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + laneDeniedTools + " --strict-mcp-config --no-chrome --model " + model + " --effort " + effort + " --settings '{" + claudeLaneSettings + "}'"
+	claude := "env " + claudeLaneEnv + " " + laneCompact + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + laneDeniedTools + " --strict-mcp-config --no-chrome --model " + model + " --effort " + effort + " --settings '{" + claudeLaneSettings + "}'"
 	pointer := "Lane '" + workerLane + "'. Your full brief is the file " + f.brief + ": read it in full with the Read tool before anything else and execute it exactly (Orca truncates pasted specs). Your Orca worktree is " + localWorktree + ". You run in bypass-permissions mode; the brief's Escalate rules still hold."
 	return [][]string{
 		currentRunCall,
@@ -496,7 +504,7 @@ func TestALaneCCRemoteCannotNameRefusesBeforeAnyCall(t *testing.T) {
 	for _, lane := range []string{"Lane-a", "lane_a", "lane.a", strings.Repeat("a", 56), "-lane", "lane a", "lane/a", ""} {
 		f := newWorkerFixture(t)
 		f.sprite()
-		_, failed, err := f.launch(lane, "opus", "xhigh")
+		_, failed, err := f.launch(lane, "opus", "high")
 		if err != nil || failed != "a Sprite lane takes up to 55 lowercase letters, digits, and dashes, starting with a letter or digit; nothing was prepared" {
 			t.Fatal(lane, failed, err)
 		}
@@ -641,7 +649,7 @@ func TestALaunchRefusedBeforeAnyWorkerStartedRelaunchesOnTheSameBrief(t *testing
 	f := newWorkerFixture(t)
 	f.sprite()
 	f.reply("cc-remote orca prepare", workerReply{code: 1})
-	if _, failed, err := f.launch(workerLane, "opus", "xhigh"); err != nil || failed == "" {
+	if _, failed, err := f.launch(workerLane, "opus", "high"); err != nil || failed == "" {
 		t.Fatal(failed, err)
 	}
 	f.sprite()
@@ -674,7 +682,7 @@ func TestTheDefaultPreparesOneSpriteAndStartsItOnce(t *testing.T) {
 	}
 	wantRequest := object{
 		"lane": workerLane, "run": workerRun, "route": routeSprite,
-		"agent": object{"kind": "claude", "model": "claude-opus-5-5", "effort": "xhigh", "serviceTier": nil},
+		"agent": object{"kind": "claude", "model": "claude-opus-5-5", "effort": "high", "serviceTier": nil},
 		"ref":   nil, "expectBase": nil,
 		"brief": object{"path": filepath.Join(f.attempt, "brief.md"), "sha256": workerSHA, "bytes": float64(workerBytes)},
 	}
@@ -837,7 +845,7 @@ func TestRepeatedRelayFailuresRefuseTheLaunchNamingTheReasonAndStartNoWorker(t *
 	f := newWorkerFixture(t)
 	f.sprite()
 	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure})
-	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	_, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -857,7 +865,7 @@ func TestAJoinThatCannotReadTheOwnerRefusesWithoutRetrying(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
 	f.reply("cci node", workerReply{code: 1})
-	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	_, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil || !strings.Contains(failed, "cci node names no public key") || len(f.slept) != 0 {
 		t.Fatal(failed, f.slept, err)
 	}
@@ -1480,6 +1488,9 @@ func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 		t.Fatal(failed, err)
 	}
 	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
+	if script := f.receiptText("before-worker.sh"); !strings.HasPrefix(script, codexCompactScript()) {
+		t.Fatal(script)
+	}
 }
 
 func TestAnExpectedBaseMismatchLeavesThePreparedWorkerIdle(t *testing.T) {
@@ -1515,7 +1526,7 @@ func TestAFailedPrepareKeepsItsRawOutputAndAttachesNothing(t *testing.T) {
 func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 	const (
 		workspace = "a task other than the allocated Sprite agents workspace"
-		anAgent   = "an agent other than claude claude-opus-5-5 at xhigh effort"
+		anAgent   = "an agent other than claude claude-opus-5-5 at high effort"
 		electron  = "an Orca runtime serving on Electron, not its managed server"
 		placement = "a task without its environment, terminal, repoId::projectRoot worktree, and brief path"
 	)
@@ -1538,7 +1549,7 @@ func TestAPreparedRecordThatDiffersFromTheRequestAttachesNothing(t *testing.T) {
 		{overlaid(task, object{"provider": "namespace"}), workspace},
 		{overlaid(task, object{"profile": "tests"}), workspace},
 		{overlaid(task, object{"agent": overlaid(base, object{"kind": "codex"})}), anAgent},
-		{overlaid(task, object{"agent": overlaid(base, object{"effort": "high"})}), anAgent},
+		{overlaid(task, object{"agent": overlaid(base, object{"effort": "medium"})}), anAgent},
 		{overlaid(task, object{"agent": overlaid(base, object{"serviceTier": "fast"})}), anAgent},
 		{overlaid(task, object{"brief": overlaid(brief, object{"sha256": strings.Repeat("0", 64)})}), briefFault},
 		{overlaid(task, object{"brief": overlaid(brief, object{"bytes": workerBytes + 1})}), briefFault},
@@ -1740,7 +1751,7 @@ func TestASpriteThatCannotFetchTheCCNotesRefsStillStartsItsWorkerAndKeepsTheLog(
 	f := newWorkerFixture(t)
 	f.sprite()
 	f.reply("sprite exec", workerReply{code: 1, err: "fatal: could not read Username for 'https://github.com'"}, workerReply{}, workerReply{})
-	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	_, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1758,7 +1769,7 @@ func TestASpriteThatCannotFetchTheCCNotesRefsStillStartsItsWorkerAndKeepsTheLog(
 func TestTheNotesFetchTakesTheMacsTokenOnStdinAndWritesItNowhere(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	_, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil || failed != "" {
 		t.Fatal(failed, err)
 	}
@@ -1808,7 +1819,7 @@ func TestAMacWithNoGitHubTokenStillStartsItsWorkerAndKeepsTheLog(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
 	f.reply("gh auth token", workerReply{code: 1, err: "You are not logged into any GitHub hosts"})
-	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	_, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil || failed != "" {
 		t.Fatal(failed, err)
 	}
@@ -1861,7 +1872,7 @@ func TestAFailedCopyLeavesTheWorkerIdle(t *testing.T) {
 	sent := "Read " + carriedBox + plan + " first.\n"
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(sent), "bytes": len(sent)}}))
 	f.reply("sprite exec", workerReply{code: 1})
-	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	_, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil || !strings.HasPrefix(failed, "copying the files the brief names") {
 		t.Fatal(failed, err)
 	}
@@ -1971,7 +1982,7 @@ func TestAWorkerStartTheRuntimeKeepsRefusingFailsNamingItsTriesAndLastError(t *t
 	f.sprite()
 	f.reply("orca orchestration worker-start", runtimeRefusal("remote_runtime_unavailable"), runtimeRefusal("remote_runtime_unavailable"), runtimeRefusal("remote_runtime_unavailable"), runtimeRefusal("remote_runtime_unavailable"))
 
-	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	_, failed, err := f.launch(workerLane, "opus", "high")
 
 	if err != nil || !strings.Contains(failed, "worker-start exited 1 after 4 tries: remote_runtime_unavailable: Timed out") {
 		t.Fatalf("failed %q, err %v", failed, err)
@@ -1986,7 +1997,7 @@ func TestAWorkerStartRefusalThatMeansNoIsNeverReplayed(t *testing.T) {
 	f.sprite()
 	f.reply("orca orchestration worker-start", runtimeRefusal(CodeFenced))
 
-	_, failed, err := f.launch(workerLane, "opus", "xhigh")
+	_, failed, err := f.launch(workerLane, "opus", "high")
 
 	if err != nil || !strings.Contains(failed, "worker-start exited 1: dispatch_inactive") || len(f.workerStarts()) != 1 || len(f.slept) != 0 {
 		t.Fatalf("failed %q, err %v, %d worker-starts, slept %v", failed, err, len(f.workerStarts()), f.slept)

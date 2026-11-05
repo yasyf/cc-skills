@@ -149,7 +149,7 @@ func (w *deskWorld) write(path, text string) {
 
 func (w *deskWorld) register(lane store.Lane) {
 	w.t.Helper()
-	lane.Brief, lane.Model, lane.Effort, lane.State = "/brief.md", "opus", "xhigh", store.LaneDesired
+	lane.Brief, lane.Model, lane.Effort, lane.State = "/brief.md", "opus", "high", store.LaneDesired
 	if _, err := w.desk.Registry.WantLane(lane, w.now); err != nil {
 		w.t.Fatal(err)
 	}
@@ -647,7 +647,7 @@ func TestARecordNotToTheDeskDoesNothing(t *testing.T) {
 }
 
 func launchText(lane, brief string) string {
-	return "orca-desk: launch " + lane + " opus xhigh brief=" + brief
+	return "orca-desk: launch " + lane + " opus high brief=" + brief
 }
 
 func (w *deskWorld) launched(lane, dispatch, terminal string) string {
@@ -748,7 +748,7 @@ func TestALaunchIsStartedThroughLrLaunchStartAndSettlesFromItsLine(t *testing.T)
 		t.Fatal(w.spawns)
 	}
 	spawn := w.spawns[0]
-	want := []string{w.desk.tool("lr"), "launch", "start", testLane, "opus", "xhigh", brief}
+	want := []string{w.desk.tool("lr"), "launch", "start", testLane, "opus", "high", brief}
 	if !slices.Equal(spawn.argv, want) {
 		t.Fatal(spawn.argv)
 	}
@@ -1290,7 +1290,7 @@ func TestAnIncidentLineOnALiveFixLaneRelaysTheRepeat(t *testing.T) {
 func TestAnIncidentAnotherLaneHoldsOnItsMonitorIsSkipped(t *testing.T) {
 	w := newDeskWorld(t)
 	other := w.brief("other-fix", testBrief+"ccx: incident=338724738\n")
-	if _, _, err := w.desk.acceptLaunch("R1", "other-fix", launchTarget{Model: "opus", Effort: "xhigh", Brief: other}); err != nil {
+	if _, _, err := w.desk.acceptLaunch("R1", "other-fix", launchTarget{Model: "opus", Effort: "high", Brief: other}); err != nil {
 		t.Fatal(err)
 	}
 	w.lines()
@@ -2188,8 +2188,8 @@ func TestTheMacsRunnerAndTheHostsRunnerEachTakeOnlyTheirOwnLaunches(t *testing.T
 			fable := w.brief(coordinatorLane, coordinatorBrief)
 			lane := w.brief(testLane, testBrief+"ccx: role=build\n")
 			w.lines()
-			w.line("orca-desk: launch " + coordinatorLane + " fable xhigh brief=" + fable)
-			w.line("orca-desk: launch " + testLane + " opus xhigh brief=" + lane)
+			w.line("orca-desk: launch " + coordinatorLane + " fable high brief=" + fable)
+			w.line("orca-desk: launch " + testLane + " opus high brief=" + lane)
 			w.line("orca-desk: hold release-1 owner=lane-a :: the release waits on lane-a")
 			w.lines()
 			w.step(w.desk.deliver)
@@ -2231,7 +2231,7 @@ func TestTheCoordinatorLaunchesOnTheMacWhileALaneWithNoPlaceTakesASprite(t *test
 			launcher := spriteConfig(w)
 			brief := w.brief(tt.lane, tt.brief)
 			w.lines()
-			w.line("orca-desk: launch " + tt.lane + " " + tt.model + " xhigh brief=" + brief)
+			w.line("orca-desk: launch " + tt.lane + " " + tt.model + " high brief=" + brief)
 			w.lines()
 			w.step(w.desk.deliver)
 			if len(w.spawns) != 1 {
@@ -2426,14 +2426,14 @@ func TestAnIncidentLaunchOverLoadStartsAnywayAndTellsTheWatchdog(t *testing.T) {
 func TestALaunchStillAcceptedAfterAMinuteLogsOneStall(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, testBrief)
-	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "xhigh", Brief: brief}); err != nil {
+	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "high", Brief: brief}); err != nil {
 		t.Fatal(err)
 	}
 	w.now = w.now.Add(launchStall)
 	w.step(w.desk.stalledLaunches)
 	line := w.wantEscalation("LAUNCH-STALLED stalled:desk-lane-lane-a/R1 lane-a")
 	wantContains(t, line, "withdraw it with `orca-desk: withdraw R1`")
-	wantContains(t, line, "`lr launch start lane-a opus xhigh "+brief+"`")
+	wantContains(t, line, "`lr launch start lane-a opus high "+brief+"`")
 }
 
 func runMessage(id, kind, from string, sequence int64) orcaMessage {
@@ -2470,7 +2470,7 @@ func TestAQuestionFromALaneAnotherLaneLaunchedGoesToThatLane(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	brief := w.brief(testLane, testBrief)
-	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "xhigh", Brief: brief, By: "meta-desk-1"}); err != nil {
+	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "high", Brief: brief, By: "meta-desk-1"}); err != nil {
 		t.Fatal(err)
 	}
 	w.checked(runMessage("msg_q", typeQuestion, testTerminal, 1))
@@ -2490,7 +2490,7 @@ func (w *deskWorld) launchedBy(by string) {
 	w.t.Helper()
 	w.live(testLane, testDispatch, testTerminal)
 	brief := w.brief(testLane, testBrief)
-	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "xhigh", Brief: brief, By: by}); err != nil {
+	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "high", Brief: brief, By: by}); err != nil {
 		w.t.Fatal(err)
 	}
 }
@@ -2826,7 +2826,7 @@ func TestADeskPostCCIRefusesStillReachesTheBus(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	brief := w.brief(testLane, testBrief)
-	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "xhigh", Brief: brief, By: "meta-desk-1"}); err != nil {
+	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "high", Brief: brief, By: "meta-desk-1"}); err != nil {
 		t.Fatal(err)
 	}
 	w.postError = errors.New("no lane meta-desk-1")
@@ -3049,7 +3049,7 @@ func TestAnIncidentLaunchAnotherOwnerHoldsFails(t *testing.T) {
 func (w *deskWorld) cutLaunch(key string, clock object, silent bool) {
 	w.t.Helper()
 	brief := w.brief("manual-release-api", testBrief+"ccx: place=local why=test\n")
-	if _, _, err := w.desk.acceptLaunch("cut:"+key, "manual-release-api", launchTarget{Model: "opus", Effort: "xhigh", Brief: brief}); err != nil {
+	if _, _, err := w.desk.acceptLaunch("cut:"+key, "manual-release-api", launchTarget{Model: "opus", Effort: "high", Brief: brief}); err != nil {
 		w.t.Fatal(err)
 	}
 	if err := w.desk.setFact(deskRunner, cutClocksFact, object{key: clock}); err != nil {
@@ -3236,7 +3236,7 @@ func TestARedByDesignContractExcusesARelayedBlockersDeadline(t *testing.T) {
 func TestAnOverdueLaunchNamesItsStep(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, testBrief)
-	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "xhigh", Brief: brief}); err != nil {
+	if _, _, err := w.desk.acceptLaunch("R1", testLane, launchTarget{Model: "opus", Effort: "high", Brief: brief}); err != nil {
 		t.Fatal(err)
 	}
 	w.now = w.now.Add(16 * time.Minute)
@@ -3519,7 +3519,7 @@ func TestADirectiveParsesEveryForm(t *testing.T) {
 		{"orca-desk: relay to a: b", "", verbRelay},
 		{"R12 orca-desk: hold x owner=y :: z", "R12", kindHold},
 		{"R12 (5:01 PM) orca-desk: withdraw R9", "R12", verbWithdraw},
-		{"5:01 PM R12 (5:01 PM) orca-desk: launch a opus xhigh brief=/b", "R12", verbLaunch},
+		{"5:01 PM R12 (5:01 PM) orca-desk: launch a opus high brief=/b", "R12", verbLaunch},
 		{"- 5:01PM orca-desk: unhold x", "", "unhold"},
 	} {
 		parsed := parseDirective(tt.line)
@@ -4158,7 +4158,7 @@ func TestAnUnreadRelayToAMissingTerminalIsNoBlockerAndNoWake(t *testing.T) {
 func TestAStandingDesksNamedPRsNeverMakeItADuplicateButAnotherLanesBriefStillIs(t *testing.T) {
 	w := newDeskWorld(t)
 	const holder = "fork-share-grant-2"
-	if _, _, err := w.desk.acceptLaunch("R1", holder, launchTarget{Model: "opus", Effort: "xhigh", Brief: w.brief(holder, testBrief)}); err != nil {
+	if _, _, err := w.desk.acceptLaunch("R1", holder, launchTarget{Model: "opus", Effort: "high", Brief: w.brief(holder, testBrief)}); err != nil {
 		t.Fatal(err)
 	}
 	w.live(holder, "ctx_f", "term_f")
@@ -4186,7 +4186,7 @@ func (w *deskWorld) refusedAtTheCap(model, ccx string) string {
 	t.Setenv("HOME", t.TempDir())
 	brief := w.brief(testLane, testBrief+ccx+"\n")
 	w.lines()
-	line := w.line("orca-desk: launch " + testLane + " NOW " + model + " xhigh brief=" + brief)
+	line := w.line("orca-desk: launch " + testLane + " NOW " + model + " high brief=" + brief)
 	w.launchOut[testLane] = testLane + capRefused
 	w.lines()
 	w.step(w.desk.deliver)

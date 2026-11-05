@@ -3,7 +3,7 @@
 - [Coordinator discipline](#coordinator-discipline)
 - [Spawn brief](#spawn-brief)
 
-Spawn one standing `semantic-collisions` lane as `long-running:lane` with model `opus` at `xhigh` once three or more lanes work in the same area. Textual conflicts surface at rebase, but semantic collisions do not, and every PR goes green on its own. Examples:
+Spawn one standing `semantic-collisions` lane as `long-running:lane` with model `opus` at `high` once three or more lanes work in the same area. Textual conflicts surface at rebase, but semantic collisions do not, and every PR goes green on its own. Examples:
 
 - One lane adds an option to a function another lane deletes.
 - One lane's test seeds a record another lane stops writing.

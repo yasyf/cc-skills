@@ -60,7 +60,7 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    Keep the contract below in another file. Launch it with
    `lr launch lane <lane> --title <title> --body <body> --contract <contract> --topics <subjects> --drive <drive> --lane meta`,
    which writes `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:`, `ccx:` and
-   `Owner orders:` lines and starts it on opus at xhigh; `--scale`, `--place`, `--ccx`, `--model`
+   `Owner orders:` lines and starts it on opus at high; `--scale`, `--place`, `--ccx`, `--model`
    and `--effort` change those, and `--body -` takes the body on stdin. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
    subagent. A question over transcripts, records or logs too big for your window goes
@@ -175,7 +175,7 @@ any read: `cci subscribe --drive <drive> --reader meta`.
   code and fails whatever the PR does.
 - You never install a pack. Say "merged, not installed" in your report.
 - A hook that blocks your work: launch its fix lane that turn,
-  `lr launch lane hook-fix-<hook> opus xhigh <brief>`, which edits it in `plugins/long-running/capt-hook/hooks/` through
+  `lr launch lane hook-fix-<hook> opus high <brief>`, which edits it in `plugins/long-running/capt-hook/hooks/` through
   `captain-hook:authoring-hooks`, ships and installs it, and keep working on what it does not
   block. Nobody runs a refused thing through a wrapper, `cc-sudo` or a script meanwhile. A hook
   that blocks nothing is one `cci post --kind note --to meta-desk`.

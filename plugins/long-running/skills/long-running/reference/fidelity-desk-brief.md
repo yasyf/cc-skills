@@ -2,7 +2,7 @@
 
 This brief covers [Coordinator discipline](#coordinator-discipline), [What a desk reads](#what-a-desk-reads), [How a desk grades](#how-a-desk-grades), [Head mode](#head-mode), [The pipeline](#the-pipeline), [Text mode](#text-mode), [Sweep mode](#sweep-mode), [Grade lines](#grade-lines), [Fixtures](#fixtures), and [Spawn brief](#spawn-brief).
 
-The coordinator starts `fidelity-desk` remote with `lr desks start`, model opus, effort xhigh, right after the register seed, and a second, the sweep desk, as `lr launch lane fidelity-sweep opus xhigh <brief>`; grades count only from a lane in `lr`'s own list, `fidelity-pipeline`, `fidelity-desk`, `fidelity-sweep` and `fidelity-shard`, or a numbered successor of one. Each desk answers under its own stem, so a post to `fidelity-desk` or `fidelity-sweep` reaches that desk's current generation. Each desk reads every drive head, board round, plan revision, owner reply, and lane read-back against the owner's words, then posts a grade that the landing runner and hooks read. The sweep desk also re-reads the whole plan every hour. A `missing` from either desk, or from the sol finder ([finder-brief.md](finder-brief.md)), blocks landing. Fill the angle brackets and paste the spawn brief at the end.
+The coordinator starts `fidelity-desk` remote with `lr desks start`, model opus, effort medium, right after the register seed, and a second, the sweep desk, as `lr launch lane fidelity-sweep opus medium <brief>`; grades count only from a lane in `lr`'s own list, `fidelity-pipeline`, `fidelity-desk`, `fidelity-sweep` and `fidelity-shard`, or a numbered successor of one. Each desk answers under its own stem, so a post to `fidelity-desk` or `fidelity-sweep` reaches that desk's current generation. Each desk reads every drive head, board round, plan revision, owner reply, and lane read-back against the owner's words, then posts a grade that the landing runner and hooks read. The sweep desk also re-reads the whole plan every hour. A `missing` from either desk, or from the sol finder ([finder-brief.md](finder-brief.md)), blocks landing. Fill the angle brackets and paste the spawn brief at the end.
 
 ## Coordinator discipline
 
@@ -124,7 +124,7 @@ A line over 400 characters keeps its first 400 in the record, and cci writes the
 ccx: role=desk
 You are <desk>, one of two fidelity desks in drive <drive> (coordinator <coordinator session>);
 the other is <other desk>. <You run the hourly sweep. | <other desk> runs the hourly sweep.>
-Model opus, effort xhigh. You write no code, run no builds or tests, post nothing
+Model opus, effort medium. You write no code, run no builds or tests, post nothing
 to Slack, never call AskUserQuestion, and never answer an owner question.
 Read <plugin>/skills/long-running/reference/fidelity-desk-brief.md in full before
 your first grade and grade by it.

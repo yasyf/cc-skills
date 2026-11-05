@@ -336,7 +336,7 @@ func TestAFlakeNoLiveLaneHoldsLaunchesTheNextFlakeLaneAndTellsRootInOneLine(t *t
 	f.pass(t, trunkHistory(), flakyNotices(t0.Unix()-5))
 
 	launches := trunkRecords(t, "go")
-	if len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "orca-desk: launch red-sweep-1 opus xhigh role=fix brief="+f.watch.State+"/red-sweep/brief.md") {
+	if len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "orca-desk: launch red-sweep-1 opus high role=fix brief="+f.watch.State+"/red-sweep/brief.md") {
 		t.Fatalf("launches = %+v, want red-sweep-1 from the standing brief", launches)
 	}
 	brief, err := os.ReadFile(f.watch.State + "/red-sweep/brief.md")

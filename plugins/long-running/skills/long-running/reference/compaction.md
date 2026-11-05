@@ -20,7 +20,7 @@ The `capt-hook` pack manages compaction handoffs for the whole `long-running` se
 - 1M window: any model with a `[1m]` suffix, plus the native-1M models `sonnet-5`, `opus-5`, `opus-5-5`, `fable-5`, `fable-5-1`, `mythos-5` and `mythos-5-1`.
 - 200k window: every other model, including `haiku-4-5`, `sonnet-4-x`, `opus-4-0` through `4-6`, and every `claude-3` model.
 - `threshold = window − 33k`. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only lower it.
-- `lr launch start` starts the coordinator with a 400k window, so it compacts at 367k and gets its nudge at 317k. Every call re-reads the whole context, so a lower ceiling costs less than the compactions it adds.
+- `lr launch` starts every Claude lane, the coordinator included, with a 333k window, so it compacts at 300k and the coordinator gets its nudge at 250k. Every call re-reads the whole context, so a lower ceiling costs less than the compactions it adds.
 
 **One non-blocking nudge, at 50k tokens before the threshold.** Once 50k tokens or fewer remain, the hook sends the coordinator one nudge as context on its next tool call or prompt. It asks for a new progress doc with the coordinator's narrative when convenient, fires once, and leaves the turn unblocked.
 

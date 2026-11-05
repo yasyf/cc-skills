@@ -25,7 +25,7 @@ const (
 	briefFile   = "brief.md"
 	readerModel = "sonnet"
 	triageModel = "opus"
-	readEffort  = "xhigh"
+	readEffort  = "high"
 	launchWait  = 10 * time.Minute
 )
 

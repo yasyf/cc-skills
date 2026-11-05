@@ -191,6 +191,17 @@ func (w *workerLaunch) start(model string) (string, error) {
 	} else if err := w.checkLocal(); err != nil {
 		return "", err
 	}
+	raw, err := os.ReadFile(w.brief)
+	if err != nil {
+		return "", err
+	}
+	order := Order{Lane: w.lane, Model: model, Effort: w.effort, Brief: w.brief}
+	if w.incident {
+		order.Role = agentIncident
+	}
+	if faults := order.costFaults(string(raw)); len(faults) > 0 {
+		return "", refuse("%s; nothing launched", strings.Join(faults, "; "))
+	}
 	if bound := w.boundRun(); bound != w.run {
 		handle, owner := w.Env("ORCA_TERMINAL_HANDLE"), bound
 		if handle == "" {
@@ -591,10 +602,16 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 	if w.fastMode {
 		script += claudeFastMode
 	}
+	if w.kind == agentCodex {
+		script = codexCompactScript() + script
+	}
 	if err := w.receipt(beforeWorker, script); err != nil {
 		return nil, err
 	}
 	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker), "--env", laneEnv + "=" + w.lane}
+	if w.kind == agentClaude {
+		argv = append(argv, "--env", laneCompact)
+	}
 	if drive := driveName(w.Env, w.run); drive != "" {
 		argv = append(argv, "--env", driveEnv+"="+drive)
 	}
@@ -995,7 +1012,7 @@ func (w *workerLaunch) startLocal() (string, error) {
 }
 
 func (w *workerLaunch) bootClaude() error {
-	command := "env " + claudeLaneEnv + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + laneDeniedTools + " --strict-mcp-config --no-chrome --model " + shellQuote(w.modelID) + " --effort " + shellQuote(w.effort)
+	command := "env " + claudeLaneEnv + " " + laneCompact + " claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools " + laneDeniedTools + " --strict-mcp-config --no-chrome --model " + shellQuote(w.modelID) + " --effort " + shellQuote(w.effort)
 	if mcp := w.Env("WORKER_MCP_CONFIG"); mcp != "" {
 		command += " --mcp-config " + shellQuote(mcp)
 	}

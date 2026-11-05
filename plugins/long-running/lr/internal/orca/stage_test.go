@@ -94,7 +94,7 @@ func TestACallerSeesEachStageWithItsSecondsAndALaunchPastItsTimeoutNamesTheLast(
 			f.bus.records = append(f.bus.records, client.Record{Seq: last.Seq + 1 + int64(i), Lane: deskRunner, Kind: kindState, At: last.At.Add(95 * time.Second), Text: text})
 		}
 	}
-	label, err := f.poster.Launch(context.Background(), Order{Lane: "slow-1", Model: "sol", Effort: "xhigh", Brief: brief}, time.Minute)
+	label, err := f.poster.Launch(context.Background(), Order{Lane: "slow-1", Model: "sol", Effort: "high", Brief: brief}, time.Minute)
 	if err != nil || label != verdictPosted {
 		t.Fatal(label, err)
 	}
@@ -116,7 +116,7 @@ func TestALaunchNoRunnerStartedSaysSoPastItsTimeout(t *testing.T) {
 	now := time.Now()
 	f.poster.Now = func() time.Time { return now }
 	f.poster.Sleep = func(time.Duration) { now = now.Add(30 * time.Second) }
-	if _, err := f.poster.Launch(context.Background(), Order{Lane: "slow-1", Model: "sol", Effort: "xhigh", Brief: brief}, time.Minute); err != nil {
+	if _, err := f.poster.Launch(context.Background(), Order{Lane: "slow-1", Model: "sol", Effort: "high", Brief: brief}, time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(f.out.String(), "slow-1 R102 has reached no stage, so the runner has not started it;") {

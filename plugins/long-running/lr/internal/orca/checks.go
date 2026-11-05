@@ -123,6 +123,7 @@ func (o Order) launchFaults(text string, readable bool) []string {
 	if !readable {
 		return append(faults, "brief "+o.Brief+" is not a file")
 	}
+	faults = append(faults, o.costFaults(text)...)
 	role := o.Lane
 	if numbered := successorLane.FindStringSubmatch(o.Lane); numbered != nil {
 		role = strings.TrimSuffix(o.Lane, "-"+numbered[1])

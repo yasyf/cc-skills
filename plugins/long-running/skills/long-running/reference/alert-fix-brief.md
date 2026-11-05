@@ -43,7 +43,7 @@ Standing orders, fixed in this template:
     this lane when it ends. Never post its completion as a record: no desk, root or
     supervisor acts on it.
   - A hook that blocks your work gets a fix lane you launch that turn,
-    `lr launch lane hook-fix-<hook> opus xhigh <brief>`, and the fix goes on through what the
+    `lr launch lane hook-fix-<hook> opus high <brief>`, and the fix goes on through what the
     hook does not block; nothing runs the refused thing through a wrapper, `cc-sudo` or a script.
   - Any other tooling failure goes to the meta lane the same turn, as one `defect` record to
     the coordinator opening `for meta:` with any refusal verbatim, plus the hand path; it never

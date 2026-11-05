@@ -115,7 +115,7 @@ WORKER_CC_REMOTE=/absolute/path/to/cc-remote \
 CC_REMOTE_CONFIG=/absolute/path/to/config.yaml \
 WORKER_RUN="<owned-run-id>" WORKER_REF=dev WORKER_CHECKOUT="<monorepo checkout>" \
   WORKER_CCI_URL="<cci linux_amd64 archive URL>" WORKER_CCI_SHA256="<its SHA-256>" \
-  lr launch worker "<lane>" opus xhigh "<brief.md>"
+  lr launch worker "<lane>" opus high "<brief.md>"
 ```
 
 The wrapper runs a preflight before `orca prepare`, with or without `--warm`: `payload-url validate` checks the payload metadata against the inventory without fetching the payload archives onto the Mac. A launch through another CLI skips it. Recipe-picker enablement is separate and does not gate this direct CLI route.
@@ -151,7 +151,7 @@ Use `WORKER_LOCAL=1` for a local coordinator, which runs Fable, or for root-auth
 
 ```sh
 WORKER_RUN="<owned-run-id>" WORKER_LOCAL=1 \
-  lr launch worker "<lane>" opus xhigh "<brief.md>"
+  lr launch worker "<lane>" opus high "<brief.md>"
 ```
 
 An unset or empty `WORKER_LOCAL` selects Sprite. The local route starts Claude only. Local Claude keeps the Mac's existing interactive authentication and task-scoped bypass behavior.
@@ -346,7 +346,7 @@ Use the configured signed CLI and YAML when preparation and first-task attachmen
 ```sh
 "<selected-cc-remote>" orca prepare "<lane>" --config "<configured-yaml>" \
   --provider sprites --profile agents --agent claude \
-  --model claude-opus-5-5 --effort xhigh --ref "<branch-or-tag>" \
+  --model claude-opus-5-5 --effort high --ref "<branch-or-tag>" \
   --brief-file "<complete-brief.md>" >"<new-prepared.json>"
 ```
 
@@ -374,7 +374,7 @@ Version `0.15.0` adds prepare-only `--existing` for a first worker on the exact 
 ```sh
 "<selected-cc-remote>" orca prepare "<recorded-workspace>" --existing \
   --config "<same-config>" --provider sprites --profile agents --agent claude \
-  --model claude-opus-5-5 --effort xhigh \
+  --model claude-opus-5-5 --effort high \
   --brief-file "<complete-brief.md>" >"<new-prepared.json>"
 ```
 
@@ -603,9 +603,10 @@ Local Orca lane worktrees use `~/.orca/workspaces/monorepo/monorepo/<name>`. The
 ## Models
 
 - The coordinator runs Fable on the Mac; Claude implementation workers run Opus; subdesks use Opus or Sonnet according to the routing table.
-- Codex review, diagnosis, sweeps and shell-heavy lanes run `gpt-6.1-sol` at `xhigh` on the standard tier. Only an incident lane adds `WORKER_SERVICE_TIER=fast` with `WORKER_INCIDENT=1`.
-- Beyond the coordinator, Fable is for exceptional cases only: local, for the most sensitive implementation, using the Mac's existing interactive authentication. Auth, migrations, concurrency, or error-prone code alone does not qualify.
-- Preserve explicitly requested models and effort within these roles. Never use Fable as a general fallback or set `fallbackModel`.
+- Codex review, diagnosis, sweeps and shell-heavy lanes run `gpt-6.1-sol` at `high` on the standard tier. Only an incident lane runs `xhigh` and adds `WORKER_SERVICE_TIER=fast` with `WORKER_INCIDENT=1`.
+- Beyond the coordinator, Fable runs only where the owner named it for the work, local, using the Mac's existing interactive authentication. Never use Fable as a general fallback or set `fallbackModel`.
+- Every lane starts at effort `high`, and an Opus standing desk at `medium`. A Fable or astra model, or effort `xhigh` or `max`, starts only on the owner's words for that work: the brief's `Owner pick: owner:m<row>` line naming his row. `lr launch` checks it on every path, posted, Mac, desk-runner and Sprite, and refuses the launch otherwise with the exact fix. Incident lanes keep `xhigh` on their own tier rule.
+- Every Claude session `lr launch` starts, root and its subagents included, runs with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=333000` and compacts at 300k tokens; a codex lane gets `-c model_auto_compact_token_limit=300000`, written to the Sprite's `config.toml` before its worker starts. The communicator's own window is exempt. A running window keeps its effort and limit until it is relaunched.
 
 | Alias | Model ID | Placement |
 | --- | --- | --- |
@@ -622,7 +623,7 @@ Local Orca lane worktrees use `~/.orca/workspaces/monorepo/monorepo/<name>`. The
 - For a page redesign, a Fable pass and a codex pass both run, then one combined design with codex's taste weighted higher, a sidebar over a top bar where they disagree. Implementation stays on the implementation row.
 - Sol verify lanes count as same-tier. Reading a saved verdict or checking CI state is coordination and does not reopen the review.
 - Fable is typed by hand with `model: fable`.
-- Opus `xhigh` covers decision-dense orchestration, design and architecture review, hard planning, synthesis over review findings, and ambiguous, exploratory or large net-new implementation; scoped edits, small features and bug fixes run `high`.
+- Opus `high` covers every Opus lane: decision-dense orchestration, design and architecture review, hard planning, synthesis over review findings, net-new implementation, scoped edits and bug fixes.
 - Recon and routine chores default to gpt-5.6-luna `xhigh` via codex; exhaustive enumerations need a cross-model verify, and luna `high` drops subsystems. Sonnet itself runs when the surface is Claude-only, coverage must sweep more than 300K tokens in one pass, or a silent miss is unrecoverable. Pass `model: sonnet` to `Explore` when that row applies.
 - gemini-4-argon runs through `gemini -m gemini-4-argon --skip-trust -p`; the lane hands it the facts and rules (voice card, slop-cop rules, length caps) and lands the reply verbatim.
 - gpt-6.1-sol is codex only; Workflow and subagent `model` take Claude models only. Orca codex lanes launch with the `sol` or `codex` alias. It degrades as mid-task decisions pile up, so back it with a finder pass. Astra runs as `codex-ask -m astra` on the standard tier.

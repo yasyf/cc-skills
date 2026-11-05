@@ -510,7 +510,7 @@ func TestAWorkerLaunchedInsideADriveCarriesTheDriveToClaude(t *testing.T) {
 	h.env[driveEnv] = "900424b6"
 	h.launched()
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
-	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 "+claudeLaneEnv+" claude ") {
+	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 "+claudeLaneEnv+" "+laneCompact+" claude ") {
 		t.Fatal(command)
 	}
 }
@@ -529,13 +529,13 @@ func TestALaneMergesItsLocalSettingsAfterTheStrippedOnes(t *testing.T) {
 func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
-	if line, code := h.launchAs(coordinatorLane, "opus", "xhigh", h.brief); code != 0 {
+	if line, code := h.launchAs(coordinatorLane, "opus", "high", h.brief); code != 0 {
 		t.Fatal(line)
 	}
 	h.launched()
 	creates := h.orcaCalls("terminal create")
 	command := flag(creates[0], "--command")
-	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root "+claudeLaneEnv+" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 claude ") {
+	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=root "+claudeLaneEnv+" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=333000 claude ") {
 		t.Fatal(command)
 	}
 	for _, want := range []string{"--disallowedTools " + laneDeniedTools + coordinatorDenied + " ", `,"skillListingBudgetFraction":0.001}'`} {
@@ -547,7 +547,7 @@ func TestOnlyTheCoordinatorLaunchesOnTheLongCacheUnderALowCompactionCeiling(t *t
 		t.Fatalf("a drive that names no rules kept its instructions out: %q", command)
 	}
 	other := flag(creates[1], "--command")
-	if !strings.HasPrefix(other, "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" claude ") || strings.Contains(other, coordinatorDenied) || strings.Contains(other, coordinatorListing) {
+	if !strings.HasPrefix(other, "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" CLAUDE_CODE_AUTO_COMPACT_WINDOW=333000 claude ") || strings.Contains(other, coordinatorDenied) || strings.Contains(other, coordinatorListing) {
 		t.Fatal(other)
 	}
 }
@@ -558,7 +558,7 @@ func TestACoordinatorWithNamedRulesLoadsThoseSectionsInsteadOfItsInstructionFile
 	h.writeFile(filepath.Join(h.root, "home", ".claude", "CLAUDE.md"), "# Title\n\n## Style\n\nNo comments.\n\n## Routing\n\nUse sol.\n\n### Deep\n\nStill routing.\n\n## Judgment\n\nThink.\n")
 	dir := filepath.Dir(h.brief)
 	h.writeFile(filepath.Join(dir, coordinatorSections), "Judgment\nRouting\n")
-	if line, code := h.launchAs(coordinatorLane, "opus", "xhigh", h.brief); code != 0 {
+	if line, code := h.launchAs(coordinatorLane, "opus", "high", h.brief); code != 0 {
 		t.Fatal(line)
 	}
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
@@ -600,7 +600,7 @@ func TestAWorkerLaunchedByASessionlessRunnerCarriesTheDriveOfItsOrcaRun(t *testi
 	bindDrive(h, object{"drive": "900424b6", "sessions": []string{}, "orca_run": "run_1"}, "900424b6")
 	h.launched()
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
-	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 "+claudeLaneEnv+" claude ") {
+	if !strings.HasPrefix(command, "env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 "+claudeLaneEnv+" "+laneCompact+" claude ") {
 		t.Fatal(command)
 	}
 }
@@ -721,7 +721,7 @@ func TestLaunchCreatesAChildWorktreeAndABypassTerminal(t *testing.T) {
 		t.Fatal("the branch tracks something")
 	}
 	create := h.orcaCalls("terminal create")[0]
-	wantLine(t, flag(create, "--command"), "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools "+laneDeniedTools+" --strict-mcp-config --no-chrome --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high --settings '{"+claudeLaneSettings+"}'")
+	wantLine(t, flag(create, "--command"), "env CLAUDE_LONG_RUNNING_LANE=lane-a "+claudeLaneEnv+" "+laneCompact+" claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools "+laneDeniedTools+" --strict-mcp-config --no-chrome --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high --settings '{"+claudeLaneSettings+"}'")
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--terminal") != "term_a" || flag(start, "--run") != "run_1" || slices.Contains(start, "--model") || slices.Contains(start, "--effort") {
 		t.Fatal(start)
@@ -1011,9 +1011,9 @@ func effectStart(terminal string) reply {
 func TestACodexLaneStartsSolOnTheCodexAgentWithoutACustomTerminal(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
-	wantLine(t, h.launchedAs(agentCodex, "xhigh"), "lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
+	wantLine(t, h.launchedAs(agentCodex, "high"), "lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
-	if !strings.Contains(command, " codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_reasoning_effort=xhigh"+codexLaneConfig+" -c mcp_servers={}") || strings.Contains(command, "service_tier") {
+	if !strings.Contains(command, " codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_reasoning_effort=high -c model_auto_compact_token_limit=300000"+codexLaneConfig+" -c mcp_servers={}") || strings.Contains(command, "service_tier") {
 		t.Fatal(command)
 	}
 	start := h.orcaCalls("orchestration worker-start")[0]
@@ -1030,7 +1030,7 @@ func TestACodexLaneReadsABriefCopyThatHandsItsPRProseToOpus(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
 	h.reply("orchestration worker-start", effectStart("term_a"))
-	h.launchedAs("sol", "xhigh")
+	h.launchedAs("sol", "high")
 	copyPath := filepath.Join(h.receipts, "lane-a.brief.md")
 	if !strings.Contains(h.spec(), "read "+copyPath+" in full") {
 		t.Fatal(h.spec())
@@ -1098,7 +1098,7 @@ func TestAnIncidentLaneRunsCodexOnTheFastTierInItsOwnTerminalInATopLevelWorktree
 	if !slices.Contains(set, "--no-parent") || slices.Contains(set, "--parent-worktree") {
 		t.Fatal(set)
 	}
-	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"+codexLaneConfig+" -c mcp_servers={}'")
+	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"+codexCompact+codexLaneConfig+" -c mcp_servers={}'")
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--terminal") != "term_a" || slices.Contains(start, "--agent") || slices.Contains(start, "--model") || slices.Contains(start, "--effort") {
 		t.Fatal(start)
@@ -1204,7 +1204,7 @@ func TestAFailedPrepareCommandAddsToTheBriefCopyACodexLaneAlreadyReads(t *testin
 	h.healthyClaude()
 	h.reply("orchestration worker-start", effectStart("term_a"))
 	h.env["ORCA_LAUNCH_PREPARE"] = "false"
-	h.launchedAs("sol", "xhigh")
+	h.launchedAs("sol", "high")
 	text := h.readReceipt("lane-a.brief.md")
 	prose, prep := strings.Index(text, "## PR prose"), strings.Index(text, "## Worktree preparation")
 	if !strings.HasPrefix(text, "# brief\n") || prose <= 0 || prose >= prep {
@@ -1255,7 +1255,7 @@ func TestACodexReadinessTimeoutSendsTheSpecAndRunsUnsupervised(t *testing.T) {
 	h.healthyClaude()
 	h.reply("orchestration worker-start", reply{rc: 1, out: object{"ok": true, "result": object{"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []object{{"kind": "terminal", "role": "agent", "id": "term_codex"}}}}})
 	h.reply("terminal send", reply{out: object{"ok": true}})
-	wantLine(t, h.launchedAs(agentCodex, "xhigh"), "lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
+	wantLine(t, h.launchedAs(agentCodex, "high"), "lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
 	send := h.orcaCalls("terminal send")[0]
 	if flag(send, "--terminal") != "term_a" || !strings.Contains(flag(send, "--text"), filepath.Join(h.receipts, "lane-a.brief.md")) || !slices.Contains(send, "--enter") {
 		t.Fatal(send)
@@ -1281,7 +1281,7 @@ func TestAReadinessTimeoutAtAnUpdatePromptNeverSendsTheSpec(t *testing.T) {
 			h.reply("orchestration worker-start", reply{rc: 1, out: object{"ok": true, "result": object{"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []object{{"kind": "terminal", "role": "agent", "id": "term_codex"}}}}})
 			h.reply("terminal send", sent)
 			terminal := "term_a"
-			line, code := h.launchAs("lane-a", model, "xhigh", h.brief)
+			line, code := h.launchAs("lane-a", model, "high", h.brief)
 			if code != 1 {
 				t.Fatal(line)
 			}
@@ -1906,7 +1906,7 @@ func TestACodexLanesCreatedWorktreeHasItsStartupShellClosed(t *testing.T) {
 	h := newFullHarness(t)
 	h.healthyClaude()
 	h.reply("terminal list", startup, listing(agentClaude))
-	h.launchedAs(agentCodex, "xhigh")
+	h.launchedAs(agentCodex, "high")
 	closes := h.orcaCalls("terminal close")
 	if len(closes) != 1 || flag(closes[0], "--terminal") != "term_shell" {
 		t.Fatal(closes)
@@ -2181,6 +2181,7 @@ func TestLaunchRejectsAnUnknownModelInOneLine(t *testing.T) {
 func TestAnAstraLaneStartsGPT6AstraInItsOwnCodexTerminal(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
+	h.writeFile(h.brief, "# brief\nOwner pick: owner:m836\n")
 	h.launchedAs("astra", "xhigh")
 	if command := flag(h.orcaCalls("terminal create")[0], "--command"); !strings.Contains(command, " -c model=gpt-6-astra ") {
 		t.Fatal(command)
@@ -2201,6 +2202,7 @@ func TestNoClaudeAliasButIncidentOpusTurnsOnFastMode(t *testing.T) {
 	for _, model := range []string{"opus", "sonnet", "fable", "claude-opus-5-5"} {
 		h := newHarness(t)
 		h.healthyClaude()
+		h.writeFile(h.brief, "# brief\nOwner pick: owner:m836\n")
 		h.launchedAs(model, "xhigh")
 		if command := flag(h.orcaCalls("terminal create")[0], "--command"); strings.Contains(command, "fastMode") {
 			t.Fatalf("%s: %s", model, command)

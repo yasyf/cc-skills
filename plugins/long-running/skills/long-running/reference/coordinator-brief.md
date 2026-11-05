@@ -13,7 +13,7 @@ Contents:
 The communicator launches one coordinator per drive at drive start as a sibling Orca session bound as lane `root`: `lr launch coordinator <state dir>/root/brief.md`. The launch refuses a brief whose directory is not named for the lane. The lane supervisor relaunches the coordinator from its brief and newest handoff when it dies, like any lane, and the communicator keeps answering the owner meanwhile.
 
 The launch:
-- sets `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000`, so a batch wait never rewrites the context and it compacts near 367k tokens;
+- sets `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=333000`, so a batch wait never rewrites the context and it and its subagents compact at 300k tokens;
 - denies `Workflow`, `ScheduleWakeup`, `ReportFindings`, `ListAgents`, `Monitor`, `SendMessage` and `TaskGet`, and shrinks the skill listing to names;
 - sets `CLAUDE_LONG_RUNNING_LANE=root`. The pack's first-command hook claims that lane with `cci announce --lane root` before the coordinator's first command, so a lane an earlier post bound the window to never wins.
 
@@ -138,7 +138,7 @@ keep launches, holds, finder and fidelity overrides, incidents and rulings.
 
 Launch lanes through the supervisor and Orca, never with `Agent`, keeping only the body text:
 
-    lr launch lane <lane> --title <title> --model opus --effort xhigh --scale small \
+    lr launch lane <lane> --title <title> --model opus --effort high --scale small \
       --ccx role=build,place=local,why=<reason> --timeout-seconds 3 --body - <<'EOF'
     <the body>
     EOF
@@ -146,7 +146,7 @@ Launch lanes through the supervisor and Orca, never with `Agent`, keeping only t
 It writes `<state dir>/<lane>/brief.md` with the header and your standing lines from
 `<state dir>/root/brief-lines.txt`, the runner refreshes the register slice, and it prints the
 verdict. A later verdict arrives as a `desk-runner` record. Model and effort default to opus
-xhigh; a launch beside a live lane holding the work takes `--now`.
+high; Fable, astra, `xhigh` or `max` takes an `Owner pick: owner:m<row>` line in the body naming his words. A launch beside a live lane holding the work takes `--now`.
 
 The task list is yours. Run `TaskCreate` the turn you spawn a lane or an ask arrives,
 complete a task only after consuming the deliverable, and reconcile the list against the

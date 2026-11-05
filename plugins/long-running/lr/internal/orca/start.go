@@ -31,7 +31,6 @@ const (
 	startPoll              = 4 * time.Second
 	stallRetry             = 30 * time.Second
 	coordinatorLane        = "root"
-	coordinatorCompact     = 400000
 	coordinatorDenied      = ",Workflow,ScheduleWakeup,ReportFindings,ListAgents,Monitor,SendMessage,TaskGet"
 	coordinatorListing     = `"skillListingBudgetFraction":0.001`
 	coordinatorNoMemory    = `"autoMemoryEnabled":false,"claudeMdExcludes":["**/CLAUDE.md","**/AGENTS.md"],`
@@ -512,6 +511,9 @@ func (l *launch) resolveLaunch() error {
 		return l.fail("brief: %v", err)
 	}
 	text := string(raw)
+	if faults := (Order{Lane: l.lane, Model: l.model, Effort: l.effort, Brief: l.brief}).costFaults(text); len(faults) > 0 {
+		return l.fail("%s", strings.Join(faults, "; "))
+	}
 	if err := l.resolveRepo(); err != nil {
 		return err
 	}
@@ -584,8 +586,9 @@ func (l *launch) composeCommand() error {
 	}
 	command := "env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " " + claudeLaneEnv
 	if l.lane == coordinatorLane {
-		command += fmt.Sprintf(" CLAUDE_CODE_PROMPT_CACHE_TTL=1h CLAUDE_CODE_AUTO_COMPACT_WINDOW=%d", coordinatorCompact)
+		command += " CLAUDE_CODE_PROMPT_CACHE_TTL=1h"
 	}
+	command += " " + laneCompact
 	denied := laneDeniedTools
 	if l.lane == coordinatorLane {
 		denied += coordinatorDenied
@@ -639,7 +642,7 @@ func (l *launch) composeCommand() error {
 	if err != nil {
 		return l.fail("codex config: cannot read the mcp_servers of %s", filepath.Join(home, "config.toml"))
 	}
-	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + tier + " -c model_reasoning_effort=" + l.effort + codexLaneConfig + " -c mcp_servers=" + mcp + off + "'"
+	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + tier + " -c model_reasoning_effort=" + l.effort + codexCompact + codexLaneConfig + " -c mcp_servers=" + mcp + off + "'"
 	return nil
 }
 
