@@ -669,6 +669,11 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string) error {
 			return err
 		}
 	}
+	if sprite := unreasonedLocal(order.Lane, order.Model, text); readErr == nil && sprite != "" {
+		if err := d.recordTo(ctx, "escalation:place:"+at, fmt.Sprintf("PLACE-UNREASONED %s %s: %s", key, order.Lane, sprite), verdictTo(by)); err != nil {
+			return err
+		}
+	}
 	if !order.Now {
 		holder, err := d.duplicateHolder(ctx, order.Lane, text)
 		if err != nil {

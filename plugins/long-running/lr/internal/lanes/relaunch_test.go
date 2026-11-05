@@ -327,3 +327,18 @@ func TestAStandingDesksRefusedSuccessorReachesRootByNameInTheSameTick(t *testing
 	equal(t, blockers[0].To, []string{Root})
 	contains(t, blockers[0].Text, "lane:conflicts-3: held, not launched: conflicts-3 is standing in for conflicts-2")
 }
+
+func TestASuccessorOfADeskThatNeedsTheMacKeepsItsNeedSoItNeverLandsOnASprite(t *testing.T) {
+	s := memory(t)
+	brief := filepath.Join(t.TempDir(), "brief.md")
+	do(os.WriteFile(brief, []byte("# conflicts-2: restack desk\nccx: role=desk place=local why=serves-previews incident=none\n"), 0o600))
+	f := stoodDownFor(t, s, brief)
+
+	tick(t, s, f, t0)
+
+	successor := f.briefs["conflicts-3"]
+	contains(t, successor, "Replaces: conflicts-2\nccx: role=desk place=local why=serves-previews incident=none\n")
+	if strings.Contains(successor, "predecessor-worked-here") {
+		t.Fatalf("a Mac desk's successor brief turned its need into a preference:\n%s", successor)
+	}
+}

@@ -195,6 +195,9 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	if missing := order.sliceWarning(string(raw)); missing != "" {
 		warnings = append(warnings, missing)
 	}
+	if sprite := unreasonedLocal(order.Lane, order.Model, string(raw)); sprite != "" {
+		warnings = append(warnings, sprite)
+	}
 	for _, warning := range warnings {
 		fmt.Fprintln(p.Out, "WARN "+warning)
 	}

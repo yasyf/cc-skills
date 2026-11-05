@@ -14,6 +14,7 @@ import (
 
 var (
 	macBrief    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=local(?:\s|$)`)
+	macNeed     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=\S.*$`)
 	sliceStep   = regexp.MustCompile(`(?m)^Register slice: lane=\S+ step=(\S+)`)
 	standing    = regexp.MustCompile(`(?m)^Standing: *(\S.*?)[ \t]*$`)
 	noDuty      = regexp.MustCompile(`(?i)^none\b`)
