@@ -922,13 +922,14 @@ func (s *Store) SetLaneWaiting(name string, ask int64, answered time.Time, await
 }
 
 type Unread struct {
-	Lane   string
-	Seq    int64
-	At     time.Time
-	Author string
-	Kind   string
-	Woke   bool
-	Raised bool
+	Lane     string
+	Seq      int64
+	At       time.Time
+	Author   string
+	Kind     string
+	Woke     bool
+	Raised   bool
+	Declined bool
 }
 
 func (s *Store) AddUnread(order Unread) error {
@@ -937,10 +938,10 @@ func (s *Store) AddUnread(order Unread) error {
 }
 
 func (s *Store) Unread() ([]Unread, error) {
-	rows, err := s.db.Query("SELECT lane, seq, at, author, kind, woke, raised FROM unread ORDER BY lane, seq")
+	rows, err := s.db.Query("SELECT lane, seq, at, author, kind, woke, raised, declined FROM unread ORDER BY lane, seq")
 	return collect(rows, err, func(rows *sql.Rows) (Unread, error) {
 		var order Unread
-		err := rows.Scan(&order.Lane, &order.Seq, moment{&order.At}, &order.Author, &order.Kind, &order.Woke, &order.Raised)
+		err := rows.Scan(&order.Lane, &order.Seq, moment{&order.At}, &order.Author, &order.Kind, &order.Woke, &order.Raised, &order.Declined)
 		return order, err
 	})
 }
@@ -970,6 +971,16 @@ func (s *Store) KeepUnread(states ...LaneState) error {
 
 func (s *Store) MarkUnreadWoken(lane string) error {
 	_, err := s.db.Exec("UPDATE unread SET woke = 1 WHERE lane = ?", lane)
+	return err
+}
+
+func (s *Store) MarkUnreadDeclined(lane string, seqs []int64) error {
+	args := make([]any, 0, len(seqs)+1)
+	args = append(args, lane)
+	for _, seq := range seqs {
+		args = append(args, seq)
+	}
+	_, err := s.db.Exec("UPDATE unread SET declined = 1 WHERE lane = ? AND seq IN ("+placeholders(len(seqs))+")", args...)
 	return err
 }
 

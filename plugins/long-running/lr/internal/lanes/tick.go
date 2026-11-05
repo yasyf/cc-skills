@@ -781,9 +781,6 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 }
 
 func wakeOnUnread(s *store.Store, d Deps, lane store.Lane, peer Peer, records []store.Unread, now time.Time) bool {
-	if !peer.Live || (peer.Row.Roster == "" && peer.Row.Dispatch == "") || settledLane(lane) {
-		return false
-	}
 	standing := isStanding(lane)
 	due := slices.DeleteFunc(slices.Clone(records), func(record store.Unread) bool {
 		patience := mailAfter
@@ -792,11 +789,43 @@ func wakeOnUnread(s *store.Store, d Deps, lane store.Lane, peer Peer, records []
 		}
 		return record.Woke || now.Sub(record.At) < patience
 	})
-	if len(due) == 0 || !must(d.Wake(lane.Name, peer.Row, map[string]any{"why": fmt.Sprintf("records addressed to you are unread: %s.", orderWords(due))})) {
+	if len(due) == 0 {
+		return false
+	}
+	if why := unwakeable(lane, peer); why != "" {
+		logDeclined(s, lane, why, due)
+		return false
+	}
+	if !must(d.Wake(lane.Name, peer.Row, map[string]any{"why": fmt.Sprintf("records addressed to you are unread: %s.", orderWords(due))})) {
 		return false
 	}
 	do(s.MarkUnreadWoken(lane.Name))
 	return true
+}
+
+func unwakeable(lane store.Lane, peer Peer) string {
+	switch {
+	case !peer.Live:
+		return "no live process"
+	case peer.Row.Roster == "" && peer.Row.Dispatch == "":
+		return "no dispatch or roster to reach it"
+	case settledLane(lane):
+		return "its last record ended it"
+	}
+	return ""
+}
+
+func logDeclined(s *store.Store, lane store.Lane, why string, due []store.Unread) {
+	fresh := slices.DeleteFunc(slices.Clone(due), func(record store.Unread) bool { return record.Declined })
+	if len(fresh) == 0 {
+		return
+	}
+	slog.Warn("wake declined", "lane", lane.Name, "why", why, "records", orderWords(fresh))
+	seqs := make([]int64, 0, len(fresh))
+	for _, record := range fresh {
+		seqs = append(seqs, record.Seq)
+	}
+	do(s.MarkUnreadDeclined(lane.Name, seqs))
 }
 
 func unreadOrder(record store.Unread) bool {

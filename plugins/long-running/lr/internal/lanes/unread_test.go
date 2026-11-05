@@ -1,8 +1,10 @@
 package lanes
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -90,6 +92,92 @@ func TestANoteOrAnAnswerToALaneParkedOnItsPRWakesItOnceAtFiveMinutes(t *testing.
 			contains(t, pageText(f.pages[0], "why"), fmt.Sprintf("%s's %s #3", orderAuthor, kind))
 		})
 	}
+}
+
+func restedPastOrcasStatus(lane string, lastCall time.Time, reason string) []Row {
+	return []Row{who(lane, true, lastCall), {Lane: lane, SeenAt: lastCall, Dispatch: "ctx_af31953664f5", Unverified: "has an Orca agent that reads unverifiable (" + reason + ")", HostGone: reason == hostUnavailable}}
+}
+
+func TestAnOrderToTheAliasOfALaneRestedPastOrcasStatusWakesItWithinTheTick(t *testing.T) {
+	for _, last := range []string{"blocked", "ask", "blocker", "report"} {
+		t.Run(last, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			rested := t0.Add(-mins(150))
+			f.feed = append(f.feed,
+				rec(2, lane2, last, rested, "waiting on the owner", orderAuthor),
+				rec(3, orderAuthor, "owner", t0, "build it now", Stem(lane2)),
+			)
+			f.peers = restedPastOrcasStatus(lane2, rested, "stale_status")
+
+			before := tick(t, s, f, t0.Add(mins(5)-time.Second))
+			woken := tick(t, s, f, t0.Add(mins(5)))
+			after := tick(t, s, f, t0.Add(mins(6)))
+
+			equal(t, len(before.Woken)+len(after.Woken), 0)
+			equal(t, woken.Woken, []string{lane2})
+			equal(t, f.wakes, []string{lane2})
+			contains(t, pageText(f.pages[0], "why"), orderAuthor+"'s owner #3")
+		})
+	}
+}
+
+func TestAPageReachesALaneRestedPastOrcasStatus(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 50231)
+	f.feed = append(f.feed, rec(2, orderAuthor, "blocker", t0, "#50231 is red", lane2).withRefs(prs(50231)))
+	f.peers = restedPastOrcasStatus(lane2, t0.Add(-mins(150)), "stale_status")
+
+	out := tick(t, s, f, t0.Add(time.Minute))
+
+	equal(t, out.Woken, []string{lane2})
+	equal(t, f.wakes, []string{lane2})
+}
+
+func TestAWakeSkipsALaneOrcaCannotReach(t *testing.T) {
+	rested := t0.Add(-mins(150))
+	cases := map[string][]Row{
+		"its host is gone":        restedPastOrcasStatus(lane2, rested, hostUnavailable),
+		"its dispatch has exited": {who(lane2, true, rested), {Lane: lane2, SeenAt: rested, Dispatch: "ctx_af31953664f5"}},
+	}
+	for name, peers := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			f.feed = append(f.feed, rec(2, orderAuthor, "note", t0, "the release is on the Mac", lane2))
+			f.peers = peers
+
+			out := tick(t, s, f, t0.Add(mins(5)))
+
+			equal(t, len(out.Woken), 0)
+			equal(t, len(f.wakes), 0)
+		})
+	}
+}
+
+func TestADeclinedWakeLogsEachRecordOnceWithItsReason(t *testing.T) {
+	var logged bytes.Buffer
+	before := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(before) })
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, orderAuthor, "note", t0, "the release is on the Mac", lane2))
+	f.peers = restedPastOrcasStatus(lane2, t0.Add(-mins(150)), hostUnavailable)
+
+	tick(t, s, f, t0.Add(mins(5)-time.Second))
+	equal(t, strings.Count(logged.String(), "wake declined"), 0)
+
+	tick(t, s, f, t0.Add(mins(5)))
+	tick(t, s, f, t0.Add(mins(6)))
+	equal(t, strings.Count(logged.String(), "wake declined"), 1)
+	contains(t, logged.String(), "no dispatch or roster to reach it")
+	contains(t, logged.String(), orderAuthor+"'s note #2")
+
+	f.feed = append(f.feed, rec(3, orderAuthor, "note", t0.Add(mins(6)), "and the staging promotion", lane2))
+	tick(t, s, f, t0.Add(mins(11)))
+	equal(t, strings.Count(logged.String(), "wake declined"), 2)
+	contains(t, logged.String(), orderAuthor+"'s note #3")
 }
 
 func TestALaneThatPostedSinceANoteIsNotWokenForIt(t *testing.T) {
