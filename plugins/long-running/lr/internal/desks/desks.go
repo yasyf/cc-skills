@@ -37,7 +37,6 @@ type owing struct {
 
 var (
 	standing = []desk{
-		{"landing-desk", "opus", "xhigh"},
 		{"fidelity-desk", "opus", "xhigh"},
 		{"red-sweep", "opus", "high"},
 		{"alerts-desk", "sonnet", "low"},

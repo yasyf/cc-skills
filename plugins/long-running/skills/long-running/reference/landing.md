@@ -26,8 +26,7 @@ Contents:
 
 ## Roles and architecture
 
-- `landing-desk` takes lane reports and reconciles landings so the coordinator does not wait on them. Spawn it before any lane that opens a PR when three or more lanes ship through one merge queue or the drive outlives one context window. Below that, the opening lane lands its own PR, or the coordinator lists it for the label watch in `reference/watchers.md`, with no desk. Its spawn brief is `reference/landing-desk-brief.md`.
-- The supervisor's landing pass (`lr landing pass`) is the drive's merge queue and owns D3, D14, D16, and D20 across all shards. The desk never enqueues, labels, dequeues, or requeues beside it.
+- The supervisor's landing pass (`lr landing pass`) is the drive's merge queue and owns D3, D14, D16, and D20 across all shards. No lane enqueues, labels, dequeues, or requeues beside it.
 - The coordinator owns holds (see [Holds, priority, dequeue, and requeue](#holds-priority-dequeue-and-requeue)), receives `P0` and `RULING NEEDED` lines immediately, and receives a summary every 30 minutes.
 - `scripts/ledger.py` is the desk's one tool, applying R5 and R3 in `SKILL.md` to PR state and watching. The desk grades, lands, and tracks only through it, never through scripts of its own; a gap in `ledger.py` is a `RULING NEEDED`, not a workaround. Scripts are on `PATH` by name.
 - `ledger.py` reads state with `ccx vcs pr state` and transitions with `ccx vcs pr watch`; both use ccx's machine-wide pull request cache, which polls each repository at most once every 30 seconds.
@@ -43,7 +42,7 @@ D24 sits at the end of this section.
 **D1. The landing pass is the only enqueuer; lanes report; the coordinator owns holds and priority PRs.**
 - A lane never runs `stack-enqueue` outside `--check` and `--status`, `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label.
 - On a Sprite neither read works, since `tools/ci` fetches its binary from a bucket a Sprite holds no AWS identity for. A Sprite lane reads queue state, checks, approval and a verdict with `ccx vcs pr status <n>`. It asks nobody for the go: the landing host's go sweep gates every ready head each pass, and a question about its answer goes to `root`.
-- The pack's `lane_landing` hook reads the drive registry and warns on those commands against the drive's repo, without blocking, from every lane except `landing-desk`, its shards, priority desks, `desk-runner`, `merge-train` lanes, and incident lanes.
+- The pack's `lane_landing` hook reads the drive registry and warns on those commands against the drive's repo, without blocking, from every lane except desk lanes (a name ending in `-desk` or `-desk-<n>`), `desk-runner`, `merge-train` lanes, and incident lanes.
 - An incident lane is named `incident-` or `outage-`, briefed with `ccx: incident=<id>` other than `none`, or named `<x>-fix` and briefed with `Register slice: lane=<x>-fix step=incident`. The hook warns it only on `stack-enqueue` and `gh pr merge --admin` and lets it run `gh pr merge <n> --squash`.
 - The same pack warns on `tools/ci trunk dequeue`, `restart`, and `prioritize` from every lane, desks included, because only the coordinator steers the queue. A tooling lane merges its own PRs in other repos.
 - The moment a PR is green, the lane reports `"READY"` with `--verdict clean` on `ledger.py report --drive <drive>` and keeps `ccx vcs pr watch` on the stack.
@@ -93,7 +92,7 @@ D24 sits at the end of this section.
 **D16. The green bottom of a stack lands now.**
 - Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one batch; never wait for the top of a stack to go green.
 - After a native GitHub stack prefix merges atomically, inspect whether GitHub automatically rebased the remaining stack before routing an explicit restack.
-- When a restack is needed, the landing pass verifies ledger `landed` rows and routes the first PR above the landed prefix: by relay for Orca lanes, otherwise `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"`. It sets the route verified when the child's head moves or lands.
+- When a restack is needed, the landing pass verifies ledger `landed` rows and routes the first PR above the landed prefix: by relay for Orca lanes, otherwise `cci post --drive <drive> --lane supervisor --kind blocker --topic <pr> --to <lane> --text "<restack route>"`. It sets the route verified when the child's head moves or lands.
 - The owning lane restacks as D1 describes. The landing desk never duplicates this route.
 - A downstack PR left on its parent's old head (`Waiting for restack`) publishes no review above it: walk the chain and restack from the first stale link.
 - Before calling a PR's commits stale, find its real parent with `git branch -r --contains` and retarget the base; push nothing.
@@ -152,9 +151,9 @@ D24 sits at the end of this section.
 - Clear each stale row's blocker in the pass that sees it with a label, route, hold, lift, or `"RULING NEEDED"`.
 
 **D12. Shard at 15 lanes or 25 active rows, whichever comes first.**
-- Split early. Spawn parallel `long-running:lane` sub-lanes named `landing-desk-<shard>`, each owning a named set of lanes' rows in the same ledger with `--shard lane-a,lane-b`. A stack's rows belong to the shard of its tip's lane.
+- Split early. Spawn parallel `long-running:lane` sub-lanes, each owning a named set of lanes' rows in the same ledger with `--shard lane-a,lane-b`. A stack's rows belong to the shard of its tip's lane.
 - `--shard` filters `refresh`, `landed`, `reconcile`, `route`, `label --all-clean`, `stale`, `summary`, and `inbox` to rows and cci messages whose `lane` is in the set. All shards share the ledger and its per-ledger refresh lock.
-- Lanes keep reporting to `landing-desk`; the main desk types every message in and alone sends the coordinator the summary.
+- Lanes keep reporting with `ledger.py report`; the main desk types every message in and alone sends the coordinator the summary.
 - When rows fall back under both thresholds, tell the shard lanes the drive is over for them.
 
 **D14. Grade a moved or unreported head like any other.**
@@ -164,7 +163,7 @@ D24 sits at the end of this section.
 - A queue drop blaming a PR outside the stack re-enqueues the same head after the coordinator's next `go` record naming the PR. A `flaky-check` drop goes to `landing.restack_lane`, never the PR's own lane.
 - The runner re-runs the gate immediately before creating the route and suppresses a blocker that already cleared, without re-reading at a later Orca delivery.
 - When a merge conflict's lane has no active Orca dispatch and no session in `cci who`, but has a cci record in the last 60 minutes, the runner parks the conflict: the coordinator gets one `PARKED parked:<pr>` line per PR, and the conflict routes once the lane is back.
-- Orca lanes receive a relay; other lanes receive `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<blocker>"`.
+- Orca lanes receive a relay; other lanes receive `cci post --drive <drive> --lane supervisor --kind blocker --topic <pr> --to <lane> --text "<blocker>"`.
 - Under the `label --all-clean` fallback, send each refused head `new head <sha9>: <blocker>` once per head and blocker. If the head moved since the refresh, the next pass grades the new head without a route, while red CI and conflicts go through `route` without a duplicate message from the batch.
 - The landing desk retains `ledger.py route` for red CI and conflicts and never repeats the runner's per-head gate messages.
 
@@ -442,7 +441,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
   - No typed `hold` record holds the PR, and no open card on the owner's board names it. A row ready for his tap refuses nothing: an exempt head lands under its class.
   - No `landing.tap_rules` glob matches a changed file, and no live go already names the head.
 - A refused PR prints every reason and posts nothing. Text in an ask, answer, note, or blocker is never an override or a pick. A hold the coordinator writes as prose stops nothing, so it posts every hold as a `hold` record. `lr landing go <pr> --head <sha> --before <seq>` replays a past go over the records before it.
-- Before promising a go or saying what admits a PR, dry-run `lr landing go` from a monorepo checkout. A class only admits through the go sweep, which runs in the landing pass, and a test-only fix can still land on the owner's tap. No lane holds `go-sweep`, `go-desk` or, in a drive that stood it down, `landing-desk`: `cci post --to` one of them accepts the record, nobody reads it, and a note says so.
+- Before promising a go or saying what admits a PR, dry-run `lr landing go` from a monorepo checkout. A class only admits through the go sweep, which runs in the landing pass, and a test-only fix can still land on the owner's tap. No lane holds `go-sweep`, `go-desk` or `landing-desk`, all stood down: `cci post --to` one of them accepts the record, nobody reads it, and a note says so.
 - Landings go through the landing pass, and a go posts as the supervisor. Read a name's registry row before routing to it: a go posted through a nonexistent landing desk landed on an exempt-class fidelity grade.
 
 **Reading a go.** A go is read fresh before every enqueue line.
@@ -741,7 +740,7 @@ Printed by `ledger.py route` and sent once per PR, head, and failing job:
 ```
 DESK #<n> <head9>: <failing job, or "rebase onto <base>">
 <the first failing line from the Buildkite log, when the desk read one>
-Push the fix as a new head on the same branch, then send landing-desk the 3-line report
+Push the fix as a new head on the same branch, then send the 3-line report with `ledger.py report`
 (PR, head, verdict); the merge label waits on that head reading green and merge-clean.
 ```
 

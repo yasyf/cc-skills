@@ -21,7 +21,7 @@
 - launchd restarts it. A restart reads from the saved cursor and is idempotent, and `relay.lock` keeps it to one process per drive. Restarting never relaunches its workers.
 - It leaves for a new binary between passes, once the installed plugin pins a different `lr` release.
 - A pass that raises posts one `blocker` to the coordinator naming the error and runs its next pass.
-- The supervisor's landing pass is the drive's merge queue. Its checks and rules D3, D14, D16 and D20 are in [reference/landing.md](landing.md); the landing-desk lane's duties are in [reference/landing-desk-brief.md](landing-desk-brief.md).
+- The supervisor's landing pass is the drive's merge queue. Its checks and rules D3, D14, D16 and D20 are in [reference/landing.md](landing.md).
 
 ### Liveness
 

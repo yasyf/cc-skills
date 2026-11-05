@@ -140,7 +140,7 @@ cci post --drive "$DRIVE" --lane iam-structural --kind contract --topic iam-cont
 cci post --drive "$DRIVE" --lane iam-structural --kind decision --topic iam-contract --text "IAM wave lands before the pre-hold" --to pr-plans
 cci post --drive "$DRIVE" --lane pr-plans --kind ask --topic <pr> --text "clear to label before the IAM wave?" --to iam-structural
 cci post --drive "$DRIVE" --lane iam-structural --kind answer --topic <pr> --to pr-plans --re "$ASK_SEQ" --text "yes, land it"
-cci post --drive "$DRIVE" --lane landing-desk --kind blocker --topic <pr> --text "DESK #<pr> <sha9>: plan job red" --to pr-plans
+cci post --drive "$DRIVE" --lane supervisor --kind blocker --topic <pr> --text "DESK #<pr> <sha9>: plan job red" --to pr-plans
 cci post --drive "$DRIVE" --lane artifact-contract --kind withdraw --topic artifact-reads --to partial-release --re "$VERDICT_SEQ" --text "verdict retracted; contract changed"
 ```
 
@@ -227,12 +227,12 @@ cci tail --drive <drive> --cursor partial-release --reader partial-release
 
 A text read that includes the decision marks it `[WITHDRAWN #n]`.
 
-**A red nobody saw.** Post the blocker from the desk and close it explicitly after the fix:
+**A red nobody saw.** Post the blocker from the landing pass and close it explicitly after the fix:
 
 ```sh
-cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text 'DESK #<pr> <sha9>: <job>'
+cci post --drive <drive> --lane supervisor --kind blocker --topic <pr> --to <lane> --text 'DESK #<pr> <sha9>: <job>'
 cci tail --drive <drive> --cursor <lane> --reader <lane>
-cci post --drive <drive> --lane <lane> --kind done --topic <pr> --to landing-desk --re <blocker seq> --text 'The blocker is fixed on the new head.'
+cci post --drive <drive> --lane <lane> --kind done --topic <pr> --to supervisor --re <blocker seq> --text 'The blocker is fixed on the new head.'
 ```
 
 The coordinator's digest keeps the blocker open until an explicit closure, even after a new head is posted.

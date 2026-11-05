@@ -24,7 +24,7 @@ const testDrive = "durable-agents-rebuild"
 
 var (
 	t0            = time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
-	everyDesk     = []string{"landing-desk", "fidelity-desk", "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher"}
+	everyDesk     = []string{"fidelity-desk", "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher"}
 	onlyDeskBrief = "ccx: role=desk place=remote\nStanding: the duty\n"
 )
 
@@ -150,16 +150,16 @@ func TestTheCoordinatorStartsEveryDesk(t *testing.T) {
 }
 
 func TestADeskUpUnderAnyNumberIsNotStartedAgain(t *testing.T) {
-	a, m, state := newDrive(t, lanes.Root, "fidelity-desk", "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher")
-	wantLane(t, state, "landing-desk-3", "/b.md", store.LaneDesired)
+	a, m, state := newDrive(t, lanes.Root, "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher")
+	wantLane(t, state, "fidelity-desk-3", "/b.md", store.LaneDesired)
 	var out bytes.Buffer
 	if err := start(context.Background(), a, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "landing-desk is up as landing-desk-3") {
+	if !strings.Contains(out.String(), "fidelity-desk is up as fidelity-desk-3") {
 		t.Fatalf("got %q", out.String())
 	}
-	if launched := m.lines("desk-launch.py lane landing-desk"); len(launched) != 0 {
+	if launched := m.lines("desk-launch.py lane fidelity-desk"); len(launched) != 0 {
 		t.Fatalf("relaunched a live desk: %q", launched)
 	}
 	if rebound := m.lines("lr relay rebind"); len(rebound) != 1 {
@@ -169,7 +169,7 @@ func TestADeskUpUnderAnyNumberIsNotStartedAgain(t *testing.T) {
 
 func recordedBrief(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "landing-desk-3.brief.md")
+	path := filepath.Join(t.TempDir(), "fidelity-desk-3.brief.md")
 	if err := os.WriteFile(path, []byte(onlyDeskBrief), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -179,21 +179,21 @@ func recordedBrief(t *testing.T) string {
 func TestADownDeskRelaunchesUnderItsNextNameFromItsRecordedBrief(t *testing.T) {
 	for _, down := range []store.LaneState{store.LaneHeld, store.LaneRetired} {
 		t.Run(string(down), func(t *testing.T) {
-			a, m, state := newDrive(t, lanes.Root, "fidelity-desk", "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher")
-			wantLane(t, state, "landing-desk-3", recordedBrief(t), down)
+			a, m, state := newDrive(t, lanes.Root, "red-sweep", "alerts-desk", "drive-watchdog", "board-refresher")
+			wantLane(t, state, "fidelity-desk-3", recordedBrief(t), down)
 			var out bytes.Buffer
 			if err := start(context.Background(), a, &out); err != nil {
 				t.Fatal(err)
 			}
-			successor := filepath.Join(state, "landing-desk-4", "brief.md")
-			want := fmt.Sprintf("desk-launch.py lane landing-desk-4 opus xhigh %s --drive %s --lane %s", successor, testDrive, lanes.Root)
-			if launched := m.lines("desk-launch.py lane landing-desk"); !slices.Equal(launched, []string{want}) {
+			successor := filepath.Join(state, "fidelity-desk-4", "brief.md")
+			want := fmt.Sprintf("desk-launch.py lane fidelity-desk-4 opus xhigh %s --drive %s --lane %s", successor, testDrive, lanes.Root)
+			if launched := m.lines("desk-launch.py lane fidelity-desk"); !slices.Equal(launched, []string{want}) {
 				t.Fatalf("launched %q, want %q", launched, want)
 			}
 			if copied, err := os.ReadFile(successor); err != nil || string(copied) != onlyDeskBrief {
-				t.Fatalf("the successor's brief holds %q (%v), want landing-desk-3's recorded brief", copied, err)
+				t.Fatalf("the successor's brief holds %q (%v), want fidelity-desk-3's recorded brief", copied, err)
 			}
-			if !strings.Contains(out.String(), "landing-desk is "+string(down)+" as landing-desk-3, so landing-desk-4 launches") {
+			if !strings.Contains(out.String(), "fidelity-desk is "+string(down)+" as fidelity-desk-3, so fidelity-desk-4 launches") {
 				t.Fatalf("got %q", out.String())
 			}
 		})
@@ -268,7 +268,7 @@ func TestARoleWhoseHolderPostsUnderAnyNameLaunchesNoSecondWriter(t *testing.T) {
 }
 
 func TestABriefThatStaysOnTheMacOrIsMissingStartsNothing(t *testing.T) {
-	a, m, state := newDrive(t, lanes.Root, "landing-desk", "fidelity-desk", "red-sweep", "drive-watchdog")
+	a, m, state := newDrive(t, lanes.Root, "fidelity-desk", "red-sweep", "drive-watchdog")
 	writeBrief(t, state, "alerts-desk", "ccx: role=watch place=local\n")
 	err := start(context.Background(), a, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "alerts-desk") || !strings.Contains(err.Error(), "every desk runs remote") || !strings.Contains(err.Error(), "board-refresher has no brief") {

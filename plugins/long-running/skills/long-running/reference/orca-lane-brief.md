@@ -459,7 +459,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `ccn papercut`), never only into your report.
 - Fix or accept each reviewer-bot finding with the risk
   named. Post a `head` record for every push, addressed
-  `--to desk-runner,fidelity-pipeline,finder-desk,landing-desk` and never to the coordinator, as are your
+  `--to desk-runner,fidelity-pipeline,finder-desk` and never to the coordinator, as are your
   `state` records. A restack that moves several PRs posts one record carrying every head,
   `cci post --kind head --head <pr>=<was>..<sha> --head <pr>=<was>..<sha> ... --attr delta=<class>`, with a
   note after the sha such as `patch-identical` when the range-diff says so, never one record per PR.

@@ -92,9 +92,9 @@ Do, in this order, every iteration:
      and a cci correction names its record with --re <seq>. Never report it done.
      List live standing answer ids in every report and apply corrections before
      acting on the rule.
-     Your lanes report and register with you, not with landing-desk. Type each
+     Your lanes report and register with you. Type each
      3-line report in with `ledger.py report --drive <drive>` and each registration with
-     `ledger.py register`, exactly as landing-desk does, so the ledger stays whole.
+     `ledger.py register`, so the ledger stays whole.
      Lanes that write their own `ledger.py report --drive <drive>` reach you only through
      `ledger.py inbox --ledger <id> --drive <drive> --shard <your lanes> --take`; run it here.
   1. Read every owed PR in one batched

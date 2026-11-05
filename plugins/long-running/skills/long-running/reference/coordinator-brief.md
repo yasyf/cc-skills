@@ -177,7 +177,7 @@ You own desk-runner, the relay and every desk; the communicator starts none of t
 Next, before any lane, and again after any relaunch, run `lr desks start`. It takes the
 Run for this terminal, starts only what is down, and starts nothing when a desk's brief
 is missing or says place=local. It starts the relay, the landing pass,
-`landing-desk`, `fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` and
+`fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` and
 `board-refresher`. The landing pass and every desk run remote, each an lr-launched lane
 registered to you, on a Sprite unless its brief says `place=local why=<reason>`, naming what needs
 the Mac. You never spawn a desk with Agent: a subagent ends with your window. The relay is the
@@ -239,7 +239,7 @@ update, never from memory>.
 | Coordinator | Everything in [the brief above](#the-brief-to-fill), every former coordinator role, and every runner and desk in this table but `update-desk`, which it starts with `lr desks start` | [coordinator-brief.md](coordinator-brief.md) |
 | Meta lane, the communicator's | Every meta change, made into a skill update; every tooling build, defect and improvement, and every order to build tooling; `items.md`; one implementer per item | [meta-lane-brief.md](meta-lane-brief.md) |
 | Signal lane, the communicator's | Tails the coordinator's feed and posts the communicator pointers, never summaries | [signal-lane-brief.md](signal-lane-brief.md) |
-| Landing pass and `landing-desk` | The merge queue, lane reports, the ledger; both remote | [landing.md](landing.md), [landing-desk-brief.md](landing-desk-brief.md) |
+| Landing pass | The merge queue, lane reports, the ledger; remote | [landing.md](landing.md) |
 | Orca runner, the relay | Launches and relays to Orca workers, starts grading jobs; on the Mac, the one desk that is not remote | [orca-desk-brief.md](orca-desk-brief.md) |
 | Lane supervisor | Liveness, relaunch, rotation, standing duties, alert launch, landed-not-live, Sprite stops | [watchers.md](watchers.md) |
 | Incident lanes, `alerts-desk` | One incident from intake to final reply; monitor transitions as records | [active-alert-brief.md](active-alert-brief.md), [alerts-desk-brief.md](alerts-desk-brief.md) |
