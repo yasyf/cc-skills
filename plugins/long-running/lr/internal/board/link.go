@@ -249,7 +249,7 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 		}
 	}
 	if card.Ask != 0 {
-		if err := cards.record(ctx, top.ID, map[string]string{askField: strconv.FormatInt(card.Ask, 10)}); err != nil {
+		if err := cards.RecordAsk(ctx, top.ID, card.Ask); err != nil {
 			return "", err
 		}
 	}

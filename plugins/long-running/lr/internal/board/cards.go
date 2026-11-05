@@ -55,6 +55,9 @@ type Cards struct {
 	Reports  func(ctx context.Context) ([]ownerAnswer, error)
 	Withdraw func(ctx context.Context, lane, card, text string) error
 	Report   func(ctx context.Context, lane string, to []string, topic, text string) error
+	Tail     func(ctx context.Context, q client.Query) ([]client.Record, error)
+	Among    func(ctx context.Context, drive string, seqs []int64) ([]client.Record, error)
+	Post     func(ctx context.Context, d client.Draft) (client.Record, error)
 }
 
 func (c Cards) run(ctx context.Context, command shell.Command) (string, error) {
@@ -499,7 +502,7 @@ func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
 }
 
 func (c Cards) Pass(ctx context.Context, lane string, judge Judge, out io.Writer) error {
-	return errors.Join(c.Sweep(ctx, lane, out), c.closeAnswered(ctx, lane, out), c.Unask(ctx, lane, judge, out), c.Finished(ctx, lane, judge, out))
+	return errors.Join(c.Sweep(ctx, lane, out), c.closeAnswered(ctx, lane, out), c.Unask(ctx, lane, judge, out), c.Finished(ctx, lane, judge, out), c.Corrected(ctx, lane))
 }
 
 func (c Cards) closeAnswered(ctx context.Context, lane string, out io.Writer) error {

@@ -123,6 +123,7 @@ type Reply struct {
 	Type        string           `json:"type,omitempty"`
 	Picks       []string         `json:"picks,omitempty"`
 	Recommended string           `json:"recommended,omitempty"`
+	Ask         int64            `json:"ask,omitempty"`
 	Build       *Build           `json:"build,omitempty"`
 	Links       []Link           `json:"links,omitempty"`
 	PRs         []string         `json:"prs,omitempty"`
@@ -173,6 +174,7 @@ type Fanout struct {
 	Now    func() time.Time
 	Judge  board.Judge
 	Shoot  func(ctx context.Context, dashboard string, diagram json.RawMessage, png string) error
+	Cards  board.Cards
 }
 
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
@@ -988,11 +990,17 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	if err != nil {
 		return []Outcome{failed("board", err), {Surface: "slack", Ref: f.postedRef(r.ID), Error: "the board card did not post, so cc-present sent no Slack card"}}
 	}
+	drawn := Outcome{Surface: "board", Ref: id}
+	if r.Ask != 0 {
+		if err := f.Cards.RecordAsk(ctx, id, r.Ask); err != nil {
+			drawn.Warning = fmt.Sprintf("the card's row does not record ask %d, so a correction answering it will not flag the card: %s", r.Ask, err)
+		}
+	}
 	posted := slackSent.FindStringSubmatch(done.Stdout)
 	if posted == nil {
-		return []Outcome{{Surface: "board", Ref: id}, f.leftOnTheBoard(r.ID, id)}
+		return []Outcome{drawn, f.leftOnTheBoard(r.ID, id)}
 	}
-	return []Outcome{{Surface: "board", Ref: id}, {Surface: "slack", Ref: posted[1]}}
+	return []Outcome{drawn, {Surface: "slack", Ref: posted[1]}}
 }
 
 func (f Fanout) leftOnTheBoard(replyID, cardID string) Outcome {
