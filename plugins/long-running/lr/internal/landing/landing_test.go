@@ -57,6 +57,7 @@ type queue struct {
 	states       map[int]landing.QueueEntry
 	statusReads  int
 	failureReads int
+	since        time.Time
 	refused      bool
 }
 
@@ -73,8 +74,9 @@ func (q *queue) Reenter(_ context.Context, number int) (string, error) {
 	return fmt.Sprintf("exit 0: #%d QUEUED", number), nil
 }
 
-func (q *queue) LastFailure(context.Context, int) (landing.Failure, error) {
+func (q *queue) LastFailure(_ context.Context, _ int, since time.Time) (landing.Failure, error) {
 	q.failureReads++
+	q.since = since
 	return q.failure, nil
 }
 

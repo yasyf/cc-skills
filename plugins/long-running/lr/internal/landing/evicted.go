@@ -55,12 +55,38 @@ type Evictions struct {
 
 func (e Evictions) Pass(ctx context.Context, snapshot []machine.Facts) ([]machine.Facts, error) {
 	read := slices.Clone(snapshot)
-	failed := make([]error, 0, 1+len(read))
+	failed := make([]error, 0, 2+len(read))
 	failed = append(failed, e.readQueued(ctx, read))
+	arrived, err := e.arrivals(read)
+	failed = append(failed, err)
 	for at := range read {
-		failed = append(failed, e.settle(ctx, &read[at]))
+		failed = append(failed, e.settle(ctx, &read[at], arrived[read[at].Number]))
 	}
 	return read, errors.Join(failed...)
+}
+
+func (e Evictions) arrivals(read []machine.Facts) (map[int]time.Time, error) {
+	if !slices.ContainsFunc(read, func(f machine.Facts) bool { return f.Queue == machine.QueueEvicted && f.Eviction == "" }) {
+		return nil, nil
+	}
+	rows, err := e.Store.ReviewRows(read[0].Repo)
+	if err != nil {
+		return nil, err
+	}
+	heads := make(map[int]string, len(read))
+	for _, f := range read {
+		heads[f.Number] = f.Head
+	}
+	arrived := make(map[int]time.Time, len(rows))
+	for _, row := range rows {
+		if row.Head == "" || !strings.HasPrefix(heads[row.Number], row.Head) {
+			continue
+		}
+		if at, err := store.Parse(row.HeadAt); err == nil {
+			arrived[row.Number] = at
+		}
+	}
+	return arrived, nil
 }
 
 func (e Evictions) readQueued(ctx context.Context, read []machine.Facts) error {
@@ -114,20 +140,24 @@ func (e Evictions) sayNotReady(ctx context.Context, f machine.Facts, entry Queue
 	return err
 }
 
-func (e Evictions) settle(ctx context.Context, f *machine.Facts) error {
+func (e Evictions) settle(ctx context.Context, f *machine.Facts, arrived time.Time) error {
 	if !f.Ours() || f.Merged || f.Closed {
 		return nil
 	}
-	if f.Queue == machine.QueueQueued && f.Eviction != "" {
+	if f.Queue != machine.QueueEvicted && f.Eviction != "" {
 		f.Eviction, f.EvictionOwn = "", false
 		return forgetEviction(e.Store, *f)
 	}
 	if f.Queue != machine.QueueEvicted || f.Eviction != "" {
 		return nil
 	}
-	failure, err := e.Queue.LastFailure(ctx, f.Number)
+	failure, err := e.Queue.LastFailure(ctx, f.Number, arrived)
 	if err != nil {
 		return fmt.Errorf("#%d queue failure unread: %w", f.Number, err)
+	}
+	if failure.State == "" {
+		f.Queue = machine.QueueNone
+		return nil
 	}
 	evidence, err := e.notItsOwn(ctx, failure)
 	if err != nil {
@@ -225,9 +255,6 @@ func rowAudience(s *store.Store, drive string, f machine.Facts, holder string, o
 }
 
 func (failure Failure) words() string {
-	if failure.State == "" {
-		return "Trunk's history names no failed or canceled attempt"
-	}
 	state := "failed"
 	if failure.State == entryCancelled {
 		state = "canceled"

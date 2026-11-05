@@ -55,7 +55,7 @@ func (q *queue) Reenter(ctx context.Context, number int) (string, error) {
 
 func (q *queue) Dequeue(context.Context, int) (string, error) { return "", nil }
 
-func (q *queue) LastFailure(context.Context, int) (landing.Failure, error) {
+func (q *queue) LastFailure(context.Context, int, time.Time) (landing.Failure, error) {
 	return landing.Failure{}, nil
 }
 

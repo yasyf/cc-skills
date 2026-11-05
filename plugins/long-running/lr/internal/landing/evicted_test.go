@@ -234,3 +234,37 @@ func TestADequeueAlarmReachesOwnerRelayAndNamesHisRefusedTap(t *testing.T) {
 		t.Fatalf("records = %+v", records)
 	}
 }
+
+func TestAFellLabelThatOutlivedItsHeadTellsNobodyAndMovesNothing(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, q := storeWith(t, "lane-7"), &queue{}
+	arrived := t0.Add(-time.Minute)
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 50525, Head: head, HeadAt: store.Stamp(arrived)}}); err != nil {
+		t.Fatal(err)
+	}
+
+	read := settle(t, s, q, facts(50525, fellOut))
+
+	if !q.since.Equal(arrived) {
+		t.Fatalf("the failure read from %v, want the head's arrival %v", q.since, arrived)
+	}
+	if read[0].Queue != machine.QueueNone || read[0].Eviction != "" || len(told(t)) != 0 {
+		t.Fatalf("facts = %+v, records = %+v", read[0], told(t))
+	}
+	if got := machine.Classify(read[0]).State; got == machine.StateEvicted {
+		t.Fatalf("state = %q", got)
+	}
+}
+
+func TestARowNoLongerEvictedForgetsItsEviction(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	s, q := storeWith(t, "lane-7"), &queue{failure: ownFailure}
+	read := settle(t, s, q, facts(45711, fellOut))
+	read[0].Queue = machine.QueueNone
+
+	again := settle(t, s, q, read...)
+
+	if again[0].Eviction != "" || fact(t, s, 45711, machine.EvictionFact) != "" {
+		t.Fatalf("facts = %+v", again[0])
+	}
+}

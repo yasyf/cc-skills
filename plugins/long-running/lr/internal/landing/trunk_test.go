@@ -113,21 +113,21 @@ func TestLastFailureReadsTheAttemptsCheckAndWhichBatchMatesFellWithIt(t *testing
 	queue, _ := trunk(t, fake)
 	ci := queue.Checkout + "/tools/ci"
 	fake.Reply(`[
-		{"state":"failed","changedAt":"old","reason":"TEST_RUN_TIMEOUT","failed":{"failureCausingChecks":[{"name":"stale","url":"stale-url"}]}},
-		{"state":"notReady","changedAt":"t0","reason":"API_REQUESTED"},
-		{"state":"testing","changedAt":"t1","verificationRunId":"run-1"},
-		{"state":"pendingFailure","changedAt":"t2","verificationRunId":"run-1","pendingFailure":{"failureCausingChecks":[{"name":"buildkite/test","url":"https://buildkite.com/forge/test/builds/113284"}]}},
-		{"state":"failed","changedAt":"t3","reason":"TEST_RUN_FAILED_BY_OPTIMIZATION","failed":{"failureCausingChecks":[]}}
+		{"state":"failed","changedAt":"2026-11-05T07:00:00Z","reason":"TEST_RUN_TIMEOUT","failed":{"failureCausingChecks":[{"name":"stale","url":"stale-url"}]}},
+		{"state":"notReady","changedAt":"2026-11-05T07:01:00Z","reason":"API_REQUESTED"},
+		{"state":"testing","changedAt":"2026-11-05T07:02:00Z","verificationRunId":"run-1"},
+		{"state":"pendingFailure","changedAt":"2026-11-05T07:03:00Z","verificationRunId":"run-1","pendingFailure":{"failureCausingChecks":[{"name":"buildkite/test","url":"https://buildkite.com/forge/test/builds/113284"}]}},
+		{"state":"failed","changedAt":"2026-11-05T07:04:00Z","reason":"TEST_RUN_FAILED_BY_OPTIMIZATION","failed":{"failureCausingChecks":[]}}
 	]`, ci, "trunk", "history", "7")
 	fake.Reply(`{"id":"run-1","testedPullRequests":[{"number":7},{"number":8},{"number":9}]}`, ci, "trunk", "verification", "7", "--run", "run-1")
 	fake.Reply(`{"8":{"sha":"a","queueEntry":{"state":"failed","stateChangedAt":"t3"}},"9":{"sha":"b","queueEntry":{"state":"merged","stateChangedAt":"t3"}}}`, ci, "trunk", "status", "8", "9")
 	queue.Logs = func(context.Context, string) (string, string, string) { return "sand-next-tests", "TestRead", "" }
 
-	got, err := queue.LastFailure(context.Background(), 7)
+	got, err := queue.LastFailure(context.Background(), 7, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.At != "t3" || got.Reason != "TEST_RUN_FAILED_BY_OPTIMIZATION" || got.Check != "buildkite/test" || got.Run != "run-1" || got.Test != "TestRead" {
+	if got.At != "2026-11-05T07:04:00Z" || got.Reason != "TEST_RUN_FAILED_BY_OPTIMIZATION" || got.Check != "buildkite/test" || got.Run != "run-1" || got.Test != "TestRead" {
 		t.Fatalf("failure = %+v", got)
 	}
 	if !slices.Equal(got.MatesFailed, []int{8}) {
@@ -138,13 +138,13 @@ func TestLastFailureReadsTheAttemptsCheckAndWhichBatchMatesFellWithIt(t *testing
 func TestACanceledEntryIsTheNewestEndAndReadsNoLog(t *testing.T) {
 	fake := &shelltest.Fake{}
 	queue, _ := trunk(t, fake)
-	fake.Reply(`[{"state":"failed","changedAt":"t0","reason":"TEST_RUN_TIMEOUT"},{"state":"cancelled","changedAt":"t1","reason":"USER_REQUESTED"}]`, queue.Checkout+"/tools/ci", "trunk", "history", "7")
+	fake.Reply(`[{"state":"failed","changedAt":"2026-11-05T07:01:00Z","reason":"TEST_RUN_TIMEOUT"},{"state":"cancelled","changedAt":"2026-11-05T07:02:00Z","reason":"USER_REQUESTED"}]`, queue.Checkout+"/tools/ci", "trunk", "history", "7")
 	queue.Logs = func(context.Context, string) (string, string, string) {
 		t.Fatal("a canceled attempt has no failed job to read")
 		return "", "", ""
 	}
 
-	got, err := queue.LastFailure(context.Background(), 7)
+	got, err := queue.LastFailure(context.Background(), 7, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,12 +153,30 @@ func TestACanceledEntryIsTheNewestEndAndReadsNoLog(t *testing.T) {
 	}
 }
 
+func TestAnAttemptOlderThanTheHeadIsNoFailureOfThatHead(t *testing.T) {
+	fake := &shelltest.Fake{}
+	queue, _ := trunk(t, fake)
+	fake.Reply(`[{"state":"cancelled","changedAt":"2026-11-05T09:17:46.187Z","reason":"USER_REQUESTED"}]`, queue.Checkout+"/tools/ci", "trunk", "history", "7")
+	arrived := time.Date(2026, 11, 5, 9, 32, 3, 0, time.UTC)
+
+	got, err := queue.LastFailure(context.Background(), 7, arrived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != "" {
+		t.Fatalf("failure = %+v, want none at a head that arrived after it", got)
+	}
+	if got, err := queue.LastFailure(context.Background(), 7, arrived.Add(-time.Hour)); err != nil || got.State != "cancelled" {
+		t.Fatalf("failure = %+v, err = %v, want the attempt at a head that arrived before it", got, err)
+	}
+}
+
 func TestAnUnreadHistoryIsAnErrorNotAnEmptyFailure(t *testing.T) {
 	fake := &shelltest.Fake{}
 	queue, _ := trunk(t, fake)
 	fake.Fail(1, "429 Too Many Requests", queue.Checkout+"/tools/ci")
 
-	if got, err := queue.LastFailure(context.Background(), 7); err == nil {
+	if got, err := queue.LastFailure(context.Background(), 7, time.Time{}); err == nil {
 		t.Fatalf("failure = %+v, want the read's error", got)
 	}
 }
