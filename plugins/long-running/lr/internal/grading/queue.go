@@ -168,16 +168,12 @@ func queueCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			runner, err := config.LoadRunner(filepath.Join(entry.StateDir, runnerConfig))
-			if err != nil {
-				return err
-			}
 			s, err := store.Open(entry.Store())
 			if err != nil {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			pool, err := NewJobPool(runner, PoolDeps{Runner: a.Runner, Ledger: s.LedgerRows, Log: a.Log, Now: a.Now})
+			pool, err := readingPool(a, entry.StateDir, s)
 			if err != nil {
 				return err
 			}
@@ -211,6 +207,18 @@ func queueCommand(a *app.App) *cobra.Command {
 	cmd.Flags().BoolVar(&owedOnly, "owed", false, "only heads a desk must read now: the pipeline handed them over or stopped")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the rows as one JSON array")
 	return cmd
+}
+
+func readingPool(a *app.App, state string, s *store.Store) (*JobPool, error) {
+	source, err := filepath.EvalSymlinks(filepath.Join(state, runnerConfig))
+	if err != nil {
+		return nil, err
+	}
+	runner, err := config.LoadRunner(source)
+	if err != nil {
+		return nil, err
+	}
+	return NewJobPool(runner, PoolDeps{Runner: a.Runner, Ledger: s.LedgerRows, Log: a.Log, Now: a.Now})
 }
 
 func (r QueueRow) line(now time.Time) string {
