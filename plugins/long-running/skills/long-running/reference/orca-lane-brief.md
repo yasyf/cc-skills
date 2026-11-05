@@ -534,7 +534,11 @@ from that preamble. The three-sentence body names what changed, what was
 found, and what is left; the PR numbers, full head shas, and any tool refusal, verbatim,
 go in the report file its `--report-path` names. `worker_done` is your last act: the
 coordinator's gc then closes your idle terminal and removes your worktree once it is clean
-and pushed, so push everything and leave no background process running first.
+and pushed, so push everything and leave no background process running first. A send after
+it that answers `run_required`, "No recipient or active Dispatch Run could be resolved", means
+your Run settled: read `orca orchestration dispatch-show --task <taskId>` once, which reads
+`completed`, and send nothing more. `orca orchestration request-show --request <id>` says
+whether one earlier send took effect.
 A standing desk, `role=desk` or `role=watch`, never reaches a terminal state: it
 loops until rotation, through setup and quiet cycles alike, and never ends a turn
 waiting. At rotation, on the supervisor's `ROTATE` record, it writes its handoff doc, posts
