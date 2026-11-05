@@ -1,0 +1,15 @@
+{
+  "id": "relay-diagram",
+  "type": "lr.arch",
+  "title": "The relay",
+  "doc": {
+    "arch": 1,
+    "name": "relay",
+    "title": "The relay",
+    "nodes": [
+      { "id": "a", "kind": "service", "name": "A", "role": "sends" },
+      { "id": "b", "kind": "service", "name": "B", "role": "takes" }
+    ],
+    "edges": [{ "from": "a", "to": "b" }]
+  }
+}

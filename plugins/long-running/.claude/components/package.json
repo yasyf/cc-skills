@@ -1,0 +1,16 @@
+{
+  "name": "@cc-present/lr-pack",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "react": "^19",
+    "typescript": "^5",
+    "vite": "^7"
+  }
+}

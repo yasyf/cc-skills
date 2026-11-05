@@ -29,10 +29,10 @@ func drawingLink(t *testing.T, failed error) (Link, *[]string) {
 }
 
 func diagramCard(doc string) json.RawMessage {
-	return json.RawMessage(`{"id":"card-relay","type":"card","title":"Which relay?","children":[{"id":"relay-from","type":"markdown","md":"**From:** plan"},{"id":"relay-diagram","type":"lr.diagram","doc":` + doc + `},{"id":"relay-choice","type":"choice","options":[]}]}`)
+	return json.RawMessage(`{"id":"card-relay","type":"card","title":"Which relay?","children":[{"id":"relay-from","type":"markdown","md":"**From:** plan"},{"id":"relay-diagram","type":"lr.arch","doc":` + doc + `},{"id":"relay-choice","type":"choice","options":[]}]}`)
 }
 
-func TestADiagramOnACardIsDrawnOnTheMacIntoThePictureItsCardCarries(t *testing.T) {
+func TestADiagramOnACardStaysLiveAndGainsThePictureAndLinkItsSlackCardShows(t *testing.T) {
 	l, drawn := drawingLink(t, nil)
 	got, err := l.pictured(context.Background(), diagramCard(relayDoc))
 	if err != nil {
@@ -42,20 +42,25 @@ func TestADiagramOnACardIsDrawnOnTheMacIntoThePictureItsCardCarries(t *testing.T
 		t.Fatalf("drawn = %q, want the one diagram drawn from the dashboard", *drawn)
 	}
 	var card struct {
-		Children []map[string]string `json:"children"`
+		Children []struct {
+			ID      string          `json:"id"`
+			Type    string          `json:"type"`
+			Doc     json.RawMessage `json:"doc"`
+			Title   string          `json:"title"`
+			Picture string          `json:"picture"`
+			Link    string          `json:"link"`
+		} `json:"children"`
 	}
 	if err := json.Unmarshal(got, &card); err != nil {
 		t.Fatal(err)
 	}
-	png := filepath.Join(l.State, diagramDir, "relay-diagram.png")
-	want := map[string]string{"id": "relay-diagram", "type": "image", "src": png, "alt": "Diagram: The relay"}
-	if len(card.Children) != 3 || card.Children[0]["id"] != "relay-from" || card.Children[2]["id"] != "relay-choice" {
-		t.Fatalf("children = %v, want the diagram replaced in place", card.Children)
+	if len(card.Children) != 3 || card.Children[0].ID != "relay-from" || card.Children[2].ID != "relay-choice" {
+		t.Fatalf("children = %+v, want the diagram kept in place", card.Children)
 	}
-	for key, value := range want {
-		if card.Children[1][key] != value {
-			t.Fatalf("diagram child = %v, want %v", card.Children[1], want)
-		}
+	diagram := card.Children[1]
+	png := filepath.Join(l.State, diagramDir, "relay-diagram.png")
+	if diagram.Type != diagramType || string(diagram.Doc) != relayDoc || diagram.Title != "The relay" || diagram.Picture != png || diagram.Link != "http://mac.tail1.ts.net:61210/#/question/card-relay" {
+		t.Fatalf("diagram = %+v, want the live doc with its picture, title and question link", diagram)
 	}
 	if body, err := os.ReadFile(png); err != nil || string(body) != "png" {
 		t.Fatalf("picture %s: %q, %v", png, body, err)
