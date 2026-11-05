@@ -829,7 +829,7 @@ func logDeclined(s *store.Store, lane store.Lane, why string, due []store.Unread
 }
 
 func unreadOrder(record store.Unread) bool {
-	return record.Kind == "review" || slices.Contains(askingKinds, record.Kind)
+	return record.Kind == "review" || record.Kind == "owner" || slices.Contains(askingKinds, record.Kind)
 }
 
 func orderWords(orders []store.Unread) string {
