@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -2391,6 +2392,67 @@ func TestAFinishedLanesTerminalClosesBeforeAnyStopOrWorktreeRemoval(t *testing.T
 	}
 	if orca.count("close", "term_ctx_a") != 1 || tally[verbClosed] < 1 {
 		t.Fatalf("calls %v, tally %v", orca.calls, tally)
+	}
+}
+
+func finishedLanes(t *testing.T, lanes int) (*fakeOrca, *GC, []string) {
+	t.Helper()
+	orca, git, dispatches := laneTrees(lanes)
+	finished := map[string]bool{}
+	for _, dispatch := range dispatches {
+		finished[dispatch] = true
+	}
+	return orca, &GC{Orca: orca, Git: git, Fleet: &fakeFleet{}, Pause: unpaused(t), Lock: filepath.Join(t.TempDir(), "remove.lock"), Out: io.Discard, Keep: map[string]bool{}, Finished: finished}, dispatches
+}
+
+func TestAPassReadsTheWorkerListOnceForAHundredFinishedLanesAsForOne(t *testing.T) {
+	for _, lanes := range []int{1, 100} {
+		orca, gc, dispatches := finishedLanes(t, lanes)
+		ctx := context.Background()
+		closed, err := gc.CloseFinished(ctx, "run_x", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proven, err := gc.proveStale(ctx, "run_x", dispatches)
+		if err != nil {
+			t.Fatal(err)
+		}
+		due, err := gc.due(ctx, "run_x", Swept{Path: filepath.Join(t.TempDir(), "swept.json")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := gc.Run(ctx, "run_x", due, proven); err != nil {
+			t.Fatal(err)
+		}
+		if orca.workerReads != 1 || closed[verbClosed] != lanes {
+			t.Fatalf("%d finished lanes: %d worker-list reads, closed %v", lanes, orca.workerReads, closed)
+		}
+	}
+}
+
+func TestAnOrcaTimeoutOnOneFinishedLaneStillClosesTheOthersAndEndsThePass(t *testing.T) {
+	orca, gc, _ := finishedLanes(t, 3)
+	orca.timedOut = map[string]bool{"term_ctx_1": true}
+	tally, err := gc.CloseFinished(context.Background(), "run_x", nil)
+	if err == nil || !strings.Contains(err.Error(), "runtime_timeout") {
+		t.Fatalf("err %v", err)
+	}
+	if tally[verbClosed] != 2 || orca.count("close", "term_ctx_0") != 1 || orca.count("close", "term_ctx_2") != 1 || orca.count("close", "term_ctx_1") != 0 {
+		t.Fatalf("tally %v, calls %v", tally, orca.calls)
+	}
+}
+
+func TestGCRefusesAnEmptyRun(t *testing.T) {
+	runner := &scripted{reply: func(argv []string) (string, string, int) {
+		t.Errorf("gc ran %v", argv)
+		return "", "", 1
+	}}
+	cmd := GCCommand(&app.App{Runner: runner})
+	cmd.SetArgs([]string{"--run", "", "--done", "ctx_a"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err == nil || err.Error() != "--run names no Orca Run" {
+		t.Fatalf("err %v", err)
 	}
 }
 

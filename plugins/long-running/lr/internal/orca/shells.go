@@ -94,7 +94,7 @@ func (g *GC) OrphanedRun(ctx context.Context, current string) (Tally, error) {
 	slices.SortFunc(orphaned, func(a, b Run) int { return strings.Compare(a.ID, b.ID) })
 	pass := int(g.Orca.NowMS() / runEvery.Milliseconds())
 	run := orphaned[pass%len(orphaned)]
-	workers, err := g.Orca.Workers(ctx, run.ID)
+	workers, err := g.workers(ctx, run.ID)
 	if err != nil {
 		return nil, err
 	}

@@ -233,14 +233,25 @@ func Rostered(rows []Row, teams string) []Row {
 type launchReceipt struct {
 	Result struct {
 		DispatchID string `json:"dispatchId"`
+		RunID      string `json:"runId"`
 		Server     struct {
 			Name string `json:"name"`
 		} `json:"server"`
 		Effects []struct {
 			Kind string `json:"kind"`
+			Role string `json:"role"`
 			ID   string `json:"id"`
 		} `json:"effects"`
 	} `json:"result"`
+}
+
+func (r launchReceipt) agentTerminal() string {
+	for _, effect := range r.Result.Effects {
+		if effect.Kind == "terminal" && effect.Role == "agent" {
+			return effect.ID
+		}
+	}
+	return ""
 }
 
 func receiptOf(receipts, lane string) launchReceipt {

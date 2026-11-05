@@ -143,6 +143,33 @@ type GC struct {
 	recording sync.Mutex
 	batch     []Worker
 	deferred  map[string]bool
+
+	listing     sync.Mutex
+	listed      map[string][]Worker
+	closedEarly map[string]bool
+}
+
+func (g *GC) workers(ctx context.Context, run string) ([]Worker, error) {
+	g.listing.Lock()
+	defer g.listing.Unlock()
+	if workers, read := g.listed[run]; read {
+		return slices.Clone(workers), nil
+	}
+	workers, err := g.Orca.Workers(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	if g.listed == nil {
+		g.listed = map[string][]Worker{}
+	}
+	g.listed[run] = workers
+	return slices.Clone(workers), nil
+}
+
+func (g *GC) forgetWorkers() {
+	g.listing.Lock()
+	defer g.listing.Unlock()
+	g.listed = nil
 }
 
 func (g *GC) say(line string) {
@@ -611,6 +638,7 @@ func (g *GC) stop(ctx context.Context, dispatch string) (stopOutcome, error) {
 		verb = "worker-abandon"
 		state, detail, err = g.Orca.Abandon(ctx, dispatch)
 	}
+	g.forgetWorkers()
 	if err != nil {
 		return stopOutcome{}, err
 	}
@@ -804,16 +832,9 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		tally[skipped.Verb]++
 		return tally, nil
 	}
-	closedEarly := map[string]bool{}
-	if !g.DryRun {
-		early, err := g.closeFinished(ctx, run, dispatches)
-		if err != nil {
-			return nil, err
-		}
-		for _, action := range early {
-			tally[action.Verb]++
-			closedEarly[action.Target] = action.Verb == verbClosed
-		}
+	tally, err := g.CloseFinished(ctx, run, dispatches)
+	if err != nil {
+		return nil, err
 	}
 	ended := map[string]string{}
 	for _, dispatch := range slices.Sorted(slices.Values(ending)) {
@@ -830,7 +851,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 	for _, dispatch := range slices.Concat(dispatches, ending) {
 		scope[dispatch] = true
 	}
-	workers, err := g.Orca.Workers(ctx, run)
+	workers, err := g.workers(ctx, run)
 	if err != nil {
 		return nil, err
 	}
@@ -901,7 +922,7 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		}
 	}
 	verdicts, err := parallel(finished, func(worker Worker) (*Action, error) {
-		if closedEarly[worker.Terminal] {
+		if g.closedEarly[worker.Terminal] {
 			return nil, nil
 		}
 		return terminalAction(ctx, worker, liveTerminals, g.Orca, ended, sessions)
@@ -1015,7 +1036,7 @@ func (g *GC) closeFinished(ctx context.Context, run string, dispatches []string)
 	if len(g.Finished) == 0 {
 		return nil, nil
 	}
-	workers, err := g.Orca.Workers(ctx, run)
+	workers, err := g.workers(ctx, run)
 	if err != nil {
 		return nil, err
 	}
@@ -1041,7 +1062,7 @@ func (g *GC) closeFinished(ctx context.Context, run string, dispatches []string)
 	if err != nil {
 		return nil, err
 	}
-	closes, err := parallel(due, func(worker Worker) (*Action, error) {
+	closes, unread := parallel(due, func(worker Worker) (*Action, error) {
 		action, err := terminalAction(ctx, worker, live, g.Orca, map[string]string{}, sessions)
 		if err != nil || action == nil || action.Verb != verbClose {
 			return nil, err
@@ -1052,11 +1073,23 @@ func (g *GC) closeFinished(ctx context.Context, run string, dispatches []string)
 		}
 		return action, nil
 	})
-	if err != nil {
-		return nil, err
-	}
 	closes = slices.DeleteFunc(closes, func(action *Action) bool { return action == nil })
-	return parallel(closes, func(action *Action) (Action, error) { return g.act(ctx, *action) })
+	closed, err := parallel(closes, func(action *Action) (Action, error) { return g.act(ctx, *action) })
+	return slices.DeleteFunc(closed, func(action Action) bool { return action.Verb == "" }), errors.Join(unread, err)
+}
+
+func (g *GC) CloseFinished(ctx context.Context, run string, dispatches []string) (Tally, error) {
+	tally := Tally{}
+	if g.DryRun || g.Pause.Held() || g.closedEarly != nil {
+		return tally, nil
+	}
+	g.closedEarly = map[string]bool{}
+	early, err := g.closeFinished(ctx, run, dispatches)
+	for _, action := range early {
+		tally[action.Verb]++
+		g.closedEarly[action.Target] = action.Verb == verbClosed
+	}
+	return tally, err
 }
 
 type reclaimed struct {
@@ -1221,7 +1254,7 @@ func (g *GC) due(ctx context.Context, run string, ledger Swept) ([]string, error
 	if err != nil {
 		return nil, err
 	}
-	workers, err := g.Orca.Workers(ctx, run)
+	workers, err := g.workers(ctx, run)
 	if err != nil {
 		return nil, err
 	}
@@ -1250,7 +1283,7 @@ func (g *GC) proveStale(ctx context.Context, run string, stale []string) ([]stri
 	if len(stale) == 0 {
 		return nil, nil
 	}
-	workers, err := g.Orca.Workers(ctx, run)
+	workers, err := g.workers(ctx, run)
 	if err != nil {
 		return nil, err
 	}
