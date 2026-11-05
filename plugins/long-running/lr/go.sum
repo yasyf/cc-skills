@@ -79,6 +79,8 @@ github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae h1:4hwBBUfQCFe3C
 github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae/go.mod h1:DD4vA1DwXk04H54A1oHXtwZmA0grkVMdPxx/VGLCah0=
 github.com/yasyf/cc-inbox v0.49.69 h1:Kp9FFcjuosvLkIhp1Kw0HzMeICpgn4jRJ25vcmbAIhs=
 github.com/yasyf/cc-inbox v0.49.69/go.mod h1:KrhpZTrttKdv+ZuNuuUrGoY9P3NGCwm12ZV2+kk2eYk=
+github.com/yasyf/cc-inbox v0.49.79 h1:0fhbEuh14xKapxp/TB+z5mIg6+F0t6eCABrGYx3gJpc=
+github.com/yasyf/cc-inbox v0.49.79/go.mod h1:dyc4i9MU6YOAbcFy1W7R40yLawt9wWRRRlZoFq4knPE=
 github.com/yasyf/cc-interact v0.40.3 h1:L0i2sUFT5lB0lh2Fmcdr27xUTUNt7L/lK9171fis6gQ=
 github.com/yasyf/cc-interact v0.40.3/go.mod h1:+zkZi12pmVPfpTnLTzLanAfaj6Ox2QbGIMKS5+/SjAM=
 github.com/yasyf/daemonkit v0.36.0 h1:2SOhdDB/bxNbJDPsYEWRhQ9fqtxFSNgUatngrM0BPkY=
