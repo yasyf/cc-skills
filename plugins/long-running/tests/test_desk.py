@@ -352,12 +352,16 @@ def test_label_with_a_checkout_refuses_a_head_that_conflicts_with_the_base(capsy
     assert shell.labelled == []
 
 
-def test_label_with_a_checkout_refuses_when_the_pull_ref_disagrees_with_the_api(capsys, tmp_path):
+def test_label_with_a_checkout_checks_the_api_head_by_sha_while_the_pull_ref_lags(tmp_path):
     shell = admitted(desk_shell())
     shell.pull_heads[PR] = OLD_HEAD
 
-    assert label(shell, "--checkout", str(tmp_path)) == 1
-    assert f"REFUSED refs/pull/{PR}/head is 000000000 on the forge" in capsys.readouterr().out
+    assert label(shell, "--checkout", str(tmp_path)) == 0
+
+    git = [argv for argv in shell.calls if argv[0] == "git"]
+    assert [argv[-1] for argv in git if argv[3] == "fetch" and "refs/pull/" in " ".join(argv)] == []
+    assert [argv[-1] for argv in git if argv[3] == "merge-tree"] == [HEAD]
+    assert shell.labelled == [f"{PR}:merge"]
 
 
 def test_label_dry_run_runs_every_guard_and_writes_nothing(capsys, tmp_path):
@@ -553,13 +557,12 @@ def test_a_stacked_row_whose_base_the_queue_deleted_settles_by_its_squash_on_the
 
 
 def test_one_row_the_forge_cannot_answer_is_recorded_and_the_pass_settles_the_rest(capsys, tmp_path):
-    broken = "21220"
+    broken, unserved = "21220", "e" * 40
     shell = desk_shell(**MERGED)
-    shell.pulls[broken] = {**shell.pulls[PR], "number": int(broken)}
-    shell.pull_heads[broken] = HEAD
-    shell.deleted_refs.add(f"refs/pull/{broken}/head")
+    shell.pulls[broken] = {**shell.pulls[PR], "number": int(broken), "head": {**shell.pulls[PR]["head"], "sha": unserved}}
+    shell.deleted_refs.add(unserved)
     shell.stores[LEDGER]["rows"] += [
-        {"key": broken, "fields": {"head": HEAD, "lane": LANE}},
+        {"key": broken, "fields": {"head": unserved, "lane": LANE}},
         {"key": PR, "fields": {"head": HEAD, "lane": LANE}},
     ]
     shell.pr_files[broken] = shell.pr_files[PR] = ["infra/rows/lightning.ts"]
@@ -568,7 +571,7 @@ def test_one_row_the_forge_cannot_answer_is_recorded_and_the_pass_settles_the_re
     assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
 
     assert shell.fields(broken).get("state") is None
-    assert "couldn't find remote ref" in shell.fields(broken)["settle_error"]
+    assert f"not our ref {unserved}" in shell.fields(broken)["settle_error"]
     assert shell.fields(broken)["settle_failed_at"]
     assert shell.fields(PR)["state"] == "landed"
     assert f"#{broken} NOT SETTLED" in capsys.readouterr().out
@@ -1058,7 +1061,7 @@ def test_reconcile_settles_a_closed_board_in_one_trunk_search_one_object_check_a
     assert "40 of 40 closed settled" in capsys.readouterr().out
     assert len([argv for argv in shell.calls if argv[3:4] == ["log"] and argv[-1] == "--format=%H %cI %s"]) == 1
     assert len([argv for argv in shell.calls if argv[3:4] == ["cat-file"]]) == 1
-    assert not [argv for argv in shell.calls if argv[3:4] == ["fetch"] and "refs/pull/" in argv[-1]]
+    assert not [argv for argv in shell.calls if argv[3:4] == ["fetch"] and argv[-1] in shell.objects]
     assert not [argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "row"]]
     assert len([argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "sync"]]) == 1
     assert [endpoint for endpoint in shell.endpoints() if endpoint.split("?")[0].count("/") == 4 and "/pulls/" in endpoint] == [f"repos/{REPO}/pulls/{pr}" for pr in range(28401, 28440)]
@@ -1070,7 +1073,7 @@ def test_settle_fetches_only_the_heads_the_clone_lacks():
 
     assert reconcile(shell) == 0
 
-    assert [argv[-1] for argv in shell.calls if argv[3:4] == ["fetch"] and "refs/pull/" in argv[-1]] == ["+refs/pull/28401/head:refs/desk/pr28401"]
+    assert [argv[-1] for argv in shell.calls if argv[3:4] == ["fetch"] and argv[-1] in shell.pull_heads.values()] == [shell.pulls["28401"]["head"]["sha"]]
 
 
 def test_reconcile_dry_run_writes_nothing(capsys):
@@ -2581,7 +2584,7 @@ def test_a_red_head_the_route_sweep_owns_is_not_routed_again_by_the_batch(capsys
     assert shell.fields("24071")["test_state"] == "failure"
 
 
-def test_a_head_pushed_during_the_conflict_fetch_is_not_routed(capsys, lock, tmp_path):
+def test_a_lagging_pull_ref_neither_holds_nor_routes_a_clean_head(capsys, lock, tmp_path):
     shell = FakeShell()
     lane_pull(shell, "24071", "b" * 40, "lightning/one")
     shell.pull_heads["24071"] = "c" * 40
@@ -2592,8 +2595,9 @@ def test_a_head_pushed_during_the_conflict_fetch_is_not_routed(capsys, lock, tmp
     all_clean(shell, "--checkout", str(tmp_path))
 
     out = capsys.readouterr().out
-    assert "refs/pull/24071/head is ccccccccc on the forge" in out
+    assert "on the forge" not in out
     assert "DESK #24071" not in out
+    assert shell.labelled == ["24071:merge"]
 
 
 def test_a_clean_report_a_gate_refused_is_waiting_as_refused(capsys):

@@ -450,6 +450,8 @@ class FakeShell(ledger.Shell):
             if self.fetch_fails:
                 raise subprocess.CalledProcessError(1, argv, stderr=self.fetch_fails)
             ref = argv[-1].lstrip("+").split(":")[0]
+            if ref in self.deleted_refs and not ref.startswith("refs/"):
+                raise subprocess.CalledProcessError(128, argv, stderr=f"fatal: remote error: upload-pack: not our ref {ref}")
             if ref in self.deleted_refs:
                 raise subprocess.CalledProcessError(128, argv, stderr=f"fatal: couldn't find remote ref {ref}")
             self.fetched = self.pull_heads[ref.split("/")[2]] if ref.startswith("refs/pull/") else "base-tip"
