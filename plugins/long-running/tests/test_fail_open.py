@@ -87,6 +87,7 @@ KEPT_REFUSALS = KEPT | {
     "root_replies.tap_claims_match_the_board": STOP.format(what="the owner would read a false claim about what waits on him"),
     "shell_script_file.BLOCKED: Claude Code reads `$$(`, `$${` or": "the call would hold on a permission prompt, so a warning lands too late",
     "no_production_as_him.no_production_as_him": "the owner ordered the refusal: a production call under his identity has already run when a warning lands, and a write made as him cannot be taken back",
+    "no_production_as_him.no_iris_sign_in_leaves_the_mac": "the owner ordered the refusal: a copy of his sign-in off this Mac has already left when a warning lands, and it calls production as him from wherever it lands",
     "no_production_as_him.no_iris_as_him_on_a_test_mac": "the owner ordered the refusal: Iris on a test Mac signed in as him calls production as him the moment it launches, and a write made as him cannot be taken back",
     "not_ours_holds.not_ours_holds": "the owner ordered the refusal: a hold or card on another person's PR reaches lanes and his board the moment it posts",
     "urgent_lines_name_the_harm.urgent_lines_name_the_harm": "the owner ordered the refusal: he acts on an urgent line the moment it reaches him",
