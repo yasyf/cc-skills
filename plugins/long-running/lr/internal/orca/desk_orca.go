@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -22,6 +23,7 @@ const (
 	codeAnswerConflict    = "answer_conflict"
 	stateUnread           = "unread"
 	inboxPage             = 100
+	slowCall              = 10 * time.Second
 )
 
 var unreachableCodes = []string{"runtime_unavailable", codeRemoteUnreachable, "runtime_timeout", "invalid_runtime_response", codeUnparseable}
@@ -62,7 +64,15 @@ func (d *Desk) client() Client {
 }
 
 func (d *Desk) call(ctx context.Context, args ...string) Reply {
+	began := d.Now()
 	reply, err := d.client().Call(ctx, args...)
+	if took := d.Now().Sub(began); took >= slowCall {
+		environment := ""
+		if at := slices.Index(args, "--environment"); at >= 0 && at+1 < len(args) {
+			environment = " on " + args[at+1]
+		}
+		fmt.Fprintf(d.Stderr, "%s slow orca call %s%s took %ds\n", began.Format(time.RFC3339), strings.Join(args[:min(len(args), 2)], " "), environment, int(took.Seconds()))
+	}
 	if err != nil {
 		return Reply{Error: ReplyError{Code: codeUnparseable, Message: err.Error()}}
 	}

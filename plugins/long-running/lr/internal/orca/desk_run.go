@@ -258,7 +258,7 @@ func (d *Desk) timedPass() {
 			steps = append(steps, fmt.Sprintf("%s %ds", step, seconds))
 		}
 	}
-	fmt.Fprintf(d.Stderr, "relay pass %d took %ds: %s\n", d.passes, int(took.Seconds()), strings.Join(steps, ", "))
+	fmt.Fprintf(d.Stderr, "%s relay pass %d took %ds: %s\n", d.Now().Format(time.RFC3339), d.passes, int(took.Seconds()), strings.Join(steps, ", "))
 }
 
 func (d *Desk) holdRelayLock() (*os.File, bool, error) {

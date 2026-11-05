@@ -3290,6 +3290,57 @@ func TestAnOverdueRelayIsADeadlineUnlessTheLaneIsAliveOrMoved(t *testing.T) {
 	wantContains(t, w.wantEscalation("DEADLINE deadline:desk-lane-lane-a/R2:accepted lane-a"), "R2 relay: never delivered: no live dispatch; accepted 11 min ago")
 }
 
+type slowTail struct {
+	*deskWorld
+	took time.Duration
+}
+
+func (s slowTail) Tail(ctx context.Context, q client.Query) ([]client.Record, error) {
+	s.advance(s.took)
+	return s.deskWorld.Tail(ctx, q)
+}
+
+func TestAPassCheckingDeadlinesStopsAtItsBudgetAndTheNextOneResumesAfterTheLastLane(t *testing.T) {
+	w := newDeskWorld(t)
+	w.desk.Bus = slowTail{deskWorld: w, took: 15 * time.Second}
+	names := []string{"lane-a", "lane-b", "lane-c"}
+	for _, lane := range names {
+		if _, _, err := w.desk.acceptRelay("blocker:12:abc", lane, "#12 red", "", "", 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.now = w.now.Add(11 * time.Minute)
+	for i := range names {
+		w.step(w.desk.deadlines)
+		for j, other := range names {
+			prefix := "DEADLINE deadline:" + laneBook(other) + "/"
+			if j <= i {
+				w.wantEscalation(prefix)
+			} else {
+				w.noEscalation(prefix)
+			}
+		}
+	}
+}
+
+func TestAnOrcaCallOverTenSecondsNamesItsVerbAndEnvironmentOnStderr(t *testing.T) {
+	w := newDeskWorld(t)
+	var said strings.Builder
+	w.desk.Stderr = &said
+	w.desk.Runner = runnerFunc(func(ctx context.Context, c shell.Command) (shell.Result, error) {
+		w.advance(31 * time.Second)
+		return w.Run(ctx, c)
+	})
+	w.desk.peek(context.Background(), "term_1", "env_sprite")
+	wantContains(t, said.String(), "slow orca call orchestration check on env_sprite took 31s\n")
+	said.Reset()
+	w.desk.Runner = w
+	w.desk.peek(context.Background(), "term_1", "env_sprite")
+	if said.Len() != 0 {
+		t.Fatal(said.String())
+	}
+}
+
 func TestAHeartbeatAfterTheRelayExcusesItsDeadline(t *testing.T) {
 	w := newDeskWorld(t)
 	container := w.acceptedRelay("R2")
