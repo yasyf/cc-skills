@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -101,6 +102,46 @@ func TestALandedRecordForARetiredLaneReachesTheLaneThatSucceededIt(t *testing.T)
 	}
 	if len(posted) != 1 || !reflect.DeepEqual(posted[0].To, []string{"release-6"}) {
 		t.Fatalf("posted = %+v, want one record to release-6", posted)
+	}
+}
+
+func TestAMergeOutsideTheQueueWarnsOwnerRelayOnceUnlessHisWordCoversThatHead(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s := storeWith(t, "lane-7")
+	merged := func(number int, head, by string, word func(*machine.Facts)) pass.Landing {
+		f := machine.Facts{Repo: monorepo, Number: number, Head: head, Lane: "lane-7", Merged: true, MergedBy: by}
+		word(&f)
+		return pass.Landing{Facts: f, LastOpen: t0}
+	}
+	none := func(*machine.Facts) {}
+	if _, err := s.PutFact(monorepo, 6, "6666666666aa", "incident-squash", "merged", t0); err != nil {
+		t.Fatal(err)
+	}
+	landings := []pass.Landing{
+		merged(41, "4141414141dd", "someone", none),
+		merged(1, "1111111111aa", "trunk-io", none),
+		merged(2, "2222222222aa", "someone", func(f *machine.Facts) { f.Tap = machine.TapTapped }),
+		merged(3, "3333333333aa", "someone", func(f *machine.Facts) { f.Tap = machine.TapConditional }),
+		merged(4, "4444444444aa", "someone", func(f *machine.Facts) { f.Exempt = true }),
+		merged(5, "5555555555aa", "someone", func(f *machine.Facts) { f.StandingWord = gates.FlakeFixClass }),
+		merged(6, "6666666666aa", "someone", none),
+		merged(7, "7777777777aa", "", none),
+	}
+
+	for range 2 {
+		if err := landing.Announce(ctx, s, "d", "dev", landings, func(string) string { return "root" }); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	posted, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{"report"}, Lanes: []string{"supervisor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "MERGED-OUTSIDE-QUEUE #41 at 4141414141: someone merged it outside the merge queue, and the drive holds no owner tap, go, standing word or incident squash for that head"
+	if len(posted) != 1 || posted[0].Text != want || !slices.Equal(posted[0].To, []string{"owner-relay"}) {
+		t.Fatalf("posted = %+v, want one warning to owner-relay for #41 alone", posted)
 	}
 }
 

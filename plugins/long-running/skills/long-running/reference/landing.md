@@ -212,6 +212,7 @@ D24 sits at the end of this section.
 **Where runner records go.**
 - When `landing.desk_lane` in `runner.json` names one lane or a list, the runner sends `QUEUED`, `LANDED`, `MERGE-ASK`, `BELOW-BLOCKED`, and `FORK-DEFERRED` to that lane, each `landing.board_lane`, and the PR's owning lane (each read as its live successor), not to the coordinator. Without `landing.desk_lane` they go to the coordinator.
 - A ledger row that settles landed with no enqueue or squash of the runner's own gets its own `LANDED` record the pass the ledger reads its squash.
+- A drive PR that GitHub shows merged by anyone but `trunk-io`, the merge queue, gets one `MERGED-OUTSIDE-QUEUE` report to owner-relay in the pass that reads it landed. It names the PR, its head and its merger. The owner's tap, an exempt go, a standing word or the incident squash's merge at that head stops it. It warns and blocks nothing. The merger comes from the member read the pass already makes.
 - A landed PR whose branch carried other open PRs into the trunk gets one `CARRIED` report to the coordinator and each `landing.board_lane`, listing every carried PR from the GitHub commits on the landed PR with the owner's tap, fidelity grade, and finder state.
 - `GO-UNQUEUED`, `GO-TAP-MISSING`, and `REFUSED` go to each `landing.go_lanes` lane, the desk lanes, and the owning lane, and to the coordinator only when no lane owns the PR.
 - Every pass posts one `state` record to the coordinator on topic `landing-state` with the queued, waiting, held, and refused counts.

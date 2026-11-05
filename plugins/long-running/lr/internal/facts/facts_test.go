@@ -52,6 +52,7 @@ type recordedPR struct {
 	branch    string
 	base      string
 	queued    bool
+	mergedBy  string
 }
 
 type ciRow struct {
@@ -83,12 +84,16 @@ func memberReply(prs []recordedPR) string {
 			reviews = append(reviews, map[string]any{"state": "APPROVED", "author": map[string]any{"login": login}, "commit": map[string]any{"oid": pr.head}})
 		}
 		reviews = append(reviews, pr.reviews...)
+		var mergedBy any
+		if pr.mergedBy != "" {
+			mergedBy = map[string]any{"login": pr.mergedBy}
+		}
 		state := pr.state
 		if state == "" {
 			state = "OPEN"
 		}
 		repository[fmt.Sprintf("r%d", pr.number)] = map[string]any{
-			"number": pr.number, "state": state, "isDraft": pr.draft, "headRefOid": pr.head, "headRefName": pr.branch, "baseRefName": "dev", "body": pr.body,
+			"number": pr.number, "state": state, "isDraft": pr.draft, "headRefOid": pr.head, "headRefName": pr.branch, "baseRefName": "dev", "body": pr.body, "mergedBy": mergedBy,
 			"author": map[string]any{"login": pr.login}, "labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits}, "mergeable": pr.merge,
 			"tip":     map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
 			"reviews": map[string]any{"nodes": reviews},
@@ -521,6 +526,42 @@ func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
 	}
 	if calls[1] != 3 || calls[1000] != 3+39 {
 		t.Fatalf("command runs at 1 and 1,000 PRs = %d, %d, want 3 and 42: one status read, one rules read, one read per page of 25", calls[1], calls[1000])
+	}
+}
+
+func TestEachLandingsMergerRidesThePageThePassAlreadyReads(t *testing.T) {
+	calls := map[string]int{}
+	for _, n := range []int{1, 1000} {
+		for _, state := range []string{"OPEN", "MERGED"} {
+			prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
+			for i := 1; i <= n; i++ {
+				sha := fmt.Sprintf("%040x", i)
+				pr := recordedPR{number: i, head: sha, login: "drive-bot", commits: []string{sha}, state: state}
+				if state == "MERGED" {
+					pr.mergedBy = "someone"
+				}
+				prs = append(prs, pr)
+				rows = append(rows, status(i, func(row *statusRow) { row.Head, row.State = sha, state }))
+			}
+			h := newHarness(t, prs, rows...)
+			for i := 1; i <= n; i++ {
+				if _, err := h.store.OpenItem(store.NewItem{Kind: "tap", Repo: repo, Number: i, Head: fmt.Sprintf("%040x", i), Mover: machine.MoverOwner, Deadline: time.Hour}, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			got := h.snapshot(t)
+
+			for i := 1; i <= n; i++ {
+				if want := prs[i-1].mergedBy; got[i].MergedBy != want {
+					t.Fatalf("n=%d #%d merged by %q, want %q", n, i, got[i].MergedBy, want)
+				}
+			}
+			calls[fmt.Sprintf("%d %s", n, state)] = len(h.runner.Calls())
+		}
+	}
+	if calls["1 MERGED"] != calls["1 OPEN"] || calls["1000 MERGED"] != calls["1000 OPEN"] {
+		t.Fatalf("command runs = %v, want the merged pass to cost what the open pass does at 1 and 1,000 PRs, its merger read on the member page", calls)
 	}
 }
 

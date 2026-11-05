@@ -10,6 +10,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch"
@@ -19,6 +20,7 @@ const (
 	landedKind    = "landed"
 	rootLane      = "root"
 	queueAccepted = "exit 0: "
+	queueMerger   = "trunk-io"
 )
 
 func Announce(ctx context.Context, s *store.Store, drive, trunk string, landings []pass.Landing, route pass.Route) error {
@@ -40,6 +42,7 @@ func Announce(ctx context.Context, s *store.Store, drive, trunk string, landings
 	for _, landing := range landings {
 		f := landing.Facts
 		number := strconv.Itoa(f.Number)
+		unposted = append(unposted, warnUnqueued(ctx, s, drive, f))
 		if _, known := said[number]; known {
 			continue
 		}
@@ -59,6 +62,26 @@ func Announce(ctx context.Context, s *store.Store, drive, trunk string, landings
 		unposted = append(unposted, err)
 	}
 	return errors.Join(unposted...)
+}
+
+func warnUnqueued(ctx context.Context, s *store.Store, drive string, f machine.Facts) error {
+	if f.MergedBy == "" || f.MergedBy == queueMerger || f.Tapped() || f.Tap == machine.TapConditional || f.StandingWord != "" {
+		return nil
+	}
+	stored, err := s.Facts(f.Repo, f.Number, f.Head)
+	if err != nil || stored[squashedFact] == squashMerged {
+		return err
+	}
+	_, err = client.Post(ctx, client.Draft{
+		Drive: drive,
+		Lane:  self,
+		Kind:  "report",
+		To:    []string{lanes.OwnerRelay},
+		ID:    "merged-outside-queue:" + strconv.Itoa(f.Number),
+		PRs:   []string{pullRef(f)},
+		Text:  fmt.Sprintf("MERGED-OUTSIDE-QUEUE #%d at %s: %s merged it outside the merge queue, and the drive holds no owner tap, go, standing word or incident squash for that head", f.Number, shortHead(f.Head), f.MergedBy),
+	})
+	return err
 }
 
 func Settle(ctx context.Context, s *store.Store, drive string, answers []Said) error {
