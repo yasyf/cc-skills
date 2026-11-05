@@ -606,6 +606,7 @@ func (s *finderPassState) prompt(view pullRequest, base string, own []string, la
 		"fetch":     spec.Head + " " + base,
 		"scope":     scope(spec.Head, own, last, pairs, changed),
 		"prior":     s.priorText(),
+		"items":     orNone(listed(spec.Items)),
 		"rows_step": step,
 		"hunks":     diff.lines(),
 		"plan":      plan,
