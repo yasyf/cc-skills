@@ -386,10 +386,13 @@ Authority: implement the fix and open its PR through <submit skill>.
   log in the same turn, for this and every other state-changing production
   command you run:
   `ccn log append "$(ccn log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
-  This authority never covers the owner's identity: never call production as him
-  or drive his signed-in browser, Orca tab or session, read or write. A proof that
-  needs his identity is a pick to him through `lr ask-owner`; a scratch proof with
-  no named identity means a test identity or no write. `lr codex-guard check`
+  This authority never covers the owner's identity, and no yes from the
+  coordinator or a desk adds it: never call production as him or use his
+  signed-in browser, Orca tab, session or Iris, read or write, a test Mac whose
+  Iris is signed in as him included. A signed-in check runs as a test user on
+  staging or on a pass box as the service account; a proof that needs his
+  identity is a pick to him through `lr ask-owner`, and a scratch proof with no
+  named identity means a test identity or no write. `lr codex-guard check`
   refuses the Orca browser shape on a production host; this line binds every
   other route.
   Any delete or replace stops for the owner, unless he ordered this release: start
@@ -616,7 +619,8 @@ Owner: the coordinator <coordinator agent name> for incident <incident id>.
 Authority: read-only evidence. Feed <fix lane name> and the coordinator.
   You gate nothing. Never ask the fix lane to wait for diagnosis.
   Read-only never covers the owner's identity: never call production as him or
-  drive his signed-in browser, Orca tab or session, reads included.
+  use his signed-in browser, Orca tab, session or Iris, reads included, a test
+  Mac whose Iris is signed in as him included.
 
 Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>

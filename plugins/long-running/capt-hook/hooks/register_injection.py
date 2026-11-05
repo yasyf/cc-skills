@@ -497,6 +497,7 @@ def brief_subagent(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     tests=separate("register_injection.brief_drive_worker", {
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=FOUND): Warn(pattern=r"^Standing rules register `ccccccc`"),
+        Input(source="resume", env={DRIVE_ENV: "900424b6"}, commands=FOUND): Warn(pattern=r"^Standing rules register `ccccccc`"),
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=NONE_FOUND): Allow(),
         Input(source="startup"): Allow(),
         Input(source="compact", env={DRIVE_ENV: "900424b6"}, commands=FOUND, state=[ACTIVE]): Allow(),
