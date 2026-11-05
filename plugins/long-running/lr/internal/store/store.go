@@ -467,11 +467,19 @@ type HeadFact struct {
 }
 
 func (s *Store) HeadFacts(repo string, number int, kinds []string) ([]HeadFact, error) {
+	return headFacts(s.db, repo, number, kinds)
+}
+
+func (t *Tx) HeadFacts(repo string, number int, kinds []string) ([]HeadFact, error) {
+	return headFacts(t.tx, repo, number, kinds)
+}
+
+func headFacts(db querier, repo string, number int, kinds []string) ([]HeadFact, error) {
 	given, err := json.Marshal(kinds)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query("SELECT head, kind, value FROM facts WHERE repo = ? AND number = ? AND kind IN (SELECT value FROM json_each(?)) ORDER BY posted, rowid", repo, number, string(given))
+	rows, err := db.Query("SELECT head, kind, value FROM facts WHERE repo = ? AND number = ? AND kind IN (SELECT value FROM json_each(?)) ORDER BY posted, rowid", repo, number, string(given))
 	return collect(rows, err, func(rows *sql.Rows) (HeadFact, error) {
 		var fact HeadFact
 		err := rows.Scan(&fact.Head, &fact.Kind, &fact.Value)

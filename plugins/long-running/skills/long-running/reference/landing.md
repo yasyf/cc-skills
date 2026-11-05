@@ -523,7 +523,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
   1. The PR's own diff is the same as at the tapped head. It carries, whatever a class says, since he approved exactly this diff.
   2. A head since his tap says `behavior` or `scope`. It returns.
   3. Fidelity judged a change since the tapped head. It returns, whatever class the lane gave.
-  4. Every head back to his tap says `rebase`, `review-fix` or `ordered-fix`. It carries, naming the classes.
+  4. Every head back to his tap says `rebase`, `review-fix` or `ordered-fix`, or has the same PR diff as the head before it. It carries, naming the classes.
   5. Fidelity judged behavior and scope unchanged since the tapped head. It carries.
   6. Otherwise it returns until fidelity judges it, which it does for every untapped head with a tap behind it.
 - A carried head still needs every other gate at that head.

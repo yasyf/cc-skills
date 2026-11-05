@@ -1552,6 +1552,54 @@ func TestEachNewHeadIsJudgedAgainstTheHeadHeTappedNeverTheLastCarriedOne(t *test
 	}
 }
 
+func TestHisTapCarriesStepByStepThroughRebasesReviewFixesAndPatchIdenticalPushes(t *testing.T) {
+	const tapped, rebased, requeued, regraded = "2bd148b6570b8cb7d058e448a526adb1ac4b005a", "586c3c7c4acf81a4cbbccb1559372fc0706cbca3", "b2146f72cd37edd653cdac0b9a35f4fcb4b64632", "c0ffee0000000000000000000000000000000001"
+	resolved := ownDiff + "+\tlog(rows)\n"
+	moved := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,3 +10,4", "-42,3 +44,4").Replace(resolved)
+	fixed := resolved + "+\tsort(rows)\n"
+	type step struct{ head, class, diff string }
+	for name, tc := range map[string]struct {
+		rollup string
+		steps  []step
+		by     string
+	}{
+		"51193: a rebase, then an unclassed push with the same diff": {
+			steps: []step{{rebased, gates.DeltaRebase, resolved}, {requeued, "", moved}}, by: "rebase,same-diff",
+		},
+		"51193 with a behavior change, then an unclassed push with the same diff": {
+			steps: []step{{rebased, gates.DeltaBehavior, resolved}, {requeued, "", moved}},
+		},
+		"51193 with an unclassed push that changed the diff": {
+			steps: []step{{rebased, gates.DeltaRebase, resolved}, {requeued, "", resolved + "+\tdrop(rows)\n"}},
+		},
+		"a tap while CI still runs, then a rebase, a review fix and a patch-identical push": {
+			rollup: "PENDING", steps: []step{{rebased, gates.DeltaRebase, resolved}, {requeued, gates.DeltaReviewFix, fixed}, {regraded, "", fixed}}, by: "rebase,review-fix,same-diff",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			putFact(t, s, 51193, tapped, "tap", "tapped", tappedAt)
+			on(t, s, recordedPR{number: 51193, head: tapped, login: "drive-bot", rollup: tc.rollup, diff: ownDiff}).snapshot(t)
+			var row machine.Facts
+			from := tapped
+			for i, next := range tc.steps {
+				at := tappedAt.Add(time.Duration(i+1) * time.Hour)
+				putFact(t, s, 51193, next.head, gates.DeltaFromFact, from, at)
+				if next.class != "" {
+					putFact(t, s, 51193, next.head, gates.DeltaFact, next.class, at)
+				}
+				row = on(t, s, recordedPR{number: 51193, head: next.head, login: "drive-bot", diff: next.diff}).snapshot(t)[51193]
+				from = next.head
+			}
+
+			carried := tc.by != ""
+			if row.CarriedBy != tc.by || row.Admitted() != carried || slices.Contains(gates.Missing(row), gates.NoTap) == carried {
+				t.Fatalf("tap %q from %q by %q, returned %q, missing %q: want by %q", row.Tap, row.TapFrom, row.CarriedBy, row.TapReturned, gates.Missing(row), tc.by)
+			}
+		})
+	}
+}
+
 const (
 	devBefore = "0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0"
 	squashed  = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"

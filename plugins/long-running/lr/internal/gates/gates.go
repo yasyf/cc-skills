@@ -47,8 +47,8 @@ const (
 
 var (
 	OverrideFacts  = []string{machine.OverrideFact(finderKind), machine.OverrideFact(fidelityKind)}
-	DeltaFacts     = []string{DeltaFact, DeltaFromFact, DeltaWhyFact}
-	carryingWords  = map[string]string{DeltaRebase: "a rebase", DeltaReviewFix: "a review fix", DeltaOrderedFix: "a fix the owner ordered"}
+	DeltaFacts     = []string{DeltaFact, DeltaFromFact, DeltaWhyFact, DiffFact}
+	carryingWords  = map[string]string{DeltaRebase: "a rebase", DeltaReviewFix: "a review fix", DeltaOrderedFix: "a fix the owner ordered", BySameDiff: "a push that left the PR's own diff the same"}
 	returningWords = map[string]string{DeltaBehavior: "a behavior change", DeltaScope: "a scope change"}
 )
 
@@ -183,13 +183,29 @@ func deltasSince(tapped, head string, deltas []store.HeadFact) deltaChain {
 			return chain
 		}
 		said := factsAt(at, deltas)
-		chain.links = append(chain.links, delta{at, said[DeltaFact], said[DeltaWhyFact]})
-		at = said[DeltaFromFact]
+		from := said[DeltaFromFact]
+		class := said[DeltaFact]
+		if _, carries := carryingWords[class]; !carries && from != "" && SameDiff(factsAt(from, deltas), said) {
+			class = BySameDiff
+		}
+		chain.links = append(chain.links, delta{at, class, said[DeltaWhyFact]})
+		at = from
 		if at == "" {
 			return chain
 		}
 	}
 	return chain
+}
+
+func LeadsBack(from, head string, deltas []store.HeadFact) bool {
+	walked := map[string]bool{}
+	for at := from; at != "" && !walked[at]; at = factsAt(at, deltas)[DeltaFromFact] {
+		if sameHead(at, head) {
+			return true
+		}
+		walked[at] = true
+	}
+	return false
 }
 
 func factsAt(head string, deltas []store.HeadFact) map[string]string {

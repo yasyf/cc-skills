@@ -1268,6 +1268,60 @@ func TestAHeadRecordsClassAndWhatItReplacedReachTheStore(t *testing.T) {
 	}
 }
 
+func TestAHeadRecordPointingBackAlongItsOwnLineageKeepsTheLineage(t *testing.T) {
+	const restored, restacked, earlier = "b56c08a28754e8a8148dadccbd1f45c1c3f5c35e", "ce8b1f16f23ad1bdf269c4440ab8241ffa422eb2", "552425ab0000000000000000000000000000000a"
+	const tapped, fixed, rebased = "ab3e76908947c6e70cf51fca64fc72438075ae32", "f34888bcb4cceadc281fc20b5c942da8ca3becb1", "7fbaaa3110223382e44230e4598acb85d6e7fc91"
+	for name, tc := range map[string]struct {
+		heads func()
+		want  map[string]string
+	}{
+		"48611: a head restored after a restack": {
+			heads: func() {
+				postClassed(t, 1, earlier, restored, gates.DeltaRebase, "onto dev")
+				postClassed(t, 1, restored, restacked, gates.DeltaRebase, "patch-identical")
+				postClassed(t, 1, restacked, restored, gates.DeltaRebase, "restored pre-restack head")
+			},
+			want: map[string]string{restored: earlier, restacked: restored},
+		},
+		"51253: a class record whose text names the head it moved from first": {
+			heads: func() {
+				postClassed(t, 1, tapped, fixed, gates.DeltaReviewFix, "replay")
+				postClassed(t, 1, fixed, rebased, "", "restack, range-diff patch-identical")
+				if _, err := client.Post(context.Background(), client.Draft{
+					Drive: "d", Lane: "lane-7", Kind: "head", Text: fmt.Sprintf("#1 moved from %s to %s, a rebase onto dev", fixed, rebased), PRs: []string{testRepo + "#1"},
+					ID: "head/1/moved", Attrs: map[string]string{"delta": gates.DeltaRebase},
+				}); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: map[string]string{fixed: tapped, rebased: fixed},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, s := foldFor(t)
+			postOpened(t, 1, headA, "dev", "body")
+			folded(t, f, 1)
+			tc.heads()
+
+			folded(t, f, 1)
+
+			got, err := s.HeadFacts(testRepo, 1, []string{gates.DeltaFromFact})
+			if err != nil {
+				t.Fatal(err)
+			}
+			said := map[string]string{}
+			for _, fact := range got {
+				said[fact.Head] = fact.Value
+			}
+			for head, from := range tc.want {
+				if said[head] != from {
+					t.Fatalf("%s comes from %q, want %q; every delta-from: %v", head[:7], said[head], from, said)
+				}
+			}
+		})
+	}
+}
+
 func TestARowSaysHisTapCarriedOrReturnedAndWhy(t *testing.T) {
 	const from = "aaaaaaaaaaaa"
 	ready := readyRow()
