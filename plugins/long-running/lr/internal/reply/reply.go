@@ -826,8 +826,8 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 			continue
 		}
 		row := rows[at]
-		if len(r.Picks) == 0 && !row.ReadyForTap && !row.Tapped {
-			noButton = append(noButton, pr+" is not ready for his tap: "+cmp.Or(row.WaitsOn, "its row names nothing it waits on"))
+		if refusal := prrow.TapRefusal(row); len(r.Picks) == 0 && !row.Tapped && refusal != "" {
+			noButton = append(noButton, pr+" has no Approve: "+refusal)
 		}
 		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
 			continue
@@ -849,7 +849,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 	}
 	var warned []string
 	if len(noButton) > 0 {
-		warned = append(warned, "NO BUTTON: "+strings.Join(noButton, "; ")+"; he sees a link and where it stands with nothing to tap, so say in md what he can do, or take it out of prs")
+		warned = append(warned, "NO BUTTON: "+strings.Join(noButton, "; ")+"; he sees where it stands with nothing to tap, so say in md what he can do, or take it out of prs")
 	}
 	if len(short) > 0 {
 		warned = append(warned, strings.Join(short, "; ")+", so its lane fixes the PR body's Summary, plan reference or Risk profile, and this reply is edited once the row has them")

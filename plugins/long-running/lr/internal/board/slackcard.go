@@ -1,6 +1,7 @@
 package board
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +48,7 @@ type SlackPRRow struct {
 	Plan   string `json:"plan"`
 	Risk   string `json:"risk"`
 	Blocks string `json:"blocks"`
+	Lands  string `json:"lands,omitempty"`
 
 	Description string `json:"description,omitempty"`
 }
@@ -89,11 +91,27 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	if row.State == prrow.StateLanded {
 		card.Status = "done"
 	}
-	if waitsOnHim(row) {
-		card.Status, card.Title = "needs_you", fmt.Sprintf("Approve #%d at %s?", row.Number, at)
-		card.Options, card.Recommended, card.Waits = []string{approveLabel, holdLabel}, approveLabel, MergeWaits(row.Number, row.Head)
+	if !offersApproval(row) {
+		return card
+	}
+	card.Status, card.Title = "needs_you", fmt.Sprintf("Approve #%d at %s?", row.Number, at)
+	card.Options, card.Recommended, card.Waits = []string{approveLabel, holdLabel}, approveLabel, MergeWaits(row.Number, row.Head)
+	if !row.ReadyForTap {
+		card.PRs[0].Blocks, card.PRs[0].Lands = "", prrow.LandsOnce(row)
 	}
 	return card
+}
+
+func offersApproval(row store.ReviewRow) bool {
+	return !row.Tapped && prrow.TapRefusal(row) == ""
+}
+
+func drawnSignature(card SlackCard) string {
+	raw, err := json.Marshal(card)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(raw))
 }
 
 func waitsOnHim(row store.ReviewRow) bool {
@@ -237,10 +255,20 @@ func Respond(s *store.Store, repo string, hooks Hooks, rows []store.ReviewRow, n
 func MarkShown(s *store.Store, repo string, rows []store.ReviewRow, shown []SlackShown, at time.Time) error {
 	for _, card := range shown {
 		found := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == card.Number })
-		if found < 0 || MergeWaits(card.Number, rows[found].Head) != card.Waits {
+		if found < 0 {
 			continue
 		}
-		if _, err := s.PutFact(repo, card.Number, rows[found].Head, FactTapCard, tapCardInSlack, at); err != nil {
+		row, signature := rows[found], staleDrawn
+		if now := Card(repo, rows[found]); now.Waits == card.Waits {
+			signature = drawnSignature(now)
+		}
+		if _, err := s.PutFact(repo, card.Number, row.Head, FactCardDrawn, signature, at); err != nil {
+			return err
+		}
+		if MergeWaits(card.Number, row.Head) != card.Waits {
+			continue
+		}
+		if _, err := s.PutFact(repo, card.Number, row.Head, FactTapCard, tapCardInSlack, at); err != nil {
 			return err
 		}
 	}

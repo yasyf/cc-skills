@@ -379,6 +379,29 @@ func foldFact(facts map[string]string, kind, value string) {
 	}
 }
 
+type numberedFact struct {
+	number int
+	value  string
+}
+
+// LatestFacts maps each PR to the newest value of one fact, at whatever head it was written.
+func (s *Store) LatestFacts(repo, kind string) (map[int]string, error) {
+	rows, err := s.db.Query("SELECT number, value FROM facts WHERE repo = ? AND kind = ? ORDER BY posted, rowid", repo, kind)
+	found, err := collect(rows, err, func(rows *sql.Rows) (numberedFact, error) {
+		var one numberedFact
+		err := rows.Scan(&one.number, &one.value)
+		return one, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	latest := make(map[int]string, len(found))
+	for _, one := range found {
+		latest[one.number] = one.value
+	}
+	return latest, nil
+}
+
 func (s *Store) PRFacts(repo string, number int) (map[string]string, error) {
 	rows, err := s.db.Query("SELECT kind, value FROM facts WHERE repo = ? AND number = ? ORDER BY posted, rowid", repo, number)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
