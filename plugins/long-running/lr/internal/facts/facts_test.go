@@ -586,6 +586,47 @@ func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
 	}
 }
 
+func TestADevMoveAddsOneRecordAndNoGitHubCallsAtAnyRowCount(t *testing.T) {
+	calls := map[string]int{}
+	for _, n := range []int{1, 1000} {
+		for _, moved := range []bool{false, true} {
+			prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
+			for i := 1; i <= n; i++ {
+				sha := fmt.Sprintf("%040x", i)
+				prs = append(prs, recordedPR{number: i, head: sha, login: "drive-bot", commits: []string{sha}})
+				rows = append(rows, status(i, func(row *statusRow) { row.Head = sha }))
+			}
+			h := newHarness(t, prs, rows...)
+			if moved {
+				if _, err := h.store.PutFact(repo, 0, "trunk-mergeable", "moved", "def4567890123def4567890123def4567890123d", time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			h.snapshot(t)
+			h.snapshot(t)
+
+			reads, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"github"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			posted := 0
+			for _, record := range reads {
+				if record.Fields.Attrs["record"] == "trunk.read" {
+					posted++
+				}
+			}
+			if want := map[bool]int{false: 0, true: 1}[moved]; posted != want {
+				t.Fatalf("n=%d moved=%v: %d trunk reads posted over two passes, want %d", n, moved, posted, want)
+			}
+			calls[fmt.Sprintf("%d %v", n, moved)] = len(h.runner.Calls())
+		}
+	}
+	if calls["1 true"] != calls["1 false"] || calls["1000 true"] != calls["1000 false"] {
+		t.Fatalf("command runs = %v, want a dev move to add no GitHub call at 1 and 1,000 PRs", calls)
+	}
+}
+
 func TestEachLandingsMergerRidesThePageThePassAlreadyReads(t *testing.T) {
 	calls := map[string]int{}
 	for _, n := range []int{1, 1000} {
