@@ -17,7 +17,8 @@ UI_LANE = re.compile(r"^(?:dashboard|tap-queue|owner-apps|owner-board|chat-desig
 LIVE = re.compile(r"(?:^|[.;:]\s*)live\b|\b(?:is|are|went|now|all)\s+live\b|\blive on\b|\bserved (?:at|on)\b", re.IGNORECASE)
 NOT_INSTALLED = re.compile(r"\bmerged,? not installed\b", re.IGNORECASE)
 NOT_LIVE = re.compile(r"\bnot live\b", re.IGNORECASE)
-PR = re.compile(r"(?:cc-skills#|/pull/|#)(\d{1,5})\b")
+PR = re.compile(r"(?P<repo>[\w.-]*(?:/[\w.-]+)?)(?:#|/pull/)(?P<number>\d{1,5})\b")
+CC_SKILLS = frozenset({"", "pr", "cc-skills", "yasyf/cc-skills"})
 CITE = re.compile(r"\b(?:card:(?P<card>[\w.-]+)|owner:(?P<row>m\d+))\b")
 YES = re.compile(r"^\W*(?:approved|yes|yep|yeah|lgtm|looks good|ship it)\b", re.IGNORECASE)
 READ_TIMEOUT_SECONDS = 20
@@ -31,10 +32,13 @@ CHAT_PR = {"gh pr view 2675": f"{DASHBOARD}/app/chat.js\n"}
 APPROVED = {"ccn answer list --label from:owner --label board-card:chat-mock": json.dumps([{"body": "approved “ship this render” | Card chat-mock"}])}
 REJECTED = {"ccn answer list --label from:owner --label owner:m480": json.dumps([{"body": "this is not at all what I wanted"}])}
 PACK_PR = {"gh pr view 2618": "plugins/long-running/capt-hook/hooks/release_cards.py\n"}
+SAME_NUMBER_PR = {"gh pr view 817": f"{DASHBOARD}/app/chat.js\n"}
+GO_LANE = "go-cli-fix-1"
 
 
-def post(text: str, lane: str = LANE, kind: str = "landed", **extra: object) -> Input:
-    return Input(command=f"cci post --drive d --lane {lane} --kind {kind} --to meta-desk --text \"{text}\"", env={"CLAUDE_LONG_RUNNING_LANE": lane}, **extra)
+def post(text: str, lane: str = LANE, kind: str = "landed", pr: str = "", **extra: object) -> Input:
+    named = f"--pr {pr} " if pr else ""
+    return Input(command=f"cci post --drive d --lane {lane} --kind {kind} {named}--to meta-desk --text \"{text}\"", env={"CLAUDE_LONG_RUNNING_LANE": lane}, **extra)
 
 
 def read(evt: BaseHookEvent, *argv: str) -> subprocess.CompletedProcess[str] | None:
@@ -47,7 +51,7 @@ def read(evt: BaseHookEvent, *argv: str) -> subprocess.CompletedProcess[str] | N
 def touches_dashboard(evt: BaseHookEvent, text: str) -> bool:
     if DASHBOARD in text:
         return True
-    for number in dict.fromkeys(PR.findall(text)):
+    for number in dict.fromkeys(found["number"] for found in PR.finditer(text) if found["repo"].lower() in CC_SKILLS):
         files = read(evt, "gh", "pr", "view", number, "-R", "yasyf/cc-skills", "--json", "files", "--jq", ".files[].path")
         if files and files.returncode == 0 and DASHBOARD in files.stdout:
             return True
@@ -95,6 +99,18 @@ def unseen_claims(evt: BaseHookEvent) -> list[str]:
         post("Not live: #2675 rebuilds the Chat tab", kind="live", commands=CHAT_PR): Block(),
         post("Merged, not installed: #2675 rebuilds the Chat tab", lane="slack-bugs-1", commands=CHAT_PR): Block(),
         post("Live: the Slack bug fix is released on build 12345", lane="slack-bugs-1", kind="live"): Allow(),
+        post("Fixed the Go CLI: https://github.com/yasyf/cc-context/pull/817", lane=GO_LANE, pr="yasyf/cc-context#817", commands=SAME_NUMBER_PR): Allow(),
+        post("Fixed the Go CLI", lane=GO_LANE, pr="https://github.com/yasyf/cc-context/pull/817", commands=SAME_NUMBER_PR): Allow(),
+        post("Fixed the Go CLI in cc-context#817", lane=GO_LANE, commands=SAME_NUMBER_PR): Allow(),
+        post("Fixed the Go CLI in yasyf/cc-context#817", lane=GO_LANE, commands=SAME_NUMBER_PR): Allow(),
+        post("Fixed the Chat tab in #817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
+        post("Fixed the Chat tab in PR#817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
+        post("Fixed the Chat tab in cc-skills#817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
+        post("Fixed the Chat tab in yasyf/cc-skills#817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
+        post("Fixed the Chat tab in https://github.com/yasyf/cc-skills/pull/817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
+        post("Fixed the Chat tab", lane=GO_LANE, pr="817", commands=SAME_NUMBER_PR): Block(),
+        post("Fixed the Chat tab", lane=GO_LANE, pr="https://github.com/yasyf/cc-skills/pull/817", commands=SAME_NUMBER_PR): Block(),
+        post("yasyf/cc-context#900 is out and so is #817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
         Input(tool=POST_TOOL, tool_input={"lane": "owner-apps-1", "kind": "live", "text": "The Review tab now lists PRs only"}, env={"CLAUDE_LONG_RUNNING_LANE": "owner-apps-1"}): Block(),
     },
 )
