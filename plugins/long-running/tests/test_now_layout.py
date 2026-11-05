@@ -737,7 +737,6 @@ def drop_whole_card(page):
 def test_a_card_renders_whole_on_the_dashboard_with_no_link_to_the_board(page):
     whole_card(page)
     card = page.locator("#card-card-whole")
-    card.locator(".pk-more > summary").click()
     words = card.inner_text().lower()
     for said in ("One credential covers it.", "Background", "one per team", "Runs live in the bucket.", "One credential", "One mint a team", "what does it risk?", "A client bug could overwrite a run."):
         assert said.lower() in words
@@ -949,6 +948,22 @@ def test_a_pick_card_shows_each_option_once_and_the_block_is_the_tap_target(page
     page.wait_for_selector('.fm.done[data-tap="card-fold"] .pk-picked')
     assert "Two credentials" in row.locator(".pk-picked").inner_text()
     assert page.locator(".fd-h h1").inner_text() == "Nothing waits on your tap."
+    drop_folded(page)
+
+
+def test_a_cards_bottom_reads_plainly_with_no_from_label_and_a_bare_link_named_by_its_page(page):
+    row = folded_screen(page)
+    page.evaluate("""() => {
+      const card = state.model.board.cards.find((card) => card.id === 'card-fold');
+      card.parts[0].md = 'The whole design: https://docs.poetic.design/one-pagers/agent-message-schema/';
+      card.parts.push({ kind: 'aside', id: 'aside', text: 'Not in the rebuild plan.' });
+      render();
+    }""")
+    row.locator(".pk-more > summary").click()
+    link = row.locator(".pk-more .md a")
+    assert link.inner_text() == "agent-message-schema"
+    assert link.get_attribute("href") == "https://docs.poetic.design/one-pagers/agent-message-schema/"
+    assert row.locator(".pk-aside").inner_text() == "Not in the rebuild plan."
     drop_folded(page)
 
 

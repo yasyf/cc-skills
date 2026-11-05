@@ -34,7 +34,7 @@ def by_id(parts):
 def test_an_option_table_moves_into_its_options_and_leaves_the_context():
     parts = picks.fold_picks([page(TABLE), three()])
     assert parts[0]["md"] == "This also decides when the run reader lands."
-    assert parts[-1] == {"kind": "from", "id": "from", "text": "the coordinator."}
+    assert parts[-1]["kind"] == "choice"
     options = by_id(parts)
     assert options["a"]["facts"] == [{"label": "For", "value": "One mint per team.", "tone": "good"}, {"label": "Against", "value": "A client bug could overwrite a run.", "tone": "bad"}]
     assert options["a"]["hint"] == ""
@@ -101,6 +101,29 @@ def test_a_record_keeps_its_other_facts_when_its_from_line_leaves():
     kept = picks.fold_picks([record])
     assert kept[0]["facts"] == [{"label": "Seen in:", "value": "CI build 7"}]
     assert kept[1]["text"] == "New."
+
+
+def test_the_quiet_line_keeps_what_decides_and_drops_who_routed_it_and_ids():
+    said = "dd-322121632-fix-4, on alert dd-322121632. Your Nov 2 rule (dbeef4d): options to you first. Not in the rebuild plan. Option 1 is built on a branch, no PR."
+    assert picks.decision_facts(said) == "Not in the rebuild plan. Option 1 is built on a branch, no PR."
+    assert picks.decision_facts("The worker on this fix. The plan does not name this release change.") == "The plan does not name this release change."
+    assert picks.decision_facts("The coordinator, from the gateway audit. Today: api/src/routes/x.ts:4.") == "Today: api/src/routes/x.ts:4."
+    assert picks.decision_facts("Plan step 4.5, the two monitors. No timed loop: read-only checks.") == "No timed loop: read-only checks."
+
+
+def test_a_from_line_with_nothing_left_leaves_no_quiet_line():
+    parts = picks.fold_picks([page("**From:** chat-tables-design-1, question 3 of 8.\n\nThe context."), choice(option("x", "Land it"))])
+    assert [part["kind"] for part in parts] == ["page", "choice"]
+    assert parts[0]["md"] == "The context."
+
+
+def test_a_record_titled_from_keeps_its_facts_and_loses_the_heading():
+    record = {"kind": "record", "id": "bg", "title": "From", "facts": [{"label": "From:", "value": "The worker on this fix."}, {"label": "Tonight:", "value": "Two releases."}]}
+    assert picks.fold_picks([record]) == [{"kind": "record", "id": "bg", "title": "", "facts": [{"label": "Tonight:", "value": "Two releases."}]}]
+
+
+def test_a_page_drops_the_explain_more_label_the_disclosure_already_says():
+    assert picks.fold_picks([page("Context.\n\n**Explain more:** Decision 7 in the doc.")])[0]["md"] == "Context.\n\nDecision 7 in the doc."
 
 
 def test_a_source_window_shows_the_cited_lines_with_their_neighbours_and_stops_at_the_file():

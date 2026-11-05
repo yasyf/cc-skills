@@ -1,6 +1,8 @@
 import itertools
 import re
 
+import plainwords
+
 TABLE_RULE = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
 OPTION_HEAD = re.compile(r"^(?:options?|picks?|choices?|answers?)$", re.I)
 GOOD_COLUMN = re.compile(r"\b(?:for|gains?|pros?|upsides?|benefits?)\b", re.I)
@@ -14,6 +16,11 @@ BULLET = re.compile(r"^\s*(?:[-*]|\d+\.)\s+(.*)$")
 WORD = re.compile(r"[a-z0-9]+")
 MOST_MATCHED_OPTIONS = 6
 FROM_PARAGRAPH = re.compile(r"^\*\*From:\*\*\s*(.+?)(?:\n\s*\n|\Z)", re.M | re.S)
+EXPLAIN_LEAD = re.compile(r"^\*\*Explain more:\*\*\s*", re.M)
+SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"`])")
+WORKER_NAME = re.compile(r"\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d+\b")
+ROUTED_BY = re.compile(r"^(?:(?:the )?(?:coordinator|worker|root)|plan step)\b", re.I)
+BOOKKEEPING = {"an id", "a record number", "a hash"}
 SOURCE_PATH = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
 SOURCE_CONTEXT = 3
 
@@ -102,6 +109,14 @@ def is_from(fact):
     return fact["label"].rstrip(":") == "From"
 
 
+def needs_no_decoding(sentence):
+    return not (WORKER_NAME.search(sentence) or ROUTED_BY.match(sentence) or BOOKKEEPING.intersection(plainwords.violations(sentence)))
+
+
+def decision_facts(said):
+    return " ".join(filter(needs_no_decoding, SENTENCE.split(said)))
+
+
 def quiet_provenance(parts):
     said = []
     for part in parts:
@@ -110,18 +125,20 @@ def quiet_provenance(parts):
             part["md"] = (part["md"][:found.start()] + part["md"][found.end():]).strip()
         if part["kind"] == "record":
             said += [str(fact["value"]) for fact in part["facts"] if is_from(fact)]
+            part["title"] = "" if part["title"] == "From" else part["title"]
     kept = [part for part in parts if part["kind"] != "record" or not part["facts"] or not all(map(is_from, part["facts"]))]
     for part in kept:
         if part["kind"] == "record":
             part["facts"] = [fact for fact in part["facts"] if not is_from(fact)]
-    return [*kept, {"kind": "from", "id": "from", "text": " ".join(said)}] if said else kept
+    aside = " ".join(filter(None, map(decision_facts, said)))
+    return [*kept, {"kind": "aside", "id": "aside", "text": aside}] if aside else kept
 
 
 def fold_picks(parts):
     choices = [part for part in parts if part["kind"] == "choice"]
     for part in parts:
         if part["kind"] == "page":
-            part["md"] = context_only(part["md"], choices)
+            part["md"] = EXPLAIN_LEAD.sub("", context_only(part["md"], choices))
     return quiet_provenance(parts)
 
 
