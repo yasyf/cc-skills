@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -53,16 +54,21 @@ func liveTasksCommand(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func depsOf(a *app.App, cmd *cobra.Command) *deps {
+func depsOf(a *app.App, cmd *cobra.Command) (*deps, error) {
+	claude, err := configDir()
+	if err != nil {
+		return nil, err
+	}
 	return &deps{
 		runner:  a.Runner,
+		bin:     filepath.Join(claude, "long-running", "current", "bin"),
 		ledger:  a.Ledger,
 		records: tailRecords,
 		blocker: postingBlockers(a.Log),
 		now:     a.Now,
 		stdin:   cmd.InOrStdin(),
 		stdout:  cmd.OutOrStdout(),
-	}
+	}, nil
 }
 
 func tailRecords(ctx context.Context, q recordQuery) ([]busRecord, error) {
@@ -113,7 +119,11 @@ func generateCommand(a *app.App) *cobra.Command {
 		Short: "Write the generated progress doc and print its id, file, and restore digest",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return exitWith(depsOf(a, cmd).generate(cmd.Context(), opts))
+			d, err := depsOf(a, cmd)
+			if err != nil {
+				return err
+			}
+			return exitWith(d.generate(cmd.Context(), opts))
 		},
 	}
 	flags := cmd.Flags()
@@ -136,7 +146,11 @@ func lintCommand(a *app.App) *cobra.Command {
 		Short: "Print standing-rule and owner-gate findings for a handoff and its plan",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return exitWith(depsOf(a, cmd).lint(cmd.Context(), opts))
+			d, err := depsOf(a, cmd)
+			if err != nil {
+				return err
+			}
+			return exitWith(d.lint(cmd.Context(), opts))
 		},
 	}
 	flags := cmd.Flags()
@@ -161,7 +175,11 @@ func standingCommand(a *app.App) *cobra.Command {
 		Short: "Print the live standing rules on a cci drive",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return depsOf(a, cmd).standing(cmd.Context(), drive)
+			d, err := depsOf(a, cmd)
+			if err != nil {
+				return err
+			}
+			return d.standing(cmd.Context(), drive)
 		},
 	}
 	cmd.Flags().StringVar(&drive, "drive", "", "the cci drive")

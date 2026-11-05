@@ -67,6 +67,7 @@ type blockerPoster func(ctx context.Context, drive, id, text string)
 
 type deps struct {
 	runner  shell.Runner
+	bin     string
 	ledger  ledger.Store
 	records recordReader
 	blocker blockerPoster
@@ -79,6 +80,8 @@ func (d *deps) run(ctx context.Context, argv []string, stdin string) (string, er
 	result, err := d.runner.Run(ctx, shell.Command{Argv: argv, Stdin: stdin})
 	return result.Stdout, err
 }
+
+func (d *deps) tool(name string) string { return filepath.Join(d.bin, name) }
 
 func (d *deps) ccn(ctx context.Context, repo string, target any, args ...string) error {
 	out, err := d.run(ctx, append(append([]string{"ccn", "-R", repo}, args...), "--json"), "")
@@ -150,7 +153,7 @@ func (d *deps) registerRows(ctx context.Context, repo string, which []string, dr
 	if err != nil {
 		reason := failureOf(err)
 		d.blocker(ctx, drive, fmt.Sprintf("register-rows:%s:%s", drive, at.UTC().Format("20060102T15")),
-			fmt.Sprintf("The register rows for %s did not load for the handoff: %s. Read them with `rulings.py rows %s --json` and carry the scope rows' words by hand.", drive, reason, strings.Join(which, " ")))
+			fmt.Sprintf("The register rows for %s did not load for the handoff: %s. Read them with `%s rows %s --json` and carry the scope rows' words by hand.", drive, reason, d.tool("rulings.py"), strings.Join(which, " ")))
 		return &rowSet{failure: reason, readAt: at}
 	}
 	if !found {
@@ -160,7 +163,7 @@ func (d *deps) registerRows(ctx context.Context, repo string, which []string, dr
 }
 
 func (d *deps) readRows(ctx context.Context, repo string, which []string, at time.Time) (*rowSet, bool, error) {
-	out, err := d.run(ctx, slices.Concat([]string{"rulings.py", "rows"}, which, []string{"--repo", repo, "--json"}), "")
+	out, err := d.run(ctx, slices.Concat([]string{d.tool("rulings.py"), "rows"}, which, []string{"--repo", repo, "--json"}), "")
 	if err != nil {
 		return nil, false, err
 	}
@@ -399,7 +402,7 @@ func pacificText(stamp string) string {
 }
 
 func (d *deps) laneRows(ctx context.Context, entry *driveEntry) ([]laneRow, error) {
-	out, err := d.run(ctx, []string{"drive_supervisor.py", "lanes", "--config", filepath.Join(entry.StateDir, "lr.json"), "--json"}, "")
+	out, err := d.run(ctx, []string{d.tool("drive_supervisor.py"), "lanes", "--config", filepath.Join(entry.StateDir, "lr.json"), "--json"}, "")
 	if err != nil {
 		return nil, err
 	}

@@ -18,7 +18,7 @@
     rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF] [--words]
     rulings.py plan         [--program SLUG | --drive ID]
     rulings.py sweep        [--program SLUG | --drive ID] [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
-    rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ [--step N] [--root DIR] [--words]
+    rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ[@NODE] [--step N] [--root DIR] [--words]
     rulings.py accepted     [--program SLUG | --drive ID] --lane NAME
     rulings.py narrowed     [--program SLUG | --drive ID] < TEXT
     rulings.py narrowed     [--program SLUG | --drive ID] --contract SEQ < GRADE
@@ -1873,7 +1873,7 @@ def proof_of(args: argparse.Namespace, loaded: Register, proof: str) -> str:
         return owner_answer(loaded, proof)["id"]
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; {proof} names a record on its cci drive")
-    if (lane := record_of(loaded.shell, drive.cci_drive(entry), int(requirement[1])).get("lane")) != "root":
+    if (lane := record_of(loaded.shell, drive.cci_drive(entry), requirement[1]).get("lane")) != "root":
         raise SystemExit(f"PROOF-NOT-ROOT {proof}: cci record #{requirement[1]} is {lane}'s")
     return proof
 
@@ -1926,11 +1926,11 @@ def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
-def record_of(shell: ledger.Shell, cci: str, seq: int) -> dict:
-    for line in shell.run(["cci", "show", str(seq), "--json"]).splitlines():
-        if line.strip() and (record := json.loads(line))["seq"] == seq and record.get("drive") == cci:
+def record_of(shell: ledger.Shell, cci: str, ref: str) -> dict:
+    for line in shell.run(["cci", "show", ref, "--json"]).splitlines():
+        if line.strip() and ref in {str((record := json.loads(line))["seq"]), record["num"].removeprefix("#")} and record.get("drive") == cci:
             return record
-    raise SystemExit(f"no cci record #{seq} in drive {cci}")
+    raise SystemExit(f"no cci record #{ref} in drive {cci}")
 
 
 def record_body(record: dict) -> str:
@@ -1953,20 +1953,20 @@ def names_of_lane(shell: ledger.Shell, lane: str, names: list[str]) -> set[str]:
 
 
 def read_back(loaded: Register, record: dict, lane: str, step: str | None, plan: Path | None, selector: str) -> ReadBack | str:
-    seq = record["seq"]
+    num = record["num"]
     if record.get("kind") != "contract" or record["lane"] not in names_of_lane(loaded.shell, lane, [record["lane"]]):
-        return f"READBACK-NOT-LANES #{seq}: the read-back is {lane}'s own contract record"
+        return f"READBACK-NOT-LANES {num}: the read-back is {lane}'s own contract record"
     attached = (record.get("refs") or {}).get("path")
     body = record_body(record)
     if not (header := SLICE_HEADER.search(body)):
-        sliced = brief_slice(loaded, seq, lane, step, plan, selector)
+        sliced = brief_slice(loaded, num, lane, step, plan, selector)
         return sliced if isinstance(sliced, str) else ReadBack(record, body, sliced[0], attached, sliced[1])
     if (want := Want.parse(header)).lane not in names_of_lane(loaded.shell, lane, [want.lane]):
-        return f"READBACK-NOT-LANES #{seq}: the read-back covers lane {want.lane}'s slice, not {lane}'s"
+        return f"READBACK-NOT-LANES {num}: the read-back covers lane {want.lane}'s slice, not {lane}'s"
     return ReadBack(record, body, want, attached)
 
 
-def brief_slice(loaded: Register, seq: int, lane: str, step: str | None, plan: Path | None, selector: str) -> tuple[Want, str] | str:
+def brief_slice(loaded: Register, num: str, lane: str, step: str | None, plan: Path | None, selector: str) -> tuple[Want, str] | str:
     """The slice of a read-back that names no `Register slice:` line: the one a brief under the drive's state gives `lane`, else `--step`'s, which readback also writes into the brief named for the lane, `briefs/<lane>.md` when none is, the way `slice --refresh` writes a brief's slice."""
     found = sorted(briefs(loaded.state), key=lambda path: path.stat().st_mtime, reverse=True)
     headers = [(brief, header) for brief in found for header in SLICE_HEADER.finditer(brief.read_text())]
@@ -1977,8 +1977,8 @@ def brief_slice(loaded: Register, seq: int, lane: str, step: str | None, plan: P
     named = next((brief for brief in found if brief.stem in same), None)
     if step is None:
         return (
-            f"READBACK-NO-SLICE #{seq}: neither the read-back nor {named or f'a brief under {loaded.state}'} names a `{SLICE_LINE} lane={lane} step=<n>` line; "
-            f"the coordinator runs `rulings.py readback {selector} --lane {lane} --contract {seq} --step <the lane's plan step>`"
+            f"READBACK-NO-SLICE {num}: neither the read-back nor {named or f'a brief under {loaded.state}'} names a `{SLICE_LINE} lane={lane} step=<n>` line; "
+            f"the coordinator runs `rulings.py readback {selector} --lane {lane} --contract {num.removeprefix('#')} --step <the lane's plan step>`"
         )
     want = Want(lane, step, [], False)
     if named is None:
@@ -3169,7 +3169,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     swept_verb.add_argument("--plan", metavar="PATH")
     readback = verb("readback", cmd_readback, "print each slice row and sweep hit a lane's read-back leaves out as a warning, then the grade request; a row or capture the owner said after the read-back was posted is out of its scope")
     readback.add_argument("--lane", required=True)
-    readback.add_argument("--contract", required=True, type=int, metavar="SEQ")
+    readback.add_argument("--contract", required=True, metavar="SEQ[@NODE]")
     readback.add_argument("--step", metavar="N", help="the lane's plan step, for a read-back and brief with no `Register slice:` line; written into the brief named for the lane")
     readback.add_argument("--plan", metavar="PATH")
     readback.add_argument("--root", metavar="DIR")

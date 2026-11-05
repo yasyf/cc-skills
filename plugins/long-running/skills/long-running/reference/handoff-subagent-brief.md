@@ -25,19 +25,20 @@ message it. Your handoff is `ccn -R <drive checkout> doc show <handoff doc id>`,
 you read deliveries from cci cursor <cursor the handoff names>.
 
 Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):
-  1. From <drive checkout>, run `drive.py lane-status <lane> --held`. Each line is a worktree
-     <lane> made, with its branch, dirty files, push state, and PR; `no worktree found`
-     means it made none.
-  2. From <drive checkout>, never from inside one of those worktrees, run for each
-     worktree path it printed:
-     lsof -n -d cwd 2>/dev/null | awk -v w='<worktree>' '$NF == w || index($NF, w "/") == 1'
-     It prints one line per process still working in that worktree.
-  3. If any line printed, write nothing. Post
-     `cci post --drive <drive> --lane <lane>-<N+1> --kind blocker --to root --text "LIVE <lane>: <worktree> pids <pids>"`
-     and end your turn with that as your report. Never stop or signal those processes.
-  4. With no live process in any worktree, continue in <lane>'s worktree and branch,
-     starting from the dirty files, unpushed commits, and PR that lane-status shows; the
-     trees of the PRs it only named print without `--held`.
+  1. From <drive checkout>, run `<plugin>/bin/drive.py lane-status <lane> --held`. Each line
+     is a worktree <lane> made, with its branch, dirty files, push state, and PR;
+     `no worktree found` means it made none.
+  2. Run `cci who --drive <drive> --lane <lane> --json --fields live,status,status_at`.
+     It prints <lane>'s session, if one is still live, with its harness status.
+  3. If it prints a live session whose status is not `idle`, <lane> has a turn running and
+     may still write: write nothing. Post
+     `cci post --drive <drive> --lane <lane>-<N+1> --kind blocker --to root --text "LIVE <lane>: status <status> since <status_at>"`
+     and end your turn with that as your report. Never stop, signal or close that session
+     or its terminal.
+  4. An idle session or none writes nothing, even with its claude and shell still open in
+     its worktree: continue in <lane>'s worktree and branch, starting from the dirty files,
+     unpushed commits, and PR that lane-status shows; the trees of the PRs it only named
+     print without `--held`.
 
 <the lane's reference brief, unchanged>
 ```

@@ -110,7 +110,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 	t.Helper()
 	f := &fake{feed: records, peers: peers, tokens: map[string]int{}, states: map[int]string{}, holds: map[int]bool{}, briefs: map[string]string{}}
 	f.deps = Deps{
-		Drive: testDrive, Checkout: testCheckout, Briefs: filepath.Join(t.TempDir(), "lanes"), HandoffBrief: "/plugin/handoff-subagent-brief.md",
+		Drive: testDrive, Checkout: testCheckout, Briefs: filepath.Join(t.TempDir(), "lanes"), Bin: "/plugin/bin", HandoffBrief: "/plugin/handoff-subagent-brief.md",
 		Records: func(since int64) ([]Record, error) {
 			var after []Record
 			for _, r := range f.feed {
@@ -374,6 +374,25 @@ func TestADeadLaneWithNoHandoffGetsASuccessorThatWritesOneFromTheTranscript(t *t
 	contains(t, text, f.deps.HandoffBrief)
 }
 
+func TestASuccessorBriefRunsLaneStatusByPathAndStopsOnlyOnAPredecessorWithATurnRunning(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46001)
+	f.peers = []Row{who(lane2, false, t0.Add(-mins(30)))}
+
+	tick(t, s, f, t0)
+
+	text := f.briefs["conflicts-3"]
+	contains(t, text, "run `/plugin/bin/drive.py lane-status conflicts-2 --held`")
+	contains(t, text, "`cci who --drive "+testDrive+" --lane conflicts-2 --json --fields live,status,status_at`")
+	contains(t, text, "a live session whose status is not `idle`")
+	contains(t, text, "An idle session or none writes nothing")
+	for _, gone := range []string{"lsof", "pids"} {
+		if strings.Contains(text, gone) {
+			t.Fatalf("the brief still reads processes in the worktree (%q):\n%s", gone, text)
+		}
+	}
+}
+
 func TestAFlushedLaneKeepsWorkingInPlace(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
@@ -462,6 +481,28 @@ func TestABlockerOnAnIdleLanesPRWakesItOnceThenItGetsASuccessorWithoutAnyoneAske
 	contains(t, replaced.Relaunched[0].Why, "has made no tool call in the 30 min since it was woken because blocker #2")
 	equal(t, f.launches, []string{"conflicts-3"})
 	equal(t, owners(t, s, 46475)[46475], "conflicts-3")
+}
+
+func TestAWokenLaneParkedInABackgroundLrWaitIsReplacedOnlyAfterItsDeadline(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46475)
+	f.feed = append(f.feed, stall(2, t0.Add(-mins(30)), "STALL red #46475", 46475, "red:46475:89f46c3"))
+	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour)))}
+	transcript := filepath.Join(t.TempDir(), "lane.jsonl")
+	parked := fmt.Sprintf(`{"type":"assistant","session_id":"p","timestamp":%q,"message":{"content":[{"type":"tool_use","id":"w1","name":"Bash","input":{"command":"lr wait 3600 cci:%s:%s -- wait-land.zsh 46475","run_in_background":true}}]}}`, t0.Add(-mins(10)).Format(time.RFC3339), testDrive, lane2)
+	if err := os.WriteFile(transcript, []byte(parked+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.deps.Transcript = func(Row) string { return transcript }
+	tick(t, s, f, t0)
+
+	waiting := tick(t, s, f, t0.Add(PageAnswer))
+	stillWaiting := tick(t, s, f, t0.Add(mins(49)))
+	replaced := tick(t, s, f, t0.Add(mins(51)))
+
+	equal(t, len(waiting.Relaunched)+len(stillWaiting.Relaunched), 0)
+	equal(t, replaced.Relaunched[0].Old, lane2)
+	equal(t, f.launches, []string{"conflicts-3"})
 }
 
 func TestAWokenLaneStillMakingToolCallsIsNeverReplaced(t *testing.T) {

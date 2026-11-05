@@ -524,8 +524,9 @@ class RegisterShell(ledger.Shell):
                 return json.dumps(named + [answer for answer in self.answers if scope and answer not in named and any(scope in tag for tag in answer["tags"]) and "scope:durable" in answer["tags"]])
             case ["cci", "grep", "--drive", "brook-cci", "--json", *_]:
                 return "".join(json.dumps(record) + "\n" for record in self.records)
-            case ["cci", "show", seq, "--json"]:
-                return "".join(json.dumps({"drive": "brook-cci"} | record) + "\n" for record in self.records if str(record["seq"]) == seq)
+            case ["cci", "show", ref, "--json"]:
+                shown = ({"drive": "brook-cci", "num": f"#{record['seq']}"} | record for record in self.records)
+                return "".join(json.dumps(record) + "\n" for record in shown if ref in {str(record["seq"]), record["num"].removeprefix("#")})
         raise AssertionError(argv)
 
 
@@ -2302,6 +2303,20 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-b", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
     for named in ("lane-a-2", "lane-a"):
         assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-a-2"), "readback", "--lane", named, "--contract", "500")[0] == 0
+
+
+def test_readback_reads_a_contract_another_node_posted_by_its_node_number(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+    current = rulings.SLICE_HASH.search(sliced)["hash"]
+    marked = [f"{line} - keep: the line states the ban" for line in sliced.splitlines() if line.startswith(("open ", "authorized "))]
+    body = tmp_path / "readback.md"
+    body.write_text("\n".join(["Register slice: lane=lane-a step=1.9", f"slice-hash: {current}", "rule/aaaaaaa: builds nothing in relay-server", "rule/ccccccc: quotes the words", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone", *marked]) + "\n")
+    records = [{"seq": -1, "num": "#1445@cc07e50b", "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
+
+    assert ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "1445@cc07e50b") == (
+        0,
+        f"readback request lane-a {current}: 2 rows, contract #1445@cc07e50b at {body}; a fidelity desk grades it against each row's words and implications\n",
+    )
 
 
 def test_shapes_lists_rows_naming_a_count_or_topology_until_shape_records_a_test_or_no_shape(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
