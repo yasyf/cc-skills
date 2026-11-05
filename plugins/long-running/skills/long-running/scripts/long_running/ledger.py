@@ -252,7 +252,7 @@ NO_TARGET_TEXT = (
     "commit status or check run outside Buildkite; read it on the PR."
 )
 ROUTE_TEXT = (
-    "Push the fix as a new head on the same branch, then send landing-desk the 3-line report "
+    "Push the fix as a new head on the same branch, then send the 3-line report with `ledger.py report` "
     "(PR, head, verdict); the merge label waits on that head reading green and merge-clean."
 )
 REFUSAL = {

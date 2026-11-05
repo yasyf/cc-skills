@@ -34,7 +34,7 @@ Tracking more than ten open PRs at once turns the orchestrator into a human poll
 Land these 15 open PRs through the merge queue and tell me when they're all in
 ```
 
-The `landing-desk` lane takes lane PR reports into the ledger so reports don't land in the coordinator's window. The ledger holds one row per PR the drive's lanes shipped, and owner asks sit beside them as rows. Lanes never enqueue themselves; the landing process is the drive's merge queue, enqueuing each ready stack's largest green bottom prefix as one batch and reconciling landings from the base branch. The coordinator owns holds, which are cci `hold` records it posts and resolves, and reads what a PR waits on with `lr board waits --pr <n>`.
+The ledger holds one row per PR the drive's lanes shipped, and owner asks sit beside them as rows. Lanes never enqueue themselves; the landing process is the drive's merge queue, enqueuing each ready stack's largest green bottom prefix as one batch and reconciling landings from the base branch. The coordinator owns holds, which are cci `hold` records it posts and resolves, and reads what a PR waits on with `lr board waits --pr <n>`.
 
 ### Rejoin an active drive in a fresh session
 
@@ -50,7 +50,7 @@ The resumed the coordinator runs `drive.py start --drive <id> --ledger <id>` to 
 
 | Piece | Kind | What it does |
 | --- | --- | --- |
-| `long-running:long-running` | skill | Context discipline for multi-lane orchestration: numbered rules (R1-R25) plus landing-desk D-rules applied with judgment first, ready-to-paste `reference/` lane briefs, and templates for the lane brief, scoped resume, sequencer lane, merge train lane, polling loop, and compaction handoff |
+| `long-running:long-running` | skill | Context discipline for multi-lane orchestration: numbered rules (R1-R25) plus landing D-rules applied with judgment first, ready-to-paste `reference/` lane briefs, and templates for the lane brief, scoped resume, sequencer lane, merge train lane, polling loop, and compaction handoff |
 | `long-running:lane` | agent | A desk, shard, sequencer, poller, or other lane that invokes no skill; restricted tool allowlist that leaves out `Skill`, `ToolSearch`, and every Model Context Protocol tool except `cc-slack`, 1h prompt cache so a nine-minute poll never rewrites its context |
 | `long-running:lane-ship` | agent | `lane` plus the `Skill` tool, for an implementation lane that ships a PR or calls a skill such as `submit-pr`, `open-pr`, or `codex` |
 | `capt-hook/hooks/` | hook pack | About 30 captain-hook hooks, among them `root_context`, `task_list`, `lane_landing`, and `settled_questions`. They warn by default and block only on trust: an unapproved merge, revert, or rollback, hook-file edits, and session-protection guards. A judgment reminder re-injects the rules every 30 minutes; `judgment_reminder_minutes` changes it. |

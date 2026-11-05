@@ -50,7 +50,7 @@ Authority: rebase, reorder, and restack the cars with `ccx vcs stack rebase`; re
 
 Verified facts, do not re-derive:
   repo <owner/name>; trunk <dev>; checkout <absolute path>
-  ledger <id>; desk landing-desk; script ledger.py, on PATH by name
+  ledger <id>; script ledger.py, on PATH by name
   hot set: <globs, one per line>
   log: <absolute path>/log.md
   cars already reported: <#n lane head, one per line, or "none">
@@ -80,7 +80,7 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
      or waits on a person leaves the train on this pass, and comes off the stack
      entirely, so no car keeps it as a child:
      ccx vcs stack rebase --parent <next-branch>=<previous-branch-or-trunk> --parent <ejected-branch>=<trunk>
-     Send its lane `TRAIN-EJECT #N <sha>: <reason>` and report it to landing-desk.
+     Send its lane `TRAIN-EJECT #N <sha>: <reason>` and record it with `ledger.py report --drive <drive>`.
      A red that is the car's own goes to its lane to fix forward; a red whose step is
      also red on the trunk's latest build is `DEV-RED`, held by the desk, not the
      lane's. The train never waits on either.
@@ -93,7 +93,7 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
   8. Log the pass. One section per train in the log: time, trunk sha, cars in
      order with their heads before and after, each conflict and how it was
      resolved, each ejection and its reason, what was enqueued, and what landed.
-     Report to landing-desk once per pushed car: PR, new head, verdict.
+     Record each pushed car with `ledger.py report --drive <drive>`: PR, new head, verdict.
 
 Rules that are not the tool's to enforce:
   - At most six cars. One red car evicts every car above it from the queue.
