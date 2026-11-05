@@ -348,6 +348,35 @@ func TestARootAskPutsItsPRsFirstAndAGreenApprovedRowGoesAheadOfTheRest(t *testin
 	}
 }
 
+func TestAFirstRecordPutsItsPRAheadOfARowGreenAndApprovedAndAnotherLanesDecideDoesNot(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	post(t, firstDraft(testDrive, "lane-7", 2))
+	post(t, client.Draft{Lane: "lane-7", Kind: kindDecide, Text: "first: #3"})
+	snapshot := map[int]machine.Facts{
+		1: {Number: 1, CI: machine.CISuccess, Approved: true},
+		2: {Number: 2},
+		3: {Number: 3},
+	}
+	open := make([]store.Item, 0, len(snapshot))
+	for _, n := range []int{3, 1, 2} {
+		open = append(open, store.Item{ID: int64(n), Kind: ItemKind, Number: n})
+	}
+	f.now = time.Now()
+
+	ranked, err := f.pool.Plan(context.Background(), open, snapshot, 0, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := make([]int, 0, len(ranked))
+	for _, item := range ranked {
+		got = append(got, item.Number)
+	}
+	if want := []int{2, 1, 3}; !slices.Equal(got, want) {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
 func TestReservedSlotsTakeOnlyAPRTheRootPutsFirst(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{"concurrent": 2, "reserved": 1}})
 	busy := []store.Worker{{Name: localBox + "/" + grader.FinderLane + "/1-aaaaaaaaaaaa"}}

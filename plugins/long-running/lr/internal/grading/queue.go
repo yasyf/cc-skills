@@ -154,7 +154,7 @@ func queueCommand(a *app.App) *cobra.Command {
 	var owedOnly, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "queue GRADER",
-		Short: "A grading desk's queue in the pool's own order, one line per pushed head owing this grade: whether a reader owes it, CI, and the pipeline pass there. Changes nothing",
+		Short: "A grading desk's queue in the pool's own order, one line per pushed head owing this grade: whether a reader owes it, CI, and the pipeline pass there. Changes nothing. `lr grade first N` moves one PR to its front.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if shard != "" && shard != shardEven && shard != shardOdd {
