@@ -538,7 +538,7 @@ The hold verb records a decision clock only; it does not hold or lift a PR or au
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `SPRITE-UNVERIFIABLE` | Inspect the named `.worker` receipt directory and any Task or Dispatch before relaunching; a remote worker may be running. |
 | `HOOK-DRIFT` | Pin a `captainHook` build that loads the named hook in the monorepo's `tools/cc-remote/inventory.yaml`; until it ships, that hook's guard is off on every Sprite. |
-| `BASE-DRIFT` | A new Sprite's packages differ from the base its payload captured, so they installed online once and the launch took longer; rebuild the payload on that base. |
+| `BASE-DRIFT` | A new Sprite's packages differ from the base its payload captured (`-payload +machine`), so they installed online once, about 10 seconds. A state record to the watchdog, not a blocker: with the machine side older the Sprite is stale and owes nothing; only a machine side newer on every new Sprite means the base moved and the payload needs a rebuild. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
 | `FIX-LIVE`, `MECHANISM`, `READY` | Read the lane's status milestone by message id; the line includes the subject and up to 300 body characters. |
 | `PROMPT-WATCH-DOWN` | The supervisor runs the watch, so read the supervisor's log, then run the line's `lr watch prompts` command. |
