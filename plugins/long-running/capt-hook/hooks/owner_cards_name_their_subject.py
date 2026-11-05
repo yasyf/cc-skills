@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import subprocess
 import tempfile
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Call, CommandSchema, Event, HookResult, Input, Operand, Option, Rewrite, Tool, Warn, WorkflowState, on, workflow_state
+from captain_hook import Allow, BaseHookEvent, Call, CommandSchema, Event, HookResult, Input, Operand, Option, Rewrite, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .board_text_gate import calls
@@ -32,7 +31,7 @@ JUDGE = script_module("long_running/judge")
 NAMES_PR = re.compile(r"(?i)(?<![\w/&])#\d{2,}\b|/pull/\d+|\bPR \d+\b")
 UNNAMED = 'Name the feature: a card\'s title and first sentence say what it is about, and this one opens with "{opener}". Edit the reply to name it.'
 BARE_PR = "A pick card about a PR passes it in `prs`, which gives him its link, CI, description and four lines: edit the reply to add the PR's url to `prs`."
-HOLD = "A post to the owner names the concrete things it changes and answers his first question. Fix the line below, or send it again and it goes through."
+UNANSWERED = "Warning, nothing was blocked: a post to the owner names the concrete things it changes and answers the first question he will ask. Edit this reply with its `id` to answer the question below, or open a line with `Unproven:` for a fact nobody has yet."
 BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
 RECORD_NUMBER = re.compile(r"(?is)(<!--.*?-->|\[[^\]]*\]\([^)]*\)|https?://\S+|\bSentry\s+#?\d+\b)|\s*\(#?(\d{6,})\)|\s*(?<![\w/.:=-])#?(\d{6,})\b(?!\.\d)")
 RECORDS_MOVED = "Warning, nothing was blocked: {numbers} moved out of what he reads into a hidden cite, since a cci record number has no page. If one is a real count, edit this reply with its `id`."
@@ -44,7 +43,7 @@ LABELLED_ALERT = re.compile(rf"\]\(<?https://{ALERT_HOST}>?\)|<https://{ALERT_HO
 INCIDENT = re.compile(r"(?i)\bincident\b")
 BARE_ALERT = "Warning, nothing was blocked: an incident line carries the alert's Slack message and its Sentry or Datadog issue as bare URLs so Slack unfurls them, and a label hides the URL. Write each one out."
 SHORT_WORDS = 12
-HELD_CHARS = 400
+WHOLE_POST = "He reads the post below whole, with its urls, links and picks."
 CHANGE = re.compile(r"(?i)\b(?:add|chang|clean|delet|drop|fix|migrat|mov|refactor|remov|renam|replac|rewrit|split)\w*")
 DRAW_SCRIPT = "draw.zsh"
 NAMED_PR = re.compile(r"(?i)(?<![\w/&])#(\d{2,})\b|/pull/(\d+)|\bPR (\d+)\b")
@@ -77,11 +76,6 @@ SENTRY_LINK = "https://poetic.sentry.io/issues/4821"
 def sonnet_says(verdict: str, evidence: str = "") -> dict[str, str]:
     answer = {"verdict": verdict, "artifact_phrase": ABSTRACT, "evidence_phrase": evidence, "sentence": HIS_QUESTION}
     return {**HOLDS, "claude -p": json.dumps({"structured_output": answer, "total_cost_usd": 0.01, "usage": {}})}
-
-
-@workflow_state("long_running_first_question")
-class HeldPosts(WorkflowState):
-    held: list[str] = []
 
 
 def given(evt: BaseHookEvent, field: str) -> str:
@@ -208,22 +202,6 @@ def hide_records(md: str) -> tuple[str, list[str]]:
     return " ".join([kept, *(f"<!-- cci #{number} -->" for number in numbers)]), numbers
 
 
-def held_row(evt: BaseHookEvent) -> str:
-    return f"row:{given(evt, 'order') or given(evt, 'title')}" if evt.tool_name == REPLY else ""
-
-
-def release_row(evt: BaseHookEvent, row: str) -> None:
-    with HeldPosts.mutate(evt) as state:
-        state.held = [held for held in state.held if held != row]
-
-
-def hold(evt: BaseHookEvent, drive: str, key: str, lines: list[str]) -> HookResult:
-    with HeldPosts.mutate(evt) as state:
-        state.held = [*state.held, key, *filter(None, [held_row(evt)])]
-    JUDGE.record(drive, "first-question-hold", "none", "held", {"seconds": 0.0, "cost_usd": 0.0, "tokens": 0, "asks": 0, "p_yes": None, "error": ""}, " | ".join(lines)[:HELD_CHARS], env=reqenv.env_map())
-    return evt.block(fenced(HOLD, lines))
-
-
 def ports_of(drive: list[str], numbers: list[str]) -> dict[str, int]:
     done = subprocess.run([str(LR), "board", "ports", *drive, *numbers], capture_output=True, text=True, timeout=FOREGROUND_JUDGE_SECONDS, env=dict(reqenv.env_map()), check=True)
     return json.loads(done.stdout)
@@ -272,46 +250,31 @@ def plain_answer(text: str) -> bool:
     return len(text.split()) < SHORT_WORDS and "?" not in text and not describes_change(text)
 
 
-def post_key(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()[:16]
-
-
-def picked_out(text: str) -> str:
-    hits = list(dict.fromkeys(hit[0] for hit in JUDGE.VAGUE.finditer(text)))
-    return f"A pattern picked these out of the post as possibly vague: {', '.join(hits)}." if hits else "A pattern picked no vague words out of the post."
+def whole_post(evt: BaseHookEvent, posted: str) -> str:
+    return "\n\n".join([posted, *(str(extra) for field in ("links", "prs") for extra in evt._tool_input.get(field) or ())])
 
 
 def reply(title: str, md: str, **fields: object) -> Input:
     return Input(tool=REPLY, tool_input={"title": title, "md": md} | fields.pop("given", {}), env=HOOK_ENV, **fields)
 
 
-def resent(title: str, md: str) -> list[HeldPosts]:
-    return [HeldPosts(held=[post_key(f"{title}\n\n{md}")])]
-
-
-def row_held(order: str) -> list[HeldPosts]:
-    return [HeldPosts(held=[f"row:{order}"])]
-
-
-@on(  # capt-hook: no-escape the same post sent again goes through, so the hold is its own way past
+@on(
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD, *DM_TOOLS)],
     tests={
-        reply("Big chats", VAGUE_POST, commands=HOLDS): Block(pattern=r"^A post to the owner names the concrete things[\s\S]*It adds one new setting[\s\S]*Which fields, on which table"),
-        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Add the setting?", "body": VAGUE_POST}}, env=HOOK_ENV, commands=HOLDS): Block(pattern=r"first question: Which fields"),
-        Input(command=ASK, env=HOOK_ENV, commands=HOLDS): Block(pattern=r"first question: Which fields"),
-        Input(command=f"lr ask-owner --card {board('clean-card.json')} --until at:3d", env=HOOK_ENV, commands=HOLDS): Block(),
+        reply("Big chats", VAGUE_POST, commands=HOLDS): Warn(pattern=r"^Warning, nothing was blocked: a post to the owner names the concrete things[\s\S]*It adds one new setting[\s\S]*Which fields, on which table"),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Add the setting?", "body": VAGUE_POST}}, env=HOOK_ENV, commands=HOLDS): Warn(pattern=r"first question: Which fields"),
+        Input(command=ASK, env=HOOK_ENV, commands=HOLDS): Warn(pattern=r"first question: Which fields"),
+        Input(command=f"lr ask-owner --card {board('clean-card.json')} --until at:3d", env=HOOK_ENV, commands=HOLDS): Warn(),
         Input(command="lr ask-owner --withdraw card-add-the-setting --lane first-question", env=HOOK_ENV, commands=HOLDS): Allow(),
-        Input(command=f"cc-present update-block {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
-        Input(command=f"CARD_NO_CODE=1 zsh draw.zsh --new-question 'not settled' {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
-        Input(command=f"cc-present ask {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
-        reply("Added fields", "Added a few fields.", commands=HOLDS): Block(),
-        reply("Big chats", VAGUE_POST, commands=HOLDS, state=resent("Big chats", VAGUE_POST)): Allow(),
-        reply("Big chats", f"{VAGUE_POST} Reworded.", commands=HOLDS, state=resent("Big chats", VAGUE_POST)): Block(),
+        Input(command=f"cc-present update-block {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Warn(),
+        Input(command=f"CARD_NO_CODE=1 zsh draw.zsh --new-question 'not settled' {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Warn(),
+        Input(command=f"cc-present ask {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Warn(),
+        reply("Added fields", "Added a few fields.", commands=HOLDS): Warn(),
         reply(CONCRETE["title"], CONCRETE["md"], commands=judged()): Allow(),
         reply("Landed", LANDED, commands=HOLDS): Allow(),
-        reply("Big chats", VAGUE_POST, commands=sonnet_says("unsure")): Block(pattern=r"It adds one new setting[\s\S]*Which fields"),
-        reply("Big chats", VAGUE_POST, commands=sonnet_says("yes", evidence="words no record carries")): Block(pattern=r"Which fields"),
+        reply("Big chats", VAGUE_POST, commands=sonnet_says("unsure")): Warn(pattern=r"It adds one new setting[\s\S]*Which fields"),
+        reply("Big chats", VAGUE_POST, commands=sonnet_says("yes", evidence="words no record carries")): Warn(pattern=r"Which fields"),
         reply("Nightly build", STATUS, commands=sonnet_says("unsure")): Allow(),
         reply("Big chats", VAGUE_POST, commands=sonnet_says("no")): Allow(),
         reply("Big chats", VAGUE_POST, commands={"uv run --no-project --quiet": (1, "overloaded")}): Allow(),
@@ -322,10 +285,9 @@ def row_held(order: str) -> list[HeldPosts]:
         reply("Your list", REMINDER, given={"picks": ["Land", "Hold"], "recommended": "Land"}, commands=judged()): Allow(),
         reply("Why", "It dropped because both chats shared a replica. <!-- cci #384714 -->", commands=judged()): Allow(),
         Input(tool=REPLY, tool_input={"title": "Big chats", "md": VAGUE_POST}, commands=HOLDS): Allow(),
-        reply("Landed", f"Live as [the relay fix]({LAND_PR}).", commands=HOLDS): Block(pattern=r"first question: Which fields"),
-        reply("Landed", f"Live as <{LAND_PR}|the relay fix>.", commands=HOLDS): Block(pattern=r"first question: Which fields"),
-        reply("Bugs", f"{VAGUE_POST} With the answer.", given={"order": "m1"}, commands=HOLDS): Block(pattern=r"first question: Which fields"),
-        reply("Bugs", f"{VAGUE_POST} With the answer.", given={"order": "m1"}, commands=HOLDS, state=row_held("m1")): Allow(),
+        reply("Landed", f"Live as [the relay fix]({LAND_PR}).", commands=HOLDS): Warn(pattern=r"first question: Which fields"),
+        reply("Landed", f"Live as <{LAND_PR}|the relay fix>.", commands=HOLDS): Warn(pattern=r"first question: Which fields"),
+        reply("Bugs", f"{VAGUE_POST} With the answer.", given={"order": "m1"}, commands=HOLDS): Warn(pattern=r"first question: Which fields"),
         reply("Delete prompt", THIRD_PARTY, commands=judged()): Allow(),
     },
 )
@@ -334,21 +296,14 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
         return None
     reads = Reads(evt, which)
     posted = post_text(evt, reads)
-    if not posted:
-        return None
-    held = HeldPosts.load(evt).held
-    key = post_key(as_read(posted))
-    if key in held or held_row(evt) in held:
-        release_row(evt, held_row(evt))
-        return None
     text = as_read(posted)
     if plain_answer(text):
         return None
     env = reqenv.env_map()
-    verdict = judge_call(JUDGE, "first-question", picked_out(text), text, backend=JUDGE.backend_from(env), drive=which[1], timeout=reqenv.clamp_timeout(FOREGROUND_JUDGE_SECONDS), env=env)
+    verdict = judge_call(JUDGE, "first-question", WHOLE_POST, whole_post(evt, posted), backend=JUDGE.backend_from(env), drive=which[1], timeout=reqenv.clamp_timeout(FOREGROUND_JUDGE_SECONDS), env=env)
     if verdict is None or not (verdict.flagged or verdict.verdict == "unsure" and describes_change(text)):
         return evt.context(reads.warning("posts_answer_his_first_question")) if reads.failures else None
-    return hold(evt, which[1], key, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"])
+    return evt.context(fenced(UNANSWERED, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"]))
 
 
 @on(
