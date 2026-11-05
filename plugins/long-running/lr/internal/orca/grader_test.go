@@ -108,6 +108,9 @@ func TestGradersNeedNoSponsorHistoryReplicaOrRelayService(t *testing.T) {
 		if len(install) != 1 || slices.Contains(install[0], "long-running@skills") || !slices.Contains(install[0], "ccx") {
 			t.Fatal(box, "was not offered only the grader pins", install)
 		}
+		if !slices.Contains(install[0], "no-cci-daemon") {
+			t.Fatal(box, "was not told to stay without a cci daemon", install[0])
+		}
 		if census := w.census()[box]; census["ccx"] != rollCCX {
 			t.Fatal(box, "has no recorded ccx for a roll to compare", census)
 		}

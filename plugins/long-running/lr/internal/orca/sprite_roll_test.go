@@ -89,7 +89,7 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 	box := c.Argv[3]
 	w.boxes = append(w.boxes, box)
 	w.argv[box] = c.Argv
-	if want := (spritePins{}).installArgv(box, nil); !slices.Equal(c.Argv[:10], want[:10]) || c.Argv[len(c.Argv)-1] != "--" {
+	if want := (spritePins{}).installArgv(box, nil); !slices.Equal(c.Argv[:10], want[:10]) || !slices.Contains(c.Argv[len(c.Argv)-2:], "--") {
 		w.t.Fatal(c.Argv)
 	}
 	result, scripted := w.first[box]
@@ -177,6 +177,14 @@ func TestARollGivesAGraderTheGraderPinsAndALiveSpriteThatGradesTheWholeSet(t *te
 	}
 	if !slices.Contains(w.argv["pool-a"], "long-running@skills") {
 		t.Fatal("a grader hosting a live worker lost the pack its worker runs", w.argv["pool-a"])
+	}
+	if !slices.Contains(w.argv["fleet-1"], "no-cci-daemon") {
+		t.Fatal("a grader was not told to stay without a cci daemon", w.argv["fleet-1"])
+	}
+	for _, box := range []string{"pool-a", "pool-b", "pool-c"} {
+		if slices.Contains(w.argv[box], "no-cci-daemon") {
+			t.Fatal("a box with a live worker was told to go without its cci daemon", box, w.argv[box])
+		}
 	}
 	if census := w.census()["fleet-1"]; census["ccx"] != rollCCX || census["codex-ask"] != "1.14.29" || census["lr"] != "9.9.9" {
 		t.Fatal(census)
@@ -335,6 +343,11 @@ func TestRollGradersInstallsCodexAskOnEachGraderSpriteUntilItRunsThePin(t *testi
 	roll(pinned)
 	if !slices.Equal(w.boxes, []string{"fleet-1", "fleet-2"}) {
 		t.Fatal(w.boxes)
+	}
+	for _, box := range w.boxes {
+		if !slices.Contains(w.argv[box], "no-cci-daemon") {
+			t.Fatal("the grader roll after lr install was not told to leave the grader without a cci daemon", box, w.argv[box])
+		}
 	}
 	roll(pinned)
 	if len(w.boxes) != 2 {
@@ -729,7 +742,12 @@ func (s *supervisedInstall) tool(name, version string) []string {
 
 func (s *supervisedInstall) run(home, path string, tools ...string) (string, error) {
 	s.t.Helper()
-	args := slices.Concat([]string{"-c", installTools, "sh", s.cciURL, s.cciSHA, s.lrURL, s.lrSHA, "lr"}, tools, []string{"--"})
+	return s.runAfter(home, path, tools, "--")
+}
+
+func (s *supervisedInstall) runAfter(home, path string, tools []string, tail ...string) (string, error) {
+	s.t.Helper()
+	args := slices.Concat([]string{"-c", installTools, "sh", s.cciURL, s.cciSHA, s.lrURL, s.lrSHA, "lr"}, tools, tail)
 	run := exec.Command("sh", args...)
 	run.Env = append(os.Environ(), "HOME="+home, "PATH="+path)
 	out, err := run.CombinedOutput()
@@ -851,21 +869,8 @@ daemon) while :; do sleep 0.05; done ;;
 esac
 `
 
-func TestAnInstallMovesTheCCIDaemonOnlyWhereACCISupervisorRuns(t *testing.T) {
-	s := newSupervisedInstall(t)
-	s.cciURL, s.cciSHA = s.archive("serving-cci", "cci", fakeServingCCI)
-	path := os.Getenv("PATH")
-
-	bare := t.TempDir()
-	out, err := s.run(bare, path)
-	if err != nil {
-		t.Fatal(out, err)
-	}
-	if present(filepath.Join(bare, "served")) || strings.Contains(out, "cci-daemon") {
-		t.Fatalf("a box with no cci supervisor was asked to serve:\n%s", out)
-	}
-
-	home := t.TempDir()
+func superviseCCI(t *testing.T, home string) {
+	t.Helper()
 	supervisor := exec.Command("sh", "-c", "while :; do sleep 0.05; done", filepath.Join(home, ".local", "bin", "cci")+" supervise")
 	supervisor.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := supervisor.Start(); err != nil {
@@ -876,11 +881,63 @@ func TestAnInstallMovesTheCCIDaemonOnlyWhereACCISupervisorRuns(t *testing.T) {
 		_ = supervisor.Wait()
 		_ = exec.Command("pkill", "-f", filepath.Join(home, ".daemonkit")).Run()
 	})
+}
+
+func TestAnInstallMovesTheCCIDaemonOnlyWhereACCISupervisorRuns(t *testing.T) {
+	s := newSupervisedInstall(t)
+	s.cciURL, s.cciSHA = s.archive("serving-cci", "cci", fakeServingCCI)
+	path := os.Getenv("PATH")
+
+	bare := t.TempDir()
+	out, err := s.run(bare, path)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	if present(filepath.Join(bare, "served")) || !strings.Contains(out, "installed cci-daemon none\n") {
+		t.Fatalf("a box with no cci supervisor was asked to serve, or its census kept a daemon:\n%s", out)
+	}
+
+	home := t.TempDir()
+	superviseCCI(t, home)
 	out, err = s.run(home, path)
 	if err != nil {
 		t.Fatal(out, err)
 	}
-	if !present(filepath.Join(home, "served")) || !strings.Contains(out, "installed cci-daemon") {
+	if !present(filepath.Join(home, "served")) || !strings.Contains(out, "installed cci-daemon") || strings.Contains(out, "installed cci-daemon none") {
 		t.Fatalf("a box with a cci supervisor kept its daemon or recorded no build for it:\n%s", out)
+	}
+}
+
+func TestAGraderInstallStartsNoCCIDaemonEvenWhereACCISupervisorRuns(t *testing.T) {
+	s := newSupervisedInstall(t)
+	s.cciURL, s.cciSHA = s.archive("serving-cci", "cci", fakeServingCCI)
+	path := os.Getenv("PATH")
+
+	bare := t.TempDir()
+	out, err := s.runAfter(bare, path, nil, "--", "no-cci-daemon")
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	if present(filepath.Join(bare, "served")) || !strings.Contains(out, "installed cci-daemon none\n") {
+		t.Fatalf("a grader with no cci supervisor got a daemon, or its census kept one:\n%s", out)
+	}
+
+	home := t.TempDir()
+	superviseCCI(t, home)
+	out, err = s.runAfter(home, path, nil, "--", "no-cci-daemon")
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	if present(filepath.Join(home, "served")) || strings.Contains(out, "installed cci-daemon") || !strings.Contains(out, "warning: this grader runs a cci supervisor") {
+		t.Fatalf("a grader's leftover cci supervisor was served, or went unnamed:\n%s", out)
+	}
+}
+
+func TestACensusCountsABoxWithNoCCIDaemonAsMoved(t *testing.T) {
+	if said := unmoved(map[string]string{"cci": "0.49.73", "cci-daemon": "none"}); said != "" {
+		t.Fatal(said)
+	}
+	if said := unmoved(map[string]string{"cci": "0.49.73", "cci-daemon": "0.49.72"}); said == "" {
+		t.Fatal("a daemon on another build read as moved")
 	}
 }

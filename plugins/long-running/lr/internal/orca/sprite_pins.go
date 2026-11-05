@@ -43,6 +43,7 @@ var hostTools = []string{"long-running@skills", "ccx", graderTool}
 type spritePins struct {
 	ccURL, ccSHA, lrURL, lrSHA, lrMember string
 	tools                                []spriteTool
+	grader                               bool
 }
 
 type binrunRelease struct {
@@ -112,6 +113,12 @@ func (p spritePins) forHost() spritePins {
 	return p.only(hostTools...)
 }
 
+func (p spritePins) forGrader(names ...string) spritePins {
+	p = p.only(names...)
+	p.grader = true
+	return p
+}
+
 func (p spritePins) only(names ...string) spritePins {
 	p.tools = slices.DeleteFunc(slices.Clone(p.tools), func(tool spriteTool) bool { return !slices.Contains(names, tool.Name) })
 	return p
@@ -134,7 +141,11 @@ func (p spritePins) installWords(needs []string) []string {
 	for _, tool := range p.tools {
 		pinned = append(pinned, tool.Kind, tool.Name, tool.URL, tool.SHA256, tool.Version)
 	}
-	return slices.Concat([]string{p.ccURL, p.ccSHA, p.lrURL, p.lrSHA, p.lrMember}, pinned, []string{"--"}, needs)
+	words := slices.Concat([]string{p.ccURL, p.ccSHA, p.lrURL, p.lrSHA, p.lrMember}, pinned, []string{"--"})
+	if p.grader {
+		words = append(words, "no-cci-daemon")
+	}
+	return slices.Concat(words, needs)
 }
 
 func installedTools(stdout string) map[string]string {

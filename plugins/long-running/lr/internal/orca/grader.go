@@ -55,7 +55,7 @@ func (g *GraderMaker) Make(ctx context.Context, runner string, boxes []string) e
 	if plan.pins, err = readPins(env); err != nil {
 		return err
 	}
-	plan.pins = plan.pins.only(graderTools...)
+	plan.pins = plan.pins.forGrader(graderTools...)
 	for _, checkout := range []string{file.Landing.Checkout, file.Finder.Checkout, file.Fidelity.Checkout} {
 		if checkout != "" && !slices.Contains(plan.checkouts, checkout) {
 			plan.checkouts = append(plan.checkouts, checkout)
