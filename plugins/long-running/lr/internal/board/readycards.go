@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	FactCardDrawn = "card_drawn"
-	staleDrawn    = "stale"
-	FactTapCard   = "tap_card"
-	Communicator  = communicator
+	FactCardDrawn  = "card_drawn"
+	staleDrawn     = "stale"
+	FactTapCard    = "tap_card"
+	Communicator   = communicator
+	factChangeTold = "change_told"
 
 	slackMessageBlocks = 50
 	listFrameBlocks    = 3
@@ -33,7 +34,7 @@ const (
 	listRowChars       = cardVisibleChars/listRowsPerPost - listRowFrameChars
 	listTitle          = 90
 	listPlan           = 90
-	listBlocks         = 60
+	listBlocks         = 120
 	listChange         = listRowChars - listTitle - listPlan - listBlocks
 
 	tapListNumber = 0
@@ -69,6 +70,9 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	}
 	facts, err := r.Cards.Store.FactsAtRowHeads(r.Repo)
 	if err != nil {
+		return err
+	}
+	if err := r.tellChangeOwed(ctx, rows, facts); err != nil {
 		return err
 	}
 	lists, err := r.tapLists()
@@ -167,6 +171,26 @@ func (r ReadyCards) followDrawn(ctx context.Context, rows []store.ReviewRow) (ma
 	return followed, nil
 }
 
+// tellChangeOwed asks each open row's lane, once per head, for the plain
+// sentence its approval post shows as What changes when its Summary gives none.
+func (r ReadyCards) tellChangeOwed(ctx context.Context, rows []store.ReviewRow, facts map[int]map[string]string) error {
+	for _, row := range rows {
+		flaw := prrow.ChangeFlaw(row.ForUsers)
+		if flaw == "" || row.State != prrow.StateOpen || row.Tapped || facts[row.Number][factChangeTold] != "" {
+			continue
+		}
+		at := row.Head[:min(waitsSHA, len(row.Head))]
+		text := fmt.Sprintf("#%d at %s: its approval post says only that you owe What changes, because %s. Open the PR body's Summary with one plain sentence on what a user sees change, with no plan text, record ids, hashes or exit codes; the plan goes on a Plan: line outside the Summary. The post reads the new body.", row.Number, at, flaw)
+		if err := r.Cards.Report(ctx, r.Lane, []string{row.Lane}, fmt.Sprintf("change-words:%s#%d", r.Repo, row.Number), text); err != nil {
+			return fmt.Errorf("#%d: %w", row.Number, err)
+		}
+		if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, factChangeTold, flaw, r.Cards.Now()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func inTapOrder(due []store.ReviewRow) {
 	slices.SortStableFunc(due, func(one, other store.ReviewRow) int {
 		if alertLane.MatchString(one.Lane) != alertLane.MatchString(other.Lane) {
@@ -254,7 +278,7 @@ func (r ReadyCards) listCard(ctx context.Context, name string, rows []store.Revi
 	for _, row := range rows {
 		pr := SlackPRRow{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, row.Number), Title: clipWords(row.Title, listTitle), Head: row.Head,
-			Change: clipWords(row.ForUsers, listChange), Plan: clipWords(said.Said(ctx, PlanWords(row)), listPlan), Blocks: clipWords(prrow.BlocksWords(row), listBlocks),
+			Change: clipWords(portOpening(r.Repo, row)+prrow.ChangeWords(row), listChange), Plan: clipWords(said.Said(ctx, PlanWords(row)), listPlan), Blocks: clipWords(prrow.BlocksWords(row), listBlocks),
 		}
 		listed = append(listed, map[string]any{"id": MergeWaits(row.Number, row.Head), "buttons": []string{approveLabel, holdLabel}, "pr": pr, "pr_card": true})
 	}
@@ -363,15 +387,17 @@ func tapCardID(row store.ReviewRow) string {
 func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	id := tapCardID(row)
 	url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number)
+	pr := Card(repo, row).PRs[0]
+	pr.Port = ""
 	return json.Marshal(map[string]any{
 		"id": id, "type": "card", "title": fmt.Sprintf("Tap: #%d, %s", row.Number, row.Title),
-		"summary": fmt.Sprintf("[#%d](%s) at %s is green, approved and graded, and waits only on your tap. %s", row.Number, url, row.Head[:min(waitsSHA, len(row.Head))], strings.Join(strings.Fields(row.ForUsers), " ")),
+		"summary": portOpening(repo, row) + fmt.Sprintf("[#%d](%s) at %s is green, approved and graded, and waits only on your tap. %s", row.Number, url, row.Head[:min(waitsSHA, len(row.Head))], strings.Join(strings.Fields(prrow.ChangeWords(row)), " ")),
 		"children": []map[string]any{
 			{"id": id + "-choice", "type": "choice", "options": []map[string]any{
 				{"id": id + "-approve", "label": approveLabel, "recommended": true},
 				{"id": id + "-hold", "label": holdLabel},
 			}},
-			FillPRChild(map[string]any{"id": id + "-pr", "type": "pr", "repo": repo, "number": row.Number}, Card(repo, row).PRs[0]),
+			FillPRChild(map[string]any{"id": id + "-pr", "type": "pr", "repo": repo, "number": row.Number}, pr),
 		},
 	})
 }

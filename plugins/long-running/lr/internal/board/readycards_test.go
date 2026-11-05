@@ -519,3 +519,73 @@ func TestARowRedrawsAfterItsTapCardIsWithdrawnByID(t *testing.T) {
 		t.Fatalf("drawn = %v, want the card back", f.shell.drawn)
 	}
 }
+
+func TestAPassTellsTheLaneOncePerHeadWhenItsSummaryGivesNoUserSentence(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	var told []laneReport
+	f.Cards.Report = func(_ context.Context, by string, to []string, topic, text string) error {
+		told = append(told, laneReport{by, strings.Join(to, ","), topic, text})
+		return nil
+	}
+	plain, planOnly := tapRow(50830), tapRow(50831)
+	planOnly.ForUsers = "Plan: the class fix for the smoke order.\n\nPlan row: owner:m835"
+	putRows(t, f, plain, planOnly)
+	readyPass(t, f)
+	readyPass(t, f)
+	if len(told) != 1 || told[0].to != "lane-50831" || told[0].by != "supervisor" || !strings.Contains(told[0].text, "only plan text") {
+		t.Fatalf("told = %+v, want lane-50831 told once", told)
+	}
+	if change := Card(readyRepo, planOnly).PRs[0].Change; !strings.HasPrefix(change, "Not written yet: lane-50831") {
+		t.Fatalf("What changes = %q, want it to say the lane owes one", change)
+	}
+	planOnly.Head = nextHead
+	putRows(t, f, planOnly)
+	readyPass(t, f)
+	if len(told) != 2 {
+		t.Fatalf("told = %+v, want the new head told again", told)
+	}
+}
+
+func TestAgainstThePlanSaysThePlanLineOnce(t *testing.T) {
+	row := tapRow(50831)
+	row.PlanLine, row.PlanRow = "Plan: stop this red job.", "Plan: stop this red job. Checked against the plan by the fidelity review at this version."
+	if got := PlanWords(row); got != row.PlanRow {
+		t.Fatalf("Against the plan = %q, want %q", got, row.PlanRow)
+	}
+}
+
+func TestAListRowShowsAPortRefusalWhole(t *testing.T) {
+	f := newLink(t)
+	row := tapRow(50871)
+	row.WaitsOn = "Only your approval: its source #49144 has not merged yet, and your approval lands this port anyway."
+	card := ReadyCards{Cards: f.Cards, Repo: readyRepo}.listCard(context.Background(), listName(1), []store.ReviewRow{row})
+	if blocks := card["rows"].([]map[string]any)[0]["pr"].(SlackPRRow).Blocks; blocks != row.WaitsOn {
+		t.Fatalf("Blocks landing = %q, want %q whole", blocks, row.WaitsOn)
+	}
+}
+
+func TestEveryApprovalPostOnAPortOpensWithItsSource(t *testing.T) {
+	f := newLink(t)
+	row := tapRow(50888)
+	row.Port = prrow.PortOf + "49144"
+	source := "Port of [#49144](https://github.com/o/r/pull/49144)"
+	if card := Card(readyRepo, row); !strings.HasPrefix(card.Title, "Port of #49144: ") || card.PRs[0].Port != source {
+		t.Fatalf("card title %q, port %q", card.Title, card.PRs[0].Port)
+	}
+	block, err := TapCard(readyRepo, row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tap struct{ Summary string }
+	if err := json.Unmarshal(block, &tap); err != nil || !strings.HasPrefix(tap.Summary, source+". ") {
+		t.Fatalf("tap card summary = %q, %v", tap.Summary, err)
+	}
+	list := ReadyCards{Cards: f.Cards, Repo: readyRepo}.listCard(context.Background(), listName(1), []store.ReviewRow{row})
+	if change := list["rows"].([]map[string]any)[0]["pr"].(SlackPRRow).Change; !strings.HasPrefix(change, source+". ") {
+		t.Fatalf("list row = %q", change)
+	}
+	if child := FillPRChild(map[string]any{}, Card(readyRepo, row).PRs[0]); !strings.HasPrefix(child["summary"].(string), "**"+source+".**") {
+		t.Fatalf("pr child summary = %q", child["summary"])
+	}
+}

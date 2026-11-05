@@ -131,6 +131,7 @@ func newLink(t *testing.T) *linkFixture {
 		Runner: on, Ledger: &ledgertest.Fake{}, Bus: linkDrive, Checkout: "/co", StateDir: state, Program: "brook", Store: s,
 		Now:      func() time.Time { return cardsNow },
 		Withdraw: func(context.Context, string, string, string) error { return nil },
+		Report:   func(context.Context, string, []string, string, string) error { return nil },
 	}, shell: on, state: state}
 }
 

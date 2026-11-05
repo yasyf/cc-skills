@@ -832,7 +832,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 		if len(r.Picks) == 0 && (!row.ReadyForTap || row.Tapped) {
 			continue
 		}
-		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{row.ForUsers, said.Said(ctx, board.PlanWords(row)), row.Risk, prrow.BlocksWords(row)}}
+		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), said.Said(ctx, board.PlanWords(row)), row.Risk, prrow.BlocksWords(row)}}
 		var missing []string
 		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {row.PlanRow, "the plan row"}, {row.Risk, "the risk"}} {
 			if field.said == "" {
