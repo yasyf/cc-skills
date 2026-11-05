@@ -2,6 +2,7 @@ package orca
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"os"
@@ -1765,6 +1766,7 @@ func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 	}
 	const repo, compare = `{"default_branch":"dev"}`, "repos/acme/repo/compare/dev..." + headA + "?per_page=1"
 	ctx := context.Background()
+	onSprite := Checkout{Head: headA, Repository: "acme/repo"}
 
 	t.Run("a head GitHub does not know is not on trunk", func(t *testing.T) {
 		got, err := fleet(map[string]string{"repos/acme/repo": repo}, map[string]string{compare: "gh: Not Found (HTTP 404)"}).onTrunk(ctx, headA, "acme/repo")
@@ -1793,7 +1795,7 @@ func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 	t.Run("a rate limit on the landed check holds the tree rather than failing the pass", func(t *testing.T) {
 		tips := "repos/acme/repo/commits/" + headA + "/branches-where-head"
 		limited := fleet(nil, map[string]string{tips: "gh: API rate limit exceeded (HTTP 403)"})
-		held, err := unsaved(ctx, Checkout{Head: headA, Repository: "acme/repo"}, limited.Remote(Checkout{Head: headA, Repository: "acme/repo"}))
+		held, err := unsaved(ctx, Checkout{Head: headA, Repository: "acme/repo"}, limited.Remote(testSprite))
 		if err != nil || held != "GitHub could not answer: gh: API rate limit exceeded (HTTP 403)" {
 			t.Fatalf("held %q, err %v", held, err)
 		}
@@ -1807,16 +1809,16 @@ func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 	})
 	t.Run("a branch tip counts as saved", func(t *testing.T) {
 		tips := "repos/acme/repo/commits/" + headA + "/branches-where-head"
-		landings := githubLandings{fleet(map[string]string{tips: `[{"name":"lane"}]`}, nil), "acme/repo"}
-		if got, err := landings.Landed(ctx, headA); err != nil || !got {
+		landings := githubLandings{fleet(map[string]string{tips: `[{"name":"lane"}]`}, nil), testSprite}
+		if got, err := landings.Landed(ctx, onSprite); err != nil || !got {
 			t.Fatalf("got %v, err %v", got, err)
 		}
 	})
 	t.Run("a head GitHub does not know is not saved", func(t *testing.T) {
 		unknown := "gh: No commit found for SHA (HTTP 422)"
 		failures := map[string]string{"repos/acme/repo/commits/" + headA + "/branches-where-head": unknown, "repos/acme/repo/commits/" + headA + "/pulls": unknown}
-		landings := githubLandings{fleet(map[string]string{"repos/acme/repo": repo}, failures), "acme/repo"}
-		if got, err := landings.Landed(ctx, headA); err != nil || got {
+		landings := githubLandings{fleet(map[string]string{"repos/acme/repo": repo}, failures), testSprite}
+		if got, err := landings.Landed(ctx, onSprite); err != nil || got {
 			t.Fatalf("got %v, err %v", got, err)
 		}
 	})
@@ -1827,10 +1829,171 @@ func TestGitHubAnswersWhetherASpriteHeadIsSaved(t *testing.T) {
 		const when = `"2026-11-03T00:00:00Z"`
 		cases := map[string]bool{pull(when, headA, "dev"): true, pull("null", headA, "dev"): false, pull(when, headB, "dev"): false, pull(when, headA, "parent"): false}
 		for reply, want := range cases {
-			landings := githubLandings{fleet(map[string]string{"repos/acme/repo": repo, "repos/acme/repo/commits/" + headA + "/branches-where-head": `[]`, "repos/acme/repo/commits/" + headA + "/pulls": reply}, nil), "acme/repo"}
-			if got, err := landings.Landed(ctx, headA); err != nil || got != want {
+			landings := githubLandings{fleet(map[string]string{"repos/acme/repo": repo, "repos/acme/repo/commits/" + headA + "/branches-where-head": `[]`, "repos/acme/repo/commits/" + headA + "/pulls": reply}, nil), testSprite}
+			if got, err := landings.Landed(ctx, onSprite); err != nil || got != want {
 				t.Fatalf("%s: got %v, err %v", reply, got, err)
 			}
+		}
+	})
+	t.Run("a pre-squash copy on a Sprite reads as saved only when the replay there matches a PR merged into trunk", func(t *testing.T) {
+		const ownPulls = "repos/acme/repo/pulls?state=closed&per_page=100&head=acme%3Ayasyf%2Flane"
+		pull := func(merged, base string) string {
+			return `[{"merged_at":` + merged + `,"merge_commit_sha":"` + headC + `","base":{"ref":"` + base + `"}}]`
+		}
+		const when = `"2026-11-03T00:00:00Z"`
+		onBranch := Checkout{Head: headA, Branch: "yasyf/lane", Repository: "acme/repo"}
+		replies := func(own string) map[string]string {
+			return map[string]string{"repos/acme/repo": repo, "repos/acme/repo/commits/" + headA + "/branches-where-head": `[]`, "repos/acme/repo/commits/" + headA + "/pulls": `[]`, ownPulls: own}
+		}
+		differs := map[string]string{headA: "the replay differs"}
+		cases := []struct {
+			name     string
+			own      string
+			failures map[string]string
+			want     bool
+		}{
+			{"the replay matches", pull(when, "dev"), nil, true},
+			{"the replay differs", pull(when, "dev"), differs, false},
+			{"the PR never merged", pull("null", "dev"), nil, false},
+			{"the PR merged into another branch", pull(when, "parent"), nil, false},
+			{"the branch has no PR", `[]`, nil, false},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				if got, err := (githubLandings{fleet(replies(c.own), c.failures), testSprite}).Landed(ctx, onBranch); err != nil || got != c.want {
+					t.Fatalf("got %v, err %v", got, err)
+				}
+			})
+		}
+		limited := fleet(replies(pull(when, "dev")), map[string]string{ownPulls: "gh: API rate limit exceeded (HTTP 403)"})
+		held, err := unsaved(ctx, onBranch, limited.Remote(testSprite))
+		if err != nil || held != "GitHub could not answer: gh: API rate limit exceeded (HTTP 403)" {
+			t.Fatalf("held %q, err %v", held, err)
+		}
+	})
+}
+
+type githubOverRealGit struct {
+	merged map[string]string
+	refuse bool
+}
+
+func (g githubOverRealGit) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if c.Argv[0] != "ccx" {
+		return shell.Exec{}.Run(ctx, c)
+	}
+	if !slices.Contains(c.Argv, "--head") {
+		return shell.Result{Stdout: "[]"}, nil
+	}
+	if g.refuse {
+		return shell.Result{Code: 1, Stderr: "gh: API rate limit exceeded (HTTP 403)"}, &shell.ExitError{}
+	}
+	return shell.Result{Stdout: cmp.Or(g.merged[c.Argv[slices.Index(c.Argv, "--head")+1]], "[]")}, nil
+}
+
+func TestAPreSquashCopyReadsAsSavedAndAnythingMoreKeepsTheTree(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	realGit(t, base, "init", "--quiet", "--bare", "-b", "main", "origin.git")
+	realGit(t, base, "clone", "--quiet", filepath.Join(base, "origin.git"), "clone")
+	clone := filepath.Join(base, "clone")
+	commit := func(tree, file, body, subject string) string {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(tree, file), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		realGit(t, tree, "add", file)
+		realGit(t, tree, "commit", "--quiet", "-m", subject)
+		return realGit(t, tree, "rev-parse", "HEAD")
+	}
+	commit(clone, "shared.txt", "shared\n", "base")
+	branch := func(name string) string {
+		t.Helper()
+		tree := filepath.Join(base, name)
+		realGit(t, clone, "worktree", "add", "--quiet", "-b", name, tree, "main")
+		return tree
+	}
+	copyOf := func(name string) string {
+		t.Helper()
+		tree := branch(name)
+		commit(tree, "work.txt", "work\n", "the lane's copy")
+		return tree
+	}
+	lane := copyOf("lane")
+	onTop := copyOf("on-top")
+	commit(onTop, "more.txt", "more\n", "one more")
+	whitespace := copyOf("whitespace")
+	commit(whitespace, "work.txt", "work \n", "a trailing space")
+	undone := copyOf("undone")
+	realGit(t, undone, "rm", "--quiet", "work.txt")
+	realGit(t, undone, "commit", "--quiet", "-m", "takes the work back out")
+	elsewhere := copyOf("elsewhere")
+	unlisted := copyOf("not-on-trunk")
+	detached := copyOf("detached")
+	realGit(t, detached, "checkout", "--quiet", "--detach")
+	commit(clone, "other.txt", "dev moved on\n", "another change (#1)")
+	squash := commit(clone, "work.txt", "work\n", "the lane's work (#7)")
+	realGit(t, clone, "push", "--quiet", "origin", "main")
+	landed := `[{"number":7,"mergeCommit":{"oid":"` + squash + `"}}]`
+	merged := map[string]string{
+		"lane": landed, "on-top": landed, "whitespace": landed, "undone": landed, "detached": landed,
+		"not-on-trunk": `[{"number":9,"mergeCommit":{"oid":"` + squash + `"}}]`,
+	}
+	ctx := context.Background()
+	read := func(t *testing.T, runner shell.Runner, tree string) string {
+		t.Helper()
+		git := &Git{Runner: runner}
+		found, err := git.Checkout(ctx, tree)
+		if err != nil || found.Found == nil {
+			t.Fatalf("read %+v, err %v", found, err)
+		}
+		remote, err := git.Remote(ctx, found.Found.Repository)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held, err := unsaved(ctx, *found.Found, remote)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return held
+	}
+	cases := []struct {
+		name string
+		tree string
+		want string
+	}{
+		{"the pre-squash copy is saved", lane, ""},
+		{"one more commit on top keeps", onTop, "unpushed commits on on-top"},
+		{"a whitespace difference keeps", whitespace, "unpushed commits on whitespace"},
+		{"a commit that takes the work back out keeps", undone, "unpushed commits on undone"},
+		{"the same content with no merged PR of its own branch keeps", elsewhere, "unpushed commits on elsewhere"},
+		{"a merged PR that never reached trunk keeps", unlisted, "unpushed commits on not-on-trunk"},
+		{"a detached head names no branch and keeps", detached, "unpushed commits on " + realGit(t, detached, "rev-parse", "HEAD")[:10]},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := read(t, githubOverRealGit{merged: merged}, c.tree); got != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+	t.Run("GitHub refusing the merged-PR read keeps the copy", func(t *testing.T) {
+		if got, want := read(t, githubOverRealGit{merged: merged, refuse: true}, lane), "GitHub could not answer: gh: API rate limit exceeded (HTTP 403)"; got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+	t.Run("the Sprite's script fetches the squash and answers the same", func(t *testing.T) {
+		replay := func(tree string) error {
+			head := realGit(t, tree, "rev-parse", "HEAD")
+			return exec.Command("sh", "-c", spriteSquashCopy, "sh", tree, squash, head).Run()
+		}
+		if err := replay(lane); err != nil {
+			t.Fatalf("the copy: %v", err)
+		}
+		if err := replay(onTop); err == nil {
+			t.Fatal("one more commit read as the squash")
 		}
 	})
 }
@@ -2097,7 +2260,7 @@ func TestLandedSearchesClosedPRsForTheOneHeadItIsAskedAbout(t *testing.T) {
 	}}
 	landed := PullRequests{Runner: runner, Origin: "https://github.com/Forge-AI/monorepo", Squashed: map[int]bool{7: true}}
 	for head, want := range map[string]bool{headB: true, headC: false, headD: false} {
-		if got, err := landed.Landed(context.Background(), head); err != nil || got != want {
+		if got, err := landed.Landed(context.Background(), Checkout{Head: head}); err != nil || got != want {
 			t.Fatalf("%s: got %v, err %v", head, got, err)
 		}
 	}

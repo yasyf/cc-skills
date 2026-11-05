@@ -321,7 +321,9 @@ func (f *fakeOrca) count(call ...string) int {
 
 type landedSet map[string]bool
 
-func (l landedSet) Landed(_ context.Context, head string) (bool, error) { return l[head], nil }
+func (l landedSet) Landed(_ context.Context, checkout Checkout) (bool, error) {
+	return l[checkout.Head], nil
+}
 
 func defaultRemote() Remote {
 	return Remote{Heads: map[string]bool{headA: true}, Landed: landedSet{}}
@@ -391,7 +393,7 @@ func (f *fakeFleet) Sprites() (map[SpriteKey]Sprite, error) {
 	return f.hosted, nil
 }
 
-func (*fakeFleet) Remote(Checkout) Remote { return defaultRemote() }
+func (*fakeFleet) Remote(Sprite) Remote { return defaultRemote() }
 
 func (f *fakeFleet) Checkout(_ context.Context, sprite Sprite) (CheckoutRead, error) {
 	if read, ok := f.reads[sprite.Workspace]; ok {
