@@ -247,7 +247,7 @@ A red nobody classed raises no row wait, so a lane or `red-sweep` classes it fir
 - Each trunk landing that merge took in is credited with the dropped lines it added, so a landing whose change the stale tree kept goes unnamed, and a file or PR the squash's description names is skipped.
 - One `CLOBBERED` report names both PRs, the files and the line count, to root and to each PR's lane. It never holds or cards a PR. A read that fails is logged, and the pass moves on without reading that squash again.
 
-**Editing `runner.json`.** Edit it only through `lr runner config set KEY VALUE` and `lr runner config unset KEY` (a dotted key such as `landing.desk_lane`), never by hand; both replace the file by rename and only after the edited file loads: entries such as fidelity desks added before they register keep the landing runner down.
+**Editing `runner.json`.** Edit it only through the desk runner's `config set` and `config unset` (`desk-runner.py`), never by hand: entries such as fidelity desks added before they register keep the landing runner down.
 
 ## The check registry
 
