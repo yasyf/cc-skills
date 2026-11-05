@@ -154,14 +154,16 @@ func UnreadPick(record client.Record) bool {
 	return string(record.Kind) == ownerKind && attrs["event"] == "choice.selected" && attrs["picked"] != "" && !pickedLabel.MatchString(record.Text) && !slackAsk.MatchString(attrs["block"])
 }
 
-// UnnamedLand says a pick reads as a land or hold order but its card names no one PR, so no order can come from it.
+// UnnamedLand says a pick reads as a land or hold order and its card names PRs, but not one, so no order can come from it. A card naming no PR asks a question, never for a land.
 func UnnamedLand(record client.Record, repo string) bool {
 	attrs := record.Fields.Attrs
 	if string(record.Kind) != ownerKind || attrs["event"] != "choice.selected" || cardValue(attrs, record.Text) == "" {
 		return false
 	}
-	_, ordered := OrderOf(record, repo)
-	return !ordered
+	if _, ordered := OrderOf(record, repo); ordered {
+		return false
+	}
+	return attrs["heads"] != "" || len(namedPRs(record.Text, repo)) > 0
 }
 
 func ReadsAsLand(label string) bool {
@@ -193,6 +195,14 @@ func cardPR(heads, text, repo string) (int, string, bool) {
 		number, err := strconv.Atoi(digits)
 		return number, strings.ToLower(head), err == nil && !strings.Contains(heads, ",") && (repo == "" || strings.EqualFold(owner, repo))
 	}
+	numbers := namedPRs(text, repo)
+	if len(numbers) != 1 {
+		return 0, "", false
+	}
+	return numbers[0], "", true
+}
+
+func namedPRs(text, repo string) []int {
 	var numbers []int
 	for _, found := range namedPR.FindAllStringSubmatch(portOpening.ReplaceAllString(text, ""), -1) {
 		number, err := strconv.Atoi(found[2])
@@ -201,8 +211,5 @@ func cardPR(heads, text, repo string) (int, string, bool) {
 		}
 		numbers = append(numbers, number)
 	}
-	if len(numbers) != 1 {
-		return 0, "", false
-	}
-	return numbers[0], "", true
+	return numbers
 }
