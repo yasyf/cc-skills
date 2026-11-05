@@ -212,7 +212,7 @@ function boardCard(item) {
   const said = rewritten('cards', c.key);
   const answers = c.embed ? `<div class="bq-acts"><button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button></div>` : pickSet(c, { said, other: true });
   return `<article class="mr bq" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span></header>
-    ${c.summary ? `<p class="mr-why">${inline(c.summary)}</p>` : said ? `<p class="mr-why">${esc(said.means)}</p>` : ''}${answers}${explainMore(c)}${cardAsk(c)}</article>`;
+    ${c.summary ? `<p class="mr-why">${inline(c.summary)}</p>` : said ? `<p class="mr-why">${esc(said.means)}</p>` : ''}${cardFigures(c)}${answers}${explainMore(c)}${cardAsk(c)}</article>`;
 }
 const RECOMMENDED_LABEL = /\s*\(Recommended\)\s*$/i;
 const PLAIN_FROM_ITS_MARK = /^(?:for|against|good|bad)$/i;
@@ -264,8 +264,11 @@ function cardPart(p) {
   if (p.kind === 'table') return `<div class="tablewrap bq-part"><table><thead><tr>${p.columns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${p.rows.map((row) => `<tr>${p.columns.map((col) => `<td data-h="${esc(col.label)}">${inline(String(row[col.key] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   return '';
 }
+function cardFigures(c) {
+  return (c.parts ?? []).filter((p) => p.kind === 'image').map(cardPart).join('');
+}
 function explainMore(c, ask = '') {
-  const body = (c.parts ?? []).map(cardPart).join('');
+  const body = (c.parts ?? []).filter((p) => p.kind !== 'image').map(cardPart).join('');
   if (!body && !ask) return '';
   const id = `explain-${c.id}`;
   return `<details class="fm-thread pk-more" data-id="${esc(id)}"${state.open.has(id) || (ask && c.thread?.length) ? ' open' : ''}><summary>Explain more</summary><div class="fm-open">${body}${ask}</div></details>`;
