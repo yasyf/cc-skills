@@ -457,6 +457,27 @@ func TestCloseEndsOnlyTheNamedRowsAndLiveListsWhatStands(t *testing.T) {
 	}
 }
 
+func TestShowNamesAClosedRowWholeAndRefusesASeqTheLedgerLacks(t *testing.T) {
+	w := newWorld(t, 100)
+	w.row("pick/426081", "426081", kindPick, "card-x-pick", "")
+	w.row("pick/11", "11", kindPick, "other-pick", "")
+	if err := w.book.Close(context.Background(), "carried out, m123", []int64{426081}); err != nil {
+		t.Fatal(err)
+	}
+	rows := w.sync("")
+
+	named, err := Named(rows, []int64{426081})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(named) != 1 || named[0]["state"] != stateClosed || named[0]["by"] != "carried out, m123" || named[0]["card"] != "card-x-pick" {
+		t.Fatalf("named = %v", named)
+	}
+	if _, err := Named(rows, []int64{426081, 12}); err == nil || !strings.Contains(err.Error(), "#12") {
+		t.Fatalf("a seq the ledger lacks: %v", err)
+	}
+}
+
 func TestPrintingRowsIsOneJSONRowPerLineOrGroupedBySweep(t *testing.T) {
 	rows := []Fields{
 		{"seq": "1", "sweep": "a", "state": stateOpen, "at": "2026-11-03T18:05:35.4Z", "pr": "9", "line": "x.go:1", "owner": "l", "text": "t"},

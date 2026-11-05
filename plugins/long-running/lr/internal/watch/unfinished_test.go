@@ -112,6 +112,22 @@ func TestOnlyRetroRowsAndFindingsStillOpenStand(t *testing.T) {
 	}
 }
 
+func TestAnUnfinishedPickCarriesHisWholeAnswer(t *testing.T) {
+	now := at(t, "2026-11-05T20:05:00Z")
+	answer := "The new cloud runner has no release Watch: share the executor's monitors, or build its own?, A release Watch for the new cloud runner?: Share the executor's monitors, keyed by\nrunner"
+	l := Ledgers{Findings: []ledger.Row{{Key: "pick/426081", Updated: now.Add(-30 * time.Hour), Fields: map[string]string{"state": "routed", "kind": "pick", "owner": "root", "seq": "426081", "text": answer}}}}
+
+	waits, err := Unfinished(l, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want(t, len(waits), 1)
+	if whole := strings.ReplaceAll(answer, "\n", " "); !strings.Contains(waits[0].Cause, whole) {
+		t.Fatalf("cause %q lacks %q", waits[0].Cause, whole)
+	}
+}
+
 func TestADayOfUnfinishedRowsIsNotARepeatedDefect(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	now := at(t, "2026-11-03T08:00:00Z")
