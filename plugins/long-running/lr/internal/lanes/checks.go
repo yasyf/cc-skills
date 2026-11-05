@@ -1100,6 +1100,11 @@ func reclaimedAny(tally string) bool {
 	return false
 }
 
+const (
+	gcStartedCursor = "gc-pass-started"
+	gcEndedCursor   = "gc-pass-ended"
+)
+
 var gcPassRunning atomic.Bool
 
 func GCPassRunning() bool {
@@ -1112,6 +1117,18 @@ func YieldGC(yield bool) {
 	gcYielding.Store(yield)
 }
 
+func GCPassSince(s *store.Store) (time.Time, error) {
+	started, err := s.Cursor(gcStartedCursor)
+	if err != nil {
+		return time.Time{}, err
+	}
+	ended, err := s.Cursor(gcEndedCursor)
+	if err != nil || started <= ended {
+		return time.Time{}, err
+	}
+	return time.UnixMicro(started), nil
+}
+
 type SettledGC struct {
 	Env   Env
 	Store *store.Store
@@ -1120,12 +1137,20 @@ type SettledGC struct {
 }
 
 func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
+	gcPassRunning.Store(true)
+	defer gcPassRunning.Store(false)
 	if gcYielding.Load() || (!g.read.IsZero() && now.Sub(g.read) < gcEvery) {
 		return nil
 	}
 	g.read = now
-	gcPassRunning.Store(true)
-	defer gcPassRunning.Store(false)
+	if err := g.Store.Advance(gcStartedCursor, now.UnixMicro()); err != nil {
+		return err
+	}
+	defer func() {
+		if err := g.Store.Advance(gcEndedCursor, now.UnixMicro()); err != nil {
+			g.Log.Warn("a finished lr gc pass stays marked running until the next one ends", "err", err)
+		}
+	}()
 	keep, err := g.Env.keepWanted(g.Store)
 	if err != nil {
 		g.Log.Warn("lr gc --new did not read the registry", "err", err)

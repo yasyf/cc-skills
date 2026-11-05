@@ -587,7 +587,11 @@ func TestARestartWaitsForTheCleanupPassItWouldCut(t *testing.T) {
 	state := configs(t)
 	holding := true
 	yielding := false
-	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now(), Holding: func() bool { return holding }, Yield: func(yield bool) { yielding = yield }}
+	polls := 0
+	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now(), Holding: func() bool { return holding }, Yield: func(yield bool) { yielding = yield }, Sleep: func(time.Duration) {
+		polls++
+		holding = polls < 3
+	}}
 	link(t, claude, "0.7.820")
 
 	stale, err := upgrade.Stale(context.Background())
@@ -596,21 +600,69 @@ func TestARestartWaitsForTheCleanupPassItWouldCut(t *testing.T) {
 	}
 	equal(t, stale, false)
 	equal(t, yielding, false)
+	equal(t, polls, 0)
 
 	link(t, claude, "0.7.821")
 	stale, err = upgrade.Stale(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, stale, false)
+	equal(t, stale, true)
 	equal(t, yielding, true)
+	equal(t, polls, 3)
+}
 
-	holding = false
-	stale, err = upgrade.Stale(context.Background())
+func TestAHeldCleanupPassStartsNoFurtherTickBeforeTheRestart(t *testing.T) {
+	claude := t.TempDir()
+	link(t, claude, "0.7.821")
+	holding := true
+	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: configs(t)}, Running: "0.7.820", Read: time.Now(), Holding: func() bool { return holding }, Yield: func(bool) {}, Sleep: func(time.Duration) { holding = false }}
+	s, c := memory(t), &clock{t0}
+	ticks := 0
+	d := Deps{Movers: []string{"lanes"}, Clock: c.read, Sleep: c.sleep, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Stale: upgrade.Stale, Lanes: func(time.Time, int64) (lanes.Outcome, error) {
+		ticks++
+		return lanes.Outcome{}, nil
+	}}
+
+	_, ended := runLoop(t, s, "0.8.0", 1, d, 2)
+
+	equal(t, ended, EndedRelease)
+	equal(t, ticks, 1)
+}
+
+func TestACleanupPassStartingAsTheProbeYieldsStillHoldsTheRestart(t *testing.T) {
+	claude := t.TempDir()
+	link(t, claude, "0.7.821")
+	running := false
+	waited := 0
+	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: configs(t)}, Running: "0.7.820", Read: time.Now(), Holding: func() bool { return running }, Yield: func(yield bool) { running = running || yield }, Sleep: func(time.Duration) {
+		waited++
+		running = false
+	}}
+
+	stale, err := upgrade.Stale(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	equal(t, stale, true)
+	equal(t, waited, 1)
+}
+
+func TestAMovedPinYieldsCleanupPassesBeforeTheTickEnds(t *testing.T) {
+	claude := t.TempDir()
+	link(t, claude, "0.7.820")
+	yielding := false
+	upgrade := &Upgrade{Env: lanes.Env{Claude: claude, State: configs(t)}, Running: "0.7.820", Read: time.Now(), Yield: func(yield bool) { yielding = yield }}
+
+	if err := upgrade.YieldOnceOwed(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, yielding, false)
+
+	link(t, claude, "0.7.821")
+	if err := upgrade.YieldOnceOwed(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
 	equal(t, yielding, true)
 }
 
@@ -619,11 +671,32 @@ func TestAConfigEditYieldsTheNextCleanupPassToo(t *testing.T) {
 	state := configs(t)
 	link(t, claude, "0.7.820")
 	yielding := false
-	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now().Add(-time.Hour), Holding: func() bool { return true }, Yield: func(yield bool) { yielding = yield }}
-	if _, err := upgrade.Stale(context.Background()); err != nil {
+	holding := true
+	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now().Add(-time.Hour), Holding: func() bool { return holding }, Yield: func(yield bool) { yielding = yield }, Sleep: func(time.Duration) { holding = false }}
+	stale, err := upgrade.Stale(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
+	equal(t, stale, true)
 	equal(t, yielding, true)
+}
+
+func TestARewrittenConfigWithTheSameSettingsDoesNotWaitOnACleanupPass(t *testing.T) {
+	claude := t.TempDir()
+	state := configs(t)
+	link(t, claude, "0.7.820")
+	settings, err := readSettings(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yielding := true
+	upgrade := &Upgrade{Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: state}, Running: "0.7.820", Read: time.Now().Add(-time.Hour), Settings: settings, Holding: func() bool { return true }, Yield: func(yield bool) { yielding = yield }, Sleep: func(time.Duration) { t.Fatal("waited on a cleanup pass with nothing owed") }}
+	stale, err := upgrade.Stale(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, stale, false)
+	equal(t, yielding, false)
 }
 
 func configs(t *testing.T) string {

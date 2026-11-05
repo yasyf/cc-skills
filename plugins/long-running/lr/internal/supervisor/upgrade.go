@@ -9,12 +9,15 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 )
+
+const holdPoll = time.Second
 
 var versionPart = regexp.MustCompile(`\d+`)
 
@@ -51,7 +54,10 @@ type Upgrade struct {
 	Settings map[string]string
 	Holding  func() bool
 	Yield    func(bool)
+	Sleep    func(time.Duration)
 	Serve    func(version string) error
+
+	mu sync.Mutex
 }
 
 func readSettings(state string) (map[string]string, error) {
@@ -67,25 +73,42 @@ func readSettings(state string) (map[string]string, error) {
 }
 
 func (u *Upgrade) restartOwed() bool {
+	u.mu.Lock()
+	read, running := u.Read, u.Running
+	u.mu.Unlock()
 	for _, name := range []string{configFile, runnerFile} {
-		info, err := os.Stat(filepath.Join(u.Env.State, name))
-		if err == nil && info.ModTime().After(u.Read) {
+		path := filepath.Join(u.Env.State, name)
+		info, err := os.Stat(path)
+		if err != nil || !info.ModTime().After(read) {
+			continue
+		}
+		if settings, err := orca.Settings(path); err == nil && settings != u.Settings[name] {
 			return true
 		}
 	}
-	if !Behind(u.Running, Installed(u.Env.Claude)) {
+	if !Behind(running, Installed(u.Env.Claude)) {
 		return false
 	}
 	pinned := u.Env.PinnedBinary()
 	return pinned == "" || pinned != u.Binary
 }
 
-func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
-	if u.Holding() {
-		u.Yield(u.restartOwed())
-		return false, nil
+func (u *Upgrade) YieldOnceOwed(context.Context, time.Time) error {
+	if u.restartOwed() {
+		u.Yield(true)
 	}
+	return nil
+}
+
+func (u *Upgrade) Stale(ctx context.Context) (bool, error) {
 	u.Yield(true)
+	for u.Holding() {
+		if !u.restartOwed() {
+			u.Yield(false)
+			return false, nil
+		}
+		u.Sleep(holdPoll)
+	}
 	stale, err := u.restartDue(ctx)
 	if !stale {
 		u.Yield(false)
@@ -107,7 +130,9 @@ func (u *Upgrade) restartDue(ctx context.Context) (bool, error) {
 	if err := u.Serve(installed); err != nil {
 		return false, err
 	}
+	u.mu.Lock()
 	u.Running = installed
+	u.mu.Unlock()
 	return false, nil
 }
 
@@ -138,7 +163,9 @@ func (u *Upgrade) configChanged(ctx context.Context) (bool, error) {
 		}
 		return true, nil
 	}
+	u.mu.Lock()
 	u.Read = checked
+	u.mu.Unlock()
 	return false, nil
 }
 
