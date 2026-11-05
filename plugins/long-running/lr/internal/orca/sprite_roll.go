@@ -134,18 +134,30 @@ func (r SpriteRoll) runs(box string, pins spritePins) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	held := map[string]string{}
+	for _, tool := range recorded {
+		if tool.Sprite == box {
+			held[tool.Name] = tool.Version
+		}
+	}
 	wanted := slices.Clone(pins.tools)
 	if version := cciVersion.FindStringSubmatch(pins.ccURL); version != nil {
 		wanted = append(wanted, spriteTool{Name: "cci", Version: version[1]})
 	}
 	for _, tool := range wanted {
-		if !slices.ContainsFunc(recorded, func(t store.SpriteTool) bool {
-			return t.Sprite == box && t.Name == tool.Name && t.Version == tool.Version
-		}) {
+		if held[tool.Name] != tool.Version {
 			return false, nil
 		}
 	}
-	return true, nil
+	return unmoved(held) == "", nil
+}
+
+func unmoved(installed map[string]string) string {
+	running, ok := installed["cci-daemon"]
+	if !ok || running == installed["cci"] {
+		return ""
+	}
+	return "its cci daemon runs " + running + ", not yet moved to cci " + installed["cci"]
 }
 
 func (r SpriteRoll) pins(env func(string) string) (spritePins, error) {
@@ -396,7 +408,11 @@ func writeCensus(out io.Writer, tools []store.SpriteTool) {
 				at = tools[i].At
 			}
 		}
-		fmt.Fprintf(out, "%s %s at %s\n", box, censusOf(installed), store.Stamp(at))
+		line := fmt.Sprintf("%s %s at %s", box, censusOf(installed), store.Stamp(at))
+		if lag := unmoved(installed); lag != "" {
+			line += "; " + lag
+		}
+		fmt.Fprintln(out, line)
 	}
 }
 

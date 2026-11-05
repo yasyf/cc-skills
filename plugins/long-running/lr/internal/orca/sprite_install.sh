@@ -146,6 +146,12 @@ while [ "$1" != -- ]; do
   fi
 done
 shift
+if pgrep -f "$bin/cci supervise" > /dev/null; then
+  "$bin/cci" serve > /dev/null
+  daemon=$(pgrep -fo "$HOME/.daemonkit/bin/com.yasyf.cc-inbox daemon run")
+  # Without CCI_HANDED_OFF_FROM, cci hands --version to the newest cci on the box, not the build the daemon runs.
+  echo "installed cci-daemon $(CCI_HANDED_OFF_FROM=lr "/proc/$daemon/exe" --version)"
+fi
 mkdir -p "$HOME/.config/mise/conf.d"
 printf '[settings]\ntrusted_config_paths = ["~"]\n' > "$HOME/.config/mise/conf.d/cc-remote-trust.toml"
 export PATH="$bin:$PATH"
