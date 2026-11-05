@@ -3,6 +3,7 @@ package prrow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -134,14 +135,15 @@ func TestHisApprovalAtAHeadTheRowMovedPastStandsThereForTheCarryRule(t *testing.
 	}
 }
 
-func TestAnApprovalOnAPRWithNoRowSaysWhetherThisBoxHoldsTheLandingStore(t *testing.T) {
+func TestAnApprovalOnAPRWithNoRowWaitsForTheFirstFoldOrIsRefusedOnceRowsExist(t *testing.T) {
 	for _, tt := range []struct {
-		name string
-		rows []store.ReviewRow
-		want string
+		name    string
+		rows    []store.ReviewRow
+		refusal string
+		err     error
 	}{
-		{"no rows at all", nil, gates.NoStore},
-		{"another PR's row", []store.ReviewRow{{Repo: testRepo, Number: 2, Head: headA}}, gates.NoRow},
+		{"no rows at all", nil, "", ErrRowsNotFolded},
+		{"another PR's row", []store.ReviewRow{{Repo: testRepo, Number: 2, Head: headA}}, gates.NoRow, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s, err := store.Memory()
@@ -152,8 +154,8 @@ func TestAnApprovalOnAPRWithNoRowSaysWhetherThisBoxHoldsTheLandingStore(t *testi
 			if err := s.PutReviewRows(tt.rows); err != nil {
 				t.Fatal(err)
 			}
-			if _, refusal, err := TapAt(s, testRepo, bus.Tap{PR: 1, Head: headA}); err != nil || refusal != tt.want {
-				t.Fatalf("TapAt refusal = %q, %v, want %q", refusal, err, tt.want)
+			if _, refusal, err := TapAt(s, testRepo, bus.Tap{PR: 1, Head: headA}); !errors.Is(err, tt.err) || refusal != tt.refusal {
+				t.Fatalf("TapAt = %q, %v, want %q, %v", refusal, err, tt.refusal, tt.err)
 			}
 		})
 	}

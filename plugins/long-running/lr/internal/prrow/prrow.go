@@ -1,6 +1,7 @@
 package prrow
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -130,6 +131,8 @@ func transition(s *store.Store, repo string, number int, head string, facts map[
 	})
 }
 
+var ErrRowsNotFolded = errors.New("the landing store holds no review row yet, so no approval can be judged until the first fold")
+
 func firstUnmet(row store.ReviewRow) string {
 	return unmet(row, true)
 }
@@ -145,6 +148,9 @@ func TapAt(s *store.Store, repo string, tap bus.Tap) (head, refusal string, err 
 	}
 	if !found {
 		refusal, err = gates.NoRowIn(s, repo)
+		if refusal == gates.NoStore {
+			return "", "", ErrRowsNotFolded
+		}
 		return tap.Head, refusal, err
 	}
 	head = tap.Head

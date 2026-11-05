@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -281,6 +282,29 @@ func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 				t.Fatalf("out = %s", out.String())
 			}
 		})
+	}
+}
+
+func TestAHandCarriedOrderOnAStoreWithNoRowsYetPostsNothing(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s, err := store.Memory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	word, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", Text: "Owner in thread: merge #7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = writeOrder(ctx, s, "o/r", bus.Bus{Drive: "d", Lane: "tap-orders"}, 7, word, "ci-speed", io.Discard)
+
+	if !errors.Is(err, prrow.ErrRowsNotFolded) {
+		t.Fatalf("err = %v", err)
+	}
+	if written, err := client.Tail(ctx, client.Query{Drive: "d", After: word.Seq}); err != nil || len(written) != 0 {
+		t.Fatalf("written = %+v, %v", written, err)
 	}
 }
 

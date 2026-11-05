@@ -16,7 +16,7 @@ var startTools = []string{"git", "gh", "cci", "ccx"}
 
 func missing(ctx context.Context, runner shell.Runner, look func(string) (string, error), cfg config.Config) []string {
 	tools := startTools
-	if cfg.OrcaRun != "" {
+	if cfg.OrcaRun != "" && slices.Contains(cfg.Movers, config.MoverLanes) {
 		tools = append(slices.Clone(tools), "orca")
 	}
 	var gone []string

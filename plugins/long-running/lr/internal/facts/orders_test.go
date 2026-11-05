@@ -502,6 +502,30 @@ func TestATapOnAPRWithNoRowIsRefused(t *testing.T) {
 	}
 }
 
+func TestATapBeforeTheFirstRowsAreFoldedWaitsAndIsOrderedOnceTheyAre(t *testing.T) {
+	h := unreadHarness(t)
+	record := ownerRecord(t, landOnCard, pickAttrs)
+
+	writeOrders(t, h)
+
+	if written, refused := orders(t), refusals(t); len(written) != 0 || len(refused) != 0 {
+		t.Fatalf("an empty store answered: orders = %+v, refusals = %+v", written, refused)
+	}
+	if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || cursor >= record.Seq {
+		t.Fatalf("cursor = %d, %v, want it held before %d", cursor, err, record.Seq)
+	}
+
+	drawReady(t, h.store, surfacePR, surfaceHead)
+	writeOrders(t, h)
+
+	if written, refused := orders(t), refusals(t); len(written) != 1 || len(refused) != 0 {
+		t.Fatalf("orders = %+v, refusals = %+v", written, refused)
+	}
+	if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || cursor < record.Seq {
+		t.Fatalf("cursor = %d, %v, want it past %d", cursor, err, record.Seq)
+	}
+}
+
 func TestAHoldIsWrittenWhateverTheRowSays(t *testing.T) {
 	h := unreadHarness(t)
 	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Grade = prrow.GradePending })
