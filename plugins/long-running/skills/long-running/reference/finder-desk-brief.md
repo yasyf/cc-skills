@@ -70,6 +70,15 @@ Read the code around every changed symbol at that sha, its callers and callees i
    old-world twin PR it mirrors under the owner's order to fix the same defect in the old
    world too. Cite it as "tests: <test> <- <finding or twin>", check only that it asserts
    what the named source fixed, and raise no "pins unplanned behavior" finding for it.
+   A bug item is what a person reported, as the lane watching the bug channels recorded it, and
+   the owner ordered every report followed up with a regression test for its symptoms. The
+   items this PR's body names:
+{items}
+   A test that reproduces the failure one of them reports, failing before the fix and passing
+   after, is the regression rule 784f1ab requires: cite it as "tests: <test> <- item <n>" and
+   raise no "pins unplanned behavior" finding for it. Read the report, never the PR body's
+   account of it. An assertion past that failure, or one pinning behavior the plan removes, is
+   graded against the plan as above.
 
 4. A port lands faithful to its old-tree PR, and a fix past that source is its own follow-up
    PR. On a PR body that opens `port of #<n>`, read that PR's own lines, pinned by sha as

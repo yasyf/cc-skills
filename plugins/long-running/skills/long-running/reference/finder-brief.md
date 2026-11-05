@@ -137,6 +137,10 @@ Do three things and report all three in the findings schema.
    a `Rulings` heading ties to the finder or review-bot finding it pins, or to the
    old-world twin PR it mirrors: cite it as "tests: <test> <- <finding or twin>" and check
    only that it asserts what that source fixed.
+   A test that reproduces the failure a person reported, in a bug item the PR body names, is
+   the regression test the owner ordered for that report: cite it as "tests: <test> <- item
+   <n>" and raise no finding for it. An assertion past that failure, or one pinning behavior
+   the plan removes, is graded against the plan as above.
    A port lands faithful to its old-tree PR, and a fix past that source is its own follow-up
    PR. On a PR body that opens `port of #<n>`, read that PR's own lines, pinned by sha, before
    you raise any finding. A defect those lines have too, doing the same wrong thing, starts

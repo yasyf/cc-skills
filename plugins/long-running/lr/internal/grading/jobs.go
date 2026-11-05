@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -36,6 +37,12 @@ const (
 	cardChars     = 4000
 	cardTimeout   = 10 * time.Second
 	docChars      = 7
+)
+
+var (
+	itemList   = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
+	itemNumber = regexp.MustCompile(`\d+`)
+	itemOpened = regexp.MustCompile(`\bNEW\b[^:]*?\bitem (\d+)\b`)
 )
 
 type job struct {
@@ -100,7 +107,7 @@ func (p *JobPool) baseJob(d desk, facts machine.Facts, sprite string, settled ma
 	}
 }
 
-func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sprite string) (job, error) {
+func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sprite string, live livePR) (job, error) {
 	pr := strconv.Itoa(facts.Number)
 	pull := facts.Repo + "#" + pr
 	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview, kindHead}, PR: pull})
@@ -133,8 +140,14 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 	if err != nil {
 		return job{}, err
 	}
+	items, err := p.bugItems(ctx, live.Body)
+	if err != nil {
+		return job{}, err
+	}
+	base := p.baseJob(d, facts, sprite, settled)
+	base.Items = items
 	return job{landed: landed, cited: recordTexts(ruled), spec: grader.FinderJob{
-		Job:      p.baseJob(d, facts, sprite, settled),
+		Job:      base,
 		Since:    last,
 		Prior:    prior,
 		Previous: previous,
@@ -155,6 +168,29 @@ func (p *JobPool) answersOwed(ctx context.Context, live livePR, cited string) ([
 	reading, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
 	return reader.ForPR(reading, program, live.PR, cited)
+}
+
+func (p *JobPool) bugItems(ctx context.Context, body string) ([]grader.Record, error) {
+	named := map[string]bool{}
+	for _, list := range itemList.FindAllString(body, -1) {
+		for _, number := range itemNumber.FindAllString(list, -1) {
+			named[number] = true
+		}
+	}
+	if len(named) == 0 {
+		return nil, nil
+	}
+	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindIncident}})
+	if err != nil {
+		return nil, err
+	}
+	var items []grader.Record
+	for _, r := range found {
+		if opened := itemOpened.FindStringSubmatch(r.Text); opened != nil && named[opened[1]] {
+			items = append(items, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: fullText(r)})
+		}
+	}
+	return items, nil
 }
 
 func (p *JobPool) landedRows() ([]grader.LandedRow, error) {
@@ -308,8 +344,14 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if err != nil {
 		return job{}, err
 	}
+	items, err := p.bugItems(ctx, live.Body)
+	if err != nil {
+		return job{}, err
+	}
+	base := p.baseJob(d, facts, sprite, settled)
+	base.Items = items
 	spec := grader.FidelityJob{
-		Job:            p.baseJob(d, facts, sprite, settled),
+		Job:            base,
 		Readers:        slices.DeleteFunc(slices.Clone(lanes), func(lane string) bool { return lane == grader.FidelityLane }),
 		Lanes:          lanes,
 		Grades:         gradeRecords(grades),

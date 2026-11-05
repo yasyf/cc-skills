@@ -92,6 +92,18 @@ Answer in the schema:
   -q origin <sha>`) and grade the head line for line against it: for a port the old-tree
   commit is the spec, not the plan. Only what differs from its source, or goes past it, is
   graded against the plan and rows.
+- A bug item is what a person reported, as the lane watching the bug channels recorded it, and
+  the owner ordered every report followed up with a regression test for its symptoms. The items
+  this PR's body names:
+{items}
+  Grade such a head against its item as well as the plan, reading the report and never the PR
+  body's account of it. A test that reproduces the reported failure, failing before the fix and
+  passing after, is grounded and never `missing` as a test that pins unplanned behavior. An
+  assertion past that failure, or one pinning behavior the plan removes or contradicts, stays
+  `missing`. A mechanism is grounded by an item only where the reported failure cannot stop
+  without it, and `swept` says why; one a smaller fix does without stays `missing` as "plan names
+  no <thing>". An item grounds nothing else: a row or an AGENTS.md line the head breaks stays
+  `missing`, and an item whose report is not the failure the head fixes grounds nothing.
 - A port lands faithful to its old-tree PR, and a fix past that source is its own follow-up PR.
   A row or plan line the source's own lines also break is not `missing` on a port: name it in
   `summary` as a follow-up owed. A line that fixes, adds or cleans up past the source is

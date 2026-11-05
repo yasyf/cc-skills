@@ -509,6 +509,56 @@ func TestAPassCarriesTheAnswersItsPRCitesSoAGraderNeedsNoNotes(t *testing.T) {
 	}
 }
 
+func TestAPassCarriesTheReportOfEachBugItemItsPRBodyNamesAndNoOther(t *testing.T) {
+	for _, grading := range []string{GraderFinder, GraderFidelity} {
+		t.Run(grading, func(t *testing.T) {
+			f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}, "fidelity": map[string]any{"sprite": "dar-1"}})
+			f.shell.view = `{"title":"a change","body":"Bug item 52, and items 51 and 36, and item 7, in the bug channel.","headRefName":"lane-7"}`
+			for _, text := range []string{
+				"slack-bugs-2 NEW, item 5: not this one",
+				"slack-bugs-2 NEW, item 52, same session as 51: Josh said the session is offline",
+				"slack-bugs-2 NEW, item 51: Josh saw a login form in the panel",
+				"slack-bugs-2 NEW, item 520: not this one either",
+				"slack-bugs-2 NEW, low severity, item 36: Alex said the browser is tiny",
+				"slack-bugs-2 NEW, no owner: Andrew saw item 52 again",
+				"item 7 came up again, with no report in this record",
+			} {
+				post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Text: text})
+			}
+			post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindNote, Text: "slack-bugs-2 NEW, item 7: a note is no report"})
+
+			f.started(t, grading)
+
+			lane := grader.FinderLane
+			if grading == GraderFidelity {
+				lane = grader.FidelityLane
+			}
+			spec := readJob[grader.Job](t, filepath.Join(f.pool.root, lane, jobDir))
+			got := make([]string, 0, len(spec.Items))
+			for _, item := range spec.Items {
+				got = append(got, item.Text)
+			}
+			sameStrings(t, got, []string{
+				"slack-bugs-2 NEW, item 52, same session as 51: Josh said the session is offline",
+				"slack-bugs-2 NEW, item 51: Josh saw a login form in the panel",
+				"slack-bugs-2 NEW, low severity, item 36: Alex said the browser is tiny",
+			})
+		})
+	}
+}
+
+func TestAPRBodyThatNamesNoBugItemCarriesNoReport(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}})
+	f.shell.view = `{"title":"a change","body":"Fixes the 52 items on the list.","headRefName":"lane-7"}`
+	post(t, client.Draft{Lane: "slack-bugs-2", Kind: kindIncident, Text: "slack-bugs-2 NEW, item 52: a report"})
+
+	f.started(t, GraderFinder)
+
+	if spec := readJob[grader.FinderJob](t, f.finderDir(jobDir)); len(spec.Items) != 0 {
+		t.Errorf("items = %+v", spec.Items)
+	}
+}
+
 func TestAFinderJobCarriesTheLandedRowsItsSecondFixCheckReads(t *testing.T) {
 	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main", "ledger": "drive-ledger"}, "finder": map[string]any{"sprite": "dar-1"}})
 	if err := f.store.PutLedgerRow("drive-ledger", "47001", map[string]string{"title": "sand: 🐛 held marker", "landed_sha": "abc"}, f.now); err != nil {

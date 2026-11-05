@@ -309,8 +309,12 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 	if err != nil {
 		return job{}, err
 	}
+	items, err := p.bugItems(ctx, p.readPR(ctx, facts.Repo, pr).Body)
+	if err != nil {
+		return job{}, err
+	}
 	base := p.baseJob(d, facts, sprite, settled)
-	base.Lane = ask.Lane
+	base.Lane, base.Items = ask.Lane, items
 	return job{spec: grader.FinderJob{Job: base, History: jobRecords(named), Ruled: jobRecords(ruled), Full: true}}, nil
 }
 
@@ -335,7 +339,11 @@ func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, a
 	if err != nil {
 		return job{}, err
 	}
+	items, err := p.bugItems(ctx, p.readPR(ctx, facts.Repo, strconv.Itoa(facts.Number)).Body)
+	if err != nil {
+		return job{}, err
+	}
 	base := p.baseJob(d, facts, sprite, settled)
-	base.Head, base.Lane = ask.Head, ask.Lane
+	base.Head, base.Lane, base.Items = ask.Head, ask.Lane, items
 	return job{spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Lane: last.Lane, Head: last.head, Text: last.Text}, History: jobRecords(named)}}, nil
 }

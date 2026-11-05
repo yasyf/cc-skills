@@ -312,7 +312,7 @@ func (p *JobPool) nextPass(ctx context.Context, grading string, d desk, workers 
 	var built job
 	switch grading {
 	case GraderFinder:
-		built, err = p.finderJob(ctx, d, facts, sprite)
+		built, err = p.finderJob(ctx, d, facts, sprite, live)
 	case GraderFidelity:
 		built, err = p.fidelityJob(ctx, d, facts, sprite, directory, live, again)
 	}

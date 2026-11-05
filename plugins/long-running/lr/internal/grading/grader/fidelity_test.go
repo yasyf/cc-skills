@@ -1065,3 +1065,25 @@ func TestAServiceTouchOnTheDurableReaderPathMarksAnyAddedLineThereAsAnOldAppChan
 	holdsAll(t, texts[len(texts)-1], "old-app: CHANGES "+shaHead[:7], "dashboard/src/iris/durable/replica.ts:1172 touches old-app pages")
 	holdsNone(t, texts[len(texts)-1], "journal/grant.ts", "replica.test.ts")
 }
+
+func TestAFidelityQuestionCarriesTheReportOfTheBugItemItsJobNames(t *testing.T) {
+	report := map[string]any{"seq": 450055, "lane": "slack-bugs-2", "text": "slack-bugs-2 NEW, item 52: Josh said the session is offline"}
+	for name, c := range map[string]struct {
+		items []any
+		want  string
+	}{
+		"named": {[]any{report}, "- cci #450055 from slack-bugs-2: slack-bugs-2 NEW, item 52: Josh said the session is offline"},
+		"none":  {nil, "this PR's body names:\n(none)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := fidelityDir(t, map[string]any{"items": c.items})
+			shell, _ := newFidelityFake(t, nil, fidelityReplyOf(nil))
+			mustFidelity(t, directory, shell)
+			question := readText(t, directory, "question-1.md")
+			holdsAll(t, question, c.want)
+			if strings.Contains(question, "{items}") {
+				t.Errorf("question left {items} unfilled:\n%s", question)
+			}
+		})
+	}
+}
