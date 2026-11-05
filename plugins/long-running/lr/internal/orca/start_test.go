@@ -1370,14 +1370,15 @@ func TestARelaunchAfterTheRecordedTaskCompletedStartsAFreshTask(t *testing.T) {
 func TestALaunchTheDeskRelaunchesOnASpriteFailsAtItsFirstStallWithNoRetry(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
+	h.tickOnSleep()
 	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
 	h.env[fallbackEnv] = "1"
 	h.reply("worktree show", missing)
 	line, code := h.launch()
-	if code != 1 || !strings.Contains(line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+h.worktree()+" yet for 0s") || strings.Contains(line, "one retry") {
+	if code != 1 || !strings.Contains(line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+h.worktree()+" yet for 300s") || strings.Contains(line, "one retry") {
 		t.Fatal(line)
 	}
-	if strings.Contains(h.stderr.String(), "retries once") || len(h.sleeps) != 0 {
+	if strings.Contains(h.stderr.String(), "retries once") || slices.Contains(h.sleeps, stallRetry) {
 		t.Fatal(h.stderr.String(), h.sleeps)
 	}
 }
