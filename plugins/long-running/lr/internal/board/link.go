@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,16 +42,17 @@ const (
 var slackLine = regexp.MustCompile(`(?m)^slack: (\S+)`)
 
 type cardBody struct {
-	Session string          `json:"session,omitempty"`
-	Block   json.RawMessage `json:"block,omitempty"`
-	Remove  string          `json:"remove,omitempty"`
-	Reason  string          `json:"reason,omitempty"`
-	Until   string          `json:"until,omitempty"`
-	By      string          `json:"by,omitempty"`
-	Ask     int64           `json:"ask,omitempty"`
-	Handed  int64           `json:"handed,omitempty"`
-	TapOf   string          `json:"tap_of,omitempty"`
-	TapHead string          `json:"tap_head,omitempty"`
+	Session  string          `json:"session,omitempty"`
+	Block    json.RawMessage `json:"block,omitempty"`
+	Remove   string          `json:"remove,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
+	Until    string          `json:"until,omitempty"`
+	By       string          `json:"by,omitempty"`
+	Ask      int64           `json:"ask,omitempty"`
+	Handed   int64           `json:"handed,omitempty"`
+	TapOf    string          `json:"tap_of,omitempty"`
+	TapHead  string          `json:"tap_head,omitempty"`
+	Replaces []string        `json:"replaces,omitempty"`
 }
 
 type linkSaid struct {
@@ -193,7 +195,7 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	var unchecked error
 	if card.TapOf == "" {
 		var refused error
-		if refused, unchecked = cards.Check(ctx, l.Judge, card.Block); refused != nil {
+		if refused, unchecked = cards.Check(ctx, l.Judge, card.Block, card.Replaces...); refused != nil {
 			return "", linkRefusal{refused.Error()}
 		}
 	}
@@ -205,9 +207,16 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	if err := cards.MarkDrawn(ctx, []string{top.ID}); err != nil {
 		return "", err
 	}
-	said := top.ID + " is on his board"
+	said, dm := top.ID+" is on his board", ""
 	if url := slackLine.FindStringSubmatch(drawn.Stdout); url != nil {
-		said += " and in his DM, " + url[1]
+		said, dm = said+" and in his DM, "+url[1], url[1]
+	}
+	if len(card.Replaces) > 0 {
+		var retired strings.Builder
+		if err := cards.replace(ctx, lane, dm, card.Replaces, &retired); err != nil {
+			return "", err
+		}
+		said += "; " + strings.ReplaceAll(strings.TrimSpace(retired.String()), "\n", "; ")
 	}
 	if card.Handed != 0 {
 		said += fmt.Sprintf("; %s owns it now, handed it by #%d", lane, card.Handed)
@@ -403,4 +412,11 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 	}
 	cmd.AddCommand(serve, install)
 	return cmd
+}
+
+func (c Cards) replace(ctx context.Context, lane, dm string, replaced []string, out io.Writer) error {
+	if dm == "" {
+		return c.Retire(ctx, lane, newVersionWhy, replaced, out)
+	}
+	return c.Replace(ctx, lane, newVersionAsks, dm, replaced, out)
 }
