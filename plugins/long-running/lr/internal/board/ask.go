@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
@@ -35,7 +36,7 @@ const (
 )
 
 var (
-	numberedChange  = regexp.MustCompile(`(^|[^\w&\[])(#(\d+))\b`)
+	numberedChange  = regexp.MustCompile(`(^|[^\w&])(#(\d+))\b`)
 	prNamed         = regexp.MustCompile(`github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+/[\w.-]+)#(\d+)|\bPR (\d+)\b`)
 	slugWord        = regexp.MustCompile(`[a-z0-9]+`)
 	errLinkAnswered = errors.New("the board link answered")
@@ -77,7 +78,8 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 		options[i] = askOption{ID: fmt.Sprintf("%s-%d", slug, i+1), Label: label, Md: linkedNumbers(does, repo)}
 	}
 	options[0].Recommended, options[0].Build = true, build
-	background := linkedNumbers(a.Background, repo)
+	background := linkedNumbers(strings.TrimSpace(a.Background), repo)
+	summary, more, _ := strings.Cut(background, "\n")
 	said := []string{linkedNumbers(a.Title, repo), background}
 	for _, option := range a.Options {
 		said = append(said, linkedNumbers(option, repo))
@@ -89,6 +91,9 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 		said = append(said, fmt.Sprintf("PR %d", a.PortOf))
 	}
 	children := []map[string]any{{"id": slug + "-from", "type": "markdown", "md": "**From:** " + from}}
+	if more = strings.TrimSpace(more); more != "" {
+		children = slices.Insert(children, 0, map[string]any{"id": slug + "-background", "type": "markdown", "md": more})
+	}
 	shots, err := a.shots(slug)
 	if err != nil {
 		return nil, err
@@ -96,9 +101,9 @@ func (a Ask) Block(repo string) (json.RawMessage, error) {
 	children = append(children, shots...)
 	children = append(children, map[string]any{"id": slug + "-choice", "type": "choice", "options": options})
 	for _, pr := range namedPRs(said, repo) {
-		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%d", slug, pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
+		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%s-%d", slug, strings.ReplaceAll(pr.Repo, "/", "-"), pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
 	}
-	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": background, "children": children})
+	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": strings.TrimSpace(summary), "children": children})
 }
 
 func (a Ask) build() (map[string]any, error) {
@@ -141,7 +146,14 @@ func firstWords(title string) []string {
 }
 
 func linkedNumbers(text, repo string) string {
-	return numberedChange.ReplaceAllString(text, "${1}[${2}](https://github.com/"+repo+"/pull/${3})")
+	var linked strings.Builder
+	at := 0
+	for _, span := range append(cardtext.Link.FindAllStringIndex(text, -1), []int{len(text), len(text)}) {
+		linked.WriteString(numberedChange.ReplaceAllString(text[at:span[0]], "${1}[${2}](https://github.com/"+repo+"/pull/${3})"))
+		linked.WriteString(text[span[0]:span[1]])
+		at = span[1]
+	}
+	return linked.String()
 }
 
 func namedPRs(said []string, repo string) []SlackPR {
@@ -272,7 +284,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	}
 	flags := cmd.Flags()
 	flags.StringVar(&ask.Title, "title", "", "the question, in plain words, ending in a question mark")
-	flags.StringVar(&ask.Background, "background", "", "what he needs to decide it: what happened, what it costs, what each way forward rests on")
+	flags.StringVar(&ask.Background, "background", "", "what he needs to decide it: what happened, what it costs, what each way forward rests on, in as many paragraphs as that takes; the first line is the summary his board lists, and the rest shows under it on the card")
 	flags.StringArrayVar(&ask.Options, "option", nil, "'LABEL :: what picking it does', 2 to 4, the recommended one first; a failure offers the fix for its cause, and a loss names its fix")
 	flags.StringVar(&ask.Branch, "branch", "", "OWNER/NAME:BRANCH, where the recommended option is built")
 	flags.StringVar(&ask.NothingToBuild, "nothing-to-build", "", "why the recommended option has no branch")

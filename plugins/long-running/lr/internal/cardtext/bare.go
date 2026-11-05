@@ -15,7 +15,7 @@ const (
 )
 
 var (
-	link     = regexp.MustCompile(`!?\[[^\]\n]*\]\([^)\n]*\)|<?https?://[^\s>)]+>?`)
+	Link     = regexp.MustCompile(`!?\[[^\]\n]*\]\([^)\n]*\)|<?https?://[^\s>)]+>?`)
 	word     = regexp.MustCompile(`[\p{L}\p{N}][\p{L}\p{N}'’-]*`)
 	section  = regexp.MustCompile(`(?im)^[ \t>*_#-]*(explain more|background)(?:\*\*|__)?[ \t]*:(?:\*\*|__)?`)
 	nextName = regexp.MustCompile(`(?m)^[ \t]*(?:\*\*|__)?[A-Za-z][\w' -]{0,40}:(?:\*\*|__)?(?:\s|$)`)
@@ -101,7 +101,7 @@ func bareSection(text string) string {
 }
 
 func onlyPoints(text string) bool {
-	for _, each := range word.FindAllString(link.ReplaceAllString(text, " "), -1) {
+	for _, each := range word.FindAllString(Link.ReplaceAllString(text, " "), -1) {
 		if !pointing[strings.ToLower(each)] {
 			return false
 		}

@@ -587,6 +587,76 @@ func TestACardLinksEachNumberItNamesAndCarriesThatPR(t *testing.T) {
 	}
 }
 
+func TestABackgroundInParagraphsListsItsFirstLineAndShowsTheRestOnTheCard(t *testing.T) {
+	block, err := Ask{
+		Title: "How do runs recover?", NothingToBuild: "a pick",
+		Background: "Nine runs stopped today.\n\nThe account has room for twice its limit.\n\n- one waits\n- one retries\n",
+		Options:    []string{"Wait :: A refused call resumes.", "Raise :: Fewer refusals."},
+	}.Block("o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		Summary  string `json:"summary"`
+		Children []struct {
+			Type string `json:"type"`
+			Md   string `json:"md"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	if card.Summary != "Nine runs stopped today." {
+		t.Fatalf("summary = %q", card.Summary)
+	}
+	if want := "The account has room for twice its limit.\n\n- one waits\n- one retries"; card.Children[0].Type != "markdown" || card.Children[0].Md != want {
+		t.Fatalf("first child = %+v, want markdown %q", card.Children[0], want)
+	}
+	if !strings.HasPrefix(card.Children[1].Md, "**From:**") || lacksBackground(block) {
+		t.Fatalf("children = %+v", card.Children)
+	}
+}
+
+func TestAPRNamedByLinkAndByNumberDrawsOneBlockForEachPR(t *testing.T) {
+	block, err := Ask{
+		Title: "Keep the gate?", NothingToBuild: "a pick",
+		Background: "[cc-slack #114](https://github.com/yasyf/cc-slack/pull/114) fixes the read. #114 ports it, and yasyf/cc-skills#114 is another.",
+		Options:    []string{"Keep :: [PR #114](https://github.com/yasyf/cc-slack/pull/114) lands.", "Drop :: Nothing moves."},
+	}.Block("Forge-AI/monorepo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		Summary  string `json:"summary"`
+		Children []struct {
+			ID     string `json:"id"`
+			Type   string `json:"type"`
+			Repo   string `json:"repo"`
+			Number int    `json:"number"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	if want := "[cc-slack #114](https://github.com/yasyf/cc-slack/pull/114) fixes the read. [#114](https://github.com/Forge-AI/monorepo/pull/114) ports it, and yasyf/cc-skills#114 is another."; card.Summary != want {
+		t.Fatalf("summary = %q, want %q", card.Summary, want)
+	}
+	ids := map[string]bool{}
+	var prs []string
+	for _, child := range card.Children {
+		if ids[child.ID] {
+			t.Fatalf("block id %q is drawn twice in %+v", child.ID, card.Children)
+		}
+		ids[child.ID] = true
+		if child.Type == "pr" {
+			prs = append(prs, fmt.Sprintf("%s#%d", child.Repo, child.Number))
+		}
+	}
+	if want := []string{"yasyf/cc-slack#114", "Forge-AI/monorepo#114", "yasyf/cc-skills#114"}; !slices.Equal(prs, want) {
+		t.Fatalf("prs = %v, want %v", prs, want)
+	}
+}
+
 func TestAskFlagsAreRefusedSayingWhatToChange(t *testing.T) {
 	good := Ask{Title: "Which one?", Background: "Why it matters.", Options: []string{"One :: It does one.", "Two :: It does two."}, NothingToBuild: "a pick"}
 	for name, tc := range map[string]struct {
