@@ -506,7 +506,7 @@ func TestAHeadThatMatchesNoHeadEveryLaneGradedOkIsReadByCodex(t *testing.T) {
 			shell, _ := newFidelityFake(t, c.patches, fidelityReplyOf(nil))
 			mustFidelity(t, directory, shell)
 			ask := shell.asks()[0]
-			sameList(t, ask[:6], []string{"codex-ask", "-m", "sol", "--incident", "--schema", filepath.Join(directory, schemaFile)})
+			sameList(t, ask[:8], []string{"codex-ask", "-m", "sol", "--effort", "medium", "--incident", "--schema", filepath.Join(directory, schemaFile)})
 			if !strings.HasPrefix(shell.texts()[0], "fidelity: ok "+shaHead+" Resubscribes") {
 				t.Errorf("posted %q", shell.texts()[0])
 			}

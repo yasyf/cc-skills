@@ -347,19 +347,21 @@ func TestAReviewAddressedToAWorkerNoLaneRegisteredStillPostsAndThePassSucceeds(t
 	equal(t, resultOf(t, directory)["posted"].(string), "#150001")
 }
 
-func TestAFinderPassAsksCodexAtTheTierItsJobNames(t *testing.T) {
+func TestAFinderPassAsksCodexAtItsJobsTierWithSolAtMedium(t *testing.T) {
 	cases := []struct {
-		name string
-		fast bool
-		want []string
+		name  string
+		model string
+		fast  bool
+		want  []string
 	}{
-		{"fast", true, []string{"codex-ask", "-m", "sol", "--incident", "--schema", "findings"}},
-		{"standard", false, []string{"codex-ask", "-m", "sol", "--schema", "findings"}},
+		{"fast", "sol", true, []string{"codex-ask", "-m", "sol", "--effort", "medium", "--incident", "--schema", "findings"}},
+		{"standard", "sol", false, []string{"codex-ask", "-m", "sol", "--effort", "medium", "--schema", "findings"}},
+		{"luna keeps its effort", "luna", false, []string{"codex-ask", "-m", "luna", "--schema", "findings"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			shell, _ := newFinderFake(t, replyOf())
-			mustFinder(t, finderJobDir(t, map[string]any{"fast": c.fast}), shell)
+			mustFinder(t, finderJobDir(t, map[string]any{"fast": c.fast, "model": c.model}), shell)
 			sameList(t, shell.asks()[0][:len(c.want)], c.want)
 		})
 	}
@@ -689,7 +691,7 @@ func TestAPassAfterAnEarlierFinderReadsSinceThatHeadAndChecksItsMajors(t *testin
 		t.Error("a delta pass read the register slice")
 	}
 	ask := shell.asks()[0]
-	sameList(t, ask[:6], []string{"codex-ask", "-m", "sol", "--incident", "--schema", "findings"})
+	sameList(t, ask[:8], []string{"codex-ask", "-m", "sol", "--effort", "medium", "--incident", "--schema", "findings"})
 	equal(t, ask[len(ask)-1], filepath.Join(directory, "question-1.md"))
 	equal(t, shell.posted[0]["--text"], "finder: ok "+shaHead+" sol finder over delta "+shaOld[:7]+".."+shaHead[:7]+": no majors")
 }
@@ -1203,7 +1205,7 @@ func TestAReplyCutOffAtTheModelsOutputCapIsAskedOnceMoreOnSol(t *testing.T) {
 	asks := shell.asks()
 	equal(t, asks[0][2], "luna")
 	equal(t, asks[0][slices.Index(asks[0], "-s")+1], filepath.Join(directory, "codex-1"))
-	equal(t, asks[1][2], "sol")
+	sameList(t, asks[1][:5], []string{"codex-ask", "-m", "sol", "--effort", "medium"})
 	equal(t, asks[1][slices.Index(asks[1], "-s")+1], filepath.Join(directory, "codex-1-sol"))
 	equal(t, len(shell.posted), 1)
 
