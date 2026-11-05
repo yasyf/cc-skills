@@ -718,13 +718,15 @@ func TestBusRecordsLandAsFactRowsAndMoveTheCursor(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	post(t, "lane-7", bus.Head{PR: 1, Head: head, Lane: "lane-7"}, "supervisor")
 	post(t, "finder-desk", bus.Grade{PR: 1, Head: head, Grader: "finder", Verdict: "ask"}, "supervisor")
-	post(t, "root", bus.Verdict{PR: 1, Head: head, Verdict: "accept"}, "supervisor")
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "decide", PRs: []string{"1"}, Text: "finder-override #1 at " + head[:7] + ": 439849."}); err != nil {
+		t.Fatal(err)
+	}
 	post(t, "supervisor", bus.Tap{PR: 1, Head: head, By: "rule", Value: "tapped", Rule: "test-only"}, "supervisor")
 	post(t, "fidelity-desk", bus.Grade{PR: 1, Head: head, Grader: "fidelity", Verdict: "pass"}, "supervisor")
 
 	row := h.snapshot(t)[1]
 
-	if row.Lane != "lane-7" || row.Finder != machine.FinderAsk || row.Fidelity != machine.FidelityPass || !row.Verdict || row.Tap != machine.TapTapped || !row.Exempt {
+	if row.Lane != "lane-7" || row.Finder != machine.FinderAsk || row.Fidelity != machine.FidelityPass || !row.FinderOverride || row.Tap != machine.TapTapped || !row.Exempt {
 		t.Fatalf("row = %+v", row)
 	}
 	if !row.Cleared() || !row.Landable() {
@@ -758,7 +760,9 @@ func TestAClearThatLandsAfterThePassReadTheBusAppliesNextPass(t *testing.T) {
 	post(t, "finder-desk", bus.Grade{PR: 1, Head: head, Grader: "finder", Verdict: "ask"}, "supervisor")
 
 	before := h.snapshot(t)[1]
-	post(t, "root", bus.Verdict{PR: 1, Head: head, Verdict: "accept"}, "supervisor")
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "decide", PRs: []string{"1"}, Text: "finder-override #1 at " + head[:7] + ": 439849."}); err != nil {
+		t.Fatal(err)
+	}
 	after := h.snapshot(t)[1]
 
 	if before.Cleared() || !after.Cleared() {
@@ -1600,7 +1604,6 @@ func TestAnOverrideCarriesToANewHeadOnlyWhenItsOwnDiffIsTheSame(t *testing.T) {
 			s := memory(t)
 			putFact(t, s, 1, head2, "finder", "ask", tappedAt)
 			putFact(t, s, 1, head2, "fidelity", "pass", tappedAt)
-			putFact(t, s, 1, head2, "verdict", "accept", tappedAt.Add(time.Minute))
 			putFact(t, s, 1, head2, machine.OverrideFact("finder"), "434757", tappedAt.Add(time.Minute))
 			on(t, s, recordedPR{number: 1, head: head2, login: "drive-bot", diff: ownDiff}).snapshot(t)
 			putFact(t, s, 1, head, "finder", "ask", tappedAt.Add(time.Hour))

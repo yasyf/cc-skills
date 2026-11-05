@@ -24,6 +24,8 @@ import (
 const (
 	portInteractsUnstated = "unstated"
 	headGrace             = 5 * time.Minute
+	oldOverridesCursor    = "old-overrides"
+	oldOverrideWindow     = 14 * 24 * time.Hour
 )
 
 const (
@@ -84,6 +86,9 @@ type Held struct {
 }
 
 func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, error) {
+	if err := f.readOldOverrides(ctx); err != nil {
+		return nil, err
+	}
 	after, err := f.Store.Cursor(store.ReviewRowsCursor)
 	if err != nil {
 		return nil, err
@@ -149,6 +154,29 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		return t.PutReviewRows(out)
 	})
 	return out, err
+}
+
+// TODO: delete once every drive's store has advanced this cursor; it reads the overrides posted before each one named its grader.
+func (f Fold) readOldOverrides(ctx context.Context) error {
+	read, err := f.Store.Cursor(oldOverridesCursor)
+	if err != nil || read != 0 {
+		return err
+	}
+	records, err := client.Tail(ctx, client.Query{Drive: f.Drive, Kinds: []string{"decide"}, Since: f.Now().Add(-oldOverrideWindow)})
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		for _, fact := range bus.LegacyFacts(record, f.Repo, nil) {
+			if !strings.HasPrefix(fact.Kind, machine.OverrideFact("")) {
+				continue
+			}
+			if _, err := f.Store.PutFact(f.Repo, fact.PR, fact.Head, fact.Kind, fact.Value, record.At); err != nil {
+				return err
+			}
+		}
+	}
+	return f.Store.Advance(oldOverridesCursor, 1)
 }
 
 func values(rows map[int]store.ReviewRow) []store.ReviewRow {
@@ -500,9 +528,9 @@ func stateOf(row store.ReviewRow, facts map[string]string) string {
 }
 
 func gradeOf(facts map[string]string) (string, string) {
-	_, verdict := facts["verdict"]
 	finder, fidelity := machine.GradesOf(facts)
-	graded := machine.Facts{Finder: finder, Fidelity: fidelity, Verdict: verdict}
+	overrideFinder, overrideFidelity := machine.OverridesOf(facts)
+	graded := machine.Facts{Finder: finder, Fidelity: fidelity, FinderOverride: overrideFinder, FidelityOverride: overrideFidelity}
 	switch {
 	case !graded.Graded():
 		return GradePending, None

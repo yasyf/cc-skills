@@ -954,8 +954,67 @@ func TestARootOverrideAtAHeadWhosePassesStoppedReadsAsItsGrade(t *testing.T) {
 	}
 
 	overridden := maps.Clone(base)
-	overridden["verdict"], overridden[machine.OverrideFact("fidelity")] = "accept", "accept"
+	overridden[machine.OverrideFact("fidelity")] = "accept"
 	if after := Materialize(ready, overridden, Held{}, nil, "dev"); after.Grade != GradePass {
 		t.Fatalf("overridden: grade %q, waits %q", after.Grade, after.WaitsOn)
+	}
+}
+
+func postOverride(t *testing.T, text string) {
+	t.Helper()
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "decide", Text: text, PRs: []string{testRepo + "#1"}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAFinderOverrideLeavesAFailedFidelityFailedAndAFidelityOverrideClearsIt(t *testing.T) {
+	row := store.ReviewRow{Number: 1, Head: headA, Hold: None, SupersededBy: None, State: StateOpen}
+	failed := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderAsk), "fidelity": string(machine.FidelityFail), machine.OverrideFact("finder"): "284378"}
+
+	if got := Materialize(row, failed, Held{}, nil, "dev"); got.Grade != GradeFail || got.ReadyForTap {
+		t.Fatalf("finder override alone: grade %q, ready %v, want fail and not ready", got.Grade, got.ReadyForTap)
+	}
+	both := maps.Clone(failed)
+	both[machine.OverrideFact("fidelity")] = "443549"
+	if got := Materialize(row, both, Held{}, nil, "dev"); got.Grade != GradePass {
+		t.Fatalf("both overrides: grade %q, waits %q, want pass", got.Grade, got.WaitsOn)
+	}
+}
+
+func failedFidelity(t *testing.T, s *store.Store) {
+	t.Helper()
+	for kind, value := range map[string]string{"fidelity": "fail", "finder": "clear", "verdict": "accept"} {
+		if _, err := s.PutFact(testRepo, 1, headA, kind, value, time.Now().Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAnOldVerdictWithNoRecordNamingItsGraderClearsNothing(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	failedFidelity(t, s)
+	if row := folded(t, f, 1); row.Grade != GradeFail {
+		t.Fatalf("grade %q, want fail", row.Grade)
+	}
+}
+
+func TestAnOldOverrideIsReadBackFromItsOwnRecordOnce(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	postOverride(t, "fidelity-override #1 at "+headA[:7]+": 443549. the plan does not reach this.")
+	failedFidelity(t, s)
+	if row := folded(t, f, 1); row.Grade != GradePass {
+		t.Fatalf("grade %q, want pass", row.Grade)
+	}
+	facts, err := s.Facts(testRepo, 1, headA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts[machine.OverrideFact("fidelity")] != "443549" {
+		t.Fatalf("facts = %v, want the record's cite", facts)
+	}
+	if read, err := s.Cursor(oldOverridesCursor); err != nil || read == 0 {
+		t.Fatalf("cursor = %d, %v, want it advanced so the read runs once", read, err)
 	}
 }

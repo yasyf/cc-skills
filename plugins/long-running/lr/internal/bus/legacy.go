@@ -313,10 +313,9 @@ func UnreadOverrides(record client.Record) []string {
 func overrides(text string) []Fact {
 	var out []Fact
 	for _, override := range overridesIn(text) {
-		for _, fact := range []Fact{{override.PR, override.Head, "verdict", "accept"}, {override.PR, override.Head, machine.OverrideFact(override.Grader), cmp.Or(override.Cites, "accept")}} {
-			if !slices.Contains(out, fact) {
-				out = append(out, fact)
-			}
+		fact := Fact{override.PR, override.Head, machine.OverrideFact(override.Grader), cmp.Or(override.Cites, "accept")}
+		if !slices.Contains(out, fact) {
+			out = append(out, fact)
 		}
 	}
 	return out

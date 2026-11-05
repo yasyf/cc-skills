@@ -27,6 +27,9 @@ func Command(*app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if post.kind == "verdict" {
+				return &Refused{"a verdict cannot name the grader it answers, so it clears nothing; root posts a decide record reading finder-override #<pr> at <sha>: <cite>, or fidelity-override"}
+			}
 			record, err := Bus{Drive: post.drive, Lane: post.lane}.PostFields(cmd.Context(), post.kind, post.fields, post.to)
 			if err != nil {
 				return err

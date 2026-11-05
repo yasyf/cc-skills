@@ -114,6 +114,10 @@ func OverrideFact(grader string) string {
 	return "override-" + grader
 }
 
+func OverridesOf(stored map[string]string) (finder, fidelity bool) {
+	return stored[OverrideFact("finder")] != "", stored[OverrideFact("fidelity")] != ""
+}
+
 func GradesOf(stored map[string]string) (Finder, Fidelity) {
 	finder, fidelity := Finder(stored["finder"]), Fidelity(stored["fidelity"])
 	if stored[GradeStoppedFact] == "" {
@@ -139,45 +143,46 @@ const (
 )
 
 type Facts struct {
-	Repo          string
-	Number        int
-	Title         string
-	Head          string
-	Branch        string
-	Base          string
-	Lane          string
-	ForeignAuthor string
-	Draft         bool
-	Closed        bool
-	Merged        bool
-	CI            CI
-	Failing       []string
-	Approved      bool
-	Approvers     []string
-	Mergeable     Mergeable
-	Uncomputed    bool
-	Queue         Queue
-	QueuedHead    string
-	Resubmitted   int
-	Finder        Finder
-	Fidelity      Fidelity
-	Verdict       bool
-	Tap           Tap
-	TapFrom       string
-	CarriedBy     string
-	TapReturned   string
-	Exempt        bool
-	StandingWord  string
-	Hold          Mover
-	HoldSeq       int64
-	HoldAwaitsTap bool
-	Carries       []int
-	Condition     string
-	UnsafeWait    string
-	Body          string
-	GradeStopped  string
-	RowWait       string
-	TapRefused    string
+	Repo             string
+	Number           int
+	Title            string
+	Head             string
+	Branch           string
+	Base             string
+	Lane             string
+	ForeignAuthor    string
+	Draft            bool
+	Closed           bool
+	Merged           bool
+	CI               CI
+	Failing          []string
+	Approved         bool
+	Approvers        []string
+	Mergeable        Mergeable
+	Uncomputed       bool
+	Queue            Queue
+	QueuedHead       string
+	Resubmitted      int
+	Finder           Finder
+	Fidelity         Fidelity
+	FinderOverride   bool
+	FidelityOverride bool
+	Tap              Tap
+	TapFrom          string
+	CarriedBy        string
+	TapReturned      string
+	Exempt           bool
+	StandingWord     string
+	Hold             Mover
+	HoldSeq          int64
+	HoldAwaitsTap    bool
+	Carries          []int
+	Condition        string
+	UnsafeWait       string
+	Body             string
+	GradeStopped     string
+	RowWait          string
+	TapRefused       string
 }
 
 func (f Facts) Green() bool {
@@ -189,7 +194,7 @@ func (f Facts) Graded() bool {
 }
 
 func (f Facts) Cleared() bool {
-	return f.Graded() && ((f.Finder == FinderClear && f.Fidelity == FidelityPass) || f.Verdict)
+	return f.Graded() && (f.Finder == FinderClear || f.FinderOverride) && (f.Fidelity == FidelityPass || f.FidelityOverride)
 }
 
 func (f Facts) Ours() bool {

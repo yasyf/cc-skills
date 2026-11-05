@@ -90,8 +90,9 @@ func TestATapCarriesOnlyWhenTheNewHeadMeansTheSameAsTheTappedOne(t *testing.T) {
 		"fidelity judged it changed":                {tapped, judged(BehaviorChanged, oldHead, "pass"), ""},
 		"the same since a later carried head":       {tapped, judged(BehaviorSame, "bb22cc33dd44", "pass"), ""},
 		"the same but a plan line is missing":       {tapped, judged(BehaviorSame, oldHead, "fail"), ""},
-		"the same with its plan line overridden":    {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "fail", verdictFact: "accept"}, ByFidelity},
-		"changed though a plan line is overridden":  {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorChanged, SinceFact: oldHead, fidelityFact: "fail", verdictFact: "accept"}, ""},
+		"the same with its plan line overridden":    {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "fail", machine.OverrideFact(fidelityKind): "accept"}, ByFidelity},
+		"the same with only its finder overridden":  {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "fail", machine.OverrideFact(finderKind): "accept"}, ""},
+		"changed though a plan line is overridden":  {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorChanged, SinceFact: oldHead, fidelityFact: "fail", machine.OverrideFact(fidelityKind): "accept"}, ""},
 		"the same since a shorter form of the head": {tapped, judged(BehaviorSame, oldHead[:7], "pass"), ByFidelity},
 		"the same since nothing named":              {tapped, judged(BehaviorSame, "", "pass"), ""},
 		"a different diff not judged yet":           {tapped, map[string]string{DiffFact: "other", fidelityFact: "pass"}, ""},
@@ -268,7 +269,7 @@ func TestCarriedOverrides(t *testing.T) {
 		"the same diff, not graded yet":    {overridden, map[string]string{DiffFact: "d1"}, []string{"finder"}},
 		"another diff":                     {overridden, map[string]string{DiffFact: "d2", "finder": "ask", "fidelity": "pass"}, nil},
 		"a grader nothing overrode":        {overridden, map[string]string{DiffFact: "d1", "finder": "ask", "fidelity": "fail"}, nil},
-		"already counted at this head":     {overridden, map[string]string{DiffFact: "d1", "finder": "ask", "fidelity": "pass", verdictFact: "accept"}, nil},
+		"already counted at this head":     {overridden, map[string]string{DiffFact: "d1", "finder": "ask", "fidelity": "pass", machine.OverrideFact("finder"): "9"}, nil},
 		"the diff at the old head unread":  {map[string]string{"finder": "ask", machine.OverrideFact("finder"): "9"}, map[string]string{DiffFact: "d1"}, nil},
 	} {
 		t.Run(name, func(t *testing.T) {

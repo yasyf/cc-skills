@@ -176,26 +176,30 @@ func TestAnOverrideStopsClearingOnceAGradeFailsAfterItAndARepeatClearsAgain(t *t
 			t.Fatal(err)
 		}
 	}
-	verdict := func() bool {
+	overridden := func(grader string) bool {
 		t.Helper()
 		facts, err := s.Facts("r", 1, full)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return facts["verdict"] != ""
+		return facts[machine.OverrideFact(grader)] != ""
 	}
 
-	put(short, "verdict", "accept", 0)
-	put(full, "fidelity", "pass", time.Minute)
-	if !verdict() {
+	put(short, machine.OverrideFact("finder"), "434757", 0)
+	put(short, machine.OverrideFact("fidelity"), "434758", 0)
+	put(full, "finder", "clear", time.Minute)
+	if !overridden("finder") {
 		t.Fatal("a passing grade after the override dropped it")
 	}
 	put(full, "finder", "ask", time.Hour)
-	if verdict() {
-		t.Fatal("an override older than a failing grade still stands")
+	if overridden("finder") {
+		t.Fatal("an override older than its own grader's failing grade still stands")
 	}
-	put(short, "verdict", "accept", 2*time.Hour)
-	if !verdict() {
+	if !overridden("fidelity") {
+		t.Fatal("a failing finder grade dropped the fidelity override")
+	}
+	put(short, machine.OverrideFact("finder"), "434757", 2*time.Hour)
+	if !overridden("finder") {
 		t.Fatal("a repeated override after the grade does not stand")
 	}
 }

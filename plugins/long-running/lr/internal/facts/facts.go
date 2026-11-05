@@ -345,7 +345,7 @@ func (s Source) ingestBus(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	records, _, err := s.Bus.Read(ctx, since, "head", "grade", "tap", "verdict")
+	records, _, err := s.Bus.Read(ctx, since, "head", "grade", "tap")
 	if err != nil {
 		return err
 	}
@@ -367,8 +367,6 @@ func (s Source) ingestRecord(record bus.Record) error {
 		facts = []bus.Fact{{PR: body.PR, Head: body.Head, Kind: body.Grader, Value: body.Verdict}}
 	case bus.Tap:
 		facts = append(tapFacts(body), bus.Fact{PR: body.PR, Head: body.Head, Kind: prrow.FactTapBy, Value: body.By}, bus.Fact{PR: body.PR, Head: body.Head, Kind: prrow.FactTapAt, Value: store.Stamp(record.At)})
-	case bus.Verdict:
-		facts = []bus.Fact{{PR: body.PR, Head: body.Head, Kind: "verdict", Value: body.Verdict}}
 	case bus.Head:
 		facts = headFacts(body)
 	}
@@ -951,7 +949,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 	f.Tap, f.Condition = machine.Tap(stored["tap"]), stored["condition"]
 	f.GradeStopped = stored[machine.GradeStoppedFact]
 	f.TapRefused = stored[bus.TapRefusedFact]
-	_, f.Verdict = stored["verdict"]
+	f.FinderOverride, f.FidelityOverride = machine.OverridesOf(stored)
 	_, f.Exempt = stored["exempt"]
 	f.StandingWord, _ = gates.LandsOnWord(stored)
 	return nil
