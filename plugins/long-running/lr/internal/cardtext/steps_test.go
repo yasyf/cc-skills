@@ -22,3 +22,22 @@ func TestACardThatHandsHimStepsIsNamed(t *testing.T) {
 		}
 	}
 }
+
+func TestACardThatAsksHimToSignInToAWSIsNamed(t *testing.T) {
+	for text, want := range map[string]string{
+		"The read for the findings needs your Okta sign-in":        "Okta sign-in",
+		"I am at the Mac, or run aws sso login yourself":           "aws sso login",
+		"Sign in to AWS so the lane can read the bucket":           "Sign in to AWS",
+		"Open https://d-0000000000.awsapps.com/start/#/device now": "awsapps.com",
+		"Log in to Apple and enable push":                          "",
+		"Merge the IaC PR granting s3:GetObject on the seeds?":     "",
+	} {
+		card, err := json.Marshal(map[string]any{"type": "card", "title": text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := AWSSignInForHim(card); got != want {
+			t.Errorf("%q named %q, want %q", text, got, want)
+		}
+	}
+}

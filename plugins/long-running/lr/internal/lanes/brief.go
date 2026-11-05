@@ -22,12 +22,12 @@ var (
 
 	BriefAssignedOrders = regexp.MustCompile(`(?m)^` + AssignedOrdersLine + `(.*)$`)
 
-	MacNeeds = []string{"sentry", "datadog", "signed-in", "cc-present", "mac-build", "mac-state", "devbox"}
+	MacNeeds = []string{"sentry", "datadog", "signed-in", "cc-present", "mac-build", "mac-state", "devbox", "aws-machine-profile"}
 )
 
 const (
 	AssignedOrdersLine = "Assigned orders:"
-	MacNeedsLine       = "why=sentry or why=datadog to read evidence there, why=signed-in for a proof in a signed-in session, why=cc-present to serve the owner's board or another page he opens on this Mac, why=mac-build for a build or install only this Mac runs, why=mac-state to read or change this Mac's own stores, worktrees or processes, or why=devbox to claim a devbox or EC2 Mac box with this Mac's AWS identity"
+	MacNeedsLine       = "why=sentry or why=datadog to read evidence there, why=signed-in for a proof in a signed-in session, why=cc-present to serve the owner's board or another page he opens on this Mac, why=mac-build for a build or install only this Mac runs, why=mac-state to read or change this Mac's own stores, worktrees or processes, why=devbox to claim a devbox or EC2 Mac box with this Mac's AWS identity, or why=aws-machine-profile for an AWS read or tools/ci call, such as scripts/stack-enqueue, that runs on this Mac's machine profile"
 )
 
 type Brief struct {

@@ -251,7 +251,7 @@ remote unless it drives the Mac's Orca app. A testing or perf lane under an owne
 stood down because a PR or a bar was met: it moves to the next scenario, and only the owner retires it.
 
 **R24.** Every production operation is one line in the cc-notes log `production-operations` that
-turn; incident lanes read its last day before naming a mechanism. No lane calls production as the owner or uses his signed-in browser, Orca tab, session or Iris, read or write, under any authority, incident apply authority included; his own words lifted exactly one use, a released-build proof on a test Mac on his Personal team that root granted a lane by name, and no yes but his own words lifts any other ([orca-lane-brief.md](reference/orca-lane-brief.md#who-spawns-asks-and-reads)).
+turn; incident lanes read its last day before naming a mechanism. No lane calls production as the owner or uses his signed-in browser, Orca tab, session or Iris, read or write, under any authority, incident apply authority included; his own words lifted exactly one use, a released-build proof on a test Mac on his Personal team that root granted a lane by name, and no yes but his own words lifts any other. An AWS read runs on the Mac's machine profile, the one `DEVBOX_AWS_PROFILE` names, never on his SSO sign-in, and no card or message asks him to sign in to AWS; a grant that profile lacks reaches him as a reviewed IaC PR naming the permission ([orca-lane-brief.md](reference/orca-lane-brief.md#who-spawns-asks-and-reads)).
 
 **R25.** A deadline comes with a plan. A record, update line or card that states a time something must
 happen by names the lane that meets it and the steps, and the pack refuses one without them.
@@ -280,15 +280,15 @@ ask reaches the coordinator as one `cci post --lane owner-relay --kind ask --to 
 and a message about the skill, its tooling, a prompt, a hook or the process, any ruling on how the drive works included,
 goes to the meta lane that turn as `--kind ask --to meta` naming his row. A read-only question of his is
 answered by the subagent spawned for it, never a drive lane. It talks only to the coordinator, the meta and signal lanes
-and helpers it spawned for its own work, and beyond the launches at drive start it posts no `go`, `hold`, `decide` or
-`launch`.
+and helpers it spawned for its own work, and beyond the launches at drive start it posts no `go`, `hold` or `launch`, and
+a `decide` only as its one proposal to root on a containment or security call (below).
 
 **The coordinator** runs in a foreground `lr coordinator next` loop for the life of the drive, reads
 reader `root` and posts as `root`. It launches lanes through the supervisor and Orca (`lr launch`),
 never with `Agent`, binds the Run and starts every desk (`lr desks start`). It never posts to Slack or
 the board and never speaks to the owner; everything he must see is a `report` to `owner-relay`. It
-owns drive work only and decides five things: a new ask gets a lane, an owner ruling is applied everywhere, an escalation
-gets one answer, a conflict between two owner rules is settled in one `report`, and a desk's output is relayed unchanged. A
+owns drive work only and decides six things: a new ask gets a lane, an owner ruling is applied everywhere, an escalation
+gets one answer, a conflict between two owner rules is settled in one `report`, a desk's output is relayed unchanged, and a containment or security call on a drive lane is its alone. The meta lane and the communicator each propose that call to root in one `--kind decide` line and never order the lane while root is on the question; the communicator puts it to the owner on a card only after root's call, and redraws that card only on his tap or on new facts. A
 hook that blocks it gets a fix lane like any session's. Any other tooling defect it hits goes out as
 `cci post --lane root --kind report --to owner-relay --text 'for meta: <the defect, any refusal verbatim>'` and the work proceeds on the hand path.
 

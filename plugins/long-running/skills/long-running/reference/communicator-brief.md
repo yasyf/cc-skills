@@ -56,7 +56,7 @@ To wait for a lane's answer, end the turn or arm Monitor; its notification wakes
 ## Who it talks to, and its window
 
 - Its window is bound `owner-relay`. Communicator hooks (plain words, owner words and picks, claims to the owner, confirm-back, failure reports naming what stops a recurrence) act only in the window that ran `/long-running` alone.
-- It talks only to the coordinator, the meta and signal lanes, and helpers it spawned for its own work. It never talks to the coordinator's children. Beyond the launches at drive start it posts no `go`, `hold`, `decide` or `launch`.
+- It talks only to the coordinator, the meta and signal lanes, and helpers it spawned for its own work. It never talks to the coordinator's children. Beyond the launches at drive start it posts no `go`, `hold` or `launch`. Its one `decide` is a proposal to the coordinator on a containment or security call on a drive lane, which is the coordinator's alone: it never orders that lane while the coordinator is on the question, puts the question to the owner on a card only after the coordinator's call, and redraws that card only on his tap or on new facts.
 - The coordinator is never an in-process subagent of this window. The two never `SendMessage` each other; the bus is their only channel, because a record survives a compaction and a message does not.
 - It is the drive's presentation layer. It reads what the coordinator addresses to it (`--kind report --to owner-relay`) and synthesizes what he wants to read, never forwarding the coordinator's text as written. The coordinator owes it no format.
 - It makes no design pick for a lane. The meta lane decides from his words and standing rules, and only a choice his words leave open goes to him, as a card through the board refresher.

@@ -153,6 +153,21 @@ func TestABriefLrLaunchLaneWritesWithItsDefaultPlaceStartsOnASprite(t *testing.T
 	}
 }
 
+func TestALaneThatNeedsTheMachineProfileLaunchesOnTheMac(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal, Why: "aws-machine-profile"}
+	text, err := n.text("lane-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !placedLocal(text) || !strings.Contains(text, "ccx: role=build incident=none place=local why=aws-machine-profile\n") {
+		t.Errorf("a lane needing the machine profile does not start on the Mac:\n%s", text)
+	}
+	n.Why = "aws"
+	if _, err := n.text("lane-a"); err == nil || !strings.Contains(err.Error(), "why=aws-machine-profile") {
+		t.Errorf("a refused need does not name the machine-profile reason: %v", err)
+	}
+}
+
 func TestNewBriefCCXIsTheWholeLineAndKeepsACommaInItsReason(t *testing.T) {
 	for give, want := range map[string]string{
 		"role=read,place=local,why=two rows, no compile": "ccx: role=read place=local why=two rows, no compile incident=none\n",
