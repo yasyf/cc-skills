@@ -170,8 +170,9 @@ function bodyAfterTitle(words, title) {
   const lead = /^[^.\n]{12,}[.\n]\s*/.exec(words);
   return lead && title.toLowerCase().startsWith(lead[0].replace(/[.\s]+$/, '').toLowerCase()) ? words.slice(lead[0].length) : words;
 }
-function chatBody(id, md, title = '') {
+function chatBody(id, md, title = '', whole = false) {
   const words = bodyAfterTitle(plain(namedChanges(md)).replace(DONE_LEAD, ''), title);
+  if (whole) return `<div class="rp-md prose obj-text">${replyMarkdown(id, words)}</div>`;
   const body = `<div class="rp-md prose obj-text" data-clamp="${esc(id)}">${replyMarkdown(id, words)}</div>`;
   return words.length > CLAMP_CHARS ? `${body}<button class="text-button" data-read="${esc(id)}">Read all</button>` : body;
 }
@@ -278,11 +279,11 @@ function replyObject(entry, t) {
   }
   const kind = REPLY_KIND[r.type];
   const failed = entry.surfaces.filter((s) => s.error).map((s) => `<p class="ct-failed">${esc(SURFACE_WORD[s.surface])} failed: ${esc(s.error)}</p>`).join('');
-  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r))}${live}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
+  if (t.rows.length && r.order && !r.picks?.length && r.type === 'update') return `<div class="update-row" id="rp-${esc(r.id)}">${chatIcon('spark')}<div><span class="update-title">${esc(replyTitle(r))} <time>${clock(entry.at)}</time>${objectReplyButton(key)}</span>${chatBody(r.id, r.md, replyTitle(r), Boolean(live))}${live}${failed}${objectReplyBox(key, about)}</div></div>${links}`;
   const label = picked ? 'Decision' : kind.label;
   const pickLine = picked ? `<p class="obj-picked">${chatIcon('check')}<span>You picked <b>${esc(picked)}</b></span></p>` : r.picks?.length ? '<p class="ct-closed">This pick is no longer open.</p>' : '';
   const done = !picked && bareAskOpen(entry, t.said.length > 0) ? `<div class="decision-tail"><button class="action primary" data-chat-done="${esc(key)}" data-about="${esc(about)}">Done</button></div>` : '';
-  return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}${live ? ' has-live' : ''}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r))}${live}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
+  return `<div class="artifact decision-card ${picked ? 'ok' : kind.tone}${live ? ' has-live' : ''}" id="rp-${esc(r.id)}"><div class="artifact-top">${chatIcon(picked ? 'check' : kind.icon)} ${label}<span class="right">${clock(entry.at)}${objectReplyButton(key)}</span></div><h3>${esc(replyTitle(r))}</h3>${pickLine}${chatBody(r.id, r.md, replyTitle(r), Boolean(live))}${live}${done}${failed}${objectReplyBox(key, about)}</div>${links}`;
 }
 function whoHasIt(t) {
   const owed = t.rows.map((part) => part.owed).find(Boolean);

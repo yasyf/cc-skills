@@ -588,10 +588,10 @@ const collate = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).
 const rp = { sort: new Map(), sent: [], failed: new Map(), modal: null };
 const NOISE = [
   [/<!--[\s\S]*?-->/g, ''],
-  [/\s*\([^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
+  [/\s*\((?!card:)[^()]*\b(?:records?|owner table|card-[a-z0-9-]+)\b[^()]*\)/gi, ''],
   [/\brecords?\s+#*\d[\dx]*\b/gi, ''],
   [/\bowner table\s+[0-9a-f]{6,}\b/gi, ''],
-  [/\bcard-[a-z0-9-]+\b/g, 'the card'],
+  [/(?<!card:)\bcard-[a-z0-9-]+\b/g, 'the card'],
   [/#+\d{6}\b|#\d{3}xxx\b/g, ''],
   [/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g, ''],
   [/\b[\w.-]+(?:\/[\w.-]+)?#\d+\b/g, 'a tooling change'],

@@ -146,6 +146,7 @@ function inline(md) {
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/\[([^\]]+)\]\(card:([^)\s]+)\)/g, '<a href="#/question/$2">$1</a>')
     .replace(/#(\d{5})\b/g, (_, n) => prLink(n))
     .replace(/(\d) (ms|s|min|h|KB|MB|GB)\b/g, '$1&nbsp;$2');
 }
@@ -216,8 +217,12 @@ function boardCard(item) {
   const answers = c.embed ? `<div class="bq-acts"><button class="btn" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card' : 'Answer it here'}</button></div>` : pickSet(c, { said, other: true });
   const live = liveParts(state.model.board.cards.find((card) => card.id === c.id)?.live);
   const summary = c.summary || said?.means;
-  const why = live && summary?.length > 240 ? `<details class="live-summary"><summary><span>${inline(summary.replace(/<!--[^]*?-->/g, ''))}</span><small class="live-read">Read all</small></summary></details>` : summary ? `<p class="mr-why">${inline(live ? summary.replace(/<!--[^]*?-->/g, '') : summary)}</p>` : '';
-  return `<article class="mr bq${live ? ' has-live' : ''}" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span></header>${why}${live}${answers}${explainMore(c)}${cardAsk(c)}</article>`;
+  const lead = live ? summary?.replace(/<!--[^]*?-->/g, '').trim() : summary;
+  const pages = live ? (c.parts ?? []).filter((p) => p.kind === 'page').map((p) => ({ ...p, md: p.md.replace(/<!--[^]*?-->/g, '').trim() })) : [];
+  const shown = pages.some((p) => lead && p.md.startsWith(lead)) ? null : lead;
+  const why = shown ? `<p class="mr-why">${inline(shown)}</p>` : '';
+  const rest = live ? { ...c, parts: (c.parts ?? []).filter((p) => p.kind !== 'page') } : c;
+  return `<article class="mr bq${live ? ' has-live' : ''}" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(said?.question ?? words(c.title))}</span></header>${why}${live}${pages.map(cardPart).join('')}${answers}${explainMore(rest)}${cardAsk(c)}</article>`;
 }
 function liveSettled(item) {
   return ['answered', 'landed'].includes(item.state);
@@ -238,13 +243,14 @@ function liveActions(item) {
   }).join('');
 }
 function liveSays(item) {
-  return item.says.length > 160 ? `<details class="live-says live-long"><summary><span>${esc(item.says)}</span><small class="live-read">Read all</small></summary></details>` : `<p class="live-says">${esc(item.says)}</p>`;
+  return `<p class="live-says">${esc(item.says)}</p>`;
 }
 function liveCard(item) {
   const settled = liveSettled(item);
-  const change = !settled && item.change ? `<details class="live-change"><summary><span>${inline(item.change)}</span><small class="live-read">Read all</small></summary>${item.risk ? `<div class="live-risk">${markdown(item.risk)}</div>` : ''}</details>` : '';
+  const change = !settled && item.change ? `<div class="live-change">${inline(item.change)}</div>` : '';
+  const risk = !settled && item.risk ? `<div class="live-risk"><b>Risk</b>${markdown(item.risk)}</div>` : '';
   const error = item.kind === 'pr' && pending.number === item.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : '';
-  return `<article class="artifact pr-card live-item${settled ? ' live-settled' : ''}" data-live-ref="${esc(item.ref)}"><div class="artifact-top">${chatIcon(item.kind === 'pr' ? 'pr' : 'spark')}${item.number ? `<a class="live-number" href="${esc(item.href)}">#${item.number}</a>` : ''}<span class="live-state ${esc(item.state)}">${esc(item.state)}</span></div><div class="pr-heading"><h3><a href="${esc(item.href)}" title="${esc(item.title)}">${esc(item.title)}</a></h3></div>${change}${liveSays(item)}${item.actions.length && !settled ? `<div class="pr-bottom">${liveActions(item)}</div>` : ''}${error}</article>`;
+  return `<article class="artifact pr-card live-item${settled ? ' live-settled' : ''}" data-live-ref="${esc(item.ref)}"><div class="artifact-top">${chatIcon(item.kind === 'pr' ? 'pr' : 'spark')}${item.number ? `<a class="live-number" href="${esc(item.href)}">#${item.number}</a>` : ''}<span class="live-state ${esc(item.state)}">${esc(item.state)}</span></div><div class="pr-heading"><h3><a href="${esc(item.href)}" title="${esc(item.title)}">${esc(item.title)}</a></h3></div>${liveSays(item)}${item.actions.length && !settled ? `<div class="pr-bottom">${liveActions(item)}</div>` : ''}${error}${change}${risk}</article>`;
 }
 function liveObject(item) {
   return item.kind === 'pr' ? prCard(item.number, item) : liveCard(item);
