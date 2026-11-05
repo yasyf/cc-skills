@@ -93,22 +93,9 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err := s.WriteOrders(ctx); err != nil {
 		return nil, fmt.Errorf("write his land orders: %w", err)
 	}
-	if err := s.ingestBus(ctx); err != nil {
-		return nil, fmt.Errorf("read the bus: %w", err)
-	}
-	if err := s.ingestLegacy(ctx); err != nil {
-		return nil, fmt.Errorf("read today's records: %w", err)
-	}
-	if err := s.readLostGrades(ctx); err != nil {
-		return nil, fmt.Errorf("read the grades behind the cursor: %w", err)
-	}
-	held, err := s.holds(ctx)
+	held, rows, err := s.foldRecords(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("read holds: %w", err)
-	}
-	rows, err := s.Rows().Pass(ctx, heldWords(held))
-	if err != nil {
-		return nil, fmt.Errorf("fold the review rows: %w", err)
+		return nil, err
 	}
 	if !s.Reads {
 		return s.fromRows(rows, held)
@@ -116,6 +103,43 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err := s.admitOutside(ctx, rows); err != nil {
 		s.Log.Warn("the search for old-tree pull requests no drive lane opened failed", "error", err)
 	}
+	return s.readGitHub(ctx, rows, held)
+}
+
+func (s Source) ReadOnce(ctx context.Context) (int, error) {
+	held, rows, err := s.foldRecords(ctx)
+	if err != nil {
+		return 0, err
+	}
+	snapshot, err := s.readGitHub(ctx, rows, held)
+	if err != nil {
+		return 0, err
+	}
+	return len(snapshot), s.Rows().PostReads(ctx, snapshot)
+}
+
+func (s Source) foldRecords(ctx context.Context) (map[int]hold, []store.ReviewRow, error) {
+	if err := s.ingestBus(ctx); err != nil {
+		return nil, nil, fmt.Errorf("read the bus: %w", err)
+	}
+	if err := s.ingestLegacy(ctx); err != nil {
+		return nil, nil, fmt.Errorf("read today's records: %w", err)
+	}
+	if err := s.readLostGrades(ctx); err != nil {
+		return nil, nil, fmt.Errorf("read the grades behind the cursor: %w", err)
+	}
+	held, err := s.holds(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read holds: %w", err)
+	}
+	rows, err := s.Rows().Pass(ctx, heldWords(held))
+	if err != nil {
+		return nil, nil, fmt.Errorf("fold the review rows: %w", err)
+	}
+	return held, rows, nil
+}
+
+func (s Source) readGitHub(ctx context.Context, rows []store.ReviewRow, held map[int]hold) ([]machine.Facts, error) {
 	itemed, err := s.itemed()
 	if err != nil {
 		return nil, err

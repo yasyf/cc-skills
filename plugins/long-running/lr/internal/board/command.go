@@ -133,7 +133,7 @@ func Command(a *app.App) *cobra.Command {
 		entry, board, err := opened()
 		return CardsOf(a, entry, board, nil), err
 	}
-	cmd.AddCommand(wakeCommand(a, cards), waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, unstored, PackJudge(a.Runner)), rowsCommand(opened), portsCommand(opened), backfillCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened, PackJudge(a.Runner)), picksCommand(opened))
+	cmd.AddCommand(wakeCommand(a, cards), waitsCommand(a, opened), redsCommand(a, opened), cardsCommand(cards, unstored, PackJudge(a.Runner)), rowsCommand(opened), portsCommand(opened), backfillCommand(a, opened), readCommand(a, opened), classifyCommand(), slackCardCommand(a), linkCommand(a, opened, PackJudge(a.Runner)), picksCommand(opened))
 	return cmd
 }
 
