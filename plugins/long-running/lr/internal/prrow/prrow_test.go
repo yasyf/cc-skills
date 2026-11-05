@@ -678,6 +678,44 @@ func TestAShortHeadRecordAfterTheReadKeepsTheFullShaItNames(t *testing.T) {
 	}
 }
 
+func TestAShortHeadTheFoldCannotExpandLeavesTheRowsHeadAloneAndAsksForARead(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+
+	postHead(t, 1, headB[:12])
+
+	if row := folded(t, f, 1); row.Head != headA {
+		t.Fatalf("head = %q, want the row to stay at %s", row.Head, headA)
+	}
+	asked, err := s.ReadAsks(testRepo)
+	if err != nil || !slices.Equal(asked, []int{1}) {
+		t.Fatalf("asks = %v, %v, want one read asked for #1", asked, err)
+	}
+
+	if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headB)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := folded(t, f, 1); row.Head != headB {
+		t.Fatalf("head = %q, want the read's full %s", row.Head, headB)
+	}
+}
+
+func TestAnOpenedRecordWithAShortHeadOpensARowWithNoHead(t *testing.T) {
+	f, s := foldFor(t)
+
+	postOpened(t, 1, headA[:7], "dev", fullBody)
+
+	if row := folded(t, f, 1); row.Head != "" {
+		t.Fatalf("head = %q, want none until a read names the full sha", row.Head)
+	}
+	asked, err := s.ReadAsks(testRepo)
+	if err != nil || !slices.Equal(asked, []int{1}) {
+		t.Fatalf("asks = %v, %v, want one read asked for #1", asked, err)
+	}
+}
+
 func TestARowHoldingAShortHeadHealsFromTheNextRead(t *testing.T) {
 	f, s := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)
@@ -1093,7 +1131,7 @@ func postClassed(t *testing.T, number int, was, head, class, note string) {
 
 func TestAHeadRecordsClassAndWhatItReplacedReachTheStore(t *testing.T) {
 	f, s := foldFor(t)
-	const tapped, unnamed, classed = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
+	tapped, unnamed, classed := headA, headB, strings.Repeat("c", 40)
 	postOpened(t, 1, tapped, "dev", "body")
 	folded(t, f, 1)
 	postHead(t, 1, unnamed)

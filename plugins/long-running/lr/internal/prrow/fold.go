@@ -473,7 +473,10 @@ func newRow(repo string, number int) store.ReviewRow {
 	})
 }
 
-const noReview = "no approving review at this head"
+const (
+	noReview      = "no approving review at this head"
+	fullSHALength = 40
+)
 
 func (f Fold) headNamed(record client.Record, number int) string {
 	return bus.HeadNamed(record, f.Repo, number)
@@ -522,7 +525,13 @@ func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, hea
 			*field = value
 		}
 	}
-	if head != "" {
+	switch {
+	case head == "":
+	case len(head) < fullSHALength:
+		if err := t.AskRead(f.Repo, row.Number); err != nil {
+			return row, err
+		}
+	default:
 		row.Head, row.HeadAt = head, at
 		if err := t.PutFact(f.Repo, row.Number, head, factSeen, "yes", record.At); err != nil {
 			return row, err

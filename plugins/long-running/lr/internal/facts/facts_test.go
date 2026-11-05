@@ -2159,6 +2159,41 @@ func TestAHoldOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
 	}
 }
 
+func TestAShortHeadRecordAsksForOneReadThatFillsTheRowOnAHostThatDoesNotRead(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	h.source.Reads = false
+	older := strings.Repeat("e", 40)
+	if err := h.store.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: older, ReadHead: older, Lane: "lane-1", State: prrow.StateOpen}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-1", Kind: "head", Text: "HEAD #1 " + head[:12], PRs: []string{repo + "#1"}}); err != nil {
+		t.Fatal(err)
+	}
+	statusReads := func() int {
+		reads := 0
+		for _, call := range h.runner.Calls() {
+			if slices.Equal(call.Argv[:4], []string{"ccx", "vcs", "pr", "status"}) {
+				reads++
+			}
+		}
+		return reads
+	}
+
+	for range 3 {
+		if err := h.source.FoldRows(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	row, known, err := h.store.ReviewRow(repo, 1)
+	if err != nil || !known || row.Head != head {
+		t.Fatalf("row = %+v, %v, %v, want the read's full %s", row, known, err, head)
+	}
+	if reads := statusReads(); reads != 1 {
+		t.Fatalf("status reads = %d, want one for the one ask", reads)
+	}
+}
+
 func TestARowTheLandingHostNeverReadStillOwesAGradeOnAHostThatDoesNotRead(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.Reads = false

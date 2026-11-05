@@ -186,6 +186,30 @@ func (t *Tx) PutFact(repo string, number int, head, kind, value string, at time.
 	return err
 }
 
+func (t *Tx) AskRead(repo string, number int) error {
+	_, err := t.tx.Exec("INSERT INTO read_asks (repo, number) VALUES (?, ?) ON CONFLICT (repo, number) DO NOTHING", repo, number)
+	return err
+}
+
+func (s *Store) ReadAsks(repo string) ([]int, error) {
+	rows, err := s.db.Query("SELECT number FROM read_asks WHERE repo = ? ORDER BY number", repo)
+	return collect(rows, err, func(rows *sql.Rows) (int, error) {
+		var number int
+		err := rows.Scan(&number)
+		return number, err
+	})
+}
+
+func (s *Store) AnswerReadAsks(repo string, numbers []int) error {
+	args := make([]any, 0, len(numbers)+1)
+	args = append(args, repo)
+	for _, number := range numbers {
+		args = append(args, number)
+	}
+	_, err := s.db.Exec("DELETE FROM read_asks WHERE repo = ? AND number IN ("+placeholders(len(numbers))+")", args...)
+	return err
+}
+
 func (t *Tx) HeadSeen(repo string, number int, head, kind string) (bool, error) {
 	var seen int
 	err := t.tx.QueryRow("SELECT count(*) FROM facts WHERE repo = ?1 AND number = ?2 AND kind = ?4 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3)", repo, number, head, kind).Scan(&seen)

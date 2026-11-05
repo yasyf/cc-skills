@@ -187,7 +187,7 @@ def post_row_record(pr: OpenedPr, body: str | None, cwd: Path | None, lane: str,
         return
     branch = pr.branch or viewed()["headRefName"]
     base = pr.base or viewed()["baseRefName"]
-    head = viewed()["headRefOid"] if edited else full_commit(pr.head or f"refs/heads/{branch}", cwd) or pr.head or viewed()["headRefOid"]
+    head = viewed()["headRefOid"] if edited else full_commit(pr.head or f"refs/heads/{branch}", cwd) or viewed()["headRefOid"]
     if body is None and (fresh or edited):
         body = viewed()["body"]
     title = pr.title or (viewed()["title"] if fresh else None)

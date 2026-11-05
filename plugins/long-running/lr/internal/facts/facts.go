@@ -157,7 +157,10 @@ func (s Source) readGitHub(ctx context.Context, rows []store.ReviewRow, held map
 		numbers = append(numbers, number)
 	}
 	slices.Sort(numbers)
-	numbers = slices.Compact(numbers)
+	return s.readNumbers(ctx, slices.Compact(numbers), itemed, rows, held)
+}
+
+func (s Source) readNumbers(ctx context.Context, numbers []int, itemed map[int]bool, rows []store.ReviewRow, held map[int]hold) ([]machine.Facts, error) {
 	members, err := s.readMembers(ctx, numbers)
 	if err != nil {
 		return nil, fmt.Errorf("read the drive's pull requests: %w", err)
@@ -235,8 +238,33 @@ func (s Source) FoldRows(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.Rows().Pass(ctx, heldWords(held))
-	return err
+	rows, err := s.Rows().Pass(ctx, heldWords(held))
+	if err != nil {
+		return err
+	}
+	if err := s.answerReadAsks(ctx, rows, held); err != nil {
+		s.Log.Warn("the read a short head asked for failed; the next pass asks again", "error", err)
+	}
+	return nil
+}
+
+func (s Source) answerReadAsks(ctx context.Context, rows []store.ReviewRow, held map[int]hold) error {
+	asked, err := s.Store.ReadAsks(s.Repo)
+	if err != nil || len(asked) == 0 {
+		return err
+	}
+	itemed, err := s.itemed()
+	if err != nil {
+		return err
+	}
+	snapshot, err := s.readNumbers(ctx, asked, itemed, rows, held)
+	if err != nil {
+		return err
+	}
+	if err := s.Rows().PostReads(ctx, snapshot); err != nil {
+		return err
+	}
+	return s.Store.AnswerReadAsks(s.Repo, asked)
 }
 
 func (s Source) splitEnded(numbers []int, members memberRead, itemed map[int]bool) ([]int, []machine.Facts) {
