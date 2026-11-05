@@ -101,6 +101,7 @@ Each incident has one actor. When `tools/ci oncall incidents` shows an open ai-o
 
 - The fix lane's rules and commands (`ci oncall connect`, `ci oncall say --kind finding|request`, `ROUTED`, when `ci oncall takeover` may run, what to do when ai-oncall seems wrong) are in the "One actor per incident" paragraph of step 0 in the [Fix lane brief](#fix-lane-brief). The same rules bind every lane that touches the incident.
 - A fix lane takes an incident over only when `lr owner away <incident id>` prints away, and a hook refuses every other `ci oncall takeover`. The verb decides, never a lane's reading: nothing from him for 30 minutes across his ledger and owner records, no named person holding the incident, and `ci oncall connect` saying no commander runs. A failed read means present. The takeover records in the owner's name, and his standing yes (answer 7641eea) covers that in this case. On page eu7ayk two lanes took over on a refused connect alone while he was at work, which is why a refused or waiting connect is never enough.
+- A stopped commander leaves the incident an actor while another open incident runs a commander on the alert's monitors: the lane follows the work there (step 0 of the [Fix lane brief](#fix-lane-brief)), and the communicator draws no pick on who acts while `tools/ci oncall incidents --json` shows that incident with `commanderRunning` true.
 - His explicit word wins either way. The communicator records it with `lr owner word away|here --row <mN> [--incident <id>]`: an `away` with no incident ends at his next message, and one naming an incident orders that takeover.
 - The comms lane posts nothing in the page's thread beside the commander.
 - Pushback on a mute or false-alarm close proposed by ai-oncall: see [Scope before and during incident mode](#scope-before-and-during-incident-mode).
@@ -468,6 +469,13 @@ Do:
      page thread. When it prints present, you do not take over: when you judge
      ai-oncall's handling wrong or too slow, say so in a `request` and in one record to
      the coordinator. A refused or waiting `ci oncall connect` alone is never a reason.
+     When its commander stops, follow the work: connect joins the incident a refusal
+     names; with none named, `tools/ci oncall incidents --json` finds the open incident
+     on this alert's monitors whose `commanderRunning` is true; the stopped incident's
+     unfinished fix, roll and retry promises, read once with `ci oncall journal read`, go
+     to the new commander as one `request`. Only no running commander on the alert's
+     monitors is `NO-COMMANDER <fix lane name>: <incident id> <refusal>`, never a blocker
+     or a question to him.
      No credential is read from any store, file, SSM parameter or environment unless the
      owner's words in this brief name it; a mute, an ack or a monitor change goes through
      ai-oncall's verb or an ask in the page thread, never a key you fetched.

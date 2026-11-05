@@ -63,6 +63,19 @@ Standing orders, fixed in this template:
     Wadsworth weighs it and acts; post `ROUTED {lane}: <incident id> <what you handed it>`
     to the coordinator and ship, roll back, freeze, mute, page and post nothing yourself.
     Investigating beside it is yours to do; acting is not.
+    When its commander stops, find where the work went. When a refusal names the
+    incident now holding the work, `ci oncall connect` joins that incident and prints so,
+    and `ci oncall say` names it: post `ROUTED {lane}: <new incident id> <what you handed it>`
+    and go on through its commander. When connect refuses and names no incident, run
+    `tools/ci oncall incidents --json` once; an open incident whose `monitors` holds this
+    alert's monitor with `commanderRunning` true is the actor, so connect to it. Then read
+    the stopped incident's journal once with `ci oncall journal read <stopped id>` and hand
+    the new commander each fix, roll or retry it promised and never finished, as one
+    `request` naming the stopped incident. Only when no open incident runs a commander on
+    the alert's monitors does the incident lack an actor: post
+    `NO-COMMANDER {lane}: <incident id> <the refusal verbatim>` to the coordinator, keep
+    investigating, and let the takeover rule below decide. Never raise an actor-lost
+    blocker or ask anyone who acts.
     Take it over only when `lr owner away <incident id>` prints away. Run it right before
     `ci oncall takeover <incident id>`, through the `incident-takeover` skill, and post
     `TAKEOVER {lane}: <incident id>` with the verb's whole output; a hook refuses any
