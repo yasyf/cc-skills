@@ -137,6 +137,7 @@ func factInt(value any) int64 {
 }
 
 func (d *Desk) readLines(ctx context.Context) error {
+	d.reads.forgetQuestions()
 	fact := d.cursorFact()
 	value, found, err := d.factOf(deskRunner, fact)
 	if err != nil {
@@ -268,6 +269,10 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 			}
 			return true, d.relayToLane(ctx, at, at, decide[2], text, "", &question)
 		}
+	}
+	asked, err := d.askedBy(ctx, d.receipt(closed.Lane), d.terminal(closed.Lane))
+	if err != nil || len(asked) == 0 {
+		return false, err
 	}
 	dispatch, err := d.show(ctx, closed.Lane, "")
 	if err != nil || !dispatch.active() {
@@ -548,19 +553,39 @@ func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text, sender stri
 	return d.record(log, fmt.Sprintf("RELAYED %s %s: %s dispatch %s", key, lane, shape, dispatch.ID))
 }
 
-func (d *Desk) openQuestions(ctx context.Context, dispatch *laneDispatch) ([]string, error) {
+func (d *Desk) runQuestions(ctx context.Context) ([]orcaMessage, error) {
+	d.reads.mu.Lock()
+	kept, found := d.reads.questions, d.reads.asked
+	d.reads.mu.Unlock()
+	if found {
+		return kept, nil
+	}
 	asked, err := messagesOf(d.call(ctx, orchestration, "check", "--terminal", "run:"+d.Config.Run, "--all", "--types", "question"))
 	if err != nil {
 		return nil, err
 	}
-	mine := make([]orcaMessage, 0, len(asked))
-	for _, message := range asked {
-		if message.FromHandle == "dispatch:"+dispatch.ID || message.FromHandle == dispatch.Terminal {
-			mine = append(mine, message)
-		}
+	d.reads.mu.Lock()
+	defer d.reads.mu.Unlock()
+	if d.reads.passing {
+		d.reads.questions, d.reads.asked = asked, true
 	}
-	if len(mine) == 0 {
-		return nil, nil
+	return asked, nil
+}
+
+func (d *Desk) askedBy(ctx context.Context, dispatch, terminal string) ([]orcaMessage, error) {
+	asked, err := d.runQuestions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(slices.Clone(asked), func(message orcaMessage) bool {
+		return message.FromHandle != "dispatch:"+dispatch && message.FromHandle != terminal
+	}), nil
+}
+
+func (d *Desk) openQuestions(ctx context.Context, dispatch *laneDispatch) ([]string, error) {
+	mine, err := d.askedBy(ctx, dispatch.ID, dispatch.Terminal)
+	if err != nil || len(mine) == 0 {
+		return nil, err
 	}
 	replies, err := messagesOf(d.call(ctx, orchestration, "check", "--terminal", dispatch.Terminal, "--all"))
 	if err != nil {
@@ -941,7 +966,7 @@ func (d *Desk) stopWithdrawn(ctx context.Context, log, key, target, lane, dispat
 func (d *Desk) unconfirmedStop(ctx context.Context, lane, dispatch string) (string, error) {
 	deadline := d.Now().Add(stopConfirm)
 	for {
-		shown, err := d.show(ctx, lane, dispatch)
+		shown, err := d.showNow(ctx, lane, dispatch)
 		if err != nil {
 			return "", err
 		}

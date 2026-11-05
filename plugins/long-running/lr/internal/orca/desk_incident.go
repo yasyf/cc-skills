@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -463,19 +464,65 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 }
 
 type passReads struct {
-	mu      sync.Mutex
-	passing bool
-	records map[string][]client.Record
-	fixes   map[string]*incident.Action
+	mu        sync.Mutex
+	passing   bool
+	records   map[string][]client.Record
+	fixes     map[string]*incident.Action
+	questions []orcaMessage
+	asked     bool
+	workers   []deskWorker
+	listed    bool
+	shown     map[shownKey]*laneDispatch
+	peeked    map[peekKey][]orcaMessage
 }
+
+type shownKey struct{ lane, dispatch string }
+
+type peekKey struct{ terminal, environment string }
 
 func (d *Desk) startPass() {
 	d.store.StartPass()
-	d.reads.mu.Lock()
-	defer d.reads.mu.Unlock()
-	d.reads.passing = true
-	d.reads.records = map[string][]client.Record{}
-	d.reads.fixes = map[string]*incident.Action{}
+	d.reads.reset(true)
+}
+
+func (d *Desk) endPass() {
+	d.reads.reset(false)
+}
+
+func (r *passReads) reset(passing bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.passing = passing
+	r.records = map[string][]client.Record{}
+	r.fixes = map[string]*incident.Action{}
+	r.questions, r.asked = nil, false
+	r.workers, r.listed = nil, false
+	r.shown = map[shownKey]*laneDispatch{}
+	r.peeked = map[peekKey][]orcaMessage{}
+}
+
+func (r *passReads) forgetDispatch(dispatch string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	maps.DeleteFunc(r.shown, func(key shownKey, _ *laneDispatch) bool { return key.dispatch == dispatch })
+}
+
+func (r *passReads) forgetTerminal(terminal string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	maps.DeleteFunc(r.peeked, func(key peekKey, _ []orcaMessage) bool { return key.terminal == terminal })
+}
+
+func (r *passReads) forgetQuestions() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.questions, r.asked = nil, false
+}
+
+func (r *passReads) forgetWorkers() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workers, r.listed = nil, false
 }
 
 func (d *Desk) passTail(ctx context.Context, query client.Query) ([]client.Record, error) {

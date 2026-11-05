@@ -40,6 +40,7 @@ func (d *Desk) sweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	d.settled, d.rosterAt = settledOf(rows), d.Now()
 	byDispatch := map[string]deskWorker{}
 	for _, row := range rows {
 		byDispatch[row.Dispatch] = row
@@ -287,19 +288,36 @@ func (d *Desk) deadlines(ctx context.Context) error {
 	if first < 0 {
 		first = 0
 	}
-	began := d.Now()
+	budget := passBudget{began: d.Now()}
 	var settled []settledRelay
 	for i := range books {
-		if i > 0 && d.Now().Sub(began) >= deadlineBudget {
+		if i > 0 && d.Now().Sub(budget.began) >= deadlineBudget {
 			break
 		}
 		container := books[(first+i)%len(books)]
-		if err := d.overdue(ctx, container, strings.TrimPrefix(container, lanePrefix), &settled); err != nil {
+		finished, err := d.overdue(ctx, container, strings.TrimPrefix(container, lanePrefix), &settled, &budget)
+		if err != nil {
 			return err
+		}
+		if !finished {
+			break
 		}
 		d.deadlinedTo = container
 	}
 	return d.closeSettled(ctx, settled)
+}
+
+type passBudget struct {
+	began time.Time
+	spent bool
+}
+
+func (d *Desk) overBudget(budget *passBudget) bool {
+	if budget.spent && d.Now().Sub(budget.began) >= deadlineBudget {
+		return true
+	}
+	budget.spent = true
+	return false
 }
 
 type settledRelay struct {
@@ -348,6 +366,7 @@ func (d *Desk) closeSettled(ctx context.Context, settled []settledRelay) error {
 		return nil
 	}
 	d.settled = nil
+	d.reads.forgetWorkers()
 	if _, err := d.settledStatus(ctx, ""); err != nil || d.settled == nil {
 		return err
 	}
@@ -443,11 +462,11 @@ func (d *Desk) nameClosedRelays(closed []settledRelay) error {
 	return d.escalate("relays-closed:"+store.Stamp(d.Now()), "RELAYS-CLOSED", "runner", fmt.Sprintf("closed %d overdue relays whose worker has settled; %d were never reported before, marked *; a+b means b was folded into a. Whether each worker read its relay is unknown, and a relaunch of these lanes will not receive them. %s", len(closed), unreported, strings.Join(named, " ")))
 }
 
-func (d *Desk) overdue(ctx context.Context, container, about string, settled *[]settledRelay) error {
+func (d *Desk) overdue(ctx context.Context, container, about string, settled *[]settledRelay, budget *passBudget) (bool, error) {
 	moment := d.Now()
 	pending, err := d.store.Actions(container, "", incident.ActionAccepted, incident.ActionStarted)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, action := range pending {
 		if !slices.Contains([]string{kindRelay, kindReply, kindLaunch, kindEnqueue}, action.Kind) {
@@ -455,14 +474,17 @@ func (d *Desk) overdue(ctx context.Context, container, about string, settled *[]
 		}
 		late, err := action.Overdue(moment)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if !late {
 			continue
 		}
+		if d.overBudget(budget) {
+			return false, nil
+		}
 		worker, status, err := d.settledWorker(ctx, container, about, action)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if worker != "" {
 			*settled = append(*settled, settledRelay{container: container, lane: about, worker: worker, status: status, action: action})
@@ -470,31 +492,31 @@ func (d *Desk) overdue(ctx context.Context, container, about string, settled *[]
 		}
 		unread, err := d.reportUnread(ctx, container, about, action)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if unread {
 			continue
 		}
 		excused, err := d.deadlineExcused(ctx, container, about, action, moment)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if excused {
 			continue
 		}
 		missing, err := d.missingStep(container, action)
 		if err != nil {
-			return err
+			return false, err
 		}
 		accepted, err := store.Parse(action.AcceptedAt)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if err := d.escalate(fmt.Sprintf("deadline:%s/%s:%s", container, action.ActionID, action.Status), "DEADLINE", about, fmt.Sprintf("%s %s: %s; accepted %d min ago", action.AuthorityRef, action.Kind, missing, int(d.Now().Sub(accepted).Minutes()))); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return nil
+	return true, nil
 }
 
 type unreadCheck struct {
@@ -620,14 +642,19 @@ func (d *Desk) settledStatus(ctx context.Context, dispatch string) (string, erro
 			fmt.Fprintln(d.Stderr, err)
 			return "", nil
 		}
-		d.settled, d.rosterAt = map[string]string{}, d.Now()
-		for _, row := range rows {
-			if inactive(row.Status) {
-				d.settled[row.Dispatch] = row.Status
-			}
-		}
+		d.settled, d.rosterAt = settledOf(rows), d.Now()
 	}
 	return d.settled[dispatch], nil
+}
+
+func settledOf(rows []deskWorker) map[string]string {
+	settled := map[string]string{}
+	for _, row := range rows {
+		if inactive(row.Status) {
+			settled[row.Dispatch] = row.Status
+		}
+	}
+	return settled
 }
 
 func notDelivered(rows []orcaMessage, container string, action incident.Action, dispatch string, now time.Time) (string, error) {

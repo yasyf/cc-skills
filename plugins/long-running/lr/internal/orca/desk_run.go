@@ -346,6 +346,7 @@ func (d *Desk) Run(ctx context.Context, once bool) error {
 				d.raised(ctx, err)
 			}
 		}
+		d.endPass()
 		d.passes++
 		d.timedPass()
 		if once {

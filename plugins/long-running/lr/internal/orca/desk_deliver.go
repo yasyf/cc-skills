@@ -454,6 +454,7 @@ func (d *Desk) postSend(ctx context.Context, container string, dispatch *laneDis
 		argv = append(argv, "--retry-request", retry)
 	}
 	reply := d.call(ctx, argv...)
+	d.reads.forgetTerminal(dispatch.Terminal)
 	if reply.OK {
 		return d.settleSend(ctx, container, dispatch, action, sendID, thread, answers, reply)
 	}
