@@ -67,7 +67,7 @@ func TestAnOrdinaryLaneMountsNoTelemetryServer(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
 	h.installDatadog("")
-	h.launchedAs("opus", "xhigh")
+	h.launchedAs("opus", "high")
 	if command := h.terminalCommand(); strings.Contains(command, "mcp.sentry.dev") || strings.Contains(command, datadogServer) {
 		t.Fatal(command)
 	}
