@@ -1098,6 +1098,12 @@ func GCPassRunning() bool {
 	return gcPassRunning.Load()
 }
 
+var gcYielding atomic.Bool
+
+func YieldGC(yield bool) {
+	gcYielding.Store(yield)
+}
+
 type SettledGC struct {
 	Env   Env
 	Store *store.Store
@@ -1106,7 +1112,7 @@ type SettledGC struct {
 }
 
 func (g *SettledGC) Check(ctx context.Context, now time.Time) error {
-	if !g.read.IsZero() && now.Sub(g.read) < gcEvery {
+	if gcYielding.Load() || (!g.read.IsZero() && now.Sub(g.read) < gcEvery) {
 		return nil
 	}
 	g.read = now

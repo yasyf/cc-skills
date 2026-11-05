@@ -45,7 +45,7 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 
 --finished names a dispatch whose lane the supervisor found finished by its own record. Closing a terminal loses nothing on disk, so for such a dispatch unsaved work in its tree keeps the tree, untouched, and not its terminal: the terminal of a settled one closes under the idle and agent-process proof above, and a --stale one is proved without the clean-and-pushed read. A tree git cannot read still keeps the terminal.
 
---new sweeps up to forty settled dispatches a pass, those no pass has swept first, newest first, then those swept longest ago, and records the order under the state directory. The lane supervisor runs it every five minutes, with --keep for the dispatch of every lane the registry still wants, so a dispatch is reclaimed soon after it settles and its lane retires, and what a pass kept is read again on a later one.
+--new sweeps up to forty settled dispatches a pass, those no pass has swept first, newest first, then those swept longest ago, and records the order under the state directory. The lane supervisor runs it every five minutes, with --keep for the dispatch of every lane the registry still wants, so a dispatch is reclaimed soon after it settles and its lane retires, and what a pass kept is read again on a later one. A --new pass removes at most three worktrees and never waits on the removal lock: what it defers stays first in line for the next pass, and each dispatch is recorded as swept as its last step finishes, so a pass killed at its deadline does not repeat its work.
 
 --shells also closes up to forty shell terminals, one at a time, that no dispatch records: a login shell with no child, nothing else carrying its terminal handle, three quiet days on its tty, and no agent terminal in its worktree. It closes the terminal only and leaves the worktree.
 
@@ -110,6 +110,10 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 					return err
 				}
 			}
+			gc.Bounded = fresh
+			if fresh && !dryRun && !gc.Pause.Held() {
+				gc.Record = ledger.record
+			}
 			if !fresh || len(dispatches) > 0 || len(done) > 0 {
 				swept, err := gc.Run(cmd.Context(), run, dispatches, done)
 				if err != nil {
@@ -119,6 +123,12 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 					tally[verb] += count
 				}
 			}
+			if fresh && !dryRun && !gc.Pause.Held() {
+				if err := ledger.record(gc.Undeferred(dispatches)); err != nil {
+					return err
+				}
+			}
+			gc.Record = nil
 			if otherRuns {
 				if gc.SkipRuns, err = skippedRuns(cmd.Context(), a.Runner); err != nil {
 					return err
@@ -132,9 +142,6 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 				}
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), tally)
-			if fresh && !dryRun && !gc.Pause.Held() {
-				return ledger.record(dispatches)
-			}
 			return nil
 		},
 	}

@@ -59,6 +59,28 @@ func TestSettledGCRunsANewPassEveryFiveMinutesFromTheCheckoutWithTheDrivesCCRemo
 	equal(t, got.Env, []string{"WORKER_CC_REMOTE=/pin/cc-remote", "CC_REMOTE_CONFIG=/pin/config.yaml"})
 }
 
+func TestSettledGCStartsNoPassWhileARestartWaitsForOne(t *testing.T) {
+	runner := &recordingRunner{reply: func(shell.Command) (shell.Result, error) {
+		return shell.Result{Stdout: "closed=1\n"}, nil
+	}}
+	_, s := driveState(t)
+	env := Env{Runner: runner, Config: config.Config{OrcaRun: "run_1", Checkout: "/checkout"}, State: t.TempDir(), Claude: t.TempDir(), Local: t.TempDir()}
+	check := &SettledGC{Env: env, Store: s, Log: slog.Default()}
+	YieldGC(true)
+	t.Cleanup(func() { YieldGC(false) })
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(runner.commands), 0)
+	YieldGC(false)
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(runner.commands, func(c shell.Command) bool { return slices.Contains(c.Argv, "gc") }) {
+		t.Fatalf("no pass after the restart cleared: %v", runner.commands)
+	}
+}
+
 func reapPass(t *testing.T, gcSaid string, terminals ...int) ([]client.Draft, []shell.Command) {
 	t.Helper()
 	listed := 0

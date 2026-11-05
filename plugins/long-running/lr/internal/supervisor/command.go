@@ -111,7 +111,7 @@ func run(ctx context.Context, a *app.App, binary string) error {
 		defer stop()
 	}
 	version := Installed(env.Claude)
-	upgrade := &Upgrade{Env: env, Running: version, Binary: binary, Read: read, Settings: settings, Holding: lanes.GCPassRunning, Serve: func(installed string) error {
+	upgrade := &Upgrade{Env: env, Running: version, Binary: binary, Read: read, Settings: settings, Holding: lanes.GCPassRunning, Yield: lanes.YieldGC, Serve: func(installed string) error {
 		return s.ServeVersion(cfg.Drive, os.Getpid(), installed)
 	}}
 	deps.Stale = upgrade.Stale

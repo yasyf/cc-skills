@@ -18,27 +18,31 @@ import (
 )
 
 const (
-	gcParallel  = 4
-	spriteReads = 12
-	sweptBatch  = 40
-	changed     = "changed since the first read"
-	verbKeep    = "keep"
-	verbSkip    = "skip"
-	verbStop    = "stop"
-	verbStopped = "stopped"
-	verbRelease = "release"
-	verbEnd     = "end"
-	verbClose   = "close"
-	verbClosed  = "closed"
-	verbRemove  = "remove"
-	verbRemoved = "removed"
-	verbDrop    = "drop"
-	verbDropped = "dropped"
-	verbDestroy = "destroy"
-	verbGone    = "destroyed"
-	stopping    = "stopping"
-	unknownID   = "its session's identity is unknown: "
+	gcParallel      = 4
+	spriteReads     = 12
+	sweptBatch      = 40
+	boundedRemovals = 3
+	removalDeferred = "this pass spent its removals or another gc holds the removal lock; a later pass takes it"
+	changed         = "changed since the first read"
+	verbKeep        = "keep"
+	verbSkip        = "skip"
+	verbStop        = "stop"
+	verbStopped     = "stopped"
+	verbRelease     = "release"
+	verbEnd         = "end"
+	verbClose       = "close"
+	verbClosed      = "closed"
+	verbRemove      = "remove"
+	verbRemoved     = "removed"
+	verbDrop        = "drop"
+	verbDropped     = "dropped"
+	verbDestroy     = "destroy"
+	verbGone        = "destroyed"
+	stopping        = "stopping"
+	unknownID       = "its session's identity is unknown: "
 )
+
+var errRemovalDeferred = errors.New("removal deferred")
 
 type API interface {
 	Workers(ctx context.Context, run string) ([]Worker, error)
@@ -84,6 +88,7 @@ type Action struct {
 	Session     *Session
 	Unproven    bool
 	Unheld      bool
+	Deferred    bool
 }
 
 func (a Action) named() string {
@@ -129,7 +134,15 @@ type GC struct {
 	Finished map[string]bool
 	SkipRuns map[string]bool
 
-	writing sync.Mutex
+	Bounded bool
+	Record  func(dispatches []string) error
+
+	writing   sync.Mutex
+	removing  sync.Mutex
+	removals  int
+	recording sync.Mutex
+	batch     []Worker
+	deferred  map[string]bool
 }
 
 func (g *GC) say(line string) {
@@ -309,6 +322,15 @@ func worktreeAction(ctx context.Context, checkout Checkout, listed TerminalList,
 }
 
 func (g *GC) oneRemoval(work func() error) error {
+	g.removing.Lock()
+	defer g.removing.Unlock()
+	how := syscall.LOCK_EX
+	if g.Bounded {
+		if g.removals >= boundedRemovals {
+			return errRemovalDeferred
+		}
+		how |= syscall.LOCK_NB
+	}
 	if err := os.MkdirAll(filepath.Dir(g.Lock), 0o750); err != nil {
 		return err
 	}
@@ -317,10 +339,53 @@ func (g *GC) oneRemoval(work func() error) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err := syscall.Flock(int(lock.Fd()), how); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return errRemovalDeferred
+		}
 		return err
 	}
+	g.removals++
 	return work()
+}
+
+func (g *GC) settle(done Action, of func(Worker) bool) error {
+	if g.Record == nil || g.Pause.Held() {
+		return nil
+	}
+	g.recording.Lock()
+	defer g.recording.Unlock()
+	var swept []string
+	for _, worker := range g.batch {
+		if !of(worker) {
+			continue
+		}
+		if done.Deferred {
+			g.deferred[worker.Dispatch] = true
+		} else if !g.deferred[worker.Dispatch] {
+			swept = append(swept, worker.Dispatch)
+		}
+	}
+	if len(swept) == 0 {
+		return nil
+	}
+	return g.Record(swept)
+}
+
+func stoppedBy(done Action) []Action {
+	if done.Verb == verbKeep && done.Reason == heldOpenInside {
+		return nil
+	}
+	return done.Agents
+}
+
+func closesAfter(worker Worker, done Action, closing map[string]Action) bool {
+	_, closes := closing[worker.Terminal]
+	return closes && !slices.ContainsFunc(stoppedBy(done), func(agent Action) bool { return agent.Target == worker.Terminal })
+}
+
+func (g *GC) Undeferred(dispatches []string) []string {
+	return slices.DeleteFunc(slices.Clone(dispatches), func(dispatch string) bool { return g.deferred[dispatch] })
 }
 
 func (g *GC) sameSession(ctx context.Context, action Action) (bool, error) {
@@ -385,6 +450,10 @@ func (g *GC) removalBlocked(ctx context.Context, action Action) (*Action, error)
 	return nil, nil
 }
 
+func deferredRemoval(target string) Action {
+	return Action{Verb: verbKeep, Target: target, Reason: removalDeferred, Deferred: true}
+}
+
 func (g *GC) applyRemove(ctx context.Context, action Action) (Action, error) {
 	blocked, err := g.removalBlocked(ctx, action)
 	if err != nil {
@@ -438,6 +507,9 @@ func (g *GC) removeLocal(ctx context.Context, action Action) (Action, error) {
 		untracked = &via
 		return nil
 	})
+	if errors.Is(err, errRemovalDeferred) {
+		return deferredRemoval(action.Target), nil
+	}
 	if err != nil {
 		return Action{}, err
 	}
@@ -773,6 +845,8 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 		liveTrees[tree{worker.Environment, worker.Worktree}] = true
 		liveWorkspaces[worker.Workspace] = true
 	}
+	g.deferred = map[string]bool{}
+	g.batch = slices.DeleteFunc(slices.Clone(finished), func(worker Worker) bool { return !slices.Contains(dispatches, worker.Dispatch) })
 	sprites := map[SpriteKey]Sprite{}
 	sessions := Sessions{}
 	servers := map[string]bool{}
@@ -875,12 +949,22 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 			continue
 		}
 		if held, kept := worktrees.unproven[action.Tree]; kept && (!finishedTerminals[target] || !worktrees.unsaved[action.Tree]) {
-			tally[g.report(Action{Verb: verbKeep, Target: target, Reason: "its worktree is kept: " + held}).Verb]++
+			kept := g.report(Action{Verb: verbKeep, Target: target, Reason: "its worktree is kept: " + held})
+			tally[kept.Verb]++
+			if err := g.settle(kept, func(worker Worker) bool { return worker.Terminal == target }); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		closes = append(closes, action)
 	}
-	closedTerminals, err := parallel(closes, acted)
+	closedTerminals, err := parallel(closes, func(action Action) (Action, error) {
+		done, err := g.act(ctx, action)
+		if err != nil {
+			return Action{}, err
+		}
+		return done, g.settle(done, func(worker Worker) bool { return worker.Terminal == action.Target })
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -903,7 +987,8 @@ func (g *GC) Run(ctx context.Context, run string, dispatches, ending []string) (
 			}
 			done = append(done, closed)
 		}
-		return append(done, g.report(g.release(ctx, action, pair.sprite))), nil
+		done = append(done, g.report(g.release(ctx, action, pair.sprite)))
+		return done, g.settle(action, func(worker Worker) bool { return worker == pair.worker })
 	})
 	if err != nil {
 		return nil, err
@@ -1002,7 +1087,14 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 		if err != nil {
 			return Action{}, err
 		}
-		return g.act(ctx, action)
+		done, err := g.act(ctx, action)
+		if err != nil {
+			return Action{}, err
+		}
+		where := tree{checkout.Environment, checkout.Path}
+		return done, g.settle(done, func(worker Worker) bool {
+			return where == (tree{worker.Environment, worker.Worktree}) && (done.Deferred || !closesAfter(worker, done, closing))
+		})
 	})
 	if err != nil {
 		return reclaimed{}, nil, err
@@ -1016,10 +1108,7 @@ func (g *GC) reclaimTrees(ctx context.Context, candidates []tree, closing map[st
 	}
 	stopped := map[string]bool{}
 	for _, done := range result.done {
-		if done.Verb == verbKeep && done.Reason == heldOpenInside {
-			continue
-		}
-		for _, agent := range done.Agents {
+		for _, agent := range stoppedBy(done) {
 			stopped[agent.Target] = true
 		}
 	}

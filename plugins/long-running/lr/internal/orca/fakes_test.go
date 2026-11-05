@@ -468,6 +468,9 @@ type gcOptions struct {
 	pause      *Pause
 	keep       map[string]bool
 	finished   map[string]bool
+	bounded    bool
+	lock       string
+	record     func([]string) error
 }
 
 func unpaused(t *testing.T) Pause {
@@ -490,7 +493,11 @@ func runGC(t *testing.T, orca API, git Repositories, options gcOptions) (Tally, 
 		pause = *options.pause
 	}
 	var out bytes.Buffer
-	gc := &GC{Orca: orca, Git: git, Fleet: fleet, Pause: pause, Lock: filepath.Join(t.TempDir(), "remove.lock"), Out: &out, DryRun: options.dryRun, Keep: options.keep, Finished: options.finished}
+	lock := options.lock
+	if lock == "" {
+		lock = filepath.Join(t.TempDir(), "remove.lock")
+	}
+	gc := &GC{Orca: orca, Git: git, Fleet: fleet, Pause: pause, Lock: lock, Out: &out, DryRun: options.dryRun, Keep: options.keep, Finished: options.finished, Bounded: options.bounded, Record: options.record}
 	tally, err := gc.Run(context.Background(), "run_x", options.dispatches, options.done)
 	if err != nil {
 		t.Fatal(err)

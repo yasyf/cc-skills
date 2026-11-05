@@ -5,6 +5,8 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +15,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -201,6 +205,103 @@ func TestLocalRemovalsRunOneAtATime(t *testing.T) {
 	wantTally(t, tally, Tally{verbClosed: 3, verbRemoved: 3})
 	if most.Load() != 1 {
 		t.Fatalf("%d removals ran at once", most.Load())
+	}
+}
+
+func laneTrees(count int) (*fakeOrca, *fakeGit, []string) {
+	orca := newOrca()
+	git := newGit()
+	dispatches := make([]string, 0, count)
+	for n := range count {
+		tree := fmt.Sprintf("%s-%d", testWT, n)
+		dispatch := fmt.Sprintf("ctx_%d", n)
+		orca.rows = append(orca.rows, row(dispatch, in(tree)))
+		found := checkout(tree)
+		git.reads[tree] = CheckoutRead{Found: &found}
+		dispatches = append(dispatches, dispatch)
+	}
+	return orca, git, dispatches
+}
+
+func TestABoundedPassRemovesThreeTreesAndClosesEveryTerminal(t *testing.T) {
+	orca, git, dispatches := laneTrees(5)
+	var recorded []string
+	var mu sync.Mutex
+	tally, out := runGC(t, orca, git, gcOptions{bounded: true, dispatches: dispatches, record: func(swept []string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		recorded = append(recorded, swept...)
+		return nil
+	}})
+	wantTally(t, tally, Tally{verbClosed: 5, verbRemoved: 3, verbKeep: 2})
+	if !strings.Contains(out, removalDeferred) {
+		t.Fatalf("no deferral said: %s", out)
+	}
+	if len(recorded) != 3 {
+		t.Fatalf("recorded %v, want the three removed dispatches and neither deferred one", recorded)
+	}
+}
+
+func TestABoundedPassLeavesATreeWhenAnotherHoldsTheRemovalLock(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "remove.lock")
+	held, err := os.OpenFile(lock, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = held.Close() }()
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	orca, git, _ := laneTrees(1)
+	tally, _ := runGC(t, orca, git, gcOptions{bounded: true, lock: lock})
+	wantTally(t, tally, Tally{verbClosed: 1, verbKeep: 1})
+	wantCalls(t, orca, []string{"close", "term_ctx_0"})
+}
+
+func TestABoundedPassKeepsTheTerminalOfADirtyTreeOnceItsRemovalsAreSpent(t *testing.T) {
+	orca, git, dispatches := laneTrees(1)
+	dirty := checkout(testWT+"-0", dirtyTree)
+	git.reads[testWT+"-0"] = CheckoutRead{Found: &dirty}
+	gc := &GC{Orca: orca, Git: git, Fleet: &fakeFleet{}, Pause: unpaused(t), Lock: filepath.Join(t.TempDir(), "remove.lock"), Out: io.Discard, Bounded: true, removals: boundedRemovals}
+	if _, err := gc.Run(context.Background(), "run_x", dispatches, nil); err != nil {
+		t.Fatal(err)
+	}
+	wantCalls(t, orca)
+}
+
+func TestADeferredDispatchStaysFirstInLine(t *testing.T) {
+	orca, git, dispatches := laneTrees(1)
+	var recorded []string
+	gc := &GC{Orca: orca, Git: git, Fleet: &fakeFleet{}, Pause: unpaused(t), Lock: filepath.Join(t.TempDir(), "remove.lock"), Out: io.Discard, Bounded: true, removals: boundedRemovals, Record: func(swept []string) error {
+		recorded = append(recorded, swept...)
+		return nil
+	}}
+	if _, err := gc.Run(context.Background(), "run_x", dispatches, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorded) != 0 {
+		t.Fatalf("recorded %v for a deferred tree", recorded)
+	}
+	if left := gc.Undeferred(dispatches); len(left) != 0 {
+		t.Fatalf("the pass would record %v", left)
+	}
+}
+
+func TestASweptTreeIsRecordedBeforeThePassEnds(t *testing.T) {
+	orca := newOrca(row("ctx_a"))
+	orca.terminals[testWT] = []Terminal{agentTerminal("term_ctx_a"), idleShellTerminal("term_sh")}
+	removals := 0
+	orca.onRemove = func(string) { removals++ }
+	var removedWhenRecorded []int
+	_, _ = runGC(t, orca, newGit(checkout(testWT)), gcOptions{dispatches: []string{"ctx_a"}, record: func(swept []string) error {
+		if !slices.Equal(swept, []string{"ctx_a"}) {
+			t.Errorf("recorded %v", swept)
+		}
+		removedWhenRecorded = append(removedWhenRecorded, removals)
+		return nil
+	}})
+	if !slices.Equal(removedWhenRecorded, []int{1}) {
+		t.Fatalf("removals seen at each record: %v", removedWhenRecorded)
 	}
 }
 
