@@ -375,6 +375,21 @@ cci post --kind ask --to obs-desk "sentry issue <id>"
 - The answer is a record addressed to the lane that closes the ask, within seconds; `cci show <seq>` prints the body. A repeated read is answered from memory for a minute.
 - The keys stay in the desk's memory: never in a file, record, log, brief or command line, and never on a Sprite.
 
+### Run the obs desk
+
+Write `obs.json` beside the drive's `lr.json`, naming each key's SSM parameter, never its value, and the checkout whose `tools/ci` answers oncall reads:
+
+```json
+{
+  "ssm": {"profile": "<profile>", "region": "<region>"},
+  "sentry": {"api": "https://sentry.io/api/0", "org": "<org id or slug>", "token": "<parameter of a token with event:read>"},
+  "datadog": {"api": "https://api.datadoghq.com", "api_key": "<parameter>", "app_key": "<parameter>"},
+  "oncall": {"cli": "tools/ci oncall", "checkout": "<monorepo checkout>"}
+}
+```
+
+Then run `lr obs install --config <lr.json>` on the Mac from the installed lr. It writes a launchd agent that runs that lr's `lr obs desk`. The desk reads the three keys from SSM once at start, so restart it after a key rotates or after an SSO sign-in lapse stopped a start. Oncall reads use the profile's live sign-in on every read. A Sentry token that only uploads releases and source maps answers every issue read with HTTP 403; the token needs `event:read`.
+
 ## Prepare and attach separately
 
 Use the configured signed CLI and YAML when preparation and first-task attachment need separate inspection. This explicit fresh Sprite agents example returns a plain prepared task:
