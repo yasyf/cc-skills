@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	KindAt      = "at"
-	KindPR      = "pr"
-	KindRelease = "release"
-	KindRecord  = "record"
+	KindAt       = "at"
+	KindPR       = "pr"
+	KindRelease  = "release"
+	KindRecord   = "record"
+	KindAnswered = "answered"
 
-	endForms    = "at:TIME (an ISO 8601 time or a span such as 90m, 4h or 1d), pr:N or pr:OWNER/REPO#N, release:STACK@ENV:COMMIT, or record:SEQ"
+	endForms    = "answered (only his answer ends it), at:TIME (an ISO 8601 time or a span such as 90m, 4h or 1d), pr:N or pr:OWNER/REPO#N, release:STACK@ENV:COMMIT, or record:SEQ"
 	defaultRepo = "Forge-AI/monorepo"
 	stampForm   = "2006-01-02T15:04:05Z"
 	stateOpen   = "OPEN"
@@ -28,7 +29,7 @@ var (
 	endRecord  = regexp.MustCompile(`^#?(\d+)$`)
 	liveLine   = regexp.MustCompile(`^(\S+) \([^)]*\) on (\S+): .* at ([0-9a-f]{7,40}),`)
 	spanUnits  = map[string]time.Duration{"m": time.Minute, "h": time.Hour, "d": 24 * time.Hour}
-	allEnds    = []string{KindAt, KindPR, KindRelease, KindRecord}
+	allEnds    = []string{KindAnswered, KindAt, KindPR, KindRelease, KindRecord}
 )
 
 type End struct {
@@ -37,6 +38,9 @@ type End struct {
 }
 
 func (e End) String() string {
+	if e.Kind == KindAnswered {
+		return e.Kind
+	}
 	return e.Kind + ":" + e.Value
 }
 
@@ -60,6 +64,9 @@ func atTime(text string, now time.Time) (string, error) {
 }
 
 func ParseEnd(text string, now time.Time) (End, error) {
+	if strings.TrimSpace(text) == KindAnswered {
+		return End{Kind: KindAnswered}, nil
+	}
 	kind, value, colon := strings.Cut(strings.TrimSpace(text), ":")
 	if !colon || value == "" {
 		return End{}, fmt.Errorf("%q names no end condition; give %s", text, endForms)

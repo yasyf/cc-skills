@@ -29,6 +29,7 @@ type cardShell struct {
 	cards     []string
 	ancestors map[string]bool
 	answers   map[string]bool
+	questions map[string]bool
 	rowed     map[string]bool
 	removed   []string
 	reasons   []string
@@ -48,9 +49,13 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		}
 		return shell.Result{Stdout: fmt.Sprintf(`{"answers":[{"origin":"human","payload":{"blockId":"%s-choice","optionIds":["x"]}}]}`, card)}, nil
 	case strings.Contains(argv, "outcomes --all"):
-		blocks := []map[string]string{{"id": "sec", "type": "markdown"}, {"id": mergeTriage, "type": "card"}}
+		blocks := []map[string]any{{"id": "sec", "type": "markdown"}, {"id": mergeTriage, "type": "card"}}
 		for _, card := range f.cards {
-			blocks = append(blocks, map[string]string{"id": card, "type": "card"})
+			block := map[string]any{"id": card, "type": "card"}
+			if f.questions[card] {
+				block["children"] = []map[string]string{{"id": card + "-choice", "type": "choice"}}
+			}
+			blocks = append(blocks, block)
 		}
 		encoded, err := json.Marshal(map[string]any{"doc": map[string]any{"blocks": blocks}})
 		return shell.Result{Stdout: string(encoded)}, err
@@ -137,6 +142,7 @@ func TestUntilRecordsTheEventThatEndsACard(t *testing.T) {
 		"pr:yasyf/cc-skills#1691":             "pr:yasyf/cc-skills#1691",
 		"release:api@plat-usw2-prod:0dfbd44e": "release:api@plat-usw2-prod:0dfbd44e",
 		"record:#308624":                      "record:308624",
+		"answered":                            "answered",
 	} {
 		f := newCards(t, &cardShell{}, nil)
 		end, err := f.Until(context.Background(), "card-a", given, "")
@@ -260,6 +266,28 @@ func TestSweepWithdrawsEachCardWhoseEventHappenedAndNamesTheOutcome(t *testing.T
 	}
 	if known, err := f.ends(ctx); err != nil || known["merged-pr"] != nil {
 		t.Fatalf("a withdrawn card stays known: %v, %v", known, err)
+	}
+}
+
+func TestSweepNeverTakesAnUnansweredQuestionDownOnATimeAlone(t *testing.T) {
+	on := &cardShell{cards: []string{"question-past", "question-merged", "question-answered", "notice-past"}, questions: map[string]bool{"question-past": true, "question-merged": true, "question-answered": true}}
+	f := newCards(t, on, map[int]string{1: "MERGED"})
+	ctx := context.Background()
+	for _, pair := range [][2]string{{"question-past", "at:1h"}, {"question-merged", "pr:1"}, {"question-answered", "answered"}, {"notice-past", "at:1h"}} {
+		if _, err := f.Until(ctx, pair[0], pair[1], ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.clock = cardsNow.Add(30 * 24 * time.Hour)
+	var out bytes.Buffer
+	if err := f.Sweep(ctx, "board-lane", &out); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"question-merged", "notice-past"}; !reflect.DeepEqual(on.removed, want) {
+		t.Fatalf("removed = %v, want %v", on.removed, want)
+	}
+	if strings.Contains(out.String(), "PROBLEM") {
+		t.Fatalf("out = %s, want an answered end read as an end", out.String())
 	}
 }
 
