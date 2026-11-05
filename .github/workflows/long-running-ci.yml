@@ -9,6 +9,7 @@ on:
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
       - ".github/lr-controls/**"
       - ".github/scripts/lr_controls.py"
+      - ".github/scripts/lr_pinned_binaries.sh"
       - ".github/lr-test-durations.json"
       - ".github/workflows/long-running-ci.yml"
   pull_request:
@@ -18,6 +19,7 @@ on:
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
       - ".github/lr-controls/**"
       - ".github/scripts/lr_controls.py"
+      - ".github/scripts/lr_pinned_binaries.sh"
       - ".github/lr-test-durations.json"
       - ".github/workflows/long-running-ci.yml"
   schedule:
@@ -49,6 +51,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - id: pins
+        run: echo "cci=$(jq -r '.dependencies[] | select(.name == "cc-inbox").version | ltrimstr(">=")' plugins/long-running/.claude-plugin/plugin.json)" >> "$GITHUB_OUTPUT"
+      - id: pinned
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.daemonkit/binrun
+            ~/.daemonkit/cache
+            ~/.cache/cc-skills/cci
+          key: lr-pinned-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/long-running/bin/lr.binrun', 'plugins/long-running/scripts/binrun.sh') }}-cci-${{ steps.pins.outputs.cci }}
+      - name: fetch the pinned lr and cci
+        if: steps.pinned.outputs.cache-hit != 'true'
+        env:
+          CCI_VERSION: ${{ steps.pins.outputs.cci }}
+        run: .github/scripts/lr_pinned_binaries.sh
+      - if: steps.pinned.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.daemonkit/binrun
+            ~/.daemonkit/cache
+            ~/.cache/cc-skills/cci
+          key: ${{ steps.pinned.outputs.cache-primary-key }}
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q -n auto --dist worksteal --durations=10 --junitxml="$RUNNER_TEMP/pytest.xml" -o junit_family=xunit1
       - uses: actions/upload-artifact@v7
