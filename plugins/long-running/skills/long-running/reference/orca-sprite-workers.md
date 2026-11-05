@@ -262,6 +262,8 @@ Once `worker-start` succeeds, the launch creates the `worker-awake` Sprite servi
 
 **Local disk.** A Sprite's local disk holds 20 GB, about 18.6 GB of it usable, and a grader wrote about 4 GB a day to its home. So each `lr grade` on a Sprite runs `binrun gc` and deletes codex session files older than a day. A failure there is logged and never fails the pass. Those two were 5.5 GB of a 14 GB home after 2.5 days, read on dar-fleet-23.
 
+**Unclean stops.** A Sprite that sits frozen can come back from an unclean reboot instead of resuming, and it then holds whatever had reached the disk. dar-fleet-35 lost 52 loose git objects this way on Nov 4, each left empty, since git does not fsync loose objects by default. So a job's git calls set `core.fsync=committed` with `core.fsyncMethod=batch`, and each job deletes empty loose objects before its fetch, which brings them back.
+
 **Samples.** The same service appends one JSON line every 10 seconds to `/tmp/cc-remote-samples.log`, fsynced, because a stop can reboot the kernel and wipe its counters. `/tmp` is the Sprite's local disk, which survives a stop. Home is `nbd0`, a network disk whose connection can die, and a write to it hangs first, so a sample written there stops before the event it should record.
 
 - Each line has the time, kernel uptime, `MemAvailable`, swap in use, the balloon's net size, the kernel's `oom_kill` count, `/proc/loadavg`, the count of processes waiting on a disk, the top 3 processes by RSS with their command lines, each `claude` or `codex` with its parent, `memory.events` when readable, and any new kernel line at error level or naming `nbd0`.

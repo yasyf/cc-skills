@@ -204,11 +204,13 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   for line in $vars; do export "$line"; done
   unset IFS vars
   set +f
-  export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper "GIT_CONFIG_VALUE_1=!gh auth git-credential"
+  export GIT_CONFIG_COUNT=4 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper "GIT_CONFIG_VALUE_1=!gh auth git-credential" GIT_CONFIG_KEY_2=core.fsync GIT_CONFIG_VALUE_2=committed GIT_CONFIG_KEY_3=core.fsyncMethod GIT_CONFIG_VALUE_3=batch
   [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
     git credential-cache --timeout=3900 store
   started=$(date +%s)
-  find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f ! -name "*.lock" -exec grep -LE "^([0-9a-f]{40}|ref: .+)$" {} + | xargs rm -f
+  common=$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)
+  find "$common/refs" -type f ! -name "*.lock" -exec grep -LE "^([0-9a-f]{40}|ref: .+)$" {} + | xargs rm -f
+  find "$common/objects" -mindepth 2 -maxdepth 2 -path "$common/objects/??/*" -type f -size 0 ! -name "tmp_*" -delete
   echo "sprite-job: the ref cleanup took $(($(date +%s) - started)) s" >&2
   if [ -L "$3/.git" ]; then
     started=$(date +%s)
