@@ -125,6 +125,18 @@ type EndFacts struct {
 	Carries func(commit, live string) bool
 }
 
+func (f EndFacts) allReached(ends []End, now time.Time) string {
+	reached := make([]string, 0, len(ends))
+	for _, end := range ends {
+		outcome := f.Reached(end, now)
+		if outcome == "" {
+			return ""
+		}
+		reached = append(reached, outcome)
+	}
+	return strings.Join(reached, ", ")
+}
+
 func (f EndFacts) Reached(end End, now time.Time) string {
 	switch end.Kind {
 	case KindAt:

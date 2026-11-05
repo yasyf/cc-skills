@@ -252,10 +252,10 @@ func (c Cards) Promises(ctx context.Context) ([]lanes.Promise, error) {
 	return slices.SortedFunc(maps.Values(open), func(a, b lanes.Promise) int { return a.By.Compare(b.By) }), nil
 }
 
-func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, error) {
+func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, map[string][]End, error) {
 	shown, err := c.present(ctx, "outcomes", "--all")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var outcomes struct {
 		Doc struct {
@@ -263,16 +263,19 @@ func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, error) {
 				ID       string `json:"id"`
 				Type     string `json:"type"`
 				Children []struct {
-					Type string `json:"type"`
+					Type   string `json:"type"`
+					Repo   string `json:"repo"`
+					Number int    `json:"number"`
 				} `json:"children"`
 			} `json:"blocks"`
 		} `json:"doc"`
 	}
 	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
-		return nil, nil, fmt.Errorf("cc-present outcomes: %w", err)
+		return nil, nil, nil, fmt.Errorf("cc-present outcomes: %w", err)
 	}
 	var cards []string
 	questions := map[string]bool{}
+	shows := map[string][]End{}
 	for _, block := range outcomes.Doc.Blocks {
 		if block.Type != "card" || block.ID == mergeTriage {
 			continue
@@ -280,9 +283,12 @@ func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, error) {
 		cards = append(cards, block.ID)
 		for _, child := range block.Children {
 			questions[block.ID] = questions[block.ID] || child.Type == "choice"
+			if child.Type == "pr" {
+				shows[block.ID] = append(shows[block.ID], End{KindPR, fmt.Sprintf("%s#%d", child.Repo, child.Number)})
+			}
 		}
 	}
-	return cards, questions, nil
+	return cards, questions, shows, nil
 }
 
 func (c Cards) Until(ctx context.Context, card, condition, lane string, paths ...string) (End, error) {
@@ -324,7 +330,7 @@ func (c Cards) Missing(ctx context.Context, named []string) ([]string, error) {
 		return nil, err
 	}
 	if len(named) == 0 {
-		if named, _, err = c.onBoard(ctx); err != nil {
+		if named, _, _, err = c.onBoard(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -534,13 +540,16 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	cards, questions, err := c.onBoard(ctx)
+	cards, questions, shows, err := c.onBoard(ctx)
 	if err != nil {
 		return err
 	}
 	now := c.Now()
 	waiting := map[string]End{}
 	for _, card := range cards {
+		for n, pr := range shows[card] {
+			waiting[fmt.Sprintf("%s shows %d", card, n)] = pr
+		}
 		fields, recorded := known[card]
 		if !recorded {
 			fmt.Fprintf(out, "PROBLEM %s: no end condition; record one with lr board cards until %s --until COND\n", card, card)
@@ -560,6 +569,12 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 		return err
 	}
 	for _, card := range cards {
+		if ended := facts.allReached(shows[card], now); ended != "" {
+			if err := c.sweepOff(ctx, lane, card, known[card], ended, ended, out); err != nil {
+				return err
+			}
+			continue
+		}
 		end, isWaiting := waiting[card]
 		if !isWaiting {
 			continue
@@ -608,7 +623,7 @@ func (c Cards) Retire(ctx context.Context, lane, reason string, named []string, 
 	if err != nil {
 		return err
 	}
-	cards, _, err := c.onBoard(ctx)
+	cards, _, _, err := c.onBoard(ctx)
 	if err != nil {
 		return err
 	}
