@@ -133,6 +133,10 @@ func transition(s *store.Store, repo string, number int, head string, facts map[
 
 var ErrRowsNotFolded = errors.New("the landing store holds no review row yet, so no approval can be judged until the first fold")
 
+func HeldRefusal(refusal string) bool {
+	return strings.HasPrefix(refusal, heldLead)
+}
+
 func firstUnmet(row store.ReviewRow) string {
 	return unmet(row, true)
 }

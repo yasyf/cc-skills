@@ -77,3 +77,23 @@ func TestHisTypedAnswerToACardOrdersOnlyWhenItIsALandWordNamingOnePR(t *testing.
 		})
 	}
 }
+
+func TestAHoldThatSaysItWaitsOnHisAnswerHoldsUntilHisTap(t *testing.T) {
+	for _, tt := range []struct {
+		name, text string
+		attrs      map[string]string
+		prs        []int
+		want       bool
+	}{
+		{"the poster's attribute", "hold #7", map[string]string{"until": "tap"}, []int{7}, true},
+		{"words for a hold already open", "#7 is product code: no landing until he answers its card.", nil, []int{7}, true},
+		{"an ordinary hold", "hold #7 on the cutover", nil, []int{7}, false},
+		{"words on a hold naming two PRs", "no landing until he answers", nil, []int{7, 8}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := bus.HoldsUntilTap(legacyRecord(t, "hold", "lane", tt.text, tt.prs, tt.attrs)); got != tt.want {
+				t.Fatalf("HoldsUntilTap = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

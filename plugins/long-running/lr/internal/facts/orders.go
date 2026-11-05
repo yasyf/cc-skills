@@ -2,6 +2,7 @@ package facts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -25,6 +26,8 @@ const (
 )
 
 var orderWatchers = []string{"meta-desk", "owner-relay"}
+
+var errHeldWait = errors.New("the row is held, so his tap waits for the hold to lift")
 
 // WriteOrders turns each owner tap recorded on any surface into the one lr.tap record the landing pass and every desk read, or, on a row not ready at that head, one tap.refused naming why.
 func (s Source) WriteOrders(ctx context.Context) error {
@@ -53,7 +56,7 @@ func (s Source) WriteOrders(ctx context.Context) error {
 			if failed := s.writeOrder(ctx, record, tap, age); failed != nil {
 				s.Log.Warn("an owner tap has no land order yet", "record", record.Name(), "pr", tap.PR, "err", failed)
 				settled = settled && age >= orderWindow
-				if age >= OrderGrace {
+				if age >= OrderGrace && !errors.Is(failed, errHeldWait) {
 					s.escalateOrder(ctx, record, tap, failed)
 				}
 				continue
@@ -95,13 +98,28 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 		if err := orders.PostRefusal(ctx, s.Repo, tap, refusal); err != nil {
 			return err
 		}
+		if prrow.HeldRefusal(refusal) {
+			s.escalate(ctx, record, fmt.Sprintf("tap-refused:%d", record.Seq), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("His approval %s of #%d at %s waits for its hold to lift and lands then if the head has not moved: %s. Tell him what stops it.", record.Name(), tap.PR, tap.Head[:min(12, len(tap.Head))], refusal))
+			return errHeldWait
+		}
 		s.escalate(ctx, record, fmt.Sprintf("tap-refused:%d", record.Seq), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("His approval %s of #%d at %s was refused and lands nothing: %s. Tell him what stops it.", record.Name(), tap.PR, tap.Head[:min(12, len(tap.Head))], refusal))
 		return nil
+	}
+	if moved, err := s.movedSinceRefusal(ctx, record, tap); err != nil || moved {
+		return err
 	}
 	if _, err := orders.PostOrder(ctx, tap, record); err != nil {
 		return err
 	}
 	return s.endTapHolds(ctx, tap, record)
+}
+
+func (s Source) movedSinceRefusal(ctx context.Context, word client.Record, tap bus.Tap) (bool, error) {
+	refused, err := client.Tail(ctx, client.Query{Drive: s.Drive, After: word.Seq, Kinds: []string{bus.TapRefusedKind}, Lanes: []string{OrderLane}, PR: fmt.Sprintf("%s#%d", s.Repo, tap.PR)})
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(refused, func(record client.Record) bool { return bus.RefusedHead(record) != tap.Head }), nil
 }
 
 func (s Source) endTapHolds(ctx context.Context, tap bus.Tap, word client.Record) error {

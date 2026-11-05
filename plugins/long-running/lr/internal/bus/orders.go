@@ -44,6 +44,7 @@ var (
 	approvalValues = map[string]string{"approved": tappedValue, "rejected": heldValue}
 	pickedLabel    = regexp.MustCompile(`picked “([^”]*)”`)
 	typedLabel     = regexp.MustCompile(`^Owner: "([^"]*)"`)
+	untilHisWord   = regexp.MustCompile(`(?i)\buntil he (?:answers|taps|approves|lands)\b`)
 	landLabel      = regexp.MustCompile(`(?i)^\W*(?:yes\W+)?(?:land|merge|approve|ship)\b`)
 	holdLabel      = regexp.MustCompile(`(?i)^\W*hold\b`)
 	namedPR        = regexp.MustCompile(`([\w./-]*)#(\d+)\b`)
@@ -100,6 +101,10 @@ func (b Bus) PostRefusal(ctx context.Context, repo string, tap Tap, reason strin
 		Text:  fmt.Sprintf("tap on #%d at %s refused: %s", tap.PR, tap.Head[:min(12, len(tap.Head))], reason),
 	})
 	return err
+}
+
+func RefusedHead(record client.Record) string {
+	return record.Fields.Attrs[refusedHead]
 }
 
 func (b Bus) PostGoRefused(ctx context.Context, repo string, pr int, head string, to []string, reason string) error {
