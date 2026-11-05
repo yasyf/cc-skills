@@ -14,6 +14,7 @@ func TestADocMergeAskCarriesTheDocsRenderedPage(t *testing.T) {
 		"a doc merge ask with only its PR link":   {merge, true},
 		"a retro approval ask naming its PR":      {"Approve design-docs#340, the 4ntoya retro?", true},
 		"a doc merge ask with its Pages link":     {merge + "\nRead it at https://docs.poetic.design/design-docs/sandsql-per-database-sharding/", false},
+		"a doc merge ask with its PR preview":     {merge + "\nhttps://docs.poetic.design/previews/pr-332/design-docs/sandsql-per-database-sharding/", false},
 		"a doc merge ask with a github.io link":   {merge + "\nhttps://forge-ai.github.io/design-docs/sandsql-per-database-sharding/", false},
 		"a doc merge ask with a tailnet link":     {merge + "\nhttp://yasyf-forge-studio.tail71af5d.ts.net:61713/design-docs/sandsql-per-database-sharding/", true},
 		"a question about a doc, merging nothing": {"Which way does design-docs#332 shard, by table or by run?", false},

@@ -16,5 +16,5 @@ func UnshownDoc(asked string) error {
 	if doc == nil || !mergeAsk.MatchString(asked) || docPage.MatchString(asked) {
 		return nil
 	}
-	return fmt.Errorf("NO DOC PAGE: this asks him to merge or approve design-docs#%s and links no rendered page of it, so he would merge a doc he has not read and nothing went out; add the doc's GitHub Pages link, https://docs.poetic.design/design-docs/<slug>/ or https://docs.poetic.design/incident-retros/<slug>/ for a retro", doc[1])
+	return fmt.Errorf("NO DOC PAGE: this asks him to merge or approve design-docs#%[1]s and links no rendered page of it, so he would merge a doc he has not read and nothing went out; add the doc's GitHub Pages link, https://docs.poetic.design/design-docs/<slug>/ or /incident-retros/<slug>/ for a retro, or before it merges its preview, https://docs.poetic.design/previews/pr-%[1]s/design-docs/<slug>/", doc[1])
 }

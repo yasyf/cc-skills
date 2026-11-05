@@ -30,7 +30,7 @@ MERGE_ASK = re.compile(r"(?i)\b(?:merg|approv)\w*")
 BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
 NO_PLATY_CARD = "Warning, nothing was blocked: A release word to the owner gives what users get in plain words and links the Platy release card. Add the card's #releases permalink, which the build's `release-slack-root` annotation names."
 NOTHING_TO_TAP = "A message to the owner that asks him to tap, approve or answer carries the button to do it. Send it through `lr reply` with its picks or the ready PR in `prs`, pass each ready PR as `--tap-pr <url>` (`tap_prs`), draw it as a waiting card, or say what it waits on without asking him."
-UNSHOWN_DOC = "A card to the owner that asks him to merge or approve a design doc or retro links its rendered page. Add the doc's GitHub Pages link, https://docs.poetic.design/design-docs/<slug>/, or https://docs.poetic.design/incident-retros/<slug>/ for a retro."
+UNSHOWN_DOC = "A card to the owner that asks him to merge or approve a design doc or retro links its rendered page. Add the doc's GitHub Pages link, https://docs.poetic.design/design-docs/<slug>/ or /incident-retros/<slug>/ for a retro, or before it merges its preview, https://docs.poetic.design/previews/pr-<n>/design-docs/<slug>/."
 UNCARDED_RECORD ="Warning, nothing was blocked: A release record carries the Platy release card, so the relay can show it to the owner. Add `--attr card=<permalink>`, read from the build's `release-slack-root` annotation."
 
 LANE = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "flaky-tests-1"}
