@@ -138,7 +138,7 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 				order := Order{Lane: lane, Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now}
 				return poster.LaunchOrExit(cmd.Context(), order, seconds(timeout))
 			}
-			entry, err := poster.Entry()
+			entry, err := poster.Entry(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -206,7 +206,7 @@ func incidentCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			err = incident.DeskLaunch{
-				Bus: incident.CCI{}, Drive: flags.drive, Author: flags.lane, Name: args[0], FixBrief: args[1], EvidenceBrief: evidence, CommsBrief: comms, Alert: alert,
+				Bus: incident.CCI{}, Runner: a.Runner, Drive: flags.drive, Author: flags.lane, Name: args[0], FixBrief: args[1], EvidenceBrief: evidence, CommsBrief: comms, Alert: alert,
 				Claude: claude, Timeout: seconds(timeout), Poll: verdictPoll, Now: a.Now, Out: cmd.OutOrStdout(),
 			}.Run(cmd.Context())
 			if errors.Is(err, incident.ErrUnsettled) {

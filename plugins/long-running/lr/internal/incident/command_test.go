@@ -18,6 +18,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 func verb(t *testing.T, args ...string) (string, error) {
@@ -452,4 +453,39 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+type cciMe string
+
+func (line cciMe) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	if !slices.Equal(c.Argv, []string{"cci", "me"}) {
+		return shell.Result{}, fmt.Errorf("unexpected %v", c.Argv)
+	}
+	return shell.Result{Stdout: string(line) + "\n"}, nil
+}
+
+func TestADeskLaunchFromASessionTheRegistryDoesNotListUsesTheDriveCCIBindsItTo(t *testing.T) {
+	t.Setenv(sessionEnv, "a-later-session")
+	for _, c := range []struct {
+		name, me, want, refusal string
+	}{
+		{"bound", "monorepo-8a lane drive=prog lane=root busy now", "abc", ""},
+		{"unbound", "monorepo-8a lane lane=root busy now", "", "no drive in the registry is bound to session a-later-session and cci me names none"},
+		{"bound elsewhere", "monorepo-8a lane drive=other lane=root busy now", "", "no drive in the registry is cci drive other"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d, _, _, _ := deskFixture(t)
+			d.Drive, d.Runner = "", cciMe(c.me)
+			entry, err := d.entry(context.Background())
+			if c.refusal != "" {
+				if err == nil || !strings.Contains(err.Error(), c.refusal) {
+					t.Fatalf("entry %+v, %v, want refusal %q", entry, err, c.refusal)
+				}
+				return
+			}
+			if err != nil || entry.Drive != c.want {
+				t.Fatalf("entry %+v, %v, want %s", entry, err, c.want)
+			}
+		})
+	}
 }

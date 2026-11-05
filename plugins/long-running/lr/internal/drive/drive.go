@@ -5,16 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/yasyf/cc-interact/procs"
 )
 
 const Env = "CLAUDE_LONG_RUNNING_DRIVE"
 
-var ErrNoDrive = errors.New("this session belongs to no drive: it carries no " + Env + " and no drive registry entry holds it")
+var ErrNoDrive = errors.New("this session belongs to no drive: it carries no " + Env + ", no drive registry entry holds it, and cci me names none")
 
 type Pin struct {
 	Name     string   `json:"name"`
@@ -109,6 +111,15 @@ func entries() ([]Entry, error) {
 	return found, nil
 }
 
+func BoundInCCI(me string) string {
+	for word := range strings.FieldsSeq(me) {
+		if name, found := strings.CutPrefix(word, "drive="); found {
+			return name
+		}
+	}
+	return ""
+}
+
 func Live() ([]Entry, error) {
 	found, err := entries()
 	if err != nil {
@@ -140,11 +151,14 @@ func Session() (Entry, error) {
 	if name := os.Getenv(Env); name != "" {
 		return Named(name)
 	}
-	entry, err := HoldingWindow(procs.ClaudePID())
-	if err != nil {
-		return Entry{}, ErrNoDrive
+	if entry, err := HoldingWindow(procs.ClaudePID()); err == nil {
+		return entry, nil
 	}
-	return entry, nil
+	me, err := exec.Command("cci", "me").Output()
+	if name := BoundInCCI(string(me)); err == nil && name != "" {
+		return Named(name)
+	}
+	return Entry{}, ErrNoDrive
 }
 
 func Holding(session string) (Entry, error) {

@@ -476,7 +476,7 @@ func (l *launch) readEnv() error {
 func (l *launch) resolveRun() error {
 	l.run = l.Env("ORCA_LAUNCH_RUN")
 	if l.run == "" {
-		if entry := currentDriveEntry(l.Env); entry != nil {
+		if entry := ownDriveEntry(l.ctx, l.Env, l.Runner); entry != nil {
 			l.run = entry.OrcaRun
 		}
 	}

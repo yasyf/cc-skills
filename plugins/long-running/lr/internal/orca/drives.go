@@ -1,6 +1,7 @@
 package orca
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
@@ -71,6 +73,23 @@ func currentDriveEntry(env func(string) string) *drive.Entry {
 	}
 	for _, entry := range allDrives(env) {
 		if slices.Contains(entry.Sessions, session) {
+			return &entry
+		}
+	}
+	return nil
+}
+
+func ownDriveEntry(ctx context.Context, env func(string) string, runner shell.Runner) *drive.Entry {
+	if entry := currentDriveEntry(env); entry != nil || env(driveEnv) != "" {
+		return entry
+	}
+	me, err := runner.Run(ctx, shell.Command{Argv: []string{"cci", "me"}})
+	if err != nil {
+		return nil
+	}
+	name := drive.BoundInCCI(me.Stdout)
+	for _, entry := range allDrives(env) {
+		if name != "" && entry.Bus() == name {
 			return &entry
 		}
 	}

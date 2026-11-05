@@ -194,14 +194,34 @@ func TestTwoPostersAtOnceNeverShareAKey(t *testing.T) {
 func TestASessionTheRegistryDoesNotListFindsItsDriveByTheDriveItCarries(t *testing.T) {
 	f := newPosterFixture(t)
 	f.env[sessionEnv] = "a-later-session"
-	if _, err := f.poster.Entry(); err == nil {
+	f.poster.Runner = cciMe("monorepo-8a lane lane=root busy now")
+	if _, err := f.poster.Entry(context.Background()); err == nil {
 		t.Fatal("a session carrying no drive found one")
 	}
 	f.env[driveEnv] = "prog"
-	entry, err := f.poster.Entry()
+	entry, err := f.poster.Entry(context.Background())
 	if err != nil || entry.Drive != "prog" {
 		t.Fatalf("entry %+v, %v", entry, err)
 	}
+}
+
+func TestASessionTheRegistryDoesNotListFindsTheDriveCCIBindsItTo(t *testing.T) {
+	f := newPosterFixture(t)
+	f.env[sessionEnv] = "a-later-session"
+	f.poster.Runner = cciMe("monorepo-8a lane drive=prog lane=root busy now")
+	entry, err := f.poster.Entry(context.Background())
+	if err != nil || entry.Drive != "prog" {
+		t.Fatalf("entry %+v, %v", entry, err)
+	}
+}
+
+func cciMe(line string) *scripted {
+	return &scripted{reply: func(argv []string) (string, string, int) {
+		if !slices.Equal(argv, []string{"cci", "me"}) {
+			return "", "unexpected " + strings.Join(argv, " "), 1
+		}
+		return line + "\n", "", 0
+	}}
 }
 
 func TestALaunchPostsAnAddressedLineWithNoClockAndPrintsItsVerdict(t *testing.T) {
@@ -576,8 +596,9 @@ func TestEachLinePostsWithNoKeyOfItsOwnAfterReadingTheRunnerAndPrintsItsRecord(t
 func TestADriveTheRegistryLacksPostsNothing(t *testing.T) {
 	f := newPosterFixture(t)
 	f.env[sessionEnv] = "s2"
+	f.poster.Runner = cciMe("monorepo-8a lane lane=root busy now")
 	err := f.poster.Line(context.Background(), "x", "unhold x")
-	if err == nil || !strings.Contains(err.Error(), "no drive in the registry is bound to session s2") || len(f.bus.calls) != 0 {
+	if err == nil || !strings.Contains(err.Error(), "no drive in the registry is bound to session s2 and cci me names none") || len(f.bus.calls) != 0 {
 		t.Fatal(err)
 	}
 	f.poster.Drive = "elsewhere"
