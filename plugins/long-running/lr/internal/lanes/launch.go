@@ -30,12 +30,12 @@ type standingSession struct {
 
 var standingSessions = map[string]standingSession{
 	"chores":      {"chores", "sonnet", "low", ""},
-	"coordinator": {Root, "fable", "xhigh", ""},
+	"coordinator": {Root, "fable", "high", ""},
 	"meta":        {"meta", "opus", "xhigh", RoleMeta},
 	"signal":      {"signal", "sonnet", "low", ""},
 }
 
-var subDriveCoordinator = standingSession{Root, "opus", "xhigh", ""}
+var subDriveCoordinator = standingSession{Root, "opus", "high", ""}
 
 func sessionFor(name, parent string) standingSession {
 	if name == "coordinator" && parent != "" {
