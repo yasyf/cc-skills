@@ -228,7 +228,7 @@ function pickOption(c, o, at, { said, subject }) {
   const state = `${o.recommended ? ' rec' : ''}${on ? ' on' : sending(c.choice) ? ' off' : ''}`;
   return `<div class="pk${state}" role="radio" aria-checked="${on}" tabindex="0" data-n="${at + 1}" data-choose="${esc(o.id)}" data-choice="${esc(c.choice)}"${subject ? ` data-subject="${esc(subject)}"` : ''}><span class="pk-dot"></span><div class="pk-body"><div class="pk-main">
     <div class="pk-head"><b class="pk-t">${esc(plain(said?.answers?.[at] || o.title || o.label.replace(RECOMMENDED_LABEL, '')).replace(/\(?#\d{4,5}\)?/g, 'this change'))}</b>${o.recommended ? '<span class="pk-rec">★ Recommended</span>' : ''}</div>
-    ${o.note ? `<p class="pk-note">${inline(plain(o.note))}</p>` : ''}${o.hint ? `<p class="pk-hint">${inline(plain(o.hint))}</p>` : ''}</div>${o.facts?.length ? `<ul class="pk-facts">${o.facts.map(pickFact).join('')}</ul>` : ''}</div></div>`;
+    ${o.note ? `<p class="pk-note">${inline(plain(o.note))}</p>` : ''}${o.hint && !o.facts?.length ? `<p class="pk-hint">${inline(plain(o.hint))}</p>` : ''}</div>${o.facts?.length ? `<ul class="pk-facts">${o.facts.map(pickFact).join('')}</ul>` : ''}</div></div>`;
 }
 function pickOther(c, at) {
   return `<form class="pk pk-other" data-n="${at}" data-pick-other="${esc(c.choice)}"><span class="pk-dot"></span><div class="pk-body"><b class="pk-t">Other</b><textarea name="pick-other" data-draft="${esc(c.choice)}" rows="1" placeholder="Write your own answer" aria-label="Write your own answer"></textarea></div><button class="btn">Send</button></form>`;
@@ -496,7 +496,7 @@ function render() {
     $('#tabs .tab.on')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
   if (chatInPlace(p, stack)) return;
-  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), needs: needsScreen, replies: repliesScreen, ask: askScreen, status: () => statusScreen(p.id, p.tab), jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
+  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), needs: () => needsScreen(p.id), replies: repliesScreen, ask: askScreen, status: () => statusScreen(p.id, p.tab), jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   let screen;
