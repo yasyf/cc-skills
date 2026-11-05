@@ -157,8 +157,21 @@ func (d *Desk) readLines(ctx context.Context) error {
 		return d.noteTailFailure(err)
 	}
 	d.withdrawals = withdrawalsIn(records)
+	if d.rulings, err = d.rulingsIn(ctx, records); err != nil {
+		return err
+	}
 	var skipped int64
 	for _, record := range records {
+		for _, ruled := range d.rulings {
+			if ruled.seq != record.Seq {
+				continue
+			}
+			for _, slug := range ruled.slugs {
+				if err := d.withdrawIncident(ctx, ruled, slug); err != nil {
+					return err
+				}
+			}
+		}
 		if !toDesk(record) && !rootReplies(record) {
 			skipped = record.Seq
 			continue
@@ -196,6 +209,9 @@ func withdrawalsIn(records []client.Record) map[int64]int64 {
 func (d *Desk) lineEnded(ctx context.Context, lane string, line client.Record) (string, error) {
 	if by := d.withdrawals[line.Seq]; by != 0 {
 		return fmt.Sprintf("root withdrew it on cci #%d", by), nil
+	}
+	if ruled := d.ruledAfter(lane, line.Seq); ruled != "" {
+		return ruled, nil
 	}
 	return d.endedSince(ctx, lane, line.At)
 }

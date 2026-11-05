@@ -237,6 +237,7 @@ type Desk struct {
 	settled     map[string]string
 	unreadSeen  map[string]unreadCheck
 	withdrawals map[int64]int64
+	rulings     []ruling
 	pass        atomic.Pointer[passMark]
 	orcaSaid    atomic.Pointer[string]
 	stuckPass   int
