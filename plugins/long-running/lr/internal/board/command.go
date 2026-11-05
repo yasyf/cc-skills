@@ -399,7 +399,7 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 		},
 	}, &cobra.Command{
 		Use:   "drawn CARD...",
-		Short: "Print when each card was first drawn, stamping now for a card never drawn or drawn again after its withdrawal",
+		Short: "Print when each card was first drawn, writing nothing and printing nothing for a card not marked drawn",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			board, done, err := cards()
@@ -412,9 +412,23 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 				return err
 			}
 			for _, card := range args {
-				fmt.Fprintln(c.OutOrStdout(), card, stamp(drawn[card]))
+				if at, marked := drawn[card]; marked {
+					fmt.Fprintln(c.OutOrStdout(), card, stamp(at))
+				}
 			}
 			return nil
+		},
+	}, &cobra.Command{
+		Use:   "mark-drawn CARD...",
+		Short: "Record that these cards just reached the board, keeping the first draw unless the card was withdrawn since",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			board, done, err := cards()
+			if err != nil {
+				return err
+			}
+			defer done()
+			return board.MarkDrawn(c.Context(), args)
 		},
 	}, &cobra.Command{
 		Use:   "ruled CARD_FILE",

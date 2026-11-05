@@ -62,6 +62,7 @@ RULING_TEXT = re.compile(r"\bAMENDED markers?\b")
 RECHECK_TOPIC = "card-recheck"
 RECHECK_DUE = timedelta(hours=1)
 BUILD_DUE = timedelta(hours=1)
+UNMARKED = "Warning, nothing was blocked: the board took these cards, but their first draw was not recorded; the next publish tries again."
 SWEEP_CADENCE = timedelta(hours=1)
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
@@ -540,3 +541,23 @@ def start_board_watch(evt: BaseHookEvent) -> HookResult | None:
         with BoardWatches.mutate(evt) as state:
             state.sessions = [*state.sessions, *unseen]
     return None
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Bound(), Tool("Bash")],
+    tests=separate("board_text_gate.mark_cards_drawn", {
+        update("clean-card.json"): Allow(),
+        update("clean-card.json", commands={f"{BOARD_CARDS} mark-drawn": (1, "no ledger")}): Warn(pattern=r"marking share-open drawn: exit 1"),
+        posting(f"cc-present update-block {board('clean-card.json')} --dry-run", commands={f"{BOARD_CARDS} mark-drawn": (1, "no ledger")}): Allow(),
+    }),
+)
+def mark_cards_drawn(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    reads = Reads(evt, which)
+    for item in published(evt, reads, []):
+        cards = [block["id"] for block, _ in blocks(item.doc) if block["type"] == "card"]
+        if cards:
+            reads.read(f"marking {' '.join(cards)} drawn", lambda cards=cards, item=item: ran([str(LR), "board", "cards", "mark-drawn", *cards, *reads.which, "--session", item.session]))
+    return evt.context(fenced(UNMARKED, reads.failures)) if reads.failures else None

@@ -194,6 +194,9 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	if err != nil {
 		return "", err
 	}
+	if err := cards.MarkDrawn(ctx, []string{top.ID}); err != nil {
+		return "", err
+	}
 	said := top.ID + " is on his board"
 	if url := slackLine.FindStringSubmatch(drawn.Stdout); url != nil {
 		said += " and in his DM, " + url[1]

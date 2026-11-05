@@ -466,6 +466,23 @@ func TestABoardRefusalTellsTheSenderAndTheNextCardStillDraws(t *testing.T) {
 	}
 }
 
+func TestOnlyACardTheBoardTookReadsAsDrawn(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	f.shell.refuse = "block has no title"
+	draw(t, "owed-1", `{"id":"bad"}`)
+	draw(t, "owed-2", `{"id":"good"}`)
+	f.run(t)
+
+	drawn, err := f.Cards.Drawn(context.Background(), []string{"bad", "good"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, marked := drawn["bad"]; marked || !drawn["good"].Equal(cardsNow) {
+		t.Fatalf("drawn %v, want the taken card at now and no time for the refused one", drawn)
+	}
+}
+
 func TestAMissingBoardToolStopsTheLinkAndKeepsTheCardOwed(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)
