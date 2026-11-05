@@ -2,6 +2,7 @@ package grading
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -141,6 +142,31 @@ func TestAWholeAskCarriesTheBugItemThePRBodyNames(t *testing.T) {
 	spec := readJob[grader.FinderJob](t, f.finderDir("45489"+wholeMark+strconv.FormatInt(ask, 10)))
 	if len(spec.Items) != 1 || spec.Items[0].Text != "Josh said the session is offline" {
 		t.Errorf("whole items = %+v", spec.Items)
+	}
+}
+
+func TestAWholePassCarriesTheAnswersAndLandedFixesItsReadsNeed(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"repo": repo, "checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}})
+	f.shell.view = `{"title":"a change","body":"Under answer 8ae07a0.","headRefName":"lane-7"}`
+	f.shell.answers = map[string]string{"8ae07a0": `{"id":"8ae07a000","title":"which path","body":"one path","updated_at":"2026-11-04"}`}
+	beginAsks(t, f)
+	ask := askPosted(t, client.Draft{Lane: "lane-7", Kind: kindAsk, Text: "finder: whole on #45489 please", PRs: []string{pull}})
+
+	if _, err := f.pool.Whole(context.Background(), map[int]machine.Facts{number: facts(head)}); err != nil {
+		t.Fatal(err)
+	}
+
+	directory := f.finderDir("45489" + wholeMark + strconv.FormatInt(ask, 10))
+	data, err := os.ReadFile(filepath.Join(directory, grader.AnswersFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answers []map[string]string
+	if err := json.Unmarshal(data, &answers); err != nil || len(answers) != 1 || answers[0]["id"] != "8ae07a000" {
+		t.Errorf("answers.json = %s, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, grader.LandedFile)); err != nil {
+		t.Errorf("the whole pass carries no landed fixes: %v", err)
 	}
 }
 

@@ -219,14 +219,15 @@ func (r *finderRepo) log(argv []string) string {
 	case "--raw":
 		return r.raw
 	case "--no-walk=unsorted":
+		if slices.Contains(argv, "--name-only") {
+			return r.landedLog
+		}
 		return subjectsOf(argv[3:], r.commitSubjects)
 	case "--no-merges":
 		if len(r.own[argv[5]]) > 0 {
 			return strings.Join(ownPaths, "\n\n") + "\n\n"
 		}
 		return ""
-	case "--ignore-missing":
-		return r.landedLog
 	default:
 		return strings.Join(r.subjects, "\n") + "\n"
 	}
@@ -1244,7 +1245,7 @@ func TestASecondBugFixInAnAreaTheDriveAlreadyFixedPostsABlockingPointNamingTheEa
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: major "+shaHead+" 1 open "+wholeRecord+": go/sand/internal/replica/follow.go:40 "+secondFix+".") {
 		t.Errorf("posted %q", shell.posted[0]["--text"])
 	}
-	sameList(t, strings.Fields(shell.gitStdins("log", "--ignore-missing")[0]), []string{shaFixed, shaOtherArea})
+	sameList(t, strings.Fields(landedReads(shell)[0]), []string{shaFixed, shaOtherArea})
 }
 
 func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t *testing.T) {
@@ -1386,11 +1387,36 @@ func TestAChangeThatIsNoBugFixReadsNoLandedArea(t *testing.T) {
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: ok "+shaHead+" ") {
 		t.Errorf("posted %q", shell.posted[0]["--text"])
 	}
+	equal(t, len(landedReads(shell)), 0)
+}
+
+func TestALandedFixTheCloneLacksStopsThePassInsteadOfDroppingTheFix(t *testing.T) {
+	directory := finderJobDir(t, nil)
+	shell, _ := newFinderFake(t, replyOf())
+	shell.title = fixTitle
+	registered(t, directory, shell)
+	read := shell.gitFn
+	shell.gitFn = func(argv []string) (string, error) {
+		if argv[1] == "log" && slices.Contains(argv, "--name-only") && slices.Contains(argv, shaFixed) {
+			return "", &ExitError{Argv: argv, Code: 128, Stderr: "fatal: bad object " + shaFixed}
+		}
+		return read(argv)
+	}
+	if err := runFinderJob(t, directory, shell); err == nil {
+		t.Fatal("the pass dropped a landed fix and settled")
+	}
+	holdsAll(t, resultOf(t, directory)["error"].(string), "bad object "+shaFixed)
+	equal(t, len(shell.posted), 0)
+}
+
+func landedReads(shell *fakeShell) []string {
+	var read []string
 	for _, call := range shell.snapshot() {
-		if slices.Contains(call.Argv, "--ignore-missing") {
-			t.Errorf("read the landed fixes: %v", call.Argv)
+		if call.Argv[0] == "git" && slices.Contains(call.Argv, "--name-only") && slices.Contains(call.Argv, "--no-walk=unsorted") {
+			read = append(read, call.Stdin)
 		}
 	}
+	return read
 }
 
 func TestAModelRateLimitIsAskedAgainAfterTheDelayItNamesNeverFailingThePass(t *testing.T) {

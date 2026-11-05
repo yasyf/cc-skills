@@ -9,7 +9,9 @@ never `find`: the directory above {checkout} holds thousands of sibling worktree
 Read {rubric} first. Its "What a desk reads", "How a desk grades" and "Head mode" sections
 are your rubric: grade exactly as a fidelity desk does, one reader, no second pass. Where it
 says to run `rulings.py grade` or post a line, answer in the schema instead; the job posts
-the lines.
+the lines. The owed-deletion tasks it names live in cc-notes, which this machine lacks, so
+these are the open ones, as the coordinator read them for this pass:
+{owed}
 
 Read the head pinned by sha, never the PR's moving tip:
 `git fetch --no-write-fetch-head -q origin {fetch}`. {scope}

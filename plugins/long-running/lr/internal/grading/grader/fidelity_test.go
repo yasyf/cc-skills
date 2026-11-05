@@ -586,7 +586,7 @@ func TestACodexOkPostsTheGradeWithItsExemptPhraseThenTouchesAndOldApp(t *testing
 		filepath.Join(directory, rubricFile), filepath.Join(directory, "rows.md"), "`git diff "+shaOwn+"^ "+shaHead+"`",
 		"contract: builds the resubscribe", "- go/sand/next/replica/follow.go: 41-43",
 		"### Rulings\n- ports old-tree 304c1e7ea5e (#41725)", "Body addendum\nThe caller trace",
-		"package, /plans/durable.", "`subplans/`",
+		"package, "+filepath.Dir(filepath.Dir(planPath))+".", "`subplans/`",
 	)
 	holdsNone(t, question, "ci is green")
 	holdsAll(t, readText(t, directory, "record.md"), "checked "+strings.Join(fidelityKeys, ",")+" names poll|resubscribe")
@@ -883,20 +883,10 @@ func TestALandedHeadOnAReportOnlyRegradeGradesItsOwnCommitWhereAnyOtherPassSkips
 }
 
 func TestAHeadWhosePRHasAnOpenSweepFindingGradesMissingNamingItWithNoModelCall(t *testing.T) {
-	directory := fidelityDir(t, map[string]any{"grades": []any{}})
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "findings": []map[string]string{
+		{"seq": "205428", "sweep": "local-state-sweep-1", "owner": "naming-diet-2", "text": "dev host /_ssql route\nlives in a JSON file under ~/.iris"},
+	}})
 	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(nil))
-	state := t.TempDir()
-	if err := os.WriteFile(filepath.Join(state, findingsState), []byte("{}"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	entry := filepath.Join(shell.config, "long-running", "drives", "d1.json")
-	if err := os.MkdirAll(filepath.Dir(entry), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(entry, fmt.Appendf(nil, `{"drive":"d1","cci_drive":"d1","state_dir":%q}`, state), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	shell.findings = `{"seq": "205428", "sweep": "local-state-sweep-1", "owner": "naming-diet-2", "text": "dev host /_ssql route\nlives in a JSON file under ~/.iris", "pr": "43299", "state": "open"}` + "\n"
 	mustFidelity(t, directory, shell)
 	sameList(t, shell.texts(), []string{"fidelity: missing " + shaHead + " finding/205428 open finding 205428 from local-state-sweep-1, owner naming-diet-2: dev host /_ssql route lives in a JSON file under ~/.iris"})
 	equal(t, len(shell.asks()), 0)
@@ -1030,6 +1020,25 @@ func TestAServiceTouchOnlyOnTheNewTreeOrInATestLeavesTheReadsOldAppGrade(t *test
 	mustFidelity(t, directory, shell)
 	texts := shell.texts()
 	equal(t, texts[len(texts)-1], "old-app: unchanged "+shaHead[:7]+" baseline "+baselineName+"; go/sand/next only")
+}
+
+func TestAServiceTouchCheckWhoseDiffDoesNotReadStopsThePassInsteadOfSkippingTheCheck(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "service_touches": signalTouches})
+	shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(nil))
+	read := shell.gitFn
+	shell.gitFn = func(argv []string) (string, error) {
+		if argv[1] == "diff" && slices.Contains(argv, "--unified=0") {
+			return "", &ExitError{Argv: argv, Code: 128, Stderr: "fatal: bad object " + shaHead}
+		}
+		return read(argv)
+	}
+	repo.diff = pr44080Diff
+	if err := Fidelity(context.Background(), directory, shell.deps()); err == nil {
+		t.Fatal("the pass read no diff and settled")
+	}
+	holdsAll(t, resultOf(t, directory)["error"].(string), "bad object "+shaHead)
+	equal(t, len(shell.asks()), 0)
+	equal(t, len(shell.posted), 0)
 }
 
 func TestAServiceTouchEntryThatDoesNotCompileGradesAsBefore(t *testing.T) {

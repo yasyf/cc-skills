@@ -312,7 +312,7 @@ func (p *JobPool) nextPass(ctx context.Context, grading string, d desk, workers 
 	var built job
 	switch grading {
 	case GraderFinder:
-		built, err = p.finderJob(ctx, d, facts, sprite, live)
+		built, err = p.finderJob(ctx, d, facts, sprite, directory, live)
 	case GraderFidelity:
 		built, err = p.fidelityJob(ctx, d, facts, sprite, directory, live, again)
 	}
@@ -391,6 +391,14 @@ func (p *JobPool) start(ctx context.Context, grading string, d desk, sprite, dir
 	}
 	if err := os.WriteFile(filepath.Join(directory, grader.CardsFile), []byte(built.cards), 0o600); err != nil {
 		return "", err
+	}
+	for path, body := range built.bodies {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			return "", err
+		}
 	}
 	if err := writeAtomic(filepath.Join(directory, grader.AnswersFile), built.answers); err != nil {
 		return "", err

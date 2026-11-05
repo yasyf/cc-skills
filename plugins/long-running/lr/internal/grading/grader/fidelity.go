@@ -6,7 +6,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -31,7 +30,6 @@ const (
 	fidelityTimeout = 3600 * time.Second
 	deletionKey     = "owner/deletion"
 	answerKey       = "answer/"
-	findingsState   = "findings.json"
 	rubricFile      = "fidelity-desk-brief.md"
 	schemaFile      = "fidelity.schema.json"
 )
@@ -90,6 +88,8 @@ type FidelityJob struct {
 	Since          string            `json:"since,omitempty"`
 	Claims         []string          `json:"claims,omitempty"`
 	ServiceTouches []ServiceTouch    `json:"service_touches,omitempty"`
+	Findings       []FindingRow      `json:"findings,omitempty"`
+	OwedDeletions  []string          `json:"owed_deletions,omitempty"`
 }
 
 type missingEntry struct {
@@ -158,6 +158,9 @@ func runFidelity(ctx context.Context, dir string, deps Deps) (FidelityOutcome, e
 
 func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	spec := s.job
+	if err := spec.inputsArrived(); err != nil {
+		return FidelityOutcome{}, err
+	}
 	pull := spec.pull()
 	plan := s.planRead()
 	view, err := s.viewPR()
@@ -172,12 +175,8 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	}
 	spec.Head = view.HeadRefOid
 	head := spec.Head
-	found, err := s.openFindings()
-	if err != nil {
-		return FidelityOutcome{}, err
-	}
-	if len(found) > 0 {
-		return s.postOnly(findingsLine(head, found))
+	if len(spec.Findings) > 0 {
+		return s.postOnly(findingsLine(head, spec.Findings))
 	}
 	var heads []candidate
 	if spec.Since == "" {
@@ -210,7 +209,9 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 			return s.postOnly(fmt.Sprintf("%s %s %s %s", fidelityMissing, head, deletionKey, said))
 		}
 	}
-	s.touches = s.serviceTouches(own[0] + "^")
+	if s.touches, err = s.serviceTouches(own[0] + "^"); err != nil {
+		return FidelityOutcome{}, err
+	}
 	paths, err := s.git("diff", "--name-only", "--no-renames", own[0]+"^", head)
 	if err != nil {
 		return FidelityOutcome{}, err
@@ -249,11 +250,11 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	if err != nil {
 		return FidelityOutcome{}, err
 	}
-	planned, err := plan.result()
+	planned, err := planOnThisBox(plan)
 	if err != nil {
 		return FidelityOutcome{}, err
 	}
-	frame := promptFrame{base: base, trunk: trunk, rows: rowsPath, plan: strings.TrimSpace(planned), diff: diff, scope: scope(head, own, last, pairs, changed)}
+	frame := promptFrame{base: base, trunk: trunk, rows: rowsPath, plan: planned, diff: diff, scope: scope(head, own, last, pairs, changed)}
 	var reply fidelityReply
 	for _, attempt := range []int{1, 3} {
 		if reply, err = s.askUntilSound(view, frame, keys, attempt); err != nil {
@@ -349,43 +350,14 @@ func removesCode(stat string) bool {
 	return removed > added
 }
 
-type findingRow struct {
+type FindingRow struct {
 	Seq   string `json:"seq"`
 	Sweep string `json:"sweep"`
 	Owner string `json:"owner"`
 	Text  string `json:"text"`
 }
 
-func (s *fidelityPassState) openFindings() ([]findingRow, error) {
-	entry, err := driveOf(s.Config, s.job.Drive)
-	if errors.Is(err, errNoDrive) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(filepath.Join(entry.StateDir, findingsState)); err != nil {
-		return nil, nil
-	}
-	out, err := s.run([]string{filepath.Join(s.Bin, "lr"), "findings", "--drive", entry.Drive, "open", "--pr", s.job.PR, "--json"}, "", readTimeout)
-	if err != nil {
-		return nil, err
-	}
-	var rows []findingRow
-	for line := range strings.SplitSeq(out, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		var row findingRow
-		if err := json.Unmarshal([]byte(line), &row); err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
-func findingsLine(head string, found []findingRow) string {
+func findingsLine(head string, found []FindingRow) string {
 	keys := make([]string, 0, len(found))
 	said := make([]string, 0, len(found))
 	for _, row := range found {
@@ -698,6 +670,7 @@ func (s *fidelityPassState) prompt(view pullRequest, frame promptFrame) (string,
 		"root_rulings": orNone(rulings.String()),
 		"since":        cmp.Or(spec.Since, "none"),
 		"items":        orNone(spec.itemsText()),
+		"owed":         orNone(strings.Join(spec.OwedDeletions, "\n")),
 	}), nil
 }
 

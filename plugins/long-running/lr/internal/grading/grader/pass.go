@@ -83,6 +83,7 @@ type Job struct {
 	Sprite   string           `json:"sprite"`
 	Picks    []store.Rule     `json:"picks"`
 	BugItems
+	Unread []string `json:"unread,omitempty"`
 }
 
 type BugItems struct {
@@ -92,6 +93,13 @@ type BugItems struct {
 
 func (j *Job) pull() string {
 	return j.Repo + "#" + j.PR
+}
+
+func (j *Job) inputsArrived() error {
+	if len(j.Unread) == 0 {
+		return nil
+	}
+	return &JobFailed{"graded nothing, since these did not reach the pass: " + strings.Join(j.Unread, "; ")}
 }
 
 type comment struct {
@@ -626,6 +634,21 @@ func (p *pass) rulings(verb string, args ...string) []string {
 
 func (p *pass) planRead() *future[string] {
 	return async(func() (string, error) { return p.run(p.rulings("plan"), "", planTimeout) })
+}
+
+func planOnThisBox(reading *future[string]) (string, error) {
+	planned, err := reading.result()
+	if err != nil {
+		return "", err
+	}
+	plan := strings.TrimSpace(planned)
+	if plan == "" {
+		return "", nil
+	}
+	if _, err := os.Stat(plan); err != nil {
+		return "", &JobFailed{fmt.Sprintf("graded nothing, since the plan the register names is not on this box: %v", err)}
+	}
+	return plan, nil
 }
 
 func (p *pass) sliceRows(head, branch string, flags ...string) *future[string] {
