@@ -537,7 +537,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 
 ## Go to queue
 
-- A green PR a coordinator `go` names at its head enters the merge queue within five minutes of that `go`.
+- A green PR a coordinator `go` names at its head enters the merge queue within five minutes of that `go`. Only a go from root, the supervisor or `go_lanes` counts. `lr landing go --lane` from any other lane says so when it runs: the gate admits, this record does not move it, and the sweep posts the go that counts. When the sweep will not post a go for a head on a standing word, or a head a lane posted a go for, it posts one `go.refused` record per reason to the PR's lane and the go's lane, and both stores fold it into the row.
 - Every head a `go` or exemption admits gets, from the pass that admits it, one `QUEUED` or `REFUSED` record per change of outcome. `REFUSED` names the gate line or check, `REFUSED unsettled:` with the last branch if unsettled, or `gating off: <why>` when gating is off.
 - When the bot's newest `ai-review` run reads `Held`, the line states the bot holds it on N blocking findings and routes one record per head to the owning lane to fix or accept them. `Waiting for restack` reads as waiting for a restack push. Neither is a missing verdict.
 

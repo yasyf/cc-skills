@@ -33,9 +33,9 @@ const (
 )
 
 type goFlags struct {
-	lane, head string
-	before     int64
-	sweep      bool
+	lane, head, owner string
+	before            int64
+	sweep             bool
 }
 
 func goCommand(a *app.App) *cobra.Command {
@@ -131,6 +131,9 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	if flags.sweep {
 		if _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
+			if err := sayGoRefused(ctx, cfg, claim, flags.owner, standing, records, refusals); err != nil {
+				return true, err
+			}
 			return true, noteStandingRefused(s, claim, standing, refusals, a.Now())
 		}
 	}
@@ -166,6 +169,9 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	}
 	if len(refusals) > 0 {
 		fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
+		if flags.sweep {
+			return true, sayGoRefused(ctx, cfg, claim, flags.owner, standing, records, refusals)
+		}
 		return true, nil
 	}
 	if flags.lane == "" {
@@ -177,6 +183,9 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		return false, err
 	}
 	fmt.Fprintf(stdout, "GO #%d at %s: posted %s: %s\n", number, head[:7], posted.Name(), text)
+	if !bus.GoCounts(flags.lane, inputs.GoLanes) {
+		fmt.Fprintf(stdout, "NOTE #%d: the gate admits it, but %s is not in go_lanes, so this record does not move it; the supervisor's sweep posts the go that counts, or a go.refused record saying why not\n", number, flags.lane)
+	}
 	return false, nil
 }
 
@@ -192,6 +201,22 @@ func changedFiles(lines string) ([]string, map[string]*string, error) {
 		patches[*entry[0]] = entry[1]
 	}
 	return files, patches, nil
+}
+
+func sayGoRefused(ctx context.Context, cfg config.Config, claim gates.Claim, owner string, standing bool, records []client.Record, refusals []string) error {
+	gos := slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool {
+		return string(record.Kind) != kindGo || !bus.GoNamesHead(record, claim.PR, claim.Head)
+	})
+	if !standing && len(gos) == 0 {
+		return nil
+	}
+	to := []string{owner}
+	for _, record := range gos {
+		to = append(to, record.Lane)
+	}
+	slices.Sort(to)
+	to = slices.DeleteFunc(slices.Compact(to), func(lane string) bool { return lane == "" || lane == bus.SweepLane })
+	return bus.Bus{Drive: cfg.Drive, Lane: bus.SweepLane}.PostGoRefused(ctx, claim.Repo, claim.PR, claim.Head, to, strings.Join(refusals, "; "))
 }
 
 func noteStandingRefused(s *store.Store, claim gates.Claim, standing bool, refusals []string, at time.Time) error {
@@ -261,7 +286,7 @@ func SweepGos(ctx context.Context, a *app.App, cfg config.Config, s *store.Store
 	}
 	gate := goGate{a: a, cfg: cfg, s: s, inputs: inputs, stdout: stdout}
 	for _, f := range ready {
-		refused, err := gate.one(ctx, f.Number, f.Head, goFlags{lane: bus.SweepLane, sweep: true})
+		refused, err := gate.one(ctx, f.Number, f.Head, goFlags{lane: bus.SweepLane, owner: f.Lane, sweep: true})
 		if err != nil {
 			return err
 		}

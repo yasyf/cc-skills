@@ -24,6 +24,8 @@ const (
 
 	TapRefusedKind = "tap.refused"
 	TapRefusedFact = "tap-refused"
+	GoRefusedKind  = "go.refused"
+	GoRefusedFact  = "standing-refused"
 	refusalAttr    = "reason"
 	refusedHead    = "head"
 	keyedReason    = 8
@@ -88,6 +90,18 @@ func (b Bus) PostRefusal(ctx context.Context, repo string, tap Tap, reason strin
 		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
 		Attrs: map[string]string{refusedHead: tap.Head, refusalAttr: reason},
 		Text:  fmt.Sprintf("tap on #%d at %s refused: %s", tap.PR, tap.Head[:min(12, len(tap.Head))], reason),
+	})
+	return err
+}
+
+func (b Bus) PostGoRefused(ctx context.Context, repo string, pr int, head string, to []string, reason string) error {
+	sum := sha256.Sum256([]byte(reason))
+	_, err := client.Post(ctx, client.Draft{
+		Drive: b.Drive, Lane: b.Lane, Kind: GoRefusedKind, To: to,
+		ID:    fmt.Sprintf("%s/%d/%s/%s", GoRefusedKind, pr, head, hex.EncodeToString(sum[:keyedReason])),
+		PRs:   []string{fmt.Sprintf("%s#%d", repo, pr)},
+		Attrs: map[string]string{refusedHead: head, refusalAttr: reason},
+		Text:  fmt.Sprintf("no go for #%d at %s: %s", pr, head[:min(12, len(head))], reason),
 	})
 	return err
 }

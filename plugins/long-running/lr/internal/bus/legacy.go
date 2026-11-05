@@ -29,7 +29,7 @@ const (
 )
 
 var (
-	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", "report", TapRefusedKind}
+	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", "report", TapRefusedKind, GoRefusedKind}
 	goKinds        = []string{"go", "decide", "decision"}
 	finderDesk     = []string{"finder-desk"}
 	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk", "fidelity-sweep", "fidelity-shard", "fidelity-shard-1"}
@@ -83,6 +83,8 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 		return stoppedFacts(record, repo)
 	case kind == TapRefusedKind:
 		return factsPerPR(record, repo, record.Fields.Attrs[refusedHead], TapRefusedFact, record.Fields.Attrs[refusalAttr])
+	case kind == GoRefusedKind:
+		return factsPerPR(record, repo, record.Fields.Attrs[refusedHead], GoRefusedFact, record.Fields.Attrs[refusalAttr])
 	case kind == "review" && delegated(record.Lane, finderDesk) && strings.HasPrefix(record.Text, "finder:"):
 		grade, head := finderVerdicts[finderGrade(record.Text)], firstSHA(record.Text)
 		if grade == "" || head == "" {
@@ -153,6 +155,10 @@ func factsPerPR(record client.Record, repo, head, kind, value string) []Fact {
 		}
 	}
 	return out
+}
+
+func GoCounts(lane string, goLanes []string) bool {
+	return delegated(lane, goAuthors(goLanes))
 }
 
 func goAuthors(goLanes []string) []string {
