@@ -14,9 +14,9 @@ from .board_text_gate import calls
 from .call_dir import located
 from .compaction_handoff import FOREGROUND_JUDGE_SECONDS, LR, Bound, CompactionState, script_module
 from .judge_metrics import judge_call
-from .owner_facing import CC_SLACK, SLACK_CARD, STDIN, Reads, as_read, board_bytes, fenced, readable, shown, slack_card, status_words
+from .owner_facing import CC_SLACK, HIDDEN_CITE, SLACK_CARD, STDIN, Reads, as_read, board_bytes, fenced, readable, shown, slack_card, status_words
 from .owner_lines_skip_refused_topics import reaches_him
-from .owner_posts_carry_cards import CARD_LINK, PLATY_CARD, RELEASE_WORD, posted_words
+from .owner_posts_carry_cards import CARD_LINK, PLATY_CARD, names_a_release, posted_words
 from .owner_replies_carry_news import HIS_DM, PEER, dm_posts
 from .owner_returns import REPLY
 from .register_injection import drive_args
@@ -36,7 +36,6 @@ HOLD = "A post to the owner links what it names, carries the cards it asks him t
 BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
 TAP_WORDS = re.compile(r"(?i)\b(?:tap|taps|tapping|(?:wait|waits|waiting|blocked) (?:on|for) (?:you|your|a yes or no|yes or no)|needs? a yes or no|yes or no from you|your (?:yes|no|picks?|answers?|word))\b|\byes or no\?|(?<!release )\bcards?\b")
 NO_PLATY_LINE = "no Platy card: a release word to him says what users get and links the Platy release card: add its #releases permalink, which the build's `release-slack-root` annotation names"
-HIDDEN_CITE = re.compile(r"<!--.*?-->", re.DOTALL)
 ALERT_HOST = r"[^)|>\s]*(?:sentry\.io/|datadoghq\.com/monitors|slack\.com/archives)[^)|>\s]*"
 LABELLED_ALERT = re.compile(rf"\]\(<?https://{ALERT_HOST}>?\)|<https://{ALERT_HOST}\|")
 INCIDENT = re.compile(r"(?i)\bincident\b")
@@ -190,11 +189,11 @@ def carries_cards(evt: BaseHookEvent, reads: Reads) -> bool:
 
 
 def lane_dm_words(evt: BaseHookEvent, reads: Reads) -> str:
-    return "\n\n".join(text for channel, text in dm_posts(evt) if (TAP_WORDS.search(readable(text)) or RELEASE_WORD.search(as_read(text))) and reaches_him(reads, channel))
+    return "\n\n".join(text for channel, text in dm_posts(evt) if (TAP_WORDS.search(readable(text)) or names_a_release(as_read(text))) and reaches_him(reads, channel))
 
 
 def release_without_its_card(evt: BaseHookEvent, said: str) -> bool:
-    return bool(RELEASE_WORD.search(as_read(said))) and not PLATY_CARD.search("\n".join([said, *posted_words(evt)]))
+    return names_a_release(as_read(said)) and not PLATY_CARD.search("\n".join([said, *posted_words(evt)]))
 
 
 def unlinked_or_cardless(evt: BaseHookEvent, posted: str, said: str, reads: Reads) -> list[str]:
@@ -336,6 +335,9 @@ def resent(title: str, md: str) -> list[HeldPosts]:
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: json.dumps({"channel_id": "D0B6Z", "peer": "U0SOMEONE", "peer_name": "Sam"})}): Allow(),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "C0RELEASES1", "text": WAITS_ON_HIM}, env=LANE_DM_ENV): Allow(),
         reply("Live", RELEASED): Block(pattern=r"no Platy card"),
+        reply("Later", "The fix ships in the next release.", commands=judged()): Allow(),
+        reply("Live", "Release 12881 is live, and the rest ships in the next release."): Block(pattern=r"no Platy card"),
+        Input(command="cc-slack dm-status 'The fix ships in the next release.'", env=LANE_ENV, commands=judged()): Allow(),
         reply("Live", f"{RELEASED} {CARD_LINK}", commands=judged()): Allow(),
         reply("Live", f"[{RELEASED}]({CARD_LINK})", commands=judged()): Allow(),
         reply("Live", RELEASED, given={"links": [CARD_LINK]}, commands=judged()): Allow(),

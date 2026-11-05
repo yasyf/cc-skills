@@ -10,7 +10,7 @@ from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import LR, Bound, Communicator, CompactionState, communicator_tests
 from .lane_slack_status import CC_SLACK
 from .meta_records import posts
-from .owner_facing import CODE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, Reads, fenced, last_reply, shown, slack_card, started_boards, status_words
+from .owner_facing import CODE, HIDDEN_CITE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, Reads, fenced, last_reply, shown, slack_card, started_boards, status_words
 from .owner_replies_carry_news import dm_posts
 from .register_injection import INCIDENT_NAME, drive_args
 from .tests.handoff_fixtures import reply_transcript
@@ -63,7 +63,7 @@ HIS_HARM = "Urgent: Andrew's resume of #46018 drops the four teams columns on So
 
 
 def sentences(text: str) -> list[str]:
-    said = URL.sub(" ", CODE.sub(" ", OWNER_QUOTE.sub(" ", text)))
+    said = URL.sub(" ", CODE.sub(" ", OWNER_QUOTE.sub(" ", HIDDEN_CITE.sub(" ", text))))
     return [part.strip() for part in SENTENCE_BREAK.split(said) if part.strip()]
 
 
@@ -114,7 +114,7 @@ def relay_lines(evt: BaseHookEvent) -> list[tuple[str, str]]:
 
 
 def prs_named(texts: list[str]) -> list[int]:
-    return sorted({int(number) for text in texts for number in PR_REF.findall(OTHER_REPO_REF.sub("", text))})
+    return sorted({int(number) for text in texts for number in PR_REF.findall(OTHER_REPO_REF.sub("", HIDDEN_CITE.sub(" ", text)))})
 
 
 def whose(reads: Reads, numbers: list[int]) -> dict[int, dict]:
@@ -187,6 +187,7 @@ def updated(block: dict) -> str:
         Input(command="cci post --kind report --to root --text \"not ours, Andrew's #46018 resolves #382199\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="cci post --kind report --to owner-relay --text \"12414 is Andrew's release and ran his #46018; no action\"", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="cci post --kind report --to owner-relay --text '#49336 lands with the release; its stores stay.'", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command="cci post --kind ask --to owner-relay --text 'The release resumed. <!-- #46018 -->'", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="cci post --lane incident-sofi-1 --kind urgent --to owner-relay --text 'CRITICAL: SandSQL Below-Floor Database Count on SoFi, now.'", env=DRIVE_CONFIG): Allow(),
         card(title=UNEXPLAINED, body=NAMED): Allow(),
         card(title="Did the SoFi alert clear?", body='The "CRITICAL: sandsql latency" alert fired and cleared on its own.'): Allow(),
@@ -226,6 +227,7 @@ def urgent_replies_name_the_harm(evt: BaseHookEvent) -> HookResult | None:
     tests={
         card(title="Land #49335?"): Warn(pattern=r"^Warning, nothing was blocked: a migration[\s\S]*#49335: \"Land #49335\?\""),
         card(title="Land the chat-version fix, #49335?"): Allow(),
+        card(title="Why did the run crash?", body="The runner reads only format 0. <!-- cci #384714 -->"): Allow(),
         Input(command="cc-present reply --block drop-ask --body '0453 ran.'", env=DRIVE_CONFIG): Warn(pattern=r"0453: "),
         Input(command="cc-present reply --block drop-ask --body '0453 ran: the four teams columns are gone.'", env=DRIVE_CONFIG): Allow(),
     },
@@ -242,6 +244,7 @@ def owner_numbers_carry_plain_words(evt: BaseHookEvent) -> HookResult | None:
     tests=communicator_tests({
         Input(transcript=reply_transcript("12414 is held. Approve 0453?"), state=ACTIVE): Warn(pattern=r"12414: [\s\S]*0453: "),
         Input(transcript=reply_transcript("Andrew's release 12414 waits on his approval to drop the four teams columns."), state=ACTIVE): Allow(),
+        Input(transcript=reply_transcript("The runner reads only format 0. <!-- cci #384714 -->"), state=ACTIVE): Allow(),
     }),
 )
 def owner_reply_numbers_carry_plain_words(evt: BaseHookEvent) -> HookResult | None:
