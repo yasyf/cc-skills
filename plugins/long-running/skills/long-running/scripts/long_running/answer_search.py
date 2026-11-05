@@ -9,11 +9,16 @@ Run = Callable[[list[str]], str]
 
 GLOB = re.compile(r"[*?\[]")
 TOPICS = "answer-topics"
-MATCHED = 3
+MATCHED = 10
 
 
 def matched(ccn: Run, text: str) -> list[dict]:
     return json.loads(ccn(["answer", "match", "--label", "scope:durable", "--limit", str(MATCHED), "--json", "--", text]) or "[]") if text.strip() else []
+
+
+def own_words(text: str, siblings: Iterable[str]) -> str:
+    carried = {line for sibling in siblings for line in sibling.splitlines()}
+    return "\n".join(line for line in text.splitlines() if line not in carried)
 
 
 def roots(paths: Iterable[str]) -> list[str]:

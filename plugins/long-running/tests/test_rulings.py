@@ -35,6 +35,20 @@ VOCABULARY_LEDGER = "a" * 40
 DRIVE_LEDGER = "d" * 40
 STAMP = "2026-10-23T12:00:00Z"
 AT = "2026-10-23T12:30:00Z"
+FLAKE_RULING = {
+    "id": "eea86c3" + "0" * 33,
+    "title": "Can fix any test flakes without needing taps from me",
+    "body": "Just merge them.",
+    "tags": ["owner-ruling", "scope:durable", "near:flake"],
+    "updated_at": STAMP,
+}
+INSTALL_RULING = {
+    "id": "ef96341" + "0" * 33,
+    "title": "cc-patch's fastmode pack is repaired. Install it when the release lands?",
+    "body": "Leave it uninstalled",
+    "tags": ["owner-ruling", "scope:durable", "near:flake"],
+    "updated_at": STAMP,
+}
 PROMPT_KEY = "prompt/1023-053000"
 RECORDED = "4444444" + "0" * 33
 LIVE = [
@@ -416,6 +430,7 @@ class RegisterShell(ledger.Shell):
         self.diff = diff
         self.records = records or []
         self.calls: list[list[str]] = []
+        self.matched_text = ""
         self.status = "active"
         self.vocabulary: dict[str, dict[str, str]] | None = None
         self.added = ""
@@ -447,8 +462,11 @@ class RegisterShell(ledger.Shell):
             case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--full", "--json"] | ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
                 wanted = set(labels[1::2])
                 return json.dumps([answer for answer in self.answers if wanted <= set(answer["tags"])])
-            case ["ccn", "-R", "/repo", "answer", "match", "--label", "scope:durable", "--limit", "3", "--json", "--", text]:
-                return json.dumps([answer for answer in self.answers if any(word in text.lower() for tag in answer["tags"] if tag.startswith("match:") for word in [tag.removeprefix("match:")])])
+            case ["ccn", "-R", "/repo", "answer", "match", "--label", "scope:durable", "--limit", "10", "--json", "--", text]:
+                self.matched_text = text
+                phrased = [answer | {"phrase": phrase} for answer in self.answers for tag in answer["tags"] if tag.startswith("match:") and (phrase := tag.removeprefix("match:")) in text.lower()]
+                near = [answer for answer in self.answers if any(tag.startswith("near:") and tag.removeprefix("near:") in text.lower() for tag in answer["tags"])]
+                return json.dumps([*{answer["id"]: answer for answer in phrased}.values(), *near])
             case ["ccn", "-R", "/repo", "answer", "search", topic, "--limit", "0", "--json"]:
                 return json.dumps([answer for answer in self.answers if any(part.startswith(topic) for tag in answer["tags"] for part in tag.split(":"))])
             case ["ccn", "-R", "/repo", "ledger", "list", "--label", "answer-topics", "--label", "program:brook", "--json"]:
@@ -559,6 +577,7 @@ class Judge:
 def judged(monkeypatch: pytest.MonkeyPatch) -> Judge:
     stub = Judge()
     monkeypatch.setattr(rulings.judge, "judge", stub)
+    monkeypatch.setattr(rulings.judge, "batch", lambda *args, **kwargs: None)
     return stub
 
 
@@ -1918,6 +1937,115 @@ def test_a_templated_brief_matches_its_case_and_its_facts_and_a_plain_brief_all_
         code, _ = ran(capsys, RegisterShell(seeded(package), answers=[AKAMAI_RULING]), "slice", "--refresh", str(brief))
         assert code == 0
         assert "- ff7fca1 Do we chase Akamai edge 403s (GSK or any tenant proxy) at all, ever?" in brief.read_text().splitlines()
+
+
+def bearing_judge(monkeypatch: pytest.MonkeyPatch, answers: dict | None) -> list[str]:
+    prompts: list[str] = []
+
+    def batch(kind: str, prompt: str, schema: str, **_: object) -> dict | None:
+        prompts.append(prompt)
+        return answers
+
+    monkeypatch.setattr(rulings.judge, "batch", batch)
+    return prompts
+
+
+def flake_brief(state: Path) -> Path:
+    brief = state / "flake-lane" / "brief.md"
+    brief.parent.mkdir()
+    brief.write_text("# flake-lane: land the flake fix\n\nRegister slice: lane=flake-lane step=all\n\nDecide how the flake fix lands.\n")
+    return brief
+
+
+def test_a_brief_carries_the_near_answer_a_judge_reads_as_bearing_and_leaves_the_one_that_only_shares_words(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    prompts = bearing_judge(monkeypatch, {"answers": [{"id": "eea86c3", "verdict": "yes"}, {"id": "ef96341", "verdict": "no"}]})
+    brief = flake_brief(state)
+    code, _ = ran(capsys, RegisterShell(seeded(package), answers=[FLAKE_RULING, INSTALL_RULING]), "slice", "--refresh", str(brief))
+    text = brief.read_text()
+    assert code == 0
+    assert "- eea86c3 Can fix any test flakes without needing taps from me" in text.splitlines()
+    assert "fastmode" not in text
+    assert len(prompts) == 1 and "Decide how the flake fix lands." in prompts[0] and "fastmode" in prompts[0]
+
+
+def test_a_ruling_named_by_its_own_match_phrase_reaches_the_brief_with_no_judge_call(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    prompts = bearing_judge(monkeypatch, None)
+    brief = alert_brief(state / "brief.md", "Blob list failing with HTTP 403 Access Denied from the customer edge on plat")
+    assert ran(capsys, RegisterShell(seeded(package), answers=[AKAMAI_RULING]), "slice", "--refresh", str(brief))[0] == 0
+    assert "  > No. Never a lane, a read, a report, a line to him." in brief.read_text().splitlines()
+    assert prompts == []
+
+
+def test_a_failed_judge_call_names_the_unread_answers_and_keeps_the_phrase_ruling(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    bearing_judge(monkeypatch, None)
+    brief = flake_brief(state)
+    brief.write_text(brief.read_text() + "The gsk edge refuses the flake test.\n")
+    assert ran(capsys, RegisterShell(seeded(package), answers=[AKAMAI_RULING, FLAKE_RULING]), "slice", "--refresh", str(brief))[0] == 0
+    lines = brief.read_text().splitlines()
+    assert "  > No. Never a lane, a read, a report, a line to him." in lines
+    assert "- eea86c3 Can fix any test flakes without needing taps from me" in lines
+    assert "  > Just merge them." not in lines
+    assert any(line.startswith("The judge did not answer") for line in lines)
+
+
+def test_a_second_refresh_of_the_same_brief_asks_no_judge_and_leaves_its_slice_fresh(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    prompts = bearing_judge(monkeypatch, {"answers": [{"id": "eea86c3", "verdict": "yes"}]})
+    brief = flake_brief(state)
+    answers = [FLAKE_RULING, INSTALL_RULING]
+    ran(capsys, RegisterShell(seeded(package), answers=answers), "slice", "--refresh", str(brief))
+    _, out = ran(capsys, RegisterShell(seeded(package), answers=answers), "slice", "--refresh", str(brief))
+    assert out.startswith(f"fresh {brief} slice-hash ")
+    assert len(prompts) == 1
+
+
+def test_an_edited_answer_is_read_again_though_the_brief_and_its_id_did_not_change(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    prompts = bearing_judge(monkeypatch, {"answers": []})
+    brief = flake_brief(state)
+    ran(capsys, RegisterShell(seeded(package), answers=[FLAKE_RULING]), "slice", "--refresh", str(brief))
+    ran(capsys, RegisterShell(seeded(package), answers=[FLAKE_RULING | {"body": "Never merge them without a tap."}]), "slice", "--refresh", str(brief))
+    assert len(prompts) == 2 and "Never merge them without a tap." in prompts[1]
+
+
+def test_answers_past_the_slice_cap_are_named_and_the_ones_that_fit_stay(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    bearing_judge(monkeypatch, {"answers": []})
+    big = {"title": "Too long to carry", "body": "x" * 1_400, "tags": ["owner-ruling", "scope:durable", "match:flake"], "updated_at": STAMP}
+    answers = [big | {"id": f"{index:07d}" + "0" * 33, "title": f"Ruling {index}"} for index in range(4)]
+    monkeypatch.setattr(rulings, "SLICE_CAP", 4_000)
+    brief = flake_brief(state)
+    assert ran(capsys, RegisterShell(seeded(package), answers=answers), "slice", "--refresh", str(brief))[0] == 0
+    text = brief.read_text()
+    assert "- 0000000 Ruling 0" in text.splitlines()
+    assert "- 0000003 Ruling 3" not in text.splitlines()
+    assert any(line.startswith("Answers bearing on this brief that pass the 4 KB cap") and "0000003" in line for line in text.splitlines())
+
+
+def test_the_ranking_and_the_judge_read_only_the_lines_no_other_brief_carries(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    prompts = bearing_judge(monkeypatch, {"answers": []})
+    contract = "Nothing here lands without a flake check.\n"
+    other = state / "other-lane" / "brief.md"
+    other.parent.mkdir()
+    other.write_text(f"# other-lane: another thing\n\n{contract}")
+    brief = state / "this-lane" / "brief.md"
+    brief.parent.mkdir()
+    brief.write_text(f"# this-lane: read the install path\n\nRegister slice: lane=this-lane step=all\n\n{contract}\nRead the install path.\n")
+    shell = RegisterShell(seeded(package), answers=[FLAKE_RULING])
+    assert ran(capsys, shell, "slice", "--refresh", str(brief))[0] == 0
+    assert "Read the install path." in shell.matched_text
+    assert "flake check" not in shell.matched_text
+    assert prompts == []
+
+
+def test_a_numbered_successor_keeps_the_words_it_shares_with_the_lane_it_succeeds(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    bearing_judge(monkeypatch, {"answers": [{"id": "eea86c3", "verdict": "yes"}]})
+    words = "Decide how the flake fix lands.\n"
+    first = state / "flake-lane-1" / "brief.md"
+    first.parent.mkdir()
+    first.write_text(f"# flake-lane-1: land it\n\n{words}")
+    brief = state / "flake-lane-2" / "brief.md"
+    brief.parent.mkdir()
+    brief.write_text(f"# flake-lane-2: land it\n\nRegister slice: lane=flake-lane-2 step=all\n\n{words}")
+    assert ran(capsys, RegisterShell(seeded(package), answers=[FLAKE_RULING]), "slice", "--refresh", str(brief))[0] == 0
+    assert "- eea86c3 Can fix any test flakes without needing taps from me" in brief.read_text().splitlines()
 
 
 def test_a_launch_refresh_opens_the_brief_with_the_answers_its_topics_and_paths_find_newest_first(home: Path, package: Path, state: Path, capsys) -> None:
