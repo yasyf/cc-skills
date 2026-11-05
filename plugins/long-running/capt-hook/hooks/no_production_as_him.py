@@ -17,12 +17,16 @@ HIS_ACTIVE_TAB = '{"result": {"tab": {"browserPageId": "p1", "url": "https://app
 READ_SECONDS = 5
 HOSTS_READ = ["git", "config", "--global", "--get-all", "long-running.productionHost"]
 BOXES_READ = ["git", "config", "--global", "--get-all", "long-running.signedInBox"]
-BOXES = {"git config --global --get-all long-running.signedInBox": "shape-box\nother-box\n"}
+CONFIG_READ = ["git", "config", "--global", "--list"]
+PROOF_KEY = "long-running.signedinproof="
+BOXES = {"git config --global --get-all long-running.signedInBox": "shape-box\nother-box\n", "git config --global --list": "user.name=lane\n"}
+GRANTED = BOXES | {"git config --global --list": "user.name=lane\nlong-running.signedinproof=lane-a=release-50287\nlong-running.signedinproof=lane-b=release-50300\n"}
+PERSONAL = "IRIS_TEAM=personal IRIS_RELEASE_PROOF=release-50287"
 IRIS_APP = frozenset({"Iris", "Iris.app"})
 SAND = frozenset({"sand", "sand-next"})
 OPENS_ITS_TARGET = frozenset({"goto", "tab"})
 DRIVES_A_PAGE = OPENS_ITS_TARGET | frozenset({"back", "check", "clear", "click", "dblclick", "dialog", "download", "drag", "eval", "exec", "fill", "find", "focus", "forward", "get", "highlight", "hover", "inserttext", "is", "keypress", "mouse", "reload", "screenshot", "scroll", "scrollintoview", "select", "set", "snapshot", "storage", "type", "uncheck", "upload", "wait"})
-IRIS_REFUSAL = "This test Mac's Iris is signed in as the owner, so launching it calls production as him, and no lane, root or desk can allow that. Run the check on a fresh box signed in as a test user on staging: `ci mac-box up <name>`."
+IRIS_REFUSAL = "This test Mac's Iris is signed in as the owner, so launching it calls production as him, and only a released-build proof on his Personal team that root granted this lane may. Otherwise run the check on a fresh box as a test user on staging: `ci mac-box up <name>`."
 REFUSAL = "A lane never calls production as the owner or drives the owner's signed-in Orca browser, read or write, under any authority. Prove it with a test identity or a no-write probe, or ask for the owner's identity with `lr ask-owner`."
 
 
@@ -83,13 +87,29 @@ def no_production_as_him(evt: BaseHookEvent) -> HookResult | None:
         Input(command="open -a Iris", env=LANE, commands=BOXES): Allow(),
         Input(command="ci mac-box ssh shape-box -- open -a Iris", env=LANE, commands={"git config": (1, "")}): Allow(),
         Input(command="ci mac-box ssh shape-box -- open -a Iris", env={}, commands=BOXES): Allow(),
+        Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env=LANE, commands=GRANTED): Allow(),
+        Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} ~/rel/sand iris exec --prompt hi", env=LANE, commands=GRANTED): Allow(),
+        Input(command="ci mac-box ssh shape-box -- IRIS_TEAM=acme IRIS_RELEASE_PROOF=release-50287 open -a Iris", env=LANE, commands=GRANTED): Block(),
+        Input(command="ci mac-box ssh shape-box -- IRIS_RELEASE_PROOF=release-50287 open -a Iris", env=LANE, commands=GRANTED): Block(),
+        Input(command="ci mac-box ssh shape-box -- IRIS_TEAM=personal open -a Iris", env=LANE, commands=GRANTED): Block(),
+        Input(command="ci mac-box ssh shape-box -- IRIS_TEAM=personal IRIS_RELEASE_PROOF=release-50300 open -a Iris", env=LANE, commands=GRANTED): Block(),
+        Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env={"CLAUDE_LONG_RUNNING_LANE": "lane-c"}, commands=GRANTED): Block(),
+        Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env=LANE, commands=BOXES): Block(),
+        Input(command=f"ci mac-box ssh shape-box -- 'open -a Iris; {PERSONAL} open -a Iris'", env=LANE, commands=GRANTED): Block(),
     },
 )
 def no_iris_as_him_on_a_test_mac(evt: BaseHookEvent) -> HookResult | None:
     reaching = [call.args[2:] for call in evt.command.calls("ci") if call.args[:2] == ("mac-box", "ssh")] + [call.args for call in evt.command.calls("ssh")]
-    if not reaching or not any(launches_iris(cmd) for cmd in remote_commands(reaching, evt.command.raw) if cmd) or not (boxes := set(read(BOXES_READ, evt.cwd).split())):
+    if not reaching or not any(iris_launches(cmd) for cmd in remote_commands(reaching, evt.command.raw) if cmd) or not (boxes := set(read(BOXES_READ, evt.cwd).split())):
         return None
-    return evt.block(IRIS_REFUSAL) if any(boxes & set(PurePosixPath(word).parts) for args in reaching for word in args) else None
+    if not any(boxes & set(PurePosixPath(word).parts) for args in reaching for word in args):
+        return None
+    if not (config := read(CONFIG_READ, evt.cwd)):
+        return None
+    grants = (line.removeprefix(PROOF_KEY).partition("=") for line in config.splitlines() if line.startswith(PROOF_KEY))
+    proofs = {proof for lane, _, proof in grants if lane == reqenv.env_map().get("CLAUDE_LONG_RUNNING_LANE")}
+    launches = [call for cmd in remote_commands(reaching, evt.command.raw) if cmd for call in iris_launches(cmd)]
+    return None if all(proves_a_release(call, proofs) for call in launches) else evt.block(IRIS_REFUSAL)
 
 
 def remote_commands(reaching: list[tuple[str, ...]], raw: str) -> list[Cmd | None]:
@@ -99,13 +119,19 @@ def remote_commands(reaching: list[tuple[str, ...]], raw: str) -> list[Cmd | Non
     return [Cmd.parse(text) for text in (*(" ".join(tail) for tail in tails), *quoted, *heredocs)]
 
 
-def launches_iris(cmd: Cmd) -> bool:
-    return any(
-        (call.name == "open" and any(PurePosixPath(arg).name in IRIS_APP for arg in call.args))
+def iris_launches(cmd: Cmd) -> list:
+    return [
+        call
+        for call in cmd.calls()
+        if (call.name == "open" and any(PurePosixPath(arg).name in IRIS_APP for arg in call.args))
         or "Iris.app" in PurePosixPath(call.command.executable).parts
         or (call.name in SAND and call.args[:1] == ("iris",) and dict(call.source.env).get("IRIS_PLANE") != "staging")
-        for call in cmd.calls()
-    )
+    ]
+
+
+def proves_a_release(call, proofs: set[str]) -> bool:
+    env = dict(call.source.env)
+    return env.get("IRIS_TEAM") == "personal" and env.get("IRIS_RELEASE_PROOF") in proofs
 
 
 def drives_a_page(args: tuple[str, ...]) -> bool:

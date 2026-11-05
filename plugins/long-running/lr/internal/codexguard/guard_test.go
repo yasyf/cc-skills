@@ -32,6 +32,7 @@ func payload(t *testing.T, command string) []byte {
 func fake() *shelltest.Fake {
 	runner := &shelltest.Fake{}
 	runner.Reply("shape-box\nother-box\n", boxesRead...)
+	runner.Reply("user.name=lane\nlong-running.signedinproof=lane-a=release-50287\nlong-running.signedinproof=lane-b=release-50300\n", configRead...)
 	runner.Reply("app.example.test\n", "git", "config")
 	runner.Reply(tabs, "orca", "tab", "list")
 	runner.Reply(current, "orca", "tab", "current")
@@ -74,6 +75,13 @@ func TestRefusals(t *testing.T) {
 		{"ci mac-box ssh shape-box -- ~/rel/sand iris exec --prompt hi", true},
 		{"ci mac-box ssh shape-box <<'EOF'\nopen -a Iris\nEOF", true},
 		{"ssh -i ~/.config/mac-box/shape-box/id_ed25519 ec2-user@10.0.0.4 'open -a Iris'", true},
+		{"ci mac-box ssh shape-box -- IRIS_TEAM=personal IRIS_RELEASE_PROOF=release-50287 open -a Iris", false},
+		{"ci mac-box ssh shape-box -- IRIS_TEAM=personal IRIS_RELEASE_PROOF=release-50287 ~/rel/sand iris exec --prompt hi", false},
+		{"ci mac-box ssh shape-box -- IRIS_TEAM=acme IRIS_RELEASE_PROOF=release-50287 open -a Iris", true},
+		{"ci mac-box ssh shape-box -- IRIS_RELEASE_PROOF=release-50287 open -a Iris", true},
+		{"ci mac-box ssh shape-box -- IRIS_TEAM=personal open -a Iris", true},
+		{"ci mac-box ssh shape-box -- IRIS_TEAM=personal IRIS_RELEASE_PROOF=release-50300 open -a Iris", true},
+		{"ci mac-box ssh shape-box -- 'open -a Iris; IRIS_TEAM=personal IRIS_RELEASE_PROOF=release-50287 open -a Iris'", true},
 		{"ci mac-box ssh shape-box -- IRIS_PLANE=staging sand iris exec --prompt hi", false},
 		{"ci mac-box ssh fresh-box -- open -a Iris", false},
 		{"ci mac-box ssh shape-box-2 -- open -a Iris", false},
@@ -91,6 +99,32 @@ func TestRefusals(t *testing.T) {
 				t.Fatalf("Refusal(%q) refused = %v, want %v", c.command, got, c.refused)
 			}
 		})
+	}
+}
+
+func TestAProofGrantBelongsToItsLane(t *testing.T) {
+	otherLane := func(key string) string {
+		if key == "CLAUDE_LONG_RUNNING_LANE" {
+			return "lane-c"
+		}
+		return ""
+	}
+	command := "ci mac-box ssh shape-box -- IRIS_TEAM=personal IRIS_RELEASE_PROOF=release-50287 open -a Iris"
+	if (Guard{Runner: fake(), Getenv: otherLane}).Refusal(context.Background(), payload(t, command)) == "" {
+		t.Fatal("allowed a lane root did not grant")
+	}
+	ungranted := &shelltest.Fake{}
+	ungranted.Reply("shape-box\n", boxesRead...)
+	ungranted.Reply("user.name=lane\n", configRead...)
+	if (Guard{Runner: ungranted, Getenv: lane}).Refusal(context.Background(), payload(t, command)) == "" {
+		t.Fatal("allowed a proof nobody granted")
+	}
+}
+
+func TestAGrantStillRefusesHisBrowser(t *testing.T) {
+	said := Guard{Runner: fake(), Getenv: lane}.Refusal(context.Background(), payload(t, "orca tab create --url https://app.example.test/ --json"))
+	if said != refusal {
+		t.Fatalf("Refusal = %q, want the browser refusal", said)
 	}
 }
 

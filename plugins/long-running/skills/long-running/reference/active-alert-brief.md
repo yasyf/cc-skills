@@ -388,13 +388,14 @@ Authority: implement the fix and open its PR through <submit skill>.
   `ccn log append "$(ccn log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
   This authority never covers the owner's identity, and no yes from the
   coordinator or a desk adds it: never call production as him or use his
-  signed-in browser, Orca tab, session or Iris, read or write, a test Mac whose
-  Iris is signed in as him included. A signed-in check runs as a test user on
+  signed-in browser, Orca tab, session or Iris, read or write. The one open use
+  is a released-build proof on his Personal team on a test Mac that root granted
+  a lane by name, never an incident fix. A signed-in check runs as a test user on
   staging or on a pass box as the service account; a proof that needs his
   identity is a pick to him through `lr ask-owner`, and a scratch proof with no
   named identity means a test identity or no write. `lr codex-guard check`
   refuses the Orca browser shape on a production host and Iris launched on a
-  test Mac signed in as him; this line binds every other route.
+  test Mac signed in as him without that grant; this line binds every other route.
   Any delete or replace stops for the owner, unless he ordered this release: start
   that one with `--order <answer id>`, and its gate passes itself.
   A break-glass profile refused with ForbiddenException on GetRoleCredentials
@@ -619,8 +620,8 @@ Owner: the coordinator <coordinator agent name> for incident <incident id>.
 Authority: read-only evidence. Feed <fix lane name> and the coordinator.
   You gate nothing. Never ask the fix lane to wait for diagnosis.
   Read-only never covers the owner's identity: never call production as him or
-  use his signed-in browser, Orca tab, session or Iris, reads included, a test
-  Mac whose Iris is signed in as him included.
+  use his signed-in browser, Orca tab, session or Iris, reads included; the
+  released-build proof root grants a lane by name is not an evidence lane's.
 
 Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>

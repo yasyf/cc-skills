@@ -9,12 +9,15 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-const irisRefusal = "This test Mac's Iris is signed in as the owner, so launching it calls production as him, and no lane, root or desk can allow that. Run the check on a fresh box signed in as a test user on staging: `ci mac-box up <name>`."
+const proofKey = "long-running.signedinproof="
+
+const irisRefusal = "This test Mac's Iris is signed in as the owner, so launching it calls production as him, and only a released-build proof on his Personal team that root granted this lane may. Otherwise run the check on a fresh box as a test user on staging: `ci mac-box up <name>`."
 
 var (
-	boxesRead = []string{"git", "config", "--global", "--get-all", "long-running.signedInBox"}
-	irisApp   = []string{"Iris", "Iris.app"}
-	sands     = []string{"sand", "sand-next"}
+	boxesRead  = []string{"git", "config", "--global", "--get-all", "long-running.signedInBox"}
+	configRead = []string{"git", "config", "--global", "--list"}
+	irisApp    = []string{"Iris", "Iris.app"}
+	sands      = []string{"sand", "sand-next"}
 )
 
 func (g Guard) launchesIrisAsHim(ctx context.Context, line, cwd string) bool {
@@ -46,18 +49,44 @@ func (g Guard) launchesIrisAsHim(ctx context.Context, line, cwd string) bool {
 		}
 		return true
 	})
-	if len(reaching) == 0 || !slices.ContainsFunc(remote, launchesIris) {
+	var launches []map[string]string
+	for _, text := range remote {
+		launches = append(launches, irisLaunches(text)...)
+	}
+	if len(reaching) == 0 || len(launches) == 0 {
 		return false
 	}
 	boxes := strings.Fields(g.read(ctx, boxesRead, cwd))
+	onBox := false
 	for _, args := range reaching {
 		for _, word := range args {
-			if slices.ContainsFunc(strings.Split(word, "/"), func(part string) bool { return slices.Contains(boxes, part) }) {
-				return true
+			onBox = onBox || slices.ContainsFunc(strings.Split(word, "/"), func(part string) bool { return slices.Contains(boxes, part) })
+		}
+	}
+	if !onBox {
+		return false
+	}
+	config := g.read(ctx, configRead, cwd)
+	if config == "" {
+		return false
+	}
+	proofs := g.proofs(config)
+	return slices.ContainsFunc(launches, func(env map[string]string) bool {
+		return env["IRIS_TEAM"] != "personal" || !slices.Contains(proofs, env["IRIS_RELEASE_PROOF"])
+	})
+}
+
+func (g Guard) proofs(config string) []string {
+	lane := g.Getenv("CLAUDE_LONG_RUNNING_LANE")
+	var proofs []string
+	for _, line := range strings.Split(config, "\n") {
+		if grant, ok := strings.CutPrefix(line, proofKey); ok {
+			if granted, proof, ok := strings.Cut(grant, "="); ok && granted == lane {
+				proofs = append(proofs, proof)
 			}
 		}
 	}
-	return false
+	return proofs
 }
 
 func boxArgs(call *syntax.CallExpr) []string {
@@ -85,35 +114,37 @@ func remoteTexts(args []string) []string {
 	return texts
 }
 
-func launchesIris(text string) bool {
+func irisLaunches(text string) []map[string]string {
 	file, err := syntax.NewParser().Parse(strings.NewReader(text), "")
 	if err != nil {
-		return false
+		return nil
 	}
-	launches := false
+	var launches []map[string]string
 	syntax.Walk(file, func(node syntax.Node) bool {
 		call, ok := node.(*syntax.CallExpr)
-		if !ok || launches {
-			return !launches
+		if !ok {
+			return true
 		}
-		plane, words := unwrapped(call)
+		env, words := unwrapped(call)
 		if len(words) == 0 {
 			return true
 		}
 		name := path.Base(words[0])
-		launches = name == "open" && slices.ContainsFunc(words[1:], func(arg string) bool { return slices.Contains(irisApp, path.Base(arg)) }) ||
+		if name == "open" && slices.ContainsFunc(words[1:], func(arg string) bool { return slices.Contains(irisApp, path.Base(arg)) }) ||
 			slices.Contains(strings.Split(words[0], "/"), "Iris.app") ||
-			slices.Contains(sands, name) && len(words) > 1 && words[1] == "iris" && plane != "staging"
-		return !launches
+			slices.Contains(sands, name) && len(words) > 1 && words[1] == "iris" && env["IRIS_PLANE"] != "staging" {
+			launches = append(launches, env)
+		}
+		return true
 	})
 	return launches
 }
 
-func unwrapped(call *syntax.CallExpr) (string, []string) {
-	plane := ""
+func unwrapped(call *syntax.CallExpr) (map[string]string, []string) {
+	env := map[string]string{}
 	for _, assign := range call.Assigns {
-		if assign.Name != nil && assign.Name.Value == "IRIS_PLANE" && assign.Value != nil {
-			plane = literal(assign.Value)
+		if assign.Name != nil && assign.Value != nil {
+			env[assign.Name.Value] = literal(assign.Value)
 		}
 	}
 	words := make([]string, 0, len(call.Args))
@@ -123,11 +154,11 @@ func unwrapped(call *syntax.CallExpr) (string, []string) {
 	for len(words) > 0 && slices.Contains(wrappers, path.Base(words[0])) {
 		words = words[1:]
 		for len(words) > 0 && (strings.HasPrefix(words[0], "-") || strings.Contains(words[0], "=")) {
-			if value, ok := strings.CutPrefix(words[0], "IRIS_PLANE="); ok {
-				plane = value
+			if name, value, ok := strings.Cut(words[0], "="); ok {
+				env[name] = value
 			}
 			words = words[1:]
 		}
 	}
-	return plane, words
+	return env, words
 }
