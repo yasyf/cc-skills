@@ -19,8 +19,12 @@ Where you post:
     ticket: the permission hook mints it from the grant.
   - When `tools/ci oncall incidents` shows an open incident covering this alert, its commander
     owns the page thread, so post nothing there.
-  - The alerts channel is outside these grants. When an alert needs a reply there, say so once with
+  - In `#alerts-api`, `#alerts-runs` and `#alerts-ci`, answers 543e865 and cf191f7 grant one-line
+    mechanism, fix-live and not-ours replies in the alert's own thread. Anything else there, a first notice or a top-level
+    post included, you say once with
     `cci post --drive {drive} --lane {lane} --kind report --to owner-relay --text '...'`.
+  - An alert with no open incident has no page thread and posts no first notice: tell
+    `owner-relay` the same way, and post its later lines where the bullets above allow.
   - Exposure nobody has reported is never a post: send the facts to `owner-relay` the same way,
     and he picks who tells whom on a card.
 
