@@ -102,7 +102,7 @@ MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_c
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
 HARNESS_PREFIXES = ("<", "Another Claude session sent a message", "This session is being continued", "[Request interrupted")
 SYSTEM_PREFIXES = (*HARNESS_PREFIXES, "/")
-PASTED = re.compile(r'(?:^[ \t]*`{2,}[ \t]*\n\s*)?<pasted_content id="(\w+)">.*?</pasted_content id="\1">(?:\s*^[ \t]*`{2,}[ \t]*$)?', re.DOTALL | re.MULTILINE)
+PASTED = re.compile(r'(?:^[ \t]*`{2,}[ \t]*\n\s*)?<pasted_content id="(\w+)">(?P<body>.*?)</pasted_content id="\1">(?:\s*^[ \t]*`{2,}[ \t]*$)?', re.DOTALL | re.MULTILINE)
 RULING_LABELS = ("scope:durable", "owner-ruling")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 RULING_SYSTEM = (
@@ -217,13 +217,20 @@ def typed_words(prompt: str) -> str:
     return PASTED.sub("", prompt).strip()
 
 
+def pasted_blocks(prompt: str) -> list[str]:
+    return [found["body"].strip("\n") for found in PASTED.finditer(prompt)]
+
+
 class OwnerPrompt:
-    def __init__(self, *, commands: bool = False) -> None:
+    def __init__(self, *, commands: bool = False, pasted: bool = False) -> None:
         self.prefixes = HARNESS_PREFIXES if commands else SYSTEM_PREFIXES
+        self.pasted = pasted
 
     def check(self, evt: BaseHookEvent) -> bool:
         text = typed_words(evt.user_prompt or "")
-        return bool(text) and not text.startswith(self.prefixes) and "<teammate-message" not in text and "<cross-session-message" not in text and text not in ScheduledPrompts.load(evt).prompts
+        if not text:
+            return self.pasted and bool(pasted_blocks(evt.user_prompt or ""))
+        return not text.startswith(self.prefixes) and "<teammate-message" not in text and "<cross-session-message" not in text and text not in ScheduledPrompts.load(evt).prompts
 
 
 class OversizedTool:

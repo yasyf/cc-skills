@@ -411,6 +411,18 @@ def test_typed_words_drop_each_paste_and_its_fence_and_keep_what_he_typed(prompt
     assert root_context.typed_words(prompt) == words
 
 
+@pytest.mark.parametrize(
+    ("prompt", "blocks"),
+    [
+        ("keep the nightly report", []),
+        ('\n\n<pasted_content id="a1">\nquoted\n</pasted_content id="a1">', ["quoted"]),
+        ('```\n\n\n<pasted_content id="a1">\none\ntwo\n</pasted_content id="a1">\n\n\n\n<pasted_content id="b2">\nthree\n</pasted_content id="b2">\n\n```\n\nship it', ["one\ntwo", "three"]),
+    ],
+)
+def test_pasted_blocks_hold_each_paste_whole_and_without_his_words(prompt: str, blocks: list[str]) -> None:
+    assert root_context.pasted_blocks(prompt) == blocks
+
+
 def test_an_unrecorded_standing_rule_leaves_no_stop_nudge(root: Root, notes: Notes) -> None:
     assert root.say("From now on, release everything as it merges.") is None
 
