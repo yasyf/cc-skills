@@ -771,6 +771,22 @@ func TestAHandoffWritersRecordIsTheNewestHandoffOfTheLaneHoldingTheWork(t *testi
 	equal(t, row(t, s, "conflicts-3").Handoff, "7d102a9")
 }
 
+func TestASuccessorSpawnedAfterItsStandDownRecordsWhereAndHowItWasLaunched(t *testing.T) {
+	s := memory(t)
+	f := newFake(t, []Record{spawned(1, lane2, writeBrief(t), t0.Add(-time.Hour), map[string]string{"model": "sonnet", "effort": "low", "placement": placedOnSprite})}, []Row{who(lane2, true, t0.Add(-mins(1)))})
+	tick(t, s, f, t0.Add(-mins(1)))
+	f.feed = append(f.feed,
+		ask(2, "stand-down", lane2, t0, nil, "", map[string]string{"successor": "conflicts-3", "last-read": "1"}),
+		spawned(3, "conflicts-3", writeBrief(t), t0, map[string]string{"model": "sonnet", "effort": "high", "placement": "orca"}),
+	)
+	f.peers = []Row{who("conflicts-3", true, t0)}
+
+	tick(t, s, f, t0)
+
+	successor := row(t, s, "conflicts-3")
+	equal(t, []string{successor.Model, successor.Effort, successor.Placement}, []string{"sonnet", "high", "orca"})
+}
+
 func TestRootProseSayingSomethingReplacesALaneRetiresNothing(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")

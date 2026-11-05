@@ -1124,6 +1124,11 @@ func (s *Store) SetLaneLauncher(name, launcher string) error {
 	return err
 }
 
+func (s *Store) SetLaneLaunch(name, model, effort, placement string) error {
+	_, err := s.db.Exec("UPDATE lanes SET model = coalesce(?, model), effort = coalesce(?, effort), placement = coalesce(?, placement) WHERE name = ?", text(model), text(effort), text(placement), name)
+	return err
+}
+
 func (s *Store) SetLaneStoppedOn(name string, order int64) error {
 	_, err := s.db.Exec("UPDATE lanes SET stopped_on = ? WHERE name = ?", whole(order), name)
 	return err
