@@ -20,10 +20,17 @@ const (
 export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper
 export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'
 cd "$1" || exit 1
+origin=$(mktemp)
+trap 'rm -f "$origin"' EXIT
+git ls-remote origin 'refs/cc-notes/*' > "$origin" || { echo "could not read origin's cc-notes refs" >&2; exit 1; }
+rows=$(git for-each-ref --format='%(refname) %(objectname)' refs/cc-notes/ | awk 'NR == FNR { theirs[$2] = $1; next } theirs[$1] != $2 { print $1 "," $2 "," theirs[$1] }' "$origin" -)
+moved=$(printf '%s\n' "$rows" | awk -F, '$3 != "" { print $1 }')
+[ -z "$moved" ] || git fetch -q --no-write-fetch-head origin $moved 2> /dev/null
 status=0
-for ref in $(git for-each-ref --format='%(objectname) %(refname)' refs/cc-notes/ refs/cc-notes-sync/origin/ | sed 's#refs/cc-notes-sync/origin/#refs/cc-notes/#' | sort | uniq -u | cut -d' ' -f2 | sort -u); do
-  tip=$(git rev-parse -q --verify "$ref") || continue
-  tracked=$(git rev-parse -q --verify "refs/cc-notes-sync/origin/${ref#refs/cc-notes/}") && git merge-base --is-ancestor "$tip" "$tracked" && continue
+for row in $rows; do
+  ref=${row%%,*} theirs=${row##*,} tip=${row#*,}
+  tip=${tip%,*}
+  [ -n "$theirs" ] && git merge-base --is-ancestor "$tip" "$theirs" 2> /dev/null && continue
   ccn sync --prefix "$ref" --json || { status=1; echo "$ref did not reach origin" >&2; }
 done
 exit $status`

@@ -202,10 +202,17 @@ func TestATickWithNoRecordsPublishesNothing(t *testing.T) {
 
 func notesRepo(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir, origin := t.TempDir(), t.TempDir()
+	notesGit(t, origin, "init", "-q", "--bare")
 	notesGit(t, dir, "init", "-q")
+	notesGit(t, dir, "remote", "add", "origin", origin)
 	notesGit(t, dir, "-c", "user.name=n", "-c", "user.email=n@example.com", "commit", "-q", "--allow-empty", "-m", "one")
 	return dir
+}
+
+func onOrigin(t *testing.T, dir, ref string) {
+	t.Helper()
+	notesGit(t, dir, "push", "-q", "origin", "HEAD:"+ref)
 }
 
 func notesGit(t *testing.T, dir string, args ...string) string {
@@ -240,13 +247,13 @@ func runScript(t *testing.T, script, bin, dir string) (stdout, stderr string, er
 	return out.String(), errOut.String(), err
 }
 
-func TestTheScriptSkipsARefOriginAlreadyHasAtOrAheadOfItsTip(t *testing.T) {
+func TestTheScriptSkipsARefOriginAlreadyHasAtOrAheadOfItsTipThoughNoTrackingRefNamesIt(t *testing.T) {
 	dir := notesRepo(t)
 	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/same", "HEAD")
-	notesGit(t, dir, "update-ref", "refs/cc-notes-sync/origin/notes/same", "HEAD")
+	onOrigin(t, dir, "refs/cc-notes/notes/same")
 	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/behind", "HEAD")
 	notesGit(t, dir, "-c", "user.name=n", "-c", "user.email=n@example.com", "commit", "-q", "--allow-empty", "-m", "two")
-	notesGit(t, dir, "update-ref", "refs/cc-notes-sync/origin/notes/behind", "HEAD")
+	onOrigin(t, dir, "refs/cc-notes/notes/behind")
 	bin, called := fakeCCN(t, 0, `{}`)
 
 	if _, _, err := runScript(t, publishNotesScript, bin, dir); err != nil {
@@ -258,11 +265,31 @@ func TestTheScriptSkipsARefOriginAlreadyHasAtOrAheadOfItsTip(t *testing.T) {
 	}
 }
 
+func TestTheScriptSkipsARefOriginMovedPastItsTipWithCommitsThisCheckoutNeverFetched(t *testing.T) {
+	dir := notesRepo(t)
+	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/moved", "HEAD")
+	onOrigin(t, dir, "refs/cc-notes/notes/moved")
+	origin, other := notesGit(t, dir, "remote", "get-url", "origin"), t.TempDir()
+	notesGit(t, other, "init", "-q")
+	notesGit(t, other, "fetch", "-q", origin, "refs/cc-notes/notes/moved")
+	ahead := notesGit(t, other, "-c", "user.name=n", "-c", "user.email=n@example.com", "commit-tree", "-m", "theirs", "-p", "FETCH_HEAD", "FETCH_HEAD^{tree}")
+	notesGit(t, other, "push", "-q", origin, ahead+":refs/cc-notes/notes/moved")
+	bin, called := fakeCCN(t, 0, `{}`)
+
+	if _, _, err := runScript(t, publishNotesScript, bin, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(called); !errors.Is(err, os.ErrNotExist) {
+		seen, _ := os.ReadFile(called)
+		t.Fatalf("ccn sync ran for a ref origin is ahead of: %s", seen)
+	}
+}
+
 func TestTheScriptSyncsARefOriginLacksByItselfWithTheTokenInTheEnvironmentOnly(t *testing.T) {
 	dir := notesRepo(t)
 	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/mine", "HEAD")
 	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/same", "HEAD")
-	notesGit(t, dir, "update-ref", "refs/cc-notes-sync/origin/notes/same", "HEAD")
+	onOrigin(t, dir, "refs/cc-notes/notes/same")
 	bin, called := fakeCCN(t, 0, `{"pushed":1}`)
 
 	stdout, _, err := runScript(t, publishNotesScript, bin, dir)
@@ -286,7 +313,7 @@ func TestTheScriptSyncsARefThatDivergedFromOrigin(t *testing.T) {
 	dir := notesRepo(t)
 	first := notesGit(t, dir, "rev-parse", "HEAD")
 	notesGit(t, dir, "-c", "user.name=n", "-c", "user.email=n@example.com", "commit", "-q", "--allow-empty", "-m", "theirs")
-	notesGit(t, dir, "update-ref", "refs/cc-notes-sync/origin/notes/shared", "HEAD")
+	onOrigin(t, dir, "refs/cc-notes/notes/shared")
 	notesGit(t, dir, "reset", "-q", "--hard", first)
 	notesGit(t, dir, "-c", "user.name=n", "-c", "user.email=n@example.com", "commit", "-q", "--allow-empty", "-m", "mine")
 	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/shared", "HEAD")
@@ -321,6 +348,22 @@ func TestTheScriptNamesTheRefThatFailedAndStillTriesTheRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	contains(t, string(seen), "b35e582")
+}
+
+func TestTheScriptHoldsTheLaneWhenOriginCannotBeRead(t *testing.T) {
+	dir := notesRepo(t)
+	notesGit(t, dir, "update-ref", "refs/cc-notes/notes/mine", "HEAD")
+	notesGit(t, dir, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone"))
+	bin, called := fakeCCN(t, 0, `{}`)
+
+	_, stderr, err := runScript(t, publishNotesScript, bin, dir)
+	if err == nil {
+		t.Fatal("a check that could not read origin passed")
+	}
+	contains(t, stderr, "could not read origin's cc-notes refs")
+	if _, err := os.Stat(called); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("ccn sync ran without a read of origin")
+	}
 }
 
 func TestEveryRefsReportIsReadForWhatADefaultKept(t *testing.T) {
