@@ -6,7 +6,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -18,7 +17,6 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
@@ -130,6 +128,7 @@ type FidelityOutcome struct {
 	Verdict string   `json:"verdict,omitempty"`
 	From    string   `json:"from,omitempty"`
 	Posted  []string `json:"posted,omitempty"`
+	Regrade string   `json:"regrade,omitempty"`
 }
 
 type gradeLine struct {
@@ -229,7 +228,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 			return FidelityOutcome{}, err
 		}
 		if match != nil {
-			return s.carried(match, "git patch-id", "patch-id "+match.patch+" at both heads.")
+			return s.carried(match, "patch-identical by git patch-id over its own commits", "patch-id "+match.patch+" at both heads.")
 		}
 	}
 	last, pairs, changed, err := s.sinceEarlier(heads, base, trunk, own)
@@ -238,7 +237,22 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	}
 	if last != "" && len(changed) == 0 {
 		proof := fmt.Sprintf("`git range-diff %s` pairs every own commit equal, or amended only by lines the base now carries.", pairs)
-		return s.carried(&carryMatch{head: last, grade: newestGrade(heads[0].stand)}, "git range-diff", proof)
+		return s.carried(&carryMatch{head: last, grade: newestGrade(heads[0].stand)}, "patch-identical by git range-diff over its own commits", proof)
+	}
+	judged := ""
+	if last != "" {
+		grade := newestGrade(heads[0].stand)
+		answer, err := s.regraded(view, fidelityMeans, grade, last, pairs, changed)
+		if err != nil {
+			return FidelityOutcome{}, err
+		}
+		if answer.carries() {
+			proof := fmt.Sprintf("A %s read of `git range-diff %s` answered %s.", regradeModel, pairs, answer)
+			outcome, err := s.carried(&carryMatch{head: last, grade: grade}, "judged unchanged in meaning by "+regradeModel+" over its range-diff: "+answer.reason(), proof)
+			outcome.Regrade = answer.String()
+			return outcome, err
+		}
+		judged = answer.String()
 	}
 	rowsPath := filepath.Join(s.dir, rowsFile)
 	if slicing == nil {
@@ -296,7 +310,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	if err != nil {
 		return FidelityOutcome{}, err
 	}
-	return FidelityOutcome{Verdict: reply.Verdict, Posted: posted}, nil
+	return FidelityOutcome{Verdict: reply.Verdict, Posted: posted, Regrade: judged}, nil
 }
 
 func (s *fidelityPassState) postOnly(line string) (FidelityOutcome, error) {
@@ -567,7 +581,7 @@ func (s *fidelityPassState) carriedClass(grade Record) string {
 	return class
 }
 
-func (s *fidelityPassState) carried(match *carryMatch, by, proof string) (FidelityOutcome, error) {
+func (s *fidelityPassState) carried(match *carryMatch, how, proof string) (FidelityOutcome, error) {
 	spec := s.job
 	settled := ""
 	for _, seq := range s.chain(match.grade) {
@@ -576,7 +590,7 @@ func (s *fidelityPassState) carried(match *carryMatch, by, proof string) (Fideli
 			break
 		}
 	}
-	lines := []gradeLine{{text: fmt.Sprintf("%s %s %scarried from %s (cci #%d), patch-identical by %s over its own commits%s.", fidelityOK, spec.Head, s.carriedClass(match.grade), short(match.head, 7), match.grade.Seq, by, settled)}}
+	lines := []gradeLine{{text: fmt.Sprintf("%s %s %scarried from %s (cci #%d), %s%s.", fidelityOK, spec.Head, s.carriedClass(match.grade), short(match.head, 7), match.grade.Seq, how, settled)}}
 	if line, touched := s.touchedOldApp(); touched {
 		lines = append(lines, gradeLine{text: line})
 	} else if earlier := newestOldApp(spec.OldApps, match.head); earlier != nil {
@@ -960,29 +974,14 @@ func (s *fidelityPassState) readHandedOff(view pullRequest, frame promptFrame, k
 	if err := os.WriteFile(filepath.Join(s.dir, readerQuestion), []byte(question), 0o600); err != nil {
 		return fidelityReply{}, err
 	}
-	out, err := s.execute(shell.Command{
-		Argv:    []string{"claude", "-p", "--model", readerModel, "--effort", readerEffort, "--output-format", "json", "--add-dir", s.dir, "--allowedTools", readerTools},
-		Dir:     s.job.Checkout,
-		Stdin:   question,
-		Timeout: fidelityTimeout,
-	})
-	var said struct {
-		Result string `json:"result"`
-	}
-	var exit *ExitError
-	if errors.As(err, &exit) && json.Unmarshal([]byte(exit.Stdout), &said) == nil && said.Result != "" {
-		return fidelityReply{}, &JobFailed{"the reader exited " + strconv.Itoa(exit.Code) + ": " + squeezed(said.Result)}
-	}
+	said, err := s.claudeRead(readerModel, readerEffort, readerTools, question, fidelityTimeout)
 	if err != nil {
 		return fidelityReply{}, err
 	}
-	if err := json.Unmarshal([]byte(out), &said); err != nil {
-		return fidelityReply{}, err
-	}
-	start, end := strings.Index(said.Result, "{"), strings.LastIndex(said.Result, "}")
+	start, end := strings.Index(said, "{"), strings.LastIndex(said, "}")
 	var reply fidelityReply
-	if start < 0 || end < start || json.Unmarshal([]byte(said.Result[start:end+1]), &reply) != nil {
-		return fidelityReply{}, &JobFailed{"the reader's reply holds no grade JSON: " + squeezed(said.Result)}
+	if start < 0 || end < start || json.Unmarshal([]byte(said[start:end+1]), &reply) != nil {
+		return fidelityReply{}, &JobFailed{"the reader's reply holds no grade JSON: " + squeezed(said)}
 	}
 	if len(reply.Missing) > 0 {
 		reply.Verdict = "missing"

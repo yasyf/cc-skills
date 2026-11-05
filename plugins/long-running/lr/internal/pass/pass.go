@@ -507,7 +507,7 @@ func stuckBecause(s *store.Store, base machine.Facts, now time.Time) (string, er
 
 func rowWaitsOn(base machine.Facts) string {
 	switch {
-	case base.Hold != "" && !base.HoldAwaitsTap:
+	case base.Held():
 		return fmt.Sprintf("%s's hold #%d", base.Hold, base.HoldSeq)
 	case !base.RowClear():
 		return "what its row names: " + base.RowWait
@@ -524,7 +524,7 @@ func escalateUngraded(s *store.Store, snapshot []machine.Facts, now time.Time, p
 		return err
 	}
 	for _, f := range snapshot {
-		if f.Lane == "" || !f.Green() || f.Graded() || f.Draft || f.Foreign() || f.Restackable() || out.Verdicts[f.Number].State.Terminal() {
+		if f.Lane == "" || !f.Green() || f.Graded() || f.Held() || f.Draft || f.Foreign() || f.Restackable() || out.Verdicts[f.Number].State.Terminal() {
 			continue
 		}
 		first, seen := since[store.FactKey{Number: f.Number, Head: f.Head}]

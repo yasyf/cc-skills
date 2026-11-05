@@ -95,6 +95,7 @@ type FinderOutcome struct {
 	Record   string `json:"record,omitempty"`
 	Posted   string `json:"posted,omitempty"`
 	Census   string `json:"census,omitempty"`
+	Regrade  string `json:"regrade,omitempty"`
 }
 
 type superseded struct {
@@ -226,6 +227,17 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 			last = ""
 		}
 	}
+	judged := ""
+	if last != "" && spec.Prior != nil && NamesHead(spec.Prior.Head, last) && FinderGrade(spec.Prior.Text) == finderPass {
+		answer, err := s.regraded(view, finderMeans, *spec.Prior, last, pairs, changed)
+		if err != nil {
+			return FinderOutcome{}, err
+		}
+		if answer.carries() {
+			return s.judgedCarry(last, pairs, answer)
+		}
+		judged = answer.String()
+	}
 	diff, err := s.touched(own[0]+"^", head)
 	if err != nil {
 		return FinderOutcome{}, err
@@ -296,7 +308,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if err != nil {
 		return FinderOutcome{}, err
 	}
-	outcome := FinderOutcome{Verdict: strings.Fields(text)[1], Record: text, Posted: posted}
+	outcome := FinderOutcome{Verdict: strings.Fields(text)[1], Record: text, Posted: posted, Regrade: judged}
 	if len(census) > 0 {
 		if outcome.Census, err = s.recordCensus(census); err != nil {
 			return FinderOutcome{}, err
@@ -390,6 +402,20 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 		return FinderOutcome{}, err
 	}
 	return FinderOutcome{Verdict: strings.Fields(text)[1], Record: text, Posted: posted}, nil
+}
+
+func (s *finderPassState) judgedCarry(last, pairs string, answer regradeAnswer) (FinderOutcome, error) {
+	earlier := s.job.Prior
+	text := fmt.Sprintf("finder: %s %s carried from #%d at %s, judged unchanged in meaning by %s over its range-diff: %s", finderPass, s.job.Head, earlier.Seq, short(last, 7), regradeModel, answer.reason())
+	body := filepath.Join(s.dir, bodyFile)
+	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\nA %s read of `git range-diff %s` answered %s.\n\n#%d: %s\n", text, regradeModel, pairs, answer, earlier.Seq, earlier.Text), 0o600); err != nil {
+		return FinderOutcome{}, err
+	}
+	posted, err := s.post(text, body)
+	if err != nil {
+		return FinderOutcome{}, err
+	}
+	return FinderOutcome{Verdict: finderPass, Record: text, Posted: posted, Regrade: answer.String()}, nil
 }
 
 func (s *finderPassState) askUntilSound(questionPath, question string, keys []string) (string, finderReply, error) {

@@ -976,6 +976,21 @@ func TestAGreenHeadMissingAGradeTellsTheGraderAndLaneAtAnHourAndRootAtThreeOnce(
 	}
 }
 
+func TestAHeldGreenHeadThatTakesNoGradeTellsNoOneItIsUngraded(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	given := facts(48967, func(f *machine.Facts) { f.Finder, f.Approved, f.Hold, f.HoldSeq = "", false, machine.MoverRoot, 481773 })
+
+	for _, after := range []time.Duration{0, time.Hour, 3 * time.Hour} {
+		run(t, s, r, t0.Add(after), all, given)
+	}
+	if got := ungradedPosts(r); len(got) != 0 {
+		t.Fatalf("held: %+v", got)
+	}
+}
+
 func TestAnApprovedUngradedHeadLeavesRootToTheRowAlarm(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {

@@ -1508,3 +1508,91 @@ func TestAFinderQuestionCarriesTheReportOfTheBugItemItsJobNames(t *testing.T) {
 		})
 	}
 }
+
+func amendedPastAGrade(t *testing.T, prior map[string]any, replies ...any) (string, *fakeShell) {
+	t.Helper()
+	changes := map[string]any{"since": shaOld, "prior": prior}
+	if prior == nil {
+		changes = nil
+	}
+	directory := finderJobDir(t, changes)
+	shell, repo := newFinderFake(t, replies...)
+	amendedRepo(repo, "=", "!")
+	repo.shows = map[string]string{
+		shaParent[:11]:             landedDiff[shaParent[:11]],
+		shaBase + ":api/parent.go": "landed()\n",
+		shaOldOwn[:11]:             patchOf("-poll()", "+stream()", "+azurePrefix()"),
+		shaOwn[:11]:                patchOf("-poll()", "+stream()"),
+		shaBase + ":go/follow.go":  "func f() {\n\tpoll()\n}\n",
+	}
+	return directory, shell
+}
+
+func TestAnAmendedHeadPastAnOkTheSonnetReadCallsUnchangedCarriesTheOkWithNoCodexPass(t *testing.T) {
+	why := "The amend only drops azurePrefix(), which no caller in the PR reaches."
+	directory, shell := amendedPastAGrade(t, priorAt(149302, "finder: ok a269784"))
+	shell.judged = []any{regradeAnswer{carryAnswer, why}}
+	mustFinder(t, directory, shell)
+	equal(t, len(shell.asks()), 0)
+	judges := shell.judges()
+	equal(t, len(judges), 1)
+	holdsAll(t, strings.Join(judges[0], " "), "--model sonnet", "--effort high", "Bash(git range-diff:*)")
+	holdsAll(t, readText(t, directory, regradeQuestion),
+		"`git range-diff "+earlierRange+"`", "Amended commits: "+shaOwn[:11]+". New commits: none.",
+		"- cci #149302 from p8a-step9: finder: ok a269784\n", finderMeans, summaryBody,
+	)
+	want := "finder: ok " + shaHead + " carried from #149302 at " + shaOld[:7] + ", judged unchanged in meaning by sonnet over its range-diff: The amend only drops azurePrefix(), which no caller in the PR reaches"
+	sameList(t, shell.texts(), []string{want})
+	equal(t, FinderGrade(want), finderPass)
+	outcome := resultOf(t, directory)
+	if !reflect.DeepEqual(outcome, map[string]any{"verdict": "ok", "record": want, "posted": "#150001", "regrade": "carry: " + why}) {
+		t.Errorf("outcome = %v", outcome)
+	}
+}
+
+func TestAnAmendedHeadTheSonnetReadDoesNotCarryGetsTheSolDeltaPassAndKeepsTheReadsAnswer(t *testing.T) {
+	cases := []struct {
+		name   string
+		judged any
+		wants  []string
+	}{
+		{"sol", regradeAnswer{solAnswer, "The amend drops the azurePrefix() call the base lacks, so follow.go behaves differently."}, []string{"sol: The amend drops the azurePrefix() call"}},
+		{"failed", &ExitError{Code: 1, Stdout: `{"is_error":true,"result":"Not logged in"}`}, []string{"sol: the read failed: ", "the reader exited 1: Not logged in"}},
+		{"prose", "Both heads look about the same to me.", []string{"sol: the read gave no answer: Both heads look about the same to me."}},
+		{"unknown", regradeAnswer{"maybe", "unclear"}, []string{"sol: the read gave no answer: ", `"answer":"maybe"`}},
+		{"reasonless", regradeAnswer{carryAnswer, " "}, []string{"sol: the read gave no answer: "}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			directory, shell := amendedPastAGrade(t, priorAt(149302, "finder: ok a269784"), replyOf())
+			shell.judged = []any{c.judged}
+			mustFinder(t, directory, shell)
+			equal(t, len(shell.judges()), 1)
+			equal(t, len(shell.asks()), 1)
+			equal(t, shell.posted[0]["--text"], "finder: ok "+shaHead+" sol finder over delta "+shaOld[:7]+".."+shaHead[:7]+": no majors")
+			holdsAll(t, resultOf(t, directory)["regrade"].(string), c.wants...)
+		})
+	}
+}
+
+func TestAHeadWithNoOkAtItsEarlierHeadNeverAsksTheSonnetRead(t *testing.T) {
+	cases := []struct {
+		name  string
+		prior map[string]any
+	}{
+		{"no earlier grade", nil},
+		{"earlier major", priorAt(149302, "finder: major a269784 1 open: walk.go:9 skips the volume link")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			directory, shell := amendedPastAGrade(t, c.prior, replyOf())
+			mustFinder(t, directory, shell)
+			equal(t, len(shell.judges()), 0)
+			equal(t, len(shell.asks()), 1)
+			wantNoFile(t, directory, regradeQuestion)
+			if _, judged := resultOf(t, directory)["regrade"]; judged {
+				t.Error("a pass the Sonnet read never saw names its answer")
+			}
+		})
+	}
+}

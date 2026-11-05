@@ -173,6 +173,34 @@ func TestAnUngradedHeadGetsBothGradersOnce(t *testing.T) {
 	}
 }
 
+func TestAHeldHeadTakesNoGraderUntilTheHoldLiftsUnlessItHoldsForHisTap(t *testing.T) {
+	cases := []struct {
+		name string
+		hold func(*machine.Facts)
+		want []Dispatched
+	}{
+		{"root hold", func(f *machine.Facts) { f.Hold, f.HoldSeq = machine.MoverRoot, 481773 }, nil},
+		{"owner hold", func(f *machine.Facts) { f.Hold, f.HoldSeq = machine.MoverOwner, 481773 }, nil},
+		{"held for his tap", func(f *machine.Facts) { f.Hold, f.HoldSeq, f.HoldAwaitsTap = machine.MoverRoot, 481773, true }, []Dispatched{{GraderFinder, number, head}, {GraderFidelity, number, head}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, pool := memory(t), &fakePool{box: "sprite-1"}
+			held := act(t, s, pool, opened(t, s, head), facts(head, c.hold), t0)
+			if !reflect.DeepEqual(held, c.want) {
+				t.Fatalf("held = %v, want %v", held, c.want)
+			}
+			if c.want != nil {
+				return
+			}
+			lifted := act(t, s, pool, items(t, s), facts(head), t0.Add(time.Minute))
+			if want := []Dispatched{{GraderFinder, number, head}, {GraderFidelity, number, head}}; !reflect.DeepEqual(lifted, want) {
+				t.Fatalf("lifted = %v, want %v", lifted, want)
+			}
+		})
+	}
+}
+
 func TestOnlyTheMissingGraderIsDispatched(t *testing.T) {
 	s, pool := memory(t), &fakePool{box: "sprite-1"}
 	graded := facts(head, func(f *machine.Facts) { f.Finder = machine.FinderClear })

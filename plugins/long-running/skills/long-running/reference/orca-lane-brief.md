@@ -199,7 +199,9 @@ An owner-question list you write marks, for every item, which authorities you ch
 (plan section, durable answer id, memory) and holds only items none of them settles.
 
 Every owner ask other than a PR tap is a question card you draw yourself, with one verb,
-from any host:
+from any host, once the decision is his. A question on a held PR, or one his words have not
+yet made his, such as a cutover question before he says cutover is ready, stays in your
+handoff and draws no card until the hold lifts or he says so:
 
 ```
 lr ask-owner --title '<the question>?' --background '<what it is for, what it touches, what each answer changes>' \
