@@ -40,9 +40,9 @@ D24 sits at the end of this section.
 
 ### Who enqueues and who reports (D1, D2, D13, D18)
 
-**D1. The landing desk is the only enqueuer; lanes report; the coordinator owns holds and priority PRs.**
+**D1. The landing pass is the only enqueuer; lanes report; the coordinator owns holds and priority PRs.**
 - A lane never runs `stack-enqueue` outside `--check` and `--status`, `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label.
-- On a Sprite neither read works, since `tools/ci` fetches its binary from a bucket a Sprite holds no AWS identity for. A Sprite lane reads queue state, checks, approval and a verdict with `ccx vcs pr status <n>`, and asks `go-sweep` for the go.
+- On a Sprite neither read works, since `tools/ci` fetches its binary from a bucket a Sprite holds no AWS identity for. A Sprite lane reads queue state, checks, approval and a verdict with `ccx vcs pr status <n>`. It asks nobody for the go: the landing host's go sweep gates every ready head each pass, and a question about its answer goes to `root`.
 - The pack's `lane_landing` hook reads the drive registry and warns on those commands against the drive's repo, without blocking, from every lane except `landing-desk`, its shards, priority desks, `desk-runner`, `merge-train` lanes, and incident lanes.
 - An incident lane is named `incident-` or `outage-`, briefed with `ccx: incident=<id>` other than `none`, or named `<x>-fix` and briefed with `Register slice: lane=<x>-fix step=incident`. The hook warns it only on `stack-enqueue` and `gh pr merge --admin` and lets it run `gh pr merge <n> --squash`.
 - The same pack warns on `tools/ci trunk dequeue`, `restart`, and `prioritize` from every lane, desks included, because only the coordinator steers the queue. A tooling lane merges its own PRs in other repos.
@@ -442,8 +442,8 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
   - No typed `hold` record holds the PR, and no open card on the owner's board names it. A row ready for his tap refuses nothing: an exempt head lands under its class.
   - No `landing.tap_rules` glob matches a changed file, and no live go already names the head.
 - A refused PR prints every reason and posts nothing. Text in an ask, answer, note, or blocker is never an override or a pick. A hold the coordinator writes as prose stops nothing, so it posts every hold as a `hold` record. `lr landing go <pr> --head <sha> --before <seq>` replays a past go over the records before it.
-- Before promising a go or saying what admits a PR, dry-run `lr landing go` from a monorepo checkout. A class only admits through a go lane's `lr landing go`, and a test-only fix can still land on the owner's tap.
-- Landings go through the go lane in the registry, and a go posts as the desk runner. Read a name's registry row before routing to it: a go posted through a nonexistent landing desk landed on an exempt-class fidelity grade.
+- Before promising a go or saying what admits a PR, dry-run `lr landing go` from a monorepo checkout. A class only admits through the go sweep, which runs in the landing pass, and a test-only fix can still land on the owner's tap. No lane holds `go-sweep`, `go-desk` or, in a drive that stood it down, `landing-desk`: `cci post --to` one of them accepts the record, nobody reads it, and a note says so.
+- Landings go through the landing pass, and a go posts as the supervisor. Read a name's registry row before routing to it: a go posted through a nonexistent landing desk landed on an exempt-class fidelity grade.
 
 **Reading a go.** A go is read fresh before every enqueue line.
 - Re-tail cci for each line, and never cite seqs with `#`.
@@ -540,8 +540,8 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 **Dequeue and hand enqueue.**
 - To take a PR out of the queue, the coordinator posts a `hold` on it: the landing host pulls it and every PR above it as the record arrives and posts `DEQUEUED`, or `DEQUEUE-REFUSED` with what the queue said. Resolving the hold lets it enter again. A queue cancel after a pull reads as that pull, never as an eviction.
 - A hand `stack-enqueue --dequeue` records nothing and draws a warning naming `cci post --kind hold`.
-- A hand `stack-enqueue` runs `lr landing gate <n>...` through the `lane_landing` hook and warns on failing checks, so never wrap `stack-enqueue` in a custom script.
-- In a Forge-AI/monorepo drive, every hand landing, whether `gh pr merge`, `ccx vcs merge`, `gh stack merge`, `stack-enqueue`, `ci trunk submit`, or a `merge` label, is blocked when that gate prints `TAP-REQUIRED`, the same tap read the runner makes, so a carried or standing tap counts. The refusal names the PR and head and points to a card asking the owner's tap, or to the runner.
+- A hand `stack-enqueue` runs `lr landing gate <n>...` through the `lane_landing` hook and warns on failing checks, so never wrap `stack-enqueue` in a custom script. The hook follows a program held in a shell variable on the same line, and reads no script file; the landing pass dequeues what gets past it.
+- In a Forge-AI/monorepo drive, every hand landing, whether `gh pr merge`, `ccx vcs merge`, `gh stack merge`, `stack-enqueue`, `ci trunk submit`, or a `merge` label, is blocked when that gate prints `TAP-REQUIRED`, the same tap read the runner makes, so a carried or standing tap counts. For a green, approved, graded head with no tap the gate asks the go sweep's own decision, `gates.ExemptGo` at that head: a refusal prints `TAP-REQUIRED` with every reason and names each `go` record that does not count at that head, and an admission prints `NO-GO-YET`, which warns and does not block, since the sweep posts the go that same pass. A read that fails refuses nothing and warns. The refusal names the PR and head and points to a card asking the owner's tap, or to the runner.
 - A hand landing that merges outside the queue, whether `gh pr merge`, `ccx vcs merge`, `gh stack merge`, or a `PUT` on the merge endpoint, is warned when the gate, run with `--direct`, prints `QUEUE-UNTESTED`: the queue's own check has not passed at that head. This warns and does not block, so a tapped hand merge can still land untested.
 - `desk-runner`, `merge-train`, and desk landings, an incident lane's plain squash, and merges in other repos such as yasyf/* are not hand landings. A gate that does not read warns, names the failure, and lets the landing through.
 

@@ -266,7 +266,7 @@ def test_a_hand_enqueue_of_a_head_the_runner_refuses_for_the_owners_tap_is_refus
     [refusal] = merge_results(tmp_path, "stack-enqueue 44705 43243 --partial", "alanding-desk-1a2b")
 
     assert refusal.action == Action.warn
-    assert refusal.message == lane_landing.HAND_ENQUEUE_TAP_REFUSAL.format(lines=TAP_REQUIRED)
+    assert refusal.message == lane_landing.naming_heads(lane_landing.HAND_ENQUEUE_TAP_REFUSAL, [TAP_REQUIRED])
 
 
 @pytest.mark.parametrize("command,verb", [("tools/ci trunk submit 36023", "ci trunk submit"), ("gh stack merge 36023", "gh stack merge")])

@@ -462,3 +462,23 @@ func TestAnEnqueueGateNeverReadsTheQueuesCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestAHandEnqueueAsksTheSweepOnlyAboutTheHeadsItTakesAtAnyDriveSize(t *testing.T) {
+	asks := func(size int) int {
+		f := newGates(t)
+		count := 0
+		f.gates.GoAnswer = func(context.Context, machine.Facts) ([]string, error) {
+			count++
+			return nil, nil
+		}
+		snapshot := make([]machine.Facts, size)
+		for i := range snapshot {
+			snapshot[i] = gateFacts(i+1, "branch-"+strconv.Itoa(i+1), "dev", func(f *machine.Facts) { f.Tap = "" })
+		}
+		f.gates.HandEnqueueLines(context.Background(), snapshot, []string{"1"}, true, false)
+		return count
+	}
+	if one, many := asks(1), asks(1000); one != 1 || many != one {
+		t.Fatalf("asked the sweep %d times at N=1 and %d at N=1000, want 1 at both", one, many)
+	}
+}

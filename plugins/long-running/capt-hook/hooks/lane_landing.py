@@ -57,6 +57,9 @@ ORIGINS = {f"git -C {CHECKOUT} remote get-url origin": "https://github.com/Forge
 landing = partial(Input, cwd=CHECKOUT, env=LANDING_ENV, commands=ORIGINS)
 MONOREPO_GATE = "lr landing gate --config /s/durable-agents-rebuild/lr.json"
 UNTAPPED = "#7 0123456789 TAP-REQUIRED no approval on the owner's board at this head\n"
+REFUSED_SHAPE = "#7 0123456789 TAP-REQUIRED no approval on the owner's board at this head, and the go sweep refuses it: tap rule rule/1 names go/x_test.go, so it lands on his tap; go #9 by root is not counted at this head\n"
+ADMITTED_SHAPE = "#7 0123456789 NO-GO-YET no tap is owed: it lands on his standing word, and its go comes next\n"
+ENQUEUER = ".agents/skills/submit-pr/scripts/stack-enqueue"
 UNTESTED = "#7 0123456789 QUEUE-UNTESTED Trunk Merge Queue (dev) has not passed at this head\n"
 MONOREPO_DIRECT_GATE = f"{MONOREPO_GATE} 7 --partial --direct"
 ACTIVE = [CompactionState(active=True, coordinator=True)]
@@ -70,8 +73,8 @@ EVIDENCE_LANE = "ainc-fixruns-evidence-0123456789abcdef"
 PINNED_MERGE = "gh pr merge 44717 --squash --match-head-commit 0123456789abcdef0123456789abcdef01234567"
 ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hold 30082"
 REFUSAL = (
-    "Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
-    "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the coordinator's holds."
+    "Warning, nothing was blocked: Lanes never enqueue: the landing pass is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
+    "Report the PR with `ledger.py report --drive <drive>`, and the landing pass enqueues it against the coordinator's holds."
 )
 UNREAD_REPO = (
     "Warning, nothing was blocked: This hook could not tell whether `{verb}` lands on the landing desk's repo, where lanes never enqueue. "
@@ -90,18 +93,24 @@ GREEN_EXCEPT_REFUSAL = (
     "Report READY only once every required job on the head passes; a job that fails because dev is red waits for dev's fix."
 )
 TRUNK_BLOCKED = "dev's test build is red since {since}; nothing lands until {fix}. "
+FENCE = "~" * 12
 HAND_ENQUEUE_WARNING = (
     "A hand `stack-enqueue` is held to the landing runner's checks, and these heads fail them: {lines}. "
     "Clear each one before you enqueue, with a grade naming the head, a fidelity ok, or the owner's go."
 )
 HAND_ENQUEUE_TAP_REFUSAL = (
-    "Warning, nothing was blocked: A hand `stack-enqueue` lands nothing the landing runner refuses for the owner's tap, and these heads have no approval on the coordinator's board: {lines}. "
+    "Warning, nothing was blocked: A hand `stack-enqueue` lands nothing the landing runner refuses for the owner's tap, and the heads below have no approval on the coordinator's board. "
     "A coordinator go is no tap: wait for his approval on the board row at that head, then enqueue."
 )
+HAND_ENQUEUE_ADMITTED = (
+    "The go sweep admits the heads below, so no tap is owed and the landing pass queues each once its go posts. "
+    "A hand `stack-enqueue` adds nothing, so report the PR with `ledger.py report` and wait."
+)
+NO_GO_YET = "NO-GO-YET"
 TAP_REFUSAL = "TAP-REQUIRED"
 GATE_UNREAD = "Warning, nothing was refused:"
 HAND_LANDING_REFUSAL = (
-    "A hand landing needs the owner's tap at its head, and the runner's read finds none: {lines}. "
+    "A hand landing needs the owner's tap at its head, and the runner's read finds none on the heads below. "
     "Ask him for it with a board card at that head, or report the PR with `ledger.py report` for the runner to land."
 )
 QUEUE_UNTESTED = "QUEUE-UNTESTED"
@@ -278,9 +287,17 @@ def without_repo(argv: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(kept)
 
 
+def written_argv(call: Call) -> tuple[str, ...]:
+    """The call's program and arguments, reading a program held in a shell variable through the assignment earlier on the line."""
+    head = call.command.words[0] if call.command.words else None
+    held = call.resolve(head) if head and head.value is None else None
+    return (Path(held.candidates[0]).name if isinstance(held, Resolved) and len(held.candidates) == 1 else call.name, *call.args)
+
+
 def landing_verb(call: Call) -> str | None:
-    argv = without_repo((call.name, *call.args)) if call.name == "gh" else call.verb_argv
-    run = program((call.name, *call.args))
+    written = written_argv(call)
+    argv = without_repo(written) if written[0] == "gh" else (written[0], *call.verb_argv[1:])
+    run = program(written)
     if run and Path(run[0]).name == "stack-enqueue":
         return None if READ_ONLY_ENQUEUE & set(run[1:]) else "stack-enqueue"
     if run and Path(run[0]).name == "ci" and run[1:3] == ("trunk", "submit"):
@@ -299,7 +316,7 @@ def landing_verb(call: Call) -> str | None:
         return f"{' '.join(argv[:3])} --add-label"
     if argv[:2] == ("gh", "api") and any(LABELS_ENDPOINT.search(arg) for arg in argv[2:]) and labelled_fields(argv[2:]) & QUEUE_LABELS:
         return "gh api labels"
-    if call.name == "ledger.py" and argv[1:2] == ("label",) and "--dry-run" not in argv:
+    if argv[:2] == ("ledger.py", "label") and "--dry-run" not in argv:
         return "ledger.py label"
     return None
 
@@ -308,7 +325,7 @@ def landing_verb(call: Call) -> str | None:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash")],
     tests={
-        landing(command=ENQUEUE, agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `lane-a` may not run `stack-enqueue`\."),
+        landing(command=ENQUEUE, agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Lanes never enqueue: the landing pass is the only enqueuer, so lane `lane-a` may not run `stack-enqueue`\."),
         landing(command="stack-enqueue 36039 --fast", agent_id="aL23-dashboard-wasm-follower-14fd0a86e696c1e3", state=ACTIVE): Warn(pattern=r"`L23-dashboard-wasm-follower`"),
         landing(command="tools/ci trunk submit 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`ci trunk submit`"),
         landing(command="tools/ci trunk status 36023", agent_id=LANE, state=ACTIVE): Allow(),
@@ -454,12 +471,16 @@ def landed_prs(call: Call, verb: str, repo: str, cwd: str) -> list[str] | None:
     return [*prs, "--partial"] if prs else None
 
 
+def naming_heads(message: str, lines: list[str]) -> str:
+    return "\n".join([message, FENCE, *lines, FENCE])
+
+
 def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
     if done is None:
         return "`lr landing gate` did not run or timed out"
     if done.returncode not in (0, 1):
         return f"`lr landing gate` exited {done.returncode}: {done.stderr.strip()}"
-    return done.stderr.strip() if done.stderr.startswith(GATE_UNREAD) else None
+    return done.stderr.strip() if GATE_UNREAD in done.stderr else None
 
 
 @on(
@@ -467,11 +488,18 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
     only_if=[Bound(), Tool("Bash")],
     tests={
         Input(command=ENQUEUE, agent_id=DESK, env=DRIVE_ENV, state=ACTIVE, commands={"lr landing gate": ""}): Allow(),
+        Input(command=f"S={ENQUEUER}; $S 7 2>&1 | cut -c1-400", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": REFUSED_SHAPE}): Block(pattern=r"#7 0123456789 TAP-REQUIRED .*tap rule rule/1 names go/x_test\.go.*go #9 by root is not counted at this head"),
+        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": REFUSED_SHAPE}): Block(pattern=r"go #9 by root is not counted at this head"),
+        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": ADMITTED_SHAPE}): Warn(pattern=r"^The go sweep admits the heads below, so no tap is owed[\s\S]*#7 0123456789 NO-GO-YET "),
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_DIRECT_GATE: ADMITTED_SHAPE}): Allow(),
+        Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": (0, '{"level":"WARN"}\nWarning, nothing was refused: no inputs')}): Warn(pattern=r"^Warning, nothing was blocked: the owner's tap did not read"),
+        Input(command='"$S" 7', agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": REFUSED_SHAPE}): Allow(),
+        Input(command=f"S={ENQUEUER}; ls -la $S", agent_id=LANE, env=MONOREPO_ENV, commands={MONOREPO_GATE: REFUSED_SHAPE}): Allow(),
         Input(command="stack-enqueue 7 --check", env=DRIVE_ENV): Allow(),
         Input(command="stack-enqueue 7 --dequeue", env=DRIVE_ENV): Allow(),
         Input(command=ENQUEUE): Allow(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(
-            pattern=r"^A hand landing needs the owner's tap at its head.*: #7 0123456789 TAP-REQUIRED .*\. Ask him for it with a board card at that head, or report the PR"
+            pattern=r"^A hand landing needs the owner's tap at its head.*\. Ask him for it with a board card at that head, or report the PR[\s\S]*#7 0123456789 TAP-REQUIRED "
         ),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": UNTAPPED}): Block(),
         Input(command="stack-enqueue 7", agent_id=LANE, env=MONOREPO_ENV, commands={f"{MONOREPO_GATE} 7 --partial": ""}): Allow(),
@@ -511,6 +539,7 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
     untapped: list[str] = []
     untested: list[str] = []
     failing: list[str] = []
+    admitted: list[str] = []
     unread: list[str] = []
     for call in evt.cmd.calls():
         if not (verb := landing_verb(call)) or outside_drive_repo(evt, call, entry):
@@ -533,14 +562,16 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
         lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
         untapped += [line for line in lines if TAP_REFUSAL in line]
         untested += [line for line in lines if QUEUE_UNTESTED in line]
-        failing += [line for line in lines if TAP_REFUSAL not in line and verb == "stack-enqueue"]
+        admitted += [line for line in lines if NO_GO_YET in line and verb == "stack-enqueue"]
+        failing += [line for line in lines if TAP_REFUSAL not in line and NO_GO_YET not in line and verb == "stack-enqueue"]
     if untapped and blocking:
-        return evt.block(HAND_LANDING_REFUSAL.format(lines="; ".join(untapped)))
+        return evt.block(naming_heads(HAND_LANDING_REFUSAL, untapped))
     if untapped:
-        return evt.context(HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped)))
+        return evt.context(naming_heads(HAND_ENQUEUE_TAP_REFUSAL, untapped))
     notes = [TAP_UNREAD.format(failure=failure) for failure in unread] if blocking else []
     notes += [HAND_MERGE_UNTESTED.format(lines="; ".join(untested))] if untested and blocking else []
     notes += [HAND_ENQUEUE_WARNING.format(lines="; ".join(failing))] if failing else []
+    notes += [naming_heads(HAND_ENQUEUE_ADMITTED, admitted)] if admitted else []
     return evt.context("\n".join(notes)) if notes else None
 
 
@@ -638,6 +669,7 @@ def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
         Input(command="tools/ci trunk restart 36023", agent_id=DESK, state=ACTIVE): Warn(pattern=r"lane `landing-desk` may not run `ci trunk restart`"),
         Input(command="tools/ci trunk status 36023", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="tools/ci trunk dequeue 36023", state=ACTIVE): Allow(),
+        Input(command="C=tools/ci; $C trunk dequeue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `ci trunk dequeue`"),
     },
 )
 def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
@@ -646,7 +678,7 @@ def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     for call in evt.cmd.calls():
-        run = program((call.name, *call.args))
+        run = program(written_argv(call))
         if len(run) > 2 and Path(run[0]).name == "ci" and run[1] == "trunk" and run[2] in ("dequeue", "restart", "prioritize"):
             return evt.context(f"Only the coordinator steers the merge queue, so lane `{lane or 'unnamed'}` may not run `ci trunk {run[2]}`. Ask the coordinator, and read what a PR waits on with `lr board waits --pr <n>`.")
     return None

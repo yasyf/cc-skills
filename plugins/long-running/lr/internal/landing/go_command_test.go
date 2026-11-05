@@ -1,7 +1,9 @@
 package landing
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -299,5 +302,110 @@ func TestAHeadWhoseReadFailsIsSkippedWithOneRecordWhileTheSweepGatesTheRest(t *t
 	said := slices.DeleteFunc(notes, func(record client.Record) bool { return record.Topic == gateInputsTopic })
 	if len(said) != 1 || !strings.HasPrefix(said[0].Text, "GO-UNREAD #1 at abc1234") {
 		t.Fatalf("records = %+v, want one GO-UNREAD for #1 across both passes", said)
+	}
+}
+
+func TestTheHandGateAndTheGoAnswerTheSameOnEachShape(t *testing.T) {
+	const flake, wait = "79ac14b5aebaabd819bf339ee7c197cf657f8ab3", "73ce0deb655e60e30d22c352f7678e33ab37f8f3"
+	for _, c := range []struct {
+		name    string
+		number  int
+		head    string
+		file    string
+		rootGo  bool
+		goLine  string
+		tapLine []string
+	}{
+		{
+			name: "a tap rule's path, with a root go in prose", number: 50715, head: flake, file: "go/sand/next/cmd/iris_serve_scale_test.go", rootGo: true,
+			goLine:  "REFUSED #50715 at 79ac14b: tap rule rule/82317b0 names go/sand/next/cmd/iris_serve_scale_test.go, so it lands on his tap\n",
+			tapLine: []string{"TAP-REQUIRED no approval on the owner's board at this head, and the go sweep refuses it: tap rule rule/82317b0 names go/sand/next/cmd/iris_serve_scale_test.go, so it lands on his tap", "by root is not counted at this head"},
+		},
+		{
+			name: "a test file no tap rule names", number: 50728, head: wait, file: "rust/crates/sandsql-server/tests/handoff_e2e.rs",
+			goLine: "GO #50728 at 73ce0de (dry)", tapLine: []string{gates.NoGo},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			ctx := context.Background()
+			s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			ref := fmt.Sprintf("o/r#%d", c.number)
+			drafts := []client.Draft{
+				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"],"tap_rules":{"rule/82317b0":["go/sand/next/*"]}}`}},
+				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{ref}, Text: "fidelity: ok " + c.head + " class test-only: one wait"},
+				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{ref}, Text: "finder: ok " + c.head + " no majors"},
+			}
+			if c.rootGo {
+				drafts = append(drafts, client.Draft{Drive: "d", Lane: "root", Kind: "go", PRs: []string{ref}, Text: fmt.Sprintf("#%d lands on his word", c.number)})
+			}
+			for _, draft := range drafts {
+				if _, err := client.Post(ctx, draft); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: c.number, Head: c.head, ReadyForTap: true}}); err != nil {
+				t.Fatal(err)
+			}
+			runner := &shelltest.Fake{}
+			runner.Reply(fmt.Sprintf("[%q,\"@@ +1 @@\\n+wait_log\"]\n", c.file), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", fmt.Sprintf("repos/o/r/pulls/%d/files", c.number))
+			runner.Reply("", "ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view")
+			a := app.New(io.Discard)
+			a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
+			cfg := config.Config{Drive: "d", Repo: "o/r", Trunk: "dev"}
+			inputs, err := readGateInputs(ctx, "d", a.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var dry bytes.Buffer
+			if _, _, err := (goGate{a: a, cfg: cfg, s: s, inputs: inputs, stdout: &dry}).one(ctx, c.number, c.head, goFlags{}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(dry.String(), c.goLine) {
+				t.Fatalf("lr landing go said %q, want %q", dry.String(), c.goLine)
+			}
+			hand := (&Gates{GoAnswer: sweepAnswer(ctx, a, cfg, s), Stderr: io.Discard}).tapLines(ctx, readyFacts(c.number, c.head))
+			if len(hand) != 1 {
+				t.Fatalf("lr landing gate said %q, want one line", hand)
+			}
+			for _, want := range c.tapLine {
+				if !strings.Contains(hand[0], want) {
+					t.Fatalf("lr landing gate said %q, want %q", hand[0], want)
+				}
+			}
+		})
+	}
+}
+
+func readyFacts(number int, head string) machine.Facts {
+	return machine.Facts{Repo: "o/r", Number: number, Head: head, Base: "dev", CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
+}
+
+func TestAHeadTheSweepWouldNotGateKeepsItsTapLineAndAsksNothing(t *testing.T) {
+	asked := func(context.Context, machine.Facts) ([]string, error) {
+		t.Fatal("asked the sweep about a head it does not gate")
+		return nil, nil
+	}
+	red := readyFacts(1, "abc1234def")
+	red.CI = machine.CIFailure
+	got := (&Gates{GoAnswer: asked}).tapLines(context.Background(), red)
+	if want := []string{"#1 abc1234def CI is not green", "#1 abc1234def " + tapRequired}; !slices.Equal(got, want) {
+		t.Fatalf("lines = %q, want %q", got, want)
+	}
+}
+
+func TestAGoAnswerThatDoesNotReadRefusesNothingAndSaysSo(t *testing.T) {
+	var stderr bytes.Buffer
+	unread := func(context.Context, machine.Facts) ([]string, error) { return nil, errors.New("no inputs") }
+	got := (&Gates{GoAnswer: unread, Stderr: &stderr}).tapLines(context.Background(), readyFacts(1, "abc1234def"))
+	if len(got) != 0 {
+		t.Fatalf("lines = %q, want none", got)
+	}
+	if !strings.HasPrefix(stderr.String(), gateUnread) {
+		t.Fatalf("stderr = %q, want it to open %q", stderr.String(), gateUnread)
 	}
 }

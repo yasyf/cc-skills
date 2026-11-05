@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"log/slog"
 	"maps"
 	"path/filepath"
@@ -65,6 +66,8 @@ type Gates struct {
 	Token    bkread.Token
 	Now      func() time.Time
 	Log      *slog.Logger
+	GoAnswer func(ctx context.Context, f machine.Facts) ([]string, error)
+	Stderr   io.Writer
 
 	held map[string]time.Time
 }
