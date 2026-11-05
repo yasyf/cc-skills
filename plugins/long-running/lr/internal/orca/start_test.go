@@ -1154,7 +1154,7 @@ func TestAWorkerStartsOnlyTheMCPServersItsLaunchNames(t *testing.T) {
 }
 
 func TestOnlyABriefAskingForSlackStartsTheSlackServer(t *testing.T) {
-	for brief, want := range map[string]bool{"ccx: role=reader place=local why=mac-question mcp=slack\nScale: one\n": true, "ccx: role=reader place=local why=mac-question\nScale: one\n": false} {
+	for brief, want := range map[string]bool{"ccx: role=reader place=local why=mac-state mcp=slack\nScale: one\n": true, "ccx: role=reader place=local why=mac-state\nScale: one\n": false} {
 		h := newHarness(t)
 		h.healthyClaude()
 		h.env["ORCA_LAUNCH_SLACK_MCP_CONFIG"] = "/briefs/slack-only.json"

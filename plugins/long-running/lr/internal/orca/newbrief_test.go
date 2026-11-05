@@ -104,7 +104,7 @@ func TestNewBriefReadsItsBodyFromStdinAndAppendsThePostersStandingLines(t *testi
 	if err := os.WriteFile(filepath.Join(standing, standingFile), []byte("A standing line.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	n := NewBrief{Title: "t", BodyFile: bodyFromStdin, Stdin: strings.NewReader("Owner owner:m35 said so.\n"), Scale: "small", Place: placeLocal, StandingDir: standing}
+	n := NewBrief{Title: "t", BodyFile: bodyFromStdin, Stdin: strings.NewReader("Owner owner:m35 said so.\n"), Scale: "small", Place: placeRemote, StandingDir: standing}
 	text, err := n.text("lane-a")
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestNewBriefReadsItsBodyFromStdinAndAppendsThePostersStandingLines(t *testi
 }
 
 func TestNewBriefWithNoStandingFileWritesOnlyItsBody(t *testing.T) {
-	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal, StandingDir: t.TempDir()}
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote, StandingDir: t.TempDir()}
 	text, err := n.text("lane-a")
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestNewBriefKeepsABriefThatReachedWorkerStart(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, workerAttempt), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal}
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote}
 	if _, err := n.Write(state, "lane-a"); err == nil || !strings.Contains(err.Error(), "next number") {
 		t.Fatalf("err = %v, want the attempt refused", err)
 	}
@@ -193,7 +193,7 @@ func TestNewBriefKeepsABriefThatReachedWorkerStart(t *testing.T) {
 }
 
 func TestNewBriefWritesTheOwnersPickTheCostGateReads(t *testing.T) {
-	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeLocal, OwnerPick: "owner:m836"}
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote, OwnerPick: "owner:m836"}
 	text, err := n.text("lane-a")
 	if err != nil {
 		t.Fatal(err)
