@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, TranscriptFixture, Warn, on
@@ -33,6 +34,8 @@ FIELD_FLAGS = ("--raw-field=", "--field=", "-f", "-F")
 REPO_FLAGS = frozenset({"-R", "--repo"})
 REPO_IN_ARG = re.compile(r"(?:^|/)repos/(?P<api>[\w.-]+/[\w.-]+)/|github\.com/(?P<url>[\w.-]+/[\w.-]+)/pull/")
 MERGE_VALUE_FLAGS = frozenset({"--match-head-commit", "--body", "-b", "--body-file", "-F", "--subject", "-t", "--author-email", "-A", "--merge-method"})
+GITHUB_REMOTE = re.compile(r"github\.com[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
+LANDING_REPO_ENV = "CLAUDE_LONG_RUNNING_LANDING_REPO"
 PULL = re.compile(r"(?:https://github\.com/[\w.-]+/[\w.-]+/pull/)?(?P<pr>\d+)/?")
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "STORE-UNCOUNTED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
@@ -45,6 +48,11 @@ FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
 MONOREPO = "forge-ai/monorepo"
 MONOREPO_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "5c0e81aa", "CLAUDE_CONFIG_DIR": str(FIXTURES / "gate5-config")}
+LANDING_ENV = {LANDING_REPO_ENV: "Forge-AI/monorepo"}
+CHECKOUT = "/w/monorepo"
+SLACK_CHECKOUT = "/w/cc-slack"
+ORIGINS = {f"git -C {CHECKOUT} remote get-url origin": "https://github.com/Forge-AI/monorepo\n", f"git -C {SLACK_CHECKOUT} remote get-url origin": "git@github.com:yasyf/cc-slack.git\n"}
+landing = partial(Input, cwd=CHECKOUT, env=LANDING_ENV, commands=ORIGINS)
 MONOREPO_GATE = "lr landing gate --config /s/durable-agents-rebuild/lr.json"
 UNTAPPED = "#7 0123456789 TAP-REQUIRED no approval on the owner's board at this head\n"
 UNTESTED = "#7 0123456789 QUEUE-UNTESTED Trunk Merge Queue (dev) has not passed at this head\n"
@@ -202,6 +210,20 @@ def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bo
     return done.returncode == 0 and done.stdout.strip() != entry["git_common_dir"]
 
 
+def outside_landing_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool:
+    if entry is not None or not (landing_repo := reqenv.getenv(LANDING_REPO_ENV)):
+        return outside_drive_repo(evt, call, entry)
+    if (repo := named_repo(call)) is None and unknown_dir(evt, call):
+        return False
+    repo = repo or origin_repo(run_dir(evt, call))
+    return repo is not None and repo.casefold() != landing_repo.casefold()
+
+
+def origin_repo(cwd: str) -> str | None:
+    done = subprocess.run(["git", "-C", cwd, "remote", "get-url", "origin"], capture_output=True, text=True)
+    return found["repo"] if done.returncode == 0 and (found := GITHUB_REMOTE.search(done.stdout.strip())) else None
+
+
 def label_args(args: tuple[str, ...]) -> set[str]:
     values = [
         value
@@ -262,86 +284,98 @@ def landing_verb(call: Call) -> str | None:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash")],
     tests={
-        Input(command=ENQUEUE, agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `lane-a` may not run `stack-enqueue`\."),
-        Input(command="stack-enqueue 36039 --fast", agent_id="aL23-dashboard-wasm-follower-14fd0a86e696c1e3", state=ACTIVE): Warn(pattern=r"`L23-dashboard-wasm-follower`"),
-        Input(command="tools/ci trunk submit 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`ci trunk submit`"),
-        Input(command="tools/ci trunk status 36023", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh stack merge 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh stack merge`"),
-        Input(command="cd ~/wt && gt merge", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gt merge`"),
-        Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
-        Input(command="ccx vcs merge 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `ccx vcs merge`"),
-        Input(command="gh -R Forge-AI/monorepo pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
-        Input(command="python3 .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="bash .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="python3 -W ignore .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="uv run --with requests .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command=".agents/skills/submit-pr/scripts/stack-enqueue --fast 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="git fetch -q && stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="true; stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="true | .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="echo $(stack-enqueue 36023)", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="sudo stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="env GH_TOKEN=x stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="cc-sudo run -- .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="bash -c 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
-        Input(command="python3 -m py_compile .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="bash -n .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="python3 -c 'print(\"stack-enqueue 36023\")'", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="cci post --drive release-v3 --lane x --kind report --to root 'stack-enqueue --fast 36023 now costs one query'", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="git diff -- .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="cat .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="echo ok # stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="cc-sudo run -- stack-enqueue --check 36023", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels '--raw-field=labels[]=merge'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh api labels`"),
-        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels -flabels[]=merge-fast", agent_id=LANE, state=ACTIVE): Warn(),
-        Input(command="gh api -X PUT repos/Forge-AI/monorepo/pulls/36023/merge -f merge_method=squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh api merge`"),
-        Input(command="gh api repos/Forge-AI/monorepo/pulls/36023/merge", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh pr edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr edit --add-label`"),
-        Input(command="gh pr edit 36023 --add-label=docs,MERGE-FAST", agent_id=LANE, state=ACTIVE): Warn(),
-        Input(command="gh issue edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Warn(),
-        Input(command="gh api -X POST repos/Forge-AI/monorepo/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh api labels`"),
-        Input(command="ledger.py label --ledger 1a2b --pr 36023 --expect-head abc", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`ledger.py label`"),
-        Input(command=ENQUEUE, env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Warn(pattern=r"`lane-b`"),
-        Input(command=ENQUEUE, agent_id=DESK, state=ACTIVE): Allow(),
-        Input(command=ENQUEUE, agent_id="alanding-desk-2-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command=ENQUEUE, agent_id="adesk-runner-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command=ENQUEUE, env={"CLAUDE_LONG_RUNNING_LANE": "landing-desk"}): Allow(),
-        Input(command=ENQUEUE, agent_id="asandsql-replica-desk-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command="ledger.py label --pr 36023 --expect-head abc", agent_id="amerge-train-release-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command=ENQUEUE, agent_id="adesk-cleanup-lane-0123456789abcdef", state=ACTIVE): Warn(),
-        Input(command="stack-enqueue 36050 --fast", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"plain squash"),
-        Input(command="stack-enqueue 36050", agent_id="aoutage-sand-0123456789abcdef", state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash .* lane `outage-sand` may not run `stack-enqueue`\."),
-        Input(command="stack-enqueue 36050 --check", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command="stack-enqueue 36050 --fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Warn(pattern=r"lane `sand-5a-fix` may not run `stack-enqueue`"),
-        Input(command="gh pr edit 36050 --add-label merge-fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Warn(pattern=r"lane `sand-5a-fix` may not run `gh pr edit --add-label`"),
-        Input(command="gh pr merge 36050 --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command="ccx vcs merge 36050", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command="ccx vcs merge 36050 --admin", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"may not run `ccx vcs merge --admin`"),
-        Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Allow(),
-        Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=NON_INCIDENT_BRIEF): Warn(pattern=r"lane `lane-a` may not run `gh pr merge`"),
-        Input(command="stack-enqueue 44717", agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash"),
-        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Allow(),
-        Input(command="gh pr merge 44811 --squash --admin", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes merge by plain squash .* lane `inc-fixruns-fix` may not run `gh pr merge --admin`\."),
-        Input(command="gh pr merge 36050 --admin --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"`gh pr merge --admin`"),
-        Input(command="stack-enqueue 44811", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash"),
-        Input(command="gh pr merge 44811 --squash", agent_id=EVIDENCE_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-evidence", "incident")): Warn(pattern=r"lane `inc-fixruns-evidence` may not run `gh pr merge`"),
-        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "1.9")): Warn(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
-        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("other-fix", "incident")): Warn(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
-        Input(command=ENQUEUE, state=ACTIVE): Allow(),
-        Input(command=ENQUEUE, agent_id=LANE): Allow(),
-        Input(command="stack-enqueue 36023 --check --hold 30082", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="stack-enqueue --status 36023 36039", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh pr edit 36023 --add-label docs --remove-label merge", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh api -X DELETE repos/Forge-AI/monorepo/issues/36023/labels/merge", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="ledger.py label --dry-run --pr 36023", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="echo 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh pr view 36023 --json mergedAt", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command=ENQUEUE, agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `lane-a` may not run `stack-enqueue`\."),
+        landing(command="stack-enqueue 36039 --fast", agent_id="aL23-dashboard-wasm-follower-14fd0a86e696c1e3", state=ACTIVE): Warn(pattern=r"`L23-dashboard-wasm-follower`"),
+        landing(command="tools/ci trunk submit 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`ci trunk submit`"),
+        landing(command="tools/ci trunk status 36023", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh stack merge 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh stack merge`"),
+        landing(command="cd ~/wt && gt merge", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gt merge`"),
+        landing(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
+        landing(command="ccx vcs merge 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `ccx vcs merge`"),
+        landing(command="gh -R Forge-AI/monorepo pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
+        landing(command="python3 .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="bash .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="python3 -W ignore .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="uv run --with requests .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command=".agents/skills/submit-pr/scripts/stack-enqueue --fast 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="git fetch -q && stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="true; stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="true | .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="echo $(stack-enqueue 36023)", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="sudo stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="env GH_TOKEN=x stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="cc-sudo run -- .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="bash -c 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        landing(command="python3 -m py_compile .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="bash -n .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="python3 -c 'print(\"stack-enqueue 36023\")'", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="cci post --drive release-v3 --lane x --kind report --to root 'stack-enqueue --fast 36023 now costs one query'", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="git diff -- .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="cat .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="echo ok # stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="cc-sudo run -- stack-enqueue --check 36023", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh api repos/Forge-AI/monorepo/issues/36023/labels '--raw-field=labels[]=merge'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh api labels`"),
+        landing(command="gh api repos/Forge-AI/monorepo/issues/36023/labels -flabels[]=merge-fast", agent_id=LANE, state=ACTIVE): Warn(),
+        landing(command="gh api -X PUT repos/Forge-AI/monorepo/pulls/36023/merge -f merge_method=squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh api merge`"),
+        landing(command="gh api repos/Forge-AI/monorepo/pulls/36023/merge", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh pr edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr edit --add-label`"),
+        landing(command="gh pr edit 36023 --add-label=docs,MERGE-FAST", agent_id=LANE, state=ACTIVE): Warn(),
+        landing(command="gh issue edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Warn(),
+        landing(command="gh api -X POST repos/Forge-AI/monorepo/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh api labels`"),
+        landing(command="ledger.py label --ledger 1a2b --pr 36023 --expect-head abc", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`ledger.py label`"),
+        landing(command=ENQUEUE, env=LANDING_ENV | {"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Warn(pattern=r"`lane-b`"),
+        landing(command=ENQUEUE, agent_id=DESK, state=ACTIVE): Allow(),
+        landing(command=ENQUEUE, agent_id="alanding-desk-2-0123456789abcdef", state=ACTIVE): Allow(),
+        landing(command=ENQUEUE, agent_id="adesk-runner-0123456789abcdef", state=ACTIVE): Allow(),
+        landing(command=ENQUEUE, env=LANDING_ENV | {"CLAUDE_LONG_RUNNING_LANE": "landing-desk"}): Allow(),
+        landing(command=ENQUEUE, agent_id="asandsql-replica-desk-0123456789abcdef", state=ACTIVE): Allow(),
+        landing(command="ledger.py label --pr 36023 --expect-head abc", agent_id="amerge-train-release-0123456789abcdef", state=ACTIVE): Allow(),
+        landing(command=ENQUEUE, agent_id="adesk-cleanup-lane-0123456789abcdef", state=ACTIVE): Warn(),
+        landing(command="stack-enqueue 36050 --fast", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"plain squash"),
+        landing(command="stack-enqueue 36050", agent_id="aoutage-sand-0123456789abcdef", state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash .* lane `outage-sand` may not run `stack-enqueue`\."),
+        landing(command="stack-enqueue 36050 --check", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        landing(command="stack-enqueue 36050 --fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Warn(pattern=r"lane `sand-5a-fix` may not run `stack-enqueue`"),
+        landing(command="gh pr edit 36050 --add-label merge-fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Warn(pattern=r"lane `sand-5a-fix` may not run `gh pr edit --add-label`"),
+        landing(command="gh pr merge 36050 --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        landing(command="ccx vcs merge 36050", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        landing(command="ccx vcs merge 36050 --admin", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"may not run `ccx vcs merge --admin`"),
+        landing(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Allow(),
+        landing(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=NON_INCIDENT_BRIEF): Warn(pattern=r"lane `lane-a` may not run `gh pr merge`"),
+        landing(command="stack-enqueue 44717", agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash"),
+        landing(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Allow(),
+        landing(command="gh pr merge 44811 --squash --admin", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes merge by plain squash .* lane `inc-fixruns-fix` may not run `gh pr merge --admin`\."),
+        landing(command="gh pr merge 36050 --admin --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"`gh pr merge --admin`"),
+        landing(command="stack-enqueue 44811", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash"),
+        landing(command="gh pr merge 44811 --squash", agent_id=EVIDENCE_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-evidence", "incident")): Warn(pattern=r"lane `inc-fixruns-evidence` may not run `gh pr merge`"),
+        landing(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "1.9")): Warn(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
+        landing(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("other-fix", "incident")): Warn(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
+        landing(command=ENQUEUE, state=ACTIVE): Allow(),
+        landing(command=ENQUEUE, agent_id=LANE): Allow(),
+        landing(command="stack-enqueue 36023 --check --hold 30082", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="stack-enqueue --status 36023 36039", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh pr edit 36023 --add-label docs --remove-label merge", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh api -X DELETE repos/Forge-AI/monorepo/issues/36023/labels/merge", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="ledger.py label --dry-run --pr 36023", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="echo 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh pr view 36023 --json mergedAt", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="gh pr merge 36023 -R o/r --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
         Input(command="gh api repos/O/R/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Warn(),
         Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
         Input(command="ccx vcs merge 81 -R yasyf/cc-inbox", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
         Input(command="gh pr merge https://github.com/yasyf/cc-skills/pull/403 --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
         Input(command="gh api repos/yasyf/cc-skills/issues/403/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
+        landing(command="gh pr merge 111 -R yasyf/cc-slack --squash --admin", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh pr merge https://github.com/yasyf/cc-slack/pull/111 --squash --admin", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh stack merge 111 --yes --squash", agent_id=LANE, state=ACTIVE, cwd=SLACK_CHECKOUT): Allow(),
+        landing(command="ccx vcs merge 111", agent_id=LANE, state=ACTIVE, cwd=SLACK_CHECKOUT): Allow(),
+        landing(command="stack-enqueue 111", agent_id=LANE, state=ACTIVE, cwd=SLACK_CHECKOUT): Allow(),
+        landing(command="tools/ci trunk submit 111", agent_id=LANE, state=ACTIVE, cwd=SLACK_CHECKOUT): Allow(),
+        landing(command="gh api -X PUT repos/yasyf/cc-slack/pulls/111/merge -f merge_method=squash", agent_id=LANE, state=ACTIVE): Allow(),
+        landing(command="gh pr merge 111 -R yasyf/cc-slack --squash --admin", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        landing(command="gh pr merge 36023 --squash --admin", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `gh pr merge`"),
+        landing(command="gh stack merge 36023 --yes --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `gh stack merge`"),
+        landing(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE, cwd=SLACK_CHECKOUT): Allow(),
+        Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
     },
 )
 def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
@@ -350,7 +384,7 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     entry = drive_entry(evt)
-    landings = [(call, verb) for call in evt.cmd.calls() if (verb := landing_verb(call)) and not outside_drive_repo(evt, call, entry)]
+    landings = [(call, verb) for call in evt.cmd.calls() if (verb := landing_verb(call)) and not outside_landing_repo(evt, call, entry)]
     if not landings:
         return None
     verbs = [verb for _, verb in landings]

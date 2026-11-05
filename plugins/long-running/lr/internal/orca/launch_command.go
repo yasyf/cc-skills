@@ -230,6 +230,7 @@ func workerCommand(a *app.App) *cobra.Command {
   WORKER_SERVICE_TIER   a codex service tier; fast needs WORKER_INCIDENT=1
   WORKER_MCP_CONFIG     the agent's MCP config
   WORKER_RELAY_SPONSOR  the Sprite whose service key joins this one to the cci relay, required on a Sprite route
+  WORKER_LANDING_REPO   the repo the drive's landing desk queues, set on the Sprite's agent as CLAUDE_LONG_RUNNING_LANDING_REPO
   WORKER_LOCAL          1 starts a local worktree and claude instead
   WORKER_REPO           the Orca repository of a local worktree, required with WORKER_LOCAL=1
   WORKER_BASE_BRANCH    the base of a local worktree, default origin/dev`,

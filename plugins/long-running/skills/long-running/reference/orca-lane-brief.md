@@ -374,7 +374,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   repository.
 - Never enqueue, merge, or add a `merge` or `merge-fast` label: the landing desk is the
   only enqueuer, and the pack's `lane_landing` hook warns on `stack-enqueue`, `gt merge`,
-  `gh pr merge`, and `ledger.py label` from a lane. Report READY the moment a PR is green;
+  `gh pr merge`, and `ledger.py label` from a lane on the landing repo, `landing.repo` in
+  `runner.json`, and on no other repo. Report READY the moment a PR is green;
   the landing pass enqueues the largest green, approved, unheld bottom prefix against the
   open cci `hold` records. On a held PR, report `held` on your tip with the held
   PR named and leave release to the coordinator. After the prefix lands, inspect whether GitHub already rebased the remaining stack onto the base branch before restacking with
