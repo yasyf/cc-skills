@@ -609,9 +609,12 @@ def tap_claims(reply: str) -> tuple[list[str], bool]:
     return prs, bare
 
 
-def unready(drive: str, prs: list[str]) -> list[str]:
+def board_rows(drive: str) -> dict[str, dict]:
     done = subprocess.run([str(LR), "board", "rows", "--drive", drive, "--json"], capture_output=True, text=True, timeout=OWNER_WAITS_SECONDS, env=dict(reqenv.env_map()), check=True)
-    rows = {str(row["number"]): row for row in json.loads(done.stdout)}
+    return {str(row["number"]): row for row in json.loads(done.stdout)}
+
+
+def unready(rows: dict[str, dict], prs: list[str]) -> list[str]:
     return [UNREADY.format(pr=pr, waits=rows[pr]["waits_on"] if pr in rows else NO_ROW) for pr in prs if pr not in rows or not rows[pr]["ready_for_tap"]]
 
 
@@ -651,7 +654,7 @@ def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
         return None
     drive = bus_name(entry)
     try:
-        lines = unready(drive, prs) if prs else []
+        lines = unready(board_rows(drive), prs) if prs else []
         if bare and not owner_waits(drive):
             lines.append(NOTHING_WAITS)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError):

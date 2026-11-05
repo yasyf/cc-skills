@@ -12,7 +12,7 @@ from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import LR, Bound, bus_name, drive_entry
 from .meta_records import posts
 from .owner_facing import CCI_POST, Reads
-from .root_replies import tap_claims, unready
+from .root_replies import board_rows, tap_claims, unready
 
 PR_NUMBER = re.compile(r"(\d+)$")
 ROWS = f"{LR} board rows"
@@ -32,12 +32,13 @@ def flagged(evt: BaseHookEvent) -> list[str]:
     return [found[1] for value in values for part in str(value).split(",") if (found := PR_NUMBER.search(part))]
 
 
-def record_claims(evt: BaseHookEvent) -> list[str]:
-    claimed = []
+def record_claims(evt: BaseHookEvent) -> tuple[list[str], list[str]]:
+    named, carried = [], []
     for _, _, _, text, _, _ in posts(evt):
-        named, bare = tap_claims(text)
-        claimed += named + (flagged(evt) if bare else [])
-    return claimed
+        prs, bare = tap_claims(text)
+        named += prs
+        carried += flagged(evt) if bare else []
+    return named, carried
 
 
 def card_claims(evt: BaseHookEvent) -> list[str]:
@@ -55,6 +56,8 @@ def card_claims(evt: BaseHookEvent) -> list[str]:
         Input(command="cci post --lane a --kind blocked --pr 49730 --text 'this waits on his tap'", env=ENV, commands=HELD): Block(pattern=r"#49730 is not ready"),
         Input(command="cci post --lane a --kind blocked --text '#49731 waits on his tap'", env=ENV, commands=READY): Block(pattern=r"#49731 is not ready for his tap: it has no row"),
         Input(command="cc-present reply --block b --body '#49730 waits on your tap'", env=ENV, commands=HELD): Block(pattern=r"#49730 is not ready"),
+        Input(command="cci post --lane a --kind report --pr 49731 --text '#49731 waits on his tap'", env=ENV, commands=READY): Block(pattern=r"#49731 is not ready for his tap: it has no row"),
+        Input(command="cci post --lane a --kind report --pr yasyf/cc-skills#3120 --text 'A base waiting only on his tap, itself or through what it carries, raises nothing.'", env=ENV, commands=READY): Allow(),
         Input(command="cci post --lane a --kind blocked --text '#49730 waits on his tap'", env=ENV, commands=READY): Allow(),
         Input(command="cc-present reply --block b --body '#49730 waits on your tap'", env=ENV, commands=READY): Allow(),
         Input(command="cci post --lane a --kind report --text '#49730 does not wait on his tap'", env=ENV, commands=HELD): Allow(),
@@ -65,11 +68,14 @@ def card_claims(evt: BaseHookEvent) -> list[str]:
     },
 )
 def waits_on_him_is_ready(evt: BaseHookEvent) -> HookResult | None:
-    if not (prs := list(dict.fromkeys(record_claims(evt) + card_claims(evt)))):
+    named, carried = record_claims(evt)
+    named += card_claims(evt)
+    if not named and not carried:
         return None
     drive = bus_name(entry) if (entry := drive_entry(evt)) else reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")
     try:
-        lines = unready(drive, prs)
+        rows = board_rows(drive)
+        lines = unready(rows, list(dict.fromkeys(named + [pr for pr in carried if pr in rows])))
     except (OSError, subprocess.SubprocessError, ValueError, KeyError):
         return evt.context(UNREAD)
     return evt.block(REFUSED.format(lines="\n".join(lines))) if lines else None
