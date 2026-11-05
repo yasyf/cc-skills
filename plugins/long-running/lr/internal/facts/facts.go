@@ -833,6 +833,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		enqueued[key.Number] = true
 	}
 	out := make([]machine.Facts, 0, len(rows))
+	var diffUnread []machine.Facts
 	for _, row := range rows {
 		if row.State == "" {
 			s.Log.Warn("pull request unread this pass", "pr", row.Number, "verdict", row.Verdict)
@@ -857,9 +858,13 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 				return nil, fmt.Errorf("#%d carry: %w", row.Number, err)
 			}
 			s.Log.Warn("pull request unread this pass", "pr", row.Number, "err", err)
+			diffUnread = append(diffUnread, f)
 			continue
 		}
 		out = append(out, f)
+	}
+	if err := s.Rows().PostReads(ctx, diffUnread); err != nil {
+		s.Log.Warn("a pull request whose diff went unread had its read unposted", "error", err)
 	}
 	queuedByTheDrive(out, enqueued)
 	readRows(out, known)
