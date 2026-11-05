@@ -312,6 +312,23 @@ func TestACarriedBriefBringsItsDirectoryAndWhatItNamesAndWhatItCannotCarryStaysB
 	}
 }
 
+func TestHisIrisSignInNeverTravelsWhetherABriefOrABriefItCarriesNamesIt(t *testing.T) {
+	c, _ := carrier(t)
+	signIn := c.Home + "/.iris/credentials.json"
+	put(t, signIn, "secret\n")
+	desk := c.Home + "/drive/fidelity-shard-6"
+	put(t, desk+"/brief.md", "- His session cookie and ~/.iris/credentials.json are the same grant as his signed-in browser.\n")
+
+	carried(t, c, "Read "+desk+"/brief.md in full.\n")
+
+	if _, err := os.Stat(c.Into + signIn); err == nil {
+		t.Error("his Iris sign-in travelled with a brief the launch carried")
+	}
+	if fault := refused(t, c, "Never use ~/.iris/credentials.json.\n"); !strings.Contains(fault, signIn+" is a credential path") {
+		t.Fatalf("refusal %q does not name his Iris sign-in", fault)
+	}
+}
+
 func TestBriefsNamingEachOtherCarryOnceAndEnd(t *testing.T) {
 	c, _ := carrier(t)
 	one, two := c.Home+"/a/one.brief.md", c.Home+"/b/two.brief.md"
