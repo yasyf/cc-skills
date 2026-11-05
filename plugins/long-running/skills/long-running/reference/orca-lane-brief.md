@@ -229,7 +229,8 @@ records goes as `--card FILE|-`, a whole cc-present card,
 and `--withdraw ID` takes yours down when its question goes away. A card another lane owns,
 such as one board-refresher drew for you or one root or owner-relay handed you, you redraw
 in place with `--take-over SEQ`, where SEQ is the record another lane addressed to you naming
-the card's id; you own it from then on and his answer wakes you.
+the card's id; you own it from then on and his answer wakes you. A card your lane owns under
+another of its names, its alias or a lane it succeeded, needs no `--take-over`.
 
 The command prints the card's link, or exits 1 with what to change. It refuses a card with
 no background, one whose question a card on his board already asks or he already answered,

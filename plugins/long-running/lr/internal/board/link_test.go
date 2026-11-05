@@ -34,6 +34,7 @@ const (
 type linkShell struct {
 	mu       sync.Mutex
 	drawn    map[string]string
+	owners   map[string]string
 	answered map[string]bool
 	calls    []string
 	refuse   string
@@ -74,6 +75,15 @@ func (f *linkShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 			return shell.Result{}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: fmt.Sprintf("cc-present: block %q was never on this board", id)}
 		}
 		return shell.Result{Stdout: fmt.Sprintf(`{"answers":[],"onBoard":true,"doc":{"blocks":[%s]}}`, block)}, nil
+	case strings.Contains(argv, "block show"):
+		id := c.Argv[3]
+		if _, onBoard := f.drawn[id]; !onBoard {
+			return shell.Result{}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: fmt.Sprintf("cc-present: block %q was never on this board", id)}
+		}
+		if owner := f.owners[id]; owner != "" {
+			return shell.Result{Stdout: "rev: 7\n  last written at rev 7 by lane " + owner + "\n  owned by lane " + owner + ", taken over from lane " + asker + "\n"}, nil
+		}
+		return shell.Result{Stdout: "rev: 7\n"}, nil
 	}
 	f.calls = append(f.calls, argv+" <"+c.Stdin)
 	if f.refuse != "" {
@@ -93,6 +103,13 @@ func (f *linkShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 	}
 	if err := json.Unmarshal([]byte(c.Stdin), &top); err != nil {
 		return shell.Result{}, err
+	}
+	if f.owners != nil {
+		lane := c.Argv[slices.Index(c.Argv, "--lane")+1]
+		if owner := f.owners[top.ID]; owner != "" && owner != lane && !slices.Contains(c.Argv, "--take-over") {
+			return shell.Result{}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: fmt.Sprintf("cc-present: refusing to write card %q: lane %s owns it", top.ID, owner)}
+		}
+		f.owners[top.ID] = lane
 	}
 	if f.drawn == nil {
 		f.drawn = map[string]string{}
@@ -888,5 +905,55 @@ func TestALaneHandedACardTakesItOverAndOneNotHandedItIsRefused(t *testing.T) {
 	}
 	if _, err := awaitLink(ctx, linkDrive, successor, "elsewhere", busStart); err == nil || !strings.Contains(err.Error(), "no record another lane addressed to "+successor) {
 		t.Fatalf("a record addressed to another lane: err = %v, want the take-over refused", err)
+	}
+}
+
+func TestALaneRedrawsUnderItsAliasACardAnyOfItsBindingsOwns(t *testing.T) {
+	const card = "card-tp-desc-namespace"
+	block := json.RawMessage(`{"id":"` + card + `","type":"card","title":"Code descriptions: their own table, or one shape with memories?","summary":"The rerun measured both shapes on the same 2,000 real code lookups.","children":[{"id":"tp-desc-namespace-choice","type":"choice","options":[{"id":"tp-desc-namespace-1","label":"Split them into their own table"}]}]}`)
+	for name, tc := range map[string]struct{ owner, forAsk, wrote, said, owns string }{
+		"its numbered lane took the card over and it draws for another lane's ask": {"board-refresher-12", "tp-desc-vector-b", "--lane tp-desc-vector-b-1 --take-over <", "tp-desc-vector-b-1 owns it now, taken over from board-refresher-12", "tp-desc-vector-b-1"},
+		"its numbered lane owns the card":                                          {"board-refresher-12", "", "--lane board-refresher-12 <", "his answer wakes board-refresher-12", "board-refresher-12"},
+		"the binding it succeeded owns the card":                                   {"board-refresher-11", "", "--lane board-refresher-12 --take-over <", "board-refresher-12 owns it now, taken over from board-refresher-11", "board-refresher-12"},
+		"another lane owns the card":                                               {"owner-relay", "", "--lane board-refresher-12 <", "lane owner-relay owns it", "owner-relay"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			liveDrive(t)
+			f := newLink(t)
+			ctx := context.Background()
+			for _, lane := range []string{"board-refresher-11", "board-refresher-12", "tp-desc-vector-b-1"} {
+				if _, err := f.Cards.Store.WantLane(store.Lane{Name: lane, State: store.LaneDesired}, cardsNow); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := f.Cards.Store.SetLaneState("board-refresher-11", store.LaneRetired, cardsNow, "board-refresher-12", ""); err != nil {
+				t.Fatal(err)
+			}
+			f.shell.drawn = map[string]string{card: string(block)}
+			f.shell.owners = map[string]string{card: tc.owner}
+			change := cardBody{Block: block, Until: "at:30d"}
+			if tc.forAsk != "" {
+				ask, err := client.Post(ctx, client.Draft{Drive: linkDrive, Lane: tc.forAsk, Kind: "ask", To: []string{"board-refresher"}, Text: "Replace the options on " + card + "; do not draw a second card."})
+				if err != nil {
+					t.Fatal(err)
+				}
+				change.Ask = ask.Seq
+			}
+			if _, err := DrawCard(ctx, linkDrive, "board-refresher", "redraw", change); err != nil {
+				t.Fatal(err)
+			}
+			f.run(t)
+
+			if calls := f.shell.seen(); len(calls) != 1 || !strings.Contains(calls[0], tc.wrote) {
+				t.Fatalf("calls %q, want one write with %q", calls, tc.wrote)
+			}
+			said, err := awaitLink(ctx, linkDrive, "board-refresher", "redraw", busStart)
+			if err != nil {
+				said = err.Error()
+			}
+			if !strings.Contains(said, tc.said) || f.shell.owners[card] != tc.owns {
+				t.Fatalf("said %q, owner %q; want %q and %s owning the card", said, f.shell.owners[card], tc.said, tc.owns)
+			}
+		})
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -39,7 +40,10 @@ const (
 	promisedClockKind = "promised-clock"
 )
 
-var slackLine = regexp.MustCompile(`(?m)^slack: (\S+)`)
+var (
+	slackLine = regexp.MustCompile(`(?m)^slack: (\S+)`)
+	ownedBy   = regexp.MustCompile(`(?m)^\s+owned by lane ([^\s,]+)`)
+)
 
 type cardBody struct {
 	Session  string          `json:"session,omitempty"`
@@ -173,8 +177,11 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 			return "", linkRefusal{"refused: --until: " + why}
 		}
 	}
-	lane, err := askingLane(ctx, cards, lane, card.Ask, top.ID)
+	drawer, err := lanes.Holder(cards.Store, "", lane)
 	if err != nil {
+		return "", err
+	}
+	if lane, err = askingLane(ctx, cards, drawer, card.Ask, top.ID); err != nil {
 		return "", err
 	}
 	if card.Handed != 0 {
@@ -199,8 +206,14 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 			return "", linkRefusal{refused.Error()}
 		}
 	}
+	from := ""
+	if card.Handed == 0 {
+		if from, err = sameLaneOwner(ctx, cards, top.ID, lane, drawer); err != nil {
+			return "", err
+		}
+	}
 	_, _, asks := asksTitle(card.Block)
-	drawn, err := cards.Runner.Run(ctx, presentCommand(card.Block, cards, lane, asks, card.Handed != 0))
+	drawn, err := cards.Runner.Run(ctx, presentCommand(card.Block, cards, lane, asks, card.Handed != 0 || from != ""))
 	if err != nil {
 		return "", err
 	}
@@ -220,6 +233,9 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	}
 	if card.Handed != 0 {
 		said += fmt.Sprintf("; %s owns it now, handed it by #%d", lane, card.Handed)
+	}
+	if from != "" {
+		said += fmt.Sprintf("; %s owns it now, taken over from %s", lane, from)
 	}
 	if card.Until != "" {
 		if _, err := cards.Until(ctx, top.ID, card.Until, lane); err != nil {
@@ -286,7 +302,26 @@ func askingLane(ctx context.Context, cards Cards, lane string, ask int64, card s
 			return "", linkRefusal{fmt.Sprintf("refused: ask %d already has %s on his board, and one ask gets one card; pass --id %s to change that card", ask, drawn, strings.TrimPrefix(drawn, "card-"))}
 		}
 	}
-	return asked[0].Lane, nil
+	return lanes.Holder(cards.Store, "", asked[0].Lane)
+}
+
+func sameLaneOwner(ctx context.Context, cards Cards, card, lane, drawer string) (string, error) {
+	shown, err := cards.present(ctx, "block", "show", card)
+	if err != nil && strings.Contains(err.Error(), neverOnBoard) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	owner := ownedBy.FindStringSubmatch(shown)
+	if owner == nil || owner[1] == lane {
+		return "", nil
+	}
+	holder, err := lanes.Holder(cards.Store, "", owner[1])
+	if err != nil || (holder != lane && holder != drawer) {
+		return "", err
+	}
+	return owner[1], nil
 }
 
 func handedTo(ctx context.Context, bus, lane, card string, seq int64) error {
