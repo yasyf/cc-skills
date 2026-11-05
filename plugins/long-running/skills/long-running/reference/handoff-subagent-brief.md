@@ -1,6 +1,6 @@
 # The handoff subagent
 
-Spawn `<lane>-handoff` as `long-running:lane` (model `sonnet`, effort `xhigh`) when a lane must be swapped: it never answered a `ROTATE` ask, outgrew its context line, or died. It writes the handoff doc in cc-notes and returns its id. Fill the angle brackets and paste the brief.
+Spawn `<lane>-handoff` as `long-running:lane` (model `sonnet`, effort `high`) when a lane must be swapped: it never answered a `ROTATE` ask, outgrew its context line, or died. It writes the handoff doc in cc-notes and returns its id. Fill the angle brackets and paste the brief.
 
 ## Contents
 

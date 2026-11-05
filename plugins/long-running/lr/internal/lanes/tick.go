@@ -578,7 +578,7 @@ func handoffStart(old store.Lane, d Deps, transcript string) string {
 	if old.Handoff != "" {
 		return fmt.Sprintf("Your handoff is `ccn -R %s doc show %s`; read it first.", d.Checkout, old.Handoff)
 	}
-	return fmt.Sprintf("%s left no handoff. Before anything else, spawn one `long-running:lane` subagent, model sonnet, effort xhigh, named `%s-handoff`, from the spawn brief in %s, with transcript %s, reference brief %s, cci drive %s, previous handoff none and drive checkout %s; read the doc it returns.", old.Name, old.Name, d.HandoffBrief, or(transcript, "unknown: find it with cc-transcript list"), old.Brief, d.Drive, d.Checkout)
+	return fmt.Sprintf("%s left no handoff. Before anything else, spawn one `long-running:lane` subagent, model sonnet, effort high, named `%s-handoff`, from the spawn brief in %s, with transcript %s, reference brief %s, cci drive %s, previous handoff none and drive checkout %s; read the doc it returns.", old.Name, old.Name, d.HandoffBrief, or(transcript, "unknown: find it with cc-transcript list"), old.Brief, d.Drive, d.Checkout)
 }
 
 func coordinatorBrief(old store.Lane, why string, d Deps, transcript string) (string, error) {

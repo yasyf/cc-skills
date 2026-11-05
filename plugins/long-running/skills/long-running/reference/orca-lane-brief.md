@@ -290,7 +290,7 @@ Read your whole brief, including its tail and any correction the coordinator app
 your first edit and again before you ship. Read your own lane's records, not a successor hook's
 view of the old lane, before a ruling-level edit, and read records whole before acting on them.
 Queued teammate mail can predate a bus decision: check cci for a newer `DECIDE` before building
-on mail that reverses it. A hook that blocks your work gets a fix lane you launch that turn,
+on mail that reverses it. A hook that misfires on your work gets a fix lane you launch that turn,
 `lr launch lane hook-fix-<hook> opus high <brief>`, and you keep working on what it does not
 block; while the refusal stands, never run the refused thing through a wrapper, `cc-sudo` or a
 script. A hook that blocks nothing and could be better is one `cci post --kind note --to meta-desk`.
