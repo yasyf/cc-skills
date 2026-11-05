@@ -2186,7 +2186,9 @@ func TestAStandingLaneWithNoSuccessorNamesASuccessorBriefThatLrLaunchAccepts(t *
 	f.feed = append(f.feed, rec(2, refresher, "stopped", t0, "retired"))
 	f.peers = nil
 
-	tick(t, s, f, t0.Add(mins(11)))
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(12)))
+	tick(t, s, f, t0.Add(mins(40)))
 
 	heir := filepath.Join(f.deps.Briefs, "board-refresher-7.brief.md")
 	blockers := f.ofKind("blocker")

@@ -792,8 +792,9 @@ func TestAStandingDeskOnASpriteRefusesBeforeAnythingIsPreparedWhenItsDrivesLrJSO
 func TestAStandingDeskCarriesItsDrivesLrJSONToWhereLrReadsTheDriveOnTheSprite(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.deskDrive(deskConfig)
-	f.write(f.brief, "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n", 0o600)
-	f.sprite()
+	desk := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
+	f.write(f.brief, desk, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(desk), "bytes": len(desk)}}))
 	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{})
 	f.launched()
 
@@ -840,8 +841,9 @@ func TestAStandingDeskCarriesItsDrivesLrJSONToWhereLrReadsTheDriveOnTheSprite(t 
 func TestAStandingDeskWhoseLrJSONFailsToLandOnItsSpriteRefusesToStartIt(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.deskDrive(deskConfig)
-	f.write(f.brief, "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n", 0o600)
-	f.sprite()
+	desk := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
+	f.write(f.brief, desk, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(desk), "bytes": len(desk)}}))
 	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{code: 1, err: "mv: read-only file system\n"})
 	line, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil || line != "" || failed != "Sprite "+workerWorkspace+" holds no lr.json for drive brook, which the desk's lr board, lr approved and lr lanes read; "+filepath.Join(f.attempt, configReceipt)+" keeps the output, "+idleWarning {
