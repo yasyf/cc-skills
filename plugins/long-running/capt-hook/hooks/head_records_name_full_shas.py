@@ -16,8 +16,8 @@ SHORT_HEAD = "Warning, nothing was blocked: a short sha leaves the PR's row at i
 
 
 def named_shas(post: Post) -> list[str]:
-    named = [head.rpartition("=")[2] for head in post.heads] + [value for key, value in post.attrs.items() if key == "head" or key.startswith("head:")]
-    if named or post.kind != "head":
+    named = [head.rpartition("=")[2] for head in post.heads if head is not None] + [value for key, value in post.attrs.items() if key == "head" or key.startswith("head:")]
+    if post.heads or named or post.kind != "head":
         return [head.split()[0].rpartition("..")[2] for head in named if head.strip()]
     return SHA.findall(post.text)[:1]
 
@@ -30,7 +30,12 @@ def named_shas(post: Post) -> list[str]:
         Input(command="cci post --lane x --kind opened --pr 12 --attr head=bbbbbbb", env=LANE_ENV): Warn(pattern=r"40-character"),
         Input(tool=POST_TOOL, tool_input={"lane": "x", "kind": "head", "text": "HEAD #12 bbbbbbb"}, env=LANE_ENV): Warn(pattern=r"40-character"),
         Input(command="cci post --lane x --kind head --head '12=aaaaaaa..bbbbbbb patch-identical and a long note after the sha' --attr delta=rebase", env=LANE_ENV): Warn(pattern=r"40-character"),
+        Input(command="cci post --lane x --kind head --head 12=bbbbbbb --text 'HEAD #12 bbbbbbb carried'", env=LANE_ENV): Warn(pattern=r"40-character"),
+        Input(tool=POST_TOOL, tool_input={"lane": "x", "kind": "head", "head": "12=aaaaaaa..bbbbbbb", "text": f"HEAD #12 {FULL}"}, env=LANE_ENV): Warn(pattern=r"40-character"),
         Input(command=f"cci post --lane x --kind head --head 12=aaaaaaa..{FULL} --attr delta=rebase", env=LANE_ENV): Allow(),
+        Input(command="cci post --lane x --kind head --pr 12 --head \"12=$(git rev-parse aaaaaaa)..$(git rev-parse HEAD) review fix\" --text 'HEAD #12 bbbbbbb'", env=LANE_ENV): Allow(),
+        Input(command="head=$(git rev-parse HEAD); cci post --lane x --kind head --pr 12 --head \"12=$head\" --text 'HEAD #12 bbbbbbb'", env=LANE_ENV): Allow(),
+        Input(tool=POST_TOOL, tool_input={"lane": "x", "kind": "head", "head": f"12=aaaaaaa..{FULL}", "text": "HEAD #12 bbbbbbb"}, env=LANE_ENV): Allow(),
         Input(tool=POST_TOOL, tool_input={"lane": "x", "kind": "head", "text": f"HEAD #12 {FULL}"}, env=LANE_ENV): Allow(),
         Input(command="cci post --lane x --kind note --text 'bbbbbbb moved'", env=LANE_ENV): Allow(),
         Input(command="cci post --lane x --kind head --head 12=bbbbbbb"): Allow(),
