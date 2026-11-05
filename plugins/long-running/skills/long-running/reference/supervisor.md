@@ -141,10 +141,10 @@ A teammate the roster lists whose turn has ended reads idle.
 - A lane parked on a recorded wait is left alone, and a retired lane, such as one whose Sprite the autostop stopped, never reaches the decision.
 
 **Proof for a lane on a Sprite.**
-1. The tick reads the Sprites list once, `sprite api /sprites` with its pages, which carries each Sprite's `status` and `last_running_at`. The read stays one call whether the drive runs 1 lane or 1,000. A warm Sprite no lane runs on is never read, a settled lane takes the path below, and a failed list read logs a warning and decides nothing for a lane placed on a Sprite.
-2. A Sprite that is running gets one `sprite exec`, which looks for a `claude` or `codex` process, and all of a tick's probes run concurrently in one call.
+1. The tick reads the Sprites list once, `sprite api /sprites` with its pages, which carries each Sprite's `status`; the API blanks `last_running_at` on every cold Sprite, so no decision reads it. The read stays one call whether the drive runs 1 lane or 1,000. A warm Sprite no lane runs on is never read, a settled lane takes the path below, and a failed list read logs a warning and decides nothing for a lane placed on a Sprite.
+2. A Sprite lane that has not settled gets one `sprite exec`, which looks for a `claude` or `codex` process, and all of a tick's probes run concurrently in one call. On a cold or frozen Sprite the exec wakes it, which takes about 2 seconds and keeps its processes.
    - A running worker leaves the lane alone, and the box is not probed again for 15 minutes, so a sleeping Sprite gets to sleep.
-   - A box that answers with no worker reads dead and takes the dead path above.
+   - A box that answers with no worker, or answers `Storage not ready`, reads dead and takes the dead path above.
    - A box that does not answer waits 30 minutes and then takes the same path, which relaunches a lane holding a PR and retires only a lane holding nothing.
 3. An unverifiable lane the Sprites list names gets this proof whatever its recorded placement, so a Sprite lane launched with no placement is still read.
 
@@ -156,8 +156,8 @@ A teammate the roster lists whose turn has ended reads idle.
 
 A coordinator reading unverifiable, and a lane with no process row, are held with that one blocker and get no relay.
 
-**A lost Sprite lane.** An unproven Sprite lane that has not settled, whose Sprite has not run for 5 minutes, is lost, whatever it holds and however long it has been quiet.
-- The supervisor posts one `LANE-LOST` report, naming the Sprite and when it last ran, to the lane that launched it and to the meta desk. It relaunches the lane from its brief as the next `<stem>-N`, whose brief opens with a `Partial work:` line naming what the lost lane left.
+**A lost Sprite lane.** A cold Sprite is not a lost lane. An unproven Sprite lane that has not settled, whose cold Sprite, woken by the probe, runs no `claude` or `codex`, answers `Storage not ready`, or does not answer for 30 minutes, is lost, whatever it holds and however long it has been quiet. A woken Sprite whose worker runs leaves the lane alone and is not woken again for 15 minutes.
+- The supervisor posts one `LANE-LOST` report, naming the Sprite, what the woken probe read and the box's last sample, to the lane that launched it and to the meta desk. It relaunches the lane from its brief as the next `<stem>-N`, whose brief opens with a `Partial work:` line naming what the lost lane left.
 - A lost lane the supervisor already relaunched once is held, and its report says so.
 - The same loss covers a Sprite lane whose host Orca has reported `host_unavailable` for 10 minutes, and one with no record 15 minutes after its launch that Orca does not report live. A quiet lane Orca reports live is left alone, unless it is a standing desk with an order unread for 30 minutes.
 - A lane that recovers before the relaunch is never relaunched. One that recovers after is stood down for its successor, so the stem's newest lane wins.
