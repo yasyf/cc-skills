@@ -50,6 +50,42 @@ func TestAnOrderNamingNoPROfItsOwnWakesAnIdleStandingLaneOnceWithinATick(t *test
 	contains(t, pageText(f.pages[0], "why"), "root's ask #2, relay-join-1's decide #3")
 }
 
+func TestASpriteLaneHoldingAnyMailIsWokenOnTheFirstTickPastThirtySecondsAndOnlyOnce(t *testing.T) {
+	s := memory(t)
+	f := onSprite(t, s)
+	f.feed = append(f.feed, rec(2, orderAuthor, "report", t0, "your PR merged", lane2))
+	at := func(after time.Duration) Outcome {
+		f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0.Add(after), Dispatch: "ctx_1", Terminal: "term_1", Environment: "env_1"}}
+		return tick(t, s, f, t0.Add(after))
+	}
+
+	before := at(10 * time.Second)
+	woken := at(40 * time.Second)
+	after := at(70 * time.Second)
+
+	equal(t, len(before.Woken)+len(after.Woken), 0)
+	equal(t, woken.Woken, []string{lane2})
+}
+
+func TestOneTickWakesOnlyTheSpriteLaneHoldingMailAtOneLaneAndAtAThousand(t *testing.T) {
+	wakes := func(n int) int {
+		s := memory(t)
+		f := onSprite(t, s)
+		now := t0.Add(time.Minute)
+		f.feed = append(f.feed, rec(2, Root, "ask", t0, "first", lane2))
+		f.peers = []Row{{Lane: lane2, Live: true, SeenAt: now, Dispatch: "ctx_1", Terminal: "term_1", Environment: "env_1"}}
+		for i := range n {
+			name := fmt.Sprintf("resting-%d", i)
+			registered(t, s, store.Lane{Name: name, Role: "lane", Placement: placedOnSprite})
+			f.peers = append(f.peers, Row{Lane: name, Live: true, SeenAt: now, Dispatch: fmt.Sprintf("ctx_r%d", i), Terminal: fmt.Sprintf("term_r%d", i), Environment: fmt.Sprintf("env_r%d", i)})
+		}
+		tick(t, s, f, now)
+		return len(f.wakes)
+	}
+	equal(t, wakes(1000), wakes(1))
+	equal(t, wakes(1), 1)
+}
+
 func TestAnIdleWorkerLaneIsWokenAtFiveMinutesAndNobodyIsAskedToRelay(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	f := adopted(t, s, brief, "")

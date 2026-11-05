@@ -57,6 +57,7 @@ const (
 	agentExited       = "exited"
 	agentUnverifiable = "unverifiable"
 	hostUnavailable   = "host_unavailable"
+	remoteHost        = "remote"
 )
 
 var sessionIdentity = []string{"CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"}
@@ -518,18 +519,20 @@ func unseen(s *store.Store, name, cited string) (read string, newest int64) {
 }
 
 type Row struct {
-	Lane       string    `json:"lane"`
-	Session    string    `json:"session,omitempty"`
-	Agent      string    `json:"agent,omitempty"`
-	Live       bool      `json:"live"`
-	SeenAt     time.Time `json:"seen_at"`
-	StoodDown  bool      `json:"stood_down,omitempty"`
-	Roster     string    `json:"roster,omitempty"`
-	Idle       bool      `json:"idle,omitempty"`
-	Dispatch   string    `json:"dispatch,omitempty"`
-	Succeeded  bool      `json:"succeeded,omitempty"`
-	Unverified string    `json:"unverified,omitempty"`
-	HostGone   bool      `json:"host_gone,omitempty"`
+	Lane        string    `json:"lane"`
+	Session     string    `json:"session,omitempty"`
+	Agent       string    `json:"agent,omitempty"`
+	Live        bool      `json:"live"`
+	SeenAt      time.Time `json:"seen_at"`
+	StoodDown   bool      `json:"stood_down,omitempty"`
+	Roster      string    `json:"roster,omitempty"`
+	Idle        bool      `json:"idle,omitempty"`
+	Dispatch    string    `json:"dispatch,omitempty"`
+	Succeeded   bool      `json:"succeeded,omitempty"`
+	Unverified  string    `json:"unverified,omitempty"`
+	HostGone    bool      `json:"host_gone,omitempty"`
+	Terminal    string    `json:"terminal,omitempty"`
+	Environment string    `json:"environment,omitempty"`
 }
 
 type Peer struct {
@@ -556,7 +559,7 @@ func Peers(rows []Row) map[string]Peer {
 		}
 		have.LastCall = lastCall
 		if row.Unverified != "" && !row.HostGone {
-			have.Row.Dispatch = row.Dispatch
+			have.Row.Dispatch, have.Row.Terminal, have.Row.Environment = row.Dispatch, row.Terminal, row.Environment
 		}
 		found[row.Lane] = have
 	}

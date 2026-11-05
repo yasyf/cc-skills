@@ -799,11 +799,7 @@ func chaseUnread(s *store.Store, d Deps, found map[string]Peer, already []string
 			continue
 		}
 		oldest := int(now.Sub(pastDue[0].At).Minutes())
-		if lane.Placement == placedOnSprite {
-			do(d.Post(Post{Kind: "report", To: []string{noticeTo(s, lane.Name)}, LaneRef: lane.Name, Text: fmt.Sprintf("%s on a Sprite has not read %s, the oldest for %d min, and no relay reaches a Sprite: read its Sprite or relaunch it.", lane.Name, orderWords(pastDue), oldest)}))
-		} else {
-			do(d.Post(Post{Kind: "go", To: []string{orcaDesk}, Text: fmt.Sprintf("%s: relay to %s: Orders addressed to you are unread: %s, the oldest for %d min. Read them with `cci tail --mail` and act on them.", orcaDesk, lane.Name, orderWords(pastDue), oldest)}))
-		}
+		do(d.Post(Post{Kind: "go", To: []string{orcaDesk}, Text: fmt.Sprintf("%s: relay to %s: Orders addressed to you are unread: %s, the oldest for %d min. Read them with `cci tail --mail` and act on them.", orcaDesk, lane.Name, orderWords(pastDue), oldest)}))
 		do(s.MarkUnreadRaised(lane.Name))
 	}
 	return woken, nil
@@ -813,7 +809,7 @@ func wakeOnUnread(s *store.Store, d Deps, lane store.Lane, peer Peer, records []
 	standing := isStanding(lane)
 	due := slices.DeleteFunc(slices.Clone(records), func(record store.Unread) bool {
 		patience := mailAfter
-		if standing && unreadOrder(record) {
+		if (standing && unreadOrder(record)) || lane.Placement == placedOnSprite {
 			patience = wakeAfter
 		}
 		return record.Woke || now.Sub(record.At) < patience

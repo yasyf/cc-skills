@@ -157,6 +157,103 @@ func TestAnOrcaWakeFromLaunchdSendsAsTheRunsCoordinator(t *testing.T) {
 	contains(t, sent, "--from term_coordinator --to dispatch:ctx_1 --run run_1 --type dispatch")
 }
 
+func spriteWaker(screenRead func() (shell.Result, error), calls *[]string) *Waker {
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Now: func() time.Time { return t0 }, Runner: scripted(func(argv []string) (shell.Result, error) {
+		line := strings.Join(argv, " ")
+		*calls = append(*calls, line)
+		if strings.Contains(line, "terminal read") {
+			return screenRead()
+		}
+		return shell.Result{Stdout: `{"ok":true}`}, nil
+	})}
+	return &Waker{Drive: testDrive, Clock: env.Now, Type: func(terminal, environment, text string) (bool, error) {
+		return env.typeWake(context.Background(), terminal, environment, text)
+	}}
+}
+
+func screenOf(rows ...string) func() (shell.Result, error) {
+	return func() (shell.Result, error) {
+		raw, err := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"terminal": map[string]any{"source": "screen", "tail": rows}}})
+		return shell.Result{Stdout: string(raw)}, err
+	}
+}
+
+var spriteRow = Row{Dispatch: "ctx_1", Terminal: "term_1", Environment: "env_1"}
+
+func TestARestingSpriteLaneIsTypedItsWakeOnOneLineThroughItsEnvironmentAndMailedNothing(t *testing.T) {
+	rule := strings.Repeat("─", 60)
+	for name, composer := range map[string]string{
+		"an empty prompt":          "❯",
+		"Claude's grey suggestion": "❯\u00a0Keep watching #48951 until it merges",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls []string
+			waker := spriteWaker(screenOf("✻ Baked for 2m 54s · done 3:54 AM", rule, composer, rule, "  ⏵⏵ bypass permissions on · ← for agents"), &calls)
+
+			woken, err := waker.Wake("go-desk-8", spriteRow, map[string]any{"why": "root's decide #4:\nrun it"})
+			if err != nil || !woken {
+				t.Fatal(woken, err)
+			}
+
+			equal(t, len(calls), 2)
+			contains(t, calls[0], "orca terminal read --terminal term_1 --environment env_1 --screen --json")
+			contains(t, calls[1], "orca terminal send --terminal term_1 --environment env_1 --text WAKE go-desk-8: root's decide #4: run it Read your mail with")
+			contains(t, calls[1], "--enter --json")
+		})
+	}
+}
+
+func TestASpriteWakeThatCannotBeTypedIsLeftUnwokenForTheNextTick(t *testing.T) {
+	for name, read := range map[string]func() (shell.Result, error){
+		"a question is open": screenOf(strings.Repeat("─", 60), " ☐ Test page", "❯ 1. Kick it off now", "  2. Later", "Enter to select · ↑/↓ to navigate · Esc to cancel"),
+		"the screen is gone": func() (shell.Result, error) { return shell.Result{}, errors.New("host unreachable") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls []string
+			waker := spriteWaker(read, &calls)
+
+			woken, err := waker.Wake("go-desk-8", spriteRow, nil)
+
+			if err != nil || woken {
+				t.Fatalf("woken %v, err %v; want unwoken with the tick unharmed", woken, err)
+			}
+			equal(t, len(calls), 1)
+		})
+	}
+}
+
+func TestOneWorkerListNamesARemoteLanesTerminalAndEnvironmentAndNoEnvironmentForALocalOne(t *testing.T) {
+	local := t.TempDir()
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: local, Now: func() time.Time { return t0 }}
+	if err := os.MkdirAll(env.receipts(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for lane, dispatch := range map[string]string{"on-sprite": "ctx_s", "on-mac": "ctx_m"} {
+		if err := os.WriteFile(filepath.Join(env.receipts(), lane+".json"), []byte(`{"result":{"dispatchId":"`+dispatch+`"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lists := 0
+	env.Runner = scripted(func([]string) (shell.Result, error) {
+		lists++
+		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[
+			{"dispatchId":"ctx_s","dispatchStatus":"dispatched","agentTerminalHandle":"term_s","projection":{"host":{"kind":"remote","id":"env_s"},"liveness":{"verdict":"live"}}},
+			{"dispatchId":"ctx_m","dispatchStatus":"dispatched","agentTerminalHandle":"term_m","projection":{"host":{"kind":"local","id":"this-mac"},"liveness":{"verdict":"live"}}}
+		],"page":{}}}`}, nil
+	})
+
+	rows, err := env.orcaRows(context.Background(), []string{"on-sprite", "on-mac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, lists, 1)
+	found := Peers(rows)
+	equal(t, found["on-sprite"].Row.Terminal, "term_s")
+	equal(t, found["on-sprite"].Row.Environment, "env_s")
+	equal(t, found["on-mac"].Row.Environment, "")
+}
+
 func TestAnOrcaLaneHoldingAnUnreadWakeGetsNoSecondOneUntilItReadsIt(t *testing.T) {
 	local := t.TempDir()
 	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: local, Now: func() time.Time { return t0 }}

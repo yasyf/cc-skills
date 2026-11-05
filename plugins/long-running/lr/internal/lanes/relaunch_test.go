@@ -219,29 +219,22 @@ func TestAFailedGradeIsAnOrderToItsLaneAndAPassIsNot(t *testing.T) {
 	}
 }
 
-func TestUnreadOrdersAreRelayedThroughTheDeskExceptForASpriteLaneTheSupervisorSeesNoToolCallsFrom(t *testing.T) {
-	for name, c := range map[string]struct {
-		setup  func(*testing.T, *store.Store) *fake
-		relays int
-	}{
-		"a Sprite lane": {func(t *testing.T, s *store.Store) *fake { return onSprite(t, s) }, 0},
-		"a Mac lane":    {func(t *testing.T, s *store.Store) *fake { return adopted(t, s, writeBrief(t), "") }, 1},
+func TestUnreadOrdersAreRelayedThroughTheDeskFromAMacLaneAndASpriteLaneAlike(t *testing.T) {
+	for name, setup := range map[string]func(*testing.T, *store.Store) *fake{
+		"a Sprite lane": func(t *testing.T, s *store.Store) *fake { return onSprite(t, s) },
+		"a Mac lane":    func(t *testing.T, s *store.Store) *fake { return adopted(t, s, writeBrief(t), "") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
-			f := c.setup(t, s)
+			f := setup(t, s)
 			f.feed = append(f.feed, rec(2, Root, "ask", t0, "first", lane2))
 			f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0.Add(mins(11)), Dispatch: "ctx_1"}}
 
 			tick(t, s, f, t0.Add(mins(11)))
 
-			relays := 0
-			for _, p := range f.ofKind("go") {
-				if strings.HasPrefix(p.Text, "orca-desk: relay to "+lane2+": Orders addressed to you are unread: ") {
-					relays++
-				}
-			}
-			equal(t, relays, c.relays)
+			sent := relays(f)
+			equal(t, len(sent), 1)
+			contains(t, sent[0].Text, "orca-desk: relay to "+lane2+": Orders addressed to you are unread: root's ask #2, the oldest for 11 min")
 		})
 	}
 }
