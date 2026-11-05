@@ -42,7 +42,7 @@ func TestEnqueueRunsTheQueueScriptAtFreshTrunkWithTheKeyInItsEnvironmentOnly(t *
 	if len(calls) != 4 {
 		t.Fatalf("calls = %+v", calls)
 	}
-	wantFetch := []string{"git", "-C", checkout, "fetch", "-q", "origin", "dev"}
+	wantFetch := []string{"git", "-C", checkout, "fetch", "-q", "--no-tags", "--refmap=", "origin", "dev"}
 	wantDetach := []string{"git", "-C", checkout, "checkout", "-q", "--detach", "FETCH_HEAD"}
 	if !slices.Equal(calls[0].Argv, wantFetch) || !slices.Equal(calls[1].Argv, wantDetach) {
 		t.Fatalf("git calls = %+v", calls[:2])

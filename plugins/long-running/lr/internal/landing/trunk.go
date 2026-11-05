@@ -71,7 +71,7 @@ func (t Trunk) LastFailure(ctx context.Context, number int) string {
 
 func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
 	for _, argv := range [][]string{
-		{"git", "-C", t.Checkout, "fetch", "-q", "origin", t.Branch},
+		{"git", "-C", t.Checkout, "fetch", "-q", "--no-tags", "--refmap=", "origin", t.Branch},
 		{"git", "-C", t.Checkout, "checkout", "-q", "--detach", "FETCH_HEAD"},
 	} {
 		if _, err := t.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout}); err != nil {
