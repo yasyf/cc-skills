@@ -1372,17 +1372,29 @@ func TestAPickReplyInHisThreadPutsAWorkingCopyOfItsCardThere(t *testing.T) {
 	fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p3"}`, "cc-slack", "card-copy")
 	sent := fanout(t, fake).Send(context.Background(), Reply{ID: "r9", Title: "Land the relay fix?", MD: "Its checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: "1793684147.131059"})
 	posted := calls(fake, "cc-slack")
-	if len(posted) != 2 || flag(t, posted[0].Argv, "--thread") != "1793684147.131059" {
-		t.Fatalf("cc-slack calls = %+v, want a post and a copy in his thread", posted)
+	if len(posted) != 1 || !slices.Equal(posted[0].Argv, []string{"cc-slack", "card-copy", "--url", permalink, "--thread", "1793684147.131059"}) {
+		t.Fatalf("cc-slack calls = %+v, want only the card copied into his thread, never its text", posted)
 	}
-	if !slices.Equal(posted[1].Argv, []string{"cc-slack", "card-copy", "--url", permalink, "--thread", "1793684147.131059"}) {
-		t.Fatalf("copy = %q, want the card copied into his thread", posted[1].Argv)
+	if surface(sent, "slack").Ref != permalink || surface(sent, "card copy").Ref == "" || surface(sent, "slack thread").Surface != "" {
+		t.Fatalf("outcomes = %+v, want the card and its copy", sent)
 	}
-	if text := posted[0].Argv[len(posted[0].Argv)-1]; strings.Contains(text, permalink) {
-		t.Fatalf("thread text = %q, want the copy in place of a link to the card", text)
+}
+
+func TestACopyThatCannotPostLeavesALinkToTheCardAndReportsWhy(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Fail(1, "that card has no answer left to tap", "cc-slack", "card-copy")
+	sent := fanout(t, scriptedOver(fake)).Send(context.Background(), Reply{ID: "r9", Title: "Land the relay fix?", MD: "**Its** checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: "1793684147.131059"})
+
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 || posted[0].Argv[1] != "card-copy" || flag(t, posted[1].Argv, "--thread") != "1793684147.131059" {
+		t.Fatalf("cc-slack calls = %+v, want the copy then one line in his thread", posted)
 	}
-	if surface(sent, "slack").Ref != permalink || surface(sent, "slack thread").Ref != permalink {
-		t.Fatalf("outcomes = %+v, want the card and the thread reply apart", sent)
+	if text := posted[1].Argv[len(posted[1].Argv)-1]; text != "<"+permalink+"|"+pickLink+">" {
+		t.Fatalf("thread text = %q, want the link to the card and none of its text", text)
+	}
+	copied := surface(sent, "card copy")
+	if !strings.Contains(copied.Error, "no answer left") || copied.Ref != permalink {
+		t.Fatalf("card copy = %+v, want the failure and the posted link", copied)
 	}
 }
 
@@ -1542,7 +1554,7 @@ func TestAProgressReplyWithNoMessageAndNoThreadStaysOffSlack(t *testing.T) {
 	}
 }
 
-func TestAPickReplyInHisThreadEditsItsThreadCopyAcrossEdits(t *testing.T) {
+func TestAPickReplyInHisThreadEditsOnlyItsCardAcrossEdits(t *testing.T) {
 	fake := threadedFake()
 	f := fanout(t, fake)
 	ask := Reply{ID: "r6", Title: "Land?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: hisThread}
@@ -1551,27 +1563,17 @@ func TestAPickReplyInHisThreadEditsItsThreadCopyAcrossEdits(t *testing.T) {
 	sent := f.Send(context.Background(), ask)
 
 	posted := calls(fake, "cc-slack")
-	if len(posted) != 3 || posted[1].Argv[1] != "card-copy" || slices.Contains(posted[2].Argv, "--thread") {
-		t.Fatalf("cc-slack calls = %+v, want one thread post, one copy of the card and one edit", posted)
+	if len(posted) != 1 || posted[0].Argv[1] != "card-copy" {
+		t.Fatalf("cc-slack calls = %+v, want one copy of the card and no thread post", posted)
 	}
-	edit := slack(t, posted[2])
-	if edit.Replaces != threadCopy || !strings.Contains(edit.Body, cardCopy) || !strings.HasPrefix(edit.Body, "Checks passed again.") {
-		t.Fatalf("edit = %+v, want the thread copy with the new words and the card's link", edit)
-	}
-	if surface(sent, "slack").Ref != cardCopy || surface(sent, "slack thread").Ref != threadCopy {
-		t.Fatalf("outcomes = %+v, want the card and the thread copy apart", sent)
+	if surface(sent, "slack").Ref != cardCopy || surface(sent, "slack thread").Surface != "" {
+		t.Fatalf("outcomes = %+v, want the card alone", sent)
 	}
 
-	sent = f.Send(context.Background(), Reply{ID: "r6", Title: "Landed", MD: "It merged.", Thread: hisThread})
-	posted = calls(fake, "cc-slack")[3:]
-	if len(posted) != 2 || slack(t, posted[0]).Replaces != cardCopy || slack(t, posted[1]).Replaces != threadCopy {
-		t.Fatalf("cc-slack calls = %+v, want the card then the thread copy edited and nothing posted", posted)
-	}
-	if body := slack(t, posted[1]).Body; strings.Contains(body, pickLink) {
-		t.Fatalf("thread copy = %q still tells him to tap a withdrawn card", body)
-	}
-	if surface(sent, "slack thread").Ref != threadCopy {
-		t.Fatalf("outcomes = %+v, want the thread copy kept for the next edit", sent)
+	f.Send(context.Background(), Reply{ID: "r6", Title: "Landed", MD: "It merged.", Thread: hisThread})
+	posted = calls(fake, "cc-slack")[1:]
+	if len(posted) != 1 || slack(t, posted[0]).Replaces != cardCopy {
+		t.Fatalf("cc-slack calls = %+v, want the card edited and nothing posted", posted)
 	}
 }
 
