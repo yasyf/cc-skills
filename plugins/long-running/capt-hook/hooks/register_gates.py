@@ -33,7 +33,7 @@ from .nudges import once_per_hour
 from .owner_facing import post_values, INCIDENT_DIGEST, INCIDENT_STORE, inbox_text, incident_spawn, open_incidents, posted_text, prose, read_incident_source
 from .pr_ledger import OPENERS
 from .register_injection import drive_args, helper
-from .root_context import FILE_WRITES
+from .root_context import bash_writes
 from .session_tree import drive_lane
 from .vet_before_push import branch_diff
 from .tests.register_fixtures import (
@@ -123,9 +123,6 @@ SEAT_NAMES = {
     "status": "the grader lanes: fidelity desks, finder, walker, end-state and incident-closeout",
     "anchor": "the anchor and register-seed lanes",
 }
-DESTINATION_WRITERS = frozenset({"cp", "rsync", "install", "ln"})
-TARGET_WRITERS = frozenset({"mv", "rm", "rmdir", "touch", "chmod", "chown", "truncate", "unlink", "mkdir", "tee", "patch"})
-IN_PLACE_EDITORS = frozenset({"sed", "gsed", "perl"})
 LEDGER_WRITE = (
     "Warning, nothing was blocked: Only `rulings.py` writes the register ledger of `{program}`, so this call that edits it by hand is refused."
     " Make the change with the `rulings.py` verb that owns it, from the lane that owns that verb."
@@ -669,26 +666,6 @@ def plugin_cache() -> Path:
 
 def absolute(raw: str, cwd: Path) -> Path:
     return Path(os.path.abspath(cwd / Path(raw).expanduser()))
-
-
-def call_writes(evt: BaseHookEvent, call: Call, raws: list[str]) -> list[Path]:
-    return [Path(os.path.abspath(path)) for raw in raws if (path := known_path(evt, call, raw))]
-
-
-def bash_writes(evt: BaseHookEvent) -> list[Path]:
-    found: list[Path] = []
-    for call in evt.command.calls():
-        found += call_writes(evt, call, [redirect.target.strip("'\"") for redirect in call.redirects if redirect.op in FILE_WRITES])
-        operands = call_writes(evt, call, [target.value for target in call.targets if target.value is not None])
-        if call.name in DESTINATION_WRITERS:
-            found += operands[-1:]
-        elif call.name in TARGET_WRITERS or (call.name in IN_PLACE_EDITORS and any(in_place(arg) for arg in call.args)):
-            found += operands
-    return found
-
-
-def in_place(arg: str) -> bool:
-    return arg.startswith("--in-place") or (arg.startswith("-") and not arg.startswith("--") and "i" in arg[1:])
 
 
 def written_paths(evt: BaseHookEvent) -> list[Path]:

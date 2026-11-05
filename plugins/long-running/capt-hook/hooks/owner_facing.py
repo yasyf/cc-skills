@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -35,12 +36,12 @@ from captain_hook.annotations import dispatch_pairs
 from captain_hook.cmd import Call, Cmd
 from captain_hook.util import reqenv
 
-from .call_dir import UnknownDirectory, located
+from .call_dir import UnknownDirectory, known_path, located
 from .compaction_handoff import Bound, ccn, Communicator, communicator_tests, CompactionState, Coordinator, coordinator_tests, drive_entry, rulings, script, script_module
 from .judge_metrics import judge_call
 from .nudges import once_per_hour
 from .register_injection import drive_args, incident_spawn, prose
-from .root_context import HARNESS_PREFIXES, operand_targets, reads_stdin
+from .root_context import HARNESS_PREFIXES, bash_writes, operand_targets, reads_stdin
 from .tests.board_fixtures import ANSWERS, GLOSSARY, JUDGE, REPO, ROWS, board, judged
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
@@ -678,7 +679,7 @@ def slack_card(evt: BaseHookEvent) -> dict | None:
         return evt._tool_input.get("card")
     for call in evt.command.calls("cc-slack"):
         values = CC_SLACK.bind(call).values
-        if values.get("words", ())[:1] == ("dm-status",) and (card := next(iter(values.get("card", ())), None)):
+        if values.get("words", ())[:1] == ("dm-status",) and (card := next(iter(values.get("card", ())), None)) and not (card.startswith("@") and written_here(evt, call, card[1:])):
             found = located(evt, call, card[1:]).read_text() if card.startswith("@") else card
             return json.loads(found)
     return None
@@ -697,9 +698,13 @@ def started_boards(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
     docs = [
         reads.read(f"the started board {source} {piped}", lambda call=call, source=source, piped=piped: json.loads(board_bytes(evt, call, source, piped)))
         for call, values, source, piped in board_sources(evt)
-        if values.get("verb", ())[:1] == ("start",) and not values.get("dry-run") and source
+        if values.get("verb", ())[:1] == ("start",) and not values.get("dry-run") and source and not written_here(evt, call, source)
     ]
     return [pair for doc in docs if doc for pair in shown(doc)]
+
+
+def written_here(evt: BaseHookEvent, call: Call, raw: str) -> bool:
+    return (path := known_path(evt, call, raw)) is not None and Path(os.path.abspath(path)) in bash_writes(evt)
 
 
 def owner_strings(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:

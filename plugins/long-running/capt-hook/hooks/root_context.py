@@ -41,6 +41,7 @@ from captain_hook.command_schema import Scalar
 from captain_hook.util import reqenv
 from pydantic import BaseModel
 
+from .call_dir import known_path
 from .compaction_handoff import Bound, Communicator, CompactionState, ccn, communicator_tests, progress_folder, script_module, shared_tests
 from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
@@ -54,6 +55,9 @@ READ_DEFAULT_LIMIT = 2000
 VISUAL_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "pdf"})
 SOURCE = Path(__file__)
 FILE_WRITES = frozenset({">", ">>", ">|"})
+DESTINATION_WRITERS = frozenset({"cp", "rsync", "install", "ln"})
+TARGET_WRITERS = frozenset({"mv", "rm", "rmdir", "touch", "chmod", "chown", "truncate", "unlink", "mkdir", "tee", "patch"})
+IN_PLACE_EDITORS = frozenset({"sed", "gsed", "perl"})
 NOTE_CLIS = frozenset({"ccn", "cc-notes"})
 NOTE_WRITES = frozenset({"add", "edit", "append", "supersede"})
 FILE_READERS = frozenset({"cat", "head", "tail", "sed", "awk", "grep", "egrep", "fgrep", "less", "more", "bat", "jq", "yq"})
@@ -291,6 +295,26 @@ def in_repository(path: Path) -> bool:
 
 def source_file(path: Path, plan: Path | None) -> bool:
     return in_repository(path) and not exempt(path, plan)
+
+
+def call_writes(evt: BaseHookEvent, call: Call, raws: list[str]) -> list[Path]:
+    return [Path(os.path.abspath(path)) for raw in raws if (path := known_path(evt, call, raw))]
+
+
+def bash_writes(evt: BaseHookEvent) -> list[Path]:
+    found: list[Path] = []
+    for call in evt.command.calls():
+        found += call_writes(evt, call, [redirect.target.strip("'\"") for redirect in call.redirects if redirect.op in FILE_WRITES])
+        operands = call_writes(evt, call, [target.value for target in call.targets if target.value is not None])
+        if call.name in DESTINATION_WRITERS:
+            found += operands[-1:]
+        elif call.name in TARGET_WRITERS or (call.name in IN_PLACE_EDITORS and any(in_place(arg) for arg in call.args)):
+            found += operands
+    return found
+
+
+def in_place(arg: str) -> bool:
+    return arg.startswith("--in-place") or (arg.startswith("-") and not arg.startswith("--") and "i" in arg[1:])
 
 
 def writes(call: Call) -> bool:
