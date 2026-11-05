@@ -165,6 +165,7 @@ type Facts struct {
 	Uncomputed       bool
 	Queue            Queue
 	QueuedHead       string
+	PersonQueued     bool
 	Resubmitted      int
 	Eviction         string
 	EvictionOwn      bool
@@ -287,7 +288,7 @@ func classify(f Facts) Verdict {
 		if f.Undriven() {
 			return Verdict{StatePushed, MoverNobody, ActionNone, 0}
 		}
-		if f.QueuedHead != f.Head || f.Hold != "" || !f.Tapped() {
+		if f.QueuedHead != f.Head || f.Hold != "" || !f.Tapped() && !f.PersonQueued {
 			return Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, SupervisorClock}
 		}
 		return Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, QueueClock}

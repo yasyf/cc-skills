@@ -372,7 +372,8 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 
 ### Untapped queue entries
 
-- A queued PR with no tap and no exempt class at its head is dequeued the pass it is read, whatever path entered it (a withdrawn go, a hand enqueue). The dequeue is an `UNTAPPED-DEQUEUED` blocker to its lane and the meta desk. A queued untapped PR no longer clears the PRs above it.
+- A queued PR with no tap and no exempt class at its head is dequeued the pass it is read when the drive queued it: lr recorded an enqueue of it, at any of its heads, or of an open PR below it in the stack. The dequeue is an `UNTAPPED-DEQUEUED` blocker to its lane and the meta desk. A queued untapped PR no longer clears the PRs above it.
+- An untapped queue entry the drive did not enqueue is a person's. It stays queued, and owner-relay gets one `PERSON-QUEUED` report per head so it can record the owner's landing. An older head or an open hold still dequeues it.
 - An exempt PR stays queued. An incident fix the squash would merge is left to the squash: untapped and squashable it is squashed, not dequeued; untapped and not squashable it is dequeued.
 - A queued PR with a withdrawn tap or a conditional tap counts as untapped.
 - A person who finds an untapped queue entry takes it straight to the coordinator, the only one who may dequeue; asking a desk first costs the minutes Trunk needs to land it.

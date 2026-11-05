@@ -565,6 +565,27 @@ func TestEachLandingsMergerRidesThePageThePassAlreadyReads(t *testing.T) {
 	}
 }
 
+func TestAQueueEntryTheDriveDidNotEnqueueAtOrBelowItReadsAsAPersons(t *testing.T) {
+	h := newHarness(t, []recordedPR{
+		{number: 1, head: head, login: "drive-bot", branch: "bottom"},
+		{number: 2, head: head2, login: "drive-bot", branch: "above"},
+		{number: 3, head: head3, login: "drive-bot", branch: "alone"},
+	},
+		status(1, func(r *statusRow) { r.Queue = "queued" }),
+		status(2, func(r *statusRow) { r.Head, r.Base, r.Queue = head2, "bottom", "queued" }),
+		status(3, func(r *statusRow) { r.Head, r.Queue = head3, "queued" }),
+	)
+	if _, err := h.store.PutFact(repo, 1, head, "enqueued", "exit 0: #1 QUEUED", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	by := h.snapshot(t)
+
+	if by[1].PersonQueued || by[2].PersonQueued || !by[3].PersonQueued {
+		t.Fatalf("person queued = %v, %v, %v; want only #3, since the drive enqueued #1 and its stack carried #2", by[1].PersonQueued, by[2].PersonQueued, by[3].PersonQueued)
+	}
+}
+
 func TestTheMemberReadAsksByNumberInBatchesGitHubAnswers(t *testing.T) {
 	const members = 60
 	prs := make([]recordedPR, 0, members)
@@ -1154,6 +1175,7 @@ func TestAStackReplayBelowItCarriesHisTapAndAGoOnlyWhenItsOwnPatchIsTheSame(t *t
 			s := memory(t)
 			value := map[string]string{"tap": "tapped", "exempt": "regression"}[tc.given]
 			putFact(t, s, 2, head2, tc.given, value, tappedAt)
+			putFact(t, s, 2, head2, "enqueued", "exit 0: #2 QUEUED", tappedAt)
 			on(t, s, recordedPR{number: 2, head: head2, login: "drive-bot", base: "lower", queued: true, diff: ownDiff}).snapshot(t)
 			putFact(t, s, 2, head, "lane", "go-lane", tappedAt.Add(time.Hour))
 			h := on(t, s, recordedPR{number: 2, head: head, login: "drive-bot", base: "lower", queued: true})
