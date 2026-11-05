@@ -12,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -475,8 +476,8 @@ func TestARedNewHeadTakesTheOldHeadsCardDownAndDrawsNone(t *testing.T) {
 	}
 }
 
-func TestOneRedRowAmongReadyRowsReadsTheBoardOnceAtOneRowOrAThousand(t *testing.T) {
-	for _, n := range []int{1, 1000} {
+func TestOneRedRowAmongReadyRowsReadsTheBoardOnceAtOneRowOrMany(t *testing.T) {
+	for _, n := range []int{1, scaletest.N()} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
 			liveDrive(t)
 			f := newLink(t)

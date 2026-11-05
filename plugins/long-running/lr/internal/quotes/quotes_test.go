@@ -9,6 +9,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
 
@@ -158,7 +159,7 @@ func TestWholeCarriesEveryRepeatAndImplication(t *testing.T) {
 func TestReadingTheRegisterOnceServesEveryQuote(t *testing.T) {
 	r := reader(t)
 	text := `rule/784f1ab, "just fic the rmeaining wctuwl jssues" and prompt/1026-113025, "keep the patches of we need them for perf"`
-	for range 1000 {
+	for range scaletest.N() {
 		if got := r.Check(context.Background(), text); len(got) != 0 {
 			t.Fatalf("got %q", got)
 		}

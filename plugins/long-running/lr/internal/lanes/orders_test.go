@@ -11,6 +11,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -117,7 +118,7 @@ func TestARowALiveLaneOnlyQuotesStaysOpenWithNoLane(t *testing.T) {
 }
 
 func TestOpenOrdersReadsTheBusOnceWhateverTheLedgerHolds(t *testing.T) {
-	for _, rows := range []int{1, 1000} {
+	for _, rows := range []int{1, scaletest.N()} {
 		s := memory(t)
 		bus := &fakeBus{}
 

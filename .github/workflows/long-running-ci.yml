@@ -182,6 +182,8 @@ jobs:
 
   lr-go:
     runs-on: ubuntu-latest
+    env:
+      LR_TEST_SCALE: ${{ github.event_name == 'pull_request' && 'skip' || 'run' }}
     defaults:
       run:
         working-directory: plugins/long-running/lr

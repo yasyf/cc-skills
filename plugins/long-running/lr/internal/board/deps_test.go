@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -454,8 +455,8 @@ func TestAPickReadsTheBoardOnceHoweverManyCardsRestOnTheCard(t *testing.T) {
 		}
 		return outcomes
 	}
-	if none, one, many := reads(0), reads(1), reads(1000); none != 0 || one != 1 || many != 1 {
-		t.Fatalf("board reads: %d with no resting card, %d at 1, %d at 1,000", none, one, many)
+	if none, one, many := reads(0), reads(1), reads(scaletest.N()); none != 0 || one != 1 || many != 1 {
+		t.Fatalf("board reads: %d with no resting card, %d at 1, %d at %d", none, one, many, scaletest.N())
 	}
 }
 

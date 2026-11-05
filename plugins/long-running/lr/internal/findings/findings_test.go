@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -325,8 +326,8 @@ func TestAPassReadsAndWritesOnceHoweverManyRowsAreLive(t *testing.T) {
 		return got
 	}
 	want := counts{tails: 1, rowReads: 1, rowWrites: 1, answers: 1}
-	if one, many := pass(1), pass(1000); one != want || many != want {
-		t.Fatalf("n=1: %+v; n=1000: %+v; want %+v", one, many, want)
+	if one, many := pass(1), pass(scaletest.N()); one != want || many != want {
+		t.Fatalf("n=1: %+v; n=%d: %+v; want %+v", one, scaletest.N(), many, want)
 	}
 }
 
@@ -377,8 +378,8 @@ func TestCitedReadsRecordsOnceHoweverManyPicksItIsAskedAbout(t *testing.T) {
 		}
 		return len(w.bus.queries)
 	}
-	if one, many := reads(1), reads(1000); one != 1 || many != 1 {
-		t.Fatalf("reads: n=1 %d, n=1000 %d", one, many)
+	if one, many := reads(1), reads(scaletest.N()); one != 1 || many != 1 {
+		t.Fatalf("reads: n=1 %d, n=%d %d", one, scaletest.N(), many)
 	}
 }
 

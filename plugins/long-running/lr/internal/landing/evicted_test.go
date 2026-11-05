@@ -10,6 +10,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -210,10 +211,10 @@ func TestQueueReadsStayFlatWithTheRowCount(t *testing.T) {
 	}
 
 	oneStatus, oneFailure := reads(1)
-	manyStatus, manyFailure := reads(1000)
+	manyStatus, manyFailure := reads(scaletest.N())
 
 	if oneStatus != 1 || manyStatus != 1 || oneFailure != 0 || manyFailure != 0 {
-		t.Fatalf("N=1 read %d, %d; N=1000 read %d, %d; want one status call and no failure read at each", oneStatus, oneFailure, manyStatus, manyFailure)
+		t.Fatalf("N=1 read %d, %d; N=%d read %d, %d; want one status call and no failure read at each", oneStatus, oneFailure, scaletest.N(), manyStatus, manyFailure)
 	}
 }
 

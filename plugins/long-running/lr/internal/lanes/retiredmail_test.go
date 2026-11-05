@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -235,7 +236,7 @@ func TestAGoneLaneWhoseBriefIsGoneIsHeldWithHisAnswerInTheBlocker(t *testing.T) 
 }
 
 func TestNoMailToARetiredLaneCostsNoPeerRead(t *testing.T) {
-	for _, retired := range []int{1, 1000} {
+	for _, retired := range []int{1, scaletest.N()} {
 		s := memory(t)
 		f := stoppedOnACard(t, s)
 		for i := range retired {

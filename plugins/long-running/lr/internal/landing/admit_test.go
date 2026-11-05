@@ -17,6 +17,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -478,7 +479,7 @@ func TestAHandEnqueueAsksTheSweepOnlyAboutTheHeadsItTakesAtAnyDriveSize(t *testi
 		f.gates.HandEnqueueLines(context.Background(), snapshot, []string{"1"}, true, false)
 		return count
 	}
-	if one, many := asks(1), asks(1000); one != 1 || many != one {
-		t.Fatalf("asked the sweep %d times at N=1 and %d at N=1000, want 1 at both", one, many)
+	if one, many := asks(1), asks(scaletest.N()); one != 1 || many != one {
+		t.Fatalf("asked the sweep %d times at N=1 and %d at N=%d, want 1 at both", one, many, scaletest.N())
 	}
 }

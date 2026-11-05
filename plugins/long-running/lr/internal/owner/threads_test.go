@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -128,9 +129,9 @@ func TestReadingTheJoinStaysFlatAsRepliesGrow(t *testing.T) {
 		return len(runner.Calls()), reads
 	}
 	oneRuns, oneReads := calls(1)
-	manyRuns, manyReads := calls(1000)
+	manyRuns, manyReads := calls(scaletest.N())
 	if oneReads != 1 || manyReads != 1 || oneRuns != manyRuns {
-		t.Fatalf("reads %d at 1 and %d at 1,000; commands %d and %d", oneReads, manyReads, oneRuns, manyRuns)
+		t.Fatalf("reads %d at 1 and %d at %d; commands %d and %d", oneReads, manyReads, scaletest.N(), oneRuns, manyRuns)
 	}
 }
 

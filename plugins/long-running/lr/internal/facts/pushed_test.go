@@ -10,6 +10,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -106,7 +107,7 @@ func TestAPRThatEndedSinceItsRowLeavesThePushedHeads(t *testing.T) {
 }
 
 func TestPushedHeadsCostOneReadPerHundredRowsAndNoPerPRRead(t *testing.T) {
-	for _, c := range []struct{ rows, reads int }{{1, 1}, {1000, 10}} {
+	for _, c := range []struct{ rows, reads int }{{1, 1}, {scaletest.N(), scaletest.N() / 100}} {
 		h := newHarness(t, nil)
 		rows := make([]store.ReviewRow, 0, c.rows)
 		for number := 1; number <= c.rows; number++ {

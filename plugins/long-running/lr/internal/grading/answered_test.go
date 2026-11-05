@@ -11,6 +11,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 )
 
 func parkedOnACard(t *testing.T) (*poolFixture, map[int]machine.Facts) {
@@ -58,13 +59,13 @@ func TestHisAnswerToTheCardAnOwnerPickGradeWaitsOnRegradesItOnceAndWakesItsDesk(
 	}
 }
 
-func TestSuccessorLanesCostTheSameAtOneRecordAndAThousand(t *testing.T) {
+func TestSuccessorLanesCostTheSameAtOneRecordAndMany(t *testing.T) {
 	cost := func(records int) float64 {
 		found := slices.Repeat([]client.Record{{Lane: "owner-relay-3"}}, records)
 		return testing.AllocsPerRun(5, func() { withSuccessors([]string{grader.FidelityLane}, found) })
 	}
-	if one, thousand := cost(1), cost(1000); thousand > 3*one {
-		t.Fatalf("allocations at 1 record %v, at 1000 %v", one, thousand)
+	if one, many := cost(1), cost(scaletest.N()); many > 3*one {
+		t.Fatalf("allocations at 1 record %v, at %d %v", one, scaletest.N(), many)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -147,7 +148,7 @@ func TestWaitsPrintsALinePerReadyRowAndPickWithOneBoardReadAtAnyCount(t *testing
 		blocks[i] = fmt.Sprintf(`{"id":"card-%d","type":"card","title":"Which %d?","children":[{"id":"pick-%d","type":"choice"}]}`, i, i, i)
 	}
 	outcomes := `{"doc":{"blocks":[` + strings.Join(blocks, ",") + `]},"interactions":{}}`
-	for _, ready := range []int{47, 1000} {
+	for _, ready := range []int{47, scaletest.N()} {
 		t.Run(strconv.Itoa(ready), func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", home)

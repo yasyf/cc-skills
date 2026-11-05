@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -107,7 +108,7 @@ func TestAQuietLaneNoProbeSettlesIsAskedItsStateOnceThenRelaunchedWithNoBlocker(
 	}
 }
 
-func TestOneTickReadsTheSpritesListOnceAndProbesInOneCallAtOneLaneAndAtAThousand(t *testing.T) {
+func TestOneTickReadsTheSpritesListOnceAndProbesInOneCallAtOneLaneAndAtMany(t *testing.T) {
 	reads := func(n int) []int {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
@@ -125,7 +126,7 @@ func TestOneTickReadsTheSpritesListOnceAndProbesInOneCallAtOneLaneAndAtAThousand
 		equal(t, len(out.Held), 0)
 		return []int{f.spriteReads, f.hostReads}
 	}
-	equal(t, reads(1000), reads(1))
+	equal(t, reads(scaletest.N()), reads(1))
 	equal(t, reads(1), []int{1, 1})
 }
 

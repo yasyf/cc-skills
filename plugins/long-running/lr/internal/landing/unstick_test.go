@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -548,7 +549,7 @@ func TestGitHubCallsGrowOnlyWithStuckRowsAndTheReadIsBatched(t *testing.T) {
 		return len(r.patches()), len(r.reads)
 	}
 
-	for _, live := range []int{1, 1000} {
+	for _, live := range []int{1, scaletest.N()} {
 		if patches, reads := calls(t, live, 0); patches != 0 || reads != 0 {
 			t.Fatalf("N=%d with none stuck: %d PATCHes, %d reads, want none", live, patches, reads)
 		}
@@ -556,7 +557,7 @@ func TestGitHubCallsGrowOnlyWithStuckRowsAndTheReadIsBatched(t *testing.T) {
 			t.Fatalf("N=%d with one stuck: %d PATCHes, %d reads, want one of each", live, patches, reads)
 		}
 	}
-	if patches, reads := calls(t, 1000, 30); patches != 30 || reads != 1 {
-		t.Fatalf("N=1000 with 30 stuck: %d PATCHes, %d reads, want 30 and one batched read", patches, reads)
+	if patches, reads := calls(t, scaletest.N(), 30); patches != 30 || reads != 1 {
+		t.Fatalf("N=%d with 30 stuck: %d PATCHes, %d reads, want 30 and one batched read", scaletest.N(), patches, reads)
 	}
 }

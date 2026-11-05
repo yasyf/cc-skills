@@ -10,6 +10,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 )
 
 const (
@@ -140,7 +141,7 @@ func TestOnlyARecordStatingTheReleaseAndLiveTimeClearsAStatusThatLeads(t *testin
 }
 
 func TestCollectReadsTheReleaseOnceHoweverManyPRsTheRowsName(t *testing.T) {
-	for _, count := range []int{1, 1000} {
+	for _, count := range []int{1, scaletest.N()} {
 		rows := map[string]map[string]string{}
 		var numbers []int
 		for number := 1; number <= count; number++ {
