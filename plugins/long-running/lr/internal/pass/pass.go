@@ -172,10 +172,7 @@ func knownRows(s *store.Store, snapshot []machine.Facts) (map[int]store.PR, erro
 }
 
 func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Facts, now time.Time, post Post, live []machine.Mover, out *Outcome) error {
-	verdict := machine.Classify(f)
-	if verdict.Action == machine.ActionWatchQueue && heldBelow(f, byBranch) {
-		verdict = machine.Verdict{State: machine.StateAwaitingTap, Mover: machine.MoverSupervisor, Action: machine.ActionDequeue, Deadline: machine.SupervisorClock}
-	}
+	verdict := verdictOf(f, byBranch)
 	out.Verdicts[f.Number] = verdict
 	if err := s.PutPR(store.PR{Repo: f.Repo, Number: f.Number, Head: f.Head, Base: f.Base, Lane: f.Lane, State: verdict.State, ReadAt: now}); err != nil {
 		return err
@@ -216,6 +213,29 @@ func classifyOne(s *store.Store, f machine.Facts, byBranch map[string]machine.Fa
 		out.Acts = append(out.Acts, Act{f, verdict})
 	}
 	return nil
+}
+
+func verdictOf(f machine.Facts, byBranch map[string]machine.Facts) machine.Verdict {
+	verdict := machine.Classify(f)
+	if verdict.Action == machine.ActionWatchQueue && heldBelow(f, byBranch) {
+		return machine.Verdict{State: machine.StateAwaitingTap, Mover: machine.MoverSupervisor, Action: machine.ActionDequeue, Deadline: machine.SupervisorClock}
+	}
+	return verdict
+}
+
+func HeldInQueue(snapshot []machine.Facts) []Act {
+	byBranch := make(map[string]machine.Facts, len(snapshot))
+	for _, f := range snapshot {
+		byBranch[f.Branch] = f
+	}
+	var acts []Act
+	for _, f := range snapshot {
+		verdict := verdictOf(f, byBranch)
+		if verdict.Action == machine.ActionDequeue && (f.Hold != "" || heldBelow(f, byBranch)) {
+			acts = append(acts, Act{f, verdict})
+		}
+	}
+	return acts
 }
 
 func blockerBelow(f machine.Facts, byBranch map[string]machine.Facts) (machine.Facts, bool) {

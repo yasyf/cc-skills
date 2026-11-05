@@ -522,7 +522,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
   - His tap at the row's head ends the hold and writes the land order, with no second step: the landing host posts the `lr.tap` and a `note` resolving the hold to the lane that placed it. A tap at another head is refused and leaves the hold open.
   - Any other open hold on the PR still reads as held. A hold on several PRs is an ordinary hold, whatever its `until`.
 - Only a typed `--resolves` on a hold lifts it, and his tap on an `until=tap` hold is the one thing that writes that for you; a `go` never does.
-- Each pass reads open holds. A queued head under an open hold leaves the queue top first with every PR stacked on it and a `DEQUEUED` record per PR.
+- A new hold reaches the landing host's follower as the record arrives. The follower reads only the PRs the hold names and the rows it knows as queued, and a queued head under an open hold leaves the queue top first with every PR stacked on it and a `DEQUEUED` record per PR, without waiting for a pass. A hold on a head not in the queue does nothing there. Each pass still reads every open hold, so a hold the follower missed, or a PR stacked on the held one that its row did not yet read as queued, leaves on the next pass. A merge Trunk has already started can still win.
 - A head the owner tapped under an ordinary open hold, the owner's or the coordinator's, is `held` and the coordinator's to decide within the hour. The pass sends the coordinator one `DECIDE` per head and hold that names the hold's record and the tapped head and asks it to lift the hold or tell the owner why not. Nothing lifts the hold for it, and a root go never lifts the owner's hold.
 - An untapped head under an ordinary hold still waits on the owner's 12-hour clock and posts nothing.
 - A lane whose stack sits on a held PR reads why with `lr board waits --pr <n>` and leaves release to the coordinator.
@@ -536,7 +536,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 - Never relay an ETA for a green priority PR.
 
 **Dequeue and hand enqueue.**
-- To take a PR out of the queue, the coordinator posts a `hold` on it: the next pass pulls it and every PR above it and posts `DEQUEUED`, or `DEQUEUE-REFUSED` with what the queue said. Resolving the hold lets it enter again. A queue cancel after a pull reads as that pull, never as an eviction.
+- To take a PR out of the queue, the coordinator posts a `hold` on it: the landing host pulls it and every PR above it as the record arrives and posts `DEQUEUED`, or `DEQUEUE-REFUSED` with what the queue said. Resolving the hold lets it enter again. A queue cancel after a pull reads as that pull, never as an eviction.
 - A hand `stack-enqueue --dequeue` records nothing and draws a warning naming `cci post --kind hold`.
 - A hand `stack-enqueue` runs `lr landing gate <n>...` through the `lane_landing` hook and warns on failing checks, so never wrap `stack-enqueue` in a custom script.
 - In a Forge-AI/monorepo drive, every hand landing, whether `gh pr merge`, `ccx vcs merge`, `gh stack merge`, `stack-enqueue`, `ci trunk submit`, or a `merge` label, is blocked when that gate prints `TAP-REQUIRED`, the same tap read the runner makes, so a carried or standing tap counts. The refusal names the PR and head and points to a card asking the owner's tap, or to the runner.

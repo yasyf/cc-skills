@@ -141,6 +141,38 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	return s.assemble(ctx, statuses, members, required, held, rows)
 }
 
+func (s Source) HeldAndQueued(ctx context.Context, named []int) ([]machine.Facts, error) {
+	known, err := s.Store.ReviewRows(s.Repo)
+	if err != nil {
+		return nil, err
+	}
+	numbers := slices.Clone(named)
+	for _, row := range known {
+		if machine.Queue(row.Queue) == machine.QueueQueued && !prrow.Terminal(row.State) {
+			numbers = append(numbers, row.Number)
+		}
+	}
+	slices.Sort(numbers)
+	numbers = slices.Compact(numbers)
+	held, err := s.holds(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read holds: %w", err)
+	}
+	members, err := s.readMembers(ctx, numbers)
+	if err != nil {
+		return nil, fmt.Errorf("read the held pull requests: %w", err)
+	}
+	statuses, err := s.statuses(ctx, numbers)
+	if err != nil {
+		return nil, fmt.Errorf("read queue and CI: %w", err)
+	}
+	required, err := s.requiredChecks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read required checks: %w", err)
+	}
+	return s.assemble(ctx, statuses, members, required, held, known)
+}
+
 func (s Source) Rows() prrow.Fold {
 	return prrow.Fold{Drive: s.Drive, Repo: s.Repo, Trunk: s.Trunk, Store: s.Store, Now: s.Now}
 }
