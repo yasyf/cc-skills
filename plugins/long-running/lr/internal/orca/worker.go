@@ -36,7 +36,7 @@ const (
 	defaultLocalBase  = "origin/dev"
 	allocationWarm    = "warm"
 	allocationCreated = "created"
-	idleWarning       = "so the prepared worker stays idle and unattached"
+	idleWarning       = "so the prepared worker never got its task"
 	sponsorEnv        = "WORKER_RELAY_SPONSOR"
 	joinReceipt       = "relay-join.log"
 	workerDriveDir    = "WORKER_DRIVE_DIR"
@@ -93,6 +93,7 @@ type workerLaunch struct {
 	terminal, worktree                            string
 	bytes                                         int
 	stages                                        launchStages
+	unattached                                    bool
 }
 
 type workerRequest struct {
@@ -641,6 +642,7 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 	if err != nil {
 		code = max(result.Code, 1)
 	}
+	w.unattached = code == 0
 	for name, written := range map[string]string{"allocation.json": result.Stdout, "prepare.err": result.Stderr, "prepare.status": strconv.Itoa(code) + "\n"} {
 		if err := w.receipt(name, written); err != nil {
 			return nil, err
@@ -820,7 +822,12 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	}
 }
 
-func (w *workerLaunch) startSprite() (string, error) {
+func (w *workerLaunch) startSprite() (line string, err error) {
+	defer func() {
+		if err != nil && w.unattached {
+			err = w.stopUnattached(err)
+		}
+	}()
 	w.stages.say(w.ctx, "preparing a Sprite")
 	allocation, err := w.prepareSprite()
 	if err != nil {
@@ -854,7 +861,7 @@ func (w *workerLaunch) startSprite() (string, error) {
 		return "", err
 	}
 	if joinErr != nil {
-		return "", refuse("Sprite %s did not join the cci relay with %s's service key: %v; nothing started, because a worker with no relay posts nothing anyone reads; %s keeps the output, and the prepared worker stays idle and unattached", workspace, sponsor, joinErr, filepath.Join(w.attempt, joinReceipt))
+		return "", refuse("Sprite %s did not join the cci relay with %s's service key: %v; nothing started, because a worker with no relay posts nothing anyone reads; %s keeps the output, and the prepared worker never got its task", workspace, sponsor, joinErr, filepath.Join(w.attempt, joinReceipt))
 	}
 	w.terminal, _ = textOf(task["terminal"])
 	desk := ""
@@ -877,6 +884,7 @@ func (w *workerLaunch) startSprite() (string, error) {
 	worktreeID, _ := textOf(task["worktreeId"])
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s", w.lane, path, w.sha, w.bytes, spritePreamble, spriteBuildkite, desk, noPR, read)
 	w.stages.say(w.ctx, "starting the worker on "+workspace)
+	w.unattached = false
 	taskID, dispatch, err := w.startWorker(spec, "--on", environment, "--worktree", "id:"+worktreeID, "--terminal", w.terminal)
 	if err != nil {
 		return "", err
@@ -890,8 +898,31 @@ func (w *workerLaunch) startSprite() (string, error) {
 		}
 	}
 	made, _ := textOf(allocation["allocation"])
-	line, err := json.Marshal(spriteStarted{workerStarted{"ready", taskID, dispatch, w.terminal, w.worktree}, w.lane, workspace, made})
-	return string(line), err
+	started, err := json.Marshal(spriteStarted{workerStarted{"ready", taskID, dispatch, w.terminal, w.worktree}, w.lane, workspace, made})
+	return string(started), err
+}
+
+func (w *workerLaunch) stopUnattached(failed error) error {
+	result, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{w.ccRemote, "orca", "stop", w.lane, "--provider", "sprites", "--profile", "agents"}, Env: []string{"CC_REMOTE_CONFIG=" + w.config}})
+	code := 0
+	if err != nil {
+		code = max(result.Code, 1)
+	}
+	for name, written := range map[string]string{"stop.json": result.Stdout, "stop.err": result.Stderr, spriteStop: strconv.Itoa(code) + "\n"} {
+		if err := w.receipt(name, written); err != nil {
+			return errors.Join(failed, err)
+		}
+	}
+	said := fmt.Sprintf("cc-remote orca stop %s stopped that worker, so the lane can launch again", w.lane)
+	if code != 0 {
+		said = fmt.Sprintf("cc-remote orca stop %s exited %d, so that worker may still hold its Sprite; %s keeps its output", w.lane, code, filepath.Join(w.attempt, "stop.err"))
+	}
+	var refusal *Failed
+	if errors.As(failed, &refusal) {
+		refusal.Line += "; " + said
+		return failed
+	}
+	return refuse("%v; %s", failed, said)
 }
 
 func (w *workerLaunch) holdAwake(workspace string) error {

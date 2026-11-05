@@ -82,6 +82,7 @@ Each refusal names its cause, and nothing is prepared unless noted.
 | Any step of the tool install fails | Names the step, its exit and what it printed, for a launch, a roll and a grader; `prepare.err` keeps the rest |
 | No `WORKER_RELAY_SPONSOR` | Refuses before preparing anything |
 | A relay join that fails after its retries | Refuses, naming the relay's reason; no worker started |
+| Any failure after `prepare` and before `worker-start` | Runs `cc-remote orca stop <lane>`, so the prepared worker frees its Sprite and the lane can launch again; `stop.status` in the attempt directory records it, and the desk reads a launch whose stop exited 0 as one that never started a worker |
 | mise cannot run the pinned `cc-remote` | Refuses before allocation, printing mise's own message |
 | Selected CLI's `version` differs from `bootstrapHelper.version` | Refuses before allocation, naming both |
 | `WORKER_REPO` set on the Sprite route | Refuses before an attempt or allocation |
@@ -145,7 +146,7 @@ codesign --verify --strict --check-notarization --verbose=2 \
 
 - `WORKER_REF` names a remote branch or tag and passes through unchanged. When omitted, the native config supplies its ref.
 - `WORKER_BASE_BRANCH=origin/dev` belongs to the explicit local worktree route. Do not pass it as the remote branch, strip arbitrary prefixes, or replace the requested ref with a commit ID from a Mac prelookup. The prepared record's `baseCommit` is the actual VM base.
-- Ordinary branch movement is valid. Set `WORKER_EXPECT_BASE` only when the task requires an exact base: a full 40- or 64-character lowercase commit ID. The launcher compares it after prepare; a mismatch retains the idle prepared worker and stops before `worker-start`. It does not select the checkout. Prepare has no exact-commit checkout option, and a branch or tag name is still a ref when its spelling looks hexadecimal.
+- Ordinary branch movement is valid. Set `WORKER_EXPECT_BASE` only when the task requires an exact base: a full 40- or 64-character lowercase commit ID. The launcher compares it after prepare; a mismatch stops the lane's prepared worker with `cc-remote orca stop` before `worker-start`. It does not select the checkout. Prepare has no exact-commit checkout option, and a branch or tag name is still a ref when its spelling looks hexadecimal.
 - `WORKER_REPO` selects a local Orca repository, and the local route requires it. The launcher does not map a local repo ID to a remote repository.
 
 ### Model, effort and tier

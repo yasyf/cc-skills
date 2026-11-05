@@ -230,7 +230,7 @@ func workerCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "worker LANE MODEL EFFORT BRIEF",
 		Short: "Prepare one Sprite and start a worker on it, or a local worktree with WORKER_LOCAL=1, and print one JSON line",
-		Long: `Prepare one Sprite through cc-remote, copy what the brief names to it, install cci, the lr this pack pins for linux-x86_64 in bin/lr.binrun, and each WORKER_TOOLS pin on the Sprite, and start a worker. Print one JSON line naming the task, dispatch, terminal and worktree. A failure prints one line on stderr, exit 1, and keeps what it made in BRIEF's .worker directory. A brief gets one attempt at worker-start. MODEL incident runs gpt-6.1-sol on the fast tier and incident-opus runs claude-opus-5-5 in fast mode, each as an incident lane.
+		Long: `Prepare one Sprite through cc-remote, copy what the brief names to it, install cci, the lr this pack pins for linux-x86_64 in bin/lr.binrun, and each WORKER_TOOLS pin on the Sprite, and start a worker. Print one JSON line naming the task, dispatch, terminal and worktree. A failure prints one line on stderr, exit 1, and keeps what it made in BRIEF's .worker directory. A failure after prepare and before worker-start also runs cc-remote orca stop LANE, so the worker that never got its task frees its Sprite and the lane can launch again. A brief gets one attempt at worker-start. MODEL incident runs gpt-6.1-sol on the fast tier and incident-opus runs claude-opus-5-5 in fast mode, each as an incident lane.
 
   WORKER_RUN            the Orca Run id, required
   WORKER_CHECKOUT       the checkout whose tools/cc-remote starts Sprites, required
