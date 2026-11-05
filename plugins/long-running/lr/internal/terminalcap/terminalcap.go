@@ -20,6 +20,7 @@ const (
 )
 
 type Terminal struct {
+	Handle   string `json:"handle"`
 	Worktree string `json:"worktreePath"`
 }
 
@@ -41,9 +42,17 @@ func Read(ctx context.Context, runner shell.Runner, home string) (Reading, error
 	if err != nil {
 		return Reading{}, err
 	}
+	terminals, err := List(ctx, runner)
+	if err != nil {
+		return Reading{}, err
+	}
+	return Reading{Terminals: terminals, Cap: limit}, nil
+}
+
+func List(ctx context.Context, runner shell.Runner) ([]Terminal, error) {
 	result, err := runner.Run(ctx, shell.Command{Argv: []string{"orca", "terminal", "list", "--json", "--limit", listLimit}, Timeout: readTimeout})
 	if err != nil {
-		return Reading{}, fmt.Errorf("orca terminal list: %w", err)
+		return nil, fmt.Errorf("orca terminal list: %w", err)
 	}
 	var listed struct {
 		Result struct {
@@ -51,9 +60,9 @@ func Read(ctx context.Context, runner shell.Runner, home string) (Reading, error
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(result.Stdout), &listed); err != nil {
-		return Reading{}, fmt.Errorf("orca terminal list: %w", err)
+		return nil, fmt.Errorf("orca terminal list: %w", err)
 	}
-	return Reading{Terminals: listed.Result.Terminals, Cap: limit}, nil
+	return listed.Result.Terminals, nil
 }
 
 func orcaCap(ctx context.Context, runner shell.Runner, home string) (int, error) {
