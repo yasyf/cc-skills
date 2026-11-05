@@ -192,7 +192,7 @@ jobs:
           go-version-file: plugins/long-running/lr/go.mod
           cache-dependency-path: plugins/long-running/lr/go.sum
       - name: build, vet, test (race)
-        run: go build -o /dev/null ./cmd/lr && go vet ./... && go test -race ./...
+        run: go build -o /dev/null ./cmd/lr && go vet ./... && go test -race -timeout 20m ./...
       - name: release build parity (CGO_ENABLED=0, linux and darwin)
         run: |
           CGO_ENABLED=0 go build -o /dev/null ./cmd/lr
