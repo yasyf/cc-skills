@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ const (
 	noBoard     = "no cc-present artifact"
 	rowWait     = 30 * time.Second
 )
+
+var numberedPick = regexp.MustCompile(`(?i)^\s*(?:i pick |pick |option )?\d+\b`)
 
 type threadWord struct {
 	Channel string `json:"channel_id"`
@@ -45,7 +48,7 @@ func threadWordCommand(a *app.App, driveName *string) *cobra.Command {
 	var session string
 	cmd := &cobra.Command{
 		Use:   "thread-word",
-		Short: "Read one slack.message of his on stdin, give it its ledger rows and print them, and when it replies in a card's own Slack thread also write the from:owner answer row a tap writes, once per message",
+		Short: "Read one slack.message of his on stdin, give it its ledger rows and print them, and when it picks an option by number in a card's own Slack thread also write the from:owner answer row a tap writes, once per message",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var word threadWord
@@ -82,7 +85,7 @@ func (w threadWord) record(ctx context.Context, runner shell.Runner, threads thr
 		return nil
 	}
 	card, found, err := w.card(ctx, runner, threads, entry, session)
-	if err != nil || !found || w.Text == "" {
+	if err != nil || !found || !numberedPick.MatchString(w.Text) {
 		return err
 	}
 	seconds, err := strconv.ParseFloat(w.TS, 64)
