@@ -167,9 +167,11 @@ any read: `cci subscribe --drive <drive> --reader meta`.
   hook requires, and the typecheck over the TypeScript you touched. No test, lint or LLM call
   runs on this Mac; CI grades. Write behavior tests in the pack's own style, never tests that read source text.
 - The PR has a real body: what it changes for a user, a paraphrase of the owner's words it
-  carries out, never the words themselves, its risk, and the design section it changes. Never a draft. Merge under the repo's
-  standing merge rule once CI is green on your head; a red check on your own change is
-  fixed first. Wait on every check of your head with `ccx vcs pr watch <repo>#<n> --until ci`,
+  carries out, never the words themselves, its risk, and the design section it changes. Never a draft. Once CI is green
+  on your head, merge a yasyf/* PR, stack member or not, with `ccx vcs merge <n> -R <owner/repo> --admin
+  --match-head-commit <full head sha>`; add `--with-downstack` only when the open PRs below it are yours to land, and
+  `--red-on-main <run>` only for a red that run on main fails the same way. A PR in another repo merges under that
+  repo's standing rule. A red check on your own change is fixed first. Wait on every check of your head with `ccx vcs pr watch <repo>#<n> --until ci`,
   never piped: it exits once every check finished and passed or one failed, and a `tail` hides its green line. Rebase on
   main before the last `lr-go`, since two PRs that each pass can fail vet together. A red
   `lr-go` first reads whether main is red: a run that started while main was red tests broken
