@@ -37,7 +37,7 @@ const (
 	CodeNoRoster   = 1
 	CodeCCIMissing = shell.CodeMissingBinary
 	Daemon         = "http://127.0.0.1:7377/v1/stream"
-	Usage          = "usage: lr wait [--wake <file>] <seconds> [<file>=<cursor-file> | mailbox:<lane>=<cursor-file> | cci:<drive>:<lane>]... [-- <command> [<arg>...]]"
+	Usage          = "usage: lr wait [--wake <file>] <seconds> <source>... [-- <command> [<arg>...]], or lr wait [--wake <file>] <seconds> -- <command> [<arg>...]; a source is <file>=<cursor-file>, mailbox:<lane>=<cursor-file> or cci:<drive>:<lane>"
 
 	CodeRecursive = 3
 

@@ -39,7 +39,7 @@ Standing orders, fixed in this template:
   - Any repair pass or backfill runs on in-region EC2, never on
     this Mac.
   - A wait on a release, a replay or any other process that outlasts a call is
-    `lr wait --wake <output file> <seconds> [<source>...] [-- <command>]`, which wakes
+    `lr wait --wake <output file> <seconds> <source>... [-- <command>]` (or `-- <command>` with no source), which wakes
     this lane when it ends. Never post its completion as a record: no desk, root or
     supervisor acts on it.
   - A hook that blocks your work gets a fix lane you launch that turn,

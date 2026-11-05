@@ -13,7 +13,7 @@ import (
 func Command(a *app.App) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
-		Use:   "wait SECONDS [SOURCE...] [-- COMMAND...]",
+		Use:   "wait SECONDS (SOURCE... [-- COMMAND...] | -- COMMAND...)",
 		Short: "Block until a source wakes the lane, its guarded command exits, or the deadline passes",
 		Long: `The one way a lane waits. A source is <file>=<cursor-file>, mailbox:<lane>=<cursor-file>, or
 cci:<drive>:<lane>. The mailbox and file sources are followed through the file system, the cci
@@ -28,14 +28,19 @@ ran does. A first wait for a lane with no <lane> cursor starts at the newest rec
 deadline it prints QUIET <Pacific time>. A command after -- runs
 in its own session and process group; its output and exit status pass through when it exits
 first, and a wake or the deadline ends the whole group with SIGTERM, then SIGKILL after 5 s.
-A wait with a command needs no source.
+A wait with a command needs no source; one with neither is refused, since only its deadline could end it.
 Exit 2 is a usage error, 1 names a lane no roster lists, 127 a cci missing for 30 s.
 
 --wake <file> is for a wait that outlasts the call: it prints ARMED <pid> <file> and returns at
 once, the wait runs detached with its output in <file>, and when it ends it mails the terminal
 that armed it and types a wake there if that terminal is at rest. Nothing is posted to any desk.
 A Codex lane waits this way, since nothing else wakes an idle Codex terminal.`,
-		Args: cobra.MinimumNArgs(2),
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) < 2 {
+				return errors.New(Usage)
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			seconds, err := strconv.Atoi(args[0])
 			if err != nil || seconds < 0 {

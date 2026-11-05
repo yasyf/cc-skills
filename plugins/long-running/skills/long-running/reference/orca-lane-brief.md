@@ -252,7 +252,7 @@ Never loop over `orca orchestration check`: Orca delivers its mail into your ter
   `lr wait 540 cci:<drive>:<name> -- orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE"
   --wait --timeout-ms 540000 --json` blocks on Orca's own long poll and on the bus in one
   foreground call. A wait that outlasts a call is
-  `lr wait --wake <output file> <seconds> [<source>...] [-- <command>]`, which returns at once;
+  `lr wait --wake <output file> <seconds> <source>... [-- <command>]` (or `-- <command>` with no source), which returns at once;
   when it ends it mails your own terminal and types a wake there if you are at rest, so you can
   end your turn on it. A Codex lane has
   only this, since nothing else wakes an idle Codex terminal; a Claude lane may use a background
