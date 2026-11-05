@@ -2,6 +2,8 @@ set -eu
 bin="$HOME/.local/bin"
 plugins="$HOME/.claude/plugins"
 mkdir -p "$bin" "$plugins"
+exec 9> "$bin/.install.lock"
+flock 9
 [ -f "$plugins/installed_plugins.json" ] || echo '{"version":2,"plugins":{}}' > "$plugins/installed_plugins.json"
 [ -f "$plugins/known_marketplaces.json" ] || echo '{}' > "$plugins/known_marketplaces.json"
 said() {
@@ -56,7 +58,7 @@ while [ "$1" != -- ]; do
       echo "refused: $name from that archive reports build $printed, not $version"
       exit 1
     fi
-    "/tmp/$name.new" package-install
+    "/tmp/$name.new" package-install 9>&-
     rm -f "/tmp/$name.new"
     printed=$("$bin/$name" version | jq -r .build)
     if [ "$printed" != "$version" ]; then
