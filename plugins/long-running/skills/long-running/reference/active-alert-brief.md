@@ -388,8 +388,9 @@ Authority: implement the fix and open its PR through <submit skill>.
   This authority never covers the owner's identity: never call production as him
   or drive his signed-in browser, Orca tab or session, read or write. A proof that
   needs his identity is a pick to him through `lr ask-owner`; a scratch proof with
-  no named identity means a test identity or no write. Codex runs no hooks, so
-  this line is the only guard on a Codex lane.
+  no named identity means a test identity or no write. `lr codex-guard check`
+  refuses the Orca browser shape on a production host; this line binds every
+  other route.
   Any delete or replace stops for the owner, unless he ordered this release: start
   that one with `--order <answer id>`, and its gate passes itself.
   A break-glass profile refused with ForbiddenException on GetRoleCredentials
