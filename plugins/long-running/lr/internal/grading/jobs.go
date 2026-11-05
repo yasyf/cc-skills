@@ -39,6 +39,7 @@ const (
 	cardTimeout   = 10 * time.Second
 	docChars      = 7
 	itemAttr      = "item"
+	openState     = "OPEN"
 	recordsDir    = "records"
 )
 
@@ -57,10 +58,17 @@ type job struct {
 type livePR struct {
 	quotes.PR
 	HeadRefName string `json:"headRefName"`
+	HeadRefOid  string `json:"headRefOid"`
+	State       string `json:"state"`
+	IsDraft     bool   `json:"isDraft"`
+}
+
+func (l livePR) closedDraftOrMovedFrom(head string) bool {
+	return l.State != "" && l.State != openState || l.IsDraft || l.HeadRefOid != "" && !strings.HasPrefix(l.HeadRefOid, head)
 }
 
 func (p *JobPool) readPR(ctx context.Context, repo, pr string) livePR {
-	argv := []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", pr, "--repo", repo, "--json", quotes.PRFields + ",headRefName"}
+	argv := []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", pr, "--repo", repo, "--json", quotes.PRFields + ",headRefName,headRefOid,state,isDraft"}
 	var live livePR
 	result, err := p.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
 	if err == nil {

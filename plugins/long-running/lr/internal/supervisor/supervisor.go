@@ -98,11 +98,23 @@ func Tick(ctx context.Context, s *store.Store, drive string, generation int64, d
 				d.Log.Info("lanes acted", "relaunched", moved.Relaunched, "asked", moved.Asked, "held", moved.Held, "adopted", moved.Adopted, "withdrawn", moved.Withdrawn, "woken", moved.Woken)
 			}
 		}
+		return report, nil
 	}
 	if !runsPass(d.Movers) {
 		return report, nil
 	}
 	return runPass(ctx, s, drive, generation, d, now, report)
+}
+
+func (d Deps) withPassCheck(s *store.Store, drive string, generation int64) Deps {
+	if !slices.Contains(d.Movers, moverLanes) || !runsPass(d.Movers) {
+		return d
+	}
+	d.Checks = append(slices.Clone(d.Checks), func(ctx context.Context, now time.Time) error {
+		_, err := runPass(ctx, s, drive, generation, d, now, Report{At: now})
+		return err
+	})
+	return d
 }
 
 func runPass(ctx context.Context, s *store.Store, drive string, generation int64, d Deps, now time.Time, report Report) (Report, error) {
@@ -332,7 +344,7 @@ func Run(ctx context.Context, s *store.Store, drive, version string, pid int, d 
 	if err != nil {
 		return nil, "", err
 	}
-	stop := startChecks(ctx, d)
+	stop := startChecks(ctx, d.withPassCheck(s, drive, lease.Generation))
 	defer stop()
 	var done []Report
 	for ticks == 0 || len(done) < ticks {
