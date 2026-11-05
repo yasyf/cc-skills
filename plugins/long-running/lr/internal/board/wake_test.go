@@ -493,3 +493,52 @@ func TestUntilKeepsTheLaneOnTheCardsRow(t *testing.T) {
 		t.Fatalf("row = %v", rows["card-chat"])
 	}
 }
+
+var unheard = SlackUnheard{Card: "card-chat", Label: "Combined", Question: "Which chat app?", Permalink: "https://slack.test/p1", Key: "slack-action:D1:1.0:2.0"}
+
+func TestAnUnheardAnswerRecordsHisWordsAndWakesTheLaneThatAsked(t *testing.T) {
+	f := newWaker(t)
+	f.want(t, store.Lane{Name: "chat-lane", State: store.LaneDesired, Placement: orcaPlacement, Brief: "/b.md"})
+	f.bus = append(f.bus, asked(5, "chat-lane", "ask him on card-chat"))
+
+	if err := f.Unheard(context.Background(), unheard); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 2 {
+		t.Fatalf("posts = %+v, want the owner record and the wake", f.posts)
+	}
+	owner, wake := f.posts[0], f.posts[1]
+	if owner.Kind != ownerKind || owner.ID != unheard.Key || !strings.Contains(owner.Text, "Combined") || !strings.Contains(owner.Text, unheard.Permalink) {
+		t.Fatalf("owner record = %+v, want his pick, its link and the key that makes a replay harmless", owner)
+	}
+	if wake.Kind != wakeKind || !slices.Equal(wake.To, []string{"chat-lane"}) || wake.Re != 1 || !strings.Contains(wake.Text, "Combined") {
+		t.Fatalf("wake = %+v, want the lane woken on the owner record", wake)
+	}
+}
+
+func TestAnUnheardAnswerNoLaneAskedForGoesToTheCommunicator(t *testing.T) {
+	f := newWaker(t)
+
+	if err := f.Unheard(context.Background(), SlackUnheard{Card: "card-chat", Label: "my own words", Other: true, Key: "k"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 2 || !slices.Equal(f.posts[1].To, []string{communicator}) || !strings.Contains(f.posts[1].Text, "NEEDS-LANE card-chat") || !strings.Contains(f.posts[1].Text, "wrote: my own words") {
+		t.Fatalf("posts = %+v, want the owner record and a NEEDS-LANE to %s", f.posts, communicator)
+	}
+}
+
+func TestAnUnheardAnswerGoesToTheDriveWhoseLaneAskedForTheCard(t *testing.T) {
+	quiet, asking := newWaker(t), newWaker(t)
+	asking.want(t, store.Lane{Name: "chat-lane", State: store.LaneDesired, Placement: orcaPlacement, Brief: "/b.md"})
+	asking.bus = append(asking.bus, asked(5, "chat-lane", "ask him on card-chat"))
+
+	if err := unheardOnDrive(context.Background(), []Waker{quiet.Waker, asking.Waker}, unheard); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(quiet.posts) != 0 || len(asking.posts) != 2 {
+		t.Fatalf("quiet posts = %+v, asking posts = %+v, want only the drive that asked told", quiet.posts, asking.posts)
+	}
+}
