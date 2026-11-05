@@ -607,7 +607,7 @@ func TestOnlyAReplyTiedToNothingWarnsThatItNamesNoOrder(t *testing.T) {
 func TestAnExplainMoreThatIsOnlyALinkStaysRefused(t *testing.T) {
 	base := Reply{ID: "r4", Title: "Pick a relay", MD: "Two ways."}
 	for name, r := range map[string]Reply{
-		"a pick explained by a link only": {ID: base.ID, Title: base.Title, MD: "Tap one below.\n\nsee https://docs.poetic.design/one-pagers/x/", Action: "Tap one below", Picks: []string{"A way", "B way"}, Recommended: "A way"},
+		"a pick explained by a link only": {ID: base.ID, Title: base.Title, MD: "see https://docs.poetic.design/one-pagers/x/", Picks: []string{"A way", "B way"}, Recommended: "A way"},
 		"an Explain more that is a link":  {ID: base.ID, Title: base.Title, MD: "Two ways.\n\n**Explain more:** https://docs.poetic.design/one-pagers/x/"},
 	} {
 		if err := r.bareExplainMore(); err == nil {
@@ -769,8 +769,8 @@ func TestAReplyToAnOrderLeadsWithHisOneActionAndOtherwiseReadsAsItsOwnText(t *te
 		t.Fatalf("action reply = %q, status %q", acting.MD, acting.Status)
 	}
 	picking := Reply{Title: "Storage", MD: "Two places.", Order: "m347", Picks: []string{"A", "B"}, Recommended: "A"}.led()
-	if !strings.HasPrefix(picking.MD, pickLead) || picking.Action != pickLead {
-		t.Fatalf("a reply with picks leads %q and stores action %q: done would be false", picking.MD, picking.Action)
+	if picking.Title != "Storage" || picking.MD != "Two places." || picking.Status != needsYou {
+		t.Fatalf("a reply with picks = %q, %q, status %q, want its own words waiting on him", picking.Title, picking.MD, picking.Status)
 	}
 	twice := Reply{Title: "Pick a store: storage", MD: "Pick a store. It cannot write the new one.", Order: "m347", Action: "Pick a store"}.led()
 	if twice.Title != "Pick a store: storage" || twice.MD != "Pick a store. It cannot write the new one." {
@@ -1518,7 +1518,7 @@ func TestAPickReplyInHisThreadEditsItsThreadCopyAcrossEdits(t *testing.T) {
 	if len(posted) != 2 || slack(t, posted[0]).Replaces != cardCopy || slack(t, posted[1]).Replaces != threadCopy {
 		t.Fatalf("cc-slack calls = %+v, want the card then the thread copy edited and nothing posted", posted)
 	}
-	if body := slack(t, posted[1]).Body; strings.Contains(body, pickLead) {
+	if body := slack(t, posted[1]).Body; strings.Contains(body, pickLink) {
 		t.Fatalf("thread copy = %q still tells him to tap a withdrawn card", body)
 	}
 	if surface(sent, "slack thread").Ref != threadCopy {
