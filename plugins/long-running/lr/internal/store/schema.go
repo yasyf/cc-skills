@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS review_rows (
   last_record INTEGER NOT NULL, written_at TEXT NOT NULL,
   PRIMARY KEY (repo, number)
 );
+CREATE TABLE IF NOT EXISTS outside_prs (
+  repo TEXT NOT NULL, number INTEGER NOT NULL, title TEXT NOT NULL, head TEXT NOT NULL, state TEXT NOT NULL,
+  old_tree TEXT NOT NULL, no_port TEXT NOT NULL, port TEXT NOT NULL,
+  PRIMARY KEY (repo, number)
+);
 DROP TABLE IF EXISTS pr_states;
 DROP TABLE IF EXISTS asks;
 DROP TABLE IF EXISTS carries;

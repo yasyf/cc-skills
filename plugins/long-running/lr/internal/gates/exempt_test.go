@@ -445,6 +445,9 @@ func TestAnOldTreeFileIsUnderGoSandAndOutsideTheNextTree(t *testing.T) {
 			t.Errorf("OldTreeFile(%q) = %q, want %q", c.files, got, c.want)
 		}
 	}
+	if got := NextTreeFile([]string{"go/sand/cmd/iris.go", "go/sand/next/a.go"}); got != "go/sand/next/a.go" {
+		t.Errorf("NextTreeFile = %q, want the next-tree file", got)
+	}
 }
 
 func TestAnOverrideItsLaneWithdrewStopsCountingInEveryCopy(t *testing.T) {

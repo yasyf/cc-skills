@@ -113,6 +113,9 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if !s.Reads {
 		return s.fromRows(rows, held)
 	}
+	if err := s.admitOutside(ctx, rows); err != nil {
+		s.Log.Warn("the search for old-tree pull requests no drive lane opened failed", "error", err)
+	}
 	itemed, err := s.itemed()
 	if err != nil {
 		return nil, err
@@ -215,7 +218,7 @@ func (s Source) splitEnded(numbers []int, members memberRead, itemed map[int]boo
 		}
 		ended = append(ended, machine.Facts{
 			Repo: s.Repo, Number: number, Title: pr.Title, Head: pr.HeadRefOid, Branch: pr.HeadRefName, Base: pr.BaseRefName,
-			Closed: true, Merged: pr.State == "MERGED" || pr.labelled(trunkMerged), OldTree: pr.oldTree(),
+			Closed: true, Merged: pr.State == "MERGED" || pr.labelled(trunkMerged), OldTree: pr.oldTree(), NextTree: pr.nextTree(),
 			CI: machine.CIPending, Mergeable: machine.MergeableUnknown, Queue: machine.QueueNone,
 		})
 	}
@@ -619,11 +622,19 @@ func (pr pullRequest) approversAt(head string) []string {
 }
 
 func (pr pullRequest) oldTree() string {
+	return gates.OldTreeFile(pr.paths())
+}
+
+func (pr pullRequest) nextTree() string {
+	return gates.NextTreeFile(pr.paths())
+}
+
+func (pr pullRequest) paths() []string {
 	paths := make([]string, len(pr.Files.Nodes))
 	for at, file := range pr.Files.Nodes {
 		paths[at] = file.Path
 	}
-	return gates.OldTreeFile(paths)
+	return paths
 }
 
 func (pr pullRequest) labelled(names ...string) bool {
@@ -1056,6 +1067,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 		UnsafeWait: gates.UnsafeWait(pr.Body),
 		Body:       pr.Body,
 		OldTree:    pr.oldTree(),
+		NextTree:   pr.nextTree(),
 	}
 	if queue == machine.QueueQueued {
 		f.QueuedHead = row.Head

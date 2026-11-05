@@ -3,6 +3,7 @@ package board
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -18,7 +19,7 @@ import (
 )
 
 func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
-	var asJSON, all bool
+	var asJSON, all, outside bool
 	cmd := &cobra.Command{
 		Use:   "rows",
 		Short: "Every drive PR from the landing store with all its fields and what it waits on: the one record the review tab, status lines and asks read",
@@ -37,6 +38,9 @@ func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
+			if outside {
+				return printOutside(c, s, cfg.Repo, asJSON, all)
+			}
 			rows, err := s.ReviewRows(cfg.Repo)
 			if err != nil {
 				return err
@@ -61,7 +65,26 @@ func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the rows as one JSON array")
 	cmd.Flags().BoolVar(&all, "all", false, "include landed, closed and superseded rows; an old-tree row whose port is owed is listed without it")
+	cmd.Flags().BoolVar(&outside, "outside", false, "list the old-tree PRs no drive lane opened in place of the drive's rows, each with its port; without --all, only those whose port is owed")
 	return cmd
+}
+
+func printOutside(c *cobra.Command, s *store.Store, repo string, asJSON, all bool) error {
+	admitted, err := s.OutsidePRs(repo)
+	if err != nil {
+		return err
+	}
+	prs := slices.SortedFunc(maps.Values(admitted), func(a, b store.OutsidePR) int { return a.Number - b.Number })
+	if !all {
+		prs = slices.DeleteFunc(prs, func(pr store.OutsidePR) bool { return !strings.HasPrefix(pr.Port, prrow.PortOwed) })
+	}
+	if asJSON {
+		return json.NewEncoder(c.OutOrStdout()).Encode(prs)
+	}
+	for _, pr := range prs {
+		fmt.Fprintf(c.OutOrStdout(), "#%d at %s (%s): %s; port: %s\n", pr.Number, abbreviate(pr.Head), pr.State, pr.Title, pr.Port)
+	}
+	return nil
 }
 
 func portsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {

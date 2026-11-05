@@ -191,6 +191,7 @@ type Facts struct {
 	UnsafeWait       string
 	Body             string
 	OldTree          string
+	NextTree         string
 	Port             bool
 	GradeStopped     string
 	RowWait          string
