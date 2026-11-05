@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -125,6 +126,36 @@ func transition(s *store.Store, repo string, number int, head string, facts map[
 }
 
 func firstUnmet(row store.ReviewRow) string {
+	return unmet(row, true)
+}
+
+// TapAt names the head his approval stands at and what refuses it. A check
+// still running or failing refuses nothing, since the landing pass lands only a
+// row that is both ready and tapped; a head the row has moved past keeps his
+// approval there, for the fold's carry rule to judge.
+func TapAt(s *store.Store, repo string, tap bus.Tap) (head, refusal string, err error) {
+	row, found, err := s.ReviewRow(repo, tap.PR)
+	if err != nil {
+		return "", "", err
+	}
+	if !found {
+		refusal, err = gates.NoRowIn(s, repo)
+		return tap.Head, refusal, err
+	}
+	head = tap.Head
+	if strings.HasPrefix(row.Head, tap.Head) {
+		head = row.Head
+	}
+	switch {
+	case row.ReadyForTap:
+		return head, "", nil
+	case LandsOnHisWord(row):
+		return head, row.WaitsOn, nil
+	}
+	return head, unmet(row, false), nil
+}
+
+func unmet(row store.ReviewRow, checks bool) string {
 	switch {
 	case row.State == StateLanded:
 		return "Nothing: it landed."
@@ -136,27 +167,27 @@ func firstUnmet(row store.ReviewRow) string {
 		return "it is a draft"
 	case row.Hold != None:
 		return heldLead + row.Hold
-	case row.State == StateQueued:
+	case checks && row.State == StateQueued:
 		return "it is in the merge queue"
-	case row.ParentState == ParentOpen:
+	case checks && row.ParentState == ParentOpen:
 		return fmt.Sprintf("the change below it, %s, has not landed", row.Parent)
-	case row.ParentState == ParentClosed:
+	case checks && row.ParentState == ParentClosed:
 		return fmt.Sprintf("the change below it, %s, was closed without landing", row.Parent)
-	case row.ParentState == ParentUnknown:
+	case checks && row.ParentState == ParentUnknown:
 		return fmt.Sprintf("the change below it, on branch %s, has no row", row.Parent)
 	case row.Head == "":
 		return "no record names its head yet"
-	case row.CI == CIRed:
+	case checks && row.CI == CIRed:
 		return RedAtHead
-	case row.CI != CIGreen:
+	case checks && row.CI != CIGreen:
 		return "CI is running or not read yet at this head"
-	case row.Approvers == None:
+	case checks && row.Approvers == None:
 		return "no approving review at this head"
-	case row.Grade == GradePending:
+	case checks && row.Grade == GradePending:
 		return NotGraded
-	case row.Grade != GradePass:
+	case checks && row.Grade != GradePass:
 		return "a grade needs a verdict: " + row.GradeFindings
-	case row.Mergeable != string(machine.MergeableClean):
+	case checks && row.Mergeable != string(machine.MergeableClean):
 		return "mergeability is " + row.Mergeable
 	case row.UnsafeWait != "":
 		return gates.UnsafeOnDev(row.UnsafeWait)

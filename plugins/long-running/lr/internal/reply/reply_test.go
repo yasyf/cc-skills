@@ -199,7 +199,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	}
 	id := strings.TrimSuffix(filepath.Base(saved[0]), ".json")
 	text := result.Result.Content[0].Text
-	for _, want := range []string{"Its checks passed.", "| lr-go | green |", "- Land it (recommended)\n- Hold it", "Reply " + id + ";", "- board: card-" + id, "- slack: " + permalink, "- record: #12@2479ec97", "- dashboard: " + saved[0]} {
+	for _, want := range []string{"Its checks passed.", "| lr-go | green |", "- Land it (recommended): " + untiedPick + "\n- Hold it", "Reply " + id + ";", "- board: card-" + id, "- slack: " + permalink, "- record: #12@2479ec97", "- dashboard: " + saved[0]} {
 		if !strings.Contains(text, want) {
 			t.Errorf("window text lacks %q:\n%s", want, text)
 		}
@@ -2028,5 +2028,33 @@ func TestALongPickKeepsItsWholeLabelAndItsEffect(t *testing.T) {
 	exact := strings.Repeat("x", 150)
 	if r, _ := (Reply{Title: "Which?", MD: "m", Picks: []string{exact + " :: A.", "No :: B."}}).mended(); r.Picks[0] != exact || r.Words[exact] != "A." {
 		t.Fatalf("a label of 150 characters changed: %q, %q", r.Picks[0], r.Words[exact])
+	}
+}
+
+func TestAnApprovingPickTheCardCannotTieToOnePRAtOneHeadWarnsOnTheCardAndInTheResult(t *testing.T) {
+	const otherPR = "https://github.com/yasyf/cc-skills/pull/2197"
+	for name, tc := range map[string]struct {
+		reply Reply
+		warns bool
+	}{
+		"one PR with a row":          {Reply{MD: "Land it?", Picks: []string{"Approve, land it", "Hold"}, PRs: []string{landPR}}, false},
+		"a PR with no row":           {Reply{MD: "Land it?", Picks: []string{"Approve, land it", "Hold"}, PRs: []string{otherPR}}, true},
+		"two PRs":                    {Reply{MD: "Land both?", Picks: []string{"Land both", "Hold"}, PRs: []string{landPR, otherPR}}, true},
+		"no PR listed":               {Reply{MD: "Land #2196?", Picks: []string{"Land it now", "Hold"}}, true},
+		"a pick that approves no PR": {Reply{MD: "Which rule?", Picks: []string{"Keep the 30-day rule", "Drop it"}}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
+			r, _ := tc.reply.mended()
+			r, _ = f.withPRCards(context.Background(), r)
+			got, warning := r.untiedApprovals()
+			if tc.warns != strings.HasPrefix(warning, "APPROVES NOTHING") || tc.warns != strings.Contains(got.Words[got.Picks[0]], untiedPick) {
+				t.Fatalf("warning = %q, words = %q, want warns %v", warning, got.Words, tc.warns)
+			}
+			if strings.Contains(got.Words[got.Picks[1]], untiedPick) {
+				t.Fatalf("words = %q, want only the approving pick marked", got.Words)
+			}
+		})
 	}
 }

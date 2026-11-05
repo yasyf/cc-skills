@@ -75,6 +75,75 @@ func TestEachUnmetConditionKeepsARowFromReadyAndSaysWhy(t *testing.T) {
 	}
 }
 
+func TestHisApprovalStandsBehindAPendingCheckAndOnlyTheRowsStandingRefusesIt(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		change  func(*store.ReviewRow)
+		refuses string
+	}{
+		{"ready", func(*store.ReviewRow) {}, ""},
+		{"CI running", func(r *store.ReviewRow) { r.CI = CIPending }, ""},
+		{"CI red", func(r *store.ReviewRow) { r.CI = CIRed }, ""},
+		{"no review", func(r *store.ReviewRow) { r.Approvers = None }, ""},
+		{"fidelity missing", func(r *store.ReviewRow) { r.Grade, r.GradeFindings = GradeFail, "fidelity: missing" }, ""},
+		{"ungraded", func(r *store.ReviewRow) { r.Grade = GradePending }, ""},
+		{"conflict", func(r *store.ReviewRow) { r.Mergeable = string(machine.MergeableConflict) }, ""},
+		{"the change below open", func(r *store.ReviewRow) { r.Parent, r.ParentState = "#7", ParentOpen }, ""},
+		{"queued untapped", func(r *store.ReviewRow) { r.State = StateQueued }, ""},
+		{"held", func(r *store.ReviewRow) { r.Hold = "root:the cutover" }, "held, root:the cutover"},
+		{"held with CI running", func(r *store.ReviewRow) { r.Hold, r.CI = "root:the cutover", CIPending }, "held, root:the cutover"},
+		{"superseded", func(r *store.ReviewRow) { r.SupersededBy = "replaced by #9" }, "Nothing: superseded, replaced by #9"},
+		{"draft", func(r *store.ReviewRow) { r.State = StateDraft }, "it is a draft"},
+		{"closed", func(r *store.ReviewRow) { r.State = StateClosed }, "Nothing: it was closed without landing."},
+		{"no Summary", func(r *store.ReviewRow) { r.ForUsers = "" }, "its PR body has no Summary"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			row := readyRow()
+			tt.change(&row)
+			s := memoryWith(t, Decide(row))
+			head, refusal, err := TapAt(s, testRepo, bus.Tap{PR: 1, Head: headA[:7]})
+			if err != nil || head != headA || refusal != tt.refuses {
+				t.Fatalf("TapAt = %q, %q, %v, want %q refused %q", head, refusal, err, headA, tt.refuses)
+			}
+		})
+	}
+}
+
+func TestHisApprovalAtAHeadTheRowMovedPastStandsThereForTheCarryRule(t *testing.T) {
+	row := readyRow()
+	row.Head = headB
+	s := memoryWith(t, Decide(row))
+	head, refusal, err := TapAt(s, testRepo, bus.Tap{PR: 1, Head: headA})
+	if err != nil || head != headA || refusal != "" {
+		t.Fatalf("TapAt = %q, %q, %v, want it standing at %s", head, refusal, err, headA)
+	}
+}
+
+func TestAnApprovalOnAPRWithNoRowSaysWhetherThisBoxHoldsTheLandingStore(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		rows []store.ReviewRow
+		want string
+	}{
+		{"no rows at all", nil, gates.NoStore},
+		{"another PR's row", []store.ReviewRow{{Repo: testRepo, Number: 2, Head: headA}}, gates.NoRow},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := store.Memory()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			if err := s.PutReviewRows(tt.rows); err != nil {
+				t.Fatal(err)
+			}
+			if _, refusal, err := TapAt(s, testRepo, bus.Tap{PR: 1, Head: headA}); err != nil || refusal != tt.want {
+				t.Fatalf("TapAt refusal = %q, %v, want %q", refusal, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestATappedRowStaysReadySoTheGateCanLandItAndIsNotWaitingOnHim(t *testing.T) {
 	row := readyRow()
 	row.State, row.Tapped = StateTapped, true

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/explain"
@@ -61,6 +62,7 @@ const (
 	linePrefix  = "line:"
 
 	diagramNote = "The diagram is on the Chat page of your dashboard."
+	untiedPick  = "Picking this approves no PR by itself: this card shows no single PR at one head, so a lane carries your yes by hand."
 
 	cardCopySurface = "card copy"
 	resendOnce      = "; nothing went out on this surface, so once the tool is back send this reply again with its id, which posts it once"
@@ -317,6 +319,26 @@ func (f Fanout) tapWarning(r Reply) string {
 		warned = append(warned, "this names a PR waiting on his tap and does not list it, so it carries no tap card; edit the reply with it in prs: "+strings.Join(missing, ", "))
 	}
 	return strings.Join(warned, "; ")
+}
+
+// untiedApprovals marks each pick that reads as approving a PR when the card
+// shows no one PR at one head, since only that head turns his pick into a tap.
+func (r Reply) untiedApprovals() (Reply, string) {
+	if len(r.PRCards) == 1 && r.PRCards[0].Head != "" {
+		return r, ""
+	}
+	var untied []string
+	for _, pick := range r.Picks {
+		if !bus.ReadsAsLand(pick) {
+			continue
+		}
+		untied = append(untied, fmt.Sprintf("%q", pick))
+		r.Words[pick] = strings.TrimSpace(r.Words[pick] + " " + untiedPick)
+	}
+	if len(untied) == 0 {
+		return r, ""
+	}
+	return r, fmt.Sprintf("APPROVES NOTHING: pick %s reads as approving a PR, but this card does not show one PR at one head, so picking it writes no tap and a lane must carry it by hand; list only the one PR it approves in prs, with a ledger row, or relabel the pick if it lands nothing", strings.Join(untied, ", "))
 }
 
 func linkedCard(md string, card board.OpenCard) string {

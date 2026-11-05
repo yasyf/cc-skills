@@ -8,6 +8,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -82,11 +83,16 @@ func openTap(t *testing.T, s *store.Store, on string, at time.Time) {
 	}
 }
 
-func rowWaits(t *testing.T, s *store.Store, waits string) {
+func rowWaits(t *testing.T, s *store.Store, waits func(*store.ReviewRow)) store.ReviewRow {
 	t.Helper()
-	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: head, WaitsOn: waits}}); err != nil {
+	row := prrow.Decide(readyRow(func(r *store.ReviewRow) {
+		r.Hold, r.SupersededBy = prrow.None, prrow.None
+		waits(r)
+	}))
+	if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
 		t.Fatal(err)
 	}
+	return row
 }
 
 type Key struct {
@@ -122,16 +128,28 @@ func TestApprovedBecomesATapFactAndATapRecord(t *testing.T) {
 	}
 }
 
-func TestApprovedOnARowNotReadyIsRefusedWithItsReasonAndTapsNothing(t *testing.T) {
+func TestApprovedOnARowWaitingOnlyOnCIBecomesATapFactAndATapRecord(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
-	rowWaits(t, s, "held by root")
-	if err := Answer(s, repo, hooks.hooks(), readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.WaitsOn = false, "held by root" }), verdictApproved, t0); err == nil || !strings.Contains(err.Error(), "held by root") {
+	row := rowWaits(t, s, func(r *store.ReviewRow) { r.CI = prrow.CIPending })
+	if err := Answer(s, repo, hooks.hooks(), row, verdictApproved, t0); err != nil {
+		t.Fatal(err)
+	}
+	if stored(t, s)["tap"] != "tapped" || len(hooks.taps) != 1 || len(hooks.refused) != 0 {
+		t.Fatalf("facts = %v, taps = %+v, refused = %+v", stored(t, s), hooks.taps, hooks.refused)
+	}
+}
+
+func TestApprovedOnAHeldRowIsRefusedWithItsReasonAndTapsNothing(t *testing.T) {
+	const held = "held, root:the cutover"
+	s, hooks := withItem(t), &recorded{}
+	row := rowWaits(t, s, func(r *store.ReviewRow) { r.Hold = "root:the cutover" })
+	if err := Answer(s, repo, hooks.hooks(), row, verdictApproved, t0); err == nil || !strings.Contains(err.Error(), held) {
 		t.Fatalf("err = %v, want the refusal for the card to tell him", err)
 	}
 	if len(hooks.taps) != 0 || stored(t, s)["tap"] != "" {
 		t.Fatalf("taps = %+v, facts = %v", hooks.taps, stored(t, s))
 	}
-	if want := []string{"held by root"}; !reflect.DeepEqual(hooks.refused, want) || stored(t, s)[bus.TapRefusedFact] != "held by root" {
+	if want := []string{held}; !reflect.DeepEqual(hooks.refused, want) || stored(t, s)[bus.TapRefusedFact] != held {
 		t.Fatalf("refused = %+v, facts = %v", hooks.refused, stored(t, s))
 	}
 }
