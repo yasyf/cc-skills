@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -98,7 +99,7 @@ type mailboxSource struct {
 }
 
 type cciSource struct {
-	drive, lane string
+	drive, lane, to string
 }
 
 func (s fileSource) dir() string    { return filepath.Dir(s.path) }
@@ -246,7 +247,10 @@ func (w *waiter) parse() (int, error) {
 		case match == nil:
 			return CodeUsage, errors.New(Usage)
 		case match[1] != "":
-			w.sources = append(w.sources, cciSource{drive: match[1], lane: match[2]})
+			w.sources = append(w.sources, cciSource{drive: match[1], lane: match[2], to: match[2]})
+			if stem := client.Stem(match[2]); stem != match[2] {
+				w.sources = append(w.sources, cciSource{drive: match[1], lane: match[2], to: stem})
+			}
 		default:
 			path, cursor := match[3], match[4]
 			if lane, ok := strings.CutPrefix(path, mailboxPrefix); ok {
@@ -502,6 +506,9 @@ func markRead(path string, keys []string, now func() time.Time) error {
 
 func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 	argv := []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-wake", "--seed", s.lane, "--to", s.lane, "--mail"}
+	if s.to != s.lane {
+		argv = []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-stem-wake", "--seed", s.lane, "--to", s.to}
+	}
 	result, err := w.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
 	if err != nil {
 		if result.Code == shell.CodeMissingBinary {
@@ -567,7 +574,7 @@ func (w *waiter) follow(ctx context.Context) <-chan error {
 }
 
 func (w *waiter) stream(ctx context.Context, s cciSource, errs chan<- error) {
-	query := url.Values{"drive": {s.drive}, "to": {s.lane}}
+	query := url.Values{"drive": {s.drive}, "to": {s.to}}
 	address := w.Stream + "?" + query.Encode()
 	lost := w.Now()
 	reconnecting := false

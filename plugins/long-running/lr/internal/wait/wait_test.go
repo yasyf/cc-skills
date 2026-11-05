@@ -457,6 +457,29 @@ func TestARecordAddressedToTwoSourcesPrintsOnce(t *testing.T) {
 	}
 }
 
+func TestAWaitOnANumberedLaneWakesOnMailToItsStem(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	runner := &laneRunner{}
+	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:journal-open-query-bound-1"}, Runner: runner, Stream: server.URL, Now: ninePM})
+	time.Sleep(armed)
+
+	verdict := "#7 9:00 PM REVIEW fidelity-desk-29 -> journal-open-query-bound fidelity: ok\n"
+	runner.deliver(map[string]string{"journal-open-query-bound": verdict})
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if r.code != 0 || r.out.String() != verdict {
+		t.Fatalf("got %d %q, want the verdict its grader sent to the stem", r.code, r.out.String())
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !slices.Contains(s.requests, "drive=dar&to=journal-open-query-bound") || !slices.Contains(s.requests, "drive=dar&to=journal-open-query-bound-1") {
+		t.Fatalf("stream requests %q, want the lane and its stem", s.requests)
+	}
+}
+
 func TestARecordAfterARepeatPrintsUnderItsOwnMinute(t *testing.T) {
 	s := &stream{emit: make(chan struct{}, 1)}
 	server := httptest.NewServer(s)

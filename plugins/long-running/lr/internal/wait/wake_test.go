@@ -92,6 +92,21 @@ func TestACompletedWaitReachesTheLaneThatArmedItAndNoDesk(t *testing.T) {
 	}
 }
 
+func TestATypedWakeThatFailsSaysTheMessageWasDelivered(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "wait.log")
+	if err := os.WriteFile(output, []byte("replay green\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake := &shelltest.Fake{}
+	fake.Reply(`{"ok":true,"result":{"messageId":"msg_1"}}`, "orca", "orchestration", "send")
+	fake.Reply(screenOf(t, "  Worked for 5m 38s • 11:33 AM", "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh · ~/w"), "orca", "terminal", "read")
+	fake.Fail(1, "", "orca", "terminal", "send")
+	err := runArmed(t, fake, output, "5", "--", "sh", "-c", "exit 0")
+	if err == nil || !strings.Contains(err.Error(), "the Orca message msg_1 reached "+laneTerminal+" and only the typed wake failed") {
+		t.Fatalf("got %v, want the error to say the message was delivered", err)
+	}
+}
+
 func TestAWakeKeepsOffALaneThatIsNotAtRest(t *testing.T) {
 	cases := map[string][]string{
 		"working":        {"• Working (12s • esc to interrupt)", "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh · ~/w"},
