@@ -102,6 +102,8 @@ func TestAWakeIsTypedOnlyAtARestingPrompt(t *testing.T) {
 	}{
 		{"claude at its prompt", on(idle...), true},
 		{"claude working above an empty prompt, as a relay always typed", on(claudeWorking...), true},
+		{"claude at rest on its grey suggestion", on("✻ Baked for 2m 54s · done 3:54 AM", rule, "❯\u00a0Keep watching #48951 until it merges", rule, ljust(mode, width)), true},
+		{"claude working with text in its composer", on("· Symbioting… (8s · ↓ 63 tokens)", rule, "❯ half typed", rule, "  esc to interrupt"), false},
 		{"codex at its composer", on(codexIdle...), true},
 		{"codex working", on(codexWorking...), false},
 		{"codex asking for approval", on(codexApproval...), false},

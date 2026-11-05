@@ -308,7 +308,7 @@ func TestAnOrdinaryLaneOrTheMetaLaneQuietWithAnOrderIsNeverRelaunchedForIt(t *te
 	}
 }
 
-func TestASpriteWorkersUnreadOrderTellsItsDeskOnceSinceNoRelayReachesASprite(t *testing.T) {
+func TestASpriteWorkersUnreadOrderIsRelayedOnceAndSendsNobodyToReadItsSprite(t *testing.T) {
 	s := memory(t)
 	f := onSprite(t, s)
 	f.feed = append(f.feed, rec(2, Root, "ask", t0, "first", lane2))
@@ -317,12 +317,10 @@ func TestASpriteWorkersUnreadOrderTellsItsDeskOnceSinceNoRelayReachesASprite(t *
 	tick(t, s, f, t0.Add(mins(11)))
 	tick(t, s, f, t0.Add(mins(12)))
 
-	var told []string
-	for _, post := range f.ofKind("report") {
-		if strings.Contains(post.Text, "has not read") {
-			told = append(told, post.Text)
+	equal(t, len(relays(f)), 1)
+	for _, post := range f.posts {
+		if strings.Contains(post.Text, "read its Sprite") {
+			t.Fatalf("a post still sends someone to the Sprite: %s", post.Text)
 		}
 	}
-	equal(t, len(told), 1)
-	contains(t, told[0], lane2+" on a Sprite has not read root's ask #2, the oldest for 11 min")
 }

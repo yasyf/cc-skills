@@ -197,7 +197,22 @@ func lastIndex(tail []string, before int, matches func(string) bool) int {
 }
 
 func Wakeable(t Terminal) bool {
-	return IdlePrompt(t) || InputState(t) == Idle
+	return IdlePrompt(t) || InputState(t) == Idle || restsOnSuggestion(t)
+}
+
+// restsOnSuggestion reads text in Claude's composer with no turn running as the
+// grey suggestion Claude offers at rest: a screen read carries no color to tell
+// it from typed text, and nothing types into a lane's terminal without Enter.
+func restsOnSuggestion(t Terminal) bool {
+	if t.Source != rendered || t.drafted() {
+		return false
+	}
+	if _, open := FindDialog(t); open {
+		return false
+	}
+	tail := trimmed(t.Tail)
+	box, found := Composer(tail)
+	return found && !codexComposer.MatchString(tail[box]) && !slices.ContainsFunc(tail[max(0, len(tail)-runningRows):], running.MatchString)
 }
 
 func InputState(t Terminal) Input {

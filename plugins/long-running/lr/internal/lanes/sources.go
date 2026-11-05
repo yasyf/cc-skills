@@ -27,6 +27,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/screen"
 )
 
 const (
@@ -296,7 +297,7 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 		if !settled && !slices.Contains(agentVerdicts, read.Liveness) {
 			return nil, fmt.Errorf("%w: orca worker-list gives dispatch %s agent liveness %q, not one of %s", ErrUnread, dispatches[lane], read.Liveness, strings.Join(agentVerdicts, ", "))
 		}
-		row := Row{Lane: lane, Live: !settled && read.Liveness == agentLive, SeenAt: e.Now().UTC(), Dispatch: dispatches[lane], Succeeded: read.Worker == workerSucceeded}
+		row := Row{Lane: lane, Live: !settled && read.Liveness == agentLive, SeenAt: e.Now().UTC(), Dispatch: dispatches[lane], Succeeded: read.Worker == workerSucceeded, Terminal: read.Terminal, Environment: read.Environment}
 		if !row.Live {
 			info, err := os.Stat(filepath.Join(receipts, lane+".json"))
 			if err != nil {
@@ -314,10 +315,12 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 }
 
 type dispatchRead struct {
-	Status   string
-	Worker   string
-	Liveness string
-	Why      string
+	Status      string
+	Worker      string
+	Liveness    string
+	Why         string
+	Terminal    string
+	Environment string
 }
 
 func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, error) {
@@ -337,7 +340,12 @@ func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, err
 					DispatchID     string `json:"dispatchId"`
 					DispatchStatus string `json:"dispatchStatus"`
 					WorkerState    string `json:"workerState"`
+					Terminal       string `json:"agentTerminalHandle"`
 					Projection     struct {
+						Host struct {
+							Kind string `json:"kind"`
+							ID   string `json:"id"`
+						} `json:"host"`
 						Liveness struct {
 							Verdict string `json:"verdict"`
 							Reason  string `json:"reason"`
@@ -356,7 +364,11 @@ func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, err
 			return nil, fmt.Errorf("%w: orca worker-list: %v", ErrUnread, page.Error)
 		}
 		for _, worker := range page.Result.Workers {
-			statuses[worker.DispatchID] = dispatchRead{worker.DispatchStatus, worker.WorkerState, worker.Projection.Liveness.Verdict, worker.Projection.Liveness.Reason}
+			read := dispatchRead{Status: worker.DispatchStatus, Worker: worker.WorkerState, Liveness: worker.Projection.Liveness.Verdict, Why: worker.Projection.Liveness.Reason, Terminal: worker.Terminal}
+			if worker.Projection.Host.Kind == remoteHost {
+				read.Environment = worker.Projection.Host.ID
+			}
+			statuses[worker.DispatchID] = read
 		}
 		if page.Result.Page.NextCursor == "" {
 			return statuses, nil
@@ -421,11 +433,19 @@ type Waker struct {
 	Clock  func() time.Time
 	Send   func(dispatch, subject, body string) error
 	Unread func(lane, subject string) (bool, error)
+	Type   func(terminal, environment, text string) (bool, error)
 }
 
 func (w *Waker) Wake(lane string, row Row, page map[string]any) (bool, error) {
 	text := fmt.Sprintf("WAKE %s: %s Read your mail with `cci tail --drive %s --reader %s --to %s`, then continue the work in hand from your ledger; do not restart your brief.", lane, pageText(page, "why"), w.Drive, lane, lane)
 	summary := fmt.Sprintf("WAKE %s: continue the work in hand", lane)
+	if row.Environment != "" {
+		typed, err := w.Type(row.Terminal, row.Environment, text)
+		if err != nil {
+			slog.Warn("wake not delivered", "lane", lane, "environment", row.Environment, "err", err)
+		}
+		return typed, nil
+	}
 	if row.Dispatch != "" {
 		if pending, err := w.Unread(lane, summary); err == nil && pending {
 			return true, nil
@@ -793,6 +813,26 @@ func (e Env) sendDispatch(ctx context.Context, dispatch, subject, body string) e
 	return err
 }
 
+func (e Env) typeWake(ctx context.Context, terminal, environment, text string) (bool, error) {
+	stdout, err := e.Run(ctx, "orca", "terminal", "read", "--terminal", terminal, "--environment", environment, "--screen", "--json")
+	if err != nil {
+		return false, err
+	}
+	var shown struct {
+		Result struct {
+			Terminal screen.Terminal `json:"terminal"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &shown); err != nil {
+		return false, fmt.Errorf("%w: orca terminal read: %w", ErrUnread, err)
+	}
+	if !screen.Wakeable(shown.Result.Terminal) {
+		return false, nil
+	}
+	_, err = e.Run(ctx, "orca", "terminal", "send", "--terminal", terminal, "--environment", environment, "--text", strings.Join(strings.Fields(text), " "), "--enter", "--json")
+	return err == nil, err
+}
+
 func (e Env) dispatchHoldsUnread(ctx context.Context, lane, subject string) (bool, error) {
 	terminal, err := os.ReadFile(filepath.Join(e.receipts(), lane+".terminal"))
 	if err != nil {
@@ -842,6 +882,8 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		return e.sendDispatch(ctx, dispatch, subject, body)
 	}, Unread: func(lane, subject string) (bool, error) {
 		return e.dispatchHoldsUnread(ctx, lane, subject)
+	}, Type: func(terminal, environment, text string) (bool, error) {
+		return e.typeWake(ctx, terminal, environment, text)
 	}}
 	launcher := e.tool("desk-launch.py")
 	trunk := deletions.Of(e.Runner, e.Config)
