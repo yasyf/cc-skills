@@ -116,7 +116,8 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		}
 		if successor != "" {
 			cost := successorCost(row)
-			must(s.WantLane(store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing}, at))
+			heir := store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing}
+			wantHeir(s, heir, r.Seq, fresh, at)
 			do(s.Own(successor, row.PRs))
 		} else {
 			do(s.Own(Root, row.PRs))
@@ -125,6 +126,16 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			out.stood = append(out.stood, stoodDown{name, successor, row.PRs, r.Seq})
 		}
 	}
+}
+
+func wantHeir(s *store.Store, heir store.Lane, seq int64, fresh bool, at time.Time) {
+	if _, known := laneOf(s, heir.Name); known || fresh {
+		must(s.WantLane(heir, at))
+		return
+	}
+	heir.Reason = fmt.Sprintf("was stood down for it by record #%d", seq)
+	do(s.Probe(owedLaunch+heir.Name, at))
+	must(s.WantLane(heir, at))
 }
 
 func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string, d Deps) folded {
@@ -857,7 +868,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		}
 		if successor != "" && gone.State != store.LaneRetired {
 			cost := successorCost(gone)
-			must(s.WantLane(store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, at))
+			wantHeir(s, store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing}, r.Seq, fresh, at)
 			continue
 		}
 		if successor == "" {

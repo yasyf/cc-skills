@@ -51,8 +51,8 @@ var (
 )
 
 type Order struct {
-	Lane, Model, Effort, Role, Brief string
-	Now                              bool
+	Lane, Model, Effort, Role, Brief, ID string
+	Now                                  bool
 }
 
 func (o Order) Line() string {

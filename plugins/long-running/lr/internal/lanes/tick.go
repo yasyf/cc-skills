@@ -48,7 +48,7 @@ type Deps struct {
 	Tokens                func(Row) int
 	Transcript            func(Row) string
 	Post                  func(Post) error
-	Launch                func(name, model, effort, brief string) error
+	Launch                func(name, model, effort, brief, key string) error
 	Withdraw              func(name string) error
 	Wake                  func(name string, row Row, page map[string]any) (bool, error)
 	PRStates              func(prs []int) (map[int]string, error)
@@ -170,6 +170,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 		}
 		do(s.Advance(CursorName, last))
 	}
+	launchOwedHeirs(s, d, found, now, &out)
 	taken := map[string]bool{}
 	for _, lane := range must(s.AllLanes()) {
 		taken[lane.Name] = true
@@ -730,11 +731,50 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 	return name
 }
 
+func launchOwedHeirs(s *store.Store, d Deps, found map[string]Peer, now time.Time, out *Outcome) {
+	for _, key := range slices.Sorted(maps.Keys(must(s.Probes()))) {
+		name, owed := strings.CutPrefix(key, owedLaunch)
+		if !owed {
+			continue
+		}
+		heir, known := laneOf(s, name)
+		_, listed := found[name]
+		if !known || heir.State != store.LaneLaunching || listed {
+			do(s.Unprobe(key))
+			continue
+		}
+		old, _ := laneOf(s, heir.Predecessor)
+		path := filepath.Join(d.Briefs, name+".brief.md")
+		err := fmt.Errorf("its predecessor's brief %s is gone", old.Brief)
+		if briefExists(old.Brief) {
+			do(os.MkdirAll(d.Briefs, 0o750))
+			transcript := ""
+			if peer, ok := found[old.Name]; ok {
+				transcript = d.Transcript(peer.Row)
+			}
+			do(os.WriteFile(path, []byte(must(successorBrief(old, name, heir.Reason, "", d, transcript))), 0o600))
+			err = launchOrRetry(d, name, heir.Model, heir.Effort, path)
+		}
+		do(s.Unprobe(key))
+		if err == nil {
+			continue
+		}
+		hold(s, name, heir.Reason, now)
+		to := must(MetaDesk(s))
+		if isStanding(heir) {
+			to = Root
+		}
+		escalateTo(s, d, "lane:"+name, fmt.Sprintf("held, not launched: %s is standing in for %s, which %s, and its launch failed: %s", name, old.Name, heir.Reason, err), to, now)
+		out.Held = append(out.Held, name)
+	}
+}
+
 func launchOrRetry(d Deps, name, model, effort, brief string) error {
-	if err := d.Launch(name, model, effort, brief); err == nil {
+	key := launchKey + name
+	if err := d.Launch(name, model, effort, brief, key); err == nil {
 		return nil
 	}
-	return d.Launch(name, model, effort, brief)
+	return d.Launch(name, model, effort, brief, key)
 }
 
 func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out *Outcome) {
@@ -745,7 +785,7 @@ func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out
 	path, retried := filepath.Join(d.Briefs, lane.Name+".brief.md"), "relaunch-retried:"+lane.Name
 	if _, again := must(s.Probes())[retried]; !again {
 		do(s.Probe(retried, now))
-		if d.Launch(lane.Name, lane.Model, lane.Effort, path) == nil {
+		if d.Launch(lane.Name, lane.Model, lane.Effort, path, launchKey+lane.Name+":retry") == nil {
 			return
 		}
 	}

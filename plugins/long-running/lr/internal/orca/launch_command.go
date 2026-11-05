@@ -111,7 +111,7 @@ func laneCommand(a *app.App) *cobra.Command {
 	var role string
 	var timeout float64
 	var written NewBrief
-	var model, effort string
+	var model, effort, id string
 	cmd := &cobra.Command{
 		Use:   "lane LANE MODEL EFFORT BRIEF | lane LANE [--model MODEL --effort EFFORT] --title TITLE --body FILE",
 		Short: "Post one lane's launch to the orca runner and wait for its verdict; a stem launches as its next number",
@@ -136,7 +136,7 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 				return err
 			}
 			if written.BodyFile == "" {
-				order := Order{Lane: lane, Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now}
+				order := Order{Lane: lane, Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now, ID: id}
 				return poster.LaunchOrExit(cmd.Context(), order, seconds(timeout))
 			}
 			entry, err := poster.Entry(cmd.Context())
@@ -150,7 +150,7 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", brief)
-			order := Order{Lane: lane, Model: model, Effort: effort, Role: role, Brief: brief, Now: now}
+			order := Order{Lane: lane, Model: model, Effort: effort, Role: role, Brief: brief, Now: now, ID: id}
 			if len(args) == 3 {
 				order.Model, order.Effort = args[1], args[2]
 			}
@@ -170,6 +170,7 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 	cmd.MarkFlagsMutuallyExclusive("ccx", "place")
 	cmd.Flags().StringSliceVar(&written.Topics, "topics", nil, "with --body, the subjects the lane decides on, for the register slice's owner answers")
 	cmd.Flags().BoolVar(&now, "now", false, "owner-directed: launch beside a live lane already holding this work")
+	cmd.Flags().StringVar(&id, "id", "", "the launch line's cci idempotency key: a repost under a key already on the drive returns the line first posted, so a retried launch reaches the runner once")
 	cmd.Flags().StringVar(&role, "role", "", "the role the lane registry records for it, over the brief's ccx role")
 	cmd.Flags().Float64Var(&timeout, "timeout-seconds", defaultTimeout, "how long to wait for the runner's verdict")
 	return cmd

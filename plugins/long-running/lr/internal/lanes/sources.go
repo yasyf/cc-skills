@@ -888,8 +888,8 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 			}
 			return nil
 		},
-		Launch: func(name, model, effort, brief string) error {
-			return attach(filepath.Join(briefs, name+".launch.log"), launcher, "lane", name, model, effort, brief, "--drive", e.Config.Drive, "--lane", Self, "--timeout-seconds", "0", "--now")
+		Launch: func(name, model, effort, brief, key string) error {
+			return attach(filepath.Join(briefs, name+".launch.log"), launcher, "lane", name, model, effort, brief, "--drive", e.Config.Drive, "--lane", Self, "--timeout-seconds", "0", "--now", "--id", key)
 		},
 		Withdraw: func(name string) error {
 			return detach(filepath.Join(briefs, name+".launch.log"), launcher, "withdraw", name, "--drive", e.Config.Drive, "--lane", Self)

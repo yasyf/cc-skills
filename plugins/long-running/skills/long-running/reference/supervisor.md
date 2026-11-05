@@ -67,6 +67,7 @@ The supervisor makes a quiet lane structurally impossible; it does not report on
   - Every lane a stand-down retires is reported to the communicator in one `report` per pass, with its successor or the coordinator taking its PRs.
   - The queued relaunch of a stood-down lane is withdrawn only while it has posted nothing.
   - A stand-down for a successor points the stood-down lane at it even when that lane already stopped, so the chain reaches the live end.
+  - A stand-down that names a successor no row or `cci who` entry holds yet makes the supervisor launch it, from a successor brief at `<briefs>/<successor>.brief.md`. The launch is owed in the store from the fold until its line posts or is refused, so a supervisor restart resumes it. The line carries the cci key `supervisor-launch:<successor>`, so a repost after a restart returns the line already posted and the runner reads it once. A refused launch holds the successor with one blocker naming it, to root for a standing lane and to the meta desk otherwise.
   - A launching lane that posts its own record has come up.
   - `lr lanes` reads a held or retired lane that posted within 15 minutes as `posting`, never `silent`.
   - `lr desks start` treats a role's holder as live when its row is up or it posted within 15 minutes under either name; it launches nothing for it and prints the holder, its newest record and the stand-down that frees the role (pack hook `lane_rotation`).

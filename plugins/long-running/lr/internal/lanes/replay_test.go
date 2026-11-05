@@ -200,7 +200,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 		Tokens:     func(Row) int { return 0 },
 		Transcript: func(Row) string { return "" },
 		Post:       func(p Post) error { posts = append(posts, p); return nil },
-		Launch:     func(string, string, string, string) error { return nil },
+		Launch:     func(string, string, string, string, string) error { return nil },
 		Withdraw:   func(string) error { return nil },
 		Wake: func(name string, _ Row, _ map[string]any) (bool, error) {
 			woken[name] = true
