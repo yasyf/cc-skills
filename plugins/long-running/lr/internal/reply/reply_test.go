@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -284,6 +286,53 @@ func TestTheRecommendedPickCarriesTheBranchItIsBuiltOn(t *testing.T) {
 	choice := card.Children[slices.IndexFunc(card.Children, func(c child) bool { return c.Type == "choice" })]
 	if choice.Options[0].Build != nil || choice.Options[1].Build == nil || *choice.Options[1].Build != *built {
 		t.Fatalf("options %+v, want the branch on the recommended pick only", choice.Options)
+	}
+}
+
+type slackGone struct {
+	*shelltest.Fake
+	back bool
+}
+
+func (g *slackGone) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if c.Argv[0] == "cc-slack" && !g.back {
+		return shell.Result{Code: shell.CodeMissingBinary}, fmt.Errorf("cc-slack is not on PATH and no installed plugin carries it, so install it: %w", exec.ErrNotFound)
+	}
+	return g.Fake.Run(ctx, c)
+}
+
+func TestASlackToolGoneForGoodSaysToSendAgainAndTheSendPostsOnce(t *testing.T) {
+	fake := scriptedOver(&shelltest.Fake{})
+	gone := &slackGone{Fake: fake}
+	f := fanout(t, gone)
+	r := Reply{ID: "r1", Title: "The line", MD: "The words.", Status: "info"}
+
+	sent := f.Send(context.Background(), r)
+
+	if got := surface(sent, "slack"); got.Ref != "" || !strings.Contains(got.Error, "install it") || !strings.Contains(got.Error, "send this reply again with its id") {
+		t.Fatalf("slack outcome = %+v, want what to do named", got)
+	}
+	if text := receipt(r, sent); !strings.Contains(text, "slack FAILED: ") {
+		t.Fatalf("receipt does not tell the lane: %s", text)
+	}
+
+	gone.back = true
+	f.Send(context.Background(), r)
+	f.Send(context.Background(), r)
+
+	tried := calls(fake, "cc-slack")
+	if len(tried) != 2 || slack(t, tried[0]).Replaces != "" || slack(t, tried[1]).Replaces != permalink {
+		t.Fatalf("cc-slack calls = %+v, want one post and then an edit of it", tried)
+	}
+}
+
+func TestACardCopyWithTheToolGonePromisesNoResend(t *testing.T) {
+	f := fanout(t, &slackGone{Fake: &shelltest.Fake{}})
+
+	copies := f.cardCopies(context.Background(), Reply{ID: "r1", Thread: hisThread, OpenPicks: []string{permalink}}, nil)
+
+	if len(copies) != 1 || !strings.Contains(copies[0].Error, "install it") || strings.Contains(copies[0].Error, "send this reply again") {
+		t.Fatalf("copies = %+v; a re-send skips card copies, so it must not promise one", copies)
 	}
 }
 

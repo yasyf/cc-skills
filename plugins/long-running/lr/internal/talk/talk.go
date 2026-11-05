@@ -64,7 +64,7 @@ func (f *Follower) follow(ctx context.Context) error {
 	if err := f.Open(ctx); err != nil {
 		return err
 	}
-	watch := exec.CommandContext(ctx, "cc-present", "watch", "--session", talkboard.Session(f.Entry))
+	watch := shell.CommandContext(ctx, "cc-present", "watch", "--session", talkboard.Session(f.Entry))
 	events, err := watch.StdoutPipe()
 	if err != nil {
 		return err

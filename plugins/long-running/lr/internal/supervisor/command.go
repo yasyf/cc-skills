@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -82,7 +81,7 @@ func run(ctx context.Context, a *app.App, binary string) error {
 	if err != nil {
 		return err
 	}
-	if gone := missing(ctx, a.Runner, exec.LookPath, cfg); len(gone) > 0 {
+	if gone := missing(ctx, a.Runner, shell.LookPath, cfg); len(gone) > 0 {
 		text := "SUPERVISOR-REFUSED the supervisor will not start: " + strings.Join(gone, "; ")
 		_, err := client.Post(ctx, client.Draft{Drive: cfg.Drive, Lane: lanes.Self, Kind: "blocker", To: []string{lanes.Root}, ID: "supervisor-start", Text: text})
 		return errors.Join(errors.New(text), err)

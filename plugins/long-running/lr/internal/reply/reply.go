@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -60,6 +61,9 @@ const (
 	linePrefix  = "line:"
 
 	diagramNote = "The diagram is on the Chat page of your dashboard."
+
+	cardCopySurface = "card copy"
+	resendOnce      = "; nothing went out on this surface, so once the tool is back send this reply again with its id, which posts it once"
 )
 
 var (
@@ -956,17 +960,17 @@ func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outco
 	for _, card := range cards {
 		done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "card-copy", "--url", card, "--thread", thread}, Timeout: postTimeout})
 		if err != nil {
-			copies = append(copies, failed("card copy", err))
+			copies = append(copies, failed(cardCopySurface, err))
 			continue
 		}
 		var posted struct {
 			Permalink string `json:"permalink"`
 		}
 		if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
-			copies = append(copies, Outcome{Surface: "card copy", Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
+			copies = append(copies, Outcome{Surface: cardCopySurface, Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
 			continue
 		}
-		copies = append(copies, Outcome{Surface: "card copy", Ref: posted.Permalink})
+		copies = append(copies, Outcome{Surface: cardCopySurface, Ref: posted.Permalink})
 	}
 	return copies
 }
@@ -1102,6 +1106,9 @@ func failed(surface string, err error) Outcome {
 	var exit *shell.ExitError
 	if errors.As(err, &exit) {
 		return Outcome{Surface: surface, Error: fmt.Sprintf("%s %s exited %d: %s", exit.Argv[0], exit.Argv[1], exit.Code, strings.TrimSpace(exit.Stderr))}
+	}
+	if errors.Is(err, exec.ErrNotFound) && surface != cardCopySurface {
+		return Outcome{Surface: surface, Error: err.Error() + resendOnce}
 	}
 	return Outcome{Surface: surface, Error: err.Error()}
 }

@@ -77,6 +77,96 @@ func TestAMissingBinaryIsCode127(t *testing.T) {
 	}
 }
 
+func relinking(t *testing.T) (brew, plugin string) {
+	t.Helper()
+	config := t.TempDir()
+	brew, plugin = t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	t.Setenv("PATH", brew)
+	if err := os.MkdirAll(filepath.Join(plugin, "bin"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(config, "plugins"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	return brew, plugin
+}
+
+func installs(t *testing.T, scope, plugin string) {
+	t.Helper()
+	registry := fmt.Sprintf(`{"version":2,"plugins":{"tool@market":[{"scope":%q,"installPath":%q}]}}`, scope, plugin)
+	if err := os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "plugins", "installed_plugins.json"), []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func script(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+}
+
+func TestAToolMissingForAWindowRunsFromItsPluginThenFromPATHOnceItIsBack(t *testing.T) {
+	brew, plugin := relinking(t)
+	installs(t, "user", plugin)
+	script(t, filepath.Join(plugin, "bin", "tool"), "echo plugin")
+
+	during, err := Exec{}.Run(context.Background(), Command{Argv: []string{"tool"}})
+	if err != nil || during.Stdout != "plugin\n" {
+		t.Fatalf("with the link gone: result %+v, err %v", during, err)
+	}
+	if found, err := LookPath("tool"); err != nil || found != filepath.Join(plugin, "bin", "tool") {
+		t.Fatalf("LookPath with the link gone = %q, %v", found, err)
+	}
+
+	script(t, filepath.Join(brew, "tool"), "echo brew")
+	after, err := Exec{}.Run(context.Background(), Command{Argv: []string{"tool"}})
+	if err != nil || after.Stdout != "brew\n" {
+		t.Fatalf("with the link back: result %+v, err %v", after, err)
+	}
+}
+
+func TestAToolMissingForGoodIsCode127AndSaysToInstallIt(t *testing.T) {
+	_, plugin := relinking(t)
+	installs(t, "user", plugin)
+
+	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"tool"}})
+	if !errors.Is(err, exec.ErrNotFound) || result.Code != CodeMissingBinary || !strings.Contains(err.Error(), "tool is not on PATH and no installed plugin carries it, so install it") {
+		t.Fatalf("code %d, err %v", result.Code, err)
+	}
+	if _, err := LookPath("tool"); !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("LookPath err = %v", err)
+	}
+}
+
+func TestAProjectPinnedPluginCopyDoesNotStandInForAMissingTool(t *testing.T) {
+	_, plugin := relinking(t)
+	installs(t, "project", plugin)
+	script(t, filepath.Join(plugin, "bin", "tool"), "echo pinned")
+
+	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"tool"}})
+	if !errors.Is(err, exec.ErrNotFound) || result.Code != CodeMissingBinary {
+		t.Fatalf("result %+v, err %v", result, err)
+	}
+}
+
+func TestAToolThatRanFromItsPluginAndFailedIsNeverRunAgain(t *testing.T) {
+	_, plugin := relinking(t)
+	installs(t, "user", plugin)
+	ran := filepath.Join(plugin, "ran")
+	script(t, filepath.Join(plugin, "bin", "tool"), "echo once >> "+ran+"\nexit 3")
+
+	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"tool"}})
+	var exit *ExitError
+	if !errors.As(err, &exit) || result.Code != 3 {
+		t.Fatalf("code %d, err %v", result.Code, err)
+	}
+	if said, err := os.ReadFile(ran); err != nil || string(said) != "once\n" {
+		t.Fatalf("ran %q, err %v; want one run", said, err)
+	}
+}
+
 func TestATimeoutIsCode124AndKillsTheCommand(t *testing.T) {
 	started := time.Now()
 	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"sh", "-c", "exec sleep 30"}, Timeout: 100 * time.Millisecond})
