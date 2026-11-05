@@ -277,3 +277,9 @@ def test_a_mirror_rebuilds_the_titles_from_the_rows_it_was_served():
 def test_an_ask_with_no_title_yet_stays_untitled_so_the_page_falls_back():
     asks = {"messages": [{"m": 7, "text": "just arrived"}], "taps": []}
     assert "title" not in titled_asks(asks, None)["messages"][0]
+
+
+def test_a_card_s_architecture_diagram_reaches_the_dashboard_as_its_live_doc():
+    doc = {"arch": 1, "name": "relay", "title": "The relay", "nodes": [{"id": "a", "kind": "service", "name": "A", "role": "sends"}]}
+    part = server.card_part({"id": "relay-diagram", "type": "lr.arch", "title": "The relay", "doc": doc, "picture": "/state/diagrams/relay-diagram.png", "link": "http://mac/#/question/card-relay"}, None)
+    assert part == {"kind": "arch", "id": "relay-diagram", "title": "The relay", "doc": doc}

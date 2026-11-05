@@ -255,20 +255,27 @@ function keepPicked(block, given) {
 function keptWords(id) {
   return ov.kept.get(id)?.card.parts.filter((p) => p.kind === 'choice' && p.answer).map(pickedWords).join('; ');
 }
+let archKit;
+function archFigure(p) {
+  archKit ??= import('/arch-kit/arch-doc.js');
+  return `<figure class="bq-part bq-fig bq-arch"><arch-doc src="data:application/json,${esc(encodeURIComponent(JSON.stringify(p.doc)))}"></arch-doc></figure>`;
+}
 function cardPart(p) {
   if (p.kind === 'page') return p.md ? `<div class="md bq-part">${markdown(p.md)}</div>` : '';
   if (p.kind === 'from') return `<p class="pk-from">From ${inline(plain(p.text))}</p>`;
   if (p.kind === 'record') return `<section class="bq-part bq-bg">${p.title ? `<h4>${esc(p.title)}</h4>` : ''}<dl class="bq-facts">${p.facts.map((f) => `<dt>${esc(f.label)}</dt><dd>${inline(String(f.value))}</dd>`).join('')}</dl></section>`;
+  if (p.kind === 'arch') return archFigure(p);
   if (p.kind === 'image') return `<figure class="bq-part bq-fig"><img src="${esc(p.src)}" alt="${esc(p.alt)}" loading="lazy">${p.alt ? `<figcaption>${esc(p.alt)}</figcaption>` : ''}</figure>`;
   if (p.kind === 'pr') return `<p class="bq-part">${p.repo === state.model.repo ? `<a href="#/review/${esc(p.number)}">${esc(plainTitle(p.number))}</a>` : `<a href="https://github.com/${esc(p.repo)}/pull/${esc(p.number)}" target="_blank" rel="noopener">${esc(p.repo)}#${esc(p.number)} ↗</a>`}</p>`;
   if (p.kind === 'table') return `<div class="tablewrap bq-part"><table><thead><tr>${p.columns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead><tbody>${p.rows.map((row) => `<tr>${p.columns.map((col) => `<td data-h="${esc(col.label)}">${inline(String(row[col.key] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   return '';
 }
+const FIGURE_PARTS = new Set(['image', 'arch']);
 function cardFigures(c) {
-  return (c.parts ?? []).filter((p) => p.kind === 'image').map(cardPart).join('');
+  return (c.parts ?? []).filter((p) => FIGURE_PARTS.has(p.kind)).map(cardPart).join('');
 }
 function explainMore(c, ask = '') {
-  const body = (c.parts ?? []).filter((p) => p.kind !== 'image').map(cardPart).join('');
+  const body = (c.parts ?? []).filter((p) => !FIGURE_PARTS.has(p.kind)).map(cardPart).join('');
   if (!body && !ask) return '';
   const id = `explain-${c.id}`;
   return `<details class="fm-thread pk-more" data-id="${esc(id)}"${state.open.has(id) || (ask && c.thread?.length) ? ' open' : ''}><summary>Explain more</summary><div class="fm-open">${body}${ask}</div></details>`;
