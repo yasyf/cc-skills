@@ -179,20 +179,6 @@ func TestALaneClockSkipsARowThatNeedsNoLane(t *testing.T) {
 	}
 }
 
-func TestAnotherPersonsRowRaisesNoWaitAlarm(t *testing.T) {
-	s := memory(t)
-	f := waitFake(t, s)
-	putRows(t, s, waitingRow(47613, "gone-2", nil))
-	if _, err := s.PutFact(waitRepo, 47613, waitHead, prrow.FactForeign, "a-teammate", t0); err != nil {
-		t.Fatal(err)
-	}
-
-	tick(t, s, f, t0)
-	tick(t, s, f, t0.Add(mins(120)))
-
-	equal(t, len(alarms(f)), 0)
-}
-
 func TestARedClassedInheritedAlarmsRootAtAnHourNamingThePRThatBrokeIt(t *testing.T) {
 	s := memory(t)
 	f := waitFake(t, s)

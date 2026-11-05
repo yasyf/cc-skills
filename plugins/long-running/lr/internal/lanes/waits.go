@@ -69,7 +69,7 @@ func alarmRowWaits(s *store.Store, d Deps, now time.Time) {
 				must(s.PutFact(row.Repo, row.Number, row.Head, clock.fact, "waiting", now))
 				continue
 			}
-			if now.Sub(first) < clock.after || isForeign(read) {
+			if now.Sub(first) < clock.after {
 				continue
 			}
 			subject := fmt.Sprintf("%s#%d at %s", row.Repo, row.Number, row.Head[:min(headShown, len(row.Head))])
@@ -78,10 +78,6 @@ func alarmRowWaits(s *store.Store, d Deps, now time.Time) {
 			}
 		}
 	}
-}
-
-func isForeign(read rowRead) bool {
-	return !read.row.Tapped && must(read.s.Facts(read.row.Repo, read.row.Number, read.row.Head))[prrow.FactForeign] != ""
 }
 
 func onlyAGrade(read rowRead) bool {
