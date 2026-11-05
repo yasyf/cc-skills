@@ -4269,6 +4269,34 @@ func TestAStandingDesksNamedPRsNeverMakeItADuplicateButAnotherLanesBriefStillIs(
 	}
 }
 
+func TestASearchLaneNamingAPRIsNoDuplicateButAFixLaneNamingItStillIs(t *testing.T) {
+	w := newDeskWorld(t)
+	const holder = "dd-331844288-fix"
+	if _, _, err := w.desk.acceptLaunch("R1", holder, launchTarget{Model: "opus", Effort: "high", Brief: w.brief(holder, testBrief)}); err != nil {
+		t.Fatal(err)
+	}
+	w.live(holder, "ctx_f", "term_f")
+	w.write(w.desk.receiptPath(holder, ".worktree"), w.home+"\n")
+	w.add(object{"lane": holder, "kind": "head", "text": "#49387 abc", "refs": object{"prs": []int{49387}}})
+	for name, tt := range map[string]struct {
+		lane, brief string
+		held        bool
+	}{
+		"a search lane": {"ask-lane-2", "ccx: role=reader incident=none\nDid #49387 land?\n", false},
+		"a fix lane":    {"pr-fix-3", "ccx: role=build incident=none\nFixes #49387.\n", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			found, err := w.desk.duplicateHolder(context.Background(), tt.lane, testBrief+tt.brief)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (found != "") != tt.held {
+				t.Fatalf("holder %q, want held=%v", found, tt.held)
+			}
+		})
+	}
+}
+
 const capRefused = " failed terminal create: runtime_error: The host is already running as many terminals as Orca allows. Close a terminal you no longer need, then try again.\n"
 
 func (w *deskWorld) refusedAtTheCap(model, ccx string) string {

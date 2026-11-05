@@ -41,6 +41,7 @@ var (
 	briefWhy        = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+)`)
 	briefNoIncident = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?incident=none(\s|$)`)
 	briefRead       = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=read(?:\s|$)`)
+	briefReader     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=reader(?:\s|$)`)
 	incidentNamed   = regexp.MustCompile(`^(?:incident|outage)-`)
 	fableModel      = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
 	successorLane   = regexp.MustCompile(`^.+-(\d+)$`)
