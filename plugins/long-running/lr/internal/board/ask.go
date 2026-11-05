@@ -100,11 +100,11 @@ func (a Ask) Block(repo string, existing func([]SlackPR) ([]SlackPR, error)) (js
 		children = slices.Insert(children, 0, map[string]any{"id": slug + "-background", "type": "markdown", "md": more})
 	}
 	if a.Diagram != "" {
-		doc, err := os.ReadFile(a.Diagram)
+		diagram, err := diagramChild(slug, a.Diagram)
 		if err != nil {
 			return nil, err
 		}
-		children = append(children, map[string]any{"id": slug + "-diagram", "type": diagramType, "doc": json.RawMessage(doc)})
+		children = append(children, diagram)
 	}
 	shots, err := a.shots(slug)
 	if err != nil {
@@ -294,7 +294,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 
 --by TIME records the clock a card promises him something by, such as a report by 6:40 PM, on the card's row with its lane. The lane cannot retire until a record carries delivered=card:<id>, and when the clock passes first, the lane and owner-relay hear once with what he waits on. A card naming a clock in its words without --by draws with a warning.
 
---diagram FILE puts one architecture doc (arch/v1) on the card, drawn live on his board and dashboard and as its picture on the card in Slack. --port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself. --withdraw ID takes your own card down when its question has gone away. --take-over SEQ redraws a card another lane owns, when record SEQ, posted by another lane, is addressed to yours and names the card's id: your lane owns the card from then on, his answer wakes it, and the board records whom it was taken from.`,
+--diagram FILE puts one architecture doc (arch/v1) on the card, drawn live on his board and dashboard and as its picture on the card in Slack. --port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself; --diagram beside it adds its doc to that card above its choice. --withdraw ID takes your own card down when its question has gone away. --take-over SEQ redraws a card another lane owns, when record SEQ, posted by another lane, is addressed to yours and names the card's id: your lane owns the card from then on, his answer wakes it, and the board records whom it was taken from.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if lane == "" {
@@ -367,10 +367,59 @@ func askedCard(stdin io.Reader, ask Ask, file, repo string, existing func([]Slac
 	if err != nil {
 		return nil, err
 	}
+	if file != "" && ask.Diagram != "" {
+		if block, err = withDiagram(block, ask.Diagram); err != nil {
+			return nil, err
+		}
+	}
 	if lacksBackground(block) {
 		return nil, errors.New("refused: this card carries no background, and he decides from the card alone; pass --background with what happened, what it costs and what each way forward rests on, in plain words")
 	}
 	return block, nil
+}
+
+func diagramChild(slug, path string) (map[string]any, error) {
+	doc, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": slug + "-diagram", "type": diagramType, "doc": json.RawMessage(doc)}, nil
+}
+
+func withDiagram(block json.RawMessage, path string) (json.RawMessage, error) {
+	var card map[string]json.RawMessage
+	if err := json.Unmarshal(block, &card); err != nil {
+		return nil, err
+	}
+	var children []json.RawMessage
+	if raw, found := card["children"]; found {
+		if err := json.Unmarshal(raw, &children); err != nil {
+			return nil, err
+		}
+	}
+	var id string
+	_ = json.Unmarshal(card["id"], &id)
+	child, err := diagramChild(strings.TrimPrefix(id, "card-"), path)
+	if err != nil {
+		return nil, err
+	}
+	diagram, err := json.Marshal(child)
+	if err != nil {
+		return nil, err
+	}
+	at := slices.IndexFunc(children, func(raw json.RawMessage) bool {
+		var kind struct {
+			Type string `json:"type"`
+		}
+		return json.Unmarshal(raw, &kind) == nil && kind.Type == "choice"
+	})
+	if at < 0 {
+		at = len(children)
+	}
+	if card["children"], err = json.Marshal(slices.Insert(children, at, json.RawMessage(diagram))); err != nil {
+		return nil, err
+	}
+	return json.Marshal(card)
 }
 
 func promiseClock(by string, now time.Time) (string, error) {

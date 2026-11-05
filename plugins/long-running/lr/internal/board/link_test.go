@@ -320,6 +320,36 @@ func TestACallWithNoBackgroundIsRefusedAndSaysWhatToAdd(t *testing.T) {
 	}
 }
 
+func TestADiagramBesideAWholeCardIsDrawnOnItAboveItsChoice(t *testing.T) {
+	doc := filepath.Join(t.TempDir(), "arch.json")
+	if err := os.WriteFile(doc, []byte(`{"version":"arch/v1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	whole := `{"id":"card-x","type":"card","title":"Which one?","summary":"Two ways to run it.","children":[{"id":"from","type":"markdown","md":"**From:** New."},{"id":"pick","type":"choice","options":[{"id":"a","label":"A"}]}]}`
+
+	block, err := askedCard(strings.NewReader(whole), Ask{Diagram: doc}, "-", "yasyf/cc-skills", everyPR)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var card struct {
+		Children []struct {
+			ID, Type string
+			Doc      json.RawMessage
+		}
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, child := range card.Children {
+		kinds = append(kinds, child.ID+":"+child.Type)
+	}
+	if got := strings.Join(kinds, " "); got != "from:markdown x-diagram:lr.arch pick:choice" || string(card.Children[1].Doc) != `{"version":"arch/v1"}` {
+		t.Fatalf("children %s, doc %s", got, card.Children[1].Doc)
+	}
+}
+
 func TestACardHeAlreadyAnsweredIsNotDrawnTwice(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)
