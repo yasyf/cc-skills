@@ -24,6 +24,7 @@ var (
 		"fidelity-shard":     deskMedium,
 		"red-sweep":          deskMedium,
 		"board-refresher":    deskMedium,
+		"drive-watchdog":     deskMedium,
 		"grader-appeals":     deskMedium,
 		"meta-desk":          deskMedium,
 		"old-tree-port-desk": deskMedium,

@@ -27,7 +27,7 @@ func TestASuccessorTakesTheDeskTablesCostAndALaneAboveHighDropsToHigh(t *testing
 		{"a desk's first successor reads the same row", store.Lane{Name: "board-refresher", Model: "opus", Effort: "high", Brief: plain}, Cost{"opus", "medium"}},
 		{"a sonnet desk takes its own row", store.Lane{Name: "alerts-desk-3", Model: "sonnet", Effort: "xhigh", Brief: plain}, Cost{"sonnet", "low"}},
 		{"the table beats a pick the brief carried", store.Lane{Name: "red-sweep-4", Model: "opus", Effort: "xhigh", Brief: picked}, Cost{"opus", "medium"}},
-		{"the watchdog stays on what it runs while his pick is open", store.Lane{Name: "drive-watchdog-4", Model: "sonnet", Effort: "low", Brief: plain}, Cost{"sonnet", "low"}},
+		{"the watchdog is an opus desk and reads the table", store.Lane{Name: "drive-watchdog-4", Model: "opus", Effort: "high", Brief: plain}, Cost{"opus", "medium"}},
 		{"a lane above high drops to high", store.Lane{Name: lane2, Model: "opus", Effort: "xhigh", Brief: plain}, Cost{"opus", "high"}},
 		{"max drops too", store.Lane{Name: lane2, Model: "opus", Effort: "max", Brief: plain}, Cost{"opus", "high"}},
 		{"a sonnet lane keeps its model", store.Lane{Name: lane2, Model: "sonnet", Effort: "xhigh", Brief: plain}, Cost{"sonnet", "high"}},
