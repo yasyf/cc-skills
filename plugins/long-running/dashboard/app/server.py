@@ -1887,7 +1887,7 @@ class Drive:
             options = [{"id": option["id"], "label": option["label"], "recommended": bool(option.get("recommended"))} for option in (choice or {}).get("options", []) if not OTHER.match(option["label"])]
             recommended = next((option["label"] for option in options if option["recommended"]), None)
             cards.append({
-                "id": block["id"], "title": picks.context_title(block.get("title", "")), "summary": picks.context_summary(block.get("summary", ""), options), "chips": block.get("chips") or [], "prs": sorted({int(number) for number in taps.PR_NUMBER.findall(json.dumps(block))}),
+                "id": block["id"], "title": picks.context_title(block.get("title", "")), "summary": picks.context_summary(block.get("summary", ""), options), "chips": block.get("chips") or [], "prs": sorted({int(number) for number in taps.PR_NUMBER.findall(json.dumps(block))} | {child["number"] for child in children if child["type"] == "pr"}),
                 "recommended": recommended, "choice": choice and choice["id"], "options": options, "decides": decides,
                 "parts": parts,
                 "thread": self.board_threads.get(block["id"], []),
