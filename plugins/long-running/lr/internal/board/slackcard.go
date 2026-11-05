@@ -108,7 +108,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 }
 
 func offersApproval(row store.ReviewRow) bool {
-	return !row.Tapped && prrow.TapRefusal(row) == ""
+	return !row.Tapped && row.State != prrow.StateExempt && prrow.TapRefusal(row) == ""
 }
 
 func drawnSignature(card SlackCard) string {
@@ -210,7 +210,7 @@ func BugFixes(entry drive.Entry) (string, map[string][]store.ReviewRow, error) {
 	}
 	fixes := map[string][]store.ReviewRow{}
 	for _, row := range rows {
-		if prrow.Terminal(row.State) || row.State == prrow.StateSuperseded || row.State == prrow.StateDraft || row.Tapped || prrow.LandsOnHisWord(row) {
+		if prrow.Terminal(row.State) || row.State == prrow.StateSuperseded || row.State == prrow.StateDraft || row.State == prrow.StateExempt || row.Tapped || prrow.LandsOnHisWord(row) {
 			continue
 		}
 		for _, item := range prrow.Items(row.Description) {

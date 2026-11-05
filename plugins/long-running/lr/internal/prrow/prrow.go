@@ -22,6 +22,7 @@ const (
 	StateOpen       = "open"
 	StateDraft      = "draft"
 	StateTapped     = "tapped"
+	StateExempt     = "exempt"
 	StateQueued     = "queued"
 	StateEvicted    = "evicted"
 	StateLanded     = "landed"
@@ -94,7 +95,7 @@ func Tap(s *store.Store, repo string, number int, head, by string, at time.Time)
 	facts := map[string]string{"tap": string(machine.TapTapped), FactTapBy: by, FactTapAt: store.Stamp(at)}
 	return transition(s, repo, number, head, facts, at, func(row store.ReviewRow) store.ReviewRow {
 		row.Tapped, row.TapRefused, row.TappedAt, row.TappedBy = true, None, store.Stamp(at), by
-		if row.State == StateOpen {
+		if row.State == StateOpen || row.State == StateExempt {
 			row.State = StateTapped
 		}
 		return row
@@ -337,6 +338,11 @@ func planRow(line string, fidelity machine.Fidelity, overridden string) string {
 		said = planOverridden
 	}
 	return strings.TrimSpace(line + " " + said)
+}
+
+func Exempted(row store.ReviewRow, facts map[string]string) bool {
+	_, exempt := facts["exempt"]
+	return exempt && row.AwaitsTap == ""
 }
 
 // LandsOnHisWord reports a row that lands on a standing word of his with no tap.

@@ -305,7 +305,7 @@ func factsOfRow(repo string, row store.ReviewRow, stored map[string]string) (mac
 		f.QueuedHead = row.Head
 	}
 	err := fromStored(&f, stored, row.Lane)
-	if f.Tap == "" && row.Tapped {
+	if f.Tap == "" && (row.Tapped || prrow.Exempted(row, stored)) {
 		f.Tap = machine.TapTapped
 	}
 	return f, err

@@ -1128,7 +1128,7 @@ func TestATapCarriesToANewHeadOnlyWhenItMeansWhatTheTappedHeadMeant(t *testing.T
 
 			row := on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: tc.diff}).snapshot(t)[1]
 
-			if row.TapFrom != head2 || row.CarriedBy != tc.by || row.Tapped() != (tc.by != "") {
+			if row.TapFrom != head2 || row.CarriedBy != tc.by || row.Admitted() != (tc.by != "") {
 				t.Fatalf("tap %q from %q by %q, want from %s by %q", row.Tap, row.TapFrom, row.CarriedBy, head2, tc.by)
 			}
 			if tc.back != "" && row.TapReturned != tc.back {
@@ -1152,7 +1152,7 @@ func TestEachNewHeadIsJudgedAgainstTheHeadHeTappedNeverTheLastCarriedOne(t *test
 	if carried.CarriedBy != gates.ByFidelity {
 		t.Fatalf("first new head carried by %q, want fidelity", carried.CarriedBy)
 	}
-	if next.Tapped() || next.TapFrom != head2 {
+	if next.Admitted() || next.TapFrom != head2 {
 		t.Fatalf("second new head: tap %q from %q, want it judged against %s, so the same diff as the carried head proves nothing", next.Tap, next.TapFrom, head2)
 	}
 }
@@ -1205,7 +1205,7 @@ func TestAStackReplayBelowItCarriesHisTapAndAGoOnlyWhenItsOwnPatchIsTheSame(t *t
 
 			row := h.snapshot(t)[2]
 
-			if row.Tapped() != tc.carries {
+			if row.Admitted() != tc.carries {
 				t.Fatalf("tap %q from %q by %q, exempt %v: want carried %v from %s", row.Tap, row.TapFrom, row.CarriedBy, row.Exempt, tc.carries, head2)
 			}
 			if verdict := machine.Classify(row); (verdict.Action == machine.ActionDequeue) == tc.carries {
@@ -1228,7 +1228,7 @@ func TestRetroRow47ContentPushedOnto45744AfterHisTapGoesBackToHimInsteadOfLandin
 	drawLandable(t, s, 45744, landed45744)
 	row := h.snapshot(t)[45744]
 
-	if row.Tapped() || row.TapFrom != tapped45744[:12] {
+	if row.Admitted() || row.TapFrom != tapped45744[:12] {
 		t.Fatalf("tap %q from %q, want his tap at %s left behind", row.Tap, row.TapFrom, tapped45744[:12])
 	}
 	if verdict := machine.Classify(row); verdict.State != machine.StateAwaitingTap || verdict.Mover != machine.MoverOwner {
@@ -1267,7 +1267,7 @@ func TestRetroRow98ThreeNewHeadsWithNoVerdictAtTheirVersionWaitOnHimWhileTheSame
 	rows := onAll(t, s, after).snapshot(t)
 
 	for _, number := range prs[:3] {
-		if verdict := machine.Classify(rows[number]); rows[number].Tapped() || verdict.Action != machine.ActionTap {
+		if verdict := machine.Classify(rows[number]); rows[number].Admitted() || verdict.Action != machine.ActionTap {
 			t.Fatalf("#%d: tap %q, verdict %+v, want it waiting on his tap", number, rows[number].Tap, verdict)
 		}
 	}
@@ -1567,7 +1567,7 @@ func TestGradesBelongToAHeadSoANewPushStartsUngradedWithItsTapAwaitingProof(t *t
 
 	row := h.snapshot(t)[1]
 
-	if row.Finder != "" || row.Graded() || row.Tapped() || row.TapFrom != head2 {
+	if row.Finder != "" || row.Graded() || row.Admitted() || row.TapFrom != head2 {
 		t.Fatalf("row = %+v", row)
 	}
 }
@@ -1578,7 +1578,7 @@ func TestAConditionalTapIsNotATapAndKeepsItsCondition(t *testing.T) {
 
 	row := h.snapshot(t)[45470]
 
-	if row.Tap != machine.TapConditional || row.Tapped() || row.Condition != "only if the finding is superseded" {
+	if row.Tap != machine.TapConditional || row.Admitted() || row.Condition != "only if the finding is superseded" {
 		t.Fatalf("row = %+v", row)
 	}
 }
@@ -2001,5 +2001,62 @@ func TestAnOldTreePRNoDriveLaneOpenedIsAdmittedOutsideTheRowsAndOwesItsPort(t *t
 	runner.reply = reply(node(50525, head2, "MERGED", steptree))
 	if prs := admitted(2); prs[50525].State != prrow.StateLanded || !strings.HasPrefix(prs[50525].Port, prrow.PortOwed) {
 		t.Fatalf("admitted = %+v, want a new merged head owed again", prs[50525])
+	}
+}
+
+func TestAnExemptHeadLandsAndReadsNotTappedAndAHeadHeTappedReadsTapped(t *testing.T) {
+	graded := func(h harness) {
+		t.Helper()
+		putFact(t, h.store, 1, head, "finder", string(machine.FinderClear), tappedAt)
+		putFact(t, h.store, 1, head, "fidelity", string(machine.FidelityPass), tappedAt)
+	}
+	stored := func(h harness) store.ReviewRow {
+		t.Helper()
+		row, found, err := h.store.ReviewRow(repo, 1)
+		if err != nil || !found {
+			t.Fatalf("row found %v, %v", found, err)
+		}
+		return row
+	}
+
+	exempt := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	graded(exempt)
+	goRecord(t, "root", "go #1 at "+head+" on green [exempt: regression]")
+	admitted := exempt.snapshot(t)[1]
+	if !admitted.Exempt || !admitted.Landable() || machine.Classify(admitted).Action != machine.ActionEnqueue {
+		t.Fatalf("an exempt head does not land: %+v, verdict %+v", admitted, machine.Classify(admitted))
+	}
+	if row := stored(exempt); row.Tapped || row.TappedBy != prrow.NotYet {
+		t.Fatalf("an exempt head reads tapped: %+v", row)
+	}
+
+	tapped := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	graded(tapped)
+	putFact(t, tapped.store, 1, head, "tap", string(machine.TapTapped), tappedAt)
+	if !tapped.snapshot(t)[1].Admitted() {
+		t.Fatal("a head he tapped is not admitted")
+	}
+	if !stored(tapped).Tapped {
+		t.Fatal("a head he tapped does not read tapped")
+	}
+}
+
+func TestAHoldOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	h.source.Reads = false
+	h.source.GoLanes = []string{"landing-desk"}
+	if err := h.store.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: head, ReadHead: head, State: prrow.StateOpen}}); err != nil {
+		t.Fatal(err)
+	}
+	for kind, value := range map[string]string{"read-ci": prrow.CIGreen, "read-approvers": "a", "read-mergeable": string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)} {
+		putFact(t, h.store, 1, head, kind, value, tappedAt)
+	}
+	hold(t, "root", "hold #1 for now", repo+"#1")
+	goRecord(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: owner-pick]")
+
+	row := h.snapshot(t)[1]
+
+	if verdict := machine.Classify(row); verdict.State != machine.StateHeld || verdict.Mover != machine.MoverRoot || verdict.Action != machine.ActionLift {
+		t.Fatalf("verdict = %+v, want root to lift the hold", verdict)
 	}
 }

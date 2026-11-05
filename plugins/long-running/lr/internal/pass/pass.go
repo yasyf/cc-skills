@@ -580,7 +580,7 @@ func stuckHeads(s *store.Store, snapshot []machine.Facts, now time.Time, live []
 	stuck := map[int]string{}
 	for _, f := range snapshot {
 		item, waits := unserved[f.Number]
-		if !waits || item.Head != f.Head || !f.Tapped() || f.Hold != "" {
+		if !waits || item.Head != f.Head || !f.Admitted() || f.Hold != "" {
 			continue
 		}
 		why := fmt.Sprintf("the landing pass reads it as %s: its %s waits on the %s past its deadline, and the %s does not run on the landing host", verdicts[f.Number].State, item.Kind, item.Mover, item.Mover)

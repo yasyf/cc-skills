@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
@@ -185,5 +186,17 @@ func TestAnUnreadWorkstreamListIsOneLineInTheUpdateNotAFailedCollect(t *testing.
 	report := Render(in)
 	if section := sectionOf(t, report.Text, workstreamsTitle); !strings.Contains(section, "- the workstream list is unread, so a workstream may be missing: workstreams.md: header") {
 		t.Fatalf("section = %s", section)
+	}
+}
+
+func TestAnExemptRowSaysExemptAndATappedRowSaysTapped(t *testing.T) {
+	for want, row := range map[string]store.ReviewRow{
+		"exempt": {State: prrow.StateExempt, WaitsOn: "CI is running or not read yet at this head"},
+		"tapped": {Tapped: true},
+		"open":   {WaitsOn: "CI is running or not read yet at this head"},
+	} {
+		if got := prWord(row); got != want {
+			t.Errorf("prWord(%+v) = %q, want %q", row, got, want)
+		}
 	}
 }

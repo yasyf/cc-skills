@@ -95,6 +95,8 @@ func prWord(row store.ReviewRow) string {
 		return "ready for your tap"
 	case row.Tapped:
 		return "tapped"
+	case row.State == prrow.StateExempt:
+		return "exempt"
 	}
 	return "open"
 }

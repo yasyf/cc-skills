@@ -159,9 +159,11 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		}
 		written := f.Now()
 		for number, row := range rows {
-			if !Terminal(row.State) {
+			if Terminal(row.State) {
+				row = withoutExemptTap(row, atHeads[number])
+			} else {
 				row = Materialize(row, atHeads[number], held[number], branches, f.Trunk)
-				if atHeads[number][FactForeign] != "" && !row.Tapped {
+				if atHeads[number][FactForeign] != "" && !row.Tapped && !Exempted(row, atHeads[number]) {
 					delete(rows, number)
 					if err := t.DeleteReviewRow(f.Repo, number); err != nil {
 						return err
@@ -566,10 +568,9 @@ func materialized(row store.ReviewRow, facts map[string]string, held Held, branc
 	row.Hold, row.AwaitsTap = orElse(held.Why, None), held.AwaitsTap
 	row.SupersededBy = orElse(facts[FactWithdrawn], None)
 	row.Parent, row.ParentState = parentOf(row, branches, trunk)
-	_, exempt := facts["exempt"]
 	tappedHere := machine.Tap(facts["tap"]) == machine.TapTapped
 	carried := facts[factCarriedBy] != "" && !tappedHere
-	row.Tapped = (tappedHere || exempt || carried) && held.AwaitsTap == ""
+	row.Tapped = (tappedHere || carried) && held.AwaitsTap == ""
 	row.TappedAt, row.TappedBy = NotYet, NotYet
 	row.TapRefused = orElse(facts[bus.TapRefusedFact], None)
 	if row.Tapped {
@@ -586,7 +587,7 @@ func materialized(row store.ReviewRow, facts map[string]string, held Held, branc
 		return row
 	}
 	row = withStandingWord(row, facts)
-	if row.State == StateTapped && facts[bus.StuckFact] != "" {
+	if (row.State == StateTapped || row.State == StateExempt) && facts[bus.StuckFact] != "" {
 		row.WaitsOn = strings.TrimSuffix(row.WaitsOn, ".") + "; " + clip(facts[bus.StuckFact], fieldChars)
 	}
 	if tappedHere || row.SupersededBy != None {
@@ -595,8 +596,21 @@ func materialized(row store.ReviewRow, facts map[string]string, held Held, branc
 	return withCarry(row, facts)
 }
 
+// TODO: delete once every drive's store has folded once; it clears the landed and closed exempt heads written as tapped, which no later fold rewrites.
+func withoutExemptTap(row store.ReviewRow, facts map[string]string) store.ReviewRow {
+	if _, exempt := facts["exempt"]; !exempt || machine.Tap(facts["tap"]) == machine.TapTapped || facts[factCarriedBy] != "" {
+		return row
+	}
+	row.Tapped, row.TappedAt, row.TappedBy = false, NotYet, NotYet
+	return row
+}
+
 func withStandingWord(row store.ReviewRow, facts map[string]string) store.ReviewRow {
 	if !row.ReadyForTap || row.Tapped {
+		return row
+	}
+	if Exempted(row, facts) {
+		row.ReadyForTap, row.WaitsOn = false, gates.ExemptWaits(facts["exempt"])
 		return row
 	}
 	class, refused := gates.LandsOnWord(facts)
@@ -640,6 +654,8 @@ func stateOf(row store.ReviewRow, facts map[string]string) string {
 		return StateQueued
 	case row.Tapped:
 		return StateTapped
+	case Exempted(row, facts):
+		return StateExempt
 	}
 	return StateOpen
 }

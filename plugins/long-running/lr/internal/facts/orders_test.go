@@ -334,7 +334,7 @@ func TestATapOnARowWhoseStandingRefusesItIsRefusedWithTheReasonAndNeverOrdered(t
 			if attrs := refused[0].Fields.Attrs; attrs["reason"] != c.waits || attrs["head"] != surfaceHead {
 				t.Fatalf("refusal = %+v", refused[0])
 			}
-			if row := h.snapshot(t)[surfacePR]; row.Tapped() || row.TapRefused != c.waits {
+			if row := h.snapshot(t)[surfacePR]; row.Admitted() || row.TapRefused != c.waits {
 				t.Fatalf("row = %+v", row)
 			}
 			if drawn, found, err := h.store.ReviewRow(repo, surfacePR); err != nil || !found || drawn.TapRefused != c.waits {
@@ -397,7 +397,7 @@ func TestHisApprovalOnARowStillWaitingOnACheckIsOrderedAtThatHead(t *testing.T) 
 			if written, refused := orders(t), refusals(t); len(written) != 1 || len(refused) != 0 || !strings.Contains(written[0].Text, surfaceHead[:12]) {
 				t.Fatalf("orders = %+v, refusals = %+v", written, refused)
 			}
-			if row := h.snapshot(t)[surfacePR]; !row.Tapped() {
+			if row := h.snapshot(t)[surfacePR]; !row.Admitted() {
 				t.Fatalf("row = %+v", row)
 			}
 		})
@@ -415,7 +415,7 @@ func TestAnApprovingPickOnAReplyMarksTheRowTappedAtItsHeadAndTheQueueKeepsIt(t *
 	row := h.snapshot(t)[surfacePR]
 	row.Queue, row.QueuedHead = machine.QueueQueued, row.Head
 
-	if !row.Tapped() || row.Head != surfaceHead {
+	if !row.Admitted() || row.Head != surfaceHead {
 		t.Fatalf("row = %+v", row)
 	}
 	if got := machine.Classify(row); got.Action == machine.ActionDequeue {
@@ -433,7 +433,7 @@ func TestATapRefusedWhileHeldDoesNotLandWhenTheRowLaterTurnsReady(t *testing.T) 
 	writeOrders(t, h)
 
 	row := h.snapshot(t)[surfacePR]
-	if written := orders(t); len(written) != 0 || row.Tapped() {
+	if written := orders(t); len(written) != 0 || row.Admitted() {
 		t.Fatalf("orders = %+v, row = %+v", written, row)
 	}
 	if verdict := machine.Classify(row); verdict.Action == machine.ActionEnqueue {
@@ -454,7 +454,7 @@ func TestATapGivenAgainOnceTheRowIsReadyWritesTheOrder(t *testing.T) {
 	if written := orders(t); len(written) != 1 {
 		t.Fatalf("orders = %+v", written)
 	}
-	if row := h.snapshot(t)[surfacePR]; !row.Tapped() {
+	if row := h.snapshot(t)[surfacePR]; !row.Admitted() {
 		t.Fatalf("row = %+v", row)
 	}
 }
@@ -546,7 +546,7 @@ func TestALandableRowIsReadyAfterTheFoldAndATapOnItLands(t *testing.T) {
 	writeOrders(t, h)
 	row := h.snapshot(t)[surfacePR]
 
-	if written := orders(t); len(written) != 1 || !row.Tapped() || row.RowWait != "" || machine.Classify(row).Action != machine.ActionEnqueue {
+	if written := orders(t); len(written) != 1 || !row.Admitted() || row.RowWait != "" || machine.Classify(row).Action != machine.ActionEnqueue {
 		t.Fatalf("orders = %+v, row = %+v, verdict = %+v", written, row, machine.Classify(row))
 	}
 }

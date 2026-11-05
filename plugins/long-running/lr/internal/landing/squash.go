@@ -225,7 +225,7 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 		return nil
 	}
 	number := strconv.Itoa(f.Number)
-	if !rebased && f.Fidelity != machine.FidelityPass && !f.Tapped() {
+	if !rebased && f.Fidelity != machine.FidelityPass && !f.Admitted() {
 		return nil
 	}
 	if f.Hold != "" {

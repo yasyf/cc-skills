@@ -21,6 +21,7 @@ func TestARowAnswersOnlyForItsOwnHeadAndUnknownIsNotReady(t *testing.T) {
 		{"ready", store.ReviewRow{Head: newHead, ReadyForTap: true}, true, "", ""},
 		{"waiting", store.ReviewRow{Head: newHead, WaitsOn: "not graded"}, true, "not graded", ""},
 		{"not ready with no words", store.ReviewRow{Head: newHead}, true, notReadyYet, ""},
+		{"exempt", store.ReviewRow{Head: newHead, WaitsOn: ExemptWaits("regression")}, true, "", ""},
 		{"a short head names the same commit", store.ReviewRow{Head: newHead[:7], ReadyForTap: true}, true, "", ""},
 		{"no head yet", store.ReviewRow{ReadyForTap: true}, true, "its review row is at , not e718a74", "its review row is at , not e718a74"},
 	} {

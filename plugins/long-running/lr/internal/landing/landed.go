@@ -65,7 +65,7 @@ func Announce(ctx context.Context, s *store.Store, drive, trunk string, landings
 }
 
 func warnUnqueued(ctx context.Context, s *store.Store, drive string, f machine.Facts) error {
-	if f.MergedBy == "" || f.MergedBy == queueMerger || f.Tapped() || f.Tap == machine.TapConditional || f.StandingWord != "" {
+	if f.MergedBy == "" || f.MergedBy == queueMerger || f.Admitted() || f.Tap == machine.TapConditional || f.StandingWord != "" {
 		return nil
 	}
 	stored, err := s.Facts(f.Repo, f.Number, f.Head)

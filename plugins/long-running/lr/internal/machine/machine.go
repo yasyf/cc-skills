@@ -212,7 +212,7 @@ func (f Facts) Cleared() bool {
 }
 
 func (f Facts) Ours() bool {
-	return f.Tapped() || f.Lane != "" && f.ForeignAuthor == ""
+	return f.Admitted() || f.Lane != "" && f.ForeignAuthor == ""
 }
 
 func (f Facts) Foreign() bool {
@@ -223,7 +223,7 @@ func (f Facts) Undriven() bool {
 	return f.Draft || !f.Ours()
 }
 
-func (f Facts) Tapped() bool {
+func (f Facts) Admitted() bool {
 	return f.Tap == TapTapped || f.Exempt
 }
 
@@ -240,11 +240,11 @@ func (f Facts) Queued() bool {
 }
 
 func (f Facts) ClearsAbove() bool {
-	return f.Landable() || (f.Queued() && f.Hold == "" && f.Tapped())
+	return f.Landable() || (f.Queued() && f.Hold == "" && f.Admitted())
 }
 
 func (f Facts) Landable() bool {
-	return f.Green() && f.Mergeable == MergeableClean && len(f.Carries) == 0 && f.Cleared() && f.Approved && f.Tapped() && f.Hold == "" && f.UnsafeWait == "" && f.RowClear()
+	return f.Green() && f.Mergeable == MergeableClean && len(f.Carries) == 0 && f.Cleared() && f.Approved && f.Admitted() && f.Hold == "" && f.UnsafeWait == "" && f.RowClear()
 }
 
 type Verdict struct {
@@ -295,13 +295,13 @@ func classify(f Facts) Verdict {
 		if f.Undriven() {
 			return Verdict{StatePushed, MoverNobody, ActionNone, 0}
 		}
-		if f.QueuedHead != f.Head || f.Hold != "" || !f.Tapped() && !f.PersonQueued {
+		if f.QueuedHead != f.Head || f.Hold != "" || !f.Admitted() && !f.PersonQueued {
 			return Verdict{StateAwaitingTap, MoverSupervisor, ActionDequeue, SupervisorClock}
 		}
 		return Verdict{StateQueued, MoverSupervisor, ActionWatchQueue, QueueClock}
 	}
 	if f.Restackable() {
-		if (f.Tapped() || f.Port && !f.Draft) && f.Hold == "" {
+		if (f.Admitted() || f.Port && !f.Draft) && f.Hold == "" {
 			return Verdict{StateNeedsRestack, MoverSupervisor, ActionRestack, SupervisorClock}
 		}
 		return Verdict{StateNeedsRestack, MoverLane, ActionRestack, LaneClock}
@@ -337,7 +337,7 @@ func classify(f Facts) Verdict {
 	if !f.RowClear() {
 		return Verdict{StateNotReady, MoverLane, ActionRowWait, LaneClock}
 	}
-	if !f.Tapped() || f.HoldAwaitsTap {
+	if !f.Admitted() || f.HoldAwaitsTap {
 		return Verdict{StateAwaitingTap, MoverOwner, ActionTap, OwnerClock}
 	}
 	return Verdict{StateReady, MoverSupervisor, ActionEnqueue, SupervisorClock}

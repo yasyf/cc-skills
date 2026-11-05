@@ -26,6 +26,11 @@ func TestAPRWaitsOnHisTapOnlyWhenItsRecordSaysReadyElseItNamesWhatHoldsIt(t *tes
 			line:    "#45583 at e718a74: waits on your tap on the review tab",
 		},
 		{
+			name: "an exempt row he never tapped",
+			rows: map[int]store.ReviewRow{number: {Number: number, Head: head, WaitsOn: "Exempt as regression; the landing desk lands it next."}},
+			line: "#45583 at e718a74: not waiting on you: Exempt as regression; the landing desk lands it next.",
+		},
+		{
 			name: "approved at its head",
 			live: Live{Taps: map[string]Verdict{pr: {verdictApproved, head, "2026-11-02T19:00:00Z"}}},
 			rows: map[int]store.ReviewRow{number: {Number: number, Head: head, Tapped: true}},
