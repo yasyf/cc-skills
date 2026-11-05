@@ -45,7 +45,7 @@ Style of every message to him:
 - Never call `AskUserQuestion`. A pick or an urgent yes/no is a `reply` with `picks`, which reaches his board and his Slack with buttons in the same turn; the Stop hook refuses the reply otherwise.
 - A lane is always named by its alias, such as tap-rows, never tap-rows-1, in every cci `--to`, record, reply card, status line and chat message. A numbered `--to` warns, and `lr reply` rewrites one.
 - When what it relays shows a structural fault, such as PRs queued behind one coordinator decision, bring him the split as an option, not only the symptom.
-- After an hour or more away, the reply opens with the dashboard link, then what changed in a few lines; the full table lives on the dashboard.
+- After an hour or more away, a `reply` opens its `md` with the dashboard link, for his Slack copy, then what changed in a few lines. The dashboard draws its own copy without that link, and text in this window needs none. The full table lives on the dashboard.
 - A question about how far a lane has got is answered from that lane's newest record, `cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes.
 - When he asks whether a failure is the drive's own doing, the first sentence says yes or no and what the bug is, before any status or plan.
 - A read-only question of his, such as what failed, where code does X or what a card meant, is answered within minutes by the subagent the communicator spawns for it, which does the reads itself and never asks a lane. A drive lane is asked only when a change is owed, so an answer never distracts one.

@@ -25,8 +25,8 @@ from .tests.register_fixtures import DRIVE_CONFIG
 
 RETURN_GAP_SECONDS = 60 * 60
 LINK = re.compile(r"https?://\S+")
-RETURNED = "The owner is back after {minutes} minutes away. Open this reply with the dashboard link on its first line, then what changed in a few lines; the full table lives on the dashboard."
-MISSING = "A reply to the owner's return opens with the dashboard link on its first line, and this one does not. Rewrite it with the link first, then what changed in a few lines."
+RETURNED = "The owner is back after {minutes} minutes away. A `reply` opens its `md` with the dashboard link on its first line, for his Slack copy, then what changed in a few lines; the dashboard draws its own copy without that link, text in this window needs none, and the full table lives on the dashboard."
+MISSING = "A `reply` to the owner's return opens its `md` with the dashboard link on its first line, for his Slack copy, and this one does not. Send it again with its id, the link first, then what changed in a few lines."
 LETTERED = re.compile(r"^[ \t>*-]*\(?([A-H])[).:]\**\s|(?<![\w(])\(([A-H])\)\s|(?<![\w(])([A-H])\)\**\s", re.MULTILINE)
 CHOICE = re.compile(
     r"\b(?i:option) \(?[A-H1-9]\b|(?i:\bpick one\b|\bwhich (?:do you want|would you like|do you prefer|one do you)\b)"
@@ -135,8 +135,12 @@ def away(minutes: float) -> list:
     return [CompactionState(active=True, communicator=True), OwnerReturns(prompted_at=time.time() - 60 * minutes)]
 
 
-def back(reply: str, returned: bool = True) -> Input:
-    return Input(transcript=[T.user("where are we"), T.assistant(reply)], state=[CompactionState(active=True, communicator=True), OwnerReturns(returned=returned)], decide=CALM)
+def back(*calls: dict, said: str = "Three PRs merged while you were away.", returned: bool = True) -> Input:
+    return Input(transcript=[T.user("where are we"), *calls, T.assistant(said)], state=[CompactionState(active=True, communicator=True), OwnerReturns(returned=returned)], decide=CALM)
+
+
+def replied(md: str) -> list[dict]:
+    return T.tool_turn(REPLY, result=REPLIED, title="While you were away", md=md)
 
 
 @on(
@@ -324,9 +328,10 @@ def ask_to(*to: str) -> str:
         picked(*T.tool_turn("Bash", result="updated relay-card\nsent: relay-card ts=1793635190.051179 https://brook.slack.com/archives/D0B6Z/p1793635190051179", command="cc-present update-block relay-card --session s --block -")): Allow(),
         picked(*T.tool_turn("Bash", result="updated relay-card", command="cc-present update-block relay-card --block -")): Block(pattern=r"never sits inline"),
         Input(transcript=[T.user("where are we"), T.assistant("Three things landed:\n\n1. The relay fix merged.\n2. The dashboard shows step 2.\n3. CI is green on main.")], state=[CompactionState(active=True, communicator=True)], decide=CALM): Allow(),
-        back("Since you were away, three PRs merged.\n\nhttp://dash.brook.ts.net:8840/"): Block(pattern=r"opens with the dashboard link on its first line"),
-        back("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away."): Allow(),
-        back("Since you were away, three PRs merged.", returned=False): Allow(),
+        back(*replied("Since you were away, three PRs merged.\n\nhttp://dash.brook.ts.net:8840/")): Block(pattern=r"opens its `md` with the dashboard link on its first line, for his Slack copy"),
+        back(*replied("http://dash.brook.ts.net:8840/\n\nThree PRs merged while you were away.")): Allow(),
+        back(*replied("Since you were away, three PRs merged."), returned=False): Allow(),
+        back(said="Since you were away, three PRs merged."): Allow(),
         reminded(): Allow(),
         reminded(posted=(1, "bus down")): Allow(),
         reminded(asks=ask_to("meta", "meta-desk-2", "root")): Allow(),
@@ -362,7 +367,7 @@ def communicator_reply_follows_the_owner_rules(evt: BaseHookEvent) -> HookResult
     if any(hands_off(use) for use in evt.ctx.turn.tool_calls.items):
         return None
     reply = AssistantMessage().content(evt) or ""
-    problems = [problem for problem in (missing_update(evt, reply), inline_pick(evt, reply), file_path(evt, reply), unexplained(evt, reply)) if problem]
+    problems = [problem for problem in (missing_update(evt), inline_pick(evt, reply), file_path(evt, reply), unexplained(evt, reply)) if problem]
     return evt.block(" ".join(problems)) if problems else None
 
 
@@ -592,10 +597,11 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
 )
 
 
-def missing_update(evt: BaseHookEvent, reply: str) -> str | None:
-    if not OwnerReturns.load(evt).returned or LINK.search(reply.split("\n", 1)[0]):
+def missing_update(evt: BaseHookEvent) -> str | None:
+    if not OwnerReturns.load(evt).returned:
         return None
-    return MISSING
+    sent = [use.call.raw.get("md", "") for use in evt.ctx.turn.tool_calls.items if use.call.name == REPLY]
+    return MISSING if sent and not any(LINK.search(md.split("\n", 1)[0]) for md in sent) else None
 
 
 def inline_pick(evt: BaseHookEvent, reply: str) -> str | None:

@@ -53,6 +53,7 @@ What the app serves and how it is guarded:
 ## Proving board and dashboard fixes
 
 - Prove a board or dashboard fix by reading the store the owner's own board reads (the Mac's store), not only the landing host's. Rows fold per host, so a fix read on one host can flip rows on the other.
+- `agent-browser open` with only a changed hash does not reload the page, so a screenshot after an edit shows the old CSS. Open `about:blank` first.
 - A proof on a scratch board or scratch drive can reach real surfaces. A board command that carries a one-question card posts to the owner's Slack, and an unforced `cci --to` resolves lane names across every drive on the machine. Dry-run the push first, use lane names no real lane holds, and report any leak to the meta desk the same turn.
 
 Drawing cards:
