@@ -146,13 +146,37 @@ def test_a_credential_typed_in_a_prompt_is_redacted_in_its_capture(root, token):
     assert [capture["text"] for capture in root.captures()] == ["use [credential redacted] for the flags api, and keep 6e74115 on Release-2026-10-26-owner-capture-redaction as the head"]
 
 
-def test_a_prompt_with_a_paste_captures_his_words_and_takes_the_stamp_of_the_whole_message(root):
-    text = '```\n\n\n<pasted_content id="cca2">\nThis tool\'s input schema was not in your prompt\n</pasted_content id="cca2">\n\n``\n\nkeep the nightly report'
+def test_a_prompt_with_a_paste_captures_his_words_and_the_paste_marked_apart_and_takes_the_stamp_of_the_whole_message(root):
+    body = "This tool's input schema was not in your prompt"
+    text = f'```\n\n\n<pasted_content id="cca2">\n{body}\n</pasted_content id="cca2">\n\n``\n\nkeep the nightly report'
     root.prompt(text)
     root.typed(text, "2026-10-23T11:20:00.000Z")
     root.fire(StopEvent)
 
-    assert root.captures() == [{"digest": digest(text), "at": "2026-10-23T11:20:00Z", "session": SESSION, "source": "prompt", "text": "keep the nightly report"}]
+    assert root.captures() == [
+        {"digest": digest(text), "at": "2026-10-23T11:20:00Z", "session": SESSION, "source": "prompt", "text": "keep the nightly report", "pasted": [{"chars": len(body), "text": body}]}
+    ]
+
+
+def test_a_prompt_of_pure_paste_is_captured_with_no_words_of_his_own(root):
+    body = "179 reports from 3 users since Nov 2 at 7:49 PM"
+    text = f'\n\n<pasted_content id="cca2">\n{body}\n</pasted_content id="cca2">'
+    root.prompt(text)
+    root.typed(text, "2026-10-23T11:20:00.000Z")
+    root.fire(StopEvent)
+
+    assert root.captures() == [
+        {"digest": digest(text), "at": "2026-10-23T11:20:00Z", "session": SESSION, "source": "prompt", "text": "", "pasted": [{"chars": len(body), "text": body}]}
+    ]
+
+
+def test_a_credential_inside_a_paste_is_redacted_in_its_capture(root):
+    text = '<pasted_content id="cca2">\nuse ghp_aB3dE6gH9jK2mN5pQ8sT1vW4yZ7 for it\n</pasted_content id="cca2">\n\nwhy is this red'
+    root.prompt(text)
+    root.typed(text, "2026-10-23T11:20:00.000Z")
+    root.fire(StopEvent)
+
+    assert [block["text"] for block in root.captures()[0]["pasted"]] == ["use [credential redacted] for it"]
 
 
 def test_a_prompt_whose_line_has_not_landed_waits_for_a_later_hook(root):

@@ -18,7 +18,7 @@ from .compaction_handoff import bus_name, ccn, CCN_TIMEOUT_SECONDS, Communicator
 from .owner_facing import REPLY_WINDOW, last_reply
 from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
-from .root_context import DriveActive, OwnerPrompt, message_label, typed_words
+from .root_context import DriveActive, OwnerPrompt, message_label, pasted_blocks, typed_words
 from .tests.register_fixtures import ACTIVE, CWD, DRIVE_CONFIG, ROWS, readings
 from .tests.rulings_consumers import separate
 
@@ -92,10 +92,11 @@ def digest_of(evt: BaseHookEvent) -> str:
 
 @on(
     Event.UserPromptSubmit,
-    only_if=[Communicator(), DriveActive(), OwnerPrompt()],
+    only_if=[Communicator(), DriveActive(), OwnerPrompt(pasted=True)],
     skip_if=[FromSubagent()],
     tests=separate("register_capture.record_owner_prompt", communicator_tests({
         Input(prompt="keep the nightly report", env=DRIVE_CONFIG, state=ACTIVE): Allow(),
+        Input(prompt='<pasted_content id="a1">\nquoted\n</pasted_content id="a1">', env=DRIVE_CONFIG, state=ACTIVE): Allow(),
         Input(prompt="keep the nightly report"): Allow(),
     })),
 )
@@ -103,7 +104,10 @@ def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
         return None
     with PendingPrompts.mutate(evt) as pending:
-        pending.prompts.append({"digest": digest_of(evt), "submitted": datetime.now(UTC).strftime(STAMP), "session": evt.session_id, "source": "prompt", "stamp": evt.user_prompt or "", "text": typed_words(evt.user_prompt or "")})
+        pending.prompts.append(
+            {"digest": digest_of(evt), "submitted": datetime.now(UTC).strftime(STAMP), "session": evt.session_id, "source": "prompt", "stamp": evt.user_prompt or "", "text": typed_words(evt.user_prompt or "")}
+            | ({"pasted": blocks} if (blocks := pasted_blocks(evt.user_prompt or "")) else {})
+        )
     return None
 
 
@@ -306,7 +310,8 @@ def post_owner_reply(evt: BaseHookEvent, dm: dict) -> None:
 
 def capture(prompt: dict) -> dict:
     kept = {key: prompt[key] for key in ("relayed_from", "answer", "ts", "thread", "channel") if key in prompt}
-    return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])} | kept
+    pasted = {"pasted": [{"chars": len(block), "text": CREDENTIAL.sub(REDACTED, block)} for block in prompt["pasted"]]} if "pasted" in prompt else {}
+    return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])} | kept | pasted
 
 
 @on(

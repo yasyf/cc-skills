@@ -305,28 +305,40 @@ def pasted(body: str) -> str:
     return f'<pasted_content id="cca2">\n{body}\n</pasted_content id="cca2">'
 
 
-def test_a_paste_above_his_words_leaves_only_his_words_on_his_row_record_and_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
-    communicator.prompt(f"``\n\n\n{pasted('Tool input schema was not in your prompt')}\n\n```\nthis seems like a bug fix it")
+def test_a_paste_above_his_words_is_marked_as_pasted_beside_his_words_and_stays_out_of_the_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
+    body = "Tool input schema was not in your prompt"
+    marked = f'this seems like a bug fix it [pasted {len(body)} chars: "{body}"]'
+    communicator.prompt(f"``\n\n\n{pasted(body)}\n\n```\nthis seems like a bug fix it")
 
     [row] = communicator.rows()
-    assert "this seems like a bug fix it" in row and "schema" not in row
-    assert bus.posts() == [owner_record("m1", "this seems like a bug fix it")]
+    assert marked in row
+    assert bus.posts() == [owner_record("m1", marked)]
     [answer] = notes.added
     assert next(flag for flag in answer if flag.startswith("--body=")).startswith("--body=this seems like a bug fix it\n\nOwner, ")
 
 
-def test_his_words_after_a_paste_with_no_fence_still_open_a_row(communicator: Window, bus: Bus) -> None:
-    communicator.prompt(f"{pasted('The chat was not an old-build chat')}\n\nnone of this makes sense")
+def test_his_words_after_a_paste_with_no_fence_open_a_row_marked_as_pasted(communicator: Window, bus: Bus) -> None:
+    body = "The chat was not an old-build chat"
+    communicator.prompt(f"{pasted(body)}\n\nnone of this makes sense")
 
-    assert bus.posts() == [owner_record("m1", "none of this makes sense")]
+    assert bus.posts() == [owner_record("m1", f'none of this makes sense [pasted {len(body)} chars: "{body}"]')]
 
 
-def test_a_paste_with_nothing_typed_writes_no_row_and_no_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
-    communicator.prompt(f"```\n\n\n{pasted('Your three messages are all in motion')}\n\n```\n")
+def test_a_paste_with_nothing_typed_opens_one_row_that_says_so_and_registers_no_answer(communicator: Window, bus: Bus, notes: Notes) -> None:
+    body = "Your three messages are all in motion"
+    marked = f'[pasted {len(body)} chars, no words of his own: "{body}"]'
+    communicator.prompt(f"```\n\n\n{pasted(body)}\n\n```\n")
 
-    assert not communicator.ledger.exists()
-    assert bus.posts() == []
+    [row] = communicator.rows()
+    assert marked in row and row.endswith("| open |")
+    assert bus.posts() == [owner_record("m1", marked)]
     assert notes.added == []
+
+
+def test_the_mark_shows_only_the_opening_of_a_long_paste(communicator: Window, bus: Bus) -> None:
+    communicator.prompt(f"{pasted('y' * 200)}\n\nwhy is this red")
+
+    assert bus.posts() == [owner_record("m1", f'why is this red [pasted 200 chars: "{"y" * 50}"]')]
 
 
 def test_a_stalled_ccn_never_holds_the_owner_prompt(communicator: Window, bus: Bus, monkeypatch: pytest.MonkeyPatch) -> None:
