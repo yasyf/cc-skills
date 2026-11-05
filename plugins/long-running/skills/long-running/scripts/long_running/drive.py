@@ -575,6 +575,9 @@ def cmd_record(args: argparse.Namespace, shell: ledger.Shell) -> int:
             return 1
         if args.opened:
             shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "opened", "--pr", spec["pr"], "--text", f"opened #{spec['pr']}"])
+        if spec["head"]:
+            ref = f"{entry['repo']}#{spec['pr']}"
+            shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "head", "--id", f"row-head:{ref}:{spec['head']}:", "--head", f"{ref}={spec['head']}", "--pr", ref, "--text", f"#{spec['pr']} at {spec['head'][:9]}"])
     return 0
 
 

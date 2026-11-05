@@ -261,17 +261,19 @@ def test_orca_run_prints_the_run_of_the_session_drive(repo, monkeypatch, capsys)
 
 
 def test_a_lane_in_the_root_session_records_its_pr_with_its_head(repo, capsys):
-    started(repo)
+    started(repo, "--cci-drive", DRIVE)
     shell = FakeShell()
 
     assert record(shell, repo, "--session", ROOT_SESSION, "--lane", "deploy-experience", "--pr", f"Forge-AI/monorepo#28534={HEAD}") == 0
 
     assert shell.fields("28534") == {"lane": "deploy-experience", "registered": "deploy-experience", "registered_head": HEAD}
+    head = next(call for call in shell.calls if call[:2] == ["cci", "post"] and "head" in call)
+    assert head[head.index("--head") + 1] == f"Forge-AI/monorepo#28534={HEAD}"
     assert capsys.readouterr().out.splitlines()[-1] == "registered deploy-experience #28534"
 
 
 def test_recording_the_same_head_twice_writes_once_and_a_repush_moves_only_the_head(repo):
-    started(repo)
+    started(repo, "--cci-drive", DRIVE)
     shell = FakeShell()
     argv = ["--session", ROOT_SESSION, "--lane", "deploy-experience"]
 
@@ -303,7 +305,7 @@ def test_a_codex_worker_records_its_pr_and_posts_it_opened_under_its_lane(repo):
     assert record(shell, repo, "--session", WORKER_SESSION, "--drive", "900424b6", "--lane", "inc-unrun-fix", "--opened", "--pr", f"40359={HEAD}") == 0
 
     assert shell.fields("40359") == {"lane": "inc-unrun-fix", "registered": "inc-unrun-fix", "registered_head": HEAD}
-    assert [(post["lane"], post["kind"], post["text"]) for post in shell.cci] == [("inc-unrun-fix", "opened", "opened #40359")]
+    assert [(post["lane"], post["kind"], post["text"]) for post in shell.cci] == [("inc-unrun-fix", "opened", "opened #40359"), ("inc-unrun-fix", "head", f"#40359 at {HEAD[:9]}")]
 
 
 @pytest.mark.parametrize(
