@@ -256,7 +256,7 @@ func TestADeferredPublishPostsNoBlockerAndTheNextCheckRetriesWithNoNewRecord(t *
 	check(t0)
 	f.published = nil
 	f.notes = map[string]error{lane2: fmt.Errorf("ccn sync on Sprite %s: %w", notesSprite, ErrNotesDeferred)}
-	f.feed = append(f.feed, rec(2, lane2, "handoff", t0, "handoff in ccn a24d471", Root))
+	f.feed = append(f.feed, rec(2, lane2, "report", t0, "handoff in ccn a24d471", Root))
 	f.peers = []Row{who(lane2, true, t0)}
 
 	tick(t, s, f, t0.Add(mins(1)))
