@@ -612,6 +612,7 @@ const NOISE = [
   [/\bowner table\s+[0-9a-f]{6,}\b/gi, ''],
   [/(?<!card:)\bcard-[a-z0-9-]+\b/g, 'the card'],
   [/\bcci \d+\b/g, ''],
+  [/\s*\(?\b(?:task|ctx)_[0-9a-f]{12}\b\)?/g, ''],
   [/#+\d{6}\b|#\d{3}xxx\b/g, ''],
   [/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g, ''],
   [/(?<!pr:[\w./-]*)\b[\w.-]+(?:\/[\w.-]+)?#\d+\b/g, 'a tooling change'],
