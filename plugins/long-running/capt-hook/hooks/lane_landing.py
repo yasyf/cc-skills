@@ -8,7 +8,7 @@ from functools import partial
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, TranscriptFixture, Warn, Word, on
-from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
+from captain_hook.annotations import dispatch_pairs, dispatch_prompt, header_lines
 from captain_hook.bindings import Resolved
 from captain_hook.util import reqenv
 
@@ -48,6 +48,9 @@ READY_TEXT = re.compile(r"^\W*READY\b")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
 SPRITE_ENV = DRIVE_ENV | {"CLAUDE_CONFIG_DIR": str(FIXTURES / "sprite-config")}
+SPRITE_MONOREPO_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "e1f2a3b4", "CLAUDE_CONFIG_DIR": str(FIXTURES / "sprite-config")}
+SPRITE_HOST = "sprite"
+BRIEF_POINTER = re.compile(r"^Lane [\w.-]+: read the whole brief at (?P<path>/\S+?), verify its SHA-256 ")
 MONOREPO = "forge-ai/monorepo"
 MONOREPO_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "5c0e81aa", "CLAUDE_CONFIG_DIR": str(FIXTURES / "gate5-config")}
 LANDING_ENV = {LANDING_REPO_ENV: "Forge-AI/monorepo"}
@@ -113,6 +116,10 @@ HAND_LANDING_REFUSAL = (
     "A hand landing needs the owner's tap at its head, and the runner's read finds none on the heads below. "
     "Ask him for it with a board card at that head, or report the PR with `ledger.py report` for the runner to land."
 )
+SPRITE_LANDING_REFUSAL = (
+    "A hand landing needs the owner's tap at its head, and this Sprite cannot read it: the drive's `lr.json` is not at `{config}`. "
+    "Report the PR with `ledger.py report` for the runner to land it."
+)
 QUEUE_UNTESTED = "QUEUE-UNTESTED"
 HAND_MERGE_UNTESTED = (
     "Warning, nothing was blocked: A merge outside the queue lands untested, and the queue has not passed these heads: {lines}. "
@@ -131,6 +138,11 @@ INCIDENT_REFUSAL = (
 
 def sliced_brief(lane: str, step: str) -> TranscriptFixture:
     return TranscriptFixture([{"type": "user", "message": {"role": "user", "content": f"Fix the failing runs.\nRegister slice: lane={lane} step={step}\nslice-hash: c97262b93f65"}}])
+
+
+def sprite_dispatch(lane: str, brief: str) -> TranscriptFixture:
+    task = f"Lane {lane}: read the whole brief at {FIXTURES / 'briefs' / brief}, verify its SHA-256 is 0123456789abcdef and its size is 64 bytes, then follow it exactly."
+    return TranscriptFixture([{"type": "user", "message": {"role": "user", "content": f"You are a dispatched worker.\n\n```sh\n  orca orchestration ask --from worker\n```\n\n=== TASK ===\n{task}"}}])
 
 
 @dataclass(frozen=True)
@@ -196,11 +208,18 @@ def lane_name(evt: BaseHookEvent) -> str | None:
 
 
 def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
-    return bool(INCIDENT_NAME.match(lane)) or bool(lane) and (session_annotations(evt).get("incident") not in (None, NOT_AN_INCIDENT) or incident_fix_slice(evt, lane))
+    return bool(INCIDENT_NAME.match(lane)) or bool(lane) and incident_brief(lane_brief(evt), lane)
 
 
-def incident_fix_slice(evt: BaseHookEvent, lane: str) -> bool:
-    return lane.endswith("-fix") and INCIDENT_SLICE.format(lane=lane) in header_lines(dispatch_prompt(evt))
+def incident_brief(brief: str, lane: str) -> bool:
+    return dict(dispatch_pairs(brief)).get("incident") not in (None, NOT_AN_INCIDENT) or lane.endswith("-fix") and INCIDENT_SLICE.format(lane=lane) in header_lines(brief)
+
+
+def lane_brief(evt: BaseHookEvent) -> str:
+    """The session's brief: its dispatch prompt, or the brief file that prompt points at, as a Sprite worker's does."""
+    prompt = dispatch_prompt(evt)
+    pointed = next((Path(found["path"]) for line in header_lines(prompt) if (found := BRIEF_POINTER.match(line))), None)
+    return pointed.read_text() if pointed and pointed.is_file() else prompt
 
 
 def named_repos(call: Call) -> tuple[str, ...] | None:
@@ -422,6 +441,9 @@ def landing_verb(call: Call) -> str | None:
         landing(command='gh pr merge "$2" -R "yasyf/$1" --squash --admin', agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: This hook could not tell whether `gh pr merge` lands on the landing desk's repo"),
         landing(command='cd "$D" && gh pr merge 81 --squash --admin', agent_id=LANE, state=ACTIVE): Warn(pattern=r"could not tell whether `gh pr merge`"),
         landing(command='gh pr merge "$2" -R "yasyf/$1" --squash', agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        Input(command=f"{PINNED_MERGE} -R o/r", env=SPRITE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "sentry-1-fix"}, transcript=sprite_dispatch("sentry-1-fix", "sprite-incident-fix.md")): Allow(),
+        Input(command=f"{PINNED_MERGE} -R o/r --admin", env=SPRITE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "sentry-1-fix"}, transcript=sprite_dispatch("sentry-1-fix", "sprite-incident-fix.md")): Warn(pattern=r"lane `sentry-1-fix` may not run `gh pr merge --admin`"),
+        Input(command=f"{PINNED_MERGE} -R o/r", env=SPRITE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}, transcript=sprite_dispatch("lane-a", "sprite-lane.md")): Warn(pattern=r"lane `lane-a` may not run `gh pr merge`"),
     },
 )
 def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
@@ -526,6 +548,26 @@ def gate_failure(done: subprocess.CompletedProcess[str] | None) -> str | None:
         Input(command="gh api -X PUT repos/Forge-AI/monorepo/pulls/44811/merge", agent_id=FIX_LANE, env=MONOREPO_ENV, transcript=sliced_brief("inc-fixruns-fix", "incident"), commands={MONOREPO_GATE: UNTESTED}): Allow(),
         Input(command="gh pr merge 44811 -R Forge-AI/monorepo --squash", agent_id=FIX_LANE, env=MONOREPO_ENV, transcript=sliced_brief("inc-fixruns-fix", "incident"), commands={MONOREPO_GATE: UNTESTED}): Allow(),
         Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", agent_id="adesk-runner-0123456789abcdef", env=MONOREPO_ENV, commands={MONOREPO_GATE: UNTESTED}): Allow(),
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", env=SPRITE_MONOREPO_ENV | {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}, transcript=sprite_dispatch("lane-a", "sprite-lane.md")): Block(
+            pattern=r"^A hand landing needs the owner's tap at its head, and this Sprite cannot read it: the drive's `lr\.json` is not at `/home/sprite/\.claude/scratch/durable-agents-rebuild/lr\.json`\. Report the PR"
+        ),
+        Input(
+            command="stack-enqueue 7",
+            cwd="/home/sprite/monorepo",
+            env=SPRITE_MONOREPO_ENV | {"CLAUDE_LONG_RUNNING_LANE": "sentry-1-fix"},
+            transcript=sprite_dispatch("sentry-1-fix", "sprite-incident-fix.md"),
+            commands={"git -C /home/sprite/monorepo rev-parse": "/home/sprite/monorepo/.git\n"},
+        ): Block(pattern=r"this Sprite cannot read it"),
+        Input(
+            command="stack-enqueue 7 --dequeue",
+            cwd="/home/sprite/monorepo",
+            env=SPRITE_MONOREPO_ENV | {"CLAUDE_LONG_RUNNING_LANE": "lane-a"},
+            transcript=sprite_dispatch("lane-a", "sprite-lane.md"),
+            commands={"git -C /home/sprite/monorepo rev-parse": "/home/sprite/monorepo/.git\n"},
+        ): Allow(),
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", env=SPRITE_MONOREPO_ENV | {"CLAUDE_LONG_RUNNING_LANE": "sentry-1-fix"}, transcript=sprite_dispatch("sentry-1-fix", "missing.md")): Block(pattern=r"this Sprite cannot read it"),
+        Input(command="gh pr merge 7 -R Forge-AI/monorepo --squash", env=SPRITE_MONOREPO_ENV | {"CLAUDE_LONG_RUNNING_LANE": "sentry-1-fix"}, transcript=sprite_dispatch("sentry-1-fix", "sprite-incident-fix.md")): Allow(),
+        Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash --admin", env=SPRITE_MONOREPO_ENV | {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}, transcript=sprite_dispatch("lane-a", "sprite-lane.md")): Allow(),
     },
 )
 def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | None:
@@ -535,7 +577,8 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
     incident = incident_lane(evt, lane)
     monorepo = entry["repo"].casefold() == MONOREPO
     blocking = monorepo and not lander
-    config = str(Path(entry["state_dir"]) / "lr.json")
+    config = Path(entry["state_dir"]) / "lr.json"
+    storeless = blocking and entry.get("host") == SPRITE_HOST and not config.is_file()
     untapped: list[str] = []
     untested: list[str] = []
     failing: list[str] = []
@@ -546,6 +589,8 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
             continue
         if verb != "stack-enqueue" and (lander or not monorepo or incident and (verb in MERGERS or verb == API_MERGE)):
             continue
+        if storeless and (verb != "stack-enqueue" or gate_args(call)):
+            return evt.block(SPRITE_LANDING_REFUSAL.format(config=config))
         if unknown_dir(evt, call):
             unread.append(f"`{verb}` runs after a `cd` this hook cannot follow")
             continue
@@ -555,7 +600,7 @@ def hand_landings_meet_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
             continue
         if not args:
             continue
-        done = run_quietly(["lr", "landing", "gate", "--config", config, *args], cwd)
+        done = run_quietly(["lr", "landing", "gate", "--config", str(config), *args], cwd)
         if failure := gate_failure(done):
             unread.append(failure)
             continue

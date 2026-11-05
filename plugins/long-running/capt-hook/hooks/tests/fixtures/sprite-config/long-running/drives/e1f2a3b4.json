@@ -1,0 +1,11 @@
+{
+  "drive": "e1f2a3b4",
+  "cci_drive": "durable-agents-rebuild",
+  "program": "durable-agents-rebuild",
+  "repo": "Forge-AI/monorepo",
+  "git_common_dir": "/home/sprite/monorepo/.git",
+  "checkout": "/home/sprite/monorepo",
+  "state_dir": "/home/sprite/.claude/scratch/durable-agents-rebuild",
+  "sessions": [],
+  "host": "sprite"
+}
