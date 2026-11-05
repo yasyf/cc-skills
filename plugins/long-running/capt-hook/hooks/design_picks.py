@@ -7,7 +7,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 
 from .compaction_handoff import Bound, bus_name, drive_entry
 from .gate5_release import LR
-from .lane_landing import DRIVE_ENV, incident_lane, lane_name
+from .lane_landing import DRIVE_ENV, SPRITE_ENV, incident_lane, lane_name
 from .owner_quotes import bodies
 from .pr_body_frozen import PR_EDIT, SHIP
 from .release_cards import Unread, read
@@ -29,6 +29,7 @@ CARDS = f"{LR} board cards paths"
 STORAGE = json.dumps({"card-journal-storage": ["go/sand/internal/cloudrunner/journal", "infra/rows/cloudrunner"]})
 REPO = {"git rev-parse --show-toplevel": "/w\n", CARDS: STORAGE}
 JOURNAL = REPO | {"git diff": "diff --git a/go/sand/internal/cloudrunner/journal/evict.go b/go/sand/internal/cloudrunner/journal/evict.go\n+func evictFinished() {}\n"}
+SPRITE_JOURNAL = {command: said for command, said in JOURNAL.items() if command != CARDS} | {f"{CARDS} --drive release-v3": STORAGE}
 ROWS_PVC = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b/infra/rows/executor/template.ts\n-  storage: '5Gi', reclaimPolicy: 'Retain',\n+  storage: '5Gi', reclaimPolicy: 'Delete',\n"}
 ROWS_SCRATCH = REPO | {"git diff": "diff --git a/infra/rows/llm-gateway.ts b/infra/rows/llm-gateway.ts\n+  volumes: [{ name: 'tmp', emptyDir: {} }],\n+  volumeMounts: [{ name: 'tmp', mountPath: '/tmp' }],\n"}
 ROWS_CLAIM = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b/infra/rows/executor/template.ts\n+  volumeClaimTemplates: [{ metadata: { name: 'data' } }],\n"}
@@ -71,6 +72,7 @@ def design_cards(evt: BaseHookEvent) -> dict[str, list[str]]:
     tests={
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=JOURNAL): Block(pattern=r"^This PR waits for the owner's pick, since only the incident fix[\s\S]*`go/sand/internal/cloudrunner/journal/evict\.go` under card `card-journal-storage`"),
         Input(cwd="/w", command=PICKED, env=LANE_ENV, commands=JOURNAL): Allow(),
+        Input(cwd="/w", command=SHIP_IT, env=SPRITE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}, commands=SPRITE_JOURNAL): Block(pattern=r"`go/sand/internal/cloudrunner/journal/evict\.go` under card `card-journal-storage`"),
         Input(cwd="/w", command=SHIP_IT, env=DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "incident-journal-disk"}, commands=JOURNAL): Warn(pattern=r"^Warning, nothing was refused: this incident lane's PR goes ahead"),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE): Allow(),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_PVC | {CARDS: "{}"}): Block(pattern=r"`infra/rows/executor/template\.ts` changes where data lives or how long it is kept"),

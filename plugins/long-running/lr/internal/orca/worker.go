@@ -2,6 +2,7 @@ package orca
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -46,12 +48,15 @@ const (
 	beforeWorker      = "before-worker.sh"
 	notesRefs         = "+refs/cc-notes/*:refs/cc-notes/*"
 	notesReceipt      = "notes.log"
+	driveReceipt      = "drive-entry.log"
+	spriteHost        = "sprite"
 	workerAwake       = "worker-awake"
 	holdReceipt       = "awake.log"
 	holdTimeout       = time.Minute
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
 	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN; exec git -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f' -C "$1" fetch --quiet origin "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
+	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
 	seedStore         = `cci relay export --drive "$1" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-seed.gz" -- sh -c 'sprite-env services create store-seed --cmd sh --args "-c,$HOME/.local/bin/cci relay seed --drive $1 < /tmp/store-seed.gz; rm /tmp/store-seed.gz; sprite-env services delete store-seed" --no-stream' sh "$1"; rm -f "$3"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
@@ -662,6 +667,37 @@ func (w *workerLaunch) fetchNotes(workspace string) error {
 	return w.receipt(notesReceipt, said)
 }
 
+func (w *workerLaunch) carryDrive(workspace string) error {
+	entry := currentDriveEntry(w.Env)
+	if entry == nil {
+		entry = driveOfRun(w.Env, w.run)
+	}
+	if entry == nil {
+		return nil
+	}
+	carried, err := json.Marshal(drive.Entry{
+		Drive:    entry.Drive,
+		CCIDrive: cmp.Or(entry.CCIDrive, filepath.Base(entry.StateDir)),
+		Program:  cmp.Or(entry.Program, filepath.Base(entry.StateDir)),
+		Ledger:   entry.Ledger,
+		Repo:     entry.Repo,
+		Checkout: w.worktree,
+		Sessions: entry.Sessions,
+		Parent:   entry.Parent,
+		Host:     spriteHost,
+	})
+	if err != nil {
+		return err
+	}
+	written, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", writeDriveEntry, "sh", w.worktree, entry.Drive}, Stdin: string(carried)})
+	said := written.Stdout + written.Stderr
+	if err != nil {
+		said += err.Error() + "\n"
+		fmt.Fprintf(w.Stderr, "warning: Sprite %s holds no entry for drive %s, so lane %s runs without the drive's hooks; %s keeps the output\n", workspace, entry.Drive, w.lane, filepath.Join(w.attempt, driveReceipt))
+	}
+	return w.receipt(driveReceipt, said)
+}
+
 func (w *workerLaunch) seedDesk(workspace string) error {
 	drive := driveName(w.Env, w.run)
 	if drive == "" {
@@ -749,6 +785,9 @@ func (w *workerLaunch) startSprite() (string, error) {
 	}
 	w.worktree, _ = textOf(task["projectRoot"])
 	if err := w.fetchNotes(workspace); err != nil {
+		return "", err
+	}
+	if err := w.carryDrive(workspace); err != nil {
 		return "", err
 	}
 	sponsor := w.Env(sponsorEnv)

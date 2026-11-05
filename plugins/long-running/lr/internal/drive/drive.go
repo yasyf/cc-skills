@@ -41,6 +41,7 @@ type Entry struct {
 	Reason       string            `json:"reason,omitempty"`
 	Facts        map[string]string `json:"facts,omitempty"`
 	Pinned       []Pin             `json:"pinned_rows,omitempty"`
+	Host         string            `json:"host,omitempty"`
 }
 
 func (e Entry) Bus() string {
