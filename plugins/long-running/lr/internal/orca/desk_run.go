@@ -373,17 +373,19 @@ func (d *Desk) Rebind(ctx context.Context) error {
 		return err
 	}
 	used := d.call(ctx, orchestration, "run-use", "--id", d.Config.Run)
-	if !used.OK {
-		fmt.Fprintf(d.Stderr, "lr relay rebind: orca orchestration run-use failed: %s\n", used.Refusal())
-		return &wait.ExitError{Code: 1}
-	}
 	state, err := d.readBinding(ctx)
 	if err != nil {
 		return err
 	}
-	if !state.Bound {
+	switch {
+	case !state.Bound && !used.OK:
+		fmt.Fprintf(d.Stderr, "lr relay rebind: orca orchestration run-use failed: %s\n", used.Refusal())
+		return &wait.ExitError{Code: 1}
+	case !state.Bound:
 		fmt.Fprintln(d.Stderr, d.unboundText(state))
 		return &wait.ExitError{Code: 1}
+	case !used.OK:
+		fmt.Fprintf(d.Stderr, "lr relay rebind: orca orchestration run-use refused (%s); terminal %s already coordinates %s, so launches start from it\n", used.Refusal(), state.Terminal, d.Config.Run)
 	}
 	return nil
 }
