@@ -1341,10 +1341,7 @@ func (s Source) factsOf(row statusRow, pr pullRequest, required []string, stored
 }
 
 func fromStored(f *machine.Facts, stored map[string]string, owner string) error {
-	f.Lane = stored["lane"]
-	if f.Lane == "" {
-		f.Lane = owner
-	}
+	f.Lane = cmp.Or(owner, stored["lane"])
 	resubmitted, err := atoiOrZero(stored["resubmitted"])
 	if err != nil {
 		return fmt.Errorf("#%d resubmitted: %w", f.Number, err)

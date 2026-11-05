@@ -113,6 +113,10 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 	if err != nil {
 		return nil, err
 	}
+	owned, err := f.Store.Owners()
+	if err != nil {
+		return nil, err
+	}
 	var out []store.ReviewRow
 	err = f.Store.Update(func(t *store.Tx) error {
 		if err := t.Advance(store.ReviewRowsCursor, 0); err != nil {
@@ -162,6 +166,14 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 			}
 			if err := t.Advance(store.PullRequestsCursor, record.Seq); err != nil {
 				return err
+			}
+		}
+		for lane, numbers := range owned {
+			for _, number := range numbers {
+				if row, known := rows[number]; known {
+					row.Lane = lane
+					rows[number] = row
+				}
 			}
 		}
 		if err := t.PutReviewRows(values(rows)); err != nil {
