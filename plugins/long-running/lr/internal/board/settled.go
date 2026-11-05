@@ -283,7 +283,7 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage) (re
 	return nil, errors.Join(failed...)
 }
 
-func (c Cards) UnnamedSet(ctx context.Context, judge Judge, card json.RawMessage) string {
+func (c Cards) Lacks(ctx context.Context, judge Judge, card json.RawMessage) string {
 	id, title, asks := asksTitle(card)
 	if !asks {
 		return ""
@@ -292,11 +292,11 @@ func (c Cards) UnnamedSet(ctx context.Context, judge Judge, card json.RawMessage
 	if err != nil || slices.ContainsFunc(open, func(ask OpenAsk) bool { return ask.ID == id && sameText(ask.Title, title) }) {
 		return ""
 	}
-	named, err := judge(ctx, setOptionsKind, drawnForHim, string(card))
-	if err != nil || verdictOf(named) != "yes" {
+	lacking, err := judge(ctx, setOptionsKind, drawnForHim, string(card))
+	if err != nil || verdictOf(lacking) != "yes" {
 		return ""
 	}
-	return "an option acts on a set this card does not name: " + named.Sentence
+	return "this card leaves out what he needs to pick: " + lacking.Sentence
 }
 
 func (c Cards) SettledByHim(ctx context.Context, judge Judge, open []OpenCard) (map[string]*Settling, error) {

@@ -862,7 +862,7 @@ func setOptionsJudge(verdict string, failure error, read *string) Judge {
 func TestACardWhoseOptionActsOnASetItDoesNotNameWarnsSayingWhatToList(t *testing.T) {
 	cards, _, _ := settledBoard(t, nil)
 	var read string
-	warned := cards.UnnamedSet(context.Background(), setOptionsJudge("yes", nil, &read), json.RawMessage(pendingBugsCard))
+	warned := cards.Lacks(context.Background(), setOptionsJudge("yes", nil, &read), json.RawMessage(pendingBugsCard))
 	if !strings.Contains(warned, "Name each of the four ready fixes") {
 		t.Fatalf("warned %q; want it to say what to list", warned)
 	}
@@ -880,7 +880,7 @@ func TestACardNamingItsWholeSetDrawsWithNoWarning(t *testing.T) {
 	cards, _, _ := settledBoard(t, nil)
 	var read string
 	block := json.RawMessage(`{"id":"card-relay-fixes","type":"card","title":"Land the two relay fixes tonight?","summary":"[#50123](https://github.com/Forge-AI/monorepo/pull/50123) stops a dropped reply when a chat reconnects. [#50124](https://github.com/Forge-AI/monorepo/pull/50124) shows the retry button again.","children":[{"id":"pick","type":"choice","options":[{"id":"a","label":"Land both"},{"id":"b","label":"Hold both"}]}]}`)
-	if warned := cards.UnnamedSet(context.Background(), setOptionsJudge("no", nil, &read), block); warned != "" || read == "" {
+	if warned := cards.Lacks(context.Background(), setOptionsJudge("no", nil, &read), block); warned != "" || read == "" {
 		t.Fatalf("warned %q after the judge read %q; want it judged and silent", warned, read)
 	}
 }
@@ -888,7 +888,7 @@ func TestACardNamingItsWholeSetDrawsWithNoWarning(t *testing.T) {
 func TestACardDrawsSilentlyWhenTheJudgeOfItsSetIsDown(t *testing.T) {
 	cards, _, _ := settledBoard(t, nil)
 	var read string
-	if warned := cards.UnnamedSet(context.Background(), setOptionsJudge("", errors.New("claude: overloaded"), &read), json.RawMessage(pendingBugsCard)); warned != "" || read == "" {
+	if warned := cards.Lacks(context.Background(), setOptionsJudge("", errors.New("claude: overloaded"), &read), json.RawMessage(pendingBugsCard)); warned != "" || read == "" {
 		t.Fatalf("warned %q after the judge read %q; want it asked and silent", warned, read)
 	}
 }
