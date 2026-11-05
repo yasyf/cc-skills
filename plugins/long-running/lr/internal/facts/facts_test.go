@@ -32,6 +32,9 @@ const (
 	head  = "e718a7434fa01ee9835f992a9a647a825350732c"
 	head2 = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
 	head3 = "ab0de038c1100e5c66e9ad3b21b1b8bb1b1ad0bb"
+
+	manyPRs  = 100
+	pageSize = 25
 )
 
 type recordedPR struct {
@@ -482,7 +485,7 @@ func checkRun(name, conclusion string, suite, id int64, started string) map[stri
 
 func TestABoardReadAsksGitHubOncePerPageOfRowsWhateverThePRCount(t *testing.T) {
 	calls := map[int]int{}
-	for _, n := range []int{1, 1000} {
+	for _, n := range []int{1, manyPRs} {
 		prs := make([]recordedPR, 0, n)
 		for i := 1; i <= n; i++ {
 			prs = append(prs, recordedPR{number: i, head: fmt.Sprintf("%040x", i), login: "drive-bot", merge: "MERGEABLE", decision: "APPROVED", checks: []map[string]any{{"__typename": "StatusContext", "context": "buildkite/test", "state": "SUCCESS"}}})
@@ -504,8 +507,8 @@ func TestABoardReadAsksGitHubOncePerPageOfRowsWhateverThePRCount(t *testing.T) {
 		}
 		calls[n] = len(h.runner.Calls())
 	}
-	if calls[1] != 2 || calls[1000] != 41 {
-		t.Fatalf("command runs at 1 and 1,000 PRs = %d, %d, want 2 and 41: one rules read and one query per page of 25", calls[1], calls[1000])
+	if calls[1] != 2 || calls[manyPRs] != 1+manyPRs/pageSize {
+		t.Fatalf("command runs at 1 and %d PRs = %d, %d, want 2 and %d: one rules read and one query per page of %d", manyPRs, calls[1], calls[manyPRs], 1+manyPRs/pageSize, pageSize)
 	}
 }
 
@@ -724,7 +727,7 @@ func TestADraftIsReadAsADraft(t *testing.T) {
 
 func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
 	calls := map[int]int{}
-	for _, n := range []int{1, 1000} {
+	for _, n := range []int{1, manyPRs} {
 		prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
 		for i := 1; i <= n; i++ {
 			sha := fmt.Sprintf("%040x", i)
@@ -739,14 +742,14 @@ func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
 
 		calls[n] = len(h.runner.Calls())
 	}
-	if calls[1] != 4 || calls[1000] != 4+39 {
-		t.Fatalf("command runs at 1 and 1,000 PRs = %d, %d, want 4 and 43: one status read, one rules read, one search, one read per page of 25", calls[1], calls[1000])
+	if calls[1] != 4 || calls[manyPRs] != 3+manyPRs/pageSize {
+		t.Fatalf("command runs at 1 and %d PRs = %d, %d, want 4 and %d: one status read, one rules read, one search, one read per page of %d", manyPRs, calls[1], calls[manyPRs], 3+manyPRs/pageSize, pageSize)
 	}
 }
 
 func TestADevMoveAddsOneRecordAndNoGitHubCallsAtAnyRowCount(t *testing.T) {
 	calls := map[string]int{}
-	for _, n := range []int{1, 1000} {
+	for _, n := range []int{1, manyPRs} {
 		for _, moved := range []bool{false, true} {
 			prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
 			for i := 1; i <= n; i++ {
@@ -780,14 +783,14 @@ func TestADevMoveAddsOneRecordAndNoGitHubCallsAtAnyRowCount(t *testing.T) {
 			calls[fmt.Sprintf("%d %v", n, moved)] = len(h.runner.Calls())
 		}
 	}
-	if calls["1 true"] != calls["1 false"] || calls["1000 true"] != calls["1000 false"] {
-		t.Fatalf("command runs = %v, want a dev move to add no GitHub call at 1 and 1,000 PRs", calls)
+	if calls["1 true"] != calls["1 false"] || calls[fmt.Sprintf("%d true", manyPRs)] != calls[fmt.Sprintf("%d false", manyPRs)] {
+		t.Fatalf("command runs = %v, want a dev move to add no GitHub call at 1 and %d PRs", calls, manyPRs)
 	}
 }
 
 func TestAHostWithoutTheLandingMoverReadsADevMoveOncePerPageAndNamesItsConflicts(t *testing.T) {
 	added := map[int]int{}
-	for _, n := range []int{1, 1000} {
+	for _, n := range []int{1, manyPRs} {
 		calls := map[bool]int{}
 		for _, moved := range []bool{false, true} {
 			prs := make([]recordedPR, 0, n)
@@ -829,14 +832,14 @@ func TestAHostWithoutTheLandingMoverReadsADevMoveOncePerPageAndNamesItsConflicts
 		}
 		added[n] = calls[true] - calls[false]
 	}
-	if added[1] != 1 || added[1000] != 40 {
-		t.Fatalf("a dev move added %d and %d command runs at 1 and 1,000 PRs, want 1 and 40: one mergeable read per page of 25", added[1], added[1000])
+	if added[1] != 1 || added[manyPRs] != manyPRs/pageSize {
+		t.Fatalf("a dev move added %d and %d command runs at 1 and %d PRs, want 1 and %d: one mergeable read per page of %d", added[1], added[manyPRs], manyPRs, manyPRs/pageSize, pageSize)
 	}
 }
 
 func TestEachLandingsMergerRidesThePageThePassAlreadyReads(t *testing.T) {
 	calls := map[string]int{}
-	for _, n := range []int{1, 1000} {
+	for _, n := range []int{1, manyPRs} {
 		for _, state := range []string{"OPEN", "MERGED"} {
 			prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
 			for i := 1; i <= n; i++ {
@@ -865,8 +868,8 @@ func TestEachLandingsMergerRidesThePageThePassAlreadyReads(t *testing.T) {
 			calls[fmt.Sprintf("%d %s", n, state)] = len(h.runner.Calls())
 		}
 	}
-	if calls["1 MERGED"] != calls["1 OPEN"] || calls["1000 MERGED"] != calls["1000 OPEN"] {
-		t.Fatalf("command runs = %v, want the merged pass to cost what the open pass does at 1 and 1,000 PRs, its merger read on the member page", calls)
+	if calls["1 MERGED"] != calls["1 OPEN"] || calls[fmt.Sprintf("%d MERGED", manyPRs)] != calls[fmt.Sprintf("%d OPEN", manyPRs)] {
+		t.Fatalf("command runs = %v, want the merged pass to cost what the open pass does at 1 and %d PRs, its merger read on the member page", calls, manyPRs)
 	}
 }
 
@@ -2209,7 +2212,7 @@ func TestAFidelityGradeBehindTheCursorReachesTheStoreOnceAndFillsOnlyAHole(t *te
 }
 
 func TestANewHoldReadsOnlyTheHeldAndQueuedPRsHoweverManyRowsExist(t *testing.T) {
-	for _, rows := range []int{1, 1000} {
+	for _, rows := range []int{1, manyPRs} {
 		h := newHarness(t, []recordedPR{{number: 7, head: head, login: "drive-bot"}, {number: 9, head: head2, login: "drive-bot"}},
 			status(7, func(row *statusRow) { row.Queue = "queued" }), status(9, func(row *statusRow) { row.Queue = "queued"; row.Head = head2 }))
 		seeded := make([]store.ReviewRow, 0, rows+2)
