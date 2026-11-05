@@ -48,6 +48,7 @@ var (
 	pacificZone  = mustZone("America/Los_Angeles")
 	ErrUnsettled = errors.New("a launch has no runner verdict")
 
+	stageLine       = regexp.MustCompile(`^STAGE (R\d+(?:@\w+)?) ([\w.-]+): (.+)$`)
 	verdictLine     = regexp.MustCompile(`^(LAUNCHED|LAUNCH-FAILED|LAUNCH-DUPLICATE|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(R\d+(?:@\w+)?) ([\w.-]+): `)
 	rootLines       = regexp.MustCompile(`(?m)^Root:.*\n`)
 	alertLine       = regexp.MustCompile(`(?m)^Alert:.*$`)
@@ -248,17 +249,24 @@ type settledLaunch struct {
 	label, text string
 }
 
-func (d DeskLaunch) wait(ctx context.Context, drive string, since int64, lanes map[string]string) (map[string]settledLaunch, error) {
+func (d DeskLaunch) wait(ctx context.Context, drive string, since int64, lanes map[string]string) (map[string]settledLaunch, map[string]*LaunchStage, error) {
 	settled := map[string]settledLaunch{}
+	stages := map[string]*LaunchStage{}
+	began := d.Now()
 	deadline := time.Now().Add(d.Timeout)
 	for len(settled) < len(lanes) && time.Now().Before(deadline) {
 		records, err := d.Bus.Tail(ctx, client.Query{Drive: drive, After: since})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, record := range records {
 			since = max(since, record.Seq)
 			if record.Lane != deskRunner {
+				continue
+			}
+			if stage, found := StageOf(record, began); found && lanes[stage.Key] == stage.Lane {
+				fmt.Fprintln(d.Out, stage)
+				stages[stage.Key] = &stage
 				continue
 			}
 			match := verdictLine.FindStringSubmatch(record.Text)
@@ -275,11 +283,40 @@ func (d DeskLaunch) wait(ctx context.Context, drive string, since int64, lanes m
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-time.After(d.Poll):
 		}
 	}
-	return settled, nil
+	return settled, stages, nil
+}
+
+type LaunchStage struct {
+	Key, Lane, Text string
+	Seconds         int
+}
+
+func StageText(key, lane, stage string) string {
+	return fmt.Sprintf("STAGE %s %s: %s", key, lane, stage)
+}
+
+func StageOf(record client.Record, posted time.Time) (LaunchStage, bool) {
+	match := stageLine.FindStringSubmatch(record.Text)
+	if match == nil {
+		return LaunchStage{}, false
+	}
+	return LaunchStage{Key: match[1], Lane: match[2], Text: match[3], Seconds: int(record.At.Sub(posted).Seconds())}, true
+}
+
+func (s LaunchStage) String() string {
+	return fmt.Sprintf("%s %s at %d s: %s", s.Lane, s.Key, s.Seconds, s.Text)
+}
+
+func StageWait(lane, key, drive string, last *LaunchStage) string {
+	read := fmt.Sprintf("read its next with `cci state --drive %s --lane %s --topic %s`", drive, deskRunner, key)
+	if last == nil {
+		return fmt.Sprintf("%s %s has reached no stage, so the runner has not started it; %s", lane, key, read)
+	}
+	return fmt.Sprintf("%s %s is waiting on the stage after %s, reached at %d s; %s", lane, key, last.Text, last.Seconds, read)
 }
 
 func (d DeskLaunch) Run(ctx context.Context) error {
@@ -327,14 +364,14 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 			first = stored.Seq
 		}
 	}
-	settled, err := d.wait(ctx, drive, first-1, keys)
+	settled, stages, err := d.wait(ctx, drive, first-1, keys)
 	if err != nil {
 		return err
 	}
-	return d.outcome(ctx, drive, keys, settled)
+	return d.outcome(ctx, drive, keys, settled, stages)
 }
 
-func (d DeskLaunch) outcome(ctx context.Context, drive string, keys map[string]string, settled map[string]settledLaunch) error {
+func (d DeskLaunch) outcome(ctx context.Context, drive string, keys map[string]string, settled map[string]settledLaunch, stages map[string]*LaunchStage) error {
 	fault := ""
 	if len(settled) < len(keys) {
 		var err error
@@ -348,6 +385,7 @@ func (d DeskLaunch) outcome(ctx context.Context, drive string, keys map[string]s
 		}
 		if fault == "" {
 			fmt.Fprintf(d.Out, "%s %s posted with no verdict after %.0fs; the orca runner is alive, so its verdict arrives as a %s record\n", keys[key], key, d.Timeout.Seconds(), deskRunner)
+			fmt.Fprintln(d.Out, StageWait(keys[key], key, drive, stages[key]))
 			continue
 		}
 		fmt.Fprintf(d.Out, "%s %s unsettled after %.0fs: %s; check it with `cci tail --drive %s --lane %s --kind state --topic orca -n 1`\n", keys[key], key, d.Timeout.Seconds(), fault, drive, deskRunner)

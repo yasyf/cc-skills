@@ -76,6 +76,7 @@ type WorkerStarter struct {
 	Sleep  func(time.Duration)
 	Stderr io.Writer
 	Spawn  func(argv []string, log string, env []string) (Process, error)
+	Bus    Bus
 }
 
 type workerLaunch struct {
@@ -88,6 +89,7 @@ type workerLaunch struct {
 	pins                                          spritePins
 	terminal, worktree                            string
 	bytes                                         int
+	stages                                        launchStages
 }
 
 type workerRequest struct {
@@ -134,7 +136,7 @@ func given(value string) *string {
 }
 
 func (s *WorkerStarter) Run(ctx context.Context, lane, model, effort, brief string) (string, error) {
-	w := &workerLaunch{WorkerStarter: s, ctx: ctx, lane: lane, effort: effort, brief: brief}
+	w := &workerLaunch{WorkerStarter: s, ctx: ctx, lane: lane, effort: effort, brief: brief, stages: stagesOf(s.Env, s.Bus, lane, s.Stderr)}
 	return w.start(model)
 }
 
@@ -591,7 +593,12 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 	if mcp := w.Env("WORKER_MCP_CONFIG"); mcp != "" {
 		argv = append(argv, "--mcp-config", mcp)
 	}
-	result, err := w.Runner.Run(w.ctx, shell.Command{Argv: argv, Env: []string{"CC_REMOTE_CONFIG=" + w.config}})
+	progress := &lineWriter{line: func(line string) {
+		if stage := prepareStage(line); stage != "" {
+			w.stages.say(w.ctx, stage)
+		}
+	}}
+	result, err := w.Runner.Run(w.ctx, shell.Command{Argv: argv, Env: []string{"CC_REMOTE_CONFIG=" + w.config}, Stderr: progress})
 	code := 0
 	if err != nil {
 		code = max(result.Code, 1)
@@ -766,12 +773,14 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 }
 
 func (w *workerLaunch) startSprite() (string, error) {
+	w.stages.say(w.ctx, "preparing a Sprite")
 	allocation, err := w.prepareSprite()
 	if err != nil {
 		return "", err
 	}
 	workspace, _ := textOf(allocation["workspace"])
 	task := table(allocation["task"])
+	w.stages.say(w.ctx, "copying the brief's files and cc-notes to "+workspace)
 	if err := w.copyCarried(workspace); err != nil {
 		return "", err
 	}
@@ -791,6 +800,7 @@ func (w *workerLaunch) startSprite() (string, error) {
 		return "", err
 	}
 	sponsor := w.Env(sponsorEnv)
+	w.stages.say(w.ctx, "joining the cci relay on "+workspace)
 	log, joinErr := w.join(workspace, sponsor)
 	if err := w.receipt(joinReceipt, log); err != nil {
 		return "", err
@@ -817,7 +827,8 @@ func (w *workerLaunch) startSprite() (string, error) {
 	path, _ := textOf(table(task["brief"])["path"])
 	environment, _ := textOf(task["environment"])
 	worktreeID, _ := textOf(task["worktreeId"])
-	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s", w.lane, path, w.sha, w.bytes, spriteBuildkite, desk, noPR, read)
+	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s", w.lane, path, w.sha, w.bytes, spritePreamble, spriteBuildkite, desk, noPR, read)
+	w.stages.say(w.ctx, "starting the worker on "+workspace)
 	taskID, dispatch, err := w.startWorker(spec, "--on", environment, "--worktree", "id:"+worktreeID, "--terminal", w.terminal)
 	if err != nil {
 		return "", err
