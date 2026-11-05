@@ -64,7 +64,7 @@ func (t Trunk) Dequeue(ctx context.Context, number int) (string, error) {
 	return t.call(ctx, strconv.Itoa(number), "--dequeue")
 }
 
-func (t Trunk) LastFailure(ctx context.Context, number int) (Failure, error) {
+func (t Trunk) LastFailure(ctx context.Context, number int, since time.Time) (Failure, error) {
 	out, err := t.read(ctx, "history", strconv.Itoa(number))
 	if err != nil {
 		return Failure{}, err
@@ -74,6 +74,16 @@ func (t Trunk) LastFailure(ctx context.Context, number int) (Failure, error) {
 		return Failure{}, fmt.Errorf("#%d queue history: %w", number, err)
 	}
 	failure := failureOf(history)
+	if failure.State == "" {
+		return Failure{}, nil
+	}
+	ended, err := time.Parse(time.RFC3339, failure.At)
+	if err != nil {
+		return Failure{}, fmt.Errorf("#%d queue history at %q: %w", number, failure.At, err)
+	}
+	if ended.Before(since) {
+		return Failure{}, nil
+	}
 	if failure.Run != "" {
 		if failure.MatesFailed, err = t.matesFailed(ctx, number, failure.Run); err != nil {
 			return failure, err

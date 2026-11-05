@@ -27,7 +27,7 @@ type Queue interface {
 	Enqueue(ctx context.Context, number int, head string) (string, error)
 	Reenter(ctx context.Context, number int) (string, error)
 	Dequeue(ctx context.Context, number int) (string, error)
-	LastFailure(ctx context.Context, number int) (Failure, error)
+	LastFailure(ctx context.Context, number int, since time.Time) (Failure, error)
 	States(ctx context.Context, numbers []int) (map[int]QueueEntry, error)
 }
 
