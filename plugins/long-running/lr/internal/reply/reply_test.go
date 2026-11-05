@@ -2058,3 +2058,42 @@ func TestAnApprovingPickTheCardCannotTieToOnePRAtOneHeadWarnsOnTheCardAndInTheRe
 		})
 	}
 }
+
+func TestAnApprovingPickTiedToOnePRCarriesThatPRAndHeadToTheCard(t *testing.T) {
+	for name, tc := range map[string]struct {
+		prs      []string
+		approves bool
+	}{
+		"one PR with a row": {[]string{landPR}, true},
+		"a PR with no row":  {[]string{"https://github.com/yasyf/cc-skills/pull/2197"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := scripted()
+			f := fanout(t, fake)
+			ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
+			r, _ := Reply{ID: "r1", Title: "Land it?", MD: "Checks passed.", Picks: []string{"Approve, land it :: It lands.", "Hold :: It waits."}, Recommended: "Approve, land it", PRs: tc.prs}.mended()
+			r, _ = f.withPRCards(context.Background(), r)
+			f.Send(context.Background(), r)
+			var card struct {
+				Children []struct {
+					Options []map[string]any `json:"options"`
+				} `json:"children"`
+			}
+			if err := json.Unmarshal([]byte(calls(fake, "cc-present")[0].Stdin), &card); err != nil {
+				t.Fatal(err)
+			}
+			var options []map[string]any
+			for _, child := range card.Children {
+				options = append(options, child.Options...)
+			}
+			want := map[string]any{"repo": "yasyf/cc-skills", "number": float64(2196), "head": "e718a7434fa01ee9835f992a9a647a825350732c"}
+			got, carried := options[0]["approves"]
+			if carried != tc.approves || carried && !reflect.DeepEqual(got, want) {
+				t.Fatalf("approving option = %+v, want approves %v", options[0], tc.approves)
+			}
+			if _, held := options[1]["approves"]; held {
+				t.Fatalf("hold option = %+v, want no approves", options[1])
+			}
+		})
+	}
+}

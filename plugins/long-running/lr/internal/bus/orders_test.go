@@ -52,3 +52,29 @@ func TestALabelLessPickEscalatesUnlessItIsASlackPermissionAnswer(t *testing.T) {
 		}
 	}
 }
+
+func TestAPickOfAnOptionThatApprovesAPROrdersItByThatFieldWhateverItsLabelSays(t *testing.T) {
+	for _, tt := range []struct {
+		name, text, approves string
+		pr                   int
+		head                 string
+		ordered              bool
+	}{
+		{"a label that reads as landing", "Land #7? (c): picked “Land it”", repo + "#7=ABC1234", 7, "abc1234", true},
+		{"a label that does not", "Port of #6: ship? (c): picked “Keep it as it is”", repo + "#7=abc1234", 7, "abc1234", true},
+		{"a label that reads as holding", "Land #7? (c): picked “Hold it”", repo + "#7=abc1234", 7, "abc1234", true},
+		{"another repository's PR", "Land #7? (c): picked “Land it”", "other/repo#7=abc1234", 0, "", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			attrs := map[string]string{"event": "choice.selected", "picked": "c-1", "approves": tt.approves}
+			record := legacyRecord(t, "owner", "board-watch", tt.text, nil, attrs)
+			got, ordered := bus.OrderOf(record, repo)
+			if ordered != tt.ordered || ordered && (got.PR != tt.pr || got.Head != tt.head || got.Value != "tapped") {
+				t.Fatalf("OrderOf = %+v, %v", got, ordered)
+			}
+			if bus.UnreadPick(record) {
+				t.Fatal("a pick naming what it approves read as unlabeled")
+			}
+		})
+	}
+}

@@ -139,6 +139,10 @@ func OrderOf(record client.Record, repo string) (Tap, bool) {
 		value, known := rowValues[attrs["verdict"]]
 		return Tap{PR: row, Head: strings.ToLower(attrs["head"]), By: OwnerBy, Value: value}, known
 	}
+	if approves := attrs["approves"]; approves != "" {
+		number, head, named := cardPR(approves, record.Text, repo)
+		return Tap{PR: number, Head: head, By: OwnerBy, Value: tappedValue}, named
+	}
 	value := cardValue(attrs, record.Text)
 	if value == "" {
 		return Tap{}, false
@@ -150,7 +154,7 @@ func OrderOf(record client.Record, repo string) (Tap, bool) {
 // UnreadPick says a pick was recorded with option ids and no label, so no one can tell a land pick from any other. A Slack permission card asks whether to post, so its pick never lands a PR.
 func UnreadPick(record client.Record) bool {
 	attrs := record.Fields.Attrs
-	return string(record.Kind) == ownerKind && attrs["event"] == "choice.selected" && attrs["picked"] != "" && !pickedLabel.MatchString(record.Text) && !slackAsk.MatchString(attrs["block"])
+	return string(record.Kind) == ownerKind && attrs["event"] == "choice.selected" && attrs["picked"] != "" && attrs["approves"] == "" && !pickedLabel.MatchString(record.Text) && !slackAsk.MatchString(attrs["block"])
 }
 
 // UnnamedLand says a pick reads as a land or hold order but its card names no one PR, so no order can come from it.
