@@ -326,6 +326,12 @@ func (o Owner) Announce(ctx context.Context, n Notice) error {
 	return fmt.Errorf("the owner's Slack DM did not get %s, and a blocker to root says so: %w", n.Link, err)
 }
 
+type unsent struct{ Owner }
+
+func (unsent) Announce(context.Context, Notice) error {
+	return nil
+}
+
 func (o Owner) Failed(ctx context.Context, topic string, cause error) error {
 	desk, err := o.Desk()
 	if err != nil {
@@ -453,6 +459,7 @@ func publisher(cmd *cobra.Command, a *app.App, cfg config.Config) (Checkout, Tai
 
 func Command(a *app.App) *cobra.Command {
 	var from string
+	var noSend bool
 	cmd := &cobra.Command{
 		Use:   "explain <topic>",
 		Short: "Write a one-pager on a topic into this machine's design-docs explainers branch, host it on the tailnet, and send its link to the owner",
@@ -470,7 +477,11 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			link, err := Explain(cmd.Context(), checkout, host, owner, args[0], source, a.Now())
+			var announcer Announcer = owner
+			if noSend {
+				announcer = unsent{owner}
+			}
+			link, err := Explain(cmd.Context(), checkout, host, announcer, args[0], source, a.Now())
 			if link != "" {
 				fmt.Fprintln(cmd.OutOrStdout(), link)
 			}
@@ -478,6 +489,7 @@ func Command(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&from, "from", "", "a markdown file, or a cci record such as #359589 whose text or body is markdown")
+	cmd.Flags().BoolVar(&noSend, "no-send", false, "write and host the page and print its link, with no Slack card to the owner and no record to owner-relay")
 	_ = cmd.MarkFlagRequired("from")
 	cmd.AddCommand(redesignCommand(a))
 	var dir, addr string

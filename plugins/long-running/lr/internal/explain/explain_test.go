@@ -106,6 +106,31 @@ func TestExplainCommitsAKitOnePagerWithItsDiagramOnTheExplainersBranchAndAnnounc
 	}
 }
 
+func TestANoSendExplainHostsThePageAndPrintsItsLinkWithNoSlackCallAndNoRecord(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "explainers")
+	runner := &shelltest.Fake{}
+	runner.Reply("?? one-pagers/lane-resume/index.html\n", "git", "-C", dir, "status")
+	runner.Reply("", "git")
+	runner.Reply(`{"ok": true}`, "cc-slack", "dm-status")
+	sent := &posts{}
+	owner := Owner{Runner: runner, Post: sent.Post, Desk: func() (string, error) { return "meta-desk-3", nil }, Drive: "d1", Lane: "inbox-outbox-design-1"}
+
+	link, err := Explain(context.Background(), Checkout{Runner: runner, Remote: "https://github.com/acme/design-docs.git", Dir: dir}, &host{}, unsent{owner}, "Lane resume", []byte(sample), time.Date(2026, 11, 5, 17, 20, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if link != "https://mac.tail1.ts.net:8665/one-pagers/lane-resume/" {
+		t.Fatalf("link %q", link)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "one-pagers", "lane-resume", "index.html")); err != nil {
+		t.Fatal(err)
+	}
+	if ran(runner.Calls(), "cc-slack") || len(sent.drafts) != 0 {
+		t.Fatalf("a no-send explain messaged: calls %v, posted %+v", runner.Calls(), sent.drafts)
+	}
+}
+
 func TestTheCheckoutLivesUnderTheConfiguredWorktreeRootAndOtherwiseUnderClaudesOwn(t *testing.T) {
 	const want = "https://github.com/acme/design-docs.git"
 	for _, tc := range []struct {
