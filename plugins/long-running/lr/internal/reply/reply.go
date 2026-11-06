@@ -89,6 +89,7 @@ var (
 	describes  = regexp.MustCompile(`(?i)\b(?:refus\w*|buttons?)\b`)
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 	repoName   = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
+	namedBlock = regexp.MustCompile(`block "([^"]+)"`)
 	notBranch  = regexp.MustCompile(`^$|^[-/.]|[/.]$|^@$|[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|//|/\.|\.lock(?:/|$)`)
 )
 
@@ -1169,15 +1170,39 @@ func (f Fanout) thread(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	if err := talkboard.Fit(ctx, f.Runner, f.Entry, id, block); err != nil {
 		return []Outcome{failed("talk", err)}
 	}
-	if _, err := f.Runner.Run(ctx, shell.Command{
-		Argv:    []string{"cc-present", "update-block", "-", "--session", talkboard.Session(f.Entry), "--round", "current"},
-		Stdin:   string(block),
-		Dir:     f.Entry.Checkout,
-		Timeout: postTimeout,
-	}); err != nil {
-		return []Outcome{failed("talk", err)}
+	talked := Outcome{Surface: "talk", Ref: id}
+	var left []string
+	for {
+		_, err := f.Runner.Run(ctx, shell.Command{
+			Argv:    []string{"cc-present", "update-block", "-", "--session", talkboard.Session(f.Entry), "--round", "current"},
+			Stdin:   string(block),
+			Dir:     f.Entry.Checkout,
+			Timeout: postTimeout,
+		})
+		if err == nil {
+			return []Outcome{talked}
+		}
+		var exit *shell.ExitError
+		if !errors.As(err, &exit) {
+			return []Outcome{failed("talk", err)}
+		}
+		var refused []string
+		for _, named := range namedBlock.FindAllStringSubmatch(exit.Stderr, -1) {
+			if slices.ContainsFunc(children[1:], func(c map[string]any) bool { return c["id"] == named[1] }) {
+				refused = append(refused, named[1])
+			}
+		}
+		if len(refused) == 0 {
+			return []Outcome{failed("talk", err)}
+		}
+		left = append(left, refused...)
+		talked.Warning = fmt.Sprintf("Talk shows this reply without %s, which cc-present refused: %s", strings.Join(left, ", "), strings.TrimSpace(exit.Stderr))
+		children = slices.DeleteFunc(children, func(c map[string]any) bool { return slices.Contains(refused, c["id"].(string)) })
+		card["children"] = children
+		if block, err = json.Marshal(card); err != nil {
+			return []Outcome{{Surface: "talk", Error: err.Error()}}
+		}
 	}
-	return []Outcome{{Surface: "talk", Ref: id}}
 }
 
 func (f Fanout) anchor(id string) string {
