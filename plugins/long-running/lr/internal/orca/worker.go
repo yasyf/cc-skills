@@ -70,6 +70,7 @@ var (
 	fullCommit       = regexp.MustCompile(`\A[0-9a-f]{40}([0-9a-f]{24})?\z`)
 	orcaIdent        = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z`)
 	briefTool        = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
+	geminiRoute      = regexp.MustCompile(`(?m)^([ \t>]*(?:[-*+] |\d+\. )?).*\bgemini -m\b.*$`)
 	toolsMissingLine = regexp.MustCompile(`(?m)^missing:(.*)$`)
 	modelAliases     = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
 )
@@ -452,6 +453,7 @@ func (w *workerLaunch) carryBrief() error {
 		carrier.Drive = ccDrive(entry)
 	}
 	rewritten, left := carrier.Carry(w.ctx, string(raw))
+	rewritten = geminiRoute.ReplaceAllString(rewritten, "${1}Hand long-form copy, such as docs, retros, plans and Slack or Linear copy, to owner-relay as a cci ask with the facts and what to write: `cci post --kind ask --to owner-relay`. A Sprite has no Gemini.")
 	for _, behind := range left {
 		fmt.Fprintf(w.Stderr, "warning: brief %s names what stays behind: %s\n", w.brief, behind)
 		w.stages.say(w.ctx, "stays behind on the Mac: "+behind)
