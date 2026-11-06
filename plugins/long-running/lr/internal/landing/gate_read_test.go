@@ -33,48 +33,59 @@ func TestAGateWhoseLrJSONIsMissingExitsNonZeroNamingTheFile(t *testing.T) {
 	}
 }
 
+func spriteState(t *testing.T, host, marker string) string {
+	t.Helper()
+	t.Setenv("CCI_HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(lanes.LaneEnv, "lane-a")
+	state := t.TempDir()
+	files := map[string]string{
+		filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "long-running", "drives", "d.json"): `{"drive":"d","cci_drive":"d","state_dir":"` + state + `","sessions":["s"],"host":"` + host + `"}`,
+		filepath.Join(state, "lr.json"): `{"repo":"o/r","drive":"d","checkout":"/repo","author":"a","label":"l","movers":["lanes"]}`,
+	}
+	if marker != "" {
+		files[filepath.Join(state, marker)] = ""
+	}
+	for path, text := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return state
+}
+
+func serveStoreDesk(t *testing.T, read string, wantArgs, answer string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: askdesk.StoreReads(map[string]askdesk.Serve{read: func(_ context.Context, args []string, out, _ io.Writer) error {
+			if got := strings.Join(args, " "); got != wantArgs {
+				return fmt.Errorf("the desk passed %q", got)
+			}
+			_, err := io.WriteString(out, answer)
+			return err
+		}})}.Follow(ctx)
+		close(stopped)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-stopped
+	})
+}
+
 func TestASpriteGateAsksTheMacsStoreDeskByItsHostOrItsMarkerAndRefusesWithItsLines(t *testing.T) {
 	for name, sprite := range map[string]struct{ host, marker string }{
 		"host":   {host: drive.HostSprite},
 		"marker": {marker: storeFile + drive.OnMac},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("CCI_HOME", t.TempDir())
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			t.Setenv(lanes.LaneEnv, "lane-a")
-			state := t.TempDir()
-			files := map[string]string{
-				filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "long-running", "drives", "d.json"): `{"drive":"d","cci_drive":"d","state_dir":"` + state + `","sessions":["s"],"host":"` + sprite.host + `"}`,
-				filepath.Join(state, "lr.json"): `{"repo":"o/r","drive":"d","checkout":"/repo","author":"a","label":"l","movers":["lanes"]}`,
-			}
-			if sprite.marker != "" {
-				files[filepath.Join(state, sprite.marker)] = ""
-			}
-			for path, text := range files {
-				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
+			state := spriteState(t, sprite.host, sprite.marker)
 			refusals := "#5 TAP-REQUIRED no approval on the owner's board at this head\n#4 is no open PR of this drive\n"
-			ctx, cancel := context.WithCancel(context.Background())
-			stopped := make(chan struct{})
-			go func() {
-				askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: askdesk.StoreReads(map[string]askdesk.Serve{gateRead: func(_ context.Context, args []string, out, _ io.Writer) error {
-					if got := strings.Join(args, " "); got != "5 --partial" {
-						return fmt.Errorf("the desk passed %q", got)
-					}
-					_, err := io.WriteString(out, refusals)
-					return err
-				}})}.Follow(ctx)
-				close(stopped)
-			}()
-			t.Cleanup(func() {
-				cancel()
-				<-stopped
-			})
+			serveStoreDesk(t, gateRead, "5 --partial", refusals)
 
 			var errs, out bytes.Buffer
 			a := app.New(&errs)
@@ -91,5 +102,24 @@ func TestASpriteGateAsksTheMacsStoreDeskByItsHostOrItsMarkerAndRefusesWithItsLin
 				t.Fatalf("the gate left a store on the Sprite: %v", err)
 			}
 		})
+	}
+}
+
+func TestASpriteGoAsksTheMacsStoreDeskAndPrintsWhatTheMacDid(t *testing.T) {
+	state := spriteState(t, drive.HostSprite, "")
+	did := "GO #5 at 3f3acff: posted #12@ab: exempt go at 3f3acff\nREFUSED #6 at 9a8b7c6: no grade at this head\n"
+	serveStoreDesk(t, goRead, "5 6 --lane pr-unblock", did)
+
+	var errs, out bytes.Buffer
+	a := app.New(&errs)
+	a.ConfigPath = filepath.Join(state, "lr.json")
+	if err := runGo(context.Background(), a, []int{5, 6}, goFlags{lane: "pr-unblock"}, &out); err != nil {
+		t.Fatalf("got %v and stderr %q", err, errs.String())
+	}
+	if out.String() != did {
+		t.Fatalf("printed %q, want the Mac's %q", out.String(), did)
+	}
+	if _, err := os.Stat(filepath.Join(state, storeFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the go left a store on the Sprite: %v", err)
 	}
 }

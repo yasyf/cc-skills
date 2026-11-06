@@ -316,14 +316,14 @@ The same service carries the lane's work off the box, so a Sprite the provider l
 
 ## Read the drive's store from a Sprite
 
-A Sprite holds no copy of the drive's `lr.sqlite` or `runner.json`, which only the Mac's supervisor reads and writes. On a Sprite, where the drive entry says `"host": "sprite"`, `lr grade queue`, `lr board rows` and `lr landing gate` take the same arguments and print the same rows as on the Mac, read on the Mac. Each posts one ask to the `store-desk` lane and waits up to three minutes for the answer. Only the Mac's supervisor answers, by running the read there: a supervisor whose host has no live registry entry for the drive, or whose entry is a Sprite's, runs no store desk and logs `the store desk stays off`. The relay costs one post and one follow however many rows the read prints.
+A Sprite holds no copy of the drive's `lr.sqlite` or `runner.json`, which only the Mac's supervisor reads and writes. On a Sprite, where the drive entry says `"host": "sprite"`, `lr grade queue`, `lr board rows`, `lr landing gate` and `lr landing go` take the same arguments and print the same rows as on the Mac, run on the Mac. A Sprite desk hands a PR to the landing pass with `lr landing go --lane <lane> <pr>` instead of a hand `stack-enqueue`: the Mac runs the gate and posts the go, its landing pass enqueues it, and the Sprite prints what the Mac did. Each posts one ask to the `store-desk` lane and waits up to three minutes for the answer. Only the Mac's supervisor answers, by running the read there: a supervisor whose host has no live registry entry for the drive, or whose entry is a Sprite's, runs no store desk and logs `the store desk stays off`. The relay costs one post and one follow however many rows the read prints.
 
 - The answer is cut at 64 KiB, and its last line names the cut.
 - A read the Mac refuses exits non-zero with the Mac's error.
 - `lr landing gate` is the exception to both: a refused or unanswered ask warns `Warning, nothing was refused:` and exits 0, as a gate whose GitHub read failed does on the Mac. It exits non-zero, naming the file, only when its own `lr.json` is missing.
 - An unanswered ask exits non-zero and names the ask, which stays open. The Mac's supervisor is down or runs an `lr` older than the store desk, and it answers every open ask from the last hour when it starts.
 
-`store-desk` serves only `grade queue GRADER [--shard even|odd] [--owed] [--json]`, `board rows [--json] [--all] [--outside]` and `landing gate PR... [--partial] [--direct]`, and refuses any other text, naming those three. Every other read of the drive's store or `runner.json` on a Sprite refuses, naming the Mac, instead of printing an empty answer. Ask the Mac's coordinator for one of those with `cci post --kind ask --to root "<the lr command>"`.
+`store-desk` serves only `grade queue GRADER [--shard even|odd] [--owed] [--json]`, `board rows [--json] [--all] [--outside]`, `landing gate PR... [--partial] [--direct]` and `landing go PR... [--lane LANE] [--head SHA --before SEQ]`, and refuses any other text, naming those four. Every other read of the drive's store or `runner.json` on a Sprite refuses, naming the Mac, instead of printing an empty answer. Ask the Mac's coordinator for one of those with `cci post --kind ask --to root "<the lr command>"`.
 
 ## Read Buildkite from a Sprite
 

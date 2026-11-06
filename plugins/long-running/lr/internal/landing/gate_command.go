@@ -107,6 +107,17 @@ func runGate(ctx context.Context, a *app.App, args []string, partial, direct boo
 }
 
 func askGate(ctx context.Context, a *app.App, args []string, partial, direct bool) ([]string, error) {
+	ask := slices.Concat([]string{gateRead}, args)
+	if partial {
+		ask = append(ask, "--partial")
+	}
+	if direct {
+		ask = append(ask, "--direct")
+	}
+	return askStoreDesk(ctx, a, ask)
+}
+
+func askStoreDesk(ctx context.Context, a *app.App, ask []string) ([]string, error) {
 	cfg, err := a.Config()
 	if err != nil {
 		return nil, err
@@ -115,13 +126,6 @@ func askGate(ctx context.Context, a *app.App, args []string, partial, direct boo
 	if err != nil {
 		return nil, err
 	}
-	ask := slices.Concat([]string{gateRead}, args)
-	if partial {
-		ask = append(ask, "--partial")
-	}
-	if direct {
-		ask = append(ask, "--direct")
-	}
 	var answer strings.Builder
 	if err := askdesk.AskMac(ctx, askdesk.LiveCCI{}, entry.Bus(), os.Getenv(lanes.LaneEnv), strings.Join(ask, " "), &answer); err != nil {
 		return nil, err
@@ -129,12 +133,17 @@ func askGate(ctx context.Context, a *app.App, args []string, partial, direct boo
 	return strings.FieldsFunc(answer.String(), func(r rune) bool { return r == '\n' }), nil
 }
 
+func spriteDrive(cfg config.Config) bool {
+	entry, err := drive.Named(cfg.Drive)
+	return err == nil && entry.OnSprite()
+}
+
 func gateLines(ctx context.Context, a *app.App, args []string, partial, direct bool) ([]string, error) {
 	cfg, err := a.Config()
 	if err != nil {
 		return nil, err
 	}
-	if entry, err := drive.Named(cfg.Drive); err == nil && entry.OnSprite() {
+	if spriteDrive(cfg) {
 		return nil, drive.ErrOnMac
 	}
 	dir := filepath.Dir(a.ConfigPath)
