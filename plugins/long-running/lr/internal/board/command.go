@@ -256,6 +256,13 @@ func waitsCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra
 			if err != nil {
 				return err
 			}
+			releases, err := CardsOf(a, entry, session, record).Releases()
+			if err != nil {
+				return err
+			}
+			for i, pick := range live.Picks {
+				live.Picks[i].Release = releases[pick.Block]
+			}
 			if len(prs) > 0 {
 				return explainPRs(c, live, rows, prs, asJSON)
 			}

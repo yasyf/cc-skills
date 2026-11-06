@@ -277,7 +277,7 @@ func awaitLink(ctx context.Context, bus, lane, change string, after int64) (stri
 
 func AskCommand(a *app.App) *cobra.Command {
 	var ask Ask
-	var driveName, session, lane, until, by, file, withdraw, reason string
+	var driveName, session, lane, until, by, release, file, withdraw, reason string
 	var forAsk, handed int64
 	var replaces []string
 	cmd := &cobra.Command{
@@ -317,8 +317,8 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 					return err
 				}
 			}
-			key := changeKey(block, []byte(remove), []byte(until), []byte(by), []byte(session), []byte(strconv.FormatInt(forAsk, 10)), []byte(strconv.FormatInt(handed, 10)), []byte(strings.Join(replaces, ",")))
-			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, cardBody{Session: session, Block: block, Remove: remove, Reason: reason, Until: until, By: by, Ask: forAsk, Handed: handed, Replaces: replaces})
+			key := changeKey(block, []byte(remove), []byte(until), []byte(by), []byte(release), []byte(session), []byte(strconv.FormatInt(forAsk, 10)), []byte(strconv.FormatInt(handed, 10)), []byte(strings.Join(replaces, ",")))
+			record, err := DrawCard(c.Context(), entry.Bus(), lane, key, cardBody{Session: session, Block: block, Remove: remove, Reason: reason, Until: until, By: by, Release: release, Ask: forAsk, Handed: handed, Replaces: replaces})
 			if err != nil {
 				return err
 			}
@@ -342,6 +342,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags.IntVar(&ask.PortOf, "port-of", 0, "the old-tree PR this card's port copies: the card's title opens with port of #N")
 	flags.StringVar(&ask.ID, "id", "", "the card's id after card-; default the title's first words")
 	flags.StringVar(&until, "until", KindAnswered, "the event after which his answer no longer matters: pr:N, release:STACK@ENV:COMMIT, record:SEQ, or at:TIME or a span such as at:3d for a real expiry; the sweep never takes an unanswered question down on a time alone, so a question with no such event keeps the default, answered")
+	flags.StringVar(&release, "release", "", "the release target his recommended option starts, such as sand-next: the supervisor's LANDED-NOT-LIVE row for that target becomes this card's row, sent to owner-relay with the card's link")
 	flags.StringVar(&by, "by", "", "the clock the card promises him something by, an ISO 8601 time or a span such as 90m: the card's lane cannot retire until a record carries delivered=card:<id>, and when the clock passes first, the lane and owner-relay hear once")
 	flags.StringVar(&file, "card", "", "a whole cc-present card as JSON, FILE or -, in place of the question flags")
 	flags.StringArrayVar(&replaces, "replaces", nil, "ID of your card this one replaces, repeatable: once this card is drawn, that card leaves the board and its Slack card loses its buttons and says a new version replaced it, linking this card")

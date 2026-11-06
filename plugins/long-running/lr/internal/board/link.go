@@ -52,6 +52,7 @@ type cardBody struct {
 	Reason   string          `json:"reason,omitempty"`
 	Until    string          `json:"until,omitempty"`
 	By       string          `json:"by,omitempty"`
+	Release  string          `json:"release,omitempty"`
 	Ask      int64           `json:"ask,omitempty"`
 	Handed   int64           `json:"handed,omitempty"`
 	TapOf    string          `json:"tap_of,omitempty"`
@@ -277,6 +278,11 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 			if _, err := cards.Depend(ctx, top.ID, lane, nil); err != nil {
 				said += fmt.Sprintf("; what it rests on was not read, so a later ruling will not redraw it: %s", err)
 			}
+		}
+	}
+	if card.Release != "" {
+		if err := cards.mirrored(ctx, top.ID, map[string]string{releaseField: card.Release}); err != nil {
+			return "", err
 		}
 	}
 	if card.Ask != 0 {

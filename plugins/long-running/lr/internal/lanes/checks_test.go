@@ -617,11 +617,11 @@ func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
 	equal(t, bus.posted[3].Resolves, int64(2))
 }
 
-func TestALandingHisOpenPickGatesGoesToOwnerRelayAsThatCardsRowUntilHeAnswers(t *testing.T) {
+func TestALandingWaitsOnlyOnTheOpenPickWhoseReleaseIsItsTargetUntilHeAnswers(t *testing.T) {
 	landed := t0.Add(-2 * time.Hour).Format(time.RFC3339)
 	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q},{"pr":"51250","state":"landed","title":"sand-next: preset","landed_sha":"def","landed_at":%q}]`, landed, landed)
 	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "rust/crates/preset/src/lib.rs\n"}, `[{"target":"sand","commit":"c1"},{"target":"sand-next","commit":"n1"}]`, false)
-	picks := `[{"kind":"pick","block":"card-sand-next-after-3531","title":"Four Mac changes are on dev and not on Macs","url":"https://slack/p1"},{"kind":"tap","subject":"#51250"}]`
+	picks := `[{"kind":"pick","block":"card-tap-50888-776216d","title":"Tap: #50888, sand-next: cancel answers false only for a terminal run","url":"https://slack/tap"},{"kind":"pick","block":"card-js-result-cap","title":"Cap a Sand JS result at 1 MB?","url":"https://slack/cap"},{"kind":"pick","block":"card-sand-next-after-3531","title":"Four Mac changes are on dev and not on Macs","url":"https://slack/p1","release":"sand-next"},{"kind":"tap","subject":"#51250"}]`
 	answers := check.Env.Runner
 	check.Env.Runner = commanded(func(c shell.Command) (shell.Result, error) {
 		if slices.Contains(c.Argv, "waits") {
@@ -652,6 +652,53 @@ func TestALandingHisOpenPickGatesGoesToOwnerRelayAsThatCardsRowUntilHeAnswers(t 
 	equal(t, []any{moved.To, moved.Resolves}, []any{[]string{Root}, int64(2)})
 	contains(t, moved.Text, "LANDED-NOT-LIVE sand: #47799; sand-next: #51250. ")
 	equal(t, []any{outlived.Kind, outlived.Resolves}, []any{"note", int64(3)})
+}
+
+func TestACardRowAnsweredAndUnchangedPostsNothingWhenAnotherRowMoves(t *testing.T) {
+	landed := t0.Add(-2 * time.Hour).Format(time.RFC3339)
+	row := func(pr, sha string) string {
+		return fmt.Sprintf(`{"pr":%q,"state":"landed","title":"t","landed_sha":%q,"landed_at":%q}`, pr, sha, landed)
+	}
+	ledger := "[" + row("47799", "abc") + "," + row("51250", "def") + "]"
+	files := map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "rust/crates/preset/src/lib.rs\n", "ghi": "go/sand/internal/vm/run.go\n"}
+	check, bus := notLive(t, "", files, `[{"target":"sand","commit":"c1"},{"target":"sand-next","commit":"n1"}]`, false)
+	answers := check.Env.Runner
+	check.Env.Runner = commanded(func(c shell.Command) (shell.Result, error) {
+		switch {
+		case slices.Contains(c.Argv, "waits"):
+			return shell.Result{Stdout: `[{"kind":"pick","block":"card-sand-next-after-3531","url":"https://slack/p1","release":"sand-next"}]`}, nil
+		case strings.HasSuffix(c.Argv[0], "ledger.py"):
+			return shell.Result{Stdout: ledger}, nil
+		}
+		return answers.Run(context.Background(), c)
+	})
+	cardRows := func(from int) []client.Draft {
+		return slices.DeleteFunc(slices.Clone(bus.posted[from:]), func(d client.Draft) bool { return d.Kind != blockerKind || d.Attrs["card"] == "" })
+	}
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	first := cardRows(0)
+	equal(t, len(first), 1)
+
+	ledger = "[" + row("47799", "abc") + "," + row("51250", "def") + "," + row("47801", "ghi") + "]"
+	answered := len(bus.posted)
+	if err := check.Check(context.Background(), t0.Add(NotLiveEvery)); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(cardRows(answered)), 0)
+	moved := slices.DeleteFunc(slices.Clone(bus.posted[answered:]), func(d client.Draft) bool { return d.Kind != blockerKind })
+	equal(t, len(moved), 1)
+	contains(t, moved[0].Text, "LANDED-NOT-LIVE sand: #47799, #47801. ")
+
+	restarted := *check
+	restarted.said, restarted.blockers, restarted.rows, restarted.read = "", nil, nil, time.Time{}
+	again := len(bus.posted)
+	if err := restarted.Check(context.Background(), t0.Add(2*NotLiveEvery)); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, cardRows(again)[0].ID, first[0].ID)
 }
 
 func releasingFeed(state string) string {

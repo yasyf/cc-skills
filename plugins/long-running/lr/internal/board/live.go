@@ -54,6 +54,7 @@ type Wait struct {
 	Title   string   `json:"title"`
 	URL     string   `json:"url,omitempty"`
 	Options []string `json:"options,omitempty"`
+	Release string   `json:"release,omitempty"`
 }
 
 func (w Wait) Line() string {
