@@ -175,6 +175,38 @@ func TestAnAskPastTheRecordTextCapIsReadWhole(t *testing.T) {
 	}
 }
 
+func TestABatchCutByTheRecordTextCapStillAnswersItsLastRead(t *testing.T) {
+	server, got := serve(t, map[string]string{"/api/v2/logs/events/search": `{"data":[]}`, "/api/v2/spans/events/search": `{"data":[]}`})
+	desk := newDesk(t, &fakeRunner{}, server.URL)
+	spans := `env:production service:api-runtime (resource_name:*WorkflowRunnerButtonGroupLocal_CreateLocalBranchCloudRunMutation* OR @http.url:*WorkflowRunnerButtonGroupLocal_CreateLocalBranchCloudRunMutation*)`
+	asked := `sentry issue 7833236042; datadog logs --from 2026-11-06T20:44:18Z env:production service:api-runtime ("localDefinitions" OR "Invalid uploaded workflow definition"); ` +
+		`datadog logs --from 2026-11-06T18:25:00Z env:production service:api-runtime ("wf_01k6bbp584e5xtrscszkgwh4n8" OR "41deedc372fe1958a0d7686fc5b6ec67d48250701dae6dd276827ca95c363a37" OR "enqueue_seven_ct2_exact_assigned_repairs"); ` +
+		`datadog spans --from 2026-11-06T20:44:18Z ` + spans
+	opened, err := client.Post(context.Background(), client.Draft{Drive: driveName, Lane: lane, Kind: askdesk.AskKind, Text: asked, To: []string{Lane}, Force: true})
+	if err != nil || !strings.HasSuffix(opened.Text, "; datadog…") {
+		t.Fatalf("the ask's record text %q does not end mid-read, %v", opened.Text, err)
+	}
+
+	if _, err := desk.loop().Pass(context.Background(), client.Query{Drive: driveName, Since: time.Now().Add(-askdesk.CatchUp), Kinds: []string{askdesk.AskKind}}); err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := client.Tail(context.Background(), client.Query{Drive: driveName, Kinds: []string{askdesk.AnswerKind}, Lanes: []string{Lane}})
+	if err != nil || len(found) != 1 {
+		t.Fatalf("answers = %v, %v", found, err)
+	}
+	whole, err := client.WholeText(found[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(whole, "obs read refused") || !strings.Contains(whole, "## read 4 of 4: datadog spans --from 2026-11-06T20:44:18Z "+spans+"\n") {
+		t.Fatalf("the batch's last read was not answered whole:\n%s", whole)
+	}
+	if _, bodies := got.all(); len(bodies) != 4 || !strings.Contains(bodies[3], `"query":"`+spans+`"`) {
+		t.Fatalf("searched %v", bodies)
+	}
+}
+
 func TestABatchedAskAnswersEachReadUnderItsOwnHeadingInOneRecord(t *testing.T) {
 	server, got := serve(t, map[string]string{
 		"/api/v2/spans/events/search": `{"data":[{"attributes":{"service":"cloudrunner","resource_name":"run","start_timestamp":"2026-11-05T19:59:00Z","end_timestamp":"2026-11-05T19:59:01Z","trace_id":"t1","span_id":"s1"}}]}`,
