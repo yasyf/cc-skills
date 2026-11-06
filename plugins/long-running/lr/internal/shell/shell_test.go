@@ -127,16 +127,29 @@ func TestAToolMissingForAWindowRunsFromItsPluginThenFromPATHOnceItIsBack(t *test
 	}
 }
 
-func TestAToolMissingForGoodIsCode127AndSaysToInstallIt(t *testing.T) {
+func TestAToolMissingFromPATHAndEveryPluginIsCode127AndNamesTheUpgradeWindow(t *testing.T) {
 	_, plugin := relinking(t)
 	installs(t, "user", plugin)
 
 	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"tool"}})
-	if !errors.Is(err, exec.ErrNotFound) || result.Code != CodeMissingBinary || !strings.Contains(err.Error(), "tool is not on PATH and no installed plugin carries it, so install it") {
+	if !errors.Is(err, exec.ErrNotFound) || result.Code != CodeMissingBinary || !strings.Contains(err.Error(), "tool is missing from PATH, as while a package upgrade relinks it, and no installed plugin carries it") {
 		t.Fatalf("code %d, err %v", result.Code, err)
 	}
 	if _, err := LookPath("tool"); !errors.Is(err, exec.ErrNotFound) {
 		t.Fatalf("LookPath err = %v", err)
+	}
+}
+
+func TestAnIdempotentCallToAToolMissingForGoodRetriesEveryWaitThenSaysToInstallIt(t *testing.T) {
+	relinking(t)
+	waits := retryWaits
+	retryWaits = make([]time.Duration, len(waits))
+	t.Cleanup(func() { retryWaits = waits })
+
+	result, err := Exec{}.Run(context.Background(), Command{Argv: []string{"tool"}, Idempotent: true})
+
+	if want := fmt.Sprintf("still missing after %d tries, so install it", len(waits)+1); !errors.Is(err, exec.ErrNotFound) || result.Code != CodeMissingBinary || !strings.Contains(err.Error(), want) {
+		t.Fatalf("code %d, err %v; want %q", result.Code, err, want)
 	}
 }
 
@@ -214,6 +227,8 @@ func TestEachTransientAnswerIsRetried(t *testing.T) {
 		"You have exceeded a secondary rate limit",
 		`{"ok":false,"error":{"code":"runtime_timeout","message":"Timed out waiting for the remote Orca runtime to respond."}}`,
 		`{"ok":false,"error":{"code":"remote_runtime_unavailable"}}`,
+		"FileNotFoundError: [Errno 2] No such file or directory: 'ccn'",
+		"sh: ccn: command not found",
 	} {
 		read, runs := failingFirst(t, 1, said)
 		if _, err := (Exec{}).Run(context.Background(), read); err != nil || runs() != 2 {
@@ -223,7 +238,7 @@ func TestEachTransientAnswerIsRetried(t *testing.T) {
 }
 
 func TestARefusalThatMeansNoIsNeverRetried(t *testing.T) {
-	for _, said := range []string{"failed: 401 {\"message\":\"Authentication required.\"}", "HTTP 404: Not Found", "HTTP 422: Validation Failed"} {
+	for _, said := range []string{"failed: 401 {\"message\":\"Authentication required.\"}", "HTTP 404: Not Found", "HTTP 422: Validation Failed", "FileNotFoundError: [Errno 2] No such file or directory: 'brief.md'"} {
 		read, runs := failingFirst(t, 1, said)
 		if _, err := (Exec{}).Run(context.Background(), read); err == nil || runs() != 1 {
 			t.Fatalf("%q: err %v after %d runs, want one failed run", said, err, runs())

@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	transient  = regexp.MustCompile(`(?i)(?:failed:|HTTP|returned error:|status[ =:])\s*(?:429|5\d\d)\b|\b(?:429 Too Many Requests|50[0-4] (?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout))\b|overloaded|connection reset|i/o timeout|TLS handshake timeout|secondary rate limit|remote end hung up unexpectedly|\b(?:remote_)?runtime_(?:unavailable|timeout)\b`)
+	transient  = regexp.MustCompile(`(?i)(?:failed:|HTTP|returned error:|status[ =:])\s*(?:429|5\d\d)\b|\b(?:429 Too Many Requests|50[0-4] (?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout))\b|overloaded|connection reset|i/o timeout|TLS handshake timeout|secondary rate limit|remote end hung up unexpectedly|\b(?:remote_)?runtime_(?:unavailable|timeout)\b|FileNotFoundError: \[Errno 2\] No such file or directory: '[^'./]+'|command not found`)
 	retryWaits = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second, 90 * time.Second}
 )
 
@@ -71,12 +71,21 @@ type Exec struct{}
 func (Exec) Run(ctx context.Context, c Command) (Result, error) {
 	for tries := 1; ; tries++ {
 		result, err := once(ctx, c)
-		var exit *ExitError
-		if !c.Idempotent || !errors.As(err, &exit) {
+		if !c.Idempotent || err == nil {
 			return result, err
 		}
-		exit.Tries = tries
-		if tries > len(retryWaits) || !transient.MatchString(exit.Stderr+"\n"+result.Stdout) {
+		var exit *ExitError
+		switch {
+		case errors.Is(err, exec.ErrNotFound):
+			if tries > len(retryWaits) {
+				return result, fmt.Errorf("%w; still missing after %d tries, so install it", err, tries)
+			}
+		case errors.As(err, &exit):
+			exit.Tries = tries
+			if tries > len(retryWaits) || !transient.MatchString(exit.Stderr+"\n"+result.Stdout) {
+				return result, err
+			}
+		default:
 			return result, err
 		}
 		select {
@@ -169,7 +178,7 @@ func once(ctx context.Context, c Command) (Result, error) {
 		return result, nil
 	case errors.Is(err, exec.ErrNotFound):
 		result.Code = CodeMissingBinary
-		return result, fmt.Errorf("%s is not on PATH and no installed plugin carries it, so install it: %w", c.Argv[0], err)
+		return result, fmt.Errorf("%s is missing from PATH, as while a package upgrade relinks it, and no installed plugin carries it: %w", c.Argv[0], err)
 	case ctx.Err() != nil:
 		result.Code = CodeTimedOut
 		return result, fmt.Errorf("%s: %w", strings.Join(c.Argv, " "), ctx.Err())

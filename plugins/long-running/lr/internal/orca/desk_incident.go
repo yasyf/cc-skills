@@ -1291,6 +1291,10 @@ func (d *Desk) briefs(ctx context.Context, args ...string) (string, int, error) 
 	return d.capture(ctx, nil, append([]string{"ccn", "-R", d.Config.BriefsRepo}, args...)...)
 }
 
+func (d *Desk) readBriefs(ctx context.Context, args ...string) (string, int, error) {
+	return d.captureIdempotent(ctx, append([]string{"ccn", "-R", d.Config.BriefsRepo}, args...)...)
+}
+
 func ccnFailure(said string, code int) string {
 	trimmed := strings.TrimSpace(said)
 	if trimmed == "" {
@@ -1305,13 +1309,13 @@ func ccnFailure(said string, code int) string {
 func (d *Desk) resolveBriefsLog(ctx context.Context) (string, error) {
 	stale := d.Config.BriefsLog
 	if stale != "" {
-		_, code, err := d.briefs(ctx, "log", "show", stale)
+		_, code, err := d.readBriefs(ctx, "log", "show", stale)
 		if err != nil || code == 0 {
 			return "", err
 		}
 	}
 	title := "briefs: " + d.Config.Drive
-	listed, code, err := d.briefs(ctx, "log", "list", "--json")
+	listed, code, err := d.readBriefs(ctx, "log", "list", "--json")
 	if err != nil {
 		return "", err
 	}

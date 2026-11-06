@@ -545,7 +545,7 @@ func (d *Desk) briefFor(ctx context.Context, lane string) (string, error) {
 		}
 	}
 	for _, name := range []string{lane + ".full.md", lane + ".md"} {
-		said, code, err := d.briefs(ctx, "attachment", "path", d.Config.BriefsLog, name)
+		said, code, err := d.readBriefs(ctx, "attachment", "path", d.Config.BriefsLog, name)
 		if err != nil {
 			return "", err
 		}

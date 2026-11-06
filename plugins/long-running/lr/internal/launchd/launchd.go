@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,8 +50,12 @@ func (j Job) Plist() []byte {
 	line(`	<key>EnvironmentVariables</key>`)
 	line(`	<dict>`)
 	for _, pair := range j.Env {
+		value := pair[1]
+		if pair[0] == "PATH" {
+			value = withoutLinkedWorktrees(value)
+		}
 		line(`		<key>%s</key>`, escaped(pair[0]))
-		line(`		<string>%s</string>`, escaped(pair[1]))
+		line(`		<string>%s</string>`, escaped(value))
 	}
 	line(`	</dict>`)
 	line(`	<key>KeepAlive</key>`)
@@ -81,6 +86,22 @@ func (j Job) Plist() []byte {
 	line(`</dict>`)
 	line(`</plist>`)
 	return []byte(out.String())
+}
+
+func withoutLinkedWorktrees(path string) string {
+	kept := slices.DeleteFunc(filepath.SplitList(path), inLinkedWorktree)
+	return strings.Join(kept, string(os.PathListSeparator))
+}
+
+func inLinkedWorktree(dir string) bool {
+	for dir = filepath.Clean(dir); ; dir = filepath.Dir(dir) {
+		if info, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return info.Mode().IsRegular()
+		}
+		if dir == filepath.Dir(dir) {
+			return false
+		}
+	}
 }
 
 type Launchd struct {
