@@ -305,6 +305,26 @@ func (e Env) lastWords(ctx context.Context, sprite string) string {
 	return awake.LastWords(result.Stdout)
 }
 
+func (e Env) carried(ctx context.Context, lane string) (Carried, error) {
+	listed, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", e.Config.Checkout, "ls-remote", "origin", awake.WorkRefs + lane}, Timeout: readTimeout})
+	if err != nil {
+		return Carried{}, err
+	}
+	commit, _, _ := strings.Cut(listed.Stdout, "\t")
+	if commit = strings.TrimSpace(commit); commit == "" {
+		return Carried{}, nil
+	}
+	if _, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", e.Config.Checkout, "fetch", "--quiet", "origin", commit}, Timeout: releaseReadLimit}); err != nil {
+		return Carried{}, err
+	}
+	shown, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", e.Config.Checkout, "log", "-1", "--format=%cI", commit}, Timeout: readTimeout})
+	if err != nil {
+		return Carried{}, err
+	}
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(shown.Stdout))
+	return Carried{Commit: commit, At: at}, err
+}
+
 func (e Env) host(ctx context.Context, sprite string) (Host, error) {
 	result, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", sprite, "--no-stdin", "--", "sh", "-c", awake.WorkerScript}, Timeout: readTimeout})
 	var exit *shell.ExitError
