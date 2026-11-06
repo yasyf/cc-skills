@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -115,8 +119,8 @@ func TestGradersNeedNoSponsorHistoryReplicaOrRelayService(t *testing.T) {
 			t.Fatal(box, "has no recorded ccx for a roll to compare", census)
 		}
 		calls := w.ran("sprite", "exec", "-s", box)
-		if len(calls) != 3 || !slices.Contains(calls[1], linkGrader) || !slices.Contains(calls[2], unshallowGrader) {
-			t.Fatal(box, "needed more than install, links and Git history", calls)
+		if len(calls) != 3 || !slices.Contains(calls[1], mirrorGrader) || !slices.Contains(calls[2], unshallowGrader) {
+			t.Fatal(box, "needed more than install, mirror and Git history", calls)
 		}
 	}
 }
@@ -128,8 +132,8 @@ func TestAGraderLinksEachGradingCheckoutOnce(t *testing.T) {
 		t.Fatal(refused)
 	}
 
-	links := slices.IndexFunc(w.calls, func(argv []string) bool { return slices.Contains(argv, linkGrader) })
-	if got := w.calls[links][slices.Index(w.calls[links], linkGrader)+2:]; !slices.Equal(got, []string{"/Users/me", "/Users/me/runner"}) {
+	links := slices.IndexFunc(w.calls, func(argv []string) bool { return slices.Contains(argv, mirrorGrader) })
+	if got := w.calls[links][slices.Index(w.calls[links], mirrorGrader)+2:]; !slices.Equal(got, []string{"/Users/me", graderShipped, graderCheckout, "/Users/me/runner"}) {
 		t.Fatal(got)
 	}
 }
@@ -154,5 +158,138 @@ func TestAFailedInstallStopsOnlyItsOwnGrader(t *testing.T) {
 	}
 	if census := w.census()["grader-a"]; census["cci"] != "0.49.36" {
 		t.Fatal("the partial install was not recorded", census)
+	}
+}
+
+type graderDisk struct {
+	t       *testing.T
+	home    string
+	mac     string
+	shipped string
+	clone   string
+	runner  string
+}
+
+func newGraderDisk(t *testing.T) *graderDisk {
+	root := t.TempDir()
+	d := &graderDisk{t: t, home: filepath.Join(root, "home", "sprite"), mac: filepath.Join(root, "Users", "me"), shipped: filepath.Join(root, "lr-ship")}
+	d.clone = filepath.Join(d.home, "monorepo")
+	d.runner = filepath.Join(d.mac, ".claude", "worktrees", "monorepo", "runner")
+	for _, dir := range []string{d.clone, filepath.Dir(d.mac), d.shipped} {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return d
+}
+
+func (d *graderDisk) write(path, text string) {
+	d.t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		d.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		d.t.Fatal(err)
+	}
+}
+
+func (d *graderDisk) mirror() (string, error) {
+	out, err := exec.Command("sh", "-c", mirrorGrader, "sh", d.mac, d.shipped, d.clone, d.runner).CombinedOutput()
+	return string(out), err
+}
+
+func (d *graderDisk) homeIsALink() bool {
+	d.t.Helper()
+	info, err := os.Lstat(d.mac)
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	return info.Mode()&fs.ModeSymlink != 0
+}
+
+func (d *graderDisk) runnerIsTheClone() {
+	d.t.Helper()
+	if target, err := os.Readlink(d.runner); err != nil || target != d.clone {
+		d.t.Fatal("the grading checkout does not resolve to the Sprite's clone:", target, err)
+	}
+}
+
+func TestAGraderWhoseMacHomeLinkedItsOwnHomeGetsARealMirrorSoAPassNeverReplacesALanesDriveEntry(t *testing.T) {
+	d := newGraderDisk(t)
+	lane := filepath.Join(d.home, ".claude", "long-running", "drives", "drive-g.json")
+	d.write(lane, `{"host":"sprite"}`)
+	if err := os.Symlink(d.home, d.mac); err != nil {
+		t.Fatal(err)
+	}
+
+	if out, err := d.mirror(); err != nil {
+		t.Fatal(err, out)
+	}
+	d.write(filepath.Join(d.mac, ".claude", "long-running", "drives", "drive-g.json"), `{"checkout":"/Users/me/.claude/worktrees/monorepo/runner"}`)
+
+	if d.homeIsALink() {
+		t.Fatal("the Mac home still links the Sprite's own home")
+	}
+	d.runnerIsTheClone()
+	if got, err := os.ReadFile(lane); err != nil || string(got) != `{"host":"sprite"}` {
+		t.Fatal("a pass's drive entry replaced the lane's:", string(got), err)
+	}
+}
+
+func TestAGraderKeepsItsHomeLinkWhileAPassHoldsAShippedPluginCopy(t *testing.T) {
+	d := newGraderDisk(t)
+	if err := os.Symlink(d.home, d.mac); err != nil {
+		t.Fatal(err)
+	}
+	held := filepath.Join(d.shipped, "3f2a", "9c41.lock")
+	d.write(held, "")
+	lock, err := os.Open(held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_SH); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := d.mirror()
+
+	if err == nil || !strings.Contains(out, "a pass holds "+held) {
+		t.Fatal("the step went on under a running pass:", err, out)
+	}
+	if !d.homeIsALink() {
+		t.Fatal("the link a running pass reads through was removed")
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := d.mirror(); err != nil {
+		t.Fatal(err, out)
+	}
+	if d.homeIsALink() {
+		t.Fatal("the link stayed once the pass ended")
+	}
+	d.runnerIsTheClone()
+}
+
+func TestAPassThatReachesAGraderBeforeItsSetupLeavesAMirrorTheSetupFinishes(t *testing.T) {
+	d := newGraderDisk(t)
+	d.write(filepath.Join(d.mac, ".local", "share", "claude-plugins", "cache", "long-running", "0.7.1865.digest"), "")
+
+	if out, err := d.mirror(); err != nil {
+		t.Fatal(err, out)
+	}
+
+	d.runnerIsTheClone()
+	entries, err := os.ReadDir(d.mac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	if !slices.Equal(names, []string{".claude", ".local"}) {
+		t.Fatal("the setup left something beside the pass's copy and the checkout link:", names)
 	}
 }
