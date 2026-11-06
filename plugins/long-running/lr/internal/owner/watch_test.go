@@ -49,8 +49,9 @@ func noRows(context.Context, threadWord) ([]string, []string, error) {
 	return nil, nil, nil
 }
 
-func noLane(*store.Store, string) (string, error) {
-	return "", nil
+var noLane = LaneOf{
+	Card: func(*store.Store, string) (string, error) { return "", nil },
+	PR:   func(*store.Store, int) (string, error) { return "", nil },
 }
 
 func watched(lines ...string) streamed {

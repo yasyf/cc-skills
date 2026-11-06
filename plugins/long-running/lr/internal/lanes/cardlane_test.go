@@ -40,3 +40,13 @@ func TestACardADeskTookBeforeDesksStoppedTakingGoesToNoLane(t *testing.T) {
 	lane, err := CardLane(s, "card-chat")
 	equal(t, []any{lane, err}, []any{"", error(nil)})
 }
+
+func TestAPullRequestGoesToTheLiveLaneThatOwnsItAndAnUnownedOneToNoLane(t *testing.T) {
+	s := memory(t)
+	adopted(t, s, writeBrief(t), "", 48159)
+
+	owned, err := PRLane(s, 48159)
+	equal(t, []any{owned, err}, []any{lane2, error(nil)})
+	unowned, err := PRLane(s, 51995)
+	equal(t, []any{unowned, err}, []any{"", error(nil)})
+}

@@ -429,13 +429,32 @@ const (
 	drafter   = "inbox-outbox-design-1"
 )
 
-func drewBy(card, lane string, looked *int) CardLane {
-	return func(_ *store.Store, asked string) (string, error) {
-		*looked++
-		if asked == card {
-			return lane, nil
-		}
-		return "", nil
+func drewBy(card, lane string, looked *int) LaneOf {
+	return LaneOf{
+		Card: func(_ *store.Store, asked string) (string, error) {
+			*looked++
+			if asked == card {
+				return lane, nil
+			}
+			return "", nil
+		},
+		PR: func(*store.Store, int) (string, error) {
+			*looked++
+			return "", nil
+		},
+	}
+}
+
+func ownedBy(owners map[int]string, looked *int) LaneOf {
+	return LaneOf{
+		Card: func(*store.Store, string) (string, error) {
+			*looked++
+			return "", nil
+		},
+		PR: func(_ *store.Store, pr int) (string, error) {
+			*looked++
+			return owners[pr], nil
+		},
 	}
 }
 
@@ -446,7 +465,7 @@ func routedEntry(t *testing.T) (*shelltest.Fake, drive.Entry, *store.Store) {
 	return fake, entry, threadStore(t)
 }
 
-func heard(t *testing.T, fake *shelltest.Fake, s *store.Store, entry drive.Entry, lane CardLane, word threadWord) []string {
+func heard(t *testing.T, fake *shelltest.Fake, s *store.Store, entry drive.Entry, lane LaneOf, word threadWord) []string {
 	t.Helper()
 	route, err := word.route(s, lane, entry)
 	if err != nil {
@@ -544,5 +563,69 @@ func TestRoutingAMessageReadsOneCardLaneWhateverTheCardCount(t *testing.T) {
 	}
 	if one, many := lookups(1), lookups(scaletest.N()); one != 1 || many != 1 {
 		t.Fatalf("card lane reads %d at 1 card and %d at %d", one, many, scaletest.N())
+	}
+}
+
+const (
+	sidecarPR = 48159
+	prLane    = "pr-unblock-18"
+)
+
+func TestHisWordsInAReplyThreadOfAPullRequestGoOnceToTheLaneThatOwnsIt(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	put(t, s, store.SlackThread{TS: cardRoot, Reply: "rmw5coyh9", Lane: "owner-relay", PRs: []int{sidecarPR}})
+	word := wordIn("D0B6Z", cardRoot, "fine to land once the loader is shared")
+	looked := 0
+	lane := ownedBy(map[int]string{sidecarPR: prLane}, &looked)
+
+	first := heard(t, fake, s, entry, lane, word)
+	second := heard(t, fake, s, entry, lane, word)
+
+	want := []string{"cci", "post", "--drive", entry.Bus(), "--lane", "owner-relay", "--kind", "owner", "--id", "owner:m1", "--attr", "row=m1", "--attr", "pr=48159", "--text", "Owner's words in the Slack thread of #48159:", "--to", prLane, "--to", "owner-relay", "--quoted", word.Text}
+	if got := posted(fake); len(got) != 1 || !slices.Equal(got[0], want) {
+		t.Fatalf("posted = %q, want one record %q", got, want)
+	}
+	if !slices.Equal(first, []string{prLane, "owner-relay"}) || second != nil {
+		t.Fatalf("routed %q then %q, want the PR's lane and the relay once, then nothing", first, second)
+	}
+}
+
+func TestAReplyThreadOfSeveralPullRequestsGoesToEachOwnerOnce(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	put(t, s, store.SlackThread{TS: cardRoot, Reply: "r1", PRs: []int{sidecarPR, 51995, 52013}})
+	looked := 0
+
+	routed := heard(t, fake, s, entry, ownedBy(map[int]string{sidecarPR: prLane, 51995: "run-search-shape-2", 52013: prLane}, &looked), wordIn("D0B6Z", cardRoot, "land all three"))
+
+	if !slices.Equal(routed, []string{prLane, "run-search-shape-2", "owner-relay"}) {
+		t.Fatalf("routed %q, want each owner once and the relay", routed)
+	}
+	if got := posted(fake); len(got) != 1 || !slices.Contains(got[0], "pr=48159,51995,52013") {
+		t.Fatalf("posted = %q, want the record naming every PR", got)
+	}
+}
+
+func TestAReplyThreadWhosePullRequestHasNoLiveOwnerNamesItAndAddressesNoLane(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	put(t, s, store.SlackThread{TS: cardRoot, Reply: "r1", PRs: []int{sidecarPR}})
+	looked := 0
+
+	routed := heard(t, fake, s, entry, ownedBy(nil, &looked), wordIn("D0B6Z", cardRoot, "is this still open?"))
+
+	got := posted(fake)
+	if len(got) != 1 || slices.Contains(got[0], "--to") || !slices.Contains(got[0], "pr=48159") || routed != nil {
+		t.Fatalf("posted = %q, routed = %q, want one record naming the PR and addressing no lane", got, routed)
+	}
+}
+
+func TestACardThreadThatAlsoNamesAPullRequestGoesToTheCardsLane(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	put(t, s, store.SlackThread{TS: cardRoot, Card: draftCard, PRs: []int{sidecarPR}})
+	looked := 0
+
+	routed := heard(t, fake, s, entry, drewBy(draftCard, drafter, &looked), wordIn("D0B6Z", cardRoot, "the second option"))
+
+	if got := posted(fake); !slices.Equal(routed, []string{drafter, "owner-relay"}) || len(got) != 1 || slices.Contains(got[0], "pr=48159") || looked != 1 {
+		t.Fatalf("posted = %q, routed = %q, lane reads = %d, want the card's lane alone", got, routed, looked)
 	}
 }

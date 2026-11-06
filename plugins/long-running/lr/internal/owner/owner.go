@@ -308,7 +308,7 @@ func Rows(path string, all bool) ([]string, error) {
 	return rows, nil
 }
 
-func Command(a *app.App, lane CardLane) *cobra.Command {
+func Command(a *app.App, lane LaneOf) *cobra.Command {
 	var driveName, addState, reply, by string
 	var routed, addRouted int
 	var listAll bool

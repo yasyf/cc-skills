@@ -9,7 +9,7 @@ import (
 
 func init() {
 	register(func(a *app.App) *cobra.Command {
-		cmd := owner.Command(a, lanes.CardLane)
+		cmd := owner.Command(a, owner.LaneOf{Card: lanes.CardLane, PR: lanes.PRLane})
 		cmd.AddCommand(lanes.AuditCommand())
 		return cmd
 	})

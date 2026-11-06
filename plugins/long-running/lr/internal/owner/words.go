@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,10 +61,14 @@ var (
 	tokenBody      = regexp.MustCompile(`^[\w+/=]+$`)
 )
 
-type CardLane func(s *store.Store, card string) (string, error)
+type LaneOf struct {
+	Card func(s *store.Store, card string) (string, error)
+	PR   func(s *store.Store, pr int) (string, error)
+}
 
 type cardRoute struct {
 	card string
+	prs  []int
 	to   []string
 }
 
@@ -84,22 +89,40 @@ func (w threadWord) dmThread() string {
 	return cmp.Or(w.Thread, w.TS)
 }
 
-func (w threadWord) route(s *store.Store, lane CardLane, entry drive.Entry) (cardRoute, error) {
+func (w threadWord) route(s *store.Store, lane LaneOf, entry drive.Entry) (cardRoute, error) {
 	switch {
 	case w.Thread == w.TS || w.Text == "" || w.Owner != nil && w.Owner.Card == "":
 		return cardRoute{}, nil
 	case w.Owner != nil:
 		return cardRoute{card: w.Owner.Card, to: []string{peerPrefix + w.Owner.Session}}, nil
 	}
-	card, found, err := w.indexedCard(s.SlackThreadAt, entry)
-	if err != nil || !found {
+	indexed, _, err := s.SlackThreadAt(w.Thread)
+	if err != nil {
 		return cardRoute{}, err
 	}
-	drew, err := lane(s, card.id)
-	if err != nil || drew == "" {
-		return cardRoute{card: card.id}, err
+	if card, found := w.cardIn(indexed, entry); found {
+		drew, err := lane.Card(s, card.id)
+		return cardRoute{card: card.id, to: withRelay([]string{drew})}, err
 	}
-	return cardRoute{card: card.id, to: []string{drew, communicator}}, nil
+	var owners []string
+	for _, pr := range indexed.PRs {
+		owner, err := lane.PR(s, pr)
+		if err != nil {
+			return cardRoute{}, err
+		}
+		if !slices.Contains(owners, owner) {
+			owners = append(owners, owner)
+		}
+	}
+	return cardRoute{prs: indexed.PRs, to: withRelay(owners)}, nil
+}
+
+func withRelay(lanes []string) []string {
+	lanes = slices.DeleteFunc(lanes, func(lane string) bool { return lane == "" || lane == communicator })
+	if len(lanes) == 0 {
+		return nil
+	}
+	return append(lanes, communicator)
 }
 
 func (w threadWord) rows(ctx context.Context, runner shell.Runner, entry drive.Entry, route cardRoute) ([]string, []string, error) {
@@ -236,8 +259,15 @@ func sessionOnDrive(ctx context.Context, runner shell.Runner, entry drive.Entry,
 
 func postRow(ctx context.Context, runner shell.Runner, entry drive.Entry, row, said string, route cardRoute) error {
 	argv := []string{"cci", "post", "--drive", entry.Bus(), "--lane", communicator, "--kind", "owner", "--id", "owner:" + row, "--attr", "row=" + row}
-	if route.card != "" {
+	switch {
+	case route.card != "":
 		argv = append(argv, "--attr", "card="+route.card, "--text", fmt.Sprintf("Owner's words in the Slack thread of %s:", route.card))
+	case len(route.prs) > 0:
+		numbers, named := make([]string, len(route.prs)), make([]string, len(route.prs))
+		for i, pr := range route.prs {
+			numbers[i], named[i] = strconv.Itoa(pr), "#"+strconv.Itoa(pr)
+		}
+		argv = append(argv, "--attr", "pr="+strings.Join(numbers, ","), "--text", fmt.Sprintf("Owner's words in the Slack thread of %s:", strings.Join(named, ", ")))
 	}
 	for _, lane := range route.to {
 		argv = append(argv, "--to", lane)

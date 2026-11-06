@@ -848,14 +848,26 @@ func Cards(text string) []string {
 func CardLane(s *store.Store, card string) (lane string, err error) {
 	defer recovered(&err)
 	taker := must(s.CardTaker(card))
-	if taker == "" || DeskLane.MatchString(taker) {
+	if DeskLane.MatchString(taker) {
 		return "", nil
 	}
-	holder := must(Holder(s, "", taker))
+	return liveHolder(s, taker), nil
+}
+
+func PRLane(s *store.Store, pr int) (lane string, err error) {
+	defer recovered(&err)
+	return liveHolder(s, must(s.OwnerOf([]int{pr}))[pr]), nil
+}
+
+func liveHolder(s *store.Store, name string) string {
+	if name == "" {
+		return ""
+	}
+	holder := must(Holder(s, "", name))
 	if found, ok := laneOf(s, holder); !ok || found.State == store.LaneRetired {
-		return "", nil
+		return ""
 	}
-	return holder, nil
+	return holder
 }
 
 func AnswersCard(attrs map[string]string, cardID string) bool {

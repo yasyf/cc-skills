@@ -42,7 +42,7 @@ func (e slackEvent) fromBot() bool {
 	return e.Type == slackMessage && (e.FromClaude || strings.HasPrefix(e.Text, fallbackPost))
 }
 
-func watchCommand(a *app.App, driveName *string, lane CardLane) *cobra.Command {
+func watchCommand(a *app.App, driveName *string, lane LaneOf) *cobra.Command {
 	return &cobra.Command{
 		Use:   "watch",
 		Short: "Stream this window's Slack events under its standing Monitor, reacting :eyes: on each of his messages as it arrives and printing what his thread answers and what a bare link names; a bot's message wakes nothing",
@@ -60,7 +60,7 @@ func watchCommand(a *app.App, driveName *string, lane CardLane) *cobra.Command {
 
 type rowsOf func(ctx context.Context, word threadWord) ([]string, []string, error)
 
-func openWords(runner shell.Runner, driveName string, lane CardLane) (threadsAt, rowsOf, func(), error) {
+func openWords(runner shell.Runner, driveName string, lane LaneOf) (threadsAt, rowsOf, func(), error) {
 	entry, err := drive.Named(driveName)
 	if errors.Is(err, drive.ErrNoDrive) {
 		none := func(string) (store.SlackThread, bool, error) { return store.SlackThread{}, false, nil }

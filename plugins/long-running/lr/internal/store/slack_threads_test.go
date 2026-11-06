@@ -84,3 +84,16 @@ func TestAnAlertReadUsesTheKeyAtManyAlerts(t *testing.T) {
 		t.Fatalf("plan = %q, want a key lookup", plan)
 	}
 }
+
+func TestAThreadKeepsThePullRequestsOfItsFirstPost(t *testing.T) {
+	s := memory(t)
+	for _, posted := range []SlackThread{{TS: "1.0", Reply: "r1", PRs: []int{48159}}, {TS: "1.0", Reply: "r2"}, {TS: "1.0", Reply: "r3", PRs: []int{51995}}} {
+		if err := s.PutSlackThread(posted); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, found, err := s.SlackThreadAt("1.0")
+	if err != nil || !found || got.Reply != "r3" || !reflect.DeepEqual(got.PRs, []int{48159}) {
+		t.Fatalf("row = %+v, found %v, err %v, want the newest reply and the first post's pull request", got, found, err)
+	}
+}

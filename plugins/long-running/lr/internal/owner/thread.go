@@ -43,7 +43,7 @@ type wordCard struct {
 	session, id, title, block string
 }
 
-func threadWordCommand(a *app.App, driveName *string, lane CardLane) *cobra.Command {
+func threadWordCommand(a *app.App, driveName *string, lane LaneOf) *cobra.Command {
 	var session string
 	cmd := &cobra.Command{
 		Use:   "thread-word",
@@ -134,26 +134,26 @@ func (w threadWord) body(card wordCard, at time.Time) string {
 	return fmt.Sprintf("%s\nBoard question: %s\nCard %s, %sboard %s, typed in the card's Slack thread %s, %s PT.", w.Text, card.title, card.id, block, card.session, w.Thread, at.In(pacific).Format(rowTime))
 }
 
-func (w threadWord) indexedCard(threads threadsAt, entry drive.Entry) (wordCard, bool, error) {
-	indexed, found, err := threads(w.Thread)
-	if err != nil {
-		return wordCard{}, false, err
-	}
-	if found && indexed.Card != "" {
-		return wordCard{session: entry.Root(), id: indexed.Card, title: cmp.Or(indexed.Question, indexed.Card)}, true, nil
+func (w threadWord) cardIn(indexed store.SlackThread, entry drive.Entry) (wordCard, bool) {
+	if indexed.Card != "" {
+		return wordCard{session: entry.Root(), id: indexed.Card, title: cmp.Or(indexed.Question, indexed.Card)}, true
 	}
 	if w.Card == "" {
-		return wordCard{}, false, nil
+		return wordCard{}, false
 	}
-	return wordCard{session: entry.Root(), id: w.Card, title: w.Card}, true, nil
+	return wordCard{session: entry.Root(), id: w.Card, title: w.Card}, true
 }
 
 func (w threadWord) card(ctx context.Context, runner shell.Runner, threads threadsAt, entry drive.Entry, session string) (wordCard, bool, error) {
 	if w.Owner != nil {
 		return wordCard{session: w.Owner.Session, id: w.Owner.Card, title: cmp.Or(w.Owner.Title, w.Owner.Card)}, w.Owner.Card != "", nil
 	}
-	if card, found, err := w.indexedCard(threads, entry); err != nil || found {
-		return card, found, err
+	indexed, _, err := threads(w.Thread)
+	if err != nil {
+		return wordCard{}, false, err
+	}
+	if card, found := w.cardIn(indexed, entry); found {
+		return card, true, nil
 	}
 	shown, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "outcomes", "--all", "--session", session}, Timeout: rowWait})
 	var failed *shell.ExitError
