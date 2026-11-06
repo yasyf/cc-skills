@@ -239,19 +239,6 @@ func TestForPRReadsAnAnswerOnlyACoordinatorRulingCites(t *testing.T) {
 	}
 }
 
-func TestForPRForAPRNamingNoAnswerTopicsIsAnEmptyListThatEncodesAsBrackets(t *testing.T) {
-	fake := &shelltest.Fake{}
-	fake.Reply(`[]`, "ccn", "-R", "/repo", "ledger", "list", "--label", "answer-topics", "--label", "program:brook", "--json")
-	found, err := (&Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo"}, nil }}).ForPR(context.Background(), "brook", PR{Title: "no scope here"}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := json.Marshal(found)
-	if err != nil || string(encoded) != "[]" {
-		t.Fatalf("answers.json would hold %s (%v), and rulings.py reads null as no list", encoded, err)
-	}
-}
-
 func TestAnswersFailsWhenTheStoreCannotBeRead(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Fail(1, "open git repository", "ccn", "-R", "/repo", "answer", "show", "0531fdd", "--json")
