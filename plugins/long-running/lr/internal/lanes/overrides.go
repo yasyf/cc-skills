@@ -43,8 +43,7 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 			continue
 		}
 		if unread := bus.UnreadOverrides(record); len(unread) > 0 {
-			text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d reads `%s`, which names no `finder-override #<pr> at <sha>: <id>` or `fidelity-override #<pr> at <sha>: <id>`, so it settles no grade; post it again in that form", record.Seq, strings.Join(unread, "`, `"))
-			if err := o.refuse(ctx, record, text, now); err != nil {
+			if err := o.refuse(ctx, record, unreadRefusal(record.Seq, unread), now); err != nil {
 				return err
 			}
 		}
@@ -91,6 +90,25 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 		o.quoted = record.Seq
 	}
 	return nil
+}
+
+func unreadRefusal(seq int64, unread []bus.UnreadOverride) string {
+	read := make([]string, 0, len(unread))
+	var fixes []string
+	for _, override := range unread {
+		read = append(read, override.Text)
+		if override.Fix != "" {
+			fixes = append(fixes, override.Fix)
+		}
+	}
+	text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d reads `%s`, which names no `finder-override #<pr> at <sha>: <id>` or `fidelity-override #<pr> at <sha>: <id>`, so it settles no grade; ", seq, strings.Join(read, "`, `"))
+	switch len(fixes) {
+	case 0:
+		return text + "post it again in that form"
+	case len(unread):
+		return text + "post `" + strings.Join(fixes, "`, `") + "` instead"
+	}
+	return text + "post `" + strings.Join(fixes, "`, `") + "` instead, and the rest again in that form"
 }
 
 func (o *OverrideRefusals) refuseWithdrawn(ctx context.Context, record client.Record, now time.Time) ([]bus.Override, error) {

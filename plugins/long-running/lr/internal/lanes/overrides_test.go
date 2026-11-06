@@ -34,6 +34,29 @@ func TestAnOverrideRootWroteThatDoesNotParseComesBackOnce(t *testing.T) {
 	}
 }
 
+func TestAnUnreadFinderOverrideRefusalPrintsTheLineToPost(t *testing.T) {
+	for name, tc := range map[string]struct {
+		text string
+		want string
+	}{
+		"cites a record after the colon": {"finder-override #52014 at 6bfc72c3e57da21265c2cfd2d0f8b86e7e079153: root 548370 settles finder 547916 on 5695fdf", "so it settles no grade; post `finder-override #52014 at 6bfc72c3e57da21265c2cfd2d0f8b86e7e079153: 548370` instead"},
+		"cites no record":                {"finder-override #9 at e718a74: a memory limit", "so it settles no grade; post it again in that form"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeBus{tail: []client.Record{{Seq: 548930, Lane: "root", Kind: "decide", At: t0, Text: tc.text}}}
+			check := &OverrideRefusals{Env: Env{Bus: fake, Config: config.Config{Drive: testDrive}}, Store: memory(t)}
+
+			if err := check.Check(context.Background(), t0); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(fake.posted) != 1 || !strings.HasPrefix(fake.posted[0].Text, "OVERRIDE-REFUSED cci #548930 reads `"+tc.text+"`") || !strings.HasSuffix(fake.posted[0].Text, tc.want) {
+				t.Fatalf("posted = %+v", fake.posted)
+			}
+		})
+	}
+}
+
 func TestAnOverrideWhoseQuoteDoesNotHoldWarnsRootOnceAndNeverRefuses(t *testing.T) {
 	const override = "finder-override #47755 at abc1234: 174488. "
 	for name, tc := range map[string]struct {

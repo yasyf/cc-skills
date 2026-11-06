@@ -13,7 +13,8 @@ from .owner_facing import fenced
 COUNTING = re.compile(rf"^(?:{ROOT}|supervisor|grader-appeals(?:-\d+)?)$")
 QUOTED = re.compile(r"(?s)```.*?(?:```|\Z)|(?m:^[ \t]*>[^\n]*)|`[^`\n]*`|\"[^\"\n]*\"|“[^”]*”")
 LOOKS = re.compile(r"(?:^|(?<=[.!?])\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?(?:(?:root|main):\s+)?((?:finder|fidelity)-override\b|(?:(?:finder|fidelity)\s+)?override\s+#\d+)[^.;\n]*", re.IGNORECASE | re.MULTILINE)
-COUNTED = re.compile(r"^(finder|fidelity)-override\s+#?\d+\s+(?:at\s+)?[0-9a-f]{7,40}\b(?:\s*(?::|\s(?:finder|fidelity)\s)\s*#?(\d+(?:@[0-9a-f]+)?)\b)?", re.IGNORECASE)
+COUNTED = re.compile(r"^(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b(?:\s*(?::|\s(?:finder|fidelity)\s)\s*#?(\d+(?:@[0-9a-f]+)?)\b)?", re.IGNORECASE)
+CITED = re.compile(r"(?:^|[\s(,]|cci\s+#)(\d+(?:@[0-9a-f]+)?)(?:$|[\s,)])", re.IGNORECASE)
 REFUSAL = (
     "The supervisor counts an override only as `finder-override #<pr> at <sha>: <seq>` or `fidelity-override #<pr> at <sha>: <seq>` opening a clause, and skips any other wording unread."
     " Rewrite each line below in that form and post the decide again."
@@ -27,13 +28,19 @@ def post(text: str, lane: str = APPEALS, kind: str = "decide") -> Input:
 
 def counted(span: str) -> bool:
     form = COUNTED.match(span)
-    return form is not None and (form[1].lower() == "fidelity" or form[2] is not None)
+    return form is not None and (form[1].lower() == "fidelity" or form[4] is not None)
+
+
+def filled(span: str) -> str:
+    form = COUNTED.match(span)
+    cite = form and CITED.search(span[form.end() :])
+    return f"{span}\npost instead: {form[1].lower()}-override #{form[2]} at {form[3].lower()}: {cite[1]}" if cite else span
 
 
 def unparsed(text: str) -> list[str]:
     bare = QUOTED.sub("", text)
     spans = (bare[found.start(1) : found.end()].strip() for found in LOOKS.finditer(bare))
-    return [span for span in spans if not counted(span)]
+    return [filled(span) for span in spans if not counted(span)]
 
 
 @on(  # capt-hook: no-escape an override worded any other way is skipped by the supervisor with no refusal, and the named form always carries what it means
@@ -44,7 +51,9 @@ def unparsed(text: str) -> list[str]:
         post("override #51836 finder 535897 at 0a49519, its one open row (the delete-asked stub at routes.go:75-78 answers asked=true)"): Block(pattern=r"override #51836 finder 535897 at 0a49519"),
         post("override #51826 finder 533581 at 7e8f026, its one open row (second fix in this area at codes_table.go:262)"): Block(pattern=r"override #51826 finder 533581 at 7e8f026"),
         post("override #51759 fidelity 522437 at 5328959, row 1 (plan:171: the plan names no ProxyGateway.signal field)"): Block(pattern=r"override #51759 fidelity 522437 at 5328959"),
-        post("Looked again. finder-override #9 at e718a74: a memory limit", lane=ROOT): Block(pattern=r"finder-override #9 at e718a74: a memory limit"),
+        post("Looked again. finder-override #9 at e718a74: a memory limit", lane=ROOT): Block(pattern=r"finder-override #9 at e718a74: a memory limit\n```"),
+        post("finder-override #52014 at 6bfc72c3e57da21265c2cfd2d0f8b86e7e079153: root 548370 settles finder 547916 on 5695fdf", lane=ROOT): Block(pattern=r"\npost instead: finder-override #52014 at 6bfc72c3e57da21265c2cfd2d0f8b86e7e079153: 548370\n```"),
+        post("finder-override #52014 at 6bfc72c3e57da21265c2cfd2d0f8b86e7e079153: 548370", lane=ROOT): Allow(),
         Input(tool=POST_TOOL, tool_input={"lane": APPEALS, "kind": "decide", "to": ["landing-desk"], "text": "override #51849 finder 536588 at d035cbe"}, env={"CLAUDE_LONG_RUNNING_LANE": APPEALS}): Block(),
         post("finder-override #51849 at d035cbe: 536588. Reposts 367889@a090d980 in the counted form; same grade, head and rows"): Allow(),
         post("fidelity-override #51759 at 5328959: 522437, row 1 (plan:171)"): Allow(),
