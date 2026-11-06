@@ -254,9 +254,9 @@ func Holder(s *store.Store, drive, name string) (holder string, err error) {
 		return lane.Name, nil
 	}
 	holder, newestNumber := name, 0
-	for _, lane := range must(s.Lanes(live...)) {
-		if stem, number := family(lane.Name); stem == Stem(name) && number > newestNumber {
-			holder, newestNumber = lane.Name, number
+	for _, member := range liveFamily(s, name) {
+		if _, number := family(member); number > newestNumber {
+			holder, newestNumber = member, number
 		}
 	}
 	return holder, nil
@@ -264,10 +264,27 @@ func Holder(s *store.Store, drive, name string) (holder string, err error) {
 
 func Running(s *store.Store, drive, name string) (holder string, err error) {
 	defer recovered(&err)
-	if lane, found := newest(s, Canonical(drive, name)); found && isLive(lane.State) {
-		return lane.Name, nil
+	name = Canonical(drive, name)
+	if lane, found := newest(s, name); found {
+		if isLive(lane.State) {
+			return lane.Name, nil
+		}
+		return Root, nil
+	}
+	if members := liveFamily(s, name); len(members) == 1 {
+		return members[0], nil
 	}
 	return Root, nil
+}
+
+func liveFamily(s *store.Store, name string) []string {
+	var members []string
+	for _, lane := range must(s.Lanes(live...)) {
+		if Stem(lane.Name) == Stem(name) {
+			members = append(members, lane.Name)
+		}
+	}
+	return members
 }
 
 func ChangeOwner(s *store.Store, drive, pusher string, pr int) (string, error) {
