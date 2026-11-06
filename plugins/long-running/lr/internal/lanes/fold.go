@@ -43,19 +43,25 @@ type handed struct {
 	prs      []int
 }
 
+type unassigned struct {
+	record Record
+	lane   store.Lane
+}
+
 type folded struct {
-	adopted []string
-	hand    []string
-	unread  []unread
-	owing   []owing
-	stood   []stoodDown
-	ended   []stoodDown
-	kept    []stoodDown
-	handed  []handed
-	untyped []int64
-	unheard []string
-	refused []refusal
-	deps    Deps
+	adopted    []string
+	hand       []string
+	unread     []unread
+	owing      []owing
+	stood      []stoodDown
+	ended      []stoodDown
+	kept       []stoodDown
+	handed     []handed
+	untyped    []int64
+	unheard    []string
+	refused    []refusal
+	unassigned []unassigned
+	deps       Deps
 }
 
 func (out *folded) handOn(s *store.Store, from string, prs []int, fresh bool) {
@@ -401,7 +407,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	}
 	foldCardTaker(s, r, addressed)
 	if !fresh {
-		foldToRetired(s, r, addressed)
+		out.unassigned = append(out.unassigned, foldToRetired(s, r, addressed, at)...)
 	}
 	if kind == "red" {
 		foldRedClass(s, r, out.deps.Repo, at)
@@ -648,12 +654,16 @@ func resume(s *store.Store, name, topic, why string, r Record, at time.Time) {
 func addressees(s *store.Store, r Record) map[string]bool {
 	addressed := map[string]bool{}
 	for name := range r.Addressed() {
-		if client.Stem(name) == name {
-			name = must(Holder(s, "", name))
-		}
-		addressed[name] = true
+		addressed[addressee(s, name)] = true
 	}
 	return addressed
+}
+
+func addressee(s *store.Store, name string) string {
+	if client.Stem(name) == name {
+		return must(Holder(s, "", name))
+	}
+	return name
 }
 
 func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) {
@@ -761,14 +771,39 @@ func foldCardTaker(s *store.Store, r Record, addressed map[string]bool) {
 	}
 }
 
-func foldToRetired(s *store.Store, r Record, addressed map[string]bool) {
+func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.Time) (unreached []unassigned) {
 	answer := strings.HasPrefix(r.Topic, CardWakeTopic)
 	if !answer && !asksOfALane(r) {
-		return
+		return nil
 	}
-	for _, target := range slices.Sorted(maps.Keys(addressed)) {
+	assigns := r.Lane == Root || r.Lane == Self
+	named := maps.Clone(addressed)
+	if assigns {
+		for _, pair := range laneAssigned.FindAllStringSubmatch(r.Text, -1) {
+			named[addressee(s, pair[1])] = true
+		}
+	}
+	reached := map[string]bool{}
+	for _, target := range slices.Sorted(maps.Keys(named)) {
 		lane, found := newest(s, target)
-		if !found || lane.Name == r.Lane || lane.State != store.LaneRetired || (!answer && !restedOnItsOwnEnd(lane)) {
+		if !found && assigns {
+			lane, found = lastOfFamily(s, target)
+		}
+		if !found || lane.Name == r.Lane || reached[lane.Name] {
+			continue
+		}
+		reached[lane.Name] = true
+		if assigns && isLive(lane.State) && lane.Name != target && !addressed[lane.Name] {
+			do(s.AddUnread(store.Unread{Lane: lane.Name, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))
+			continue
+		}
+		if lane.State != store.LaneRetired {
+			continue
+		}
+		if !answer && !restedOnItsOwnEnd(lane) {
+			if assigns && (lane.Last != "done" || !slices.Contains(r.resolved(), must(s.NewestSeq(lane.Name)))) {
+				unreached = append(unreached, unassigned{r, lane})
+			}
 			continue
 		}
 		answered := strings.TrimPrefix(r.Topic, CardWakeTopic)
@@ -787,6 +822,7 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool) {
 		page["seqs"] = append(seqs, r.Seq)
 		do(s.SetLanePage(lane.Name, page))
 	}
+	return unreached
 }
 
 func asksOfALane(r Record) bool {

@@ -57,6 +57,7 @@ type Fields struct {
 
 type Record struct {
 	Seq          int64     `json:"seq"`
+	Num          string    `json:"num,omitempty"`
 	Origin       string    `json:"origin,omitempty"`
 	Lane         string    `json:"lane"`
 	Kind         string    `json:"kind"`

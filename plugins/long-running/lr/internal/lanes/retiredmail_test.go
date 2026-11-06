@@ -164,17 +164,29 @@ func TestWhichRecordsReachAGoneLane(t *testing.T) {
 	}
 }
 
-func TestALaneThatFinishedIsRelaunchedForHisAnswerButNotForOtherMail(t *testing.T) {
-	finished := func(t *testing.T) (*store.Store, *fake) {
-		s := memory(t)
-		f := adopted(t, s, writeBrief(t), "")
-		f.feed = append(f.feed, rec(2, lane2, "done", t0, "Delivered."))
-		f.peers = nil
-		tick(t, s, f, t0)
-		equal(t, row(t, s, lane2).State, store.LaneRetired)
-		return s, f
-	}
+func finished(t *testing.T) (*store.Store, *fake) {
+	t.Helper()
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.feed = append(f.feed, rec(2, lane2, "done", t0, "Delivered."))
+	f.peers = nil
+	tick(t, s, f, t0)
+	equal(t, []any{row(t, s, lane2).State, row(t, s, lane2).RetiredBy}, []any{store.LaneRetired, "done"})
+	return s, f
+}
 
+func mailOf(t *testing.T, s *store.Store, lane string) []int64 {
+	t.Helper()
+	var seqs []int64
+	for _, order := range unreadOrders(t, s) {
+		if order.Lane == lane {
+			seqs = append(seqs, order.Seq)
+		}
+	}
+	return seqs
+}
+
+func TestALaneThatFinishedIsRelaunchedForHisAnswerButNotForOtherMail(t *testing.T) {
 	s, f := finished(t)
 	f.feed = append(f.feed, rec(3, "owner-relay", "ask", t0.Add(mins(5)), "Which branch holds this?", lane2))
 	tick(t, s, f, t0.Add(mins(5)))
@@ -184,6 +196,60 @@ func TestALaneThatFinishedIsRelaunchedForHisAnswerButNotForOtherMail(t *testing.
 	f.feed = append(f.feed, cardWake(3, lane2, "picked Combined", t0.Add(mins(5))))
 	tick(t, s, f, t0.Add(mins(5)))
 	equal(t, f.launches, []string{heir})
+}
+
+func (r Record) withNum(num string) Record { r.Num = num; return r }
+
+func TestRootOrTheSupervisorNamingAFinishedLaneLaunchesNothingAndTellsRootOnce(t *testing.T) {
+	at := t0.Add(mins(5))
+	const num = "#29934@6442ae88"
+	for _, tt := range []struct {
+		name    string
+		record  Record
+		notices int
+	}{
+		{"root's answer to its stem", rec(3, Root, "answer", at, "Read #50782 and ship the trim.", Stem(lane2)).withNum(num), 1},
+		{"root's answer naming it in --to and as lane=", rec(3, Root, "answer", at, "lane="+Stem(lane2)+" owns item 86: ship the trim.", Stem(lane2), "slack-bugs").withNum(num), 1},
+		{"root's answer naming it only as lane=", rec(3, Root, "answer", at, "lane="+lane2+" owns item 86.", "slack-bugs").withNum(num), 1},
+		{"the supervisor's ask", rec(3, Self, "ask", at, "org/repo#7 row-wait overdue", lane2).withNum(num), 1},
+		{"root's answer closing its done", rec(3, Root, "answer", at, "closed: delivered with zero PRs.", lane2).withResolves(2).withNum(num), 0},
+		{"root's note asks nothing", rec(3, Root, "note", at, "lane="+Stem(lane2)+" shipped #50782.", lane2).withNum(num), 0},
+		{"another lane's answer", rec(3, "meta-desk-3", "answer", at, "lane="+Stem(lane2)+": yes.", lane2).withNum(num), 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, f := finished(t)
+			f.feed = append(f.feed, tt.record, tt.record)
+			tick(t, s, f, at)
+			tick(t, s, f, at.Add(mins(1)))
+
+			equal(t, f.launches, []string(nil))
+			equal(t, row(t, s, lane2).State, store.LaneRetired)
+			notices := f.ofKind("blocker")
+			equal(t, len(notices), tt.notices)
+			if tt.notices == 0 {
+				return
+			}
+			equal(t, []any{notices[0].To, notices[0].LaneRef, notices[0].Re}, []any{[]string{Root}, lane2, int64(3)})
+			equal(t, notices[0].Text, "ASSIGNMENT-UNREAD cci "+num+" names "+lane2+", retired at Oct 31 10:00 AM with no successor, so no lane reads it; name a live lane or relaunch it")
+		})
+	}
+}
+
+func TestRootNamingARetiredLaneWhoseSuccessorIsLiveRoutesTheRecordToIt(t *testing.T) {
+	s, f := finished(t)
+	f.feed = append(f.feed, cardWake(3, lane2, "picked Combined", t0.Add(mins(5))))
+	tick(t, s, f, t0.Add(mins(5)))
+	f.feed = append(f.feed, rec(4, heir, "report", t0.Add(mins(6)), "Up; building the pick."))
+	f.peers = []Row{who(heir, true, t0.Add(mins(6)))}
+	tick(t, s, f, t0.Add(mins(6)))
+
+	f.feed = append(f.feed, rec(5, Root, "answer", t0.Add(mins(7)), "Also take item 87.", lane2).withNum("#5"))
+	tick(t, s, f, t0.Add(mins(7)))
+
+	equal(t, f.launches, []string{heir})
+	equal(t, row(t, s, lane2).Page == nil, true)
+	equal(t, mailOf(t, s, heir), []int64{5})
+	equal(t, len(f.ofKind("blocker")), 0)
 }
 
 func TestAnOverdueItemAsksALaneThatStoppedItselfAndRootForOneThatFinished(t *testing.T) {
