@@ -758,3 +758,17 @@ func TestAScopedLaneReadCarriesOnlyItsOwnHeardAndPRs(t *testing.T) {
 		t.Fatalf("lane %+v, found %v, err %v", missing, found, err)
 	}
 }
+
+func TestTheDrivesOwnPRsAreThoseWithALedgerRowOrTheDrivesLoginAsAuthor(t *testing.T) {
+	s := memory(t)
+	ok(t, s.PutReviewRows([]ReviewRow{{Repo: repo, Number: 1}, {Repo: "other/repo", Number: 4}}))
+	for number, author := range map[int]string{2: "drive-bot", 3: "forge-matt"} {
+		must[bool](t)(s.PutFact(repo, number, "", AuthorFact, author, t0))
+	}
+
+	own := must[[]int](t)(s.DrivePRs(repo, "drive-bot", []int{5, 4, 3, 2, 1, 1}))
+
+	if !slices.Equal(own, []int{1, 2}) {
+		t.Fatalf("own %v, want the ledger row #1 and the drive-authored #2", own)
+	}
+}

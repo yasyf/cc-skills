@@ -9,12 +9,10 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const (
-	authorFact     = "author"
-	authorNameFact = "author-name"
-)
+const authorNameFact = "author-name"
 
 type Whose struct {
 	Number  int    `json:"number"`
@@ -36,17 +34,17 @@ func (s Source) Whose(ctx context.Context, numbers []int) ([]Whose, error) {
 		if err != nil {
 			return nil, err
 		}
-		if known[authorFact] == "" {
-			if known[authorFact], known[authorNameFact], err = s.author(ctx, number); err != nil {
+		if known[store.AuthorFact] == "" {
+			if known[store.AuthorFact], known[authorNameFact], err = s.author(ctx, number); err != nil {
 				return nil, fmt.Errorf("#%d author: %w", number, err)
 			}
 		}
 		f := machine.Facts{Lane: cmp.Or(owners[number], known["lane"]), Tap: machine.Tap(known["tap"])}
 		_, f.Exempt = known["exempt"]
-		if known[authorFact] != s.Author {
-			f.ForeignAuthor = known[authorFact]
+		if known[store.AuthorFact] != s.Author {
+			f.ForeignAuthor = known[store.AuthorFact]
 		}
-		out = append(out, Whose{number, known[authorFact], known[authorNameFact], f.Lane, f.Ours(), f.Foreign()})
+		out = append(out, Whose{number, known[store.AuthorFact], known[authorNameFact], f.Lane, f.Ours(), f.Foreign()})
 	}
 	return out, nil
 }
@@ -65,7 +63,7 @@ func (s Source) author(ctx context.Context, number int) (string, string, error) 
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {
 		return "", "", err
 	}
-	for kind, value := range map[string]string{authorFact: pr.Author.Login, authorNameFact: pr.Author.Name} {
+	for kind, value := range map[string]string{store.AuthorFact: pr.Author.Login, authorNameFact: pr.Author.Name} {
 		if _, err := s.Store.PutFact(s.Repo, number, "", kind, value, s.Now()); err != nil {
 			return "", "", err
 		}

@@ -9,6 +9,7 @@ import (
 const (
 	ReviewRowsCursor   = "review-rows"
 	PullRequestsCursor = "pull-requests"
+	AuthorFact         = "author"
 )
 
 const reviewRowColumns = "repo, number, title, lane, branch, base, parent, parent_state, head, head_at, read_head, for_users, plan_line, plan_row, risk, description, unsafe_wait, ci, approvers, review, grade, grade_findings, mergeable, queue, hold, awaits_tap, superseded_by, waits_on, ready_for_tap, state, tapped, tap_refused, tapped_at, tapped_by, landed_at, last_record, written_at, port, moved_at, merges_at"
@@ -113,6 +114,24 @@ func (s *Store) NumberedReviewRows(numbers []int) ([]ReviewRow, error) {
 		var row ReviewRow
 		err := rows.Scan(row.columns()...)
 		return row, err
+	})
+}
+
+const drivePRs = `SELECT DISTINCT j.value FROM json_each(?3) j
+WHERE EXISTS (SELECT 1 FROM review_rows r WHERE r.repo = ?1 AND r.number = j.value)
+  OR EXISTS (SELECT 1 FROM facts f WHERE f.repo = ?1 AND f.number = j.value AND f.head = '' AND f.kind = ?4 AND f.value = ?2)
+ORDER BY j.value`
+
+func (s *Store) DrivePRs(repo, author string, numbers []int) ([]int, error) {
+	given, err := json.Marshal(numbers)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(drivePRs, repo, author, string(given), AuthorFact)
+	return collect(rows, err, func(rows *sql.Rows) (int, error) {
+		var number int
+		err := rows.Scan(&number)
+		return number, err
 	})
 }
 
