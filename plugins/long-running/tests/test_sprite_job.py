@@ -324,10 +324,10 @@ def test_a_sprite_names_a_new_plugin_copy_by_one_rename_and_deletes_an_older_cop
 
 
 def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fails_it_at_once(tmp_path: Path) -> None:
-    """remote-desks-5, 9:41 PM Oct 30: dar-fleet-4 restarted at about 9:20 PM mid-pass, sprite-job.sh exited with no result, and the runner counted fidelity #46330 801543b as running for 24 minutes, since a fidelity pass fails only on an error result or its 60-minute deadline."""
+    """remote-desks-5, 9:41 PM Oct 30: dar-fleet-4 restarted at about 9:20 PM mid-pass, sprite-job.sh exited with no result, and the runner counted fidelity #46330 801543b as running for 24 minutes, since a fidelity pass fails only on an error result or its 60-minute deadline. The job's whole process group dies with it, wrapper included, so no status file is ever written and the poll reads the job as gone; a job that exited 137 and let its wrapper write that status raced the poll for which came first, failing 5 of 12 runs."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46330-801543be814f-236200", mac / "config"
-    job_script, grader = plugin_with_job(mac, "import os, shutil, sys\nshutil.rmtree(os.path.realpath(sys.argv[1]))\nsys.exit(137)\n"), "fidelity"
+    job_script, grader = plugin_with_job(mac, "import os, shutil, signal, sys\nshutil.rmtree(os.path.realpath(sys.argv[1]))\nos.killpg(os.getpgrp(), signal.SIGKILL)\n"), "fidelity"
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
     executable(mac / "bin" / "sleep", "#!/bin/sh\n")
@@ -340,8 +340,8 @@ def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fa
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
     done = subprocess.run(["sh", str(job_script), "dar-fleet-4", grader, str(directory)], env=env, capture_output=True, timeout=60)
 
-    assert done.returncode == 137
-    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 137 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
+    assert done.returncode == 1
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 1 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
 
 
 
