@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"maps"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -56,13 +58,22 @@ type record struct {
 }
 
 type Carrier struct {
-	Runner shell.Runner
-	Home   string
-	Repo   string
-	Into   string
-	Box    string
-	Drive  string
-	Vars   map[string]string
+	Runner   shell.Runner
+	Home     string
+	Repo     string
+	Checkout string
+	Into     string
+	Box      string
+	Drive    string
+	Vars     map[string]string
+}
+
+func DriveCheckout(driveDir string) string {
+	loaded, err := config.Load(filepath.Join(driveDir, "lr.json"), io.Discard)
+	if err != nil {
+		return ""
+	}
+	return loaded.Checkout
 }
 
 func Command(a *app.App) *cobra.Command {
@@ -79,8 +90,9 @@ func Command(a *app.App) *cobra.Command {
 			if c.Home, err = os.UserHomeDir(); err != nil {
 				return err
 			}
-			if config, err := a.ConfigFile(); err == nil {
-				c.Vars[DriveDir] = filepath.Dir(config)
+			if file, err := a.ConfigFile(); err == nil {
+				c.Vars[DriveDir] = filepath.Dir(file)
+				c.Checkout = DriveCheckout(c.Vars[DriveDir])
 			}
 			rewritten, left := c.Carry(cmd.Context(), string(brief))
 			for _, behind := range left {
@@ -261,6 +273,9 @@ func (c Carrier) carry(ctx context.Context, named source) (string, error) {
 	}
 	if named.kind != "" {
 		return c.note(ctx, named.kind, named.id)
+	}
+	if filepath.Clean(named.id) == filepath.Clean(c.Checkout) {
+		return "", nil
 	}
 	if _, err := os.Lstat(named.id); named.variable && errors.Is(err, fs.ErrNotExist) {
 		return c.Box + named.id, nil

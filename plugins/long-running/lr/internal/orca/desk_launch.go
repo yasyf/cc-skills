@@ -703,7 +703,7 @@ func baseDrift(attempt string) (key, differs string, err error) {
 }
 
 func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, attempt string, exited bool, out string) error {
-	reason := clipRunes(collapsed(out), 300)
+	reason := clipRunes(collapsed(out[strings.LastIndex(out, "\n")+1:]), 300)
 	raw, _ := os.ReadFile(filepath.Join(attempt, spriteDown))
 	if key, down, _ := strings.Cut(string(raw), "\n"); key == action.ActionID && d.Config.Launches != launchesSprite && !isFile(d.refusedLog(container, action.ActionID)) {
 		down = clipRunes(collapsed(down), 300)

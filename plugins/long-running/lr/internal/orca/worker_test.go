@@ -2242,6 +2242,24 @@ func TestABriefWhoseRuleNamesTheIrisSignInLaunchesAndLeavesItBehind(t *testing.T
 	}
 }
 
+func TestABriefNamingTheDrivesCheckoutLaunchesWithNoWarningAndTheSpecPointsAtTheSpritesCheckout(t *testing.T) {
+	f := newWorkerFixture(t)
+	state := filepath.Join(f.home, ".claude", "scratch", "brook")
+	runner := filepath.Join(f.home, ".claude", "worktrees", "monorepo", "brook-runner")
+	f.write(filepath.Join(state, "lr.json"), `{"repo":"Forge-AI/monorepo","drive":"brook","checkout":"`+runner+`","author":"drive-bot","label":"brook","movers":["lanes"]}`, 0o600)
+	f.env[workerDriveDir] = state
+	text := "Post with `cci post --lane " + workerLane + "`, run from " + runner + ".\n"
+	f.write(f.brief, text, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+	f.launched()
+	if strings.Contains(f.stderr.String(), "stays behind") {
+		t.Fatal(f.stderr.String())
+	}
+	if want := " Where a brief names " + runner + ", the drive's checkout on the Mac, use this Sprite's checkout " + remoteRoot + ","; !strings.Contains(f.startedSpec(), want) {
+		t.Fatalf("spec lacks %q:\n%s", want, f.startedSpec())
+	}
+}
+
 func TestABriefNamingAMissingPathWarnsAndStillStartsItsWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	gone := filepath.Join(f.home, "gone.md")
