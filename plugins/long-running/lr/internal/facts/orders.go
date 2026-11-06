@@ -56,7 +56,7 @@ func (s Source) WriteOrders(ctx context.Context) error {
 			}
 		}
 		if tap, ordered := bus.OrderOf(record, s.Repo); ordered {
-			if failed := s.writeOrder(ctx, record, tap, age); failed != nil {
+			if failed := s.writeOrder(ctx, record, tap, now); failed != nil {
 				s.Log.Warn("an owner tap has no land order yet", "record", record.Name(), "pr", tap.PR, "err", failed)
 				settled = settled && age >= OrderWindow
 				switch {
@@ -80,7 +80,7 @@ func (s Source) WriteOrders(ctx context.Context) error {
 	return nil
 }
 
-func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Tap, age time.Duration) error {
+func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Tap, now time.Time) error {
 	if tap.Head == "" {
 		written, err := client.Tail(ctx, client.Query{Drive: s.Drive, After: record.Seq, Kinds: []string{tapRecord}, PR: fmt.Sprintf("%s#%d", s.Repo, tap.PR)})
 		if err != nil {
@@ -101,7 +101,7 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 			return err
 		}
 		return errHeadWait
-	case tap.Head == "" && age >= OrderWindow, refusal == prrow.AlreadyLanded, refusal == prrow.ClosedUnlanded:
+	case tap.Head == "" && now.Sub(record.At) >= OrderWindow, refusal == prrow.AlreadyLanded, refusal == prrow.ClosedUnlanded:
 		return nil
 	}
 	tap.Head = head
@@ -115,8 +115,12 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 	if moved, err := s.movedSinceRefusal(ctx, record, tap); err != nil || moved {
 		return err
 	}
-	if _, err := orders.PostOrder(ctx, tap, record); err != nil {
+	order, err := orders.PostOrder(ctx, tap, record)
+	if err != nil {
 		return err
+	}
+	if !order.At.Before(now) {
+		s.Log.Info("an owner tap became a land order", "record", record.Name(), "pr", tap.PR, "head", tap.Head, "order", order.Seq)
 	}
 	return s.endTapHolds(ctx, tap, record)
 }
