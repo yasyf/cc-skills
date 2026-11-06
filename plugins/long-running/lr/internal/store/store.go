@@ -546,6 +546,7 @@ func (s *Store) StopSprite(lane string, at time.Time) (bool, error) {
 
 type SpriteStopFailure struct {
 	Blocker int64
+	Passes  int
 	Retries bool
 	Left    bool
 }
@@ -555,13 +556,13 @@ func (s *Store) FailSpriteStop(lane string, tries int, transient bool) (SpriteSt
 	if transient {
 		counted = 0
 	}
-	var failures int
+	var failures, passes int
 	var blocker sql.NullInt64
 	var left sql.NullString
-	if err := s.db.QueryRow("INSERT INTO sprite_stop_failures (lane, failures) VALUES (?1, ?2) ON CONFLICT (lane) DO UPDATE SET failures = failures + ?2 RETURNING failures, blocker, left_at", lane, counted).Scan(&failures, &blocker, &left); err != nil {
+	if err := s.db.QueryRow("INSERT INTO sprite_stop_failures (lane, failures, passes) VALUES (?1, ?2, 1) ON CONFLICT (lane) DO UPDATE SET failures = failures + ?2, passes = passes + 1 RETURNING failures, passes, blocker, left_at", lane, counted).Scan(&failures, &passes, &blocker, &left); err != nil {
 		return SpriteStopFailure{}, err
 	}
-	failure := SpriteStopFailure{Blocker: blocker.Int64, Retries: !left.Valid && failures < tries, Left: left.Valid}
+	failure := SpriteStopFailure{Blocker: blocker.Int64, Passes: passes, Retries: !left.Valid && failures < tries, Left: left.Valid}
 	if !failure.Retries {
 		return failure, nil
 	}

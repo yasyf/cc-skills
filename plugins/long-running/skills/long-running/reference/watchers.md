@@ -184,7 +184,7 @@ A numbered spawn such as `desk-4` takes over `desk-3` only when its launch names
 
 **Stop an ended lane's Sprite.** Every five minutes `lr stop-sprites` runs `cc-remote orca stop <lane>` for each retired Sprite lane whose dispatch settled. A lane the Run lists no dispatch for qualifies when its `done` record or a withdrawal retired it.
 - A cc-remote older than 0.27.4, the first whose `orca stop` works on a finished lane's Sprite, skips the pass, and its ended lanes wait for the pin to reach that release.
-- A failed stop of a Sprite `sprite list` no longer shows closes. A stop that failed on a 5xx or a timeout is tried every pass until it stops, is gone or a person leaves it through `lr stop-sprites`, under one `SPRITE-STOP-FAILED` blocker and one closing line. Any other failed stop gets three tries and then one blocker; [orca-sprite-workers.md](orca-sprite-workers.md) has the rules.
+- A failed stop of a Sprite `sprite list` no longer shows closes. A stop that failed on a 5xx or a timeout is tried every pass until it stops, is gone or a person leaves it through `lr stop-sprites`; its third failed pass in a row posts one `SPRITE-STOP-FAILED` blocker, and one closing line follows. Any other failed stop gets three tries and then one blocker. Both go to the meta desk; [orca-sprite-workers.md](orca-sprite-workers.md) has the rules.
 - A live, held or unsettled lane keeps its Sprite.
 
 ### Check liveness and wake parked lanes
