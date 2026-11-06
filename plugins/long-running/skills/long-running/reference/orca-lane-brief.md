@@ -509,9 +509,10 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   (`|| exit 1`), never pipe ship into `tail`, and check the head moved before posting. A
   record that claims a fix nobody pushed misleads the landing desks that replay stacks.
   Dry-run a bulk poster before it posts.
-- In a public repo, PR bodies, commits, review comments and docs paraphrase the owner and
-  cite answer ids; his words stay in cci and cc-notes. A Forge-AI/monorepo PR body quotes
-  his words, since the finder grades a paraphrase as missing the row. A PR adding or changing a public API
+- A PR body in Forge-AI/monorepo or in one of his own yasyf/* repos quotes his words verbatim
+  in a Rulings section, with the answer id after each quote (his ruling 4f2f647), since the
+  finder grades a paraphrase as missing the row; customer names, user ids and incident detail
+  stay out of public repos. Text in anyone else's repo paraphrases him and cites answer ids. A PR adding or changing a public API
   says, in its body and its lines to him: the signature, the alternatives weighed, the choice and why. Run `gh pr` verbs directly, never through a
   script file that hides them from the hooks. Correct an open PR's body unasked with
   `gh pr edit <n> --body-file <file>` when it turns out false or when evidence a grader

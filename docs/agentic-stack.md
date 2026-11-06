@@ -101,7 +101,7 @@ Legend: Judge = a small-model question replaces the regex verdict. Front = the m
 | Rulings cited and explained | `check-pr` RULINGS-UNCITED, RULINGS-PLAIN | Heading and id regexes | Judge, folded into the PR body question | Does the body name the rulings the diff builds, in plain words? |
 | Removed names, removed tests, pinned test corpus | `check-pr` NAME-HIT, TEST-REMOVED, TESTS-CORPUS | Exact name, file and hash matches | Keep | A removed name or test is literal by nature; a hash is exact |
 | PR body stays as opened | `pr_body_frozen.py` | Edit detection | Keep | State |
-| PR text paraphrases the owner | `owner_quotes.py` | A clock time before a long quote, or a quoting phrase, in a PR body or comment | Keep, block on a confirmed match | His words stay in cci and cc-notes, never in a public repo |
+| PR text in another person's repo paraphrases the owner | `owner_quotes.py` | A clock time before a long quote, or a quoting phrase, in a PR body or comment outside Forge-AI/monorepo and his own yasyf/* repos | Keep, warn | His own repos quote him in a Rulings section (4f2f647); other people's repos never carry his words |
 
 ### The landing flow
 
