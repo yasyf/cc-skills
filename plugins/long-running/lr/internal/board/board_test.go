@@ -2,7 +2,6 @@ package board
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -144,18 +143,18 @@ func TestApprovedOnARowWaitingOnlyOnCIBecomesATapFactAndATapRecord(t *testing.T)
 	}
 }
 
-func TestApprovedOnAHeldRowIsRefusedWithItsReasonAndTapsNothing(t *testing.T) {
-	const held = "held, root:the cutover"
+func TestApprovedOnAHeldRowTapsItAndLeavesTheHold(t *testing.T) {
 	s, hooks := withItem(t), &recorded{}
 	row := rowWaits(t, s, func(r *store.ReviewRow) { r.Hold = "root:the cutover" })
-	if err := Answer(s, repo, hooks.hooks(), row, verdictApproved, t0); err == nil || !strings.Contains(err.Error(), held) {
-		t.Fatalf("err = %v, want the refusal for the card to tell him", err)
+	if err := Answer(s, repo, hooks.hooks(), row, verdictApproved, t0); err != nil {
+		t.Fatal(err)
 	}
-	if len(hooks.taps) != 0 || stored(t, s)["tap"] != "" {
-		t.Fatalf("taps = %+v, facts = %v", hooks.taps, stored(t, s))
+	if len(hooks.taps) != 1 || len(hooks.refused) != 0 || stored(t, s)["tap"] != string(machine.TapTapped) || stored(t, s)[bus.TapRefusedFact] != "" {
+		t.Fatalf("taps = %+v, refused = %+v, facts = %v", hooks.taps, hooks.refused, stored(t, s))
 	}
-	if want := []string{held}; !reflect.DeepEqual(hooks.refused, want) || stored(t, s)[bus.TapRefusedFact] != held {
-		t.Fatalf("refused = %+v, facts = %v", hooks.refused, stored(t, s))
+	tapped, found, err := s.ReviewRow(repo, number)
+	if err != nil || !found || !tapped.Tapped || tapped.ReadyForTap || tapped.Hold != "root:the cutover" || len(hooks.holds) != 0 {
+		t.Fatalf("row = %+v, %v, %v, holds = %+v; want his tap and the hold standing", tapped, found, err, hooks.holds)
 	}
 }
 

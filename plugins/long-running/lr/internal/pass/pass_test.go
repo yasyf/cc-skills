@@ -721,6 +721,21 @@ func TestATappedHeadUnderAHoldAsksTheCoordinatorOnceAndAnUntappedOneWaitsOnTheOw
 	}
 }
 
+func TestATappedHeadUnderHisOwnHoldAsksRootToAskHimAndNeverToLiftIt(t *testing.T) {
+	s, r := newStore(t), &recorder{}
+	tapped := facts(48401, func(f *machine.Facts) { f.Hold, f.HoldRecord = machine.MoverOwner, "#372915" })
+
+	run(t, s, r, t0, []machine.Mover{machine.MoverSupervisor}, tapped)
+
+	want := []posted{{[]string{"root"}, bus.Escalation{
+		Subject: "org/repo#48401 at e718a7434f",
+		Cause:   "DECIDE: the owner tapped this head while his own hold #372915 stands, and only he lifts it; ask him whether it lifts",
+	}}}
+	if !reflect.DeepEqual(r.posts, want) {
+		t.Fatalf("posts = %+v", r.posts)
+	}
+}
+
 func TestAnItemOfAKindThePassDoesNotOwnNeverEscalates(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	if _, err := s.OpenItem(store.NewItem{Kind: "approve", Repo: "release", Number: 12192, Head: "efe25ce", Mover: machine.MoverLane, Deadline: time.Minute}, t0); err != nil {
@@ -903,7 +918,7 @@ func TestThreePRsWaitingOnAnAutomatedActorOrAReviewerForAnHourReachRoot(t *testi
 	}
 }
 
-func TestThreeHeldUngradedHeadsNeverReadAsWaitingOnThePool(t *testing.T) {
+func TestThreeHeldUngradedHeadsOpenTheirGradesForThePool(t *testing.T) {
 	s, r := newStore(t), &recorder{}
 	numbers := []int{50994, 51056, 51282}
 	held := make([]machine.Facts, 0, len(numbers))
@@ -914,14 +929,10 @@ func TestThreeHeldUngradedHeadsNeverReadAsWaitingOnThePool(t *testing.T) {
 	}
 
 	run(t, s, r, t0, all, held...)
-	late := run(t, s, r, t0.Add(time.Hour), all, held...)
 
-	if len(clustered(late)) != 0 {
-		t.Fatalf("clusters = %+v, want none: the pool grades no held head, so its hold is what each waits on", clustered(late))
-	}
 	for _, f := range held {
-		if item := openOne(t, s, f.Number); item.Kind != string(machine.ActionLift) || item.Mover != machine.MoverRoot {
-			t.Fatalf("#%d opened %s for %s, want a lift for root", f.Number, item.Kind, item.Mover)
+		if item := openOne(t, s, f.Number); item.Kind != string(machine.ActionGrade) || item.Mover != machine.MoverPool {
+			t.Fatalf("#%d opened %s for %s, want a grade for the pool", f.Number, item.Kind, item.Mover)
 		}
 	}
 }
@@ -1093,23 +1104,6 @@ func TestAGreenHeadMissingAGradeTellsTheGraderAndLaneAtAnHourAndRootAtThreeOnce(
 	wantRoot := posted{[]string{"root"}, bus.Escalation{Subject: "org/repo#48967 at e718a7434f", Cause: "green and ungraded for 180 minutes: no finder grade"}}
 	if got := ungradedPosts(r); !reflect.DeepEqual(got, []posted{wantHour, wantRoot}) {
 		t.Fatalf("at three hours: %+v", got)
-	}
-}
-
-func TestAHeldGreenHeadThatTakesNoGradeTellsNoOneItIsUngraded(t *testing.T) {
-	s, r := newStore(t), &recorder{}
-	if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
-		t.Fatal(err)
-	}
-	given := facts(48967, func(f *machine.Facts) {
-		f.Finder, f.Approved, f.Hold, f.HoldRecord = "", false, machine.MoverRoot, "#481773"
-	})
-
-	for _, after := range []time.Duration{0, time.Hour, 3 * time.Hour} {
-		run(t, s, r, t0.Add(after), all, given)
-	}
-	if got := ungradedPosts(r); len(got) != 0 {
-		t.Fatalf("held: %+v", got)
 	}
 }
 

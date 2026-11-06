@@ -326,9 +326,6 @@ func classify(f Facts) Verdict {
 		return Verdict{StatePushed, MoverNobody, ActionNone, 0}
 	}
 	if !f.Graded() {
-		if f.Held() {
-			return heldVerdict(f)
-		}
 		if f.GradeStopped != "" {
 			return Verdict{StateNeedsVerdict, MoverLane, ActionVerdict, LaneClock}
 		}

@@ -243,7 +243,8 @@ func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 	}{
 		{"a ready row", store.ReviewRow{Repo: "o/r", Number: 7, Head: handHead, ReadyForTap: true}, "owner", false},
 		{"a row waiting on CI", prrow.Decide(store.ReviewRow{Repo: "o/r", Number: 7, Head: handHead, State: prrow.StateOpen, CI: prrow.CIPending, Hold: prrow.None, SupersededBy: prrow.None, ForUsers: "a user sees it", PlanRow: "plan step 1", Risk: "low"}), "owner", false},
-		{"a held row", prrow.Decide(store.ReviewRow{Repo: "o/r", Number: 7, Head: handHead, State: prrow.StateOpen, Hold: "root:the cutover", SupersededBy: prrow.None}), bus.TapRefusedKind, true},
+		{"a held row", prrow.Decide(store.ReviewRow{Repo: "o/r", Number: 7, Head: handHead, State: prrow.StateOpen, Hold: "root:the cutover", SupersededBy: prrow.None}), "owner", false},
+		{"a superseded row", prrow.Decide(store.ReviewRow{Repo: "o/r", Number: 7, Head: handHead, State: prrow.StateOpen, Hold: prrow.None, SupersededBy: "#8"}), bus.TapRefusedKind, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("CCI_HOME", t.TempDir())
@@ -278,7 +279,7 @@ func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 			if tap, ordered := bus.OrderOf(written[0], "o/r"); ordered == tt.refused || !tt.refused && (tap.PR != 7 || tap.Head != handHead) {
 				t.Fatalf("the landing host reads = %+v, %v", tap, ordered)
 			}
-			if tt.refused && !strings.Contains(out.String(), "held, root:the cutover") {
+			if tt.refused && !strings.Contains(out.String(), "Nothing: superseded, #8") {
 				t.Fatalf("out = %s", out.String())
 			}
 		})
