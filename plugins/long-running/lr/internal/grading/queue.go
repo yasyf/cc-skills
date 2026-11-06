@@ -63,7 +63,10 @@ func (p *JobPool) Queue(ctx context.Context, grading string, items []store.Item,
 	for number, row := range pushed {
 		snapshot[number] = row.Facts
 	}
-	ranked, err := p.Rank(ctx, owedItems(grading, items, snapshot), snapshot, now)
+	if err := p.readFirsts(ctx, now); err != nil {
+		return nil, err
+	}
+	ranked, err := p.sorted(owedItems(grading, items, snapshot, p.firsts), snapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +77,7 @@ func (p *JobPool) Queue(ctx context.Context, grading string, items []store.Item,
 	rows := make([]QueueRow, 0, len(ranked))
 	for _, item := range ranked {
 		row := pushed[item.Number]
-		pass := p.passAt(d, strconv.Itoa(item.Number)+"-"+short(row.Facts.Head), commands)
+		pass := p.passAt(d, p.passBase(grading, row.Facts), commands)
 		rows = append(rows, QueueRow{
 			Number: item.Number, Head: row.Facts.Head, RowHead: row.RowHead, HeadAt: row.HeadAt, CI: row.Facts.CI, Pipeline: pass,
 			Owed: pass == PassReader || row.Facts.GradeStopped != "",
@@ -84,10 +87,14 @@ func (p *JobPool) Queue(ctx context.Context, grading string, items []store.Item,
 	return rows, nil
 }
 
-func owedItems(grading string, items []store.Item, snapshot map[int]machine.Facts) []store.Item {
+func owedItems(grading string, items []store.Item, snapshot map[int]machine.Facts, firsts map[int]int64) []store.Item {
 	owed := func(number int) bool {
 		f, known := snapshot[number]
-		return known && !f.Undriven() && slices.Contains(Missing(f), grading)
+		graders := Missing(f)
+		if firsts[number] > 0 {
+			graders = Owed(f)
+		}
+		return known && !f.Undriven() && slices.Contains(graders, grading)
 	}
 	listed := map[int]bool{}
 	kept := make([]store.Item, 0, len(snapshot))
