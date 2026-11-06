@@ -38,7 +38,6 @@ const (
 	mergeableFields  = "number headRefOid mergeable"
 	queueUnknown     = "queue-unknown"
 	graphiteCheck    = "Graphite / mergeability_check"
-	diffRefs         = "refs/lr/diff/"
 	readersFirstHeld = "readers-first-held"
 	readersFirstWhy  = "readers-first:"
 	openHeadsQuery   = `query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(states: OPEN, first: 100, after: $endCursor) { nodes { number headRefOid } pageInfo { hasNextPage endCursor } } } }`
@@ -60,6 +59,7 @@ type Source struct {
 	Author    string
 	Trunk     string
 	GoLanes   []string
+	Refs      string
 	Reads     bool
 	ReadsRows bool
 	Runner    shell.Runner
@@ -78,6 +78,7 @@ func New(a *app.App, cfg config.Config, s *store.Store) Source {
 		Author:  cfg.Author,
 		Trunk:   cfg.Trunk,
 		GoLanes: cfg.GoLaneNames(),
+		Refs:    cfg.Refs(),
 		Reads:   slices.Contains(cfg.Movers, config.MoverLanding),
 		Runner:  runner,
 		CCX:     ccx.CLI{Runner: runner},
@@ -1443,7 +1444,7 @@ func (s Source) hashDiff(ctx context.Context, f machine.Facts, stored map[string
 	}
 	fetch, below := []string{"git", "fetch", "--no-write-fetch-head", "--refmap=", "-q", "origin", f.Head}, []string{"git", "merge-base", f.Head}
 	for _, branch := range slices.Compact([]string{f.Base, s.Trunk}) {
-		ref := diffRefs + branch
+		ref := s.Refs + "diff/" + branch
 		fetch, below = append(fetch, "+refs/heads/"+branch+":"+ref), append(below, ref)
 	}
 	if _, err := s.Runner.Run(ctx, shell.Command{Argv: fetch}); err != nil {

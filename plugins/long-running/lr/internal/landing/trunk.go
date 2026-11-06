@@ -23,7 +23,6 @@ const (
 	readTimeout = 60 * time.Second
 	queueKeyEnv = "TRUNK_MERGE_API_KEY"
 	treeLock    = ".tree.lock"
-	queueTip    = "refs/lr/queue/"
 )
 
 const QueueWorktree = "queue-worktree"
@@ -32,6 +31,7 @@ type Trunk struct {
 	Runner     shell.Runner
 	Checkout   string
 	Worktree   string
+	Refs       string
 	Branch     string
 	Script     string
 	KeyCommand string
@@ -207,7 +207,7 @@ func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
 		return "", err
 	}
 	defer lock.Close()
-	tip := queueTip + t.Branch
+	tip := t.Refs + "queue/" + t.Branch
 	if _, err := t.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", t.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/" + t.Branch + ":" + tip}, Timeout: readTimeout}); err != nil {
 		return "", err
 	}

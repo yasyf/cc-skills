@@ -17,6 +17,7 @@ import (
 const (
 	queueScript = ".agents/skills/submit-pr/scripts/stack-enqueue"
 	queueKey    = "queue-key-value"
+	landingRefs = "refs/lr/landing/"
 )
 
 func trunk(t *testing.T, fake *shelltest.Fake) (landing.Trunk, string) {
@@ -26,7 +27,7 @@ func trunk(t *testing.T, fake *shelltest.Fake) (landing.Trunk, string) {
 	fake.Reply("", "git")
 	fake.Reply(queueKey+"\n", "sh", "-c")
 	return landing.Trunk{
-		Runner: fake, Checkout: filepath.Join(state, "lr-landing"), Worktree: worktree, Branch: "dev",
+		Runner: fake, Checkout: filepath.Join(state, "lr-landing"), Worktree: worktree, Refs: landingRefs, Branch: "dev",
 		Script: queueScript, KeyCommand: "print-key --name queue",
 	}, filepath.Join(worktree, queueScript)
 }
@@ -48,8 +49,8 @@ func TestEnqueueRunsTheQueueScriptAtFreshTrunkWithTheKeyInItsEnvironmentOnly(t *
 	if len(calls) != 4 {
 		t.Fatalf("calls = %+v", calls)
 	}
-	wantFetch := []string{"git", "-C", queue.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/dev:refs/lr/queue/dev"}
-	wantAdd := []string{"git", "-C", queue.Checkout, "worktree", "add", "-q", "--force", "--detach", queue.Worktree, "refs/lr/queue/dev"}
+	wantFetch := []string{"git", "-C", queue.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/dev:refs/lr/landing/queue/dev"}
+	wantAdd := []string{"git", "-C", queue.Checkout, "worktree", "add", "-q", "--force", "--detach", queue.Worktree, "refs/lr/landing/queue/dev"}
 	if !slices.Equal(calls[0].Argv, wantFetch) || !slices.Equal(calls[1].Argv, wantAdd) {
 		t.Fatalf("git calls = %+v, want trunk fetched into the queue's own ref, which no other fetch in the checkout writes, and the queue's own worktree made at that ref", calls[:2])
 	}
@@ -202,7 +203,7 @@ func TestAFailedFetchStopsTheMoversAndNeverRunsTheScript(t *testing.T) {
 	fake.Fail(128, "could not read from remote", "git")
 
 	state := t.TempDir()
-	_, err := landing.Trunk{Runner: fake, Checkout: filepath.Join(state, "lr-landing"), Worktree: filepath.Join(state, landing.QueueWorktree), Branch: "dev", Script: "s"}.Enqueue(context.Background(), 1, head)
+	_, err := landing.Trunk{Runner: fake, Checkout: filepath.Join(state, "lr-landing"), Worktree: filepath.Join(state, landing.QueueWorktree), Refs: landingRefs, Branch: "dev", Script: "s"}.Enqueue(context.Background(), 1, head)
 
 	if err == nil || len(fake.Calls()) != 1 {
 		t.Fatalf("err = %v, calls = %+v", err, fake.Calls())
@@ -216,7 +217,7 @@ func TestNoKeyCommandRunsTheScriptWithTheInheritedEnvironment(t *testing.T) {
 	fake.Reply("", "git")
 	fake.Reply("#7 QUEUED\n", worktree+"/s")
 
-	said, err := landing.Trunk{Runner: fake, Checkout: filepath.Join(state, "c"), Worktree: worktree, Branch: "dev", Script: "s"}.Enqueue(context.Background(), 7, head)
+	said, err := landing.Trunk{Runner: fake, Checkout: filepath.Join(state, "c"), Worktree: worktree, Refs: landingRefs, Branch: "dev", Script: "s"}.Enqueue(context.Background(), 7, head)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +285,7 @@ func TestEnqueueRunsAtTheTrunkTipInItsOwnWorktreeWhateverTheSharedCheckoutHolds(
 	if err := os.WriteFile(filepath.Join(shared, "tracked"), []byte(edit), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	queue := landing.Trunk{Runner: shell.Exec{}, Checkout: shared, Worktree: filepath.Join(root, landing.QueueWorktree), Branch: "dev", Script: "enqueue"}
+	queue := landing.Trunk{Runner: shell.Exec{}, Checkout: shared, Worktree: filepath.Join(root, landing.QueueWorktree), Refs: landingRefs, Branch: "dev", Script: "enqueue"}
 
 	for _, next := range []string{"two\n", "three\n"} {
 		write(t, work, map[string]string{"tracked": next}, "next")

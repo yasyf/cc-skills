@@ -370,7 +370,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, lrVer
 		}
 		deps.Checks = append(deps.Checks, (&background{name: "trunk-watch", every: PassEvery, run: trunk.Pass, store: s, post: post, log: a.Log, forgiven: 1}).Check)
 	}
-	queue := landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Worktree: filepath.Join(env.State, landing.QueueWorktree), Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
+	queue := landing.Trunk{Runner: a.Runner, Checkout: env.Config.Checkout, Worktree: filepath.Join(env.State, landing.QueueWorktree), Refs: env.Config.Refs(), Branch: env.Config.Trunk, Script: env.Config.QueueScript, KeyCommand: env.Config.QueueKey}
 	if runner.CIBuild != "" {
 		queue.Logs = landing.TrunkWatch{Runner: a.Runner, Checkout: env.Config.Checkout, Config: landing.TrunkConfig{CIBuild: runner.CIBuild, TokenCommand: runner.CITokenCommand}}.FailedJob
 	}
