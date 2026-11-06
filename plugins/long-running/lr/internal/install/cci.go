@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"golang.org/x/mod/semver"
 )
@@ -99,7 +100,7 @@ func cciFloor(plugin string) (string, error) {
 }
 
 func spriteCCIURL(state string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
+	data, err := drive.ReadMacOnly(filepath.Join(state, "runner.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}

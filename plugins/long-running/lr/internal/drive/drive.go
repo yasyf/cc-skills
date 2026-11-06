@@ -14,9 +14,30 @@ import (
 	"github.com/yasyf/cc-interact/procs"
 )
 
-const Env = "CLAUDE_LONG_RUNNING_DRIVE"
+const (
+	Env        = "CLAUDE_LONG_RUNNING_DRIVE"
+	HostSprite = "sprite"
+	OnMac      = ".on-mac"
+)
 
-var ErrNoDrive = errors.New("this session belongs to no drive: it carries no " + Env + ", no drive registry entry holds it, and cci me names none")
+var (
+	ErrNoDrive = errors.New("this session belongs to no drive: it carries no " + Env + ", no drive registry entry holds it, and cci me names none")
+	ErrOnMac   = errors.New("is the drive's, which only the supervisor on the Mac reads and writes, and this Sprite holds no copy, so this read does not run here; lr grade queue asks the Mac's store-desk itself, and for any other read ask the Mac's coordinator with `cci post --kind ask --to root \"<the lr command>\"`")
+)
+
+func MacOnly(path string) error {
+	if _, err := os.Stat(path + OnMac); err == nil {
+		return fmt.Errorf("%s %w", path, ErrOnMac)
+	}
+	return nil
+}
+
+func ReadMacOnly(path string) ([]byte, error) {
+	if err := MacOnly(path); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+}
 
 type Pin struct {
 	Name     string   `json:"name"`
@@ -58,6 +79,10 @@ func (e Entry) Bus() string {
 
 func (e Entry) Root() string {
 	return e.Sessions[len(e.Sessions)-1]
+}
+
+func (e Entry) OnSprite() bool {
+	return e.Host == HostSprite
 }
 
 func (e Entry) Store() string {

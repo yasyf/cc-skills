@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
 func SetRunnerKey(path, key, value string) error {
@@ -63,7 +65,7 @@ func splitKey(key string) ([]string, string) {
 }
 
 func editRunner(path string, edit func(map[string]any) error) error {
-	raw, err := os.ReadFile(path)
+	raw, err := drive.ReadMacOnly(path)
 	if err != nil {
 		return err
 	}

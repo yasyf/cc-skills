@@ -21,6 +21,8 @@ const (
 	CatchUp    = time.Hour
 	openStatus = "open"
 	pollEvery  = 2 * time.Second
+
+	refollowAfter = 10 * time.Second
 )
 
 type Reply struct {
@@ -50,6 +52,36 @@ func (d Desk) Serve(ctx context.Context) error {
 		case <-time.After(pollEvery):
 		}
 	}
+}
+
+func (d Desk) Follow(ctx context.Context) {
+	for ctx.Err() == nil {
+		err := d.follow(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		_, _ = fmt.Fprintf(d.Log, "%s stopped following its asks and follows again: %v\n", d.Lane, err)
+		select {
+		case <-ctx.Done():
+		case <-time.After(refollowAfter):
+		}
+	}
+}
+
+func (d Desk) follow(ctx context.Context) error {
+	caught, err := d.Pass(ctx, client.Query{Drive: d.Drive, Since: d.Now().Add(-CatchUp), Kinds: []string{AskKind}})
+	if err != nil {
+		return err
+	}
+	return client.Follow(ctx, client.Watch{Drive: d.Drive, Reader: d.Lane, After: caught.After}, func(ask client.Record) error {
+		if string(ask.Kind) != AskKind || !slices.Contains(ask.To, d.Lane) {
+			return nil
+		}
+		if err := d.answer(ctx, ask); err != nil {
+			_, _ = fmt.Fprintf(d.Log, "%s: ask #%d from %s stays open: %v\n", d.Lane, ask.Seq, ask.Lane, err)
+		}
+		return nil
+	})
 }
 
 func (d Desk) Pass(ctx context.Context, query client.Query) (client.Query, error) {

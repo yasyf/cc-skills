@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
 type Floors struct {
@@ -65,7 +67,7 @@ func ReadConfig(state string) (Config, error) {
 	runner := struct {
 		Waste Config `json:"waste"`
 	}{Waste: defaults()}
-	data, err := os.ReadFile(filepath.Join(state, "runner.json"))
+	data, err := drive.ReadMacOnly(filepath.Join(state, "runner.json"))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:

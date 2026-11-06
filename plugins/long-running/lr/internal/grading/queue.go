@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,11 +13,14 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -34,6 +38,7 @@ const (
 	shardOdd     = "odd"
 	runnerConfig = "runner.json"
 	driveConfig  = "lr.json"
+	queueRead    = "grade queue"
 )
 
 type QueueRow struct {
@@ -149,64 +154,111 @@ func inShard(number int, shard string) bool {
 	return true
 }
 
+type queueQuery struct {
+	grader, drive, shard string
+	owed, json           bool
+}
+
+func (q *queueQuery) flags(fs *pflag.FlagSet) {
+	fs.StringVar(&q.drive, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
+	fs.StringVar(&q.shard, "shard", "", "only even or only odd PR numbers, for desks that split the queue")
+	fs.BoolVar(&q.owed, "owed", false, "only heads a desk must read now: the pipeline handed them over or stopped")
+	fs.BoolVar(&q.json, "json", false, "print the rows as one JSON array")
+}
+
+func (q queueQuery) ask() string {
+	read := queueRead + " " + q.grader
+	if q.shard != "" {
+		read += " --shard " + q.shard
+	}
+	if q.owed {
+		read += " --owed"
+	}
+	if q.json {
+		read += " --json"
+	}
+	return read
+}
+
 func queueCommand(a *app.App) *cobra.Command {
-	var driveName, shard string
-	var owedOnly, asJSON bool
+	var q queueQuery
 	cmd := &cobra.Command{
 		Use:   "queue GRADER",
 		Short: "A grading desk's queue in the pool's own order, one line per pushed head owing this grade: whether a reader owes it, CI, and the pipeline pass there. Changes nothing. `lr grade first N` moves one PR to its front.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			if shard != "" && shard != shardEven && shard != shardOdd {
-				return errors.New("--shard is even or odd")
-			}
-			entry, err := drive.Named(driveName)
-			if err != nil {
-				return err
-			}
-			cfg, err := config.Load(filepath.Join(entry.StateDir, driveConfig), c.ErrOrStderr())
-			if err != nil {
-				return err
-			}
-			s, err := store.Open(entry.Store())
-			if err != nil {
-				return err
-			}
-			defer func() { _ = s.Close() }()
-			pool, err := readingPool(a, entry.StateDir, s)
-			if err != nil {
-				return err
-			}
-			pushed, err := lrfacts.New(a, cfg, s).AtPushedHeads(c.Context())
-			if err != nil {
-				return err
-			}
-			items, err := s.OpenItems("", 0)
-			if err != nil {
-				return err
-			}
-			now := a.Now()
-			rows, err := pool.Queue(c.Context(), args[0], items, pushed, now)
-			if err != nil {
-				return err
-			}
-			rows = slices.DeleteFunc(rows, func(row QueueRow) bool {
-				return !inShard(row.Number, shard) || owedOnly && !row.Owed
-			})
-			if asJSON {
-				return json.NewEncoder(c.OutOrStdout()).Encode(rows)
-			}
-			for _, row := range rows {
-				fmt.Fprintln(c.OutOrStdout(), row.line(now))
-			}
-			return nil
+			q.grader = args[0]
+			return printQueue(c.Context(), a, q, c.OutOrStdout(), c.ErrOrStderr())
 		},
 	}
-	cmd.Flags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
-	cmd.Flags().StringVar(&shard, "shard", "", "only even or only odd PR numbers, for desks that split the queue")
-	cmd.Flags().BoolVar(&owedOnly, "owed", false, "only heads a desk must read now: the pipeline handed them over or stopped")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print the rows as one JSON array")
+	q.flags(cmd.Flags())
 	return cmd
+}
+
+func QueueRead(a *app.App, drive string) askdesk.Serve {
+	return func(ctx context.Context, args []string, out, errs io.Writer) error {
+		var q queueQuery
+		parsed := pflag.NewFlagSet(queueRead, pflag.ContinueOnError)
+		parsed.SetOutput(io.Discard)
+		q.flags(parsed)
+		if err := parsed.Parse(args); err != nil {
+			return err
+		}
+		if parsed.NArg() != 1 {
+			return errors.New(queueRead + " takes one GRADER")
+		}
+		q.grader, q.drive = parsed.Arg(0), drive
+		return printQueue(ctx, a, q, out, errs)
+	}
+}
+
+func printQueue(ctx context.Context, a *app.App, q queueQuery, out, errs io.Writer) error {
+	if q.shard != "" && q.shard != shardEven && q.shard != shardOdd {
+		return errors.New("--shard is even or odd")
+	}
+	entry, err := drive.Named(q.drive)
+	if err != nil {
+		return err
+	}
+	if entry.OnSprite() {
+		return askdesk.AskMac(ctx, askdesk.LiveCCI{}, entry.Bus(), os.Getenv(lanes.LaneEnv), q.ask(), out)
+	}
+	cfg, err := config.Load(filepath.Join(entry.StateDir, driveConfig), errs)
+	if err != nil {
+		return err
+	}
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.Close() }()
+	pool, err := readingPool(a, entry.StateDir, s)
+	if err != nil {
+		return err
+	}
+	pushed, err := lrfacts.New(a, cfg, s).AtPushedHeads(ctx)
+	if err != nil {
+		return err
+	}
+	items, err := s.OpenItems("", 0)
+	if err != nil {
+		return err
+	}
+	now := a.Now()
+	rows, err := pool.Queue(ctx, q.grader, items, pushed, now)
+	if err != nil {
+		return err
+	}
+	rows = slices.DeleteFunc(rows, func(row QueueRow) bool {
+		return !inShard(row.Number, q.shard) || q.owed && !row.Owed
+	})
+	if q.json {
+		return json.NewEncoder(out).Encode(rows)
+	}
+	for _, row := range rows {
+		fmt.Fprintln(out, row.line(now))
+	}
+	return nil
 }
 
 func readingPool(a *app.App, state string, s *store.Store) (*JobPool, error) {

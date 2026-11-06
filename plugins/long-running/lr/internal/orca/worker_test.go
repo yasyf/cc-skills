@@ -833,8 +833,11 @@ func TestAStandingDeskCarriesItsDrivesLrJSONToWhereLrReadsTheDriveOnTheSprite(t 
 	if loaded.Checkout != remoteRoot || loaded.Repo != "Forge-AI/monorepo" || loaded.OrcaRun != workerRun {
 		t.Fatalf("carried %+v", loaded)
 	}
-	if registry, err := store.Open(entry.Store()); !errors.Is(err, store.ErrOnMac) {
+	if registry, err := store.Open(entry.Store()); !errors.Is(err, drive.ErrOnMac) {
 		t.Fatalf("lr on the Sprite opened the drive's registry %v instead of naming the Mac: %v", registry, err)
+	}
+	if _, err := config.LoadRunner(filepath.Join(entry.StateDir, "runner.json")); !errors.Is(err, drive.ErrOnMac) {
+		t.Fatalf("lr on the Sprite read runner.json as missing instead of naming the Mac: %v", err)
 	}
 }
 
