@@ -255,6 +255,7 @@ def test_a_stop_is_refused_while_the_owner_watch_is_down(root, shipped):  # noqa
 def test_a_thread_he_linked_or_wrote_in_reads_after_it_leaves_the_transcript(root, shipped):  # noqa: F811
     root.typed("where are we", "2026-11-06T01:03:00Z")
     root.routes[(shipped, "dm-owed")] = json.dumps({"replies": [], "holder_session": SESSION})
+    root.routes[(shipped, "thread")] = owner_returns.OTHERS_ROOT
     captured = (
         {"digest": "9d9a68247cb39e74", "at": "2026-11-06T00:49:43Z", "session": SESSION, "source": "prompt", "text": f"{owner_returns.LINKED_DM} what is this?"},
         {"digest": "805e38e37981de28", "at": "2026-11-06T00:18:41Z", "session": SESSION, "source": "slack", "text": "1, and report it", "ts": "1793924321.997239", "thread": "1793924259.620149", "channel": "D0C4HQWPLCC"},
@@ -271,3 +272,17 @@ def test_a_thread_he_linked_or_wrote_in_reads_after_it_leaves_the_transcript(roo
     assert not refused(owner_returns.SLACK_HISTORY, **owner_returns.ONE_MESSAGE)
     assert refused(thread, channel_id="D0C4HQWPLCC", thread_ts="1793600000.000002", limit=6)
     assert refused(owner_returns.SLACK_HISTORY, channel_id="C0B", oldest="1793600000.000001", latest="1793600000.000001", limit=1)
+
+
+def test_a_channel_root_he_wrote_reads_and_one_he_did_not_is_refused(root, shipped):  # noqa: F811
+    root.typed("where are we", "2026-11-06T03:57:00Z")
+    root.routes[(shipped, "dm-owed")] = json.dumps({"replies": [], "holder_session": SESSION})
+
+    def refused(thread: str) -> bool:
+        root.routes[(shipped, "thread")] = thread
+        event = root.event(PreToolUseEvent, tool_name="mcp__plugin_cc-slack_cc-slack__slack_thread", tool_input={"url": owner_returns.CHANNEL_ROOT, "limit": 15})
+        return any(owner_returns.THREAD_READ in (result.message or "") for result in fired(root, event))
+
+    assert not refused(owner_returns.HIS_ROOT)
+    assert refused(owner_returns.OTHERS_ROOT)
+    assert (shipped, "thread", "--url", owner_returns.CHANNEL_ROOT, "--limit", owner_returns.WROTE_IN_LIMIT) in root.calls
