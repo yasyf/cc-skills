@@ -94,7 +94,7 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 		return 0, err
 	}
 	defer func() { _ = s.Close() }()
-	checks := Checks{Runner: a.Runner, CCX: a.CCX, Installs: dir, Claude: claude}
+	checks := Checks{Runner: a.Runner, CCX: a.CCX, Installs: dir, Claude: claude, Now: a.Now}
 	if _, err := os.Stat(checks.dir(version)); err != nil {
 		if _, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"claude", "plugin", "update", pluginName + "@" + filepath.Base(filepath.Dir(dir))}, Timeout: updateTimeout}); err != nil {
 			return 0, err
