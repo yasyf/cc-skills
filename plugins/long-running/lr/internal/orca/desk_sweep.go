@@ -36,46 +36,50 @@ var (
 )
 
 func (d *Desk) sweep(ctx context.Context) error {
-	rows, err := d.workers(ctx)
+	open, err := d.openDispatches(ctx)
 	if err != nil {
 		return err
 	}
-	d.settled, d.rosterAt = settledOf(rows), d.Now()
-	byDispatch := map[string]deskWorker{}
-	for _, row := range rows {
-		byDispatch[row.Dispatch] = row
-	}
+	d.roster, d.rosterAt = open, d.Now()
 	names, err := d.laneNames()
 	if err != nil {
 		return err
 	}
-	receipts, statuses := map[string]string{}, map[string]string{}
+	receipts := map[string]string{}
 	for _, lane := range names {
-		dispatch := d.receipt(lane)
-		receipts[lane] = dispatch
-		if row, found := byDispatch[dispatch]; found {
-			statuses[lane] = row.Status
-		}
+		receipts[lane] = d.receipt(lane)
 	}
-	stale, err := d.staleMail(ctx, receipts, statuses)
+	stale, err := d.staleMail(ctx, receipts)
 	if err != nil {
 		return err
 	}
 	for _, item := range stale {
-		if err := d.wakeStale(ctx, item, statuses); err != nil {
+		if err := d.wakeStale(ctx, item); err != nil {
 			return err
 		}
 	}
-	if err := d.reclaimSettled(names, receipts, statuses, byDispatch); err != nil {
+	if err := d.reclaimSettled(ctx, names, receipts); err != nil {
 		return err
 	}
 	return d.promptWatchDown(ctx)
 }
 
+func (d *Desk) laneStatus(ctx context.Context, lane string) (string, error) {
+	shown, err := d.listed(ctx, lane)
+	if err != nil || shown == nil {
+		return "", err
+	}
+	return shown.Status, nil
+}
+
 type staleItem struct{ lane, message string }
 
-func (d *Desk) wakeStale(ctx context.Context, item staleItem, statuses map[string]string) error {
-	if status := statuses[item.lane]; inactive(status) {
+func (d *Desk) wakeStale(ctx context.Context, item staleItem) error {
+	status, err := d.laneStatus(ctx, item.lane)
+	if err != nil {
+		return err
+	}
+	if inactive(status) {
 		return d.escalate("stale:"+item.message, "STALE-MAIL", item.lane, item.message+" unread by a "+status+" dispatch")
 	}
 	environment, err := d.environmentOf(ctx, item.lane)
@@ -98,18 +102,27 @@ func (d *Desk) wakeOnce(ctx context.Context, message, lane, terminal, environmen
 	return err
 }
 
-func (d *Desk) reclaimSettled(names []string, receipts, statuses map[string]string, rows map[string]deskWorker) error {
+func (d *Desk) reclaimSettled(ctx context.Context, names []string, receipts map[string]string) error {
 	named, err := d.store.Actions(deskRunner, kindReclaim)
 	if err != nil {
 		return err
 	}
+	reclaimed := make(map[string]bool, len(named))
+	for _, action := range named {
+		reclaimed[action.ActionID] = true
+	}
 	var settled []laneDispatch
 	for _, lane := range names {
-		dispatch := receipts[lane]
-		if !inactive(statuses[lane]) || slices.ContainsFunc(named, func(action incident.Action) bool { return action.ActionID == "reclaim:"+dispatch }) {
+		if reclaimed["reclaim:"+receipts[lane]] {
 			continue
 		}
-		settled = append(settled, laneDispatch{Lane: lane, ID: dispatch, Terminal: or(rows[dispatch].Terminal, d.terminal(lane)), Status: statuses[lane]})
+		shown, err := d.listed(ctx, lane)
+		if err != nil {
+			return err
+		}
+		if shown != nil && inactive(shown.Status) {
+			settled = append(settled, *shown)
+		}
 	}
 	if len(settled) == 0 {
 		return nil
@@ -154,7 +167,7 @@ type mailState struct {
 	Unread map[string]unreadEntry `json:"unread"`
 }
 
-func (d *Desk) staleMail(ctx context.Context, receipts, statuses map[string]string) ([]staleItem, error) {
+func (d *Desk) staleMail(ctx context.Context, receipts map[string]string) ([]staleItem, error) {
 	fact := "mail:" + d.Config.Run
 	value, found, err := d.factOf(deskRunner, fact)
 	if err != nil {
@@ -197,14 +210,14 @@ func (d *Desk) staleMail(ctx context.Context, receipts, statuses map[string]stri
 		kept.Cursor = max(kept.Cursor, message.Sequence)
 	}
 	kept.Page = max(inboxPage, 2*len(fresh))
-	stale, err := d.dueMail(ctx, &kept, terminals, statuses)
+	stale, err := d.dueMail(ctx, &kept, terminals)
 	if err != nil {
 		return nil, err
 	}
 	return stale, d.setFact(deskRunner, fact, kept)
 }
 
-func (d *Desk) dueMail(ctx context.Context, kept *mailState, terminals, statuses map[string]string) ([]staleItem, error) {
+func (d *Desk) dueMail(ctx context.Context, kept *mailState, terminals map[string]string) ([]staleItem, error) {
 	due := map[string]bool{}
 	for _, entry := range kept.Unread {
 		lane, onLane := terminals[entry.Terminal]
@@ -212,7 +225,15 @@ func (d *Desk) dueMail(ctx context.Context, kept *mailState, terminals, statuses
 		if err != nil {
 			return nil, err
 		}
-		if !onLane || d.Now().Sub(at) >= staleMail || inactive(statuses[lane]) {
+		if !onLane || d.Now().Sub(at) >= staleMail {
+			due[entry.Terminal] = true
+			continue
+		}
+		status, err := d.laneStatus(ctx, lane)
+		if err != nil {
+			return nil, err
+		}
+		if inactive(status) {
 			due[entry.Terminal] = true
 		}
 	}
@@ -220,6 +241,7 @@ func (d *Desk) dueMail(ctx context.Context, kept *mailState, terminals, statuses
 	for _, terminal := range sortedKeys(due) {
 		lane, onLane := terminals[terminal]
 		held := map[string]bool{}
+		status := ""
 		if onLane {
 			environment, err := d.environmentOf(ctx, lane)
 			if err != nil {
@@ -229,8 +251,11 @@ func (d *Desk) dueMail(ctx context.Context, kept *mailState, terminals, statuses
 			if held, read = d.unreadOn(ctx, terminal, environment); !read {
 				continue
 			}
+			if status, err = d.laneStatus(ctx, lane); err != nil {
+				return nil, err
+			}
 		}
-		settled := inactive(statuses[lane])
+		settled := inactive(status)
 		ids := make([]string, 0, len(kept.Unread))
 		for id, entry := range kept.Unread {
 			if entry.Terminal == terminal {
@@ -346,7 +371,7 @@ func (d *Desk) settledWorker(ctx context.Context, container, lane string, action
 	worker := cmp.Or(receipt, targets[len(targets)-1])
 	workerStatus := ""
 	for _, target := range targets {
-		status, err := d.settledStatus(ctx, target)
+		status, err := d.settledStatus(ctx, lane, target)
 		if err != nil || status == "" {
 			return "", "", err
 		}
@@ -365,9 +390,9 @@ func (d *Desk) closeSettled(ctx context.Context, settled []settledRelay) error {
 	if len(settled) == 0 {
 		return nil
 	}
-	d.settled = nil
+	d.roster = nil
 	d.reads.forgetWorkers()
-	if _, err := d.settledStatus(ctx, ""); err != nil || d.settled == nil {
+	if _, err := d.settledStatus(ctx, "", ""); err != nil || d.roster == nil {
 		return err
 	}
 	var closed []settledRelay
@@ -620,7 +645,7 @@ func (d *Desk) sentTo(ctx context.Context, container, about string, action incid
 	if err != nil || !delivered {
 		return nil, false, err
 	}
-	status, err := d.settledStatus(ctx, d.receipt(about))
+	status, err := d.settledStatus(ctx, about, d.receipt(about))
 	if err != nil || status != "" {
 		return nil, false, err
 	}
@@ -631,30 +656,35 @@ func (d *Desk) sentTo(ctx context.Context, container, about string, action incid
 	return dispatch, true, nil
 }
 
-func (d *Desk) settledStatus(ctx context.Context, dispatch string) (string, error) {
-	if d.settled == nil || d.Now().Sub(d.rosterAt) >= sweepEvery {
-		rows, err := d.workers(ctx)
-		var down *orcaUnreachable
-		if errors.As(err, &down) {
-			return "", err
-		}
+func (d *Desk) settledStatus(ctx context.Context, lane, dispatch string) (string, error) {
+	if d.roster == nil || d.Now().Sub(d.rosterAt) >= sweepEvery {
+		open, err := d.openDispatches(ctx)
 		if err != nil {
-			fmt.Fprintln(d.Stderr, err)
-			return "", nil
+			return "", d.unlisted(err)
 		}
-		d.settled, d.rosterAt = settledOf(rows), d.Now()
+		d.roster, d.rosterAt = open, d.Now()
 	}
-	return d.settled[dispatch], nil
+	receipt := d.receiptOf(lane)
+	if dispatch == "" || d.roster[dispatch] || receipt.Dispatch != dispatch {
+		return "", nil
+	}
+	status, err := d.dispatchStatus(ctx, receipt)
+	if err != nil {
+		return "", d.unlisted(err)
+	}
+	if !inactive(status) {
+		return "", nil
+	}
+	return status, nil
 }
 
-func settledOf(rows []deskWorker) map[string]string {
-	settled := map[string]string{}
-	for _, row := range rows {
-		if inactive(row.Status) {
-			settled[row.Dispatch] = row.Status
-		}
+func (d *Desk) unlisted(err error) error {
+	var down *orcaUnreachable
+	if errors.As(err, &down) {
+		return err
 	}
-	return settled
+	fmt.Fprintln(d.Stderr, err)
+	return nil
 }
 
 func notDelivered(rows []orcaMessage, container string, action incident.Action, dispatch string, now time.Time) (string, error) {

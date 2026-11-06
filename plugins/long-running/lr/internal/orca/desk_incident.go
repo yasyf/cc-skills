@@ -481,10 +481,9 @@ type passReads struct {
 	fixes     map[string]*incident.Action
 	questions []orcaMessage
 	asked     bool
-	paging    sync.Mutex
-	workers   []deskWorker
-	cursor    string
-	listed    bool
+	listing   sync.Mutex
+	open      map[string]bool
+	statuses  map[string]string
 	shown     map[shownKey]*laneDispatch
 	peeked    map[peekKey][]orcaMessage
 }
@@ -509,7 +508,7 @@ func (r *passReads) reset(passing bool) {
 	r.records = map[string][]client.Record{}
 	r.fixes = map[string]*incident.Action{}
 	r.questions, r.asked = nil, false
-	r.workers, r.cursor, r.listed = nil, "", false
+	r.open, r.statuses = nil, map[string]string{}
 	r.shown = map[shownKey]*laneDispatch{}
 	r.peeked = map[peekKey][]orcaMessage{}
 }
@@ -535,7 +534,7 @@ func (r *passReads) forgetQuestions() {
 func (r *passReads) forgetWorkers() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.workers, r.cursor, r.listed = nil, "", false
+	r.open, r.statuses = nil, map[string]string{}
 }
 
 func (d *Desk) passTail(ctx context.Context, query client.Query) ([]client.Record, error) {
