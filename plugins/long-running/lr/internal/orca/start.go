@@ -58,7 +58,7 @@ const (
 	noPRLine               = " This brief orders no PR: push the work as a branch and never open a PR for it."
 	createTimedOut         = "Timed out"
 	readOnSprite           = " The Mac was over its load limit or out of Orca terminals, so this read lane runs on a Sprite whose cci store starts at its launch: check on the Mac before you report anything absent."
-	incidentOnSprite       = " This Sprite has no AWS identity, so `aws` and `tools/ci` fail here, no Sentry or Datadog, and no devbox CLI. For each Sentry, Datadog or AWS read and each devbox repro, post `cci post --kind ask` naming the one read or repro to a lane of this incident still on the Mac, or to root when none is."
+	incidentOnSprite       = " This Sprite has no AWS identity, so `aws` and `tools/ci` fail here, and no devbox CLI. Ask obs-desk for each Sentry, Datadog and ai-oncall read, as the brief says, and for each other AWS read and each devbox repro, post `cci post --kind ask` naming the one read or repro to a lane of this incident still on the Mac, or to root when none is."
 )
 
 var (

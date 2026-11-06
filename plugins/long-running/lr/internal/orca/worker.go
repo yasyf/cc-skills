@@ -23,6 +23,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/obs"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -46,6 +47,7 @@ const (
 	seedCopy          = "store-seed.gz"
 	lrPlatform        = "linux-x86_64"
 	toolsMissing      = 3
+	obsSection        = "## Sentry, Datadog and ai-oncall reads"
 	beforeWorker      = "before-worker.sh"
 	notesPrefix       = "refs/cc-notes/"
 	notesDocs         = notesPrefix + "docs/"
@@ -80,6 +82,9 @@ var (
 	toolsMissingLine = regexp.MustCompile(`(?m)^missing:(.*)$`)
 	spriteLimitLine  = regexp.MustCompile(`[^\n]*` + regexp.QuoteMeta(lanes.SpriteLimit) + `[^\n]*`)
 	modelAliases     = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
+	obsNamed         = regexp.MustCompile(`(?i)\b(?:sentry|datadog|oncall)\b`)
+	obsRouted        = regexp.MustCompile(`--to[ =]+` + regexp.QuoteMeta(obs.Lane) + `\b`)
+	obsRoles         = []string{"evidence", "diagnosis"}
 )
 
 type WorkerStarter struct {
@@ -215,9 +220,11 @@ func (w *workerLaunch) start(model string) (string, error) {
 	if faults := order.costFaults(string(raw)); len(faults) > 0 {
 		return "", refuse("%s; nothing launched", strings.Join(faults, "; "))
 	}
-	if lacked := spriteLackedWarning(w.brief, string(raw)); w.route == routeSprite && lacked != "" {
-		fmt.Fprintf(w.Stderr, "warning: %s\n", lacked)
-		w.stages.say(w.ctx, lacked)
+	for _, lacked := range []string{spriteLackedWarning(w.brief, string(raw)), obsUnroutedWarning(w.brief, string(raw))} {
+		if w.route == routeSprite && lacked != "" {
+			fmt.Fprintf(w.Stderr, "warning: %s\n", lacked)
+			w.stages.say(w.ctx, lacked)
+		}
 	}
 	if bound := w.boundRun(); bound != w.run {
 		handle, owner := w.Env("ORCA_TERMINAL_HANDLE"), bound
@@ -468,8 +475,34 @@ func (w *workerLaunch) carryBrief() error {
 	if drive := driveName(w.Env, w.run); w.kind == agentCodex && drive != "" {
 		rewritten += fmt.Sprintf("\n\n## PR record\n\nCodex runs no PR hook, so `ccx vcs ship` neither hands your PR to the landing pass nor posts its `opened` record, and the incident clock and the landing pass read both. Right after each ship that opens a PR, run `cci post --drive '%[1]s' --lane '%[2]s' --kind opened --pr <number> --text 'opened #<number>'`, and after each later push `cci post --drive '%[1]s' --lane '%[2]s' --kind head --head <number>=<sha>`. Every `ready` record you post carries `--pr <number>`, which hands the PR to the landing pass.\n", drive, w.lane)
 	}
+	if w.readsObs(string(raw)) {
+		rewritten += obsRoute(w.lane)
+	}
 	w.brief = filepath.Join(w.attempt, briefFile)
 	return os.WriteFile(w.brief, []byte(rewritten), 0o600)
+}
+
+func (w *workerLaunch) readsObs(brief string) bool {
+	if obsRouted.MatchString(brief) {
+		return false
+	}
+	roles := slices.Concat(submatches(briefRole, brief), strings.Split(w.lane, "-"))
+	return w.incident || incidentBrief(w.lane, brief) || namesObsReads(brief) || slices.ContainsFunc(roles, func(role string) bool { return slices.Contains(obsRoles, role) })
+}
+
+func namesObsReads(brief string) bool {
+	return obsNamed.MatchString(carry.QuotedRows.ReplaceAllString(brief, ""))
+}
+
+func obsUnroutedWarning(path, brief string) string {
+	if !namesObsReads(brief) || obsRouted.MatchString(brief) {
+		return ""
+	}
+	return fmt.Sprintf("brief %s names Sentry, Datadog or ai-oncall reads but not %s, and a Sprite has no key, sign-in or CLI for them; its Sprite copy gains a `%s` section that asks %[2]s for each read", path, obs.Lane, obsSection)
+}
+
+func obsRoute(lane string) string {
+	return fmt.Sprintf("\n\n%[1]s\n\nThis Sprite holds no Sentry or Datadog key, no Sentry or Datadog sign-in and no AWS identity, by design, so never use the Sentry or Datadog MCP tools, look here for a key or token, or try `aws` or `tools/ci`. Ask %[2]s, the Mac desk that makes read calls only, one read per ask: `cci post --lane '%[3]s' --kind ask --to %[2]s --text '<read>'`. A read is one of %[4]s, where an age is `90m`, `6h`, `2d` or an RFC3339 time and the window defaults to the last hour, or `oncall <verb>`, where the verb is one of %[5]s. Its answer is an `answer` record to you that closes the ask, usually within seconds, and `cci show <seq>` prints its body; an answer opening `obs read refused:` names the reads the desk serves. Ask once per read, never in a polling loop, and when no answer comes in five minutes, tell root which read you lack and go on without it.\n", obsSection, obs.Lane, lane, obs.Reads, obs.OncallReads)
 }
 
 func (w *workerLaunch) writeRequest() error {

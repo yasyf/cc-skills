@@ -41,7 +41,7 @@ var (
 		`|\b(?P<lane>[A-Za-z]\w*(?:-\w+)*)(?:'s)? +(?P<bare>\d{5,})\b`)
 	assigned     = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
 	joinedByte   = regexp.MustCompile(`[` + joined + `]`)
-	quotedRows   = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
+	QuotedRows   = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
 	carriedRoots = []string{".local/state/lr-scratch", ".claude/scratch", ".vcache/scratch", ".claude/plans", "handoffs", ".claude/plugins/cache"}
 )
 
@@ -113,7 +113,7 @@ func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]st
 	var faults []error
 	last := 0
 	vars := c.varsOf(brief)
-	quoted := quotedRows.FindAllStringIndex(brief, -1)
+	quoted := QuotedRows.FindAllStringIndex(brief, -1)
 	for _, match := range reference.FindAllStringSubmatchIndex(brief, -1) {
 		if slices.ContainsFunc(quoted, func(rows []int) bool { return rows[0] <= match[0] && match[0] < rows[1] }) {
 			continue
