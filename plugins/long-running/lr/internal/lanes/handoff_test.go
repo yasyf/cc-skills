@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -168,7 +169,7 @@ func (d *registryDesk) Follow(_ context.Context, _ client.Watch, emit func(clien
 }
 
 func TestASpriteHandoffReadsItsRowFromTheStoreDeskAndStillWritesTheDoc(t *testing.T) {
-	answer, err := json.Marshal(handoffRegistry{Brief: "/briefs/conflicts-2.md", PRs: []int{46475, 47001}, Names: []string{lane2, "meta-desk-3"}, NoticeTo: Root})
+	answer, err := json.Marshal(handoffRegistry{Brief: "/briefs/conflicts-2.md", PRs: []int{46475, 47001}, Aliases: Aliases{"meta-desk-3": "meta-desk"}, NoticeTo: Root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,8 +181,8 @@ func TestASpriteHandoffReadsItsRowFromTheStoreDeskAndStillWritesTheDoc(t *testin
 	run := &handoffRun{}
 	var out bytes.Buffer
 
-	id, err := handoffEnv(bus, run).WriteHandoff(context.Background(), &out, func(ctx context.Context) (handoffRegistry, error) {
-		return askRegistry(ctx, desk, testDrive, lane2, time.Minute)
+	id, err := handoffEnv(bus, run).WriteHandoff(context.Background(), &out, func(ctx context.Context, named []string) (handoffRegistry, error) {
+		return askRegistry(ctx, desk, testDrive, lane2, named, time.Minute)
 	}, lane2, "/work/lane", "")
 
 	if err != nil || id != "abc1234" || out.String() != "abc1234\n" {
@@ -191,7 +192,7 @@ func TestASpriteHandoffReadsItsRowFromTheStoreDeskAndStillWritesTheDoc(t *testin
 	if err := json.Unmarshal([]byte(desk.asked.Text), &asked); err != nil {
 		t.Fatal(err)
 	}
-	equal(t, asked, askdesk.Asked{Verb: askdesk.HandoffRegistryVerb, Args: []string{"--", lane2}, Lane: lane2})
+	equal(t, asked, askdesk.Asked{Verb: askdesk.HandoffRegistryVerb, Args: []string{"--", lane2, "meta-desk-3"}, Lane: lane2})
 	equal(t, desk.asked.To, []string{askdesk.StoreDesk})
 	var doc shell.Command
 	for _, c := range run.commands {
@@ -221,11 +222,11 @@ func TestASpriteHandoffWhoseStoreDeskNeverAnswersPostsItsBlockerByTheDeskWait(t 
 	run := &handoffRun{}
 	var out bytes.Buffer
 
-	_, err := handoffEnv(bus, run).WriteHandoff(context.Background(), &out, func(ctx context.Context) (handoffRegistry, error) {
-		return askRegistry(ctx, silentDesk{}, testDrive, lane2, 10*time.Millisecond)
+	_, err := handoffEnv(bus, run).WriteHandoff(context.Background(), &out, func(ctx context.Context, named []string) (handoffRegistry, error) {
+		return askRegistry(ctx, silentDesk{}, testDrive, lane2, named, 10*time.Millisecond)
 	}, lane2, "/work/lane", "")
 
-	if err == nil || !strings.Contains(err.Error(), "has not answered") {
+	if err == nil || !strings.Contains(err.Error(), "no answer from the Mac's store-desk to conflicts-2's ask") || strings.Contains(err.Error(), "supervisor") {
 		t.Fatalf("got %v, want the unanswered ask", err)
 	}
 	equal(t, len(bus.posted), 1)
@@ -233,6 +234,32 @@ func TestASpriteHandoffWhoseStoreDeskNeverAnswersPostsItsBlockerByTheDeskWait(t 
 	contains(t, bus.posted[0].Text, "compacted with no handoff")
 	equal(t, out.String(), "blocker #1\n")
 	equal(t, len(run.commands), 0)
+}
+
+func TestAHandoffRegistryAnswerIsTheSameSizeAtOneLaneAndAHundred(t *testing.T) {
+	sizes := map[int]int{}
+	for _, n := range []int{1, 100} {
+		s := memory(t)
+		parkedLane(t, s)
+		for i := range n {
+			if _, err := s.WantLane(store.Lane{Name: fmt.Sprintf("other-%d", i), Brief: "/briefs/other.md", Role: "lane", State: store.LaneDesired}, t0); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		registry, err := handoffEnv(&fakeBus{}, &handoffRun{}).storeRegistry(s, lane2)(context.Background(), []string{"other-0", "pool-7"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		answer, err := json.Marshal(registry)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		equal(t, registry.Aliases, Aliases{"other-0": "other"})
+		sizes[n] = len(answer)
+	}
+	equal(t, sizes[100], sizes[1])
 }
 
 func TestAHandoffRetriesACcnDocAddThatFailsOnce(t *testing.T) {
