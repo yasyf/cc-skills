@@ -96,7 +96,7 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 	case claimed && len(PortRefusals(portFacts)) == 0:
 		word = OldTreePortClass
 	}
-	exempt := r.Exempt
+	exempt := taplessPhrases(r.Exempt)
 	if claimed {
 		exempt = portsFirst(exempt)
 	}
@@ -202,7 +202,7 @@ func gradedTestOnly(c Claim, r Read) bool {
 }
 
 func ExemptGraded(c Claim, r Read) bool {
-	_, _, refusals := fidelityCite(c, r, r.Exempt, "")
+	_, _, refusals := fidelityCite(c, r, taplessPhrases(r.Exempt), "")
 	return len(refusals) == 0
 }
 
@@ -220,7 +220,11 @@ func TaplessClassAt(c Claim, r Read) bool {
 }
 
 func taplessPhrases(exempt []string) []string {
-	return slices.DeleteFunc(slices.Clone(exempt), func(phrase string) bool { return !PathDecided(phrase) && !isPortClass(ClassOf(phrase)) })
+	return slices.DeleteFunc(slices.Clone(exempt), func(phrase string) bool { return !TaplessClass(ClassOf(phrase)) })
+}
+
+func TaplessClass(class string) bool {
+	return PathDecided(class) || isPortClass(class) || class == FlakeFixClass
 }
 
 func testOnlyPhrases(exempt []string) []string {
@@ -564,7 +568,7 @@ func fnmatch(glob string) *regexp.Regexp {
 func standingGos(c Claim, r Read) []string {
 	var out []string
 	for _, record := range bus.LiveGos(r.Records, r.GoLanes) {
-		admits := slices.ContainsFunc(bus.LegacyFacts(record, c.Repo, r.GoLanes), func(fact bus.Fact) bool { return fact.Kind == "exempt" && fact.PR == c.PR })
+		admits := slices.ContainsFunc(bus.LegacyFacts(record, c.Repo, r.GoLanes), func(fact bus.Fact) bool { return fact.Kind == "exempt" && fact.PR == c.PR && TaplessClass(fact.Value) })
 		if admits && bus.GoNamesHead(record, c.PR, c.Head) {
 			out = append(out, fmt.Sprintf("go %s by %s already names this head", record.Name(), record.Lane))
 		}

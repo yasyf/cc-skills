@@ -1367,7 +1367,7 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 		if err != nil {
 			return err
 		}
-		f.Exempt = gates.SameDiff(atGo, stored)
+		f.Exempt = gates.SameDiff(atGo, stored) && gates.TaplessClass(atGo["exempt"])
 	}
 	if err := s.carryClaim(ctx, *f, stored, claims); err != nil {
 		return err
@@ -1519,7 +1519,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 	f.TapRefused = stored[bus.TapRefusedFact]
 	f.Stuck = stored[bus.StuckFact]
 	f.FinderOverride, f.FidelityOverride = machine.OverridesOf(stored)
-	_, f.Exempt = stored["exempt"]
+	f.Exempt = gates.TaplessClass(stored["exempt"])
 	f.Port = stored[gates.PortOfAttr] != ""
 	f.StandingWord, _ = gates.LandsOnWord(stored)
 	return nil
