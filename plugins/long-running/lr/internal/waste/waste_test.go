@@ -101,23 +101,24 @@ func newWorld(t *testing.T) *world {
 	cfg := defaults()
 	cfg.HookLogs = t.TempDir()
 	cfg.CodexSessions = t.TempDir()
-	gh := map[string]string{}
-	for number := range 10 {
-		gh[mergedSHA(number)] = ""
-	}
-	running := &Running{CCX: &ccxtest.Fake{GHOut: gh}, Repo: "yasyf/cc-skills", LR: "0.9.1", Pack: "0.7.9", Since: t0.Add(-time.Hour), held: map[int]bool{}}
+	gh := map[string]string{tagCommits(lrTag): "", tagCommits(packTag): ""}
+	running := &Running{CCX: &ccxtest.Fake{GHOut: gh}, Repo: "yasyf/cc-skills", LR: "0.9.1", Pack: "0.7.9", Since: t0.Add(-time.Hour)}
 	return &world{bus: &fakeBus{}, runner: &fakeRunner{files: map[string]string{}}, cfg: cfg, gh: gh, running: running}
 }
 
-func mergedSHA(number int) string {
-	return fmt.Sprintf("api repos/yasyf/cc-skills/pulls/%d --jq select(.merged) | .merge_commit_sha", number)
+const (
+	lrTag   = "lr--v0.9.1"
+	packTag = "long-running--v0.7.9"
+)
+
+func tagCommits(tag string) string {
+	return fmt.Sprintf("api --paginate repos/yasyf/cc-skills/commits?sha=%s&since=%s&per_page=100 --jq .[].commit.message | split(\"\\n\")[0]", tag, t0.Add(-48*time.Hour).UTC().Format(time.RFC3339))
 }
 
-func (w *world) released(number int, lr, pack string) {
-	sha := fmt.Sprintf("sha%d", number)
-	w.gh[mergedSHA(number)] = sha + "\n"
-	w.gh["api repos/yasyf/cc-skills/compare/"+sha+"...lr--v0.9.1 --jq .status"] = lr + "\n"
-	w.gh["api repos/yasyf/cc-skills/compare/"+sha+"...long-running--v0.7.9 --jq .status"] = pack + "\n"
+func (w *world) released(number int, tags ...string) {
+	for _, tag := range tags {
+		w.gh[tagCommits(tag)] += fmt.Sprintf("lr: change %d (#%d)\n", number, number)
+	}
 }
 
 func (w *world) sources() Sources {
@@ -545,9 +546,9 @@ func TestAMergedToolingPRWithNoInstallIsFlaggedAfterHalfAnHour(t *testing.T) {
 func TestAMergeTheRunningLRAndPackBothHoldOwesOnlyItsProof(t *testing.T) {
 	w := newWorld(t)
 	old := t0.Add(-45 * time.Minute)
-	w.released(1, "ahead", "identical")
-	w.released(2, "behind", "ahead")
-	w.released(3, "ahead", "behind")
+	w.released(1, lrTag, packTag)
+	w.released(2, packTag)
+	w.released(3, lrTag)
 	w.bus.merges = []client.Record{
 		merged(t, old, "meta-helper-1", "landed", "yasyf/cc-skills#1", nil),
 		merged(t, old, "meta-helper-2", "landed", "yasyf/cc-skills#2", nil),
@@ -567,8 +568,25 @@ func TestAMergeTheRunningLRAndPackBothHoldOwesOnlyItsProof(t *testing.T) {
 		}
 	}
 
-	w.running.CCX = &ccxtest.Fake{GHOut: map[string]string{mergedSHA(2): "", mergedSHA(3): "", mergedSHA(4): ""}}
+	w.running.CCX = &ccxtest.Fake{GHOut: map[string]string{}}
 	equal(t, signal(w.read(t, Window), signalUnproven), []string{"meta-helper-1 45"})
+}
+
+func TestTheUnprovenSignalReadsEachRunningTagOnceAtAnyMergeCount(t *testing.T) {
+	reads := func(merges int) int {
+		w := newWorld(t)
+		fake := &ccxtest.Fake{GHOut: w.gh}
+		w.running.CCX = fake
+		for number := 1; number <= merges; number++ {
+			w.released(number, lrTag, packTag)
+			w.bus.merges = append(w.bus.merges, merged(t, t0.Add(-45*time.Minute), fmt.Sprintf("meta-helper-%d", number), "landed", fmt.Sprintf("yasyf/cc-skills#%d", number), nil))
+		}
+		equal(t, len(signal(w.read(t, Window), signalUnproven)), merges)
+		return len(fake.Calls())
+	}
+
+	equal(t, reads(1), reads(100))
+	equal(t, reads(1), 2)
 }
 
 func TestAnUninstalledMergeRepostsAsItAges(t *testing.T) {

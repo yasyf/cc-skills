@@ -188,7 +188,7 @@ func uninstalled(ctx context.Context, src Sources, cfg Config, drive config.Conf
 			continue
 		}
 		if merged.repo == src.Running.Repo {
-			held, err := src.Running.holds(ctx, merged.number)
+			held, err := src.Running.holds(ctx, merged.number, now.Add(-2*lookback))
 			if err != nil {
 				return nil, err
 			}

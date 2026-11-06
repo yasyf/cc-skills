@@ -3,7 +3,8 @@ package waste
 import (
 	"context"
 	"fmt"
-	"strings"
+	"regexp"
+	"strconv"
 	"time"
 	_ "time/tzdata"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/install"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
+
+var squashed = regexp.MustCompile(`(?m)\(#(\d+)\)$`)
 
 var pacificZone = func() *time.Location {
 	zone, err := time.LoadLocation("America/Los_Angeles")
@@ -34,32 +37,33 @@ func Current(client ccx.Client, claude, lr string) (*Running, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Running{CCX: client, Repo: wait.ReleaseRepo, LR: lr, Pack: pack, Since: since, held: map[int]bool{}}, nil
+	return &Running{CCX: client, Repo: wait.ReleaseRepo, LR: lr, Pack: pack, Since: since}, nil
 }
 
-func (r *Running) holds(ctx context.Context, number int) (bool, error) {
-	if r.held[number] {
-		return true, nil
-	}
-	merged, err := r.CCX.GH(ctx, ccx.MaxAgeCached, "api", fmt.Sprintf("repos/%s/pulls/%d", r.Repo, number), "--jq", "select(.merged) | .merge_commit_sha")
-	if err != nil {
-		return false, err
-	}
-	sha := strings.TrimSpace(merged)
-	if sha == "" {
-		return false, nil
-	}
-	for _, tag := range []string{"lr--v" + r.LR, "long-running--v" + r.Pack} {
-		status, err := r.CCX.GH(ctx, ccx.MaxAgeCached, "api", fmt.Sprintf("repos/%s/compare/%s...%s", r.Repo, sha, tag), "--jq", ".status")
-		if err != nil {
-			return false, err
+func (r *Running) holds(ctx context.Context, number int, mergedSince time.Time) (bool, error) {
+	if r.held == nil {
+		var tagged []map[int]bool
+		for _, tag := range []string{"lr--v" + r.LR, "long-running--v" + r.Pack} {
+			subjects, err := r.CCX.GH(ctx, ccx.MaxAgeCached, "api", "--paginate", fmt.Sprintf("repos/%s/commits?sha=%s&since=%s&per_page=100", r.Repo, tag, mergedSince.UTC().Format(time.RFC3339)), "--jq", `.[].commit.message | split("\n")[0]`)
+			if err != nil {
+				return false, err
+			}
+			numbers := map[int]bool{}
+			for _, found := range squashed.FindAllStringSubmatch(subjects, -1) {
+				pr, err := strconv.Atoi(found[1])
+				if err != nil {
+					return false, err
+				}
+				numbers[pr] = true
+			}
+			tagged = append(tagged, numbers)
 		}
-		if status = strings.TrimSpace(status); status != "ahead" && status != "identical" {
-			return false, nil
+		r.held = map[int]bool{}
+		for pr := range tagged[0] {
+			r.held[pr] = tagged[1][pr]
 		}
 	}
-	r.held[number] = true
-	return true, nil
+	return r.held[number], nil
 }
 
 func (r *Running) unproven(pr string) string {
