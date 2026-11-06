@@ -802,8 +802,12 @@ func TestANoteTooLongForItsHeadKeepsEveryRowInItsBody(t *testing.T) {
 	if err != nil || len(notes) != 1 {
 		t.Fatalf("notes = %+v, %v", notes, err)
 	}
-	if len(notes[0].Text) >= ByteCap || !strings.Contains(notes[0].Text, fmt.Sprintf(" more of %d rows\n", rows)) {
-		t.Fatalf("the head is %d bytes and reads %q", len(notes[0].Text), notes[0].Text)
+	var head bus.Note
+	if err := json.Unmarshal(notes[0].Body, &head); err != nil {
+		t.Fatal(err)
+	}
+	if len(head.Text) >= ByteCap || !strings.Contains(head.Text, fmt.Sprintf(" more of %d rows\n", rows)) {
+		t.Fatalf("the head is %d bytes and reads %q", len(head.Text), head.Text)
 	}
 	body, err := os.ReadFile(notes[0].Refs.Path)
 	if err != nil {
