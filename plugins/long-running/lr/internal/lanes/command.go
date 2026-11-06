@@ -253,7 +253,7 @@ func RouteCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			lane, err := Resolve(cmd.Context(), cfg.Drive, args[0])
+			lane, err := resolveMember(cmd.Context(), s, cfg.Drive, args[0], true)
 			if err != nil {
 				return err
 			}
@@ -294,7 +294,7 @@ func RequestCommand(a *app.App) *cobra.Command {
 			if request.By == "" {
 				return errors.New("no lane is bound to this session, so the request would post under no name; pass --by <your lane>")
 			}
-			if request.Lane, err = Resolve(cmd.Context(), cfg.Drive, request.Lane); err != nil {
+			if request.Lane, err = resolveMember(cmd.Context(), s, cfg.Drive, request.Lane, false); err != nil {
 				return err
 			}
 			request.Successor, request.By = Canonical(cfg.Drive, request.Successor), Canonical(cfg.Drive, request.By)
