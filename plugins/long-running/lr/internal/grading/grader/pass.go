@@ -760,6 +760,12 @@ func draftOf(argv []string) (client.Draft, error) {
 			draft.To = strings.Split(value, ",")
 		case "--text":
 			draft.Text = value
+		case "--attr":
+			name, said, _ := strings.Cut(value, "=")
+			if draft.Attrs == nil {
+				draft.Attrs = map[string]string{}
+			}
+			draft.Attrs[name] = said
 		default:
 			return client.Draft{}, fmt.Errorf("a desk post names %s, which no grader writes", flag)
 		}

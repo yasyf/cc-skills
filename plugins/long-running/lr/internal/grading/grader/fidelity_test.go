@@ -1,6 +1,7 @@
 package grader
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -209,6 +210,7 @@ func TestASpriteFidelityReturnsItsGradeForCoordinatorPosting(t *testing.T) {
 		t.Fatal("the coordinator received no grade")
 	}
 	holdsAll(t, shell.posted[0]["--text"], "fidelity: ok "+shaHead)
+	equal(t, shell.posted[0]["--attr"], gates.FidelityClassAttr+"="+gates.NoClass)
 	for index, post := range shell.posted {
 		equal(t, post["--id"], fmt.Sprintf("fidelity:%s#43299:%s:%d", repoName, shaHead, index))
 		if filepath.Dir(post["--path"]) != directory {
@@ -278,14 +280,16 @@ func missingOf(key, line string) map[string]any {
 	return map[string]any{"key": key, "line": line, "settled": 0}
 }
 
-func TestARestackPatchIdenticalToAGradedOkHeadCarriesItsPortPhraseAndOldAppLineWithNoModelCall(t *testing.T) {
+func TestARestackPatchIdenticalToADesksOkHeadCarriesTheOkAndOldAppLineButNotTheClassTheDeskTyped(t *testing.T) {
 	directory := fidelityDir(t, nil)
 	shell, _ := newFidelityFake(t, samePatch)
 	mustFidelity(t, directory, shell)
 	equal(t, len(shell.asks()), 0)
 	texts := shell.texts()
-	equal(t, texts[0], "fidelity: ok "+shaHead+" "+portPhrase+": carried from "+shaOld[:7]+" (cci #170001), patch-identical by git patch-id over its own commits.")
+	equal(t, texts[0], "fidelity: ok "+shaHead+" carried from "+shaOld[:7]+" (cci #170001), patch-identical by git patch-id over its own commits.")
+	equal(t, shell.posted[0]["--attr"], gates.FidelityClassAttr+"="+gates.NoClass)
 	equal(t, texts[1], "old-app: unchanged "+shaHead[:7]+" baseline "+baselineName+"; go/sand/next only")
+	equal(t, shell.posted[1]["--attr"], "")
 	for _, post := range shell.posted {
 		equal(t, post["--lane"], FidelityLane)
 		equal(t, post["--to"], "p8a-step9,desk-runner,board-refresher-2")
@@ -322,29 +326,45 @@ func TestEveryEarlierGradedHeadIsFetchedAndPatchReadAtOnceAndTheNewestMatchCarri
 	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" carried from "+shaOld[:7]+" (cci #170001), patch-identical by git patch-id over its own commits.")
 }
 
-func TestACarryTakesItsClassFromARootCorrectionThenTheNewestDeskGradeThenItsOwnPriorPhrase(t *testing.T) {
+func TestACarryTakesItsClassFromThePipelinesOwnGradeUnlessRootCorrectedItAndNeverFromADesk(t *testing.T) {
+	carriedText := "fidelity: ok " + shaOld + " carried from " + shaMoved[:7] + " (cci #170000), patch-identical by git patch-id over its own commits."
+	classed := func(class string) map[string]any {
+		grade := gradeOf(170003, FidelityLane, carriedText)
+		grade["attrs"] = map[string]string{gates.FidelityClassAttr: class}
+		return grade
+	}
 	first := gradeOf(170000, FidelityLane, "fidelity: ok "+shaMoved+" "+testOnly+": the added commit fixes a test.")
 	pipeline := gradeOf(170003, FidelityLane, "fidelity: ok "+shaOld+" "+testOnly+": carried from "+shaMoved[:7]+" (cci #170000), patch-identical by git patch-id over its own commits.")
 	desk := gradeOf(170004, "fidelity-desk-4", "fidelity: ok "+shaMoved+" tap row: it ends a moved share's watch, an on-purpose old-app fix.")
 	deskSaid := gradeOf(170004, "fidelity-desk-4", "fidelity: ok "+shaMoved+" "+testOnly+": every commit is a test.")
+	deskLater := gradeOf(170005, "fidelity-desk-4", "fidelity: ok "+shaOld+" reads right.")
 	cases := []struct {
 		name      string
 		grades    []any
 		corrected []int
 		said      string
+		from      int
 	}{
-		{"own-phrase", []any{first, pipeline}, nil, testOnly + ": "},
-		{"desk-tap-row", []any{first, pipeline, desk}, nil, ""},
-		{"root-corrected", []any{first, pipeline}, []int{170003}, ""},
-		{"root-corrected-upchain", []any{first, pipeline}, []int{170000}, ""},
-		{"root-over-desk", []any{first, pipeline, deskSaid}, []int{170003}, ""},
+		{"its own field", []any{first, classed(gates.ClassOf(testOnly))}, nil, testOnly, 0},
+		{"its own field under a newer desk ok at the same head", []any{first, classed(gates.ClassOf(testOnly)), deskLater}, nil, testOnly, 170005},
+		{"its own field naming none over a desk's typed class", []any{first, classed(gates.NoClass), deskSaid}, nil, "", 0},
+		{"its own phrase from before the field", []any{first, pipeline}, nil, testOnly, 0},
+		{"a desk's tap row changes nothing", []any{first, pipeline, desk}, nil, testOnly, 0},
+		{"root-corrected", []any{first, pipeline}, []int{170003}, "", 0},
+		{"root-corrected-upchain", []any{first, pipeline}, []int{170000}, "", 0},
+		{"root-over-desk", []any{first, pipeline, deskSaid}, []int{170003}, "", 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			directory := fidelityDir(t, map[string]any{"grades": c.grades, "corrected": c.corrected})
 			shell, _ := newFidelityFake(t, samePatch)
 			mustFidelity(t, directory, shell)
-			equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+c.said+"carried from "+shaOld[:7]+" (cci #170003), patch-identical by git patch-id over its own commits.")
+			said, class := "", gates.NoClass
+			if c.said != "" {
+				said, class = c.said+": ", gates.ClassOf(c.said)
+			}
+			equal(t, shell.texts()[0], fmt.Sprintf("fidelity: ok %s %scarried from %s (cci #%d), patch-identical by git patch-id over its own commits.", shaHead, said, shaOld[:7], cmp.Or(c.from, 170003)))
+			equal(t, shell.posted[0]["--attr"], gates.FidelityClassAttr+"="+class)
 		})
 	}
 }
@@ -599,6 +619,7 @@ func TestACodexOkPostsTheGradeWithItsExemptPhraseThenTouchesAndOldApp(t *testing
 		"touches prompt/1026-105052",
 		"old-app: CHANGES " + shaHead[:7] + " baseline " + baselineName + "; go/sand/next only",
 	})
+	equal(t, shell.posted[0]["--attr"], gates.FidelityClassAttr+"="+gates.ClassOf(testOnly))
 	question := readText(t, directory, "question-1.md")
 	holdsAll(t, question,
 		filepath.Join(directory, rubricFile), filepath.Join(directory, "rows.md"), "`git diff "+shaOwn+"^ "+shaHead+"`",
@@ -900,18 +921,25 @@ func TestAnOkNamesTheClassItsChangedPathsDecideWhateverTheModelSaid(t *testing.T
 		exempt string
 		said   string
 	}{
-		"#49240's cc-remote files with no class from the model": {"tools/cc-remote/agents-payload.json\ntools/cc-remote/config.yaml\n", "none", tooling + ": "},
+		"#49240's cc-remote files with no class from the model": {"tools/cc-remote/agents-payload.json\ntools/cc-remote/config.yaml\n", "none", tooling},
 		"the shared toolchain pins name no path class":          {"mise.toml\ntools/cc-remote/config.yaml\ntools/versions.toml\n", "none", ""},
-		"tooling over a class the model judged":                 {"go/remote-builder/cli/rb/exec.go\ntools/remote-builder/README.md\n", "regression", tooling + ": "},
-		"a product path keeps the model's judgment":             {"go/sand/next/replica/follow.go\n", "regression", regressionPhrase + ": "},
+		"tooling over a class the model judged":                 {"go/remote-builder/cli/rb/exec.go\ntools/remote-builder/README.md\n", "regression", tooling},
+		"a product path keeps the model's judgment":             {"go/sand/next/replica/follow.go\n", "regression", regressionPhrase},
 		"a product path names no path class the model gave":     {"go/sand/next/replica/follow.go\ngo/sand/next/replica/follow_test.go\n", "test-only", ""},
+		"#47254's listed CI verbs and build cache":              {"go/ci/bkverb.go\ngo/ci/internal/cache/cold.go\ngo/ci/prune.go\ngo/ci/prune_test.go\n", "none", testOnly},
+		"#51878's pass-box verb, which the CI list leaves out":  {"docs/pass-boxes.md\ngo/ci/passbox.go\ngo/ci/passbox_test.go\ntools/loadtest/tasks/README.md\n", "none", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": pathClasses, "exempt_grades": grades})
 			shell, repo := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"exempt": tc.exempt}))
 			repo.names = tc.names
 			mustFidelity(t, directory, shell)
-			equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+tc.said+"Resubscribes from the fetched position after a cut.")
+			said, class := "", gates.NoClass
+			if tc.said != "" {
+				said, class = tc.said+": ", gates.ClassOf(tc.said)
+			}
+			equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+said+"Resubscribes from the fetched position after a cut.")
+			equal(t, shell.posted[0]["--attr"], gates.FidelityClassAttr+"="+class)
 			question := readText(t, directory, "question-1.md")
 			holdsAll(t, question, "`regression` (\""+regressionPhrase+"\")")
 			holdsNone(t, question, "`ci-tooling` (", "`test-only` (")
@@ -1288,7 +1316,7 @@ func TestAHeadPastAnOkTheSonnetReadCallsUnchangedCarriesTheOkWithNoCodexPass(t *
 		"- cci #170001 from fidelity-desk-5: "+deskOK["text"].(string), fidelityMeans, "sand: 🐛 a cut signal resubscribes",
 	)
 	texts := shell.texts()
-	equal(t, texts[0], "fidelity: ok "+shaHead+" "+portPhrase+": carried from "+shaOld[:7]+" (cci #170001), judged unchanged in meaning by sonnet over its range-diff: "+strings.TrimSuffix(why, ".")+".")
+	equal(t, texts[0], "fidelity: ok "+shaHead+" carried from "+shaOld[:7]+" (cci #170001), judged unchanged in meaning by sonnet over its range-diff: "+strings.TrimSuffix(why, ".")+".")
 	equal(t, texts[1], "old-app: unchanged "+shaHead[:7]+" baseline "+baselineName+"; go/sand/next only")
 	outcome := resultOf(t, directory)
 	if !reflect.DeepEqual(outcome, map[string]any{"verdict": "carried", "from": shaOld, "posted": []any{"#150002", "#150003"}, "regrade": "carry: " + why}) {

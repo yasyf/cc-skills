@@ -60,11 +60,12 @@ var (
 )
 
 type Record struct {
-	Seq  int64  `json:"seq"`
-	Lane string `json:"lane"`
-	Head string `json:"head"`
-	Text string `json:"text"`
-	Path string `json:"path"`
+	Seq   int64             `json:"seq"`
+	Lane  string            `json:"lane"`
+	Head  string            `json:"head"`
+	Text  string            `json:"text"`
+	Path  string            `json:"path"`
+	Attrs map[string]string `json:"attrs,omitempty"`
 }
 
 type FinderJob struct {
