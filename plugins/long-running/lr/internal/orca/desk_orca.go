@@ -389,35 +389,54 @@ func (d *Desk) wake(ctx context.Context, terminal, environment, text string) (bo
 }
 
 type deskWorker struct {
-	Dispatch string `json:"dispatchId"`
-	Status   string `json:"dispatchStatus"`
-	Terminal string `json:"agentTerminalHandle"`
+	Dispatch   string `json:"dispatchId"`
+	Status     string `json:"dispatchStatus"`
+	Terminal   string `json:"agentTerminalHandle"`
+	Projection struct {
+		Host *struct {
+			Kind string `json:"kind"`
+			ID   string `json:"id"`
+		} `json:"host"`
+	} `json:"projection"`
 }
 
 func (d *Desk) workers(ctx context.Context) ([]deskWorker, error) {
-	d.reads.mu.Lock()
-	kept, found := d.reads.workers, d.reads.listed
-	d.reads.mu.Unlock()
-	if found {
-		return kept, nil
+	return d.listWorkers(ctx, "")
+}
+
+func (d *Desk) listed(ctx context.Context, lane string) (*laneDispatch, error) {
+	dispatch := d.receipt(lane)
+	if dispatch == "" {
+		return nil, nil
 	}
-	rows, err := d.listWorkers(ctx)
+	rows, err := d.listWorkers(ctx, dispatch)
 	if err != nil {
 		return nil, err
 	}
-	d.reads.mu.Lock()
-	defer d.reads.mu.Unlock()
-	if d.reads.passing {
-		d.reads.workers, d.reads.listed = rows, true
+	at := slices.IndexFunc(rows, func(row deskWorker) bool { return row.Dispatch == dispatch })
+	if at < 0 {
+		return nil, nil
 	}
-	return rows, nil
+	row := rows[at]
+	found := &laneDispatch{Lane: lane, ID: dispatch, Terminal: or(row.Terminal, d.terminal(lane)), Status: row.Status}
+	if host := row.Projection.Host; host != nil && host.Kind == "remote" {
+		found.Environment = host.ID
+	}
+	return found, nil
 }
 
-func (d *Desk) listWorkers(ctx context.Context) ([]deskWorker, error) {
-	var rows []deskWorker
-	var cursor []string
-	for {
-		reply, err := d.ask(ctx, append([]string{orchestration, "worker-list", "--run", d.Config.Run, "--include-remote", "--limit", "100"}, cursor...)...)
+func (d *Desk) listWorkers(ctx context.Context, until string) ([]deskWorker, error) {
+	d.reads.paging.Lock()
+	defer d.reads.paging.Unlock()
+	d.reads.mu.Lock()
+	rows, cursor, done := d.reads.workers, d.reads.cursor, d.reads.listed
+	d.reads.mu.Unlock()
+	for !done && (until == "" || !slices.ContainsFunc(rows, func(row deskWorker) bool { return row.Dispatch == until })) {
+		args := []string{orchestration, "worker-list", "--run", d.Config.Run, "--include-remote", "--limit", "100"}
+		if cursor != "" {
+			args = append(args, "--cursor", cursor)
+		}
+		reply, err := d.ask(ctx, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -430,12 +449,18 @@ func (d *Desk) listWorkers(ctx context.Context) ([]deskWorker, error) {
 		if err := reply.Into(&page); err != nil {
 			return nil, err
 		}
-		rows = append(rows, page.Workers...)
-		if page.Page == nil || page.Page.Next == "" {
-			return rows, nil
+		rows = append(slices.Clip(rows), page.Workers...)
+		cursor, done = "", true
+		if page.Page != nil && page.Page.Next != "" {
+			cursor, done = page.Page.Next, false
 		}
-		cursor = []string{"--cursor", page.Page.Next}
+		d.reads.mu.Lock()
+		if d.reads.passing {
+			d.reads.workers, d.reads.cursor, d.reads.listed = rows, cursor, done
+		}
+		d.reads.mu.Unlock()
 	}
+	return rows, nil
 }
 
 type bindingState struct {

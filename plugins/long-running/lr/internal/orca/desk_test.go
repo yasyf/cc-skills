@@ -366,7 +366,11 @@ func (w *deskWorld) orchestrationReply(argv []string) (shell.Result, error) {
 	case "worker-list":
 		rows := make([]object, 0, len(w.dispatches))
 		for id, entry := range w.dispatches {
-			rows = append(rows, object{"dispatchId": id, "dispatchStatus": entry.status, "agentTerminalHandle": entry.terminal})
+			host := object{"kind": "local", "id": "local"}
+			if entry.environment != "" {
+				host = object{"kind": "remote", "id": entry.environment}
+			}
+			rows = append(rows, object{"dispatchId": id, "dispatchStatus": entry.status, "agentTerminalHandle": entry.terminal, "projection": object{"host": host}})
 		}
 		return orcaOK(object{"workers": rows}), nil
 	case "check":
