@@ -35,7 +35,8 @@ SUBMITTED = (
     re.compile(rf"^{URL}$", re.MULTILINE),
 )
 SETTLERS = (("cci", "post"), ("gh", "pr", "close"))
-PULL_URL = re.compile(r"/pull/(?P<pr>\d+)")
+PULL_URL = re.compile(r"github\.com/(?P<repo>[\w.-]+/[\w.-]+)/pull/(?P<pr>\d+)")
+QUALIFIED_PR = re.compile(r"(?<![\w./-])(?P<repo>[\w.-]+/[\w.-]+)#(?P<pr>\d+)\b")
 STACK_HEAD = re.compile(r"^(?P<branch>\S+) · #(?P<pr>\d+) · head (?P<head>[0-9a-f]{7,40}) · (?:parent (?P<base>\S+))?", re.MULTILINE)
 RESTACKED = re.compile(r'^(?P<branch>\S+) · onto (?P<base>\S+)(?: \(was \S+\))? · .*#(?P<pr>\d+) "(?P<title>.*)"$', re.MULTILINE)
 PUBLISHED = re.compile(r"\bpublished (?P<head>[0-9a-f]{7,40})\b")
@@ -366,10 +367,18 @@ def flag_values(args: tuple[str, ...], name: str) -> list[str]:
     return values
 
 
-def closed_pr(argv: tuple[str, ...]) -> list[str]:
-    target = argv[3] if len(argv) > 3 else ""
-    match = PULL_URL.search(target)
-    return [match["pr"] if match else target]
+def pr_ref(value: str, named: dict[str, str]) -> str | None:
+    if value.isdigit():
+        return f"{named[value]}#{value}" if value in named else value
+    if match := QUALIFIED_PR.fullmatch(value) or PULL_URL.search(value):
+        return f"{match['repo']}#{match['pr']}"
+    return None
+
+
+def closed_pr(call: Call) -> str | None:
+    target = call.verb_argv[3] if len(call.verb_argv) > 3 else ""
+    repos = flag_values(call.args, "--repo") + flag_values(call.args, "-R")
+    return pr_ref(target, {target: repos[0]} if repos else {})
 
 
 def settled_prs(evt: BaseHookEvent) -> list[str]:
@@ -377,10 +386,11 @@ def settled_prs(evt: BaseHookEvent) -> list[str]:
     for call in evt.cmd.calls():
         argv = call.verb_argv
         if argv[:2] == SETTLERS[0] and "landed" in flag_values(call.args, "--kind"):
-            prs += [pr for value in flag_values(call.args, "--pr") for pr in value.split(",")]
+            named = {match["pr"]: match["repo"] for arg in call.args for match in QUALIFIED_PR.finditer(arg)}
+            prs += [pr_ref(pr, named) for value in flag_values(call.args, "--pr") for pr in value.split(",")]
         elif argv[:3] == SETTLERS[1]:
-            prs += closed_pr(argv)
-    return list(dict.fromkeys(pr for pr in prs if pr.isdigit()))
+            prs.append(closed_pr(call))
+    return list(dict.fromkeys(pr for pr in prs if pr))
 
 
 @on(
@@ -414,5 +424,5 @@ def settle_landed_prs(evt: BaseHookEvent) -> HookResult | None:
         argv += ["--pr", pr]
     _, reason = run_drive(argv)
     if reason:
-        return evt.context(UNSETTLED.format(prs=", ".join(f"#{pr}" for pr in prs), reason=reason, retry=shlex.join(argv)))
+        return evt.context(UNSETTLED.format(prs=", ".join(pr if "#" in pr else f"#{pr}" for pr in prs), reason=reason, retry=shlex.join(argv)))
     return None

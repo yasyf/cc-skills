@@ -8,7 +8,7 @@
     drive.py orca-run
     drive.py list    [--json]
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] [--opened] --pr [OWNER/NAME#]N[=SHA]...
-    drive.py landed  --session ID [--drive ID] --pr N...
+    drive.py landed  --session ID [--drive ID] --pr [OWNER/NAME#]N...
     drive.py lane-status LANE|DISPATCH [--drive ID] [--run ID]
     drive.py digest  [--drive ID]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
@@ -46,7 +46,8 @@ runs ``record`` itself.
 
 ``landed`` is the pack's entry point after a ``cci post --kind landed`` or a ``gh pr close``: it settles each named
 PR the drive's ledger tracks against the trunk in the drive's checkout through ``ledger.py landed``, so the row
-leaves the open set in the same step that announced the landing or the close.
+leaves the open set in the same step that announced the landing or the close. A bare number is a PR on the drive's
+repository; an ``OWNER/NAME#N`` on another repository is not the drive's and settles nothing.
 
 ``lane-status`` answers what code a lane holds. It prints one line per worktree the lane owns, found by
 ``lanes.lane_worktrees`` from the drive's launch receipts, the lane's cci records of the last day, the
@@ -599,13 +600,19 @@ def cmd_release(args: argparse.Namespace, shell: ledger.Shell) -> int:
 def cmd_landed(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not (entry := find(args.drive, args.session)):
         return 0
+    ours = [match for match in args.pr if ledger.same_repo(match["repo"] or entry["repo"], entry["repo"])]
+    for match in args.pr:
+        if match not in ours:
+            print(f"{match['repo']}#{match['pr']} is not on the drive's repository {entry['repo']}, so it settles nothing")
+    if not (prs := [match["pr"] for match in ours]):
+        return 0
     argv = ["-C", entry["checkout"], "landed", "--repo", entry["repo"], "--ledger", entry["ledger"], "--checkout", entry["checkout"]]
-    argv += [flag for pr in args.pr for flag in ("--pr", pr)]
+    argv += [flag for pr in prs for flag in ("--pr", pr)]
     try:
         return ledger.main(argv, shell)
     except (subprocess.CalledProcessError, OSError) as failure:
         reason = (getattr(failure, "stderr", "") or str(failure)).strip().splitlines()[-1:] or ["no reason given"]
-        print(f"PR {', '.join('#' + pr for pr in args.pr)} not settled in ledger {entry['ledger']}: {reason[0]} — run `ledger.py {' '.join(argv)}`", file=sys.stderr)
+        print(f"PR {', '.join('#' + pr for pr in prs)} not settled in ledger {entry['ledger']}: {reason[0]} — run `ledger.py {' '.join(argv)}`", file=sys.stderr)
         return 1
 
 
@@ -781,7 +788,7 @@ def build_parser() -> argparse.ArgumentParser:
     landed = subparsers.add_parser("landed", help="settle PRs a command announced as landed or closed in the drive's ledger")
     landed.add_argument("--session", required=True)
     landed.add_argument("--drive", help="the drive named by the session's CLAUDE_LONG_RUNNING_DRIVE")
-    landed.add_argument("--pr", required=True, action="append", type=ledger.pr_number)
+    landed.add_argument("--pr", required=True, action="append", type=pr_spec, metavar="[OWNER/NAME#]N")
     landed.set_defaults(handler=cmd_landed)
 
     lane_status = subparsers.add_parser("lane-status", help="every worktree a lane owns with its branch, dirty files, push state, and open PR, else its Orca dispatches; exit 1 when none")

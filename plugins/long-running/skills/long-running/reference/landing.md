@@ -66,7 +66,7 @@ D24 sits at the end of this section.
 
 **D13. Register each lane's stack when it starts and whenever it opens a PR.**
 - The coordinator registers the drive with `drive.py start --ledger <id>`. The pack's PR hook registers every PR a drive session or Orca worker opens under the lane's name and records the head when the command prints one. `lr launch start` resolves the drive from the Orca run for workers the relay launched. A session no drive claims prints one stderr line from `drive.py record`.
-- The hook settles the row through `drive.py landed` and `ledger.py landed` when a session posts `cci post --kind landed --pr <n>` or runs `gh pr close`.
+- The hook settles the row through `drive.py landed` and `ledger.py landed` when a session posts `cci post --kind landed --pr <n>` or runs `gh pr close`. A PR on another repository settles nothing: name it `--pr <owner>/<name>#<n>`, as a URL, or with `gh pr close -R`, and a bare number whose record text names `<owner>/<name>#<n>` takes that repository too.
 - Lanes register their branch at spawn: `ledger.py register --ledger <id> --lane <name> --branch-prefix <branch>`. The prefix ends in `/` or `-` for a stack namespace; otherwise it names one exact branch.
 - Run from the lane's worktree, `register` records the worktree when `.git/gh-stack` or a legacy Graphite stack holds the branch, so `refresh` tracks branches `ccx vcs stack new` cuts later.
 - `register` refuses a prefix that covers the owner's whole `<user>/` namespace or matches open PRs another lane tracks or that predate the ledger. It names those PRs and suggests the exact branch, `<user>/<lane-slug>-`, or `--pr`.
