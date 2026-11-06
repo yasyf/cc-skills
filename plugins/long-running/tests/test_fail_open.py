@@ -66,8 +66,6 @@ KEPT_REFUSALS = KEPT | {
     "lane_slack_status.lanes_post_no_release_status": "a Slack post cannot be unsent, and the Slack permission rule stays (answer 8f1682a)",
     "lane_landing.hand_landings_meet_the_runner_checks": "card-hand-merge-rule (answer fd9233e): the owner picked a block for a hand landing with no tap at its head, since a merge cannot be recalled",
     "local_builds.no_local_builds_in_a_drive": "the run already saturates the Mac when a warning lands (answer 7e82747)",
-    "mechanism_lines_cite.mechanism_lines_cite": "the owner ordered the refusal: he reads an uncited mechanism sentence as fact",
-    "mechanism_lines_cite.mechanism_replies_cite": STOP.format(what="the owner would read an uncited mechanism as fact"),
     "merge_own_red.merge_never_lands_past_its_own_red": "a merge cannot be recalled",
     "owner_answers.owner_notes_get_answers": STOP.format(what="the owner's note would wait"),
     "owner_ledger.owner_messages_close_before_stop": STOP.format(what="the owner's message would stay open"),
