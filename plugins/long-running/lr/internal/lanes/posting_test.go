@@ -25,6 +25,20 @@ func TestALaneThatStoppedAndThenLandedAPRReadsLiveEverywhere(t *testing.T) {
 	equal(t, must(Route(s, lane2)), lane2)
 }
 
+func TestAPRPushedUnderAnAliasWithNoRowReachesItsOneLiveNumberedLane(t *testing.T) {
+	s := memory(t)
+	run := func(name string) {
+		if _, err := s.WantLane(store.Lane{Name: name, State: store.LaneDesired}, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("test-sleeps-go-1")
+	equal(t, must(ItemOwner(s, testDrive, "test-sleeps-go", 51958)), "test-sleeps-go-1")
+
+	run("test-sleeps-go-2")
+	equal(t, must(ItemOwner(s, testDrive, "test-sleeps-go", 51958)), Root)
+}
+
 func TestALaneTheSupervisorRetiredForSilenceIsLiveOnItsNextRecord(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
