@@ -1001,7 +1001,7 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None, named: Named = N
             tail.append(f"{len(found) - kept} more answers pass the {ANSWERS_CAP // 1000} KB answer cap; run the step-one commands for them.")
     else:
         out.add(["This brief names no `topics=` or `paths=`, so the launch searched nothing. Run `ccn answer search <topic>` for each subject you decide on before any ask, decide with options, or PR."])
-    if want.codex and doc:
+    if (want.codex or want.step == INCIDENT_STEP) and doc:
         out.add(["", "## Standing rules", doc["body"].rstrip()])
     picks = sorted((key for key in ranks if rulings[key].get("kind") == "pick"), key=lambda key: write_in_first((key, rulings[key])))
     rows = sorted((key for key in ranks if rulings[key].get("kind") != "pick"), key=ranks.__getitem__)
