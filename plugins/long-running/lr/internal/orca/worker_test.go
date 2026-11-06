@@ -1722,32 +1722,38 @@ func TestASpriteLanesPathRunsTheTsDeltaThePreambleNamesFromThePackItInstalled(t 
 		"bin/ts-delta.sh":                         string(shim),
 		"skills/long-running/scripts/ts-delta.sh": "#!/bin/sh\necho \"ts-delta from 0.7.1855 typechecks $*\"\n",
 	})
-	home := t.TempDir()
-	plugins := filepath.Join(home, ".claude", "plugins")
-	if err := os.MkdirAll(plugins, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	baked := `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}`
-	if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(baked), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(home, ".claude", "long-running"), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/payload/long-running/0.7.692", filepath.Join(home, ".claude", "long-running", "current")); err != nil {
-		t.Fatal(err)
-	}
-	install := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "plugin", "long-running@skills", packURL, packSHA, "0.7.1855", "--")
-	install.Env = append(os.Environ(), "HOME="+home)
-	if out, err := install.CombinedOutput(); err != nil {
-		t.Fatal(string(out), err)
-	}
+	for label, linked := range map[string]bool{"a pool Sprite whose session has not made the current link yet": false, "a Sprite with a current link": true} {
+		t.Run(label, func(t *testing.T) {
+			home := t.TempDir()
+			plugins := filepath.Join(home, ".claude", "plugins")
+			if err := os.MkdirAll(plugins, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			baked := `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}`
+			if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(baked), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if linked {
+				if err := os.MkdirAll(filepath.Join(home, ".claude", "long-running"), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("/payload/long-running/0.7.692", filepath.Join(home, ".claude", "long-running", "current")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			install := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "plugin", "long-running@skills", packURL, packSHA, "0.7.1855", "--")
+			install.Env = append(os.Environ(), "HOME="+home)
+			if out, err := install.CombinedOutput(); err != nil {
+				t.Fatal(string(out), err)
+			}
 
-	lane := exec.Command("sh", "-c", "ts-delta.sh common")
-	lane.Env = append(os.Environ(), "HOME="+home, "PATH="+filepath.Join(home, ".local", "bin")+":/usr/bin:/bin", "CLAUDE_CONFIG_DIR=", "LONG_RUNNING_PIN=")
-	said, err := lane.CombinedOutput()
-	if err != nil || strings.TrimSpace(string(said)) != "ts-delta from 0.7.1855 typechecks common" {
-		t.Fatalf("the lane's ts-delta.sh said %q: %v", said, err)
+			lane := exec.Command("sh", "-c", "ts-delta.sh common")
+			lane.Env = append(os.Environ(), "HOME="+home, "PATH="+filepath.Join(home, ".local", "bin")+":/usr/bin:/bin", "CLAUDE_CONFIG_DIR=", "LONG_RUNNING_PIN=")
+			said, err := lane.CombinedOutput()
+			if err != nil || strings.TrimSpace(string(said)) != "ts-delta from 0.7.1855 typechecks common" {
+				t.Fatalf("the lane's ts-delta.sh said %q: %v", said, err)
+			}
+		})
 	}
 }
 
