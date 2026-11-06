@@ -192,6 +192,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	for _, lane := range desired {
 		act(s, d, lane, found, proven, taken, generation, now, &out)
 	}
+	relaunchNeverStarted(s, d, running, found, taken, now, &out)
 	tellRetired(s, d, running, said.stood, now)
 	retiredTo := map[string][]string{}
 	for _, one := range out.Retired {
@@ -836,8 +837,41 @@ func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out
 		}
 	}
 	hold(s, lane.Name, refused.why, now)
-	escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not launched: the runner refused the supervisor's relaunch as %s twice, last with %s; brief %s", lane.Name, refused.why, path), must(MetaDesk(s)), now)
 	out.Held = append(out.Held, lane.Name)
+	if held, _ := laneOf(s, lane.Name); neverStarted(held) {
+		return
+	}
+	escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not launched: the runner refused the supervisor's relaunch as %s twice, last with %s; brief %s", lane.Name, refused.why, path), must(MetaDesk(s)), now)
+}
+
+func relaunchNeverStarted(s *store.Store, d Deps, running []store.Lane, found map[string]Peer, taken map[string]bool, now time.Time, out *Outcome) {
+	for _, was := range running {
+		if was.State != store.LaneHeld {
+			continue
+		}
+		lane, _ := laneOf(s, was.Name)
+		if peer := peerOf(found, lane.Name); !neverStarted(lane) || strings.Contains(lane.Reason, SpriteLimit) || peer != nil && peer.Live {
+			continue
+		}
+		if !isStanding(lane) {
+			escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("never started: %s. Relaunch it from %s, or withdraw it with `orca-desk: withdraw %s`", lane.Reason, filepath.Join(d.Briefs, lane.Name+".brief.md"), lane.Name), must(MetaDesk(s)), now)
+			continue
+		}
+		worked := lane.Predecessor
+		for seen := map[string]bool{lane.Name: true}; !seen[worked]; {
+			seen[worked] = true
+			before, known := laneOf(s, worked)
+			if !known || !before.Heard.IsZero() || before.Predecessor == "" {
+				break
+			}
+			worked = before.Predecessor
+		}
+		left := fmt.Sprintf("read its records with `cci tail --drive %s --lane %s --oldest`", d.Drive, worked)
+		if lane.Placement == placedOnSprite {
+			left += fmt.Sprintf(" and fetch `%s%s`, which holds any edit its Sprite pushed", awake.WorkRefs, worked)
+		}
+		relaunch(s, d, lane, found, "never started: "+lane.Reason, fmt.Sprintf("Partial work: %s never started, so the work it took over is still %s's: %s.", lane.Name, worked, left), taken, now, out)
+	}
 }
 
 func writeSuccessorBrief(d Deps, old store.Lane, found map[string]Peer, name, why, partial, work string) string {
@@ -1363,10 +1397,13 @@ func spentRelaunches(s *store.Store, d Deps, lane store.Lane, found map[string]P
 	if strikes < deskStrikes {
 		return ""
 	}
-	return fmt.Sprintf("it came back from the supervisor's relaunch and died %d times within %d min, and now it %s; read why before launching its successor from %s", strikes, int(deskStrikeWindow.Minutes()), why, handLaunchedSuccessor(d, lane, found, why, taken, now))
+	return fmt.Sprintf("the supervisor relaunched it %d times within %d min and each one died or never started, and now it %s; read why before launching its successor from %s", strikes, int(deskStrikeWindow.Minutes()), why, handLaunchedSuccessor(d, lane, found, why, taken, now))
 }
 
 func spriteFault(s *store.Store, why string) bool {
+	if strings.Contains(why, launchFailed) {
+		return false
+	}
 	if strings.Contains(why, storageNotReady) || strings.Contains(why, notAnswering) {
 		return true
 	}

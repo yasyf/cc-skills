@@ -271,7 +271,7 @@ cci post --drive <drive> --lane root --kind go --to orca-desk --text 'orca-desk:
 
 **Freshness and failure checks.** A launch or incident line does not expire: the relay takes it on the pass that first reads it, however long the passes before it ran, and `lr launch` refuses to post one while no runner is alive or a pass has run 20 minutes. The relay reads desk lines at each pass's start, between its slow steps, and from its `desk-lines` thread whenever ten seconds pass with no read, so neither the sweep nor a slow step holds a launch line. The relay logs `LAUNCH-FAILED <key> <lane>: <reason>` and launches nothing when any of these hold:
 
-- the lane has a live dispatch or a launch in flight,
+- the lane has a live dispatch or a launch in flight; a dispatch whose remote runtime reads `remote_runtime_unavailable` does not count, since a relay to it reaches no one, so the launch starts a fresh dispatch,
 - the key already holds an action,
 - `launch` refuses the model or effort,
 - the brief is not a file, or

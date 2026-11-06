@@ -114,6 +114,124 @@ func TestARelaunchTheRunnerRefusesRetriesOnceThenHoldsWithOneBlockerToTheMetaDes
 	contains(t, blockers[0].Text, "the runner refused the supervisor's relaunch as conflicts-3 twice, last with LAUNCH-DUPLICATE: fork-share-grant-2")
 }
 
+const pr17Failure = "LAUNCH-FAILED: R534275 refused on a Sprite that never started a worker: Sprite pool-hhonhrq4ohuygi66 did not join the cci relay with aws-profile:core-auto's service key: 4 tries, the last saying cci: $CCI_SERVICE_KEY: not a PKCS#8 PEM private key; nothing started, because a worker with no relay posts nothing anyone reads"
+
+func pr17Row(t *testing.T, s *store.Store, standing string, chain ...store.Lane) *fake {
+	t.Helper()
+	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
+	brief := writeBrief(t)
+	rows := append(chain, store.Lane{Name: "pr-unblock-17", State: store.LaneHeld, Handoff: "43eb8e9b7e19a4ad469073a20d03b9aca235865b", PRs: []int{49735, 50998}, Predecessor: "pr-unblock-16", Reason: pr17Failure, Placement: placedOnSprite, Standing: standing})
+	for i, lane := range rows {
+		lane.Brief, lane.Model, lane.Effort, lane.Role = brief, "opus", "high", "lane"
+		if _, err := s.WantLane(lane, t0.Add(-mins(10*(len(rows)-i)))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := newFake(t, []Record{rec(1, "meta-desk-3", "note", t0.Add(-mins(1)), "up")}, []Row{who("meta-desk-3", true, t0)})
+	tick(t, s, f, t0.Add(-mins(1)))
+	f.posts = nil
+	return f
+}
+
+const pr17Duty = "one-off unblocks of green or tapped PRs until the PR lifecycle rebuild replaces this."
+
+func TestAStandingDeskWhoseLaunchFailedRelaunchesOnTheNextPassUnderTheNextNumber(t *testing.T) {
+	s := memory(t)
+	f := pr17Row(t, s, pr17Duty)
+
+	out := tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(1)))
+
+	why := "never started: " + pr17Failure
+	equal(t, []any{f.launches, f.keys, out.Relaunched}, []any{[]string{"pr-unblock-18"}, []string{"supervisor-launch:pr-unblock-18"}, []Relaunch{{"pr-unblock-17", "pr-unblock-18", why}}})
+	equal(t, []any{row(t, s, "pr-unblock-17").RetiredBy, row(t, s, "pr-unblock-18").State, row(t, s, "pr-unblock-18").PRs, len(f.ofKind("blocker"))}, []any{"pr-unblock-18", store.LaneLaunching, []int{49735, 50998}, 0})
+	equal(t, relaunchReports(f)[0].To, []string{"meta-desk-3"})
+	contains(t, f.briefs["pr-unblock-18"], "Partial work: pr-unblock-17 never started, so the work it took over is still pr-unblock-16's: read its records with `cci tail --drive d1 --lane pr-unblock-16 --oldest` and fetch `refs/lr/work/pr-unblock-16`, which holds any edit its Sprite pushed.\nReplaces: pr-unblock-17\n")
+}
+
+func TestARelaunchAfterTwoNeverStartedLanesPointsAtTheLaneThatLastRan(t *testing.T) {
+	s := memory(t)
+	f := pr17Row(t, s, pr17Duty,
+		store.Lane{Name: "pr-unblock-15", State: store.LaneRetired, RetiredBy: "pr-unblock-16"},
+		store.Lane{Name: "pr-unblock-16", State: store.LaneRetired, RetiredBy: "pr-unblock-17", Predecessor: "pr-unblock-15", Reason: "never started: " + pr17Failure},
+	)
+	do(s.LaneHeard("pr-unblock-15", t0.Add(-time.Hour), "head", 1))
+
+	tick(t, s, f, t0)
+
+	equal(t, f.launches, []string{"pr-unblock-18"})
+	contains(t, f.briefs["pr-unblock-18"], "Partial work: pr-unblock-17 never started, so the work it took over is still pr-unblock-15's: read its records with `cci tail --drive d1 --lane pr-unblock-15 --oldest` and fetch `refs/lr/work/pr-unblock-15`")
+}
+
+func TestANeverStartedLaneThatCameUpByHandIsLeftAlone(t *testing.T) {
+	s := memory(t)
+	f := pr17Row(t, s, pr17Duty)
+	f.peers = append(f.peers, who("pr-unblock-17", true, t0))
+
+	tick(t, s, f, t0)
+
+	equal(t, []any{len(f.launches), len(f.ofKind("blocker")), row(t, s, "pr-unblock-17").State}, []any{0, 0, store.LaneHeld})
+}
+
+func TestAStandingDeskTheRunnerRefusesTwiceIsHeldWithNoBlockerAndRelaunchedOnTheNextPass(t *testing.T) {
+	s := memory(t)
+	f := spriteDesk(t, s, HostEmpty)
+	tick(t, s, f, t0)
+	failed := func(seq int64, at time.Time) Record {
+		return rec(seq, runner, "blocker", at, "LAUNCH-FAILED R9 go-desk-2: R9 refused on a Sprite that never started a worker: Sprite pool-a did not join the cci relay; nothing started", "meta-desk-3")
+	}
+
+	f.feed = append(f.feed, failed(10, t0.Add(mins(1))))
+	tick(t, s, f, t0.Add(mins(1)))
+	f.feed = append(f.feed, failed(11, t0.Add(mins(2))))
+	held := tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, []any{held.Held, row(t, s, "go-desk-2").State, len(f.ofKind("blocker"))}, []any{[]string{"go-desk-2"}, store.LaneHeld, 0})
+
+	next := tick(t, s, f, t0.Add(mins(3)))
+
+	equal(t, []any{f.launches, len(next.Relaunched), row(t, s, "go-desk-2").RetiredBy, len(f.ofKind("blocker"))}, []any{[]string{"go-desk-2", "go-desk-2", "go-desk-3"}, 1, "go-desk-3", 0})
+}
+
+func TestAOneShotLaneWhoseLaunchFailedGoesToTheMetaDeskOnceAndAWithdrawRetiresIt(t *testing.T) {
+	s := memory(t)
+	f := pr17Row(t, s, "")
+
+	tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, []any{len(f.launches), row(t, s, "pr-unblock-17").State}, []any{0, store.LaneHeld})
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	equal(t, blockers[0].To, []string{"meta-desk-3"})
+	contains(t, blockers[0].Text, "lane:pr-unblock-17: never started: "+pr17Failure+". Relaunch it from ")
+	contains(t, blockers[0].Text, "or withdraw it with `orca-desk: withdraw pr-unblock-17`")
+
+	f.feed = append(f.feed, rec(2, "meta-desk-3", "go", t0.Add(mins(2)), "orca-desk: withdraw pr-unblock-17", "orca-desk"))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, []any{row(t, s, "pr-unblock-17").State, row(t, s, "pr-unblock-17").RetiredBy, len(f.launches)}, []any{store.LaneRetired, "withdrawn", 0})
+}
+
+func TestANeverStartedStandingDeskStopsAfterThreeRelaunchesInAnHourEvenWhenItsSpriteStorageWasNotReady(t *testing.T) {
+	s := memory(t)
+	notReady := " Storage not ready"
+	f := pr17Row(t, s, pr17Duty,
+		store.Lane{Name: "pr-unblock-15", State: store.LaneRetired, RetiredBy: "pr-unblock-16", Predecessor: "pr-unblock-14", Reason: "never started: " + pr17Failure + notReady},
+		store.Lane{Name: "pr-unblock-16", State: store.LaneRetired, RetiredBy: "pr-unblock-17", Predecessor: "pr-unblock-15", Reason: "never started: " + pr17Failure + notReady},
+	)
+	do(s.SetLaneState("pr-unblock-17", store.LaneHeld, t0.Add(-mins(1)), "", pr17Failure+notReady))
+
+	out := tick(t, s, f, t0)
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, []any{len(f.launches), out.Held, row(t, s, "pr-unblock-17").State}, []any{0, []string{"pr-unblock-17"}, store.LaneHeld})
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	equal(t, blockers[0].To, []string{"meta-desk-3"})
+	contains(t, blockers[0].Text, "the supervisor relaunched it 3 times within 60 min and each one died or never started, and now it never started: "+pr17Failure+notReady)
+}
+
 func hostGone(f *fake, gone bool) {
 	quietFor(f, mins(25), "host_unavailable")
 	f.peers[0].HostGone = gone

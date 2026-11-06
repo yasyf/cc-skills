@@ -918,7 +918,7 @@ func dropQueuedLaunch(s *store.Store, stood store.Lane, at time.Time, out *folde
 
 func foldWithdraw(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	withdrawn, found := laneOf(s, withdrawOrder.FindStringSubmatch(r.Text)[1])
-	if !found || withdrawn.State != store.LaneLaunching {
+	if !found || withdrawn.State != store.LaneLaunching && !neverStarted(withdrawn) {
 		return
 	}
 	retire(s, withdrawn.Name, "withdrawn", at)

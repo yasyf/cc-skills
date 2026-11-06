@@ -35,6 +35,7 @@ const (
 	launchKey       = "supervisor-launch:"
 	SpriteLimit     = "Maximum concurrent sprites limit"
 	spriteCapacity  = "sprite-capacity"
+	launchFailed    = "LAUNCH-FAILED: "
 	owedLaunch      = "launch-owed:"
 	hourCursor      = "lanes.hour"
 	orderSaidCursor = "lanes.order-said."
@@ -512,6 +513,10 @@ func handedOn(to string, from []string, prs []int) Post {
 func hold(s *store.Store, name, why string, at time.Time) {
 	do(s.SetLaneState(name, store.LaneHeld, at, "", why))
 	must(s.ReleaseWorker(name))
+}
+
+func neverStarted(lane store.Lane) bool {
+	return lane.State == store.LaneHeld && strings.HasPrefix(lane.Reason, launchFailed) && lane.Heard.IsZero()
 }
 
 type owing struct {
