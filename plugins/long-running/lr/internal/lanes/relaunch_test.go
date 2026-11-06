@@ -385,3 +385,40 @@ func TestAStemSuccessorWhoseLaneOnlyCCIListsIsStartedWithNoLaunchAndNoAlarm(t *t
 
 	equal(t, []any{len(f.launches), row(t, s, "restack").State, row(t, s, "restack").RetiredBy, len(f.ofKind("blocker"))}, []any{0, store.LaneRetired, "restack-1", 0})
 }
+
+func TestALostLaneThatPostsBeforeItsStandInComesUpKeepsItsPlaceAndTheStandInStandsDown(t *testing.T) {
+	s := memory(t)
+	registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
+	spawn := spawned(2, lane2, writeBrief(t), t0, map[string]string{"model": "opus", "effort": "xhigh", "placement": placedOnSprite})
+	spawn.Lane = "meta-desk-3"
+	f := newFake(t, []Record{rec(1, "meta-desk-3", "note", t0.Add(-mins(1)), "launching conflicts-2")}, []Row{who("meta-desk-3", true, t0)})
+	tick(t, s, f, t0.Add(-mins(1)))
+	f.feed = append(f.feed, spawn)
+	tick(t, s, f, t0)
+	lostAt := t0.Add(launchWindow)
+	f.peers = []Row{who("meta-desk-3", true, lostAt)}
+	out := tick(t, s, f, lostAt)
+	equal(t, []any{len(out.Relaunched), row(t, s, lane2).RetiredBy}, []any{1, "conflicts-3"})
+
+	f.posts = nil
+	f.feed = append(f.feed, rec(3, lane2, "head", lostAt.Add(mins(2)), "HEAD #51295 at 0cceb94").withRefs(prs(51295)))
+	f.peers = []Row{who(lane2, true, lostAt.Add(mins(2))), who("meta-desk-3", true, lostAt.Add(mins(2)))}
+	tick(t, s, f, lostAt.Add(mins(3)))
+
+	standIn := row(t, s, "conflicts-3")
+	equal(t, []any{row(t, s, lane2).State, standIn.State, standIn.RetiredBy}, []any{store.LaneDesired, store.LaneRetired, lane2})
+	route, err := Route(s, lane2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, route, lane2)
+	downs := f.ofKind("stand-down")
+	if len(downs) != 1 || !slices.Equal(downs[0].To, []string{"conflicts-3"}) {
+		t.Fatalf("stand-downs = %+v, want one to the stand-in", downs)
+	}
+
+	f.feed = append(f.feed, spawned(4, "conflicts-3", writeBrief(t), lostAt.Add(mins(4)), map[string]string{"model": "opus", "effort": "xhigh", "placement": placedOnSprite}))
+	tick(t, s, f, lostAt.Add(mins(5)))
+
+	equal(t, []any{row(t, s, lane2).State, row(t, s, "conflicts-3").State}, []any{store.LaneDesired, store.LaneRetired})
+}
