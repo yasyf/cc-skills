@@ -61,7 +61,7 @@ var (
 	allocationKept = []string{"allocation.json", "before-worker.sh", "brief.md", "prepare.err", "prepare.status", "request.json"}
 	prepareKept    = sorted(allocationKept, "prepared.json")
 	startKept      = []string{"worker-start.err", "worker-start.json", "worker-start.status"}
-	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log", notesReceipt, joinReceipt})...)
+	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log", notesReceipt, joinReceipt, setupReceipt})...)
 	relayFailure   = "cci: relay: 500 internal: the relay failed; retry\n"
 	localKept      = sorted(startKept, "request.json")
 	stopKept       = []string{"stop.err", "stop.json", spriteStop}
@@ -248,6 +248,7 @@ func (f *workerFixture) spriteWith(task any) {
 
 func (f *workerFixture) spriteAllocated(response any) {
 	f.reply("gh auth token", workerReply{out: macGitLogin})
+	f.reply("sh "+seedNotes, workerReply{})
 	f.reply("cc-remote version", workerReply{err: workerPin + "\n"})
 	f.reply("orca orchestration run-current", boundWorker)
 	f.reply("cc-remote orca prepare", workerReply{out: response, err: "prepared on sprites\n"})
@@ -414,6 +415,14 @@ func notesCall(workspace string) []string {
 	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", remoteRoot, notesPrefix}
 }
 
+func (f *workerFixture) seedNotesCall(workspace string) []string {
+	return []string{"sh", "-c", seedNotes, "sh", f.checkout, workspace, filepath.Join(f.attempt, notesBundle), remoteRoot}
+}
+
+func setupCall(workspace string) []string {
+	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", runRepoSetup, "sh", remoteRoot}
+}
+
 func joinCall(workspace string) []string {
 	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", "drive-a,drive-b", relayURL, ownerKey}
 }
@@ -429,7 +438,9 @@ func relayCalls(workspace string) [][]string {
 func (f *workerFixture) startCalls(task object, told ...string) [][]string {
 	brief := task["brief"].(object)
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spritePreamble, spriteBuildkite) + strings.Join(told, "")
-	return slices.Concat([][]string{{"gh", "auth", "token"}, notesCall(task["environment"].(string))}, relayCalls(task["environment"].(string)), [][]string{
+	workspace := task["environment"].(string)
+	return slices.Concat([][]string{{"gh", "auth", "token"}, f.seedNotesCall(workspace), notesCall(workspace)}, relayCalls(workspace), [][]string{
+		setupCall(workspace),
 		slices.Concat([]string{"orca", "orchestration", "worker-start", "--run", workerRun, "--spec", spec, "--task-title", workerLane, "--on", task["environment"].(string), "--worktree", "id:" + task["worktreeId"].(string), "--terminal", task["terminal"].(string)}, []string{"--timeout-ms", "600000", "--full", "--json"}),
 	})
 }
@@ -789,12 +800,18 @@ func TestAStandingDeskOnASpriteRefusesBeforeAnythingIsPreparedWhenItsDrivesLrJSO
 	f.wantNoAttempt()
 }
 
-func TestAStandingDeskCarriesItsDrivesLrJSONToWhereLrReadsTheDriveOnTheSprite(t *testing.T) {
+func TestEverySpriteLaneInADriveCarriesItsDrivesLrJSONToWhereLrReadsTheDriveOnTheSprite(t *testing.T) {
+	for _, brief := range []string{"# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n", "# Lane A\nFix the bug.\n"} {
+		carriesLrJSON(t, brief)
+	}
+}
+
+func carriesLrJSON(t *testing.T, brief string) {
+	t.Helper()
 	f := newWorkerFixture(t)
 	f.deskDrive(deskConfig)
-	desk := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
-	f.write(f.brief, desk, 0o600)
-	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(desk), "bytes": len(desk)}}))
+	f.write(f.brief, brief, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(brief), "bytes": len(brief)}}))
 	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{})
 	f.launched()
 
@@ -849,7 +866,7 @@ func TestAStandingDeskWhoseLrJSONFailsToLandOnItsSpriteRefusesToStartIt(t *testi
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(desk), "bytes": len(desk)}}))
 	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{code: 1, err: "mv: read-only file system\n"})
 	line, failed, err := f.launch(workerLane, "opus", "high")
-	if err != nil || line != "" || failed != "Sprite "+workerWorkspace+" holds no lr.json for drive brook, which the desk's lr board, lr approved and lr lanes read; "+filepath.Join(f.attempt, configReceipt)+" keeps the output, "+idleWarning+stopSaid {
+	if err != nil || line != "" || failed != "Sprite "+workerWorkspace+" holds no lr.json for drive brook, which lr and the pack's hooks read there; "+filepath.Join(f.attempt, configReceipt)+" keeps the output, "+idleWarning+stopSaid {
 		t.Fatal(line, failed, err)
 	}
 	if !strings.Contains(f.receiptText(configReceipt), "read-only file system") || slices.ContainsFunc(f.calls, func(call []string) bool { return slices.Contains(call, "worker-start") }) {
@@ -953,7 +970,7 @@ func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogs
 func TestAHoldThatFailsToStartLeavesTheWorkerRunningAndSaysSo(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{}, workerReply{code: 1, err: "services are down"})
+	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{}, workerReply{}, workerReply{code: 1, err: "services are down"})
 	if line := f.launched(); !strings.Contains(line, `"state":"ready"`) {
 		t.Fatal(line)
 	}
@@ -972,7 +989,7 @@ func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
 	f.launched()
 	spec := f.startCalls(prepared())
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, spec[:len(spec)-1], [][]string{joinCall(workerWorkspace)}, spec[len(spec)-1:], [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, spec[:len(spec)-2], [][]string{joinCall(workerWorkspace)}, spec[len(spec)-2:], [][]string{holdCall(workerWorkspace)})...)
 	if !slices.Equal(f.slept, joinWaits[:1]) {
 		t.Fatal(f.slept)
 	}
@@ -1309,7 +1326,7 @@ func TestTheBeforeWorkerScriptKeepsTheCensusOnStdoutAndTheFailingStepOnStderr(t 
 	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr member": "#!/bin/sh\necho lr version 9.9.9\n"})
 	home := t.TempDir()
 	run := exec.Command("sh", "-c", spritePins{ccURL: cciURL, ccSHA: cciSHA, lrURL: lrURL, lrSHA: lrSHA, lrMember: "lr member"}.installScript([]string{"no-such-drive-tool"}))
-	run.Env = append(os.Environ(), "HOME="+home)
+	run.Env = append(os.Environ(), "HOME="+home, "UV_OFFLINE=1")
 	var failure bytes.Buffer
 	run.Stderr = &failure
 	out, err := run.Output()
@@ -1832,7 +1849,7 @@ func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAg
 	f.sprite()
 	f.launched()
 	started := f.startCalls(prepared())
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:2], [][]string{driveCall("brook")}, started[2:], [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:3], [][]string{driveCall("brook")}, started[3:], [][]string{holdCall(workerWorkspace)})...)
 }
 
 func TestASpriteCodexLaneInADriveCarriesAPRRecordOfCCIRecords(t *testing.T) {
@@ -2137,6 +2154,88 @@ func TestTheNotesPullRunsThroughCcnSyncAndHandsGitTheTokenThroughACredentialHelp
 		if !strings.Contains(args, want) {
 			t.Fatalf("ccn ran with\n%s\nwant %q", args, want)
 		}
+	}
+}
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatal(string(out), err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestTheNotesPullSetsOriginHEADOnACloneThatLacksIt(t *testing.T) {
+	dir := t.TempDir()
+	origin, root := filepath.Join(dir, "origin.git"), filepath.Join(dir, "root")
+	gitOut(t, dir, "init", "--quiet", "--bare", "--initial-branch=dev", origin)
+	gitOut(t, dir, "clone", "--quiet", origin, root)
+	gitOut(t, root, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "--quiet", "--allow-empty", "-m", "first")
+	gitOut(t, root, "push", "--quiet", "origin", "dev")
+	gitOut(t, root, "remote", "set-head", "origin", "--delete")
+	f := newWorkerFixture(t)
+	f.write(filepath.Join(dir, "ccn"), "#!/bin/sh\n", 0o700)
+	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix)
+	run.Stdin = strings.NewReader(macGitLogin)
+	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+
+	if got := gitOut(t, root, "rev-parse", "--abbrev-ref", "origin/HEAD"); got != "origin/dev" {
+		t.Fatalf("origin/HEAD is %q", got)
+	}
+}
+
+func TestTheMacsNotesAndLedgersTravelAsOneBundleThatTheSpritesCheckoutFetches(t *testing.T) {
+	dir := t.TempDir()
+	mac, box, bundle := filepath.Join(dir, "mac"), filepath.Join(dir, "box"), filepath.Join(dir, notesBundle)
+	for _, repo := range []string{mac, box} {
+		gitOut(t, dir, "init", "--quiet", repo)
+	}
+	note := gitOut(t, mac, "-c", "user.name=a", "-c", "user.email=a@b", "commit-tree", gitOut(t, mac, "mktree"), "-m", "doc c3230a2")
+	refs := []string{notesPrefix + "docs/c3230a2", notesPrefix + "ledgers/5b91baca4e233792d0bb32a5c8a4008aba86c5d6"}
+	for _, ref := range refs {
+		gitOut(t, mac, "update-ref", ref, note)
+	}
+	stub := "#!/bin/sh\nwhile [ \"$1\" != -- ]; do case $1 in --file) cp \"${2%%:*}\" \"${2#*:}\"; shift ;; esac; shift; done\nshift\nexec \"$@\"\n"
+	f := newWorkerFixture(t)
+	f.write(filepath.Join(dir, "sprite"), stub, 0o700)
+	run := exec.Command("sh", "-c", seedNotes, "sh", mac, workerWorkspace, bundle, box)
+	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+
+	for _, ref := range refs {
+		if got := gitOut(t, box, "rev-parse", ref); got != note {
+			t.Fatalf("the Sprite holds %s at %q, want %s", ref, got, note)
+		}
+	}
+	for _, copied := range []string{bundle, "/tmp/" + notesBundle} {
+		if _, err := os.Stat(copied); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s stayed behind: %v", copied, err)
+		}
+	}
+}
+
+func TestTheRepositorysBeforeWorkerScriptRunsFromItsCheckoutAndACheckoutWithoutOneRunsNothing(t *testing.T) {
+	root := t.TempDir()
+	f := newWorkerFixture(t)
+	f.write(filepath.Join(root, repoSetup), "#!/bin/sh\npwd > ran\n", 0o700)
+	bare := t.TempDir()
+	for _, checkout := range []string{root, bare} {
+		if out, err := exec.Command("sh", "-c", runRepoSetup, "sh", checkout).CombinedOutput(); err != nil {
+			t.Fatal(checkout, string(out), err)
+		}
+	}
+
+	if got, err := os.ReadFile(filepath.Join(root, "ran")); err != nil || strings.TrimSpace(string(got)) != root {
+		t.Fatalf("the script ran from %q, %v", got, err)
+	}
+	if entries, _ := os.ReadDir(bare); len(entries) != 0 {
+		t.Fatalf("a checkout with no %s holds %d entries after the step", repoSetup, len(entries))
 	}
 }
 

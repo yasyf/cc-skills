@@ -188,6 +188,8 @@ else
   # Without CCI_HANDED_OFF_FROM, cci hands --version to the newest cci on the box, not the build the daemon runs.
   echo "installed cci-daemon $(CCI_HANDED_OFF_FROM=lr "/proc/$daemon/exe" --version)"
 fi
+step "install trash"
+[ -x "$bin/trash" ] || "$bin/uv" tool install --quiet trash-cli==0.24.5.26 || echo "warning: trash is not installed, so the rm guard's advice to use it fails here" >&2
 step "check the tools the brief runs"
 mkdir -p "$HOME/.config/mise/conf.d"
 printf '[settings]\ntrusted_config_paths = ["~"]\n' > "$HOME/.config/mise/conf.d/cc-remote-trust.toml"
