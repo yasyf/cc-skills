@@ -3,6 +3,7 @@ package orca
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,15 +104,29 @@ func TestABodyWithItsOwnSliceKeepsItAsTheOnlyOne(t *testing.T) {
 	}
 }
 
-func TestATopicWithASpaceIsRefusedBeforeTheLaunchPosts(t *testing.T) {
+func TestATopicWithASpaceIsWrittenAsOneHyphenatedTopic(t *testing.T) {
 	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote, Topics: []string{"iris sidebar", "agents"}}
 	text, err := n.text("item-90-fix-1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(text, "\nRegister slice: lane=item-90-fix-1 step=all topics=iris-sidebar,agents\n") || !parsedSlice.MatchString(text) {
+		t.Errorf("brief:\n%s", text)
+	}
+}
+
+func TestABodyWhoseSliceDoesNotParseLaunchesWarnedWithTheGeneratedLine(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "Register slice: lane=item-90-fix-1 step=all topics=iris sidebar\nFix go/ci/x.go.\n"), Scale: "small", Place: placeRemote}
+	text, err := n.text("item-90-fix-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	order := Order{Lane: "item-90-fix-1", Model: defaultLaneModel, Effort: defaultLaneEffort, Brief: "brief.md"}
-	if faults := strings.Join(order.launchFaults(text, true), "; "); !strings.Contains(faults, "rulings.py cannot read") {
-		t.Errorf("faults = %q for:\n%s", faults, text)
+	if faults := order.launchFaults(text, true); slices.ContainsFunc(faults, func(fault string) bool { return strings.Contains(fault, sliceLine) }) {
+		t.Errorf("the launch refuses an unreadable slice line: %v", faults)
+	}
+	if want := "item-90-fix-1 launches with `Register slice: lane=item-90-fix-1 step=all topics=item,fix paths=go/ci/x.go` written in its place"; !strings.Contains(order.sliceWarning(text), want) {
+		t.Errorf("warning = %q, want %q", order.sliceWarning(text), want)
 	}
 }
 
