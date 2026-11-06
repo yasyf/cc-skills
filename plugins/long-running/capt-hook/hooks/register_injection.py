@@ -49,13 +49,16 @@ FRESH = "fresh "
 UNREAD = (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
 NO_SLICE = (
     "Warning, nothing was blocked: this drive lane's brief has no `Register slice: lane=<name> step=<n>` line."
-    " Add one and run `~/.claude/long-running/current/bin/rulings.py slice --refresh {brief}`."
+    " Add one and run the command below.\n```\n~/.claude/long-running/current/bin/rulings.py slice --refresh {path}\n```"
 )
-STALE_SLICE = "Warning, nothing was blocked: this spawn's register slice is stale or empty. Run `~/.claude/long-running/current/bin/rulings.py slice --refresh {brief}` for the next spawn."
-MISSCALED = "Warning, nothing was blocked: a judge reads the `Scale:` line of {brief} as missing the N its paths run at. Fix the line for the next spawn."
+STALE_SLICE = (
+    "Warning, nothing was blocked: this spawn's register slice is stale or empty. Run the command below for the next spawn."
+    "\n```\n~/.claude/long-running/current/bin/rulings.py slice --refresh {path}\n```"
+)
+MISSCALED = "Warning, nothing was blocked: a judge reads the `Scale:` line of `{brief}` as missing the N its paths run at. Fix the line for the next spawn."
 MISSCALED_STALE = (
-    "Warning, nothing was blocked: a judge reads the `Scale:` line of {brief} as missing the N its paths run at, and its register slice is stale or empty."
-    " Fix the line and run `~/.claude/long-running/current/bin/rulings.py slice --refresh` on the brief for the next spawn."
+    "Warning, nothing was blocked: a judge reads the `Scale:` line of `{brief}` as missing the N its paths run at, and its register slice is stale or empty."
+    " Fix the line and run the command below for the next spawn.\n```\n~/.claude/long-running/current/bin/rulings.py slice --refresh {path}\n```"
 )
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
 DRIVE_LANE_ENV = "CLAUDE_LONG_RUNNING_LANE"
@@ -69,6 +72,7 @@ NO_403_STAND_DOWN = (
 ALERT_BRIEF = "Datadog monitor 100000001 fired on POST /api/sessions.\n1. Classify the failing requests.\n2. Fix it.\n"
 STANDS_DOWN = ALERT_BRIEF.replace("2. Fix it.", "2. If they are tenant-edge 403s, post STAND-DOWN and stop.\n3. Fix it.")
 BRIEFS = Path(__file__).parent / "tests" / "fixtures" / "briefs"
+DEEP_BRIEFS = BRIEFS / "a-worktree-root-deep-enough-that-any-message-carrying-this-brief-path-in-its-prose-runs-past-the-three-hundred-character-copy-bar-on-every-machine-and-every-checkout-of-this-repo"
 SLICE = f"{sys.executable} {script('rulings.py')} slice"
 FRESH_SLICE = {SLICE: "fresh /tmp/brief.md slice-hash 0123456789ab\n"}
 STALE = {SLICE: "refreshed /tmp/brief.md slice-hash 0123456789ab -> 89abcdef0123\n"}
@@ -116,6 +120,10 @@ class Spawn:
     @property
     def shown(self) -> str:
         return str(self.brief) if self.brief else "<brief>"
+
+    @property
+    def named(self) -> str:
+        return self.brief.name if self.brief else "<brief>"
 
     def owes_scale(self) -> bool:
         return lane_brief.owes_scale(self.lane, f"{self.prompt}\n{self.text}", None if self.inline else self.brief)
@@ -195,17 +203,17 @@ def judge_answer(verdict: dict) -> str:
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
         spawn("lane-a", UNSCALED, commands=FRESH_SLICE): Allow(),
-        spawn("lane-a", SLICED, commands=STALE): Warn(pattern=r"stale or empty\. Run `~/\.claude/long-running/current/bin/rulings\.py slice --refresh <brief>`"),
+        spawn("lane-a", SLICED, commands=STALE): Warn(pattern=r"stale or empty\. Run the command below for the next spawn\.\n```\n~/\.claude/long-running/current/bin/rulings\.py slice --refresh <brief>\n```"),
         spawn("lane-a", SLICED, scale=MISSED, commands=FRESH_SLICE): Warn(
-            pattern=r"^Warning, nothing was blocked: a judge reads the `Scale:` line of <brief> as missing the N[\s\S]*once per team"
+            pattern=r"^Warning, nothing was blocked: a judge reads the `Scale:` line of `<brief>` as missing the N[\s\S]*once per team"
         ),
         spawn("lane-a", SLICED, scale=MISSED, commands=FRESH_SLICE | {"claude -p": (1, "model unavailable")}): Allow(),
         spawn("lane-a", SLICED, scale=MISSED, commands=STALE): Warn(pattern=r"as missing the N its paths run at, and its register slice is stale or empty[\s\S]*once per team"),
         Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(MISSED)}): Warn(
-            pattern=r"sliced\.md as missing the N"
+            pattern=r"`sliced\.md` as missing the N"
         ),
         Input(command=f"lr launch start lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(MISSED)}): Warn(
-            pattern=r"sliced\.md as missing the N"
+            pattern=r"`sliced\.md` as missing the N"
         ),
         Input(command=f"lr launch lane lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(MISSED)}): Allow(),
         spawn("lane-a", f"Your brief is {BRIEFS / 'sliced.md'}; read it.", commands=FRESH_SLICE): Allow(),
@@ -226,6 +234,14 @@ def judge_answer(verdict: dict) -> str:
         Input(command=f"codex-ask -s /tmp/finder {BRIEFS / 'unsliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
         Input(command=f"codex-ask --dispatch --lane lane-a '{'inline brief ' * 40}'", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
         spawn("lane-a", f"Lane lane-a: read /{'x' * 300}.md. {SLICED}", commands=FRESH_SLICE): Allow(),
+        spawn("lane-a", f"Your brief is {DEEP_BRIEFS / 'unsliced.md'}; read it."): Warn(pattern=r"Add one and run the command below\.\n```\n\S+ slice --refresh \S+/unsliced\.md\n```"),
+        spawn("lane-a", f"Your brief is {DEEP_BRIEFS / 'sliced.md'}; read it.", commands=STALE): Warn(pattern=r"Run the command below for the next spawn\.\n```\n\S+ slice --refresh \S+/sliced\.md\n```"),
+        Input(command=f"orca-launch.sh lane-a sol xhigh {DEEP_BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(MISSED)}): Warn(
+            pattern=r"line of `sliced\.md` as missing the N its paths run at\. Fix the line for the next spawn\.\n~+\n"
+        ),
+        Input(command=f"orca-launch.sh lane-a sol xhigh {DEEP_BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=STALE | {"claude -p": judge_answer(MISSED)}): Warn(
+            pattern=r"line of `sliced\.md` as missing[\s\S]*--refresh \S+/sliced\.md\n```\n~+\nThe relay runs once per team"
+        ),
     }),
 )
 def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
@@ -239,7 +255,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not found:
         return None
     if not found.incident and not SLICE_HEADER.search(found.text):
-        return evt.context(NO_SLICE.format(brief=found.shown)) if once_per_hour(evt, [NO_SLICE]) else None
+        return evt.context(NO_SLICE.format(path=found.shown)) if once_per_hour(evt, [NO_SLICE]) else None
     try:
         said, fresh = refreshed(evt, which, found)
         if found.incident and not found.inline:
@@ -250,8 +266,8 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not found.incident:
         stale = not said.startswith(FRESH) and once_per_hour(evt, [STALE_SLICE])
         if judged_scale := misscaled(which, found):
-            return evt.context(f"{(MISSCALED_STALE if stale else MISSCALED).format(brief=found.shown)}\n{judged_scale}")
-        return evt.context(STALE_SLICE.format(brief=found.shown)) if stale else None
+            return evt.context(f"{(MISSCALED_STALE if stale else MISSCALED).format(brief=found.named, path=found.shown)}\n{judged_scale}")
+        return evt.context(STALE_SLICE.format(path=found.shown)) if stale else None
     return evt.rewrite(evt._tool_input | {"prompt": fresh}, note=INCIDENT_NOTE) if found.inline else None
 
 
@@ -260,7 +276,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Bound(), Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
     tests=separate("register_injection.warn_unscaled_spawn", {
-        spawn("lane-a", UNSCALED): Warn(pattern=r"^Warning, nothing was blocked: brief <brief> has no `Scale:` line; add one line to it: `Scale: no N`"),
+        spawn("lane-a", UNSCALED): Warn(pattern=r"^Warning, nothing was blocked: brief `<brief>` has no `Scale:` line; add one line to it: `Scale: no N`"),
         spawn("lane-a", SLICED): Allow(),
         spawn("lane-a-handoff", UNSCALED): Allow(),
         spawn("lane-a-2", UNSCALED): Allow(),
@@ -268,6 +284,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
         spawn("lane-a", "Lane lane-a: build the relay."): Allow(),
         spawn("incident-api-fix", "Fix the api outage."): Allow(),
         Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
+        spawn("lane-a", f"Your brief is {DEEP_BRIEFS / 'unscaled.md'}; read it."): Warn(pattern=r"^Warning, nothing was blocked: brief `unscaled\.md` has no `Scale:` line;"),
     }),
 )
 def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
@@ -279,7 +296,7 @@ def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
         return None
     if not found or found.incident or not SLICE_HEADER.search(found.text) or not found.owes_scale():
         return None
-    return evt.context(f"Warning, nothing was blocked: {lane_brief.no_scale(found.shown)}")
+    return evt.context(f"Warning, nothing was blocked: {lane_brief.no_scale(found.named)}")
 
 
 class SpawnedByABuildLane:
