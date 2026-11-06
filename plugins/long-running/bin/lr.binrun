@@ -4,51 +4,51 @@
   "name": "lr",
   "kind": "release-binary",
   "version": {
-    "static": "0.1156.1"
+    "static": "0.1158.1"
   },
   "platforms": {
     "macos-aarch64": {
-      "size": 13234865,
+      "size": 13240873,
       "hash": "sha256",
-      "digest": "c3ec70f1cb3e47ddac2e451b0bb174d09454331e8188dbd80a9d955d6968c773",
+      "digest": "ce0517473a89b9856bfa13fe38ac7185b9f0298d87dff25124e55f5f6522de61",
       "format": "tar.gz",
       "path": "lr",
       "providers": [
         {
           "type": "github-release",
           "repo": "yasyf/cc-skills",
-          "tag": "lr--v0.1156.1",
-          "name": "lr_0.1156.1_darwin_arm64.tar.gz"
+          "tag": "lr--v0.1158.1",
+          "name": "lr_0.1158.1_darwin_arm64.tar.gz"
         }
       ]
     },
     "linux-x86_64": {
-      "size": 14355344,
+      "size": 14363094,
       "hash": "sha256",
-      "digest": "b13dd94c5a5ed0d79f1d1f4c14dd1cc1d24cf3dea162b4d026d8c76d538293c6",
+      "digest": "c1851099046ff796b584e36bac9a3d020a9a21c268edaec284a15448438eb53d",
       "format": "tar.gz",
       "path": "lr",
       "providers": [
         {
           "type": "github-release",
           "repo": "yasyf/cc-skills",
-          "tag": "lr--v0.1156.1",
-          "name": "lr_0.1156.1_linux_amd64.tar.gz"
+          "tag": "lr--v0.1158.1",
+          "name": "lr_0.1158.1_linux_amd64.tar.gz"
         }
       ]
     },
     "linux-aarch64": {
-      "size": 13010680,
+      "size": 13018979,
       "hash": "sha256",
-      "digest": "a36e041e026240ff8e86c92a189eee4f34d6ff7827ece7bad51025e50bf3420f",
+      "digest": "3ecbb64a7e0a834c592286e2cd9946daa9d4316940b55b55b1eaab04890ae2bd",
       "format": "tar.gz",
       "path": "lr",
       "providers": [
         {
           "type": "github-release",
           "repo": "yasyf/cc-skills",
-          "tag": "lr--v0.1156.1",
-          "name": "lr_0.1156.1_linux_arm64.tar.gz"
+          "tag": "lr--v0.1158.1",
+          "name": "lr_0.1158.1_linux_arm64.tar.gz"
         }
       ]
     }
