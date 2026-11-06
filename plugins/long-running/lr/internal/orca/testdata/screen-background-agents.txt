@@ -1,0 +1,15 @@
+⏺ main
+  ◯ owner-paste-capture    Fix pasted prompts dropped from capture             i
+dle
+  ◯ notes-v5-review        Sol review of notes store PR                        i
+dle
+  ◯ desk-start-fix         Fix two desks that refuse to start                  i
+dle
+  ◯ 53 idle agents
+  ◯ notes-push-gap         Push the Mac's stranded notes                       2
+h                                                                              3
+9m                                                                             5
+s                                                                              4
+28.2k                                                                          t
+okens                                                                          8
+  ↓ 21 more

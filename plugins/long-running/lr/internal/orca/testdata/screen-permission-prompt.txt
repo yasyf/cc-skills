@@ -1,0 +1,15 @@
+│ Dangerous rm operation not ruled out — the shell may read this command differ
+ently                                                                          t
+han                                                                            i
+t                                                                              w
+as                                                                             p
+arsed
+ ⚠ Claude Code will automatically block this request in 1:59, to avoid holding u
+p                                                                              a
+n                                                                              u
+nattended                                                                      s
+ession                                                    24
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+ Esc to cancel · Tab to amend

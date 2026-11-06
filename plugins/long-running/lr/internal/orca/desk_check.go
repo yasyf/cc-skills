@@ -18,6 +18,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/screen"
 )
 
 const (
@@ -27,6 +28,7 @@ const (
 	kindBlocked         = "blocked"
 	workerStopped       = "Worker stopped"
 	finishedStop        = "Worker stopped without reporting"
+	promptStop          = "Worker is waiting on a prompt"
 	turnEndBlocker      = "turn-end:"
 	kindHandoff         = "handoff"
 	stopFact            = "worker-stop:"
@@ -324,6 +326,30 @@ func (d *Desk) relayQuestion(ctx context.Context, message orcaMessage, lane stri
 	}
 	if message.Type == typeEscalation && strings.HasPrefix(message.Subject, workerStopped) {
 		return d.relayStop(ctx, message, lane)
+	}
+	if message.Type == typeEscalation && message.Subject == promptStop {
+		return d.relayPrompt(ctx, message, lane)
+	}
+	return d.relayToDesk(ctx, message, lane, "DECIDE")
+}
+
+func (d *Desk) relayPrompt(ctx context.Context, message orcaMessage, lane string) error {
+	var payload struct {
+		Dispatch string `json:"dispatchId"`
+	}
+	_ = json.Unmarshal([]byte(message.Payload), &payload)
+	dispatch, err := d.show(ctx, lane, payload.Dispatch)
+	if err != nil {
+		return err
+	}
+	environment := ""
+	if dispatch != nil {
+		environment = dispatch.Environment
+	}
+	shown, read := d.readScreen(ctx, message.FromHandle, environment)
+	if _, open := screen.FindDialog(shown); read && shown.Source == "screen" && !open {
+		fmt.Fprintf(d.Stderr, "%s %s: Orca reads a prompt, the worker's screen shows none; nothing posted\n", message.ID, lane)
+		return nil
 	}
 	return d.relayToDesk(ctx, message, lane, "DECIDE")
 }
