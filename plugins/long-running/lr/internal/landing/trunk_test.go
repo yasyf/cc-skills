@@ -273,10 +273,10 @@ func TestEnqueueRunsAtTheTrunkTipInItsOwnWorktreeWhateverTheSharedCheckoutHolds(
 	origin, work, shared, ran := filepath.Join(root, "origin.git"), filepath.Join(root, "work"), filepath.Join(root, "shared"), filepath.Join(root, "ran")
 	git(t, root, "init", "-q", "--bare", origin)
 	git(t, root, "clone", "-q", origin, work)
-	if err := os.WriteFile(filepath.Join(work, "enqueue"), []byte("#!/bin/sh\n{ pwd -P; git rev-parse HEAD; cat tracked; } > '"+ran+"'\necho \"#$1 QUEUED\"\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(work, "enqueue"), []byte("#!/bin/sh\n{ pwd -P; git rev-parse HEAD; cat tracked; } > '"+ran+"'\necho \"#$1 QUEUED\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	git(t, work, "add", "enqueue")
+	git(t, work, "add", "--chmod=+x", "enqueue")
 	write(t, work, map[string]string{"tracked": "one\n"}, "base")
 	git(t, work, "push", "-q", "origin", "HEAD:dev")
 	git(t, root, "clone", "-q", origin, shared)
