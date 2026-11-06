@@ -236,7 +236,7 @@ type Desk struct {
 	swept       time.Time
 	deadlinedTo string
 	rosterAt    time.Time
-	settled     map[string]string
+	roster      map[string]bool
 	unreadSeen  map[string]unreadCheck
 	withdrawals map[int64]string
 	rulings     []ruling

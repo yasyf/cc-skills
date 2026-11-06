@@ -85,13 +85,9 @@ func (d *Desk) freeLane(ctx context.Context, busy store.Lane) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	workers, err := d.workers(ctx)
+	running, err := d.openDispatches(ctx)
 	if err != nil {
 		return "", err
-	}
-	running := make(map[string]bool, len(workers))
-	for _, worker := range workers {
-		running[worker.Dispatch] = !inactive(worker.Status)
 	}
 	slices.SortFunc(desired, func(a, b store.Lane) int { return b.Heard.Compare(a.Heard) })
 	for _, lane := range desired {

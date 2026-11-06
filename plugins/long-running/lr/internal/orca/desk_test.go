@@ -177,9 +177,19 @@ func (w *deskWorld) brief(lane, text string) string {
 }
 
 func (w *deskWorld) live(lane, dispatch, terminal string) {
-	w.write(filepath.Join(w.desk.Config.Receipts, lane+".json"), fmt.Sprintf(`{"result":{"dispatchId":%q}}`, dispatch))
+	w.write(filepath.Join(w.desk.Config.Receipts, lane+".json"), fmt.Sprintf(`{"result":{"taskId":%q,"dispatchId":%q}}`, taskOf(dispatch), dispatch))
 	w.write(filepath.Join(w.desk.Config.Receipts, lane+".terminal"), terminal+"\n")
 	w.dispatches[dispatch] = &fakeDispatch{status: "running", terminal: terminal, observation: "live"}
+}
+
+func (w *deskWorld) onSprite(lane, environment string) {
+	dispatch := w.desk.receipt(lane)
+	w.dispatches[dispatch].environment = environment
+	w.write(filepath.Join(w.desk.Config.Receipts, lane+".json"), fmt.Sprintf(`{"result":{"taskId":%q,"dispatchId":%q,"server":{"environmentId":%q}}}`, taskOf(dispatch), dispatch, environment))
+}
+
+func taskOf(dispatch string) string {
+	return "task_" + dispatch
 }
 
 func recordFrom(fields object) client.Record {
@@ -363,16 +373,21 @@ func (w *deskWorld) orchestrationReply(argv []string) (shell.Result, error) {
 			entry.observation = "gone"
 		}
 		return orcaOK(object{"state": "stopped"}), nil
-	case "worker-list":
-		rows := make([]object, 0, len(w.dispatches))
+	case "task-list":
+		tasks := []object{}
 		for id, entry := range w.dispatches {
-			host := object{"kind": "local", "id": "local"}
-			if entry.environment != "" {
-				host = object{"kind": "remote", "id": entry.environment}
+			if !inactive(entry.status) {
+				tasks = append(tasks, object{"id": taskOf(id), "status": statusDispatched, "dispatch_id": id})
 			}
-			rows = append(rows, object{"dispatchId": id, "dispatchStatus": entry.status, "agentTerminalHandle": entry.terminal, "projection": object{"host": host}})
 		}
-		return orcaOK(object{"workers": rows}), nil
+		return orcaOK(object{"tasks": tasks}), nil
+	case "dispatch-show":
+		dispatch := strings.TrimPrefix(flag(argv, "--task"), "task_")
+		entry := w.dispatches[dispatch]
+		if entry == nil {
+			return orcaRefused(argv, object{"code": "selector_not_found", "message": "no task"})
+		}
+		return orcaOK(object{"dispatch": object{"id": dispatch, "task_id": taskOf(dispatch), "status": entry.status}}), nil
 	case "check":
 		return w.checkReply(argv)
 	case "inbox":
@@ -4517,7 +4532,7 @@ func (w *deskWorld) typed() [][]string {
 func TestARelayToASpriteLaneIsARecordAddressedToItAndWakesItsTerminalOnThatSprite(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
-	w.dispatches[testDispatch].environment = "env_sprite"
+	w.onSprite(testLane, "env_sprite")
 	w.sentRelay("R2", "")
 	if sent := w.orcaCalls("orchestration send"); len(sent) != 0 {
 		t.Fatal(sent)
@@ -4540,7 +4555,7 @@ func TestARootAnswerToASpriteLanesOrcaQuestionWakesItWithTheWholeAnswer(t *testi
 	const lane, question = "dev-red-5a02b5902d-fix", "relay_bf1e44052963"
 	w := newDeskWorld(t)
 	w.live(lane, testDispatch, testTerminal)
-	w.dispatches[testDispatch].environment = "env_sprite"
+	w.onSprite(lane, "env_sprite")
 	decide := w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE " + question + " " + lane + ": Question: Please paste the full bodies of finder review534012 and root answers534250/534495 directly into this Orca terminal reply"})
 	w.lines()
 	whole := "Answer for " + lane + " (" + question + "), full bodies below.\n===== cci 534012\nfinder: major 957991839eec " + strings.Repeat("the fixture names its database set held; ", 12) + "\n===== cci 534495\nfinder-desk owes that repost."
@@ -4561,7 +4576,7 @@ func TestARootAnswerToASpriteLanesOrcaQuestionWakesItWithTheWholeAnswer(t *testi
 func TestAHandPathWakeOverTheSendLimitIsCutAndKeepsItsSeq(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
-	w.dispatches[testDispatch].environment = "env_sprite"
+	w.onSprite(testLane, "env_sprite")
 	if _, _, err := w.desk.acceptRelay("cci#9", testLane, relayTarget{Text: strings.Repeat("é", typedLimit), ReplyTo: "relay_q", Record: "#9 answer from root"}, 10); err != nil {
 		t.Fatal(err)
 	}
@@ -4792,7 +4807,9 @@ func TestAStaleRosterDoesNotCloseAWorkerThatResumed(t *testing.T) {
 	w.live(testLane, testDispatch, testTerminal)
 	w.sentRelay("R2", "")
 	w.now = w.now.Add(11 * time.Minute)
-	w.desk.settled, w.desk.rosterAt = map[string]string{testDispatch: statusCompleted}, w.now
+	w.desk.roster, w.desk.rosterAt = map[string]bool{}, w.now
+	w.desk.startPass()
+	w.desk.reads.statuses[testDispatch] = statusCompleted
 	w.step(w.desk.deadlines)
 	w.noEscalation("RELAY-CLOSED ")
 	if status := w.relayStatus("R2"); status != incident.ActionAccepted {

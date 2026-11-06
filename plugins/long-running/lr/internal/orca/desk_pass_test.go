@@ -3,6 +3,7 @@ package orca
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -50,18 +51,61 @@ func TestRootRepliesToManyLanesCostTheLineReadNoMoreOrcaCallsThanOne(t *testing.
 	}
 }
 
-func TestOnePassSharesOneWorkerListAcrossTheSweepAndTheDeadlines(t *testing.T) {
+func TestOnePassSharesOneOpenDispatchReadAcrossTheSweepAndTheDeadlines(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	w.dispatches[testDispatch].status = statusCompleted
 	w.desk.startPass()
 	w.step(w.desk.sweep)
-	w.desk.settled = nil
-	if _, err := w.desk.settledStatus(context.Background(), testDispatch); err != nil {
-		t.Fatal(err)
+	if status, err := w.desk.settledStatus(context.Background(), testLane, testDispatch); err != nil || status != statusCompleted {
+		t.Fatal(status, err)
 	}
-	if lists := w.orcaCalls("orchestration worker-list"); len(lists) != 1 {
-		t.Fatalf("one pass listed the workers %d times", len(lists))
+	if lists := w.orcaCalls("orchestration task-list"); len(lists) != 1 {
+		t.Fatalf("one pass read the open dispatches %d times", len(lists))
+	}
+	if shows := w.orcaCalls("orchestration dispatch-show"); len(shows) != 1 {
+		t.Fatalf("one pass confirmed the settled dispatch %d times", len(shows))
+	}
+}
+
+func (w *deskWorld) retain(dispatches int) {
+	w.t.Helper()
+	if err := w.desk.store.Edit(deskRunner, func(tx *incident.Tx) error {
+		for i := range dispatches {
+			lane, dispatch := fmt.Sprintf("old-%d", i), fmt.Sprintf("ctx_old%d", i)
+			w.write(filepath.Join(w.desk.Config.Receipts, lane+".json"), fmt.Sprintf(`{"result":{"taskId":%q,"dispatchId":%q}}`, taskOf(dispatch), dispatch))
+			w.write(filepath.Join(w.desk.Config.Receipts, lane+".terminal"), fmt.Sprintf("term_old%d\n", i))
+			w.dispatches[dispatch] = &fakeDispatch{status: statusCompleted, terminal: fmt.Sprintf("term_old%d", i), observation: "gone"}
+			if _, _, err := tx.AcceptDue("reclaim:"+dispatch, kindReclaim, fmt.Sprintf("term_old%d", i), lane, w.now, zeroTime); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func TestASweepAndARelayingPassCostTheSameOrcaCallsAtAnyRunHistory(t *testing.T) {
+	costs := func(retained int) (int, int) {
+		w := newDeskWorld(t)
+		w.retain(retained)
+		w.live(testLane, testDispatch, testTerminal)
+		w.live("lane-done", "ctx_done", "term_done")
+		w.dispatches["ctx_done"].status = statusCompleted
+		w.desk.startPass()
+		w.calls = nil
+		w.step(w.desk.sweep)
+		swept := w.orcaCount()
+		w.wantEscalation("RECLAIM reclaim:ctx_done runner")
+		w.desk.startPass()
+		w.calls = nil
+		w.sentRelay("R2", "")
+		return swept, w.orcaCount()
+	}
+	sweep, relay := costs(2000)
+	if manySweep, manyRelay := costs(20000); sweep != manySweep || relay != manyRelay {
+		t.Fatalf("a sweep made %d Orca calls at 2,000 retained dispatches and %d at 20,000; a relaying pass made %d and %d", sweep, manySweep, relay, manyRelay)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	statusDispatched = "dispatched"
 	statusCompleted  = "completed"
 	statusFailed     = "failed"
 	stateReleased    = "released"

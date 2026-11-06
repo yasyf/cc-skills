@@ -98,20 +98,32 @@ func (d *Desk) receiptPath(lane, suffix string) string {
 	return filepath.Join(d.Config.Receipts, lane+suffix)
 }
 
-func (d *Desk) receipt(lane string) string {
+type laneReceipt struct {
+	Task, Dispatch, Environment string
+}
+
+func (d *Desk) receiptOf(lane string) laneReceipt {
 	raw, err := os.ReadFile(d.receiptPath(lane, ".json"))
 	if err != nil {
-		return ""
+		return laneReceipt{}
 	}
 	var reply struct {
 		Result struct {
+			Task     string `json:"taskId"`
 			Dispatch string `json:"dispatchId"`
+			Server   struct {
+				Environment string `json:"environmentId"`
+			} `json:"server"`
 		} `json:"result"`
 	}
 	if json.Unmarshal(raw, &reply) != nil {
-		return ""
+		return laneReceipt{}
 	}
-	return reply.Result.Dispatch
+	return laneReceipt{Task: reply.Result.Task, Dispatch: reply.Result.Dispatch, Environment: reply.Result.Server.Environment}
+}
+
+func (d *Desk) receipt(lane string) string {
+	return d.receiptOf(lane).Dispatch
 }
 
 func (d *Desk) terminal(lane string) string {
@@ -388,79 +400,89 @@ func (d *Desk) wake(ctx context.Context, terminal, environment, text string) (bo
 	return true, nil
 }
 
-type deskWorker struct {
-	Dispatch   string `json:"dispatchId"`
-	Status     string `json:"dispatchStatus"`
-	Terminal   string `json:"agentTerminalHandle"`
-	Projection struct {
-		Host *struct {
-			Kind string `json:"kind"`
-			ID   string `json:"id"`
-		} `json:"host"`
-	} `json:"projection"`
-}
-
-func (d *Desk) workers(ctx context.Context) ([]deskWorker, error) {
-	return d.listWorkers(ctx, "")
-}
-
 func (d *Desk) listed(ctx context.Context, lane string) (*laneDispatch, error) {
-	dispatch := d.receipt(lane)
-	if dispatch == "" {
+	receipt := d.receiptOf(lane)
+	if receipt.Dispatch == "" {
 		return nil, nil
 	}
-	rows, err := d.listWorkers(ctx, dispatch)
+	open, err := d.openDispatches(ctx)
 	if err != nil {
 		return nil, err
 	}
-	at := slices.IndexFunc(rows, func(row deskWorker) bool { return row.Dispatch == dispatch })
-	if at < 0 {
-		return nil, nil
+	status := statusDispatched
+	if !open[receipt.Dispatch] {
+		if status, err = d.dispatchStatus(ctx, receipt); err != nil || status == "" {
+			return nil, err
+		}
 	}
-	row := rows[at]
-	found := &laneDispatch{Lane: lane, ID: dispatch, Terminal: or(row.Terminal, d.terminal(lane)), Status: row.Status}
-	if host := row.Projection.Host; host != nil && host.Kind == "remote" {
-		found.Environment = host.ID
-	}
-	return found, nil
+	return &laneDispatch{Lane: lane, ID: receipt.Dispatch, Terminal: d.terminal(lane), Status: status, Environment: receipt.Environment}, nil
 }
 
-func (d *Desk) listWorkers(ctx context.Context, until string) ([]deskWorker, error) {
-	d.reads.paging.Lock()
-	defer d.reads.paging.Unlock()
+func (d *Desk) openDispatches(ctx context.Context) (map[string]bool, error) {
+	d.reads.listing.Lock()
+	defer d.reads.listing.Unlock()
 	d.reads.mu.Lock()
-	rows, cursor, done := d.reads.workers, d.reads.cursor, d.reads.listed
+	kept := d.reads.open
 	d.reads.mu.Unlock()
-	for !done && (until == "" || !slices.ContainsFunc(rows, func(row deskWorker) bool { return row.Dispatch == until })) {
-		args := []string{orchestration, "worker-list", "--run", d.Config.Run, "--include-remote", "--limit", "100"}
-		if cursor != "" {
-			args = append(args, "--cursor", cursor)
-		}
-		reply, err := d.ask(ctx, args...)
-		if err != nil {
-			return nil, err
-		}
-		var page struct {
-			Workers []deskWorker `json:"workers"`
-			Page    *struct {
-				Next string `json:"nextCursor"`
-			} `json:"page"`
-		}
-		if err := reply.Into(&page); err != nil {
-			return nil, err
-		}
-		rows = append(slices.Clip(rows), page.Workers...)
-		cursor, done = "", true
-		if page.Page != nil && page.Page.Next != "" {
-			cursor, done = page.Page.Next, false
-		}
-		d.reads.mu.Lock()
-		if d.reads.passing {
-			d.reads.workers, d.reads.cursor, d.reads.listed = rows, cursor, done
-		}
-		d.reads.mu.Unlock()
+	if kept != nil {
+		return kept, nil
 	}
-	return rows, nil
+	reply, err := d.ask(ctx, orchestration, "task-list", "--run", d.Config.Run, "--status", statusDispatched)
+	if err != nil {
+		return nil, err
+	}
+	var listed struct {
+		Tasks []struct {
+			Dispatch string `json:"dispatch_id"`
+		} `json:"tasks"`
+	}
+	if err := reply.Into(&listed); err != nil {
+		return nil, err
+	}
+	open := make(map[string]bool, len(listed.Tasks))
+	for _, task := range listed.Tasks {
+		open[task.Dispatch] = true
+	}
+	d.reads.mu.Lock()
+	if d.reads.passing {
+		d.reads.open = open
+	}
+	d.reads.mu.Unlock()
+	return open, nil
+}
+
+func (d *Desk) dispatchStatus(ctx context.Context, receipt laneReceipt) (string, error) {
+	d.reads.mu.Lock()
+	kept, found := d.reads.statuses[receipt.Dispatch]
+	d.reads.mu.Unlock()
+	if found {
+		return kept, nil
+	}
+	reply, err := d.ask(ctx, orchestration, "dispatch-show", "--task", receipt.Task)
+	if err != nil {
+		return "", err
+	}
+	var shown struct {
+		Dispatch struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"dispatch"`
+	}
+	if reply.OK {
+		if err := reply.Into(&shown); err != nil {
+			return "", err
+		}
+	}
+	status := ""
+	if shown.Dispatch.ID == receipt.Dispatch {
+		status = shown.Dispatch.Status
+	}
+	d.reads.mu.Lock()
+	defer d.reads.mu.Unlock()
+	if d.reads.passing {
+		d.reads.statuses[receipt.Dispatch] = status
+	}
+	return status, nil
 }
 
 type bindingState struct {
