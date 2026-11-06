@@ -114,7 +114,7 @@ func (w Waker) Unheard(ctx context.Context, u SlackUnheard) error {
 		said = "wrote: " + u.Label
 	}
 	owner, err := w.Post(ctx, client.Draft{
-		Drive: w.Cards.Bus, Lane: w.Lane, Kind: ownerKind, ID: u.Key, Topic: u.Card, Force: true,
+		Drive: w.Cards.Bus, Lane: w.Lane, Kind: ownerKind, ID: u.Key, Topic: u.Card, Force: true, Attrs: map[string]string{lanes.CardAttr: u.Card},
 		Text: fmt.Sprintf("Owner tap on %s, %q: %s. The session that posted the card has ended. %s", u.Card, u.Question, said, u.Permalink),
 	})
 	if err != nil {

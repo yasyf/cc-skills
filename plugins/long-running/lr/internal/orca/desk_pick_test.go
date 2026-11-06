@@ -27,6 +27,11 @@ func TestAStopWhileHisPickIsOpenRestsWithoutADecide(t *testing.T) {
 		"a wait naming his card": func(w *deskWorld) (int64, string) {
 			return w.parkedOnPick(testLane), kindBlocker
 		},
+		"an owner record that only names his card": func(w *deskWorld) (int64, string) {
+			seq := w.parkedOnPick(testLane)
+			w.add(object{"lane": lanes.OwnerRelay, "kind": kindOwnerPick, "to": []string{coordinatorLane}, "text": "Owner asked to see the open picks. My reading: " + pickCard + " and two others are drawn as cards."})
+			return seq, kindBlocker
+		},
 		"an ask the communicator carded": func(w *deskWorld) (int64, string) {
 			ask := w.add(object{"lane": testLane, "kind": kindAsk, "status": recordOpen, "to": []string{lanes.OwnerRelay}, "text": "Fix forward or roll the cloud runner back on SoFi's tenant?"})
 			w.add(object{"lane": lanes.OwnerRelay, "kind": "note", "re": ask.Seq, "to": []string{testLane}, "text": pickCard + " now carries your question"})
@@ -50,7 +55,7 @@ func TestAStopWhileHisPickIsOpenRestsWithoutADecide(t *testing.T) {
 func TestAStopAfterHisPickIsAnsweredOrWithNoOpenWaitStillDecides(t *testing.T) {
 	for name, after := range map[string]func(w *deskWorld, blocker int64){
 		"answered": func(w *deskWorld, _ int64) {
-			w.add(object{"lane": "board-watch", "kind": kindOwnerPick, "to": []string{"all"}, "text": pickedText})
+			w.add(object{"lane": "board-watch", "kind": kindOwnerPick, "to": []string{"all"}, "text": pickedText, "fields": object{"attrs": object{lanes.CardAttr: pickCard}}})
 		},
 		"closed": func(w *deskWorld, blocker int64) {
 			w.records[blocker-1].Status = "closed"
