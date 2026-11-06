@@ -51,7 +51,7 @@ const (
 	beforeWorker      = "before-worker.sh"
 	notesPrefix       = "refs/cc-notes/"
 	notesReceipt      = "notes.log"
-	repoSetup         = "tools/cc-remote/before-worker.sh"
+	setupEnv          = "WORKER_SETUP"
 	setupReceipt      = "repo-setup.log"
 	driveReceipt      = "drive-entry.log"
 	configReceipt     = "drive-config.log"
@@ -61,7 +61,7 @@ const (
 	claudeFastMode    = `settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json && mkdir -p "${settings%/*}" && { [ -s "$settings" ] || echo '{}' > "$settings"; } && jq '.fastMode = true' "$settings" > "$settings.new" && mv "$settings.new" "$settings"` + "\n"
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
 	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && { git remote set-head origin --auto; ccn sync --prefix "$2docs/"; git fetch --quiet origin "$2*:$2*" "^$2docs/*"; sprite-env services create notes-reindex --cmd sh --args "-c,cd $1 && $HOME/.local/bin/ccn reindex; sprite-env services delete notes-reindex" --no-stream; }`
-	runRepoSetup      = `cd "$1" && if [ -x ` + repoSetup + ` ]; then exec ./` + repoSetup + `; fi`
+	runSetup          = `cd "$1" && exec sh -c "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" "$config/scratch/$2" && touch "$config/scratch/$2/` + lanes.StoreFile + drive.OnMac + `" "$config/scratch/$2/runner.json` + drive.OnMac + `" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
 	writeDriveConfig  = `umask 077; state=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scratch/$1 && mkdir -p "$state" && cat > "$state/lr.json.new" && mv "$state/lr.json.new" "$state/lr.json"`
@@ -100,7 +100,7 @@ type workerLaunch struct {
 	lane, effort, brief, run, ref, expect, tier   string
 	fastMode, incident                            bool
 	modelID, kind, route, dir, stem, attempt, sha string
-	checkout, ccRemote, config                    string
+	checkout, ccRemote, config, setup             string
 	pins                                          spritePins
 	terminal, worktree                            string
 	bytes                                         int
@@ -334,6 +334,7 @@ func (w *workerLaunch) checkSprite() error {
 	if w.pins, err = readPins(w.Env); err != nil {
 		return err
 	}
+	w.setup = w.Env(setupEnv)
 	tools := filepath.Join(w.checkout, "tools", "cc-remote")
 	if w.ccRemote = w.Env("WORKER_CC_REMOTE"); w.ccRemote == "" {
 		w.ccRemote = filepath.Join(tools, "bin", "cc-remote")
@@ -786,11 +787,15 @@ func (w *workerLaunch) fetchNotes(workspace string) error {
 }
 
 func (w *workerLaunch) setUpRepo(workspace string) error {
-	ran, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", runRepoSetup, "sh", w.worktree}})
+	if w.setup == "" {
+		return nil
+	}
+	w.stages.say(w.ctx, "running orca.sprite.setup on "+workspace)
+	ran, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", runSetup, "sh", w.worktree, w.setup}})
 	said := ran.Stdout + ran.Stderr
 	if err != nil {
 		said += err.Error() + "\n"
-		fmt.Fprintf(w.Stderr, "warning: %s failed on Sprite %s, so lane %s starts without what it installs; %s keeps the output\n", repoSetup, workspace, w.lane, filepath.Join(w.attempt, setupReceipt))
+		fmt.Fprintf(w.Stderr, "warning: orca.sprite.setup failed on Sprite %s, so lane %s starts without what it installs; %s keeps the output\n", workspace, w.lane, filepath.Join(w.attempt, setupReceipt))
 	}
 	return w.receipt(setupReceipt, said)
 }
@@ -991,7 +996,6 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	environment, _ := textOf(task["environment"])
 	worktreeID, _ := textOf(task["worktreeId"])
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s", w.lane, path, w.sha, w.bytes, spritePreamble, spriteBuildkite, desk, noPR, read)
-	w.stages.say(w.ctx, "running "+repoSetup+" on "+workspace)
 	if err := w.setUpRepo(workspace); err != nil {
 		return "", err
 	}
