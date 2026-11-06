@@ -10,6 +10,7 @@
 #   QUEUED   <actor> <label|comment-id>
 #   UNQUEUED <actor>
 #   GREEN    awaiting-review
+#   RATELIMIT waiting <n>s for GitHub to reset
 #   DONE     ready-to-merge | merged | queue-merged | closed | checks-failed |
 #            conflicted | deadline-still-open | window-elapsed
 #   DONE     ready-to-merge downstack #<n>
@@ -69,6 +70,7 @@ EMPTY_PASSES_BEFORE_GREEN=3
 MERGEABLE_FALSE_READS=2
 INTERVAL_MIN=120
 INTERVAL_FLOOR_PER_PR=10
+RATE_LIMIT_WAIT=60
 QUEUE_LABEL="${PR_POLL_QUEUE_LABEL:-merge}"
 QUEUE_PROVIDER="${PR_POLL_QUEUE_PROVIDER:-}"
 DEADLINE="${PR_POLL_DEADLINE:-14400}"
@@ -170,6 +172,12 @@ usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
   (default 1). PR_POLL_QUEUE_LABEL names the merge-queue label (default
   merge).
 
+  Every read is conditional: the ETag of each response is kept beside the
+  state file and sent back as If-None-Match, and GitHub does not count a 304
+  against the hourly budget, so a pass over an idle PR spends almost none.
+  On a GitHub rate limit the poller prints one RATELIMIT line, sleeps until
+  the core limit resets (a minute for a secondary limit), and resumes.
+
   A green check list is ready only once every GitHub Actions check suite on
   the head has completed: a workflow run registers its suite before its
   jobs, so a partial list can read green while a run is still queued.
@@ -194,7 +202,70 @@ for dep in ccx jq; do
   }
 done
 
-gh() { CCX_CALLER=pr-poll ccx vcs gh -- "$@"; }
+wait_out_rate_limit() {
+  local core remaining="" reset="" now until
+  core=$(CCX_CALLER=pr-poll ccx vcs gh -- api rate_limit --jq '.resources.core | "\(.remaining) \(.reset)"' 2>/dev/null) || core=""
+  read -r remaining reset <<<"$core" || true
+  now=$(date +%s)
+  until=$((now + RATE_LIMIT_WAIT))
+  if [ "$remaining" = 0 ] && [[ $reset =~ ^[0-9]+$ ]] && [ "$reset" -gt "$now" ]; then
+    until=$((reset + 2))
+  fi
+  printf 'RATELIMIT waiting %ss for GitHub to reset\n' "$((until - now))" >&8
+  sleep "$((until - now))"
+}
+
+gh() {
+  local out err rc
+  out=$(mktemp)
+  err=$(mktemp)
+  while :; do
+    CCX_CALLER=pr-poll ccx vcs gh -- "$@" >"$out" 2>"$err" && rc=0 || rc=$?
+    if [ "$rc" -ne 0 ] && grep -qiE 'rate limit exceeded|secondary rate limit' "$out" "$err"; then
+      wait_out_rate_limit
+      continue
+    fi
+    cat "$out"
+    cat "$err" >&2
+    rm -f "$out" "$err"
+    return "$rc"
+  done
+}
+
+get() {
+  local url=$1 filter=${2:-.} key etag out status next
+  local -a cond
+  out=$(mktemp)
+  while [ -n "$url" ]; do
+    key=$(printf '%s' "$url" | cksum | cut -d' ' -f1)
+    etag=$(cat "$ETAG_DIR/$key.etag" 2>/dev/null || true)
+    cond=()
+    [ -z "$etag" ] || cond=(-H "If-None-Match: $etag")
+    gh api "$url" -i ${cond[@]+"${cond[@]}"} >"$out" 2>/dev/null || true
+    status=$(awk 'NR == 1 { print $2 }' "$out")
+    case $status in
+    200)
+      awk 'seen { print } /^\r?$/ { seen = 1 }' "$out" >"$ETAG_DIR/$key.body"
+      etag=$(awk '/^\r?$/ { exit } tolower($1) == "etag:" { print $2; exit }' "$out" | tr -d '\r')
+      next=$(awk '/^\r?$/ { exit } tolower($1) == "link:" { print; exit }' "$out" |
+        sed -n 's/.*<\([^>]*\)>; rel="next".*/\1/p')
+      printf '%s' "$next" >"$ETAG_DIR/$key.next"
+      if [ -n "$etag" ]; then printf '%s' "$etag" >"$ETAG_DIR/$key.etag"; else rm -f "$ETAG_DIR/$key.etag"; fi
+      ;;
+    304) next=$(cat "$ETAG_DIR/$key.next") ;;
+    *)
+      rm -f "$out"
+      return 1
+      ;;
+    esac
+    jq -rc "$filter" "$ETAG_DIR/$key.body" || {
+      rm -f "$out"
+      return 1
+    }
+    url=${next#https://api.github.com/}
+  done
+  rm -f "$out"
+}
 
 [ $# -eq 3 ] || usage
 REPO=$1
@@ -228,6 +299,10 @@ INTERVAL="${PR_POLL_INTERVAL:-$INTERVAL_MIN}"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p "$(dirname "$STATE_FILE")"
 
+ETAG_DIR="$STATE_FILE.etags"
+
+exec 8>&1
+
 exec 9>>"$STATE_FILE.lock"
 if command -v flock >/dev/null 2>&1; then
   flock -n 9 && locked=0 || locked=$?
@@ -243,6 +318,9 @@ case $locked in
   ;;
 *) exit 1 ;;
 esac
+
+rm -rf "$ETAG_DIR"
+mkdir -p "$ETAG_DIR"
 
 STATE='{}'
 empty_passes=0
@@ -356,9 +434,8 @@ eviction_reason() {
 
 actions_completed() {
   local open
-  open=$(gh api --paginate "repos/$REPO/commits/$1/check-suites?per_page=100" \
-    --jq '[.check_suites[] | select(.app.slug == "github-actions" and .status != "completed")] | length' \
-    2>/dev/null) || return 1
+  open=$(get "repos/$REPO/commits/$1/check-suites?per_page=100" \
+    '[.check_suites[] | select(.app.slug == "github-actions" and .status != "completed")] | length') || return 1
   [ "$(jq -s 'add // 0' <<<"$open")" = 0 ]
 }
 
@@ -386,9 +463,8 @@ poll() {
   local last_event last_bot last_actor stint committed
   local evicted="" conflicted=0 settled n_checks verdict closed_as authoritative="" authoritative_queue=""
 
-  view=$(gh api "repos/$REPO/pulls/$PR" \
-    --jq '{state, merged, head: .head.sha, base: .base.ref, default_branch: .base.repo.default_branch, mergeable, mergeable_state, labels: [.labels[].name]}' \
-    2>/dev/null) || return 0
+  view=$(get "repos/$REPO/pulls/$PR" \
+    '{state, merged, head: .head.sha, base: .base.ref, default_branch: .base.repo.default_branch, mergeable, mergeable_state, labels: [.labels[].name]}') || return 0
   jq -e . >/dev/null 2>&1 <<<"$view" || return 0
   head=$(jq -r '.head // ""' <<<"$view")
   [ -n "$head" ] || return 0
@@ -402,8 +478,8 @@ poll() {
 
   checks=$(
     {
-      gh api --paginate "repos/$REPO/commits/$head/check-runs?per_page=100" --jq "$CHECK_RUNS" | jq -cs "$LATEST_RUNS" &&
-        gh api --paginate "repos/$REPO/commits/$head/status?per_page=100" --jq "$STATUSES"
+      get "repos/$REPO/commits/$head/check-runs?per_page=100" "$CHECK_RUNS" | jq -cs "$LATEST_RUNS" &&
+        get "repos/$REPO/commits/$head/status?per_page=100" "$STATUSES"
     } 2>/dev/null | jq -cs .
   ) || checks_ok=0
   [ "$checks_ok" = 1 ] || checks='[]'
@@ -425,8 +501,8 @@ poll() {
   fi
 
   if [ "$base" != "$default_branch" ]; then
-    stacked_on=$(gh api "repos/$REPO/pulls?state=open&head=$(jq -rn --arg h "${REPO%%/*}:$base" '$h | @uri')" \
-      --jq '.[0].number // empty' 2>/dev/null) || return 0
+    stacked_on=$(get "repos/$REPO/pulls?state=open&head=$(jq -rn --arg h "${REPO%%/*}:$base" '$h | @uri')" \
+      '.[0].number // empty') || return 0
   fi
   if [ -n "$stacked_on" ] && jq -e 'any(.[]; .graphite_mergeability == true and .bucket == "pending")' <<<"$checks" >/dev/null; then
     downstack=$stacked_on
@@ -435,17 +511,16 @@ poll() {
   if native_queue; then
     events='[]'
   else
-    events=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" --jq "$LABEL_EVENTS" \
-      2>/dev/null | jq -cs .) || return 0
+    events=$(get "repos/$REPO/issues/$PR/events?per_page=100" "$LABEL_EVENTS" | jq -cs .) || return 0
   fi
 
   load_state
 
   wm_c=$(state '.watermarks.comments')
-  comments=$(gh api --paginate "repos/$REPO/issues/$PR/comments?since=$wm_c" \
-    --jq '.[] | { id, author: .user.login, at: .created_at, body }' 2>/dev/null) || return 0
-  comments+=$'\n'$(gh api --paginate "repos/$REPO/pulls/$PR/comments?since=$wm_c" \
-    --jq '.[] | { id, author: .user.login, at: .created_at, body }' 2>/dev/null || true)
+  comments=$(get "repos/$REPO/issues/$PR/comments?per_page=100&since=$wm_c" \
+    '.[] | { id, author: .user.login, at: .created_at, body }') || return 0
+  comments+=$'\n'$(get "repos/$REPO/pulls/$PR/comments?per_page=100&since=$wm_c" \
+    '.[] | { id, author: .user.login, at: .created_at, body }' || true)
 
   queue=$(jq -c --argjson since "$(jq -c '.watermarks.events' <<<"$STATE")" --arg label "$QUEUE_LABEL" \
     "$QUEUE_EVENTS" <<<"$events")
@@ -455,8 +530,8 @@ poll() {
   stint=$(jq -r '.stint' <<<"$queue")
 
   if ! native_queue && { [ "$FRESH" = 1 ] || [ "$(state '.queue.queued == null')" = true ]; }; then
-    if history=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-      --jq '.[] | select((.body // "") | test("Merge activity")) | { id, at: .created_at, body }' 2>/dev/null |
+    if history=$(get "repos/$REPO/issues/$PR/comments?per_page=100" \
+      '.[] | select((.body // "") | test("Merge activity")) | { id, at: .created_at, body }' |
       jq -cs .); then
       if [ "$FRESH" = 1 ]; then
         STATE=$(jq -c --argjson h "$history" \
@@ -480,7 +555,7 @@ poll() {
       | if .queue.evicted != null then .queue.evicted = null | .queue.head = null else . end' <<<"$STATE")
   fi
   if [ "$(state '.head_committed_at == null')" = true ] &&
-    committed=$(gh api "repos/$REPO/commits/$head" --jq '.commit.committer.date' 2>/dev/null); then
+    committed=$(get "repos/$REPO/commits/$head" '.commit.committer.date'); then
     STATE=$(jq -c --arg c "$committed" '.head_committed_at = $c' <<<"$STATE")
   fi
 
@@ -496,8 +571,8 @@ poll() {
   fi
 
   wm_r=$(state '.watermarks.reviews')
-  items=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
-    --jq '.[] | select(.submitted_at != null) | { id, author: .user.login, state, at: .submitted_at }' 2>/dev/null) ||
+  items=$(get "repos/$REPO/pulls/$PR/reviews?per_page=100" \
+    '.[] | select(.submitted_at != null) | { id, author: .user.login, state, at: .submitted_at }') ||
     reviews_ok=0
   emit "$(jq -rs --arg wm "$wm_r" '
     map(select(.at > $wm)) | sort_by(.at) | .[] | "REVIEW \(.author) \(.state) \(.id)"

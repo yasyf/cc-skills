@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import subprocess
+import time
 
 import pytest
 from conftest import (
@@ -228,6 +229,28 @@ def test_poll_uses_rest_only(poll):
     run = poll(queued, surface(pull(), events=[labeled(1), unlabeled(2)]))
     assert run.gh_calls
     assert all(call.startswith("api ") and "graphql" not in call for call in run.gh_calls)
+
+
+def test_a_repeat_read_of_an_unchanged_page_goes_out_conditional(poll):
+    queued = surface(pull(labels=("merge",)), events=[labeled(1)])
+    run = poll(queued, queued, queued)
+    assert any(call.startswith(f"api repos/acme/widgets/pulls/{PR} -i -H If-None-Match") for call in run.gh_calls)
+    assert run.lines.count("QUEUED yasyf label") == 1
+
+
+def test_a_changed_page_is_read_in_full_despite_the_stored_etag(poll):
+    run = poll(surface(pull(labels=("merge",)), events=[labeled(1)]), surface(pull(), events=[labeled(1), unlabeled(2)]))
+    assert run.done == "DONE evicted unknown label removed by graphite-app[bot]"
+
+
+def test_a_rate_limited_read_waits_for_the_reset_and_resumes(poll):
+    limited = surface(pull())
+    limited[f"pulls/{PR}"] = "RATELIMIT"
+    limited["rate_limit"] = {"resources": {"core": {"remaining": 0, "reset": int(time.time()) + 600}}}
+    run = poll(limited, surface(pull()))
+    waits = [line for line in run.lines if line.startswith("RATELIMIT waiting ")]
+    assert len(waits) == 1
+    assert run.done == "DONE ready-to-merge"
 
 
 ACTIONS_RUN_REGISTERING = check_suite(status="queued", check_runs=0, suite_id=2)

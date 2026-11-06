@@ -62,6 +62,13 @@ outlasts it. Run it only as the Monitor's command, never from Bash and never
 wrapped in a loop; it exits 3 when another poller already holds the state
 file.
 
+On a Sprite, where one `GH_TOKEN` budget serves every lane, watch CI with
+`Monitor(command: 'ccx vcs pr watch <repo>#<pr> --until ci', timeout_ms: 1800000)`
+instead: one batched query per machine, and it sleeps through a rate limit.
+It reports checks only; `pr-poll.sh` is still the watch for reviews, bot
+comments and the merge queue, and prints `RATELIMIT waiting <n>s` once and
+resumes when GitHub limits the token.
+
 One stdout line per event:
 
 ```
