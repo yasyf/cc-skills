@@ -856,7 +856,7 @@ func (d *Desk) launchRefusal(ctx context.Context, key string, order Order) (stri
 	if err != nil {
 		return "", err
 	}
-	if dispatch.active() {
+	if dispatch.active() && dispatch.Status != codeRemoteUnreachable {
 		return fmt.Sprintf("dispatch %s is %s; relay to it instead", dispatch.ID, dispatch.Status), nil
 	}
 	return "", nil

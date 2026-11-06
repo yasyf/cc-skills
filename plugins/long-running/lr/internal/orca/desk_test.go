@@ -963,6 +963,20 @@ func TestALaunchOfALiveLaneIsRefused(t *testing.T) {
 	wantContains(t, w.wantEscalation("LAUNCH-FAILED "), "dispatch ctx_a is running; relay to it instead")
 }
 
+func TestALaunchOfALaneWhoseDispatchSitsOnAnUnavailableRuntimeStartsAFreshOne(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief(testLane, testBrief)
+	w.live(testLane, testDispatch, testTerminal)
+	w.refusals["orchestration worker-show"] = object{"code": codeRemoteUnreachable, "message": "Could not connect to the remote Orca runtime."}
+	w.lines()
+	line := w.line(launchText(testLane, brief))
+	w.lines()
+	w.noEscalation("LAUNCH-FAILED ")
+	if action := w.action(testLane, "R"+strings.TrimPrefix(line.Name(), "#")); action.Status != incident.ActionAccepted {
+		t.Fatal(action)
+	}
+}
+
 func TestALaunchOnAnotherLanesBriefIsRefused(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief("other", testBrief)

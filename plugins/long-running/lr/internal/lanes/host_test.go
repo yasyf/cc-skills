@@ -442,7 +442,7 @@ func TestAStandingDeskRelaunchedAndDeadThreeTimesInAnHourStopsWithOneBlockerNami
 	blockers := f.ofKind("blocker")
 	equal(t, len(blockers), 1)
 	equal(t, blockers[0].To, []string{"meta-desk-3"})
-	contains(t, blockers[0].Text, "died 3 times within 60 min")
+	contains(t, blockers[0].Text, "relaunched it 3 times within 60 min and each one died or never started")
 	heir := filepath.Join(f.deps.Briefs, "go-desk-5.brief.md")
 	contains(t, blockers[0].Text, "launching its successor from "+heir)
 	if text, err := os.ReadFile(heir); err != nil || !strings.HasPrefix(string(text), "Replaces: go-desk-4\nccx: place=remote\n") {
