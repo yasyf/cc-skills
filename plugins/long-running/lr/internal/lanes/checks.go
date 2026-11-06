@@ -724,7 +724,14 @@ type LandedNotLive struct {
 	holds      map[[2]string]bool
 	touched    map[string][]string
 	said       string
-	blocker    int64
+	blockers   map[string]int64
+}
+
+type ownerPick struct {
+	Kind  string `json:"kind"`
+	Block string `json:"block"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
 }
 
 type RunnerLanding struct {
@@ -868,6 +875,7 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	owed := map[string][]int{}
+	var targets []string
 	if len(landed) > 0 {
 		running, err := n.running(ctx)
 		if err != nil {
@@ -899,8 +907,60 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 				owed[target] = append(owed[target], number)
 			}
 		}
+		targets = slices.Collect(maps.Keys(running))
 	}
-	return n.announce(ctx, landed, owed, now)
+	gates := map[string]ownerPick{}
+	if len(owed) > 0 {
+		picks, err := n.picks(ctx)
+		if err != nil {
+			n.Log.Warn("landed-not-live did not read his open picks", "err", err)
+			return nil
+		}
+		for target := range owed {
+			if i := slices.IndexFunc(picks, func(pick ownerPick) bool {
+				return namesTarget(pick.Block, target, targets) || namesTarget(pick.Title, target, targets)
+			}); i >= 0 {
+				gates[target] = picks[i]
+			}
+		}
+	}
+	return n.announce(ctx, landed, owed, gates, now)
+}
+
+func (n *LandedNotLive) picks(ctx context.Context) ([]ownerPick, error) {
+	stdout, err := n.Env.Run(ctx, n.Env.tool("lr"), "board", "waits", "--drive", n.Env.Config.Drive, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var waits []ownerPick
+	if err := json.Unmarshal([]byte(stdout), &waits); err != nil {
+		return nil, fmt.Errorf("%w: lr board waits: %w", ErrUnread, err)
+	}
+	return slices.DeleteFunc(waits, func(wait ownerPick) bool { return wait.Kind != "pick" }), nil
+}
+
+var targetWord = regexp.MustCompile(`[a-z0-9]+`)
+
+func namesTarget(text, target string, targets []string) bool {
+	said := targetWord.FindAllString(strings.ToLower(text), -1)
+	return slices.ContainsFunc(wordSpans(said, target), func(span [2]int) bool {
+		return !slices.ContainsFunc(targets, func(other string) bool {
+			return slices.ContainsFunc(wordSpans(said, other), func(wider [2]int) bool {
+				return wider[1]-wider[0] > span[1]-span[0] && wider[0] <= span[0] && span[1] <= wider[1]
+			})
+		})
+	})
+}
+
+func wordSpans(said []string, name string) [][2]int {
+	words := targetWord.FindAllString(name, -1)
+	var spans [][2]int
+	for start := 0; start+len(words) <= len(said); start++ {
+		if slices.Equal(said[start:start+len(words)], words) {
+			spans = append(spans, [2]int{start, start + len(words)})
+		}
+	}
+	return spans
 }
 
 func (n *LandedNotLive) releasing(ctx context.Context) (map[string][]string, error) {
@@ -971,7 +1031,56 @@ func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string
 	return withheld, nil
 }
 
-func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, owed map[string][]int, now time.Time) error {
+func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, owed map[string][]int, gates map[string]ownerPick, now time.Time) error {
+	said, _, _ := notLiveParts(landed, owed, now)
+	rows := map[ownerPick]map[string][]int{}
+	routes := make([]string, 0, len(owed))
+	for _, target := range slices.Sorted(maps.Keys(owed)) {
+		pick := gates[target]
+		if rows[pick] == nil {
+			rows[pick] = map[string][]int{}
+		}
+		rows[pick][target] = owed[target]
+		routes = append(routes, target+">"+pick.Block)
+	}
+	routed := strings.Join(append(routes, said), "\n")
+	if routed == n.said {
+		return nil
+	}
+	bus, drive := n.Env.Bus, n.Env.Config.Drive
+	digest := sha256.Sum256([]byte(routed))
+	key := NotLiveTopic + ":" + hex.EncodeToString(digest[:])[:12]
+	if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "state", Topic: NotLiveTopic, ID: key, Text: notLiveLead + or(said, notLiveNone), To: []string{Root}}); err != nil {
+		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+	}
+	kept := map[string]int64{}
+	for _, pick := range slices.SortedFunc(maps.Keys(rows), func(a, b ownerPick) int { return strings.Compare(a.Block, b.Block) }) {
+		rowSaid, prs, oldest := notLiveParts(landed, rows[pick], now)
+		minutes := int(now.Sub(oldest).Minutes())
+		draft := client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key + ":blocker", PRs: prs, Resolves: n.blockers[pick.Block], Text: fmt.Sprintf("LANDED-NOT-LIVE %s. The oldest landed %d minutes ago, and no live release, running release build or release that found its target unchanged carries them; each ships with the next release that picks its target, and the owner starts that release", rowSaid, minutes)}
+		if pick.Block != "" {
+			draft.To, draft.ID, draft.Attrs = []string{OwnerRelay}, key+":"+pick.Block, map[string]string{"card": pick.Block}
+			draft.Text = fmt.Sprintf("LANDED-NOT-LIVE %s. The oldest landed %d minutes ago, and they ship only with the release his open pick on %s starts (%s); this row is that card's, so root has nothing to cut", rowSaid, minutes, pick.Block, pick.URL)
+		}
+		stored, err := bus.Post(ctx, draft)
+		if err != nil {
+			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+		}
+		kept[pick.Block] = stored.Seq
+	}
+	for _, card := range slices.Sorted(maps.Keys(n.blockers)) {
+		if _, still := kept[card]; still {
+			continue
+		}
+		if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "note", Text: "LANDED-NOT-LIVE outlived", Resolves: n.blockers[card]}); err != nil {
+			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
+		}
+	}
+	n.said, n.blockers = routed, kept
+	return nil
+}
+
+func notLiveParts(landed map[int]landing, owed map[string][]int, now time.Time) (string, []string, time.Time) {
 	parts := make([]string, 0, len(owed))
 	var prs []string
 	oldest := now
@@ -989,31 +1098,7 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 		}
 		parts = append(parts, target+": "+strings.Join(words, ", "))
 	}
-	said := strings.Join(parts, "; ")
-	if said == n.said {
-		return nil
-	}
-	bus, drive := n.Env.Bus, n.Env.Config.Drive
-	digest := sha256.Sum256([]byte(said))
-	key := NotLiveTopic + ":" + hex.EncodeToString(digest[:])[:12]
-	if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "state", Topic: NotLiveTopic, ID: key, Text: notLiveLead + or(said, notLiveNone), To: []string{Root}}); err != nil {
-		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
-	}
-	switch {
-	case said != "":
-		stored, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: key + ":blocker", PRs: prs, Resolves: n.blocker, Text: fmt.Sprintf("LANDED-NOT-LIVE %s. The oldest landed %d minutes ago, and no live release, running release build or release that found its target unchanged carries them; each ships with the next release that picks its target, and the owner starts that release", said, int(now.Sub(oldest).Minutes()))})
-		if err != nil {
-			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
-		}
-		n.blocker = stored.Seq
-	case n.blocker != 0:
-		if _, err := bus.Post(ctx, client.Draft{Drive: drive, Lane: Self, Kind: "note", Text: "LANDED-NOT-LIVE outlived", Resolves: n.blocker}); err != nil {
-			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
-		}
-		n.blocker = 0
-	}
-	n.said = said
-	return nil
+	return strings.Join(parts, "; "), prs, oldest
 }
 
 func NotLiveOf(text string) (map[int][]string, bool) {
