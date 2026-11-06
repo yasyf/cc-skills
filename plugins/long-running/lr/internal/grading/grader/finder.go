@@ -77,13 +77,14 @@ func (r Record) Name() string {
 
 type FinderJob struct {
 	Job
-	Since      string   `json:"since"`
-	Prior      *Record  `json:"prior"`
-	Previous   string   `json:"previous"`
-	History    []Record `json:"history"`
-	Ruled      []Record `json:"ruled"`
-	Full       bool     `json:"full"`
-	BodyEdited bool     `json:"body_edited"`
+	Since      string           `json:"since"`
+	Prior      *Record          `json:"prior"`
+	Previous   string           `json:"previous"`
+	History    []Record         `json:"history"`
+	Ruled      []Record         `json:"ruled"`
+	Full       bool             `json:"full"`
+	BodyEdited bool             `json:"body_edited"`
+	Accepted   map[string]int64 `json:"accepted"`
 }
 
 type finding struct {
@@ -188,7 +189,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	}
 	spec.Head = view.HeadRefOid
 	head := spec.Head
-	if spec.Prior != nil && NamesHead(spec.Prior.Head, head) && (!spec.BodyEdited || FinderGrade(s.carried(view, spec.Prior, nil)) == finderPass) {
+	if spec.Prior != nil && NamesHead(spec.Prior.Head, head) && (!spec.BodyEdited || FinderGrade(s.carried(view, spec.Prior, nil, s.closedBy(spec.Prior, spec.Accepted))) == finderPass) {
 		return s.replayed(view, head, nil)
 	}
 	base, trunk, err := s.checkedOut(view)
@@ -237,15 +238,21 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 		}
 	}
 	judged := ""
-	if last != "" && spec.Prior != nil && NamesHead(spec.Prior.Head, last) && FinderGrade(spec.Prior.Text) == finderPass {
-		answer, err := s.regraded(view, finderMeans, *spec.Prior, last, pairs, changed)
+	if last != "" && spec.Prior != nil && NamesHead(spec.Prior.Head, last) {
+		means, err := s.carryMeans()
 		if err != nil {
 			return FinderOutcome{}, err
 		}
-		if answer.carries() {
-			return s.judgedCarry(last, pairs, answer)
+		if means != "" {
+			answer, err := s.regraded(view, means, *spec.Prior, last, pairs, changed)
+			if err != nil {
+				return FinderOutcome{}, err
+			}
+			if answer.carries() {
+				return s.judgedCarry(last, pairs, answer)
+			}
+			judged = answer.String()
 		}
-		judged = answer.String()
 	}
 	diff, err := s.touched(own[0]+"^", head)
 	if err != nil {
@@ -299,9 +306,16 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	owed, graded := followUpsOwed(view.Body, parsed.Findings)
 	findings, census := triage(graded, diff)
 	open, settled := s.openFindings(findings)
+	open, accepted, err := s.stillAccepted(open)
+	if err != nil {
+		return FinderOutcome{}, err
+	}
 	text := s.recordText(own, last, open)
 	if len(settled) > 0 {
 		text += "; " + settledByPicks(settled)
+	}
+	if len(accepted) > 0 {
+		text += "; " + acceptedLine(accepted)
 	}
 	if len(owed) > 0 {
 		text += "; " + followUpsLine(owed)
@@ -312,8 +326,12 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 			named = append(named, found[1])
 		}
 	}
+	raised := ""
+	if repeat != nil {
+		raised = fmt.Sprintf(secondFixRaised, squeezed(repeat.Cite+" "+repeat.Defect))
+	}
 	body := filepath.Join(s.dir, bodyFile)
-	if err := os.WriteFile(body, []byte(text+"\n\n"+strings.TrimSpace(reply)+"\n"+citedRows(rowsText, named)), 0o600); err != nil {
+	if err := os.WriteFile(body, []byte(text+"\n\n"+strings.TrimSpace(reply)+"\n"+raised+citedRows(rowsText, named)), 0o600); err != nil {
 		return FinderOutcome{}, err
 	}
 	posted, err := s.post(text, body)
@@ -331,7 +349,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 
 func (s *finderPassState) citesAtHead() (gone, kept []string, err error) {
 	from := s.job.Prior
-	if from == nil || FinderGrade(from.Text) != finderFail || s.settledBy(from) != 0 {
+	if from == nil || FinderGrade(from.Text) != finderFail || s.closedBy(from, s.job.Settled) != 0 || s.closedBy(from, s.job.Accepted) != 0 {
 		return nil, nil, nil
 	}
 	var cited []string
@@ -390,7 +408,17 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 	if earlier == nil || !NamesHead(earlier.Head, last) {
 		return FinderOutcome{Skipped: said, Ungraded: true}, nil
 	}
-	text := s.carried(view, earlier, gone)
+	accepted := s.closedBy(earlier, spec.Accepted)
+	if accepted != 0 && !NamesHead(earlier.Head, head) {
+		holds, err := s.acceptHolds(earlier)
+		if err != nil {
+			return FinderOutcome{}, err
+		}
+		if !holds {
+			accepted = 0
+		}
+	}
+	text := s.carried(view, earlier, gone, accepted)
 	body := filepath.Join(s.dir, bodyFile)
 	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\n%s.\n\n%s: %s\n", text, said, earlier.Name(), earlier.Text), 0o600); err != nil {
 		return FinderOutcome{}, err
@@ -402,11 +430,14 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 	return FinderOutcome{Verdict: strings.Fields(text)[1], Record: text, Posted: posted}, nil
 }
 
-func (s *finderPassState) carried(view pullRequest, earlier *Record, gone []string) string {
+func (s *finderPassState) carried(view pullRequest, earlier *Record, gone []string, accepted int64) string {
 	head := s.job.Head
 	grade := FinderGrade(earlier.Text)
 	text := fmt.Sprintf("finder: %s %s carried from #%d", grade, short(head, 7), earlier.Seq)
-	if root := s.settledBy(earlier); grade != finderPass && root != 0 {
+	if grade == finderFail && accepted != 0 {
+		text = fmt.Sprintf("finder: %s %s carried from #%d, whose findings #%d accepted", finderPass, short(head, 7), earlier.Seq, accepted)
+	}
+	if root := s.closedBy(earlier, s.job.Settled); grade != finderPass && root != 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, settled by coordinator #%d", finderPass, short(head, 7), earlier.Seq, root)
 	}
 	if grade == finderFail && s.onlySecondFix(earlier) && opensAsPort.MatchString(view.Body) {
@@ -424,7 +455,11 @@ func (s *finderPassState) carried(view pullRequest, earlier *Record, gone []stri
 
 func (s *finderPassState) judgedCarry(last, pairs string, answer regradeAnswer) (FinderOutcome, error) {
 	earlier := s.job.Prior
-	text := fmt.Sprintf("finder: %s %s carried from #%d at %s, judged unchanged in meaning by %s over its range-diff: %s", finderPass, s.job.Head, earlier.Seq, short(last, 7), regradeModel, answer.reason())
+	accepted := ""
+	if FinderGrade(earlier.Text) == finderFail {
+		accepted = fmt.Sprintf(", whose findings #%d accepted", s.closedBy(earlier, s.job.Accepted))
+	}
+	text := fmt.Sprintf("finder: %s %s carried from #%d at %s%s, judged unchanged in meaning by %s over its range-diff: %s", finderPass, s.job.Head, earlier.Seq, short(last, 7), accepted, regradeModel, answer.reason())
 	body := filepath.Join(s.dir, bodyFile)
 	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\nA %s read of `git range-diff %s` answered %s.\n\n%s: %s\n", text, regradeModel, pairs, answer, earlier.Name(), earlier.Text), 0o600); err != nil {
 		return FinderOutcome{}, err
@@ -715,11 +750,11 @@ func (s *finderPassState) recordCensus(census []finding) (string, error) {
 	return s.posted(argv)
 }
 
-func (s *finderPassState) settledBy(from *Record) int64 {
+func (s *finderPassState) closedBy(from *Record, closers map[string]int64) int64 {
 	bySeq := s.historyBySeq()
 	for current := from; current != nil; {
-		if root, settled := s.job.Settled[strconv.FormatInt(current.Seq, 10)]; settled {
-			return root
+		if closer, closed := closers[strconv.FormatInt(current.Seq, 10)]; closed {
+			return closer
 		}
 		found := carriedFrom.FindStringSubmatch(current.Text)
 		if found == nil {

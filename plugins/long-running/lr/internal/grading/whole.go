@@ -336,11 +336,14 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 		return job{}, err
 	}
 	bodies := map[string][]byte{}
-	history, unreadHistory := jobRecords(named, directory, bodies)
+	history, unreadHistory, accepted, err := finderHistory(ctx, p.drive, pull, named, directory, bodies)
+	if err != nil {
+		return job{}, err
+	}
 	rulings, unreadRulings := jobRecords(ruled, directory, bodies)
 	base := p.baseJob(d, facts, sprite, settled)
 	base.Lane, base.BugItems, base.Unread = ask.Lane, items, slices.Concat(unreadHistory, unreadRulings)
-	return job{answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, History: history, Ruled: rulings, Full: true}}, nil
+	return job{answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, History: history, Ruled: rulings, Full: true, Accepted: accepted}}, nil
 }
 
 func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, ask wholeAsk, sprite, directory string, reviews []review) (job, error) {
@@ -374,8 +377,11 @@ func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, a
 		return job{}, err
 	}
 	bodies := map[string][]byte{}
-	history, unread := jobRecords(named, directory, bodies)
+	history, unread, accepted, err := finderHistory(ctx, p.drive, facts.Repo+"#"+strconv.Itoa(facts.Number), named, directory, bodies)
+	if err != nil {
+		return job{}, err
+	}
 	base := p.baseJob(d, facts, sprite, settled)
 	base.Head, base.Lane, base.BugItems, base.Unread = ask.Head, ask.Lane, items, unread
-	return job{answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Num: last.Num, Lane: last.Lane, Head: last.head, Text: last.Text}, History: history, BodyEdited: true}}, nil
+	return job{answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Num: last.Num, Lane: last.Lane, Head: last.head, Text: last.Text}, History: history, BodyEdited: true, Accepted: accepted}}, nil
 }

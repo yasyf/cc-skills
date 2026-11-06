@@ -1,6 +1,7 @@
 package grading
 
 import (
+	"cmp"
 	"context"
 	"regexp"
 	"slices"
@@ -26,6 +27,7 @@ const (
 	kindHead         = "head"
 	kindDecide       = "decide"
 	kindAnswer       = "answer"
+	kindOwner        = "owner"
 	kindNote         = "note"
 	kindGo           = "go"
 	kindContract     = "contract"
@@ -49,6 +51,8 @@ var (
 	overrideRead  = regexp.MustCompile(`(?i)^(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b`)
 	citedRecord   = regexp.MustCompile(`#(\d{6,})\b`)
 	acceptedWord  = regexp.MustCompile(`(?i)^\s*accept(?:ed|s)?\b`)
+	acceptWord    = regexp.MustCompile(`(?i)\baccept(?:ed|s)?\b`)
+	negated       = regexp.MustCompile(`(?i)(?:not|\bnever|n't)(?:\s+yet)?\s+$`)
 	classWrong    = regexp.MustCompile(`(?i)^(?:re #\d+:\s*)?class wrong\b`)
 	oldAppGrade   = regexp.MustCompile(`(?im)^old-app:\s*(?:unchanged|bug fix|changes)\b.*$`)
 	graderLines   = []string{"fidelity:", "old-app:", "touches "}
@@ -337,16 +341,44 @@ func resolves(r client.Record, seq int64) bool {
 }
 
 func finderCleared(text string) bool {
-	if clearPhrase.MatchString(text) {
-		return true
-	}
-	for _, at := range clearWord.FindAllStringIndex(text, -1) {
-		before := strings.ToLower(text[:at[0]])
-		if !strings.HasSuffix(before, "not ") && !strings.HasSuffix(before, "never ") {
+	return clearPhrase.MatchString(text) || affirmed(clearWord, text)
+}
+
+func affirmed(word *regexp.Regexp, text string) bool {
+	for _, at := range word.FindAllStringIndex(text, -1) {
+		if !negated.MatchString(text[:at[0]]) {
 			return true
 		}
 	}
 	return false
+}
+
+func finderHistory(ctx context.Context, drive, pull string, named []client.Record, directory string, bodies map[string][]byte) ([]grader.Record, []string, map[string]int64, error) {
+	history, unread := jobRecords(named, directory, bodies)
+	if len(named) == 0 {
+		return history, unread, nil, nil
+	}
+	seqs := make(map[int64]bool, len(named))
+	for _, r := range named {
+		seqs[r.Seq] = true
+	}
+	answers, err := client.Tail(ctx, client.Query{Drive: drive, Kinds: []string{kindAnswer, kindOwner}, PR: pull, After: named[0].Seq})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	accepted := map[string]int64{}
+	for _, r := range answers {
+		cited := slices.DeleteFunc(append([]int64{r.Re, r.Resolves}, r.AlsoResolves...), func(seq int64) bool { return !seqs[seq] })
+		if len(cited) == 0 || !affirmed(acceptWord, r.Text) {
+			continue
+		}
+		for _, seq := range cited {
+			accepted[strconv.FormatInt(seq, 10)] = r.Seq
+		}
+		history = append(history, grader.Record{Seq: r.Seq, Num: r.Num, Lane: r.Lane, Text: r.Text})
+	}
+	slices.SortFunc(history, func(a, b grader.Record) int { return cmp.Compare(a.Seq, b.Seq) })
+	return history, unread, accepted, nil
 }
 
 func overridden(text, kind, pr, sha string) bool {
