@@ -32,7 +32,7 @@ const (
 )
 
 var (
-	citation    = regexp.MustCompile(`(?i)\b(rule/[0-9a-f]{7,40}|prompt/\d{4}-\d{6}|answer\s+[0-9a-f]{7,40})\b`)
+	citation    = regexp.MustCompile(`(?i)\b(rule/[0-9a-f]{7,40}|prompt/\d{4}-\d{6}(?:-[0-9a-f]{7,40})?|answer\s+[0-9a-f]{7,40})\b`)
 	quoted      = regexp.MustCompile(quotedForm)
 	leadIn      = regexp.MustCompile(`^(?:[^"“.!?\n]|[.!?]\S)*?((?:` + quotedForm + `)(?:\s*(?:,\s*and|,|;|and)\s*(?:` + quotedForm + `))*)`)
 	otherSource = regexp.MustCompile(`(?i)\b(?:your|root|relay|record)\s+#?\d{5,}`)

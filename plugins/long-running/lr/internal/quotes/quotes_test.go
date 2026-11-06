@@ -31,6 +31,7 @@ func reader(t *testing.T) *Reader {
 	rows, err := json.Marshal(map[string]any{"rows": []map[string]any{
 		{"key": "rule/784f1ab", "fields": map[string]string{"at": "Oct 20", "words": "every thjrn hiinchanhe jeedsa regresion test and one that actuwlly woild habe failed not a trivial one. just fic the rmeaining wctuwl jssues"}},
 		{"key": "prompt/1026-113025", "fields": map[string]string{"at": "Oct 26", "words": "keep the patches of we need them for perf", "repeats": string(repeats), "implications": string(implications)}},
+		{"key": "prompt/1023-094200-d2261fba", "fields": map[string]string{"at": "Oct 23", "words": "for the cloid box mint some credentials locally using machine profile or something"}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +40,7 @@ func reader(t *testing.T) *Reader {
 	fake.Reply(`[{"id":"register-1","updated_at":"2026-11-03"}]`, "ccn", "-R", "/repo", "ledger", "list")
 	fake.Reply(string(rows), "ccn", "-R", "/repo", "ledger", "show", "register-1")
 	fake.Reply("title: the look\n\nVerbatim: \""+oneLevel+"\" Bridge reading: the lane re-reads.\n", "ccn", "-R", "/repo", "answer", "show", "79e14c4")
+	fake.Reply("title: the ci tool's AWS sign-in\n\nVerbatim: \"only our computer has rhe madhine orofiel so dint brewk the co tool for eveyone else\"\n", "ccn", "-R", "/repo", "answer", "show", "54c47b4")
 	fake.Fail(1, "no such answer", "ccn", "-R", "/repo", "answer", "show", "0000000")
 	fake.Fail(noSuchNote, "not-found", "ccn", "-R", "/repo", "answer", "show", "1111111")
 	return &Reader{Runner: fake, Entry: func() (drive.Entry, error) { return drive.Entry{Checkout: "/repo", Program: "p"}, nil }}
@@ -285,6 +287,11 @@ func TestGroundedNeedsEveryCitedRowToExist(t *testing.T) {
 		"no such answer":       {"fidelity-override #1 at abc1234: 9. Answer 1111111 grounds it", false},
 		"one real and one not": {"finder-override #1 at abc1234: 9. Rows rule/784f1ab and rule/0000000 ground it", false},
 		"no row cited at all":  {"finder-override #1 at abc1234: 9. The finding is wrong", false},
+		"a prompt key that carries its digest, as cci 515309 cites one beside an answer": {
+			"finder-override #51540 at 7aba477: 514875 (carried from 508862 and 506965, patch-identical). His later ruling the same day on the ci tool's AWS sign-in, answer 54c47b4: \"only our computer has rhe madhine orofiel so dint brewk the co tool for eveyone else\". Row prompt/1023-094200-d2261fba is his word on minting the cloud box's credentials from the machine profile, not a ban on the shared tool's SSO default.",
+			true,
+		},
+		"a digest-keyed prompt row cited without its digest": {"finder-override #1 at abc1234: 9. Row prompt/1023-094200 grounds it", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := reader(t).Grounded(context.Background(), client.Record{Lane: "grader-appeals-1", Kind: "decide", Text: tc.text})
