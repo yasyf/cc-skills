@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
@@ -30,6 +32,9 @@ const (
 	mailCut       = "%s %d more after %s not shown; read them with cci tail --drive %s --reader %s --since %s --oldest"
 	readTimeout   = 60 * time.Second
 	notFound      = "HTTP 404"
+	testSummary   = "short test summary info"
+	stepFailed    = "##[error]Process completed with exit code"
+	allowEscapes  = "--allow-escape-sequences"
 	checksFields  = `fragment checks on PullRequest {
   commits(last: 1) { nodes { commit { checkSuites(first: 30) { nodes {
     workflowRun { workflow { name } }
@@ -39,7 +44,7 @@ const (
 	baseFields = `fragment base on PullRequest {
   commits(first: 1) { nodes { commit { parents(first: 1) { nodes { history(first: 30) { nodes { checkSuites(first: 30) { nodes {
     workflowRun { workflow { name } }
-    checkRuns(first: 50) { nodes { name conclusion } }
+    checkRuns(first: 50) { nodes { name conclusion detailsUrl } }
   } } } } } } } } }
 }`
 )
@@ -53,8 +58,12 @@ const (
 )
 
 var (
-	pullURL  = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/\d+$`)
-	stackURL = regexp.MustCompile(`/repos/([\w.-]+/[\w.-]+)/stacks/\d+$`)
+	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/\d+$`)
+	stackURL   = regexp.MustCompile(`/repos/([\w.-]+/[\w.-]+)/stacks/\d+$`)
+	jobURL     = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/actions/runs/\d+/job/(\d+)$`)
+	failedTest = regexp.MustCompile(`(?m)^(?:\d{4}-\d\d-\d\dT\S+Z )?(?:FAILED|ERROR) ([^\s\[]+(?:\[.*?\])?)(?: - .*)?\r?$`)
+	pytestEnd  = regexp.MustCompile(`\d+ (?:failed|errors?)\b.* in [\d.]+s\b`)
+	ansi       = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 )
 
 type Merge struct {
@@ -114,30 +123,27 @@ type pull struct {
 	} `json:"commits"`
 }
 
-func (p pull) baseConclusion(workflow, check string) string {
+func (p pull) baseRuns(workflow string) map[string]checkRun {
+	runs := map[string]checkRun{}
 	for _, first := range p.Commits.Nodes {
 		for _, parent := range first.Commit.Parents.Nodes {
 			for _, ancestor := range parent.History.Nodes {
-				var conclusions []string
+				nearest := map[string]checkRun{}
 				for _, suite := range ancestor.CheckSuites.Nodes {
 					if suite.WorkflowRun.Workflow.Name != workflow {
 						continue
 					}
 					for _, run := range suite.CheckRuns.Nodes {
-						if run.Name == check {
-							conclusions = append(conclusions, run.Conclusion)
+						if _, nearer := runs[run.Name]; !nearer && (run.Conclusion == failed || run.Conclusion == passed && nearest[run.Name].Conclusion != failed) {
+							nearest[run.Name] = run
 						}
 					}
 				}
-				for _, settled := range []string{failed, passed} {
-					if slices.Contains(conclusions, settled) {
-						return settled
-					}
-				}
+				maps.Copy(runs, nearest)
 			}
 		}
 	}
-	return ""
+	return runs
 }
 
 type record struct {
@@ -164,14 +170,40 @@ type red struct {
 	job      string
 }
 
-func (r red) line(base pull) string {
-	switch base.baseConclusion(r.workflow, r.check) {
+func (r red) line(base pull, tests map[string][]string) string {
+	runs := base.baseRuns(r.workflow)
+	if own, read := ownTests(tests[r.job], runs, tests); read {
+		if len(own) == 0 {
+			return fmt.Sprintf("%s #%d %s", InheritedLine, r.number, r.check)
+		}
+		return fmt.Sprintf("%s #%d %s %s %s", OwnLine, r.number, r.check, r.job, strings.Join(own, " "))
+	}
+	switch runs[r.check].Conclusion {
 	case failed:
 		return fmt.Sprintf("%s #%d %s", InheritedLine, r.number, r.check)
 	case passed:
 		return fmt.Sprintf("%s #%d %s %s", OwnLine, r.number, r.check, r.job)
 	}
 	return fmt.Sprintf("%s #%d %s", UnreadBase, r.number, r.check)
+}
+
+func ownTests(failing []string, base map[string]checkRun, tests map[string][]string) ([]string, bool) {
+	if len(failing) == 0 || len(base) == 0 {
+		return nil, false
+	}
+	inherited := map[string]bool{}
+	named := true
+	for _, run := range base {
+		if run.Conclusion != failed {
+			continue
+		}
+		named = named && len(tests[run.DetailsURL]) > 0
+		for _, test := range tests[run.DetailsURL] {
+			inherited[test] = true
+		}
+	}
+	own := slices.DeleteFunc(slices.Clone(failing), func(test string) bool { return inherited[test] })
+	return own, named || len(own) == 0
 }
 
 func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
@@ -198,9 +230,10 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 		}
 	}
 	bases := g.bases(ctx, repo, reds)
+	tests := g.tests(ctx, reds, bases)
 	seen := map[string]bool{}
 	for _, r := range reds {
-		line := r.line(bases[alias(r.number)])
+		line := r.line(bases[alias(r.number)], tests)
 		if !seen[line] {
 			seen[line] = true
 			lines = append(lines, line)
@@ -350,6 +383,73 @@ func (g Guard) bases(ctx context.Context, repo string, reds []red) map[string]pu
 		return nil
 	}
 	return bases
+}
+
+func (g Guard) tests(ctx context.Context, reds []red, bases map[string]pull) map[string][]string {
+	if len(reds) == 0 {
+		return nil
+	}
+	read := []string{"gh", "api"}
+	if usage, err := g.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "api", "--help"}, Timeout: readTimeout}); err == nil && strings.Contains(usage.Stdout, allowEscapes) {
+		read = append(read, allowEscapes)
+	}
+	tests := map[string][]string{}
+	jobs := make([]string, 0, len(reds))
+	for _, r := range reds {
+		jobs = append(jobs, r.job)
+	}
+	g.readTests(ctx, read, jobs, tests)
+	jobs = jobs[:0]
+	for _, r := range reds {
+		if len(tests[r.job]) == 0 {
+			continue
+		}
+		for _, run := range bases[alias(r.number)].baseRuns(r.workflow) {
+			if run.Conclusion == failed {
+				jobs = append(jobs, run.DetailsURL)
+			}
+		}
+	}
+	g.readTests(ctx, read, jobs, tests)
+	return tests
+}
+
+func (g Guard) readTests(ctx context.Context, read, jobs []string, into map[string][]string) {
+	jobs = slices.DeleteFunc(slices.Compact(slices.Sorted(slices.Values(jobs))), func(job string) bool {
+		_, done := into[job]
+		return done
+	})
+	found := make([][]string, len(jobs))
+	var reads sync.WaitGroup
+	for i, job := range jobs {
+		reads.Go(func() { found[i] = g.failedTests(ctx, read, job) })
+	}
+	reads.Wait()
+	for i, job := range jobs {
+		into[job] = found[i]
+	}
+}
+
+func (g Guard) failedTests(ctx context.Context, read []string, job string) []string {
+	link := jobURL.FindStringSubmatch(job)
+	if link == nil {
+		return nil
+	}
+	log, err := g.Runner.Run(ctx, shell.Command{Argv: slices.Concat(read, []string{fmt.Sprintf("repos/%s/actions/jobs/%s/logs", link[1], link[2])}), Timeout: readTimeout})
+	if err != nil {
+		return nil
+	}
+	step, _, ended := strings.Cut(ansi.ReplaceAllString(log.Stdout, ""), stepFailed)
+	run := step[:max(strings.LastIndex(step, "\n"), 0)]
+	summary := strings.LastIndex(run, testSummary)
+	if !ended || summary < 0 || !pytestEnd.MatchString(run[strings.LastIndex(run, "\n")+1:]) {
+		return nil
+	}
+	var tests []string
+	for _, test := range failedTest.FindAllStringSubmatch(run[summary:], -1) {
+		tests = append(tests, test[1])
+	}
+	return tests
 }
 
 func (g Guard) pulls(ctx context.Context, repo string, numbers []int, fragment, fragmentFields string) (map[string]pull, error) {

@@ -30,13 +30,13 @@ UNREAD_MAIL = (
 )
 MAIL = "The merge read these records for `{lane}` on its way:\n```\n{records}\n```"
 OWN_RED = (
-    "A merge never lands past a check its own change turned red, meaning red on its PR and green on its base:\n```\n{findings}\n```\n"
+    "A merge never lands past a check its own change turned red, meaning a test failing on its PR and not on its base, or a check green on its base when its log names no test:\n```\n{findings}\n```\n"
     "Fix and push, or rerun a possible flake with `gh run rerun --job <number after /job/>`, then merge once it passes."
 )
-INHERITED_RED = "{checks} are red on the base branch at their PR's merge base too, so they are inherited and the merge goes ahead."
+INHERITED_RED = "{checks} fail the same tests, or else the same check, on the base branch at their PR's merge base, so they are inherited and the merge goes ahead."
 BASE_UNREAD_RED = "{checks} are red and the base branch's state could not be read, so nothing says whether their PR caused them. The merge goes ahead; read the same check on the base."
 OWN_FINDING = r"own change turned red.*\n```\n#5 lr-go https://github\.com/acme/app/actions/runs/1/job/2\n```\n.*`gh run rerun --job "
-INHERITED_NOTE = r"^`#5 lr-go` are red on the base branch at their PR's merge base too, so they are inherited"
+INHERITED_NOTE = r"^`#5 lr-go` fail the same tests, or else the same check, on the base branch at their PR's merge base, so they are inherited"
 BASE_UNREAD_NOTE = r"^`#5 lr-go` are red and the base branch's state could not be read"
 UNREAD_RELAY = r"reached `fix-lane-1` unread.*\n```\n#360037 meta-desk-2 relay: hold #2188, do not merge\n#360040 root note: dev is green"
 BROADCAST_NOTE = r"^The merge read these records for `fix-lane-1` on its way:\n```\n#360040 root note: dev is green"
