@@ -1056,8 +1056,12 @@ func (w *workerLaunch) join(workspace string) (string, error) {
 func (w *workerLaunch) delegate(pub string, drives []string, log *bytes.Buffer) (string, error) {
 	delegation, errs, code := w.capture("cci", "relay", "delegate", "--pub", pub, "--drive", strings.Join(drives, ","), "--ttl", delegationLife)
 	log.WriteString(errs)
-	if code != 0 {
-		return "", errors.New("this Mac's cci relay delegate failed")
+	said := strings.TrimSpace(errs)
+	switch {
+	case code != 0 && strings.Contains(said, "no live issuer grant"):
+		return "", errors.New("this Mac holds no live issuer grant, so it signs no Sprite a delegation and nothing falls back to a shared key; tap Touch ID at the unlocked Mac with `cci relay grant`, which covers the next 24 hours, then launch again")
+	case code != 0:
+		return "", fmt.Errorf("this Mac's cci relay delegate failed: %s", said[strings.LastIndex(said, "\n")+1:])
 	}
 	return delegation, w.receipt(delegationFile, delegation)
 }

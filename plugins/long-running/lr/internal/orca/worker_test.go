@@ -1146,6 +1146,21 @@ func TestAJoinThatCannotReadTheOwnerRefusesWithoutRetrying(t *testing.T) {
 	}
 }
 
+func TestAMacWithNoLiveIssuerGrantStopsTheLaunchAndSaysToTapAtTheMac(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("cci relay delegate", workerReply{code: 1, err: "cci: relay: 403 forbidden: 144ffadb3d797d00 holds no live issuer grant; the owner taps Touch ID at the Mac with cci relay grant\n"})
+	_, failed, err := f.launch(workerLane, "opus", "high")
+	if err != nil || !strings.Contains(failed, "tap Touch ID at the unlocked Mac with `cci relay grant`") {
+		t.Fatal(failed, err)
+	}
+	for _, call := range f.calls {
+		if slices.Equal(call, joinCall(workerWorkspace)) {
+			t.Fatal("joined with no delegation")
+		}
+	}
+}
+
 func TestADelegateTheMacCannotSignRefusesTheLaunchWithoutJoining(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
@@ -2073,7 +2088,7 @@ func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAg
 	f.sprite()
 	f.launched()
 	started := f.startCalls(prepared())
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:2], [][]string{driveCall("brook")}, started[2:6], [][]string{f.catchUpCall("brook")}, started[6:], [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:2], [][]string{driveCall("brook")}, started[2:7], [][]string{f.catchUpCall("brook")}, started[7:], [][]string{holdCall(workerWorkspace)})...)
 }
 
 func TestASpriteCodexLaneInADriveCarriesAPRRecordOfCCIRecords(t *testing.T) {
