@@ -83,6 +83,15 @@ def test_add_refuses_a_row_with_no_live_worker_or_no_future_due(given, heard, sa
     assert shell.rows == {}
 
 
+def test_a_lane_whose_newest_record_is_a_handoff_still_owns_a_row():
+    """A lane posts a handoff on ROTATE or before compacting and keeps working (meta-desk-3, 12:58 AM Nov 6)."""
+    shell = FakeShell({"rotated-lane": "handoff"})
+
+    assert add(shell, owner="rotated-lane") == 0
+
+    assert shell.rows["retro/000001"]["owner"] == "rotated-lane"
+
+
 def test_add_refuses_an_open_row_with_no_pr():
     shell = FakeShell()
 
@@ -111,6 +120,20 @@ def test_a_row_closes_only_live_with_its_record_or_as_a_duplicate():
     assert (shell.rows["retro/000001"]["state"], shell.rows["retro/000001"]["record"]) == ("live", "307999")
     with pytest.raises(SystemExit, match="is closed"):
         retro.main(["set", "retro/000001", "--state", "building"], shell)
+
+
+def test_a_row_written_live_with_no_record_takes_its_record_and_then_reads_closed():
+    shell = FakeShell()
+    shell.rows = {"retro/000045": {"failure": "stall alarms stopped", "mechanism": "m", "owner": "fix-lane", "due": stamp(-600), "state": "live"}}
+
+    with pytest.raises(SystemExit, match="live with no FIX-LIVE record"):
+        retro.main(["set", "retro/000045", "--note", "read main"], shell)
+    assert retro.main(["live", "retro/000045", "--record", "376383"], shell) == 0
+
+    assert (shell.rows["retro/000045"]["state"], shell.rows["retro/000045"]["record"]) == ("live", "376383")
+    assert retro.main(["check"], shell) == 0
+    with pytest.raises(SystemExit, match="is closed"):
+        retro.main(["live", "retro/000045", "--record", "1"], shell)
 
 
 def test_check_lists_each_malformed_repeated_or_past_due_row_and_exits_one(capsys):

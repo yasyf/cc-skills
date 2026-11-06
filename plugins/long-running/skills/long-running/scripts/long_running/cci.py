@@ -37,7 +37,7 @@ TRUNK_RUNNERS = frozenset({"desk-runner", "supervisor"})
 TRUNK_STATE = re.compile(r"^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\b")
 NAMED_PR = re.compile(r"#(\d+)\b")
 NOT_OWNERS = frozenset({"root", "main", "all", ""})
-ENDED_KINDS = frozenset({"stand-down", "handoff", "stopped", "done"})
+ENDED_KINDS = frozenset({"stand-down", "stopped", "done"})
 OWNER_WINDOW = "2h"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
