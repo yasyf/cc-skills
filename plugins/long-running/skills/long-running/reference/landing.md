@@ -349,6 +349,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 - `STORE-UNCOUNTED` names a head whose removed lines drop a stateful store, such as Valkey, Redis, ElastiCache, a volume claim or a `DROP TABLE`, while no body line counts the records it held before and after.
 - Each cause it prints except `RESERVED-NO-ANSWER` sends one cci `note` warning per head and set of causes to the PR's lane. It warns again only for a new cause, and never once an `answer` replies to or resolves one.
 - The pack's `rulings_at_merge` hook runs `check-pr` on `gh pr merge` in a drive session and advises with each cause. On an incident lane's merge it refuses with `RULINGS-REFUSED` while `check-pr --incident` names `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED`.
+- A lane runs the same check at its own head with `lr rules check-pr --pr <owner/repo>#<n> --head <sha> [--base <base>] [--incident]`, against the drive's checkout and register. On a Sprite, which has no `rulings.py`, the Mac's store desk runs it, and the lane gets its lines and its exit status.
 
 ## Merge mode, taps, and board blocks
 
