@@ -52,6 +52,10 @@ func (p *fakePool) Plan(_ context.Context, items []store.Item, _ map[int]machine
 	return items, nil
 }
 
+func (p *fakePool) Firsts(map[int]machine.Facts) []machine.Facts {
+	return nil
+}
+
 func (p *fakePool) Whole(context.Context, map[int]machine.Facts) ([]string, error) {
 	started := p.wholes
 	p.wholes = nil

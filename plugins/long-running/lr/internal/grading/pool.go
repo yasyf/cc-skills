@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -140,7 +141,7 @@ type JobPool struct {
 	tooling   string
 	desks     map[string]desk
 	executors int
-	firsts    map[string]bool
+	firsts    map[int]int64
 	picks     []store.Rule
 
 	cardUnread map[string]bool
@@ -248,6 +249,9 @@ func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Fa
 	if !on {
 		return "", ErrNoCapacity
 	}
+	if !slices.Contains(Missing(facts), grading) {
+		return p.again(ctx, grading, d, facts)
+	}
 	pr := strconv.Itoa(facts.Number)
 	workers, err := p.Workers()
 	if err != nil {
@@ -300,7 +304,7 @@ func (p *JobPool) nextPass(ctx context.Context, grading string, d desk, workers 
 	if again != nil {
 		again.attempt = plan.number
 	}
-	sprite, err := p.place(d, workers, p.firsts[pr])
+	sprite, err := p.place(d, workers, p.firsts[facts.Number] > 0)
 	if err != nil {
 		return "", err
 	}

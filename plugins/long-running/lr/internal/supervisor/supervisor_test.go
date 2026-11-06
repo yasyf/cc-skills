@@ -84,6 +84,7 @@ func (*pool) Plan(_ context.Context, items []store.Item, _ map[int]machine.Facts
 	return items, nil
 }
 
+func (*pool) Firsts(map[int]machine.Facts) []machine.Facts                    { return nil }
 func (*pool) Whole(context.Context, map[int]machine.Facts) ([]string, error)  { return nil, nil }
 func (*pool) Reopen(context.Context, map[int]machine.Facts) ([]string, error) { return nil, nil }
 func (*pool) Parked(context.Context, map[int]machine.Facts) (map[int]string, error) {

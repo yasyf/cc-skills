@@ -342,10 +342,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	}
 	lanes := withSuccessors(bus.FidelityLanes(), found)
 	grades := fidelityGrades(found, lanes, facts.Repo, pr)
-	sent := slices.DeleteFunc(slices.Clone(found), func(r client.Record) bool {
-		return r.Kind != kindReview || r.Lane != grader.FidelityLane || !strings.HasPrefix(r.Text, fidelityReader)
-	})
-	if again == nil && (anyNaming(grades, facts.Head) || anyNaming(sent, facts.Head)) {
+	if again == nil && (anyNaming(grades, facts.Head) || anyNaming(readerSends(found), facts.Head)) {
 		return job{}, ErrAnswered
 	}
 	contract, err := p.contract(ctx, facts.Lane, facts.Repo, pr)

@@ -274,7 +274,7 @@ func (p *JobPool) startWhole(ctx context.Context, d desk, ask wholeAsk, snapshot
 	if err != nil {
 		return "", fmt.Errorf("a whole pass names %q: %w", ask.PR, err)
 	}
-	sprite, err := p.place(d, workers, p.firsts[ask.PR])
+	sprite, err := p.place(d, workers, p.firsts[number] > 0)
 	if err != nil {
 		return "", err
 	}
