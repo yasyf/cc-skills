@@ -34,12 +34,14 @@ const (
 	defaultWindow = time.Hour
 	listLimit     = 100
 	frameLimit    = 15
-	usage         = "name one read: sentry issue <id or short id>, sentry events <id>, sentry search [--period <14d>] <query>, sentry api <path>, datadog monitor <id>, datadog logs [--from <age>] [--to <age>] <query>, datadog spans [--from <age>] [--to <age>] <query>, datadog metric [--from <age>] [--to <age>] <query>, datadog api <path>, or oncall <read verb>"
+	slackLimit    = 200
+	usage         = "name one read: sentry issue <id or short id>, sentry events <id>, sentry search [--period <14d>] <query>, sentry api <path>, datadog monitor <id>, datadog logs [--from <age>] [--to <age>] <query>, datadog spans [--from <age>] [--to <age>] <query>, datadog metric [--from <age>] [--to <age>] <query>, datadog api <path>, slack thread <permalink>, or oncall <read verb>"
 	oncallUsage   = "oncall reads with incidents, page status <id>, ledger <id>, journal read <id> --to <seq>, history --monitor <id> --since <RFC3339>, monitors --key <key>, impact --from <RFC3339> --to <RFC3339>, current, responder or connections list <id>; connect, say and every write go through your evidence lane"
 )
 
 var (
-	request    = regexp.MustCompile(`\b(sentry|datadog|oncall)\s+(\S+)(.*)`)
+	request    = regexp.MustCompile(`\b(sentry|datadog|slack|oncall)\s+(\S+)(.*)`)
+	permalink  = regexp.MustCompile(`^https://[a-z0-9-]+\.slack\.com/archives/[A-Z0-9]+/p\d{16}(\?\S*)?$`)
 	issueURL   = regexp.MustCompile(`/issues/(\d+)`)
 	numericID  = regexp.MustCompile(`^\d+$`)
 	shortID    = regexp.MustCompile(`^[A-Za-z0-9_-]+-[A-Za-z0-9]+$`)
@@ -170,6 +172,8 @@ func (d *Desk) read(ctx context.Context, text string) askdesk.Reply {
 		read, refusal = d.sentryRead(ctx, verb, rest)
 	case "datadog":
 		read, refusal = d.datadogRead(ctx, verb, rest, now)
+	case "slack":
+		read, refusal = d.slackRead(ctx, verb, rest)
 	default:
 		read, refusal = d.oncallRead(ctx, append([]string{verb}, rest...))
 	}
@@ -645,6 +649,47 @@ func (d *Desk) metric(ctx context.Context, query string, from, to time.Time) ask
 		}
 	}
 	return askdesk.Reply{Head: fmt.Sprintf("%d series, %s to %s", len(found.Series), from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)), Body: askdesk.FirstBytes(lines.String(), replyLimit)}
+}
+
+func (d *Desk) slackRead(ctx context.Context, verb string, rest []string) (askdesk.Reply, string) {
+	if verb != "thread" || len(rest) != 1 || !permalink.MatchString(rest[0]) {
+		return askdesk.Reply{}, "slack reads one thread with slack thread <permalink>, such as https://<workspace>.slack.com/archives/C0123ABCD/p1793903489566279, and writes nothing"
+	}
+	result, err := d.Runner.Run(ctx, shell.Command{
+		Argv: []string{"cc-slack", "thread", "--url", rest[0], "--limit", strconv.Itoa(slackLimit)}, Timeout: readTimeout, Idempotent: true,
+	})
+	if err != nil {
+		return askdesk.Reply{Head: "the read did not run", Body: askdesk.LastBytes(strings.TrimSpace(result.Stderr+"\n"+err.Error()), replyLimit)}, ""
+	}
+	var thread struct {
+		Messages []struct {
+			TS       string `json:"ts"`
+			UserName string `json:"user_name"`
+			User     string `json:"user"`
+			Text     string `json:"text"`
+		} `json:"messages"`
+		Truncated bool `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result.Stdout), &thread); err != nil {
+		return askdesk.Reply{Head: "the thread did not parse", Body: askdesk.FirstBytes(result.Stdout, replyLimit)}, ""
+	}
+	var lines strings.Builder
+	for _, message := range thread.Messages {
+		who := message.UserName
+		if who == "" {
+			who = message.User
+		}
+		at := message.TS
+		if seconds, err := strconv.ParseFloat(message.TS, 64); err == nil {
+			at = time.Unix(int64(seconds), 0).UTC().Format(time.RFC3339)
+		}
+		fmt.Fprintf(&lines, "%s %s:\n%s\n\n", at, who, strings.TrimSpace(message.Text))
+	}
+	head := fmt.Sprintf("%d messages", len(thread.Messages))
+	if thread.Truncated {
+		head = fmt.Sprintf("the newest %d messages", len(thread.Messages))
+	}
+	return askdesk.Reply{Head: head, Body: askdesk.FirstBytes(lines.String(), replyLimit), URL: rest[0]}, ""
 }
 
 func (d *Desk) oncallRead(ctx context.Context, args []string) (askdesk.Reply, string) {

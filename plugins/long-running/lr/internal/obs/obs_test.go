@@ -39,6 +39,11 @@ func (f *fakeRunner) Run(_ context.Context, c shell.Command) (shell.Result, erro
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, c)
+	if c.Argv[0] == "cc-slack" {
+		return shell.Result{Stdout: `{"channel_id":"C0B75AL4XEW","thread_ts":"1793903489.566279","messages":[` +
+			`{"ts":"1793903489.566279","user":"U1","user_name":"Platy","text":"api 5xx alert fired"},` +
+			`{"ts":"1793903549.000100","user":"U2","user_name":"","text":"looking"}],"truncated":false}`}, nil
+	}
 	if c.Argv[0] != "aws" {
 		return shell.Result{Stdout: "incident inc-1 open\n"}, nil
 	}
@@ -187,6 +192,9 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutACall(t *testing.T) {
 		"oncall downtime --monitor 1",
 		"oncall page acknowledge p1",
 		"oncall takeover inc-1",
+		"slack reply https://poetic-technology.slack.com/archives/C0B75AL4XEW/p1793903489566279 hi",
+		"slack thread C0B75AL4XEW 1793903489.566279",
+		"slack thread https://evil.example/archives/C0B75AL4XEW/p1793903489566279",
 		"please read the logs",
 	} {
 		t.Run(text, func(t *testing.T) {
@@ -323,5 +331,24 @@ func TestSettingsNameEveryKeyAndTheOncallCheckout(t *testing.T) {
 	}
 	if _, err := LoadSettings(path); err == nil || !strings.Contains(err.Error(), "sentry.token") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestASlackThreadReadPrintsEachMessageAsTextFromTheMacsCCSlack(t *testing.T) {
+	runner := &fakeRunner{}
+	desk := newDesk(t, runner, "http://unused")
+	link := "https://poetic-technology.slack.com/archives/C0B75AL4XEW/p1793903489566279"
+
+	read := desk.read(context.Background(), "slack thread "+link)
+
+	call := runner.calls[len(runner.calls)-1]
+	if !slices.Equal(call.Argv, []string{"cc-slack", "thread", "--url", link, "--limit", "200"}) || slices.Contains(call.Argv, "--raw") {
+		t.Fatalf("ran %v", call.Argv)
+	}
+	if read.Head != "slack thread "+link+": 2 messages" || read.URL != link {
+		t.Fatalf("head %q url %q", read.Head, read.URL)
+	}
+	if read.Body != "2026-11-05T18:31:29Z Platy:\napi 5xx alert fired\n\n2026-11-05T18:32:29Z U2:\nlooking\n\n" {
+		t.Fatalf("body = %q", read.Body)
 	}
 }
