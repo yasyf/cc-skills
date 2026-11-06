@@ -182,7 +182,7 @@ func (e Evictions) notItsOwn(ctx context.Context, failure Failure) (string, erro
 	case len(failure.MatesFailed) > 0:
 		return "the same test run also failed " + numbered(failure.MatesFailed), nil
 	case failure.Infra != "":
-		return "its log reads as infrastructure", nil
+		return "it failed on infrastructure", nil
 	case failure.Test == "" && failure.Job == "":
 		return "", nil
 	}

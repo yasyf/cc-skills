@@ -46,6 +46,7 @@ const (
 	trunkReadLimit  = 5 * time.Minute
 	flakyNoticeRead = "20"
 	failedJobReads  = 3
+	untested        = "no test job ran, since the build held no other step"
 	redAttr         = "dev-red"
 	ownerAttr       = "owner"
 	jobAttr         = "job:"
@@ -160,6 +161,10 @@ func (j trunkJob) step() string {
 
 func (j trunkJob) failed() bool {
 	return j.Type == scriptJob && j.State == "failed"
+}
+
+func (b *trunkBuild) only(step string) bool {
+	return !slices.ContainsFunc(b.Jobs, func(job trunkJob) bool { return job.step() != step })
 }
 
 func (j trunkJob) retriedGreen() bool {
@@ -469,6 +474,9 @@ func (w TrunkWatch) FailedJob(ctx context.Context, url string) (job, test, infra
 		}
 		if job == "" {
 			job = failed.step()
+		}
+		if build.only(failed.step()) {
+			return failed.step(), "", untested
 		}
 		if read++; read > failedJobReads {
 			break
