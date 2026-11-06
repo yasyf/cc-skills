@@ -1,6 +1,7 @@
 package facts_test
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -99,7 +100,7 @@ func memberReply(prs []recordedPR) string {
 			state = "OPEN"
 		}
 		repository[fmt.Sprintf("r%d", pr.number)] = map[string]any{
-			"number": pr.number, "state": state, "isDraft": pr.draft, "headRefOid": pr.head, "headRefName": pr.branch, "baseRefName": "dev", "body": pr.body, "mergedBy": mergedBy,
+			"number": pr.number, "state": state, "isDraft": pr.draft, "headRefOid": pr.head, "headRefName": pr.branch, "baseRefName": cmp.Or(pr.base, "dev"), "body": pr.body, "mergedBy": mergedBy,
 			"author": map[string]any{"login": pr.login}, "labels": map[string]any{"nodes": labels}, "commits": map[string]any{"nodes": commits}, "mergeable": pr.merge, "reviewDecision": pr.decision,
 			"tip":     map[string]any{"nodes": []map[string]any{{"commit": map[string]any{"statusCheckRollup": rollup}}}},
 			"reviews": map[string]any{"nodes": reviews},
@@ -156,18 +157,27 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	read, queue, queueDown := onGitHub(prs, rows)
+	entries, err := json.Marshal(queue)
+	if err != nil {
+		t.Fatal(err)
+	}
 	runner := &shelltest.Fake{}
-	runner.Reply(openReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate")
-	runner.Reply(memberReply(prs), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
+	runner.Reply(openReply(read), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "--paginate")
+	runner.Reply(memberReply(read), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
+	if queueDown {
+		runner.Fail(1, "trunk: unreachable", trunkStatus...)
+	}
+	runner.Reply(string(entries), trunkStatus...)
 	runner.Reply("", "git", "fetch")
-	for _, pr := range prs {
+	for _, pr := range read {
 		runner.Reply("below-"+pr.head+"\n", "git", "merge-base", pr.head)
 		runner.Reply(pr.diff, "git", "diff", "--no-color", "--no-ext-diff", "below-"+pr.head, pr.head)
 	}
-	seeded := make([]store.ReviewRow, 0, len(prs))
-	for _, pr := range prs {
+	seeded := make([]store.ReviewRow, 0, len(read))
+	for _, pr := range read {
 		if !pr.unopened {
 			seeded = append(seeded, store.ReviewRow{Repo: repo, Number: pr.number, Head: pr.head, State: prrow.StateOpen})
 		}
@@ -178,6 +188,97 @@ func newHarness(t *testing.T, prs []recordedPR, rows ...statusRow) harness {
 	a := app.New(io.Discard)
 	a.Runner = runner
 	return harness{facts.New(a, landingConfig, s), s, runner}
+}
+
+var trunkStatus = []string{"/checkouts/repo/tools/ci", "trunk", "status"}
+
+func onGitHub(prs []recordedPR, rows []statusRow) ([]recordedPR, map[string]any, bool) {
+	byNumber := make(map[int]statusRow, len(rows))
+	all := slices.Clone(prs)
+	for _, row := range rows {
+		byNumber[row.Number] = row
+		if !slices.ContainsFunc(prs, func(pr recordedPR) bool { return pr.number == row.Number }) {
+			all = append(all, recordedPR{number: row.Number, head: row.Head, unopened: true})
+		}
+	}
+	read := make([]recordedPR, 0, len(all))
+	queue := map[string]any{}
+	down := false
+	for _, pr := range all {
+		row, described := byNumber[pr.number]
+		if !described {
+			read = append(read, pr)
+			continue
+		}
+		if row.Verdict == "unread" {
+			continue
+		}
+		pr.head, pr.base, pr.state = cmp.Or(pr.head, row.Head), cmp.Or(pr.base, row.Base), cmp.Or(pr.state, row.State)
+		if pr.decision == "" && row.Approval.State == "approved" {
+			pr.decision = "APPROVED"
+		}
+		switch {
+		case pr.merge != "":
+		case strings.Contains(row.Verdict, "conflict"):
+			pr.merge = "CONFLICTING"
+		case strings.Contains(row.Verdict, "mergeable-unknown"):
+			pr.merge = "UNKNOWN"
+		}
+		if pr.rollup == "" && len(pr.checks) == 0 {
+			pr.rollup, pr.checks = checksOf(row.CI)
+		}
+		if entry := entryOf(row, pr.head); entry != nil {
+			queue[strconv.Itoa(pr.number)] = entry
+		}
+		down = down || strings.Contains(row.Verdict, "queue-unknown")
+		read = append(read, pr)
+	}
+	return read, queue, down
+}
+
+const checkedAt = "2026-11-06T09:00:00Z"
+
+func checksOf(ci ciRow) (string, []map[string]any) {
+	var checks []map[string]any
+	for at, name := range ci.Failing {
+		checks = append(checks, checkRun(name, "FAILURE", int64(at+1), int64(at+1), checkedAt))
+	}
+	for at := range ci.Running {
+		checks = append(checks, runningCheck(fmt.Sprintf("running-%d", at)))
+	}
+	switch ci.State {
+	case "green":
+		return "SUCCESS", append(checks, checkRun("buildkite/test", "SUCCESS", 100, 100, checkedAt))
+	case "red":
+		if len(ci.Failing) == 0 {
+			checks = append(checks, checkRun("buildkite/test", "FAILURE", 100, 100, checkedAt))
+		}
+		return "FAILURE", checks
+	case "pending":
+		if ci.Running == 0 {
+			checks = append(checks, runningCheck("buildkite/test"))
+		}
+		return "PENDING", checks
+	}
+	return "", checks
+}
+
+func runningCheck(name string) map[string]any {
+	check := checkRun(name, "", 200, 200, checkedAt)
+	check["status"] = "IN_PROGRESS"
+	return check
+}
+
+func entryOf(row statusRow, at string) map[string]any {
+	switch {
+	case row.Queue == "queued":
+		return map[string]any{"sha": at, "isCurrentlySubmittedToQueue": true, "queueEntry": map[string]any{"state": "testing", "stateChangedAt": checkedAt}}
+	case row.Queue == "evicted":
+		return map[string]any{"sha": at, "queueEntry": map[string]any{"state": "failed", "stateChangedAt": checkedAt}}
+	case row.Mergeability != "" && row.Mergeability != "notQueued":
+		return map[string]any{"sha": at, "queueEntry": map[string]any{"state": row.Mergeability, "stateChangedAt": checkedAt}}
+	}
+	return nil
 }
 
 func (h harness) snapshot(t *testing.T) map[int]machine.Facts {
@@ -191,6 +292,30 @@ func (h harness) snapshot(t *testing.T) map[int]machine.Facts {
 		by[row.Number] = row
 	}
 	return by
+}
+
+func (h harness) heldAndQueued(t *testing.T, named ...int) map[int]machine.Facts {
+	t.Helper()
+	rows, err := h.source.HeldAndQueued(context.Background(), named)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := make(map[int]machine.Facts, len(rows))
+	for _, row := range rows {
+		by[row.Number] = row
+	}
+	return by
+}
+
+func (h harness) queueNumbers(t *testing.T) []string {
+	t.Helper()
+	for _, call := range h.runner.Calls() {
+		if len(call.Argv) >= len(trunkStatus) && slices.Equal(call.Argv[:len(trunkStatus)], trunkStatus) {
+			return call.Argv[len(trunkStatus):]
+		}
+	}
+	t.Fatal("no queue read")
+	return nil
 }
 
 func (h harness) statusNumbers(t *testing.T) []string {
@@ -220,7 +345,7 @@ func TestOnlyAPROpenedOnTheRecordIsRead(t *testing.T) {
 
 	h.snapshot(t)
 
-	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "45757"}) {
+	if got := h.queueNumbers(t); !slices.Equal(got, []string{"1", "45757"}) {
 		t.Fatalf("status read = %v, want the rows only and never a PR no record opened", got)
 	}
 	for _, call := range h.runner.Calls() {
@@ -244,7 +369,7 @@ func TestAnEndedPRCostsNoStatusReadAndLeavesTheRowsWithItsState(t *testing.T) {
 
 	by := h.snapshot(t)
 
-	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "5"}) {
+	if got := h.queueNumbers(t); !slices.Equal(got, []string{"1", "5"}) {
 		t.Fatalf("status read = %v, want the open PR and the one holding an item", got)
 	}
 	if _, drawn := by[2]; drawn {
@@ -290,6 +415,7 @@ func TestANumberGitHubCannotResolveEndsItsRowAndThePassGoesOn(t *testing.T) {
 	runner.FailOut(1, partial, "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	runner.Reply(branchRules, "ccx", "vcs", "gh", "--max-age", "5m")
 	runner.Reply(string(statuses), "ccx", "vcs", "pr", "status")
+	runner.Reply("{}", trunkStatus...)
 	a := app.New(io.Discard)
 	a.Runner = runner
 	source := facts.New(a, landingConfig, h.store)
@@ -799,25 +925,48 @@ func TestADraftIsReadAsADraft(t *testing.T) {
 	}
 }
 
-func TestAPassesGitHubCallsGrowOnlyByPageWhateverThePRCount(t *testing.T) {
-	calls := map[int]int{}
+func TestALandingPassReadsTheQueueOnceAndNoPRAloneAtAnyPRCount(t *testing.T) {
+	type tally struct{ members, queue, perPR, rest int }
+	counted := map[int]tally{}
 	for _, n := range []int{1, manyPRs} {
 		prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, n)
 		for i := 1; i <= n; i++ {
 			sha := fmt.Sprintf("%040x", i)
 			prs = append(prs, recordedPR{number: i, head: sha, login: "drive-bot", commits: []string{sha}})
-			rows = append(rows, status(i, func(row *statusRow) { row.Head = sha }))
+			rows = append(rows, status(i, func(row *statusRow) { row.Head, row.Queue = sha, "queued" }))
 		}
 		h := newHarness(t, prs, rows...)
 
-		if got := h.snapshot(t); len(got) != n {
-			t.Fatalf("n=%d: snapshot has %d rows", n, len(got))
-		}
+		got := h.snapshot(t)
 
-		calls[n] = len(h.runner.Calls())
+		if len(got) != n || !got[n].Queued() || got[n].CI != machine.CISuccess || !got[n].Approved {
+			t.Fatalf("n=%d: snapshot has %d rows, #%d = %+v", n, len(got), n, got[n])
+		}
+		var c tally
+		for _, call := range h.runner.Calls() {
+			last := call.Argv[len(call.Argv)-1]
+			switch {
+			case slices.Equal(call.Argv[:min(4, len(call.Argv))], []string{"ccx", "vcs", "pr", "status"}):
+				c.perPR++
+			case len(call.Argv) >= len(trunkStatus) && slices.Equal(call.Argv[:len(trunkStatus)], trunkStatus):
+				c.queue++
+				if len(call.Argv) != len(trunkStatus)+n {
+					t.Fatalf("n=%d: the queue read named %d PRs", n, len(call.Argv)-len(trunkStatus))
+				}
+			case slices.Contains(call.Argv, "graphql") && strings.Contains(last, "pullRequest(number:"):
+				c.members++
+			default:
+				c.rest++
+			}
+		}
+		counted[n] = c
 	}
-	if calls[1] != 5 || calls[manyPRs] != 4+manyPRs/pageSize {
-		t.Fatalf("command runs at 1 and %d PRs = %d, %d, want 5 and %d: one status read, one rules read, one search, one open-heads read, one read per page of %d", manyPRs, calls[1], calls[manyPRs], 4+manyPRs/pageSize, pageSize)
+	one, many := counted[1], counted[manyPRs]
+	if one.perPR+many.perPR != 0 || one.queue != 1 || many.queue != 1 || one.rest != many.rest {
+		t.Fatalf("command runs at 1 and %d PRs = %+v and %+v, want one queue read, no per-PR status read, and the same other reads at both", manyPRs, one, many)
+	}
+	if one.members != 1 || many.members != manyPRs/pageSize {
+		t.Fatalf("member pages at 1 and %d PRs = %d and %d, want 1 and %d of %d", manyPRs, one.members, many.members, manyPRs/pageSize, pageSize)
 	}
 }
 
@@ -1027,20 +1176,18 @@ func TestTheMemberReadReadsPastOnePage(t *testing.T) {
 
 	h.snapshot(t)
 
-	if got := h.statusNumbers(t); len(got) != 700 || got[699] != strconv.Itoa(700) {
+	if got := h.queueNumbers(t); len(got) != 700 || got[699] != strconv.Itoa(700) {
 		t.Fatalf("status read names %d PRs", len(got))
 	}
 }
 
-func TestQueueCIAndMergeabilityComeFromTheOneStatusRead(t *testing.T) {
+func TestQueueCIAndMergeabilityComeFromTheMemberReadAndTheQueueRead(t *testing.T) {
 	h := newHarness(t, []recordedPR{
 		{number: 1, head: head, login: "drive-bot"},
 		{number: 2, head: head2, login: "drive-bot"},
 		{number: 3, head: head3, login: "drive-bot"},
 		{number: 4, head: fmt.Sprintf("%040x", 4), login: "drive-bot"},
 		{number: 5, head: fmt.Sprintf("%040x", 5), login: "drive-bot"},
-		{number: 6, head: fmt.Sprintf("%040x", 6), login: "drive-bot"},
-		{number: 7, head: fmt.Sprintf("%040x", 7), login: "drive-bot"},
 		{number: 8, head: fmt.Sprintf("%040x", 8), login: "drive-bot"},
 		{number: 9, head: fmt.Sprintf("%040x", 9), login: "drive-bot"},
 	},
@@ -1049,8 +1196,6 @@ func TestQueueCIAndMergeabilityComeFromTheOneStatusRead(t *testing.T) {
 		status(3, func(r *statusRow) { r.CI.State, r.Verdict = "red", "blocked:ci-red" }),
 		status(4, func(r *statusRow) { r.Verdict = "blocked:conflict" }),
 		status(5, func(r *statusRow) { r.Verdict = "blocked:mergeable-unknown" }),
-		status(6, func(r *statusRow) { r.Verdict = "blocked:needs-restack (parent landed),unapproved" }),
-		status(7, func(r *statusRow) { r.Queue, r.State, r.CI.State = "landed", "MERGED", "none" }),
 		status(8, func(r *statusRow) { r.Mergeability = "failed" }),
 		status(9, func(r *statusRow) { r.Mergeability = "cancelled" }),
 	)
@@ -1060,7 +1205,7 @@ func TestQueueCIAndMergeabilityComeFromTheOneStatusRead(t *testing.T) {
 	if by[1].Queue != machine.QueueEvicted || by[1].CI != machine.CISuccess {
 		t.Errorf("#1 = %+v", by[1])
 	}
-	if by[2].Queue != machine.QueueQueued || by[2].QueuedHead != head {
+	if by[2].Queue != machine.QueueQueued || by[2].QueuedHead != head2 {
 		t.Errorf("#2 = %+v", by[2])
 	}
 	if by[3].CI != machine.CIFailure {
@@ -1071,12 +1216,6 @@ func TestQueueCIAndMergeabilityComeFromTheOneStatusRead(t *testing.T) {
 	}
 	if by[5].Mergeable != machine.MergeableUnknown {
 		t.Errorf("#5 = %+v", by[5])
-	}
-	if by[6].Mergeable != machine.MergeableBehind {
-		t.Errorf("#6 = %+v", by[6])
-	}
-	if !by[7].Merged || !by[7].Closed || by[7].CI != machine.CIPending || machine.Classify(by[7]).State != machine.StateLanded {
-		t.Errorf("#7 = %+v", by[7])
 	}
 	if by[8].Queue != machine.QueueEvicted {
 		t.Errorf("a failed Trunk entry = %+v, want evicted", by[8])
@@ -1106,7 +1245,7 @@ func TestTrunkRefusingAPRThatAStackEntryAboveItCarriesReadsAsQueued(t *testing.T
 	}
 }
 
-func TestAQueueStateCcxCouldNotReadIsNeverLandable(t *testing.T) {
+func TestAPassWhoseQueueReadFailedLandsNothing(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}},
 		status(1, func(r *statusRow) { r.Queue, r.Verdict = "unknown", "blocked:queue-unknown" }))
 
@@ -1117,7 +1256,7 @@ func TestAQueueStateCcxCouldNotReadIsNeverLandable(t *testing.T) {
 	}
 }
 
-func TestARowCcxCouldNotReadIsSkippedThisPassAndNeverReadsAsClosed(t *testing.T) {
+func TestARowTheMemberReadMissedIsSkippedThisPassAndNeverReadsAsClosed(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}},
 		status(1), statusRow{PRStatus: ccx.PRStatus{Number: 2, Queue: "unknown", Verdict: "unread"}})
 
@@ -1125,16 +1264,6 @@ func TestARowCcxCouldNotReadIsSkippedThisPassAndNeverReadsAsClosed(t *testing.T)
 
 	if _, read := by[2]; read || len(by) != 1 {
 		t.Fatalf("rows = %+v, want #1 alone", by)
-	}
-}
-
-func TestAnUnknownQueueStateIsAnUnreadPassNamingIt(t *testing.T) {
-	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1, func(r *statusRow) { r.Queue = "parked" }))
-
-	_, err := h.source.Snapshot(context.Background())
-
-	if err == nil || !strings.Contains(err.Error(), `#1: unknown queue state "parked"`) {
-		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -1310,7 +1439,7 @@ func TestPendingSettlesWhenTheRollupAtTheHeadReadsSuccess(t *testing.T) {
 		{number: 4, head: head, login: "drive-bot"},
 	}, status(48252, pending), status(2, pending), status(3, pending), status(4, pending))
 
-	by := h.snapshot(t)
+	by := h.heldAndQueued(t, 48252, 2, 3, 4)
 
 	if by[48252].CI != machine.CISuccess {
 		t.Errorf("a green rollup at the head read %v", by[48252].CI)
@@ -1331,7 +1460,7 @@ func TestGitHubSettlesAMergeabilityTheStatusReadCouldNot(t *testing.T) {
 		{number: 3, head: head, login: "drive-bot", merge: "UNKNOWN"},
 	}, status(1, unread), status(2, unread), status(3, unread))
 
-	by := h.snapshot(t)
+	by := h.heldAndQueued(t, 1, 2, 3)
 
 	if by[1].Mergeable != machine.MergeableClean {
 		t.Errorf("mergeable at the head read %v", by[1].Mergeable)
@@ -2199,7 +2328,7 @@ func TestAPRThatLeftTheOpenListWithAnOpenItemGetsItsTerminalRow(t *testing.T) {
 
 	by := h.snapshot(t)
 
-	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "44"}) {
+	if got := h.queueNumbers(t); !slices.Equal(got, []string{"1", "44"}) {
 		t.Fatalf("status read = %v", got)
 	}
 	if machine.Classify(by[44]).State != machine.StateLanded {
@@ -2235,18 +2364,22 @@ func TestAFailedGitHubReadSkipsThePassAndLeavesNoRows(t *testing.T) {
 }
 
 func TestOnlyGitHubsOwnUnknownCountsAsUncomputed(t *testing.T) {
-	for verdict, want := range map[string]bool{
-		"blocked:mergeable-unknown":               true,
-		"blocked:queue-unknown":                   false,
-		"blocked:queue-unknown,mergeable-unknown": false,
-		"blocked:conflict,mergeable-unknown":      false,
-		"landable":                                false,
+	for name, tc := range map[string]struct {
+		merge   string
+		verdict string
+		want    bool
+	}{
+		"GitHub has not computed it":            {"UNKNOWN", "landable", true},
+		"the queue went unread":                 {"UNKNOWN", "blocked:queue-unknown", false},
+		"a conflict":                            {"CONFLICTING", "landable", false},
+		"GitHub computed it clean":              {"MERGEABLE", "landable", false},
+		"computed clean while the queue failed": {"MERGEABLE", "blocked:queue-unknown", false},
 	} {
-		t.Run(verdict, func(t *testing.T) {
-			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", merge: "UNKNOWN"}}, status(1, func(row *statusRow) { row.Verdict = verdict }))
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", merge: tc.merge}}, status(1, func(row *statusRow) { row.Verdict = tc.verdict }))
 
-			if got := h.snapshot(t)[1].Uncomputed; got != want {
-				t.Fatalf("Uncomputed = %v, want %v", got, want)
+			if got := h.snapshot(t)[1].Uncomputed; got != tc.want {
+				t.Fatalf("Uncomputed = %v, want %v", got, tc.want)
 			}
 		})
 	}

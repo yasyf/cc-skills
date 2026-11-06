@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
@@ -60,7 +61,7 @@ func (q *queue) LastFailure(context.Context, int, time.Time) (landing.Failure, e
 	return landing.Failure{}, nil
 }
 
-func (q *queue) States(context.Context, []int) (map[int]landing.QueueEntry, error) {
+func (q *queue) States(context.Context, []int) (map[int]facts.QueueEntry, error) {
 	return nil, nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	prfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
@@ -55,7 +56,7 @@ type queue struct {
 	dequeued     []int
 	reentered    []int
 	failure      landing.Failure
-	states       map[int]landing.QueueEntry
+	states       map[int]prfacts.QueueEntry
 	statusReads  int
 	failureReads int
 	since        time.Time
@@ -81,7 +82,7 @@ func (q *queue) LastFailure(_ context.Context, _ int, since time.Time) (landing.
 	return q.failure, nil
 }
 
-func (q *queue) States(context.Context, []int) (map[int]landing.QueueEntry, error) {
+func (q *queue) States(context.Context, []int) (map[int]prfacts.QueueEntry, error) {
 	q.statusReads++
 	return q.states, nil
 }

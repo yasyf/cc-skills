@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	prfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
@@ -155,7 +156,7 @@ func TestAFailureAnOpenFlakeNamesIsNotItsOwn(t *testing.T) {
 func TestARowReadingQueuedThatTrunkFailedReadsEvicted(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	s := storeWith(t, "lane-7")
-	q := &queue{failure: batchFailure, states: map[int]landing.QueueEntry{45711: {State: "failed", Head: head}}}
+	q := &queue{failure: batchFailure, states: map[int]prfacts.QueueEntry{45711: {State: "failed", Head: head}}}
 	queued := facts(45711, func(f *machine.Facts) { f.Queue, f.QueuedHead = machine.QueueQueued, head })
 
 	read := settle(t, s, q, queued)
@@ -170,7 +171,7 @@ func TestANotReadyEntryPastTheQueueClockIsToldOnce(t *testing.T) {
 	s := storeWith(t, "lane-7")
 	stale := t0.Add(-machine.QueueClock - time.Minute).Format(time.RFC3339)
 	fresh := t0.Add(-time.Minute).Format(time.RFC3339)
-	q := &queue{states: map[int]landing.QueueEntry{
+	q := &queue{states: map[int]prfacts.QueueEntry{
 		1: {State: "notReady", Head: head, ChangedAt: stale, Readiness: `{"mergeability":"conflict"}`},
 		2: {State: "notReady", Head: head, ChangedAt: fresh},
 	}}
