@@ -36,6 +36,7 @@ type cardShell struct {
 	rowed     map[string]bool
 	removed   []string
 	reasons   []string
+	asked     []string
 }
 
 func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -73,6 +74,9 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		}
 		encoded, err := json.Marshal(map[string]any{"doc": map[string]any{"blocks": blocks}})
 		return shell.Result{Stdout: string(encoded)}, err
+	case strings.HasPrefix(argv, "cc-present ask - "):
+		f.asked = append(f.asked, c.Stdin)
+		return shell.Result{}, nil
 	case strings.Contains(argv, "remove-block"):
 		f.removed = append(f.removed, c.Argv[2])
 		if i := slices.Index(c.Argv, "--reason"); i > 0 {
@@ -372,6 +376,41 @@ func TestSweepWithdrawsACardAskingToLandOnceEveryPRItShowsMergedOrClosedWhatever
 	}
 	if f.status.reads != 1 {
 		t.Fatalf("status reads = %d, want one read for every card's PRs", f.status.reads)
+	}
+}
+
+func TestACardWithdrawnWhenItsPRClosedComesBackUnderItsIDWhenThePRReopens(t *testing.T) {
+	card := "card-tap-closed"
+	on := &cardShell{cards: []string{card}, offers: map[string][]string{card: {"Approve", "Hold"}}, shows: map[string][]int{card: {2}}}
+	f := newCards(t, on, map[int]string{2: "CLOSED"})
+	ctx := context.Background()
+	if err := f.Sweep(ctx, "board-lane", &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	on.cards = nil
+
+	f.status.states[2] = "OPEN"
+	var out bytes.Buffer
+	if err := f.Revive(ctx, "board-lane", &out); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(on.asked) != 1 || !strings.Contains(on.asked[0], `"id":"`+card+`"`) || !strings.Contains(on.asked[0], `"id":"`+card+`-choice"`) {
+		t.Fatalf("asked %q, want the withdrawn card's own block, choice id and all, asked again", on.asked)
+	}
+	if !strings.Contains(out.String(), "REVIVED "+card+": Forge-AI/monorepo#2 is open again") {
+		t.Fatalf("out = %s", out.String())
+	}
+	if err := f.Revive(ctx, "board-lane", &bytes.Buffer{}); err != nil || len(on.asked) != 1 {
+		t.Fatalf("a second pass asked %d times, %v; want the revived card left alone", len(on.asked), err)
+	}
+
+	on.cards, f.status.states[2] = []string{card}, "CLOSED"
+	if err := f.Sweep(ctx, "board-lane", &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{card, card}; !reflect.DeepEqual(on.removed, want) {
+		t.Fatalf("removed = %v, want the revived card withdrawn again on its second close", on.removed)
 	}
 }
 
