@@ -53,6 +53,7 @@ const (
 	obsSection        = "## Sentry, Datadog and ai-oncall reads"
 	beforeWorker      = "before-worker.sh"
 	notesPrefix       = "refs/cc-notes/"
+	checkpointPrefix  = "refs/cc-notes-checkpoints/"
 	notesReceipt      = "notes.log"
 	setupEnv          = "WORKER_SETUP"
 	setupReceipt      = "repo-setup.log"
@@ -63,7 +64,7 @@ const (
 	holdTimeout       = time.Minute
 	claudeFastMode    = `settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json && mkdir -p "${settings%/*}" && { [ -s "$settings" ] || echo '{}' > "$settings"; } && jq '.fastMode = true' "$settings" > "$settings.new" && mv "$settings.new" "$settings"` + "\n"
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
-	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && { git remote set-head origin --auto; ccn sync --prefix "$2docs/"; git fetch --quiet origin "$2*:$2*" "^$2docs/*"; sprite-env services create notes-reindex --cmd sh --args "-c,cd $1 && $HOME/.local/bin/ccn reindex; sprite-env services delete notes-reindex" --no-stream; }`
+	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && { git remote set-head origin --auto; ccn sync --prefix "$2docs/"; git fetch --quiet origin "$2*:$2*" "^$2docs/*" "+$3*:$3*"; sprite-env services create notes-reindex --cmd sh --args "-c,cd $1 && $HOME/.local/bin/ccn reindex; sprite-env services delete notes-reindex" --no-stream; }`
 	runSetup          = `cd "$1" && exec sh -c "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" "$config/scratch/$2" && touch "$config/scratch/$2/` + lanes.StoreFile + drive.OnMac + `" "$config/scratch/$2/runner.json` + drive.OnMac + `" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
@@ -847,7 +848,7 @@ func (w *workerLaunch) fetchNotes(workspace string) error {
 	if code != 0 {
 		return w.receipt(notesReceipt, said)
 	}
-	fetched, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", w.worktree, notesPrefix}, Stdin: token})
+	fetched, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", w.worktree, notesPrefix, checkpointPrefix}, Stdin: token})
 	said = fetched.Stdout + fetched.Stderr
 	if err != nil {
 		said += err.Error() + "\n"

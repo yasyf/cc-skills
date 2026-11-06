@@ -445,7 +445,7 @@ func compactEnvFor(kind string) []string {
 }
 
 func notesCall(workspace string) []string {
-	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", remoteRoot, notesPrefix}
+	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", remoteRoot, notesPrefix, checkpointPrefix}
 }
 
 func setupCall(workspace string) []string {
@@ -2262,7 +2262,7 @@ func TestTheNotesPullImportsDocsBeforeTheRestLandsAndHandsGitTheTokenThroughACre
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix)
+	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix, checkpointPrefix)
 	run.Stdin = strings.NewReader(macGitLogin)
 	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"), "HOME=/home/sprite")
 	if out, err := run.CombinedOutput(); err != nil {
@@ -2288,7 +2288,7 @@ func TestTheNotesPullImportsDocsBeforeTheRestLandsAndHandsGitTheTokenThroughACre
 	want := []string{
 		"git remote set-head origin --auto",
 		"ccn sync --prefix refs/cc-notes/docs/",
-		"git fetch --quiet origin refs/cc-notes/*:refs/cc-notes/* ^refs/cc-notes/docs/*",
+		"git fetch --quiet origin refs/cc-notes/*:refs/cc-notes/* ^refs/cc-notes/docs/* +refs/cc-notes-checkpoints/*:refs/cc-notes-checkpoints/*",
 		"sprite-env services create notes-reindex --cmd sh --args -c,cd " + root + " && /home/sprite/.local/bin/ccn reindex; sprite-env services delete notes-reindex --no-stream",
 	}
 	if !slices.Equal(calls, want) {
@@ -2316,7 +2316,7 @@ func TestTheNotesPullSetsOriginHEADOnACloneThatLacksIt(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.write(filepath.Join(dir, "ccn"), "#!/bin/sh\n", 0o700)
 	f.write(filepath.Join(dir, "sprite-env"), "#!/bin/sh\n", 0o700)
-	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix)
+	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix, checkpointPrefix)
 	run.Stdin = strings.NewReader(macGitLogin)
 	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	if out, err := run.CombinedOutput(); err != nil {
@@ -2328,26 +2328,28 @@ func TestTheNotesPullSetsOriginHEADOnACloneThatLacksIt(t *testing.T) {
 	}
 }
 
-func TestTheNotesPullFetchesEveryRefButTheDocsFromOriginForTheBackgroundImport(t *testing.T) {
+func TestTheNotesPullFetchesEveryRefButTheDocsAndTheLedgerCheckpointsFromOriginForTheBackgroundImport(t *testing.T) {
 	dir := t.TempDir()
 	origin, root := filepath.Join(dir, "origin.git"), filepath.Join(dir, "root")
 	gitOut(t, dir, "init", "--quiet", "--bare", "--initial-branch=dev", origin)
 	gitOut(t, dir, "clone", "--quiet", origin, root)
 	note := gitOut(t, root, "-c", "user.name=a", "-c", "user.email=a@b", "commit-tree", gitOut(t, root, "mktree"), "-m", "doc c3230a2")
-	doc, ledger := notesPrefix+"docs/c3230a2", notesPrefix+"ledgers/5b91baca4e233792d0bb32a5c8a4008aba86c5d6"
-	gitOut(t, root, "push", "--quiet", "origin", note+":"+doc, note+":"+ledger)
+	doc, ledger, checkpoint := notesPrefix+"docs/c3230a2", notesPrefix+"ledgers/5b91baca4e233792d0bb32a5c8a4008aba86c5d6", checkpointPrefix+"ledgers/5b91baca4e233792d0bb32a5c8a4008aba86c5d6"
+	gitOut(t, root, "push", "--quiet", "origin", note+":"+doc, note+":"+ledger, note+":"+checkpoint)
 	f := newWorkerFixture(t)
 	f.write(filepath.Join(dir, "ccn"), "#!/bin/sh\n", 0o700)
 	f.write(filepath.Join(dir, "sprite-env"), "#!/bin/sh\n", 0o700)
-	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix)
+	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix, checkpointPrefix)
 	run.Stdin = strings.NewReader(macGitLogin)
 	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	if out, err := run.CombinedOutput(); err != nil {
 		t.Fatal(string(out), err)
 	}
 
-	if got := gitOut(t, root, "rev-parse", ledger); got != note {
-		t.Fatalf("the Sprite holds %s at %q, want %s", ledger, got, note)
+	for _, ref := range []string{ledger, checkpoint} {
+		if got := gitOut(t, root, "rev-parse", ref); got != note {
+			t.Fatalf("the Sprite holds %s at %q, want %s", ref, got, note)
+		}
 	}
 	if out, err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", doc).CombinedOutput(); err == nil {
 		t.Fatalf("git fetched %s, which ccn sync imports: %s", doc, out)
