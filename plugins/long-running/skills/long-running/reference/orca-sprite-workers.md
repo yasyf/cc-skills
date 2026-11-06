@@ -448,6 +448,7 @@ orca orchestration worker-start --run "<owned-run-id>" --on "<environment>" \
 ```
 
 - This reuses the prepared terminal and worktree and creates the native Task with a pointer to the complete brief.
+- A Codex worker's spec adds one sentence naming `ccx code read --full --budget 32000 <brief.path>` as the single read of the whole brief, never by section or in pieces. Codex cuts any tool output past `tool_output_token_limit`, 10,000 tokens by default, which drops the middle of a 43 KB brief, so the launch raises that limit to the same 32,000.
 - Pass no agent, model, effort or service tier, so the prepared process keeps its own.
 - The ready receipt names the Task and Dispatch. The existing inbox owner handles their messages; do not send a second task pointer or start another consumer.
 - On accepted completion, retain the session and use the [source-return and collection contract](#return-source-for-coordinator-review).
@@ -686,7 +687,7 @@ Local Orca lane worktrees use `~/.orca/workspaces/monorepo/monorepo/<name>`. The
 - Codex review, diagnosis, sweeps and shell-heavy lanes run `gpt-6.1-sol` at `high` on the standard tier. Only an incident lane runs `xhigh` and adds `WORKER_SERVICE_TIER=fast` with `WORKER_INCIDENT=1`.
 - Beyond the coordinator, Fable runs only where the owner named it for the work, local, using the Mac's existing interactive authentication. Never use Fable as a general fallback or set `fallbackModel`.
 - Every lane starts at effort `high`, and an Opus standing desk at `medium`. A Fable or astra model, or effort `xhigh` or `max`, starts only on the owner's words for that work: the brief's `Owner pick: owner:m<row>` line, which `lr launch lane --owner-pick owner:m<row>` writes, and `--owner-pick` on `lr launch claude` for a raw start. `lr launch` checks it on every path, posted, Mac, desk-runner and Sprite, and refuses the launch otherwise with the exact fix. Incident lanes keep `xhigh` on their own tier rule.
-- Every Claude session `lr launch` starts, root and its subagents included, runs with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=333000` and compacts at 300k tokens; a codex lane gets `-c model_auto_compact_token_limit=300000`, written to the Sprite's `config.toml` before its worker starts. A raw `claude` start in a drive session is rewritten to `lr launch claude`, which sets the same. The communicator's own window is exempt. A running window keeps its effort and limit until it is relaunched.
+- Every Claude session `lr launch` starts, root and its subagents included, runs with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=333000` and compacts at 300k tokens; a codex lane gets `-c model_auto_compact_token_limit=300000 -c tool_output_token_limit=32000`, written to the Sprite's `config.toml` before its worker starts. A raw `claude` start in a drive session is rewritten to `lr launch claude`, which sets the same. The communicator's own window is exempt. A running window keeps its effort and limit until it is relaunched.
 
 | Alias | Model ID | Placement |
 | --- | --- | --- |

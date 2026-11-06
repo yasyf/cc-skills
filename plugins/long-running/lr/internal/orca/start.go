@@ -641,7 +641,7 @@ func (l *launch) composeCommand() error {
 	if err != nil {
 		return l.fail("codex config: cannot read the mcp_servers of %s", filepath.Join(home, "config.toml"))
 	}
-	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + tier + " -c model_reasoning_effort=" + l.effort + codexCompact + codexLaneConfig + " -c mcp_servers=" + mcp + off + "'"
+	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + tier + " -c model_reasoning_effort=" + l.effort + codexLimits + codexLaneConfig + " -c mcp_servers=" + mcp + off + "'"
 	return nil
 }
 
@@ -756,7 +756,11 @@ func (l *launch) writeLaneBrief(text string) error {
 }
 
 func (l *launch) pointer(brief string) string {
-	return "Lane " + l.lane + ": read " + brief + " in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree " + l.wt + ", bypass-permissions mode. Mail reaches you only between tool calls, so run anything over 5 minutes in the background. Ask, report and raise a blocker only with `cci post --kind ask|report|blocker`, since the preamble's `send` and `ask` carry the dispatch lifecycle alone (heartbeats, relay acks, worker_done); its Escalate rules hold." + l.node + l.sparse + l.desk + l.noPR
+	whole := ""
+	if l.agent != agentClaude {
+		whole = codexBriefRead(brief)
+	}
+	return "Lane " + l.lane + ": read " + brief + " in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree " + l.wt + ", bypass-permissions mode. Mail reaches you only between tool calls, so run anything over 5 minutes in the background. Ask, report and raise a blocker only with `cci post --kind ask|report|blocker`, since the preamble's `send` and `ask` carry the dispatch lifecycle alone (heartbeats, relay acks, worker_done); its Escalate rules hold." + whole + l.node + l.sparse + l.desk + l.noPR
 }
 
 func (l *launch) composeSpec() error {

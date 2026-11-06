@@ -466,7 +466,11 @@ func relayCalls(workspace string) [][]string {
 
 func (f *workerFixture) startCalls(task object, told ...string) [][]string {
 	brief := task["brief"].(object)
-	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spritePreamble, spriteBuildkite) + strings.Join(told, "")
+	whole := ""
+	if task["agent"].(object)["kind"] == agentCodex {
+		whole = codexBriefRead(brief["path"].(string))
+	}
+	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], whole, spritePreamble, spriteBuildkite) + strings.Join(told, "")
 	workspace := task["environment"].(string)
 	return slices.Concat([][]string{{"gh", "auth", "token"}, notesCall(workspace)}, relayCalls(workspace), [][]string{
 		setupCall(workspace),
@@ -1964,7 +1968,7 @@ func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 		t.Fatal(failed, err)
 	}
 	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
-	if script := f.receiptText("before-worker.sh"); !strings.HasPrefix(script, codexCompactScript()) {
+	if script := f.receiptText("before-worker.sh"); !strings.HasPrefix(script, codexLimitsScript()) {
 		t.Fatal(script)
 	}
 }

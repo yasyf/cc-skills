@@ -1010,7 +1010,7 @@ func TestACodexLaneStartsSolOnTheCodexAgentWithoutACustomTerminal(t *testing.T) 
 	h.healthyClaude()
 	wantLine(t, h.launchedAs(agentCodex, "high"), "lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
-	if !strings.Contains(command, " codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_reasoning_effort=high -c model_auto_compact_token_limit=300000"+codexLaneConfig+" -c mcp_servers={}") || strings.Contains(command, "service_tier") {
+	if !strings.Contains(command, " codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_reasoning_effort=high -c model_auto_compact_token_limit=300000 -c tool_output_token_limit=32000"+codexLaneConfig+" -c mcp_servers={}") || strings.Contains(command, "service_tier") {
 		t.Fatal(command)
 	}
 	start := h.orcaCalls("orchestration worker-start")[0]
@@ -1095,13 +1095,18 @@ func TestAnIncidentLaneRunsCodexOnTheFastTierInItsOwnTerminalInATopLevelWorktree
 	if !slices.Contains(create, "--no-parent") || slices.Contains(create, "--parent-worktree") {
 		t.Fatal(create)
 	}
-	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"+codexCompact+codexLaneConfig+" -c mcp_servers={}'")
+	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"+codexLimits+codexLaneConfig+" -c mcp_servers={}'")
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--terminal") != "term_a" || slices.Contains(start, "--agent") || slices.Contains(start, "--model") || slices.Contains(start, "--effort") {
 		t.Fatal(start)
 	}
 	wantNoCalls(t, h, "terminal read")
 	wantLine(t, strings.TrimSpace(h.readReceipt("lane-a.terminal")), "term_a")
+	spec := h.spec()
+	brief := strings.TrimPrefix(strings.SplitN(spec, " in full first", 2)[0], "Lane lane-a: read ")
+	if !strings.Contains(spec, " Print it whole in one call with `ccx code read --full --budget 32000 "+brief+"`") {
+		t.Fatal(spec)
+	}
 }
 
 func TestAWorkerStartsOnlyTheMCPServersItsLaunchNames(t *testing.T) {
