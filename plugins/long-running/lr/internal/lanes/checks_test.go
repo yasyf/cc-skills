@@ -444,6 +444,8 @@ func notLive(t *testing.T, ledger string, files map[string]string, live string, 
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: argv, Code: 1}
 		case argv[0] == tokenTool:
 			return shell.Result{Stdout: "read-token\n"}, nil
+		case strings.HasSuffix(argv[0], "/lr") && slices.Equal(argv[1:3], []string{"board", "waits"}):
+			return shell.Result{Stdout: "[]"}, nil
 		case slices.Equal(argv[len(argv)-2:], []string{"status", "--json"}):
 			return shell.Result{Stdout: "[]"}, nil
 		case slices.Equal(argv[len(argv)-2:], []string{"select", "--pr"}):
@@ -613,6 +615,43 @@ func TestAReleaseThatShipsALandingResolvesItsBlocker(t *testing.T) {
 	equal(t, len(bus.posted), 4)
 	equal(t, bus.posted[2].Text, "LANDED-NOT-LIVE none")
 	equal(t, bus.posted[3].Resolves, int64(2))
+}
+
+func TestALandingHisOpenPickGatesGoesToOwnerRelayAsThatCardsRowUntilHeAnswers(t *testing.T) {
+	landed := t0.Add(-2 * time.Hour).Format(time.RFC3339)
+	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q},{"pr":"51250","state":"landed","title":"sand-next: preset","landed_sha":"def","landed_at":%q}]`, landed, landed)
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "rust/crates/preset/src/lib.rs\n"}, `[{"target":"sand","commit":"c1"},{"target":"sand-next","commit":"n1"}]`, false)
+	picks := `[{"kind":"pick","block":"card-sand-next-after-3531","title":"Four Mac changes are on dev and not on Macs","url":"https://slack/p1"},{"kind":"tap","subject":"#51250"}]`
+	answers := check.Env.Runner
+	check.Env.Runner = commanded(func(c shell.Command) (shell.Result, error) {
+		if slices.Contains(c.Argv, "waits") {
+			return shell.Result{Stdout: picks}, nil
+		}
+		return answers.Run(context.Background(), c)
+	})
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 3)
+	equal(t, []any{bus.posted[0].Text, bus.posted[0].To}, []any{"LANDED-NOT-LIVE sand: #47799; sand-next: #51250", []string{Root}})
+	root, card := bus.posted[1], bus.posted[2]
+	equal(t, []any{root.To, root.PRs}, []any{[]string{Root}, []string{"47799"}})
+	contains(t, root.Text, "LANDED-NOT-LIVE sand: #47799. ")
+	equal(t, []any{card.Kind, card.To, card.PRs, card.Attrs}, []any{blockerKind, []string{OwnerRelay}, []string{"51250"}, map[string]string{"card": "card-sand-next-after-3531"}})
+	equal(t, card.Text, "LANDED-NOT-LIVE sand-next: #51250. The oldest landed 120 minutes ago, and they ship only with the release his open pick on card-sand-next-after-3531 starts (https://slack/p1); this row is that card's, so root has nothing to cut")
+
+	picks = "[]"
+	if err := check.Check(context.Background(), t0.Add(NotLiveEvery)); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 6)
+	moved, outlived := bus.posted[4], bus.posted[5]
+	equal(t, []any{moved.To, moved.Resolves}, []any{[]string{Root}, int64(2)})
+	contains(t, moved.Text, "LANDED-NOT-LIVE sand: #47799; sand-next: #51250. ")
+	equal(t, []any{outlived.Kind, outlived.Resolves}, []any{"note", int64(3)})
 }
 
 func releasingFeed(state string) string {
