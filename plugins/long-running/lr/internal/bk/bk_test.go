@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -256,6 +257,10 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk annotations test 12 one two",
 		"bk log test 12",
 		"bk log test 12 job extra",
+		"bk log test 12 job --context 51",
+		"bk log test 12 job --context -1",
+		"bk log test 12 job --grep (unclosed",
+		"bk log test 12 --grep panic",
 		"bk build test",
 		"bk build test twelve",
 		"bk jobs test twelve",
@@ -346,6 +351,64 @@ func TestALogReplyKeepsItsTailWithoutTerminalEscapes(t *testing.T) {
 	}
 	if !strings.HasSuffix(read.body, "panic: the real failure\n") || !strings.HasPrefix(read.body, "… cut: the last") {
 		t.Fatalf("body ends %q", read.body[len(read.body)-60:])
+	}
+}
+
+func TestALogOfAFailedJobAnswersItsFailuresFromTheMiddleOfTheLog(t *testing.T) {
+	failure := "--- FAIL: TestIrisServeWireChangeRaisesAPIVersion (0.31s)\n"
+	log := strings.Repeat("=== RUN TestSomething\n", 4000) + "    wire_test.go:88: api version 41, want 42\n" + failure + strings.Repeat("ok  \tpkg\t0.1s\n", 4000)
+	build := `{"number":12,"state":"failed","jobs":[{"id":"` + failedJob + `","type":"script","name":"go 3/8","state":"failed"}]}`
+	runner := &fakeRunner{replies: map[string]string{"/pipelines/test/builds/12": build, failedJob: log}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk log test 12 "+failedJob)
+
+	if !strings.Contains(read.body, "wire_test.go:88: api version 41, want 42\n"+failure+"ok  \tpkg") {
+		t.Fatalf("body misses the failure and its context:\n%s", read.body)
+	}
+	if !strings.HasSuffix(read.head, "1 lines matching "+failureMark+" in a "+strconv.Itoa(len(log))+" byte log, 3 lines of context each") {
+		t.Fatalf("head = %q", read.head)
+	}
+}
+
+func TestALogOfAPassedJobKeepsItsTail(t *testing.T) {
+	log := "--- FAIL: TestRetriedThenPassed\n" + strings.Repeat("ok\n", 100)
+	build := `{"number":12,"state":"passed","jobs":[{"id":"` + failedJob + `","type":"script","name":"go 3/8","state":"passed"}]}`
+	runner := &fakeRunner{replies: map[string]string{"/pipelines/test/builds/12": build, failedJob: log}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk log test 12 "+failedJob)
+
+	if read.body != log {
+		t.Fatalf("body = %q, want the whole short log", read.body)
+	}
+}
+
+func TestALogGrepAnswersEachMatchWithItsContextAndCountsWhatDidNotFit(t *testing.T) {
+	var log strings.Builder
+	for i := range 20000 {
+		fmt.Fprintf(&log, "line %d\n", i)
+		if i%10 == 5 {
+			fmt.Fprintf(&log, "panic: number %d\n", i)
+		}
+	}
+	runner := &fakeRunner{replies: map[string]string{failedJob: log.String()}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk log test 12 "+failedJob+" --grep panic: --context 1")
+
+	if !strings.HasPrefix(read.body, "line 5\npanic: number 5\nline 6\n--\nline 15\npanic: number 15\nline 16\n--\n") {
+		t.Fatalf("body starts %q", read.body[:80])
+	}
+	if len(read.body) > replyLimit {
+		t.Fatalf("body = %d bytes, over the limit", len(read.body))
+	}
+	shown := strings.Count(read.body, "panic: number")
+	if want := fmt.Sprintf(": %d of 2000 lines matching panic: in a %d byte log, %d more dropped to fit", shown, log.Len(), 2000-shown); !strings.HasSuffix(read.head, want) {
+		t.Fatalf("head = %q, want suffix %q", read.head, want)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %d, want only the log read when a regex is given", len(runner.calls))
 	}
 }
 

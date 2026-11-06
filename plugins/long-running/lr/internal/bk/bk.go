@@ -32,8 +32,12 @@ const (
 	bodiesDir   = "bk-desk"
 	perPage     = 100
 	buildsUsage = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
+	logUsage    = "log takes <pipeline> <number> <job id or step key> [--grep <regex>] [--context <lines, 0 to 50>]"
+	jobFailed   = "failed"
+	failureMark = `--- FAIL|panic:|FAIL\s`
+	maxContext  = 50
 	apiUsage    = "api reads one path with GET and answers its raw JSON, or with --fields <name,parent.child,...> one line per element; it takes no other flag such as -X, -d or --jq"
-	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key>, bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
+	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [--grep <regex>] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
 )
 
 var (
@@ -164,10 +168,7 @@ func parse(text string) ([]string, string) {
 		}
 		return []string{"grep", rest[0], rest[1], rest[2], pattern}, ""
 	case "log":
-		if len(rest) == 3 {
-			return append([]string{"log"}, rest...), ""
-		}
-		return nil, "log takes <pipeline> <number> <job id or step key>"
+		return parseLog(rest)
 	case "api":
 		if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
 			return nil, apiUsage
@@ -189,6 +190,23 @@ func parse(text string) ([]string, string) {
 		return []string{"api", rest[0], *fields}, ""
 	}
 	return nil, fmt.Sprintf("bk %s is no read; %s", match[1], usage)
+}
+
+func parseLog(rest []string) ([]string, string) {
+	if len(rest) < 3 || slices.ContainsFunc(rest[:3], func(word string) bool { return strings.HasPrefix(word, "-") }) {
+		return nil, logUsage
+	}
+	flags := flag.NewFlagSet("log", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	pattern := flags.String("grep", "", "")
+	width := flags.Int("context", 3, "")
+	if err := flags.Parse(rest[3:]); err != nil || flags.NArg() != 0 || *width < 0 || *width > maxContext {
+		return nil, logUsage
+	}
+	if _, err := regexp.Compile(*pattern); err != nil {
+		return nil, fmt.Sprintf("log's --grep regex does not compile: %v", err)
+	}
+	return []string{"log", rest[0], rest[1], rest[2], *pattern, strconv.Itoa(*width)}, ""
 }
 
 func parseBuilds(rest []string) ([]string, string) {
@@ -238,17 +256,31 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 	case "annotations":
 		return d.annotations(ctx, args[1], args[2], args[3:])
 	case "grep":
-		said, failure := d.jobLog(ctx, args[1], args[2], args[3])
+		said, _, failure := d.jobLog(ctx, args[1], args[2], args[3])
 		if failure != nil {
 			return *failure
 		}
 		return matching(logEscapes.ReplaceAllString(said, ""), regexp.MustCompile(args[4]))
 	case "log":
-		said, failure := d.jobLog(ctx, args[1], args[2], args[3])
+		said, state, failure := d.jobLog(ctx, args[1], args[2], args[3])
 		if failure != nil {
 			return *failure
 		}
-		cut := askdesk.LastBytes(logEscapes.ReplaceAllString(said, ""), replyLimit)
+		log := logEscapes.ReplaceAllString(said, "")
+		pattern := args[4]
+		if pattern == "" && state == "" {
+			state = d.jobState(ctx, args[1], args[2], args[3])
+		}
+		if pattern == "" && state == jobFailed {
+			pattern = failureMark
+		}
+		width, _ := strconv.Atoi(args[5])
+		if pattern != "" {
+			if found := around(log, regexp.MustCompile(pattern), width); found.body != "" || args[4] != "" {
+				return found
+			}
+		}
+		cut := askdesk.LastBytes(log, replyLimit)
 		return reply{head: fmt.Sprintf("%d bytes of its log", len(cut)), body: cut}
 	}
 	said, failure := d.run(ctx, "api", "-no-wait", args[1])
@@ -326,35 +358,58 @@ func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
 	return "", &reply{head: "the read did not run", body: err.Error()}
 }
 
-func (d *Desk) jobLog(ctx context.Context, pipeline, number, job string) (string, *reply) {
+func (d *Desk) jobLog(ctx context.Context, pipeline, number, job string) (string, string, *reply) {
 	if jobID.MatchString(job) {
-		return d.run(ctx, "log", pipeline, number, job)
+		log, failure := d.run(ctx, "log", pipeline, number, job)
+		return log, "", failure
 	}
-	said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+pipeline+"/builds/"+number)
+	read, failure := d.build(ctx, pipeline, number)
 	if failure != nil {
-		return "", failure
-	}
-	var read build
-	if err := json.Unmarshal([]byte(said), &read); err != nil {
-		return "", &reply{head: "the build did not parse", body: askdesk.FirstBytes(said, replyLimit)}
+		return "", "", failure
 	}
 	var keyed strings.Builder
-	var only string
+	var onlyID, onlyState string
 	count := 0
 	for _, step := range read.Jobs {
 		if step.StepKey == job && !step.Retried {
 			count++
-			only = step.ID
+			onlyID, onlyState = step.ID, step.State
 			fmt.Fprintf(&keyed, "%s job=%s %s\n", step.State, step.ID, step.Name)
 		}
 	}
 	if count != 1 {
-		return "", &reply{
+		return "", "", &reply{
 			head: fmt.Sprintf("%d jobs of build %s carry step key %s, so name one job id; bk jobs %s %s lists them", count, number, job, pipeline, number),
 			body: askdesk.FirstBytes(keyed.String(), replyLimit),
 		}
 	}
-	return d.run(ctx, "log", pipeline, number, only)
+	log, failure := d.run(ctx, "log", pipeline, number, onlyID)
+	return log, onlyState, failure
+}
+
+func (d *Desk) build(ctx context.Context, pipeline, number string) (build, *reply) {
+	said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+pipeline+"/builds/"+number)
+	if failure != nil {
+		return build{}, failure
+	}
+	var read build
+	if err := json.Unmarshal([]byte(said), &read); err != nil {
+		return build{}, &reply{head: "the build did not parse", body: askdesk.FirstBytes(said, replyLimit)}
+	}
+	return read, nil
+}
+
+func (d *Desk) jobState(ctx context.Context, pipeline, number, id string) string {
+	read, failure := d.build(ctx, pipeline, number)
+	if failure != nil {
+		return ""
+	}
+	for _, step := range read.Jobs {
+		if step.ID == id {
+			return step.State
+		}
+	}
+	return ""
 }
 
 type annotation struct {
@@ -516,6 +571,36 @@ func everyJob(said string) reply {
 		}
 	}
 	return reply{head: fmt.Sprintf("%s, %d jobs", read.State, scripts), body: askdesk.FirstBytes(lines.String(), replyLimit), url: read.WebURL}
+}
+
+func around(log string, pattern *regexp.Regexp, width int) reply {
+	lines := strings.SplitAfter(log, "\n")
+	var matches []int
+	for i, line := range lines {
+		if pattern.MatchString(line) {
+			matches = append(matches, i)
+		}
+	}
+	var body strings.Builder
+	shown, end := 0, 0
+	for n, at := range matches {
+		if at < end {
+			shown++
+			continue
+		}
+		from, to := max(at-width, end), min(at+width+1, len(lines))
+		block := strings.Join(lines[from:to], "")
+		if from > end && end > 0 {
+			block = "--\n" + block
+		}
+		if body.Len()+len(block) > replyLimit {
+			return reply{head: fmt.Sprintf("%d of %d lines matching %s in a %d byte log, %d more dropped to fit", shown, len(matches), pattern, len(log), len(matches)-n), body: body.String()}
+		}
+		body.WriteString(block)
+		shown++
+		end = to
+	}
+	return reply{head: fmt.Sprintf("%d lines matching %s in a %d byte log, %d lines of context each", len(matches), pattern, len(log), width), body: body.String()}
 }
 
 func matching(log string, pattern *regexp.Regexp) reply {
