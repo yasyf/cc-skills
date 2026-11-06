@@ -5,7 +5,7 @@ from captain_hook.cmd import COMMAND_VALUE_FLAGS
 from captain_hook.primitives.tap import launched, tapped
 
 from .compaction_handoff import Bound
-from .no_production_as_him import ROOT, SESSION, granted_lane, read
+from .no_production_as_him import ROOT, SESSION, brief_naming, granted_lane, read
 
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 GRANTS_READ = ["git", "config", "--global", "--get-all", "long-running.credentialWrite"]
@@ -91,6 +91,10 @@ REFUSAL = (
         Input(command=KEY_WRITE, env={"CLAUDE_LONG_RUNNING_LANE": "", "CLAUDE_LONG_RUNNING_DRIVE": "d"}, commands={"git config": "=ssm:/ci/desk-host/cci-service-key\n"}): Block(),
         Input(command=KEY_WRITE, env=ROOT, agent_id="a2", transcript=SESSION, commands=GRANTED): Block(),
         Input(command=KEY_WRITE, env=ROOT, agent_id="a1", transcript=SESSION, commands=GRANTED): Allow(),
+        Input(command=KEY_WRITE, env=ROOT, agent_id="a5", transcript=SESSION, file=brief_naming("lane-a"), commands=GRANTED): Allow(),
+        Input(command=KEY_WRITE, env=ROOT, agent_id="a5", transcript=SESSION, file=brief_naming("lane-c"), commands=GRANTED): Block(),
+        Input(command=KEY_WRITE, env=ROOT, agent_id="a5", transcript=SESSION, commands=GRANTED): Block(),
+        Input(command=KEY_WRITE, env=ROOT, agent_id="a6", transcript=SESSION, file=brief_naming("lane-a"), commands=GRANTED): Block(),
         Input(command='KIND=Secure; aws ssm put-parameter --name /ci/x --type "${KIND}String" --value v', env=LANE, commands=UNGRANTED): Block(),
         Input(command="aws ssm --region us-east-1 delete-parameter --name /ci/x", env=LANE, commands=UNGRANTED): Block(),
         Input(command="bash -l -c 'aws ssm delete-parameter --name /ci/x'", env=LANE, commands=UNGRANTED): Block(),

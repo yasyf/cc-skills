@@ -5,13 +5,14 @@ import re
 import subprocess
 from pathlib import Path, PurePosixPath
 
-from captain_hook import Allow, BaseHookEvent, Block, Cmd, Event, HookResult, Input, ast_grep, on, Tool
+from captain_hook import Allow, BaseHookEvent, Block, Cmd, Event, FileFixture, HookResult, Input, ast_grep, on, Tool
 from captain_hook.annotations import dispatch_pairs
 from captain_hook.transcripts import lane_transcript_path
 from cc_transcript import UserEvent, parse
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound
+from .register_injection import BRIEF_FILE, SLICE_HEADER
 
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 ROOT = {"CLAUDE_LONG_RUNNING_LANE": "root"}
@@ -32,9 +33,14 @@ OPENS_ITS_TARGET = frozenset({"goto", "tab"})
 DRIVES_A_PAGE = OPENS_ITS_TARGET | frozenset({"back", "check", "clear", "click", "dblclick", "dialog", "download", "drag", "eval", "exec", "fill", "find", "focus", "forward", "get", "highlight", "hover", "inserttext", "is", "keypress", "mouse", "reload", "screenshot", "scroll", "scrollintoview", "select", "set", "snapshot", "storage", "type", "uncheck", "upload", "wait"})
 IRIS_REFUSAL = "This test Mac's Iris is signed in as the owner, so launching it calls production as him, and only a released-build proof on his Personal team that root granted this lane may. Otherwise run the check on a fresh box as a test user on staging: `ci mac-box up <name>`."
 REFUSAL = "A lane never calls production as the owner or drives the owner's signed-in Orca browser, read or write, under any authority. Prove it with a test identity or a no-write probe, or ask for the owner's identity with `lr ask-owner`."
+BRIEFED = re.compile(rf"\bYour brief is ({BRIEF_FILE.pattern})(?![\w.~/-])")
 
 
 SESSION = Path(__file__).parent / "tests" / "fixtures" / "grant-session.jsonl"
+
+
+def brief_naming(lane: str) -> FileFixture:
+    return FileFixture(home=True, name="relay-brief.md", content=f"Register slice: lane={lane} step=1 topics=credential-write\nRelay the keys.\n")
 
 
 @on(  # capt-hook: no-escape the owner ordered a refusal, and a call made under his identity cannot be taken back
@@ -107,6 +113,8 @@ def no_production_as_him(evt: BaseHookEvent) -> HookResult | None:
         Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env=ROOT, agent_id="a2", transcript=SESSION, commands=GRANTED): Block(),
         Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env=LANE, agent_id="a3", transcript=SESSION, commands=GRANTED): Block(),
         Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env=ROOT, agent_id="a4", transcript=SESSION, commands=GRANTED): Block(),
+        Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env=ROOT, agent_id="a5", transcript=SESSION, file=brief_naming("lane-a"), commands=GRANTED): Allow(),
+        Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env=ROOT, agent_id="a5", transcript=SESSION, file=brief_naming("lane-c"), commands=GRANTED): Block(),
         Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env=LANE, agent_id="a9", transcript=SESSION, commands=GRANTED): Block(),
         Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris", env={"CLAUDE_LONG_RUNNING_LANE": "", "CLAUDE_LONG_RUNNING_DRIVE": "d"}, commands=BOXES | {"git config --global --list": "long-running.signedinproof==release-50287\n"}): Block(),
         Input(command=f"ci mac-box ssh shape-box -- {PERSONAL} open -a Iris  # ccx:lane=lane-a", env=ROOT, agent_id="a2", transcript=SESSION, commands=GRANTED): Block(),
@@ -135,7 +143,18 @@ def granted_lane(evt: BaseHookEvent) -> str | None:
     if not (parent := evt._raw.get("transcript_path")) or not (own := lane_transcript_path(parent, evt.agent_id)).is_file():
         return None
     dispatch = next((event.text for event in parse(own).events if isinstance(event, UserEvent)), "")
-    return dict(dispatch_pairs(dispatch)).get("lane")
+    pairs = dict(dispatch_pairs(dispatch))
+    return pairs["lane"] if "lane" in pairs else briefed_lane(dispatch)
+
+
+def briefed_lane(dispatch: str) -> str | None:
+    if not (named := BRIEFED.search(dispatch)):
+        return None
+    try:
+        brief = Path(named[1]).expanduser().read_text(errors="replace")
+    except (OSError, RuntimeError):
+        return None
+    return sliced[1] if (sliced := SLICE_HEADER.search(brief)) else None
 
 
 def remote_commands(reaching: list[tuple[str, ...]], raw: str) -> list[Cmd | None]:
