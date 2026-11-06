@@ -31,6 +31,7 @@ const (
 	promptStop          = "Worker is waiting on a prompt"
 	turnEndBlocker      = "turn-end:"
 	kindHandoff         = "handoff"
+	kindDone            = "done"
 	stopFact            = "worker-stop:"
 	recordOpen          = "open"
 	typeWorkerDone      = "worker_done"
@@ -367,6 +368,13 @@ func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) 
 	if err != nil || open {
 		return err
 	}
+	ended, err := d.laneFinished(ctx, lane)
+	if err != nil {
+		return err
+	}
+	if ended != "" {
+		return d.record("escalation:resting:"+message.ID, fmt.Sprintf("RESTING %s %s: %s, so its stop needs no answer", message.ID, lane, ended))
+	}
 	subject := message.Subject
 	if subject == finishedStop {
 		rest, err := d.restOf(ctx, lane, message.FromHandle)
@@ -398,17 +406,40 @@ func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) 
 	return d.escalateTo(ctx, message.ID, "DECIDE", lane, fmt.Sprintf("%s: %s", subject, clipRunes(message.Body, 300)), by)
 }
 
-func (d *Desk) restOf(ctx context.Context, lane, terminal string) (livetasks.Rest, error) {
+func (d *Desk) laneFinished(ctx context.Context, lane string) (string, error) {
+	stoodDown, err := d.laneStoodDown(ctx, lane)
+	if err != nil {
+		return "", err
+	}
+	if stoodDown != "" {
+		return "it was stood down by " + stoodDown, nil
+	}
+	newest, err := d.newestRecord(ctx, lane)
+	if err != nil || newest == nil || string(newest.Kind) != kindDone {
+		return "", err
+	}
+	return fmt.Sprintf("it posted DONE #%d", newest.Seq), nil
+}
+
+func (d *Desk) newestRecord(ctx context.Context, lane string) (*client.Record, error) {
 	records, err := d.laneRecords(ctx, lane)
+	if err != nil {
+		return nil, err
+	}
+	records = slices.DeleteFunc(records, func(record client.Record) bool { return string(record.Kind) == kindHandoff })
+	if len(records) == 0 {
+		return nil, nil
+	}
+	return &records[len(records)-1], nil
+}
+
+func (d *Desk) restOf(ctx context.Context, lane, terminal string) (livetasks.Rest, error) {
+	newest, err := d.newestRecord(ctx, lane)
 	if err != nil {
 		return livetasks.Rest{}, err
 	}
-	records = slices.DeleteFunc(records, func(record client.Record) bool { return string(record.Kind) == kindHandoff })
-	if len(records) > 0 {
-		newest := records[len(records)-1]
-		if slices.Contains(restingKinds, string(newest.Kind)) && newest.Status == recordOpen && !strings.HasPrefix(newest.ID, turnEndBlocker) {
-			return livetasks.Rest{Tasks: []string{fmt.Sprintf("its open %s #%d", strings.ToUpper(string(newest.Kind)), newest.Seq)}}, nil
-		}
+	if newest != nil && slices.Contains(restingKinds, string(newest.Kind)) && newest.Status == recordOpen && !strings.HasPrefix(newest.ID, turnEndBlocker) {
+		return livetasks.Rest{Tasks: []string{fmt.Sprintf("its open %s #%d", strings.ToUpper(string(newest.Kind)), newest.Seq)}}, nil
 	}
 	sprites, err := CCRemote{Runner: d.Runner, State: d.Config.CCRemote}.Sprites()
 	if err != nil {
