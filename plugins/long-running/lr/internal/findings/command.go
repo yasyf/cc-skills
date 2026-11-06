@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 const rowTime = "Jan 2 3:04 PM"
@@ -25,7 +26,10 @@ A pick also ends on a release, a claim or root's decide naming its card, its box
 id or its seq, on a PR merged after it whose body or branch names one of them as
 a whole word, and on a record whose delivered=owner:<row> attr names the ledger
 row its pick came from. An opened record, or an answer or resolve of the row, marks
-it routed, which is still live. The supervisor syncs on its tick.`,
+it routed, which is still live. A wake, ask or relay that board-watch, root or
+owner-relay addresses to a lane makes that lane the pick's owner, and a record of
+the owner's or root's carrying still-unmet=<seq> marks it routed again. The
+supervisor syncs on its tick.`,
 	}
 	cmd.PersistentFlags().StringVar(&name, "drive", "", "drive to read (default: the drive bound to this session)")
 	book := func() (Book, error) {
@@ -151,7 +155,32 @@ it routed, which is still live. The supervisor syncs on its tick.`,
 		return nil
 	}}
 
-	cmd.AddCommand(post, sync, shown, show, track, closed, citing)
+	var sendTo string
+	unmet := &cobra.Command{Use: "unmet [SEQ]", Short: "Refuse, with exit 1 and the refusal on stderr, an act under an owner record after the pass that read it until its lane posts a still-unmet record; --send-to checks the newest approved message to that Slack id", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if (len(args) == 1) == (sendTo != "") {
+			return fmt.Errorf("name one owner record SEQ or one --send-to Slack id")
+		}
+		b, seqs, err := withSeqs(book, args)
+		if err != nil {
+			return err
+		}
+		var refused string
+		if sendTo != "" {
+			refused, err = b.SendUnmet(cmd.Context(), sendTo)
+		} else {
+			refused, err = b.Unmet(cmd.Context(), seqs[0])
+		}
+		if err != nil || refused == "" {
+			return err
+		}
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), refused); err != nil {
+			return err
+		}
+		return &wait.ExitError{Code: 1}
+	}}
+	unmet.Flags().StringVar(&sendTo, "send-to", "", "the Slack user or channel id a send goes to")
+
+	cmd.AddCommand(post, sync, shown, show, track, closed, citing, unmet)
 	return cmd
 }
 

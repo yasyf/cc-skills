@@ -90,6 +90,7 @@ KEPT_REFUSALS = KEPT | {
     "shell_waits.A Bash call never waits in a shell loop, s": "the owner ordered the refusal: a shell wait already holds the lane's next message when a warning lands",
     "root_context.The communicator runs no search inline: as": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
     "root_replies.tap_claims_match_the_board": STOP.format(what="the owner would read a false claim about what waits on him"),
+    "stale_pick_sends.stale_pick_sends": "the owner ordered the refusal (559488): a send under an old pick reaches another person the moment it posts, so a warning lands after the message is out",
     "shell_script_file.BLOCKED: Claude Code reads `$$(`, `$${` or": "the call would hold on a permission prompt, so a warning lands too late",
     "no_production_as_him.no_production_as_him": "the owner ordered the refusal: a production call under his identity has already run when a warning lands, and a write made as him cannot be taken back",
     "no_production_as_him.no_iris_as_him_on_a_test_mac": "the owner ordered the refusal: Iris on a test Mac signed in as him calls production as him the moment it launches, and a write made as him cannot be taken back",

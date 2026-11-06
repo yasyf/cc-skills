@@ -216,9 +216,7 @@ apply. A wrapper that runs a build or check remotely fails with a clear error wh
 launches the fix and evidence lanes for an alert nobody answered in three minutes. An alert that
 reaches the coordinator first gets `lr incident run <slug> --fix-brief <file>` before anything
 else, with no real-or-not verdict and no mute treated as resolution. Fixes land forward; a rollback
-runs only on the owner's own word, and only his explicit order mutes an alert. Each incident has
-one actor: beside an open ai-oncall incident a lane hands findings to its commander, and takes it
-over only when `lr owner away <incident id>` prints away. The full rule is in [active-alert-brief.md](reference/active-alert-brief.md).
+runs only on the owner's own word, and only his explicit order mutes an alert. Each incident has one actor; the full rule is in [active-alert-brief.md](reference/active-alert-brief.md).
 
 **R17.** An owner routing instruction applies to the next spawn and to every live lane on that
 problem, the turn it arrives.
@@ -256,13 +254,7 @@ turn; incident lanes read its last day before naming a mechanism. No lane calls 
 **R25.** A deadline comes with a plan. A record, update line or card that states a time something must
 happen by names the lane that meets it and the steps, and the pack refuses one without them.
 
-**R26.** An owner pick is acted on in the pass that reads his tap. Any later act under it, a send
-(a Slack message, DM, email or comment), a merge, or a run of a command, install or restart, first
-gets a fresh record from the lane that owns the ask saying its purpose is still unmet: the thing it
-asks for is still undone, and the text or change is still right. Without that record nothing
-happens, and the verb that acts refuses. An unfinished or overdue pick is a question to its owning
-lane, never an order to act. A tapped PR meets this through its lane's ready record at the head that
-lands.
+**R26.** An owner pick is acted on in the pass that reads his tap. A later send, merge, run, install or restart under it first gets a fresh record from the lane that owns the ask saying its purpose is still unmet, the thing still undone and the text or change still right, and the verb that acts refuses without one. An unfinished or overdue pick is a question to that lane, never an order to act; a tapped PR meets this through its lane's ready record at the head that lands. The pass, the owner and the record are in [watchers.md](reference/watchers.md#owner-picks-after-their-pass).
 
 ## Phase 0: the standing sessions
 

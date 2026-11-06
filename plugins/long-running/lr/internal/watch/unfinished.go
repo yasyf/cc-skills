@@ -14,6 +14,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/findings"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -97,11 +98,13 @@ func (l Ledgers) liveOwner(owner string) string {
 }
 
 func (l Ledgers) pickRoute(fields map[string]string) string {
-	landed := slices.ContainsFunc(namedPR.FindAllStringSubmatch(fields["text"], -1), func(found []string) bool {
+	if owner := l.liveOwner(fields["owner"]); owner != "" {
+		return owner
+	}
+	if slices.ContainsFunc(namedPR.FindAllStringSubmatch(fields["text"], -1), func(found []string) bool {
 		number, err := strconv.Atoi(found[1])
 		return err == nil && l.Landed[number]
-	})
-	if landed || l.liveOwner(fields["owner"]) != "" {
+	}) {
 		return progressDesk
 	}
 	return root
@@ -146,15 +149,24 @@ func Unfinished(l Ledgers, now time.Time) ([]Wait, error) {
 		if !slices.Contains(findingOpen, row.Fields["state"]) || row.Fields["kind"] == pickKind && l.waitsOnHim(row.Fields["text"]) {
 			continue
 		}
-		what, to, where := "finding from "+row.Fields["sweep"], root, "the HEAD record"
+		seq := row.Fields["seq"]
+		what, to := "finding from "+row.Fields["sweep"], root
+		step := fmt.Sprintf("build it and name #%s in the HEAD record, or close it with `lr findings close --why <reason> %s`", seq, seq)
 		if row.Fields["kind"] == pickKind {
-			what, to, where = "owner pick", l.pickRoute(row.Fields), "the HEAD record, the release record, or the merged PR's body or branch"
+			what, to = "owner pick", l.pickRoute(row.Fields)
+			step = pickAsk(to, seq)
 		}
-		what += ", owner " + orNone(row.Fields["owner"])
-		step := fmt.Sprintf("build it and name #%s in %s, or close it with `lr findings close --why <reason> %s`", row.Fields["seq"], where, row.Fields["seq"])
-		waits = append(waits, unfinishedWait(row.Key, what, row.Fields["state"], row.Fields["text"], step, to, row.Updated, time.Time{}, now))
+		waits = append(waits, unfinishedWait(row.Key, what+", owner "+orNone(row.Fields["owner"]), row.Fields["state"], row.Fields["text"], step, to, row.Updated, time.Time{}, now))
 	}
 	return waits, nil
+}
+
+func pickAsk(to, seq string) string {
+	speaker := to
+	if to == progressDesk {
+		speaker = root
+	}
+	return fmt.Sprintf("act on nothing under it until its purpose is checked: if what it asks for is still undone and its text or change is still right, %s posts `%s`; if it is done or moot, close it with `lr findings close --why <reason> %s`", speaker, findings.UnmetPost(speaker, seq), seq)
 }
 
 func unfinishedWait(key, what, quiet, text, step, to string, moved, due, now time.Time) Wait {

@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/findings"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 )
@@ -74,26 +75,43 @@ func Command(a *app.App) *cobra.Command {
 				})
 			},
 		},
-		&cobra.Command{
-			Use:   "restart",
-			Short: "Restart the loaded obs desk once, so it runs the installed lr; run it only on the owner's word for that restart",
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				cfg, _, err := lanes.Loaded(a)
-				if err != nil {
-					return err
-				}
-				agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
-				if err != nil {
-					return err
-				}
-				if err := agents.Restart(cmd.Context(), Label(cfg.Drive)); err != nil {
-					return fmt.Errorf("%w; lr obs install writes it", err)
-				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "lr: %s restarted\n", Label(cfg.Drive))
-				return err
-			},
-		},
+		restartCommand(a),
 	)
+	return cmd
+}
+
+func restartCommand(a *app.App) *cobra.Command {
+	var record int64
+	cmd := &cobra.Command{
+		Use:   "restart --record SEQ",
+		Short: "Restart the loaded obs desk once, so it runs the installed lr, on the owner record holding his word for that restart; a record past the pass that read it waits on its lane's still-unmet record",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, _, err := lanes.Loaded(a)
+			if err != nil {
+				return err
+			}
+			entry, err := drive.Named(cfg.Drive)
+			if err != nil {
+				return err
+			}
+			if err := findings.New(a, entry).Clears(cmd.Context(), record); err != nil {
+				return err
+			}
+			agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
+			if err != nil {
+				return err
+			}
+			if err := agents.Restart(cmd.Context(), Label(cfg.Drive)); err != nil {
+				return fmt.Errorf("%w; lr obs install writes it", err)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "lr: %s restarted\n", Label(cfg.Drive))
+			return err
+		},
+	}
+	cmd.Flags().Int64Var(&record, "record", 0, "the seq of the owner record holding his word for this restart")
+	if err := cmd.MarkFlagRequired("record"); err != nil {
+		panic(err)
+	}
 	return cmd
 }

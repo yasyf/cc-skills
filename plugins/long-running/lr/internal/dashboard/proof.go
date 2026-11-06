@@ -14,8 +14,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 )
 
 var (
@@ -50,7 +48,7 @@ func (s Service) live() string {
 	return filepath.Join(s.Claude, "long-running", "current", "dashboard")
 }
 
-func (s Service) Clear(tree, liveURL string, up bool, proof, order string) error {
+func (s Service) Clear(tree, liveURL string, up bool, proof string, ordered func() error) error {
 	last, err := os.ReadFile(s.served())
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -58,24 +56,13 @@ func (s Service) Clear(tree, liveURL string, up bool, proof, order string) error
 	if !up || string(last) == tree {
 		return nil
 	}
-	if order != "" {
-		return ordered(owner.Ledger(s.State), order)
+	if ordered != nil {
+		return ordered()
 	}
 	if proof == "" {
-		return fmt.Errorf("the dashboard going live is tree %s, which %s does not record as served; restart with --proof <file> naming the commit whose `git rev-parse <commit>:plugins/long-running/dashboard` is that tree, its non-live serve, a desktop and phone screenshot of each page the diff touches and the owner answers that govern them, or --ordered <m-id> for the owner's own order", tree, s.served())
+		return fmt.Errorf("the dashboard going live is tree %s, which %s does not record as served; restart with --proof <file> naming the commit whose `git rev-parse <commit>:plugins/long-running/dashboard` is that tree, its non-live serve, a desktop and phone screenshot of each page the diff touches and the owner answers that govern them, or --record <seq> for the owner record of his own order", tree, s.served())
 	}
 	return proven(proof, tree, liveURL)
-}
-
-func ordered(ledger, row string) error {
-	rows, err := owner.Rows(ledger, true)
-	if err != nil {
-		return err
-	}
-	if !slices.ContainsFunc(rows, func(found string) bool { return strings.HasPrefix(found, "| "+row+" |") }) {
-		return fmt.Errorf("%s holds no owner message %s, so no order of his clears this restart", ledger, row)
-	}
-	return nil
 }
 
 func proven(path, tree, liveURL string) error {

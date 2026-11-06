@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,10 +87,10 @@ func TestARestartOfTheServedDashboardOrOfADownOneNeedsNoProof(t *testing.T) {
 	c := newProofCase(t)
 	write(t, c.s.served(), c.tree)
 
-	if err := c.s.Clear(c.tree, liveURL, true, "", ""); err != nil {
+	if err := c.s.Clear(c.tree, liveURL, true, "", nil); err != nil {
 		t.Fatalf("unchanged: %v", err)
 	}
-	if err := c.s.Clear("ff"+c.tree[2:], liveURL, false, "", ""); err != nil {
+	if err := c.s.Clear("ff"+c.tree[2:], liveURL, false, "", nil); err != nil {
 		t.Fatalf("down: %v", err)
 	}
 }
@@ -98,22 +99,23 @@ func TestAChangedDashboardWithNoProofIsRefusedNamingTheTreeAndTheFlag(t *testing
 	c := newProofCase(t)
 	write(t, c.s.served(), "ff"+c.tree[2:])
 
-	err := c.s.Clear(c.tree, liveURL, true, "", "")
+	err := c.s.Clear(c.tree, liveURL, true, "", nil)
 
 	if err == nil || !strings.Contains(err.Error(), c.tree) || !strings.Contains(err.Error(), "--proof") {
 		t.Fatalf("err %v", err)
 	}
 }
 
-func TestTheOwnersOwnOrderClearsARestartAndAnUnknownRowDoesNot(t *testing.T) {
+func TestTheOwnersOrderDecidesARestartOfAChangedDashboard(t *testing.T) {
 	c := newProofCase(t)
-	write(t, filepath.Join(c.s.State, "owner-relay", "owner-ledger.md"), "| id | time | message | routed | state |\n|---|---|---|---|---|\n| m416 | Nov 3 10:33 PM | restart it | 399805 | open |\n")
+	write(t, c.s.served(), "ff"+c.tree[2:])
+	stale := errors.New("REFUSED #416: past the pass that read it")
 
-	if err := c.s.Clear(c.tree, liveURL, true, "", "m416"); err != nil {
-		t.Fatalf("m416: %v", err)
+	if err := c.s.Clear(c.tree, liveURL, true, "", func() error { return nil }); err != nil {
+		t.Fatalf("a standing order: %v", err)
 	}
-	if err := c.s.Clear(c.tree, liveURL, true, "", "m41"); err == nil {
-		t.Fatal("m41 cleared")
+	if err := c.s.Clear(c.tree, liveURL, true, "", func() error { return stale }); !errors.Is(err, stale) {
+		t.Fatalf("a stale order: %v", err)
 	}
 }
 
@@ -135,7 +137,7 @@ func TestAProofClearsTheRestartOnlyWhenItProvesThatTree(t *testing.T) {
 		"no pages":       {func(p *Proof) { p.Pages = nil }, "shows no page"},
 	}
 	for name, tc := range cases {
-		err := c.s.Clear(c.tree, liveURL, true, c.proof(tc.edit), "")
+		err := c.s.Clear(c.tree, liveURL, true, c.proof(tc.edit), nil)
 		if tc.fault == "" && err != nil {
 			t.Errorf("%s: %v", name, err)
 		}

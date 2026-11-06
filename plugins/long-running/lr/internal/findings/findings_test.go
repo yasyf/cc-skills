@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,7 +34,7 @@ func (f *fakeBus) Tail(_ context.Context, q client.Query) ([]client.Record, erro
 	f.queries = append(f.queries, q)
 	var out []client.Record
 	for _, record := range f.records {
-		if record.Seq > q.After {
+		if record.Seq > q.After && !record.At.Before(q.Since) && (len(q.Kinds) == 0 || slices.Contains(q.Kinds, string(record.Kind))) && (len(q.Lanes) == 0 || slices.Contains(q.Lanes, client.Stem(record.Lane))) {
 			out = append(out, record)
 		}
 	}
@@ -126,6 +127,14 @@ func (w *world) pr(number int, branch, body string, updated, merged time.Time) {
 func (w *world) row(key, seq, kind, box, pr string) {
 	w.t.Helper()
 	fields := Fields{"seq": seq, "kind": kind, "card": box, "pr": pr, "state": stateOpen, "by": "", "owner": coordinator, "sweep": "owner", "at": "2026-11-03T18:05:35.4Z", "text": "t"}
+	if err := w.store.SetRow(context.Background(), ledgerID, key, fields); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func (w *world) owned(key, seq, owner, state, by string) {
+	w.t.Helper()
+	fields := Fields{"seq": seq, "kind": kindPick, "card": "card-x-pick", "pr": "", "state": state, "by": by, "owner": owner, "sweep": "owner", "at": "2026-11-03T18:05:35.4Z", "text": "Send the DM?: Send it"}
 	if err := w.store.SetRow(context.Background(), ledgerID, key, fields); err != nil {
 		w.t.Fatal(err)
 	}
@@ -563,5 +572,67 @@ func TestPrintingRowsIsOneJSONRowPerLineOrGroupedBySweep(t *testing.T) {
 	}
 	if lines := strings.Split(strings.TrimSpace(encoded.String()), "\n"); len(lines) != 2 || !strings.Contains(lines[0], `"seq":"1"`) {
 		t.Fatalf("json = %q", encoded.String())
+	}
+}
+
+func TestAPickOpensOwnedByTheLaneItsAnswerIsAddressedTo(t *testing.T) {
+	w := newWorld(t, 5)
+	w.bus.add(6, "owner", "board-watch", "Owner on board d1, Q (card-x-pick): picked “Cut”", func(r *client.Record) { r.To = []string{"owner-relay", "lane-a"} })
+	w.bus.add(7, "owner", "board-watch", "Owner on board d1, R (card-y-pick): picked “Keep”", func(r *client.Record) { r.To = []string{"root"} })
+	w.sync("")
+
+	if got := w.stored("pick/6")["owner"]; got != "lane-a" {
+		t.Fatalf("pick/6 owner = %q", got)
+	}
+	if got := w.stored("pick/7")["owner"]; got != coordinator {
+		t.Fatalf("pick/7 owner = %q", got)
+	}
+}
+
+func TestAPickIsOwnedByTheLaneARoutersWakeAskOrRelayAddresses(t *testing.T) {
+	to := func(lanes ...string) func(*client.Record) { return func(r *client.Record) { r.To = lanes } }
+	re := func(r *client.Record) { r.Re = 10 }
+	cases := []struct {
+		name, kind, lane, text string
+		change                 []func(*client.Record)
+		owner                  string
+	}{
+		{"board-watch's wake names the asking lane", "decide", "board-watch", "WAKE card-x: the owner answered your card", []func(*client.Record){to("lane-a"), re}, "lane-a"},
+		{"the communicator's relay names the lane that carries it", "owner", "owner-relay", "Owner tapped Send it on card-x", []func(*client.Record){to("lane-b", "root")}, "lane-b"},
+		{"root's ask names the lane it hands it to", "ask", "root", "pick #10: is what it asks still undone?", []func(*client.Record){to("lane-c")}, "lane-c"},
+		{"a send or needs-lane ask to the communicator keeps its owner", "ask", "board-watch", "SEND card-x: the owner picked Send it", []func(*client.Record){to("owner-relay"), re}, coordinator},
+		{"one lane's ask to another routes nothing", "ask", "lane-d", "what does card-x need?", []func(*client.Record){to("lane-e")}, coordinator},
+		{"root's decide that assigns it names the lane it assigns", "decide", "root", "lane-f claims card-x", []func(*client.Record){to("lane-f")}, "lane-f"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t, 15)
+			w.row("pick/10", "10", kindPick, "card-x-pick", "")
+			w.bus.add(20, c.kind, c.lane, c.text, c.change...)
+			w.sync("")
+			if got := w.stored("pick/10")["owner"]; got != c.owner {
+				t.Fatalf("owner = %q, want %q", got, c.owner)
+			}
+		})
+	}
+}
+
+func TestAStillUnmetRecordFromThePicksOwnerOrRootMovesItsRow(t *testing.T) {
+	cases := []struct{ name, lane, by string }{
+		{"its owner, numbered", "lane-a-2", "20"},
+		{"root", "root", "20"},
+		{"another lane", "lane-z", "12"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t, 15)
+			w.owned("pick/10", "10", "lane-a", stateRouted, "12")
+			w.bus.add(20, "answer", c.lane, "the DM is still unsent", func(r *client.Record) {
+				r.Re = 10
+				r.Fields.Attrs = map[string]string{StillUnmetAttr: "10"}
+			})
+			w.sync("")
+			w.expect("pick/10", stateRouted, c.by)
+		})
 	}
 }

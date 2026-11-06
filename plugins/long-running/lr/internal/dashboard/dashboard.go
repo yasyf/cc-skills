@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/findings"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 )
@@ -92,8 +93,9 @@ func Command(a *app.App) *cobra.Command {
 		}
 		return Service{Drive: cfg.Drive, State: state, Claude: env.Claude}, nil
 	}
-	var proof, order string
-	restart := &cobra.Command{Use: "restart", Short: "Restart the drive dashboard's launchd agent and print its URL once it answers; a changed dashboard needs --proof or the owner's --ordered", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	var proof string
+	var record int64
+	restart := &cobra.Command{Use: "restart", Short: "Restart the drive dashboard's launchd agent and print its URL once it answers; a changed dashboard needs --proof or the owner record of his order in --record", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		s, err := service()
 		if err != nil {
 			return err
@@ -106,7 +108,17 @@ func Command(a *app.App) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := s.Clear(tree, live, answers(live), proof, order); err != nil {
+		var ordered func() error
+		if record != 0 {
+			ordered = func() error {
+				entry, err := drive.Named(s.Drive)
+				if err != nil {
+					return err
+				}
+				return findings.New(a, entry).Clears(cmd.Context(), record)
+			}
+		}
+		if err := s.Clear(tree, live, answers(live), proof, ordered); err != nil {
 			return err
 		}
 		agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
@@ -124,7 +136,7 @@ func Command(a *app.App) *cobra.Command {
 		return nil
 	}}
 	restart.Flags().StringVar(&proof, "proof", "", "the JSON proof that the commit going live was served off the live port, screenshotted and checked against the owner's answers")
-	restart.Flags().StringVar(&order, "ordered", "", "the owner ledger row, such as m416, of his own order to restart")
+	restart.Flags().Int64Var(&record, "record", 0, "the seq of the owner record holding his order to restart; one past the pass that read it waits on its lane's still-unmet record")
 	cmd := &cobra.Command{Use: "dashboard", Short: "The drive dashboard's launchd agent, which hosts no session"}
 	cmd.AddCommand(
 		&cobra.Command{Use: "install", Short: "Write the drive dashboard's launchd agent and bootstrap it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {

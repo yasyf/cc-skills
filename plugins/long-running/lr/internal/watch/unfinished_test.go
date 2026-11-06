@@ -7,6 +7,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/findings"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 )
 
@@ -128,7 +129,7 @@ func TestAnUnfinishedPickCarriesHisWholeAnswer(t *testing.T) {
 	}
 }
 
-func TestAPickALandedPROrALiveOwnerCarriesGoesToProgressDeskAndOnlyAnOrphanToRoot(t *testing.T) {
+func TestAPickGoesToItsLiveOwnerAnOrphanALandedPRCarriesToProgressDeskAndOnlyTheRestToRoot(t *testing.T) {
 	now := at(t, "2026-11-06T09:00:00Z")
 	pick := func(seq, owner, text string) ledger.Row {
 		return ledger.Row{Key: "pick/" + seq, Updated: now.Add(-30 * time.Hour), Fields: map[string]string{"state": "routed", "kind": "pick", "owner": owner, "seq": seq, "text": text}}
@@ -153,7 +154,7 @@ func TestAPickALandedPROrALiveOwnerCarriesGoesToProgressDeskAndOnlyAnOrphanToRoo
 	for _, wait := range waits {
 		routes = append(routes, wait.subject()+">"+wait.To)
 	}
-	want(t, strings.Join(routes, " "), "pick/458906>progress-desk pick/455359>progress-desk pick/459001>root pick/459002>root")
+	want(t, strings.Join(routes, " "), "pick/458906>progress-desk pick/455359>agentic-compaction pick/459001>root pick/459002>root")
 }
 
 func TestAPastDueRetroRowGoesToItsOwnersLiveAliasAndOnlyAnOrphanToRoot(t *testing.T) {
@@ -224,4 +225,41 @@ func TestAPickNamingAPRThatWaitsOnHisTapDoesNotEscalateToRoot(t *testing.T) {
 		keys = append(keys, wait.subject())
 	}
 	want(t, strings.Join(keys, " "), "pick/2 pick/3")
+}
+
+func TestAnOldPickAsksItsOwnerWhetherItsPurposeIsStillUnmetAndNeverOrdersTheAct(t *testing.T) {
+	now := at(t, "2026-11-06T22:40:00Z")
+	pick := func(seq, owner, text string) ledger.Row {
+		return ledger.Row{Key: "pick/" + seq, Updated: now.Add(-24 * time.Hour), Fields: map[string]string{"state": "routed", "kind": "pick", "owner": owner, "seq": seq, "text": text}}
+	}
+	l := Ledgers{
+		Findings: []ledger.Row{
+			pick("504257", "handover-option-a", "Repo secret: send this DM to a teammate?: Send it"),
+			pick("458906", "root", "Tap: #45538, sand-next: restore failure deadlines: Approve"),
+			pick("504284", "root", "Subagent tab stuck on Working: why the stream disconnects: Report the close cause"),
+		},
+		Live:   []string{"root", "handover-option-a-2"},
+		Landed: map[int]bool{45538: true},
+	}
+
+	waits, err := Unfinished(l, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want(t, len(waits), 3)
+	for i, speaker := range []string{"handover-option-a", "root", "root"} {
+		seq := strings.TrimPrefix(waits[i].Head, "pick/")
+		if strings.Contains(waits[i].Cause, "build it") {
+			t.Fatalf("cause %q orders the act", waits[i].Cause)
+		}
+		for _, words := range []string{"act on nothing under it", speaker + " posts `" + findings.UnmetPost(speaker, seq) + "`", "lr findings close --why <reason> " + seq} {
+			if !strings.Contains(waits[i].Cause, words) {
+				t.Fatalf("cause %q lacks %q", waits[i].Cause, words)
+			}
+		}
+	}
+	want(t, waits[0].To, "handover-option-a")
+	want(t, waits[1].To, "progress-desk")
+	want(t, waits[2].To, "root")
 }
