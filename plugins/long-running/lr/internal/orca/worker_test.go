@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -21,7 +22,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -708,21 +712,37 @@ func TestTheDefaultPreparesOneSpriteAndStartsItOnce(t *testing.T) {
 	}
 }
 
+func (f *workerFixture) deskDrive(config string) string {
+	state := filepath.Join(f.home, ".claude", "scratch", "brook")
+	f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), `{"drive":"brook","orca_run":"`+workerRun+`","state_dir":"`+state+`"}`, 0o600)
+	if config != "" {
+		f.write(filepath.Join(state, "lr.json"), config, 0o600)
+	}
+	return state
+}
+
+func deskConfigCall() []string {
+	return []string{"sprite", "exec", "-s", workerWorkspace, "--", "sh", "-c", writeDriveConfig, "sh", "brook"}
+}
+
+const deskConfig = `{"repo":"Forge-AI/monorepo","drive":"brook","checkout":"/Users/o/monorepo","author":"drive-bot","label":"brook","movers":["lanes"],"orca_run":"` + workerRun + `"}`
+
 func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T) {
 	f := newWorkerFixture(t)
+	f.deskDrive(deskConfig)
 	text := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
 	f.write(f.brief, text, 0o600)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 	f.launched()
 	spec := f.startedSpec()
-	if !strings.HasSuffix(spec, "then follow it exactly."+spritePreamble+spriteBuildkite+standingDesk) {
+	if !strings.HasSuffix(spec, "then follow it exactly."+spritePreamble+spriteBuildkite+standingDesk+seededStore) {
 		t.Fatal(spec)
 	}
 }
 
 func TestADeskSpriteCopiesItsStoreDetachedAfterItsWorkerStartsSoACopyNeverHoldsTheLaunch(t *testing.T) {
 	f := newWorkerFixture(t)
-	f.env[driveEnv] = "the-drive"
+	f.deskDrive(deskConfig)
 	text := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
 	f.write(f.brief, text, 0o600)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
@@ -737,7 +757,7 @@ func TestADeskSpriteCopiesItsStoreDetachedAfterItsWorkerStartsSoACopyNeverHoldsT
 		t.Fatal(line)
 	}
 
-	want := [][]string{{"sh", "-c", seedStore, "sh", "the-drive", workerWorkspace, filepath.Join(f.attempt, seedCopy)}}
+	want := [][]string{{"sh", "-c", seedStore, "sh", "brook", workerWorkspace, filepath.Join(f.attempt, seedCopy)}}
 	if !reflect.DeepEqual(f.spawned, want) {
 		t.Fatalf("spawned %v, want %v", f.spawned, want)
 	}
@@ -747,6 +767,131 @@ func TestADeskSpriteCopiesItsStoreDetachedAfterItsWorkerStartsSoACopyNeverHoldsT
 	}
 	if !strings.Contains(f.receiptText(seedReceipt), "sprite is not on PATH") {
 		t.Fatal(f.receiptText(seedReceipt))
+	}
+}
+
+func TestAStandingDeskOnASpriteRefusesBeforeAnythingIsPreparedWhenItsDrivesLrJSONCannotTravel(t *testing.T) {
+	desk := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
+	f := newWorkerFixture(t)
+	f.write(f.brief, desk, 0o600)
+	f.sprite()
+	f.refusedWith("a standing desk on a Sprite runs its drive's lr board, lr approved and lr lanes, but no drive entry names Run "+workerRun+" or this session, so there is no lr.json to carry; nothing was prepared", versionCall, currentRunCall)
+	f.wantNoAttempt()
+
+	f = newWorkerFixture(t)
+	f.write(f.brief, desk, 0o600)
+	state := f.deskDrive("")
+	f.sprite()
+	line, failed, err := f.launch(workerLane, "opus", "high")
+	if err != nil || line != "" || !strings.HasPrefix(failed, "a standing desk on a Sprite runs its drive's lr board, lr approved and lr lanes, but its "+filepath.Join(state, "lr.json")+" does not read: ") || !strings.HasSuffix(failed, "; nothing was prepared") {
+		t.Fatal(line, failed, err)
+	}
+	f.wantNoAttempt()
+}
+
+func TestAStandingDeskCarriesItsDrivesLrJSONToWhereLrReadsTheDriveOnTheSprite(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.deskDrive(deskConfig)
+	desk := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
+	f.write(f.brief, desk, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(desk), "bytes": len(desk)}}))
+	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{})
+	f.launched()
+
+	box := t.TempDir()
+	checkout := filepath.Join(box, "monorepo")
+	if out, err := exec.Command("git", "init", "-q", checkout).CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	for _, step := range []struct{ script, stdin string }{
+		{writeDriveEntry, f.stdins[strings.Join(driveCall("brook"), " ")]},
+		{writeDriveConfig, f.stdins[strings.Join(deskConfigCall(), " ")]},
+	} {
+		args := []string{"brook"}
+		if step.script == writeDriveEntry {
+			args = []string{checkout, "brook"}
+		}
+		write := exec.Command("sh", slices.Concat([]string{"-c", step.script, "sh"}, args)...)
+		write.Env = append(os.Environ(), "HOME="+box, "CLAUDE_CONFIG_DIR=")
+		write.Stdin = strings.NewReader(step.stdin)
+		if out, err := write.CombinedOutput(); err != nil {
+			t.Fatal(string(out), err)
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(box, ".claude", "long-running", "drives", "brook.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry drive.Entry
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(entry.Config(), io.Discard)
+	if err != nil {
+		t.Fatalf("lr on the Sprite reads no drive config at %s: %v", entry.Config(), err)
+	}
+	if loaded.Checkout != remoteRoot || loaded.Repo != "Forge-AI/monorepo" || loaded.OrcaRun != workerRun {
+		t.Fatalf("carried %+v", loaded)
+	}
+	if registry, err := store.Open(entry.Store()); !errors.Is(err, store.ErrOnMac) {
+		t.Fatalf("lr on the Sprite opened the drive's registry %v instead of naming the Mac: %v", registry, err)
+	}
+}
+
+func TestAStandingDeskWhoseLrJSONFailsToLandOnItsSpriteRefusesToStartIt(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.deskDrive(deskConfig)
+	desk := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
+	f.write(f.brief, desk, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(desk), "bytes": len(desk)}}))
+	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{code: 1, err: "mv: read-only file system\n"})
+	line, failed, err := f.launch(workerLane, "opus", "high")
+	if err != nil || line != "" || failed != "Sprite "+workerWorkspace+" holds no lr.json for drive brook, which the desk's lr board, lr approved and lr lanes read; "+filepath.Join(f.attempt, configReceipt)+" keeps the output, "+idleWarning+stopSaid {
+		t.Fatal(line, failed, err)
+	}
+	if !strings.Contains(f.receiptText(configReceipt), "read-only file system") || slices.ContainsFunc(f.calls, func(call []string) bool { return slices.Contains(call, "worker-start") }) {
+		t.Fatal(f.calls)
+	}
+}
+
+func TestADesksStoreCopyMakesTheSameCallsAtOneOriginAndAThousandAndCarriesEveryOrigin(t *testing.T) {
+	calls := func(origins int) ([]string, int) {
+		stubs := t.TempDir()
+		log := filepath.Join(stubs, "calls.log")
+		for name, body := range map[string]string{
+			"cci":    `echo "cci $*" >> "$CALLS"; i=0; while [ "$i" -lt "$ORIGINS" ]; do echo "{\"origin\":\"node-$i\",\"origin_seq\":1}"; i=$((i + 1)); done`,
+			"sprite": `echo "sprite $1 $2 $3" >> "$CALLS"; for arg; do case $arg in *:/tmp/store-seed.gz) wc -l < "${arg%%:*}" > "$CALLS.uploaded" ;; esac; done`,
+		} {
+			if err := os.WriteFile(filepath.Join(stubs, name), []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // the stub has to execute
+				t.Fatal(err)
+			}
+		}
+		seed := exec.Command("sh", "-c", seedStore, "sh", "brook", workerWorkspace, filepath.Join(stubs, seedCopy))
+		seed.Env = append(os.Environ(), "PATH="+stubs+":"+os.Getenv("PATH"), "CALLS="+log, "ORIGINS="+strconv.Itoa(origins))
+		if out, err := seed.CombinedOutput(); err != nil {
+			t.Fatal(string(out), err)
+		}
+		made, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		uploaded, err := os.ReadFile(log + ".uploaded")
+		if err != nil {
+			t.Fatal(err)
+		}
+		carried, err := strconv.Atoi(strings.TrimSpace(string(uploaded)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Split(strings.TrimSpace(string(made)), "\n"), carried
+	}
+	one, carriedOne := calls(1)
+	thousand, carriedThousand := calls(1000)
+	if !slices.Equal(one, thousand) || len(one) != 2 || slices.ContainsFunc(one, func(call string) bool { return strings.Contains(call, "relay sync") }) {
+		t.Fatalf("one origin made %q, a thousand made %q", one, thousand)
+	}
+	if carriedOne != 1 || carriedThousand != 1000 {
+		t.Fatalf("the copy carried %d of 1 and %d of 1000 origins", carriedOne, carriedThousand)
 	}
 }
 
@@ -1831,13 +1976,20 @@ func TestAMacFileTheBriefNamesIsOnTheBoxAtThePathTheWorkerReadsBeforeItStarts(t 
 	}
 }
 
-func TestABriefNamingACredentialRefusesNamingItAndPreparesNothing(t *testing.T) {
+func TestABriefWhoseRuleNamesTheIrisSignInLaunchesAndLeavesItBehind(t *testing.T) {
 	f := newWorkerFixture(t)
-	key := filepath.Join(f.home, ".ssh", "id")
-	f.write(key, "secret", 0o600)
-	f.write(f.brief, "Read "+key+".\n", 0o600)
-	f.sprite()
-	f.refusedWith(fmt.Sprintf("brief %s names what no Sprite can receive: %s is a credential path, which never leaves this Mac; nothing was prepared", f.brief, key), versionCall, currentRunCall)
+	iris := filepath.Join(f.home, ".iris", "credentials.json")
+	f.write(iris, "secret", 0o600)
+	text := "Never read ~/.iris/credentials.json.\n"
+	f.write(f.brief, text, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+	f.launched()
+	if want := fmt.Sprintf("warning: brief %s names what stays behind: %s lies outside", f.brief, iris); !strings.Contains(f.stderr.String(), want) {
+		t.Fatal(f.stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(f.attempt, "carried", iris)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the Iris sign-in was carried", err)
+	}
 }
 
 func TestABriefNamingAMissingPathWarnsAndStillStartsItsWorker(t *testing.T) {

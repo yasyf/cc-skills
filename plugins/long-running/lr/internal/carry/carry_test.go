@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,29 +44,14 @@ func landed(t *testing.T, c Carrier, onBox string) string {
 
 func carried(t *testing.T, c Carrier, brief string) string {
 	t.Helper()
-	out, _, err := c.Carry(context.Background(), brief)
-	if err != nil {
-		t.Fatal(err)
-	}
+	out, _ := c.Carry(context.Background(), brief)
 	return out
 }
 
 func leftBehind(t *testing.T, c Carrier, brief string) string {
 	t.Helper()
-	_, left, err := c.Carry(context.Background(), brief)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, left := c.Carry(context.Background(), brief)
 	return strings.Join(left, "; ")
-}
-
-func refused(t *testing.T, c Carrier, brief string) string {
-	t.Helper()
-	out, _, err := c.Carry(context.Background(), brief)
-	if err == nil {
-		t.Fatalf("carried a brief that should be refused, as %q", out)
-	}
-	return err.Error()
 }
 
 func TestAMacFileAndACcnDocTheBriefNamesAreReadableAtTheirRewrittenPaths(t *testing.T) {
@@ -136,19 +122,19 @@ func TestACredentialPathNeverLeavesTheMac(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fault := refused(t, c, "Use ~/.ssh/id_ed25519 or "+link+"\n")
+	left := leftBehind(t, c, "Use ~/.ssh/id_ed25519 or "+link+"\n")
 
-	if !strings.Contains(fault, key+" is a credential path") || !strings.Contains(fault, link+" links to") {
-		t.Fatalf("refusal %q names neither credential path", fault)
+	if !strings.Contains(left, key+" lies outside") || !strings.Contains(left, link+" lies outside") {
+		t.Fatalf("warning %q does not name both credential paths", left)
 	}
 	if entries, _ := os.ReadDir(c.Into); len(entries) != 0 {
-		t.Fatalf("copied %d entries of a refused credential", len(entries))
+		t.Fatalf("copied %d entries of a credential", len(entries))
 	}
 }
 
 func TestADirectoryTravelsWholeAndOneOverTheCapStaysBehind(t *testing.T) {
 	c, _ := carrier(t)
-	logs := filepath.Join(c.Home, "logs")
+	logs := filepath.Join(c.Home, ".claude/scratch/logs")
 	put(t, filepath.Join(logs, "a.log"), "a\n")
 	put(t, filepath.Join(logs, "nested/b.log"), "b\n")
 
@@ -161,13 +147,59 @@ func TestADirectoryTravelsWholeAndOneOverTheCapStaysBehind(t *testing.T) {
 		t.Fatalf("nested copy holds %q", got)
 	}
 
-	big := filepath.Join(c.Home, "big")
+	big := filepath.Join(c.Home, ".claude/scratch/big")
 	put(t, filepath.Join(big, "small.txt"), "x")
 	if err := os.Truncate(filepath.Join(big, "small.txt"), maxBytes+1); err != nil {
 		t.Fatal(err)
 	}
 	if left := leftBehind(t, c, "See "+big+"\n"); !strings.Contains(left, big+" holds 65 MiB, over the 64 MiB a launch carries") {
 		t.Fatalf("warning %q", left)
+	}
+}
+
+func TestAPathOutsideTheCarriedDirectoriesStaysBehindNamedEvenThroughALink(t *testing.T) {
+	c, _ := carrier(t)
+	config := filepath.Join(c.Home, ".claude.json")
+	slack := filepath.Join(c.Home, ".config/cc-slack/drive.toml")
+	put(t, config, "{}\n")
+	put(t, slack, "token\n")
+	link := filepath.Join(c.Home, ".claude/scratch/slack.toml")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(slack, link); err != nil {
+		t.Fatal(err)
+	}
+	brief := "Read " + config + ", ~/.config/cc-slack/drive.toml and " + link + ".\n"
+
+	out, left := c.Carry(context.Background(), brief)
+
+	for _, name := range []string{config, slack, link} {
+		if !slices.ContainsFunc(left, func(fault string) bool { return strings.HasPrefix(fault, name+" lies outside") }) {
+			t.Errorf("warnings %q do not name %s", left, name)
+		}
+	}
+	if out != brief {
+		t.Errorf("rewritten brief %q, want it unchanged", out)
+	}
+	if entries, _ := os.ReadDir(c.Into); len(entries) != 0 {
+		t.Errorf("copied %d entries from outside the carried directories", len(entries))
+	}
+}
+
+func TestTheDrivesPlanDirectoryTravelsWhole(t *testing.T) {
+	c, _ := carrier(t)
+	plan := filepath.Join(c.Home, "handoffs/durable-agents-rebuild/plan")
+	put(t, plan+"/HASH.txt", "9f2c\n")
+	put(t, plan+"/steps/01.md", "step one\n")
+
+	out := carried(t, c, "Follow ~/handoffs/durable-agents-rebuild/plan/ step by step.\n")
+
+	if out != "Follow "+box+plan+"/ step by step.\n" {
+		t.Fatalf("rewritten brief %q", out)
+	}
+	if got := landed(t, c, box+plan+"/steps/01.md"); got != "step one\n" {
+		t.Fatalf("plan step holds %q", got)
 	}
 }
 
@@ -207,14 +239,11 @@ func TestAHelperNamedThroughAVariableTravelsAndItsReferenceReadsTheCopy(t *testi
 	c.Vars = map[string]string{DriveDir: drive}
 	put(t, drive+"/go-desk-2/carry.py", "print('carried')")
 	put(t, drive+"/fg/bin.zsh", "echo fg")
-	put(t, c.Home+"/notes.md", "notes")
+	put(t, c.Home+"/handoffs/notes.md", "notes")
 
-	rewritten, _, err := c.Carry(context.Background(), `python3 "$DRIVE_DIR/go-desk-2/carry.py" --post; ${DRIVE_DIR}/fg/bin.zsh; cat $HOME/notes.md`)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rewritten, _ := c.Carry(context.Background(), `python3 "$DRIVE_DIR/go-desk-2/carry.py" --post; ${DRIVE_DIR}/fg/bin.zsh; cat $HOME/handoffs/notes.md`)
 
-	want := `python3 "` + box + drive + `/go-desk-2/carry.py" --post; ` + box + drive + `/fg/bin.zsh; cat ` + box + c.Home + `/notes.md`
+	want := `python3 "` + box + drive + `/go-desk-2/carry.py" --post; ` + box + drive + `/fg/bin.zsh; cat ` + box + c.Home + `/handoffs/notes.md`
 	if rewritten != want {
 		t.Fatalf("rewritten %q, want %q", rewritten, want)
 	}
@@ -225,13 +254,10 @@ func TestAHelperNamedThroughAVariableTravelsAndItsReferenceReadsTheCopy(t *testi
 
 func TestAVariableTheBriefAssignsItselfExpands(t *testing.T) {
 	c, _ := carrier(t)
-	root := filepath.Join(c.Home, "lane")
+	root := filepath.Join(c.Home, ".claude/scratch/lane")
 	put(t, root+"/items.md", "items")
 
-	rewritten, _, err := c.Carry(context.Background(), "Read `$B/items.md` once.\nexport B="+root+"/\n")
-	if err != nil {
-		t.Fatal(err)
-	}
+	rewritten, _ := c.Carry(context.Background(), "Read `$B/items.md` once.\nexport B="+root+"/\n")
 
 	if !strings.Contains(rewritten, box+root+"//items.md") && !strings.Contains(rewritten, box+root+"/items.md") {
 		t.Fatalf("rewritten %q does not read the copy", rewritten)
@@ -243,10 +269,7 @@ func TestAVariablePathThatDoesNotExistYetIsRewrittenAndNeverRefused(t *testing.T
 	drive := filepath.Join(c.Home, "drive")
 	c.Vars = map[string]string{DriveDir: drive}
 
-	rewritten, _, err := c.Carry(context.Background(), "Write $DRIVE_DIR/lane/NOTES.md as you go.")
-	if err != nil {
-		t.Fatal(err)
-	}
+	rewritten, _ := c.Carry(context.Background(), "Write $DRIVE_DIR/lane/NOTES.md as you go.")
 
 	if rewritten != "Write "+box+drive+"/lane/NOTES.md as you go." {
 		t.Fatalf("rewritten %q", rewritten)
@@ -258,10 +281,7 @@ func TestAVariableNoOneDefinedOrATemplateUnderOnePassesThrough(t *testing.T) {
 	c.Vars = map[string]string{DriveDir: filepath.Join(c.Home, "drive")}
 	text := "cd $DESK_WT/plugins; run $DRIVE_DIR/<lane>/carry.py; ls $DRIVE_DIR"
 
-	rewritten, _, err := c.Carry(context.Background(), text)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rewritten, _ := c.Carry(context.Background(), text)
 
 	if rewritten != text {
 		t.Fatalf("rewritten %q, want it unchanged", rewritten)
@@ -272,10 +292,8 @@ func TestACredentialNamedThroughAVariableNeverLeavesTheMac(t *testing.T) {
 	c, _ := carrier(t)
 	put(t, c.Home+"/.ssh/id", "secret")
 
-	fault := refused(t, c, "cat $HOME/.ssh/id")
-
-	if !strings.Contains(fault, "credential path") {
-		t.Fatalf("refusal %q does not name the credential", fault)
+	if left := leftBehind(t, c, "cat $HOME/.ssh/id"); !strings.Contains(left, c.Home+"/.ssh/id lies outside") {
+		t.Fatalf("warning %q does not name the credential", left)
 	}
 }
 
@@ -316,6 +334,7 @@ func TestHisIrisSignInNeverTravelsWhetherABriefOrABriefItCarriesNamesIt(t *testi
 	c, _ := carrier(t)
 	signIn := c.Home + "/.iris/credentials.json"
 	put(t, signIn, "secret\n")
+	c.Vars = map[string]string{DriveDir: c.Home + "/drive"}
 	desk := c.Home + "/drive/fidelity-shard-6"
 	put(t, desk+"/brief.md", "- His session cookie and ~/.iris/credentials.json are the same grant as his signed-in browser.\n")
 
@@ -324,14 +343,17 @@ func TestHisIrisSignInNeverTravelsWhetherABriefOrABriefItCarriesNamesIt(t *testi
 	if _, err := os.Stat(c.Into + signIn); err == nil {
 		t.Error("his Iris sign-in travelled with a brief the launch carried")
 	}
-	if fault := refused(t, c, "Never use ~/.iris/credentials.json.\n"); !strings.Contains(fault, signIn+" is a credential path") {
-		t.Fatalf("refusal %q does not name his Iris sign-in", fault)
+	if left := leftBehind(t, c, "Never use ~/.iris/credentials.json.\n"); !strings.Contains(left, signIn+" lies outside") {
+		t.Fatalf("warning %q does not name his Iris sign-in", left)
+	}
+	if _, err := os.Stat(c.Into + signIn); err == nil {
+		t.Error("his Iris sign-in travelled with the brief that named it")
 	}
 }
 
 func TestBriefsNamingEachOtherCarryOnceAndEnd(t *testing.T) {
 	c, _ := carrier(t)
-	one, two := c.Home+"/a/one.brief.md", c.Home+"/b/two.brief.md"
+	one, two := c.Home+"/handoffs/a/one.brief.md", c.Home+"/handoffs/b/two.brief.md"
 	put(t, one, "then "+two+"\n")
 	put(t, two, "back to "+one+"\n")
 
@@ -344,9 +366,9 @@ func TestBriefsNamingEachOtherCarryOnceAndEnd(t *testing.T) {
 
 func TestAMissingPathInTheBriefItselfWarnsWhileANestedOneStaysInTheLog(t *testing.T) {
 	c, _ := carrier(t)
-	put(t, c.Home+"/a/one.brief.md", "old "+c.Home+"/gone.txt\n")
+	put(t, c.Home+"/handoffs/a/one.brief.md", "old "+c.Home+"/gone.txt\n")
 
-	if left := leftBehind(t, c, "Read "+c.Home+"/a/one.brief.md\n"); left != "" {
+	if left := leftBehind(t, c, "Read "+c.Home+"/handoffs/a/one.brief.md\n"); left != "" {
 		t.Fatal(left)
 	}
 	if left := leftBehind(t, c, "Read "+c.Home+"/gone.txt\n"); !strings.Contains(left, "does not exist") {
@@ -356,15 +378,15 @@ func TestAMissingPathInTheBriefItselfWarnsWhileANestedOneStaysInTheLog(t *testin
 
 func TestARegisterRowTheToolQuotedIsNeitherCarriedNorChecked(t *testing.T) {
 	c, fake := carrier(t)
-	kept := filepath.Join(c.Home, "kept.md")
+	kept := filepath.Join(c.Home, "handoffs/kept.md")
 	put(t, kept, "kept\n")
 	put(t, c.Home+"/.ssh/id", "secret")
 	rows := "Register slice: lane=a step=all\n  > HAR is at " + c.Home + "/Downloads/gone.har\n  > see " + kept + ", " + c.Home + "/.ssh/id and `ccn task show t-9`\nslice-hash: 0c81c2cb1fc0\n"
 	body := "Scale: small\nRead " + kept + " once.\n"
 
-	out, left, err := c.Carry(context.Background(), "# a\n\n"+rows+body)
-	if err != nil || len(left) != 0 {
-		t.Fatal(err, left)
+	out, left := c.Carry(context.Background(), "# a\n\n"+rows+body)
+	if len(left) != 0 {
+		t.Fatal(left)
 	}
 	if want := "# a\n\n" + rows + "Scale: small\nRead " + box + kept + " once.\n"; out != want {
 		t.Fatalf("got %q, want %q", out, want)
@@ -379,7 +401,7 @@ func TestAPathOutsideTheQuotedRowsIsStillChecked(t *testing.T) {
 	rows := "Register slice: lane=a step=all\nslice-hash: 0c81c2cb1fc0\n"
 	put(t, c.Home+"/.ssh/id", "secret")
 
-	if got := refused(t, c, rows+"cat "+c.Home+"/.ssh/id\n"); !strings.Contains(got, "credential path") {
+	if got := leftBehind(t, c, rows+"cat "+c.Home+"/.ssh/id\n"); !strings.Contains(got, "lies outside") {
 		t.Fatal(got)
 	}
 	if left := leftBehind(t, c, rows+"Read "+c.Home+"/gone.txt\n"); !strings.Contains(left, "does not exist") {
@@ -432,10 +454,7 @@ func TestARecordTheMacCannotShowWarnsNamingItAndLeavesItsReferenceAlone(t *testi
 	fake.Fail(1, "cci: show: 451308: no record has this number", "cci")
 	brief := "Read `cci show 451308` and record 451308 first.\n"
 
-	out, left, err := c.Carry(context.Background(), brief)
-	if err != nil {
-		t.Fatal(err)
-	}
+	out, left := c.Carry(context.Background(), brief)
 
 	if out != brief {
 		t.Fatalf("rewritten brief %q, want it unchanged", out)
@@ -450,10 +469,7 @@ func TestANumberNoRecordOfTheNamedLaneHoldsIsNeverRewritten(t *testing.T) {
 	fake.Fail(1, "no record has this number", "cci", "show", "--json")
 	brief := "Wait for build 106361 and the 13551 bytes of this brief.\n"
 
-	out, left, err := c.Carry(context.Background(), brief)
-	if err != nil {
-		t.Fatal(err)
-	}
+	out, left := c.Carry(context.Background(), brief)
 
 	if out != brief || len(left) != 0 {
 		t.Fatalf("rewrote %q with warnings %q", out, left)

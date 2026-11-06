@@ -87,7 +87,7 @@ func TestAnAnswerToALaneTheSupervisorAlreadyRelaunchedOnceStillRelaunchesIt(t *t
 	tick(t, s, f, t0.Add(mins(5)))
 	f.feed = append(f.feed, rec(4, heir, "stopped", t0.Add(mins(6)), "Waiting on card-next."))
 	tick(t, s, f, t0.Add(mins(6)))
-	equal(t, spentRelaunches(s, row(t, s, heir), "stopped", t0.Add(mins(6))) != "", true)
+	equal(t, spentRelaunches(s, f.deps, row(t, s, heir), nil, "stopped", map[string]bool{}, t0.Add(mins(6))) != "", true)
 
 	f.feed = append(f.feed, cardWake(5, heir, "picked Later", t0.Add(mins(7))))
 	tick(t, s, f, t0.Add(mins(7)))

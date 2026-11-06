@@ -2176,6 +2176,31 @@ func TestAStandingLaneStoppedWithNoSuccessorReachesRootOnceAfterTenMinutes(t *te
 	contains(t, blockers[0].Text, path)
 }
 
+func TestAStandingLaneWithNoSuccessorNamesASuccessorBriefThatLrLaunchAccepts(t *testing.T) {
+	s := memory(t)
+	path := filepath.Join(t.TempDir(), refresher+".brief.md")
+	do(os.WriteFile(path, []byte("# "+refresher+"\nccx: role=desk place=local why=mac-inputs\nStanding: refresh the owner's board every pass\n"), 0o600))
+	f := newFake(t, []Record{spawned(1, refresher, path, t0.Add(-2*time.Hour), nil)}, []Row{who(refresher, true, t0.Add(-time.Hour))})
+	tick(t, s, f, t0.Add(-time.Hour))
+	f.posts = nil
+	f.feed = append(f.feed, rec(2, refresher, "stopped", t0, "retired"))
+	f.peers = nil
+
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(12)))
+	tick(t, s, f, t0.Add(mins(40)))
+
+	heir := filepath.Join(f.deps.Briefs, "board-refresher-7.brief.md")
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	contains(t, blockers[0].Text, "launch its successor from "+heir+",")
+	text, err := os.ReadFile(heir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, string(text), "Replaces: "+refresher+"\nccx: place=local why=predecessor-worked-here\n")
+}
+
 func TestAStandingLanesDoneClosesAnItemAndNeverTheLane(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)

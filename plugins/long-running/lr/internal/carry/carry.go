@@ -39,11 +39,10 @@ var (
 		`|\brecords? +#?(?P<recorded>\d{4,}(?:@[0-9a-f]{6,16})?)\b` +
 		`|\b(?P<tagged>\d+@[0-9a-f]{6,16})\b` +
 		`|\b(?P<lane>[A-Za-z]\w*(?:-\w+)*)(?:'s)? +(?P<bare>\d{5,})\b`)
-	assigned      = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
-	joinedByte    = regexp.MustCompile(`[` + joined + `]`)
-	quotedRows    = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
-	errCredential = errors.New("a credential path, which never leaves this Mac")
-	credentials   = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc", ".iris"}
+	assigned     = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
+	joinedByte   = regexp.MustCompile(`[` + joined + `]`)
+	quotedRows   = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
+	carriedRoots = []string{".local/state/lr-scratch", ".claude/scratch", ".vcache/scratch", ".claude/plans", "handoffs", ".claude/plugins/cache"}
 )
 
 type source struct {
@@ -83,10 +82,7 @@ func Command(a *app.App) *cobra.Command {
 			if config, err := a.ConfigFile(); err == nil {
 				c.Vars[DriveDir] = filepath.Dir(config)
 			}
-			rewritten, left, err := c.Carry(cmd.Context(), string(brief))
-			if err != nil {
-				return fmt.Errorf("brief %s names what no Sprite can receive: %w", args[0], err)
-			}
+			rewritten, left := c.Carry(cmd.Context(), string(brief))
 			for _, behind := range left {
 				fmt.Fprintf(cmd.ErrOrStderr(), "brief %s names what stays behind: %s\n", args[0], behind)
 			}
@@ -103,20 +99,13 @@ func Command(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func (c Carrier) Carry(ctx context.Context, brief string) (string, []string, error) {
+func (c Carrier) Carry(ctx context.Context, brief string) (string, []string) {
 	rewritten, faults := c.rewrite(ctx, brief, map[source]string{})
-	var refused, left []string
+	left := make([]string, 0, len(faults))
 	for _, fault := range faults {
-		if errors.Is(fault, errCredential) {
-			refused = append(refused, fault.Error())
-			continue
-		}
 		left = append(left, fault.Error())
 	}
-	if len(refused) > 0 {
-		return "", left, errors.New(strings.Join(refused, "; "))
-	}
-	return rewritten, left, nil
+	return rewritten, left
 }
 
 func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]string) (string, []error) {
@@ -329,9 +318,6 @@ func (c Carrier) record(ctx context.Context, named source) (string, error) {
 }
 
 func (c Carrier) file(name string) (string, error) {
-	if c.credential(name) {
-		return "", fmt.Errorf("%s is %w", name, errCredential)
-	}
 	resolved, err := filepath.EvalSymlinks(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("%s does not exist on this Mac", name)
@@ -339,8 +325,8 @@ func (c Carrier) file(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if c.credential(resolved) {
-		return "", fmt.Errorf("%s links to %s, %w", name, resolved, errCredential)
+	if !c.carries(resolved) {
+		return "", fmt.Errorf("%s lies outside the drive's state dir and the scratch, plan, handoff and plugin-cache directories a launch carries", name)
 	}
 	var size int64
 	var entries []string
@@ -373,9 +359,21 @@ func (c Carrier) file(name string) (string, error) {
 	return c.Box + name, nil
 }
 
-func (c Carrier) credential(name string) bool {
-	rel, ok := strings.CutPrefix(name, c.Home+"/")
-	return ok && slices.ContainsFunc(credentials, func(dir string) bool { return rel == dir || strings.HasPrefix(rel, dir+"/") })
+func (c Carrier) carries(resolved string) bool {
+	roots := make([]string, 0, 1+len(carriedRoots))
+	roots = append(roots, c.Vars[DriveDir])
+	for _, root := range carriedRoots {
+		roots = append(roots, filepath.Join(c.Home, root))
+	}
+	return slices.ContainsFunc(roots, func(root string) bool {
+		if root == "" {
+			return false
+		}
+		if linked, err := filepath.EvalSymlinks(root); err == nil {
+			root = linked
+		}
+		return resolved == root || strings.HasPrefix(resolved, root+"/")
+	})
 }
 
 func copyEntry(from, to string) error {

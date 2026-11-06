@@ -22,7 +22,9 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -49,6 +51,7 @@ const (
 	notesPrefix       = "refs/cc-notes/"
 	notesReceipt      = "notes.log"
 	driveReceipt      = "drive-entry.log"
+	configReceipt     = "drive-config.log"
 	spriteHost        = "sprite"
 	workerAwake       = "worker-awake"
 	holdReceipt       = "awake.log"
@@ -57,7 +60,8 @@ const (
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
 	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && exec ccn sync --prefix "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
-	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
+	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" "$config/scratch/$2" && touch "$config/scratch/$2/` + lanes.StoreFile + store.OnMac + `" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
+	writeDriveConfig  = `umask 077; state=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scratch/$1 && mkdir -p "$state" && cat > "$state/lr.json.new" && mv "$state/lr.json.new" "$state/lr.json"`
 	seedStore         = `cci relay export --drive "$1" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-seed.gz" -- sh -c 'sprite-env services create store-seed --cmd sh --args "-c,$HOME/.local/bin/cci relay seed --drive $1 < /tmp/store-seed.gz; rm /tmp/store-seed.gz; sprite-env services delete store-seed" --no-stream' sh "$1"; rm -f "$3"`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
@@ -92,6 +96,7 @@ type workerLaunch struct {
 	pins                                          spritePins
 	terminal, worktree                            string
 	bytes                                         int
+	driveConfig                                   map[string]json.RawMessage
 	stages                                        launchStages
 	unattached                                    bool
 }
@@ -213,6 +218,11 @@ func (w *workerLaunch) start(model string) (string, error) {
 			owner = "no Run"
 		}
 		return "", refuse("terminal %s coordinates %s, not %s, so nothing launched; launch from the coordinator that already owns Run %s", handle, owner, w.run, w.run)
+	}
+	if w.route == routeSprite && briefDesk.Match(raw) {
+		if err := w.readDriveConfig(); err != nil {
+			return "", err
+		}
 	}
 	if err := w.claimAttempt(); err != nil {
 		return "", err
@@ -395,6 +405,21 @@ func present(path string) bool {
 	return err == nil
 }
 
+func (w *workerLaunch) readDriveConfig() error {
+	entry := w.driveEntry()
+	if entry == nil {
+		return refuse("a standing desk on a Sprite runs its drive's lr board, lr approved and lr lanes, but no drive entry names Run %s or this session, so there is no lr.json to carry; nothing was prepared", w.run)
+	}
+	raw, err := os.ReadFile(entry.Config())
+	if err != nil {
+		return refuse("a standing desk on a Sprite runs its drive's lr board, lr approved and lr lanes, but its %s does not read: %v; nothing was prepared", entry.Config(), err)
+	}
+	if json.Unmarshal(raw, &w.driveConfig) != nil || w.driveConfig == nil {
+		return refuse("a standing desk on a Sprite runs its drive's lr board, lr approved and lr lanes, but its %s is no JSON object; nothing was prepared", entry.Config())
+	}
+	return nil
+}
+
 func (w *workerLaunch) claimAttempt() error {
 	legacy := filepath.Join(w.dir, w.stem+".dispatch.json")
 	if present(legacy) {
@@ -424,10 +449,7 @@ func (w *workerLaunch) carryBrief() error {
 	if entry := w.driveEntry(); entry != nil {
 		carrier.Drive = ccDrive(entry)
 	}
-	rewritten, left, err := carrier.Carry(w.ctx, string(raw))
-	if err != nil {
-		return refuse("brief %s names what no Sprite can receive: %v; nothing was prepared", w.brief, err)
-	}
+	rewritten, left := carrier.Carry(w.ctx, string(raw))
 	for _, behind := range left {
 		fmt.Fprintf(w.Stderr, "warning: brief %s names what stays behind: %s\n", w.brief, behind)
 		w.stages.say(w.ctx, "stays behind on the Mac: "+behind)
@@ -752,7 +774,30 @@ func (w *workerLaunch) carryDrive(workspace string) error {
 		said += err.Error() + "\n"
 		fmt.Fprintf(w.Stderr, "warning: Sprite %s holds no entry for drive %s, so lane %s runs without the drive's hooks; %s keeps the output\n", workspace, entry.Drive, w.lane, filepath.Join(w.attempt, driveReceipt))
 	}
-	return w.receipt(driveReceipt, said)
+	if err := w.receipt(driveReceipt, said); err != nil || w.driveConfig == nil {
+		return err
+	}
+	return w.carryDriveConfig(workspace, entry.Drive)
+}
+
+func (w *workerLaunch) carryDriveConfig(workspace, name string) error {
+	checkout, err := json.Marshal(w.worktree)
+	if err != nil {
+		return err
+	}
+	w.driveConfig["checkout"] = checkout
+	carried, err := json.Marshal(w.driveConfig)
+	if err != nil {
+		return err
+	}
+	written, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", writeDriveConfig, "sh", name}, Stdin: string(carried)})
+	if receipt := w.receipt(configReceipt, written.Stdout+written.Stderr); receipt != nil {
+		return receipt
+	}
+	if err != nil {
+		return refuse("Sprite %s holds no lr.json for drive %s, which the desk's lr board, lr approved and lr lanes read; %s keeps the output, %s", workspace, name, filepath.Join(w.attempt, configReceipt), idleWarning)
+	}
+	return nil
 }
 
 func (w *workerLaunch) seedDesk(workspace string) error {
@@ -866,7 +911,7 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	w.terminal, _ = textOf(task["terminal"])
 	desk := ""
 	if briefDesk.Match(raw) {
-		desk = standingDesk
+		desk = standingDesk + seededStore
 	}
 	noPR := ""
 	if briefNoPR.Match(raw) {
