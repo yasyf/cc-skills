@@ -113,6 +113,10 @@ func prepared() object {
 	}
 }
 
+func briefOf(text string) object {
+	return object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}
+}
+
 func overlaid(base object, fields object) object {
 	merged := maps.Clone(base)
 	maps.Copy(merged, fields)
@@ -1739,7 +1743,7 @@ func TestAnExplicitConfigOfAnotherCheckoutLeavesTheVersionToCCRemote(t *testing.
 
 func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 	f := newWorkerFixture(t)
-	task := overlaid(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": []string{"{}"}}})
+	task := overlaid(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": []string{"{}"}}, "brief": briefOf(workerBrief + obsRoute(workerLane))})
 	f.spriteAllocated(allocationOf(task, object{"ref": "release/2026.10"}))
 	maps.Copy(f.env, map[string]string{"WORKER_SERVICE_TIER": "fast", "WORKER_INCIDENT": "1", "WORKER_REF": "release/2026.10", "WORKER_MCP_CONFIG": "{}"})
 	if _, failed, err := f.launch(workerLane, "gpt-6.1-sol", "xhigh"); err != nil || failed != "" {
@@ -2461,7 +2465,7 @@ func TestAnIncidentModelStartsOnASpriteAsAnIncidentLaneOnItsFastTier(t *testing.
 			if tt.tier != nil {
 				agent["serviceTier"] = "fast"
 			}
-			task := overlaid(prepared(), object{"agent": agent})
+			task := overlaid(prepared(), object{"agent": agent, "brief": briefOf(workerBrief + obsRoute(workerLane))})
 			f.spriteAllocated(allocationOf(task, nil))
 			if _, failed, err := f.launch(workerLane, tt.model, "xhigh"); err != nil || failed != "" {
 				t.Fatal(failed, err)
@@ -2506,11 +2510,46 @@ func TestAnIncidentBriefOnASpriteIsToldWhatItCannotReadAndWhoReadsItInstead(t *t
 	for header, want := range map[string]bool{"ccx: role=fix incident=sentry-1": true, "ccx: role=build incident=none": false} {
 		f := newWorkerFixture(t)
 		text := "# Lane A\n" + header + "\nFix what broke.\n"
+		carried := text
+		if want {
+			carried += obsRoute(workerLane)
+		}
 		f.write(f.brief, text, 0o600)
-		f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+		f.spriteWith(overlaid(prepared(), object{"brief": briefOf(carried)}))
 		f.launched()
-		if strings.HasSuffix(f.startedSpec(), incidentOnSprite) != want {
+		if strings.HasSuffix(f.startedSpec(), incidentOnSprite) != want || f.receiptText(briefFile) != carried {
 			t.Fatal(header, f.startedSpec())
 		}
+	}
+}
+
+func TestASpriteEvidenceLaneIsToldToAskObsDeskAndAMacOneIsNot(t *testing.T) {
+	text := "# Lane A\nccx: role=evidence place=remote incident=none\nFrom Datadog only, name which namespace fired and since when.\n"
+	sprite := newWorkerFixture(t)
+	sprite.write(sprite.brief, text, 0o600)
+	sprite.spriteWith(overlaid(prepared(), object{"brief": briefOf(text + obsRoute(workerLane))}))
+	sprite.launched()
+	carried := sprite.receiptText(briefFile)
+	for _, want := range []string{"\n" + obsSection + "\n", "`cci post --lane 'lane-a' --kind ask --to obs-desk --text '<read>'`", "datadog logs [--from <age>] [--to <age>] <query>", "never use the Sentry or Datadog MCP tools, look here for a key or token"} {
+		if !strings.Contains(carried, want) {
+			t.Fatalf("carried brief lacks %q:\n%s", want, carried)
+		}
+	}
+	if want := "warning: brief " + sprite.brief + " names Sentry, Datadog or ai-oncall reads but not obs-desk"; !strings.Contains(sprite.stderr.String(), want) {
+		t.Fatalf("stderr lacks %q:\n%s", want, sprite.stderr.String())
+	}
+
+	mac := newWorkerFixture(t)
+	mac.local()
+	mac.write(mac.brief, text, 0o600)
+	if _, failed, err := mac.launch(workerLane, "opus", "high"); err != nil || failed != "" {
+		t.Fatal(failed, err)
+	}
+	brief, err := os.ReadFile(mac.brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec := mac.startedSpec(); !strings.Contains(spec, mac.brief) || strings.Contains(spec, "obs-desk") || string(brief) != text || strings.Contains(mac.stderr.String(), "obs-desk") {
+		t.Fatalf("spec %q, brief %q, stderr %q", spec, brief, mac.stderr.String())
 	}
 }

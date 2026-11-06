@@ -398,6 +398,8 @@ cci post --kind ask --to obs-desk "sentry issue <id>"
 - The desk makes read calls only. Any other text, a resolve, mute, downtime, notebook, Slack post, `oncall say` or `oncall connect` included, gets a refusal that names the reads, and nothing runs.
 - The answer is a record addressed to the lane that closes the ask, within seconds; `cci show <seq>` prints the body. A repeated read is answered from memory for a minute.
 - The keys stay in the desk's memory: never in a file, record, log, brief or command line, and never on a Sprite.
+- A lane that `lr launch` or `lr incident` places on a Sprite gets this route in its Sprite copy of the brief. Its `## Sentry, Datadog and ai-oncall reads` section holds the ask form, the reads and the rule never to look for a key, sign-in or CLI on the Sprite. That covers every incident, evidence or diagnosis lane, and every lane whose own text, outside its register rows, names Sentry, Datadog or oncall, unless the brief already asks `--to obs-desk`. A lane placed on the Mac gets no section.
+- A brief that names those reads without asking `--to obs-desk` launches where root placed it, and its Sprite launch prints one warning line naming the brief.
 
 ### Run the obs desk
 

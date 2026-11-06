@@ -35,8 +35,10 @@ const (
 	listLimit     = 100
 	frameLimit    = 15
 	slackLimit    = 200
-	usage         = "name one read: sentry issue <id or short id>, sentry events <id>, sentry search [--period <14d>] <query>, sentry api <path>, datadog monitor <id>, datadog logs [--from <age>] [--to <age>] <query>, datadog spans [--from <age>] [--to <age>] <query>, datadog metric [--from <age>] [--to <age>] <query>, datadog api <path>, slack thread <permalink>, or oncall <read verb>"
-	oncallUsage   = "oncall reads with incidents, page status <id>, ledger <id>, journal read <id> --to <seq>, history --monitor <id> --since <RFC3339>, monitors --key <key>, impact --from <RFC3339> --to <RFC3339>, current, responder or connections list <id>; connect, say and every write go through your evidence lane"
+	Reads         = "sentry issue <id or short id>, sentry events <id>, sentry search [--period <14d>] <query>, sentry api <path>, datadog monitor <id>, datadog logs [--from <age>] [--to <age>] <query>, datadog spans [--from <age>] [--to <age>] <query>, datadog metric [--from <age>] [--to <age>] <query>, datadog api <path>"
+	OncallReads   = "incidents, page status <id>, ledger <id>, journal read <id> --to <seq>, history --monitor <id> --since <RFC3339>, monitors --key <key>, impact --from <RFC3339> --to <RFC3339>, current, responder or connections list <id>"
+	usage         = "name one read: " + Reads + ", slack thread <permalink>, or oncall <read verb>"
+	oncallUsage   = "oncall reads with " + OncallReads + "; connect, say and every write go through your evidence lane"
 )
 
 var (
