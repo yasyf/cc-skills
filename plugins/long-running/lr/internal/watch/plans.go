@@ -87,23 +87,28 @@ func stillAhead(clock, rest string, written time.Time) bool {
 	if laterDay.MatchString(rest) {
 		return true
 	}
+	due, ok := clockDue(at, rest, written)
+	return ok && due.After(written)
+}
+
+func clockDue(at time.Time, rest string, written time.Time) (time.Time, bool) {
 	written = written.In(pacific)
 	if named := monthDay.FindStringSubmatch(rest); named != nil {
 		date, err := time.Parse("Jan 2", named[1][:3]+" "+named[2])
 		if err != nil {
-			return false
+			return time.Time{}, false
 		}
 		due := time.Date(written.Year(), date.Month(), date.Day(), at.Hour(), at.Minute(), 0, 0, pacific)
 		if written.Sub(due) > dateWrap {
 			due = due.AddDate(1, 0, 0)
 		}
-		return due.After(written)
+		return due, true
 	}
 	due := time.Date(written.Year(), written.Month(), written.Day(), at.Hour(), at.Minute(), 0, 0, pacific)
 	if written.Sub(due) > clockWrap {
 		due = due.AddDate(0, 0, 1)
 	}
-	return due.After(written)
+	return due, true
 }
 
 func parsedClock(clock string) (time.Time, bool) {
@@ -296,29 +301,13 @@ func timedSteps(record client.Record) []step {
 		if !strings.HasPrefix(key, stepAttr) || !ok {
 			continue
 		}
-		rest := strings.TrimSpace(value[len(clock):])
-		steps = append(steps, step{name: key, clock: clock, what: rest, due: stepDue(at, rest, record.At)})
+		rest := value[len(clock):]
+		if due, ok := clockDue(at, rest, record.At); ok {
+			steps = append(steps, step{name: key, clock: clock, what: strings.TrimSpace(rest), due: due})
+		}
 	}
 	slices.SortFunc(steps, func(a, b step) int { return a.due.Compare(b.due) })
 	return steps
-}
-
-func stepDue(at time.Time, rest string, written time.Time) time.Time {
-	written = written.In(pacific)
-	if named := monthDay.FindStringSubmatch(" " + rest); named != nil {
-		if date, err := time.Parse("Jan 2", named[1][:3]+" "+named[2]); err == nil {
-			due := time.Date(written.Year(), date.Month(), date.Day(), at.Hour(), at.Minute(), 0, 0, pacific)
-			if written.Sub(due) > dateWrap {
-				due = due.AddDate(1, 0, 0)
-			}
-			return due
-		}
-	}
-	due := time.Date(written.Year(), written.Month(), written.Day(), at.Hour(), at.Minute(), 0, 0, pacific)
-	if due.Before(written.Truncate(time.Minute)) {
-		due = due.AddDate(0, 0, 1)
-	}
-	return due
 }
 
 func rowOf(record client.Record) string {

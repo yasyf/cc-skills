@@ -443,6 +443,36 @@ func TestAStepWhoseClockPassedBeforeThePlanWindowIsHistoryAndWakesNobody(t *test
 	want(t, len(MissedSteps([]client.Record{plan}, live, said.Add(16*time.Minute+planWindow))), 0)
 }
 
+func TestAStepClockJustBehindItsRecordFiresOnItsOwnDayAndNeverOnTheNext(t *testing.T) {
+	written := at(t, "2026-11-05T17:39:00Z")
+	start := withAttrs(client.Record{Seq: 484932, Lane: "release-6", Kind: "release", At: written}, map[string]string{"owner": "release-6", "step:1": "9:38 AM cut 13295 started"})
+	live := []store.Lane{{Name: "release-6", State: store.LaneDesired}}
+
+	want(t, len(MissedSteps([]client.Record{start}, live, written.Add(time.Minute))), 1)
+	want(t, len(MissedSteps([]client.Record{start}, live, written.Add(24*time.Hour-time.Minute))), 0)
+	want(t, len(MissedSteps([]client.Record{start}, live, written.Add(24*time.Hour+5*time.Minute))), 0)
+	want(t, NextStep([]client.Record{start}, written).IsZero(), true)
+}
+
+func TestAStepClockPastMidnightIsDueTheNextMorningAndFiresOnce(t *testing.T) {
+	written := at(t, "2026-11-06T07:00:00Z")
+	morning := at(t, "2026-11-06T09:00:00Z")
+	plan := withAttrs(client.Record{Seq: 90, Lane: "root", Kind: "report", At: written}, map[string]string{"owner": "tap-rows", "step:1": "1:00 AM land it"})
+	live := []store.Lane{{Name: "tap-rows", State: store.LaneDesired}}
+
+	want(t, NextStep([]client.Record{plan}, written).Equal(morning), true)
+	want(t, len(MissedSteps([]client.Record{plan}, live, morning.Add(-time.Minute))), 0)
+	want(t, len(MissedSteps([]client.Record{plan}, live, morning.Add(5*time.Minute))), 1)
+	want(t, len(MissedSteps([]client.Record{plan}, live, morning.Add(24*time.Hour+5*time.Minute))), 0)
+}
+
+func TestAStepNamingADateIsDueOnThatDate(t *testing.T) {
+	written := at(t, "2026-11-05T17:39:00Z")
+	plan := withAttrs(client.Record{Seq: 91, Lane: "root", Kind: "report", At: written}, map[string]string{"owner": "tap-rows", "step:1": "9:00 AM Nov 7 cut the release"})
+
+	want(t, NextStep([]client.Record{plan}, written).Equal(at(t, "2026-11-07T17:00:00Z")), true)
+}
+
 func TestAStepOnTheOwnersApprovedOrderReachesTheCommunicatorThoughOnlyTheSenderIsAddressed(t *testing.T) {
 	said := at(t, "2026-11-05T22:37:48Z")
 	approved := withAttrs(client.Record{Seq: 504273, Lane: "owner-relay", Kind: "owner", At: said, To: []string{"handover-option-a", "root"}, Text: "Owner tapped \"Send it\": send exactly this DM"}, map[string]string{"owner": "handover-option-a", "step:1": "2:50 PM DM sent, permalink to owner-relay"})
