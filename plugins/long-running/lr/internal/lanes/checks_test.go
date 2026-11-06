@@ -775,6 +775,7 @@ func spriteStops(t *testing.T, run *spriteRun) (*SpriteStops, *fakeBus) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
+	registered(t, s, store.Lane{Name: metaDesk, Role: RoleMeta})
 	bus := &fakeBus{}
 	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, Local: t.TempDir(), Claude: t.TempDir(), Runner: run}
 	return &SpriteStops{Env: env, Store: s, CcRemote: CcRemote{Binary: "cc-remote", Config: "/drive/cc-remote.yaml"}, Log: slog.Default()}, bus
@@ -848,7 +849,7 @@ func TestASpriteStopThatKeepsFailingPostsOneBlockerAfterItsLastTry(t *testing.T)
 	equal(t, run.stopped, stops("stuck", "stuck", "stuck"))
 	equal(t, len(bus.posted), 1)
 	posted := bus.posted[0]
-	equal(t, []any{string(posted.Kind), posted.To, posted.ID}, []any{blockerKind, []string{Root}, "sprite-stop:stuck"})
+	equal(t, []any{string(posted.Kind), posted.To, posted.ID}, []any{blockerKind, []string{metaDesk}, "sprite-stop:stuck"})
 	contains(t, posted.Text, "SPRITE-STOP-FAILED stuck: its dispatch ctx_stuck is completed")
 	contains(t, posted.Text, why)
 	contains(t, posted.Text, "`sprite list` shows its Sprite stuck still there")
@@ -912,22 +913,21 @@ func TestAFailedStopWhenSpriteListAlsoFailsNeverClaimsTheSpriteIsGoneOrRunning(t
 }
 
 func TestASpriteStopThatFailsOnceIsTriedAgainOnTheNextPassAndPostsNothing(t *testing.T) {
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_flaky": "completed"}, fail: map[string]string{"flaky": "cc-remote: suspending sprite flaky: its services stopped, but it still runs 2m0s later"}, sprites: []string{"flaky"}}
-	c, bus := spriteStops(t, run)
-	c.lane(t, "flaky", "sprite", store.LaneRetired, "done", "ctx_flaky")
+	for _, why := range []string{
+		"cc-remote: suspending sprite flaky: its services stopped, but it still runs 2m0s later",
+		"cc-remote: suspending sprite flaky: sprites api answered 502 listing its services: bad gateway",
+	} {
+		run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_flaky": "completed"}, fail: map[string]string{"flaky": why}, sprites: []string{"flaky"}}
+		c, bus := spriteStops(t, run)
+		c.lane(t, "flaky", "sprite", store.LaneRetired, "done", "ctx_flaky")
 
-	if err := c.Check(context.Background(), t0); err != nil {
-		t.Fatal(err)
-	}
-	run.fail = nil
-	for _, at := range []time.Time{t0.Add(mins(10)), t0.Add(mins(20))} {
-		if err := c.Check(context.Background(), at); err != nil {
-			t.Fatal(err)
-		}
-	}
+		passes(t, c, 0, 1)
+		run.fail = nil
+		passes(t, c, 1, 2)
 
-	equal(t, run.stopped, stops("flaky", "flaky"))
-	equal(t, len(bus.posted), 0)
+		equal(t, run.stopped, stops("flaky", "flaky"))
+		equal(t, len(bus.posted), 0)
+	}
 }
 
 func passes(t *testing.T, c *SpriteStops, from, count int) {
@@ -939,26 +939,29 @@ func passes(t *testing.T, c *SpriteStops, from, count int) {
 	}
 }
 
-func TestASpriteStopThatFailsOnA502TwiceThenStopsPostsOneBlockerAndOneCloseAndStopsTrying(t *testing.T) {
+func TestASpriteStopThatFailsOnA502OnEveryTryPostsOneBlockerToTheMetaDeskAndClosesItOnceItStops(t *testing.T) {
 	why := "cc-remote: suspending sprite pool-stuck: sprites api answered 502 listing its services: bad gateway"
 	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"pool-stuck"}}
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
 
-	passes(t, c, 0, 2)
-	equal(t, run.stopped, stops("stuck", "stuck"))
+	passes(t, c, 0, stopTries-1)
+	equal(t, len(bus.posted), 0)
+	passes(t, c, stopTries-1, 2)
+	equal(t, run.stopped, stops("stuck", "stuck", "stuck", "stuck"))
 	equal(t, len(bus.posted), 1)
 	blocker := bus.posted[0]
-	equal(t, []any{string(blocker.Kind), blocker.To, blocker.ID}, []any{blockerKind, []string{Root}, "sprite-stop-retrying:stuck"})
+	equal(t, []any{string(blocker.Kind), blocker.To, blocker.ID}, []any{blockerKind, []string{metaDesk}, "sprite-stop-retrying:stuck"})
+	contains(t, blocker.Text, "on 3 passes in a row, and each failed")
 	contains(t, blocker.Text, why)
 	contains(t, blocker.Text, "`lr stop-sprites --leave stuck`")
 
 	run.fail = nil
-	passes(t, c, 2, 3)
-	equal(t, run.stopped, stops("stuck", "stuck", "stuck"))
+	passes(t, c, stopTries+1, 3)
+	equal(t, run.stopped, stops("stuck", "stuck", "stuck", "stuck", "stuck"))
 	equal(t, len(bus.posted), 2)
 	closing := bus.posted[1]
-	equal(t, []any{string(closing.Kind), closing.To, closing.Resolves}, []any{"note", []string{Root}, int64(1)})
+	equal(t, []any{string(closing.Kind), closing.To, closing.Resolves}, []any{"note", []string{metaDesk}, int64(1)})
 	contains(t, closing.Text, "SPRITE-STOPPED stuck")
 }
 
@@ -984,13 +987,13 @@ func TestARetriedStopWhoseSpriteIsGoneClosesItsBlocker(t *testing.T) {
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
 
-	passes(t, c, 0, 1)
+	passes(t, c, 0, stopTries)
 	run.sprites = []string{"pool-other"}
-	passes(t, c, 1, 3)
+	passes(t, c, stopTries, 3)
 
-	equal(t, run.stopped, stops("stuck", "stuck"))
+	equal(t, run.stopped, stops("stuck", "stuck", "stuck", "stuck"))
 	equal(t, len(bus.posted), 2)
-	equal(t, bus.posted[1].Resolves, int64(1))
+	equal(t, []any{bus.posted[1].To, bus.posted[1].Resolves}, []any{[]string{metaDesk}, int64(1)})
 	contains(t, bus.posted[1].Text, "`sprite list` no longer shows its Sprite pool-stuck")
 }
 
@@ -998,13 +1001,13 @@ func TestLeavingAFailedStopEndsItsRetriesEvenWhenAStopInFlightFailsAfterward(t *
 	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": "sprites api answered 503"}, sprites: []string{"stuck"}}
 	c, bus := spriteStops(t, run)
 	c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
-	passes(t, c, 0, 1)
+	passes(t, c, 0, stopTries)
 
-	if err := c.Leave(context.Background(), "stuck", t0.Add(mins(5))); err != nil {
+	if err := c.Leave(context.Background(), "stuck", t0.Add(mins(10*stopTries-5))); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, len(bus.posted), 2)
-	equal(t, bus.posted[1].Resolves, int64(1))
+	equal(t, []any{bus.posted[1].To, bus.posted[1].Resolves}, []any{[]string{metaDesk}, int64(1)})
 	contains(t, bus.posted[1].Text, "SPRITE-STOP-LEFT stuck")
 
 	failure, err := c.Store.FailSpriteStop("stuck", stopTries, true)
@@ -1012,8 +1015,8 @@ func TestLeavingAFailedStopEndsItsRetriesEvenWhenAStopInFlightFailsAfterward(t *
 		t.Fatal(err)
 	}
 	equal(t, []bool{failure.Retries, failure.Left}, []bool{false, true})
-	passes(t, c, 1, 3)
-	equal(t, run.stopped, stops("stuck"))
+	passes(t, c, stopTries, 3)
+	equal(t, run.stopped, stops("stuck", "stuck", "stuck"))
 	equal(t, len(bus.posted), 2)
 }
 

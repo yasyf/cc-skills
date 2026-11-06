@@ -624,12 +624,12 @@ func (c *SpriteStops) failed(ctx context.Context, lane, sprite, why string, stop
 		return err
 	}
 	if failure.Retries {
-		c.Log.Warn("sprite stop failed, the next pass tries again", "lane", lane, "err", stop)
-		if !transient || failure.Blocker != 0 {
+		c.Log.Warn("sprite stop failed, the next pass tries again", "lane", lane, "passes", failure.Passes, "err", stop)
+		if !transient || failure.Blocker != 0 || failure.Passes < stopTries {
 			return nil
 		}
 	}
-	to, err := NoticeTo(c.Store, lane)
+	to, err := MetaDesk(c.Store)
 	if err != nil {
 		return err
 	}
@@ -638,10 +638,10 @@ func (c *SpriteStops) failed(ctx context.Context, lane, sprite, why string, stop
 		state = fmt.Sprintf("`sprite list` failed too, so its Sprite %s may still run: %s", sprite, truncated(unlisted.Error(), 300))
 	}
 	id := "sprite-stop:" + lane
-	text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | %s, and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why, lane, stopTries, truncated(stop.Error(), 300), state, c.CcRemote.Binary, lane, c.CcRemote.Config)
+	text := fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` %d times, and the last failed: %s | %s, and the supervisor does not try again; stop it by hand with `%s orca stop %s --config %s`", lane, why, lane, failure.Passes, truncated(stop.Error(), 300), state, c.CcRemote.Binary, lane, c.CcRemote.Config)
 	if failure.Retries {
 		id = "sprite-stop-retrying:" + lane
-		text = fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s`, and it failed: %s | %s. The supervisor tries again every pass until it stops or is gone, and posts one closing line; to leave it, run `lr stop-sprites --leave %s`", lane, why, lane, truncated(stop.Error(), 300), state, lane)
+		text = fmt.Sprintf("SPRITE-STOP-FAILED %s: %s, so the supervisor ran `cc-remote orca stop %s` on %d passes in a row, and each failed, the last with: %s | %s. The supervisor tries again every pass until it stops or is gone, and posts one closing line; to leave it, run `lr stop-sprites --leave %s`", lane, why, lane, failure.Passes, truncated(stop.Error(), 300), state, lane)
 	}
 	stored, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{to}, ID: id, Resolves: failure.Blocker, Text: text})
 	if err != nil {
@@ -659,7 +659,7 @@ func (c *SpriteStops) closeBlocker(ctx context.Context, lane, text string) error
 }
 
 func (c *SpriteStops) postClose(ctx context.Context, lane string, blocker int64, text string) error {
-	to, err := NoticeTo(c.Store, lane)
+	to, err := MetaDesk(c.Store)
 	if err != nil {
 		return err
 	}
