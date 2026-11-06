@@ -15,10 +15,12 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 )
 
+const HandoffRegistryVerb = "lanes handoff-registry"
+
 const (
 	StoreDesk   = "store-desk"
 	StoreDuty   = "runs Sprite lanes' lr reads of the drive's store, runner.json and the owner's board over cci"
-	answerWait  = 3 * time.Minute
+	AnswerWait  = 3 * time.Minute
 	failedRead  = "store read failed: "
 	exitAttr    = "exit"
 	stderrAttr  = "stderr"
@@ -48,6 +50,7 @@ var StoreVerbs = []string{
 	"landing go",
 	"landing order",
 	"lanes",
+	HandoffRegistryVerb,
 	"owner audit",
 	"request",
 	"route",
@@ -125,7 +128,11 @@ func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs
 	if err != nil {
 		return err
 	}
-	waiting, stop := context.WithTimeout(ctx, answerWait)
+	wait := AnswerWait
+	if deadline, set := ctx.Deadline(); set {
+		wait = min(wait, time.Until(deadline))
+	}
+	waiting, stop := context.WithTimeout(ctx, wait)
 	defer stop()
 	var answer client.Record
 	err = bus.Follow(waiting, client.Watch{Drive: drive, Reader: client.Stem(lane), After: posted.Seq}, func(r client.Record) error {
@@ -139,7 +146,7 @@ func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs
 		return err
 	}
 	if answer.Seq == 0 {
-		return fmt.Errorf("this Sprite holds no copy of the drive's store or board, and the Mac's %s has not answered ask %s in %s: the supervisor there is down or runs an lr older than this one", StoreDesk, posted.Name(), answerWait)
+		return fmt.Errorf("this Sprite holds no copy of the drive's store or board, and the Mac's %s has not answered ask %s in %s: the supervisor there is down or runs an lr older than this one", StoreDesk, posted.Name(), wait.Round(time.Second))
 	}
 	whole, err := client.WholeText(answer)
 	if err != nil {

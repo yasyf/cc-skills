@@ -1,8 +1,11 @@
 package lanes
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -60,7 +64,8 @@ func TestACompactionHandoffCarriesEveryPROpenAskAndRecordAndSetsTheRow(t *testin
 	}
 	run := &handoffRun{}
 
-	id, err := handoffEnv(bus, run).WriteHandoff(context.Background(), s, lane2, "/work/lane", "/projects/x.jsonl")
+	env := handoffEnv(bus, run)
+	id, err := env.WriteHandoff(context.Background(), io.Discard, env.storeRegistry(s, lane2), lane2, "/work/lane", "/projects/x.jsonl")
 
 	if err != nil || id != "abc1234" {
 		t.Fatal(id, err)
@@ -104,7 +109,8 @@ func TestAHandoffNamesOtherLanesByAliasAndKeepsItsOwnBinding(t *testing.T) {
 	}
 
 	run := &handoffRun{}
-	if _, err := handoffEnv(bus, run).WriteHandoff(context.Background(), s, lane2, "/work/lane", "/projects/x.jsonl"); err != nil {
+	env := handoffEnv(bus, run)
+	if _, err := env.WriteHandoff(context.Background(), io.Discard, env.storeRegistry(s, lane2), lane2, "/work/lane", "/projects/x.jsonl"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,7 +135,9 @@ func TestACompactionWhoseHandoffCannotBeWrittenLeavesABlocker(t *testing.T) {
 			parkedLane(t, s)
 			bus := &fakeBus{}
 
-			_, err := handoffEnv(bus, &handoffRun{refuse: tool}).WriteHandoff(context.Background(), s, lane2, "/work/lane", "")
+			env := handoffEnv(bus, &handoffRun{refuse: tool})
+			var out bytes.Buffer
+			_, err := env.WriteHandoff(context.Background(), &out, env.storeRegistry(s, lane2), lane2, "/work/lane", "")
 
 			if err == nil {
 				t.Fatal("no error")
@@ -138,8 +146,93 @@ func TestACompactionWhoseHandoffCannotBeWrittenLeavesABlocker(t *testing.T) {
 			equal(t, bus.posted[0].Kind, "blocker")
 			equal(t, bus.posted[0].Lane, lane2)
 			contains(t, bus.posted[0].Text, "compacted with no handoff")
+			equal(t, out.String(), "blocker #1\n")
 		})
 	}
+}
+
+type registryDesk struct {
+	asked    client.Draft
+	registry string
+}
+
+func (d *registryDesk) Post(_ context.Context, draft client.Draft) (client.Record, error) {
+	d.asked = draft
+	return client.Record{Seq: 41}, nil
+}
+
+func (d *registryDesk) Follow(_ context.Context, _ client.Watch, emit func(client.Record) error) error {
+	answer := client.Record{Seq: 42, Resolves: 41, Text: "lr lanes handoff-registry: 1 lines, exit 0"}
+	answer.Refs.Path = d.registry
+	return emit(answer)
+}
+
+func TestASpriteHandoffReadsItsRowFromTheStoreDeskAndStillWritesTheDoc(t *testing.T) {
+	answer, err := json.Marshal(handoffRegistry{Brief: "/briefs/conflicts-2.md", PRs: []int{46475, 47001}, Names: []string{lane2, "meta-desk-3"}, NoticeTo: Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk := &registryDesk{registry: filepath.Join(t.TempDir(), "registry.json")}
+	if err := os.WriteFile(desk.registry, answer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bus := &fakeBus{open: []client.Record{{Seq: 9, Lane: "meta-desk-3", Kind: "ask", To: []string{lane2}, Text: "does meta-desk-3 own it?"}}}
+	run := &handoffRun{}
+	var out bytes.Buffer
+
+	id, err := handoffEnv(bus, run).WriteHandoff(context.Background(), &out, func(ctx context.Context) (handoffRegistry, error) {
+		return askRegistry(ctx, desk, testDrive, lane2, time.Minute)
+	}, lane2, "/work/lane", "")
+
+	if err != nil || id != "abc1234" || out.String() != "abc1234\n" {
+		t.Fatalf("wrote %q, printed %q, %v", id, out.String(), err)
+	}
+	var asked askdesk.Asked
+	if err := json.Unmarshal([]byte(desk.asked.Text), &asked); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, asked, askdesk.Asked{Verb: askdesk.HandoffRegistryVerb, Args: []string{"--", lane2}, Lane: lane2})
+	equal(t, desk.asked.To, []string{askdesk.StoreDesk})
+	var doc shell.Command
+	for _, c := range run.commands {
+		if c.Argv[0] == "ccn" {
+			doc = c
+		}
+	}
+	for _, want := range []string{"/briefs/conflicts-2.md", "#46475 #47001", "#9 ASK from meta-desk: does meta-desk own it?", "## Worktree /work/lane", "M fold.go"} {
+		contains(t, doc.Stdin, want)
+	}
+	equal(t, len(bus.posted), 0)
+}
+
+type silentDesk struct{}
+
+func (silentDesk) Post(context.Context, client.Draft) (client.Record, error) {
+	return client.Record{Seq: 41}, nil
+}
+
+func (silentDesk) Follow(ctx context.Context, _ client.Watch, _ func(client.Record) error) error {
+	<-ctx.Done()
+	return nil
+}
+
+func TestASpriteHandoffWhoseStoreDeskNeverAnswersPostsItsBlockerByTheDeskWait(t *testing.T) {
+	bus := &fakeBus{}
+	run := &handoffRun{}
+	var out bytes.Buffer
+
+	_, err := handoffEnv(bus, run).WriteHandoff(context.Background(), &out, func(ctx context.Context) (handoffRegistry, error) {
+		return askRegistry(ctx, silentDesk{}, testDrive, lane2, 10*time.Millisecond)
+	}, lane2, "/work/lane", "")
+
+	if err == nil || !strings.Contains(err.Error(), "has not answered") {
+		t.Fatalf("got %v, want the unanswered ask", err)
+	}
+	equal(t, len(bus.posted), 1)
+	equal(t, bus.posted[0].To, []string{Root})
+	contains(t, bus.posted[0].Text, "compacted with no handoff")
+	equal(t, out.String(), "blocker #1\n")
+	equal(t, len(run.commands), 0)
 }
 
 func TestAHandoffRetriesACcnDocAddThatFailsOnce(t *testing.T) {
@@ -147,7 +240,8 @@ func TestAHandoffRetriesACcnDocAddThatFailsOnce(t *testing.T) {
 	parkedLane(t, s)
 	bus := &fakeBus{}
 
-	id, err := handoffEnv(bus, &handoffRun{failDocAdd: 1}).WriteHandoff(context.Background(), s, lane2, "/work/lane", "")
+	env := handoffEnv(bus, &handoffRun{failDocAdd: 1})
+	id, err := env.WriteHandoff(context.Background(), io.Discard, env.storeRegistry(s, lane2), lane2, "/work/lane", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +266,7 @@ func TestADeskHandoffCarriesTheOpenOwnerOrdersAndAWorkerHandoffDoesNot(t *testin
 			env := handoffEnv(&fakeBus{}, run)
 			env.State = ownerLedger(t, 1)
 
-			if _, err := env.WriteHandoff(context.Background(), s, "meta-desk-3", "", ""); err != nil {
+			if _, err := env.WriteHandoff(context.Background(), io.Discard, env.storeRegistry(s, "meta-desk-3"), "meta-desk-3", "", ""); err != nil {
 				t.Fatal(err)
 			}
 

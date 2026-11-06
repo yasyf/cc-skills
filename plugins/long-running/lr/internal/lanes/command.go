@@ -118,7 +118,7 @@ func Command(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "one JSON object per lane")
 	cmd.Flags().BoolVar(&idle, "idle", false, "the idle-session census: claude and codex processes, Orca worktrees and terminals, and what a whole-Run gc would close, remove, destroy and keep; changes nothing")
-	cmd.AddCommand(handoffCommand(a), adoptMetaCommand(a), sameCommand())
+	cmd.AddCommand(handoffCommand(a), handoffRegistryCommand(a), adoptMetaCommand(a), sameCommand())
 	return cmd
 }
 
