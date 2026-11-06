@@ -17,9 +17,10 @@ from captain_hook.util import reqenv
 from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, ROOT_LANE
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
+from .owner_slack_links import PERMALINK
 from .register_capture import CC_SLACK_CACHE, OPERATOR, OWNER_WATCH, owner_messages_heard, owner_tap_threads, queued_prompts, shipped_cc_slack, slack_dms
-from .register_gates import blocker, cause
-from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, runs_verb, SLACK_THREAD_TOOLS, typed_words
+from .register_gates import blocker, CAPTURES, cause
+from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, ReadsOneSlackMessage, runs_verb, SLACK_HISTORY, SLACK_THREAD_TOOLS, typed_words
 from .root_replies import owner_message, REPLY_WINDOW
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -78,7 +79,9 @@ UNWATCHED = f"The owner's Slack watch is not running, so his next message waits 
 WATCHING = [{"id": "w1", "type": "shell", "status": "running", "description": OWNER_WATCH, "command": WATCH_COMMAND}]
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
-THREAD_READ = "The communicator reads only the Slack thread it is answering, one the owner wrote in. Ask a lane with `lr ask-lane '<question>'` for any other thread, and its answer arrives as a record."
+THREAD_READ = "The communicator reads only a Slack message or thread the owner linked or wrote in. Ask a lane with `lr ask-lane '<question>'` for any other, and its answer arrives as a record."
+LINKED_DM = "https://poetic-technology.slack.com/archives/D05FWN0NCMQ/p1793926112596459"
+ONE_MESSAGE = {"channel_id": "D05FWN0NCMQ", "oldest": "1793926112.596459", "latest": "1793926112.596459", "limit": 1, "include_rich_message_fields": True}
 EXPLAINER = re.compile(r"https?://[^\s/]+/(?:one-pagers|design-docs)/[\w.-]+/")
 TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
 EXPLAIN_TOPIC = "lr-explain"
@@ -536,20 +539,35 @@ def unanswered_reply(evt: BaseHookEvent) -> str | None:
     return UNANSWERED.format(replies="\n".join(f'{reply["permalink"]}: {reply["text"]}' for reply in waiting)) if waiting else None
 
 
-class ReadsAnsweredThread:
+class ReadsOwnerThread:
     def check(self, evt: BaseHookEvent) -> bool:
         if (owed := dm_owed(evt)) is None:
             return True
         held = owed["replies"] if owed["holder_session"] == evt.session_id else []
-        threads = {ts for reply in held for ts in (reply["thread_ts"], reply["ts"])} | owner_dm_threads(evt)
         named = json.dumps(evt.input.raw)
-        return any(ts in named or f"p{ts.replace('.', '')}" in named for ts in threads)
+        return names(named, {ts for reply in held for ts in (reply["thread_ts"], reply["ts"])} | owner_threads(evt)) or names(named, captured_threads(evt))
 
 
-def owner_dm_threads(evt: BaseHookEvent) -> set[str]:
+def names(named: str, threads: set[str]) -> bool:
+    return any(ts in named or f"p{ts.replace('.', '')}" in named for ts in threads if ts)
+
+
+def owner_threads(evt: BaseHookEvent) -> set[str]:
     prompts = [*queued_prompts(evt.ctx.t.events), evt.user_prompt or ""]
     heard = owner_messages_heard(prompts)
-    return {ts for message in heard if message["channel_id"].startswith("D") for ts in (message["thread_ts"], message["ts"])} | owner_tap_threads(prompts, evt.ctx.t.events)
+    typed = [text for event in evt.ctx.t.events if (text := owner_message(event))]
+    dms = {ts for message in heard if message["channel_id"].startswith("D") for ts in (message["thread_ts"], message["ts"])}
+    return dms | owner_tap_threads(prompts, evt.ctx.t.events) | linked([*typed, evt.user_prompt or "", *(message["text"] for message in heard)])
+
+
+def linked(texts: Sequence[str]) -> set[str]:
+    return {ts for text in texts for link in PERMALINK.finditer(text) for ts in (f"{link['seconds']}.{link['micros']}", link["thread"]) if ts}
+
+
+def captured_threads(evt: BaseHookEvent) -> set[str]:
+    path = Path(entry["state_dir"]) / CAPTURES if (entry := drive_entry(evt)) else None
+    captured = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path and path.is_file() else []
+    return {message.get(key, "") for message in captured if message["source"] == "slack" for key in ("thread", "ts")} | linked([message["text"] for message in captured])
 
 
 NONE_OWED = json.dumps({"replies": [], "holder_session": HOLDER})
@@ -558,12 +576,12 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
     Event.PreToolUse,
     block=True,
     message=THREAD_READ,
-    only_if=[Communicator(), Or(Tool(*SLACK_THREAD_TOOLS), runs_verb(CC_SLACK_CLI, ("thread",)))],
-    skip_if=[FromSubagent(), ReadsNewestSlackMessage(), ReadsAnsweredThread()],
+    only_if=[Communicator(), Or(Tool(*SLACK_THREAD_TOOLS), runs_verb(CC_SLACK_CLI, ("thread",)), ReadsOneSlackMessage())],
+    skip_if=[FromSubagent(), ReadsNewestSlackMessage(), ReadsOwnerThread()],
     transcript_events=REPLY_WINDOW,
     tests=communicator_tests({
         reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"], limit=6): Allow(),
-        reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Block(pattern=r"^The communicator reads only the Slack thread it is answering"),
+        reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Block(pattern=r"^The communicator reads only a Slack message or thread the owner linked or wrote in"),
         reading(tap_on_watch("1793600000.000001"), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Allow(),
         reading(tap_on_watch("1793600000.000001"), NONE_OWED, "Bash", command="cc-slack thread --url D0B6Z/p1793600000000001 --limit 6"): Allow(),
         reading(tap_on_watch("1793600000.000001"), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000002", limit=6): Block(),
@@ -576,13 +594,18 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
         reading([T.user("where are we")], OWED_HERE, "Bash", command="cc-slack thread --url D0B6Z/p1793684147131059"): Allow(),
         reading([T.user("where are we")], OWED_HERE, "Bash", command=f"cc-slack thread --url '{OWED_REPLY['permalink']}'"): Allow(),
         reading(delivered(), NONE_OWED, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"]): Allow(),
-        reading([T.user("where are we")], OWED_HERE, channel_id="D0B6Z", thread_ts="1793600000.000001"): Block(pattern=r"^The communicator reads only the Slack thread it is answering.*`lr ask-lane"),
+        reading([T.user("where are we")], OWED_HERE, channel_id="D0B6Z", thread_ts="1793600000.000001"): Block(pattern=r"^The communicator reads only a Slack message or thread the owner linked or wrote in.*`lr ask-lane"),
         reading([T.user("where are we")], json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"}), channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"]): Block(),
         reading(delivered(), NONE_OWED, "mcp__slack__slack_get_thread", channel="C1", ts="1793600000.000001", limit=20): Block(),
         reading([T.user("where are we")], NONE_OWED, "Bash", command="cc-slack thread --url C0B/p1793600000000001 --limit 1000"): Block(),
         reading([T.user("where are we")], (1, "cc-slack can't reach the daemon"), channel_id="D0B6Z", thread_ts="1793600000.000001"): Allow(),
         reading([T.user("where are we")], NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=1): Allow(),
         reading([T.user("where are we")], NONE_OWED, "Bash", command="cc-slack thread --url D0B6Z/p1 --limit 1"): Allow(),
+        reading([T.user(f"{LINKED_DM} what is this?")], NONE_OWED, SLACK_HISTORY, **ONE_MESSAGE): Allow(),
+        reading([T.user("where are we")], NONE_OWED, SLACK_HISTORY, **ONE_MESSAGE): Block(pattern=r"^The communicator reads only a Slack message or thread the owner linked"),
+        reading([T.user(f"{LINKED_DM} what is this?")], NONE_OWED, SLACK_HISTORY, channel_id="C0B", oldest="1793600000.000001", latest="1793600000.000001", limit=1): Block(),
+        reading([T.user("where are we")], NONE_OWED, SLACK_HISTORY, channel_id="C0B", oldest="1793600000.000001", limit=200): Allow(),
+        reading([T.user("where are we")], NONE_OWED, channel_id="D0C4HQWPLCC", thread_ts="1793924259.620149", limit=6): Block(),
     }),
 )
 
