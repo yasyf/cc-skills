@@ -127,6 +127,7 @@ KINDS = ("p0", "ruling", "report", "idle")
 VERDICTS = cci.REPORT_VERDICTS
 MERGE_LABEL = "merge"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
+BASE_REFS = os.environ.get("CLAUDE_LONG_RUNNING_REFS", "refs/") + "desk/base/"
 SPRITE_HOST = "sprite"
 SPRITE_REGISTER = "ledger.py register writes nothing on a Sprite, which holds no copy of ledger {ledger}; the Mac's supervisor registers each PR from this lane's opened and head records within 2 minutes."
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -1208,7 +1209,7 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, tip: str, pr: str, 
 def merge_conflicts(shell: Shell, checkout: Path, base: str, head: str) -> Refused | None:
     git = ["git", "-C", str(checkout)]
     shell.run(git + ["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", head])
-    tip = f"refs/desk/base/{base}"
+    tip = f"{BASE_REFS}{base}"
     shell.run(git + ["fetch", "-q", "--refmap=", "origin", f"+refs/heads/{base}:{tip}"])
     try:
         shell.run(git + ["merge-tree", "--write-tree", tip, head])
@@ -2239,12 +2240,12 @@ def cmd_requeue(args: argparse.Namespace, shell: Shell) -> int:
 
 def sync_trunk(shell: Shell, checkout: Path, trunk: str) -> bool:
     shallow = is_shallow(shell, checkout)
-    fetch(shell, checkout, f"+refs/heads/{trunk}:refs/desk/base/{trunk}")
+    fetch(shell, checkout, f"+refs/heads/{trunk}:{BASE_REFS}{trunk}")
     return shallow
 
 
 def require_trunk_since(shell: Shell, checkout: Path, trunk: str, since: str) -> None:
-    walk = shell.run(["git", "-C", str(checkout), "rev-list", "--parents", f"--since={since}", f"refs/desk/base/{trunk}"])
+    walk = shell.run(["git", "-C", str(checkout), "rev-list", "--parents", f"--since={since}", f"{BASE_REFS}{trunk}"])
     if any(" " not in line for line in walk.splitlines()):
         raise CheckoutUnusable(REFUSAL["shallow"].format(checkout=checkout, since=since))
 
@@ -2324,7 +2325,7 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
     moved = 0
     with ThreadPoolExecutor(SETTLE_WORKERS) as pool:
         reads = {
-            pr: pool.submit(landed_on_base, shell, gh, checkout, f"refs/desk/base/{trunk}", pr, record["headRefOid"]) if pr in merged else None if pr in closed else pool.submit(queue_ejected, gh, pr)
+            pr: pool.submit(landed_on_base, shell, gh, checkout, f"{BASE_REFS}{trunk}", pr, record["headRefOid"]) if pr in merged else None if pr in closed else pool.submit(queue_ejected, gh, pr)
             for pr, record in records.items()
             if pr not in failures
         }
@@ -2505,7 +2506,7 @@ def trunk_squashes(shell: Shell, checkout: Path, trunk: str, prs: Collection[str
         return {}
     bound = [f"--since={since}"] if since else []
     grep = [f"--grep=(#{pr})" for pr in sorted(prs, key=int)]
-    log = shell.run(["git", "-C", str(checkout), "log", f"refs/desk/base/{trunk}", *bound, "--fixed-strings", *grep, "--format=%H %cI %s"])
+    log = shell.run(["git", "-C", str(checkout), "log", f"{BASE_REFS}{trunk}", *bound, "--fixed-strings", *grep, "--format=%H %cI %s"])
     squashes: dict[str, tuple[str, str]] = {}
     for line in log.splitlines():
         sha, committed, subject = line.split(" ", 2)

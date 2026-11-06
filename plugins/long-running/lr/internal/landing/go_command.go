@@ -35,7 +35,6 @@ const (
 	goReader       = "desk-runner"
 	goUnread       = "go-unread"
 	flakeUnclaimed = "flake-unclaimed"
-	sweepTip       = "refs/lr/sweep/"
 	goProbe        = "go-refused:"
 	sweepCursor    = "go-sweep"
 )
@@ -368,7 +367,7 @@ func sourceLanded(ctx context.Context, a *app.App, cfg config.Config, source int
 	if slices.ContainsFunc(rows, func(row ccx.PRStatus) bool { return row.State == mergedPR }) {
 		return true, nil
 	}
-	tip := sweepTip + cfg.Trunk
+	tip := cfg.Refs() + "sweep/" + cfg.Trunk
 	if _, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", cfg.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/" + cfg.Trunk + ":" + tip}, Timeout: gitLimit}); err != nil {
 		return false, err
 	}

@@ -46,6 +46,13 @@ type Config struct {
 
 func (c Config) GoLaneNames() []string { return listed(c.GoLanes) }
 
+func (c Config) Refs() string {
+	if slices.Contains(c.Movers, MoverLanding) {
+		return "refs/lr/landing/"
+	}
+	return "refs/lr/"
+}
+
 func (c Config) TalkWriterNames() []string { return listed(c.TalkWriters) }
 
 func (c Config) ReleasePipelineSlugs() []string { return listed(c.ReleasePipelines) }

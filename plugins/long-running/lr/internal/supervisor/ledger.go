@@ -143,7 +143,7 @@ func (l *prLedger) advance(ctx context.Context) error {
 	}
 	defer lock.Close()
 	git := []string{"git", "-C", l.env.Config.Checkout}
-	fetched := "refs/lr/ledger/" + l.env.Config.Trunk
+	fetched := l.env.Config.Refs() + "ledger/" + l.env.Config.Trunk
 	if _, err := l.env.Runner.Run(ctx, shell.Command{Argv: append(slices.Clone(git), "fetch", "-q", "--no-tags", "--refmap=", "origin", "+refs/heads/"+l.env.Config.Trunk+":"+fetched), Timeout: ledgerLimit}); err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func (l *prLedger) run(ctx context.Context, env []string, argv ...string) error 
 	tool := filepath.Join(l.env.Claude, "long-running", "current", "bin", "ledger.py")
 	_, err := l.env.Runner.Run(ctx, shell.Command{
 		Argv:    append([]string{tool, "-C", l.env.Config.Checkout}, argv...),
-		Env:     append([]string{"CLAUDE_LONG_RUNNING_DRIVE=" + l.env.Config.Drive}, env...),
+		Env:     append([]string{"CLAUDE_LONG_RUNNING_DRIVE=" + l.env.Config.Drive, "CLAUDE_LONG_RUNNING_REFS=" + l.env.Config.Refs()}, env...),
 		Timeout: ledgerLimit,
 	})
 	return err

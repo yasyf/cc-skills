@@ -1614,7 +1614,7 @@ type replayedStack struct {
 
 func (r replayedStack) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
 	switch {
-	case slices.Equal(c.Argv[:2], []string{"git", "merge-base"}) && slices.Contains(c.Argv, "refs/lr/diff/dev"):
+	case slices.Equal(c.Argv[:2], []string{"git", "merge-base"}) && slices.Contains(c.Argv, "refs/lr/landing/diff/dev"):
 		return shell.Result{Stdout: squashed + "\n"}, nil
 	case slices.Equal(c.Argv[:2], []string{"git", "merge-base"}):
 		return shell.Result{Stdout: devBefore + "\n"}, nil
