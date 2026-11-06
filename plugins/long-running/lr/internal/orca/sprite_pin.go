@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"golang.org/x/mod/semver"
 )
@@ -41,6 +42,7 @@ func MoveSpritePins(ctx context.Context, s *store.Store, claude, runner string, 
 	if err != nil {
 		return err
 	}
+	mac := lanes.Env{Claude: claude}
 	tools := slices.Clone(file.Orca.Sprite.Tools)
 	listed := len(tools)
 	if cci, pinned := cciPin(file.Orca.Sprite.Env); pinned {
@@ -54,6 +56,12 @@ func MoveSpritePins(ctx context.Context, s *store.Store, claude, runner string, 
 			plugin = tool.Name
 		}
 		version := running[plugin]
+		if plugin == packTool && version != "" {
+			if installed := release(mac.InstalledPack()); installed != version {
+				fmt.Fprintf(out, "lr sprites pin: %s follows the pack the Mac has installed, %s, not its plugin %s, so no Sprite asks the Mac's store desk for a verb it does not serve yet\n", tool.Name, cmp.Or(installed, "none"), version)
+				version = installed
+			}
+		}
 		if plugin == "" || version == tool.Version {
 			continue
 		}
@@ -102,6 +110,31 @@ func MoveSpritePins(ctx context.Context, s *store.Store, claude, runner string, 
 		return refuse("lr sprites pin: %s", strings.Join(failed, "; "))
 	}
 	return nil
+}
+
+func aheadOfMac(claude, runner, pluginRoot string) error {
+	file, err := readRunnerFile(runner)
+	if err != nil || file.Orca.Sprite == nil {
+		return err
+	}
+	mac := lanes.Env{Claude: claude}
+	var ahead []string
+	for _, tool := range file.Orca.Sprite.Tools {
+		if tool.Name == packTool && newer(tool.Version, mac.InstalledPack()) {
+			ahead = append(ahead, fmt.Sprintf("the %s pin %s is newer than the pack the Mac has installed, %s", packTool, tool.Version, cmp.Or(mac.InstalledPack(), "none")))
+		}
+	}
+	if pinned := lanes.PinnedLR(pluginRoot); newer(pinned, mac.PinnedBinary()) {
+		ahead = append(ahead, fmt.Sprintf("this lr would install lr %s on the Sprites, newer than the lr %s the Mac's installed pack runs", pinned, cmp.Or(mac.PinnedBinary(), "none")))
+	}
+	if len(ahead) == 0 {
+		return nil
+	}
+	return refuse("lr sprites roll: %s, so a Sprite would ask the Mac's store desk for verbs it does not serve yet; install that pack on the Mac with lr install, which moves the pins, then roll from its lr", strings.Join(ahead, "; "))
+}
+
+func newer(version, than string) bool {
+	return semver.Compare("v"+release(version), "v"+release(than)) > 0
 }
 
 func versionsToTry(claude, plugin, running, pinned string) ([]string, error) {

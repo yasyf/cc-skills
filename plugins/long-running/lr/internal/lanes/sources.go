@@ -106,8 +106,18 @@ func NewEnv(runner shell.Runner, cfg config.Config, state string, now func() tim
 
 func (e Env) plugin() string { return filepath.Join(e.Claude, "long-running", "current") }
 
-func (e Env) PinnedBinary() string {
-	data, err := os.ReadFile(e.tool("lr.binrun"))
+func (e Env) PinnedBinary() string { return PinnedLR(e.plugin()) }
+
+func (e Env) InstalledPack() string {
+	resolved, err := filepath.EvalSymlinks(e.plugin())
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(resolved)
+}
+
+func PinnedLR(pluginRoot string) string {
+	data, err := os.ReadFile(filepath.Join(pluginRoot, "bin", "lr.binrun"))
 	if err != nil {
 		return ""
 	}

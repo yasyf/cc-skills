@@ -504,6 +504,13 @@ func SpritesCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
+			claude, err := drive.ConfigDir()
+			if err != nil {
+				return err
+			}
+			if err := aheadOfMac(claude, filepath.Join(state, "runner.json"), os.Getenv("BINRUN_PLUGIN_ROOT")); err != nil {
+				return refusalExit(cmd, err)
+			}
 			if sprite != "" {
 				if probe != "" || probeOnly || len(skip) > 0 {
 					return errors.New("--sprite installs on the one Sprite it names, so it takes no --probe, --probe-only or --skip")
@@ -535,7 +542,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	roll.Flags().StringSliceVar(&skip, "skip", nil, "a Sprite the roll leaves alone and names, never counting it a failure; repeat or comma-separate for more")
 	pin := &cobra.Command{
 		Use:   "pin",
-		Short: "Move each orca.sprite.tools pin to the version this Mac's plugins run, once its release asset matches its release's checksum",
+		Short: "Move each orca.sprite.tools pin to the version this Mac's plugins run, and the long-running pack to the one the Mac has installed, once its release asset matches its release's checksum",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, _, state, err := opened()
