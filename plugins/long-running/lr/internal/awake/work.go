@@ -27,15 +27,46 @@ cd "$1"
 case $(git config remote.origin.url) in *github.com*) ;; *) exit 0 ;; esac
 index=$(mktemp)
 trap 'rm -f "$index"' EXIT
-cp "$(git rev-parse --git-path index)" "$index"
-export GIT_INDEX_FILE="$index"
-git add -A
-tree=$(git write-tree)
+snapshot() {
+  cp "$(git -C "$1" rev-parse --path-format=absolute --git-path index)" "$index"
+  GIT_INDEX_FILE="$index" git -C "$1" add -A
+  GIT_INDEX_FILE="$index" git -C "$1" write-tree
+}
+rebasing() {
+  git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge
+}
+state() {
+  printf 'HEAD %s %s\n' "$(git -C "$1" symbolic-ref -q --short HEAD || echo detached)" "$(git -C "$1" rev-parse HEAD)"
+  [ -d "$2" ] || return 0
+  printf 'rebase %s onto %s from %s\n' "$(cat "$2/head-name")" "$(cat "$2/onto")" "$(cat "$2/orig-head")"
+  sed -n 's/^[^#]/done &/p' "$2/done"
+  sed -n 's/^[^#]/todo &/p' "$2/git-rebase-todo"
+}
+trees=$(git worktree list --porcelain | awk '/^worktree /{tree=substr($0,10)} /^bare$/{tree=""} /^$/{if(tree!="")print tree; tree=""} END{if(tree!="")print tree}')
+top=$(printf '%s\n' "$trees" | sed -n 1p)
+cd "$top"
+tree=$(snapshot "$top")
 head=$(git rev-parse HEAD)
+rebase=$(rebasing "$top")
 unpushed=$(git rev-list HEAD --branches --not --remotes)
-[ -n "$unpushed" ] || [ "$tree" != "$(git rev-parse "HEAD^{tree}")" ] || exit 0
 parents=$head
-said="HEAD $(git symbolic-ref -q --short HEAD || echo detached) $head"
+said=$(state "$top" "$rebase")
+[ ! -d "$rebase" ] || parents="$parents $(cat "$rebase/orig-head")"
+while read -r other; do
+  [ "$other" != "$top" ] && [ -d "$other" ] || continue
+  othertree=$(snapshot "$other")
+  otherhead=$(git -C "$other" rev-parse HEAD)
+  otherrebase=$(rebasing "$other")
+  [ -n "$(git -C "$other" rev-list -1 HEAD --not --remotes)" ] || [ "$othertree" != "$(git -C "$other" rev-parse "HEAD^{tree}")" ] || [ -d "$otherrebase" ] || continue
+  at=$(git -C "$other" log -1 --format=%cd --date=raw HEAD)
+  commit=$(printf 'lane work in %s\n\n%s\n' "$other" "$(state "$other" "$otherrebase")" | GIT_AUTHOR_DATE="$at" GIT_COMMITTER_DATE="$at" git commit-tree "$othertree" -p "$otherhead" $([ ! -d "$otherrebase" ] || printf -- '-p %s' "$(cat "$otherrebase/orig-head")"))
+  said="$said
+worktree $other $commit"
+  parents="$parents $commit"
+done <<EOF
+$trees
+EOF
+[ -n "$unpushed" ] || [ "$tree" != "$(git rev-parse "HEAD^{tree}")" ] || [ "$parents" != "$head" ] || exit 0
 for branch in $(git for-each-ref --format='%(objectname):%(refname:short)' refs/heads); do
   tip=${branch%%:*}
   case "$unpushed" in *"$tip"*) ;; *) continue ;; esac
@@ -44,7 +75,7 @@ branch ${branch#*:} $tip"
   case " $parents " in *" $tip "*) ;; *) parents="$parents $tip" ;; esac
 done
 [ "$(git log -1 --format='%T %P' "$2" 2>/dev/null)" != "$tree $parents" ] || exit 0
-commit=$(printf 'lane work in %s\n\n%s\n' "$1" "$said" | git commit-tree "$tree" $(printf -- '-p %s ' $parents))
+commit=$(printf 'lane work in %s\n\n%s\n' "$top" "$said" | git commit-tree "$tree" $(printf -- '-p %s ' $parents))
 git push --quiet --no-verify origin "+$commit:$2"
 git update-ref "$2" "$commit"
 echo "$commit"`

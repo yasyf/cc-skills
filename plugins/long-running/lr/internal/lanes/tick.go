@@ -71,7 +71,13 @@ type Deps struct {
 	Sprites               func(lanes []string) (map[string]Sprite, error)
 	Hosts                 func(lanes []string, sprites map[string]Sprite) map[string]Host
 	LastWords             func(sprite string) string
+	Carried               func(lane string) (Carried, error)
 	BuildRecommendedOrder string
+}
+
+type Carried struct {
+	Commit string
+	At     time.Time
 }
 
 type Relaunch struct {
@@ -153,7 +159,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	}
 	said := fold(s, records, adoptable, d.Briefs, d)
 	out.Adopted = append(said.adopted, adoptStanding(s, d, found, now)...)
-	announce(s, d, said)
+	announce(s, d, said, now)
 	for _, one := range said.refused {
 		refusedRelaunch(s, d, one, now, &out)
 	}
@@ -186,7 +192,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	for _, lane := range desired {
 		act(s, d, lane, found, proven, taken, generation, now, &out)
 	}
-	tellRetired(s, d, running, said.stood)
+	tellRetired(s, d, running, said.stood, now)
 	retiredTo := map[string][]string{}
 	for _, one := range out.Retired {
 		retiredTo[one.To] = append(retiredTo[one.To], fmt.Sprintf("%s (it %s)", one.Lane, one.Why))
@@ -209,7 +215,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	return out, nil
 }
 
-func tellRetired(s *store.Store, d Deps, running []store.Lane, told []stoodDown) {
+func tellRetired(s *store.Store, d Deps, running []store.Lane, told []stoodDown, now time.Time) {
 	for _, was := range running {
 		lane, _ := laneOf(s, was.Name)
 		endedItself := slices.Contains([]string{"done", "stopped", "stand-down", "handoff"}, lane.Last)
@@ -228,6 +234,7 @@ func tellRetired(s *store.Store, d Deps, running []store.Lane, told []stoodDown)
 			if heir.Predecessor == lane.Name && heir.Reason != "" {
 				post.Text = fmt.Sprintf("%s stood down for %s; %s %s.", lane.Name, heir.Name, lane.Name, heir.Reason)
 			}
+			post.Text = withCarried(post.Text, carriedWork(d, lane, now))
 		}
 		do(d.Post(post))
 	}
@@ -248,13 +255,14 @@ func adoptStanding(s *store.Store, d Deps, found map[string]Peer, now time.Time)
 	return adopted
 }
 
-func announce(s *store.Store, d Deps, said folded) {
+func announce(s *store.Store, d Deps, said folded, now time.Time) {
 	for _, one := range said.stood {
 		how := ", its PRs to " + said.prsTo(one.name)
 		if one.successor != "" {
 			how = " for " + one.successor
 		}
-		do(d.Post(Post{Kind: "stand-down", To: []string{one.name}, Text: fmt.Sprintf("%s stood down%s by record #%d.", one.name, how, one.seq), Successor: one.successor, Re: one.seq, PRs: one.prs}))
+		lane, _ := laneOf(s, one.name)
+		do(d.Post(Post{Kind: "stand-down", To: []string{one.name}, Text: withCarried(fmt.Sprintf("%s stood down%s by record #%d.", one.name, how, one.seq), carriedWork(d, lane, now)), Successor: one.successor, Re: one.seq, PRs: one.prs}))
 	}
 	for _, one := range said.kept {
 		successor, done := Request{Verb: "stand-down", Lane: one.name, Successor: "<successor>", Open: "<item>; <item>"}, Request{Verb: "done", Lane: one.name}
@@ -695,7 +703,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 		peer := found[name]
 		if alive(&peer, peer.Seen, now) && succeeds(name, old.Name) {
 			retire(s, old.Name, name, now)
-			do(d.Post(Post{Kind: "stand-down", To: []string{old.Name}, Text: fmt.Sprintf("%s stood down for %s, already up; %s %s.", old.Name, name, old.Name, why), Successor: name, PRs: old.PRs}))
+			do(d.Post(Post{Kind: "stand-down", To: []string{old.Name}, Text: withCarried(fmt.Sprintf("%s stood down for %s, already up; %s %s.", old.Name, name, old.Name, why), carriedWork(d, old, now)), Successor: name, PRs: old.PRs}))
 			return name
 		}
 	}
@@ -730,7 +738,8 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 	old.PRs = ours(s, d, old.PRs)
 	name := SuccessorName(old.Name, taken)
 	taken[name] = true
-	path := writeSuccessorBrief(d, old, found, name, why, partial)
+	work := carriedWork(d, old, now)
+	path := writeSuccessorBrief(d, old, found, name, why, partial, work)
 	cost := successorCost(old)
 	if err := launchOrRetry(d, name, cost.Model, cost.Effort, path); err != nil {
 		hold(s, old.Name, why, now)
@@ -744,7 +753,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 	}
 	retire(s, old.Name, name, now)
 	must(s.WantLane(store.Lane{Name: name, Brief: old.Brief, Model: cost.Model, Effort: cost.Effort, Role: old.Role, State: store.LaneLaunching, Handoff: old.Handoff, PRs: old.PRs, Predecessor: old.Name, Reason: why, Placement: old.Placement, Launcher: old.Launcher, Standing: old.Standing, Step: old.Step}, now))
-	do(d.Post(Post{Kind: "report", To: []string{to}, LaneRef: name, Text: fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path)}))
+	do(d.Post(Post{Kind: "report", To: []string{to}, LaneRef: name, Text: withCarried(fmt.Sprintf("RELAUNCHED %s as %s: it %s; handoff %s; PRs %s; brief %s", old.Name, name, why, or(old.Handoff, "none, the successor writes it"), or(numberList(old.PRs), "none"), path), work)}))
 	out.Relaunched = append(out.Relaunched, Relaunch{old.Name, name, why})
 	return name
 }
@@ -771,7 +780,7 @@ func launchOwedHeirs(s *store.Store, d Deps, found map[string]Peer, now time.Tim
 		old, _ := laneOf(s, heir.Predecessor)
 		err := fmt.Errorf("its predecessor's brief %s is gone", old.Brief)
 		if briefExists(old.Brief) {
-			err = launchOrRetry(d, name, heir.Model, heir.Effort, writeSuccessorBrief(d, old, found, name, heir.Reason, ""))
+			err = launchOrRetry(d, name, heir.Model, heir.Effort, writeSuccessorBrief(d, old, found, name, heir.Reason, "", carriedWork(d, old, now)))
 		}
 		do(s.Unprobe(key))
 		if err == nil {
@@ -831,25 +840,47 @@ func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out
 	out.Held = append(out.Held, lane.Name)
 }
 
-func writeSuccessorBrief(d Deps, old store.Lane, found map[string]Peer, name, why, partial string) string {
+func writeSuccessorBrief(d Deps, old store.Lane, found map[string]Peer, name, why, partial, work string) string {
 	path := filepath.Join(d.Briefs, name+".brief.md")
 	do(os.MkdirAll(d.Briefs, 0o750))
 	transcript := ""
 	if peer, ok := found[old.Name]; ok {
 		transcript = d.Transcript(peer.Row)
 	}
-	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, partial, d, transcript))), 0o600))
+	do(os.WriteFile(path, []byte(must(successorBrief(old, name, why, partial, work, d, transcript))), 0o600))
 	return path
 }
 
-func handLaunchedSuccessor(d Deps, old store.Lane, found map[string]Peer, why string, taken map[string]bool) string {
+func handLaunchedSuccessor(d Deps, old store.Lane, found map[string]Peer, why string, taken map[string]bool, now time.Time) string {
 	if !briefExists(old.Brief) {
 		return fmt.Sprintf("a brief you write, since its brief %s is gone", old.Brief)
 	}
-	return writeSuccessorBrief(d, old, found, SuccessorName(old.Name, taken), why, "")
+	return writeSuccessorBrief(d, old, found, SuccessorName(old.Name, taken), why, "", carriedWork(d, old, now))
 }
 
-func successorBrief(old store.Lane, name, why, partial string, d Deps, transcript string) (string, error) {
+func carriedWork(d Deps, lane store.Lane, now time.Time) string {
+	if lane.Placement != placedOnSprite {
+		return ""
+	}
+	ref := awake.WorkRefs + lane.Name
+	carried, err := d.Carried(lane.Name)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("`%s` did not read: %v", ref, err)
+	case carried.Commit == "":
+		return fmt.Sprintf("`%s` holds no carried work", ref)
+	}
+	return fmt.Sprintf("`%s` holds its last carried work, %s from %s, %d min old", ref, carried.Commit[:min(12, len(carried.Commit))], pacific(carried.At), int(now.Sub(carried.At).Minutes()))
+}
+
+func withCarried(text, work string) string {
+	if work == "" {
+		return text
+	}
+	return strings.TrimSuffix(text, ".") + "; " + work + "."
+}
+
+func successorBrief(old store.Lane, name, why, partial, work string, d Deps, transcript string) (string, error) {
 	body, err := os.ReadFile(old.Brief)
 	if err != nil {
 		return "", err
@@ -869,7 +900,7 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 			start = fmt.Sprintf("Your handoff is `ccn doc show %s`; read it first, then %s's records with `cci tail --drive %s --lane %s --oldest`.", old.Handoff, old.Name, drive, old.Name)
 		}
 		ref := awake.WorkRefs + old.Name
-		before = []string{fmt.Sprintf("%s's worktree and transcript stayed on its Sprite, which pushed each checkout's unpushed commits and uncommitted edits to `%s` on that checkout's origin every 5 minutes they changed, on %s and on each repo it cloned. In a fresh clone of each, run `git fetch origin %s:%s`; a repo where that ref is missing held no unpushed work. The commit's message names each branch it carried and that branch's tip, its first parent is the HEAD it had, and its tree is its working tree with the edits it never committed. Continue from that ref and its pushed branches and PRs, keep its edits off any branch until you commit them yourself, and redo only what neither holds.", old.Name, ref, d.Repo, ref, ref)}
+		before = []string{fmt.Sprintf("%s's worktree and transcript stayed on its Sprite, which pushed each checkout's unpushed commits and uncommitted edits, its linked worktrees' included, to `%s` on that checkout's origin every 5 minutes they changed, on %s and on each repo it cloned; on %s at your launch, %s. In a fresh clone of each, run `git fetch origin %s:%s`; a repo where that ref is missing held no unpushed work. The commit's message names each branch it carried and that branch's tip, its first parent is the HEAD it had, and its tree is its working tree with the edits it never committed. Each `worktree <path> <commit>` line names a linked worktree's own commit, built the same way. A checkout stopped mid-rebase adds `rebase <branch> onto <onto> from <original head>` and the rebase's `done` and `todo` picks: its commit's first parent holds the commits rewritten so far and its tree the stopped pick's resolution, so finish the rebase by committing that tree on that parent and picking each `todo` commit after it. Start from that ref and its pushed branches and PRs, keep its edits off any branch until you commit them yourself, and redo only what neither holds.", old.Name, ref, d.Repo, d.Repo, work, ref, ref)}
 	}
 	owned := "none recorded"
 	if len(old.PRs) > 0 {
@@ -1304,7 +1335,7 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 		}
 		why := fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
 		if endedItsDuty(head) {
-			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. If the duty is still open, launch its successor from %s%s.", name, dutyOf(head), why, handLaunchedSuccessor(d, head, found, why, taken), dutyEnd(head)), now)
+			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. If the duty is still open, launch its successor from %s%s.", name, dutyOf(head), why, handLaunchedSuccessor(d, head, found, why, taken, now), dutyEnd(head)), now)
 			continue
 		}
 		relaunch(s, d, head, found, why, "", taken, now, out)
@@ -1332,7 +1363,7 @@ func spentRelaunches(s *store.Store, d Deps, lane store.Lane, found map[string]P
 	if strikes < deskStrikes {
 		return ""
 	}
-	return fmt.Sprintf("it came back from the supervisor's relaunch and died %d times within %d min, and now it %s; read why before launching its successor from %s", strikes, int(deskStrikeWindow.Minutes()), why, handLaunchedSuccessor(d, lane, found, why, taken))
+	return fmt.Sprintf("it came back from the supervisor's relaunch and died %d times within %d min, and now it %s; read why before launching its successor from %s", strikes, int(deskStrikeWindow.Minutes()), why, handLaunchedSuccessor(d, lane, found, why, taken, now))
 }
 
 func spriteFault(s *store.Store, why string) bool {

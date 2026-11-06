@@ -131,6 +131,78 @@ func TestALanesUnpushedCommitsAndUncommittedEditsReachItsWorkRefAndNothingElse(t
 	}
 }
 
+func TestALinkedWorktreeUnderADotDirectoryStoppedMidRebaseReachesTheWorkRefWithItsRewrittenCommitsResolutionAndTodo(t *testing.T) {
+	b := newLaneBox(t, "widgets-1")
+	lane := []string{"-c", "user.name=Lane", "-c", "user.email=lane@example.com"}
+	commit := func(dir, file, text, subject string) string {
+		write(t, filepath.Join(dir, file), text)
+		gitIn(t, dir, append(lane, "commit", "-q", "-am", subject)...)
+		return gitIn(t, dir, "rev-parse", "HEAD")
+	}
+	write(t, filepath.Join(b.checkout, ".gitignore"), "secrets.env\n.worktrees/\n")
+	write(t, filepath.Join(b.checkout, "OTHER"), "other\n")
+	gitIn(t, b.checkout, "add", "-A")
+	commit(b.checkout, "README", "widgets\n", "ignore worktrees")
+	gitIn(t, b.checkout, "push", "-q", "origin", "main")
+	gitIn(t, b.checkout, "switch", "-q", "-c", "pr-48159")
+	first := commit(b.checkout, "OTHER", "other, from the PR\n", "first")
+	second := commit(b.checkout, "README", "widgets, from the PR\n", "second")
+	third := commit(b.checkout, "OTHER", "other, from the PR again\n", "third")
+	gitIn(t, b.checkout, "push", "-q", "origin", "pr-48159")
+	gitIn(t, b.checkout, "switch", "-q", "main")
+	onto := commit(b.checkout, "README", "widgets, from dev\n", "dev moved")
+	gitIn(t, b.checkout, "push", "-q", "origin", "main")
+	gitIn(t, b.checkout, "fetch", "-q", "origin")
+	worktree := filepath.Join(b.checkout, ".worktrees", "pu14-48159")
+	gitIn(t, b.checkout, "worktree", "add", "-q", worktree, "pr-48159")
+	if out, err := exec.Command("git", append([]string{"-C", worktree}, append(lane, "rebase", "origin/main")...)...).CombinedOutput(); err == nil {
+		t.Fatalf("the rebase onto dev applied cleanly, want it stopped on second's conflict:\n%s", out)
+	}
+	rewritten := gitIn(t, worktree, "rev-parse", "HEAD")
+	write(t, filepath.Join(worktree, "README"), "widgets, resolved\n")
+
+	b.work.carry(t.Context())
+
+	if len(b.runner.carried) != 1 {
+		t.Fatalf("carried %q, want one push", b.runner.carried)
+	}
+	said := gitIn(t, b.checkout, "log", "-1", "--format=%B", b.runner.carried[0])
+	var carried string
+	for _, line := range strings.Split(said, "\n") {
+		if rest, found := strings.CutPrefix(line, "worktree "); found {
+			if path, commit, _ := strings.Cut(rest, " "); strings.HasSuffix(path, filepath.Join(".worktrees", "pu14-48159")) {
+				carried = commit
+			}
+		}
+	}
+	if carried == "" {
+		t.Fatalf("the work commit says %q, want a worktree line for %s", said, worktree)
+	}
+	if parents := gitIn(t, b.checkout, "log", "-1", "--format=%P", carried); parents != rewritten+" "+third {
+		t.Errorf("the worktree's commit's parents = %q, want the rebase's rewritten HEAD %s and its original head %s", parents, rewritten, third)
+	}
+	if gitIn(t, b.checkout, "rev-parse", rewritten+"^") != onto {
+		t.Errorf("the rewritten HEAD %s does not sit on dev's %s, so the first pick was not carried", rewritten, onto)
+	}
+	if readme := gitIn(t, b.checkout, "show", carried+":README"); readme != "widgets, resolved" {
+		t.Errorf("README in the worktree's commit = %q, want the stopped pick's resolution", readme)
+	}
+	todo := gitIn(t, b.checkout, "log", "-1", "--format=%B", carried)
+	for _, want := range []string{"HEAD detached " + rewritten, "rebase refs/heads/pr-48159 onto " + onto + " from " + third, "done pick " + first[:7], "done pick " + second[:7], "todo pick " + third[:7]} {
+		if !strings.Contains(todo, want) {
+			t.Errorf("the worktree's commit says %q, want %q", todo, want)
+		}
+	}
+	if gitIn(t, worktree, "rev-parse", "HEAD") != rewritten || !strings.Contains(gitIn(t, worktree, "status", "--porcelain"), "UU README") {
+		t.Error("carrying the work moved the rebase's HEAD or resolved its conflict in the lane's own index")
+	}
+
+	b.work.carry(t.Context())
+	if len(b.runner.carried) != 1 {
+		t.Errorf("a second pass over the unchanged rebase carried %q, want no push", b.runner.carried[1:])
+	}
+}
+
 func TestACleanCheckoutAtItsOriginPushesNothing(t *testing.T) {
 	b := newLaneBox(t, "widgets-1")
 

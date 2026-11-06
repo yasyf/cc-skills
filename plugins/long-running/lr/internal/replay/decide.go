@@ -254,6 +254,7 @@ func decideLanes(given Input) (Decided, error) {
 		},
 		PRStates: func([]int) (map[int]string, error) { return map[int]string{}, nil },
 		Held:     func() (map[int]bool, error) { return nil, nil },
+		Carried:  func(string) (lanes.Carried, error) { return lanes.Carried{}, nil },
 	}
 	s, err := store.Memory()
 	if err != nil {

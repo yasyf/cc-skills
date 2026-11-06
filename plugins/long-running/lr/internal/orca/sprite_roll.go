@@ -552,7 +552,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	}
 	hold := &cobra.Command{
 		Use:   "hold",
-		Short: "Run on a Sprite as its service: keep the Sprite awake while a claude or codex runs on it, so the hold lapses within 5 minutes of the agent's exit, append a sample to /tmp/cc-remote-samples.log every 10 seconds, and every 5 minutes push each checkout's unpushed commits and uncommitted edits to refs/lr/work/<lane> on its origin when they changed",
+		Short: "Run on a Sprite as its service: keep the Sprite awake while a claude or codex runs on it, so the hold lapses within 5 minutes of the agent's exit, append a sample to /tmp/cc-remote-samples.log every 10 seconds, and every 5 minutes push each checkout's and linked worktree's unpushed commits, uncommitted edits and rebase in progress to refs/lr/work/<lane> on its origin when they changed",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, os.Interrupt)

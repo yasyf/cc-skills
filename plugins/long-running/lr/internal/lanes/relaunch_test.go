@@ -165,6 +165,39 @@ func TestASpriteLaneWhoseHostOrcaReportsUnavailableForTenMinutesIsRelaunchedOnce
 	}
 }
 
+func TestASpriteLanesRelaunchStandDownAndBriefNameItsWorkRefCommitAndAgeOrThatItHoldsNone(t *testing.T) {
+	relaunchedAt := t0.Add(hostGoneAfter)
+	for _, c := range []struct {
+		name    string
+		carried map[string]Carried
+		want    string
+	}{
+		{"carried", map[string]Carried{lane2: {Commit: "afa9faf59341a5c75364edf5ab8ffd4aec1db5e7", At: relaunchedAt.Add(-35 * time.Minute)}}, "`refs/lr/work/conflicts-2` holds its last carried work, afa9faf59341 from " + pacific(relaunchedAt.Add(-35*time.Minute)) + ", 35 min old"},
+		{"none", nil, "`refs/lr/work/conflicts-2` holds no carried work"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := memory(t)
+			f := onSprite(t, s, 46001)
+			registered(t, s, store.Lane{Name: "meta-desk-3", Role: RoleMeta})
+			hostGone(f, true)
+			f.peers = append(f.peers, who("meta-desk-3", true, t0))
+			f.carried = c.carried
+			tick(t, s, f, t0)
+
+			out := tick(t, s, f, relaunchedAt)
+
+			equal(t, len(out.Relaunched), 1)
+			reports := relaunchReports(f)
+			equal(t, len(reports), 1)
+			contains(t, reports[0].Text, "; "+c.want+".")
+			downs := f.ofKind("stand-down")
+			equal(t, len(downs), 1)
+			contains(t, downs[0].Text, "conflicts-2 stood down for conflicts-3; conflicts-2 has a Sprite host Orca has reported unavailable for 10 min; "+c.want+".")
+			contains(t, f.briefs["conflicts-3"], "on "+f.deps.Repo+" at your launch, "+c.want+".")
+		})
+	}
+}
+
 func TestASpriteLaneThatRecoversIsNeverRelaunchedAndOneThatRecoversAfterItsRelaunchDoesNotDoubleUp(t *testing.T) {
 	s := memory(t)
 	f := onSprite(t, s, 46001)

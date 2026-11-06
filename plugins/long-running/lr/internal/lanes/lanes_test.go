@@ -111,6 +111,7 @@ type fake struct {
 	sprites     map[string]Sprite
 	spriteReads int
 	spritesFail error
+	carried     map[string]Carried
 	deps        Deps
 }
 
@@ -186,6 +187,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 			return out, f.spritesFail
 		},
 		LastWords: func(string) string { return f.lastWords },
+		Carried:   func(lane string) (Carried, error) { return f.carried[lane], nil },
 		Hosts: func(names []string, _ map[string]Sprite) map[string]Host {
 			f.hostReads++
 			out := map[string]Host{}

@@ -973,6 +973,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Sprites:               func(names []string) (map[string]Sprite, error) { return e.laneSprites(ctx, names) },
 		Hosts:                 func(names []string, sprites map[string]Sprite) map[string]Host { return e.hosts(ctx, names, sprites) },
 		LastWords:             func(sprite string) string { return e.lastWords(ctx, sprite) },
+		Carried:               func(lane string) (Carried, error) { return e.carried(ctx, lane) },
 		BuildRecommendedOrder: e.Config.BuildRecommendedOrder,
 	}, nil
 }
