@@ -31,7 +31,8 @@ reads them, through its own cursor, whole and in one read. It prints one UNREAD
 line for each record another lane addressed to it that no reply has closed, that
 no record resolved and that the lane has not answered, and one MAIL line for
 each other record from another lane, the oldest and the newest 20 when more
-arrived, with a line naming how to read the rest.`,
+arrived, with a line naming how to read the rest. The store desk's answers and
+their parts count as neither: the lr call that asked already read them.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			m := Merge{Repo: repo, Mode: One, Drive: drive, Lane: lane}
