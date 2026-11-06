@@ -94,7 +94,8 @@ type Answer struct {
 }
 
 type Note struct {
-	Text string `json:"text"`
+	Text   string `json:"text"`
+	Detail string `json:"-"`
 }
 
 type State struct {
@@ -207,11 +208,17 @@ func (b Bus) Post(ctx context.Context, to []string, body Body) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	escalation, isEscalation := body.(Escalation)
-	if !isEscalation || escalation.Detail == "" {
+	var detail string
+	switch body := body.(type) {
+	case Escalation:
+		detail = body.Detail
+	case Note:
+		detail = body.Detail
+	}
+	if detail == "" {
 		return b.postRaw(ctx, body.Kind(), raw, to, "")
 	}
-	path, err := b.keep(escalation.Detail)
+	path, err := b.keep(detail)
 	if err != nil {
 		return Record{}, err
 	}

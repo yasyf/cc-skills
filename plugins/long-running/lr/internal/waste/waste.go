@@ -139,7 +139,7 @@ func Read(ctx context.Context, src Sources, cfg Config, drive config.Config, now
 
 func Render(findings []Finding, note string) (string, int) {
 	var text strings.Builder
-	reserved := len(note) + len("... 1000000 more\n") + 1
+	reserved := len(note) + len("... 1000000 more of 1000000 rows\n") + 1
 	shown := 0
 	for _, finding := range findings {
 		line := finding.line()
@@ -150,12 +150,23 @@ func Render(findings []Finding, note string) (string, int) {
 		shown++
 	}
 	if cut := len(findings) - shown; cut > 0 {
-		fmt.Fprintf(&text, "... %d more\n", cut)
+		fmt.Fprintf(&text, "... %d more of %d rows\n", cut, len(findings))
 	}
 	if note != "" {
 		text.WriteString(note + "\n")
 	}
 	return text.String(), shown
+}
+
+func every(findings []Finding, note string) string {
+	var text strings.Builder
+	for _, finding := range findings {
+		text.WriteString(finding.line() + "\n")
+	}
+	if note != "" {
+		text.WriteString(note + "\n")
+	}
+	return text.String()
 }
 
 var (

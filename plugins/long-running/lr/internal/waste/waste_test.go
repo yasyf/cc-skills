@@ -682,7 +682,7 @@ func TestOutputStaysUnderTheCapWithFlatReadsAtOneAndManyLanes(t *testing.T) {
 	equal(t, one.runner.shows, 1)
 	equal(t, many.runner.shows, many.cfg.Transcripts)
 	text, _ := Render(large.Findings, large.note())
-	if !strings.Contains(text, fmt.Sprintf("read the 50 largest of %d changed transcripts", scaletest.N())) || !strings.Contains(text, " more\n") {
+	if !strings.Contains(text, fmt.Sprintf("read the 50 largest of %d changed transcripts", scaletest.N())) || !strings.Contains(text, " rows\n") {
 		t.Fatalf("the report does not say what it left out:\n%s", text)
 	}
 }
@@ -780,6 +780,40 @@ func TestAFindingPostsOnceToTheMetaLaneThenWaitsUntilItGrows(t *testing.T) {
 	w.bus.records = deliveries(20, "dead-1")
 	pass(t, p)
 	equal(t, len(*posts), 2)
+}
+
+func TestANoteTooLongForItsHeadKeepsEveryRowInItsBody(t *testing.T) {
+	w := newWorld(t)
+	w.cfg.Lane = "meta-desk"
+	const rows = 40
+	for i := range rows {
+		w.bus.records = append(w.bus.records, deliveries(30, fmt.Sprintf("a-dead-lane-whose-name-runs-long-enough-that-forty-rows-overflow-the-head-%02d", i))...)
+	}
+	p, _ := poster(t, w)
+	sender := bus.Bus{Drive: testDrive.Drive, Lane: "supervisor", Bodies: t.TempDir()}
+	p.Post = func(to []string, body bus.Body) error {
+		_, err := sender.Post(context.Background(), to, body)
+		return err
+	}
+
+	pass(t, p)
+
+	notes, err := client.Tail(context.Background(), client.Query{Drive: testDrive.Drive, Kinds: []string{"lr.note"}})
+	if err != nil || len(notes) != 1 {
+		t.Fatalf("notes = %+v, %v", notes, err)
+	}
+	if len(notes[0].Text) >= ByteCap || !strings.Contains(notes[0].Text, fmt.Sprintf(" more of %d rows\n", rows)) {
+		t.Fatalf("the head is %d bytes and reads %q", len(notes[0].Text), notes[0].Text)
+	}
+	body, err := os.ReadFile(notes[0].Refs.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range rows {
+		if !strings.Contains(string(body), fmt.Sprintf("-head-%02d: from emit 30\n", i)) {
+			t.Fatalf("row %d is missing from the body:\n%s", i, body)
+		}
+	}
 }
 
 func TestAPostCarriesOnlyWhatIsNewOrGrown(t *testing.T) {
