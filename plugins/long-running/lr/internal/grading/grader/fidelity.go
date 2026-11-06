@@ -960,6 +960,7 @@ func (s *fidelityPassState) askFidelity(question string, attempt int) (fidelityR
 	if err := json.Unmarshal([]byte(text), &reply); err != nil {
 		return fidelityReply{}, err
 	}
+	reply.Exempt = s.classNamed(reply.Exempt)
 	if len(reply.Missing) > 0 {
 		reply.Verdict = "missing"
 	}
@@ -987,7 +988,8 @@ func (s *fidelityPassState) readHandedOff(view pullRequest, frame promptFrame, k
 	if start < 0 || end < start || json.Unmarshal([]byte(said[start:end+1]), &reply) != nil {
 		return fidelityReply{}, &JobFailed{"the reader's reply holds no grade JSON: " + squeezed(said)}
 	}
-	reply.Checked = slices.Compact(slices.Sorted(slices.Values(slices.Concat(first.Checked, reply.Checked))))
+	reply.Checked = checkedByEither(first.Checked, reply.Checked)
+	reply.Exempt = s.classNamed(reply.Exempt)
 	if len(reply.Missing) > 0 {
 		reply.Verdict = "missing"
 	}
@@ -1023,14 +1025,29 @@ func (s *fidelityPassState) askUntilSound(view pullRequest, frame promptFrame, k
 	if err := os.WriteFile(retry, fmt.Appendf(nil, "%s\nYour last reply gave %s. Every key in the rows file appears in `checked`.\n", question, strings.Join(append(gaps, unnamed...), "; and ")), 0o600); err != nil {
 		return fidelityReply{}, err
 	}
+	first := reply
 	if reply, err = s.askFidelity(retry, attempt+1); err != nil {
 		return fidelityReply{}, err
 	}
+	reply.Checked = checkedByEither(first.Checked, reply.Checked)
 	wrong, _ = s.classGaps(reply)
 	if gaps = append(fidelityShortfalls(keys, s.job.Since, reply), wrong...); len(gaps) > 0 {
 		return fidelityReply{}, &JobFailed{"two replies gave " + strings.Join(gaps, "; and ")}
 	}
 	return reply, nil
+}
+
+func checkedByEither(first, later []string) []string {
+	return slices.Compact(slices.Sorted(slices.Values(slices.Concat(first, later))))
+}
+
+func (s *fidelityPassState) classNamed(exempt string) string {
+	for class, phrase := range s.job.Exempt {
+		if exempt == phrase {
+			return class
+		}
+	}
+	return exempt
 }
 
 func (s *fidelityPassState) classGaps(reply fidelityReply) (wrong, unnamed []string) {
