@@ -1,6 +1,7 @@
 package obs
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -71,6 +72,26 @@ func Command(a *app.App) *cobra.Command {
 					Directory: state,
 					Log:       filepath.Join(state, "obs-desk.log"),
 				})
+			},
+		},
+		&cobra.Command{
+			Use:   "restart",
+			Short: "Restart the loaded obs desk once, so it runs the installed lr; run it only on the owner's word for that restart",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				cfg, _, err := lanes.Loaded(a)
+				if err != nil {
+					return err
+				}
+				agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
+				if err != nil {
+					return err
+				}
+				if err := agents.Restart(cmd.Context(), Label(cfg.Drive)); err != nil {
+					return fmt.Errorf("%w; lr obs install writes it", err)
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "lr: %s restarted\n", Label(cfg.Drive))
+				return err
 			},
 		},
 	)
