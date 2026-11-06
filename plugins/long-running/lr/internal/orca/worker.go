@@ -48,6 +48,7 @@ const (
 	toolsMissing      = 3
 	beforeWorker      = "before-worker.sh"
 	notesPrefix       = "refs/cc-notes/"
+	notesDocs         = notesPrefix + "docs/"
 	notesReceipt      = "notes.log"
 	notesBundle       = "notes.bundle"
 	repoSetup         = "tools/cc-remote/before-worker.sh"
@@ -59,8 +60,8 @@ const (
 	holdTimeout       = time.Minute
 	claudeFastMode    = `settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json && mkdir -p "${settings%/*}" && { [ -s "$settings" ] || echo '{}' > "$settings"; } && jq '.fastMode = true' "$settings" > "$settings.new" && mv "$settings.new" "$settings"` + "\n"
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
-	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && { git remote set-head origin --auto; exec ccn sync --prefix "$2"; }`
-	seedNotes         = `git -C "$1" for-each-ref --format='%(refname)' ` + notesPrefix + ` | git -C "$1" bundle create "$3" --stdin && sprite exec -s "$2" --no-stdin --file "$3:/tmp/` + notesBundle + `" -- sh -c 'git -C "$1" fetch --quiet /tmp/` + notesBundle + ` "` + notesPrefix + `*:` + notesPrefix + `*"; fetched=$?; rm -f /tmp/` + notesBundle + `; exit $fetched' sh "$4"; seeded=$?; rm -f "$3"; exit $seeded`
+	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && { git remote set-head origin --auto; ccn sync --prefix "$2docs/"; git fetch --quiet /tmp/` + notesBundle + ` "$2*:$2*" "^$2docs/*"; rm -f /tmp/` + notesBundle + `; sprite-env services create notes-reindex --cmd sh --args "-c,cd $1 && $HOME/.local/bin/ccn reindex; sprite-env services delete notes-reindex" --no-stream; }`
+	seedNotes         = `git -C "$1" for-each-ref --format='%(refname)' ` + notesPrefix + ` | git -C "$1" bundle create "$3" --stdin && sprite exec -s "$2" --no-stdin --file "$3:/tmp/` + notesBundle + `" -- sh -c 'git -C "$1" fetch --quiet /tmp/` + notesBundle + ` "` + notesDocs + `*:` + notesDocs + `*"' sh "$4"; seeded=$?; rm -f "$3"; exit $seeded`
 	runRepoSetup      = `cd "$1" && if [ -x ` + repoSetup + ` ]; then exec ./` + repoSetup + `; fi`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" "$config/scratch/$2" && touch "$config/scratch/$2/` + lanes.StoreFile + drive.OnMac + `" "$config/scratch/$2/runner.json` + drive.OnMac + `" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`

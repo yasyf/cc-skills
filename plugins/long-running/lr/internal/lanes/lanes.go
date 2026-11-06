@@ -109,6 +109,7 @@ func Adopt(lane string) error {
 
 const (
 	StaleAfter       = store.StaleAfter
+	launchWindow     = 25 * time.Minute
 	unownedAfter     = 10 * time.Minute
 	unreadAfter      = 10 * time.Minute
 	deskLostAfter    = 30 * time.Minute
@@ -742,8 +743,8 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if aliveNow && (peer != nil || lane.Heard.After(lane.Since)) {
 			return Verdict{Kind: CameUp}
 		}
-		if now.Sub(lane.Since) >= StaleAfter {
-			return Verdict{NoShow, fmt.Sprintf("not live %d minutes after its launch", int(StaleAfter.Minutes()))}
+		if now.Sub(lane.Since) >= launchWindow {
+			return Verdict{NoShow, fmt.Sprintf("not live %d minutes after its launch", int(launchWindow.Minutes()))}
 		}
 		return Verdict{Kind: Ok}
 	}
