@@ -1,6 +1,7 @@
 package findings
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"regexp"
@@ -22,6 +23,7 @@ const (
 	kindPick     = "pick"
 	coordinator  = "root"
 	boardWatcher = "board-watch"
+	communicator = "owner-relay"
 )
 
 var (
@@ -33,6 +35,9 @@ var (
 	nameWord       = regexp.MustCompile(`\w[\w.-]*`)
 	seqWord        = regexp.MustCompile(`#\d+\b`)
 	notOwners      = []string{coordinator, "main", "all"}
+	routers        = []string{boardWatcher, coordinator, communicator}
+	routingKinds   = []string{"decide", "ask", "owner"}
+	notHolders     = slices.Concat(notOwners, []string{boardWatcher, communicator})
 )
 
 type Fields = map[string]string
@@ -224,10 +229,20 @@ func step(row Fields, record client.Record) Fields {
 	seq := seqOf(row)
 	switch {
 	case fixes(row["kind"], record):
-		return with(row, stateFixed, by)
+		moved := with(row, stateFixed, by)
+		if row["kind"] == kindPick && routedTo(record) != "" {
+			moved["owner"] = routedTo(record)
+		}
+		return moved
 	case string(record.Kind) == "opened":
 		moved := with(row, stateRouted, by)
 		moved["owner"] = record.Lane
+		return moved
+	case row["kind"] == kindPick && StillUnmet(record) == seq && speaksFor(row["owner"], record.Lane):
+		return with(row, stateRouted, by)
+	case row["kind"] == kindPick && routedTo(record) != "":
+		moved := with(row, stateRouted, by)
+		moved["owner"] = routedTo(record)
 		return moved
 	case row["state"] == stateOpen && (record.Re == seq || slices.Contains(record.Closes(), seq)):
 		return with(row, stateRouted, by)
@@ -294,7 +309,7 @@ func rowOf(record client.Record) (string, Fields, bool) {
 		if found == nil {
 			return "", nil, false
 		}
-		maps.Copy(base, Fields{"kind": kindPick, "sweep": "owner", "pr": "", "line": "", "verdict": "pick", "owner": coordinator, "text": found[1] + ": " + found[3], "card": found[2]})
+		maps.Copy(base, Fields{"kind": kindPick, "sweep": "owner", "pr": "", "line": "", "verdict": "pick", "owner": cmp.Or(routedTo(record), coordinator), "text": found[1] + ": " + found[3], "card": found[2]})
 		return "pick/" + base["seq"], base, true
 	}
 	return "", nil, false
@@ -320,4 +335,18 @@ func findingSaid(record client.Record, rest string) Fields {
 		said["owner"] = record.To[i]
 	}
 	return said
+}
+
+func routedTo(record client.Record) string {
+	if !slices.Contains(routers, client.Stem(record.Lane)) || !slices.Contains(routingKinds, string(record.Kind)) {
+		return ""
+	}
+	if i := slices.IndexFunc(record.To, func(lane string) bool { return !slices.Contains(notHolders, client.Stem(lane)) }); i >= 0 {
+		return record.To[i]
+	}
+	return ""
+}
+
+func speaksFor(owner, lane string) bool {
+	return client.Stem(lane) == client.Stem(owner) || client.Stem(lane) == coordinator
 }
