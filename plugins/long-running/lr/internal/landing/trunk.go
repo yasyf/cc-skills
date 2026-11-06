@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,9 +26,12 @@ const (
 	queueTip    = "refs/lr/queue/"
 )
 
+const QueueWorktree = "queue-worktree"
+
 type Trunk struct {
 	Runner     shell.Runner
 	Checkout   string
+	Worktree   string
 	Branch     string
 	Script     string
 	KeyCommand string
@@ -198,27 +202,29 @@ func (t Trunk) read(ctx context.Context, args ...string) (string, error) {
 }
 
 func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
-	lock, err := LockTree(t.Checkout)
+	lock, err := LockTree(t.Worktree)
 	if err != nil {
 		return "", err
 	}
 	defer lock.Close()
 	tip := queueTip + t.Branch
-	for _, argv := range [][]string{
-		{"git", "-C", t.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/" + t.Branch + ":" + tip},
-		{"git", "-C", t.Checkout, "checkout", "-q", "--detach", tip},
-	} {
-		if _, err := t.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout}); err != nil {
-			return "", err
-		}
+	if _, err := t.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", t.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/" + t.Branch + ":" + tip}, Timeout: readTimeout}); err != nil {
+		return "", err
+	}
+	place := []string{"git", "-C", t.Worktree, "checkout", "-q", "--force", "--detach", tip}
+	if _, err := os.Stat(t.Worktree); errors.Is(err, fs.ErrNotExist) {
+		place = []string{"git", "-C", t.Checkout, "worktree", "add", "-q", "--force", "--detach", t.Worktree, tip}
+	}
+	if _, err := t.Runner.Run(ctx, shell.Command{Argv: place, Env: []string{"GIT_LFS_SKIP_SMUDGE=1"}, Timeout: passTimeout}); err != nil {
+		return "", err
 	}
 	env, err := t.env(ctx)
 	if err != nil {
 		return "", err
 	}
 	done, err := t.Runner.Run(ctx, shell.Command{
-		Argv:    append([]string{filepath.Join(t.Checkout, t.Script)}, args...),
-		Dir:     t.Checkout,
+		Argv:    append([]string{filepath.Join(t.Worktree, t.Script)}, args...),
+		Dir:     t.Worktree,
 		Env:     env,
 		Timeout: passTimeout,
 	})
