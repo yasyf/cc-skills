@@ -299,6 +299,9 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 	}
 	moved, err := q.rebase(ctx, f, rebased)
 	if err != nil {
+		if merged, recorded := q.mergedElsewhere(ctx, f); merged {
+			return recorded
+		}
 		q.tell(ctx, f, "blocker", "rebase-direct:"+number+":"+f.Head, fmt.Sprintf("#%d %s: the approved, green incident fix is behind the latest %s, a merge outside the queue lands only rebased onto it (owner e7170fa), and the rebase did not finish: %v", f.Number, shortHead(f.Head), q.Trunk, err))
 		return nil
 	}
@@ -312,9 +315,8 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 		merged, err = q.Runner.Run(ctx, shell.Command{Argv: argv, Env: []string{"GH_REPO=" + f.Repo}, Timeout: mergeLimit})
 	}
 	if err != nil {
-		if state, read := q.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", number, "--repo", f.Repo, "--json", "state", "--jq", ".state"); read == nil && strings.TrimSpace(state) == "MERGED" {
-			_, err := q.Store.PutFact(f.Repo, f.Number, f.Head, squashedFact, squashMerged, q.Now())
-			return err
+		if merged, recorded := q.mergedElsewhere(ctx, f); merged {
+			return recorded
 		}
 		outcome := strings.TrimSpace(merged.Stderr + merged.Stdout)
 		q.tell(ctx, f, "blocker", "land:"+number+":"+f.Head, fmt.Sprintf("SQUASH-FAILED #%d: %s refused the approved, green incident fix at %s: %s", f.Number, strings.Join(argv[:3], " "), shortHead(f.Head), outcome))
@@ -329,6 +331,15 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 		return err
 	}
 	return postLanded(ctx, q.Store, q.Drive, q.Trunk, f, route)
+}
+
+func (q *Squash) mergedElsewhere(ctx context.Context, f machine.Facts) (bool, error) {
+	state, err := q.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(f.Number), "--repo", f.Repo, "--json", "state", "--jq", ".state")
+	if err != nil || strings.TrimSpace(state) != "MERGED" {
+		return false, nil
+	}
+	_, err = q.Store.PutFact(f.Repo, f.Number, f.Head, squashedFact, squashMerged, q.Now())
+	return true, err
 }
 
 func (q *Squash) tell(ctx context.Context, f machine.Facts, kind, id, text string) {
