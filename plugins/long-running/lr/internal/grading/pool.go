@@ -410,8 +410,12 @@ func (p *JobPool) start(ctx context.Context, grading string, d desk, sprite, dir
 	if err := writeAtomic(filepath.Join(directory, grader.AnswersFile), built.answers); err != nil {
 		return "", err
 	}
-	if built.landed != nil {
-		if err := writeAtomic(filepath.Join(directory, grader.LandedFile), built.landed); err != nil {
+	if grading == GraderFinder {
+		landed, err := p.landedRows()
+		if err != nil {
+			return "", err
+		}
+		if err := writeAtomic(filepath.Join(directory, grader.LandedFile), landed); err != nil {
 			return "", err
 		}
 	}

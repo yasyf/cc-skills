@@ -51,7 +51,6 @@ type job struct {
 	cited   string
 	cards   string
 	answers []quotes.Answer
-	landed  []grader.LandedRow
 	bodies  map[string][]byte
 }
 
@@ -144,10 +143,6 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 	if len(named) > 0 {
 		previous = previousHead(found, facts.Repo, pr, facts.Head)
 	}
-	landed, err := p.landedRows()
-	if err != nil {
-		return job{}, err
-	}
 	items, err := p.bugItems(ctx, live.Body)
 	if err != nil {
 		return job{}, err
@@ -158,7 +153,7 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 	base := p.baseJob(d, facts, sprite, settled)
 	base.BugItems = items
 	base.Unread = slices.Concat(unreadHistory, unreadRulings)
-	return job{landed: landed, bodies: bodies, cited: recordTexts(ruled), spec: grader.FinderJob{
+	return job{bodies: bodies, cited: recordTexts(ruled), spec: grader.FinderJob{
 		Job:      base,
 		Since:    last,
 		Prior:    prior,
