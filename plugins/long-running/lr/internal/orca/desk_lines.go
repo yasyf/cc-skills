@@ -61,7 +61,6 @@ var (
 	launchKey      = regexp.MustCompile(`^(?:R\d+(?:@\w+)?|unfixed:[\w-]+:\d+|inbox@\S+|incident-clock:ctx_[\w-]+)$`)
 	decideLine     = regexp.MustCompile(`^DECIDE ((?:msg|relay)_\S+) ([\w.-]+): `)
 	monitorID      = regexp.MustCompile(`(?:monitors/|\bmonitor |\bDatadog )(\d{4,})`)
-	questionKinds  = []string{kindAsk, "decide", kindBlocked}
 )
 
 type directive struct {
@@ -320,63 +319,32 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 		}
 		return true, d.withdraw(ctx, at, "cci "+record.Name(), lineKey(parsed, *closed))
 	}
-	if closed.Lane == deskRunner {
-		if decide := decideLine.FindStringSubmatch(closed.Text); decide != nil {
-			ended, err := d.laneFinished(ctx, decide[2])
-			if err != nil {
-				return true, err
-			}
-			if ended != "" {
-				return true, d.record("escalation:ended:"+at, fmt.Sprintf("ENDED cci %s %s: %s, so root's answer to %s is not relayed to it", record.Name(), decide[2], ended, closed.Name()))
-			}
-			if strings.HasPrefix(closed.Text[len(decide[0]):], workerStopped) && len(record.To) > 0 && !lanes.Addresses(record.To, decide[2]) {
-				return true, d.record("escalation:kept:"+at, fmt.Sprintf("KEPT cci %s %s: root's reply to its stop alarm %s is addressed to %s, not to the lane, so it is not relayed", record.Name(), decide[2], closed.Name(), strings.Join(record.To, ", ")))
-			}
-			if parked, err := d.parkedReply(ctx, at, decide[2], record, *closed); err != nil || parked {
-				return true, err
-			}
-			text, err := d.wholeText(at, at, decide[2], record)
-			if err != nil || text == "" {
-				return true, err
-			}
-			question, err := d.unclaimed(at, decide[2], []string{decide[1]})
-			if err != nil {
-				return true, err
-			}
-			return true, d.relayToLane(ctx, at, at, decide[2], relayTarget{Text: text, Record: recordLabel(record)}, &question)
-		}
-	}
-	if !slices.Contains(questionKinds, string(closed.Kind)) {
+	decide := decideLine.FindStringSubmatch(closed.Text)
+	if closed.Lane != deskRunner || decide == nil {
 		return false, nil
 	}
-	if len(record.To) > 0 && !toDesk(record) && !lanes.Addresses(record.To, closed.Lane) {
-		return false, nil
-	}
-	asked, err := d.askedBy(ctx, d.receipt(closed.Lane), d.terminal(closed.Lane))
-	if err != nil || len(asked) == 0 {
-		return false, err
-	}
-	dispatch, err := d.show(ctx, closed.Lane, "")
-	if err != nil || !dispatch.active() {
-		return false, err
-	}
-	questions, err := d.openQuestions(ctx, dispatch)
-	if err != nil || len(questions) == 0 {
-		return false, err
-	}
-	if parked, err := d.parkedReply(ctx, at, closed.Lane, record, *closed); err != nil || parked {
+	ended, err := d.laneFinished(ctx, decide[2])
+	if err != nil {
 		return true, err
 	}
-	text, err := d.wholeText(at, at, closed.Lane, record)
+	if ended != "" {
+		return true, d.record("escalation:ended:"+at, fmt.Sprintf("ENDED cci %s %s: %s, so root's answer to %s is not relayed to it", record.Name(), decide[2], ended, closed.Name()))
+	}
+	if strings.HasPrefix(closed.Text[len(decide[0]):], workerStopped) && len(record.To) > 0 && !lanes.Addresses(record.To, decide[2]) {
+		return true, d.record("escalation:kept:"+at, fmt.Sprintf("KEPT cci %s %s: root's reply to its stop alarm %s is addressed to %s, not to the lane, so it is not relayed", record.Name(), decide[2], closed.Name(), strings.Join(record.To, ", ")))
+	}
+	if parked, err := d.parkedReply(ctx, at, decide[2], record, *closed); err != nil || parked {
+		return true, err
+	}
+	text, err := d.wholeText(at, at, decide[2], record)
 	if err != nil || text == "" {
-		return false, err
+		return true, err
 	}
-	question, err := d.unclaimed(at, closed.Lane, questions)
+	question, err := d.unclaimed(at, decide[2], []string{decide[1]})
 	if err != nil {
-		return false, err
+		return true, err
 	}
-	relayed := fmt.Sprintf("The root answered on cci %s (re %s), which supersedes this question: %s", record.Name(), closed.Name(), text)
-	return true, d.relayToLane(ctx, at, at, closed.Lane, relayTarget{Text: relayed, Record: recordLabel(record)}, &question)
+	return true, d.relayToLane(ctx, at, at, decide[2], relayTarget{Text: text, Record: recordLabel(record)}, &question)
 }
 
 func recordLabel(record client.Record) string {
@@ -480,7 +448,7 @@ func (d *Desk) refuseLine(record client.Record) error {
 	if len([]rune(line)) > 80 {
 		line = string([]rune(line)[:80]) + "…"
 	}
-	return d.record(fmt.Sprintf("escalation:cci:%d", record.Seq), fmt.Sprintf("DIRECTIVE-FAILED cci %s inbox: it opens `%s`, and a record addressed to %s is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done", record.Name(), line, deskLane))
+	return d.record(fmt.Sprintf("escalation:cci:%d", record.Seq), fmt.Sprintf("DIRECTIVE-FAILED cci %s inbox: it opens `%s`, and a record addressed to %s is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to a desk-runner DECIDE; nothing was done", record.Name(), line, deskLane))
 }
 
 func (d *Desk) relayLine(ctx context.Context, at, key, rest, sender string) error {

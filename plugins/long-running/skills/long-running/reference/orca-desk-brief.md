@@ -251,7 +251,7 @@ orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>
 ### Route coordinator `--re` records as question replies
 
 - Any non-directive coordinator cci record carrying `--re`, or `--resolves` on the relay's `DECIDE`, is read as a reply.
-- A `--re` or `--resolves` on the relay's `DECIDE` on a worker question, or a `--re` to a lane's own record such as its cci ask, is relayed as the reply to that lane's open Orca question.
+- A `--re` or `--resolves` on the relay's `DECIDE` on a worker question is relayed as the reply to the Orca question that `DECIDE` names. That `DECIDE` is the one cci record a question has, so a `--re` to a lane's own record, such as its cci ask, settles no Orca question; the lane reads it on cci.
 - When another reply or inbox relay line already claimed that question, it goes to the lane as a plain relay, because Orca refuses a second answer to one question.
 - When Orca refuses a reply with `answer_conflict` because something answered it outside the relay, the relay sends the reply once to the dispatch as a message on the relay's thread.
 - A lane with no open question gets nothing on Orca because it reads the answer on cci.
