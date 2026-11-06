@@ -21,9 +21,10 @@ func Command(a *app.App) *cobra.Command {
 		Use:   "findings",
 		Short: "Every sweep finding and owner pick, live until a record shows it carried out",
 		Long: `A finding stays live until a later head or landed record names its PR or seq.
-A pick also ends on a claim or on root's decide naming its card, its box id or
-its seq, and on a record whose delivered=owner:<row> attr names the ledger row
-its pick came from. An opened record, or an answer or resolve of the row, marks
+A pick also ends on a release, a claim or root's decide naming its card, its box
+id or its seq, on a PR merged after it whose body or branch names one of them as
+a whole word, and on a record whose delivered=owner:<row> attr names the ledger
+row its pick came from. An opened record, or an answer or resolve of the row, marks
 it routed, which is still live. The supervisor syncs on its tick.`,
 	}
 	cmd.PersistentFlags().StringVar(&name, "drive", "", "drive to read (default: the drive bound to this session)")

@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -30,10 +31,11 @@ import (
 )
 
 const (
-	stateFile  = "findings.json"
-	firstSince = 12 * time.Hour
-	blockLabel = "board-block:"
-	cardLabel  = "board-card:"
+	stateFile   = "findings.json"
+	firstSince  = 12 * time.Hour
+	blockLabel  = "board-block:"
+	cardLabel   = "board-card:"
+	mergedQuery = `query($q: String!) { search(query: $q, type: ISSUE, first: 100) { nodes { ... on PullRequest { number headRefName body mergedAt updatedAt } } } }`
 )
 
 type Source interface {
@@ -51,21 +53,62 @@ func (liveBus) Among(ctx context.Context, drive string, seqs []int64) ([]client.
 	return client.Among(ctx, drive, seqs)
 }
 
+type PR struct {
+	Repo      string    `json:"-"`
+	Number    int       `json:"number"`
+	Branch    string    `json:"headRefName"`
+	Body      string    `json:"body"`
+	MergedAt  time.Time `json:"mergedAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type Merges interface {
+	Merged(ctx context.Context, repo string, since time.Time) ([]PR, error)
+}
+
+type gateway struct {
+	ccx.Client
+}
+
+func (g gateway) Merged(ctx context.Context, repo string, since time.Time) ([]PR, error) {
+	out, err := g.GH(ctx, ccx.MaxAgeFresh, "api", "graphql", "-f", "query="+mergedQuery, "-f", fmt.Sprintf("q=repo:%s is:pr is:merged sort:updated-asc updated:>=%s", repo, since.UTC().Format(time.RFC3339)))
+	if err != nil {
+		return nil, err
+	}
+	var reply struct {
+		Data struct {
+			Search struct {
+				Nodes []PR `json:"nodes"`
+			} `json:"search"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &reply); err != nil {
+		return nil, fmt.Errorf("merged PRs of %s: %w", repo, err)
+	}
+	prs := reply.Data.Search.Nodes
+	for i := range prs {
+		prs[i].Repo = repo
+	}
+	return prs, nil
+}
+
 type Book struct {
 	Entry  drive.Entry
 	Runner shell.Runner
 	Store  ledger.Store
 	Bus    Source
+	Merges Merges
 	Now    func() time.Time
 }
 
 func New(a *app.App, entry drive.Entry) Book {
-	return Book{entry, a.Runner, ledger.CLI{Runner: a.Runner, Repo: entry.Checkout}, liveBus{}, a.Now}
+	return Book{entry, a.Runner, ledger.CLI{Runner: a.Runner, Repo: entry.Checkout}, liveBus{}, gateway{a.CCX}, a.Now}
 }
 
 type saved struct {
 	Ledger string `json:"ledger"`
 	Cursor int64  `json:"cursor,omitempty"`
+	Merged int64  `json:"merged,omitempty"`
 }
 
 func (b Book) path() string {
@@ -216,7 +259,8 @@ func (b Book) query(cursor int64, since string) (client.Query, error) {
 }
 
 // Sync reads the records after the cursor once, or after since when given, adds
-// each new finding and pick as a row and settles every live row against them.
+// each new finding and pick as a row and settles every live row against them
+// and against the PRs merged since the last pass.
 func (b Book) Sync(ctx context.Context, since string) (Rows, error) {
 	state, err := b.load()
 	if err != nil {
@@ -235,18 +279,46 @@ func (b Book) Sync(ctx context.Context, since string) (Rows, error) {
 		return nil, err
 	}
 	records, err := b.Bus.Tail(ctx, q)
-	if err != nil || len(records) == 0 {
-		return rows, err
+	if err != nil {
+		return nil, err
 	}
 	names, err := b.names(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := b.write(ctx, id, rows, settle(rows, records, state.Cursor, names)); err != nil {
+	s := settle(rows, records, state.Cursor, names)
+	prs, err := b.merged(ctx, rows, &state)
+	if err != nil {
 		return nil, err
 	}
-	state.Cursor = max(state.Cursor, records[len(records)-1].Seq)
+	s.build(prs)
+	if err := b.write(ctx, id, rows, s.keys()); err != nil {
+		return nil, err
+	}
+	if len(records) > 0 {
+		state.Cursor = max(state.Cursor, records[len(records)-1].Seq)
+	}
 	return rows, b.save(state)
+}
+
+func (b Book) merged(ctx context.Context, rows Rows, state *saved) ([]PR, error) {
+	oldest := int64(math.MaxInt64)
+	for _, row := range rows {
+		if row["kind"] == kindPick && live(row) {
+			oldest = min(oldest, atOf(row).Unix())
+		}
+	}
+	if oldest == math.MaxInt64 {
+		return nil, nil
+	}
+	prs, err := b.Merges.Merged(ctx, b.Entry.Repo, time.Unix(max(state.Merged, oldest), 0))
+	if err != nil {
+		return nil, err
+	}
+	for _, pr := range prs {
+		state.Merged = max(state.Merged, pr.UpdatedAt.Unix())
+	}
+	return prs, nil
 }
 
 func (b Book) Pass(ctx context.Context) error {

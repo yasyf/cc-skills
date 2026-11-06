@@ -146,12 +146,12 @@ func Unfinished(l Ledgers, now time.Time) ([]Wait, error) {
 		if !slices.Contains(findingOpen, row.Fields["state"]) || row.Fields["kind"] == pickKind && l.waitsOnHim(row.Fields["text"]) {
 			continue
 		}
-		what, to := "finding from "+row.Fields["sweep"], root
+		what, to, where := "finding from "+row.Fields["sweep"], root, "the HEAD record"
 		if row.Fields["kind"] == pickKind {
-			what, to = "owner pick", l.pickRoute(row.Fields)
+			what, to, where = "owner pick", l.pickRoute(row.Fields), "the HEAD record, the release record, or the merged PR's body or branch"
 		}
 		what += ", owner " + orNone(row.Fields["owner"])
-		step := fmt.Sprintf("build it and name #%s in the HEAD record, or close it with `lr findings close --why <reason> %s`", row.Fields["seq"], row.Fields["seq"])
+		step := fmt.Sprintf("build it and name #%s in %s, or close it with `lr findings close --why <reason> %s`", row.Fields["seq"], where, row.Fields["seq"])
 		waits = append(waits, unfinishedWait(row.Key, what, row.Fields["state"], row.Fields["text"], step, to, row.Updated, time.Time{}, now))
 	}
 	return waits, nil
