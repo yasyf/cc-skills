@@ -1785,7 +1785,7 @@ def test_a_lane_slice_carries_the_rows_its_step_names_or_mentions_verbatim_and_p
     for left_out in ("rule/bbbbbbb", "rule/ddddddd", "rule/eeeeeee", "exception/E1"):
         assert left_out not in out
     assert "This brief names no `topics=` or `paths=`, so the launch searched nothing. Run `ccn answer search <topic>` for each subject you decide on before any ask, decide with options, or PR." in lines
-    assert f"The register's other 4 rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in lines
+    assert f"The register's other rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in lines
 
 
 class StandingShell(RegisterShell):
@@ -1805,7 +1805,7 @@ def test_a_lane_slice_of_a_register_larger_than_the_cap_stays_under_it_with_ever
     assert len(out.encode()) < rulings.SLICE_CAP
     assert hashed_correctly(out)
     assert set(required(out)) == {"rule/aaaaaaa", "rule/ccccccc"}
-    assert f"The register's other {len(rulings.register_reads.live_rows(rows)) - 2} rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in out.splitlines()
+    assert f"The register's other rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in out.splitlines()
 
     named = seeded(package) | {f"rule/{index:07x}": filler | {"lanes": '["lane-a"]'} for index in range(400)}
     _, out = ran(capsys, StandingShell(named), "slice", "--lane", "lane-a", "--step", "1.9")
@@ -1891,7 +1891,7 @@ def test_an_incident_slice_carries_the_unclassified_captures_and_points_at_the_r
     lines = out.splitlines()
     assert lines[0] == "Register slice: lane=fix-relay step=incident"
     assert "rule/aaaaaaa" not in out
-    assert f"The register's other 6 rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in lines
+    assert f"The register's other rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in lines
     assert "## Owner captures not yet classified (1)" in lines
     assert "> the shell never uploads" in lines
     assert "rule/ccccccc" not in out
@@ -1976,6 +1976,19 @@ def test_a_refreshed_lane_slice_reads_current_until_the_register_or_the_plan_mov
     assert current(brief)
     (package / "plan" / "plan.md").write_text(PLAN + "\n")
     assert not current(brief)
+
+
+def test_a_refreshed_slice_stays_fresh_when_the_register_gains_a_row_this_lane_does_not_match(home: Path, package: Path, state: Path, capsys) -> None:
+    brief = state / "briefs" / "lane-a.md"
+    brief.parent.mkdir()
+    brief.write_text("Brief for lane-a.\nRegister slice: lane=lane-a step=1.9\n")
+    shell = RegisterShell(seeded(package))
+    ran(capsys, shell, "slice", "--refresh", str(brief))
+    fresh = rulings.SLICE_HASH.search(brief.read_text())["hash"]
+
+    shell.rows["rule/fffffff"] = {"kind": "order", "status": "in-force", "words": "Land the relay fix last.", "steps": '["7"]', "lanes": '["lane-z"]', "paths": "none"}
+
+    assert ran(capsys, shell, "slice", "--refresh", str(brief)) == (0, f"fresh {brief} slice-hash {fresh}\n")
 
 
 OLD_CHAT_ANSWERS = [

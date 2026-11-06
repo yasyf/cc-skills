@@ -1010,11 +1010,11 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None, named: Named = N
         out.add(["", "## Standing rules", doc["body"].rstrip()])
     picks = sorted((key for key in ranks if rulings[key].get("kind") == "pick"), key=lambda key: write_in_first((key, rulings[key])))
     rows = sorted((key for key in ranks if rulings[key].get("kind") != "pick"), key=ranks.__getitem__)
-    carried = 0
     for title, keys in ((f"Rows matched for lane {want.lane} and step {want.step}", rows), (f"Board answers for step {want.step}, write-ins first", picks)):
         out.add(["", f"## {title}"])
-        carried += sum(out.add(["", *rendered_row(key, rulings[key])]) for key in keys)
-    tail.append(f"The register's other {len(rulings) - carried} rows match nothing of this lane or pass the {SLICE_CAP // 1000} KB cap; read them with `ccn ledger show {loaded.ledger[:12]}`.")
+        for key in keys:
+            out.add(["", *rendered_row(key, rulings[key])])
+    tail.append(f"The register's other rows match nothing of this lane or pass the {SLICE_CAP // 1000} KB cap; read them with `ccn ledger show {loaded.ledger[:12]}`.")
     if want.step == INCIDENT_STEP:
         done = set(loaded.classified())
         pending = [capture for item, capture in judge.captures(loaded.state).items() if item not in done]
