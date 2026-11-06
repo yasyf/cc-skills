@@ -3,10 +3,9 @@ from __future__ import annotations
 from captain_hook import Allow, BaseHookEvent, Block, Cmd, CommandSchema, Event, HookResult, Input, Operand, Option, on, Tool
 from captain_hook.cmd import COMMAND_VALUE_FLAGS
 from captain_hook.primitives.tap import launched, tapped
-from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound
-from .no_production_as_him import read
+from .no_production_as_him import ROOT, SESSION, granted_lane, read
 
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 GRANTS_READ = ["git", "config", "--global", "--get-all", "long-running.credentialWrite"]
@@ -88,6 +87,10 @@ REFUSAL = (
         Input(command="aws ssm delete-parameters --names /ci/desk-host/cci-service-key /ci/x", env=LANE, commands=GRANTED): Block(),
         Input(command="aws secretsmanager put-secret-value --secret-id prod/db --secret-string v", env=LANE, commands=GRANTED): Block(),
         Input(command=KEY_WRITE, env={"CLAUDE_LONG_RUNNING_LANE": "lane-c"}, commands=GRANTED): Block(),
+        Input(command=KEY_WRITE, env=LANE, agent_id="a3", transcript=SESSION, commands=GRANTED): Block(),
+        Input(command=KEY_WRITE, env={"CLAUDE_LONG_RUNNING_LANE": "", "CLAUDE_LONG_RUNNING_DRIVE": "d"}, commands={"git config": "=ssm:/ci/desk-host/cci-service-key\n"}): Block(),
+        Input(command=KEY_WRITE, env=ROOT, agent_id="a2", transcript=SESSION, commands=GRANTED): Block(),
+        Input(command=KEY_WRITE, env=ROOT, agent_id="a1", transcript=SESSION, commands=GRANTED): Allow(),
         Input(command='KIND=Secure; aws ssm put-parameter --name /ci/x --type "${KIND}String" --value v', env=LANE, commands=UNGRANTED): Block(),
         Input(command="aws ssm --region us-east-1 delete-parameter --name /ci/x", env=LANE, commands=UNGRANTED): Block(),
         Input(command="bash -l -c 'aws ssm delete-parameter --name /ci/x'", env=LANE, commands=UNGRANTED): Block(),
@@ -109,7 +112,7 @@ REFUSAL = (
 def credential_writes_need_his_words(evt: BaseHookEvent) -> HookResult | None:
     if not (writes := credential_writes(evt.command)):
         return None
-    lane = reqenv.env_map().get("CLAUDE_LONG_RUNNING_LANE")
+    lane = granted_lane(evt)
     granted = {grant for line in read(GRANTS_READ, evt.cwd).splitlines() for named, _, grant in [line.partition("=")] if named == lane}
     return None if all(names and all(name is not None and f"{store}:{name}" in granted for name in names) for store, names in writes) else evt.block(REFUSAL)
 

@@ -23,7 +23,7 @@ var (
 	wrapperValueFlags = map[string][]string{"sudo": {"-u", "-g"}, "env": {"-u"}}
 )
 
-func (g Guard) launchesIrisAsHim(ctx context.Context, line, cwd string) bool {
+func (g Guard) launchesIrisAsHim(ctx context.Context, line, cwd, lane string) bool {
 	file, err := syntax.NewParser().Parse(strings.NewReader(line), "")
 	if err != nil {
 		return false
@@ -73,23 +73,20 @@ func (g Guard) launchesIrisAsHim(ctx context.Context, line, cwd string) bool {
 	if config == "" {
 		return false
 	}
-	proofs := g.proofs(config)
+	proofs := proofsGranted(config, lane)
 	return slices.ContainsFunc(launches, func(env map[string]string) bool {
 		return env["IRIS_TEAM"] != "personal" || !slices.Contains(proofs, env["IRIS_RELEASE_PROOF"])
 	})
 }
 
-func (g Guard) proofs(config string) []string {
-	lane := g.Getenv("CLAUDE_LONG_RUNNING_LANE")
-	var proofs []string
+func proofsGranted(config, lane string) []string {
+	var grants []string
 	for _, line := range strings.Split(config, "\n") {
 		if grant, ok := strings.CutPrefix(line, proofKey); ok {
-			if granted, proof, ok := strings.Cut(grant, "="); ok && granted == lane {
-				proofs = append(proofs, proof)
-			}
+			grants = append(grants, grant)
 		}
 	}
-	return proofs
+	return grantsTo(lane, grants)
 }
 
 func boxArgs(call *syntax.CallExpr) []string {

@@ -31,18 +31,12 @@ type credentialWrite struct {
 	names []string
 }
 
-func (g Guard) writesACredential(ctx context.Context, line, cwd string) bool {
+func (g Guard) writesACredential(ctx context.Context, line, cwd, lane string) bool {
 	writes := credentialWrites(line)
 	if len(writes) == 0 {
 		return false
 	}
-	lane := g.Getenv("CLAUDE_LONG_RUNNING_LANE")
-	var granted []string
-	for _, entry := range strings.Split(g.read(ctx, grantsRead, cwd), "\n") {
-		if named, grant, ok := strings.Cut(entry, "="); ok && named == lane {
-			granted = append(granted, grant)
-		}
-	}
+	granted := grantsTo(lane, strings.Split(g.read(ctx, grantsRead, cwd), "\n"))
 	return slices.ContainsFunc(writes, func(write credentialWrite) bool {
 		return len(write.names) == 0 || slices.ContainsFunc(write.names, func(name string) bool { return name == "" || !slices.Contains(granted, write.store+":"+name) })
 	})
