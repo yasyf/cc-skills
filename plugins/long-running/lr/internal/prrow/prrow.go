@@ -135,15 +135,11 @@ func transition(s *store.Store, repo string, number int, head string, facts map[
 
 var ErrRowsNotFolded = errors.New("the landing store holds no review row yet, so no approval can be judged until the first fold")
 
-func HeldRefusal(refusal string) bool {
-	return strings.HasPrefix(refusal, heldLead)
-}
-
 func firstUnmet(row store.ReviewRow) string {
 	return unmet(row, true)
 }
 
-// TapAt names the head his approval stands at and what refuses it. A check
+// TapAt names the head his approval stands at and what refuses it. A hold, a check
 // still running or failing, or a line missing from the PR body, refuses nothing, since the landing pass lands only a
 // row that is both ready and tapped; a head the row has moved past keeps his
 // approval there, for the fold's carry rule to judge.
@@ -181,6 +177,8 @@ func TapRefusal(row store.ReviewRow) string {
 // checks in the order unmet reads them.
 func LandsOnce(row store.ReviewRow) string {
 	switch {
+	case row.Hold != None:
+		return strings.TrimSuffix("its hold lifts: "+heldWords(row.Hold), ": ")
 	case row.State == StateQueued:
 		return "the merge queue takes it"
 	case row.ParentState == ParentOpen:
@@ -219,7 +217,7 @@ func unmet(row store.ReviewRow, checks bool) string {
 		return "Nothing: superseded, " + row.SupersededBy
 	case row.State == StateDraft:
 		return "it is a draft"
-	case row.Hold != None:
+	case checks && row.Hold != None:
 		return heldLead + row.Hold
 	case checks && row.State == StateQueued:
 		return "it is in the merge queue"

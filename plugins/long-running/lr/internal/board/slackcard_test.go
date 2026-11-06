@@ -51,7 +51,7 @@ func TestOnlyALedgerRowReadyAndUntappedWaitsOnHim(t *testing.T) {
 		"not ready":      {readyRow(func(r *store.ReviewRow) { r.ReadyForTap = false }), false, true},
 		"already tapped": {readyRow(func(r *store.ReviewRow) { r.Tapped = true }), false, false},
 		"another PR":     {readyRow(func(r *store.ReviewRow) { r.Number = number + 1 }), false, true},
-		"held":           {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.Hold = false, "root:until #49305 lands" }), false, false},
+		"held":           {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.Hold = false, "root:until #49305 lands" }), false, true},
 		"its own word":   {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.WaitsOn = false, prrow.FlakeLands }), false, false},
 		"exempt":         {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.State = false, prrow.StateExempt }), false, false},
 		"exempt, CI running": {readyRow(func(r *store.ReviewRow) {
@@ -81,6 +81,7 @@ func TestAnOpenRowOffersApproveWithTheOneThingItLandsBehind(t *testing.T) {
 		"grade":        {func(r *store.ReviewRow) { r.Grade = prrow.GradePending }, "its review grade passes"},
 		"a stack":      {func(r *store.ReviewRow) { r.ParentState, r.Parent = prrow.ParentOpen, "#7" }, "the change below it, #7, lands"},
 		"in the queue": {func(r *store.ReviewRow) { r.State = prrow.StateQueued }, "the merge queue takes it"},
+		"held":         {func(r *store.ReviewRow) { r.Hold, r.CI = "root:until #49305 lands (record #7)", prrow.CIPending }, "its hold lifts: until #49305 lands"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			row := readyRow(func(r *store.ReviewRow) { r.ReadyForTap = false; c.change(r) })
@@ -92,19 +93,6 @@ func TestAnOpenRowOffersApproveWithTheOneThingItLandsBehind(t *testing.T) {
 				t.Fatalf("card PR = %+v, want it to land once %s", got, c.lands)
 			}
 		})
-	}
-}
-
-func TestAHeldRowSaysWhatHoldsItAndOffersNoApprove(t *testing.T) {
-	row := readyRow(func(r *store.ReviewRow) {
-		r.ReadyForTap, r.Hold, r.WaitsOn = false, "root:until #49305 lands", "held, root:until #49305 lands"
-	})
-	card := Card(repo, row)
-	if card.Waits != "" || len(card.Options) != 0 || card.Status != "info" {
-		t.Fatalf("card = %+v, want no buttons", card)
-	}
-	if got := card.PRs[0].Blocks; !strings.HasPrefix(got, "Held: ") {
-		t.Fatalf("blocks = %q, want what holds it", got)
 	}
 }
 
@@ -126,7 +114,7 @@ func waitingRows(s *store.Store, repo string, numbers []int) ([]store.ReviewRow,
 	return slices.DeleteFunc(rows, func(row store.ReviewRow) bool { return !waitsOnHim(row) }), err
 }
 
-func TestATapOnAHeldRowsCardIsRefusedNamingTheHoldAndHoldStillHolds(t *testing.T) {
+func TestATapOnAHeldRowsCardStandsAndTheRowStaysHeld(t *testing.T) {
 	const why = "held, root:the cutover has not run (record #7)"
 	s, hooks := withLedger(t, prrow.Decide(readyRow(func(r *store.ReviewRow) {
 		r.Hold, r.SupersededBy = "root:the cutover has not run (record #7)", prrow.None
@@ -135,18 +123,18 @@ func TestATapOnAHeldRowsCardIsRefusedNamingTheHoldAndHoldStillHolds(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Approve", t0)
-	if err == nil || !strings.Contains(err.Error(), why) {
-		t.Fatalf("err = %v, want it to name the hold", err)
+	if card := Card(repo, found[0]); card.Recommended != approveLabel || card.Waits != MergeWaits(number, head) || card.PRs[0].Lands != "its hold lifts: the cutover has not run" {
+		t.Fatalf("card = %+v, want Approve landing once the hold lifts", card)
 	}
-	if !reflect.DeepEqual(hooks.refused, []string{why}) || len(hooks.taps) != 0 {
-		t.Fatalf("refused = %v, taps = %+v", hooks.refused, hooks.taps)
-	}
-	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Hold", t0); err != nil {
+	if err := Respond(s, repo, hooks.hooks(), found, number, MergeWaits(number, head), "Approve", t0); err != nil {
 		t.Fatal(err)
 	}
-	if want := []Key{{number, head}}; !reflect.DeepEqual(hooks.holds, want) {
-		t.Fatalf("holds = %+v", hooks.holds)
+	if len(hooks.taps) != 1 || len(hooks.refused) != 0 {
+		t.Fatalf("taps = %+v, refused = %v", hooks.taps, hooks.refused)
+	}
+	tapped, stored, err := s.ReviewRow(repo, number)
+	if err != nil || !stored || !tapped.Tapped || tapped.ReadyForTap || tapped.WaitsOn != why {
+		t.Fatalf("row = %+v, %v, %v, want it tapped and still held", tapped, stored, err)
 	}
 }
 

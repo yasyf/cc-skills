@@ -1190,11 +1190,11 @@ func TestAListedPRDrawsItsApproveInCIAndALinkOnlyWhenItCannotBeApproved(t *testi
 	if flags := r.tapFlags(); !slices.Equal(flags, []string{"--tap-pr", landPR}) {
 		t.Fatalf("tap flags = %q, want the PR in CI asked for its Approve", flags)
 	}
-	held := inCI
-	held.Hold = "root:until the migration lands"
-	ledgerRow(t, f, held)
+	superseded := inCI
+	superseded.SupersededBy = "#2197"
+	ledgerRow(t, f, superseded)
 	if _, warning := f.withPRCards(context.Background(), r); warning != "" {
-		t.Fatalf("a held PR warned %q, want a link and nothing to say", warning)
+		t.Fatalf("a superseded PR warned %q, want a link and nothing to say", warning)
 	}
 }
 

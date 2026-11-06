@@ -104,7 +104,7 @@ func drawLandable(t *testing.T, s *store.Store, number int, at string) {
 	}
 }
 
-const heldByRoot = "held, root:the cutover"
+const supersededBy = "Nothing: superseded, #4243"
 
 func drawWaiting(t *testing.T, s *store.Store, number int, at string, waits func(*store.ReviewRow)) {
 	t.Helper()
@@ -119,7 +119,7 @@ func drawWaiting(t *testing.T, s *store.Store, number int, at string, waits func
 	}
 }
 
-func heldRow(r *store.ReviewRow) { r.Hold = "root:the cutover" }
+func supersededRow(r *store.ReviewRow) { r.SupersededBy = "#4243" }
 
 func refusals(t *testing.T) []client.Record {
 	t.Helper()
@@ -488,8 +488,8 @@ func TestATapOnARowWhoseStandingRefusesItIsRefusedWithTheReasonAndNeverOrdered(t
 		change func(*store.ReviewRow)
 		waits  string
 	}{
-		{"held", heldRow, heldByRoot},
-		{"superseded", func(r *store.ReviewRow) { r.SupersededBy = "#4243" }, "Nothing: superseded, #4243"},
+		{"superseded", supersededRow, supersededBy},
+		{"a draft", func(r *store.ReviewRow) { r.State = prrow.StateDraft }, "it is a draft"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := unreadHarness(t)
@@ -555,9 +555,9 @@ func TestATapBeforeTheFirstFoldWaitsQuietlyAndOneOnAMergedPRIsDropped(t *testing
 	}
 }
 
-func TestARefusedTapTellsTheRelayWhatHoldsItOnce(t *testing.T) {
+func TestARefusedTapTellsTheRelayWhatStopsItOnce(t *testing.T) {
 	h := unreadHarness(t)
-	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)
+	drawWaiting(t, h.store, surfacePR, surfaceHead, supersededRow)
 	ownerRecord(t, landOnCard, pickAttrs)
 
 	writeOrders(t, h)
@@ -567,7 +567,7 @@ func TestARefusedTapTellsTheRelayWhatHoldsItOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(told) != 1 || !slices.Contains(told[0].To, "owner-relay") || !strings.Contains(told[0].Text, heldByRoot) || !strings.Contains(told[0].Text, "#4242") {
+	if len(told) != 1 || !slices.Contains(told[0].To, "owner-relay") || !strings.Contains(told[0].Text, supersededBy) || !strings.Contains(told[0].Text, "#4242") {
 		t.Fatalf("told = %+v", told)
 	}
 }
@@ -618,43 +618,28 @@ func TestAnApprovingPickOnAReplyMarksTheRowTappedAtItsHeadAndTheQueueKeepsIt(t *
 	}
 }
 
-func TestATapRefusedWhileHeldWaitsAndLandsWhenTheHoldLiftsAtTheSameHead(t *testing.T) {
+func TestHisTapOnAHeldRowIsOrderedAtItsHeadAndTheHoldStillKeepsItFromTheQueue(t *testing.T) {
 	h := unreadHarness(t)
-	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)
-	record := ownerRecord(t, landOnCard, pickAttrs)
-	writeOrders(t, h)
-	if written := orders(t); len(written) != 0 {
-		t.Fatalf("orders = %+v", written)
-	}
-	if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || cursor >= record.Seq {
-		t.Fatalf("cursor = %d, %v, want it held before %d", cursor, err, record.Seq)
-	}
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Hold = "root:the cutover" })
+	hold(t, "root", "hold #4242 the cutover", strconv.Itoa(surfacePR))
+	ownerRecord(t, landOnCard, pickAttrs)
 
-	drawReady(t, h.store, surfacePR, surfaceHead)
 	writeOrders(t, h)
 
-	if written := orders(t); len(written) != 1 {
-		t.Fatalf("orders = %+v", written)
+	if written, refused := orders(t), refusals(t); len(written) != 1 || len(refused) != 0 || !strings.Contains(written[0].Text, surfaceHead[:12]) {
+		t.Fatalf("orders = %+v, refusals = %+v", written, refused)
 	}
-	if row := h.snapshot(t)[surfacePR]; !row.Admitted() {
-		t.Fatalf("row = %+v", row)
+	row := h.snapshot(t)[surfacePR]
+	row.CI, row.Mergeable, row.Approved, row.Finder, row.Fidelity = machine.CISuccess, machine.MergeableClean, true, machine.FinderClear, machine.FidelityPass
+	if !row.Admitted() || !row.Held() {
+		t.Fatalf("row = %+v, want his tap admitted under the hold", row)
 	}
-}
-
-func TestATapRefusedWhileHeldIsDroppedWhenTheHoldLiftsAtANewHead(t *testing.T) {
-	h := unreadHarness(t)
-	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)
-	record := ownerRecord(t, `Owner: "Land this now" #4242`, nil)
-	writeOrders(t, h)
-
-	drawReady(t, h.store, surfacePR, "def5678"+strings.Repeat("0", 33))
-	writeOrders(t, h)
-
-	if written := orders(t); len(written) != 0 {
-		t.Fatalf("orders = %+v", written)
+	if verdict := machine.Classify(row); verdict.Action != machine.ActionLift {
+		t.Fatalf("verdict = %+v, want the hold to keep his approved head out of the queue", verdict)
 	}
-	if cursor, err := h.store.Cursor(facts.OrderCursor); err != nil || cursor < record.Seq {
-		t.Fatalf("cursor = %d, %v, want it past %d", cursor, err, record.Seq)
+	row.Queue, row.QueuedHead = machine.QueueQueued, row.Head
+	if verdict := machine.Classify(row); verdict.Action != machine.ActionDequeue {
+		t.Fatalf("queued verdict = %+v, want a held head pulled from the queue", verdict)
 	}
 }
 
@@ -737,7 +722,7 @@ func TestAHoldIsWrittenWhateverTheRowSays(t *testing.T) {
 
 func TestOnlyTheLandingHostAnswersATapAndEveryHostFoldsItsRefusal(t *testing.T) {
 	h := unreadHarness(t)
-	drawWaiting(t, h.store, surfacePR, surfaceHead, heldRow)
+	drawWaiting(t, h.store, surfacePR, surfaceHead, supersededRow)
 	ownerRecord(t, landOnCard, pickAttrs)
 
 	h.source.Reads = false
@@ -749,7 +734,7 @@ func TestOnlyTheLandingHostAnswersATapAndEveryHostFoldsItsRefusal(t *testing.T) 
 	h.source.Reads = true
 	writeOrders(t, h)
 	h.source.Reads = false
-	if row := h.snapshot(t)[surfacePR]; row.TapRefused != heldByRoot {
+	if row := h.snapshot(t)[surfacePR]; row.TapRefused != supersededBy {
 		t.Fatalf("row = %+v", row)
 	}
 }

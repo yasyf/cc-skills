@@ -478,6 +478,9 @@ func escalateTappedHolds(s *store.Store, snapshot []machine.Facts, now time.Time
 		}
 		subject := itemSubject(f.Repo, f.Number, f.Head)
 		cause := fmt.Sprintf("DECIDE: the owner tapped this head while hold %s stands; lift the hold, or tell the owner why not", f.HoldRecord)
+		if f.Hold == machine.MoverOwner {
+			cause = fmt.Sprintf("DECIDE: the owner tapped this head while his own hold %s stands, and only he lifts it; ask him whether it lifts", f.HoldRecord)
+		}
 		if err := escalate(s, subject, cause, "", root, now, post, out); err != nil {
 			return err
 		}
@@ -553,7 +556,7 @@ func escalateUngraded(s *store.Store, snapshot []machine.Facts, now time.Time, p
 		return err
 	}
 	for _, f := range snapshot {
-		if f.Lane == "" || !f.Green() || f.Graded() || f.Held() || f.Draft || f.Foreign() || f.Restackable() || out.Verdicts[f.Number].State.Terminal() {
+		if f.Lane == "" || !f.Green() || f.Graded() || f.Draft || f.Foreign() || f.Restackable() || out.Verdicts[f.Number].State.Terminal() {
 			continue
 		}
 		first, seen := since[store.FactKey{Number: f.Number, Head: f.Head}]

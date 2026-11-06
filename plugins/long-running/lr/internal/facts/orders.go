@@ -27,10 +27,7 @@ const (
 
 var orderWatchers = []string{"meta-desk", "owner-relay"}
 
-var (
-	errHeldWait = errors.New("the row is held, so his tap waits for the hold to lift")
-	errHeadWait = errors.New(prrow.NoHeadYet)
-)
+var errHeadWait = errors.New(prrow.NoHeadYet)
 
 // WriteOrders turns each owner tap recorded on any surface into the one lr.tap record the landing pass and every desk read, or, on a row not ready at that head, one tap.refused naming why.
 func (s Source) WriteOrders(ctx context.Context) error {
@@ -67,7 +64,7 @@ func (s Source) WriteOrders(ctx context.Context) error {
 					if age >= OrderWindow {
 						s.escalateOrder(ctx, record, tap, OrderWindow, failed)
 					}
-				case age >= OrderGrace && !errors.Is(failed, errHeldWait):
+				case age >= OrderGrace:
 					s.escalateOrder(ctx, record, tap, OrderGrace, failed)
 				}
 				continue
@@ -111,10 +108,6 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 	if refusal != "" {
 		if err := orders.PostRefusal(ctx, s.Repo, tap, refusal); err != nil {
 			return err
-		}
-		if prrow.HeldRefusal(refusal) {
-			s.escalate(ctx, record, fmt.Sprintf("tap-refused:%d", record.Seq), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("His approval %s of #%d%s waits for its hold to lift and lands then if the head has not moved: %s. Tell him what stops it.", record.Name(), tap.PR, bus.At(tap.Head), refusal))
-			return errHeldWait
 		}
 		s.escalate(ctx, record, fmt.Sprintf("tap-refused:%d", record.Seq), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("His approval %s of #%d%s was refused and lands nothing: %s. Tell him what stops it.", record.Name(), tap.PR, bus.At(tap.Head), refusal))
 		return nil
