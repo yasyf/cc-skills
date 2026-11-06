@@ -3,8 +3,10 @@ package orca
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,8 +32,17 @@ func newRejoinFixture(t *testing.T) *rejoinFixture {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	r := &rejoinFixture{workerFixture: f, store: s}
-	r.write(filepath.Join(r.root, "runner.json"), rendered(object{"orca": object{"sprite": object{"env": object{sponsorEnv: sponsorBox}}}}), 0o600)
+	r.write(filepath.Join(r.root, "runner.json"), rendered(object{"orca": object{"sprite": object{"env": object{}}}}), 0o600)
 	return r
+}
+
+var rejoinNow = time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
+
+func (r *rejoinFixture) delegated(name string, left time.Duration) string {
+	r.t.Helper()
+	path := filepath.Join(attemptOf(filepath.Join(r.root, "briefs", name+".md")), delegationFile)
+	r.write(path, rendered(object{"v": 1, "mesh": "default", "instance_pub": "aW5zdGFuY2U=", "drives": []string{"drive-a"}, "expires": rejoinNow.Add(left).Format(time.RFC3339Nano)}), 0o600)
+	return path
 }
 
 func (r *rejoinFixture) lane(name, placement string, state store.LaneState, receipt string) string {
@@ -47,7 +58,7 @@ func (r *rejoinFixture) lane(name, placement string, state store.LaneState, rece
 }
 
 func (r *rejoinFixture) pass() error {
-	return Rejoin{Runner: r.workerFixture, Store: r.store, Config: filepath.Join(r.root, "runner.json"), Sleep: func(wait time.Duration) { r.slept = append(r.slept, wait) }, Out: &r.out}.Pass(context.Background())
+	return Rejoin{Runner: r.workerFixture, Store: r.store, Config: filepath.Join(r.root, "runner.json"), Sleep: func(wait time.Duration) { r.slept = append(r.slept, wait) }, Now: func() time.Time { return rejoinNow }, Out: &r.out}.Pass(context.Background())
 }
 
 func readFileText(path string) (string, error) {
@@ -63,18 +74,19 @@ func TestAPassJoinsTheStrandedLaneAndRunsNothingOnAnyOther(t *testing.T) {
 	r := newRejoinFixture(t)
 	receipt := r.lane("lane-stranded", routeSprite, store.LaneDesired, relayFailure)
 	r.lane("lane-joined", routeSprite, store.LaneDesired, "joined mesh default at https://relay.example.test/\n")
+	r.delegated("lane-joined", 20*time.Hour)
 	r.lane("lane-local", routeLocal, store.LaneDesired, relayFailure)
 	r.lane("lane-retired", routeSprite, store.LaneRetired, relayFailure)
-	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, workerReply{out: "the sponsor key"}, workerReply{out: "joined mesh default\n"})
+	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, spriteNodeReply, workerReply{out: "joined mesh default\n"})
 	if err := r.pass(); err != nil {
 		t.Fatal(err)
 	}
 	r.wantCalls(append([][]string{statusCall("box-lane-stranded")}, relayCalls("box-lane-stranded")...)...)
-	if r.stdins[strings.Join(joinCall("box-lane-stranded"), " ")] != "the sponsor key" {
+	if r.stdins[strings.Join(joinCall("box-lane-stranded"), " ")] != delegationSaid {
 		t.Fatal(r.stdins)
 	}
 	said, err := readFileText(receipt)
-	if err != nil || !strings.Contains(said, joinedMesh) || strings.Contains(said, "the sponsor key") {
+	if err != nil || !strings.Contains(said, joinedMesh) {
 		t.Fatal(said, err)
 	}
 	if !strings.Contains(r.out.String(), "lane-stranded rejoined on Sprite box-lane-stranded") {
@@ -87,7 +99,7 @@ func TestARefusedJoinEndsThePassNamingTheReasonAndLeavesTheNextLane(t *testing.T
 	r.lane("lane-a", routeSprite, store.LaneDesired, relayFailure)
 	r.lane("lane-b", routeSprite, store.LaneDesired, relayFailure)
 	failing := workerReply{code: 1, err: relayFailure}
-	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, workerReply{out: "the sponsor key"}, failing, failing, failing, failing)
+	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, spriteNodeReply, failing, failing, failing, failing)
 	err := r.pass()
 	if err == nil || !strings.Contains(err.Error(), "the relay failed; retry") || !strings.Contains(err.Error(), "lane-a") {
 		t.Fatal(err)
@@ -130,7 +142,7 @@ func TestASpriteThatDoesNotAnswerIsSkippedAndKeepsItsReceipt(t *testing.T) {
 	}
 }
 
-func TestARunnerWithNoSponsorRepairsNothing(t *testing.T) {
+func TestARunnerWithNoSpritesRepairsNothing(t *testing.T) {
 	r := newRejoinFixture(t)
 	r.lane("lane-a", routeSprite, store.LaneDesired, relayFailure)
 	r.write(filepath.Join(r.root, "runner.json"), rendered(object{"orca": object{}}), 0o600)
@@ -138,4 +150,73 @@ func TestARunnerWithNoSponsorRepairsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wantCalls()
+}
+
+func TestAPassRenewsOnlyTheDelegationsDueWithOneMacCallEachAndReachesNoSprite(t *testing.T) {
+	calls := map[int]int{}
+	for _, n := range []int{1, 100} {
+		r := newRejoinFixture(t)
+		r.reply("cci relay delegate", slices.Repeat([]workerReply{{out: delegationSaid}}, n)...)
+		var due []string
+		for i := range n {
+			for _, left := range []time.Duration{time.Hour, 20 * time.Hour} {
+				name := fmt.Sprintf("lane-%d-%d", i, int(left.Hours()))
+				r.lane(name, routeSprite, store.LaneDesired, "joined mesh default\n")
+				path := r.delegated(name, left)
+				if left < renewWithin {
+					due = append(due, path)
+				}
+			}
+		}
+		if err := r.pass(); err != nil {
+			t.Fatal(err)
+		}
+		for _, call := range r.calls {
+			if !slices.Equal(call, delegateCall("aW5zdGFuY2U=", "drive-a")) {
+				t.Fatal("a renewal pass ran", call)
+			}
+		}
+		calls[n] = len(r.calls)
+		if calls[n] != len(due) {
+			t.Fatalf("%d lanes due ran %d delegate calls", len(due), calls[n])
+		}
+		for _, path := range due {
+			if said, err := readFileText(path); err != nil || said != delegationSaid {
+				t.Fatal(path, said, err)
+			}
+		}
+	}
+	if calls[1]*100 != calls[100] {
+		t.Fatalf("renewals at N=1: %d, at N=100: %d; want one per due lane", calls[1], calls[100])
+	}
+}
+
+func TestAJoinedLaneOnTheSharedKeyMovesToItsOwnDelegation(t *testing.T) {
+	r := newRejoinFixture(t)
+	r.lane("lane-legacy", routeSprite, store.LaneDesired, "joined mesh default\n")
+	r.reply("sprite exec", spriteNodeReply, workerReply{out: "joined mesh default\n"})
+	if err := r.pass(); err != nil {
+		t.Fatal(err)
+	}
+	r.wantCalls(relayCalls("box-lane-legacy")...)
+	if r.stdins[strings.Join(joinCall("box-lane-legacy"), " ")] != delegationSaid {
+		t.Fatal(r.stdins)
+	}
+}
+
+func TestAFailedMoveOffTheSharedKeyLeavesTheLaneJoinedAndThePassGoesOn(t *testing.T) {
+	r := newRejoinFixture(t)
+	receipt := r.lane("lane-a-legacy", routeSprite, store.LaneDesired, "joined mesh default\n")
+	r.lane("lane-b-stranded", routeSprite, store.LaneDesired, relayFailure)
+	r.reply("cci relay delegate", workerReply{code: 1, err: "cci: relay: 404 not_found\n"}, workerReply{out: delegationSaid})
+	r.reply("sprite exec", spriteNodeReply, workerReply{code: 1, out: noMeshSaid}, spriteNodeReply, workerReply{out: "joined mesh default\n"})
+	if err := r.pass(); err != nil {
+		t.Fatal(err)
+	}
+	if said, err := readFileText(receipt); err != nil || said != "joined mesh default\n" {
+		t.Fatal(said, err)
+	}
+	if !strings.Contains(r.out.String(), "lane-a-legacy on Sprite box-lane-a-legacy stays on the shared service key") || !strings.Contains(r.out.String(), "lane-b-stranded rejoined") {
+		t.Fatal(r.out.String())
+	}
 }

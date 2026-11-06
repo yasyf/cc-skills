@@ -44,7 +44,8 @@ const (
 	testLRSHA       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	localWorktree   = "/w/lane-a"
 	localTerminal   = "term_local_1"
-	sponsorBox      = "sponsor-1"
+	instanceKey     = "BInstance=="
+	delegationSaid  = "{\"v\":1,\"mesh\":\"default\",\"instance_pub\":\"BInstance==\"}\n"
 	relayURL        = "https://relay.example.test/"
 	workerSetup     = "set -e; ./setup.sh"
 	ownerKey        = "BOwner=="
@@ -237,7 +238,6 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 		"ORCA_TERMINAL_HANDLE": "term_coordinator",
 		"BINRUN_PLUGIN_ROOT":   filepath.Join(root, "plugin"),
 		"HOME":                 f.home,
-		sponsorEnv:             sponsorBox,
 		setupEnv:               workerSetup,
 	}
 	return f
@@ -277,7 +277,8 @@ func (f *workerFixture) spriteAllocated(response any) {
 	f.reply("cc-remote orca stop", workerReply{out: object{"lane": workerLane, "workspace": workerWorkspace}})
 	f.reply("cci relay status", workerReply{out: []object{{"mesh": "other", "url": "https://elsewhere.test/", "routes": []string{"x"}}, {"mesh": "default", "url": relayURL, "routes": []string{"drive-a", "drive-b"}}}})
 	f.reply("cci node", workerReply{out: object{"id": "n1", "public_key": ownerKey}})
-	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{})
+	f.reply("cci relay delegate", workerReply{out: delegationSaid})
+	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{}, workerReply{}, workerReply{})
 	for verb, help := range verbHelps {
 		f.reply(verb, workerReply{out: help})
 	}
@@ -453,15 +454,21 @@ func setupCall(workspace string) []string {
 }
 
 func joinCall(workspace string) []string {
-	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", "drive-a,drive-b", relayURL, ownerKey}
+	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", relayURL, ownerKey}
 }
+
+func delegateCall(pub string, drives string) []string {
+	return []string{"cci", "relay", "delegate", "--pub", pub, "--drive", drives, "--ttl", delegationLife}
+}
+
+var spriteNodeReply = workerReply{out: object{"id": "i1", "public_key": instanceKey}}
 
 func holdCall(workspace string) []string {
 	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", holdWorker}
 }
 
 func relayCalls(workspace string) [][]string {
-	return [][]string{{"cci", "relay", "status", "--json"}, {"cci", "node", "--json"}, {"sprite", "exec", "-s", sponsorBox, "--no-stdin", "--", "cat", sponsorKey}, joinCall(workspace)}
+	return [][]string{{"cci", "relay", "status", "--json"}, {"cci", "node", "--json"}, {"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", spriteNode}, delegateCall(instanceKey, "drive-a,drive-b"), joinCall(workspace)}
 }
 
 func (f *workerFixture) startCalls(task object, told ...string) [][]string {
@@ -1048,46 +1055,29 @@ func TestAReadLaneTheMacsLoadSentToASpriteIsToldItsStoreStartsAtLaunch(t *testin
 	}
 }
 
-func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogsTheKey(t *testing.T) {
+func TestTheMacSignsTheSpriteItsOwnDelegationAndNoOtherSpriteIsReached(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{})
+	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{})
 	f.launched()
 	f.wantCalls(f.heldSpriteCalls()...)
-	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the sponsor key" {
+	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != delegationSaid {
 		t.Fatal(f.stdins)
 	}
-	if strings.Contains(f.receiptText(joinReceipt), "the sponsor key") {
-		t.Fatal("the log holds the key")
+	if f.receiptText(delegationFile) != delegationSaid {
+		t.Fatal(f.receiptText(delegationFile))
 	}
-}
-
-func TestAnAWSProfileSponsorReadsTheKeyFromSSMAndReachesNoSponsorSprite(t *testing.T) {
-	f := newWorkerFixture(t)
-	f.env[sponsorEnv] = sponsorProfile + "machine-x"
-	f.sprite()
-	f.reply("aws ssm get-parameter", workerReply{out: "the ssm key"})
-	f.reply("sprite exec", workerReply{}, workerReply{})
-	f.launched()
-	read := []string{"aws", "ssm", "get-parameter", "--profile", "machine-x", "--region", serviceKeyRegion, "--name", serviceKeyName, "--with-decryption", "--query", "Parameter.Value", "--output", "text"}
-	if !slices.ContainsFunc(f.calls, func(call []string) bool { return slices.Equal(call, read) }) {
-		t.Fatal(f.calls)
-	}
-	if slices.ContainsFunc(f.calls, func(call []string) bool { return slices.Contains(call, sponsorKey) }) {
-		t.Fatal("a launch with an AWS profile sponsor read a Sprite's key file", f.calls)
-	}
-	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the ssm key" {
-		t.Fatal(f.stdins)
-	}
-	if strings.Contains(f.receiptText(joinReceipt), "the ssm key") {
-		t.Fatal("the log holds the key")
+	for _, call := range f.calls {
+		if call[0] == "sprite" && !slices.Contains(call, workerWorkspace) {
+			t.Fatal("the launch reached another Sprite", call)
+		}
 	}
 }
 
 func TestAHoldThatFailsToStartLeavesTheWorkerRunningAndSaysSo(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{}, workerReply{}, workerReply{code: 1, err: "services are down"})
+	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{}, workerReply{}, workerReply{code: 1, err: "services are down"})
 	if line := f.launched(); !strings.Contains(line, `"state":"ready"`) {
 		t.Fatal(line)
 	}
@@ -1103,14 +1093,14 @@ func TestAHoldThatFailsToStartLeavesTheWorkerRunningAndSaysSo(t *testing.T) {
 func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, workerReply{out: "the sponsor key"}, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
+	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
 	f.launched()
 	spec := f.startCalls(prepared())
 	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, spec[:len(spec)-2], [][]string{joinCall(workerWorkspace)}, spec[len(spec)-2:], [][]string{holdCall(workerWorkspace)})...)
 	if !slices.Equal(f.slept, joinWaits[:1]) {
 		t.Fatal(f.slept)
 	}
-	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the sponsor key" {
+	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != delegationSaid {
 		t.Fatal(f.stdins)
 	}
 }
@@ -1118,12 +1108,12 @@ func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 func TestRepeatedRelayFailuresRefuseTheLaunchNamingTheReasonAndStartNoWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure})
+	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure})
 	_, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf("Sprite %s did not join the cci relay with %s's service key: 4 tries, the last saying cci: relay: 500 internal: the relay failed; retry; nothing started, because a worker with no relay posts nothing anyone reads; %s/%s keeps the output, and the prepared worker never got its task", workerWorkspace, sponsorBox, f.attempt, joinReceipt) + stopSaid
+	want := fmt.Sprintf("Sprite %s did not join the cci relay with the delegation this Mac signed it: 4 tries, the last saying cci: relay: 500 internal: the relay failed; retry; nothing started, because a worker with no relay posts nothing anyone reads; %s/%s keeps the output, and the prepared worker never got its task", workerWorkspace, f.attempt, joinReceipt) + stopSaid
 	if failed != want {
 		t.Fatalf("failed\n%s\nwant\n%s", failed, want)
 	}
@@ -1148,11 +1138,19 @@ func TestAJoinThatCannotReadTheOwnerRefusesWithoutRetrying(t *testing.T) {
 	}
 }
 
-func TestASpriteLaunchWithNoSponsorRefusesBeforeAnyCall(t *testing.T) {
+func TestADelegateTheMacCannotSignRefusesTheLaunchWithoutJoining(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	delete(f.env, sponsorEnv)
-	f.refusedWith("set " + sponsorEnv + " to the Sprite holding the drive's enrolled cci service key, or to " + sponsorProfile + "<this Mac's AWS profile> to read it from SSM, because a worker with no relay posts nothing anyone reads; nothing was prepared")
+	f.reply("cci relay delegate", workerReply{code: 1, err: "cci: relay: 404 not_found\n"})
+	_, failed, err := f.launch(workerLane, "opus", "high")
+	if err != nil || !strings.Contains(failed, "this Mac's cci relay delegate failed") || len(f.slept) != 0 {
+		t.Fatal(failed, f.slept, err)
+	}
+	for _, call := range f.calls {
+		if slices.Equal(call, joinCall(workerWorkspace)) {
+			t.Fatal("joined with no delegation")
+		}
+	}
 }
 
 func TestAToolInstallThatFailsInPrepareStartsNoWorkerAndIsNeverRetried(t *testing.T) {
