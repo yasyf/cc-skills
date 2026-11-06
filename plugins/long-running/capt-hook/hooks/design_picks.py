@@ -11,6 +11,7 @@ from .lane_landing import DRIVE_ENV, SPRITE_ENV, incident_lane, lane_name
 from .owner_quotes import bodies
 from .pr_body_frozen import PR_EDIT, SHIP
 from .release_cards import Unread, read
+from .tests.register_fixtures import FIXTURES
 from .vet_before_push import branch_diff, in_lane
 
 PICK = re.compile(r"\bowner:m\d+(?:\.\d+)?\b|\b(?:ccn|answer)[: ][0-9a-f]{7,}\b")
@@ -37,6 +38,8 @@ ROWS_LABEL = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b
 ELSEWHERE = REPO | {"git diff": "diff --git a/api/src/a.ts b/api/src/a.ts\n+export const a = 1\n"}
 SHIP_IT = "ccx vcs ship -m 'cloudrunner: 🐛 evict finished journals'"
 PICKED = "gh pr create --title 'cloudrunner: ✨ evict finished journals' --body 'Builds owner:m481, his pick on the journal storage card.'"
+FLEETS = REPO | {"git diff": "diff --git a/infra/rows/sandsql/fleets.ts b/infra/rows/sandsql/fleets.ts\n+  storageClass: 'gp3', reclaimPolicy: 'Retain',\n", CARDS: "{}"}
+DRY_SHIP = "ccx vcs ship --dry-run --tip-only --no-watch --pr-title-file t --pr-body-file {body} infra/rows/sandsql/fleets.ts"
 
 
 def shipping(evt: BaseHookEvent) -> list[Call]:
@@ -79,6 +82,8 @@ def design_cards(evt: BaseHookEvent) -> dict[str, list[str]]:
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_CLAIM | {CARDS: "{}"}): Block(pattern=r"`infra/rows/executor/template\.ts` changes where data lives or how long it is kept"),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_SCRATCH | {CARDS: "{}"}): Allow(),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_LABEL | {CARDS: "{}"}): Allow(),
+        Input(cwd="/w", command=DRY_SHIP.format(body=FIXTURES / "design-picks" / "picked.md"), env=LANE_ENV, commands=FLEETS): Allow(),
+        Input(cwd="/w", command=DRY_SHIP.format(body=FIXTURES / "owner-quotes" / "log-line.md"), env=LANE_ENV, commands=FLEETS): Block(pattern=r"`infra/rows/sandsql/fleets\.ts` changes where data lives or how long it is kept"),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE | {CARDS: (1, "cc-present down")}): Warn(pattern=r"^Warning, nothing was refused: `board cards` exited 1: cc-present down"),
         Input(cwd="/w", command="gh pr view 12", env=LANE_ENV, commands=JOURNAL): Allow(),
         Input(cwd="/w", command=SHIP_IT, env=DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "root"}, commands=JOURNAL): Allow(),

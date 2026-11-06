@@ -46,12 +46,16 @@ SHIP = CommandSchema(
     operands=(Operand("words", count="*"),),
     options=(
         Option("message", ("-m", "--message")),
-        Option("branch", ("--branch",)),
-        Option("new-branch", ("--new-branch",)),
-        Option("parent", ("--parent",)),
-        Option("pr-title", ("--pr-title",)),
-        Option("pr-body-file", ("--pr-body-file",)),
-        *(Option(name, (f"--{name}",), bool) for name in ("tip-only", "amend", "no-commit", "no-push", "no-watch", "reviews")),
+        Option("budget", ("--budget",), int),
+        Option("help", ("-h", "--help"), bool),
+        *(Option(name, (f"--{name}",)) for name in ("bookmark", "branch", "expect-remote", "landed", "new-pr", "only-hunk", "parent", "pr-body-file", "pr-title", "pr-title-file", "skip-hunk")),
+        *(
+            Option(name, (f"--{name}",), bool)
+            for name in (
+                "all-lanes", "allow-trunk", "amend", "append", "create", "draft", "drop-commits", "dry-run", "evict-queued", "new-branch", "no-commit", "no-gt",
+                "no-pr", "no-push", "no-stack", "no-verify", "no-watch", "publish", "replace-pr-text", "restack", "reviews", "tip-only", "verify", "yolo",
+            )
+        ),
     ),
 )
 OPEN = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "OPEN\n"}
@@ -126,6 +130,7 @@ def ran(evt: BaseHookEvent, *argv: str) -> str:
         Input(command="ccx vcs ship --pr-title 'lane/fix=api: 🐛 fix the timer'", env=DRIVE, commands=OPEN): Warn(pattern=r"stays as opened"),
         Input(command="ccx vcs ship --pr-title 'api: 🐛 fix the timer'", env=DRIVE, commands={**OPEN, "gh pr view": ""}): Allow(),
         Input(command="ccx vcs ship --new-branch lane/next --pr-body-file body.md", env=DRIVE, commands=OPEN): Allow(),
+        Input(command="ccx vcs ship --restack --no-watch --pr-title 'lane/fix=api: 🐛 fix the timer'", env=DRIVE, commands=OPEN): Warn(pattern=r"stays as opened"),
         Input(command="ccx vcs ship -m 'api: 🐛 fix the timer'", env=DRIVE, commands=OPEN): Allow(),
     },
 )
