@@ -120,6 +120,7 @@ func (s *Store) NumberedReviewRows(numbers []int) ([]ReviewRow, error) {
 const drivePRs = `SELECT DISTINCT j.value FROM json_each(?3) j
 WHERE EXISTS (SELECT 1 FROM review_rows r WHERE r.repo = ?1 AND r.number = j.value)
   OR EXISTS (SELECT 1 FROM facts f WHERE f.repo = ?1 AND f.number = j.value AND f.head = '' AND f.kind = ?4 AND f.value = ?2)
+  OR EXISTS (SELECT 1 FROM ledger_rows l WHERE l.key = CAST(j.value AS TEXT) AND json_extract(l.fields, '$.author') = ?2)
 ORDER BY j.value`
 
 func (s *Store) DrivePRs(repo, author string, numbers []int) ([]int, error) {

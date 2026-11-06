@@ -67,6 +67,11 @@ func (out *folded) handOn(s *store.Store, from string, prs []int, fresh bool) {
 	}
 }
 
+func (out *folded) retireHolding(s *store.Store, name, by string, at time.Time) {
+	do(s.Own(name, must(s.HeldBy(name, out.deps.Ledger))))
+	retire(s, name, by, at)
+}
+
 func (out folded) prsTo(name string) string {
 	for _, one := range out.handed {
 		if one.from == name {
@@ -99,11 +104,11 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		resume(s, name, fmt.Sprintf("unpark:%d", r.Seq), "the coordinator lifted your park", r, at)
 	case verb == "done" && known && r.Lane == runner && dutyOf(row) != "":
 		if row.State != store.LaneRetired && out.owesNothing(s, name, fresh, at) {
-			retire(s, name, retiredWorkerDone, at)
+			out.retireHolding(s, name, retiredWorkerDone, at)
 		}
 	case verb == "done" && known && row.State != store.LaneRetired:
 		if out.owesNothing(s, name, fresh, at) {
-			retire(s, name, "done", at)
+			out.retireHolding(s, name, "done", at)
 			do(s.SetLaneStanding(name, ""))
 		}
 	case verb == "done" && known && row.Standing != "":
@@ -755,7 +760,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	if name == runner {
 		if found := workerEnded.FindStringSubmatch(text); found != nil {
 			if ended, ok := laneOf(s, found[1]); ok && ended.State == store.LaneRetired && ended.RetiredBy == retiredStopped {
-				retire(s, ended.Name, retiredWorkerDone, at)
+				out.retireHolding(s, ended.Name, retiredWorkerDone, at)
 				return
 			}
 		}
@@ -773,7 +778,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 					return
 				}
 				if out.owesNothing(s, ended.Name, fresh, at) {
-					retire(s, ended.Name, retiredWorkerDone, at)
+					out.retireHolding(s, ended.Name, retiredWorkerDone, at)
 				}
 				return
 			}
@@ -820,8 +825,10 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		foldLanded(s, r, at)
 	case kind == "done" && settles && !r.answersAnother() && !isStanding(row):
 		if out.owesNothing(s, name, fresh, at) {
-			retire(s, name, "done", at)
+			out.retireHolding(s, name, "done", at)
 		}
+	case kind == "done" && !known && !isRoot && name != mainLane && name != runner && !r.answersAnother():
+		out.handOn(s, name, must(s.HeldBy(name, out.deps.Ledger)), fresh)
 	case settles && (kind == "stopped" || kind == "stand-down" || (kind == "state" && stoppedLine.MatchString(text))):
 		if out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "stand-down", at)
@@ -874,14 +881,19 @@ func foldClaimed(s *store.Store, r Record) {
 func foldLanded(s *store.Store, r Record, at time.Time) {
 	numbers := r.PRs()
 	owners := map[string]bool{}
+	var landed []int
 	if len(numbers) > 0 {
-		for _, owner := range must(s.OwnerOf(numbers)) {
+		for n, owner := range must(s.OwnerOf(numbers)) {
+			if owner == r.Lane {
+				continue
+			}
+			landed = append(landed, n)
 			if owner != "" {
 				owners[owner] = true
 			}
 		}
 	}
-	do(s.Disown(numbers))
+	do(s.Disown(landed))
 	for owner := range owners {
 		settleOwner(s, owner, at)
 	}

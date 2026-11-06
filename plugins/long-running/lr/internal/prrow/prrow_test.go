@@ -921,7 +921,7 @@ func TestALandedRecordLandsAQueuedRowAndAStaleReadLeavesItLanded(t *testing.T) {
 		t.Fatalf("row = %+v, want queued", row)
 	}
 
-	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "landed", Text: "merged at " + headB, PRs: []string{testRepo + "#1"}}); err != nil {
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: landingDesk, Kind: "landed", Text: "merged at " + headB, PRs: []string{testRepo + "#1"}}); err != nil {
 		t.Fatal(err)
 	}
 	row := folded(t, f, 1)
@@ -938,8 +938,8 @@ func TestALandedRecordLandsAQueuedRowAndAStaleReadLeavesItLanded(t *testing.T) {
 	}
 }
 
-func TestALandedRecordLandsARowOnlyFromTheLandingDeskOrThePRsOwnLane(t *testing.T) {
-	for lane, want := range map[string]string{"lane-7": StateLanded, landingDesk: StateLanded, "host-tap-fold": StateOpen} {
+func TestALandedRecordLandsARowOnlyFromTheLandingDesk(t *testing.T) {
+	for lane, want := range map[string]string{"lane-7": StateOpen, landingDesk: StateLanded, "host-tap-fold": StateOpen} {
 		t.Run(lane, func(t *testing.T) {
 			f, _ := foldFor(t)
 			postOpened(t, 1, headA, "dev", fullBody)
@@ -956,7 +956,55 @@ func TestALandedRecordLandsARowOnlyFromTheLandingDeskOrThePRsOwnLane(t *testing.
 	}
 }
 
-func TestARowALandedRecordFromAnotherLaneClosedOutReopensOnTheFirstFoldAndAnOwnersLandingStands(t *testing.T) {
+func TestTheOwningLanesLandedRecordCitingItsOpenPRLeavesTheRowOpen(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	folded(t, f, 1)
+
+	if _, err := client.Post(context.Background(), client.Draft{
+		Drive: "d", Lane: "lane-7", Kind: "landed",
+		Text: "monorepo#1 + Codex hook cwd: cc-remote v0.27.25 released. Monorepo pin PR #1 is stacked on #51750 and lands on his tap.",
+		PRs:  []string{testRepo + "#1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if row := folded(t, f, 1); row.State != StateOpen || row.LandedAt != NotYet || row.Lane != "lane" {
+		t.Fatalf("row = %+v, want it open and still lane-7's", row)
+	}
+}
+
+func TestAnOpenReadReopensARowALaneRecordLandedAndAReadAtTheLandingLeavesIt(t *testing.T) {
+	for name, landedAgo := range map[string]time.Duration{"an hour after the landing": time.Hour, "at the landing": 0} {
+		t.Run(name, func(t *testing.T) {
+			f, s := foldFor(t)
+			postOpened(t, 1, headA, "dev", fullBody)
+			folded(t, f, 1)
+			if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headA)}); err != nil {
+				t.Fatal(err)
+			}
+			row := folded(t, f, 1)
+			row.State, row.LandedAt = StateLanded, store.Stamp(time.Now().Add(-landedAgo))
+			if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := f.PostReads(context.Background(), []machine.Facts{cleanRead(1, headA)}); err != nil {
+				t.Fatal(err)
+			}
+
+			want := StateOpen
+			if landedAgo < headGrace {
+				want = StateLanded
+			}
+			if got := folded(t, f, 1); got.State != want {
+				t.Fatalf("row = %+v, want %s after an open read %s", got, want, name)
+			}
+		})
+	}
+}
+
+func TestARowALandedRecordFromAnyLaneButTheLandingDeskClosedOutReopensOnTheFirstFold(t *testing.T) {
 	f, s := foldFor(t)
 	cited, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "host-tap-fold", Kind: "landed", Text: "yasyf/cc-skills#3409 merged", PRs: []string{"yasyf/cc-skills#3409", "1"}})
 	if err != nil {
@@ -966,18 +1014,25 @@ func TestARowALandedRecordFromAnotherLaneClosedOutReopensOnTheFirstFoldAndAnOwne
 	if err != nil {
 		t.Fatal(err)
 	}
+	desk, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: landingDesk, Kind: "landed", Text: "LANDED #3", PRs: []string{testRepo + "#3"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.PutReviewRows([]store.ReviewRow{
 		{Repo: testRepo, Number: 1, Head: headA, Lane: "lane", Base: "dev", State: StateLanded, LandedAt: store.Stamp(cited.At)},
 		{Repo: testRepo, Number: 2, Head: headB, Lane: "lane", Base: "dev", State: StateLanded, LandedAt: store.Stamp(owned.At)},
+		{Repo: testRepo, Number: 3, Head: headA, Lane: "lane", Base: "dev", State: StateLanded, LandedAt: store.Stamp(desk.At)},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if row := folded(t, f, 1); row.State != StateOpen || row.LandedAt != NotYet {
-		t.Fatalf("#1 = %+v, want it open again", row)
+	for _, number := range []int{1, 2} {
+		if row := folded(t, f, number); row.State != StateOpen || row.LandedAt != NotYet {
+			t.Fatalf("#%d = %+v, want it open again", number, row)
+		}
 	}
-	if row := folded(t, f, 2); row.State != StateLanded || row.LandedAt != store.Stamp(owned.At) {
-		t.Fatalf("#2 = %+v, want its owner's landing to stand", row)
+	if row := folded(t, f, 3); row.State != StateLanded || row.LandedAt != store.Stamp(desk.At) {
+		t.Fatalf("#3 = %+v, want the landing desk's landing to stand", row)
 	}
 }
 

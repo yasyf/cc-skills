@@ -765,10 +765,11 @@ func TestTheDrivesOwnPRsAreThoseWithALedgerRowOrTheDrivesLoginAsAuthor(t *testin
 	for number, author := range map[int]string{2: "drive-bot", 3: "forge-matt"} {
 		must[bool](t)(s.PutFact(repo, number, "", AuthorFact, author, t0))
 	}
+	ok(t, s.PutLedgerRows("pr-ledger", map[string]map[string]string{"6": {"lane": "l-1", "author": "drive-bot"}, "7": {"lane": "l-1", "author": "forge-matt"}}, t0))
 
-	own := must[[]int](t)(s.DrivePRs(repo, "drive-bot", []int{5, 4, 3, 2, 1, 1}))
+	own := must[[]int](t)(s.DrivePRs(repo, "drive-bot", []int{7, 6, 5, 4, 3, 2, 1, 1}))
 
-	if !slices.Equal(own, []int{1, 2}) {
-		t.Fatalf("own %v, want the ledger row #1 and the drive-authored #2", own)
+	if !slices.Equal(own, []int{1, 2, 6}) {
+		t.Fatalf("own %v, want the review row #1, the drive-authored #2 and the PR ledger's drive-authored #6", own)
 	}
 }
