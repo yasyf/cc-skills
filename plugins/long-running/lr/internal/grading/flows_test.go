@@ -348,10 +348,10 @@ func TestARootAskPutsItsPRsFirstAndAGreenApprovedRowGoesAheadOfTheRest(t *testin
 	}
 }
 
-func TestAFirstRecordPutsItsPRAheadOfARowGreenAndApprovedAndAnotherLanesDecideDoesNot(t *testing.T) {
+func TestAFirstPostedUnderTheAskingLanesOwnNamePutsItsPRAheadAndThatLanesDecideDoesNot(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
-	post(t, firstDraft(testDrive, "lane-7", 2))
-	post(t, client.Draft{Lane: "lane-7", Kind: kindDecide, Text: "first: #3"})
+	post(t, firstDraft(testDrive, "sentry-7831318608-fix", 2))
+	post(t, client.Draft{Lane: "sentry-7831318608-fix", Kind: kindDecide, Text: "first: #3"})
 	snapshot := map[int]machine.Facts{
 		1: {Number: 1, CI: machine.CISuccess, Approved: true},
 		2: {Number: 2},

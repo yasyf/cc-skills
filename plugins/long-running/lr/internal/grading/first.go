@@ -13,14 +13,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
-const (
-	firstLane  = "grade-first"
-	kindFirst  = "lr.first"
-	writerAttr = "writer"
-)
+const kindFirst = "lr.first"
 
 func firstDraft(bus, writer string, number int) client.Draft {
-	return client.Draft{Drive: bus, Lane: firstLane, Kind: kindFirst, Text: fmt.Sprintf("first: #%d", number), Attrs: map[string]string{writerAttr: writer}}
+	return client.Draft{Drive: bus, Lane: writer, Kind: kindFirst, Text: fmt.Sprintf("first: #%d", number)}
 }
 
 func firstCommand(a *app.App) *cobra.Command {
