@@ -12,13 +12,23 @@ func Command(a *app.App) *cobra.Command {
 	var below, stack bool
 	cmd := &cobra.Command{
 		Use:   "own-red [PR]",
-		Short: "Print an OWN-RED line for each finished failing check a merge would land that is green on its base, and an INHERITED line for each that is red there too",
+		Short: "Print an OWN-RED line for each finished failing check a merge would land that fails a test its base passes, and an INHERITED line for each whose failures the base shares",
 		Long: `Read every PR the merge would land and compare each check that finished red
-with the same check of the same workflow on the base branch, in one call for
-every PR: the nearest finished run at or below the PR's merge base. Green there prints an OWN-RED line
-with the failing job's link, whichever files the failure names, since a change
-breaks tests it does not touch. Red there prints INHERITED. No readable run
-prints BASE-UNREAD. A pending check prints nothing.
+with its workflow on the base branch, in one call for every PR: for each check,
+the nearest finished run at or below the PR's merge base.
+
+When the pytest run that failed the red job's step names failing tests in its
+short test summary, the red is the PR's own only if one of those tests fails in
+no red job of that workflow on the base, since shards rebalance as the test set
+changes. That prints an OWN-RED line with the failing job's link and the tests
+the base passes; otherwise it prints INHERITED.
+
+When the red job's log names no test, or the base has a red job whose log names
+none and the tests alone cannot clear the red, the same check is compared by
+name. Green there prints an OWN-RED line with the failing job's link, whichever
+files the failure names, since a change breaks tests it does not touch. Red
+there prints INHERITED. No readable run prints BASE-UNREAD. A pending check
+prints nothing.
 
 The PR is a number, URL or branch, the current branch's when none is given.
 With --below, the merge also lands every open PR below it in its native stack,
