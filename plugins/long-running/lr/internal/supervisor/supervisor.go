@@ -135,6 +135,9 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 	snapshot, err := d.Snapshot(ctx)
 	read := d.Clock()
 	if err != nil {
+		if stopping(ctx) {
+			return report, nil
+		}
 		d.Log.Warn("pass skipped", "err", err)
 		if err := tellUnread(s, d.Post, err, now); err != nil {
 			d.Log.Warn("a skipped pass could not say so", "err", err)
@@ -144,6 +147,9 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 	report.PRs = len(snapshot)
 	if d.WriteRows != nil {
 		if err := d.WriteRows(ctx, snapshot); err != nil {
+			if stopping(ctx) {
+				return report, nil
+			}
 			d.Log.Warn("the review tab's rows were not written", "err", err)
 			if err := tellUnwritten(s, d.Post, err, now); err != nil {
 				d.Log.Warn("unwritten review rows could not say so", "err", err)
@@ -286,6 +292,10 @@ func logDropped(log *slog.Logger, from, kept []pass.Act, why string) {
 			log.Info("an enqueue was dropped", "pr", act.Facts.Number, "head", act.Facts.Head, "why", why)
 		}
 	}
+}
+
+func stopping(ctx context.Context) bool {
+	return errors.Is(ctx.Err(), context.Canceled)
 }
 
 func tellUnwritten(s *store.Store, post pass.Post, unwritten error, now time.Time) error {

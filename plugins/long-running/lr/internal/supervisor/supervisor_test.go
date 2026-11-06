@@ -160,6 +160,50 @@ func TestAGradeThatLandsAfterTheReadEnqueuesItsHeadInThatPass(t *testing.T) {
 	equal(t, q.enqueued, []int{2})
 }
 
+func TestAPassItsSupervisorStopsRaisesNoEscalationAndALivePassStillDoes(t *testing.T) {
+	failed := fmt.Errorf("read schema version: %w", context.Canceled)
+	for _, tt := range []struct {
+		name, subject string
+		fail          func(*Deps)
+	}{
+		{"unread", unreadSubject, func(d *Deps) {
+			d.Snapshot = func(context.Context) ([]machine.Facts, error) { return nil, failed }
+		}},
+		{"unwritten", unwrittenSubject, func(d *Deps) {
+			d.WriteRows = func(context.Context, []machine.Facts) error { return failed }
+		}},
+	} {
+		for _, stopped := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s stopped=%v", tt.name, stopped), func(t *testing.T) {
+				s := memory(t)
+				var told []string
+				d := deps(&clock{t0}, &queue{}, &pool{})
+				d.Movers = nil
+				d.Post = func(to []string, _ bus.Body) error {
+					told = append(told, to...)
+					return nil
+				}
+				tt.fail(&d)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if stopped {
+					cancel()
+				}
+				if _, err := runPass(ctx, s, "d", 1, d, t0, Report{At: t0}); err != nil {
+					t.Fatal(err)
+				}
+				raised, err := s.Escalations(tt.subject)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := len(raised) > 0 || len(told) > 0; got == stopped {
+					t.Fatalf("escalated %v and told %v, want an escalation only when the supervisor is not stopping", raised, told)
+				}
+			})
+		}
+	}
+}
+
 func runLoop(t *testing.T, s *store.Store, version string, pid int, d Deps, ticks int) ([]Report, Ended) {
 	t.Helper()
 	reports, ended, err := Run(context.Background(), s, "d", version, pid, d, ticks)
