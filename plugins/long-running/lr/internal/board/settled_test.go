@@ -268,9 +268,10 @@ func alwaysSettles(context.Context, string, string, string) (*Judgment, error) {
 	return &Judgment{Verdict: "yes", Sentence: "Old chats show the can't-open screen."}, nil
 }
 
-func TestASweepClosesACardHeTappedWithoutAskingAJudge(t *testing.T) {
+func TestASweepClosesACardHeTappedOrPickedByNumberInItsThreadWithoutAskingAJudge(t *testing.T) {
 	onThisCard := boardCardLabel + oldChatCard
 	tapped := "proof:board-watch:key"
+	inThread := threadProof + "1793924321.997239"
 	picked := map[string]any{"optionIds": []any{"a"}}
 	wrote := map[string]any{"optionIds": []any{}, "other": "why this one?"}
 	for name, tc := range map[string]struct {
@@ -278,11 +279,13 @@ func TestASweepClosesACardHeTappedWithoutAskingAJudge(t *testing.T) {
 		rows   []ownerAnswer
 		closes bool
 	}{
-		"his tap with its row":              {picked, []ownerAnswer{{ID: "1", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, onThisCard, tapped}}}, true},
-		"his tap before its row is written": {picked, nil, false},
-		"his tap on another card":           {picked, []ownerAnswer{{ID: "2", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, boardCardLabel + "card-another", tapped}}}, false},
-		"his write-in with no number":       {wrote, []ownerAnswer{{ID: "3", Title: oldChatTitle, Body: "wrote “why this one?”", Tags: []string{ownerLabel, onThisCard, tapped}}}, false},
-		"his write-in and a relay's record": {wrote, []ownerAnswer{{ID: "4", Title: oldChatTitle, Body: "Owner, in the thread: keep it.", Tags: []string{ownerLabel, cardLabel + oldChatCard}}}, true},
+		"his tap with its row":                                     {picked, []ownerAnswer{{ID: "1", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, onThisCard, tapped}}}, true},
+		"his tap before its row is written":                        {picked, nil, false},
+		"his tap on another card":                                  {picked, []ownerAnswer{{ID: "2", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, boardCardLabel + "card-another", tapped}}}, false},
+		"his write-in with no number":                              {wrote, []ownerAnswer{{ID: "3", Title: oldChatTitle, Body: "wrote “why this one?”", Tags: []string{ownerLabel, onThisCard, tapped}}}, false},
+		"his write-in and a relay's record":                        {wrote, []ownerAnswer{{ID: "4", Title: oldChatTitle, Body: "Owner, in the thread: keep it.", Tags: []string{ownerLabel, cardLabel + oldChatCard}}}, true},
+		"his thread reply with a number mid-sentence, with no tap": {nil, []ownerAnswer{{ID: "6", Title: oldChatTitle, Body: "go with what you said about 2 earlier\nBoard question: x", Tags: []string{ownerLabel, "board-answer", onThisCard, inThread}}}, false},
+		"a relay's record with no tap":                             {nil, []ownerAnswer{{ID: "7", Title: oldChatTitle, Body: "Owner, in the thread: keep it.", Tags: []string{ownerLabel, cardLabel + oldChatCard}}}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			shown, err := json.Marshal(map[string]any{"rev": 7, "doc": map[string]any{"blocks": oldChatUp}, "interactions": map[string]any{"choices": map[string]any{oldChatCard + "-pick": tc.choice}}})
@@ -291,7 +294,7 @@ func TestASweepClosesACardHeTappedWithoutAskingAJudge(t *testing.T) {
 			}
 			cards, fake, withdrawn := settledBoardFirst(t, func(fake *shelltest.Fake) { fake.Reply(string(shown), "cc-present", "outcomes", "--all") }, oldChatUp, tc.rows...)
 			noJudge := func(context.Context, string, string, string) (*Judgment, error) {
-				return nil, errors.New("a tap asks no judge")
+				return nil, errors.New("a tap or a numbered thread reply asks no judge")
 			}
 			var out bytes.Buffer
 
@@ -307,9 +310,41 @@ func TestASweepClosesACardHeTappedWithoutAskingAJudge(t *testing.T) {
 				return
 			}
 			if len(removed) != 1 || removed[0] != oldChatCard+" "+answeredReason || len(*withdrawn) != 1 || !strings.Contains(out.String(), "WITHDRAWN "+oldChatCard) {
-				t.Fatalf("removed %q, withdrew %q, out %q; want the tapped card closed", removed, *withdrawn, out.String())
+				t.Fatalf("removed %q, withdrew %q, out %q; want the card closed", removed, *withdrawn, out.String())
 			}
 		})
+	}
+}
+
+func TestHisNumberedReplyCarryingAnOrderInACardsThreadClosesItWithNoTap(t *testing.T) {
+	const card = "card-rmw486of9"
+	const title = "Memory search stalls 1 of 2: how should searches cope?"
+	board := []any{map[string]any{"id": card, "type": "card", "title": title, "slack": map[string]any{"url": "https://acme.slack.com/archives/D0C4HQWPLCC/p1793924259620149"}, "children": []any{
+		map[string]any{"id": "rmw486of9-choice", "type": "choice", "options": []any{
+			map[string]any{"id": "a", "label": "Text matches first"},
+			map[string]any{"id": "b", "label": "Embed it ourselves"},
+			map[string]any{"id": "c", "label": "Leave it"},
+		}},
+	}}}
+	row := ownerAnswer{
+		ID:      "2d44cc7d3e227ca4f6a944c2bf7271c7e730d940",
+		Title:   title,
+		Body:    "1 + report the stall to the vendor, after checking for a duplicate report\nBoard question: " + title + "\nCard " + card + ", board d50e80e8-7ba3-491e-a0b2-8739e65f6ba9, typed in the card's Slack thread 1793924259.620149, Nov 5 4:18 PM PT.",
+		Updated: "2026-11-06T00:19:12Z",
+		Tags:    []string{"board-answer", boardCardLabel + card, "board-session:d50e80e8-7ba3-491e-a0b2-8739e65f6ba9", ownerLabel, "program:p", threadProof + "1793924321.997239"},
+	}
+	cards, fake, withdrawn := settledBoard(t, board, row)
+	noJudge := func(context.Context, string, string, string) (*Judgment, error) {
+		return nil, errors.New("a numbered thread reply asks no judge")
+	}
+	var out bytes.Buffer
+
+	if err := cards.Pass(context.Background(), "supervisor", noJudge, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	if removed := removedBlocks(fake); len(removed) != 1 || removed[0] != card+" "+answeredReason || len(*withdrawn) != 1 {
+		t.Fatalf("removed %q, withdrew %q, out %q; want his numbered reply to close the untapped card", removed, *withdrawn, out.String())
 	}
 }
 
