@@ -38,9 +38,7 @@ const (
 	codeRuntimeUnavailable = "runtime_unavailable"
 	codeRemoteUnavailable  = "remote_runtime_unavailable"
 	codeTimeout            = "timeout"
-	hostUnavailable        = "host_unavailable"
 	codeUnparseable        = "unparseable"
-	inProgress             = "in_progress"
 	terminalEnv            = "ORCA_TERMINAL_HANDLE"
 	turnStarted            = "turn_started"
 	inputAccepted          = "input_accepted"
@@ -108,7 +106,6 @@ type subject struct {
 	terminal    string
 	environment string
 	dispatch    string
-	listed      string
 	failure     *orcaError
 }
 
@@ -205,32 +202,9 @@ func howToAnswer(s seen, by string) string {
 }
 
 type listedWorker struct {
-	DispatchID     string `json:"dispatchId"`
-	RunID          string `json:"runId"`
-	Terminal       string `json:"agentTerminalHandle"`
-	WorkerState    string `json:"workerState"`
-	DispatchStatus string `json:"dispatchStatus"`
-	TerminalState  string `json:"terminalState"`
-	Projection     struct {
-		Outcome    string          `json:"outcome"`
-		Stage      json.RawMessage `json:"stage"`
-		Attention  json.RawMessage `json:"attention"`
-		NextAction json.RawMessage `json:"nextAction"`
-		Liveness   struct {
-			Verdict string `json:"verdict"`
-			Reason  string `json:"reason"`
-		} `json:"liveness"`
-		Evidence struct {
-			LiveStatus string `json:"liveStatus"`
-		} `json:"evidence"`
-	} `json:"projection"`
-}
-
-func (l listedWorker) signature() string {
-	return strings.Join([]string{
-		l.Terminal, l.WorkerState, l.DispatchStatus, l.TerminalState, string(l.Projection.Stage), string(l.Projection.Attention),
-		string(l.Projection.NextAction), l.Projection.Liveness.Verdict, l.Projection.Evidence.LiveStatus,
-	}, "|")
+	DispatchID string `json:"dispatchId"`
+	RunID      string `json:"runId"`
+	Terminal   string `json:"agentTerminalHandle"`
 }
 
 type workerList struct {
@@ -245,62 +219,50 @@ type workerList struct {
 	} `json:"scope"`
 }
 
+func listFailed(failure *orcaError) []subject {
+	return []subject{{key: roleWorkers, role: roleWorkers, name: "task-list", failure: failure}}
+}
+
 func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]subject, error) {
-	if e.OrcaRun == "" && e.RootTerminal == "" {
+	run := e.OrcaRun
+	if run == "" && e.RootTerminal == "" {
 		return nil, nil
 	}
-	scope := []string{}
-	var env []string
-	if e.OrcaRun != "" {
-		scope = []string{"--run", e.OrcaRun}
-	} else {
-		env = []string{terminalEnv + "=" + e.RootTerminal}
-	}
-	var dispatches []string
-	signatures := map[string]string{}
-	hostless := map[string]bool{}
-	var cursor []string
-	var run string
-	for {
-		argv := slices.Concat([]string{"orchestration", "worker-list"}, scope, []string{"--include-remote"}, cursor)
-		listed := w.orca(ctx, "", env, argv...)
-		if !listed.OK {
-			return []subject{{key: roleWorkers, role: roleWorkers, name: "worker-list", failure: listed.Error}}, nil
+	if run == "" {
+		current := w.orca(ctx, "", []string{terminalEnv + "=" + e.RootTerminal}, "orchestration", "run-current")
+		if !current.OK {
+			return listFailed(current.Error), nil
 		}
-		var result workerList
-		if err := json.Unmarshal(listed.Result, &result); err != nil {
-			return []subject{{key: roleWorkers, role: roleWorkers, name: "worker-list", failure: &orcaError{codeUnparseable, err.Error()}}}, nil
+		var bound struct {
+			Run *struct {
+				ID string `json:"id"`
+			} `json:"run"`
 		}
-		if e.OrcaRun == "" && result.Scope.Source != "bound" {
+		if err := json.Unmarshal(current.Result, &bound); err != nil {
+			return listFailed(&orcaError{codeUnparseable, err.Error()}), nil
+		}
+		if bound.Run == nil {
 			return nil, nil
 		}
-		run = result.Scope.Run
-		for _, worker := range result.Workers {
-			if worker.Projection.Outcome == inProgress {
-				dispatches = append(dispatches, worker.DispatchID)
-				signatures[worker.DispatchID] = worker.signature()
-				hostless[worker.DispatchID] = worker.Projection.Liveness.Reason == hostUnavailable
-			}
-		}
-		if !result.Page.HasMore {
-			break
-		}
-		cursor = []string{"--cursor", result.Page.NextCursor}
+		run = bound.Run.ID
 	}
-	if e.OrcaRun != "" {
-		run = e.OrcaRun
+	listed := w.orca(ctx, "", nil, "orchestration", "task-list", "--run", run, "--status", "dispatched")
+	if !listed.OK {
+		return listFailed(listed.Error), nil
 	}
-	found, err := w.namedWorkers(dispatches, run, rows)
-	if err != nil {
-		return nil, err
+	var result struct {
+		Tasks []struct {
+			Dispatch string `json:"dispatch_id"`
+		} `json:"tasks"`
 	}
-	for i := range found {
-		found[i].listed = signatures[found[i].dispatch]
-		if hostless[found[i].dispatch] {
-			found[i].failure = &orcaError{codeRemoteUnavailable, "Orca's worker-list says its host is unavailable"}
-		}
+	if err := json.Unmarshal(listed.Result, &result); err != nil {
+		return listFailed(&orcaError{codeUnparseable, err.Error()}), nil
 	}
-	return found, nil
+	dispatches := make([]string, 0, len(result.Tasks))
+	for _, task := range result.Tasks {
+		dispatches = append(dispatches, task.Dispatch)
+	}
+	return w.namedWorkers(dispatches, run, rows)
 }
 
 func (w *Watch) namedWorkers(dispatches []string, run string, rows map[string]*Row) ([]subject, error) {
@@ -787,7 +749,7 @@ func (w *Watch) settle(ctx context.Context, e Entry, row *Row, s seen, superviso
 }
 
 func (w *Watch) unchanged(s subject, row *Row) bool {
-	return w.Reshow > 0 && row != nil && s.listed != "" && s.listed == row.Listed && row.State == Clear && row.Reported == "" &&
+	return w.Reshow > 0 && s.role == roleWorker && row != nil && row.State == Clear && row.Reported == "" &&
 		len(row.Alerts) == 0 && w.Now().Sub(parseStamp(row.ShownAt)) < w.reshowOf(s.key)
 }
 
@@ -853,7 +815,7 @@ func (w *Watch) settleRuntime(ctx context.Context, e Entry, rows, fresh map[stri
 	delete(rows, roleRuntime)
 	orca := subject{key: roleRuntime, role: roleRuntime, name: "orca"}
 	if len(down) > 0 && len(listed) > 0 {
-		detail := fmt.Sprintf("Orca answers no watched terminal (%s); %s were in progress at the last worker-list and may wait on a prompt", strings.Join(down, ", "), strings.Join(listed, ", "))
+		detail := fmt.Sprintf("Orca answers no watched terminal (%s); %s were in progress at the last task-list and may wait on a prompt", strings.Join(down, ", "), strings.Join(listed, ", "))
 		fresh[roleRuntime] = row
 		return w.settle(ctx, e, row, seen{subject: orca, state: Unknown, detail: detail}, supervisor, false)
 	}
@@ -874,7 +836,7 @@ func (w *Watch) settleGone(ctx context.Context, e Entry, rows, fresh map[string]
 		switch {
 		case unlisted != nil && row.Role == roleWorker:
 			if !row.State.unseen() {
-				row.Detail = fmt.Sprintf("last read %s; worker-list failed with %s", row.State, unlisted.detail)
+				row.Detail = fmt.Sprintf("last read %s; task-list failed with %s", row.State, unlisted.detail)
 				row.State, row.StateAt = unlisted.state, stamp(w.Now())
 			}
 			fresh[key] = row
@@ -927,7 +889,6 @@ func (w *Watch) poll(ctx context.Context, e Entry) error {
 		}
 		delete(rows, s.subject.key)
 		fresh[s.subject.key] = row
-		row.Listed = s.subject.listed
 		if !s.reused {
 			row.ShownAt = stamp(w.Now())
 		}

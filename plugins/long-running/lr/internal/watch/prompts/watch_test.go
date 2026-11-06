@@ -32,7 +32,8 @@ const (
 	supDesk       = "codex-supervisor"
 	pollInterval  = 30 * time.Second
 	instead       = "Leave the fetch alone and report what you measured so far."
-	workerListKey = "orchestration worker-list --run " + run + " --include-remote"
+	taskListKey   = "orchestration task-list --run " + run + " --status dispatched"
+	runCurrentKey = "orchestration run-current"
 	boundListKey  = "orchestration worker-list --include-remote"
 )
 
@@ -227,7 +228,7 @@ func tuiKey() string {
 }
 
 func unbound(f *fake) {
-	f.orca[boundListKey] = `{"ok":true,"result":{"workers":[],"page":{"hasMore":false},"scope":{"run":null,"source":"all"}}}`
+	f.orca[runCurrentKey] = `{"ok":true,"result":{"run":null}}`
 }
 
 func coordinatorAt(f *fake, state, screen string) {
@@ -267,7 +268,7 @@ func workersUp(t *testing.T, f *fake, localState string) Entry {
 	t.Helper()
 	entry := register(t, func(e *Entry) { e.OrcaRun = run })
 	coordinatorAt(f, "clear", "coordinator.answered")
-	f.orca[workerListKey] = fixture(t, "worker-list")
+	f.orca[taskListKey] = fixture(t, "task-list")
 	f.orca[workerKey(local)] = fixture(t, "worker-show.local."+localState)
 	f.orca[workerKey(remote)] = fixture(t, "worker-show.remote")
 	f.orca[readKey(remoteTerm, environment)] = fixture(t, "screen.managed-server.working")
@@ -678,7 +679,7 @@ func shownCount(f *fake, dispatch string) int {
 	return count
 }
 
-func TestAnUnchangedClearWorkerIsReadAgainOnlyOnChangeOrAfterTheWindow(t *testing.T) {
+func TestAClearWorkerIsReadAgainOnlyAfterTheWindow(t *testing.T) {
 	f := newFake(t)
 	e := workersUp(t, f, "clear")
 	w := f.watch()
@@ -695,50 +696,38 @@ func TestAnUnchangedClearWorkerIsReadAgainOnlyOnChangeOrAfterTheWindow(t *testin
 	check(1)
 	check(1)
 
-	f.orca[workerListKey] = edited(t, "worker-list", func(doc map[string]any) {
-		for _, worker := range doc["result"].(map[string]any)["workers"].([]any) {
-			row := worker.(map[string]any)
-			if row["dispatchId"] == local {
-				row["projection"].(map[string]any)["attention"] = map[string]any{"categories": []string{"input"}, "requiresAction": true}
-			}
-		}
-	})
-	check(2)
-	check(2)
-
 	f.clock = f.clock.Add(reshowEvery * 5 / 4)
-	check(3)
+	check(2)
 }
 
-func TestAWorkerTheListSaysHasNoHostIsNotReadUntilTheHostReturns(t *testing.T) {
-	f := newFake(t)
-	e := workersUp(t, f, "clear")
-	f.orca[workerListKey] = edited(t, "worker-list", func(doc map[string]any) {
-		for _, worker := range doc["result"].(map[string]any)["workers"].([]any) {
-			row := worker.(map[string]any)
-			if row["dispatchId"] == gone {
-				row["projection"].(map[string]any)["liveness"] = map[string]any{"verdict": "unverifiable", "reason": hostUnavailable}
+func TestAPollCostsTheSameOrcaCallsAtAnyRunHistory(t *testing.T) {
+	calls := func(retained int) int {
+		f := newFake(t)
+		e := workersUp(t, f, "clear")
+		rows := make([]string, retained)
+		for i := range rows {
+			rows[i] = fmt.Sprintf(`{"dispatchId":"ctx_old%d","dispatchStatus":"completed","projection":{"outcome":"succeeded"}}`, i)
+		}
+		for page := 0; page*100 < retained; page++ {
+			key := "orchestration worker-list --run " + run + " --include-remote"
+			if page > 0 {
+				key += fmt.Sprintf(" --cursor c%d", page)
+			}
+			more := (page+1)*100 < retained
+			f.orca[key] = fmt.Sprintf(`{"ok":true,"result":{"workers":[%s],"page":{"hasMore":%t,"nextCursor":"c%d"},"scope":{"run":%q,"source":"flag"}}}`, strings.Join(rows[page*100:min(retained, (page+1)*100)], ","), more, page+1, run)
+		}
+		poll(t, f, e, 1)
+		count := 0
+		for _, call := range f.calls {
+			if call[0] == "orca" {
+				count++
 			}
 		}
-	})
-	w := f.watch()
-	w.Reshow = reshowEvery
-	check := func() map[string]*Row {
-		t.Helper()
-		if err := w.Check(context.Background(), e); err != nil {
-			t.Fatal(err)
-		}
-		f.clock = f.clock.Add(pollInterval)
-		return rowsOf(t, e)
+		return count
 	}
-
-	want(t, check()["dispatch:"+gone].State, Unreachable)
-	want(t, check()["dispatch:"+gone].State, Unreachable)
-	want(t, shownCount(f, gone), 0)
-
-	f.orca[workerListKey] = fixture(t, "worker-list")
-	check()
-	want(t, shownCount(f, gone), 1)
+	if few, many := calls(2000), calls(20000); few != many {
+		t.Fatalf("a poll made %d Orca calls with 2,000 retained dispatches and %d with 20,000", few, many)
+	}
 }
 
 func TestReshowWindowsStayWithinAQuarterOfTheSettingAndDiffer(t *testing.T) {
@@ -1126,7 +1115,8 @@ func TestWithNoRunInTheRegistryTheWorkersComeFromTheRunBoundToTheCoordinatorsTer
 	f := newFake(t)
 	e := register(t, nil)
 	coordinatorAt(f, "clear", "coordinator.answered")
-	f.orca[boundListKey] = fixture(t, "worker-list")
+	f.orca[runCurrentKey] = fmt.Sprintf(`{"ok":true,"result":{"run":{"id":%q}}}`, run)
+	f.orca[taskListKey] = fixture(t, "task-list")
 	f.orca[workerKey(local)] = fixture(t, "worker-show.local.clear")
 	f.orca[workerKey(remote)] = fixture(t, "worker-show.remote")
 	f.orca[readKey(remoteTerm, environment)] = fixture(t, "screen.managed-server.working")
@@ -1134,7 +1124,7 @@ func TestWithNoRunInTheRegistryTheWorkersComeFromTheRunBoundToTheCoordinatorsTer
 
 	rows := poll(t, f, e, 1)
 
-	wantSlice(t, f.envs[boundListKey], terminalEnv+"="+rootTerm)
+	wantSlice(t, f.envs[runCurrentKey], terminalEnv+"="+rootTerm)
 	for _, key := range []string{rootTerm, "dispatch:" + local, "dispatch:" + remote, "dispatch:" + gone} {
 		if rows[key] == nil {
 			t.Fatalf("no row %q", key)
@@ -1143,13 +1133,11 @@ func TestWithNoRunInTheRegistryTheWorkersComeFromTheRunBoundToTheCoordinatorsTer
 	want(t, len(rows), 4)
 }
 
-func TestAnUnboundTerminalListsEveryRunSoNoneOfThoseWorkersAreTaken(t *testing.T) {
+func TestAnUnboundCoordinatorTerminalWatchesNoWorker(t *testing.T) {
 	f := newFake(t)
 	e := register(t, nil)
 	coordinatorAt(f, "clear", "coordinator.answered")
-	f.orca[boundListKey] = edited(t, "worker-list", func(doc map[string]any) {
-		doc["result"].(map[string]any)["scope"] = map[string]any{"run": nil, "source": "all"}
-	})
+	unbound(f)
 
 	rows := poll(t, f, e, 1)
 
@@ -1164,8 +1152,9 @@ func TestAWorkerThatSettlesWhileAtAPromptHasItsRecordResolved(t *testing.T) {
 	e := workersUp(t, f, "waiting")
 	f.orca[readKey(localTerm, "")] = fixture(t, "screen.coordinator.approval")
 	poll(t, f, e, 1)
-	f.orca[workerListKey] = edited(t, "worker-list", func(doc map[string]any) {
-		doc["result"].(map[string]any)["workers"].([]any)[0].(map[string]any)["projection"].(map[string]any)["outcome"] = "succeeded"
+	f.orca[taskListKey] = edited(t, "task-list", func(doc map[string]any) {
+		result := doc["result"].(map[string]any)
+		result["tasks"] = result["tasks"].([]any)[1:]
 	})
 
 	rows := poll(t, f, e, 1)
@@ -1181,12 +1170,11 @@ func TestAWorkerThatSettlesWhileAtAPromptHasItsRecordResolved(t *testing.T) {
 
 func TestAWorkerListThatFailsClosesNoPromptAndTheSamePromptIsNotRaisedAgain(t *testing.T) {
 	cases := []struct {
-		page   string
-		cursor string
-		state  State
+		page  string
+		state State
 	}{
-		{"error.remote-runtime-unavailable", "", Unreachable},
-		{"error.terminal-handle-stale", "c2", Unknown},
+		{"error.remote-runtime-unavailable", Unreachable},
+		{"error.terminal-handle-stale", Unknown},
 	}
 	for _, c := range cases {
 		t.Run(c.page, func(t *testing.T) {
@@ -1194,21 +1182,13 @@ func TestAWorkerListThatFailsClosesNoPromptAndTheSamePromptIsNotRaisedAgain(t *t
 			e := workersUp(t, f, "waiting")
 			f.orca[readKey(localTerm, "")] = fixture(t, "screen.coordinator.approval")
 			poll(t, f, e, 1)
-			failing := workerListKey
-			if c.cursor != "" {
-				f.orca[workerListKey] = edited(t, "worker-list", func(doc map[string]any) {
-					page := doc["result"].(map[string]any)["page"].(map[string]any)
-					page["hasMore"], page["nextCursor"] = true, c.cursor
-				})
-				failing += " --cursor " + c.cursor
-			}
-			f.orca[failing] = fixture(t, c.page)
+			f.orca[taskListKey] = fixture(t, c.page)
 
 			rows := poll(t, f, e, 2)
 
 			row := rows["dispatch:"+local]
 			want(t, row.State, c.state)
-			if !strings.HasPrefix(row.Detail, "last read approval; worker-list failed with ") {
+			if !strings.HasPrefix(row.Detail, "last read approval; task-list failed with ") {
 				t.Fatalf("detail = %q", row.Detail)
 			}
 			want(t, row.Alerts["root"].Seq, f.seqs[0])
@@ -1217,7 +1197,7 @@ func TestAWorkerListThatFailsClosesNoPromptAndTheSamePromptIsNotRaisedAgain(t *t
 			}
 			want(t, rows["workers"].State, c.state)
 			wantSlice(t, f.kinds("bake"), "blocker")
-			f.orca[workerListKey] = fixture(t, "worker-list")
+			f.orca[taskListKey] = fixture(t, "task-list")
 
 			rows = poll(t, f, e, 1)
 
@@ -1236,11 +1216,11 @@ func TestAWorkerListThatFlapsReportsOnceAndReadsAgainAfterThreeAnsweredPolls(t *
 	for _, step := range []struct {
 		page  string
 		times int
-	}{{"error.timeout", 3}, {"worker-list", 1}, {"error.timeout", 3}} {
-		f.orca[workerListKey] = fixture(t, step.page)
+	}{{"error.timeout", 3}, {"task-list", 1}, {"error.timeout", 3}} {
+		f.orca[taskListKey] = fixture(t, step.page)
 		poll(t, f, e, step.times)
 	}
-	f.orca[workerListKey] = fixture(t, "worker-list")
+	f.orca[taskListKey] = fixture(t, "task-list")
 	rows := poll(t, f, e, 2)
 	want(t, rows["workers"].State, Clear)
 	want(t, rows["workers"].Reported, Unknown)
@@ -1252,13 +1232,13 @@ func TestAWorkerListThatFlapsReportsOnceAndReadsAgainAfterThreeAnsweredPolls(t *
 	}
 	lines := []string{}
 	for _, n := range f.notices {
-		if n.Topic == "prompt:worker-list" {
+		if n.Topic == "prompt:task-list" {
 			lines = append(lines, whole(t, n))
 		}
 	}
 	wantSlice(t, lines,
-		"UNKNOWN worker-list (workers) terminal=unresolved: timeout: timeout; unread for 3 polls, so whether it waits on a prompt is not known",
-		"READABLE worker-list (workers) terminal=unresolved: read for 3 polls in a row since the watch reported it unknown",
+		"UNKNOWN task-list (workers) terminal=unresolved: timeout: timeout; unread for 3 polls, so whether it waits on a prompt is not known",
+		"READABLE task-list (workers) terminal=unresolved: read for 3 polls in a row since the watch reported it unknown",
 	)
 }
 
@@ -1271,7 +1251,7 @@ func TestAnOrcaAppThatFlapsWithNoWorkerInProgressPostsNothing(t *testing.T) {
 	f := newFake(t)
 	e := register(t, nil)
 	for range 2 {
-		orcaDown(f, boundListKey)
+		orcaDown(f, runCurrentKey)
 		rows := poll(t, f, e, 4)
 		want(t, rows[rootTerm].State, Unknown)
 		want(t, rows["workers"].State, Unknown)
@@ -1292,9 +1272,9 @@ func TestAnOrcaAppDownWhileWorkersAreInProgressIsOneReportAndOneReadable(t *test
 	e := workersUp(t, f, "clear")
 	f.orca[workerKey(gone)] = fixture(t, "worker-show.local.clear")
 	poll(t, f, e, 1)
-	orcaDown(f, workerListKey)
+	orcaDown(f, taskListKey)
 	poll(t, f, e, 5)
-	f.orca[workerListKey] = fixture(t, "worker-list")
+	f.orca[taskListKey] = fixture(t, "task-list")
 	coordinatorAt(f, "clear", "coordinator.answered")
 
 	rows := poll(t, f, e, 3)
@@ -1306,7 +1286,7 @@ func TestAnOrcaAppDownWhileWorkersAreInProgressIsOneReportAndOneReadable(t *test
 	want(t, len(f.notices), 2)
 	want(t, f.notices[0].To, "desk-runner")
 	want(t, f.notices[0].Topic, "prompt:orca")
-	want(t, whole(t, f.notices[0]), "UNKNOWN orca (runtime) terminal=unresolved: Orca answers no watched terminal (runtime_unavailable, timeout); bake, "+remote+", "+gone+" were in progress at the last worker-list and may wait on a prompt; unread for 3 polls, so whether it waits on a prompt is not known")
+	want(t, whole(t, f.notices[0]), "UNKNOWN orca (runtime) terminal=unresolved: Orca answers no watched terminal (runtime_unavailable, timeout); bake, "+remote+", "+gone+" were in progress at the last task-list and may wait on a prompt; unread for 3 polls, so whether it waits on a prompt is not known")
 	want(t, whole(t, f.notices[1]), "READABLE orca (runtime) terminal=unresolved: read for 3 polls in a row since the watch reported it unknown")
 }
 

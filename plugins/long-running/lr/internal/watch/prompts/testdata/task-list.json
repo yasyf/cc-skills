@@ -1,0 +1,41 @@
+{
+  "id": "5e0c3b6d-2f4a-4c1e-9a37-0b8d6f1e2c44",
+  "ok": true,
+  "result": {
+    "runId": "run_4104a86f0a03",
+    "legacyReadOnly": false,
+    "tasks": [
+      {
+        "id": "task_8c1d2e3f4a5b",
+        "run_id": "run_4104a86f0a03",
+        "task_title": "bake",
+        "display_name": "bake",
+        "status": "dispatched",
+        "assignee_handle": "term_cfce7ff3-0976-4032-9d55-22697f68d6ee",
+        "dispatch_id": "ctx_25f8965ea0fb"
+      },
+      {
+        "id": "task_1e2e970fc485",
+        "run_id": "run_4104a86f0a03",
+        "task_title": "codex-hooks-proof",
+        "display_name": "codex-hooks-proof",
+        "status": "dispatched",
+        "assignee_handle": null,
+        "dispatch_id": "ctx_1e2e970fc485"
+      },
+      {
+        "id": "task_726698aaa803",
+        "run_id": "run_4104a86f0a03",
+        "task_title": "gone",
+        "display_name": "gone",
+        "status": "dispatched",
+        "assignee_handle": null,
+        "dispatch_id": "ctx_726698aaa803"
+      }
+    ],
+    "count": 3
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

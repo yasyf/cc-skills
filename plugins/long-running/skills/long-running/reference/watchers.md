@@ -48,8 +48,9 @@
 **Poll every terminal in the drive registry.**
 - The coordinator's terminal is `root_terminal`, which `drive.py start` and the hook record from `ORCA_TERMINAL_HANDLE`. A prompt raised by an in-process lane appears here.
 - Each standing desk is recorded with `drive.py desk --name <lane> --terminal <handle>`, plus `--environment <name>` for a desk on a remote host.
-- The workers are every in-progress dispatch of the drive's Run, local or remote, from `orca orchestration worker-list --include-remote`. With no `orca_run` in the registry, the watch uses the Run bound to `root_terminal`, or none when that terminal is unbound.
-- While `worker-list` fails, no worker's prompt is closed; each worker keeps its record and reads `unknown` or `unreachable` until the list answers again.
+- The workers are every dispatch of the drive's Run that Orca holds as dispatched, local or remote, from one `orca orchestration task-list --run <run> --status dispatched` call. That call costs the same however many settled dispatches the Run keeps. With no `orca_run` in the registry, the watch asks `orchestration run-current` for the Run bound to `root_terminal`, and watches no worker when that terminal is unbound.
+- A worker the last poll read as clear is read again once per reshow window, about three minutes, so a prompt it raises shows within that window. A worker at a prompt, `unknown` or `unreachable` is read on every poll.
+- While `task-list` fails, no worker's prompt is closed; each worker keeps its record and reads `unknown` or `unreachable` until the list answers again.
 
 **Classify each terminal from its rendered screen.** Orca's `agentWait` only indicates where to look; it stays set after a prompt is answered, so it never raises a record and never authorizes an answer. The watch reads the screen with `orca terminal read --screen` and puts each terminal in one state:
 
@@ -63,8 +64,8 @@
 | `clear` | a working or idle agent with `agentWait` unset | none |
 
 **Report unreadable terminals and runtime outages to `desk-runner`, never to `root`.**
-- After an `unknown` or `unreachable` report, the watch posts one `READABLE` report to `desk-runner` once three polls in a row read the terminal again. A shorter read posts nothing, so a flapping terminal or `worker-list` raises no second record for the same unread state.
-- When every watched terminal reads `runtime_unavailable` or `timeout`, the Orca app itself is down and no terminal reports alone. The watch posts one `orca (runtime)` report after three polls, only when the last answered `worker-list` held a worker in progress, and posts `READABLE` only after that report. A drive with no worker in progress hears nothing about the outage.
+- After an `unknown` or `unreachable` report, the watch posts one `READABLE` report to `desk-runner` once three polls in a row read the terminal again. A shorter read posts nothing, so a flapping terminal or `task-list` raises no second record for the same unread state.
+- When every watched terminal reads `runtime_unavailable` or `timeout`, the Orca app itself is down and no terminal reports alone. The watch posts one `orca (runtime)` report after three polls, only when the last answered `task-list` held a worker in progress, and posts `READABLE` only after that report. A drive with no worker in progress hears nothing about the outage.
 - `unknown` and `unreachable` mean the prompt state is unknown; never treat either as working or stuck.
 
 **Read remote worker screens on every poll.** A host running Orca's managed server installs no agent hook, so `agentWait` stays unset there. The watch reads every remote worker's screen on every poll through the `--environment` that `worker-show` names.
