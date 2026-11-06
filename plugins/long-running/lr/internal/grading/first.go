@@ -57,6 +57,17 @@ func (p *JobPool) again(ctx context.Context, grading string, d desk, facts machi
 	return name, err
 }
 
+func (p *JobPool) passBase(grading string, facts machine.Facts) string {
+	pr := strconv.Itoa(facts.Number)
+	switch {
+	case slices.Contains(Missing(facts), grading):
+		return pr + "-" + short(facts.Head)
+	case grading == GraderFidelity:
+		return pr + "-" + short(facts.Head) + regradeMark
+	}
+	return pr + wholeMark + strconv.FormatInt(p.firsts[facts.Number], 10)
+}
+
 func (p *JobPool) gradedSince(ctx context.Context, grading string, facts machine.Facts, asked int64) (bool, error) {
 	pr := strconv.Itoa(facts.Number)
 	found, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindReview}, PR: facts.Repo + "#" + pr, After: asked})

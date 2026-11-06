@@ -42,25 +42,36 @@ func (p *JobPool) Plan(ctx context.Context, items []store.Item, snapshot map[int
 }
 
 func (p *JobPool) Rank(ctx context.Context, items []store.Item, snapshot map[int]machine.Facts, now time.Time) ([]store.Item, error) {
+	if err := p.readFirsts(ctx, now); err != nil {
+		return nil, err
+	}
+	return p.sorted(items, snapshot)
+}
+
+func (p *JobPool) readFirsts(ctx context.Context, now time.Time) error {
 	since := now.Add(-rootFirstHorizon)
 	decides, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindDecide, kindAsk}, Lanes: []string{rootLane}, Since: since})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	asked, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindFirst}, Since: since})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	p.firsts = map[int]int64{}
 	for _, decide := range append(decides, asked...) {
 		for _, pr := range namedFirst(bus.FullText(decide)) {
 			number, err := strconv.Atoi(pr)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			p.firsts[number] = max(p.firsts[number], decide.Seq)
 		}
 	}
+	return nil
+}
+
+func (p *JobPool) sorted(items []store.Item, snapshot map[int]machine.Facts) ([]store.Item, error) {
 	rows, err := p.ledgerRows()
 	if err != nil {
 		return nil, err

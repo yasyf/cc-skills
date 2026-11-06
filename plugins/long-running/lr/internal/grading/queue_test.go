@@ -264,3 +264,23 @@ func TestAQueueLineNamesARowBehindThePushAndAHeadWithNoStamp(t *testing.T) {
 		}
 	}
 }
+
+func TestAFirstHeadWhoseFinderGradeDoesNotClearTopsTheFinderQueue(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	post(t, firstDraft(testDrive, "owner-relay", 51669))
+	f.now = time.Now()
+	pushed := map[int]lrfacts.Pushed{
+		3:     pushedAt(3, nil),
+		4:     pushedAt(4, func(p *machine.Facts) { p.Finder, p.Fidelity = machine.FinderAsk, machine.FidelityPass }),
+		51669: pushedAt(51669, func(p *machine.Facts) { p.Finder, p.Fidelity = machine.FinderAsk, machine.FidelityPass }),
+	}
+
+	rows := queue(t, f, GraderFinder, nil, pushed)
+
+	if got := numbersOf(rows); !slices.Equal(got, []int{51669, 3}) {
+		t.Fatalf("queue = %v, want the first head ahead and the unfirsted major left out", got)
+	}
+	if rows[0].Pipeline != PassNone {
+		t.Fatalf("pipeline = %q, want its recheck not yet run", rows[0].Pipeline)
+	}
+}
