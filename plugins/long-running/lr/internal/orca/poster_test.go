@@ -603,6 +603,47 @@ func TestALaunchOfAStemTakesTheNumberPastEveryNameItsStemEverHad(t *testing.T) {
 	}
 }
 
+func TestALaunchFromAStoodDownLanesBriefRunsACopyRenamedForTheNewLane(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	f := newPosterFixture(t)
+	for _, d := range []client.Draft{
+		{Drive: "prog", Lane: "next-tests-servers-r-1", Kind: "state", Text: "next-tests-servers-r-1 running"},
+		{Drive: "prog", Lane: "supervisor", Kind: "stand-down", Text: "next-tests-servers-r-1 stood down: the supervisor retired it (done).", To: []string{"next-tests-servers-r-1"}},
+		{Drive: "prog", Lane: "live-lane-1", Kind: "state", Text: "live-lane-1 running"},
+	} {
+		if _, err := client.Post(context.Background(), d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	retired := f.brief(t, "b/next-tests-servers-r-1/brief.md", "# next-tests-servers-r-1: shared test servers\nRegister slice: lane=next-tests-servers-r-1 step=all\nPost with `cci post --lane next-tests-servers-r-1`; next-tests-servers-r-10 is another lane.\n")
+	brief, err := f.poster.Relaunched(context.Background(), "next-tests-servers-r-2", retired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(f.dir, "prog", "next-tests-servers-r-2", briefFile); brief != want {
+		t.Fatalf("brief %s, want %s", brief, want)
+	}
+	raw, err := os.ReadFile(brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# next-tests-servers-r-2: shared test servers\nRegister slice: lane=next-tests-servers-r-2 step=all\nPost with `cci post --lane next-tests-servers-r-2`; next-tests-servers-r-10 is another lane.\n"; string(raw) != want {
+		t.Fatalf("copied brief %q, want %q", raw, want)
+	}
+	if fault := (Order{Lane: "next-tests-servers-r-2", Brief: brief}).wrongLaneFault(); fault != "" {
+		t.Fatal(fault)
+	}
+
+	live := f.brief(t, "b/live-lane-1/brief.md", "Register slice: lane=live-lane-1 step=all\n")
+	kept, err := f.poster.Relaunched(context.Background(), "live-lane-2", live)
+	if err != nil || kept != live {
+		t.Fatalf("a live lane's brief moved to %s, %v", kept, err)
+	}
+	if fault := (Order{Lane: "live-lane-2", Brief: kept}).wrongLaneFault(); fault == "" {
+		t.Fatal("live-lane-2 launched from live-lane-1's brief")
+	}
+}
+
 func TestANumberedLaneLaunchesFromItsStemsBriefDirectory(t *testing.T) {
 	if fault := (Order{Lane: "desk-6", Brief: "/s/desk/brief.md"}).wrongLaneFault(); fault != "" {
 		t.Fatal(fault)
