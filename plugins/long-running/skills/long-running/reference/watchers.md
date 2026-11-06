@@ -164,10 +164,10 @@ The rule these lines serve: every turn of a launched lane ends on a typed record
 
 The `lanes` table of the drive store holds one row per worker, and only the supervisor writes it.
 - A worker enters it from the `SPAWNED` state record that `drive.py spawned` posts at each launch. `lr launch start` posts placement `orca`, the relay posts `sprite` for a Sprite launch, and the Agent hook posts `teammate` for an in-process lane. The record carries the brief, model, effort and role.
-- A relaunch also carries `successor-of`, from `--successor-of` or the brief's `Replaces:` line. The successor takes that worker's PRs, and the supervisor posts the one `stand-down --successor` record cci routes mail by.
+- A relaunch also carries `successor-of`, from `--successor-of` or the brief's `Replaces:` line. The successor takes that worker's PRs that are the drive's own, those with a ledger row or opened by the drive's login, and the supervisor posts the one `stand-down --successor` record cci routes mail by. Any other PR leaves the registry, so another person's PR never rides a relaunch.
 - Helper roles stay out unless the brief carries a `Standing:` line, and `<lane>-handoff` writers stay out. Each tick also adopts the lane of a standing session such as `chores` when `cci who` lists it live with no row, from `<state dir>/<lane>/brief.md` and the model and effort `lr launch` gives it.
-- The coordinator and every desk change a row only through `lr request <stand-down|park|unpark|owner|done|revive|step> <lane>`, with `--successor <lane>`, `--last-read <seq>`, `--pr <n>`, `--step <n>` and, on a desk's stand-down, `--open '<items>'` or `--open none` as the verb needs. `step` attaches a live lane to a plan step, the field `lr launch lane --step` writes at launch. Nobody posts a `stand-down` for another lane. `lr route <lane>` prints where that lane's mail goes.
-- A lane's `head` and `opened` records move their PRs to it, `landed` records drop them, and an `owner` request moves them.
+- The coordinator and every desk change a row only through `lr request <stand-down|park|unpark|owner|release|done|revive|step> <lane>`, with `--successor <lane>`, `--last-read <seq>`, `--pr <n>`, `--step <n>` and, on a desk's stand-down, `--open '<items>'` or `--open none` as the verb needs. `step` attaches a live lane to a plan step, the field `lr launch lane --step` writes at launch. Nobody posts a `stand-down` for another lane. `lr route <lane>` prints where that lane's mail goes.
+- A lane's `head` and `opened` records move their PRs to it, `landed` records drop them, an `owner` request moves them, and a `release` request drops each `--pr` the lane holds from its row.
 - A `<lane>-handoff` writer's `handoff <lane>: doc <id>` becomes the newest handoff of the lane holding that work.
 
 **A lane is retired only by typed records, never by prose or by its name:**
@@ -206,7 +206,7 @@ A lane is dead only when it lacks both a live process and a record within `STALE
 - A red or conflicting PR wakes the lane parked on it with `--pr`, once until a new head.
 - A lane that posted nothing for one hour and owns an open PR that is red, conflicting, or unapproved gets one page naming those PRs, unless it is parked on something else.
 - A closed PR is disowned. `done` is refused while the lane owns an open PR, so it posts `blocked --pr <n>` until each lands or closes.
-- A retired lane stays retired whatever it still owns, and nothing it posts afterwards revives it. When its PR goes red or conflicting, one blocker tells the coordinator no lane owns it and names the `lr request owner <lane> --pr N` that hands it on.
+- A retired lane stays retired whatever it still owns, and nothing it posts afterwards revives it. When it ended naming no successor, by `done`, a stand-down, a handoff, `worker_done` or a landing, and not by stopping to wait, its open PRs that are the drive's own go to `pr-unblock`'s live member, and the coordinator gets one `HANDED ON` report naming them. Another person's PR leaves the registry. With no live `pr-unblock` member the lane keeps them, and when one goes red or conflicting, one blocker tells the coordinator no lane owns it and names the `lr request owner <lane> --pr N` that hands it on.
 - A green, approved, conflict-free PR waits only on the owner's tap and needs no live owner.
 - PR states come from one GraphQL read per 50 PRs, reread every 10 minutes.
 

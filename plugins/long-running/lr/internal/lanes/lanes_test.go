@@ -104,6 +104,8 @@ type fake struct {
 	promises    []Promise
 	branches    map[string][]int
 	branchReads int
+	foreign     map[int]bool
+	oursReads   int
 	hosts       map[string]Host
 	hostReads   int
 	sprites     map[string]Sprite
@@ -169,6 +171,10 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 		RotateAt:     600_000,
 		RetireAfter:  time.Hour,
 		OpenBranches: func(*store.Store) (map[string][]int, error) { f.branchReads++; return f.branches, nil },
+		Ours: func(_ *store.Store, prs []int) ([]int, error) {
+			f.oursReads++
+			return slices.DeleteFunc(slices.Clone(prs), func(n int) bool { return f.foreign[n] }), nil
+		},
 		Sprites: func(names []string) (map[string]Sprite, error) {
 			f.spriteReads++
 			out := map[string]Sprite{}

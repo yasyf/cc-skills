@@ -65,6 +65,7 @@ type Deps struct {
 	RotateAt              int
 	RetireAfter           time.Duration
 	OpenBranches          func(s *store.Store) (map[string][]int, error)
+	Ours                  func(s *store.Store, prs []int) ([]int, error)
 	Sprites               func(lanes []string) (map[string]Sprite, error)
 	Hosts                 func(lanes []string, sprites map[string]Sprite) map[string]Host
 	LastWords             func(sprite string) string
@@ -247,7 +248,7 @@ func adoptStanding(s *store.Store, d Deps, found map[string]Peer, now time.Time)
 
 func announce(s *store.Store, d Deps, said folded) {
 	for _, one := range said.stood {
-		how := ", its PRs to the coordinator"
+		how := ", its PRs to " + said.prsTo(one.name)
 		if one.successor != "" {
 			how = " for " + one.successor
 		}
@@ -260,12 +261,15 @@ func announce(s *store.Store, d Deps, said folded) {
 	if len(said.ended) > 0 {
 		lines := make([]string, len(said.ended))
 		for i, one := range said.ended {
-			lines[i] = fmt.Sprintf("%s by stand-down #%d, its PRs to the coordinator", one.name, one.seq)
+			lines[i] = fmt.Sprintf("%s by stand-down #%d, its PRs to %s", one.name, one.seq, said.prsTo(one.name))
 			if one.successor != "" {
 				lines[i] = fmt.Sprintf("%s by stand-down #%d, for %s", one.name, one.seq, one.successor)
 			}
 		}
 		do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, Text: "RETIRED " + strings.Join(lines, "; ") + "."}))
+	}
+	for _, one := range said.handed {
+		do(d.Post(handedOn(one.to, []string{one.from}, one.prs)))
 	}
 	verbs := slices.Sorted(slices.Values(Verbs))
 	for _, seq := range said.untyped {
@@ -486,8 +490,12 @@ func claimBranches(s *store.Store, d Deps, now time.Time) {
 		}
 	}
 	if len(orphans) > 0 {
-		do(s.Own(Root, orphans))
-		do(d.Post(Post{Kind: "report", To: []string{Root}, PRs: orphans, Text: fmt.Sprintf("ORPHANED PRs now owned by the coordinator, since no lane owned them when their lanes retired: %s. Name an owner with `%s`.", strings.Join(left, "; "), Request{Verb: "owner", Lane: "<lane>", PRs: orphans}.Command())}))
+		to, owner := Root, "the coordinator"
+		if member := defaultOwner(s); member != "" {
+			to, owner = member, member+", the default owner"
+		}
+		do(s.Own(to, orphans))
+		do(d.Post(Post{Kind: "report", To: []string{Root}, PRs: orphans, Text: fmt.Sprintf("ORPHANED PRs now owned by %s, since no lane owned them when their lanes retired: %s. Name an owner with `%s`.", owner, strings.Join(left, "; "), Request{Verb: "owner", Lane: "<lane>", PRs: orphans}.Command())}))
 	}
 	for _, name := range unchecked {
 		do(s.Probe(branchProbe(name), now))
@@ -712,6 +720,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 		out.Held = append(out.Held, old.Name)
 		return ""
 	}
+	old.PRs = ours(s, d, old.PRs)
 	name := SuccessorName(old.Name, taken)
 	taken[name] = true
 	path := writeSuccessorBrief(d, old, found, name, why, partial)
@@ -1074,15 +1083,16 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 		return
 	}
 	do(err)
-	retired := map[string]bool{}
+	retired := map[string]store.Lane{}
 	for _, lane := range must(s.Lanes(store.LaneRetired)) {
-		retired[lane.Name] = true
+		retired[lane.Name] = lane
 	}
 	rows := map[string]store.Lane{}
 	for _, lane := range must(s.Lanes(live...)) {
 		rows[lane.Name] = lane
 	}
 	var unowned, ended, wanted []int
+	left := map[int]string{}
 	quiet := map[string][]int{}
 	for name, prs := range must(s.Owners()) {
 		var open []int
@@ -1091,9 +1101,15 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 				open = append(open, n)
 			}
 		}
-		if retired[name] {
+		if lane, gone := retired[name]; gone {
 			ended = append(ended, open...)
 			wanted = append(wanted, open...)
+			if endedAlone(lane) {
+				for _, n := range prs {
+					left[n] = name
+				}
+				wanted = append(wanted, prs...)
+			}
 			continue
 		}
 		if name == Root {
@@ -1112,6 +1128,7 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 		return
 	}
 	do(err)
+	ended = handOnEnded(s, d, ended, left, states)
 	strandedFresh := []int{}
 	var closed []int
 	for _, n := range slices.Concat(unowned, ended) {
@@ -1174,6 +1191,32 @@ func ownedWork(s *store.Store, d Deps, now time.Time) {
 		text := fmt.Sprintf("you own %s, which still need work", numberList(work))
 		do(s.SetLanePage(name, map[string]any{"topic": "work:" + name, "why": text, "text": text, "prs": work}))
 	}
+}
+
+func handOnEnded(s *store.Store, d Deps, ended []int, left map[int]string, states map[int]string) []int {
+	var leaving []int
+	for n := range left {
+		if states[n] != Closed {
+			leaving = append(leaving, n)
+		}
+	}
+	if len(leaving) == 0 {
+		return ended
+	}
+	slices.Sort(leaving)
+	own := ours(s, d, leaving)
+	kept := own
+	if to := defaultOwner(s); to != "" && len(own) > 0 {
+		do(s.Own(to, own))
+		from := make([]string, 0, len(own))
+		for _, n := range own {
+			from = append(from, left[n])
+		}
+		slices.Sort(from)
+		do(d.Post(handedOn(to, slices.Compact(from), own)))
+		kept = nil
+	}
+	return slices.DeleteFunc(ended, func(n int) bool { return slices.Contains(leaving, n) && !slices.Contains(kept, n) })
 }
 
 const clockGate = "clock:"

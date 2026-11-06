@@ -25,6 +25,7 @@ const (
 	OwnerRelay      = "owner-relay"
 	orcaDesk        = "orca-desk"
 	progressDesk    = "progress-desk"
+	prUnblock       = "pr-unblock"
 	RoleMeta        = "meta"
 	roleDesk        = "desk"
 	roleRelease     = "release"
@@ -125,7 +126,7 @@ const (
 
 var (
 	ErrUnread = errors.New("source did not answer")
-	Verbs     = []string{"stand-down", "park", "unpark", "owner", "done", "revive", "step"}
+	Verbs     = []string{"stand-down", "park", "unpark", "owner", "release", "done", "revive", "step"}
 	live      = []store.LaneState{store.LaneLaunching, store.LaneDesired}
 
 	helperRoles = []string{"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"}
@@ -141,6 +142,7 @@ var (
 
 	settled      = []string{"handoff", "done", "stand-down", "stopped"}
 	unprovenEnds = []string{retiredStopped, retiredWorkerDone, retiredSilent, kindLanded}
+	endsAlone    = []string{"done", retiredStopped, retiredWorkerDone, kindLanded}
 	laneEnds     = []string{"done", "stopped", "fix-live"}
 	shipped      = []string{"release", "applied", "fix-live"}
 
@@ -473,6 +475,31 @@ func retire(s *store.Store, name, by string, at time.Time) {
 	do(s.SetLaneWaiting(name, 0, time.Time{}, ""))
 	do(s.SetLanePage(name, nil))
 	must(s.ReleaseWorker(name))
+}
+
+func ours(s *store.Store, d Deps, prs []int) []int {
+	if len(prs) == 0 {
+		return nil
+	}
+	own := must(d.Ours(s, prs))
+	do(s.Disown(slices.DeleteFunc(slices.Clone(prs), func(n int) bool { return slices.Contains(own, n) })))
+	return own
+}
+
+func defaultOwner(s *store.Store) string {
+	member := heirOf(s, prUnblock)
+	if lane, found := laneOf(s, member); found && isLive(lane.State) {
+		return member
+	}
+	return ""
+}
+
+func endedAlone(lane store.Lane) bool {
+	return slices.Contains(endsAlone, lane.RetiredBy) && !restedOnItsOwnEnd(lane)
+}
+
+func handedOn(to string, from []string, prs []int) Post {
+	return Post{Kind: "report", To: []string{Root}, PRs: prs, Text: fmt.Sprintf("HANDED ON %s to %s, the default owner, as `%s` would: %s ended naming no successor. Name another owner with `%s`.", numberList(prs), to, Request{Verb: "owner", Lane: to, PRs: prs}.Command(), strings.Join(from, ", "), Request{Verb: "owner", Lane: "<lane>", PRs: prs}.Command())}
 }
 
 func hold(s *store.Store, name, why string, at time.Time) {

@@ -34,6 +34,11 @@ type refusal struct {
 	why  string
 }
 
+type handed struct {
+	from, to string
+	prs      []int
+}
+
 type folded struct {
 	adopted []string
 	hand    []string
@@ -42,14 +47,36 @@ type folded struct {
 	stood   []stoodDown
 	ended   []stoodDown
 	kept    []stoodDown
+	handed  []handed
 	untyped []int64
 	unheard []string
 	refused []refusal
 	deps    Deps
 }
 
-func takesOver(s *store.Store, name string, old store.Lane, at time.Time) string {
-	do(s.Own(name, old.PRs))
+func (out *folded) handOn(s *store.Store, from string, prs []int, fresh bool) {
+	own := ours(s, out.deps, prs)
+	if len(own) == 0 {
+		return
+	}
+	to := or(defaultOwner(s), Root)
+	do(s.Own(to, own))
+	if to != Root && !fresh {
+		out.handed = append(out.handed, handed{from, to, own})
+	}
+}
+
+func (out folded) prsTo(name string) string {
+	for _, one := range out.handed {
+		if one.from == name {
+			return one.to
+		}
+	}
+	return "the coordinator"
+}
+
+func takesOver(s *store.Store, d Deps, name string, old store.Lane, at time.Time) string {
+	do(s.Own(name, ours(s, d, old.PRs)))
 	if _, known := laneOf(s, old.RetiredBy); isLive(old.State) || !known {
 		retire(s, old.Name, name, at)
 		return old.Role
@@ -103,6 +130,14 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			}
 		}
 		do(s.Own(name, numbers))
+	case verb == "release":
+		var held []int
+		for n, owner := range must(s.OwnerOf(r.PRs())) {
+			if owner == name {
+				held = append(held, n)
+			}
+		}
+		do(s.Disown(held))
 	case verb == "stand-down" && known:
 		successor := heirOf(s, r.Attr("successor"), name)
 		if !fresh && isLive(row.State) {
@@ -128,9 +163,9 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			cost := successorCost(row)
 			heir := store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing, Step: row.Step}
 			wantHeir(s, heir, r.Seq, fresh, at)
-			do(s.Own(successor, row.PRs))
+			do(s.Own(successor, ours(s, out.deps, row.PRs)))
 		} else {
-			do(s.Own(Root, row.PRs))
+			out.handOn(s, name, row.PRs, fresh)
 		}
 		if !fresh {
 			out.stood = append(out.stood, stoodDown{name, successor, row.PRs, r.Seq})
@@ -188,7 +223,7 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 	duty := inheritedDuty(s, name, spawn.Brief, spawn.SuccessorOf)
 	if spawn.SuccessorOf != "" {
 		if old, found := laneOf(s, spawn.SuccessorOf); found && old.Name != name {
-			role = or(role, takesOver(s, name, old, at))
+			role = or(role, takesOver(s, out.deps, name, old, at))
 			if !fresh {
 				out.stood = append(out.stood, stoodDown{old.Name, name, old.PRs, r.Seq})
 			}
@@ -200,7 +235,7 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 			if !fresh && isLive(old.State) {
 				out.stood = append(out.stood, stoodDown{old.Name, name, old.PRs, r.Seq})
 			}
-			role = or(role, takesOver(s, name, old, at))
+			role = or(role, takesOver(s, out.deps, name, old, at))
 		}
 	}
 	if mine, found := laneOf(s, name); found && mine.State == store.LaneLaunching && mine.Reason != "" && resolvedPath(spawn.Brief) != resolvedPath(filepath.Join(briefs, name+".brief.md")) {
@@ -730,7 +765,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 			if ended, ok := laneOf(s, found[1]); ok && ended.State != store.LaneRetired {
 				if out.owesNothing(s, ended.Name, fresh, at) {
 					retire(s, ended.Name, "withdrawn", at)
-					do(s.Own(Root, ended.PRs))
+					out.handOn(s, ended.Name, ended.PRs, fresh)
 				}
 				return
 			}
@@ -775,7 +810,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 			retire(s, name, "stand-down", at)
 		}
 	case kind == "go" && name != Self && withdrawOrder.MatchString(text):
-		foldWithdraw(s, r, at)
+		foldWithdraw(s, r, fresh, at, out)
 	case kind == "stand-down" && isRoot:
 		foldRootStandDown(s, r, fresh, at, out)
 	}
@@ -848,17 +883,17 @@ func dropQueuedLaunch(s *store.Store, stood store.Lane, at time.Time, out *folde
 		return
 	}
 	retire(s, queued.Name, Root, at)
-	do(s.Own(Root, queued.PRs))
+	out.handOn(s, queued.Name, queued.PRs, false)
 	out.hand = append(out.hand, queued.Name)
 }
 
-func foldWithdraw(s *store.Store, r Record, at time.Time) {
+func foldWithdraw(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	withdrawn, found := laneOf(s, withdrawOrder.FindStringSubmatch(r.Text)[1])
 	if !found || withdrawn.State != store.LaneLaunching {
 		return
 	}
 	retire(s, withdrawn.Name, "withdrawn", at)
-	do(s.Own(Root, withdrawn.PRs))
+	out.handOn(s, withdrawn.Name, withdrawn.PRs, fresh)
 }
 
 func settleOwner(s *store.Store, owner string, at time.Time) {
@@ -930,11 +965,11 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		}
 		if successor != "" && gone.State != store.LaneRetired {
 			cost := successorCost(gone)
-			wantHeir(s, store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: gone.PRs, Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing, Step: gone.Step}, r.Seq, fresh, at)
+			wantHeir(s, store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: ours(s, out.deps, gone.PRs), Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing, Step: gone.Step}, r.Seq, fresh, at)
 			continue
 		}
 		if successor == "" {
-			do(s.Own(Root, gone.PRs))
+			out.handOn(s, old, gone.PRs, fresh)
 		}
 	}
 }

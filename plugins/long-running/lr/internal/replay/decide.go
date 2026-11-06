@@ -221,6 +221,7 @@ func decideLanes(given Input) (Decided, error) {
 		Desks:        func() (map[string]string, error) { return nil, nil },
 		RetireAfter:  config.RetireSilent,
 		OpenBranches: func(*store.Store) (map[string][]int, error) { return nil, nil },
+		Ours:         func(_ *store.Store, prs []int) ([]int, error) { return prs, nil },
 		OpenWork:     func() ([]lanes.Record, error) { return nil, nil },
 		Owed:         func() ([]deletions.Owed, error) { return nil, nil },
 		Present:      func(rows []deletions.Owed) ([]deletions.Owed, error) { return rows, nil },
