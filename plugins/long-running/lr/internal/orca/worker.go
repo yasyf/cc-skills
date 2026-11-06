@@ -32,10 +32,6 @@ const (
 	routeSprite       = "sprite"
 	routeLocal        = "local"
 	carriedBox        = "/home/sprite/drive/carried"
-	sponsorKey        = "/home/sprite/.cc-inbox/relay/default/service.pem"
-	sponsorProfile    = "aws-profile:"
-	serviceKeyName    = "/ci/desk-host/cci-service-key"
-	serviceKeyRegion  = "us-west-2"
 	workerStartMS     = "600000"
 	localAgentReads   = 120
 	localIdleMS       = "120000"
@@ -43,8 +39,9 @@ const (
 	allocationWarm    = "warm"
 	allocationCreated = "created"
 	idleWarning       = "so the prepared worker never got its task"
-	sponsorEnv        = "WORKER_RELAY_SPONSOR"
 	joinReceipt       = "relay-join.log"
+	delegationFile    = "relay-delegation.json"
+	delegationLife    = "24h"
 	workerDriveDir    = "WORKER_DRIVE_DIR"
 	workerLandingRepo = "WORKER_LANDING_REPO"
 	seedReceipt       = "store-seed.log"
@@ -75,7 +72,8 @@ const (
 	writeDriveConfig  = `umask 077; state=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scratch/$1 && mkdir -p "$state" && cat > "$state/lr.json.new" && mv "$state/lr.json.new" "$state/lr.json"`
 	seedStore         = `cci relay export --drive "$1" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-seed.gz" -- sh -c 'sprite-env services create store-seed --cmd sh --args "-c,$HOME/.local/bin/cci relay seed --drive $1 < /tmp/store-seed.gz; rm /tmp/store-seed.gz; sprite-env services delete store-seed" --no-stream' sh "$1"; rm -f "$3"`
 	catchUpStore      = `cci relay export --drive "$1" --since "$4" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-catch-up.gz" -- sh -c '$HOME/.local/bin/cci relay seed --drive "$1" < /tmp/store-catch-up.gz; seeded=$?; rm -f /tmp/store-catch-up.gz; exit $seeded' sh "$1"; caught=$?; rm -f "$3"; exit $caught`
-	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
+	spriteNode        = "~/.local/bin/cci node --json"
+	joinRelay         = `~/.local/bin/cci relay join --delegation - --url "$1" --owner "$2" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
 
 var (
@@ -356,9 +354,6 @@ func (w *workerLaunch) checkSprite() error {
 	}
 	if w.expect != "" && !fullCommit.MatchString(w.expect) {
 		return refuse("WORKER_EXPECT_BASE is a full 40- or 64-character lowercase commit; nothing was prepared")
-	}
-	if w.Env(sponsorEnv) == "" {
-		return refuse("set %s to the Sprite holding the drive's enrolled cci service key, or to %s<this Mac's AWS profile> to read it from SSM, because a worker with no relay posts nothing anyone reads; nothing was prepared", sponsorEnv, sponsorProfile)
 	}
 	checkout, err := filepath.EvalSymlinks(w.Env("WORKER_CHECKOUT"))
 	if w.Env("WORKER_CHECKOUT") == "" || err != nil {
@@ -996,7 +991,7 @@ func (w *workerLaunch) catchUp(workspace string) error {
 	return w.receipt(catchUpReceipt, said)
 }
 
-func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
+func (w *workerLaunch) join(workspace string) (string, error) {
 	var log bytes.Buffer
 	status, errs, code := w.capture("cci", "relay", "status", "--json")
 	log.WriteString(errs)
@@ -1029,19 +1024,22 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	if code != 0 || json.Unmarshal([]byte(node), &owner) != nil || owner.PublicKey == "" {
 		return log.String(), errors.New("cci node names no public key")
 	}
-	read := []string{"sprite", "exec", "-s", sponsor, "--no-stdin", "--", "cat", sponsorKey}
-	if profile, ok := strings.CutPrefix(sponsor, sponsorProfile); ok {
-		read = []string{"aws", "ssm", "get-parameter", "--profile", profile, "--region", serviceKeyRegion, "--name", serviceKeyName, "--with-decryption", "--query", "Parameter.Value", "--output", "text"}
-	}
-	key, errs, code := w.capture(read...)
+	said, errs, code := w.capture("sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", spriteNode)
 	log.WriteString(errs)
-	if code != 0 {
-		return log.String(), errors.New("the sponsor's service key did not read")
+	var instance struct {
+		PublicKey string `json:"public_key"`
+	}
+	if code != 0 || json.Unmarshal([]byte(said), &instance) != nil || instance.PublicKey == "" {
+		return log.String(), fmt.Errorf("cci node on Sprite %s names no public key", workspace)
+	}
+	delegation, err := w.delegate(instance.PublicKey, meshes[mesh].Routes, &log)
+	if err != nil {
+		return log.String(), err
 	}
 	for tries := 1; ; tries++ {
 		joined, err := w.Runner.Run(w.ctx, shell.Command{
-			Argv:  []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", strings.Join(meshes[mesh].Routes, ","), meshes[mesh].URL, owner.PublicKey},
-			Stdin: key,
+			Argv:  []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", meshes[mesh].URL, owner.PublicKey},
+			Stdin: delegation,
 		})
 		log.WriteString(joined.Stdout + joined.Stderr)
 		if err == nil {
@@ -1053,6 +1051,19 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 		}
 		w.Sleep(joinWaits[tries-1])
 	}
+}
+
+func (w *workerLaunch) delegate(pub string, drives []string, log *bytes.Buffer) (string, error) {
+	delegation, errs, code := w.capture("cci", "relay", "delegate", "--pub", pub, "--drive", strings.Join(drives, ","), "--ttl", delegationLife)
+	log.WriteString(errs)
+	said := strings.TrimSpace(errs)
+	switch {
+	case code != 0 && strings.Contains(said, "no live issuer grant"):
+		return "", errors.New("this Mac holds no live issuer grant, so it signs no Sprite a delegation and nothing falls back to a shared key; tap Touch ID at the unlocked Mac with `cci relay grant`, which covers the next 24 hours, then launch again")
+	case code != 0:
+		return "", fmt.Errorf("this Mac's cci relay delegate failed: %s", said[strings.LastIndex(said, "\n")+1:])
+	}
+	return delegation, w.receipt(delegationFile, delegation)
 }
 
 func (w *workerLaunch) startSprite() (line string, err error) {
@@ -1087,14 +1098,13 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	if err := w.carryDrive(workspace); err != nil {
 		return "", err
 	}
-	sponsor := w.Env(sponsorEnv)
 	w.stages.say(w.ctx, "joining the cci relay on "+workspace)
-	log, joinErr := w.join(workspace, sponsor)
+	log, joinErr := w.join(workspace)
 	if err := w.receipt(joinReceipt, log); err != nil {
 		return "", err
 	}
 	if joinErr != nil {
-		return "", w.down("Sprite %s did not join the cci relay with %s's service key: %v; nothing started, because a worker with no relay posts nothing anyone reads; %s keeps the output, and the prepared worker never got its task", workspace, sponsor, joinErr, filepath.Join(w.attempt, joinReceipt))
+		return "", w.down("Sprite %s did not join the cci relay with the delegation this Mac signed it: %v; nothing started, because a worker with no relay posts nothing anyone reads; %s keeps the output, and the prepared worker never got its task", workspace, joinErr, filepath.Join(w.attempt, joinReceipt))
 	}
 	w.terminal, _ = textOf(task["terminal"])
 	desk := ""

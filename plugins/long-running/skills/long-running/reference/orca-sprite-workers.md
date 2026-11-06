@@ -63,11 +63,11 @@ Run it from the terminal that already owns the named native Run. The script chec
 - Before a lane retires, the supervisor syncs once more. A failure holds the lane and posts a blocker, as an owed deletion does.
 - A stand-down by order retires the lane anyway and posts the blocker, since the order wins. A Sprite no longer listed retires the lane with a blocker saying its unpublished notes are lost.
 
-**Relay join.** `WORKER_RELAY_SPONSOR` names a Sprite already joined to the default relay mesh, such as a desk host; the launch reads the drive's enrolled cci service key from that mesh's `service.pem`, which every joined Sprite keeps. The script joins the new Sprite to this Mac's default relay mesh for the mesh's routed drives, with a 24-hour delegation and this Mac's node as owner. It starts `cci supervise` as a Sprite service, so the worker's records push without a manual `cci relay push`. The key travels from the sponsor to the new Sprite over stdin and is never written to the Mac.
+**Relay join.** The launch reads the new Sprite's own cci node key, and this Mac's owner node signs that key a 24-hour delegation for the default mesh's routed drives with `cci relay delegate`, which also wraps it every group key and registers both with the relay. The delegation goes to the Sprite over stdin, `cci relay join --delegation -` joins with it, and the attempt directory keeps it as `relay-delegation.json`. It starts `cci supervise` as a Sprite service, so the worker's records push without a manual `cci relay push`. No Sprite holds a service key, and no other Sprite is in the launch path.
 
-- Without the join, a worker's cci records stay on its Sprite, so a launch with no sponsor refuses before it prepares anything.
 - A failed join retries after 5, 15 and 45 seconds; a join that still fails refuses the launch, naming the relay's reason, with no worker started.
-- Every five minutes the supervisor joins each live lane whose receipt shows a failed join, stopping at the first refusal. `lr rejoin` runs the same pass at once.
+- Every five minutes the supervisor's rejoin pass, which `lr rejoin` runs at once, does three things. It renews each live lane's delegation once less than 12 hours remain, with one `cci relay delegate` on the Mac and nothing run on the Sprite, which adopts the renewal from its next pull. It moves a lane that joined on the old shared service key onto a delegation of its own. It joins each lane whose receipt shows a failed join, stopping at the first refusal.
+- A Sprite's delegation lapses if the Mac runs no rejoin pass for 12 hours past its last renewal; the Sprite then keeps its records until the next renewal.
 
 ### What refuses the launch
 
@@ -82,9 +82,9 @@ Each refusal names its cause, and nothing is prepared unless noted.
 | A malformed tool pin | Refuses before prepare |
 | A pin off its digest or version | `prepare` fails; no worker starts |
 | Any step of the tool install fails | Names the step, its exit and what it printed, for a launch, a roll and a grader; `prepare.err` keeps the rest |
-| No `WORKER_RELAY_SPONSOR` | Refuses before preparing anything |
 | A standing desk with no drive entry on this Mac, or whose drive's `lr.json` does not read as a JSON object | Refuses before preparing anything, naming the missing entry or file |
 | A standing desk whose `lr.json` fails to land on its Sprite | Refuses before `worker-start`; output in `drive-config.log` |
+| This Mac's `cci relay delegate` fails | Refuses, naming its output; no join and no worker |
 | A relay join that fails after its retries | Refuses, naming the relay's reason; no worker started |
 | A platform cause: a failed relay join (the sponsor's key not reading included), the org's Sprite limit, or a prepare, copy or `lr.json` write whose output says `Storage not ready`, `failed to start sprite command` or an HTTP 5xx status | Refuses as above, quoting the platform's line, and writes the launch key and the refusal to `sprite-down` in the attempt directory, from which the desk starts that launch on the Mac |
 | Any failure after `prepare` and before `worker-start` | Runs `cc-remote orca stop <lane>`, so the prepared worker frees its Sprite and the lane can launch again; `stop.status` in the attempt directory records it, and the desk reads a launch whose stop exited 0 as one that never started a worker |
