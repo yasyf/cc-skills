@@ -797,6 +797,30 @@ func TestARowNamesTheLaneThatLastPushedItByAlias(t *testing.T) {
 	}
 }
 
+func TestASameHeadRecordFromAnotherLaneLeavesTheOwnerAndANewShaTakesIt(t *testing.T) {
+	f, _ := foldFor(t)
+	post := func(t *testing.T, draft client.Draft) {
+		t.Helper()
+		draft.Drive, draft.PRs = "d", []string{testRepo + "#1"}
+		if _, err := client.Post(context.Background(), draft); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post(t, client.Draft{Lane: "next-one-kind-of-chat-1", Kind: "opened", Text: "opened", Attrs: map[string]string{"repo": testRepo, "branch": "b", "base": "dev", "head": headA}})
+	for _, step := range []struct {
+		lane, head, owner, why string
+	}{
+		{"progress-desk-4", headA, "next-one-kind-of-chat", "a head record at the same sha, naming a pick"},
+		{"next-one-kind-of-chat-2", headA, "next-one-kind-of-chat", "its relaunched successor at the same sha"},
+		{"takeover-1", headB, "takeover", "another lane's push to a new sha"},
+	} {
+		post(t, client.Draft{Lane: step.lane, Kind: "head", Text: "HEAD #1 " + step.head})
+		if row := folded(t, f, 1); row.Lane != step.owner || row.Head != step.head {
+			t.Fatalf("after %s: lane %q at %s, want %q at %s", step.why, row.Lane, row.Head, step.owner, step.head)
+		}
+	}
+}
+
 func TestARowNamesTheLaneTheRegistryOwnsItByAfterAnotherLanePushedIt(t *testing.T) {
 	f, s := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)

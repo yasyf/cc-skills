@@ -631,7 +631,9 @@ func (f Fold) pushed(t *store.Tx, row store.ReviewRow, record client.Record, hea
 	if record.Kind == "opened" && row.State == StateClosed {
 		row.State = StateOpen
 	}
-	row.Lane = client.Stem(record.Lane)
+	if record.Kind == "opened" || head != "" && !sameHead(row.Head, head) {
+		row.Lane = client.Stem(record.Lane)
+	}
 	attrs := record.Fields.Attrs
 	for field, value := range map[*string]string{&row.Branch: attrs["branch"], &row.Base: attrs["base"], &row.Title: attrs["title"]} {
 		if value != "" {
