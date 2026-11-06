@@ -105,7 +105,7 @@ func RollGraders(ctx context.Context, runner shell.Runner, s *store.Store, path 
 			behind = append(behind, box)
 		}
 	}
-	_, err = roll.install(ctx, pins, behind, "")
+	_, _, err = roll.install(ctx, pins, behind, "")
 	return err
 }
 
@@ -134,7 +134,7 @@ func RollHostPins(ctx context.Context, runner shell.Runner, s *store.Store, path
 	if err != nil || level {
 		return err
 	}
-	unreached, err := roll.install(ctx, pins, []string{box}, "")
+	_, unreached, err := roll.install(ctx, pins, []string{box}, "")
 	if err != nil || len(unreached) == 0 {
 		return err
 	}
@@ -245,12 +245,13 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			boxes = boxes[:1]
 		}
 	}
-	missed, err := r.carryDrive(ctx, boxes, roots)
+	answered, _, err := r.install(ctx, pins, boxes, probe)
+	missed, carryErr := r.carryDrive(ctx, answered, roots)
 	if err != nil {
 		return err
 	}
-	if _, err := r.install(ctx, pins, boxes, probe); err != nil || len(missed) == 0 {
-		return err
+	if carryErr != nil || len(missed) == 0 {
+		return carryErr
 	}
 	return refuse("lr sprites roll: drive %s's entry and lr.json did not reach %s, so lr there, lr lanes handoff included, reads an old copy or none until a roll carries them", r.Drive.Drive, strings.Join(missed, " "))
 }
@@ -282,9 +283,9 @@ func (r SpriteRoll) carryDrive(ctx context.Context, boxes []string, roots map[st
 	return missed, nil
 }
 
-func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string, probe string) ([]string, error) {
+func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string, probe string) ([]string, []string, error) {
 	proven := map[string]bool{}
-	var unreached, failed []string
+	var answered, unreached, failed []string
 	said := map[string]string{}
 	var last string
 	streak := 0
@@ -292,17 +293,18 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 		boxPins := r.pinsOn(box, pins)
 		try, err := r.installOn(ctx, box, boxPins)
 		if err != nil {
-			return nil, err
+			return answered, nil, err
 		}
 		result, installed := try.result, try.installed
 		if try.failed != nil && len(installed) == 0 && spriteUnreached(result) {
 			if box == probe {
-				return nil, refuse("lr sprites roll: could not reach the probe %s, so %d more Sprites keep what they run: %s", box, len(boxes)-done-1, lastSaid(result))
+				return answered, nil, refuse("lr sprites roll: could not reach the probe %s, so %d more Sprites keep what they run: %s", box, len(boxes)-done-1, lastSaid(result))
 			}
 			fmt.Fprintf(r.Out, "lr sprites roll: could not reach %s: %s\n", box, lastSaid(result))
 			unreached = append(unreached, box)
 			continue
 		}
+		answered = append(answered, box)
 		for name := range installed {
 			proven[name] = true
 		}
@@ -313,7 +315,7 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 			continue
 		}
 		if box != r.Host && !proven[failedTool(boxPins, installed)] {
-			return nil, r.failed(box, boxPins, installed, result, len(boxes)-done-1)
+			return answered, nil, r.failed(box, boxPins, installed, result, len(boxes)-done-1)
 		}
 		failed = append(failed, box)
 		said[box] = lastSaid(result)
@@ -323,14 +325,14 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 		streak++
 		fmt.Fprintf(r.Out, "lr sprites roll: %s failed, the roll goes on and tries it again at the end: %s\n", box, said[box])
 		if streak == sameFailureStop {
-			return nil, refuse("lr sprites roll: %d Sprites in a row failed the same way, so a pin is likely at fault though none is marked bad, and %d more Sprites keep what they run: %s", streak, len(boxes)-done-1, said[box])
+			return answered, nil, refuse("lr sprites roll: %d Sprites in a row failed the same way, so a pin is likely at fault though none is marked bad, and %d more Sprites keep what they run: %s", streak, len(boxes)-done-1, said[box])
 		}
 	}
 	var stayed []string
 	for _, box := range failed {
 		try, err := r.installOn(ctx, box, r.pinsOn(box, pins))
 		if err != nil {
-			return nil, err
+			return answered, nil, err
 		}
 		if try.failed == nil {
 			fmt.Fprintf(r.Out, "lr sprites roll: %s runs %s on its second try\n", box, censusOf(try.installed))
@@ -340,15 +342,15 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 		stayed = append(stayed, box)
 	}
 	if err := r.reportStayed(stayed, said); err != nil {
-		return nil, err
+		return answered, nil, err
 	}
 	if len(unreached) > 0 {
 		fmt.Fprintf(r.Out, "lr sprites roll: never reached: %s\n", strings.Join(unreached, " "))
 	}
 	if len(stayed) > 0 {
-		return unreached, refuse("lr sprites roll: %d of %d Sprites failed twice and keep what they hold, and no pin is marked bad: %s", len(stayed), len(boxes), strings.Join(stayed, " "))
+		return answered, unreached, refuse("lr sprites roll: %d of %d Sprites failed twice and keep what they hold, and no pin is marked bad: %s", len(stayed), len(boxes), strings.Join(stayed, " "))
 	}
-	return unreached, nil
+	return answered, unreached, nil
 }
 
 func (r SpriteRoll) pinsOn(box string, pins spritePins) spritePins {
@@ -534,7 +536,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	var skip []string
 	roll := &cobra.Command{
 		Use:   "roll",
-		Short: "Install runner.json's Sprite pins on the desk host, every Sprite with a live worker in the drive's Run, which first gets the drive's entry and lr.json written again, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin that fails before any box installed it is marked bad, stops the roll, and is never rolled again; a later box's failure is retried once at the end, and three in a row failing the same way stop the roll",
+		Short: "Install runner.json's Sprite pins on the desk host, every Sprite with a live worker in the drive's Run, each of which that answers then gets the drive's entry and lr.json written again, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin that fails before any box installed it is marked bad, stops the roll, and is never rolled again; a later box's failure is retried once at the end, and three in a row failing the same way stop the roll",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, cfg, state, err := opened()
