@@ -59,6 +59,7 @@ const (
 	newVersionWhy  = "a new version replaced it, and its own card asks again"
 	newVersionAsks = "a new version asks again in its own card"
 	redWhy         = "CI went red at its newest version and the lane that owns it was told; a new card asks once CI is green"
+	exemptWhy      = "it lands on root's go with no tap, under the drive's standing rule for its class"
 )
 
 const listPostLimit = time.Minute
@@ -69,9 +70,10 @@ var (
 )
 
 type ReadyCards struct {
-	Cards Cards
-	Repo  string
-	Lane  string
+	Cards  Cards
+	Repo   string
+	Lane   string
+	Exempt func() ([]string, error)
 }
 
 func (r ReadyCards) Pass(ctx context.Context) error {
@@ -86,7 +88,12 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if err := r.tellChangeOwed(ctx, rows, facts); err != nil {
 		return err
 	}
-	if err := r.retireRed(ctx, rows); err != nil {
+	if err := r.retireCards(ctx, rows, redWhy, func(row store.ReviewRow) bool {
+		return row.CI == prrow.CIRed && !row.Tapped && row.State == prrow.StateOpen
+	}); err != nil {
+		return err
+	}
+	if err := r.retireCards(ctx, rows, exemptWhy, func(row store.ReviewRow) bool { return row.State == prrow.StateExempt }); err != nil {
 		return err
 	}
 	lists, err := r.tapLists()
@@ -167,6 +174,10 @@ func (r ReadyCards) stillAsked(ctx context.Context, rows []store.ReviewRow, fact
 	if err != nil {
 		return nil, err
 	}
+	exempt, err := r.Exempt()
+	if err != nil {
+		return nil, err
+	}
 	asked := rows[:0]
 	for _, row := range rows {
 		if !open[row.Number] || tapped[row.Number] {
@@ -176,11 +187,29 @@ func (r ReadyCards) stillAsked(ctx context.Context, rows []store.ReviewRow, fact
 		if err != nil {
 			return nil, err
 		}
-		if !carried {
+		if carried {
+			continue
+		}
+		graded, err := r.landsOnItsGrade(ctx, row, facts[row.Number], exempt)
+		if err != nil {
+			return nil, err
+		}
+		if !graded {
 			asked = append(asked, row)
 		}
 	}
 	return asked, nil
+}
+
+func (r ReadyCards) landsOnItsGrade(ctx context.Context, row store.ReviewRow, atHead map[string]string, exempt []string) (bool, error) {
+	if atHead[tapFact] != "" || atHead[gates.StandingRefused] != "" {
+		return false, nil
+	}
+	records, err := client.Tail(ctx, client.Query{Drive: r.Cards.Bus, PR: fmt.Sprintf("%s#%d", r.Repo, row.Number)})
+	if err != nil {
+		return false, err
+	}
+	return gates.ExemptGraded(gates.Claim{Repo: r.Repo, PR: row.Number, Head: row.Head}, gates.Read{Records: records, Exempt: exempt}), nil
 }
 
 func unansweredTaps(ctx context.Context, drive, repo string, now time.Time) (map[int]bool, error) {
@@ -279,15 +308,15 @@ func (r ReadyCards) tellChangeOwed(ctx context.Context, rows []store.ReviewRow, 
 	return nil
 }
 
-func (r ReadyCards) retireRed(ctx context.Context, rows []store.ReviewRow) error {
+func (r ReadyCards) retireCards(ctx context.Context, rows []store.ReviewRow, why string, retired func(store.ReviewRow) bool) error {
 	drawn, err := r.Cards.Store.LatestFacts(r.Repo, FactTapCard)
 	if err != nil {
 		return err
 	}
-	red := slices.DeleteFunc(slices.Clone(rows), func(row store.ReviewRow) bool {
-		return row.CI != prrow.CIRed || row.Tapped || row.State != prrow.StateOpen || !slices.Contains([]string{tapCardDrawn, tapCardOnBoard}, drawn[row.Number])
+	due := slices.DeleteFunc(slices.Clone(rows), func(row store.ReviewRow) bool {
+		return !retired(row) || !slices.Contains([]string{tapCardDrawn, tapCardOnBoard}, drawn[row.Number])
 	})
-	if len(red) == 0 {
+	if len(due) == 0 {
 		return nil
 	}
 	shown, err := r.Cards.tapCards(ctx)
@@ -295,17 +324,17 @@ func (r ReadyCards) retireRed(ctx context.Context, rows []store.ReviewRow) error
 		return err
 	}
 	var cards []string
-	for _, row := range red {
+	for _, row := range due {
 		for _, card := range shown {
-			if strings.HasPrefix(card.ID, tapCardPrefix(row.Number)) || card.asksAt(row) {
+			if strings.HasPrefix(card.ID, gates.TapCardPrefix(row.Number)) || card.asksAt(row) {
 				cards = append(cards, card.ID)
 			}
 		}
 	}
-	if err := r.Cards.Retire(ctx, r.Lane, redWhy, cards, io.Discard); err != nil {
+	if err := r.Cards.Retire(ctx, r.Lane, why, cards, io.Discard); err != nil {
 		return err
 	}
-	for _, row := range red {
+	for _, row := range due {
 		if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, FactTapCard, "", r.Cards.Now()); err != nil {
 			return err
 		}
@@ -440,7 +469,7 @@ func clipWords(text string, limit int) string {
 func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCard, withdrawn string) error {
 	var replaced []string
 	for _, card := range shown {
-		if strings.HasPrefix(card.ID, tapCardPrefix(row.Number)) && card.ID != tapCardID(row) {
+		if strings.HasPrefix(card.ID, gates.TapCardPrefix(row.Number)) && card.ID != tapCardID(row) {
 			replaced = append(replaced, card.ID)
 		}
 	}
@@ -497,12 +526,8 @@ func (c Cards) freeTapRow(card string) error {
 	return nil
 }
 
-func tapCardPrefix(number int) string {
-	return fmt.Sprintf("card-tap-%d-", number)
-}
-
 func tapCardID(row store.ReviewRow) string {
-	return tapCardPrefix(row.Number) + row.Head[:min(waitsSHA, len(row.Head))]
+	return gates.TapCardPrefix(row.Number) + row.Head[:min(waitsSHA, len(row.Head))]
 }
 
 func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {

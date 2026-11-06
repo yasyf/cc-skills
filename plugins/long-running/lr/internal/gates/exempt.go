@@ -113,7 +113,11 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 	if (class == FlakeFixClass || isPortClass(class)) && len(classRefused) == 0 {
 		rules = nil
 	}
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), OpenCards(c.PR, r.Body, r.Cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
+	cards := r.Cards
+	if TestOnlyGraded(c, r) {
+		cards = slices.DeleteFunc(slices.Clone(cards), func(card Card) bool { return strings.HasPrefix(card.ID, TapCardPrefix(c.PR)) })
+	}
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), OpenCards(c.PR, r.Body, cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", "", refusals
 	}
@@ -189,11 +193,30 @@ func flakeRefusals(r Read, graded bool) []string {
 }
 
 func gradedTestOnly(c Claim, r Read) bool {
-	testOnly := slices.DeleteFunc(slices.Clone(r.Exempt), func(phrase string) bool { return !TestOnlyClass(phrase) })
+	testOnly := testOnlyPhrases(r.Exempt)
 	lanes, standing := fidelityStanding(c, r.Records)
 	return slices.ContainsFunc(lanes, func(lane string) bool {
 		return standing[lane].ok && exemptPhrase(standing[lane].record.Text, testOnly) != ""
 	})
+}
+
+func ExemptGraded(c Claim, r Read) bool {
+	_, _, refusals := fidelityCite(c, r, r.Exempt, "")
+	return len(refusals) == 0
+}
+
+func TestOnlyGraded(c Claim, r Read) bool {
+	_, finderRefusal := finderCite(c, r)
+	_, _, refusals := fidelityCite(c, r, testOnlyPhrases(r.Exempt), "")
+	return finderRefusal == "" && len(refusals) == 0
+}
+
+func testOnlyPhrases(exempt []string) []string {
+	return slices.DeleteFunc(slices.Clone(exempt), func(phrase string) bool { return !TestOnlyClass(phrase) })
+}
+
+func TapCardPrefix(pr int) string {
+	return fmt.Sprintf("card-tap-%d-", pr)
 }
 
 func addsTimeout(patch string) bool {

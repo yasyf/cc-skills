@@ -15,6 +15,7 @@ const (
 	NoTapCards  = "this box's landing store has never recorded a tap card shown, so it cannot say whether his card for this head is open; read it on the landing host"
 	notReadyYet = "its review row is not ready"
 	exemptSays  = "Exempt as "
+	tapFact     = "tap"
 )
 
 func ExemptWaits(class string) string {
@@ -66,6 +67,17 @@ func TapCardShownAt(s *store.Store, repo string, number int, head string) (strin
 		return "", err
 	}
 	return NoTapCards, nil
+}
+
+func TapAnsweredAt(s *store.Store, repo string, number int, head string) (string, error) {
+	taps, err := s.HeadFacts(repo, number, []string{tapFact})
+	if err != nil {
+		return "", err
+	}
+	if slices.ContainsFunc(taps, func(fact store.HeadFact) bool { return fact.Value != "" && sameHead(fact.Head, head) }) {
+		return fmt.Sprintf("he answered its tap card at %s, so it waits on his tap", short(head)), nil
+	}
+	return "", nil
 }
 
 func NoRowIn(s *store.Store, repo string) (string, error) {
