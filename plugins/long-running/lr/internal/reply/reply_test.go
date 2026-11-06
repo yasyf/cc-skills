@@ -68,7 +68,7 @@ func onThread(c shell.Command) bool {
 }
 
 func threadWrites(fake *shelltest.Fake) []shell.Command {
-	return slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return !onThread(c) })
+	return slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return !onThread(c) || c.Argv[1] == "outcomes" })
 }
 
 func flag(t *testing.T, argv []string, name string) string {
@@ -318,6 +318,43 @@ func TestTheRecommendedPickCarriesTheBranchItIsBuiltOn(t *testing.T) {
 	choice := card.Children[slices.IndexFunc(card.Children, func(c child) bool { return c.Type == "choice" })]
 	if choice.Options[0].Build != nil || choice.Options[1].Build == nil || *choice.Options[1].Build != *built {
 		t.Fatalf("options %+v, want the branch on the recommended pick only", choice.Options)
+	}
+}
+
+func TestABuildOnNoBranchNamePostsTheCardWithTheWarningUnderTheRecommendedPick(t *testing.T) {
+	picks := []string{"Both become settings :: The server gains two switches.", "Neither :: Both stay fixed behavior."}
+	for name, build := range map[string]Build{
+		"words":        {Repo: "Forge-AI/monorepo", Branch: "not built yet: it would join the inbox change"},
+		"two dots":     {Repo: "Forge-AI/monorepo", Branch: "inbox..settings"},
+		"leading dash": {Repo: "Forge-AI/monorepo", Branch: "-inbox"},
+		"lock suffix":  {Repo: "Forge-AI/monorepo", Branch: "inbox.lock"},
+		"no branch":    {Repo: "Forge-AI/monorepo"},
+		"no repo":      {Branch: "inbox-settings"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, warned := Reply{ID: "r6", Title: "Inbox settings", MD: "Two are fixed.", Picks: picks, Recommended: "Both become settings", Build: &build}.mended()
+			fake := scripted()
+			sent := fanout(t, fake).Send(context.Background(), r)
+
+			card := drawnCard(t, calls(fake, "cc-present")[0])
+			choice := card.Children[slices.IndexFunc(card.Children, func(c child) bool { return c.Type == "choice" })]
+			got := choice.Options[0].Build
+			if len(warned) != 1 || got == nil || got.Repo != "" || got.Branch != "" || !strings.Contains(got.None, "no branch is linked") {
+				t.Fatalf("warned %q, recommended build %+v, want one warning and the card saying no branch is linked", warned, got)
+			}
+			if surface(sent, "board").Ref != "card-r6" || surface(sent, "slack").Ref != permalink {
+				t.Fatalf("sent = %+v, want the card on the board and in Slack", sent)
+			}
+		})
+	}
+	both, warned := Reply{ID: "r6", Title: "t", MD: "m", Picks: picks, Recommended: "Neither", Build: &Build{Repo: "Forge-AI/monorepo", Branch: "inbox", None: "a process\npick"}}.mended()
+	if len(warned) != 1 || *both.Build != (Build{None: "a process pick"}) {
+		t.Fatalf("warned %q, build %+v, want the reason alone on one line", warned, both.Build)
+	}
+	named := Build{Repo: "yasyf/cc-skills", Branch: "yasyf/relay-per-chat"}
+	kept, warned := Reply{ID: "r6", Title: "t", MD: "m", Picks: picks, Recommended: "Neither", Build: &named}.mended()
+	if len(warned) != 0 || *kept.Build != named {
+		t.Fatalf("warned %q, build %+v, want a real branch kept", warned, kept.Build)
 	}
 }
 
@@ -825,6 +862,7 @@ func TestAReplyLandsOnTheThreadBeneathTheLastNoteAndStaysThereWhenEdited(t *test
 func TestAThreadFailureIsNamedAndTheOtherSurfacesStillGo(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Fail(1, "no artifact", "cc-present", "update-block")
+	fake.Reply(`{"doc":{}}`, "cc-present", "outcomes")
 	fake.Reply(posted, "cci", "post")
 	f := fanout(t, fake)
 	sent := f.Send(context.Background(), Reply{ID: "r1", Title: "Done", MD: "Done."})
