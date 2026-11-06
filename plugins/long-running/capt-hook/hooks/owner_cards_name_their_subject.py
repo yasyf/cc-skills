@@ -48,7 +48,8 @@ CHANGE = re.compile(r"(?i)\b(?:add|chang|clean|delet|drop|fix|migrat|mov|refacto
 DRAW_SCRIPT = "draw.zsh"
 NAMED_PR = re.compile(r"(?i)(?<![\w/&])#(\d{2,})\b|/pull/(\d+)|\bPR (\d+)\b")
 PORTS_READ = f"{LR} board ports"
-PORT_UNSAID = 'Warning, nothing was blocked: a post naming a forward port opens with "port of" and the number of the old-tree PR it copies. Open this one that way for PR {sources}.'
+PORT_OPENER = "Port, old tree to new: dev "
+PORT_UNSAID = f"Warning, nothing was blocked: a post naming a forward port opens its title with `{PORT_OPENER}#` and the number of the dev PR it ports. Open this one that way for PR {{sources}}."
 ASK_OWNER = CommandSchema(
     "lr",
     operands=(Operand("words", count="*"),),
@@ -155,7 +156,7 @@ def asked_lines(evt: BaseHookEvent, call: Call, reads: Reads) -> list[str]:
         return []
     file = next(iter(values.get("card", ())), STDIN)
     flags = [str(text) for name in ("title", "background", "option") for text in values.get(name, ()) if text]
-    flags += [f"port of #{source}" for source in values.get("port-of", ())]
+    flags += [f"{PORT_OPENER}#{source}" for source in values.get("port-of", ())]
     return flags if file == STDIN else [*flags, *card_text(evt, call, str(file), reads)]
 
 
@@ -217,6 +218,19 @@ def ports_of(drive: list[str], numbers: list[str]) -> dict[str, int]:
     return json.loads(done.stdout)
 
 
+def lr_opened(evt: BaseHookEvent, sources: dict[str, int]) -> set[int]:
+    opened: set[int] = set()
+    for call in evt.command.calls("lr") if evt.tool_name == "Bash" else ():
+        values = ASK_OWNER.bind(call).values
+        if values.get("words", ())[:1] != ("ask-owner",) or values.get("card") or values.get("port-of"):
+            continue
+        said = "\n".join(str(text) for name in ("title", "background", "option") for text in values.get(name, ()))
+        named = [number for number in dict.fromkeys(next(filter(None, found)) for found in NAMED_PR.findall(said)) if int(number) not in sources.values()]
+        if len(named) == 1 and named[0] in sources:
+            opened.add(sources[named[0]])
+    return opened
+
+
 def card_about(title: str, body: str, commands: dict[str, object]) -> Input:
     return Input(tool=SLACK_CARD, tool_input={"card": {"title": title, "body": body}}, env=HOOK_ENV, commands=commands)
 
@@ -226,14 +240,16 @@ def card_about(title: str, body: str, commands: dict[str, object]) -> Input:
     only_if=[Bound(), Tool("Bash", SLACK_CARD, *DM_TOOLS)],
     tests={
         card_about("Land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
-        card_about("port of #49412: land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
-        card_about("port of [#49412](https://github.com/Forge-AI/monorepo/pull/49412): land it?", "See [#50254](https://github.com/Forge-AI/monorepo/pull/50254).", {PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
+        card_about("Port, old tree to new: dev #49412: land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
+        card_about("Port, old tree to new: dev [#49412](https://github.com/Forge-AI/monorepo/pull/49412): land it?", "See [#50254](https://github.com/Forge-AI/monorepo/pull/50254).", {PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
+        card_about("port of #49412: land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
         card_about("Land it?", "See https://github.com/Forge-AI/monorepo/pull/50254.", {PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
         card_about("Land #50333?", "Its checks passed.", {PORTS_READ: "{}"}): Allow(),
         card_about("Land #50254?", "Its checks passed.", {PORTS_READ: (1, "store unreadable")}): Warn(pattern=r"could not read"),
         card_about("Relay fix", "Its checks passed.", {}): Allow(),
         Input(command="lr ask-owner --title 'Land PR 50254?' --port-of 49412 --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
-        Input(command="lr ask-owner --title 'Land PR 50254?' --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
+        Input(command="lr ask-owner --title 'Land PR 50254?' --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
+        Input(command="lr ask-owner --title 'Land PR 50254 before PR 50333?' --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
         Input(command="ls -la", env=HOOK_ENV): Allow(),
     },
 )
@@ -248,7 +264,8 @@ def posts_say_when_they_name_a_port(evt: BaseHookEvent) -> HookResult | None:
     sources = reads.read("the PR ledger", lambda: ports_of(which, numbers))
     if sources is None:
         return evt.context(reads.warning("posts_say_when_they_name_a_port"))
-    unsaid = [source for source in dict.fromkeys(sources.values()) if not re.search(rf"(?i)port of \[?#{source}\b", text)]
+    opened = lr_opened(evt, sources)
+    unsaid = [source for source in dict.fromkeys(sources.values()) if source not in opened and not re.search(rf"(?i){re.escape(PORT_OPENER)}\[?#{source}\b", text)]
     return evt.context(PORT_UNSAID.format(sources=", ".join(map(str, unsaid)))) if unsaid else None
 
 

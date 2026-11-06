@@ -1036,7 +1036,7 @@ func ledgerRow(t *testing.T, f Fanout, row store.ReviewRow) {
 }
 
 func TestAReplyNamingAPortOpensWithItsSource(t *testing.T) {
-	const opening = "port of [#2190](https://github.com/yasyf/cc-skills/pull/2190)\n\n"
+	const opening = "Port, old tree to new: dev [#2190](https://github.com/yasyf/cc-skills/pull/2190)\n\n"
 	f := fanout(t, scripted())
 	ledgerRow(t, f, store.ReviewRow{Title: "Relay fix"})
 	s, err := store.Open(f.Entry.Store())
@@ -1054,8 +1054,8 @@ func TestAReplyNamingAPortOpensWithItsSource(t *testing.T) {
 		"named in the text":                        {Reply{Title: "Relay fix", MD: "#2196 is green."}, opening + "#2196 is green."},
 		"named in prs":                             {Reply{Title: "Relay fix", MD: "It is green.", PRs: []string{landPR}}, opening + "It is green."},
 		"named twice opens once":                   {Reply{Title: "Relay fix", MD: "#2196 is green. #2196 lands."}, opening + "#2196 is green. #2196 lands."},
-		"its text already opens":                   {Reply{Title: "Relay fix", MD: "Port of #2190: #2196 is green."}, "Port of #2190: #2196 is green."},
-		"its title already opens":                  {Reply{Title: "port of #2190: relay fix", MD: "#2196 is green."}, "#2196 is green."},
+		"its text already opens":                   {Reply{Title: "Relay fix", MD: "Port, old tree to new: dev #2190: #2196 is green."}, "Port, old tree to new: dev #2190: #2196 is green."},
+		"its title already opens":                  {Reply{Title: "port, old tree to new: dev [#2190](https://github.com/yasyf/cc-skills/pull/2190): relay fix", MD: "#2196 is green."}, "#2196 is green."},
 		"no port named":                            {Reply{Title: "Relay fix", MD: "#2197 is green."}, "#2197 is green."},
 		"a list of PRs names each in its own line": {Reply{Title: "Relay fixes", MD: "#2196 is green.\n#2197 is green."}, "#2196 is green.\n#2197 is green."},
 		"another repo's number":                    {Reply{Title: "Relay fix", MD: "Forge-AI/monorepo#2196 is green."}, "Forge-AI/monorepo#2196 is green."},
@@ -2341,7 +2341,7 @@ func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
 		"a title that opens with Tap":                   {ready, Reply{Title: "Tap: #2196, approval cards work again", MD: "It passed."}, true},
 		"a ready PR listed in prs":                      {ready, Reply{Title: "Tap: #2196", MD: "It passed.", PRs: []string{landPR}}, false},
 		"a question with picks":                         {ready, Reply{Title: "Which fix?", MD: "Both wait on your answer.", Picks: []string{"A", "B"}}, false},
-		"his answer recorded":                           {ready, Reply{Title: "Port of #2196", MD: "Your pick is recorded, and the port state follows."}, false},
+		"his answer recorded":                           {ready, Reply{Title: "Port, old tree to new: dev #2196", MD: "Your pick is recorded, and the port state follows."}, false},
 		"a PR in CI listed in prs":                      {inCI, Reply{Title: "Stuck Working tab", MD: "#2196 is in CI and waits on your tap.", PRs: []string{landPR}}, false},
 		"a PR in the queue on his approval":             {ready, Reply{Title: "#2196 is in the merge queue on your approval", MD: "It lands next."}, false},
 		"a wait on something else, said plainly":        {store.ReviewRow{WaitsOn: "CI"}, Reply{Title: "#2196 waits on CI", MD: "It needs a green build first."}, false},

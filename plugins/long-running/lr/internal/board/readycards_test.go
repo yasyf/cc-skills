@@ -854,8 +854,8 @@ func TestEveryApprovalPostOnAPortOpensWithItsSource(t *testing.T) {
 	f := newLink(t)
 	row := tapRow(50888)
 	row.Port = prrow.PortOf + "49144"
-	source := "Port of [#49144](https://github.com/o/r/pull/49144)"
-	if card := Card(readyRepo, row); !strings.HasPrefix(card.Title, "Port of #49144: ") || card.PRs[0].Port != source {
+	source := "Port, old tree to new: dev [#49144](https://github.com/o/r/pull/49144)"
+	if card := Card(readyRepo, row); !strings.HasPrefix(card.Title, "Port, old tree to new: dev #49144: ") || card.PRs[0].Port != source {
 		t.Fatalf("card title %q, port %q", card.Title, card.PRs[0].Port)
 	}
 	block, err := TapCard(readyRepo, row)

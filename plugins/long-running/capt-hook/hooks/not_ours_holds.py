@@ -69,6 +69,8 @@ PUSH = "cc-present update-block - <<'EOF'\n" + json.dumps({"type": "card", "id":
         Input(command="lr ask-owner --withdraw card-chat-limits", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="lr ask-owner --port-of 46018 --title 'Land #49336?' --option 'Land :: It differs from #46018 in two places.'", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="lr ask-owner --title 'port of #46018: land #49336?' --until at:3d", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(command="lr ask-owner --title 'Port, old tree to new: dev #46018: land #49336?' --until at:3d", env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Port, old tree to new: dev [#46018](https://github.com/Forge-AI/monorepo/pull/46018): land #49336?"}}, env=DRIVE_CONFIG, commands=WHOSE_STUB): Allow(),
         Input(command="lr ask-owner --port-of 49999 --title 'Land #49336?' --option 'Land :: It differs from #46018 in two places.'", env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(command=PUSH, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Approve the column drop, #46018?"}}, env=DRIVE_CONFIG, commands=WHOSE_STUB): Block(pattern=r"#46018 is Andrew"),
