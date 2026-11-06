@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
 )
@@ -19,12 +20,16 @@ import (
 const (
 	AskKind      = "ask"
 	AnswerKind   = "answer"
+	PartKind     = "note"
 	StandingAttr = "standing"
 	CatchUp      = time.Hour
 	claimKind    = "state"
 	claimEvery   = 5 * time.Minute
 	openStatus   = "open"
 	pollEvery    = 2 * time.Second
+	relayBody    = 64 << 10
+	partAttr     = "part"
+	partsAttr    = "parts"
 
 	refollowAfter = 10 * time.Second
 )
@@ -137,23 +142,56 @@ func (d Desk) answer(ctx context.Context, ask client.Record) error {
 	read := d.Read(ctx, ask.Text)
 	answer := client.Draft{
 		Drive: d.Drive, Lane: d.Lane, Kind: AnswerKind, Text: read.Head, To: []string{ask.Lane},
-		Resolves: ask.Seq, URL: read.URL, Force: true,
+		Resolves: ask.Seq, URL: read.URL, Force: true, Attrs: map[string]string{},
 	}
 	if read.Exit != 0 || read.Stderr != "" {
-		answer.Attrs = map[string]string{exitAttr: strconv.Itoa(read.Exit), stderrAttr: read.Stderr}
+		answer.Attrs[exitAttr], answer.Attrs[stderrAttr] = strconv.Itoa(read.Exit), read.Stderr
 	}
 	if read.Body != "" {
-		sum := sha256.Sum256([]byte(read.Body))
-		answer.Path = filepath.Join(d.Bodies, hex.EncodeToString(sum[:])[:16]+".txt")
-		if err := os.MkdirAll(d.Bodies, 0o750); err != nil {
-			return err
+		parts := relayParts(read.Body)
+		for n, part := range parts[1:] {
+			path, err := d.bodyFile(part)
+			if err != nil {
+				return err
+			}
+			if _, err := client.Post(ctx, client.Draft{
+				Drive: d.Drive, Lane: d.Lane, Kind: PartKind, Text: fmt.Sprintf("part %d of %d of the answer to ask #%d", n+2, len(parts), ask.Seq),
+				To: []string{ask.Lane}, Re: ask.Seq, Path: path, Attrs: map[string]string{partAttr: strconv.Itoa(n + 2)}, Force: true,
+			}); err != nil {
+				return err
+			}
 		}
-		if err := os.WriteFile(answer.Path, []byte(read.Body), 0o600); err != nil {
+		if len(parts) > 1 {
+			answer.Attrs[partsAttr] = strconv.Itoa(len(parts))
+		}
+		var err error
+		if answer.Path, err = d.bodyFile(parts[0]); err != nil {
 			return err
 		}
 	}
 	_, err := client.Post(ctx, answer)
 	return err
+}
+
+func (d Desk) bodyFile(body string) (string, error) {
+	sum := sha256.Sum256([]byte(body))
+	path := filepath.Join(d.Bodies, hex.EncodeToString(sum[:])[:16]+".txt")
+	if err := os.MkdirAll(d.Bodies, 0o750); err != nil {
+		return "", err
+	}
+	return path, os.WriteFile(path, []byte(body), 0o600)
+}
+
+func relayParts(body string) []string {
+	var parts []string
+	for len(body) > relayBody {
+		cut := relayBody
+		for !utf8.RuneStart(body[cut]) {
+			cut--
+		}
+		parts, body = append(parts, body[:cut]), body[cut:]
+	}
+	return append(parts, body)
 }
 
 func FirstBytes(text string, limit int) string {

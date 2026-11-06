@@ -119,7 +119,10 @@ func askRegistry(ctx context.Context, desk askdesk.CCI, bus, lane string, wait t
 		return handoffRegistry{}, fmt.Errorf("lr %s on the Mac: %w %s", askdesk.HandoffRegistryVerb, err, errs.String())
 	}
 	var registry handoffRegistry
-	return registry, json.Unmarshal(out.Bytes(), &registry)
+	if err := json.Unmarshal(out.Bytes(), &registry); err != nil {
+		return handoffRegistry{}, fmt.Errorf("lr %s on the Mac answered %d bytes that are no registry: %w", askdesk.HandoffRegistryVerb, out.Len(), err)
+	}
+	return registry, nil
 }
 
 func (e Env) storeRegistry(s *store.Store, lane string) registryRead {

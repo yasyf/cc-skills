@@ -22,7 +22,7 @@ source through the cci daemon's stream, so nothing polls. New file lines print c
 characters and advance the count the cursor holds; unread mailbox entries print as MAILBOX <n>
 unread, then == <from> <timestamp> and the text, are marked read under the harness lock, and
 their keys join the cursor; cci records addressed to the lane print as cci tail --mail prints
-them and wake the wait, except lr-wait's own exit notes and the store desk's answers, which the
+them and wake the wait, except lr-wait's own exit notes and the store desk's answers and parts, which the
 lr verb that asked already read. They are read through the thread's lane mail cursor, or the <lane>-wake
 cursor when the thread is not bound to the lane, and never from behind the lane's own <lane>
 cursor, so a record the lane already read never wakes it and one that arrived while no waiter

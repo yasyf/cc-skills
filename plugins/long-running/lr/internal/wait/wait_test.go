@@ -519,7 +519,7 @@ func TestARecordThatArrivedWhileNoWaiterRanWakesTheWait(t *testing.T) {
 }
 
 func TestLrWaitsOwnExitNoteAndAStoreDeskAnswerNeverWakeTheNextWait(t *testing.T) {
-	own := "@11:36 PM\n2947@bf3f9fd2 note lr-wait>next-tests-build-once-r lr wait exited 0: /tmp/lr-wait-51741.out\n  its output\n529211 answer store-desk>next-tests-build-once-r x2945@bf3f9fd2 + board rows --json: 1 lines\n"
+	own := "@11:36 PM\n2947@bf3f9fd2 note lr-wait>next-tests-build-once-r lr wait exited 0: /tmp/lr-wait-51741.out\n  its output\n529210 note store-desk>next-tests-build-once-r ^2945@bf3f9fd2 + part 2 of 2 of the answer to ask #529209\n529211 answer store-desk>next-tests-build-once-r x2945@bf3f9fd2 + board rows --json: 1 lines\n"
 	for _, c := range []struct {
 		name, records, want string
 		seconds             int
