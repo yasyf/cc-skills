@@ -15,6 +15,9 @@ import (
 const (
 	armedTag    = "LR_WAIT_ARMED"
 	terminalKey = "ORCA_TERMINAL_HANDLE"
+	laneKey     = "CLAUDE_LONG_RUNNING_LANE"
+	wakeLane    = "lr-wait"
+	spriteHost  = "sprite"
 )
 
 // Arm starts this same wait detached in its own session with its output in
@@ -42,22 +45,38 @@ func Arm(o Options, executable string, args []string, output string) error {
 	return cmd.Process.Release()
 }
 
+// Home is the drive and lane a federated terminal's wait reports to.
+type Home struct{ Drive, Lane string }
+
 // Wake delivers a finished wait to the terminal that armed it the way a relay
 // reaches a lane: Orca mail, then a typed wake when the screen is at rest. A
 // lane not at rest reads the mail, and the desk's unread sweep wakes it if not.
-func Wake(ctx context.Context, runner shell.Runner, terminal, output string, code int) error {
+// A federated terminal, a Sprite's, takes no self-addressed Orca mail, since a
+// Dispatch there routes to its Run home, so its mail is a cci note to its lane,
+// which its next tool call reads, and the typed wake names the output file.
+func Wake(ctx context.Context, runner shell.Runner, terminal, output string, code int, home *Home) error {
 	subject := fmt.Sprintf("lr wait exited %d", code)
-	sent, err := runner.Run(ctx, shell.Command{Argv: []string{"orca", "orchestration", "send", "--to", terminal, "--from", terminal, "--type", "dispatch", "--subject", subject, "--body", output + "\n" + clip(readText(output)), "--json"}})
-	if err != nil {
-		return err
-	}
-	var mail struct {
-		Result struct {
-			MessageID string `json:"messageId"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal([]byte(sent.Stdout), &mail); err != nil {
-		return err
+	text := fmt.Sprintf("%s: read %s now", subject, output)
+	delivered := fmt.Sprintf("the typed wake of %s failed, so the lane reads %s at its next check", terminal, output)
+	if home != nil {
+		if _, err := runner.Run(ctx, shell.Command{Argv: []string{"cci", "post", "--drive", home.Drive, "--lane", wakeLane, "--kind", "note", "--to", home.Lane, "--text", subject + ": " + output + "\n" + clip(readText(output))}}); err != nil {
+			return err
+		}
+	} else {
+		sent, err := runner.Run(ctx, shell.Command{Argv: []string{"orca", "orchestration", "send", "--to", terminal, "--from", terminal, "--type", "dispatch", "--subject", subject, "--body", output + "\n" + clip(readText(output)), "--json"}})
+		if err != nil {
+			return err
+		}
+		var mail struct {
+			Result struct {
+				MessageID string `json:"messageId"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(sent.Stdout), &mail); err != nil {
+			return err
+		}
+		text = fmt.Sprintf("%s: read Orca message %s now", subject, mail.Result.MessageID)
+		delivered = fmt.Sprintf("the Orca message %s reached %s and only the typed wake failed, so the lane reads the message at its next check", mail.Result.MessageID, terminal)
 	}
 	read, err := runner.Run(ctx, shell.Command{Argv: []string{"orca", "terminal", "read", "--terminal", terminal, "--screen", "--json"}})
 	if err != nil {
@@ -74,8 +93,8 @@ func Wake(ctx context.Context, runner shell.Runner, terminal, output string, cod
 	if !screen.Wakeable(shown.Result.Terminal) {
 		return nil
 	}
-	if _, err := runner.Run(ctx, shell.Command{Argv: []string{"orca", "terminal", "send", "--terminal", terminal, "--text", fmt.Sprintf("%s: read Orca message %s now", subject, mail.Result.MessageID), "--enter", "--json"}}); err != nil {
-		return fmt.Errorf("the Orca message %s reached %s and only the typed wake failed, so the lane reads the message at its next check: %w", mail.Result.MessageID, terminal, err)
+	if _, err := runner.Run(ctx, shell.Command{Argv: []string{"orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"}}); err != nil {
+		return fmt.Errorf("%s: %w", delivered, err)
 	}
 	return nil
 }

@@ -117,7 +117,7 @@ func TestAWakeKeepsOffALaneThatIsNotAtRest(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			output := filepath.Join(t.TempDir(), "wait.log")
 			fake := lane(t, tail...)
-			if err := Wake(t.Context(), fake, laneTerminal, output, 0); err != nil {
+			if err := Wake(t.Context(), fake, laneTerminal, output, 0, nil); err != nil {
 				t.Fatal(err)
 			}
 			sent, typed := false, false
@@ -222,5 +222,36 @@ func TestAnArmedWaitWithOnlyADeadlineNamesWhatItNeeds(t *testing.T) {
 	err := runArmed(t, &shelltest.Fake{}, filepath.Join(t.TempDir(), "wait.log"), "2800")
 	if err == nil || err.Error() != Usage {
 		t.Fatalf("got %v, want the usage naming a source or a command", err)
+	}
+}
+
+func TestAFederatedTerminalIsWokenByACCINoteToItsLaneAndATypedLineNotOrcaMail(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "wait.log")
+	if err := os.WriteFile(output, []byte("released replay graded\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake := lane(t, "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh · ~/w")
+	fake.Reply("#1", "cci", "post")
+	if err := Wake(t.Context(), fake, laneTerminal, output, 3, &Home{Drive: "d", Lane: "lane-1"}); err != nil {
+		t.Fatal(err)
+	}
+	var note, typed []string
+	for _, call := range fake.Calls() {
+		switch strings.Join(call.Argv[:2], " ") {
+		case "orca orchestration":
+			t.Fatalf("a federated wake ran %q", call.Argv)
+		case "cci post":
+			note = call.Argv
+		case "orca terminal":
+			if call.Argv[2] == "send" {
+				typed = call.Argv
+			}
+		}
+	}
+	if flagOf(note, "--drive") != "d" || flagOf(note, "--to") != "lane-1" || !strings.Contains(flagOf(note, "--text"), "lr wait exited 3: "+output) || !strings.Contains(flagOf(note, "--text"), "released replay graded") {
+		t.Fatalf("note %q", note)
+	}
+	if !strings.Contains(flagOf(typed, "--text"), "lr wait exited 3: read "+output) {
+		t.Fatalf("typed %q", typed)
 	}
 }
