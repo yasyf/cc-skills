@@ -17,6 +17,8 @@ from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
 
 URGENT = re.compile(r"(?i:(?<![\w-])(?:urgent(?:ly)?|urgency|asap|immediately(?!\s+(?:\w+ing|after|before|upon|once|when)\b)|critical(?:ly)?|time[- ]sensitive|right (?:now|away)|emergency|top priority)(?![\w-]))|(?<![\w-])NOW(?![\w-])")
+ALARM = re.compile(r"(?i)\b(?:urgen|critical|emergency|time[- ]sensitive|top priority)")
+SELF_PROMISE = re.compile(r"(?i)^(?:(?:I|we)(?:'ll|'m|'re| will| am| are)?|will)\s(?![\s\S]*\b(?:you|your|he|him|his)\b)")
 HARM = re.compile(r"\b(?:los[est]s?|losing|lost|delet\w*|drop\w*|break\w*|broke\w*|down|outage|fail\w*|wipe\w*|corrupt\w*|bricked|gone|stuck|blocked|miss\w*)\b", re.IGNORECASE)
 WHO = re.compile(r"(?i:\b(?:customers?|teams?|clusters?|tenants?|users?|people|everyone|you|your|he|his|him|she|her|they|their|them)\b)|(?<=\s)[A-Z][a-z]\w*")
 UNDONE = re.compile(r"\b(?:(?:ir)?revers\w*|permanent\w*|undo\w*|undone|restor\w*|recover\w*|lost|roll(?:s|ed|ing)? ?back|for good)\b", re.IGNORECASE)
@@ -74,7 +76,7 @@ def unexplained_urgency(texts: list[str]) -> list[str]:
     found = []
     for text in texts:
         parts = sentences(text)
-        found += [part for index, part in enumerate(parts) if URGENT.search(part) and not all(pattern.search(" ".join(parts[index : index + 2])) for pattern in (HARM, WHO, UNDONE))]
+        found += [part for index, part in enumerate(parts) if URGENT.search(part) and (ALARM.search(part) or not SELF_PROMISE.match(part)) and not all(pattern.search(" ".join(parts[index : index + 2])) for pattern in (HARM, WHO, UNDONE))]
     return found
 
 
@@ -203,6 +205,10 @@ def updated(block: dict) -> str:
         Input(command="cc-present reply --block deploy-ask --body 'Merge it right now.'", env=DRIVE_CONFIG): Block(pattern=r"Merge it right now\."),
         Input(command="cc-present reply --block deploy-ask --body 'Merge it right now. Otherwise every customer loses the four teams columns for good.'", env=DRIVE_CONFIG): Allow(),
         Input(command="cci post --kind ask --to root --text 'Owner-relay: he needs to hear this now, it is urgent.'", env=DRIVE_CONFIG): Allow(),
+        Input(command="cci post --kind report --to owner-relay --text 'Will send the new head immediately, then report once its build passes.'", env=DRIVE_CONFIG): Allow(),
+        Input(command="cci post --kind report --to owner-relay --text 'I will merge it right now and report the URL.'", env=DRIVE_CONFIG): Allow(),
+        Input(command="cci post --kind report --to owner-relay --text 'Will send the new head now; this is urgent.'", env=DRIVE_CONFIG): Block(pattern=r"this is urgent\."),
+        Input(command="cci post --kind ask --to owner-relay --text 'I need you to cancel the release immediately.'", env=DRIVE_CONFIG): Block(pattern=r"cancel the release immediately\."),
         card(title="Merge the urgent-harm-1 hook?", body="Its checks passed."): Allow(),
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "Andrew's deploy is urgent."}, state=ACTIVE, env=DRIVE_CONFIG): Block(),
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "Andrew's deploy is urgent."}, env=DRIVE_CONFIG): Allow(),
