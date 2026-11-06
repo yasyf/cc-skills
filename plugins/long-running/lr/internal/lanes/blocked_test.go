@@ -111,6 +111,36 @@ func TestABlockedRecordGatesTheOwnPRsItNamesInTextAndNoPRGitHubAlreadyReadClosed
 	}
 }
 
+func TestABlockedRecordParksOnlyTheOwnPRsInItsRefsAndFoldsItsTextOnlyWithNoRefs(t *testing.T) {
+	cases := map[string]struct {
+		refs   Refs
+		awaits string
+	}{
+		"refs name one own PR": {prs(49305), "pr:49305 pr:51849"},
+		"no refs":              {Refs{}, "pr:49305 pr:51995 pr:51849"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "", 49305, 51995)
+			f.deps.Repo = blockedRepo
+			if err := s.SetLaneStanding(lane2, ownerOfPRs); err != nil {
+				t.Fatal(err)
+			}
+			blockingRow(t, s)
+			f.feed = append(f.feed,
+				gitHubRead(2, t0, prrow.StateOpen, prrow.CIGreen, blockingHead),
+				rec(3, lane2, "blocked", t0, "#49305 waits on #51849; #51995 waits only on its CI").withRefs(c.refs),
+			)
+			f.peers = []Row{onRoster(who(lane2, true, t0))}
+
+			tick(t, s, f, t0)
+
+			equal(t, row(t, s, lane2).Awaits, c.awaits)
+		})
+	}
+}
+
 func TestBlockedLanesWakeOncePerBlockingPRChangeAndNeverOnAClockAtOneLaneAndAtMany(t *testing.T) {
 	counts := func(n int) [2][]int {
 		s := memory(t)

@@ -597,6 +597,23 @@ func TestReadOnceFromAHostWithoutTheLandingMoverPostsReadsAndMakesNoLandingAct(t
 	}
 }
 
+func TestReadOnceFoldsTheReadsItPostedBeforeItReturns(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", approvers: []string{"a"}, merge: "MERGEABLE"}}, status(1))
+	a := app.New(io.Discard)
+	a.Runner = h.runner
+	away := landingConfig
+	away.Movers = []string{"lanes", "grading"}
+
+	if _, err := facts.New(a, away, h.store).ReadOnce(context.Background(), []int{1}); err != nil {
+		t.Fatal(err)
+	}
+
+	row, known, err := h.store.ReviewRow(repo, 1)
+	if err != nil || !known || prrow.WordsWait(row) != "" {
+		t.Fatalf("#1 = %+v, %v, %v, want the read it posted folded into the row", row, known, err)
+	}
+}
+
 func lanesHost(h harness) facts.Source {
 	a := app.New(io.Discard)
 	a.Runner = h.runner

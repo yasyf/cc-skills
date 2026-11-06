@@ -194,7 +194,9 @@ func (s Source) ReadOnce(ctx context.Context, named []int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return len(snapshot), s.Rows().PostReads(ctx, snapshot)
+	posted := s.Rows().PostReads(ctx, snapshot)
+	_, folded := s.Rows().Pass(ctx, heldWords(held))
+	return len(snapshot), errors.Join(posted, folded)
 }
 
 func (s Source) foldRecords(ctx context.Context) (map[int]hold, []store.ReviewRow, error) {
