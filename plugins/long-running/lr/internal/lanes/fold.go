@@ -514,18 +514,24 @@ func blockedOn(s *store.Store, r Record, lane store.Lane, repo string) []int {
 	if r.Kind != "blocked" {
 		return nil
 	}
-	named := r.PRs()
+	parks := r.PRs()
+	named := slices.Clone(parks)
 	for _, found := range prMention.FindAllStringSubmatch(r.Text, -1) {
 		if number, err := strconv.Atoi(found[1]); err == nil {
 			named = append(named, number)
 		}
+	}
+	if len(parks) == 0 {
+		parks = named
 	}
 	var own, blockers []int
 	for _, n := range named {
 		switch {
 		case slices.Contains(own, n) || slices.Contains(blockers, n):
 		case slices.Contains(lane.PRs, n):
-			own = append(own, n)
+			if slices.Contains(parks, n) {
+				own = append(own, n)
+			}
 		case openDrivePR(s, repo, n):
 			blockers = append(blockers, n)
 		}

@@ -160,7 +160,7 @@ func backfillCommand(a *app.App, opened func() (drive.Entry, string, error)) *co
 func readCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {
 	return &cobra.Command{
 		Use:   "read [PR...]",
-		Short: "Read GitHub for every open drive PR, or only the PRs named, in one query per 25 and post each read the rows fold, from any host and beside a running landing host; it opens, queues and merges nothing",
+		Short: "Read GitHub for every open drive PR, or only the PRs named, in one query per 25, post each read and fold it into the rows before returning, from any host and beside a running landing host; it opens, queues and merges nothing",
 		RunE: func(c *cobra.Command, args []string) error {
 			named := make([]int, len(args))
 			for at, arg := range args {
