@@ -361,9 +361,9 @@ sprite exec -s <host> -- sprite-env services create bk-desk \
 - An answer that fails is logged, its ask stays open, and the desk goes on to the next ask. A restart answers any ask from the last hour that is still open.
 - It needs the host joined to the relay and nothing else: no tailnet route, no open port and no credential on a lane.
 
-## Read Sentry, Datadog and ai-oncall from a Sprite
+## Read Sentry, Datadog, Slack and ai-oncall from a Sprite
 
-A Sprite holds no Sentry or Datadog key and no AWS identity, so a lane asks the `obs-desk` lane, which runs on the Mac, over cci:
+A Sprite holds no Sentry or Datadog key, no Slack client and no AWS identity, so a lane asks the `obs-desk` lane, which runs on the Mac, over cci:
 
 ```sh
 cci post --kind ask --to obs-desk "sentry issue <id>"
@@ -379,9 +379,10 @@ cci post --kind ask --to obs-desk "sentry issue <id>"
 | `datadog spans [--from <age>] [--to <age>] <query>` | Up to 100 APM spans, newest first, with service, resource, duration, trace and error |
 | `datadog metric [--from <age>] [--to <age>] <query>` | Each series of a metrics query with its points |
 | `sentry api <path>`, `datadog api <path>` | The first 16 KiB of one GET under that API |
+| `slack thread <permalink>` | Every message of the thread, oldest first, as its time, author and text, up to 16 KiB, read with the Mac's `cc-slack thread`; the desk writes nothing to Slack |
 | `oncall <read verb>` | `tools/ci oncall` with `incidents`, `page status`, `ledger`, `journal read`, `history`, `monitors`, `impact`, `current`, `responder` or `connections list` |
 
-- The desk makes read calls only. Any other text, a resolve, mute, downtime, notebook, `oncall say` or `oncall connect` included, gets a refusal, and nothing runs.
+- The desk makes read calls only. Any other text, a resolve, mute, downtime, notebook, Slack post, `oncall say` or `oncall connect` included, gets a refusal that names the reads, and nothing runs.
 - The answer is a record addressed to the lane that closes the ask, within seconds; `cci show <seq>` prints the body. A repeated read is answered from memory for a minute.
 - The keys stay in the desk's memory: never in a file, record, log, brief or command line, and never on a Sprite.
 
