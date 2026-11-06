@@ -423,10 +423,10 @@ func LinkLabel(driveName string) string {
 	return "com.long-running." + driveName + ".board-link"
 }
 
-func LinkJob(driveName, binary, path, state string) launchd.Job {
+func LinkJob(driveName, binary, state string) launchd.Job {
 	return launchd.Job{
 		Label:     LinkLabel(driveName),
-		Env:       [][2]string{{"PATH", path}, {"CLAUDE_LONG_RUNNING_LANE", LinkLane}},
+		Env:       [][2]string{{"CLAUDE_LONG_RUNNING_LANE", LinkLane}},
 		Arguments: []string{binary, "board", "--drive", driveName, "link", "serve"},
 		Directory: state,
 		Log:       filepath.Join(state, linkLog),
@@ -473,11 +473,7 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 			if err != nil {
 				return err
 			}
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return err
-			}
-			if err := agents.Install(c.Context(), LinkJob(entry.Drive, filepath.Join(home, ".claude", "long-running", "current", "bin", "lr"), os.Getenv("PATH"), entry.StateDir)); err != nil {
+			if err := agents.Install(c.Context(), LinkJob(entry.Drive, filepath.Join(agents.Claude, "long-running", "current", "bin", "lr"), entry.StateDir)); err != nil {
 				return err
 			}
 			return agents.Restart(c.Context(), LinkLabel(entry.Drive))

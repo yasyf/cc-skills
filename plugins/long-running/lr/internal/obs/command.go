@@ -1,8 +1,6 @@
 package obs
 
 import (
-	"errors"
-	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -51,10 +49,6 @@ func Command(a *app.App) *cobra.Command {
 				if _, err := LoadSettings(filepath.Join(state, "obs.json")); err != nil {
 					return err
 				}
-				path := os.Getenv("PATH")
-				if path == "" {
-					return errors.New("PATH is empty; launchd would run the desk with no aws CLI")
-				}
 				claude, err := drive.ConfigDir()
 				if err != nil {
 					return err
@@ -72,7 +66,7 @@ func Command(a *app.App) *cobra.Command {
 				}
 				return agents.Install(cmd.Context(), launchd.Job{
 					Label:     Label(cfg.Drive),
-					Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", cfg.Drive}, {lanes.LaneEnv, Lane}, {"PATH", path}},
+					Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", cfg.Drive}, {lanes.LaneEnv, Lane}},
 					Arguments: []string{filepath.Join(claude, "long-running", "current", "bin", "lr"), "obs", "desk", "--config", config},
 					Directory: state,
 					Log:       filepath.Join(state, "obs-desk.log"),
