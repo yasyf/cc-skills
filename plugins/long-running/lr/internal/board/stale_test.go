@@ -15,6 +15,7 @@ const shownHead = "aaaaaaa"
 
 type staleShell struct {
 	outcomes string
+	writing  map[string]string
 	calls    [][]string
 	pushed   []string
 	retired  []string
@@ -48,7 +49,11 @@ func onBoard(rows ...int) string {
 
 func runStale(t *testing.T, outcomes string, snapshot ...machine.Facts) (*staleShell, []DroppedTap) {
 	t.Helper()
-	on := &staleShell{outcomes: outcomes}
+	return runStaleOn(t, &staleShell{outcomes: outcomes}, snapshot...)
+}
+
+func runStaleOn(t *testing.T, on *staleShell, snapshot ...machine.Facts) (*staleShell, []DroppedTap) {
+	t.Helper()
 	var said []DroppedTap
 	sweep := StaleTaps{Runner: on, Session: "s1", Say: func(_ context.Context, tap DroppedTap) error {
 		said = append(said, tap)
@@ -65,6 +70,8 @@ func runStale(t *testing.T, outcomes string, snapshot ...machine.Facts) (*staleS
 		}
 		on.pulled = append(on.pulled, target)
 		return nil
+	}, Writing: func(_ context.Context, target string) (string, error) {
+		return on.writing[target], nil
 	}}
 	if err := sweep.Pass(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
@@ -154,6 +161,21 @@ func TestAMergeCardRetiresWhenItsHeadMovesAndAGradeGoingBadWithdrawsItsHead(t *t
 	}
 	if on, _ := runStale(t, mergeCardBoard(true), graded(1, "bbbbbbb", nil)); len(on.retired)+len(on.pulled) != 0 {
 		t.Fatalf("an answered card was removed: %v %v", on.retired, on.pulled)
+	}
+}
+
+func TestAStaleTapWaitsAPassWhileHeWritesInItsCardsThread(t *testing.T) {
+	badGrade := graded(1, shownHead, func(f *machine.Facts) { f.Finder = machine.FinderAsk })
+	writing := map[string]string{"#1": "he replied in its thread a minute ago", "merge:1:aaaaaaa": "he replied in its thread a minute ago"}
+	for name, outcomes := range map[string]string{"a listed row": onBoard(1), "a merge card": mergeCardBoard(false)} {
+		on, said := runStaleOn(t, &staleShell{outcomes: outcomes, writing: writing}, badGrade)
+		if len(on.calls)+len(on.pulled)+len(on.retired)+len(said) != 0 {
+			t.Errorf("%s: wrote %v, pulled %v, retired %v, said %v while he writes, want it left for a later pass", name, on.calls, on.pulled, on.retired, said)
+		}
+		on, said = runStaleOn(t, &staleShell{outcomes: outcomes}, badGrade)
+		if len(on.pulled) != 1 || len(said) != 1 {
+			t.Errorf("%s: pulled %v, said %v once he is quiet, want it pulled and said", name, on.pulled, said)
+		}
 	}
 }
 

@@ -29,6 +29,7 @@ type StaleTaps struct {
 	Say     func(context.Context, DroppedTap) error
 	Retire  func(ctx context.Context, card, why string) error
 	Pull    func(ctx context.Context, target, why string) error
+	Writing func(ctx context.Context, target string) (string, error)
 }
 
 func staleWhy(shown string, f machine.Facts) (string, bool) {
@@ -41,7 +42,7 @@ func staleWhy(shown string, f machine.Facts) (string, bool) {
 	return "", false
 }
 
-func withoutStale(block map[string]any, facts map[int]machine.Facts) []DroppedTap {
+func (t StaleTaps) withoutStale(ctx context.Context, block map[string]any, facts map[int]machine.Facts) ([]DroppedTap, error) {
 	var dropped []DroppedTap
 	groups := []any{}
 	for _, group := range listOf(block, "groups") {
@@ -57,6 +58,16 @@ func withoutStale(block map[string]any, facts map[int]machine.Facts) []DroppedTa
 				kept = append(kept, pr)
 				continue
 			}
+			if !moved {
+				said, err := t.Writing(ctx, fmt.Sprintf("#%d", number))
+				if err != nil {
+					return nil, err
+				}
+				if said != "" {
+					kept = append(kept, pr)
+					continue
+				}
+			}
 			dropped = append(dropped, DroppedTap{text(block, "id"), number, text(pr, "head"), f.Lane, why, moved})
 		}
 		if len(kept) > 0 {
@@ -65,7 +76,7 @@ func withoutStale(block map[string]any, facts map[int]machine.Facts) []DroppedTa
 		}
 	}
 	block["groups"] = groups
-	return dropped
+	return dropped, nil
 }
 
 func (t StaleTaps) write(ctx context.Context, rev int64, argv []string, stdin string) (int64, bool, error) {
@@ -104,7 +115,10 @@ func (t StaleTaps) Pass(ctx context.Context, snapshot []machine.Facts) error {
 	}
 	rev := outcomes.Rev
 	for _, block := range typed(outcomes.Doc, "pr-groups") {
-		dropped := withoutStale(block, facts)
+		dropped, err := t.withoutStale(ctx, block, facts)
+		if err != nil {
+			return err
+		}
 		if len(dropped) == 0 {
 			continue
 		}
@@ -136,6 +150,15 @@ func (t StaleTaps) Pass(ctx context.Context, snapshot []machine.Facts) error {
 		why, moved := staleWhy(named[2], f)
 		if why == "" {
 			continue
+		}
+		if !moved {
+			said, err := t.Writing(ctx, text(card, "id"))
+			if err != nil {
+				return err
+			}
+			if said != "" {
+				continue
+			}
 		}
 		if moved {
 			err = t.Retire(ctx, text(card, "id"), why)

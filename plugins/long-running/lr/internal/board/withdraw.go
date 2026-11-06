@@ -42,10 +42,12 @@ func (c Cards) LanePull(ctx context.Context, lane, target, kept, why string, out
 	if kept != "" && tapTarget.MatchString(target) {
 		return fmt.Errorf("--duplicate-of names the card that stays in place of a duplicate card, and %s is a PR's tap", target)
 	}
-	if named := tapTarget.FindStringSubmatch(target); named == nil || named[2] != "" {
-		if err := c.unwritten(ctx, target); err != nil {
-			return err
-		}
+	said, err := c.HisWord(ctx, target)
+	if err != nil {
+		return err
+	}
+	if said != "" {
+		return fmt.Errorf("refused: %s, and withdraw it only after %d minutes with no word from him", said, int(readingWindow.Minutes()))
 	}
 	if kept == "" {
 		_, err := c.Pull(ctx, lane, target, why, out)
@@ -61,14 +63,27 @@ func (c Cards) LanePull(ctx context.Context, lane, target, kept, why string, out
 	return c.Replace(ctx, lane, why, post, []string{target}, out)
 }
 
-func (c Cards) unwritten(ctx context.Context, card string) error {
+func (c Cards) HisWord(ctx context.Context, target string) (string, error) {
+	pulled, err := c.pulled(target)
+	if err != nil {
+		return "", err
+	}
+	for _, card := range pulled.cards {
+		if said, err := c.hisWord(ctx, card); err != nil || said != "" {
+			return said, err
+		}
+	}
+	return "", nil
+}
+
+func (c Cards) hisWord(ctx context.Context, card string) (string, error) {
 	post, err := c.slackPost(ctx, card)
 	if err != nil || post == "" {
-		return err
+		return "", err
 	}
 	read, err := c.run(ctx, shell.Command{Argv: []string{"cc-slack", "thread", "--url", post, "--raw"}})
 	if err != nil {
-		return err
+		return "", err
 	}
 	var thread struct {
 		Channel  string `json:"channel_id"`
@@ -82,13 +97,13 @@ func (c Cards) unwritten(ctx context.Context, card string) error {
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal([]byte(read), &thread); err != nil {
-		return fmt.Errorf("cc-slack thread --url %s: %w", post, err)
+		return "", fmt.Errorf("cc-slack thread --url %s: %w", post, err)
 	}
 	him := ""
 	for _, message := range thread.Messages {
 		seconds, err := strconv.ParseFloat(message.TS, 64)
 		if err != nil {
-			return fmt.Errorf("slack ts %q: %w", message.TS, err)
+			return "", fmt.Errorf("slack ts %q: %w", message.TS, err)
 		}
 		ago := c.Now().Sub(time.Unix(int64(seconds), 0))
 		if ago >= readingWindow {
@@ -101,7 +116,7 @@ func (c Cards) unwritten(ctx context.Context, card string) error {
 			}
 			if him == "" {
 				if him, err = c.slackUser(ctx); err != nil {
-					return err
+					return "", err
 				}
 			}
 			if !slices.ContainsFunc(message.Raw.Reactions, func(r slackReaction) bool { return slices.Contains(r.Users, him) }) {
@@ -111,9 +126,9 @@ func (c Cards) unwritten(ctx context.Context, card string) error {
 		}
 		base, _, _ := strings.Cut(post, "/archives/")
 		link := fmt.Sprintf("%s/archives/%s/p%s?thread_ts=%s&cid=%s", base, thread.Channel, strings.ReplaceAll(message.TS, ".", ""), thread.Thread, thread.Channel)
-		return fmt.Errorf("refused: he %s %s's Slack thread %s ago, so he may be reading or answering it now; answer him in that thread first, %s, and withdraw it only after %d minutes with no word from him", did, card, ago.Round(time.Second), link, int(readingWindow.Minutes()))
+		return fmt.Sprintf("he %s %s's Slack thread %s ago, so he may be reading or answering it now; answer him in that thread first, %s", did, card, ago.Round(time.Second), link), nil
 	}
-	return nil
+	return "", nil
 }
 
 type slackReaction struct {
@@ -167,33 +182,54 @@ func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer
 	if err := plainWhy(why); err != nil {
 		return false, err
 	}
+	pulled, err := c.pulled(target)
+	if err != nil {
+		return false, err
+	}
+	if !pulled.tap {
+		return false, c.Retire(ctx, lane, why, pulled.cards, out)
+	}
+	if len(pulled.prs) == 0 {
+		fmt.Fprintf(out, "UNCHANGED #%d: no PR of this drive holds the number\n", pulled.number)
+		return false, nil
+	}
+	return c.withdrawTaps(ctx, lane, pulled.prs, pulled.cards, why, out)
+}
+
+type pullTarget struct {
+	tap    bool
+	number int
+	prs    []store.ReviewRow
+	cards  []string
+}
+
+func (c Cards) pulled(target string) (pullTarget, error) {
 	named := tapTarget.FindStringSubmatch(target)
 	if named == nil {
-		return false, c.Retire(ctx, lane, why, []string{target}, out)
+		return pullTarget{cards: []string{target}}, nil
 	}
 	number, err := strconv.Atoi(named[1] + named[2])
 	if err != nil {
-		return false, err
+		return pullTarget{}, err
 	}
 	prs, err := c.Store.NumberedReviewRows([]int{number})
 	if err != nil {
-		return false, err
+		return pullTarget{}, err
 	}
-	if len(prs) == 0 {
-		fmt.Fprintf(out, "UNCHANGED #%d: no PR of this drive holds the number\n", number)
-		return false, nil
-	}
-	cards := []string{}
+	pulled := pullTarget{tap: true, number: number, prs: prs}
 	if named[2] != "" {
-		cards = append(cards, target)
+		pulled.cards = append(pulled.cards, target)
 	}
-	return c.withdrawTaps(ctx, lane, prs, cards, why, out)
+	for _, pr := range prs {
+		pulled.cards = append(pulled.cards, MergeWaits(pr.Number, pr.Head), tapCardID(pr))
+	}
+	pulled.cards = slices.Compact(pulled.cards)
+	return pulled, nil
 }
 
 func (c Cards) withdrawTaps(ctx context.Context, lane string, prs []store.ReviewRow, cards []string, why string, out io.Writer) (bool, error) {
 	pulled := false
 	for _, pr := range prs {
-		cards = append(cards, MergeWaits(pr.Number, pr.Head), tapCardID(pr))
 		stored, err := c.Store.Facts(pr.Repo, pr.Number, pr.Head)
 		if err != nil {
 			return false, err
@@ -214,7 +250,7 @@ func (c Cards) withdrawTaps(ctx context.Context, lane string, prs []store.Review
 	if err := c.redrawWithdrawn(ctx, prs, out); err != nil {
 		return false, err
 	}
-	return pulled, c.Retire(ctx, lane, why, slices.Compact(cards), out)
+	return pulled, c.Retire(ctx, lane, why, cards, out)
 }
 
 func (c Cards) redrawWithdrawn(ctx context.Context, prs []store.ReviewRow, out io.Writer) error {
@@ -265,7 +301,7 @@ func WithdrawCommand(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "withdraw CARD_OR_PR",
 		Short: "Take one card or landing tap off the owner's board, his merge list and its Slack card in one call, refusing while he writes in the card's Slack thread; a rerun changes nothing",
-		Long:  "CARD_OR_PR is a board card id such as card-<reply id>, a merge card id merge:<pr>:<sha>, or a PR number #<n>. A PR's tap is withdrawn at its current head, so a new head draws a fresh card. A card is refused while his reply in its Slack thread, or his reaction on a message there, is under 10 minutes old; the refusal links his message, so answer him there.",
+		Long:  "CARD_OR_PR is a board card id such as card-<reply id>, a merge card id merge:<pr>:<sha>, or a PR number #<n>. A PR's tap is withdrawn at its current head, so a new head draws a fresh card. A card, or a PR's tap card, is refused while his reply in its Slack thread, or his reaction on a message there, is under 10 minutes old; the refusal links his message, so answer him there.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			entry, err := drive.Named(driveName)
