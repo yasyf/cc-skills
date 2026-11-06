@@ -1,10 +1,11 @@
 package lanes
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -14,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -25,12 +28,66 @@ const (
 	handoffChars   = 240
 )
 
+type handoffRegistry struct {
+	Brief    string   `json:"brief"`
+	PRs      []int    `json:"prs"`
+	Waiting  int64    `json:"waiting"`
+	Awaits   string   `json:"awaits"`
+	Names    []string `json:"names"`
+	Standing bool     `json:"standing"`
+	Orders   []string `json:"orders"`
+	NoticeTo string   `json:"notice_to"`
+}
+
+type registryRead func(context.Context) (handoffRegistry, error)
+
 func handoffCommand(a *app.App) *cobra.Command {
 	var cwd, transcript string
+	deskWait := askdesk.AnswerWait
 	cmd := &cobra.Command{
 		Use:   "handoff LANE",
-		Short: "Write a lane's handoff from its records, PRs and worktree with no model call, and post it; print the doc id",
+		Short: "Write a lane's handoff from its records, PRs and worktree with no model call, and post it; print the doc id, or the blocker it posted instead",
 		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, state, err := Loaded(a)
+			if err != nil {
+				return err
+			}
+			env, err := NewEnv(a.Runner, cfg, state, a.Now)
+			if err != nil {
+				return err
+			}
+			lane, err := Resolve(cmd.Context(), cfg.Drive, args[0])
+			if err != nil {
+				return err
+			}
+			if entry, onSprite := drive.SpriteEntry(); onSprite {
+				_, err = env.WriteHandoff(cmd.Context(), cmd.OutOrStdout(), func(ctx context.Context) (handoffRegistry, error) {
+					return askRegistry(ctx, askdesk.LiveCCI{}, entry.Bus(), lane, deskWait)
+				}, lane, cwd, transcript)
+				return err
+			}
+			s, err := store.Open(filepath.Join(state, StoreFile))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			_, err = env.WriteHandoff(cmd.Context(), cmd.OutOrStdout(), env.storeRegistry(s, lane), lane, cwd, transcript)
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", "", "the lane's worktree")
+	cmd.Flags().StringVar(&transcript, "transcript", "", "the lane's transcript, for its successor")
+	cmd.Flags().DurationVar(&deskWait, "desk-wait", deskWait, "on a Sprite, how long to wait on the store desk's answer before posting the blocker")
+	return cmd
+}
+
+func handoffRegistryCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
+		Use:    "handoff-registry LANE",
+		Short:  "Print as JSON what the drive's registry holds for a lane's handoff, which a Sprite lane's lr lanes handoff reads through the store desk",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, state, err := Loaded(a)
 			if err != nil {
@@ -45,41 +102,64 @@ func handoffCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			lane, err := Resolve(cmd.Context(), cfg.Drive, args[0])
+			registry, err := env.storeRegistry(s, args[0])(cmd.Context())
 			if err != nil {
 				return err
 			}
-			id, err := env.WriteHandoff(cmd.Context(), s, lane, cwd, transcript)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), id)
-			return nil
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(registry)
 		},
 	}
-	cmd.Flags().StringVar(&cwd, "cwd", "", "the lane's worktree")
-	cmd.Flags().StringVar(&transcript, "transcript", "", "the lane's transcript, for its successor")
-	return cmd
 }
 
-func (e Env) WriteHandoff(ctx context.Context, s *store.Store, lane, cwd, transcript string) (string, error) {
-	id, err := e.writeHandoff(ctx, s, lane, cwd, transcript)
+func askRegistry(ctx context.Context, desk askdesk.CCI, bus, lane string, wait time.Duration) (handoffRegistry, error) {
+	ctx, stop := context.WithTimeout(ctx, wait)
+	defer stop()
+	var out, errs bytes.Buffer
+	if err := askdesk.RunOnMac(ctx, desk, bus, askdesk.Asked{Verb: askdesk.HandoffRegistryVerb, Args: []string{"--", lane}, Lane: lane}, &out, &errs); err != nil {
+		return handoffRegistry{}, fmt.Errorf("lr %s on the Mac: %w %s", askdesk.HandoffRegistryVerb, err, errs.String())
+	}
+	var registry handoffRegistry
+	return registry, json.Unmarshal(out.Bytes(), &registry)
+}
+
+func (e Env) storeRegistry(s *store.Store, lane string) registryRead {
+	return func(ctx context.Context) (registry handoffRegistry, err error) {
+		defer recovered(&err)
+		row, _ := laneOf(s, lane)
+		registry = handoffRegistry{Brief: row.Brief, PRs: row.PRs, Waiting: row.Waiting, Awaits: row.Awaits, Names: must(s.Names()), Standing: lane == OwnerRelay || isStanding(row), NoticeTo: noticeTo(s, lane)}
+		if !registry.Standing {
+			return registry, nil
+		}
+		orders, err := OpenOrders(ctx, e.Bus, s, e.Config.Drive, e.Config.Repo, e.State)
+		if err != nil {
+			return registry, fmt.Errorf("lr owner audit: %w", err)
+		}
+		for _, order := range orders {
+			registry.Orders = append(registry.Orders, order.Line())
+		}
+		return registry, nil
+	}
+}
+
+func (e Env) WriteHandoff(ctx context.Context, out io.Writer, read registryRead, lane, cwd, transcript string) (string, error) {
+	registry, err := read(ctx)
 	if err == nil {
-		return id, nil
+		var id string
+		if id, err = e.writeHandoff(ctx, registry, lane, cwd, transcript); err == nil {
+			fmt.Fprintln(out, id)
+			return id, nil
+		}
 	}
-	to, toErr := NoticeTo(s, lane)
-	if toErr != nil {
-		return "", errors.Join(err, toErr)
-	}
-	_, postErr := e.Bus.Post(ctx, client.Draft{Drive: e.Config.Drive, Lane: lane, Kind: "blocker", To: []string{to}, Text: fmt.Sprintf("%s compacted with no handoff: %v. Its brief and records still hold the work.", lane, err)})
+	posted, postErr := e.Bus.Post(ctx, client.Draft{Drive: e.Config.Drive, Lane: lane, Kind: "blocker", To: []string{or(registry.NoticeTo, Root)}, Text: fmt.Sprintf("%s compacted with no handoff: %v. Its brief and records still hold the work.", lane, err)})
 	if postErr != nil {
 		return "", fmt.Errorf("%w; its blocker: %w", err, postErr)
 	}
+	fmt.Fprintln(out, "blocker", posted.Name())
 	return "", err
 }
 
-func (e Env) writeHandoff(ctx context.Context, s *store.Store, lane, cwd, transcript string) (string, error) {
-	body, err := e.handoffBody(ctx, s, lane, cwd, transcript)
+func (e Env) writeHandoff(ctx context.Context, registry handoffRegistry, lane, cwd, transcript string) (string, error) {
+	body, err := e.handoffBody(ctx, registry, lane, cwd, transcript)
 	if err != nil {
 		return "", err
 	}
@@ -108,10 +188,8 @@ func (e Env) writeHandoff(ctx context.Context, s *store.Store, lane, cwd, transc
 	return added.ID, nil
 }
 
-func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcript string) (body string, err error) {
-	defer recovered(&err)
-	row, _ := laneOf(s, lane)
-	aliases := AliasesOf(slices.DeleteFunc(must(s.Names()), func(name string) bool { return name == lane }))
+func (e Env) handoffBody(ctx context.Context, registry handoffRegistry, lane, cwd, transcript string) (string, error) {
+	aliases := AliasesOf(slices.DeleteFunc(slices.Clone(registry.Names), func(name string) bool { return name == lane }))
 	records, err := e.Bus.Tail(ctx, client.Query{Drive: e.Config.Drive, Lanes: []string{lane}, Since: e.Now().Add(-handoffWindow)})
 	if err != nil {
 		return "", fmt.Errorf("cci tail: %w", err)
@@ -122,21 +200,17 @@ func (e Env) handoffBody(ctx context.Context, s *store.Store, lane, cwd, transcr
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "# %s handoff at %s\n\nThe PreCompact hook wrote this from the bus and the worktree, with no model call. Read it, then the brief.\n\n", lane, pacific(e.Now()))
-	fmt.Fprintf(&out, "- Brief: %s\n- Transcript: %s\n- PRs it owns: %s\n", or(row.Brief, "none on the registry"), or(transcript, "unknown"), or(numberList(row.PRs), "none"))
-	if row.Waiting != 0 {
-		fmt.Fprintf(&out, "- Parked on: record #%s %s\n", strconv.FormatInt(row.Waiting, 10), row.Awaits)
+	fmt.Fprintf(&out, "- Brief: %s\n- Transcript: %s\n- PRs it owns: %s\n", or(registry.Brief, "none on the registry"), or(transcript, "unknown"), or(numberList(registry.PRs), "none"))
+	if registry.Waiting != 0 {
+		fmt.Fprintf(&out, "- Parked on: record #%s %s\n", strconv.FormatInt(registry.Waiting, 10), registry.Awaits)
 	}
-	if lane == OwnerRelay || isStanding(row) {
-		orders, err := OpenOrders(ctx, e.Bus, s, e.Config.Drive, e.Config.Repo, e.State)
-		if err != nil {
-			return "", fmt.Errorf("lr owner audit: %w", err)
-		}
+	if registry.Standing {
 		out.WriteString("\n## Open owner orders\n\nNo live lane, open PR or landed record delivers these yet (`lr owner audit`). Carry each until one does.\n\n")
-		if len(orders) == 0 {
+		if len(registry.Orders) == 0 {
 			out.WriteString("None.\n")
 		}
-		for _, order := range orders {
-			fmt.Fprintf(&out, "- %s\n", order.Line())
+		for _, order := range registry.Orders {
+			fmt.Fprintf(&out, "- %s\n", order)
 		}
 	}
 	out.WriteString("\n## Asks and blockers addressed to it\n\n")

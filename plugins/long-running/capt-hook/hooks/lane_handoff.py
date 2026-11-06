@@ -13,6 +13,7 @@ from .tests.register_fixtures import DRIVE_CONFIG
 
 LR = Path(__file__).parents[2] / "bin" / "lr"
 HANDOFF_SECONDS = 60
+DESK_WAIT = "45s"
 READ_SECONDS = 10
 THREAD = "root"
 LANE_ENV = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "fix-lane-1"}
@@ -40,18 +41,22 @@ def lane_of(evt: BaseHookEvent) -> str | None:
     only_if=[Bound()],
     tests={
         Input(env=LANE_ENV, commands={WRITE: "abc1234\n"}): Allow(),
-        Input(env=LANE_ENV, commands={WRITE: (1, "the blocker is posted")}): Allow(),
+        Input(env=LANE_ENV, commands={WRITE: (1, ""), "cci post": ""}): Warn(pattern=r"^No handoff doc was written before this compaction, and a blocker told root: fix-lane-1 compacted with no handoff: lr lanes handoff exited 1"),
         Input(env=ROOT_ENV): Allow(),
         Input(): Allow(),
     },
 )
 def lane_writes_its_handoff_before_compacting(evt: BaseHookEvent) -> HookResult | None:
-    """`lr lanes handoff` writes the doc with no model call and posts the `handoff` record, or posts the blocker when it cannot."""
+    """`lr lanes handoff` writes the doc with no model call and posts the `handoff` record, or posts the blocker when it cannot; a run that exits non-zero naming no blocker gets one here."""
     if not (lane := lane_of(evt)) or not (entry := drive_entry(evt)):
         return None
     config = Path(entry["state_dir"]) / "lr.json"
-    subprocess.run([str(LR), "lanes", "handoff", lane, "--config", str(config), "--cwd", evt.cwd, "--transcript", evt._raw.get("transcript_path", "")], capture_output=True, text=True, timeout=HANDOFF_SECONDS, env=dict(reqenv.env_map()))
-    return None
+    done = subprocess.run([str(LR), "lanes", "handoff", lane, "--config", str(config), "--cwd", evt.cwd, "--transcript", evt._raw.get("transcript_path", ""), "--desk-wait", DESK_WAIT], capture_output=True, text=True, timeout=HANDOFF_SECONDS, env=dict(reqenv.env_map()))
+    if done.returncode == 0 or done.stdout.startswith("blocker "):
+        return None
+    text = f"{lane} compacted with no handoff: lr lanes handoff exited {done.returncode}: {done.stderr.strip()[-400:]}"
+    subprocess.run(["cci", "post", "--drive", bus_name(entry), "--lane", lane, "--kind", "blocker", "--to", "root", "--text", text], capture_output=True, text=True, timeout=READ_SECONDS, env=dict(reqenv.env_map()))
+    return evt.context(f"No handoff doc was written before this compaction, and a blocker told root: {text}")
 
 
 @on(
