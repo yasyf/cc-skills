@@ -101,6 +101,7 @@ func github(t *testing.T, pulls map[int]map[string]any, stacked bool) *shelltest
 
 func lines(t *testing.T, fake *shelltest.Fake, m ownred.Merge) []string {
 	t.Helper()
+	fake.Reply("", "ccx", "vcs", "job-log")
 	got, err := ownred.Guard{Runner: fake, CCX: ccx.CLI{Runner: fake}}.Lines(context.Background(), m)
 	if err != nil {
 		t.Fatal(err)
@@ -288,6 +289,15 @@ func TestARedIsItsOwnOnlyWhenATestItFailsPassesOnTheBase(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestAJobLogReadThatFailsFailsTheCheckInsteadOfComparingNames(t *testing.T) {
+	fake := github(t, map[int]map[string]any{7: withHistory(pull(shard("pytest 1/12", "FAILURE", 11)), ancestor(shard("pytest 1/12", "FAILURE", 21)))}, false)
+	fake.Fail(1, "Error: unknown flag: --failed-tests", "ccx", "vcs", "job-log", "11")
+	got, err := ownred.Guard{Runner: fake, CCX: ccx.CLI{Runner: fake}}.Lines(context.Background(), ownred.Merge{Selector: "7"})
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --failed-tests") {
+		t.Fatalf("got %q, %v; want the ccx failure", got, err)
 	}
 }
 
@@ -595,6 +605,7 @@ func (r baseReadFails) Run(ctx context.Context, c shell.Command) (shell.Result, 
 
 func TestABaseItCannotReadSaysSoRatherThanRefusing(t *testing.T) {
 	runner := baseReadFails{github(t, map[int]map[string]any{7: redOnGreenBase()}, false)}
+	runner.Reply("", "ccx", "vcs", "job-log")
 	got, err := ownred.Guard{Runner: runner, CCX: ccx.CLI{Runner: runner}}.Lines(context.Background(), ownred.Merge{Selector: "7"})
 	if err != nil {
 		t.Fatal(err)

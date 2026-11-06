@@ -231,7 +231,10 @@ func (g Guard) Lines(ctx context.Context, m Merge) ([]string, error) {
 		}
 	}
 	bases := g.bases(ctx, repo, reds)
-	tests := g.tests(ctx, reds, bases)
+	tests, err := g.tests(ctx, reds, bases)
+	if err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
 	for _, r := range reds {
 		line := r.line(bases[alias(r.number)], tests)
@@ -386,13 +389,15 @@ func (g Guard) bases(ctx context.Context, repo string, reds []red) map[string]pu
 	return bases
 }
 
-func (g Guard) tests(ctx context.Context, reds []red, bases map[string]pull) map[string][]string {
+func (g Guard) tests(ctx context.Context, reds []red, bases map[string]pull) (map[string][]string, error) {
 	tests := map[string][]string{}
 	jobs := make([]string, 0, len(reds))
 	for _, r := range reds {
 		jobs = append(jobs, r.job)
 	}
-	g.readTests(ctx, jobs, tests)
+	if err := g.readTests(ctx, jobs, tests); err != nil {
+		return nil, err
+	}
 	jobs = jobs[:0]
 	for _, r := range reds {
 		if len(tests[r.job]) == 0 {
@@ -404,34 +409,34 @@ func (g Guard) tests(ctx context.Context, reds []red, bases map[string]pull) map
 			}
 		}
 	}
-	g.readTests(ctx, jobs, tests)
-	return tests
+	return tests, g.readTests(ctx, jobs, tests)
 }
 
-func (g Guard) readTests(ctx context.Context, jobs []string, into map[string][]string) {
+func (g Guard) readTests(ctx context.Context, jobs []string, into map[string][]string) error {
 	jobs = slices.DeleteFunc(slices.Compact(slices.Sorted(slices.Values(jobs))), func(job string) bool {
 		_, done := into[job]
 		return done
 	})
 	found := make([][]string, len(jobs))
+	failures := make([]error, len(jobs))
 	var reads sync.WaitGroup
 	for i, job := range jobs {
-		reads.Go(func() { found[i] = g.failedTests(ctx, job) })
+		reads.Go(func() { found[i], failures[i] = g.failedTests(ctx, job) })
 	}
 	reads.Wait()
 	for i, job := range jobs {
 		into[job] = found[i]
 	}
+	return errors.Join(failures...)
 }
 
-func (g Guard) failedTests(ctx context.Context, job string) []string {
+func (g Guard) failedTests(ctx context.Context, job string) ([]string, error) {
 	link := jobURL.FindStringSubmatch(job)
 	if link == nil {
-		return nil
+		return nil, nil
 	}
 	id, _ := strconv.ParseInt(link[2], 10, 64)
-	tests, _ := g.CCX.FailedTests(ctx, link[1], id)
-	return tests
+	return g.CCX.FailedTests(ctx, link[1], id)
 }
 
 func (g Guard) pulls(ctx context.Context, repo string, numbers []int, fragment, fragmentFields string) (map[string]pull, error) {
