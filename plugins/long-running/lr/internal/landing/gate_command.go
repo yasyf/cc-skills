@@ -2,9 +2,12 @@ package landing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -12,11 +15,15 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
@@ -27,6 +34,7 @@ const (
 	queueUntested = "QUEUE-UNTESTED"
 	queuePassed   = "success"
 	gateUnread    = "Warning, nothing was refused:"
+	gateRead      = "landing gate"
 )
 
 func gateCommand(a *app.App) *cobra.Command {
@@ -39,13 +47,52 @@ func gateCommand(a *app.App) *cobra.Command {
 			return runGate(cmd.Context(), a, args, partial, direct, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().BoolVar(&partial, "partial", false, "The enqueue takes only the named PRs and those below them, not the stacks above")
-	cmd.Flags().BoolVar(&direct, "direct", false, "The landing merges directly, outside the queue, so each head must have passed the queue's own test")
+	gateFlags(cmd.Flags(), &partial, &direct)
 	return cmd
+}
+
+func gateFlags(flags *pflag.FlagSet, partial, direct *bool) {
+	flags.BoolVar(partial, "partial", false, "The enqueue takes only the named PRs and those below them, not the stacks above")
+	flags.BoolVar(direct, "direct", false, "The landing merges directly, outside the queue, so each head must have passed the queue's own test")
+}
+
+func GateRead(a *app.App, driveName string) askdesk.Serve {
+	return func(ctx context.Context, args []string, out, errs io.Writer) error {
+		var partial, direct bool
+		parsed := pflag.NewFlagSet(gateRead, pflag.ContinueOnError)
+		parsed.SetOutput(io.Discard)
+		gateFlags(parsed, &partial, &direct)
+		if err := parsed.Parse(args); err != nil {
+			return err
+		}
+		if parsed.NArg() == 0 {
+			return errors.New(gateRead + " takes one or more PRs")
+		}
+		entry, err := drive.Named(driveName)
+		if err != nil {
+			return err
+		}
+		served := *a
+		served.ConfigPath, served.Stderr = entry.Config(), errs
+		lines, err := gateLines(ctx, &served, parsed.Args(), partial, direct)
+		if err != nil {
+			return err
+		}
+		for _, line := range lines {
+			fmt.Fprintln(out, line)
+		}
+		return nil
+	}
 }
 
 func runGate(ctx context.Context, a *app.App, args []string, partial, direct bool, stdout io.Writer) error {
 	lines, err := gateLines(ctx, a, args, partial, direct)
+	if errors.Is(err, drive.ErrOnMac) {
+		lines, err = askGate(ctx, a, args, partial, direct)
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("lr landing gate cannot run without its input: %w", err)
+	}
 	if err != nil {
 		fmt.Fprintf(a.Stderr, "%s lr landing gate could not read the drive's pull requests: %v\n", gateUnread, err)
 		return nil
@@ -57,6 +104,29 @@ func runGate(ctx context.Context, a *app.App, args []string, partial, direct boo
 		return &wait.ExitError{Code: 1}
 	}
 	return nil
+}
+
+func askGate(ctx context.Context, a *app.App, args []string, partial, direct bool) ([]string, error) {
+	cfg, err := a.Config()
+	if err != nil {
+		return nil, err
+	}
+	entry, err := drive.Named(cfg.Drive)
+	if err != nil {
+		return nil, err
+	}
+	ask := slices.Concat([]string{gateRead}, args)
+	if partial {
+		ask = append(ask, "--partial")
+	}
+	if direct {
+		ask = append(ask, "--direct")
+	}
+	var answer strings.Builder
+	if err := askdesk.AskMac(ctx, askdesk.LiveCCI{}, entry.Bus(), os.Getenv(lanes.LaneEnv), strings.Join(ask, " "), &answer); err != nil {
+		return nil, err
+	}
+	return strings.FieldsFunc(answer.String(), func(r rune) bool { return r == '\n' }), nil
 }
 
 func gateLines(ctx context.Context, a *app.App, args []string, partial, direct bool) ([]string, error) {
