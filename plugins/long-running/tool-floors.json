@@ -1,4 +1,5 @@
 [
+  {"package": "cc-context", "tool": "ccx", "version": "0.95.20"},
   {"package": "cc-notes", "tool": "ccn", "version": "0.75.18"},
   {"package": "cc-present", "tool": "cc-present", "version": "0.54.30"},
   {"package": "cc-slack", "tool": "cc-slack", "version": "0.4.89"}
