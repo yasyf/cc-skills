@@ -1160,6 +1160,10 @@ func (d *Desk) unknownCauseOf(ctx context.Context, lane string, launch incident.
 	return "", nil
 }
 
+func (d *Desk) briefsDir() string {
+	return filepath.Join(filepath.Dir(filepath.Dir(d.Config.DeskInbox)), "briefs")
+}
+
 func (d *Desk) reference(name string) string {
 	return filepath.Join(d.Plugin, "skills", "long-running", "reference", name)
 }
@@ -1387,7 +1391,7 @@ func (d *Desk) attachBrief(ctx context.Context, lane, entry string, render func(
 	if code != 0 {
 		return "", "the brief did not attach: " + ccnFailure(said, code), nil
 	}
-	brief := filepath.Join(filepath.Dir(filepath.Dir(d.Config.DeskInbox)), "briefs", name)
+	brief := filepath.Join(d.briefsDir(), name)
 	if err := os.MkdirAll(filepath.Dir(brief), 0o750); err != nil {
 		return "", "", err
 	}
