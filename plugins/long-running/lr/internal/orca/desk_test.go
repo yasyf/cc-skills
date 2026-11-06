@@ -1732,6 +1732,48 @@ func TestARelayToAStoodDownLaneFailsQuietly(t *testing.T) {
 	}
 }
 
+func TestAStandDownOlderThanTheLanesRegistryLifeNeverBlocksItsRelay(t *testing.T) {
+	w := newDeskWorld(t)
+	const lane = "restate-redis-1"
+	pacific := time.FixedZone("PST", -8*60*60)
+	relay := func(text string) string {
+		t.Helper()
+		line := w.add(object{"lane": supervisorLane, "text": "orca-desk: relay to " + lane + ": " + text, "to": []string{deskLane}})
+		w.lines()
+		w.step(w.desk.deliver)
+		return fmt.Sprintf("inbox@cci#%d", line.Seq)
+	}
+	w.now = time.Date(2026, 11, 5, 9, 0, 0, 0, pacific)
+	w.register(store.Lane{Name: lane, Role: "lane"})
+	w.lines()
+	w.now = time.Date(2026, 11, 5, 13, 34, 0, 0, pacific)
+	w.add(object{"lane": supervisorLane, "kind": kindStandDown, "text": lane + " stood down: the supervisor retired it (done).", "to": []string{lane}})
+	if err := w.desk.Registry.SetLaneState(lane, store.LaneRetired, w.now, "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	w.now = time.Date(2026, 11, 5, 13, 37, 0, 0, pacific)
+	if err := w.desk.Registry.ReviveLane(lane, w.now); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.desk.Registry.LaneHeard(lane, time.Date(2026, 11, 5, 18, 9, 0, 0, pacific), "ready", 0); err != nil {
+		t.Fatal(err)
+	}
+	w.now = time.Date(2026, 11, 5, 18, 30, 0, 0, pacific)
+	unread := relay("Orders addressed to you are unread: finder-desk's review #518994, the oldest for 10 min. Read them with `cci tail --mail` and act on them.")
+	if action := w.action(lane, unread); action.Status != incident.ActionCompleted {
+		t.Fatal(action)
+	}
+	w.wantEscalation(fmt.Sprintf("RELAYED %s %s: no live dispatch", unread, lane))
+	w.noEscalation("RELAY-FAILED ")
+
+	w.now = time.Date(2026, 11, 5, 18, 40, 0, 0, pacific)
+	stop := w.add(object{"kind": kindStandDown, "text": "Stand down", "to": []string{lane}})
+	after := relay("stop")
+	if action := w.action(lane, after); action.Status != incident.ActionFailed || string(action.Reason) != fmt.Sprintf("stood down by #%d", stop.Seq) {
+		t.Fatal(action)
+	}
+}
+
 func TestARelayToAStoodDownLaneWhoseDispatchStillRunsIsSentAndTellsItsSender(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
