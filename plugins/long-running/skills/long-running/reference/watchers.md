@@ -29,7 +29,7 @@
 | CI | 2 hours |
 | The owner | 12 hours |
 
-**`lr watch` covers the waits no PR state carries.** It runs on the supervisor's tick and reads open asks, gates, repeated defects, unfinished ledger rows (retro rows, owner asks, sweep findings and picks; a pick naming a PR that waits on his tap is his wait and never reaches root), `meta/items.md` and records that name a deadline with no plan. `lr watch deadlines` runs one pass by hand.
+**`lr watch` covers the waits no PR state carries.** It runs on the supervisor's tick and reads open asks, gates, repeated defects, unfinished ledger rows (retro rows, owner asks, sweep findings and picks; a pick naming a PR that waits on his tap is his wait and never reaches root; a pick naming a landed PR, or owned by a live lane other than root, goes to `progress-desk`, which closes it; only a pick with neither reaches root; a past-due retro row goes to its owner's live alias, `meta-desk` for meta-desk's rows, and reaches root only when its owner has no live lane), `meta/items.md` and records that name a deadline with no plan. `lr watch deadlines` runs one pass by hand.
 
 **The red register is `lr board reds`.** It prints one line per open drive PR whose build reads red, with its head, failing checks, class, owner, red since and last action. A PR on the owner's tap list also says whether he tapped it or its card waits on him. The header counts those, so owner-relay reads the reds on his list from one call. The class comes from the newest `red` record that names the head; a head with none reads `unclassed`.
 
