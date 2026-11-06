@@ -3,6 +3,7 @@ package prrow
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
@@ -17,23 +18,27 @@ const (
 	topicPush    = "push"
 )
 
-func (f Fold) Heard(ctx context.Context, cursor string) ([]client.Record, map[string]int64, error) {
+func (f Fold) Heard(ctx context.Context, cursor string) ([]client.Record, map[string]int64, time.Time, error) {
 	var heard []client.Record
+	var pulled time.Time
 	ends := map[string]int64{}
 	for _, drive := range []string{pullsDrive, reviewsDrive} {
 		read := cursor + ":" + drive
 		records, err := f.tail(ctx, drive, read, []string{readKind})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, time.Time{}, err
 		}
 		for _, record := range records {
 			ends[read] = max(ends[read], record.Seq)
+			if drive == pullsDrive && record.At.After(pulled) {
+				pulled = record.At
+			}
 			if drive == pullsDrive || record.Topic == topicReview {
 				heard = append(heard, record)
 			}
 		}
 	}
-	return heard, ends, nil
+	return heard, ends, pulled, nil
 }
 
 func Moved(records []client.Record, rows []store.ReviewRow, repo, trunk string) map[int]bool {

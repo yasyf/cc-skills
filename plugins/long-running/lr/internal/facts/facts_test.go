@@ -2907,11 +2907,18 @@ func TestTheMinuteHisPostReachedHimCarriesToARestackAndRestartsOnARealChange(t *
 func (h harness) statusReads() [][]string {
 	var reads [][]string
 	for _, call := range h.runner.Calls() {
-		if slices.Equal(call.Argv[:5], []string{"ccx", "vcs", "pr", "status", "--repo"}) {
-			reads = append(reads, call.Argv[slices.Index(call.Argv, "--json")+1:])
+		if len(call.Argv) >= len(trunkStatus) && slices.Equal(call.Argv[:len(trunkStatus)], trunkStatus) {
+			reads = append(reads, call.Argv[len(trunkStatus):])
 		}
 	}
 	return reads
+}
+
+func feedSpeaks(t *testing.T) {
+	t.Helper()
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "github-pr", Lane: "github", Kind: "github", Text: "pushed", Topic: "push", Attrs: map[string]string{"repo": "other/repo", "branch": "main"}}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func readOnce(t *testing.T, h *harness, now *time.Time) {
@@ -2927,6 +2934,13 @@ func readOnce(t *testing.T, h *harness, now *time.Time) {
 }
 
 func readHarness(t *testing.T, n, answered int, now *time.Time) harness {
+	t.Helper()
+	h := quietHarness(t, n, answered, now)
+	feedSpeaks(t)
+	return h
+}
+
+func quietHarness(t *testing.T, n, answered int, now *time.Time) harness {
 	t.Helper()
 	prs, rows := make([]recordedPR, 0, n), make([]statusRow, 0, answered)
 	for i := 1; i <= n; i++ {
@@ -2952,6 +2966,34 @@ func readHarness(t *testing.T, n, answered int, now *time.Time) harness {
 		t.Fatal(err)
 	}
 	return h
+}
+
+func TestEveryPassReadsEveryRowUntilTheGithubPRFeedSpeaksAndAgainOnceItFallsQuiet(t *testing.T) {
+	now := time.Now()
+	h := quietHarness(t, 2, 2, &now)
+	pass := func() []string {
+		t.Helper()
+		now = now.Add(3 * time.Minute)
+		reads := len(h.statusReads())
+		h.snapshot(t)
+		if got := h.statusReads(); len(got) > reads {
+			return got[len(got)-1]
+		}
+		return nil
+	}
+
+	if got := pass(); !slices.Equal(got, []string{"1", "2"}) {
+		t.Fatalf("a pass before any github-pr record read %v, want every row", got)
+	}
+	feedSpeaks(t)
+	if got := pass(); got != nil {
+		t.Fatalf("a pass after a github-pr record that moves no row read %v, want none", got)
+	}
+	now = now.Add(facts.ReadAllEvery)
+	pass()
+	if got := pass(); !slices.Equal(got, []string{"1", "2"}) {
+		t.Fatalf("a pass %s after the feed's last record read %v, want every row again", facts.ReadAllEvery, got)
+	}
 }
 
 func TestAPassWithNoRecordReadsNoPRWhateverThePRCount(t *testing.T) {

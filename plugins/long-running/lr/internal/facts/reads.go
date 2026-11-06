@@ -15,6 +15,7 @@ const (
 	ReadAllEvery    = 30 * time.Minute
 	readAllCursor   = "github-read-all"
 	readMovedCursor = "github-read-moved"
+	pulledCursor    = "github-pr-heard"
 )
 
 func (s Source) readMoved(ctx context.Context, rows []store.ReviewRow, held map[int]hold, statusesOf statusRead) ([]machine.Facts, error) {
@@ -22,7 +23,7 @@ func (s Source) readMoved(ctx context.Context, rows []store.ReviewRow, held map[
 	if err != nil {
 		return nil, err
 	}
-	heard, ends, err := s.Rows().Heard(ctx, readMovedCursor)
+	heard, ends, pulled, err := s.Rows().Heard(ctx, readMovedCursor)
 	if err != nil {
 		return nil, fmt.Errorf("read the github records: %w", err)
 	}
@@ -30,7 +31,13 @@ func (s Source) readMoved(ctx context.Context, rows []store.ReviewRow, held map[
 	if err != nil {
 		return nil, err
 	}
-	all := s.Now().Unix()-last >= int64(ReadAllEvery.Seconds())
+	lastPulled, err := s.Store.Cursor(pulledCursor)
+	if err != nil {
+		return nil, err
+	}
+	ends[pulledCursor] = max(lastPulled, pulled.Unix())
+	now, every := s.Now().Unix(), int64(ReadAllEvery.Seconds())
+	all := now-last >= every || now-ends[pulledCursor] >= every
 	numbers := readable(rows, itemed)
 	if !all {
 		atHeads, err := s.Store.FactsAtRowHeads(s.Repo, rows)
