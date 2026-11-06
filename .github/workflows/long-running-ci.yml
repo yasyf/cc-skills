@@ -23,11 +23,11 @@ on:
       - ".github/lr-test-durations.json"
       - ".github/workflows/long-running-ci.yml"
   schedule:
-    - cron: "41 10 * * *"
+    - cron: "11,41 * * * *"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'main-cron' || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
