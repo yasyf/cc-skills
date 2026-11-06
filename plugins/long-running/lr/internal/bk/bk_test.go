@@ -261,6 +261,9 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk log test 12 job --context -1",
 		"bk log test 12 job --grep (unclosed",
 		"bk log test 12 --grep panic",
+		"bk log test 12 " + failedJob + " 22/36",
+		"bk log test 12 job 0/36",
+		"bk log test 12 job 22/36 extra",
 		"bk build test",
 		"bk build test twelve",
 		"bk jobs test twelve",
@@ -670,8 +673,33 @@ func TestAStepKeyNoJobCarriesIsAnsweredWithoutALogRead(t *testing.T) {
 	if len(runner.calls) != 1 {
 		t.Fatalf("ran %v, want only the build read", runner.calls)
 	}
-	if read.head != "bk grep release 13303 apply-restate--plat-usw2-prod error: 0 jobs of build 13303 carry step key apply-restate--plat-usw2-prod, so name one job id; bk jobs release 13303 lists them" {
+	if read.head != "bk grep release 13303 apply-restate--plat-usw2-prod error: 0 jobs of build 13303 carry step key apply-restate--plat-usw2-prod, so name one job id, or the step key and its N/M; bk jobs release 13303 lists them" {
 		t.Fatalf("head = %q", read.head)
+	}
+}
+
+func TestAParallelStepsJobsAreListedWithTheirShardAndOneIsReadByItsStepKeyAndShard(t *testing.T) {
+	const shardJob = "01a1acec-0000-4000-8000-000000000022"
+	build := `{"number":12,"state":"failed","jobs":[` +
+		`{"id":"01a1acec-0000-4000-8000-000000000021","type":"script","name":"Run sand tests","state":"passed","step_key":"sand-next-tests","parallel_group_index":20,"parallel_group_total":36},` +
+		`{"id":"` + shardJob + `","type":"script","name":"Run sand tests","state":"failed","step_key":"sand-next-tests","parallel_group_index":21,"parallel_group_total":36},` +
+		`{"id":"` + failedJob + `","type":"script","name":"lint","state":"passed","step_key":"lint"}]}`
+	runner := &fakeRunner{replies: map[string]string{"/pipelines/test/builds/12": build, shardJob: "ok TestFast\n--- FAIL: TestSlow (9.00s)\n"}}
+	desk, _ := newDesk(t, runner)
+
+	jobs := desk.read(context.Background(), "bk jobs test 12")
+	shard := desk.read(context.Background(), "bk log test 12 sand-next-tests 22/36")
+	last := runner.calls[len(runner.calls)-1].Argv
+	unnamed := desk.read(context.Background(), "bk log test 12 sand-next-tests --grep FAIL")
+
+	if jobs.body != "passed job=01a1acec-0000-4000-8000-000000000021 Run sand tests 21/36\nfailed job="+shardJob+" Run sand tests 22/36\npassed job="+failedJob+" lint\n" {
+		t.Fatalf("jobs body = %q", jobs.body)
+	}
+	if !slices.Equal(last, []string{"tools/ci", "bk", "log", "test", "12", shardJob}) || !strings.Contains(shard.body, "--- FAIL: TestSlow") {
+		t.Fatalf("shard read ran %v and answered %+v", last, shard)
+	}
+	if !strings.Contains(unnamed.head, "2 jobs of build 12 carry step key sand-next-tests, so name one job id, or the step key and its N/M") || !strings.Contains(unnamed.body, " 22/36\n") {
+		t.Fatalf("unnamed = %+v", unnamed)
 	}
 }
 

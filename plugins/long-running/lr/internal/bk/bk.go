@@ -32,20 +32,21 @@ const (
 	bodiesDir   = "bk-desk"
 	perPage     = 100
 	buildsUsage = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
-	logUsage    = "log takes <pipeline> <number> <job id or step key> [--grep <regex>] [--context <lines, 0 to 50>]"
+	logUsage    = "log takes <pipeline> <number> <job id, or step key and its N/M for a parallel step> [--grep <regex>] [--context <lines, 0 to 50>]"
 	jobFailed   = "failed"
 	failureMark = `--- FAIL|panic:|FAIL\s`
 	maxContext  = 50
 	apiUsage    = "api reads one path with GET and answers its raw JSON, or with --fields <name,parent.child,...> one line per element; it takes no other flag such as -X, -d or --jq"
-	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [--grep <regex>] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
+	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep <regex>] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
 )
 
 var (
-	request     = regexp.MustCompile(`\bbk\s+(\S+)(.*)`)
-	logEscapes  = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b_bk;t=\d+\x07`)
-	htmlTags    = regexp.MustCompile(`<[^>]*>`)
-	jobID       = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	unlistedJob = []string{"passed", "skipped", "broken", "not_run"}
+	request       = regexp.MustCompile(`\bbk\s+(\S+)(.*)`)
+	logEscapes    = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b_bk;t=\d+\x07`)
+	htmlTags      = regexp.MustCompile(`<[^>]*>`)
+	parallelShard = regexp.MustCompile(`^[1-9][0-9]*/[1-9][0-9]*$`)
+	jobID         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	unlistedJob   = []string{"passed", "skipped", "broken", "not_run"}
 )
 
 type Settings struct {
@@ -196,17 +197,21 @@ func parseLog(rest []string) ([]string, string) {
 	if len(rest) < 3 || slices.ContainsFunc(rest[:3], func(word string) bool { return strings.HasPrefix(word, "-") }) {
 		return nil, logUsage
 	}
+	shard, flagged := "", rest[3:]
+	if len(flagged) > 0 && parallelShard.MatchString(flagged[0]) && !jobID.MatchString(rest[2]) {
+		shard, flagged = flagged[0], flagged[1:]
+	}
 	flags := flag.NewFlagSet("log", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	pattern := flags.String("grep", "", "")
 	width := flags.Int("context", 3, "")
-	if err := flags.Parse(rest[3:]); err != nil || flags.NArg() != 0 || *width < 0 || *width > maxContext {
+	if err := flags.Parse(flagged); err != nil || flags.NArg() != 0 || *width < 0 || *width > maxContext {
 		return nil, logUsage
 	}
 	if _, err := regexp.Compile(*pattern); err != nil {
 		return nil, fmt.Sprintf("log's --grep regex does not compile: %v", err)
 	}
-	return []string{"log", rest[0], rest[1], rest[2], *pattern, strconv.Itoa(*width)}, ""
+	return []string{"log", rest[0], rest[1], rest[2], *pattern, strconv.Itoa(*width), shard}, ""
 }
 
 func parseBuilds(rest []string) ([]string, string) {
@@ -256,13 +261,13 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 	case "annotations":
 		return d.annotations(ctx, args[1], args[2], args[3:])
 	case "grep":
-		said, _, failure := d.jobLog(ctx, args[1], args[2], args[3])
+		said, _, failure := d.jobLog(ctx, args[1], args[2], args[3], "")
 		if failure != nil {
 			return *failure
 		}
 		return matching(logEscapes.ReplaceAllString(said, ""), regexp.MustCompile(args[4]))
 	case "log":
-		said, state, failure := d.jobLog(ctx, args[1], args[2], args[3])
+		said, state, failure := d.jobLog(ctx, args[1], args[2], args[3], args[6])
 		if failure != nil {
 			return *failure
 		}
@@ -358,7 +363,7 @@ func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
 	return "", &reply{head: "the read did not run", body: err.Error()}
 }
 
-func (d *Desk) jobLog(ctx context.Context, pipeline, number, job string) (string, string, *reply) {
+func (d *Desk) jobLog(ctx context.Context, pipeline, number, job, shard string) (string, string, *reply) {
 	if jobID.MatchString(job) {
 		log, failure := d.run(ctx, "log", pipeline, number, job)
 		return log, "", failure
@@ -371,15 +376,16 @@ func (d *Desk) jobLog(ctx context.Context, pipeline, number, job string) (string
 	var onlyID, onlyState string
 	count := 0
 	for _, step := range read.Jobs {
-		if step.StepKey == job && !step.Retried {
+		if step.StepKey == job && !step.Retried && (shard == "" || step.shard() == shard) {
 			count++
 			onlyID, onlyState = step.ID, step.State
-			fmt.Fprintf(&keyed, "%s job=%s %s\n", step.State, step.ID, step.Name)
+			fmt.Fprintf(&keyed, "%s job=%s %s%s\n", step.State, step.ID, step.Name, step.label())
 		}
 	}
 	if count != 1 {
+		named := strings.TrimSpace(job + " " + shard)
 		return "", "", &reply{
-			head: fmt.Sprintf("%d jobs of build %s carry step key %s, so name one job id; bk jobs %s %s lists them", count, number, job, pipeline, number),
+			head: fmt.Sprintf("%d jobs of build %s carry step key %s, so name one job id, or the step key and its N/M; bk jobs %s %s lists them", count, number, named, pipeline, number),
 			body: askdesk.FirstBytes(keyed.String(), replyLimit),
 		}
 	}
@@ -488,6 +494,22 @@ type job struct {
 	SoftFailed bool   `json:"soft_failed"`
 	StepKey    string `json:"step_key"`
 	Retried    bool   `json:"retried"`
+	Index      *int   `json:"parallel_group_index"`
+	Total      *int   `json:"parallel_group_total"`
+}
+
+func (j job) shard() string {
+	if j.Index == nil || j.Total == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d", *j.Index+1, *j.Total)
+}
+
+func (j job) label() string {
+	if shard := j.shard(); shard != "" {
+		return " " + shard
+	}
+	return ""
 }
 
 func (d *Desk) listBuilds(ctx context.Context, pipeline string, filters []string) reply {
@@ -548,7 +570,7 @@ func summary(said string) reply {
 		if step.SoftFailed {
 			soft = " soft"
 		}
-		fmt.Fprintf(&lines, "%s%s exit=%s job=%s %s\n", step.State, soft, exit, step.ID, step.Name)
+		fmt.Fprintf(&lines, "%s%s exit=%s job=%s %s%s\n", step.State, soft, exit, step.ID, step.Name, step.label())
 	}
 	return reply{
 		head: fmt.Sprintf("%s, %d of %d jobs not passed", read.State, scripts-unlisted, scripts),
@@ -567,7 +589,7 @@ func everyJob(said string) reply {
 	for _, step := range read.Jobs {
 		if step.Type == "script" {
 			scripts++
-			fmt.Fprintf(&lines, "%s job=%s %s\n", step.State, step.ID, step.Name)
+			fmt.Fprintf(&lines, "%s job=%s %s%s\n", step.State, step.ID, step.Name, step.label())
 		}
 	}
 	return reply{head: fmt.Sprintf("%s, %d jobs", read.State, scripts), body: askdesk.FirstBytes(lines.String(), replyLimit), url: read.WebURL}
