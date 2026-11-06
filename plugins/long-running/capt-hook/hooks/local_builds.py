@@ -74,6 +74,8 @@ def runs(name: str, args: tuple[str, ...]) -> bool:
             return not informational(name, args) and (not targets or targets[0] in MAKE_TARGETS)
         case "tsc", _:
             return not informational(name, args) and not {"-p", "--project"} & set(args)
+        case ("mypy" | "pyright"), paths:
+            return not informational(name, args) and not (paths and all(path.endswith((".py", ".pyi")) for path in paths))
         case tool, _ if tool in COMMANDS:
             return not informational(name, args)
         case "go", ["test", *_]:
@@ -168,6 +170,10 @@ def builds(call: Call) -> bool:
         Input(command="xcodebuild -version", env=LANE_ENV): Allow(),
         Input(command="xcodebuild -scheme App build", env=LANE_ENV): Block(),
         Input(command="python3 -m mypy scripts", env=LANE_ENV): Block(),
+        Input(command="uvx pyright captain_hook/update/updater.py captain_hook/desktop/cli.py", env=LANE_ENV): Allow(),
+        Input(command="uv run mypy plugin/capt-hook/hooks/render_guards.py", env=LANE_ENV): Allow(),
+        Input(command="uvx pyright", env=LANE_ENV): Block(),
+        Input(command="pyright .", env=LANE_ENV): Block(),
         Input(command="go test ./internal/iris/... -run TestGolden -update", env=LANE_ENV): Allow(),
         Input(command="go test ./internal/parser -update=true", env=LANE_ENV): Allow(),
         Input(command="go build ./...", env={}): Allow(),
