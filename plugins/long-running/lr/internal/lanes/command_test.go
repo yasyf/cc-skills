@@ -198,6 +198,35 @@ func TestEveryVerbTakesAStemForTheLaneThatHoldsIt(t *testing.T) {
 	equal(t, recordOf(records[0]).Attr("lane"), "desk-3")
 }
 
+func TestARegisteredNameResolvesToItsOwnRowWhateverItsStateSoARetiredUnnumberedLaneRevives(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	a, s := driveState(t)
+	for _, lane := range []string{"fidelity-no-grade", "fidelity-no-grade-2"} {
+		if _, err := s.WantLane(storeLane(lane), t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetLaneState("fidelity-no-grade", store.LaneRetired, t0, "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := execute(t, RequestCommand(a), "revive", "fidelity-no-grade", "--by", "meta-desk-3"); err != nil {
+		t.Fatal(err)
+	}
+	route, err := execute(t, RouteCommand(a), "fidelity-no-grade")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{"decide"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(records), 1)
+	equal(t, recordOf(records[0]).Attr("lane"), "fidelity-no-grade")
+	equal(t, strings.TrimSpace(route), `{"lane":"fidelity-no-grade","route":"root","state":"retired","standing":"","meta":false}`)
+}
+
 func TestAnAliasRoutesAndRequestsOnlyItsOwnOneLiveMemberAndRefusesWhenNoneOrSeveralAreLive(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	a, s := driveState(t)
