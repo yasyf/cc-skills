@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,7 +31,6 @@ type Service struct {
 	State  string
 	Claude string
 	Python string
-	Path   string
 }
 
 func (s Service) config() string { return filepath.Join(s.State, "dashboard.json") }
@@ -40,7 +38,7 @@ func (s Service) config() string { return filepath.Join(s.State, "dashboard.json
 func (s Service) Job() launchd.Job {
 	return launchd.Job{
 		Label:     Label(s.Drive),
-		Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", s.Drive}, {"PATH", s.Path}},
+		Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", s.Drive}},
 		Arguments: []string{s.Python, filepath.Join(s.Claude, "long-running", "current", "dashboard", "app", "server.py"), "--config", s.config()},
 		Directory: s.State,
 		Log:       filepath.Join(s.State, "server.log"),
@@ -92,7 +90,7 @@ func Command(a *app.App) *cobra.Command {
 		if err != nil {
 			return Service{}, err
 		}
-		return Service{Drive: cfg.Drive, State: state, Claude: env.Claude, Path: os.Getenv("PATH")}, nil
+		return Service{Drive: cfg.Drive, State: state, Claude: env.Claude}, nil
 	}
 	var proof, order string
 	restart := &cobra.Command{Use: "restart", Short: "Restart the drive dashboard's launchd agent and print its URL once it answers; a changed dashboard needs --proof or the owner's --ordered", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
@@ -133,9 +131,6 @@ func Command(a *app.App) *cobra.Command {
 			s, err := service()
 			if err != nil {
 				return err
-			}
-			if s.Path == "" {
-				return errors.New("PATH is empty; launchd would run the dashboard with no tools")
 			}
 			if s.Python, err = exec.LookPath("python3"); err != nil {
 				return err

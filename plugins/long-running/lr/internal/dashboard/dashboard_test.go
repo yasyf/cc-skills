@@ -31,7 +31,7 @@ func (c *ctl) Run(_ context.Context, command shell.Command) (shell.Result, error
 }
 
 func service(t *testing.T) Service {
-	s := Service{Drive: "d1", State: t.TempDir(), Claude: "/claude", Python: "/usr/bin/python3", Path: "/usr/bin:/bin"}
+	s := Service{Drive: "d1", State: t.TempDir(), Claude: "/claude", Python: "/usr/bin/python3"}
 	if err := os.WriteFile(s.config(), []byte(`{"drive": "d1", "host": "100.113.56.52", "port": 61210}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

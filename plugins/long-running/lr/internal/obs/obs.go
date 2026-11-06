@@ -148,8 +148,8 @@ func NewDesk(ctx context.Context, runner shell.Runner, settings Settings, drive,
 	}, nil
 }
 
-func (d *Desk) Serve(ctx context.Context) error {
-	return d.loop().Serve(ctx)
+func (d *Desk) Serve(ctx, taking context.Context) error {
+	return d.loop().Serve(ctx, taking)
 }
 
 func (d *Desk) loop() askdesk.Desk {

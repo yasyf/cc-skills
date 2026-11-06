@@ -1,8 +1,6 @@
 package obs
 
 import (
-	"errors"
-	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -10,6 +8,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roll"
 )
 
 func Label(drive string) string {
@@ -21,9 +20,13 @@ func Command(a *app.App) *cobra.Command {
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:   "desk",
-			Short: "Answer each ask addressed to obs-desk with read calls only, holding the Sentry and Datadog keys obs.json names in memory from SSM",
+			Short: "Answer each ask addressed to obs-desk with read calls only, holding the Sentry and Datadog keys obs.json names in memory from SSM, until the lr install link moves to another version",
 			Args:  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
+				taking, err := roll.Watch(cmd.Context())
+				if err != nil {
+					return err
+				}
 				cfg, state, err := lanes.Loaded(a)
 				if err != nil {
 					return err
@@ -36,7 +39,7 @@ func Command(a *app.App) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return desk.Serve(cmd.Context())
+				return roll.Exit(desk.Serve(cmd.Context(), taking), cmd.ErrOrStderr())
 			},
 		},
 		&cobra.Command{
@@ -50,10 +53,6 @@ func Command(a *app.App) *cobra.Command {
 				}
 				if _, err := LoadSettings(filepath.Join(state, "obs.json")); err != nil {
 					return err
-				}
-				path := os.Getenv("PATH")
-				if path == "" {
-					return errors.New("PATH is empty; launchd would run the desk with no aws CLI")
 				}
 				claude, err := drive.ConfigDir()
 				if err != nil {
@@ -72,7 +71,7 @@ func Command(a *app.App) *cobra.Command {
 				}
 				return agents.Install(cmd.Context(), launchd.Job{
 					Label:     Label(cfg.Drive),
-					Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", cfg.Drive}, {lanes.LaneEnv, Lane}, {"PATH", path}},
+					Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", cfg.Drive}, {lanes.LaneEnv, Lane}},
 					Arguments: []string{filepath.Join(claude, "long-running", "current", "bin", "lr"), "obs", "desk", "--config", config},
 					Directory: state,
 					Log:       filepath.Join(state, "obs-desk.log"),

@@ -1,7 +1,6 @@
 package runhost
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,17 +44,13 @@ func installCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			path := os.Getenv("PATH")
-			if path == "" {
-				return errors.New("PATH is empty; launchd would run the port forward with no aws")
-			}
 			agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
 			if err != nil {
 				return err
 			}
 			host := Host{Runner: a.Runner, Agents: agents, Dial: Dial, Sleep: time.Sleep, Out: cmd.OutOrStdout()}
 			binary := filepath.Join(env.Claude, "long-running", "current", "bin", "lr")
-			return host.Install(cmd.Context(), s, cfg.Drive, binary, filepath.Join(state, "run-host.log"), path)
+			return host.Install(cmd.Context(), s, cfg.Drive, binary, filepath.Join(state, "run-host.log"))
 		},
 	}
 	flags(cmd, &s)

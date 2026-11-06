@@ -65,7 +65,7 @@ func (d Desk) holdDuty(ctx context.Context) (release func()) {
 	}
 }
 
-func (d Desk) Serve(ctx context.Context) error {
+func (d Desk) Serve(ctx, taking context.Context) error {
 	defer d.holdDuty(ctx)()
 	query := client.Query{Drive: d.Drive, Since: d.Now().Add(-CatchUp), Kinds: []string{AskKind}}
 	for {
@@ -75,8 +75,8 @@ func (d Desk) Serve(ctx context.Context) error {
 		}
 		query = next
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-taking.Done():
+			return context.Cause(taking)
 		case <-time.After(pollEvery):
 		}
 	}

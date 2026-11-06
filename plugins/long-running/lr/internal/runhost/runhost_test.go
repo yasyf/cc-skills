@@ -57,7 +57,7 @@ func TestInstallKeepsAForwardToTheHostAndPairsThisMacWithoutPrintingTheCode(t *t
 	jobs := &agents{}
 	var out bytes.Buffer
 	host := Host{Runner: fake, Agents: jobs, Dial: func(string) error { return nil }, Sleep: func(time.Duration) {}, Out: &out}
-	if err := host.Install(context.Background(), settings, "brook", "/lr", "/tmp/run-host.log", "/usr/bin"); err != nil {
+	if err := host.Install(context.Background(), settings, "brook", "/lr", "/tmp/run-host.log"); err != nil {
 		t.Fatal(err)
 	}
 	if len(jobs.jobs) != 1 || !slices.Equal(jobs.jobs[0].Arguments, []string{"/lr", "run-host", "forward", "--host", "frg-desk-host", "--profile", "devbox-machine", "--region", "us-west-2", "--port", "6768"}) {

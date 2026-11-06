@@ -31,12 +31,14 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roll"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
 	Label      = "com.long-running.explain"
+	drainWait  = 30 * time.Second
 	Branch     = "explainers"
 	Port       = 8664
 	ServePort  = 8665
@@ -493,9 +495,29 @@ func Command(a *app.App) *cobra.Command {
 	_ = cmd.MarkFlagRequired("from")
 	cmd.AddCommand(redesignCommand(a))
 	var dir, addr string
-	serve := &cobra.Command{Use: "serve", Hidden: true, Short: "Serve the explainers worktree, as the launchd agent lr explain installs", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+	serve := &cobra.Command{Use: "serve", Hidden: true, Short: "Serve the explainers worktree, as the launchd agent lr explain installs, until the lr install link moves to another version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		taking, err := roll.Watch(cmd.Context())
+		if err != nil {
+			return err
+		}
 		server := http.Server{Addr: addr, Handler: http.FileServer(http.Dir(dir)), ReadHeaderTimeout: 10 * time.Second}
-		return server.ListenAndServe()
+		shut := make(chan error, 1)
+		context.AfterFunc(taking, func() {
+			draining, drained := context.WithTimeout(cmd.Context(), drainWait)
+			defer drained()
+			err := server.Shutdown(draining)
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = server.Close()
+			}
+			shut <- err
+		})
+		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		if err := <-shut; err != nil {
+			return err
+		}
+		return roll.Exit(context.Cause(taking), cmd.ErrOrStderr())
 	}}
 	serve.Flags().StringVar(&dir, "dir", "", "the explainers worktree")
 	serve.Flags().StringVar(&addr, "addr", "", "the loopback address tailscale serve forwards to")

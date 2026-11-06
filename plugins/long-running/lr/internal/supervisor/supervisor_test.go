@@ -879,7 +879,7 @@ func (c *ctl) run(argv []string) (shell.Result, error) {
 }
 
 func agent() Agent {
-	return Agent{Drive: "d1", Config: "/state/lr.json", Binary: "/claude/long-running/current/bin/lr", Path: "/usr/bin:/bin", Log: "/state/supervisor.log"}
+	return Agent{Drive: "d1", Config: "/state/lr.json", Binary: "/claude/long-running/current/bin/lr", Log: "/state/supervisor.log"}
 }
 
 func TestAReinstallBootstrapsOnlyOnceLaunchdHasFinishedBootingOutTheOldCopy(t *testing.T) {
@@ -941,11 +941,11 @@ func TestUninstallBootsOutAndRemovesThePlist(t *testing.T) {
 
 func TestThePlistEscapesItsValuesAndCarriesTheKeepAliveAndLimits(t *testing.T) {
 	a := agent()
-	a.Path = "/usr/bin:/a&b"
+	a.Config = "/state/a&b/lr.json"
 
 	body := string(a.Job().Plist())
 
-	for _, want := range []string{"/usr/bin:/a&amp;b", "<key>KeepAlive</key>\n\t<true/>", "<integer>65536</integer>", "<integer>60</integer>", "<string>com.long-running.d1.supervisor</string>", "<string>--config</string>"} {
+	for _, want := range []string{"/state/a&amp;b/lr.json", "<key>KeepAlive</key>\n\t<true/>", "<integer>65536</integer>", "<integer>60</integer>", "<string>com.long-running.d1.supervisor</string>", "<string>--config</string>"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("%q not in\n%s", want, body)
 		}

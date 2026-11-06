@@ -177,7 +177,7 @@ func (f *linkFixture) run(t *testing.T) {
 	defer stop()
 	served := make(chan error, 1)
 	go func() {
-		served <- f.link().Serve(ctx)
+		served <- f.link().Serve(ctx, ctx)
 	}()
 	deadline := time.Now().Add(30 * time.Second)
 	for {
@@ -568,7 +568,7 @@ func TestAMissingBoardToolStopsTheLinkAndKeepsTheCardOwed(t *testing.T) {
 	draw(t, "owed-1", `{"id":"one"}`)
 	ctx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stop()
-	if err := f.link().Serve(ctx); err == nil || errors.Is(err, context.DeadlineExceeded) {
+	if err := f.link().Serve(ctx, ctx); err == nil || errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Serve = %v, want the missing tool's error", err)
 	}
 	if _, err := os.Stat(filepath.Join(f.state, cursorFile)); !errors.Is(err, os.ErrNotExist) {

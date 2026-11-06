@@ -248,7 +248,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 				a.Log.Warn("the board link's launchd job is not installed, so no lane's card reaches his board", "err", err)
 			}
 			if _, hosted := orcaRunner.Sections["host"]; hosted {
-				if err := agents.Install(ctx, agentOf(env).DeskCredsJob(orcaRunner.Source)); err != nil {
+				if err := agents.Load(ctx, agentOf(env).DeskCredsJob(orcaRunner.Source)); err != nil {
 					a.Log.Warn("the desk-creds launchd job is not installed, so a restarted desk host waits for a push by hand", "err", err)
 				}
 			}
@@ -424,9 +424,6 @@ func Install(cmd *cobra.Command, a *app.App) error {
 		return err
 	}
 	agent := agentOf(env)
-	if agent.Path == "" {
-		return errors.New("PATH is empty; launchd would run the supervisor with no tools")
-	}
 	runner, err := config.LoadRunner(filepath.Join(state, runnerFile))
 	if err != nil {
 		return err
@@ -451,11 +448,7 @@ func installLink(ctx context.Context, agents launchd.Launchd, env lanes.Env) err
 	if err := board.SeedCursor(ctx, env.Config.Drive, env.State); err != nil {
 		return err
 	}
-	agent := agentOf(env)
-	if err := agents.Install(ctx, board.LinkJob(env.Config.Drive, agent.Binary, agent.Path, env.State)); err != nil {
-		return err
-	}
-	return agents.Restart(ctx, board.LinkLabel(env.Config.Drive))
+	return agents.Install(ctx, board.LinkJob(env.Config.Drive, agentOf(env).Binary, env.State))
 }
 
 func agentOf(env lanes.Env) Agent {
@@ -463,7 +456,6 @@ func agentOf(env lanes.Env) Agent {
 		Drive:  env.Config.Drive,
 		Config: filepath.Join(env.State, configFile),
 		Binary: filepath.Join(env.Claude, "long-running", "current", "bin", "lr"),
-		Path:   os.Getenv("PATH"),
 		Log:    filepath.Join(env.State, "supervisor.log"),
 	}
 }

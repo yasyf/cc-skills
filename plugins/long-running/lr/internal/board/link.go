@@ -22,6 +22,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roll"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -91,17 +92,21 @@ type Link struct {
 	Runner shell.Runner
 }
 
-func (l Link) Serve(ctx context.Context) error {
+func (l Link) Serve(ctx, taking context.Context) error {
 	after, err := l.cursor()
 	if err != nil {
 		return err
 	}
-	return client.Follow(ctx, client.Watch{Drive: l.Drive, Reader: LinkLane, After: after}, func(record client.Record) error {
+	err = client.Follow(taking, client.Watch{Drive: l.Drive, Reader: LinkLane, After: after}, func(record client.Record) error {
 		if err := l.apply(ctx, record); err != nil {
 			return err
 		}
 		return os.WriteFile(filepath.Join(l.State, cursorFile), []byte(strconv.FormatInt(record.Seq, 10)), 0o600)
 	})
+	if err != nil {
+		return err
+	}
+	return context.Cause(taking)
 }
 
 func (l Link) cursor() (int64, error) {
@@ -423,10 +428,10 @@ func LinkLabel(driveName string) string {
 	return "com.long-running." + driveName + ".board-link"
 }
 
-func LinkJob(driveName, binary, path, state string) launchd.Job {
+func LinkJob(driveName, binary, state string) launchd.Job {
 	return launchd.Job{
 		Label:     LinkLabel(driveName),
-		Env:       [][2]string{{"PATH", path}, {"CLAUDE_LONG_RUNNING_LANE", LinkLane}},
+		Env:       [][2]string{{"CLAUDE_LONG_RUNNING_LANE", LinkLane}},
 		Arguments: []string{binary, "board", "--drive", driveName, "link", "serve"},
 		Directory: state,
 		Log:       filepath.Join(state, linkLog),
@@ -437,14 +442,18 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 	cmd := &cobra.Command{Use: "link", Short: "On the board's Mac, check and apply each card change a lane posts with lr ask-owner"}
 	serve := &cobra.Command{
 		Use:   "serve",
-		Short: "Apply each card change addressed to " + LinkLane + " in order, resuming from its cursor, and answer its lane on the bus",
+		Short: "Apply each card change addressed to " + LinkLane + " in order, resuming from its cursor, and answer its lane on the bus, until the lr install link moves to another version",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
+			taking, err := roll.Watch(c.Context())
+			if err != nil {
+				return err
+			}
 			entry, _, err := opened()
 			if err != nil {
 				return err
 			}
-			return Link{Drive: entry.Bus(), Repo: entry.Repo, State: entry.StateDir, Judge: judge, Draw: arch.Draw, Runner: a.Runner, Cards: func(named string) (Cards, func(), error) {
+			return roll.Exit(Link{Drive: entry.Bus(), Repo: entry.Repo, State: entry.StateDir, Judge: judge, Draw: arch.Draw, Runner: a.Runner, Cards: func(named string) (Cards, func(), error) {
 				current, session, err := opened()
 				if err != nil {
 					return Cards{}, nil, err
@@ -454,12 +463,12 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 					return Cards{}, nil, err
 				}
 				return CardsOf(a, current, cmp.Or(named, session), s), func() { _ = s.Close() }, nil
-			}}.Serve(c.Context())
+			}}.Serve(c.Context(), taking), c.ErrOrStderr())
 		},
 	}
 	install := &cobra.Command{
 		Use:   "install",
-		Short: "Keep the link running under launchd on the pinned lr, starting after the card changes already on the bus",
+		Short: "Keep the link running under launchd on the installed lr, starting after the card changes already on the bus",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			entry, _, err := opened()
@@ -473,14 +482,7 @@ func linkCommand(a *app.App, opened func() (drive.Entry, string, error), judge J
 			if err != nil {
 				return err
 			}
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return err
-			}
-			if err := agents.Install(c.Context(), LinkJob(entry.Drive, filepath.Join(home, ".claude", "long-running", "current", "bin", "lr"), os.Getenv("PATH"), entry.StateDir)); err != nil {
-				return err
-			}
-			return agents.Restart(c.Context(), LinkLabel(entry.Drive))
+			return agents.Install(c.Context(), LinkJob(entry.Drive, filepath.Join(agents.Claude, "long-running", "current", "bin", "lr"), entry.StateDir))
 		},
 	}
 	cmd.AddCommand(serve, install)

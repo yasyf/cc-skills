@@ -69,7 +69,7 @@ func Dial(address string) error {
 	return conn.Close()
 }
 
-func (h Host) Install(ctx context.Context, s Settings, drive, binary, log, path string) error {
+func (h Host) Install(ctx context.Context, s Settings, drive, binary, log string) error {
 	up, err := h.ready(ctx, s)
 	if err != nil {
 		return err
@@ -78,7 +78,6 @@ func (h Host) Install(ctx context.Context, s Settings, drive, binary, log, path 
 	port := strconv.Itoa(s.Port)
 	job := launchd.Job{
 		Label:     Label(drive),
-		Env:       [][2]string{{"PATH", path}},
 		Arguments: []string{binary, "run-host", "forward", "--host", s.Host, "--profile", s.Profile, "--region", s.Region, "--port", port},
 		Log:       log,
 	}
