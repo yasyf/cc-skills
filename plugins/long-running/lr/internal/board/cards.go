@@ -32,6 +32,7 @@ const (
 	blockLabel     = "board-block:"
 	pathsField     = "paths"
 	byField        = "by"
+	releaseField   = "release"
 	questionField  = "question"
 	metField       = "met"
 	deliveredAttr  = "delivered"
@@ -74,7 +75,7 @@ func (c Cards) present(ctx context.Context, args ...string) (string, error) {
 	return c.run(ctx, shell.Command{Argv: append(append([]string{"cc-present"}, args...), "--session", c.Session)})
 }
 
-func (c Cards) ledgerID(ctx context.Context) (string, error) {
+func (c Cards) knownLedger() (string, error) {
 	path := filepath.Join(c.StateDir, cardStateFile)
 	var state struct {
 		Ledger string `json:"ledger"`
@@ -88,8 +89,16 @@ func (c Cards) ledgerID(ctx context.Context) (string, error) {
 	case !errors.Is(err, os.ErrNotExist):
 		return "", err
 	}
-	if state.Ledger != "" {
-		return state.Ledger, nil
+	return state.Ledger, nil
+}
+
+func (c Cards) ledgerID(ctx context.Context) (string, error) {
+	if known, err := c.knownLedger(); err != nil || known != "" {
+		return known, err
+	}
+	path := filepath.Join(c.StateDir, cardStateFile)
+	var state struct {
+		Ledger string `json:"ledger"`
 	}
 	title := "board cards: " + c.Bus
 	listed, err := c.ccn(ctx, "ledger", "list", "--json")
@@ -175,6 +184,24 @@ func (c Cards) record(ctx context.Context, card string, fields map[string]string
 		merged[name] = value
 	}
 	return c.Ledger.Sync(ctx, id, []ledger.Row{{Key: cardPrefix + card, Fields: merged}})
+}
+
+func (c Cards) Releases() (map[string]string, error) {
+	id, err := c.knownLedger()
+	if err != nil || id == "" {
+		return nil, err
+	}
+	rows, err := c.Store.LedgerRows(id)
+	if err != nil {
+		return nil, err
+	}
+	releases := map[string]string{}
+	for key, fields := range rows {
+		if card, isCard := strings.CutPrefix(key, cardPrefix); isCard && fields[releaseField] != "" {
+			releases[card] = fields[releaseField]
+		}
+	}
+	return releases, nil
 }
 
 func (c Cards) mirrored(ctx context.Context, card string, fields map[string]string) error {
