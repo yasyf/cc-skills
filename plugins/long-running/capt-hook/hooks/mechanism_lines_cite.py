@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, on
+from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, Warn, on
 from captain_hook.cmd import Cmd
 
 from .cci_mcp_posts import POST_TOOL
@@ -42,8 +42,8 @@ UNCITED_REFUSAL = (
 )
 UNKNOWN = re.compile(r"\b(?:unanswered|unproven|nobody knows|no one knows)\b", re.IGNORECASE)
 UNSEARCHED = (
-    "A line to the owner calling a question unanswered, unproven or unknown follows a `cci grep` of the drive for it this turn; a lane may have answered it."
-    " Run `cci grep --drive <drive> -- <its terms>`, cite what it finds or keep the label, then send it again."
+    "Warning, nothing was blocked: A line to the owner called a question unanswered, unproven or unknown with no `cci grep` of the drive this turn, and a lane may have answered it."
+    " Run `cci grep --drive <drive> -- <its terms>` now; if it finds the answer, send him a correction at once."
 )
 SILENT = re.compile(
     r"\b(?:(?:is|are|was|were|went|gone|goes|been|stays?|stayed|still|running) (?:quiet|late)|(?<!not )(?<!never )silent|posted nothing|(?<!you )(?:has|have|had)(?:n't| not)(?: yet)? (?:answered|replied|posted)|no (?:answer|reply|word) (?:yet )?from)\b",
@@ -51,8 +51,8 @@ SILENT = re.compile(
 )
 LANE_NAMED = re.compile(r"\blanes?\b|\b[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b")
 UNREAD = (
-    "A line to the owner calling a lane silent, late or quiet, or saying it posted nothing, follows a read of your mail this turn, since its answer may be waiting for you."
-    " Run `cci tail --to <your lane> --since <the seq you asked at>`, relay what it finds, then send it again."
+    "Warning, nothing was blocked: A line to the owner called a lane silent, late or quiet with no read of your mail this turn, and its answer may be waiting for you."
+    " Run `cci tail --to <your lane> --since <the seq you asked at>` now; if it shows an answer, send him a correction at once."
 )
 GREPPED = T.tool_turn("Bash", result="#382682 report schema1-provenance-2 ...", command="cci grep --drive durable-agents-rebuild -- 'which Mac wrote'")
 EXAMPLE = "example: The run crashed because the cloud runner reads only migration 0. <!-- cci #384714 -->"
@@ -97,7 +97,7 @@ def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
     if found := uncited(texts):
         return evt.block(fenced(UNCITED_REFUSAL, [*found, EXAMPLE]))
     unsearched = [sentence for text in texts for sentence, said in sentences(text) if UNKNOWN.search(said)]
-    return evt.block(fenced(UNSEARCHED, unsearched)) if unsearched and not grepped(evt) else None
+    return evt.context(fenced(UNSEARCHED, unsearched)) if unsearched and not grepped(evt) else None
 
 
 def silent_claims(texts: list[str]) -> list[str]:
@@ -134,7 +134,7 @@ def owner_bound_lines(evt: BaseHookEvent) -> list[str]:
 
 def unread(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
     found = silent_claims(texts)
-    return evt.block(fenced(UNREAD, found)) if found and not read_mail(evt) else None
+    return evt.context(fenced(UNREAD, found)) if found and not read_mail(evt) else None
 
 
 @on(  # capt-hook: no-escape the owner ordered a mechanism sentence to him that cites no record refused
@@ -145,9 +145,9 @@ def unread(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
         card(title="Why did the FDE run crash?", body=CITED): Allow(),
         card(title="Why did the FDE run crash?", body="The FDE run crashed because the runner reads only format 0. <!-- cci #384714 -->"): Allow(),
         card(title="Why did the FDE run crash?", body="Build 12280 ships the old reader. So every FDE run on it fails at the first chat."): Allow(),
-        card(title="Why did the FDE run crash?", body=LABELLED): Block(pattern=r"^A line to the owner calling a question unanswered[\s\S]*Unproven: a release skew"),
+        card(title="Why did the FDE run crash?", body=LABELLED): Warn(pattern=r"^Warning, nothing was blocked: A line to the owner called a question unanswered[\s\S]*Unproven: a release skew"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Why did the FDE run crash?", "body": LABELLED}}, env=DRIVE_CONFIG, transcript=[T.user("why"), *GREPPED]): Allow(),
-        card(title="Which Mac wrote it?", body="Nobody knows which Mac wrote the chat."): Block(pattern=r"Nobody knows which Mac"),
+        card(title="Which Mac wrote it?", body="Nobody knows which Mac wrote the chat."): Warn(pattern=r"Nobody knows which Mac"),
         card(title="Why is dev red?", body="#49475 broke dev's sand-next vet job."): Block(pattern=r"#49475 broke dev's sand-next vet job\."),
         card(title="Why is dev red?", body="#49475 broke dev's sand-next vet job: build 12290 logs its missing import."): Allow(),
         card(title="Did the lane retract it?", body='It withdrew "a release skew caused it" and reads the chat rows now.'): Allow(),
@@ -171,7 +171,7 @@ def mechanism_lines_cite(evt: BaseHookEvent) -> HookResult | None:
     tests=communicator_tests({
         Input(transcript=reply_transcript(SKEW), state=ACTIVE): Block(pattern=r"writes chats at sessions migration 6[\s\S]*That is a release skew"),
         Input(transcript=reply_transcript(f"{CITED} The fix is up as `go/sand/internal/vm/chat.go:88`, which reads migration 6."), state=ACTIVE): Allow(),
-        Input(transcript=reply_transcript(LABELLED), state=ACTIVE): Block(pattern=r"^A line to the owner calling a question unanswered"),
+        Input(transcript=reply_transcript(LABELLED), state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: A line to the owner called a question unanswered"),
         Input(transcript=[T.user("which Mac wrote it?"), *GREPPED, T.assistant("Which Mac wrote the chat is still unanswered; no lane record names it.")], state=ACTIVE): Allow(),
     }),
 )
@@ -187,26 +187,26 @@ def recorded(to: str, text: str) -> Input:
     return Input(command=f"cci post --drive d --lane flaky-tests-2 --kind report --to {to} --text '{text}'", env=DRIVE_CONFIG)
 
 
-@on(  # capt-hook: no-escape the refusal names the one read of the lane's own mail that clears it
+@on(
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, POST_TOOL, *WRITE_TOOLS)],
     tests={
-        replied(LATE): Block(pattern=r"^A line to the owner calling a lane silent, late or quiet[\s\S]*ask-lane-21 posted nothing[\s\S]*I told him it is late"),
+        replied(LATE): Warn(pattern=r"^Warning, nothing was blocked: A line to the owner called a lane silent, late or quiet[\s\S]*ask-lane-21 posted nothing[\s\S]*I told him it is late"),
         replied(LATE, transcript=[T.user("who added it?"), *MAILED]): Allow(),
         replied(LATE, transcript=[T.user("who added it?"), *GREPPED]): Allow(),
-        replied(LATE, transcript=[T.user("who added it?"), *ROOT_MAIL]): Block(pattern=r"ask-lane-21 posted nothing"),
-        replied("`ask-lane-21` is late."): Block(),
+        replied(LATE, transcript=[T.user("who added it?"), *ROOT_MAIL]): Warn(pattern=r"ask-lane-21 posted nothing"),
+        replied("`ask-lane-21` is late."): Warn(),
         replied(ANSWERED): Allow(),
         replied("The release is late; its card says it cuts at 6 PM."): Allow(),
         replied("You have not answered the land-gate card."): Allow(),
-        recorded("owner-relay", "tap-rows has not answered since 3 PM."): Block(pattern=r"tap-rows has not answered"),
+        recorded("owner-relay", "tap-rows has not answered since 3 PM."): Warn(pattern=r"tap-rows has not answered"),
         recorded("root", "tap-rows has not answered since 3 PM."): Allow(),
         replied("ask-lane-21 is not silent; it answered at 4:52 PM."): Allow(),
         replied("ask-lane-21 has not reported any errors."): Allow(),
-        replied("ask-lane-21 posted **nothing** in 10 minutes."): Block(pattern=r"posted \*\*nothing\*\*"),
-        Input(command=COORDINATOR_POST, state=[CompactionState(active=True, coordinator=True)], env=DRIVE_CONFIG): Block(pattern=r"ask-lane-21 is late"),
+        replied("ask-lane-21 posted **nothing** in 10 minutes."): Warn(pattern=r"posted \*\*nothing\*\*"),
+        Input(command=COORDINATOR_POST, state=[CompactionState(active=True, coordinator=True)], env=DRIVE_CONFIG): Warn(pattern=r"ask-lane-21 is late"),
         Input(command=COORDINATOR_POST, state=[CompactionState(active=True, coordinator=True)], env=DRIVE_CONFIG, transcript=[T.user("where is it?"), *ROOT_MAIL]): Allow(),
-        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": "tap-rows went quiet an hour ago."}, env=DRIVE_CONFIG): Block(),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": "tap-rows went quiet an hour ago."}, env=DRIVE_CONFIG): Warn(),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "C0RELEASES1", "text": "tap-rows went quiet an hour ago."}, env=DRIVE_CONFIG): Allow(),
     },
 )
@@ -214,13 +214,13 @@ def silent_lane_lines_read_mail(evt: BaseHookEvent) -> HookResult | None:
     return unread(evt, owner_bound_lines(evt))
 
 
-@on(  # capt-hook: no-escape the refusal names the one read of the lane's own mail that clears it
+@on(
     Event.Stop,
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests=communicator_tests({
-        Input(transcript=reply_transcript(LATE), state=ACTIVE): Block(pattern=r"^A line to the owner calling a lane silent[\s\S]*ask-lane-21 posted nothing"),
+        Input(transcript=reply_transcript(LATE), state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: A line to the owner called a lane silent[\s\S]*ask-lane-21 posted nothing"),
         Input(transcript=[T.user("is it back?"), *MAILED, T.assistant(LATE)], state=ACTIVE): Allow(),
         Input(transcript=reply_transcript(ANSWERED), state=ACTIVE): Allow(),
     }),
