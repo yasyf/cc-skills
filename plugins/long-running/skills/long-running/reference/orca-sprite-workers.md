@@ -63,7 +63,7 @@ Run it from the terminal that already owns the named native Run. The script chec
 - Before a lane retires, the supervisor syncs once more. A failure holds the lane and posts a blocker, as an owed deletion does.
 - A stand-down by order retires the lane anyway and posts the blocker, since the order wins. A Sprite no longer listed retires the lane with a blocker saying its unpublished notes are lost.
 
-**Relay join.** `WORKER_RELAY_SPONSOR` names a Sprite that holds an enrolled cci service key. The script joins the new Sprite to this Mac's default relay mesh for the mesh's routed drives, with a 24-hour delegation and this Mac's node as owner. It starts `cci supervise` as a Sprite service, so the worker's records push without a manual `cci relay push`. The key travels from the sponsor to the new Sprite over stdin and is never written to the Mac.
+**Relay join.** `WORKER_RELAY_SPONSOR` names a Sprite already joined to the default relay mesh, such as a desk host; the launch reads the drive's enrolled cci service key from that mesh's `service.pem`, which every joined Sprite keeps. The script joins the new Sprite to this Mac's default relay mesh for the mesh's routed drives, with a 24-hour delegation and this Mac's node as owner. It starts `cci supervise` as a Sprite service, so the worker's records push without a manual `cci relay push`. The key travels from the sponsor to the new Sprite over stdin and is never written to the Mac.
 
 - Without the join, a worker's cci records stay on its Sprite, so a launch with no sponsor refuses before it prepares anything.
 - A failed join retries after 5, 15 and 45 seconds; a join that still fails refuses the launch, naming the relay's reason, with no worker started.

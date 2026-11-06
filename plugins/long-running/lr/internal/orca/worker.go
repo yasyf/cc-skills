@@ -31,7 +31,7 @@ const (
 	routeSprite       = "sprite"
 	routeLocal        = "local"
 	carriedBox        = "/home/sprite/drive/carried"
-	sponsorKey        = "/home/sprite/.cc-inbox/node/key.pem"
+	sponsorKey        = "/home/sprite/.cc-inbox/relay/default/service.pem"
 	workerStartMS     = "600000"
 	localAgentReads   = 120
 	localIdleMS       = "120000"
