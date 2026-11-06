@@ -38,6 +38,8 @@ PICKED_NO = {"ccn answer list --label from:owner --label board-card:chat-drop": 
 PACK_PR = {"gh pr view 2618": "plugins/long-running/capt-hook/hooks/release_cards.py\n"}
 SAME_NUMBER_PR = {"gh pr view 817": f"{DASHBOARD}/app/chat.js\n"}
 RECORD_NUMBER_PR = {"gh pr view 984": f"{DASHBOARD}/app/review.js\n", "gh pr view 50515": ""}
+INBOX_LANDED = "Landed https://github.com/yasyf/cc-inbox/pull/472 (squash 51373132c299def22e948fb1fa141e260db6404d, every check green at 69819741), the fix to #470. Now only rows cci relay seed applies, dated before the lane started, stay out of a lane's mail. A record delivered live by relay sync or the stream always reaches the hook, cci tail --mail and the open-ask list, even one posted in the 8 to 12 minutes between a Sprite lane's spawn and its join. The seed still commits once. v0.52.1 (00:23Z) carries neither #470 nor #472, so they ship together in the next cut."
+INBOX_NUMBER_PR = {"gh pr view 470": f"{DASHBOARD}/app/chat.js\n", "gh pr view 472": f"{DASHBOARD}/app/chat.js\n"}
 SAND_RELEASED = "bug-regressions-2 fix for #984, per bugs-comms 504796: #50515 is live in Sand 0.162.3525 (release 13367, 2:11 PM), not pending. Both halves of one writer per chat are on Macs; pick 435401 stays closed."
 GO_LANE = "go-cli-fix-1"
 
@@ -58,7 +60,9 @@ def touches_dashboard(evt: BaseHookEvent, post: Post) -> bool:
     if DASHBOARD in post.text:
         return True
     replied = {found["number"] for ref in post.replies_to if (found := REPLIED_RECORD.fullmatch(ref))}
-    for number in dict.fromkeys(found["number"] for found in PR.finditer(post.text) if found["repo"].lower() in CC_SKILLS and (found["repo"] or found["number"] not in replied)):
+    named = list(PR.finditer(post.text))
+    elsewhere = any("/" in found["repo"] and found["repo"].lower() not in CC_SKILLS for found in named)
+    for number in dict.fromkeys(found["number"] for found in named if found["repo"].lower() in CC_SKILLS and (found["repo"] or not (elsewhere or found["number"] in replied))):
         files = read(evt, "gh", "pr", "view", number, "-R", "yasyf/cc-skills", "--json", "files", "--jq", ".files[].path")
         if files and files.returncode == 0 and DASHBOARD in files.stdout:
             return True
@@ -120,7 +124,9 @@ def unseen_claims(evt: BaseHookEvent) -> list[str]:
         post("Fixed the Chat tab in https://github.com/yasyf/cc-skills/pull/817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
         post("Fixed the Chat tab", lane=GO_LANE, pr="817", commands=SAME_NUMBER_PR): Block(),
         post("Fixed the Chat tab", lane=GO_LANE, pr="https://github.com/yasyf/cc-skills/pull/817", commands=SAME_NUMBER_PR): Block(),
-        post("yasyf/cc-context#900 is out and so is #817", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
+        post("yasyf/cc-context#900 is out and so is #817", lane=GO_LANE, commands=SAME_NUMBER_PR): Allow(),
+        Input(command=f"cci post --lane cci-mail-verb --drive durable-agents-rebuild --kind landed --to meta-desk,install-desk --pr yasyf/cc-inbox#472 --text \"{INBOX_LANDED}\" 2>&1 | tail -1", env={"CLAUDE_LONG_RUNNING_LANE": "cci-mail-verb"}, commands=INBOX_NUMBER_PR): Allow(),
+        post("Fixed the Chat tab in #817 and cc-context#900", lane=GO_LANE, commands=SAME_NUMBER_PR): Block(),
         Input(command=f"cci post --kind correction --re '#984@2e1ef26e' --to root \"{SAND_RELEASED}\" 2>&1 | tail -1", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Allow(),
         Input(command=f"cci post --kind correction --re '#983@2e1ef26e' --to root \"{SAND_RELEASED}\" 2>&1 | tail -1", env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Block(),
         Input(tool=POST_TOOL, tool_input={"lane": "bug-regressions-2", "kind": "correction", "re": "#984@2e1ef26e", "text": SAND_RELEASED}, env={"CLAUDE_LONG_RUNNING_LANE": "bug-regressions-2"}, commands=RECORD_NUMBER_PR): Allow(),
