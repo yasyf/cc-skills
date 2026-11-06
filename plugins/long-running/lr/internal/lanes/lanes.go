@@ -33,6 +33,8 @@ const (
 	mainLane        = "main"
 	CursorName      = "lanes"
 	launchKey       = "supervisor-launch:"
+	SpriteLimit     = "Maximum concurrent sprites limit"
+	spriteCapacity  = "sprite-capacity"
 	owedLaunch      = "launch-owed:"
 	hourCursor      = "lanes.hour"
 	orderSaidCursor = "lanes.order-said."
@@ -156,6 +158,7 @@ var (
 	workerEnded   = regexp.MustCompile(`^OUTCOME \S+ ([\w.-]+): worker_done \w+\b`)
 	launchRefused = regexp.MustCompile(`(?s)^(LAUNCH-FAILED|LAUNCH-DUPLICATE|LAUNCH-EXPIRED|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?R\d+(?:@\w+)? ([\w.-]+): (.*)`)
 	withdrawnWork = regexp.MustCompile(`^WITHDRAWN \S+ ([\w.-]+): by \S+; dispatch `)
+	launchStage   = regexp.MustCompile(`^STAGE R\d+(?:@\w+)? ([\w.-]+): `)
 	standDownList = regexp.MustCompile(`(?i)\bstand[ -]?down\s+([^.(;:\n]+)`)
 	laneWord      = regexp.MustCompile(`[\w.-]+`)
 	card          = regexp.MustCompile(`\bcard-[\w.-]*\w`)
@@ -770,7 +773,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if aliveNow && (peer != nil || lane.Heard.After(lane.Since)) {
 			return Verdict{Kind: CameUp}
 		}
-		if now.Sub(lane.Since) >= launchWindow {
+		if now.Sub(lane.Since) >= launchWindow && now.Sub(lane.Staged) >= StaleAfter {
 			return Verdict{NoShow, fmt.Sprintf("not live %d minutes after its launch", int(launchWindow.Minutes()))}
 		}
 		return Verdict{Kind: Ok}

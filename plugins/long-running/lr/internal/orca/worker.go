@@ -78,6 +78,7 @@ var (
 	briefTool        = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
 	geminiRoute      = regexp.MustCompile(`(?m)^([ \t>]*(?:[-*+] |\d+\. )?).*\bgemini -m\b.*$`)
 	toolsMissingLine = regexp.MustCompile(`(?m)^missing:(.*)$`)
+	spriteLimitLine  = regexp.MustCompile(`[^\n]*` + regexp.QuoteMeta(lanes.SpriteLimit) + `[^\n]*`)
 	modelAliases     = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
 )
 
@@ -685,6 +686,9 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 	}
 	if missing := toolsMissingLine.FindStringSubmatch(result.Stderr); code != 0 && missing != nil {
 		return nil, refuse("the Sprite has no %s, which the brief runs, so no worker started; %s keeps its output", strings.Join(strings.Fields(missing[1]), ", "), filepath.Join(w.attempt, "prepare.err"))
+	}
+	if limit := spriteLimitLine.FindString(result.Stderr); code != 0 && limit != "" {
+		return nil, refuse("the org is at its Sprite limit, so no Sprite started: %s; %s keeps its output", strings.TrimSpace(limit), filepath.Join(w.attempt, "prepare.err"))
 	}
 	if fault := installFault(result.Stderr); code != 0 && fault != "" {
 		return nil, refuse("the Sprite's %s, so no worker started; %s keeps its output", fault, filepath.Join(w.attempt, "prepare.err"))

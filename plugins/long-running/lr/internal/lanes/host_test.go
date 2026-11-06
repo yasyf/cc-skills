@@ -139,6 +139,13 @@ func coldOnSprite(t *testing.T, s *store.Store, f *fake, name string, woken Host
 	f.hosts = map[string]Host{name: woken}
 }
 
+func relaunchedOnSprite(t *testing.T, s *store.Store, name, predecessor, reason string) {
+	t.Helper()
+	if _, err := s.WantLane(store.Lane{Name: name, Brief: writeBrief(t), Model: "opus", Effort: "xhigh", Role: "lane", State: store.LaneDesired, Placement: placedOnSprite, Predecessor: predecessor, Reason: reason}, t0); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func lostReports(f *fake) []Post {
 	var out []Post
 	for _, p := range f.ofKind("report") {
@@ -199,8 +206,8 @@ func TestALaneHeardNeverWhoseSpriteWentColdIsReportedLostAndRelaunchedFromItsBri
 func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *testing.T) {
 	s := memory(t)
 	f := newFake(t, nil, nil)
-	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "has a Sprite sprite-conflicts-2 that was cold and, woken, answers Storage not ready"})
-	coldOnSprite(t, s, f, "conflicts-3", HostNoStorage)
+	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "stopped, quiet for 20 min"})
+	coldOnSprite(t, s, f, "conflicts-3", HostEmpty)
 
 	first := tick(t, s, f, t0)
 	tick(t, s, f, t0.Add(mins(1)))
@@ -209,7 +216,45 @@ func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *te
 	reports := lostReports(f)
 	equal(t, len(reports), 1)
 	equal(t, reports[0].To, []string{"meta-desk-3"})
-	contains(t, reports[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 has a Sprite sprite-conflicts-2")
+	contains(t, reports[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 stopped, quiet for 20 min")
+}
+
+func TestTheSandsqlShardingBuildLossesToItsDeadSpritesRelaunchOnAFreshSpriteAndNeverHold(t *testing.T) {
+	s := memory(t)
+	f := newFake(t, nil, nil)
+	relaunchedOnSprite(t, s, "sandsql-sharding-build-2", "sandsql-sharding-build-1", "has a Sprite host Orca has reported unavailable for 18 min")
+	coldOnSprite(t, s, f, "sandsql-sharding-build-2", HostNoStorage)
+
+	out := tick(t, s, f, t0)
+
+	why := "has a Sprite sprite-sandsql-sharding-build-2 that was cold and, woken, answers Storage not ready"
+	equal(t, []any{out.Held, out.Relaunched, f.launches}, []any{[]string(nil), []Relaunch{{"sandsql-sharding-build-2", "sandsql-sharding-build-3", why}}, []string{"sandsql-sharding-build-3"}})
+	reports := lostReports(f)
+	equal(t, len(reports), 1)
+	contains(t, reports[0].Text, "relaunched as sandsql-sharding-build-3 from its brief")
+}
+
+func TestALaneThatCameUpAndWentSilentAfterASpriteLossIsRelaunchedOnceThenHeld(t *testing.T) {
+	silent := "has a Sprite sprite-sandsql-sharding-build-2 that was cold and, woken, answers with no claude or codex running"
+	for name, c := range map[string]struct {
+		lane, predecessor, reason string
+		launches                  int
+		state                     store.LaneState
+	}{
+		"its first silence after a Sprite loss relaunches it": {"sandsql-sharding-build-2", "sandsql-sharding-build-1", "has a Sprite host Orca has reported unavailable for 18 min", 1, store.LaneRetired},
+		"a second silence after that relaunch holds its heir": {"sandsql-sharding-build-3", "sandsql-sharding-build-2", silent, 0, store.LaneHeld},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := newFake(t, nil, nil)
+			relaunchedOnSprite(t, s, c.lane, c.predecessor, c.reason)
+			coldOnSprite(t, s, f, c.lane, HostEmpty)
+
+			tick(t, s, f, t0)
+
+			equal(t, []any{len(f.launches), row(t, s, c.lane).State}, []any{c.launches, c.state})
+		})
+	}
 }
 
 func TestAColdSpriteWhoseLaneStillRunsRelaunchesNothingAndIsLeftToSleep(t *testing.T) {
@@ -240,7 +285,11 @@ func TestAColdSpriteRelaunchesItsLaneOnceWhenWokenItRunsNoWorkerHasNoStorageOrNe
 			ticks := []time.Duration{0, goneAfter, goneAfter + mins(1)}
 			relaunched := make([]Relaunch, 0, len(ticks))
 			for _, at := range ticks {
-				relaunched = append(relaunched, tick(t, s, f, t0.Add(at)).Relaunched...)
+				for _, r := range tick(t, s, f, t0.Add(at)).Relaunched {
+					if r.Old == lane2 {
+						relaunched = append(relaunched, r)
+					}
+				}
 			}
 
 			var reports []string
@@ -249,7 +298,7 @@ func TestAColdSpriteRelaunchesItsLaneOnceWhenWokenItRunsNoWorkerHasNoStorageOrNe
 					reports = append(reports, p.Text)
 				}
 			}
-			equal(t, []any{relaunched, f.launches, len(reports)}, []any{[]Relaunch{{lane2, "conflicts-3", "has a Sprite sprite-conflicts-2 that was cold and, woken, " + read}}, []string{"conflicts-3"}, 1})
+			equal(t, []any{relaunched, f.launches[0], len(reports)}, []any{[]Relaunch{{lane2, "conflicts-3", "has a Sprite sprite-conflicts-2 that was cold and, woken, " + read}}, "conflicts-3", 1})
 		})
 	}
 }
