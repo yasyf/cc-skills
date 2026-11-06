@@ -35,8 +35,8 @@
   - Link every build, PR, deploy, alert, monitor, dashboard, run, commit, and doc as `<url|label>`. Format every PR and issue as `<url|#N>` and every person as `<@U…>`.
   - Use Pacific times without a timezone label.
   - Omit internal ids, drive inbox or ruling ids, lane/desk/cursor/register names, raw shas, ULIDs, run/browser/exec ids, status labels, and unglossed code nouns.
-- **Check every post before sending.** Write the draft to a temp file and run `check-post <tmpfile>`, or pipe the draft to `check-post -`, and fix every finding. The cc-slack plugin puts `check-post` on the PATH of every Mac session; it is a script, not a `cc-slack` subcommand. Then run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off` and fix real flags. Incident retro drafts also run `retro.py comms-check <tmpfile> --url <rendered-url>`.
-- **A Sprite lane's post is checked on the Mac.** A Sprite has no cc-slack, so its lane runs slop-cop on the draft and hands the text to `owner-relay`. `owner-relay` runs `check-post` on it before posting and returns any finding to the lane instead of posting.
+- **Check every post before sending.** Write the draft to a temp file and run `cc-slack check-post <tmpfile>`, or pipe the draft to `cc-slack check-post -`, and fix every finding. It runs the newest installed cc-slack plugin's checker; a bare `check-post` can be missing from a session that started before the plugin version that shipped it. Then run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off` and fix real flags. Incident retro drafts also run `retro.py comms-check <tmpfile> --url <rendered-url>`.
+- **A Sprite lane's post is checked on the Mac.** A Sprite has no cc-slack, so its lane runs slop-cop on the draft and hands the text to `owner-relay`. `owner-relay` runs `cc-slack check-post` on it before posting and returns any finding to the lane instead of posting.
 
 ## Permission and grants
 

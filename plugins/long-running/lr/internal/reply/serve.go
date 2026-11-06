@@ -86,7 +86,7 @@ func Tool(a *app.App) channel.Tool {
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
 			"- by and routed need order, no picks and status progress or info.\n" +
 			"- Picks drawn from a lane's ask or record? Pass its seq in ask, so a correction to it reaches you before he taps.\n" +
-			"- A pick that sends a message for him to someone else? Pass it in message, never in md; it must pass check-post or nothing draws, and his tap on it comes back as SEND, which you send yourself that turn.\n" +
+			"- A pick that sends a message for him to someone else? Pass it in message, never in md; it must pass cc-slack check-post or nothing draws, and his tap on it comes back as SEND, which you send yourself that turn.\n" +
 			"- Every open PR you name draws his Approve now, in CI or not; never tell him a button comes later.\n" +
 			"- Naming an open bug? Its fix PRs join prs by themselves; a line in the result names any it could not draw.\n" +
 			"- The first reply after he has been away an hour opens with the dashboard link on line one.",

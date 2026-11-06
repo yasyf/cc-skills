@@ -17,7 +17,7 @@ func TestAMessageCardDrawsOnlyADraftCheckPostPassesAndShowsItAsItGoesOut(t *test
 	}
 
 	failing := &shelltest.Fake{}
-	failing.FailOut(1, "1:1 plain-name 'Hi Anubhav': address the person as a <@U…> mention\n", "check-post")
+	failing.FailOut(1, "1:1 plain-name 'Hi Anubhav': address the person as a <@U…> mention\n", "cc-slack", "check-post")
 	if _, err := fanout(t, failing).checkedMessage(ctx, r); err == nil || !strings.Contains(err.Error(), "DRAFT FAILS CHECK-POST") || !strings.Contains(err.Error(), "plain-name 'Hi Anubhav'") {
 		t.Fatalf("a draft check-post flags drew: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestAMessageCardDrawsOnlyADraftCheckPostPassesAndShowsItAsItGoesOut(t *test
 	}
 
 	passing := &shelltest.Fake{}
-	passing.Reply("", "check-post")
+	passing.Reply("", "cc-slack", "check-post")
 	good := r
 	good.Message = &Message{To: "U0ANUBHAV1", Text: text, Pick: "Send it :: sends it to him once"}
 	checked, err := fanout(t, passing).checkedMessage(ctx, good)
