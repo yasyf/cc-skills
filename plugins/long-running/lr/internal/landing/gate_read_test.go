@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,50 +33,63 @@ func TestAGateWhoseLrJSONIsMissingExitsNonZeroNamingTheFile(t *testing.T) {
 	}
 }
 
-func TestASpriteGateAsksTheMacsStoreDeskAndRefusesWithItsLines(t *testing.T) {
-	t.Setenv("CCI_HOME", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(lanes.LaneEnv, "lane-a")
-	state := t.TempDir()
-	for path, text := range map[string]string{
-		filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "long-running", "drives", "d.json"): `{"drive":"d","cci_drive":"d","state_dir":"` + state + `","sessions":["s"],"host":"` + drive.HostSprite + `"}`,
-		filepath.Join(state, "lr.json"):             `{"repo":"o/r","drive":"d","checkout":"/repo","author":"a","label":"l","movers":["lanes"]}`,
-		filepath.Join(state, storeFile+drive.OnMac): "",
+func TestASpriteGateAsksTheMacsStoreDeskByItsHostOrItsMarkerAndRefusesWithItsLines(t *testing.T) {
+	for name, sprite := range map[string]struct{ host, marker string }{
+		"host":   {host: drive.HostSprite},
+		"marker": {marker: storeFile + drive.OnMac},
 	} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	refusals := "#5 TAP-REQUIRED no approval on the owner's board at this head\n#4 is no open PR of this drive\n"
-	ctx, cancel := context.WithCancel(context.Background())
-	stopped := make(chan struct{})
-	go func() {
-		askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: askdesk.StoreReads(map[string]askdesk.Serve{gateRead: func(_ context.Context, args []string, out, _ io.Writer) error {
-			if got := strings.Join(args, " "); got != "5 --partial" {
-				return fmt.Errorf("the desk passed %q", got)
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			t.Setenv(lanes.LaneEnv, "lane-a")
+			state := t.TempDir()
+			files := map[string]string{
+				filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "long-running", "drives", "d.json"): `{"drive":"d","cci_drive":"d","state_dir":"` + state + `","sessions":["s"],"host":"` + sprite.host + `"}`,
+				filepath.Join(state, "lr.json"): `{"repo":"o/r","drive":"d","checkout":"/repo","author":"a","label":"l","movers":["lanes"]}`,
 			}
-			_, err := io.WriteString(out, refusals)
-			return err
-		}})}.Follow(ctx)
-		close(stopped)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		<-stopped
-	})
+			if sprite.marker != "" {
+				files[filepath.Join(state, sprite.marker)] = ""
+			}
+			for path, text := range files {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			refusals := "#5 TAP-REQUIRED no approval on the owner's board at this head\n#4 is no open PR of this drive\n"
+			ctx, cancel := context.WithCancel(context.Background())
+			stopped := make(chan struct{})
+			go func() {
+				askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: askdesk.StoreReads(map[string]askdesk.Serve{gateRead: func(_ context.Context, args []string, out, _ io.Writer) error {
+					if got := strings.Join(args, " "); got != "5 --partial" {
+						return fmt.Errorf("the desk passed %q", got)
+					}
+					_, err := io.WriteString(out, refusals)
+					return err
+				}})}.Follow(ctx)
+				close(stopped)
+			}()
+			t.Cleanup(func() {
+				cancel()
+				<-stopped
+			})
 
-	var errs, out bytes.Buffer
-	a := app.New(&errs)
-	a.ConfigPath = filepath.Join(state, "lr.json")
-	err := runGate(context.Background(), a, []string{"5"}, true, false, &out)
-	var exit *wait.ExitError
-	if !errors.As(err, &exit) || exit.Code != 1 {
-		t.Fatalf("got %v and stderr %q, want exit 1", err, errs.String())
-	}
-	if out.String() != refusals {
-		t.Fatalf("printed %q, want the Mac's %q", out.String(), refusals)
+			var errs, out bytes.Buffer
+			a := app.New(&errs)
+			a.ConfigPath = filepath.Join(state, "lr.json")
+			err := runGate(context.Background(), a, []string{"5"}, true, false, &out)
+			var exit *wait.ExitError
+			if !errors.As(err, &exit) || exit.Code != 1 {
+				t.Fatalf("got %v and stderr %q, want exit 1", err, errs.String())
+			}
+			if out.String() != refusals {
+				t.Fatalf("printed %q, want the Mac's %q", out.String(), refusals)
+			}
+			if _, err := os.Stat(filepath.Join(state, storeFile)); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("the gate left a store on the Sprite: %v", err)
+			}
+		})
 	}
 }

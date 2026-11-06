@@ -134,6 +134,9 @@ func gateLines(ctx context.Context, a *app.App, args []string, partial, direct b
 	if err != nil {
 		return nil, err
 	}
+	if entry, err := drive.Named(cfg.Drive); err == nil && entry.OnSprite() {
+		return nil, drive.ErrOnMac
+	}
 	dir := filepath.Dir(a.ConfigPath)
 	s, err := store.Open(filepath.Join(dir, storeFile))
 	if err != nil {
