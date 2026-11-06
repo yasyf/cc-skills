@@ -62,17 +62,19 @@ var (
 		`|` + waiter + `(?: is [^.;\n]{0,40}? and)? goes live (?:only )?(?:(?:one |a )?release after|in a release after|after|once|until)\b` +
 		`|` + waiter + ` waits (?:on|for) (?:a |an |the |his |that |its |the owner's )?(?:[\w-]+ )?(?:card|tap|pick|release|hold|go|ruling|decision|cutover)\b` +
 		`)[^.\n]*)`)
-	deniedWait = regexp.MustCompile(`(?i)\bwaits (?:on|for) no\b`)
-	safeOnDev  = regexp.MustCompile(`(?i)\b(?:feature flag|flag(?:ged)? (?:off|behind)|behind a (?:flag|gate)|code gate|gated (?:by|behind|on)|inert|nothing (?:calls|runs|reads|uses)\b[^.\n]*\b(?:yet|until #\d+))`)
+	deniedWait    = regexp.MustCompile(`(?i)\bwaits (?:on|for) no\b`)
+	safeOnDev     = regexp.MustCompile(`(?i)\b(?:feature flag|flag(?:ged)? (?:off|behind)|behind a (?:flag|gate)|code gate|gated (?:by|behind|on)|inert|nothing (?:calls|runs|reads|uses)\b[^.\n]*\b(?:yet|until #\d+))`)
+	designSection = regexp.MustCompile(`(?ims)^#{1,3}[ \t]+design[ \t]*$.*?(^#{1,3}[ \t]|\z)`)
 )
 
 const waiter = `(?:this|it)(?: pr| stack| change| deletion| removal| drop)?`
 
 func UnsafeWait(body string) string {
-	if safeOnDev.MatchString(body) {
+	own := designSection.ReplaceAllString(body, "$1")
+	if safeOnDev.MatchString(own) {
 		return ""
 	}
-	for _, wait := range waitsLive.FindAllStringSubmatch(body, -1) {
+	for _, wait := range waitsLive.FindAllStringSubmatch(own, -1) {
 		if !deniedWait.MatchString(wait[1]) {
 			return strings.Trim(wait[1], " *")
 		}

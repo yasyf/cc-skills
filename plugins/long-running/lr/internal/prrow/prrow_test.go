@@ -1119,7 +1119,7 @@ func TestAPlanLineIsAnyFormALaneWritesItIn(t *testing.T) {
 
 func TestTheBodyParserReadsEachField(t *testing.T) {
 	var row store.ReviewRow
-	ApplyBody(&row, "## Context\n\nWhy.\n\n## Summary\n\nFor a user.\n\n## Risk profile\n\nNone.\n\n## Design\n\nRow 12 of plan step 3 applies.\n\nThis goes live only after #1 is live.\n")
+	ApplyBody(&row, "## Context\n\nWhy.\n\n## Summary\n\nFor a user.\n\n## Risk profile\n\nNone.\n\n## Design\n\nRow 12 of plan step 3 applies.\n\n## Changes\n\nThis goes live only after #1 is live.\n")
 	if row.ForUsers != "For a user." || row.Risk != "None." || row.PlanLine != "Row 12 of plan step 3 applies." || !strings.HasPrefix(row.Description, "## Context") {
 		t.Fatalf("row = %+v", row)
 	}
