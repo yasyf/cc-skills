@@ -106,3 +106,18 @@ func TestTheStoreDeskRefusesAReadItDoesNotServeAndNamesTheOnesItDoes(t *testing.
 		}
 	}
 }
+
+func TestAnEmptyReadAnswersWithNoBodyFileSoASpritePrintsNothing(t *testing.T) {
+	servedDesk(t, map[string]askdesk.Serve{queueRead: func(context.Context, []string, io.Writer, io.Writer) error { return nil }})
+	var out strings.Builder
+	if err := askdesk.AskMac(context.Background(), &countedCCI{}, testDrive, spriteLane, queueQuery{grader: "fidelity", owed: true}.ask(), &out); err != nil || out.Len() != 0 {
+		t.Fatalf("err %v printed %q, want an empty queue printed as nothing", err, out.String())
+	}
+	answers, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{askdesk.AnswerKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(answers) != 1 || answers[0].Refs.Path != "" {
+		t.Fatalf("answers %+v, want one answer naming no body file, which the relay drops when empty and a Sprite then cannot read", answers)
+	}
+}
