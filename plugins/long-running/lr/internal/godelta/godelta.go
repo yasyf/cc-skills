@@ -24,6 +24,7 @@ import (
 const (
 	generatedPackage = "/sandsql/component"
 	undefined        = "undefined: "
+	newerGoList      = "This application uses version go1."
 	loadMode         = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo
 )
 
@@ -174,7 +175,7 @@ func (r *Result) add(top string, pkg *packages.Package) {
 		}
 	}
 	for _, err := range pkg.Errors {
-		if err.Kind == packages.TypeError || err.Kind == packages.ListError && strings.HasPrefix(err.Msg, "# ") {
+		if err.Kind == packages.TypeError || err.Kind == packages.ListError && strings.HasPrefix(err.Msg, "# ") || err.Kind == packages.UnknownError && strings.HasPrefix(err.Msg, newerGoList) {
 			continue
 		}
 		at := strings.TrimPrefix(err.Pos, top+string(filepath.Separator))

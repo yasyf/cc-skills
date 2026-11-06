@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 )
 
 func check(t *testing.T, dirs ...string) Result {
@@ -30,6 +32,18 @@ func TestARealTypeErrorInATouchedFileIsReported(t *testing.T) {
 	result := check(t, "broken")
 	if len(result.Findings) != 1 || !strings.HasPrefix(result.Findings[0].At, "broken/broken.go:10:") || !strings.Contains(result.Findings[0].Message, `"three"`) {
 		t.Fatalf("findings %v; want the string returned as an int at broken/broken.go:10", result.Findings)
+	}
+}
+
+func TestANewerGoListAdvisoryOnAPackageWithOnlyGeneratedErrorsIsNotAFinding(t *testing.T) {
+	result := Result{seen: map[Finding]bool{}}
+	result.add("/repo", &packages.Package{PkgPath: "sand/next/internal/vm/builtins/tablepkg", Errors: []packages.Error{{
+		Pos:  "-",
+		Msg:  "This application uses version go1.26 of the source-processing packages but runs version go1.27 of 'go list'. It may fail to process source files that rely on newer language features. If so, rebuild the application using a newer version of Go.",
+		Kind: packages.UnknownError,
+	}}})
+	if len(result.Findings) != 0 {
+		t.Fatalf("findings %v; want none", result.Findings)
 	}
 }
 
