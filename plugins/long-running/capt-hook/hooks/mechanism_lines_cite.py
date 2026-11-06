@@ -46,7 +46,7 @@ UNSEARCHED = (
     " Run `cci grep --drive <drive> -- <its terms>` now; if it finds the answer, send him a correction at once."
 )
 SILENT = re.compile(
-    r"\b(?:(?:is|are|was|were|went|gone|goes|been|stays?|stayed|still|running) (?:quiet|late)|(?<!not )(?<!never )silent|posted nothing|(?<!you )(?:has|have|had)(?:n't| not)(?: yet)? (?:answered|replied|posted)|no (?:answer|reply|word) (?:yet )?from)\b",
+    r"\b(?:(?:is|are|was|were|went|gone|goes|been|still|running) (?:quiet|late|silent)|silent (?:lanes?|since|for)|posted nothing|(?<!you )(?:has|have|had)(?:n't| not)(?: yet)? (?:answered|replied|posted)|no (?:answer|reply|word) (?:yet )?from)\b",
     re.IGNORECASE,
 )
 LANE_NAMED = re.compile(r"\blanes?\b|\b[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b")
@@ -204,6 +204,9 @@ def recorded(to: str, text: str) -> Input:
         replied("ask-lane-21 is not silent; it answered at 4:52 PM."): Allow(),
         replied("ask-lane-21 has not reported any errors."): Allow(),
         replied("ask-lane-21 posted **nothing** in 10 minutes."): Warn(pattern=r"posted \*\*nothing\*\*"),
+        replied("ask-lane-22 has been silent for 10 minutes."): Warn(pattern=r"ask-lane-22 has been silent"),
+        replied("The ship --amend body refusal on a Sprite is relay-link-read's hook fix: it stays silent on --amend and on a branch that already has an open PR."): Allow(),
+        replied("The read check stays quiet on a thread the owner wrote in, so owner-relay reads it inline."): Allow(),
         Input(command=COORDINATOR_POST, state=[CompactionState(active=True, coordinator=True)], env=DRIVE_CONFIG): Warn(pattern=r"ask-lane-21 is late"),
         Input(command=COORDINATOR_POST, state=[CompactionState(active=True, coordinator=True)], env=DRIVE_CONFIG, transcript=[T.user("where is it?"), *ROOT_MAIL]): Allow(),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": "tap-rows went quiet an hour ago."}, env=DRIVE_CONFIG): Warn(),
