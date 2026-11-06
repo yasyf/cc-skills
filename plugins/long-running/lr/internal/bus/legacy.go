@@ -47,6 +47,8 @@ var (
 	quotedSpan     = regexp.MustCompile("`[^`\\n]*`|\"[^\"\\n]*\"|“[^”]*”")
 	overrideNamed  = regexp.MustCompile(`(?i)\b(?:finder|fidelity)-override\b[^.;\n]*`)
 	overrideForm   = regexp.MustCompile(`(?i)^(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b(?:\s*(?::|\s(?:finder|fidelity)\s)\s*#?(\d+(?:@[0-9a-f]+)?)\b)?`)
+	voidNamed      = regexp.MustCompile(`(?i)\b(?:finder|fidelity)-void\b[^.;\n]*`)
+	voidForm       = regexp.MustCompile(`(?i)^(finder|fidelity)-void\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{40})\b\s*:\s*#?\d+\b`)
 	clauseStart    = regexp.MustCompile(`(?m)(?:^|[.!?]\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?(?:(?:root|main):\s+)?$`)
 	goPair         = `#\d+\s+at\s+[0-9a-f]{7,40}\b`
 	goClause       = regexp.MustCompile(`(?i)(?:^\s*(?:\d{1,2}:\d{2}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+(?:port|test-only|ci-only))?|merge)\s+(` + goPair + `(?:(?:\s*,\s*|\s*,?\s+and\s+)` + goPair + `)*)`)
@@ -131,7 +133,7 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	case !delegated(record.Lane, goAuthors(goLanes)):
 		return nil
 	}
-	out := overrideFacts(CountedOverrides(record))
+	out := append(overrideFacts(CountedOverrides(record)), voidFacts(record)...)
 	class := record.Fields.Attrs[ExemptClassAttr]
 	if class == "" || !isGo(record) {
 		return out
@@ -302,6 +304,26 @@ func overridesIn(text string) []Override {
 			continue
 		}
 		out = append(out, Override{strings.ToLower(form[1]), pr, strings.ToLower(form[3]), form[4]})
+	}
+	return out
+}
+
+func voidFacts(record client.Record) []Fact {
+	if string(record.Kind) != "decide" || record.Lane != rootLane && record.Lane != SweepLane {
+		return nil
+	}
+	text := FullText(record)
+	var out []Fact
+	for _, span := range voidNamed.FindAllStringIndex(text, -1) {
+		form := voidForm.FindStringSubmatch(text[span[0]:span[1]])
+		if form == nil || !clauseStart.MatchString(text[:span[0]]) {
+			continue
+		}
+		pr, err := strconv.Atoi(form[2])
+		if err != nil {
+			continue
+		}
+		out = append(out, Fact{pr, strings.ToLower(form[3]), machine.VoidFact(strings.ToLower(form[1])), strconv.FormatInt(record.Seq, 10)})
 	}
 	return out
 }

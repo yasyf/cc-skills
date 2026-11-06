@@ -67,6 +67,7 @@ func (s Source) AtPushedHeads(ctx context.Context) (map[int]Pushed, error) {
 				merged[fact.Kind] = fact.Value
 			}
 		}
+		machine.DropVoided(merged)
 		if pushed.Facts, err = factsOfRow(s.Repo, row, merged); err != nil {
 			return nil, err
 		}

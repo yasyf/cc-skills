@@ -595,6 +595,12 @@ func (s Source) putFacts(facts []bus.Fact, at time.Time) error {
 		if _, err := s.Store.PutFact(s.Repo, fact.PR, fact.Head, fact.Kind, fact.Value, at); err != nil {
 			return err
 		}
+		if fact.Kind != "finder" && fact.Kind != "fidelity" {
+			continue
+		}
+		if err := s.Store.DeleteFactAtHead(s.Repo, fact.PR, fact.Head, machine.VoidFact(fact.Kind)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1527,10 +1533,23 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 	f.TapRefused = stored[bus.TapRefusedFact]
 	f.Stuck = stored[bus.StuckFact]
 	f.FinderOverride, f.FidelityOverride = machine.OverridesOf(stored)
+	if f.FinderVoid, err = seqOrZero(stored[machine.VoidFact("finder")]); err != nil {
+		return fmt.Errorf("#%d finder void: %w", f.Number, err)
+	}
+	if f.FidelityVoid, err = seqOrZero(stored[machine.VoidFact("fidelity")]); err != nil {
+		return fmt.Errorf("#%d fidelity void: %w", f.Number, err)
+	}
 	f.Exempt = gates.TaplessClass(stored["exempt"])
 	f.Port = stored[gates.PortOfAttr] != ""
 	f.StandingWord, _ = gates.LandsOnWord(stored)
 	return nil
+}
+
+func seqOrZero(text string) (int64, error) {
+	if text == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(text, 10, 64)
 }
 
 func atoiOrZero(text string) (int, error) {
