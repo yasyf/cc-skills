@@ -15,7 +15,7 @@ from captain_hook import Allow, Annotated, BaseHookEvent, Event, FromSubagent, H
 from cc_transcript import UserEvent
 from captain_hook.util import reqenv
 
-from .compaction_handoff import Bound, CompactionState, drive_entry, failure_of, judged, post_blocker, register_context, register_of, rulings, script, script_module
+from .compaction_handoff import Bound, CompactionState, RegisterRead, drive_entry, failure_of, judged, post_blocker, register_context, register_of, rulings, script, script_module
 from .nudges import once_per_hour
 from .session_tree import Subagent, drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -257,9 +257,12 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not found.incident and not SLICE_HEADER.search(found.text):
         return evt.context(NO_SLICE.format(path=found.shown)) if once_per_hour(evt, [NO_SLICE]) else None
     try:
-        said, fresh = refreshed(evt, which, found)
+        current = not found.incident and (entry := drive_entry(evt)) is not None and RegisterRead(evt, entry).slice_current(found.text)
+        said, fresh = (FRESH, found.text) if current else refreshed(evt, which, found)
         if found.incident and not found.inline:
             found.brief.write_text(fresh)
+    except subprocess.TimeoutExpired:
+        return evt.context(STALE_SLICE.format(path=found.shown)) if once_per_hour(evt, [STALE_SLICE]) else None
     except UNREAD as failed:
         post_blocker(evt, f"slice_on_spawn: the register slice for {found.lane} did not read: {why(failed)}", key=f"slice-on-spawn:{found.lane}")
         return None

@@ -557,10 +557,14 @@ class RegisterRead(HookRead):
             self.remaining()
             repo = self.entry.get("checkout") or str(self.evt.cwd)
             program = reads.program_of(self.entry)
-            identity, rows = reads.load(self.run, self.lock, self.held, repo, program, Path(self.entry["state_dir"]), last=True)
+            identity, rows, _ = reads.load(self.run, self.lock, self.held, repo, program, Path(self.entry["state_dir"]), last=True)
             result = reads.root_slice(program, identity, rows)
             self.remaining()
             return result
+
+    def slice_current(self, brief: str) -> bool:
+        reads = script_module("long_running.register_reads")
+        return reads.slice_current(self.run, self.entry.get("checkout") or str(self.evt.cwd), Path(self.entry["state_dir"]), brief)
 
 def queue_register(state: CompactionState, reader: RegisterRead) -> None:
     if register := reader.register():

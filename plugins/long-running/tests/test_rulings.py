@@ -17,6 +17,7 @@ from pathlib import Path
 from long_running import ledger
 import pytest
 from long_running import ghdiff
+from long_running import register_reads
 from long_running import rulings
 import judge_watch
 from conftest import gateway
@@ -1952,6 +1953,29 @@ def test_refresh_fills_a_bare_slice_line_and_rewrites_only_a_stale_slice(home: P
     assert second.count("Register slice:") == 1
     assert second.count("slice-hash:") == 1
     assert "> Cards quote the words they ask about, verbatim." in second.splitlines()
+
+
+def test_a_refreshed_lane_slice_reads_current_until_the_register_or_the_plan_moves_and_a_codex_slice_never_does(home: Path, package: Path, state: Path, capsys) -> None:
+    briefs = state / "briefs"
+    briefs.mkdir()
+    brief, codex = briefs / "lane-a.md", briefs / "sweep-1.md"
+    brief.write_text("Brief for lane-a.\nRegister slice: lane=lane-a step=1.9\n")
+    codex.write_text("Sweep the callers.\nRegister slice: lane=sweep-1 step=2 codex=yes\n")
+    shell = RegisterShell(seeded(package))
+    for path in (brief, codex):
+        ran(capsys, shell, "slice", "--refresh", str(path))
+
+    def current(path: Path) -> bool:
+        return register_reads.slice_current(shell.run, REPO, state, path.read_text())
+
+    assert current(brief)
+    assert not current(codex)
+    shell.rows["rule/ccccccc"]["words"] = "Cards quote the words they ask about, verbatim."
+    assert not current(brief)
+    ran(capsys, shell, "slice", "--refresh", str(brief))
+    assert current(brief)
+    (package / "plan" / "plan.md").write_text(PLAN + "\n")
+    assert not current(brief)
 
 
 OLD_CHAT_ANSWERS = [
