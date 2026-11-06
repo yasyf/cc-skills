@@ -13,6 +13,7 @@ Load the version-matched guides first: `orca skills get orca-cli` and `orca skil
 - [Keep Sprites current](#keep-sprites-current)
 - [Keep a Sprite awake while its agent runs](#keep-a-sprite-awake-while-its-agent-runs)
 - [Read Buildkite from a Sprite](#read-buildkite-from-a-sprite)
+- [Reach GitHub and Slack from a Sprite](#reach-github-and-slack-from-a-sprite)
 - [Read the merge queue from a Sprite](#read-the-merge-queue-from-a-sprite)
 - [Prepare and attach separately](#prepare-and-attach-separately)
 - [Keep one Run owner and one inbox consumer](#keep-one-run-owner-and-one-inbox-consumer)
@@ -299,6 +300,13 @@ The same service carries the lane's work off the box, so a Sprite the provider l
 - `cci post` cannot carry these off the box when it matters, because cci's store is on home and hangs with it. The supervisor reads the file instead: its `LANE-LOST` for a stopped Sprite states the last sample before the stop and any kernel error, from one `sprite exec`.
 - The file keeps about 2 hours. A failed read writes no line, warns, and leaves the hold running.
 - To tell which went first, compare the last line naming an agent with the last line of the kernel's uptime: an agent gone while uptime keeps climbing means the agent died before the box.
+
+## Reach GitHub and Slack from a Sprite
+
+- **GitHub** is `gh`. Each worker's environment holds `GH_TOKEN` (cc-remote's `keys.github`), so `gh api` and `gh pr` work with no stored login; `gh auth status` prints "not logged in" because nothing is stored, which is not a fault.
+- **Slack** has no tool on a Sprite. Claude-hosted connectors would carry the owner's claude.ai sign-in onto the box, which his identity rule forbids, so no Sprite gets the connector gateway and a lane never waits on one. A lane reads a thread through the cci records addressed to it, or asks root to read it, and sends Slack only by asking `owner-relay` over cci.
+- **Gemini** has no key on a Sprite either: Keychain items feed the keys a worker receives, and the only Gemini key on record is a CI test parameter, which must not be copied into one. A Sprite lane writes its own PR text and hands any long-form copy that would go to gemini-4-argon (docs, retros, Slack copy) as facts to `owner-relay` or a Mac lane, which runs `gemini` on the Mac.
+- The launch spec says this to each new worker in place of "Slack stays off."
 
 ## Read the merge queue from a Sprite
 

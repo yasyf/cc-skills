@@ -48,18 +48,27 @@ func opened(a *app.App) (*store.Store, config.Config, error) {
 	return s, cfg, err
 }
 
-func requestScope(a *app.App) (*store.Store, config.Config, error) {
+func sessionScope(a *app.App) (config.Config, string, error) {
 	named := a.ConfigPath != ""
-	s, cfg, err := opened(a)
+	cfg, state, err := Loaded(a)
 	if named || !errors.Is(err, fs.ErrNotExist) {
-		return s, cfg, err
+		return cfg, state, err
 	}
 	entry, err := drive.Session()
+	return config.Config{Drive: entry.Drive, Repo: entry.Repo}, "", err
+}
+
+func requestScope(a *app.App) (*store.Store, config.Config, error) {
+	cfg, state, err := sessionScope(a)
 	if err != nil {
 		return nil, cfg, err
 	}
-	s, err = store.Memory()
-	return s, config.Config{Drive: entry.Drive}, err
+	if state == "" {
+		s, err := store.Memory()
+		return s, cfg, err
+	}
+	s, err := store.Open(filepath.Join(state, StoreFile))
+	return s, cfg, err
 }
 
 func Command(a *app.App) *cobra.Command {

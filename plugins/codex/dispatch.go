@@ -17,6 +17,13 @@ import (
 	"github.com/yasyf/cc-interact/procs"
 )
 
+func requireCredential() {
+	if os.Getenv("CODEX_API_KEY") != "" || exec.Command("codex", "login", "status").Run() == nil {
+		return
+	}
+	die("codex-ask: no codex credential: codex login status says Not logged in and neither OPENAI_API_KEY nor CODEX_API_KEY is set; nothing was started", 3)
+}
+
 func askMode(args []string) {
 	model := modelSol
 	effort := defaultEffort
@@ -134,6 +141,7 @@ loop:
 	if len(rest) > 1 {
 		usage()
 	}
+	requireCredential()
 	if owner != "" && !dispatch {
 		die("codex-ask: --owner requires --dispatch", 2)
 	}
