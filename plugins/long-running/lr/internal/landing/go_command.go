@@ -122,7 +122,7 @@ type headRead struct {
 }
 
 func (g goGate) readHead(ctx context.Context, number int, head string, before int64) (headRead, error) {
-	records, err := client.Tail(ctx, client.Query{Drive: g.cfg.Drive, PR: fmt.Sprintf("%s#%d", g.cfg.Repo, number)})
+	records, err := bus.PRRecords(ctx, g.cfg.Drive, g.cfg.Repo, number)
 	if err != nil {
 		return headRead{}, err
 	}
@@ -553,6 +553,9 @@ func namedSince(ctx context.Context, s *store.Store, cfg config.Config, now time
 			if pr.Repo == "" || strings.EqualFold(pr.Repo, cfg.Repo) {
 				named[pr.Number] = true
 			}
+		}
+		for _, override := range bus.CountedOverrides(record) {
+			named[override.PR] = true
 		}
 	}
 	return named, records, after, nil
