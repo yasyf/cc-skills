@@ -3,10 +3,12 @@ package landing
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -44,6 +46,10 @@ const (
 	trunkReadLimit  = 5 * time.Minute
 	flakyNoticeRead = "20"
 	failedJobReads  = 3
+	redAttr         = "dev-red"
+	ownerAttr       = "owner"
+	jobAttr         = "job:"
+	testAttr        = "test:"
 	trunkQuery      = `query($owner: String!, $name: String!, $tip: String!) { repository(owner: $owner, name: $name) { object(expression: $tip) { ... on Commit { history(first: 50) { nodes { oid committedDate message status { contexts { context state targetUrl } } } } } } } }`
 )
 
@@ -58,6 +64,7 @@ var (
 	logControl  = regexp.MustCompile("\x1b(?:_[^\x07]*\x07|\\[[0-9;]*[A-Za-z])|\r")
 	flakyNotice = regexp.MustCompile("> failed (?:`([^`]+)`.*? )?on <(https://buildkite\\.com/[^|>]+)\\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told")
 	testName    = regexp.MustCompile(`^(?:Test\w+|\w+(?:::\w+)+)$`)
+	redSlug     = regexp.MustCompile(`^` + trunkTopic + `-[0-9a-f]+\b`)
 	infraLine   = regexp.MustCompile(`(?im)^.*(?:API rate limit exceeded|secondary rate limit|quota exceeded|\b403\b.*\b(?:rate limit|quota|Forbidden)\b|\b429 Too Many Requests|no space left on device).*$`)
 	dataFile    = []string{".json", ".md", ".txt", ".yaml", ".yml"}
 	finished    = []string{stateSuccess, "FAILURE", "ERROR"}
@@ -87,6 +94,8 @@ type TrunkWatch struct {
 	builds  map[string]*trunkBuild
 	token   bkread.Token
 	redSaid string
+	filed   string
+	settled time.Time
 	calm    bool
 }
 
@@ -396,9 +405,9 @@ func (w *TrunkWatch) flake(ctx context.Context, oid, red, green string) error {
 	}
 	found := flakeFound{job: jobs[0].step()}
 	for _, job := range jobs {
-		test, infra := w.failure(ctx, red, job.ID)
-		if test != "" {
-			found = flakeFound{test: test, job: job.step()}
+		tests, infra := w.failure(ctx, red, job.ID)
+		if len(tests) > 0 {
+			found = flakeFound{test: tests[0], job: job.step()}
 			break
 		}
 		if infra != "" && found.infra == "" {
@@ -421,26 +430,30 @@ func (w *TrunkWatch) stopped(ctx context.Context, build, job string) (bool, erro
 	return read.SignalReason == agentStop, nil
 }
 
-func (w *TrunkWatch) failure(ctx context.Context, build, job string) (test, infra string) {
+func (w *TrunkWatch) failure(ctx context.Context, build, job string) (tests []string, infra string) {
 	out, err := w.bk(ctx, build, "/jobs/"+job+"/log")
 	if err != nil {
-		return "", ""
+		return nil, ""
 	}
 	var log struct {
 		Content string `json:"content"`
 	}
 	if json.Unmarshal([]byte(out), &log) != nil {
-		return "", ""
+		return nil, ""
 	}
 	content := logControl.ReplaceAllString(log.Content, "")
-	found := failedTest.FindStringSubmatch(content)
-	for _, group := range found[min(1, len(found)):] {
-		if group != "" {
-			return group, ""
+	for _, found := range failedTest.FindAllStringSubmatch(content, -1) {
+		for _, group := range found[1:] {
+			if group != "" && !slices.Contains(tests, group) {
+				tests = append(tests, group)
+			}
 		}
 	}
+	if len(tests) > 0 {
+		return tests, ""
+	}
 	line := strings.TrimSpace(infraLine.FindString(content))
-	return "", line[:min(200, len(line))]
+	return nil, line[:min(200, len(line))]
 }
 
 func (w TrunkWatch) FailedJob(ctx context.Context, url string) (job, test, infra string) {
@@ -461,8 +474,8 @@ func (w TrunkWatch) FailedJob(ctx context.Context, url string) (job, test, infra
 			break
 		}
 		named, line := w.failure(ctx, url, failed.ID)
-		if named != "" {
-			return failed.step(), named, ""
+		if len(named) > 0 {
+			return failed.step(), named[0], ""
 		}
 		if line != "" && infra == "" {
 			job, infra = failed.step(), line
@@ -720,15 +733,23 @@ func (w *TrunkWatch) reopenUnfixed(ctx context.Context) error {
 
 func (w *TrunkWatch) mergedPR(ctx context.Context, closer client.Record) (int, error) {
 	for _, pr := range closer.Refs.PRs {
-		out, err := w.CCX.GH(ctx, ccx.MaxAgeCached, "pr", "view", strconv.Itoa(pr.Number), "--repo", cmp.Or(pr.Repo, w.Repo), "--json", "mergedAt", "--jq", ".mergedAt")
+		at, err := w.mergedAt(ctx, pr.Repo, pr.Number)
 		if err != nil {
 			return 0, err
 		}
-		if strings.TrimSpace(out) != "" {
+		if !at.IsZero() {
 			return pr.Number, nil
 		}
 	}
 	return 0, nil
+}
+
+func (w *TrunkWatch) mergedAt(ctx context.Context, repo string, number int) (time.Time, error) {
+	out, err := w.CCX.GH(ctx, ccx.MaxAgeCached, "pr", "view", strconv.Itoa(number), "--repo", cmp.Or(repo, w.Repo), "--json", "mergedAt", "--jq", ".mergedAt")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return time.Time{}, err
+	}
+	return time.Parse(time.RFC3339, strings.TrimSpace(out))
 }
 
 func (w *TrunkWatch) superviseOpen(ctx context.Context) error {
@@ -780,6 +801,7 @@ func (w *TrunkWatch) superviseOpen(ctx context.Context) error {
 func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error {
 	var run []trunkCommit
 	var newest trunkContext
+	var tip trunkCommit
 	seen := false
 	for _, commit := range history {
 		status, found := commit.check(w.Config.Check)
@@ -787,7 +809,7 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 			continue
 		}
 		if !seen {
-			newest, seen = status, true
+			newest, tip, seen = status, commit, true
 		}
 		if status.State == stateSuccess {
 			break
@@ -798,13 +820,13 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 		return nil
 	}
 	if len(run) == 0 {
-		return w.reportGreen(ctx)
+		return w.reportGreen(ctx, tip.CommittedDate)
 	}
 	w.calm = false
 	first := run[len(run)-1]
 	bucket := int(w.Now().Sub(first.CommittedDate) / trunkRedEvery)
 	id := fmt.Sprintf("%s:%s:%d", trunkTopic, first.OID, bucket)
-	if id == w.redSaid {
+	if id == w.redSaid && newest.TargetURL == w.filed {
 		return nil
 	}
 	minutes := int(w.Now().Sub(first.CommittedDate).Minutes())
@@ -821,11 +843,12 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 	if err != nil {
 		return err
 	}
-	if fix == "" {
-		line := fmt.Sprintf("orca-desk: incident %s-%s %s :: %s's %s %s, %s; fix it", trunkTopic, first.OID[:min(10, len(first.OID))], newest.TargetURL, w.Trunk, w.Config.Check, failing, origin)
-		if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "go", To: []string{orcaDesk}, Topic: trunkTopic, ID: "fix-lane:" + id, Text: line}); err != nil {
-			return err
-		}
+	if err := w.fileRed(ctx, tip, newest.TargetURL, fix, fmt.Sprintf("%s's %s %s, %s; fix it", w.Trunk, w.Config.Check, failing, origin)); err != nil {
+		return err
+	}
+	w.filed = newest.TargetURL
+	if id == w.redSaid {
+		return nil
 	}
 	if blocking {
 		owed := "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`"
@@ -849,6 +872,208 @@ func (w *TrunkWatch) postRed(ctx context.Context, kind, id, text string) error {
 	}
 	w.redSaid = strings.TrimPrefix(id, "post-merge-red:")
 	return nil
+}
+
+type failingCase struct {
+	job, test string
+}
+
+func (c failingCase) String() string {
+	return strings.TrimSpace(c.job + " " + c.test)
+}
+
+func (c failingCase) covers(seen failingCase) bool {
+	return c.job == seen.job && (c.test == seen.test || seen.test == "")
+}
+
+type redIncident struct {
+	opener client.Record
+	slug   string
+	owner  string
+	cases  []failingCase
+}
+
+func (w *TrunkWatch) fileRed(ctx context.Context, red trunkCommit, url, fix, what string) error {
+	failing, read := w.cases(ctx, url)
+	if !read {
+		return nil
+	}
+	open, err := w.settleReds(ctx, red.CommittedDate)
+	if err != nil {
+		return err
+	}
+	joined := map[string][]failingCase{}
+	holders := map[string]redIncident{}
+	var fresh []failingCase
+	for _, failed := range failing {
+		at := slices.IndexFunc(open, func(incident redIncident) bool {
+			return slices.ContainsFunc(incident.cases, func(held failingCase) bool { return held.covers(failed) })
+		})
+		if at < 0 {
+			fresh = append(fresh, failed)
+			continue
+		}
+		joined[open[at].slug] = append(joined[open[at].slug], failed)
+		holders[open[at].slug] = open[at]
+	}
+	for _, slug := range slices.Sorted(maps.Keys(joined)) {
+		holder := holders[slug]
+		text := fmt.Sprintf("%s fails %s again, which %s holds since %s, so the build joins it: no new incident and no new lane.", url, caseNames(joined[slug]), slug, holder.opener.Name())
+		if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "note", To: []string{holder.owner}, Topic: trunkTopic, ID: "dev-red-join:" + slug + ":" + url, Re: holder.opener.Seq, Force: true, Text: text}); err != nil {
+			return err
+		}
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+	if fix != "" && len(open) == 0 {
+		number, err := strconv.Atoi(fix)
+		if err != nil {
+			return err
+		}
+		merged, err := w.mergedAt(ctx, "", number)
+		if err != nil || merged.IsZero() || merged.After(red.CommittedDate) {
+			return err
+		}
+	}
+	slug := trunkTopic + "-" + red.OID[:min(10, len(red.OID))]
+	attrs := map[string]string{redAttr: slug}
+	for i, failed := range fresh {
+		attrs[jobAttr+strconv.Itoa(i)] = failed.job
+		if failed.test != "" {
+			attrs[testAttr+strconv.Itoa(i)] = failed.test
+		}
+	}
+	key := url + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(caseNames(fresh))))[:12]
+	text := fmt.Sprintf("INCIDENT OPEN %s: %s fails %s. A later red build failing these cases joins %s; it closes when a PR named for it merges.", slug, url, caseNames(fresh), slug)
+	if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "incident", To: []string{rootLane}, Topic: trunkTopic, ID: "dev-red-open:" + key, Force: true, Attrs: attrs, Text: text}); err != nil {
+		return err
+	}
+	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "go", To: []string{orcaDesk}, Topic: trunkTopic, ID: "fix-lane:" + key, Text: fmt.Sprintf("%s: incident %s %s :: %s", orcaDesk, slug, url, what)})
+	return err
+}
+
+func (w *TrunkWatch) cases(ctx context.Context, url string) ([]failingCase, bool) {
+	build, err := w.build(ctx, url)
+	if err != nil {
+		return nil, false
+	}
+	var cases []failingCase
+	read := 0
+	for _, job := range build.Jobs {
+		if !job.failed() || job.SoftFailed {
+			continue
+		}
+		var tests []string
+		if read++; read <= failedJobReads {
+			tests, _ = w.failure(ctx, url, job.ID)
+		}
+		if len(tests) == 0 {
+			cases = append(cases, failingCase{job: job.step()})
+		}
+		for _, test := range tests {
+			cases = append(cases, failingCase{job.step(), test})
+		}
+	}
+	if len(cases) == 0 {
+		return []failingCase{{job: w.Config.Check}}, true
+	}
+	slices.SortFunc(cases, func(a, b failingCase) int { return strings.Compare(a.String(), b.String()) })
+	return slices.Compact(cases), true
+}
+
+func (w *TrunkWatch) settleReds(ctx context.Context, built time.Time) ([]redIncident, error) {
+	w.settled = w.Now()
+	opened, err := client.Open(ctx, w.Drive, "incident")
+	if err != nil {
+		return nil, err
+	}
+	opened = slices.DeleteFunc(opened, func(r client.Record) bool { return r.Lane != self || r.Fields.Attrs[redAttr] == "" })
+	if len(opened) == 0 {
+		return nil, nil
+	}
+	records, err := client.Tail(ctx, client.Query{Drive: w.Drive, Since: opened[0].At})
+	if err != nil {
+		return nil, err
+	}
+	owners := map[string]string{}
+	for _, record := range records {
+		owner := record.Fields.Attrs[ownerAttr]
+		if record.Lane == self || string(record.Kind) != "incident" || record.Topic != trunkTopic || !redSlug.MatchString(owner) {
+			continue
+		}
+		for _, to := range record.To {
+			if slug := redSlug.FindString(to); slug != "" {
+				owners[slug] = owner
+			}
+		}
+	}
+	var open []redIncident
+	for _, opener := range opened {
+		slug := opener.Fields.Attrs[redAttr]
+		owner, chain := slug+"-fix", []string{}
+		for at := slug; !slices.Contains(chain, at); at = redSlug.FindString(owner) {
+			chain = append(chain, at)
+			owner = cmp.Or(owners[at], owner)
+		}
+		fix, err := w.fixedBefore(ctx, records, opener.Seq, built, chain)
+		if err != nil {
+			return nil, err
+		}
+		if fix == 0 {
+			open = append(open, redIncident{opener: opener, slug: redSlug.FindString(owner), owner: owner, cases: openedCases(opener)})
+			continue
+		}
+		text := fmt.Sprintf("INCIDENT %s CLOSED: #%d merged as its fix, so a later red build failing its cases opens a new incident.", slug, fix)
+		if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "done", To: []string{rootLane}, Topic: trunkTopic, ID: "dev-red-fixed:" + strconv.FormatInt(opener.Seq, 10), Resolves: opener.Seq, Force: true, Text: text}); err != nil {
+			return nil, err
+		}
+	}
+	return open, nil
+}
+
+func (w *TrunkWatch) fixedBefore(ctx context.Context, records []client.Record, after int64, built time.Time, slugs []string) (int, error) {
+	checked := map[string]bool{}
+	for _, record := range records {
+		names := slices.Concat([]string{record.Lane, record.Topic, record.Fields.Attrs[ownerAttr]}, record.To)
+		if record.Seq <= after || record.Lane == self || record.Lane == deskRunnerLane || !slices.ContainsFunc(names, func(name string) bool { return slices.Contains(slugs, redSlug.FindString(name)) }) {
+			continue
+		}
+		for _, pr := range record.Refs.PRs {
+			key := cmp.Or(pr.Repo, w.Repo) + "#" + strconv.Itoa(pr.Number)
+			if checked[key] {
+				continue
+			}
+			checked[key] = true
+			at, err := w.mergedAt(ctx, pr.Repo, pr.Number)
+			if err != nil {
+				return 0, err
+			}
+			if !at.IsZero() && !at.After(built) {
+				return pr.Number, nil
+			}
+		}
+	}
+	return 0, nil
+}
+
+func openedCases(opener client.Record) []failingCase {
+	var cases []failingCase
+	for i := 0; ; i++ {
+		job, found := opener.Fields.Attrs[jobAttr+strconv.Itoa(i)]
+		if !found {
+			return cases
+		}
+		cases = append(cases, failingCase{job, opener.Fields.Attrs[testAttr+strconv.Itoa(i)]})
+	}
+}
+
+func caseNames(cases []failingCase) string {
+	names := make([]string, len(cases))
+	for i, failed := range cases {
+		names[i] = failed.String()
+	}
+	return strings.Join(names, ", ")
 }
 
 func (w *TrunkWatch) blocking(ctx context.Context, url string) ([]string, bool) {
@@ -914,7 +1139,12 @@ func (w *TrunkWatch) namedFix(ctx context.Context, since time.Time) (string, err
 	return fix, nil
 }
 
-func (w *TrunkWatch) reportGreen(ctx context.Context) error {
+func (w *TrunkWatch) reportGreen(ctx context.Context, built time.Time) error {
+	if w.Now().Sub(w.settled) >= trunkRedEvery {
+		if _, err := w.settleReds(ctx, built); err != nil {
+			return err
+		}
+	}
 	if w.calm {
 		return nil
 	}

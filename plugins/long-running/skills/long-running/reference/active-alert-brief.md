@@ -42,7 +42,7 @@ An `oncall` or `PAGE` record works like the owner's alert link: the coordinator 
 ### Who launches
 
 - An active alert gets its fix lane the same turn, without a coordinator: the supervisor launches the fix, evidence and comms lanes for an alert nobody answered in three minutes.
-- A red dev build launches the same way: the landing pass posts its `orca-desk: incident dev-red-<commit>` line beside `DEV-RED` or `POST-MERGE-RED`, unless a record on topic `dev-red` already names the fix PR.
+- A red dev build launches the same way: the landing pass posts its `orca-desk: incident dev-red-<commit>` line beside `DEV-RED` or `POST-MERGE-RED` for a failing test no open incident holds. A build failing only tests an open incident holds joins it with one note, and while no incident is open, a record on topic `dev-red` naming the fix PR keeps the line from going out.
 - When an alert reaches the coordinator first (a link the communicator relayed, an `#outage` report, a page, a runner `PAGE`, a failing release check, an `ALERT-UNOPENED` blocker), the coordinator runs `lr incident run <slug> --fix-brief <file>` before anything else.
 
 ### The incident and its records

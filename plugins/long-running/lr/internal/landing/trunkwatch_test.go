@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,15 @@ func bkReply(fake *shelltest.Fake, path, body string) {
 	fake.Reply(body, ciTool, "bk", "api", path)
 }
 
+func redLines(t *testing.T, kind string) []client.Record {
+	t.Helper()
+	return slices.DeleteFunc(trunkRecords(t, kind), opened)
+}
+
+func opened(record client.Record) bool {
+	return strings.HasPrefix(record.Text, "INCIDENT OPEN ")
+}
+
 func trunkRecords(t *testing.T, kind string) []client.Record {
 	t.Helper()
 	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{kind}})
@@ -98,7 +108,7 @@ func TestATrunkRetryThatPassesPostsOneFlakeNamingTheBuildCommitAndTest(t *testin
 		bkReply(fake, buildPath+"105354", failedRead)
 		bkReply(fake, "/pipelines/test/builds?per_page=30", `[]`)
 	})
-	if got := trunkRecords(t, "incident"); len(got) != 1 || !strings.HasPrefix(got[0].Text, "DEV-RED for 60 min: ") || !strings.Contains(got[0].Text, "fails go-test on "+redBuild) || !strings.Contains(got[0].Text, "landed by #48001") {
+	if got := redLines(t, "incident"); len(got) != 1 || !strings.HasPrefix(got[0].Text, "DEV-RED for 60 min: ") || !strings.Contains(got[0].Text, "fails go-test on "+redBuild) || !strings.Contains(got[0].Text, "landed by #48001") {
 		t.Fatalf("incidents = %+v", got)
 	}
 
@@ -121,7 +131,7 @@ func TestATrunkRetryThatPassesPostsOneFlakeNamingTheBuildCommitAndTest(t *testin
 		}
 	}
 	reports := trunkRecords(t, "report")
-	if want := fmt.Sprintf("DEV-GREEN dev's buildkite/test passes again; it was red from #%d.", trunkRecords(t, "incident")[0].Seq); len(reports) != 1 || reports[0].Text != want {
+	if want := fmt.Sprintf("DEV-GREEN dev's buildkite/test passes again; it was red from #%d.", redLines(t, "incident")[0].Seq); len(reports) != 1 || reports[0].Text != want {
 		t.Fatalf("reports = %+v, want %q", reports, want)
 	}
 }
@@ -165,7 +175,7 @@ func TestARedOnlyPostMergeJobsReadIsAReportAndLandingContinues(t *testing.T) {
 		bkReply(fake, "/pipelines/test/builds?per_page=30", `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"lint"}]}]`)
 	})
 
-	if got := trunkRecords(t, "incident"); len(got) != 0 {
+	if got := redLines(t, "incident"); len(got) != 0 {
 		t.Fatalf("incidents = %+v, want none", got)
 	}
 	got := trunkRecords(t, "report")
@@ -225,8 +235,8 @@ func TestEveryBuildReadInAPassCarriesOneReadOfTheToken(t *testing.T) {
 				}
 			}
 		}
-		if printed != 1 || built != 2 {
-			t.Fatalf("token read %d times for %d build reads, want 1 and 2", printed, built)
+		if printed != 1 || built != 3 {
+			t.Fatalf("token read %d times for %d build reads, want 1 and 3", printed, built)
 		}
 	}
 
@@ -287,8 +297,11 @@ func TestABuildkite401NamesItselfAndARedTrunkStillPostsThenTheComparisonCatchesU
 	if strings.Contains(err.Error(), "read-token") {
 		t.Fatalf("the error carries the token: %v", err)
 	}
-	if got := trunkRecords(t, "incident"); len(got) != 1 || !strings.HasPrefix(got[0].Text, "DEV-RED for ") {
+	if got := redLines(t, "incident"); len(got) != 1 || !strings.HasPrefix(got[0].Text, "DEV-RED for ") {
 		t.Fatalf("incidents = %+v, want the red trunk said despite the 401", got)
+	}
+	if got := trunkRecords(t, "go"); len(got) != 0 {
+		t.Fatalf("lines = %+v, want no incident opened from a build nobody could read", got)
 	}
 
 	f.pass(t, history, func(fake *shelltest.Fake) {
@@ -441,10 +454,12 @@ func TestARedTrunkAsksTheDeskForItsFixLaneOncePerRedAndNotOnceAFixIsNamed(t *tes
 		wantKind  string
 		wantLines int
 		named     bool
+		merged    string
 	}{
-		"a job PR builds run":       {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"go-test"}]}]`, wantKind: "incident", wantLines: 1},
-		"a job only trunk runs":     {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"lint"}]}]`, wantKind: "report", wantLines: 1},
-		"a fix PR is already named": {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"go-test"}]}]`, wantKind: "incident", named: true},
+		"a job PR builds run":                   {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"go-test"}]}]`, wantKind: "incident", wantLines: 1},
+		"a job only trunk runs":                 {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"lint"}]}]`, wantKind: "report", wantLines: 1},
+		"a fix PR is already named":             {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"go-test"}]}]`, wantKind: "incident", named: true, merged: "\n"},
+		"a named fix merged before the red run": {read: `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"go-test"}]}]`, wantKind: "incident", wantLines: 1, named: true, merged: "2026-10-30T19:00:00Z\n"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -457,11 +472,12 @@ func TestARedTrunkAsksTheDeskForItsFixLaneOncePerRedAndNotOnceAFixIsNamed(t *tes
 			read := func(fake *shelltest.Fake) {
 				bkReply(fake, buildPath+"105354", failedRead)
 				bkReply(fake, "/pipelines/test/builds?per_page=30", tc.read)
+				fake.Reply(tc.merged, "ccx", "vcs", "gh", "--max-age", "5m", "--", "pr", "view", "48001")
 			}
 			f.pass(t, trunkHistory(trunkCommit(trunkOID, "FAILURE", redBuild)), read)
 			f.pass(t, trunkHistory(trunkCommit(trunkOID, "FAILURE", redBuild)), read)
 
-			if said := trunkRecords(t, tc.wantKind); len(said) != 1 {
+			if said := redLines(t, tc.wantKind); len(said) != 1 {
 				t.Fatalf("%s records = %+v", tc.wantKind, said)
 			}
 			lines := trunkRecords(t, "go")
@@ -476,5 +492,96 @@ func TestARedTrunkAsksTheDeskForItsFixLaneOncePerRedAndNotOnceAFixIsNamed(t *tes
 				t.Fatalf("line = %+v, want %q", line, want)
 			}
 		})
+	}
+}
+
+const uploadFailed = `--- FAIL: TestUpload (0.1s)\n`
+
+func redOID(n int) string {
+	return fmt.Sprintf("%02d", n) + strings.Repeat("ab", 19)
+}
+
+func redSlug(n int) string {
+	return "dev-red-" + redOID(n)[:10]
+}
+
+func failingBuild(t *testing.T, f trunkFixture, n int, log string, more ...func(*shelltest.Fake)) {
+	t.Helper()
+	number := strconv.Itoa(105360 + n)
+	f.pass(t, trunkHistory(trunkCommit(redOID(n), "FAILURE", "https://buildkite.com/forge/test/builds/"+number)), func(fake *shelltest.Fake) {
+		bkReply(fake, buildPath+number, failedRead)
+		bkReply(fake, "/pipelines/test/builds?per_page=30", `[]`)
+		bkReply(fake, buildPath+number+"/jobs/job-1/log", `{"content":"`+log+`"}`)
+		for _, reply := range more {
+			reply(fake)
+		}
+	})
+}
+
+func TestRedBuildsFailingTheSameTestJoinOneIncidentAndANewTestOpensAnother(t *testing.T) {
+	f := newTrunkWatch(t)
+	for n := 1; n <= 3; n++ {
+		failingBuild(t, f, n, uploadFailed)
+	}
+
+	openers := slices.DeleteFunc(trunkRecords(t, "incident"), func(r client.Record) bool { return !opened(r) })
+	if lines := trunkRecords(t, "go"); len(openers) != 1 || len(lines) != 1 || !strings.HasPrefix(lines[0].Text, "orca-desk: incident "+redSlug(1)+" ") {
+		t.Fatalf("openers = %+v, lines = %+v, want one incident for TestUpload", openers, lines)
+	}
+	joins := trunkRecords(t, "note")
+	if len(joins) != 2 || joins[0].Re != openers[0].Seq || joins[0].To[0] != redSlug(1)+"-fix" || !strings.Contains(joins[1].Text, "go-test TestUpload again") {
+		t.Fatalf("joins = %+v, want one line per later build on %s", joins, openers[0].Name())
+	}
+
+	f.pass(t, trunkHistory(trunkCommit(redOID(4), "FAILURE", "https://buildkite.com/forge/test/builds/105364"), trunkCommit(redOID(3), "FAILURE", "https://buildkite.com/forge/test/builds/105363")), func(fake *shelltest.Fake) {
+		bkReply(fake, buildPath+"105364", failedRead)
+		bkReply(fake, buildPath+"105363", failedRead)
+		bkReply(fake, "/pipelines/test/builds?per_page=30", `[]`)
+		bkReply(fake, buildPath+"105364/jobs/job-1/log", `{"content":"--- FAIL: TestDownload (0.2s)\n"}`)
+	})
+
+	if lines := trunkRecords(t, "go"); len(lines) != 2 || !strings.HasPrefix(lines[1].Text, "orca-desk: incident "+redSlug(4)+" ") {
+		t.Fatalf("lines = %+v, want a second incident for TestDownload", lines)
+	}
+	if joins := trunkRecords(t, "note"); len(joins) != 2 {
+		t.Fatalf("joins = %+v, want the new test to join nothing", joins)
+	}
+}
+
+func TestARedBuildWhoseIncidentRootFoldedJoinsTheIncidentRootKept(t *testing.T) {
+	f := newTrunkWatch(t)
+	failingBuild(t, f, 1, uploadFailed)
+	kept := "dev-red-5a02b5902d"
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "incident", Topic: "dev-red", To: []string{redSlug(1) + "-fix", redSlug(1) + "-evidence", kept + "-fix"}, Force: true, Attrs: map[string]string{"owner": kept + "-fix"}, Text: redSlug(1) + " is the same failure as " + kept + "."}); err != nil {
+		t.Fatal(err)
+	}
+
+	failingBuild(t, f, 2, uploadFailed)
+
+	if lines := trunkRecords(t, "go"); len(lines) != 1 {
+		t.Fatalf("lines = %+v, want no lane for the folded failure", lines)
+	}
+	if joins := trunkRecords(t, "note"); len(joins) != 1 || joins[0].To[0] != kept+"-fix" || !strings.Contains(joins[0].Text, "which "+kept+" holds") {
+		t.Fatalf("joins = %+v, want one line to %s-fix", joins, kept)
+	}
+}
+
+func TestAFixMergedBeforeARedBuildClosesItsIncidentAndTheBuildOpensANewOne(t *testing.T) {
+	f := newTrunkWatch(t)
+	failingBuild(t, f, 1, uploadFailed)
+	first := slices.DeleteFunc(trunkRecords(t, "incident"), func(r client.Record) bool { return !opened(r) })[0]
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: redSlug(1) + "-fix", Kind: "report", Topic: redSlug(1), PRs: []string{"48100"}, Text: "the fix"}); err != nil {
+		t.Fatal(err)
+	}
+
+	failingBuild(t, f, 2, uploadFailed, func(fake *shelltest.Fake) {
+		fake.Reply("2026-10-30T19:00:00Z\n", "ccx", "vcs", "gh", "--max-age", "5m", "--", "pr", "view", "48100")
+	})
+
+	if closed := trunkRecords(t, "done"); len(closed) != 1 || closed[0].Resolves != first.Seq || !strings.Contains(closed[0].Text, "#48100 merged") {
+		t.Fatalf("closers = %+v, want %s closed by the merged fix", closed, first.Name())
+	}
+	if lines := trunkRecords(t, "go"); len(lines) != 2 || !strings.HasPrefix(lines[1].Text, "orca-desk: incident "+redSlug(2)+" ") {
+		t.Fatalf("lines = %+v, want a new incident once the fix did not hold", lines)
 	}
 }
