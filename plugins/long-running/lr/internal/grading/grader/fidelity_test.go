@@ -176,6 +176,7 @@ func fidelityDir(t *testing.T, changes map[string]any) string {
 		"exempt_grades": []string{portPhrase, testOnly},
 		"baseline":      baselineName,
 		"checkout":      "/srv/checkout",
+		"config":        launcherConfig(t),
 		"model":         "sol",
 		"fast":          true,
 	}
@@ -215,6 +216,20 @@ func TestASpriteFidelityReturnsItsGradeForCoordinatorPosting(t *testing.T) {
 		}
 		readText(t, directory, filepath.Base(post["--path"]))
 	}
+}
+
+func TestASpritePassWhoseHomeHoldsNoDriveEntryGradesFromTheEntryItsLauncherCarried(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"sprite": "grader-a", "grades": []any{}, "baseline": ""})
+	shell, _ := newFidelityFake(t, nil, fidelityReplyOf(nil))
+	if _, err := os.Stat(filepath.Join(shell.config, "long-running", "drives")); err == nil {
+		t.Fatal("the Sprite's home holds a drive entry")
+	}
+	deps := shell.deps()
+	deps.Post = nil
+	if err := Fidelity(context.Background(), directory, deps); err != nil {
+		t.Fatal(err)
+	}
+	holdsAll(t, readText(t, directory, ResultFile), `"verdict":"ok"`)
 }
 
 func TestARegradesGradeIsANewRecordBesideTheOneItReplaces(t *testing.T) {
