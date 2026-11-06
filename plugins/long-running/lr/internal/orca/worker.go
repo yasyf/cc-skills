@@ -82,6 +82,14 @@ var (
 	obsNamed         = regexp.MustCompile(`(?i)\b(?:sentry|datadog|oncall)\b`)
 	obsRouted        = regexp.MustCompile(`--to[ =]+` + regexp.QuoteMeta(obs.Lane) + `\b`)
 	obsRoles         = []string{"evidence", "diagnosis"}
+	helpFlag         = regexp.MustCompile(`^\s+(?:(-\w), )?(--[\w-]+)(?: (\w+))?`)
+	spriteVerbs      = []struct {
+		name  string
+		verbs [][]string
+	}{
+		{"ccx", [][]string{{"vcs", "ship"}, {"vcs", "worktree", "add"}, {"code", "read"}, {"code", "grep"}}},
+		{"cci", [][]string{{"post"}, {"show"}, {"grep"}, {"tail"}}},
+	}
 )
 
 type WorkerStarter struct {
@@ -476,8 +484,63 @@ func (w *workerLaunch) carryBrief() error {
 	if w.readsObs(string(raw)) {
 		rewritten += obsRoute(w.lane)
 	}
+	verbs, err := w.toolVerbs(rewritten)
+	if err != nil {
+		return err
+	}
 	w.brief = filepath.Join(w.attempt, briefFile)
-	return os.WriteFile(w.brief, []byte(rewritten), 0o600)
+	return os.WriteFile(w.brief, []byte(rewritten+verbs), 0o600)
+}
+
+func (w *workerLaunch) toolVerbs(brief string) (string, error) {
+	named := submatches(briefTool, brief)
+	var tools, lines []string
+	for _, tool := range spriteVerbs {
+		if !slices.Contains(named, tool.name) {
+			continue
+		}
+		tools = append(tools, tool.name)
+		for _, verb := range tool.verbs {
+			argv := slices.Concat([]string{tool.name}, verb, []string{"--help"})
+			help, said, code := w.capture(argv...)
+			line := verbLine(help)
+			if code != 0 || line == "" {
+				return "", refuse("`%s` exited %d without a Usage line: %s; nothing was prepared", strings.Join(argv, " "), code, strings.TrimSpace(said))
+			}
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("\n\n## %s flags\n\nThese verbs carry every flag they take, read from each tool's `--help` when lr built this brief. A flag missing from its line does not exist: run `<verb> --help` before trying another spelling.\n\n%s\n", strings.Join(tools, " and "), strings.Join(lines, "\n")), nil
+}
+
+func verbLine(help string) string {
+	_, usage, found := strings.Cut("\n"+help, "\nUsage:\n")
+	if !found {
+		return ""
+	}
+	usage, _, _ = strings.Cut(usage, "\n")
+	line := "- `" + strings.TrimSuffix(strings.TrimSpace(usage), " [flags]") + "`"
+	_, listed, _ := strings.Cut(help, "\nFlags:\n")
+	listed, _, _ = strings.Cut(listed, "\n\n")
+	var flags []string
+	for _, row := range strings.Split(listed, "\n") {
+		flag := helpFlag.FindStringSubmatch(row)
+		if flag == nil || flag[2] == "--help" {
+			continue
+		}
+		spelled := strings.TrimSpace(flag[2] + " " + flag[3])
+		if flag[1] != "" {
+			spelled = flag[1] + "/" + spelled
+		}
+		flags = append(flags, "`"+spelled+"`")
+	}
+	if len(flags) == 0 {
+		return line
+	}
+	return line + ": " + strings.Join(flags, ", ")
 }
 
 func (w *workerLaunch) readsObs(brief string) bool {
