@@ -755,9 +755,6 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, carried, by string
 	if err != nil {
 		return err
 	}
-	if unread != "" && !order.incidentLane(text) {
-		return failed(unread + ", and a lane never launches without its register slice")
-	}
 	if err := d.sliceUnread(key, order.Lane, unread); err != nil {
 		return err
 	}
@@ -854,8 +851,11 @@ func (d *Desk) refreshSlice(ctx context.Context, lane, brief, step, model string
 		return "", err
 	}
 	text := string(raw)
-	if !briefSlice.MatchString(text) {
+	switch at := briefSlice.FindStringIndex(text); {
+	case at == nil:
 		text = strings.TrimRight(text, " \t\r\n") + "\n\n" + sliceHeader(lane, step, nil, text) + "\n"
+	case !parsedSlice.MatchString(text):
+		text = text[:at[0]] + sliceHeader(lane, step, nil, text) + text[at[1]:]
 	}
 	if agent, _, _ := modelRoute(model); agent != agentClaude {
 		text = uncodexSlice.ReplaceAllString(text, "$1 codex=yes")

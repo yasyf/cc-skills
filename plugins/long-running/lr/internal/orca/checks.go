@@ -116,8 +116,12 @@ func (o Order) sliceStep(text string) string {
 }
 
 func (o Order) sliceWarning(text string) string {
-	if briefSlice.MatchString(text) || o.incidentLane(text) {
+	line := briefSlice.FindString(text)
+	switch {
+	case parsedSlice.MatchString(text), line == "" && o.incidentLane(text):
 		return ""
+	case line != "":
+		return fmt.Sprintf("brief %s has a `%s` line rulings.py cannot read: %s; %s launches with `%s` written in its place", o.Brief, sliceLine, line, o.Lane, sliceHeader(o.Lane, o.sliceStep(text), nil, text))
 	}
 	return fmt.Sprintf("brief %s has no `%s lane=<name> step=<n>` line; %s launches anyway with `step=%s` written for it, so name its plan step if it has one", o.Brief, sliceLine, o.Lane, stepAll)
 }
@@ -127,15 +131,19 @@ func sliceHeader(lane, step string, topics []string, text string) string {
 	if step == stepIncident {
 		return line
 	}
-	if len(topics) == 0 {
+	var named []string
+	for _, topic := range topics {
+		named = append(named, strings.Join(strings.Fields(topic), "-"))
+	}
+	if len(named) == 0 {
 		for word := range strings.SplitSeq(lane, "-") {
-			if strings.Trim(word, "0123456789") != "" && !slices.Contains(topics, word) {
-				topics = append(topics, word)
+			if strings.Trim(word, "0123456789") != "" && !slices.Contains(named, word) {
+				named = append(named, word)
 			}
 		}
 	}
-	if len(topics) > 0 {
-		line += " topics=" + strings.Join(topics, ",")
+	if len(named) > 0 {
+		line += " topics=" + strings.Join(named, ",")
 	}
 	var paths []string
 	for _, match := range repoPath.FindAllStringSubmatch(text, -1) {
@@ -160,9 +168,6 @@ func (o Order) launchFaults(text string, readable bool) []string {
 	}
 	if !readable {
 		return append(faults, "brief "+o.Brief+" is not a file")
-	}
-	if line := briefSlice.FindString(text); line != "" && !parsedSlice.MatchString(text) {
-		faults = append(faults, fmt.Sprintf("brief %s has a `%s` line rulings.py cannot read, so the lane would launch with no register slice: %s; write it as `%s lane=<name> step=<n>` with optional topics=, paths= and prs= lists, each comma-joined with no spaces", o.Brief, sliceLine, line, sliceLine))
 	}
 	faults = append(faults, o.costFaults(text)...)
 	if unneeded := o.unneededLocal(text); unneeded != "" {

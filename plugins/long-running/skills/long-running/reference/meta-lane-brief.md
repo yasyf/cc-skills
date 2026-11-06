@@ -63,7 +63,7 @@ any read: `cci subscribe --drive <drive> --reader meta`.
    Keep the contract below in another file. Launch it with
    `lr launch lane <lane> --title <title> --body <body> --contract <contract> --topics <subjects> [--order owner:m<row>] --drive <drive> --lane meta`,
    which writes `<state dir>/<lane>/brief.md` with its `Register slice:`, `Scale:`, `ccx:` and
-   `Assigned orders:` lines and starts it on a Sprite on opus at high; the slice line names each `--topics` subject, which takes no spaces, or else the lane name's words, and the repo paths the body names; `--scale`, `--place local --why <need>`, `--ccx`, `--model`
+   `Assigned orders:` lines and starts it on a Sprite on opus at high; the slice line names each `--topics` subject, a space in one written as a hyphen, or else the lane name's words, and the repo paths the body names; `--scale`, `--place local --why <need>`, `--ccx`, `--model`
    and `--effort` change those, and `--body -` takes the body on stdin. A
    lane's `Agent` spawn holds its turn, so an implementer is never an in-process
    subagent. A question over transcripts, records or logs too big for your window goes
