@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -50,12 +51,8 @@ func (j Job) Plist() []byte {
 	line(`	<key>EnvironmentVariables</key>`)
 	line(`	<dict>`)
 	for _, pair := range j.Env {
-		value := pair[1]
-		if pair[0] == "PATH" {
-			value = withoutLinkedWorktrees(value)
-		}
 		line(`		<key>%s</key>`, escaped(pair[0]))
-		line(`		<string>%s</string>`, escaped(value))
+		line(`		<string>%s</string>`, escaped(pair[1]))
 	}
 	line(`	</dict>`)
 	line(`	<key>KeepAlive</key>`)
@@ -88,25 +85,19 @@ func (j Job) Plist() []byte {
 	return []byte(out.String())
 }
 
-func withoutLinkedWorktrees(path string) string {
-	kept := slices.DeleteFunc(filepath.SplitList(path), inLinkedWorktree)
-	return strings.Join(kept, string(os.PathListSeparator))
-}
-
-func inLinkedWorktree(dir string) bool {
-	for dir = filepath.Clean(dir); ; dir = filepath.Dir(dir) {
-		if info, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return info.Mode().IsRegular()
-		}
-		if dir == filepath.Dir(dir) {
-			return false
-		}
-	}
+func Path(home, claude string) string {
+	return strings.Join([]string{
+		filepath.Join(claude, "long-running", "current", "bin"),
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, ".local", "share", "mise", "shims"),
+		"/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin",
+	}, string(os.PathListSeparator))
 }
 
 type Launchd struct {
 	Runner shell.Runner
 	Home   string
+	Claude string
 	UID    int
 	Sleep  func(time.Duration)
 	Out    io.Writer
@@ -117,7 +108,11 @@ func New(runner shell.Runner, out io.Writer) (Launchd, error) {
 	if err != nil {
 		return Launchd{}, err
 	}
-	return Launchd{Runner: runner, Home: home, UID: os.Getuid(), Sleep: time.Sleep, Out: out}, nil
+	claude, err := drive.ConfigDir()
+	if err != nil {
+		return Launchd{}, err
+	}
+	return Launchd{Runner: runner, Home: home, Claude: claude, UID: os.Getuid(), Sleep: time.Sleep, Out: out}, nil
 }
 
 func (l Launchd) ctl(ctx context.Context, args ...string) (int, string, error) {
@@ -148,14 +143,32 @@ func (l Launchd) bootout(ctx context.Context, target string) error {
 	return nil
 }
 
-func (l Launchd) Install(ctx context.Context, job Job) error {
-	plist, target := l.plist(job.Label), l.target(job.Label)
-	body := job.Plist()
-	code, _, err := l.ctl(ctx, "print", target)
+func (l Launchd) loaded(ctx context.Context, label string) (bool, error) {
+	code, _, err := l.ctl(ctx, "print", l.target(label))
+	return code == 0, err
+}
+
+func (l Launchd) Load(ctx context.Context, job Job) error {
+	loaded, err := l.loaded(ctx, job.Label)
 	if err != nil {
 		return err
 	}
-	if code == 0 {
+	if loaded {
+		fmt.Fprintf(l.Out, "lr: launchd keeps the loaded %s as it is\n", job.Label)
+		return nil
+	}
+	return l.Install(ctx, job)
+}
+
+func (l Launchd) Install(ctx context.Context, job Job) error {
+	plist, target := l.plist(job.Label), l.target(job.Label)
+	job.Env = append(slices.Clone(job.Env), [2]string{"PATH", Path(l.Home, l.Claude)})
+	body := job.Plist()
+	loaded, err := l.loaded(ctx, job.Label)
+	if err != nil {
+		return err
+	}
+	if loaded {
 		if have, err := os.ReadFile(plist); err == nil && bytes.Equal(have, body) {
 			fmt.Fprintf(l.Out, "lr: launchd already runs %s from %s\n", job.Label, plist)
 			return nil

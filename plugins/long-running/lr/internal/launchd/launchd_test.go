@@ -1,32 +1,72 @@
 package launchd
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
-func TestThePlistPathDropsDirectoriesInsideALaneWorktree(t *testing.T) {
-	root := t.TempDir()
-	checkout, lane, plain := filepath.Join(root, "checkout"), filepath.Join(root, "lane"), filepath.Join(root, "plain", "bin")
-	for _, dir := range []string{filepath.Join(checkout, ".git"), filepath.Join(checkout, "tools", "bin"), filepath.Join(lane, "tools", "bin"), plain} {
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			t.Fatal(err)
-		}
+type launchctl struct {
+	loaded bool
+	verbs  []string
+}
+
+func (l *launchctl) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	l.verbs = append(l.verbs, c.Argv[1])
+	if c.Argv[1] == "print" && !l.loaded {
+		return shell.Result{Code: 113}, nil
 	}
-	if err := os.WriteFile(filepath.Join(lane, ".git"), []byte("gitdir: "+filepath.Join(checkout, ".git", "worktrees", "lane")+"\n"), 0o600); err != nil {
+	return shell.Result{}, nil
+}
+
+func TestAnInstalledPlistRunsOnStablePathsAndNeverTheInstallingShellsPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PATH", strings.Join([]string{
+		filepath.Join(home, "repos", "worktrees", "lane", "tools", "bin"),
+		filepath.Join(home, ".claude", "plugins", "cache", "cc-inbox", "cc-inbox", "0.49.71", "bin"),
+		"/usr/bin",
+	}, string(os.PathListSeparator)))
+	agents := Launchd{Runner: &launchctl{}, Home: home, Claude: filepath.Join(home, ".claude"), UID: 501, Out: io.Discard}
+
+	if err := agents.Install(context.Background(), Job{Label: "l", Env: [][2]string{{"OTHER", "kept"}}}); err != nil {
 		t.Fatal(err)
 	}
-	path := strings.Join([]string{filepath.Join(lane, "tools", "bin"), filepath.Join(checkout, "tools", "bin"), plain, lane, "/usr/bin"}, string(os.PathListSeparator))
 
-	body := string(Job{Label: "l", Env: [][2]string{{"PATH", path}, {"OTHER", lane}}}.Plist())
-
-	want := "<key>PATH</key>\n\t\t<string>" + strings.Join([]string{filepath.Join(checkout, "tools", "bin"), plain, "/usr/bin"}, string(os.PathListSeparator)) + "</string>"
-	if !strings.Contains(body, want) {
-		t.Fatalf("%q not in\n%s", want, body)
+	body, err := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", "l.plist"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if want := "<key>OTHER</key>\n\t\t<string>" + lane + "</string>"; !strings.Contains(body, want) {
-		t.Fatalf("%q not in\n%s", want, body)
+	stable := strings.Join([]string{
+		filepath.Join(home, ".claude", "long-running", "current", "bin"),
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, ".local", "share", "mise", "shims"),
+		"/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin",
+	}, string(os.PathListSeparator))
+	for _, want := range []string{"<key>PATH</key>\n\t\t<string>" + stable + "</string>", "<key>OTHER</key>\n\t\t<string>kept</string>"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("%q not in\n%s", want, body)
+		}
+	}
+}
+
+func TestLoadLeavesALoadedJobRunningEvenWhenItsPlistChanged(t *testing.T) {
+	home := t.TempDir()
+	ctl := &launchctl{loaded: true}
+	agents := Launchd{Runner: ctl, Home: home, Claude: filepath.Join(home, ".claude"), UID: 501, Out: io.Discard}
+
+	if err := agents.Load(context.Background(), Job{Label: "creds", Arguments: []string{"/lr", "desk-creds", "keep"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Join(ctl.verbs, " ") != "print" {
+		t.Fatalf("launchctl %q; a loaded job whose start can raise a Touch ID prompt is never booted out or bootstrapped", ctl.verbs)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", "creds.plist")); !os.IsNotExist(err) {
+		t.Fatalf("the plist was written: %v", err)
 	}
 }
