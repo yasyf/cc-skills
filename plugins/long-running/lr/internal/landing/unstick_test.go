@@ -239,7 +239,7 @@ func TestTheThirdPatchIsFollowedByOneRebaseAndItsLaneIsTold(t *testing.T) {
 	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{"lane-7"}) {
 		t.Fatalf("records = %+v, want one to the owning lane", posted)
 	}
-	for _, words := range []string{"#1", "3 base PATCHes", "branch-1 e718a7434f..aa11bb22cc", "CI and grades run again"} {
+	for _, words := range []string{"#1", "3 base PATCHes", "moved #1;", "CI and grades run again"} {
 		if !strings.Contains(posted[0].Text, words) {
 			t.Fatalf("record %q does not say %q", posted[0].Text, words)
 		}
@@ -559,5 +559,71 @@ func TestGitHubCallsGrowOnlyWithStuckRowsAndTheReadIsBatched(t *testing.T) {
 	}
 	if patches, reads := calls(t, scaletest.N(), 30); patches != 30 || reads != 1 {
 		t.Fatalf("N=%d with 30 stuck: %d PATCHes, %d reads, want 30 and one batched read", scaletest.N(), patches, reads)
+	}
+}
+
+func TestAMoveNamesEveryDescendantItMovedAndEachOneItLeftBehind(t *testing.T) {
+	s := newStore(t)
+	r := newStuckRig(t, s)
+	r.move = func(int) (string, error) {
+		return fmt.Sprintf(movedHead, 1) + "BASE dev " + head + "\n" + fmt.Sprintf(movedHead, 3) + "BASE branch-1 " + moved + "\n" +
+			"CONFLICT replaying branch-4 onto branch-1 at abc123 the subject\n  a.go\n" +
+			"LEFT branch-4 CONFLICT replaying branch-4 onto branch-1 at abc123 the subject\n", nil
+	}
+	unknownSince(t, s, t0, 1)
+	threeBumpsDone(t, s, 1)
+	r.now = t0.Add(time.Hour)
+	child := func(number int, lane string) machine.Facts {
+		return facts(number, func(f *machine.Facts) { f.Branch, f.Base, f.Lane = "branch-"+strconv.Itoa(number), "branch-1", lane })
+	}
+
+	r.pass(t, stuck(1), child(3, "lane-below"), child(4, "lane-7"))
+
+	if got := fact(t, s, 1, landing.BumpMoveFact); got != "moved" {
+		t.Fatalf("move fact = %q, want moved", got)
+	}
+	posted, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"report"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 1 || !slices.Equal(posted[0].To, []string{"lane-7", "lane-below"}) || len(posted[0].Refs.PRs) != 3 {
+		t.Fatalf("records = %+v, want one to both lanes naming all three PRs", posted)
+	}
+	for _, words := range []string{"moved #1, #3; left #4 behind, which only a lane can resolve: CONFLICT replaying branch-4 onto branch-1 at abc123 the subject"} {
+		if !strings.Contains(posted[0].Text, words) {
+			t.Fatalf("record %q does not say %q", posted[0].Text, words)
+		}
+	}
+}
+
+func TestAMoveOfABigTreeNamesEveryPRBeforeItsClippedReasons(t *testing.T) {
+	s := newStore(t)
+	r := newStuckRig(t, s)
+	snapshot := []machine.Facts{stuck(1)}
+	var stdout strings.Builder
+	fmt.Fprintf(&stdout, movedHead, 1)
+	var names []string
+	for number := 2; number <= 20; number++ {
+		branch := fmt.Sprintf("a-long-lane-name-%d/%d-a-long-branch-name", number, number)
+		snapshot = append(snapshot, facts(number, func(f *machine.Facts) { f.Branch, f.Base = branch, "branch-1" }))
+		fmt.Fprintf(&stdout, "LEFT %s CONFLICT replaying %s onto branch-1 at abc%d a long subject line\n", branch, branch, number)
+		names = append(names, "#"+strconv.Itoa(number))
+	}
+	r.move = func(int) (string, error) { return stdout.String(), nil }
+	unknownSince(t, s, t0, 1)
+	threeBumpsDone(t, s, 1)
+	r.now = t0.Add(time.Hour)
+
+	r.pass(t, snapshot...)
+
+	posted, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"report"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 1 || len(posted[0].Refs.PRs) != 20 {
+		t.Fatalf("records = %+v, want one report naming all 20 PRs", posted)
+	}
+	if want := "moved #1; left " + strings.Join(names, ", ") + " behind"; !strings.Contains(posted[0].Text, want) || !strings.HasSuffix(posted[0].Text, "…") {
+		t.Fatalf("record %q does not say %q before its clipped reasons", posted[0].Text, want)
 	}
 }

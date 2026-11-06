@@ -235,3 +235,68 @@ func TestARestackOnASpriteHostRunsInItsOwnCloneWithNoSpriteExec(t *testing.T) {
 		t.Fatalf("posted = %q", posted.texts)
 	}
 }
+
+const tree = `[{"number":1,"headRefName":"a","baseRefName":"dev","headRefOid":"a1"},{"number":2,"headRefName":"b","baseRefName":"a","headRefOid":"b2"},{"number":3,"headRefName":"c","baseRefName":"a","headRefOid":"c3"},{"number":4,"headRefName":"d","baseRefName":"c","headRefOid":"d4"}]`
+
+func branchOff(t *testing.T, origin, parent, branch, name, text string) {
+	t.Helper()
+	work := filepath.Join(filepath.Dir(origin), "work")
+	git(t, work, "checkout", "-q", "-b", branch, parent)
+	commit(t, work, name, text)
+	git(t, work, "push", "-q", "origin", branch)
+}
+
+func TestARestackMovesEveryOpenPRStackedOnABranchItMovesOnAndOffThePath(t *testing.T) {
+	origin, clone := stacked(t, false)
+	branchOff(t, origin, "a", "c", "c.txt", "c\n")
+	branchOff(t, origin, "c", "d", "d.txt", "d\n")
+	wasC, wasD := git(t, origin, "rev-parse", "c"), git(t, origin, "rev-parse", "d")
+	posted := &heads{}
+	remote := landing.Remote{Runner: &host{open: tree}, PostHead: posted.post, Repo: "o/r", Clone: clone, Sprite: sprite}
+
+	stdout, err := remote.Run(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dev, a, b, c, d := git(t, origin, "rev-parse", "dev"), git(t, origin, "rev-parse", "a"), git(t, origin, "rev-parse", "b"), git(t, origin, "rev-parse", "c"), git(t, origin, "rev-parse", "d")
+	if git(t, origin, "rev-parse", "a~1") != dev || git(t, origin, "rev-parse", "b~1") != a || git(t, origin, "rev-parse", "c~1") != a || git(t, origin, "rev-parse", "d~1") != c {
+		t.Fatalf("the tree did not move onto dev: dev=%s a=%s b=%s c=%s d=%s\n%s", dev, a, b, c, d, stdout)
+	}
+	want := []string{
+		fmt.Sprintf("3 HEAD #3 %s: restacked onto a %s on vet4 by remote-restack (was %s)", c, a[:10], wasC[:10]),
+		fmt.Sprintf("4 HEAD #4 %s: restacked onto a %s on vet4 by remote-restack (was %s)", d, a[:10], wasD[:10]),
+	}
+	if len(posted.texts) != 4 || !slices.Equal(posted.texts[2:], want) {
+		t.Fatalf("posted = %q, want the line's two then %q", posted.texts, want)
+	}
+}
+
+func TestAConflictingChildIsLeftBehindAndNamedWhileTheRestMove(t *testing.T) {
+	origin, clone := stacked(t, false)
+	branchOff(t, origin, "a", "c", "dev.txt", "c\n")
+	branchOff(t, origin, "a", "d", "d.txt", "d\n")
+	wasC := git(t, origin, "rev-parse", "c")
+	posted := &heads{}
+	open := `[{"number":1,"headRefName":"a","baseRefName":"dev","headRefOid":"a1"},{"number":2,"headRefName":"b","baseRefName":"a","headRefOid":"b2"},{"number":3,"headRefName":"c","baseRefName":"a","headRefOid":"c3"},{"number":4,"headRefName":"d","baseRefName":"a","headRefOid":"d4"}]`
+	remote := landing.Remote{Runner: &host{open: open}, PostHead: posted.post, Repo: "o/r", Clone: clone, Sprite: sprite}
+
+	stdout, err := remote.Run(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a := git(t, origin, "rev-parse", "a")
+	if git(t, origin, "rev-parse", "b~1") != a || git(t, origin, "rev-parse", "d~1") != a {
+		t.Fatalf("the line and the clean child did not move:\n%s", stdout)
+	}
+	if git(t, origin, "rev-parse", "c") != wasC {
+		t.Fatal("the conflicting child moved")
+	}
+	if !strings.Contains(stdout, "\nLEFT c CONFLICT replaying c onto a at ") {
+		t.Fatalf("stdout = %q, want c named as left behind", stdout)
+	}
+	if len(posted.texts) != 3 || !strings.HasPrefix(posted.texts[2], "4 HEAD #4 ") {
+		t.Fatalf("posted = %q, want the line's two and #4", posted.texts)
+	}
+}

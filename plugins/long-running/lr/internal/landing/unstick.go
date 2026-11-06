@@ -27,6 +27,7 @@ const (
 	bumpEvery       = 10 * time.Minute
 	bumpsBeforeMove = 3
 	alreadyOnBase   = "already-on-base"
+	recordText      = 400
 	stackRefusal    = "part of a stack"
 )
 
@@ -77,7 +78,7 @@ func (u Unstick) Pass(ctx context.Context, snapshot []machine.Facts) error {
 		if chain, movable := movableChain(f, byBranch, u.Trunk); bumps >= bumpsBeforeMove && movable {
 			if moves < restacksPerPass {
 				moves++
-				failed = append(failed, u.move(ctx, f, chain, now))
+				failed = append(failed, u.move(ctx, f, chain, byBranch, now))
 			}
 			continue
 		}
@@ -176,7 +177,7 @@ func (u Unstick) readBack(ctx context.Context, patched []machine.Facts, now time
 	return errors.Join(failed...)
 }
 
-func (u Unstick) move(ctx context.Context, f machine.Facts, chain []machine.Facts, now time.Time) error {
+func (u Unstick) move(ctx context.Context, f machine.Facts, chain []machine.Facts, byBranch map[string]machine.Facts, now time.Time) error {
 	if _, err := u.Store.PutFact(f.Repo, f.Number, f.Head, BumpedAtFact, now.Format(time.RFC3339), now); err != nil {
 		return err
 	}
@@ -184,48 +185,83 @@ func (u Unstick) move(ctx context.Context, f machine.Facts, chain []machine.Fact
 	if err != nil && !errors.Is(err, ErrConflict) && !errors.Is(err, ErrCarries) {
 		return fmt.Errorf("#%d rebase: %w", f.Number, err)
 	}
-	outcome, said := moveOutcome(f, stdout, err)
+	outcome, said, touched := moveOutcome(f, byBranch, stdout, err)
 	if _, err := u.Store.PutFact(f.Repo, f.Number, f.Head, BumpMoveFact, outcome, now); err != nil {
 		return err
 	}
-	to := make([]string, 0, len(chain))
+	rows := slices.Clone(chain)
+	for _, row := range touched {
+		if !slices.ContainsFunc(rows, func(seen machine.Facts) bool { return seen.Number == row.Number }) {
+			rows = append(rows, row)
+		}
+	}
+	to := make([]string, 0, len(rows))
+	prs := make([]string, 0, len(rows))
 	unowned := ""
-	for _, row := range chain {
+	for _, row := range rows {
 		holder, stopped, err := reach(u.Store, u.Drive, row)
 		if err != nil {
 			return err
 		}
-		to, unowned = append(to, holder), cmp.Or(unowned, stopped)
+		to, prs, unowned = append(to, holder), append(prs, pullRef(row)), cmp.Or(unowned, stopped)
 	}
 	slices.Sort(to)
+	slices.Sort(prs)
 	_, err = client.Post(ctx, client.Draft{
 		Drive: u.Drive,
 		Lane:  self,
 		Kind:  "report",
 		To:    slices.Compact(to),
 		ID:    fmt.Sprintf("%s:%d:%s", BumpMoveFact, f.Number, f.Head),
-		PRs:   []string{pullRef(f)},
-		Text:  fmt.Sprintf("%s#%d at %s still read mergeable unknown after %d base PATCHes, so the supervisor rebased it on %s: %s", unowned, f.Number, shortHead(f.Head), bumpsBeforeMove, f.Base, said),
+		PRs:   slices.Compact(prs),
+		Text:  clipped(fmt.Sprintf("%s#%d at %s still read mergeable unknown after %d base PATCHes, so the supervisor rebased it on %s: %s", unowned, f.Number, shortHead(f.Head), bumpsBeforeMove, f.Base, said)),
 	})
 	return err
 }
 
-func moveOutcome(f machine.Facts, stdout string, err error) (string, string) {
+func moveOutcome(f machine.Facts, byBranch map[string]machine.Facts, stdout string, err error) (string, string, []machine.Facts) {
 	if errors.Is(err, ErrCarries) {
-		return carriesValue, err.Error()
+		return carriesValue, err.Error(), nil
 	}
 	if err != nil {
-		return conflictValue, "that rebase conflicts and pushed nothing, so resolving it is yours: " + firstLine(stdout)
+		return conflictValue, "that rebase conflicts and pushed nothing, so resolving it is yours: " + firstLine(stdout), nil
 	}
-	var moved []string
+	var touched []machine.Facts
+	var moved, left, whys []string
+	name := func(branch string) string {
+		row, open := byBranch[branch]
+		if !open {
+			return branch
+		}
+		touched = append(touched, row)
+		return "#" + strconv.Itoa(row.Number)
+	}
 	for line := range strings.Lines(stdout) {
 		fields := strings.Fields(line)
-		if len(fields) == 4 && fields[0] == movedLine {
-			moved = append(moved, fmt.Sprintf("%s %s..%s", fields[1], shortHead(fields[2]), shortHead(fields[3])))
+		switch {
+		case len(fields) == 4 && fields[0] == movedLine:
+			moved = append(moved, name(fields[1]))
+		case len(fields) > 2 && fields[0] == leftLine:
+			left = append(left, name(fields[1]))
+			if why := strings.Join(fields[2:], " "); len(whys) == 0 || whys[len(whys)-1] != why {
+				whys = append(whys, why)
+			}
 		}
 	}
 	if len(moved) == 0 {
-		return alreadyOnBase, "it already sits on " + f.Base + ", so nothing moved and it stays stuck"
+		return alreadyOnBase, "it already sits on " + f.Base + ", so nothing moved and it stays stuck", nil
 	}
-	return movedValue, "moved " + strings.Join(moved, ", ") + "; CI and grades run again at the new head"
+	said := "moved " + strings.Join(moved, ", ")
+	if len(left) > 0 {
+		said += "; left " + strings.Join(left, ", ") + " behind, which only a lane can resolve: " + strings.Join(whys, "; ")
+	}
+	return movedValue, said + "; CI and grades run again at the new heads", touched
+}
+
+func clipped(text string) string {
+	runes := []rune(text)
+	if len(runes) <= recordText {
+		return text
+	}
+	return string(runes[:recordText-1]) + "…"
 }

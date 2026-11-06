@@ -19,6 +19,7 @@ const (
 	conflictLine = "CONFLICT"
 	replayLine   = "REPLAY-FAILED"
 	carriesLine  = "CARRIES"
+	leftLine     = "LEFT"
 	openLimit    = "10000"
 	shortSHA     = 10
 	detailBytes  = 400
@@ -61,56 +62,98 @@ func (r Remote) Restack(ctx context.Context, number int, _, _ string) (string, e
 }
 
 func (r Remote) Run(ctx context.Context, number int) (string, error) {
-	base, pulls, outside, err := r.chain(ctx, number)
+	var open []pull
+	if err := r.read(ctx, &open, "gh", "pr", "list", "--repo", r.Repo, "--state", "open", "--limit", openLimit, "--json", pullFields); err != nil {
+		return "", err
+	}
+	at := slices.IndexFunc(open, func(p pull) bool { return p.Number == number })
+	if at < 0 {
+		return "", fmt.Errorf("remote-restack: #%d is not an open pull request", number)
+	}
+	byBranch := make(map[string]pull, len(open))
+	children := make(map[string][]pull, len(open))
+	for _, p := range open {
+		byBranch[p.Head] = p
+		children[p.Base] = append(children[p.Base], p)
+	}
+	line := []pull{open[at]}
+	for below, found := byBranch[line[0].Base]; found; below, found = byBranch[line[0].Base] {
+		line = slices.Insert(line, 0, below)
+	}
+	credentials, err := r.credentials(ctx)
 	if err != nil {
 		return "", err
 	}
-	stdin, err := r.credentials(ctx)
+	stdout, err := r.replay(ctx, number, credentials, open, line[0].Base, "", line)
 	if err != nil {
-		return "", err
+		return stdout, err
 	}
-	for oid := range outside {
-		stdin += oid + "\n"
+	posted := []error{r.postHeads(ctx, stdout, line[0].Base, line)}
+	var out strings.Builder
+	out.WriteString(stdout)
+	for _, moved := range movedHeads(stdout) {
+		for _, child := range children[moved.branch] {
+			if slices.ContainsFunc(line, func(p pull) bool { return p.Number == child.Number }) {
+				continue
+			}
+			subtree := []pull{child}
+			for at := 0; at < len(subtree); at++ {
+				subtree = append(subtree, children[subtree[at].Head]...)
+			}
+			replayed, err := r.replay(ctx, child.Number, credentials, open, moved.branch, moved.old, subtree)
+			out.WriteString(replayed)
+			if err == nil {
+				posted = append(posted, r.postHeads(ctx, replayed, moved.branch, subtree))
+				continue
+			}
+			why := firstLine(err.Error())
+			if errors.Is(err, ErrConflict) {
+				why = firstLine(replayed)
+			}
+			for _, p := range subtree {
+				fmt.Fprintf(&out, "%s %s %s\n", leftLine, p.Head, why)
+			}
+		}
+	}
+	return out.String(), errors.Join(posted...)
+}
+
+type movedHead struct{ branch, old, moved string }
+
+func movedHeads(stdout string) []movedHead {
+	var heads []movedHead
+	for line := range strings.Lines(stdout) {
+		if fields := strings.Fields(line); len(fields) == 4 && fields[0] == movedLine {
+			heads = append(heads, movedHead{branch: fields[1], old: fields[2], moved: fields[3]})
+		}
+	}
+	return heads
+}
+
+func (r Remote) replay(ctx context.Context, number int, credentials string, open []pull, base, upstream string, pulls []pull) (string, error) {
+	outside := make(map[string]int, len(open))
+	for _, p := range open {
+		outside[p.Oid] = p.Number
 	}
 	branches := make([]string, 0, len(pulls))
-	numbers := make(map[string]int, len(pulls))
 	for _, p := range pulls {
+		delete(outside, p.Oid)
 		branches = append(branches, p.Head)
-		numbers[p.Head] = p.Number
+	}
+	var stdin strings.Builder
+	stdin.WriteString(credentials)
+	for oid := range outside {
+		stdin.WriteString(oid + "\n")
 	}
 	done, err := r.Runner.Run(ctx, shell.Command{
-		Argv:    slices.Concat(r.prefix(), []string{"sh", "-c", restackScript, "sh", r.Clone, base}, branches),
-		Stdin:   stdin,
+		Argv:    slices.Concat(r.prefix(), []string{"sh", "-c", restackScript, "sh", r.Clone, base, upstream}, branches),
+		Stdin:   stdin.String(),
 		Timeout: passTimeout,
 	})
 	if err != nil {
 		return done.Stdout, r.failure(number, done, outside)
 	}
-	return done.Stdout, r.postHeads(ctx, done.Stdout, base, numbers)
-}
-
-func (r Remote) chain(ctx context.Context, number int) (string, []pull, map[string]int, error) {
-	var open []pull
-	if err := r.read(ctx, &open, "gh", "pr", "list", "--repo", r.Repo, "--state", "open", "--limit", openLimit, "--json", pullFields); err != nil {
-		return "", nil, nil, err
-	}
-	at := slices.IndexFunc(open, func(p pull) bool { return p.Number == number })
-	if at < 0 {
-		return "", nil, nil, fmt.Errorf("remote-restack: #%d is not an open pull request", number)
-	}
-	byBranch := make(map[string]pull, len(open))
-	outside := make(map[string]int, len(open))
-	for _, p := range open {
-		byBranch[p.Head], outside[p.Oid] = p, p.Number
-	}
-	pulls := []pull{open[at]}
-	for below, found := byBranch[pulls[0].Base]; found; below, found = byBranch[pulls[0].Base] {
-		pulls = slices.Insert(pulls, 0, below)
-	}
-	for _, p := range pulls {
-		delete(outside, p.Oid)
-	}
-	return pulls[0].Base, pulls, outside, nil
+	return done.Stdout, nil
 }
 
 func (r Remote) read(ctx context.Context, into any, argv ...string) error {
@@ -179,22 +222,16 @@ func (r Remote) failure(number int, done shell.Result, outside map[string]int) e
 	return fmt.Errorf("%s: %s", summary, detail)
 }
 
-func (r Remote) postHeads(ctx context.Context, stdout, base string, numbers map[string]int) error {
-	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+func (r Remote) postHeads(ctx context.Context, stdout, base string, pulls []pull) error {
 	var tip string
-	for _, line := range lines {
+	for line := range strings.Lines(stdout) {
 		if fields := strings.Fields(line); len(fields) == 3 && fields[0] == baseLine {
 			tip = fields[2]
 		}
 	}
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) != 4 || fields[0] != movedLine {
-			continue
-		}
-		branch, old, moved := fields[1], fields[2], fields[3]
-		number := numbers[branch]
-		text := fmt.Sprintf("HEAD #%d %s: restacked onto %s %s on %s by remote-restack (was %s)", number, moved, base, tip[:shortSHA], r.where(), old[:shortSHA])
+	for _, moved := range movedHeads(stdout) {
+		number := pulls[slices.IndexFunc(pulls, func(p pull) bool { return p.Head == moved.branch })].Number
+		text := fmt.Sprintf("HEAD #%d %s: restacked onto %s %s on %s by remote-restack (was %s)", number, moved.moved, base, tip[:shortSHA], r.where(), moved.old[:shortSHA])
 		if err := r.PostHead(ctx, number, text); err != nil {
 			return err
 		}
