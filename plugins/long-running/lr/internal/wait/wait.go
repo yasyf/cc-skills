@@ -29,6 +29,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -551,15 +552,18 @@ func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 		fmt.Fprintf(w.Stderr, "lr wait: cci is back on PATH after %.0f s\n", w.Now().Sub(w.cciMissingAt).Seconds())
 		w.cciMissingAt = time.Time{}
 	}
-	woke := false
+	woke, own := false, false
 	minute := ""
 	for _, line := range strings.Split(strings.TrimRight(result.Stdout, "\n"), "\n") {
 		head := recordHead.FindStringSubmatch(line)
 		if head != nil && head[2] != "" {
-			minute = line
+			minute, own = line, false
 			continue
 		}
-		if line == "" || !w.fresh(line) {
+		if head != nil {
+			own = postedByOwnTools(line)
+		}
+		if own || line == "" || !w.fresh(line) {
 			continue
 		}
 		if minute != "" {
@@ -573,6 +577,15 @@ func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 		w.flush()
 	}
 	return woke, nil
+}
+
+func postedByOwnTools(line string) bool {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return false
+	}
+	poster, _, _ := strings.Cut(fields[2], ">")
+	return poster == wakeLane || poster == askdesk.StoreDesk && fields[1] == askdesk.AnswerKind
 }
 
 func (w *waiter) flush() {

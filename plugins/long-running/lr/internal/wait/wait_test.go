@@ -518,6 +518,34 @@ func TestARecordThatArrivedWhileNoWaiterRanWakesTheWait(t *testing.T) {
 	}
 }
 
+func TestLrWaitsOwnExitNoteAndAStoreDeskAnswerNeverWakeTheNextWait(t *testing.T) {
+	own := "@11:36 PM\n2947@bf3f9fd2 note lr-wait>next-tests-build-once-r lr wait exited 0: /tmp/lr-wait-51741.out\n  its output\n529211 answer store-desk>next-tests-build-once-r x2945@bf3f9fd2 + board rows --json: 1 lines\n"
+	for _, c := range []struct {
+		name, records, want string
+		seconds             int
+	}{
+		{"alone", own, "QUIET ", 1},
+		{"beside an ask", own + "@11:37 PM\n529300 ask root>next-tests-build-once-r which head?\n", "@11:37 PM\n529300 ask root>next-tests-build-once-r which head?\n", 10},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &stream{emit: make(chan struct{}, 1)}
+			server := httptest.NewServer(s)
+			t.Cleanup(server.Close)
+			runner := &tailRunner{}
+			r := start(t, Options{Seconds: c.seconds, Sources: []string{"cci:dar:next-tests-build-once-r"}, Runner: runner, Stream: server.URL, Now: ninePM})
+			time.Sleep(armed)
+
+			runner.deliver(c.records)
+			s.emit <- struct{}{}
+			r.wait(t)
+
+			if r.code != 0 || !strings.HasPrefix(r.out.String(), c.want) || strings.Contains(r.out.String(), "lr-wait>") || strings.Contains(r.out.String(), "store-desk>") {
+				t.Fatalf("got %d %q, want %q with neither own record", r.code, r.out.String(), c.want)
+			}
+		})
+	}
+}
+
 func TestATrailerWithNoRecordPrintsOnlyAtTheDeadline(t *testing.T) {
 	s := &stream{emit: make(chan struct{}, 1)}
 	server := httptest.NewServer(s)

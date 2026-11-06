@@ -22,7 +22,8 @@ source through the cci daemon's stream, so nothing polls. New file lines print c
 characters and advance the count the cursor holds; unread mailbox entries print as MAILBOX <n>
 unread, then == <from> <timestamp> and the text, are marked read under the harness lock, and
 their keys join the cursor; cci records addressed to the lane print as cci tail --mail prints
-them and wake the wait. They are read through the thread's lane mail cursor, or the <lane>-wake
+them and wake the wait, except lr-wait's own exit notes and the store desk's answers, which the
+lr verb that asked already read. They are read through the thread's lane mail cursor, or the <lane>-wake
 cursor when the thread is not bound to the lane, and never from behind the lane's own <lane>
 cursor, so a record the lane already read never wakes it and one that arrived while no waiter
 ran does. A numbered lane such as journal-1 also wakes on records addressed to its stem,
@@ -35,7 +36,7 @@ Exit 2 is a usage error, 1 names a lane no roster lists, 127 a cci missing for 3
 
 --wake <file> is for a wait that outlasts the call: it prints ARMED <pid> <file> and returns at
 once, the wait runs detached with its output in <file>, and when it ends it mails the terminal
-that armed it and types a wake there if that terminal is at rest. Nothing is posted to any desk. On a Sprite, whose Orca takes no self-addressed mail, the mail is a cci note to the lane from lr-wait instead.
+that armed it and types a wake there if that terminal is at rest. Nothing is posted to any desk. On a Sprite, whose Orca takes no self-addressed mail, the mail is a cci note to the lane from lr-wait instead, which the lane's next tool call reads and no lr wait wakes on.
 A Codex lane waits this way, since nothing else wakes an idle Codex terminal.`,
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) < 2 {
