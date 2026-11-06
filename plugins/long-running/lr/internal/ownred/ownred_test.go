@@ -283,6 +283,19 @@ func TestAMergeByALaneRefusesOnARelayItHasNotReadAndNotOnOneItsReadClosed(t *tes
 	}
 }
 
+func TestAMergeAfterAStoreDeskRoundTripCountsTheRelayButNotTheDesksAnswer(t *testing.T) {
+	ask := map[string]any{"seq": 654, "lane": "fix-1", "kind": "ask", "text": `{"verb":"landing gate","args":["--","51981"],"lane":"fix-1"}`, "to": []string{"store-desk"}, "status": "closed"}
+	answer := map[string]any{"seq": 655, "lane": "store-desk", "kind": "answer", "text": "lr landing gate: 1 lines, exit 0", "to": []string{"fix-1"}, "resolves": 654}
+	part := map[string]any{"seq": 656, "lane": "store-desk", "kind": "note", "text": "part 2 of 2 of the answer to ask #654", "to": []string{"fix-1"}, "re": 654}
+	relay := map[string]any{"seq": 657, "lane": "meta-desk-2", "kind": "relay", "text": "hold #51981", "to": []string{"fix-1"}}
+	fake := github(t, map[int]map[string]any{7: pull(green)}, false)
+	fake.Reply(bus(t, ask, answer, part, relay), "cci", "tail")
+	got := lines(t, fake, ownred.Merge{Selector: "7", Drive: "d", Lane: "fix-1"})
+	if want := []string{"UNREAD #657 meta-desk-2 relay: hold #51981"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestAMergeListsNoStatusRecordUnlessItIsAddressedToTheLane(t *testing.T) {
 	evidence := map[string]any{"seq": 1, "lane": "progress-desk-2", "kind": "evidence", "text": "its build is running"}
 	peer := map[string]any{"seq": 2, "lane": "registry", "kind": "peer", "text": "dar-x lane"}

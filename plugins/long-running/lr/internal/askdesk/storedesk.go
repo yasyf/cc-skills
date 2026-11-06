@@ -188,6 +188,10 @@ func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs
 	return nil
 }
 
+func ReadByAsker(poster, kind string) bool {
+	return poster == StoreDesk && (kind == AnswerKind || kind == PartKind)
+}
+
 func partsOf(answer client.Record) int {
 	parts, _ := strconv.Atoi(answer.Fields.Attrs[partsAttr])
 	return max(parts, 1)

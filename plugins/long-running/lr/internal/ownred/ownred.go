@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -222,7 +223,7 @@ func (g Guard) mail(ctx context.Context, m Merge) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	others := slices.DeleteFunc(slices.Clone(delivered), func(r record) bool { return r.Lane == m.Lane })
+	others := slices.DeleteFunc(slices.Clone(delivered), func(r record) bool { return r.Lane == m.Lane || askdesk.ReadByAsker(r.Lane, r.Kind) })
 	if len(others) == 0 {
 		return nil, nil
 	}
