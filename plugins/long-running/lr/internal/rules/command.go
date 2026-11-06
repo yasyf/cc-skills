@@ -3,9 +3,11 @@ package rules
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -14,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 func Command(a *app.App) *cobra.Command {
@@ -76,8 +79,51 @@ func Command(a *app.App) *cobra.Command {
 			}
 			return nil
 		},
-	}, settleCommand(opened))
+	}, settleCommand(opened), checkPRCommand(a))
 	return rules
+}
+
+func checkPRCommand(a *app.App) *cobra.Command {
+	var pull, head, base string
+	var incident bool
+	check := &cobra.Command{
+		Use:   "check-pr",
+		Short: "Run rulings.py check-pr on a PR head against the drive's register, print its lines and exit as it exits; a Sprite, which has no rulings.py, asks the Mac's store desk to run it",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := a.Config()
+			if err != nil {
+				return err
+			}
+			claude, err := drive.ConfigDir()
+			if err != nil {
+				return err
+			}
+			argv := []string{filepath.Join(claude, "long-running", "current", "bin", "rulings.py"), "check-pr", "--repo", cfg.Checkout, "--drive", cfg.Drive, "--pr", pull, "--head", head}
+			if base != "" {
+				argv = append(argv, "--base", base)
+			}
+			if incident {
+				argv = append(argv, "--incident")
+			}
+			_, err = a.Runner.Run(cmd.Context(), shell.Command{Argv: argv, Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr()})
+			var exit *shell.ExitError
+			if errors.As(err, &exit) {
+				return &wait.ExitError{Code: exit.Code}
+			}
+			return err
+		},
+	}
+	check.Flags().StringVar(&pull, "pr", "", "OWNER/NAME#N: the PR whose head to check")
+	check.Flags().StringVar(&head, "head", "", "the head SHA to check")
+	check.Flags().StringVar(&base, "base", "", "the base ref to diff against; default the PR's base")
+	check.Flags().BoolVar(&incident, "incident", false, "check as an incident fix, refusing only what an incident merge must clear")
+	for _, name := range []string{"pr", "head"} {
+		if err := check.MarkFlagRequired(name); err != nil {
+			panic(err)
+		}
+	}
+	return check
 }
 
 func settleCommand(opened func() (*store.Store, error)) *cobra.Command {

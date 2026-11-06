@@ -55,6 +55,7 @@ var StoreVerbs = []string{
 	"owner audit",
 	"request",
 	"route",
+	"rules check-pr",
 	"rules settle",
 	"sprites",
 	"supervisor status",
