@@ -25,7 +25,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const rowsRead = "board rows"
+const (
+	rowsRead  = "board rows"
+	portsRead = "board ports"
+)
 
 type rowsQuery struct {
 	json, all, outside bool
@@ -147,28 +150,60 @@ func printOutside(out io.Writer, s *store.Store, repo string, asJSON, all bool) 
 func portsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ports PR...",
-		Short: "Print one JSON object from each named drive PR that is a forward port to the old-tree PR it copies, as its head records say",
+		Short: "Print one JSON object from each named drive PR that is a forward port to the old-tree PR it copies, as its head records say; on a Sprite the Mac's store-desk reads it",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			numbers := make([]int, len(args))
-			for at, arg := range args {
-				number, err := strconv.Atoi(arg)
-				if err != nil {
-					return err
-				}
-				numbers[at] = number
+			numbers, err := prNumbers(args)
+			if err != nil {
+				return err
 			}
 			entry, _, err := opened()
 			if err != nil {
 				return err
 			}
-			_, ports, err := Ports(entry, numbers)
-			if err != nil {
-				return err
+			if entry.OnSprite() {
+				return askdesk.AskMac(c.Context(), askdesk.LiveCCI{}, entry.Bus(), os.Getenv(lanes.LaneEnv), strings.Join(append([]string{portsRead}, args...), " "), c.OutOrStdout())
 			}
-			return json.NewEncoder(c.OutOrStdout()).Encode(ports)
+			return printPorts(entry, numbers, c.OutOrStdout())
 		},
 	}
+}
+
+func PortsRead(driveName string) askdesk.Serve {
+	return func(_ context.Context, args []string, out, _ io.Writer) error {
+		numbers, err := prNumbers(args)
+		if err != nil {
+			return err
+		}
+		entry, err := drive.Named(driveName)
+		if err != nil {
+			return err
+		}
+		return printPorts(entry, numbers, out)
+	}
+}
+
+func prNumbers(args []string) ([]int, error) {
+	if len(args) == 0 {
+		return nil, errors.New(portsRead + " takes one or more PRs")
+	}
+	numbers := make([]int, len(args))
+	for at, arg := range args {
+		number, err := strconv.Atoi(arg)
+		if err != nil {
+			return nil, err
+		}
+		numbers[at] = number
+	}
+	return numbers, nil
+}
+
+func printPorts(entry drive.Entry, numbers []int, out io.Writer) error {
+	_, ports, err := Ports(entry, numbers)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(out).Encode(ports)
 }
 
 func backfillCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {
