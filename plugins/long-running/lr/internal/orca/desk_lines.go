@@ -751,7 +751,14 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, carried, by string
 			}
 		}
 	}
-	if err := d.refreshSlice(ctx, key, order.Lane, order.Brief, order.sliceStep(text), order.Model); err != nil {
+	unread, err := d.refreshSlice(ctx, order.Lane, order.Brief, order.sliceStep(text), order.Model)
+	if err != nil {
+		return err
+	}
+	if unread != "" && !order.incidentLane(text) {
+		return failed(unread + ", and a lane never launches without its register slice")
+	}
+	if err := d.sliceUnread(key, order.Lane, unread); err != nil {
 		return err
 	}
 	_, _, err = d.acceptLaunch(key, order.Lane, launchTarget{Model: order.Model, Effort: order.Effort, Brief: order.Brief, Role: order.Role, By: by, Posted: store.Stamp(posted)})
@@ -841,32 +848,36 @@ func (d *Desk) launchRefusal(ctx context.Context, key string, order Order) (stri
 	return "", nil
 }
 
-func (d *Desk) refreshSlice(ctx context.Context, key, lane, brief, step, model string) error {
+func (d *Desk) refreshSlice(ctx context.Context, lane, brief, step, model string) (string, error) {
 	raw, err := os.ReadFile(brief)
 	if err != nil {
-		return err
+		return "", err
 	}
 	text := string(raw)
 	if !briefSlice.MatchString(text) {
-		text = strings.TrimRight(text, " \t\r\n") + "\n\n" + sliceLine + " lane=" + lane + " step=" + step + "\n"
+		text = strings.TrimRight(text, " \t\r\n") + "\n\n" + sliceHeader(lane, step, nil, text) + "\n"
 	}
 	if agent, _, _ := modelRoute(model); agent != agentClaude {
 		text = uncodexSlice.ReplaceAllString(text, "$1 codex=yes")
 	}
 	if text != string(raw) {
 		if err := os.WriteFile(brief, []byte(text), 0o600); err != nil {
-			return err
+			return "", err
 		}
 	}
 	output, code, err := d.captureIdempotent(ctx, d.tool("rulings.py"), "slice", "--repo", d.Config.BriefsRepo, "--drive", d.Config.Drive, "--refresh", brief)
-	if err != nil {
-		return err
-	}
-	if code == 0 {
-		return nil
+	if err != nil || code == 0 {
+		return "", err
 	}
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	return d.escalate("slice:"+key, "SLICE-UNREAD", lane, fmt.Sprintf("`rulings.py slice --refresh` exited %d: %s; %s launches on its brief without a fresh register slice", code, or(lines[len(lines)-1], "no output"), lane))
+	return fmt.Sprintf("`rulings.py slice --refresh` exited %d: %s", code, or(lines[len(lines)-1], "no output")), nil
+}
+
+func (d *Desk) sliceUnread(key, lane, unread string) error {
+	if unread == "" {
+		return nil
+	}
+	return d.escalate("slice:"+key, "SLICE-UNREAD", lane, unread+"; "+lane+" launches on its brief without a fresh register slice")
 }
 
 func (d *Desk) withdrawLine(ctx context.Context, at, key, rest string) error {

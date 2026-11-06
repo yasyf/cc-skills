@@ -1109,22 +1109,51 @@ func TestACodexLaunchAsksItsSliceForTheStandingRulesAndAClaudeLaunchDoesNot(t *t
 	}
 }
 
-func TestABriefWithNoSliceLaunchesWarnedWithStepAllWritten(t *testing.T) {
+func TestABriefWithNoSliceLaunchesWithTheLaneWordsAndPathsItNamesRefreshed(t *testing.T) {
 	w := newDeskWorld(t)
-	brief := w.brief(testLane, "Do the thing.\nScale: no N\nccx: place=local why=mac-build\n")
+	lane := "launch-90-slice"
+	brief := w.brief(lane, "Fix `plugins/long-running/lr/internal/orca` and docs/slack.md, not yasyf/cc-skills, ~/repos/x/y or https://github.com/a/b/c.\nScale: no N\nccx: place=local why=mac-build\n")
+	var refreshed string
+	w.desk.Runner = runnerFunc(func(ctx context.Context, c shell.Command) (shell.Result, error) {
+		if filepath.Base(c.Argv[0]) == "rulings.py" && slices.Contains(c.Argv, "--refresh") {
+			raw, err := os.ReadFile(c.Argv[len(c.Argv)-1])
+			refreshed = string(raw)
+			return shell.Result{}, err
+		}
+		return w.Run(ctx, c)
+	})
 	w.lines()
-	w.line(launchText(testLane, brief))
+	w.line(launchText(lane, brief))
 	w.lines()
-	wantContains(t, w.wantEscalation("SLICE-MISSING "), "lane-a launches anyway")
+	wantContains(t, w.wantEscalation("SLICE-MISSING "), lane+" launches anyway")
 	w.noEscalation("LAUNCH-FAILED ")
-	raw, err := os.ReadFile(brief)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantContains(t, string(raw), "Register slice: lane=lane-a step=all\n")
+	wantContains(t, refreshed, "\n\nRegister slice: lane="+lane+" step=all topics=launch,slice paths=plugins/long-running/lr/internal/orca,docs/slack.md\n")
 	w.step(w.desk.deliver)
 	if len(w.spawns) != 1 {
 		t.Fatal(w.spawns)
+	}
+}
+
+func TestABriefWithItsOwnSliceIsRefreshedAsWritten(t *testing.T) {
+	w := newDeskWorld(t)
+	text := "Register slice: lane=lane-a step=3 topics=relay paths=go/ci/x.go\nScale: no N\nccx: place=local why=mac-build\n"
+	brief := w.brief(testLane, text)
+	var refreshed string
+	w.desk.Runner = runnerFunc(func(ctx context.Context, c shell.Command) (shell.Result, error) {
+		if filepath.Base(c.Argv[0]) == "rulings.py" && slices.Contains(c.Argv, "--refresh") {
+			raw, err := os.ReadFile(c.Argv[len(c.Argv)-1])
+			refreshed = string(raw)
+			return shell.Result{}, err
+		}
+		return w.Run(ctx, c)
+	})
+	w.lines()
+	w.line(launchText(testLane, brief))
+	w.lines()
+	w.noEscalation("LAUNCH-FAILED ")
+	w.noEscalation("SLICE-MISSING ")
+	if refreshed != text {
+		t.Fatalf("refreshed brief:\n%s", refreshed)
 	}
 }
 
@@ -1163,19 +1192,41 @@ func TestAScaleLessBriefStillLaunches(t *testing.T) {
 	}
 }
 
-func TestASliceThatDoesNotRefreshLogsOneAndNeverHoldsTheLaunch(t *testing.T) {
-	w := newDeskWorld(t)
-	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
+func refreshFails(w *deskWorld) {
 	w.desk.Runner = runnerFunc(func(ctx context.Context, c shell.Command) (shell.Result, error) {
 		if filepath.Base(c.Argv[0]) == "rulings.py" {
 			return shell.Result{Code: 2, Stderr: "no register\n"}, &shell.ExitError{Argv: c.Argv, Code: 2}
 		}
 		return w.Run(ctx, c)
 	})
+}
+
+func TestASliceThatDoesNotRefreshStopsTheLaunch(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
+	refreshFails(w)
 	w.lines()
 	w.line(launchText(testLane, brief))
 	w.lines()
+	wantContains(t, w.wantEscalation("LAUNCH-FAILED "), "exited 2: no register")
+	w.noEscalation("SLICE-UNREAD ")
+	w.step(w.desk.deliver)
+	if len(w.spawns) != 0 {
+		t.Fatal(w.spawns)
+	}
+}
+
+func TestAnIncidentSliceThatDoesNotRefreshLogsOneAndNeverHoldsTheLaunch(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	lane := "dd-1-comms"
+	brief := w.brief(lane, "ccx: lane=dd-1-comms role=comms effort=xhigh\nPost the notices.\n")
+	refreshFails(w)
+	w.lines()
+	w.line("orca-desk: launch " + lane + " NOW incident-opus xhigh role=comms brief=" + brief)
+	w.lines()
 	wantContains(t, w.wantEscalation("SLICE-UNREAD "), "exited 2: no register")
+	w.noEscalation("LAUNCH-FAILED ")
 	w.step(w.desk.deliver)
 	if len(w.spawns) != 1 {
 		t.Fatal(w.spawns)
