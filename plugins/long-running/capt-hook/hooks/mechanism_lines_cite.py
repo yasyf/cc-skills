@@ -9,7 +9,7 @@ from captain_hook.cmd import Cmd
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import COMMUNICATOR_LANE, Bound, Communicator, CompactionState, communicator_tests
 from .gate5_release import OWNER_LANES
-from .lane_rotation import alias_of
+from .lane_rotation import ROOT, alias_of
 from .lane_slack_status import WRITE_TOOLS
 from .meta_records import posts
 from .owner_facing import CCI_READ, CODE, OWNER_QUOTE, REPLY_WINDOW, SENTENCE_BREAK, SLACK_CARD, URL, fenced, last_reply
@@ -46,7 +46,7 @@ UNSEARCHED = (
     " Run `cci grep --drive <drive> -- <its terms>`, cite what it finds or keep the label, then send it again."
 )
 SILENT = re.compile(
-    r"\b(?:(?:is|are|was|were|went|gone|goes|been|stays?|stayed|still|running) (?:quiet|late)|silent|posted nothing|(?<!you )(?:has|have|had)(?:n't| not)(?: yet)? (?:answered|replied|posted|reported)|no (?:answer|reply|word) (?:yet )?from)\b",
+    r"\b(?:(?:is|are|was|were|went|gone|goes|been|stays?|stayed|still|running) (?:quiet|late)|(?<!not )(?<!never )silent|posted nothing|(?<!you )(?:has|have|had)(?:n't| not)(?: yet)? (?:answered|replied|posted)|no (?:answer|reply|word) (?:yet )?from)\b",
     re.IGNORECASE,
 )
 LANE_NAMED = re.compile(r"\blanes?\b|\b[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b")
@@ -65,6 +65,7 @@ LABELLED = "Unproven: a release skew between Mac sand and the cloud runner, whic
 LATE = "ask-lane-21 posted nothing in 10 minutes past its 4:58 PM clock. I told him it is late, launched ask-lane-22 at 4:59 PM and promised its answer by 5:05 PM."
 ANSWERED = "ask-lane-21 answered at 4:52 PM: the link is Sikan's DM about dropping the steps log."
 MAILED = T.tool_turn("Bash", result="#513613 answer ask-lane-21>owner-relay It is a plain DM from Sikan He", command="cci tail --drive durable-agents-rebuild --to owner-relay --since 513300")
+COORDINATOR_POST = "cci post --drive d --lane root --kind report --to owner-relay --text 'ask-lane-21 is late.'"
 ROOT_MAIL = T.tool_turn("Bash", result="#514224 ask owner-relay>root", command="cci tail --drive durable-agents-rebuild --to root --since 513300")
 
 
@@ -104,7 +105,7 @@ def silent_claims(texts: list[str]) -> list[str]:
     for text in texts:
         previous = ""
         for sentence, said in sentences(text):
-            if SILENT.search(said) and LANE_NAMED.search(URL.sub(" ", f"{previous} {sentence}")):
+            if SILENT.search(said.replace("*", "")) and LANE_NAMED.search(URL.sub(" ", f"{previous} {sentence}")):
                 found.append(sentence)
             previous = sentence
     return found
@@ -112,7 +113,7 @@ def silent_claims(texts: list[str]) -> list[str]:
 
 def own_lanes(evt: BaseHookEvent) -> set[str]:
     state = CompactionState.load(evt)
-    return {alias_of(lane) for lane in (drive_lane(evt), COMMUNICATOR_LANE if state.active and state.communicator else None) if lane}
+    return {alias_of(lane) for lane in (drive_lane(evt), COMMUNICATOR_LANE if state.active and state.communicator else None, ROOT if state.active and state.coordinator else None) if lane}
 
 
 def read_mail(evt: BaseHookEvent) -> bool:
@@ -200,6 +201,11 @@ def recorded(to: str, text: str) -> Input:
         replied("You have not answered the land-gate card."): Allow(),
         recorded("owner-relay", "tap-rows has not answered since 3 PM."): Block(pattern=r"tap-rows has not answered"),
         recorded("root", "tap-rows has not answered since 3 PM."): Allow(),
+        replied("ask-lane-21 is not silent; it answered at 4:52 PM."): Allow(),
+        replied("ask-lane-21 has not reported any errors."): Allow(),
+        replied("ask-lane-21 posted **nothing** in 10 minutes."): Block(pattern=r"posted \*\*nothing\*\*"),
+        Input(command=COORDINATOR_POST, state=[CompactionState(active=True, coordinator=True)], env=DRIVE_CONFIG): Block(pattern=r"ask-lane-21 is late"),
+        Input(command=COORDINATOR_POST, state=[CompactionState(active=True, coordinator=True)], env=DRIVE_CONFIG, transcript=[T.user("where is it?"), *ROOT_MAIL]): Allow(),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": "tap-rows went quiet an hour ago."}, env=DRIVE_CONFIG): Block(),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "C0RELEASES1", "text": "tap-rows went quiet an hour ago."}, env=DRIVE_CONFIG): Allow(),
     },
