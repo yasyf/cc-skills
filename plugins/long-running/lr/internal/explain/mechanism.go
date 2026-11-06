@@ -17,11 +17,13 @@ const (
 var (
 	fenced     = regexp.MustCompile("(?s)```.*?```")
 	quoted     = regexp.MustCompile(`(?m)^[ \t]*>.*$`)
+	heading    = regexp.MustCompile(`(?m)^ {0,3}#{1,6}(?:[ \t].*)?$`)
+	tableRule  = regexp.MustCompile(`(?m)^(?:[^\n]*\|[^\n]*\n)?[ \t]*\|?(?:[ \t]*:?-+:?[ \t]*\|)+(?:[ \t]*:?-+:?[ \t]*)?$`)
 	citeAfter  = regexp.MustCompile(`(?s)([.!?])(\s*<!--.*?-->)`)
 	unsaid     = regexp.MustCompile("`[^`\n]+`|\"[^\"\n]*\"|“[^”\n]*”|https?://\\S+")
 	breaks     = regexp.MustCompile(`([.!?])\s+|\n+`)
 	lead       = regexp.MustCompile(`^[\s*_#-]*(?:\d+\.\s*)?`)
-	mechanism  = regexp.MustCompile(`(?i)\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|root[- ]cause|the flaw|which means|is why|led to|skew|so\b[^.;]*?\b(?:fail|crash|break|error)\w*|likely|probably|presumably)\b`)
+	mechanism  = regexp.MustCompile(`(?i)\b(?:because|caus(?:ed|ing)|so that|due to|mechanism|root[- ]cause|the flaw|which means|is why|led to|skew|so\b[^.;]*?\b(?:fail|crash|break|error)\w*|likely|probably|presumably)\b`)
 	prCite     = `#\d{3,}\b|/pull/\d+|\bPR \d+\b`
 	recordCite = `\bbuilds?\s+#?\d{3,}\b|/builds/\d+|[\w./-]+\.\w+:\d+\b|\bmonitors?\s+#?\d+\b|/monitors/\d+|\bnotebooks?\s+#?\d+\b|/notebook/\d+|\bcci #?\d+\b|\b(?:ccn|answer|ruling|note|grant|log|investigation) [0-9a-f]{7,}\b`
 	citation   = regexp.MustCompile(`(?i)` + prCite + `|` + recordCite)
@@ -33,7 +35,7 @@ var (
 func Uncited(source []byte) []string {
 	var found []string
 	previous := ""
-	for _, line := range strings.Split(breaks.ReplaceAllString(citeAfter.ReplaceAllString(quoted.ReplaceAllString(fenced.ReplaceAllString(string(source), "\n"), ""), "$2$1"), "$1\n"), "\n") {
+	for _, line := range strings.Split(breaks.ReplaceAllString(citeAfter.ReplaceAllString(tableRule.ReplaceAllString(heading.ReplaceAllString(quoted.ReplaceAllString(fenced.ReplaceAllString(string(source), "\n"), ""), ""), ""), "$2$1"), "$1\n"), "\n") {
 		sentence := strings.TrimSpace(line)
 		if sentence == "" {
 			continue
