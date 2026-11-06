@@ -2,6 +2,7 @@ package landing_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"slices"
@@ -626,5 +627,48 @@ func TestAFixAnotherHostAlreadyMergedIsNeitherRetriedNorReportedAsAFailedSquash(
 	}
 	if len(records) != 0 {
 		t.Fatalf("posted %+v after another host merged it", records)
+	}
+}
+
+func TestARestackRefusedBecauseThePRMergedPostsNoBlockerAndReadsItsStateOnce(t *testing.T) {
+	for state, blocked := range map[string]bool{"MERGED": false, "CLOSED": true} {
+		t.Run(state, func(t *testing.T) {
+			f := newSquash(t)
+			gone := &shelltest.Fake{}
+			gone.Reply("", squashTool, "check-pr")
+			gone.Reply(state+"\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", "7")
+			gone.Reply("3\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/"+monorepo+"/compare/dev..."+squashFirst)
+			f.fake = gone
+			f.squash.Runner, f.squash.CCX = gone, ccx.CLI{Runner: gone}
+			f.squash.Restack = func(context.Context, int) (string, error) {
+				return "", errors.New("remote-restack: #7 is not an open pull request")
+			}
+
+			f.admit(fixFacts(nil))
+			f.admit(fixFacts(nil))
+
+			if merges := f.merges(); len(merges) != 0 {
+				t.Fatalf("merges = %v", merges)
+			}
+			records, err := client.Tail(context.Background(), client.Query{Drive: "d", Lanes: []string{"supervisor"}, Kinds: []string{"blocker"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(records) > 0) != blocked {
+				t.Fatalf("blockers = %+v, want blocked %v", records, blocked)
+			}
+			if blocked {
+				return
+			}
+			var reads int
+			for _, call := range gone.Calls() {
+				if slices.Contains(call.Argv, "view") {
+					reads++
+				}
+			}
+			if reads != 1 {
+				t.Fatalf("read the merged PR's state %d times, want once", reads)
+			}
+		})
 	}
 }
