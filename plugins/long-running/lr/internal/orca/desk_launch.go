@@ -87,7 +87,15 @@ func launcherRunning(log string) bool {
 }
 
 func (d *Desk) capture(ctx context.Context, env []string, argv ...string) (string, int, error) {
-	result, err := d.Runner.Run(ctx, shell.Command{Argv: argv, Env: env})
+	return d.captured(ctx, shell.Command{Argv: argv, Env: env})
+}
+
+func (d *Desk) captureIdempotent(ctx context.Context, argv ...string) (string, int, error) {
+	return d.captured(ctx, shell.Command{Argv: argv, Idempotent: true})
+}
+
+func (d *Desk) captured(ctx context.Context, c shell.Command) (string, int, error) {
+	result, err := d.Runner.Run(ctx, c)
 	var exit *shell.ExitError
 	if err != nil && !errors.As(err, &exit) {
 		return "", 0, err

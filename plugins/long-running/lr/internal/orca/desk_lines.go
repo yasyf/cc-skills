@@ -798,7 +798,7 @@ func (d *Desk) acceptLaunch(key, lane string, spec launchTarget) (incident.Actio
 }
 
 func (d *Desk) dropClasses(ctx context.Context) []config.Refusal {
-	listing, code, err := d.briefs(ctx, "answer", "list", "--label", config.DropClassLabel, "--limit", "0", "--json")
+	listing, code, err := d.readBriefs(ctx, "answer", "list", "--label", config.DropClassLabel, "--limit", "0", "--json")
 	if err == nil && code != 0 {
 		err = errors.New(ccnFailure(listing, code))
 	}
@@ -868,7 +868,7 @@ func (d *Desk) refreshSlice(ctx context.Context, key, lane, brief, step, model s
 			return err
 		}
 	}
-	output, code, err := d.capture(ctx, nil, d.tool("rulings.py"), "slice", "--repo", d.Config.BriefsRepo, "--drive", d.Config.Drive, "--refresh", brief)
+	output, code, err := d.captureIdempotent(ctx, d.tool("rulings.py"), "slice", "--repo", d.Config.BriefsRepo, "--drive", d.Config.Drive, "--refresh", brief)
 	if err != nil {
 		return err
 	}
