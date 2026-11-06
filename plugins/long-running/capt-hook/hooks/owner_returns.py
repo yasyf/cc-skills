@@ -48,6 +48,7 @@ REMINDER = Binary(
     "The owner's words this turn are below; his typos are his, so read through them."
     " Yes only when his words themselves say the assistant's own conduct fell short of something he already told it or expected of it: he reminds it of something it should already have done, repeats an instruction or ruling he gave before, or objects to how it behaves."
     " No when his words give an order or report a problem without faulting how the assistant behaved, even when the order is sharp, urgent or names a bug: a new request, a link to act on, a defect in the product or a tool, a question about state, an answer, a pick, an approval or thanks."
+    " No when he steers what a proposal, plan, design or card contains, even when he recalls what was planned or agreed: too aggressive, simpler, keep or drop something, what happened to an earlier idea; that is direction for the lane that owns the work, unless he also faults the assistant's behaviour, such as having to say it again."
     " A passage he quotes from elsewhere is what he is pointing at, not his complaint."
 )
 ASKED_WHY = re.compile(r"\bwhy\b|\bhow come\b|\bhow (?:does|do|did|is|are|was|were)\b|\bwhat happened\b", re.IGNORECASE)
@@ -107,6 +108,15 @@ PAGE = "https://mac.tail1.ts.net:8665/one-pagers/relay-replicas/"
 CALM = {"reminder": NO}
 REMINDED = CALM | {"reminder": BinaryAnswer(p_yes=0.97, confidence=0.94)}
 ORDER_WITH_A_LINK = "https://acme.slack.com/archives/C0B/p1793845625453279\n\neverything the reviewer said, plus the empty status line"
+TOO_AGGRESSIVE = (
+    "This is a little too aggressive we want the core functionality like the LLMs that do visual stuff, the only one that should be critical path is the one that resolves cycles in the DAG."
+    " We should precompute the DAG, resolve with LLm if needed, then get approvals."
+)
+WHAT_HAPPENED_TO_OUTBOX = (
+    "Looks good but I thought we got rid of outbox we had a whole plan for a new ssql instance for the centralized inbox what happened to that!"
+    " Approved but confirm you're going to share code and basically jsut make the destination pluggable, that's what we agreed on"
+)
+APPROVED_THRICE = "I've approved this 3 times now"
 HIS_1_34_AM = (
     "every tjme i need to remknd you to do skemtjjng, hou need to spawn a meta tooling lane foe thay (includkng tbis)."
     " uou did tjay for the ildate after being away a long tome, so good job, but make sure thay is durable behavior not just this session."
@@ -348,6 +358,9 @@ def ask_to(*to: str) -> str:
         reminded(*T.tool_turn("Bash", result="R1", command="bash ~/.claude/long-running/current/bin/orca-launch.sh /drive/fix-3 brief.md")): Allow(),
         reminded(decide=CALM): Allow(),
         reminded(said=ORDER_WITH_A_LINK, decide=CALM, asks=ask_to("slack-bugs", "root")): Allow(),
+        reminded(said=TOO_AGGRESSIVE, decide=CALM, asks=ask_to("release-simplify", "root")): Allow(),
+        reminded(said=WHAT_HAPPENED_TO_OUTBOX, decide=CALM): Allow(),
+        reminded(said=APPROVED_THRICE): Allow(),
         reminded(decide=CALM | {"reminder": Refused()}): Allow(),
         woken(RESUMED, CCI_WAKE, NO_OUTPUT): Allow(),
         woken(RESUMED, NO_OUTPUT, REMINDER_FEEDBACK): Allow(),
