@@ -193,6 +193,21 @@ CCI_POST = CommandSchema(
         *(Option(name, (f"--{name}",), bool) for name in ("force", "json", "pairwise", "stamp")),
     ),
 )
+CCI_READ = CommandSchema(
+    "cci",
+    operands=(Operand("words", count="*"),),
+    options=(
+        *(
+            Option(name, (f"--{name}",))
+            for name in (
+                "budget", "cursor", "drive", "for", "interval", "kind", "lane", "lane-prefix", "mute-kinds", "origin", "per-lane", "pr", "reader",
+                "seed", "since", "stack", "target", "to", "to-kind", "topic", "width",
+            )
+        ),
+        Option("limit", ("-n", "--limit")),
+        *(Option(name, (f"--{name}",), bool) for name in ("all", "json", "mail", "oldest", "open")),
+    ),
+)
 
 
 def spawn(name: str, prompt: str, **extra: object) -> Input:
