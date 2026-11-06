@@ -58,7 +58,7 @@ var (
 	unholdSpec     = regexp.MustCompile(`^ ([a-z0-9][a-z0-9.-]*)$`)
 	withdrawSpec   = regexp.MustCompile(`^ ([\w.:@-]+)$`)
 	launchKey      = regexp.MustCompile(`^(?:R\d+(?:@\w+)?|unfixed:[\w-]+:\d+|inbox@\S+|incident-clock:ctx_[\w-]+)$`)
-	decideLine     = regexp.MustCompile(`^DECIDE (msg_\S+) ([\w.-]+): `)
+	decideLine     = regexp.MustCompile(`^DECIDE ((?:msg|relay)_\S+) ([\w.-]+): `)
 	monitorID      = regexp.MustCompile(`(?:monitors/|\bmonitor |\bDatadog )(\d{4,})`)
 )
 
@@ -338,7 +338,7 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 			if err != nil {
 				return true, err
 			}
-			return true, d.relayToLane(ctx, at, at, decide[2], text, "", &question)
+			return true, d.relayToLane(ctx, at, at, decide[2], relayTarget{Text: text, Record: recordLabel(record)}, &question)
 		}
 	}
 	asked, err := d.askedBy(ctx, d.receipt(closed.Lane), d.terminal(closed.Lane))
@@ -365,7 +365,11 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 		return false, err
 	}
 	relayed := fmt.Sprintf("The root answered on cci #%d (re #%d), which supersedes this question: %s", record.Seq, closed.Seq, text)
-	return true, d.relayToLane(ctx, at, at, closed.Lane, relayed, "", &question)
+	return true, d.relayToLane(ctx, at, at, closed.Lane, relayTarget{Text: relayed, Record: recordLabel(record)}, &question)
+}
+
+func recordLabel(record client.Record) string {
+	return fmt.Sprintf("#%d %s from %s", record.Seq, record.Kind, record.Lane)
 }
 
 func clippedByCCI(kept, written string) bool {
@@ -491,7 +495,7 @@ func (d *Desk) relayLine(ctx context.Context, at, key, rest, sender string) erro
 		if target == "" {
 			continue
 		}
-		if err := d.relayToLane(ctx, at, key, target, found[2], sender, nil); err != nil {
+		if err := d.relayToLane(ctx, at, key, target, relayTarget{Text: found[2], From: sender}, nil); err != nil {
 			return err
 		}
 		if err := d.warnUnheard(ctx, at, key, target, sender); err != nil {
@@ -522,6 +526,7 @@ type relayTarget struct {
 	ReplyTo string `json:"reply_to"`
 	PR      string `json:"pr,omitempty"`
 	From    string `json:"from,omitempty"`
+	Record  string `json:"record,omitempty"`
 }
 
 func relayOf(action incident.Action) (relayTarget, error) {
@@ -529,41 +534,40 @@ func relayOf(action incident.Action) (relayTarget, error) {
 	return target, json.Unmarshal([]byte(action.Target), &target)
 }
 
-func (d *Desk) acceptRelay(key, lane, text, replyTo, sender string, minutes int) (incident.Action, bool, error) {
+func (d *Desk) acceptRelay(key, lane string, relay relayTarget, minutes int) (incident.Action, bool, error) {
 	container, err := d.lane(lane)
 	if err != nil {
 		return incident.Action{}, false, err
 	}
-	target, err := compactJSON(relayTarget{Text: text, ReplyTo: replyTo, From: sender})
+	target, err := compactJSON(relay)
 	if err != nil {
 		return incident.Action{}, false, err
 	}
 	kind := kindRelay
-	if replyTo != "" {
+	if relay.ReplyTo != "" {
 		kind = kindReply
 	}
 	return d.accept(container, key, kind, target, key, d.Now().Add(time.Duration(minutes)*time.Minute))
 }
 
-func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text, sender string, question *string) error {
+func (d *Desk) relayToLane(ctx context.Context, at, key, lane string, relay relayTarget, question *string) error {
 	log := "escalation:relay:" + at + ":" + lane
 	dispatch, err := d.show(ctx, lane, "")
 	if err != nil {
 		return err
 	}
-	replyTo := ""
 	if question != nil {
-		replyTo = *question
+		relay.ReplyTo = *question
 	} else if dispatch.active() {
 		questions, err := d.openQuestions(ctx, dispatch)
 		if err != nil {
 			return err
 		}
-		if replyTo, err = d.unclaimed(key, lane, questions); err != nil {
+		if relay.ReplyTo, err = d.unclaimed(key, lane, questions); err != nil {
 			return err
 		}
 	}
-	action, created, err := d.acceptRelay(key, lane, text, replyTo, sender, d.Config.StartMinutes)
+	action, created, err := d.acceptRelay(key, lane, relay, d.Config.StartMinutes)
 	if err != nil {
 		return err
 	}
@@ -572,7 +576,7 @@ func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text, sender stri
 		if err != nil {
 			return err
 		}
-		if held.Text != text {
+		if held.Text != relay.Text {
 			return d.record(log, fmt.Sprintf("RELAY-FAILED %s %s: %s already holds a different relay to %s (%s)", key, lane, key, lane, action.Status))
 		}
 	}
@@ -580,8 +584,8 @@ func (d *Desk) relayToLane(ctx context.Context, at, key, lane, text, sender stri
 		return nil
 	}
 	shape := "relay to"
-	if replyTo != "" {
-		shape = "reply to question " + replyTo + " of"
+	if relay.ReplyTo != "" {
+		shape = "reply to question " + relay.ReplyTo + " of"
 	}
 	return d.record(log, fmt.Sprintf("RELAYED %s %s: %s dispatch %s", key, lane, shape, dispatch.ID))
 }
@@ -1077,7 +1081,7 @@ func (d *Desk) alertLine(ctx context.Context, at, key, rest string) error {
 		return err
 	}
 	if dispatch.active() {
-		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), "", nil)
+		return d.relayToLane(ctx, at, key+":again", lane, relayTarget{Text: fmt.Sprintf("The alert fired again: %s %s", what, link)}, nil)
 	}
 	if muted, err := d.ownerMuted(ctx, lineMonitors(link, what)); muted != "" || err != nil {
 		return err
@@ -1098,7 +1102,7 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string, line clie
 		return err
 	}
 	if dispatch.active() {
-		return d.relayToLane(ctx, at, key+":again", lane, fmt.Sprintf("The alert fired again: %s %s", what, link), "", nil)
+		return d.relayToLane(ctx, at, key+":again", lane, relayTarget{Text: fmt.Sprintf("The alert fired again: %s %s", what, link)}, nil)
 	}
 	ended, err := d.lineEnded(ctx, lane, line)
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
@@ -1891,7 +1892,7 @@ func (w *deskWorld) acceptedRelay(key string) string {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	if _, _, err := w.desk.acceptRelay(key, testLane, "go", "", "", 10); err != nil {
+	if _, _, err := w.desk.acceptRelay(key, testLane, relayTarget{Text: "go"}, 10); err != nil {
 		w.t.Fatal(err)
 	}
 	return container
@@ -1923,7 +1924,7 @@ func TestASendFencedAsInactiveFallsBackToCCI(t *testing.T) {
 func TestAReplyWhoseQuestionAlreadyHoldsAnAnswerGoesAsAMessage(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
-	if _, _, err := w.desk.acceptRelay("R2", testLane, "left", "msg_q", "", 10); err != nil {
+	if _, _, err := w.desk.acceptRelay("R2", testLane, relayTarget{Text: "left", ReplyTo: "msg_q"}, 10); err != nil {
 		t.Fatal(err)
 	}
 	w.refusals["orchestration reply"] = object{"code": codeAnswerConflict, "message": "answered"}
@@ -3761,7 +3762,7 @@ func TestAPassCheckingDeadlinesStopsAtItsBudgetAndTheNextOneResumesAfterTheLastL
 	w.desk.Bus = slowTail{deskWorld: w, took: 15 * time.Second}
 	names := []string{"lane-a", "lane-b", "lane-c"}
 	for _, lane := range names {
-		if _, _, err := w.desk.acceptRelay("blocker:12:abc", lane, "#12 red", "", "", 10); err != nil {
+		if _, _, err := w.desk.acceptRelay("blocker:12:abc", lane, relayTarget{Text: "#12 red"}, 10); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -3810,7 +3811,7 @@ func TestAHeartbeatAfterTheRelayExcusesItsDeadline(t *testing.T) {
 
 func TestAHeadOnThePRExcusesARelayedBlockersDeadline(t *testing.T) {
 	w := newDeskWorld(t)
-	if _, _, err := w.desk.acceptRelay("blocker:12:abc", testLane, "#12 red", "", "", 10); err != nil {
+	if _, _, err := w.desk.acceptRelay("blocker:12:abc", testLane, relayTarget{Text: "#12 red"}, 10); err != nil {
 		t.Fatal(err)
 	}
 	w.now = w.now.Add(11 * time.Minute)
@@ -3821,7 +3822,7 @@ func TestAHeadOnThePRExcusesARelayedBlockersDeadline(t *testing.T) {
 
 func TestARedByDesignContractExcusesARelayedBlockersDeadline(t *testing.T) {
 	w := newDeskWorld(t)
-	if _, _, err := w.desk.acceptRelay("blocker:12:abc", testLane, "#12 red", "", "", 10); err != nil {
+	if _, _, err := w.desk.acceptRelay("blocker:12:abc", testLane, relayTarget{Text: "#12 red"}, 10); err != nil {
 		t.Fatal(err)
 	}
 	w.add(object{"lane": testLane, "kind": "contract", "text": "#12 is red by design", "refs": object{"prs": []int{12}}})
@@ -4412,7 +4413,7 @@ func (w *deskWorld) sentRelay(key, sender string) string {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	if _, _, err := w.desk.acceptRelay(key, testLane, "go", "", sender, 10); err != nil {
+	if _, _, err := w.desk.acceptRelay(key, testLane, relayTarget{Text: "go", From: sender}, 10); err != nil {
 		w.t.Fatal(err)
 	}
 	w.step(w.desk.deliver)
@@ -4441,13 +4442,53 @@ func TestARelayToASpriteLaneIsARecordAddressedToItAndWakesItsTerminalOnThatSprit
 		t.Fatal(w.posts)
 	}
 	sends := w.typed()
-	if len(sends) != 1 || flag(sends[0], "--environment") != "env_sprite" || flag(sends[0], "--terminal") != testTerminal {
+	if len(sends) != 1 || flag(sends[0], "--environment") != "env_sprite" || flag(sends[0], "--terminal") != testTerminal || flag(sends[0], "--text") != "R2: read your cci records now" {
 		t.Fatal(sends)
 	}
 	for _, call := range w.orcaCalls("terminal read") {
 		if flag(call, "--environment") != "env_sprite" {
 			t.Fatal(call)
 		}
+	}
+}
+
+func TestARootAnswerToASpriteLanesOrcaQuestionWakesItWithTheWholeAnswer(t *testing.T) {
+	const lane, question = "dev-red-5a02b5902d-fix", "relay_bf1e44052963"
+	w := newDeskWorld(t)
+	w.live(lane, testDispatch, testTerminal)
+	w.dispatches[testDispatch].environment = "env_sprite"
+	decide := w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE " + question + " " + lane + ": Question: Please paste the full bodies of finder review534012 and root answers534250/534495 directly into this Orca terminal reply"})
+	w.lines()
+	whole := "Answer for " + lane + " (" + question + "), full bodies below.\n===== cci 534012\nfinder: major 957991839eec " + strings.Repeat("the fixture names its database set held; ", 12) + "\n===== cci 534495\nfinder-desk owes that repost."
+	path := filepath.Join(w.home, "relay-answer.txt")
+	w.write(path, whole)
+	answer := w.add(object{"kind": "answer", "text": clipped(whole, textLimit), "to": []string{deskRunner, lane}, "resolves": decide.Seq, "refs": object{"path": path}})
+	w.lines()
+	w.step(w.desk.deliver)
+	sends := w.typed()
+	if len(sends) != 1 {
+		t.Fatal(sends)
+	}
+	typed := flag(sends[0], "--text")
+	wantContains(t, typed, fmt.Sprintf("#%d answer from root, the reply to your Orca question %s", answer.Seq, question))
+	wantContains(t, typed, whole)
+}
+
+func TestAHandPathWakeOverTheSendLimitIsCutAndKeepsItsSeq(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.dispatches[testDispatch].environment = "env_sprite"
+	if _, _, err := w.desk.acceptRelay("cci#9", testLane, relayTarget{Text: strings.Repeat("é", typedLimit), ReplyTo: "relay_q", Record: "#9 answer from root"}, 10); err != nil {
+		t.Fatal(err)
+	}
+	w.step(w.desk.deliver)
+	sends := w.typed()
+	if len(sends) != 1 {
+		t.Fatal(sends)
+	}
+	typed := flag(sends[0], "--text")
+	if !strings.HasPrefix(typed, "#9 answer from root") || !strings.HasSuffix(typed, "…") || utf8.RuneCountInString(typed) != typedLimit {
+		t.Fatal(utf8.RuneCountInString(typed))
 	}
 }
 
@@ -4693,7 +4734,7 @@ func TestManyRelaysToSettledWorkersCloseInOneRecord(t *testing.T) {
 	count := reclaimNamed + 1
 	for i := range count {
 		w.live(fmt.Sprintf("lane-%d", i), fmt.Sprintf("ctx_%d", i), fmt.Sprintf("term_%d", i))
-		if _, _, err := w.desk.acceptRelay("R2", fmt.Sprintf("lane-%d", i), "go", "", "", 10); err != nil {
+		if _, _, err := w.desk.acceptRelay("R2", fmt.Sprintf("lane-%d", i), relayTarget{Text: "go"}, 10); err != nil {
 			t.Fatal(err)
 		}
 	}

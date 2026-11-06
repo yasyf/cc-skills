@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -22,6 +23,7 @@ const (
 	orphanedSend = 2 * time.Minute
 	unfixedKey   = "unfixed:"
 	cutLaunchKey = "cut:"
+	typedLimit   = 32000
 )
 
 var relayedPR = regexp.MustCompile(`^(?:blocker|restack):(\d+):`)
@@ -202,11 +204,27 @@ func (d *Desk) postRelaysToSprite(ctx context.Context, container string, dispatc
 		if err := d.postRelay(ctx, container, dispatch.Lane, action, "a Sprite lane does not read its Run mailbox"); err != nil {
 			return err
 		}
-		if _, err := d.wake(ctx, dispatch.Terminal, dispatch.Environment, fmt.Sprintf("%s: read your cci records now", action.AuthorityRef)); err != nil {
+		text, err := spriteWake(action)
+		if err != nil {
+			return err
+		}
+		if _, err := d.wake(ctx, dispatch.Terminal, dispatch.Environment, text); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func spriteWake(action incident.Action) (string, error) {
+	if action.Kind != kindReply {
+		return fmt.Sprintf("%s: read your cci records now", action.AuthorityRef), nil
+	}
+	spec, err := relayOf(action)
+	if err != nil {
+		return "", err
+	}
+	head := fmt.Sprintf("%s, the reply to your Orca question %s, in full:\n\n", or(spec.Record, string(action.AuthorityRef)), spec.ReplyTo)
+	return head + clipped(spec.Text, typedLimit-utf8.RuneCountInString(head)), nil
 }
 
 func (d *Desk) sendRelays(ctx context.Context, container string, dispatch *laneDispatch, relays []incident.Action) error {
