@@ -68,8 +68,6 @@ KEPT_REFUSALS = KEPT | {
     "local_builds.no_local_builds_in_a_drive": "the run already saturates the Mac when a warning lands (answer 7e82747)",
     "mechanism_lines_cite.mechanism_lines_cite": "the owner ordered the refusal: he reads an uncited mechanism sentence as fact",
     "mechanism_lines_cite.mechanism_replies_cite": STOP.format(what="the owner would read an uncited mechanism as fact"),
-    "mechanism_lines_cite.silent_lane_lines_read_mail": "the owner ordered the tooling fixed: he reads a line calling a lane silent as fact and more lanes launch on it, while that lane's answer already waits unread",
-    "mechanism_lines_cite.silent_lane_replies_read_mail": STOP.format(what="the owner would read a lane as silent while its answer waits unread"),
     "merge_own_red.merge_never_lands_past_its_own_red": "a merge cannot be recalled",
     "owner_answers.owner_notes_get_answers": STOP.format(what="the owner's note would wait"),
     "owner_ledger.owner_messages_close_before_stop": STOP.format(what="the owner's message would stay open"),
