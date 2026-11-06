@@ -145,6 +145,36 @@ func TestAnAskIsAnsweredToItsLaneAndClosedWithNoKeyInTheRecordOrBody(t *testing.
 	}
 }
 
+func TestAnAskPastTheRecordTextCapIsReadWhole(t *testing.T) {
+	keys, paths := make([]string, 40), make([]string, 40)
+	for n := range keys {
+		keys[n], paths[n] = fmt.Sprintf(`"k%02d":%d`, n, n), fmt.Sprintf("contexts.k%02d", n)
+	}
+	server, _ := serve(t, map[string]string{"/sentry/projects/forge/api/events/e1/json/": `{"contexts":{` + strings.Join(keys, ",") + `}}`})
+	desk := newDesk(t, &fakeRunner{}, server.URL)
+	asked := "sentry api /projects/forge/api/events/e1/json/ --pick " + strings.Join(paths, ",")
+	opened, err := client.Post(context.Background(), client.Draft{Drive: driveName, Lane: lane, Kind: askdesk.AskKind, Text: asked, To: []string{Lane}, Force: true})
+	if err != nil || opened.Text == asked {
+		t.Fatalf("a %d-character ask was stored whole as its record text, %v", len(asked), err)
+	}
+
+	if _, err := desk.loop().Pass(context.Background(), client.Query{Drive: driveName, Since: time.Now().Add(-askdesk.CatchUp), Kinds: []string{askdesk.AskKind}}); err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := client.Tail(context.Background(), client.Query{Drive: driveName, Kinds: []string{askdesk.AnswerKind}, Lanes: []string{Lane}})
+	if err != nil || len(found) != 1 {
+		t.Fatalf("answers = %v, %v", found, err)
+	}
+	whole, err := client.WholeText(found[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(whole, "picked 40 of 40 paths") || !strings.Contains(whole, "contexts.k39: 39\n") {
+		t.Fatalf("the answer did not read the whole ask:\n%s", whole)
+	}
+}
+
 func TestABatchedAskAnswersEachReadUnderItsOwnHeadingInOneRecord(t *testing.T) {
 	server, got := serve(t, map[string]string{
 		"/api/v2/spans/events/search": `{"data":[{"attributes":{"service":"cloudrunner","resource_name":"run","start_timestamp":"2026-11-05T19:59:00Z","end_timestamp":"2026-11-05T19:59:01Z","trace_id":"t1","span_id":"s1"}}]}`,

@@ -139,7 +139,11 @@ func (d Desk) Pass(ctx context.Context, query client.Query) (client.Query, error
 }
 
 func (d Desk) answer(ctx context.Context, ask client.Record) error {
-	read := d.Read(ctx, ask.Text)
+	asked, err := client.WholeText(ask)
+	if err != nil {
+		return err
+	}
+	read := d.Read(ctx, asked)
 	answer := client.Draft{
 		Drive: d.Drive, Lane: d.Lane, Kind: AnswerKind, Text: read.Head, To: []string{ask.Lane},
 		Resolves: ask.Seq, URL: read.URL, Force: true, Attrs: map[string]string{},
@@ -164,12 +168,11 @@ func (d Desk) answer(ctx context.Context, ask client.Record) error {
 		if len(parts) > 1 {
 			answer.Attrs[partsAttr] = strconv.Itoa(len(parts))
 		}
-		var err error
 		if answer.Path, err = d.bodyFile(parts[0]); err != nil {
 			return err
 		}
 	}
-	_, err := client.Post(ctx, answer)
+	_, err = client.Post(ctx, answer)
 	return err
 }
 
