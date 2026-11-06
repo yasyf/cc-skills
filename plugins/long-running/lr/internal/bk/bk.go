@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kballard/go-shellquote"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -33,12 +34,12 @@ const (
 	bodiesDir   = "bk-desk"
 	perPage     = 100
 	buildsUsage = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
-	logUsage    = "log takes <pipeline> <number> <job id, or step key and its N/M for a parallel step> [--grep <regex>] [--context <lines, 0 to 50>]"
+	logUsage    = "log takes <pipeline> <number> <job id, or step key and its N/M for a parallel step> [--grep '<regex>'] [--context <lines, 0 to 50>]"
 	jobFailed   = "failed"
 	failureMark = `--- FAIL|panic:|FAIL\s`
 	maxContext  = 50
 	apiUsage    = "api reads one path with GET and answers its raw JSON, or with --fields <name,parent.child,...> one line per element; it takes no other flag such as -X, -d or --jq"
-	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep <regex>] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
+	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
 )
 
 var (
@@ -117,14 +118,14 @@ func (d *Desk) read(ctx context.Context, text string) reply {
 	if refusal != "" {
 		return reply{head: "bk read refused", body: refusal}
 	}
-	key := strings.Join(args, " ")
+	key := shellquote.Join(args...)
 	now := d.Now()
 	if hit, found := d.cache[key]; found && now.Sub(hit.at) < fresh {
 		return hit
 	}
 	maps.DeleteFunc(d.cache, func(_ string, kept reply) bool { return now.Sub(kept.at) >= fresh })
 	read := d.fetch(ctx, args)
-	read.head = "bk " + key + ": " + read.head
+	read.head = "bk " + strings.Join(args, " ") + ": " + read.head
 	read.at = now
 	d.cache[key] = read
 	return read
@@ -135,7 +136,10 @@ func parse(text string) ([]string, string) {
 	if match == nil {
 		return nil, usage
 	}
-	rest := strings.Fields(match[2])
+	rest, err := shellquote.Split(match[2])
+	if err != nil {
+		return nil, fmt.Sprintf("the read does not split into shell words: %v", err)
+	}
 	switch match[1] {
 	case "build":
 		if len(rest) == 2 {
