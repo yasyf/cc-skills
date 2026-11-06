@@ -172,11 +172,14 @@ func closesCard(answer ownerAnswer, id string) bool {
 		return false
 	}
 	said, _, _ := strings.Cut(answer.Body, "\n")
-	inThread := slices.ContainsFunc(answer.Tags, func(tag string) bool { return strings.HasPrefix(tag, threadProof) })
-	if !inThread && !strings.HasPrefix(said, writeIn) {
+	if !inThread(answer) && !strings.HasPrefix(said, writeIn) {
 		return true
 	}
 	return cardtext.NumberedPick(strings.TrimSuffix(strings.TrimPrefix(said, writeIn), "”"))
+}
+
+func inThread(answer ownerAnswer) bool {
+	return slices.ContainsFunc(answer.Tags, func(tag string) bool { return strings.HasPrefix(tag, threadProof) })
 }
 
 func settles(ctx context.Context, judge Judge, source settlingSource, card json.RawMessage, question string, answers []ownerAnswer, since string) (*Settling, error) {

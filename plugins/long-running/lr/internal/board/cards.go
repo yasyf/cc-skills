@@ -519,13 +519,15 @@ func (c Cards) closeAnswered(ctx context.Context, lane string, out io.Writer) er
 	if err != nil {
 		return err
 	}
-	var answered []string
+	var shown []string
+	tapped := map[string]bool{}
 	for _, card := range typed(outcomes.Doc, "card") {
-		if id := text(card, "id"); id != mergeTriage && !asksOpen(card, outcomes) {
-			answered = append(answered, id)
+		if id := text(card, "id"); id != mergeTriage {
+			shown = append(shown, id)
+			tapped[id] = !asksOpen(card, outcomes)
 		}
 	}
-	if len(answered) == 0 {
+	if len(shown) == 0 {
 		return nil
 	}
 	rows, err := c.answers(ctx)
@@ -536,8 +538,8 @@ func (c Cards) closeAnswered(ctx context.Context, lane string, out io.Writer) er
 	if err != nil {
 		return err
 	}
-	for _, card := range answered {
-		if !slices.ContainsFunc(rows, func(row ownerAnswer) bool { return closesCard(row, card) }) {
+	for _, card := range shown {
+		if !slices.ContainsFunc(rows, func(row ownerAnswer) bool { return closesCard(row, card) && (tapped[card] || inThread(row)) }) {
 			continue
 		}
 		if err := c.sweepOff(ctx, lane, card, known[card], answeredReason, answeredReason, out); err != nil {

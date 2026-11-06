@@ -39,7 +39,7 @@ NOT_ANSWERED = (
     "Record his words with `ccn answer add --label from:owner --label card:<card>`, or leave the card up and tell the lane that drew it.\n```\n{cards}\n```"
 )
 SAYS_HE_ANSWERED = re.compile(r"\b(?:you|he)(?: already)? answered\b", re.IGNORECASE)
-NUMBERED_PICK = re.compile(r"^(?:(?:i )?pick |option )?\d+(?:\.?$|[\s,:;-])", re.IGNORECASE)
+NUMBERED_PICK = re.compile(r"^(?:(?:i )?pick |option )?#?\d+(?:\.?$|[\s,:;+-])", re.IGNORECASE)
 THREAD_PROOF = "proof:slack-thread:"
 WRITE_IN_WORDS = "wrote “"
 ANSWER_ROWS = script_module("long_running.answer_rows")
