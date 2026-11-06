@@ -774,7 +774,7 @@ func foldCardTaker(s *store.Store, r Record, addressed map[string]bool) {
 
 func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.Time) (unreached []unassigned) {
 	answer := strings.HasPrefix(r.Topic, CardWakeTopic)
-	if !answer && !asksOfALane(r) {
+	if isRequest(r) || !answer && !asksOfALane(r) {
 		return nil
 	}
 	assigns := r.Lane == Root || r.Lane == Self

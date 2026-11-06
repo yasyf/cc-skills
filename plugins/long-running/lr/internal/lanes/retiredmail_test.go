@@ -252,6 +252,18 @@ func TestRootNamingARetiredLaneWhoseSuccessorIsLiveRoutesTheRecordToIt(t *testin
 	equal(t, len(f.ofKind("blocker")), 0)
 }
 
+func TestARegistryRequestCCIForwardsToTheSupervisorsRetiredOwnerRaisesNoNotice(t *testing.T) {
+	s, f := finished(t)
+	request := ask(3, "owner", "pr-unblock-18", t0.Add(mins(5)), []int{50314}, "", map[string]string{"last-read": "2"}).withNum("#3")
+	request.To = append(request.To, Stem(lane2))
+	f.feed = append(f.feed, request)
+	tick(t, s, f, t0.Add(mins(5)))
+
+	equal(t, isRequest(request), true)
+	equal(t, f.launches, []string(nil))
+	equal(t, len(f.ofKind("blocker")), 0)
+}
+
 func TestAnOverdueItemAsksALaneThatStoppedItselfAndRootForOneThatFinished(t *testing.T) {
 	s := memory(t)
 	stoppedOnACard(t, s)
