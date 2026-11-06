@@ -14,7 +14,9 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -373,6 +375,33 @@ func TestARootAskPutsItsPRsFirstAndAGreenApprovedRowGoesAheadOfTheRest(t *testin
 	}
 	if want := []int{2, 1, 3, 4, 5}; !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
+func TestAFirstNamesTheLaneItIsGivenElseTheSessionsLaneOrRootAndRefusesNamingLaneWhenThereIsNone(t *testing.T) {
+	t.Setenv(lanes.LaneEnv, "")
+	for name, c := range map[string]struct {
+		named, me, want string
+	}{
+		"a Sprite lane's session":        {"", "window lane drive=d lane=journal-list-grant-1 seen 2s\n", "journal-list-grant-1"},
+		"the drive's root":               {"", "- root drive=d cwd=/w seen 1s\n", "root"},
+		"--lane over the session's lane": {"spa-edge-role-1", "- root drive=d cwd=/w seen 1s\n", "spa-edge-role-1"},
+		"a session bound to nothing":     {"", "window session cwd=/w seen 1s\n", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &shelltest.Fake{}
+			runner.Reply(c.me, "cci", "me")
+			asker, err := firstAsker(context.Background(), runner, c.named)
+			if c.want == "" {
+				if err == nil || !strings.Contains(err.Error(), "--lane") {
+					t.Fatalf("firstAsker = %q, %v; want a refusal naming --lane", asker, err)
+				}
+				return
+			}
+			if err != nil || asker != c.want {
+				t.Fatalf("firstAsker = %q, %v; want %q", asker, err, c.want)
+			}
+		})
 	}
 }
 

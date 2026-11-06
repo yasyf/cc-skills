@@ -405,6 +405,23 @@ func TestTheRequestVerbPostsNothingUntilTheCallerHasReadTheLaneItWouldStandDown(
 	equal(t, verbs, []string{"stand-down", "owner"})
 }
 
+func TestABoundLaneIsTheSessionsLaneOnASpriteOrTheMacRootForTheDrivesRootAndNoneForAnUnboundSession(t *testing.T) {
+	t.Setenv(LaneEnv, "")
+	for me, want := range map[string]string{
+		"window lane drive=" + testDrive + " lane=spa-edge-role-1 branch=b seen 2s\nchannel subscription of window 41: none\n": "spa-edge-role-1",
+		"- root drive=" + testDrive + " cwd=/w seen 1s\n":                                                                      Root,
+		"window session cwd=/w seen 1s\n":                                                                                      "",
+	} {
+		bound, err := BoundLane(context.Background(), scripted(func(argv []string) (shell.Result, error) {
+			equal(t, argv, []string{"cci", "me"})
+			return shell.Result{Stdout: me}, nil
+		}))
+		if err != nil || bound != want {
+			t.Errorf("BoundLane over %q = %q, %v; want %q", me, bound, err, want)
+		}
+	}
+}
+
 func TestTheRequestVerbPostsUnderTheSessionsLaneAndRefusesASessionBoundToNone(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	t.Setenv(LaneEnv, "")
