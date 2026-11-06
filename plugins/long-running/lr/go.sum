@@ -37,8 +37,6 @@ github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyf
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jessevdk/go-flags v1.4.0/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
-github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLMPdiQ=
-github.com/klauspost/compress v1.20.1/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
@@ -77,10 +75,8 @@ github.com/vishvananda/netlink v1.2.1-beta.2 h1:Llsql0lnQEbHj0I1OuKyp8otXp0r3q0m
 github.com/vishvananda/netlink v1.2.1-beta.2/go.mod h1:twkDnbuQxJYemMlGd4JFIcuhgX83tXhKS2B/PRMpOho=
 github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae h1:4hwBBUfQCFe3Cym0ZtKyq7L16eZUtYKs+BaHDN6mAns=
 github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae/go.mod h1:DD4vA1DwXk04H54A1oHXtwZmA0grkVMdPxx/VGLCah0=
-github.com/yasyf/cc-inbox v0.49.69 h1:Kp9FFcjuosvLkIhp1Kw0HzMeICpgn4jRJ25vcmbAIhs=
-github.com/yasyf/cc-inbox v0.49.69/go.mod h1:KrhpZTrttKdv+ZuNuuUrGoY9P3NGCwm12ZV2+kk2eYk=
-github.com/yasyf/cc-inbox v0.49.79 h1:0fhbEuh14xKapxp/TB+z5mIg6+F0t6eCABrGYx3gJpc=
-github.com/yasyf/cc-inbox v0.49.79/go.mod h1:dyc4i9MU6YOAbcFy1W7R40yLawt9wWRRRlZoFq4knPE=
+github.com/yasyf/cc-inbox v0.52.2 h1:ItFMHSn1Vy6PS2tyUcPloMOKOutNIjJqR60Vk7Q0c9o=
+github.com/yasyf/cc-inbox v0.52.2/go.mod h1:dyc4i9MU6YOAbcFy1W7R40yLawt9wWRRRlZoFq4knPE=
 github.com/yasyf/cc-interact v0.40.3 h1:L0i2sUFT5lB0lh2Fmcdr27xUTUNt7L/lK9171fis6gQ=
 github.com/yasyf/cc-interact v0.40.3/go.mod h1:+zkZi12pmVPfpTnLTzLanAfaj6Ox2QbGIMKS5+/SjAM=
 github.com/yasyf/daemonkit v0.36.0 h1:2SOhdDB/bxNbJDPsYEWRhQ9fqtxFSNgUatngrM0BPkY=

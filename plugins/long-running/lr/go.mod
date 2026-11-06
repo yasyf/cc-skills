@@ -6,13 +6,12 @@ toolchain go1.26.10
 
 require (
 	github.com/BurntSushi/toml v1.5.0
-	github.com/chromedp/cdproto v0.159.0
 	github.com/chromedp/chromedp v0.22.1
 	github.com/coder/websocket v1.8.15
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/yasyf/cc-inbox v0.49.79
+	github.com/yasyf/cc-inbox v0.52.2
 	github.com/yasyf/cc-interact v0.40.3
 	github.com/yuin/goldmark v1.8.7
 	golang.org/x/crypto v0.58.0
@@ -24,13 +23,13 @@ require (
 
 require (
 	github.com/brutella/dnssd v1.2.14 // indirect
+	github.com/chromedp/cdproto v0.159.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/miekg/dns v1.1.61 // indirect
