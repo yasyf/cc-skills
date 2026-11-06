@@ -132,6 +132,8 @@ lr launch start <lane> <model> <effort> \
 Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold. This lane is sparse: widen with `lr sparse add <dir>` before reading outside it.
 ```
 
+A Codex lane's pointer adds, after `its Escalate rules hold.`, one sentence naming `ccx code read --full --budget 32000 <brief>` as the single read of the whole brief, and its codex starts with `-c tool_output_token_limit=32000` so that read reaches the model uncut.
+
 When a brief's `ccx:` header line says `role=desk` or `role=watch`, `lr launch start` and `lr launch worker` append the standing desk contract to the pointer. Every other role keeps the one-shot pointer; the role in the brief is the only switch, and the launch line carries none.
 
 ```text

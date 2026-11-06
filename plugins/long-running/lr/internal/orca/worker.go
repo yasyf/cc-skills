@@ -767,7 +767,7 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 		script += claudeFastMode
 	}
 	if w.kind == agentCodex {
-		script = codexCompactScript() + script
+		script = codexLimitsScript() + script
 	}
 	if err := w.receipt(beforeWorker, script); err != nil {
 		return nil, err
@@ -1119,7 +1119,11 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	path, _ := textOf(table(task["brief"])["path"])
 	environment, _ := textOf(task["environment"])
 	worktreeID, _ := textOf(task["worktreeId"])
-	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s%s", w.lane, path, w.sha, w.bytes, spritePreamble, spriteBuildkite, desk, noPR, read, checkout)
+	whole := ""
+	if w.kind == agentCodex {
+		whole = codexBriefRead(path)
+	}
+	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s%s%s", w.lane, path, w.sha, w.bytes, whole, spritePreamble, spriteBuildkite, desk, noPR, read, checkout)
 	if desk == "" {
 		if err := w.catchUp(workspace); err != nil {
 			return "", err

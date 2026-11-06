@@ -13,12 +13,14 @@ const (
 	laneCompactWindow  = 333000
 	codexCompactLimit  = 300000
 	codexCompactConfig = "model_auto_compact_token_limit"
+	briefReadBudget    = 32000
+	codexOutputConfig  = "tool_output_token_limit"
 )
 
 var (
-	astraModel   = regexp.MustCompile(`(?i)(^|[-_.])astra([-_.0-9]|$)`)
-	laneCompact  = fmt.Sprintf("%s=%d", compactWindowEnv, laneCompactWindow)
-	codexCompact = fmt.Sprintf(" -c %s=%d", codexCompactConfig, codexCompactLimit)
+	astraModel  = regexp.MustCompile(`(?i)(^|[-_.])astra([-_.0-9]|$)`)
+	laneCompact = fmt.Sprintf("%s=%d", compactWindowEnv, laneCompactWindow)
+	codexLimits = fmt.Sprintf(" -c %s=%d -c %s=%d", codexCompactConfig, codexCompactLimit, codexOutputConfig, briefReadBudget)
 )
 
 func (o Order) costFaults(text string) []string {
@@ -43,6 +45,10 @@ func (o Order) costFaults(text string) []string {
 	return faults
 }
 
-func codexCompactScript() string {
-	return fmt.Sprintf("config=\"${CODEX_HOME:-$HOME/.codex}/config.toml\"\nmkdir -p \"${config%%/*}\"\n{ echo '%[1]s = %[2]d'; grep -v '^%[1]s' \"$config\" 2>/dev/null; } > \"$config.lr\" && mv \"$config.lr\" \"$config\"\n", codexCompactConfig, codexCompactLimit)
+func codexLimitsScript() string {
+	return fmt.Sprintf("config=\"${CODEX_HOME:-$HOME/.codex}/config.toml\"\nmkdir -p \"${config%%/*}\"\n{ echo '%[1]s = %[2]d'; echo '%[3]s = %[4]d'; grep -v -e '^%[1]s' -e '^%[3]s' \"$config\" 2>/dev/null; } > \"$config.lr\" && mv \"$config.lr\" \"$config\"\n", codexCompactConfig, codexCompactLimit, codexOutputConfig, briefReadBudget)
+}
+
+func codexBriefRead(brief string) string {
+	return fmt.Sprintf(" Print it whole in one call with `ccx code read --full --budget %d %s`, never by section or in pieces.", briefReadBudget, brief)
 }
