@@ -40,6 +40,7 @@ const (
 	milestoneFact       = "milestone-statuses"
 	registryRequestKind = "decide"
 	kindOwnerPick       = "owner"
+	dispatchHandle      = "dispatch:"
 )
 
 const restReadTimeout = 30 * time.Second
@@ -51,6 +52,7 @@ var (
 	milestoneSubjects = []string{"fix-live:", "mechanism:", "ready:"}
 	askTypes          = []string{typeQuestion, typeEscalation, typeStatus}
 	restingKinds      = []string{kindAsk, kindBlocker, kindBlocked}
+	workerTerminal    = regexp.MustCompile(`\bWorker (term_[\w-]+)`)
 )
 
 func (d *Desk) check(ctx context.Context) (bool, error) {
@@ -360,7 +362,7 @@ func (d *Desk) workerScreen(ctx context.Context, message orcaMessage, lane strin
 	if dispatch != nil {
 		environment = dispatch.Environment
 	}
-	shown, read := d.readScreen(ctx, message.FromHandle, environment)
+	shown, read := d.readScreen(ctx, d.workerTerminalOf(message, lane), environment)
 	return shown, read, nil
 }
 
@@ -378,7 +380,7 @@ func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) 
 	}
 	subject := message.Subject
 	if subject == finishedStop {
-		rest, err := d.restOf(ctx, lane, message.FromHandle)
+		rest, err := d.restOf(ctx, lane, d.workerTerminalOf(message, lane))
 		if err != nil {
 			return err
 		}
@@ -405,6 +407,16 @@ func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) 
 		return err
 	}
 	return d.escalateTo(ctx, message.ID, "DECIDE", lane, fmt.Sprintf("%s: %s", subject, clipRunes(message.Body, 300)), by)
+}
+
+func (d *Desk) workerTerminalOf(message orcaMessage, lane string) string {
+	if !strings.HasPrefix(message.FromHandle, dispatchHandle) {
+		return message.FromHandle
+	}
+	if named := workerTerminal.FindStringSubmatch(message.Body); named != nil {
+		return named[1]
+	}
+	return or(d.terminal(lane), message.FromHandle)
 }
 
 func (d *Desk) laneFinished(ctx context.Context, lane string) (string, error) {

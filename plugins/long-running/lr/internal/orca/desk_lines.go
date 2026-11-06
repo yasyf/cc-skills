@@ -328,6 +328,9 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 			if ended != "" {
 				return true, d.record("escalation:ended:"+at, fmt.Sprintf("ENDED %s %s: %s, so root's answer to #%d is not relayed to it", at, decide[2], ended, closed.Seq))
 			}
+			if strings.HasPrefix(closed.Text[len(decide[0]):], workerStopped) && len(record.To) > 0 && !lanes.Addresses(record.To, decide[2]) {
+				return true, d.record("escalation:kept:"+at, fmt.Sprintf("KEPT %s %s: root's reply to its stop alarm #%d is addressed to %s, not to the lane, so it is not relayed", at, decide[2], closed.Seq, strings.Join(record.To, ", ")))
+			}
 			if parked, err := d.parkedReply(ctx, at, decide[2], closed.Seq); err != nil || parked {
 				return true, err
 			}
