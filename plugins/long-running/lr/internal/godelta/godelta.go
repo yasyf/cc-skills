@@ -38,8 +38,11 @@ func (f Finding) String() string {
 	return f.At + ": " + f.Message
 }
 
+type missing map[string]bool
+
 type parsed struct {
 	pkg       *packages.Package
+	lacking   missing
 	selectors map[token.Pos]*ast.SelectorExpr
 	imports   []*ast.ImportSpec
 	names     map[*token.File][]string
@@ -55,7 +58,7 @@ func Command(a *app.App) *cobra.Command {
 	var base string
 	cmd := &cobra.Command{
 		Use:   "go-delta [--base REF]",
-		Short: "Typecheck the Go packages this checkout changed, with their tests, past the generated sandsql/component and sand/proto code a sparse lane or Sprite lacks",
+		Short: "Typecheck the Go packages this checkout changed, with their tests, past the generated code and modules a sparse lane or Sprite lacks",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			started := time.Now()
@@ -83,7 +86,7 @@ func Command(a *app.App) *cobra.Command {
 			for _, finding := range result.Findings {
 				fmt.Fprintln(c.OutOrStdout(), finding)
 			}
-			fmt.Fprintf(c.ErrOrStderr(), "go-delta: %d errors in %d packages against %.10s, %d from missing generated code left out, %.1fs\n", len(result.Findings), len(dirs), fork, result.Skipped, time.Since(started).Seconds())
+			fmt.Fprintf(c.ErrOrStderr(), "go-delta: %d errors in %d packages against %.10s, %d from code this checkout lacks left out, %.1fs\n", len(result.Findings), len(dirs), fork, result.Skipped, time.Since(started).Seconds())
 			if len(result.Findings) > 0 {
 				return &wait.ExitError{Code: 1}
 			}
@@ -150,19 +153,25 @@ func Check(ctx context.Context, top string, dirs []string) (Result, error) {
 		if err != nil {
 			return result, err
 		}
+		lacking := missing{}
+		packages.Visit(loaded, nil, func(pkg *packages.Package) {
+			if slices.ContainsFunc(pkg.Errors, func(err packages.Error) bool { return err.Kind == packages.ListError }) && !slices.ContainsFunc(pkg.GoFiles, func(file string) bool { return filepath.Dir(file) == pkg.Dir }) {
+				lacking[pkg.PkgPath] = true
+			}
+		})
 		for _, pkg := range loaded {
-			result.add(top, pkg)
+			result.add(top, pkg, lacking)
 		}
 	}
 	return result, nil
 }
 
-func (r *Result) add(top string, pkg *packages.Package) {
-	source := parsed{pkg: pkg, selectors: map[token.Pos]*ast.SelectorExpr{}, names: map[*token.File][]string{}}
+func (r *Result) add(top string, pkg *packages.Package, lacking missing) {
+	source := parsed{pkg: pkg, lacking: lacking, selectors: map[token.Pos]*ast.SelectorExpr{}, names: map[*token.File][]string{}}
 	for _, file := range pkg.Syntax {
 		for _, spec := range file.Imports {
 			imported, err := strconv.Unquote(spec.Path.Value)
-			if err != nil || !generated(imported) {
+			if err != nil || !lacking.has(imported) {
 				continue
 			}
 			source.imports = append(source.imports, spec)
@@ -185,7 +194,7 @@ func (r *Result) add(top string, pkg *packages.Package) {
 			position.Filename = rel
 		}
 		finding := Finding{At: position.String(), Message: err.Msg}
-		if !source.fromGenerated(err) {
+		if !source.fromLacking(err) {
 			r.report(finding)
 			continue
 		}
@@ -214,7 +223,7 @@ func (r *Result) report(finding Finding) {
 	r.Findings = append(r.Findings, finding)
 }
 
-func (p parsed) fromGenerated(err types.Error) bool {
+func (p parsed) fromLacking(err types.Error) bool {
 	if slices.ContainsFunc(p.imports, func(spec *ast.ImportSpec) bool { return spec.Pos() <= err.Pos && err.Pos < spec.End() }) {
 		return true
 	}
@@ -225,22 +234,22 @@ func (p parsed) fromGenerated(err types.Error) bool {
 			return false
 		}
 		local := strings.Fields(name)[0]
-		return generated(p.pkg.PkgPath) && !strings.Contains(local, ".") || slices.Contains(p.names[err.Fset.File(err.Pos)], local)
+		return p.lacking.has(p.pkg.PkgPath) && !strings.Contains(local, ".") || slices.Contains(p.names[err.Fset.File(err.Pos)], local)
 	}
 	if missing {
 		qualifier, ok := selector.X.(*ast.Ident)
 		imported, isPackage := p.pkg.TypesInfo.Uses[qualifier].(*types.PkgName)
-		return ok && isPackage && generated(imported.Imported().Path())
+		return ok && isPackage && p.lacking.has(imported.Imported().Path())
 	}
 	receiver := p.pkg.TypesInfo.TypeOf(selector.X)
-	return strings.Contains(err.Msg, " undefined (") && receiver != nil && embedsGenerated(receiver, map[*types.Struct]bool{})
+	return strings.Contains(err.Msg, " undefined (") && receiver != nil && p.lacking.embedded(receiver, map[*types.Struct]bool{})
 }
 
-func generated(importPath string) bool {
-	return strings.HasSuffix(importPath, "/sandsql/component") || importPath == "sand/proto"
+func (m missing) has(importPath string) bool {
+	return strings.HasSuffix(importPath, "/sandsql/component") || m[importPath]
 }
 
-func embedsGenerated(typ types.Type, seen map[*types.Struct]bool) bool {
+func (m missing) embedded(typ types.Type, seen map[*types.Struct]bool) bool {
 	if pointer, ok := typ.Underlying().(*types.Pointer); ok {
 		typ = pointer.Elem()
 	}
@@ -253,11 +262,11 @@ func embedsGenerated(typ types.Type, seen map[*types.Struct]bool) bool {
 		if !field.Embedded() {
 			continue
 		}
-		embedded := field.Type()
-		if pointer, ok := embedded.(*types.Pointer); ok {
-			embedded = pointer.Elem()
+		held := field.Type()
+		if pointer, ok := held.(*types.Pointer); ok {
+			held = pointer.Elem()
 		}
-		if embedded == types.Typ[types.Invalid] && (generated(field.Pkg().Path()) || slices.ContainsFunc(field.Pkg().Imports(), func(imported *types.Package) bool { return generated(imported.Path()) })) || embedsGenerated(field.Type(), seen) {
+		if held == types.Typ[types.Invalid] && (m.has(field.Pkg().Path()) || slices.ContainsFunc(field.Pkg().Imports(), func(imported *types.Package) bool { return m.has(imported.Path()) })) || m.embedded(field.Type(), seen) {
 			return true
 		}
 	}
