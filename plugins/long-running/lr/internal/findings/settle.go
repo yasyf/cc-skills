@@ -1,6 +1,7 @@
 package findings
 
 import (
+	"fmt"
 	"maps"
 	"regexp"
 	"slices"
@@ -61,11 +62,11 @@ type settler struct {
 	changed map[string]bool
 }
 
-// settle folds records, oldest first, into rows in one pass and returns the
-// keys it changed. A row is looked up by the names a record carries, so the
-// cost is the records' length and never records times rows. Only a record past
-// cursor opens a row, so reading an older window settles without reopening.
-func settle(rows Rows, records []client.Record, cursor int64, names Names) []string {
+// settle folds records, oldest first, into rows in one pass. A row is looked up
+// by the names a record carries, so the cost is the records' length and never
+// records times rows. Only a record past cursor opens a row, so reading an older
+// window settles without reopening.
+func settle(rows Rows, records []client.Record, cursor int64, names Names) settler {
 	s := indexed(rows, names)
 	for _, record := range records {
 		if record.Seq > cursor {
@@ -73,7 +74,37 @@ func settle(rows Rows, records []client.Record, cursor int64, names Names) []str
 		}
 		s.move(record)
 	}
+	return s
+}
+
+func (s settler) keys() []string {
 	return slices.Sorted(maps.Keys(s.changed))
+}
+
+func (s settler) build(prs []PR) {
+	for _, pr := range prs {
+		text := pr.Branch + " " + pr.Body
+		keys := s.words(text)
+		for _, word := range nameWord.FindAllString(text, -1) {
+			keys = append(keys, s.named["#"+strings.TrimRight(word, ".-")]...)
+		}
+		for _, key := range keys {
+			if row := s.rows[key]; row["kind"] == kindPick && live(row) && pr.MergedAt.After(atOf(row)) {
+				s.set(key, row, with(row, stateFixed, fmt.Sprintf("%s#%d", pr.Repo, pr.Number)))
+			}
+		}
+	}
+}
+
+func (s settler) words(text string) []string {
+	var keys []string
+	for _, word := range nameWord.FindAllString(text, -1) {
+		keys = append(keys, s.named[strings.TrimRight(word, ".-")]...)
+	}
+	for _, word := range seqWord.FindAllString(text, -1) {
+		keys = append(keys, s.named[word]...)
+	}
+	return keys
 }
 
 func indexed(rows Rows, names Names) settler {
@@ -178,15 +209,7 @@ func (s settler) set(key string, was, row Fields) {
 }
 
 func (s settler) touched(record client.Record) []string {
-	var keys []string
-	for _, words := range []string{record.Text, record.Topic} {
-		for _, word := range nameWord.FindAllString(words, -1) {
-			keys = append(keys, s.named[strings.TrimRight(word, ".-")]...)
-		}
-		for _, word := range seqWord.FindAllString(words, -1) {
-			keys = append(keys, s.named[word]...)
-		}
-	}
+	keys := slices.Concat(s.words(record.Text), s.words(record.Topic))
 	for _, pr := range record.Refs.PRs {
 		keys = append(keys, s.named["#"+strconv.Itoa(pr.Number)]...)
 	}
@@ -213,13 +236,14 @@ func step(row Fields, record client.Record) Fields {
 }
 
 // fixes says whether a record naming a row ends it. A pick also ends on a
-// claim, which names who holds it, and on the coordinator's decide, which
-// assigns it; another lane's decide only relays or asks about the pick.
+// release, which ships it, on a claim, which names who holds it, and on the
+// coordinator's decide, which assigns it; another lane's decide only relays or
+// asks about the pick.
 func fixes(kind string, record client.Record) bool {
 	switch string(record.Kind) {
 	case "head", "landed":
 		return true
-	case "claim":
+	case "release", "claim":
 		return kind == kindPick
 	case "decide":
 		return kind == kindPick && client.Stem(record.Lane) == coordinator
@@ -236,6 +260,14 @@ func with(row Fields, state, by string) Fields {
 
 func live(row Fields) bool {
 	return row["state"] == stateOpen || row["state"] == stateRouted
+}
+
+func atOf(row Fields) time.Time {
+	at, err := time.Parse(time.RFC3339Nano, row["at"])
+	if err != nil {
+		panic("findings: row at " + row["at"])
+	}
+	return at
 }
 
 func seqOf(row Fields) int64 {

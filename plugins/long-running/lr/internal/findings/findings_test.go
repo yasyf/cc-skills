@@ -63,6 +63,22 @@ func (f *fakeBus) add(seq int64, kind, lane, text string, change ...func(*client
 
 func setKind[K ~string](target *K, kind string) { *target = K(kind) }
 
+type fakeMerges struct {
+	prs   []PR
+	reads []time.Time
+}
+
+func (f *fakeMerges) Merged(_ context.Context, _ string, since time.Time) ([]PR, error) {
+	f.reads = append(f.reads, since)
+	var out []PR
+	for _, pr := range f.prs {
+		if !pr.UpdatedAt.Before(since) {
+			out = append(out, pr)
+		}
+	}
+	return out, nil
+}
+
 type countedStore struct {
 	*ledgertest.Fake
 	reads, writes int
@@ -79,11 +95,12 @@ func (c *countedStore) Sync(ctx context.Context, id string, rows []ledger.Row) e
 }
 
 type world struct {
-	t     *testing.T
-	book  Book
-	bus   *fakeBus
-	store *countedStore
-	shell *shelltest.Fake
+	t      *testing.T
+	book   Book
+	bus    *fakeBus
+	merges *fakeMerges
+	store  *countedStore
+	shell  *shelltest.Fake
 }
 
 func newWorld(t *testing.T, cursor int64) *world {
@@ -98,8 +115,12 @@ func newWorld(t *testing.T, cursor int64) *world {
 	}
 	fake := &shelltest.Fake{}
 	fake.Reply(`[{"tags":["board-answer","board-block:card-x-pick","board-card:card-x"]},{"tags":["board-block:work-a","board-card:card-work-picks"]}]`, "ccn", "-R", "/co", "answer", "list")
-	store, bus := &countedStore{Fake: &ledgertest.Fake{}}, &fakeBus{}
-	return &world{t, Book{drive.Entry{Drive: "d", CCIDrive: "d", StateDir: state, Checkout: "/co"}, fake, store, bus, func() time.Time { return time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC) }}, bus, store, fake}
+	store, bus, merges := &countedStore{Fake: &ledgertest.Fake{}}, &fakeBus{}, &fakeMerges{}
+	return &world{t, Book{drive.Entry{Drive: "d", CCIDrive: "d", StateDir: state, Checkout: "/co", Repo: "acme/app"}, fake, store, bus, merges, func() time.Time { return time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC) }}, bus, merges, store, fake}
+}
+
+func (w *world) pr(number int, branch, body string, updated, merged time.Time) {
+	w.merges.prs = append(w.merges.prs, PR{Repo: "acme/app", Number: number, Branch: branch, Body: body, MergedAt: merged, UpdatedAt: updated})
 }
 
 func (w *world) row(key, seq, kind, box, pr string) {
@@ -149,6 +170,7 @@ func TestAPickSettlesOnItsNameInAnEndingRecord(t *testing.T) {
 	}{
 		{"head names the card, not the box", "head", "lane-a", "HEAD #1 abc card-x.", stateFixed, "20"},
 		{"landed names the box", "landed", "lane-a", "merged card-x-pick", stateFixed, "20"},
+		{"a release names the card, as 495266 did for 495110", "release", "release-6", "card-x: release 13330 started", stateFixed, "20"},
 		{"claim names the card", "claim", "lane-a", "lane-a claims card-x", stateFixed, "20"},
 		{"claim names the seq", "claim", "lane-a", "claiming #10 now", stateFixed, "20"},
 		{"root's decide assigns it", "decide", "root", "lane=lane-a claims card-x", stateFixed, "20"},
@@ -177,6 +199,50 @@ func TestACardNameEndsEveryBoxOnItAndOnlyThoseBoxes(t *testing.T) {
 	w.sync("")
 	w.expect("pick/10", stateFixed, "20")
 	w.expect("pick/11", stateOpen, "")
+}
+
+func TestAPickIsBuiltByAPRMergedAfterItNamingItAsAWholeWord(t *testing.T) {
+	picked := time.Date(2026, 11, 3, 18, 5, 35, 400_000_000, time.UTC)
+	after := picked.Add(time.Hour)
+	cases := []struct {
+		name, box, branch, body string
+		merged                  time.Time
+		state, by               string
+	}{
+		{"its body names the card", "card-x-pick", "yasyf/dar-cutover", "Builds the pick on card-x.", after, stateFixed, "acme/app#7"},
+		{"its branch names the box", "card-x-pick", "yasyf/card-x-pick", "no names here", after, stateFixed, "acme/app#7"},
+		{"its body names the pick id", "card-x-pick", "yasyf/b", "carries pick 10 as built", after, stateFixed, "acme/app#7"},
+		{"its body names the seq with its mark", "card-x-pick", "yasyf/b", "see #10-followup", after, stateFixed, "acme/app#7"},
+		{"an open PR's body names the card", "card-x-pick", "yasyf/b", "carries card-x", time.Time{}, stateOpen, ""},
+		{"a token prefix of the card", "card-rmw3tlp97", "yasyf/b", "carries card-rmw3", after, stateOpen, ""},
+		{"a merge from before the pick", "card-x-pick", "yasyf/b", "carries card-x", picked.Add(-time.Hour), stateOpen, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t, 15)
+			w.row("pick/10", "10", kindPick, c.box, "")
+			w.pr(7, c.branch, c.body, after, c.merged)
+			w.sync("")
+			w.expect("pick/10", c.state, c.by)
+		})
+	}
+}
+
+func TestMergedPRsAreReadFromTheOldestLivePickThenPastTheNewestUpdateSeen(t *testing.T) {
+	w := newWorld(t, 15)
+	w.sync("")
+	if len(w.merges.reads) != 0 {
+		t.Fatalf("read merged PRs with no live pick: %v", w.merges.reads)
+	}
+	picked := time.Date(2026, 11, 3, 18, 5, 35, 0, time.UTC)
+	updated := picked.Add(2 * time.Hour)
+	w.row("pick/10", "10", kindPick, "card-x-pick", "")
+	w.pr(7, "yasyf/b", "unrelated", updated, picked.Add(time.Hour))
+	w.sync("")
+	w.sync("")
+	if len(w.merges.reads) != 2 || !w.merges.reads[0].Equal(picked) || !w.merges.reads[1].Equal(updated) {
+		t.Fatalf("reads = %v, want from %v then from %v", w.merges.reads, picked, updated)
+	}
 }
 
 func TestADeliveredReportEndsThePickItsLedgerRowCameFromAndARetractionReopensIt(t *testing.T) {
@@ -219,6 +285,7 @@ func TestAFindingEndsOnlyOnAHeadOrLandingNamingItsPROrSeq(t *testing.T) {
 		}}, stateFixed, "20"},
 		{"a claim is not a fix", "claim", "claiming #77", nil, stateOpen, ""},
 		{"a decide is not a fix", "decide", "accepted #77", nil, stateOpen, ""},
+		{"a release is not a fix", "release", "release 13330 carries #77", nil, stateOpen, ""},
 		{"an answer routes it", "answer", "see above", []func(*client.Record){func(r *client.Record) { r.Re = 10 }}, stateRouted, "20"},
 		{"a resolve routes it", "note", "done with it", []func(*client.Record){func(r *client.Record) { r.Resolves = 10 }}, stateRouted, "20"},
 	}
@@ -306,9 +373,10 @@ func TestTheNextPassReadsFromTheNewestRecordItSaw(t *testing.T) {
 }
 
 func TestAPassReadsAndWritesOnceHoweverManyRowsAreLive(t *testing.T) {
-	type counts struct{ tails, rowReads, rowWrites, answers int }
+	type counts struct{ tails, rowReads, rowWrites, answers, merges int }
 	pass := func(n int) counts {
 		w := newWorld(t, 5)
+		w.row("pick/999999", "999999", kindPick, "box-unbuilt", "")
 		for i := range n {
 			seq := strconv.Itoa(i + 1)
 			w.row("pick/"+seq, seq, kindPick, "box-"+seq, "")
@@ -318,7 +386,7 @@ func TestAPassReadsAndWritesOnceHoweverManyRowsAreLive(t *testing.T) {
 		}
 		w.sync("")
 		w.expect("pick/"+strconv.Itoa(n), stateFixed, strconv.Itoa(1000+n-1))
-		got := counts{tails: len(w.bus.queries), rowReads: w.store.reads - 1, rowWrites: w.store.writes}
+		got := counts{tails: len(w.bus.queries), rowReads: w.store.reads - 1, rowWrites: w.store.writes, merges: len(w.merges.reads)}
 		for _, call := range w.shell.Calls() {
 			if strings.Contains(strings.Join(call.Argv, " "), "answer list") {
 				got.answers++
@@ -326,7 +394,7 @@ func TestAPassReadsAndWritesOnceHoweverManyRowsAreLive(t *testing.T) {
 		}
 		return got
 	}
-	want := counts{tails: 1, rowReads: 1, rowWrites: 1, answers: 1}
+	want := counts{tails: 1, rowReads: 1, rowWrites: 1, answers: 1, merges: 1}
 	if one, many := pass(1), pass(scaletest.N()); one != want || many != want {
 		t.Fatalf("n=1: %+v; n=%d: %+v; want %+v", one, scaletest.N(), many, want)
 	}
