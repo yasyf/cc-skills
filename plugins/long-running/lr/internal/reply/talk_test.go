@@ -167,3 +167,36 @@ func TestTalkMakesTheSameCallsWithOneReplyOnItOrAThousand(t *testing.T) {
 		t.Fatalf("talk calls = %v, want one read and one write at either size", counts)
 	}
 }
+
+type refusesPRChildren struct{ *shelltest.Fake }
+
+func (r refusesPRChildren) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	result, err := r.Fake.Run(ctx, c)
+	if c.Argv[1] == "update-block" && onThread(c) && strings.Contains(c.Stdin, `"type":"pr"`) {
+		return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: `cc-present: block "reply-r1": decode card block: block "reply-r1-pr-yasyf-cc-skills-2196": decode pr block: json: unknown field "description"`}
+	}
+	return result, err
+}
+
+func TestATalkCardWithAChildCCPresentRefusesLandsWithItsText(t *testing.T) {
+	fake := scripted()
+	sent := fanout(t, refusesPRChildren{fake}).Send(context.Background(), Reply{ID: "r1", Title: "Gateway", MD: "It is healthy.", PRs: []string{landPR}})
+
+	talk := surface(sent, "talk")
+	if talk.Ref != "reply-r1" || talk.Error != "" || !strings.Contains(talk.Warning, "without reply-r1-pr-yasyf-cc-skills-2196") || !strings.Contains(talk.Warning, `unknown field "description"`) {
+		t.Fatalf("talk = %+v, want the reply on Talk with the refused PR named", talk)
+	}
+	writes := threadWrites(fake)
+	if len(writes) != 2 {
+		t.Fatalf("thread writes = %+v, want the refused card and then the card without its PR", writes)
+	}
+	var card struct {
+		Children []child `json:"children"`
+	}
+	if err := json.Unmarshal([]byte(writes[1].Stdin), &card); err != nil {
+		t.Fatal(err)
+	}
+	if len(card.Children) != 1 || card.Children[0].MD != "It is healthy." {
+		t.Fatalf("children = %+v, want the reply's text alone", card.Children)
+	}
+}
