@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -46,6 +48,7 @@ var (
 	lineage        = regexp.MustCompile(`(?:-opus|-case\d+)+$`)
 	incidentPart   = regexp.MustCompile(`-[^-]+(?:-\d+)?$`)
 	prNamedInBrief = regexp.MustCompile(`(?:^|[^\w/])#(\d{3,})\b|/pull/(\d+)\b`)
+	quotedOwner    = regexp.MustCompile(`(?m)^[ \t>*-]*Owner\b.*$`)
 	textMark       = regexp.MustCompile(`^(MECHANISM|READY)\b`)
 	saysMechanism  = regexp.MustCompile(`(?i)\bmechanism\b`)
 	clockKinds     = []string{"mechanism", "opened", "ready", "fix-live", kindNotOurs, kindStopped, kindStandDown}
@@ -868,7 +871,7 @@ func (d *Desk) cutClosed(ctx context.Context, key string, clock cutClock) (strin
 	return "", nil
 }
 
-func (d *Desk) heldWorktree(ctx context.Context, lane string) (string, error) {
+func (d *Desk) heldWorktree(ctx context.Context, lane string, pushedHeads []string) (string, error) {
 	raw, err := os.ReadFile(d.receiptPath(lane, ".worktree"))
 	if err != nil {
 		return "", nil
@@ -877,17 +880,25 @@ func (d *Desk) heldWorktree(ctx context.Context, lane string) (string, error) {
 	if !isDir(path) {
 		return "", nil
 	}
-	ahead, code, err := d.capture(ctx, nil, "git", "-C", path, "rev-list", "--count", "origin/HEAD..HEAD")
+	listed, code, err := d.capture(ctx, nil, "git", "-C", path, "rev-list", "origin/HEAD..HEAD")
 	if err != nil {
 		return "", err
+	}
+	var ahead []string
+	if code == 0 {
+		ahead = strings.Fields(listed)
+	}
+	if pushedHeads != nil && !slices.ContainsFunc(ahead, func(commit string) bool {
+		return slices.ContainsFunc(pushedHeads, func(head string) bool { return strings.HasPrefix(commit, head) })
+	}) {
+		return "", nil
 	}
 	branch, _, err := d.capture(ctx, nil, "git", "-C", path, "branch", "--show-current")
 	if err != nil {
 		return "", err
 	}
-	count := strings.TrimSpace(ahead)
-	if code == 0 && count != "0" {
-		return fmt.Sprintf("%s: %s, %s ahead of trunk", path, strings.TrimSpace(branch), count), nil
+	if len(ahead) > 0 {
+		return fmt.Sprintf("%s: %s, %d ahead of trunk", path, strings.TrimSpace(branch), len(ahead)), nil
 	}
 	upstream, code, err := d.capture(ctx, nil, "git", "-C", path, "rev-parse", "--abbrev-ref", "@{upstream}")
 	if err != nil || code != 0 {
@@ -901,11 +912,11 @@ func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, 
 		return "", nil
 	}
 	keys := briefIncidents(text)
-	pushers := map[string]bool{}
+	pushed := map[string][]string{}
 	seen := map[string]bool{}
 	var named [][]string
 	if !briefStanding.MatchString(text) {
-		named = prNamedInBrief.FindAllStringSubmatch(text, -1)
+		named = prNamedInBrief.FindAllStringSubmatch(quotedOwner.ReplaceAllString(carry.QuotedRows.ReplaceAllString(text, ""), ""), -1)
 	}
 	for _, found := range named {
 		pr := found[1] + found[2]
@@ -917,8 +928,14 @@ func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, 
 		if err != nil {
 			return "", d.noteTailFailure(err)
 		}
+		number, err := strconv.Atoi(pr)
+		if err != nil {
+			return "", err
+		}
 		for _, record := range records {
-			pushers[record.Lane] = true
+			if head := d.pushedHead(record, number); head != "" {
+				pushed[record.Lane] = append(pushed[record.Lane], head)
+			}
 		}
 	}
 	books, err := d.containers(lanePrefix)
@@ -927,7 +944,7 @@ func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, 
 	}
 	for _, container := range books {
 		other := strings.TrimPrefix(container, lanePrefix)
-		holder, err := d.holderOf(ctx, container, other, lane, keys, pushers)
+		holder, err := d.holderOf(ctx, container, other, lane, keys, pushed[other])
 		if err != nil || holder != "" {
 			return holder, err
 		}
@@ -935,7 +952,15 @@ func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, 
 	return "", nil
 }
 
-func (d *Desk) holderOf(ctx context.Context, container, other, lane string, keys []string, pushers map[string]bool) (string, error) {
+func (d *Desk) pushedHead(record client.Record, pr int) string {
+	named, _, _ := strings.Cut(cmp.Or(bus.HeadNamed(record, d.Config.LandingRepo, pr), record.Fields.Attrs["head"]), " ")
+	if _, moved, found := strings.Cut(named, ".."); found {
+		named = moved
+	}
+	return strings.ToLower(named)
+}
+
+func (d *Desk) holderOf(ctx context.Context, container, other, lane string, keys, pushedHeads []string) (string, error) {
 	launched, err := d.store.Actions(container, kindLaunch)
 	if err != nil || other == lane || len(launched) == 0 {
 		return "", err
@@ -952,14 +977,16 @@ func (d *Desk) holderOf(ctx context.Context, container, other, lane string, keys
 	if err != nil {
 		return "", err
 	}
-	if !overlaps(ours, incidentKeys(other, spec)) && !pushers[other] {
+	if overlaps(ours, incidentKeys(other, spec)) {
+		pushedHeads = nil
+	} else if len(pushedHeads) == 0 {
 		return "", nil
 	}
 	dispatch, err := d.show(ctx, other, "")
 	if err != nil || !dispatch.active() {
 		return "", err
 	}
-	held, err := d.heldWorktree(ctx, other)
+	held, err := d.heldWorktree(ctx, other, pushedHeads)
 	if err != nil || held == "" {
 		return "", err
 	}
