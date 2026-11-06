@@ -256,6 +256,14 @@ turn; incident lanes read its last day before naming a mechanism. No lane calls 
 **R25.** A deadline comes with a plan. A record, update line or card that states a time something must
 happen by names the lane that meets it and the steps, and the pack refuses one without them.
 
+**R26.** An owner pick is acted on in the pass that reads his tap. Any later act under it, a send
+(a Slack message, DM, email or comment), a merge, or a run of a command, install or restart, first
+gets a fresh record from the lane that owns the ask saying its purpose is still unmet: the thing it
+asks for is still undone, and the text or change is still right. Without that record nothing
+happens, and the verb that acts refuses. An unfinished or overdue pick is a question to its owning
+lane, never an order to act. A tapped PR meets this through its lane's ready record at the head that
+lands.
+
 ## Phase 0: the standing sessions
 
 **Binding.** Every session of a drive is bound to one lane name, and every hook, stop check,
