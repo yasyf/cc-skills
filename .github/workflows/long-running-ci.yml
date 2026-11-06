@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'main-cron' || github.event_name == 'workflow_dispatch' && github.sha || github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'main-cron' || (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') && github.sha || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
