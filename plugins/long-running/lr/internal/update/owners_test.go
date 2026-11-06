@@ -11,17 +11,19 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-func TestOwnersReadAnAliasClaimFromASpriteAndALaneQuietOverAnHourAsLive(t *testing.T) {
+func TestOwnersReadASpriteAliasRowAndALaneQuietOverAnHourAsLiveAndNeverAMention(t *testing.T) {
 	lanes := []Lane{
 		{Name: "spa-edge-role", State: "unregistered", PRs: []int{50150, 50212}},
 		heard("spa-edge-role-1", "desired", 2),
 		heard("ship-2", "desired", 90),
 		heard("stale-1", "desired", 300),
+		heard("dd-331634912-fix", "desired", 1),
 	}
 	records := []Record{
-		record(1, "ship-2", "head", "HEAD #48401 abc", 100),
-		record(3, "spa-edge-role-1", "head", "HEAD #50150 aaa", 1),
-		record(2, "stale-1", "head", "HEAD #7 def", 300),
+		forPR(record(1, "ship-2", "head", "HEAD #48401 abc", 100), 48401),
+		forPR(record(3, "spa-edge-role-1", "head", "HEAD #50150 aaa", 1), 50150),
+		forPR(record(2, "stale-1", "head", "HEAD #7 def", 300), 7),
+		forPR(record(5, "dd-331634912-fix", "head", "HEAD #51586 d43f890: waits for #48401 and #7", 1), 51586),
 		{Seq: 4465, Drive: testDrive, Lane: "spa-edge-role", Kind: "claim", Text: "live on Sprite pool-7yt, owns #50212 and #50150", PRs: []string{"Forge-AI/monorepo#50212"}, At: ago(140), To: []string{root}},
 	}
 	sources := src(lanes, records, nil, nil)
@@ -40,9 +42,9 @@ func TestOwnersReadAnAliasClaimFromASpriteAndALaneQuietOverAnHourAsLive(t *testi
 	}
 	want := map[string][]string{"50212": {"spa-edge-role"}, "50150": {"spa-edge-role"}, "48401": {"ship"}, "7": {}}
 	if fmt.Sprint(got.PRs) != fmt.Sprint(want) {
-		t.Fatalf("owners = %v, want %v: each owner by alias: the Sprite's claim and its numbered lane's head own theirs once, the lane quiet for 90 minutes owns its PR, and a lane quiet for five hours owns nothing", got.PRs, want)
+		t.Fatalf("owners = %v, want %v: each owner by alias: the Sprite's alias row and its numbered lane's head own theirs once, the lane quiet for 90 minutes owns its PR, a lane quiet for five hours owns nothing, and a head that mentions a PR owns only its own", got.PRs, want)
 	}
-	if !slices.Equal(got.Live, []string{"ship", "ship-2", "spa-edge-role", "spa-edge-role-1"}) {
+	if !slices.Equal(got.Live, []string{"dd-331634912-fix", "ship", "ship-2", "spa-edge-role", "spa-edge-role-1"}) {
 		t.Fatalf("live = %v, want each lane heard within two hours and the alias its Sprite lane answers for", got.Live)
 	}
 }
