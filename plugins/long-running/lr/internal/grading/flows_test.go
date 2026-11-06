@@ -214,6 +214,7 @@ func TestABodyEditTheGitHubReadSeesRechecksAnOpenMajorAtThatHeadAndNothingClear(
 	for finder, wantStarted := range map[machine.Finder]int{machine.FinderAsk: 1, machine.FinderClear: 0} {
 		t.Run(string(finder), func(t *testing.T) {
 			f := newPool(t, map[string]any{"landing": map[string]any{"repo": repo, "checkout": "/srv/main"}, "finder": map[string]any{"sprite": "dar-1"}})
+			f.shell.view = `{"title":"a change","body":"","headRefName":"lane-7"}`
 			beginAsks(t, f)
 			post(t, client.Draft{Lane: "lane-7", Kind: kindHead, Text: "#45489 " + head, PRs: []string{pull}})
 			graded := post(t, client.Draft{Lane: grader.FinderLane, Kind: kindReview, Text: "finder: major " + head[:7] + " 1 open over whole abc1234^.." + head[:7] + ": follow.go:40 second fix", PRs: []string{pull}})
@@ -233,6 +234,10 @@ func TestABodyEditTheGitHubReadSeesRechecksAnOpenMajorAtThatHeadAndNothingClear(
 			spec := readJob[grader.FinderJob](t, f.finderDir("45489"+wholeMark+strconv.FormatInt(read, 10)))
 			if spec.Full || !spec.BodyEdited || spec.Head != head || spec.Prior == nil || spec.Prior.Seq != graded || spec.Lane != "lane-7" {
 				t.Errorf("job = %+v", spec)
+			}
+			answers, err := os.ReadFile(filepath.Join(f.finderDir("45489"+wholeMark+strconv.FormatInt(read, 10)), grader.AnswersFile))
+			if err != nil || strings.TrimSpace(string(answers)) != "[]" {
+				t.Errorf("answers.json = %s, %v: rulings.py reads null as no list", answers, err)
 			}
 		})
 	}

@@ -368,7 +368,12 @@ func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, a
 	if err != nil {
 		return job{}, err
 	}
-	items, err := p.bugItems(ctx, p.readPR(ctx, facts.Repo, strconv.Itoa(facts.Number)).Body)
+	live := p.readPR(ctx, facts.Repo, strconv.Itoa(facts.Number))
+	items, err := p.bugItems(ctx, live.Body)
+	if err != nil {
+		return job{}, err
+	}
+	answers, err := p.answersOwed(ctx, live, "")
 	if err != nil {
 		return job{}, err
 	}
@@ -376,5 +381,5 @@ func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, a
 	history, unread := jobRecords(named, directory, bodies)
 	base := p.baseJob(d, facts, sprite, settled)
 	base.Head, base.Lane, base.BugItems, base.Unread = ask.Head, ask.Lane, items, unread
-	return job{bodies: bodies, spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Lane: last.Lane, Head: last.head, Text: last.Text}, History: history, BodyEdited: true}}, nil
+	return job{answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Lane: last.Lane, Head: last.head, Text: last.Text}, History: history, BodyEdited: true}}, nil
 }
