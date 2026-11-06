@@ -1298,6 +1298,17 @@ func TestACarriedSecondFixMajorIsReadAgainstTheBodyAsItStandsNow(t *testing.T) {
 	}
 }
 
+func TestAMajorThatNamesARowCarriesThatRowsTextInItsRecordSoNoLaneNeedsTheRowsFile(t *testing.T) {
+	directory := finderJobDir(t, nil)
+	shell, _ := newFinderFake(t, replyOf(findingOf("major", "go/poll.go:9", "row rule/949e6be missing: the replica is polled, not live streamed")))
+	mustFinder(t, directory, shell)
+	record := readText(t, directory, "record.md")
+	holdsAll(t, record, "### rule/949e6be | scope | in-force | said 1 | 2026-10-22\n> it should be a ssql replica that is live streaming, not polled")
+	if strings.Contains(record, "### prompt/1026-105052") {
+		t.Errorf("the record carries a row no finding names:\n%s", record)
+	}
+}
+
 func TestABodyEditAtTheHeadAMajorReadReadsTheWholePRAgainWithItsNewBody(t *testing.T) {
 	graded := "finder: major " + shaHead[:7] + " 1 open " + wholeRecord + ": api/src/modules/ProjectScheduleEvaluator.ts:294 a new schedule has no current cursor, so its first run is never prewarmed"
 	for name, c := range map[string]struct {

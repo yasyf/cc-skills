@@ -304,7 +304,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	reply = s.settleByPicks(reply)
 	lines := s.gradedLines(reply)
 	body := filepath.Join(s.dir, bodyFile)
-	if err := s.writeGradeBody(body, lines, reply); err != nil {
+	if err := s.writeGradeBody(body, lines, reply, rows); err != nil {
 		return FidelityOutcome{}, err
 	}
 	posted, err := s.post(lines, body)
@@ -1137,7 +1137,7 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 	return append(lines, gradeLine{text: fmt.Sprintf("old-app: %s %s baseline %s; %s", grade, short(head, 7), s.baseline(), squeezed(reply.OldApp.Why))})
 }
 
-func (s *fidelityPassState) writeGradeBody(body string, lines []gradeLine, reply fidelityReply) error {
+func (s *fidelityPassState) writeGradeBody(body string, lines []gradeLine, reply fidelityReply, rows string) error {
 	var shown bytes.Buffer
 	encoder := json.NewEncoder(&shown)
 	encoder.SetEscapeHTML(false)
@@ -1145,7 +1145,11 @@ func (s *fidelityPassState) writeGradeBody(body string, lines []gradeLine, reply
 	if err := encoder.Encode(reply); err != nil {
 		return err
 	}
-	text := fmt.Sprintf("%s\nchecked %s names %s\n\n%s", joinedText(lines), strings.Join(reply.Checked, ","), strings.Join(reply.Names, "|"), shown.String())
+	missing := make([]string, 0, len(reply.Missing))
+	for _, entry := range reply.Missing {
+		missing = append(missing, entry.Key)
+	}
+	text := fmt.Sprintf("%s\nchecked %s names %s\n\n%s%s", joinedText(lines), strings.Join(reply.Checked, ","), strings.Join(reply.Names, "|"), shown.String(), citedRows(rows, missing))
 	return os.WriteFile(body, []byte(text), 0o600)
 }
 
