@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,6 +39,7 @@ type Checks struct {
 	CCX      ccx.Client
 	Installs string
 	Claude   string
+	Now      func() time.Time
 }
 
 func (c Checks) dir(version string) string { return filepath.Join(c.Installs, version) }
@@ -295,18 +297,24 @@ func (c Checks) CIFault(ctx context.Context, version string) string {
 	return ""
 }
 
+type ciRun struct {
+	SHA        string    `json:"head_sha"`
+	Status     string    `json:"status"`
+	Conclusion string    `json:"conclusion"`
+	URL        string    `json:"html_url"`
+	Started    time.Time `json:"run_started_at"`
+	Updated    time.Time `json:"updated_at"`
+}
+
 func (c Checks) supersededFault(ctx context.Context, repo, base, cancelled string) string {
-	var finished struct {
-		Runs []struct {
-			SHA        string `json:"head_sha"`
-			Conclusion string `json:"conclusion"`
-			URL        string `json:"html_url"`
-		} `json:"workflow_runs"`
+	var listed struct {
+		Runs []ciRun `json:"workflow_runs"`
 	}
-	if err := c.read(ctx, fmt.Sprintf("repos/%s/actions/workflows/%s/runs?branch=main&status=completed&per_page=100", repo, ciWorkflowFile), &finished); err != nil {
+	if err := c.read(ctx, fmt.Sprintf("repos/%s/actions/workflows/%s/runs?branch=main&per_page=100", repo, ciWorkflowFile), &listed); err != nil {
 		return err.Error()
 	}
-	for _, run := range finished.Runs {
+	var next *ciRun
+	for i, run := range listed.Runs {
 		if run.Conclusion == "cancelled" {
 			continue
 		}
@@ -319,12 +327,36 @@ func (c Checks) supersededFault(ctx context.Context, repo, base, cancelled strin
 		if compared.Status != "ahead" && compared.Status != "identical" {
 			break
 		}
+		if run.Status != "completed" {
+			next = &listed.Runs[i]
+			continue
+		}
 		if run.Conclusion != "success" {
 			return fmt.Sprintf("%s, and the newest finished main run after it, on %s, ended %s: %s", cancelled, run.SHA[:min(10, len(run.SHA))], run.Conclusion, run.URL)
 		}
 		return ""
 	}
-	return cancelled + ", and no main run after it has finished"
+	if next == nil {
+		return cancelled + ", and no main run after it has finished"
+	}
+	return fmt.Sprintf("%s, and no main run after it has finished; the run on %s is %s and should finish in about %d minutes: %s", cancelled, next.SHA[:min(10, len(next.SHA))], next.Status, c.minutesUntilDone(listed.Runs, *next), next.URL)
+}
+
+func (c Checks) minutesUntilDone(runs []ciRun, next ciRun) int {
+	now := c.Now()
+	var took time.Duration
+	if i := slices.IndexFunc(runs, func(run ciRun) bool { return run.Status == "completed" && run.Conclusion != "cancelled" }); i >= 0 {
+		took = runs[i].Updated.Sub(runs[i].Started)
+	}
+	freed := now
+	if i := slices.IndexFunc(runs, func(run ciRun) bool { return run.Status == "in_progress" }); i >= 0 && runs[i].Started.Add(took).After(now) {
+		freed = runs[i].Started.Add(took)
+	}
+	done := freed
+	if next.Status != "in_progress" {
+		done = freed.Add(took)
+	}
+	return max(1, int(math.Ceil(done.Sub(now).Minutes())))
 }
 
 func (c Checks) read(ctx context.Context, path string, into any) error {

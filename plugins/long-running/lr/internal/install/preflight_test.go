@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx/ccxtest"
@@ -161,31 +162,66 @@ func TestCIFaultReadsTheNewestAttemptOnTheCommitTheTagWasBumpedFrom(t *testing.T
 }
 
 func TestACancelledBaseRunDefersToTheNewestFinishedMainRunAfterIt(t *testing.T) {
-	const finishedPath = "api repos/o/r/actions/workflows/long-running-ci.yml/runs?branch=main&status=completed&per_page=100"
 	cases := map[string]struct {
-		finished string
+		listed   string
 		compared string
 		want     string
 	}{
-		"green descendant": {`{"workflow_runs":[{"head_sha":"c0","conclusion":"cancelled"},{"head_sha":"d1","conclusion":"success","html_url":"u2"}]}`, `{"status":"ahead"}`, ""},
-		"red descendant":   {`{"workflow_runs":[{"head_sha":"d1","conclusion":"failure","html_url":"u2"}]}`, `{"status":"ahead"}`, "was cancelled (u1), and the newest finished main run after it, on d1, ended failure: u2"},
-		"only older runs":  {`{"workflow_runs":[{"head_sha":"d1","conclusion":"success","html_url":"u2"}]}`, `{"status":"behind"}`, "was cancelled (u1), and no main run after it has finished"},
-		"none finished":    {`{"workflow_runs":[{"head_sha":"c0","conclusion":"cancelled"}]}`, `{"status":"ahead"}`, "was cancelled (u1), and no main run after it has finished"},
+		"green descendant": {`{"workflow_runs":[{"head_sha":"c0","status":"completed","conclusion":"cancelled"},{"head_sha":"d1","status":"completed","conclusion":"success","html_url":"u2"}]}`, `{"status":"ahead"}`, ""},
+		"red descendant":   {`{"workflow_runs":[{"head_sha":"d1","status":"completed","conclusion":"failure","html_url":"u2"}]}`, `{"status":"ahead"}`, "was cancelled (u1), and the newest finished main run after it, on d1, ended failure: u2"},
+		"only older runs":  {`{"workflow_runs":[{"head_sha":"d1","status":"completed","conclusion":"success","html_url":"u2"}]}`, `{"status":"behind"}`, "was cancelled (u1), and no main run after it has finished"},
+		"none finished":    {`{"workflow_runs":[{"head_sha":"c0","status":"completed","conclusion":"cancelled"}]}`, `{"status":"ahead"}`, "was cancelled (u1), and no main run after it has finished"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			checks := cachedChecks(t, map[string]string{
-				"api repos/o/r/commits/long-running--v1.2.3": parentOfTag,
-				runsPath:     `{"workflow_runs":[{"name":"long-running CI","run_attempt":1,"status":"completed","conclusion":"cancelled","html_url":"u1"}]}`,
-				finishedPath: tc.finished,
-				"api repos/o/r/compare/abcdef0123456789...d1": tc.compared,
-			})
-			got := checks.CIFault(context.Background(), "1.2.3")
+			got := cancelledBase(t, tc.listed, map[string]string{"d1": tc.compared}, time.Time{})
 			if tc.want == "" && got != "" || tc.want != "" && !strings.Contains(got, tc.want) {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}
 		})
 	}
+}
+
+func TestACancelledBaseWithNoFinishedRunAfterItNamesTheRunToWaitForAndWhen(t *testing.T) {
+	now := time.Date(2026, 11, 5, 23, 46, 0, 0, time.UTC)
+	cases := map[string]struct {
+		listed   string
+		compared map[string]string
+		want     string
+	}{
+		"0.7.1744 at 3:46 PM": {
+			`{"workflow_runs":[{"head_sha":"5380b2ef58","status":"pending"},{"head_sha":"91ed92635b","status":"completed","conclusion":"cancelled"},{"head_sha":"ec3e37593a","status":"in_progress","html_url":"u-ec3e","run_started_at":"2026-11-05T23:41:28Z"},{"head_sha":"217f5c8c59","status":"completed","conclusion":"cancelled"},{"head_sha":"ce11f79a9b","status":"completed","conclusion":"success","run_started_at":"2026-11-05T23:20:46Z","updated_at":"2026-11-05T23:42:19Z"}]}`,
+			map[string]string{"5380b2ef58": `{"status":"ahead"}`, "ec3e37593a": `{"status":"ahead"}`, "ce11f79a9b": `{"status":"behind"}`},
+			"and no main run after it has finished; the run on ec3e37593a is in_progress and should finish in about 18 minutes: u-ec3e",
+		},
+		"queued behind an older run": {
+			`{"workflow_runs":[{"head_sha":"p1","status":"pending","html_url":"u-p1"},{"head_sha":"o1","status":"in_progress","run_started_at":"2026-11-05T23:41:00Z"},{"head_sha":"c0","status":"completed","conclusion":"success","run_started_at":"2026-11-05T23:16:00Z","updated_at":"2026-11-05T23:26:00Z"}]}`,
+			map[string]string{"p1": `{"status":"ahead"}`, "o1": `{"status":"behind"}`},
+			"and no main run after it has finished; the run on p1 is pending and should finish in about 15 minutes: u-p1",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := cancelledBase(t, tc.listed, tc.compared, now); !strings.Contains(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func cancelledBase(t *testing.T, listed string, compared map[string]string, now time.Time) string {
+	t.Helper()
+	gh := map[string]string{
+		"api repos/o/r/commits/long-running--v1.2.3": parentOfTag,
+		runsPath: `{"workflow_runs":[{"name":"long-running CI","run_attempt":1,"status":"completed","conclusion":"cancelled","html_url":"u1"}]}`,
+		"api repos/o/r/actions/workflows/long-running-ci.yml/runs?branch=main&per_page=100": listed,
+	}
+	for sha, status := range compared {
+		gh["api repos/o/r/compare/abcdef0123456789..."+sha] = status
+	}
+	checks := cachedChecks(t, gh)
+	checks.Now = func() time.Time { return now }
+	return checks.CIFault(context.Background(), "1.2.3")
 }
 
 func TestAnUncachedInstallHasNoReleaseToCompare(t *testing.T) {
