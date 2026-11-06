@@ -1579,6 +1579,22 @@ func TestAFidelityGradeParkedOnACardSaysOnItsRowWhatItWaitsOn(t *testing.T) {
 	}
 }
 
+func TestARowWaitingOnAGradeNamesOnlyTheGraderNotYetCleared(t *testing.T) {
+	row := store.ReviewRow{Number: 51660, Head: headA, Hold: None, SupersededBy: None, State: StateOpen}
+	const finderSaid, fidelitySaid = "finder: major 67502b2 1 open over delta 71347fe..67502b2: SessionPage.tsx:20 second fix in this area", "fidelity: missing 67502b2 answer/c65420f"
+	facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderAsk), "finder-said": finderSaid, machine.OverrideFact("finder"): "519362", "fidelity": string(machine.FidelityFail), "fidelity-said": fidelitySaid}
+
+	got := Materialize(row, facts, Held{}, nil, "dev")
+	if got.Grade != GradeFail || got.GradeFindings != fidelitySaid {
+		t.Fatalf("an overridden finder with a missing fidelity: grade %q, findings %q, want only %q", got.Grade, got.GradeFindings, fidelitySaid)
+	}
+
+	facts["fidelity"], facts[machine.OverrideFact("finder")] = string(machine.FidelityPass), ""
+	if got := Materialize(row, facts, Held{}, nil, "dev"); got.GradeFindings != finderSaid {
+		t.Fatalf("a major finder with a passing fidelity: findings %q, want only %q", got.GradeFindings, finderSaid)
+	}
+}
+
 func TestAnEvictedRowReadsEvictedWithItsReasonUntilTheQueueHoldsItAgain(t *testing.T) {
 	const why = "Trunk failed it at t1 (TEST_RUN_REQUIRED_STATUS_FAILED); failing check buildkite/test"
 	evicted := map[string]string{factCI: CIGreen, factQueue: string(machine.QueueEvicted), machine.EvictionFact: why, "tap": string(machine.TapTapped)}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -217,6 +218,27 @@ func TestAnAppealCitingARealRowIsCountedOnceByTheLanesMachine(t *testing.T) {
 	counted := fake.posted[0]
 	if counted.Lane != Self || counted.Kind != "decide" || !slices.Equal(counted.PRs, []string{"47755"}) || !strings.HasPrefix(counted.Text, "finder-override #47755 at abc1234: 174488. Counted from grader-appeals-1's cci #9") {
 		t.Fatalf("counted = %+v", counted)
+	}
+}
+
+func TestAnAppealRepostingAWithdrawnCiteIsRefusedAndNeverCounted(t *testing.T) {
+	const repo = "org/repo"
+	fake := &fakeBus{tail: []client.Record{{Seq: 9, Lane: "grader-appeals-3", Kind: "decide", At: t0, Text: "finder-override #47755 at abc1234: 174488. Answer 7f54b1d grounds it"}}}
+	runner := &shelltest.Fake{}
+	runner.Reply("the owner's words\n", "ccn")
+	s := memory(t)
+	if _, err := s.PutFact(repo, 47755, "abc1234", machine.WithdrawnOverrideFact("finder"), "174488", t0.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	check := &OverrideRefusals{Env: Env{Bus: fake, Runner: runner, Config: config.Config{Drive: testDrive, Repo: repo}}, Store: s}
+	registerDrive(t)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fake.posted) != 1 || fake.posted[0].Kind != blockerKind || fake.posted[0].To[0] != "grader-appeals-3" || !strings.HasPrefix(fake.posted[0].Text, "OVERRIDE-REFUSED cci #9 reads `finder-override #47755 at abc1234: 174488`, which a withdraw took back") {
+		t.Fatalf("posted = %+v, want one refusal and no counted copy", fake.posted)
 	}
 }
 

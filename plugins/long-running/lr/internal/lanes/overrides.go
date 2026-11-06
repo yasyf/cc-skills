@@ -10,6 +10,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/quotes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -50,6 +51,10 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 		if record.Seq <= o.quoted {
 			continue
 		}
+		live, err := o.refuseWithdrawn(ctx, record, now)
+		if err != nil {
+			return err
+		}
 		if record.Lane != Root {
 			grounded, err := reader.Grounded(ctx, record)
 			if err != nil {
@@ -63,11 +68,11 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 				o.quoted = record.Seq
 				continue
 			}
-			if err := o.count(ctx, record, now); err != nil {
+			if err := o.count(ctx, record, live, now); err != nil {
 				return err
 			}
 		}
-		if err := o.tellOwners(ctx, record, now); err != nil {
+		if err := o.tellOwners(ctx, record, live, now); err != nil {
 			return err
 		}
 		if warnings := reader.Override(ctx, record); len(warnings) > 0 {
@@ -88,8 +93,29 @@ func (o *OverrideRefusals) Check(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-func (o *OverrideRefusals) count(ctx context.Context, record client.Record, now time.Time) error {
+func (o *OverrideRefusals) refuseWithdrawn(ctx context.Context, record client.Record, now time.Time) ([]bus.Override, error) {
+	var live []bus.Override
+	var withdrawn []string
 	for _, override := range bus.Overrides(record) {
+		stored, err := o.Store.Facts(o.Env.Config.Repo, override.PR, override.Head)
+		if err != nil {
+			return nil, err
+		}
+		if !machine.OverrideWithdrawn(stored, override.Grader, override.Value()) {
+			live = append(live, override)
+			continue
+		}
+		withdrawn = append(withdrawn, strings.TrimSuffix(override.Line(""), ". "))
+	}
+	if len(withdrawn) == 0 {
+		return live, nil
+	}
+	text := fmt.Sprintf("OVERRIDE-REFUSED cci #%d reads `%s`, which a withdraw took back at that head, so no copy of it counts; post the override again citing another record", record.Seq, strings.Join(withdrawn, "`, `"))
+	return live, o.refuse(ctx, record, text, now)
+}
+
+func (o *OverrideRefusals) count(ctx context.Context, record client.Record, live []bus.Override, now time.Time) error {
+	for _, override := range live {
 		key := fmt.Sprintf("appeal-counted:%d:%s:%d", record.Seq, override.Grader, override.PR)
 		first, err := o.Store.Notice(key, now)
 		if err != nil {
@@ -106,8 +132,8 @@ func (o *OverrideRefusals) count(ctx context.Context, record client.Record, now 
 	return nil
 }
 
-func (o *OverrideRefusals) tellOwners(ctx context.Context, record client.Record, now time.Time) error {
-	for _, override := range bus.Overrides(record) {
+func (o *OverrideRefusals) tellOwners(ctx context.Context, record client.Record, live []bus.Override, now time.Time) error {
+	for _, override := range live {
 		owners, err := o.Store.OwnerOf([]int{override.PR})
 		if err != nil {
 			return err

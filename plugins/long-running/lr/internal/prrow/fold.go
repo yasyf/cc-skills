@@ -924,11 +924,11 @@ func gradeOf(facts map[string]string) (string, string) {
 		return GradePass, None
 	}
 	var said []string
-	for _, grader := range []string{"finder", "fidelity"} {
-		said = append(said, orElse(facts[grader+saidSuffix], grader+": "+facts[grader]))
+	if !graded.FinderCleared() {
+		said = append(said, orElse(facts["finder"+saidSuffix], "finder: "+facts["finder"]))
 	}
-	if waits := facts[machine.FidelityWaitsFact]; waits != "" {
-		said[1] = waits
+	if !graded.FidelityCleared() {
+		said = append(said, orElse(facts[machine.FidelityWaitsFact], orElse(facts["fidelity"+saidSuffix], "fidelity: "+facts["fidelity"])))
 	}
 	return GradeFail, strings.Join(said, "; ")
 }
