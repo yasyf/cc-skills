@@ -414,6 +414,21 @@ func TestOrdersUnreadForTenMinutesAreRelayedThroughTheDeskOncePerLane(t *testing
 	equal(t, len(f.wakes), 0)
 }
 
+func TestAnUnreadOrderFromAnotherNodeIsNamedByItsCCINumber(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	relayed := rec(548739, "dev-red-fix", "ask", t0, "parent", lane2)
+	relayed.Num = "#1992@5adff861"
+	f.feed = append(f.feed, relayed)
+	f.peers = []Row{who(lane2, true, t0.Add(-mins(5)))}
+
+	tick(t, s, f, t0.Add(mins(10)))
+
+	sent := relays(f)
+	equal(t, len(sent), 1)
+	contains(t, sent[0].Text, "Orders addressed to you are unread: dev-red-fix's ask #1992@5adff861, the oldest for 10 min")
+}
+
 func TestAnOrderAddressedToAStemIsUnreadForTheLaneHoldingIt(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")

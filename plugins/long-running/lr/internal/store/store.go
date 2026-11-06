@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	_ "modernc.org/sqlite"
@@ -1116,6 +1117,7 @@ func (s *Store) SetLaneWaiting(name string, ask int64, answered time.Time, await
 type Unread struct {
 	Lane     string
 	Seq      int64
+	Num      string
 	At       time.Time
 	Author   string
 	Kind     string
@@ -1125,15 +1127,19 @@ type Unread struct {
 }
 
 func (s *Store) AddUnread(order Unread) error {
-	_, err := s.db.Exec("INSERT INTO unread (lane, seq, at, author, kind) VALUES (?, ?, ?, ?, ?) ON CONFLICT (lane, seq) DO NOTHING", order.Lane, order.Seq, Stamp(order.At), order.Author, order.Kind)
+	_, err := s.db.Exec("INSERT INTO unread (lane, seq, num, at, author, kind) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (lane, seq) DO NOTHING", order.Lane, order.Seq, order.Num, Stamp(order.At), order.Author, order.Kind)
 	return err
 }
 
+func (u Unread) Name() string {
+	return client.Record{Seq: u.Seq, Num: u.Num}.Name()
+}
+
 func (s *Store) Unread() ([]Unread, error) {
-	rows, err := s.db.Query("SELECT lane, seq, at, author, kind, woke, raised, declined FROM unread ORDER BY lane, seq")
+	rows, err := s.db.Query("SELECT lane, seq, num, at, author, kind, woke, raised, declined FROM unread ORDER BY lane, seq")
 	return collect(rows, err, func(rows *sql.Rows) (Unread, error) {
 		var order Unread
-		err := rows.Scan(&order.Lane, &order.Seq, moment{&order.At}, &order.Author, &order.Kind, &order.Woke, &order.Raised, &order.Declined)
+		err := rows.Scan(&order.Lane, &order.Seq, &order.Num, moment{&order.At}, &order.Author, &order.Kind, &order.Woke, &order.Raised, &order.Declined)
 		return order, err
 	})
 }

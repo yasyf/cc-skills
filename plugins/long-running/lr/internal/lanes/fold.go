@@ -728,7 +728,7 @@ func foldUnread(s *store.Store, r Record, addressed map[string]bool, at time.Tim
 			lane, found = lastOfFamily(s, target)
 		}
 		if found && lane.Name != r.Lane && lane.Name != Root && (isLive(lane.State) || r.Kind == "owner") {
-			do(s.AddUnread(store.Unread{Lane: lane.Name, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))
+			do(s.AddUnread(store.Unread{Lane: lane.Name, Seq: r.Seq, Num: r.Name(), At: at, Author: r.Lane, Kind: r.Kind}))
 		}
 	}
 }

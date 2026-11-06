@@ -1153,7 +1153,7 @@ func unreadOrder(record store.Unread) bool {
 func orderWords(orders []store.Unread) string {
 	words := make([]string, 0, len(orders))
 	for _, order := range orders {
-		words = append(words, fmt.Sprintf("%s's %s #%d", order.Author, order.Kind, order.Seq))
+		words = append(words, fmt.Sprintf("%s's %s %s", order.Author, order.Kind, order.Name()))
 	}
 	return strings.Join(words, ", ")
 }
