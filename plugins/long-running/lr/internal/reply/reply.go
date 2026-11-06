@@ -890,7 +890,7 @@ func firstLine(md string) string {
 	return strings.TrimSpace(line)
 }
 
-func (r Reply) unshownDoc() error {
+func (r Reply) unreadAsk() error {
 	if len(r.Picks) == 0 {
 		return nil
 	}
@@ -898,7 +898,8 @@ func (r Reply) unshownDoc() error {
 	for _, link := range r.Links {
 		asked = append(asked, link.URL)
 	}
-	return cardtext.UnshownDoc(cardtext.HiddenCite.ReplaceAllString(strings.Join(asked, "\n"), " "))
+	shown := cardtext.HiddenCite.ReplaceAllString(strings.Join(asked, "\n"), " ")
+	return cmp.Or(cardtext.UnshownDoc(shown), cardtext.UncitedCredential(shown))
 }
 
 func (r Reply) bareExplainMore() error {

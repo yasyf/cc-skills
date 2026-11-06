@@ -2326,8 +2326,32 @@ func TestADocMergePickCarriesTheDocsPage(t *testing.T) {
 		"a code PR's merge pick":               {Reply{Title: "Merge #51418?", MD: "[#51418](https://github.com/Forge-AI/monorepo/pull/51418) is green.", Picks: merge.Picks}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := tc.reply.unshownDoc()
+			err := tc.reply.unreadAsk()
 			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "NO DOC PAGE") {
+				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
+			}
+		})
+	}
+}
+
+func TestAKeyPickCitesTheCodeThatReadsTheKey(t *testing.T) {
+	mint := Reply{
+		Title: "Tailscale API key for cc-remote is invalid",
+		MD:    "Remote codex launches fail: the Tailscale API answered '500 invalid key'.",
+		Picks: []string{"New key is in place :: You mint a new auth key and the lane re-runs the prepare.", "Run codex workers locally :: Until a new key lands."},
+	}
+	for name, tc := range map[string]struct {
+		reply   Reply
+		refused bool
+	}{
+		"the Nov 1 tailnet key pick":           {mint, true},
+		"the same pick citing the enroll code": {Reply{Title: mint.Title, MD: mint.MD + " cc-remote reads it at internal/tailnet/enroll.go:88.", Picks: mint.Picks}, false},
+		"its code line only in a hidden cite":  {Reply{Title: mint.Title, MD: mint.MD + " <!-- internal/tailnet/enroll.go:88 -->", Picks: mint.Picks}, true},
+		"the same words with no pick to tap":   {Reply{Title: mint.Title, MD: mint.MD}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := tc.reply.unreadAsk()
+			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "UNREAD CREDENTIAL") {
 				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
 			}
 		})
