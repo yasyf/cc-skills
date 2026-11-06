@@ -82,7 +82,7 @@ A wait is a row: `Waiting` and `Awaits` hold the gate. The matching event clears
 | Gate | Parks with | Fires on |
 | --- | --- | --- |
 | Owner or decision gate (a tap, a ruling, a carried override) | `blocked` naming the `card-` id; `ask` | The owner's pick, or a record answering the ask |
-| Upstream PR | `blocked --pr N` | A `landed` record naming N, resuming exactly the lanes parked on N |
+| Upstream PR | `blocked` naming another drive PR N by `--pr N` or `#N` in its text, a standing lane included | A `landed` record naming N, or GitHub's read of N when it merges, closes, or its CI turns red or green, resuming exactly the lanes parked on N. Meanwhile, the lane's own PRs page it for nothing and their rows read `waits on #N` |
 | Release or cutover | `blocked --target T` | A `release`, `applied` or `fix-live` record naming T |
 | Another lane's work | `blocked --lane-ref L` | L's `done`, `stopped` or `fix-live`; a `fix-live` the coordinator files is the work of the lanes it is addressed to, never its own |
 | Head and go (green at a new head with an old go) | `blocked --pr N` | The landing mover owns the go at the new head. A `blocker` naming N pages the lane and overrides the wait |

@@ -1319,8 +1319,7 @@ func clocksRanOut(s *store.Store, now time.Time) {
 }
 
 func waitsOnOwn(lane store.Lane, prs []int) bool {
-	gates := strings.Fields(lane.Awaits)
-	return slices.ContainsFunc(prs, func(n int) bool { return slices.Contains(gates, fmt.Sprintf("pr:%d", n)) })
+	return len(lane.Blockers()) == 0 && slices.ContainsFunc(lane.AwaitedPRs(), func(n int) bool { return slices.Contains(prs, n) })
 }
 
 func freshlyBroken(s *store.Store, prs []int, states map[int]string, probes map[string]store.Probe, now time.Time) []int {

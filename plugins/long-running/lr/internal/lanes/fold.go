@@ -12,8 +12,11 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
+
+const gateReadFact = "gate-read"
 
 type stoodDown struct {
 	name      string
@@ -385,7 +388,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 		row, known = laneOf(s, name)
 	}
 	if known && isLive(row.State) {
-		foldWait(s, r, row)
+		foldWait(s, r, row, out.deps.Repo)
 		if kind == "blocker" && r.Attr("turn") == turnDied && !fresh {
 			resume(s, name, fmt.Sprintf("turn:%d", r.Seq), "your last turn died on an API error", r, at)
 		}
@@ -473,14 +476,54 @@ func maxOrder(s *store.Store, r Record) int64 {
 	return slices.Max(orders)
 }
 
-func foldWait(s *store.Store, r Record, row store.Lane) {
+func foldWait(s *store.Store, r Record, row store.Lane, repo string) {
 	var ask int64
 	awaits := ""
-	if slices.Contains(waits, r.Kind) && (cardOnOwner(r) || slices.Contains(r.To, Root) || dutyOf(row) == "") {
-		ask, awaits = r.Seq, strings.Join(gatesOf(r), " ")
+	blocked := blockedOn(s, r, row, repo)
+	if slices.Contains(waits, r.Kind) && (cardOnOwner(r) || slices.Contains(r.To, Root) || dutyOf(row) == "" || len(blocked) > 0) {
+		gates := gatesOf(r)
+		for _, n := range blocked {
+			if !slices.Contains(gates, store.PRGate(n)) {
+				gates = append(gates, store.PRGate(n))
+			}
+		}
+		ask, awaits = r.Seq, strings.Join(gates, " ")
 	}
 	do(s.SetLaneWaiting(r.Lane, ask, time.Time{}, awaits))
 	do(s.SetLanePage(r.Lane, nil))
+}
+
+func blockedOn(s *store.Store, r Record, lane store.Lane, repo string) []int {
+	if r.Kind != "blocked" {
+		return nil
+	}
+	named := r.PRs()
+	for _, found := range prMention.FindAllStringSubmatch(r.Text, -1) {
+		if number, err := strconv.Atoi(found[1]); err == nil {
+			named = append(named, number)
+		}
+	}
+	var own, blockers []int
+	for _, n := range named {
+		switch {
+		case slices.Contains(own, n) || slices.Contains(blockers, n):
+		case slices.Contains(lane.PRs, n):
+			own = append(own, n)
+		case openDrivePR(s, repo, n):
+			blockers = append(blockers, n)
+		}
+	}
+	if len(blockers) == 0 {
+		return nil
+	}
+	return append(own, blockers...)
+}
+
+func openDrivePR(s *store.Store, repo string, number int) bool {
+	row, found, err := s.ReviewRow(repo, number)
+	do(err)
+	read := must(s.Fact(repo, number, "", gateReadFact))
+	return found && !prrow.Terminal(row.State) && (read == "" || strings.HasPrefix(read, prrow.StateOpen+" "))
 }
 
 func cardOnOwner(r Record) bool {
@@ -490,7 +533,7 @@ func cardOnOwner(r Record) bool {
 func gatesOf(r Record) []string {
 	var gates []string
 	for _, n := range r.PRs() {
-		gates = append(gates, fmt.Sprintf("pr:%d", n))
+		gates = append(gates, store.PRGate(n))
 	}
 	for _, target := range r.Refs.Targets {
 		gates = append(gates, "target:"+target)
@@ -518,7 +561,7 @@ func firedBy(s *store.Store, r Record) []string {
 	var gates []string
 	if r.Kind == kindLanded {
 		for _, n := range r.PRs() {
-			gates = append(gates, fmt.Sprintf("pr:%d", n))
+			gates = append(gates, store.PRGate(n))
 		}
 	}
 	if slices.Contains(shipped, r.Kind) {
@@ -534,6 +577,20 @@ func firedBy(s *store.Store, r Record) []string {
 	return gates
 }
 
+func readMoved(s *store.Store, r Record) []int {
+	if !prrow.IsRead(r.Kind, r.Attr("record")) {
+		return nil
+	}
+	state, ci := r.Attr("state"), r.Attr("ci")
+	var moved []int
+	for _, n := range r.PRs() {
+		if must(s.PutFact(r.Attr("repo"), n, "", gateReadFact, strings.Join([]string{state, ci, r.Attr("head")}, " "), r.At)) && (state != prrow.StateOpen || ci == prrow.CIRed || ci == prrow.CIGreen) {
+			moved = append(moved, n)
+		}
+	}
+	return moved
+}
+
 func endedBy(r Record) []string {
 	if r.Lane == Root && r.Kind == "fix-live" {
 		return r.To
@@ -547,12 +604,17 @@ func closesAnItem(s *store.Store, r Record) bool {
 }
 
 func foldGates(s *store.Store, r Record, fresh bool, at time.Time) {
-	fired := firedBy(s, r)
-	if len(fired) == 0 {
+	fired, moved := firedBy(s, r), readMoved(s, r)
+	if len(fired) == 0 && len(moved) == 0 {
 		return
 	}
 	for _, waiter := range must(s.Lanes(live...)) {
 		gates := slices.DeleteFunc(strings.Fields(waiter.Awaits), func(gate string) bool { return !slices.Contains(fired, gate) })
+		for _, n := range waiter.Blockers() {
+			if slices.Contains(moved, n) {
+				gates = append(gates, store.PRGate(n))
+			}
+		}
 		if waiter.Name == r.Lane || len(gates) == 0 {
 			continue
 		}
@@ -560,7 +622,11 @@ func foldGates(s *store.Store, r Record, fresh bool, at time.Time) {
 			do(s.SetLaneWaiting(waiter.Name, 0, at, ""))
 			continue
 		}
-		resume(s, waiter.Name, fmt.Sprintf("gate:%d", r.Seq), fmt.Sprintf("%s's %s fired %s, the gate you parked on", r.Lane, r.Kind, strings.Join(gates, " ")), r, at)
+		source := r.Lane + "'s " + r.Kind
+		if prrow.IsRead(r.Kind, r.Attr("record")) {
+			source = fmt.Sprintf("GitHub's read of %s (%s, CI %s)", numberList(r.PRs()), r.Attr("state"), r.Attr("ci"))
+		}
+		resume(s, waiter.Name, fmt.Sprintf("gate:%d", r.Seq), fmt.Sprintf("%s fired %s, the gate you parked on", source, strings.Join(gates, " ")), r, at)
 	}
 }
 
