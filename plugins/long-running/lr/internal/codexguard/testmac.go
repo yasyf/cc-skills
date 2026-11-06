@@ -18,6 +18,9 @@ var (
 	configRead = []string{"git", "config", "--global", "--list"}
 	irisApp    = []string{"Iris", "Iris.app"}
 	sands      = []string{"sand", "sand-next"}
+
+	launchctlRunners  = []string{"asuser", "bsexec"}
+	wrapperValueFlags = map[string][]string{"sudo": {"-u", "-g"}, "env": {"-u"}}
 )
 
 func (g Guard) launchesIrisAsHim(ctx context.Context, line, cwd string) bool {
@@ -151,13 +154,25 @@ func unwrapped(call *syntax.CallExpr) (map[string]string, []string) {
 	for _, part := range call.Args {
 		words = append(words, literal(part))
 	}
-	for len(words) > 0 && slices.Contains(wrappers, path.Base(words[0])) {
-		words = words[1:]
-		for len(words) > 0 && (strings.HasPrefix(words[0], "-") || strings.Contains(words[0], "=")) {
-			if name, value, ok := strings.Cut(words[0], "="); ok {
-				env[name] = value
-			}
+	for len(words) > 0 {
+		wrapper := path.Base(words[0])
+		switch {
+		case wrapper == "cc-sudo" && len(words) > 2 && words[1] == "run" && words[2] == "--",
+			wrapper == "launchctl" && len(words) > 2 && slices.Contains(launchctlRunners, words[1]):
+			words = words[3:]
+		case slices.Contains(wrappers, wrapper):
 			words = words[1:]
+			for len(words) > 0 && (strings.HasPrefix(words[0], "-") || strings.Contains(words[0], "=")) {
+				if name, value, ok := strings.Cut(words[0], "="); ok {
+					env[name] = value
+				}
+				if slices.Contains(wrapperValueFlags[wrapper], words[0]) && len(words) > 1 {
+					words = words[1:]
+				}
+				words = words[1:]
+			}
+		default:
+			return env, words
 		}
 	}
 	return env, words

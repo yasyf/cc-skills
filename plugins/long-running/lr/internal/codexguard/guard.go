@@ -56,6 +56,9 @@ func (g Guard) Refusal(ctx context.Context, payload []byte) string {
 	if g.launchesIrisAsHim(ctx, call.ToolInput.Command, call.Cwd) {
 		return irisRefusal
 	}
+	if g.writesACredential(ctx, call.ToolInput.Command, call.Cwd) {
+		return storeWriteRefusal
+	}
 	return ""
 }
 
@@ -84,35 +87,36 @@ func pageCalls(line string) [][]string {
 	var calls [][]string
 	syntax.Walk(file, func(node syntax.Node) bool {
 		if call, ok := node.(*syntax.CallExpr); ok {
-			calls = append(calls, fromWords(call.Args)...)
+			calls = append(calls, fromWords(call)...)
 		}
 		return true
 	})
 	return calls
 }
 
-func fromWords(parts []*syntax.Word) [][]string {
-	words := make([]string, 0, len(parts))
-	for _, part := range parts {
-		words = append(words, literal(part))
+func fromWords(call *syntax.CallExpr) [][]string {
+	_, words := unwrapped(call)
+	if payload, ok := shellPayload(words); ok {
+		return pageCalls(payload)
 	}
-	for len(words) > 0 && slices.Contains(wrappers, path.Base(words[0])) {
-		words = words[1:]
-		for len(words) > 0 && (strings.HasPrefix(words[0], "-") || strings.Contains(words[0], "=")) {
-			words = words[1:]
-		}
-	}
-	if len(words) < 2 {
-		return nil
-	}
-	name := path.Base(words[0])
-	if slices.Contains(shells, name) && strings.HasPrefix(words[1], "-") && strings.HasSuffix(words[1], "c") && len(words) > 2 {
-		return pageCalls(words[2])
-	}
-	if name != "orca" || !drivesAPage(words[1:]) {
+	if len(words) < 2 || path.Base(words[0]) != "orca" || !drivesAPage(words[1:]) {
 		return nil
 	}
 	return [][]string{words[1:]}
+}
+
+func shellPayload(words []string) (string, bool) {
+	if len(words) < 3 || !slices.Contains(shells, path.Base(words[0])) {
+		return "", false
+	}
+	command := false
+	for _, word := range words[1:] {
+		if !strings.HasPrefix(word, "-") {
+			return word, command
+		}
+		command = command || !strings.HasPrefix(word, "--") && strings.Contains(word, "c")
+	}
+	return "", false
 }
 
 func drivesAPage(args []string) bool {

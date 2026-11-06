@@ -14,8 +14,8 @@ import (
 func Command(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "codex-guard",
-		Short: "Refuse a Codex lane driving the owner's signed-in Orca browser on a production host or launching Iris on a test Mac signed in as him",
-		Long:  "Codex runs no capt-hook pack, so this holds the no_production_as_him rule through its own PreToolUse hook. The hosts come from the global git config key long-running.productionHost, and the test Macs signed in as him from long-running.signedInBox.",
+		Short: "Refuse a Codex lane driving the owner's signed-in Orca browser on a production host, launching Iris on a test Mac signed in as him, or writing a credential store he did not grant",
+		Long:  "Codex runs no capt-hook pack, so this holds the no_production_as_him and credential_writes_need_his_words rules through its own PreToolUse hook. The hosts come from the global git config key long-running.productionHost, the test Macs signed in as him from long-running.signedInBox, and the credential writes he granted from long-running.credentialWrite.",
 	}
 	cmd.AddCommand(checkCommand(a), installCommand())
 	return cmd
@@ -24,8 +24,8 @@ func Command(a *app.App) *cobra.Command {
 func checkCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
-		Short: "Read one PreToolUse call on stdin and print a deny when it drives a production page or launches Iris as the owner",
-		Long:  "Every read that fails lets the call through. Codex runs this from hooks.json, so nothing else needs to call it.",
+		Short: "Read one PreToolUse call on stdin and print a deny when it drives a production page, launches Iris as the owner or writes an ungranted credential",
+		Long:  "Every failed read lets the call through, except the grant read, which refuses a credential write it cannot confirm. Codex runs this from hooks.json, so nothing else needs to call it.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			payload, err := io.ReadAll(cmd.InOrStdin())
