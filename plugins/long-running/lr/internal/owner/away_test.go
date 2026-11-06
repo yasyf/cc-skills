@@ -50,7 +50,7 @@ func newAwayWorld(t *testing.T, rowAge time.Duration, offset time.Duration) *awa
 func (w *awayWorld) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	cmd := Command(&app.App{Runner: w.fake, Now: func() time.Time { return w.now }})
+	cmd := Command(&app.App{Runner: w.fake, Now: func() time.Time { return w.now }}, noLane)
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs(append(args, "--drive", "brook"))

@@ -267,21 +267,6 @@ func ReplyThread(permalink, reply, order, title string, picks []string) store.Sl
 
 type threadsAt func(ts string) (store.SlackThread, bool, error)
 
-func openThreads(driveName string) (threadsAt, func(), error) {
-	entry, err := drive.Named(driveName)
-	if errors.Is(err, drive.ErrNoDrive) {
-		return func(string) (store.SlackThread, bool, error) { return store.SlackThread{}, false, nil }, func() {}, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	s, err := store.Open(entry.Store())
-	if err != nil {
-		return nil, nil, err
-	}
-	return s.SlackThreadAt, func() { _ = s.Close() }, nil
-}
-
 type threadMessage struct {
 	TS       string `json:"ts"`
 	UserName string `json:"user_name"`

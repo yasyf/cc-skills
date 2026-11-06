@@ -62,7 +62,7 @@ func runQuestion(t *testing.T, now time.Time, words string, args ...string) aske
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
 	fake := &shelltest.Fake{}
 	fake.Reply(`{"seq":77,"num":"#77"}`, "cci", "post")
-	cmd := Command(&app.App{Now: func() time.Time { return now }, Runner: fake})
+	cmd := Command(&app.App{Now: func() time.Time { return now }, Runner: fake}, noLane)
 	var out strings.Builder
 	cmd.SetIn(strings.NewReader(words))
 	cmd.SetOut(&out)

@@ -33,7 +33,7 @@ func ruling(t *testing.T, fake *shelltest.Fake) (string, string, error) {
 		}
 	}
 	var out bytes.Buffer
-	cmd := Command(&app.App{Runner: fake})
+	cmd := Command(&app.App{Runner: fake}, noLane)
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"rule", "m1", "--reply", "r1", "--drive", "brook"})
 	err := cmd.Execute()

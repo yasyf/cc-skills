@@ -31,6 +31,7 @@ type threadWord struct {
 	Thread  string `json:"thread_ts"`
 	TS      string `json:"ts"`
 	Text    string `json:"text"`
+	Card    string `json:"thread_card"`
 	Owner   *struct {
 		Session string `json:"session"`
 		Card    string `json:"card"`
@@ -42,7 +43,7 @@ type wordCard struct {
 	session, id, title, block string
 }
 
-func threadWordCommand(a *app.App, driveName *string) *cobra.Command {
+func threadWordCommand(a *app.App, driveName *string, lane CardLane) *cobra.Command {
 	var session string
 	cmd := &cobra.Command{
 		Use:   "thread-word",
@@ -62,7 +63,11 @@ func threadWordCommand(a *app.App, driveName *string) *cobra.Command {
 				return err
 			}
 			defer s.Close()
-			rows, err := word.rows(cmd.Context(), a.Runner, entry)
+			route, err := word.route(s, lane, entry)
+			if err != nil {
+				return err
+			}
+			rows, _, err := word.rows(cmd.Context(), a.Runner, entry, route)
 			if err != nil {
 				return err
 			}
@@ -95,7 +100,7 @@ func (w threadWord) record(ctx context.Context, runner shell.Runner, threads thr
 		done, err := runner.Run(ctx, shell.Command{Argv: append([]string{"ccn", "-R", entry.Checkout}, args...), Timeout: rowWait})
 		return done.Stdout, err
 	}
-	err = locked(Ledger(entry.StateDir), func() error {
+	return locked(Ledger(entry.StateDir), func() error {
 		listed, err := ccn("answer", "list", "--label", proof, "--limit", "0", "--json")
 		if err != nil {
 			return err
@@ -119,14 +124,6 @@ func (w threadWord) record(ctx context.Context, runner shell.Runner, threads thr
 			"--json")
 		return err
 	})
-	if err != nil {
-		return err
-	}
-	_, err = runner.Run(ctx, shell.Command{
-		Argv:    []string{"cci", "post", "--drive", entry.Bus(), "--lane", communicator, "--kind", "owner", "--id", "card-answer:" + w.TS, "--attr", "card=" + card.id, "--text", fmt.Sprintf("Owner's numbered reply in the Slack thread of %s:", card.id), "--quoted", w.Text},
-		Timeout: rowWait,
-	})
-	return err
 }
 
 func (w threadWord) body(card wordCard, at time.Time) string {
@@ -137,16 +134,26 @@ func (w threadWord) body(card wordCard, at time.Time) string {
 	return fmt.Sprintf("%s\nBoard question: %s\nCard %s, %sboard %s, typed in the card's Slack thread %s, %s PT.", w.Text, card.title, card.id, block, card.session, w.Thread, at.In(pacific).Format(rowTime))
 }
 
-func (w threadWord) card(ctx context.Context, runner shell.Runner, threads threadsAt, entry drive.Entry, session string) (wordCard, bool, error) {
-	if w.Owner != nil {
-		return wordCard{session: w.Owner.Session, id: w.Owner.Card, title: cmp.Or(w.Owner.Title, w.Owner.Card)}, w.Owner.Card != "", nil
-	}
+func (w threadWord) indexedCard(threads threadsAt, entry drive.Entry) (wordCard, bool, error) {
 	indexed, found, err := threads(w.Thread)
 	if err != nil {
 		return wordCard{}, false, err
 	}
 	if found && indexed.Card != "" {
 		return wordCard{session: entry.Root(), id: indexed.Card, title: cmp.Or(indexed.Question, indexed.Card)}, true, nil
+	}
+	if w.Card == "" {
+		return wordCard{}, false, nil
+	}
+	return wordCard{session: entry.Root(), id: w.Card, title: w.Card}, true, nil
+}
+
+func (w threadWord) card(ctx context.Context, runner shell.Runner, threads threadsAt, entry drive.Entry, session string) (wordCard, bool, error) {
+	if w.Owner != nil {
+		return wordCard{session: w.Owner.Session, id: w.Owner.Card, title: cmp.Or(w.Owner.Title, w.Owner.Card)}, w.Owner.Card != "", nil
+	}
+	if card, found, err := w.indexedCard(threads, entry); err != nil || found {
+		return card, found, err
 	}
 	shown, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-present", "outcomes", "--all", "--session", session}, Timeout: rowWait})
 	var failed *shell.ExitError

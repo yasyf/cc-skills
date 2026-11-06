@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -311,7 +312,7 @@ func cardsCommand(cards func() (Cards, func(), error), unstored func() (Cards, e
 			if err != nil {
 				return err
 			}
-			if DeskLane.MatchString(owner) {
+			if lanes.DeskLane.MatchString(owner) {
 				fmt.Fprintf(c.ErrOrStderr(), "WARNING %s is a desk: pass --lane with the lane whose ask drew %s, so his answer wakes it\n", owner, args[0])
 			}
 			deps, err := board.Depend(c.Context(), args[0], owner, on)

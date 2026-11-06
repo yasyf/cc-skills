@@ -41,8 +41,6 @@ const (
 	askWindow      = 14 * 24 * time.Hour
 )
 
-var DeskLane = regexp.MustCompile(`^(?:board-refresher|board-watch|card-mirror|owner-relay|desk-runner|supervisor|fidelity|finder|grader|judge|go-sweep|progress-desk|meta-desk|root$)`)
-
 type CardAnswer struct {
 	Card, Block, Said, Key string
 	OwnerSeq               int64
@@ -124,7 +122,7 @@ func (w Waker) Unheard(ctx context.Context, u SlackUnheard) error {
 }
 
 func (w Waker) asker(ctx context.Context, a CardAnswer, rows map[string]map[string]string) (string, error) {
-	if lane := rows[a.Card][laneField]; lane != "" && !DeskLane.MatchString(lane) {
+	if lane := rows[a.Card][laneField]; lane != "" && !lanes.DeskLane.MatchString(lane) {
 		return lane, nil
 	}
 	asks, err := w.Tail(ctx, client.Query{Drive: w.Cards.Bus, Kinds: []string{askKind}, Since: w.Cards.Now().Add(-askWindow)})
@@ -133,7 +131,7 @@ func (w Waker) asker(ctx context.Context, a CardAnswer, rows map[string]map[stri
 	}
 	naming := namesAny(a.Card, a.Block)
 	for _, ask := range slices.Backward(asks) {
-		if !DeskLane.MatchString(ask.Lane) && naming.MatchString(ask.Text) {
+		if !lanes.DeskLane.MatchString(ask.Lane) && naming.MatchString(ask.Text) {
 			return ask.Lane, nil
 		}
 	}

@@ -84,7 +84,7 @@ func TestHisThreadWordRecordsTheThreadItsRowsAnswerIn(t *testing.T) {
 			state := t.TempDir()
 			fake := &shelltest.Fake{}
 			fake.Reply(`{}`, "cci", "post")
-			rows, err := tc.word.rows(context.Background(), fake, drive.Entry{Drive: "d", CCIDrive: "dar", StateDir: state})
+			rows, _, err := tc.word.rows(context.Background(), fake, drive.Entry{Drive: "d", CCIDrive: "dar", StateDir: state}, cardRoute{})
 			if err != nil || len(rows) != 1 {
 				t.Fatalf("rows = %v, %v", rows, err)
 			}
@@ -111,7 +111,7 @@ func TestOwnerAddRecordsAHandRowHasNoPlace(t *testing.T) {
 	}
 	add := func(text string) string {
 		var out bytes.Buffer
-		cmd := Command(&app.App{Now: time.Now})
+		cmd := Command(&app.App{Now: time.Now}, noLane)
 		cmd.SetArgs([]string{"add", "--drive", "d"})
 		cmd.SetIn(strings.NewReader(text))
 		cmd.SetOut(&out)

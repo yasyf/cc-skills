@@ -14,7 +14,7 @@ from cc_transcript.models import HookAdditionalContext
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, WorkflowState, on, workflow_state
 from captain_hook.util import reqenv
 
-from .compaction_handoff import bus_name, ccn, CCN_TIMEOUT_SECONDS, Communicator, COMMUNICATOR_LANE, communicator_tests, CompactionState, drive_entry, rulings
+from .compaction_handoff import ccn, CCN_TIMEOUT_SECONDS, Communicator, communicator_tests, CompactionState, rulings
 from .owner_facing import REPLY_WINDOW, last_reply
 from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
@@ -302,12 +302,6 @@ def whole_text(channel: str, thread: str, ts: str) -> str:
     return {found["ts"]: found["text"] for found in json.loads(shown.stdout)["messages"]}[ts]
 
 
-def post_owner_reply(evt: BaseHookEvent, dm: dict) -> None:
-    argv = ["cci", "post", "--drive", bus_name(drive_entry(evt)), "--lane", COMMUNICATOR_LANE, "--kind", "owner", "--id", f"slack:{dm['ts']}"]
-    argv += ["--attr", f"ts={dm['ts']}", "--attr", f"thread={dm['thread']}", "--quoted", capture(dm)["text"]]
-    subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
-
-
 def capture(prompt: dict) -> dict:
     kept = {key: prompt[key] for key in ("relayed_from", "answer", "ts", "thread", "channel") if key in prompt}
     pasted = {"pasted": [{"chars": len(block), "text": CREDENTIAL.sub(REDACTED, block)} for block in prompt["pasted"]]} if "pasted" in prompt else {}
@@ -357,8 +351,6 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
             landed = [line | ({"supersedes": names} if line["source"] == "prompt" and (names := repeated(line, relays)) else {}) for line in landed]
             with path.open("a") as file:
                 file.writelines(f"{json.dumps(line)}\n" for line in landed)
-            for dm in fresh:
-                post_owner_reply(evt, dm)
         except READ_ERRORS as error:
             failed_open(evt, "stamp_owner_prompts", error)
             return None
