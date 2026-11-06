@@ -389,6 +389,8 @@ A Sprite holds no Sentry or Datadog key, no Slack client and no AWS identity, so
 cci post --kind ask --to obs-desk "sentry issue <id>"
 ```
 
+One ask can carry several reads, each on its own line or after a `;`. A `;` inside quotes or inside a link stays part of its read, so `oncall incidents --json; datadog logs "service:api; status:error"` is two reads. The answer has a `## read N of M` section per read with that read's outcome line and body, and a read the desk refuses gets its refusal in its own section while the others still run.
+
 | Read | Answer body |
 |---|---|
 | `sentry issue <id, short id or issue URL>` | The issue's state, counts and first and last seen, then its latest event: exception, newest frame first, request and tags |
