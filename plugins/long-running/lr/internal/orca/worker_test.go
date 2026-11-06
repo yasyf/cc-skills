@@ -1133,6 +1133,9 @@ func TestRepeatedRelayFailuresRefuseTheLaunchNamingTheReasonAndStartNoWorker(t *
 	if exists(filepath.Join(f.attempt, "worker-start.json")) {
 		t.Fatal("a worker started with no relay")
 	}
+	if down := f.receiptText(spriteDown); down != "\n"+strings.TrimSuffix(want, stopSaid)+"\n" {
+		t.Fatal(down)
+	}
 }
 
 func TestAJoinThatCannotReadTheOwnerRefusesWithoutRetrying(t *testing.T) {
@@ -1159,6 +1162,21 @@ func TestAToolInstallThatFailsInPrepareStartsNoWorkerAndIsNeverRetried(t *testin
 	f.refusedWith(fmt.Sprintf("cc-remote orca prepare exited 1; %s keeps its output, and nothing was attached or retried", f.attempt), versionCall, currentRunCall, f.prepareCall())
 	if !strings.Contains(f.receiptText("prepare.err"), "refused: an archive off its digest") {
 		t.Fatal(f.receiptText("prepare.err"))
+	}
+	if exists(filepath.Join(f.attempt, spriteDown)) {
+		t.Fatal("a digest refusal reads as the Sprite platform down")
+	}
+}
+
+func TestAPrepareTheSpritePlatformFailsQuotesItAndRecordsTheSpriteDown(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	said := "Error: failed to start sprite command: Storage not ready"
+	f.reply("cc-remote orca prepare", workerReply{code: 1, err: "cc-remote: resuming sprite pool-a\n" + said + "\n"})
+	want := fmt.Sprintf("cc-remote orca prepare exited 1; %s keeps its output, and nothing was attached or retried; the Sprite platform said %s", f.attempt, said)
+	f.refusedWith(want, versionCall, currentRunCall, f.prepareCall())
+	if down := f.receiptText(spriteDown); down != "\n"+want+"\n" {
+		t.Fatal(down)
 	}
 }
 
@@ -1222,6 +1240,9 @@ func TestABoxWithoutAToolTheBriefRunsRefusesNamingItAndStartsNoWorker(t *testing
 	f.refusedWith(fmt.Sprintf("the Sprite has no ccn, lr, which the brief runs, so no worker started; %s/prepare.err keeps its output", f.attempt), slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCall()})...)
 	if !strings.Contains(f.receiptText("before-worker.sh"), "-- cci ccn lr\n") {
 		t.Fatal(f.receiptText("before-worker.sh"))
+	}
+	if exists(filepath.Join(f.attempt, spriteDown)) {
+		t.Fatal("a refusal for the brief's own tools reads as the Sprite platform down")
 	}
 }
 
