@@ -170,6 +170,9 @@ func TestEveryVerbTakesAStemForTheLaneThatHoldsIt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := s.SetLaneState("desk-2", store.LaneRetired, t0, "", ""); err != nil {
+		t.Fatal(err)
+	}
 
 	route, err := execute(t, RouteCommand(a), "desk")
 	if err != nil {
@@ -193,6 +196,62 @@ func TestEveryVerbTakesAStemForTheLaneThatHoldsIt(t *testing.T) {
 	}
 	equal(t, len(records), 1)
 	equal(t, recordOf(records[0]).Attr("lane"), "desk-3")
+}
+
+func TestAnAliasRoutesAndRequestsOnlyItsOwnOneLiveMemberAndRefusesWhenNoneOrSeveralAreLive(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	a, s := driveState(t)
+	heir := "dev-red-d12370de07-fix-case2"
+	for _, lane := range []string{"red-sweep-5", "red-sweep-7", heir + "-1", "dev-red-d12370de07-fix-1"} {
+		if _, err := s.WantLane(storeLane(lane), t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetLaneState("red-sweep-5", store.LaneRetired, t0, heir, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, draft := range []client.Draft{
+		{Drive: testDrive, Lane: "red-sweep-5", Kind: "state", Text: "red-sweep-5 up"},
+		{Drive: testDrive, Lane: heir + "-1", Kind: "state", Text: heir + "-1 up"},
+		{Drive: testDrive, Lane: Self, Kind: "stand-down", To: []string{"red-sweep-5"}, Successor: heir, Text: "red-sweep-5 stood down for " + heir},
+	} {
+		if _, err := client.Post(context.Background(), draft); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	route, err := execute(t, RouteCommand(a), "red-sweep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, strings.TrimSpace(route), `{"lane":"red-sweep","route":"red-sweep-7","state":"desired","standing":"","meta":false}`)
+	if _, err := execute(t, RequestCommand(a), "stand-down", "red-sweep", "--last-read", "0", "--by", "coordinator"); err != nil {
+		t.Fatal(err)
+	}
+	records, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{"decide"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(records), 1)
+	equal(t, recordOf(records[0]).Attr("lane"), "red-sweep-7")
+
+	if _, err := s.WantLane(storeLane("red-sweep-8"), t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execute(t, RequestCommand(a), "park", "red-sweep", "--by", "coordinator"); err == nil || err.Error() != "red-sweep names 2 live lanes (red-sweep-5 retired, red-sweep-7 desired, red-sweep-8 desired), so name the lane itself" {
+		t.Fatalf("err = %v, want a refusal listing every member", err)
+	}
+	for _, lane := range []string{"red-sweep-7", "red-sweep-8"} {
+		if err := s.SetLaneState(lane, store.LaneRetired, t0, "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := execute(t, RequestCommand(a), "revive", "red-sweep", "--by", "coordinator"); err == nil || err.Error() != "red-sweep names no live lane (red-sweep-5 retired, red-sweep-7 retired, red-sweep-8 retired), so name the lane itself" {
+		t.Fatalf("err = %v, want a refusal listing every member", err)
+	}
+	if records, err = client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{"decide"}}); err != nil || len(records) != 1 {
+		t.Fatalf("decide records = %d, err %v; a refused request posts nothing", len(records), err)
+	}
 }
 
 func TestARouteToAnAliasNoLaneHoldsAnswersForItsNewestGeneration(t *testing.T) {

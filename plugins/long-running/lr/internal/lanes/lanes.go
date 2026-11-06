@@ -196,6 +196,41 @@ func Resolve(ctx context.Context, drive, name string) (string, error) {
 	}), nil
 }
 
+func resolveMember(ctx context.Context, s *store.Store, drive, name string, newestIfNoneLive bool) (lane string, err error) {
+	defer recovered(&err)
+	name = Canonical(drive, name)
+	if client.Stem(name) != name {
+		return name, nil
+	}
+	var members, running []string
+	newestMember, newestNumber := "", 0
+	for _, row := range must(s.AllLanes()) {
+		stem, number := family(row.Name)
+		if stem != name {
+			continue
+		}
+		members = append(members, fmt.Sprintf("%s %s", row.Name, row.State))
+		if isLive(row.State) {
+			running = append(running, row.Name)
+		}
+		if number > newestNumber {
+			newestMember, newestNumber = row.Name, number
+		}
+	}
+	switch {
+	case len(members) == 0:
+		return Resolve(ctx, drive, name)
+	case len(running) == 1:
+		return running[0], nil
+	case len(running) == 0 && newestIfNoneLive:
+		return newestMember, nil
+	case len(running) == 0:
+		return "", fmt.Errorf("%s names no live lane (%s), so name the lane itself", name, strings.Join(members, ", "))
+	default:
+		return "", fmt.Errorf("%s names %d live lanes (%s), so name the lane itself", name, len(running), strings.Join(members, ", "))
+	}
+}
+
 func Stem(name string) string {
 	stem, _ := family(name)
 	return stem
