@@ -30,10 +30,11 @@ const (
 )
 
 type reply struct {
-	rc    int
-	out   any
-	mkdir string
-	sh    string
+	rc       int
+	out      any
+	mkdir    string
+	sh       string
+	fromMain bool
 }
 
 func (r reply) body() string {
@@ -240,8 +241,11 @@ func (h *harness) healthy(options healthyOptions) {
 		scr = agentScreen
 	}
 	h.reply("orchestration run-current", boundRun)
-	h.reply("worktree set", sent)
-	h.reply("worktree create", reply{out: object{"ok": true, "result": object{"worktree": object{"path": h.worktree()}}}, mkdir: h.worktree()})
+	created := reply{out: object{"ok": true, "result": object{"worktree": object{"path": h.worktree()}}}, mkdir: h.worktree()}
+	if h.env["ORCA_LAUNCH_SPARSE"] == "1" {
+		created = reply{fromMain: true}
+	}
+	h.reply("worktree create", created)
 	h.reply("worktree rm", sent)
 	h.reply("terminal create", okResult(object{"terminal": object{"handle": "term_a"}}))
 	h.reply("orchestration worker-start", okResult(object{"state": state, "taskId": "task_a", "dispatchId": "ctx_a"}))
@@ -308,6 +312,9 @@ func (h *harness) orcaTool(c shell.Command) (shell.Result, error) {
 	if len(queue) > 1 {
 		h.queues[key] = queue[1:]
 	}
+	if current.fromMain {
+		return h.addFromMain(args)
+	}
 	if current.mkdir != "" {
 		if key == "worktree_create" {
 			h.names[flag(args, "--name")] = current.mkdir
@@ -336,6 +343,20 @@ func (h *harness) orcaTool(c shell.Command) (shell.Result, error) {
 	return result, nil
 }
 
+func (h *harness) addFromMain(args []string) (shell.Result, error) {
+	name := flag(args, "--name")
+	root := h.env["ORCA_LAUNCH_ROOT"]
+	if root == "" {
+		root = filepath.Dir(h.parent)
+	}
+	wt := filepath.Join(root, name)
+	if out, err := exec.Command("git", "-C", h.main, "worktree", "add", "-q", "--no-track", "-b", "yasyf/"+name, wt, flag(args, "--base-branch")).CombinedOutput(); err != nil {
+		return shell.Result{}, fmt.Errorf("%w: %s", err, out)
+	}
+	h.names[name] = wt
+	return shell.Result{Stdout: okResult(object{"worktree": object{"path": wt}}).body()}, nil
+}
+
 func (h *harness) defaultShow(args []string) (shell.Result, error) {
 	selector := flag(args, "--worktree")
 	path, named := strings.CutPrefix(selector, "name:")
@@ -359,9 +380,6 @@ func (h *harness) ccxTool(ctx context.Context, c shell.Command) (shell.Result, e
 	h.calls = append(h.calls, slices.Clone(c.Argv))
 	refuses, queues := h.ccxRefuses, h.ccxQueues
 	h.mu.Unlock()
-	if c.Argv[2] == "fetch" {
-		return shell.Result{}, nil
-	}
 	if refuses {
 		return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1}
 	}
@@ -719,33 +737,21 @@ func TestAMainCheckoutOrcaDoesNotKnowFailsNamingItsPath(t *testing.T) {
 	wantNoCalls(t, h, "worktree set")
 }
 
-func TestALaunchLeavesMovingTheSharedBaseRefToCcxsFetch(t *testing.T) {
-	h := newHarness(t)
-	h.healthyClaude()
-	origin := filepath.Join(t.TempDir(), "origin.git")
-	h.gitIn(h.main, "clone", "-q", "--bare", h.main, origin)
-	moved := h.gitIn(h.main, "commit-tree", "-p", "HEAD", "-m", "dev moved on", "HEAD^{tree}")
-	h.gitIn(h.main, "push", "-q", origin, moved+":refs/heads/dev")
-	h.gitIn(h.main, "remote", "add", "origin", origin)
-	stale := h.gitIn(h.main, "rev-parse", "origin/dev")
-	h.launched()
-	if got := h.gitIn(h.main, "rev-parse", "origin/dev"); got != stale {
-		t.Fatalf("the launch moved origin/dev to %s itself, outside ccx's shared fetch", got)
-	}
-	if fetches := h.orcaCalls("ccx vcs"); !reflect.DeepEqual(fetches, [][]string{{"ccx", "vcs", "fetch", "--remote", "origin", "dev"}}) {
-		t.Fatal(fetches)
-	}
-}
-
 func TestLaunchCreatesAChildWorktreeAndABypassTerminal(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
 	wantLine(t, h.launched(), readyLine(h))
 	wt := h.worktree()
-	sets := h.orcaCalls("worktree set")
-	want := [][]string{{"worktree", "set", "--worktree", "path:" + wt, "--display-name", "v3-lane-a-1-1", "--parent-worktree", "path:" + h.parent, "--json"}}
-	if !reflect.DeepEqual(sets, want) {
-		t.Fatalf("got %v", sets)
+	creates := h.orcaCalls("worktree create")
+	want := [][]string{{"worktree", "create", "--name", "v3-lane-a-1-1", "--repo", "id:repo-1", "--base-branch", "origin/dev", "--parent-worktree", "path:" + h.parent, "--setup", "skip", "--json"}}
+	if !reflect.DeepEqual(creates, want) {
+		t.Fatalf("got %v", creates)
+	}
+	wantNoCalls(t, h, "worktree set")
+	for _, show := range h.orcaCalls("worktree show") {
+		if !strings.HasPrefix(flag(show, "--worktree"), "name:") {
+			t.Fatalf("the launch polled Orca's listing: %v", show)
+		}
 	}
 	if got := h.gitIn(wt, "rev-parse", "--abbrev-ref", "HEAD"); got != testBranch {
 		t.Fatal(got)
@@ -898,25 +904,6 @@ func TestABriefNamingAPackageChecksOutItsWholeGoModuleAndLocalReplaceTargets(t *
 	}
 }
 
-func TestASparseLaunchWithoutARootAddsTheWorktreeToTheCCXPoolElseBesideItsParent(t *testing.T) {
-	for _, pool := range []string{"", "pool"} {
-		h := newHarness(t)
-		h.healthyClaude()
-		delete(h.env, "ORCA_LAUNCH_ROOT")
-		root := filepath.Dir(h.parent)
-		if pool != "" {
-			h.gitIn(h.main, "config", "ccx.worktreeRoot", filepath.Join(h.root, pool))
-			root = filepath.Join(h.root, pool, "main")
-		}
-		if line := h.launched(); !strings.HasSuffix(line, "worktree="+filepath.Join(root, "v3-lane-a-1-1")) {
-			t.Fatal(line)
-		}
-		if !isDir(filepath.Join(root, "v3-lane-a-1-1", ".agents")) {
-			t.Fatal("no checkout in the pool")
-		}
-	}
-}
-
 func TestARepoWithNoMoreTrackedFilesThanTheSparseFloorKeepsAFullCheckout(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
@@ -1014,32 +1001,6 @@ func TestAWorktreeWithTheWarmLaneHookTellsTheWorkerNodeModulesIsShared(t *testin
 	}
 }
 
-func TestANewWorktreeLinksTheReposSymlinkPathsAndCopiesItsWorktreeincludePaths(t *testing.T) {
-	h := newHarness(t)
-	h.writeFile(filepath.Join(h.main, ".gitignore"), "secrets.yaml\n.env\n")
-	h.writeFile(filepath.Join(h.main, ".worktreeinclude"), "# copied\n./api/.env\ninfra/secrets.yaml\napi/app.py\nmissing/.env\n")
-	h.gitIn(h.main, "add", ".gitignore", ".worktreeinclude")
-	h.gitIn(h.main, "commit", "-qm", "include")
-	h.gitIn(h.main, "update-ref", "refs/remotes/origin/dev", "HEAD")
-	h.writeFile(filepath.Join(h.main, "infra", "secrets.yaml"), "secret\n")
-	h.writeFile(filepath.Join(h.main, "api", ".env"), "TOKEN=1\n")
-	h.healthyClaude()
-	h.reply("repo show", h.repo(object{"symlinkPaths": []string{"infra/secrets.yaml"}}))
-	h.launched()
-	wt := h.worktree()
-	linked, err := os.Readlink(filepath.Join(wt, "infra", "secrets.yaml"))
-	if err != nil || linked != filepath.Join(h.main, "infra", "secrets.yaml") {
-		t.Fatalf("link %q, err %v", linked, err)
-	}
-	info, err := os.Lstat(filepath.Join(wt, "api", ".env"))
-	if err != nil || !info.Mode().IsRegular() {
-		t.Fatalf("copy %v, err %v", info, err)
-	}
-	if exists(filepath.Join(wt, "api", "app.py")) || exists(filepath.Join(wt, "missing")) {
-		t.Fatal("copied a path it should not")
-	}
-}
-
 func effectStart(terminal string) reply {
 	return okResult(object{"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []object{{"kind": "terminal", "role": "agent", "id": terminal}}})
 }
@@ -1057,8 +1018,8 @@ func TestACodexLaneStartsSolOnTheCodexAgentWithoutACustomTerminal(t *testing.T) 
 		t.Fatal(start)
 	}
 	wantLine(t, strings.TrimSpace(h.readReceipt("lane-a.terminal")), "term_a")
-	if sets := h.orcaCalls("worktree set"); !slices.Contains(sets[0], "--parent-worktree") || slices.Contains(sets[0], "--no-parent") {
-		t.Fatal(sets)
+	if creates := h.orcaCalls("worktree create"); !slices.Contains(creates[0], "--parent-worktree") || slices.Contains(creates[0], "--no-parent") {
+		t.Fatal(creates)
 	}
 }
 
@@ -1130,9 +1091,9 @@ func TestAnIncidentLaneRunsCodexOnTheFastTierInItsOwnTerminalInATopLevelWorktree
 	h := newHarness(t)
 	h.healthyCodex()
 	wantLine(t, h.launchedAs(agentIncident, "xhigh"), readyLine(h))
-	set := h.orcaCalls("worktree set")[0]
-	if !slices.Contains(set, "--no-parent") || slices.Contains(set, "--parent-worktree") {
-		t.Fatal(set)
+	create := h.orcaCalls("worktree create")[0]
+	if !slices.Contains(create, "--no-parent") || slices.Contains(create, "--parent-worktree") {
+		t.Fatal(create)
 	}
 	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"+codexCompact+codexLaneConfig+" -c mcp_servers={}'")
 	start := h.orcaCalls("orchestration worker-start")[0]
@@ -1280,9 +1241,9 @@ func TestNoParentPutsAClaudeLaneInATopLevelWorktree(t *testing.T) {
 	h.healthyClaude()
 	h.env["ORCA_LAUNCH_NO_PARENT"] = "1"
 	h.launched()
-	set := h.orcaCalls("worktree set")[0]
-	if !slices.Contains(set, "--no-parent") || slices.Contains(set, "--parent-worktree") {
-		t.Fatal(set)
+	create := h.orcaCalls("worktree create")[0]
+	if !slices.Contains(create, "--no-parent") || slices.Contains(create, "--parent-worktree") {
+		t.Fatal(create)
 	}
 }
 
@@ -1394,39 +1355,13 @@ func TestALaunchTheDeskRelaunchesOnASpriteFailsAtItsFirstStallWithNoRetry(t *tes
 	h.tickOnSleep()
 	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
 	h.env[fallbackEnv] = "1"
-	h.reply("worktree show", missing)
+	h.reply("worktree create", reply{rc: 1, out: "connection lost"})
 	line, code := h.launch()
-	if code != 1 || !strings.Contains(line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+h.worktree()+" yet for 300s") || strings.Contains(line, "one retry") {
+	if code != 1 || !strings.HasPrefix(line, "lane-a failed LAUNCH-FAILED: Orca has not registered worktree v3-lane-a-1-1 for 0s") || strings.Contains(line, "one retry") {
 		t.Fatal(line)
 	}
 	if strings.Contains(h.stderr.String(), "retries once") || slices.Contains(h.sleeps, stallRetry) {
 		t.Fatal(h.stderr.String(), h.sleeps)
-	}
-}
-
-func TestALaunchThatStallsTwiceFailsOnceWithLaunchFailedNamingTheSecondWait(t *testing.T) {
-	h := newHarness(t)
-	h.healthyClaude()
-	h.tickOnSleep()
-	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
-	h.reply("worktree show", missing)
-	line, code := h.launch()
-	if code != 1 {
-		t.Fatal(line)
-	}
-	retried := filepath.Join(filepath.Dir(h.parent), "v3-lane-a-1-2")
-	wantLine(t, line, "lane-a failed LAUNCH-FAILED: Orca does not list worktree "+retried+" yet for 300s; rolled back worktree="+retried+" branch=yasyf/v3-lane-a-1-2; this was its one retry")
-	if strings.Count(h.stderr.String(), "lane-a retries once after a stall: Orca does not list worktree "+h.worktree()+" yet for 300s\n") != 1 {
-		t.Fatal(h.stderr.String())
-	}
-	wantNoCalls(t, h, "terminal create")
-	if len(slices.DeleteFunc(slices.Clone(h.sleeps), func(d time.Duration) bool { return d != stallRetry })) != 1 {
-		t.Fatal(h.sleeps)
-	}
-	for _, wt := range []string{h.worktree(), retried} {
-		if exists(wt) || h.gitIn(h.main, "branch", "--list", "yasyf/"+filepath.Base(wt)) != "" {
-			t.Fatal("the rollback left work behind")
-		}
 	}
 }
 
@@ -1435,7 +1370,7 @@ func TestALaunchThatStallsOnceRetriesUnderTheSameLaneAndStartsOneWorker(t *testi
 	h.healthyClaude()
 	h.tickOnSleep()
 	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
-	h.reply("worktree show", append(slices.Repeat([]reply{missing}, 76), sent)...)
+	h.reply("worktree create", reply{rc: 1, out: "connection lost"}, reply{fromMain: true})
 	retried := filepath.Join(filepath.Dir(h.parent), "v3-lane-a-1-2")
 	wantLine(t, h.launched(), "lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree="+retried)
 	if starts := h.orcaCalls("orchestration worker-start"); len(starts) != 1 {
@@ -1473,43 +1408,6 @@ func TestARollbackKeepsABranchThatHoldsCommitsAndSaysWhy(t *testing.T) {
 	}
 	if !exists(h.worktree()) || h.gitIn(h.main, "branch", "--list", testBranch) == "" {
 		t.Fatal("the rollback dropped a branch holding commits")
-	}
-}
-
-func TestAWorktreeOrcaListsLateIsAwaitedAndThenNamed(t *testing.T) {
-	h := newHarness(t)
-	h.healthyClaude()
-	h.reply("worktree show", missing, missing, h.registeredReply())
-	h.launched()
-	if !slices.Equal(h.sleeps[:2], []time.Duration{startPoll, startPoll}) {
-		t.Fatal(h.sleeps)
-	}
-}
-
-func TestAWorktreeOrcaListsOnlyAfterItsCacheExpiresIsAwaitedPastTheStallLimit(t *testing.T) {
-	h := newHarness(t)
-	h.healthyClaude()
-	h.tickOnSleep()
-	listsAfter := (180+worktreeCacheSeconds)/int(startPoll/time.Second) - 1
-	h.reply("worktree show", append(slices.Repeat([]reply{missing}, listsAfter), h.registeredReply())...)
-	wantLine(t, h.launched(), readyLine(h))
-	if len(h.sleeps) != listsAfter || *h.elapsed <= 180*time.Second {
-		t.Fatal(len(h.sleeps), *h.elapsed)
-	}
-	if sets := h.orcaCalls("worktree set"); len(sets) != 1 || flag(sets[0], "--worktree") != "path:"+h.worktree() {
-		t.Fatal(sets)
-	}
-}
-
-func TestAWorktreeOrcaNeverListsFailsOnceItsCacheCouldHaveExpired(t *testing.T) {
-	h := newHarness(t)
-	h.healthyClaude()
-	h.tickOnSleep()
-	h.env["ORCA_LAUNCH_STALL_SECONDS"] = "60"
-	h.reply("worktree show", missing)
-	line, code := h.launch()
-	if code != 1 || !strings.Contains(line, "LAUNCH-FAILED: Orca does not list worktree ") || !strings.Contains(line, " yet for 360s") {
-		t.Fatal(line)
 	}
 }
 
@@ -1576,7 +1474,6 @@ func TestLaunchStartsALaneWhoseWorktreePathAlonePasses500Characters(t *testing.T
 	h.healthyClaude()
 	root := filepath.Join(h.root, strings.Repeat("x", 250), strings.Repeat("y", 250))
 	h.env["ORCA_LAUNCH_ROOT"] = root
-	h.reply("worktree show", okResult(object{"worktree": object{"path": filepath.Join(root, "v3-lane-a-1-1")}}))
 	h.launched()
 	spec := h.spec()
 	if len(spec) <= specLimit || !strings.Contains(spec, "Worktree "+filepath.Join(root, "v3-lane-a-1-1")+", ") {
@@ -1924,7 +1821,7 @@ func TestARelaunchReusesTheWorktreeTheFirstLaunchAdded(t *testing.T) {
 	}
 	h.healthyClaude()
 	h.launched()
-	if len(h.orcaCalls("worktree set")) != 1 {
+	if len(h.orcaCalls("worktree create")) != 1 {
 		t.Fatal(h.calls)
 	}
 	for _, call := range h.orcaCalls("terminal create") {

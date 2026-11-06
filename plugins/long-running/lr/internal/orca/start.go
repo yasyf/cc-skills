@@ -30,7 +30,6 @@ const (
 	claudeFastSettings     = `"fastMode":true`
 	startPoll              = 4 * time.Second
 	stallRetry             = 30 * time.Second
-	worktreeCacheSeconds   = 300
 	coordinatorLane        = "root"
 	coordinatorDenied      = ",Workflow,ScheduleWakeup,ReportFindings,ListAgents,Monitor,SendMessage,TaskGet"
 	coordinatorListing     = `"skillListingBudgetFraction":0.001`
@@ -556,11 +555,6 @@ func (l *launch) resolveRepo() error {
 	l.main = l.repoRead.Result.Repo.Path
 	l.gitUser = l.repoRead.Result.Repo.GitUsername
 	l.root = l.Env("ORCA_LAUNCH_ROOT")
-	if l.root == "" && l.sparseLanes {
-		if pool, code := l.output(shell.Command{Argv: []string{"git", "-C", l.main, "config", "ccx.worktreeRoot"}}); code == 0 {
-			l.root = filepath.Join(strings.TrimSpace(pool), filepath.Base(l.main))
-		}
-	}
 	if l.root == "" {
 		l.root = filepath.Dir(l.parent)
 	}
@@ -861,17 +855,6 @@ func (l *launch) start() (string, error) {
 	return l.startWorker()
 }
 
-func (l *launch) listedWorktree() error {
-	for {
-		if _, ok := l.saved(".worktree.json", "orca", "worktree", "show", "--worktree", "path:"+l.wt, "--json"); ok {
-			return nil
-		}
-		if err := l.pauseWithin("Orca does not list worktree "+l.wt+" yet", l.stall+worktreeCacheSeconds); err != nil {
-			return err
-		}
-	}
-}
-
 func (l *launch) fresh() error {
 	namesPath := l.path(".names")
 	used := map[string]bool{}
@@ -908,57 +891,9 @@ func (l *launch) fresh() error {
 	}
 }
 
-func (l *launch) added() (string, bool) {
-	remote, branch, _ := strings.Cut(l.base, "/")
-	if l.gitQuiet(l.main, "remote", "get-url", remote) {
-		l.exec(shell.Command{Argv: []string{"ccx", "vcs", "fetch", "--remote", remote, branch}, Dir: l.main})
-	}
-	said, code := l.git(l.main, "worktree", "add", "--no-checkout", "--no-track", "-b", l.branch, l.wt, l.base)
-	return said, code == 0
-}
-
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func (l *launch) shared() error {
-	for _, path := range l.repoRead.Result.Repo.SymlinkPaths {
-		source, target := filepath.Join(l.main, path), filepath.Join(l.wt, path)
-		if !exists(source) || exists(target) {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-			return err
-		}
-		if err := os.Symlink(source, target); err != nil {
-			return err
-		}
-	}
-	raw, err := os.ReadFile(filepath.Join(l.main, ".worktreeinclude"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for line := range strings.SplitSeq(string(raw), "\n") {
-		path := strings.TrimRight(strings.TrimPrefix(strings.TrimSpace(line), "./"), "/")
-		if path == "" || strings.HasPrefix(path, "#") {
-			continue
-		}
-		source, target := filepath.Join(l.main, path), filepath.Join(l.wt, path)
-		if !exists(source) || exists(target) || !l.gitQuiet(l.main, "check-ignore", "-q", "--", path) {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-			return err
-		}
-		if said, code := l.tool("cp", "-R", source, target); code != 0 {
-			return errors.New(strings.TrimSpace(said))
-		}
-	}
-	return nil
 }
 
 func tailLines(text string, count int) string {
@@ -984,62 +919,20 @@ func (l *launch) sparseCone(briefText string) []string {
 	})
 }
 
-func (l *launch) addSparseWorktree() error {
-	if err := l.fresh(); err != nil {
-		return l.fail("names: %v", err)
-	}
-	l.created = true
-	log := l.path(".worktree.log")
-	said, ok := l.added()
-	if err := os.WriteFile(log, []byte(said), 0o600); err != nil {
-		return l.fail("worktree log: %v", err)
-	}
-	if !ok {
-		return l.fail("worktree add %s: %s", l.wt, tailLines(said, 3))
-	}
-	l.made = true
+func (l *launch) narrow() error {
 	raw, err := os.ReadFile(l.brief)
 	if err != nil {
 		return l.fail("brief %s unreadable", l.brief)
 	}
 	cone := l.sparseCone(string(raw))
-	var checkedOut strings.Builder
-	checked := func() bool {
-		if len(cone) > 0 {
-			stdout, stderr, code := l.exec(shell.Command{Argv: []string{"git", "-C", l.wt, "sparse-checkout", "set", "--cone", "--stdin"}, Stdin: strings.Join(cone, "\n") + "\n"})
-			checkedOut.WriteString(stdout + stderr)
-			if code != 0 {
-				return false
-			}
-		}
-		out, code := l.git(l.wt, "reset", "--quiet", "--hard")
-		checkedOut.WriteString(out)
-		if code != 0 {
-			return false
-		}
-		if err := l.shared(); err != nil {
-			checkedOut.WriteString(err.Error())
-			return false
-		}
-		return true
+	if len(cone) == 0 {
+		return nil
 	}
-	done := checked()
-	if err := os.WriteFile(log, []byte(said+checkedOut.String()), 0o600); err != nil {
-		return l.fail("worktree log: %v", err)
+	stdout, stderr, code := l.exec(shell.Command{Argv: []string{"git", "-C", l.wt, "sparse-checkout", "set", "--cone", "--stdin"}, Stdin: strings.Join(cone, "\n") + "\n"})
+	if code != 0 {
+		return l.fail("worktree checkout %s: %s", l.wt, tailLines(stdout+stderr, 3))
 	}
-	if !done {
-		return l.fail("worktree checkout %s: %s", l.wt, tailLines(said+checkedOut.String(), 3))
-	}
-	if len(cone) > 0 {
-		fmt.Fprintf(l.Stderr, "%s sparse: %s; widen with cd %s && lr sparse add <dir>\n", l.lane, strings.Join(cone, " "), l.wt)
-	}
-	if err := l.listedWorktree(); err != nil {
-		return err
-	}
-	said, setOK := l.saved(".worktree.json", append(append([]string{"orca", "worktree", "set", "--worktree", "path:" + l.wt, "--display-name", l.worktreeName}, l.parentArgs...), "--json")...)
-	if !setOK {
-		return l.fail("worktree set %s: %s", l.wt, orcaError(said))
-	}
+	fmt.Fprintf(l.Stderr, "%s sparse: %s; widen with cd %s && lr sparse add <dir>\n", l.lane, strings.Join(cone, " "), l.wt)
 	return nil
 }
 
@@ -1048,6 +941,10 @@ func (l *launch) createWorktree() error {
 		return l.fail("names: %v", err)
 	}
 	l.created, l.startup = true, true
+	setup := "run"
+	if l.sparseLanes {
+		setup = "skip"
+	}
 	attempt := 0
 	for !l.registered() {
 		attempt++
@@ -1055,7 +952,7 @@ func (l *launch) createWorktree() error {
 			return l.fail("worktree create: %s", orcaError(l.savedFile(".worktree.json")))
 		}
 		args := append([]string{"orca", "worktree", "create", "--name", l.worktreeName, "--repo", l.repo, "--base-branch", l.base}, l.parentArgs...)
-		said, ok := l.saved(".worktree.json", append(args, "--setup", "run", "--json")...)
+		said, ok := l.saved(".worktree.json", append(args, "--setup", setup, "--json")...)
 		var created struct {
 			Result struct {
 				Worktree struct {
@@ -1092,13 +989,13 @@ func (l *launch) createWorktree() error {
 }
 
 func (l *launch) placeWorktree() error {
-	switch {
-	case l.wt != "" && l.isCheckout():
-		return l.listedWorktree()
-	case l.sparseLanes:
-		return l.addSparseWorktree()
+	if l.wt != "" && l.isCheckout() {
+		return nil
 	}
-	return l.createWorktree()
+	if err := l.createWorktree(); err != nil || !l.sparseLanes {
+		return err
+	}
+	return l.narrow()
 }
 
 func (l *launch) hasWarmLane() bool {
