@@ -142,6 +142,7 @@ Owner words and rulings
 - A judge model answering a worker's question from its brief alone -> orca-desk-brief.md O4
 - A lane silent after posting its mechanism -> supervisor.md
 - A credential reported out of reach without checking the parameter store -> orca-lane-brief.md
+- A brief ordering a key rotation into a parameter the owner writes, stopped only by AWS access -> orca-lane-brief.md credential stores, `credential_writes_need_his_words`
 - A coordinator `decide` stopping the incident clock, or `--re` directives ignored -> orca-desk-brief.md
 - Many conflicting PRs waiting for individual rebases -> merge-train-brief.md
 

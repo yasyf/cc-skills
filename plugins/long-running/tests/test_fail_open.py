@@ -37,6 +37,7 @@ KEPT = {
     "incident_commands.takeovers_pass_lr_owner_away": "answer 7641eea: a takeover records in the owner's name, and a lane took one over while he was at work, so a read that failed counts as present and he asked for a real check rather than a warning",
     "incident_commands.only_the_communicator_records_his_word": "answer 7641eea: his word overrides the presence clock, so a session whose role did not read is not allowed to speak for him",
     "gate5_release.sand_next_release_needs_gate5_pass": "cci 369335: publishing next past a failed gate read has no way back across a server migration, while a release that does not name sand-next needs no read",
+    "credential_writes.credential_writes_need_his_words": "cci 535212: a credential store is written only on the owner's words, so a grant that did not read is no grant, and a credential written over cannot be taken back",
 }
 PARKS = "AskUserQuestion parks the session, so a warning lands too late (answer 1fe20ee)"
 STOP = "a warning on Stop reaches nobody, and {what}"

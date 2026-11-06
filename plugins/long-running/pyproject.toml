@@ -13,7 +13,7 @@ module-name = "long_running"
 module-root = "skills/long-running/scripts"
 
 [dependency-groups]
-dev = ["capt-hook>=12.108.46", "pytest>=8", "pytest-xdist>=3.6"]
+dev = ["capt-hook>=12.119.0", "pytest>=8", "pytest-xdist>=3.6"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

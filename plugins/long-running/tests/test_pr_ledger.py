@@ -265,10 +265,10 @@ def test_a_record_past_its_timeout_finishes_detached_and_tells_the_lane_nothing(
         raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
     spawned = []
+    evt = event(tmp_path)
     monkeypatch.setattr(pr_ledger.subprocess, "run", stalled)
     monkeypatch.setattr(pr_ledger.subprocess, "Popen", lambda argv, **kwargs: spawned.append((argv, kwargs)))
     monkeypatch.setattr(pr_ledger, "DETACHED_LOG", tmp_path / "logs" / "detached.log")
-    evt = event(tmp_path)
     prs = opened_prs((FIXTURES / "ccx-ship-gt.txt").read_text())
 
     assert pr_ledger.ledger_note(evt, prs) is None
@@ -288,11 +288,12 @@ def test_a_record_ends_its_own_commands_at_its_deadline_then_finishes_detached(t
         ran.append(kwargs)
         return subprocess.CompletedProcess(argv, -signal.SIGALRM, "", "drive.py reached the deadline its caller set")
 
+    evt = event(tmp_path)
     monkeypatch.setattr(pr_ledger.subprocess, "run", alarmed)
     monkeypatch.setattr(pr_ledger.subprocess, "Popen", lambda argv, **kwargs: spawned.append(argv))
     monkeypatch.setattr(pr_ledger, "DETACHED_LOG", tmp_path / "detached.log")
 
-    assert pr_ledger.ledger_note(event(tmp_path), opened_prs((FIXTURES / "ccx-ship-gt.txt").read_text())) is None
+    assert pr_ledger.ledger_note(evt, opened_prs((FIXTURES / "ccx-ship-gt.txt").read_text())) is None
 
     caller, _, deadline = ran[0]["env"]["LONG_RUNNING_DEADLINE"].partition(":")
     assert caller == str(os.getpid())
@@ -309,12 +310,13 @@ def test_a_record_that_cannot_detach_still_names_the_unrecorded_prs(tmp_path, mo
     def exhausted(*args, **kwargs):
         raise BlockingIOError(35, "Resource temporarily unavailable")
 
+    evt = event(tmp_path)
     monkeypatch.setattr(pr_ledger.subprocess, "run", stalled)
     monkeypatch.setattr(pr_ledger.subprocess, "Popen", exhausted)
     monkeypatch.setattr(pr_ledger, "DETACHED_LOG", tmp_path / "detached.log")
     prs = opened_prs((FIXTURES / "ccx-ship-gt.txt").read_text())
 
-    assert pr_ledger.ledger_note(event(tmp_path), prs).startswith("The opened PRs were not recorded in the drive ledger: [Errno 35]")
+    assert pr_ledger.ledger_note(evt, prs).startswith("The opened PRs were not recorded in the drive ledger: [Errno 35]")
 
 
 @pytest.mark.parametrize(("lane", "expected"), [("merge-walker-r2", "no drive claims session"), (None, None)], ids=["lane", "no-lane"])

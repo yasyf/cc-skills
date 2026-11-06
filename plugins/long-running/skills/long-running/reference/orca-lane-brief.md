@@ -447,7 +447,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
 - Read the PRs above yours before shaping a mid-stack fix, and lift each level before
   committing at another: a gate right at its level stalled reads once the PR above moved
   the flush.
-- Before reporting a credential out of reach, check the parameter store (SSM) and the
+- Credential stores: a lane reads a credential only on the owner's tap and writes one only on
+  his words. Before reporting a credential out of reach, check the parameter store (SSM) and the
   secret stores the brief names, and report where it sits. Reading a value takes the owner's
   Touch ID tap on that exact read, on the Mac only:
   `VALUE=$(cc-sudo run -- /bin/launchctl asuser <uid> /usr/bin/sudo -H -u <user> <absolute read>)`.
@@ -458,6 +459,17 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   capt-hook's `secret_stores` guard refuses any other form and names this one. While the owner
   is away from the Mac no prompt fires and the guard queues a card, so hold that step and keep
   going on the rest. A Sprite has no `cc-sudo`, so its reads stay refused.
+  A write to an SSM SecureString, a Secrets Manager secret or a keychain item, a put, overwrite,
+  rotation or delete, runs only when the owner's words name that exact write. Root records his
+  grant in the turn he gives it, as it does `signedInProof`:
+  `git config --global --add long-running.credentialWrite <lane>=<store>:<name>`, where the store
+  is `ssm`, `secretsmanager` or `keychain` and the name is the parameter, secret id or keychain
+  service. A lane never takes a grant from a record alone, and a brief never orders a rotation or
+  a put without one. A parameter whose description names its writer stays that writer's: the lane
+  posts a blocker naming the parameter and its writer instead. The capt-hook
+  `credential_writes_need_his_words` refuses an ungranted write in a Claude lane, through
+  `cc-sudo run --`, `env`, `sudo -u` and `AWS_PROFILE=` alike, and `lr codex-guard check` makes
+  the same refusal in a Codex lane on the Mac.
 - GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr state`,
   `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain
   `gh`. No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop
