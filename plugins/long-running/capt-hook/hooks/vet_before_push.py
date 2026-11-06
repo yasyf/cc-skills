@@ -49,7 +49,8 @@ SPARSE_GO = "the checkout is sparse: `lr sparse add <dir>` before its Go checks,
 SPARSE_TS = "Warning, nothing was refused: `yarn tsc:*` cannot run in this sparse checkout, so this push goes ahead; from its top, typecheck with `{commands}`."
 UNFORMATTED = "Warning, nothing was refused: `gofmt -l` lists Go files this change leaves unformatted, so this push goes ahead and CI grades it red. Run `gofmt -w {files}` and commit them."
 UNREAD = "Warning, nothing was refused: {why}, so this push goes ahead unchecked. Run `go build`, `go vet` and the typecheck over what it touched where they can run."
-NO_MODULES = "Warning, nothing was refused: this checkout has no `node_modules`, so no typecheck can run on this host and CI grades the TypeScript this push touched."
+NO_MODULES = "Warning, nothing was refused: this checkout has no `node_modules`, so `yarn tsc:*` cannot run on this host; typecheck with `{commands}` for the errors this change adds, and CI grades the rest of the TypeScript this push touched."
+TS_DELTA = "ts-delta.sh"
 
 
 class Check(BaseModel):
@@ -141,6 +142,8 @@ def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
         return go_checks(base, call.args)
     if (run := program((call.name, *call.args))) and Path(run[0]).name == REMOTE_VET:
         return remote_vet_checks(base, run[1:])
+    if Path(call.name).name == TS_DELTA:
+        return [(TYPECHECK, (base / arg).resolve(), False) for arg in call.args[:1]]
     return typecheck_checks(base, call)
 
 
@@ -151,6 +154,7 @@ def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
         Input(command="go -C go/sand vet ./...", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="cd go/sand && go build ./internal/vm", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="yarn tsc:api", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
+        Input(command="ts-delta.sh api", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="! node_modules/.bin/tsgo --noEmit -p ./api --preserveSymlinks false --composite false | grep -F -e api/src/a.ts", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="yarn tsc:api", env=LANE_ENV, cwd=str(FIXTURE), error="zsh: command not found: yarn"): Allow(),
         Input(command="python3 ~/.claude/plugins/long-running/skills/long-running/scripts/remote-vet.py --config /s/lr.json --lane lane-a .", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
@@ -247,7 +251,7 @@ def sparse_typecheck_command(top: Path, project: Path, files: list[Path]) -> str
     return f"! node_modules/.bin/tsgo --noEmit -p {project.relative_to(top)} --preserveSymlinks false --composite false | grep -F {touched}"
 
 
-def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path], sparse: bool = False) -> list[str]:
+def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path], sparse: bool = False, delta: bool = False) -> list[str]:
     files = [path for path in changed if path.suffix in TS_SUFFIXES and "node_modules" not in path.parts]
 
     def project_of(path: Path) -> Path | None:
@@ -256,6 +260,8 @@ def ts_commands(evt: BaseHookEvent, top: Path, changed: list[Path], sparse: bool
     checks = CompileChecks.load(evt).checks
     owed = [project for project, edited in sorted(latest(files, project_of).items()) if not covered(checks, TYPECHECK, project, edited)]
     touched = {project: [path for path in files if project_of(path) == project] for project in owed}
+    if delta:
+        return [f"{TS_DELTA} {project.relative_to(top)}" for project in owed]
     if sparse:
         return [sparse_typecheck_command(top, project, touched[project]) for project in owed]
     return [typecheck_command(top, project, touched[project]) for project in owed]
@@ -287,9 +293,10 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
     go = [] if sparse else go_commands(evt, top, changed)
     if isinstance(go, str):
         return UNREAD.format(why=go)
-    typechecks = ts_commands(evt, top, changed, sparse=sparse)
-    if typechecks and not (top / "node_modules").is_dir():
-        return go or NO_MODULES
+    modules = (top / "node_modules").is_dir()
+    typechecks = ts_commands(evt, top, changed, sparse=sparse, delta=not modules)
+    if typechecks and not modules:
+        return go or NO_MODULES.format(commands="` and `".join(typechecks))
     if typechecks and sparse:
         return SPARSE_TS.format(commands="` and `".join(typechecks))
     return (go + typechecks) or unformatted(top, changed)
@@ -313,7 +320,7 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": f"{FIXTURE}/go/sand/internal/vm/vm.go\n"}, state=[fresh("build", "vet", root="go/sand")]): Warn(pattern=r"^Warning, nothing was refused: `gofmt -l` lists Go files[\s\S]*`gofmt -w go/sand/internal/vm/vm\.go`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": "go/sand/internal/vm/vm.go\n"}): Block(pattern=r"^A lane runs `go build` and `go vet`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=TS_DIFF, state=[fresh(TYPECHECK, root="api", recursive=False)]): Allow(),
-        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=NO_MODULES_TS_DIFF): Warn(pattern=r"^Warning, nothing was refused: this checkout has no `node_modules`"),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=NO_MODULES_TS_DIFF): Warn(pattern=r"^Warning, nothing was refused: this checkout has no `node_modules`[\s\S]*typecheck with `ts-delta\.sh \S+`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=NO_MODULES_TS_DIFF | SPARSE): Warn(pattern=r"^Warning, nothing was refused: this checkout has no `node_modules`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=REPO | {"git diff": "docs/vm.md\n.github/workflows/ci.yml\n"}): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"go env GOROOT": (127, "go: not found")}): Warn(pattern=r"^Warning, nothing was refused: no Go toolchain"),
