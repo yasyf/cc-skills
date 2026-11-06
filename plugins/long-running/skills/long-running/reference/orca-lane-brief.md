@@ -230,7 +230,12 @@ what it shows'` adds a real screenshot; a path is read on the board's Mac, so a 
 gives a URL. `--diagram FILE` takes one architecture doc (arch/v1), drawn live on his board and
 dashboard and, from a picture the board's Mac draws, on the Slack card. A card with
 records goes as `--card FILE|-`, a whole cc-present card,
-and `--withdraw ID` takes yours down when its question goes away. A card another lane owns,
+and `--withdraw ID` takes yours down when its question goes away. A card taken down before he
+answered is never drawn again, under any id: correct an open card in place, under its own id,
+while it is up. His No ends its question, and his "ask again when X" is not a go-ahead: draw
+nothing until X is done and shown done, and a new build or a changed fact is not X. A note to
+a person reaches him only when they must act or a fix he approved is live, under the rules in
+[slack-lane-brief.md](slack-lane-brief.md#writes-the-owner-did-not-ask-for). A card another lane owns,
 such as one board-refresher drew for you or one root or owner-relay handed you, you redraw
 in place with `--take-over SEQ`, where SEQ is the record another lane addressed to you naming
 the card's id; you own it from then on and his answer wakes you. A card your lane owns under
