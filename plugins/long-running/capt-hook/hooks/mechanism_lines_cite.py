@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, T, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, T, Tool, Warn, on
 from captain_hook.cmd import Cmd
 
 from .cci_mcp_posts import POST_TOOL
@@ -36,9 +36,9 @@ CITATION = re.compile(f"{PR_CITATION}|{RECORD_CITATION.pattern}", re.IGNORECASE)
 PR_NAMED = re.compile(rf"{PR_CITATION}|\bPRs?\b", re.IGNORECASE)
 BROKE = re.compile(r"\b(?:broke|breaks|redden\w*|(?:went|turned|goes|turns) red)\b", re.IGNORECASE)
 UNPROVEN = "Unproven:"
-UNCITED_REFUSAL = (
-    "A sentence to the owner saying why something happened cites, in it or the one before, the record, PR, build, file:line, monitor, notebook or ccn id that proves it,"
-    f" in an HTML comment he never sees, or opens with `{UNPROVEN}`; otherwise it is not written. Cite, label or drop each below, then resend."
+UNCITED = (
+    "Warning, nothing was blocked: A sentence to the owner saying why something happened cites the record, PR, build, file:line, monitor, notebook or ccn id that proves it, or opens with"
+    f" `{UNPROVEN}`. Send him a correction now that cites, labels or withdraws each sentence below."
 )
 UNKNOWN = re.compile(r"\b(?:unanswered|unproven|nobody knows|no one knows)\b", re.IGNORECASE)
 UNSEARCHED = (
@@ -95,7 +95,7 @@ def grepped(evt: BaseHookEvent) -> bool:
 
 def refused(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
     if found := uncited(texts):
-        return evt.block(fenced(UNCITED_REFUSAL, [*found, EXAMPLE]))
+        return evt.context(fenced(UNCITED, [*found, EXAMPLE]))
     unsearched = [sentence for text in texts for sentence, said in sentences(text) if UNKNOWN.search(said)]
     return evt.context(fenced(UNSEARCHED, unsearched)) if unsearched and not grepped(evt) else None
 
@@ -137,25 +137,25 @@ def unread(evt: BaseHookEvent, texts: list[str]) -> HookResult | None:
     return evt.context(fenced(UNREAD, found)) if found and not read_mail(evt) else None
 
 
-@on(  # capt-hook: no-escape the owner ordered a mechanism sentence to him that cites no record refused
+@on(
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", SLACK_CARD, *DM_TOOLS)],
     tests={
-        card(title="Why did the FDE run crash?", body=SKEW): Block(pattern=r"^A sentence to the owner saying why[\s\S]*migration 6[\s\S]*That is a release skew[\s\S]*example: "),
+        card(title="Why did the FDE run crash?", body=SKEW): Warn(pattern=r"^Warning, nothing was blocked: A sentence to the owner saying why[\s\S]*migration 6[\s\S]*That is a release skew[\s\S]*example: "),
         card(title="Why did the FDE run crash?", body=CITED): Allow(),
         card(title="Why did the FDE run crash?", body="The FDE run crashed because the runner reads only format 0. <!-- cci #384714 -->"): Allow(),
         card(title="Why did the FDE run crash?", body="Build 12280 ships the old reader. So every FDE run on it fails at the first chat."): Allow(),
         card(title="Why did the FDE run crash?", body=LABELLED): Warn(pattern=r"^Warning, nothing was blocked: A line to the owner called a question unanswered[\s\S]*Unproven: a release skew"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Why did the FDE run crash?", "body": LABELLED}}, env=DRIVE_CONFIG, transcript=[T.user("why"), *GREPPED]): Allow(),
         card(title="Which Mac wrote it?", body="Nobody knows which Mac wrote the chat."): Warn(pattern=r"Nobody knows which Mac"),
-        card(title="Why is dev red?", body="#49475 broke dev's sand-next vet job."): Block(pattern=r"#49475 broke dev's sand-next vet job\."),
+        card(title="Why is dev red?", body="#49475 broke dev's sand-next vet job."): Warn(pattern=r"#49475 broke dev's sand-next vet job\."),
         card(title="Why is dev red?", body="#49475 broke dev's sand-next vet job: build 12290 logs its missing import."): Allow(),
         card(title="Did the lane retract it?", body='It withdrew "a release skew caused it" and reads the chat rows now.'): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Why?", "body": SKEW}}): Allow(),
-        Input(command=updated({"type": "card", "id": "skew", "title": "Why did the FDE run crash?", "summary": SKEW}), env=DRIVE_CONFIG): Block(pattern=r"That is a release skew"),
-        Input(command="cc-present reply --block skew --body 'It crashed because of a release skew.'", env=DRIVE_CONFIG): Block(pattern=r"It crashed because of a release skew\."),
+        Input(command=updated({"type": "card", "id": "skew", "title": "Why did the FDE run crash?", "summary": SKEW}), env=DRIVE_CONFIG): Warn(pattern=r"That is a release skew"),
+        Input(command="cc-present reply --block skew --body 'It crashed because of a release skew.'", env=DRIVE_CONFIG): Warn(pattern=r"It crashed because of a release skew\."),
         Input(command=f"cc-present reply --block skew --body '{CITED}'", env=DRIVE_CONFIG): Allow(),
-        Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "It crashed because of a release skew."}, state=ACTIVE, env=DRIVE_CONFIG): Block(),
+        Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "It crashed because of a release skew."}, state=ACTIVE, env=DRIVE_CONFIG): Warn(),
         Input(tool=DM_TOOLS[0], tool_input={"channel_id": "D0B6Z", "thread_ts": "1.2", "text": "It crashed because of a release skew."}, env=DRIVE_CONFIG): Allow(),
     },
 )
@@ -163,13 +163,13 @@ def mechanism_lines_cite(evt: BaseHookEvent) -> HookResult | None:
     return refused(evt, tool_lines(evt))
 
 
-@on(  # capt-hook: no-escape the owner ordered a mechanism sentence to him that cites no record refused
+@on(
     Event.Stop,
     only_if=[Communicator()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests=communicator_tests({
-        Input(transcript=reply_transcript(SKEW), state=ACTIVE): Block(pattern=r"writes chats at sessions migration 6[\s\S]*That is a release skew"),
+        Input(transcript=reply_transcript(SKEW), state=ACTIVE): Warn(pattern=r"writes chats at sessions migration 6[\s\S]*That is a release skew"),
         Input(transcript=reply_transcript(f"{CITED} The fix is up as `go/sand/internal/vm/chat.go:88`, which reads migration 6."), state=ACTIVE): Allow(),
         Input(transcript=reply_transcript(LABELLED), state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: A line to the owner called a question unanswered"),
         Input(transcript=[T.user("which Mac wrote it?"), *GREPPED, T.assistant("Which Mac wrote the chat is still unanswered; no lane record names it.")], state=ACTIVE): Allow(),
