@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/pass"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -30,7 +31,7 @@ type Queue interface {
 	Reenter(ctx context.Context, number int) (string, error)
 	Dequeue(ctx context.Context, number int) (string, error)
 	LastFailure(ctx context.Context, number int, since time.Time) (Failure, error)
-	States(ctx context.Context, numbers []int) (map[int]QueueEntry, error)
+	States(ctx context.Context, numbers []int) (map[int]facts.QueueEntry, error)
 }
 
 type Restacker interface {

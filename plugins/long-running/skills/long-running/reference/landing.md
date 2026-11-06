@@ -201,7 +201,7 @@ D24 sits at the end of this section.
 
 ## Queue adapters and runner passes
 
-`lr landing pass` reaches the repository's Trunk queue through the `stack-enqueue` script `landing.queue_script` names in `lr.json`, and reads queue and CI state with `ccx vcs pr status`.
+`lr landing pass` reaches the repository's Trunk queue through the `stack-enqueue` script `landing.queue_script` names in `lr.json`. It reads CI, review and mergeability from its batched member query, 25 PRs a call, and queue state from one `tools/ci trunk status` call naming every open drive PR, so a pass makes no read per PR.
 
 **Each pass.** It reads every open drive PR as facts and classifies each head into a state, a mover and a clock.
 - A head that passes every gate enqueues as part of the largest clear bottom of its stack.
@@ -277,7 +277,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 - A head whose stored queue answer is Trunk's `PR_NOT_ENQUEUEABLE` refusal naming a PR above it in the same stack that is already in the merge queue reads as queued at that head and is watched as queued, not enqueued again. An evicted read still wins, and a new head starts without the answer.
 - A failing required check posts one `blocker` per PR, refusal, red job, and cause, where the cause is the status description with run numbers and durations folded. A later head failing the same way gets one `note` under that blocker; a changed cause or new red job opens a new blocker.
 
-**One enqueue per set of heads.** Each exact set of prefix heads gets one enqueue action. The runner permits another attempt for the same heads only when earlier attempts are proven to have enqueued nothing, or when `ccx vcs pr status` reads a believed-queued PR `not queued` or `evicted` at the admitted head.
+**One enqueue per set of heads.** Each exact set of prefix heads gets one enqueue action. The runner permits another attempt for the same heads only when earlier attempts are proven to have enqueued nothing, or when the pass's queue read finds a believed-queued PR not queued or evicted at the admitted head.
 
 **Ejection classes.** The adapter's verdict, never PR comment text, classifies the drop:
 - `conflict`: stays out at that head, and the gate routes its ejection to the lane.
@@ -508,7 +508,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 
 - The runner posts no Slack card. A merge question is the PR's row on the review tab, read from `lr board rows`; nobody writes PR rows onto the board.
 - Under `every`, the runner checks only heads a coordinator `go` names and bars every other open PR like a held one: no `stack-enqueue` call names or sweeps it in, and a go'd PR stacked on it waits, with one note to the coordinator per stack when its un-go'd parents change.
-- After go'd trees enqueue, the pass's `ccx vcs pr status` read routes conflicts, red CI, and requested changes to lanes and runs accept checks on landable heads so `MERGE-ASK` reaches the row.
+- After go'd trees enqueue, the pass's read routes conflicts, red CI, and requested changes to lanes and runs accept checks on landable heads so `MERGE-ASK` reaches the row.
 - A coordinator `go` claiming the owner's tap on a non-exempt head without a matching board approval draws one `GO-TAP-MISSING` blocker to the coordinator.
 - Under `every`, the merge-mode check refuses a head with `TAP-REQUIRED merge mode every` until the owner's newest board verdict on any block and at any head approves the PR. A later rejection vacates any prior approval, dequeues a queued head on the next pass, and is re-checked before a direct merge.
 

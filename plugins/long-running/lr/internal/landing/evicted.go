@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -37,13 +38,6 @@ type Failure struct {
 	Job         string
 	Test        string
 	Infra       string
-}
-
-type QueueEntry struct {
-	State     string
-	Head      string
-	ChangedAt string
-	Readiness string
 }
 
 type Evictions struct {
@@ -120,7 +114,7 @@ func (e Evictions) readQueued(ctx context.Context, read []machine.Facts) error {
 	return errors.Join(failed...)
 }
 
-func (e Evictions) sayNotReady(ctx context.Context, f machine.Facts, entry QueueEntry) error {
+func (e Evictions) sayNotReady(ctx context.Context, f machine.Facts, entry facts.QueueEntry) error {
 	since, err := time.Parse(time.RFC3339, entry.ChangedAt)
 	if err != nil {
 		return fmt.Errorf("#%d not ready since %q: %w", f.Number, entry.ChangedAt, err)

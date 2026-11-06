@@ -58,6 +58,8 @@ type Source struct {
 	Drive     string
 	Author    string
 	Trunk     string
+	Checkout  string
+	QueueKey  string
 	GoLanes   []string
 	Refs      string
 	Reads     bool
@@ -73,19 +75,21 @@ type Source struct {
 func New(a *app.App, cfg config.Config, s *store.Store) Source {
 	runner := fromCheckout{a.Runner, cfg.Checkout, cfg.Repo}
 	return Source{
-		Repo:    cfg.Repo,
-		Drive:   cfg.Drive,
-		Author:  cfg.Author,
-		Trunk:   cfg.Trunk,
-		GoLanes: cfg.GoLaneNames(),
-		Refs:    cfg.Refs(),
-		Reads:   slices.Contains(cfg.Movers, config.MoverLanding),
-		Runner:  runner,
-		CCX:     ccx.CLI{Runner: runner},
-		Bus:     bus.Bus{Drive: cfg.Drive},
-		Store:   s,
-		Log:     a.Log,
-		Now:     a.Now,
+		Repo:     cfg.Repo,
+		Drive:    cfg.Drive,
+		Author:   cfg.Author,
+		Trunk:    cfg.Trunk,
+		Checkout: cfg.Checkout,
+		QueueKey: cfg.QueueKey,
+		GoLanes:  cfg.GoLaneNames(),
+		Refs:     cfg.Refs(),
+		Reads:    slices.Contains(cfg.Movers, config.MoverLanding),
+		Runner:   runner,
+		CCX:      ccx.CLI{Runner: runner},
+		Bus:      bus.Bus{Drive: cfg.Drive},
+		Store:    s,
+		Log:      a.Log,
+		Now:      a.Now,
 	}
 }
 
@@ -128,7 +132,7 @@ func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := s.readGitHub(ctx, rows, held, s.statuses)
+	snapshot, err := s.readGitHub(ctx, rows, held, s.trunkStatuses)
 	if err != nil || unread == "" {
 		return snapshot, err
 	}

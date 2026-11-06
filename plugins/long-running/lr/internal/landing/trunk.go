@@ -15,13 +15,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 const (
 	passTimeout = 300 * time.Second
 	readTimeout = 60 * time.Second
-	queueKeyEnv = "TRUNK_MERGE_API_KEY"
 	treeLock    = ".tree.lock"
 )
 
@@ -152,53 +152,12 @@ func (t Trunk) matesFailed(ctx context.Context, number int, run string) ([]int, 
 	return slices.DeleteFunc(mates, func(mate int) bool { return !slices.Contains(failedEntries, states[mate].State) }), nil
 }
 
-func (t Trunk) States(ctx context.Context, numbers []int) (map[int]QueueEntry, error) {
-	args := make([]string, 0, 1+len(numbers))
-	args = append(args, "status")
-	for _, number := range numbers {
-		args = append(args, strconv.Itoa(number))
-	}
-	out, err := t.read(ctx, args...)
-	if err != nil {
-		return nil, err
-	}
-	var read map[string]struct {
-		SHA   string `json:"sha"`
-		Entry *struct {
-			State     string          `json:"state"`
-			ChangedAt string          `json:"stateChangedAt"`
-			Readiness json.RawMessage `json:"readiness"`
-		} `json:"queueEntry"`
-	}
-	if err := json.Unmarshal([]byte(out), &read); err != nil {
-		return nil, fmt.Errorf("queue status: %w", err)
-	}
-	states := make(map[int]QueueEntry, len(read))
-	for number, pull := range read {
-		if pull.Entry == nil {
-			continue
-		}
-		at, err := strconv.Atoi(number)
-		if err != nil {
-			return nil, fmt.Errorf("queue status names %q: %w", number, err)
-		}
-		states[at] = QueueEntry{State: pull.Entry.State, Head: pull.SHA, ChangedAt: pull.Entry.ChangedAt, Readiness: string(pull.Entry.Readiness)}
-	}
-	return states, nil
+func (t Trunk) States(ctx context.Context, numbers []int) (map[int]facts.QueueEntry, error) {
+	return facts.ReadQueue(ctx, t.Runner, t.Checkout, t.KeyCommand, numbers)
 }
 
 func (t Trunk) read(ctx context.Context, args ...string) (string, error) {
-	env, err := t.env(ctx)
-	if err != nil {
-		return "", err
-	}
-	done, err := t.Runner.Run(ctx, shell.Command{
-		Argv:    append([]string{filepath.Join(t.Checkout, "tools/ci"), "trunk"}, args...),
-		Dir:     t.Checkout,
-		Env:     env,
-		Timeout: readTimeout,
-	})
-	return done.Stdout, err
+	return facts.TrunkRead(ctx, t.Runner, t.Checkout, t.KeyCommand, args...)
 }
 
 func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
@@ -218,7 +177,7 @@ func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
 	if _, err := t.Runner.Run(ctx, shell.Command{Argv: place, Env: []string{"GIT_LFS_SKIP_SMUDGE=1"}, Timeout: passTimeout}); err != nil {
 		return "", err
 	}
-	env, err := t.env(ctx)
+	env, err := facts.TrunkEnv(ctx, t.Runner, t.KeyCommand)
 	if err != nil {
 		return "", err
 	}
@@ -248,17 +207,6 @@ func LockTree(checkout string) (io.Closer, error) {
 		return nil, err
 	}
 	return lock, nil
-}
-
-func (t Trunk) env(ctx context.Context) ([]string, error) {
-	if t.KeyCommand == "" {
-		return nil, nil
-	}
-	key, err := t.Runner.Run(ctx, shell.Command{Argv: []string{"sh", "-c", t.KeyCommand}, Timeout: readTimeout})
-	if err != nil {
-		return nil, err
-	}
-	return []string{queueKeyEnv + "=" + strings.TrimSpace(key.Stdout)}, nil
 }
 
 func lastLine(done shell.Result) string {
