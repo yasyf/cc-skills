@@ -34,7 +34,7 @@ func (f Fanout) checkedMessage(ctx context.Context, r Reply) (Reply, error) {
 	if !slackID.MatchString(m.To) {
 		return r, fmt.Errorf("message.to %q is not a Slack user or channel id such as U0123ABCDE, so nothing went out; look the person up with slack_users", m.To)
 	}
-	checked, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"check-post", "-"}, Stdin: m.Text, Timeout: postTimeout})
+	checked, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "check-post", "-"}, Stdin: m.Text, Timeout: postTimeout})
 	var exit *shell.ExitError
 	switch {
 	case errors.As(err, &exit) && exit.Code == 1:
