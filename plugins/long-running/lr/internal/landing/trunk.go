@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,6 +27,8 @@ const (
 )
 
 const QueueWorktree = "queue-worktree"
+
+var blockedVerdict = regexp.MustCompile(`^#\d+ BLOCKED `)
 
 type Trunk struct {
 	Runner     shell.Runner
@@ -194,7 +197,7 @@ func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
 	case err != nil && !errors.As(err, &exit):
 		return "", err
 	}
-	return strings.TrimSpace(fmt.Sprintf("exit %d: %s", done.Code, lastLine(done))), nil
+	return strings.TrimSpace(fmt.Sprintf("exit %d: %s", done.Code, blockedThenLast(done))), nil
 }
 
 func LockTree(checkout string) (io.Closer, error) {
@@ -209,11 +212,13 @@ func LockTree(checkout string) (io.Closer, error) {
 	return lock, nil
 }
 
-func lastLine(done shell.Result) string {
+func blockedThenLast(done shell.Result) string {
 	output := done.Stdout
 	if output == "" {
 		output = done.Stderr
 	}
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	return lines[len(lines)-1]
+	last := len(lines) - 1
+	said := slices.DeleteFunc(slices.Clone(lines[:last]), func(line string) bool { return !blockedVerdict.MatchString(line) })
+	return strings.Join(append(said, lines[last]), "\n")
 }

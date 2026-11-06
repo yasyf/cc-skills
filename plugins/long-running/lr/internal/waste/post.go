@@ -39,7 +39,11 @@ func (p Poster) Pass(ctx context.Context) error {
 		return nil
 	}
 	text, shown := Render(fresh, report.note())
-	if err := p.Post([]string{p.Config.Lane}, bus.Note{Text: text}); err != nil {
+	note := bus.Note{Text: text}
+	if shown < len(fresh) {
+		note.Detail = every(fresh, report.note())
+	}
+	if err := p.Post([]string{p.Config.Lane}, note); err != nil {
 		return err
 	}
 	for _, finding := range fresh[:shown] {

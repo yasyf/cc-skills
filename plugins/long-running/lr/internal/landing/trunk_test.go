@@ -81,6 +81,28 @@ func TestAQueueRefusalIsWhatTheQueueSaidNotAFailure(t *testing.T) {
 	}
 }
 
+func TestAQueueRefusalKeepsEveryBlockedLineAboveItsLast(t *testing.T) {
+	fake := &shelltest.Fake{}
+	queue, script := trunk(t, fake)
+	fake.Fail(1, strings.Join([]string{
+		"#45580 CHECK 1a2b3c4d5e merge preflight",
+		"#45580 BLOCKED 1a2b3c4d5e required check pending",
+		"#45583 BLOCKED e718a7434f review required; base is not dev",
+		"#45590 WAITING 9f8e7d6c5b below BLOCKED #45583",
+		"enqueued nothing: no approved green bottom prefix",
+	}, "\n")+"\n", script)
+
+	said, err := queue.Enqueue(context.Background(), 45583, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "exit 1: #45580 BLOCKED 1a2b3c4d5e required check pending\n#45583 BLOCKED e718a7434f review required; base is not dev\nenqueued nothing: no approved green bottom prefix"
+	if said != want {
+		t.Fatalf("said = %q, want both BLOCKED lines then the final line", said)
+	}
+}
+
 func TestAHungQueueScriptIsReportedAsWhatTheQueueSaid(t *testing.T) {
 	fake := &shelltest.Fake{}
 	queue, script := trunk(t, fake)
