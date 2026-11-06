@@ -215,7 +215,7 @@ func (d *Desk) sentryRead(ctx context.Context, verb string, rest []string) (askd
 		if len(rest) == 0 {
 			return askdesk.Reply{}, "sentry search takes [--period <14d>] <query>"
 		}
-		query := url.Values{"query": {strings.Join(rest, " ")}, "statsPeriod": {period}, "limit": {"25"}, "sort": {"date"}}
+		query := url.Values{"query": {unquoted(rest)}, "statsPeriod": {period}, "limit": {"25"}, "sort": {"date"}}
 		return d.sentryIssues(ctx, org+"/issues/?"+query.Encode()), ""
 	case "api":
 		if len(rest) != 1 || strings.Contains(rest[0], "://") {
@@ -477,7 +477,19 @@ func window(rest []string, now time.Time) (time.Time, time.Time, string, string)
 	if len(rest) == 0 {
 		return from, to, "", "takes [--from <age>] [--to <age>] <query>"
 	}
-	return from, to, strings.Join(rest, " "), ""
+	return from, to, unquoted(rest), ""
+}
+
+func unquoted(words []string) string {
+	text := strings.Join(words, " ")
+	for _, quote := range []string{`"`, `'`} {
+		inner, opened := strings.CutPrefix(text, quote)
+		inner, closed := strings.CutSuffix(inner, quote)
+		if opened && closed && !strings.Contains(inner, quote) {
+			return inner
+		}
+	}
+	return text
 }
 
 func moment(text string, now time.Time) (time.Time, error) {
