@@ -331,10 +331,6 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 	if err != nil {
 		return job{}, err
 	}
-	landed, err := p.landedRows()
-	if err != nil {
-		return job{}, err
-	}
 	answers, err := p.answersOwed(ctx, live, recordTexts(ruled))
 	if err != nil {
 		return job{}, err
@@ -344,7 +340,7 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 	rulings, unreadRulings := jobRecords(ruled, directory, bodies)
 	base := p.baseJob(d, facts, sprite, settled)
 	base.Lane, base.BugItems, base.Unread = ask.Lane, items, slices.Concat(unreadHistory, unreadRulings)
-	return job{landed: landed, answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, History: history, Ruled: rulings, Full: true}}, nil
+	return job{answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, History: history, Ruled: rulings, Full: true}}, nil
 }
 
 func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, ask wholeAsk, sprite, directory string, reviews []review) (job, error) {

@@ -202,9 +202,13 @@ func TestABodyEditHeadRecordRechecksTheMajorAtThatHeadAndNothingGradedOk(t *test
 			if wantStarted == 0 {
 				return
 			}
-			spec := readJob[grader.FinderJob](t, f.finderDir("45489"+wholeMark+strconv.FormatInt(edit, 10)))
+			directory := f.finderDir("45489" + wholeMark + strconv.FormatInt(edit, 10))
+			spec := readJob[grader.FinderJob](t, directory)
 			if spec.Full || !spec.BodyEdited || spec.Head != head || spec.Prior == nil || spec.Prior.Seq != graded || spec.Lane != "lane-7" {
 				t.Errorf("job = %+v", spec)
+			}
+			if _, err := os.Stat(filepath.Join(directory, grader.LandedFile)); err != nil {
+				t.Errorf("the recheck carries no landed fixes for its second-fix read: %v", err)
 			}
 		})
 	}
