@@ -69,12 +69,13 @@ type Record struct {
 
 type FinderJob struct {
 	Job
-	Since    string   `json:"since"`
-	Prior    *Record  `json:"prior"`
-	Previous string   `json:"previous"`
-	History  []Record `json:"history"`
-	Ruled    []Record `json:"ruled"`
-	Full     bool     `json:"full"`
+	Since      string   `json:"since"`
+	Prior      *Record  `json:"prior"`
+	Previous   string   `json:"previous"`
+	History    []Record `json:"history"`
+	Ruled      []Record `json:"ruled"`
+	Full       bool     `json:"full"`
+	BodyEdited bool     `json:"body_edited"`
 }
 
 type finding struct {
@@ -136,7 +137,7 @@ func runFinder(ctx context.Context, dir string, deps Deps) (FinderOutcome, error
 func (s *finderPassState) earlierHeads() []string {
 	var heads []string
 	prior := ""
-	if s.job.Prior != nil {
+	if s.job.Prior != nil && !s.job.BodyEdited {
 		prior = s.job.Prior.Head
 	}
 	for _, name := range []string{s.job.Since, prior, s.job.Previous} {
@@ -179,7 +180,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	}
 	spec.Head = view.HeadRefOid
 	head := spec.Head
-	if spec.Prior != nil && NamesHead(spec.Prior.Head, head) {
+	if spec.Prior != nil && NamesHead(spec.Prior.Head, head) && (!spec.BodyEdited || FinderGrade(s.carried(view, spec.Prior, nil)) == finderPass) {
 		return s.replayed(view, head, nil)
 	}
 	base, trunk, err := s.checkedOut(view)
@@ -375,6 +376,20 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 	if earlier == nil || !NamesHead(earlier.Head, last) {
 		return FinderOutcome{Skipped: said, Ungraded: true}, nil
 	}
+	text := s.carried(view, earlier, gone)
+	body := filepath.Join(s.dir, bodyFile)
+	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\n%s.\n\n#%d: %s\n", text, said, earlier.Seq, earlier.Text), 0o600); err != nil {
+		return FinderOutcome{}, err
+	}
+	posted, err := s.post(text, body)
+	if err != nil {
+		return FinderOutcome{}, err
+	}
+	return FinderOutcome{Verdict: strings.Fields(text)[1], Record: text, Posted: posted}, nil
+}
+
+func (s *finderPassState) carried(view pullRequest, earlier *Record, gone []string) string {
+	head := s.job.Head
 	grade := FinderGrade(earlier.Text)
 	text := fmt.Sprintf("finder: %s %s carried from #%d", grade, short(head, 7), earlier.Seq)
 	if root := s.settledBy(earlier); grade != finderPass && root != 0 {
@@ -390,15 +405,7 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 	if len(gone) > 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, whose findings cite only files gone at this head: %s", finderPass, short(head, 7), earlier.Seq, strings.Join(gone, ", "))
 	}
-	body := filepath.Join(s.dir, bodyFile)
-	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\n%s.\n\n#%d: %s\n", text, said, earlier.Seq, earlier.Text), 0o600); err != nil {
-		return FinderOutcome{}, err
-	}
-	posted, err := s.post(text, body)
-	if err != nil {
-		return FinderOutcome{}, err
-	}
-	return FinderOutcome{Verdict: strings.Fields(text)[1], Record: text, Posted: posted}, nil
+	return text
 }
 
 func (s *finderPassState) judgedCarry(last, pairs string, answer regradeAnswer) (FinderOutcome, error) {

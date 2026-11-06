@@ -676,6 +676,11 @@ func BodyRecord(body string) (json.RawMessage, error) {
 	return json.Marshal(map[string]string{"body": strings.ToValidUTF8(body[:min(len(body), bodyBytes)], "")})
 }
 
+func ReadsNewBody(record client.Record) bool {
+	_, carried := bodyOf(record)
+	return carried && string(record.Kind) == readKind && record.Fields.Attrs["record"] == readRecord
+}
+
 func bodyOf(record client.Record) (string, bool) {
 	var carried struct {
 		Body *string `json:"body"`
