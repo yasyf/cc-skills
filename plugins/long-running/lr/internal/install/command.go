@@ -24,7 +24,6 @@ import (
 )
 
 const (
-	updateTimeout = 10 * time.Minute
 	pluginRootEnv = "BINRUN_PLUGIN_ROOT"
 	shimFile      = "bin-shim.sh"
 )
@@ -96,7 +95,7 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 	defer func() { _ = s.Close() }()
 	checks := Checks{Runner: a.Runner, CCX: a.CCX, Installs: dir, Claude: claude, Now: a.Now}
 	if _, err := os.Stat(checks.dir(version)); err != nil {
-		if _, err := a.Runner.Run(ctx, shell.Command{Argv: []string{"claude", "plugin", "update", pluginName + "@" + filepath.Base(filepath.Dir(dir))}, Timeout: updateTimeout}); err != nil {
+		if err := checks.Fetch(ctx, version); err != nil {
 			return 0, err
 		}
 	}

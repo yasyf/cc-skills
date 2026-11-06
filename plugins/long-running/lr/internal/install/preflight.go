@@ -115,16 +115,11 @@ type released struct {
 }
 
 func treeFaults(ctx context.Context, runner shell.Runner, install, url, tagName, source, releases string) ([]string, error) {
-	if _, err := os.Stat(releases); err != nil {
-		if _, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "init", "-q", "--bare", releases}, Timeout: readTimeout}); err != nil {
-			return nil, err
-		}
+	if err := fetchTag(ctx, runner, releases, url, tagName); err != nil {
+		return []string{fmt.Sprintf("the release tag %s did not fetch from %s: %s", tagName, url, lastLine(err))}, nil
 	}
 	git := func(stdin string, args ...string) (shell.Result, error) {
 		return runner.Run(ctx, shell.Command{Argv: slices.Concat([]string{"git", "-C", releases}, args), Stdin: stdin, Timeout: readTimeout})
-	}
-	if _, err := git("", "fetch", "-q", "--depth", "1", url, fmt.Sprintf("+refs/tags/%s:refs/tags/%s", tagName, tagName)); err != nil {
-		return []string{fmt.Sprintf("the release tag %s did not fetch from %s: %s", tagName, url, lastLine(err))}, nil
 	}
 	listed, err := git("", "ls-tree", "-r", "-z", tagName, "--", source+"/")
 	if err != nil {
