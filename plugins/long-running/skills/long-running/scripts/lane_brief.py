@@ -16,7 +16,7 @@ REPLACES = re.compile(r"^Replaces: `?[\w.-]+`?\s*$", re.MULTILINE)
 SUCCESSOR = re.compile(r".+-(\d+)")
 HANDOFF = "-handoff"
 SCALE_RULE = datetime(2026, 10, 30, 13, 11, 35, tzinfo=timezone.utc)
-NO_SCALE = "brief {brief} has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`"
+NO_SCALE = "brief `{brief}` has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`"
 
 
 def owes_scale(lane: str, text: str, brief: Path | None) -> bool:

@@ -217,7 +217,7 @@ def test_a_brief_written_before_the_scale_rule_spawns_quietly_and_a_new_one_is_w
     assert passed is None
     assert warned.action.value == "warn"
     assert warned.message == (
-        f"Warning, nothing was blocked: brief {new} has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, "
+        "Warning, nothing was blocked: brief `new.md` has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, "
         "such as `Scale: chats on one Mac, up to 1,000`"
     )
 
