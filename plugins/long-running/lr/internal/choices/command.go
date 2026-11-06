@@ -18,9 +18,11 @@ import (
 )
 
 func New(ctx context.Context, a *app.App, entry drive.Entry, claude string, s *store.Store) *Check {
+	cards := board.CardsOf(a, entry, entry.Root(), s)
 	check := &Check{
 		Drive: entry.Bus(),
-		Asks:  board.CardsOf(a, entry, entry.Root(), s).OpenAsks,
+		Asks:  cards.OpenAsks,
+		Drawn: cards.DrawnAsks,
 		Desk: func() (string, error) {
 			route, err := watch.Desks(s)
 			if err != nil {

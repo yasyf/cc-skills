@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -10,22 +11,161 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
+
+const readingWindow = 10 * time.Minute
 
 var (
 	tapTarget = regexp.MustCompile(`^(?:#?(\d+)|merge:(\d+):[0-9a-f]+)$`)
 	namesID   = regexp.MustCompile(`#\d|\bcard-|\bmerge:\d`)
 )
 
-func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer) (bool, error) {
+func plainWhy(why string) error {
 	if strings.TrimSpace(why) == "" || namesID.MatchString(why) {
-		return false, fmt.Errorf("--why %q is what the owner reads where the card was: plain words, no card, PR or record ids", why)
+		return fmt.Errorf("--why %q is what the owner reads where the card was: plain words, no card, PR or record ids", why)
+	}
+	return nil
+}
+
+func (c Cards) LanePull(ctx context.Context, lane, target, kept, why string, out io.Writer) error {
+	if err := plainWhy(why); err != nil {
+		return err
+	}
+	if kept != "" && tapTarget.MatchString(target) {
+		return fmt.Errorf("--duplicate-of names the card that stays in place of a duplicate card, and %s is a PR's tap", target)
+	}
+	if named := tapTarget.FindStringSubmatch(target); named == nil || named[2] != "" {
+		if err := c.unwritten(ctx, target); err != nil {
+			return err
+		}
+	}
+	if kept == "" {
+		_, err := c.Pull(ctx, lane, target, why, out)
+		return err
+	}
+	post, err := c.slackPost(ctx, kept)
+	if err != nil {
+		return err
+	}
+	if post == "" {
+		return fmt.Errorf("--duplicate-of %s has no Slack post for the withdrawn card to link; name the card that went to his DM", kept)
+	}
+	return c.Replace(ctx, lane, why, post, []string{target}, out)
+}
+
+func (c Cards) unwritten(ctx context.Context, card string) error {
+	post, err := c.slackPost(ctx, card)
+	if err != nil || post == "" {
+		return err
+	}
+	read, err := c.run(ctx, shell.Command{Argv: []string{"cc-slack", "thread", "--url", post, "--raw"}})
+	if err != nil {
+		return err
+	}
+	var thread struct {
+		Channel  string `json:"channel_id"`
+		Thread   string `json:"thread_ts"`
+		Messages []struct {
+			TS       string `json:"ts"`
+			FromUser bool   `json:"from_user"`
+			Raw      struct {
+				Reactions []slackReaction `json:"reactions"`
+			} `json:"raw"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(read), &thread); err != nil {
+		return fmt.Errorf("cc-slack thread --url %s: %w", post, err)
+	}
+	him := ""
+	for _, message := range thread.Messages {
+		seconds, err := strconv.ParseFloat(message.TS, 64)
+		if err != nil {
+			return fmt.Errorf("slack ts %q: %w", message.TS, err)
+		}
+		ago := c.Now().Sub(time.Unix(int64(seconds), 0))
+		if ago >= readingWindow {
+			continue
+		}
+		did := "replied in"
+		if !message.FromUser {
+			if len(message.Raw.Reactions) == 0 {
+				continue
+			}
+			if him == "" {
+				if him, err = c.slackUser(ctx); err != nil {
+					return err
+				}
+			}
+			if !slices.ContainsFunc(message.Raw.Reactions, func(r slackReaction) bool { return slices.Contains(r.Users, him) }) {
+				continue
+			}
+			did = "reacted to a message in"
+		}
+		base, _, _ := strings.Cut(post, "/archives/")
+		link := fmt.Sprintf("%s/archives/%s/p%s?thread_ts=%s&cid=%s", base, thread.Channel, strings.ReplaceAll(message.TS, ".", ""), thread.Thread, thread.Channel)
+		return fmt.Errorf("refused: he %s %s's Slack thread %s ago, so he may be reading or answering it now; answer him in that thread first, %s, and withdraw it only after %d minutes with no word from him", did, card, ago.Round(time.Second), link, int(readingWindow.Minutes()))
+	}
+	return nil
+}
+
+type slackReaction struct {
+	Users []string `json:"users"`
+}
+
+func (c Cards) slackUser(ctx context.Context) (string, error) {
+	said, err := c.run(ctx, shell.Command{Argv: []string{"cc-slack", "whoami"}})
+	if err != nil {
+		return "", err
+	}
+	var me struct {
+		User string `json:"user_id"`
+	}
+	if err := json.Unmarshal([]byte(said), &me); err != nil {
+		return "", fmt.Errorf("cc-slack whoami: %w", err)
+	}
+	return me.User, nil
+}
+
+func (c Cards) slackPost(ctx context.Context, card string) (string, error) {
+	shown, err := c.present(ctx, "outcomes", "--block", card)
+	if err != nil && strings.Contains(err.Error(), neverOnBoard) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var outcomes struct {
+		Doc struct {
+			Blocks []struct {
+				ID    string `json:"id"`
+				Slack *struct {
+					URL string `json:"url"`
+				} `json:"slack"`
+			} `json:"blocks"`
+		} `json:"doc"`
+	}
+	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
+		return "", fmt.Errorf("cc-present outcomes --block %s: %w", card, err)
+	}
+	for _, block := range outcomes.Doc.Blocks {
+		if block.ID == card && block.Slack != nil {
+			return block.Slack.URL, nil
+		}
+	}
+	return "", nil
+}
+
+func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer) (bool, error) {
+	if err := plainWhy(why); err != nil {
+		return false, err
 	}
 	named := tapTarget.FindStringSubmatch(target)
 	if named == nil {
@@ -121,11 +261,11 @@ func (c Cards) redrawWithdrawn(ctx context.Context, prs []store.ReviewRow, out i
 }
 
 func WithdrawCommand(a *app.App) *cobra.Command {
-	var driveName, session, lane, why string
+	var driveName, session, lane, why, kept string
 	cmd := &cobra.Command{
 		Use:   "withdraw CARD_OR_PR",
-		Short: "Take one card or landing tap off the owner's board, his merge list and its Slack card in one call; a rerun changes nothing",
-		Long:  "CARD_OR_PR is a board card id such as card-<reply id>, a merge card id merge:<pr>:<sha>, or a PR number #<n>. A PR's tap is withdrawn at its current head, so a new head draws a fresh card.",
+		Short: "Take one card or landing tap off the owner's board, his merge list and its Slack card in one call, refusing while he writes in the card's Slack thread; a rerun changes nothing",
+		Long:  "CARD_OR_PR is a board card id such as card-<reply id>, a merge card id merge:<pr>:<sha>, or a PR number #<n>. A PR's tap is withdrawn at its current head, so a new head draws a fresh card. A card is refused while his reply in its Slack thread, or his reaction on a message there, is under 10 minutes old; the refusal links his message, so answer him there.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			entry, err := drive.Named(driveName)
@@ -140,10 +280,10 @@ func WithdrawCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			_, err = CardsOf(a, entry, session, s).Pull(c.Context(), lane, args[0], why, c.OutOrStdout())
-			return err
+			return CardsOf(a, entry, session, s).LanePull(c.Context(), lane, args[0], kept, why, c.OutOrStdout())
 		},
 	}
+	cmd.Flags().StringVar(&kept, "duplicate-of", "", "the card that stays when this one is its duplicate; the withdrawn card's Slack post then says Replaced and links that card's post")
 	cmd.Flags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
 	cmd.Flags().StringVar(&session, "session", "", "the board's session (default: the drive's coordinator)")
 	cmd.Flags().StringVar(&lane, "lane", os.Getenv("CLAUDE_LONG_RUNNING_LANE"), "the lane the withdraw records post as")

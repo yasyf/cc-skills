@@ -3,15 +3,87 @@ package board
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const why = "being redone after review"
+const (
+	why          = "being redone after review"
+	ownerSlackID = "UOWNER"
+	cardPost     = "https://acme.slack.com/archives/D0B6Z/p1793600000000100"
+	keptPost     = "https://acme.slack.com/archives/D0B6Z/p1793599700000100"
+)
+
+func slackTS(ago time.Duration) string {
+	return fmt.Sprintf("%d.000200", cardsNow.Add(-ago).Unix())
+}
+
+func cardThread(t *testing.T, messages ...map[string]any) string {
+	t.Helper()
+	root := map[string]any{"ts": slackTS(2 * time.Minute), "from_bot": true, "raw": map[string]any{}}
+	encoded, err := json.Marshal(map[string]any{"channel_id": "D0B6Z", "thread_ts": root["ts"], "messages": append([]map[string]any{root}, messages...)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+func TestALanesWithdrawWaitsWhileHeWritesInTheCardsSlackThread(t *testing.T) {
+	reacted := func(ago time.Duration, users ...string) map[string]any {
+		return map[string]any{"ts": slackTS(ago), "from_bot": true, "raw": map[string]any{"reactions": []any{map[string]any{"name": "eyes", "users": users}}}}
+	}
+	for name, c := range map[string]struct {
+		thread  []map[string]any
+		refused string
+		whoami  int
+	}{
+		"his reply a minute ago":              {thread: []map[string]any{{"ts": slackTS(time.Minute), "from_user": true}}, refused: "replied in"},
+		"his reaction on a bot reply":         {thread: []map[string]any{reacted(time.Minute, ownerSlackID)}, refused: "reacted to a message in", whoami: 1},
+		"his reply eleven minutes ago":        {thread: []map[string]any{{"ts": slackTS(11 * time.Minute), "from_user": true}}},
+		"the bot's own reaction":              {thread: []map[string]any{reacted(time.Minute, "UBOT")}, whoami: 1},
+		"his reaction on an hour-old message": {thread: []map[string]any{reacted(time.Hour, ownerSlackID)}},
+		"no word from him":                    {},
+	} {
+		on := &cardShell{cards: []string{"card-pick-1"}, posts: map[string]string{"card-pick-1": cardPost}, threads: map[string]string{cardPost: cardThread(t, c.thread...)}}
+		f := newCards(t, on, nil)
+		err := f.LanePull(context.Background(), "owner-relay", "card-pick-1", "", why, &bytes.Buffer{})
+		if c.refused == "" {
+			if err != nil || !reflect.DeepEqual(on.removed, []string{"card-pick-1"}) {
+				t.Errorf("%s: err %v, removed %v, want it withdrawn", name, err, on.removed)
+			}
+		} else {
+			hisMessage := "https://acme.slack.com/archives/D0B6Z/p" + strings.ReplaceAll(slackTS(time.Minute), ".", "") + "?thread_ts=" + slackTS(2*time.Minute) + "&cid=D0B6Z"
+			if err == nil || !strings.Contains(err.Error(), c.refused) || !strings.Contains(err.Error(), hisMessage) || len(on.removed) != 0 {
+				t.Errorf("%s: err %v, removed %v, want it refused naming %s", name, err, on.removed, hisMessage)
+			}
+		}
+		if on.whoami != c.whoami {
+			t.Errorf("%s: read his Slack id %d times, want %d", name, on.whoami, c.whoami)
+		}
+	}
+}
+
+func TestAWithdrawnDuplicateLinksTheCardThatStays(t *testing.T) {
+	on := &cardShell{cards: []string{"card-dup", "card-kept"}, posts: map[string]string{"card-kept": keptPost}}
+	f := newCards(t, on, nil)
+	if err := f.LanePull(context.Background(), "owner-relay", "card-dup", "card-kept", "a second card for the same pick", &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(on.removed, []string{"card-dup"}) || !reflect.DeepEqual(on.replaced, []string{keptPost}) {
+		t.Fatalf("removed %v replaced by %v, want card-dup linking %s", on.removed, on.replaced, keptPost)
+	}
+
+	unposted := &cardShell{cards: []string{"card-dup", "card-kept"}}
+	if err := newCards(t, unposted, nil).LanePull(context.Background(), "owner-relay", "card-dup", "card-kept", "a second card for the same pick", &bytes.Buffer{}); err == nil || len(unposted.removed) != 0 {
+		t.Fatalf("err %v, removed %v, want a refusal when the kept card has no Slack post to link", err, unposted.removed)
+	}
+}
 
 func tapCards(t *testing.T) (*cardsFixture, *cardShell, *store.Store) {
 	t.Helper()

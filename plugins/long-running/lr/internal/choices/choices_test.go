@@ -43,6 +43,7 @@ func newCheck(now time.Time, asks ...board.OpenAsk) *choices.Check {
 	return &choices.Check{
 		Drive:    testDrive,
 		Asks:     func(context.Context) ([]board.OpenAsk, error) { return asks, nil },
+		Drawn:    func(context.Context) (map[int64]bool, error) { return nil, nil },
 		Desk:     func() (string, error) { return boardDesk, nil },
 		Main:     func(context.Context) ([]string, error) { return []string{mainSubject, mainSlug}, nil },
 		Owners:   func(lane string) ([]string, error) { return []string{lane + "-launcher", metaDesk}, nil },
@@ -99,6 +100,28 @@ func TestACardRecordDrawnOrYoungOrSentElsewhereSaysNothing(t *testing.T) {
 	passTwice(t, newCheck(time.Now().Add(30*time.Minute)))
 	if records := said(t); len(records) != 0 {
 		t.Fatalf("said %q", records[0].Text)
+	}
+}
+
+func TestNoFlagTellsAnyoneToDrawForARecordTheRelayAlreadyDrewACardFor(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	carded := post(t, client.Draft{Lane: "lane-a", Kind: "ask", To: []string{boardDesk}, Text: "CARD: card-x: Which table?"})
+	bare := post(t, client.Draft{Lane: "lane-a", Kind: "ask", To: []string{boardDesk}, Text: "CARD: card-y: Which store?"})
+	choice := post(t, client.Draft{Lane: "lane-b", Kind: "decide", To: []string{"root", "owner-relay"}, Text: "A (recommended): cut all four. B: cut two."})
+
+	check := newCheck(time.Now().Add(2 * time.Hour))
+	check.Drawn = func(context.Context) (map[int64]bool, error) { return map[int64]bool{carded: true, choice: true}, nil }
+	passTwice(t, check)
+
+	records := said(t)
+	if len(records) != 1 || records[0].Re != bare || !strings.Contains(records[0].Text, "NO-CARD") {
+		t.Fatalf("said %+v, want NO-CARD for the uncarded ask alone", records)
+	}
+
+	unread := newCheck(time.Now().Add(2 * time.Hour))
+	unread.Drawn = func(context.Context) (map[int64]bool, error) { return nil, errors.New("ccn is down") }
+	if listed := unread.Findings(context.Background()); len(listed) != 0 {
+		t.Fatalf("listed %+v with the card rows unread, want nothing told to draw", listed)
 	}
 }
 

@@ -34,10 +34,14 @@ type cardShell struct {
 	shows     map[string][]int
 	repos     map[string]string
 	rowed     map[string]bool
+	posts     map[string]string
+	threads   map[string]string
 	removed   []string
 	reasons   []string
+	replaced  []string
 	asked     []string
 	redrawn   []string
+	whoami    int
 }
 
 func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -49,10 +53,20 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		return shell.Result{Stdout: `{"id":"c4rd5"}`}, nil
 	case strings.Contains(argv, "outcomes --block"):
 		card := c.Argv[3]
-		if !f.answers[card] {
-			return shell.Result{Stdout: `{"answers":[]}`}, nil
+		shown := map[string]any{"answers": []any{}}
+		if f.answers[card] {
+			shown["answers"] = []any{map[string]any{"origin": "human", "payload": map[string]any{"blockId": card + "-choice", "optionIds": []string{"x"}}}}
 		}
-		return shell.Result{Stdout: fmt.Sprintf(`{"answers":[{"origin":"human","payload":{"blockId":"%s-choice","optionIds":["x"]}}]}`, card)}, nil
+		if post := f.posts[card]; post != "" {
+			shown["doc"] = map[string]any{"blocks": []any{map[string]any{"id": card, "type": "card", "slack": map[string]any{"url": post}}}}
+		}
+		encoded, err := json.Marshal(shown)
+		return shell.Result{Stdout: string(encoded)}, err
+	case strings.HasPrefix(argv, "cc-slack thread --url "):
+		return shell.Result{Stdout: f.threads[c.Argv[3]]}, nil
+	case argv == "cc-slack whoami":
+		f.whoami++
+		return shell.Result{Stdout: `{"user_id":"` + ownerSlackID + `","bot_user_id":"UBOT"}`}, nil
 	case strings.Contains(argv, "outcomes --all"):
 		blocks := []map[string]any{{"id": "sec", "type": "markdown"}, {"id": mergeTriage, "type": "card"}}
 		for _, card := range f.cards {
@@ -85,6 +99,9 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		f.removed = append(f.removed, c.Argv[2])
 		if i := slices.Index(c.Argv, "--reason"); i > 0 {
 			f.reasons = append(f.reasons, c.Argv[i+1])
+		}
+		if i := slices.Index(c.Argv, "--replaced-by"); i > 0 {
+			f.replaced = append(f.replaced, c.Argv[i+1])
 		}
 		return shell.Result{}, nil
 	case strings.Contains(argv, "answer list"):

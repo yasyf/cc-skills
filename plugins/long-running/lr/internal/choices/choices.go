@@ -60,6 +60,7 @@ type Finding struct {
 type Check struct {
 	Drive    string
 	Asks     func(ctx context.Context) ([]board.OpenAsk, error)
+	Drawn    func(ctx context.Context) (map[int64]bool, error)
 	Desk     func() (string, error)
 	Main     func(ctx context.Context) ([]string, error)
 	Owners   func(lane string) ([]string, error)
@@ -99,19 +100,21 @@ func (c *Check) Pass(ctx context.Context) error {
 func (c *Check) Findings(ctx context.Context) []Finding {
 	now := c.Now()
 	asks, asked := c.Asks(ctx)
-	found := append(c.prose(ctx, now), c.parked(ctx, unsentCards(asks))...)
+	drawn, unread := c.Drawn(ctx)
+	carded := func(seq int64) bool { return unread != nil || drawn[seq] }
+	found := append(c.prose(ctx, now, carded), c.parked(ctx, unsentCards(asks))...)
 	desk, err := c.Desk()
 	if err != nil {
 		return found
 	}
-	found = append(found, c.undrawn(ctx, desk, now)...)
+	found = append(found, c.undrawn(ctx, desk, now, carded)...)
 	if asked == nil {
 		found = append(found, c.unsent(asks, desk, now)...)
 	}
 	return append(found, c.documented(ctx, desk, now)...)
 }
 
-func (c *Check) undrawn(ctx context.Context, desk string, now time.Time) []Finding {
+func (c *Check) undrawn(ctx context.Context, desk string, now time.Time, carded func(int64) bool) []Finding {
 	open, err := client.Open(ctx, c.Drive, kindAsk)
 	if err != nil {
 		return nil
@@ -119,7 +122,7 @@ func (c *Check) undrawn(ctx context.Context, desk string, now time.Time) []Findi
 	var found []Finding
 	for _, record := range open {
 		age := now.Sub(record.At)
-		if !cardRecord.MatchString(record.Text) || age < c.Patience || age > staleCard || !toBoardDesk(record.To) {
+		if !cardRecord.MatchString(record.Text) || age < c.Patience || age > staleCard || !toBoardDesk(record.To) || carded(record.Seq) {
 			continue
 		}
 		found = append(found, Finding{
@@ -173,7 +176,7 @@ func unsentCards(asks []board.OpenAsk) []string {
 	return unsent
 }
 
-func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
+func (c *Check) prose(ctx context.Context, now time.Time, carded func(int64) bool) []Finding {
 	recent, err := client.Tail(ctx, client.Query{Drive: c.Drive, Since: now.Add(-proseWindow), Kinds: proseKinds})
 	if err != nil {
 		return nil
@@ -191,7 +194,7 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 			if finding, routed := c.offBoard(record, "board "+strings.Join(side, ", ")+" is not his main board"); routed {
 				found = append(found, finding)
 			}
-		case untyped(record):
+		case untyped(record) && !carded(record.Seq):
 			found = append(found, Finding{
 				ID:   fmt.Sprintf("choice-untyped:%s:%s", record.Lane, record.At.Format(time.DateOnly)),
 				Kind: kindNote,
