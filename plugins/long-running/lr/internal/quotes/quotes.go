@@ -344,6 +344,7 @@ func (r *Reader) ForPR(ctx context.Context, program string, pr PR, alsoCited str
 		}
 		found = append(found, hits...)
 	}
+	found = append([]Answer{}, found...)
 	slices.SortStableFunc(found, func(a, b Answer) int { return cmp.Compare(b.UpdatedAt, a.UpdatedAt) })
 	seen := map[string]bool{}
 	return slices.DeleteFunc(found, func(answer Answer) bool {
