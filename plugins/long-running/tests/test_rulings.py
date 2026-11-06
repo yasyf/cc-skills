@@ -1910,6 +1910,22 @@ def test_an_incident_slice_carries_the_standing_rules_register_verbatim_and_a_pl
     assert "## Standing rules" not in planned
 
 
+def test_a_codex_lanes_slice_carries_the_standing_rules_and_a_grading_passs_required_slice_does_not(home: Path, package: Path, state: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package), diff=DIFF)
+    bars = "- A lane reads production from the right place, never from a developer machine."
+    shell.standing = [{"id": "c3230a2" + "0" * 33, "body": bars + "\n", "updated_at": STAMP}]
+    brief = state / "briefs" / "sweep-1" / "brief.md"
+    brief.parent.mkdir(parents=True)
+    brief.write_text("Sweep the callers.\nRegister slice: lane=sweep-1 step=2 codex=yes\n")
+
+    assert ran(capsys, shell, "slice", "--refresh", str(brief))[0] == 0
+    _, grading = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+
+    assert brief.read_text().startswith("Sweep the callers.\nRegister slice: lane=sweep-1 step=2 codex=yes\n")
+    assert f"## Standing rules\n{bars}\n" in brief.read_text()
+    assert "## Standing rules" not in grading and bars not in grading
+
+
 def test_refresh_fills_a_bare_slice_line_and_rewrites_only_a_stale_slice(home: Path, package: Path, state: Path, capsys) -> None:
     brief = state / "briefs" / "lane-a.md"
     brief.parent.mkdir()

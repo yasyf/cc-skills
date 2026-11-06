@@ -761,7 +761,7 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, carried, by string
 			}
 		}
 	}
-	if err := d.refreshSlice(ctx, key, order.Lane, order.Brief, order.sliceStep(text)); err != nil {
+	if err := d.refreshSlice(ctx, key, order.Lane, order.Brief, order.sliceStep(text), order.Model); err != nil {
 		return err
 	}
 	_, _, err = d.acceptLaunch(key, order.Lane, launchTarget{Model: order.Model, Effort: order.Effort, Brief: order.Brief, Role: order.Role, By: by, Posted: store.Stamp(posted)})
@@ -851,13 +851,19 @@ func (d *Desk) launchRefusal(ctx context.Context, key string, order Order) (stri
 	return "", nil
 }
 
-func (d *Desk) refreshSlice(ctx context.Context, key, lane, brief, step string) error {
+func (d *Desk) refreshSlice(ctx context.Context, key, lane, brief, step, model string) error {
 	raw, err := os.ReadFile(brief)
 	if err != nil {
 		return err
 	}
-	if !briefSlice.Match(raw) {
-		text := strings.TrimRight(string(raw), " \t\r\n") + "\n\n" + sliceLine + " lane=" + lane + " step=" + step + "\n"
+	text := string(raw)
+	if !briefSlice.MatchString(text) {
+		text = strings.TrimRight(text, " \t\r\n") + "\n\n" + sliceLine + " lane=" + lane + " step=" + step + "\n"
+	}
+	if agent, _, _ := modelRoute(model); agent != agentClaude {
+		text = uncodexSlice.ReplaceAllString(text, "$1 codex=yes")
+	}
+	if text != string(raw) {
 		if err := os.WriteFile(brief, []byte(text), 0o600); err != nil {
 			return err
 		}

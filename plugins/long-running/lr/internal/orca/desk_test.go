@@ -1070,6 +1070,26 @@ func TestALaunchIsRefusedWhileTheRunnerIsUnbound(t *testing.T) {
 	wantContains(t, w.wantEscalation("LAUNCH-FAILED "), "an unbound runner")
 }
 
+func TestACodexLaunchAsksItsSliceForTheStandingRulesAndAClaudeLaunchDoesNot(t *testing.T) {
+	for model, want := range map[string]string{"sol": "Register slice: lane=lane-a step=all codex=yes\n", "gpt-6.1-sol": "Register slice: lane=lane-a step=all codex=yes\n", "opus": "Register slice: lane=lane-a step=all\n"} {
+		t.Run(model, func(t *testing.T) {
+			w := newDeskWorld(t)
+			brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
+			w.lines()
+			w.line("orca-desk: launch " + testLane + " " + model + " high brief=" + brief)
+			w.lines()
+			w.noEscalation("LAUNCH-FAILED ")
+			raw, err := os.ReadFile(brief)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(string(raw), want) || strings.Count(string(raw), "codex=yes") > 1 {
+				t.Fatalf("brief:\n%s", raw)
+			}
+		})
+	}
+}
+
 func TestABriefWithNoSliceLaunchesWarnedWithStepAllWritten(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, "Do the thing.\nScale: no N\nccx: place=local why=mac-build\n")

@@ -99,7 +99,7 @@ lr handoff lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previ
 
 - Helper and relay subagents receive no register: `Explore`, `Plan`, `claude-code-guide`, `statusline-setup`, `output-style-setup`, `open-pr:pr-style-scout`, and every agent type from `cc-context`, `cc-review`, `cc-slack`, `cc-present` and `codex`.
 - An Orca Claude worker's first `UserPromptSubmit` delivers matches for its brief. All injections warn and fail open.
-- Codex briefs must paste the register body, because Codex workers have no Claude hooks.
+- Codex workers have no Claude hooks, so the desk writes `codex=yes` on the `Register slice:` line of every brief it launches on a non-Claude model, and the slice refresh pastes the register body under `## Standing rules`. Grading passes read `rulings.py slice --required --pr` and never get it.
 
 **Section contents.** The first section of the progress doc is `## Standing owner rules`, opening with one pointer line:
 
