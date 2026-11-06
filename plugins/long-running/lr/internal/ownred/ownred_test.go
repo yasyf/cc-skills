@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ownred"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -100,7 +101,7 @@ func github(t *testing.T, pulls map[int]map[string]any, stacked bool) *shelltest
 
 func lines(t *testing.T, fake *shelltest.Fake, m ownred.Merge) []string {
 	t.Helper()
-	got, err := ownred.Guard{Runner: fake}.Lines(context.Background(), m)
+	got, err := ownred.Guard{Runner: fake, CCX: ccx.CLI{Runner: fake}}.Lines(context.Background(), m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,10 +211,9 @@ func TestACheckReadsOnlyItsOwnWorkflowOnTheBase(t *testing.T) {
 }
 
 const (
-	escapeUsage = "      --allow-escape-sequences   Allow printing terminal escape sequences\n"
-	inherited   = "tests/test_fail_open.py::test_every_refusal[go_posts_parse - kept]"
-	introduced  = "tests/test_fail_open.py::test_every_refusal[go_posts_parse - new]"
-	other       = "tests/test_reply.py::test_reply"
+	inherited  = "tests/test_fail_open.py::test_every_refusal[go_posts_parse - kept]"
+	introduced = "tests/test_fail_open.py::test_every_refusal[go_posts_parse - new]"
+	other      = "tests/test_reply.py::test_reply"
 )
 
 func jobLink(id int) string {
@@ -224,98 +224,66 @@ func shard(name, conclusion string, id int) map[string]any {
 	return map[string]any{"name": name, "status": "COMPLETED", "conclusion": conclusion, "detailsUrl": jobLink(id)}
 }
 
-func pytestLog(tests ...string) string {
-	var log strings.Builder
-	log.WriteString("2026-11-06T19:36:17.6245033Z =========================== short test summary info ============================\n")
-	for _, test := range tests {
-		fmt.Fprintf(&log, "2026-11-06T19:36:17.6246128Z FAILED %s - AssertionError: assert {\n2026-11-06T19:36:17.6247380Z   Extra items in the left set:\n", test)
-	}
-	fmt.Fprintf(&log, "2026-11-06T19:36:17.6248090Z %d failed, 320 passed in 20.36s\n2026-11-06T19:36:17.6702454Z ##[error]Process completed with exit code 1.\n", len(tests))
-	return log.String()
-}
-
-func withLogs(fake *shelltest.Fake, usage string, read []string, logs map[int]string) {
-	fake.Reply(usage, "gh", "api", "--help")
-	for id, log := range logs {
-		fake.Reply(log, slices.Concat(read, []string{fmt.Sprintf("repos/acme/app/actions/jobs/%d/logs", id)})...)
+func scriptFailedTests(fake *shelltest.Fake, tests map[int][]string) {
+	for id, failed := range tests {
+		fake.Reply(strings.Join(failed, "\n")+"\n", "ccx", "vcs", "job-log", strconv.Itoa(id), "--repo", "acme/app", "--failed-tests")
 	}
 }
 
 func TestARedIsItsOwnOnlyWhenATestItFailsPassesOnTheBase(t *testing.T) {
 	const pr, base1, base12 = 11, 21, 32
 	for name, c := range map[string]struct {
-		pr   map[string]any
-		base []map[string]any
-		logs map[int]string
-		want string
+		pr     map[string]any
+		base   []map[string]any
+		failed map[int][]string
+		want   string
 	}{
 		"a test red on the base in another shard": {
 			shard("pytest 1/12", "FAILURE", pr),
 			[]map[string]any{shard("pytest 1/12", "SUCCESS", base1), shard("pytest 12/12", "FAILURE", base12)},
-			map[int]string{pr: pytestLog(inherited), base12: pytestLog(inherited)},
+			map[int][]string{pr: {inherited}, base12: {inherited}},
 			"INHERITED #7 pytest 1/12",
 		},
 		"a test red only on the PR": {
 			shard("pytest 1/12", "FAILURE", pr),
 			[]map[string]any{shard("pytest 1/12", "SUCCESS", base1), shard("pytest 12/12", "FAILURE", base12)},
-			map[int]string{pr: pytestLog(introduced), base12: pytestLog(inherited)},
+			map[int][]string{pr: {introduced}, base12: {inherited}},
 			"OWN-RED #7 pytest 1/12 " + jobLink(pr) + " " + introduced,
 		},
 		"a test red only on the PR in a shard red on the base for another": {
 			shard("pytest 1/12", "FAILURE", pr),
 			[]map[string]any{shard("pytest 1/12", "FAILURE", base1)},
-			map[int]string{pr: pytestLog(introduced), base1: pytestLog(other)},
+			map[int][]string{pr: {introduced}, base1: {other}},
 			"OWN-RED #7 pytest 1/12 " + jobLink(pr) + " " + introduced,
 		},
 		"an inherited test beside one only the PR fails": {
 			shard("pytest 1/12", "FAILURE", pr),
 			[]map[string]any{shard("pytest 1/12", "SUCCESS", base1), shard("pytest 12/12", "FAILURE", base12)},
-			map[int]string{pr: pytestLog(inherited, introduced), base12: pytestLog(inherited)},
+			map[int][]string{pr: {inherited, introduced}, base12: {inherited}},
 			"OWN-RED #7 pytest 1/12 " + jobLink(pr) + " " + introduced,
 		},
-		"a FAILED line printed before the summary": {
-			shard("pytest 1/12", "FAILURE", pr),
-			[]map[string]any{shard("pytest 12/12", "FAILURE", base12)},
-			map[int]string{pr: "2026-11-06T19:36:17.0000000Z FAILED " + introduced + "\n" + pytestLog(inherited), base12: pytestLog(inherited)},
-			"INHERITED #7 pytest 1/12",
-		},
-		"a colored summary": {
+		"a PR job that names no test, its shard green on the base": {
 			shard("pytest 1/12", "FAILURE", pr),
 			[]map[string]any{shard("pytest 1/12", "SUCCESS", base1), shard("pytest 12/12", "FAILURE", base12)},
-			map[int]string{pr: strings.NewReplacer("FAILED", "\x1b[31mFAILED\x1b[0m", "1 failed", "\x1b[31m1 failed\x1b[0m").Replace(pytestLog(inherited)), base12: pytestLog(inherited)},
-			"INHERITED #7 pytest 1/12",
-		},
-		"a summary the job printed before something else failed it": {
-			shard("controls 1/3", "FAILURE", pr),
-			[]map[string]any{shard("controls 1/3", "SUCCESS", base1), shard("controls 2/3", "FAILURE", base12)},
-			map[int]string{
-				pr:     strings.Replace(pytestLog(inherited), "##[error]", "control reader-validation failed\n2026-11-06T19:36:18.0000000Z ##[error]", 1),
-				base12: pytestLog(inherited),
-			},
-			"OWN-RED #7 controls 1/3 " + jobLink(pr),
-		},
-		"a PR log that names no test, its shard green on the base": {
-			shard("pytest 1/12", "FAILURE", pr),
-			[]map[string]any{shard("pytest 1/12", "SUCCESS", base1), shard("pytest 12/12", "FAILURE", base12)},
-			map[int]string{pr: "2026-11-06T19:36:17.0000000Z ##[error]The operation was canceled.\n", base12: pytestLog(inherited)},
+			map[int][]string{pr: nil, base12: {inherited}},
 			"OWN-RED #7 pytest 1/12 " + jobLink(pr),
 		},
-		"a PR log that names no test, its shard red on the base": {
+		"a PR job that names no test, its shard red on the base": {
 			shard("pytest 1/12", "FAILURE", pr),
 			[]map[string]any{shard("pytest 1/12", "FAILURE", base1)},
-			map[int]string{pr: "", base1: pytestLog(inherited)},
+			map[int][]string{pr: nil, base1: {inherited}},
 			"INHERITED #7 pytest 1/12",
 		},
-		"a base log that names no test, its shard red on the base": {
+		"a base job that names no test, its shard red on the base": {
 			shard("pytest 1/12", "FAILURE", pr),
 			[]map[string]any{shard("pytest 1/12", "FAILURE", base1)},
-			map[int]string{pr: pytestLog(introduced), base1: ""},
+			map[int][]string{pr: {introduced}, base1: nil},
 			"INHERITED #7 pytest 1/12",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fake := github(t, map[int]map[string]any{7: withHistory(pull(c.pr), ancestor(c.base...))}, false)
-			withLogs(fake, escapeUsage, []string{"gh", "api", "--allow-escape-sequences"}, c.logs)
+			scriptFailedTests(fake, c.failed)
 			if got := lines(t, fake, ownred.Merge{Selector: "7"}); !slices.Equal(got, []string{c.want}) {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
@@ -323,25 +291,7 @@ func TestARedIsItsOwnOnlyWhenATestItFailsPassesOnTheBase(t *testing.T) {
 	}
 }
 
-func TestALogReadsOnAGhWithAndWithoutTheEscapeFlag(t *testing.T) {
-	for name, gh := range map[string]struct {
-		usage string
-		read  []string
-	}{
-		"gh 2.97 and later": {escapeUsage, []string{"gh", "api", "--allow-escape-sequences"}},
-		"gh 2.79":           {"      --paginate   Make additional HTTP requests to fetch all pages of results\n", []string{"gh", "api"}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			fake := github(t, map[int]map[string]any{7: withHistory(pull(shard("pytest 1/12", "FAILURE", 11)), ancestor(shard("pytest 1/12", "SUCCESS", 21), shard("pytest 12/12", "FAILURE", 32)))}, false)
-			withLogs(fake, gh.usage, gh.read, map[int]string{11: pytestLog(inherited), 32: pytestLog(inherited)})
-			if got, want := lines(t, fake, ownred.Merge{Selector: "7"}), []string{"INHERITED #7 pytest 1/12"}; !slices.Equal(got, want) {
-				t.Fatalf("got %q, want %q", got, want)
-			}
-		})
-	}
-}
-
-func TestALogOfManyFailingTestsTakesTheSameCallsAsALogOfOne(t *testing.T) {
+func TestManyFailingTestsTakeTheSameCallsAsOne(t *testing.T) {
 	calls := map[int]int{}
 	for _, n := range []int{1, scaletest.N()} {
 		tests := make([]string, 0, n)
@@ -349,7 +299,7 @@ func TestALogOfManyFailingTestsTakesTheSameCallsAsALogOfOne(t *testing.T) {
 			tests = append(tests, fmt.Sprintf("tests/test_scale.py::test_%d", i))
 		}
 		fake := github(t, map[int]map[string]any{7: withHistory(pull(shard("pytest 1/12", "FAILURE", 11)), ancestor(shard("pytest 12/12", "FAILURE", 32)))}, false)
-		withLogs(fake, escapeUsage, []string{"gh", "api", "--allow-escape-sequences"}, map[int]string{11: pytestLog(tests...), 32: pytestLog(tests...)})
+		scriptFailedTests(fake, map[int][]string{11: tests, 32: tests})
 		if got, want := lines(t, fake, ownred.Merge{Selector: "7"}), []string{"INHERITED #7 pytest 1/12"}; !slices.Equal(got, want) {
 			t.Fatalf("n=%d: got %q, want %q", n, got, want)
 		}
@@ -645,7 +595,7 @@ func (r baseReadFails) Run(ctx context.Context, c shell.Command) (shell.Result, 
 
 func TestABaseItCannotReadSaysSoRatherThanRefusing(t *testing.T) {
 	runner := baseReadFails{github(t, map[int]map[string]any{7: redOnGreenBase()}, false)}
-	got, err := ownred.Guard{Runner: runner}.Lines(context.Background(), ownred.Merge{Selector: "7"})
+	got, err := ownred.Guard{Runner: runner, CCX: ccx.CLI{Runner: runner}}.Lines(context.Background(), ownred.Merge{Selector: "7"})
 	if err != nil {
 		t.Fatal(err)
 	}
