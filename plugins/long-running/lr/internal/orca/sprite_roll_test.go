@@ -3,7 +3,9 @@ package orca
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -15,13 +17,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
 	rollRun   = "run_roll"
-	rollTree  = "/home/sprite/monorepo::"
+	rollRoot  = "/home/sprite/monorepo"
+	rollTree  = rollRoot + "::"
 	rollCCX   = "0.91.68"
 	rollPack  = "0.7.1199"
 	rollTools = `[{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"` + rollCCX + `"},{"kind":"plugin","name":"long-running@skills","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"` + rollPack + `"}]`
@@ -43,6 +49,11 @@ type rollWorld struct {
 	graders   []string
 	skip      []string
 	argv      map[string][]string
+
+	drive     drive.Entry
+	config    map[string]json.RawMessage
+	carried   map[string][]shell.Command
+	uncarried map[string]shell.Result
 }
 
 func newRollWorld(t *testing.T) *rollWorld {
@@ -52,7 +63,11 @@ func newRollWorld(t *testing.T) *rollWorld {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	w := &rollWorld{t: t, store: s, replies: map[string]shell.Result{}, first: map[string]shell.Result{}, argv: map[string][]string{}}
+	w := &rollWorld{t: t, store: s, replies: map[string]shell.Result{}, first: map[string]shell.Result{}, argv: map[string][]string{}, carried: map[string][]shell.Command{}, uncarried: map[string]shell.Result{}}
+	w.drive = drive.Entry{Drive: "brook", Repo: "Forge-AI/monorepo", StateDir: "/Users/me/.claude/scratch/brook", Sessions: []string{"root-session"}}
+	if err := json.Unmarshal([]byte(`{"repo":"Forge-AI/monorepo","drive":"brook","checkout":"/Users/me/worktrees/runner","author":"drive-bot","label":"brook","movers":["lanes"],"orca_run":"`+rollRun+`"}`), &w.config); err != nil {
+		t.Fatal(err)
+	}
 	f := &workerFixture{t: t}
 	f.write(filepath.Join(root, "plugin", "bin", "lr.binrun"), lrPin("linux-x86_64"), 0o700)
 	w.env = map[string]string{"WORKER_CCI_URL": testCCIURL, "WORKER_CCI_SHA256": testCCISHA, "BINRUN_PLUGIN_ROOT": filepath.Join(root, "plugin"), "WORKER_TOOLS": rollTools}
@@ -70,11 +85,11 @@ func newRollWorld(t *testing.T) *rollWorld {
 
 func (w *rollWorld) Sprites() (map[SpriteKey]Sprite, error) {
 	return map[SpriteKey]Sprite{
-		{rollTree + "done", "term_done"}: {Workspace: "pool-done"},
-		{rollTree + "a", "term_a"}:       {Workspace: "pool-a"},
-		{rollTree + "a", "term_a2"}:      {Workspace: "pool-a"},
-		{rollTree + "b", "term_b"}:       {Workspace: "pool-b"},
-		{rollTree + "c", "term_c"}:       {Workspace: "pool-c"},
+		{rollTree + "done", "term_done"}: {Workspace: "pool-done", Root: rollRoot},
+		{rollTree + "a", "term_a"}:       {Workspace: "pool-a", Root: rollRoot},
+		{rollTree + "a", "term_a2"}:      {Workspace: "pool-a", Root: rollRoot},
+		{rollTree + "b", "term_b"}:       {Workspace: "pool-b", Root: rollRoot},
+		{rollTree + "c", "term_c"}:       {Workspace: "pool-c", Root: rollRoot},
 	}, nil
 }
 
@@ -87,6 +102,13 @@ func (w *rollWorld) Workers(_ context.Context, run string) ([]Worker, error) {
 
 func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error) {
 	box := c.Argv[3]
+	if slices.Contains(c.Argv, writeDriveEntry) || slices.Contains(c.Argv, writeDriveConfig) {
+		w.carried[box] = append(w.carried[box], c)
+		if failed, scripted := w.uncarried[box]; scripted {
+			return failed, &shell.ExitError{Argv: c.Argv, Code: failed.Code, Stderr: failed.Stderr}
+		}
+		return shell.Result{}, nil
+	}
 	w.boxes = append(w.boxes, box)
 	w.argv[box] = c.Argv
 	if want := (spritePins{}).installArgv(box, nil); !slices.Equal(c.Argv[:10], want[:10]) || !slices.Contains(c.Argv[len(c.Argv)-2:], "--") {
@@ -110,7 +132,7 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 func (w *rollWorld) roll(probe string) string {
 	w.t.Helper()
 	w.out.Reset()
-	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Host: w.host, Graders: w.graders, Skip: w.skip, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
+	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Drive: &w.drive, DriveConfig: w.config, Host: w.host, Graders: w.graders, Skip: w.skip, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
 	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe, w.probeOnly)
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -149,6 +171,86 @@ func TestARollInstallsOnTheDeskHostThoughItHostsNoWorker(t *testing.T) {
 	}
 	if census := w.census(); census["desk-host"]["long-running@skills"] != rollPack {
 		t.Fatal(census)
+	}
+}
+
+func TestARollCarriesTheDriveOntoASpriteLaunchedWithoutItsLrJSONSoItsHandoffReadsTheConfigThoughTheMacHomeThereIsARealEmptyDirectory(t *testing.T) {
+	w := newRollWorld(t)
+	w.host = "desk-host"
+	w.graders = []string{"fleet-1"}
+	mac := t.TempDir()
+	w.drive.StateDir = filepath.Join(mac, ".claude", "scratch", "brook")
+	checkout, err := json.Marshal(filepath.Join(mac, "worktrees", "runner"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.config["checkout"] = checkout
+	box := t.TempDir()
+	clone := filepath.Join(box, "monorepo")
+	if out, err := exec.Command("git", "init", "-q", clone).CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	onSprite := func(carry shell.Command) {
+		t.Helper()
+		args := slices.Clone(carry.Argv[9:])
+		if args[0] == rollRoot {
+			args[0] = clone
+		}
+		run := exec.Command("sh", slices.Concat([]string{"-c", carry.Argv[7], "sh"}, args)...)
+		run.Env = append(os.Environ(), "HOME="+box, "CLAUDE_CONFIG_DIR=")
+		run.Stdin = strings.NewReader(carry.Stdin)
+		if out, err := run.CombinedOutput(); err != nil {
+			t.Fatal(string(out), err)
+		}
+	}
+	hookConfig := func() *app.App {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(box, ".claude", "long-running", "drives", "brook.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var entry drive.Entry
+		if err := json.Unmarshal(raw, &entry); err != nil || !entry.OnSprite() {
+			t.Fatal(entry, err)
+		}
+		return &app.App{ConfigPath: filepath.Join(entry.StateDir, "lr.json")}
+	}
+	launched, err := driveEntryCarry("pool-a", rollRoot, &w.drive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onSprite(launched)
+	if _, _, err := lanes.Loaded(hookConfig()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a Sprite whose launch carried no lr.json read %v", err)
+	}
+
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+
+	if carried := slices.Sorted(maps.Keys(w.carried)); !slices.Equal(carried, []string{"pool-a", "pool-b", "pool-c"}) {
+		t.Fatal("the roll carried the drive to", carried, "instead of each live worker's Sprite alone")
+	}
+	for _, carry := range w.carried["pool-a"] {
+		onSprite(carry)
+	}
+	cfg, _, err := lanes.Loaded(hookConfig())
+	if err != nil || cfg.Drive != "brook" || cfg.Checkout != rollRoot || cfg.OrcaRun != rollRun {
+		t.Fatalf("lr lanes handoff on the Sprite loaded %+v: %v", cfg, err)
+	}
+	if left, err := os.ReadDir(mac); err != nil || len(left) != 0 {
+		t.Fatal("the Sprite's lr reached into the Mac's home", left, err)
+	}
+}
+
+func TestARollWhoseDriveDoesNotLandOnASpriteStillInstallsThereAndNamesIt(t *testing.T) {
+	w := newRollWorld(t)
+	w.uncarried["pool-b"] = shell.Result{Code: 1, Stderr: "mv: read-only file system\n"}
+	if refused := w.roll(""); refused != "lr sprites roll: drive brook's entry and lr.json did not reach pool-b, so lr there, lr lanes handoff included, reads an old copy or none until a roll carries them" {
+		t.Fatal(refused)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c"}) || !strings.Contains(w.out.String(), "lr sprites roll: pool-b: drive brook's entry and lr.json did not land: mv: read-only file system\n") {
+		t.Fatal(w.boxes, w.out.String())
 	}
 }
 
