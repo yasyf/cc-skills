@@ -123,7 +123,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 }
 
 func OffersApproval(row store.ReviewRow) bool {
-	return !row.Tapped && row.State != prrow.StateExempt && prrow.TapRefusal(row) == ""
+	return !row.Tapped && row.State != prrow.StateExempt && prrow.TapRefusal(row) == "" && prrow.WordsWait(row) == ""
 }
 
 func drawnSignature(card SlackCard) string {

@@ -80,6 +80,7 @@ const (
 	oldTreeAttr     = "old-tree"
 	nextTreeAttr    = "next-tree"
 	carriedByAttr   = "carried_by"
+	readAtAttr      = "read_at"
 	tapFromAttr     = "tap_from"
 	tapReturnedAttr = "tap_returned"
 	notRecorded     = "not recorded"
@@ -419,11 +420,13 @@ func (f Fold) follow(t *store.Tx, rows map[int]store.ReviewRow, record client.Re
 			}
 			row = pushed
 		case "edited":
-			body, carried := bodyOf(record)
-			if !carried {
+			if !record.At.After(wordsAt(row)) {
 				continue
 			}
-			ApplyBody(&row, body)
+			if body, carried := bodyOf(record); carried {
+				ApplyBody(&row, body)
+			}
+			row = owesWords(row, record.At)
 		case stateMerged:
 			row = landed(row, record.At)
 		case StateClosed:
@@ -514,6 +517,7 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, outside map[int]s
 	}
 	for _, number := range bus.HeldBy(record, f.Repo) {
 		row, known := rows[number]
+		before := row
 		var err error
 		switch string(record.Kind) {
 		case "opened":
@@ -564,6 +568,9 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, outside map[int]s
 		}
 		if err != nil {
 			return err
+		}
+		if changesWords(record, before, row) {
+			row = owesWords(row, record.At)
 		}
 		row.LastRecord = record.Seq
 		rows[number] = row
@@ -749,7 +756,6 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 			return row, err
 		}
 	}
-	row.ReadHead = head
 	if !sameHead(row.Head, head) {
 		seen, err := t.HeadSeen(f.Repo, row.Number, head, factSeen)
 		if err != nil {
@@ -774,9 +780,12 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 	} else {
 		row.Head = longer(row.Head, head)
 	}
-	row.Title, row.Base, row.Branch = record.Text, attrs["base"], attrs["branch"]
-	if body, carried := bodyOf(record); carried {
-		ApplyBody(&row, body)
+	row.Base, row.Branch = attrs["base"], attrs["branch"]
+	if readAt, _ := time.Parse(time.RFC3339Nano, attrs[readAtAttr]); !readAt.Before(wordsAt(row)) {
+		row.Title, row.ReadHead, row.WordsAt = record.Text, head, attrs[readAtAttr]
+		if body, carried := bodyOf(record); carried {
+			ApplyBody(&row, body)
+		}
 	}
 	landedAt, unstamped := store.Parse(row.LandedAt)
 	switch {
@@ -794,6 +803,27 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 		row = Decide(row)
 	}
 	return row, nil
+}
+
+func changesWords(record client.Record, before, after store.ReviewRow) bool {
+	switch string(record.Kind) {
+	case "opened", "head", "lr.head":
+		return record.Fields.Attrs[deltaAttr] == gates.DeltaScope || after.Title != before.Title || after.Description != before.Description
+	}
+	return false
+}
+
+func owesWords(row store.ReviewRow, at time.Time) store.ReviewRow {
+	if !at.After(wordsAt(row)) {
+		return row
+	}
+	row.WordsAt, row.ReadHead = at.UTC().Format(time.RFC3339Nano), ""
+	return row
+}
+
+func wordsAt(row store.ReviewRow) time.Time {
+	at, _ := time.Parse(time.RFC3339Nano, row.WordsAt)
+	return at
 }
 
 func landed(row store.ReviewRow, at time.Time) store.ReviewRow {
@@ -1000,7 +1030,9 @@ func orElse(value, otherwise string) string {
 }
 
 func valuesOf(attrs map[string]string) string {
-	encoded, err := json.Marshal(attrs)
+	values := maps.Clone(attrs)
+	delete(values, readAtAttr)
+	encoded, err := json.Marshal(values)
 	if err != nil {
 		panic(err)
 	}
@@ -1046,11 +1078,12 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 			failed = append(failed, err)
 			continue
 		}
-		if facts[factValues] == valuesOf(attrs) && row.Head == pr.Head && (row.State != StateLanded || attrs["state"] != StateOpen) {
+		wordsRead := sameHead(row.ReadHead, pr.Head) && row.Title == titleOr(pr)
+		if facts[factValues] == valuesOf(attrs) && row.Head == pr.Head && wordsRead && (row.State != StateLanded || attrs["state"] != StateOpen) {
 			continue
 		}
 		var body json.RawMessage
-		if attrs["body"] != "" && facts[factBody] != attrs["body"] {
+		if attrs["body"] != "" && (facts[factBody] != attrs["body"] || !wordsRead) {
 			if body, err = BodyRecord(pr.Body); err != nil {
 				failed = append(failed, err)
 				continue
@@ -1114,7 +1147,7 @@ func readAttrs(repo string, pr machine.Facts) map[string]string {
 		mergeable = machine.MergeableBehind
 	}
 	attrs := map[string]string{
-		"record": readRecord, "repo": repo, "head": pr.Head, "state": state, "base": pr.Base, "branch": pr.Branch,
+		"record": readRecord, "repo": repo, "head": pr.Head, "state": state, "base": pr.Base, "branch": pr.Branch, readAtAttr: pr.ReadAt.UTC().Format(time.RFC3339Nano),
 		"ci": ciWords(pr.CI), "approvers": orElse(strings.Join(pr.Approvers, ", "), None), "mergeable": string(mergeable), "queue": string(pr.Queue),
 	}
 	if len(pr.Failing) > 0 {

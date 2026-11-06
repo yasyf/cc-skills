@@ -42,6 +42,8 @@ func (f Fanout) untappable(ctx context.Context, r Reply) error {
 			refused = append(refused, pr+" is merged")
 		case at >= 0 && rows[at].State == prrow.StateClosed:
 			refused = append(refused, pr+" is closed")
+		case at >= 0 && prrow.WordsWait(rows[at]) != "":
+			refused = append(refused, pr+" "+prrow.WordsWait(rows[at])+", so its card would print a title or body the PR has replaced; send it again once that read lands")
 		case at < 0:
 			refused = append(refused, pr+" "+f.unrowed(ctx, repo, numbers[n], cfg.Repo, cfg.Author))
 		}

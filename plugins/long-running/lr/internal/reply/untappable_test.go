@@ -46,4 +46,9 @@ func TestEveryPRInPrsMustDrawHisApproveOrNothingPosts(t *testing.T) {
 	if err := f.untappable(context.Background(), Reply{PRs: []string{landPR}}); err == nil || !strings.Contains(err.Error(), landPR+" is merged") {
 		t.Fatalf("refusal = %v, want the landed row's PR named merged", err)
 	}
+
+	ledgerRow(t, f, store.ReviewRow{Title: "Relay fix", State: prrow.StateOpen, ReadHead: "1111111111111111111111111111111111111111"})
+	if err := f.untappable(context.Background(), Reply{PRs: []string{landPR}}); err == nil || !strings.Contains(err.Error(), landPR+" waits on a read of its GitHub title and body at e718a74") {
+		t.Fatalf("refusal = %v, want the PR whose title and body were read at an older head refused, naming the head it waits on", err)
+	}
 }
