@@ -210,6 +210,9 @@ func TaplessClassAt(c Claim, r Read) bool {
 	if port, claimed := PortAt(c, r.Records); claimed && len(PortRefusals(claimFacts(port, r))) == 0 {
 		word = OldTreePortClass
 	}
+	if FlakeAt(c, r.Records) {
+		word = FlakeFixClass
+	}
 	_, finderRefusal := finderCite(c, r)
 	_, _, refusals := fidelityCite(c, r, taplessPhrases(r.Exempt), word)
 	return finderRefusal == "" && len(refusals) == 0
