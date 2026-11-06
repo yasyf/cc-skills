@@ -236,7 +236,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, lrVer
 			}, Pull: func(ctx context.Context, target, why string) error {
 				_, err := cards.Pull(ctx, lanes.Self, target, why, io.Discard)
 				return err
-			}}.Pass
+			}, Writing: cards.HisWord}.Pass
 			checks = append(checks,
 				(&background{name: "choices", every: choiceEvery, run: choices.New(ctx, a, entry, env.Claude, s).Pass, store: s, post: post, log: a.Log}).Check,
 				(&background{name: "step-owners", every: stepOwnersEvery, run: steps.Pass, store: s, post: post, log: a.Log, forgiven: 1}).Check,

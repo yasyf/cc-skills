@@ -69,6 +69,36 @@ func TestALanesWithdrawWaitsWhileHeWritesInTheCardsSlackThread(t *testing.T) {
 	}
 }
 
+func TestAPRTapWithdrawWaitsWhileHeWritesInItsTapCardsThread(t *testing.T) {
+	for name, c := range map[string]struct {
+		thread  []map[string]any
+		refused bool
+	}{
+		"his reply a minute ago":       {thread: []map[string]any{{"ts": slackTS(time.Minute), "from_user": true}}, refused: true},
+		"his reply eleven minutes ago": {thread: []map[string]any{{"ts": slackTS(11 * time.Minute), "from_user": true}}},
+		"no word from him":             {},
+	} {
+		f, on, s := tapCards(t)
+		card := tapCardID(readyRow(nil))
+		on.posts = map[string]string{card: cardPost}
+		on.threads = map[string]string{cardPost: cardThread(t, c.thread...)}
+		err := f.LanePull(context.Background(), "owner-relay", "#45583", "", why, &bytes.Buffer{})
+		waiting, readErr := waitingRows(s, repo, []int{number})
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if c.refused {
+			if err == nil || !strings.Contains(err.Error(), "replied in "+card+"'s Slack thread") || len(waiting) != 1 || len(on.removed) != 0 {
+				t.Errorf("%s: err %v, waiting %v, removed %v, want it refused with the tap still on his list", name, err, waiting, on.removed)
+			}
+			continue
+		}
+		if err != nil || len(waiting) != 0 {
+			t.Errorf("%s: err %v, waiting %v, want the tap withdrawn", name, err, waiting)
+		}
+	}
+}
+
 func TestAWithdrawnDuplicateLinksTheCardThatStays(t *testing.T) {
 	on := &cardShell{cards: []string{"card-dup", "card-kept"}, posts: map[string]string{"card-kept": keptPost}}
 	f := newCards(t, on, nil)
