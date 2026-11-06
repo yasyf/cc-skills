@@ -4812,15 +4812,69 @@ func TestAnUnreadRelayToAMissingTerminalIsNoBlockerAndNoWake(t *testing.T) {
 	}
 }
 
-func TestAStandingDesksNamedPRsNeverMakeItADuplicateButAnotherLanesBriefStillIs(t *testing.T) {
-	w := newDeskWorld(t)
-	const holder = "fork-share-grant-2"
+const pushed49387 = "abc1234def5678"
+
+func (w *deskWorld) holding(holder, branch string, ahead ...string) {
+	w.t.Helper()
 	if _, _, err := w.desk.acceptLaunch("R1", holder, launchTarget{Model: "opus", Effort: "high", Brief: w.brief(holder, testBrief)}); err != nil {
-		t.Fatal(err)
+		w.t.Fatal(err)
 	}
 	w.live(holder, "ctx_f", "term_f")
 	w.write(w.desk.receiptPath(holder, ".worktree"), w.home+"\n")
-	w.add(object{"lane": holder, "kind": "head", "text": "#49387 abc", "refs": object{"prs": []int{49387}}})
+	w.gitReply = func(argv []string) (shell.Result, error) {
+		if argv[3] == "branch" {
+			return shell.Result{Stdout: branch + "\n"}, nil
+		}
+		return shell.Result{Stdout: strings.Join(ahead, "\n") + "\n"}, nil
+	}
+}
+
+func (w *deskWorld) pushed49387(holder string) {
+	w.add(object{"lane": holder, "kind": "head", "text": "#49387 abc1234", "refs": object{"prs": []int{49387}}, "fields": object{"attrs": object{"head:49387": "0123456.." + pushed49387}}})
+}
+
+func TestABriefIsADuplicateOnlyOfTheLaneWhoseWorktreeHoldsAPRItsOwnLinesName(t *testing.T) {
+	const convertHead = "6e49f7517ad226cb735813ccf85b85ad5d26390d"
+	const otherWork = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"
+	const sweepBrief = "- 96bf976 Tap: #49923, sand: the reader opens a chat an older build wrote\n" +
+		"slice-hash: c1fbf9f2044b\n" +
+		"ccx: role=fix place=remote incident=none\n" +
+		"Find the cause of the upload.rs flake and fix it.\n" +
+		"Owner 2:03 AM Nov 4, verbatim: \"also he was never on next build so this doesnt mnake any fucking sense\". #49923 and the \"no such column: rev\" error are a next-tree bug found with Tevon's chat (408416).\n"
+	const fixBrief = "ccx: role=fix place=remote incident=none\nFixes #49923's review finding.\n"
+	for name, tt := range map[string]struct {
+		brief  string
+		branch string
+		ahead  []string
+		held   bool
+	}{
+		"red-sweep-8, with the worktree on another branch":           {sweepBrief, "old-chat-any-size-kill", []string{otherWork}, false},
+		"red-sweep-8, with the worktree on the PR's branch":          {sweepBrief, "old-chat-follows", []string{convertHead}, false},
+		"a fix for the PR, with the worktree on another branch":      {fixBrief, "old-chat-any-size-kill", []string{otherWork}, false},
+		"a fix for the PR, with the worktree on the PR's branch":     {fixBrief, "old-chat-follows", []string{convertHead}, true},
+		"a fix for the PR, with the worktree stacked on that branch": {fixBrief, "old-chat-follows-next", []string{otherWork, convertHead}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.desk.Config.LandingRepo = "Forge-AI/monorepo"
+			w.holding("old-chat-convert-5", tt.branch, tt.ahead...)
+			w.add(object{"lane": "old-chat-convert-5", "kind": "head", "text": "HEAD #49923 6e49f75: #49923 at 6e49f7517", "refs": object{"prs": []string{"Forge-AI/monorepo#49923"}}, "fields": object{"attrs": object{"head:Forge-AI/monorepo#49923": convertHead}}})
+			found, err := w.desk.duplicateHolder(context.Background(), "red-sweep-8", testBrief+tt.brief)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (found != "") != tt.held {
+				t.Fatalf("holder %q, want held=%v", found, tt.held)
+			}
+		})
+	}
+}
+
+func TestAStandingDesksNamedPRsNeverMakeItADuplicateButAnotherLanesBriefStillIs(t *testing.T) {
+	w := newDeskWorld(t)
+	const holder = "fork-share-grant-2"
+	w.holding(holder, "fork-share", pushed49387)
+	w.pushed49387(holder)
 	for brief, held := range map[string]bool{
 		"Lands #49387.\n": true,
 		"Standing: lands every green PR in the queue\nWatches #49387 among 33 others.\n": false,
@@ -4838,12 +4892,8 @@ func TestAStandingDesksNamedPRsNeverMakeItADuplicateButAnotherLanesBriefStillIs(
 func TestASearchLaneNamingAPRIsNoDuplicateButAFixLaneNamingItStillIs(t *testing.T) {
 	w := newDeskWorld(t)
 	const holder = "dd-331844288-fix"
-	if _, _, err := w.desk.acceptLaunch("R1", holder, launchTarget{Model: "opus", Effort: "high", Brief: w.brief(holder, testBrief)}); err != nil {
-		t.Fatal(err)
-	}
-	w.live(holder, "ctx_f", "term_f")
-	w.write(w.desk.receiptPath(holder, ".worktree"), w.home+"\n")
-	w.add(object{"lane": holder, "kind": "head", "text": "#49387 abc", "refs": object{"prs": []int{49387}}})
+	w.holding(holder, "dd-331844288-fix", pushed49387)
+	w.pushed49387(holder)
 	for name, tt := range map[string]struct {
 		lane, brief string
 		held        bool
