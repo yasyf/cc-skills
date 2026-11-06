@@ -315,6 +315,9 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 		}
 	}
 	if !slices.Contains(env.Config.Movers, config.MoverLanding) {
+		if slices.Contains(env.Config.Movers, moverLanes) {
+			deps.Checks = append(deps.Checks, (&background{name: "landing-silent", every: TickEvery, run: landing.Silence{Store: s, Drive: env.Config.Drive, Now: a.Now}.Check, store: s, post: post, log: a.Log}).Check)
+		}
 		return deps, nil
 	}
 	restacker, err := landing.NewRemote(a, filepath.Join(env.State, runnerFile), lanes.Self, "")

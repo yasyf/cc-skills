@@ -226,6 +226,9 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 			}
 		}
 		d.Log.Info("a landing pass ended", "prs", len(snapshot), "enqueued", report.Enqueued, "read", read.Sub(began).String(), "sweep", swept.Sub(read).String(), "admit", gated.Sub(swept).String(), "act", acted.Sub(gated).String(), "total", d.Clock().Sub(began).String())
+		if err := landing.SayPassEnded(ctx, drive, len(snapshot), report.Enqueued, d.Clock().Sub(began)); err != nil {
+			d.Log.Warn("a landing pass's end went unposted", "err", err)
+		}
 	}
 	if slices.Contains(d.Movers, "grading") {
 		items, err := s.OpenItems("", 0)

@@ -27,6 +27,7 @@ Contents:
 ## Roles and architecture
 
 - The supervisor's landing pass (`lr landing pass`) is the drive's merge queue and owns D3, D14, D16, and D20 across all shards. No lane enqueues, labels, dequeues, or requeues beside it.
+- Each landing pass that ends posts one `landing.pass` record. The supervisor on the host whose movers include `lanes` but not `landing` reads the newest one from the bus every 30 seconds and never reads the landing host itself. Once 15 minutes pass with no pass ended, it posts one `landing.silent` record to root and meta-desk, since no tap becomes a land order while the landing host is down, and one more, `state=recovered`, when a pass ends again. It says nothing until it has seen a first pass.
 - The coordinator owns holds (see [Holds, priority, dequeue, and requeue](#holds-priority-dequeue-and-requeue)), receives `P0` and `RULING NEEDED` lines immediately, and receives a summary every 30 minutes.
 - `scripts/ledger.py` is the desk's one tool, applying R5 and R3 in `SKILL.md` to PR state and watching. The desk grades, lands, and tracks only through it, never through scripts of its own; a gap in `ledger.py` is a `RULING NEEDED`, not a workaround. Scripts are on `PATH` by name.
 - `ledger.py` reads state with `ccx vcs pr state` and transitions with `ccx vcs pr watch`; both use ccx's machine-wide pull request cache, which polls each repository at most once every 30 seconds.
