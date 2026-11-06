@@ -262,7 +262,7 @@ func Answers(rows []Row, records []client.Record) ([]Row, error) {
 			return nil, err
 		}
 		if answer.Seq != 0 {
-			rows[i].Answer = fmt.Sprintf("%s from %s, `cci show %d --body`", answer.Kind, answer.Lane, answer.Seq)
+			rows[i].Answer = fmt.Sprintf("%s from %s, `cci show %s --body`", answer.Kind, answer.Lane, strings.TrimPrefix(answer.Name(), "#"))
 		}
 	}
 	return rows, nil

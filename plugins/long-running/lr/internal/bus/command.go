@@ -34,7 +34,7 @@ func Command(*app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "#%d %s\n", record.Seq, record.Kind())
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", record.Name(), record.Kind())
 			return err
 		},
 	}

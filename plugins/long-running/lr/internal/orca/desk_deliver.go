@@ -323,7 +323,7 @@ func (d *Desk) postRelay(ctx context.Context, container, lane string, action inc
 	if spec.PR != "" {
 		return nil
 	}
-	return d.record("escalation:relay:"+container+"/"+action.ActionID, fmt.Sprintf("RELAYED %s %s: %s, so it went to the lane on cci as #%d", action.ActionID, lane, reason, posted.Seq))
+	return d.record("escalation:relay:"+container+"/"+action.ActionID, fmt.Sprintf("RELAYED %s %s: %s, so it went to the lane on cci as %s", action.ActionID, lane, reason, posted.Name()))
 }
 
 func (d *Desk) unreadRelay(container string, action incident.Action) (string, error) {

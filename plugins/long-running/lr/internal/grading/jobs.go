@@ -194,7 +194,7 @@ func (p *JobPool) bugItems(ctx context.Context, body string) (grader.BugItems, e
 	var items grader.BugItems
 	for _, r := range found {
 		if number := r.Fields.Attrs[itemAttr]; named[number] {
-			items.Items = append(items.Items, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: bus.FullText(r)})
+			items.Items = append(items.Items, grader.Record{Seq: r.Seq, Num: r.Num, Lane: r.Lane, Text: bus.FullText(r)})
 			delete(unknown, number)
 		}
 	}
@@ -309,11 +309,11 @@ func jobRecords(records []client.Record, directory string, bodies map[string][]b
 	listed := make([]grader.Record, 0, len(records))
 	var unread []string
 	for _, r := range records {
-		record := grader.Record{Seq: r.Seq, Lane: r.Lane, Text: r.Text}
+		record := grader.Record{Seq: r.Seq, Num: r.Num, Lane: r.Lane, Text: r.Text}
 		if r.Refs.Path != "" {
 			body, err := os.ReadFile(r.Refs.Path)
 			if err != nil {
-				unread = append(unread, fmt.Sprintf("the whole of cci #%d: %v", r.Seq, err))
+				unread = append(unread, fmt.Sprintf("the whole of cci %s: %v", r.Name(), err))
 				continue
 			}
 			record.Path = filepath.Join(directory, recordsDir, strconv.FormatInt(r.Seq, 10)+".md")
@@ -501,7 +501,7 @@ func (p *JobPool) exemptGrades() []string {
 func gradeRecords(grades []client.Record) []grader.Record {
 	listed := make([]grader.Record, 0, len(grades))
 	for _, r := range grades {
-		listed = append(listed, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: r.Text, Attrs: r.Fields.Attrs})
+		listed = append(listed, grader.Record{Seq: r.Seq, Num: r.Num, Lane: r.Lane, Text: r.Text, Attrs: r.Fields.Attrs})
 	}
 	return listed
 }
@@ -519,7 +519,7 @@ func corrected(rulings []client.Record) []int64 {
 func jobRulings(rulings []client.Record) []grader.Ruling {
 	listed := make([]grader.Ruling, 0, len(rulings))
 	for _, r := range rulings {
-		listed = append(listed, grader.Ruling{Seq: r.Seq, Text: bus.FullText(r)})
+		listed = append(listed, grader.Ruling{Seq: r.Seq, Num: r.Num, Text: bus.FullText(r)})
 	}
 	return listed
 }
@@ -539,7 +539,7 @@ func (p *JobPool) fidelitySources(ctx context.Context, spec Spec, lane string, l
 		if slices.Contains(cited, r.Seq) && (r.Lane != rootLane || (r.Kind != kindDefect && r.Kind != kindDecide && r.Kind != kindAnswer)) {
 			continue
 		}
-		sections = append(sections, fmt.Sprintf("## cci #%d, %s from %s\n\n%s", r.Seq, r.Kind, r.Lane, bus.FullText(r)))
+		sections = append(sections, fmt.Sprintf("## cci %s, %s from %s\n\n%s", r.Name(), r.Kind, r.Lane, bus.FullText(r)))
 	}
 	card, unreadCard, err := p.boardCard(ctx, live.HeadRefName)
 	if err != nil {

@@ -48,7 +48,7 @@ func (o Outlived) Pass(ctx context.Context) error {
 			ID:       fmt.Sprintf("outlived:%d", record.Seq),
 			Resolves: record.Seq,
 			PRs:      []string{o.Repo + "#" + named[1]},
-			Text:     fmt.Sprintf("RESOLVED #%d: #%s has since landed, closed or moved past %s", record.Seq, named[1], shortHead(named[2])),
+			Text:     fmt.Sprintf("RESOLVED %s: #%s has since landed, closed or moved past %s", record.Name(), named[1], shortHead(named[2])),
 		}); err != nil {
 			return err
 		}

@@ -368,7 +368,7 @@ func (d *Desk) incidentOwner(ctx context.Context, slug, lane string) (string, er
 		closes := string(record.Kind) == "done" && overlapsSeqs(resolvedSeqs(record), named)
 		stops := string(record.Kind) == kindStopped && addressed(record, names)
 		if closes || stops {
-			return fmt.Sprintf("%s@%s %s #%d", record.Lane, record.Drive, record.Kind, record.Seq), nil
+			return fmt.Sprintf("%s@%s %s %s", record.Lane, record.Drive, record.Kind, record.Name()), nil
 		}
 	}
 	answered, err := d.crossDriveAnswers(ctx)
@@ -377,7 +377,7 @@ func (d *Desk) incidentOwner(ctx context.Context, slug, lane string) (string, er
 	}
 	for _, record := range answered {
 		if record.Drive != d.Config.Drive && record.Lane == coordinatorLane && string(record.Kind) == "answer" && slices.Contains(record.To, coordinatorLane+"@"+d.Config.Drive) && strings.Contains(record.Text, slug) {
-			return fmt.Sprintf("%s@%s %s #%d", record.Lane, record.Drive, record.Kind, record.Seq), nil
+			return fmt.Sprintf("%s@%s %s %s", record.Lane, record.Drive, record.Kind, record.Name()), nil
 		}
 	}
 	return "", nil
@@ -425,7 +425,7 @@ func (d *Desk) incidentEnd(ctx context.Context, first, lane string, reported tim
 		rootEnded := record.Lane == coordinatorLane && (kind == kindStandDown || kind == kindStopped) && standsDown(record, audience)
 		laneStopped := slices.Contains(own, record.Lane) && kind == kindStopped && !reported.IsZero() && record.At.Before(reported)
 		if ownersEnded || rootEnded || laneStopped {
-			return fmt.Sprintf("#%d %s %s", record.Seq, strings.ToUpper(kind), record.Lane), nil
+			return fmt.Sprintf("%s %s %s", record.Name(), strings.ToUpper(kind), record.Lane), nil
 		}
 	}
 	return "", nil
@@ -468,7 +468,7 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 	}
 	for _, record := range posted {
 		if standsDown(record, names) && !record.At.Before(began) {
-			return seqReceipt(record.Seq), nil
+			return record.Name(), nil
 		}
 	}
 	return "", nil
@@ -736,7 +736,7 @@ func (d *Desk) cutWithdrawn(ctx context.Context, key string, clock cutClock, sil
 			return "", err
 		}
 		if resolved != nil {
-			return fmt.Sprintf("#%d resolves CUT-SILENT #%d", resolved.Seq, seq), nil
+			return fmt.Sprintf("%s resolves CUT-SILENT #%d", resolved.Name(), seq), nil
 		}
 	}
 	closed, err := d.cutClosed(ctx, key, clock)
@@ -774,7 +774,7 @@ func (d *Desk) cutAnswer(ctx context.Context, clock cutClock) (string, error) {
 	}
 	for _, record := range answers {
 		if string(record.Kind) == "refuse" || len(record.Refs.Builds) > 0 {
-			return fmt.Sprintf("#%d %s", record.Seq, record.Kind), nil
+			return fmt.Sprintf("%s %s", record.Name(), record.Kind), nil
 		}
 	}
 	return "", nil
@@ -842,7 +842,7 @@ func (d *Desk) cutClosed(ctx context.Context, key string, clock cutClock) (strin
 			return "", err
 		}
 		if resolved != nil {
-			return fmt.Sprintf("#%d resolves", resolved.Seq), nil
+			return fmt.Sprintf("%s resolves", resolved.Name()), nil
 		}
 	}
 	if clock.PR != "" {
@@ -851,7 +851,7 @@ func (d *Desk) cutClosed(ctx context.Context, key string, clock cutClock) (strin
 			return "", err
 		}
 		if owned != nil {
-			return fmt.Sprintf("%s owns the release on cci #%d", owned.Lane, owned.Seq), nil
+			return fmt.Sprintf("%s owns the release on cci %s", owned.Lane, owned.Name()), nil
 		}
 	}
 	if len(clock.PRs) == 0 {
@@ -863,7 +863,7 @@ func (d *Desk) cutClosed(ctx context.Context, key string, clock cutClock) (strin
 	}
 	for _, record := range posted {
 		if record.Lane != deskRunner && slices.ContainsFunc(clock.PRs, func(pr string) bool { return prNamed(record, pr) || d.inRepo(record, pr) }) {
-			return fmt.Sprintf("#%d %s", record.Seq, record.Kind), nil
+			return fmt.Sprintf("%s %s", record.Name(), record.Kind), nil
 		}
 	}
 	return "", nil
@@ -1162,7 +1162,7 @@ func (d *Desk) unknownCauseOf(ctx context.Context, lane string, launch incident.
 	}
 	for _, record := range records {
 		if clockMark(record) == "mechanism" {
-			consider(mark{at: record.At, name: seqReceipt(record.Seq), text: record.Text})
+			consider(mark{at: record.At, name: record.Name(), text: record.Text})
 		}
 	}
 	value, _, err := d.factOf(laneBook(lane), milestoneFact)

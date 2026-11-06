@@ -127,7 +127,7 @@ func (c *Check) undrawn(ctx context.Context, desk string, now time.Time) []Findi
 			Kind: kindNote,
 			To:   []string{desk},
 			Re:   record.Seq,
-			Line: fmt.Sprintf("NO-CARD #%d from %s is still open: %s Draw it, or answer it with why not.", record.Seq, record.Lane, excerpt(record.Text)),
+			Line: fmt.Sprintf("NO-CARD %s from %s is still open: %s Draw it, or answer it with why not.", record.Name(), record.Lane, excerpt(record.Text)),
 		})
 	}
 	return found
@@ -197,7 +197,7 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 				Kind: kindNote,
 				To:   []string{record.Lane},
 				Re:   record.Seq,
-				Line: fmt.Sprintf("UNTYPED #%d reads as a choice for him with no card: %s If it is his, ask him with `lr ask-owner`, options recommended first. If it is yours or root's, ignore this.", record.Seq, excerpt(record.Text)),
+				Line: fmt.Sprintf("UNTYPED %s reads as a choice for him with no card: %s If it is his, ask him with `lr ask-owner`, options recommended first. If it is yours or root's, ignore this.", record.Name(), excerpt(record.Text)),
 			})
 		}
 	}
@@ -228,7 +228,7 @@ func (c *Check) parked(ctx context.Context, unsent []string) []Finding {
 			Kind: kindNote,
 			To:   []string{record.Lane},
 			Re:   record.Seq,
-			Line: fmt.Sprintf("PARKED #%d waits on his pick with nothing built: %s His order m104 covers this: build the card's recommended option as a branch, no PR, and he can overturn it. A pick that deletes data, sends a message or needs his hand stays with him.", record.Seq, excerpt(record.Text)),
+			Line: fmt.Sprintf("PARKED %s waits on his pick with nothing built: %s His order m104 covers this: build the card's recommended option as a branch, no PR, and he can overturn it. A pick that deletes data, sends a message or needs his hand stays with him.", record.Name(), excerpt(record.Text)),
 		})
 	}
 	return found
@@ -277,7 +277,7 @@ func (c *Check) offBoard(record client.Record, unseen string) (Finding, bool) {
 		Kind: kindNote,
 		To:   owners,
 		Re:   record.Seq,
-		Line: fmt.Sprintf("OFF-BOARD #%d from %s is a defect, never a wait: %s, so he never sees it. %s asks each on the main board and in his Slack with `lr ask-owner`, then names the card-<slug> ids: %s", record.Seq, record.Lane, unseen, record.Lane, excerpt(record.Text)),
+		Line: fmt.Sprintf("OFF-BOARD %s from %s is a defect, never a wait: %s, so he never sees it. %s asks each on the main board and in his Slack with `lr ask-owner`, then names the card-<slug> ids: %s", record.Name(), record.Lane, unseen, record.Lane, excerpt(record.Text)),
 	}, true
 }
 
@@ -306,7 +306,7 @@ func (c *Check) repeated(ctx context.Context, order client.Record) Finding {
 		Kind: kindAsk,
 		To:   []string{lanes.Root},
 		Re:   order.Seq,
-		Line: fmt.Sprintf("REPEAT #%d: he gave this order again: %s %s Name the lane doing it and what holds it, unrelated work included.", order.Seq, excerpt(order.Text), holding),
+		Line: fmt.Sprintf("REPEAT %s: he gave this order again: %s %s Name the lane doing it and what holds it, unrelated work included.", order.Name(), excerpt(order.Text), holding),
 	}
 }
 
@@ -319,7 +319,7 @@ func (c *Check) holding(ctx context.Context, order client.Record) []string {
 	var named []string
 	for _, record := range open {
 		if len(named) < heldShown && board.SharedWordPairs(order.Text, record.Text) >= heldPairs {
-			named = append(named, fmt.Sprintf("#%d", record.Seq))
+			named = append(named, record.Name())
 		}
 	}
 	return named

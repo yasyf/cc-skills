@@ -504,7 +504,7 @@ func (r *ReleaseOwed) held(ctx context.Context, landing owedLanding) error {
 		}
 		posted, err := client.Post(ctx, client.Draft{
 			Drive: r.Drive, Lane: self, Kind: "blocker", To: []string{rootLane}, ID: fmt.Sprintf("release-held:%d:%s", pr.Number, key), PRs: []string{fmt.Sprintf("%s#%d", r.Repo, pr.Number)},
-			Text: fmt.Sprintf("RELEASE-HELD-AFTER-LANDING #%d: landed %s at %s; its cut is owed now, the other PR gets its own cut when it lands (coordinator #%d)", pr.Number, owed.SHA[:min(10, len(owed.SHA))], owed.Landed.In(pacificZone()).Format(time.Kitchen), hold.Seq),
+			Text: fmt.Sprintf("RELEASE-HELD-AFTER-LANDING #%d: landed %s at %s; its cut is owed now, the other PR gets its own cut when it lands (coordinator %s)", pr.Number, owed.SHA[:min(10, len(owed.SHA))], owed.Landed.In(pacificZone()).Format(time.Kitchen), hold.Name()),
 		})
 		if err != nil {
 			return err

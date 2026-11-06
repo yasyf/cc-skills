@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 )
 
@@ -72,7 +73,12 @@ type OldApp struct {
 
 type Ruling struct {
 	Seq  int64  `json:"seq"`
+	Num  string `json:"num,omitempty"`
 	Text string `json:"text"`
+}
+
+func (r Ruling) Name() string {
+	return client.Record{Seq: r.Seq, Num: r.Num}.Name()
 }
 
 type FidelityJob struct {
@@ -597,7 +603,7 @@ func (s *fidelityPassState) carried(match *carryMatch, how, proof string) (Fidel
 		}
 	}
 	body := filepath.Join(s.dir, bodyFile)
-	text := fmt.Sprintf("%s\n\n%s\n\n#%d: %s\n", joinedText(lines), proof, match.grade.Seq, match.grade.Text)
+	text := fmt.Sprintf("%s\n\n%s\n\n%s: %s\n", joinedText(lines), proof, match.grade.Name(), match.grade.Text)
 	if err := os.WriteFile(body, []byte(text), 0o600); err != nil {
 		return FidelityOutcome{}, err
 	}
@@ -665,7 +671,7 @@ func (s *fidelityPassState) prompt(view pullRequest, frame promptFrame) (string,
 	}
 	var rulings strings.Builder
 	for _, r := range spec.Rulings {
-		fmt.Fprintf(&rulings, "- coordinator #%d: %s\n", r.Seq, squeezed(r.Text))
+		fmt.Fprintf(&rulings, "- coordinator %s: %s\n", r.Name(), squeezed(r.Text))
 	}
 	return fill(fidelityBrief, map[string]string{
 		"repo":         spec.Repo,

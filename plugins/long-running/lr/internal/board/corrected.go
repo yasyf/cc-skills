@@ -124,7 +124,7 @@ func answered(record client.Record, oldest int64) []int64 {
 func (c Cards) flagStale(ctx context.Context, lane, card string, source int64, record client.Record) error {
 	_, err := c.Post(ctx, client.Draft{
 		Drive: c.Bus, Lane: lane, Kind: askKind, ID: fmt.Sprintf("%s%s:%d", staleTopic, card, record.Seq), Topic: staleTopic + card, To: []string{communicator}, Re: record.Seq, Force: true,
-		Text:  fmt.Sprintf("STALE %s on board %s: %s #%d from %s answers the thread of #%d, the record this card was drawn from, so its words may no longer be true. Redraw it on the corrected words, or withdraw it, before he taps.", card, c.Session, record.Kind, record.Seq, record.Lane, source),
+		Text:  fmt.Sprintf("STALE %s on board %s: %s %s from %s answers the thread of #%d, the record this card was drawn from, so its words may no longer be true. Redraw it on the corrected words, or withdraw it, before he taps.", card, c.Session, record.Kind, record.Name(), record.Lane, source),
 		Attrs: map[string]string{"session": c.Session, "card": card},
 	})
 	return err

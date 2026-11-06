@@ -96,6 +96,7 @@ func tailRecords(ctx context.Context, q recordQuery) ([]busRecord, error) {
 	for _, row := range rows {
 		records = append(records, busRecord{
 			Seq:   row.Seq,
+			Num:   row.Num,
 			Drive: row.Drive,
 			Lane:  row.Lane,
 			Kind:  string(row.Kind),

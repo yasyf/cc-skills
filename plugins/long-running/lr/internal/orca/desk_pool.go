@@ -125,7 +125,7 @@ func (d *Desk) askSpawn(ctx context.Context, key, lane, busyWith, role, text, se
 	}
 	_, err = d.post(ctx, deskPost{
 		Kind: kindReport, To: sender, Topic: poolTopic + key, Key: poolNoneID + key, ID: poolNoneID + key,
-		Text: fmt.Sprintf("POOL-NONE %s %s: busy with %s and no %s lane is free, so nothing was delivered; #%d asks root to spawn one", key, lane, busyWith, role, asked.Seq),
+		Text: fmt.Sprintf("POOL-NONE %s %s: busy with %s and no %s lane is free, so nothing was delivered; %s asks root to spawn one", key, lane, busyWith, role, asked.Name()),
 	})
 	return err
 }

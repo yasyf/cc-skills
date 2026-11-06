@@ -215,7 +215,7 @@ func snapshotsOf(records []Record) []board.Snapshot {
 	var snapshots []board.Snapshot
 	for _, record := range records {
 		if record.Lane == boardWatch && record.Topic == boardTopic && record.Board != "" {
-			snapshots = append(snapshots, board.Snapshot{Seq: record.Seq, At: record.At, Board: record.Board})
+			snapshots = append(snapshots, board.Snapshot{Seq: record.Seq, Num: record.Num, At: record.At, Board: record.Board})
 		}
 	}
 	return snapshots
@@ -408,7 +408,7 @@ func statusDelivered(tasks []ClaudeTask, records []Record, since time.Time, kind
 	for i, lane := range lanes {
 		record, task := newest[lane], owned[lane]
 		text := clip(record.Text)
-		out[i] = Delivered{task.ID, lane, task.Subject, record.Seq, record.Kind, record.At, text, prsOf(record), fmt.Sprintf("delivered #%s %s: %s | %s #%d %s: %s", task.ID, lane, clip(task.Subject), record.Kind, record.Seq, pacific(record.At), text)}
+		out[i] = Delivered{task.ID, lane, task.Subject, record.Seq, record.Kind, record.At, text, prsOf(record), fmt.Sprintf("delivered #%s %s: %s | %s %s %s: %s", task.ID, lane, clip(task.Subject), record.Kind, record.Name(), pacific(record.At), text)}
 	}
 	return out
 }
@@ -445,7 +445,7 @@ func statusIncidents(records []Record) []IncidentLine {
 	out := []IncidentLine{}
 	for _, record := range records {
 		if record.Kind == kindIncident && record.Status == statusOpen {
-			out = append(out, IncidentLine{record.Seq, record.Lane, record.At, record.Text, fmt.Sprintf("incident #%d %s %s: %s", record.Seq, record.Lane, pacific(record.At), clip(record.Text))})
+			out = append(out, IncidentLine{record.Seq, record.Lane, record.At, record.Text, fmt.Sprintf("incident %s %s %s: %s", record.Name(), record.Lane, pacific(record.At), clip(record.Text))})
 		}
 	}
 	return out

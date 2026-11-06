@@ -247,7 +247,7 @@ func MissedSteps(records []client.Record, registered []store.Lane, now time.Time
 				for _, each := range to {
 					waits = append(waits, Wait{
 						Kind: stepKind, Repo: StepNamespace, Number: int(record.Seq), Head: step.name, Mover: machine.MoverLane, Since: step.due, To: each, Owner: owner, Key: step.name + " " + each,
-						Cause: fmt.Sprintf("%s: %s%s %s=%s %s from %s, owned by %s, passed its clock with no record from %s answering it since %s; %s owes a record with --re %d saying what is done and what is next, or one resolving it", missedClass, record.Name(), rowOf(record), step.name, step.clock, step.what, record.Lane, owner, owner, since.In(pacific).Format("3:04 PM"), owner, record.Seq),
+						Cause: fmt.Sprintf("%s: %s%s %s=%s %s from %s, owned by %s, passed its clock with no record from %s answering it since %s; %s owes a record with --re %s saying what is done and what is next, or one resolving it", missedClass, record.Name(), rowOf(record), step.name, step.clock, step.what, record.Lane, owner, owner, since.In(pacific).Format("3:04 PM"), owner, strings.TrimPrefix(record.Name(), "#")),
 					})
 				}
 			}

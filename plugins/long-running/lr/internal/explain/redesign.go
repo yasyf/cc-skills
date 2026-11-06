@@ -133,9 +133,9 @@ func (r Redesign) hold(ctx context.Context, slug, subsystem, designLane string, 
 			if err != nil {
 				return nil, err
 			}
-			fmt.Fprintf(r.Out, "HELD %s by %s; lift it with cci post --kind lift --re %d\n", pr, record.Name(), record.Seq)
+			fmt.Fprintf(r.Out, "HELD %s by %s; lift it with cci post --kind lift --re %s\n", pr, record.Name(), strings.TrimPrefix(record.Name(), "#"))
 		}
-		held = append(held, fmt.Sprintf("- %s, held by %s; lift it with `cci post --kind lift --re %d`", pr, record.Name(), record.Seq))
+		held = append(held, fmt.Sprintf("- %s, held by %s; lift it with `cci post --kind lift --re %s`", pr, record.Name(), strings.TrimPrefix(record.Name(), "#")))
 	}
 	return held, nil
 }

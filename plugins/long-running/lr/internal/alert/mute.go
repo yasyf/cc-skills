@@ -38,7 +38,7 @@ func Muted(records []client.Record, monitors []string) (client.Record, bool) {
 
 func MutedLine(record client.Record) string {
 	attrs := record.Fields.Attrs
-	return fmt.Sprintf("the owner muted monitor %s (Datadog downtime %s, cci #%d)", attrs[monitorAttr], attrs[muteAttr], record.Seq)
+	return fmt.Sprintf("the owner muted monitor %s (Datadog downtime %s, cci %s)", attrs[monitorAttr], attrs[muteAttr], record.Name())
 }
 
 type Mute struct {
@@ -67,8 +67,8 @@ func (m Mute) Run(ctx context.Context) error {
 		return fmt.Errorf("monitor %s is muted by Datadog downtime %s, but its owner-muted record did not post: %w", m.Monitor, id, err)
 	}
 	for _, lane := range ended {
-		if _, err := m.Bus.Post(ctx, client.Draft{Drive: m.Drive, Lane: lanes.Root, Kind: "stand-down", To: []string{lane}, Re: muted.Seq, Force: true, Text: fmt.Sprintf("stand-down %s: the owner muted monitor %s (#%d)", lane, m.Monitor, muted.Seq)}); err != nil {
-			return fmt.Errorf("monitor %s is muted (#%d), but the stand-down of %s did not post: %w", m.Monitor, muted.Seq, lane, err)
+		if _, err := m.Bus.Post(ctx, client.Draft{Drive: m.Drive, Lane: lanes.Root, Kind: "stand-down", To: []string{lane}, Re: muted.Seq, Force: true, Text: fmt.Sprintf("stand-down %s: the owner muted monitor %s (%s)", lane, m.Monitor, muted.Name())}); err != nil {
+			return fmt.Errorf("monitor %s is muted (%s), but the stand-down of %s did not post: %w", m.Monitor, muted.Name(), lane, err)
 		}
 	}
 	_, err = fmt.Fprintf(m.Out, "%s %s\n", muted.Name(), id)

@@ -227,13 +227,13 @@ func (d *Desk) tendClock(ctx context.Context, lane string, launch incident.Actio
 			continue
 		}
 		closed := fmt.Sprintf("#%d", record.Seq)
-		clock.Ended = "incident closed by " + closed
+		clock.Ended = "incident closed by " + record.Name()
 		held, err := d.known(laneBook(lane+clockBackup), clockKey(launch))
 		if err != nil {
 			return false, err
 		}
 		if held != nil {
-			if err := d.withdraw(ctx, "close"+closed, closed, clockKey(launch)); err != nil {
+			if err := d.withdraw(ctx, "close"+closed, record.Name(), clockKey(launch)); err != nil {
 				return false, err
 			}
 		}
@@ -289,7 +289,7 @@ func (d *Desk) holdClock(ctx context.Context, lane string, launch incident.Actio
 	case stoodDown != "":
 		clock.Ended = "withdrawn by " + stoodDown
 	case held >= 0:
-		clock.Ended = fmt.Sprintf("held by #%d", holds[held].Seq)
+		clock.Ended = fmt.Sprintf("held by %s", holds[held].Name())
 	case gate != "":
 		clock.Ended, err = d.refuseStop(ctx, lane, launch, launched, stops[stop], gate, incidents)
 		return err
@@ -473,7 +473,7 @@ func (d *Desk) clockFallback(ctx context.Context, lane string, launch incident.A
 		return lane + " is itself an Opus fallback, so none is launched for it", nil
 	}
 	if open := openIncidentOf(lane, incidents); open != nil {
-		return fmt.Sprintf("no fallback launched for %s: open incident #%d names %s, so the drive's clocks warn and stand aside (owner, 2:21 PM Nov 1); the coordinator launches one by hand if the fix needs it", backup, open.Seq, lane), nil
+		return fmt.Sprintf("no fallback launched for %s: open incident %s names %s, so the drive's clocks warn and stand aside (owner, 2:21 PM Nov 1); the coordinator launches one by hand if the fix needs it", backup, open.Name(), lane), nil
 	}
 	held, err := d.known(laneBook(backup), key)
 	if err != nil {
@@ -616,11 +616,11 @@ func (d *Desk) refuseStop(ctx context.Context, lane string, launch incident.Acti
 	if err != nil {
 		return "", err
 	}
-	text := fmt.Sprintf("#%d scoped the incident out, but %s is a release gate and the earliest canary: active yes always, and no customer impact is its scope, never a stop (owner, Nov 1 3:04 PM); no root record rules it out with active no | %s; coordinator: keep the incident open and name its fix owner", stop.Seq, gate, owner)
+	text := fmt.Sprintf("%s scoped the incident out, but %s is a release gate and the earliest canary: active yes always, and no customer impact is its scope, never a stop (owner, Nov 1 3:04 PM); no root record rules it out with active no | %s; coordinator: keep the incident open and name its fix owner", stop.Name(), gate, owner)
 	if err := d.escalateTo(ctx, "refused-stop:"+strconv.FormatInt(stop.Seq, 10), "REFUSED-STOP", lane, text, coordinatorLane); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("stop #%d refused: %s is a release gate", stop.Seq, gate), nil
+	return fmt.Sprintf("stop %s refused: %s is a release gate", stop.Name(), gate), nil
 }
 
 func (d *Desk) inProcess(ctx context.Context) error {

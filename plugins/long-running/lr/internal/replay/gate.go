@@ -308,8 +308,8 @@ func (d Deps) judge(ctx context.Context, drive, repo, oldVersion, newVersion str
 	}
 	replayed := fmt.Sprintf("%s records and %d test-only class checks of the last 24 hours", thousands(inWindow), len(prs))
 	if found := differences(oldDecided, newDecided); len(found) > 0 {
-		if seq := acceptedAt(records, oldVersion); seq != 0 {
-			return fmt.Sprintf("replayed %s against %s and %s, which root accepted in #%d", replayed, oldVersion, strings.Join(found, "; "), seq), 0, nil
+		if accepted := acceptedAt(records, oldVersion); accepted != "" {
+			return fmt.Sprintf("replayed %s against %s and %s, which root accepted in %s", replayed, oldVersion, strings.Join(found, "; "), accepted), 0, nil
 		}
 		why := fmt.Sprintf("%s replayed %s against %s and %s, which %s did not, so it is not installed; root accepts a deliberate change with `cci post --kind decide --attr %s=%s`", newVersion, replayed, oldVersion, strings.Join(found, "; "), oldVersion, acceptAttr, oldVersion)
 		err := d.post(ctx, drive, "blocker", refusalKey(oldVersion, found), "REPLAY-REFUSED "+why, "--attr", "version="+newVersion)
@@ -323,13 +323,13 @@ func refusalKey(serving string, found []string) string {
 	return fmt.Sprintf("replay-refused:%s:%x", serving, sha256.Sum256([]byte(strings.Join(found, ";"))))
 }
 
-func acceptedAt(records []read, serving string) int64 {
+func acceptedAt(records []read, serving string) string {
 	for _, one := range records {
 		if one.record.Lane == lanes.Root && one.record.Attr(acceptAttr) == serving {
-			return one.record.Seq
+			return one.record.Name()
 		}
 	}
-	return 0
+	return ""
 }
 
 func writeInput(given map[string]any) (string, error) {
@@ -416,7 +416,7 @@ func (d Deps) recurOne(ctx context.Context, drive, version, name string, classes
 	seen := make([]string, 0, len(records))
 	for _, other := range records {
 		if !other.At.Before(start) && other.At.Before(start.Add(day)) && matches(fixture.Recurs, compiled, other) {
-			seen = append(seen, fmt.Sprintf("#%d", other.Seq))
+			seen = append(seen, other.Name())
 		}
 	}
 	listed := ""

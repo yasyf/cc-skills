@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -94,8 +95,13 @@ type Outcomes struct {
 
 type Snapshot struct {
 	Seq   int64
+	Num   string
 	At    time.Time
 	Board string
+}
+
+func (s Snapshot) Name() string {
+	return client.Record{Seq: s.Seq, Num: s.Num}.Name()
 }
 
 func abbreviate(head string) string {
@@ -199,7 +205,7 @@ func firstShown(snapshots []Snapshot) (map[string]time.Time, error) {
 			Cards [][]any `json:"cards"`
 		}
 		if err := json.Unmarshal([]byte(snapshot.Board), &board); err != nil {
-			return nil, fmt.Errorf("board snapshot #%d: %w", snapshot.Seq, err)
+			return nil, fmt.Errorf("board snapshot %s: %w", snapshot.Name(), err)
 		}
 		next := map[string]time.Time{}
 		mark := func(key string) {

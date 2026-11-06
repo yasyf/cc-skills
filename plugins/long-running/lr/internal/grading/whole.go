@@ -377,5 +377,5 @@ func (p *JobPool) recheckJob(ctx context.Context, d desk, facts machine.Facts, a
 	history, unread := jobRecords(named, directory, bodies)
 	base := p.baseJob(d, facts, sprite, settled)
 	base.Head, base.Lane, base.BugItems, base.Unread = ask.Head, ask.Lane, items, unread
-	return job{answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Lane: last.Lane, Head: last.head, Text: last.Text}, History: history, BodyEdited: true}}, nil
+	return job{answers: answers, bodies: bodies, spec: grader.FinderJob{Job: base, Prior: &grader.Record{Seq: last.Seq, Num: last.Num, Lane: last.Lane, Head: last.head, Text: last.Text}, History: history, BodyEdited: true}}, nil
 }

@@ -131,10 +131,10 @@ func (v view) fit(l line) string {
 	if slices.ContainsFunc(v.full, func(kind string) bool { return strings.EqualFold(kind, l.Kind) }) {
 		return l.head() + ": " + l.upTo(fullShown) + l.repeats()
 	}
-	return cutAt(l.render(), v.width, l.Seq)
+	return cutAt(l.render(), v.width, l.Name())
 }
 
-func cutAt(text string, limit int, seq int64) string {
+func cutAt(text string, limit int, name string) string {
 	if limit <= 0 || len(text) <= limit {
 		return text
 	}
@@ -142,7 +142,7 @@ func cutAt(text string, limit int, seq int64) string {
 	for end > 0 && !utf8.RuneStart(text[end]) {
 		end--
 	}
-	return fmt.Sprintf("%s%s cut %d bytes; cci show %d --body", text[:end], cutMark, len(text)-end, seq)
+	return fmt.Sprintf("%s%s cut %d bytes; cci show %s --body", text[:end], cutMark, len(text)-end, strings.TrimPrefix(name, "#"))
 }
 
 func (v view) tally(hidden []int) string {
@@ -170,7 +170,7 @@ func (v view) printWatch(w io.Writer, lines []line, statuses []ccx.PRStatus, now
 			if !watchedLine(l.record, pr) {
 				continue
 			}
-			if _, err := fmt.Fprintln(w, "  "+cutAt(l.render(), v.width, l.Seq)); err != nil {
+			if _, err := fmt.Fprintln(w, "  "+cutAt(l.render(), v.width, l.Name())); err != nil {
 				return err
 			}
 		}

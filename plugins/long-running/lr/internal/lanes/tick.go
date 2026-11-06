@@ -263,18 +263,18 @@ func announce(s *store.Store, d Deps, said folded, now time.Time) {
 			how = " for " + one.successor
 		}
 		lane, _ := laneOf(s, one.name)
-		do(d.Post(Post{Kind: "stand-down", To: []string{one.name}, Text: withCarried(fmt.Sprintf("%s stood down%s by record #%d.", one.name, how, one.seq), carriedWork(d, lane, now)), Successor: one.successor, Re: one.seq, PRs: one.prs}))
+		do(d.Post(Post{Kind: "stand-down", To: []string{one.name}, Text: withCarried(fmt.Sprintf("%s stood down%s by record %s.", one.name, how, one.by), carriedWork(d, lane, now)), Successor: one.successor, Re: one.seq, PRs: one.prs}))
 	}
 	for _, one := range said.kept {
 		successor, done := Request{Verb: "stand-down", Lane: one.name, Successor: "<successor>", Open: "<item>; <item>"}, Request{Verb: "done", Lane: one.name}
-		do(d.Post(Post{Kind: "ask", To: []string{Root}, LaneRef: one.name, Re: one.seq, Text: fmt.Sprintf("%s is a standing lane and stand-down #%d names no successor, so the supervisor kept it live. Name a successor with `%s`, or say the lane is done with `%s`.", one.name, one.seq, successor.Command(), done.Command())}))
+		do(d.Post(Post{Kind: "ask", To: []string{Root}, LaneRef: one.name, Re: one.seq, Text: fmt.Sprintf("%s is a standing lane and stand-down %s names no successor, so the supervisor kept it live. Name a successor with `%s`, or say the lane is done with `%s`.", one.name, one.by, successor.Command(), done.Command())}))
 	}
 	if len(said.ended) > 0 {
 		lines := make([]string, len(said.ended))
 		for i, one := range said.ended {
-			lines[i] = fmt.Sprintf("%s by stand-down #%d, its PRs to %s", one.name, one.seq, said.prsTo(one.name))
+			lines[i] = fmt.Sprintf("%s by stand-down %s, its PRs to %s", one.name, one.by, said.prsTo(one.name))
 			if one.successor != "" {
-				lines[i] = fmt.Sprintf("%s by stand-down #%d, for %s", one.name, one.seq, one.successor)
+				lines[i] = fmt.Sprintf("%s by stand-down %s, for %s", one.name, one.by, one.successor)
 			}
 		}
 		do(d.Post(Post{Kind: "report", To: []string{OwnerRelay}, Text: "RETIRED " + strings.Join(lines, "; ") + "."}))
@@ -283,8 +283,8 @@ func announce(s *store.Store, d Deps, said folded, now time.Time) {
 		do(d.Post(handedOn(one.to, []string{one.from}, one.prs)))
 	}
 	verbs := slices.Sorted(slices.Values(Verbs))
-	for _, seq := range said.untyped {
-		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("The coordinator's decide #%d carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", seq, Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: seq}))
+	for _, record := range said.untyped {
+		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("The coordinator's decide %s carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", record.Name(), Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: record.Seq}))
 	}
 	for _, one := range said.unread {
 		to := []string{noticeTo(s, one.name), one.name}
@@ -298,7 +298,7 @@ func announce(s *store.Store, d Deps, said folded, now time.Time) {
 		one.post(s, d)
 	}
 	for _, one := range said.unassigned {
-		text := fmt.Sprintf("ASSIGNMENT-UNREAD cci %s names %s, retired at %s with no successor, so no lane reads it; name a live lane or relaunch it", one.record.Num, one.lane.Name, one.lane.Since.In(pacificZone).Format("Jan 2 3:04 PM"))
+		text := fmt.Sprintf("ASSIGNMENT-UNREAD cci %s names %s, retired at %s with no successor, so no lane reads it; name a live lane or relaunch it", one.record.Name(), one.lane.Name, one.lane.Since.In(pacificZone).Format("Jan 2 3:04 PM"))
 		if must(s.Escalate(fmt.Sprintf("assignment:%d:%s", one.record.Seq, one.lane.Name), text, Root, now)) {
 			do(d.Post(Post{Kind: blockerKind, To: []string{Root}, LaneRef: one.lane.Name, Re: one.record.Seq, Text: text}))
 		}
@@ -1093,7 +1093,7 @@ func forwardOwnerWords(s *store.Store, d Deps) {
 			to, ended = noticeTo(s, lane.Name), "was held"
 		}
 		if to != order.Author {
-			do(d.Post(Post{Kind: "ask", To: []string{to}, Re: order.Seq, Text: fmt.Sprintf("%s's owner record #%d reached %s after it %s, so it is yours to carry: read it with `cci show %d`.", order.Author, order.Seq, lane.Name, ended, order.Seq)}))
+			do(d.Post(Post{Kind: "ask", To: []string{to}, Re: order.Seq, Text: fmt.Sprintf("%s's owner record %s reached %s after it %s, so it is yours to carry: read it with `cci show %s`.", order.Author, order.Name(), lane.Name, ended, strings.TrimPrefix(order.Name(), "#"))}))
 		}
 	}
 }
@@ -1604,7 +1604,7 @@ func queueDepth(records []Record) string {
 				counts = append(counts, fmt.Sprintf("%d %ss", tally[kind], kind))
 			}
 		}
-		lines = append(lines, fmt.Sprintf("%s %s (oldest #%d)", lane, strings.Join(counts, ", "), oldest.Seq))
+		lines = append(lines, fmt.Sprintf("%s %s (oldest %s)", lane, strings.Join(counts, ", "), oldest.Name()))
 	}
 	return strings.Join(lines, "; ")
 }

@@ -19,6 +19,7 @@ var incidentRoles = []string{spawnedFix, spawnedEvidence, spawnedComms}
 
 type ruling struct {
 	seq   int64
+	name  string
 	slugs []string
 	told  []string
 }
@@ -66,7 +67,7 @@ func (d *Desk) rulingsIn(ctx context.Context, records []client.Record) ([]ruling
 }
 
 func (d *Desk) ruledOut(ctx context.Context, record client.Record) (ruling, error) {
-	ruled := ruling{seq: record.Seq}
+	ruled := ruling{seq: record.Seq, name: record.Name()}
 	if record.Lane != coordinatorLane {
 		return ruled, nil
 	}
@@ -118,7 +119,7 @@ func (d *Desk) withdrawIncident(ctx context.Context, ruled ruling, slug string) 
 	if err != nil {
 		return err
 	}
-	key := fmt.Sprintf("root's cci #%d ruling incident %s out", ruled.seq, slug)
+	key := fmt.Sprintf("root's cci %s ruling incident %s out", ruled.name, slug)
 	log := fmt.Sprintf("escalation:withdraw:incident:%s:cci#%d", slug, ruled.seq)
 	for _, book := range books {
 		lane := strings.TrimPrefix(book, lanePrefix)
@@ -142,7 +143,7 @@ func (d *Desk) ruledAfter(lane string, seq int64) string {
 	slug := incidentOf(lane)
 	for _, ruled := range d.rulings {
 		if ruled.seq > seq && slices.Contains(ruled.slugs, slug) && !lanes.Addresses(ruled.told, lane) {
-			return fmt.Sprintf("root ruled incident %s out on cci #%d", slug, ruled.seq)
+			return fmt.Sprintf("root ruled incident %s out on cci %s", slug, ruled.name)
 		}
 	}
 	return ""

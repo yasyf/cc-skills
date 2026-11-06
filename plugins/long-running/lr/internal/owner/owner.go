@@ -285,7 +285,7 @@ func UnreadAnswers(ctx context.Context, entry drive.Entry, wanted func(Row) bool
 			return nil, err
 		}
 		if unread {
-			warnings = append(warnings, fmt.Sprintf("warning: %s already has an answer addressed to %s that you have posted nothing about since, a %s from %s. Read it with `cci show %d --body` before asking again or promising a clock.", row.ID, communicator, answer.Kind, answer.Lane, answer.Seq))
+			warnings = append(warnings, fmt.Sprintf("warning: %s already has an answer addressed to %s that you have posted nothing about since, a %s from %s. Read it with `cci show %s --body` before asking again or promising a clock.", row.ID, communicator, answer.Kind, answer.Lane, strings.TrimPrefix(answer.Name(), "#")))
 		}
 	}
 	return warnings, nil

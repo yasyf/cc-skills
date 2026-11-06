@@ -165,7 +165,7 @@ func (v view) workstreamRow(in Inputs, each Workstream, mine []Lane) string {
 	for _, lane := range mine {
 		last, found := v.latest[lane.Name]
 		if wait, waiting := v.waits[lane.Name]; waiting {
-			blocks = append(blocks, fmt.Sprintf("%s waits on the coordinator's answer to %s #%d", lane.Name, wait.Kind, wait.Seq))
+			blocks = append(blocks, fmt.Sprintf("%s waits on the coordinator's answer to %s %s", lane.Name, wait.Kind, wait.Name()))
 		} else if found && slices.Contains(blockedKinds, last.Kind) && last.Status == statusOpen {
 			blocks = append(blocks, fmt.Sprintf("%s: %s", lane.Name, clip(last.Text)))
 		}

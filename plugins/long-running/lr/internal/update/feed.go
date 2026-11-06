@@ -98,9 +98,9 @@ func ownerWords(records []Record) (lines, gaps []string) {
 		}
 		status := noCarrier
 		if carrier, found := carrierOf(ordered, record); found {
-			status = fmt.Sprintf("carried by %s #%d", carrier.Lane, carrier.Seq)
+			status = fmt.Sprintf("carried by %s %s", carrier.Lane, carrier.Name())
 		} else {
-			gaps = append(gaps, fmt.Sprintf("owner words no record carries: #%d", record.Seq))
+			gaps = append(gaps, fmt.Sprintf("owner words no record carries: %s", record.Name()))
 		}
 		lines = append(lines, fmt.Sprintf("- %s: \"%s\" | %s", pacific(record.At), strings.Join(strings.Fields(record.Text), " "), status))
 	}
