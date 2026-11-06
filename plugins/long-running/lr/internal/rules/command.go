@@ -76,9 +76,15 @@ func Command(a *app.App) *cobra.Command {
 			}
 			return nil
 		},
-	}, &cobra.Command{
+	}, settleCommand(opened))
+	return rules
+}
+
+func settleCommand(opened func() (*store.Store, error)) *cobra.Command {
+	var pull string
+	settle := &cobra.Command{
 		Use:   "settle",
-		Short: "Read findings as JSON on stdin, print those no owner pick answers, and exit 1 when any remain",
+		Short: "Read findings on one PR as JSON on stdin, print those no owner pick registered for that PR answers, and exit 1 when any remain",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var findings []Finding
@@ -94,7 +100,7 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			open, settled := Settle(findings, picks)
+			open, settled := Settle(findings, picks, pull)
 			for _, found := range settled {
 				fmt.Fprintf(cmd.OutOrStdout(), "settled %s by %s: %s\n", found.Key, found.Rule, found.Words)
 			}
@@ -106,8 +112,12 @@ func Command(a *app.App) *cobra.Command {
 			}
 			return nil
 		},
-	})
-	return rules
+	}
+	settle.Flags().StringVar(&pull, "pr", "", "OWNER/NAME#N: the PR the findings are on")
+	if err := settle.MarkFlagRequired("pr"); err != nil {
+		panic(err)
+	}
+	return settle
 }
 
 func answersCommand(a *app.App) *cobra.Command {
@@ -158,22 +168,29 @@ func answersOwed(ctx context.Context, runner shell.Runner, reader *quotes.Reader
 
 func pickCommand(a *app.App, opened func() (*store.Store, error)) *cobra.Command {
 	var words, answers string
+	var pulls []string
 	pick := &cobra.Command{
 		Use:   "pick ID",
-		Short: "Register an owner pick and the finding key or words it answers",
+		Short: "Register an owner pick, the finding key or words it answers, and the PRs whose change it is about; it settles findings on those PRs alone",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			for _, pull := range pulls {
+				if repo, number, found := strings.Cut(pull, "#"); !found || !strings.Contains(repo, "/") || number == "" {
+					return fmt.Errorf("--pr %q is not OWNER/NAME#N", pull)
+				}
+			}
 			s, err := opened()
 			if err != nil {
 				return err
 			}
 			defer s.Close()
-			return s.PutRule(args[0], words, store.Stamp(a.Now()), "predicate", answersPrefix+answers)
+			return s.PutRule(args[0], words, store.Stamp(a.Now()), "predicate", answersPrefix+answers, pulls...)
 		},
 	}
 	pick.Flags().StringVar(&words, "words", "", "the owner's words, verbatim")
 	pick.Flags().StringVar(&answers, "answers", "", "the finding key, or words its line contains, this pick answers")
-	for _, name := range []string{"words", "answers"} {
+	pick.Flags().StringArrayVar(&pulls, "pr", nil, "OWNER/NAME#N whose change the pick is about, repeated for each PR of that change")
+	for _, name := range []string{"words", "answers", "pr"} {
 		if err := pick.MarkFlagRequired(name); err != nil {
 			panic(err)
 		}

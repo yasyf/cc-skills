@@ -679,10 +679,10 @@ func (s *Store) Lease(drive string) (Lease, error) {
 	return lease, err
 }
 
-func (s *Store) PutRule(id, words, said, checkKind, checkRef string) error {
+func (s *Store) PutRule(id, words, said, checkKind, checkRef string, prs ...string) error {
 	_, err := s.db.Exec(
-		"INSERT INTO rules (id, words, said, check_kind, check_ref) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET words = excluded.words, said = excluded.said, check_kind = excluded.check_kind, check_ref = excluded.check_ref",
-		id, words, said, text(checkKind), text(checkRef),
+		"INSERT INTO rules (id, words, said, check_kind, check_ref, prs) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET words = excluded.words, said = excluded.said, check_kind = excluded.check_kind, check_ref = excluded.check_ref, prs = excluded.prs",
+		id, words, said, text(checkKind), text(checkRef), text(strings.Join(prs, " ")),
 	)
 	return err
 }

@@ -118,6 +118,7 @@ const escalatedNotices = "cause IN ('appeal-counted', 'override-owner', 'claim',
 
 var addedColumns = []struct{ table, column, kind string }{
 	{"unread", "declined", "INTEGER NOT NULL DEFAULT 0"},
+	{"rules", "prs", "TEXT"},
 	{"sprite_stop_failures", "blocker", "INTEGER"},
 	{"sprite_stop_failures", "left_at", "TEXT"},
 	{"sprite_stop_failures", "passes", "INTEGER NOT NULL DEFAULT 0"},

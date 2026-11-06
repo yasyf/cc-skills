@@ -657,6 +657,19 @@ func TestAMissingPointAnOwnerPickAnswersLeavesTheLineWhichNamesThePick(t *testin
 	holdsNone(t, line, "follow.go:41")
 }
 
+func TestAPickRegisteredForAnotherPRLeavesItsMissingPointOpen(t *testing.T) {
+	evals := ownerPick("prompt/1105-143536", "pins unplanned behavior")
+	evals["Words"], evals["PRs"] = "the evals pick", []string{repoName + "#51511"}
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": "", "picks": []any{evals}})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "missing", "missing": []any{
+		missingOf("plan:81", "forge-tunnel-forwarder.test.ts:78 pins unplanned behavior: no plan row names this Role/RoleBinding contract"),
+	}}))
+	mustFidelity(t, directory, shell)
+	line := shell.texts()[0]
+	holdsAll(t, line, "fidelity: missing "+shaHead+" plan:81 forge-tunnel-forwarder.test.ts:78 pins unplanned behavior")
+	holdsNone(t, line, "settled by owner picks", "evals queue")
+}
+
 func TestAHeadWhoseEveryMissingPointAnOwnerPickAnswersGradesOk(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": "", "picks": []any{ownerPick("rule/abc", "polls the signal")}})
 	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "missing", "missing": []any{
