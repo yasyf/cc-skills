@@ -1173,7 +1173,7 @@ func TestAnAlertLaunchStartsItsEvidenceLaneAndItsSlackWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contains(t, string(fix), "ccx: lane=dd-1-fix role=incident effort=xhigh incident=dd-1\n")
+	contains(t, string(fix), "ccx: lane=dd-1-fix role=incident effort=high incident=dd-1\n")
 }
 
 func TestTwoFiringsOfOneMonitorInAPassLaunchOnce(t *testing.T) {

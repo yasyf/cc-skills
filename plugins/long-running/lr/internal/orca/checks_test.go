@@ -14,7 +14,7 @@ func TestABriefThatRunsADevboxCommandIsRefusedUnlessItLaunchesOnTheMacOrIsAnAler
 		"Scale: no N\n"
 	const repro = "2. Claim a devbox with `GIT_TOKEN=$(ccx vcs auth token Forge-AI/monorepo) AWS_PROFILE=\"$DEVBOX_AWS_PROFILE\" tools/ci devbox claim --git-token-env GIT_TOKEN` and run the failing workflow on it.\n"
 	item84 := Order{Lane: "item-84-journals-1", Model: "opus", Effort: "high", Brief: brief}
-	alertFix := Order{Lane: "sentry-7831318608-fix", Model: agentIncident, Effort: "xhigh", Brief: brief}
+	alertFix := Order{Lane: "sentry-7831318608-fix", Model: agentIncident, Effort: "high", Brief: brief}
 	for name, tt := range map[string]struct {
 		order   Order
 		text    string
@@ -26,7 +26,7 @@ func TestABriefThatRunsADevboxCommandIsRefusedUnlessItLaunchesOnTheMacOrIsAnAler
 		"item-84-journals-1, placed local why=devbox":   {item84, slice + "ccx: role=build place=local why=devbox\n" + repro, ""},
 		"an EC2 Mac box in a fenced block":              {item84, slice + "Build on a Mac box:\n\n```sh\nAWS_PROFILE=\"$DEVBOX_AWS_PROFILE\" tools/ci mac-box up build-1\n```\n", "ci mac-box up"},
 		"a Namespace devbox":                            {item84, slice + "Make one with `lr devbox create --drive d1 --lane item-84-journals-1 -- --platform linux/amd64 --size s`.\n", "devbox create"},
-		"an alert's fix lane": {alertFix, "ccx: lane=sentry-7831318608-fix role=incident effort=xhigh incident=sentry-7831318608\n" +
+		"an alert's fix lane": {alertFix, "ccx: lane=sentry-7831318608-fix role=incident effort=high incident=sentry-7831318608\n" +
 			"Run devbox repros through `sentry-7831318608-evidence`; never run `lr devbox create`, `tools/ci devbox ssh` or `ci mac-box up`.\n", ""},
 		"a command only the slice quotes":     {item84, slice + "Write the regression test from the code.\n", ""},
 		"a command only an owner line quotes": {item84, slice + "Owner 1:20 AM, verbatim: \"repro it with `tools/ci devbox claim --gh`\"\n", ""},

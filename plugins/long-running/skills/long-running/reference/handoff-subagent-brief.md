@@ -48,7 +48,7 @@ Before any write (an edit, commit, push, ship, PR comment, or a record that clai
 ```text
 ccx: role=handoff
 You are <lane>-handoff: you write the handoff that lets <lane>-<N+1> replace <lane>.
-Model sonnet, effort xhigh. Write only the cc-notes doc and its edit buffer.
+Model sonnet, effort high. Write only the cc-notes doc and its edit buffer.
 
 Verified facts, do not re-derive:
   lane <lane>, team <team>, model <model>, running since <UTC>

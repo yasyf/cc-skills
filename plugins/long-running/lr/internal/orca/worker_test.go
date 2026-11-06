@@ -1961,13 +1961,13 @@ func TestAnExplicitConfigOfAnotherCheckoutLeavesTheVersionToCCRemote(t *testing.
 
 func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 	f := newWorkerFixture(t)
-	task := overlaid(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": []string{"{}"}}, "brief": briefOf(workerBrief + obsRoute(workerLane) + cciBlock)})
+	task := overlaid(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "high", "serviceTier": "fast", "mcp": []string{"{}"}}, "brief": briefOf(workerBrief + obsRoute(workerLane) + cciBlock)})
 	f.spriteAllocated(allocationOf(task, object{"ref": "release/2026.10"}))
 	maps.Copy(f.env, map[string]string{"WORKER_SERVICE_TIER": "fast", "WORKER_INCIDENT": "1", "WORKER_REF": "release/2026.10", "WORKER_MCP_CONFIG": "{}"})
-	if _, failed, err := f.launch(workerLane, "gpt-6.1-sol", "xhigh"); err != nil || failed != "" {
+	if _, failed, err := f.launch(workerLane, "gpt-6.1-sol", "high"); err != nil || failed != "" {
 		t.Fatal(failed, err)
 	}
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "high", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
 	if script := f.receiptText("before-worker.sh"); !strings.HasPrefix(script, codexLimitsScript()) {
 		t.Fatal(script)
 	}
@@ -2700,16 +2700,16 @@ func TestAnIncidentModelStartsOnASpriteAsAnIncidentLaneOnItsFastTier(t *testing.
 	} {
 		t.Run(tt.model, func(t *testing.T) {
 			f := newWorkerFixture(t)
-			agent := object{"kind": tt.kind, "model": tt.modelID, "effort": "xhigh"}
+			agent := object{"kind": tt.kind, "model": tt.modelID, "effort": "high"}
 			if tt.tier != nil {
 				agent["serviceTier"] = "fast"
 			}
 			task := overlaid(prepared(), object{"agent": agent, "brief": briefOf(workerBrief + obsRoute(workerLane) + cciBlock)})
 			f.spriteAllocated(allocationOf(task, nil))
-			if _, failed, err := f.launch(workerLane, tt.model, "xhigh"); err != nil || failed != "" {
+			if _, failed, err := f.launch(workerLane, tt.model, "high"); err != nil || failed != "" {
 				t.Fatal(failed, err)
 			}
-			f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCallFor(workerLane, tt.kind, tt.modelID, "xhigh", tt.tier...)}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
+			f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCallFor(workerLane, tt.kind, tt.modelID, "high", tt.tier...)}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
 			if got := strings.HasSuffix(f.receiptText(beforeWorker), claudeFastMode); got != tt.fastMode {
 				t.Fatalf("fast mode in the before-worker script = %v, want %v", got, tt.fastMode)
 			}

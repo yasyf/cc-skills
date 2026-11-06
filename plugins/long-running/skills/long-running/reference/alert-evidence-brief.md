@@ -1,4 +1,4 @@
-ccx: lane={lane} role=evidence effort=xhigh place=local why=sentry
+ccx: lane={lane} role=evidence effort=high place=local why=sentry
 
 # {lane}: read the evidence for the production alert {slug}, opened {onset}
 
@@ -6,7 +6,7 @@ Alert: {what}
 Link: {link}
 Alert links: {links}
 
-You are the evidence lane beside `{slug}-fix`: gpt-6.1-sol, fast tier, xhigh, launched with it.
+You are the evidence lane beside `{slug}-fix`: gpt-6.1-sol, fast tier, high, launched with it.
 You read telemetry, logs and the deploy timeline, feed the fix lane and the coordinator, and
 gate nothing. Never ask the fix lane to wait for diagnosis.
 

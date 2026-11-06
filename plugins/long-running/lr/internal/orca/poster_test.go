@@ -472,7 +472,7 @@ func TestAShippedIncidentTemplateLaunchedUnrenderedIsRefusedNamingEachFieldBefor
 		t.Fatal(err)
 	}
 	brief := f.brief(t, filepath.Join("sofi-team-runs-fix", briefFile), string(template))
-	_, err = f.poster.Launch(context.Background(), Order{Lane: "sofi-team-runs-fix", Model: "incident", Effort: "xhigh", Role: "fix", Brief: brief, Now: true}, time.Minute)
+	_, err = f.poster.Launch(context.Background(), Order{Lane: "sofi-team-runs-fix", Model: "incident", Effort: "high", Role: "fix", Brief: brief, Now: true}, time.Minute)
 	if err == nil || !strings.Contains(err.Error(), "still holds the template fields {lane}, {incident}, {slug}, {onset}, {what}, {link}, {links}, {drive}, {facts}, {reported}, {due}, {repo}, which nothing filled") || len(f.bus.calls) != 0 {
 		t.Fatal(err, f.bus.calls)
 	}
@@ -517,7 +517,7 @@ func TestABriefWhoseRuleNamesACredentialLaunchesOnEveryRouteAndWarnsThatItAndAMi
 	away := f.brief(t, "away.md", rule)
 	local := f.brief(t, "local.md", "ccx: role=build place=local why=mac-build\n"+rule)
 	picked := f.brief(t, "picked.md", "Owner pick: owner:m836\n"+rule)
-	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "high", Brief: away}, {Lane: "a", Model: "opus", Effort: "high", Brief: local}, {Lane: "a", Model: "fable", Effort: "high", Brief: picked}, {Lane: "a", Model: agentIncident, Effort: "xhigh", Brief: away}} {
+	for _, order := range []Order{{Lane: "a", Model: "opus", Effort: "high", Brief: away}, {Lane: "a", Model: "opus", Effort: "high", Brief: local}, {Lane: "a", Model: "fable", Effort: "high", Brief: picked}, {Lane: "a", Model: agentIncident, Effort: "high", Brief: away}} {
 		if _, err := f.poster.Launch(context.Background(), order, 0); err != nil {
 			t.Fatal(order, err)
 		}
@@ -659,7 +659,7 @@ func TestAnIncidentBriefInAnotherLanesDirectoryIsRefusedNamingItsLaunch(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := []string{"brief /s/other/brief.md is lane other's, and a lane keeps one name from launch on; post `orca-desk: launch other NOW incident xhigh role=fix brief=/s/other/brief.md`"}; !slices.Equal(faults, want) {
+		if want := []string{"brief /s/other/brief.md is lane other's, and a lane keeps one name from launch on; post `orca-desk: launch other NOW incident high role=fix brief=/s/other/brief.md`"}; !slices.Equal(faults, want) {
 			t.Fatal(faults)
 		}
 	}

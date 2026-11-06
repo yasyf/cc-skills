@@ -39,7 +39,7 @@ func (o Order) costFaults(text string) []string {
 	if o.Lane != coordinatorLane && (fableModel.MatchString(o.Model) || astraModel.MatchString(o.Model)) {
 		faults = append(faults, fmt.Sprintf("%s starts only when the owner named it for this work: %s", o.Model, fix))
 	}
-	if slices.Contains(lanes.AboveHigh, o.Effort) && !o.incidentLane(text) {
+	if slices.Contains(lanes.AboveHigh, o.Effort) {
 		faults = append(faults, fmt.Sprintf("effort %s is above high, which a lane runs only when the owner named it: %s", o.Effort, fix))
 	}
 	return faults

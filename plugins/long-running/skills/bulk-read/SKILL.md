@@ -5,7 +5,7 @@ description: Read a large corpus on Sonnet and triage it on Opus into fix lanes 
 
 # Bulk read on Sonnet, triage on Opus
 
-`lr bulk read` takes a corpus and a question. A Sonnet lane reads the corpus into a findings file, an Opus `xhigh` lane triages that file into fix lanes, and you keep only a path and two lane names.
+`lr bulk read` takes a corpus and a question. A Sonnet lane reads the corpus into a findings file, an Opus `high` lane triages that file into fix lanes, and you keep only a path and two lane names.
 
 ```sh
 lr bulk read <lane> --drive <drive> --question "<question>" --transcript <file> --records "--lane root --since '2:13 AM'" --log <file> --launcher <lane> --contract <file>

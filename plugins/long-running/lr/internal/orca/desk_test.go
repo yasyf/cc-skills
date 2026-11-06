@@ -1149,9 +1149,9 @@ func TestAnIncidentCommsBriefWithNoSliceOrScaleLaunchesUnwarnedWithStepIncident(
 	w := newDeskWorld(t)
 	spriteConfig(w)
 	lane := "dd-1-comms"
-	brief := w.brief(lane, "ccx: lane=dd-1-comms role=comms effort=xhigh\nPost the notices.\n")
+	brief := w.brief(lane, "ccx: lane=dd-1-comms role=comms effort=high\nPost the notices.\n")
 	w.lines()
-	w.line("orca-desk: launch " + lane + " NOW incident-opus xhigh role=comms brief=" + brief)
+	w.line("orca-desk: launch " + lane + " NOW incident-opus high role=comms brief=" + brief)
 	w.lines()
 	w.noEscalation("LAUNCH-FAILED ")
 	w.noEscalation("SLICE-MISSING ")
@@ -1424,7 +1424,7 @@ func TestAnIncidentLineNamingNoReportTimeLaunchesAndPostsItsIncidentWithNoClock(
 			posted = append(posted, post)
 		}
 	}
-	if len(posted) != 1 || posted[0].Topic != "api-500" || posted[0].Text != "INCIDENT api-500: errors https://dd/1 | fix lane api-500-fix launching on incident xhigh with forward-fix authority, evidence lane api-500-evidence beside it; root: ratify" {
+	if len(posted) != 1 || posted[0].Topic != "api-500" || posted[0].Text != "INCIDENT api-500: errors https://dd/1 | fix lane api-500-fix launching on incident high with forward-fix authority, evidence lane api-500-evidence beside it; root: ratify" {
 		t.Fatal(w.posts)
 	}
 }
@@ -1446,7 +1446,7 @@ func TestAFullFormIncidentLaunchStartsItsLaneOnceUnderItsOwnName(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief("api-500-fix", "Register slice: lane=api-500-fix step=all\nScale: no N\nccx: place=local why=mac-build\n")
 	w.lines()
-	line := w.line("orca-desk: launch api-500-fix NOW incident xhigh role=fix brief=" + brief)
+	line := w.line("orca-desk: launch api-500-fix NOW incident high role=fix brief=" + brief)
 	key := "R" + strings.TrimPrefix(line.Name(), "#")
 	w.launchOut["api-500-fix"] = w.launched("api-500-fix", testDispatch, testTerminal)
 	w.lines()
@@ -2863,7 +2863,7 @@ func TestAnIncidentLaunchOverLoadStartsAnywayAndTellsTheWatchdog(t *testing.T) {
 	w.busy = "3.0"
 	brief := w.brief(testLane, testBrief+macIncident)
 	w.lines()
-	w.line("orca-desk: launch lane-a NOW incident xhigh brief=" + brief)
+	w.line("orca-desk: launch lane-a NOW incident high brief=" + brief)
 	w.lines()
 	w.step(w.desk.deliver)
 	if len(w.spawns) != 1 {
@@ -3589,7 +3589,7 @@ func TestAReadyReportNamingUnfixedCasesLaunchesCaseLanesUpToTheCap(t *testing.T)
 		wantContains(t, readBrief(spec.Brief), "api-fix ")
 	}
 	wantContains(t, w.wantEscalation("DECIDE unfixed:msg_r api-fix"), "past the cap of 2 case lanes per incident")
-	wantContains(t, w.wantEscalation("DECIDE unfixed:msg_r api-fix"), "case three | to launch its lane, post `orca-desk: launch api-fix-case3 NOW incident xhigh brief=")
+	wantContains(t, w.wantEscalation("DECIDE unfixed:msg_r api-fix"), "case three | to launch its lane, post `orca-desk: launch api-fix-case3 NOW incident high brief=")
 	value, _, err := w.desk.factOf(laneBook(lane), unfixedCases)
 	if err != nil {
 		t.Fatal(err)
@@ -5147,7 +5147,7 @@ func TestEveryLaneButTheCoordinatorFableAndANamedMacNeedLeavesTheMacAtTheCap(t *
 		{"an x-fix lane on a plan step", Order{Lane: "api-500-fix", Model: "opus"}, "Register slice: lane=api-500-fix step=3\n" + devbox, false},
 		{"the coordinator", Order{Lane: coordinatorLane, Model: "opus"}, "", false},
 		{"a Fable lane", Order{Lane: "helper-1", Model: "fable"}, "", false},
-		{"an evidence lane reading Sentry", Order{Lane: "api-evidence", Model: agentIncident}, "ccx: lane=api-evidence role=evidence effort=xhigh place=local why=sentry\n", false},
+		{"an evidence lane reading Sentry", Order{Lane: "api-evidence", Model: agentIncident}, "ccx: lane=api-evidence role=evidence effort=high place=local why=sentry\n", false},
 	} {
 		if got := capFallsBack(tt.o, tt.text); got != tt.want {
 			t.Errorf("%s: %v", tt.name, got)
@@ -5170,7 +5170,7 @@ func TestAnIncidentLaunchStartsOnASpriteUnlessItsBriefNamesTheMac(t *testing.T) 
 				launcher := spriteConfig(w)
 				brief := w.brief(testLane, testBrief+tt.ccx)
 				w.lines()
-				w.line("orca-desk: launch " + testLane + " NOW " + model + " xhigh brief=" + brief)
+				w.line("orca-desk: launch " + testLane + " NOW " + model + " high brief=" + brief)
 				w.lines()
 				w.step(w.desk.deliver)
 				if len(w.spawns) != 1 || (w.spawns[0].argv[0] == launcher) != tt.onSprite {
@@ -5244,7 +5244,7 @@ func TestAnAlertLaunchWhoseSpriteNeverStartedAWorkerRelaunchesOnceOnTheMac(t *te
 			t.Setenv("HOME", t.TempDir())
 			brief := w.brief(testLane, testBrief+"ccx: role=fix incident=sentry-1\n")
 			w.lines()
-			line := w.add(object{"lane": lanes.Self, "text": "orca-desk: launch " + testLane + " NOW " + agentIncident + " xhigh role=fix brief=" + brief, "to": []string{deskLane}})
+			line := w.add(object{"lane": lanes.Self, "text": "orca-desk: launch " + testLane + " NOW " + agentIncident + " high role=fix brief=" + brief, "to": []string{deskLane}})
 			key := "R" + strings.TrimPrefix(line.Name(), "#")
 			refusal := "cc-remote orca prepare exited 1; /b/brief.worker keeps its output, and nothing was attached or retried"
 			w.launchOut[testLane] = "preparing a Sprite\n" + refusal + "\n"
@@ -5314,7 +5314,7 @@ func TestOnlyAnAlertLaneLeavesTheMacWhenItsLaunchFails(t *testing.T) {
 		{"a helper placed remotely", Order{Lane: "helper-1", Model: "opus"}, "ccx: role=build incident=none\n", false},
 		{"the coordinator", Order{Lane: coordinatorLane, Model: agentIncident}, devbox, false},
 		{"a Fable lane", Order{Lane: "incident-db", Model: "fable"}, devbox, false},
-		{"an evidence lane reading Sentry", Order{Lane: "api-evidence", Model: agentIncident}, "ccx: lane=api-evidence role=evidence effort=xhigh place=local why=sentry\n", false},
+		{"an evidence lane reading Sentry", Order{Lane: "api-evidence", Model: agentIncident}, "ccx: lane=api-evidence role=evidence effort=high place=local why=sentry\n", false},
 	} {
 		if got := failureFallsBack(tt.o, tt.text); got != tt.want {
 			t.Errorf("%s: %v", tt.name, got)
@@ -5323,7 +5323,7 @@ func TestOnlyAnAlertLaneLeavesTheMacWhenItsLaunchFails(t *testing.T) {
 }
 
 func TestAnEvidenceLaneReadingSentryStartsOnTheMacAndFailsThereWithNoSpriteRelaunch(t *testing.T) {
-	const evidence = "ccx: lane=lane-a role=evidence effort=xhigh place=local why=sentry\n"
+	const evidence = "ccx: lane=lane-a role=evidence effort=high place=local why=sentry\n"
 	w := newDeskWorld(t)
 	spriteConfig(w)
 	key := w.failedOnTheMac(agentIncident, evidence, worktreeStalled)

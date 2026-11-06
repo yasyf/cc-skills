@@ -28,7 +28,7 @@ func TestAnAlertLaneMountsSentryAndTheInstalledDatadogWithItsLogin(t *testing.T)
 	h := newHarness(t)
 	h.healthyClaude()
 	h.installDatadog("")
-	h.launchedAs(modelIncidentOpus, "xhigh")
+	h.launchedAs(modelIncidentOpus, "high")
 	command := h.terminalCommand()
 	for _, want := range []string{
 		`"sentry":{"type":"http","url":"https://mcp.sentry.dev/mcp"}`,
@@ -46,7 +46,7 @@ func TestAnAlertLaneFollowsTheDatadogDomainTheMacSets(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
 	h.installDatadog("mcp.datadoghq.eu")
-	h.launchedAs(modelIncidentOpus, "xhigh")
+	h.launchedAs(modelIncidentOpus, "high")
 	if command := h.terminalCommand(); !strings.Contains(command, `"url":"https://mcp.datadoghq.eu/v1/mcp?plugin_version=9"`) {
 		t.Fatal(command)
 	}
@@ -56,7 +56,7 @@ func TestAnAlertLaneOnAMachineWithoutDatadogStillStartsWithSentry(t *testing.T) 
 	h := newHarness(t)
 	h.healthyClaude()
 	h.env["CLAUDE_CONFIG_DIR"] = filepath.Join(h.root, "no-plugins")
-	h.launchedAs(modelIncidentOpus, "xhigh")
+	h.launchedAs(modelIncidentOpus, "high")
 	command := h.terminalCommand()
 	if !strings.Contains(command, `"sentry":`) || strings.Contains(command, datadogServer) {
 		t.Fatal(command)

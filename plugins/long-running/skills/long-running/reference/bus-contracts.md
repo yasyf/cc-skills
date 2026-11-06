@@ -96,7 +96,7 @@ These I-rules apply to the landing desk, priority desks and shards. The coordina
 The orca desk reads its launch, relay and hold lines only from cci records addressed to `orca-desk`. The coordinator posts each one with `lr launch`, and the record's seq is its key. By hand, the coordinator launches an incident fix lane with:
 
 ```sh
-cci post --drive <drive> --lane root --kind go --to orca-desk --text 'orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md'
+cci post --drive <drive> --lane root --kind go --to orca-desk --text 'orca-desk: launch <dir> NOW incident high role=fix brief=<state>/<dir>/brief.md'
 ```
 
 A lane launched from a `brief.md` takes its directory's name and keeps it. The runner refuses any other name with `LAUNCH-FAILED` and prints the order that launches the lane under its directory's name.

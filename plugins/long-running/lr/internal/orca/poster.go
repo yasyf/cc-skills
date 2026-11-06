@@ -292,12 +292,12 @@ func (p Poster) settle(ctx context.Context, bus string, posted client.Record, ke
 
 func incidentOrders(name, fixBrief, evidenceBrief, commsBrief string) []Order {
 	stem := strings.TrimSuffix(name, "-"+roleFix)
-	orders := []Order{{Lane: stem + "-" + roleFix, Model: agentIncident, Effort: "xhigh", Role: roleFix, Brief: fixBrief, Now: true}}
+	orders := []Order{{Lane: stem + "-" + roleFix, Model: agentIncident, Effort: "high", Role: roleFix, Brief: fixBrief, Now: true}}
 	if evidenceBrief != "" {
-		orders = append(orders, Order{Lane: stem + "-evidence", Model: agentIncident, Effort: "xhigh", Role: "evidence", Brief: evidenceBrief, Now: true})
+		orders = append(orders, Order{Lane: stem + "-evidence", Model: agentIncident, Effort: "high", Role: "evidence", Brief: evidenceBrief, Now: true})
 	}
 	if commsBrief != "" {
-		orders = append(orders, Order{Lane: stem + "-comms", Model: modelIncidentOpus, Effort: "xhigh", Role: "comms", Brief: commsBrief, Now: true})
+		orders = append(orders, Order{Lane: stem + "-comms", Model: modelIncidentOpus, Effort: "high", Role: "comms", Brief: commsBrief, Now: true})
 	}
 	return orders
 }
