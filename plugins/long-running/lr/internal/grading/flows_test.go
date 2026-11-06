@@ -216,7 +216,7 @@ func TestABodyEditTheGitHubReadSeesRechecksAnOpenMajorAtThatHeadAndNothingClear(
 			post(t, client.Draft{Lane: "lane-7", Kind: kindHead, Text: "#45489 " + head, PRs: []string{pull}})
 			graded := post(t, client.Draft{Lane: grader.FinderLane, Kind: kindReview, Text: "finder: major " + head[:7] + " 1 open over whole abc1234^.." + head[:7] + ": follow.go:40 second fix", PRs: []string{pull}})
 			read := post(t, client.Draft{
-				Lane: "pr-read", Kind: kindRead, To: []string{"supervisor"}, Force: true, PRs: []string{pull},
+				Lane: "pr-read", Kind: kindRead, Text: "sand: 🐛 the replica follows", To: []string{"supervisor"}, Force: true, PRs: []string{pull},
 				Attrs: map[string]string{"record": "pr.read", "head": head, "body": "1aea0c8287690610"},
 				Body:  json.RawMessage(`{"body":"Accepted: follow.go:40 keeps the second fix, as the owner picked."}`),
 			})
