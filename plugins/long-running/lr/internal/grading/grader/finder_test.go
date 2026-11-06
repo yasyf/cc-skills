@@ -537,7 +537,7 @@ func TestBlockersAndMajorsPostFinderMajorOneClauseEachAndMinorsStayOffTheRecord(
 }
 
 func ownerPick(id, answers string) map[string]any {
-	return map[string]any{"ID": id, "Words": "the owner's words", "CheckKind": "predicate", "CheckRef": "answers:" + answers}
+	return map[string]any{"ID": id, "Words": "the owner's words", "CheckKind": "predicate", "CheckRef": "answers:" + answers, "PRs": []string{repoName + "#43299"}}
 }
 
 func TestAMajorAnOwnerPickAnswersStaysOffTheRecordWhichNamesThePick(t *testing.T) {

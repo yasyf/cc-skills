@@ -8,8 +8,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-func answeredByPick(key, line string, picks []store.Rule) []rules.Settled {
-	_, settled := rules.Settle([]rules.Finding{{Key: key, Line: line}}, picks)
+func answeredByPick(key, line string, picks []store.Rule, pull string) []rules.Settled {
+	_, settled := rules.Settle([]rules.Finding{{Key: key, Line: line}}, picks, pull)
 	return settled
 }
 
@@ -28,7 +28,7 @@ func (s *finderPassState) openFindings(findings []finding) ([]finding, []rules.S
 	open := make([]finding, 0, len(findings))
 	var settled []rules.Settled
 	for _, found := range findings {
-		answered := answeredByPick(found.Cite, found.Defect, s.job.Picks)
+		answered := answeredByPick(found.Cite, found.Defect, s.job.Picks, s.job.pull())
 		if len(answered) == 0 {
 			open = append(open, found)
 		}
@@ -44,7 +44,7 @@ func (s *fidelityPassState) settleByPicks(reply fidelityReply) fidelityReply {
 	kept := make([]missingEntry, 0, len(reply.Missing))
 	var settled []rules.Settled
 	for _, entry := range reply.Missing {
-		answered := answeredByPick(entry.Key, entry.Line, s.job.Picks)
+		answered := answeredByPick(entry.Key, entry.Line, s.job.Picks, s.job.pull())
 		if len(answered) == 0 {
 			kept = append(kept, entry)
 		}
