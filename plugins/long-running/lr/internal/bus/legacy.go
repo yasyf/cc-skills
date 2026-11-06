@@ -456,6 +456,40 @@ func GoNamesHead(record client.Record, pr int, head string) bool {
 	return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool { return pair.PR == pr && strings.HasPrefix(head, pair.Head) })
 }
 
+func PRRecords(ctx context.Context, drive, repo string, pr int) ([]client.Record, error) {
+	records, err := client.Tail(ctx, client.Query{Drive: drive, PR: fmt.Sprintf("%s#%d", repo, pr)})
+	if err != nil || len(records) == 0 {
+		return records, err
+	}
+	root, err := client.Tail(ctx, client.Query{Drive: drive, Kinds: []string{"decide", "withdraw"}, Lanes: []string{rootLane}, After: records[0].Seq})
+	if err != nil {
+		return nil, err
+	}
+	held := map[int64]bool{}
+	overriding := map[int64]bool{}
+	names := func(record client.Record) bool {
+		return slices.ContainsFunc(CountedOverrides(record), func(o Override) bool { return o.PR == pr })
+	}
+	for _, record := range records {
+		held[record.Seq] = true
+		overriding[record.Seq] = names(record)
+	}
+	merged := slices.Clone(records)
+	for _, record := range root {
+		if !held[record.Seq] && names(record) {
+			overriding[record.Seq] = true
+			merged = append(merged, record)
+		}
+	}
+	for _, record := range root {
+		if !held[record.Seq] && slices.ContainsFunc(Withdraws(record), func(seq int64) bool { return overriding[seq] }) {
+			merged = append(merged, record)
+		}
+	}
+	slices.SortStableFunc(merged, func(a, b client.Record) int { return cmp.Compare(a.Seq, b.Seq) })
+	return merged, nil
+}
+
 func HoldLifts(records []client.Record, read func([]int64) ([]client.Record, error)) (map[int64]bool, error) {
 	resolving := map[int64][]int64{}
 	var seqs []int64

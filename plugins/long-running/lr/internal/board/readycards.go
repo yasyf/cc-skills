@@ -205,7 +205,7 @@ func (r ReadyCards) landsOnItsGrade(ctx context.Context, row store.ReviewRow, at
 	if atHead[tapFact] != "" || atHead[gates.StandingRefused] != "" {
 		return false, nil
 	}
-	records, err := client.Tail(ctx, client.Query{Drive: r.Cards.Bus, PR: fmt.Sprintf("%s#%d", r.Repo, row.Number)})
+	records, err := bus.PRRecords(ctx, r.Cards.Bus, r.Repo, row.Number)
 	if err != nil {
 		return false, err
 	}

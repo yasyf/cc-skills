@@ -851,6 +851,66 @@ func TestTheHandGateAndTheGoAnswerTheSameOnEachShape(t *testing.T) {
 	}
 }
 
+func TestRootsOverridesThatNameNoPRCountAtTheGateAndReopenItsRefusedHead(t *testing.T) {
+	const repo, number, head = "Forge-AI/monorepo", 51859, "89ed729e838c099fb6c40d0de165cfd239a29589"
+	t.Setenv("CCI_HOME", t.TempDir())
+	ctx := context.Background()
+	s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ref := fmt.Sprintf("%s#%d", repo, number)
+	post := func(draft client.Draft) client.Record {
+		posted, err := client.Post(ctx, draft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return posted
+	}
+	post(client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class ci-only"]}`}})
+	post(client.Draft{Drive: "d", Lane: "fidelity-pipeline", Kind: "review", PRs: []string{ref}, Text: "fidelity: missing " + head + " AGENTS.md:93,AGENTS.md:98 go/ci/internal/release/ledger/dynamo.go:61-62 adds one awaited GetItem per lock row"})
+	fidelity := post(client.Draft{Drive: "d", Lane: "fidelity-desk-31", Kind: "review", PRs: []string{ref}, Text: "fidelity: ok " + head + " class ci-only: desk grade for root 533189, in root's ci-tooling class."})
+	finder := post(client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{ref}, Text: "finder: major " + head + " 1 open over whole 89ed729^..89ed729: go/ci/internal/release/ledger/dynamo.go:61 slow at N"})
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: head, ReadyForTap: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutFact(repo, number, head, gates.ShownFact, "1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runner := &shelltest.Fake{}
+	runner.Reply("[\"go/ci/internal/release/ledger/dynamo.go\",\"@@ +1 @@\\n+get\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", repo, number))
+	a := app.New(io.Discard)
+	a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
+	cfg := config.Config{Drive: "d", Repo: repo, Checkout: "/checkout", Trunk: "dev"}
+	ready := readyFacts(number, head)
+	ready.Repo, ready.Lane = repo, "release-start-fix"
+	sweep := func() []int {
+		posted, err := SweepGos(ctx, a, cfg, s, []machine.Facts{ready}, time.Now().UTC(), io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return posted
+	}
+	if posted := sweep(); len(posted) != 0 {
+		t.Fatalf("posted %v before root overrode either grade, want a refusal", posted)
+	}
+
+	post(client.Draft{Drive: "d", Lane: "root", Kind: "decide", Re: fidelity.Seq, Text: fmt.Sprintf("fidelity-override #%d at 89ed729: %d", number, fidelity.Seq)})
+	post(client.Draft{Drive: "d", Lane: "root", Kind: "decide", Re: finder.Seq, Text: fmt.Sprintf("finder-override #%d at 89ed729: %d", number, finder.Seq)})
+
+	if posted := sweep(); !slices.Equal(posted, []int{number}) {
+		t.Fatalf("posted %v after root's two overrides that name no PR, want the sweep to gate #%d again and post its go", posted, number)
+	}
+	gos, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{kindGo}, Lanes: []string{bus.SweepLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gos) != 1 || !strings.Contains(gos[0].Text, "finder-override #") {
+		t.Fatalf("gos %+v, want one go citing root's finder override", gos)
+	}
+}
+
 func readyFacts(number int, head string) machine.Facts {
 	return machine.Facts{Repo: "o/r", Number: number, Head: head, Base: "dev", CI: machine.CISuccess, Mergeable: machine.MergeableClean, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
 }
