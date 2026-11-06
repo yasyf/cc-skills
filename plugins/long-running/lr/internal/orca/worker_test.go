@@ -252,7 +252,6 @@ func (f *workerFixture) spriteWith(task any) {
 
 func (f *workerFixture) spriteAllocated(response any) {
 	f.reply("gh auth token", workerReply{out: macGitLogin})
-	f.reply("sh "+seedNotes, workerReply{})
 	f.reply("cc-remote version", workerReply{err: workerPin + "\n"})
 	f.reply("orca orchestration run-current", boundWorker)
 	f.reply("cc-remote orca prepare", workerReply{out: response, err: "prepared on sprites\n"})
@@ -419,10 +418,6 @@ func notesCall(workspace string) []string {
 	return []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", remoteRoot, notesPrefix}
 }
 
-func (f *workerFixture) seedNotesCall(workspace string) []string {
-	return []string{"sh", "-c", seedNotes, "sh", f.checkout, workspace, filepath.Join(f.attempt, notesBundle), remoteRoot}
-}
-
 func setupCall(workspace string) []string {
 	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", runRepoSetup, "sh", remoteRoot}
 }
@@ -443,7 +438,7 @@ func (f *workerFixture) startCalls(task object, told ...string) [][]string {
 	brief := task["brief"].(object)
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], spritePreamble, spriteBuildkite) + strings.Join(told, "")
 	workspace := task["environment"].(string)
-	return slices.Concat([][]string{{"gh", "auth", "token"}, f.seedNotesCall(workspace), notesCall(workspace)}, relayCalls(workspace), [][]string{
+	return slices.Concat([][]string{{"gh", "auth", "token"}, notesCall(workspace)}, relayCalls(workspace), [][]string{
 		setupCall(workspace),
 		slices.Concat([]string{"orca", "orchestration", "worker-start", "--run", workerRun, "--spec", spec, "--task-title", workerLane, "--on", task["environment"].(string), "--worktree", "id:" + task["worktreeId"].(string), "--terminal", task["terminal"].(string)}, []string{"--timeout-ms", "600000", "--full", "--json"}),
 	})
@@ -1861,7 +1856,7 @@ func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAg
 	f.sprite()
 	f.launched()
 	started := f.startCalls(prepared())
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:3], [][]string{driveCall("brook")}, started[3:], [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:2], [][]string{driveCall("brook")}, started[2:], [][]string{holdCall(workerWorkspace)})...)
 }
 
 func TestASpriteCodexLaneInADriveCarriesAPRRecordOfCCIRecords(t *testing.T) {
@@ -2173,7 +2168,7 @@ func TestTheNotesPullImportsDocsBeforeTheRestLandsAndHandsGitTheTokenThroughACre
 	want := []string{
 		"git remote set-head origin --auto",
 		"ccn sync --prefix refs/cc-notes/docs/",
-		"git fetch --quiet /tmp/" + notesBundle + " refs/cc-notes/*:refs/cc-notes/* ^refs/cc-notes/docs/*",
+		"git fetch --quiet origin refs/cc-notes/*:refs/cc-notes/* ^refs/cc-notes/docs/*",
 		"sprite-env services create notes-reindex --cmd sh --args -c,cd " + root + " && /home/sprite/.local/bin/ccn reindex; sprite-env services delete notes-reindex --no-stream",
 	}
 	if !slices.Equal(calls, want) {
@@ -2213,40 +2208,29 @@ func TestTheNotesPullSetsOriginHEADOnACloneThatLacksIt(t *testing.T) {
 	}
 }
 
-func TestTheMacsNotesTravelAsOneBundleWhoseDocsTheSpritesCheckoutFetchesFirst(t *testing.T) {
+func TestTheNotesPullFetchesEveryRefButTheDocsFromOriginForTheBackgroundImport(t *testing.T) {
 	dir := t.TempDir()
-	mac, box, bundle := filepath.Join(dir, "mac"), filepath.Join(dir, "box"), filepath.Join(dir, notesBundle)
-	for _, repo := range []string{mac, box} {
-		gitOut(t, dir, "init", "--quiet", repo)
-	}
-	note := gitOut(t, mac, "-c", "user.name=a", "-c", "user.email=a@b", "commit-tree", gitOut(t, mac, "mktree"), "-m", "doc c3230a2")
-	refs := []string{notesPrefix + "docs/c3230a2", notesPrefix + "ledgers/5b91baca4e233792d0bb32a5c8a4008aba86c5d6"}
-	for _, ref := range refs {
-		gitOut(t, mac, "update-ref", ref, note)
-	}
-	stub := "#!/bin/sh\nwhile [ \"$1\" != -- ]; do case $1 in --file) cp \"${2%%:*}\" \"${2#*:}\"; shift ;; esac; shift; done\nshift\nexec \"$@\"\n"
+	origin, root := filepath.Join(dir, "origin.git"), filepath.Join(dir, "root")
+	gitOut(t, dir, "init", "--quiet", "--bare", "--initial-branch=dev", origin)
+	gitOut(t, dir, "clone", "--quiet", origin, root)
+	note := gitOut(t, root, "-c", "user.name=a", "-c", "user.email=a@b", "commit-tree", gitOut(t, root, "mktree"), "-m", "doc c3230a2")
+	doc, ledger := notesPrefix+"docs/c3230a2", notesPrefix+"ledgers/5b91baca4e233792d0bb32a5c8a4008aba86c5d6"
+	gitOut(t, root, "push", "--quiet", "origin", note+":"+doc, note+":"+ledger)
 	f := newWorkerFixture(t)
-	f.write(filepath.Join(dir, "sprite"), stub, 0o700)
-	run := exec.Command("sh", "-c", seedNotes, "sh", mac, workerWorkspace, bundle, box)
+	f.write(filepath.Join(dir, "ccn"), "#!/bin/sh\n", 0o700)
+	f.write(filepath.Join(dir, "sprite-env"), "#!/bin/sh\n", 0o700)
+	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix)
+	run.Stdin = strings.NewReader(macGitLogin)
 	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	if out, err := run.CombinedOutput(); err != nil {
 		t.Fatal(string(out), err)
 	}
 
-	if got := gitOut(t, box, "rev-parse", refs[0]); got != note {
-		t.Fatalf("the Sprite holds %s at %q, want %s", refs[0], got, note)
+	if got := gitOut(t, root, "rev-parse", ledger); got != note {
+		t.Fatalf("the Sprite holds %s at %q, want %s", ledger, got, note)
 	}
-	if out, err := exec.Command("git", "-C", box, "rev-parse", "--verify", "--quiet", refs[1]).CombinedOutput(); err == nil {
-		t.Fatalf("the Sprite holds %s before its docs are imported: %s", refs[1], out)
-	}
-	if listed := gitOut(t, box, "bundle", "list-heads", "/tmp/"+notesBundle); !strings.Contains(listed, refs[1]) {
-		t.Fatalf("the bundle the notes pull fetches the rest from lists %q", listed)
-	}
-	if _, err := os.Stat(bundle); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("%s stayed behind on the Mac: %v", bundle, err)
-	}
-	if err := os.Remove("/tmp/" + notesBundle); err != nil {
-		t.Fatal(err)
+	if out, err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", doc).CombinedOutput(); err == nil {
+		t.Fatalf("git fetched %s, which ccn sync imports: %s", doc, out)
 	}
 }
 
