@@ -12,6 +12,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -115,6 +116,48 @@ func TestItsOwnRedCheckGoesToItsLaneAndNeverReenters(t *testing.T) {
 	}
 	if records := told(t); string(records[0].Kind) != "blocker" {
 		t.Fatalf("kind = %q", records[0].Kind)
+	}
+}
+
+func TestARenderStepThatFailedBeforeAnyTestJobRanReentersAtItsHeadAndAFailedTestStaysOut(t *testing.T) {
+	for name, c := range map[string]struct {
+		build, log, kind, next string
+		reentered              []int
+	}{
+		"build 118033, the render step failed alone": {
+			build:     `{"state":"failed","jobs":[{"id":"job-1","type":"script","name":":pipeline: Render and upload the pipeline","step_key":"bootstrap","state":"failed"}]}`,
+			kind:      "report",
+			next:      "job bootstrap: no test job ran, since the build held no other step. Not its own change: it failed on infrastructure. It re-enters the queue once at this head",
+			reentered: []int{45711},
+		},
+		"a test job failed after the render step passed": {
+			build: `{"state":"failed","jobs":[{"id":"job-0","type":"script","step_key":"bootstrap","state":"passed"},` + failedJob + `]}`,
+			log:   `{"content":"--- FAIL: TestRead (0.1s)\n"}`,
+			kind:  "blocker",
+			next:  "job go-test: FAIL TestRead. It stays out of the queue until a new head; read the check, then push a fix.",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			fake := &shelltest.Fake{}
+			bkReply(fake, buildPath+"105354", c.build)
+			bkReply(fake, buildPath+"105354/jobs/job-1/log", c.log)
+			fake.Reply("read-token\n", tokenTool)
+			watch := landing.TrunkWatch{Runner: fake, Checkout: "/co", Config: landing.TrunkConfig{CIBuild: "tools/ci bk api /pipelines/{pipeline}/builds/{number}", TokenCommand: []string{tokenTool}}}
+			job, test, infra := watch.FailedJob(context.Background(), redBuild)
+			s := storeWith(t, "lane-7")
+			q := &queue{failure: landing.Failure{State: "failed", At: "t1", Reason: "TEST_RUN_FAILED_BY_OPTIMIZATION", Check: "buildkite/test", URL: redBuild, Job: job, Test: test, Infra: infra}}
+
+			act(t, s, q, &restacker{}, t0, settle(t, s, q, facts(45711, fellOut))...)
+
+			records := told(t)
+			if len(records) != 1 || string(records[0].Kind) != c.kind || !strings.Contains(records[0].Text, c.next) {
+				t.Fatalf("records = %+v, want one %s saying %q", records, c.kind, c.next)
+			}
+			if !slices.Equal(q.reentered, c.reentered) {
+				t.Fatalf("reentered = %v, want %v", q.reentered, c.reentered)
+			}
+		})
 	}
 }
 
