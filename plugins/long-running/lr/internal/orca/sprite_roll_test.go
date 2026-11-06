@@ -254,6 +254,17 @@ func TestARollWhoseDriveDoesNotLandOnASpriteStillInstallsThereAndNamesIt(t *test
 	}
 }
 
+func TestARollWritesTheDriveOnlyWhereItsInstallAnsweredSoADownSpriteCostsOneWait(t *testing.T) {
+	w := newRollWorld(t)
+	w.replies["pool-b"] = shell.Result{Code: 1, Stderr: unreachableSprite}
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+	if carried := slices.Sorted(maps.Keys(w.carried)); !slices.Equal(carried, []string{"pool-a", "pool-c"}) {
+		t.Fatal("the roll wrote the drive to", carried)
+	}
+}
+
 const rollGraderTools = `[{"kind":"plugin","name":"long-running@skills","url":"https://example.test/pack.tgz","sha256":"` + testLRSHA + `","version":"` + rollPack + `"},{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"` + testCCISHA + `","version":"` + rollCCX + `"},{"kind":"raw","name":"ccn","url":"https://example.test/ccn","sha256":"` + testCCISHA + `","version":"0.75.17"},{"kind":"binary","name":"codex-ask","url":"https://example.test/c.tgz","sha256":"` + testCCISHA + `","version":"1.14.29"}]`
 
 func TestARollGivesAGraderTheGraderPinsAndALiveSpriteThatGradesTheWholeSet(t *testing.T) {
