@@ -43,7 +43,7 @@ func readyPass(t *testing.T, f *linkFixture) {
 	t.Helper()
 	cards := f.Cards
 	cards.Session = "board-1"
-	r := ReadyCards{Cards: cards, Repo: readyRepo, Lane: "supervisor"}
+	r := ReadyCards{Cards: cards, Repo: readyRepo, Lane: "supervisor", Exempt: defaultExempt}
 	if err := r.Pass(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +147,75 @@ func TestNoTapCardAsksAtAHeadHisEarlierTapCarriesTo(t *testing.T) {
 			f.run(t)
 			if calls := askCalls(f); len(calls) != c.asks {
 				t.Fatalf("asks = %v, want %d", calls, c.asks)
+			}
+		})
+	}
+}
+
+func defaultExempt() ([]string, error) {
+	return gates.DefaultExemptGrades, nil
+}
+
+func TestAHeadGradedExemptDrawsNoTapCardUntilTheGoSweepRefusesIt(t *testing.T) {
+	for name, c := range map[string]struct {
+		grade  string
+		atHead map[string]string
+		asks   int
+	}{
+		"an exempt ok grade lands on the sweep's go": {gates.TestOnlyGrade + ": adds the regression test", nil, 0},
+		"an exempt ok grade the sweep refused":       {gates.TestOnlyGrade + ": adds the regression test", map[string]string{gates.StandingRefused: "tap rule infra names infra/x.ts, so it lands on his tap"}, 1},
+		"an exempt ok grade after his tap withdrew":  {gates.TestOnlyGrade + ": adds the regression test", map[string]string{tapFact: "withdrawn"}, 1},
+		"an ok grade naming no exempt class":         {"stays in scope", nil, 1},
+		"no grade yet":                               {"", nil, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			liveDrive(t)
+			f := newLink(t)
+			if c.grade != "" {
+				if _, err := client.Post(context.Background(), client.Draft{Drive: linkDrive, Lane: "fidelity-pipeline", Kind: "review", PRs: []string{readyRepo + "#51717"}, Text: "fidelity: ok " + readyHead + " " + c.grade}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for kind, value := range c.atHead {
+				if _, err := f.Cards.Store.PutFact(readyRepo, 51717, readyHead, kind, value, cardsNow); err != nil {
+					t.Fatal(err)
+				}
+			}
+			putRows(t, f, tapRow(51717))
+			readyPass(t, f)
+			f.run(t)
+			if calls := askCalls(f); len(calls) != c.asks {
+				t.Fatalf("asks = %v, want %d", calls, c.asks)
+			}
+		})
+	}
+}
+
+func TestATapCardLeavesTheBoardOnceTheGoSweepExemptsItsHeadButNotOnceHeTapped(t *testing.T) {
+	for name, c := range map[string]struct {
+		state string
+		stays bool
+	}{
+		"exempt on the sweep's go": {prrow.StateExempt, false},
+		"tapped by him":            {prrow.StateTapped, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			liveDrive(t)
+			f := newLink(t)
+			row := tapRow(51717)
+			putRows(t, f, row)
+			readyPass(t, f)
+			f.run(t)
+			if _, drawn := f.shell.drawn[tapCardID(row)]; !drawn {
+				t.Fatalf("no card was drawn: %v", f.shell.drawn)
+			}
+			moved := row
+			moved.State, moved.ReadyForTap, moved.Tapped = c.state, false, c.state == prrow.StateTapped
+			putRows(t, f, moved)
+			readyPass(t, f)
+			f.run(t)
+			if _, onBoard := f.shell.drawn[tapCardID(row)]; onBoard != c.stays {
+				t.Fatalf("card on the board = %v, want %v", onBoard, c.stays)
 			}
 		})
 	}
@@ -436,7 +505,7 @@ func TestAFailedListPostStopsThePassAndNoRowReadsAsShown(t *testing.T) {
 	f.shell.refuse = "cc-slack refused it"
 	cards := f.Cards
 	cards.Session = "board-1"
-	if err := (ReadyCards{Cards: cards, Repo: readyRepo, Lane: "supervisor"}).Pass(context.Background()); err == nil {
+	if err := (ReadyCards{Cards: cards, Repo: readyRepo, Lane: "supervisor", Exempt: defaultExempt}).Pass(context.Background()); err == nil {
 		t.Fatal("a refused list post read as a clean pass, so nothing raises it")
 	}
 	facts, err := f.Cards.Store.FactsAtRowHeads(readyRepo, rows)

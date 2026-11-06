@@ -175,7 +175,7 @@ func (g goGate) answer(ctx context.Context, f machine.Facts) ([]string, error) {
 	if unread != "" {
 		refusals = append(refusals, unread)
 	}
-	shown, err := gates.TapCardShownAt(g.s, g.cfg.Repo, f.Number, f.Head)
+	shown, err := g.tapWait(r.claim, r.read)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +186,13 @@ func (g goGate) answer(ctx context.Context, f machine.Facts) ([]string, error) {
 		return nil, nil
 	}
 	return append(refusals, uncountedGos(r.claim, r.records, g.inputs.GoLanes)...), nil
+}
+
+func (g goGate) tapWait(claim gates.Claim, read gates.Read) (string, error) {
+	if gates.TestOnlyGraded(claim, read) {
+		return gates.TapAnsweredAt(g.s, claim.Repo, claim.PR, claim.Head)
+	}
+	return gates.TapCardShownAt(g.s, claim.Repo, claim.PR, claim.Head)
 }
 
 func uncountedGos(c gates.Claim, records []client.Record, goLanes []string) []string {
@@ -212,7 +219,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	}
 	claim, read, records, claimed, port := r.claim, r.read, r.records, r.claimed, r.port
 	lapses = r.lapses
-	standing := claimed && !port.Interacts || gates.FlakeAt(claim, records)
+	standing := claimed && !port.Interacts || gates.FlakeAt(claim, records) || gates.ExemptGraded(claim, read)
 	if flags.sweep {
 		read.Body = flags.body
 		if _, _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
@@ -249,7 +256,7 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		if unread != "" {
 			refusals, lapses = append(refusals, unread), time.Time{}
 		}
-		shown, err := gates.TapCardShownAt(s, cfg.Repo, number, head)
+		shown, err := g.tapWait(claim, read)
 		if err != nil {
 			return false, lapses, err
 		}
@@ -611,6 +618,11 @@ func landingSection(path string) (landingConfig, error) {
 	}
 	section.ExemptGrades = gates.Grades(section.ExemptGrades, section.GoClasses, section.PortPhrase)
 	return section, nil
+}
+
+func ExemptGrades(runnerPath string) ([]string, error) {
+	section, err := landingSection(runnerPath)
+	return section.ExemptGrades, err
 }
 
 func currentHeads(ctx context.Context, c ccx.Client, repo string, numbers []int, head string) (map[int]string, error) {

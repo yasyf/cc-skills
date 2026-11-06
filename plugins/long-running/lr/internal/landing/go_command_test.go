@@ -365,6 +365,142 @@ func TestAHandTypedExemptGoLandsOnlyWhenTheGateFindsItsClassAtItsHead(t *testing
 	}
 }
 
+func TestASweepRefusingAHeadGradedExemptTellsItsLaneSoHisCardIsDrawn(t *testing.T) {
+	const head = "51717aa0b7e80d25838b30153600acad437970fe"
+	for name, c := range map[string]struct {
+		grade string
+		tells bool
+	}{
+		"graded test-only":          {"class test-only: adds the regression test", true},
+		"graded in no exempt class": {"stays in scope", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			ctx := context.Background()
+			s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			for _, draft := range []client.Draft{
+				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"],"tap_rules":{"rule/infra":["infra/*"]}}`}},
+				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade},
+				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"},
+			} {
+				if _, err := client.Post(ctx, draft); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 1, Head: head, ReadyForTap: true}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.PutFact("o/r", 99, head, gates.ShownFact, "1", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			runner := &shelltest.Fake{}
+			runner.Reply("[\"infra/x_test.ts\",\"@@ +1 @@\\n+expect(x)\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/1/files")
+			a := app.New(io.Discard)
+			a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
+			ready := readyFacts(1, head)
+			ready.Lane = "tests-1"
+
+			posted, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready}, time.Now().UTC(), io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			refusals, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{bus.GoRefusedKind}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(posted) != 0 {
+				t.Fatalf("posted %v, want no go past the tap rule", posted)
+			}
+			if !c.tells {
+				if len(refusals) != 0 {
+					t.Fatalf("refusals %+v, want none: a head in no exempt class has its card already", refusals)
+				}
+				return
+			}
+			if len(refusals) != 1 || !slices.Equal(refusals[0].To, []string{"tests-1"}) || !strings.Contains(refusals[0].Text, "tap rule rule/infra names infra/x_test.ts") {
+				t.Fatalf("refusals %+v, want one to the PR's lane naming the tap rule", refusals)
+			}
+			if facts := bus.LegacyFacts(refusals[0], "o/r", nil); len(facts) != 1 || facts[0].Kind != gates.StandingRefused || facts[0].Head != head {
+				t.Fatalf("facts = %+v, want the refusal at its head, which draws his card on every store", facts)
+			}
+		})
+	}
+}
+
+func TestATestOnlyHeadLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t *testing.T) {
+	const head = "51717bb0b7e80d25838b30153600acad437970fe"
+	for name, c := range map[string]struct {
+		grade   string
+		tap     string
+		refused string
+	}{
+		"test-only with its card shown and open":   {grade: "class test-only: adds the regression test"},
+		"test-only that he held on its card":       {grade: "class test-only: adds the regression test", tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
+		"another exempt class with its card shown": {grade: "class owner-pick: his pick", refused: "owner card card-tap-1-51717bb is open"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			ctx := context.Background()
+			s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			for _, draft := range []client.Draft{
+				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only","class owner-pick"],"cards":[{"id":"card-tap-1-51717bb","title":"Tap: #1, adds the regression test"}]}`}},
+				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade},
+				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"},
+			} {
+				if _, err := client.Post(ctx, draft); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 1, Head: head, ReadyForTap: true}}); err != nil {
+				t.Fatal(err)
+			}
+			stored := map[string]string{gates.ShownFact: "1"}
+			if c.tap != "" {
+				stored["tap"] = c.tap
+			}
+			for kind, value := range stored {
+				if _, err := s.PutFact("o/r", 1, head, kind, value, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner := &shelltest.Fake{}
+			runner.Reply("[\"go/x/x_test.go\",\"@@ +1 @@\\n+\\tif got != want {\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/1/files")
+			a := app.New(io.Discard)
+			a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
+			ready := readyFacts(1, head)
+			ready.Lane = "tests-1"
+
+			posted, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready}, time.Now().UTC(), io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			refusals, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{bus.GoRefusedKind}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.refused == "" {
+				if !slices.Equal(posted, []int{1}) || len(refusals) != 0 {
+					t.Fatalf("posted %v, refusals %+v; want the sweep's go past the shown and open card", posted, refusals)
+				}
+				return
+			}
+			if len(posted) != 0 || len(refusals) != 1 || !strings.Contains(refusals[0].Text, c.refused) {
+				t.Fatalf("posted %v, refusals %+v; want no go and one refusal saying %q", posted, refusals, c.refused)
+			}
+		})
+	}
+}
+
 func TestTheSweepLandsAClaimedOneTestFileFlakeFixPastItsTapRuleAndTellsAnUnclaimedOneHow(t *testing.T) {
 	const head = "aab8fd2b7e80d25838b30153600acad437970fed"
 	const test = "go/sand/next/cmd/iris_serve_idle_test.go"
