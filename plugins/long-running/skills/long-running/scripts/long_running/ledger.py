@@ -127,6 +127,8 @@ KINDS = ("p0", "ruling", "report", "idle")
 VERDICTS = cci.REPORT_VERDICTS
 MERGE_LABEL = "merge"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
+SPRITE_HOST = "sprite"
+SPRITE_REGISTER = "ledger.py register writes nothing on a Sprite, which holds no copy of ledger {ledger}; the Mac's supervisor registers each PR from this lane's opened and head records within 2 minutes."
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 STACK_ENQUEUE_UNSETTLED = 2
 STACK_ENQUEUE_BLOCKED = re.compile(r"^#(\d+) BLOCKED \S+ (.*)$", re.MULTILINE)
@@ -1628,6 +1630,9 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
         raise SystemExit("register needs --branch-prefix, --pr, or both")
     if args.head and len(args.pr) != 1:
         raise SystemExit("--head names one PR's head; pass exactly one --pr with it")
+    if (registered_drive(args.ledger, "") or {}).get("host") == SPRITE_HOST:
+        print(SPRITE_REGISTER.format(ledger=args.ledger[:12]))
+        return 0
     notes = Notes(shell, args.ledger, args.scope)
     if args.branch_prefix:
         with stage(f"check prefix {args.branch_prefix}", shell.trace):

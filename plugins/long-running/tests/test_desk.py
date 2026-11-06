@@ -2005,6 +2005,19 @@ def test_register_records_the_lane_and_marks_its_prs_tracked(capsys):
     assert capsys.readouterr().out.strip() == f"registered {LANE} on lightning/* #24070"
 
 
+def test_register_on_a_sprite_writes_nothing_and_exits_zero_naming_the_macs_supervisor(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    drives = tmp_path / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / f"{DRIVE}.json").write_text(json.dumps({"drive": DRIVE, "ledger": LEDGER, "repo": REPO, "sessions": ["s"], "host": ledger.SPRITE_HOST}))
+    shell = FakeShell()
+
+    assert run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "24070", "--head", HEAD) == 0
+
+    assert shell.stores[LEDGER]["rows"] == []
+    assert capsys.readouterr().out.strip() == ledger.SPRITE_REGISTER.format(ledger=LEDGER[:12])
+
+
 def test_register_a_lone_pr_records_its_head_and_keeps_the_lane_that_claimed_it_first(capsys):
     shell = FakeShell()
 

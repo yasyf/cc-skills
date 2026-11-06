@@ -407,7 +407,7 @@ lane. `lr launch` posts to the orca runner when one is up and otherwise launches
 terminal, which coordinates the Run, since the coordinator has not started a runner yet. The coordinator
 runs its own subscribe line (R9), then `lr desks start` before any lane: the Run binding and every standing
 desk its brief names, each desk with a `Standing:` line. The communicator's lines above start no runner and
-no desk. Every lane registers its branch prefix at spawn with `ledger.py register`.
+no desk. Every Mac lane registers its branch prefix at spawn with `ledger.py register`; a Sprite lane skips it, since the Mac's supervisor registers each PR from the lane's `opened` and `head` records.
 
 `lr owner start` subscribes the communicator: the owner's taps, asks, decides, blocks and incidents wake it on arrival, and reports, notes, answers and other routine kinds reach it together, at most every five minutes and at once ahead of any other record.
 Every incident launch, by `lr incident run` or the supervisor, addresses the communicator once on the alert's topic, and `cci subscribe --topic-kinds` wakes it on arrival with each `mechanism`, `fix-live` and `not-ours` record any lane posts on that topic, with no line in a brief and no hand relay.
