@@ -135,10 +135,10 @@ func (r Remote) replay(ctx context.Context, number int, credentials string, open
 	for _, p := range open {
 		outside[p.Oid] = p.Number
 	}
-	branches := make([]string, 0, len(pulls))
+	stacked := make([]string, 0, len(pulls))
 	for _, p := range pulls {
 		delete(outside, p.Oid)
-		branches = append(branches, p.Head)
+		stacked = append(stacked, p.Head+":"+p.Base)
 	}
 	var stdin strings.Builder
 	stdin.WriteString(credentials)
@@ -146,7 +146,7 @@ func (r Remote) replay(ctx context.Context, number int, credentials string, open
 		stdin.WriteString(oid + "\n")
 	}
 	done, err := r.Runner.Run(ctx, shell.Command{
-		Argv:    slices.Concat(r.prefix(), []string{"sh", "-c", restackScript, "sh", r.Clone, base, upstream}, branches),
+		Argv:    slices.Concat(r.prefix(), []string{"sh", "-c", restackScript, "sh", r.Clone, base, upstream}, stacked),
 		Stdin:   stdin.String(),
 		Timeout: passTimeout,
 	})

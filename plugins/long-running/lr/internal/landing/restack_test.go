@@ -300,3 +300,74 @@ func TestAConflictingChildIsLeftBehindAndNamedWhileTheRestMove(t *testing.T) {
 		t.Fatalf("posted = %q, want the line's two and #4", posted.texts)
 	}
 }
+
+func pushFix(t *testing.T, origin string) {
+	t.Helper()
+	work := filepath.Join(filepath.Dir(origin), "work")
+	git(t, work, "fetch", "-q", "origin")
+	git(t, work, "checkout", "-q", "-B", "a", "origin/a")
+	commit(t, work, "fix.txt", "fixed\n")
+	git(t, work, "push", "-q", "origin", "a")
+}
+
+func TestACommitPushedToAParentBeforeTheRestackReachesEveryChildAboveIt(t *testing.T) {
+	origin, clone := stacked(t, false)
+	branchOff(t, origin, "b", "c", "c.txt", "c\n")
+	pushFix(t, origin)
+	open := `[{"number":1,"headRefName":"a","baseRefName":"dev","headRefOid":"a1"},{"number":2,"headRefName":"b","baseRefName":"a","headRefOid":"b2"},{"number":3,"headRefName":"c","baseRefName":"b","headRefOid":"c3"}]`
+	remote := landing.Remote{Runner: &host{open: open}, PostHead: (&heads{}).post, Repo: "o/r", Clone: clone, Sprite: sprite}
+
+	stdout, err := remote.Run(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dev, a, b := git(t, origin, "rev-parse", "dev"), git(t, origin, "rev-parse", "a"), git(t, origin, "rev-parse", "b")
+	if git(t, origin, "rev-parse", "a~2") != dev || git(t, origin, "log", "-1", "--format=%s", "a") != "fix.txt: fixed" {
+		t.Fatalf("a did not carry its fix onto dev:\n%s", stdout)
+	}
+	if git(t, origin, "rev-parse", "b~1") != a || git(t, origin, "rev-parse", "c~1") != b {
+		t.Fatalf("a child did not move onto its parent's new tip: a=%s b~1=%s b=%s c~1=%s\n%s", a, git(t, origin, "rev-parse", "b~1"), b, git(t, origin, "rev-parse", "c~1"), stdout)
+	}
+}
+
+func TestAChildRebasedOntoANewerBaseThanItsParentReplaysNoBaseCommits(t *testing.T) {
+	origin, clone := stacked(t, false)
+	work := filepath.Join(filepath.Dir(origin), "work")
+	commit(t, work, "dev.txt", "three\n")
+	commit(t, work, "dev.txt", "two\n")
+	git(t, work, "push", "-q", "origin", "dev")
+	git(t, work, "checkout", "-q", "b")
+	git(t, work, "rebase", "-q", "dev")
+	git(t, work, "push", "-q", "-f", "origin", "b")
+	pushFix(t, origin)
+	remote := landing.Remote{Runner: &host{}, PostHead: (&heads{}).post, Repo: "o/r", Clone: clone, Sprite: sprite}
+
+	stdout, err := remote.Run(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if a := git(t, origin, "rev-parse", "a"); git(t, origin, "rev-parse", "a~2") != git(t, origin, "rev-parse", "dev") || git(t, origin, "rev-parse", "b~1") != a {
+		t.Fatalf("b replayed dev's commits onto a:\n%s\n%s", git(t, origin, "log", "--oneline", "b"), stdout)
+	}
+}
+
+func TestACommitPushedToAParentAlreadyOnItsBaseStillMovesTheChildOntoIt(t *testing.T) {
+	origin, clone := stacked(t, false)
+	remote := landing.Remote{Runner: &host{}, PostHead: (&heads{}).post, Repo: "o/r", Clone: clone, Sprite: sprite}
+	if _, err := remote.Run(context.Background(), 2); err != nil {
+		t.Fatal(err)
+	}
+	pushFix(t, origin)
+	onDev := git(t, origin, "rev-parse", "a")
+
+	stdout, err := remote.Run(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if a := git(t, origin, "rev-parse", "a"); a != onDev || git(t, origin, "rev-parse", "b~1") != a {
+		t.Fatalf("b did not move onto a's new tip %s:\n%s", onDev, stdout)
+	}
+}
