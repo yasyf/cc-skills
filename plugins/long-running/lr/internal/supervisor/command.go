@@ -278,7 +278,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 		a.Log.Warn("the store desk stays off", "drive", env.Config.Drive, "err", err)
 	} else {
 		deps.Followers = append(deps.Followers, askdesk.Desk{
-			Lane: askdesk.StoreDesk, Drive: env.Config.Drive, Bodies: filepath.Join(env.State, askdesk.StoreDesk), Now: a.Now, Log: a.Stderr,
+			Lane: askdesk.StoreDesk, Drive: env.Config.Drive, Duty: askdesk.StoreDuty, Bodies: filepath.Join(env.State, askdesk.StoreDesk), Now: a.Now, Log: a.Stderr,
 			Read: askdesk.StoreReads(map[string]askdesk.Serve{"grade queue": grading.QueueRead(a, env.Config.Drive), "board rows": board.RowsRead(env.Config.Drive), "landing gate": landing.GateRead(a, env.Config.Drive)}),
 		}.Follow)
 	}

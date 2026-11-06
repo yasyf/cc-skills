@@ -1143,6 +1143,11 @@ func (s *Store) SetLaneStanding(name, duty string) error {
 	return err
 }
 
+func (s *Store) ClaimLane(name, role, duty string) error {
+	_, err := s.db.Exec("UPDATE lanes SET role = ?, standing = ?, brief = '' WHERE name = ?", role, text(duty), name)
+	return err
+}
+
 func (s *Store) SetLaneStep(name, step string) error {
 	_, err := s.db.Exec("UPDATE lanes SET step = ? WHERE name = ?", text(step), name)
 	return err

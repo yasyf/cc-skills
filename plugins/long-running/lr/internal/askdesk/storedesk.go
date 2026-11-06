@@ -17,6 +17,7 @@ import (
 
 const (
 	StoreDesk  = "store-desk"
+	StoreDuty  = "answers Sprite lanes' reads of the drive's store over cci"
 	answerWait = 3 * time.Minute
 	failedRead = "store read failed: "
 )

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
@@ -130,6 +131,33 @@ func TestAnIdleRosteredTeammateHoldingNothingRetiresPastTheThresholdAndOneWithAP
 			want = store.LaneDesired
 		}
 		equal(t, []any{row(t, s, lane2).State, len(f.launches)}, []any{want, 0})
+	}
+}
+
+func TestASpawnRowADeskServiceClaimsIsStandingSoItsIdleTeammateNamesakeIsNeverRetired(t *testing.T) {
+	const duty = "answers lanes' Sentry and Datadog reads over cci"
+	for _, served := range []bool{true, false} {
+		s := memory(t)
+		f := adopted(t, s, writeBrief(t), "")
+		said := rec(2, lane2, "state", t0, "restacked", Root)
+		if served {
+			said = rec(2, lane2, "state", t0, lane2+" serves: "+duty)
+			said.Fields.Attrs = map[string]string{askdesk.StandingAttr: duty}
+		}
+		f.feed = append(f.feed, said)
+		idle := onRoster(who(lane2, true, t0))
+		idle.Idle = true
+		f.peers = []Row{idle}
+
+		out := tick(t, s, f, t0.Add(mins(61)))
+
+		lane := row(t, s, lane2)
+		if !served {
+			equal(t, []any{lane.State, lane.RetiredBy, lane.Standing}, []any{store.LaneRetired, retiredSilent, ""})
+			continue
+		}
+		equal(t, []any{lane.State, lane.Standing, lane.Role, lane.Brief}, []any{store.LaneDesired, duty, roleDesk, ""})
+		equal(t, []any{len(out.Retired), len(out.Relaunched), len(f.launches)}, []any{0, 0, 0})
 	}
 }
 

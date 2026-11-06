@@ -24,6 +24,7 @@ import (
 
 const (
 	Lane = "obs-desk"
+	Duty = "answers lanes' Sentry, Datadog, Slack and ai-oncall reads over cci"
 
 	bodiesDir     = "obs-desk"
 	fresh         = time.Minute
@@ -152,7 +153,7 @@ func (d *Desk) Serve(ctx context.Context) error {
 }
 
 func (d *Desk) loop() askdesk.Desk {
-	return askdesk.Desk{Lane: Lane, Drive: d.Drive, Bodies: d.Bodies, Now: d.Now, Log: d.Log, Read: d.read}
+	return askdesk.Desk{Lane: Lane, Drive: d.Drive, Duty: Duty, Bodies: d.Bodies, Now: d.Now, Log: d.Log, Read: d.read}
 }
 
 func (d *Desk) read(ctx context.Context, text string) askdesk.Reply {

@@ -24,6 +24,7 @@ import (
 
 const (
 	Lane = "bk-desk"
+	Duty = "answers lanes' Buildkite reads over cci"
 
 	fresh       = time.Minute
 	readTimeout = 5 * time.Minute
@@ -105,7 +106,7 @@ func (d *Desk) Serve(ctx context.Context) error {
 }
 
 func (d *Desk) loop() askdesk.Desk {
-	return askdesk.Desk{Lane: Lane, Drive: d.Drive, Bodies: d.Bodies, Now: d.Now, Log: d.Log, Read: func(ctx context.Context, text string) askdesk.Reply {
+	return askdesk.Desk{Lane: Lane, Drive: d.Drive, Duty: Duty, Bodies: d.Bodies, Now: d.Now, Log: d.Log, Read: func(ctx context.Context, text string) askdesk.Reply {
 		read := d.read(ctx, text)
 		return askdesk.Reply{Head: read.head, Body: read.body, URL: read.url}
 	}}
