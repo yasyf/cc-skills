@@ -14,6 +14,7 @@ BINDING_DIRECTIONS = frozenset({"removes", "requires"})
 NOT_RULINGS = ("corpus/", "no/")
 SLICE_LINE = "Register slice:"
 LEDGER_REFS = "refs/cc-notes/ledgers/"
+SLICE_STAMPS = "slices"
 
 
 def program_of(entry: dict) -> str:
@@ -46,21 +47,51 @@ def active_register(run: Run, repo: str, kept: Path) -> dict | None:
     return shown if shown["status"] == "active" else None
 
 
-def load(run: Run, lock: Lock, held: Callable[[Path], bool], repo: str, program: str, state: Path, last: bool = False, kept_any: bool = False) -> tuple[str, dict]:
-    tips = run(["git", "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)", LEDGER_REFS])
+def ledger_tips(run: Run, repo: str) -> str:
+    return run(["git", "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)", LEDGER_REFS])
+
+
+def load(run: Run, lock: Lock, held: Callable[[Path], bool], repo: str, program: str, state: Path, last: bool = False, kept_any: bool = False) -> tuple[str, dict, str]:
+    tips = ledger_tips(run, repo)
     kept = state / f"register-{program}.json"
     if cached := kept_copy(kept, repo, None if kept_any else tips):
-        return cached["ledger"], cached["rows"]
+        return cached["ledger"], cached["rows"], cached["tips"]
     if last and held(kept.with_suffix(".lock")) and (cached := kept_copy(kept, repo, None)):
-        return cached["ledger"], cached["rows"]
+        return cached["ledger"], cached["rows"], cached["tips"]
     with lock(kept.with_suffix(".lock")):
         if cached := kept_copy(kept, repo, tips):
-            return cached["ledger"], cached["rows"]
+            return cached["ledger"], cached["rows"], cached["tips"]
         shown = active_register(run, repo, kept) or ccn(run, repo, "ledger", "show", ledger_of(run, repo, program))
         identity = shown["id"]
         rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
         write_atomic(kept, json.dumps({"repo": repo, "tips": tips, "ledger": identity, "rows": rows}, ensure_ascii=False))
-    return identity, rows
+    return identity, rows, tips
+
+
+def slice_inputs(tips: str, ledgers: Iterable[str], plan: Path | None) -> dict:
+    refs = {f"{LEDGER_REFS}{ledger}" for ledger in ledgers}
+    return {"refs": {ref: sha for ref, sha in tip_pairs(tips) if ref in refs}, "plan": [str(plan), file_version(plan)] if plan else None}
+
+
+def stamp_slice(state: Path, brief: str, inputs: dict) -> None:
+    write_atomic(state / SLICE_STAMPS / f"{digest(brief)}.json", json.dumps(inputs))
+
+
+def slice_current(run: Run, repo: str, state: Path, brief: str) -> bool:
+    if not (kept := state / SLICE_STAMPS / f"{digest(brief)}.json").is_file():
+        return False
+    inputs = json.loads(kept.read_text())
+    tips = dict(tip_pairs(ledger_tips(run, repo)))
+    plan = inputs["plan"]
+    return all(tips.get(ref) == sha for ref, sha in inputs["refs"].items()) and (plan is None or file_version(Path(plan[0])) == plan[1])
+
+
+def tip_pairs(tips: str) -> Iterable[tuple[str, str]]:
+    return (tuple(line.split(" ", 1)) for line in tips.splitlines())
+
+
+def file_version(path: Path) -> str:
+    return f"{(found := path.stat()).st_mtime_ns}:{found.st_size}" if path.is_file() else ""
 
 
 def live_rows(rows: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:

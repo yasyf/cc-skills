@@ -36,17 +36,18 @@ def test_kept_any_reuses_only_the_matching_repository_snapshot(tmp_path, kept_an
         held_calls.append(path)
         return False
 
-    identity, rows = register_reads.load(run, lock, held, "/repo", "brook", tmp_path, kept_any=kept_any)
+    identity, rows, tips = register_reads.load(run, lock, held, "/repo", "brook", tmp_path, kept_any=kept_any)
 
     assert held_calls == []
     assert calls[0] == ["git", "-C", "/repo", "for-each-ref", "--format=%(refname) %(objectname)", register_reads.LEDGER_REFS]
     if kept_any and cached_repo == "/repo":
-        assert (identity, rows) == ("old-ledger", cached_rows)
+        assert (identity, rows, tips) == ("old-ledger", cached_rows, "old tips")
         assert len(calls) == 1
         assert locks == []
     else:
         assert identity == ("old-ledger" if cached_repo == "/repo" else "new-ledger")
         assert rows == {"new": {"words": "new snapshot", "updated_at": "2"}}
+        assert tips == "new tips"
         assert locks == [kept.with_suffix(".lock")]
         assert all(argv[0] == "ccn" for argv in calls[1:])
         assert json.loads(kept.read_text())["tips"] == "new tips"

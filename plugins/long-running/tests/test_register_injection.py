@@ -11,6 +11,7 @@ from captain_hook.events import PostToolUseEvent, PreToolUseEvent, SessionStartE
 from captain_hook.testing.helpers import build_context
 
 from fire import fire
+from long_running import register_reads
 from hooks import compaction_handoff as handoff
 from hooks import register_injection as injection
 
@@ -19,6 +20,7 @@ TRANSCRIPT = str(FIXTURES / "usage-460k.jsonl")
 SESSION = "0123456789abcdef"
 REGISTER_ID = "0cf17c9" + "0" * 33
 REGISTER_BODY = "# brook register\n\n1. Pulumi state is the only truth (ec2881e).\n"
+SLICED_PROMPT = "Lane lane-a.\nScale: no N\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
 FAKE_CCN = f"""#!/usr/bin/env python3
 import json, sys
 args = sys.argv[3:]
@@ -189,6 +191,42 @@ def test_a_slice_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools
 
     assert injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"name": "lane-a", "prompt": prompt})) is None
     assert posted == [("slice_on_spawn: the register slice for lane-a did not read: no register for brook", {"key": "slice-on-spawn:lane-a"})]
+
+
+def test_a_brief_its_refresh_stamped_spawns_with_no_recompute_until_a_ledger_it_read_moves(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(injection, "rulings", lambda cwd, *args, **_: calls.append(args) or "refreshed /tmp/brief.md slice-hash 0123456789ab -> 89abcdef0123\n")
+    monkeypatch.setattr(injection, "judged", lambda *_: None)
+    tips = {"now": f"{register_reads.LEDGER_REFS}r1 {'a' * 40}\n{register_reads.LEDGER_REFS}desk {'d' * 40}\n"}
+    monkeypatch.setattr(handoff.RegisterRead, "run", lambda self, argv: tips["now"])
+    session = activated(tools / "session")
+    register_reads.stamp_slice(tools / ".claude" / "scratch" / "brook", SLICED_PROMPT, register_reads.slice_inputs(tips["now"], ["r1"], None))
+
+    def spawn() -> object:
+        return injection.slice_on_spawn(spawned(session, "Agent", {"name": "lane-a", "prompt": SLICED_PROMPT}))
+
+    assert spawn() is None
+    tips["now"] = tips["now"].replace("d" * 40, "e" * 40)
+    assert spawn() is None
+    assert calls == []
+    tips["now"] = tips["now"].replace("a" * 40, "b" * 40)
+    warned = spawn()
+    assert warned.message == injection.STALE_SLICE.format(path="<brief>")
+    assert [args[:2] for args in calls] == [("slice", "--refresh")]
+
+
+def test_a_recompute_past_its_budget_warns_with_the_refresh_command_and_posts_no_blocker(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def slow(cwd: str, *args: str, **_: object) -> str:
+        raise subprocess.TimeoutExpired(["rulings.py", *args], 16.2)
+
+    posted: list[str] = []
+    monkeypatch.setattr(injection, "rulings", slow)
+    monkeypatch.setattr(injection, "post_blocker", lambda evt, text, **flags: posted.append(text))
+
+    warned = injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"name": "lane-a", "prompt": SLICED_PROMPT}))
+
+    assert warned.message == injection.STALE_SLICE.format(path="<brief>")
+    assert posted == []
 
 
 def test_a_brief_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:

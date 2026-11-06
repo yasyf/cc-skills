@@ -515,6 +515,7 @@ class Register:
     drive_ledger: str = ""
     drive: str | None = None
     runtime: Runtime | None = None
+    tips: str = ""
 
     @cached_property
     def brief_paths(self) -> list[Path]:
@@ -537,9 +538,9 @@ class Register:
         program = program_of(args)
         repo = repo or register_repo(args)
         state = state_dir(args, args.runtime.drives, args.runtime.scratch)
-        identity, rows = register_reads.load(shell.run, args.runtime.lock, args.runtime.held, repo, program, state, last, kept_any)
+        identity, rows, tips = register_reads.load(shell.run, args.runtime.lock, args.runtime.held, repo, program, state, last, kept_any)
         entry = entry_of(args) or {}
-        return cls(shell, repo, program, state, identity, rows, entry.get("ledger", ""), entry.get("drive"), args.runtime)
+        return cls(shell, repo, program, state, identity, rows, entry.get("ledger", ""), entry.get("drive"), args.runtime, tips)
 
     def write(self, key: str, **fields: object) -> None:
         values = {name: stored(value) for name, value in fields.items()}
@@ -864,6 +865,10 @@ class Want:
             line += f" prs={','.join(self.prs)}"
         return line + (" codex=yes" if self.codex else "")
 
+    @property
+    def carries_standing_rules(self) -> bool:
+        return self.codex or self.step == INCIDENT_STEP
+
     def names_pr(self, fields: dict[str, str]) -> bool:
         text = "\n".join(fields.get(name) or "" for name in PR_FIELDS)
         return any(re.search(rf"#{ledger.PR_KEY.fullmatch(key)['pr']}(?!\d)", text) for key in self.prs)
@@ -1001,7 +1006,7 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None, named: Named = N
             tail.append(f"{len(found) - kept} more answers pass the {ANSWERS_CAP // 1000} KB answer cap; run the step-one commands for them.")
     else:
         out.add(["This brief names no `topics=` or `paths=`, so the launch searched nothing. Run `ccn answer search <topic>` for each subject you decide on before any ask, decide with options, or PR."])
-    if (want.codex or want.step == INCIDENT_STEP) and doc:
+    if want.carries_standing_rules and doc:
         out.add(["", "## Standing rules", doc["body"].rstrip()])
     picks = sorted((key for key in ranks if rulings[key].get("kind") == "pick"), key=lambda key: write_in_first((key, rulings[key])))
     rows = sorted((key for key in ranks if rulings[key].get("kind") != "pick"), key=ranks.__getitem__)
@@ -1201,13 +1206,22 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
     if (stamp := SLICE_HASH.search(text, header.end())) and not SLICE_HEADER.search(text, header.end(), stamp.start()):
         old, end = stamp["hash"], stamp.end()
     want = Want.parse(header)
+    inputs = None if want.carries_standing_rules else inputs_of(loaded, want, plan)
     words = "".join(found[0] for found in TEMPLATED_WORDS.finditer(text)) or answer_search.own_words(text[: header.start()] + text[end:], sibling_briefs(loaded, want.lane))
     fresh = lane_slice(loaded, want, plan, bearing_answers(loaded, words))
     new = SLICE_HASH.search(fresh)["hash"]
-    if old == new and text[header.start() : end] == fresh.rstrip("\n"):
-        return f"fresh {brief} slice-hash {new}"
-    write_atomic(brief, text[: header.start()] + fresh.rstrip("\n") + text[end:])
-    return f"refreshed {brief} slice-hash {old or 'none'} -> {new}"
+    current = old == new and text[header.start() : end] == fresh.rstrip("\n")
+    written = text if current else text[: header.start()] + fresh.rstrip("\n") + text[end:]
+    if not current:
+        write_atomic(brief, written)
+    if inputs:
+        register_reads.stamp_slice(loaded.state, written, inputs)
+    return f"fresh {brief} slice-hash {new}" if current else f"refreshed {brief} slice-hash {old or 'none'} -> {new}"
+
+
+def inputs_of(loaded: Register, want: Want, plan: Path | None) -> dict:
+    vocabulary = answer_search.vocabulary_ledger(partial(ccn_text, loaded.shell, loaded.repo), loaded.program) if want.paths else None
+    return register_reads.slice_inputs(loaded.tips, [loaded.ledger, *([vocabulary] if vocabulary else [])], plan)
 
 
 def lane_topics(ccn: answer_search.Run, program: str, topics: list[str], paths: list[str]) -> list[str]:
