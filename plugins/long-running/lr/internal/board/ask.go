@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
@@ -386,7 +387,7 @@ func diagramChild(slug, path string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": slug + "-diagram", "type": diagramType, "doc": json.RawMessage(doc)}, nil
+	return map[string]any{"id": slug + "-diagram", "type": arch.Block, "doc": json.RawMessage(doc)}, nil
 }
 
 func withDiagram(block json.RawMessage, path string) (json.RawMessage, error) {

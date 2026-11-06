@@ -24,7 +24,7 @@ var schema = map[string]any{
 		"md":          map[string]any{"type": "string", "description": "The reply in markdown: prose, lists, tables and links."},
 		"status":      map[string]any{"type": "string", "enum": statuses, "description": "Set when he must see this now; a reply with a status also goes to his Slack, except progress on an order with no picks, which writes his ledger row and posts nothing to Slack."},
 		"type":        map[string]any{"type": "string", "enum": types, "description": "What this answer is on his Chat page: an explanation, an update, something for him, a question, an incident or a done. Omit it and the tool takes it from status and picks."},
-		"diagram":     map[string]any{"type": "object", "description": "One architecture doc (arch/v1, the format of an arch fence for lr explain), drawn on his Chat page with no one-pager. Board, terminal and Slack link its dashboard page, and a Slack card with no picks or a reply in his Slack thread shows it as its picture."},
+		"diagram":     map[string]any{"type": "object", "description": "One architecture doc (arch/v1, the format of an arch fence for lr explain), drawn on his Chat page with no one-pager. Board, terminal and Slack link its https dashboard page, and every board and Slack card or Slack thread reply carrying it shows it as its picture in that post. A diagram that does not draw, such as a store whose medium is not memory, disk, bucket, keys or pages, refuses the reply before anything posts."},
 		"picks":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "2 to 4 answers he picks from, each 'Keep it :: what picking it does', one tap button on his board and in Slack with those words beside it. A label is a short sentence-case phrase, never capitals, and the words after :: always draw beside it."},
 		"recommended": map[string]any{"type": "string", "description": "The pick you recommend; required with picks."},
 		"ask":         map[string]any{"type": "integer", "description": "With picks, the seq of the lane's ask or other cci record the card is drawn from. The card's row records it, and a later correction or head record whose re or resolves chain reaches it sends you a STALE ask to redraw or withdraw the card before he taps."},
@@ -145,6 +145,9 @@ func Tool(a *app.App) channel.Tool {
 				return "reply: " + err.Error(), true
 			}
 			if err := r.unreadAsk(); err != nil {
+				return "reply: " + err.Error(), true
+			}
+			if r, err = fanout.pictured(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
 			if warning := fanout.tapWarning(r); warning != "" {

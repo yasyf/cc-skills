@@ -63,8 +63,7 @@ const (
 	threadIndex = "thread index"
 	linePrefix  = "line:"
 
-	diagramNote = "The diagram is on the Chat page of your dashboard."
-	untiedPick  = "Picking this approves no PR by itself: this card shows no single PR at one head, so a lane carries your yes by hand."
+	untiedPick = "Picking this approves no PR by itself: this card shows no single PR at one head, so a lane carries your yes by hand."
 
 	namesBugKind    = "names-bug"
 	cardCopySurface = "card copy"
@@ -151,7 +150,7 @@ type Reply struct {
 
 	Words map[string]string `json:"words,omitempty"`
 
-	artifacts []Artifact
+	diagram Artifact
 }
 
 type Outcome struct {
@@ -192,8 +191,7 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	for pick, said := range seen.Words {
 		seen.Words[pick] = cardtext.HiddenCite.ReplaceAllString(said, "")
 	}
-	_, diagram := f.diagramPage(ctx, r)
-	told := seen.diagramNoted(diagram).artifactsLinked()
+	told := seen.diagramNoted().artifactsLinked()
 	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
 	case r.quiet():
@@ -687,13 +685,9 @@ func (r Reply) typed() Reply {
 	return r
 }
 
-func (r Reply) diagramNoted(link string) Reply {
-	switch {
-	case len(r.Diagram) == 0:
-	case link == "":
-		r.MD += "\n\n" + diagramNote
-	default:
-		r.MD += "\n\n[" + diagramLead + r.diagramTitle() + "](" + link + ")"
+func (r Reply) diagramNoted() Reply {
+	if r.diagram.URL != "" {
+		r.MD += "\n\n[" + diagramLead + r.diagram.Title + "](" + r.diagram.URL + ")"
 	}
 	return r
 }
@@ -758,12 +752,6 @@ func (r Reply) mended() (Reply, []string) {
 	if r.Type != "" && !slices.Contains(types, r.Type) {
 		warn("type %q is not one of %s, so it was left off", r.Type, strings.Join(types, ", "))
 		r.Type = ""
-	}
-	if len(r.Diagram) > 0 {
-		if problems := arch.Problems(r.Diagram); len(problems) > 0 {
-			warn("the diagram does not draw, so it was left off: %s", strings.Join(problems, "; "))
-			r.Diagram = nil
-		}
 	}
 	r, warned = r.mendedPicks(warned)
 	r.Links = kept(r.Links, maxLinks, "links", &warned, func(link Link) bool {
@@ -1044,6 +1032,9 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 		prose += "\n- [" + link.Label + "](" + link.URL + ")"
 	}
 	children := []map[string]any{{"id": r.ID + "-choice", "type": "choice", "options": options}}
+	if r.diagram.Image != "" {
+		children = slices.Insert(children, 0, map[string]any{"id": r.ID + "-diagram", "type": arch.Block, "doc": r.Diagram, "picture": r.diagram.Image, "link": r.diagram.URL, "title": r.diagram.Title})
+	}
 	if prose = strings.TrimSpace(prose); prose != "" {
 		children = slices.Insert(children, 0, map[string]any{"id": r.ID + "-md", "type": "markdown", "md": prose})
 	}
@@ -1227,28 +1218,22 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		return []Outcome{{Surface: "slack", Error: "the earlier reply did not read, so nothing was posted or edited: " + err.Error()}}
 	}
 	if own := was.ownMessage(r); own.Ref != "" {
-		r, shown := f.pictured(ctx, r)
-		defer shown.remove()
-		return []Outcome{shown.told(f.edit(ctx, r, own, r.withPickLink(r.MD, drawn)))}
+		return []Outcome{f.edit(ctx, r, own, r.withPickLink(r.MD, drawn))}
 	}
 	if surface(was.Surfaces, "slack").Ref != "" || len(r.Picks) > 0 && drawn.Ref == "" {
 		return nil
 	}
 	if r.Thread != "" && drawn.Surface == "" {
-		r, shown := f.pictured(ctx, r)
-		defer shown.remove()
-		return []Outcome{shown.told(f.inThread(ctx, r)[0])}
+		return f.inThread(ctx, r)
 	}
 	if drawn.Surface != "" || r.quiet() || len(r.Links) == 0 && len(r.PRs) == 0 && len(r.Artifacts) == 0 && r.Status == "" {
 		return nil
 	}
-	r, shown := f.pictured(ctx, r)
-	defer shown.remove()
 	card, err := f.statusCard(r, r.MD, "")
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
-	return []Outcome{shown.told(f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)[0])}
+	return f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)
 }
 
 func (d delivery) ownMessage(r Reply) Outcome {
@@ -1371,7 +1356,7 @@ func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
 		Links     []Link     `json:"links,omitempty"`
 		Artifacts []Artifact `json:"artifacts,omitempty"`
 		Replaces  string     `json:"replaces,omitempty"`
-	}{key, cmp.Or(r.Status, "info"), r.Title, body, f.Entry.Bus(), buttons, r.artifacts, replaces})
+	}{key, cmp.Or(r.Status, "info"), r.Title, body, f.Entry.Bus(), buttons, r.cardArtifacts(), replaces})
 	return string(card), err
 }
 

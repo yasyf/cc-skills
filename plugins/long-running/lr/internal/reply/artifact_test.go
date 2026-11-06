@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	artifactURL = "http://mac.tail1.ts.net:61211/artifact/r9/0"
+	artifactURL = "https://mac.tail1.ts.net:61212/artifact/r9/0"
 	transcript  = `{"i":1,"kind":"user","text":"why did it stop?","blocks":[]}
 {"i":2,"kind":"attachment","attachment_type":"hook_success"}
 {"i":3,"kind":"assistant","text":"The load gate.","blocks":[{"type":"thinking","thinking":"read the log"},{"type":"text","text":"The load gate."}]}
@@ -25,7 +25,7 @@ const (
 
 func withDashboard(t *testing.T, f Fanout) Fanout {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(f.Entry.StateDir, "dashboard.json"), []byte(`{"host":"127.0.0.1","port":61211}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(f.Entry.StateDir, "dashboard.json"), []byte(`{"host":"127.0.0.1","port":61211,"tls_port":61212}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -230,7 +230,7 @@ func TestACardCarriesTheDiagramsPictureAheadOfTheArtifactsAndStoresNoImage(t *te
 	fake := scripted()
 	f, _ := onDashboard(t, fanout(t, fake), nil)
 	artifact := Artifact{Title: "The session", Kind: kindTranscript, URL: artifactURL, Size: "2 turns"}
-	f.Send(context.Background(), Reply{ID: "d1", Title: "How the relay runs", MD: "The relay.", Status: info, Diagram: json.RawMessage(drawnDiagram), Artifacts: []Artifact{artifact}})
+	sendPictured(t, f, Reply{ID: "d1", Title: "How the relay runs", MD: "The relay.", Status: info, Diagram: json.RawMessage(drawnDiagram), Artifacts: []Artifact{artifact}})
 
 	posts := calls(fake, "cc-slack")
 	if len(posts) != 1 {

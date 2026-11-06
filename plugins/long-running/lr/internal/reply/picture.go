@@ -3,6 +3,7 @@ package reply
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,68 +17,42 @@ const (
 	diagramLead = "Diagram: "
 )
 
-type picture struct {
-	dir     string
-	warning string
-}
-
-func (p picture) remove() {
-	if p.dir != "" {
-		_ = os.RemoveAll(p.dir)
-	}
-}
-
-func (p picture) told(o Outcome) Outcome {
-	if p.warning != "" {
-		o.Warning = strings.TrimSpace(o.Warning + " " + p.warning)
-	}
-	return o
-}
-
-func (f Fanout) diagramPage(ctx context.Context, r Reply) (string, string) {
+func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, error) {
 	if len(r.Diagram) == 0 {
-		return "", ""
+		return r, nil
+	}
+	if problems := arch.Problems(r.Diagram); len(problems) > 0 {
+		return r, fmt.Errorf("the diagram does not draw, so nothing posted; fix it and send again: %s", strings.Join(problems, "; "))
 	}
 	dashboard, err := drive.DashboardURL(f.Entry.StateDir)
 	if err != nil {
-		return "", ""
+		return r, fmt.Errorf("the diagram needs the drive's dashboard to draw it, and its address did not read, so nothing posted: %w", err)
 	}
 	named, err := arch.DashboardLink(ctx, f.Runner, f.Entry.StateDir)
 	if err != nil {
-		return "", ""
+		return r, fmt.Errorf("the diagram needs the dashboard's https address for its link, and it did not read, so nothing posted: %w", err)
 	}
-	return dashboard, named + diagramKind + "/" + r.ID
+	png := arch.Picture(f.Entry.StateDir, r.ID)
+	if err := os.MkdirAll(filepath.Dir(png), 0o750); err != nil {
+		return r, err
+	}
+	if err := f.Shoot(ctx, dashboard, r.Diagram, png); err != nil {
+		return r, fmt.Errorf("the diagram's picture did not draw, so nothing posted; fix it and send again: %w", err)
+	}
+	r.diagram = Artifact{Title: shortened(cmp.Or(arch.Title(r.Diagram), r.Title), maxTitle), Kind: diagramKind, URL: named + diagramKind + "/" + r.ID, Image: png}
+	return r, nil
 }
 
-func (r Reply) diagramTitle() string {
-	return shortened(cmp.Or(arch.Title(r.Diagram), r.Title), maxTitle)
+func (r Reply) cardArtifacts() []Artifact {
+	if r.diagram.URL == "" {
+		return r.Artifacts
+	}
+	return append([]Artifact{r.diagram}, r.Artifacts...)
 }
 
 func (r Reply) pictureFlags() []string {
-	var flags []string
-	for _, a := range r.artifacts {
-		if a.Image != "" {
-			flags = append(flags, "--file", a.Image)
-		}
+	if r.diagram.Image == "" {
+		return nil
 	}
-	return flags
-}
-
-func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, picture) {
-	r.artifacts = r.Artifacts
-	dashboard, link := f.diagramPage(ctx, r)
-	if link == "" {
-		return r, picture{}
-	}
-	r.artifacts = append([]Artifact{{Title: r.diagramTitle(), Kind: diagramKind, URL: link}}, r.Artifacts...)
-	dir, err := os.MkdirTemp("", "lr-diagram-")
-	if err != nil {
-		return r, picture{warning: "the diagram's picture was not drawn, so its Slack card has none: " + err.Error()}
-	}
-	png := filepath.Join(dir, r.ID+".png")
-	if err := f.Shoot(ctx, dashboard, r.Diagram, png); err != nil {
-		return r, picture{dir: dir, warning: "the diagram's picture was not drawn, so its Slack card has none: " + err.Error()}
-	}
-	r.artifacts[0].Image = png
-	return r, picture{dir: dir}
+	return []string{"--file", r.diagram.Image}
 }

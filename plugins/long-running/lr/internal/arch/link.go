@@ -4,18 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/url"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
 func DashboardLink(ctx context.Context, run shell.Runner, state string) (string, error) {
-	dashboard, err := drive.DashboardURL(state)
+	path := filepath.Join(state, "dashboard.json")
+	body, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
+	}
+	var config struct {
+		TLSPort int `json:"tls_port"`
+	}
+	if err := json.Unmarshal(body, &config); err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	if config.TLSPort == 0 {
+		return "", fmt.Errorf("%s names no tls_port, so the dashboard has no https address, and Slack opens a link only from https", path)
 	}
 	status, err := run.Run(ctx, shell.Command{Argv: []string{"tailscale", "status", "--peers=false", "--json"}, Timeout: 10 * time.Second})
 	if err != nil {
@@ -29,10 +40,5 @@ func DashboardLink(ctx context.Context, run shell.Runner, state string) (string,
 	if err := json.Unmarshal([]byte(status.Stdout), &self); err != nil || self.Self.DNSName == "" {
 		return "", errors.New("tailscale status --json names no DNSName for this machine")
 	}
-	link, err := url.Parse(dashboard)
-	if err != nil {
-		return "", err
-	}
-	link.Host = strings.TrimSuffix(self.Self.DNSName, ".") + ":" + link.Port()
-	return link.String(), nil
+	return fmt.Sprintf("https://%s:%d/", strings.TrimSuffix(self.Self.DNSName, "."), config.TLSPort), nil
 }

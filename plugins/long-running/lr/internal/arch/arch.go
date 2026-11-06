@@ -3,8 +3,18 @@ package arch
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"slices"
+	"strings"
 )
+
+const Block = "lr.arch"
+
+var media = []string{"memory", "disk", "bucket", "keys", "pages"}
+
+func Picture(state, id string) string {
+	return filepath.Join(state, "diagrams", id+".png")
+}
 
 type node struct {
 	ID     string `json:"id"`
@@ -86,8 +96,8 @@ func walkNodes(nodes []node) ([]string, []string) {
 		if n.ID == "" || n.Kind == "" || n.Name == "" || n.Role == "" {
 			problems = append(problems, fmt.Sprintf(`node %q needs "id", "kind", "name" and "role"`, n.ID))
 		}
-		if (n.Kind == "store" || n.Kind == "log") && n.Medium == "" {
-			problems = append(problems, fmt.Sprintf(`node %q is a %s and needs "medium"`, n.ID, n.Kind))
+		if (n.Kind == "store" || n.Kind == "log") && !slices.Contains(media, n.Medium) {
+			problems = append(problems, fmt.Sprintf(`node %q is a %s, and its "medium" is %q, not one of %s`, n.ID, n.Kind, n.Medium, strings.Join(media, ", ")))
 		}
 		childIDs, childProblems := walkNodes(n.Nodes)
 		ids = append(ids, childIDs...)
