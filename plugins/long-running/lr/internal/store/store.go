@@ -861,6 +861,23 @@ func (s *Store) Owners() (map[string][]int, error) {
 	return s.owned("")
 }
 
+const heldBy = `SELECT pr FROM owners WHERE lane = ?1
+UNION
+SELECT CAST(key AS INTEGER) FROM ledger_rows
+WHERE ledger = ?2 AND key NOT GLOB '*[^0-9]*' AND json_extract(fields, '$.lane') = ?1
+  AND coalesce(json_extract(fields, '$.state'), 'open') = 'open'
+  AND CAST(key AS INTEGER) NOT IN (SELECT pr FROM owners)
+ORDER BY 1`
+
+func (s *Store) HeldBy(lane, ledger string) ([]int, error) {
+	rows, err := s.db.Query(heldBy, lane, ledger)
+	return collect(rows, err, func(rows *sql.Rows) (int, error) {
+		var number int
+		err := rows.Scan(&number)
+		return number, err
+	})
+}
+
 func (s *Store) owned(scope string, args ...any) (map[string][]int, error) {
 	rows, err := s.db.Query("SELECT pr, lane FROM owners "+scope+" ORDER BY pr", args...)
 	type row struct {

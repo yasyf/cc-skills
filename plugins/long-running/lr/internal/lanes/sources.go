@@ -924,6 +924,10 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 	}}
 	launcher := e.tool("desk-launch.py")
 	trunk := deletions.Of(e.Runner, e.Config)
+	landing, err := ReadRunnerLanding(e.State)
+	if err != nil {
+		return Deps{}, err
+	}
 	return Deps{
 		Drive: e.Config.Drive, Parent: e.Config.Parent, Checkout: e.Config.Checkout, State: e.State, Briefs: briefs, Bin: filepath.Join(e.plugin(), "bin"),
 		HandoffBrief: filepath.Join(e.plugin(), "skills", "long-running", "reference", "handoff-subagent-brief.md"),
@@ -963,6 +967,7 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		RotateAt:              rotateAt,
 		RetireAfter:           e.Config.RetireSilent,
 		Repo:                  e.Config.Repo,
+		Ledger:                landing.Ledger,
 		OpenBranches:          func(s *store.Store) (map[string][]int, error) { return openBranches(s, e.Config.Repo) },
 		Ours:                  func(s *store.Store, prs []int) ([]int, error) { return s.DrivePRs(e.Config.Repo, e.Config.Author, prs) },
 		Sprites:               func(names []string) (map[string]Sprite, error) { return e.laneSprites(ctx, names) },

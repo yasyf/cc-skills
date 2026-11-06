@@ -221,3 +221,76 @@ func TestHandingRetiredLanesPRsOnReadsTheSameAtOneLaneAndAtMany(t *testing.T) {
 	}
 	equal(t, counts(scaletest.N()), counts(1))
 }
+
+const (
+	helper     = "sprite-go-gen"
+	prLedgerID = "pr-ledger"
+)
+
+func TestAHelperLaneWithNoRowThatPostsDoneHandsItsOpenPRToPRUnblocksLiveMember(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	withUnblock(t, s, f, store.LaneDesired)
+	if err := s.Own(helper, []int{51591}); err != nil {
+		t.Fatal(err)
+	}
+	f.feed = append(f.feed, rec(2, helper, "done", t0, "done: #51591 (biome fix) waits on his tap at bb3ee48", "meta-desk"))
+
+	tick(t, s, f, t0)
+
+	equal(t, owners(t, s, 51591), map[int]string{51591: unblock})
+	notes := f.ofKind("report")
+	equal(t, len(notes), 1)
+	equal(t, []any{notes[0].To, notes[0].PRs}, []any{[]string{Root}, []int{51591}})
+	contains(t, notes[0].Text, "HANDED ON #51591 to pr-unblock-9, the default owner, as `lr request owner pr-unblock-9 --pr 51591` would: sprite-go-gen ended naming no successor.")
+}
+
+func TestAPROnlyTheLedgerHoldsGetsAnOwnerRowWhenItsLaneIsDone(t *testing.T) {
+	for name, lane := range map[string]string{"a registry lane": lane2, "a helper with no row": helper} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "")
+			withUnblock(t, s, f, store.LaneDesired)
+			f.deps.Ledger = prLedgerID
+			if err := s.Own("restack-children-2", []int{46002}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.PutLedgerRows(prLedgerID, map[string]map[string]string{
+				"51792":               {"lane": lane, "registered": lane, "registered_head": "cc7330dfa6e7"},
+				"46002":               {"lane": lane, "registered": lane, "state": "open"},
+				"46003":               {"lane": lane, "registered": lane, "state": "landed"},
+				"yasyf/cc-skills#131": {"lane": lane, "registered": lane, "state": "open"},
+				"lane/" + lane:        {"lane": lane, "branch_prefix": "codex-0167-"},
+			}, t0); err != nil {
+				t.Fatal(err)
+			}
+			f.feed = append(f.feed, rec(2, lane, "done", t0, "done: #51792 lands on his tap", "meta-desk"))
+
+			tick(t, s, f, t0)
+			tick(t, s, f, t0.Add(mins(1)))
+
+			equal(t, owners(t, s, 51792, 46002, 46003, 131), map[int]string{51792: unblock, 46002: "restack-children-2", 46003: "", 131: ""})
+			notes := f.ofKind("report")
+			equal(t, len(notes), 1)
+			contains(t, notes[0].Text, "HANDED ON #51792 to pr-unblock-9")
+		})
+	}
+}
+
+func TestALanesLandedRecordCitingItsOwnOpenPRKeepsItSoItsDoneHandsItOn(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 51792)
+	withUnblock(t, s, f, store.LaneDesired)
+	f.feed = append(f.feed, rec(2, lane2, kindLanded, t0, "monorepo#51792 + Codex hook cwd: cc-remote v0.27.25 released. Monorepo pin PR #51792 is stacked on #51750 and lands on his tap.", "meta-desk", "install-desk").withRefs(prs(51792)))
+
+	tick(t, s, f, t0)
+
+	equal(t, owners(t, s, 51792), map[int]string{51792: lane2})
+
+	f.feed = append(f.feed, rec(3, lane2, "done", t0.Add(mins(1)), "probe Sprites destroyed", "meta-desk"))
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, owners(t, s, 51792), map[int]string{51792: unblock})
+	contains(t, f.ofKind("report")[0].Text, "HANDED ON #51792 to pr-unblock-9")
+}

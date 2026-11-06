@@ -329,7 +329,7 @@ func (f Fold) reopenMislanded(ctx context.Context) error {
 		for _, record := range records {
 			for _, number := range bus.HeldBy(record, f.Repo) {
 				row, known := rows[number]
-				if !known || row.State != StateLanded || row.LandedAt != store.Stamp(record.At) || landsRow(record, row) {
+				if !known || row.State != StateLanded || row.LandedAt != store.Stamp(record.At) || landsRow(record) {
 					continue
 				}
 				row.State, row.LandedAt = StateOpen, NotYet
@@ -343,9 +343,8 @@ func (f Fold) reopenMislanded(ctx context.Context) error {
 	})
 }
 
-func landsRow(record client.Record, row store.ReviewRow) bool {
-	lane := client.Stem(record.Lane)
-	return lane == landingDesk || lane == client.Stem(row.Lane)
+func landsRow(record client.Record) bool {
+	return client.Stem(record.Lane) == landingDesk
 }
 
 func (f Fold) tail(ctx context.Context, drive, cursor string, kinds []string) ([]client.Record, error) {
@@ -526,7 +525,7 @@ func (f Fold) apply(t *store.Tx, rows map[int]store.ReviewRow, outside map[int]s
 			}
 			err = t.PutFact(f.Repo, number, row.Head, NoPortAttr, attrs[NoPortAttr], record.At)
 		case "landed":
-			if !known || !landsRow(record, row) {
+			if !known || !landsRow(record) {
 				continue
 			}
 			row = landed(row, record.At)
@@ -747,9 +746,12 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 	if body, carried := bodyOf(record); carried {
 		ApplyBody(&row, body)
 	}
+	landedAt, unstamped := store.Parse(row.LandedAt)
 	switch {
 	case attrs["state"] == stateMerged:
 		return landed(row, record.At), nil
+	case row.State == StateLanded && attrs["state"] == StateOpen && unstamped == nil && record.At.Sub(landedAt) >= headGrace:
+		row.State, row.LandedAt = StateOpen, NotYet
 	case row.State == StateLanded:
 	case attrs["state"] == StateClosed:
 		row.State = StateClosed
@@ -1012,7 +1014,7 @@ func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 			failed = append(failed, err)
 			continue
 		}
-		if facts[factValues] == valuesOf(attrs) && row.Head == pr.Head {
+		if facts[factValues] == valuesOf(attrs) && row.Head == pr.Head && (row.State != StateLanded || attrs["state"] != StateOpen) {
 			continue
 		}
 		var body json.RawMessage

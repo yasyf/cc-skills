@@ -38,6 +38,7 @@ type Post struct {
 type Deps struct {
 	Drive                 string
 	Repo                  string
+	Ledger                string
 	Parent                string
 	Checkout              string
 	State                 string
