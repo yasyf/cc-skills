@@ -137,7 +137,7 @@ func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs
 	defer stop()
 	var answer client.Record
 	later := map[string]client.Record{}
-	err = bus.Follow(waiting, client.Watch{Drive: drive, Reader: client.Stem(lane), After: posted.Seq}, func(r client.Record) error {
+	err = bus.Follow(waiting, client.Watch{Drive: drive, Reader: lane, After: posted.Seq}, func(r client.Record) error {
 		switch part, isPart := r.Fields.Attrs[partAttr]; {
 		case r.Resolves == posted.Seq:
 			answer = r

@@ -35,6 +35,32 @@ func TestTheStoreDeskRunsOnlyAListedVerbAndNamesTheCardPathsWhenAskedForACard(t 
 	}
 }
 
+func TestANumberedLaneReadsTheStoreDesksAnswerAddressedToIt(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	registry := `{"brief":"brief.md","notice_to":"root"}` + "\n"
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		Desk{Lane: StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: StoreRuns("/mac/lr.json", func(context.Context, []string, string) (string, string, int, error) {
+			return registry, "", 0, nil
+		})}.Follow(ctx)
+		close(stopped)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-stopped
+	})
+
+	asking, stop := context.WithTimeout(context.Background(), 30*time.Second)
+	defer stop()
+	var out, errs bytes.Buffer
+	err := RunOnMac(asking, LiveCCI{}, "d", Asked{Verb: HandoffRegistryVerb, Args: []string{"--", "test-sleeps-ts-1"}, Lane: "test-sleeps-ts-1"}, &out, &errs)
+
+	if err != nil || out.String() != registry {
+		t.Fatalf("test-sleeps-ts-1 read %q, %v: want the answer the desk addressed to it", out.String(), err)
+	}
+}
+
 func TestAStoreDeskAnswerPastTheRelaysBodyCapReachesTheSpriteWholeInBodiesTheRelayCarries(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	registry := `{"orders":["` + strings.Repeat("m", relayBody-13) + "…" + strings.Repeat("m704 Nov 6 1:32 AM: one open owner order of a standing lane", 1500) + `"],"notice_to":"root"}` + "\n"
