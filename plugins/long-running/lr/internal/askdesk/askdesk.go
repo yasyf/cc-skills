@@ -103,18 +103,21 @@ func (d Desk) Pass(ctx context.Context, query client.Query) (client.Query, error
 
 func (d Desk) answer(ctx context.Context, ask client.Record) error {
 	read := d.Read(ctx, ask.Text)
-	sum := sha256.Sum256([]byte(read.Body))
-	path := filepath.Join(d.Bodies, hex.EncodeToString(sum[:])[:16]+".txt")
-	if err := os.MkdirAll(d.Bodies, 0o750); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, []byte(read.Body), 0o600); err != nil {
-		return err
-	}
-	_, err := client.Post(ctx, client.Draft{
+	answer := client.Draft{
 		Drive: d.Drive, Lane: d.Lane, Kind: AnswerKind, Text: read.Head, To: []string{ask.Lane},
-		Resolves: ask.Seq, Path: path, URL: read.URL, Force: true,
-	})
+		Resolves: ask.Seq, URL: read.URL, Force: true,
+	}
+	if read.Body != "" {
+		sum := sha256.Sum256([]byte(read.Body))
+		answer.Path = filepath.Join(d.Bodies, hex.EncodeToString(sum[:])[:16]+".txt")
+		if err := os.MkdirAll(d.Bodies, 0o750); err != nil {
+			return err
+		}
+		if err := os.WriteFile(answer.Path, []byte(read.Body), 0o600); err != nil {
+			return err
+		}
+	}
+	_, err := client.Post(ctx, answer)
 	return err
 }
 
