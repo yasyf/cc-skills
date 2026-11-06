@@ -182,6 +182,9 @@ func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs st
 
 func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool, fresh bool, at time.Time, briefs string, out *folded) {
 	name, role := spawn.Name, spawn.Role
+	if mine, found := laneOf(s, name); found && mine.State == store.LaneRetired && mine.Predecessor != "" && mine.RetiredBy == mine.Predecessor {
+		return
+	}
 	duty := inheritedDuty(s, name, spawn.Brief, spawn.SuccessorOf)
 	if spawn.SuccessorOf != "" {
 		if old, found := laneOf(s, spawn.SuccessorOf); found && old.Name != name {
@@ -313,6 +316,17 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 		do(s.ReviveLane(name, at))
 		row, known = laneOf(s, name)
 	}
+	if known && row.State == store.LaneRetired {
+		if standIn, found := laneOf(s, row.RetiredBy); found && postedBeforeItsStandIn(r, row, standIn, at) {
+			do(s.ReviveLane(name, at))
+			retire(s, standIn.Name, name, at)
+			do(s.Own(name, row.PRs))
+			if !fresh {
+				out.stood = append(out.stood, stoodDown{standIn.Name, name, standIn.PRs, r.Seq})
+			}
+			row, known = laneOf(s, name)
+		}
+	}
 	if known && isLive(row.State) {
 		foldWait(s, r, row)
 		if kind == "blocker" && r.Attr("turn") == turnDied && !fresh {
@@ -375,8 +389,16 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 }
 
 func postedAfterItsOwnEnd(r Record, row store.Lane, at time.Time) bool {
-	endsItself := slices.Contains(settled, r.Kind) || r.Kind == "state" && stoppedLine.MatchString(r.Text)
-	return row.State == store.LaneRetired && slices.Contains(unprovenEnds, row.RetiredBy) && at.After(row.Since) && !endsItself
+	return row.State == store.LaneRetired && slices.Contains(unprovenEnds, row.RetiredBy) && at.After(row.Since) && !endsItself(r)
+}
+
+func postedBeforeItsStandIn(r Record, row, standIn store.Lane, at time.Time) bool {
+	neverUp := slices.Contains([]store.LaneState{store.LaneLaunching, store.LaneHeld}, standIn.State) && standIn.Heard.IsZero()
+	return standIn.Predecessor == row.Name && neverUp && at.After(row.Since) && !endsItself(r)
+}
+
+func endsItself(r Record) bool {
+	return slices.Contains(settled, r.Kind) || r.Kind == "state" && stoppedLine.MatchString(r.Text)
 }
 
 func maxOrder(s *store.Store, r Record) int64 {
