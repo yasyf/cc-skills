@@ -22,6 +22,11 @@ fetch() {
     exit 1
   fi
 }
+wrap() {
+  printf '#!/bin/sh\nexec "%s/bin/%s" "$@"\n' "$1" "$2" > "$bin/$2.new"
+  chmod 755 "$bin/$2.new"
+  mv -f "$bin/$2.new" "$bin/$2"
+}
 packs=
 supervise_on() {
   recipe="$HOME/.cc-remote/services/$1"
@@ -143,12 +148,12 @@ while [ "$1" != -- ]; do
     current="$HOME/.claude/${name%@*}/current"
     if [ -L "$current" ]; then
       ln -sfn "$dir" "$current"
-      for tool in lr ts-delta.sh; do
-        [ -e "$current/bin/$tool" ] || continue
-        printf '#!/bin/sh\nexec "%s/bin/%s" "$@"\n' "$current" "$tool" > "$bin/$tool.new"
-        chmod 755 "$bin/$tool.new"
-        mv -f "$bin/$tool.new" "$bin/$tool"
-      done
+      if [ -e "$current/bin/lr" ]; then
+        wrap "$current" lr
+      fi
+    fi
+    if [ -e "$dir/bin/ts-delta.sh" ]; then
+      wrap "$dir" ts-delta.sh
     fi
     ;;
   esac
