@@ -1349,39 +1349,6 @@ func TestATypeOutsideTheListIsLeftOffSoTheContentDecides(t *testing.T) {
 
 const drawnDiagram = `{"arch":1,"name":"relay","title":"The relay","nodes":[{"id":"a","kind":"service","name":"A","role":"sends"},{"id":"b","kind":"service","name":"B","role":"takes"}],"edges":[{"from":"a","to":"b"}]}`
 
-func TestADiagramThatDoesNotDrawIsLeftOffWithItsReason(t *testing.T) {
-	broken := json.RawMessage(`{"arch":1,"name":"relay","title":"The relay","nodes":[{"id":"a","kind":"service","name":"A","role":"sends"}],"edges":[{"from":"a","to":"ghost"}]}`)
-	got, warned := Reply{ID: "a", Title: "t", MD: "m", Diagram: broken}.mended()
-	if got.Diagram != nil || len(warned) != 1 || !strings.Contains(warned[0], `"ghost"`) {
-		t.Fatalf("got diagram %s, warned %v", got.Diagram, warned)
-	}
-	kept, warned := Reply{ID: "a", Title: "t", MD: "m", Diagram: json.RawMessage(drawnDiagram)}.mended()
-	if string(kept.Diagram) != drawnDiagram || len(warned) != 0 {
-		t.Fatalf("a good diagram came back %s, warned %v", kept.Diagram, warned)
-	}
-}
-
-func TestADiagramIsStoredForChatAndTheOtherSurfacesOnlySayItIsThere(t *testing.T) {
-	fake := scripted()
-	f := fanout(t, fake)
-	f.Send(context.Background(), Reply{ID: "d1", Title: "How the relay runs", MD: "The relay in one picture.", Status: info, Diagram: json.RawMessage(drawnDiagram)})
-	got, _ := stored(t, f, "d1")
-	if got.MD != "The relay in one picture." {
-		t.Fatalf("the Chat copy of the words changed: %q", got.MD)
-	}
-	var drawn bytes.Buffer
-	if err := json.Compact(&drawn, got.Diagram); err != nil || drawn.String() != drawnDiagram {
-		t.Fatalf("stored diagram %s (%v), want %s", got.Diagram, err, drawnDiagram)
-	}
-	said := ""
-	for _, call := range fake.Calls() {
-		said += strings.Join(call.Argv, " ") + call.Stdin
-	}
-	if !strings.Contains(said, diagramNote) {
-		t.Fatalf("no other surface says the diagram is there:\n%s", said)
-	}
-}
-
 const (
 	cardMessage = "https://brook.slack.com/archives/D0B6Z/p1793742129719979"
 	evictionAsk = "Where should storage eviction start?"

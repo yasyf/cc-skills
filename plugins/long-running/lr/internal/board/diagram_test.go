@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
 
@@ -17,7 +18,7 @@ const relayDoc = `{"arch":1,"name":"relay","title":"The relay","nodes":[{"id":"a
 func drawingLink(t *testing.T, failed error) (Link, *[]string) {
 	t.Helper()
 	state := t.TempDir()
-	if err := os.WriteFile(filepath.Join(state, "dashboard.json"), []byte(`{"host":"100.64.0.1","port":61210}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(state, "dashboard.json"), []byte(`{"host":"100.64.0.1","port":61210,"tls_port":61211}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	tailnet := &shelltest.Fake{}
@@ -62,8 +63,8 @@ func TestADiagramOnACardStaysLiveAndGainsThePictureAndLinkItsSlackCardShows(t *t
 		t.Fatalf("children = %+v, want the diagram kept in place", card.Children)
 	}
 	diagram := card.Children[1]
-	png := filepath.Join(l.State, diagramDir, "relay-diagram.png")
-	if diagram.Type != diagramType || string(diagram.Doc) != relayDoc || diagram.Title != "The relay" || diagram.Picture != png || diagram.Link != "http://mac.tail1.ts.net:61210/#/question/card-relay" {
+	png := arch.Picture(l.State, "relay-diagram")
+	if diagram.Type != arch.Block || string(diagram.Doc) != relayDoc || diagram.Title != "The relay" || diagram.Picture != png || diagram.Link != "https://mac.tail1.ts.net:61211/#/question/card-relay" {
 		t.Fatalf("diagram = %+v, want the live doc with its picture, title and question link", diagram)
 	}
 	if body, err := os.ReadFile(png); err != nil || string(body) != "png" {
@@ -120,7 +121,7 @@ func TestAskOwnerCarriesItsDiagramFileToTheLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, child := range card.Children {
-		if child.Type == diagramType && string(child.Doc) == relayDoc {
+		if child.Type == arch.Block && string(child.Doc) == relayDoc {
 			return
 		}
 	}

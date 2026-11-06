@@ -11,11 +11,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
-const (
-	diagramType = "lr.arch"
-	diagramDir  = "diagrams"
-)
-
 func (l Link) pictured(ctx context.Context, block json.RawMessage) (json.RawMessage, error) {
 	var card map[string]json.RawMessage
 	var children []json.RawMessage
@@ -30,7 +25,7 @@ func (l Link) pictured(ctx context.Context, block json.RawMessage) (json.RawMess
 	for i, raw := range children {
 		var child map[string]json.RawMessage
 		var id, kind string
-		if json.Unmarshal(raw, &child) != nil || json.Unmarshal(child["type"], &kind) != nil || kind != diagramType {
+		if json.Unmarshal(raw, &child) != nil || json.Unmarshal(child["type"], &kind) != nil || kind != arch.Block {
 			continue
 		}
 		_ = json.Unmarshal(child["id"], &id)
@@ -44,9 +39,9 @@ func (l Link) pictured(ctx context.Context, block json.RawMessage) (json.RawMess
 		}
 		named, err := arch.DashboardLink(ctx, l.Runner, l.State)
 		if err != nil {
-			return nil, linkRefusal{"refused: diagram " + id + " needs the dashboard's tailnet name for its link, and it did not read: " + err.Error()}
+			return nil, linkRefusal{"refused: diagram " + id + " needs the dashboard's https address for its link, and it did not read: " + err.Error()}
 		}
-		png := filepath.Join(l.State, diagramDir, id+".png")
+		png := arch.Picture(l.State, id)
 		if err := os.MkdirAll(filepath.Dir(png), 0o750); err != nil {
 			return nil, err
 		}
