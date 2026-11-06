@@ -26,7 +26,9 @@ them and wake the wait. They are read through the thread's lane mail cursor, or 
 cursor when the thread is not bound to the lane, and never from behind the lane's own <lane>
 cursor, so a record the lane already read never wakes it and one that arrived while no waiter
 ran does. A numbered lane such as journal-1 also wakes on records addressed to its stem,
-journal, read through its <lane>-stem-wake cursor. A first wait for a lane with no <lane> cursor starts at the newest record. At the
+journal: through the thread's lane mail cursor when the lane holds its stem, so a record the
+hook showed never wakes it, and otherwise through its <lane>-stem-wake cursor, which starts where the
+<lane> cursor stands. A first wait for a lane with no <lane> cursor starts at the newest record. At the
 deadline it prints QUIET <Pacific time>. A command after -- runs
 in its own session and process group; its output and exit status pass through when it exits
 first, and a wake or the deadline ends the whole group with SIGTERM, then SIGKILL after 5 s.
