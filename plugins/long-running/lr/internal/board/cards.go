@@ -17,6 +17,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
@@ -518,7 +519,7 @@ func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
 	for _, block := range blocks {
 		answered[block] = true
 	}
-	listed, err := c.ccn(ctx, "answer", "list", "--label", answerRow, "--label", "board-session:"+c.Session, "--label", boardCardLabel+card, "--limit", "0", "--full", "--json")
+	listed, err := c.ccn(ctx, "answer", "list", "--label", answerRow, "--label", "board-session:"+c.Session, "--label", cardtext.BoardCardLabel+card, "--limit", "0", "--full", "--json")
 	if err != nil {
 		return nil, err
 	}

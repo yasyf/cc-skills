@@ -26,8 +26,7 @@ type Pool interface {
 	Firsts(snapshot map[int]machine.Facts) []machine.Facts
 	Dispatch(ctx context.Context, grader string, facts machine.Facts) (string, error)
 	Whole(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
-	Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
-	Parked(ctx context.Context, snapshot map[int]machine.Facts) (map[int]string, error)
+	Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([]string, map[int]string, error)
 	TellStopped(ctx context.Context, facts machine.Facts, why string) error
 }
 
@@ -164,11 +163,7 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 	if err != nil {
 		return dispatched, err
 	}
-	reopened, err := pool.Reopen(ctx, snapshot)
-	if err != nil {
-		return dispatched, err
-	}
-	parked, err := pool.Parked(ctx, snapshot)
+	reopened, parked, err := pool.Reopen(ctx, snapshot)
 	if err != nil {
 		return dispatched, err
 	}

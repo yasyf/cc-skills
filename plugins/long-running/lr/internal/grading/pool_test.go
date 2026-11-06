@@ -1,6 +1,7 @@
 package grading
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,6 +50,7 @@ type poolShell struct {
 	view       string
 	docs       map[string]string
 	answers    map[string]string
+	labelled   map[string]string
 	card       string
 	cardError  error
 	docError   error
@@ -132,6 +134,9 @@ func (f *poolShell) notes(argv []string) (shell.Result, error) {
 			return shell.Result{Stdout: answer}, nil
 		}
 		return shell.Result{}, &shell.ExitError{Argv: argv, Code: 3}
+	}
+	if argv[0] == "answer" && argv[1] == "list" && argv[2] == "--label" {
+		return shell.Result{Stdout: cmp.Or(f.labelled[argv[3]], "[]")}, nil
 	}
 	if argv[0] == "task" && f.tasks != "" {
 		return shell.Result{Stdout: f.tasks}, nil

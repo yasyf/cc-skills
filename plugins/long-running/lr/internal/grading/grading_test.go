@@ -62,12 +62,8 @@ func (p *fakePool) Whole(context.Context, map[int]machine.Facts) ([]string, erro
 	return started, nil
 }
 
-func (p *fakePool) Reopen(context.Context, map[int]machine.Facts) ([]string, error) {
-	return nil, nil
-}
-
-func (p *fakePool) Parked(context.Context, map[int]machine.Facts) (map[int]string, error) {
-	return p.parked, nil
+func (p *fakePool) Reopen(context.Context, map[int]machine.Facts) ([]string, map[int]string, error) {
+	return nil, p.parked, nil
 }
 
 func (p *fakePool) Settle(_ context.Context, workers []string) (map[string]bool, error) {

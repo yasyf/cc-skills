@@ -28,8 +28,6 @@ const (
 	finishedField      = "finished-checked"
 	finishedAskedField = "finished-asked"
 	askedField         = "settled-asked"
-	cardLabel          = "card:"
-	boardCardLabel     = "board-card:"
 	ownerLabel         = "from:owner"
 	threadProof        = "proof:slack-thread:"
 	writeIn            = "wrote “"
@@ -164,7 +162,7 @@ func answersThatCanSettle(card json.RawMessage, answers []ownerAnswer) []ownerAn
 }
 
 func answersCard(answer ownerAnswer, id string) bool {
-	return slices.Contains(answer.Tags, cardLabel+id) || slices.Contains(answer.Tags, boardCardLabel+id)
+	return slices.ContainsFunc(cardtext.AnswerLabels(id), func(label string) bool { return slices.Contains(answer.Tags, label) })
 }
 
 func closesCard(answer ownerAnswer, id string) bool {

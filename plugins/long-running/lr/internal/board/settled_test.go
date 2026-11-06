@@ -17,6 +17,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -35,7 +36,7 @@ var (
 		Updated: "2026-11-04T05:37:55Z",
 	}
 	sonnetPool   = ownerAnswer{ID: "5a5a5a5", Title: "Which pool should Sonnet bill to?", Body: "The shared pool.", Updated: "2026-11-04T05:40:00Z"}
-	answeredHere = answeredWith(boardCardLabel+oldChatCard, ownerLabel)
+	answeredHere = answeredWith(cardtext.BoardCardLabel+oldChatCard, ownerLabel)
 )
 
 var oldChatUp = []any{oldChatBlock()}
@@ -269,7 +270,7 @@ func alwaysSettles(context.Context, string, string, string) (*Judgment, error) {
 }
 
 func TestASweepClosesACardHeTappedOrPickedByNumberInItsThreadWithoutAskingAJudge(t *testing.T) {
-	onThisCard := boardCardLabel + oldChatCard
+	onThisCard := cardtext.BoardCardLabel + oldChatCard
 	tapped := "proof:board-watch:key"
 	inThread := threadProof + "1793924321.997239"
 	picked := map[string]any{"optionIds": []any{"a"}}
@@ -281,11 +282,11 @@ func TestASweepClosesACardHeTappedOrPickedByNumberInItsThreadWithoutAskingAJudge
 	}{
 		"his tap with its row":                                     {picked, []ownerAnswer{{ID: "1", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, onThisCard, tapped}}}, true},
 		"his tap before its row is written":                        {picked, nil, false},
-		"his tap on another card":                                  {picked, []ownerAnswer{{ID: "2", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, boardCardLabel + "card-another", tapped}}}, false},
+		"his tap on another card":                                  {picked, []ownerAnswer{{ID: "2", Title: oldChatTitle, Body: "picked “Show the can't-open screen”", Tags: []string{ownerLabel, cardtext.BoardCardLabel + "card-another", tapped}}}, false},
 		"his write-in with no number":                              {wrote, []ownerAnswer{{ID: "3", Title: oldChatTitle, Body: "wrote “why this one?”", Tags: []string{ownerLabel, onThisCard, tapped}}}, false},
-		"his write-in and a relay's record":                        {wrote, []ownerAnswer{{ID: "4", Title: oldChatTitle, Body: "Owner, in the thread: keep it.", Tags: []string{ownerLabel, cardLabel + oldChatCard}}}, true},
+		"his write-in and a relay's record":                        {wrote, []ownerAnswer{{ID: "4", Title: oldChatTitle, Body: "Owner, in the thread: keep it.", Tags: []string{ownerLabel, cardtext.CardLabel + oldChatCard}}}, true},
 		"his thread reply with a number mid-sentence, with no tap": {nil, []ownerAnswer{{ID: "6", Title: oldChatTitle, Body: "go with what you said about 2 earlier\nBoard question: x", Tags: []string{ownerLabel, "board-answer", onThisCard, inThread}}}, false},
-		"a relay's record with no tap":                             {nil, []ownerAnswer{{ID: "7", Title: oldChatTitle, Body: "Owner, in the thread: keep it.", Tags: []string{ownerLabel, cardLabel + oldChatCard}}}, false},
+		"a relay's record with no tap":                             {nil, []ownerAnswer{{ID: "7", Title: oldChatTitle, Body: "Owner, in the thread: keep it.", Tags: []string{ownerLabel, cardtext.CardLabel + oldChatCard}}}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			shown, err := json.Marshal(map[string]any{"rev": 7, "doc": map[string]any{"blocks": oldChatUp}, "interactions": map[string]any{"choices": map[string]any{oldChatCard + "-pick": tc.choice}}})
@@ -331,7 +332,7 @@ func TestHisNumberedReplyCarryingAnOrderInACardsThreadClosesItWithNoTap(t *testi
 		Title:   title,
 		Body:    "1 + report the stall to the vendor, after checking for a duplicate report\nBoard question: " + title + "\nCard " + card + ", board d50e80e8-7ba3-491e-a0b2-8739e65f6ba9, typed in the card's Slack thread 1793924259.620149, Nov 5 4:18 PM PT.",
 		Updated: "2026-11-06T00:19:12Z",
-		Tags:    []string{"board-answer", boardCardLabel + card, "board-session:d50e80e8-7ba3-491e-a0b2-8739e65f6ba9", ownerLabel, "program:p", threadProof + "1793924321.997239"},
+		Tags:    []string{"board-answer", cardtext.BoardCardLabel + card, "board-session:d50e80e8-7ba3-491e-a0b2-8739e65f6ba9", ownerLabel, "program:p", threadProof + "1793924321.997239"},
 	}
 	cards, fake, withdrawn := settledBoard(t, board, row)
 	noJudge := func(context.Context, string, string, string) (*Judgment, error) {
@@ -385,7 +386,7 @@ func TestASweepKeepsACardWhoseQuestionAnAnswerOffItReadsTheSame(t *testing.T) {
 }
 
 func TestOnlyHisTapOrNumberedReplyOrARelayRecordOnACardClosesIt(t *testing.T) {
-	onThisCard := boardCardLabel + oldChatCard
+	onThisCard := cardtext.BoardCardLabel + oldChatCard
 	inThread := threadProof + "1793861669.537559"
 	tapped := "proof:board-watch:key"
 	for name, tc := range map[string]struct {
@@ -396,13 +397,13 @@ func TestOnlyHisTapOrNumberedReplyOrARelayRecordOnACardClosesIt(t *testing.T) {
 		"his question in its thread":     {[]string{ownerLabel, "board-answer", onThisCard, inThread}, "what does that word mean?\nBoard question: x", false},
 		"his typed words with no number": {[]string{ownerLabel, "board-answer", onThisCard, inThread}, "also fix the markdown\nBoard question: x", false},
 		"his complaint listed by number": {[]string{ownerLabel, "board-answer", onThisCard, inThread}, "1. this line is not needed, 2) there is no button here\nBoard question: x", false},
-		"a lane's reply recorded on it":  {[]string{cardLabel + oldChatCard}, "It means the Description panel.", false},
+		"a lane's reply recorded on it":  {[]string{cardtext.CardLabel + oldChatCard}, "It means the Description panel.", false},
 		"his write-in with no number":    {[]string{ownerLabel, "board-answer", onThisCard, tapped}, "wrote “why this one?”\nBoard question: x", false},
-		"his tap on another card":        {[]string{ownerLabel, "board-answer", boardCardLabel + "card-another", tapped}, "picked “Show the can't-open screen”\nBoard question: x", false},
+		"his tap on another card":        {[]string{ownerLabel, "board-answer", cardtext.BoardCardLabel + "card-another", tapped}, "picked “Show the can't-open screen”\nBoard question: x", false},
 		"his tap":                        {[]string{ownerLabel, "board-answer", onThisCard, tapped}, "picked “Show the can't-open screen”\nBoard question: x", true},
 		"his write-in naming an option":  {[]string{ownerLabel, "board-answer", onThisCard, tapped}, "wrote “1 but say why”\nBoard question: x", true},
 		"his numbered reply":             {[]string{ownerLabel, "board-answer", onThisCard, inThread}, "I pick 1\nBoard question: x", true},
-		"a relay's record of his words":  {[]string{ownerLabel, cardLabel + oldChatCard}, "Owner 10:59 PM in the card's thread: \"keep it\".", true},
+		"a relay's record of his words":  {[]string{ownerLabel, cardtext.CardLabel + oldChatCard}, "Owner 10:59 PM in the card's thread: \"keep it\".", true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			row := ownerAnswer{ID: "153ea56635c28aa4", Title: oldChatTitle, Body: tc.body, Updated: "2026-11-05T06:54:31Z", Tags: tc.tags}
@@ -555,8 +556,8 @@ func TestOnlyHisAnswerToACardSettlesItWhenItShowsARender(t *testing.T) {
 		{"a screenshot child and an older answer stays up", renderBlock(screenshotChild), answeredWith("from:owner"), false, false},
 		{"a screenshot on an option and an older answer stays up", renderBlock(screenshotVisual), answeredWith("from:owner"), false, false},
 		{"his answer to the card before it stays up", renderBlock(screenshotChild), answeredWith("card:card-chat-live", "board-card:card-chat-live"), false, false},
-		{"his Slack tap on it settles", renderBlock(screenshotChild), answeredWith(cardLabel+oldChatCard, ownerLabel), true, true},
-		{"his board pick on it settles", renderBlock(screenshotVisual), answeredWith(boardCardLabel+oldChatCard, ownerLabel), true, true},
+		{"his Slack tap on it settles", renderBlock(screenshotChild), answeredWith(cardtext.CardLabel+oldChatCard, ownerLabel), true, true},
+		{"his board pick on it settles", renderBlock(screenshotVisual), answeredWith(cardtext.BoardCardLabel+oldChatCard, ownerLabel), true, true},
 		{"no screenshot and an older answer to another question refuses a draw and leaves a drawn card up", oldChatBlock(), answeredWith("from:owner"), true, false},
 	}
 	for _, tc := range cases {
@@ -588,7 +589,7 @@ func TestOnlyHisAnswerToACardSettlesItWhenItShowsARender(t *testing.T) {
 }
 
 func TestHisAnswerToARenderCardReachesTheJudgeBehindCloserAnswers(t *testing.T) {
-	theirs := answeredWith(cardLabel + oldChatCard)
+	theirs := answeredWith(cardtext.CardLabel + oldChatCard)
 	theirs.Updated = "2026-11-04T01:00:00Z"
 	answers := make([]ownerAnswer, 0, answersJudged+2)
 	answers = append(answers, theirs)
