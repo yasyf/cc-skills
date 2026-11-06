@@ -517,7 +517,7 @@ func (d *Desk) openPick(ctx context.Context, lane string) (string, error) {
 			}
 		}
 		answered := slices.ContainsFunc(picks, func(pick client.Record) bool {
-			return !pick.At.Before(wait.At) && slices.ContainsFunc(cards, func(card string) bool { return lanes.AnswersCard(pick.Text, card) })
+			return !pick.At.Before(wait.At) && slices.ContainsFunc(cards, func(card string) bool { return lanes.AnswersCard(pick.Fields.Attrs, card) })
 		})
 		if len(cards) > 0 && !answered {
 			slices.Sort(cards)

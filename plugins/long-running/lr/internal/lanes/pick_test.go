@@ -16,7 +16,7 @@ func TestALaneThatPostsPastItsOpenCardWakesOnceWhenHeAnswersIt(t *testing.T) {
 	equal(t, []any{lane.Waiting, lane.Awaits}, []any{int64(0), "pick:card-rmw537imn"})
 	f.wakes = nil
 
-	f.feed = append(f.feed, rec(4, boardWatch, "owner", t0.Add(mins(30)), `Owner on board d50e80e8, Raw SQL incident (rmw537imn): picked "Fix forward"`, "all"))
+	f.feed = append(f.feed, rec(4, boardWatch, "owner", t0.Add(mins(30)), `Owner on board d50e80e8, Raw SQL incident (rmw537imn): picked "Fix forward"`, "all").withCard("card-rmw537imn"))
 	f.peers = []Row{onRoster(who(lane2, true, t0.Add(mins(31))))}
 	picked := tick(t, s, f, t0.Add(mins(31)))
 	f.peers = []Row{onRoster(who(lane2, true, t0.Add(mins(40))))}

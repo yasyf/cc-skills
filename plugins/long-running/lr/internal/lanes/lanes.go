@@ -61,6 +61,7 @@ const (
 	retiredMailTopic  = "retired-mail"
 	boardLink         = "board-link"
 	CardWakeTopic     = "card-wake:"
+	CardAttr          = "card"
 	unheardDone       = "reported worker_done, but none of its records ever reached the bus"
 	workerSucceeded   = "succeeded"
 	agentLive         = "live"
@@ -168,7 +169,6 @@ var (
 	stoppedLine   = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?STOPPED\b`)
 	withdrawOrder = regexp.MustCompile(`\borca-desk: withdraw (\S+)`)
 	lastRead      = regexp.MustCompile(`\blast-read=#?(\d+)\b`)
-	picked        = regexp.MustCompile(`\([\w.-]+\)`)
 )
 
 const noRecommendation = "no-recommendation"

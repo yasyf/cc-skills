@@ -25,11 +25,15 @@ const (
 
 type answerBook struct {
 	*shelltest.Fake
-	rows []string
+	rows  []string
+	posts []string
 }
 
 func (b *answerBook) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
 	switch {
+	case len(c.Argv) > 1 && c.Argv[0] == "cci" && c.Argv[1] == "post":
+		b.posts = append(b.posts, strings.Join(c.Argv, "\x00"))
+		return shell.Result{Stdout: "#1"}, nil
 	case len(c.Argv) > 4 && c.Argv[3] == "answer" && c.Argv[4] == "list":
 		proof := c.Argv[slices.Index(c.Argv, "--label")+1]
 		for _, row := range b.rows {
@@ -99,6 +103,9 @@ func TestHisWordsInACardsThreadWriteTheRowTheLiveGateReads(t *testing.T) {
 			t.Errorf("body = %q, want %q", body, want)
 		}
 	}
+	if len(book.posts) != 1 || !slices.Equal(argsAfter(book.posts[0], "--attr"), []string{"card=card-chat"}) || !slices.Equal(argsAfter(book.posts[0], "--kind"), []string{"owner"}) || !slices.Equal(argsAfter(book.posts[0], "--quoted"), []string{yesWords}) {
+		t.Errorf("posts = %q, want one owner record carrying card=card-chat and his words", book.posts)
+	}
 }
 
 func TestOnlyANumberedReplyOnACardWritesAnAnswerRow(t *testing.T) {
@@ -123,8 +130,8 @@ func TestOnlyANumberedReplyOnACardWritesAnAnswerRow(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if len(book.rows) != want {
-				t.Errorf("rows = %q, want %d", book.rows, want)
+			if len(book.rows) != want || len(book.posts) != want {
+				t.Errorf("rows = %q, posts = %q, want %d of each", book.rows, book.posts, want)
 			}
 		})
 	}

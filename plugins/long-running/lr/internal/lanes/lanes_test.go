@@ -60,6 +60,10 @@ func prs(numbers ...int) Refs {
 func (r Record) withRefs(refs Refs) Record { r.Refs = refs; return r }
 func (r Record) withRe(seq int64) Record   { r.Re = seq; return r }
 func (r Record) withTopic(t string) Record { r.Topic = t; return r }
+func (r Record) withCard(id string) Record {
+	r.Fields.Attrs = map[string]string{CardAttr: id}
+	return r
+}
 
 func ask(seq int64, verb, lane string, at time.Time, numbers []int, by string, attrs map[string]string) Record {
 	typed := map[string]string{"verb": verb, "lane": lane}
@@ -1444,7 +1448,7 @@ func TestALaneParkedOnAnOwnerCardWakesOnceForRootsReplyAndOnceWithTheOwnersPick(
 	)
 
 	waiting := tick(t, s, f, t0)
-	f.feed = append(f.feed, rec(4, "board-watch", "owner", t0.Add(mins(1)), "Owner on board d50e80e8, Restart the cleanup daemon? (cleanup-daemon-restart): picked \"yes, restart it\"", "all"))
+	f.feed = append(f.feed, rec(4, "board-watch", "owner", t0.Add(mins(1)), "Owner on board d50e80e8, Restart the cleanup daemon? (cleanup-daemon-restart): picked \"yes, restart it\"", "all").withCard("card-cleanup-daemon-restart"))
 	picked := tick(t, s, f, t0.Add(mins(2)))
 	after := tick(t, s, f, t0.Add(mins(10)))
 
@@ -1458,7 +1462,7 @@ func TestALaneParkedOnAnOwnerCardWakesOnceForRootsReplyAndOnceWithTheOwnersPick(
 	}
 }
 
-func TestAnOwnerRulingNamingAnyCardALaneWaitsOnWakesIt(t *testing.T) {
+func TestHisAnswerOnAnyCardALaneWaitsOnWakesIt(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
 	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour)))}
@@ -1466,7 +1470,7 @@ func TestAnOwnerRulingNamingAnyCardALaneWaitsOnWakesIt(t *testing.T) {
 
 	tick(t, s, f, t0)
 	equal(t, row(t, s, lane2).Awaits, "card-phone-app-platform card-phone-app-mesh")
-	f.feed = append(f.feed, rec(3, "owner-relay", "owner", t0.Add(mins(1)), "go with the recommended option on card-phone-app-mesh", "all"))
+	f.feed = append(f.feed, rec(3, "owner-relay", "owner", t0.Add(mins(1)), "go with the recommended option on card-phone-app-mesh", "all").withCard("card-phone-app-mesh"))
 	ruled := tick(t, s, f, t0.Add(mins(2)))
 
 	equal(t, ruled.Woken, []string{lane2})
@@ -1474,6 +1478,20 @@ func TestAnOwnerRulingNamingAnyCardALaneWaitsOnWakesIt(t *testing.T) {
 	if why := pageText(f.pages[0], "why"); !strings.HasPrefix(why, "the owner answered card-phone-app-mesh, the card you wait on: go with the recommended option") {
 		t.Fatal(why)
 	}
+}
+
+func TestAnOwnerRecordThatOnlyNamesTheCardALaneWaitsOnLeavesItWaiting(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.peers = []Row{onRoster(who(lane2, true, t0.Add(-2*time.Hour)))}
+	f.feed = append(f.feed, rec(2, lane2, "blocked", t0.Add(-2*time.Hour), "parked on his pick on card-49305-rollback-stale", Root))
+
+	tick(t, s, f, t0)
+	f.feed = append(f.feed, rec(3, "owner-relay", "owner", t0.Add(mins(1)), `Owner, 10:08 AM same thread, asked to be shown the open SandSQL picks. My reading: the three open SandSQL picks (card-49305-rollback-stale, card-launch-parked-chats, card-replicator-behind) are drawn as cards in Slack thread 1793985883.857779. I draw them.`, "root", "c-reconcile"))
+	read := tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, len(read.Woken), 0)
+	equal(t, row(t, s, lane2).Awaits, "card-49305-rollback-stale")
 }
 
 func recommendedDrive(t *testing.T, parked string) (*store.Store, *fake, time.Time) {
@@ -1594,12 +1612,12 @@ func answeredBranch(t *testing.T) (*store.Store, *fake, func(time.Duration) Outc
 		return tick(t, s, f, at.Add(after))
 	}
 	tickAt(0)
-	f.feed = append(f.feed, rec(3, "board-watch", "owner", at.Add(mins(1)), "Owner on board d50e80e8, Which transport? (signal-redesign-relay): picked \"direct-or-relay\"", "all"))
+	f.feed = append(f.feed, rec(3, "board-watch", "owner", at.Add(mins(1)), "Owner on board d50e80e8, Which transport? (signal-redesign-relay): picked \"direct-or-relay\"", "all").withCard("card-signal-redesign-relay"))
 	tickAt(mins(2))
 	if topic := pageText(must(s.Pages())[lane2], "topic"); topic != "owner:m104" {
 		t.Fatalf("one card still open, yet the page is %q", topic)
 	}
-	f.feed = append(f.feed, rec(4, "owner-relay", "owner", at.Add(mins(3)), "go with the recommended option on card-signal-redesign-prs", "all"))
+	f.feed = append(f.feed, rec(4, "owner-relay", "owner", at.Add(mins(3)), "go with the recommended option on card-signal-redesign-prs", "all").withCard("card-signal-redesign-prs"))
 	tickAt(mins(4))
 	return s, f, tickAt
 }
@@ -1620,6 +1638,26 @@ func TestWhenTheOwnerAnswersTheLastCardOfABoardBuiltBranchItsLaneIsToldToOpenThe
 	defects := defectsTo(f, "meta-desk-3")
 	equal(t, len(defects), 1)
 	contains(t, defects[0], "branch:conflicts-2: the owner answered every card its branch was built on")
+}
+
+func TestAnOwnerRecordThatOnlyNamesABranchsCardAnswersNoneOfIt(t *testing.T) {
+	s, f, at := recommendedDrive(t, "parked on the owner's pick on card-49305-rollback-stale")
+	f.deps.BuildRecommendedOrder = "owner:m104"
+	tick(t, s, f, at)
+	f.feed = append(f.feed, rec(3, "owner-relay", "owner", at.Add(mins(1)), `Owner, 10:08 AM same thread, asked to be shown the open SandSQL picks. My reading: the three open SandSQL picks (card-49305-rollback-stale, card-launch-parked-chats, card-replicator-behind) are drawn as cards.`, "root", "c-reconcile"))
+	later := at.Add(mins(2))
+	f.peers = []Row{who(lane2, true, later), who("meta-desk-3", true, later)}
+
+	tick(t, s, f, later)
+
+	built := must(s.BranchCards())
+	equal(t, len(built), 1)
+	if !built[0].Answered.IsZero() {
+		t.Fatalf("branch card answered at %v by a record that only names it", built[0].Answered)
+	}
+	if slices.ContainsFunc(reportsTo(f, "meta-desk-3"), func(text string) bool { return strings.Contains(text, "open the PR") }) {
+		t.Fatal(reportsTo(f, "meta-desk-3"))
+	}
 }
 
 func TestALaneThatOpensItsAnsweredBranchsPRRaisesNoDefect(t *testing.T) {

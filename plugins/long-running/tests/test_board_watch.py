@@ -307,6 +307,15 @@ def test_a_pick_names_the_head_its_card_asked_about() -> None:
     )
 
 
+def test_a_record_of_his_answer_names_the_card_it_answers_and_a_submit_names_none(tmp_path: Path) -> None:
+    shell = RecordedShell(doc=GROUP_DOC)
+    shell.watch = lambda session: iter(['{"blockId":"fix-rows","optionIds":["fix-rows-build"],"schemaVersion":1,"type":"choice.selected"}\n', SUBMIT])
+    run(tmp_path, shell)
+
+    owner = [post for post in shell.posts if post[post.index("--kind") + 1] == "owner"]
+    assert [(attrs(post)["event"], attrs(post).get("card")) for post in owner] == [("choice.selected", "card-fixes"), ("submit", None)]
+
+
 def test_a_restart_keys_events_after_the_lines_already_recorded(tmp_path: Path) -> None:
     first, second = RecordedShell(), RecordedShell()
     run(tmp_path, first)

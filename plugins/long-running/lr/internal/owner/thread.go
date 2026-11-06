@@ -95,7 +95,7 @@ func (w threadWord) record(ctx context.Context, runner shell.Runner, threads thr
 		done, err := runner.Run(ctx, shell.Command{Argv: append([]string{"ccn", "-R", entry.Checkout}, args...), Timeout: rowWait})
 		return done.Stdout, err
 	}
-	return locked(Ledger(entry.StateDir), func() error {
+	err = locked(Ledger(entry.StateDir), func() error {
 		listed, err := ccn("answer", "list", "--label", proof, "--limit", "0", "--json")
 		if err != nil {
 			return err
@@ -119,6 +119,14 @@ func (w threadWord) record(ctx context.Context, runner shell.Runner, threads thr
 			"--json")
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	_, err = runner.Run(ctx, shell.Command{
+		Argv:    []string{"cci", "post", "--drive", entry.Bus(), "--lane", communicator, "--kind", "owner", "--id", "card-answer:" + w.TS, "--attr", "card=" + card.id, "--text", fmt.Sprintf("Owner's numbered reply in the Slack thread of %s:", card.id), "--quoted", w.Text},
+		Timeout: rowWait,
+	})
+	return err
 }
 
 func (w threadWord) body(card wordCard, at time.Time) string {

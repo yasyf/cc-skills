@@ -802,13 +802,12 @@ func Cards(text string) []string {
 	return card.FindAllString(text, -1)
 }
 
-func AnswersCard(pick, cardID string) bool {
-	marks := picked.FindAllString(pick, -1)
-	return slices.Contains(Cards(pick), cardID) || slices.Contains(marks, "("+cardID+")") || slices.Contains(marks, "("+strings.TrimPrefix(cardID, "card-")+")")
+func AnswersCard(attrs map[string]string, cardID string) bool {
+	return attrs[CardAttr] == cardID
 }
 
 func foldOwnerPick(s *store.Store, r Record, fresh bool, at time.Time) {
-	answers := func(found string) bool { return AnswersCard(r.Text, found) }
+	answers := func(found string) bool { return AnswersCard(r.Fields.Attrs, found) }
 	for _, built := range must(s.BranchCards()) {
 		if answers(built.Card) {
 			do(s.AnswerBranchCard(built.Lane, built.Card, at))
