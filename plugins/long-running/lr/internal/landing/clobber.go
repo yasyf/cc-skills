@@ -131,7 +131,7 @@ func (c *Clobbers) check(ctx context.Context, squash string) (*Clobber, error) {
 	}
 	undid := map[int]*Undone{}
 	for _, merge := range strings.Fields(merges) {
-		if err := c.dropped(ctx, merge, strings.Split(touched, "\n"), description, undid); err != nil {
+		if err := c.dropped(ctx, parent, merge, strings.Split(touched, "\n"), description, undid); err != nil {
 			return nil, err
 		}
 	}
@@ -147,7 +147,7 @@ func (c *Clobbers) check(ctx context.Context, squash string) (*Clobber, error) {
 	return &clobber, nil
 }
 
-func (c *Clobbers) dropped(ctx context.Context, merge string, touched []string, description string, undid map[int]*Undone) error {
+func (c *Clobbers) dropped(ctx context.Context, parent, merge string, touched []string, description string, undid map[int]*Undone) error {
 	merged, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", c.Checkout, "merge-tree", "--write-tree", "--name-only", "--no-messages", merge + "^1", merge + "^2"}, Timeout: gitLimit})
 	if err != nil && merged.Code != mergeConflicted {
 		return err
@@ -166,6 +166,16 @@ func (c *Clobbers) dropped(ctx context.Context, merge string, touched []string, 
 	}
 	if len(files) == 0 {
 		return nil
+	}
+	own, err := c.git(ctx, gitLimit, slices.Concat([]string{"log", "--no-merges", "--no-renames", "-p", "--format=", merge + "^1", "^" + parent, "--"}, files)...)
+	if err != nil {
+		return err
+	}
+	_, rewrote := parseDiff(own)
+	for file, lines := range rewrote {
+		for line := range lines {
+			delete(lost[file], line)
+		}
 	}
 	landed, err := c.git(ctx, gitLimit, slices.Concat([]string{"log", "--first-parent", "--no-renames", "-p", "--format=%x00%s", merge + "^2", "^" + merge + "^1", "--"}, files)...)
 	if err != nil {

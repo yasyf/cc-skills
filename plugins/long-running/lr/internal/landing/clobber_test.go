@@ -23,7 +23,25 @@ const (
 	staffPR   = "cloudrunner: journal refusals of Forge staff teams never page (#49148)"
 	connectPR = "iris: connect_app asks to connect an account on its own card (#49121)"
 	connected = "## Summary\n\nA new connect_app tool raises its own card in the dashboard.\n"
+	countPR   = "sand-next: intern a builtin's result once (#51407)"
+	bindPR    = "sand-next: a {sql| ... |sql} block is a checked query (#51724)"
 )
+
+func callBuiltin(counted, bound bool) string {
+	results, fail, done := "[]Value, error", "nil, err", "out, nil"
+	if counted {
+		results, fail, done = "[]Value, int, error", "nil, 0, err", "out, len(out), nil"
+	}
+	bind := ""
+	if bound {
+		bind = "\tif err := bindQueryArgs(b, args); err != nil {\n\t\treturn " + fail + "\n\t}\n"
+	}
+	return "package vm\n\nfunc callBuiltin(b Builtin, args []Value) (" + results + ") {\n" +
+		"\tif err := b.check(args); err != nil {\n\t\treturn " + fail + "\n\t}\n" +
+		"\tb.trace(\"call\")\n\tb.calls++\n" + bind + "\tb.last = args\n" +
+		"\tout, err := b.run(args)\n\tif err != nil {\n\t\treturn " + fail + "\n\t}\n" +
+		"\treturn " + done + "\n}\n"
+}
 
 type landings struct {
 	work, checkout string
@@ -243,6 +261,49 @@ func TestASquashThatUndoesNothingUnsaidPostsNothing(t *testing.T) {
 
 			if records := clobbered(t); len(records) != 0 {
 				t.Fatalf("posted %+v", records)
+			}
+		})
+	}
+}
+
+func TestALineThePRsOwnCommitsRemovedNeverCountsAsClobbered(t *testing.T) {
+	for name, c := range map[string]struct {
+		merged string
+		want   string
+	}{
+		"the merge rewrites trunk's copy as the PR rewrote its own": {callBuiltin(true, true), ""},
+		"the merge keeps the PR's stale file":                       {callBuiltin(true, false), "#51724's 1 lines in call.go"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr := newLandings(t)
+			write(t, tr.work, map[string]string{"call.go": callBuiltin(false, false)}, "the vm calls builtins")
+			git(t, tr.work, "push", "-q", "origin", "dev")
+			git(t, tr.work, "checkout", "-q", "-b", "count")
+			write(t, tr.work, map[string]string{"call.go": callBuiltin(true, false)}, "callBuiltin returns how many values it pushed")
+			git(t, tr.work, "checkout", "-q", "dev")
+			write(t, tr.work, map[string]string{"call.go": callBuiltin(false, true)}, bindPR)
+			git(t, tr.work, "push", "-q", "origin", "dev")
+			tr.pass(t)
+			git(t, tr.work, "checkout", "-q", "count")
+			git(t, tr.work, "merge", "-q", "--no-commit", "dev")
+			write(t, tr.work, map[string]string{"call.go": c.merged}, "Merge dev into count")
+			git(t, tr.work, "push", "-q", "origin", "count:refs/pull/51407/head")
+			git(t, tr.work, "checkout", "-q", "dev")
+			git(t, tr.work, "merge", "-q", "--squash", "count")
+			git(t, tr.work, "commit", "-q", "-m", countPR+"\n\n## Summary\n\nA builtin's result is interned once.\n")
+			git(t, tr.work, "push", "-q", "origin", "dev")
+
+			tr.pass(t)
+
+			records := clobbered(t)
+			if c.want == "" {
+				if len(records) != 0 {
+					t.Fatalf("posted %+v", records)
+				}
+				return
+			}
+			if len(records) != 1 || !strings.Contains(records[0].Text, "CLOBBERED #51407") || !strings.Contains(records[0].Text, c.want) {
+				t.Fatalf("records = %+v, want one CLOBBERED #51407 naming %q", records, c.want)
 			}
 		})
 	}
