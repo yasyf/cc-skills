@@ -516,6 +516,66 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 	}
 }
 
+func TestAHoldALiftClosedLandsEvenWhenTheLiftNamesNoPR(t *testing.T) {
+	const head = "51563cc0b7e80d25838b30153600acad437970fe"
+	for name, lifted := range map[string]bool{"lifted by a record naming no PR": true, "never lifted": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			ctx := context.Background()
+			s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			post := func(draft client.Draft) client.Record {
+				posted, err := client.Post(ctx, draft)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return posted
+			}
+			post(client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"]}`}})
+			post(client.Draft{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " class test-only: adds the regression test"})
+			post(client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"})
+			hold := post(client.Draft{Drive: "d", Lane: "owner-relay", Kind: "hold", PRs: []string{"o/r#1"}, Text: "Hold #1 until the lane shows quit brings the dialog back"})
+			if lifted {
+				post(client.Draft{Drive: "d", Lane: "owner-relay", Kind: "lift", Resolves: hold.Seq, Text: "Hold on #1 lifted: the new head carries his order"})
+			}
+			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 1, Head: head, ReadyForTap: true}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.PutFact("o/r", 99, head, gates.ShownFact, "1", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			runner := &shelltest.Fake{}
+			runner.Reply("[\"go/x/x_test.go\",\"@@ +1 @@\\n+\\tif got != want {\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/1/files")
+			a := app.New(io.Discard)
+			a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
+			ready := readyFacts(1, head)
+			ready.Lane = "update-modal-cancel"
+
+			posted, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready}, time.Now().UTC(), io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			refusals, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{bus.GoRefusedKind}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if lifted {
+				if !slices.Equal(posted, []int{1}) || len(refusals) != 0 {
+					t.Fatalf("posted %v, refusals %+v; want the go once the lift closed the hold", posted, refusals)
+				}
+				return
+			}
+			if len(posted) != 0 || len(refusals) != 1 || !strings.Contains(refusals[0].Text, "hold "+hold.Name()+" by owner-relay is open") {
+				t.Fatalf("posted %v, refusals %+v; want the open hold to refuse the go", posted, refusals)
+			}
+		})
+	}
+}
+
 func TestTheSweepLandsAClaimedOneTestFileFlakeFixPastItsTapRuleAndTellsAnUnclaimedOneHow(t *testing.T) {
 	const head = "aab8fd2b7e80d25838b30153600acad437970fed"
 	const test = "go/sand/next/cmd/iris_serve_idle_test.go"
