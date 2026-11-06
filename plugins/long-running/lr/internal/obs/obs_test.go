@@ -258,6 +258,45 @@ func TestALogsReadSearchesItsWindowNewestFirst(t *testing.T) {
 	}
 }
 
+func TestASpansReadSearchesTheQueryAsSearchSyntaxNotItsShellQuotes(t *testing.T) {
+	for ask, query := range map[string]string{
+		`datadog spans --from 15m "service:api-runtime env:production"`: `service:api-runtime env:production`,
+		`datadog spans --from 15m 'service:api-runtime env:production'`: `service:api-runtime env:production`,
+		`datadog spans --from 15m service:api-runtime env:production`:   `service:api-runtime env:production`,
+		`datadog spans --from 15m '"iris memory sandsql call failed"'`:  `"iris memory sandsql call failed"`,
+		`datadog spans --from 15m "mint failed" "read failed"`:          `"mint failed" "read failed"`,
+	} {
+		t.Run(ask, func(t *testing.T) {
+			server, got := serve(t, map[string]string{
+				"/api/v2/spans/events/search": `{"data":[{"attributes":{"service":"api-runtime","resource_name":"POST /graphql","start_timestamp":"2026-11-05T19:59:00Z","end_timestamp":"2026-11-05T19:59:00.25Z","trace_id":"t1","span_id":"s1"}}]}`,
+			})
+			desk := newDesk(t, &fakeRunner{}, server.URL)
+
+			read := desk.read(context.Background(), ask)
+
+			_, bodies := got.all()
+			var sent struct {
+				Data struct {
+					Type       string
+					Attributes struct {
+						Filter struct{ Query, From, To string }
+						Sort   string
+					}
+				}
+			}
+			if err := json.Unmarshal([]byte(bodies[0]), &sent); err != nil {
+				t.Fatal(err)
+			}
+			if attributes := sent.Data.Attributes; sent.Data.Type != "search_request" || attributes.Filter.Query != query || attributes.Filter.From != "2026-11-05T19:45:00Z" || attributes.Filter.To != "2026-11-05T20:00:00Z" || attributes.Sort != "-timestamp" {
+				t.Fatalf("searched %+v", sent)
+			}
+			if read.Body != "2026-11-05T19:59:00Z api-runtime POST /graphql took=250ms trace=t1 span=s1\n" {
+				t.Fatalf("body = %q", read.Body)
+			}
+		})
+	}
+}
+
 func TestAMetricReadListsEachSeriesPoints(t *testing.T) {
 	server, got := serve(t, map[string]string{
 		"/api/v1/query": `{"status":"ok","series":[{"metric":"trace.http.request.errors","scope":"service:api","pointlist":[[1793908800000,2],[1793908860000,null]]}]}`,
