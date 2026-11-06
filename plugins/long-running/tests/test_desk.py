@@ -987,6 +987,32 @@ def test_a_settle_that_loses_the_base_ref_lock_to_a_concurrent_fetch_retries_and
     assert shell.fields(PR)["landed_sha"] == SQUASH
 
 
+class DroppingShell(ledger.Shell):
+    def __init__(self, stderr):
+        super().__init__()
+        self.stderr, self.calls = stderr, 0
+
+    def once(self, argv, stdin, cwd=None):
+        self.calls += 1
+        if self.calls < 3:
+            raise subprocess.CalledProcessError(128, argv, stderr=self.stderr)
+        return "c714606\trefs/heads/dev\n"
+
+
+def test_an_ls_remote_that_cannot_reach_the_forge_retries_but_one_the_forge_refuses_does_not(monkeypatch):
+    """A finder pass died at rulings.py slice on `Failed to connect to github.com port 443` and waited 10 minutes for its next attempt."""
+    monkeypatch.setattr(ledger, "LS_REMOTE_BACKOFF_SECONDS", 0)
+    argv = ["git", "-C", "/checkout", "ls-remote", "--exit-code", "origin", "refs/heads/dev"]
+    dropped = DroppingShell("fatal: unable to access 'https://github.com/o/r.git/': Failed to connect to github.com port 443 after 1903 ms\n")
+    assert dropped.run(argv) == "c714606\trefs/heads/dev\n"
+    assert dropped.calls == 3
+
+    refused = DroppingShell("fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403\n")
+    with pytest.raises(subprocess.CalledProcessError):
+        refused.run(argv)
+    assert refused.calls == 1
+
+
 def reconcile_shell() -> FakeShell:
     """A drive ledger whose rows drifted: two squashed on dev but read open or blank, one closed unsquashed, one still open."""
     shell = FakeShell(rows=json.loads((FIXTURES / "ledger-reconcile.json").read_text()))
