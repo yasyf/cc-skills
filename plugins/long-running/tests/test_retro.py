@@ -113,6 +113,20 @@ def test_a_row_closes_only_live_with_its_record_or_as_a_duplicate():
         retro.main(["set", "retro/000001", "--state", "building"], shell)
 
 
+def test_a_row_written_live_with_no_record_takes_its_record_and_then_reads_closed():
+    shell = FakeShell()
+    shell.rows = {"retro/000045": {"failure": "stall alarms stopped", "mechanism": "m", "owner": "fix-lane", "due": stamp(-600), "state": "live"}}
+
+    with pytest.raises(SystemExit, match="live with no FIX-LIVE record"):
+        retro.main(["set", "retro/000045", "--note", "read main"], shell)
+    assert retro.main(["live", "retro/000045", "--record", "376383"], shell) == 0
+
+    assert (shell.rows["retro/000045"]["state"], shell.rows["retro/000045"]["record"]) == ("live", "376383")
+    assert retro.main(["check"], shell) == 0
+    with pytest.raises(SystemExit, match="is closed"):
+        retro.main(["live", "retro/000045", "--record", "1"], shell)
+
+
 def test_check_lists_each_malformed_repeated_or_past_due_row_and_exits_one(capsys):
     """The coordinator's Stop hook and the stall watch read this one rule (owner 10:26 PM Nov 1)."""
     shell = FakeShell()

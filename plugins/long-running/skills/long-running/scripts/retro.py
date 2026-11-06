@@ -11,7 +11,7 @@
     retro.py rows  [--drive ID] [--json]
     retro.py check [--drive ID]
 
-`add` refuses a row without a failure, a mechanism, an owner lane that posted on the drive in the last two hours, a due time, and a state from building, open or merged; `open` and `merged` need the fix's PR, and a failure already on the table is refused with the row that holds it. `set` changes a row under the same checks. A row closes only by `live`, naming the record that shows the fix live, or by `duplicate`, naming the row that holds it. TIME is an ISO 8601 time or a span from now such as `90m`, `4h` or `1d`. `rows` prints every row with its problems. `check` prints one PROBLEM line per row that is malformed, repeats another row's failure, or is past due and not live, and exits 1 when it printed any, so the coordinator's Stop hook and the stall watch read one rule.
+`add` refuses a row without a failure, a mechanism, an owner lane that posted on the drive in the last two hours, a due time, and a state from building, open or merged; `open` and `merged` need the fix's PR, and a failure already on the table is refused with the row that holds it. `set` changes a row under the same checks. A row closes only by `live`, naming the record that shows the fix live, or by `duplicate`, naming the row that holds it; `live` also gives its record to a row written live without one. TIME is an ISO 8601 time or a span from now such as `90m`, `4h` or `1d`. `rows` prints every row with its problems. `check` prints one PROBLEM line per row that is malformed, repeats another row's failure, or is past due and not live, and exits 1 when it printed any, so the coordinator's Stop hook and the stall watch read one rule.
 """
 
 from __future__ import annotations
@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> in
     if args.row not in rows:
         raise SystemExit(f"retro: no row {args.row}")
     row = rows[args.row]
-    if row.get("state") == CLOSED or row.get("dup_of"):
+    if row.get("state") == CLOSED and row.get("record") or row.get("dup_of"):
         raise SystemExit(f"retro: {args.row} is closed")
     if args.verb == "live":
         changed = {"state": CLOSED, "record": str(args.record)}
