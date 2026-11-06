@@ -181,8 +181,8 @@ D24 sits at the end of this section.
 
 **D21. A format change lands readers first.**
 - A PR that changes a format another build reads (a journal, seal, session, manifest, stored file, or row) is a writer. Ship its readers first in their own PR, and wait until that reader release is live on every reading client, including any browser bundle, desktop app, local daemon, or server, before enqueueing the writer. A client that never restarts on its own counts until it refuses the old build.
-- The writer's body carries `Readers-First: #<reader PR> live in <release>` for each reader and never a `Release-With` pairing it with its reader.
-- The writer's lane posts `cci post --kind hold --pr <writer> --text "readers-first: #<reader> not live on every client"` when opening the writer, which holds it under D1 until the coordinator lifts it with `lift --resolves <seq>` naming the release and its live read-back.
+- The writer's body carries one `Readers-First: #<reader PR>` line per reader from its first ship, and never a `Release-With` pairing it with its reader. Prose such as "lands a release after #<reader>" holds nothing: the landing pass reads only the line, and a ship or body edit that says reader-first without it gets a warning.
+- The landing pass that first reads the line posts the keyed hold `readers-first: #<reader> not live on every client` itself, one per reader, so the row is not ready, no card asks for his tap, and a tap waits for the lift. A coordinator `go` does not lift it. Only the coordinator does, with `lift --resolves <seq>` naming the live release that carries the reader and its live read-back, and the lift stands at the writer's later heads.
 - The landing desk grades each tracked PR's diff for a format change and posts a hold with reason `"readers-first: no reader named"` on any writer lacking a `Readers-First:` line. The desk never lifts a readers-first hold itself.
 
 ### Release on landing and stuck mergeability (D20, D24)

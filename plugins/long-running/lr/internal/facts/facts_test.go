@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -1996,6 +1997,72 @@ func TestAHoldNamesWhoLiftsItAndALiftedOneHoldsNothing(t *testing.T) {
 
 	if by[45821].Hold != machine.MoverRoot || by[30388].Hold != machine.MoverOwner || by[46038].Hold != "" || by[50000].Hold != "" {
 		t.Fatalf("holds = %q, %q, %q, %q", by[45821].Hold, by[30388].Hold, by[46038].Hold, by[50000].Hold)
+	}
+}
+
+const writerHalf51547 = "port of #51453\n\n## Motivation\n\nThis is the writer half. Under the reader-first rule, it lands a release after #51542's reader.\n\n" +
+	"## Risk profile\n\n- **Availability:** a binary older than #51542 ignores the new fields, so a run it restores uses the default limits. That is why this PR waits a release.\n\nReaders-First: #51542\n"
+
+func readersFirstHolds(t *testing.T) []client.Record {
+	t.Helper()
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"hold"}, Lanes: []string{bus.SweepLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return records
+}
+
+func TestAWriterNamingItsReaderIsHeldForTheCoordinatorAndNeverQueuedThoughTappedAndGone(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 51547, head: head, login: "drive-bot", body: writerHalf51547}, {number: 2, head: head2, login: "drive-bot", body: "## Summary\n\nNo reader waits.\n"}},
+		status(51547), status(2, func(r *statusRow) { r.Head = head2 }))
+	for kind, value := range map[string]string{"finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass), "tap": string(machine.TapTapped)} {
+		putFact(t, h.store, 51547, head, kind, value, tappedAt)
+	}
+	goRecord(t, "root", "go #51547 at "+head[:7])
+
+	by := h.snapshot(t)
+
+	if verdict := machine.Classify(by[51547]); verdict.State != machine.StateHeld || verdict.Mover != machine.MoverRoot || verdict.Action != machine.ActionLift {
+		t.Fatalf("#51547 verdict = %+v, want it held for the coordinator to lift", verdict)
+	}
+	if by[2].Hold != "" {
+		t.Fatalf("#2 hold = %q, want a body naming no reader left unheld", by[2].Hold)
+	}
+	if err := h.source.WriteRows(context.Background(), slices.Collect(maps.Values(by))); err != nil {
+		t.Fatal(err)
+	}
+	row, _, err := h.store.ReviewRow(repo, 51547)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.ReadyForTap || !strings.Contains(row.Hold, "readers-first: #51542 not live on every client") {
+		t.Fatalf("row = %+v, want it held on #51542 and drawing no card", row)
+	}
+	h.snapshot(t)
+	if holds := readersFirstHolds(t); len(holds) != 1 || holds[0].ID != "readers-first/51547/51542" {
+		t.Fatalf("holds = %+v, want the one keyed hold however many passes read the body", holds)
+	}
+}
+
+func TestALiftedReadersFirstHoldStaysLiftedAtTheWritersNextHead(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 51547, head: head, login: "drive-bot", body: writerHalf51547}}, status(51547))
+	h.snapshot(t)
+	held := readersFirstHolds(t)
+	if len(held) != 1 {
+		t.Fatalf("holds = %+v, want one", held)
+	}
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "lift", Text: "lift #51547: #51542 is live in releases/2026-11-06/1", Re: held[0].Seq, PRs: []string{"51547"}}); err != nil {
+		t.Fatal(err)
+	}
+	if hold := h.snapshot(t)[51547].Hold; hold != "" {
+		t.Fatalf("hold = %q after the coordinator's lift", hold)
+	}
+	home := os.Getenv("CCI_HOME")
+	moved := onAll(t, h.store, []recordedPR{{number: 51547, head: head2, login: "drive-bot", body: writerHalf51547}})
+	t.Setenv("CCI_HOME", home)
+
+	if hold := moved.snapshot(t)[51547].Hold; hold != "" || len(readersFirstHolds(t)) != 1 {
+		t.Fatalf("hold = %q at the next head, holds %d, want the lift to stand", hold, len(readersFirstHolds(t)))
 	}
 }
 

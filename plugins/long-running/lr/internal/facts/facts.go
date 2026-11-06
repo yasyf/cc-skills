@@ -27,23 +27,28 @@ import (
 )
 
 const (
-	BusCursor       = "bus"
-	lostGrades      = "lost-grades"
-	lostGradesSpan  = 14 * 24 * time.Hour
-	caller          = "lr-facts"
-	trunkFailed     = "trunk-failed"
-	trunkCancelled  = "trunk-cancelled"
-	trunkMerged     = "trunk-merged"
-	memberBatch     = 25
-	mergeableFields = "number headRefOid mergeable"
-	queueUnknown    = "queue-unknown"
-	graphiteCheck   = "Graphite / mergeability_check"
-	diffRefs        = "refs/lr/diff/"
-	openHeadsQuery  = `query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(states: OPEN, first: 100, after: $endCursor) { nodes { number headRefOid } pageInfo { hasNextPage endCursor } } } }`
-	memberFields    = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus reviewDecision tip: commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion startedAt databaseId checkSuite { databaseId workflowRun { workflow { databaseId } } } } ... on StatusContext { context state } } } } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
+	BusCursor        = "bus"
+	lostGrades       = "lost-grades"
+	lostGradesSpan   = 14 * 24 * time.Hour
+	caller           = "lr-facts"
+	trunkFailed      = "trunk-failed"
+	trunkCancelled   = "trunk-cancelled"
+	trunkMerged      = "trunk-merged"
+	memberBatch      = 25
+	mergeableFields  = "number headRefOid mergeable"
+	queueUnknown     = "queue-unknown"
+	graphiteCheck    = "Graphite / mergeability_check"
+	diffRefs         = "refs/lr/diff/"
+	readersFirstHeld = "readers-first-held"
+	readersFirstWhy  = "readers-first:"
+	openHeadsQuery   = `query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(states: OPEN, first: 100, after: $endCursor) { nodes { number headRefOid } pageInfo { hasNextPage endCursor } } } }`
+	memberFields     = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus reviewDecision tip: commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion startedAt databaseId checkSuite { databaseId workflowRun { workflow { databaseId } } } } ... on StatusContext { context state } } } } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
 
-var carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
+var (
+	carriedAbove = regexp.MustCompile(`\(PR_NOT_ENQUEUEABLE\): PR #\d+, above this one in the same stack, is already in the merge queue`)
+	readersFirst = regexp.MustCompile(`(?mi)^Readers-First:[ \t]*#(\d+)\b`)
+)
 
 var trunkQueued = []string{"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"}
 
@@ -1136,13 +1141,34 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 				one.asks, one.asksRecord = append(one.asks, holdSaid(record)), record.Name()
 			case byOwner:
 				one.by, one.record, one.why = machine.MoverOwner, record.Name(), holdWhy(record, machine.MoverOwner)
-			case !bus.GoLifts(gos, record, pr) && one.by != machine.MoverOwner:
+			case (strings.HasPrefix(record.Text, readersFirstWhy) || !bus.GoLifts(gos, record, pr)) && one.by != machine.MoverOwner:
 				one.by, one.record, one.why = machine.MoverRoot, record.Name(), holdWhy(record, machine.MoverRoot)
 			}
 			held[pr] = one
 		}
 	}
 	return held, nil
+}
+
+func (s Source) holdReadersFirst(ctx context.Context, f machine.Facts, stored map[string]string) (bool, error) {
+	named := readersFirst.FindAllStringSubmatch(f.Body, -1)
+	readers := make([]string, 0, len(named))
+	for _, reader := range named {
+		readers = append(readers, reader[1])
+	}
+	if f.Closed || len(readers) == 0 || stored[readersFirstHeld] == strings.Join(readers, ",") {
+		return false, nil
+	}
+	for _, reader := range readers {
+		if _, err := client.Post(ctx, client.Draft{
+			Drive: s.Drive, Lane: bus.SweepLane, Kind: "hold", ID: fmt.Sprintf("readers-first/%d/%s", f.Number, reader), PRs: []string{strconv.Itoa(f.Number)},
+			Text: fmt.Sprintf("%s #%s not live on every client. Only the coordinator lifts this, naming the live release that carries #%s.", readersFirstWhy, reader, reader),
+		}); err != nil {
+			return false, err
+		}
+	}
+	_, err := s.Store.PutFact(s.Repo, f.Number, f.Head, readersFirstHeld, strings.Join(readers, ","), s.Now())
+	return true, err
 }
 
 func (s Source) HeldPRs(ctx context.Context) (map[int]bool, error) {
@@ -1191,6 +1217,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	carries := carried(open.prs, heads)
 	out := make([]machine.Facts, 0, len(rows))
 	var diffUnread []machine.Facts
+	newlyHeld := map[int]bool{}
 	for _, row := range rows {
 		if row.State == "" {
 			s.Log.Warn("pull request unread this pass", "pr", row.Number, "verdict", row.Verdict)
@@ -1207,6 +1234,13 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 		f.Lane = cmp.Or(f.Lane, rowLanes[row.Number])
 		f.PersonQueued = f.Queue == machine.QueueQueued && !enqueued[f.Number]
 		held[row.Number].onto(&f)
+		posted, err := s.holdReadersFirst(ctx, f, stored)
+		if err != nil {
+			return nil, fmt.Errorf("#%d readers-first hold: %w", row.Number, err)
+		}
+		if posted {
+			newlyHeld[f.Number] = true
+		}
 		f.Carries = carries[row.Number]
 		if author := open.authors[row.Number]; author != s.Author {
 			f.ForeignAuthor = author
@@ -1223,6 +1257,16 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 	}
 	if err := s.Rows().PostReads(ctx, diffUnread); err != nil {
 		s.Log.Warn("a pull request whose diff went unread had its read unposted", "error", err)
+	}
+	if len(newlyHeld) > 0 {
+		if held, err = s.holds(ctx); err != nil {
+			return nil, fmt.Errorf("read the readers-first holds: %w", err)
+		}
+		for i := range out {
+			if newlyHeld[out[i].Number] {
+				held[out[i].Number].onto(&out[i])
+			}
+		}
 	}
 	queuedByTheDrive(out, enqueued)
 	readRows(out, known)
