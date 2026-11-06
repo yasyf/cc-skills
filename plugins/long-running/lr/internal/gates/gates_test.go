@@ -224,6 +224,13 @@ const (
 		"- **Availability:** additive only. No client selects or sends `chatVersion` in this PR, so every released build keeps working; the next and old clients that select it ship one release after this API is live.\n"
 	pr2436 = "- `lr board draw` posts a card change on the bus and `lr board link` on the Mac applies it through cc-present in order, resuming from a cursor.\n\n" +
 		"Nothing calls either verb yet, so nothing live changes.\n"
+	pr51861Risk   = "## Risk profile\n\n- **Availability:** client error text only. The server's 403 body is unchanged.\n\n"
+	pr51861Design = "## Design\n\n" +
+		"- Kept the door as it is: the machine profile reaches the developer role through `identity-devops`, which its trust already names (#49216).\n" +
+		"- Rejected a server-side hint in the 403 body: it waits on a controller release, and the client already knows the role it needs.\n\n" +
+		"<details>\n<summary>Full design</summary>\n\n`ssoSignedOut` takes an optional alternative.\n\n</details>\n\n" +
+		"## Changes\n\n- `devboxRefusal` adds the admitted role to a `not_a_developer` answer.\n"
+	ownWaitRisk = "## Risk profile\n\n- **Availability:** it waits on the controller release before it goes live.\n\n"
 )
 
 func TestABodyThatWaitsToGoLiveAndNamesNoWayItIsSafeOnDevDoesNotLand(t *testing.T) {
@@ -234,6 +241,8 @@ func TestABodyThatWaitsToGoLiveAndNamesNoWayItIsSafeOnDevDoesNotLand(t *testing.
 		"a stack held by the owner": {"> Held by the owner until Dec 2, 2026; needs evidence that old clients upgraded\n", "Held by the owner until Dec 2, 2026; needs evidence that old clients upgraded"},
 		"a wait on a named pick":    {"## Risk\n\nThis PR waits on the cutover pick before it goes live.\n", "This PR waits on the cutover pick before it goes live"},
 		"a wait after a denied one": {"## Risk\n\nThis PR waits on no pick. It waits for his go before it lands.\n", "It waits for his go before it lands"},
+		"#51861 own Risk wait":      {ownWaitRisk + pr51861Design, "it waits on the controller release before it goes live"},
+		"a flag Design rejects":     {ownWaitRisk + "## Design\n\n- Rejected a feature flag: nothing reads the field until #1 ships.\n", "it waits on the controller release before it goes live"},
 	} {
 		f := green
 		f.UnsafeWait = UnsafeWait(c.body)
@@ -256,6 +265,7 @@ func TestABodyThatNamesHowItIsSafeOnDevOrWaitsOnNothingLands(t *testing.T) {
 		"#46018 behind a flag":        pr46018 + "\nThe drop sits behind a feature flag that stays off until #46014 is live.\n",
 		"a wait for a page to settle": "It waits for the chat to open, about 10 s at the burst's p50.\n",
 		"#49951 denying a wait":       "## Risk\n\nThis PR waits on no pick, and nothing about it changes once it merges.\n",
+		"#51861 rejected hint":        pr51861Risk + pr51861Design,
 	} {
 		if wait := UnsafeWait(body); wait != "" {
 			t.Errorf("%s: refused for %q", name, wait)

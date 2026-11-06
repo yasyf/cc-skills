@@ -111,6 +111,7 @@ D24 sits at the end of this section.
 
 **D23. A PR that waits to go live names how it is safe on dev.**
 - A body saying the PR waits for a card, a later tap, a release, or a hold before it goes live (such as `lands only after #<n> is live`) must also name a code gate, a feature flag, or that the change is inert until a named caller lands, as in `nothing calls <verb> yet`.
+- The check skips the body's `## Design` section, where the PR format puts the alternatives it rejected, so neither a wait nor a gate named there counts; the PR's own wait and gate go in `Risk profile` or `Changes`.
 - Without one, the landing pass refuses it with `UNSAFE-ON-DEV` to its lane and the coordinator, `lr landing go` and `lr landing gate` print the same reason, and its tap card lists it.
 - The lane adds the gate to the code and names it in the body, or drops a wait that no longer holds.
 
