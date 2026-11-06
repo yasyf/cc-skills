@@ -370,6 +370,24 @@ def test_settled_prs_reads_the_prs_a_landing_record_or_a_close_names(tmp_path, c
     assert settled_prs(event(tmp_path, command=command)) == expected
 
 
+def test_a_landing_hands_drive_py_only_bare_numbers_on_the_drives_repository(tmp_path, monkeypatch):
+    from hooks import pr_ledger
+
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "mine.json").write_text(json.dumps({"drive": "mine", "repo": "Forge-AI/monorepo", "sessions": [SESSION]}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    ran = []
+    monkeypatch.setattr(pr_ledger.subprocess, "run", lambda argv, **kwargs: ran.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
+
+    assert pr_ledger.settle_landed_prs(event(tmp_path, command="cci post --lane l --kind landed --pr yasyf/cc-skills#3560 --text x")) is None
+    assert ran == []
+
+    pr_ledger.settle_landed_prs(event(tmp_path, command="cci post --lane l --kind landed --pr forge-ai/monorepo#31390,31391 --text x"))
+    assert [argv[argv.index("landed") + 1 :] for argv in ran] == [["--session", SESSION, "--pr", "31390", "--pr", "31391"]]
+
+
 def test_a_landing_the_drive_cannot_settle_names_the_prs(tmp_path, monkeypatch):
     from hooks import pr_ledger
 

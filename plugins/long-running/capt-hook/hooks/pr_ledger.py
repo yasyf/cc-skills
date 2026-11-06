@@ -381,6 +381,15 @@ def closed_pr(call: Call) -> str | None:
     return pr_ref(target, {target: repos[0]} if repos else {})
 
 
+def drive_prs(refs: list[str], entry: dict | None) -> list[str]:
+    kept = []
+    for ref in refs:
+        repo, _, pr = ref.rpartition("#")
+        if not repo or (entry is not None and repo.casefold() == entry["repo"].casefold()):
+            kept.append(pr)
+    return kept
+
+
 def settled_prs(evt: BaseHookEvent) -> list[str]:
     prs = []
     for call in evt.cmd.calls():
@@ -416,7 +425,7 @@ def settled_prs(evt: BaseHookEvent) -> list[str]:
     },
 )
 def settle_landed_prs(evt: BaseHookEvent) -> HookResult | None:
-    if not (prs := settled_prs(evt)):
+    if not (prs := drive_prs(settled_prs(evt), drive_entry(evt))):
         return None
     argv = [sys.executable, str(script("drive.py")), "landed", "--session", evt.session_id]
     argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
@@ -424,5 +433,5 @@ def settle_landed_prs(evt: BaseHookEvent) -> HookResult | None:
         argv += ["--pr", pr]
     _, reason = run_drive(argv)
     if reason:
-        return evt.context(UNSETTLED.format(prs=", ".join(pr if "#" in pr else f"#{pr}" for pr in prs), reason=reason, retry=shlex.join(argv)))
+        return evt.context(UNSETTLED.format(prs=", ".join(f"#{pr}" for pr in prs), reason=reason, retry=shlex.join(argv)))
     return None
