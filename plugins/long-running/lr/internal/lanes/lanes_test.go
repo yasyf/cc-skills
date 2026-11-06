@@ -1997,17 +1997,38 @@ func TestALaunchersRecordTakingAPRRetiresOnlyALaunchThatNeverPosted(t *testing.T
 	equal(t, []any{downs[0].To, downs[0].Successor, downs[0].PRs, downs[0].Text}, []any{[]string{"never-up"}, lane2, []int{121}, "never-up stood down for conflicts-2."})
 }
 
-func TestALaneWhoseOrcaWorkerFinishedIsRetiredAndNeverRelaunched(t *testing.T) {
-	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
-	f.feed = append(f.feed, ask(2, "done", lane2, t0.Add(-mins(14)), nil, runner, nil))
-	f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
+func TestAnOrcaWorkerThatFinishedRelaunchesItsLaneWithItsPRsOnlyWhileItsBriefKeepsItsStandingLine(t *testing.T) {
+	const duty, heir = "Standing: refresh the owner's board every pass\n", "board-refresher-7"
+	for name, tc := range map[string]struct {
+		spawnedWith, finishedWith string
+		launches                  []string
+		retiredBy, owner          string
+	}{
+		"a standing lane relaunches":                     {duty, duty, []string{heir}, heir, heir},
+		"a one-shot lane retires by done":                {"", "", nil, "done", unblock},
+		"a lane whose Standing line was deleted retires": {duty, "", nil, "done", unblock},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			path := filepath.Join(t.TempDir(), refresher+".brief.md")
+			brief := func(standing string) {
+				do(os.WriteFile(path, []byte("# "+refresher+"\nRegister slice: lane="+refresher+" step=tooling\n"+standing), 0o600))
+			}
+			brief(tc.spawnedWith)
+			f := newFake(t, []Record{spawned(1, refresher, path, t0.Add(-2*time.Hour), nil)}, []Row{who(refresher, true, t0.Add(-time.Hour))})
+			tick(t, s, f, t0.Add(-time.Hour))
+			do(s.SetLanePRs(refresher, []int{46001}))
+			f.peers = nil
+			withUnblock(t, s, f, store.LaneDesired)
+			brief(tc.finishedWith)
+			f.feed = append(f.feed, ask(2, "done", refresher, t0, nil, runner, nil))
 
-	out := tick(t, s, f, t0)
+			tick(t, s, f, t0.Add(mins(1)))
+			tick(t, s, f, t0.Add(mins(11)))
 
-	equal(t, len(out.Relaunched)+len(f.launches), 0)
-	lane := row(t, s, lane2)
-	equal(t, []any{lane.State, lane.RetiredBy}, []any{store.LaneRetired, "done"})
+			equal(t, []any{f.launches, row(t, s, refresher).RetiredBy, owners(t, s, 46001)[46001]}, []any{tc.launches, tc.retiredBy, tc.owner})
+		})
+	}
 }
 
 func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {

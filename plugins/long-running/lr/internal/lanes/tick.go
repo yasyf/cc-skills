@@ -872,6 +872,10 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 	if found := sliceStep.FindSubmatch(body); found != nil {
 		step = string(found[1])
 	}
+	finished := fmt.Sprintf("If the handoff and %s's records show its deliverable is already complete, post `cci post --drive %s --lane %s --kind done --to root --text '<what it delivered>'` and stop.", old.Name, drive, name)
+	if duty := dutyOf(old); duty != "" {
+		finished = fmt.Sprintf("Your duty is standing (%s): loop on it until a `ROTATE` record, and never end your session with worker_done while your brief keeps its `Standing:` line.", duty)
+	}
 	place := "ccx: place=remote"
 	if macBrief.Match(body) {
 		place = "ccx: place=local why=predecessor-worked-here"
@@ -887,7 +891,7 @@ func successorBrief(old store.Lane, name, why, partial string, d Deps, transcrip
 		start,
 		fmt.Sprintf("PRs you now own: %s.", owned),
 		fmt.Sprintf("Ask, report and raise a blocker only with `cci post --drive %s --lane %s --kind ask|report|blocker`; Orca's `send` and `ask` carry the dispatch lifecycle alone.", drive, name),
-		fmt.Sprintf("If the handoff and %s's records show its deliverable is already complete, post `cci post --drive %s --lane %s --kind done --to root --text '<what it delivered>'` and stop.", old.Name, drive, name),
+		finished,
 		"",
 	}
 	lines = append(lines, before...)
@@ -1292,7 +1296,7 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 			continue
 		}
 		why := fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
-		if head.RetiredBy == "stand-down" || head.RetiredBy == "done" {
+		if endedItsDuty(head) {
 			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. If the duty is still open, launch its successor from %s%s.", name, dutyOf(head), why, handLaunchedSuccessor(d, head, found, why, taken), dutyEnd(head)), now)
 			continue
 		}
