@@ -78,6 +78,43 @@ func TestNewBriefWritesWhatTheLaunchChecksRead(t *testing.T) {
 	}
 }
 
+func TestABodyWithNoSliceGetsOneNamingTheLaneWordsAndThePathsItNames(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "Edit go/sand/next/internal/x.go:118 and (api/src/a.ts), again go/sand/next/internal/x.go.\n"), Scale: "small", Place: placeRemote}
+	text, err := n.text("item-90-sidebar-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "\nRegister slice: lane=item-90-sidebar-1 step=all topics=item,sidebar paths=go/sand/next/internal/x.go,api/src/a.ts\nScale: small\n"; !strings.Contains(text, want) {
+		t.Errorf("brief lacks %q:\n%s", want, text)
+	}
+}
+
+func TestABodyWithItsOwnSliceKeepsItAsTheOnlyOne(t *testing.T) {
+	body := writeFixture(t, "body.md", "Register slice: lane=lane-a step=1 topics=launch\nDo it.\n")
+	text, err := (NewBrief{Title: "t", BodyFile: body, Scale: "small", Place: placeRemote}).text("lane-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(text, sliceLine) != 1 || !strings.Contains(text, "\n\nRegister slice: lane=lane-a step=1 topics=launch\nDo it.\n") {
+		t.Errorf("brief:\n%s", text)
+	}
+	if _, err := (NewBrief{Title: "t", BodyFile: body, Scale: "small", Place: placeRemote, Topics: []string{"relay"}}).text("lane-a"); err == nil {
+		t.Error("--topics beside the body's own slice line wrote a brief")
+	}
+}
+
+func TestATopicWithASpaceIsRefusedBeforeTheLaunchPosts(t *testing.T) {
+	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain\n"), Scale: "small", Place: placeRemote, Topics: []string{"iris sidebar", "agents"}}
+	text, err := n.text("item-90-fix-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := Order{Lane: "item-90-fix-1", Model: defaultLaneModel, Effort: defaultLaneEffort, Brief: "brief.md"}
+	if faults := strings.Join(order.launchFaults(text, true), "; "); !strings.Contains(faults, "rulings.py cannot read") {
+		t.Errorf("faults = %q for:\n%s", faults, text)
+	}
+}
+
 func TestNewBriefRemotePlaceAndNoOwnerOrders(t *testing.T) {
 	n := NewBrief{Title: "t", BodyFile: writeFixture(t, "body.md", "plain, citing m876 and m829 as background\n"), Scale: "small", Place: placeRemote}
 	text, err := n.text("lane-a")

@@ -31,8 +31,10 @@ const (
 
 var (
 	scaleRule     = time.Date(2026, 10, 30, 13, 11, 35, 0, time.UTC)
-	briefSlice    = regexp.MustCompile(`(?m)^` + sliceLine)
+	briefSlice    = regexp.MustCompile(`(?m)^` + sliceLine + `.*$`)
 	uncodexSlice  = regexp.MustCompile(`(?m)^(` + sliceLine + ` lane=\S+ step=\S+(?: topics=\S+)?(?: paths=\S+)?(?: prs=\S+)?)[ \t]*$`)
+	parsedSlice   = regexp.MustCompile(`(?m)^` + sliceLine + ` lane=\S+ step=\S+(?: topics=\S+)?(?: paths=\S+)?(?: prs=\S+)?(?: codex=yes)?[ \t]*$`)
+	repoPath      = regexp.MustCompile("(?:^|[\\s(`'\"])(\\.?[\\w-]+(?:/[\\w.*-]+)+)")
 	briefScale    = regexp.MustCompile(`(?m)^[ \t>*_-]*Scale:`)
 	briefCCX      = regexp.MustCompile(`(?m)^ccx:.*$`)
 	briefIncident = regexp.MustCompile(`(?m)^ccx:.*\bincident=([\w.-]+)`)
@@ -120,6 +122,34 @@ func (o Order) sliceWarning(text string) string {
 	return fmt.Sprintf("brief %s has no `%s lane=<name> step=<n>` line; %s launches anyway with `step=%s` written for it, so name its plan step if it has one", o.Brief, sliceLine, o.Lane, stepAll)
 }
 
+func sliceHeader(lane, step string, topics []string, text string) string {
+	line := fmt.Sprintf("%s lane=%s step=%s", sliceLine, lane, step)
+	if step == stepIncident {
+		return line
+	}
+	if len(topics) == 0 {
+		for word := range strings.SplitSeq(lane, "-") {
+			if strings.Trim(word, "0123456789") != "" && !slices.Contains(topics, word) {
+				topics = append(topics, word)
+			}
+		}
+	}
+	if len(topics) > 0 {
+		line += " topics=" + strings.Join(topics, ",")
+	}
+	var paths []string
+	for _, match := range repoPath.FindAllStringSubmatch(text, -1) {
+		path := strings.TrimRight(match[1], ".")
+		if (strings.Count(path, "/") > 1 || strings.Contains(filepath.Base(path), ".")) && !slices.Contains(paths, path) {
+			paths = append(paths, path)
+		}
+	}
+	if len(paths) > 0 {
+		line += " paths=" + strings.Join(paths, ",")
+	}
+	return line
+}
+
 func (o Order) launchFaults(text string, readable bool) []string {
 	var faults []string
 	if _, _, known := modelRoute(o.Model); !known {
@@ -130,6 +160,9 @@ func (o Order) launchFaults(text string, readable bool) []string {
 	}
 	if !readable {
 		return append(faults, "brief "+o.Brief+" is not a file")
+	}
+	if line := briefSlice.FindString(text); line != "" && !parsedSlice.MatchString(text) {
+		faults = append(faults, fmt.Sprintf("brief %s has a `%s` line rulings.py cannot read, so the lane would launch with no register slice: %s; write it as `%s lane=<name> step=<n>` with optional topics=, paths= and prs= lists, each comma-joined with no spaces", o.Brief, sliceLine, line, sliceLine))
 	}
 	faults = append(faults, o.costFaults(text)...)
 	if unneeded := o.unneededLocal(text); unneeded != "" {

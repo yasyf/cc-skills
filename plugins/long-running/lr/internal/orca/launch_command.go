@@ -121,7 +121,7 @@ Exit 0 when the lane launched, or when no verdict came within --timeout-seconds 
 
 A BRIEF at <dir>/<name>/brief.md whose <name> is a stood-down lane of LANE's stem is copied to <state dir>/<lane>/brief.md with <name> rewritten to the lane's, and launches from there, as the supervisor relaunches a lane.
 
-With --body, a file or - for stdin, the launch writes the brief itself, to <state dir>/<lane>/brief.md, from --title, the register slice line, --scale, --ccx or --place, the --contract file, the body, the posting lane's <state dir>/<lane>/brief-lines.txt and an Assigned orders line naming each --order owner:m<row>, the only orders the lane's retirement and lr owner audit read, since a row the body quotes, bare or as owner:m<row>, orders nothing; it takes no BRIEF, and the model and effort default to opus high. A Fable or astra model, or effort xhigh or max, needs --owner-pick naming the owner row whose words asked for it, which writes the brief's Owner pick line. The runner refreshes the register slice at launch.`,
+With --body, a file or - for stdin, the launch writes the brief itself, to <state dir>/<lane>/brief.md, from --title, the register slice line, --scale, --ccx or --place, the --contract file, the body, the posting lane's <state dir>/<lane>/brief-lines.txt and an Assigned orders line naming each --order owner:m<row>, the only orders the lane's retirement and lr owner audit read, since a row the body quotes, bare or as owner:m<row>, orders nothing; it takes no BRIEF, and the model and effort default to opus high. A Fable or astra model, or effort xhigh or max, needs --owner-pick naming the owner row whose words asked for it, which writes the brief's Owner pick line. A body with its own Register slice: line keeps it; any other brief gets one naming the lane, --step or all, --topics or the lane name's words, and the repo paths the body names. The runner refreshes the register slice at launch, and a refresh that fails stops any launch but an incident's.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if written.BodyFile == "" {
 				return cobra.ExactArgs(4)(cmd, args)
@@ -177,7 +177,7 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 	cmd.Flags().StringVar(&written.CCX, "ccx", "", "with --body, the brief's whole ccx line in place of --place, as role=read,place=local,why=<need>; place=local with no why= launches on a Sprite unless its role is read, and a why= that names no need only this Mac meets is refused; incident=none unless it names one")
 	cmd.MarkFlagsMutuallyExclusive("ccx", "place")
 	cmd.MarkFlagsMutuallyExclusive("ccx", "why")
-	cmd.Flags().StringSliceVar(&written.Topics, "topics", nil, "with --body, the subjects the lane decides on, for the register slice's owner answers")
+	cmd.Flags().StringSliceVar(&written.Topics, "topics", nil, "with --body, the subjects the lane decides on, each with no spaces, for the register slice's owner answers; default the lane name's words")
 	cmd.Flags().StringVar(&written.Step, "step", "", "with --body, the plan step the lane owns, written into its register slice line, where the owner update and the step watch read its owner; all when unset")
 	cmd.Flags().BoolVar(&now, "now", false, "owner-directed: launch beside a live lane already holding this work")
 	cmd.Flags().StringVar(&id, "id", "", "the launch line's cci idempotency key: a repost under a key already on the drive returns the line first posted, so a retried launch reaches the runner once")

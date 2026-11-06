@@ -149,7 +149,7 @@ Launch lanes through the supervisor and Orca, never with `Agent`, keeping only t
     EOF
 
 It writes `<state dir>/<lane>/brief.md` with the header and your standing lines from
-`<state dir>/root/brief-lines.txt`, the runner refreshes the register slice, and it prints the
+`<state dir>/root/brief-lines.txt`, the runner refreshes the register slice, stopping the launch if that fails, and it prints the
 verdict. A later verdict arrives as a `desk-runner` record. The lane starts on a Sprite; one
 that needs the Mac takes `--place local --why <need>`, a need O16 in
 [orca-desk-brief.md](orca-desk-brief.md) lists. Model and effort default to opus

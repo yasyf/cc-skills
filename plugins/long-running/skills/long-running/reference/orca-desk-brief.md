@@ -202,7 +202,7 @@ lr launch withdraw <R<n> | unfixed:<msg>:<n> | lane>
 ```
 
 - `lr launch lane <stem>` numbers the lane itself: `<stem>-<n>`, one past the highest number any lane of that stem ever registered on the drive, so a name is never reused. Its brief may sit in `<stem>/brief.md`, or in a stood-down lane's `<stem>-<m>/brief.md`, which the launch copies to `<state dir>/<stem>-<n>/brief.md` with `<stem>-<m>` renamed `<stem>-<n>` and launches from there. A bare name already registered with no numbered generation, such as `owner-relay`, launches as itself, and an explicit `<stem>-<n>` launches as typed. The new lane holds the stem from its spawn, and the supervisor stands the lane it takes over down for it on the bus.
-- `lane` and `incident` first run every launch check and exit naming every fault together, so a missing `Scale:` line posts nothing. A brief with no `Register slice:` line prints a `WARN` and still launches. They then wait for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-DUPLICATE`, or `UNVERIFIABLE` and print the relay's line with the dispatch and terminal.
+- `lane` and `incident` first run every launch check and exit naming every fault together, so a missing `Scale:` line posts nothing. A brief with no `Register slice:` line prints a `WARN` and still launches, and one whose line `rulings.py` cannot read, such as a topic with a space, posts nothing. They then wait for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-DUPLICATE`, or `UNVERIFIABLE` and print the relay's line with the dispatch and terminal.
 - A wait that ends with no verdict while the relay's `orca alive` record is under five minutes old prints that the launch is posted and exits 0, since a Sprite launch takes minutes and its verdict arrives as a record. Only a stale `orca alive` record exits 2, naming the `cci tail` that checks it. The other verbs return at once.
 - Every launch verdict (`LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-DUPLICATE`, `UNVERIFIABLE`, `SPRITE-UNVERIFIABLE`) goes on cci to the lane that posted the go, and to the coordinator only when it posted the go. A go the supervisor or the relay itself posted keeps the launched lane's notice route.
 - Submitting the same key again in the same lane returns the existing action. Never `SendMessage` a desk.
@@ -274,7 +274,9 @@ cci post --drive <drive> --lane root --kind go --to orca-desk --text 'orca-desk:
 - the lane has a live dispatch or a launch in flight; a dispatch whose remote runtime reads `remote_runtime_unavailable` does not count, since a relay to it reaches no one, so the launch starts a fresh dispatch,
 - the key already holds an action,
 - `launch` refuses the model or effort,
-- the brief is not a file, or
+- the brief is not a file,
+- its `Register slice:` line does not parse,
+- `rulings.py slice --refresh` fails on any launch but an incident's, or
 - the line says `orca-desk: launch` outside the exact form, which logs as `LAUNCH-FAILED <key> inbox`.
 
 Register slice and scale:
@@ -282,8 +284,8 @@ Register slice and scale:
 - If a judge reads a non-incident brief's `Scale:` line as missing the N its paths run at, the relay launches anyway and posts `SCALE-MISSED <key> <lane>` to the coordinator.
 - Before launching, the relay refreshes the slice with `rulings.py slice --refresh <brief>`. The refreshed slice opens with step one: `ccn answer search <topic>` for each `topics=` entry on the slice line and `ccn relevant <dir>` for each `paths=` glob, each run once, with every answer they found beneath them. Above those it carries his answers that bear on the brief's own words, the lines no other recent brief carries: `ccn answer match` proposes up to 10, and one judge call keeps those that would change the work, with no call for a ruling named by its own `match:` phrase. A refresh of an unchanged brief reuses that verdict from `judge/bearing/`. When the call fails, the slice lists the closest answers by title and says the judge did not read them.
 - The refresh writes `Register slice: lane=<lane> step=incident` into an incident brief that lacks one, and into every alert, case, fallback, and manual release brief it attaches.
-- Any other brief that lacks the line logs `SLICE-MISSING <key> <lane>` and launches anyway with `step=all` written for it.
-- An unreadable slice logs `SLICE-UNREAD` and the launch proceeds. A verified launch logs `LAUNCHED <key> <lane>: dispatch <ctx> terminal <handle>`.
+- Any other brief that lacks the line logs `SLICE-MISSING <key> <lane>` and launches with a line written for it: `step=all`, `topics=` the lane name's words less its numbers, and `paths=` the repo paths the brief names.
+- A slice that does not refresh fails the launch, except an incident's, which logs `SLICE-UNREAD` and proceeds. A verified launch logs `LAUNCHED <key> <lane>: dispatch <ctx> terminal <handle>`.
 
 ### Withdraw a launch or lane
 
@@ -524,7 +526,7 @@ The hold verb records a decision clock only; it does not hold or lift a PR or au
 | `INCIDENT-CLOCK` | Follow [reference/active-alert-brief.md](active-alert-brief.md). Post the line as a `report` to `owner-relay` ahead of other work, ratify or launch `<lane>-opus` or start it in-process as an `Agent` of type `long-running:lane-ship` on `opus` in fast mode for `in-process`, and clear what holds the missing milestone. |
 | `MERGE-ASK`, `MERGE-CARD-FAILED`, `MERGE-MODE-UNSET`, `MQ-CONFIG-INVALID`, `FILES-READ-FAILED`, `STALE-POLICY`, `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED`, `ROUTE`, `UNOWNED`, `GITHUB-BACKOFF`, `QUOTA-READ-FAILED`, `RELEASED`, `RELEASE-HELD-AFTER-LANDING`, `CUT-SILENT`, `PARKED`, `DEFERRED`, `SQUASH-FAILED`, `RELEASE-FAILED` | Landing and release escalations; act per [reference/landing.md](landing.md) and [reference/release-lanes.md](release-lanes.md). |
 | `RULING-ASK` | Queue ruling confirmations for the next board round with `rulings.py round --drive <id>`, presenting 5 to 10 cards per round with foundational rows first, and confirm or reply per [reference/owner-rulings.md](owner-rulings.md). |
-| `SLICE-UNREAD` | Read the `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane. |
+| `SLICE-UNREAD` | An incident lane launched without its slice. Read the `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane. |
 | `SLICE-MISSING` | The lane launched with `step=all`. Name its plan step in the brief if it has one, and relay the fresh slice to the lane. |
 | `LOAD-HIGH` | Move local passes, backfills, dry runs, or bulk rewrites to in-region compute in that turn. Never wait the load out. |
 | `ALERT-FAILED`, `HOLD-FAILED`, `DIRECTIVE-FAILED` | Correct the line's grammar, slug, link, or form and post it again. |
