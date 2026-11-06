@@ -97,6 +97,10 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			return
 		}
 		resume(s, name, fmt.Sprintf("unpark:%d", r.Seq), "the coordinator lifted your park", r, at)
+	case verb == "done" && known && r.Lane == runner && dutyOf(row) != "":
+		if row.State != store.LaneRetired && out.owesNothing(s, name, fresh, at) {
+			retire(s, name, retiredWorkerDone, at)
+		}
 	case verb == "done" && known && row.State != store.LaneRetired:
 		if out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "done", at)

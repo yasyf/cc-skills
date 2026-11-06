@@ -498,7 +498,11 @@ func defaultOwner(s *store.Store) string {
 }
 
 func endedAlone(lane store.Lane) bool {
-	return slices.Contains(endsAlone, lane.RetiredBy) && !restedOnItsOwnEnd(lane)
+	return slices.Contains(endsAlone, lane.RetiredBy) && !restedOnItsOwnEnd(lane) && (dutyOf(lane) == "" || endedItsDuty(lane))
+}
+
+func endedItsDuty(lane store.Lane) bool {
+	return lane.RetiredBy == retiredStopped || lane.RetiredBy == "done"
 }
 
 func handedOn(to string, from []string, prs []int) Post {
