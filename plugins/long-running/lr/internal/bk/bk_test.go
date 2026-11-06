@@ -260,6 +260,7 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk log test 12 job --context 51",
 		"bk log test 12 job --context -1",
 		"bk log test 12 job --grep (unclosed",
+		"bk log test 12 job --grep 'panic|fatal error",
 		"bk log test 12 --grep panic",
 		"bk log test 12 " + failedJob + " 22/36",
 		"bk log test 12 job 0/36",
@@ -384,6 +385,24 @@ func TestALogOfAPassedJobKeepsItsTail(t *testing.T) {
 
 	if read.body != log {
 		t.Fatalf("body = %q, want the whole short log", read.body)
+	}
+}
+
+func TestAQuotedGrepRegexWithSpacesAndAlternationReachesTheDeskWhole(t *testing.T) {
+	log := "ok one\npanic: boom\nok two\nok three\nok four\nok five\nok six\nok seven\nfatal error: concurrent map writes\nok eight\n"
+	runner := &fakeRunner{replies: map[string]string{failedJob: log}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk log test 12 "+failedJob+" --grep 'panic|fatal error' --context 0")
+
+	if want := []string{"tools/ci", "bk", "log", "test", "12", failedJob}; len(runner.calls) != 1 || !slices.Equal(runner.calls[0].Argv, want) {
+		t.Fatalf("ran %v, want only %v", runner.calls, want)
+	}
+	if read.body != "panic: boom\n--\nfatal error: concurrent map writes\n" {
+		t.Fatalf("body = %q", read.body)
+	}
+	if !strings.Contains(read.head, "2 lines matching panic|fatal error in a") {
+		t.Fatalf("head = %q", read.head)
 	}
 }
 
