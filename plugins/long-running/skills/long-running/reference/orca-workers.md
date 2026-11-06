@@ -53,23 +53,21 @@ No human reads a lane, so it starts stripped:
 
 ### Sparse lanes in a large repo
 
-`orca worktree create` has no sparse option, and a `git worktree add` from the main checkout copies no sparse config, so each monorepo lane holds the whole tree. Set `ORCA_LAUNCH_SPARSE=1` and the script adds the worktree with git at `<root>/<lane>-<run>-<n>`. `<root>` is `ORCA_LAUNCH_ROOT`, else `<ccx.worktreeRoot>/<main checkout's name>` when the main checkout's git config sets `ccx.worktreeRoot`, else the coordinator worktree's directory.
+The `orca worktree create` CLI has no sparse option, so a monorepo lane it creates holds the whole tree. Set `ORCA_LAUNCH_SPARSE=1` and the script still has Orca create the worktree, with `--setup skip`, and then narrows it in place. A worktree Orca creates is listed at once. Orca 1.4.247 sees a worktree added with plain `git worktree add` only when it next rescans the repo, about every five minutes on the monorepo, and no CLI verb registers an existing path; cc-notes investigation be8c72a has the evidence.
 
-When HEAD tracks more than `ORCA_LAUNCH_SPARSE_FILES` files, 5,000 by default, the script checks out only the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, `infra/ci/src`, `release`, `infra/envs`, `infra/rows/ci-infra/ci`, and the directories the brief's `ccx:` line names in `paths=`. The monorepo's `tools/ci` sources `infra/ci/hooks/lib` and runs `infra/ci/src/cli.ts`, and every `tools/ci release` verb that reads a release, `oncall shipped` and a `break-glass` request load `release/targets.yaml`, the env specs under `infra/envs` and the escape-hatch tenant roster `infra/rows/ci-infra/ci/escape-hatch.json`. That cone is about 2,400 entries in the monorepo, and a smaller repo keeps a full checkout. Orca lists the worktree once it reads git's registry, and `orca worktree set` gives it Orca's name and parent:
+When HEAD tracks more than `ORCA_LAUNCH_SPARSE_FILES` files, 5,000 by default, the script narrows the checkout to the coordinator's files, `.agents`, `.claude`, `tools`, `infra/ci/hooks/lib`, `infra/ci/src`, `release`, `infra/envs`, `infra/rows/ci-infra/ci`, and the directories the brief's `ccx:` line names in `paths=`. The monorepo's `tools/ci` sources `infra/ci/hooks/lib` and runs `infra/ci/src/cli.ts`, and every `tools/ci release` verb that reads a release, `oncall shipped` and a `break-glass` request load `release/targets.yaml`, the env specs under `infra/envs` and the escape-hatch tenant roster `infra/rows/ci-infra/ci/escape-hatch.json`. That cone is about 2,400 entries in the monorepo, and a smaller repo keeps a full checkout:
 
 ```sh
-git -C "<main checkout>" worktree add --no-checkout --no-track -b "<user>/<lane>-<run>-<n>" "<root>/<lane>-<run>-<n>" "origin/<base>"
+orca worktree create --name "<lane>-<run>-<n>" --repo "<repo>" --base-branch "origin/<base>" \
+  --parent-worktree "path:<coordinator worktree>" --setup skip --json
 printf '%s\n' .agents .claude tools infra/ci/hooks/lib infra/ci/src release infra/envs infra/rows/ci-infra/ci <paths> | git -C "<wt>" sparse-checkout set --cone --stdin
-git -C "<wt>" reset --hard
-orca worktree set --worktree "path:<wt>" --display-name "<lane>-<run>-<n>" \
-  --parent-worktree "path:<coordinator worktree>" --json
 ```
 
-- Like `orca worktree create`, the script links the repo's Orca `symlinkPaths` from the main checkout and copies each existing, gitignored path `.worktreeinclude` names.
+- On this Mac on Nov 6, one monorepo create took 39 s and wrote 405 MiB, and the narrow took 4 s and left 34 MiB.
+- Orca's create links the repo's `symlinkPaths` and copies each gitignored path `.worktreeinclude` names, as it does for a full lane.
 - It runs no Orca setup hook. `ORCA_LAUNCH_PREPARE` runs in the sparse checkout, and defaults to `tools/hooks/warm-lane.sh` where the worktree has it.
 - It widens each cone directory inside a Go module to that module, and adds the module's local `replace` targets, followed through their own `go.mod`s. With a package's siblings missing, `go build` walks the module graph and stops at the first absent `replace` target. `lr sparse add <dir>` does the same when a lane widens later. It also adds back the tracked `.agents` and `.claude` and each `ccx.sparseInclude` directory the set lacks, the set `ccx vcs worktree add` checks out, so a tree narrowed by hand, such as an `orca worktree create` child made sparse with `git sparse-checkout init --cone`, regains the skill scripts and hooks a ship runs.
 - It prints the cone and the widen command on stderr, `cd <wt> && lr sparse add <dir>`, and the worker's pointer says "This lane is sparse: widen with `lr sparse add <dir>` before reading outside it." `git sparse-checkout disable` restores the full tree.
-- Orca is not told about a `git worktree add` and can serve its old list for up to five minutes. No Orca call refreshes it, so when `orca worktree show` misses the worktree, the script keeps polling it every four seconds for `ORCA_LAUNCH_STALL_SECONDS` plus 300 s before it stalls.
 - A sparse launch that fails before `worker-start` hands its worktree to `ccx vcs worktree rm --path <wt> --force` and deletes the branch it created.
 
 ### Parent worktree and brief pointer
@@ -216,7 +214,7 @@ usage: lr launch start <lane> <model> <effort> <brief-file>
 | `ORCA_LAUNCH_PARENT` | Coordinator worktree path; defaults to `$PWD`. |
 | `ORCA_LAUNCH_NO_PARENT` | `1` creates a top-level (`--no-parent`) worktree instead of a child of `ORCA_LAUNCH_PARENT` (always set for `incident`); defaults to unset. |
 | `ORCA_LAUNCH_PREFIX` | Worktree name prefix; defaults to none. Each new worktree is `<prefix><lane>-<run>-<n>` on branch `<user>/<prefix><lane>-<run>-<n>`. `<run>` is the first 8 characters of the Run id, `<user>` is the repo's Orca `gitUsername`, and `<n>` counts past every name the lane's `<lane>.names` receipt records and every existing path or branch. A name is never cut twice, and the branch never blocks `<user>/<prefix><lane>/` branches. |
-| `ORCA_LAUNCH_ROOT` | Directory a new worktree goes in. A sparse lane's defaults to `<ccx.worktreeRoot>/<main checkout's name>` when the main checkout's git config sets `ccx.worktreeRoot`, else to the coordinator worktree's directory. `orca worktree create` puts a default lane's worktree where Orca chooses, and the script finds it by name. |
+| `ORCA_LAUNCH_ROOT` | Directory the script checks for a name already taken, defaulting to the coordinator worktree's directory. `orca worktree create` puts every new worktree where Orca chooses, and the script finds it by name. |
 | `ORCA_LAUNCH_BASE` | Base branch; defaults to the parent checkout's `origin/HEAD`. |
 | `ORCA_LAUNCH_STATE` | Receipt directory; defaults to `$XDG_STATE_HOME/long-running/orca-launch/<run>`, with `$XDG_STATE_HOME` defaulting to `~/.local/state`. Leave unset on hand launches. |
 | `ORCA_LAUNCH_CLAUDE_ARGS` | Extra arguments from Orca's agent defaults (excluding plan mode); defaults to none. |
@@ -224,8 +222,8 @@ usage: lr launch start <lane> <model> <effort> <brief-file>
 | `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling in seconds on each worktree wait: a failed create registering and its checkout filling; defaults to `180`. |
 | `ORCA_LAUNCH_PREPARE` | Shell command run in the new worktree before worker start, such as code generators; never a JavaScript dependency install. Defaults to `tools/hooks/warm-lane.sh` in a repo that has it. |
 | `ORCA_LAUNCH_PREPARE_SECONDS` | Timeout in seconds for `ORCA_LAUNCH_PREPARE`; defaults to `120`. |
-| `ORCA_LAUNCH_SPARSE` | `1` adds each new worktree with `git worktree add`, sparse in a large repo, instead of `orca worktree create`; defaults to unset. |
-| `ORCA_LAUNCH_SPARSE_FILES` | Tracked-file count above which a worktree `ORCA_LAUNCH_SPARSE` adds is sparse; defaults to `5000`. |
+| `ORCA_LAUNCH_SPARSE` | `1` creates each new worktree with `orca worktree create --setup skip` and narrows it to a sparse cone in a large repo; defaults to unset. |
+| `ORCA_LAUNCH_SPARSE_FILES` | Tracked-file count above which `ORCA_LAUNCH_SPARSE` narrows a new worktree; defaults to `5000`. |
 
 ### Read the output and receipts
 
@@ -257,7 +255,7 @@ Retry a failed dispatch only after confirming its session has ended and getting 
 ### Boot and checkout retries
 
 Worktree creation gets four attempts and terminal creation gets three.
-- Worktree registration and index: before each attempt and for up to `ORCA_LAUNCH_WORKTREE_SECONDS` (180 s) after a failed create, the script polls `orca worktree show` to adopt a worktree that finished registering after a dropped connection. It then waits within the same ceiling until `git diff-index --cached HEAD` is empty so `git reset --hard` has finished populating the checkout. A sparse lane's `git worktree add` and `reset --hard` finish before the script moves on, so it waits only for Orca to list the new worktree. Orca has no verb that registers or refreshes a worktree path and can serve its cached worktree rows for up to five minutes after a raw `git worktree add`, so that listing wait lasts `ORCA_LAUNCH_STALL_SECONDS` plus 300 s.
+- Worktree registration and index: before each attempt and for up to `ORCA_LAUNCH_WORKTREE_SECONDS` (180 s) after a failed create, the script polls `orca worktree show` to adopt a worktree that finished registering after a dropped connection. It then waits within the same ceiling until `git diff-index --cached HEAD` is empty so `git reset --hard` has finished populating the checkout.
 - Terminal creation: if `terminal create` times out after 10 seconds without a handle, the script polls the worktree every four seconds for up to `ORCA_LAUNCH_BOOT_SECONDS` (180 s) to adopt the late terminal before retrying.
 - Agent readiness: before calling `worker-start`, the script blocks on `orca terminal wait --for tui-idle` up to `ORCA_LAUNCH_BOOT_SECONDS`. If a third of that ceiling passes with no idle agent and the screen shows no command-line prompt and no agent UI, the script sends the startup command once with `orca terminal send`. If the agent is still not idle at the ceiling, the script fails with `boot terminal=<handle>: orca terminal wait --for tui-idle reads <timeout, status, or blocked prompt>` without calling `worker-start`. After a Claude start, it checks the screen for `bypass permissions on` up to 10 times, four seconds apart.
 - A `worker-start` the Orca runtime did not answer (`runtime_timeout`, `runtime_unavailable`, `remote_runtime_unavailable`, or `invalid_runtime_response`, with an `orchestrationRequestId`) is reissued with `--retry-request <id>` every four seconds until `ORCA_LAUNCH_BOOT_SECONDS`, and the failure line names its tries. Any other failed `worker-start` returns immediately without retrying.

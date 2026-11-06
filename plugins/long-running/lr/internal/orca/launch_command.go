@@ -284,7 +284,7 @@ func startCommand(a *app.App) *cobra.Command {
 
 Anything else is a failure, printed as one line naming the step, exit 1. A launch that fails before worker-start, or that worker-start refuses before it dispatches anything, rolls back what it made and says so.
 
-A relaunch whose receipt names a worktree that is still a checkout resumes in it. Every other launch makes a worktree under a name no launch has used: PREFIX+LANE-RUN-N, on branch USER/PREFIX+LANE-RUN-N. orca worktree create makes it by default; ORCA_LAUNCH_SPARSE=1 adds it with git worktree add from the main checkout, sparse in a repo over ORCA_LAUNCH_SPARSE_FILES tracked files.
+A relaunch whose receipt names a worktree that is still a checkout resumes in it. Every other launch makes a worktree under a name no launch has used: PREFIX+LANE-RUN-N, on branch USER/PREFIX+LANE-RUN-N. orca worktree create makes it, so Orca lists it at once; ORCA_LAUNCH_SPARSE=1 skips Orca's setup hooks and narrows it to a sparse cone in a repo over ORCA_LAUNCH_SPARSE_FILES tracked files.
 
 MODEL is opus, sonnet, fable, a claude-* model id, sol or codex (gpt-6.1-sol on the standard tier), incident (gpt-6.1-sol on the fast tier), incident-opus (claude-opus-5-5 in fast mode), astra (gpt-6-astra, for exceptional cases only), or a gpt-* model id. EFFORT is low, medium, high, xhigh or max.
 
@@ -307,8 +307,8 @@ Only the terminal bound to the Run may call worker-start, so a launch from any o
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the waits for a failed create to register and its checkout to fill, default 180
   ORCA_LAUNCH_PREPARE        shell command run in each worktree this launch creates, before its worker starts, default tools/hooks/warm-lane.sh where the worktree has it
   ORCA_LAUNCH_PREPARE_SECONDS  ceiling on that command, default 120
-  ORCA_LAUNCH_SPARSE         1 adds each new worktree by git worktree add
-  ORCA_LAUNCH_SPARSE_FILES   tracked-file count above which an added worktree is sparse, default 5000`,
+  ORCA_LAUNCH_SPARSE         1 narrows each new worktree to a sparse cone and skips Orca's setup hooks
+  ORCA_LAUNCH_SPARSE_FILES   tracked-file count above which a new worktree is narrowed, default 5000`,
 		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			starter := &Starter{Runner: a.Runner, Bus: CCI{}, Env: os.Getenv, Sleep: time.Sleep, Now: a.Now, Stderr: cmd.ErrOrStderr()}
