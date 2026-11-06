@@ -249,6 +249,8 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk api /organizations/other/pipelines",
 		"bk api organizations/other/pipelines",
 		"bk api /pipelines/test/builds/12/annotations --jq .[].context",
+		"bk api /pipelines/test/builds --fields",
+		"bk api /pipelines/test/builds --fields number extra",
 		"bk annotations test",
 		"bk annotations test twelve",
 		"bk annotations test 12 one two",
@@ -610,11 +612,13 @@ func TestAStepKeyNoJobCarriesIsAnsweredWithoutALogRead(t *testing.T) {
 	}
 }
 
+const listedCommit = "0123456789abcdef0123456789abcdef01234567"
+
 func listedBuilds(from, count, messageBytes int) string {
 	builds := make([]map[string]any, count)
 	for i := range builds {
 		builds[i] = map[string]any{
-			"number": from - i, "state": "passed", "branch": "releases/rollback/1", "created_at": "2026-11-04T05:41:31Z",
+			"number": from - i, "state": "passed", "branch": "releases/rollback/1", "commit": listedCommit, "created_at": "2026-11-04T05:41:31Z",
 			"message": "Undo it\n" + strings.Repeat("m", messageBytes), "env": map[string]string{"HUGE": strings.Repeat("e", 1000)},
 		}
 	}
@@ -646,11 +650,11 @@ func TestABuildListingIsOneReadThatKeepsWhatACallerNeeds(t *testing.T) {
 	if read.head != "bk builds release branch=releases/rollback/* created_from=2026-10-22T00:00:00Z: 27 builds" {
 		t.Fatalf("head = %q", read.head)
 	}
-	if !strings.Contains(read.body, "27 passed releases/rollback/1 2026-11-04T05:41:31Z\n  Undo it\n  mmm") {
-		t.Fatalf("body misses the first build:\n%s", read.body)
+	if !strings.HasPrefix(read.body, "27 passed releases/rollback/1 "+listedCommit+" Undo it\n26 passed") {
+		t.Fatalf("body misses the first build's one line:\n%s", read.body)
 	}
-	if strings.Contains(read.body, "HUGE") {
-		t.Fatal("body carries fields no caller asked for")
+	if strings.Contains(read.body, "HUGE") || strings.Contains(read.body, "mmm") {
+		t.Fatal("body carries more than each build's subject line")
 	}
 }
 
@@ -672,24 +676,58 @@ func TestABuildListingPagesAtTheDeskUntilAShortPage(t *testing.T) {
 	}
 }
 
+func TestABuildListingFitsAWholePageHoweverLongItsMessages(t *testing.T) {
+	runner := &fakeRunner{replies: map[string]string{}}
+	desk, _ := newDesk(t, runner)
+	runner.replies["/pipelines/test/builds?exclude_jobs=true&exclude_pipeline=true&page=1&per_page=100"] = listedBuilds(100, perPage, 5000)
+	runner.replies["/pipelines/test/builds?exclude_jobs=true&exclude_pipeline=true&page=2&per_page=100"] = "[]"
+
+	read := desk.read(context.Background(), "bk builds test")
+
+	if read.head != "bk builds test: 100 builds" {
+		t.Fatalf("head = %q, want every build of a page whose messages run 5 KB each", read.head)
+	}
+	if lines := strings.Count(read.body, "\n"); lines != 100 {
+		t.Fatalf("body has %d lines, want one per build", lines)
+	}
+}
+
 func TestABuildListingStopsReadingOnceTheAnswerIsFull(t *testing.T) {
-	runner := &fakeRunner{reply: shell.Result{Stdout: listedBuilds(100, perPage, 1000)}}
+	runner := &fakeRunner{reply: shell.Result{Stdout: listedBuilds(100, perPage, 0)}}
 	desk, _ := newDesk(t, runner)
 
 	read := desk.read(context.Background(), "bk builds test")
 
-	if len(runner.calls) != 1 {
-		t.Fatalf("calls = %d, want no page past the full answer", len(runner.calls))
+	if len(runner.calls) != 3 {
+		t.Fatalf("calls = %d, want the third page, which fills the answer, to be the last", len(runner.calls))
 	}
 	if len(read.body) > replyLimit {
 		t.Fatalf("body = %d bytes, over the limit", len(read.body))
 	}
-	shown := strings.Count(read.body, "Undo it")
+	shown := strings.Count(read.body, "\n")
 	if want := fmt.Sprintf("bk builds test: the newest %d builds; older ones did not fit, so narrow with --branch or --since", shown); read.head != want {
 		t.Fatalf("head = %q, want %q", read.head, want)
 	}
-	if !strings.HasSuffix(read.body, strings.Repeat("m", 1000)+"\n") {
-		t.Fatal("the last listed build was cut mid-message")
+	if !strings.HasSuffix(read.body, " Undo it\n") {
+		t.Fatal("the last listed build was cut mid-line")
+	}
+}
+
+func TestAnAPIReadWithFieldsAnswersOneLinePerElement(t *testing.T) {
+	path := "/pipelines/test/builds?state=failed"
+	runner := &fakeRunner{replies: map[string]string{path: `[{"number":12,"state":"failed","commit":"abc","creator":{"name":"Ann"},"message":"fix it\n\nlong body"},{"number":11,"state":"failed","commit":"def","creator":null,"message":"other"}]`}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk api "+path+" --fields number,state,commit,creator.name,message")
+
+	if want := []string{"tools/ci", "bk", "api", "-no-wait", path}; len(runner.calls) != 1 || !slices.Equal(runner.calls[0].Argv, want) {
+		t.Fatalf("ran %v", runner.calls)
+	}
+	if read.body != "12 failed abc Ann fix it\n11 failed def - other\n" {
+		t.Fatalf("body = %q", read.body)
+	}
+	if !strings.HasSuffix(read.head, ": 2 rows") {
+		t.Fatalf("head = %q", read.head)
 	}
 }
 

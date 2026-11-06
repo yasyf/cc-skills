@@ -32,7 +32,8 @@ const (
 	bodiesDir   = "bk-desk"
 	perPage     = 100
 	buildsUsage = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
-	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key>, bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path>"
+	apiUsage    = "api reads one path with GET and answers its raw JSON, or with --fields <name,parent.child,...> one line per element; it takes no other flag such as -X, -d or --jq"
+	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key>, bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
 )
 
 var (
@@ -168,15 +169,24 @@ func parse(text string) ([]string, string) {
 		}
 		return nil, "log takes <pipeline> <number> <job id or step key>"
 	case "api":
-		if len(rest) != 1 || strings.HasPrefix(rest[0], "-") {
-			return nil, "api reads one path with GET and answers its raw JSON, so it takes no flag such as -X, -d or --jq"
+		if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
+			return nil, apiUsage
+		}
+		flags := flag.NewFlagSet("api", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		fields := flags.String("fields", "", "")
+		if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 {
+			return nil, apiUsage
 		}
 		path := "/" + strings.TrimPrefix(rest[0], "/")
 		if inOrg, found := strings.CutPrefix(path, "/organizations/"); found {
 			_, own, _ := strings.Cut(inOrg, "/")
 			return nil, "api reads only this desk's own organization, so drop the /organizations/<org> prefix: bk api /" + own
 		}
-		return []string{"api", rest[0]}, ""
+		if *fields == "" {
+			return []string{"api", rest[0]}, ""
+		}
+		return []string{"api", rest[0], *fields}, ""
 	}
 	return nil, fmt.Sprintf("bk %s is no read; %s", match[1], usage)
 }
@@ -245,8 +255,55 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 	if failure != nil {
 		return *failure
 	}
+	if len(args) == 3 {
+		return picked(said, strings.Split(args[2], ","))
+	}
 	cut := askdesk.FirstBytes(said, replyLimit)
 	return reply{head: fmt.Sprintf("%d of %d bytes", len(cut), len(said)), body: cut}
+}
+
+func picked(said string, fields []string) reply {
+	var doc any
+	if err := json.Unmarshal([]byte(said), &doc); err != nil {
+		return reply{head: "the answer did not parse", body: askdesk.FirstBytes(said, replyLimit)}
+	}
+	rows, listed := doc.([]any)
+	if !listed {
+		rows = []any{doc}
+	}
+	var lines strings.Builder
+	for shown, row := range rows {
+		values := make([]string, len(fields))
+		for i, field := range fields {
+			values[i] = fieldText(row, field)
+		}
+		entry := strings.Join(values, " ") + "\n"
+		if lines.Len()+len(entry) > replyLimit {
+			return reply{head: fmt.Sprintf("the first %d of %d rows; the rest did not fit, so narrow the path's query", shown, len(rows)), body: lines.String()}
+		}
+		lines.WriteString(entry)
+	}
+	return reply{head: fmt.Sprintf("%d rows", len(rows)), body: lines.String()}
+}
+
+func fieldText(row any, path string) string {
+	value := row
+	for key := range strings.SplitSeq(path, ".") {
+		object, isObject := value.(map[string]any)
+		if !isObject {
+			return "-"
+		}
+		value = object[key]
+	}
+	switch typed := value.(type) {
+	case nil:
+		return "-"
+	case string:
+		first, _, _ := strings.Cut(strings.TrimSpace(typed), "\n")
+		return first
+	}
+	raw, _ := json.Marshal(value)
+	return string(raw)
 }
 
 func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
@@ -364,8 +421,7 @@ type build struct {
 	WebURL string `json:"web_url"`
 	Jobs   []job  `json:"jobs"`
 
-	Message   string `json:"message"`
-	CreatedAt string `json:"created_at"`
+	Message string `json:"message"`
 }
 
 type job struct {
@@ -398,7 +454,8 @@ func (d *Desk) listBuilds(ctx context.Context, pipeline string, filters []string
 			return reply{head: "the builds did not parse", body: askdesk.FirstBytes(said, replyLimit)}
 		}
 		for _, found := range read {
-			entry := fmt.Sprintf("%d %s %s %s\n  %s\n", found.Number, found.State, found.Branch, found.CreatedAt, strings.ReplaceAll(strings.TrimSpace(found.Message), "\n", "\n  "))
+			subject, _, _ := strings.Cut(strings.TrimSpace(found.Message), "\n")
+			entry := fmt.Sprintf("%d %s %s %s %s\n", found.Number, found.State, found.Branch, found.Commit, subject)
 			if lines.Len()+len(entry) > replyLimit {
 				return reply{head: fmt.Sprintf("the newest %d builds; older ones did not fit, so narrow with --branch or --since", listed), body: lines.String()}
 			}
