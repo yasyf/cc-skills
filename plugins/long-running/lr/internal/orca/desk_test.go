@@ -987,6 +987,66 @@ func TestALaunchWhoseBriefLivesOnlyOnItsSpriteStartsFromTheCopyItsGoCarries(t *t
 	}
 }
 
+func TestALaunchRequestWrittenOnASpriteLaunchesOnTheMacDeskFromTheTextItCarriesAndNeverFromThePathItNames(t *testing.T) {
+	sprite := newPosterFixture(t)
+	entry, err := sprite.poster.Entry(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := NewBrief{Title: "hook fix", BodyFile: writeFixture(t, "body.md", "Fix the drive PR body hook.\n"), Scale: "small", Place: "local", Why: "mac-build", StandingDir: filepath.Join(entry.StateDir, sprite.poster.Author)}
+	brief, err := written.Write(entry.StateDir, "hook-fix-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sprite.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+	if _, err := sprite.poster.Launch(context.Background(), Order{Lane: "hook-fix-1", Model: "opus", Effort: "high", Brief: brief}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	posted := sprite.bus.posts[0]
+	sent, err := os.ReadFile(posted.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brief, []byte("a file at the named path that the Mac must never read\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mac := newDeskWorld(t)
+	blob := filepath.Join(mac.home, "cci", "blobs", "1a2b3c4d.txt")
+	mac.write(blob, string(sent))
+	mac.lines()
+	mac.add(object{"lane": "dd-1-fix", "text": posted.Text, "to": []string{deskLane}, "refs": object{"path": blob}})
+	mac.launchOut["hook-fix-1"] = mac.launched("hook-fix-1", testDispatch, testTerminal)
+	mac.lines()
+	mac.step(mac.desk.deliver)
+	if len(mac.spawns) != 1 {
+		t.Fatal(mac.spawns, mac.escalations())
+	}
+	launched := mac.spawns[0].argv[len(mac.spawns[0].argv)-1]
+	raw, err := os.ReadFile(launched)
+	if err != nil || filepath.Dir(launched) != mac.desk.briefsDir() || !strings.Contains(string(raw), "Fix the drive PR body hook.") || strings.Contains(string(raw), "must never read") {
+		t.Fatalf("launched %s holding %q: %v", launched, raw, err)
+	}
+}
+
+func TestAMacLaunchWhoseGoCarriesTheBriefItNamesLaunchesFromThatBrief(t *testing.T) {
+	w := newDeskWorld(t)
+	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")
+	link := filepath.Join(w.home, "scratch")
+	if err := os.Symlink(filepath.Join(w.home, "briefs"), link); err != nil {
+		t.Fatal(err)
+	}
+	named := filepath.Join(link, testLane, "brief.md")
+	w.lines()
+	w.add(object{"text": launchText(testLane, named), "to": []string{deskLane}, "refs": object{"path": named}})
+	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+	w.lines()
+	w.step(w.desk.deliver)
+	if len(w.spawns) != 1 || w.spawns[0].argv[len(w.spawns[0].argv)-1] != resolved(brief) {
+		t.Fatal(w.spawns, w.escalations())
+	}
+}
+
 func TestALaunchWhoseBriefTheMacCannotReadAndThatCarriesNoCopyIsRefusedNamingLrLaunch(t *testing.T) {
 	w := newDeskWorld(t)
 	w.lines()

@@ -703,15 +703,15 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, carried, by string
 	failed := func(why string) error {
 		return d.recordTo(ctx, log, fmt.Sprintf("LAUNCH-FAILED %s %s: %s; nothing was launched", key, order.Lane, why), verdictTo(by))
 	}
-	if _, err := os.Stat(order.Brief); err != nil {
-		if carried == "" {
-			return failed(fmt.Sprintf("brief %s is not a file on this Mac, and the go carries no copy of it; post the launch with `lr launch`, which carries the brief's body from any host", order.Brief))
-		}
+	if carried != "" && resolved(carried) != order.Brief {
 		brief, err := d.carriedBrief(order.Lane, carried)
 		if err != nil {
-			return failed(fmt.Sprintf("brief %s is not a file on this Mac, and the copy the go carries did not read: %v", order.Brief, err))
+			return failed(fmt.Sprintf("brief %s was posted from another host, and the copy its go carries did not read: %v", order.Brief, err))
 		}
 		order.Brief = brief
+	}
+	if _, err := os.Stat(order.Brief); err != nil {
+		return failed(fmt.Sprintf("brief %s is not a file on this Mac, and the go carries no copy of it; post the launch with `lr launch`, which carries the brief's body from any host", order.Brief))
 	}
 	if wrong := order.wrongLaneFault(); wrong != "" {
 		return failed(wrong)

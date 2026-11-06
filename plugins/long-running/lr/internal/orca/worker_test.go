@@ -1870,6 +1870,19 @@ func TestASpriteLaunchWarnsOfABriefThatRunsTheMacsLedgerAndStillLaunches(t *test
 	}
 }
 
+func TestASpriteLaunchedBriefCarriesNoGeminiRoutingAndHandsLongFormCopyToOwnerRelay(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.write(f.brief, workerBrief+"- Long-form copy goes through `gemini -m gemini-4-argon -p`, and you land its reply verbatim.\n", 0o600)
+	f.sprite()
+	if _, _, err := f.launch(workerLane, "opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	carried := f.receiptText(briefFile)
+	if strings.Contains(carried, "gemini -m") || !strings.Contains(carried, "\n- Hand long-form copy, such as docs, retros, plans and Slack or Linear copy, to owner-relay as a cci ask with the facts and what to write: `cci post --kind ask --to owner-relay`. A Sprite has no Gemini.\n") {
+		t.Fatalf("carried brief:\n%s", carried)
+	}
+}
+
 func TestEveryShippedIncidentTemplateLaunchesOnASprite(t *testing.T) {
 	for _, name := range []string{"alert-fix-brief.md", "alert-evidence-brief.md", "alert-comms-brief.md", "unfixed-case-brief.md"} {
 		text, err := os.ReadFile(filepath.Join("..", "..", "..", "skills", "long-running", "reference", name))
