@@ -895,6 +895,26 @@ func TestAnOkNamesAnyClassTheGateAcceptsAndTheBriefListsThemAll(t *testing.T) {
 	holdsAll(t, readText(t, directory, "question-1.md"), "`regression` (\""+regressionPhrase+"\")", "`port` (\""+portPhrase+"\")")
 }
 
+func TestAnExemptNamedByItsPhraseIsThatClassWithNoSecondAsk(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": classes})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"exempt": regressionPhrase}))
+	mustFidelity(t, directory, shell)
+	equal(t, len(shell.asks()), 1)
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+regressionPhrase+": Resubscribes from the fetched position after a cut.")
+}
+
+func TestASecondReplyThatDropsARowTheFirstCheckedGradesOnBoth(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}})
+	shell, _ := newFidelityFake(t, samePatch,
+		fidelityReplyOf(map[string]any{"exempt": "hotfix"}),
+		fidelityReplyOf(map[string]any{"checked": fidelityKeys[:1]}),
+	)
+	mustFidelity(t, directory, shell)
+	equal(t, len(shell.asks()), 2)
+	equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" Resubscribes from the fetched position after a cut.")
+	holdsAll(t, readText(t, directory, bodyFile), "checked "+strings.Join(slices.Sorted(slices.Values(fidelityKeys)), ",")+" ")
+}
+
 func TestOnlyAFlakeClaimLetsAReaderNameTheTestOnlyClassThePathsDoNotDecide(t *testing.T) {
 	for name, c := range map[string]struct {
 		claims []string
