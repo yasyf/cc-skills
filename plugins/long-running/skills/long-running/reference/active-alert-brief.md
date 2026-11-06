@@ -192,7 +192,7 @@ The definitions of release gates (always `active yes`) and of "no customer impac
 
 - A mute, a false-alarm verdict, or a monitor change that stops counting failing teams, proposed by ai-oncall or anyone while the mechanism is unfixed, is never a close.
 - The coordinator posts pushback where it was proposed, keeps the incident open, and names the fix owner that turn. A proposal from ai-oncall gets its pushback as a `ci oncall say --kind finding` to its commander and in one record to the coordinator.
-- The relay refuses a fix lane's stop that scopes a release gate out (`REFUSED-STOP`, launching its Opus fallback at once). It flags every proposed mute on a record whose typed fields tie to an open incident or a monitor (`MUTE-PUSHBACK`): its kind, a `monitor` or `incident` attr, a monitor URL, or a `re` chain reaching one, never its words alone.
+- The relay refuses a fix lane's stop that scopes a release gate out on its own say-so (`REFUSED-STOP`, launching its Opus fallback at once). The gate is the incident's slug, from the brief's `incident=` or the lane name, never the stop's words. Slugs starting `dev-red-`, `smoke-`, `watch-` or `red-` are release gates, so a release gate opened by hand takes its kind as the slug's first word. A stop that answers a root record saying `active no`, or comes after one naming the lane, is honored. It flags every proposed mute on a record whose typed fields tie to an open incident or a monitor (`MUTE-PUSHBACK`): its kind, a `monitor` or `incident` attr, a monitor URL, or a `re` chain reaching one, never its words alone.
 - A page the fix lane's mechanism proves false is muted as a window, never a close (step 0 of the [Fix lane brief](#fix-lane-brief)).
 
 ### Close incident mode on either `no`
