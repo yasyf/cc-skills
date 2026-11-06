@@ -90,6 +90,10 @@ func BoundLane(ctx context.Context, runner shell.Runner) (string, error) {
 			return lane, nil
 		}
 	}
+	line, _, _ := strings.Cut(me.Stdout, "\n")
+	if fields := strings.Fields(line); len(fields) > 1 && fields[1] == Root {
+		return Root, nil
+	}
 	return "", nil
 }
 
