@@ -161,6 +161,32 @@ func TestASpawnRowADeskServiceClaimsIsStandingSoItsIdleTeammateNamesakeIsNeverRe
 	}
 }
 
+func TestTheCommunicatorsDoneRecordsNeverRetireItAndAPlainLanesOwnDoneStillDoes(t *testing.T) {
+	s := memory(t)
+	f := newFake(t, []Record{spawned(1, OwnerRelay, writeBrief(t), t0.Add(-time.Hour), map[string]string{"model": "opus", "effort": "xhigh"})}, []Row{who(OwnerRelay, true, t0.Add(-mins(1)))})
+	tick(t, s, f, t0.Add(-mins(1)))
+	closing := rec(3, OwnerRelay, "done", t0, "his pick card is on his board", lane2, Root)
+	closing.Resolves = 2
+	f.feed = append(f.feed,
+		rec(2, lane2, "ask", t0.Add(-mins(5)), "put my pick on his board", OwnerRelay),
+		closing,
+		rec(4, OwnerRelay, "done", t0, "his Approve for #51765 went out", lane2, Root),
+	)
+
+	tick(t, s, f, t0.Add(mins(1)))
+
+	relay := row(t, s, OwnerRelay)
+	equal(t, []any{relay.State, relay.RetiredBy, dutyOf(relay)}, []any{store.LaneDesired, "", communicatorDuty})
+
+	s = memory(t)
+	plain := adopted(t, s, writeBrief(t), "")
+	plain.feed = append(plain.feed, rec(2, lane2, "done", t0, "shipped", Root))
+
+	tick(t, s, plain, t0.Add(mins(1)))
+
+	equal(t, []any{row(t, s, lane2).State, row(t, s, lane2).RetiredBy}, []any{store.LaneRetired, "done"})
+}
+
 func TestATickOverLanesWithNoProcessReadsTheSameAtOneLaneAndAtMany(t *testing.T) {
 	counts := func(n int) [6]int {
 		s := memory(t)

@@ -161,7 +161,7 @@ A lane reads live only while its agent is alive. Liveness comes from the agent, 
 A teammate the roster lists whose turn has ended reads idle.
 
 **Each lane then gets one decision.**
-- An open PR, a `Standing:` line, or the role `desk`, `meta` or `release` relaunches it once. A lane retired by a `done` or `stopped` record never relaunches, whatever it holds. A lane the supervisor already relaunched that dies again is held with one `defect` to the coordinator, or to the head of its launcher's line for a meta lane.
+- An open PR, a `Standing:` line, or the role `desk`, `meta` or `release` relaunches it once. The communicator, `owner-relay` and its numbered successors, holds a standing duty by that name, so it never retires as silent or by its own `done`. A `done` that names another lane's record with `--re` or `--resolves` closes that record and retires nobody. A lane retired by a `done` or `stopped` record never relaunches, whatever it holds. A lane the supervisor already relaunched that dies again is held with one `defect` to the coordinator, or to the head of its launcher's line for a meta lane.
 - A lane holding none of those, silent past `retire_silent_minutes` in `lr.json` (60 by default), retires. Each tick sends each desk its retirements, with why, as one `RETIRED` record. An idle teammate counts here only.
 - An unproven lane that holds work, or holds nothing and is silent past the threshold, gets a proof from its host before any decision.
 - A lane parked on a recorded wait is left alone, and a retired lane, such as one whose Sprite the autostop stopped, never reaches the decision.

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/awake"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/livetasks"
@@ -517,7 +518,12 @@ func isStanding(lane store.Lane) bool {
 	return slices.Contains(standingRoles, lane.Role) || dutyOf(lane) != ""
 }
 
+const communicatorDuty = "relays the owner's words to the drive and the drive's answers to him"
+
 func dutyOf(lane store.Lane) string {
+	if client.Stem(lane.Name) == OwnerRelay {
+		return communicatorDuty
+	}
 	return or(lane.Standing, must(BriefOf(lane.Brief)).Standing)
 }
 
