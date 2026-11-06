@@ -1950,14 +1950,16 @@ func spriteConfig(w *deskWorld) string {
 
 func TestASpriteLaunchTakesAPinCheckoutThatMovesOnlyWithAPin(t *testing.T) {
 	for _, tt := range []struct {
-		name, branch, fault string
-		onDev               bool
+		name, branch, edits, fault string
+		onDev                      bool
 	}{
 		{name: "on dev", branch: "dev"},
 		{name: "on a pin branch", branch: "orca-stop-3/cc-remote-0.27.8"},
 		{name: "detached at a commit dev holds", onDev: true},
 		{name: "detached at a commit dev lacks", fault: "on no branch"},
 		{name: "on another branch", branch: "feature", onDev: true, fault: "on branch feature"},
+		{name: "detached on dev under a hand-edited pin", onDev: true, edits: " M tools/versions.toml\n M tools/cc-remote/config.yaml\n", fault: "uncommitted edits to tools/versions.toml, tools/cc-remote/config.yaml"},
+		{name: "on a pin branch under a hand-edited pin", branch: "cc-remote-0.27.20", edits: " M mise.toml\n", fault: "uncommitted edits to mise.toml"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newDeskWorld(t)
@@ -1965,6 +1967,9 @@ func TestASpriteLaunchTakesAPinCheckoutThatMovesOnlyWithAPin(t *testing.T) {
 			w.gitReply = func(argv []string) (shell.Result, error) {
 				if argv[3] == "branch" {
 					return shell.Result{Stdout: tt.branch + "\n"}, nil
+				}
+				if argv[3] == "status" {
+					return shell.Result{Stdout: tt.edits}, nil
 				}
 				if tt.onDev {
 					return shell.Result{}, nil

@@ -357,23 +357,35 @@ func (d *Desk) spriteFault(ctx context.Context, lane string) (string, error) {
 			return "", err
 		}
 		branch := strings.TrimSpace(said)
-		if pinBranch.MatchString(branch) {
-			continue
-		}
-		if branch == "" {
+		pinned := pinBranch.MatchString(branch)
+		if !pinned && branch == "" {
 			_, code, err := d.capture(ctx, nil, "git", "-C", dir, "merge-base", "--is-ancestor", "HEAD", "origin/dev")
 			if err != nil {
 				return "", err
 			}
-			if code == 0 {
-				continue
+			pinned = code == 0
+		}
+		if !pinned {
+			on := "no branch"
+			if branch != "" {
+				on = "branch " + branch
 			}
+			return fmt.Sprintf("%s %s, whose checkout is on %s, not dev, a cc-remote pin branch or a commit origin/dev holds; point it at a worktree that moves only with a pin PR", name, path, on), nil
 		}
-		on := "no branch"
-		if branch != "" {
-			on = "branch " + branch
+		said, code, err := d.capture(ctx, nil, "git", "-C", dir, "status", "--porcelain", "--untracked-files=no")
+		if err != nil {
+			return "", err
 		}
-		return fmt.Sprintf("%s %s, whose checkout is on %s, not dev, a cc-remote pin branch or a commit origin/dev holds; point it at a worktree that moves only with a pin PR", name, path, on), nil
+		if code != 0 {
+			return "", fmt.Errorf("git -C %s status exited %d: %s", dir, code, strings.TrimSpace(said))
+		}
+		var edited []string
+		for line := range strings.Lines(said) {
+			edited = append(edited, strings.TrimSpace(line[3:]))
+		}
+		if len(edited) > 0 {
+			return fmt.Sprintf("%s %s, whose checkout has uncommitted edits to %s, so it runs no pinned commit; point it at a worktree that moves only with a pin PR", name, path, strings.Join(edited, ", ")), nil
+		}
 	}
 	return "", nil
 }
