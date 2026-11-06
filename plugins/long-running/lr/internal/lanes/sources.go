@@ -26,6 +26,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/owner"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/watch/screen"
@@ -85,6 +86,7 @@ type Env struct {
 	Local  string
 	Now    func() time.Time
 
+	Rostered    bool
 	MonitorLane func(ctx context.Context, monitor, lane string) (string, error)
 }
 
@@ -334,7 +336,7 @@ func (e Env) orcaRows(ctx context.Context, names []string) ([]Row, error) {
 	if len(dispatches) == 0 {
 		return nil, nil
 	}
-	statuses, err := e.dispatchStatuses(ctx)
+	statuses, err := e.dispatchStatuses(ctx, e.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -379,8 +381,47 @@ type dispatchRead struct {
 	Environment string
 }
 
-func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, error) {
-	statuses := map[string]dispatchRead{}
+type listedDispatch struct {
+	DispatchID     string `json:"dispatchId"`
+	DispatchStatus string `json:"dispatchStatus"`
+	WorkerState    string `json:"workerState"`
+	Terminal       string `json:"agentTerminalHandle"`
+	Projection     struct {
+		Host struct {
+			Kind string `json:"kind"`
+			ID   string `json:"id"`
+		} `json:"host"`
+		Liveness struct {
+			Verdict string `json:"verdict"`
+			Reason  string `json:"reason"`
+		} `json:"liveness"`
+	} `json:"projection"`
+}
+
+func (e Env) dispatchStatuses(ctx context.Context, now time.Time) (map[string]dispatchRead, error) {
+	var workers []listedDispatch
+	var err error
+	if e.Rostered {
+		err = roster.Read(roster.Path(e.Local, e.Config.OrcaRun), now, &workers)
+	} else {
+		workers, err = e.pageDispatches(ctx)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
+	}
+	statuses := make(map[string]dispatchRead, len(workers))
+	for _, worker := range workers {
+		read := dispatchRead{Status: worker.DispatchStatus, Worker: worker.WorkerState, Liveness: worker.Projection.Liveness.Verdict, Why: worker.Projection.Liveness.Reason, Terminal: worker.Terminal}
+		if worker.Projection.Host.Kind == remoteHost {
+			read.Environment = worker.Projection.Host.ID
+		}
+		statuses[worker.DispatchID] = read
+	}
+	return statuses, nil
+}
+
+func (e Env) pageDispatches(ctx context.Context) ([]listedDispatch, error) {
+	var workers []listedDispatch
 	var cursor []string
 	for {
 		argv := append([]string{"orca", "orchestration", "worker-list", "--run", e.Config.OrcaRun, "--include-remote", "--limit", "100"}, cursor...)
@@ -392,42 +433,21 @@ func (e Env) dispatchStatuses(ctx context.Context) (map[string]dispatchRead, err
 			OK     bool `json:"ok"`
 			Error  any  `json:"error"`
 			Result struct {
-				Workers []struct {
-					DispatchID     string `json:"dispatchId"`
-					DispatchStatus string `json:"dispatchStatus"`
-					WorkerState    string `json:"workerState"`
-					Terminal       string `json:"agentTerminalHandle"`
-					Projection     struct {
-						Host struct {
-							Kind string `json:"kind"`
-							ID   string `json:"id"`
-						} `json:"host"`
-						Liveness struct {
-							Verdict string `json:"verdict"`
-							Reason  string `json:"reason"`
-						} `json:"liveness"`
-					} `json:"projection"`
-				} `json:"workers"`
-				Page struct {
+				Workers []listedDispatch `json:"workers"`
+				Page    struct {
 					NextCursor string `json:"nextCursor"`
 				} `json:"page"`
 			} `json:"result"`
 		}
 		if err := json.Unmarshal([]byte(stdout), &page); err != nil {
-			return nil, fmt.Errorf("%w: orca worker-list: %w", ErrUnread, err)
+			return nil, fmt.Errorf("orca worker-list: %w", err)
 		}
 		if !page.OK {
-			return nil, fmt.Errorf("%w: orca worker-list: %v", ErrUnread, page.Error)
+			return nil, fmt.Errorf("orca worker-list: %v", page.Error)
 		}
-		for _, worker := range page.Result.Workers {
-			read := dispatchRead{Status: worker.DispatchStatus, Worker: worker.WorkerState, Liveness: worker.Projection.Liveness.Verdict, Why: worker.Projection.Liveness.Reason, Terminal: worker.Terminal}
-			if worker.Projection.Host.Kind == remoteHost {
-				read.Environment = worker.Projection.Host.ID
-			}
-			statuses[worker.DispatchID] = read
-		}
+		workers = append(workers, page.Result.Workers...)
 		if page.Result.Page.NextCursor == "" {
-			return statuses, nil
+			return workers, nil
 		}
 		cursor = []string{"--cursor", page.Result.Page.NextCursor}
 	}

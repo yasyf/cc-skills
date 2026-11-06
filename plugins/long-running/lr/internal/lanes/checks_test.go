@@ -740,17 +740,23 @@ type spriteRun struct {
 	listFail string
 }
 
+func (r *spriteRun) check(t *testing.T, c *SpriteStops, at time.Time) error {
+	t.Helper()
+	workers := make([]map[string]string, 0, len(r.statuses))
+	for dispatch, status := range r.statuses {
+		workers = append(workers, map[string]string{"dispatchId": dispatch, "dispatchStatus": status})
+	}
+	listed, err := json.Marshal(workers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRoster(t, c.Env, at, string(listed))
+	return c.Check(context.Background(), at)
+}
+
 func (r *spriteRun) Run(_ context.Context, c shell.Command) (shell.Result, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if c.Argv[0] == "orca" {
-		workers := make([]map[string]string, 0, len(r.statuses))
-		for dispatch, status := range r.statuses {
-			workers = append(workers, map[string]string{"dispatchId": dispatch, "dispatchStatus": status})
-		}
-		page, err := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"workers": workers, "page": map[string]string{}}})
-		return shell.Result{Stdout: string(page)}, err
-	}
 	if c.Argv[0] == "sprite" {
 		if r.listFail != "" {
 			return shell.Result{Code: 1, Stderr: r.listFail}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: r.listFail}
@@ -776,7 +782,7 @@ func spriteStops(t *testing.T, run *spriteRun) (*SpriteStops, *fakeBus) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	bus := &fakeBus{}
-	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, Local: t.TempDir(), Claude: t.TempDir(), Runner: run}
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive, OrcaRun: "run_1"}, Local: t.TempDir(), Claude: t.TempDir(), Runner: run, Rostered: true}
 	return &SpriteStops{Env: env, Store: s, CcRemote: CcRemote{Binary: "cc-remote", Config: "/drive/cc-remote.yaml"}, Log: slog.Default()}, bus
 }
 
@@ -814,14 +820,14 @@ func TestAnEndedLanesSpriteIsStoppedOnceAndALiveOrUnsettledLanesIsNot(t *testing
 	c.lane(t, "relaunched", "sprite", store.LaneRetired, "relaunched-2", "")
 	c.lane(t, "local", "orca", store.LaneRetired, "done", "ctx_local")
 
-	if err := c.Check(context.Background(), t0); err != nil {
+	if err := run.check(t, c, t0); err != nil {
 		t.Fatal(err)
 	}
 	slices.Sort(run.stopped)
 	equal(t, run.stopped, stops("done-settled", "done-unlisted", "stood-failed", "withdrawn"))
 
 	run.statuses["ctx_running"] = "completed"
-	if err := c.Check(context.Background(), t0.Add(mins(10))); err != nil {
+	if err := run.check(t, c, t0.Add(mins(10))); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, run.stopped[4:], stops("done-running"))
@@ -835,14 +841,14 @@ func TestASpriteStopThatKeepsFailingPostsOneBlockerAfterItsLastTry(t *testing.T)
 	c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
 
 	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20))} {
-		if err := c.Check(context.Background(), at); err != nil {
+		if err := run.check(t, c, at); err != nil {
 			t.Fatal(err)
 		}
 	}
 	equal(t, run.stopped, stops("stuck", "stuck", "stuck"))
 	equal(t, len(bus.posted), 1)
 
-	if err := c.Check(context.Background(), t0.Add(mins(30))); err != nil {
+	if err := run.check(t, c, t0.Add(mins(30))); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, run.stopped, stops("stuck", "stuck", "stuck"))
@@ -867,7 +873,7 @@ func TestAFailedStopOfASpriteSpriteListNoLongerShowsClosesWithNoBlockerAndNoRetr
 	c.claimed(t, "gone", "pool-gone", "ctx_gone")
 
 	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20)), t0.Add(mins(30))} {
-		if err := c.Check(context.Background(), at); err != nil {
+		if err := run.check(t, c, at); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -883,7 +889,7 @@ func TestAFailedStopFindsAClaimedSpriteByItsLaunchReceiptNotItsLaneName(t *testi
 	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
 
 	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20))} {
-		if err := c.Check(context.Background(), at); err != nil {
+		if err := run.check(t, c, at); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -900,7 +906,7 @@ func TestAFailedStopWhenSpriteListAlsoFailsNeverClaimsTheSpriteIsGoneOrRunning(t
 	c.claimed(t, "down", "pool-down", "ctx_down")
 
 	for _, at := range []time.Time{t0, t0.Add(mins(10)), t0.Add(mins(20))} {
-		if err := c.Check(context.Background(), at); err != nil {
+		if err := run.check(t, c, at); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -916,12 +922,12 @@ func TestASpriteStopThatFailsOnceIsTriedAgainOnTheNextPassAndPostsNothing(t *tes
 	c, bus := spriteStops(t, run)
 	c.lane(t, "flaky", "sprite", store.LaneRetired, "done", "ctx_flaky")
 
-	if err := c.Check(context.Background(), t0); err != nil {
+	if err := run.check(t, c, t0); err != nil {
 		t.Fatal(err)
 	}
 	run.fail = nil
 	for _, at := range []time.Time{t0.Add(mins(10)), t0.Add(mins(20))} {
-		if err := c.Check(context.Background(), at); err != nil {
+		if err := run.check(t, c, at); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -930,10 +936,10 @@ func TestASpriteStopThatFailsOnceIsTriedAgainOnTheNextPassAndPostsNothing(t *tes
 	equal(t, len(bus.posted), 0)
 }
 
-func passes(t *testing.T, c *SpriteStops, from, count int) {
+func passes(t *testing.T, run *spriteRun, c *SpriteStops, from, count int) {
 	t.Helper()
 	for pass := from; pass < from+count; pass++ {
-		if err := c.Check(context.Background(), t0.Add(mins(10*pass))); err != nil {
+		if err := run.check(t, c, t0.Add(mins(10*pass))); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -945,7 +951,7 @@ func TestASpriteStopThatFailsOnA502TwiceThenStopsPostsOneBlockerAndOneCloseAndSt
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
 
-	passes(t, c, 0, 2)
+	passes(t, run, c, 0, 2)
 	equal(t, run.stopped, stops("stuck", "stuck"))
 	equal(t, len(bus.posted), 1)
 	blocker := bus.posted[0]
@@ -954,7 +960,7 @@ func TestASpriteStopThatFailsOnA502TwiceThenStopsPostsOneBlockerAndOneCloseAndSt
 	contains(t, blocker.Text, "`lr stop-sprites --leave stuck`")
 
 	run.fail = nil
-	passes(t, c, 2, 3)
+	passes(t, run, c, 2, 3)
 	equal(t, run.stopped, stops("stuck", "stuck", "stuck"))
 	equal(t, len(bus.posted), 2)
 	closing := bus.posted[1]
@@ -972,7 +978,7 @@ func TestASpriteStopFailingOn5xxOrATimeoutOutlastsTheTryLimitUnderOneBlocker(t *
 		c, bus := spriteStops(t, run)
 		c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
 
-		passes(t, c, 0, 8)
+		passes(t, run, c, 0, 8)
 
 		equal(t, len(run.stopped), 8)
 		equal(t, len(bus.posted), 1)
@@ -984,9 +990,9 @@ func TestARetriedStopWhoseSpriteIsGoneClosesItsBlocker(t *testing.T) {
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
 
-	passes(t, c, 0, 1)
+	passes(t, run, c, 0, 1)
 	run.sprites = []string{"pool-other"}
-	passes(t, c, 1, 3)
+	passes(t, run, c, 1, 3)
 
 	equal(t, run.stopped, stops("stuck", "stuck"))
 	equal(t, len(bus.posted), 2)
@@ -998,7 +1004,7 @@ func TestLeavingAFailedStopEndsItsRetriesEvenWhenAStopInFlightFailsAfterward(t *
 	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": "sprites api answered 503"}, sprites: []string{"stuck"}}
 	c, bus := spriteStops(t, run)
 	c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
-	passes(t, c, 0, 1)
+	passes(t, run, c, 0, 1)
 
 	if err := c.Leave(context.Background(), "stuck", t0.Add(mins(5))); err != nil {
 		t.Fatal(err)
@@ -1012,7 +1018,7 @@ func TestLeavingAFailedStopEndsItsRetriesEvenWhenAStopInFlightFailsAfterward(t *
 		t.Fatal(err)
 	}
 	equal(t, []bool{failure.Retries, failure.Left}, []bool{false, true})
-	passes(t, c, 1, 3)
+	passes(t, run, c, 1, 3)
 	equal(t, run.stopped, stops("stuck"))
 	equal(t, len(bus.posted), 2)
 }
@@ -1029,14 +1035,14 @@ func TestACcRemoteOlderThanOrcaStopStopsNothingAndPostsNothingUntilItsPinReaches
 	c, bus := spriteStops(t, run)
 	c.lane(t, "done", "sprite", store.LaneRetired, "done", "ctx_done")
 
-	if err := c.Check(context.Background(), t0); err != nil {
+	if err := run.check(t, c, t0); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, run.stopped, []string(nil))
 	equal(t, len(bus.posted), 0)
 
 	run.version, run.fail = "0.27.4", nil
-	if err := c.Check(context.Background(), t0.Add(mins(10))); err != nil {
+	if err := run.check(t, c, t0.Add(mins(10))); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, run.stopped, stops("done"))

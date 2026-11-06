@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -24,6 +26,17 @@ type scripted func(argv []string) (shell.Result, error)
 
 func (s scripted) Run(_ context.Context, c shell.Command) (shell.Result, error) {
 	return s(c.Argv)
+}
+
+func writeRoster(t *testing.T, env Env, at time.Time, workers string) {
+	t.Helper()
+	var rows []json.RawMessage
+	if err := json.Unmarshal([]byte(workers), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := roster.Write(roster.Path(env.Local, env.Config.OrcaRun), env.Config.OrcaRun, at, rows); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeJSON(t *testing.T, path string, value any) {
@@ -226,7 +239,7 @@ func TestASpriteWakeThatCannotBeTypedIsLeftUnwokenForTheNextTick(t *testing.T) {
 
 func TestOneWorkerListNamesARemoteLanesTerminalAndEnvironmentAndNoEnvironmentForALocalOne(t *testing.T) {
 	local := t.TempDir()
-	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: local, Now: func() time.Time { return t0 }}
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Rostered: true, Local: local, Now: func() time.Time { return t0 }}
 	if err := os.MkdirAll(env.receipts(), 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -235,21 +248,16 @@ func TestOneWorkerListNamesARemoteLanesTerminalAndEnvironmentAndNoEnvironmentFor
 			t.Fatal(err)
 		}
 	}
-	lists := 0
-	env.Runner = scripted(func([]string) (shell.Result, error) {
-		lists++
-		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[
-			{"dispatchId":"ctx_s","dispatchStatus":"dispatched","agentTerminalHandle":"term_s","projection":{"host":{"kind":"remote","id":"env_s"},"liveness":{"verdict":"live"}}},
-			{"dispatchId":"ctx_m","dispatchStatus":"dispatched","agentTerminalHandle":"term_m","projection":{"host":{"kind":"local","id":"this-mac"},"liveness":{"verdict":"live"}}}
-		],"page":{}}}`}, nil
-	})
+	writeRoster(t, env, t0, `[
+		{"dispatchId":"ctx_s","dispatchStatus":"dispatched","agentTerminalHandle":"term_s","projection":{"host":{"kind":"remote","id":"env_s"},"liveness":{"verdict":"live"}}},
+		{"dispatchId":"ctx_m","dispatchStatus":"dispatched","agentTerminalHandle":"term_m","projection":{"host":{"kind":"local","id":"this-mac"},"liveness":{"verdict":"live"}}}
+	]`)
 
 	rows, err := env.orcaRows(context.Background(), []string{"on-sprite", "on-mac"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	equal(t, lists, 1)
 	found := Peers(rows)
 	equal(t, found["on-sprite"].Row.Terminal, "term_s")
 	equal(t, found["on-sprite"].Row.Environment, "env_s")
@@ -376,7 +384,7 @@ func TestARosterLaneHoldingAnUnreadWakeGetsNoSecondOneUntilItReadsIt(t *testing.
 
 func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testing.T) {
 	local := t.TempDir()
-	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: local, Now: func() time.Time { return t0 }}
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Rostered: true, Local: local, Now: func() time.Time { return t0 }}
 	receipts := env.receipts()
 	launched := t0.Add(-2 * time.Hour)
 	for lane, dispatch := range map[string]string{"sol-fix": "ctx_1", "sol-done": "ctx_2", "sol-gone": "ctx_3"} {
@@ -389,11 +397,7 @@ func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testi
 			t.Fatal(err)
 		}
 	}
-	calls := 0
-	env.Runner = scripted(func([]string) (shell.Result, error) {
-		calls++
-		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[{"dispatchId":"ctx_1","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"}}},{"dispatchId":"ctx_2","dispatchStatus":"completed","workerState":"succeeded"}],"page":{}}}`}, nil
-	})
+	writeRoster(t, env, t0, `[{"dispatchId":"ctx_1","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"}}},{"dispatchId":"ctx_2","dispatchStatus":"completed","workerState":"succeeded"}]`)
 
 	rows, err := env.orcaRows(context.Background(), nil)
 	if err != nil {
@@ -405,7 +409,6 @@ func TestAnEndedOrcaDispatchIsAProcessRowThatReadsNotLiveSinceItsLaunch(t *testi
 	if !rows[0].SeenAt.Equal(launched) || !rows[1].SeenAt.Equal(t0) || len(rows) != 2 {
 		t.Fatalf("%+v", rows)
 	}
-	equal(t, calls, 1)
 	gone, err := env.orcaRows(context.Background(), []string{"sol-gone"})
 	if err != nil {
 		t.Fatal(err)
@@ -425,16 +428,14 @@ func orcaReceipts(t *testing.T, env Env, launched time.Time, dispatches map[stri
 }
 
 func TestAnOrcaLaneReadsLiveOnlyWhileItsAgentDoes(t *testing.T) {
-	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir(), Now: func() time.Time { return t0 }}
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Rostered: true, Local: t.TempDir(), Now: func() time.Time { return t0 }}
 	launched := t0.Add(-2 * time.Hour)
 	orcaReceipts(t, env, launched, map[string]string{"working": "ctx_1", "exited": "ctx_2", "cold": "ctx_3"})
-	env.Runner = scripted(func([]string) (shell.Result, error) {
-		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[
-			{"dispatchId":"ctx_1","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"}}},
-			{"dispatchId":"ctx_2","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"exited"}}},
-			{"dispatchId":"ctx_3","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"unverifiable","reason":"host_unavailable"}}}
-		],"page":{}}}`}, nil
-	})
+	writeRoster(t, env, t0, `[
+		{"dispatchId":"ctx_1","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"}}},
+		{"dispatchId":"ctx_2","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"exited"}}},
+		{"dispatchId":"ctx_3","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"unverifiable","reason":"host_unavailable"}}}
+	]`)
 
 	rows, err := env.orcaRows(context.Background(), []string{"working", "exited", "cold"})
 	if err != nil {
@@ -449,11 +450,9 @@ func TestAnOrcaLaneReadsLiveOnlyWhileItsAgentDoes(t *testing.T) {
 }
 
 func TestAnUnsettledDispatchWithNoAgentVerdictIsAnUnreadSource(t *testing.T) {
-	env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir(), Now: func() time.Time { return t0 }}
+	env := Env{Config: config.Config{OrcaRun: "run_1"}, Rostered: true, Local: t.TempDir(), Now: func() time.Time { return t0 }}
 	orcaReceipts(t, env, t0, map[string]string{"lane-1": "ctx_1"})
-	env.Runner = scripted(func([]string) (shell.Result, error) {
-		return shell.Result{Stdout: `{"ok":true,"result":{"workers":[{"dispatchId":"ctx_1","dispatchStatus":"dispatched"}],"page":{}}}`}, nil
-	})
+	writeRoster(t, env, t0, `[{"dispatchId":"ctx_1","dispatchStatus":"dispatched"}]`)
 
 	_, err := env.orcaRows(context.Background(), []string{"lane-1"})
 
@@ -462,7 +461,58 @@ func TestAnUnsettledDispatchWithNoAgentVerdictIsAnUnreadSource(t *testing.T) {
 	}
 }
 
-func TestOrcaLivenessIsOneWorkerListReadAtOneLaneAndAtMany(t *testing.T) {
+func TestAStaleOrMissingRosterIsAnUnreadSourceThatRunsNothing(t *testing.T) {
+	for name, written := range map[string]bool{"stale": true, "missing": false} {
+		t.Run(name, func(t *testing.T) {
+			env := Env{Config: config.Config{OrcaRun: "run_1"}, Rostered: true, Local: t.TempDir(), Now: func() time.Time { return t0 }}
+			orcaReceipts(t, env, t0, map[string]string{"lane-1": "ctx_1"})
+			if written {
+				writeRoster(t, env, t0.Add(-roster.Fresh), `[{"dispatchId":"ctx_1","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"}}}]`)
+			}
+			env.Runner = scripted(func(argv []string) (shell.Result, error) {
+				t.Fatalf("a roster read ran %v", argv)
+				return shell.Result{}, nil
+			})
+
+			_, err := env.orcaRows(context.Background(), []string{"lane-1"})
+
+			if !errors.Is(err, ErrUnread) || !strings.Contains(err.Error(), "worker roster") {
+				t.Fatalf("err %v", err)
+			}
+		})
+	}
+}
+
+func TestOrcaLivenessReadsTheRosterAndRunsNothingAtOneLaneAndAtMany(t *testing.T) {
+	reads := func(n int) int {
+		env := Env{Config: config.Config{OrcaRun: "run_1"}, Rostered: true, Local: t.TempDir(), Now: func() time.Time { return t0 }}
+		dispatches := map[string]string{}
+		workers := make([]string, 0, n)
+		names := make([]string, 0, n)
+		for i := range n {
+			lane := fmt.Sprintf("lane-%d", i)
+			dispatches[lane] = fmt.Sprintf("ctx_%d", i)
+			names = append(names, lane)
+			workers = append(workers, fmt.Sprintf(`{"dispatchId":"ctx_%d","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"exited"}}}`, i))
+		}
+		orcaReceipts(t, env, t0, dispatches)
+		writeRoster(t, env, t0, "["+strings.Join(workers, ",")+"]")
+		calls := 0
+		env.Runner = scripted(func([]string) (shell.Result, error) {
+			calls++
+			return shell.Result{}, nil
+		})
+		rows, err := env.orcaRows(context.Background(), names)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, len(rows), n)
+		return calls
+	}
+	equal(t, []int{reads(1), reads(scaletest.N())}, []int{0, 0})
+}
+
+func TestOrcaLivenessWithNoSupervisorRosterIsOneWorkerListReadAtOneLaneAndAtMany(t *testing.T) {
 	reads := func(n int) int {
 		env := Env{Config: config.Config{OrcaRun: "run_1"}, Local: t.TempDir(), Now: func() time.Time { return t0 }}
 		dispatches := map[string]string{}
@@ -476,8 +526,11 @@ func TestOrcaLivenessIsOneWorkerListReadAtOneLaneAndAtMany(t *testing.T) {
 		}
 		orcaReceipts(t, env, t0, dispatches)
 		calls := 0
-		env.Runner = scripted(func([]string) (shell.Result, error) {
+		env.Runner = scripted(func(argv []string) (shell.Result, error) {
 			calls++
+			if !slices.Contains(argv, "worker-list") {
+				t.Fatalf("ran %v", argv)
+			}
 			return shell.Result{Stdout: `{"ok":true,"result":{"workers":[` + strings.Join(workers, ",") + `],"page":{}}}`}, nil
 		})
 		rows, err := env.orcaRows(context.Background(), names)
@@ -487,7 +540,7 @@ func TestOrcaLivenessIsOneWorkerListReadAtOneLaneAndAtMany(t *testing.T) {
 		equal(t, len(rows), n)
 		return calls
 	}
-	equal(t, reads(scaletest.N()), reads(1))
+	equal(t, []int{reads(1), reads(scaletest.N())}, []int{1, 1})
 }
 
 func prNode(t *testing.T, text string) *PRNode {

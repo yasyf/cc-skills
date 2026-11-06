@@ -2,6 +2,7 @@ package orca
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -179,8 +180,8 @@ func idleScreen(tail []string) bool {
 	return true
 }
 
-func (c Client) Workers(ctx context.Context, run string) ([]Worker, error) {
-	var workers []Worker
+func (c Client) WorkerRows(ctx context.Context, run string) ([]json.RawMessage, error) {
+	var rows []json.RawMessage
 	var cursor []string
 	for {
 		args := append([]string{orchestration, "worker-list", "--run", run, "--include-remote", "--limit", workerPageLimit}, cursor...)
@@ -189,7 +190,7 @@ func (c Client) Workers(ctx context.Context, run string) ([]Worker, error) {
 			return nil, err
 		}
 		var page struct {
-			Workers []workerRow `json:"workers"`
+			Workers []json.RawMessage `json:"workers"`
 			Page    *struct {
 				Next string `json:"nextCursor"`
 			} `json:"page"`
@@ -197,14 +198,32 @@ func (c Client) Workers(ctx context.Context, run string) ([]Worker, error) {
 		if err := reply.Into(&page); err != nil {
 			return nil, err
 		}
-		for _, row := range page.Workers {
-			workers = append(workers, row.worker())
-		}
+		rows = append(rows, page.Workers...)
 		if page.Page == nil || page.Page.Next == "" {
-			return workers, nil
+			return rows, nil
 		}
 		cursor = []string{"--cursor", page.Page.Next}
 	}
+}
+
+func (c Client) Workers(ctx context.Context, run string) ([]Worker, error) {
+	rows, err := c.WorkerRows(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	return workersOf(rows)
+}
+
+func workersOf(rows []json.RawMessage) ([]Worker, error) {
+	workers := make([]Worker, 0, len(rows))
+	for _, raw := range rows {
+		var row workerRow
+		if err := json.Unmarshal(raw, &row); err != nil {
+			return nil, err
+		}
+		workers = append(workers, row.worker())
+	}
+	return workers, nil
 }
 
 func (c Client) show(ctx context.Context, terminal, environment string) (Reply, error) {

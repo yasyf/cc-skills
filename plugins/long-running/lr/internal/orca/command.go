@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/roster"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
@@ -28,7 +29,7 @@ func stateHome() (string, error) {
 func GCCommand(a *app.App) *cobra.Command {
 	var run, plan string
 	var dispatches, done, keep, stale, finished []string
-	var dryRun, fresh, shells, otherRuns bool
+	var dryRun, fresh, shells, otherRuns, rostered bool
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Reclaim what an Orca Run's settled dispatches left behind",
@@ -46,7 +47,7 @@ A dispatch on a paired Orca server goes through that server's --environment; one
 
 --finished names a dispatch whose lane the supervisor found finished by its own record. Closing a terminal loses nothing on disk, so for such a dispatch unsaved work in its tree keeps the tree, untouched, and not its terminal: the terminal of a settled one closes under the idle and agent-process proof above, and a --stale one is proved without the clean-and-pushed read. A tree git cannot read still keeps the terminal. Settled --finished terminals close first in a pass, before any --stale proof, --new selection or shell close; when Orca fails one lane's read, the other lanes still close and the pass then ends with that error, so the next pass retries the lane.
 
-gc reads the Run's worker list once a pass, and again only after a stop changes it.
+gc reads the Run's worker list once a pass, and again only after a stop changes it. With --roster, which the supervisor passes, that read is the supervisor's roster, $XDG_STATE_HOME/long-running/orca-roster/RUN.json, and a stale roster fails the pass; without it, and for the one other Run a pass with --other-runs reads, gc pages Orca.
 
 --new sweeps up to forty settled dispatches a pass, those no pass has swept first, newest first, then those swept longest ago, and records the order under the state directory. The lane supervisor runs it every five minutes, with --keep for the dispatch of every lane the registry still wants, so a dispatch is reclaimed soon after it settles and its lane retires, and what a pass kept is read again on a later one. A --new pass removes at most three worktrees and never waits on the removal lock: what it defers stays first in line for the next pass, and each dispatch is recorded as swept as its last step finishes, so a pass killed at its deadline does not repeat its work.
 
@@ -78,6 +79,9 @@ gc reads the Run's worker list once a pass, and again only after a stop changes 
 				DryRun:   dryRun,
 				Keep:     map[string]bool{},
 				Finished: map[string]bool{},
+			}
+			if rostered {
+				gc.Rosters = map[string]string{run: roster.Path(state, run)}
 			}
 			for _, dispatch := range keep {
 				gc.Keep[dispatch] = true
@@ -169,6 +173,7 @@ gc reads the Run's worker list once a pass, and again only after a stop changes 
 	cmd.Flags().BoolVar(&fresh, "new", false, "settled dispatches no pass swept yet, newest first, then those swept longest ago, up to forty a pass")
 	cmd.Flags().BoolVar(&shells, "shells", false, "also close up to forty empty shell terminals that no dispatch records and that have been quiet for three days")
 	cmd.Flags().BoolVar(&otherRuns, "other-runs", false, "also sweep one Run a pass whose coordinator terminal no longer exists")
+	cmd.Flags().BoolVar(&rostered, "roster", false, "read the --run Run's worker list from this host's supervisor roster instead of paging it; the supervisor passes it")
 	cmd.MarkFlagsMutuallyExclusive("shells", "plan")
 	cmd.MarkFlagsMutuallyExclusive("other-runs", "plan")
 	cmd.MarkFlagsMutuallyExclusive("new", "dispatch")
