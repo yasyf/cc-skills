@@ -13,10 +13,18 @@ const clockLane = "api-fix"
 
 func clockedWorld(t *testing.T) *deskWorld {
 	t.Helper()
+	return clockedLane(t, clockLane, "")
+}
+
+func clockedLane(t *testing.T, lane, header string) *deskWorld {
+	t.Helper()
 	w := newDeskWorld(t)
 	w.desk.Config.IncidentMechanismMinutes, w.desk.Config.IncidentPRMinutes, w.desk.Config.IncidentReadyMinutes = 10, 15, 20
-	fixedLane(t, w, clockLane)
-	w.live(clockLane, testDispatch, "term_fix")
+	fixedLane(t, w, lane)
+	if header != "" {
+		w.brief(lane, header+"\n"+testBrief)
+	}
+	w.live(lane, testDispatch, "term_fix")
 	w.now = w.now.Add(-time.Hour)
 	return w
 }
@@ -32,14 +40,19 @@ func (w *deskWorld) clock() incidentClockState {
 
 func (w *deskWorld) fallbacks() []incident.Action {
 	w.t.Helper()
+	return w.fallbacksOf(clockLane)
+}
+
+func (w *deskWorld) fallbacksOf(lane string) []incident.Action {
+	w.t.Helper()
 	books, err := w.desk.containers(lanePrefix)
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	if !slices.Contains(books, laneBook(clockLane+clockBackup)) {
+	if !slices.Contains(books, laneBook(lane+clockBackup)) {
 		return nil
 	}
-	launches, err := w.desk.store.Actions(laneBook(clockLane+clockBackup), kindLaunch)
+	launches, err := w.desk.store.Actions(laneBook(lane+clockBackup), kindLaunch)
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -144,19 +157,75 @@ func TestWhatEndsAClockEndsItWithNoLine(t *testing.T) {
 	}
 }
 
-func TestAStopThatScopesOutAFailingReleaseGateIsRefusedAndTheFallbackTakesIt(t *testing.T) {
-	w := clockedWorld(t)
+const devRedHeader = "ccx: lane=api-fix role=incident effort=xhigh incident=dev-red-ab12cd34ef"
+
+func TestADevRedLanesOwnScopeOutIsRefusedAndTheFallbackTakesIt(t *testing.T) {
+	w := clockedLane(t, clockLane, devRedHeader)
 	w.now = w.now.Add(time.Minute)
-	w.add(object{"lane": clockLane, "kind": kindStopped, "text": "smoke team red, no customer impact"})
+	w.add(object{"kind": clockIncident, "to": []string{clockLane}, "text": "INCIDENT dev-red-ab12cd34ef SCOPE: active yes: dev red is the release gate, no customer runs failing yet; plan keeps path yes"})
+	w.add(object{"lane": clockLane, "kind": kindStopped, "text": "STOPPED api-fix: out of scope, no customer impact, stopping"})
 	w.now = w.now.Add(time.Minute)
 
 	w.step(w.desk.clockPass)
 
-	if clock := w.clock(); !strings.HasSuffix(clock.Ended, "refused: smoke team is a release gate") {
+	if clock := w.clock(); !strings.HasSuffix(clock.Ended, "refused: dev-red-ab12cd34ef is a release gate") {
 		t.Fatal(clock)
 	}
+	wantContains(t, w.wantEscalation("REFUSED-STOP"), "dev-red-ab12cd34ef is a release gate")
 	if launches := w.fallbacks(); len(launches) != 1 {
 		t.Fatal(launches)
+	}
+}
+
+func TestASentryLanesStopIsHonoredThoughItsWordsNameADevRed(t *testing.T) {
+	lane := "sentry-7832068463-fix-case1"
+	w := clockedLane(t, lane, "ccx: lane="+lane+" role=incident effort=xhigh")
+	w.now = w.now.Add(time.Minute)
+	w.add(object{"kind": "answer", "to": []string{"sentry-7832068463-fix", "store-desk", "owner-relay"}, "text": "#51766 lands on his tap: the only failures were 3 calls from one user's curl script, and no customer run is failing, so it is not a forward-fix. It also waits behind dev-red (#51688)."})
+	w.add(object{"lane": lane, "kind": kindStopped, "to": []string{coordinatorLane}, "text": "STOPPED sentry-7832068463-fix-case1: out of scope, active no under root524587: only three calls from one user curl script, no customer run failing. #51766 remains an ordinary approved green PR at b88af2eff7633593886238986ac076787bb6cd42 awaiting owner tap and dev-red #51688 under root524627; production recovery is unobserved, and no new code, merge or release ran."})
+	w.now = w.now.Add(time.Minute)
+
+	w.step(w.desk.clockPass)
+
+	clock, err := w.desk.clockOf(lane)
+	if err != nil || clock.Ended != kindStopped {
+		t.Fatal(clock, err)
+	}
+	w.noEscalation("REFUSED-STOP")
+	if launches := w.fallbacksOf(lane); len(launches) != 0 {
+		t.Fatal(launches)
+	}
+}
+
+func TestADevRedStopUnderRootsActiveNoIsHonored(t *testing.T) {
+	for name, c := range map[string]struct {
+		ruling  object
+		answers bool
+	}{
+		"a root scope naming the lane":   {object{"kind": clockIncident, "to": []string{clockLane}, "text": "INCIDENT dev-red-ab12cd34ef SCOPE: active no: the red job tests a path the plan deletes; plan keeps path no"}, false},
+		"a root record the stop answers": {object{"kind": "answer", "to": []string{"landing-desk"}, "text": "that red build is on the deleted tree: active no"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := clockedLane(t, clockLane, devRedHeader)
+			w.now = w.now.Add(time.Minute)
+			root := w.add(c.ruling)
+			stop := object{"lane": clockLane, "kind": kindStopped, "text": "STOPPED api-fix: out of scope, active no, no customer impact"}
+			if c.answers {
+				stop["re"] = root.Seq
+			}
+			w.add(stop)
+			w.now = w.now.Add(time.Minute)
+
+			w.step(w.desk.clockPass)
+
+			if clock := w.clock(); clock.Ended != kindStopped {
+				t.Fatal(clock)
+			}
+			w.noEscalation("REFUSED-STOP")
+			if launches := w.fallbacks(); len(launches) != 0 {
+				t.Fatal(launches)
+			}
+		})
 	}
 }
 

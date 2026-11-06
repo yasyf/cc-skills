@@ -50,8 +50,9 @@ The brief ` + "`%[2]s`" + ` was launched on follows, unchanged.
 
 var (
 	clockClosed     = regexp.MustCompile(`\bINCIDENT (?:\S+ CLOSED|CLOSED \S+)\b|\bis a closed incident\b`)
-	clockGate       = regexp.MustCompile(`(?i)\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|release[- ](?:checks?|smokes?|gates?)|dev[- ]red|dev is red)\b`)
+	clockGates      = []string{"dev-red", "smoke", "watch", "red"}
 	clockScopedOut  = regexp.MustCompile(`(?i)\bactive no\b|\b(?:no|zero) customer\b|\bfalse alarm\b`)
+	clockRuledOut   = regexp.MustCompile(`(?i)\bactive no\b`)
 	clockStopped    = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?STOPPED\b`)
 	clockEnds       = []string{clockFixLive, kindNotOurs, kindStopped, kindStandDown, clockReady}
 	clockMilestones = []string{"mechanism", "opened", clockReady}
@@ -276,15 +277,21 @@ func (d *Desk) holdClock(ctx context.Context, lane string, launch incident.Actio
 	held := slices.IndexFunc(holds, func(record client.Record) bool { return namesLane(record, names) && !record.At.Before(launched) })
 	stop := slices.IndexFunc(stops, func(record client.Record) bool {
 		kindStops := string(record.Kind) == kindStopped || clockStopped.MatchString(record.Text)
-		return !record.At.Before(launched) && kindStops && clockGate.MatchString(record.Text) && clockScopedOut.MatchString(record.Text)
+		return !record.At.Before(launched) && kindStops && clockScopedOut.MatchString(record.Text)
 	})
+	gate := ""
+	if stop >= 0 {
+		if gate, err = d.refusedGate(ctx, lane, launch, launched, stops[stop]); err != nil {
+			return err
+		}
+	}
 	switch {
 	case stoodDown != "":
 		clock.Ended = "withdrawn by " + stoodDown
 	case held >= 0:
 		clock.Ended = fmt.Sprintf("held by #%d", holds[held].Seq)
-	case stop >= 0:
-		clock.Ended, err = d.refuseStop(ctx, lane, launch, launched, stops[stop], incidents)
+	case gate != "":
+		clock.Ended, err = d.refuseStop(ctx, lane, launch, launched, stops[stop], gate, incidents)
 		return err
 	case !dispatch.active():
 		clock.Ended = "dispatch " + dispatch.Status
@@ -560,13 +567,56 @@ func (d *Desk) briefFor(ctx context.Context, lane string) (string, error) {
 	return "", nil
 }
 
-func (d *Desk) refuseStop(ctx context.Context, lane string, launch incident.Action, launched time.Time, stop client.Record, incidents []client.Record) (string, error) {
-	gate := clockGate.FindString(stop.Text)
+func (d *Desk) refusedGate(ctx context.Context, lane string, launch incident.Action, launched time.Time, stop client.Record) (string, error) {
+	spec, err := launchOf(launch)
+	if err != nil {
+		return "", err
+	}
+	keys := incidentKeys(lane, spec)
+	gate := slices.IndexFunc(keys, func(key string) bool {
+		return slices.ContainsFunc(clockGates, func(kind string) bool { return strings.HasPrefix(key, kind+"-") })
+	})
+	if gate < 0 {
+		return "", nil
+	}
+	first := firstLane(lane)
+	opened, err := d.fixLaunch(laneBook(first))
+	if err != nil {
+		return "", err
+	}
+	since := launched
+	if opened != nil {
+		if since, err = verifiedAt(*opened); err != nil {
+			return "", err
+		}
+	}
+	own, err := d.names(lane)
+	if err != nil {
+		return "", err
+	}
+	parent, err := d.names(first)
+	if err != nil {
+		return "", err
+	}
+	rulings, err := d.tail(ctx, client.Query{Lanes: []string{coordinatorLane}, Since: since})
+	if err != nil {
+		return "", err
+	}
+	audience := slices.Concat(own, parent)
+	if slices.ContainsFunc(rulings, func(ruling client.Record) bool {
+		return (ruling.Seq == stop.Re || namesLane(ruling, audience)) && clockRuledOut.MatchString(ruling.Text)
+	}) {
+		return "", nil
+	}
+	return keys[gate], nil
+}
+
+func (d *Desk) refuseStop(ctx context.Context, lane string, launch incident.Action, launched time.Time, stop client.Record, gate string, incidents []client.Record) (string, error) {
 	owner, err := d.clockFallback(ctx, lane, launch, "fix", int(d.Now().Sub(launched).Minutes()), incidents)
 	if err != nil {
 		return "", err
 	}
-	text := fmt.Sprintf("#%d scoped the incident out, but a failing %s is the release gate and the earliest canary: active yes always, and no customer impact is its scope, never a stop (owner, Nov 1 3:04 PM) | %s; coordinator: keep the incident open and name its fix owner", stop.Seq, gate, owner)
+	text := fmt.Sprintf("#%d scoped the incident out, but %s is a release gate and the earliest canary: active yes always, and no customer impact is its scope, never a stop (owner, Nov 1 3:04 PM); no root record rules it out with active no | %s; coordinator: keep the incident open and name its fix owner", stop.Seq, gate, owner)
 	if err := d.escalateTo(ctx, "refused-stop:"+strconv.FormatInt(stop.Seq, 10), "REFUSED-STOP", lane, text, coordinatorLane); err != nil {
 		return "", err
 	}
