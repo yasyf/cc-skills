@@ -145,6 +145,9 @@ CCN_READ_BACKOFF_SECONDS = 0.5
 REF_LOCK_ATTEMPTS = 5
 REF_LOCK_BACKOFF_SECONDS = 0.2
 REF_LOCK_RACE = "cannot lock ref"
+LS_REMOTE_ATTEMPTS = 5
+LS_REMOTE_BACKOFF_SECONDS = 2
+NETWORK_BLIPS = ("Failed to connect", "Could not resolve host", "timed out", "Connection reset", "SSL_connect", "TLS")
 COMMAND_TIMEOUT_SECONDS = 600
 STDERR_SHOWN = 600
 LOCK_WAIT_SECONDS = 120
@@ -299,6 +302,10 @@ def is_git_fetch(argv: list[str]) -> bool:
     return argv[0] == "git" and "fetch" in argv[1:4]
 
 
+def is_git_ls_remote(argv: list[str]) -> bool:
+    return argv[0] == "git" and "ls-remote" in argv[1:4]
+
+
 class CommandFailed(subprocess.CalledProcessError):
     def __str__(self) -> str:
         return f"{super().__str__()}: {(self.stderr or '').strip()[-STDERR_SHOWN:]}"
@@ -310,7 +317,8 @@ class Shell:
     A `ccn ledger show` exits non-zero while another desk is writing the same ledger, so
     reads retry with a short backoff; writes never do, because a retried write can land twice.
     A `git fetch` that loses a ref lock to a concurrent fetch retries the same way, since a
-    forced refspec lands once however many times it runs.
+    forced refspec lands once however many times it runs. A `git ls-remote` that cannot reach
+    the forge retries for about 30 seconds, since a network blip then costs seconds, not a pass.
     `run` feeds the child from a file, never a pipe this process writes while the child's
     output fills. A command still running after COMMAND_TIMEOUT_SECONDS, or when anything else
     ends this call, dies with everything under it in this process's group. A command that is
@@ -348,6 +356,13 @@ class Shell:
                 if REF_LOCK_RACE not in (error.stderr or ""):
                     raise
                 time.sleep(REF_LOCK_BACKOFF_SECONDS * 2**attempt)
+        for attempt in range(LS_REMOTE_ATTEMPTS - 1 if is_git_ls_remote(argv) else 0):
+            try:
+                return self.once(argv, stdin, cwd)
+            except subprocess.CalledProcessError as error:
+                if not any(blip in (error.stderr or "") for blip in NETWORK_BLIPS):
+                    raise
+                time.sleep(LS_REMOTE_BACKOFF_SECONDS * 2**attempt)
         return self.once(argv, stdin, cwd)
 
     @staticmethod
