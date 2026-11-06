@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -40,7 +41,7 @@ func (s Source) Whose(ctx context.Context, numbers []int) ([]Whose, error) {
 			}
 		}
 		f := machine.Facts{Lane: cmp.Or(owners[number], known["lane"]), Tap: machine.Tap(known["tap"])}
-		_, f.Exempt = known["exempt"]
+		f.Exempt = gates.TaplessClass(known["exempt"])
 		if known[store.AuthorFact] != s.Author {
 			f.ForeignAuthor = known[store.AuthorFact]
 		}

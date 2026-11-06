@@ -1183,7 +1183,7 @@ func TestAnotherPersonsPRLeavesTheRowsUnlessHeTappedItOrItIsExempt(t *testing.T)
 	if err := Tap(s, testRepo, tapped, headA, "owner", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutFact(testRepo, exempted, headA, "exempt", "regression", time.Now()); err != nil {
+	if _, err := s.PutFact(testRepo, exempted, headA, "exempt", "test-only", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	foreign := func(number int) machine.Facts {
@@ -1524,7 +1524,7 @@ func TestATappedRowSaysWhyTheLandingPassCannotMoveIt(t *testing.T) {
 		t.Fatalf("an untapped row says %q", got.WaitsOn)
 	}
 
-	facts["exempt"] = "regression"
+	facts["exempt"] = "test-only"
 	if got := Materialize(row, facts, Held{}, nil, "dev"); !strings.HasSuffix(got.WaitsOn, "; "+why) {
 		t.Fatalf("a tapped row says %q, want it to end on the reason", got.WaitsOn)
 	}
@@ -1722,16 +1722,17 @@ func TestAnExemptHeadSaysItsClassAndOnlyHisTapReadsTapped(t *testing.T) {
 		ready  bool
 		waits  string
 	}{
-		"exempt with no tap":       {map[string]string{"exempt": "regression"}, Held{}, false, false, "Exempt as regression; the landing desk lands it next."},
-		"exempt and tapped by him": {map[string]string{"exempt": "regression", "tap": string(machine.TapTapped)}, Held{}, true, true, tappedWaits},
+		"exempt with no tap":               {map[string]string{"exempt": "test-only"}, Held{}, false, false, "Exempt as test-only; the landing desk lands it next."},
+		"a class no ruling lands untapped": {map[string]string{"exempt": "dev-red"}, Held{}, false, true, onlyHim},
+		"exempt and tapped by him":         {map[string]string{"exempt": "test-only", "tap": string(machine.TapTapped)}, Held{}, true, true, tappedWaits},
 		"exempt with a tap carried": {
-			map[string]string{"exempt": "regression", factCarriedBy: "review-fix", factTapFrom: from},
+			map[string]string{"exempt": "test-only", factCarriedBy: "review-fix", factTapFrom: from},
 			Held{},
 			true, true,
 			strings.TrimSuffix(tappedWaits, ".") + "; your tap at aaaaaaa carried to this head: " + gates.CarryWhy("review-fix"),
 		},
 		"tapped by him":         {map[string]string{"tap": string(machine.TapTapped)}, Held{}, true, true, tappedWaits},
-		"exempt, until his tap": {map[string]string{"exempt": "regression"}, Held{AwaitsTap: "asks his tap"}, false, true, tapEndsHold + "asks his tap"},
+		"exempt, until his tap": {map[string]string{"exempt": "test-only"}, Held{AwaitsTap: "asks his tap"}, false, true, tapEndsHold + "asks his tap"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
@@ -1757,7 +1758,7 @@ func TestAnExemptHeadSaysItsClassAndOnlyHisTapReadsTapped(t *testing.T) {
 }
 
 func TestAnExemptHeadWithAnUnmetGateSaysTheGate(t *testing.T) {
-	facts := map[string]string{factCI: CIRed, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass), "exempt": "regression"}
+	facts := map[string]string{factCI: CIRed, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass), "exempt": "test-only"}
 	row := Materialize(readyRow(), facts, Held{}, nil, "dev")
 	if row.Tapped || row.WaitsOn != RedAtHead || gates.LandsExempt(row) {
 		t.Fatalf("row = %+v", row)
@@ -1780,8 +1781,8 @@ func TestAFoldClearsAnExemptTapFromALandedRowAndKeepsHisOwn(t *testing.T) {
 		}
 	}
 	landed(1, notRecorded, map[string]string{"exempt": "test-only-or-ci-only"})
-	landed(2, "owner", map[string]string{"exempt": "regression", "tap": string(machine.TapTapped)})
-	landed(3, "carried from aaaaaaa", map[string]string{"exempt": "regression", factCarriedBy: "review-fix"})
+	landed(2, "owner", map[string]string{"exempt": "test-only", "tap": string(machine.TapTapped)})
+	landed(3, "carried from aaaaaaa", map[string]string{"exempt": "test-only", factCarriedBy: "review-fix"})
 	landed(4, "owner", map[string]string{"tap": string(machine.TapTapped)})
 
 	if row := folded(t, f, 1); row.Tapped || row.TappedBy != NotYet || row.TappedAt != NotYet || row.State != StateLanded {

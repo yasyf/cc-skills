@@ -126,9 +126,9 @@ func TestAHoldCciReadsClosedIsNotOpenThoughItsLiftNamesNoPR(t *testing.T) {
 }
 
 func TestAHoldWrittenAsProseInARootRecordStopsNoGo(t *testing.T) {
-	text, refusals := gate(recordsBefore(t, "48707", 355281), 48707, "8fcfba3211db21eb43c6dedb4a1ad6e02eda069d")
-	if len(refusals) > 0 || !strings.HasPrefix(text, "go #48707 at 8fcfba3 on green [exempt: owner-pick]") {
-		t.Fatalf("got go %q and refusals %q; root 342984's hold was prose, so only typed hold 355470 stops this go", text, refusals)
+	_, refusals := gate(recordsBefore(t, "48707", 355281), 48707, "8fcfba3211db21eb43c6dedb4a1ad6e02eda069d")
+	if slices.ContainsFunc(refusals, func(refusal string) bool { return strings.HasPrefix(refusal, "hold ") }) {
+		t.Fatalf("refusals %q; root 342984's hold was prose, so only typed hold 355470 stops this go", refusals)
 	}
 }
 
@@ -146,16 +146,40 @@ func TestAnOverrideCitingARecordThatDoesNotExistSettlesNothing(t *testing.T) {
 	refusedWith(t, text, refusals, "no counted decide reads finder-override #48375 at 71bd0ab citing a record that exists")
 }
 
-func TestAGradedHeadWithRootsOverrideAndAnExemptClassGetsItsGo(t *testing.T) {
+func TestAnOwnerPickTheDriveListsIsNoClassHisRulingsLandUntappedSoItWaitsOnHisTap(t *testing.T) {
 	text, refusals := gate(recordsBefore(t, "48375", 356113), 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84")
-	if want := "go #48375 at 71bd0ab on green [exempt: owner-pick]: fidelity ok #349440, finder ok #54478@c19fa6c9"; text != want || len(refusals) > 0 {
-		t.Fatalf("got go %q and refusals %q, want %q", text, refusals, want)
+	refusedWith(t, text, refusals, "fidelity: no ok grade at 71bd0ab names an exempt class")
+	if slices.ContainsFunc(refusals, func(refusal string) bool { return strings.HasPrefix(refusal, "finder:") }) {
+		t.Fatalf("root's override settles the finder, yet got %q", refusals)
+	}
+}
+
+func TestOnlyAClassHisRulingsLandUntappedGetsAGo(t *testing.T) {
+	for grade, lands := range map[string]bool{
+		"class test-only":  true,
+		"class ci-only":    true,
+		TestOnlyGrade:      true,
+		"class dev-red":    false,
+		"class owner-pick": false,
+		"class regression": false,
+		"class twin":       false,
+	} {
+		t.Run(grade, func(t *testing.T) {
+			text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: graded(t, grade), Exempt: Grades(nil, driveClasses, ""), Files: []string{"go/x/x_test.go"}})
+			if !lands {
+				refusedWith(t, text, refusals, "fidelity: no ok grade at abc1234 names an exempt class")
+				return
+			}
+			if len(refusals) > 0 || !strings.HasPrefix(text, "go #49999 at abc1234 on green [exempt: ") {
+				t.Fatalf("got go %q and refusals %q, want a go", text, refusals)
+			}
+		})
 	}
 }
 
 func TestTheSameHeadIsRefusedWhenTheGoLaneAlreadyPostedItsGo(t *testing.T) {
-	posted := client.Record{Seq: 356114, Lane: "go-sweep-9", Kind: "go", Text: "go #48375 at 71bd0ab on green [exempt: owner-pick]"}
-	posted.Fields.Attrs = map[string]string{bus.ExemptClassAttr: "owner-pick"}
+	posted := client.Record{Seq: 356114, Lane: "go-sweep-9", Kind: "go", Text: "go #48375 at 71bd0ab on green [exempt: test-only]"}
+	posted.Fields.Attrs = map[string]string{bus.ExemptClassAttr: "test-only"}
 	records := append(recordsBefore(t, "48375", 356113), posted)
 	text, refusals := gate(records, 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84")
 	refusedWith(t, text, refusals, "go #356114 by go-sweep-9 already names this head")
@@ -163,9 +187,9 @@ func TestTheSameHeadIsRefusedWhenTheGoLaneAlreadyPostedItsGo(t *testing.T) {
 
 func TestAPlainGoNamingTheHeadDoesNotStopTheGoThatCarriesItsClass(t *testing.T) {
 	records := append(recordsBefore(t, "48375", 356113), client.Record{Seq: 356114, Lane: "root", Kind: "go", Text: "go #48375 at 71bd0ab TAP-CARRIED: his tap on #48000 carries"})
-	text, refusals := gate(records, 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84")
-	if text == "" || len(refusals) > 0 {
-		t.Fatalf("got go %q and refusals %q", text, refusals)
+	_, refusals := gate(records, 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84")
+	if slices.ContainsFunc(refusals, func(refusal string) bool { return strings.Contains(refusal, "already names this head") }) {
+		t.Fatalf("root's plain go reads as the exempt go: %q", refusals)
 	}
 }
 
@@ -183,9 +207,7 @@ func TestATapRuleMatchingAChangedFileHoldsTheHeadForHisTap(t *testing.T) {
 func TestAnExemptGoIsRefusedForABodyThatWaitsToGoLiveWithNoWayItIsSafeOnDev(t *testing.T) {
 	read := Read{Records: recordsBefore(t, "48375", 356113), GoLanes: goLanes, Exempt: driveClasses, TapRules: driveTaps, Files: []string{"dashboard/src/iris/x.ts"}, Body: pr46018 + "\nHold this PR until that release is live.\n"}
 	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: 48375, Head: "71bd0ab1c2dc27453798cbc7fb75db730f59bf84"}, read)
-	if want := UnsafeOnDev("Hold this PR until that release is live"); text != "" || !slices.Equal(refusals, []string{want}) {
-		t.Fatalf("got go %q and refusals %q, want only %q", text, refusals, want)
-	}
+	refusedWith(t, text, refusals, UnsafeOnDev("Hold this PR until that release is live"))
 }
 
 func TestAnExemptGoWaitsOnAnOpenCardItsBodyNamesThoughTheCardNamesNoPR(t *testing.T) {
@@ -198,11 +220,9 @@ func TestAnExemptGoWaitsOnAnOpenCardItsBodyNamesThoughTheCardNamesNoPR(t *testin
 	}
 
 	text, _, refusals := ExemptGo(claim, read(pacing, other))
-	if want := "owner card card-rmw3cuhus is open"; text != "" || !slices.Equal(refusals, []string{want}) {
-		t.Fatalf("got go %q and refusals %q, want only %q", text, refusals, want)
-	}
-	if text, _, refusals := ExemptGo(claim, read(other)); !strings.HasPrefix(text, "go #48375 at 71bd0ab on green [exempt: owner-pick]") || len(refusals) > 0 {
-		t.Fatalf("with no open card its body names, got go %q and refusals %q", text, refusals)
+	refusedWith(t, text, refusals, "owner card card-rmw3cuhus is open")
+	if _, _, refusals := ExemptGo(claim, read(other)); slices.ContainsFunc(refusals, func(refusal string) bool { return strings.HasPrefix(refusal, "owner card") }) {
+		t.Fatalf("with no open card its body names, got refusals %q", refusals)
 	}
 }
 

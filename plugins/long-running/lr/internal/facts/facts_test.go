@@ -1639,7 +1639,7 @@ func TestAStackReplayBelowItCarriesHisTapAndAGoOnlyWhenItsOwnPatchIsTheSame(t *t
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
-			value := map[string]string{"tap": "tapped", "exempt": "regression"}[tc.given]
+			value := map[string]string{"tap": "tapped", "exempt": "test-only"}[tc.given]
 			putFact(t, s, 2, head2, tc.given, value, tappedAt)
 			putFact(t, s, 2, head2, "enqueued", "exit 0: #2 QUEUED", tappedAt)
 			on(t, s, recordedPR{number: 2, head: head2, login: "drive-bot", base: "lower", queued: true, diff: ownDiff}).snapshot(t)
@@ -1806,14 +1806,22 @@ func goRecord(t *testing.T, lane, text string) client.Record {
 
 func gatedGo(t *testing.T, lane, text string) client.Record {
 	t.Helper()
-	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "go", Attrs: map[string]string{bus.ExemptClassAttr: "owner-pick"}, Text: text})
+	return classedGo(t, lane, "test-only", text)
+}
+
+func classedGo(t *testing.T, lane, class, text string) client.Record {
+	t.Helper()
+	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "go", Attrs: map[string]string{bus.ExemptClassAttr: class}, Text: text})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return record
 }
 
-func TestOnlyAnExemptGoTheGatePostedMarksItsPRExempt(t *testing.T) {
+func TestOnlyAnExemptGoTheGatePostedInAClassHisRulingsLandUntappedMarksItsPRExempt(t *testing.T) {
+	classed := func(class string) func(*testing.T, string, string) client.Record {
+		return func(t *testing.T, lane, text string) client.Record { return classedGo(t, lane, class, text) }
+	}
 	for _, c := range []struct {
 		name   string
 		post   func(*testing.T, string, string) client.Record
@@ -1821,13 +1829,16 @@ func TestOnlyAnExemptGoTheGatePostedMarksItsPRExempt(t *testing.T) {
 	}{
 		{"a go the gate posted", gatedGo, true},
 		{"the same go typed by hand", goRecord, false},
+		{"root's go naming dev-red, as on #51764", classed("dev-red"), false},
+		{"a go naming owner-pick", classed("owner-pick"), false},
+		{"a go naming a pure port", classed(gates.OldTreePortClass), true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
-			c.post(t, "root", "go #1 at "+head+" on green [exempt: owner-pick]")
+			c.post(t, "root", "go #1 at "+head+" on green [exempt: test-only]")
 
-			if got := h.snapshot(t)[1].Exempt; got != c.exempt {
-				t.Fatalf("exempt = %v, want %v", got, c.exempt)
+			if got := h.snapshot(t)[1]; got.Exempt != c.exempt || got.Admitted() != c.exempt {
+				t.Fatalf("exempt = %v, admitted = %v, want both %v", got.Exempt, got.Admitted(), c.exempt)
 			}
 		})
 	}
@@ -1851,7 +1862,7 @@ func TestAGoLanesExemptGoLeavesARootHoldStanding(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.GoLanes = []string{"landing-desk"}
 	hold(t, "root", "hold #1 for now", repo+"#1")
-	gatedGo(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: owner-pick]")
+	gatedGo(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: test-only]")
 
 	row := h.snapshot(t)[1]
 
@@ -1863,7 +1874,7 @@ func TestAGoLanesExemptGoLeavesARootHoldStanding(t *testing.T) {
 func TestAWithdrawnExemptGoStopsCountingAndALaterGoCountsAgain(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.GoLanes = []string{"landing-desk"}
-	exempt := "go #1 at " + head + " on green [exempt: owner-pick]"
+	exempt := "go #1 at " + head + " on green [exempt: test-only]"
 	first := gatedGo(t, "landing-desk-3", exempt)
 	if !h.snapshot(t)[1].Exempt {
 		t.Fatal("the go marks the PR exempt")
@@ -1885,7 +1896,7 @@ func TestAWithdrawnExemptGoStopsCountingAndALaterGoCountsAgain(t *testing.T) {
 
 func TestAWithdrawalFromALaneWithNoSayLeavesTheExemptGo(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
-	first := gatedGo(t, "root", "go #1 at "+head+" on green [exempt: owner-pick]")
+	first := gatedGo(t, "root", "go #1 at "+head+" on green [exempt: test-only]")
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lane-7", Kind: "withdraw", Text: "not mine", Re: first.Seq}); err != nil {
 		t.Fatal(err)
 	}
@@ -2615,7 +2626,7 @@ func TestAnExemptHeadLandsAndReadsNotTappedAndAHeadHeTappedReadsTapped(t *testin
 
 	exempt := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	graded(exempt)
-	gatedGo(t, "root", "go #1 at "+head+" on green [exempt: owner-pick]")
+	gatedGo(t, "root", "go #1 at "+head+" on green [exempt: test-only]")
 	admitted := exempt.snapshot(t)[1]
 	if !admitted.Exempt || !admitted.Landable() || machine.Classify(admitted).Action != machine.ActionEnqueue {
 		t.Fatalf("an exempt head does not land: %+v, verdict %+v", admitted, machine.Classify(admitted))
@@ -2646,7 +2657,7 @@ func TestAHoldOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
 		putFact(t, h.store, 1, head, kind, value, tappedAt)
 	}
 	hold(t, "root", "hold #1 for now", repo+"#1")
-	gatedGo(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: owner-pick]")
+	gatedGo(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: test-only]")
 
 	row := h.snapshot(t)[1]
 

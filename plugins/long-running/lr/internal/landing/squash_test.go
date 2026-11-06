@@ -497,6 +497,98 @@ func TestTheLandingHostsAdmitKeepsAnIncidentFixFromTheQueueButNeverMergesOrPosts
 	}
 }
 
+func devRedFix(mutate func(*machine.Facts)) machine.Facts {
+	return fixFacts(func(row *machine.Facts) {
+		row.Number, row.Branch, row.Lane = 51688, "yasyf/upload-rs-park-closed-unmirrored", "dev-red-5a02b5902d-fix"
+		row.Mergeable, row.Finder, row.FinderOverride = machine.MergeableClean, machine.FinderAsk, true
+		if mutate != nil {
+			mutate(row)
+		}
+	})
+}
+
+func TestADevRedFixWithNoTapNeverSquashesThoughAnIncidentOrARootGoNamesItAndItsHourPassed(t *testing.T) {
+	for name, tc := range map[string]struct {
+		fix  machine.Facts
+		post func(*testing.T)
+	}{
+		"#51688 at a1ffe9f, root's incident 524795 naming it": {
+			fix: devRedFix(nil),
+			post: func(t *testing.T) {
+				squashPost(t, "incident", "root", "dev-red-2651ca7ef1 is dev-red-5a02b5902d: dev-red-5a02b5902d-fix owns it; #51688 at a1ffe9f is the fix, green, approved, every grade cleared, waiting only on his Approve.", []string{"dev-red-5a02b5902d-fix", "desk-runner", "supervisor"})
+			},
+		},
+		"#51764 at 7c14588, root's go 523326 naming it": {
+			fix: devRedFix(func(row *machine.Facts) {
+				row.Number, row.Branch, row.Lane, row.Finder, row.FinderOverride = 51764, "yasyf/restore-horizon-wake", "dev-red-5a02b5902d-fix-case1", "", false
+			}),
+			post: func(t *testing.T) {
+				squashPost(t, "go", "root", "GO for the restore::lazy class: dev-red-5a02b5902d-fix-case1 owns it with #51764 at 7c14588 (horizon case passes, 523278). New-tree product code, and dev is green, so it lands on his tap with its options line (dbeef4d); post the tap card.", []string{"dev-red-5a02b5902d-fix-case1", "supervisor"}, monorepo+"#51764")
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSquash(t)
+			f.squash.FixLane = func(lane string) (bool, error) { return strings.HasPrefix(lane, "dev-red-"), nil }
+			f.clocks = []string{tc.fix.Lane}
+			f.shown(t, tc.fix.Number, tc.fix.Head, t0.Add(-2*time.Hour))
+			tc.post(t)
+
+			if kept := f.admit(tc.fix); !slices.Equal(kept, []int{tc.fix.Number}) {
+				t.Fatalf("the squash took %v from the gate that says no tap, kept %v", tc.fix.Number, kept)
+			}
+			if merges := f.merges(); len(merges) != 0 {
+				t.Fatalf("a dev-red fix with gates-missing [\"no tap\"] merged: %v", merges)
+			}
+		})
+	}
+}
+
+func TestAnAlertFixItsIncidentScopedOutWaitsOnHisTapAndAnActiveOneStillLandsAtOnce(t *testing.T) {
+	const fix, caseLane = "sentry-7832068463-fix", "sentry-7832068463-fix-case1"
+	for name, tc := range map[string]struct {
+		said   [][2]string
+		merges int
+	}{
+		"#51766, its case lane scoped active no under root 524587": {[][2]string{{fix, "SCOPE " + fix + ": old tree only. active yes: production Memories requests failed 3 times"}, {caseLane, "SCOPE " + caseLane + ": active no: only three calls from one user curl script"}}, 0},
+		"root's newest verdict reads active no":                    {[][2]string{{fix, "SCOPE " + fix + ": active yes: three failed calls"}, {"root", "Scoped out, active no: one user's curl script, no customer run failing."}}, 0},
+		"its newest scope reads active yes":                        {[][2]string{{caseLane, "SCOPE " + caseLane + ": active no: one script"}, {fix, "SCOPE " + fix + ": active yes: customer runs fail"}}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSquash(t)
+			f.squash.FixLane = func(lane string) (bool, error) { return strings.HasPrefix(lane, "sentry-"), nil }
+			for _, said := range tc.said {
+				to := []string{"root"}
+				if said[0] == "root" {
+					to = []string{fix}
+				}
+				squashPost(t, "incident", said[0], said[1], to)
+			}
+			squashPost(t, "incident", "root", "Ratified: incident sentry-7832068463. "+fix+" owns it with forward-fix authority.", []string{fix})
+
+			f.admit(fixFacts(func(row *machine.Facts) { row.Number, row.Branch, row.Lane = 51766, "memories", fix }))
+
+			if merges := f.merges(); len(merges) != tc.merges {
+				t.Fatalf("merges = %v, want %d", merges, tc.merges)
+			}
+		})
+	}
+}
+
+func TestADevRedFixSquashesOnceHisTapSatisfiesItsGate(t *testing.T) {
+	f := newSquash(t)
+	f.squash.FixLane = func(lane string) (bool, error) { return strings.HasPrefix(lane, "dev-red-"), nil }
+
+	if kept := f.admit(devRedFix(func(row *machine.Facts) { row.Tap = machine.TapTapped })); len(kept) != 0 {
+		t.Fatalf("the queue kept %v", kept)
+	}
+
+	want := "gh pr merge 51688 --repo " + monorepo + " --squash --match-head-commit " + squashFirst
+	if merges := f.merges(); !slices.Equal(merges, []string{want}) {
+		t.Fatalf("merges = %v, want %q", merges, want)
+	}
+}
+
 func TestASquashMergePostsOneLandedRecordSoTheRowReadsLanded(t *testing.T) {
 	f := newSquash(t)
 

@@ -353,8 +353,7 @@ func planRow(line string, fidelity machine.Fidelity, overridden string) string {
 }
 
 func Exempted(row store.ReviewRow, facts map[string]string) bool {
-	_, exempt := facts["exempt"]
-	return exempt && row.AwaitsTap == ""
+	return gates.TaplessClass(facts["exempt"]) && row.AwaitsTap == ""
 }
 
 // LandsOnHisWord reports a row that lands on a standing word of his with no tap.

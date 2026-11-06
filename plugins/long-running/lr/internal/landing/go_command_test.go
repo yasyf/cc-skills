@@ -443,6 +443,7 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 		claims  []client.Draft
 		tap     string
 		refused string
+		tapRow  bool
 	}{
 		"test-only with its card shown and open":       {grade: "class test-only: adds the regression test", files: testFile},
 		"ci-tooling with its card shown and open":      {grade: "class ci-tooling: bumps the shard script", files: "[\".buildkite/v2/scripts/test-shard.sh\",\"@@ +1 @@\\n+set -e\"]\n"},
@@ -450,7 +451,7 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 		"a claimed flake fix with its card shown":      {grade: "reads right", files: testFile, claims: []client.Draft{flakeClaim}},
 		"a claimed flake fix that he held on its card": {grade: "reads right", files: testFile, claims: []client.Draft{flakeClaim}, tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
 		"test-only that he held on its card":           {grade: "class test-only: adds the regression test", files: testFile, tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
-		"owner-pick, which keeps the shown-card rule":  {grade: "class owner-pick: his pick", files: testFile, refused: "owner card card-tap-1-51717bb is open"},
+		"owner-pick, which no ruling lands untapped":   {grade: "class owner-pick: his pick", files: testFile, tapRow: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("CCI_HOME", t.TempDir())
@@ -502,6 +503,12 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 			refusals, err := client.Tail(ctx, client.Query{Drive: "d", Kinds: []string{bus.GoRefusedKind}})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if c.tapRow {
+				if len(posted) != 0 || len(refusals) != 0 {
+					t.Fatalf("posted %v, refusals %+v; want no go and no refusal, as a tap row", posted, refusals)
+				}
+				return
 			}
 			if c.refused == "" {
 				if !slices.Equal(posted, []int{1}) || len(refusals) != 0 {

@@ -42,6 +42,7 @@ var (
 	incidentCleared = regexp.MustCompile(`(?i)not an incident fix|off the incident path|no release is owed`)
 	clearingKinds   = []string{"go", "hold", "lift", "decide", "decision", "release"}
 	incidentChecks  = []string{"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"}
+	activeSays      = regexp.MustCompile(`(?i)\bactive (yes|no)\b`)
 )
 
 type Squash struct {
@@ -130,6 +131,9 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts, lands bool)
 			}
 			continue
 		}
+		if (strings.HasPrefix(f.Lane, trunkTopic+"-") || scopedOut(f.Lane, incidents)) && !f.Landable() {
+			continue
+		}
 		taken[f.Number] = true
 		if !lands {
 			continue
@@ -149,6 +153,20 @@ func (q *Squash) pass(ctx context.Context, snapshot []machine.Facts, lands bool)
 		}
 	}
 	return taken, nil
+}
+
+func scopedOut(lane string, incidents []client.Record) bool {
+	family := func(name string) bool { return name == lane || strings.HasPrefix(name, lane+"-") }
+	said := ""
+	for _, record := range incidents {
+		if !family(record.Lane) && (record.Lane != rootLane || !slices.ContainsFunc(record.To, family)) {
+			continue
+		}
+		if found := activeSays.FindStringSubmatch(record.Text); found != nil {
+			said = strings.ToLower(found[1])
+		}
+	}
+	return said == "no"
 }
 
 func (q *Squash) due(f machine.Facts) (time.Time, error) {
