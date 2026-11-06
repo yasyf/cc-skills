@@ -199,7 +199,7 @@ func Resolve(ctx context.Context, drive, name string) (string, error) {
 func resolveMember(ctx context.Context, s *store.Store, drive, name string, newestIfNoneLive bool) (lane string, err error) {
 	defer recovered(&err)
 	name = Canonical(drive, name)
-	if client.Stem(name) != name {
+	if _, registered := laneOf(s, name); registered || client.Stem(name) != name {
 		return name, nil
 	}
 	var members, running []string
