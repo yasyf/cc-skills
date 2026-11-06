@@ -29,6 +29,7 @@ from captain_hook import (
     Or,
     Prompt,
     ReadCall,
+    T,
     Tool,
     Warn,
     WorkflowState,
@@ -84,9 +85,10 @@ SLACK_THREAD_TOOLS = ("mcp__slack__slack_get_thread", "mcp__plugin_cc-slack_cc-s
 DRIVE_GREP = re.compile(r"^grep (?!.*--budget)(?=.*--drive[ =]\S)")
 ASK_LANE = (
     "The communicator runs no search inline: ask a lane with `lr ask-lane '<question>'`, `--mac` for Slack or a transcript, "
-    "and its answer arrives as a record. "
-    "Bounded reads stay yours: `cci show <seq>`, `cci grep --drive <drive>` at its default budget, one named file, or the thread you are answering."
+    "and it answers in a record. "
+    "Bounded reads stay yours: `cci show <seq>`, `cci grep --drive <drive>` at its default budget, one named file, or a thread the owner linked or wrote in."
 )
+SLACK_HISTORY = "mcp__slack__slack_conversations_history"
 SECTION_WINDOW = re.compile(r"(\d+)-(\d+)(?:#\w+)?")
 SED_WINDOW = re.compile(r"(\d+)(?:,(\d+))?p")
 WORKFLOW_NUDGE = "Warning, nothing was blocked: the owner wants no expensive workflow sweeps when the findings are in hand. Is a direct fix enough?"
@@ -753,6 +755,12 @@ class ReadsNewestSlackMessage:
         return bool(threads) and all(arguments.complete and arguments.values.get("limit") == ("1",) for arguments in threads)
 
 
+class ReadsOneSlackMessage:
+    def check(self, evt: BaseHookEvent) -> bool:
+        raw = evt.input.raw
+        return evt.tool_name == SLACK_HISTORY and bool(raw.get("oldest")) and raw.get("oldest") == raw.get("latest")
+
+
 # TODO: refuse the find verb of the cci CLI here once a cc-inbox release carries it (yasyf/cc-inbox#346) and plugin.json requires that release.
 hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator twice, and the message names the verb that replaces them
     Event.PreToolUse,
@@ -773,13 +781,21 @@ hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator
             SearchesRepo(),
         ),
     ],
-    skip_if=[FromSubagent()],
+    skip_if=[FromSubagent(), ReadsOneSlackMessage()],
     tests=communicator_tests({
         Input(command="cci grep dashboard --drive durable-agents-rebuild --budget 400000", state=ACTIVE): Block(pattern=r"^The communicator runs no search inline: ask a lane with `lr ask-lane"),
         Input(command="cci grep dashboard --drive durable-agents-rebuild", state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-inbox_cci__find", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
         Input(tool="mcp__slack__slack_search_messages", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
-        Input(tool="mcp__slack__slack_conversations_history", tool_input={"channel": "C1"}, state=ACTIVE): Block(),
+        Input(tool=SLACK_HISTORY, tool_input={"channel": "C1"}, state=ACTIVE): Block(),
+        Input(
+            tool=SLACK_HISTORY,
+            tool_input={"channel_id": "D05FWN0NCMQ", "oldest": "1793926112.596459", "latest": "1793926112.596459", "limit": 1, "include_rich_message_fields": True},
+            transcript=[T.user("https://poetic-technology.slack.com/archives/D05FWN0NCMQ/p1793926112596459 what is this?")],
+            state=ACTIVE,
+        ): Allow(),
+        Input(tool=SLACK_HISTORY, tool_input={"channel_id": "C0B", "oldest": "1793600000.000001", "limit": 200}, state=ACTIVE): Block(pattern=r"^The communicator runs no search inline"),
+        Input(tool=SLACK_HISTORY, tool_input={"channel_id": "C0B", "oldest": "1793600000.000001", "latest": "1793700000.000001"}, state=ACTIVE): Block(),
         Input(command="cc-slack history --channel C0B --limit 1", state=ACTIVE): Block(),
         Input(command="gh pr list --search dashboard", state=ACTIVE): Block(),
         Input(command="gh -R yasyf/cc-skills issue list", state=ACTIVE): Block(),
