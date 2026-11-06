@@ -57,7 +57,7 @@ func restackCommand(a *app.App) *cobra.Command {
 	var runner, lane, sprite string
 	cmd := &cobra.Command{
 		Use:   "restack PR",
-		Short: "Restack a PR and every open PR below it on a Sprite, so no rebase runs on this machine",
+		Short: "Restack a PR, every open PR below it, and every open PR stacked on a branch it moves on a Sprite, so no rebase runs on this machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			number, err := strconv.Atoi(strings.TrimPrefix(args[0], "#"))
