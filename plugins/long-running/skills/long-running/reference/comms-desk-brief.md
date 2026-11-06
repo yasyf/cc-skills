@@ -48,8 +48,8 @@ Write rules: follow the cc-slack skill's "Write a post": plain words for the
   ledger names, raw shas, or status labels.
 
 Reporter threads, per slack-lane-brief.md "Reporter threads":
-  - A reporter's message in a public channel with no eyes yet gets eyes as you read
-    the thread in step 1. Wrench belongs to the lane doing the work.
+  - A reporter's message with no eyes yet gets `slack_pickup`, eyes plus Slack's working
+    line, as you read the thread in step 1. The steps belong to the lane doing the work.
   - Name no cause on the reporter's machine until the evidence shows the failing
     request reached it; call any cause the lanes have not proven "suspected".
   - Post only when they must act or the fix they reported is live, once per fix, or
