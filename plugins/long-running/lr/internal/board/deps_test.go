@@ -121,17 +121,15 @@ func newDeps(t *testing.T, cards ...map[string]any) *depFixture {
 	}
 	f := &depFixture{shell: on, ledger: &ledgertest.Fake{}, answers: map[string]map[string]*Judgment{}}
 	f.Recheck = Recheck{
-		Lane: "root",
+		Lane: boardWatch,
 		Cards: Cards{
 			Runner: on, Ledger: f.ledger, Bus: "brook-cci", Checkout: "/co", Session: "s1", StateDir: t.TempDir(), Program: "brook", Store: s,
 			Now: func() time.Time { return cardsNow },
-			Withdraw: func(_ context.Context, _, card, text string) error {
-				f.post(posted{"withdraw", []string{"root"}, card, text})
-				return nil
+			Withdraw: func(_ context.Context, lane, card, text string) error {
+				return f.post(lane, posted{"withdraw", []string{"root"}, card, text})
 			},
-			Report: func(_ context.Context, _ string, to []string, topic, text string) error {
-				f.post(posted{"report", to, topic, text})
-				return nil
+			Report: func(_ context.Context, lane string, to []string, topic, text string) error {
+				return f.post(lane, posted{"report", to, topic, text})
 			},
 		},
 		Judge: func(_ context.Context, kind, _, artifact string) (*Judgment, error) {
@@ -151,10 +149,15 @@ func newDeps(t *testing.T, cards ...map[string]any) *depFixture {
 	return f
 }
 
-func (f *depFixture) post(one posted) {
+func (f *depFixture) post(lane string, one posted) error {
+	rootName := func(name string) bool { return name == "root" || name == "main" }
+	if !slices.ContainsFunc(one.to, func(to string) bool { return to != lane && (!rootName(to) || !rootName(lane)) }) {
+		return fmt.Errorf("lr: --to %s addresses only %s, the lane posting this record; name the lane that should read it", strings.Join(one.to, ","), lane)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.posts = append(f.posts, one)
+	return nil
 }
 
 func (f *depFixture) rule(t *testing.T, key string, fields map[string]string) {
@@ -416,8 +419,31 @@ func TestARecheckWriteNamesItselfAndTakesTheCardOver(t *testing.T) {
 		t.Fatal(err)
 	}
 	i := slices.IndexFunc(f.shell.calls, func(call string) bool { return strings.Contains(call, "update-block") })
-	if i < 0 || !strings.Contains(f.shell.calls[i], "--lane root --take-over") {
-		t.Fatalf("calls = %v, want --lane root --take-over", f.shell.calls)
+	if i < 0 || !strings.Contains(f.shell.calls[i], "--lane board-watch --take-over") {
+		t.Fatalf("calls = %v, want --lane board-watch --take-over", f.shell.calls)
+	}
+}
+
+func TestARulingRecheckReachesTheRootThatDrewACardAndWithdrawsItsTapToRoot(t *testing.T) {
+	f := newDeps(t, lookupsDoc)
+	ctx := context.Background()
+	if _, err := f.Cards.Depend(ctx, lookupsCard, "root", nil); err != nil {
+		t.Fatal(err)
+	}
+	row := lookupsPR(t, f)
+	f.postgresRuling(t)
+	f.says(lookupsCard, premiseKind, "unsure", "it is unclear whether the merge still reads the index")
+	f.says(tapCardID(row), premiseKind, "yes", "Lookups now read Postgres, so this S3 change no longer stands.")
+	if _, err := f.Ruling(ctx, []string{postgresRule}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(f.posts, func(p posted) bool {
+		return p.kind == "report" && p.topic == lookupsCard && slices.Equal(p.to, []string{"root"})
+	}) {
+		t.Fatalf("posts = %+v, want root told of the card it drew", f.posts)
+	}
+	if !slices.ContainsFunc(f.posts, func(p posted) bool { return p.kind == "withdraw" && slices.Equal(p.to, []string{"root"}) }) {
+		t.Fatalf("posts = %+v, want the tap's withdraw posted to root", f.posts)
 	}
 }
 

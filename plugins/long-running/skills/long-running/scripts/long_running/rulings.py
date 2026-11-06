@@ -1713,9 +1713,9 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 post_repeat(loaded, cci, key, hits, args.stderr)
     if drive_entry:
         try:
-            print(loaded.shell.run(["lr", "board", "cards", "recheck", "--drive", cci, "--lane", "root", *touched_rows]), end="", file=args.stderr)
+            print(loaded.shell.run(["lr", "board", "cards", "recheck", "--drive", cci, "--lane", board_rows.OWNER_LANE, *touched_rows]), end="", file=args.stderr)
         except subprocess.CalledProcessError as failed:
-            print(f"WARN the open cards resting on {', '.join(touched_rows)} were not re-checked ({(failed.stderr or '').strip() or failed}); run lr board cards recheck --lane root {' '.join(touched_rows)}", file=args.stderr)
+            print(f"WARN the open cards resting on {', '.join(touched_rows)} were not re-checked ({(failed.stderr or '').strip() or failed}); run lr board cards recheck --lane {board_rows.OWNER_LANE} {' '.join(touched_rows)}", file=args.stderr)
     for key, items in fresh.items():
         misstated(args, loaded, key, items)
     return 0

@@ -1108,7 +1108,7 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_addressed_to_no_lan
     [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
     announced = Path(post[post.index("--path") + 1]).read_text().splitlines()
     assert announced[0] == f"Register classify, 1 rows: new {PROMPT_KEY}."
-    assert [argv for argv in shell.calls if argv[:2] == ["lr", "board"]] == [["lr", "board", "cards", "recheck", "--drive", "brook-cci", "--lane", "root", PROMPT_KEY]]
+    assert [argv for argv in shell.calls if argv[:2] == ["lr", "board"]] == [["lr", "board", "cards", "recheck", "--drive", "brook-cci", "--lane", "board-watch", PROMPT_KEY]]
     assert f"Register new {PROMPT_KEY} (scope): the owner's words and what they mean, verbatim." in announced
     assert "> uploads stay out of the desktop shell. keep them in the journal" in announced
     assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
