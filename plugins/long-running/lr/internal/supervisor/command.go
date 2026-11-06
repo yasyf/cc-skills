@@ -279,7 +279,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 	} else {
 		deps.Followers = append(deps.Followers, askdesk.Desk{
 			Lane: askdesk.StoreDesk, Drive: env.Config.Drive, Duty: askdesk.StoreDuty, Bodies: filepath.Join(env.State, askdesk.StoreDesk), Now: a.Now, Log: a.Stderr,
-			Read: askdesk.StoreReads(map[string]askdesk.Serve{"grade queue": grading.QueueRead(a, env.Config.Drive), "board rows": board.RowsRead(env.Config.Drive), "landing gate": landing.GateRead(a, env.Config.Drive), "landing go": landing.GoRead(a, env.Config.Drive)}),
+			Read: askdesk.StoreReads(map[string]askdesk.Serve{"grade queue": grading.QueueRead(a, env.Config.Drive), "board rows": board.RowsRead(env.Config.Drive), "landing gate": landing.GateRead(a, env.Config.Drive), "landing go": landing.GoRead(a, env.Config.Drive), "board ports": board.PortsRead(env.Config.Drive), "facts whose": prfacts.WhoseRead(a, env.Config.Drive)}),
 		}.Follow)
 	}
 	deps.Checks = append(deps.Checks, (&background{name: "review-rows", every: TickEvery, run: prfacts.New(a, env.Config, s).FoldRows, store: s, post: post, log: a.Log}).Check)
