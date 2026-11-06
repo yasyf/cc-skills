@@ -235,6 +235,39 @@ func TestRootOrTheSupervisorNamingAFinishedLaneLaunchesNothingAndTellsRootOnce(t
 	}
 }
 
+func TestAssignmentUnreadNeverNamesAFixedLaneOrARecordAnsweredInTheSameTick(t *testing.T) {
+	at := t0.Add(mins(5))
+	overdue := rec(3, Self, "ask", at, "org/repo#7 row-wait overdue", lane2).withNum("#3")
+	for _, tt := range []struct {
+		name    string
+		retired string
+		feed    []Record
+		notices int
+	}{
+		{"an ask nobody answered", "", []Record{overdue}, 1},
+		{"an ask root resolved", "", []Record{overdue, rec(4, Root, "answer", at, "Nothing for a lane to do.", Self).withResolves(3)}, 0},
+		{"an ask owner-relay answered", "", []Record{overdue, rec(4, OwnerRelay, "answer", at, "Routed; nothing to carry.", Self).withRe(3)}, 0},
+		{"an ask to root's retired row", Root, []Record{rec(3, Self, "ask", at, "the owner record is yours to carry", Root).withNum("#3")}, 0},
+		{"an ask to owner-relay's retired row", OwnerRelay, []Record{rec(3, Self, "ask", at, "the card answer needs routing", OwnerRelay).withNum("#3")}, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, f := finished(t)
+			if tt.retired != "" {
+				if _, err := s.WantLane(store.Lane{Name: tt.retired, State: store.LaneDesired}, t0); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.SetLaneState(tt.retired, store.LaneRetired, t0, "done", ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.feed = append(f.feed, tt.feed...)
+			tick(t, s, f, at)
+
+			equal(t, len(f.ofKind("blocker")), tt.notices)
+		})
+	}
+}
+
 func TestRootNamingARetiredLaneWhoseSuccessorIsLiveRoutesTheRecordToIt(t *testing.T) {
 	s, f := finished(t)
 	f.feed = append(f.feed, cardWake(3, lane2, "picked Combined", t0.Add(mins(5))))

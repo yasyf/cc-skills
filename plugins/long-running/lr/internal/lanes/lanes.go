@@ -144,6 +144,7 @@ var (
 	machineAuthors = []string{Self, runner, boardWatch, "pr-read", "prompt-watch", "stall-watch"}
 	machineKinds   = []string{"head", "state", "opened", "heartbeat", "github", "review", "claim", kindSpawn, "board.card", "queue"}
 
+	fixedLanes   = []string{Root, OwnerRelay, Self}
 	settled      = []string{"handoff", "done", "stand-down", "stopped"}
 	unprovenEnds = []string{retiredStopped, retiredWorkerDone, retiredSilent, kindLanded}
 	endsAlone    = []string{"done", retiredStopped, retiredWorkerDone, kindLanded}
