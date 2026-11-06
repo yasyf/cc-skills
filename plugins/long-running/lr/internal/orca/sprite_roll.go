@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/awake"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -45,15 +46,17 @@ type hostedTasks interface {
 }
 
 type SpriteRoll struct {
-	Runner  shell.Runner
-	Orca    runWorkers
-	Fleet   hostedTasks
-	Store   *store.Store
-	Host    string
-	Graders []string
-	Skip    []string
-	Now     func() time.Time
-	Out     io.Writer
+	Runner      shell.Runner
+	Orca        runWorkers
+	Fleet       hostedTasks
+	Store       *store.Store
+	Drive       *drive.Entry
+	DriveConfig map[string]json.RawMessage
+	Host        string
+	Graders     []string
+	Skip        []string
+	Now         func() time.Time
+	Out         io.Writer
 }
 
 func FollowPins(ctx context.Context, runner shell.Runner, s *store.Store, claude, path string, now func() time.Time, out io.Writer) error {
@@ -204,10 +207,12 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 		return err
 	}
 	var boxes []string
+	roots := map[string]string{}
 	for _, worker := range workers {
 		sprite, onSprite := hosted[SpriteKey{worker.Workspace, worker.Terminal}]
 		if !worker.Settled() && onSprite && !slices.Contains(boxes, sprite.Workspace) {
 			boxes = append(boxes, sprite.Workspace)
+			roots[sprite.Workspace] = sprite.Root
 		}
 	}
 	r.Graders = slices.DeleteFunc(slices.Clone(r.Graders), func(box string) bool { return slices.Contains(boxes, box) || box == r.Host })
@@ -240,8 +245,41 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 			boxes = boxes[:1]
 		}
 	}
-	_, err = r.install(ctx, pins, boxes, probe)
-	return err
+	missed, err := r.carryDrive(ctx, boxes, roots)
+	if err != nil {
+		return err
+	}
+	if _, err := r.install(ctx, pins, boxes, probe); err != nil || len(missed) == 0 {
+		return err
+	}
+	return refuse("lr sprites roll: drive %s's entry and lr.json did not reach %s, so lr there, lr lanes handoff included, reads an old copy or none until a roll carries them", r.Drive.Drive, strings.Join(missed, " "))
+}
+
+func (r SpriteRoll) carryDrive(ctx context.Context, boxes []string, roots map[string]string) ([]string, error) {
+	var missed []string
+	for _, box := range boxes {
+		root, hosts := roots[box]
+		if !hosts {
+			continue
+		}
+		entry, err := driveEntryCarry(box, root, r.Drive)
+		if err != nil {
+			return nil, err
+		}
+		config, err := driveConfigCarry(box, root, r.Drive.Drive, r.DriveConfig)
+		if err != nil {
+			return nil, err
+		}
+		for _, carry := range []shell.Command{entry, config} {
+			carry.Timeout = spriteReadTimeout
+			if result, err := r.Runner.Run(ctx, carry); err != nil {
+				fmt.Fprintf(r.Out, "lr sprites roll: %s: drive %s's entry and lr.json did not land: %s\n", box, r.Drive.Drive, cmp.Or(lastSaid(result), err.Error()))
+				missed = append(missed, box)
+				break
+			}
+		}
+	}
+	return missed, nil
 }
 
 func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string, probe string) ([]string, error) {
@@ -465,13 +503,13 @@ func runnerEnv(path string) (func(string) string, error) {
 }
 
 func SpritesCommand(a *app.App) *cobra.Command {
-	opened := func() (*store.Store, string, string, error) {
+	opened := func() (*store.Store, config.Config, string, error) {
 		cfg, state, err := lanes.Loaded(a)
 		if err != nil {
-			return nil, "", "", err
+			return nil, cfg, "", err
 		}
 		s, err := store.Open(filepath.Join(state, lanes.StoreFile))
-		return s, cfg.OrcaRun, state, err
+		return s, cfg, state, err
 	}
 	cmd := &cobra.Command{
 		Use:   "sprites",
@@ -496,10 +534,10 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	var skip []string
 	roll := &cobra.Command{
 		Use:   "roll",
-		Short: "Install runner.json's Sprite pins on the desk host, every Sprite with a live worker in the drive's Run, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin that fails before any box installed it is marked bad, stops the roll, and is never rolled again; a later box's failure is retried once at the end, and three in a row failing the same way stop the roll",
+		Short: "Install runner.json's Sprite pins on the desk host, every Sprite with a live worker in the drive's Run, which first gets the drive's entry and lr.json written again, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin that fails before any box installed it is marked bad, stops the roll, and is never rolled again; a later box's failure is retried once at the end, and three in a row failing the same way stop the roll",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			s, run, state, err := opened()
+			s, cfg, state, err := opened()
 			if err != nil {
 				return err
 			}
@@ -529,11 +567,23 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Host: file.Host.Sprite, Graders: file.graders(), Skip: skip, Now: a.Now, Out: cmd.OutOrStdout()}
+			entry, err := drive.Named(cfg.Drive)
+			if err != nil {
+				return err
+			}
+			raw, err := os.ReadFile(a.ConfigPath)
+			if err != nil {
+				return err
+			}
+			var carried map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &carried); err != nil {
+				return err
+			}
+			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Drive: &entry, DriveConfig: carried, Host: file.Host.Sprite, Graders: file.graders(), Skip: skip, Now: a.Now, Out: cmd.OutOrStdout()}
 			if probeOnly && probe == "" {
 				return errors.New("--probe-only needs --probe, so it names the one Sprite to install on")
 			}
-			return refusalExit(cmd, roller.Run(cmd.Context(), run, env, probe, probeOnly))
+			return refusalExit(cmd, roller.Run(cmd.Context(), cfg.OrcaRun, env, probe, probeOnly))
 		},
 	}
 	roll.Flags().StringVar(&probe, "probe", "", "the Sprite to install on first; default the first by name")

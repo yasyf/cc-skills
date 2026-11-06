@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -906,21 +907,11 @@ func (w *workerLaunch) carryDrive(workspace string) error {
 	if entry == nil {
 		return nil
 	}
-	carried, err := json.Marshal(drive.Entry{
-		Drive:    entry.Drive,
-		CCIDrive: ccDrive(entry),
-		Program:  cmp.Or(entry.Program, filepath.Base(entry.StateDir)),
-		Ledger:   entry.Ledger,
-		Repo:     entry.Repo,
-		Checkout: w.worktree,
-		Sessions: entry.Sessions,
-		Parent:   entry.Parent,
-		Host:     drive.HostSprite,
-	})
+	carry, err := driveEntryCarry(workspace, w.worktree, entry)
 	if err != nil {
 		return err
 	}
-	written, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", writeDriveEntry, "sh", w.worktree, entry.Drive}, Stdin: string(carried)})
+	written, err := w.Runner.Run(w.ctx, carry)
 	said := written.Stdout + written.Stderr
 	if err != nil {
 		said += err.Error() + "\n"
@@ -938,17 +929,38 @@ func (w *workerLaunch) carryDrive(workspace string) error {
 	return w.carryDriveConfig(workspace, entry.Drive)
 }
 
+func driveEntryCarry(workspace, worktree string, entry *drive.Entry) (shell.Command, error) {
+	carried, err := json.Marshal(drive.Entry{
+		Drive:    entry.Drive,
+		CCIDrive: ccDrive(entry),
+		Program:  cmp.Or(entry.Program, filepath.Base(entry.StateDir)),
+		Ledger:   entry.Ledger,
+		Repo:     entry.Repo,
+		Checkout: worktree,
+		Sessions: entry.Sessions,
+		Parent:   entry.Parent,
+		Host:     drive.HostSprite,
+	})
+	return shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", writeDriveEntry, "sh", worktree, entry.Drive}, Stdin: string(carried)}, err
+}
+
+func driveConfigCarry(workspace, worktree, name string, config map[string]json.RawMessage) (shell.Command, error) {
+	checkout, err := json.Marshal(worktree)
+	if err != nil {
+		return shell.Command{}, err
+	}
+	config = maps.Clone(config)
+	config["checkout"] = checkout
+	carried, err := json.Marshal(config)
+	return shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", writeDriveConfig, "sh", name}, Stdin: string(carried)}, err
+}
+
 func (w *workerLaunch) carryDriveConfig(workspace, name string) error {
-	checkout, err := json.Marshal(w.worktree)
+	carry, err := driveConfigCarry(workspace, w.worktree, name, w.driveConfig)
 	if err != nil {
 		return err
 	}
-	w.driveConfig["checkout"] = checkout
-	carried, err := json.Marshal(w.driveConfig)
-	if err != nil {
-		return err
-	}
-	written, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", writeDriveConfig, "sh", name}, Stdin: string(carried)})
+	written, err := w.Runner.Run(w.ctx, carry)
 	if receipt := w.receipt(configReceipt, written.Stdout+written.Stderr); receipt != nil {
 		return receipt
 	}
