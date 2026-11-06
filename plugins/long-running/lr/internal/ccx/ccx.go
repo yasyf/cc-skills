@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -61,6 +62,7 @@ type Client interface {
 	PRState(ctx context.Context, repo, maxAge string, numbers []int, lanePrefixes []string) (PRState, error)
 	GH(ctx context.Context, maxAge string, args ...string) (string, error)
 	StackList(ctx context.Context, dir string) (Stack, error)
+	FailedTests(ctx context.Context, repo string, job int64) ([]string, error)
 }
 
 type CLI struct {
@@ -99,6 +101,14 @@ func (c CLI) StackList(ctx context.Context, dir string) (Stack, error) {
 	var stack Stack
 	err := c.decode(ctx, dir, &stack, "vcs", "stack", "list", "--json")
 	return stack, err
+}
+
+func (c CLI) FailedTests(ctx context.Context, repo string, job int64) ([]string, error) {
+	result, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"ccx", "vcs", "job-log", strconv.FormatInt(job, 10), "--repo", repo, "--failed-tests"}, Env: callerEnv()})
+	if err != nil {
+		return nil, err
+	}
+	return strings.FieldsFunc(result.Stdout, func(r rune) bool { return r == '\n' }), nil
 }
 
 func (c CLI) decode(ctx context.Context, dir string, into any, args ...string) error {

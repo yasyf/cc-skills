@@ -16,6 +16,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -33,9 +34,6 @@ const (
 	mailCut       = "%s %d more after %s not shown; read them with cci tail --drive %s --reader %s --since %s --oldest"
 	readTimeout   = 60 * time.Second
 	notFound      = "HTTP 404"
-	testSummary   = "short test summary info"
-	stepFailed    = "##[error]Process completed with exit code"
-	allowEscapes  = "--allow-escape-sequences"
 	checksFields  = `fragment checks on PullRequest {
   commits(last: 1) { nodes { commit { checkSuites(first: 30) { nodes {
     workflowRun { workflow { name } }
@@ -59,12 +57,9 @@ const (
 )
 
 var (
-	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/\d+$`)
-	stackURL   = regexp.MustCompile(`/repos/([\w.-]+/[\w.-]+)/stacks/\d+$`)
-	jobURL     = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/actions/runs/\d+/job/(\d+)$`)
-	failedTest = regexp.MustCompile(`(?m)^(?:\d{4}-\d\d-\d\dT\S+Z )?(?:FAILED|ERROR) ([^\s\[]+(?:\[.*?\])?)(?: - .*)?\r?$`)
-	pytestEnd  = regexp.MustCompile(`\d+ (?:failed|errors?)\b.* in [\d.]+s\b`)
-	ansi       = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+	pullURL  = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/\d+$`)
+	stackURL = regexp.MustCompile(`/repos/([\w.-]+/[\w.-]+)/stacks/\d+$`)
+	jobURL   = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/actions/runs/\d+/job/(\d+)$`)
 )
 
 type Merge struct {
@@ -77,6 +72,7 @@ type Merge struct {
 
 type Guard struct {
 	Runner shell.Runner
+	CCX    ccx.Client
 }
 
 type stack struct {
@@ -391,19 +387,12 @@ func (g Guard) bases(ctx context.Context, repo string, reds []red) map[string]pu
 }
 
 func (g Guard) tests(ctx context.Context, reds []red, bases map[string]pull) map[string][]string {
-	if len(reds) == 0 {
-		return nil
-	}
-	read := []string{"gh", "api"}
-	if usage, err := g.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "api", "--help"}, Timeout: readTimeout}); err == nil && strings.Contains(usage.Stdout, allowEscapes) {
-		read = append(read, allowEscapes)
-	}
 	tests := map[string][]string{}
 	jobs := make([]string, 0, len(reds))
 	for _, r := range reds {
 		jobs = append(jobs, r.job)
 	}
-	g.readTests(ctx, read, jobs, tests)
+	g.readTests(ctx, jobs, tests)
 	jobs = jobs[:0]
 	for _, r := range reds {
 		if len(tests[r.job]) == 0 {
@@ -415,11 +404,11 @@ func (g Guard) tests(ctx context.Context, reds []red, bases map[string]pull) map
 			}
 		}
 	}
-	g.readTests(ctx, read, jobs, tests)
+	g.readTests(ctx, jobs, tests)
 	return tests
 }
 
-func (g Guard) readTests(ctx context.Context, read, jobs []string, into map[string][]string) {
+func (g Guard) readTests(ctx context.Context, jobs []string, into map[string][]string) {
 	jobs = slices.DeleteFunc(slices.Compact(slices.Sorted(slices.Values(jobs))), func(job string) bool {
 		_, done := into[job]
 		return done
@@ -427,7 +416,7 @@ func (g Guard) readTests(ctx context.Context, read, jobs []string, into map[stri
 	found := make([][]string, len(jobs))
 	var reads sync.WaitGroup
 	for i, job := range jobs {
-		reads.Go(func() { found[i] = g.failedTests(ctx, read, job) })
+		reads.Go(func() { found[i] = g.failedTests(ctx, job) })
 	}
 	reads.Wait()
 	for i, job := range jobs {
@@ -435,25 +424,13 @@ func (g Guard) readTests(ctx context.Context, read, jobs []string, into map[stri
 	}
 }
 
-func (g Guard) failedTests(ctx context.Context, read []string, job string) []string {
+func (g Guard) failedTests(ctx context.Context, job string) []string {
 	link := jobURL.FindStringSubmatch(job)
 	if link == nil {
 		return nil
 	}
-	log, err := g.Runner.Run(ctx, shell.Command{Argv: slices.Concat(read, []string{fmt.Sprintf("repos/%s/actions/jobs/%s/logs", link[1], link[2])}), Timeout: readTimeout})
-	if err != nil {
-		return nil
-	}
-	step, _, ended := strings.Cut(ansi.ReplaceAllString(log.Stdout, ""), stepFailed)
-	run := step[:max(strings.LastIndex(step, "\n"), 0)]
-	summary := strings.LastIndex(run, testSummary)
-	if !ended || summary < 0 || !pytestEnd.MatchString(run[strings.LastIndex(run, "\n")+1:]) {
-		return nil
-	}
-	var tests []string
-	for _, test := range failedTest.FindAllStringSubmatch(run[summary:], -1) {
-		tests = append(tests, test[1])
-	}
+	id, _ := strconv.ParseInt(link[2], 10, 64)
+	tests, _ := g.CCX.FailedTests(ctx, link[1], id)
 	return tests
 }
 

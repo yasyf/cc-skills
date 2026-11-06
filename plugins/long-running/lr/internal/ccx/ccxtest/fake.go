@@ -15,6 +15,7 @@ type Fake struct {
 	State    ccx.PRState
 	Stack    ccx.Stack
 	GHOut    map[string]string
+	Failed   map[int64][]string
 
 	mu    sync.Mutex
 	calls []string
@@ -61,6 +62,11 @@ func (f *Fake) GH(_ context.Context, maxAge string, args ...string) (string, err
 func (f *Fake) StackList(_ context.Context, dir string) (ccx.Stack, error) {
 	f.record("stack list " + dir)
 	return f.Stack, nil
+}
+
+func (f *Fake) FailedTests(_ context.Context, repo string, job int64) ([]string, error) {
+	f.record(fmt.Sprintf("job-log %s %d --failed-tests", repo, job))
+	return f.Failed[job], nil
 }
 
 var _ ccx.Client = (*Fake)(nil)

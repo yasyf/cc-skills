@@ -17,9 +17,9 @@ func Command(a *app.App) *cobra.Command {
 with its workflow on the base branch, in one call for every PR: for each check,
 the nearest finished run at or below the PR's merge base.
 
-When the pytest run that failed the red job's step names failing tests in its
-short test summary, the red is the PR's own only if one of those tests fails in
-no red job of that workflow on the base, since shards rebalance as the test set
+When ccx vcs job-log --failed-tests names failing pytest tests for the red job,
+the red is the PR's own only if one of those tests fails in no red job of that
+workflow on the base, read the same way, since shards rebalance as the test set
 changes. That prints an OWN-RED line with the failing job's link and the tests
 the base passes; otherwise it prints INHERITED.
 
@@ -55,7 +55,7 @@ their parts count as neither: the lr call that asked already read them.`,
 			case stack:
 				m.Mode = Stack
 			}
-			lines, err := Guard{Runner: a.Runner}.Lines(cmd.Context(), m)
+			lines, err := Guard{Runner: a.Runner, CCX: a.CCX}.Lines(cmd.Context(), m)
 			for _, line := range lines {
 				fmt.Fprintln(cmd.OutOrStdout(), line)
 			}
