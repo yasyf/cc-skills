@@ -1,6 +1,8 @@
 package orca
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -17,7 +19,7 @@ func SparseCommand(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{Use: "sparse", Short: "Widen a sparse checkout so what it touches can build"}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "add DIR...",
-		Short: "Add repo-relative directories to this checkout's sparse set, each widened to its Go module with that module's local replace targets",
+		Short: "Add repo-relative directories to this checkout's sparse set, each widened to its Go module with that module's local replace targets, plus the tracked .agents and .claude and each ccx.sparseInclude directory the set lacks, as ccx vcs worktree add checks out",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			shown, err := a.Runner.Run(cmd.Context(), shell.Command{Argv: []string{"git", "rev-parse", "--show-toplevel"}})
@@ -40,14 +42,46 @@ func SparseCommand(a *app.App) *cobra.Command {
 				}
 				return read.Stdout
 			})
-			if _, err := a.Runner.Run(cmd.Context(), shell.Command{Argv: []string{"git", "sparse-checkout", "add", "--stdin"}, Dir: top, Stdin: strings.Join(dirs, "\n") + "\n"}); err != nil {
+			lane, err := missingLaneDirs(cmd.Context(), a.Runner, top)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "sparse: added %s\n", strings.Join(dirs, " "))
+			if _, err := a.Runner.Run(cmd.Context(), shell.Command{Argv: []string{"git", "sparse-checkout", "add", "--stdin"}, Dir: top, Stdin: strings.Join(slices.Concat(dirs, lane), "\n") + "\n"}); err != nil {
+				return err
+			}
+			said := "sparse: added " + strings.Join(dirs, " ")
+			if len(lane) > 0 {
+				said += " and the lane directories " + strings.Join(lane, " ")
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), said)
 			return nil
 		},
 	})
 	return cmd
+}
+
+func missingLaneDirs(ctx context.Context, runner shell.Runner, top string) ([]string, error) {
+	included, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "config", "--get-all", "ccx.sparseInclude"}, Dir: top})
+	var unset *shell.ExitError
+	if err != nil && (!errors.As(err, &unset) || unset.Code != 1) {
+		return nil, err
+	}
+	tracked, err := runner.Run(ctx, shell.Command{Argv: slices.Concat([]string{"git", "ls-tree", "-d", "--name-only", "HEAD", "--", ".agents", ".claude"}, strings.Fields(included.Stdout)), Dir: top})
+	if err != nil {
+		return nil, err
+	}
+	listed, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "sparse-checkout", "list"}, Dir: top})
+	if err != nil {
+		return nil, err
+	}
+	held := strings.Fields(listed.Stdout)
+	var missing []string
+	for _, dir := range strings.Fields(tracked.Stdout) {
+		if !slices.ContainsFunc(held, func(cone string) bool { return dir == cone || strings.HasPrefix(dir, cone+"/") }) {
+			missing = append(missing, dir)
+		}
+	}
+	return missing, nil
 }
 
 func withGoModules(dirs []string, goMod func(path string) string) []string {

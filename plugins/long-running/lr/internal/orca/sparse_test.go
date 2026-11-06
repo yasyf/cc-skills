@@ -112,3 +112,40 @@ func TestSparseAddOnAFullCheckoutSucceedsAndSaysTheCheckoutHoldsIt(t *testing.T)
 		t.Fatal("the full checkout lost infra")
 	}
 }
+
+func TestSparseAddRestoresTheLaneDirectoriesAHandMadeConeLeftOut(t *testing.T) {
+	repo := sparseRepo(t, map[string]string{
+		"tools/t.sh": "t\n",
+		"docs/a.md":  "a\n",
+		".agents/skills/submit-pr/scripts/pr-reviews": "r\n",
+		".claude/settings.json":                       "{}\n",
+		"infra/ci/hooks/h.sh":                         "h\n",
+		"infra/rows/r.json":                           "{}\n",
+	})
+	include := exec.Command("git", "config", "--add", "ccx.sparseInclude", "infra/ci/hooks")
+	include.Dir = repo
+	if out, err := include.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, out)
+	}
+	t.Chdir(repo)
+	for _, want := range []string{"sparse: added docs and the lane directories .agents .claude infra/ci/hooks", "sparse: added docs"} {
+		var out bytes.Buffer
+		cmd := SparseCommand(&app.App{Runner: shell.Exec{}})
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{"add", "docs"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.TrimSpace(out.String()); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+	for _, path := range []string{".agents/skills/submit-pr/scripts/pr-reviews", ".claude/settings.json", "infra/ci/hooks/h.sh", "docs/a.md"} {
+		if !exists(filepath.Join(repo, path)) {
+			t.Fatalf("%s is not checked out", path)
+		}
+	}
+	if exists(filepath.Join(repo, "infra", "rows")) {
+		t.Fatal("a directory outside the lane set was checked out")
+	}
+}
