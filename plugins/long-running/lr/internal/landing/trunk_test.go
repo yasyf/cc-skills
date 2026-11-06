@@ -2,6 +2,7 @@ package landing_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,13 +21,14 @@ const (
 
 func trunk(t *testing.T, fake *shelltest.Fake) (landing.Trunk, string) {
 	t.Helper()
-	checkout := filepath.Join(t.TempDir(), "lr-landing")
+	state := t.TempDir()
+	worktree := filepath.Join(state, landing.QueueWorktree)
 	fake.Reply("", "git")
 	fake.Reply(queueKey+"\n", "sh", "-c")
 	return landing.Trunk{
-		Runner: fake, Checkout: checkout, Branch: "dev",
+		Runner: fake, Checkout: filepath.Join(state, "lr-landing"), Worktree: worktree, Branch: "dev",
 		Script: queueScript, KeyCommand: "print-key --name queue",
-	}, filepath.Join(checkout, queueScript)
+	}, filepath.Join(worktree, queueScript)
 }
 
 func TestEnqueueRunsTheQueueScriptAtFreshTrunkWithTheKeyInItsEnvironmentOnly(t *testing.T) {
@@ -47,12 +49,12 @@ func TestEnqueueRunsTheQueueScriptAtFreshTrunkWithTheKeyInItsEnvironmentOnly(t *
 		t.Fatalf("calls = %+v", calls)
 	}
 	wantFetch := []string{"git", "-C", queue.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/dev:refs/lr/queue/dev"}
-	wantDetach := []string{"git", "-C", queue.Checkout, "checkout", "-q", "--detach", "refs/lr/queue/dev"}
-	if !slices.Equal(calls[0].Argv, wantFetch) || !slices.Equal(calls[1].Argv, wantDetach) {
-		t.Fatalf("git calls = %+v, want trunk fetched into the queue's own ref, which no other fetch in the checkout writes, and that ref checked out", calls[:2])
+	wantAdd := []string{"git", "-C", queue.Checkout, "worktree", "add", "-q", "--force", "--detach", queue.Worktree, "refs/lr/queue/dev"}
+	if !slices.Equal(calls[0].Argv, wantFetch) || !slices.Equal(calls[1].Argv, wantAdd) {
+		t.Fatalf("git calls = %+v, want trunk fetched into the queue's own ref, which no other fetch in the checkout writes, and the queue's own worktree made at that ref", calls[:2])
 	}
 	call := calls[3]
-	if !slices.Equal(call.Argv, []string{script, "45583"}) || call.Dir != queue.Checkout {
+	if !slices.Equal(call.Argv, []string{script, "45583"}) || call.Dir != queue.Worktree {
 		t.Fatalf("queue call = %+v", call)
 	}
 	if !slices.Contains(call.Env, "TRUNK_MERGE_API_KEY="+queueKey) {
@@ -199,7 +201,8 @@ func TestAFailedFetchStopsTheMoversAndNeverRunsTheScript(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Fail(128, "could not read from remote", "git")
 
-	_, err := landing.Trunk{Runner: fake, Checkout: filepath.Join(t.TempDir(), "lr-landing"), Branch: "dev", Script: "s"}.Enqueue(context.Background(), 1, head)
+	state := t.TempDir()
+	_, err := landing.Trunk{Runner: fake, Checkout: filepath.Join(state, "lr-landing"), Worktree: filepath.Join(state, landing.QueueWorktree), Branch: "dev", Script: "s"}.Enqueue(context.Background(), 1, head)
 
 	if err == nil || len(fake.Calls()) != 1 {
 		t.Fatalf("err = %v, calls = %+v", err, fake.Calls())
@@ -208,11 +211,12 @@ func TestAFailedFetchStopsTheMoversAndNeverRunsTheScript(t *testing.T) {
 
 func TestNoKeyCommandRunsTheScriptWithTheInheritedEnvironment(t *testing.T) {
 	fake := &shelltest.Fake{}
-	checkout := filepath.Join(t.TempDir(), "c")
+	state := t.TempDir()
+	worktree := filepath.Join(state, landing.QueueWorktree)
 	fake.Reply("", "git")
-	fake.Reply("#7 QUEUED\n", checkout+"/s")
+	fake.Reply("#7 QUEUED\n", worktree+"/s")
 
-	said, err := landing.Trunk{Runner: fake, Checkout: checkout, Branch: "dev", Script: "s"}.Enqueue(context.Background(), 7, head)
+	said, err := landing.Trunk{Runner: fake, Checkout: filepath.Join(state, "c"), Worktree: worktree, Branch: "dev", Script: "s"}.Enqueue(context.Background(), 7, head)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,11 +227,11 @@ func TestNoKeyCommandRunsTheScriptWithTheInheritedEnvironment(t *testing.T) {
 	}
 }
 
-func TestTheQueueTouchesItsCheckoutOnlyOnceNoOtherWriterHoldsTheTree(t *testing.T) {
+func TestTheQueueTouchesItsWorktreeOnlyOnceNoOtherQueueCallHoldsIt(t *testing.T) {
 	fake := &shelltest.Fake{}
 	queue, script := trunk(t, fake)
 	fake.Reply("#7 QUEUED\n", script)
-	ledger, err := landing.LockTree(queue.Checkout)
+	other, err := landing.LockTree(queue.Worktree)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,13 +243,13 @@ func TestTheQueueTouchesItsCheckoutOnlyOnceNoOtherWriterHoldsTheTree(t *testing.
 	}()
 	select {
 	case err := <-done:
-		t.Fatalf("the queue ran (%v) while another writer held the checkout's tree", err)
+		t.Fatalf("the queue ran (%v) while another queue call held its worktree", err)
 	case <-time.After(200 * time.Millisecond):
 	}
 	if calls := fake.Calls(); len(calls) != 0 {
-		t.Fatalf("calls = %+v while the tree was held", calls)
+		t.Fatalf("calls = %+v while the worktree was held", calls)
 	}
-	if err := ledger.Close(); err != nil {
+	if err := other.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -254,5 +258,59 @@ func TestTheQueueTouchesItsCheckoutOnlyOnceNoOtherWriterHoldsTheTree(t *testing.
 	}
 	if calls := fake.Calls(); len(calls) != 4 {
 		t.Fatalf("calls = %+v, want the fetch, checkout, key and script once the tree was free", calls)
+	}
+}
+
+func TestEnqueueRunsAtTheTrunkTipInItsOwnWorktreeWhateverTheSharedCheckoutHolds(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "gitconfig")
+	if err := os.WriteFile(config, []byte("[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = dev\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	origin, work, shared, ran := filepath.Join(root, "origin.git"), filepath.Join(root, "work"), filepath.Join(root, "shared"), filepath.Join(root, "ran")
+	git(t, root, "init", "-q", "--bare", origin)
+	git(t, root, "clone", "-q", origin, work)
+	if err := os.WriteFile(filepath.Join(work, "enqueue"), []byte("#!/bin/sh\n{ pwd -P; git rev-parse HEAD; cat tracked; } > '"+ran+"'\necho \"#$1 QUEUED\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	git(t, work, "add", "enqueue")
+	write(t, work, map[string]string{"tracked": "one\n"}, "base")
+	git(t, work, "push", "-q", "origin", "HEAD:dev")
+	git(t, root, "clone", "-q", origin, shared)
+	base := git(t, shared, "rev-parse", "HEAD")
+	const edit = "another session's edit\n"
+	if err := os.WriteFile(filepath.Join(shared, "tracked"), []byte(edit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	queue := landing.Trunk{Runner: shell.Exec{}, Checkout: shared, Worktree: filepath.Join(root, landing.QueueWorktree), Branch: "dev", Script: "enqueue"}
+
+	for _, next := range []string{"two\n", "three\n"} {
+		write(t, work, map[string]string{"tracked": next}, "next")
+		git(t, work, "push", "-q", "origin", "HEAD:dev")
+
+		said, err := queue.Enqueue(context.Background(), 7, head)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		worktree, err := filepath.EvalSymlinks(queue.Worktree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		read, err := os.ReadFile(ran)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := worktree + "\n" + git(t, work, "rev-parse", "HEAD") + "\n" + next; said != "exit 0: #7 QUEUED" || string(read) != want {
+			t.Fatalf("said = %q, the script read %q, want it run in the queue's worktree at trunk's tip, reading %q", said, read, want)
+		}
+		if held, err := os.ReadFile(filepath.Join(shared, "tracked")); err != nil || string(held) != edit || git(t, shared, "rev-parse", "HEAD") != base {
+			t.Fatalf("the shared checkout holds %q (%v) at %s, want its own edit at %s", held, err, git(t, shared, "rev-parse", "HEAD"), base)
+		}
+		if err := os.WriteFile(filepath.Join(queue.Worktree, "tracked"), []byte("left behind\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

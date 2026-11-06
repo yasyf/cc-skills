@@ -54,7 +54,7 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 		return fmt.Errorf("pass skipped: %w", err)
 	}
 	now := a.Now()
-	trunk := Trunk{Runner: a.Runner, Checkout: cfg.Checkout, Branch: cfg.Trunk, Script: cfg.QueueScript, KeyCommand: cfg.QueueKey}
+	trunk := Trunk{Runner: a.Runner, Checkout: cfg.Checkout, Worktree: filepath.Join(dir, QueueWorktree), Branch: cfg.Trunk, Script: cfg.QueueScript, KeyCommand: cfg.QueueKey}
 	if slices.Contains(cfg.Movers, config.MoverLanding) {
 		landingRunner, err := lanes.ReadRunnerLanding(dir)
 		if err != nil {
