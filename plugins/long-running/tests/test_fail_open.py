@@ -67,6 +67,7 @@ KEPT_REFUSALS = KEPT | {
     "lane_landing.hand_landings_meet_the_runner_checks": "card-hand-merge-rule (answer fd9233e): the owner picked a block for a hand landing with no tap at its head, since a merge cannot be recalled",
     "local_builds.no_local_builds_in_a_drive": "the run already saturates the Mac when a warning lands (answer 7e82747)",
     "merge_own_red.merge_never_lands_past_its_own_red": "a merge cannot be recalled",
+    "override_decides_parse.override_decides_parse": "the meta desk ordered the refusal: the supervisor skips an override worded any other way with no record, so a warned post leaves its PR waiting on a count that never comes, as four did (cci 536838)",
     "owner_answers.owner_notes_get_answers": STOP.format(what="the owner's note would wait"),
     "owner_ledger.owner_messages_close_before_stop": STOP.format(what="the owner's message would stay open"),
     "owner_ledger.The communicator never calls `AskUserQuest": PARKS,
