@@ -2435,6 +2435,25 @@ func TestASpriteLaunchRefusedForItsBriefOrOverAnEarlierLaunchsCauseNeverStartsOn
 	}
 }
 
+func TestASpriteThatNeverStartedAWorkerNamesItsRefusalOverTheWarningsLoggedBeforeIt(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	warning := `2026/11/06 02:40:42 WARN a carried brief names what stays behind brief=/b/old.brief.md fault="/Users/o/brook-runner lies outside the drive's state dir and the scratch, plan, handoff and plugin-cache directories a launch carries"`
+	refusal := "cc-remote orca prepare exited 1; /b/brief.worker keeps its output, and nothing was attached or retried"
+	key := w.spriteRefused(warning+"\n"+refusal, false)
+	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	if action := w.action(testLane, key); action.Status != incident.ActionFailed {
+		t.Fatal(action)
+	}
+	failed := w.wantEscalation("LAUNCH-FAILED")
+	wantContains(t, failed, "a Sprite that never started a worker: "+refusal)
+	if strings.Contains(failed, "WARN") {
+		t.Fatal(failed)
+	}
+}
+
 func TestASpriteLaunchTheRelayJoinRefusedWaitsForRoomOnABusyMacAndSaysSo(t *testing.T) {
 	w := newDeskWorld(t)
 	spriteConfig(w)

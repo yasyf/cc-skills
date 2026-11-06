@@ -120,7 +120,7 @@ type workerLaunch struct {
 	modelID, kind, route, dir, stem, attempt, sha string
 	checkout, ccRemote, config, setup             string
 	pins                                          spritePins
-	terminal, worktree                            string
+	terminal, worktree, driveCheckout             string
 	bytes                                         int
 	driveConfig                                   map[string]json.RawMessage
 	stages                                        launchStages
@@ -495,7 +495,8 @@ func (w *workerLaunch) carryBrief() error {
 	if notes == "" {
 		notes = w.checkout
 	}
-	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox, Vars: map[string]string{carry.DriveDir: w.Env(workerDriveDir)}}
+	w.driveCheckout = carry.DriveCheckout(w.Env(workerDriveDir))
+	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Checkout: w.driveCheckout, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox, Vars: map[string]string{carry.DriveDir: w.Env(workerDriveDir)}}
 	if entry := w.driveEntry(); entry != nil {
 		carrier.Drive = ccDrive(entry)
 	}
@@ -1099,10 +1100,14 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	if w.incident || incidentBrief(w.lane, string(raw)) {
 		read += incidentOnSprite
 	}
+	checkout := ""
+	if w.driveCheckout != "" {
+		checkout = fmt.Sprintf(" Where a brief names %s, the drive's checkout on the Mac, use this Sprite's checkout %s, where cci and ccn read the drive.", w.driveCheckout, w.worktree)
+	}
 	path, _ := textOf(table(task["brief"])["path"])
 	environment, _ := textOf(task["environment"])
 	worktreeID, _ := textOf(task["worktreeId"])
-	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s", w.lane, path, w.sha, w.bytes, spritePreamble, spriteBuildkite, desk, noPR, read)
+	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s%s", w.lane, path, w.sha, w.bytes, spritePreamble, spriteBuildkite, desk, noPR, read, checkout)
 	if desk == "" {
 		if err := w.catchUp(workspace); err != nil {
 			return "", err

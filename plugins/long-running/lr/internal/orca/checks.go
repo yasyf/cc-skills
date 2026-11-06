@@ -261,7 +261,7 @@ func carryWarnings(ctx context.Context, runner shell.Runner, home, repo, driveDi
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(into) }()
-	_, left := (carry.Carrier{Runner: runner, Home: home, Repo: repo, Into: into, Box: into, Vars: map[string]string{carry.DriveDir: driveDir}}).Carry(ctx, text)
+	_, left := (carry.Carrier{Runner: runner, Home: home, Repo: repo, Checkout: carry.DriveCheckout(driveDir), Into: into, Box: into, Vars: map[string]string{carry.DriveDir: driveDir}}).Carry(ctx, text)
 	warnings := make([]string, 0, len(left))
 	for _, behind := range left {
 		warnings = append(warnings, fmt.Sprintf("brief %s names what stays behind on a Sprite: %s", brief, behind))

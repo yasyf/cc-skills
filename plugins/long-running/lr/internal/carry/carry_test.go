@@ -222,6 +222,38 @@ func TestTextNamingNothingOnThisMacPassesThroughUnchanged(t *testing.T) {
 	}
 }
 
+func TestTheDrivesCheckoutIsTheSpritesOwnWhileAStrayMacFileStillStaysBehind(t *testing.T) {
+	c, fake := carrier(t)
+	c.Checkout = filepath.Join(c.Home, ".claude/worktrees/monorepo/drive-runner")
+	stray := filepath.Join(c.Home, "Desktop/notes.md")
+	put(t, stray, "notes\n")
+	brief := "Run cci from " + c.Checkout + ", and read `ccn -R " + c.Checkout + "/ doc show 7b1a5bc` and " + stray + ".\n"
+
+	out, left := c.Carry(context.Background(), brief)
+
+	if out != brief {
+		t.Fatalf("rewritten brief %q, want it unchanged", out)
+	}
+	if len(left) != 1 || !strings.HasPrefix(left[0], stray+" lies outside") {
+		t.Fatalf("warnings %q, want only the stray file", left)
+	}
+	if calls := fake.Calls(); len(calls) != 0 {
+		t.Fatalf("ran %v for the drive's checkout", calls)
+	}
+}
+
+func TestADriveCheckoutIsTheOneItsLrJSONNames(t *testing.T) {
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, "lr.json"), `{"repo":"Forge-AI/monorepo","drive":"brook","checkout":"/Users/o/brook-runner","author":"drive-bot","label":"brook","movers":["lanes"]}`)
+
+	if got := DriveCheckout(dir); got != "/Users/o/brook-runner" {
+		t.Fatalf("checkout %q", got)
+	}
+	if got := DriveCheckout(t.TempDir()); got != "" {
+		t.Fatalf("a drive dir with no lr.json names checkout %q", got)
+	}
+}
+
 func TestACcnEntityThatDoesNotRenderWarnsNamingIt(t *testing.T) {
 	c, fake := carrier(t)
 	fake.Fail(1, "not-found: entity not found: no task matches \"t-9\"", "ccn")
