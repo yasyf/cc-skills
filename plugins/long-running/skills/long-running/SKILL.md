@@ -348,7 +348,9 @@ The coordinator's brief lists every desk it starts and what each does.
   card lines; a wrong field is fixed in the PR body or its record. `cci owner-waits` prints all else he owes.
 - Every other owner ask is a question card its lane draws with `lr ask-owner` once the decision is his: a question on a held PR,
   or on cutover before he says cutover is ready, stays in the lane's handoff. It has two to four answers, the recommended one
-  built on a branch as soon as it is asked, with no PR until he answers. A settled question never reaches the board. The card
+  built on a branch as soon as it is asked, with no PR until he answers. A settled question never reaches the board: his No
+  ends it, a card pulled before he answered is never drawn again, and his "ask again when X" draws nothing until X is shown
+  done. The card
   rules are in [orca-lane-brief.md](reference/orca-lane-brief.md) ("A design lane's part").
 - Every card names the event that ends it, such as a release going live or a PR landing, and the board
   refresher withdraws it once that happens.
