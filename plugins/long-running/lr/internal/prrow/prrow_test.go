@@ -2005,3 +2005,48 @@ func TestACheckOnAnotherHeadOrRepoLeavesTheRow(t *testing.T) {
 		}
 	}
 }
+
+func TestMovedNamesTheRowsARecordCanChange(t *testing.T) {
+	rows := []store.ReviewRow{
+		{Repo: testRepo, Number: 1, Head: headA, Branch: "low", Base: "dev"},
+		{Repo: testRepo, Number: 2, Head: headB, Branch: "high", Base: "low"},
+		{Repo: testRepo, Number: 3, Head: "ccc", Branch: "alone", Base: "other"},
+		{Repo: testRepo, Number: 4, Head: "ccc", Branch: "twin", Base: "other"},
+	}
+	record := func(t *testing.T, topic string, number int, commit string, attrs map[string]string) client.Record {
+		t.Helper()
+		draft := client.Draft{Drive: "moved", Lane: "github", Kind: readKind, Text: topic, Topic: topic, Attrs: attrs}
+		if number != 0 {
+			draft.PRs = []string{fmt.Sprintf("%s#%d", testRepo, number)}
+		}
+		posted, err := client.Post(context.Background(), draft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		posted.Fields.Commit = commit
+		return posted
+	}
+	t.Setenv("CCI_HOME", t.TempDir())
+	for _, tc := range []struct {
+		name   string
+		record client.Record
+		want   []int
+	}{
+		{"a push names the row and the row stacked on it", record(t, topicPull, 1, headA, nil), []int{1, 2}},
+		{"a review names its row", record(t, topicReview, 2, headB, nil), []int{2}},
+		{"a check names the row at its commit", record(t, topicCheck, 0, headB, map[string]string{"repo": testRepo}), []int{2}},
+		{"a check names every row at its commit", record(t, topicCheck, 0, "ccc", map[string]string{"repo": testRepo}), []int{3, 4}},
+		{"a check at no row's head names none", record(t, topicCheck, 0, "ddd", map[string]string{"repo": testRepo}), nil},
+		{"another repo's check names none", record(t, topicCheck, 0, headB, map[string]string{"repo": "o/other"}), nil},
+		{"a trunk push names the rows on trunk", record(t, topicPush, 0, "eee", map[string]string{"repo": testRepo, "branch": "dev"}), []int{1}},
+		{"another branch's push names none", record(t, topicPush, 0, "eee", map[string]string{"repo": testRepo, "branch": "main"}), nil},
+		{"an unknown PR names none", record(t, topicPull, 9, "fff", nil), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := slices.Sorted(maps.Keys(Moved([]client.Record{tc.record}, rows, testRepo, "dev")))
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("moved = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -999,6 +999,9 @@ func SaidFact(grader string) string {
 func (f Fold) PostReads(ctx context.Context, snapshot []machine.Facts) error {
 	var failed []error
 	for _, pr := range snapshot {
+		if pr.FromRow || pr.Posted {
+			continue
+		}
 		row, known, err := f.Store.ReviewRow(f.Repo, pr.Number)
 		if err != nil || !known {
 			failed = append(failed, err)

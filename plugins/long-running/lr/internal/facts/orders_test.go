@@ -73,6 +73,13 @@ func unreadHarness(t *testing.T) harness {
 	return newHarness(t, []recordedPR{{number: surfacePR, head: surfaceHead, login: "drive-bot", unopened: true}}, status(surfacePR, func(r *statusRow) { r.Head = surfaceHead }))
 }
 
+func landableHarness(t *testing.T) harness {
+	t.Helper()
+	h := newHarness(t, []recordedPR{{number: surfacePR, head: surfaceHead, login: "drive-bot", unopened: true, approvers: []string{"reviewer"}}}, status(surfacePR, func(r *statusRow) { r.Head = surfaceHead }))
+	drawLandable(t, h.store, surfacePR, surfaceHead)
+	return h
+}
+
 func surfaceHarness(t *testing.T) harness {
 	t.Helper()
 	h := unreadHarness(t)
@@ -760,8 +767,7 @@ func TestATappedPRWithNoReviewRowIsHeld(t *testing.T) {
 }
 
 func TestALandableRowIsReadyAfterTheFoldAndATapOnItLands(t *testing.T) {
-	h := unreadHarness(t)
-	drawLandable(t, h.store, surfacePR, surfaceHead)
+	h := landableHarness(t)
 	post(t, "finder-desk", bus.Grade{PR: surfacePR, Head: surfaceHead, Grader: "finder", Verdict: "clear"})
 	post(t, "fidelity-desk", bus.Grade{PR: surfacePR, Head: surfaceHead, Grader: "fidelity", Verdict: "pass"})
 	h.snapshot(t)
@@ -776,8 +782,7 @@ func TestALandableRowIsReadyAfterTheFoldAndATapOnItLands(t *testing.T) {
 }
 
 func TestATapAndAGradePostedWhileAPassRunsReachTheRowAtTheNextRowFoldNotTheNextPass(t *testing.T) {
-	h := unreadHarness(t)
-	drawLandable(t, h.store, surfacePR, surfaceHead)
+	h := landableHarness(t)
 	post(t, "fidelity-desk", bus.Grade{PR: surfacePR, Head: surfaceHead, Grader: "fidelity", Verdict: "pass"})
 	h.snapshot(t)
 	post(t, "finder-desk", bus.Grade{PR: surfacePR, Head: surfaceHead, Grader: "finder", Verdict: "clear"})
