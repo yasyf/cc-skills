@@ -249,7 +249,7 @@ func (p *JobPool) Dispatch(ctx context.Context, grading string, facts machine.Fa
 	if !on {
 		return "", ErrNoCapacity
 	}
-	if !slices.Contains(Missing(facts), grading) {
+	if !slices.Contains(Missing(facts), grading) || voidOf(grading, facts) > 0 {
 		return p.again(ctx, grading, d, facts)
 	}
 	pr := strconv.Itoa(facts.Number)

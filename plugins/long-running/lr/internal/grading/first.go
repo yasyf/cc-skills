@@ -38,7 +38,7 @@ func (p *JobPool) Firsts(snapshot map[int]machine.Facts) []machine.Facts {
 }
 
 func (p *JobPool) again(ctx context.Context, grading string, d desk, facts machine.Facts) (string, error) {
-	asked := p.firsts[facts.Number]
+	asked := p.regradeKey(grading, facts)
 	graded, err := p.gradedSince(ctx, grading, facts, asked)
 	if err != nil || graded {
 		return "", cmp.Or(err, ErrAnswered)
@@ -47,6 +47,9 @@ func (p *JobPool) again(ctx context.Context, grading string, d desk, facts machi
 		return p.Regrade(ctx, facts, nil)
 	}
 	ask := wholeAsk{PR: strconv.Itoa(facts.Number), Lane: facts.Lane, Key: strconv.FormatInt(asked, 10), Head: facts.Head}
+	if voidOf(grading, facts) > 0 {
+		ask.Head = ""
+	}
 	if err := p.queueWhole(ask); err != nil {
 		return "", err
 	}
@@ -60,12 +63,23 @@ func (p *JobPool) again(ctx context.Context, grading string, d desk, facts machi
 func (p *JobPool) passBase(grading string, facts machine.Facts) string {
 	pr := strconv.Itoa(facts.Number)
 	switch {
-	case slices.Contains(Missing(facts), grading):
+	case slices.Contains(Missing(facts), grading) && voidOf(grading, facts) == 0:
 		return pr + "-" + short(facts.Head)
 	case grading == GraderFidelity:
 		return pr + "-" + short(facts.Head) + regradeMark
 	}
-	return pr + wholeMark + strconv.FormatInt(p.firsts[facts.Number], 10)
+	return pr + wholeMark + strconv.FormatInt(p.regradeKey(grading, facts), 10)
+}
+
+func (p *JobPool) regradeKey(grading string, facts machine.Facts) int64 {
+	return max(p.firsts[facts.Number], voidOf(grading, facts))
+}
+
+func voidOf(grading string, facts machine.Facts) int64 {
+	if grading == GraderFinder {
+		return facts.FinderVoid
+	}
+	return facts.FidelityVoid
 }
 
 func (p *JobPool) gradedSince(ctx context.Context, grading string, facts machine.Facts, asked int64) (bool, error) {

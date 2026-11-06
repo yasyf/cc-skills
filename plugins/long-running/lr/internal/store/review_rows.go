@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 )
 
 const (
@@ -197,6 +199,7 @@ func factsAtRowHeads(db rowReader, repo string, held []ReviewRow) (map[int]map[s
 	}
 	for _, facts := range at {
 		dropWithdrawn(facts)
+		machine.DropVoided(facts)
 	}
 	return at, nil
 }

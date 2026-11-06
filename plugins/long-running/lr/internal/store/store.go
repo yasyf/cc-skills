@@ -405,6 +405,11 @@ func (s *Store) DeleteFact(repo string, number int, head, kind string) error {
 	return err
 }
 
+func (s *Store) DeleteFactAtHead(repo string, number int, head, kind string) error {
+	_, err := s.db.Exec("DELETE FROM facts WHERE repo = ?1 AND number = ?2 AND kind = ?4 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3)", repo, number, head, kind)
+	return err
+}
+
 func (s *Store) FullHead(repo string, number int, short string) (string, error) {
 	rows, err := s.db.Query("SELECT head FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) = 40 AND substr(head, 1, length(?3)) = ?3 LIMIT 1", repo, number, short)
 	found, err := collect(rows, err, func(rows *sql.Rows) (string, error) {
@@ -445,6 +450,7 @@ func factsAt(db querier, repo string, number int, head string) (map[string]strin
 		foldFact(facts, pair[0], pair[1])
 	}
 	dropWithdrawn(facts)
+	machine.DropVoided(facts)
 	return facts, nil
 }
 

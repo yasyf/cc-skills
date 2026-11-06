@@ -58,6 +58,8 @@ func TestEachGradeTapAndExemptionBecomesOneFact(t *testing.T) {
 		{"a head that cannot move", legacyRecord(t, bus.StuckKind, "supervisor", "#9 cannot move", []int{9}, map[string]string{"head": "e718a74", "reason": "its grade waits on the pool"}), []bus.Fact{{PR: 9, Head: "e718a74", Kind: bus.StuckFact, Value: "its grade waits on the pool"}}},
 		{"a finder override", legacyRecord(t, "decide", "root", "finder-override #9 at e718a74: the finding reads a deleted file", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "override-finder", Value: "accept"}}},
 		{"an override after a clock and a root label", legacyRecord(t, "decide", "root", "5:26 PM root: fidelity-override 9 e718a74", []int{9}, nil), []bus.Fact{{PR: 9, Head: "e718a74", Kind: "override-fidelity", Value: "accept"}}},
+		{"root voids a finder grade at a full head", legacyRecord(t, "decide", "root", "finder-void #9 at "+head+": 519896. Its ok carried a misscoped pick", []int{9}, nil), []bus.Fact{{PR: 9, Head: head, Kind: "void-finder", Value: "1"}}},
+		{"the supervisor voids a fidelity grade", legacyRecord(t, "decide", bus.SweepLane, "10:58 AM fidelity-void #9 at "+head+": 519937", []int{9}, nil), []bus.Fact{{PR: 9, Head: head, Kind: "void-fidelity", Value: "1"}}},
 		{"fidelity judged a head the same as the tapped one", legacyRecord(t, "review", "fidelity-pipeline", "behavior: same "+head+" since a28ab62c0ffe", []int{1}, nil), []bus.Fact{{PR: 1, Head: head, Kind: "behavior", Value: "same"}, {PR: 1, Head: head, Kind: "behavior-since", Value: "a28ab62c0ffe"}}},
 		{"fidelity judged a head changed since the tapped one", legacyRecord(t, "review", "fidelity-pipeline", "behavior: changed "+head+" since a28ab62c0ffe: a cold list now finds its team by lineage", []int{1}, nil), []bus.Fact{{PR: 1, Head: head, Kind: "behavior", Value: "changed"}, {PR: 1, Head: head, Kind: "behavior-since", Value: "a28ab62c0ffe"}, {PR: 1, Head: head, Kind: "what-changed", Value: "a cold list now finds its team by lineage"}}},
 	} {
@@ -89,6 +91,11 @@ func TestARecordThatGradesTapsOrExemptsNothingWritesNothing(t *testing.T) {
 		{"a withdrawn exempt go", legacyRecord(t, "go", "root", "withdrawn go #9 at e718a74 [exempt: test-only]", []int{9}, nil)},
 		{"an exempt class on a decide with no go clause", legacyRecord(t, "decide", "root", "the class [exempt: regression] is for later", []int{9}, nil)},
 		{"an override inside a sentence", legacyRecord(t, "decide", "root", "we talked about finder-override #9 at e718a74 yesterday", []int{9}, nil)},
+		{"a lane's void", legacyRecord(t, "decide", "pr-unblock-9", "finder-void #9 at "+head+": 519896", []int{9}, nil)},
+		{"root's report naming a void", legacyRecord(t, "report", "root", "finder-void #9 at "+head+": 519896", []int{9}, nil)},
+		{"a void at a short head", legacyRecord(t, "decide", "root", "finder-void #9 at e718a74: 519896", []int{9}, nil)},
+		{"a void citing no record", legacyRecord(t, "decide", "root", "finder-void #9 at "+head, []int{9}, nil)},
+		{"a void inside a sentence", legacyRecord(t, "decide", "root", "we may post finder-void #9 at "+head+": 519896 later", []int{9}, nil)},
 		{"a board pick of another block", legacyRecord(t, "owner", "board-watch", "Owner picked an option", []int{1}, map[string]string{"block": "memory-choice", "event": "choice.selected"})},
 		{"a merge row that is no number", legacyRecord(t, "owner", "board-watch", "approved", []int{1}, map[string]string{"block": "merge-prs", "verdict": "approved", "head": "e718a74", "row": "summary"})},
 	} {
@@ -153,6 +160,14 @@ func TestAnOverrideCitesItsGradeWithOrWithoutTheGraderNamed(t *testing.T) {
 
 func TestAGoLaneNamesAnExemptClassAndNoOverride(t *testing.T) {
 	record := legacyRecord(t, "decide", "landing-desk-3", "finder-override #9 at e718a74: the finding reads a deleted file", []int{9}, nil)
+
+	if got := bus.LegacyFacts(record, repo, []string{"landing-desk"}); len(got) != 0 {
+		t.Fatalf("LegacyFacts = %+v, want nothing", got)
+	}
+}
+
+func TestAGoLaneVoidsNoGrade(t *testing.T) {
+	record := legacyRecord(t, "decide", "landing-desk-3", "finder-void #9 at "+head+": 519896", []int{9}, nil)
 
 	if got := bus.LegacyFacts(record, repo, []string{"landing-desk"}); len(got) != 0 {
 		t.Fatalf("LegacyFacts = %+v, want nothing", got)

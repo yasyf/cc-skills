@@ -127,6 +127,18 @@ func OverrideWithdrawn(stored map[string]string, grader, value string) bool {
 	return value != "" && stored[WithdrawnOverrideFact(grader)] == value
 }
 
+func VoidFact(grader string) string {
+	return "void-" + grader
+}
+
+func DropVoided(stored map[string]string) {
+	for _, grader := range []string{"finder", "fidelity"} {
+		if stored[VoidFact(grader)] != "" {
+			delete(stored, grader)
+		}
+	}
+}
+
 func OverridesOf(stored map[string]string) (finder, fidelity bool) {
 	return stored[OverrideFact("finder")] != "", stored[OverrideFact("fidelity")] != ""
 }
@@ -181,6 +193,8 @@ type Facts struct {
 	Fidelity         Fidelity
 	FinderOverride   bool
 	FidelityOverride bool
+	FinderVoid       int64
+	FidelityVoid     int64
 	Tap              Tap
 	TapFrom          string
 	CarriedBy        string

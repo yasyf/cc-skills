@@ -302,14 +302,14 @@ func (p *JobPool) wholeJob(ctx context.Context, d desk, facts machine.Facts, ask
 	if ask.Head != "" {
 		return p.recheckJob(ctx, d, facts, ask, sprite, directory, reviews)
 	}
-	moved := int64(0)
+	stale := facts.FinderVoid
 	for _, r := range found {
 		if r.Kind == kindHead {
-			moved = max(moved, r.Seq)
+			stale = max(stale, r.Seq)
 		}
 	}
 	answered := slices.ContainsFunc(gradedReviews(reviews), func(r review) bool {
-		return r.Seq > moved && strings.Contains(r.Text, wholeRead)
+		return r.Seq > stale && strings.Contains(r.Text, wholeRead)
 	})
 	if answered {
 		return job{}, ErrAnswered
