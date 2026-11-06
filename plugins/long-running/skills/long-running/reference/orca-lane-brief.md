@@ -556,7 +556,8 @@ the lane supervisor relaunches a lane that stops without one. A turn ends only o
 record, and `cci hook stop` refuses every other stop: `done`, `stopped`, or an open `ask`,
 `blocker` or `blocked`. To wait on an event, post `cci post --kind blocked` with `--pr N`,
 `--target T`, `--lane-ref L`, or a `card-` id in its text, and stop; that event wakes you,
-as do a red PR you parked on and a record addressed to you by name. To wait on a monitor or
+as do your red PR when it is the only PR you parked on, and a record addressed to you by
+name. To wait on a monitor or
 `lr wait --wake` you armed, post `blocked --attr until=<span>`, such as `45m`, with the text
 naming what it watches: no release or other event wakes you, the supervisor never relaunches
 you inside the span, and past it pages you as overdue. `done` retires you for good, so post it only when

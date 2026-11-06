@@ -574,6 +574,40 @@ func TestAReadFillsTheCardFromGitHubsBodyAndCarriesItOnlyWhenItChanges(t *testin
 	}
 }
 
+func TestARowWhoseLaneIsParkedOnAnotherPRReadsThatItWaitsOnThatPR(t *testing.T) {
+	f, s := foldFor(t)
+	postOpened(t, 1, headA, "dev", fullBody)
+	postOpened(t, 2, headB, "dev", fullBody)
+	folded(t, f, 1)
+	red := cleanRead(1, headA)
+	red.CI = machine.CIFailure
+	if err := f.PostReads(context.Background(), []machine.Facts{red, cleanRead(2, headB)}); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); row.WaitsOn != RedAtHead {
+		t.Fatalf("before the park: waits on %q, want %q", row.WaitsOn, RedAtHead)
+	}
+	const lane = "signal-storage-retro-3"
+	if _, err := s.WantLane(store.Lane{Name: lane, Brief: "/briefs/x.md", State: store.LaneDesired, PRs: []int{1}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLaneWaiting(lane, 9, time.Time{}, "pr:1 pr:2"); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); row.WaitsOn != "waits on #2" || row.ReadyForTap {
+		t.Fatalf("parked on #2: row = %+v", row)
+	}
+	if row := folded(t, f, 2); strings.HasPrefix(row.WaitsOn, "waits on") {
+		t.Fatalf("the PR it waits on reads %q", row.WaitsOn)
+	}
+	if err := s.SetLaneWaiting(lane, 0, time.Now(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if row := folded(t, f, 1); row.WaitsOn != RedAtHead {
+		t.Fatalf("after the wait ends: waits on %q", row.WaitsOn)
+	}
+}
+
 func TestANewHeadClearsCIReviewGradeAndMergeableAndKeepsTheBody(t *testing.T) {
 	f, s := foldFor(t)
 	postOpened(t, 1, headA, "dev", fullBody)

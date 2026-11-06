@@ -122,6 +122,11 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 	if err != nil {
 		return nil, err
 	}
+	parked, err := f.Store.Lanes(store.LaneLaunching, store.LaneDesired)
+	if err != nil {
+		return nil, err
+	}
+	blocked := blockedRows(parked)
 	var out []store.ReviewRow
 	err = f.Store.Update(func(t *store.Tx) error {
 		if err := t.Advance(store.ReviewRowsCursor, 0); err != nil {
@@ -205,6 +210,9 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 				row = withoutExemptTap(row, atHeads[number])
 			} else {
 				row = Materialize(row, atHeads[number], held[number], branches, f.Trunk)
+				if waits := blocked[number]; waits != "" && !row.ReadyForTap && row.Hold == None {
+					row.WaitsOn = waits
+				}
 				if row.ReadyForTap && trunk[trunkMoved] != trunk[trunkRead] {
 					row.ReadyForTap, row.MergesAt = false, ""
 					row.WaitsOn = fmt.Sprintf("dev moved to %s, and no host has read mergeability since", shortHead(trunk[trunkMoved]))
@@ -244,6 +252,30 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		return t.PutReviewRows(out)
 	})
 	return out, err
+}
+
+func blockedRows(lanes []store.Lane) map[int]string {
+	blocked := map[int]string{}
+	for _, lane := range lanes {
+		blockers := lane.Blockers()
+		if lane.Waiting == 0 || len(blockers) == 0 {
+			continue
+		}
+		named := make([]string, len(blockers))
+		for i, number := range blockers {
+			named[i] = fmt.Sprintf("#%d", number)
+		}
+		for _, number := range lane.AwaitedPRs() {
+			if slices.Contains(lane.PRs, number) {
+				blocked[number] = "waits on " + strings.Join(named, " and ")
+			}
+		}
+	}
+	return blocked
+}
+
+func IsRead(kind, record string) bool {
+	return kind == readKind && record == readRecord
 }
 
 func portsOf(rows map[int]store.ReviewRow, atHeads map[int]map[string]string) map[int]store.ReviewRow {

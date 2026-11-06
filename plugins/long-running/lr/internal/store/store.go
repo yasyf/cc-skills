@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,6 +116,27 @@ type Lane struct {
 	Standing    string
 	Step        string
 	Staged      time.Time
+}
+
+const prGate = "pr:"
+
+func PRGate(number int) string {
+	return fmt.Sprintf("%s%d", prGate, number)
+}
+
+func (l Lane) AwaitedPRs() []int {
+	var numbers []int
+	for _, gate := range strings.Fields(l.Awaits) {
+		named, isPR := strings.CutPrefix(gate, prGate)
+		if number, err := strconv.Atoi(named); isPR && err == nil {
+			numbers = append(numbers, number)
+		}
+	}
+	return numbers
+}
+
+func (l Lane) Blockers() []int {
+	return slices.DeleteFunc(l.AwaitedPRs(), func(number int) bool { return slices.Contains(l.PRs, number) })
 }
 
 type Probe struct {
@@ -328,6 +351,15 @@ func (s *Store) PutFact(repo string, number int, head, kind, value string, at ti
 func (s *Store) ClearExempt(repo string, number int, through time.Time) error {
 	_, err := s.db.Exec("DELETE FROM facts WHERE repo = ? AND number = ? AND kind = 'exempt' AND posted <= ?", repo, number, Stamp(through))
 	return err
+}
+
+func (s *Store) Fact(repo string, number int, head, kind string) (string, error) {
+	var value string
+	err := s.db.QueryRow("SELECT value FROM facts WHERE repo = ? AND number = ? AND head = ? AND kind = ?", repo, number, head, kind).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
 }
 
 func (s *Store) StandingTap(repo string, number int) (string, error) {
