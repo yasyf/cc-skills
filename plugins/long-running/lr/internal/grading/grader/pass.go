@@ -79,6 +79,7 @@ type Job struct {
 	Lane     string           `json:"lane"`
 	To       []string         `json:"to"`
 	Checkout string           `json:"checkout"`
+	Config   string           `json:"config"`
 	Model    string           `json:"model"`
 	Fast     bool             `json:"fast"`
 	Settled  map[string]int64 `json:"settled"`
@@ -648,12 +649,15 @@ func (p *pass) baseLines(base, path string) (map[string]bool, error) {
 	return lines, nil
 }
 
-func (p *pass) rulings(verb string, args ...string) []string {
-	return append([]string{filepath.Join(p.Bin, "rulings.py"), verb, "--repo", p.job.Checkout, "--drive", p.job.Drive}, args...)
+func (p *pass) rulings(verb string, timeout time.Duration, args ...string) *future[string] {
+	argv := append([]string{filepath.Join(p.Bin, "rulings.py"), verb, "--repo", p.job.Checkout, "--drive", p.job.Drive}, args...)
+	return async(func() (string, error) {
+		return p.execute(shell.Command{Argv: argv, Env: []string{"CLAUDE_CONFIG_DIR=" + p.job.Config}, Timeout: timeout})
+	})
 }
 
 func (p *pass) planRead() *future[string] {
-	return async(func() (string, error) { return p.run(p.rulings("plan"), "", planTimeout) })
+	return p.rulings("plan", planTimeout)
 }
 
 func planOnThisBox(reading *future[string]) (string, error) {
@@ -672,9 +676,7 @@ func planOnThisBox(reading *future[string]) (string, error) {
 }
 
 func (p *pass) sliceRows(head, branch string, flags ...string) *future[string] {
-	return async(func() (string, error) {
-		return p.run(p.rulings("slice", append([]string{"--required", "--pr", p.job.pull(), "--head", head, "--base", branch, "--answers", filepath.Join(p.dir, AnswersFile)}, flags...)...), "", gitTimeout)
-	})
+	return p.rulings("slice", gitTimeout, append([]string{"--required", "--pr", p.job.pull(), "--head", head, "--base", branch, "--answers", filepath.Join(p.dir, AnswersFile)}, flags...)...)
 }
 
 func (p *pass) touched(start, head string) (touched, error) {

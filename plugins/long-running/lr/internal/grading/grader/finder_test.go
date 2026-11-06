@@ -258,6 +258,7 @@ func finderJobDir(t *testing.T, changes map[string]any) string {
 		"lane":     "p8a-step9",
 		"to":       []string{"desk-runner"},
 		"checkout": "/srv/checkout",
+		"config":   launcherConfig(t),
 		"model":    "sol",
 		"fast":     true,
 		"full":     false,
@@ -1212,16 +1213,8 @@ func TestAReplyCutOffAtTheModelsOutputCapIsAskedOnceMoreOnSol(t *testing.T) {
 	equal(t, len(shell.asks()), 1)
 }
 
-func registered(t *testing.T, directory string, shell *fakeShell) {
+func registered(t *testing.T, directory string) {
 	t.Helper()
-	entry := filepath.Join(shell.config, "long-running", "drives", "d1.json")
-	if err := os.MkdirAll(filepath.Dir(entry), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	data := fmt.Sprintf(`{"drive":"d1","cci_drive":"d1","ledger":"abc","repo":%q,"checkout":"/srv/checkout","sessions":[]}`, repoName)
-	if err := os.WriteFile(entry, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	landed, err := json.Marshal([]LandedRow{
 		{Key: "47001", Title: "sand: 🐛 the replica keeps its held marker", SHA: shaFixed},
 		{Key: "47002", Title: "sand: ✨ replica metrics", SHA: strings.Repeat("b", 40)},
@@ -1243,7 +1236,7 @@ func TestASecondBugFixInAnAreaTheDriveAlreadyFixedPostsABlockingPointNamingTheEa
 	directory := finderJobDir(t, nil)
 	shell, repo := newFinderFake(t, replyOf())
 	shell.title = fixTitle
-	registered(t, directory, shell)
+	registered(t, directory)
 	repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
 	mustFinder(t, directory, shell)
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: major "+shaHead+" 1 open "+wholeRecord+": go/sand/internal/replica/follow.go:40 "+secondFix+".") {
@@ -1263,7 +1256,7 @@ func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t
 		directory := finderJobDir(t, nil)
 		shell, repo := newFinderFake(t, replyOf())
 		shell.title, shell.body = fixTitle, body
-		registered(t, directory, shell)
+		registered(t, directory)
 		repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
 		mustFinder(t, directory, shell)
 		if !strings.HasPrefix(shell.posted[0]["--text"], "finder: ok "+shaHead+" ") {
@@ -1374,7 +1367,7 @@ func TestAPortOwesItsSecondFixAsAFollowUpAndAnyOtherBodyKeepsTheMajor(t *testing
 			directory := finderJobDir(t, nil)
 			shell, repo := newFinderFake(t, replyOf(tc.findings...))
 			shell.title, shell.body = fixTitle, tc.body
-			registered(t, directory, shell)
+			registered(t, directory)
 			repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
 			mustFinder(t, directory, shell)
 			if !strings.HasPrefix(shell.posted[0]["--text"], tc.want) {
@@ -1418,7 +1411,7 @@ func TestAFixBesideAnEarlierFixInOneFlatDirectoryIsNoSecondFix(t *testing.T) {
 	directory := finderJobDir(t, nil)
 	shell, repo := newFinderFake(t, replyOf())
 	shell.title = fixTitle
-	registered(t, directory, shell)
+	registered(t, directory)
 	repo.landedLog = "@" + shaFixed + "\n\ngo/sand/internal/replica/marker.go\n@" + shaOtherArea + "\n\napi/parent.go\n"
 	mustFinder(t, directory, shell)
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: ok "+shaHead+" ") {
@@ -1430,7 +1423,7 @@ func TestAChangeThatIsNoBugFixReadsNoLandedArea(t *testing.T) {
 	directory := finderJobDir(t, nil)
 	shell, _ := newFinderFake(t, replyOf())
 	shell.title = "sand: ✨ the replica streams its position"
-	registered(t, directory, shell)
+	registered(t, directory)
 	mustFinder(t, directory, shell)
 	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: ok "+shaHead+" ") {
 		t.Errorf("posted %q", shell.posted[0]["--text"])
@@ -1442,7 +1435,7 @@ func TestALandedFixTheCloneLacksStopsThePassInsteadOfDroppingTheFix(t *testing.T
 	directory := finderJobDir(t, nil)
 	shell, _ := newFinderFake(t, replyOf())
 	shell.title = fixTitle
-	registered(t, directory, shell)
+	registered(t, directory)
 	read := shell.gitFn
 	shell.gitFn = func(argv []string) (string, error) {
 		if argv[1] == "log" && slices.Contains(argv, "--name-only") && slices.Contains(argv, shaFixed) {

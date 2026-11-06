@@ -106,6 +106,7 @@ func (p *JobPool) baseJob(d desk, facts machine.Facts, sprite string, settled ma
 		Lane:     facts.Lane,
 		To:       to,
 		Checkout: checkout,
+		Config:   p.Config,
 		Model:    model,
 		Fast:     d.spec.Fast == nil || *d.spec.Fast,
 		Settled:  settled,

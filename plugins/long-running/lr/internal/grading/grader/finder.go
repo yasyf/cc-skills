@@ -805,7 +805,7 @@ type landedFix struct {
 }
 
 func (s *finderPassState) landedFixes() ([]landedFix, error) {
-	entry, err := driveOf(s.Config, s.job.Drive)
+	entry, err := driveOf(s.job.Config, s.job.Drive)
 	if err != nil {
 		return nil, err
 	}

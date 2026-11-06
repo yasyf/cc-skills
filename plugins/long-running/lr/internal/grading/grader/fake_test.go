@@ -117,6 +117,9 @@ func (f *fakeShell) route(command Command) (string, error) {
 		return f.gitFn(expanded(command))
 	case argv[0] == rulingsPath:
 		f.timeouts[argv[1]] = command.Timeout
+		if err := f.driveEntryRead(command); err != nil {
+			return "", err
+		}
 		if argv[1] == "slice" {
 			return f.rows, nil
 		}
@@ -132,6 +135,34 @@ func (f *fakeShell) route(command Command) (string, error) {
 		return f.claude(argv)
 	}
 	return "", fmt.Errorf("unexpected call %v", argv)
+}
+
+func (f *fakeShell) driveEntryRead(command Command) error {
+	config := f.config
+	for _, pair := range command.Env {
+		if dir, named := strings.CutPrefix(pair, "CLAUDE_CONFIG_DIR="); named && dir != "" {
+			config = dir
+		}
+	}
+	entry := filepath.Join(config, "long-running", "drives", command.Argv[slices.Index(command.Argv, "--drive")+1]+".json")
+	if _, err := os.Stat(entry); err != nil {
+		return &ExitError{Argv: command.Argv, Code: 1, Stderr: fmt.Sprintf("FileNotFoundError: [Errno 2] No such file or directory: '%s'", entry)}
+	}
+	return nil
+}
+
+func launcherConfig(t *testing.T) string {
+	t.Helper()
+	config := t.TempDir()
+	entry := filepath.Join(config, "long-running", "drives", "d1.json")
+	if err := os.MkdirAll(filepath.Dir(entry), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	data := fmt.Sprintf(`{"drive":"d1","cci_drive":"d1","ledger":"abc","repo":%q,"checkout":"/srv/checkout","sessions":[]}`, repoName)
+	if err := os.WriteFile(entry, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return config
 }
 
 func expanded(command Command) []string {
