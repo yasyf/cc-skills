@@ -65,6 +65,11 @@ func (r Record) withCard(id string) Record {
 	return r
 }
 
+func (r Record) withResolves(seq int64) Record {
+	r.Resolves = seq
+	return r
+}
+
 func ask(seq int64, verb, lane string, at time.Time, numbers []int, by string, attrs map[string]string) Record {
 	typed := map[string]string{"verb": verb, "lane": lane}
 	for key, value := range attrs {

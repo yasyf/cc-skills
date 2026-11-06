@@ -157,7 +157,7 @@ func recordOf(r client.Record) Record {
 		refs.PRs = append(refs.PRs, PRRef(pr.Number))
 	}
 	return Record{
-		Seq: r.Seq, Origin: r.Origin, Lane: r.Lane, Kind: string(r.Kind), At: r.At.UTC(), Text: r.Text, Topic: r.Topic, To: r.To,
+		Seq: r.Seq, Num: r.Num, Origin: r.Origin, Lane: r.Lane, Kind: string(r.Kind), At: r.At.UTC(), Text: r.Text, Topic: r.Topic, To: r.To,
 		Re: r.Re, Resolves: r.Resolves, AlsoResolves: r.AlsoResolves, Refs: refs, Fields: Fields{Attrs: r.Fields.Attrs},
 	}
 }

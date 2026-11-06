@@ -297,6 +297,12 @@ func announce(s *store.Store, d Deps, said folded, now time.Time) {
 	for _, one := range said.owing {
 		one.post(s, d)
 	}
+	for _, one := range said.unassigned {
+		text := fmt.Sprintf("ASSIGNMENT-UNREAD cci %s names %s, retired at %s with no successor, so no lane reads it; name a live lane or relaunch it", one.record.Num, one.lane.Name, one.lane.Since.In(pacificZone).Format("Jan 2 3:04 PM"))
+		if must(s.Escalate(fmt.Sprintf("assignment:%d:%s", one.record.Seq, one.lane.Name), text, Root, now)) {
+			do(d.Post(Post{Kind: blockerKind, To: []string{Root}, LaneRef: one.lane.Name, Re: one.record.Seq, Text: text}))
+		}
+	}
 }
 
 func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven map[string]Verdict, taken map[string]bool, generation int64, now time.Time, out *Outcome) {
