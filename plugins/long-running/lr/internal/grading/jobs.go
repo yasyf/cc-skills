@@ -149,7 +149,10 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 		return job{}, err
 	}
 	bodies := map[string][]byte{}
-	history, unreadHistory := jobRecords(named, directory, bodies)
+	history, unreadHistory, accepted, err := finderHistory(ctx, p.drive, pull, named, directory, bodies)
+	if err != nil {
+		return job{}, err
+	}
 	rulings, unreadRulings := jobRecords(ruled, directory, bodies)
 	base := p.baseJob(d, facts, sprite, settled)
 	base.BugItems = items
@@ -161,6 +164,7 @@ func (p *JobPool) finderJob(ctx context.Context, d desk, facts machine.Facts, sp
 		Previous: previous,
 		History:  history,
 		Ruled:    rulings,
+		Accepted: accepted,
 	}}, nil
 }
 

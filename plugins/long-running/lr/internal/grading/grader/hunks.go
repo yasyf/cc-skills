@@ -22,6 +22,10 @@ type fileSpans struct {
 type touched []fileSpans
 
 func hunks(diff string) touched {
+	return hunkSpans(diff, 1)
+}
+
+func hunkSpans(diff string, least int) touched {
 	var files touched
 	path := ""
 	for line := range strings.SplitSeq(diff, "\n") {
@@ -38,7 +42,7 @@ func hunks(diff string) touched {
 		if found[2] != "" {
 			count, _ = strconv.Atoi(found[2])
 		}
-		files = files.with(path, span{start, start + max(count, 1) - 1})
+		files = files.with(path, span{start, start + max(count, least) - 1})
 	}
 	return files
 }

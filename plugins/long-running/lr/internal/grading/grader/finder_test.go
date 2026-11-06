@@ -905,26 +905,34 @@ func waited(done chan struct{}) bool {
 	}
 }
 
-func TestACarriedMajorRootSettledCarriesAsOkCitingTheRootDecide(t *testing.T) {
+func TestACarriedMajorRootSettledOrAcceptedCarriesAsOkCitingWhatClosedIt(t *testing.T) {
 	cases := []struct {
-		name    string
-		graded  string
-		settled map[string]int
-		want    string
+		name     string
+		graded   string
+		settled  map[string]int
+		accepted map[string]int
+		touched  string
+		want     string
 	}{
-		{"settled", "finder: major a269784 1 open: walk.go:9 skips the volume link", map[string]int{"149302": 149400}, "finder: ok %s carried from #149302, settled by coordinator #149400"},
-		{"settled-upchain", "finder: major a269784 carried from #149100", map[string]int{"149100": 149150}, "finder: ok %s carried from #149302, settled by coordinator #149150"},
-		{"unsettled", "finder: major a269784 1 open: walk.go:9 skips the volume link", map[string]int{"149100": 149150}, "finder: major %s carried from #149302"},
+		{"settled", "finder: major a269784 1 open: walk.go:9 skips the volume link", map[string]int{"149302": 149400}, nil, "", "finder: ok %s carried from #149302, settled by coordinator #149400"},
+		{"settled-upchain", "finder: major a269784 carried from #149100", map[string]int{"149100": 149150}, nil, "", "finder: ok %s carried from #149302, settled by coordinator #149150"},
+		{"unsettled", "finder: major a269784 1 open: walk.go:9 skips the volume link", map[string]int{"149100": 149150}, nil, "", "finder: major %s carried from #149302"},
+		{"accepted", "finder: major a269784 1 open: walk.go:9 skips the volume link", nil, map[string]int{"149302": 149310}, "", "finder: ok %s carried from #149302, whose findings #149310 accepted"},
+		{"accepted-upchain", "finder: major a269784 carried from #149100", nil, map[string]int{"149100": 149110}, "", "finder: ok %s carried from #149302, whose findings #149110 accepted"},
+		{"accepted, its cited line changed under the base", "finder: major a269784 1 open: walk.go:9 skips the volume link", nil, map[string]int{"149302": 149310}, "diff --git a/walk.go b/walk.go\n@@ -9 +9 @@\n", "finder: major %s carried from #149302"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			prior := map[string]any{"seq": 149302, "lane": "finder-desk", "head": "a269784", "text": c.graded}
 			earlier := map[string]any{"seq": 149100, "lane": "finder-desk", "text": "finder: major 9f00e11 1 open: walk.go:9 skips the volume link", "path": ""}
-			directory := finderJobDir(t, map[string]any{"prior": prior, "history": []any{earlier, prior}, "settled": c.settled})
+			directory := finderJobDir(t, map[string]any{"prior": prior, "history": []any{earlier, prior}, "settled": c.settled, "accepted": c.accepted})
 			shell, repo := newFinderFake(t)
 			repo.own[shaBase+".."+shaOld] = []string{shaOldOwn}
-			repo.resolved = map[string]string{"a269784": shaOld}
+			repo.resolved = map[string]string{"a269784": shaOld, "9f00e11": shaOldOwn}
 			repo.ranges = map[string]string{earlierRange: pairLines("=", "=")}
+			if c.touched != "" {
+				servesDiff(shell, shaOld, "walk.go", c.touched)
+			}
 			mustFinder(t, directory, shell)
 			equal(t, len(shell.asks()), 0)
 			equal(t, shell.posted[0]["--text"], fmt.Sprintf(c.want, shaHead[:7]))
@@ -1541,9 +1549,12 @@ func TestAFinderQuestionCarriesTheReportOfTheBugItemItsJobNames(t *testing.T) {
 	}
 }
 
-func amendedPastAGrade(t *testing.T, prior map[string]any, replies ...any) (string, *fakeShell) {
+func amendedPastAGrade(t *testing.T, prior, extra map[string]any, replies ...any) (string, *fakeShell) {
 	t.Helper()
 	changes := map[string]any{"since": shaOld, "prior": prior}
+	for key, value := range extra {
+		changes[key] = value
+	}
 	if prior == nil {
 		changes = nil
 	}
@@ -1562,7 +1573,7 @@ func amendedPastAGrade(t *testing.T, prior map[string]any, replies ...any) (stri
 
 func TestAnAmendedHeadPastAnOkTheSonnetReadCallsUnchangedCarriesTheOkWithNoCodexPass(t *testing.T) {
 	why := "The amend only drops azurePrefix(), which no caller in the PR reaches."
-	directory, shell := amendedPastAGrade(t, priorAt(149302, "finder: ok a269784"))
+	directory, shell := amendedPastAGrade(t, priorAt(149302, "finder: ok a269784"), nil)
 	shell.judged = []any{regradeAnswer{carryAnswer, why}}
 	mustFinder(t, directory, shell)
 	equal(t, len(shell.asks()), 0)
@@ -1596,7 +1607,7 @@ func TestAnAmendedHeadTheSonnetReadDoesNotCarryGetsTheSolDeltaPassAndKeepsTheRea
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			directory, shell := amendedPastAGrade(t, priorAt(149302, "finder: ok a269784"), replyOf())
+			directory, shell := amendedPastAGrade(t, priorAt(149302, "finder: ok a269784"), nil, replyOf())
 			shell.judged = []any{c.judged}
 			mustFinder(t, directory, shell)
 			equal(t, len(shell.judges()), 1)
@@ -1617,7 +1628,7 @@ func TestAHeadWithNoOkAtItsEarlierHeadNeverAsksTheSonnetRead(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			directory, shell := amendedPastAGrade(t, c.prior, replyOf())
+			directory, shell := amendedPastAGrade(t, c.prior, nil, replyOf())
 			mustFinder(t, directory, shell)
 			equal(t, len(shell.judges()), 0)
 			equal(t, len(shell.asks()), 1)
@@ -1625,6 +1636,90 @@ func TestAHeadWithNoOkAtItsEarlierHeadNeverAsksTheSonnetRead(t *testing.T) {
 			if _, judged := resultOf(t, directory)["regrade"]; judged {
 				t.Error("a pass the Sonnet read never saw names its answer")
 			}
+		})
+	}
+}
+
+func servesDiff(shell *fakeShell, from, path, diff string) {
+	read := shell.gitFn
+	asked := []string{"git", "diff", "--unified=0", "--no-color", "--no-ext-diff", shaHead, from, "--", path}
+	shell.gitFn = func(argv []string) (string, error) {
+		if slices.Equal(argv, asked) {
+			return diff, nil
+		}
+		return read(argv)
+	}
+}
+
+func TestAnAcceptedSecondFixStaysClosedOnALaterHeadUntilAHeadChangesItsCitedLines(t *testing.T) {
+	cited := "go/sand/internal/replica/follow.go"
+	fixed := ". #47001 (sand: 🐛 the replica keeps its held marker) fixed " + cited
+	graded := "finder: major " + shaOld + " 1 open over whole " + shaOldOwn[:7] + "^.." + shaOld[:7] + ": " + cited + ":38 " + secondFix + fixed
+	body := filepath.Join(t.TempDir(), "149302.md")
+	if err := os.WriteFile(body, []byte(graded+"\n\n{\"findings\":[]}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	earlier := map[string]any{"seq": 149302, "lane": FinderLane, "text": graded[:120] + "…", "path": body}
+	answer := map[string]any{"seq": 149310, "lane": "p8a-step9", "text": "#43299 finder major (class fix), re-fired: accepted as before"}
+	shifted := "diff --git a/" + cited + " b/" + cited + "\n@@ -11,2 +10,0 @@\n@@ -41 +38,0 @@\n"
+	rewritten := "diff --git a/" + cited + " b/" + cited + "\n@@ -40 +38 @@\n"
+	reopened := "finder: major " + shaHead + " 1 open " + wholeRecord + ": " + cited + ":40 " + secondFix + fixed
+	for name, c := range map[string]struct {
+		accepted map[string]any
+		diff     string
+		want     string
+	}{
+		"a head that leaves its cited lines keeps it closed": {map[string]any{"149302": 149310}, shifted, "finder: ok " + shaHead + " sol finder " + wholeRecord + ": no majors; accepted before, cited lines unchanged: " + cited + ":38 (#149310)"},
+		"a head that changes its cited lines reopens it":     {map[string]any{"149302": 149310}, rewritten, reopened},
+		"a finding no answer accepted stays open":            {nil, shifted, reopened},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := finderJobDir(t, map[string]any{"history": []any{earlier, answer}, "accepted": c.accepted})
+			shell, repo := newFinderFake(t, map[string]any{"verdict": "lgtm", "swept": swept, "findings": []any{}})
+			shell.title = fixTitle
+			registered(t, directory)
+			repo.landedLog = landedFiles(cited)
+			repo.resolved[shaOld] = shaOld
+			servesDiff(shell, shaOld, cited, c.diff)
+			mustFinder(t, directory, shell)
+			equal(t, shell.posted[0]["--text"], c.want)
+			holdsAll(t, readText(t, directory, "record.md"), c.want, `"findings":[]`, "finder-desk's own second-fix check added this finding: "+cited+":40 "+secondFix)
+		})
+	}
+}
+
+func TestAnAmendedHeadPastAnAcceptedMajorCarriesUnlessItChangesTheCitedLines(t *testing.T) {
+	graded := "finder: major " + shaOld + " 1 open over whole " + shaOldOwn[:7] + "^.." + shaOld[:7] + ": go/poll.go:9 polls instead of streaming"
+	prior := map[string]any{"seq": 149302, "lane": FinderLane, "head": "a269784", "text": graded}
+	extra := map[string]any{"history": []any{prior}, "accepted": map[string]any{"149302": 149310}}
+	why := "The amend only drops azurePrefix(), which no caller in the PR reaches."
+	reraised := replyOf(findingOf("major", "go/poll.go:9", "polls instead of streaming"))
+	touched := "diff --git a/go/poll.go b/go/poll.go\n@@ -9 +9 @@\n"
+	delta := " over delta " + shaOld[:7] + ".." + shaHead[:7]
+	for name, c := range map[string]struct {
+		diff   string
+		judged any
+		asks   int
+		want   string
+	}{
+		"the read carries it":                            {"", regradeAnswer{carryAnswer, why}, 0, "finder: ok " + shaHead + " carried from #149302 at " + shaOld[:7] + ", whose findings #149310 accepted, judged unchanged in meaning by sonnet over its range-diff: The amend only drops azurePrefix(), which no caller in the PR reaches"},
+		"a full pass keeps it closed":                    {"", regradeAnswer{solAnswer, "The amend changes the stream setup."}, 1, "finder: ok " + shaHead + " sol finder" + delta + ": no majors; accepted before, cited lines unchanged: go/poll.go:9 (#149310)"},
+		"a head that changes its cited lines reopens it": {touched, nil, 1, "finder: major " + shaHead + " 1 open" + delta + ": go/poll.go:9 polls instead of streaming"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory, shell := amendedPastAGrade(t, prior, extra, reraised)
+			if c.judged != nil {
+				shell.judged = []any{c.judged}
+			}
+			servesDiff(shell, shaOld, "go/poll.go", c.diff)
+			mustFinder(t, directory, shell)
+			equal(t, len(shell.asks()), c.asks)
+			equal(t, shell.posted[0]["--text"], c.want)
+			if c.judged != nil {
+				holdsAll(t, readText(t, directory, regradeQuestion), fmt.Sprintf(acceptedMeans, 149310), graded)
+				return
+			}
+			equal(t, len(shell.judges()), 0)
 		})
 	}
 }

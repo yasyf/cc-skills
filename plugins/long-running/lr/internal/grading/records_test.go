@@ -155,10 +155,28 @@ func TestAClearUnlessNegatedOrARebuttalAcceptedClearsAFinder(t *testing.T) {
 		"never clear":          false,
 		"not clear, but clear": true,
 		"unclear":              false,
+		"cannot clear":         false,
+		"don't clear it":       false,
 		"nothing to say":       false,
 	} {
 		if got := finderCleared(text); got != want {
 			t.Errorf("finderCleared(%q) = %v", text, got)
+		}
+	}
+}
+
+func TestAnAcceptUnlessNegatedAcceptsAFinding(t *testing.T) {
+	for text, want := range map[string]bool{
+		"re-fired: accepted as before": true,
+		"finder major: accept":         true,
+		"not accepted":                 false,
+		"I don't accept this finding":  false,
+		"not yet accepted":             false,
+		"cannot accept it":             false,
+		"acceptance is pending":        false,
+	} {
+		if got := affirmed(acceptWord, text); got != want {
+			t.Errorf("affirmed(acceptWord, %q) = %v", text, got)
 		}
 	}
 }
@@ -232,6 +250,36 @@ func TestAnAcceptAnswerIsSettledByTheFirstRootRulingAfterIt(t *testing.T) {
 
 	if want := map[string]int64{strconv.FormatInt(graded, 10): ruling}; !reflect.DeepEqual(settled, want) {
 		t.Errorf("settled = %v, want %v", settled, want)
+	}
+}
+
+func TestAnAnswerAcceptingAFinderGradeClosesItAndJoinsTheFindersHistory(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	graded := post(t, client.Draft{Lane: grader.FinderLane, Kind: kindReview, Text: "finder: major " + head[:7] + " 1 open", PRs: []string{pull}})
+	fixed := post(t, client.Draft{Lane: grader.FinderLane, Kind: kindReview, Text: "finder: major " + older[:7] + " 1 open", PRs: []string{pull}})
+	post(t, client.Draft{Lane: "lane-7", Kind: kindAnswer, Text: "#45489 finder major: not accepted, fixed at the next head", Re: fixed, PRs: []string{pull}})
+	lane := post(t, client.Draft{Lane: "lane-7", Kind: kindAnswer, Text: "#45489 finder major (class fix), re-fired: accepted as before", Re: graded, PRs: []string{pull}})
+	post(t, client.Draft{Lane: "lane-7", Kind: kindAnswer, Text: "accepted, the risk stands", Re: lane, PRs: []string{pull}})
+	owner := post(t, client.Draft{Lane: "owner-relay", Kind: kindOwner, Text: "Owner tapped Land it: he accepts the finder major", Re: graded, PRs: []string{pull}})
+	named, err := client.Among(context.Background(), testDrive, []int64{graded, fixed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	history, unread, accepted, err := finderHistory(context.Background(), testDrive, pull, named, t.TempDir(), map[string][]byte{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := map[string]int64{strconv.FormatInt(graded, 10): owner}; !reflect.DeepEqual(accepted, want) || len(unread) > 0 {
+		t.Errorf("accepted = %v, unread = %v, want %v", accepted, unread, want)
+	}
+	seqs := make([]int64, 0, len(history))
+	for _, r := range history {
+		seqs = append(seqs, r.Seq)
+	}
+	if want := []int64{graded, fixed, lane, owner}; !reflect.DeepEqual(seqs, want) {
+		t.Errorf("history = %v, want %v", seqs, want)
 	}
 }
 
