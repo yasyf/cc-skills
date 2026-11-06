@@ -64,6 +64,7 @@ var (
 	startKept      = []string{"worker-start.err", "worker-start.json", "worker-start.status"}
 	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log", notesReceipt, joinReceipt, setupReceipt})...)
 	relayFailure   = "cci: relay: 500 internal: the relay failed; retry\n"
+	sponsorTimeout = "Error: failed to start sprite command: failed to connect: read tcp [2600:1700::1]:62477->[2a09:8280:1::99:d7b3:0]:443: i/o timeout\n"
 	localKept      = sorted(startKept, "request.json")
 	stopKept       = []string{"stop.err", "stop.json", spriteStop}
 	stopCall       = []string{"cc-remote", "orca", "stop", workerLane, "--provider", "sprites", "--profile", "agents"}
@@ -1042,6 +1043,35 @@ func TestRepeatedRelayFailuresRefuseTheLaunchNamingTheReasonAndStartNoWorker(t *
 	}
 	if exists(filepath.Join(f.attempt, "worker-start.json")) {
 		t.Fatal("a worker started with no relay")
+	}
+}
+
+func TestASponsorKeyReadThatTimesOutOnceIsReadAgainAndJoins(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("sprite exec", workerReply{}, workerReply{code: 1, err: sponsorTimeout}, workerReply{out: "the sponsor key"}, workerReply{out: "joined mesh default\n"}, workerReply{}, workerReply{})
+	f.launched()
+	if !slices.Equal(f.slept, joinWaits[:1]) {
+		t.Fatal(f.slept)
+	}
+	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the sponsor key" {
+		t.Fatal(f.stdins)
+	}
+}
+
+func TestASponsorKeyThatNeverReadsRefusesNamingTheLastError(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	f.reply("sprite exec", workerReply{}, workerReply{code: 1, err: sponsorTimeout}, workerReply{code: 1, err: sponsorTimeout}, workerReply{code: 1, err: sponsorTimeout}, workerReply{code: 1, err: sponsorTimeout})
+	_, failed, err := f.launch(workerLane, "opus", "high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "the sponsor's service key did not read in 4 tries, the last saying " + strings.TrimSpace(sponsorTimeout) + ";"; !strings.Contains(failed, want) {
+		t.Fatalf("failed\n%s\nwant it to contain\n%s", failed, want)
+	}
+	if !slices.Equal(f.slept, joinWaits) {
+		t.Fatal(f.slept)
 	}
 }
 

@@ -976,10 +976,9 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	if code != 0 || json.Unmarshal([]byte(node), &owner) != nil || owner.PublicKey == "" {
 		return log.String(), errors.New("cci node names no public key")
 	}
-	key, errs, code := w.capture("sprite", "exec", "-s", sponsor, "--no-stdin", "--", "cat", sponsorKey)
-	log.WriteString(errs)
-	if code != 0 {
-		return log.String(), errors.New("the sponsor's service key did not read")
+	key, err := w.sponsorKey(sponsor, &log)
+	if err != nil {
+		return log.String(), err
 	}
 	for tries := 1; ; tries++ {
 		joined, err := w.Runner.Run(w.ctx, shell.Command{
@@ -993,6 +992,21 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 		if tries > len(joinWaits) {
 			said := strings.TrimSpace(joined.Stdout + joined.Stderr)
 			return log.String(), fmt.Errorf("%d tries, the last saying %s", tries, said[strings.LastIndex(said, "\n")+1:])
+		}
+		w.Sleep(joinWaits[tries-1])
+	}
+}
+
+func (w *workerLaunch) sponsorKey(sponsor string, log *bytes.Buffer) (string, error) {
+	for tries := 1; ; tries++ {
+		key, errs, code := w.capture("sprite", "exec", "-s", sponsor, "--no-stdin", "--", "cat", sponsorKey)
+		log.WriteString(errs)
+		if code == 0 {
+			return key, nil
+		}
+		if tries > len(joinWaits) {
+			said := strings.TrimSpace(errs)
+			return "", fmt.Errorf("the sponsor's service key did not read in %d tries, the last saying %s", tries, said[strings.LastIndex(said, "\n")+1:])
 		}
 		w.Sleep(joinWaits[tries-1])
 	}
