@@ -396,6 +396,29 @@ def test_a_landing_settles_the_rows_the_ledger_tracks_and_adds_none(repo, capsys
     assert "landed #31390" in capsys.readouterr().out
 
 
+def test_a_landing_on_another_repository_settles_nothing_though_the_ledger_holds_its_number(repo, capsys):
+    started(repo)
+    shell = FakeShell(rows=[{"key": "3503", "fields": {"lane": "sprite-go-gen", "registered": "sprite-go-gen"}}])
+    merged_pull(shell, "3503")
+    capsys.readouterr()
+
+    assert drive.main(["landed", "--session", ROOT_SESSION, "--pr", "yasyf/cc-skills#3503"], shell) == 0
+
+    assert shell.fields("3503").get("state") != "landed"
+    assert shell.calls == []
+    assert capsys.readouterr().out.strip() == "yasyf/cc-skills#3503 is not on the drive's repository Forge-AI/monorepo, so it settles nothing"
+
+
+def test_a_landing_named_with_the_drives_own_repository_settles_its_row(repo):
+    started(repo)
+    shell = FakeShell(rows=[{"key": "31390", "fields": {"lane": "app-build-speed", "registered": "app-build-speed"}}])
+    merged_pull(shell, "31390")
+
+    assert drive.main(["landed", "--session", ROOT_SESSION, "--pr", "forge-ai/monorepo#31390"], shell) == 0
+
+    assert shell.fields("31390")["state"] == "landed"
+
+
 def test_a_landing_outside_any_drive_settles_nothing(repo):
     started(repo)
     shell = FakeShell()

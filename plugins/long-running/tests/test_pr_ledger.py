@@ -346,10 +346,25 @@ def test_a_lane_in_no_drive_is_told_its_pr_was_not_recorded(tmp_path, monkeypatc
         ("cci post --lane l --kind=landed --pr 31375,31392 --pr=31376 --text x", ["31375", "31392", "31376"]),
         ("cci post --lane l --kind opened --pr 31390 --text x", []),
         ("gh pr close 31159 --comment superseded", ["31159"]),
-        ("gh pr close https://github.com/Forge-AI/monorepo/pull/31054", ["31054"]),
+        ("gh pr close https://github.com/Forge-AI/monorepo/pull/31054", ["Forge-AI/monorepo#31054"]),
         ("gh pr close yasyf/some-branch", []),
+        ("gh pr close 3503 -R yasyf/cc-skills", ["yasyf/cc-skills#3503"]),
+        ("cci post --lane l --kind landed --pr yasyf/cc-skills#3547 --text x", ["yasyf/cc-skills#3547"]),
+        ("cci post --lane l --kind landed --pr https://github.com/yasyf/cc-skills/pull/3547 --text x", ["yasyf/cc-skills#3547"]),
+        ("cci post --lane l --kind landed --pr 3503 --text 'yasyf/cc-skills#3503 merged as 60f0bec'", ["yasyf/cc-skills#3503"]),
     ],
-    ids=["cci-landed", "cci-landed-lists", "cci-opened", "gh-close-number", "gh-close-url", "gh-close-branch"],
+    ids=[
+        "cci-landed",
+        "cci-landed-lists",
+        "cci-opened",
+        "gh-close-number",
+        "gh-close-url",
+        "gh-close-branch",
+        "gh-close-other-repo",
+        "cci-landed-qualified",
+        "cci-landed-url",
+        "cci-landed-bare-number-its-text-qualifies",
+    ],
 )
 def test_settled_prs_reads_the_prs_a_landing_record_or_a_close_names(tmp_path, command, expected):
     assert settled_prs(event(tmp_path, command=command)) == expected
