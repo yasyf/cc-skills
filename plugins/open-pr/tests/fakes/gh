@@ -4,11 +4,13 @@ args="$*"
 printf '%s\n' "${args//$'\n'/ }" >>"$FAKE_GH_LOG"
 [ "${1:-}" = api ] || { echo "fake gh: only 'gh api' is served" >&2; exit 1; }
 shift
-path="" expr=""
+path="" expr="" include=0 none_match=""
 while [ $# -gt 0 ]; do
   case $1 in
   --paginate) shift ;;
   --jq) expr=$2; shift 2 ;;
+  -i) include=1; shift ;;
+  -H) none_match=${2#If-None-Match: }; shift 2 ;;
   *) path=$1; shift ;;
   esac
 done
@@ -22,4 +24,18 @@ for ((p = pass; p >= 0; p--)); do
 done
 [ -n "$fixture" ] || { echo "gh: Not Found (HTTP 404) $path" >&2; exit 1; }
 [ "$(cat "$fixture")" != '"FAIL"' ] || { echo "gh: HTTP 502 $path" >&2; exit 1; }
-if [ -n "$expr" ]; then jq -rc "$expr" "$fixture"; else cat "$fixture"; fi
+[ "$(cat "$fixture")" != '"RATELIMIT"' ] || { echo "gh: HTTP 403: API rate limit exceeded for user ID 1 $path" >&2; exit 1; }
+if [ "$include" = 1 ]; then
+  etag="\"$(cksum <"$fixture" | cut -d' ' -f1)\""
+  if [ "$none_match" = "$etag" ]; then
+    printf 'HTTP/2.0 304 Not Modified\r\n\r\n'
+    echo "gh: HTTP 304" >&2
+    exit 1
+  fi
+  printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\n\r\n' "$etag"
+  cat "$fixture"
+elif [ -n "$expr" ]; then
+  jq -rc "$expr" "$fixture"
+else
+  cat "$fixture"
+fi
