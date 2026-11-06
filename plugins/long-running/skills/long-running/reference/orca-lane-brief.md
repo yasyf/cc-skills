@@ -422,8 +422,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `--pr-body-file` on the ship that opens a PR, since one with no body is refused (an `--amend` ship needs none); a Codex session runs the
   command under `## PR record` right after each ship instead.
   Never SendMessage a subagent.
-- On spawn: `ledger.py register --ledger <id> --lane <lane> --repo <owner/name> --branch-prefix
-  <prefix>/<lane>/`.
+- On spawn on the Mac: `ledger.py register --ledger <id> --lane <lane> --repo <owner/name> --branch-prefix
+  <prefix>/<lane>/`. A Sprite lane skips it; the Mac's supervisor registers its PRs from its `opened` and `head` records.
 - On every PR open, push, enqueue, and READY: `ledger.py report --ledger <id> --drive <drive> --repo <owner/name> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`,
   plus `--ask <id>` for an owner ask. READY is `--verdict clean --text "READY ..."`; the
