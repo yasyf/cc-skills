@@ -22,6 +22,25 @@ func (c Cards) RecordAsk(ctx context.Context, card string, ask int64) error {
 	return c.record(ctx, card, map[string]string{askField: strconv.FormatInt(ask, 10)})
 }
 
+func (c Cards) DrawnAsks(ctx context.Context) (map[int64]bool, error) {
+	_, rows, err := c.rows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	drawn := map[int64]bool{}
+	for card, fields := range rows {
+		if fields[askField] == "" {
+			continue
+		}
+		ask, err := strconv.ParseInt(fields[askField], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("card %s ask %q: %w", card, fields[askField], err)
+		}
+		drawn[ask] = true
+	}
+	return drawn, nil
+}
+
 func (c Cards) Corrected(ctx context.Context, lane string) error {
 	cursor := staleCursor + c.Session
 	after, err := c.Store.Cursor(cursor)

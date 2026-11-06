@@ -87,3 +87,18 @@ func TestACorrectionWhoseThreadReachesTheAskACardWasDrawnFromFlagsItStaleToTheCo
 		t.Fatalf("posts after a new head = %+v", f.posts)
 	}
 }
+
+func TestAnAskStillReadsAsDrawnOnceItsCardIsWithdrawn(t *testing.T) {
+	f := newCards(t, &cardShell{}, nil)
+	ctx := context.Background()
+	if err := f.RecordAsk(ctx, "card-a", 559601); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.record(ctx, "card-a", map[string]string{"withdrawn": stamp(cardsNow)}); err != nil {
+		t.Fatal(err)
+	}
+	drawn, err := f.DrawnAsks(ctx)
+	if err != nil || len(drawn) != 1 || !drawn[559601] {
+		t.Fatalf("drawn = %v, %v, want ask 559601 drawn", drawn, err)
+	}
+}
