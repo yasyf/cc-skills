@@ -262,7 +262,7 @@ func finish(tx *incident.Tx, key string, response map[string]any, dispatch strin
 }
 
 func (d *Desk) relayable(ctx context.Context, lane string) (*laneDispatch, error) {
-	dispatch, err := d.show(ctx, lane, "")
+	dispatch, err := d.listed(ctx, lane)
 	if err != nil || !dispatch.active() {
 		return nil, err
 	}
@@ -284,7 +284,7 @@ func (d *Desk) sendRefused(lane string, dispatch *laneDispatch) (bool, error) {
 }
 
 func (d *Desk) noLiveDispatch(ctx context.Context, lane string) (string, error) {
-	dispatch, err := d.show(ctx, lane, "")
+	dispatch, err := d.listed(ctx, lane)
 	if err != nil {
 		return "", err
 	}
@@ -623,7 +623,7 @@ func (d *Desk) reconcileSend(ctx context.Context, container, lane string, send i
 	}); err != nil {
 		return err
 	}
-	dispatch, err := d.show(ctx, lane, "")
+	dispatch, err := d.listed(ctx, lane)
 	if err != nil {
 		return err
 	}

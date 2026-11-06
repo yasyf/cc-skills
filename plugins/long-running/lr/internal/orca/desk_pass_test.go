@@ -27,20 +27,21 @@ func TestRootRepliesToManyLanesCostTheLineReadNoMoreOrcaCallsThanOne(t *testing.
 	read := func(lanes int) int {
 		w := newDeskWorld(t)
 		w.lines()
+		replies := make([]int64, lanes)
 		for i := range lanes {
 			lane := fmt.Sprintf("lane-%d", i)
 			w.live(lane, fmt.Sprintf("ctx_%d", i), fmt.Sprintf("term_%d", i))
-			asked := w.add(object{"lane": lane, "kind": "ask", "text": "which way"})
-			w.add(object{"kind": "answer", "text": "left", "re": asked.Seq})
+			decide := w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE msg_q " + lane + ": which way"})
+			replies[i] = w.add(object{"kind": "answer", "text": "left", "re": decide.Seq}).Seq
 		}
-		decide := w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE msg_q lane-0: which way"})
-		first := w.add(object{"kind": "answer", "text": "left", "re": decide.Seq})
 		w.calls = nil
 		w.desk.startPass()
 		w.lines()
-		held, err := relayOf(w.action("lane-0", fmt.Sprintf("cci#%d", first.Seq)))
-		if err != nil || held.ReplyTo != "msg_q" {
-			t.Fatal(held, err)
+		for i, reply := range replies {
+			held, err := relayOf(w.action(fmt.Sprintf("lane-%d", i), fmt.Sprintf("cci#%d", reply)))
+			if err != nil || held.ReplyTo != "msg_q" {
+				t.Fatal(i, held, err)
+			}
 		}
 		return w.orcaCount()
 	}

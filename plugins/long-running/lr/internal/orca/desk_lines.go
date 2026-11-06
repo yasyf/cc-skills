@@ -430,7 +430,7 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 }
 
 func (d *Desk) warnUnheard(ctx context.Context, at, key, lane, sender string) error {
-	dispatch, err := d.show(ctx, lane, "")
+	dispatch, err := d.listed(ctx, lane)
 	if err != nil || dispatch.active() {
 		return err
 	}
@@ -531,7 +531,7 @@ func (d *Desk) acceptRelay(key, lane string, relay relayTarget, minutes int) (in
 
 func (d *Desk) relayToLane(ctx context.Context, at, key, lane string, relay relayTarget, question *string) error {
 	log := "escalation:relay:" + at + ":" + lane
-	dispatch, err := d.show(ctx, lane, "")
+	dispatch, err := d.listed(ctx, lane)
 	if err != nil {
 		return err
 	}
