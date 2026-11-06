@@ -24,6 +24,8 @@ SENTENCE = re.compile(r"[.!?](?:\s+|$)|\n")
 TAP_ORDER = re.compile(r"(?i)^\s*(?:tap|approve)\b")
 ASKS_TAP = re.compile(r"(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)")
 DESCRIBES_TAP = re.compile(r"(?i)\b(?:refus\w*|buttons?)\b")
+NEGATED = re.compile(r"(?i)(?:\b(?:nothing|no longer|not|never|no one|none)\b|n't\b)")
+CLAUSE = re.compile(r"[,;:]")
 DOC_PR = re.compile(r"(?i)\bdesign-docs(?:/pull/|#)\d+")
 DOC_PAGE = re.compile(r"https://(?:docs\.poetic\.design|[\w-]+\.github\.io)/|https?://[\w.-]+\.ts\.net(?::\d+)?/")
 MERGE_ASK = re.compile(r"(?i)\b(?:merg|approv)\w*")
@@ -163,7 +165,11 @@ def release_records_carry_the_platy_card(evt: BaseHookEvent) -> HookResult | Non
 
 
 def asks_his_tap(words: str) -> bool:
-    return any(TAP_ORDER.search(said) or ASKS_TAP.search(said) and not DESCRIBES_TAP.search(said) for said in SENTENCE.split(HIDDEN_CITE.sub(" ", words)))
+    return any(TAP_ORDER.search(said) or waits_on_him(said) for said in SENTENCE.split(HIDDEN_CITE.sub(" ", words)))
+
+
+def waits_on_him(said: str) -> bool:
+    return not DESCRIBES_TAP.search(said) and any((asked := ASKS_TAP.search(clause)) and not NEGATED.search(clause[: asked.start()]) for clause in CLAUSE.split(said))
 
 
 def carries_tap_cards(evt: BaseHookEvent) -> bool:
@@ -193,6 +199,10 @@ def carries_tap_cards(evt: BaseHookEvent) -> bool:
         sent("A message with no button is refused now. #50921 is green and needs your tap."): Block(),
         sent("It passed. Tap the button on the card above."): Block(),
         sent("#50921 waits on your tap.", channel="C0RELEASES1"): Allow(),
+        sent("*Closed at this head: reworked for your pick C.* This card was for the sidecar redo change. Nothing here waits on you.", tool="slack_edit"): Allow(),
+        sent("This PR no longer waits on your tap: superseded by your pick."): Allow(),
+        sent("#50921 doesn't wait on CI; it waits on your tap."): Block(),
+        sent("It is not green yet, so it waits on your tap."): Block(),
         Input(command="ls", env=LANE): Allow(),
     },
 )
