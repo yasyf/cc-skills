@@ -71,7 +71,7 @@ func Command(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func run(ctx context.Context, a *app.App, binary string) error {
+func run(ctx context.Context, a *app.App, lrVersion string) error {
 	if err := lanes.Adopt(lanes.Self); err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func run(ctx context.Context, a *app.App, binary string) error {
 	if err != nil {
 		return err
 	}
-	deps, err := wired(ctx, a, env, s, binary)
+	deps, err := wired(ctx, a, env, s, lrVersion)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func run(ctx context.Context, a *app.App, binary string) error {
 		defer stop()
 	}
 	version := Installed(env.Claude)
-	upgrade := &Upgrade{Env: env, Running: version, Binary: binary, Read: read, Settings: settings, Holding: lanes.GCPassRunning, Yield: lanes.YieldGC, Sleep: time.Sleep, Serve: func(installed string) error {
+	upgrade := &Upgrade{Env: env, Running: version, Binary: lrVersion, Read: read, Settings: settings, Holding: lanes.GCPassRunning, Yield: lanes.YieldGC, Sleep: time.Sleep, Serve: func(installed string) error {
 		return s.ServeVersion(cfg.Drive, os.Getpid(), installed)
 	}}
 	deps.Stale = upgrade.Stale
@@ -130,7 +130,22 @@ func run(ctx context.Context, a *app.App, binary string) error {
 	return nil
 }
 
-func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binary string) (Deps, error) {
+func storeVerbRun(runner shell.Runner, driveName string) askdesk.Run {
+	return func(ctx context.Context, argv []string, lane string) (string, string, int, error) {
+		self, err := os.Executable()
+		if err != nil {
+			return "", "", 0, err
+		}
+		ran, err := runner.Run(ctx, shell.Command{Argv: append([]string{self}, argv...), Env: []string{drive.Env + "=" + driveName, "LR_DRIVE=" + driveName, lanes.LaneEnv + "=" + lane}, Timeout: storeRunLimit})
+		var exit *shell.ExitError
+		if errors.As(err, &exit) {
+			return ran.Stdout, ran.Stderr, exit.Code, nil
+		}
+		return ran.Stdout, ran.Stderr, 0, err
+	}
+}
+
+func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, lrVersion string) (Deps, error) {
 	sender := bus.Bus{Drive: env.Config.Drive, Lane: lanes.Self, Bodies: filepath.Join(env.State, bus.BodiesDir)}
 	post := func(to []string, body bus.Body) error {
 		_, err := sender.Post(ctx, to, body)
@@ -161,7 +176,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 		if err != nil {
 			return Deps{}, err
 		}
-		running, err := waste.Current(a.CCX, env.Claude, binary)
+		running, err := waste.Current(a.CCX, env.Claude, lrVersion)
 		if err != nil {
 			return Deps{}, err
 		}
@@ -280,14 +295,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 	} else {
 		deps.Followers = append(deps.Followers, askdesk.Desk{
 			Lane: askdesk.StoreDesk, Drive: env.Config.Drive, Duty: askdesk.StoreDuty, Bodies: filepath.Join(env.State, askdesk.StoreDesk), Now: a.Now, Log: a.Stderr,
-			Read: askdesk.StoreRuns(filepath.Join(env.State, configFile), func(ctx context.Context, argv []string, lane string) (string, string, int, error) {
-				ran, err := a.Runner.Run(ctx, shell.Command{Argv: append([]string{binary}, argv...), Env: []string{drive.Env + "=" + env.Config.Drive, "LR_DRIVE=" + env.Config.Drive, lanes.LaneEnv + "=" + lane}, Timeout: storeRunLimit})
-				var exit *shell.ExitError
-				if errors.As(err, &exit) {
-					return ran.Stdout, ran.Stderr, exit.Code, nil
-				}
-				return ran.Stdout, ran.Stderr, 0, err
-			}),
+			Read: askdesk.StoreRuns(filepath.Join(env.State, configFile), storeVerbRun(a.Runner, env.Config.Drive)),
 		}.Follow)
 	}
 	deps.Checks = append(deps.Checks, (&background{name: "review-rows", every: TickEvery, run: prfacts.New(a, env.Config, s).FoldRows, store: s, post: post, log: a.Log}).Check)
