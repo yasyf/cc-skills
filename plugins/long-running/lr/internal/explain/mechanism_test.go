@@ -51,6 +51,26 @@ func TestUncitedSkipsALanesTextQuotedInBlockquotesAndLintsTheSameTextAsThePagesO
 	}
 }
 
+func TestUncitedSkipsHeadingsAndTableRulesAndNeverReadsTheBareWordCauseAsAWhy(t *testing.T) {
+	census := "## Causes, worst first\n\n" +
+		"| # | Cause | What the tests do | Failures seen | Live tests hit | Fix (one PR each) |\n|---|---|---|---|---|---|\n" +
+		"| C1 | Hidden retry | The shard reruns a failed test once and reports green | 17 | 8 | Fail on the first try |\n\n" +
+		"| PR | Cause | Owner | Order |\n| --- | :--- | ---: | :---: |\n| #51700 | C1 | flake-fix-class | 1 |\n\n" +
+		"The tests share five causes, and each fix cured one test while its siblings kept the same cause."
+	if got := Uncited([]byte(census)); len(got) != 0 {
+		t.Fatalf("Uncited(census) = %q, want none: a heading, a table's header and rule, and the noun cause say no why", got)
+	}
+	for _, why := range []string{
+		"The shard goes green because it reruns a failed test once.",
+		"The red was caused by a shared server.",
+		"Each test names its own team so that no two tests write the same rows.",
+	} {
+		if got := Uncited([]byte(census + "\n\n" + why)); len(got) != 1 || got[0] != why {
+			t.Errorf("Uncited(census + %q) = %q, want that sentence alone", why, got)
+		}
+	}
+}
+
 func TestUncitedNamesAPRBlamedForARedUntilARecordProvesIt(t *testing.T) {
 	blamed := "#49475 broke dev's sand-next vet job."
 	if got := Uncited([]byte(blamed)); len(got) != 1 || got[0] != blamed {
