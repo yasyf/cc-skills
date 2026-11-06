@@ -13,7 +13,6 @@ VERBS = {
     "ruff": frozenset({"check"}),
     "biome": frozenset({"check", "lint", "ci"}),
     "ty": frozenset({"check"}),
-    "capt-hook": frozenset({"test", "lint"}),
 }
 MAKE_TARGETS = frozenset({"all", "build", "test", "check", "lint", "vet", "typecheck"})
 SCRIPTS = frozenset({"tsc", "build", "test", "lint", "typecheck"})
@@ -139,8 +138,11 @@ def builds(call: Call) -> bool:
         Input(command="pytest tests/", env=LANE_ENV): Block(),
         Input(command="python -m pytest tests/ -q", env=LANE_ENV): Block(),
         Input(command="uv run --project plugins/long-running pytest plugins/long-running/tests -q", env=LANE_ENV): Block(),
-        Input(command="uvx --isolated capt-hook test .claude/hooks/x.py", env=LANE_ENV): Block(),
-        Input(command="uvx --isolated capt-hook lint .claude/hooks/x.py", env=LANE_ENV): Block(),
+        Input(command="uvx --isolated capt-hook test .claude/hooks/x.py", env=LANE_ENV): Allow(),
+        Input(command="uvx --isolated capt-hook lint .claude/hooks/x.py", env=LANE_ENV): Allow(),
+        Input(command="capt-hook test", env=LANE_ENV): Allow(),
+        Input(command="uvx --isolated capt-hook pack test plugins/long-running", env=LANE_ENV): Allow(),
+        Input(command="go test ./...", env=LANE_ENV): Block(pattern=r"^No local test, whole-module compile or lint runs in a drive"),
         Input(command="jest --ci", env=LANE_ENV): Block(),
         Input(command="vitest run", env=LANE_ENV): Block(),
         Input(command="npx tsc --noEmit", env=LANE_ENV): Block(),
