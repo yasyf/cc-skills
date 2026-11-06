@@ -60,7 +60,7 @@ var (
 		"GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": kindBlocker, "GO-TAP-MISSING": kindBlocker, "HOOK-DRIFT": kindBlocker, "BASE-DRIFT": kindState, "OVERRIDE-REFUSED": kindBlocker, "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident",
 	}
 	deferrable = []string{"DEADLINE", "NOT-DELIVERED", "UNACKED", "STALE-MAIL", "RECLAIM"}
-	noAction   = []string{"RELAYED", "ORCA-BACK", "PARKED", "RESTING", "BASE-DRIFT"}
+	noAction   = []string{"RELAYED", "ORCA-BACK", "PARKED", "RESTING", "ENDED", "BASE-DRIFT"}
 	poster     = regexp.MustCompile("\\bcci post\\b[^`\\n]*?--lane[= ]['\"]?([\\w.-]+)")
 )
 

@@ -2767,6 +2767,37 @@ func TestARepeatStopOnOneTerminalCollapsesIntoItsOpenRecordUntilThatCloses(t *te
 	w.wantEscalation("DECIDE msg_s3 lane-a: ")
 }
 
+func TestAClosedStopDecideOfAnEndedLaneIsNotRelayedAndItsNextStopRaisesNone(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		ending object
+		reason string
+	}{
+		{"done", object{"lane": testLane, "kind": kindDone, "text": "lane-a is done"}, "it posted DONE #%d"},
+		{"retired", object{"lane": supervisorLane, "kind": kindStandDown, "text": "lane-a stood down: the supervisor retired it (done).", "to": []string{testLane}}, "it was stood down by #%d"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.launchedBy("meta-desk-1")
+			w.checked(stopNotice("msg_s1", 1))
+			w.wantEscalation("DECIDE msg_s1 lane-a: ")
+			decide := w.records[len(w.records)-1]
+			w.lines()
+			ending := w.add(tt.ending)
+			reason := fmt.Sprintf(tt.reason, ending.Seq)
+			closing := w.add(object{"kind": "answer", "text": "closed: lane-a is done; relay nothing to it", "resolves": decide.Seq})
+			w.lines()
+			w.wantEscalation(fmt.Sprintf("ENDED cci#%d lane-a: %s, so root's answer to #%d is not relayed to it", closing.Seq, reason, decide.Seq))
+			if _, err := w.desk.store.Action(laneBook(testLane), fmt.Sprintf("cci#%d", closing.Seq)); err == nil {
+				t.Fatal("root's answer relayed to an ended lane")
+			}
+			w.checked(stopNotice("msg_s2", 2))
+			w.noEscalation("DECIDE msg_s2 ")
+			w.wantEscalation(fmt.Sprintf("RESTING msg_s2 lane-a: %s, so its stop needs no answer", reason))
+		})
+	}
+}
+
 func TestAStopWithABackgroundTaskLiveRestsWithoutADecide(t *testing.T) {
 	w := newDeskWorld(t)
 	w.launchedBy("meta-desk-1")

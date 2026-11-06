@@ -320,6 +320,13 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 	}
 	if closed.Lane == deskRunner {
 		if decide := decideLine.FindStringSubmatch(closed.Text); decide != nil {
+			ended, err := d.laneFinished(ctx, decide[2])
+			if err != nil {
+				return true, err
+			}
+			if ended != "" {
+				return true, d.record("escalation:ended:"+at, fmt.Sprintf("ENDED %s %s: %s, so root's answer to #%d is not relayed to it", at, decide[2], ended, closed.Seq))
+			}
 			if parked, err := d.parkedReply(ctx, at, decide[2], closed.Seq); err != nil || parked {
 				return true, err
 			}
