@@ -83,6 +83,7 @@ var (
 	cciBlock     = verbsBlock("cci", cciLines...)
 	cciHelpCalls = [][]string{{"cci", "post", "--help"}, {"cci", "show", "--help"}, {"cci", "grep", "--help"}, {"cci", "tail", "--help"}}
 	ccxHelpCalls = [][]string{{"ccx", "vcs", "ship", "--help"}, {"ccx", "vcs", "worktree", "add", "--help"}, {"ccx", "code", "read", "--help"}, {"ccx", "code", "grep", "--help"}}
+	launchBegun  = time.Date(2026, 11, 6, 3, 15, 11, 250_000_000, time.UTC)
 )
 
 func sorted(base []string, more ...string) []string {
@@ -354,6 +355,7 @@ func (f *workerFixture) launch(lane, model, effort string) (string, string, erro
 		Env:    func(name string) string { return f.env[name] },
 		Sleep:  func(wait time.Duration) { f.slept = append(f.slept, wait) },
 		Stderr: &f.stderr,
+		Now:    func() time.Time { return launchBegun },
 		Spawn: func(argv []string, log string, env []string) (Process, error) {
 			if f.spawn != nil {
 				return f.spawn(argv, log, env)
@@ -942,13 +944,79 @@ func TestADesksStoreCopyMakesTheSameCallsAtOneOriginAndAThousandAndCarriesEveryO
 	}
 }
 
-func TestALaneThatIsNoDeskStartsWithoutACopy(t *testing.T) {
+func (f *workerFixture) catchUpCall(drive string) []string {
+	return []string{"sh", "-c", catchUpStore, "sh", drive, workerWorkspace, filepath.Join(f.attempt, catchUpCopy), "2026-11-06T03:15:11.25Z"}
+}
+
+func TestALaneThatIsNoDeskHoldsTheMailPostedSinceItsLaunchBeganBeforeItsWorkerStarts(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.env[driveEnv] = "the-drive"
 	f.sprite()
+	f.reply("sh "+catchUpStore, workerReply{out: "default the-drive: 3 new, 0 duplicate, 0 held, 0 released\n"})
 	f.launched()
 	if len(f.spawned) != 0 {
-		t.Fatalf("spawned %v, want none", f.spawned)
+		t.Fatalf("spawned %v, want no copy of the whole drive", f.spawned)
+	}
+	at := func(call []string) int {
+		return slices.IndexFunc(f.calls, func(made []string) bool { return slices.Equal(made, call) })
+	}
+	joined, caught := at(joinCall(workerWorkspace)), at(f.catchUpCall("the-drive"))
+	started := slices.IndexFunc(f.calls, func(call []string) bool { return slices.Contains(call, "worker-start") })
+	if joined < 0 || caught <= joined || started <= caught {
+		t.Fatalf("joined at call %d, caught up at %d, started the worker at %d:\n%v", joined, caught, started, f.calls)
+	}
+	if got := f.receiptText(catchUpReceipt); got != "default the-drive: 3 new, 0 duplicate, 0 held, 0 released\n" {
+		t.Fatal(got)
+	}
+}
+
+func TestALaneWhoseCatchUpFailsStillStartsAndSaysWhatItLacks(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env[driveEnv] = "the-drive"
+	f.sprite()
+	f.reply("sh "+catchUpStore, workerReply{code: 1, err: "Error: unknown flag: --since\n"})
+	if line := f.launched(); !strings.Contains(line, `"state":"ready"`) {
+		t.Fatal(line)
+	}
+	if !strings.Contains(f.stderr.String(), "holds none of the drive the-drive records the Mac took after lane "+workerLane+"'s launch began") || !strings.Contains(f.receiptText(catchUpReceipt), "unknown flag: --since") {
+		t.Fatal(f.stderr.String())
+	}
+}
+
+func TestACatchUpExportsSinceTheLaunchSeedsTheSpriteAndKeepsNoCopy(t *testing.T) {
+	for _, landed := range []int{0, 3} {
+		stubs := t.TempDir()
+		calls := filepath.Join(stubs, "calls.log")
+		for name, body := range map[string]string{
+			"cci":    `echo "cci $*" >> "$CALLS"; echo copied`,
+			"sprite": `echo "sprite $*" >> "$CALLS"; exit "$LANDED"`,
+		} {
+			if err := os.WriteFile(filepath.Join(stubs, name), []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // the stub has to execute
+				t.Fatal(err)
+			}
+		}
+		copied := filepath.Join(stubs, catchUpCopy)
+		catchUp := exec.Command("sh", "-c", catchUpStore, "sh", "the-drive", workerWorkspace, copied, "2026-11-06T03:15:11.25Z")
+		catchUp.Env = append(os.Environ(), "PATH="+stubs+":"+os.Getenv("PATH"), "CALLS="+calls, "LANDED="+strconv.Itoa(landed))
+		ended, exit := 0, (*exec.ExitError)(nil)
+		if errors.As(catchUp.Run(), &exit) {
+			ended = exit.ExitCode()
+		}
+		if ended != landed {
+			t.Fatalf("a Sprite seed exiting %d ended the catch-up with %d", landed, ended)
+		}
+		made, err := os.ReadFile(calls)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "cci relay export --drive the-drive --since 2026-11-06T03:15:11.25Z\n" +
+			"sprite exec -s " + workerWorkspace + " --no-stdin --file " + copied + ":/tmp/store-catch-up.gz -- sh -c $HOME/.local/bin/cci relay seed --drive \"$1\" < /tmp/store-catch-up.gz; seeded=$?; rm -f /tmp/store-catch-up.gz; exit $seeded sh the-drive\n"
+		if string(made) != want {
+			t.Fatalf("made\n%s\nwant\n%s", made, want)
+		}
+		if present(copied) {
+			t.Fatalf("the Mac kept its copy %s", copied)
+		}
 	}
 }
 
@@ -1908,7 +1976,7 @@ func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAg
 	f.sprite()
 	f.launched()
 	started := f.startCalls(prepared())
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:2], [][]string{driveCall("brook")}, started[2:], [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:2], [][]string{driveCall("brook")}, started[2:6], [][]string{f.catchUpCall("brook")}, started[6:], [][]string{holdCall(workerWorkspace)})...)
 }
 
 func TestASpriteCodexLaneInADriveCarriesAPRRecordOfCCIRecords(t *testing.T) {
