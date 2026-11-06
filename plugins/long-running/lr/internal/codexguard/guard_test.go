@@ -121,6 +121,37 @@ func TestAProofGrantBelongsToItsLane(t *testing.T) {
 	}
 }
 
+func TestAGrantNamesTheTopLevelLaneNeverItsSubagents(t *testing.T) {
+	proof := "ci mac-box ssh shape-box -- IRIS_TEAM=personal IRIS_RELEASE_PROOF=release-50287 open -a Iris"
+	nameless := &shelltest.Fake{}
+	nameless.Reply("shape-box\n", boxesRead...)
+	nameless.Reply("long-running.signedinproof==release-50287\n", configRead...)
+	cases := []struct {
+		name    string
+		agentID string
+		command string
+		runner  *shelltest.Fake
+		refused bool
+	}{
+		{"the granted lane's proof", "", proof, fake(), false},
+		{"a subagent of the granted lane", "a1", proof, fake(), true},
+		{"a subagent against a grant naming no lane", "a1", proof, nameless, true},
+		{"the granted lane's credential write", "", keyWrite, granting("lane-a=ssm:/ci/desk-host/cci-service-key\n"), false},
+		{"a subagent's credential write", "a1", keyWrite, granting("lane-a=ssm:/ci/desk-host/cci-service-key\n"), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			raw, err := json.Marshal(map[string]any{"cwd": "/w", "agent_id": c.agentID, "tool_input": map[string]string{"command": c.command}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := (Guard{Runner: c.runner, Getenv: lane}).Refusal(context.Background(), raw) != ""; got != c.refused {
+				t.Fatalf("refused = %v, want %v", got, c.refused)
+			}
+		})
+	}
+}
+
 func TestAGrantStillRefusesHisBrowser(t *testing.T) {
 	said := Guard{Runner: fake(), Getenv: lane}.Refusal(context.Background(), payload(t, "orca tab create --url https://app.example.test/ --json"))
 	if said != refusal {

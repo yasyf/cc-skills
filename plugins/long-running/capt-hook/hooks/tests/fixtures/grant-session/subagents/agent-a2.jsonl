@@ -1,0 +1,1 @@
+{"type": "user", "uuid": "a2-0", "sessionId": "grant-session", "timestamp": "2026-11-06T15:00:00Z", "message": {"role": "user", "content": "ccx: lane=lane-c role=proof\nProve the fix in the released build."}}

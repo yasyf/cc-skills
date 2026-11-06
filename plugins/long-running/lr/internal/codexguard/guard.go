@@ -37,6 +37,7 @@ type Guard struct {
 
 type hookCall struct {
 	Cwd       string `json:"cwd"`
+	AgentID   string `json:"agent_id"`
 	ToolInput struct {
 		Command string `json:"command"`
 	} `json:"tool_input"`
@@ -53,13 +54,30 @@ func (g Guard) Refusal(ctx context.Context, payload []byte) string {
 	if g.drivesProduction(ctx, call.ToolInput.Command, call.Cwd) {
 		return refusal
 	}
-	if g.launchesIrisAsHim(ctx, call.ToolInput.Command, call.Cwd) {
+	if g.launchesIrisAsHim(ctx, call.ToolInput.Command, call.Cwd, g.grantedLane(call)) {
 		return irisRefusal
 	}
-	if g.writesACredential(ctx, call.ToolInput.Command, call.Cwd) {
+	if g.writesACredential(ctx, call.ToolInput.Command, call.Cwd, g.grantedLane(call)) {
 		return storeWriteRefusal
 	}
 	return ""
+}
+
+func (g Guard) grantedLane(call hookCall) string {
+	if call.AgentID != "" {
+		return ""
+	}
+	return g.Getenv("CLAUDE_LONG_RUNNING_LANE")
+}
+
+func grantsTo(lane string, entries []string) []string {
+	var granted []string
+	for _, entry := range entries {
+		if named, grant, ok := strings.Cut(entry, "="); ok && lane != "" && named == lane {
+			granted = append(granted, grant)
+		}
+	}
+	return granted
 }
 
 func (g Guard) drivesProduction(ctx context.Context, line, cwd string) bool {
