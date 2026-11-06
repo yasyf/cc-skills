@@ -152,7 +152,7 @@ func Run(s *store.Store, snapshot []machine.Facts, now time.Time, post Post, liv
 		if err := escalateUnreadRows(s, snapshot, now, tell, &out); err != nil {
 			return out, err
 		}
-		if out.Stuck, err = stuckHeads(s, snapshot, now, live, out.Verdicts); err != nil {
+		if out.Stuck, err = stuckHeads(s, snapshot, now, live, out.Verdicts, owner); err != nil {
 			return out, err
 		}
 	}
@@ -598,7 +598,7 @@ func tellUngraded(s *store.Store, f machine.Facts, waited time.Duration, now tim
 	return nil
 }
 
-func stuckHeads(s *store.Store, snapshot []machine.Facts, now time.Time, live []machine.Mover, verdicts map[int]machine.Verdict) (map[int]string, error) {
+func stuckHeads(s *store.Store, snapshot []machine.Facts, now time.Time, live []machine.Mover, verdicts map[int]machine.Verdict, owner Owner) (map[int]string, error) {
 	overdue, err := s.Overdue(now)
 	if err != nil {
 		return nil, err
@@ -615,9 +615,24 @@ func stuckHeads(s *store.Store, snapshot []machine.Facts, now time.Time, live []
 		if !waits || item.Head != f.Head || !f.Admitted() || f.Hold != "" {
 			continue
 		}
-		why := fmt.Sprintf("the landing pass reads it as %s: its %s waits on the %s past its deadline, and the %s does not run on the landing host", verdicts[f.Number].State, item.Kind, item.Mover, item.Mover)
-		if missing := grading.Missing(f); len(missing) > 0 {
+		waiter := fmt.Sprintf("the %s past its deadline, and the %s does not run on the landing host", item.Mover, item.Mover)
+		if item.Mover == machine.MoverLane {
+			lane, err := owner(f.Lane, f.Number)
+			if err != nil {
+				return nil, err
+			}
+			waiter = lane + " past its deadline"
+		}
+		why := fmt.Sprintf("the landing pass reads it as %s: its %s waits on %s", verdicts[f.Number].State, item.Kind, waiter)
+		missing := grading.Missing(f)
+		if len(missing) > 0 {
 			why += "; no " + strings.Join(missing, " or ") + " grade or override reached the landing store"
+		}
+		at := f.Head[:min(7, len(f.Head))]
+		for _, grader := range grading.Owed(f) {
+			if !slices.Contains(missing, grader) {
+				why += fmt.Sprintf("; its %s grade does not clear at %s, so a pushed fix or a counted decide `%s-override #%d at %s: <owner answer>` moves it", grader, at, grader, f.Number, at)
+			}
 		}
 		stuck[f.Number] = why
 	}

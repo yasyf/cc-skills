@@ -1313,6 +1313,36 @@ func TestAnExemptPRWithNoRowLandsUnderItsRuleAndTellsNobody(t *testing.T) {
 	}
 }
 
+func TestATappedHeadOverdueOnItsLaneNamesTheLaneAndTheOverrideThatMovesIt(t *testing.T) {
+	landing := []machine.Mover{machine.MoverSupervisor}
+	failing := func(f *machine.Facts) { f.Fidelity = machine.FidelityFail }
+	late := t0.Add(machine.LaneClock + time.Minute)
+	for name, test := range map[string]struct {
+		running bool
+		waiter  string
+	}{
+		"a running lane":         {true, "lane-7 past its deadline"},
+		"a lane that is stopped": {false, "root past its deadline"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, r := newStore(t), &recorder{}
+			if test.running {
+				if _, err := s.WantLane(store.Lane{Name: "lane-7", State: store.LaneDesired}, t0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f := facts(1, failing)
+			run(t, s, r, t0, landing, f)
+
+			why := run(t, s, r, late, landing, f).Stuck[1]
+
+			if !strings.Contains(why, test.waiter) || strings.Contains(why, "does not run on the landing host") || !strings.Contains(why, "`fidelity-override #1 at "+head[:7]+": <owner answer>`") {
+				t.Fatalf("why = %q, want it to name %q and the fidelity override", why, test.waiter)
+			}
+		})
+	}
+}
+
 func TestATappedHeadOverdueOnAMoverThisHostDoesNotRunSaysWhy(t *testing.T) {
 	landing := []machine.Mover{machine.MoverSupervisor}
 	ungraded := func(f *machine.Facts) { f.Fidelity, f.Tap, f.Exempt = "", "", true }
