@@ -47,6 +47,9 @@ const (
 	flakyNoticeRead = "20"
 	failedJobReads  = 3
 	untested        = "no test job ran, since the build held no other step"
+	beforeCommands  = "it failed in checkout or a hook, before its commands ran"
+	checkoutHeader  = "~~~ Preparing working directory"
+	commandsHeader  = "~~~ Running commands"
 	redAttr         = "dev-red"
 	ownerAttr       = "owner"
 	jobAttr         = "job:"
@@ -61,12 +64,12 @@ var (
 	squashedPR  = regexp.MustCompile(`\(#(\d+)\)$`)
 	buildURL    = regexp.MustCompile(`/([\w.-]+)/builds/(\d+)/?$`)
 	trunkRed    = regexp.MustCompile(`^(?:DEV-RED|POST-MERGE-RED) (?:for|since) `)
-	failedTest  = regexp.MustCompile(`(?m)--- FAIL: ([\w.-]+)|^test (\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (\S+)|^\s*● .+ › (.+?)\s*$`)
+	failedTest  = regexp.MustCompile(`(?m)--- FAIL: ([\w.-]+)|^test (\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (\S+)|^\s*● .+ › (.+?)\s*$|^\s*✖ (.+?) \([\d.]+ms\)\s*$`)
 	logControl  = regexp.MustCompile("\x1b(?:_[^\x07]*\x07|\\[[0-9;]*[A-Za-z])|\r")
 	flakyNotice = regexp.MustCompile("> failed (?:`([^`]+)`.*? )?on <(https://buildkite\\.com/[^|>]+)\\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told")
 	testName    = regexp.MustCompile(`^(?:Test\w+|\w+(?:::\w+)+)$`)
 	redSlug     = regexp.MustCompile(`^` + trunkTopic + `-[0-9a-f]+\b`)
-	infraLine   = regexp.MustCompile(`(?im)^.*(?:API rate limit exceeded|secondary rate limit|quota exceeded|\b403\b.*\b(?:rate limit|quota|Forbidden)\b|\b429 Too Many Requests|no space left on device).*$`)
+	infraLine   = regexp.MustCompile(`(?im)^.*(?:API rate limit exceeded|secondary rate limit|quota exceeded|\b403\b.*\b(?:rate limit|quota)\b|\b429 Too Many Requests|no space left on device).*$`)
 	dataFile    = []string{".json", ".md", ".txt", ".yaml", ".yml"}
 	finished    = []string{stateSuccess, "FAILURE", "ERROR"}
 )
@@ -457,6 +460,9 @@ func (w *TrunkWatch) failure(ctx context.Context, build, job string) (tests []st
 	if len(tests) > 0 {
 		return tests, ""
 	}
+	if strings.Contains(content, checkoutHeader) && !strings.Contains(content, commandsHeader) {
+		return nil, beforeCommands
+	}
 	line := strings.TrimSpace(infraLine.FindString(content))
 	return nil, line[:min(200, len(line))]
 }
@@ -467,29 +473,28 @@ func (w TrunkWatch) FailedJob(ctx context.Context, url string) (job, test, infra
 	if err != nil {
 		return "", "", ""
 	}
-	read := 0
-	for _, failed := range build.Jobs {
-		if !failed.failed() || failed.SoftFailed || failed.SignalReason == agentStop {
-			continue
-		}
-		if job == "" {
-			job = failed.step()
-		}
-		if build.only(failed.step()) {
-			return failed.step(), "", untested
-		}
-		if read++; read > failedJobReads {
-			break
-		}
-		named, line := w.failure(ctx, url, failed.ID)
-		if len(named) > 0 {
-			return failed.step(), named[0], ""
-		}
-		if line != "" && infra == "" {
-			job, infra = failed.step(), line
+	failed := slices.DeleteFunc(slices.Clone(build.Jobs), func(j trunkJob) bool { return !j.failed() || j.SoftFailed || j.SignalReason == agentStop })
+	if len(failed) == 0 {
+		return "", "", ""
+	}
+	infraJob, everyInfra := "", len(failed) <= failedJobReads
+	for _, j := range failed[:min(len(failed), failedJobReads)] {
+		named, line := w.failure(ctx, url, j.ID)
+		switch {
+		case len(named) > 0:
+			return j.step(), named[0], ""
+		case build.only(j.step()):
+			return j.step(), "", untested
+		case line == "":
+			everyInfra = false
+		case infra == "":
+			infraJob, infra = j.step(), line
 		}
 	}
-	return job, "", infra
+	if !everyInfra {
+		return failed[0].step(), "", ""
+	}
+	return infraJob, "", infra
 }
 
 func (w *TrunkWatch) watchNotices(ctx context.Context) error {

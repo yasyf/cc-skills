@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,9 @@ const (
 	entryCancelled = "cancelled"
 	entryNotReady  = "notReady"
 	entryPending   = "pendingFailure"
+
+	evictionRecordFact = "eviction-record"
+	evictionWhyFact    = "eviction-why"
 )
 
 var (
@@ -153,36 +157,40 @@ func (e Evictions) settle(ctx context.Context, f *machine.Facts, arrived time.Ti
 		f.Queue = machine.QueueNone
 		return nil
 	}
-	evidence, err := e.notItsOwn(ctx, failure)
+	infra := failure.infrastructure()
+	own := infra == "" || f.Resubmitted >= 1
+	told, err := e.tell(ctx, *f, failure, infra, own)
 	if err != nil {
-		return err
-	}
-	own := evidence == "" || f.Resubmitted >= 1
-	if err := e.tell(ctx, *f, failure, evidence, own); err != nil {
 		return err
 	}
 	f.Eviction, f.EvictionOwn = failure.words(), own
 	now := e.Now()
-	if _, err := e.Store.PutFact(f.Repo, f.Number, f.Head, machine.EvictionFact, f.Eviction, now); err != nil {
+	put := func(kind, value string) error {
+		_, err := e.Store.PutFact(f.Repo, f.Number, f.Head, kind, value, now)
 		return err
 	}
-	if !own {
-		return nil
+	if own {
+		return errors.Join(put(machine.EvictionFact, f.Eviction), put(machine.EvictionOwnFact, "yes"))
 	}
-	_, err = e.Store.PutFact(f.Repo, f.Number, f.Head, machine.EvictionOwnFact, "yes", now)
-	return err
+	return errors.Join(put(machine.EvictionFact, f.Eviction), put(evictionRecordFact, strconv.FormatInt(told.Seq, 10)), put(evictionWhyFact, infra))
 }
 
-func (e Evictions) notItsOwn(ctx context.Context, failure Failure) (string, error) {
+func (failure Failure) infrastructure() string {
 	switch {
 	case failure.State == entryCancelled:
-		return "the queue entry was canceled, no test failed", nil
+		return "the queue entry was canceled, no test failed"
 	case slices.Contains(trunkSideFailures, failure.Reason):
-		return "Trunk's own step failed", nil
-	case len(failure.MatesFailed) > 0:
-		return "the same test run also failed " + numbered(failure.MatesFailed), nil
+		return "Trunk's own step failed"
 	case failure.Infra != "":
-		return "it failed on infrastructure", nil
+		return "no failed job ran a failing test, it failed on infrastructure"
+	}
+	return ""
+}
+
+func (e Evictions) inherited(ctx context.Context, failure Failure) (string, error) {
+	switch {
+	case len(failure.MatesFailed) > 0:
+		return "The same test run also failed " + numbered(failure.MatesFailed), nil
 	case failure.Test == "" && failure.Job == "":
 		return "", nil
 	}
@@ -192,29 +200,35 @@ func (e Evictions) notItsOwn(ctx context.Context, failure Failure) (string, erro
 	}
 	named := flakeFound{test: failure.Test, job: failure.Job}.subject()
 	if at := slices.IndexFunc(flakes, func(r client.Record) bool { return r.Fields.Attrs[flakeAttr] == named }); at >= 0 {
-		return "open flake " + flakes[at].Name() + " names it", nil
+		return "Open flake " + flakes[at].Name() + " names it", nil
 	}
 	return "", nil
 }
 
-func (e Evictions) tell(ctx context.Context, f machine.Facts, failure Failure, evidence string, own bool) error {
+func (e Evictions) tell(ctx context.Context, f machine.Facts, failure Failure, infra string, own bool) (client.Record, error) {
 	to, unowned, err := e.audience(f)
 	if err != nil {
-		return err
+		return client.Record{}, err
 	}
-	kind, next := "report", "Not its own change: "+evidence+". It re-enters the queue once at this head, as soon as it is landable."
-	if own {
+	kind, next := "report", "Not its own change: "+infra+". It re-enters the queue once at this head, as soon as it is landable."
+	switch {
+	case f.Resubmitted >= 1:
+		kind, next = "blocker", "This is its second eviction at this head, so it stays out of the queue until a new head; read the check, then push a fix."
+	case own:
+		inherited, err := e.inherited(ctx, failure)
+		if err != nil {
+			return client.Record{}, err
+		}
 		kind, next = "blocker", "It stays out of the queue until a new head; read the check, then push a fix."
-		if f.Resubmitted >= 1 {
-			next = "This is its second eviction at this head, so it stays out of the queue until a new head; read the check, then push a fix."
+		if inherited != "" {
+			next = inherited + ", yet a failed test never re-enters at its head. It stays out of the queue until a new head: its own fix, or a rebase onto the fix of what failed."
 		}
 	}
-	_, err = client.Post(ctx, client.Draft{
+	return client.Post(ctx, client.Draft{
 		Drive: e.Drive, Lane: self, Kind: kind, To: to, PRs: []string{pullRef(f)},
 		ID:   fmt.Sprintf("evicted:%d:%s:%s", f.Number, f.Head, failure.At),
 		Text: fmt.Sprintf("%sEVICTED #%d at %s: %s. %s", unowned, f.Number, shortHead(f.Head), failure.words(), next),
 	})
-	return err
 }
 
 func (e Evictions) audience(f machine.Facts) ([]string, string, error) {
@@ -269,7 +283,12 @@ func (failure Failure) words() string {
 }
 
 func forgetEviction(s *store.Store, f machine.Facts) error {
-	return errors.Join(s.DeleteFact(f.Repo, f.Number, f.Head, machine.EvictionFact), s.DeleteFact(f.Repo, f.Number, f.Head, machine.EvictionOwnFact))
+	return errors.Join(
+		s.DeleteFact(f.Repo, f.Number, f.Head, machine.EvictionFact),
+		s.DeleteFact(f.Repo, f.Number, f.Head, machine.EvictionOwnFact),
+		s.DeleteFact(f.Repo, f.Number, f.Head, evictionRecordFact),
+		s.DeleteFact(f.Repo, f.Number, f.Head, evictionWhyFact),
+	)
 }
 
 func numbered(numbers []int) string {

@@ -119,6 +119,7 @@ func Settle(ctx context.Context, s *store.Store, drive string, answers []Said) e
 			Kind:  kind,
 			To:    to,
 			ID:    id,
+			Re:    answer.Re,
 			PRs:   []string{pullRef(f)},
 			Text:  fmt.Sprintf("%s%s #%d at %s: %s", unowned, label, f.Number, shortHead(f.Head), answer.Text),
 		})
