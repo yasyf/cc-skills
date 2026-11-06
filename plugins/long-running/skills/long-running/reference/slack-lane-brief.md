@@ -35,7 +35,8 @@
   - Link every build, PR, deploy, alert, monitor, dashboard, run, commit, and doc as `<url|label>`. Format every PR and issue as `<url|#N>` and every person as `<@U…>`.
   - Use Pacific times without a timezone label.
   - Omit internal ids, drive inbox or ruling ids, lane/desk/cursor/register names, raw shas, ULIDs, run/browser/exec ids, status labels, and unglossed code nouns.
-- **Check every post before sending.** Write the draft to a temp file and run `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every finding. Then run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off` and fix real flags. Incident retro drafts also run `retro.py comms-check <tmpfile> --url <rendered-url>`.
+- **Check every post before sending.** Write the draft to a temp file and run `check-post <tmpfile>`, or pipe the draft to `check-post -`, and fix every finding. The cc-slack plugin puts `check-post` on the PATH of every Mac session; it is a script, not a `cc-slack` subcommand. Then run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off` and fix real flags. Incident retro drafts also run `retro.py comms-check <tmpfile> --url <rendered-url>`.
+- **A Sprite lane's post is checked on the Mac.** A Sprite has no cc-slack, so its lane runs slop-cop on the draft and hands the text to `owner-relay`. `owner-relay` runs `check-post` on it before posting and returns any finding to the lane instead of posting.
 
 ## Permission and grants
 
@@ -83,7 +84,7 @@ ccn answer add "May the drive reply in <channel id> thread <thread ts>, where <u
 ```
 
 - A thread grant covers replies in `<channel id>/<thread ts>` only. Every other thread and top-level post in that channel stays silent unless the owner names it.
-- An incident comms lane posts under the grant id on each ask (`slack-grant:<channel id>`) without a coordinator turn or draft return (`reference/active-alert-brief.md`).
+- An incident comms lane posts under the grant id on each ask (`slack-grant:<channel id>`) without a coordinator turn or draft return (`reference/active-alert-brief.md`). The lane's brief or dispatch names that grant's answer id, or an owner record as `#<seq>`, and the post text never carries either, since the pack's Slack status hook reads the citation from the brief.
 
 ## Agent types, surfaces, and fallbacks
 
