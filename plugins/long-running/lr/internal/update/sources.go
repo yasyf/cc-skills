@@ -14,6 +14,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/deletions"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -24,6 +25,8 @@ import (
 
 const (
 	kindHold     = "hold"
+	kindTapOrder = "lr.tap"
+	headWaits    = "You approved it; it waits for a record naming its head."
 	kindIncident = "incident"
 	kindRelease  = "release"
 	statusOpen   = "open"
@@ -96,6 +99,27 @@ func heldPRs(records []Record) map[string]int64 {
 	return held
 }
 
+func withPendingTaps(rows []store.ReviewRow, records []Record) []store.ReviewRow {
+	pending := map[string]bool{}
+	for _, record := range records {
+		for _, pr := range record.PRs {
+			number := pr[strings.LastIndex(pr, "#")+1:]
+			switch record.Kind {
+			case bus.TapPendingKind:
+				pending[number] = true
+			case kindTapOrder, bus.TapRefusedKind:
+				delete(pending, number)
+			}
+		}
+	}
+	for at, row := range rows {
+		if pending[strconv.Itoa(row.Number)] && !row.Tapped {
+			rows[at].Tapped, rows[at].WaitsOn = true, headWaits
+		}
+	}
+	return rows
+}
+
 func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Inputs, error) {
 	lanes, err := src.Lanes(ctx)
 	if err != nil {
@@ -158,7 +182,7 @@ func Collect(ctx context.Context, src Sources, bus string, now time.Time) (Input
 	if err != nil {
 		return Inputs{}, err
 	}
-	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, PRRows: prRows, Held: heldPRs(holds), Waits: waitingOnRoot(day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
+	in := Inputs{Drive: bus, Now: now, Lanes: lanes, Plans: list, Book: book, PRRows: withPendingTaps(prRows, all), Held: heldPRs(holds), Waits: waitingOnRoot(day), All: all, Before: before, Retro: retro, Owed: owed, Pins: src.Pins, Programs: programs, Rulings: rulings, Overdue: slices.DeleteFunc(overdue, func(item store.Item) bool { return item.Mover != machine.MoverRoot }), Orders: orders}
 	in.Cards, in.Unboarded = boardOf(ctx, src, day)
 	if in.TapQueue, err = src.TapQueue(); err != nil {
 		return Inputs{}, err

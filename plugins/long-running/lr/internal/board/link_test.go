@@ -148,7 +148,7 @@ func newLink(t *testing.T) *linkFixture {
 	on := &linkShell{}
 	state := t.TempDir()
 	return &linkFixture{Cards: Cards{
-		Runner: on, Ledger: &ledgertest.Fake{}, Bus: linkDrive, Checkout: "/co", StateDir: state, Program: "brook", Store: s,
+		Runner: on, Ledger: &ledgertest.Fake{}, CCX: &prStatus{}, Bus: linkDrive, Checkout: "/co", StateDir: state, Program: "brook", Store: s,
 		Now:      func() time.Time { return cardsNow },
 		Withdraw: func(context.Context, string, string, string) error { return nil },
 		Report:   func(context.Context, string, []string, string, string) error { return nil },
@@ -156,7 +156,7 @@ func newLink(t *testing.T) *linkFixture {
 }
 
 func (f *linkFixture) link() Link {
-	return Link{Drive: linkDrive, State: f.state, Judge: f.judge, Cards: func(session string) (Cards, func(), error) {
+	return Link{Drive: linkDrive, Repo: readyRepo, State: f.state, Judge: f.judge, Cards: func(session string) (Cards, func(), error) {
 		cards := f.Cards
 		cards.Session = cmp.Or(session, "board-1")
 		return cards, func() {}, nil

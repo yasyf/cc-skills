@@ -1,8 +1,10 @@
 package bus_test
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 )
 
@@ -95,5 +97,25 @@ func TestAHoldThatSaysItWaitsOnHisAnswerHoldsUntilHisTap(t *testing.T) {
 				t.Fatalf("HoldsUntilTap = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAPickOnSeveralPRsIsCarriedOnlyWhenALaterRecordOrdersEachOfThem(t *testing.T) {
+	pick := legacyRecord(t, "owner", "board-watch", "Four small changes are green and ready to land. Approve them? (c): picked “Approve all four”", nil, map[string]string{"event": "choice.selected", "heads": repo + "#7=abc1234," + repo + "#8=def5678"})
+	carried := func(numbers ...int) []client.Record {
+		records := make([]client.Record, 0, len(numbers))
+		for _, number := range numbers {
+			records = append(records, legacyRecord(t, "owner", "owner-relay", fmt.Sprintf(`Owner: "Approve all four" #%d`, number), nil, nil))
+		}
+		return records
+	}
+	if !bus.UnnamedLand(pick, repo) {
+		t.Fatal("a pick on two PRs read as naming one")
+	}
+	if bus.CarriedEach(pick, carried(7), repo) {
+		t.Fatal("a pick carried for one of its two PRs read as carried")
+	}
+	if !bus.CarriedEach(pick, carried(7, 8), repo) {
+		t.Fatal("a pick carried for each of its PRs read as not carried")
 	}
 }

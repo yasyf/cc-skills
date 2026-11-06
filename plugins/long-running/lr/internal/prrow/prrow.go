@@ -43,9 +43,11 @@ const (
 	ParentClosed  = "closed"
 	ParentUnknown = "unknown"
 
-	NotGraded     = "not graded at this head"
-	AlreadyLanded = "Nothing: it landed."
-	RedAtHead     = "CI is red at this head"
+	NotGraded      = "not graded at this head"
+	AlreadyLanded  = "Nothing: it landed."
+	RedAtHead      = "CI is red at this head"
+	NoHeadYet      = "no record names its head yet"
+	ClosedUnlanded = "Nothing: it was closed without landing."
 
 	heldLead       = "held, "
 	verdictLead    = "a grade needs a verdict"
@@ -212,7 +214,7 @@ func unmet(row store.ReviewRow, checks bool) string {
 	case row.State == StateLanded:
 		return AlreadyLanded
 	case row.State == StateClosed:
-		return "Nothing: it was closed without landing."
+		return ClosedUnlanded
 	case row.SupersededBy != None:
 		return "Nothing: superseded, " + row.SupersededBy
 	case row.State == StateDraft:
@@ -228,7 +230,7 @@ func unmet(row store.ReviewRow, checks bool) string {
 	case checks && row.ParentState == ParentUnknown:
 		return fmt.Sprintf("the change below it, on branch %s, has no row", row.Parent)
 	case row.Head == "":
-		return "no record names its head yet"
+		return NoHeadYet
 	case checks && row.CI == CIRed:
 		return RedAtHead
 	case checks && row.CI != CIGreen:
