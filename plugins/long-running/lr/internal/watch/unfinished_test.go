@@ -128,13 +128,63 @@ func TestAnUnfinishedPickCarriesHisWholeAnswer(t *testing.T) {
 	}
 }
 
+func TestAPickALandedPROrALiveOwnerCarriesGoesToProgressDeskAndOnlyAnOrphanToRoot(t *testing.T) {
+	now := at(t, "2026-11-06T09:00:00Z")
+	pick := func(seq, owner, text string) ledger.Row {
+		return ledger.Row{Key: "pick/" + seq, Updated: now.Add(-30 * time.Hour), Fields: map[string]string{"state": "routed", "kind": "pick", "owner": owner, "seq": seq, "text": text}}
+	}
+	l := Ledgers{
+		Findings: []ledger.Row{
+			pick("458906", "root", "Tap: #45538, sand-next: restore failure deadlines: Approve"),
+			pick("455359", "agentic-compaction", "Approve #50160, compaction by fork: Approve, land it"),
+			pick("459001", "root", "Approve #51900, a PR still open: Approve"),
+			pick("459002", "retired-lane", "Keep the old dashboard?: Keep it"),
+		},
+		Live:   []string{"root", "agentic-compaction-2"},
+		Landed: map[int]bool{45538: true},
+	}
+
+	waits, err := Unfinished(l, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routes := make([]string, 0, len(waits))
+	for _, wait := range waits {
+		routes = append(routes, wait.subject()+">"+wait.To)
+	}
+	want(t, strings.Join(routes, " "), "pick/458906>progress-desk pick/455359>progress-desk pick/459001>root pick/459002>root")
+}
+
+func TestAPastDueRetroRowGoesToItsOwnersLiveAliasAndOnlyAnOrphanToRoot(t *testing.T) {
+	now := at(t, "2026-11-06T09:00:00Z")
+	retro := func(key, owner string) ledger.Row {
+		return ledger.Row{Key: key, Updated: now.Add(-48 * time.Hour), Fields: map[string]string{"state": "building", "owner": owner, "due": now.Add(-time.Hour).Format(time.RFC3339), "failure": "the fix lane stopped"}}
+	}
+	l := Ledgers{
+		Retro: []ledger.Row{retro("retro/1", "meta-desk-1"), retro("retro/2", "meta-desk"), retro("retro/3", "gone-lane"), retro("retro/4", "root")},
+		Live:  []string{"root", "meta-desk-3"},
+	}
+
+	waits, err := Unfinished(l, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routes := make([]string, 0, len(waits))
+	for _, wait := range waits {
+		routes = append(routes, wait.subject()+">"+wait.To)
+	}
+	want(t, strings.Join(routes, " "), "retro/1>meta-desk retro/2>meta-desk retro/3>root retro/4>root")
+}
+
 func TestADayOfUnfinishedRowsIsNotARepeatedDefect(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	now := at(t, "2026-11-03T08:00:00Z")
 	waits := []Wait{
-		unfinishedWait("ask/1", "owner ask", "no progress", "one", "step", now.Add(-48*time.Hour), time.Time{}, now),
-		unfinishedWait("ask/2", "owner ask", "no progress", "two", "step", now.Add(-48*time.Hour), time.Time{}, now),
-		unfinishedWait("ask/3", "owner ask", "no progress", "three", "step", now.Add(-48*time.Hour), time.Time{}, now),
+		unfinishedWait("ask/1", "owner ask", "no progress", "one", "step", root, now.Add(-48*time.Hour), time.Time{}, now),
+		unfinishedWait("ask/2", "owner ask", "no progress", "two", "step", root, now.Add(-48*time.Hour), time.Time{}, now),
+		unfinishedWait("ask/3", "owner ask", "no progress", "three", "step", root, now.Add(-48*time.Hour), time.Time{}, now),
 	}
 
 	first, err := Sweep(s, nil, nil, waits, now, r.post)
