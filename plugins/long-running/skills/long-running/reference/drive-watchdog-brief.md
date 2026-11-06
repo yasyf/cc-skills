@@ -42,6 +42,11 @@ Keep cci text under 400 characters; attach longer bodies with --path.
 Never say a PR is tapped or approved without the board verdict id: read
 `cc-present outcomes --no-doc --session <coordinator session>` for that PR and head and cite
 its block, row and head; an empty tap list or a coordinator go is no tap.
+Never name a PR or release as the fix for something, or as one to install, before reading
+its title and body with `gh pr view <n> --json title,body`, or the release's notes with
+`gh release view <tag>`; a number copied from another record is no fix. On Nov 3 a
+watchdog named cc-skills#2190, the deadline-plan refusal, as the fix for Sprite lanes
+typing UTC clocks.
 `lr approved [--since <seq>]` lists the PRs the board approved, split into not open
 and still open, from one record read and one batched PR read; never rebuild that list
 from records.
