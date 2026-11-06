@@ -440,15 +440,22 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var launched time.Time
+	var began time.Time
 	for _, launch := range launches {
 		at, err := verifiedAt(launch)
 		if err != nil {
 			return "", err
 		}
-		if at.After(launched) {
-			launched = at
+		if at.After(began) {
+			began = at
 		}
+	}
+	row, found, err := d.Registry.Lane(lane)
+	if err != nil {
+		return "", err
+	}
+	if found && slices.Contains([]store.LaneState{store.LaneLaunching, store.LaneDesired}, row.State) && row.Since.After(began) {
+		began = row.Since
 	}
 	names, err := d.names(lane)
 	if err != nil {
@@ -459,7 +466,7 @@ func (d *Desk) laneStoodDown(ctx context.Context, lane string) (string, error) {
 		return "", err
 	}
 	for _, record := range posted {
-		if standsDown(record, names) && !record.At.Before(launched) {
+		if standsDown(record, names) && !record.At.Before(began) {
 			return seqReceipt(record.Seq), nil
 		}
 	}
