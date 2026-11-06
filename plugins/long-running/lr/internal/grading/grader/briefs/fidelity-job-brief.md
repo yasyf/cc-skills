@@ -143,7 +143,9 @@ Answer in the schema:
   line, and touches no code or behavior the plan's steps changed or own ("{port}");
   any other class among {classes} only when the head is what its words say; `none` otherwise.
   A class the changed paths alone decide, such as test-only or ci-tooling, is not yours to
-  name: the pass reads it from the diff's files.
+  name: the pass reads it from the diff's files. The pass records one class on every grade, in
+  the field the landing gate reads. That class is the one the paths decide, else the one you
+  name, else `none`.
   The one exception is a head whose lane claims it fixes a test flake, where {classes} lists
   test-only. Name it there only when no product binary links any changed file the paths do not
   read as test code, which you check by reading what imports that file at {head}; `none` otherwise.

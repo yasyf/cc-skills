@@ -19,12 +19,17 @@ const (
 	closedStatus = "closed"
 	finderKind   = "finder"
 	fidelityKind = "fidelity"
+	fidelityOK   = "fidelity: ok"
 	shortHead    = 7
 )
 
 const (
 	PortGrade     = "pure port, no interaction"
 	TestOnlyGrade = "test-only or CI-only, no non-test code"
+
+	PipelineLane      = "fidelity-pipeline"
+	FidelityClassAttr = "fidelity-class"
+	NoClass           = "none"
 
 	OldTreePortClass  = "old-tree-port"
 	PortOfAttr        = bus.PortOfAttr
@@ -197,7 +202,7 @@ func gradedTestOnly(c Claim, r Read) bool {
 	testOnly := testOnlyPhrases(r.Exempt)
 	lanes, standing := fidelityStanding(c, r.Records)
 	return slices.ContainsFunc(lanes, func(lane string) bool {
-		return standing[lane].ok && exemptPhrase(standing[lane].record.Text, testOnly) != ""
+		return standing[lane].ok && gradedPhrase(standing[lane].record, testOnly) != ""
 	})
 }
 
@@ -416,15 +421,21 @@ func fidelityStanding(c Claim, records []client.Record) ([]string, map[string]st
 
 func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string, []string) {
 	lanes, standing := fidelityStanding(c, r.Records)
-	class, cite := "", ""
+	class, cite, overruled, named := "", "", "", ""
 	var missing, refusals []string
 	for _, lane := range lanes {
 		grade := standing[lane]
+		if said, found := grade.record.Fields.Attrs[FidelityClassAttr]; found && lane == PipelineLane {
+			named = fmt.Sprintf(", and %s's grade %s names class %s", lane, grade.record.Name(), said)
+		}
 		if !grade.ok {
 			missing = append(missing, fmt.Sprintf("%s's newest grade %s is missing", lane, grade.record.Name()))
+			if phrase := gradedPhrase(grade.record, exempt); phrase != "" {
+				overruled = phrase
+			}
 			continue
 		}
-		if phrase := exemptPhrase(grade.record.Text, exempt); phrase != "" && class == "" {
+		if phrase := gradedPhrase(grade.record, exempt); phrase != "" && class == "" {
 			class, cite = ClassOf(phrase), "fidelity ok "+grade.record.Name()
 		}
 		if word != "" {
@@ -432,11 +443,15 @@ func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string
 		}
 	}
 	override, overridden := countedOverride(c, r, fidelityKind, func(client.Record, string) bool { return true })
-	if class == "" && word != "" && overridden {
+	switch {
+	case class != "" || !overridden:
+	case word != "":
 		class, cite = word, "fidelity-override "+override.Name()
+	case overruled != "":
+		class, cite = ClassOf(overruled), "fidelity-override "+override.Name()
 	}
 	if class == "" {
-		refusals = append(refusals, fmt.Sprintf("fidelity: no ok grade at %s names an exempt class (%s)", short(c.Head), strings.Join(exempt, "; ")))
+		refusals = append(refusals, fmt.Sprintf("fidelity: no ok grade at %s names an exempt class (%s)%s", short(c.Head), strings.Join(exempt, "; "), named))
 	}
 	if len(missing) > 0 && !overridden {
 		refusals = append(refusals, fmt.Sprintf("fidelity: %s at %s, and no counted decide reads fidelity-override #%d at %s", strings.Join(missing, ", "), short(c.Head), c.PR, short(c.Head)))
@@ -470,6 +485,27 @@ func named(records []client.Record, cites string) bool {
 func citesAnotherStore(override client.Record, cites string) bool {
 	_, notSeq := strconv.Atoi(cites)
 	return override.Num != "" && notSeq == nil
+}
+
+func gradedPhrase(record client.Record, phrases []string) string {
+	return GradedPhrase(record.Lane, record.Text, record.Fields.Attrs, phrases)
+}
+
+func GradedPhrase(lane, text string, attrs map[string]string, phrases []string) string {
+	if lane != PipelineLane {
+		return ""
+	}
+	class, named := attrs[FidelityClassAttr]
+	if !named && strings.HasPrefix(text, fidelityOK) {
+		// TODO: delete once every head fidelity-pipeline graded before it wrote FidelityClassAttr has landed or moved; it reads the phrase those grades wrote into their text.
+		return exemptPhrase(text, phrases)
+	}
+	for _, phrase := range phrases {
+		if ClassOf(phrase) == class {
+			return phrase
+		}
+	}
+	return ""
 }
 
 func exemptPhrase(text string, exempt []string) string {

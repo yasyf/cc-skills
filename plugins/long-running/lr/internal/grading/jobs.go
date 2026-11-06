@@ -501,7 +501,7 @@ func (p *JobPool) exemptGrades() []string {
 func gradeRecords(grades []client.Record) []grader.Record {
 	listed := make([]grader.Record, 0, len(grades))
 	for _, r := range grades {
-		listed = append(listed, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: r.Text})
+		listed = append(listed, grader.Record{Seq: r.Seq, Lane: r.Lane, Text: r.Text, Attrs: r.Fields.Attrs})
 	}
 	return listed
 }

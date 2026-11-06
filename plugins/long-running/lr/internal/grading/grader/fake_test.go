@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -300,6 +301,9 @@ func (f *fakeShell) post(_ context.Context, draft client.Draft) (client.Record, 
 	}
 	if draft.Path != "" {
 		post["--path"] = draft.Path
+	}
+	for _, name := range slices.Sorted(maps.Keys(draft.Attrs)) {
+		post["--attr"] = strings.TrimPrefix(post["--attr"]+","+name+"="+draft.Attrs[name], ",")
 	}
 	f.posted = append(f.posted, post)
 	if f.postError != nil {

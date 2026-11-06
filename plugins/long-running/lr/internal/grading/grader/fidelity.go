@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	FidelityLane    = "fidelity-pipeline"
+	FidelityLane    = gates.PipelineLane
 	fidelityOK      = "fidelity: ok"
 	fidelityMissing = "fidelity: missing"
 	fidelityReader  = "fidelity: reader"
@@ -133,8 +133,9 @@ type FidelityOutcome struct {
 }
 
 type gradeLine struct {
-	text string
-	also []string
+	text  string
+	also  []string
+	class string
 }
 
 type fidelityPassState struct {
@@ -551,35 +552,28 @@ func (s *fidelityPassState) chain(grade Record) []int64 {
 	return seqs
 }
 
-func (s *fidelityPassState) exemptPhrases(text string) []string {
-	var said []string
-	for _, phrase := range s.job.ExemptGrades {
-		if strings.Contains(strings.ToLower(text), strings.ToLower(phrase)) {
-			said = append(said, phrase)
-		}
-	}
-	return said
-}
-
 func (s *fidelityPassState) carriedClass(grade Record) string {
 	if s.class != "" {
-		return s.class + ": "
+		return s.class
 	}
 	if slices.ContainsFunc(s.chain(grade), func(seq int64) bool { return slices.Contains(s.job.Corrected, seq) }) {
 		return ""
 	}
-	desk := grade
-	found := false
-	for _, other := range s.job.Grades {
-		if other.Lane != FidelityLane && strings.HasPrefix(other.Text, fidelityOK) && (!found || other.Seq > desk.Seq) {
-			desk, found = other, true
-		}
+	return gates.GradedPhrase(grade.Lane, grade.Text, grade.Attrs, s.job.ExemptGrades)
+}
+
+func okLine(head, phrase, said string) gradeLine {
+	if phrase != "" {
+		said = phrase + ": " + said
 	}
-	class := ""
-	for _, phrase := range s.exemptPhrases(desk.Text) {
-		class += phrase + ": "
+	return gradeLine{text: fmt.Sprintf("%s %s %s", fidelityOK, head, said), class: classOf(phrase)}
+}
+
+func classOf(phrase string) string {
+	if phrase == "" {
+		return gates.NoClass
 	}
-	return class
+	return gates.ClassOf(phrase)
 }
 
 func (s *fidelityPassState) carried(match *carryMatch, how, proof string) (FidelityOutcome, error) {
@@ -591,7 +585,7 @@ func (s *fidelityPassState) carried(match *carryMatch, how, proof string) (Fidel
 			break
 		}
 	}
-	lines := []gradeLine{{text: fmt.Sprintf("%s %s %scarried from %s (cci #%d), %s%s.", fidelityOK, spec.Head, s.carriedClass(match.grade), short(match.head, 7), match.grade.Seq, how, settled)}}
+	lines := []gradeLine{okLine(spec.Head, s.carriedClass(match.grade), fmt.Sprintf("carried from %s (cci #%d), %s%s.", short(match.head, 7), match.grade.Seq, how, settled))}
 	if line, touched := s.touchedOldApp(); touched {
 		lines = append(lines, gradeLine{text: line})
 	} else if earlier := newestOldApp(spec.OldApps, match.head); earlier != nil {
@@ -1080,16 +1074,13 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 	head := spec.Head
 	lines := make([]gradeLine, 0, len(reply.Touches)+3)
 	reader := fmt.Sprintf("%s %s %s", fidelityReader, head, squeezed(reply.Reader))
+	named := s.class
+	if phrase := spec.Exempt[reply.Exempt]; named == "" && reply.Exempt != gates.NoClass && s.modelNames(phrase) {
+		named = phrase
+	}
 	switch reply.Verdict {
 	case "ok":
-		said := ""
-		switch phrase := spec.Exempt[reply.Exempt]; {
-		case s.class != "":
-			said = s.class + ": "
-		case reply.Exempt != "none" && s.modelNames(phrase):
-			said = phrase + ": "
-		}
-		lines = append(lines, gradeLine{text: fmt.Sprintf("%s %s %s%s", fidelityOK, head, said, squeezed(reply.Summary))})
+		lines = append(lines, okLine(head, named, squeezed(reply.Summary)))
 	case "missing":
 		var keys []string
 		broken := make([]string, 0, len(reply.Missing))
@@ -1106,12 +1097,12 @@ func (s *fidelityPassState) gradedLines(reply fidelityReply) []gradeLine {
 		if reply.picks != "" {
 			broken = append(broken, reply.picks)
 		}
-		lines = append(lines, gradeLine{text: fmt.Sprintf("%s %s %s %s", fidelityMissing, head, strings.Join(keys, ","), strings.Join(broken, "; "))})
+		lines = append(lines, gradeLine{text: fmt.Sprintf("%s %s %s %s", fidelityMissing, head, strings.Join(keys, ","), strings.Join(broken, "; ")), class: classOf(named)})
 		if strings.TrimSpace(reply.Reader) != "" {
-			lines = append(lines, gradeLine{reader, spec.Readers})
+			lines = append(lines, gradeLine{text: reader, also: spec.Readers})
 		}
 	default:
-		line := gradeLine{reader, spec.Readers}
+		line := gradeLine{text: reader, also: spec.Readers}
 		if _, touched := s.touchedOldApp(); touched {
 			line = gradeLine{text: fmt.Sprintf("%s %s %s: %s", fidelityReader, head, oldAppPending, squeezed(reply.Reader))}
 		}
@@ -1168,6 +1159,9 @@ func (s *fidelityPassState) post(lines []gradeLine, body string) ([]string, erro
 		argv := []string{"cci", "post", "--drive", spec.Drive, "--lane", FidelityLane, "--kind", "review", "--pr", spec.pull(), "--id", s.gradeID(index), "--path", body}
 		if to := s.audience(line.also...); to != "" {
 			argv = append(argv, "--to", to)
+		}
+		if line.class != "" {
+			argv = append(argv, "--attr", gates.FidelityClassAttr+"="+line.class)
 		}
 		receipt, err := s.posted(append(argv, "--text", clipped(line.text), "--json"))
 		if err != nil {

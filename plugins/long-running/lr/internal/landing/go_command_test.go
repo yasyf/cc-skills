@@ -282,12 +282,13 @@ func TestAHandTypedExemptGoLandsOnlyWhenTheGateFindsItsClassAtItsHead(t *testing
 	const head = "73ce0deb655e60e30d22c352f7678e33ab37f8f3"
 	for _, c := range []struct {
 		name    string
+		class   string
 		grade   string
 		lands   bool
 		refused []string
 	}{
-		{name: "a head its grade puts in the class", grade: "class test-only: one wait", lands: true},
-		{name: "a head no grade puts in an exempt class", grade: "stays in scope", refused: []string{
+		{name: "a head its grade puts in the class", class: "test-only", grade: "one wait", lands: true},
+		{name: "a head no grade puts in an exempt class", class: gates.NoClass, grade: "stays in scope", refused: []string{
 			"fidelity: no ok grade at 73ce0de names an exempt class",
 			"by root names its exempt class by hand",
 			"this head lands on his tap from its row's card",
@@ -303,7 +304,7 @@ func TestAHandTypedExemptGoLandsOnlyWhenTheGateFindsItsClassAtItsHead(t *testing
 			defer func() { _ = s.Close() }()
 			for _, draft := range []client.Draft{
 				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"]}`}},
-				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade},
+				pipelineOK("o/r#1", head, c.class, c.grade),
 				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"},
 				{Drive: "d", Lane: "root", Kind: kindGo, PRs: []string{"o/r#1"}, Text: "go #1 at 73ce0de on green [exempt: test-only]: fidelity ok, finder ok"},
 			} {
@@ -368,11 +369,12 @@ func TestAHandTypedExemptGoLandsOnlyWhenTheGateFindsItsClassAtItsHead(t *testing
 func TestASweepRefusingAHeadGradedExemptTellsItsLaneSoHisCardIsDrawn(t *testing.T) {
 	const head = "51717aa0b7e80d25838b30153600acad437970fe"
 	for name, c := range map[string]struct {
+		class string
 		grade string
 		tells bool
 	}{
-		"graded test-only":          {"class test-only: adds the regression test", true},
-		"graded in no exempt class": {"stays in scope", false},
+		"graded test-only":          {"test-only", "adds the regression test", true},
+		"graded in no exempt class": {gates.NoClass, "stays in scope", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("CCI_HOME", t.TempDir())
@@ -384,7 +386,7 @@ func TestASweepRefusingAHeadGradedExemptTellsItsLaneSoHisCardIsDrawn(t *testing.
 			defer func() { _ = s.Close() }()
 			for _, draft := range []client.Draft{
 				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"],"tap_rules":{"rule/infra":["infra/*"]}}`}},
-				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade},
+				pipelineOK("o/r#1", head, c.class, c.grade),
 				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"},
 			} {
 				if _, err := client.Post(ctx, draft); err != nil {
@@ -438,6 +440,7 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 	portClaim := client.Draft{Drive: "d", Lane: "port-1", Kind: "head", Text: "HEAD #1", PRs: []string{"o/r#1"}, Attrs: map[string]string{"head:1": head, gates.PortOfAttr: "40810", gates.PortInteractsAttr: gates.PortCleanWord}}
 	flakeClaim := client.Draft{Drive: "d", Lane: "flake-1", Kind: "head", Text: "HEAD #1", PRs: []string{"o/r#1"}, Attrs: map[string]string{"head:1": head, gates.FlakeFixAttr: "TestServeHoldsItsLease"}}
 	for name, c := range map[string]struct {
+		class   string
 		grade   string
 		files   string
 		claims  []client.Draft
@@ -445,13 +448,13 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 		refused string
 		tapRow  bool
 	}{
-		"test-only with its card shown and open":       {grade: "class test-only: adds the regression test", files: testFile},
-		"ci-tooling with its card shown and open":      {grade: "class ci-tooling: bumps the shard script", files: "[\".buildkite/v2/scripts/test-shard.sh\",\"@@ +1 @@\\n+set -e\"]\n"},
-		"a claimed pure port with its card shown":      {grade: gates.PortGrade + ": compared by file", files: "[\"go/sand/next/a.go\",\"@@ +1 @@\\n+\\treturn nil\"]\n", claims: []client.Draft{portClaim}},
-		"a claimed flake fix with its card shown":      {grade: "reads right", files: testFile, claims: []client.Draft{flakeClaim}},
-		"a claimed flake fix that he held on its card": {grade: "reads right", files: testFile, claims: []client.Draft{flakeClaim}, tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
-		"test-only that he held on its card":           {grade: "class test-only: adds the regression test", files: testFile, tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
-		"owner-pick, which no ruling lands untapped":   {grade: "class owner-pick: his pick", files: testFile, tapRow: true},
+		"test-only with its card shown and open":       {class: "test-only", grade: "adds the regression test", files: testFile},
+		"ci-tooling with its card shown and open":      {class: "ci-tooling", grade: "bumps the shard script", files: "[\".buildkite/v2/scripts/test-shard.sh\",\"@@ +1 @@\\n+set -e\"]\n"},
+		"a claimed pure port with its card shown":      {class: gates.ClassOf(gates.PortGrade), grade: "compared by file", files: "[\"go/sand/next/a.go\",\"@@ +1 @@\\n+\\treturn nil\"]\n", claims: []client.Draft{portClaim}},
+		"a claimed flake fix with its card shown":      {class: gates.NoClass, grade: "reads right", files: testFile, claims: []client.Draft{flakeClaim}},
+		"a claimed flake fix that he held on its card": {class: gates.NoClass, grade: "reads right", files: testFile, claims: []client.Draft{flakeClaim}, tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
+		"test-only that he held on its card":           {class: "test-only", grade: "adds the regression test", files: testFile, tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
+		"owner-pick, which no ruling lands untapped":   {class: "owner-pick", grade: "his pick", files: testFile, tapRow: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("CCI_HOME", t.TempDir())
@@ -463,7 +466,7 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 			defer func() { _ = s.Close() }()
 			for _, draft := range []client.Draft{
 				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["pure port, no interaction","class test-only","class ci-tooling","class owner-pick"],"cards":[{"id":"card-tap-1-51717bb","title":"Tap: #1, adds the regression test"}]}`}},
-				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade},
+				pipelineOK("o/r#1", head, c.class, c.grade),
 				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"},
 			} {
 				if _, err := client.Post(ctx, draft); err != nil {
@@ -542,7 +545,7 @@ func TestAHoldALiftClosedLandsEvenWhenTheLiftNamesNoPR(t *testing.T) {
 				return posted
 			}
 			post(client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"]}`}})
-			post(client.Draft{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " class test-only: adds the regression test"})
+			post(pipelineOK("o/r#1", head, "test-only", "adds the regression test"))
 			post(client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"})
 			hold := post(client.Draft{Drive: "d", Lane: "owner-relay", Kind: "hold", PRs: []string{"o/r#1"}, Text: "Hold #1 until the lane shows quit brings the dialog back"})
 			if lifted {
@@ -590,17 +593,18 @@ func TestTheSweepLandsAClaimedOneTestFileFlakeFixPastItsTapRuleAndTellsAnUnclaim
 	for _, c := range []struct {
 		name     string
 		files    string
+		class    string
 		grade    string
 		told     string
 		refused  string
 		landsNow bool
 	}{
 		{
-			name: "one test file", files: testFile, grade: "class test-only: one test file", landsNow: true,
+			name: "one test file", files: testFile, class: "test-only", grade: "one test file", landsNow: true,
 			told: "claim it: cci post --drive d --lane <your lane> --kind head --head o/r#1=" + head + " --attr flake-fix=<the test that flaked>",
 		},
 		{
-			name: "the same fix touching one product file", files: testFile + "[\"go/sand/next/cmd/iris_serve.go\",\"@@ +1 @@\\n+\\tgc()\"]\n", grade: "reads right",
+			name: "the same fix touching one product file", files: testFile + "[\"go/sand/next/cmd/iris_serve.go\",\"@@ +1 @@\\n+\\tgc()\"]\n", class: gates.NoClass, grade: "reads right",
 			refused: "flake fix: go/sand/next/cmd/iris_serve.go is not test or fixture code, so it lands on his tap",
 		},
 	} {
@@ -618,7 +622,7 @@ func TestTheSweepLandsAClaimedOneTestFileFlakeFixPastItsTapRuleAndTellsAnUnclaim
 				}
 			}
 			post(client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"],"tap_rules":{"rule/82317b0":["go/sand/next/*"]}}`}})
-			post(client.Draft{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade})
+			post(pipelineOK("o/r#1", head, c.class, c.grade))
 			post(client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"})
 			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 1, Head: head, ReadyForTap: true}}); err != nil {
 				t.Fatal(err)
@@ -804,7 +808,7 @@ func TestTheHandGateAndTheGoAnswerTheSameOnEachShape(t *testing.T) {
 			ref := fmt.Sprintf("o/r#%d", c.number)
 			drafts := []client.Draft{
 				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"],"tap_rules":{"rule/82317b0":["go/sand/next/*"]}}`}},
-				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{ref}, Text: "fidelity: ok " + c.head + " class test-only: one wait"},
+				pipelineOK(ref, c.head, "test-only", "one wait"),
 				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{ref}, Text: "finder: ok " + c.head + " no majors"},
 			}
 			if c.rootGo {
@@ -869,9 +873,9 @@ func TestRootsOverridesThatNameNoPRCountAtTheGateAndReopenItsRefusedHead(t *test
 		return posted
 	}
 	post(client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class ci-only"]}`}})
-	post(client.Draft{Drive: "d", Lane: "fidelity-pipeline", Kind: "review", PRs: []string{ref}, Text: "fidelity: missing " + head + " AGENTS.md:93,AGENTS.md:98 go/ci/internal/release/ledger/dynamo.go:61-62 adds one awaited GetItem per lock row"})
+	post(client.Draft{Drive: "d", Lane: gates.PipelineLane, Kind: "review", PRs: []string{ref}, Text: "fidelity: missing " + head + " AGENTS.md:93,AGENTS.md:98 go/ci/prune.go:61-62 adds one awaited GetItem per lock row", Attrs: map[string]string{gates.FidelityClassAttr: "ci-only"}})
 	fidelity := post(client.Draft{Drive: "d", Lane: "fidelity-desk-31", Kind: "review", PRs: []string{ref}, Text: "fidelity: ok " + head + " class ci-only: desk grade for root 533189, in root's ci-tooling class."})
-	finder := post(client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{ref}, Text: "finder: major " + head + " 1 open over whole 89ed729^..89ed729: go/ci/internal/release/ledger/dynamo.go:61 slow at N"})
+	finder := post(client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{ref}, Text: "finder: major " + head + " 1 open over whole 89ed729^..89ed729: go/ci/prune.go:61 slow at N"})
 	if err := s.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: number, Head: head, ReadyForTap: true}}); err != nil {
 		t.Fatal(err)
 	}
@@ -879,7 +883,7 @@ func TestRootsOverridesThatNameNoPRCountAtTheGateAndReopenItsRefusedHead(t *test
 		t.Fatal(err)
 	}
 	runner := &shelltest.Fake{}
-	runner.Reply("[\"go/ci/internal/release/ledger/dynamo.go\",\"@@ +1 @@\\n+get\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", repo, number))
+	runner.Reply("[\"go/ci/prune.go\",\"@@ +1 @@\\n+get\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files", repo, number))
 	a := app.New(io.Discard)
 	a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
 	cfg := config.Config{Drive: "d", Repo: repo, Checkout: "/checkout", Trunk: "dev"}
@@ -909,6 +913,10 @@ func TestRootsOverridesThatNameNoPRCountAtTheGateAndReopenItsRefusedHead(t *test
 	if len(gos) != 1 || !strings.Contains(gos[0].Text, "finder-override #") {
 		t.Fatalf("gos %+v, want one go citing root's finder override", gos)
 	}
+}
+
+func pipelineOK(ref, head, class, says string) client.Draft {
+	return client.Draft{Drive: "d", Lane: gates.PipelineLane, Kind: "review", PRs: []string{ref}, Text: "fidelity: ok " + head + " " + says, Attrs: map[string]string{gates.FidelityClassAttr: class}}
 }
 
 func readyFacts(number int, head string) machine.Facts {

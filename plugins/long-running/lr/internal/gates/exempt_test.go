@@ -263,6 +263,48 @@ func graded(t *testing.T, grade string) []client.Record {
 	}
 }
 
+func pipelineGrade(t *testing.T, seq int, verdict, class string) client.Record {
+	t.Helper()
+	record := decoded(t, `{"seq":`+strconv.Itoa(seq)+`,"lane":"fidelity-pipeline","kind":"review","text":"fidelity: `+verdict+` `+portHead+` keeps it out of class test-only, as test-only or CI-only, no non-test code","refs":{"prs":[49999]}}`)
+	record.Fields.Attrs = map[string]string{FidelityClassAttr: class}
+	return record
+}
+
+func TestTheGateReadsTheClassFromThePipelinesFieldAndNeverFromTypedText(t *testing.T) {
+	finder := decoded(t, `{"seq":1,"lane":"finder-desk","kind":"review","text":"finder: ok `+portHead+`","refs":{"prs":[49999]}}`)
+	desk := decoded(t, `{"seq":3,"lane":"fidelity-desk-31","kind":"review","text":"fidelity: ok `+portHead+` class ci-tooling: desk grade for root, in root's ci-tooling class.","refs":{"prs":[49999]}}`)
+	override := client.Record{Seq: 4, Lane: "root", Kind: "decide", Text: "fidelity-override #49999 at abc1234: 2"}
+	ciOnly := []string{"go/ci/prune.go", "go/ci/prune_test.go", "infra/ci/src/cache/units.ts"}
+	passBox := []string{"docs/pass-boxes.md", "go/ci/passbox.go", "go/ci/passbox_test.go", "tools/loadtest/tasks/README.md"}
+	for name, c := range map[string]struct {
+		records []client.Record
+		files   []string
+		lands   string
+		refused string
+	}{
+		"a CI-only diff the pipeline names test-only or CI-only":    {[]client.Record{finder, pipelineGrade(t, 2, "ok", ClassOf(TestOnlyGrade))}, ciOnly, ClassOf(TestOnlyGrade), ""},
+		"tooling the pipeline names ci-tooling":                     {[]client.Record{finder, pipelineGrade(t, 2, "ok", "ci-tooling")}, []string{"tools/cc-remote/config.yaml"}, "ci-tooling", ""},
+		"a missing grade root overrode keeps the class it names":    {[]client.Record{finder, pipelineGrade(t, 2, "missing", ClassOf(TestOnlyGrade)), override}, ciOnly, ClassOf(TestOnlyGrade), ""},
+		"#51878's pass-box verb the pipeline names none":            {[]client.Record{finder, pipelineGrade(t, 2, "ok", NoClass)}, passBox, "", "fidelity-pipeline's grade #2 names class none"},
+		"#51878 overridden still names none":                        {[]client.Record{finder, pipelineGrade(t, 2, "missing", NoClass), override}, passBox, "", "names class none"},
+		"a desk typing a class beside the pipeline's none":          {[]client.Record{finder, pipelineGrade(t, 2, "ok", NoClass), desk}, passBox, "", "names an exempt class"},
+		"a desk typing a class over an overridden missing":          {[]client.Record{finder, pipelineGrade(t, 2, "missing", NoClass), desk, override}, passBox, "", "names an exempt class"},
+		"a class his rulings do not land untapped needs his tap":    {[]client.Record{finder, pipelineGrade(t, 2, "ok", "owner-pick")}, ciOnly, "", "names class owner-pick"},
+		"an ok the pipeline posted before the field reads its text": {[]client.Record{finder, decoded(t, `{"seq":2,"lane":"fidelity-pipeline","kind":"review","text":"fidelity: ok `+portHead+` `+TestOnlyGrade+`: one test","refs":{"prs":[49999]}}`)}, ciOnly, ClassOf(TestOnlyGrade), ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			text, class, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: c.records, Exempt: Grades(nil, []string{"class ci-tooling", "class owner-pick"}, ""), Files: c.files})
+			if c.refused != "" {
+				refusedWith(t, text, refusals, c.refused)
+				return
+			}
+			if len(refusals) > 0 || class != c.lands || !strings.Contains(text, "[exempt: "+c.lands+"]") {
+				t.Fatalf("got go %q of class %q and refusals %q, want a go of class %q", text, class, refusals, c.lands)
+			}
+		})
+	}
+}
+
 func headRecord(t *testing.T, head, attrs string) client.Record {
 	t.Helper()
 	return decoded(t, `{"seq":3,"lane":"port-x","kind":"head","text":"HEAD","refs":{"prs":[49999]},"fields":{"attrs":{"head:49999":"`+head+`"`+attrs+`}}}`)
