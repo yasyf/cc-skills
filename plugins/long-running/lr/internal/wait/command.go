@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 )
 
 func Command(a *app.App) *cobra.Command {
@@ -34,7 +35,7 @@ Exit 2 is a usage error, 1 names a lane no roster lists, 127 a cci missing for 3
 
 --wake <file> is for a wait that outlasts the call: it prints ARMED <pid> <file> and returns at
 once, the wait runs detached with its output in <file>, and when it ends it mails the terminal
-that armed it and types a wake there if that terminal is at rest. Nothing is posted to any desk.
+that armed it and types a wake there if that terminal is at rest. Nothing is posted to any desk. On a Sprite, whose Orca takes no self-addressed mail, the mail is a cci note to the lane from lr-wait instead.
 A Codex lane waits this way, since nothing else wakes an idle Codex terminal.`,
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) < 2 {
@@ -79,7 +80,11 @@ A Codex lane waits this way, since nothing else wakes an idle Codex terminal.`,
 				if err := disarm(os.Getpid()); err != nil {
 					return err
 				}
-				if err := Wake(cmd.Context(), a.Runner, terminal, output, code); err != nil {
+				var home *Home
+				if entry, err := drive.Session(); err == nil && entry.Host == spriteHost {
+					home = &Home{Drive: entry.Drive, Lane: os.Getenv(laneKey)}
+				}
+				if err := Wake(cmd.Context(), a.Runner, terminal, output, code, home); err != nil {
 					return err
 				}
 			}
