@@ -168,8 +168,8 @@ any read: `cci subscribe --drive <drive> --reader meta`.
 - Before a push, `go build` and `go vet` run over the Go packages you touched, as the push
   hook requires, and the typecheck over the TypeScript you touched. No test, lint or LLM call
   runs on this Mac; CI grades. Write behavior tests in the pack's own style, never tests that read source text.
-- The PR has a real body: what it changes for a user, a paraphrase of the owner's words it
-  carries out, never the words themselves, its risk, and the design section it changes. Never a draft. Once CI is green
+- The PR has a real body: what it changes for a user, the owner's words it carries out,
+  quoted verbatim in a Rulings section with the answer id (his ruling 4f2f647), its risk, and the design section it changes. Never a draft. Once CI is green
   on your head, merge a yasyf/* PR, stack member or not, with `ccx vcs merge <n> -R <owner/repo> --admin
   --match-head-commit <full head sha>`; add `--with-downstack` only when the open PRs below it are yours to land, and
   `--red-on-main <run>` only for a red that run on main fails the same way. A PR in another repo merges under that

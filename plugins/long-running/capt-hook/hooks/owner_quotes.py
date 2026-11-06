@@ -17,9 +17,10 @@ PR_TEXT = {("pr", "create"), ("pr", "edit"), ("pr", "comment")}
 BODIES = FIXTURES / "owner-quotes"
 QUOTE = BODIES / "clock-quote.md"
 HEREDOC = "gh pr comment 12 --body \"$(cat <<'EOF'\nKept his words as given.\nEOF\n)\""
-PRIVATE_REPO = "forge-ai/monorepo"
+QUOTABLE = ("forge-ai/monorepo", "yasyf/")
 ORIGIN = "git remote get-url origin"
-PUBLIC = {ORIGIN: "git@github.com:yasyf/cc-skills.git\n"}
+PUBLIC = {ORIGIN: "git@github.com:acme/app.git\n"}
+TOOLING = {ORIGIN: "git@github.com:yasyf/cc-skills.git\n"}
 PRIVATE = {ORIGIN: "https://github.com/Forge-AI/monorepo.git\n"}
 
 
@@ -46,15 +47,16 @@ def read(evt: BaseHookEvent, call: Call, paths: Iterable[str | None]) -> Iterato
             yield file.read_text()
 
 
-def private_target(evt: BaseHookEvent, call: Call) -> bool:
+def quotable_target(evt: BaseHookEvent, call: Call) -> bool:
     named = PR_EDIT.bind(call).values.get("repo", ()) if call.name == "gh" else ()
     if named:
-        return names_private(str(named[0]))
-    return not unknown_dir(evt, call) and bool(origin := run_quietly(ORIGIN.split(), call.cwd or evt.cwd)) and not origin.returncode and names_private(origin.stdout)
+        return names_quotable(str(named[0]))
+    return not unknown_dir(evt, call) and bool(origin := run_quietly(ORIGIN.split(), call.cwd or evt.cwd)) and not origin.returncode and names_quotable(origin.stdout)
 
 
-def names_private(repo: str) -> bool:
-    return repo.strip().removesuffix(".git").lower().endswith(PRIVATE_REPO)
+def names_quotable(repo: str) -> bool:
+    slug = "/".join(re.split(r"[/:]", repo.strip().removesuffix(".git").lower())[-2:])
+    return slug == QUOTABLE[0] or slug.startswith(QUOTABLE[1])
 
 
 @on(
@@ -64,7 +66,9 @@ def names_private(repo: str) -> bool:
         Input(command=f"gh pr create --title 'x: y' --body-file {QUOTE}", env=DRIVE, commands=PUBLIC): Warn(pattern=r"paraphrase"),
         Input(command=f"gh pr create --title 'x: y' --body-file {QUOTE}", env=DRIVE, commands=PRIVATE): Allow(),
         Input(command=f"gh -R Forge-AI/monorepo pr edit 12 -F {QUOTE}", env=DRIVE, commands=PUBLIC): Allow(),
-        Input(command=f"gh -R yasyf/cc-skills pr edit 12 -F {QUOTE}", env=DRIVE, commands=PRIVATE): Warn(),
+        Input(command=f"gh -R yasyf/cc-skills pr edit 12 -F {QUOTE}", env=DRIVE, commands=PRIVATE): Allow(),
+        Input(command=f"gh -R acme/app pr edit 12 -F {QUOTE}", env=DRIVE, commands=TOOLING): Warn(),
+        Input(command=f"ccx vcs ship -m 'x: y' --pr-body-file {QUOTE}", env=DRIVE, commands=TOOLING): Allow(),
         Input(command=f"ccx vcs ship -m 'x: y' --pr-body-file {QUOTE}", env=DRIVE, commands=PRIVATE): Allow(),
         Input(command=f"gh pr create --body-file {QUOTE}", env=DRIVE, commands={ORIGIN: (1, "no origin")}): Warn(),
         Input(command=f"gh -R acme/app pr edit 12 -F {QUOTE}", env=DRIVE): Warn(),
@@ -84,4 +88,4 @@ def names_private(repo: str) -> bool:
     }),
 )
 def pr_text_paraphrases_the_owner(evt: BaseHookEvent) -> HookResult | None:
-    return evt.warn("Warning, nothing was refused: this PR text quotes the owner word for word. Rewrite that passage as a paraphrase and keep the owner's words in `cci` and `cc-notes`.") if any(QUOTED.search(body) and not private_target(evt, call) for call, body in call_bodies(evt)) else None
+    return evt.warn("Warning, nothing was refused: this PR text quotes the owner word for word. Rewrite that passage as a paraphrase and keep the owner's words in `cci` and `cc-notes`.") if any(QUOTED.search(body) and not quotable_target(evt, call) for call, body in call_bodies(evt)) else None
