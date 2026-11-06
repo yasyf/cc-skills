@@ -26,22 +26,19 @@ func (w *deskWorld) orcaCount() int {
 func TestRootRepliesToManyLanesCostTheLineReadNoMoreOrcaCallsThanOne(t *testing.T) {
 	read := func(lanes int) int {
 		w := newDeskWorld(t)
-		w.runInbox = []orcaMessage{question("msg_q", "term_0")}
 		w.lines()
-		var first int64
 		for i := range lanes {
 			lane := fmt.Sprintf("lane-%d", i)
 			w.live(lane, fmt.Sprintf("ctx_%d", i), fmt.Sprintf("term_%d", i))
 			asked := w.add(object{"lane": lane, "kind": "ask", "text": "which way"})
-			reply := w.add(object{"kind": "answer", "text": "left", "re": asked.Seq})
-			if i == 0 {
-				first = reply.Seq
-			}
+			w.add(object{"kind": "answer", "text": "left", "re": asked.Seq})
 		}
+		decide := w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE msg_q lane-0: which way"})
+		first := w.add(object{"kind": "answer", "text": "left", "re": decide.Seq})
 		w.calls = nil
 		w.desk.startPass()
 		w.lines()
-		held, err := relayOf(w.action("lane-0", fmt.Sprintf("cci#%d", first)))
+		held, err := relayOf(w.action("lane-0", fmt.Sprintf("cci#%d", first.Seq)))
 		if err != nil || held.ReplyTo != "msg_q" {
 			t.Fatal(held, err)
 		}
@@ -67,22 +64,21 @@ func TestOnePassSharesOneWorkerListAcrossTheSweepAndTheDeadlines(t *testing.T) {
 	}
 }
 
-func TestARootAnswerToAQuestionAskedMidPassReachesTheLane(t *testing.T) {
+func TestARelayLineAfterAQuestionAskedMidPassAnswersIt(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
 	w.lines()
 	w.desk.startPass()
-	early := w.add(object{"lane": testLane, "kind": "ask", "text": "which first"})
-	w.add(object{"kind": "answer", "text": "ok", "re": early.Seq})
+	w.line("R2 (5:01 PM) orca-desk: relay to lane-a: ok")
 	w.lines()
-	if asks := w.orcaCalls("orchestration check"); len(asks) != 1 {
-		t.Fatalf("the first read asked Orca for questions %d times", len(asks))
+	asked := slices.DeleteFunc(w.orcaCalls("orchestration check"), func(argv []string) bool { return !slices.Contains(argv, typeQuestion) })
+	if len(asked) != 1 {
+		t.Fatalf("the first read asked Orca for questions %d times", len(asked))
 	}
 	w.runInbox = []orcaMessage{question("msg_q", testTerminal)}
-	asked := w.add(object{"lane": testLane, "kind": "ask", "text": "which way"})
-	reply := w.add(object{"kind": "answer", "text": "left", "re": asked.Seq})
+	w.line("R3 (5:02 PM) orca-desk: relay to lane-a: left")
 	w.lines()
-	held, err := relayOf(w.action(testLane, fmt.Sprintf("cci#%d", reply.Seq)))
+	held, err := relayOf(w.action(testLane, "R3"))
 	if err != nil || held.ReplyTo != "msg_q" {
 		t.Fatal(held, err)
 	}

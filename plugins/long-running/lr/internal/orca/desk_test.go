@@ -1550,84 +1550,46 @@ func TestAPlainRelayToALaneWithAnOpenQuestionAnswersIt(t *testing.T) {
 	}
 }
 
-func TestARootReplyToALanesRecordAnswersItsOpenQuestion(t *testing.T) {
-	w := newDeskWorld(t)
-	w.live(testLane, testDispatch, testTerminal)
-	w.runInbox = []orcaMessage{question("msg_q", testTerminal)}
-	asked := w.add(object{"lane": testLane, "kind": "ask", "text": "which way"})
-	w.lines()
-	reply := w.add(object{"kind": "answer", "text": "left", "re": asked.Seq})
-	w.lines()
-	action := w.action(testLane, fmt.Sprintf("cci#%d", reply.Seq))
-	held, err := relayOf(action)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if action.Kind != kindReply || held.ReplyTo != "msg_q" {
-		t.Fatal(action)
-	}
-	wantContains(t, held.Text, fmt.Sprintf("The root answered on cci #%d (re #%d)", reply.Seq, asked.Seq))
-}
-
-func TestARootRecordCitingALanesRecordReachesTheLaneOnlyWhenAddressedToItOrTheDesk(t *testing.T) {
-	for name, c := range map[string]struct {
-		to      []string
-		relayed bool
-	}{
-		"to owner-relay": {[]string{lanes.OwnerRelay}, false},
-		"to the lane":    {[]string{testLane}, true},
-		"to the desk":    {[]string{deskLane}, true},
-	} {
-		t.Run(name, func(t *testing.T) {
+func TestARootReplyToALanesOwnRecordLeavesItsOrcaQuestionToItsDecide(t *testing.T) {
+	for _, kind := range []string{"report", kindAsk, kindBlocked} {
+		t.Run(kind, func(t *testing.T) {
 			w := newDeskWorld(t)
 			w.live(testLane, testDispatch, testTerminal)
-			w.runInbox = []orcaMessage{question("msg_q", testTerminal)}
-			appeal := w.add(object{"lane": testLane, "kind": "decide", "to": []string{coordinatorLane}, "text": "#52006 needs a ruling the desk cannot give"})
+			cited := w.add(object{"lane": testLane, "kind": kind, "to": []string{coordinatorLane}, "text": "the storage-credential endpoint is shared with the new tree"})
 			w.lines()
-			report := w.add(object{"kind": "report", "to": c.to, "text": "#52006 needs his ruling: card him with the lane's options", "re": appeal.Seq})
+			older := w.add(object{"kind": "report", "to": []string{lanes.OwnerRelay, testLane}, "text": "the tap card must say new-tree callers get the team-run prefix", "re": cited.Seq})
+			w.runInbox = []orcaMessage{question("relay_q", testTerminal)}
+			w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE relay_q lane-a: Question: which option goes on his card?"})
 			w.lines()
 			w.step(w.desk.deliver)
 			w.now = w.now.Add(11 * time.Minute)
 			w.step(w.desk.deadlines)
 
-			_, err := w.desk.store.Action(laneBook(testLane), fmt.Sprintf("cci#%d", report.Seq))
-			if relayed := err == nil; relayed != c.relayed {
-				t.Fatalf("relayed %v, want %v; escalations %q", relayed, c.relayed, w.escalations())
+			if _, err := w.desk.store.Action(laneBook(testLane), fmt.Sprintf("cci#%d", older.Seq)); err == nil {
+				t.Fatalf("root's reply to the lane's %s settled relay_q; escalations %q", kind, w.escalations())
 			}
-			if !c.relayed {
-				w.noEscalation("DEADLINE ")
-			}
+			w.noEscalation("DEADLINE ")
 		})
 	}
 }
 
-func TestARootReplyToALanesDefectLeavesItsOpenQuestionOpen(t *testing.T) {
-	w := newDeskWorld(t)
-	w.live(testLane, testDispatch, testTerminal)
-	w.runInbox = []orcaMessage{question("msg_q", testTerminal)}
-	defect := w.add(object{"lane": testLane, "kind": "defect", "to": []string{coordinatorLane}, "text": "for meta: ccx read --section found no numeric heading"})
-	w.add(object{"lane": testLane, "kind": kindAsk, "to": []string{coordinatorLane}, "text": "bounded team-run scope, or the full design first?"})
-	w.lines()
-	report := w.add(object{"kind": "report", "to": []string{testLane}, "text": "the hand path was ccx code read --full", "re": defect.Seq})
-	w.lines()
-	if _, err := w.desk.store.Action(laneBook(testLane), fmt.Sprintf("cci#%d", report.Seq)); err == nil {
-		t.Fatalf("root's reply to the defect settled msg_q; escalations %q", w.escalations())
-	}
-}
-
-func TestARootResolveOfTheRunnersDecideAnswersThatQuestion(t *testing.T) {
-	w := newDeskWorld(t)
-	w.live(testLane, testDispatch, testTerminal)
-	decide := w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE msg_q lane-a: which way"})
-	w.lines()
-	reply := w.add(object{"kind": "answer", "text": "left", "resolves": decide.Seq})
-	w.lines()
-	held, err := relayOf(w.action(testLane, fmt.Sprintf("cci#%d", reply.Seq)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if held.ReplyTo != "msg_q" || held.Text != "left" {
-		t.Fatal(held)
+func TestARootReplyToTheRunnersDecideAnswersThatQuestion(t *testing.T) {
+	for _, cites := range []string{"re", "resolves"} {
+		t.Run(cites, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.live(testLane, testDispatch, testTerminal)
+			decide := w.add(object{"lane": deskRunner, "kind": "decide", "text": "DECIDE msg_q lane-a: which way"})
+			w.lines()
+			reply := w.add(object{"kind": "answer", "text": "left", cites: decide.Seq})
+			w.lines()
+			held, err := relayOf(w.action(testLane, fmt.Sprintf("cci#%d", reply.Seq)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if held.ReplyTo != "msg_q" || held.Text != "left" {
+				t.Fatal(held)
+			}
+		})
 	}
 }
 
@@ -1679,22 +1641,6 @@ func TestAReplyToADecideBeforeTheLaneParkedRelaysNothing(t *testing.T) {
 			t.Fatal("the reply relayed to a parked lane")
 		}
 	}
-}
-
-func TestAReplyToTheBlockedRecordReachesTheParkedLane(t *testing.T) {
-	w := newDeskWorld(t)
-	w.live(testLane, testDispatch, testTerminal)
-	w.runInbox = []orcaMessage{question("msg_q", testTerminal)}
-	parked := w.add(object{"lane": testLane, "kind": kindBlocked, "text": "waits on your word"})
-	w.lines()
-	reply := w.add(object{"kind": "answer", "text": "go", "re": parked.Seq})
-	w.lines()
-	held, err := relayOf(w.action(testLane, fmt.Sprintf("cci#%d", reply.Seq)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantContains(t, held.Text, "go")
-	w.noEscalation("PARKED ")
 }
 
 func TestARootWithdrawOfALaunchRecordWithdrawsIt(t *testing.T) {

@@ -130,7 +130,7 @@ lr launch incident <name> <fix-brief> [<evidence-brief> [<comms-brief>]] [--aler
 ### Answer, withdraw, and write
 
 - A lane writes its own PR title, body, and commit message.
-- Answer a lane's question with `cci post --kind answer --to <lane> --re <seq>` on the lane's ask or the runner's `DECIDE`; the runner relays it to the open Orca question (`reference/orca-desk-brief.md`).
+- Answer a lane's Orca question with `cci post --kind answer --to <lane> --re <seq>` on the runner's `DECIDE` for it; the runner relays it to the question that `DECIDE` names. A reply to the lane's own ask reaches it on cci alone (`reference/orca-desk-brief.md`).
 - Withdraw a launch or lane with `lr launch withdraw <R<n> | unfixed:<msg>:<n> | lane>`.
 
 ### Name the monitor a hand-opened fix lane holds
