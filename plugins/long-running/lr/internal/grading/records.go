@@ -290,6 +290,12 @@ func fidelityGrades(found []client.Record, lanes []string, repo, pr string) []cl
 	return grades
 }
 
+func readerSends(found []client.Record) []client.Record {
+	return slices.DeleteFunc(slices.Clone(found), func(r client.Record) bool {
+		return r.Kind != kindReview || r.Lane != grader.FidelityLane || !strings.HasPrefix(r.Text, fidelityReader)
+	})
+}
+
 func anyNaming(records []client.Record, sha string) bool {
 	return slices.ContainsFunc(records, func(r client.Record) bool {
 		named := shortSHA.FindString(r.Text)

@@ -51,10 +51,14 @@ func (p *JobPool) Rank(ctx context.Context, items []store.Item, snapshot map[int
 	if err != nil {
 		return nil, err
 	}
-	p.firsts = map[string]bool{}
+	p.firsts = map[int]int64{}
 	for _, decide := range append(decides, asked...) {
 		for _, pr := range namedFirst(bus.FullText(decide)) {
-			p.firsts[pr] = true
+			number, err := strconv.Atoi(pr)
+			if err != nil {
+				return nil, err
+			}
+			p.firsts[number] = max(p.firsts[number], decide.Seq)
 		}
 	}
 	rows, err := p.ledgerRows()
@@ -79,7 +83,7 @@ func (p *JobPool) compareItems(a, b store.Item, snapshot map[int]machine.Facts, 
 	left, right := strconv.Itoa(a.Number), strconv.Itoa(b.Number)
 	factsA, factsB := snapshot[a.Number], snapshot[b.Number]
 	return cmp.Or(
-		cmp.Compare(falseFirst(p.firsts[left]), falseFirst(p.firsts[right])),
+		cmp.Compare(falseFirst(p.firsts[a.Number] > 0), falseFirst(p.firsts[b.Number] > 0)),
 		cmp.Compare(falseFirst(incidentLane.MatchString(factsA.Lane)), falseFirst(incidentLane.MatchString(factsB.Lane))),
 		cmp.Compare(falseFirst(factsA.Green() && factsA.Approved), falseFirst(factsB.Green() && factsB.Approved)),
 		cmp.Compare(priorityOf(rows[left]), priorityOf(rows[right])),

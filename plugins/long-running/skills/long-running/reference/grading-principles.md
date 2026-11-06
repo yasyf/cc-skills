@@ -261,7 +261,7 @@ Grading is the last wait between a green, approved PR and the owner's tap, and c
 
 More passes on one Sprite do not always add speed: its home disk is the limit per box, so add boxes before adding passes per box, and raise a disk stall to the meta desk rather than adding either.
 
-The owner's critical path goes first. The pool ranks `lr grade first <n>`, or a coordinator `ask` or `decide` naming the PRs (`#<n> first`, or `first: #<n>, #<n>`), above everything, then incident lanes, then rows green and approved, then the ledger's priority and tapped rows. A row that waits on a grade alone for 30 minutes alarms; see [Row waits](landing.md#row-waits).
+The owner's critical path goes first. `lr grade first <n>`, or a coordinator `ask` or `decide` naming the PRs (`#<n> first`, or `first: #<n>, #<n>`), puts that PR's head ahead of all other grading for three hours, held or not. The next pool pass starts each grade the head lacks, and regrades once a finder or fidelity grade there that does not clear and is older than the ask. A first is how a lane or the coordinator gets a regrade after a fix, a rebuttal or his answer, so no lane rebases to force one. Other heads rank by incident lane, then rows green and approved, then the ledger's priority and tapped rows. A row that waits on a grade alone for 30 minutes alarms; see [Row waits](landing.md#row-waits).
 
 Fidelity grading runs on Sprites like the finder, and may use a smaller model or lower effort when sampled results stay sound.
 

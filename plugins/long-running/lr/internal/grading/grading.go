@@ -23,6 +23,7 @@ var carriedKinds = []string{GraderFidelity, GraderFinder, "verdict"}
 type Pool interface {
 	Settle(ctx context.Context, workers []string) (map[string]bool, error)
 	Plan(ctx context.Context, items []store.Item, snapshot map[int]machine.Facts, queued int, now time.Time) ([]store.Item, error)
+	Firsts(snapshot map[int]machine.Facts) []machine.Facts
 	Dispatch(ctx context.Context, grader string, facts machine.Facts) (string, error)
 	Whole(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
 	Reopen(ctx context.Context, snapshot map[int]machine.Facts) ([]string, error)
@@ -47,8 +48,20 @@ func Missing(facts machine.Facts) []string {
 	return graders
 }
 
+func Owed(facts machine.Facts) []string {
+	var graders []string
+	if !facts.FinderCleared() {
+		graders = append(graders, GraderFinder)
+	}
+	if !facts.FidelityCleared() {
+		graders = append(graders, GraderFidelity)
+	}
+	return graders
+}
+
 func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, snapshot map[int]machine.Facts, now time.Time, generation int64) ([]Dispatched, error) {
 	graded := make(map[int64]bool, len(items))
+	atHead := make(map[int]int64, len(items))
 	queued := 0
 	for _, item := range items {
 		facts, known := snapshot[item.Number]
@@ -56,6 +69,9 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 			continue
 		}
 		graded[item.ID] = true
+		if facts.Head == item.Head {
+			atHead[item.Number] = item.ID
+		}
 		if facts.Head == item.Head && !facts.Held() {
 			queued += len(Missing(facts))
 		}
@@ -73,8 +89,34 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 		return nil, err
 	}
 	full := map[string]bool{}
+	begun := map[Dispatched]bool{}
 	var dispatched []Dispatched
 	var failed []error
+	for _, facts := range pool.Firsts(snapshot) {
+		for _, grader := range Owed(facts) {
+			if full[grader] {
+				continue
+			}
+			name, err := pool.Dispatch(ctx, grader, facts)
+			if errors.Is(err, ErrNoCapacity) {
+				full[grader] = true
+				continue
+			}
+			if errors.Is(err, ErrAnswered) {
+				continue
+			}
+			if err != nil {
+				failed = append(failed, fmt.Errorf("#%d %s: %w", facts.Number, grader, err))
+				continue
+			}
+			if err := s.Heartbeat(store.Worker{Name: name, Generation: generation, Heartbeat: now, Item: atHead[facts.Number]}); err != nil {
+				return dispatched, err
+			}
+			started := Dispatched{grader, facts.Number, facts.Head}
+			begun[started] = true
+			dispatched = append(dispatched, started)
+		}
+	}
 	for _, item := range ranked {
 		facts := snapshot[item.Number]
 		if !graded[item.ID] || facts.Head != item.Head || facts.Held() || (held[item.Worker] && item.Deadline.After(now)) {
@@ -83,7 +125,7 @@ func Act(ctx context.Context, s *store.Store, pool Pool, items []store.Item, sna
 		missing := Missing(facts)
 		var stopped []string
 		for _, grader := range missing {
-			if full[grader] {
+			if full[grader] || begun[Dispatched{grader, facts.Number, facts.Head}] {
 				continue
 			}
 			name, err := pool.Dispatch(ctx, grader, facts)
