@@ -1149,7 +1149,7 @@ func TestASpriteLaunchWithNoSponsorRefusesBeforeAnyCall(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
 	delete(f.env, sponsorEnv)
-	f.refusedWith("set " + sponsorEnv + " to the Sprite holding the drive's enrolled cci service key, because a worker with no relay posts nothing anyone reads; nothing was prepared")
+	f.refusedWith("set " + sponsorEnv + " to the Sprite holding the drive's enrolled cci service key, or to " + sponsorProfile + "<this Mac's AWS profile> to read it from SSM, because a worker with no relay posts nothing anyone reads; nothing was prepared")
 }
 
 func TestAToolInstallThatFailsInPrepareStartsNoWorkerAndIsNeverRetried(t *testing.T) {
