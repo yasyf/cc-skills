@@ -294,6 +294,14 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 		heard = "answer"
 	}
 	do(s.LaneHeard(name, at, heard, r.Seq))
+	if name == runner && kind == "state" {
+		if staged := launchStage.FindStringSubmatch(text); staged != nil {
+			do(s.SetLaneStaged(staged[1], at))
+		}
+	}
+	if name == runner && strings.HasPrefix(text, "LAUNCHED ") {
+		do(s.ClearEscalation(spriteCapacity))
+	}
 	if r.Origin != "" {
 		do(s.LaneDelivered(name, at, r.Origin, late))
 	}

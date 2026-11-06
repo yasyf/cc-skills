@@ -798,6 +798,12 @@ func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out
 		return
 	}
 	path, retried := filepath.Join(d.Briefs, lane.Name+".brief.md"), "relaunch-retried:"+lane.Name
+	if strings.Contains(refused.why, SpriteLimit) {
+		hold(s, lane.Name, refused.why, now)
+		escalateTo(s, d, spriteCapacity, "the org is at its Sprite running limit, so the supervisor holds each relaunch the provider refuses for it instead of retrying into a full org; free running Sprites, then relaunch the lanes `lr lanes` reads as held from their briefs", Root, now)
+		out.Held = append(out.Held, lane.Name)
+		return
+	}
 	if _, again := must(s.Probes())[retried]; !again {
 		do(s.Probe(retried, now))
 		if d.Launch(lane.Name, lane.Model, lane.Effort, path, launchKey+lane.Name+":retry") == nil {
@@ -1252,8 +1258,11 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 }
 
 func spentRelaunches(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, why string, taken map[string]bool, now time.Time) string {
+	if spriteFault(s, why) {
+		return ""
+	}
 	if !isStanding(lane) {
-		if lane.Predecessor != "" && lane.Reason != "" {
+		if lane.Predecessor != "" && lane.Reason != "" && !spriteFault(s, lane.Reason) {
 			return fmt.Sprintf("the supervisor already relaunched it once, when %s %s, and now it %s; brief %s", lane.Predecessor, lane.Reason, why, lane.Brief)
 		}
 		return ""
@@ -1262,12 +1271,21 @@ func spentRelaunches(s *store.Store, d Deps, lane store.Lane, found map[string]P
 	seen := map[string]bool{}
 	for at, known := lane, true; known && !seen[at.Name] && at.Predecessor != "" && at.Reason != "" && now.Sub(at.Since) < deskStrikeWindow; at, known = laneOf(s, at.Predecessor) {
 		seen[at.Name] = true
-		strikes++
+		if !spriteFault(s, at.Reason) {
+			strikes++
+		}
 	}
 	if strikes < deskStrikes {
 		return ""
 	}
 	return fmt.Sprintf("it came back from the supervisor's relaunch and died %d times within %d min, and now it %s; read why before launching its successor from %s", strikes, int(deskStrikeWindow.Minutes()), why, handLaunchedSuccessor(d, lane, found, why, taken))
+}
+
+func spriteFault(s *store.Store, why string) bool {
+	if strings.Contains(why, storageNotReady) || strings.Contains(why, notAnswering) {
+		return true
+	}
+	return strings.Contains(why, orcaHostGone) && len(must(s.Escalations(spriteCapacity))) == 0
 }
 
 func unsaid(s *store.Store, orders []owner.Row) []owner.Row {

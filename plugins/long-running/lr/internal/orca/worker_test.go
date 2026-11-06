@@ -1045,6 +1045,14 @@ func TestAToolInstallThatFailsInPrepareStartsNoWorkerAndIsNeverRetried(t *testin
 	}
 }
 
+func TestAPrepareAFullOrgRefusesQuotesTheProviderAndStartsNoWorker(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	said := "Error: failed to start sprite command: Maximum concurrent sprites limit (200) reached for your organization."
+	f.reply("cc-remote orca prepare", workerReply{code: 1, err: "cc-remote: resuming sprite pool-a\n" + said + "\n"})
+	f.refusedWith(fmt.Sprintf("the org is at its Sprite limit, so no Sprite started: %s; %s/prepare.err keeps its output", said, f.attempt), versionCall, currentRunCall, f.prepareCall())
+}
+
 func TestAFailedInstallRefusesNamingItsStepAndWhatItSaidNotTheEchoedScript(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()

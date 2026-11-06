@@ -36,6 +36,8 @@ const (
 	hostGoneAfter   = 10 * time.Minute
 	relayAnswer     = StaleAfter
 	storageNotReady = "Storage not ready"
+	notAnswering    = "has not answered for"
+	orcaHostGone    = "has a Sprite host Orca has reported unavailable"
 )
 
 func relayProbe(lane string) string {
@@ -187,7 +189,7 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 			}
 			proven[name] = Verdict{Kind: Ok}
 			if quiet := now.Sub(since.Asked); quiet >= goneAfter {
-				died[name] = fmt.Sprintf("has not answered for %d min", int(quiet.Minutes()))
+				died[name] = fmt.Sprintf("%s %d min", notAnswering, int(quiet.Minutes()))
 			}
 		}
 	}
@@ -213,7 +215,7 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 
 func orcaLostHost(lane store.Lane, probes map[string]store.Probe, now time.Time) string {
 	if gone, tracked := probes[hostGoneProbe(lane.Name)]; tracked && now.Sub(gone.Asked) >= hostGoneAfter {
-		return fmt.Sprintf("has a Sprite host Orca has reported unavailable for %d min", int(now.Sub(gone.Asked).Minutes()))
+		return fmt.Sprintf("%s for %d min", orcaHostGone, int(now.Sub(gone.Asked).Minutes()))
 	}
 	return ""
 }

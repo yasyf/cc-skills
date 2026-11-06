@@ -69,6 +69,27 @@ func TestARelaunchRefusedOnceLaunchesOnItsRetry(t *testing.T) {
 	equal(t, []any{len(relaunchReports(f)), len(f.ofKind("blocker"))}, []any{1, 0})
 }
 
+func TestARelaunchAFullOrgRefusesIsHeldAtOnceWithOneCapacityBlockerToRootClearedByTheNextLaunch(t *testing.T) {
+	s := memory(t)
+	f := deadWithMetaDesk(t, s)
+	tick(t, s, f, t0)
+	f.feed = append(f.feed, rec(10, runner, "blocker", t0.Add(mins(1)), "LAUNCH-FAILED R9 conflicts-3: the org is at its Sprite limit, so no Sprite started: Error: failed to start sprite command: Maximum concurrent sprites limit (200) reached for your organization.; /attempts/R9/prepare.err keeps its output", "meta-desk-3"))
+
+	held := tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, []any{f.launches, held.Held, row(t, s, "conflicts-3").State}, []any{[]string{"conflicts-3"}, []string{"conflicts-3"}, store.LaneHeld})
+	blockers := f.ofKind("blocker")
+	equal(t, len(blockers), 1)
+	equal(t, blockers[0].To, []string{Root})
+	contains(t, blockers[0].Text, "sprite-capacity: the org is at its Sprite running limit")
+
+	f.feed = append(f.feed, rec(11, runner, "report", t0.Add(mins(3)), "LAUNCHED R12 other-1: dispatch ctx_1 terminal term_1 on Sprite pool-b"))
+	tick(t, s, f, t0.Add(mins(3)))
+
+	equal(t, len(must(s.Escalations(spriteCapacity))), 0)
+}
+
 func TestARelaunchTheRunnerRefusesRetriesOnceThenHoldsWithOneBlockerToTheMetaDesk(t *testing.T) {
 	s := memory(t)
 	f := deadWithMetaDesk(t, s)
