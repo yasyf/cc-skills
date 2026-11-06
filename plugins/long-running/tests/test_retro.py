@@ -83,6 +83,15 @@ def test_add_refuses_a_row_with_no_live_worker_or_no_future_due(given, heard, sa
     assert shell.rows == {}
 
 
+def test_a_lane_whose_newest_record_is_a_handoff_still_owns_a_row():
+    """A lane posts a handoff on ROTATE or before compacting and keeps working (meta-desk-3, 12:58 AM Nov 6)."""
+    shell = FakeShell({"rotated-lane": "handoff"})
+
+    assert add(shell, owner="rotated-lane") == 0
+
+    assert shell.rows["retro/000001"]["owner"] == "rotated-lane"
+
+
 def test_add_refuses_an_open_row_with_no_pr():
     shell = FakeShell()
 

@@ -25,7 +25,7 @@ const (
 var (
 	pacific    = mustZone("America/Los_Angeles")
 	notOwners  = []string{"root", "main", "all", ""}
-	endedKinds = []string{"stand-down", "handoff", "stopped", "done"}
+	endedKinds = []string{"stand-down", "stopped", "done"}
 )
 
 type Mirror struct {
