@@ -117,7 +117,7 @@ LANE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "d", "CLAUDE_LONG_RUNNING_LANE": "lane-
 ON_BRANCH = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n"}
 NOT_OPEN = ON_BRANCH | {"gh pr view": (1, 'no pull requests found for branch "lane/fix"')}
 OPEN_PR = ON_BRANCH | {"gh pr view": "OPEN\n"}
-SESSION_ON_TRUNK = {"git rev-parse --abbrev-ref HEAD": "dev\n", "gh pr view": (1, 'no pull requests found for branch "dev"')}
+SESSION_ON_TRUNK = {"git rev-parse --abbrev-ref HEAD": "dev\n", "git symbolic-ref": "origin/dev\n", "gh pr view": (1, 'no pull requests found for branch "dev"')}
 INFERRED_TRUNK = ON_BRANCH | {"gh pr view --json": (1, 'no pull requests found for branch "dev"'), "gh pr view lane/fix": "OPEN\n", "gh pr view dev": (1, 'no pull requests found for branch "dev"')}
 
 
@@ -289,7 +289,7 @@ def ship_output_clipped(evt: BaseHookEvent, call: Call) -> bool:
 
 
 def opens_a_pr(call: Call) -> bool:
-    if flag_values(call.args, SHIP_BODY) or SHIP_OPENS_NOTHING.intersection(call.args) or SHIP_AMENDS in call.args:
+    if flag_values(call.args, SHIP_BODY) or SHIP_OPENS_NOTHING.intersection(call.args):
         return False
     if any(arg == flag or arg.startswith(f"{flag}=") for arg in call.args for flag in SHIP_NEW_PR):
         return True
@@ -297,6 +297,8 @@ def opens_a_pr(call: Call) -> bool:
         return False
     try:
         branch = next(iter(SHIP_ARGS.bind(call).values.get("branch", ())), None) or tool(["git", "rev-parse", "--abbrev-ref", "HEAD"], call.cwd).strip()
+        if SHIP_AMENDS in call.args and trunk(call.cwd) in (None, branch):
+            return False
         state = tool(["gh", "pr", "view", str(branch), "--json", "state", "--jq", ".state"], call.cwd).strip()
     except Unposted as failure:
         return NO_PR in str(failure)
@@ -323,6 +325,7 @@ def opens_a_pr(call: Call) -> bool:
         Input(command="ccx vcs ship --no-commit --tip-only", env=LANE_ENV, cwd="/", commands=ON_BRANCH | {"gh pr view": "MERGED\n"}): Block(pattern=r"^This ship opens a PR"),
         Input(command="ccx vcs ship --amend -m 'api: 🐛 exclude caller cancellations' api/src/routes/apiRoutes/llmProxyRoutes.test.ts", env=LANE_ENV, cwd="/", commands=SESSION_ON_TRUNK): Allow(),
         Input(command="ccx vcs ship -m 'api: 🐛 exclude caller cancellations' api/src/routes/apiRoutes/llmProxyRoutes.test.ts", env=LANE_ENV, cwd="/", commands=SESSION_ON_TRUNK): Block(pattern=r"^This ship opens a PR"),
+        Input(command="ccx vcs ship --amend --tip-only --no-watch rust/a.rs", env=LANE_ENV, cwd="/", commands=NOT_OPEN | {"git symbolic-ref": "origin/dev\n"}): Block(pattern=r"^This ship opens a PR"),
     },
 )
 def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
