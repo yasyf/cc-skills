@@ -284,3 +284,25 @@ func TestIdleBusyAndWaitingStayApartForClaudeAndCodex(t *testing.T) {
 		})
 	}
 }
+
+func TestATurnRunsOnlyWhileItsTimerShowsAboveTheInput(t *testing.T) {
+	cases := []struct {
+		terminal screen.Terminal
+		running  bool
+	}{
+		{on(claudeWorking...), true},
+		{on(codexWorking...), true},
+		{on(idle...), false},
+		{on(agentList...), false},
+		{on(rule, "❯ half-typed ask", rule, mode), false},
+		{on(codexIdle...), false},
+		{unavailable(codexWorking...), false},
+	}
+	for i, c := range cases {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			if got := screen.Turning(c.terminal); got != c.running {
+				t.Fatalf("Turning = %v, want %v", got, c.running)
+			}
+		})
+	}
+}

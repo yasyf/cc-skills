@@ -108,6 +108,14 @@ func Running(line string) bool {
 	return running.MatchString(line)
 }
 
+func Turning(t Terminal) bool {
+	return t.Source == rendered && turning(trimmed(t.Tail))
+}
+
+func turning(tail []string) bool {
+	return slices.ContainsFunc(tail[max(0, len(tail)-runningRows):], running.MatchString)
+}
+
 func IdlePrompt(t Terminal) bool {
 	if t.drafted() || t.Source != rendered {
 		return false
@@ -216,7 +224,7 @@ func restsOnSuggestion(t Terminal) bool {
 	}
 	tail := trimmed(t.Tail)
 	box, found := Composer(tail)
-	return found && !codexComposer.MatchString(tail[box]) && !slices.ContainsFunc(tail[max(0, len(tail)-runningRows):], running.MatchString)
+	return found && !codexComposer.MatchString(tail[box]) && !turning(tail)
 }
 
 func InputState(t Terminal) Input {
@@ -232,7 +240,7 @@ func InputState(t Terminal) Input {
 		return NoInput
 	}
 	empty := IdlePrompt(t) || (codexComposer.MatchString(tail[box]) && !t.drafted())
-	if !empty || slices.ContainsFunc(tail[max(0, len(tail)-runningRows):], running.MatchString) {
+	if !empty || turning(tail) {
 		return Busy
 	}
 	return Idle

@@ -2872,6 +2872,16 @@ func TestAPromptStopOverAPermissionDialogDecides(t *testing.T) {
 	w.wantEscalation("DECIDE msg_p lane-a: Worker is waiting on a prompt: ")
 }
 
+func TestAStopWhoseWaitEndedAndWokeTheLaneBeforeTheReadRests(t *testing.T) {
+	w := newDeskWorld(t)
+	w.launchedBy("meta-desk-1")
+	w.rest = `{"tasks":null,"read":"0 armed lr wait processes bear or record terminal term_a; codex pid 63721 keeps no transcript lr reads, so only an armed lr wait counts"}`
+	w.screen = []string{"• Ran gh pr checks 51773 --watch", "• Working (31s • esc to interrupt)", "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh fast · ~/w"}
+	w.checked(stopNotice("msg_s", 1))
+	w.noEscalation("DECIDE msg_s ")
+	w.wantEscalation("RESTING msg_s lane-a: its screen shows a turn running since the stop, so a wait or a message woke it; on this host: 0 armed lr wait processes")
+}
+
 type refusingRead struct{ *deskWorld }
 
 func (r refusingRead) Run(ctx context.Context, c shell.Command) (shell.Result, error) {

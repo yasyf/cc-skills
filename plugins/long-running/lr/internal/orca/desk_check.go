@@ -334,24 +334,32 @@ func (d *Desk) relayQuestion(ctx context.Context, message orcaMessage, lane stri
 }
 
 func (d *Desk) relayPrompt(ctx context.Context, message orcaMessage, lane string) error {
+	shown, read, err := d.workerScreen(ctx, message, lane)
+	if err != nil {
+		return err
+	}
+	if _, open := screen.FindDialog(shown); read && shown.Source == "screen" && !open {
+		fmt.Fprintf(d.Stderr, "%s %s: Orca reads a prompt, the worker's screen shows none; nothing posted\n", message.ID, lane)
+		return nil
+	}
+	return d.relayToDesk(ctx, message, lane, "DECIDE")
+}
+
+func (d *Desk) workerScreen(ctx context.Context, message orcaMessage, lane string) (screen.Terminal, bool, error) {
 	var payload struct {
 		Dispatch string `json:"dispatchId"`
 	}
 	_ = json.Unmarshal([]byte(message.Payload), &payload)
 	dispatch, err := d.show(ctx, lane, payload.Dispatch)
 	if err != nil {
-		return err
+		return screen.Terminal{}, false, err
 	}
 	environment := ""
 	if dispatch != nil {
 		environment = dispatch.Environment
 	}
 	shown, read := d.readScreen(ctx, message.FromHandle, environment)
-	if _, open := screen.FindDialog(shown); read && shown.Source == "screen" && !open {
-		fmt.Fprintf(d.Stderr, "%s %s: Orca reads a prompt, the worker's screen shows none; nothing posted\n", message.ID, lane)
-		return nil
-	}
-	return d.relayToDesk(ctx, message, lane, "DECIDE")
+	return shown, read, nil
 }
 
 func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) error {
@@ -367,6 +375,13 @@ func (d *Desk) relayStop(ctx context.Context, message orcaMessage, lane string) 
 		}
 		if len(rest.Tasks) > 0 {
 			return d.record("escalation:resting:"+message.ID, fmt.Sprintf("RESTING %s %s: ended its turn with %s", message.ID, lane, strings.Join(rest.Tasks, "; ")))
+		}
+		shown, _, err := d.workerScreen(ctx, message, lane)
+		if err != nil {
+			return err
+		}
+		if screen.Turning(shown) {
+			return d.record("escalation:resting:"+message.ID, fmt.Sprintf("RESTING %s %s: its screen shows a turn running since the stop, so a wait or a message woke it; %s", message.ID, lane, rest.Read))
 		}
 		subject += "; nothing armed found, " + rest.Read
 	}
