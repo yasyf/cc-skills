@@ -630,7 +630,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	}
 	grader := &cobra.Command{
 		Use:   "grader NAME...",
-		Short: "Make each named Sprite a grader: install the grader pins, link this Mac's home and grading checkouts onto the Sprite's checkout, and fetch its whole history; the coordinator publishes the job's returned records",
+		Short: "Make each named Sprite a grader: install the grader pins, replace a link from this Mac's home to the Sprite's own once no pass holds a shipped plugin copy, link the grading checkouts under that home onto the Sprite's checkout, and fetch its whole history; the coordinator publishes the job's returned records",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, _, state, err := opened()

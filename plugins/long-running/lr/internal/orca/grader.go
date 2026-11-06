@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	graderHome      = "/home/sprite"
 	graderCheckout  = "/home/sprite/monorepo"
-	linkGrader      = `set -e; sudo -n mkdir -p "$(dirname "$1")"; sudo -n ln -sfn ` + graderHome + ` "$1"; shift; for checkout; do mkdir -p "$(dirname "$checkout")"; ln -sfn ` + graderCheckout + ` "$checkout"; done`
+	graderShipped   = "/tmp/lr-ship"
+	mirrorGrader    = `set -e; if [ -L "$1" ]; then for held in "$2"/*/*.lock; do [ ! -e "$held" ] || flock -n -x "$held" true || { echo "a pass holds $held, so $1 stays a link to this Sprite's home until it ends" >&2; exit 1; }; done; rm "$1"; fi; clone=$3; shift 3; for checkout; do mkdir -p "$(dirname "$checkout")"; ln -sfn "$clone" "$checkout"; done`
 	unshallowGrader = `set -eu; IFS= read -r GH_TOKEN; export GH_TOKEN GIT_TERMINAL_PROMPT=0; [ "$(git -C "$1" rev-parse --is-shallow-repository)" = false ] || git -C "$1" -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --quiet --unshallow origin`
 )
 
@@ -94,7 +94,7 @@ func (g *GraderMaker) make(ctx context.Context, box string, plan graderPlan) err
 	if err != nil {
 		return err
 	}
-	if _, err := g.step(ctx, box, "links", shell.Command{Argv: slices.Concat([]string{"sprite", "exec", "-s", box, "--no-stdin", "--", "sh", "-c", linkGrader, "sh", g.Home}, plan.checkouts)}); err != nil {
+	if _, err := g.step(ctx, box, "mirror", shell.Command{Argv: slices.Concat([]string{"sprite", "exec", "-s", box, "--no-stdin", "--", "sh", "-c", mirrorGrader, "sh", g.Home, graderShipped, graderCheckout}, plan.checkouts)}); err != nil {
 		return err
 	}
 	if _, err := g.step(ctx, box, "whole history", shell.Command{Argv: []string{"sprite", "exec", "-s", box, "--", "sh", "-c", unshallowGrader, "sh", graderCheckout}, Stdin: plan.token}); err != nil {

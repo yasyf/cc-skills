@@ -8,10 +8,13 @@ usage: sprite-job.sh <sprite> <job> <dir>
 Runs the desk job <dir> on the Sprite <sprite> through <job>, either a grader
 name for `lr grade`, finder or fidelity, or the absolute path of a Python script
 in this plugin, at the same absolute paths, so job.json and every path it names read
-the same there. The Sprite mirrors this machine's home at its own path, the
-link `lr sprites grader` makes; on a Sprite with nothing at that path the job
-writes nothing and ends with no result, since a directory its first copy made
-there would stand where the link goes. The Sprite has
+the same there. What this script ships lands in a real directory at this
+machine's home path on the Sprite, made by its first copy there, which holds
+those copies and the checkout links `lr sprites grader` makes and never aliases
+the Sprite's own home, so a copy never replaces a file of the Sprite's own, such
+as the drive entry a lane's launch wrote there. A finder or fidelity pass reads
+the drive entry this script copies from the config dir its job.json names, this
+machine's. The Sprite has
 codex, codex-ask, ccx and ccn installed,
 and holds a clone at the job's checkout whose remotes fetch the branches the
 job reads. It holds no cc-notes: the coordinator reads the answers a pass needs
@@ -159,11 +162,6 @@ ship() {
   fi
 }
 
-mirror=$(sprite exec -s "$sprite" --no-stdin -- sh -c '[ ! -e "$1" ] || echo found' sh "$HOME")
-if [ "$mirror" != found ]; then
-  echo "sprite-job: Sprite $sprite has no $HOME, the link lr sprites grader makes to its own home, so this job writes nothing under it" >&2
-  exit 1
-fi
 ship "$plugin"
 took "the plugin copy"
 tar --no-xattrs -C "$dir" -cz . | sprite exec -s "$sprite" -- sh -c '

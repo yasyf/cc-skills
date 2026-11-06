@@ -394,25 +394,27 @@ def test_a_job_whose_sprite_refuses_the_copy_leaves_an_error_result(tmp_path: Pa
     assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-8 ended with status 1 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
 
 
-def test_a_job_on_a_sprite_with_no_link_at_the_mac_home_makes_nothing_there(tmp_path: Path) -> None:
-    """sprite-lr-config, Nov 6: sdf-rel-3 came up fresh at 11:01 UTC, and at 11:05:05 the plugin copy of fidelity #51869 f2a671081a6a ran `mkdir -p` under /Users/yasyf before `lr sprites grader` linked it, so /Users/yasyf became a real directory and the link nested inside it at 11:05:22."""
+def test_a_job_on_a_sprite_with_nothing_at_the_mac_home_ships_a_real_directory_there_and_grades(tmp_path: Path) -> None:
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "51869-f2a671081a6a", mac / "config"
-    job_script = plugin_with_job(mac, "")
+    job_script = plugin_with_job(mac, RESTARTED_JOB)
     executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
     (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
-    sprite.mkdir()
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
 
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "HOME": str(mac)}
     done = subprocess.run(["sh", str(job_script), "sdf-rel-3", "fidelity", str(directory)], env=env, capture_output=True, text=True, timeout=60)
 
-    assert done.returncode == 1
-    assert f"Sprite sdf-rel-3 has no {mac}, the link lr sprites grader makes" in done.stderr
-    assert list(sprite.iterdir()) == []
-    assert json.loads((directory / "result.json").read_text())["no_result"] is True
+    assert done.returncode == 0, done.stderr
+    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+    shipped = Path(f"{sprite}{mac}")
+    assert shipped.is_dir() and not shipped.is_symlink()
+    assert json.loads(Path(f"{sprite}{config}/long-running/drives/d1.json").read_text())["checkout"] == str(checkout)
 
 
 def test_every_git_command_a_job_runs_authenticates_through_gh(tmp_path: Path) -> None:
