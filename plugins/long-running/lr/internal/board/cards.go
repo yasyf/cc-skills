@@ -1,6 +1,7 @@
 package board
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,6 +33,8 @@ const (
 	blockLabel     = "board-block:"
 	pathsField     = "paths"
 	byField        = "by"
+	reviveField    = "revive"
+	blockField     = "block"
 	releaseField   = "release"
 	questionField  = "question"
 	metField       = "met"
@@ -538,7 +541,7 @@ func (c Cards) unrowed(ctx context.Context, card string) ([]string, error) {
 }
 
 func (c Cards) Pass(ctx context.Context, lane string, judge Judge, out io.Writer) error {
-	return errors.Join(c.Sweep(ctx, lane, out), c.closeAnswered(ctx, lane, out), c.Unask(ctx, lane, judge, out), c.Finished(ctx, lane, judge, out), c.Corrected(ctx, lane))
+	return errors.Join(c.Sweep(ctx, lane, out), c.Revive(ctx, lane, out), c.closeAnswered(ctx, lane, out), c.Unask(ctx, lane, judge, out), c.Finished(ctx, lane, judge, out), c.Corrected(ctx, lane))
 }
 
 func (c Cards) closeAnswered(ctx context.Context, lane string, out io.Writer) error {
@@ -611,7 +614,7 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 	}
 	for _, card := range cards {
 		if ended := facts.allReached(lands[card], now); ended != "" {
-			if err := c.sweepOff(ctx, lane, card, known[card], ended, ended, out); err != nil {
+			if err := c.sweepOff(ctx, lane, card, reopening(known[card], facts.closedOf(lands[card])), ended, ended, out); err != nil {
 				return err
 			}
 			continue
@@ -624,9 +627,71 @@ func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
 		if outcome == "" {
 			continue
 		}
-		if err := c.sweepOff(ctx, lane, card, known[card], outcome, fmt.Sprintf("%s (its end, %s)", outcome, end), out); err != nil {
+		if err := c.sweepOff(ctx, lane, card, reopening(known[card], facts.closedOf([]End{end})), outcome, fmt.Sprintf("%s (its end, %s)", outcome, end), out); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func reopening(prior map[string]string, closed []string) map[string]string {
+	if len(closed) == 0 {
+		return prior
+	}
+	kept := map[string]string{reviveField: strings.Join(closed, " ")}
+	for name, value := range prior {
+		kept[name] = value
+	}
+	return kept
+}
+
+func (c Cards) Revive(ctx context.Context, lane string, out io.Writer) error {
+	_, known, err := c.rows(ctx)
+	if err != nil {
+		return err
+	}
+	byRepo := map[string][]int{}
+	for _, fields := range known {
+		if fields["withdrawn"] == "" || fields[blockField] == "" {
+			continue
+		}
+		for _, ref := range strings.Fields(fields[reviveField]) {
+			repo, text, _ := strings.Cut(ref, "#")
+			number, err := strconv.Atoi(text)
+			if err != nil {
+				return fmt.Errorf("revive %s: %w", ref, err)
+			}
+			byRepo[repo] = append(byRepo[repo], number)
+		}
+	}
+	open := map[string]bool{}
+	for repo, numbers := range byRepo {
+		rows, err := c.CCX.PRStatus(ctx, repo, numbers)
+		if err != nil {
+			fmt.Fprintf(out, "WARNING each card withdrawn when a %s PR closed stays down, since its PRs did not read: %v\n", repo, err)
+			continue
+		}
+		for _, row := range rows {
+			open[fmt.Sprintf("%s#%d", repo, row.Number)] = row.State == stateOpen
+		}
+	}
+	for _, card := range slices.Sorted(maps.Keys(known)) {
+		fields := known[card]
+		refs := strings.Fields(fields[reviveField])
+		if fields["withdrawn"] == "" || fields[blockField] == "" || len(refs) == 0 || slices.ContainsFunc(refs, func(ref string) bool { return !open[ref] }) {
+			continue
+		}
+		if _, err := c.run(ctx, shell.Command{Argv: []string{"cc-present", "ask", "-", "--session", c.Session, "--lane", cmp.Or(fields[laneField], lane), "--take-over"}, Stdin: fields[blockField]}); err != nil {
+			fmt.Fprintf(out, "PROBLEM %s: %s reopened, and the card did not come back, so no later sweep asks it again: %v\n", card, strings.Join(refs, ", "), err)
+			if err := c.record(ctx, card, map[string]string{reviveField: ""}); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := c.record(ctx, card, map[string]string{"withdrawn": "", "outcome": "", reviveField: "", blockField: "", "revived": stamp(c.Now())}); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "REVIVED %s: %s is open again\n", card, strings.Join(refs, ", "))
 	}
 	return nil
 }
@@ -700,13 +765,20 @@ func (c Cards) close(ctx context.Context, lane, card string, prior map[string]st
 		fmt.Fprintf(out, "PROBLEM %s: the owner's answer on %s has no ccn answer row; run board_watch.py backfill --session %s --program %s before it leaves the board\n", card, strings.Join(owed, ", "), c.Session, c.Bus)
 		return nil
 	}
+	fields := map[string]string{"withdrawn": stamp(c.Now()), "outcome": outcome}
+	if prior[reviveField] != "" {
+		board, err := c.wholeBoard(ctx)
+		if err != nil {
+			return err
+		}
+		fields[blockField] = string(board.blocks[card])
+	}
 	if _, err := c.present(ctx, append([]string{"remove-block", card, "--reason", why, "--lane", lane, "--take-over"}, removeFlags...)...); err != nil {
 		return err
 	}
 	if err := c.Withdraw(ctx, lane, card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", card, why)); err != nil {
 		return err
 	}
-	fields := map[string]string{"withdrawn": stamp(c.Now()), "outcome": outcome}
 	for name, value := range prior {
 		fields[name] = value
 	}

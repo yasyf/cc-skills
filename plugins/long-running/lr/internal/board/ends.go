@@ -157,6 +157,16 @@ func (f EndFacts) Reached(end End, now time.Time) string {
 	return ""
 }
 
+func (f EndFacts) closedOf(ends []End) []string {
+	var closed []string
+	for _, end := range ends {
+		if end.Kind == KindPR && strings.EqualFold(f.PRs[end.Value], "closed") {
+			closed = append(closed, end.Value)
+		}
+	}
+	return closed
+}
+
 func (f EndFacts) released(want []string) string {
 	for _, line := range f.Live {
 		live := liveLine.FindStringSubmatch(line)
