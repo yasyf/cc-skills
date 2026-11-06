@@ -78,7 +78,7 @@ func TestAFixLanePastItsMechanismLimitDrawsOneLineAndOneFallback(t *testing.T) {
 	w.step(w.desk.clockPass)
 
 	lines := w.clockLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "INCIDENT-CLOCK api-fix mechanism: no mechanism 11 min after its launch") || !strings.Contains(lines[0], "limit 10 min; launch to now 11 min | the Opus fallback api-fix-opus is launching on incident-opus xhigh") {
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "INCIDENT-CLOCK api-fix mechanism: no mechanism 11 min after its launch") || !strings.Contains(lines[0], "limit 10 min; launch to now 11 min | the Opus fallback api-fix-opus is launching on incident-opus high") {
 		t.Fatal(lines)
 	}
 	launches := w.fallbacks()
@@ -157,7 +157,7 @@ func TestWhatEndsAClockEndsItWithNoLine(t *testing.T) {
 	}
 }
 
-const devRedHeader = "ccx: lane=api-fix role=incident effort=xhigh incident=dev-red-ab12cd34ef"
+const devRedHeader = "ccx: lane=api-fix role=incident effort=high incident=dev-red-ab12cd34ef"
 
 func TestADevRedLanesOwnScopeOutIsRefusedAndTheFallbackTakesIt(t *testing.T) {
 	w := clockedLane(t, clockLane, devRedHeader)
@@ -179,7 +179,7 @@ func TestADevRedLanesOwnScopeOutIsRefusedAndTheFallbackTakesIt(t *testing.T) {
 
 func TestASentryLanesStopIsHonoredThoughItsWordsNameADevRed(t *testing.T) {
 	lane := "sentry-7832068463-fix-case1"
-	w := clockedLane(t, lane, "ccx: lane="+lane+" role=incident effort=xhigh")
+	w := clockedLane(t, lane, "ccx: lane="+lane+" role=incident effort=high")
 	w.now = w.now.Add(time.Minute)
 	w.add(object{"kind": "answer", "to": []string{"sentry-7832068463-fix", "store-desk", "owner-relay"}, "text": "#51766 lands on his tap: the only failures were 3 calls from one user's curl script, and no customer run is failing, so it is not a forward-fix. It also waits behind dev-red (#51688)."})
 	w.add(object{"lane": lane, "kind": kindStopped, "to": []string{coordinatorLane}, "text": "STOPPED sentry-7832068463-fix-case1: out of scope, active no under root524587: only three calls from one user curl script, no customer run failing. #51766 remains an ordinary approved green PR at b88af2eff7633593886238986ac076787bb6cd42 awaiting owner tap and dev-red #51688 under root524627; production recovery is unobserved, and no new code, merge or release ran."})

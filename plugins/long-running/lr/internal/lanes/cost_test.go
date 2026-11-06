@@ -34,8 +34,8 @@ func TestASuccessorTakesTheDeskTablesCostAndALaneAboveHighDropsToHigh(t *testing
 		{"a sonnet lane keeps its model", store.Lane{Name: lane2, Model: "sonnet", Effort: "xhigh", Brief: plain}, Cost{"sonnet", "high"}},
 		{"a lane under high keeps its effort", store.Lane{Name: lane2, Model: "sonnet", Effort: "medium", Brief: plain}, Cost{"sonnet", "medium"}},
 		{"his pick keeps xhigh", store.Lane{Name: lane2, Model: "opus", Effort: "xhigh", Brief: picked}, Cost{"opus", "xhigh"}},
-		{"the codex incident route keeps its tier", store.Lane{Name: "dev-red-fix", Model: "incident", Effort: "xhigh", Brief: plain}, Cost{"incident", "xhigh"}},
-		{"the opus incident route keeps its tier", store.Lane{Name: "dev-red-fix", Model: "incident-opus", Effort: "xhigh", Brief: plain}, Cost{"incident-opus", "xhigh"}},
+		{"the codex incident route drops to high", store.Lane{Name: "dev-red-fix", Model: "incident", Effort: "xhigh", Brief: plain}, Cost{"incident", "high"}},
+		{"the opus incident route drops to high", store.Lane{Name: "dev-red-fix", Model: "incident-opus", Effort: "xhigh", Brief: plain}, Cost{"incident-opus", "high"}},
 		{"the communicator is exempt", store.Lane{Name: OwnerRelay, Model: "opus", Effort: "xhigh", Brief: plain}, Cost{"opus", "xhigh"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

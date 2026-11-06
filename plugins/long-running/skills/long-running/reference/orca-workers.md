@@ -86,7 +86,7 @@ Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
 
 - The coordinator runs Fable 5.1 on the Mac. Ordinary Claude implementation workers default to Opus, and subdesks use Opus or Sonnet according to the routing table. A lane whose work reads Sentry runs on sol, since no Claude session mounts a Sentry server (`reference/orca-lane-brief.md`).
 - Beyond the coordinator, Fable runs only where the owner named it for the work. Never use Fable as a general fallback or set `fallbackModel`.
-- Every lane starts at effort `high`, and an Opus standing desk at `medium`. A Fable or astra model, or effort `xhigh` or `max`, starts only on the owner's words for that work: the brief's `Owner pick: owner:m<row>` line, which `lr launch lane --owner-pick owner:m<row>` writes, and `--owner-pick` on `lr launch claude` for a raw start. `lr launch` checks it on every path, posted, Mac, desk-runner and Sprite, and refuses the launch otherwise with the exact fix. Incident lanes keep `xhigh` on their own tier rule.
+- Every lane starts at effort `high`, and an Opus standing desk at `medium`. A Fable or astra model, or effort `xhigh` or `max`, starts only on the owner's words for that work: the brief's `Owner pick: owner:m<row>` line, which `lr launch lane --owner-pick owner:m<row>` writes, and `--owner-pick` on `lr launch claude` for a raw start. `lr launch` checks it on every path, posted, Mac, desk-runner and Sprite, and refuses the launch otherwise with the exact fix. Incident fix, evidence, comms and case lanes take the same rule.
 - Every Claude session `lr launch` starts, root and its subagents included, runs with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=333000` and compacts at 300k tokens; a codex lane gets `-c model_auto_compact_token_limit=300000 -c tool_output_token_limit=32000`, written to the Sprite's `config.toml` before its worker starts. A raw `claude` start in a drive session is rewritten to `lr launch claude`, which sets the same. The communicator's own window is exempt. A running window keeps its effort and limit until it is relaunched.
 - Visual design goes to gpt-6.1-sol through codex, with a Fable pass beside it on a page redesign; "A design lane's part" in [orca-lane-brief.md](orca-lane-brief.md#a-design-lanes-part) has the rule.
 
@@ -116,11 +116,11 @@ codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c model_r
 
 ## Launch fast-tier incident workers
 
-**Launch incident fix and evidence lanes with `lr launch start <lane> incident xhigh <brief>`.** Because `worker-start` has no service-tier flag, the script creates a top-level (`--no-parent`) worktree and a custom terminal running Codex on the fast tier, then starts the worker on that terminal:
+**Launch incident fix and evidence lanes with `lr launch start <lane> incident high <brief>`.** Because `worker-start` has no service-tier flag, the script creates a top-level (`--no-parent`) worktree and a custom terminal running Codex on the fast tier, then starts the worker on that terminal:
 
 ```sh
 orca terminal create --worktree "path:<wt>" --title "<name>" --json \
-  --command "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c mcp_servers={}"
+  --command "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=high -c mcp_servers={}"
 orca orchestration worker-start --run "<run>" --spec "<pointer>" \
   --worktree "path:<wt>" --terminal "<handle>" --timeout-ms 90000 --json
 ```
@@ -130,16 +130,16 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
 - Only `incident` lanes run on the fast tier. Keep Orca's codex runtime config at `~/Library/Application Support/orca/codex-runtime-home/home/config.toml` set to `service_tier = "default"` so `sol` and `codex` lanes stay on the standard tier.
 - Codex lanes mount `datadog` and `sentry` Model Context Protocol servers from `~/.codex/config.toml`, and `codex-ask` mounts both by default, using the OAuth sign-in from `codex mcp login <server>`.
 
-**Launch the Opus incident backup on `incident-opus`.** The relay's `<lane>-opus` fallback launches as `incident-opus xhigh`. The alias puts `--settings '{"fastMode":true}'` on the worker's own command line, so fast mode never depends on runtime config, and a session launched with it reports `fast_mode_state: on` even under a user-level `fastModePerSessionOptIn`. No other alias turns fast mode on.
+**Launch the Opus incident backup on `incident-opus`.** The relay's `<lane>-opus` fallback launches as `incident-opus high`. The alias puts `--settings '{"fastMode":true}'` on the worker's own command line, so fast mode never depends on runtime config, and a session launched with it reports `fast_mode_state: on` even under a user-level `fastModePerSessionOptIn`. No other alias turns fast mode on.
 
 **Handle Codex readiness timeouts as `unsupervised` launches.** Orca's readiness check does not recognize Codex, so `worker-start` can end with `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` while Codex sits idle at its prompt with the spec undelivered. On that timeout with a live `codex` or `incident` terminal, `lr launch start` types the spec pointer into the terminal itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
 - Count `unsupervised` as launched.
 - The lane reports with `cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"` and reads deliveries with `cci tail --drive <drive> --cursor <lane> --reader <lane>`, without Orca `worker_done` or escalation plumbing.
 
-`plugins/long-running/bin/orca-launch.sh <lane> incident xhigh <brief>` runs this command, then `orca orchestration worker-start --terminal`:
+`plugins/long-running/bin/orca-launch.sh <lane> incident high <brief>` runs this command, then `orca orchestration worker-start --terminal`:
 
 ```
-codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh
+codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=high
 ```
 
 ## Send and answer worker messages

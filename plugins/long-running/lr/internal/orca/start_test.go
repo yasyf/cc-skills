@@ -628,7 +628,7 @@ func TestAnIncidentLaneLaunchedInsideADriveCarriesTheDriveToCodex(t *testing.T) 
 	h := newHarness(t)
 	h.healthyCodex()
 	h.env[driveEnv] = "900424b6"
-	h.launchedAs(agentIncident, "xhigh")
+	h.launchedAs(agentIncident, "high")
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
 	if !strings.HasPrefix(command, "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 codex ") {
 		t.Fatal(command)
@@ -1052,7 +1052,7 @@ func TestAnIncidentLanePushesItsCandidateWithoutWaitingForItsPRProse(t *testing.
 	h := newHarness(t)
 	h.healthyCodex()
 	h.reply("orchestration worker-start", effectStart("term_a"))
-	h.launchedAs(agentIncident, "xhigh")
+	h.launchedAs(agentIncident, "high")
 	text := h.readReceipt("lane-a.brief.md")
 	for _, want := range []string{"open the PR within 10 minutes of the candidate", "a short body you write yourself"} {
 		if !strings.Contains(text, want) {
@@ -1069,7 +1069,7 @@ func TestACodexLaneInADriveReadsABriefCopyThatRegistersItFirstAndRecordsItsPROpe
 	h.env[driveEnv] = "900424b6"
 	h.healthyCodex()
 	h.reply("orchestration worker-start", effectStart("term_a"))
-	h.launchedAs(agentIncident, "xhigh")
+	h.launchedAs(agentIncident, "high")
 	text := h.readReceipt("lane-a.brief.md")
 	register := "`cci post --drive '900424b6' --lane 'lane-a' --kind state 'lane-a: registered at its first command'`"
 	if !strings.HasPrefix(text, "## First command") || strings.Index(text, register) >= strings.Index(text, "# brief\n") {
@@ -1095,12 +1095,12 @@ func TestAClaudeLaneReadsItsBriefItself(t *testing.T) {
 func TestAnIncidentLaneRunsCodexOnTheFastTierInItsOwnTerminalInATopLevelWorktree(t *testing.T) {
 	h := newHarness(t)
 	h.healthyCodex()
-	wantLine(t, h.launchedAs(agentIncident, "xhigh"), readyLine(h))
+	wantLine(t, h.launchedAs(agentIncident, "high"), readyLine(h))
 	create := h.orcaCalls("worktree create")[0]
 	if !slices.Contains(create, "--no-parent") || slices.Contains(create, "--parent-worktree") {
 		t.Fatal(create)
 	}
-	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"+codexLimits+codexLaneConfig+" -c mcp_servers={}'")
+	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=high"+codexLimits+codexLaneConfig+" -c mcp_servers={}'")
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--terminal") != "term_a" || slices.Contains(start, "--agent") || slices.Contains(start, "--model") || slices.Contains(start, "--effort") {
 		t.Fatal(start)
@@ -1141,7 +1141,7 @@ func TestAnIncidentWorkerTakesItsMCPServersFromTheLaunch(t *testing.T) {
 	h := newHarness(t)
 	h.healthyCodex()
 	h.env["ORCA_LAUNCH_CODEX_MCP"] = `{datadog={url="https://mcp.datadoghq.com"}}`
-	h.launchedAs(agentIncident, "xhigh")
+	h.launchedAs(agentIncident, "high")
 	if command := flag(h.orcaCalls("terminal create")[0], "--command"); !strings.HasSuffix(command, ` -c mcp_servers={datadog={url="https://mcp.datadoghq.com"}}'`) {
 		t.Fatal(command)
 	}
@@ -1152,7 +1152,7 @@ func TestAnIncidentWorkerDisablesEveryConfigServerItsLaunchDoesNotName(t *testin
 	h.healthyCodex()
 	h.writeFile(filepath.Join(h.root, "codex", "config.toml"), "model = \"gpt-6-luna\"\n[mcp_servers.node_repl]\ncommand = \"node_repl\"\n[mcp_servers.slack]\ncommand = \"npx\"\n[mcp_servers.datadog]\nurl = \"https://mcp.datadoghq.com\"\n[plugins.\"computer-history@openai-bundled\"]\nenabled = true\n")
 	h.env["ORCA_LAUNCH_CODEX_MCP"] = `{datadog={url="https://mcp.datadoghq.com"}}`
-	h.launchedAs(agentIncident, "xhigh")
+	h.launchedAs(agentIncident, "high")
 	if command := flag(h.orcaCalls("terminal create")[0], "--command"); !strings.HasSuffix(command, ` -c mcp_servers={datadog={url="https://mcp.datadoghq.com"}} -c mcp_servers.node_repl.enabled=false -c mcp_servers.slack.enabled=false'`) {
 		t.Fatal(command)
 	}
@@ -1274,7 +1274,7 @@ func TestAnIncidentReadinessTimeoutSendsTheSpecToItsOwnTerminal(t *testing.T) {
 	h.healthyCodex()
 	h.reply("orchestration worker-start", readinessTimeout)
 	h.reply("terminal send", reply{out: object{"ok": true}})
-	wantLine(t, h.launchedAs(agentIncident, "xhigh"), "lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
+	wantLine(t, h.launchedAs(agentIncident, "high"), "lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
 	if got := flag(h.orcaCalls("terminal send")[0], "--terminal"); got != "term_a" {
 		t.Fatal(got)
 	}
@@ -1309,7 +1309,7 @@ func TestAnUpdatePromptFailureQuotesOneLineOfAtMost300ScreenCharacters(t *testin
 	h.reply("terminal read", okResult(object{"terminal": object{"tail": prompt}}))
 	h.reply("orchestration worker-start", readinessTimeout)
 	h.reply("terminal send", sent)
-	line, code := h.launchAs("lane-a", agentIncident, "xhigh", h.brief)
+	line, code := h.launchAs("lane-a", agentIncident, "high", h.brief)
 	if code != 1 || strings.Contains(line, "\n") {
 		t.Fatal(line)
 	}
@@ -1807,7 +1807,7 @@ func TestAnIncidentLaneWaitsForItsCodexToIdle(t *testing.T) {
 	h := newHarness(t)
 	h.noAgent()
 	h.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
-	line, code := h.launchAs("lane-a", agentIncident, "xhigh", h.brief)
+	line, code := h.launchAs("lane-a", agentIncident, "high", h.brief)
 	if code != 1 || !strings.Contains(line, "boot terminal=term_a: orca terminal wait --for tui-idle reads timeout") {
 		t.Fatal(line)
 	}
@@ -2207,9 +2207,9 @@ func TestAnAstraLaneStartsGPT6AstraInItsOwnCodexTerminal(t *testing.T) {
 func TestAnIncidentOpusLaneRunsClaudeOpusInFastMode(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
-	h.launchedAs(modelIncidentOpus, "xhigh")
+	h.launchedAs(modelIncidentOpus, "high")
 	command := flag(h.orcaCalls("terminal create")[0], "--command")
-	if !strings.HasSuffix(command, " --model claude-opus-5-5 --effort xhigh --settings '{"+claudeLaneSettings+","+claudeFastSettings+"}'") {
+	if !strings.HasSuffix(command, " --model claude-opus-5-5 --effort high --settings '{"+claudeLaneSettings+","+claudeFastSettings+"}'") {
 		t.Fatal(command)
 	}
 }
@@ -2233,7 +2233,7 @@ func TestAnIncidentOpusLaneLeavesTheMacUnlessItsBriefNamesANeedAndPassesTheModel
 	if !macPinned("api-fix-opus", modelIncidentOpus, "ccx: role=fix incident=sentry-1 place=local why=devbox\n") {
 		t.Fatal("an incident lane naming a need can leave the Mac")
 	}
-	order := Order{Lane: "api-fix-opus", Model: modelIncidentOpus, Effort: "xhigh", Brief: "/b.md"}
+	order := Order{Lane: "api-fix-opus", Model: modelIncidentOpus, Effort: "high", Brief: "/b.md"}
 	if faults := order.launchFaults("Register slice: lane=api-fix-opus step=all\n", true); len(faults) != 0 {
 		t.Fatal(faults)
 	}

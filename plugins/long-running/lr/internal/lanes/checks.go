@@ -404,7 +404,7 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		a.opened = append(a.opened, client.Record{Kind: kindSpawn, Text: card.Permalink})
 		draft.Kind, draft.ID, draft.To = kindSpawn, "alert-launched:"+channel+":"+message.TS, []string{Root, OwnerRelay}
 		draft.LaneRefs = []string{alert.slug + "-fix"}
-		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "xhigh"}
+		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "high"}
 		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence; alert message %s", headline, namedFor(alert, message), minutes, alert.slug, alert.slug, card.Permalink)
 	}
 	if _, err := a.Env.Bus.Post(ctx, draft); err != nil {

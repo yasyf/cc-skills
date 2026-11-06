@@ -173,9 +173,9 @@ func TestAnIncidentTrioPostsAddressedLaunchLinesKeyedByTheirRecordsSeq(t *testin
 				t.Fatalf("the communicator holds no topic: %+v", held)
 			}
 			for i, want := range []string{
-				"orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief=" + desk.FixBrief,
-				"orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief=" + desk.EvidenceBrief,
-				"orca-desk: launch inc-app-origin-comms NOW incident-opus xhigh role=comms brief=" + desk.CommsBrief,
+				"orca-desk: launch inc-app-origin-fix NOW incident high role=fix brief=" + desk.FixBrief,
+				"orca-desk: launch inc-app-origin-evidence NOW incident high role=evidence brief=" + desk.EvidenceBrief,
+				"orca-desk: launch inc-app-origin-comms NOW incident-opus high role=comms brief=" + desk.CommsBrief,
 			} {
 				draft := bus.drafts[i]
 				if !reflect.DeepEqual(draft.To, []string{deskLane}) || draft.Kind != "go" || draft.Lane != "root" || draft.Topic != "inc-app-origin" {
@@ -312,7 +312,7 @@ func TestAnAlertFillsTheIncidentTemplateIntoTheLanesOwnBrief(t *testing.T) {
 	if got := readFile(t, path); got != want {
 		t.Fatalf("brief:\n%q\nwant\n%q", got, want)
 	}
-	if !strings.HasSuffix(bus.drafts[0].Text, "orca-desk: launch run-queue-fix NOW incident xhigh role=fix brief="+path) {
+	if !strings.HasSuffix(bus.drafts[0].Text, "orca-desk: launch run-queue-fix NOW incident high role=fix brief="+path) {
 		t.Fatalf("line %q", bus.drafts[0].Text)
 	}
 }
@@ -367,7 +367,7 @@ func TestAnAlertFillsEveryFieldOfTheShippedIncidentTemplates(t *testing.T) {
 		}
 	}
 	fix := readFile(t, filepath.Join(dir, "prog", "sofi-team-runs-fix", "brief.md"))
-	for _, want := range []string{"ccx: lane=sofi-team-runs-fix role=incident effort=xhigh incident=sofi-team-runs\n", "`sofi-team-runs-evidence`", "ccn -R /checkout log show"} {
+	for _, want := range []string{"ccx: lane=sofi-team-runs-fix role=incident effort=high incident=sofi-team-runs\n", "`sofi-team-runs-evidence`", "ccn -R /checkout log show"} {
 		if !strings.Contains(fix, want) {
 			t.Fatalf("fix brief lacks %q:\n%s", want, fix)
 		}

@@ -1,11 +1,11 @@
-ccx: lane={lane} role=incident effort=xhigh
+ccx: lane={lane} role=incident effort=high
 
 # {lane}: fix the case {parent} left unfixed, opened {onset}
 
 The case, in the words of `{parent}`:
 {case}
 
-You are a fix lane on the incident route: gpt-6.1-sol, fast tier, xhigh, launched by
+You are a fix lane on the incident route: gpt-6.1-sol, fast tier, high, launched by
 the relay when `{parent}` reported this case as one its fix does not
 cover. The break is live for whoever hits this case, so it is an incident, never
 backlog, while both answers of step 0 are yes. This brief is the `{lane}.full.md` attachment on the drive's briefs log

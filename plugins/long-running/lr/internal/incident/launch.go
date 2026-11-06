@@ -28,7 +28,7 @@ const (
 	RoleComms       = "comms"
 	routeIncident   = "incident"
 	routeWriter     = "incident-opus"
-	effortXHigh     = "xhigh"
+	effortHigh      = "high"
 	deskLane        = "orca-desk"
 	deskRunner      = "desk-runner"
 	communicator    = "owner-relay"
@@ -251,7 +251,7 @@ func launchDirective(lane plannedLane, brief string) string {
 	if lane.role == RoleComms {
 		route = routeWriter
 	}
-	return fmt.Sprintf("launch %s NOW %s %s role=%s brief=%s", lane.lane, route, effortXHigh, lane.role, brief)
+	return fmt.Sprintf("launch %s NOW %s %s role=%s brief=%s", lane.lane, route, effortHigh, lane.role, brief)
 }
 
 func LaunchAttempt(lane string, at time.Time) string {

@@ -29,8 +29,8 @@ const (
 	clockDecide   = "decide"
 	clockOpen     = "open"
 	clockReady    = "ready"
-	clockEffort   = "xhigh"
-	fallbackBrief = `ccx: lane=%[1]s role=incident effort=xhigh
+	clockEffort   = "high"
+	fallbackBrief = `ccx: lane=%[1]s role=incident effort=high
 
 # %[1]s: Opus fallback for %[2]s
 
@@ -511,7 +511,7 @@ func (d *Desk) clockFallback(ctx context.Context, lane string, launch incident.A
 	if _, _, err := d.acceptLaunch(key, backup, launchTarget{Model: modelIncidentOpus, Effort: clockEffort, Brief: attached, By: deskRunner}); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("the Opus fallback %s is launching on %s xhigh, brief %s", backup, modelIncidentOpus, attached), nil
+	return fmt.Sprintf("the Opus fallback %s is launching on %s high, brief %s", backup, modelIncidentOpus, attached), nil
 }
 
 func openIncidentOf(lane string, incidents []client.Record) *client.Record {

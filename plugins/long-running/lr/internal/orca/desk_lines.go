@@ -1181,7 +1181,7 @@ func (d *Desk) incidentLine(ctx context.Context, at, key, rest string, line clie
 			}
 		}
 	})
-	return d.record(log, fmt.Sprintf("INCIDENT %s: %s %s | fix lane %s launching on incident xhigh with forward-fix authority, evidence lane %s%s beside it; root: ratify", slug, what, link, lane, slug, spawnedEvidence))
+	return d.record(log, fmt.Sprintf("INCIDENT %s: %s %s | fix lane %s launching on incident high with forward-fix authority, evidence lane %s%s beside it; root: ratify", slug, what, link, lane, slug, spawnedEvidence))
 }
 
 type holdTarget struct {

@@ -1262,7 +1262,7 @@ func (d *Desk) caseBrief(ctx context.Context, key, lane, parent string, launch i
 func (d *Desk) caseLane(ctx context.Context, lane, parent string, launch incident.Action, written, key string) (bool, error) {
 	log := escalationPref + key
 	line := fmt.Sprintf("INCIDENT %s: its fix does not cover: %s", parent, written)
-	refusal, err := d.launchRefusal(ctx, key, Order{Lane: lane, Model: agentIncident, Effort: "xhigh", Brief: d.reference("unfixed-case-brief.md")})
+	refusal, err := d.launchRefusal(ctx, key, Order{Lane: lane, Model: agentIncident, Effort: "high", Brief: d.reference("unfixed-case-brief.md")})
 	if err != nil {
 		return false, err
 	}
@@ -1276,10 +1276,10 @@ func (d *Desk) caseLane(ctx context.Context, lane, parent string, launch inciden
 	if failure != "" {
 		return false, d.record(log, fmt.Sprintf("%s | case lane %s not launched: %s", line, lane, failure))
 	}
-	if _, _, err := d.acceptLaunch(key, lane, launchTarget{Model: agentIncident, Effort: "xhigh", Brief: brief, By: deskRunner}); err != nil {
+	if _, _, err := d.acceptLaunch(key, lane, launchTarget{Model: agentIncident, Effort: "high", Brief: brief, By: deskRunner}); err != nil {
 		return false, err
 	}
-	return true, d.record(log, fmt.Sprintf("%s | case lane %s launching on incident xhigh, brief %s; root: ratify, and have the fix's one post to the reporter say this case is still open", line, lane, brief))
+	return true, d.record(log, fmt.Sprintf("%s | case lane %s launching on incident high, brief %s; root: ratify, and have the fix's one post to the reporter say this case is still open", line, lane, brief))
 }
 
 func (d *Desk) offerCases(ctx context.Context, key, first, parent string, launch incident.Action, cases []string, reason string) error {
@@ -1309,7 +1309,7 @@ func (d *Desk) offerCases(ctx context.Context, key, first, parent string, launch
 			offers = append(offers, written+" | no launch line: "+failure)
 			continue
 		}
-		offers = append(offers, fmt.Sprintf("%s | to launch its lane, post `orca-desk: launch %s NOW incident xhigh brief=%s`", written, lane, brief))
+		offers = append(offers, fmt.Sprintf("%s | to launch its lane, post `orca-desk: launch %s NOW incident high brief=%s`", written, lane, brief))
 	}
 	return d.record(escalationPref+key, fmt.Sprintf("DECIDE %s %s: %s: %s", key, parent, reason, strings.Join(offers, "; ")))
 }

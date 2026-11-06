@@ -1,4 +1,4 @@
-ccx: lane={lane} role=incident effort=xhigh incident={incident}
+ccx: lane={lane} role=incident effort=high incident={incident}
 
 # {lane}: fix the production alert {slug}, opened {onset}
 
@@ -6,7 +6,7 @@ Alert: {what}
 Link: {link}
 Alert links: {links}
 
-You are the fix lane on the incident route: gpt-6.1-sol, fast tier, xhigh, launched by
+You are the fix lane on the incident route: gpt-6.1-sol, fast tier, high, launched by
 the relay when the incident line arrived, beside the evidence lane `{slug}-evidence` and
 the Slack writer `{slug}-comms`. The coordinator ratifies the launch and starts an
 incident-doc lane. Read

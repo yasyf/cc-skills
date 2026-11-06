@@ -265,7 +265,7 @@ cci post --drive <drive> --lane root --kind go --to orca-desk --text 'orca-desk:
 ```
 
 - `NOW` sets `--owner-directed`, and `role=<role>` sets `--role` for the incident clock.
-- An incident fix lane launched from `<state>/<dir>/brief.md` must take `<dir>` as its lane name: `orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md`. The relay refuses any other name with `LAUNCH-FAILED` and the command that launches it under `<dir>`.
+- An incident fix lane launched from `<state>/<dir>/brief.md` must take `<dir>` as its lane name: `orca-desk: launch <dir> NOW incident high role=fix brief=<state>/<dir>/brief.md`. The relay refuses any other name with `LAUNCH-FAILED` and the command that launches it under `<dir>`.
 - `lr launch incident` posts two lines, with `role=fix` and `role=evidence`. The evidence lane attaches `<slug>-evidence.md` to the same briefs log, where the fix brief tells the fix lane to read it.
 - Only `incident` runs on the fast tier; plain `sol` runs on the standard tier.
 
@@ -389,7 +389,7 @@ Each pass settles detached launches, delivers accepted relays and launches, reco
 
 **O15. Preserve the codex and incident launch routes.**
 - `sol`, `codex`, and `gpt-*` use Orca's codex agent on the standard tier.
-- Incident launches name `--model incident --effort xhigh`, which selects `gpt-6.1-sol`, a `--no-parent` worktree, and an explicit terminal command with `--dangerously-bypass-approvals-and-sandbox` and `-c service_tier=fast`.
+- Incident launches name `--model incident --effort high`, which selects `gpt-6.1-sol`, a `--no-parent` worktree, and an explicit terminal command with `--dangerously-bypass-approvals-and-sandbox` and `-c service_tier=fast`.
 - The Opus fallback names `--model incident-opus`, the only alias whose Claude command line turns fast mode on.
 - Keep Orca's runtime defaults unchanged. Inline lanes use `Skill(codex)` or `codex:codex-wrapper`; one-off questions use `codex-ask`.
 
@@ -423,7 +423,7 @@ orca-desk: incident <slug> <link> :: <what fired>
 - A malformed line logs `ALERT-FAILED` or `INCIDENT-FAILED` and launches nothing.
 - `alert`: the relay logs `ALERT` and launches nothing; a repeat relays to a live fix lane.
 - `incident`: the relay checks cci at intake and right before launch for another owner. Another owner shows as a coordinator `done` resolving a record naming `<slug>`, a coordinator `stopped` addressed to `<slug>-fix`, or an `answer` from another drive's coordinator addressed to `root@<this drive>` naming `<slug>`. If owned elsewhere, it fails any pending launch and posts one `state` record: `INCIDENT-OWNED <key> <lane>: incident <slug> owned by <who>; no launch`.
-- Otherwise it fills [reference/alert-fix-brief.md](alert-fix-brief.md) with `alert.facts`, attaches it to `orca.briefs.log` as `<slug>-fix.full.md` with `ccn log append --attach --replace` instead of writing under `~/.claude/scratch`, and launches `<slug>-fix` on `incident xhigh` at that attachment path. A brief that fails to attach logs `INCIDENT` with the `ccn` error and launches nothing.
+- Otherwise it fills [reference/alert-fix-brief.md](alert-fix-brief.md) with `alert.facts`, attaches it to `orca.briefs.log` as `<slug>-fix.full.md` with `ccn log append --attach --replace` instead of writing under `~/.claude/scratch`, and launches `<slug>-fix` on `incident high` at that attachment path. A brief that fails to attach logs `INCIDENT` with the `ccn` error and launches nothing.
 - A repeat `incident` line relays to the live lane and keeps its brief.
 - For a Datadog alert, the relay posts `INCIDENT` to the coordinator with topic `dd-<id>`; a `fix-live` record with `--topic dd-<id>` closes it.
 
@@ -445,7 +445,7 @@ INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at <time>, limit 
 
 - A later milestone satisfies earlier thresholds, a record posted before launch does not count, and each threshold logs once per launch.
 - The clock stops at `ready`, a `fix-live`, `not-ours`, `stopped`, or `stand-down` record, a `fix-live:` status, a coordinator `hold` addressed to or naming the lane, or when the dispatch settles. A coordinator `decide` steers the lane and leaves its clock running.
-- The fallback is `<lane>-opus` on `incident-opus xhigh`, Opus 5.5 in Claude fast mode, launched as `--owner-directed` on a Sprite unless the lane's brief names a need of the Mac. Its brief is the lane's brief under a header stating why the clock started it, that it works in parallel and the first PR wins, and that it posts on cci as `<lane>-opus` to `<lane>` and the coordinator. The relay attaches it to the briefs log as `<lane>-opus.full.md` and writes `<state>/briefs/<lane>-opus.full.md`.
+- The fallback is `<lane>-opus` on `incident-opus high`, Opus 5.5 in Claude fast mode, launched as `--owner-directed` on a Sprite unless the lane's brief names a need of the Mac. Its brief is the lane's brief under a header stating why the clock started it, that it works in parallel and the first PR wins, and that it posts on cci as `<lane>-opus` to `<lane>` and the coordinator. The relay attaches it to the briefs log as `<lane>-opus.full.md` and writes `<state>/briefs/<lane>-opus.full.md`.
 - A `-opus` lane is clocked but gets no fallback of its own. A fix lane gets at most one Opus fallback.
 - If the Orca launch of `<lane>-opus` fails, the relay retries once under `<key>:retry`. After a second failure while the clock runs, it logs `INCIDENT-CLOCK <lane> in-process: the Orca launch of the Opus fallback <lane>-opus failed twice: <reasons> | coordinator: start <lane>-opus in-process now, ...` with the brief path and launches nothing more.
 - `show` prints each clocked lane's minutes and milestones.
@@ -463,18 +463,18 @@ INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at <time>, limit 
 
 - Fix lanes close their `ready:` and `fix-live:` Run statuses with one `UNFIXED <lane>: <case>` line per uncovered case, or `UNFIXED <lane>: none`. Only a line that names the reporting lane counts. A case that opens with `none`, such as `none (excluded by owner ruling ff7fca1: …)`, launches nothing, and neither does a case naming a phrase of a `drop-class` ruling.
 - Only `ready:` and `fix-live:` statuses launch case lanes; `worker_done`, `NOT-OURS`, `STOPPED`, or a report opening with `NOT-OURS`, `stood down`, or `Stopped` launches nothing.
-- Each unique case across a lane, its `-opus` fallback, and its case lanes launches `<first>-case<n>` once on `incident xhigh` in the same pass, where `<first>` strips trailing `-opus` and `-case<n>`, and `<n>` is the lowest unused container index.
+- Each unique case across a lane, its `-opus` fallback, and its case lanes launches `<first>-case<n>` once on `incident high` in the same pass, where `<first>` strips trailing `-opus` and `-case<n>`, and `<n>` is the lowest unused container index.
 - The relay fills [reference/unfixed-case-brief.md](unfixed-case-brief.md) with the case verbatim, the reporting lane, the path of that lane's brief, and the PRs its cci `opened` records name. It attaches `<first>-case<n>.full.md`, clocks the new lane, and logs:
 
 ```text
-INCIDENT <lane>: its fix does not cover: <case> | case lane <first>-case<n> launching on incident xhigh, brief <path>; coordinator: ratify, and have the fix's one post to the reporter say this case is still open
+INCIDENT <lane>: its fix does not cover: <case> | case lane <first>-case<n> launching on incident high, brief <path>; coordinator: ratify, and have the fix's one post to the reporter say this case is still open
 ```
 
 - A case whose launch is refused, or whose brief does not attach, logs `not launched` with the reason and launches on the next report that names it.
 - If a case is past `incident.case_lanes` (default two), if a case lane reports it since case lanes are one generation, or if the report or newest `mechanism` says `UNKNOWN`, the relay attaches the brief without launching and posts:
 
 ```text
-DECIDE unfixed:<msg> <lane>: <reason>: <case> | to launch its lane, post `orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>`; <case> | …
+DECIDE unfixed:<msg> <lane>: <reason>: <case> | to launch its lane, post `orca-desk: launch <first>-case<n> NOW incident high brief=<path>`; <case> | …
 ```
 
 - An incident ends at a `not-ours` or `stand-down` from the fix or `-opus` lane, a `stopped` posted by the reporting lane before its report, or a coordinator `stand-down` or `stopped` to the fix, `-opus`, or case lane. A report after the end or from a withdrawn lane launches nothing and logs:

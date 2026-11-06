@@ -74,7 +74,7 @@ A report that arrives as a Slack share belongs to its original author. Read it w
 
 A monitor transition from `monitor-watch.py --alert-drive` posts `orca-desk: alert <slug> <link> :: <what fired>` to `orca-desk` on cci; the runner records it without launching. The alerts desk posts `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>` only when it judges a lane necessary (`reference/alerts-desk-brief.md`); `reported` is the first report's Pacific time (`reference/orca-desk-brief.md`). When the alert has a second link, such as the Slack message beside a Sentry issue, `<what fired>` carries it, so the record and every brief hold both.
 
-For an `incident` line the runner fills `reference/alert-fix-brief.md` with drive facts from `alert.facts`, attaches it to the briefs log as `<slug>-fix.full.md`, launches `<slug>-fix` on `incident` `xhigh` at once, and relays a repeat to the live lane. When the runner's `INCIDENT` line arrives, the coordinator ratifies it in that turn:
+For an `incident` line the runner fills `reference/alert-fix-brief.md` with drive facts from `alert.facts`, attaches it to the briefs log as `<slug>-fix.full.md`, launches `<slug>-fix` on `incident` `high` at once, and relays a repeat to the live lane. When the runner's `INCIDENT` line arrives, the coordinator ratifies it in that turn:
 
 1. Adopt the evidence lane the launch started, and spawn an incident-doc lane beside it as `long-running:lane` on opus named `incident-<id>-retro`.
 2. Claim, fence, freeze, and hold nothing (`tools/ci release claim`, a fence, a freeze, or a hold) unless the owner asks for that exact one; other people's releases keep flowing while the fix lands. Never freeze a target because a PR waits on review, a person's or a bot's, and never freeze everyone over a dependency your own change created; a change that must ship with another target waits in its own stack.
@@ -110,7 +110,7 @@ Each incident has one actor. When `tools/ci oncall incidents` shows an open ai-o
 
 **The supervisor and the coordinator launch incident lanes with `lr launch incident`.**
 
-- The fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`. The fix lane starts on a Sprite, which has no AWS identity, Sentry or Datadog; the evidence lane starts on the Mac (`place=local why=sentry`), runs `tools/ci oncall incidents` first and posts its output to the fix lane, and answers the fix lane's Sentry, Datadog, `oncall` and `devbox` asks over cci, running each devbox repro on a Namespace devbox it makes from the Mac. When the evidence lane's Mac launch stalls, it relaunches once on the Mac and then reports `LAUNCH-FAILED`; the fix lane goes on from code and GitHub and says what it could not read.
+- The fix and evidence lanes run as Orca codex workers on `gpt-6.1-sol`, fast tier, `high`. The fix lane starts on a Sprite, which has no AWS identity, Sentry or Datadog; the evidence lane starts on the Mac (`place=local why=sentry`), runs `tools/ci oncall incidents` first and posts its output to the fix lane, and answers the fix lane's Sentry, Datadog, `oncall` and `devbox` asks over cci, running each devbox repro on a Namespace devbox it makes from the Mac. When the evidence lane's Mac launch stalls, it relaunches once on the Mac and then reports `LAUNCH-FAILED`; the fix lane goes on from code and GitHub and says what it could not read.
 - The comms lane runs as Claude on `incident-opus`, because a codex lane cannot post to Slack: no hook runs there to mint the ticket every `cc-slack` write spends. The fix lane still owns the incident and what is said, so an incident has two agents only for this reason.
 - Only the `incident` alias runs fast; plain `sol` is the standard tier and never an incident route.
 - Claude never takes the fix or evidence role. Fable and astra never run.
@@ -123,7 +123,7 @@ lr launch incident <name> <fix-brief> [<evidence-brief> [<comms-brief>]] [--aler
 
 - With `--alert`, it fills each brief template itself, the fenced briefs below or `reference/alert-fix-brief.md`, `alert-evidence-brief.md` and `alert-comms-brief.md`: it drops the template's `Root:` lines, writes the lane's name for every `<lane>` and the text for the `Alert:` line, fills every `{field}` as the supervisor does (slug, onset, links, drive facts, report and due times, checkout), and saves `<state dir>/<lane>/brief.md`. The coordinator never edits a template by hand. A brief still holding `<lane>`, `<state>`, `<...>`, a placeholder on its `Alert:` line, or a template field such as `{slug}` is refused, naming each field; `lr launch lane` refuses a template field the same way.
 - Every incident brief's `Register slice: ... step=incident` carries the drive's standing rules register verbatim under `## Standing rules`, refreshed when the desk launches it, so the customer bars and the read-place rule reach a Codex lane that no session hook reaches.
-- It posts `<name>-fix`, `<name>-evidence` and `<name>-comms` to `orca-desk` on cci as `NOW` launch lines at `xhigh`, on `incident` with `role=fix` and `role=evidence` and on `incident-opus` with `role=comms`, so the runner's incident clock holds only the fix lane. Each launch's key is `R` and the number cci gives its record.
+- It posts `<name>-fix`, `<name>-evidence` and `<name>-comms` to `orca-desk` on cci as `NOW` launch lines at `high`, on `incident` with `role=fix` and `role=evidence` and on `incident-opus` with `role=comms`, so the runner's incident clock holds only the fix lane. Each launch's key is `R` and the number cci gives its record.
 - The comms lane posts under its grant with no draft round trip. Exposure nobody has reported never goes out from it: each finding reaches the owner as one card with the facts, and he picks who tells whom.
 - It then waits for `LAUNCHED` or `LAUNCH-FAILED` and prints each lane's dispatch and terminal. It exits 0 when both launched, or when a lane has no verdict yet while the relay's `orca alive` record is fresh, since that verdict arrives as a record. It exits 2 only when the relay's `orca alive` record is over five minutes old.
 
@@ -159,7 +159,7 @@ When the incident run verb is refused, for example on machine load, the coordina
 
 ### Escalate to Opus 5.5 fast mode
 
-- The orca desk's incident clock launches the Opus 5.5 backup `<lane>-opus` on the same brief as `incident-opus xhigh` and keeps the first lane running. Its limits are in the Escalate paragraph of the [Fix lane brief](#fix-lane-brief).
+- The orca desk's incident clock launches the Opus 5.5 backup `<lane>-opus` on the same brief as `incident-opus high` and keeps the first lane running. Its limits are in the Escalate paragraph of the [Fix lane brief](#fix-lane-brief).
 - `incident-opus` is the one `lr launch start` alias that starts `claude-opus-5-5` in Claude fast mode.
 - When the owner asks for a smarter lane on the incident, that `incident-opus` lane is the escalation, launched at once and named in the coordinator's reply. Never use fable, astra, or an unnamed model.
 - A fix lane gets one Opus fallback.
@@ -167,7 +167,7 @@ When the incident run verb is refused, for example on machine load, the coordina
 **The incident turn outside `lr incident run`.** A coordinator that launches the fix lane by hand posts the full cci record form on one line; the runner refuses a shorter line and logs `LAUNCH-FAILED`:
 
 ```
-cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> ({at}) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<absolute path>'
+cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> ({at}) orca-desk: launch <name>-fix NOW incident high role=fix brief=<absolute path>'
 ```
 
 Outside a drive, the fix lane is an inline background `codex:codex-wrapper` running `codex-ask --incident`, with Claude Opus 5.5 in fast mode on a miss, and never fable or astra. Check each incident lane every 10 minutes; with no mechanism within 15 minutes of spawn, start a second lane on Opus fast in parallel. The fix lane's brief carries apply authority: a PR through the submit skill, merged with `gh pr merge <PR> --squash` the moment it is approved and green, skipping the merge queue (never `stack-enqueue` or `merge-fast`), and break-glass or hand apply pre-authorized at 0 delete and 0 replace with counts reported and runbook-logged. "Reproduce before fixing" and "Observe, don't infer" govern the fix lane, not whether it exists, and no owner round-trip comes before the spawn. An order to unfreeze everything lifts every freeze, listed first in the ack; a request for another lane, such as a retro, is a new named lane, never folded into one already running. A healthy release means the affected teams' customer runs succeed, never only zero OOMKills and CDP errors.
@@ -259,7 +259,7 @@ When a second outage hits the same area, stop fixing one at a time: halt, re-ent
 **Every unfixed case becomes an incident case lane, never backlog.**
 
 - The fix lane's `UNFIXED <lane>: <case>` lines on its `ready:` and `fix-live:` statuses (format in the [Fix lane brief](#fix-lane-brief), step 7) are the only reports that launch case lanes; a `worker_done`, `NOT-OURS`, or `STOPPED` launches none.
-- For each case, up to `incident.case_lanes` (default 2), the runner fills `reference/unfixed-case-brief.md` and launches `<first>-case<n>` on incident xhigh in the same pass (`reference/orca-desk-brief.md`). It logs `INCIDENT <lane> …: its fix does not cover: <case> | case lane <first>-case<n> launching …`. A case launches once, whether the fix lane or its `-opus` fallback reports it.
+- For each case, up to `incident.case_lanes` (default 2), the runner fills `reference/unfixed-case-brief.md` and launches `<first>-case<n>` on incident high in the same pass (`reference/orca-desk-brief.md`). It logs `INCIDENT <lane> …: its fix does not cover: <case> | case lane <first>-case<n> launching …`. A case launches once, whether the fix lane or its `-opus` fallback reports it.
 
 ### What launches nothing
 
@@ -270,7 +270,7 @@ When a second outage hits the same area, stop fixing one at a time: halt, re-ent
 
 ### What reaches the coordinator as a `DECIDE`
 
-Excess cases, second-generation cases from a case lane, and cases from a report whose mechanism says `UNKNOWN` reach the coordinator as a `DECIDE` carrying a ready `orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line per case. The coordinator starts a lane by posting its line.
+Excess cases, second-generation cases from a case lane, and cases from a report whose mechanism says `UNKNOWN` reach the coordinator as a `DECIDE` carrying a ready `orca-desk: launch <first>-case<n> NOW incident high brief=<path>` line per case. The coordinator starts a lane by posting its line.
 
 The coordinator ratifies each launched case lane, has the fix's one post to the reporter say the case is still open, and never parks a named case while the break is live.
 
@@ -373,7 +373,7 @@ Register slice: lane=<lane> step=incident
 ```text
 ccx: role=fix
 You are <fix lane name>, fixing the active production alert.
-Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
+Model gpt-6.1-sol, effort high, service tier fast; Orca codex worker.
 Owner: the coordinator <coordinator agent name> for incident <incident id>.
 Authority: implement the fix and open its PR through <submit skill>.
   While the alert is active, the fix rides the next regular release when one is
@@ -620,7 +620,7 @@ Register slice: lane=<lane> step=incident
 ```text
 ccx: role=evidence place=local why=sentry
 You are <evidence lane name>, reading telemetry, logs, and the deploy timeline for the active production alert.
-Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
+Model gpt-6.1-sol, effort high, service tier fast; Orca codex worker.
 Owner: the coordinator <coordinator agent name> for incident <incident id>.
 Authority: read-only evidence. Feed <fix lane name> and the coordinator.
   You gate nothing. Never ask the fix lane to wait for diagnosis.

@@ -1,4 +1,4 @@
-ccx: lane={lane} role=comms effort=xhigh
+ccx: lane={lane} role=comms effort=high
 
 # {lane}: post the Slack replies for the production alert {slug}, opened {onset}
 

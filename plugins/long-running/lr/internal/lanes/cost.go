@@ -17,7 +17,6 @@ type Cost struct{ Model, Effort string }
 var (
 	AboveHigh      = []string{"xhigh", "max"}
 	BriefOwnerPick = regexp.MustCompile(`(?m)^` + OwnerPickLine + ` *owner:m[0-9]+\b`)
-	incidentRoutes = []string{"incident", "incident-opus"}
 	deskMedium     = Cost{"opus", "medium"}
 	DeskCosts      = map[string]Cost{
 		"fidelity-desk":      deskMedium,
@@ -43,7 +42,7 @@ func successorCost(old store.Lane) Cost {
 	if cost, desk := DeskCostOf(old.Name); desk && cost.Model == old.Model {
 		return cost
 	}
-	keeps := base == OwnerRelay || slices.Contains(incidentRoutes, old.Model) || must(BriefOf(old.Brief)).OwnerPicked
+	keeps := base == OwnerRelay || must(BriefOf(old.Brief)).OwnerPicked
 	if slices.Contains(AboveHigh, old.Effort) && !keeps {
 		return Cost{old.Model, laneEffort}
 	}
