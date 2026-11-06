@@ -1709,6 +1709,48 @@ func TestThePathLRRunsThePackTheCurrentLinkNamesAcrossPackMoves(t *testing.T) {
 	}
 }
 
+func TestASpriteLanesPathRunsTheTsDeltaThePreambleNamesFromThePackItInstalled(t *testing.T) {
+	shim, err := os.ReadFile("../../../scripts/bin-shim.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})
+	lrURL, lrSHA := tarball(t, dir, "lr.tgz", map[string]string{"lr": "#!/bin/sh\necho lr version 0.1.1\n"})
+	packURL, packSHA := tarball(t, dir, "pack.tgz", map[string]string{
+		".claude-plugin/plugin.json":              `{"version":"0.7.1855"}`,
+		"bin/ts-delta.sh":                         string(shim),
+		"skills/long-running/scripts/ts-delta.sh": "#!/bin/sh\necho \"ts-delta from 0.7.1855 typechecks $*\"\n",
+	})
+	home := t.TempDir()
+	plugins := filepath.Join(home, ".claude", "plugins")
+	if err := os.MkdirAll(plugins, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	baked := `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"/payload/long-running/0.7.692","version":"0.7.692"}]}}`
+	if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(baked), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "long-running"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/payload/long-running/0.7.692", filepath.Join(home, ".claude", "long-running", "current")); err != nil {
+		t.Fatal(err)
+	}
+	install := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "plugin", "long-running@skills", packURL, packSHA, "0.7.1855", "--")
+	install.Env = append(os.Environ(), "HOME="+home)
+	if out, err := install.CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+
+	lane := exec.Command("sh", "-c", "ts-delta.sh common")
+	lane.Env = append(os.Environ(), "HOME="+home, "PATH="+filepath.Join(home, ".local", "bin")+":/usr/bin:/bin", "CLAUDE_CONFIG_DIR=", "LONG_RUNNING_PIN=")
+	said, err := lane.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(said)) != "ts-delta from 0.7.1855 typechecks common" {
+		t.Fatalf("the lane's ts-delta.sh said %q: %v", said, err)
+	}
+}
+
 func TestAnInstallReplacesAnLRThatIsRunning(t *testing.T) {
 	dir := t.TempDir()
 	cciURL, cciSHA := tarball(t, dir, "cci.tgz", map[string]string{"cci": "#!/bin/sh\necho 0.49.36\n"})

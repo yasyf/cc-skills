@@ -143,11 +143,12 @@ while [ "$1" != -- ]; do
     current="$HOME/.claude/${name%@*}/current"
     if [ -L "$current" ]; then
       ln -sfn "$dir" "$current"
-      if [ -e "$current/bin/lr" ]; then
-        printf '#!/bin/sh\nexec "%s/bin/lr" "$@"\n' "$current" > "$bin/lr.new"
-        chmod 755 "$bin/lr.new"
-        mv -f "$bin/lr.new" "$bin/lr"
-      fi
+      for tool in lr ts-delta.sh; do
+        [ -e "$current/bin/$tool" ] || continue
+        printf '#!/bin/sh\nexec "%s/bin/%s" "$@"\n' "$current" "$tool" > "$bin/$tool.new"
+        chmod 755 "$bin/$tool.new"
+        mv -f "$bin/$tool.new" "$bin/$tool"
+      done
     fi
     ;;
   esac
