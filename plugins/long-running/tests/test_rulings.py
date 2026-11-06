@@ -451,6 +451,7 @@ class RegisterShell(ledger.Shell):
         self.vocabulary: dict[str, dict[str, str]] | None = None
         self.added = ""
         self.answer_reads: list[tuple[str, list[str]]] = []
+        self.standing: list[dict] = []
 
     def writes(self) -> list[list[str]]:
         return [argv for argv in self.calls if argv[3:6] == ["ledger", "row", "set"]]
@@ -474,7 +475,7 @@ class RegisterShell(ledger.Shell):
                     self.rows.setdefault(key, {})[name] = text
                 return ""
             case ["ccn", "-R", "/repo", "doc", "list", "--label", "standing-rules:brook", "--full", "--json"]:
-                return "[]"
+                return json.dumps(self.standing)
             case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--full", "--json"] | ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
                 wanted = set(labels[1::2])
                 return json.dumps([answer for answer in self.answers if wanted <= set(answer["tags"])])
@@ -1894,6 +1895,19 @@ def test_an_incident_slice_carries_the_unclassified_captures_and_points_at_the_r
     assert "> the shell never uploads" in lines
     assert "rule/ccccccc" not in out
     assert "rule/eeeeeee" not in out
+
+
+def test_an_incident_slice_carries_the_standing_rules_register_verbatim_and_a_plan_step_slice_does_not(home: Path, package: Path, state: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package))
+    bars = "- **New, Nov 5 11:57 AM**, production reads. A lane reads from the right place, never from a developer machine.\n- Nobody reads SoFi's AWS account, cluster or CloudTrail.\n- Datadog only for AIG."
+    shell.standing = [{"id": "c3230a2" + "0" * 33, "body": bars + "\n", "updated_at": STAMP}]
+
+    _, incident = ran(capsys, shell, "slice", "--lane", "sentry-1-evidence", "--step", "incident")
+    _, planned = ran(capsys, shell, "slice", "--lane", "lane-b", "--step", "2")
+
+    assert hashed_correctly(incident)
+    assert f"## Standing rules\n{bars}\n" in incident
+    assert "## Standing rules" not in planned
 
 
 def test_refresh_fills_a_bare_slice_line_and_rewrites_only_a_stale_slice(home: Path, package: Path, state: Path, capsys) -> None:
