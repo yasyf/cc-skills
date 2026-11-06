@@ -2006,11 +2006,14 @@ func TestASendStartedAndOrphanedIsLost(t *testing.T) {
 	}
 }
 
-const deskToolPin = `{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","version":"0.91.68"}`
+const (
+	deskToolPin = `{"kind":"binary","name":"ccx","url":"https://example.test/ccx.tgz","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","version":"0.91.68"}`
+	deskSetup   = "set -e; mise install sqlc"
+)
 
 func spriteConfig(w *deskWorld) string {
 	launcher := filepath.Join(w.home, "repo", "worker-launch.sh")
-	w.write(w.desk.Config.Source, fmt.Sprintf(`{"drive":"brook","orca":{"run":"run_1","sprite":{"launcher":%q,"env":{"WORKER_RELAY_SPONSOR":"sponsor-1"},"tools":[%s]}}}`, launcher, deskToolPin))
+	w.write(w.desk.Config.Source, fmt.Sprintf(`{"drive":"brook","orca":{"run":"run_1","sprite":{"launcher":%q,"env":{"WORKER_RELAY_SPONSOR":"sponsor-1"},"tools":[%s],"setup":%q}}}`, launcher, deskToolPin, deskSetup))
 	return launcher
 }
 
@@ -2142,7 +2145,7 @@ func TestALaunchThatMayLeaveTheMacStartsOnASpriteAndSettlesFromItsReceipt(t *tes
 	if len(w.spawns) != 1 || w.spawns[0].argv[0] != launcher || w.spawns[0].argv[2] != "claude-opus-5-5" {
 		t.Fatal(w.spawns)
 	}
-	if !slices.Contains(w.spawns[0].env, "WORKER_RELAY_SPONSOR=sponsor-1") || !slices.Contains(w.spawns[0].env, "WORKER_RUN="+testRun) || !slices.Contains(w.spawns[0].env, "WORKER_LOCAL=") || !slices.Contains(w.spawns[0].env, "WORKER_TOOLS=["+deskToolPin+"]") || !slices.Contains(w.spawns[0].env, "WORKER_LANDING_REPO=Forge-AI/monorepo") {
+	if !slices.Contains(w.spawns[0].env, "WORKER_RELAY_SPONSOR=sponsor-1") || !slices.Contains(w.spawns[0].env, "WORKER_RUN="+testRun) || !slices.Contains(w.spawns[0].env, "WORKER_LOCAL=") || !slices.Contains(w.spawns[0].env, "WORKER_TOOLS=["+deskToolPin+"]") || !slices.Contains(w.spawns[0].env, setupEnv+"="+deskSetup) || !slices.Contains(w.spawns[0].env, "WORKER_LANDING_REPO=Forge-AI/monorepo") {
 		t.Fatal(w.spawns[0].env)
 	}
 	attempt := spriteAttempt(brief)

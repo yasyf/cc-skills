@@ -237,6 +237,7 @@ func workerCommand(a *app.App) *cobra.Command {
   WORKER_CCI_URL        the cci linux_amd64 release archive a Sprite installs, required
   WORKER_CCI_SHA256     the SHA-256 of that archive, required
   WORKER_TOOLS          a JSON list of {kind, name, url, sha256, version} pins, binary, package or plugin, each installed from its verified archive
+  WORKER_SETUP          shell commands, the desk's runner.json orca.sprite.setup, that sh runs in the Sprite's checkout before the worker starts; a failure warns and the worker still starts
   WORKER_CC_REMOTE      the cc-remote command, default the checkout's own
   CC_REMOTE_CONFIG      the cc-remote config, default the checkout's own
   WORKER_NOTES_REPO     the checkout ccn reads docs and tasks from, default WORKER_CHECKOUT

@@ -46,6 +46,7 @@ const (
 	localTerminal   = "term_local_1"
 	sponsorBox      = "sponsor-1"
 	relayURL        = "https://relay.example.test/"
+	workerSetup     = "set -e; ./setup.sh"
 	ownerKey        = "BOwner=="
 	localRepo       = "repo-local"
 	stoppedWorker   = "orca orchestration worker-start exited 0 without a ready receipt for Run %s; kept terminal %s, worktree %s, and the receipt in %s"
@@ -221,6 +222,7 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 		"BINRUN_PLUGIN_ROOT":   filepath.Join(root, "plugin"),
 		"HOME":                 f.home,
 		sponsorEnv:             sponsorBox,
+		setupEnv:               workerSetup,
 	}
 	return f
 }
@@ -419,7 +421,7 @@ func notesCall(workspace string) []string {
 }
 
 func setupCall(workspace string) []string {
-	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", runRepoSetup, "sh", remoteRoot}
+	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", runSetup, "sh", remoteRoot, workerSetup}
 }
 
 func joinCall(workspace string) []string {
@@ -2234,22 +2236,34 @@ func TestTheNotesPullFetchesEveryRefButTheDocsFromOriginForTheBackgroundImport(t
 	}
 }
 
-func TestTheRepositorysBeforeWorkerScriptRunsFromItsCheckoutAndACheckoutWithoutOneRunsNothing(t *testing.T) {
+func TestTheSpriteSetupRunsInTheCheckoutAndStopsAtItsFirstFailure(t *testing.T) {
 	root := t.TempDir()
-	f := newWorkerFixture(t)
-	f.write(filepath.Join(root, repoSetup), "#!/bin/sh\npwd > ran\n", 0o700)
-	bare := t.TempDir()
-	for _, checkout := range []string{root, bare} {
-		if out, err := exec.Command("sh", "-c", runRepoSetup, "sh", checkout).CombinedOutput(); err != nil {
-			t.Fatal(checkout, string(out), err)
-		}
+	out, err := exec.Command("sh", "-c", runSetup, "sh", root, "set -e; pwd > ran; false; touch after").CombinedOutput()
+	if err == nil {
+		t.Fatalf("a failing setup exited 0: %s", out)
 	}
 
 	if got, err := os.ReadFile(filepath.Join(root, "ran")); err != nil || strings.TrimSpace(string(got)) != root {
-		t.Fatalf("the script ran from %q, %v", got, err)
+		t.Fatalf("the setup ran from %q, %v", got, err)
 	}
-	if entries, _ := os.ReadDir(bare); len(entries) != 0 {
-		t.Fatalf("a checkout with no %s holds %d entries after the step", repoSetup, len(entries))
+	if exists(filepath.Join(root, "after")) {
+		t.Fatal("the setup ran past its failing command")
+	}
+}
+
+func TestALaunchWithNoSpriteSetupRunsNoSetupStep(t *testing.T) {
+	f := newWorkerFixture(t)
+	delete(f.env, setupEnv)
+	f.sprite()
+	f.launched()
+
+	for _, call := range f.calls {
+		if slices.Contains(call, runSetup) {
+			t.Fatalf("a launch with no %s ran %v", setupEnv, call)
+		}
+	}
+	if exists(filepath.Join(f.attempt, setupReceipt)) {
+		t.Fatalf("a launch with no %s kept %s", setupEnv, setupReceipt)
 	}
 }
 
