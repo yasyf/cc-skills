@@ -71,6 +71,7 @@ type deskWorld struct {
 	refusals         map[string]object
 	busyScreen       bool
 	codexScreen      bool
+	screen           []string
 	postError        error
 	coordinate       string
 	spawns           []spawned
@@ -331,6 +332,9 @@ func (w *deskWorld) terminalReply(argv []string) (shell.Result, error) {
 		return orcaOK(object{"terminals": make([]object, w.terminals)}), nil
 	}
 	if argv[2] == "read" {
+		if w.screen != nil {
+			return orcaOK(object{"terminal": object{"source": "screen", "tail": w.screen}}), nil
+		}
 		if w.codexScreen {
 			return orcaOK(object{"terminal": object{"source": "screen", "tail": []string{"  Worked for 5m 38s • 11:33 AM", "  1 background terminal running · /ps to view · /stop to close", "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh fast · ~/w"}}}), nil
 		}
@@ -2834,6 +2838,35 @@ func TestAnErroredStopDecidesWhateverIsArmed(t *testing.T) {
 	stop.Subject = "Worker stopped on an error without reporting"
 	w.checked(stop)
 	w.wantEscalation("DECIDE msg_s lane-a: Worker stopped on an error without reporting: ")
+}
+
+func (w *deskWorld) promptStopOver(fixture string) {
+	w.t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", fixture))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.launchedBy("meta-desk-1")
+	w.screen = strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	stop := runMessage("msg_p", typeEscalation, testTerminal, 1)
+	stop.Subject = "Worker is waiting on a prompt"
+	stop.Payload = `{"dispatchId":"ctx_a","handle":"term_a","stopReason":"needs-input"}`
+	w.checked(stop)
+}
+
+func TestAPromptStopOverTheBackgroundAgentsListPostsNothing(t *testing.T) {
+	w := newDeskWorld(t)
+	w.promptStopOver("screen-background-agents.txt")
+	w.noEscalation("DECIDE msg_p ")
+	if slices.ContainsFunc(w.posts, func(post client.Draft) bool { return post.Kind == "decide" }) {
+		t.Fatal(w.posts)
+	}
+}
+
+func TestAPromptStopOverAPermissionDialogDecides(t *testing.T) {
+	w := newDeskWorld(t)
+	w.promptStopOver("screen-permission-prompt.txt")
+	w.wantEscalation("DECIDE msg_p lane-a: Worker is waiting on a prompt: ")
 }
 
 type refusingRead struct{ *deskWorld }
