@@ -15,12 +15,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -38,7 +36,6 @@ const (
 	shardOdd     = "odd"
 	runnerConfig = "runner.json"
 	driveConfig  = "lr.json"
-	queueRead    = "grade queue"
 )
 
 type QueueRow struct {
@@ -173,20 +170,6 @@ func (q *queueQuery) flags(fs *pflag.FlagSet) {
 	fs.BoolVar(&q.json, "json", false, "print the rows as one JSON array")
 }
 
-func (q queueQuery) ask() string {
-	read := queueRead + " " + q.grader
-	if q.shard != "" {
-		read += " --shard " + q.shard
-	}
-	if q.owed {
-		read += " --owed"
-	}
-	if q.json {
-		read += " --json"
-	}
-	return read
-}
-
 func queueCommand(a *app.App) *cobra.Command {
 	var q queueQuery
 	cmd := &cobra.Command{
@@ -202,23 +185,6 @@ func queueCommand(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func QueueRead(a *app.App, drive string) askdesk.Serve {
-	return func(ctx context.Context, args []string, out, errs io.Writer) error {
-		var q queueQuery
-		parsed := pflag.NewFlagSet(queueRead, pflag.ContinueOnError)
-		parsed.SetOutput(io.Discard)
-		q.flags(parsed)
-		if err := parsed.Parse(args); err != nil {
-			return err
-		}
-		if parsed.NArg() != 1 {
-			return errors.New(queueRead + " takes one GRADER")
-		}
-		q.grader, q.drive = parsed.Arg(0), drive
-		return printQueue(ctx, a, q, out, errs)
-	}
-}
-
 func printQueue(ctx context.Context, a *app.App, q queueQuery, out, errs io.Writer) error {
 	if q.shard != "" && q.shard != shardEven && q.shard != shardOdd {
 		return errors.New("--shard is even or odd")
@@ -226,9 +192,6 @@ func printQueue(ctx context.Context, a *app.App, q queueQuery, out, errs io.Writ
 	entry, err := drive.Named(q.drive)
 	if err != nil {
 		return err
-	}
-	if entry.OnSprite() {
-		return askdesk.AskMac(ctx, askdesk.LiveCCI{}, entry.Bus(), os.Getenv(lanes.LaneEnv), q.ask(), out)
 	}
 	cfg, err := config.Load(filepath.Join(entry.StateDir, driveConfig), errs)
 	if err != nil {

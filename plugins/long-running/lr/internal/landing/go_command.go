@@ -15,14 +15,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -41,7 +38,6 @@ const (
 	sweepTip       = "refs/lr/sweep/"
 	goProbe        = "go-refused:"
 	sweepCursor    = "go-sweep"
-	goRead         = "landing go"
 )
 
 type goFlags struct {
@@ -54,92 +50,33 @@ func goCommand(a *app.App) *cobra.Command {
 	var flags goFlags
 	cmd := &cobra.Command{
 		Use:   "go PR...",
-		Short: "Gate an exempt go on each PR at its exact head and, with --lane, post the ones the gate admits; a refused PR prints every reason and posts nothing; on a Sprite the Mac's store-desk runs it",
+		Short: "Gate an exempt go on each PR at its exact head and, with --lane, post the ones the gate admits; a refused PR prints every reason and posts nothing",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			numbers, err := goNumbers(args, flags)
-			if err != nil {
-				return err
+			numbers := make([]int, len(args))
+			for i, arg := range args {
+				number, err := strconv.Atoi(strings.TrimPrefix(arg, "#"))
+				if err != nil {
+					return err
+				}
+				numbers[i] = number
+			}
+			if (flags.before != 0) != (flags.head != "") || flags.before != 0 && (flags.lane != "" || len(numbers) != 1) {
+				return errors.New("--before replays one PR at the --head it names and posts nothing, so it takes one PR, --head and no --lane")
 			}
 			return runGo(cmd.Context(), a, numbers, flags, cmd.OutOrStdout())
 		},
 	}
-	goFlagSet(cmd.Flags(), &flags)
+	cmd.Flags().StringVar(&flags.lane, "lane", "", "post each admitted go as this lane; without it the pass is dry")
+	cmd.Flags().StringVar(&flags.head, "head", "", "the head a replayed go named, with --before")
+	cmd.Flags().Int64Var(&flags.before, "before", 0, "replay one PR's past go: read only the records before this seq, at --head, posting nothing")
 	return cmd
-}
-
-func goFlagSet(set *pflag.FlagSet, flags *goFlags) {
-	set.StringVar(&flags.lane, "lane", "", "post each admitted go as this lane; without it the pass is dry")
-	set.StringVar(&flags.head, "head", "", "the head a replayed go named, with --before")
-	set.Int64Var(&flags.before, "before", 0, "replay one PR's past go: read only the records before this seq, at --head, posting nothing")
-}
-
-func goNumbers(args []string, flags goFlags) ([]int, error) {
-	numbers := make([]int, len(args))
-	for i, arg := range args {
-		number, err := strconv.Atoi(strings.TrimPrefix(arg, "#"))
-		if err != nil {
-			return nil, err
-		}
-		numbers[i] = number
-	}
-	if (flags.before != 0) != (flags.head != "") || flags.before != 0 && (flags.lane != "" || len(numbers) != 1) {
-		return nil, errors.New("--before replays one PR at the --head it names and posts nothing, so it takes one PR, --head and no --lane")
-	}
-	return numbers, nil
-}
-
-func GoRead(a *app.App, driveName string) askdesk.Serve {
-	return func(ctx context.Context, args []string, out, errs io.Writer) error {
-		var flags goFlags
-		parsed := pflag.NewFlagSet(goRead, pflag.ContinueOnError)
-		parsed.SetOutput(io.Discard)
-		goFlagSet(parsed, &flags)
-		if err := parsed.Parse(args); err != nil {
-			return err
-		}
-		if parsed.NArg() == 0 {
-			return errors.New(goRead + " takes one or more PRs")
-		}
-		numbers, err := goNumbers(parsed.Args(), flags)
-		if err != nil {
-			return err
-		}
-		entry, err := drive.Named(driveName)
-		if err != nil {
-			return err
-		}
-		served := *a
-		served.ConfigPath, served.Stderr = entry.Config(), errs
-		return runGo(ctx, &served, numbers, flags, out)
-	}
-}
-
-func askGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout io.Writer) error {
-	ask := []string{goRead}
-	for _, number := range numbers {
-		ask = append(ask, strconv.Itoa(number))
-	}
-	if flags.lane != "" {
-		ask = append(ask, "--lane", flags.lane)
-	}
-	if flags.before != 0 {
-		ask = append(ask, "--head", flags.head, "--before", strconv.FormatInt(flags.before, 10))
-	}
-	lines, err := askStoreDesk(ctx, a, ask)
-	for _, line := range lines {
-		fmt.Fprintln(stdout, line)
-	}
-	return err
 }
 
 func runGo(ctx context.Context, a *app.App, numbers []int, flags goFlags, stdout io.Writer) error {
 	cfg, err := a.Config()
 	if err != nil {
 		return err
-	}
-	if spriteDrive(cfg) {
-		return askGo(ctx, a, numbers, flags, stdout)
 	}
 	inputs, err := readGateInputs(ctx, cfg.Drive, a.Now())
 	if err != nil {

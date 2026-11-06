@@ -22,7 +22,7 @@ const (
 
 var (
 	ErrNoDrive = errors.New("this session belongs to no drive: it carries no " + Env + ", no drive registry entry holds it, and cci me names none")
-	ErrOnMac   = errors.New("is the drive's, which only the supervisor on the Mac reads and writes, and this Sprite holds no copy, so this read does not run here; lr grade queue asks the Mac's store-desk itself, and for any other read ask the Mac's coordinator with `cci post --kind ask --to root \"<the lr command>\"`")
+	ErrOnMac   = errors.New("is the drive's, which only the supervisor on the Mac reads and writes, and this Sprite holds no copy, so this read does not run here; each lr verb on the store desk's list asks the Mac's store-desk itself, and for any other read ask the Mac's coordinator with `cci post --kind ask --to root \"<the lr command>\"`")
 )
 
 func MacOnly(path string) error {
@@ -151,6 +151,18 @@ func Live() ([]Entry, error) {
 		return nil, err
 	}
 	return slices.DeleteFunc(found, func(entry Entry) bool { return len(entry.Sessions) == 0 }), nil
+}
+
+func SpriteEntry() (Entry, bool) {
+	live, err := Live()
+	if err != nil {
+		return Entry{}, false
+	}
+	at := slices.IndexFunc(live, Entry.OnSprite)
+	if at < 0 {
+		return Entry{}, false
+	}
+	return live[at], true
 }
 
 func Named(name string) (Entry, error) {

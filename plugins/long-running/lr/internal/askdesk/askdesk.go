@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,8 @@ const (
 
 type Reply struct {
 	Head, Body, URL string
+	Exit            int
+	Stderr          string
 }
 
 type Desk struct {
@@ -135,6 +138,9 @@ func (d Desk) answer(ctx context.Context, ask client.Record) error {
 	answer := client.Draft{
 		Drive: d.Drive, Lane: d.Lane, Kind: AnswerKind, Text: read.Head, To: []string{ask.Lane},
 		Resolves: ask.Seq, URL: read.URL, Force: true,
+	}
+	if read.Exit != 0 || read.Stderr != "" {
+		answer.Attrs = map[string]string{exitAttr: strconv.Itoa(read.Exit), stderrAttr: read.Stderr}
 	}
 	if read.Body != "" {
 		sum := sha256.Sum256([]byte(read.Body))
