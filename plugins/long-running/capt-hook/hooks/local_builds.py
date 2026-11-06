@@ -10,7 +10,6 @@ VERBS = {
     "just": frozenset({"vet", "build", "test", "lint", "check", "typecheck"}),
     "buck2": frozenset({"build", "test"}),
     "swift": frozenset({"build", "test"}),
-    "ruff": frozenset({"check"}),
     "biome": frozenset({"check", "lint", "ci"}),
     "ty": frozenset({"check"}),
 }
@@ -29,6 +28,7 @@ VALUE_FLAGS = {
     "npx": frozenset({"-p", "--package"}),
     "uv": frozenset({"--project", "--directory", "--with", "--python", "-p"}),
     "uvx": frozenset({"--from", "--with", "--python", "-p"}),
+    "ruff": frozenset({"--select", "--extend-select", "--ignore", "--config", "--output-format", "--target-version", "--line-length", "--exclude"}),
 }
 LAUNCHERS = frozenset({"npx", "bunx", "uvx"})
 INFO_FLAGS = frozenset({"--version", "-version", "-v", "-V", "--help", "-h"})
@@ -84,6 +84,8 @@ def runs(name: str, args: tuple[str, ...]) -> bool:
             return not packages or "./..." in packages
         case "cargo", ["check" | "clippy", *_]:
             return not one_crate(args)
+        case "ruff", ["check", *paths]:
+            return not paths or "." in paths
         case tool, [verb, *_] if verb in VERBS.get(tool, ()):
             return True
         case launcher, [tool, *_] if launcher in LAUNCHERS:
@@ -151,6 +153,9 @@ def builds(call: Call) -> bool:
         Input(command="pnpm exec eslint .", env=LANE_ENV): Block(),
         Input(command="uv run ruff check", env=LANE_ENV): Block(),
         Input(command="ruff check --fix .", env=LANE_ENV): Block(),
+        Input(command="ruff check --select E501", env=LANE_ENV): Block(),
+        Input(command="uvx ruff check plugin/capt-hook/hooks/render_guards.py plugin/capt-hook/hooks/test_render_guards.py", env=LANE_ENV): Allow(),
+        Input(command="uvx --isolated 'capt-hook>=12.77.0' lint plugin/capt-hook/hooks/render_guards.py", env=LANE_ENV): Allow(),
         Input(command="golangci-lint run ./...", env=LANE_ENV): Block(),
         Input(command="golangci-lint run", env=LANE_ENV): Block(),
         Input(command="golangci-lint run --config .golangci.yml", env=LANE_ENV): Block(),
