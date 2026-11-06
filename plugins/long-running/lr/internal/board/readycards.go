@@ -267,17 +267,11 @@ func (r ReadyCards) followDrawn(ctx context.Context, rows []store.ReviewRow) (ma
 			followed[row.Number] = true
 			continue
 		}
-		done, err := r.Cards.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "redraw-pr-cards", "--pr", fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, row.Number)}})
+		redrawing, err := r.Cards.redrawPost(ctx, r.Repo, row.Number)
 		if err != nil {
-			return nil, fmt.Errorf("#%d: %w", row.Number, err)
+			return nil, err
 		}
-		var said struct {
-			Redrawing int `json:"redrawing"`
-		}
-		if err := json.Unmarshal([]byte(done.Stdout), &said); err != nil {
-			return nil, fmt.Errorf("#%d: cc-slack redraw-pr-cards said %q: %w", row.Number, done.Stdout, err)
-		}
-		if said.Redrawing > 0 {
+		if redrawing > 0 {
 			followed[row.Number] = true
 			continue
 		}
@@ -286,6 +280,20 @@ func (r ReadyCards) followDrawn(ctx context.Context, rows []store.ReviewRow) (ma
 		}
 	}
 	return followed, nil
+}
+
+func (c Cards) redrawPost(ctx context.Context, repo string, number int) (int, error) {
+	done, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "redraw-pr-cards", "--pr", fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}})
+	if err != nil {
+		return 0, fmt.Errorf("#%d: %w", number, err)
+	}
+	var said struct {
+		Redrawing int `json:"redrawing"`
+	}
+	if err := json.Unmarshal([]byte(done.Stdout), &said); err != nil {
+		return 0, fmt.Errorf("#%d: cc-slack redraw-pr-cards said %q: %w", number, done.Stdout, err)
+	}
+	return said.Redrawing, nil
 }
 
 // tellChangeOwed asks each open row's lane, once per head, for the plain

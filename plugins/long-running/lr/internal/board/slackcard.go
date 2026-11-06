@@ -26,9 +26,11 @@ import (
 )
 
 const (
-	approveLabel = "Approve"
-	mergeLabel   = "Merge"
-	holdLabel    = "Hold"
+	approveLabel   = "Approve"
+	mergeLabel     = "Merge"
+	holdLabel      = "Hold"
+	withdrawnLead  = "Withdrawn: "
+	supersededLead = "Superseded: "
 )
 
 type SlackCard struct {
@@ -105,8 +107,16 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 			Change: prrow.ChangeWords(row), Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
 		}},
 	}
-	if row.State == prrow.StateLanded {
+	switch row.State {
+	case prrow.StateLanded:
 		card.Status = "done"
+	case prrow.StateSuperseded:
+		why := strings.TrimSuffix(row.SupersededBy, ".") + "."
+		lead, said := withdrawnLead, withdrawnLead+why
+		if strings.HasPrefix(why, supersededLead) {
+			lead, said = supersededLead, why
+		}
+		card.Title, card.PRs[0].Blocks = lead+card.Title, said
 	}
 	if !OffersApproval(row) {
 		return card

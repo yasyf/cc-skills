@@ -144,7 +144,7 @@ func CardsOf(a *app.App, entry drive.Entry, session string, s *store.Store) Card
 	}
 	return Cards{
 		Runner: a.Runner, Ledger: ledger.CLI{Runner: a.Runner, Repo: entry.Checkout}, CCX: a.CCXFrom(entry.Checkout),
-		Bus: entry.Bus(), Checkout: entry.Checkout, Session: session, StateDir: entry.StateDir, Program: program, Store: s, Now: a.Now,
+		Bus: entry.Bus(), Repo: entry.Repo, Checkout: entry.Checkout, Session: session, StateDir: entry.StateDir, Program: program, Store: s, Now: a.Now,
 		Closed: func(ctx context.Context, seqs []string) (map[string]bool, error) {
 			return closedRecords(ctx, entry.Bus(), seqs)
 		},

@@ -3,6 +3,7 @@ package board
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -43,6 +44,57 @@ func TestWithdrawingATapTakesItOffTheMergeListTheBoardAndSlackAndARerunChangesNo
 	}
 	if !strings.Contains(out.String(), "UNCHANGED") {
 		t.Fatalf("out = %s", out.String())
+	}
+}
+
+func TestWithdrawingAPRRedrawsItsSlackPostAtOnceAndThePostReadsWithdrawn(t *testing.T) {
+	f, on, s := tapCards(t)
+	if _, err := s.PutFact(repo, number, head, FactCardDrawn, drawnSignature(Card(repo, readyRow(nil))), cardsNow); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := f.Pull(context.Background(), "meta-desk", "#45583", why, &out); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}; !reflect.DeepEqual(on.redrawn, want) || !strings.Contains(out.String(), "REDRAWN") {
+		t.Fatalf("redrawn = %v, out = %s, want the post redrawn now", on.redrawn, out.String())
+	}
+	rows, err := s.ReviewRows(repo)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %+v, %v", rows, err)
+	}
+	card := Card(repo, rows[0])
+	if !strings.HasPrefix(card.Title, "Withdrawn: #45583 at ") || card.Waits != "" || card.Options != nil || card.PRs[0].Blocks != "Withdrawn: "+why+"." {
+		t.Fatalf("card = %+v, want it read withdrawn with the reason and no buttons", card)
+	}
+	if pulled, err := f.Pull(context.Background(), "meta-desk", "#45583", why, &bytes.Buffer{}); err != nil || pulled || len(on.redrawn) != 2 {
+		t.Fatalf("a rerun pulled %v and redrew %v, %v; want nothing pulled and the post redrawn again", pulled, on.redrawn, err)
+	}
+}
+
+func TestWithdrawingAPRWithNoSlackPostRedrawsNothing(t *testing.T) {
+	f, on, _ := tapCards(t)
+	if _, err := f.Pull(context.Background(), "meta-desk", "#45583", why, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(on.redrawn) != 0 {
+		t.Fatalf("redrawn = %v, want none", on.redrawn)
+	}
+}
+
+func TestWithdrawingAListedPRShrinksItsListAtOnce(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	rows := burst(t, f, 3)
+	readyPass(t, f)
+	cards := f.Cards
+	cards.Session = "board-1"
+	if _, err := cards.Pull(context.Background(), "meta-desk", fmt.Sprintf("#%d", rows[0].Number), why, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	posts := listPosts(t, f)
+	if len(posts) != 2 || posts[1].Group != posts[0].Group || len(posts[1].Rows) != len(rows)-1 {
+		t.Fatalf("posts = %+v, want the same list edited down to %d", posts, len(rows)-1)
 	}
 }
 

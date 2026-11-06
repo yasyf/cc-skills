@@ -50,6 +50,7 @@ type Cards struct {
 	Ledger   ledger.Store
 	CCX      ccx.Client
 	Bus      string
+	Repo     string
 	Checkout string
 	Session  string
 	StateDir string
