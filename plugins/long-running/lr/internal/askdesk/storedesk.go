@@ -155,7 +155,7 @@ func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs
 		return err
 	}
 	if answer.Seq == 0 {
-		return fmt.Errorf("this Sprite holds no copy of the drive's store or board, and the Mac's %s has not answered ask %s in %s: the supervisor there is down or runs an lr older than this one", StoreDesk, posted.Name(), wait.Round(time.Second))
+		return fmt.Errorf("no answer from the Mac's %s to %s's ask %s reached this Sprite in %s", StoreDesk, lane, posted.Name(), wait.Round(time.Second))
 	}
 	whole, err := client.WholeText(answer)
 	if err != nil {

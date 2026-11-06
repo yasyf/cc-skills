@@ -2,10 +2,12 @@ package lanes
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -33,13 +35,13 @@ type handoffRegistry struct {
 	PRs      []int    `json:"prs"`
 	Waiting  int64    `json:"waiting"`
 	Awaits   string   `json:"awaits"`
-	Names    []string `json:"names"`
+	Aliases  Aliases  `json:"aliases"`
 	Standing bool     `json:"standing"`
 	Orders   []string `json:"orders"`
 	NoticeTo string   `json:"notice_to"`
 }
 
-type registryRead func(context.Context) (handoffRegistry, error)
+type registryRead func(ctx context.Context, named []string) (handoffRegistry, error)
 
 func handoffCommand(a *app.App) *cobra.Command {
 	var cwd, transcript string
@@ -62,8 +64,8 @@ func handoffCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			if entry, onSprite := drive.SpriteEntry(); onSprite {
-				_, err = env.WriteHandoff(cmd.Context(), cmd.OutOrStdout(), func(ctx context.Context) (handoffRegistry, error) {
-					return askRegistry(ctx, askdesk.LiveCCI{}, entry.Bus(), lane, deskWait)
+				_, err = env.WriteHandoff(cmd.Context(), cmd.OutOrStdout(), func(ctx context.Context, named []string) (handoffRegistry, error) {
+					return askRegistry(ctx, askdesk.LiveCCI{}, entry.Bus(), lane, named, deskWait)
 				}, lane, cwd, transcript)
 				return err
 			}
@@ -84,10 +86,10 @@ func handoffCommand(a *app.App) *cobra.Command {
 
 func handoffRegistryCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{
-		Use:    "handoff-registry LANE",
-		Short:  "Print as JSON what the drive's registry holds for a lane's handoff, which a Sprite lane's lr lanes handoff reads through the store desk",
+		Use:    "handoff-registry LANE [NAME...]",
+		Short:  "Print as JSON what the drive's registry holds for a lane's handoff, with the alias of each NAME that is a registered numbered lane, which a Sprite lane's lr lanes handoff reads through the store desk",
 		Hidden: true,
-		Args:   cobra.ExactArgs(1),
+		Args:   cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, state, err := Loaded(a)
 			if err != nil {
@@ -102,7 +104,7 @@ func handoffRegistryCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			registry, err := env.storeRegistry(s, args[0])(cmd.Context())
+			registry, err := env.storeRegistry(s, args[0])(cmd.Context(), args[1:])
 			if err != nil {
 				return err
 			}
@@ -111,11 +113,11 @@ func handoffRegistryCommand(a *app.App) *cobra.Command {
 	}
 }
 
-func askRegistry(ctx context.Context, desk askdesk.CCI, bus, lane string, wait time.Duration) (handoffRegistry, error) {
+func askRegistry(ctx context.Context, desk askdesk.CCI, bus, lane string, named []string, wait time.Duration) (handoffRegistry, error) {
 	ctx, stop := context.WithTimeout(ctx, wait)
 	defer stop()
 	var out, errs bytes.Buffer
-	if err := askdesk.RunOnMac(ctx, desk, bus, askdesk.Asked{Verb: askdesk.HandoffRegistryVerb, Args: []string{"--", lane}, Lane: lane}, &out, &errs); err != nil {
+	if err := askdesk.RunOnMac(ctx, desk, bus, askdesk.Asked{Verb: askdesk.HandoffRegistryVerb, Args: append([]string{"--", lane}, named...), Lane: lane}, &out, &errs); err != nil {
 		return handoffRegistry{}, fmt.Errorf("lr %s on the Mac: %w %s", askdesk.HandoffRegistryVerb, err, errs.String())
 	}
 	var registry handoffRegistry
@@ -126,10 +128,10 @@ func askRegistry(ctx context.Context, desk askdesk.CCI, bus, lane string, wait t
 }
 
 func (e Env) storeRegistry(s *store.Store, lane string) registryRead {
-	return func(ctx context.Context) (registry handoffRegistry, err error) {
+	return func(ctx context.Context, named []string) (registry handoffRegistry, err error) {
 		defer recovered(&err)
 		row, _ := laneOf(s, lane)
-		registry = handoffRegistry{Brief: row.Brief, PRs: row.PRs, Waiting: row.Waiting, Awaits: row.Awaits, Names: must(s.Names()), Standing: lane == OwnerRelay || isStanding(row), NoticeTo: noticeTo(s, lane)}
+		registry = handoffRegistry{Brief: row.Brief, PRs: row.PRs, Waiting: row.Waiting, Awaits: row.Awaits, Aliases: AliasesOf(must(s.Registered(named))), Standing: lane == OwnerRelay || isStanding(row), NoticeTo: noticeTo(s, lane)}
 		if !registry.Standing {
 			return registry, nil
 		}
@@ -145,10 +147,11 @@ func (e Env) storeRegistry(s *store.Store, lane string) registryRead {
 }
 
 func (e Env) WriteHandoff(ctx context.Context, out io.Writer, read registryRead, lane, cwd, transcript string) (string, error) {
-	registry, err := read(ctx)
-	if err == nil {
+	records, addressed, err := e.handoffRecords(ctx, lane)
+	registry, readErr := read(ctx, numberedIn(lane, slices.Concat(records, addressed)))
+	if err = cmp.Or(err, readErr); err == nil {
 		var id string
-		if id, err = e.writeHandoff(ctx, registry, lane, cwd, transcript); err == nil {
+		if id, err = e.writeHandoff(ctx, registry, records, addressed, lane, cwd, transcript); err == nil {
 			fmt.Fprintln(out, id)
 			return id, nil
 		}
@@ -161,8 +164,8 @@ func (e Env) WriteHandoff(ctx context.Context, out io.Writer, read registryRead,
 	return "", err
 }
 
-func (e Env) writeHandoff(ctx context.Context, registry handoffRegistry, lane, cwd, transcript string) (string, error) {
-	body, err := e.handoffBody(ctx, registry, lane, cwd, transcript)
+func (e Env) writeHandoff(ctx context.Context, registry handoffRegistry, records, addressed []client.Record, lane, cwd, transcript string) (string, error) {
+	body, err := e.handoffBody(ctx, registry, records, addressed, lane, cwd, transcript)
 	if err != nil {
 		return "", err
 	}
@@ -191,16 +194,31 @@ func (e Env) writeHandoff(ctx context.Context, registry handoffRegistry, lane, c
 	return added.ID, nil
 }
 
-func (e Env) handoffBody(ctx context.Context, registry handoffRegistry, lane, cwd, transcript string) (string, error) {
-	aliases := AliasesOf(slices.DeleteFunc(slices.Clone(registry.Names), func(name string) bool { return name == lane }))
-	records, err := e.Bus.Tail(ctx, client.Query{Drive: e.Config.Drive, Lanes: []string{lane}, Since: e.Now().Add(-handoffWindow)})
+func (e Env) handoffRecords(ctx context.Context, lane string) (records, addressed []client.Record, err error) {
+	records, err = e.Bus.Tail(ctx, client.Query{Drive: e.Config.Drive, Lanes: []string{lane}, Since: e.Now().Add(-handoffWindow)})
 	if err != nil {
-		return "", fmt.Errorf("cci tail: %w", err)
+		return nil, nil, fmt.Errorf("cci tail: %w", err)
 	}
 	open, err := e.Bus.Open(ctx, e.Config.Drive, "ask", "blocker", "decide")
 	if err != nil {
-		return "", fmt.Errorf("cci open: %w", err)
+		return nil, nil, fmt.Errorf("cci open: %w", err)
 	}
+	return records[max(0, len(records)-handoffRecords):], slices.DeleteFunc(open, func(r client.Record) bool { return !Addresses(r.To, lane) }), nil
+}
+
+func numberedIn(lane string, records []client.Record) []string {
+	named := map[string]bool{}
+	for _, r := range records {
+		for _, token := range laneToken.FindAllString(r.Lane+" "+truncated(r.Text, handoffChars), -1) {
+			if word := strings.TrimRight(token, "."); word != lane && client.Stem(word) != word {
+				named[word] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(named))
+}
+
+func (e Env) handoffBody(ctx context.Context, registry handoffRegistry, records, addressed []client.Record, lane, cwd, transcript string) (string, error) {
 	var out strings.Builder
 	fmt.Fprintf(&out, "# %s handoff at %s\n\nThe PreCompact hook wrote this from the bus and the worktree, with no model call. Read it, then the brief.\n\n", lane, pacific(e.Now()))
 	fmt.Fprintf(&out, "- Brief: %s\n- Transcript: %s\n- PRs it owns: %s\n", or(registry.Brief, "none on the registry"), or(transcript, "unknown"), or(numberList(registry.PRs), "none"))
@@ -217,19 +235,18 @@ func (e Env) handoffBody(ctx context.Context, registry handoffRegistry, lane, cw
 		}
 	}
 	out.WriteString("\n## Asks and blockers addressed to it\n\n")
-	addressed := slices.DeleteFunc(open, func(r client.Record) bool { return !Addresses(r.To, lane) })
 	if len(addressed) == 0 {
 		out.WriteString("None open.\n")
 	}
 	for _, r := range addressed {
-		fmt.Fprintf(&out, "- #%d %s from %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), aliases.In(r.Lane), aliases.In(truncated(r.Text, handoffChars)))
+		fmt.Fprintf(&out, "- #%d %s from %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), registry.Aliases.In(r.Lane), registry.Aliases.In(truncated(r.Text, handoffChars)))
 	}
 	out.WriteString("\n## Its last records, oldest first\n\n")
 	if len(records) == 0 {
 		out.WriteString("None in the last 12 hours.\n")
 	}
-	for _, r := range records[max(0, len(records)-handoffRecords):] {
-		fmt.Fprintf(&out, "- #%d %s %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), pacific(r.At), aliases.In(truncated(r.Text, handoffChars)))
+	for _, r := range records {
+		fmt.Fprintf(&out, "- #%d %s %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), pacific(r.At), registry.Aliases.In(truncated(r.Text, handoffChars)))
 	}
 	if transcript != "" {
 		out.WriteString(liveTasksSection(transcript, e.Now()))

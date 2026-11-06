@@ -818,6 +818,14 @@ func (s *Store) Names() ([]string, error) {
 	return s.strings("SELECT name FROM lanes ORDER BY name")
 }
 
+func (s *Store) Registered(names []string) ([]string, error) {
+	args := make([]any, len(names))
+	for i, name := range names {
+		args[i] = name
+	}
+	return s.strings("SELECT name FROM lanes WHERE name IN ("+placeholders(len(names))+") ORDER BY name", args...)
+}
+
 func (s *Store) registered(where string, args ...any) ([]Lane, error) {
 	rows, err := s.db.Query("SELECT "+laneColumns+" FROM lanes "+where+" ORDER BY name", args...)
 	lanes, err := collect(rows, err, scanLane)
