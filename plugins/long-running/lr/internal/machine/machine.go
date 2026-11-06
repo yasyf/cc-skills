@@ -123,6 +123,10 @@ func WithdrawnOverrideFact(grader string) string {
 	return "withdrawn-" + OverrideFact(grader)
 }
 
+func OverrideWithdrawn(stored map[string]string, grader, value string) bool {
+	return value != "" && stored[WithdrawnOverrideFact(grader)] == value
+}
+
 func OverridesOf(stored map[string]string) (finder, fidelity bool) {
 	return stored[OverrideFact("finder")] != "", stored[OverrideFact("fidelity")] != ""
 }
@@ -208,7 +212,15 @@ func (f Facts) Graded() bool {
 }
 
 func (f Facts) Cleared() bool {
-	return f.Graded() && (f.Finder == FinderClear || f.FinderOverride) && (f.Fidelity == FidelityPass || f.FidelityOverride)
+	return f.Graded() && f.FinderCleared() && f.FidelityCleared()
+}
+
+func (f Facts) FinderCleared() bool {
+	return f.Finder == FinderClear || f.FinderOverride
+}
+
+func (f Facts) FidelityCleared() bool {
+	return f.Fidelity == FidelityPass || f.FidelityOverride
 }
 
 func (f Facts) Ours() bool {

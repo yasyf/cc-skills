@@ -15,8 +15,6 @@ import (
 )
 
 const (
-	rootLane     = "root"
-	kindDecide   = "decide"
 	kindHold     = "hold"
 	finderKind   = "finder"
 	fidelityKind = "fidelity"
@@ -415,10 +413,7 @@ func countedOverride(c Claim, r Read, grader string, cited func(client.Record, s
 		}
 	}
 	for _, record := range slices.Backward(r.Records) {
-		if string(record.Kind) != kindDecide || record.Lane != rootLane && record.Lane != bus.SweepLane {
-			continue
-		}
-		if slices.ContainsFunc(bus.Overrides(record), func(o bus.Override) bool {
+		if slices.ContainsFunc(bus.CountedOverrides(record), func(o bus.Override) bool {
 			return o.Grader == grader && o.PR == c.PR && strings.HasPrefix(c.Head, o.Head) && !withdrawn[o] && cited(record, o.Cites)
 		}) {
 			return record, true

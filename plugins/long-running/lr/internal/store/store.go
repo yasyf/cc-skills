@@ -414,7 +414,7 @@ func factsAt(db querier, repo string, number int, head string) (map[string]strin
 
 func dropWithdrawn(facts map[string]string) {
 	for _, grader := range []string{"finder", "fidelity"} {
-		if override := machine.OverrideFact(grader); facts[override] != "" && facts[override] == facts[machine.WithdrawnOverrideFact(grader)] {
+		if override := machine.OverrideFact(grader); machine.OverrideWithdrawn(facts, grader, facts[override]) {
 			delete(facts, override)
 		}
 	}

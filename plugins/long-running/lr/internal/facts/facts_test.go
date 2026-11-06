@@ -2371,6 +2371,47 @@ func TestAHostCountsTheCountedRecordAndNeverReadsAnOwnerRowForAnAppeal(t *testin
 	}
 }
 
+func TestARowClearsOnAnOverrideExactlyWhenTheGateCountsIt(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	post := func(lane, kind, text string, re int64) client.Record {
+		t.Helper()
+		record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: kind, Re: re, PRs: []string{repo + "#1"}, Text: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return record
+	}
+	agree := func(step string, counts bool) {
+		t.Helper()
+		row := h.snapshot(t)[1]
+		records, err := client.Tail(context.Background(), client.Query{Drive: "d"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, refusals := gates.ExemptGo(gates.Claim{Repo: repo, PR: 1, Head: head}, gates.Read{Records: records})
+		gated := !slices.ContainsFunc(refusals, func(refusal string) bool { return strings.HasPrefix(refusal, "finder:") })
+		if row.Cleared() != counts || gated != counts {
+			t.Fatalf("%s: row cleared %v, gate counted %v, want both %v: %q", step, row.Cleared(), gated, counts, refusals)
+		}
+	}
+	finder := post("finder-desk", "review", "finder: major "+head+" carried from #508862", 0)
+	post("fidelity-pipeline", "review", "fidelity: ok "+head+" class regression", 0)
+	withdrawn := fmt.Sprintf("finder-override #1 at %s: %d", head[:7], finder.Seq)
+	appeal := post("grader-appeals-3", "decide", withdrawn+". Answer 54c47b4 grounds it", 0)
+	post("grader-appeals-3", "withdraw", "Withdrawn: the citation was not parsed as an owner row; reposted citing answer 54c47b4.", appeal.Seq)
+	reposted := post("grader-appeals-3", "decide", withdrawn+". Answer 54c47b4 grounds it", 0)
+	live := fmt.Sprintf("finder-override #1 at %s: %d", head[:7], reposted.Seq)
+
+	post(bus.SweepLane, "decide", fmt.Sprintf("%s. Counted from grader-appeals-3's cci #%d, whose owner rows exist.", withdrawn, reposted.Seq), 0)
+	agree("the supervisor's count of a cite its lane withdrew", false)
+	post("root", "decision", live, 0)
+	agree("root's live cite posted as a decision", false)
+	post(bus.SweepLane, "decide", fmt.Sprintf("%s. Counted from grader-appeals-3's cci #%d, whose owner rows exist.", live, reposted.Seq), 0)
+	agree("the supervisor's decide at the short head citing a live record", true)
+	post("root", "decide", withdrawn, 0)
+	agree("root's repost of the withdrawn cite after the live one", true)
+}
+
 func TestAShardsGradeReachesTheStoreSoItsRowReadsGraded(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	putFact(t, h.store, 1, head, "finder", "clear", tappedAt)

@@ -634,7 +634,10 @@ func (s Source) ingestLegacy(ctx context.Context) ([]int, error) {
 	}
 	var named []int
 	for _, record := range records {
-		facts := bus.LegacyFacts(record, s.Repo, s.GoLanes)
+		facts, err := s.withoutWithdrawn(bus.LegacyFacts(record, s.Repo, s.GoLanes))
+		if err != nil {
+			return nil, err
+		}
 		if err := s.putFacts(append(facts, graderWords(facts, record.Text)...), record.At.UTC()); err != nil {
 			return nil, err
 		}
@@ -682,6 +685,23 @@ func (s Source) readLostGrades(ctx context.Context) error {
 	return s.Store.Advance(lostGrades, 1)
 }
 
+func (s Source) withoutWithdrawn(facts []bus.Fact) ([]bus.Fact, error) {
+	var live []bus.Fact
+	for _, fact := range facts {
+		if grader, override := strings.CutPrefix(fact.Kind, machine.OverrideFact("")); override {
+			stored, err := s.Store.Facts(s.Repo, fact.PR, fact.Head)
+			if err != nil {
+				return nil, err
+			}
+			if machine.OverrideWithdrawn(stored, grader, fact.Value) {
+				continue
+			}
+		}
+		live = append(live, fact)
+	}
+	return live, nil
+}
+
 func graderWords(facts []bus.Fact, text string) []bus.Fact {
 	var said []bus.Fact
 	for _, fact := range facts {
@@ -713,7 +733,7 @@ func (s Source) clearWithdrawn(ctx context.Context, record client.Record) error 
 		}
 	}
 	for _, override := range bus.WithdrawnOverrides(record, closed) {
-		if _, err := s.Store.PutFact(s.Repo, override.PR, override.Head, machine.WithdrawnOverrideFact(override.Grader), cmp.Or(override.Cites, "accept"), record.At.UTC()); err != nil {
+		if _, err := s.Store.PutFact(s.Repo, override.PR, override.Head, machine.WithdrawnOverrideFact(override.Grader), override.Value(), record.At.UTC()); err != nil {
 			return err
 		}
 	}

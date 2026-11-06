@@ -131,10 +131,7 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	case !delegated(record.Lane, goAuthors(goLanes)):
 		return nil
 	}
-	var out []Fact
-	if delegated(record.Lane, []string{rootLane, SweepLane}) {
-		out = overrides(FullText(record))
-	}
+	out := overrideFacts(CountedOverrides(record))
 	class := record.Fields.Attrs[ExemptClassAttr]
 	if class == "" || !isGo(record) {
 		return out
@@ -275,8 +272,19 @@ func (o Override) Line(why string) string {
 	return fmt.Sprintf("%s-override #%d at %s%s. %s", o.Grader, o.PR, o.Head, cited, why)
 }
 
+func (o Override) Value() string {
+	return cmp.Or(o.Cites, "accept")
+}
+
 func Overrides(record client.Record) []Override {
 	return overridesIn(FullText(record))
+}
+
+func CountedOverrides(record client.Record) []Override {
+	if string(record.Kind) != "decide" || record.Lane != rootLane && record.Lane != SweepLane {
+		return nil
+	}
+	return Overrides(record)
 }
 
 func overridesIn(text string) []Override {
@@ -317,10 +325,10 @@ func UnreadOverrides(record client.Record) []string {
 	return unread
 }
 
-func overrides(text string) []Fact {
+func overrideFacts(counted []Override) []Fact {
 	var out []Fact
-	for _, override := range overridesIn(text) {
-		fact := Fact{override.PR, override.Head, machine.OverrideFact(override.Grader), cmp.Or(override.Cites, "accept")}
+	for _, override := range counted {
+		fact := Fact{override.PR, override.Head, machine.OverrideFact(override.Grader), override.Value()}
 		if !slices.Contains(out, fact) {
 			out = append(out, fact)
 		}
