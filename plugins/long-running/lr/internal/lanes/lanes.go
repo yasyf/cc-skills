@@ -172,6 +172,8 @@ var (
 	lastRead      = regexp.MustCompile(`\blast-read=#?(\d+)\b`)
 )
 
+var DeskLane = regexp.MustCompile(`^(?:board-refresher|board-watch|card-mirror|owner-relay|desk-runner|supervisor|fidelity|finder|grader|judge|go-sweep|progress-desk|meta-desk|root$)`)
+
 const noRecommendation = "no-recommendation"
 
 func Canonical(drive, lane string) string {

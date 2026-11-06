@@ -45,8 +45,12 @@ func noThreads(string) (store.SlackThread, bool, error) {
 	return store.SlackThread{}, false, nil
 }
 
-func noRows(context.Context, threadWord) ([]string, error) {
-	return nil, nil
+func noRows(context.Context, threadWord) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
+func noLane(*store.Store, string) (string, error) {
+	return "", nil
 }
 
 func watched(lines ...string) streamed {
@@ -274,7 +278,7 @@ func TestARelayLineStaysAsCcSlackPrintedIt(t *testing.T) {
 func TestAFailureLongerThanAnEventIsClippedAndHisMessageStillArrives(t *testing.T) {
 	long := errors.New(strings.Repeat("channel_not_found ", 60))
 	var out strings.Builder
-	rows := func(context.Context, threadWord) ([]string, error) { return nil, long }
+	rows := func(context.Context, threadWord) ([]string, []string, error) { return nil, nil, long }
 
 	if err := watch(context.Background(), watched(hisEvent), noThreads, rows, &out); err != nil {
 		t.Fatal(err)

@@ -756,12 +756,12 @@ func foldCardTaker(s *store.Store, r Record, addressed map[string]bool) {
 			named[word] = true
 		}
 		for _, name := range slices.Sorted(maps.Keys(named)) {
-			if lane, found := laneOf(s, name); found && isLive(lane.State) && !slices.Contains([]string{Root, OwnerRelay, Self}, name) {
+			if lane, found := laneOf(s, name); found && isLive(lane.State) && !DeskLane.MatchString(name) {
 				taker = name
 				break
 			}
 		}
-	} else if lane, found := laneOf(s, r.Lane); found && lane.Launcher == Root {
+	} else if lane, found := laneOf(s, r.Lane); found && lane.Launcher == Root && !DeskLane.MatchString(r.Lane) {
 		taker = r.Lane
 	}
 	if taker == "" {
@@ -837,6 +837,19 @@ func restedOnItsOwnEnd(lane store.Lane) bool {
 
 func Cards(text string) []string {
 	return card.FindAllString(text, -1)
+}
+
+func CardLane(s *store.Store, card string) (lane string, err error) {
+	defer recovered(&err)
+	taker := must(s.CardTaker(card))
+	if taker == "" || DeskLane.MatchString(taker) {
+		return "", nil
+	}
+	holder := must(Holder(s, "", taker))
+	if found, ok := laneOf(s, holder); !ok || found.State == store.LaneRetired {
+		return "", nil
+	}
+	return holder, nil
 }
 
 func AnswersCard(attrs map[string]string, cardID string) bool {

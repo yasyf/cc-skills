@@ -103,8 +103,8 @@ func TestHisWordsInACardsThreadWriteTheRowTheLiveGateReads(t *testing.T) {
 			t.Errorf("body = %q, want %q", body, want)
 		}
 	}
-	if len(book.posts) != 1 || !slices.Equal(argsAfter(book.posts[0], "--attr"), []string{"card=card-chat"}) || !slices.Equal(argsAfter(book.posts[0], "--kind"), []string{"owner"}) || !slices.Equal(argsAfter(book.posts[0], "--quoted"), []string{yesWords}) {
-		t.Errorf("posts = %q, want one owner record carrying card=card-chat and his words", book.posts)
+	if len(book.posts) != 0 {
+		t.Errorf("posts = %q, want none: the owner record of his row carries the card", book.posts)
 	}
 }
 
@@ -130,8 +130,8 @@ func TestOnlyANumberedReplyOnACardWritesAnAnswerRow(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if len(book.rows) != want || len(book.posts) != want {
-				t.Errorf("rows = %q, posts = %q, want %d of each", book.rows, book.posts, want)
+			if len(book.rows) != want || len(book.posts) != 0 {
+				t.Errorf("rows = %q, posts = %q, want %d rows and no record", book.rows, book.posts, want)
 			}
 		})
 	}
@@ -277,5 +277,23 @@ func TestAThreadIndexedWithNoCardStillReadsThisWindowsBoard(t *testing.T) {
 
 	if len(book.rows) != 1 || !slices.Contains(argsAfter(book.rows[0], "--label"), "board-session:lane-session") {
 		t.Fatalf("rows = %q, want the card on this window's own board", book.rows)
+	}
+}
+
+func TestANumberedReplyInACardCopysThreadAnswersTheCardSlackNames(t *testing.T) {
+	book := &answerBook{Fake: &shelltest.Fake{}}
+	word := wordOn("1793994335.960819")
+	word.Card = "card-chat-tables-draft"
+	entry := drive.Entry{Checkout: "/drive", StateDir: t.TempDir(), Program: "rebuild", Sessions: []string{"root"}}
+
+	if err := word.record(context.Background(), book, noThreads, entry, "s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(book.rows) != 1 || !slices.Contains(argsAfter(book.rows[0], "--label"), "board-card:card-chat-tables-draft") {
+		t.Fatalf("rows = %q, want one on the card Slack names", book.rows)
+	}
+	if len(book.Calls()) != 0 {
+		t.Fatalf("calls = %v, want no board read", book.Calls())
 	}
 }

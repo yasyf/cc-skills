@@ -136,7 +136,7 @@ func run(t *testing.T, args ...string) (string, error) {
 	if err := os.WriteFile(ledger, []byte(read(t, filepath.Join("testdata", "ledger.md"))), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := Command(&app.App{Now: func() time.Time { return addedAt }})
+	cmd := Command(&app.App{Now: func() time.Time { return addedAt }}, noLane)
 	cmd.SetIn(strings.NewReader("a pick | on the board\nand a line\n"))
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
@@ -182,7 +182,7 @@ func TestTheVerbMarksTheRowTheHooksLedgerPathHolds(t *testing.T) {
 	if err := os.WriteFile(ledger, []byte(header+"| m1 | Nov 2 8:05 PM | keep the nightly report |  | open |\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := Command(&app.App{Now: func() time.Time { return addedAt }})
+	cmd := Command(&app.App{Now: func() time.Time { return addedAt }}, noLane)
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs([]string{"mark", "m1", "addressed", "--drive", "brook"})
@@ -260,7 +260,7 @@ func (r *subscribeRunner) Run(_ context.Context, c shell.Command) (shell.Result,
 
 func TestStartBatchesRoutineRecordsAndNeverWhatTheOwnerSentOrTapped(t *testing.T) {
 	runner := &subscribeRunner{}
-	cmd := Command(&app.App{Runner: runner})
+	cmd := Command(&app.App{Runner: runner}, noLane)
 	cmd.SetOut(io.Discard)
 	cmd.SetArgs([]string{"start", "--drive", "dar"})
 	if err := cmd.Execute(); err != nil {

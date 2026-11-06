@@ -308,7 +308,7 @@ func Rows(path string, all bool) ([]string, error) {
 	return rows, nil
 }
 
-func Command(a *app.App) *cobra.Command {
+func Command(a *app.App, lane CardLane) *cobra.Command {
 	var driveName, addState, reply, by string
 	var routed, addRouted int
 	var listAll bool
@@ -449,7 +449,7 @@ func Command(a *app.App) *cobra.Command {
 			return err
 		},
 	}
-	owner.AddCommand(mark, add, list, unread, start, ruleCommand(a, &driveName), watchCommand(a, &driveName), threadWordCommand(a, &driveName), awayCommand(a, &driveName), wordCommand(&driveName), recaptureCommand(a, &driveName))
+	owner.AddCommand(mark, add, list, unread, start, ruleCommand(a, &driveName), watchCommand(a, &driveName, lane), threadWordCommand(a, &driveName, lane), awayCommand(a, &driveName), wordCommand(&driveName), recaptureCommand(a, &driveName))
 	owner.AddCommand(questionCommands(a, &driveName)...)
 	return owner
 }

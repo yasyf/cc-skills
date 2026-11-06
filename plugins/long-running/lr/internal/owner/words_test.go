@@ -3,6 +3,7 @@ package owner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,7 +12,9 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -64,7 +67,7 @@ func TestHisWordsInACardsThreadMakeARowAuditLists(t *testing.T) {
 	fake, entry := wordEntry(t)
 	said := "1 but you need to first do the faithful port then fix it"
 
-	rows, err := wordIn("D0B6Z", cardRoot, said).rows(context.Background(), fake, entry)
+	rows, _, err := wordIn("D0B6Z", cardRoot, said).rows(context.Background(), fake, entry, cardRoute{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +91,7 @@ func TestHisWordsInACardsThreadMakeARowAuditLists(t *testing.T) {
 func TestHisWordsAtTheDMRootMakeARow(t *testing.T) {
 	fake, entry := wordEntry(t)
 
-	if _, err := wordIn("D0B6Z", repliedAt, "evaluate a faster disk").rows(context.Background(), fake, entry); err != nil {
+	if _, _, err := wordIn("D0B6Z", repliedAt, "evaluate a faster disk").rows(context.Background(), fake, entry, cardRoute{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,14 +103,14 @@ func TestHisWordsAtTheDMRootMakeARow(t *testing.T) {
 func TestHisWordsInAWatchedChannelThreadMakeARowAndAChannelRootDoesNot(t *testing.T) {
 	fake, entry := wordEntry(t)
 
-	if _, err := wordIn("C0TEAM", repliedAt, "a post at the channel root").rows(context.Background(), fake, entry); err != nil {
+	if _, _, err := wordIn("C0TEAM", repliedAt, "a post at the channel root").rows(context.Background(), fake, entry, cardRoute{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(Ledger(entry.StateDir)); !os.IsNotExist(err) {
 		t.Fatalf("a channel root wrote a ledger: %v", err)
 	}
 
-	if _, err := wordIn("C0TEAM", cardRoot, "fix this and make it durable").rows(context.Background(), fake, entry); err != nil {
+	if _, _, err := wordIn("C0TEAM", cardRoot, "fix this and make it durable").rows(context.Background(), fake, entry, cardRoute{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := ledgerRows(t, entry); len(got) != 1 {
@@ -118,7 +121,7 @@ func TestHisWordsInAWatchedChannelThreadMakeARowAndAChannelRootDoesNot(t *testin
 func TestAMessageWithNoWordsMakesNoRow(t *testing.T) {
 	fake, entry := wordEntry(t)
 
-	rows, err := wordIn("D0B6Z", cardRoot, "").rows(context.Background(), fake, entry)
+	rows, _, err := wordIn("D0B6Z", cardRoot, "").rows(context.Background(), fake, entry, cardRoute{})
 
 	if err != nil || rows != nil {
 		t.Fatalf("rows = %q, err = %v, want none", rows, err)
@@ -132,14 +135,14 @@ func TestASecondDeliveryOfTheSameMessageReturnsItsRowsAndWritesNone(t *testing.T
 	fake, entry := wordEntry(t)
 	word := wordIn("D0B6Z", cardRoot, "make the smoke less flaky")
 
-	first, err := word.rows(context.Background(), fake, entry)
+	first, _, err := word.rows(context.Background(), fake, entry, cardRoute{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := Mark(Ledger(entry.StateDir), "m1", addressed, 0); err != nil {
 		t.Fatal(err)
 	}
-	second, err := word.rows(context.Background(), fake, entry)
+	second, _, err := word.rows(context.Background(), fake, entry, cardRoute{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +168,7 @@ func TestAnOrderRelayForwardedOrAPromptAlreadyCarriedIsBookedToThatRow(t *testin
 			fake, entry := wordEntry(t)
 			seedLedger(t, entry, row)
 
-			rows, err := wordIn("D0B6Z", cardRoot, "Once we cut over delete all this code").rows(context.Background(), fake, entry)
+			rows, _, err := wordIn("D0B6Z", cardRoot, "Once we cut over delete all this code").rows(context.Background(), fake, entry, cardRoute{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -179,13 +182,13 @@ func TestAnOrderRelayForwardedOrAPromptAlreadyCarriedIsBookedToThatRow(t *testin
 
 func TestTheSameShortWordsOnALaterMessageGetTheirOwnRow(t *testing.T) {
 	fake, entry := wordEntry(t)
-	if _, err := wordIn("D0B6Z", cardRoot, "yes").rows(context.Background(), fake, entry); err != nil {
+	if _, _, err := wordIn("D0B6Z", cardRoot, "yes").rows(context.Background(), fake, entry, cardRoute{}); err != nil {
 		t.Fatal(err)
 	}
 	later := wordIn("D0B6Z", cardRoot, "yes")
 	later.TS = "1793831975.000100"
 
-	rows, err := later.rows(context.Background(), fake, entry)
+	rows, _, err := later.rows(context.Background(), fake, entry, cardRoute{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +202,7 @@ func TestABoardTapRowCarriesNoThreadWord(t *testing.T) {
 	fake, entry := wordEntry(t)
 	seedLedger(t, entry, "| m9 | Nov 4 2:37 PM | Owner on board d50e80e8, Land it? (c): picked “Keep the nightly report running” |  | addressed |\n")
 
-	rows, err := wordIn("D0B6Z", cardRoot, "keep the nightly report running").rows(context.Background(), fake, entry)
+	rows, _, err := wordIn("D0B6Z", cardRoot, "keep the nightly report running").rows(context.Background(), fake, entry, cardRoute{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +226,7 @@ func TestAReplyOnACardOfASessionOffThisDriveMakesNoRow(t *testing.T) {
 	fake, entry := wordEntry(t)
 	fake.Reply("", "cci", "who")
 
-	rows, err := cardReply(t, "other").rows(context.Background(), fake, entry)
+	rows, _, err := cardReply(t, "other").rows(context.Background(), fake, entry, cardRoute{})
 
 	if err != nil || rows != nil {
 		t.Fatalf("rows = %q, err = %v, want none", rows, err)
@@ -234,7 +237,7 @@ func TestAReplyOnALanesCardOnThisDriveMakesARow(t *testing.T) {
 	fake, entry := wordEntry(t)
 	fake.Reply(`{"session":"lane"}`, "cci", "who")
 
-	rows, err := cardReply(t, "lane").rows(context.Background(), fake, entry)
+	rows, _, err := cardReply(t, "lane").rows(context.Background(), fake, entry, cardRoute{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +250,7 @@ func TestAReplyOnALanesCardOnThisDriveMakesARow(t *testing.T) {
 func TestSeveralAsksGetOneRowEach(t *testing.T) {
 	fake, entry := wordEntry(t)
 
-	rows, err := wordIn("D0B6Z", cardRoot, "ship the relay fix, also fix the stop hook so it waits").rows(context.Background(), fake, entry)
+	rows, _, err := wordIn("D0B6Z", cardRoot, "ship the relay fix, also fix the stop hook so it waits").rows(context.Background(), fake, entry, cardRoute{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +296,7 @@ func TestACredentialInHisWordsIsRedactedFromTheRowAndTheRecord(t *testing.T) {
 }
 
 func TestAShortLineStaysAsCcSlackPrintedIt(t *testing.T) {
-	got, err := fitted([]byte(hisEvent), nil)
+	got, err := fitted([]byte(hisEvent), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +321,7 @@ func TestEveryLineOfHisFitsAMonitorEventAndStaysWholeJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := fitted(event, []string{"m12"})
+	got, err := fitted(event, []string{"m12"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +358,7 @@ func TestALineThatFitsOnceTheCardWordsGoKeepsAllHisWords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := fitted(event, nil)
+	got, err := fitted(event, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,9 +379,9 @@ func TestTheWatchWritesARowFromTheWholeMessageAndPrintsItsIDOnAFittedLine(t *tes
 		t.Fatal(err)
 	}
 	var heard []string
-	rows := func(_ context.Context, word threadWord) ([]string, error) {
+	rows := func(_ context.Context, word threadWord) ([]string, []string, error) {
 		heard = append(heard, word.Text)
-		return []string{"m12"}, nil
+		return []string{"m12"}, nil, nil
 	}
 	var out strings.Builder
 
@@ -396,7 +399,7 @@ func TestTheWatchWritesARowFromTheWholeMessageAndPrintsItsIDOnAFittedLine(t *tes
 }
 
 func TestARowThatDoesNotWriteIsSaidAndTheStreamGoesOn(t *testing.T) {
-	rows := func(context.Context, threadWord) ([]string, error) { return nil, os.ErrPermission }
+	rows := func(context.Context, threadWord) ([]string, []string, error) { return nil, nil, os.ErrPermission }
 	var out strings.Builder
 
 	if err := watch(context.Background(), watched(hisEvent), noThreads, rows, &out); err != nil {
@@ -418,5 +421,128 @@ func TestAMessageAtTheDMRootWritesNoCardRow(t *testing.T) {
 
 	if len(book.rows) != 0 || len(book.Calls()) != 0 {
 		t.Fatalf("rows = %q, calls = %v, want neither", book.rows, book.Calls())
+	}
+}
+
+const (
+	draftCard = "card-chat-tables-draft"
+	drafter   = "inbox-outbox-design-1"
+)
+
+func drewBy(card, lane string, looked *int) CardLane {
+	return func(_ *store.Store, asked string) (string, error) {
+		*looked++
+		if asked == card {
+			return lane, nil
+		}
+		return "", nil
+	}
+}
+
+func routedEntry(t *testing.T) (*shelltest.Fake, drive.Entry, *store.Store) {
+	t.Helper()
+	fake, entry := wordEntry(t)
+	entry.Sessions = []string{"root-session"}
+	return fake, entry, threadStore(t)
+}
+
+func heard(t *testing.T, fake *shelltest.Fake, s *store.Store, entry drive.Entry, lane CardLane, word threadWord) []string {
+	t.Helper()
+	route, err := word.route(s, lane, entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, routed, err := word.rows(context.Background(), fake, entry, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return routed
+}
+
+func TestHisWordsInACardsThreadGoOnceToTheLaneThatDrewItNamingTheCard(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	put(t, s, store.SlackThread{TS: cardRoot, Card: draftCard, Lane: "board-refresher-7"})
+	word := wordIn("D0B6Z", cardRoot, "the draft reads right, but drop the per-table queue")
+	looked := 0
+	lane := drewBy(draftCard, drafter, &looked)
+
+	first := heard(t, fake, s, entry, lane, word)
+	second := heard(t, fake, s, entry, lane, word)
+
+	want := []string{"cci", "post", "--drive", entry.Bus(), "--lane", "owner-relay", "--kind", "owner", "--id", "owner:m1", "--attr", "row=m1", "--attr", "card=" + draftCard, "--text", "Owner's words in the Slack thread of " + draftCard + ":", "--to", drafter, "--to", "owner-relay", "--quoted", word.Text}
+	if got := posted(fake); len(got) != 1 || !slices.Equal(got[0], want) {
+		t.Fatalf("posted = %q, want one record %q", got, want)
+	}
+	if !slices.Equal(first, []string{drafter, "owner-relay"}) || second != nil {
+		t.Fatalf("routed %q then %q, want the drafter and the relay once, then nothing", first, second)
+	}
+}
+
+func TestACardCopysThreadNamedBySlackGoesToTheCardsLane(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	word := wordIn("D0B6Z", cardRoot, "fine to land once the loader is shared")
+	word.Card = draftCard
+	looked := 0
+
+	routed := heard(t, fake, s, entry, drewBy(draftCard, drafter, &looked), word)
+
+	if !slices.Equal(routed, []string{drafter, "owner-relay"}) {
+		t.Fatalf("routed %q, want the drafter and the relay", routed)
+	}
+}
+
+func TestACardWhoseLaneIsGoneNamesTheCardAndAddressesNoLane(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	put(t, s, store.SlackThread{TS: cardRoot, Card: draftCard})
+	word := wordIn("D0B6Z", cardRoot, "where did the shared queue go?")
+	looked := 0
+
+	routed := heard(t, fake, s, entry, drewBy("card-other", drafter, &looked), word)
+
+	got := posted(fake)
+	if len(got) != 1 || slices.Contains(got[0], "--to") || !slices.Contains(got[0], "card="+draftCard) || routed != nil {
+		t.Fatalf("posted = %q, routed = %q, want one record naming the card and addressing no lane", got, routed)
+	}
+}
+
+func TestHisWordsInAThreadNoCardHoldsPostAsBefore(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	put(t, s, store.SlackThread{TS: cardRoot, Reply: "r1", Lane: "owner-relay"})
+	word := wordIn("D0B6Z", cardRoot, "make the smoke less flaky")
+	looked := 0
+
+	routed := heard(t, fake, s, entry, drewBy(draftCard, drafter, &looked), word)
+
+	want := []string{"cci", "post", "--drive", entry.Bus(), "--lane", "owner-relay", "--kind", "owner", "--id", "owner:m1", "--attr", "row=m1", "--quoted", word.Text}
+	if got := posted(fake); len(got) != 1 || !slices.Equal(got[0], want) || routed != nil || looked != 0 {
+		t.Fatalf("posted = %q, routed = %q, lane reads = %d, want %q alone", got, routed, looked, want)
+	}
+}
+
+func TestACardAnotherSessionOnThisDrivePostedGoesToThatSessionAlone(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	fake.Reply(`{"session":"lane"}`, "cci", "who")
+	looked := 0
+
+	routed := heard(t, fake, s, entry, drewBy("c", drafter, &looked), cardReply(t, "lane"))
+
+	if !slices.Equal(routed, []string{"peer:lane"}) || looked != 0 {
+		t.Fatalf("routed %q, lane reads = %d, want the posting session alone", routed, looked)
+	}
+}
+
+func TestRoutingAMessageReadsOneCardLaneWhateverTheCardCount(t *testing.T) {
+	lookups := func(cards int) int {
+		fake, entry, s := routedEntry(t)
+		for i := range cards {
+			put(t, s, store.SlackThread{TS: fmt.Sprintf("%d.5", i), Card: fmt.Sprintf("card-%d", i)})
+		}
+		put(t, s, store.SlackThread{TS: cardRoot, Card: draftCard})
+		looked := 0
+		heard(t, fake, s, entry, drewBy(draftCard, drafter, &looked), wordIn("D0B6Z", cardRoot, "send the corrected draft"))
+		return looked
+	}
+	if one, many := lookups(1), lookups(scaletest.N()); one != 1 || many != 1 {
+		t.Fatalf("card lane reads %d at 1 card and %d at %d", one, many, scaletest.N())
 	}
 }

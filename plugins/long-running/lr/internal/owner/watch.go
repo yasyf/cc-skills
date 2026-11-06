@@ -13,6 +13,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -41,37 +42,45 @@ func (e slackEvent) fromBot() bool {
 	return e.Type == slackMessage && (e.FromClaude || strings.HasPrefix(e.Text, fallbackPost))
 }
 
-func watchCommand(a *app.App, driveName *string) *cobra.Command {
+func watchCommand(a *app.App, driveName *string, lane CardLane) *cobra.Command {
 	return &cobra.Command{
 		Use:   "watch",
 		Short: "Stream this window's Slack events under its standing Monitor, reacting :eyes: on each of his messages as it arrives and printing what his thread answers and what a bare link names; a bot's message wakes nothing",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			threads, closed, err := openThreads(*driveName)
+			threads, rows, closed, err := openWords(a.Runner, *driveName, lane)
 			if err != nil {
 				return err
 			}
 			defer closed()
-			rows, err := wordRowsOn(a.Runner, *driveName)
-			if err != nil {
-				return err
-			}
 			return watch(cmd.Context(), a.Runner, threads, rows, cmd.OutOrStdout())
 		},
 	}
 }
 
-type rowsOf func(ctx context.Context, word threadWord) ([]string, error)
+type rowsOf func(ctx context.Context, word threadWord) ([]string, []string, error)
 
-func wordRowsOn(runner shell.Runner, driveName string) (rowsOf, error) {
+func openWords(runner shell.Runner, driveName string, lane CardLane) (threadsAt, rowsOf, func(), error) {
 	entry, err := drive.Named(driveName)
 	if errors.Is(err, drive.ErrNoDrive) {
-		return func(context.Context, threadWord) ([]string, error) { return nil, nil }, nil
+		none := func(string) (store.SlackThread, bool, error) { return store.SlackThread{}, false, nil }
+		return none, func(context.Context, threadWord) ([]string, []string, error) { return nil, nil, nil }, func() {}, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	return func(ctx context.Context, word threadWord) ([]string, error) { return word.rows(ctx, runner, entry) }, nil
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rows := func(ctx context.Context, word threadWord) ([]string, []string, error) {
+		route, err := word.route(s, lane, entry)
+		if err != nil {
+			return nil, nil, err
+		}
+		return word.rows(ctx, runner, entry, route)
+	}
+	return s.SlackThreadAt, rows, func() { _ = s.Close() }, nil
 }
 
 func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows rowsOf, out io.Writer) error {
@@ -96,7 +105,7 @@ func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows row
 		if event.fromBot() {
 			return nil
 		}
-		var written []string
+		var written, routed []string
 		if event.Type == slackMessage && event.User == me.User {
 			if _, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "react", "--channel", event.Channel, "--ts", event.TS, "--name", lookingAt}, Timeout: slackCall}); err != nil {
 				fmt.Fprintln(out, clippedLine(fmt.Sprintf("%s did not land on his message %s: %v", lookingAt, event.TS, err)))
@@ -106,7 +115,7 @@ func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows row
 				return fmt.Errorf("cc-slack watch printed %q: %w", line, err)
 			}
 			var err error
-			if written, err = rows(ctx, word); err != nil {
+			if written, routed, err = rows(ctx, word); err != nil {
 				fmt.Fprintln(out, clippedLine(fmt.Sprintf("his message %s wrote no ledger row: %v", event.TS, err)))
 			}
 			var missed []string
@@ -115,7 +124,7 @@ func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows row
 				fmt.Fprintln(out, clippedLine(miss))
 			}
 		}
-		line, err := fitted(line, written)
+		line, err := fitted(line, written, routed)
 		if err != nil {
 			return err
 		}

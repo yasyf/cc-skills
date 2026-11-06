@@ -17,6 +17,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -31,6 +32,8 @@ const (
 	eventChars    = 500
 	cutField      = "cut"
 	rowsField     = "rows"
+	routedField   = "routed"
+	peerPrefix    = "peer:"
 	answersField  = "answers"
 	linkedField   = "linked"
 	permalinkName = "permalink"
@@ -57,6 +60,13 @@ var (
 	tokenBody      = regexp.MustCompile(`^[\w+/=]+$`)
 )
 
+type CardLane func(s *store.Store, card string) (string, error)
+
+type cardRoute struct {
+	card string
+	to   []string
+}
+
 type wordRows struct {
 	TS     string   `json:"ts"`
 	Thread string   `json:"thread,omitempty"`
@@ -74,19 +84,37 @@ func (w threadWord) dmThread() string {
 	return cmp.Or(w.Thread, w.TS)
 }
 
-func (w threadWord) rows(ctx context.Context, runner shell.Runner, entry drive.Entry) ([]string, error) {
+func (w threadWord) route(s *store.Store, lane CardLane, entry drive.Entry) (cardRoute, error) {
+	switch {
+	case w.Thread == w.TS || w.Text == "" || w.Owner != nil && w.Owner.Card == "":
+		return cardRoute{}, nil
+	case w.Owner != nil:
+		return cardRoute{card: w.Owner.Card, to: []string{peerPrefix + w.Owner.Session}}, nil
+	}
+	card, found, err := w.indexedCard(s.SlackThreadAt, entry)
+	if err != nil || !found {
+		return cardRoute{}, err
+	}
+	drew, err := lane(s, card.id)
+	if err != nil || drew == "" {
+		return cardRoute{card: card.id}, err
+	}
+	return cardRoute{card: card.id, to: []string{drew, communicator}}, nil
+}
+
+func (w threadWord) rows(ctx context.Context, runner shell.Runner, entry drive.Entry, route cardRoute) ([]string, []string, error) {
 	if !w.owed() {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if w.Owner != nil {
 		onDrive, err := sessionOnDrive(ctx, runner, entry, w.Owner.Session)
 		if err != nil || !onDrive {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	seconds, err := strconv.ParseFloat(w.TS, 64)
 	if err != nil {
-		return nil, fmt.Errorf("slack ts %q: %w", w.TS, err)
+		return nil, nil, fmt.Errorf("slack ts %q: %w", w.TS, err)
 	}
 	path := Ledger(entry.StateDir)
 	var rows []string
@@ -101,16 +129,19 @@ func (w threadWord) rows(ctx context.Context, runner shell.Runner, entry drive.E
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if len(added) == 0 {
+		return rows, nil, nil
 	}
 	for _, row := range rows {
 		if said, posted := added[row]; posted {
-			if err := postRow(ctx, runner, entry, row, said); err != nil {
-				return rows, err
+			if err := postRow(ctx, runner, entry, row, said, route); err != nil {
+				return rows, nil, err
 			}
 		}
 	}
-	return rows, nil
+	return rows, route.to, nil
 }
 
 func (w threadWord) write(path string, at time.Time) ([]string, map[string]string, error) {
@@ -203,11 +234,15 @@ func sessionOnDrive(ctx context.Context, runner shell.Runner, entry drive.Entry,
 	return strings.TrimSpace(who.Stdout) != "", nil
 }
 
-func postRow(ctx context.Context, runner shell.Runner, entry drive.Entry, row, said string) error {
-	_, err := runner.Run(ctx, shell.Command{
-		Argv:    []string{"cci", "post", "--drive", entry.Bus(), "--lane", communicator, "--kind", "owner", "--id", "owner:" + row, "--attr", "row=" + row, "--quoted", said},
-		Timeout: rowWait,
-	})
+func postRow(ctx context.Context, runner shell.Runner, entry drive.Entry, row, said string, route cardRoute) error {
+	argv := []string{"cci", "post", "--drive", entry.Bus(), "--lane", communicator, "--kind", "owner", "--id", "owner:" + row, "--attr", "row=" + row}
+	if route.card != "" {
+		argv = append(argv, "--attr", "card="+route.card, "--text", fmt.Sprintf("Owner's words in the Slack thread of %s:", route.card))
+	}
+	for _, lane := range route.to {
+		argv = append(argv, "--to", lane)
+	}
+	_, err := runner.Run(ctx, shell.Command{Argv: append(argv, "--quoted", said), Timeout: rowWait})
 	return err
 }
 
@@ -296,7 +331,7 @@ func mixedToken(token string) bool {
 	return strings.ContainsFunc(token, unicode.IsLower) && strings.ContainsFunc(token, unicode.IsUpper) && strings.ContainsFunc(token, unicode.IsDigit)
 }
 
-func fitted(raw []byte, rows []string) ([]byte, error) {
+func fitted(raw []byte, rows, routed []string) ([]byte, error) {
 	if len(rows) == 0 && len(raw) <= eventChars {
 		return raw, nil
 	}
@@ -306,6 +341,9 @@ func fitted(raw []byte, rows []string) ([]byte, error) {
 	}
 	if len(rows) > 0 {
 		line[rowsField] = rows
+	}
+	if len(routed) > 0 {
+		line[routedField] = routed
 	}
 	encoded, err := json.Marshal(line)
 	if err != nil {

@@ -181,7 +181,7 @@ func (c *Check) prose(ctx context.Context, now time.Time) []Finding {
 	var found []Finding
 	for _, record := range recent {
 		var side []string
-		if string(record.Kind) != kindBlocked && !board.DeskLane.MatchString(record.Lane) {
+		if string(record.Kind) != kindBlocked && !lanes.DeskLane.MatchString(record.Lane) {
 			side = c.sideBoards(ctx, record.Text)
 		}
 		switch {
@@ -211,7 +211,7 @@ func (c *Check) parked(ctx context.Context, unsent []string) []Finding {
 	}
 	var found []Finding
 	for _, record := range open {
-		if board.DeskLane.MatchString(record.Lane) {
+		if lanes.DeskLane.MatchString(record.Lane) {
 			continue
 		}
 		if unseen := c.unseen(ctx, record, unsent); unseen != "" {
@@ -282,7 +282,7 @@ func (c *Check) offBoard(record client.Record, unseen string) (Finding, bool) {
 }
 
 func untyped(record client.Record) bool {
-	if board.DeskLane.MatchString(record.Lane) || namesCard.MatchString(record.Text) {
+	if lanes.DeskLane.MatchString(record.Lane) || namesCard.MatchString(record.Text) {
 		return false
 	}
 	if ownerWords.MatchString(record.Text) {
