@@ -316,7 +316,7 @@ The same service carries the lane's work off the box, so a Sprite the provider l
 
 ## Read the drive's store from a Sprite
 
-A Sprite holds no copy of the drive's `lr.sqlite` or `runner.json`, which only the Mac's supervisor reads and writes. On a Sprite, where the drive entry says `"host": "sprite"`, `lr grade queue` and `lr board rows` take the same arguments and print the same rows as on the Mac, read on the Mac. Each posts one ask to the `store-desk` lane, which the Mac's supervisor answers by running the read there, and waits up to three minutes for the answer. The relay costs one post and one follow however many rows the read prints.
+A Sprite holds no copy of the drive's `lr.sqlite` or `runner.json`, which only the Mac's supervisor reads and writes. On a Sprite, where the drive entry says `"host": "sprite"`, `lr grade queue` and `lr board rows` take the same arguments and print the same rows as on the Mac, read on the Mac. Each posts one ask to the `store-desk` lane and waits up to three minutes for the answer. Only the Mac's supervisor answers, by running the read there: a supervisor whose host has no live registry entry for the drive, or whose entry is a Sprite's, runs no store desk and logs `the store desk stays off`. The relay costs one post and one follow however many rows the read prints.
 
 - The answer is cut at 64 KiB, and its last line names the cut.
 - A read the Mac refuses exits non-zero with the Mac's error.
