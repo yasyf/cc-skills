@@ -19,7 +19,6 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
@@ -48,7 +47,6 @@ var (
 	lineage        = regexp.MustCompile(`(?:-opus|-case\d+)+$`)
 	incidentPart   = regexp.MustCompile(`-[^-]+(?:-\d+)?$`)
 	prNamedInBrief = regexp.MustCompile(`(?:^|[^\w/])#(\d{3,})\b|/pull/(\d+)\b`)
-	quotedOwner    = regexp.MustCompile(`(?m)^[ \t>*-]*Owner\b.*$`)
 	textMark       = regexp.MustCompile(`^(MECHANISM|READY)\b`)
 	saysMechanism  = regexp.MustCompile(`(?i)\bmechanism\b`)
 	clockKinds     = []string{"mechanism", "opened", "ready", "fix-live", kindNotOurs, kindStopped, kindStandDown}
@@ -916,7 +914,7 @@ func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, 
 	seen := map[string]bool{}
 	var named [][]string
 	if !briefStanding.MatchString(text) {
-		named = prNamedInBrief.FindAllStringSubmatch(quotedOwner.ReplaceAllString(carry.QuotedRows.ReplaceAllString(text, ""), ""), -1)
+		named = prNamedInBrief.FindAllStringSubmatch(briefOwnLines(text), -1)
 	}
 	for _, found := range named {
 		pr := found[1] + found[2]

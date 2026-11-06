@@ -119,6 +119,8 @@ func laneCommand(a *app.App) *cobra.Command {
 
 Exit 0 when the lane launched, or when no verdict came within --timeout-seconds while the runner is alive, since its verdict then arrives as a desk-runner record; 1 when the runner refused it or a check did; and 2 when no verdict came and the runner has posted no orca alive record in five minutes. A drive whose orca runner posted no orca alive record in five minutes posts nothing.
 
+A BRIEF at <dir>/<name>/brief.md whose <name> is a stood-down lane of LANE's stem is copied to <state dir>/<lane>/brief.md with <name> rewritten to the lane's, and launches from there, as the supervisor relaunches a lane.
+
 With --body, a file or - for stdin, the launch writes the brief itself, to <state dir>/<lane>/brief.md, from --title, the register slice line, --scale, --ccx or --place, the --contract file, the body, the posting lane's <state dir>/<lane>/brief-lines.txt and an Assigned orders line naming each --order owner:m<row>, the only orders the lane's retirement and lr owner audit read, since a row the body quotes, bare or as owner:m<row>, orders nothing; it takes no BRIEF, and the model and effort default to opus high. A Fable or astra model, or effort xhigh or max, needs --owner-pick naming the owner row whose words asked for it, which writes the brief's Owner pick line. The runner refreshes the register slice at launch.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if written.BodyFile == "" {
@@ -136,7 +138,11 @@ With --body, a file or - for stdin, the launch writes the brief itself, to <stat
 				return err
 			}
 			if written.BodyFile == "" {
-				order := Order{Lane: lane, Model: args[1], Effort: args[2], Role: role, Brief: args[3], Now: now, ID: id}
+				brief, err := poster.Relaunched(cmd.Context(), lane, args[3])
+				if err != nil {
+					return err
+				}
+				order := Order{Lane: lane, Model: args[1], Effort: args[2], Role: role, Brief: brief, Now: now, ID: id}
 				return poster.LaunchOrExit(cmd.Context(), order, seconds(timeout))
 			}
 			entry, err := poster.Entry(cmd.Context())

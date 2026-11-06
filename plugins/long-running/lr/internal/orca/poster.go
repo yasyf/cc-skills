@@ -164,6 +164,35 @@ func (p Poster) Numbered(ctx context.Context, lane string) (string, error) {
 	return fmt.Sprintf("%s-%d", lane, highest+1), nil
 }
 
+func (p Poster) Relaunched(ctx context.Context, lane, brief string) (string, error) {
+	owner := filepath.Base(filepath.Dir(brief))
+	if filepath.Base(brief) != briefFile || owner == lane || owner == client.Stem(lane) || client.Stem(owner) != client.Stem(lane) {
+		return brief, nil
+	}
+	entry, err := p.Entry(ctx)
+	if err != nil {
+		return "", err
+	}
+	reach, err := client.Resolve(ctx, entry.Bus(), owner)
+	if err != nil || !reach.Down {
+		return brief, err
+	}
+	raw, err := os.ReadFile(brief)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(entry.StateDir, lane, briefFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return "", err
+	}
+	renamed := regexp.MustCompile(`\b`+regexp.QuoteMeta(owner)+`\b`).ReplaceAllLiteral(raw, []byte(lane))
+	if err := os.WriteFile(path, renamed, 0o600); err != nil {
+		return "", err
+	}
+	fmt.Fprintf(p.Out, "%s stood down, so its brief launches as %s from %s\n", owner, lane, path)
+	return path, nil
+}
+
 func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) (string, error) {
 	brief, err := filepath.Abs(order.Brief)
 	if err != nil {

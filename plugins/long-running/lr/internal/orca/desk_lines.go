@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -913,10 +914,17 @@ func (d *Desk) launchesUnder(target string, keyed bool) ([]heldLaunches, error) 
 		if err != nil {
 			return nil, err
 		}
-		if !exists && d.receipt(target) == "" {
+		if exists || d.receipt(target) != "" {
+			return []heldLaunches{{lane: target, launches: launches}}, nil
+		}
+		if client.Stem(target) != target {
 			return nil, nil
 		}
-		return []heldLaunches{{lane: target, launches: launches}}, nil
+		newest, err := d.newestUnder(target)
+		if err != nil || newest == "" {
+			return nil, err
+		}
+		return d.launchesUnder(newest, false)
 	}
 	books, err := d.containers(lanePrefix)
 	if err != nil {
@@ -933,6 +941,40 @@ func (d *Desk) launchesUnder(target string, keyed bool) ([]heldLaunches, error) 
 		}
 	}
 	return held, nil
+}
+
+func (d *Desk) newestUnder(stem string) (string, error) {
+	rows, err := d.Registry.AllLanes()
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	for _, row := range rows {
+		if row.State != store.LaneRetired {
+			names = append(names, row.Name)
+		}
+	}
+	books, err := d.containers(lanePrefix + stem + "-")
+	if err != nil {
+		return "", err
+	}
+	for _, book := range books {
+		held, err := d.laneActions(book, kindLaunch, incident.ActionAccepted, incident.ActionStarted)
+		if err != nil {
+			return "", err
+		}
+		if len(held) > 0 {
+			names = append(names, strings.TrimPrefix(book, lanePrefix))
+		}
+	}
+	newest, highest := "", 0
+	for _, name := range names {
+		number, under := strings.CutPrefix(name, stem+"-")
+		if n, err := strconv.Atoi(number); under && err == nil && n > highest {
+			newest, highest = name, n
+		}
+	}
+	return newest, nil
 }
 
 func (d *Desk) withdraw(ctx context.Context, at, key, target string) error {

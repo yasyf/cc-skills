@@ -1252,6 +1252,34 @@ func TestWithdrawingALaneStopsItsDispatchAndMarksItWithdrawn(t *testing.T) {
 	}
 }
 
+func TestWithdrawingAStemWithdrawsItsNewestHeldOrLiveLane(t *testing.T) {
+	t.Run("a live lane, past a newer retired one", func(t *testing.T) {
+		w := newDeskWorld(t)
+		w.register(store.Lane{Name: "replicator-stack-2"})
+		w.register(store.Lane{Name: "replicator-stack-3"})
+		if err := w.desk.Registry.SetLaneState("replicator-stack-3", store.LaneRetired, w.now, "done", ""); err != nil {
+			t.Fatal(err)
+		}
+		w.live("replicator-stack-2", testDispatch, testTerminal)
+		w.lines()
+		w.line("R9 (5:02 PM) orca-desk: withdraw replicator-stack")
+		w.lines()
+		w.wantEscalation("WITHDRAWN replicator-stack replicator-stack-2: by R9; dispatch ctx_a stopped")
+	})
+	t.Run("a launch the runner holds", func(t *testing.T) {
+		w := newDeskWorld(t)
+		const lane = "session-types-ship-2"
+		brief := w.brief(lane, testBrief+"ccx: place=local why=mac-build\n")
+		w.lines()
+		line := w.line(launchText(lane, brief))
+		key := "R" + strings.TrimPrefix(line.Name(), "#")
+		w.lines()
+		w.line("R9 (5:02 PM) orca-desk: withdraw session-types-ship")
+		w.lines()
+		w.wantEscalation("WITHDRAWN " + key + " " + lane + ": by R9; nothing was launched")
+	})
+}
+
 func TestWithdrawingWhatNobodyHoldsFails(t *testing.T) {
 	w := newDeskWorld(t)
 	w.lines()

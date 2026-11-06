@@ -46,6 +46,12 @@ var (
 	incidentNamed = regexp.MustCompile(`^(?:incident|outage)-`)
 	fableModel    = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
 	successorLane = regexp.MustCompile(`^.+-(\d+)$`)
+	quotedOwner   = regexp.MustCompile(`(?m)^[ \t>*-]*Owner\b.*$`)
+	briefCode     = regexp.MustCompile("`[^`\n]+`|(?ms:^[ \t]*```.*?^[ \t]*```)")
+	boxOrder      = regexp.MustCompile(`\bci (?:devbox|mac-box)[ \t]+[a-z][\w-]*|\bdevbox create\b`)
+	cloneToken    = regexp.MustCompile(`\bdevbox (claim|git-token)\b|\b(heartbeat)\b.*--git-token\b`)
+	ghFlag        = regexp.MustCompile(`\s--gh\b`)
+	tokenEnvFlag  = regexp.MustCompile(`\s--git-token-env\b`)
 	notFixRoles   = []string{"evidence", "proof", "closeout", "desk", "audit"}
 	fixRoles      = []string{roleFix, agentIncident}
 	efforts       = []string{"low", "medium", "high", "xhigh", "max"}
@@ -129,6 +135,12 @@ func (o Order) launchFaults(text string, readable bool) []string {
 	if unneeded := o.unneededLocal(text); unneeded != "" {
 		faults = append(faults, unneeded)
 	}
+	if box := o.spriteBoxFault(text); box != "" {
+		faults = append(faults, box)
+	}
+	if token := cloneTokenFault(o.Brief, text); token != "" {
+		faults = append(faults, token)
+	}
 	role := o.Lane
 	if numbered := successorLane.FindStringSubmatch(o.Lane); numbered != nil {
 		role = strings.TrimSuffix(o.Lane, "-"+numbered[1])
@@ -198,6 +210,46 @@ func (o Order) unneededLocal(text string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s's brief says place=local why=%s, which is no need only this Mac meets; name its need on its ccx line as %s, or drop place=local so it starts on a Sprite", o.Lane, strings.Join(whys, ","), lanes.MacNeedsLine)
+}
+
+func (o Order) spriteBoxFault(text string) string {
+	if macRequired(o.Lane, o.Model, text) || incidentLaunch(o, text) {
+		return ""
+	}
+	for _, code := range briefCode.FindAllString(briefOwnLines(text), -1) {
+		if ordered := boxOrder.FindString(code); ordered != "" {
+			return fmt.Sprintf("brief %s runs `%s`, which needs this Mac's AWS identity and devbox CLI, but it launches on a Sprite, which has neither; add `place=local why=devbox` to its ccx line, or, for an alert's fix lane, replace the command with a `devbox` ask to its evidence lane", o.Brief, ordered)
+		}
+	}
+	return ""
+}
+
+func cloneTokenFault(brief, text string) string {
+	for _, code := range briefCode.FindAllString(briefOwnLines(text), -1) {
+		ran := cloneToken.FindStringSubmatch(code)
+		if ran == nil {
+			continue
+		}
+		verb := "devbox " + ran[1]
+		if ran[2] != "" {
+			verb = "heartbeat --git-token"
+		}
+		var why string
+		switch {
+		case ghFlag.MatchString(code):
+			why = "with `--gh`, which copies the owner's personal gh OAuth token, with every scope it holds, to the box, where it outlives the box"
+		case tokenEnvFlag.MatchString(code):
+			continue
+		default:
+			why = "with no `--git-token-env`, so the box gets no repo-scoped token"
+		}
+		return fmt.Sprintf("brief %s runs `%s` %s; run it as `GIT_TOKEN=$(ccx vcs auth token <owner/repo>) AWS_PROFILE=\"$DEVBOX_AWS_PROFILE\" tools/ci devbox claim --git-token-env GIT_TOKEN`, whose GitHub App token is scoped to the repo and expires by itself, and refresh it with `tools/ci devbox git-token <box> --git-token-env GIT_TOKEN`", brief, verb, why)
+	}
+	return ""
+}
+
+func briefOwnLines(text string) string {
+	return quotedOwner.ReplaceAllString(carry.QuotedRows.ReplaceAllString(text, ""), "")
 }
 
 func claudeWithoutSentry(lane, model, text string) string {

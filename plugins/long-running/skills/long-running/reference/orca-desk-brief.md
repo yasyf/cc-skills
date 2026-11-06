@@ -201,7 +201,7 @@ lr launch unhold <slug>
 lr launch withdraw <R<n> | unfixed:<msg>:<n> | lane>
 ```
 
-- `lr launch lane <stem>` numbers the lane itself: `<stem>-<n>`, one past the highest number any lane of that stem ever registered on the drive, so a name is never reused. Its brief may sit in `<stem>/brief.md`. A bare name already registered with no numbered generation, such as `owner-relay`, launches as itself, and an explicit `<stem>-<n>` launches as typed. The new lane holds the stem from its spawn, and the supervisor stands the lane it takes over down for it on the bus.
+- `lr launch lane <stem>` numbers the lane itself: `<stem>-<n>`, one past the highest number any lane of that stem ever registered on the drive, so a name is never reused. Its brief may sit in `<stem>/brief.md`, or in a stood-down lane's `<stem>-<m>/brief.md`, which the launch copies to `<state dir>/<stem>-<n>/brief.md` with `<stem>-<m>` renamed `<stem>-<n>` and launches from there. A bare name already registered with no numbered generation, such as `owner-relay`, launches as itself, and an explicit `<stem>-<n>` launches as typed. The new lane holds the stem from its spawn, and the supervisor stands the lane it takes over down for it on the bus.
 - `lane` and `incident` first run every launch check and exit naming every fault together, so a missing `Scale:` line posts nothing. A brief with no `Register slice:` line prints a `WARN` and still launches. They then wait for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-DUPLICATE`, or `UNVERIFIABLE` and print the relay's line with the dispatch and terminal.
 - A wait that ends with no verdict while the relay's `orca alive` record is under five minutes old prints that the launch is posted and exits 0, since a Sprite launch takes minutes and its verdict arrives as a record. Only a stale `orca alive` record exits 2, naming the `cci tail` that checks it. The other verbs return at once.
 - Every launch verdict (`LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-DUPLICATE`, `UNVERIFIABLE`, `SPRITE-UNVERIFIABLE`) goes on cci to the lane that posted the go, and to the coordinator only when it posted the go. A go the supervisor or the relay itself posted keeps the launched lane's notice route.
@@ -294,7 +294,7 @@ orca-desk: withdraw R<m>
 orca-desk: withdraw <lane>
 ```
 
-The target may also be `unfixed:<msg>:<n>`, or the coordinator can run `cci post --kind withdraw --re <seq>` on a launch record.
+The target may also be `unfixed:<msg>:<n>`, or the coordinator can run `cci post --kind withdraw --re <seq>` on a launch record. A stem the runner holds nothing under, such as `replicator-stack`, withdraws its newest numbered lane that the runner holds a launch for or the registry has not retired.
 
 - The relay fails an accepted launch that has not started, stops a launched dispatch with `worker-stop`, marks the lane withdrawn, and logs `WITHDRAWN`.
 - Once a lane is withdrawn, its `UNFIXED` lines launch no case lane and a repeat Orca dispatch offer logs `WITHDRAWN`, not `DECIDE`.
