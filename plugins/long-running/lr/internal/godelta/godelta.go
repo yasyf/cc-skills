@@ -8,8 +8,10 @@ import (
 	"go/types"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,10 +24,9 @@ import (
 )
 
 const (
-	generatedPackage = "/sandsql/component"
-	undefined        = "undefined: "
-	newerGoList      = "This application uses version go1."
-	loadMode         = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo
+	undefined   = "undefined: "
+	newerGoList = "This application uses version go1."
+	loadMode    = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo
 )
 
 type Finding struct {
@@ -35,6 +36,13 @@ type Finding struct {
 
 func (f Finding) String() string {
 	return f.At + ": " + f.Message
+}
+
+type parsed struct {
+	pkg       *packages.Package
+	selectors map[token.Pos]*ast.SelectorExpr
+	imports   []*ast.ImportSpec
+	names     map[*token.File][]string
 }
 
 type Result struct {
@@ -47,7 +55,7 @@ func Command(a *app.App) *cobra.Command {
 	var base string
 	cmd := &cobra.Command{
 		Use:   "go-delta [--base REF]",
-		Short: "Typecheck the Go packages this checkout changed, with their tests, past the generated sandsql/component code a sparse lane or Sprite lacks",
+		Short: "Typecheck the Go packages this checkout changed, with their tests, past the generated sandsql/component and sand/proto code a sparse lane or Sprite lacks",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			started := time.Now()
@@ -75,7 +83,7 @@ func Command(a *app.App) *cobra.Command {
 			for _, finding := range result.Findings {
 				fmt.Fprintln(c.OutOrStdout(), finding)
 			}
-			fmt.Fprintf(c.ErrOrStderr(), "go-delta: %d errors in %d packages against %.10s, %d from the missing sandsql/component code left out, %.1fs\n", len(result.Findings), len(dirs), fork, result.Skipped, time.Since(started).Seconds())
+			fmt.Fprintf(c.ErrOrStderr(), "go-delta: %d errors in %d packages against %.10s, %d from missing generated code left out, %.1fs\n", len(result.Findings), len(dirs), fork, result.Skipped, time.Since(started).Seconds())
 			if len(result.Findings) > 0 {
 				return &wait.ExitError{Code: 1}
 			}
@@ -150,11 +158,23 @@ func Check(ctx context.Context, top string, dirs []string) (Result, error) {
 }
 
 func (r *Result) add(top string, pkg *packages.Package) {
-	selectors := map[token.Pos]*ast.SelectorExpr{}
+	source := parsed{pkg: pkg, selectors: map[token.Pos]*ast.SelectorExpr{}, names: map[*token.File][]string{}}
 	for _, file := range pkg.Syntax {
+		for _, spec := range file.Imports {
+			imported, err := strconv.Unquote(spec.Path.Value)
+			if err != nil || !generated(imported) {
+				continue
+			}
+			source.imports = append(source.imports, spec)
+			local := path.Base(imported)
+			if spec.Name != nil {
+				local = spec.Name.Name
+			}
+			source.names[pkg.Fset.File(file.Pos())] = append(source.names[pkg.Fset.File(file.Pos())], local)
+		}
 		ast.Inspect(file, func(node ast.Node) bool {
 			if selector, ok := node.(*ast.SelectorExpr); ok {
-				selectors[selector.Sel.Pos()] = selector
+				source.selectors[selector.Sel.Pos()] = selector
 			}
 			return true
 		})
@@ -165,7 +185,7 @@ func (r *Result) add(top string, pkg *packages.Package) {
 			position.Filename = rel
 		}
 		finding := Finding{At: position.String(), Message: err.Msg}
-		if !fromGenerated(pkg, selectors[err.Pos], err.Msg) {
+		if !source.fromGenerated(err) {
 			r.report(finding)
 			continue
 		}
@@ -194,22 +214,30 @@ func (r *Result) report(finding Finding) {
 	r.Findings = append(r.Findings, finding)
 }
 
-func fromGenerated(pkg *packages.Package, selector *ast.SelectorExpr, message string) bool {
-	name, missing := strings.CutPrefix(message, undefined)
+func (p parsed) fromGenerated(err types.Error) bool {
+	if slices.ContainsFunc(p.imports, func(spec *ast.ImportSpec) bool { return spec.Pos() <= err.Pos && err.Pos < spec.End() }) {
+		return true
+	}
+	name, missing := strings.CutPrefix(err.Msg, undefined)
+	selector := p.selectors[err.Pos]
 	if selector == nil {
-		return missing && generated(pkg.Types) && !strings.Contains(strings.Fields(name)[0], ".")
+		if !missing {
+			return false
+		}
+		local := strings.Fields(name)[0]
+		return generated(p.pkg.PkgPath) && !strings.Contains(local, ".") || slices.Contains(p.names[err.Fset.File(err.Pos)], local)
 	}
 	if missing {
 		qualifier, ok := selector.X.(*ast.Ident)
-		imported, isPackage := pkg.TypesInfo.Uses[qualifier].(*types.PkgName)
-		return ok && isPackage && generated(imported.Imported())
+		imported, isPackage := p.pkg.TypesInfo.Uses[qualifier].(*types.PkgName)
+		return ok && isPackage && generated(imported.Imported().Path())
 	}
-	receiver := pkg.TypesInfo.TypeOf(selector.X)
-	return strings.Contains(message, " undefined (") && receiver != nil && embedsGenerated(receiver, map[*types.Struct]bool{})
+	receiver := p.pkg.TypesInfo.TypeOf(selector.X)
+	return strings.Contains(err.Msg, " undefined (") && receiver != nil && embedsGenerated(receiver, map[*types.Struct]bool{})
 }
 
-func generated(pkg *types.Package) bool {
-	return strings.HasSuffix(pkg.Path(), generatedPackage)
+func generated(importPath string) bool {
+	return strings.HasSuffix(importPath, "/sandsql/component") || importPath == "sand/proto"
 }
 
 func embedsGenerated(typ types.Type, seen map[*types.Struct]bool) bool {
@@ -225,7 +253,11 @@ func embedsGenerated(typ types.Type, seen map[*types.Struct]bool) bool {
 		if !field.Embedded() {
 			continue
 		}
-		if field.Type() == types.Typ[types.Invalid] && (generated(field.Pkg()) || slices.ContainsFunc(field.Pkg().Imports(), generated)) || embedsGenerated(field.Type(), seen) {
+		embedded := field.Type()
+		if pointer, ok := embedded.(*types.Pointer); ok {
+			embedded = pointer.Elem()
+		}
+		if embedded == types.Typ[types.Invalid] && (generated(field.Pkg().Path()) || slices.ContainsFunc(field.Pkg().Imports(), func(imported *types.Package) bool { return generated(imported.Path()) })) || embedsGenerated(field.Type(), seen) {
 			return true
 		}
 	}

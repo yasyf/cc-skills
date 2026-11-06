@@ -51,6 +51,7 @@ UNFORMATTED = "Warning, nothing was refused: `gofmt -l` lists Go files this chan
 UNREAD = "Warning, nothing was refused: {why}, so this push goes ahead unchecked. Run `go build`, `go vet` and the typecheck over what it touched where they can run."
 NO_MODULES = "Warning, nothing was refused: this checkout has no `node_modules`, so `yarn tsc:*` cannot run on this host; typecheck with `{commands}` for the errors this change adds, and CI grades the rest of the TypeScript this push touched."
 TS_DELTA = "ts-delta.sh"
+GO_DELTA = ("lr", "go-delta")
 
 
 class Check(BaseModel):
@@ -144,6 +145,8 @@ def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
         return remote_vet_checks(base, run[1:])
     if Path(call.name).name == TS_DELTA:
         return [(TYPECHECK, (base / arg).resolve(), False) for arg in call.args[:1]]
+    if call.verb_argv[:2] == GO_DELTA and isinstance(evt, PostToolUseEvent):
+        return remote_vet_checks(base, call.args[1:])
     return typecheck_checks(base, call)
 
 
@@ -155,6 +158,8 @@ def compiles(evt: BaseHookEvent, call: Call) -> list[tuple[str, Path, bool]]:
         Input(command="cd go/sand && go build ./internal/vm", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="yarn tsc:api", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="ts-delta.sh api", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
+        Input(command="lr go-delta --base origin/dev", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
+        Input(command="lr go-delta", env=LANE_ENV, cwd=str(FIXTURE), error="go-delta: 1 errors in 1 packages"): Allow(),
         Input(command="! node_modules/.bin/tsgo --noEmit -p ./api --preserveSymlinks false --composite false | grep -F -e api/src/a.ts", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
         Input(command="yarn tsc:api", env=LANE_ENV, cwd=str(FIXTURE), error="zsh: command not found: yarn"): Allow(),
         Input(command="python3 ~/.claude/plugins/long-running/skills/long-running/scripts/remote-vet.py --config /s/lr.json --lane lane-a .", env=LANE_ENV, cwd=str(FIXTURE)): Allow(),
@@ -316,6 +321,8 @@ def unchecked(evt: BaseHookEvent, call: Call) -> list[str] | str:
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF): Block(pattern=r"\nnpx tsc --noEmit -p \S+/tools/own\n"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=OWN_TS_DIFF, state=[fresh(TYPECHECK, root="tools/own", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand")]): Allow(),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="")]): Allow(),
+        Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="", at=0.0)]): Block(pattern=r"go build \./internal/vm && go vet \./internal/vm\n```$"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF, state=[fresh("build", "vet", root="go/sand/internal/vm", recursive=False)]): Allow(),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": f"{FIXTURE}/go/sand/internal/vm/vm.go\n"}, state=[fresh("build", "vet", root="go/sand")]): Warn(pattern=r"^Warning, nothing was refused: `gofmt -l` lists Go files[\s\S]*`gofmt -w go/sand/internal/vm/vm\.go`"),
         Input(command=SHIP, env=LANE_ENV, cwd=str(FIXTURE), commands=GO_DIFF | {"gofmt -l": "go/sand/internal/vm/vm.go\n"}): Block(pattern=r"^A lane runs `go build` and `go vet`"),
