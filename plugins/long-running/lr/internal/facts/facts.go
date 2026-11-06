@@ -197,7 +197,7 @@ func (s Source) foldRecords(ctx context.Context) (map[int]hold, []store.ReviewRo
 	if err := s.ingestBus(ctx); err != nil {
 		return nil, nil, fmt.Errorf("read the bus: %w", err)
 	}
-	if err := s.ingestLegacy(ctx); err != nil {
+	if _, err := s.ingestLegacy(ctx); err != nil {
 		return nil, nil, fmt.Errorf("read today's records: %w", err)
 	}
 	if err := s.readLostGrades(ctx); err != nil {
@@ -589,28 +589,61 @@ func (s Source) putFacts(facts []bus.Fact, at time.Time) error {
 	return nil
 }
 
-func (s Source) ingestLegacy(ctx context.Context) error {
+func (s Source) ReadLateGrades(ctx context.Context, snapshot []machine.Facts) ([]machine.Facts, error) {
+	select {
+	case folding <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-folding }()
+	named, err := s.ingestLegacy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	fresh := slices.Clone(snapshot)
+	for i := range fresh {
+		f := &fresh[i]
+		if !slices.Contains(named, f.Number) {
+			continue
+		}
+		stored, err := s.Store.Facts(s.Repo, f.Number, f.Head)
+		if err != nil {
+			return nil, err
+		}
+		finder, fidelity := machine.GradesOf(stored)
+		f.Finder, f.Fidelity = cmp.Or(f.Finder, finder), cmp.Or(f.Fidelity, fidelity)
+		finderOverride, fidelityOverride := machine.OverridesOf(stored)
+		f.FinderOverride, f.FidelityOverride = f.FinderOverride || finderOverride, f.FidelityOverride || fidelityOverride
+	}
+	return fresh, nil
+}
+
+func (s Source) ingestLegacy(ctx context.Context) ([]int, error) {
 	since, err := s.Store.Cursor(bus.LegacyCursor)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	records, err := s.Bus.ReadLegacy(ctx, since, s.Now())
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var named []int
 	for _, record := range records {
 		facts := bus.LegacyFacts(record, s.Repo, s.GoLanes)
 		if err := s.putFacts(append(facts, graderWords(facts, record.Text)...), record.At.UTC()); err != nil {
-			return err
+			return nil, err
 		}
 		if err := s.clearWithdrawn(ctx, record); err != nil {
-			return err
+			return nil, err
 		}
 		if err := s.Store.Advance(bus.LegacyCursor, record.Seq); err != nil {
-			return err
+			return nil, err
+		}
+		for _, fact := range facts {
+			named = append(named, fact.PR)
 		}
 	}
-	return nil
+	return named, nil
 }
 
 // TODO: delete once every drive's store has advanced this cursor; it reads the fidelity-shard grades the legacy cursor passed before they counted.

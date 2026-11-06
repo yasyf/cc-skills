@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -141,6 +142,21 @@ func equal(t *testing.T, got, want any) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v, want %#v", got, want)
 	}
+}
+
+func TestAGradeThatLandsAfterTheReadEnqueuesItsHeadInThatPass(t *testing.T) {
+	s, c, q, p := memory(t), &clock{t0}, &queue{}, &pool{}
+	d := deps(c, q, p, prFacts(2, func(f *machine.Facts) { f.Fidelity = "" }))
+	d.Movers = []string{"landing"}
+	d.LateGrades = func(_ context.Context, snapshot []machine.Facts) ([]machine.Facts, error) {
+		graded := slices.Clone(snapshot)
+		graded[0].Fidelity = machine.FidelityPass
+		return graded, nil
+	}
+
+	runLoop(t, s, "0.8.0", 1, d, 1)
+
+	equal(t, q.enqueued, []int{2})
 }
 
 func runLoop(t *testing.T, s *store.Store, version string, pid int, d Deps, ticks int) ([]Report, Ended) {
