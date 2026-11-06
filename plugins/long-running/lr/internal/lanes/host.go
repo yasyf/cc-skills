@@ -219,7 +219,7 @@ func orcaLostHost(lane store.Lane, probes map[string]store.Probe, now time.Time)
 }
 
 func neverHeard(lane store.Lane, now time.Time) string {
-	if lane.Heard.IsZero() && now.Sub(lane.Since) >= StaleAfter {
+	if lane.Heard.IsZero() && now.Sub(lane.Since) >= launchWindow {
 		return fmt.Sprintf("has posted no record in the %d min since its launch, and Orca does not report it live", int(now.Sub(lane.Since).Minutes()))
 	}
 	return ""

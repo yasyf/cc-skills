@@ -2123,19 +2123,21 @@ func TestTheNotesFetchTakesTheMacsTokenOnStdinAndWritesItNowhere(t *testing.T) {
 	}
 }
 
-func TestTheNotesPullRunsThroughCcnSyncAndHandsGitTheTokenThroughACredentialHelperItsArgumentsDoNotHold(t *testing.T) {
+func TestTheNotesPullImportsDocsBeforeTheRestLandsAndHandsGitTheTokenThroughACredentialHelperItsArgumentsDoNotHold(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "root")
 	logged := filepath.Join(dir, "logged")
-	fake := "#!/bin/sh\npwd > " + logged + "\nprintf '%s\\n' \"$@\" \"$GIT_CONFIG_KEY_0=$GIT_CONFIG_VALUE_0\" \"$GIT_CONFIG_VALUE_1\" >> " + logged + "\nprintf 'env=%s\\n' \"$NOTES_TOKEN\" >> " + logged + "\n"
+	fake := "#!/bin/sh\nprintf '%s %s\\n' \"${0##*/}\" \"$*\" >> " + logged + "\nprintf 'env=%s helper=%s\\n' \"$NOTES_TOKEN\" \"$GIT_CONFIG_VALUE_1\" >> " + logged + "\n"
 	f := newWorkerFixture(t)
-	f.write(filepath.Join(dir, "ccn"), fake, 0o700)
+	for _, tool := range []string{"git", "ccn", "sprite-env"} {
+		f.write(filepath.Join(dir, tool), fake, 0o700)
+	}
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix)
 	run.Stdin = strings.NewReader(macGitLogin)
-	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"), "HOME=/home/sprite")
 	if out, err := run.CombinedOutput(); err != nil {
 		t.Fatal(string(out), err)
 	}
@@ -2143,17 +2145,27 @@ func TestTheNotesPullRunsThroughCcnSyncAndHandsGitTheTokenThroughACredentialHelp
 	if err != nil {
 		t.Fatal(err)
 	}
-	args, env, _ := strings.Cut(string(raw), "env=")
-	if strings.Contains(args, strings.TrimSpace(macGitLogin)) {
-		t.Fatal("ccn's arguments hold the token:", args)
-	}
-	if strings.TrimSpace(env) != strings.TrimSpace(macGitLogin) {
-		t.Fatalf("ccn's environment holds %q", env)
-	}
-	for _, want := range []string{"root\nsync\n--prefix\n" + notesPrefix + "\ncredential.helper=\n", "password=$NOTES_TOKEN"} {
-		if !strings.Contains(args, want) {
-			t.Fatalf("ccn ran with\n%s\nwant %q", args, want)
+	var calls []string
+	for line := range strings.Lines(string(raw)) {
+		if env, found := strings.CutPrefix(line, "env="); found {
+			if !strings.HasPrefix(env, strings.TrimSpace(macGitLogin)+" helper=!f()") {
+				t.Fatalf("the token reaches git as %q, want it in the environment and the helper reading it", env)
+			}
+			continue
 		}
+		if strings.Contains(line, strings.TrimSpace(macGitLogin)) {
+			t.Fatal("an argument holds the token:", line)
+		}
+		calls = append(calls, strings.TrimSpace(line))
+	}
+	want := []string{
+		"git remote set-head origin --auto",
+		"ccn sync --prefix refs/cc-notes/docs/",
+		"git fetch --quiet /tmp/" + notesBundle + " refs/cc-notes/*:refs/cc-notes/* ^refs/cc-notes/docs/*",
+		"sprite-env services create notes-reindex --cmd sh --args -c,cd " + root + " && /home/sprite/.local/bin/ccn reindex; sprite-env services delete notes-reindex --no-stream",
+	}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("the pull ran\n%s\nwant the docs imported before the rest lands, and the rest imported by a service\n%s", strings.Join(calls, "\n"), strings.Join(want, "\n"))
 	}
 }
 
@@ -2176,6 +2188,7 @@ func TestTheNotesPullSetsOriginHEADOnACloneThatLacksIt(t *testing.T) {
 	gitOut(t, root, "remote", "set-head", "origin", "--delete")
 	f := newWorkerFixture(t)
 	f.write(filepath.Join(dir, "ccn"), "#!/bin/sh\n", 0o700)
+	f.write(filepath.Join(dir, "sprite-env"), "#!/bin/sh\n", 0o700)
 	run := exec.Command("sh", "-c", fetchNotesScript, "sh", root, notesPrefix)
 	run.Stdin = strings.NewReader(macGitLogin)
 	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
@@ -2188,7 +2201,7 @@ func TestTheNotesPullSetsOriginHEADOnACloneThatLacksIt(t *testing.T) {
 	}
 }
 
-func TestTheMacsNotesAndLedgersTravelAsOneBundleThatTheSpritesCheckoutFetches(t *testing.T) {
+func TestTheMacsNotesTravelAsOneBundleWhoseDocsTheSpritesCheckoutFetchesFirst(t *testing.T) {
 	dir := t.TempDir()
 	mac, box, bundle := filepath.Join(dir, "mac"), filepath.Join(dir, "box"), filepath.Join(dir, notesBundle)
 	for _, repo := range []string{mac, box} {
@@ -2208,15 +2221,20 @@ func TestTheMacsNotesAndLedgersTravelAsOneBundleThatTheSpritesCheckoutFetches(t 
 		t.Fatal(string(out), err)
 	}
 
-	for _, ref := range refs {
-		if got := gitOut(t, box, "rev-parse", ref); got != note {
-			t.Fatalf("the Sprite holds %s at %q, want %s", ref, got, note)
-		}
+	if got := gitOut(t, box, "rev-parse", refs[0]); got != note {
+		t.Fatalf("the Sprite holds %s at %q, want %s", refs[0], got, note)
 	}
-	for _, copied := range []string{bundle, "/tmp/" + notesBundle} {
-		if _, err := os.Stat(copied); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("%s stayed behind: %v", copied, err)
-		}
+	if out, err := exec.Command("git", "-C", box, "rev-parse", "--verify", "--quiet", refs[1]).CombinedOutput(); err == nil {
+		t.Fatalf("the Sprite holds %s before its docs are imported: %s", refs[1], out)
+	}
+	if listed := gitOut(t, box, "bundle", "list-heads", "/tmp/"+notesBundle); !strings.Contains(listed, refs[1]) {
+		t.Fatalf("the bundle the notes pull fetches the rest from lists %q", listed)
+	}
+	if _, err := os.Stat(bundle); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s stayed behind on the Mac: %v", bundle, err)
+	}
+	if err := os.Remove("/tmp/" + notesBundle); err != nil {
+		t.Fatal(err)
 	}
 }
 

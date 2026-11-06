@@ -307,7 +307,7 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 		do(s.SetLaneState(lane.Name, store.LaneDesired, now, "", ""))
 	case NoShow:
 		if lane.Placement == placedOnSprite {
-			lost(s, d, lane, found, Verdict{Lost, fmt.Sprintf("has posted no record and is not live %d minutes after its launch", int(StaleAfter.Minutes()))}, taken, now, out)
+			lost(s, d, lane, found, Verdict{Lost, fmt.Sprintf("has posted no record and is not live %d minutes after its launch", int(launchWindow.Minutes()))}, taken, now, out)
 			return
 		}
 		hold(s, lane.Name, verdict.Why, now)

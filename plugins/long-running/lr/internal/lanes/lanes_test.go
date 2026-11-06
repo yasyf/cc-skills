@@ -847,7 +847,7 @@ func TestASuccessorThatNeverComesUpEscalatesOnce(t *testing.T) {
 	tick(t, s, f, t0)
 	f.posts = nil
 
-	for _, later := range []int{15, 16} {
+	for _, later := range []int{25, 26} {
 		tick(t, s, f, t0.Add(mins(later)))
 	}
 
@@ -1324,7 +1324,8 @@ func TestClassify(t *testing.T) {
 }
 
 func TestALaunchingLaneThatNeverComesUpIsANoShow(t *testing.T) {
-	equal(t, Classify(store.Lane{State: store.LaneLaunching, Since: t0.Add(-mins(15))}, nil, t0, 0, 0).Kind, NoShow)
+	equal(t, Classify(store.Lane{State: store.LaneLaunching, Since: t0.Add(-mins(25))}, nil, t0, 0, 0).Kind, NoShow)
+	equal(t, Classify(store.Lane{State: store.LaneLaunching, Since: t0.Add(-mins(20))}, nil, t0, 0, 0).Kind, Ok)
 }
 
 func TestSuccessorName(t *testing.T) {
@@ -1948,7 +1949,7 @@ func TestAHeldLaneThatPostsAgainIsLiveAndAPRRootOpenedForItIsTheLanes(t *testing
 	f := adopted(t, s, brief, "")
 	f.feed = append(f.feed, spawned(2, "ssql-sleep-truncation", brief, t0, nil))
 	tick(t, s, f, t0)
-	tick(t, s, f, t0.Add(mins(16)))
+	tick(t, s, f, t0.Add(mins(26)))
 	equal(t, row(t, s, "ssql-sleep-truncation").State, store.LaneHeld)
 	f.posts = nil
 	f.states = map[int]string{47353: NeedsWork}
